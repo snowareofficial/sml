@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""build_site.py — 构建 SML / BamZap 独立官网（Hugo）。
+"""build_site.py — 构建 sml 官网（Hugo），输出到 public/（wrangler Pages 约定）。
 
 用法:
-    python tools/sml-site/build_site.py              # 构建到 out/build/sml-site
-    python tools/sml-site/build_site.py --serve      # 本地预览 (hugo server)
+    python build_site.py              # 构建到 site/public/
+    python build_site.py --serve      # 本地预览 (hugo server)
+    python build_site.py --deploy     # 构建 + wrangler pages deploy（sml.swebase.cn）
 """
 import os
 import subprocess
 import sys
 import shutil
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-SITE = os.path.join(ROOT, "tools", "sml-site")
-OUT = os.path.join(ROOT, "out", "build", "sml-site")
+SITE = os.path.dirname(os.path.abspath(__file__))
+OUT = os.path.join(SITE, "public")
 
 
 def main():
@@ -27,7 +27,11 @@ def main():
     if r != 0:
         print("!! 构建失败")
         return r
-    print(f"SML / BamZap 官网 -> {OUT}")
+    print("sml 官网 -> %s" % OUT)
+    if "--deploy" in sys.argv:
+        r = subprocess.call(["wrangler", "pages", "deploy", OUT,
+                             "--project-name", "sml-site"], cwd=SITE)
+        return r
     return 0
 
 

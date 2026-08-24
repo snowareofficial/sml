@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+	<meta name="generator" content="Hugo 0.164.0">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SML — SNOWARE Markup Language · SML { ❄ } — SNOWARE Markup Language</title>
+  <style>
+    body { font-family: system-ui, "Microsoft YaHei", sans-serif; margin: 0; background: #fafafa; color: #111; }
+    header { background: #111; color: #fff; padding: 18px 32px; display: flex; align-items: center; gap: 12px; }
+    header h1 { margin: 0; font-size: 20px; }
+    header a { color: #fff; text-decoration: none; }
+    header .flake { color: #42A5F5; font-size: 22px; }
+    nav { background: #1c1c1c; padding: 8px 32px; }
+    nav a { color: #90caf9; margin-right: 18px; text-decoration: none; font-size: 14px; }
+    nav a:hover { text-decoration: underline; }
+    main { max-width: 880px; margin: 24px auto; padding: 0 24px; }
+    article { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 24px 32px; }
+    h1, h2, h3 { color: #0d47a1; }
+    h2 { border-bottom: 2px solid #42A5F5; padding-bottom: 6px; }
+    code { background: #eef4fb; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; color: #1565C0; }
+    pre { background: #111; color: #e8f1fb; padding: 12px; border-radius: 6px; overflow-x: auto; }
+    pre code { background: none; color: inherit; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background: #eef4fb; color: #0d47a1; }
+    .links { display: flex; gap: 12px; margin: 16px 0; }
+    .btn { display: inline-block; background: #1565C0; color: #fff; padding: 10px 22px; border-radius: 8px; text-decoration: none; font-weight: 600; }
+    .btn:hover { background: #0d47a1; }
+    footer { text-align: center; padding: 24px; color: #666; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="flake">❄</span>
+    <h1><a href="./">SML { ❄ }</a></h1>
+  </header>
+  <nav>
+    <a href="./">SML</a>
+    
+  </nav>
+  <main>
+    
+<article class="list">
+  <h1>SML — SNOWARE Markup Language</h1>
+  <h1 id="sml---">SML { ❄ }</h1>
+<p><strong>SNOWARE Markup Language</strong>：声明式数据/配置格式，JSON/YAML 的替代品。</p>
+<p>黑花括号 <strong>{}</strong> 表示语法骨架（块的边界），蓝色雪花 <strong>❄</strong> 表示精确的取值点。</p>
+<div class="links">
+  <a class="btn" href="https://gitee.com/snoware/sml" target="_blank">Gitee 仓库 →</a>
+</div>
+<h2 id="特性">特性</h2>
+<ul>
+<li><strong>引号可选</strong>：裸词即字符串（<code>state: NY</code>）</li>
+<li><strong>块冒号可省</strong>：<code>address { }</code> ≡ <code>address: { }</code></li>
+<li><strong>数组分隔灵活</strong>：<code>[ a b c ]</code>、每行一个、逗号可选</li>
+<li><strong>片段继承</strong>：<code>@name { }</code> 定义，<code>&amp;name</code> 引用</li>
+<li><strong>环境变量内联</strong>：<code>$env.VAR</code></li>
+<li><strong>类型自识别</strong>：<code>true/false/null</code> / 数字 / 字符串</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>firstName: John
+</span></span><span style="display:flex;"><span>age: <span style="color:#ae81ff">27</span>
+</span></span><span style="display:flex;"><span>address:
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    streetAddress: <span style="color:#e6db74">&#34;21 2nd Street&#34;</span>
+</span></span><span style="display:flex;"><span>    state: NY
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>phoneNumbers: [ { <span style="color:#66d9ef">type</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">home</span> <span style="color:#960050;background-color:#1e0010">}</span> { <span style="color:#66d9ef">type</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">office</span> <span style="color:#960050;background-color:#1e0010">}</span> ]
+</span></span><span style="display:flex;"><span>@base { region: cn-north-<span style="color:#ae81ff">1</span> }
+</span></span><span style="display:flex;"><span>server web { &amp;base port: <span style="color:#ae81ff">8080</span> }
+</span></span></code></pre></div><h2 id="多语言实现">多语言实现</h2>
+<table>
+	<thead>
+			<tr>
+					<th>语言</th>
+					<th>库</th>
+					<th>状态</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>Soup / Lua</strong></td>
+					<td><code>lib/sml.soup</code>（打包 <code>sml.sar</code>，零依赖）</td>
+					<td>✅ 原生</td>
+			</tr>
+			<tr>
+					<td><strong>Rust</strong></td>
+					<td><code>sml-rs</code> crate（rlib + cdylib，C-ABI）</td>
+					<td>✅ 可用</td>
+			</tr>
+			<tr>
+					<td><strong>C</strong></td>
+					<td><code>c/sml.h</code> + <code>c/sml.c</code>（纯 C99 自包含，零依赖）</td>
+					<td>✅ 可用</td>
+			</tr>
+			<tr>
+					<td><strong>JavaScript</strong></td>
+					<td><code>js/sml.mjs</code>（ESM，零依赖）</td>
+					<td>✅ 可用</td>
+			</tr>
+	</tbody>
+</table>
+<blockquote>
+<p>C 库为自包含实现（非仅头文件桥），提供 <code>sml_parse/sml_dump/sml_obj_get/sml_get_path/sml_parse_json</code> 等完整 API，可直接 <code>gcc sml.c example.c -o demo</code> 编译。</p>
+</blockquote>
+<h2 id="快速使用">快速使用</h2>
+<p><strong>Lua / Soup</strong></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-lua" data-lang="lua"><span style="display:flex;"><span><span style="color:#66d9ef">local</span> sml <span style="color:#f92672">=</span> require(<span style="color:#e6db74">&#34;lib.sml&#34;</span>)
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">local</span> v, err <span style="color:#f92672">=</span> sml.load(text)   <span style="color:#75715e">-- 解析</span>
+</span></span><span style="display:flex;"><span>print(sml.dump(v))              <span style="color:#75715e">-- 序列化</span>
+</span></span></code></pre></div><p><strong>Rust</strong></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-rust" data-lang="rust"><span style="display:flex;"><span><span style="color:#66d9ef">use</span> sml::{parse, to_sml};
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">let</span> v <span style="color:#f92672">=</span> parse(<span style="color:#e6db74">&#34;name: John&#34;</span>)<span style="color:#f92672">?</span>;
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">println!</span>(<span style="color:#e6db74">&#34;</span><span style="color:#e6db74">{}</span><span style="color:#e6db74">&#34;</span>, to_sml(<span style="color:#f92672">&amp;</span>v));
+</span></span></code></pre></div><p><strong>C</strong></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>sml_value <span style="color:#f92672">*</span>v <span style="color:#f92672">=</span> <span style="color:#a6e22e">sml_parse</span>(<span style="color:#e6db74">&#34;name: John&#34;</span>, err, <span style="color:#66d9ef">sizeof</span> err);
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;%s</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, <span style="color:#a6e22e">sml_obj_get</span>(v, <span style="color:#e6db74">&#34;name&#34;</span>)<span style="color:#f92672">-&gt;</span>u.s);
+</span></span></code></pre></div><p><strong>JavaScript</strong></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-js" data-lang="js"><span style="display:flex;"><span><span style="color:#66d9ef">import</span> { <span style="color:#a6e22e">parse</span>, <span style="color:#a6e22e">stringify</span> } <span style="color:#a6e22e">from</span> <span style="color:#e6db74">&#34;./js/sml.mjs&#34;</span>;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">const</span> <span style="color:#a6e22e">v</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">parse</span>(<span style="color:#e6db74">&#34;name: John&#34;</span>);
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">console</span>.<span style="color:#a6e22e">log</span>(<span style="color:#a6e22e">stringify</span>(<span style="color:#a6e22e">v</span>));
+</span></span></code></pre></div><h2 id="落地应用">落地应用</h2>
+<ul>
+<li><strong>BamZap</strong> 包管理器：<code>HetuFile.sml</code> 声明式部署文件（<a href="https://bamzap.swebase.cn">bamzap.swebase.cn</a>）</li>
+<li><strong>soupmake</strong> 构建系统：<code>LanTuFile.sml</code> 构建配置（与 <code>Soupfile</code> 等价）</li>
+</ul>
+<h2 id="仓库">仓库</h2>
+<ul>
+<li>源码：<a href="https://gitee.com/snoware/sml">gitee.com/snoware/sml</a></li>
+<li>许可证：MulanPSL-2.0</li>
+</ul>
+
+  <ul>
+    
+  </ul>
+</article>
+
+  </main>
+  <footer>SML · SNOWARE Markup Language · { ❄ }</footer>
+</body>
+</html>
