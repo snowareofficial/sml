@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ .Title }} · {{ .Site.Title }}</title>
+  <style>
+    body { font-family: system-ui, "Microsoft YaHei", sans-serif; margin: 0; background: #fafafa; color: #111; }
+    header { background: #111; color: #fff; padding: 18px 32px; display: flex; align-items: center; gap: 12px; }
+    header h1 { margin: 0; font-size: 20px; }
+    header a { color: #fff; text-decoration: none; }
+    header .flake { color: #42A5F5; font-size: 22px; }
+    nav { background: #1c1c1c; padding: 8px 32px; }
+    nav a { color: #90caf9; margin-right: 18px; text-decoration: none; font-size: 14px; }
+    nav a:hover { text-decoration: underline; }
+    main { max-width: 880px; margin: 24px auto; padding: 0 24px; }
+    article { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 24px 32px; }
+    h1, h2, h3 { color: #0d47a1; }
+    h2 { border-bottom: 2px solid #42A5F5; padding-bottom: 6px; }
+    code { background: #eef4fb; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; color: #1565C0; }
+    pre { background: #111; color: #e8f1fb; padding: 12px; border-radius: 6px; overflow-x: auto; }
+    pre code { background: none; color: inherit; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background: #eef4fb; color: #0d47a1; }
+    footer { text-align: center; padding: 24px; color: #666; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="flake">❄</span>
+    <h1><a href="{{ .Site.Home.RelPermalink }}">SML { ❄ }</a></h1>
+  </header>
+  <nav>
+    {{ with .Site.GetPage "/" }}<a href="{{ .RelPermalink }}">SML</a>{{ end }}
+    {{ with .Site.GetPage "bamzap" }}<a href="{{ .RelPermalink }}">BamZap</a>{{ end }}
+  </nav>
+  <main>
+    {{ block "main" . }}{{ end }}
+  </main>
+  <footer>SML · Soup Markup Language · { ❄ }</footer>
+</body>
+</html>

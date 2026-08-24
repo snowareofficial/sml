@@ -1,0 +1,9 @@
+{
+  "name": "sml",
+  "version": "1.0.0",
+  "entry": "main.lua",
+  "description": "sml (Soup Markup Language): 声明式数据/配置格式，JSON/YAML 替代品",
+  "platforms": ["linux", "macos", "windows"],
+  "license": "MIT",
+  "api": ["sml.load(text)", "sml.dump(value)"]
+}

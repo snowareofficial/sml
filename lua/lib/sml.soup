@@ -1,0 +1,393 @@
+-- lib/sml.soup  (soupkg v1.8)
+-- sml = Soup Markup Language：声明式数据/配置格式，定位为 JSON/YAML 的替代品。
+--
+-- 相对 JSON/YAML 的改进：
+--   1) 引号可选：裸词即字符串（JSON 强制引号；YAML 裸词有类型歧义）。
+--   2) 块冒号可省：`address { }` 与 `address: { }` 等价（更接近 Caddyfile）。
+--   3) 数组分隔灵活：`[ a b c ]`、每行一个、或 `{..}, {..}` 逗号可选。
+--   4) 片段继承：`@name { ... }` 定义片段，`&name` 引用（比 YAML anchor 直观）。
+--   5) 环境变量内联：`$env.VAR` 在标量值处展开为 os.getenv("VAR")。
+--   6) `#` 行注释（JSON 不支持）。
+--   7) 类型自识别：true/false -> bool，null -> nil，数字 -> number，其余 -> string。
+--
+-- 语法（与用户给定示例一致）：
+--   firstName: John
+--   age: 27
+--   isAlive: true
+--   address:
+--   {
+--       streetAddress: "21 2nd Street"
+--       state: NY
+--   }
+--   phoneNumbers:
+--   [
+--       { type: home, number: "212 555-1234" }
+--       { type: office, number: "646 555-4567" }
+--   ]
+--   children: []
+--   spouse: null
+--
+-- API：
+--   sml.load(text)      -> value, err   （解析；err 为 nil 表示成功）
+--   sml.loads(text)     -> 同 load（别名）
+--   sml.dump(value)     -> string        （序列化回 sml 文本，便于校验/round-trip）
+--   块（带类型名）表示为 { __type="pool", __name="greeter", ...fields }。
+
+local Sml = {}
+Sml.__index = Sml
+
+function Sml.new()
+  return setmetatable({}, Sml)
+end
+
+------------------------------------------------------------------------------
+-- 词法：逐字符扫描，产出 token 流
+--   独立 token：{ } [ ] ,
+--   引号串：保留内部空格/转义
+--   其余按空白分词；`#` 行注释（引号外）
+--   冒号 `:` 独立成 token（便于 `key: value` 识别）
+------------------------------------------------------------------------------
+local function tokenize(text)
+  local toks = {}
+  local i, n = 1, #text
+  local buf = {}
+  local function flush()
+    if #buf > 0 then
+      toks[#toks+1] = table.concat(buf)
+      buf = {}
+    end
+  end
+  while i <= n do
+    local c = string.sub(text, i, i)
+    if c == "#" then
+      -- 行注释：跳到行尾
+      while i <= n and string.sub(text, i, i) ~= "\n" do i = i + 1 end
+    elseif c == '"' then
+      flush()
+      local j = i + 1
+      local qb = {}
+      while j <= n do
+        local cc = string.sub(text, j, j)
+        if cc == '"' then break end
+        if cc == "\\" and j < n then
+          j = j + 1
+          local e = string.sub(text, j, j)
+          -- 完整 Lua 风格转义
+          if e == "n" then qb[#qb+1] = "\n"
+          elseif e == "t" then qb[#qb+1] = "\t"
+          elseif e == "r" then qb[#qb+1] = "\r"
+          elseif e == "0" then qb[#qb+1] = "\0"
+          elseif e == "a" then qb[#qb+1] = "\a"
+          elseif e == "b" then qb[#qb+1] = "\b"
+          elseif e == "f" then qb[#qb+1] = "\f"
+          elseif e == "v" then qb[#qb+1] = "\v"
+          elseif e == "\\" then qb[#qb+1] = "\\"
+          elseif e == '"' then qb[#qb+1] = '"'
+          elseif e == "'" then qb[#qb+1] = "'"
+          else qb[#qb+1] = e end  -- 未知转义保留原字符
+        else
+          qb[#qb+1] = cc
+        end
+        j = j + 1
+      end
+      toks[#toks+1] = '"' .. table.concat(qb) .. '"'  -- 保留引号标记便于 coerce 识别
+      i = j + 1
+    elseif c == "{" or c == "}" or c == "[" or c == "]" or c == "," or c == "@" then
+      flush()
+      toks[#toks+1] = c
+      i = i + 1
+    elseif c == ":" then
+      flush()
+      toks[#toks+1] = ":"
+      i = i + 1
+    elseif c == " " or c == "\t" or c == "\n" or c == "\r" then
+      flush()
+      i = i + 1
+    else
+      buf[#buf+1] = c
+      i = i + 1
+    end
+  end
+  flush()
+  return toks
+end
+
+------------------------------------------------------------------------------
+-- 标量识别：引号串 / true / false / null / 数字 / 裸词
+------------------------------------------------------------------------------
+local deep_copy  -- 前向声明
+
+local function coerce(tok, fragments)
+  if tok == nil then return nil end
+  -- 引号串（内部支持 $env.VAR 展开）
+  if string.sub(tok, 1, 1) == '"' and string.sub(tok, -1) == '"' then
+    local inner = string.sub(tok, 2, -2)
+    local ev = string.match(inner, "^%$env%.(.+)$")
+    if ev then return os.getenv(ev) or "" end
+    return inner
+  end
+  if tok == "true" then return true end
+  if tok == "false" then return false end
+  if tok == "null" then return nil end
+  -- 环境变量内联：$env.VAR（裸词）
+  local ev = string.match(tok, "^%$env%.(.+)$")
+  if ev then return os.getenv(ev) or "" end
+  -- 片段引用：&name
+  if string.sub(tok, 1, 1) == "&" then
+    local fn = string.sub(tok, 2)
+    if fragments and fragments[fn] then
+      return deep_copy(fragments[fn])
+    end
+    return tok  -- 未定义引用原样保留
+  end
+  -- 数字：支持 123 / 123.5 / .5 / -0.5 / 1e10 / 1E-3
+  if string.match(tok, "^%-?%d+%.?%d*$") or
+     string.match(tok, "^%-?%.%d+$") or
+     string.match(tok, "^%-?%d+%.?%d*[eE][+-]?%d+$") then
+    return tonumber(tok)
+  end
+  return tok
+end
+
+deep_copy = function(v)
+  if type(v) ~= "table" then return v end
+  local t = {}
+  for k, val in pairs(v) do
+    -- 保留 __type / __name 元数据（片段引用裸块时不丢类型）
+    t[k] = deep_copy(val)
+  end
+  return t
+end
+
+------------------------------------------------------------------------------
+-- 语法：递归下降
+--   parse_block(tokens, i, closing) -> node, next_i
+--   node 为 map；遇到 `key:` 后 { -> 子块；[ -> 数组；否则标量。
+--   裸块 `type name { }` -> { __type=type, __name=name, ...body }
+------------------------------------------------------------------------------
+local parse_array  -- 前向声明（在 parse_block 内被调用）
+
+local function parse_block(tokens, i, closing, fragments)
+  local node = {}
+  local n = #tokens
+  -- 同名 key 冲突时提升为数组（避免静默覆盖，见 Bug 1）
+  local function set_field(k, v)
+    if node[k] == nil then
+      node[k] = v
+    elseif type(node[k]) == "table" and node[k][1] ~= nil then
+      node[k][#node[k]+1] = v   -- 已是数组，追加
+    else
+      node[k] = { node[k], v }  -- 标量/对象 -> 数组
+    end
+  end
+  while i <= n do
+    local tok = tokens[i]
+    if tok == closing then
+      return node, i + 1
+    elseif tok == "}" then
+      if closing == "}" then
+        return node, i + 1
+      else
+        error("sml: 未匹配的右大括号 '}' at token " .. i)
+      end
+    elseif tok == "]" then
+      if closing == "]" then
+        return node, i + 1
+      else
+        error("sml: 未匹配的右方括号 ']' at token " .. i)
+      end
+    end
+    if tok == "," then
+      i = i + 1  -- 逗号可选分隔符，跳过
+    elseif tok == "@" then
+      -- 片段定义：@name { ... } 或 @name type args { ... }
+      -- （不进主树，存入 fragments；保留 __type/__name 供 & 引用还原）
+      i = i + 1
+      local fname = tokens[i]; i = i + 1
+      if tokens[i] == ":" then i = i + 1 end
+      local ftype, fname_arg = nil, nil
+      -- 若紧跟裸块（下一个非 { 非 : 的 token），当作 type name
+      if tokens[i] and tokens[i] ~= "{" and tokens[i] ~= ":" then
+        ftype = tokens[i]; i = i + 1
+        if tokens[i] and tokens[i] ~= "{" and tokens[i] ~= ":" then
+          fname_arg = coerce(tokens[i], fragments); i = i + 1
+        end
+      end
+      if tokens[i] == "{" then
+        local sub
+        sub, i = parse_block(tokens, i + 1, "}", fragments)
+        if ftype then
+          sub.__type = ftype
+          if fname_arg then sub.__name = fname_arg end
+        end
+        fragments[fname] = sub
+      end
+    else
+      -- 读 key
+      local key = tok
+      i = i + 1
+      local colon = false
+      if tokens[i] == ":" then colon = true; i = i + 1 end
+      local nxt = tokens[i]
+      if nxt == "{" then
+        local sub
+        sub, i = parse_block(tokens, i + 1, "}", fragments)
+        set_field(key, sub)
+      elseif nxt == "[" then
+        local arr
+        arr, i = parse_array(tokens, i + 1, fragments)
+        set_field(key, arr)
+      elseif not colon and nxt ~= nil and nxt ~= "}" and nxt ~= "]" and nxt ~= "," then
+        -- 裸块：key 为类型，后续 token 直到 { 为参数
+        local args = {}
+        while tokens[i] and tokens[i] ~= "{" and tokens[i] ~= "}" and tokens[i] ~= "]" and tokens[i] ~= "," do
+          args[#args+1] = coerce(tokens[i], fragments)
+          i = i + 1
+        end
+        if tokens[i] == "{" then
+          local sub
+          sub, i = parse_block(tokens, i + 1, "}", fragments)
+          sub.__type = key
+          if #args == 1 then sub.__name = args[1] end
+          set_field(key, sub)
+        else
+          -- 裸块无 body：当作标量串
+          set_field(key, coerce(key, fragments))
+        end
+      else
+        -- 标量
+        set_field(key, coerce(nxt, fragments))
+        i = i + 1
+      end
+    end
+  end
+  return node, i
+end
+
+parse_array = function(tokens, i, fragments)
+  local arr = {}
+  local n = #tokens
+  while i <= n do
+    local tok = tokens[i]
+    if tok == "]" then
+      return arr, i + 1
+    elseif tok == "," then
+      i = i + 1
+    elseif tok == "{" then
+      local sub
+      sub, i = parse_block(tokens, i + 1, "}", fragments)
+      arr[#arr+1] = sub
+    else
+      arr[#arr+1] = coerce(tok, fragments)
+      i = i + 1
+    end
+  end
+  return arr, i
+end
+
+------------------------------------------------------------------------------
+-- 公开：load（同时支持 Sml.load(text) 静态调用与实例调用）
+------------------------------------------------------------------------------
+function Sml.load(text)
+  if type(text) ~= "string" then
+    return nil, "sml.load: 期望字符串"
+  end
+  local ok, toks = pcall(tokenize, text)
+  if not ok then return nil, "tokenize: " .. tostring(toks) end
+  local fragments = {}
+  local ok2, node = pcall(function()
+    return (select(1, parse_block(toks, 1, nil, fragments)))
+  end)
+  if not ok2 then return nil, "parse: " .. tostring(node) end
+  return node, nil
+end
+
+------------------------------------------------------------------------------
+-- 序列化：dump（round-trip 友好）
+------------------------------------------------------------------------------
+local function dump_value(v, indent, out)
+  indent = indent or 0
+  local pad = string.rep("  ", indent)
+  local t = type(v)
+  if t == "table" then
+    if v.__type or #v > 0 and v[1] ~= nil then
+      -- 数组（有整数键）或块
+      local is_arr = true
+      for k in pairs(v) do if type(k) ~= "number" then is_arr = false; break end end
+      if is_arr and v.__type == nil then
+        out[#out+1] = "["
+        for _, e in ipairs(v) do
+          out[#out+1] = string.rep("  ", indent+1)
+          if type(e) == "table" then
+            out[#out+1] = "{ "
+            dump_inline(e, out)
+            out[#out+1] = " }\n"
+          else
+            out[#out+1] = tostring(e) .. "\n"
+          end
+        end
+        out[#out+1] = pad .. "]"
+        return
+      end
+    end
+    -- 块/对象
+    local has_body = false
+    for k, val in pairs(v) do
+      if k ~= "__type" and k ~= "__name" then has_body = true; break end
+    end
+    if not has_body then
+      out[#out+1] = "{}"
+      return
+    end
+    out[#out+1] = "\n" .. pad .. "{"
+    for k, val in pairs(v) do
+      if k ~= "__type" and k ~= "__name" then
+        out[#out+1] = "\n" .. pad .. "  " .. tostring(k) .. ": "
+        dump_value(val, indent + 1, out)
+      end
+    end
+    out[#out+1] = "\n" .. pad .. "}"
+  elseif t == "string" then
+    -- 含空格或特殊字符加引号
+    if string.match(v, "%s") or v == "" then
+      out[#out+1] = '"' .. v .. '"'
+    else
+      out[#out+1] = v
+    end
+  elseif t == "boolean" then
+    out[#out+1] = v and "true" or "false"
+  elseif t == "nil" then
+    out[#out+1] = "null"
+  else
+    out[#out+1] = tostring(v)
+  end
+end
+
+function dump_inline(e, out)
+  local parts = {}
+  for k, val in pairs(e) do
+    if k ~= "__type" and k ~= "__name" then
+      local s
+      if type(val) == "string" and not string.match(val, "%s") then s = tostring(k) .. ": " .. val
+      elseif type(val) == "string" then s = tostring(k) .. ': "' .. val .. '"'
+      elseif type(val) == "table" then s = tostring(k) .. ": {..}"  -- 不嵌套内联
+      else s = tostring(k) .. ": " .. tostring(val) end
+      parts[#parts+1] = s
+    end
+  end
+  out[#out+1] = table.concat(parts, ", ")
+end
+
+function Sml.dump(v)
+  local out = {}
+  for k, val in pairs(v) do
+    if k ~= "__type" and k ~= "__name" then
+      out[#out+1] = tostring(k) .. ": "
+      dump_value(val, 0, out)
+      out[#out+1] = "\n"
+    end
+  end
+  return table.concat(out)
+end
+
+return Sml

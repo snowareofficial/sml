@@ -1,0 +1,13 @@
+baseURL = "/"
+locale = "zh-cn"
+title = "SML { ❄ } — Soup Markup Language"
+theme = "sml-docs"
+disableKinds = ["taxonomy", "term", "RSS", "sitemap", "robotsTXT", "404"]
+ignoreLogs = ["warning-goldmark-raw-html"]
+relativeURLs = true
+
+[markup.goldmark.renderer]
+  unsafe = true
+
+[params]
+  description = "SML（Soup Markup Language）与 BamZap 包管理器的独立站点"

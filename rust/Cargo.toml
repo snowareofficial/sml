@@ -1,0 +1,21 @@
+[package]
+name = "sml-rs"
+version = "0.1.0"
+edition = "2021"
+description = "SML (Soup Markup Language) parser/serializer for Rust — a JSON/YAML alternative"
+license = "MulanPSL-2.0"
+
+[lib]
+name = "sml"
+# 纯数据格式库：rlib 供 Rust 项目引用；cdylib 经 C-ABI 供 C / 其他语言调用。
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+
+# 兼容 Soup 的 Lua 实现（lib/sml.soup）语法语义：
+#   裸词字符串 / 引号串（转义 + $env 内联）/ true/false/null /
+#   数字（int/float/科学计数）/ 块 key { } / 裸块 type name { } /
+#   数组 [ ] / 逗号可选 / # 注释 / @片段 &引用。
+[profile.release]
+opt-level = 2
+lto = false

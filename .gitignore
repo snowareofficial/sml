@@ -1,0 +1,11 @@
+# Rust
+target/
+Cargo.lock
+
+# 构建产物
+*.sar
+out_verify/
+out/
+
+# Python
+__pycache__/
