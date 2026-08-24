@@ -1,5 +1,5 @@
 /*
-** sml.h — SML (Soup Markup Language) C 绑定
+** sml.h — SML (SNOWARE Markup Language) C 绑定
 **
 ** SML 是声明式数据/配置格式 (JSON/YAML 的替代品)。本头文件声明
 ** Rust cdylib (sml-rs, 产物 libsml.dll / libsml.so / libsml.dylib)

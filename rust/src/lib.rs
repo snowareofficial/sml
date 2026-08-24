@@ -1,4 +1,4 @@
-//! SML — Soup Markup Language (Rust 实现, crate 名 `sml`)
+//! SML — SNOWARE Markup Language (Rust 实现, crate 名 `sml`)
 //!
 //! 声明式数据/配置格式, JSON/YAML 的替代品。语法与 Soup 生态的
 //! `lib/sml.soup` (Lua) 对齐:

@@ -1,10 +1,10 @@
 ---
-title: "SML — Soup Markup Language"
+title: "SML — SNOWARE Markup Language"
 ---
 
 # SML { ❄ }
 
-**Soup Markup Language**：声明式数据/配置格式，JSON/YAML 的替代品。
+**SNOWARE Markup Language**：声明式数据/配置格式，JSON/YAML 的替代品。
 
 黑花括号 **{}** 表示语法骨架（块的边界），蓝色雪花 **❄** 表示精确的取值点。
 

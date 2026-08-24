@@ -1,4 +1,4 @@
-// SML — Soup Markup Language (JavaScript 实现, ESM)
+// SML — SNOWARE Markup Language (JavaScript 实现, ESM)
 //
 // 纯 JS、零依赖，Node ≥14 与浏览器均可用。语法与 Soup 生态的
 // lib/sml.soup (Lua) 及 sml-rs (Rust) 对齐：

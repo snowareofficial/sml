@@ -11,7 +11,7 @@ package.path = libdir .. ";" .. package.path
 local Sml = require("lib.sml")
 
 if not arg or #arg == 0 then
-  print("sml (Soup Markup Language) v1.0 -- Soup 生态声明式数据格式库")
+  print("sml (SNOWARE Markup Language) v1.0 -- SNOWARE 生态声明式数据格式库")
   print("用法: soupx sml.sar <file.sml>   解析并打印结果")
   print("作为库: local sml = require('lib.sml'); local v,err = sml.load(text)")
   -- 内置自检

@@ -2,7 +2,7 @@
 name = "sml-rs"
 version = "0.1.0"
 edition = "2021"
-description = "SML (Soup Markup Language) parser/serializer for Rust — a JSON/YAML alternative"
+description = "SML (SNOWARE Markup Language) parser/serializer for Rust — a JSON/YAML alternative"
 license = "MulanPSL-2.0"
 
 [lib]

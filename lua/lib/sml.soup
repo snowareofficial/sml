@@ -1,5 +1,5 @@
 -- lib/sml.soup  (soupkg v1.8)
--- sml = Soup Markup Language：声明式数据/配置格式，定位为 JSON/YAML 的替代品。
+-- sml = SNOWARE Markup Language：声明式数据/配置格式，定位为 JSON/YAML 的替代品。
 --
 -- 相对 JSON/YAML 的改进：
 --   1) 引号可选：裸词即字符串（JSON 强制引号；YAML 裸词有类型歧义）。
