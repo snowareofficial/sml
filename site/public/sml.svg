@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- sml logo — { ❄ }
+       概念：左侧黑花括号 {，中央蓝色雪花 ❄（六臂对称雪花，非普通星形），
+       右侧黑花括号 }。
+       黑 = 语法骨架（声明式块的边界），蓝 = 雪花（独特/精确的取值点）。
+       透明底，可任意叠放。 -->
+  <defs>
+    <linearGradient id="flake" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#64B5F6"/>
+      <stop offset="1" stop-color="#1565C0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 左花括号 {（黑） -->
+  <path d="M148 96
+           C 128 96, 116 108, 116 128
+           L 116 216
+           C 116 232, 108 244, 92 248
+           C 108 252, 116 264, 116 280
+           L 116 368
+           C 116 388, 128 400, 148 400
+           L 160 400 L 160 376 L 152 376
+           C 140 376, 132 368, 132 356
+           L 132 268
+           C 132 248, 122 240, 106 236
+           L 106 236
+           C 122 232, 132 224, 132 204
+           L 132 116
+           C 132 104, 140 96, 152 96
+           L 160 96 Z"
+        fill="#111111"/>
+
+  <!-- 中央雪花 ❄（蓝）：经典六臂雪花，每臂带分支 -->
+  <g transform="translate(256,256)">
+    <g fill="url(#flake)">
+      <!-- 六条主臂（60° 旋转） -->
+      <g transform="rotate(0)">
+        <rect x="-10" y="-80" width="20" height="160" rx="7"/>
+        <rect x="-30" y="-14" width="60" height="14" rx="6" transform="rotate(60 0 0)"/>
+      </g>
+      <g transform="rotate(60)"><rect x="-10" y="-80" width="20" height="160" rx="7"/></g>
+      <g transform="rotate(120)"><rect x="-10" y="-80" width="20" height="160" rx="7"/></g>
+      <g transform="rotate(180)"><rect x="-10" y="-80" width="20" height="160" rx="7"/></g>
+      <g transform="rotate(240)"><rect x="-10" y="-80" width="20" height="160" rx="7"/></g>
+      <g transform="rotate(300)"><rect x="-10" y="-80" width="20" height="160" rx="7"/></g>
+      <!-- 分支：每臂两翼（菱形小片） -->
+      <g transform="rotate(0)">
+        <path d="M-22 -34 L22 -14 L22 -2 L-22 -22 Z" opacity="0.9"/>
+        <path d="M-22 34 L22 14 L22 2 L-22 22 Z" opacity="0.9"/>
+      </g>
+      <g transform="rotate(60)">
+        <path d="M-22 -34 L22 -14 L22 -2 L-22 -22 Z" opacity="0.9"/>
+        <path d="M-22 34 L22 14 L22 2 L-22 22 Z" opacity="0.9"/>
+      </g>
+      <g transform="rotate(120)">
+        <path d="M-22 -34 L22 -14 L22 -2 L-22 -22 Z" opacity="0.9"/>
+        <path d="M-22 34 L22 14 L22 2 L-22 22 Z" opacity="0.9"/>
+      </g>
+      <g transform="rotate(180)">
+        <path d="M-22 -34 L22 -14 L22 -2 L-22 -22 Z" opacity="0.9"/>
+        <path d="M-22 34 L22 14 L22 2 L-22 22 Z" opacity="0.9"/>
+      </g>
+      <g transform="rotate(240)">
+        <path d="M-22 -34 L22 -14 L22 -2 L-22 -22 Z" opacity="0.9"/>
+        <path d="M-22 34 L22 14 L22 2 L-22 22 Z" opacity="0.9"/>
+      </g>
+      <g transform="rotate(300)">
+        <path d="M-22 -34 L22 -14 L22 -2 L-22 -22 Z" opacity="0.9"/>
+        <path d="M-22 34 L22 14 L22 2 L-22 22 Z" opacity="0.9"/>
+      </g>
+    </g>
+    <!-- 中心点 -->
+    <circle cx="0" cy="0" r="14" fill="#FFFFFF"/>
+    <circle cx="0" cy="0" r="8" fill="url(#flake)"/>
+  </g>
+
+  <!-- 右花括号 }（黑） -->
+  <path d="M364 96
+           C 384 96, 396 108, 396 128
+           L 396 216
+           C 396 232, 404 244, 420 248
+           C 404 252, 396 264, 396 280
+           L 396 368
+           C 396 388, 384 400, 364 400
+           L 352 400 L 352 376 L 360 376
+           C 372 376, 380 368, 380 356
+           L 380 268
+           C 380 248, 390 240, 406 236
+           L 406 236
+           C 390 232, 380 224, 380 204
+           L 380 116
+           C 380 104, 372 96, 360 96
+           L 352 96 Z"
+        fill="#111111"/>
+</svg>

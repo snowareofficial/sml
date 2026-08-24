@@ -1,0 +1,24 @@
+
+ ⛅️ wrangler 4.118.0 (update available 4.125.0)
+───────────────────────────────────────────────
+No Functions. Shimming...
+Your Worker has access to the following bindings:
+Binding                                                                   Resource                  Mode
+env.CF_PAGES ("1")                                                        Environment Variable      local
+env.CF_PAGES_BRANCH ("master")                                            Environment Variable      local
+env.CF_PAGES_COMMIT_SHA ("8180694ab3080a6ad17d9eea6415b0f836f6a...")      Environment Variable      local
+env.CF_PAGES_URL ("https://8180694.sml-site.pages.dev")                   Environment Variable      local
+
+⎔ Starting local server...
+[wrangler:info] Ready on http://127.0.0.1:8787
+[wrangler:info] GET / 200 OK (174ms)
+[wrangler:info] GET / 200 OK (23ms)
+[wrangler:info] GET /favicon.ico 200 OK (10ms)
+[wrangler:info] GET / 200 OK (16ms)
+[wrangler:info] GET /favicon.ico 200 OK (9ms)
+[wrangler:info] GET / 304 Not Modified (19ms)
+[wrangler:info] GET /sml.svg 200 OK (57ms)
+[wrangler:info] GET / 200 OK (14ms)
+[wrangler:info] GET /sml.svg 200 OK (62ms)
+[wrangler:info] GET / 304 Not Modified (66ms)
+[wrangler:info] GET /sml.svg 304 Not Modified (65ms)
