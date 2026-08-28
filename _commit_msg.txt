@@ -1,0 +1,8 @@
+fix: dump_inline lost nested arrays/objects inside array elements
+
+An array of objects (e.g. entries list in a config) that contained a nested
+array was serialized with the placeholder [..] instead of the real values,
+so round-tripping turned chunks: [c1 c2] into chunks: [..], which parsed
+back as [".."]. dump_inline now recurses into nested values.
+
+Regression test: nested_array_inside_object_inside_array_survives_roundtrip.
