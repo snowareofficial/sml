@@ -110,49 +110,68 @@ enum Tok {
 
 fn tokenize(text: &str) -> Result<Vec<Tok>, String> {
     let mut toks = Vec::new();
-    let bytes = text.as_bytes();
-    let mut i = 0;
-    let n = bytes.len();
+    let mut chars = text.chars().peekable();
     let mut buf = String::new();
     let mut flush = |buf: &mut String, toks: &mut Vec<Tok>| {
         if !buf.is_empty() {
             toks.push(Tok::Word(std::mem::take(buf)));
         }
     };
-    while i < n {
-        let c = bytes[i] as char;
+    while let Some(c) = chars.next() {
         match c {
             '#' => {
-                while i < n && bytes[i] != b'\n' {
-                    i += 1;
+                // 注释到行尾
+                for c2 in chars.by_ref() {
+                    if c2 == '\n' {
+                        break;
+                    }
                 }
             }
             '"' => {
                 flush(&mut buf, &mut toks);
-                i += 1;
                 let mut s = String::new();
-                while i < n {
-                    let cc = bytes[i];
-                    if cc == b'"' {
-                        i += 1;
-                        break;
-                    }
-                    if cc == b'\\' && i + 1 < n {
-                        i += 1;
-                        let e = bytes[i];
-                        s.push(match e {
-                            b'n' => '\n',
-                            b't' => '\t',
-                            b'r' => '\r',
-                            b'0' => '\0',
-                            b'"' => '"',
-                            b'\\' => '\\',
-                            other => other as char,
-                        });
-                        i += 1;
-                    } else {
-                        s.push(cc as char);
-                        i += 1;
+                loop {
+                    match chars.next() {
+                        Some('"') => break,
+                        Some('\\') => {
+                            // 转义：\n \t \r \0 \" \\ \u{XXXX} \uXXXX
+                            match chars.next() {
+                                Some('n') => s.push('\n'),
+                                Some('t') => s.push('\t'),
+                                Some('r') => s.push('\r'),
+                                Some('0') => s.push('\0'),
+                                Some('"') => s.push('"'),
+                                Some('\\') => s.push('\\'),
+                                Some('u') => {
+                                    let mut hex = String::new();
+                                    // 支持 \u{XXXX} 或 \uXXXX
+                                    if chars.peek() == Some(&'{') {
+                                        chars.next();
+                                        for c2 in chars.by_ref() {
+                                            if c2 == '}' {
+                                                break;
+                                            }
+                                            hex.push(c2);
+                                        }
+                                    } else {
+                                        for _ in 0..4 {
+                                            if let Some(c2) = chars.next() {
+                                                hex.push(c2);
+                                            }
+                                        }
+                                    }
+                                    if let Ok(cp) = u32::from_str_radix(&hex, 16) {
+                                        if let Some(ch) = char::from_u32(cp) {
+                                            s.push(ch);
+                                        }
+                                    }
+                                }
+                                Some(other) => s.push(other),
+                                None => break,
+                            }
+                        }
+                        Some(other) => s.push(other),
+                        None => break,
                     }
                 }
                 toks.push(Tok::Str(s));
@@ -160,45 +179,36 @@ fn tokenize(text: &str) -> Result<Vec<Tok>, String> {
             '{' => {
                 flush(&mut buf, &mut toks);
                 toks.push(Tok::LBrace);
-                i += 1;
             }
             '}' => {
                 flush(&mut buf, &mut toks);
                 toks.push(Tok::RBrace);
-                i += 1;
             }
             '[' => {
                 flush(&mut buf, &mut toks);
                 toks.push(Tok::LBrack);
-                i += 1;
             }
             ']' => {
                 flush(&mut buf, &mut toks);
                 toks.push(Tok::RBrack);
-                i += 1;
             }
             ',' => {
                 flush(&mut buf, &mut toks);
                 toks.push(Tok::Comma);
-                i += 1;
             }
             ':' => {
                 flush(&mut buf, &mut toks);
                 toks.push(Tok::Colon);
-                i += 1;
             }
             '@' => {
                 flush(&mut buf, &mut toks);
                 toks.push(Tok::At);
-                i += 1;
             }
             ' ' | '\t' | '\n' | '\r' => {
                 flush(&mut buf, &mut toks);
-                i += 1;
             }
             _ => {
                 buf.push(c);
-                i += 1;
             }
         }
     }
@@ -1409,6 +1419,25 @@ mod tests {
             }
             other => panic!("chunks 应解析为数组，实际 {other:?}"),
         }
+    }
+
+    #[test]
+    fn utf8_in_quoted_string_survives_roundtrip() {
+        // 回归测试：tokenizer 曾按字节 `as char` 逐个处理，
+        // 把 UTF-8 多字节字符拆成 Latin-1 字符，导致
+        // `"修复若干问题"` 解析后变成双编码乱码。
+        let v = parse(r#"note: "修复若干问题""#).unwrap();
+        assert_eq!(
+            v.get("note").and_then(|x| x.as_str()),
+            Some("修复若干问题"),
+            "引号串中的中文不应被破坏"
+        );
+        // 裸词中文同样不能破坏
+        let v2 = parse("region: 华北").unwrap();
+        assert_eq!(v2.get("region").and_then(|x| x.as_str()), Some("华北"));
+        // 转义 \u 序列
+        let v3 = parse(r#"k: "\u{4fee}\u{590d}""#).unwrap();
+        assert_eq!(v3.get("k").and_then(|x| x.as_str()), Some("修复"));
     }
 
     #[test]
