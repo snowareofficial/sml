@@ -1,9 +1,19 @@
 [package]
-name = "sml-rs"
+# 包名用 swsml：crates.io 上 `sml-rs` 已被无关项目占用
+# （Smart Message Language 智能电表协议解析器，github.com/felixwrt/sml-rs）。
+# lib 名仍为 `sml`，因此调用方 `use sml::{...}` 不受影响。
+name = "swsml"
 version = "0.1.0"
 edition = "2021"
-description = "SML (SNOWARE Markup Language) parser/serializer for Rust — a JSON/YAML alternative"
+description = "SML (SNOWARE Markup Language) — declarative data/config format, a JSON/YAML alternative"
 license = "MulanPSL-2.0"
+repository = "https://gitee.com/snoware/sml"
+homepage = "https://sml.swebase.cn"
+readme = "README.md"
+authors = ["SNOWARE"]
+keywords = ["sml", "snoware", "swsml", "config", "markup"]
+categories = ["parser-implementations", "config"]
+exclude = ["/target"]
 
 [lib]
 name = "sml"
@@ -11,11 +21,22 @@ name = "sml"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
+# 可选：启用 serde 支持后可直接与 serde_json / serde_yaml / toml 等互操作。
+# 默认关闭，使 crate 保持零依赖。
+serde = { version = "1", optional = true }
+
+[features]
+# 不加 feature 时为零依赖；启用后 Value 实现 Serialize/Deserialize
+serde = ["dep:serde"]
+
+[dev-dependencies]
+# 仅测试与示例需要
+serde_json = "1"
 
 # 兼容 Soup 的 Lua 实现（lib/sml.soup）语法语义：
 #   裸词字符串 / 引号串（转义 + $env 内联）/ true/false/null /
 #   数字（int/float/科学计数）/ 块 key { } / 裸块 type name { } /
-#   数组 [ ] / 逗号可选 / # 注释 / @片段 &引用。
+#   数组 [ ] / 逗号可选 / # 注释 / @片段 &引用 / include 指令。
 [profile.release]
 opt-level = 2
 lto = false
