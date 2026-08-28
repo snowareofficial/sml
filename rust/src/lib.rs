@@ -785,18 +785,7 @@ fn dump_inline(v: &Value) -> String {
             let parts: Vec<String> = m
                 .iter()
                 .filter(|(k, _)| k.as_str() != "__type" && k.as_str() != "__name")
-                .map(|(k, val)| {
-                    let vs = match val {
-                        Value::Str(s) => quote_if_needed(s),
-                        Value::Int(i) => i.to_string(),
-                        Value::Float(f) => f.to_string(),
-                        Value::Bool(b) => b.to_string(),
-                        Value::Null => "null".to_string(),
-                        Value::Array(_) => "[..]".to_string(),
-                        Value::Object(_) => "{..}".to_string(),
-                    };
-                    format!("{}: {}", k, vs)
-                })
+                .map(|(k, val)| format!("{}: {}", k, dump_inline(val)))
                 .collect();
             format!("{{ {} }}", parts.join(", "))
         }
@@ -1378,6 +1367,48 @@ mod tests {
         assert_eq!(v.get("b"), Some(&Value::Bool(true)));
         assert_eq!(v.get("n"), Some(&Value::Null));
         assert!(matches!(v.get("a"), Some(Value::Array(a)) if a.len() == 2));
+    }
+
+    #[test]
+    fn nested_array_inside_object_inside_array_survives_roundtrip() {
+        // 回归测试：数组元素是对象、对象里又有数组（如配置的条目列表）。
+        // dump_inline 曾把嵌套数组缩略成 [..]，导致 chunks 丢成 [".."]。
+        let mut item = BTreeMap::new();
+        item.insert("path".to_string(), Value::Str("a.txt".into()));
+        item.insert(
+            "chunks".to_string(),
+            Value::Array(vec![
+                Value::Str("c1".into()),
+                Value::Str("c2".into()),
+            ]),
+        );
+        let mut root = BTreeMap::new();
+        root.insert(
+            "entries".to_string(),
+            Value::Array(vec![Value::Object(item)]),
+        );
+        let text = to_sml(&Value::Object(root));
+        assert!(!text.contains("[..]"), "嵌套数组不得被缩略: {text}");
+
+        let back = parse(&text).unwrap();
+        let chunks = back.get("entries").and_then(|e| match e {
+            Value::Array(a) => a.first(),
+            _ => None,
+        });
+        let chunks = match chunks {
+            Some(Value::Object(m)) => m.get("chunks"),
+            _ => None,
+        };
+        match chunks {
+            Some(Value::Array(a)) => {
+                assert_eq!(a.len(), 2, "两个块都应保留: {text}");
+                assert_eq!(
+                    a.iter().filter_map(|c| c.as_str()).collect::<Vec<_>>(),
+                    vec!["c1", "c2"]
+                );
+            }
+            other => panic!("chunks 应解析为数组，实际 {other:?}"),
+        }
     }
 
     #[test]
