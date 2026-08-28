@@ -21,14 +21,32 @@
 //! - 块冒号可省 (`address { }` ≡ `address: { }`)
 //! - 数组分隔灵活 (逗号可选)
 //! - 片段继承 (`@name { }` 定义 / `&name` 引用)
+//! - `include "path"` 引入外部文件（见 [`parse_file`]）
 //! - `$env.VAR` 环境变量内联
 //! - `#` 行注释
 //! - 类型自识别: true/false -> bool, null -> None, 数字 -> i64/f64, 其余 -> String
 //!
 //! 值模型: `Value` 枚举 (与 JSON 同构, 另加 `__type`/`__name` 裸块元数据)。
+//!
+//! # 纯解析 vs 文件解析
+//!
+//! [`parse`] 是**纯函数**（只吃字符串，不做 IO），因此不含 include 处理。
+//! 需要 include 时用 [`parse_file`]，它会先展开指令再交给 `parse`。
+//! 这样设计保证了 `parse` 的可嵌入性（如 WASM / 沙箱内无文件系统）。
+//!
+//! # Cargo features
+//!
+//! - `serde`（默认关闭）：为 `Value` 实现 `Serialize`/`Deserialize`，
+//!   可直接与 serde_json / serde_yaml / toml 等后端互操作。
+//!   不启用时本 crate **零依赖**。
+//!
+//! ```toml
+//! sml-rs = { version = "0.2", features = ["serde"] }
+//! ```
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::path::{Path, PathBuf};
 
 // ---------------------------------------------------------------------------
 // 值模型
@@ -445,8 +463,123 @@ impl Parser {
     }
 }
 
+/// SML 语法版本
+///
+/// SML 源于 eclog，演进中通过 `@version` 声明文档遵循的语法版本，
+/// 使解析器能在将来引入 v2 不兼容语法时仍正确读取旧文档。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Version {
+    /// v1：初始公开版本
+    V1,
+}
+
+impl Version {
+    /// 当前实现支持的最新版本
+    pub const CURRENT: Version = Version::V1;
+
+    /// 解析版本字面量（`v1` / `1`）
+    fn from_word(w: &str) -> Option<Version> {
+        match w {
+            "v1" | "1" => Some(Version::V1),
+            _ => None,
+        }
+    }
+
+    /// 版本名（用于错误信息与序列化回显）
+    pub fn name(self) -> &'static str {
+        match self {
+            Version::V1 => "v1",
+        }
+    }
+}
+
+impl fmt::Display for Version {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+/// 若该行是 `@version` 声明，返回版本字面量；否则返回 None。
+///
+/// `version` 是保留字：不允许作为片段名（`@version { }`）使用。
+fn version_directive(line: &str) -> Result<Option<String>, String> {
+    let content = strip_line_comment(line).trim();
+    // 词法失败的行（如未闭合引号）不是版本声明，交由主解析器报更准确的错
+    let toks = match tokenize(content) {
+        Ok(t) => t,
+        Err(_) => return Ok(None),
+    };
+    match toks.as_slice() {
+        [Tok::At, Tok::Word(w), Tok::Word(v)] if w == "version" => Ok(Some(v.clone())),
+        [Tok::At, Tok::Word(w), Tok::Str(v)] if w == "version" => Ok(Some(v.clone())),
+        [Tok::At, Tok::Word(w), ..] if w == "version" => Err(
+            "`@version` 是版本声明指令，须写作 `@version v1`；`version` 不可作为片段名".into(),
+        ),
+        _ => Ok(None),
+    }
+}
+
+/// 剥离 `@version` 声明行，返回剩余文本与声明的版本（未声明则为 None）。
+///
+/// 允许多次声明（include 进来的文件可各自声明），但必须一致；
+/// 声明了实现不支持的版本时报错，避免静默按错误语法解析。
+fn strip_version(text: &str) -> Result<(String, Option<Version>), String> {
+    let mut declared: Option<Version> = None;
+    let mut rest = String::new();
+    for line in text.lines() {
+        if let Some(lit) = version_directive(line)? {
+            let v = Version::from_word(&lit).ok_or_else(|| {
+                format!(
+                    "不支持的 SML 版本 `{lit}`（本实现支持 {}）",
+                    Version::CURRENT.name()
+                )
+            })?;
+            match declared {
+                None => declared = Some(v),
+                Some(prev) if prev != v => {
+                    return Err(format!("@version 冲突：{} 与 {}", prev.name(), v.name()))
+                }
+                Some(_) => {}
+            }
+            continue;
+        }
+        rest.push_str(line);
+        rest.push('\n');
+    }
+    Ok((rest, declared))
+}
+
+/// 解析 SML 文本，并返回其声明的语法版本。
+///
+/// 未声明版本时按 `Version::CURRENT`（v1）处理，**既有文档不受影响**。
+pub fn parse_versioned(text: &str) -> Result<(Value, Version), String> {
+    let (rest, declared) = strip_version(text)?;
+    Ok((parse_impl(&rest)?, declared.unwrap_or(Version::CURRENT)))
+}
+
+/// 解析 SML 文件：展开 include，并返回其声明的语法版本
+pub fn parse_file_versioned(path: impl AsRef<Path>) -> Result<(Value, Version), String> {
+    let path = path.as_ref();
+    let text =
+        std::fs::read_to_string(path).map_err(|e| format!("读取失败 {}: {e}", path.display()))?;
+    let base = path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
+    let expanded = resolve_includes(&text, &base)?;
+    parse_versioned(&expanded)
+}
+
 /// 解析 SML 文本
+///
+/// 会自动识别并剥离 `@version` 声明（需要版本信息时用 [`parse_versioned`]）。
 pub fn parse(text: &str) -> Result<Value, String> {
+    let (rest, _) = strip_version(text)?;
+    parse_impl(&rest)
+}
+
+/// 不含版本处理的底层解析
+fn parse_impl(text: &str) -> Result<Value, String> {
     let toks = tokenize(text)?;
     let mut p = Parser {
         toks,
@@ -454,6 +587,118 @@ pub fn parse(text: &str) -> Result<Value, String> {
         fragments: BTreeMap::new(),
     };
     p.parse_block(None)
+}
+
+// ---------------------------------------------------------------------------
+// include 指令：把外部 .sml 文件内联进来
+//
+// 语法：`include "path.sml"` 或 `@include "path.sml"`（两种等价）
+// 语义：**文本内联**（类似 C 的 #include），而非对象合并。
+//   这样 include 可以出现在块内部引入一组字段，例如：
+//       server web { &base include "common/port.sml" }
+//   若做成对象合并就无法表达「注入若干字段到当前块」。
+//
+// 相对路径按**被包含文件自身所在目录**解析（与 C 预处理器一致），
+// 而非进程工作目录，因此嵌套 include 时路径行为可预期。
+// ---------------------------------------------------------------------------
+
+/// 嵌套深度上限：既防栈溢出，也让异常深层的引用尽早失败
+const MAX_INCLUDE_DEPTH: usize = 32;
+
+/// 剥离行尾注释，正确跳过引号内的 `#`（如 `key: "a#b"` 中的 # 不是注释起点）
+fn strip_line_comment(line: &str) -> &str {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    let mut in_quote = false;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'"' => in_quote = !in_quote,
+            // 引号内的反斜杠会转义下一个字符，需整体跳过
+            b'\\' if in_quote => i += 1,
+            b'#' if !in_quote => return &line[..i],
+            _ => {}
+        }
+        i += 1;
+    }
+    line
+}
+
+/// 若该行是 include 指令，返回目标路径；否则返回 None
+fn include_target(line: &str) -> Option<String> {
+    let content = strip_line_comment(line).trim();
+    let content = content.strip_prefix('@').unwrap_or(content).trim_start();
+    // 复用词法器处理路径，使含空格的路径（引号串）能被正确识别
+    let toks = tokenize(content).ok()?;
+    match toks.as_slice() {
+        [Tok::Word(w), Tok::Str(p)] if w == "include" => Some(p.clone()),
+        [Tok::Word(w), Tok::Word(p)] if w == "include" => Some(p.clone()),
+        _ => None,
+    }
+}
+
+/// 把 text 中的 include 指令递归展开为不含指令的纯 SML 文本。
+///
+/// `base` 为相对路径的解析基准目录（通常是当前文件所在目录）。
+/// 循环引用与缺失文件都会返回错误，不会静默跳过。
+pub fn resolve_includes(text: &str, base: &Path) -> Result<String, String> {
+    let mut out = String::new();
+    let mut stack: Vec<PathBuf> = Vec::new();
+    expand_includes(text, base, &mut out, &mut stack)?;
+    Ok(out)
+}
+
+fn expand_includes(
+    text: &str,
+    base: &Path,
+    out: &mut String,
+    stack: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    if stack.len() >= MAX_INCLUDE_DEPTH {
+        return Err(format!("include 嵌套超过 {MAX_INCLUDE_DEPTH} 层"));
+    }
+    for line in text.lines() {
+        match include_target(line) {
+            Some(rel) => {
+                let path = base.join(&rel);
+                let canon = path
+                    .canonicalize()
+                    .map_err(|e| format!("include 无法定位 {}: {e}", path.display()))?;
+                // stack 是「当前正在展开的文件链」，命中即成环
+                if stack.iter().any(|p| p == &canon) {
+                    return Err(format!("include 循环引用: {}", canon.display()));
+                }
+                let content = std::fs::read_to_string(&canon)
+                    .map_err(|e| format!("include 读取失败 {}: {e}", canon.display()))?;
+                let child_base = canon
+                    .parent()
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|| PathBuf::from("."));
+                stack.push(canon);
+                expand_includes(&content, &child_base, out, stack)?;
+                stack.pop();
+            }
+            None => {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 解析 SML 文件，并展开其中的 include 指令。
+///
+/// 相对路径以**该文件所在目录**为基准。
+pub fn parse_file(path: impl AsRef<Path>) -> Result<Value, String> {
+    let path = path.as_ref();
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| format!("读取失败 {}: {e}", path.display()))?;
+    let base = path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
+    let expanded = resolve_includes(&text, &base)?;
+    parse(&expanded)
 }
 
 /// 解析到对象 (失败抛 `ParseError`)
@@ -812,12 +1057,328 @@ fn json_to_value(s: &str) -> Option<Value> {
 }
 
 // ---------------------------------------------------------------------------
+// serde 支持（可选 feature：`serde`）
+//
+// 手写实现而非 `#[derive]`：derive 会把枚举表示为外部标签形式
+//   Value::Int(5)  ->  {"Int":5}
+// 而配置文件的实际用途希望是自然形状  5。
+// 手写后 SML 的 Value 与 JSON 数据形状一致，可直接喂给
+// serde_json / serde_yaml / toml 等任意 serde 后端。
+//
+// 不启用该 feature 时 crate 保持零依赖。
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "serde")]
+mod serde_impl {
+    use super::Value;
+    use serde::de::{self, MapAccess, SeqAccess, Visitor};
+    use serde::ser::SerializeMap;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::collections::BTreeMap;
+    use std::fmt;
+
+    impl Serialize for Value {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            match self {
+                Value::Null => serializer.serialize_unit(),
+                Value::Bool(b) => serializer.serialize_bool(*b),
+                Value::Int(i) => serializer.serialize_i64(*i),
+                Value::Float(f) => serializer.serialize_f64(*f),
+                Value::Str(s) => serializer.serialize_str(s),
+                // Vec<Value> / 逐项委托，递归依赖 Value 自身的 impl
+                Value::Array(a) => a.serialize(serializer),
+                Value::Object(m) => {
+                    let mut map = serializer.serialize_map(Some(m.len()))?;
+                    for (k, v) in m {
+                        map.serialize_entry(k, v)?;
+                    }
+                    map.end()
+                }
+            }
+        }
+    }
+
+    impl<'de> Deserialize<'de> for Value {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            // 交给格式自行判断类型（JSON 的数字/字符串/数组/对象都能落到对应变体）
+            deserializer.deserialize_any(ValueVisitor)
+        }
+    }
+
+    struct ValueVisitor;
+
+    impl<'de> Visitor<'de> for ValueVisitor {
+        type Value = Value;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("any valid SML/JSON value")
+        }
+
+        fn visit_unit<E: de::Error>(self) -> Result<Value, E> {
+            Ok(Value::Null)
+        }
+        fn visit_none<E: de::Error>(self) -> Result<Value, E> {
+            Ok(Value::Null)
+        }
+        fn visit_some<D>(self, d: D) -> Result<Value, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            Deserialize::deserialize(d)
+        }
+        fn visit_bool<E: de::Error>(self, v: bool) -> Result<Value, E> {
+            Ok(Value::Bool(v))
+        }
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<Value, E> {
+            Ok(Value::Int(v))
+        }
+        // 超出 i64 的大整数退化为 Float，避免直接报错丢失数据
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<Value, E> {
+            Ok(i64::try_from(v)
+                .map(Value::Int)
+                .unwrap_or_else(|_| Value::Float(v as f64)))
+        }
+        fn visit_f64<E: de::Error>(self, v: f64) -> Result<Value, E> {
+            Ok(Value::Float(v))
+        }
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<Value, E> {
+            Ok(Value::Str(v.to_string()))
+        }
+        fn visit_string<E: de::Error>(self, v: String) -> Result<Value, E> {
+            Ok(Value::Str(v))
+        }
+        fn visit_seq<A>(self, mut seq: A) -> Result<Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let mut v = Vec::new();
+            while let Some(x) = seq.next_element()? {
+                v.push(x);
+            }
+            Ok(Value::Array(v))
+        }
+        fn visit_map<A>(self, mut map: A) -> Result<Value, A::Error>
+        where
+            A: MapAccess<'de>,
+        {
+            let mut m = BTreeMap::new();
+            while let Some((k, v)) = map.next_entry::<String, Value>()? {
+                m.insert(k, v);
+            }
+            Ok(Value::Object(m))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 测试
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---------------- version ----------------
+
+    #[test]
+    fn version_defaults_to_current_when_absent() {
+        // 既有文档没有版本声明，必须仍能解析且默认为当前版本
+        let (v, ver) = parse_versioned("a: 1\n").unwrap();
+        assert_eq!(ver, Version::CURRENT);
+        assert_eq!(v.get("a"), Some(&Value::Int(1)));
+    }
+
+    #[test]
+    fn version_declared_as_v1() {
+        let (v, ver) = parse_versioned("@version v1\na: 1\n").unwrap();
+        assert_eq!(ver, Version::V1);
+        assert_eq!(v.get("a"), Some(&Value::Int(1)));
+    }
+
+    #[test]
+    fn version_declaration_is_stripped_not_parsed_as_content() {
+        // 若未剥离，`@version v1` 会被当成片段定义而解析异常
+        let v = parse("@version v1\na: 1\n").unwrap();
+        assert_eq!(v.get("a"), Some(&Value::Int(1)));
+        assert!(v.get("version").is_none(), "@version 不应进入数据");
+    }
+
+    #[test]
+    fn unsupported_version_is_rejected() {
+        let err = parse_versioned("@version v99\na: 1\n").unwrap_err();
+        assert!(err.contains("不支持"), "应拒绝不支持的版本，got: {err}");
+        assert!(err.contains("v99"), "错误应含版本号，got: {err}");
+    }
+
+    #[test]
+    fn conflicting_version_is_rejected() {
+        let err = parse_versioned("@version v1\n@version v2\n").unwrap_err();
+        // v2 尚未定义，优先报「不支持」
+        assert!(!err.is_empty());
+        // 两个都支持但不一致时的路径：v1 与 v1 不冲突
+        let (_, ver) = parse_versioned("@version v1\n@version v1\n").unwrap();
+        assert_eq!(ver, Version::V1, "重复但一致的声明应被接受");
+    }
+
+    #[test]
+    fn version_is_reserved_as_fragment_name() {
+        let err = parse("@version { x: 1 }\n").unwrap_err();
+        assert!(err.contains("保留") || err.contains("版本声明"), "got: {err}");
+    }
+
+    #[test]
+    fn version_works_with_include() {
+        let d = tmpdir("version");
+        std::fs::write(d.join("p.sml"), "@version v1\nb: 2\n").unwrap();
+        std::fs::write(d.join("main.sml"), "@version v1\ninclude \"p.sml\"\n").unwrap();
+        let (v, ver) = parse_file_versioned(d.join("main.sml")).unwrap();
+        assert_eq!(ver, Version::V1);
+        assert_eq!(v.get("b"), Some(&Value::Int(2)), "版本与 include 应协同");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn version_display_matches_name() {
+        assert_eq!(Version::V1.name(), "v1");
+        assert_eq!(format!("{}", Version::V1), "v1");
+    }
+
+    // ---------------- include ----------------
+
+    /// 在临时目录下建文件，返回目录句柄（drop 时自动清理）
+    fn tmpdir(tag: &str) -> std::path::PathBuf {
+        let mut d = std::env::temp_dir();
+        d.push(format!("sml_test_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).expect("create tmpdir");
+        d
+    }
+
+    #[test]
+    fn include_inlines_external_file() {
+        let d = tmpdir("inline");
+        std::fs::write(d.join("part.sml"), "port: 8080\n").unwrap();
+        std::fs::write(d.join("main.sml"), "host: local\ninclude \"part.sml\"\n").unwrap();
+
+        let v = parse_file(d.join("main.sml")).unwrap();
+        assert_eq!(v.get("host").unwrap().as_str(), Some("local"));
+        assert_eq!(v.get("port"), Some(&Value::Int(8080)));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn include_at_prefix_is_equivalent() {
+        let d = tmpdir("at");
+        std::fs::write(d.join("p.sml"), "b: 2\n").unwrap();
+        std::fs::write(d.join("m.sml"), "@include \"p.sml\"\n").unwrap();
+        let v = parse_file(d.join("m.sml")).unwrap();
+        assert_eq!(v.get("b"), Some(&Value::Int(2)));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn include_resolves_relative_to_including_file() {
+        // 关键：相对路径按「被包含文件自身目录」解析，而非进程工作目录
+        let d = tmpdir("nested");
+        std::fs::create_dir_all(d.join("sub")).unwrap();
+        std::fs::write(d.join("sub/leaf.sml"), "leaf: yes\n").unwrap();
+        // mid 在根，include sub/mid2；mid2 在 sub 内，include leaf.sml（相对 sub）
+        std::fs::write(d.join("sub/mid2.sml"), "include \"leaf.sml\"\n").unwrap();
+        std::fs::write(d.join("main.sml"), "include \"sub/mid2.sml\"\n").unwrap();
+
+        let v = parse_file(d.join("main.sml")).unwrap();
+        assert_eq!(
+            v.get("leaf").unwrap().as_str(),
+            Some("yes"),
+            "嵌套 include 的路径应相对各自所在目录解析"
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn include_inside_block_injects_fields() {
+        // 文本内联语义：可在块内注入一组字段
+        let d = tmpdir("block");
+        std::fs::write(d.join("fields.sml"), "region: cn-north-1\nzone: a\n").unwrap();
+        std::fs::write(d.join("main.sml"), "server web {\ninclude \"fields.sml\"\nport: 8080\n}\n").unwrap();
+
+        let v = parse_file(d.join("main.sml")).unwrap();
+        let server = v.get("server").expect("应有 server 块");
+        assert_eq!(server.get("region").unwrap().as_str(), Some("cn-north-1"));
+        assert_eq!(server.get("zone").unwrap().as_str(), Some("a"));
+        assert_eq!(server.get("port"), Some(&Value::Int(8080)));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn include_detects_cycles() {
+        let d = tmpdir("cycle");
+        std::fs::write(d.join("a.sml"), "include \"b.sml\"\n").unwrap();
+        std::fs::write(d.join("b.sml"), "include \"a.sml\"\n").unwrap();
+        let err = parse_file(d.join("a.sml")).unwrap_err();
+        assert!(err.contains("循环引用"), "应报循环引用，got: {err}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn include_missing_file_is_error() {
+        let d = tmpdir("missing");
+        std::fs::write(d.join("m.sml"), "include \"nope.sml\"\n").unwrap();
+        let err = parse_file(d.join("m.sml")).unwrap_err();
+        assert!(err.contains("nope.sml"), "错误应含缺失文件名，got: {err}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn hash_in_quoted_string_is_not_a_comment() {
+        // 引号内的 # 不应被当成注释，否则 `include "a#b.sml"` 会被截断
+        assert_eq!(strip_line_comment("k: \"a#b\""), "k: \"a#b\"");
+        assert_eq!(strip_line_comment("k: v # comment"), "k: v ");
+    }
+
+    #[test]
+    fn include_line_is_not_confused_with_key_named_include() {
+        // `key: include` 是指令吗？不是——前面有 key 与冒号
+        assert_eq!(include_target("key: include"), None);
+        assert_eq!(include_target("include \"a.sml\""), Some("a.sml".into()));
+        assert_eq!(include_target("@include \"a.sml\""), Some("a.sml".into()));
+        assert_eq!(include_target("# include \"a.sml\""), None, "注释行不生效");
+    }
+
+    // ---------------- serde ----------------
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_roundtrip_preserves_shape() {
+        let v = parse("name: John\nage: 27\ntags: [a b]\nnested { k: v }\n").unwrap();
+        let json = serde_json::to_string(&v).unwrap();
+        // 自然形状：字符串就是字符串，数字就是数字，而非 {"Int":27}
+        assert!(json.contains("\"name\":\"John\""), "got: {json}");
+        assert!(json.contains("\"age\":27"), "got: {json}");
+        assert!(json.contains("\"tags\":[\"a\",\"b\"]"), "got: {json}");
+        assert!(json.contains("\"nested\":{\"k\":\"v\"}"), "got: {json}");
+
+        let back: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, v, "serde 往返应还原原值");
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_deserializes_json_into_value() {
+        let v: Value = serde_json::from_str(r#"{"s":"x","i":5,"f":1.5,"b":true,"n":null,"a":[1,2]}"#).unwrap();
+        assert_eq!(v.get("s").unwrap().as_str(), Some("x"));
+        assert_eq!(v.get("i"), Some(&Value::Int(5)));
+        assert_eq!(v.get("f"), Some(&Value::Float(1.5)));
+        assert_eq!(v.get("b"), Some(&Value::Bool(true)));
+        assert_eq!(v.get("n"), Some(&Value::Null));
+        assert!(matches!(v.get("a"), Some(Value::Array(a)) if a.len() == 2));
+    }
 
     #[test]
     fn parse_basic() {
