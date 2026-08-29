@@ -11,7 +11,7 @@
 **   4. 序列化 (round-trip)
 **   5. JSON 桥 (C-ABI 兼容)
 **
-** 注释：单行 `#` 与 `--`；多行 `/* */` 与 `_* *_`(与 Rust/JS/Lua 实现对齐)
+** 注释：单行 `#` / `--` / `//`；多行 `/* */` 与 `_* *_`(与 Rust/JS/Lua 实现对齐)
 */
 
 #include "sml.h"
@@ -247,6 +247,9 @@ static void lex_run(lexer *lx, const char *text) {
             while (*p && *p != '\n') p++;
         } else if (c == '-' && p[1] == '-') {
             /* `--` 单行注释到行尾 */
+            while (*p && *p != '\n') p++;
+        } else if (c == '/' && p[1] == '/') {
+            /* `//` 单行注释到行尾 */
             while (*p && *p != '\n') p++;
         } else if (c == '/' && p[1] == '*') {
             /* `/*` 多行注释，直到 `*\/` */

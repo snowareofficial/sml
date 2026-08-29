@@ -87,12 +87,14 @@ contact {
 
 ## 注释
 
-SML 支持四种注释，单行两种、多行两种：
+SML 支持五种注释，单行三种、多行两种：
 
 ```sml
 # 单行注释（到行尾）
 
 -- 另一种单行注释（到行尾）
+
+// C 风格单行注释（到行尾）
 
 /* 多行注释
    可跨行
@@ -108,7 +110,7 @@ server {
 }
 ```
 
-> 注意：`--`、`/*`、`_* ` 仅在组合出现时才是注释；单个 `-`、`/`、`_` 仍按普通字符处理（如 `a/b/c`、`my-word`、`foo_bar`）。
+> 注意：`--`、`//`、`/*`、`_* ` 仅在组合出现时才是注释；单个 `-`、`/`、`_` 仍按普通字符处理（如 `a/b/c`、`my-word`、`foo_bar`）。
 
 ## 特性
 
@@ -123,7 +125,7 @@ server {
 | 版本声明 | `@version v1`，便于将来演进不破坏旧文档 |
 | 环境变量内联 | `$env.VAR` |
 | 类型自识别 | `true/false/null` / 数字 / 字符串 |
-| 注释 | 单行 `#` 与 `--`；多行 `/* */` 与 `_* *_` |
+| 注释 | 单行 `#`、`--` 与 `//`；多行 `/* */` 与 `_* *_` |
 
 ## 数据类型
 
@@ -432,12 +434,14 @@ contact {
 
 ## Comments
 
-SML supports four comment styles: two single-line and two multi-line:
+SML supports five comment styles: three single-line and two multi-line:
 
 ```sml
 # single-line comment (to end of line)
 
 -- another single-line comment (to end of line)
+
+// C-style single-line comment (to end of line)
 
 /* multi-line comment
    spanning lines
@@ -453,7 +457,7 @@ server {
 }
 ```
 
-> Note: `--`, `/*`, `_*` are only comments as combinations; a lone `-`, `/`, or `_`
+> Note: `--`, `//`, `/*`, `_*` are only comments as combinations; a lone `-`, `/`, or `_`
 > is still an ordinary character (e.g. `a/b/c`, `my-word`, `foo_bar`).
 
 ## Features
@@ -469,7 +473,7 @@ server {
 | Version declaration | `@version v1` for forward-compatible evolution |
 | Env var inlining | `$env.VAR` |
 | Type inference | `true/false/null` / numbers / strings |
-| Comments | single-line `#` and `--`; multi-line `/* */` and `_* *_` |
+| Comments | single-line `#`, `--` and `//`; multi-line `/* */` and `_* *_` |
 
 ## Data types
 

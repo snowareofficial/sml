@@ -428,23 +428,34 @@ fn tokenize(text: &str) -> Result<Vec<Tok>, String> {
                 }
             }
             '/' => {
-                // `/*` 多行注释，直到 `*/`；否则作为普通字符
-                if chars.peek() == Some(&'*') {
-                    chars.next(); // 吃掉 *
-                    loop {
-                        match chars.next() {
-                            Some('*') => {
-                                if chars.peek() == Some(&'/') {
-                                    chars.next();
-                                    break;
-                                }
+                match chars.peek() {
+                    // `//` 单行注释到行尾
+                    Some('/') => {
+                        chars.next(); // 吃掉第二个 /
+                        for c2 in chars.by_ref() {
+                            if c2 == '\n' {
+                                break;
                             }
-                            Some(_) => {}
-                            None => break,
                         }
                     }
-                } else {
-                    buf.push(c);
+                    // `/*` 多行注释，直到 `*/`
+                    Some('*') => {
+                        chars.next(); // 吃掉 *
+                        loop {
+                            match chars.next() {
+                                Some('*') => {
+                                    if chars.peek() == Some(&'/') {
+                                        chars.next();
+                                        break;
+                                    }
+                                }
+                                Some(_) => {}
+                                None => break,
+                            }
+                        }
+                    }
+                    // 否则作为普通字符（如路径 a/b/c）
+                    _ => buf.push(c),
                 }
             }
             '_' => {
