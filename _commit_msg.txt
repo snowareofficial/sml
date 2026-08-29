@@ -1,8 +1,0 @@
-fix: tokenizer destroyed non-ASCII chars in quoted strings and bare words
-
-The byte-based tokenizer did `s.push(cc as char)` where cc is a u8, so
-UTF-8 multi-byte characters (e.g. Chinese) were split into Latin-1
-code points and re-encoded, turning text into double-encoded mojibake.
-
-Found in the field: resender's VersionFile parser returned garbled
-note fields. Regression test: utf8_in_quoted_string_survives_roundtrip.
