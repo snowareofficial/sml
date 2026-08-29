@@ -85,32 +85,42 @@ contact {
 }
 ```
 
-## 注释
-
-SML 支持五种注释，单行三种、多行两种：
+注释（任选其一；`#`/`--`/`//` 为单行，`/* */`/`_* *_` 为多行）：
 
 ```sml
 # 单行注释（到行尾）
-
 -- 另一种单行注释（到行尾）
-
 // C 风格单行注释（到行尾）
-
-/* 多行注释
-   可跨行
-   块内也可使用 */
-
-_* 另一种多行注释
-   以 *_ 结束 *_
 
 server {
     port: 8080 -- 行内注释
     /* 多行注释也能出现在块或数组里 */
     hosts: [ a -- 主 b # 备 ]
 }
+
+/*
+  多行注释，可跨行
+*/
+_* 另一种多行注释，以 *_ 结束 *_
 ```
 
 > 注意：`--`、`//`、`/*`、`_* ` 仅在组合出现时才是注释；单个 `-`、`/`、`_` 仍按普通字符处理（如 `a/b/c`、`my-word`、`foo_bar`）。
+
+## 片段（Fragments）
+
+片段是 SML 的「值级模板」机制：`@name { }` 定义，`&name` 以**值**形式引用并展开（与 `include` 的文本内联不同，片段是值级别的复用）：
+
+```sml
+@base { region: cn-north-1, zone: a }
+server web {
+    &base                      # 展开为 region / zone 两个字段
+    port: 8080
+}
+```
+
+- 片段定义**不进解析结果**，仅在引用处展开
+- `&name` 出现在块内时，等价于把片段的键值对注入当前块
+- 词中 `@`（如 `a@b.c` 邮箱）不是片段标记，仅**词首**的 `@` 才是
 
 ## 特性
 
@@ -432,33 +442,45 @@ contact {
 }
 ```
 
-## Comments
-
-SML supports five comment styles: three single-line and two multi-line:
+Comments (any of these; `#`/`--`/`//` are single-line, `/* */`/`_* *_` are multi-line):
 
 ```sml
 # single-line comment (to end of line)
-
 -- another single-line comment (to end of line)
-
 // C-style single-line comment (to end of line)
-
-/* multi-line comment
-   spanning lines
-   also usable inside blocks */
-
-_* another multi-line comment
-   ended by *_ *_
 
 server {
     port: 8080 -- inline comment
     /* multi-line comments also work inside blocks / arrays */
     hosts: [ a -- primary b # backup ]
 }
+
+/*
+  multi-line comment, spanning lines
+*/
+_* another multi-line comment, ended by *_ *_
 ```
 
 > Note: `--`, `//`, `/*`, `_*` are only comments as combinations; a lone `-`, `/`, or `_`
 > is still an ordinary character (e.g. `a/b/c`, `my-word`, `foo_bar`).
+
+## Fragments
+
+Fragments are SML's *value-level template* mechanism: `@name { }` defines, and
+`&name` references it as a **value** that is expanded (unlike `include`, which
+inlines text — fragments reuse at the value level):
+
+```sml
+@base { region: cn-north-1, zone: a }
+server web {
+    &base                      # expands to region / zone fields
+    port: 8080
+}
+```
+
+- A fragment definition is **not part of the parse result**; it only expands at the reference site
+- `&name` inside a block is equivalent to injecting the fragment's key-value pairs into the current block
+- `@` inside a word (e.g. `a@b.c`) is not a fragment marker — only a **leading** `@` is
 
 ## Features
 
