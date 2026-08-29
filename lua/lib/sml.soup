@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: MulanPSL-2.0
 -- lib/sml.soup  (soupkg v1.8)
 -- sml = SNOWARE Markup Language：声明式数据/配置格式，定位为 JSON/YAML 的替代品。
 --
@@ -92,9 +93,21 @@ local function tokenize(text)
       end
       toks[#toks+1] = '"' .. table.concat(qb) .. '"'  -- 保留引号标记便于 coerce 识别
       i = j + 1
-    elseif c == "{" or c == "}" or c == "[" or c == "]" or c == "," or c == "@" then
+    elseif c == "{" or c == "}" or c == "[" or c == "]" or c == "," then
       flush()
       toks[#toks+1] = c
+      i = i + 1
+    elseif c == "@" then
+      -- `@` 仅当位于**词首**时才是片段定义标记（`@base { ... }`）。
+      -- 出现在词中间时（典型如邮箱 `a@b.c`）必须作为普通字符保留：
+      -- 否则 `a@b.c` 会被切成 "a" + "@" + "b.c"，后半段在解析时被丢弃，
+      -- 导致邮箱静默损坏为 "a"。
+      if #buf == 0 then
+        flush()
+        toks[#toks+1] = "@"
+      else
+        buf[#buf+1] = c
+      end
       i = i + 1
     elseif c == ":" then
       flush()
@@ -296,6 +309,18 @@ function Sml.load(text)
   if not ok then return nil, "tokenize: " .. tostring(toks) end
   local fragments = {}
   local ok2, node = pcall(function()
+    -- 顶层支持三种形态，与 dump 的输出对称：
+    --   - `[ ... ]` 数组：dump 对数组输出顶层数组（如「历史记录」这类对象数组）。
+    --     此前顶层只认键值块，导致能序列化却读不回。
+    --   - `{ ... }` 顶层对象块
+    --   - 键值块（传统形态）
+    -- 注：顶层标量不可往返（SML 顶层需为容器），这是格式固有限制。
+    local first = toks[1]
+    if first == "[" then
+      return (select(1, parse_array(toks, 2, fragments)))
+    elseif first == "{" then
+      return (select(1, parse_block(toks, 2, "}", fragments)))
+    end
     return (select(1, parse_block(toks, 1, nil, fragments)))
   end)
   if not ok2 then return nil, "parse: " .. tostring(node) end
@@ -378,7 +403,37 @@ function dump_inline(e, out)
   out[#out+1] = table.concat(parts, ", ")
 end
 
+-- 判定是否为「纯数组表」：键全为连续整数 1..n 且无 __type
+local function is_array_table(v)
+  if type(v) ~= "table" or v.__type ~= nil then return false end
+  local n = 0
+  for k in pairs(v) do
+    if type(k) ~= "number" or k ~= math.floor(k) or k < 1 then return false end
+    if k > n then n = k end
+  end
+  for i = 1, n do if v[i] == nil then return false end end
+  return n > 0
+end
+
 function Sml.dump(v)
+  -- 顶层数组直接走数组语法 `[ ... ]`，与 Rust/JS/C 实现对齐。
+  -- 此前会退化成键值形式输出 `1: { ... }`，导致 dump 与 load 不对称。
+  if is_array_table(v) then
+    local out = { "[\n" }
+    for _, e in ipairs(v) do
+      out[#out+1] = "  "
+      if type(e) == "table" then
+        out[#out+1] = "{ "
+        dump_inline(e, out)
+        out[#out+1] = " }\n"
+      else
+        dump_value(e, 1, out)
+        out[#out+1] = "\n"
+      end
+    end
+    out[#out+1] = "]\n"
+    return table.concat(out)
+  end
   local out = {}
   for k, val in pairs(v) do
     if k ~= "__type" and k ~= "__name" then

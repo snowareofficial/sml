@@ -1,4 +1,5 @@
 /*
+** SPDX-License-Identifier: MulanPSL-2.0
 ** sml.c — SML (SNOWARE Markup Language) 纯 C 实现
 **
 ** 零依赖 C99 单文件实现。API 见 sml.h。
@@ -272,7 +273,15 @@ static void lex_run(lexer *lx, const char *text) {
         else if (c == ']') { FLUSH(); lex_push(lx, T_RBRACK, NULL); p++; }
         else if (c == ',') { FLUSH(); lex_push(lx, T_COMMA, NULL); p++; }
         else if (c == ':') { FLUSH(); lex_push(lx, T_COLON, NULL); p++; }
-        else if (c == '@') { FLUSH(); lex_push(lx, T_AT, NULL); p++; }
+        /* `@` 仅当位于**词首**时才是片段定义标记（`@base { ... }`）。
+        ** 出现在词中间时（典型如邮箱 `a@b.c`）必须作为普通字符保留：
+        ** 否则 `a@b.c` 会被切成 WORD("a") + AT + WORD("b.c")，
+        ** 后半段在解析时被丢弃，导致邮箱静默损坏为 `a`。 */
+        else if (c == '@') {
+            if (blen == 0) { FLUSH(); lex_push(lx, T_AT, NULL); }
+            else { if (blen < sizeof(buf) - 1) buf[blen++] = c; }
+            p++;
+        }
         else if (c == ' ' || c == '\t' || c == '\n' || c == '\r') { FLUSH(); p++; }
         else {
             if (blen < sizeof(buf) - 1) buf[blen++] = c;
@@ -417,6 +426,20 @@ static sml_value *parse_block(parser *ps, tok_type closing) {
             token *ft = next(ps);
             if (ft->t != T_WORD && ft->t != T_STR) break;
             char *fname = ft->v;
+            /* `@version v1` 是版本声明指令，不是片段定义（与 Rust/Lua/JS 对齐）。
+            ** 版本声明不进主树；未声明时按 v1 处理。此前未处理会导致
+            ** `version` 被当作片段名、后续内容被整体吞掉。 */
+            if (strcmp(fname, "version") == 0) {
+                token *lit = next(ps);
+                if (lit->t != T_WORD && lit->t != T_STR) break;
+                if (strcmp(lit->v, "v1") != 0 && strcmp(lit->v, "1") != 0) {
+                    snprintf(ps->lx->errbuf ? ps->lx->errbuf : NULL,
+                             ps->lx->errsz,
+                             "sml: @version 须写作 `@version v1`；`version` 不可作为片段名");
+                    break;
+                }
+                continue;
+            }
             if (peek(ps)->t == T_COLON) next(ps);
             char *ftype = NULL, *farg = NULL;
             if (peek(ps)->t == T_WORD) {
@@ -509,7 +532,17 @@ sml_value *sml_parse(const char *text, char *err, size_t errsz) {
     memset(&ps, 0, sizeof(ps));
     ps.lx = &lx;
     ps.frags = NULL;
-    sml_value *v = parse_block(&ps, T_EOF);
+    /* 顶层支持三种形态，与 sml_dump 的输出对称：
+    **   - `[ ... ]` 数组：dump 对非对象输出顶层数组（如「历史记录」这类对象数组）。
+    **     此前顶层只认键值块，导致能序列化却读不回（"expected key"）。
+    **   - `{ ... }` 顶层对象块
+    **   - 键值块（传统形态）
+    ** 注：顶层标量不可往返（SML 顶层需为容器），这是格式固有限制。 */
+    sml_value *v;
+    tok_type first = peek(&ps)->t;
+    if (first == T_LBRACK) { next(&ps); v = parse_array(&ps); }
+    else if (first == T_LBRACE) { next(&ps); v = parse_block(&ps, T_RBRACE); }
+    else v = parse_block(&ps, T_EOF);
     /* 清理片段 (共享引用, 不 double free: 只释放链本身) */
     struct frag *f = ps.frags;
     while (f) { struct frag *nx = f->next; free(f->name); free(f); f = nx; }
