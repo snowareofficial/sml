@@ -4,7 +4,8 @@
 // 纯 JS、零依赖，Node ≥14 与浏览器均可用。语法与 Soup 生态的
 // lib/sml.soup (Lua) 及 sml-rs (Rust) 对齐：
 //   裸词字符串 / 引号串（转义 + $env 内联）/ true/false/null / 数字 /
-//   块 key { } / 裸块 type name { } / 数组 [ ] / 逗号可选 / # 注释 /
+//   块 key { } / 裸块 type name { } / 数组 [ ] / 逗号可选 /
+//   注释：单行 `#` 与 `--`，多行 `/* */` 与 `_* *_` /
 //   @name { } 片段定义 & 引用。
 //
 // API:
@@ -31,7 +32,25 @@ function tokenize(text) {
   while (i < n) {
     const c = text[i];
     if (c === "#") {
+      // 单行注释到行尾
       while (i < n && text[i] !== "\n") i++;
+    } else if (c === "-" && text[i + 1] === "-") {
+      // `--` 单行注释到行尾
+      while (i < n && text[i] !== "\n") i++;
+    } else if (c === "/" && text[i + 1] === "*") {
+      // `/*` 多行注释，直到 `*/`
+      i += 2;
+      while (i < n) {
+        if (text[i] === "*" && text[i + 1] === "/") { i += 2; break; }
+        i++;
+      }
+    } else if (c === "_" && text[i + 1] === "*") {
+      // `_*` 多行注释，直到 `*_`
+      i += 2;
+      while (i < n) {
+        if (text[i] === "*" && text[i + 1] === "_") { i += 2; break; }
+        i++;
+      }
     } else if (c === '"') {
       flush();
       const qStart = i;

@@ -17,8 +17,26 @@
   ],
   "repository": {
     "comment": {
-      "name": "comment.line.number-sign.sml",
-      "match": "#.*$"
+      "patterns": [
+        {
+          "name": "comment.line.number-sign.sml",
+          "match": "#.*$"
+        },
+        {
+          "name": "comment.line.double-dash.sml",
+          "match": "--.*$"
+        },
+        {
+          "name": "comment.block.slash-star.sml",
+          "begin": "/\\*",
+          "end": "\\*/"
+        },
+        {
+          "name": "comment.block.underscore-star.sml",
+          "begin": "_\\*",
+          "end": "\\*_"
+        }
+      ]
     },
     "contract": {
       "comment": "契约定义与类型关键字：@contract / @is / loose / 类型名 / 修饰符",

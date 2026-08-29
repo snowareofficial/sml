@@ -8,7 +8,7 @@
 --   3) 数组分隔灵活：`[ a b c ]`、每行一个、或 `{..}, {..}` 逗号可选。
 --   4) 片段继承：`@name { ... }` 定义片段，`&name` 引用（比 YAML anchor 直观）。
 --   5) 环境变量内联：`$env.VAR` 在标量值处展开为 os.getenv("VAR")。
---   6) `#` 行注释（JSON 不支持）。
+--   6) 注释：单行 `#` 与 `--`；多行 `/* */` 与 `_* *_`（JSON 不支持）。
 --   7) 类型自识别：true/false -> bool，null -> nil，数字 -> number，其余 -> string。
 --
 -- 语法（与用户给定示例一致）：
@@ -60,9 +60,31 @@ local function tokenize(text)
   end
   while i <= n do
     local c = string.sub(text, i, i)
+    local c2 = (i < n) and string.sub(text, i + 1, i + 1) or ""
     if c == "#" then
-      -- 行注释：跳到行尾
+      -- 单行注释：跳到行尾
       while i <= n and string.sub(text, i, i) ~= "\n" do i = i + 1 end
+    elseif c == "-" and c2 == "-" then
+      -- `--` 单行注释：跳到行尾
+      while i <= n and string.sub(text, i, i) ~= "\n" do i = i + 1 end
+    elseif c == "/" and c2 == "*" then
+      -- `/*` 多行注释，直到 `*/`
+      i = i + 2
+      while i <= n do
+        local a = string.sub(text, i, i)
+        local b = (i < n) and string.sub(text, i + 1, i + 1) or ""
+        if a == "*" and b == "/" then i = i + 2; break end
+        i = i + 1
+      end
+    elseif c == "_" and c2 == "*" then
+      -- `_*` 多行注释，直到 `*_`
+      i = i + 2
+      while i <= n do
+        local a = string.sub(text, i, i)
+        local b = (i < n) and string.sub(text, i + 1, i + 1) or ""
+        if a == "*" and b == "_" then i = i + 2; break end
+        i = i + 1
+      end
     elseif c == '"' then
       flush()
       local j = i + 1
