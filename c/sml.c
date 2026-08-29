@@ -10,6 +10,8 @@
 **   3. 递归下降解析 (块/数组/标量/片段)
 **   4. 序列化 (round-trip)
 **   5. JSON 桥 (C-ABI 兼容)
+**
+** 注释：单行 `#` 与 `--`；多行 `/* */` 与 `_* *_`(与 Rust/JS/Lua 实现对齐)
 */
 
 #include "sml.h"
@@ -241,7 +243,25 @@ static void lex_run(lexer *lx, const char *text) {
     while (*p) {
         char c = *p;
         if (c == '#') {
+            /* 单行注释到行尾 */
             while (*p && *p != '\n') p++;
+        } else if (c == '-' && p[1] == '-') {
+            /* `--` 单行注释到行尾 */
+            while (*p && *p != '\n') p++;
+        } else if (c == '/' && p[1] == '*') {
+            /* `/*` 多行注释，直到 `*\/` */
+            p += 2;
+            while (*p) {
+                if (*p == '*' && p[1] == '/') { p += 2; break; }
+                p++;
+            }
+        } else if (c == '_' && p[1] == '*') {
+            /* `_*` 多行注释，直到 `*_` */
+            p += 2;
+            while (*p) {
+                if (*p == '*' && p[1] == '_') { p += 2; break; }
+                p++;
+            }
         } else if (c == '"') {
             FLUSH();
             p++;
