@@ -1,0 +1,124 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "SML",
+  "scopeName": "source.sml",
+  "fileTypes": ["sml"],
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#contract" },
+    { "include": "#directive" },
+    { "include": "#string" },
+    { "include": "#envvar" },
+    { "include": "#fragment-ref" },
+    { "include": "#constant" },
+    { "include": "#number" },
+    { "include": "#key" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comment": {
+      "name": "comment.line.number-sign.sml",
+      "match": "#.*$"
+    },
+    "contract": {
+      "comment": "契约定义与类型关键字：@contract / @is / loose / 类型名 / 修饰符",
+      "patterns": [
+        {
+          "match": "(@contract)\\s+([A-Za-z_][\\w.-]*)?(\\s+(loose))?",
+          "captures": {
+            "1": { "name": "keyword.control.contract.sml" },
+            "2": { "name": "entity.name.type.contract.sml" },
+            "4": { "name": "keyword.other.loose.sml" }
+          }
+        },
+        {
+          "match": "(@is)\\s+([A-Za-z_][\\w.-]*)",
+          "captures": {
+            "1": { "name": "keyword.control.contract.sml" },
+            "2": { "name": "entity.name.type.contract.sml" }
+          }
+        },
+        {
+          "comment": "字段类型（契约体内）：str/int/num/bool/any/[T]/enum",
+          "match": "(?<=:)\\s*(enum|\\[|\\])\\b",
+          "name": "storage.type.sml"
+        },
+        {
+          "comment": "修饰符",
+          "match": "\\b(required|optional|default|min|max)\\b",
+          "name": "keyword.other.modifier.sml"
+        },
+        {
+          "comment": "类型名（仅当紧随冒号出现，避免误伤普通裸词值）",
+          "match": "(?<=:\\s)(str|int|num|bool|any)\\b",
+          "name": "storage.type.sml"
+        }
+      ]
+    },
+    "directive": {
+      "comment": "指令：@version / include",
+      "patterns": [
+        {
+          "match": "(@version)\\s+(v1|1)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.directive.sml" },
+            "2": { "name": "constant.other.version.sml" }
+          }
+        },
+        {
+          "match": "(@?include)\\s+(\"[^\"]*\"|[^\\s]+)",
+          "captures": {
+            "1": { "name": "keyword.control.import.sml" },
+            "2": { "name": "string.quoted.double.sml" }
+          }
+        },
+        {
+          "comment": "片段定义：@name",
+          "match": "(@)([A-Za-z_][\\w.-]*)",
+          "captures": {
+            "1": { "name": "keyword.other.fragment.sml" },
+            "2": { "name": "entity.name.fragment.sml" }
+          }
+        }
+      ]
+    },
+    "string": {
+      "name": "string.quoted.double.sml",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        { "name": "constant.character.escape.sml", "match": "\\\\." }
+      ]
+    },
+    "envvar": {
+      "name": "variable.other.env.sml",
+      "match": "\\$env\\.[A-Za-z_][\\w]*"
+    },
+    "fragment-ref": {
+      "name": "variable.other.fragment-ref.sml",
+      "match": "&[A-Za-z_][\\w.-]*"
+    },
+    "constant": {
+      "name": "constant.language.sml",
+      "match": "\\b(true|false|null)\\b"
+    },
+    "number": {
+      "name": "constant.numeric.sml",
+      "match": "(?<!\\w)-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?"
+    },
+    "key": {
+      "comment": "键名：位于行首或块内、其后跟冒号或裸块",
+      "match": "^\\s*([A-Za-z_][\\w.-]*)\\s*(?=:|\\s*\\{)",
+      "captures": {
+        "1": { "name": "variable.other.key.sml" }
+      }
+    },
+    "punctuation": {
+      "patterns": [
+        { "name": "punctuation.definition.block.sml", "match": "[{}]" },
+        { "name": "punctuation.definition.array.sml", "match": "[\\[\\]]" },
+        { "name": "punctuation.separator.key-value.sml", "match": ":" }
+      ]
+    }
+  }
+}
