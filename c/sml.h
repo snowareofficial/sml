@@ -1,4 +1,5 @@
 /*
+** SPDX-License-Identifier: MulanPSL-2.0
 ** sml.h — SML (SNOWARE Markup Language) 纯 C 实现
 **
 ** 声明式数据/配置格式 (JSON/YAML 替代品)。本文件为自包含 C99 实现，

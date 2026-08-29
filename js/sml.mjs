@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MulanPSL-2.0
 // SML — SNOWARE Markup Language (JavaScript 实现, ESM)
 //
 // 纯 JS、零依赖，Node ≥14 与浏览器均可用。语法与 Soup 生态的
@@ -21,8 +22,11 @@ function tokenize(text) {
   const n = text.length;
   let i = 0;
   let buf = "";
+  // bufStart 记录当前裸词的起始偏移，使每个 token 都带 pos（字符偏移）。
+  // 编辑器插件据此把解析错误定位到具体行列；纯解析场景下可忽略该字段。
+  let bufStart = 0;
   const flush = () => {
-    if (buf !== "") { toks.push({ t: "word", v: buf }); buf = ""; }
+    if (buf !== "") { toks.push({ t: "word", v: buf, pos: bufStart }); buf = ""; }
   };
   while (i < n) {
     const c = text[i];
@@ -30,8 +34,9 @@ function tokenize(text) {
       while (i < n && text[i] !== "\n") i++;
     } else if (c === '"') {
       flush();
+      const qStart = i;
       let s = "";
-      i++;
+      i++; // 跳过开引号
       while (i < n) {
         const cc = text[i];
         if (cc === '"') { i++; break; }
@@ -42,18 +47,38 @@ function tokenize(text) {
           i++;
         } else { s += cc; i++; }
       }
-      toks.push({ t: "str", v: s });
+      toks.push({ t: "str", v: s, pos: qStart });
     } else if ("{}[]:,".includes(c)) {
       flush();
-      toks.push({ t: c });
+      toks.push({ t: c, v: c, pos: i });
+      i++;
+    } else if (c === "@") {
+      // `@` 仅当位于**词首**时才是片段定义标记（`@base { ... }`）。
+      // 出现在词中间时（典型如邮箱 `a@b.c`）必须作为普通字符保留，
+      // 否则邮箱会被截断。此前 JS 完全不识别 `@`，导致片段定义失效。
+      if (buf === "") { toks.push({ t: "@", v: "@", pos: i }); }
+      else { buf += c; }
       i++;
     } else if (" \t\n\r".includes(c)) {
       flush();
       i++;
-    } else { buf += c; i++; }
+    } else {
+      // 开始累积新裸词时记录其起始偏移
+      if (buf === "") bufStart = i;
+      buf += c; i++;
+    }
   }
   flush();
   return toks;
+}
+
+/// 把字符偏移换算为 { line, col }（均从 0 起），供编辑器定位诊断。
+export function offsetToPosition(text, offset) {
+  const clamped = Math.max(0, Math.min(offset, text.length));
+  const before = text.slice(0, clamped);
+  const line = (before.match(/\n/g) || []).length;
+  const lastNl = before.lastIndexOf("\n");
+  return { line, col: clamped - (lastNl + 1) };
 }
 
 // ---------------------------------------------------------------------------
@@ -92,6 +117,15 @@ export function parse(text) {
   const fragments = new Map();
   let i = 0;
   const peek = () => toks[i];
+  // 抛出带位置（字符偏移）的错误。编辑器插件借此把诊断定位到精确行列；
+  // 纯解析场景下 e.pos 可忽略，错误消息文本保持不变。
+  const fail = (msg) => {
+    const t = toks[i];
+    const pos = t && typeof t.pos === "number" ? t.pos : (toks[toks.length - 1]?.pos ?? 0);
+    const e = new Error(msg);
+    e.pos = pos;
+    throw e;
+  };
 
   function parseBlock(closing) {
     const node = {};
@@ -108,9 +142,21 @@ export function parse(text) {
       }
       if (tok.t === ",") { i++; continue; }
       if (tok.t === "@") {
-        // @name [type [name]] { ... } 片段定义
         i++;
-        const fname = (peek() && peek().v) ?? (() => { throw new Error("sml: @ 后需片段名"); })();
+        if (!peek()) fail("sml: @ 后需片段名");
+        const fname = peek().v;
+        // `@version v1` 是版本声明指令，不是片段定义（与 Rust 实现对齐）。
+        // 版本声明不进主树；未声明时按 v1 处理。
+        if (fname === "version") {
+          i++;
+          const lit = (peek() && peek().v) ?? "";
+          if (lit !== "v1" && lit !== "1") {
+            fail("sml: @version 须写作 `@version v1`；`version` 不可作为片段名");
+          }
+          i++;
+          continue;
+        }
+        // @name [type [name]] { ... } 片段定义
         i++;
         if (peek() && peek().t === ":") i++;
         let ftype = null, farg = null;
@@ -128,7 +174,7 @@ export function parse(text) {
       }
       // key
       const key = (peek() && peek().v);
-      if (key === undefined) throw new Error("sml: 期望键");
+      if (key === undefined) fail("sml: 期望键");
       i++;
       let colon = false;
       if (peek() && peek().t === ":") { colon = true; i++; }
@@ -194,12 +240,35 @@ export function parse(text) {
     return arr;
   }
 
+  // 顶层支持三种形态，与 stringify 的输出对称：
+  //   - `[ ... ]` 数组：stringify 对数组输出顶层数组（如「历史记录」这类对象数组）。
+  //     此前顶层只认键值块，导致能序列化却读不回（"sml: 期望键"）。
+  //   - `{ ... }` 顶层对象块
+  //   - 键值块（传统形态）
+  // 注：顶层标量不可往返（SML 顶层需为容器），这是格式固有限制。
+  const first = peek();
+  if (first && first.t === "[") { i++; return parseArray(); }
+  if (first && first.t === "{") { i++; return parseBlock("}"); }
   return parseBlock(null);
 }
 
+/// 安全解析，不抛异常。
+/// 失败时返回 `{ ok:false, error, pos, position }`：
+/// - `pos`：出错处的字符偏移（来自 token 位置记录）
+/// - `position`：`{ line, col }`（从 0 起），可直接喂给编辑器做诊断；
+///   若插件更倾向自行换算，可用 `offsetToPosition(text, pos)`
 export function parseSafe(text) {
   try { return { ok: true, value: parse(text) }; }
-  catch (e) { return { ok: false, error: String(e && e.message || e) }; }
+  catch (e) {
+    const msg = String((e && e.message) || e);
+    const pos = typeof e?.pos === "number" ? e.pos : null;
+    return {
+      ok: false,
+      error: msg,
+      pos,
+      position: pos == null ? null : offsetToPosition(text, pos),
+    };
+  }
 }
 
 // ---------------------------------------------------------------------------
