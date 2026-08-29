@@ -4,6 +4,6 @@
   "entry": "main.lua",
   "description": "sml (SNOWARE Markup Language): 声明式数据/配置格式，JSON/YAML 替代品",
   "platforms": ["linux", "macos", "windows"],
-  "license": "MIT",
+  "license": "MulanPSL-2.0",
   "api": ["sml.load(text)", "sml.dump(value)"]
 }

@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: MulanPSL-2.0
 -- sml-lib 入口（.sar 归档入口）
 -- 设置 package.path 使其 lib/ 可被 require，并暴露 sml API。
 -- 直接运行 soupx sml.sar 时打印版本并演示一次解析。
