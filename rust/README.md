@@ -85,6 +85,31 @@ contact {
 }
 ```
 
+## 注释
+
+SML 支持四种注释，单行两种、多行两种：
+
+```sml
+# 单行注释（到行尾）
+
+-- 另一种单行注释（到行尾）
+
+/* 多行注释
+   可跨行
+   块内也可使用 */
+
+_* 另一种多行注释
+   以 *_ 结束 *_
+
+server {
+    port: 8080 -- 行内注释
+    /* 多行注释也能出现在块或数组里 */
+    hosts: [ a -- 主 b # 备 ]
+}
+```
+
+> 注意：`--`、`/*`、`_* ` 仅在组合出现时才是注释；单个 `-`、`/`、`_` 仍按普通字符处理（如 `a/b/c`、`my-word`、`foo_bar`）。
+
 ## 特性
 
 | 特性 | 说明 |
@@ -98,6 +123,7 @@ contact {
 | 版本声明 | `@version v1`，便于将来演进不破坏旧文档 |
 | 环境变量内联 | `$env.VAR` |
 | 类型自识别 | `true/false/null` / 数字 / 字符串 |
+| 注释 | 单行 `#` 与 `--`；多行 `/* */` 与 `_* *_` |
 
 ## 数据类型
 
@@ -404,6 +430,32 @@ contact {
 }
 ```
 
+## Comments
+
+SML supports four comment styles: two single-line and two multi-line:
+
+```sml
+# single-line comment (to end of line)
+
+-- another single-line comment (to end of line)
+
+/* multi-line comment
+   spanning lines
+   also usable inside blocks */
+
+_* another multi-line comment
+   ended by *_ *_
+
+server {
+    port: 8080 -- inline comment
+    /* multi-line comments also work inside blocks / arrays */
+    hosts: [ a -- primary b # backup ]
+}
+```
+
+> Note: `--`, `/*`, `_*` are only comments as combinations; a lone `-`, `/`, or `_`
+> is still an ordinary character (e.g. `a/b/c`, `my-word`, `foo_bar`).
+
 ## Features
 
 | Feature | Description |
@@ -417,6 +469,7 @@ contact {
 | Version declaration | `@version v1` for forward-compatible evolution |
 | Env var inlining | `$env.VAR` |
 | Type inference | `true/false/null` / numbers / strings |
+| Comments | single-line `#` and `--`; multi-line `/* */` and `_* *_` |
 
 ## Data types
 

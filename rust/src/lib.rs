@@ -407,11 +407,64 @@ fn tokenize(text: &str) -> Result<Vec<Tok>, String> {
     while let Some(c) = chars.next() {
         match c {
             '#' => {
-                // 注释到行尾
+                // 单行注释到行尾
                 for c2 in chars.by_ref() {
                     if c2 == '\n' {
                         break;
                     }
+                }
+            }
+            '-' => {
+                // `--` 单行注释到行尾；否则作为普通字符
+                if chars.peek() == Some(&'-') {
+                    chars.next(); // 吃掉第二个 -
+                    for c2 in chars.by_ref() {
+                        if c2 == '\n' {
+                            break;
+                        }
+                    }
+                } else {
+                    buf.push(c);
+                }
+            }
+            '/' => {
+                // `/*` 多行注释，直到 `*/`；否则作为普通字符
+                if chars.peek() == Some(&'*') {
+                    chars.next(); // 吃掉 *
+                    loop {
+                        match chars.next() {
+                            Some('*') => {
+                                if chars.peek() == Some(&'/') {
+                                    chars.next();
+                                    break;
+                                }
+                            }
+                            Some(_) => {}
+                            None => break,
+                        }
+                    }
+                } else {
+                    buf.push(c);
+                }
+            }
+            '_' => {
+                // `_*` 多行注释，直到 `*_`；否则作为普通字符
+                if chars.peek() == Some(&'*') {
+                    chars.next(); // 吃掉 *
+                    loop {
+                        match chars.next() {
+                            Some('*') => {
+                                if chars.peek() == Some(&'_') {
+                                    chars.next();
+                                    break;
+                                }
+                            }
+                            Some(_) => {}
+                            None => break,
+                        }
+                    }
+                } else {
+                    buf.push(c);
                 }
             }
             '"' => {
