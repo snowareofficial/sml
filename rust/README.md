@@ -137,6 +137,13 @@ server web {
 | 类型自识别 | `true/false/null` / 数字 / 字符串 |
 | 注释 | 单行 `#`、`--` 与 `//`；多行 `/* */` 与 `_* *_` |
 
+### Rust edition 兼容
+
+本 crate 的源码**同时兼容 Rust 2021 与 2024**：`Cargo.toml` 的 `edition` 字段可在二者间自由切换，无需改动任何 Rust 代码。
+
+- 切换方法：编辑 `rust/Cargo.toml`，将 `edition = "2021"` 改为 `"2024"`（或反之）。
+- 原理：`build.rs` 会读取该 `edition` 字段，在 2024 时输出 `cfg(edge2024)`；`lib.rs` 据此选用 `#[unsafe(no_mangle)]`（2024 要求）或 `#[no_mangle]`（2021 语法）。`std::env::set_var` 自 Rust 1.85 起为 `unsafe`，与 edition 无关，两版均保留 `unsafe { }`。
+
 ## 数据类型
 
 SML 是**纯数据格式**，值模型与 JSON 同构，共 7 种：
@@ -496,6 +503,13 @@ server web {
 | Env var inlining | `$env.VAR` |
 | Type inference | `true/false/null` / numbers / strings |
 | Comments | single-line `#`, `--` and `//`; multi-line `/* */` and `_* *_` |
+
+### Rust edition compatibility
+
+This crate's source is **compatible with both Rust 2021 and 2024**: you may switch the `edition` field in `Cargo.toml` between the two without touching any Rust code.
+
+- To switch: edit `rust/Cargo.toml` and change `edition = "2021"` to `"2024"` (or vice versa).
+- How it works: `build.rs` reads that `edition` field and emits `cfg(edge2024)` when it is `2024`; `lib.rs` then picks `#[unsafe(no_mangle)]` (required by 2024) or `#[no_mangle]` (2021 syntax). `std::env::set_var` has been `unsafe` since Rust 1.85 regardless of edition, so the `unsafe { }` wrapper is kept in both.
 
 ## Data types
 
