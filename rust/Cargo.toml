@@ -1,10 +1,15 @@
+# workspace 根：主 crate swsml + 过程宏 crate swsml-derive
+[workspace]
+members = [".", "derive"]
+resolver = "2"
+
 [package]
 # 包名用 swsml：crates.io 上 `sml-rs` 已被无关项目占用
 # （Smart Message Language 智能电表协议解析器，github.com/felixwrt/sml-rs）。
 # lib 名仍为 `sml`，因此调用方 `use sml::{...}` 不受影响。
 name = "swsml"
-version = "0.1.0"
-edition = "2021"
+version = "0.2.0"
+edition = "2024"
 description = "SML (SNOWARE Markup Language) — declarative data/config format, a JSON/YAML alternative"
 license = "MulanPSL-2.0"
 repository = "https://gitee.com/snoware/sml"
@@ -22,16 +27,24 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 # 可选：启用 serde 支持后可直接与 serde_json / serde_yaml / toml 等互操作。
-# 默认关闭，使 crate 保持零依赖。
 serde = { version = "1", optional = true }
+# derive 宏（SmlSerialize / SmlDeserialize）：默认启用。
+# 宏生成的代码只依赖主 crate 的 trait 与 __private 辅助，运行时零额外依赖；
+# 不需要宏时可用 `default-features = false` 关闭，使 crate 回到完全零依赖。
+swsml-derive = { version = "0.1.0", path = "derive", optional = true }
 
 [features]
 # 不加 feature 时为零依赖；启用后 Value 实现 Serialize/Deserialize
 serde = ["dep:serde"]
+# 提供 #[derive(SmlSerialize, SmlDeserialize)] 自然序列化宏
+derive = ["dep:swsml-derive"]
+default = ["derive"]
 
 [dev-dependencies]
 # 仅测试与示例需要
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+toml = "0"
 
 # 兼容 Soup 的 Lua 实现（lib/sml.soup）语法语义：
 #   裸词字符串 / 引号串（转义 + $env 内联）/ true/false/null /
