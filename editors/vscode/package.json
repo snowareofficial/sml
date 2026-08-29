@@ -1,0 +1,69 @@
+{
+  "name": "sml-lang",
+  "displayName": "SML (SNOWARE Markup Language)",
+  "description": "SML 语言支持：语法高亮、错误提示、补全、悬浮说明与格式化",
+  "version": "0.1.0",
+  "publisher": "snoware",
+  "license": "MulanPSL-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/snoware/sml.git",
+    "directory": "editors/vscode"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "sml",
+    "snoware",
+    "markup",
+    "configuration"
+  ],
+  "main": "./src/extension.js",
+  "activationEvents": [
+    "onLanguage:sml"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "sml",
+        "aliases": [
+          "SML",
+          "sml"
+        ],
+        "extensions": [
+          ".sml"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "sml",
+        "scopeName": "source.sml",
+        "path": "./syntaxes/sml.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "SML",
+      "properties": {
+        "sml.diagnostics.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "编辑 .sml 文件时实时显示解析错误"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "sync-parser": "python scripts/sync-parser.py",
+    "package": "npm run sync-parser && npx --yes @vscode/vsce package",
+    "install-local": "npm run package && code --install-extension sml-lang-0.1.0.vsix --force"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0"
+  }
+}
