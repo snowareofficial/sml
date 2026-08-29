@@ -1424,7 +1424,8 @@ fn cstr(s: &str) -> *mut c_char {
 }
 
 /// sml_parse(text) -> 返回 JSON 字符串 (调用方 sml_free 释放); 失败返回 NULL
-#[unsafe(no_mangle)]
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
 pub extern "C" fn sml_parse(text: *const c_char) -> *mut c_char {
     if text.is_null() {
         return ptr::null_mut();
@@ -1437,7 +1438,8 @@ pub extern "C" fn sml_parse(text: *const c_char) -> *mut c_char {
 }
 
 /// sml_dump(json) -> 接受 JSON 字符串, 序列化为 SML; 调用方 sml_free
-#[unsafe(no_mangle)]
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
 pub extern "C" fn sml_dump(json: *const c_char) -> *mut c_char {
     if json.is_null() {
         return ptr::null_mut();
@@ -1450,7 +1452,8 @@ pub extern "C" fn sml_dump(json: *const c_char) -> *mut c_char {
 }
 
 /// sml_free(p): 释放由 sml_parse / sml_dump 返回的字符串
-#[unsafe(no_mangle)]
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_free(p: *mut c_char) {
     if !p.is_null() {
         drop(unsafe { std::ffi::CString::from_raw(p) });
@@ -1458,7 +1461,8 @@ pub unsafe extern "C" fn sml_free(p: *mut c_char) {
 }
 
 /// sml_version() -> 版本字符串 (调用方 sml_free)
-#[unsafe(no_mangle)]
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
 pub extern "C" fn sml_version() -> *mut c_char {
     cstr(concat!("sml ", env!("CARGO_PKG_VERSION")))
 }
@@ -3532,7 +3536,7 @@ mod tests {
 
     #[test]
     fn env_inline() {
-        // Rust 2024 edition 下 set_var 为 unsafe（1.85+）
+        // Rust 1.85+ 起 set_var 为 unsafe（与 edition 无关，2021/2024 均需）
         unsafe { std::env::set_var("SML_TEST_VAR", "hello") };
         let text = "greeting: $env.SML_TEST_VAR\n";
         let v = parse(text).unwrap();
