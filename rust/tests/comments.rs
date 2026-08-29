@@ -26,6 +26,17 @@ b: 2 -- 另一个",
 }
 
 #[test]
+fn single_slash_slash_line_comment() {
+    let v = parse(
+        "a: 1 // C 风格行尾注释
+b: 2 // 另一个",
+    )
+    .unwrap();
+    assert_eq!(v.get("a").unwrap(), &sml::Value::Int(1));
+    assert_eq!(v.get("b").unwrap(), &sml::Value::Int(2));
+}
+
+#[test]
 fn multi_block_slash_star() {
     let text = "/*
   多行注释

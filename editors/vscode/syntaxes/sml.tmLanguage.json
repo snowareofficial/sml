@@ -27,6 +27,10 @@
           "match": "--.*$"
         },
         {
+          "name": "comment.line.double-slash.sml",
+          "match": "//.*$"
+        },
+        {
           "name": "comment.block.slash-star.sml",
           "begin": "/\\*",
           "end": "\\*/"
