@@ -376,18 +376,61 @@ cargo run --example derive_demo                     # derive 宏「自然」序�
 
 ## C-ABI（供 C / C++ / 其他语言调用）
 
-`crate-type` 含 `cdylib`，编译后可直接链接。返回的 `*mut c_char` 一律由 `sml_free` 释放；
-失败返回 `NULL`。
+`crate-type` 含 `cdylib`，编译后可直接链接。有两套 API，**推荐用值树版**：
+
+- **值树 API**（`sml_loads` / `sml_load_file` / `sml_get` …）：直接遍历结果，**C
+  侧不需要任何 JSON 库**。错误通过 `sml_error` 给出行号、列号、来源文件。
+- **JSON 字符串 API**（`sml_parse` / `sml_parse_file` / `sml_parse_ex`）：直接产出
+  JSON 文本，适合宿主已有 JSON 处理流程的场景。
+
+### 值树 API
 
 | 函数 | 说明 |
 |---|---|
-| `sml_parse(text)` | 解析文本 → JSON 字符串 |
-| `sml_parse_file(path)` | 解析文件 → JSON 字符串，带文件上下文，自动处理 `include` / glob / `@contract` |
-| `sml_parse_ex(text, opts_json)` | 增强版：可启用特性、注入环境变量、限定版本（见下） |
-| `sml_dump(json)` | JSON 字符串 → SML |
-| `sml_features()` | 返回支持的特性名 JSON 数组，如 `["include","env","contract","glob-include",...]` |
-| `sml_version()` | 版本字符串 |
-| `sml_free(p)` | 释放上述函数返回的字符串 |
+| `sml_loads(text, flags, err)` | 解析文本 → 值树；失败返回 `NULL` 并填充 `err` |
+| `sml_load_file(path, flags, err)` | 解析文件 → 值树，展开 `include`（相对路径以文件所在目录为基准） |
+| `sml_get` / `sml_get_path` / `sml_at` | 取子节点（**借用**，不可释放，随根节点失效） |
+| `sml_typeof` / `sml_size` | 类型判别、元素个数 |
+| `sml_str_dup` / `sml_str_copy` / `sml_int_value` / `sml_real_value` / `sml_bool_value` | 标量取值 |
+| `sml_str_in` / `sml_int_in` / `sml_bool_in` | 按 `a.b.c` 路径单行取值（tomlc99 风格） |
+| `sml_dumps(v, flags)` | 值树 → SML 文本 |
+| `sml_free(v)` | 释放值树根节点（NULL 安全） |
+| `sml_free_str(p)` | 释放返回的字符串（NULL 安全） |
+| `sml_version()` / `sml_features_mask()` / `sml_feature_name(bit)` | 元数据 |
+
+生命周期三条规则：根节点用 `sml_free`；借用指针**不可**释放且随根节点失效；
+所有 `char*` 输出用 `sml_free_str`。
+
+```c
+#include "sml_rs.h"
+
+sml_error err;
+sml_value *root = sml_load_file("app.sml", 0, &err);
+if (!root) {
+    fprintf(stderr, "%s:%d: %s\n", err.source, err.line, err.text);
+    return 1;
+}
+
+char  *host = sml_str_in(root, "server.host");   /* "a.b.c" 一行取到 */
+int    ok   = 0;
+long long port = sml_int_in(root, "server.port", &ok);
+
+sml_free_str(host);
+sml_free(root);                                  /* 借用指针随之失效 */
+```
+
+`flags` 是位标志（`SML_F_INCLUDE` / `SML_F_ENV` / `SML_F_CONTRACT` /
+`SML_F_GLOB_INCLUDE` …，见 `sml_rs.h`）。`flags == 0` 表示默认基线；
+非 0 时按位精确构造，可用于收紧文档允许使用的特性（沙箱场景）。
+
+### JSON 字符串 API
+
+| 函数 | 说明 |
+|---|---|
+| `sml_parse(text)` / `sml_parse_file(path)` | → JSON 字符串 |
+| `sml_parse_ex(text, opts_json)` | 增强版，见下 |
+| `sml_dump(json)` | JSON → SML |
+| `sml_features()` | 特性名 JSON 数组 |
 
 `sml_parse_ex` 的 `opts_json` 三个可选字段：
 
@@ -405,18 +448,16 @@ cargo run --example derive_demo                     # derive 宏「自然」序�
 
 任一环节失败（语法错误 / 版本不符 / 特性越权 / 文件缺失）均返回 `NULL`。
 
-```c
-#include "sml_rs.h"
+### 与原生 C 实现的取舍
 
-char *json = sml_parse_file("app.sml");
-if (json) { puts(json); sml_free(json); }
+`sml_rs.h`（桥接本 crate）与 `sml.h`（纯 C99 自包含实现）是**两个互斥后端**，
+二选一链接，**不可同时 include**——两者的值模型不同。
 
-char *opts = "{\"env\":{\"APP_ENV\":\"prod\"}}";
-char *out  = sml_parse_ex(text, opts);
-```
+- `sml.h`：零依赖，基础特性集，适合嵌入式 / 不想引入 Rust 运行时的场景
+- `sml_rs.h`：v3 全集（`$env` 内联、glob-include、`@feature`、`@contract`）
 
-C / C++ 桥接头文件与示例见 `../c/sml_rs.h`、`../cpp/sml_rs.hpp`（与原生
-`sml.h` / `sml.hpp` 并存，互不干扰）。
+两者刻意保持命名与语义对齐（`sml_free` 释放值树、`sml_free_str` 释放字符串），
+切换后端时改动很小。
 
 > 注意：`sml_parse_ex` 的 `env` 注入会临时改进程环境，**非并发安全**，
 > 请在 FFI 同步调用的前提下使用。
