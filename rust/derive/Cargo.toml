@@ -1,0 +1,28 @@
+# 包名用 swsml-derive：SML (SNOWARE Markup Language) 的过程宏 crate。
+# 由主 crate swsml 的 `derive` feature 引入；宏生成的代码只依赖主 crate 的
+# SmlSerialize / SmlDeserialize trait 与 sml::__private 辅助，运行时零额外依赖。
+[package]
+name = "swsml-derive"
+version = "0.5.5"
+edition = "2021"
+description = "Derive macros (SmlSerialize / SmlDeserialize) for SML (SNOWARE Markup Language)"
+license = "MulanPSL-2.0"
+repository = "https://gitee.com/snoware/sml"
+homepage = "https://sml.swebase.cn"
+readme = "../README.md"
+authors = ["SNOWARE"]
+keywords = ["sml", "snoware", "derive", "serialize", "deserialize"]
+categories = ["parser-implementations", "config"]
+exclude = ["/target"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }
+
+[dev-dependencies]
+# 让 crate 顶部文档中的 derive 示例可通过 doctest 编译运行
+swsml = { path = "..", features = ["derive"] }
