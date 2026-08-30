@@ -1,5 +1,6 @@
 ---
 title: "序章：为什么是 SML"
+translationKey: "book-intro"
 ---
 
 # 序章：为什么是 SML

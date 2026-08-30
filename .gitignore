@@ -27,3 +27,8 @@ site/build_site.log
 site/hugo_server.log
 site/hugo_server.err
 
+# 百度翻译 API 凭据（含密钥，切勿提交）
+.baidu.env
+site/.baidu.env
+*.baidu.env
+

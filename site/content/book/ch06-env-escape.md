@@ -1,5 +1,6 @@
 ---
 title: "第 6 章：环境变量与转义"
+translationKey: "book-ch06"
 ---
 
 # 第 6 章：环境变量与转义

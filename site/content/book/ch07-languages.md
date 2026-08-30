@@ -1,5 +1,6 @@
 ---
 title: "第 7 章：多语言使用"
+translationKey: "book-ch07"
 ---
 
 # 第 7 章：多语言使用

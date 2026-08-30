@@ -1,174 +1,131 @@
-<!DOCTYPE html>
+<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>SML Textbook · SML { ❄ } — SNOWARE Markup Language</title><style>body{font-family:system-ui,microsoft yahei,sans-serif;margin:0;background:#fafafa;color:#111}header{background:#111;color:#fff;padding:18px 32px;display:flex;align-items:center;gap:12px}header h1{margin:0;font-size:20px}header a{color:#fff;text-decoration:none}header .flake{color:#42a5f5;font-size:22px}header .lang-switch{margin-left:auto;display:flex;gap:6px}header .lang-switch a{color:#90caf9;font-size:13px;padding:4px 10px;border:1px solid #333;border-radius:6px;text-decoration:none}header .lang-switch a.active{background:#1565c0;color:#fff;border-color:#1565c0}nav{background:#1c1c1c;padding:8px 32px;position:sticky;top:0;z-index:10;display:flex;flex-wrap:wrap;gap:4px 18px}nav a{color:#90caf9;text-decoration:none;font-size:14px}nav a:hover{text-decoration:underline}nav .home{color:#fff;font-weight:600}main{max-width:880px;margin:24px auto;padding:0 24px}h2{scroll-margin-top:56px}article{background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:24px 32px}h1,h2,h3{color:#0d47a1}h2{border-bottom:2px solid #42a5f5;padding-bottom:6px}code{background:#eef4fb;padding:2px 6px;border-radius:4px;font-size:.9em;color:#1565c0}pre{background:#111;color:#e8f1fb;padding:12px;border-radius:6px;overflow-x:auto}pre code{background:0 0;color:inherit}table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#eef4fb;color:#0d47a1}.links{display:flex;gap:12px;margin:16px 0}.btn{display:inline-block;background:#1565c0;color:#fff;padding:10px 22px;border-radius:8px;text-decoration:none;font-weight:600}.btn:hover{background:#0d47a1}footer{text-align:center;padding:24px;color:#666;font-size:13px}</style></head><body><header><img src=../../sml.svg alt=sml style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))"><h1><a href=../../>SML { ❄ }</a></h1><span class=lang-switch><a href=../../>中文</a>
+<a href=../../en/ class=active>EN</a></span></header><nav><a class=home href=../../>SML</a>
+<a href=../../book/>Textbook</a>
+<a href=../../playground/>Playground</a></nav><main><article class=list><h1>SML Textbook</h1><h1 id=sml-textbook-->SML Textbook{ ❄ }</h1><p>Welcome to the official textbook of SML (SNOWARE Markup Language).</p><p>This is a progressive and beginner oriented textbook, which can also be used as a reference book for reading at any time. Whether or not you have used JSON/YAML/TOML, you can learn to write configurations and describe data using SML from scratch.</p><blockquote><p>One sentence understanding of SML: It is a declarative data/configuration format that writes configurations like notes - quotation marks can be omitted, commas can be omitted, and the structure is delimited by curly braces <code>{}</code>.</p></blockquote><h2 id=how-to-read-this-book>How to read this book</h2><p>-<strong>Zero Foundation</strong>: Starting from Chapter 1, read one chapter after another, with each chapter having a &ldquo;hands-on try&rdquo;.</p><p>-<strong>Experienced</strong>: Skip directly to chapters 4-5 to see advanced abilities such as include/contract.</p><p>-<strong>Check usage</strong>: Use the following table of contents to jump to the corresponding chapter, or read the &ldquo;Comparison Table/Error Troubleshooting&rdquo; in the appendix.</p><p>catalogue</p><table><thead><tr><th>Chapter</th><th>Theme</th><th>You will learn</th></tr></thead><tbody><tr><td><a href=../../en/book/intro/>Preface</a></td><td>Why SML</td><td>What problem does it solve and the difference between it and JSON/YAML</td></tr><tr><td>[Chapter 1](/en/book/ch01 basics)</td><td>First SML file</td><td>Key value pairs, comments, scalar types (string/number/pool/null)</td></tr><tr><td>[Chapter 2](/en/book/ch02 blocks)</td><td>Blocks and Nests</td><td>Object Blocks, Arrays, Colons Can Be Saved, Nested Structures</td></tr><tr><td>[Chapter 3](/en/book/ch03 tags)</td><td>Fragment Inheritance</td><td><code>@base</code> Definition, <code>&amp;base</code> Reference, Configuration Reuse</td></tr><tr><td>[Chapter 4](/en/book/ch04 include)</td><td>Include and namespace</td><td>Split files, <code>as ns</code> isolation, <code>import</code> alias</td></tr><tr><td>[Chapter 5](/en/book/ch05 contract)</td><td>Contract System</td><td><code>@contract</code>/<code>@is</code>, Type, Default Value, Enumeration, Interval, Combination</td></tr><tr><td>[Chapter 6](/en/book/ch06-env escape)</td><td>Environment Variables and Escaping</td><td><code>$env</code> Injection, <code>\u</code> and <code>\n</code> Escaping</td></tr><tr><td>[Chapter 7](/en/book/ch07 languages)</td><td>Multilingual use</td><td>How to integrate SML with Rust/C/JS/Lua</td></tr><tr><td>[Chapter 8](/en/book/ch08 project)</td><td>Practical: Complete Project</td><td>A Near Real Deployment Configuration Example</td></tr><tr><td>[Chapter 9](/en/book/ch09 advanced)</td><td>Advanced: Function combination</td><td>include/contract/fragment/$env combination, 8 design patterns</td></tr><tr><td>[Chapter 10](/en/book/ch10 features)</td><td>Complete Reference for Features</td><td>Switches, Syntax, Errors, Compatibility Matrix for Each Feature</td></tr><tr><td><a href=../../en/book/appendix/>Appendix</a></td><td>Comparison and troubleshooting</td><td>Comparison with JSON/YAML/TOML, common errors</td></tr></tbody></table><h2 id=agreement>Agreement</h2><p>-All examples are <strong>real and parsed</strong> SML text.</p><p>-The code block labeled <code>sml</code> is the SML source code; The annotations <code>rust</code>/<code>js</code>/<code>c</code>/<code>lua</code> are host language calls.</p><p>-In the example, <code>#</code>, <code>--</code>, and <code>//</code> are all comments, which can be written in any way.</p><p>are you ready? Let&rsquo;s start with the prologue (/book/intro).</p><h2 id=hands-on-practice>Hands on practice</h2><p>After reading this chapter, directly modify SML in the editor below and click &ldquo;Run&rdquo; to immediately see the parsing results or validation errors - having output is necessary for efficient learning.</p><div class=sml-pg data-lesson=intro><div class=sml-pg-task><span class=sml-pg-task-tag>✍ 动手练习</span>
+<span class=sml-pg-task-text>写出一个 SML 配置：包含 <b>name</b>（字符串 gateway）、<b>port</b>（整数 8080）、<b>debug</b>（布尔 true）、<b>tags</b>（数组含 logging 与 metrics）。写完点「验证」，再看解析结果。</span><div class=sml-pg-hint>💡 提示：试着把 port 改成 "8080"（加引号），验证会告诉你它不是整数 8080。</div></div><div class=sml-pg-main><textarea class=sml-pg-code spellcheck=false data-files=null>name: gateway
+port: 8080
+debug: true
+tags: [ logging metrics ]</textarea></div><div class=sml-pg-actions><button class=sml-pg-run type=button>运行 ▶</button>
+<button class=sml-pg-verify type=button>验证 ✓</button>
+<button class=sml-pg-reset type=button>重置</button>
+<span class=sml-pg-status></span></div><pre class=sml-pg-out hidden></pre></div><script type=module>
+  import { parseSafe } from "/sml.mjs";
+  import { VERIFIERS } from "/sml-verify.js";
+  document.querySelectorAll('.sml-pg[data-lesson="intro"]').forEach((box) => {
+    const ta = box.querySelector(".sml-pg-code");
+    const out = box.querySelector(".sml-pg-out");
+    const status = box.querySelector(".sml-pg-status");
+    const runBtn = box.querySelector(".sml-pg-run");
+    const verifyBtn = box.querySelector(".sml-pg-verify");
+    const resetBtn = box.querySelector(".sml-pg-reset");
+    const init = ta.value;
 
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SML Textbook · SML { ❄ } — SNOWARE Markup Language</title>
-  <style>
-    body { font-family: system-ui, "Microsoft YaHei", sans-serif; margin: 0; background: #fafafa; color: #111; }
-    header { background: #111; color: #fff; padding: 18px 32px; display: flex; align-items: center; gap: 12px; }
-    header h1 { margin: 0; font-size: 20px; }
-    header a { color: #fff; text-decoration: none; }
-    header .flake { color: #42A5F5; font-size: 22px; }
-    header .lang-switch { margin-left: auto; display: flex; gap: 6px; }
-    header .lang-switch a { color: #90caf9; font-size: 13px; padding: 4px 10px; border: 1px solid #333; border-radius: 6px; text-decoration: none; }
-    header .lang-switch a.active { background: #1565C0; color: #fff; border-color: #1565C0; }
-    nav { background: #1c1c1c; padding: 8px 32px; position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 4px 18px; }
-    nav a { color: #90caf9; text-decoration: none; font-size: 14px; }
-    nav a:hover { text-decoration: underline; }
-    nav .home { color: #fff; font-weight: 600; }
-    main { max-width: 880px; margin: 24px auto; padding: 0 24px; }
-     
-    h2 { scroll-margin-top: 56px; }
-    article { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 24px 32px; }
-    h1, h2, h3 { color: #0d47a1; }
-    h2 { border-bottom: 2px solid #42A5F5; padding-bottom: 6px; }
-    code { background: #eef4fb; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; color: #1565C0; }
-    pre { background: #111; color: #e8f1fb; padding: 12px; border-radius: 6px; overflow-x: auto; }
-    pre code { background: none; color: inherit; }
-    table { border-collapse: collapse; width: 100%; margin: 12px 0; }
-    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-    th { background: #eef4fb; color: #0d47a1; }
-    .links { display: flex; gap: 12px; margin: 16px 0; }
-    .btn { display: inline-block; background: #1565C0; color: #fff; padding: 10px 22px; border-radius: 8px; text-decoration: none; font-weight: 600; }
-    .btn:hover { background: #0d47a1; }
-    footer { text-align: center; padding: 24px; color: #666; font-size: 13px; }
-  </style>
-</head>
-<body>
-  <header>
-    <img src="../../sml.svg" alt="sml" style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))">
-    <h1><a href="../../">SML { ❄ }</a></h1>
-    <span class="lang-switch">
-      
-        <a href="../../" class="">中文</a>
-      
-        <a href="../../en/" class="active">EN</a>
-      
-    </span>
-  </header>
-  <nav>
-    <a class="home" href="../../">SML</a>
-    
-      <a href="../../book/">教科书</a>
-      
-      <a href="#特性一览">特性一览</a>
-      <a href="#多语言实现对照">多语言实现对照</a>
-      <a href="#快速使用">快速使用</a>
-      <a href="#契约系统contract">契约系统</a>
-      <a href="#进阶特性">进阶特性</a>
-      <a href="#落地应用">落地应用</a>
-      <a href="#完整示例">完整示例</a>
-      <a href="#本地-playground">Playground</a>
-      
-    
-  </nav>
-  <main>
-    
-<article class="list">
-  <h1>SML Textbook</h1>
-  <h1 id="sml-textbook---">SML Textbook { ❄ }</h1>
-<p>Welcome to the official <strong>SML (SNOWARE Markup Language)</strong> textbook.</p>
-<p>This is a <strong>beginner-friendly, progressive</strong> book that also works as a
-reference. Whether or not you&rsquo;ve used JSON / YAML / TOML, you can learn to write
-SML config and describe data from scratch.</p>
-<blockquote>
-<p>In one sentence: SML is a <strong>declarative data / configuration format</strong> — write
-config like a sticky note: quotes optional, commas optional, structure delimited
-by braces <code>{}</code>.</p>
-</blockquote>
-<h2 id="how-to-read-this-book">How to read this book</h2>
-<ul>
-<li><strong>Beginner</strong>: start from Chapter 1 and read chapter by chapter; each has a &ldquo;try it&rdquo; section.</li>
-<li><strong>Experienced</strong>: jump to Chapters 4–5 for include / contracts.</li>
-<li><strong>Lookup</strong>: use the TOC below or the appendix &ldquo;cheatsheet / troubleshooting&rdquo;.</li>
-</ul>
-<h2 id="table-of-contents">Table of contents</h2>
-<table>
-	<thead>
-			<tr>
-					<th>Chapter</th>
-					<th>Topic</th>
-					<th>You&rsquo;ll learn</th>
-			</tr>
-	</thead>
-	<tbody>
-			<tr>
-					<td><a href="../../en/book/intro">Preface</a></td>
-					<td>Why SML</td>
-					<td>what it solves, vs JSON/YAML</td>
-			</tr>
-			<tr>
-					<td><a href="../../en/book/ch01-basics">Ch1</a></td>
-					<td>Your first SML file</td>
-					<td>key/value, comments, scalars</td>
-			</tr>
-			<tr>
-					<td><a href="../../en/book/ch02-blocks">Ch2</a></td>
-					<td>Blocks &amp; nesting</td>
-					<td>object blocks, arrays, optional colon</td>
-			</tr>
-			<tr>
-					<td><a href="../../en/book/ch03-fragments">Ch3</a></td>
-					<td>Fragment inheritance</td>
-					<td><code>@base</code> / <code>&amp;base</code> reuse</td>
-			</tr>
-			<tr>
-					<td><a href="../../en/book/ch04-include">Ch4</a></td>
-					<td>include &amp; namespaces</td>
-					<td>split files, <code>as ns</code>, <code>import</code> alias</td>
-			</tr>
-			<tr>
-					<td><a href="../../en/book/ch05-contract">Ch5</a></td>
-					<td>Contract system</td>
-					<td><code>@contract</code> / <code>@is</code>, types, defaults, enums, ranges</td>
-			</tr>
-			<tr>
-					<td><a href="../../en/book/ch06-env-escape">Ch6</a></td>
-					<td>Env vars &amp; escaping</td>
-					<td><code>$env</code>, <code>\u</code> and <code>\n</code></td>
-			</tr>
-			<tr>
-					<td><a href="../../en/book/ch07-languages">Ch7</a></td>
-					<td>Multi-language usage</td>
-					<td>Rust / C / JS / Lua integration</td>
-			</tr>
-			<tr>
-					<td><a href="../../en/book/ch08-project">Ch8</a></td>
-					<td>Real project</td>
-					<td>a near-real deployment example</td>
-			</tr>
-			<tr>
-					<td><a href="../../en/book/ch09-advanced">Ch9</a></td>
-					<td>Advanced composition</td>
-					<td>include/contract/fragment/$env patterns</td>
-			</tr>
-			<tr>
-					<td><a href="../../en/book/ch10-features">Ch10</a></td>
-					<td>feature reference</td>
-					<td>every feature&rsquo;s toggle, syntax, errors</td>
-			</tr>
-			<tr>
-					<td><a href="../../en/book/appendix">Appendix</a></td>
-					<td>Cheatsheet &amp; troubleshooting</td>
-					<td>vs JSON/YAML/TOML, common errors</td>
-			</tr>
-	</tbody>
-</table>
-<h2 id="note-on-translation">Note on translation</h2>
-<p>The <strong>full English translation of the 12 chapters is in progress</strong>. The Chinese
-edition (<a href="../../book/">教科书</a>) is the authoritative, complete version. The English
-pages above currently redirect to the Chinese text where translation is not yet
-ready — switch languages with the <strong>EN / 中文</strong> button in the header.</p>
-<p>Ready? Start from the <a href="../../en/book/intro">Preface</a>.</p>
+    function setStatus(txt, cls) { status.textContent = txt; status.className = "sml-pg-status " + (cls || ""); }
+    function parse() {
+      const src = ta.value;
+      let files = {};
+      try { files = JSON.parse(ta.dataset.files || "{}"); } catch (e) {}
+      const r = parseSafe(src, { files });
+      if (!r.ok) {
+        out.hidden = false;
+        out.className = "sml-pg-out err";
+        let msg = r.error; if (r.position) msg += ` (行 ${r.position.line + 1}, 列 ${r.position.col + 1})`;
+        out.textContent = "✗ 解析错误：\n" + msg;
+        return null;
+      }
+      out.hidden = false; out.className = "sml-pg-out ok";
+      out.textContent = "✓ 解析成功：\n" + JSON.stringify(r.value, null, 2);
+      return r.value;
+    }
+    function run() { setStatus("", ""); parse(); }
+    function reset() { ta.value = init; out.hidden = true; setStatus("", ""); }
 
-  <ul>
-    
-  </ul>
-</article>
+    runBtn.addEventListener("click", run);
+    resetBtn.addEventListener("click", reset);
+    if (verifyBtn) verifyBtn.addEventListener("click", () => {
+      const v = parse();
+      if (v === null) { setStatus("✗ 解析错误", "bad"); return; }
+      const fn = VERIFIERS["intro"];
+      if (!fn) { setStatus("（本章暂无可验证任务）", ""); return; }
+      const res = fn(v);
+      setStatus(res.ok ? "✓ 通过" : "✗ 未通过", res.ok ? "good" : "bad");
+      out.hidden = false;
+      out.className = "sml-pg-out " + (res.ok ? "ok" : "err");
+      let base = res.ok ? "✓ 验证通过！\n" : "✗ 还没对：\n";
+      out.textContent = base + res.msg + "\n\n解析结果：\n" + JSON.stringify(v, null, 2);
+    });
+    ta.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") run(); });
+  });
+</script><style>.sml-pg{border:1px solid #d0d7de;border-radius:10px;margin:16px 0;overflow:hidden;background:#fff}.sml-pg-task{background:#eef4ff;border-bottom:1px solid #d0d7de;padding:10px 12px;font-size:13px;color:#1a2b4a;line-height:1.6}.sml-pg-task-tag{display:inline-block;background:#1565c0;color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;margin-right:6px}.sml-pg-hint{margin-top:6px;font-size:12px;color:#555}.sml-pg-files{font-size:12px;background:#f6f8fa;border-bottom:1px solid #eaecef}.sml-pg-files summary{padding:6px 12px;cursor:pointer;color:#57606a}.sml-pg-file{padding:0 12px 8px}.sml-pg-file-name{font-weight:700;color:#0d47a1}.sml-pg-file pre{background:#fff;border:1px solid #e1e4e8;border-radius:4px;padding:6px 8px;margin:4px 0 0;white-space:pre-wrap}.sml-pg-main{display:flex}.sml-pg-code{flex:1;min-height:200px;border:0;padding:10px 12px;font-family:sfmono-regular,Consolas,monospace;font-size:12.5px;line-height:1.5;background:#fff;color:#111;resize:vertical;white-space:pre;tab-size:2}.sml-pg-code:focus{outline:2px solid #1565c0;outline-offset:-2px}.sml-pg-actions{padding:8px 12px;display:flex;gap:8px;align-items:center;background:#f6f8fa;border-top:1px solid #eaecef}.sml-pg-actions button{background:#1565c0;color:#fff;border:0;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:13px}.sml-pg-actions button.sml-pg-reset{background:#6c757d}.sml-pg-actions button:hover{filter:brightness(1.08)}.sml-pg-status{font-size:12px;margin-left:4px}.sml-pg-status.good{color:#2e7d32}.sml-pg-status.bad{color:#c62828}.sml-pg-out{margin:0;padding:10px 12px;font-size:12px;white-space:pre-wrap;max-height:320px;overflow:auto;border-top:1px solid #eaecef}.sml-pg-out.ok{background:#e8f5e9;color:#1b5e20}.sml-pg-out.err{background:#fdecea;color:#b71c1c}</style><div class=sml-qz data-quiz=intro><div class=sml-qz-bar><span class=sml-qz-title>✍ 自测考题：序章自测</span>
+<span class=sml-qz-score>得分 0 / 3</span>
+<button class=sml-qz-check type=button>交卷判分</button>
+<button class=sml-qz-reset type=button>重置</button></div><div class=sml-qz-body><div class=sml-qz-item data-idx=0 data-type=choice data-answer=1><div class=sml-qz-q><span class=sml-qz-no>Q1.</span> SML 最像下面哪种“气质”？</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=radio name=qz-intro-0 value=0>
+<span>严格缩进的 Python</span>
+</label><label class=sml-qz-opt><input type=radio name=qz-intro-0 value=1>
+<span>可省引号/逗号的声明式便签</span>
+</label><label class=sml-qz-opt><input type=radio name=qz-intro-0 value=2>
+<span>编译型强类型语言</span>
+</label><label class=sml-qz-opt><input type=radio name=qz-intro-0 value=3>
+<span>二进制序列化格式</span></label></div><div class=sml-qz-explain hidden>SML 是声明式数据/配置格式，引号、逗号都可省略，结构靠 {} 定界，像写便签。</div><div class=sml-qz-fb hidden></div></div><div class=sml-qz-item data-idx=1 data-type=bool data-answer=1><div class=sml-qz-q><span class=sml-qz-no>Q2.</span> 下面哪句话是对的？</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=radio name=qz-intro-1 value=0>
+<span>SML 必须写成严格的 JSON 树</span>
+</label><label class=sml-qz-opt><input type=radio name=qz-intro-1 value=1>
+<span>SML 解析结果是语言无关的键值树</span></label></div><div class=sml-qz-explain hidden>SML 的解析结果（键值树）在 Rust/C/JS/Lua 里是同构的，这正是它跨语言友好的原因。</div><div class=sml-qz-fb hidden></div></div><div class=sml-qz-item data-idx=2 data-type=multi data-answer=[0,1,2,3]><div class=sml-qz-q><span class=sml-qz-no>Q3.</span> 在 SML 里，下面哪个符号可以写注释？</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=checkbox name=qz-intro-2 value=0>
+<span>#</span>
+</label><label class=sml-qz-opt><input type=checkbox name=qz-intro-2 value=1>
+<span>--</span>
+</label><label class=sml-qz-opt><input type=checkbox name=qz-intro-2 value=2>
+<span>//</span>
+</label><label class=sml-qz-opt><input type=checkbox name=qz-intro-2 value=3>
+<span>/* */</span></label></div><div class=sml-qz-explain hidden>SML 支持 #、--、// 三种行注释（到行尾），以及 /* … */ 块注释（跨行）；还有 _* … *_ 作为备用块注释风格。</div><div class=sml-qz-fb hidden></div></div></div></div><script type=module>
+  document.querySelectorAll('.sml-qz[data-quiz="intro"]').forEach((box) => {
+    const scoreEl = box.querySelector(".sml-qz-score");
+    const checkBtn = box.querySelector(".sml-qz-check");
+    const resetBtn = box.querySelector(".sml-qz-reset");
 
-  </main>
-  <footer>SML · SNOWARE Markup Language · { ❄ }</footer>
-</body>
-</html>
+    function normAnswer(raw, type) {
+      const a = (typeof raw === "string") ? JSON.parse(raw) : raw;
+      if (type === "multi") return Array.isArray(a) ? a.slice().sort((x,y)=>x-y) : [];
+      if (type === "bool") return [a];
+      return [a];
+    }
+    function selected(item) {
+      const type = item.dataset.type;
+      const inputs = item.querySelectorAll("input");
+      const sel = [];
+      inputs.forEach(inp => { if (inp.checked) sel.push(parseInt(inp.value, 10)); });
+      return type === "multi" ? sel.slice().sort((x,y)=>x-y) : sel.slice(0,1);
+    }
+    function arrEq(a, b) { return a.length === b.length && a.every((v,i)=>v===b[i]); }
+
+    function check() {
+      let score = 0;
+      box.querySelectorAll(".sml-qz-item").forEach((item) => {
+        const type = item.dataset.type;
+        const ans = normAnswer(item.dataset.answer, type);
+        const got = selected(item);
+        const fb = item.querySelector(".sml-qz-fb");
+        const correct = arrEq(got, ans);
+        if (correct) score++;
+        item.querySelectorAll("input").forEach(i => i.disabled = true);
+        const expl = item.querySelector(".sml-qz-explain");
+        fb.hidden = false;
+        fb.className = "sml-qz-fb " + (correct ? "ok" : "bad");
+        fb.innerHTML = (correct ? "✓ 答对！ " : "✗ 答错。 ") +
+          (expl ? expl.textContent : "");
+      });
+      scoreEl.textContent = "得分 " + score + " / " + box.querySelectorAll(".sml-qz-item").length;
+      checkBtn.disabled = true;
+    }
+    function reset() {
+      box.querySelectorAll(".sml-qz-item").forEach((item) => {
+        item.querySelectorAll("input").forEach(i => { i.checked = false; i.disabled = false; });
+        const fb = item.querySelector(".sml-qz-fb");
+        fb.hidden = true; fb.className = "sml-qz-fb"; fb.textContent = "";
+      });
+      scoreEl.textContent = "得分 0 / " + box.querySelectorAll(".sml-qz-item").length;
+      checkBtn.disabled = false;
+    }
+    checkBtn.addEventListener("click", check);
+    resetBtn.addEventListener("click", reset);
+  });
+</script><style>.sml-qz{border:1px solid #30363d;border-radius:10px;margin:18px 0;overflow:hidden;background:#0d1117}.sml-qz-bar{display:flex;align-items:center;gap:10px;padding:8px 12px;background:#161b22;border-bottom:1px solid #30363d}.sml-qz-title{font-size:13px;color:#e6edf3;font-weight:600}.sml-qz-score{font-size:12px;color:#8b949e}.sml-qz-bar button{background:#1f6feb;color:#fff;border:0;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px}.sml-qz-bar button.sml-qz-reset{background:#30363d}.sml-qz-bar button:hover{filter:brightness(1.1)}.sml-qz-bar button:disabled{opacity:.5;cursor:default}.sml-qz-body{padding:6px 14px 12px}.sml-qz-item{padding:12px 0;border-bottom:1px solid #21262d}.sml-qz-item:last-child{border-bottom:0}.sml-qz-q{font-size:13.5px;color:#e6edf3;margin-bottom:8px}.sml-qz-no{color:#58a6ff;font-weight:700;margin-right:4px}.sml-qz-opt{display:block;font-size:13px;color:#c9d1d9;padding:4px 0;cursor:pointer}.sml-qz-opt input{margin-right:8px;vertical-align:middle}.sml-qz-fb{font-size:12px;margin-top:6px;padding:6px 10px;border-radius:6px}.sml-qz-fb.ok{background:rgba(63,185,80,.12);color:#3fb950}.sml-qz-fb.bad{background:rgba(248,81,73,.12);color:#f85149}</style><ul><li><a href=../../en/book/appendix/>Appendix: Comparison and Investigation</a></li><li><a href=../../en/book/ch01-basics/>Chapter 1: The First SML File</a></li><li><a href=../../en/book/ch10-features/>Chapter 10: Complete Reference to Features</a></li><li><a href=../../en/book/ch11-challenges/>Chapter 11: Practical Translation Challenge</a></li><li><a href=../../en/book/ch02-blocks/>Chapter 2: Blocks and Nesting</a></li><li><a href=../../en/book/ch03-fragments/>Chapter 3: Fragment Inheritance</a></li><li><a href=../../en/book/ch04-include/>Chapter 4: Include and namespaces</a></li><li><a href=../../en/book/ch05-contract/>Chapter 5: Contract System</a></li><li><a href=../../en/book/ch06-env-escape/>Chapter 6: Environment Variables and Escaping</a></li><li><a href=../../en/book/ch07-languages/>Chapter 7: Multilingual Use</a></li><li><a href=../../en/book/ch08-project/>Chapter 8: Practical Application - Complete Project Configuration</a></li><li><a href=../../en/book/ch09-advanced/>Chapter 9: Advanced - Function Combination and Design Patterns</a></li><li><a href=../../en/book/intro/>Introduction: Why SML</a></li></ul></article></main><footer>SML · SNOWARE Markup Language · { ❄ }</footer></body></html>

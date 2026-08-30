@@ -1,122 +1,13 @@
-<!DOCTYPE html>
-
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SML Playground · SML { ❄ } — SNOWARE Markup Language</title>
-  <style>
-    body { font-family: system-ui, "Microsoft YaHei", sans-serif; margin: 0; background: #fafafa; color: #111; }
-    header { background: #111; color: #fff; padding: 18px 32px; display: flex; align-items: center; gap: 12px; }
-    header h1 { margin: 0; font-size: 20px; }
-    header a { color: #fff; text-decoration: none; }
-    header .flake { color: #42A5F5; font-size: 22px; }
-    header .lang-switch { margin-left: auto; display: flex; gap: 6px; }
-    header .lang-switch a { color: #90caf9; font-size: 13px; padding: 4px 10px; border: 1px solid #333; border-radius: 6px; text-decoration: none; }
-    header .lang-switch a.active { background: #1565C0; color: #fff; border-color: #1565C0; }
-    nav { background: #1c1c1c; padding: 8px 32px; position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 4px 18px; }
-    nav a { color: #90caf9; text-decoration: none; font-size: 14px; }
-    nav a:hover { text-decoration: underline; }
-    nav .home { color: #fff; font-weight: 600; }
-    main { max-width: 880px; margin: 24px auto; padding: 0 24px; }
-     
-    h2 { scroll-margin-top: 56px; }
-    article { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 24px 32px; }
-    h1, h2, h3 { color: #0d47a1; }
-    h2 { border-bottom: 2px solid #42A5F5; padding-bottom: 6px; }
-    code { background: #eef4fb; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; color: #1565C0; }
-    pre { background: #111; color: #e8f1fb; padding: 12px; border-radius: 6px; overflow-x: auto; }
-    pre code { background: none; color: inherit; }
-    table { border-collapse: collapse; width: 100%; margin: 12px 0; }
-    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-    th { background: #eef4fb; color: #0d47a1; }
-    .links { display: flex; gap: 12px; margin: 16px 0; }
-    .btn { display: inline-block; background: #1565C0; color: #fff; padding: 10px 22px; border-radius: 8px; text-decoration: none; font-weight: 600; }
-    .btn:hover { background: #0d47a1; }
-    footer { text-align: center; padding: 24px; color: #666; font-size: 13px; }
-  </style>
-</head>
-<body>
-  <header>
-    <img src="../../sml.svg" alt="sml" style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))">
-    <h1><a href="../../">SML { ❄ }</a></h1>
-    <span class="lang-switch">
-      
-        <a href="../../" class="">中文</a>
-      
-        <a href="../../en/" class="active">EN</a>
-      
-    </span>
-  </header>
-  <nav>
-    <a class="home" href="../../">SML</a>
-    
-      <a href="../../book/">教科书</a>
-      
-      <a href="#特性一览">特性一览</a>
-      <a href="#多语言实现对照">多语言实现对照</a>
-      <a href="#快速使用">快速使用</a>
-      <a href="#契约系统contract">契约系统</a>
-      <a href="#进阶特性">进阶特性</a>
-      <a href="#落地应用">落地应用</a>
-      <a href="#完整示例">完整示例</a>
-      <a href="#本地-playground">Playground</a>
-      
-    
-  </nav>
-  <main>
-    
-<article>
-  <h1>SML Playground</h1>
-  <h1 id="sml-playground---">SML Playground { ❄ }</h1>
-<p>Parse SML right in your browser — with contract validation, fragment inheritance
+<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>SML Playground · SML { ❄ } — SNOWARE Markup Language</title><style>body{font-family:system-ui,microsoft yahei,sans-serif;margin:0;background:#fafafa;color:#111}header{background:#111;color:#fff;padding:18px 32px;display:flex;align-items:center;gap:12px}header h1{margin:0;font-size:20px}header a{color:#fff;text-decoration:none}header .flake{color:#42a5f5;font-size:22px}header .lang-switch{margin-left:auto;display:flex;gap:6px}header .lang-switch a{color:#90caf9;font-size:13px;padding:4px 10px;border:1px solid #333;border-radius:6px;text-decoration:none}header .lang-switch a.active{background:#1565c0;color:#fff;border-color:#1565c0}nav{background:#1c1c1c;padding:8px 32px;position:sticky;top:0;z-index:10;display:flex;flex-wrap:wrap;gap:4px 18px}nav a{color:#90caf9;text-decoration:none;font-size:14px}nav a:hover{text-decoration:underline}nav .home{color:#fff;font-weight:600}main{max-width:880px;margin:24px auto;padding:0 24px}h2{scroll-margin-top:56px}article{background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:24px 32px}h1,h2,h3{color:#0d47a1}h2{border-bottom:2px solid #42a5f5;padding-bottom:6px}code{background:#eef4fb;padding:2px 6px;border-radius:4px;font-size:.9em;color:#1565c0}pre{background:#111;color:#e8f1fb;padding:12px;border-radius:6px;overflow-x:auto}pre code{background:0 0;color:inherit}table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#eef4fb;color:#0d47a1}.links{display:flex;gap:12px;margin:16px 0}.btn{display:inline-block;background:#1565c0;color:#fff;padding:10px 22px;border-radius:8px;text-decoration:none;font-weight:600}.btn:hover{background:#0d47a1}footer{text-align:center;padding:24px;color:#666;font-size:13px}</style></head><body><header><img src=../../sml.svg alt=sml style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))"><h1><a href=../../>SML { ❄ }</a></h1><span class=lang-switch><a href=../../>中文</a>
+<a href=../../en/ class=active>EN</a></span></header><nav><a class=home href=../../>SML</a>
+<a href=../../book/>Textbook</a>
+<a href=../../playground/>Playground</a></nav><main><article><h1>SML Playground</h1><h1 id=sml-playground--->SML Playground { ❄ }</h1><p>Parse SML right in your browser — with contract validation, fragment inheritance
 and include escaping. Powered by the latest JavaScript implementation (<code>sml.mjs</code>,
-zero-dependency ESM).</p>
-<style>
-  .pg-wrap { display: flex; gap: 16px; flex-wrap: wrap; }
-  .pg-pane { flex: 1 1 360px; min-width: 300px; }
-  .pg-pane h3 { margin: 6px 0; color: #0d47a1; }
-  textarea#src {
-    width: 100%; height: 420px; font-family: "SFMono-Regular", Consolas, monospace;
-    font-size: 13px; line-height: 1.5; padding: 10px; border: 1px solid #cfd8dc;
-    border-radius: 8px; background: #0d1117; color: #e6edf3; resize: vertical;
-    tab-size: 2;
-  }
-  pre#out {
-    width: 100%; height: 420px; overflow: auto; margin: 0; padding: 10px;
-    border: 1px solid #cfd8dc; border-radius: 8px; background: #0d1117; color: #e6edf3;
-    font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
-  }
-  pre#out.error { color: #ff8a80; border-color: #b71c1c; }
-  .pg-bar { margin: 8px 0; font-size: 13px; color: #555; }
-  .pg-bar .ok { color: #2e7d32; font-weight: 600; }
-  .pg-bar .bad { color: #c62828; font-weight: 600; }
-  .pg-samples { margin: 10px 0; }
-  .pg-samples button {
-    background: #1565C0; color: #fff; border: 0; padding: 6px 12px; margin-right: 8px;
-    border-radius: 6px; cursor: pointer; font-size: 13px;
-  }
-  .pg-samples button:hover { background: #0d47a1; }
-</style>
-<div class="pg-samples">
-  <span style="font-size:13px;color:#555;">Samples:</span>
-  <button data-sample="contract">Contract</button>
-  <button data-sample="fragment">Fragment</button>
-  <button data-sample="array">Array/Enum</button>
-  <button data-sample="bad">Deliberate error</button>
-</div>
-<div class="pg-wrap">
-  <div class="pg-pane">
-    <h3>SML source</h3>
-    <textarea id="src" spellcheck="false"></textarea>
-  </div>
-  <div class="pg-pane">
-    <h3>Parse result</h3>
-    <pre id="out">（type on the left…）</pre>
-  </div>
-</div>
-<div class="pg-bar" id="bar"></div>
-<script type="module">
+zero-dependency ESM).</p><style>.pg-wrap{display:flex;gap:16px;flex-wrap:wrap}.pg-pane{flex:1 1 360px;min-width:300px}.pg-pane h3{margin:6px 0;color:#0d47a1}textarea#src{width:100%;height:420px;font-family:sfmono-regular,Consolas,monospace;font-size:13px;line-height:1.5;padding:10px;border:1px solid #cfd8dc;border-radius:8px;background:#0d1117;color:#e6edf3;resize:vertical;tab-size:2}pre#out{width:100%;height:420px;overflow:auto;margin:0;padding:10px;border:1px solid #cfd8dc;border-radius:8px;background:#0d1117;color:#e6edf3;font-size:13px;line-height:1.5;white-space:pre-wrap;word-break:break-word}pre#out.error{color:#ff8a80;border-color:#b71c1c}.pg-bar{margin:8px 0;font-size:13px;color:#555}.pg-bar .ok{color:#2e7d32;font-weight:600}.pg-bar .bad{color:#c62828;font-weight:600}.pg-samples{margin:10px 0}.pg-samples button{background:#1565c0;color:#fff;border:0;padding:6px 12px;margin-right:8px;border-radius:6px;cursor:pointer;font-size:13px}.pg-samples button:hover{background:#0d47a1}</style><div class=pg-samples><span style=font-size:13px;color:#555>Samples:</span>
+<button data-sample=contract>Contract</button>
+<button data-sample=fragment>Fragment</button>
+<button data-sample=array>Array/Enum</button>
+<button data-sample=bad>Deliberate error</button></div><div class=pg-wrap><div class=pg-pane><h3>SML source</h3><textarea id=src spellcheck=false></textarea></div><div class=pg-pane><h3>Parse result</h3><pre id=out>（type on the left…）</pre></div></div><div class=pg-bar id=bar></div><script type=module>
   import { parse, parseSafe, stringify } from "/sml.mjs";
 
   const SAMPLES = {
@@ -196,11 +87,4 @@ extra: oops`,
 
   src.value = SAMPLES.contract;
   render();
-</script>
-
-</article>
-
-  </main>
-  <footer>SML · SNOWARE Markup Language · { ❄ }</footer>
-</body>
-</html>
+</script></article></main><footer>SML · SNOWARE Markup Language · { ❄ }</footer></body></html>

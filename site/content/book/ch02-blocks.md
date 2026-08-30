@@ -1,5 +1,6 @@
 ---
 title: "第 2 章：块与嵌套"
+translationKey: "book-ch02"
 ---
 
 # 第 2 章：块与嵌套

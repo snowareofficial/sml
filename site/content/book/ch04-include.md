@@ -1,5 +1,6 @@
 ---
 title: "第 4 章：include 与命名空间"
+translationKey: "book-ch04"
 ---
 
 # 第 4 章：include 与命名空间

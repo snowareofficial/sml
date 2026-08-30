@@ -1,5 +1,6 @@
 ---
 title: "第 1 章：第一个 SML 文件"
+translationKey: "book-ch01"
 ---
 
 # 第 1 章：第一个 SML 文件

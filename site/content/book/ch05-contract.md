@@ -1,5 +1,6 @@
 ---
 title: "第 5 章：契约系统"
+translationKey: "book-ch05"
 ---
 
 # 第 5 章：契约系统

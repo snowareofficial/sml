@@ -1,5 +1,6 @@
 ---
 title: "SML 教科书"
+translationKey: "book-index"
 ---
 
 # SML 教科书 { ❄ }
