@@ -28,7 +28,7 @@ address {
 }
 ```
 
-The above two writing methods are completely equivalent. `address { }` ≡ `address: { }`， You can use whichever you like.
+The above two writing methods are completely equivalent. `address { }` ≡ `address: { }`, You can use whichever you like.
 
 ## 2.2 blocks can be infinitely nested
 
@@ -53,7 +53,7 @@ Square brackets `[]` represent arrays. Commas can be omitted between elements, a
 
 ```sml
 tags: [ logging metrics tracing ]      # Naked word array, commas can be omitted
-ports: [ 80, 443, 8080 ]               # Even with commas
+ports: [ 80, 443, 8080 ]               # Commas are also fine
 empty: []
 ```
 

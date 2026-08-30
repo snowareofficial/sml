@@ -73,7 +73,7 @@ This is the easiest pit for beginners to step into:
 
 ```sml
 server {
-    &base            # ❌  This way of writing,&base is treated as a 'key name' and will not expand fields
+    &base            # ❌  Wrong: &base is parsed as a "key name"; fields are NOT expanded
     port: 8080
 }
 ```
@@ -82,7 +82,7 @@ The correct way to write it is to assign a fragment as a value to a key:
 
 ```sml
 server {
-    net: &base       # ✅  The. net key obtains all fields of the base
+    net: &base       # ✅  Key "net" receives all fields of base
     port: 8080
 }
 ```

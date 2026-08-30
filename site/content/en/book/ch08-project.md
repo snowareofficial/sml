@@ -4,7 +4,7 @@ translationKey: "book-ch08"
 ---
 # Chapter 8: Practical Application: Complete Project Configuration
 
-Put everything you have learned together: a deployment configuration that is close to reality, covering contracts, fragments include、 Environment variables, nested blocks, arrays.
+Put everything you have learned together: a deployment configuration that is close to reality, covering contracts, fragments include, Environment variables, nested blocks, arrays.
 
 ## 8.1 File Disassembly
 
