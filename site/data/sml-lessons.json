@@ -1,0 +1,69 @@
+{
+  "intro": {
+    "task": "写出一个 SML 配置：包含 <b>name</b>（字符串 gateway）、<b>port</b>（整数 8080）、<b>debug</b>（布尔 true）、<b>tags</b>（数组含 logging 与 metrics）。写完点「验证」，再看解析结果。",
+    "main": "name: gateway\nport: 8080\ndebug: true\ntags: [ logging metrics ]",
+    "hint": "试着把 port 改成 \"8080\"（加引号），验证会告诉你它不是整数 8080。"
+  },
+  "ch01": {
+    "task": "用 SML 描述一个人：<b>firstName</b>(\"John Doe\")、<b>state</b>(裸词 NY)、<b>age</b>(27)、<b>ratio</b>(0.75)、<b>enabled</b>(true)、<b>note</b>(null)。注意何时必须加引号。",
+    "main": "firstName: \"John Doe\"\nstate: NY\nage: 27\nratio: 0.75\nenabled: true\nnote: null\nchinese: 中文无需引号",
+    "hint": "把 firstName 的引号去掉，看裸词 NY 和引号串 \"John Doe\" 在结果里是否都是字符串——答案是：都是字符串，只是 NY 不需要引号。"
+  },
+  "ch02": {
+    "task": "写一个 <b>address</b> 块（street、city=\"New York\"、state=NY），一个 <b>database</b> 块含 primary/replica 两个子块（各含 host、port=5432），一个 <b>users</b> 数组，元素是含 name/role 的块。",
+    "main": "address {\n  street: \"21 2nd Street\"\n  city: \"New York\"\n  state: NY\n}\ndatabase {\n  primary { host: db1 port: 5432 }\n  replica { host: db2 port: 5432 }\n}\ntags: [ logging metrics tracing ]\nusers: [\n  { name: alice role: admin }\n  { name: bob role: user }\n]",
+    "hint": "试试把 address { } 写成 address: { }，结果是否一样？"
+  },
+  "ch03": {
+    "task": "定义 <b>@base { region, timeout }</b>，再写两个 <b>service</b> 块（auth、billing）都 <b>&base</b> 并各自覆盖 port 与 name。",
+    "main": "@base {\n  region: cn-north-1\n  timeout: 30\n}\nservice auth { &base port: 7100 name: auth-svc }\nservice billing { &base port: 7200 name: billing-svc }",
+    "hint": "把 &base 误写成裸词（去掉 &）看看会发生什么。"
+  },
+  "ch04": {
+    "task": "include \"ui\" as ui，其中 ui.sml 有 title 与 powered。主文件通过 <b>ui.title</b> / <b>ui.powered</b> 访问。",
+    "main": "include \"ui\" as ui\ntitle: ui.title\npowered: ui.powered",
+    "files": {
+      "ui.sml": "title: \"My App\"\npowered: Snoware"
+    },
+    "hint": "增加一个 second.sml 文件并在主文件里 include \"second\" as s，访问 s.xxx。"
+  },
+  "ch05": {
+    "task": "定义 <b>@contract Server strict { name: str, port: int min 1024 max 65535, region: str }</b>，并用 <b>@is Server</b> 写一份合法数据（name=大厅, port=25565, region=ap-east-1）。",
+    "main": "@contract Server strict {\n  name: str\n  port: int min 1024 max 65535\n  region: str\n}\n@is Server\nname: 大厅\nport: 25565\nregion: ap-east-1",
+    "hint": "把 port 改成 80（小于 1024），看契约校验如何报错。"
+  },
+  "ch06": {
+    "task": "写一个 <b>secrets</b> 块，含 apiKey: $env.RESEND_API_KEY 与 dbPassword: $env.DB_PASSWORD；再写一个 banner 字符串用 <b>\\u{1F680}</b> 转义 emoji。",
+    "main": "secrets {\n  apiKey: $env.RESEND_API_KEY\n  dbPassword: $env.DB_PASSWORD\n}\nbanner: \"SML \\u{1F680} 上线\"",
+    "hint": "在浏览器里无法设真实环境变量，所以 $env.X 会解析为空串——这是预期行为，验证也据此判定。"
+  },
+  "ch07": {
+    "task": "定义 <b>@contract User { id: str, email: str, role: enum(user,admin,owner) default user }</b>，用 <b>@is User</b> 写数据（id=u_1, email=a@b.c），验证 role 自动取默认 user。",
+    "main": "@contract User {\n  id: str\n  email: str\n  role: enum(user, admin, owner) default user\n}\n@is User\nid: u_1\nemail: a@b.c",
+    "hint": "同一份契约在 Rust/C/JS/Lua 行为一致——改 role 为 owner 试试。"
+  },
+  "ch08": {
+    "task": "写一份接近真实的部署配置：<b>@contract Service</b> 定义在主文件，<b>@is Service</b> 写 name/port/debug；service auth 与 billing 都 <b>&base</b> 并覆盖 port/name；database 块含 url($env) 与 pool{min,max}；features 数组。",
+    "main": "@contract Service loose {\n  name: str\n  port: int default 8080 min 1 max 65535\n  debug: bool default false\n}\n@base {\n  region: cn-north-1\n  timeout: 30\n}\n\n@is Service\nname: gateway\nport: 9090\ndebug: true\n\npeers: [ auth billing ]\nservice auth { &base port: 7100 name: auth-svc }\nservice billing { &base port: 7200 name: billing-svc }\n\ndatabase: {\n  url: $env.DATABASE_URL\n  pool: { min: 2 max: 16 }\n}\nfeatures: [ logging metrics tracing ]",
+    "hint": "这是一个接近真实的部署配置：契约 + 片段 + $env 一起用（契约定义放在主文件，避免跨文件引用）。"
+  },
+  "ch09": {
+    "task": "用契约组合：定义 <b>@contract Endpoint { host: str, port: int }</b> 与 <b>@contract Service { name: str, main: Endpoint, peers: array[Endpoint] ? }</b>，再用 @is Service 写 main 与一个 peers 元素。",
+    "main": "@contract Endpoint {\n  host: str\n  port: int\n}\n@contract Service {\n  name: str\n  main: Endpoint\n  peers: array[Endpoint] ?\n}\n@is Service\nname: gateway\nmain: { host: localhost port: 8080 }\npeers: [ { host: db port: 5432 } ]",
+    "hint": "Endpoint 被 main 字段与 array[Endpoint] 两处复用，这就是「契约组合」。"
+  },
+  "ch10": {
+    "task": "用 <b>include</b> 把多个子文件装入各自命名空间：<b>include \"auth.sml\" as auth</b> 与 <b>include \"billing.sml\" as billing</b>。每个子文件用 @is Module 并含 name 字段。验证 auth 与 billing 命名空间都被正确装入。",
+    "main": "include \"auth.sml\" as auth\ninclude \"billing.sml\" as billing\nroot: ok",
+    "files": {
+      "auth.sml": "@contract Module { name: str }\n@is Module\nname: auth",
+      "billing.sml": "@contract Module { name: str }\n@is Module\nname: billing"
+    },
+    "hint": "include ... as auth / as billing 把不同文件装入相互隔离的命名空间，避免字段冲突。"
+  },
+  "appendix": {
+    "task": "写出一段 SML：<b>name</b>(John)、<b>age</b>(27)、<b>address</b> 块含 city=NY、<b>tags</b> 数组长度 2。这段在任意语言解析结果都应一致。",
+    "main": "name: John\nage: 27\naddress: { city: NY }\ntags: [ a b ]",
+    "hint": "把这段分别想象成 Rust/C/JS/Lua 解析，字段名与嵌套结构应完全相同。"
+  }
+}

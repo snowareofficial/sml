@@ -118,4 +118,13 @@ skills: [ rust sml linux ]
 
 解析后你会得到：`name="张三"`、`contact.email=...`、`skills` 是一个含 3 个元素的数组。
 
-→ [第 3 章：片段继承](./ch03-fragments)
+→ [第 3 章：片段继承](/book/ch03-fragments)
+
+## 动手练习
+
+读完本章，在下面的编辑器里**直接修改 SML 并点“运行”**，立刻看到解析结果或校验错误——有输出才能高效学习。
+
+{{< sml-playground "ch02" >}}
+
+{{< sml-quiz "ch02" >}}
+

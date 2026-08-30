@@ -26,7 +26,7 @@ title: "SML { ❄ } — SNOWARE Markup Language"
 - [序章：为什么是 SML](/book/intro)
 - [第 1 章：第一个 SML 文件](/book/ch01-basics) · [第 2 章：块与嵌套](/book/ch02-blocks) · [第 3 章：片段继承](/book/ch03-fragments)
 - [第 4 章：include 与命名空间](/book/ch04-include) · [第 5 章：契约系统](/book/ch05-contract) · [第 6 章：环境变量与转义](/book/ch06-env-escape)
-- [第 7 章：多语言使用](/book/ch07-languages) · [第 8 章：实战项目](/book/ch08-project) · [附录：对照与排查](/book/appendix)
+- [第 7 章：多语言使用](/book/ch07-languages) · [第 8 章：实战项目](/book/ch08-project) · [第 9 章：功能组合与设计模式](/book/ch09-advanced) · [第 10 章：feature 完整参考](/book/ch10-features) · [第 11 章：实战翻译挑战](/book/ch11-challenges) · [附录：对照与排查](/book/appendix)
 - 离线版：**[下载 EPUB](/sml-book.epub)**
 
 ## 多语言实现对照

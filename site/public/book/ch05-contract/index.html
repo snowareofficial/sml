@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>第 5 章：契约系统 · SML { ❄ } — SNOWARE Markup Language</title>
+  <style>
+    body { font-family: system-ui, "Microsoft YaHei", sans-serif; margin: 0; background: #fafafa; color: #111; }
+    header { background: #111; color: #fff; padding: 18px 32px; display: flex; align-items: center; gap: 12px; }
+    header h1 { margin: 0; font-size: 20px; }
+    header a { color: #fff; text-decoration: none; }
+    header .flake { color: #42A5F5; font-size: 22px; }
+    nav { background: #1c1c1c; padding: 8px 32px; position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 4px 18px; }
+    nav a { color: #90caf9; text-decoration: none; font-size: 14px; }
+    nav a:hover { text-decoration: underline; }
+    nav .home { color: #fff; font-weight: 600; }
+    main { max-width: 880px; margin: 24px auto; padding: 0 24px; }
+     
+    h2 { scroll-margin-top: 56px; }
+    article { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 24px 32px; }
+    h1, h2, h3 { color: #0d47a1; }
+    h2 { border-bottom: 2px solid #42A5F5; padding-bottom: 6px; }
+    code { background: #eef4fb; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; color: #1565C0; }
+    pre { background: #111; color: #e8f1fb; padding: 12px; border-radius: 6px; overflow-x: auto; }
+    pre code { background: none; color: inherit; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background: #eef4fb; color: #0d47a1; }
+    .links { display: flex; gap: 12px; margin: 16px 0; }
+    .btn { display: inline-block; background: #1565C0; color: #fff; padding: 10px 22px; border-radius: 8px; text-decoration: none; font-weight: 600; }
+    .btn:hover { background: #0d47a1; }
+    footer { text-align: center; padding: 24px; color: #666; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="../../sml.svg" alt="sml" style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))">
+    <h1><a href="../../">SML { ❄ }</a></h1>
+  </header>
+  <nav>
+    <a class="home" href="../../">SML</a>
+    
+      <a href="../../book/">教科书</a>
+      <a href="../../book/intro">序章</a>
+      <a href="../../book/ch01-basics">1.基础</a>
+      <a href="../../book/ch02-blocks">2.块</a>
+      <a href="../../book/ch03-fragments">3.片段</a>
+      <a href="../../book/ch04-include">4.include</a>
+      <a href="../../book/ch05-contract">5.契约</a>
+      <a href="../../book/ch06-env-escape">6.环境</a>
+      <a href="../../book/ch07-languages">7.语言</a>
+      <a href="../../book/ch08-project">8.实战</a>
+      <a href="../../book/ch09-advanced">9.组合</a>
+      <a href="../../book/ch10-features">10.feature</a>
+      <a href="../../book/ch11-challenges">11.挑战</a>
+      <a href="../../book/appendix">附录</a>
+    
+  </nav>
+  <main>
+    
+<article>
+  <h1>第 5 章：契约系统</h1>
+  <h1 id="第-5-章契约系统">第 5 章：契约系统</h1>
+<p>前面学的片段是&quot;值的复用&quot;。<strong>契约（Contract）是&quot;形状的约束&quot;</strong>——它定义&quot;一个块应该有哪些字段、各自什么类型、是否必填、默认值多少、取值范围&quot;，并在解析期就校验，而不是等你运行程序才发现问题。</p>
+<blockquote>
+<p>适用场景：用 SML 做<strong>应用配置</strong>时，契约就是你的 Schema。改错字段名、漏填必填项、填了超出范围的端口号——解析时就直接报错，并告诉你精确到行列。</p>
+</blockquote>
+<h2 id="51-定义契约contract">5.1 定义契约：<code>@contract</code></h2>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>@contract ResenderConfig loose {
+</span></span><span style="display:flex;"><span>    api_key:     str                # <span style="color:#960050;background-color:#1e0010">必填字符串</span>
+</span></span><span style="display:flex;"><span>    port:        int  default <span style="color:#ae81ff">8080</span> min <span style="color:#ae81ff">1</span> max <span style="color:#ae81ff">65535</span>
+</span></span><span style="display:flex;"><span>    debug:       bool default false
+</span></span><span style="display:flex;"><span>    mode:        enum(active, disabled) default active
+</span></span><span style="display:flex;"><span>    tags:        array[str] ?       # <span style="color:#960050;background-color:#1e0010">可选字符串数组</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>字段修饰符一览：</p>
+<table>
+	<thead>
+			<tr>
+					<th>修饰符</th>
+					<th>含义</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><code>str</code> / <code>int</code> / <code>num</code> / <code>bool</code></td>
+					<td>字段类型</td>
+			</tr>
+			<tr>
+					<td><code>enum(a, b, c)</code></td>
+					<td>枚举，取值须在其中之一</td>
+			</tr>
+			<tr>
+					<td><code>array[T]</code></td>
+					<td>数组，元素类型为 <code>T</code>（如 <code>array[int]</code>、<code>array[str]</code>）</td>
+			</tr>
+			<tr>
+					<td><code>?</code> 或 <code>optional</code></td>
+					<td>可选字段</td>
+			</tr>
+			<tr>
+					<td><code>required</code></td>
+					<td>显式必填（默认即必填，可不写）</td>
+			</tr>
+			<tr>
+					<td><code>default &lt;值&gt;</code></td>
+					<td>缺失时填入默认值（同时自动视为可选）</td>
+			</tr>
+			<tr>
+					<td><code>min &lt;数&gt;</code> / <code>max &lt;数&gt;</code></td>
+					<td>数值取值范围（含端点）</td>
+			</tr>
+	</tbody>
+</table>
+<h2 id="52-应用契约is">5.2 应用契约：<code>@is</code></h2>
+<p>两种写法：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span># <span style="color:#960050;background-color:#1e0010">写法一：匿名块顶层直接</span> @is
+</span></span><span style="display:flex;"><span>@contract Cfg loose { api_key: str port: int default <span style="color:#ae81ff">8080</span> }
+</span></span><span style="display:flex;"><span>@is Cfg
+</span></span><span style="display:flex;"><span>api_key: re_abc
+</span></span><span style="display:flex;"><span>port: <span style="color:#ae81ff">8080</span>
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span># <span style="color:#960050;background-color:#1e0010">写法二：块级</span> @is
+</span></span><span style="display:flex;"><span>server prod {
+</span></span><span style="display:flex;"><span>    @is Cfg
+</span></span><span style="display:flex;"><span>    api_key: re_prod
+</span></span><span style="display:flex;"><span>    port: <span style="color:#ae81ff">9090</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>校验发生在<strong>解析期</strong>：违反契约直接返回带位置的精确错误，例如 <code>contract: Service — 字段 main.port 大于最大值 65535</code>。</p>
+<h2 id="53-严格-vs-宽松">5.3 严格 vs 宽松</h2>
+<ul>
+<li><strong>默认严格</strong>（契约名后什么都不写）：禁止任何未声明字段，拼写错 <code>prot</code> 立即被发现。</li>
+<li><strong><code>loose</code></strong>：允许出现契约未声明的字段，适合演进中的配置。</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>@contract Metrics loose { latency: num min <span style="color:#ae81ff">0</span> }
+</span></span></code></pre></div><p><code>loose</code> 只放宽&quot;未声明字段&quot;，已声明字段照样校验类型 / 区间 / 必填。</p>
+<h2 id="54-组合契约递归引用">5.4 组合契约（递归引用）</h2>
+<p>契约之间不共享字段，而是&quot;字段的类型是另一个契约&quot;——直接填契约名即可，不引入新语法：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>@contract Endpoint { host: str port: int }
+</span></span><span style="display:flex;"><span>@contract Service {
+</span></span><span style="display:flex;"><span>    name:  str
+</span></span><span style="display:flex;"><span>    main:  Endpoint          # <span style="color:#960050;background-color:#1e0010">引用另一个契约</span>
+</span></span><span style="display:flex;"><span>    peers: array[Endpoint]   # <span style="color:#960050;background-color:#1e0010">契约数组</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>@is Service
+</span></span><span style="display:flex;"><span>name: gateway
+</span></span><span style="display:flex;"><span>main: { host: localhost port: <span style="color:#ae81ff">8080</span> }
+</span></span><span style="display:flex;"><span>peers: [ { host: a port: <span style="color:#ae81ff">1</span> } { host: b port: <span style="color:#ae81ff">2</span> } ]
+</span></span></code></pre></div><p>嵌套块会<strong>递归校验并回填默认值</strong>。被引用契约允许在 <code>@is</code> 之后才定义（引用在 <code>@is</code> 时才解析）。</p>
+<h2 id="55-真实范例resender-邮件工具">5.5 真实范例：resender 邮件工具</h2>
+<p><a href="https://gitee.com/snoware/resender">resender</a> 用 SML 契约做 <code>AppConfig</code> 持久化：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>@contract ResenderConfig loose {
+</span></span><span style="display:flex;"><span>    api_key:    str
+</span></span><span style="display:flex;"><span>    from:       str
+</span></span><span style="display:flex;"><span>    to:         array[str]
+</span></span><span style="display:flex;"><span>    subject:    str default <span style="color:#e6db74">&#34;Hello&#34;</span>
+</span></span><span style="display:flex;"><span>    port:       int default <span style="color:#ae81ff">465</span>  min <span style="color:#ae81ff">1</span> max <span style="color:#ae81ff">65535</span>
+</span></span><span style="display:flex;"><span>    tls:        bool default true
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>@is ResenderConfig
+</span></span><span style="display:flex;"><span>api_key: re_xxxxxx
+</span></span><span style="display:flex;"><span>from: me@example.com
+</span></span><span style="display:flex;"><span>to: [ alice@example.com bob@example.com ]
+</span></span><span style="display:flex;"><span>subject: Weekly Report
+</span></span><span style="display:flex;"><span>port: <span style="color:#ae81ff">465</span>
+</span></span><span style="display:flex;"><span>tls: true
+</span></span></code></pre></div><p>其 Rust 端维护 <code>CONFIG_CONTRACT</code> 常量，保存时把配置序列化回 SML 并自动附上 <code>@is ResenderConfig</code>，读取时再校验——&ldquo;契约即 Schema&rdquo; 的典型用法。</p>
+<h2 id="56-动手试一试">5.6 动手试一试</h2>
+<p>给你的游戏服务器集群（第 3 章）加契约：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>@contract Server strict {
+</span></span><span style="display:flex;"><span>    name: str
+</span></span><span style="display:flex;"><span>    port: int min <span style="color:#ae81ff">1024</span> max <span style="color:#ae81ff">65535</span>
+</span></span><span style="display:flex;"><span>    region: str
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>@common {
+</span></span><span style="display:flex;"><span>    region: ap-east-<span style="color:#ae81ff">1</span>
+</span></span><span style="display:flex;"><span>    max_players: <span style="color:#ae81ff">64</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>lobby {
+</span></span><span style="display:flex;"><span>    @is Server
+</span></span><span style="display:flex;"><span>    &amp;common
+</span></span><span style="display:flex;"><span>    port: <span style="color:#ae81ff">25565</span>
+</span></span><span style="display:flex;"><span>    name: <span style="color:#960050;background-color:#1e0010">大厅</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>试着把 <code>port: 80</code>（小于 1024）写进去，看解析器是否报错。</p>
+<p>→ <a href="../../book/ch06-env-escape">第 6 章：环境变量与转义</a></p>
+<h2 id="动手练习">动手练习</h2>
+<p>读完本章，在下面的编辑器里<strong>直接修改 SML 并点“运行”</strong>，立刻看到解析结果或校验错误——有输出才能高效学习。</p>
+
+
+
+
+<div class="sml-pg" data-lesson="ch05">
+  
+  <div class="sml-pg-task">
+    <span class="sml-pg-task-tag">✍ 动手练习</span>
+    <span class="sml-pg-task-text">定义 <b>@contract Server strict { name: str, port: int min 1024 max 65535, region: str }</b>，并用 <b>@is Server</b> 写一份合法数据（name=大厅, port=25565, region=ap-east-1）。</span>
+    <div class="sml-pg-hint">💡 提示：把 port 改成 80（小于 1024），看契约校验如何报错。</div>
+  </div>
+  
+  
+  <div class="sml-pg-main">
+    <textarea class="sml-pg-code" spellcheck="false" data-files='null'>@contract Server strict {
+  name: str
+  port: int min 1024 max 65535
+  region: str
+}
+@is Server
+name: 大厅
+port: 25565
+region: ap-east-1</textarea>
+  </div>
+  <div class="sml-pg-actions">
+    <button class="sml-pg-run" type="button">运行 ▶</button>
+    <button class="sml-pg-verify" type="button">验证 ✓</button>
+    <button class="sml-pg-reset" type="button">重置</button>
+    <span class="sml-pg-status"></span>
+  </div>
+  <pre class="sml-pg-out" hidden></pre>
+</div>
+
+<script type="module">
+  import { parseSafe } from "/sml.mjs";
+  import { VERIFIERS } from "/sml-verify.js";
+  document.querySelectorAll('.sml-pg[data-lesson="ch05"]').forEach((box) => {
+    const ta = box.querySelector(".sml-pg-code");
+    const out = box.querySelector(".sml-pg-out");
+    const status = box.querySelector(".sml-pg-status");
+    const runBtn = box.querySelector(".sml-pg-run");
+    const verifyBtn = box.querySelector(".sml-pg-verify");
+    const resetBtn = box.querySelector(".sml-pg-reset");
+    const init = ta.value;
+
+    function setStatus(txt, cls) { status.textContent = txt; status.className = "sml-pg-status " + (cls || ""); }
+    function parse() {
+      const src = ta.value;
+      let files = {};
+      try { files = JSON.parse(ta.dataset.files || "{}"); } catch (e) {}
+      const r = parseSafe(src, { files });
+      if (!r.ok) {
+        out.hidden = false;
+        out.className = "sml-pg-out err";
+        let msg = r.error; if (r.position) msg += ` (行 ${r.position.line + 1}, 列 ${r.position.col + 1})`;
+        out.textContent = "✗ 解析错误：\n" + msg;
+        return null;
+      }
+      out.hidden = false; out.className = "sml-pg-out ok";
+      out.textContent = "✓ 解析成功：\n" + JSON.stringify(r.value, null, 2);
+      return r.value;
+    }
+    function run() { setStatus("", ""); parse(); }
+    function reset() { ta.value = init; out.hidden = true; setStatus("", ""); }
+
+    runBtn.addEventListener("click", run);
+    resetBtn.addEventListener("click", reset);
+    if (verifyBtn) verifyBtn.addEventListener("click", () => {
+      const v = parse();
+      if (v === null) { setStatus("✗ 解析错误", "bad"); return; }
+      const fn = VERIFIERS["ch05"];
+      if (!fn) { setStatus("（本章暂无可验证任务）", ""); return; }
+      const res = fn(v);
+      setStatus(res.ok ? "✓ 通过" : "✗ 未通过", res.ok ? "good" : "bad");
+      out.hidden = false;
+      out.className = "sml-pg-out " + (res.ok ? "ok" : "err");
+      let base = res.ok ? "✓ 验证通过！\n" : "✗ 还没对：\n";
+      out.textContent = base + res.msg + "\n\n解析结果：\n" + JSON.stringify(v, null, 2);
+    });
+    ta.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") run(); });
+  });
+</script>
+
+<style>
+  .sml-pg { border: 1px solid #d0d7de; border-radius: 10px; margin: 16px 0; overflow: hidden; background: #ffffff; }
+  .sml-pg-task { background: #eef4ff; border-bottom: 1px solid #d0d7de; padding: 10px 12px; font-size: 13px; color: #1a2b4a; line-height: 1.6; }
+  .sml-pg-task-tag { display: inline-block; background: #1565C0; color: #fff; border-radius: 4px; padding: 1px 7px; font-size: 11px; font-weight: 700; margin-right: 6px; }
+  .sml-pg-hint { margin-top: 6px; font-size: 12px; color: #555; }
+  .sml-pg-files { font-size: 12px; background: #f6f8fa; border-bottom: 1px solid #eaecef; }
+  .sml-pg-files summary { padding: 6px 12px; cursor: pointer; color: #57606a; }
+  .sml-pg-file { padding: 0 12px 8px; }
+  .sml-pg-file-name { font-weight: 700; color: #0d47a1; }
+  .sml-pg-file pre { background: #fff; border: 1px solid #e1e4e8; border-radius: 4px; padding: 6px 8px; margin: 4px 0 0; white-space: pre-wrap; }
+  .sml-pg-main { display: flex; }
+  .sml-pg-code { flex: 1; min-height: 200px; border: 0; padding: 10px 12px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12.5px; line-height: 1.5; background: #ffffff; color: #111; resize: vertical; white-space: pre; tab-size: 2; }
+  .sml-pg-code:focus { outline: 2px solid #1565C0; outline-offset: -2px; }
+  .sml-pg-actions { padding: 8px 12px; display: flex; gap: 8px; align-items: center; background: #f6f8fa; border-top: 1px solid #eaecef; }
+  .sml-pg-actions button { background: #1565C0; color: #fff; border: 0; padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .sml-pg-actions button.sml-pg-reset { background: #6c757d; }
+  .sml-pg-actions button:hover { filter: brightness(1.08); }
+  .sml-pg-status { font-size: 12px; margin-left: 4px; }
+  .sml-pg-status.good { color: #2e7d32; }
+  .sml-pg-status.bad { color: #c62828; }
+  .sml-pg-out { margin: 0; padding: 10px 12px; font-size: 12px; white-space: pre-wrap; max-height: 320px; overflow: auto; border-top: 1px solid #eaecef; }
+  .sml-pg-out.ok { background: #e8f5e9; color: #1b5e20; }
+  .sml-pg-out.err { background: #fdecea; color: #b71c1c; }
+</style>
+
+
+
+
+<div class="sml-qz" data-quiz="ch05">
+  <div class="sml-qz-bar">
+    <span class="sml-qz-title">✍ 自测考题：第 5 章自测：契约系统</span>
+    <span class="sml-qz-score">得分 0 / 4</span>
+    <button class="sml-qz-check" type="button">交卷判分</button>
+    <button class="sml-qz-reset" type="button">重置</button>
+  </div>
+  <div class="sml-qz-body">
+    
+    <div class="sml-qz-item" data-idx="0" data-type="choice" data-answer="1">
+      <div class="sml-qz-q"><span class="sml-qz-no">Q1.</span> @contract Server loose { port: int min 1024 } 中 loose 表示？</div>
+      <div class="sml-qz-opts">
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch05-0" value="0">
+          <span>端口必须 &gt;= 1024</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch05-0" value="1">
+          <span>允许契约外多余字段</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch05-0" value="2">
+          <span>字段顺序固定</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch05-0" value="3">
+          <span>必须加密</span>
+        </label>
+        
+      </div>
+      <div class="sml-qz-explain" hidden>SML 契约默认严格（拒绝未声明字段），写 loose 才放宽允许额外字段；min 1024 才是端口下界约束。</div>
+      <div class="sml-qz-fb" hidden></div>
+    </div>
+    
+    <div class="sml-qz-item" data-idx="1" data-type="choice" data-answer="2">
+      <div class="sml-qz-q"><span class="sml-qz-no">Q2.</span> port: int min 1024 max 65535，下面哪个值会校验失败？</div>
+      <div class="sml-qz-opts">
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch05-1" value="0">
+          <span>1024</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch05-1" value="1">
+          <span>8080</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch05-1" value="2">
+          <span>80</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch05-1" value="3">
+          <span>65535</span>
+        </label>
+        
+      </div>
+      <div class="sml-qz-explain" hidden>80 小于 min 1024，契约校验会报错；其余都在 [1024, 65535] 区间内。</div>
+      <div class="sml-qz-fb" hidden></div>
+    </div>
+    
+    <div class="sml-qz-item" data-idx="2" data-type="multi" data-answer="[0,1]">
+      <div class="sml-qz-q"><span class="sml-qz-no">Q3.</span> role: enum(user, admin, owner) default user 表示？</div>
+      <div class="sml-qz-opts">
+        
+        <label class="sml-qz-opt">
+          <input type="checkbox" name="qz-ch05-2" value="0">
+          <span>role 只能取三者之一</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="checkbox" name="qz-ch05-2" value="1">
+          <span>省略 role 时默认 user</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="checkbox" name="qz-ch05-2" value="2">
+          <span>role 必须是字符串</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="checkbox" name="qz-ch05-2" value="3">
+          <span>role 是数组</span>
+        </label>
+        
+      </div>
+      <div class="sml-qz-explain" hidden>enum 限定取值集合，default 在未提供该字段时填充默认值 user。</div>
+      <div class="sml-qz-fb" hidden></div>
+    </div>
+    
+    <div class="sml-qz-item" data-idx="3" data-type="bool" data-answer="0">
+      <div class="sml-qz-q"><span class="sml-qz-no">Q4.</span> 判断：@is Server 之后写的数据，字段类型不对也会被契约拦下。</div>
+      <div class="sml-qz-opts">
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch05-3" value="0">
+          <span>对</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch05-3" value="1">
+          <span>错</span>
+        </label>
+        
+      </div>
+      <div class="sml-qz-explain" hidden>契约会检查字段类型，例如声明 str 的字段写成数字就会校验失败。</div>
+      <div class="sml-qz-fb" hidden></div>
+    </div>
+    
+  </div>
+</div>
+
+<script type="module">
+  document.querySelectorAll('.sml-qz[data-quiz="ch05"]').forEach((box) => {
+    const scoreEl = box.querySelector(".sml-qz-score");
+    const checkBtn = box.querySelector(".sml-qz-check");
+    const resetBtn = box.querySelector(".sml-qz-reset");
+
+    function normAnswer(raw, type) {
+      const a = (typeof raw === "string") ? JSON.parse(raw) : raw;
+      if (type === "multi") return Array.isArray(a) ? a.slice().sort((x,y)=>x-y) : [];
+      if (type === "bool") return [a];
+      return [a];
+    }
+    function selected(item) {
+      const type = item.dataset.type;
+      const inputs = item.querySelectorAll("input");
+      const sel = [];
+      inputs.forEach(inp => { if (inp.checked) sel.push(parseInt(inp.value, 10)); });
+      return type === "multi" ? sel.slice().sort((x,y)=>x-y) : sel.slice(0,1);
+    }
+    function arrEq(a, b) { return a.length === b.length && a.every((v,i)=>v===b[i]); }
+
+    function check() {
+      let score = 0;
+      box.querySelectorAll(".sml-qz-item").forEach((item) => {
+        const type = item.dataset.type;
+        const ans = normAnswer(item.dataset.answer, type);
+        const got = selected(item);
+        const fb = item.querySelector(".sml-qz-fb");
+        const correct = arrEq(got, ans);
+        if (correct) score++;
+        item.querySelectorAll("input").forEach(i => i.disabled = true);
+        const expl = item.querySelector(".sml-qz-explain");
+        fb.hidden = false;
+        fb.className = "sml-qz-fb " + (correct ? "ok" : "bad");
+        fb.innerHTML = (correct ? "✓ 答对！ " : "✗ 答错。 ") +
+          (expl ? expl.textContent : "");
+      });
+      scoreEl.textContent = "得分 " + score + " / " + box.querySelectorAll(".sml-qz-item").length;
+      checkBtn.disabled = true;
+    }
+    function reset() {
+      box.querySelectorAll(".sml-qz-item").forEach((item) => {
+        item.querySelectorAll("input").forEach(i => { i.checked = false; i.disabled = false; });
+        const fb = item.querySelector(".sml-qz-fb");
+        fb.hidden = true; fb.className = "sml-qz-fb"; fb.textContent = "";
+      });
+      scoreEl.textContent = "得分 0 / " + box.querySelectorAll(".sml-qz-item").length;
+      checkBtn.disabled = false;
+    }
+    checkBtn.addEventListener("click", check);
+    resetBtn.addEventListener("click", reset);
+  });
+</script>
+
+<style>
+  .sml-qz { border: 1px solid #30363d; border-radius: 10px; margin: 18px 0; overflow: hidden; background: #0d1117; }
+  .sml-qz-bar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #161b22; border-bottom: 1px solid #30363d; }
+  .sml-qz-title { font-size: 13px; color: #e6edf3; font-weight: 600; }
+  .sml-qz-score { font-size: 12px; color: #8b949e; }
+  .sml-qz-bar button { background: #1f6feb; color: #fff; border: 0; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .sml-qz-bar button.sml-qz-reset { background: #30363d; }
+  .sml-qz-bar button:hover { filter: brightness(1.1); }
+  .sml-qz-bar button:disabled { opacity: .5; cursor: default; }
+  .sml-qz-body { padding: 6px 14px 12px; }
+  .sml-qz-item { padding: 12px 0; border-bottom: 1px solid #21262d; }
+  .sml-qz-item:last-child { border-bottom: 0; }
+  .sml-qz-q { font-size: 13.5px; color: #e6edf3; margin-bottom: 8px; }
+  .sml-qz-no { color: #58a6ff; font-weight: 700; margin-right: 4px; }
+  .sml-qz-opt { display: block; font-size: 13px; color: #c9d1d9; padding: 4px 0; cursor: pointer; }
+  .sml-qz-opt input { margin-right: 8px; vertical-align: middle; }
+  .sml-qz-fb { font-size: 12px; margin-top: 6px; padding: 6px 10px; border-radius: 6px; }
+  .sml-qz-fb.ok { background: rgba(63,185,80,.12); color: #3fb950; }
+  .sml-qz-fb.bad { background: rgba(248,81,73,.12); color: #f85149; }
+</style>
+
+
+</article>
+
+  </main>
+  <footer>SML · SNOWARE Markup Language · { ❄ }</footer>
+</body>
+</html>

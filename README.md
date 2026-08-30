@@ -50,7 +50,7 @@ region: &base
 
 ```sml
 to: a@b.c
-from: "sal <sal@mail.swebase.cn>"   # 含空格才需引号
+from: "SML Team <dev@mail.swebase.cn>"   # 含空格才需引号
 ```
 
 ## 契约（Contract）

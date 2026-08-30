@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>第 3 章：片段继承 · SML { ❄ } — SNOWARE Markup Language</title>
+  <style>
+    body { font-family: system-ui, "Microsoft YaHei", sans-serif; margin: 0; background: #fafafa; color: #111; }
+    header { background: #111; color: #fff; padding: 18px 32px; display: flex; align-items: center; gap: 12px; }
+    header h1 { margin: 0; font-size: 20px; }
+    header a { color: #fff; text-decoration: none; }
+    header .flake { color: #42A5F5; font-size: 22px; }
+    nav { background: #1c1c1c; padding: 8px 32px; position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 4px 18px; }
+    nav a { color: #90caf9; text-decoration: none; font-size: 14px; }
+    nav a:hover { text-decoration: underline; }
+    nav .home { color: #fff; font-weight: 600; }
+    main { max-width: 880px; margin: 24px auto; padding: 0 24px; }
+     
+    h2 { scroll-margin-top: 56px; }
+    article { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 24px 32px; }
+    h1, h2, h3 { color: #0d47a1; }
+    h2 { border-bottom: 2px solid #42A5F5; padding-bottom: 6px; }
+    code { background: #eef4fb; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; color: #1565C0; }
+    pre { background: #111; color: #e8f1fb; padding: 12px; border-radius: 6px; overflow-x: auto; }
+    pre code { background: none; color: inherit; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background: #eef4fb; color: #0d47a1; }
+    .links { display: flex; gap: 12px; margin: 16px 0; }
+    .btn { display: inline-block; background: #1565C0; color: #fff; padding: 10px 22px; border-radius: 8px; text-decoration: none; font-weight: 600; }
+    .btn:hover { background: #0d47a1; }
+    footer { text-align: center; padding: 24px; color: #666; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="../../sml.svg" alt="sml" style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))">
+    <h1><a href="../../">SML { ❄ }</a></h1>
+  </header>
+  <nav>
+    <a class="home" href="../../">SML</a>
+    
+      <a href="../../book/">教科书</a>
+      <a href="../../book/intro">序章</a>
+      <a href="../../book/ch01-basics">1.基础</a>
+      <a href="../../book/ch02-blocks">2.块</a>
+      <a href="../../book/ch03-fragments">3.片段</a>
+      <a href="../../book/ch04-include">4.include</a>
+      <a href="../../book/ch05-contract">5.契约</a>
+      <a href="../../book/ch06-env-escape">6.环境</a>
+      <a href="../../book/ch07-languages">7.语言</a>
+      <a href="../../book/ch08-project">8.实战</a>
+      <a href="../../book/ch09-advanced">9.组合</a>
+      <a href="../../book/ch10-features">10.feature</a>
+      <a href="../../book/ch11-challenges">11.挑战</a>
+      <a href="../../book/appendix">附录</a>
+    
+  </nav>
+  <main>
+    
+<article>
+  <h1>第 3 章：片段继承</h1>
+  <h1 id="第-3-章片段继承">第 3 章：片段继承</h1>
+<p>真实项目里，很多配置块&quot;长得差不多&quot;——比如多个服务都要 <code>region</code>、<code>timeout</code>、<code>dns</code>。重复写既啰嗦又容易不一致。SML 用**片段（fragment）**解决这个问题。</p>
+<blockquote>
+<p>一句话：<strong>片段是&quot;值的复用&quot;</strong>——把一组字段定义一次，到处引用展开。</p>
+</blockquote>
+<h2 id="31-定义片段name">3.1 定义片段：<code>@name</code></h2>
+<p>用 <code>@名字 { }</code> 定义一段可复用的字段：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>@net {
+</span></span><span style="display:flex;"><span>    region: cn-north-<span style="color:#ae81ff">1</span>
+</span></span><span style="display:flex;"><span>    dns: internal.swebase.cn
+</span></span><span style="display:flex;"><span>    timeout: <span style="color:#ae81ff">30</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>注意 <code>@net</code> 本身<strong>不会出现在解析结果里</strong>，它只是个&quot;模板&quot;。</p>
+<h2 id="32-引用片段name">3.2 引用片段：<code>&amp;name</code></h2>
+<p>用 <code>&amp;名字</code> 把片段&quot;展开&quot;进来：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>network: &amp;net
+</span></span></code></pre></div><p>解析后 <code>network</code> 会得到：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>network {
+</span></span><span style="display:flex;"><span>    region: cn-north-<span style="color:#ae81ff">1</span>
+</span></span><span style="display:flex;"><span>    dns: internal.swebase.cn
+</span></span><span style="display:flex;"><span>    timeout: <span style="color:#ae81ff">30</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="33-在块内引用">3.3 在块内引用</h2>
+<p>片段常用来给多个服务注入公共字段：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>@base {
+</span></span><span style="display:flex;"><span>    region: cn-north-<span style="color:#ae81ff">1</span>
+</span></span><span style="display:flex;"><span>    timeout: <span style="color:#ae81ff">30</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>service auth { &amp;base port: <span style="color:#ae81ff">7100</span> name: auth-svc }
+</span></span><span style="display:flex;"><span>service billing { &amp;base port: <span style="color:#ae81ff">7200</span> name: billing-svc }
+</span></span></code></pre></div><p><code>service auth</code> 展开后等价于：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>service auth {
+</span></span><span style="display:flex;"><span>    region: cn-north-<span style="color:#ae81ff">1</span>
+</span></span><span style="display:flex;"><span>    timeout: <span style="color:#ae81ff">30</span>
+</span></span><span style="display:flex;"><span>    port: <span style="color:#ae81ff">7100</span>
+</span></span><span style="display:flex;"><span>    name: auth-svc
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p><code>service billing</code> 同理拿到同样的 <code>region</code> / <code>timeout</code>，但 <code>port</code> / <code>name</code> 各自不同。<strong>复用 + 个性</strong>，完美。</p>
+<h2 id="34-重要细节块内裸写-name-不会展开">3.4 重要细节：块内裸写 <code>&amp;name</code> 不会展开</h2>
+<p>这是新手最容易踩的坑：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>server {
+</span></span><span style="display:flex;"><span>    &amp;base            # <span style="color:#960050;background-color:#1e0010">❌</span> <span style="color:#960050;background-color:#1e0010">这样写，&amp;base</span> <span style="color:#960050;background-color:#1e0010">被当成&#34;键名&#34;，不会展开字段</span>
+</span></span><span style="display:flex;"><span>    port: <span style="color:#ae81ff">8080</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>正确写法是把片段作为<strong>值</strong>赋给某个键：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>server {
+</span></span><span style="display:flex;"><span>    net: &amp;base       # <span style="color:#960050;background-color:#1e0010">✅</span> net <span style="color:#960050;background-color:#1e0010">这个键获得</span> base <span style="color:#960050;background-color:#1e0010">的全部字段</span>
+</span></span><span style="display:flex;"><span>    port: <span style="color:#ae81ff">8080</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>或者用 <code>&amp;base</code> 本身作为值的来源（如 3.3 的 <code>service auth { &amp;base ... }</code> 那种&quot;块开头直接跟 <code>&amp;base</code> 再跟额外字段&quot;的写法，解析器会把它当作&quot;先展开片段再合并后续字段&quot;）。<strong>牢记：片段是&quot;值&quot;，要出现在 <code>键: 值</code> 的值位置。</strong></p>
+<h2 id="35-片段-vs-契约先预告">3.5 片段 vs 契约（先预告）</h2>
+<p>你可能会想：&ldquo;片段和契约（第 5 章）听起来像？&rdquo; 它们的定位完全不同：</p>
+<table>
+	<thead>
+			<tr>
+					<th></th>
+					<th>片段 <code>@base</code> / <code>&amp;base</code></th>
+					<th>契约 <code>@contract</code> / <code>@is</code></th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>本质</td>
+					<td><strong>值的复用</strong></td>
+					<td><strong>形状的约束</strong></td>
+			</tr>
+			<tr>
+					<td>做什么</td>
+					<td>把一组字段&quot;展开进来&quot;</td>
+					<td>校验结构、补默认值</td>
+			</tr>
+			<tr>
+					<td>结果</td>
+					<td>数据被复制填充</td>
+					<td>数据被检查 + 补齐</td>
+			</tr>
+	</tbody>
+</table>
+<p>两者<strong>正交</strong>，可以一起用（先把片段展开，再用契约校验）。</p>
+<h2 id="36-动手试一试">3.6 动手试一试</h2>
+<p>为一个游戏服务器集群写配置，三个服共享 <code>region</code> 和 <code>max_players</code>：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>@common {
+</span></span><span style="display:flex;"><span>    region: ap-east-<span style="color:#ae81ff">1</span>
+</span></span><span style="display:flex;"><span>    max_players: <span style="color:#ae81ff">64</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>lobby { &amp;common port: <span style="color:#ae81ff">25565</span> name: <span style="color:#960050;background-color:#1e0010">大厅</span> }
+</span></span><span style="display:flex;"><span>pvp { &amp;common port: <span style="color:#ae81ff">25566</span> name: <span style="color:#960050;background-color:#1e0010">竞技场</span> }
+</span></span><span style="display:flex;"><span>survival { &amp;common port: <span style="color:#ae81ff">25567</span> name: <span style="color:#960050;background-color:#1e0010">生存</span> }
+</span></span></code></pre></div><p>→ <a href="../../book/ch04-include">第 4 章：include 与命名空间</a></p>
+<h2 id="动手练习">动手练习</h2>
+<p>读完本章，在下面的编辑器里<strong>直接修改 SML 并点“运行”</strong>，立刻看到解析结果或校验错误——有输出才能高效学习。</p>
+
+
+
+
+<div class="sml-pg" data-lesson="ch03">
+  
+  <div class="sml-pg-task">
+    <span class="sml-pg-task-tag">✍ 动手练习</span>
+    <span class="sml-pg-task-text">定义 <b>@base { region, timeout }</b>，再写两个 <b>service</b> 块（auth、billing）都 <b>&base</b> 并各自覆盖 port 与 name。</span>
+    <div class="sml-pg-hint">💡 提示：把 &amp;base 误写成裸词（去掉 &amp;）看看会发生什么。</div>
+  </div>
+  
+  
+  <div class="sml-pg-main">
+    <textarea class="sml-pg-code" spellcheck="false" data-files='null'>@base {
+  region: cn-north-1
+  timeout: 30
+}
+service auth { &amp;base port: 7100 name: auth-svc }
+service billing { &amp;base port: 7200 name: billing-svc }</textarea>
+  </div>
+  <div class="sml-pg-actions">
+    <button class="sml-pg-run" type="button">运行 ▶</button>
+    <button class="sml-pg-verify" type="button">验证 ✓</button>
+    <button class="sml-pg-reset" type="button">重置</button>
+    <span class="sml-pg-status"></span>
+  </div>
+  <pre class="sml-pg-out" hidden></pre>
+</div>
+
+<script type="module">
+  import { parseSafe } from "/sml.mjs";
+  import { VERIFIERS } from "/sml-verify.js";
+  document.querySelectorAll('.sml-pg[data-lesson="ch03"]').forEach((box) => {
+    const ta = box.querySelector(".sml-pg-code");
+    const out = box.querySelector(".sml-pg-out");
+    const status = box.querySelector(".sml-pg-status");
+    const runBtn = box.querySelector(".sml-pg-run");
+    const verifyBtn = box.querySelector(".sml-pg-verify");
+    const resetBtn = box.querySelector(".sml-pg-reset");
+    const init = ta.value;
+
+    function setStatus(txt, cls) { status.textContent = txt; status.className = "sml-pg-status " + (cls || ""); }
+    function parse() {
+      const src = ta.value;
+      let files = {};
+      try { files = JSON.parse(ta.dataset.files || "{}"); } catch (e) {}
+      const r = parseSafe(src, { files });
+      if (!r.ok) {
+        out.hidden = false;
+        out.className = "sml-pg-out err";
+        let msg = r.error; if (r.position) msg += ` (行 ${r.position.line + 1}, 列 ${r.position.col + 1})`;
+        out.textContent = "✗ 解析错误：\n" + msg;
+        return null;
+      }
+      out.hidden = false; out.className = "sml-pg-out ok";
+      out.textContent = "✓ 解析成功：\n" + JSON.stringify(r.value, null, 2);
+      return r.value;
+    }
+    function run() { setStatus("", ""); parse(); }
+    function reset() { ta.value = init; out.hidden = true; setStatus("", ""); }
+
+    runBtn.addEventListener("click", run);
+    resetBtn.addEventListener("click", reset);
+    if (verifyBtn) verifyBtn.addEventListener("click", () => {
+      const v = parse();
+      if (v === null) { setStatus("✗ 解析错误", "bad"); return; }
+      const fn = VERIFIERS["ch03"];
+      if (!fn) { setStatus("（本章暂无可验证任务）", ""); return; }
+      const res = fn(v);
+      setStatus(res.ok ? "✓ 通过" : "✗ 未通过", res.ok ? "good" : "bad");
+      out.hidden = false;
+      out.className = "sml-pg-out " + (res.ok ? "ok" : "err");
+      let base = res.ok ? "✓ 验证通过！\n" : "✗ 还没对：\n";
+      out.textContent = base + res.msg + "\n\n解析结果：\n" + JSON.stringify(v, null, 2);
+    });
+    ta.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") run(); });
+  });
+</script>
+
+<style>
+  .sml-pg { border: 1px solid #d0d7de; border-radius: 10px; margin: 16px 0; overflow: hidden; background: #ffffff; }
+  .sml-pg-task { background: #eef4ff; border-bottom: 1px solid #d0d7de; padding: 10px 12px; font-size: 13px; color: #1a2b4a; line-height: 1.6; }
+  .sml-pg-task-tag { display: inline-block; background: #1565C0; color: #fff; border-radius: 4px; padding: 1px 7px; font-size: 11px; font-weight: 700; margin-right: 6px; }
+  .sml-pg-hint { margin-top: 6px; font-size: 12px; color: #555; }
+  .sml-pg-files { font-size: 12px; background: #f6f8fa; border-bottom: 1px solid #eaecef; }
+  .sml-pg-files summary { padding: 6px 12px; cursor: pointer; color: #57606a; }
+  .sml-pg-file { padding: 0 12px 8px; }
+  .sml-pg-file-name { font-weight: 700; color: #0d47a1; }
+  .sml-pg-file pre { background: #fff; border: 1px solid #e1e4e8; border-radius: 4px; padding: 6px 8px; margin: 4px 0 0; white-space: pre-wrap; }
+  .sml-pg-main { display: flex; }
+  .sml-pg-code { flex: 1; min-height: 200px; border: 0; padding: 10px 12px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12.5px; line-height: 1.5; background: #ffffff; color: #111; resize: vertical; white-space: pre; tab-size: 2; }
+  .sml-pg-code:focus { outline: 2px solid #1565C0; outline-offset: -2px; }
+  .sml-pg-actions { padding: 8px 12px; display: flex; gap: 8px; align-items: center; background: #f6f8fa; border-top: 1px solid #eaecef; }
+  .sml-pg-actions button { background: #1565C0; color: #fff; border: 0; padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .sml-pg-actions button.sml-pg-reset { background: #6c757d; }
+  .sml-pg-actions button:hover { filter: brightness(1.08); }
+  .sml-pg-status { font-size: 12px; margin-left: 4px; }
+  .sml-pg-status.good { color: #2e7d32; }
+  .sml-pg-status.bad { color: #c62828; }
+  .sml-pg-out { margin: 0; padding: 10px 12px; font-size: 12px; white-space: pre-wrap; max-height: 320px; overflow: auto; border-top: 1px solid #eaecef; }
+  .sml-pg-out.ok { background: #e8f5e9; color: #1b5e20; }
+  .sml-pg-out.err { background: #fdecea; color: #b71c1c; }
+</style>
+
+
+
+
+<div class="sml-qz" data-quiz="ch03">
+  <div class="sml-qz-bar">
+    <span class="sml-qz-title">✍ 自测考题：第 3 章自测：片段继承</span>
+    <span class="sml-qz-score">得分 0 / 4</span>
+    <button class="sml-qz-check" type="button">交卷判分</button>
+    <button class="sml-qz-reset" type="button">重置</button>
+  </div>
+  <div class="sml-qz-body">
+    
+    <div class="sml-qz-item" data-idx="0" data-type="choice" data-answer="0">
+      <div class="sml-qz-q"><span class="sml-qz-no">Q1.</span> 定义可复用片段用哪个符号？</div>
+      <div class="sml-qz-opts">
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch03-0" value="0">
+          <span>@base</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch03-0" value="1">
+          <span>&amp;base</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch03-0" value="2">
+          <span>@is</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch03-0" value="3">
+          <span>include</span>
+        </label>
+        
+      </div>
+      <div class="sml-qz-explain" hidden>@base { } 定义片段模板，&amp;base 在别处引用它进行继承合并。</div>
+      <div class="sml-qz-fb" hidden></div>
+    </div>
+    
+    <div class="sml-qz-item" data-idx="1" data-type="choice" data-answer="1">
+      <div class="sml-qz-q"><span class="sml-qz-no">Q2.</span> service auth { &amp;base port: 7100 } 里，如果 @base 已定义 port: 7000，结果 port 是？</div>
+      <div class="sml-qz-opts">
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch03-1" value="0">
+          <span>7000（片段优先）</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch03-1" value="1">
+          <span>7100（本地覆盖）</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch03-1" value="2">
+          <span>两个都有</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch03-1" value="3">
+          <span>报错</span>
+        </label>
+        
+      </div>
+      <div class="sml-qz-explain" hidden>引用 &amp;base 后，本地字段会覆盖片段中的同名字段，port 取 7100。</div>
+      <div class="sml-qz-fb" hidden></div>
+    </div>
+    
+    <div class="sml-qz-item" data-idx="2" data-type="bool" data-answer="0">
+      <div class="sml-qz-q"><span class="sml-qz-no">Q3.</span> 判断：&amp;base 必须放在块的第一行才能生效。</div>
+      <div class="sml-qz-opts">
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch03-2" value="0">
+          <span>错，位置不限</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch03-2" value="1">
+          <span>对，必须是首字段</span>
+        </label>
+        
+      </div>
+      <div class="sml-qz-explain" hidden>&amp;base 引用可以出现在块内任意字段位置，SML 会先做片段合并再解析其他字段。</div>
+      <div class="sml-qz-fb" hidden></div>
+    </div>
+    
+    <div class="sml-qz-item" data-idx="3" data-type="multi" data-answer="[0,1]">
+      <div class="sml-qz-q"><span class="sml-qz-no">Q4.</span> 片段继承主要解决什么问题？</div>
+      <div class="sml-qz-opts">
+        
+        <label class="sml-qz-opt">
+          <input type="checkbox" name="qz-ch03-3" value="0">
+          <span>减少重复配置</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="checkbox" name="qz-ch03-3" value="1">
+          <span>统一公共字段</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="checkbox" name="qz-ch03-3" value="2">
+          <span>强制类型检查</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="checkbox" name="qz-ch03-3" value="3">
+          <span>自动生成文档</span>
+        </label>
+        
+      </div>
+      <div class="sml-qz-explain" hidden>片段用于把 region/timeout 等公共字段抽出来复用，避免每个服务重复写。</div>
+      <div class="sml-qz-fb" hidden></div>
+    </div>
+    
+  </div>
+</div>
+
+<script type="module">
+  document.querySelectorAll('.sml-qz[data-quiz="ch03"]').forEach((box) => {
+    const scoreEl = box.querySelector(".sml-qz-score");
+    const checkBtn = box.querySelector(".sml-qz-check");
+    const resetBtn = box.querySelector(".sml-qz-reset");
+
+    function normAnswer(raw, type) {
+      const a = (typeof raw === "string") ? JSON.parse(raw) : raw;
+      if (type === "multi") return Array.isArray(a) ? a.slice().sort((x,y)=>x-y) : [];
+      if (type === "bool") return [a];
+      return [a];
+    }
+    function selected(item) {
+      const type = item.dataset.type;
+      const inputs = item.querySelectorAll("input");
+      const sel = [];
+      inputs.forEach(inp => { if (inp.checked) sel.push(parseInt(inp.value, 10)); });
+      return type === "multi" ? sel.slice().sort((x,y)=>x-y) : sel.slice(0,1);
+    }
+    function arrEq(a, b) { return a.length === b.length && a.every((v,i)=>v===b[i]); }
+
+    function check() {
+      let score = 0;
+      box.querySelectorAll(".sml-qz-item").forEach((item) => {
+        const type = item.dataset.type;
+        const ans = normAnswer(item.dataset.answer, type);
+        const got = selected(item);
+        const fb = item.querySelector(".sml-qz-fb");
+        const correct = arrEq(got, ans);
+        if (correct) score++;
+        item.querySelectorAll("input").forEach(i => i.disabled = true);
+        const expl = item.querySelector(".sml-qz-explain");
+        fb.hidden = false;
+        fb.className = "sml-qz-fb " + (correct ? "ok" : "bad");
+        fb.innerHTML = (correct ? "✓ 答对！ " : "✗ 答错。 ") +
+          (expl ? expl.textContent : "");
+      });
+      scoreEl.textContent = "得分 " + score + " / " + box.querySelectorAll(".sml-qz-item").length;
+      checkBtn.disabled = true;
+    }
+    function reset() {
+      box.querySelectorAll(".sml-qz-item").forEach((item) => {
+        item.querySelectorAll("input").forEach(i => { i.checked = false; i.disabled = false; });
+        const fb = item.querySelector(".sml-qz-fb");
+        fb.hidden = true; fb.className = "sml-qz-fb"; fb.textContent = "";
+      });
+      scoreEl.textContent = "得分 0 / " + box.querySelectorAll(".sml-qz-item").length;
+      checkBtn.disabled = false;
+    }
+    checkBtn.addEventListener("click", check);
+    resetBtn.addEventListener("click", reset);
+  });
+</script>
+
+<style>
+  .sml-qz { border: 1px solid #30363d; border-radius: 10px; margin: 18px 0; overflow: hidden; background: #0d1117; }
+  .sml-qz-bar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #161b22; border-bottom: 1px solid #30363d; }
+  .sml-qz-title { font-size: 13px; color: #e6edf3; font-weight: 600; }
+  .sml-qz-score { font-size: 12px; color: #8b949e; }
+  .sml-qz-bar button { background: #1f6feb; color: #fff; border: 0; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .sml-qz-bar button.sml-qz-reset { background: #30363d; }
+  .sml-qz-bar button:hover { filter: brightness(1.1); }
+  .sml-qz-bar button:disabled { opacity: .5; cursor: default; }
+  .sml-qz-body { padding: 6px 14px 12px; }
+  .sml-qz-item { padding: 12px 0; border-bottom: 1px solid #21262d; }
+  .sml-qz-item:last-child { border-bottom: 0; }
+  .sml-qz-q { font-size: 13.5px; color: #e6edf3; margin-bottom: 8px; }
+  .sml-qz-no { color: #58a6ff; font-weight: 700; margin-right: 4px; }
+  .sml-qz-opt { display: block; font-size: 13px; color: #c9d1d9; padding: 4px 0; cursor: pointer; }
+  .sml-qz-opt input { margin-right: 8px; vertical-align: middle; }
+  .sml-qz-fb { font-size: 12px; margin-top: 6px; padding: 6px 10px; border-radius: 6px; }
+  .sml-qz-fb.ok { background: rgba(63,185,80,.12); color: #3fb950; }
+  .sml-qz-fb.bad { background: rgba(248,81,73,.12); color: #f85149; }
+</style>
+
+
+</article>
+
+  </main>
+  <footer>SML · SNOWARE Markup Language · { ❄ }</footer>
+</body>
+</html>

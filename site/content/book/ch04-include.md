@@ -131,4 +131,13 @@ include "widgets/*.sml"
    ```
 3. 解析 `app.sml`，确认 `service.region` 取到 `cn-north-1`。
 
-→ [第 5 章：契约系统](./ch05-contract)
+→ [第 5 章：契约系统](/book/ch05-contract)
+
+## 动手练习
+
+读完本章，在下面的编辑器里**直接修改 SML 并点“运行”**，立刻看到解析结果或校验错误——有输出才能高效学习。
+
+{{< sml-playground "ch04" >}}
+
+{{< sml-quiz "ch04" >}}
+
