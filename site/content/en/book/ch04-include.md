@@ -20,7 +20,7 @@ The content of `common.sml` will be pasted in its original form, just like you w
 
 ```sml
 database {
-    include "conf.d/db.sml"   # 只给 database 块注入字段
+    include "conf.d/db.sml"   # Only inject fields into the database block
     pool: 16
 }
 ```
@@ -50,9 +50,9 @@ title: ui.title
 **Clean rule**: with extension=inline; Without extension=namespace (name takes file name).
 
 ```sml
-include "ui"          # 等价于 include "ui.sml" as ui
-include "ui.sml"      # 内联（带扩展名）
-include "ui.sml" as ui.form.widgets   # 显式指定，优先
+include "ui"          # Equivalent to include "ui. sml" as ui
+include "ui.sml"      # Inline (with extension)
+include "ui.sml" as ui.form.widgets   # Explicitly specified, priority given
 ```
 
 ## 4.3 Pointwise path (nested namespace)
@@ -139,7 +139,7 @@ include "widgets/*.sml"
 
 3. Analyze `app.sml` and confirm that `service.region` corresponds to `cn-north-1`.
 
-→ [Chapter 5: Contract System](/en/book/ch05 contract)
+→ [Chapter 5: Contract System](/en/book/ch05-contract)
 
 ## Hands on practice
 

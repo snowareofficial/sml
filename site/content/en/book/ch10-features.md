@@ -274,7 +274,7 @@ include "modules/*.sml" as modules
 import modules.auth, modules.billing
 ```
 
-Use commands such as `sml check features.sml` (refer to [ch07 Multilingual](/en/book/ch07 languages)) to run parsing and contract verification.
+Use commands such as `sml check features.sml` (refer to [ch07 Multilingual](/en/book/ch07-languages)) to run parsing and contract verification.
 
 → [Appendix: Comparison and Investigation](/en/book/appendix)
 

@@ -69,7 +69,7 @@ SML is a **data/configuration format**, not a programming language:
 
 >Remember one sentence: * * SML is responsible for "describing what it is", and code is responsible for "how to do it". **
 
-In the next chapter, we will write the first real SML file. → [Chapter 1](/en/book/ch01 basics)
+In the next chapter, we will write the first real SML file. → [Chapter 1](/en/book/ch01-basics)
 
 ## Hands on practice
 

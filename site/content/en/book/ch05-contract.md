@@ -12,11 +12,11 @@ The previous paragraph was about 'value reuse'. **A contract is a "shape constra
 
 ```sml
 @contract ResenderConfig loose {
-    api_key:     str                # 必填字符串
+    api_key:     str                # Required string
     port:        int  default 8080 min 1 max 65535
     debug:       bool default false
     mode:        enum(active, disabled) default active
-    tags:        array[str] ?       # 可选字符串数组
+    tags:        array[str] ?       # Optional string array
 }
 ```
 
@@ -37,7 +37,7 @@ List of field modifiers:
 Two ways of writing:
 
 ```sml
-# 写法一：匿名块顶层直接 @is
+# Writing Method 1: Anonymous Block Top Level Direct @ is
 @contract Cfg loose { api_key: str port: int default 8080 }
 @is Cfg
 api_key: re_abc
@@ -45,7 +45,7 @@ port: 8080
 ```
 
 ```sml
-# 写法二：块级 @is
+# Writing 2: Block level @ is
 server prod {
     @is Cfg
     api_key: re_prod
@@ -53,7 +53,7 @@ server prod {
 }
 ```
 
-Verification occurs during **parsing period**: a precise error with location is returned directly in violation of the contract, such as `contract: Service — 字段 main.port 大于最大值 65535`.
+Verification occurs during **parsing period**: a precise error with location is returned directly in violation of the contract, such as `contract: Service — field main.port Greater than the maximum value 65535`.
 
 ## 5.3 Strict vs Loose
 
@@ -75,8 +75,8 @@ Contracts do not share fields, but rather 'the type of field is another contract
 @contract Endpoint { host: str port: int }
 @contract Service {
     name:  str
-    main:  Endpoint          # 引用另一个契约
-    peers: array[Endpoint]   # 契约数组
+    main:  Endpoint          # Quoting another contract
+    peers: array[Endpoint]   # Contract array
 }
 
 @is Service
@@ -138,7 +138,7 @@ lobby {
 
 Try writing `port: 80` (less than 1024) into it and see if the parser reports an error.
 
-→ [Chapter 6: Environment Variables and Escaping](/en/book/ch06-env escape)
+→ [Chapter 6: Environment Variables and Escaping](/en/book/ch06-env-escape)
 
 ## Hands on practice
 

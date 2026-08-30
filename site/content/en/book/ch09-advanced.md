@@ -95,7 +95,7 @@ Contract fields can also be trimmed as needed - using `optional`/`default` allow
     host:     str
     port:     int  default 5432 min 1 max 65535
     user:     str  default app
-    password: str  ?               # 可选：本地/测试用空
+    password: str  ?               # Optional: Local/Test Empty
     sslmode:  enum(disable, allow, require) default require
 }
 ```
@@ -158,7 +158,7 @@ gateway {
 secrets {
     api_key: $env.API_KEY
     db_password: $env.DB_PASSWORD
-    webhook: $env.OPTIONAL_WEBHOOK   # 未设 -> 空串
+    webhook: $env.OPTIONAL_WEBHOOK   # Not set ->empty string
 }
 ```
 
@@ -212,15 +212,15 @@ type User = { id: string; email: string; role: 'user'|'admin'|'owner'; age?: num
 
 ## 9.7 Mode 6: Contract combination+recursion
 
-Using `array[契约名]` to express "contract array" - suitable for list type data:
+Using `Arrangement [contract name]` to express "contract array" - suitable for list type data:
 
 ```sml
 @contract Endpoint { host: str port: int }
 @contract Service {
     name:  str
-    main:  Endpoint                # 单个
-    peers: array[Endpoint]         # 列表
-    back:  Endpoint?               # 可选
+    main:  Endpoint                # Single
+    peers: array[Endpoint]         # List
+    back:  Endpoint?               # Optional
 }
 
 @is Service
@@ -312,7 +312,7 @@ Refactor the "Complete Project" in Chapter 8 according to the "Mode 5 (include+c
 
 4. Use `cargo test` (or corresponding language contract testing) to run parsing and verification.
 
-→ [Chapter 10: Complete Reference to Features](/en/book/ch10 features)
+→ [Chapter 10: Complete Reference to Features](/en/book/ch10-features)
 
 ## Hands on practice
 

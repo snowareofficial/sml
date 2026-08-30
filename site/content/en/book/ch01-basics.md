@@ -28,15 +28,15 @@ SML supports three types of line comments, any of which can be used:
 -- Double Horizontal Annotation (Soup/Lua Style)
 // Slash comment (C style)
 
-name: John   # 行尾也能写注释
+name: John   # Comments can also be written at the end of the line
 ```
 
 There are also two types of block annotations (which can span multiple lines):
 
 ```sml
-/* 这是块注释
-   可以写很多行 */
-_* 这也是块注释，Soup 系习惯写法 *_
+/* This is a comment
+   Can write many lines */
+_* This is also a comment，Soup Habitual writing style *_
 ```
 
 >Note: `#`, `--` inside the * * quotation marks of the string will not be treated as comments, so feel free to write them.
@@ -57,13 +57,13 @@ SML will automatically recognize the type of value:
 Hands on trial:
 
 ```sml
-firstName: "John Doe"     # 含空格 -> 必须引号
-state: NY                 # 单字 -> 裸词即可
-age: 27                   # 整数
-ratio: 0.75               # 浮点
-enabled: true             # 布尔
-note: null                # 空值
-chinese: 中文无需引号      # 中文裸词也行
+firstName: "John Doe"     # Containing spaces ->must be quoted
+state: NY                 # Single word ->Naked word is sufficient
+age: 27                   # Integer
+ratio: 0.75               # Floating point
+enabled: true             # Boolean
+note: null                # Null value
+chinese: 中文无需引号      # Chinese naked words are also acceptable
 ```
 
 >When must quotation marks be added? **When the value contains characters that may interfere with parsing, such as spaces, colons, square brackets `[]`, curly brackets `{}`, and pound signs `#`, wrap them in quotation marks. If you're not sure, add quotation marks. It's never wrong.
@@ -81,8 +81,8 @@ state: "NY"
 But emails with `@` can also be written directly naked (because `@` is just a regular character when not at the beginning of the word):
 
 ```sml
-email: alice@example.com     # 裸词，@ 在中间，安全
-from: "SML Team <dev@mail.swebase.cn>"   # 含空格 -> 引号
+email: alice@example.com     # Naked word, @ in the middle, safe
+from: "SML Team <dev@mail.swebase.cn>"   # Containing spaces ->quotation marks
 ```
 
 ## 1.5 Give it a try with your hands
@@ -99,7 +99,7 @@ active: true
 
 Then read it with a parser in any language, and you will get a key value tree. In the next chapter, we will organize key values into blocks and arrays, which is the true strength of SML.
 
-→ [Chapter 2: Blocks and Nesting](/en/book/ch02 blocks)
+→ [Chapter 2: Blocks and Nesting](/en/book/ch02-blocks)
 
 ## Hands on practice
 

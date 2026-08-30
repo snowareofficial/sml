@@ -52,8 +52,8 @@ database {
 Square brackets `[]` represent arrays. Commas can be omitted between elements, and line breaks can also be used:
 
 ```sml
-tags: [ logging metrics tracing ]      # 裸词数组，逗号可省
-ports: [ 80, 443, 8080 ]               # 带逗号也行
+tags: [ logging metrics tracing ]      # Naked word array, commas can be omitted
+ports: [ 80, 443, 8080 ]               # Even with commas
 empty: []
 ```
 
@@ -119,9 +119,9 @@ contact {
 skills: [ rust sml linux ]
 ```
 
-After parsing, you will get: `name="张三"`, `contact.email=...`, `skills` is an array containing 3 elements.
+After parsing, you will get: `name="Zhang San"`, `contact.email=...`, `skills` is an array containing 3 elements.
 
-→ [Chapter 3: Fragment Inheritance](/en/book/ch03 fragments)
+→ [Chapter 3: Fragment Inheritance](/en/book/ch03-fragments)
 
 ## Hands on practice
 
