@@ -88,6 +88,39 @@
           }
         },
         {
+          "comment": "import/include 行（含部分引用语法）：import { a, b } as ns in \"x\" / import \"x\" as ns { a, b }",
+          "begin": "^\\s*(import|include)\\b",
+          "beginCaptures": {
+            "1": { "name": "keyword.control.import.sml" }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "comment": "部分引用键列表 { a, b }",
+              "match": "\\{([^}]*)\\}",
+              "captures": {
+                "1": { "name": "meta.import-keys.sml" }
+              }
+            },
+            {
+              "match": "\\b(as)\\b",
+              "name": "keyword.control.as.sml"
+            },
+            {
+              "match": "\\b(in)\\b",
+              "name": "keyword.control.as.sml"
+            },
+            {
+              "match": "\"([^\"]*)\"",
+              "name": "string.quoted.double.sml"
+            },
+            {
+              "match": "[A-Za-z_][\\w.-]*",
+              "name": "entity.name.namespace.sml"
+            }
+          ]
+        },
+        {
           "match": "(@?include)\\s+(\"[^\"]*\"|[^\\s]+)",
           "captures": {
             "1": { "name": "keyword.control.import.sml" },

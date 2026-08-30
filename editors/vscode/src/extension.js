@@ -65,6 +65,19 @@ const DIRECTIVES = [
     insertText: 'include "${1:path}"',
     insertTextFormat: vscode.InsertTextFormat.Snippet,
   },
+  {
+    label: "import (部分引用)",
+    kind: vscode.CompletionItemKind.Keyword,
+    detail: "只挑指定顶层键并入，避免整文件 copy",
+    documentation: new vscode.MarkdownString(
+      "部分引用：只从目标文件挑出指定顶层键并入当前作用域（不引入其余键）。\n\n" +
+        "```sml\nimport \"widgets.sml\" { login, search }\n```\n" +
+        "配合 `as ns` 挂到命名空间隔离：\n" +
+        "```sml\nimport { login } as w in \"widgets.sml\"\n```"
+    ),
+    insertText: 'import "${1:path}" { ${2:key1}, ${3:key2} }',
+    insertTextFormat: vscode.InsertTextFormat.Snippet,
+  },
 ];
 
 const CONTRACT_TYPES = [
