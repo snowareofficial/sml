@@ -484,6 +484,7 @@ typedef struct {
     struct frag *frags;
     ccontract *contracts;   /* 全局契约表 (跨块可见) */
     int failed;             /* 契约校验失败标志 (不依赖 errbuf 内容) */
+    int version;            /* 语法版本: 1=V1(裸词即字符串) 2=V2 3=V3(字符串须引号) */
 } parser;
 
 static sml_value *parse_block(parser *ps, tok_type closing);
@@ -534,6 +535,15 @@ static sml_value *coerce_word(const char *w, parser *ps) {
         char *fend = NULL;
         double fv = strtod(w, &fend);
         if (fend && *fend == '\0' && fend != w) return sml_new_float(fv);
+    }
+    /* V2/V3 严格模式：自由字符串必须加引号 */
+    if (ps->version >= 2) {
+        if (ps->lx->errbuf) {
+            snprintf(ps->lx->errbuf, ps->lx->errsz,
+                     "sml v2/v3: 字符串必须加引号，裸词 `%s` 应写作 \"%s\"", w, w);
+        }
+        ps->failed = 1;
+        return NULL;
     }
     return sml_new_str(w);
 }
@@ -852,15 +862,28 @@ static sml_value *parse_block(parser *ps, tok_type closing) {
         if (t->t == T_COMMA) { next(ps); continue; }
         if (t->t == T_AT) {
             token *nxt = peek_at(ps, 1);
-            /* `@version v1` 是版本声明指令，不是片段定义（与 Rust/Lua/JS 对齐）。 */
+            /* `@version vN` 是版本声明指令，不是片段定义（与 Rust/Lua/JS 对齐）。 */
             if (nxt && nxt->t == T_WORD && strcmp(nxt->v, "version") == 0) {
-                next(ps); next(ps);
+                next(ps); next(ps); /* @ version */
                 token *lit = peek(ps);
                 if (lit->t == T_WORD || lit->t == T_STR) {
-                    if (strcmp(lit->v, "v1") != 0 && strcmp(lit->v, "1") != 0) {
+                    int ver = 0;
+                    if (strcmp(lit->v, "v1") == 0 || strcmp(lit->v, "1") == 0) ver = 1;
+                    else if (strcmp(lit->v, "v2") == 0 || strcmp(lit->v, "2") == 0) ver = 2;
+                    else if (strcmp(lit->v, "v3") == 0 || strcmp(lit->v, "3") == 0) ver = 3;
+                    if (ver == 0) {
                         snprintf(ps->lx->errbuf ? ps->lx->errbuf : (char[1]){0},
                                  ps->lx->errsz,
-                                 "sml: @version 须写作 `@version v1`；`version` 不可作为片段名");
+                                 "sml: 未知版本 `%s`；仅支持 v1/v2/v3", lit->v);
+                        ps->failed = 1;
+                    } else if (ver > 3) {
+                        /* 超出本实现支持的版本范围 (V1..V3) */
+                        snprintf(ps->lx->errbuf ? ps->lx->errbuf : (char[1]){0},
+                                 ps->lx->errsz,
+                                 "sml: 版本 v%d 超出本库接受范围 (v1..v3)", ver);
+                        ps->failed = 1;
+                    } else {
+                        ps->version = ver;
                     }
                     next(ps);
                 }

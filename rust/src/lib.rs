@@ -574,32 +574,68 @@ fn tokenize(text: &str) -> Result<Vec<Tok>, String> {
     Ok(toks)
 }
 
-fn coerce_word(w: &str, fragments: &BTreeMap<String, Value>) -> Value {
+/// 把裸词 `w` 转为 Value。
+///
+/// 受 `features` 控制：关闭 `BarewordStr` 后纯字符串裸词（如 `John`）被拒绝，
+/// 必须写作 `"John"`；仍允许的非字符串裸词：bool / null / 数字 /
+/// 片段引用 `&x`（需 `fragment`）/ 环境变量 `$env.X`（需 `env`）。
+fn coerce_word(
+    w: &str,
+    fragments: &BTreeMap<String, Value>,
+    features: FeatureSet,
+    ns_prefix: &str,
+) -> Result<Value, String> {
     match w {
-        "true" => return Value::Bool(true),
-        "false" => return Value::Bool(false),
-        "null" => return Value::Null,
+        "true" => return Ok(Value::Bool(true)),
+        "false" => return Ok(Value::Bool(false)),
+        "null" => return Ok(Value::Null),
         _ => {}
     }
-    // $env.VAR 内联
+    // $env.VAR 内联（需 env 特性）
     if let Some(ev) = w.strip_prefix("$env.") {
-        return Value::Str(std::env::var(ev).unwrap_or_default());
-    }
-    // 片段引用 &name
-    if let Some(name) = w.strip_prefix('&') {
-        if let Some(v) = fragments.get(name) {
-            return v.clone();
+        if !features.has(Feature::Env) {
+            return Err(format!("sml: 当前特性集禁用了 `$env`（env），裸词 `{}` 无法解析", w));
         }
-        return Value::Str(w.to_string());
+        return Ok(Value::Str(std::env::var(ev).unwrap_or_default()));
+    }
+    // 片段引用 &name（需 fragment 特性）。命名空间隔离：先查裸名，再逐级查 ns 前缀。
+    if let Some(name) = w.strip_prefix('&') {
+        if !features.has(Feature::Fragment) {
+            return Err(format!("sml: 当前特性集禁用了片段引用（fragment），`{}` 无法解析", w));
+        }
+        if let Some(v) = fragments.get(name) {
+            return Ok(v.clone());
+        }
+        // 逐级回退：ui.form.foo → form.foo → foo
+        if !ns_prefix.is_empty() {
+            let mut probe = ns_prefix.to_string();
+            loop {
+                let full = format!("{probe}.{name}");
+                if let Some(v) = fragments.get(&full) {
+                    return Ok(v.clone());
+                }
+                match probe.rfind('.') {
+                    Some(idx) => probe.truncate(idx),
+                    None => break,
+                }
+            }
+        }
+        return Ok(Value::Str(w.to_string()));
     }
     // 数字: int / float / 科学计数
     if let Ok(i) = w.parse::<i64>() {
-        return Value::Int(i);
+        return Ok(Value::Int(i));
     }
     if let Ok(f) = w.parse::<f64>() {
-        return Value::Float(f);
+        return Ok(Value::Float(f));
     }
-    Value::Str(w.to_string())
+    if !features.has(Feature::BarewordStr) {
+        return Err(format!(
+            "sml: 字符串必须加引号，裸词 `{}` 应写作 `\"{}\"`（特性 bareword-string 已禁用）",
+            w, w
+        ));
+    }
+    Ok(Value::Str(w.to_string()))
 }
 
 struct Parser {
@@ -608,9 +644,34 @@ struct Parser {
     fragments: BTreeMap<String, Value>,
     /// 契约表：名 -> 契约。由 `@contract Name { ... }` 填充
     contracts: BTreeMap<String, Contract>,
+    /// 生效特性集（已与调用方允许范围交集）
+    features: FeatureSet,
+    /// 命名空间栈：每个块（含 include `as ns` 产生的块）的名字依次入栈。
+    /// 宏/契约注册与引用时，按栈路径加前缀（如 `ui.form.Button`），
+    /// 使命名空间真正隔离宏，而非仅隔离数据键值。
+    ns_stack: Vec<String>,
 }
 
 impl Parser {
+    /// 当前命名空间前缀（栈路径用 "." 连接，空栈返回空串）
+    fn ns_prefix(&self) -> String {
+        if self.ns_stack.is_empty() {
+            String::new()
+        } else {
+            self.ns_stack.join(".")
+        }
+    }
+
+    /// 把裸名套上当前命名空间前缀（若栈非空）
+    fn qualify(&self, name: &str) -> String {
+        let p = self.ns_prefix();
+        if p.is_empty() {
+            name.to_string()
+        } else {
+            format!("{p}.{name}")
+        }
+    }
+
     fn peek(&self) -> Option<&Tok> {
         self.toks.get(self.i)
     }
@@ -743,7 +804,7 @@ impl Parser {
                     "default" => {
                         self.next();
                         default = Some(match self.next() {
-                            Some(Tok::Word(w2)) => coerce_word(&w2, &self.fragments),
+                            Some(Tok::Word(w2)) => coerce_word(&w2, &self.fragments, self.features, &self.ns_prefix())?,
                             Some(Tok::Str(s)) => Value::Str(s),
                             other => {
                                 return Err(format!("sml: default 期望值, 得 {:?}", other))
@@ -811,6 +872,9 @@ impl Parser {
                     }
                     // —— 契约定义：`@contract Name { ... }` ——
                     if fname == "contract" {
+                        if !self.features.has(Feature::Contract) {
+                            return Err("@contract 需要特性 `contract`，但当前特性集已禁用".into());
+                        }
                         let cname = match self.next() {
                             Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
                             other => {
@@ -831,21 +895,35 @@ impl Parser {
                         }
                         self.next();
                         let fields = self.parse_contract_body()?;
+                        // 命名空间前缀隔离：块内的契约按当前 ns 栈路径注册
                         self.contracts.insert(
-                            cname.clone(),
-                            Contract { name: cname, fields, allow_extra },
+                            self.qualify(&cname),
+                            Contract {
+                                name: self.qualify(&cname),
+                                fields,
+                                allow_extra,
+                            },
                         );
                         continue;
                     }
                     // —— 契约应用：`@is Name`（在当前块内）——
                     if fname == "is" {
+                        if !self.features.has(Feature::Contract) {
+                            return Err("@is 需要特性 `contract`，但当前特性集已禁用".into());
+                        }
                         let cname = match self.next() {
                             Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
                             other => {
                                 return Err(format!("sml: @is 后须契约名, 得 {:?}", other))
                             }
                         };
-                        applied_contract = Some(cname);
+                        // 命名空间隔离：先按裸名查，再按当前 ns 前缀查
+                        let resolved = if self.contracts.contains_key(&cname) {
+                            cname.clone()
+                        } else {
+                            self.qualify(&cname)
+                        };
+                        applied_contract = Some(resolved);
                         continue;
                     }
                     // 可选 type [name] 参数
@@ -879,7 +957,14 @@ impl Parser {
                         if let Some(a) = farg {
                             sub.insert("__name".into(), Value::Str(a));
                         }
-                        self.fragments.insert(fname, Value::Object(sub));
+                        if !self.features.has(Feature::Fragment) {
+                            return Err(format!(
+                                "sml: 片段定义 `@{}` 需要特性 `fragment`，但当前特性集已禁用",
+                                fname
+                            ));
+                        }
+                        // 命名空间前缀隔离：片段定义按当前 ns 栈路径注册
+                        self.fragments.insert(self.qualify(&fname), Value::Object(sub));
                     }
                 }
                 _ => {
@@ -943,7 +1028,7 @@ impl Parser {
                 while let Some(t) = self.peek().cloned() {
                     match t {
                         Tok::Word(w) => {
-                            args.push(coerce_word(&w, &self.fragments));
+                            args.push(coerce_word(&w, &self.fragments, self.features, &self.ns_prefix())?);
                             self.next();
                         }
                         Tok::Str(_) => {
@@ -956,7 +1041,10 @@ impl Parser {
                 }
                 if self.peek() == Some(&Tok::LBrace) {
                     self.next();
+                    // 进入子块 = 进入该 block 名字的命名空间
+                    self.ns_stack.push(key.to_string());
                     let mut sub = self.parse_block(Some(Tok::RBrace))?;
+                    self.ns_stack.pop();
                     if let Value::Object(m) = &mut sub {
                         m.insert("__type".into(), Value::Str(key.to_string()));
                         if args.len() == 1 {
@@ -978,7 +1066,7 @@ impl Parser {
             }
             Some(tok @ (Tok::Word(_) | Tok::Str(_))) => {
                 let v = match tok {
-                    Tok::Word(w) => coerce_word(&w, &self.fragments),
+                    Tok::Word(w) => coerce_word(&w, &self.fragments, self.features, &self.ns_prefix())?,
                     Tok::Str(s) => {
                         let ev = s.strip_prefix("$env.");
                         match ev {
@@ -997,7 +1085,7 @@ impl Parser {
                     // 有冒号但无值: 空值
                     Ok(Value::Null)
                 } else {
-                    Ok(coerce_word(key, &self.fragments))
+                    Ok(coerce_word(key, &self.fragments, self.features, &self.ns_prefix())?)
                 }
             }
             _ => Err("sml: 语法错误".into()),
@@ -1021,7 +1109,7 @@ impl Parser {
                     arr.push(self.parse_block(Some(Tok::RBrace))?);
                 }
                 Some(Tok::Word(w)) => {
-                    arr.push(coerce_word(&w, &self.fragments));
+                    arr.push(coerce_word(&w, &self.fragments, self.features, &self.ns_prefix())?);
                     self.next();
                 }
                 Some(Tok::Str(_)) => {
@@ -1040,20 +1128,32 @@ impl Parser {
 ///
 /// SML 源于 eclog，演进中通过 `@version` 声明文档遵循的语法版本，
 /// 使解析器能在将来引入 v2 不兼容语法时仍正确读取旧文档。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Version {
-    /// v1：初始公开版本
+    /// v1：初始公开版本。字符串可裸写（`name: John`），自动识别类型。
     V1,
+    /// v2：草案版，引入「字符串必须显式引号」的不兼容语法（与 v3 同语义）。
+    V2,
+    /// v3：正式版。取消自动字符串无引号，自由文本必须写作 `"..."`；
+    ///     数字 / bool / null / 片段引用 `&x` / 环境变量 `$env.X` 仍为裸词。
+    V3,
 }
 
 impl Version {
     /// 当前实现支持的最新版本
-    pub const CURRENT: Version = Version::V1;
+    pub const CURRENT: Version = Version::V3;
 
-    /// 解析版本字面量（`v1` / `1`）
+    /// 是否要求字符串显式引号（v2 / v3 为严格模式）
+    pub fn strict_strings(self) -> bool {
+        self >= Version::V2
+    }
+
+    /// 解析版本字面量（`v1`/`1`、`v2`/`2`、`v3`/`3`）
     fn from_word(w: &str) -> Option<Version> {
         match w {
             "v1" | "1" => Some(Version::V1),
+            "v2" | "2" => Some(Version::V2),
+            "v3" | "3" => Some(Version::V3),
             _ => None,
         }
     }
@@ -1062,6 +1162,8 @@ impl Version {
     pub fn name(self) -> &'static str {
         match self {
             Version::V1 => "v1",
+            Version::V2 => "v2",
+            Version::V3 => "v3",
         }
     }
 }
@@ -1070,6 +1172,365 @@ impl fmt::Display for Version {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.name())
     }
+}
+
+// ===========================================================================
+// 特性集 (FeatureSet)
+//
+// 文档可通过 `@feature` 指令在「版本基线」之上做**裁剪**（窄化），调用方也可
+// 通过 `parse_with_features` / `parse_allowed` 限制接受的子集。文档不能扩宽
+// 调用方给出的范围——否则 `@feature` 就成了绕过限制的后门。
+//
+// 为保证五端（Rust/C/JS/C++/Lua）实现一致且易于维护，特性名与位定义集中
+// 在此（见 [`FEATURES`] 表）。新增特性只需在表中加一行，并在对应 parser 处
+// 用 `ps.features.has(Feature::Xxx)` 判定即可，无需散落大量 if。
+// ===========================================================================
+
+/// 单个特性标识。与 [`FEATURES`] 表一一对应；改表即改全端。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Feature {
+    /// 裸词即字符串（v1 行为）。v2/v3 关闭后字符串必须加引号。
+    BarewordStr,
+    /// `include "x.sml"` 文件包含。
+    Include,
+    /// `$env.VAR` 环境变量内插。
+    Env,
+    /// `@contract` / `@is` 契约系统。
+    Contract,
+    /// `&frag` / `@frag` 片段复用。
+    Fragment,
+    /// 顶层裸数组 `[ ... ]`（无键）。
+    TopArray,
+    /// `include "x.sml" as ns` 命名空间包含（高优先级前缀）。
+    Namespace,
+    /// 无扩展名的 `include "foo"` 默认等价于 `include "foo.sml" as foo`。
+    ImplicitNs,
+    /// 逗号分隔的多目标 `include "a", "b" as y` 与 `import` 别名。
+    MultiInclude,
+    /// 通配 `include "dir/*.sml"`（glob）。
+    GlobInclude,
+    /// 正则匹配 `include /re/`（需 `regex-include`）。
+    RegexInclude,
+    /// 扩展名重写 `include "x.conf" -> "x.sml"`（将非 sml 当 sml 解析）。
+    ExtRewrite,
+}
+
+/// 特性名 → 枚举 的注册表。所有端共用同一组名字，保证跨语言一致。
+pub static FEATURES: &[(&str, Feature)] = &[
+    ("bareword-string", Feature::BarewordStr),
+    ("include", Feature::Include),
+    ("env", Feature::Env),
+    ("contract", Feature::Contract),
+    ("fragment", Feature::Fragment),
+    ("top-level-array", Feature::TopArray),
+    ("namespace", Feature::Namespace),
+    ("implicit-ns", Feature::ImplicitNs),
+    ("multi-include", Feature::MultiInclude),
+    ("glob-include", Feature::GlobInclude),
+    ("regex-include", Feature::RegexInclude),
+    ("ext-rewrite", Feature::ExtRewrite),
+];
+
+impl Feature {
+    /// 按名字查特性；未知名字返回 None（调用方据此报错，杜绝静默 typo）。
+    pub fn from_name(name: &str) -> Option<Feature> {
+        FEATURES.iter().find(|(n, _)| *n == name).map(|(_, f)| *f)
+    }
+
+    /// 特性名（用于报错 / 序列化回显）
+    pub fn name(self) -> &'static str {
+        FEATURES
+            .iter()
+            .find(|(_, f)| *f == self)
+            .map(|(n, _)| *n)
+            .unwrap_or("<unknown>")
+    }
+}
+
+/// 位掩码形式的特性集合。
+///
+/// 设计哲学：从极简到丰富、功能可裁剪。默认基线（`baseline()`）只开极简三件套
+/// （`include` + `namespace` + `implicit-ns`），复杂能力（多目标 / glob / 正则 /
+/// 扩展名重写）必须显式 `@feature enable` 才生效，避免重蹈 YAML 过度复杂的覆辙。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FeatureSet(u64);
+
+impl FeatureSet {
+    /// 全部特性位（含所有 opt-in 能力）。用于「调用方允许全集」与版本基线，
+    /// 实际默认并不开启这些——见 [`FeatureSet::baseline`]。
+    pub fn all() -> FeatureSet {
+        let mut m = 0u64;
+        for (_, f) in FEATURES {
+            m |= 1 << (*f as u8);
+        }
+        FeatureSet(m)
+    }
+
+    /// 极简默认集（SML 核心可用能力）。这是 `parse_file` 的默认允许集；
+    /// 仅「多目标 / glob / 正则 / 扩展名重写」等高级能力需文档内
+    /// `@feature enable` 显式开启（避免重蹈 YAML 覆辙）。
+    pub fn baseline() -> FeatureSet {
+        FeatureSet::none()
+            .with(Feature::BarewordStr)
+            .with(Feature::Include)
+            .with(Feature::Env)
+            .with(Feature::Contract)
+            .with(Feature::Fragment)
+            .with(Feature::TopArray)
+            .with(Feature::Namespace)
+            .with(Feature::ImplicitNs)
+    }
+
+    /// 空集合
+    pub fn none() -> FeatureSet {
+        FeatureSet(0)
+    }
+
+    /// 按版本基线构造默认特性集：v1 极简默认（baseline）+ 裸词字符串；
+    /// v2/v3 关闭裸词字符串（须引号）。复杂能力（glob/regex/multi...）仍默认关闭，
+    /// 需文档 `@feature enable` 显式开启。
+    pub fn for_version(v: Version) -> FeatureSet {
+        let mut s = FeatureSet::baseline();
+        // 严格模式（v2/v3）关闭裸词字符串；非严格（v1）开启。
+        // 显式设置该位，确保与 baseline 默认值无关。
+        if v.strict_strings() {
+            s = s.without(Feature::BarewordStr);
+        } else {
+            s = s.with(Feature::BarewordStr);
+        }
+        s
+    }
+
+    /// 是否包含某特性
+    pub fn has(self, f: Feature) -> bool {
+        (self.0 & (1 << (f as u8))) != 0
+    }
+
+    /// 返回开启 `f` 后的副本
+    pub fn with(self, f: Feature) -> FeatureSet {
+        FeatureSet(self.0 | (1 << (f as u8)))
+    }
+
+    /// 返回关闭 `f` 后的副本
+    pub fn without(self, f: Feature) -> FeatureSet {
+        FeatureSet(self.0 & !(1 << (f as u8)))
+    }
+
+    /// 与另一集合取交集（用于「文档裁剪 ∩ 调用方允许」）
+    pub fn intersection(self, other: FeatureSet) -> FeatureSet {
+        FeatureSet(self.0 & other.0)
+    }
+
+    /// 是否无任何特性
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+}
+
+impl fmt::Display for FeatureSet {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut first = true;
+        for (n, feat) in FEATURES {
+            if self.has(*feat) {
+                if !first {
+                    f.write_str(",")?;
+                }
+                f.write_str(n)?;
+                first = false;
+            }
+        }
+        if first {
+            f.write_str("<none>")?;
+        }
+        Ok(())
+    }
+}
+
+/// `@feature` 解析模式：白名单（仅启用列出的）/ 黑名单（禁用列出的）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FeatureMode {
+    Default,
+    Whitelist,
+    Blacklist,
+}
+
+/// 取出 token 的字符串内容（Word / Str 都取其文本；其余返回空串）。
+fn tok_word(t: &Tok) -> String {
+    match t {
+        Tok::Word(s) | Tok::Str(s) => s.clone(),
+        _ => String::new(),
+    }
+}
+
+/// 若该行是 `@feature` 声明，则根据 `mode` / 操作更新 `feats`，并返回 true。
+///
+/// 支持语法（均不区分大小写，参数以空格分隔）：
+/// - `@feature base v3`              设定基线版本（等价于 `@version`，仅用于特性派生）
+/// - `@feature mode whitelist`       后续 enable 仅保留所列（基集先清空）
+/// - `@feature mode blacklist`       后续 disable 仅移除所列（基集保持全开）
+/// - `@feature enable <name>[,...]`  开启特性（可逗号批量）
+/// - `@feature disable <name>[,...]` 关闭特性
+/// - `@feature whitelist <a,b>`      紧凑白名单
+/// - `@feature blacklist <a,b>`      紧凑黑名单
+///
+/// 未知特性名一律报错，避免拼写错误静默失效。
+fn apply_feature_directive(
+    line: &str,
+    feats: &mut FeatureSet,
+    mode: &mut FeatureMode,
+    base: &mut Option<Version>,
+) -> Result<bool, String> {
+    let content = strip_line_comment(line).trim();
+    let toks = match tokenize(content) {
+        Ok(t) => t,
+        Err(_) => return Ok(false),
+    };
+    if toks.is_empty() || toks[0] != Tok::At {
+        return Ok(false);
+    }
+    let words: Vec<String> = toks
+        .iter()
+        .map(|t| match t {
+            Tok::At => "@".to_string(),
+            other => tok_word(other),
+        })
+        .collect();
+    // @feature 词法上拆成 [@, feature]，拼前两个 token 才是 "@feature"
+    let head = format!("{}{}", words.first().map(|s| s.as_str()).unwrap_or(""), words.get(1).map(|s| s.as_str()).unwrap_or(""));
+    if head != "@feature" {
+        return Ok(false);
+    }
+    // 去掉首 token `@`，使后续 words[0]=="feature"
+    let words: Vec<String> = words[1..].to_vec();
+    if words.len() < 2 {
+        return Err("@feature 指令缺少参数".into());
+    }
+    let arg = words[1].as_str();
+    // 把 `enable x,y,z` / `whitelist a,b` 的多名拆开
+    let names = |from: usize| -> Vec<String> {
+        words[from..]
+            .join(",")
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    };
+    match arg {
+        "base" => {
+            let v = Version::from_word(words.get(2).map(|s| s.as_str()).unwrap_or(""))
+                .ok_or_else(|| {
+                    format!(
+                        "@feature base 需要 v1/v2/v3，收到 `{}`",
+                        words.get(2).cloned().unwrap_or_default()
+                    )
+                })?;
+            *feats = FeatureSet::for_version(v);
+            *base = Some(v);
+            Ok(true)
+        }
+        "mode" => {
+            let m = words.get(2).map(|s| s.as_str()).unwrap_or("");
+            *mode = match m {
+                "whitelist" => FeatureMode::Whitelist,
+                "blacklist" => FeatureMode::Blacklist,
+                _ => return Err(format!("@feature mode 需要 whitelist/blacklist，收到 `{m}`")),
+            };
+            if *mode == FeatureMode::Whitelist {
+                // 白名单：基集先清空，后续 enable 显式置位
+                *feats = FeatureSet::none();
+            }
+            Ok(true)
+        }
+        "enable" => {
+            // 直接在「当前特性集」上叠加开启（不切换白名单语义）。
+            // 这样 `@feature enable regex-include` 在 `@version v1` 文档上会保留
+            // bareword-string 等默认特性，而非收窄为仅所列项。
+            // 真正的「收窄为仅所列」由显式 `@feature mode whitelist` 控制。
+            for n in names(2) {
+                let f = Feature::from_name(&n).ok_or_else(|| {
+                    format!(
+                        "未知特性 `{n}`，可用：{}",
+                        FEATURES.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ")
+                    )
+                })?;
+                *feats = feats.with(f);
+            }
+            Ok(true)
+        }
+        "disable" => {
+            for n in names(2) {
+                let f = Feature::from_name(&n).ok_or_else(|| {
+                    format!(
+                        "未知特性 `{n}`，可用：{}",
+                        FEATURES.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ")
+                    )
+                })?;
+                *feats = feats.without(f);
+            }
+            Ok(true)
+        }
+        "whitelist" => {
+            *mode = FeatureMode::Whitelist;
+            let mut s = FeatureSet::none();
+            for n in names(2) {
+                let f = Feature::from_name(&n).ok_or_else(|| {
+                    format!(
+                        "未知特性 `{n}`，可用：{}",
+                        FEATURES.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ")
+                    )
+                })?;
+                s = s.with(f);
+            }
+            *feats = s;
+            Ok(true)
+        }
+        "blacklist" => {
+            let mut s = FeatureSet::all();
+            for n in names(2) {
+                let f = Feature::from_name(&n).ok_or_else(|| {
+                    format!(
+                        "未知特性 `{n}`，可用：{}",
+                        FEATURES.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ")
+                    )
+                })?;
+                s = s.without(f);
+            }
+            *feats = s;
+            Ok(true)
+        }
+        _ => Err(format!("未知 @feature 子命令 `{arg}`，可用 base/mode/enable/disable")),
+    }
+}
+
+/// 在解析前剥离全部 `@feature` 指令，返回剩余文本、推导出的特性集，以及
+/// 由 `@feature base vN` 声明的基线版本（若文档未用 `@version` 则采用它）。
+///
+/// 文档内部的 `@feature` 只能收窄；调用方允许范围由 `parse_with_features`
+/// / `parse_allowed` 的 `allowed` 参数在入口处再次交集。
+///
+/// 返回值三元组：(剩余文本, 特性集, @feature base 声明的版本, 是否出现过 @feature 指令)。
+/// 若文档从未声明 `@feature`，则 `had_feature=false`，调用方应改以版本基线派生特性集
+/// （例如 v3 默认关闭裸词字符串）。
+fn strip_features(text: &str) -> Result<(String, FeatureSet, Option<Version>, bool), String> {
+    let mut out = String::new();
+    let mut feats = FeatureSet::all();
+    let mut mode = FeatureMode::Default;
+    let mut base: Option<Version> = None;
+    let mut had_feature = false;
+
+    for line in text.lines() {
+        match apply_feature_directive(line, &mut feats, &mut mode, &mut base) {
+            Ok(true) => {
+                had_feature = true;
+                continue; // 指令行被消费，不进入剩余文本
+            }
+            Ok(false) => {}
+            Err(e) => return Err(e), // 指令非法（如未知特性名）必须上浮，不能静默吞掉
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    Ok((out, feats, base, had_feature))
 }
 
 /// 若该行是 `@version` 声明，返回版本字面量；否则返回 None。
@@ -1122,12 +1583,32 @@ fn strip_version(text: &str) -> Result<(String, Option<Version>), String> {
     Ok((rest, declared))
 }
 
+/// 把 版本 + 文档 @feature 指令 合并为最终生效的特性集。
+///
+/// 规则：
+/// - 若文档显式声明过 `@feature`（had_feature=true），则完全采用其推导的 `feats`；
+/// - 否则（仅靠 `@version` 声明或默认），从版本基线派生（如 v3 关闭裸词字符串）。
+/// 这样 v3 文档即使不写任何 `@feature` 也默认严格；调用方的 `allowed` 在
+/// 入口处再与结果取交集，文档无法扩宽。
+fn features_for(v: Version, feats: FeatureSet, had_feature: bool) -> FeatureSet {
+    if had_feature {
+        feats
+    } else {
+        FeatureSet::for_version(v)
+    }
+}
+
 /// 解析 SML 文本，并返回其声明的语法版本。
 ///
-/// 未声明版本时按 `Version::CURRENT`（v1）处理，**既有文档不受影响**。
+/// 未声明版本时按 `V1` 处理（裸词即字符串），**既有文档不受影响**；
+/// 显式 `@version v3` 则返回 `V3`（此时字符串需引号）。
 pub fn parse_versioned(text: &str) -> Result<(Value, Version), String> {
     let (rest, declared) = strip_version(text)?;
-    Ok((parse_impl(&rest)?, declared.unwrap_or(Version::CURRENT)))
+    let (rest, feats, base, had) = strip_features(&rest)?;
+    // 版本优先级：@version 显式声明 > @feature base > 默认 V1
+    let v = declared.or(base).unwrap_or(Version::V1);
+    let feats = features_for(v, feats, had);
+    Ok((parse_impl(&rest, v, feats)?, v))
 }
 
 /// 解析 SML 文件：展开 include，并返回其声明的语法版本
@@ -1139,26 +1620,105 @@ pub fn parse_file_versioned(path: impl AsRef<Path>) -> Result<(Value, Version), 
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."));
-    let expanded = resolve_includes(&text, &base)?;
-    parse_versioned(&expanded)
+    let (rest, declared) = strip_version(&text)?;
+    let (rest, feats, base_ver, had) = strip_features(&rest)?;
+    let allowed = FeatureSet::all().intersection(feats);
+    let v = declared.or(base_ver).unwrap_or(Version::V1);
+    let feats = features_for(v, allowed, had);
+    let toks = resolve_includes(&rest, &base, allowed)?;
+    let val = parse_impl_tokens(toks, v, feats)?;
+    Ok((val, v))
 }
 
 /// 解析 SML 文本
 ///
-/// 会自动识别并剥离 `@version` 声明（需要版本信息时用 [`parse_versioned`]）。
+/// 会自动识别并剥离 `@version` / `@feature` 声明（需要版本信息时用
+/// [`parse_versioned`]，需要特性裁剪信息时用 [`parse_with_features`]）。
+///
+/// **向后兼容**：未声明 `@version` 的文档按 `V1` 解析（裸词即字符串），
+/// 既有大量 v1 文档不受影响；仅显式 `@version v2|v3` 才启用严格字符串。
 pub fn parse(text: &str) -> Result<Value, String> {
-    let (rest, _) = strip_version(text)?;
-    parse_impl(&rest)
+    let (rest, declared) = strip_version(text)?;
+    let (rest, feats, base, had) = strip_features(&rest)?;
+    let v = declared.or(base).unwrap_or(Version::V1);
+    let feats = features_for(v, feats, had);
+    parse_impl(&rest, v, feats)
 }
 
-/// 不含版本处理的底层解析
-fn parse_impl(text: &str) -> Result<Value, String> {
+/// 解析 SML 文本，并限制文档声明的版本必须在 `allowed` 范围内。
+///
+/// 用于「库固定依赖某个 SML 语法版本」的场景：若文档声明了 `allowed`
+/// 之外的版本（例如库只接受 v1..v3，却遇到 `@version v4`），立即报错，
+/// 而不是用不兼容的语法静默解析。
+///
+/// 未声明版本的文档视为 `V1`，只要 `allowed` 含 `V1` 即放行。
+pub fn parse_allowed(
+    text: &str,
+    allowed: &[Version],
+) -> Result<Value, String> {
+    let (rest, declared) = strip_version(text)?;
+    let (rest, feats, base, had) = strip_features(&rest)?;
+    let v = declared.or(base).unwrap_or(Version::V1);
+    if !allowed.contains(&v) {
+        return Err(format!(
+            "sml: 文档声明版本 {} 不在本库接受的版本范围 {{{}}} 内",
+            v.name(),
+            allowed
+                .iter()
+                .map(|x| x.name())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    let feats = features_for(v, feats, had);
+    parse_impl(&rest, v, feats)
+}
+
+/// 解析 SML 文本，同时限制文档使用的**特性子集**必须在 `allowed` 内。
+///
+/// 与 [`parse_allowed`]（版本范围）配套：`allowed` 是调用方（库作者）给出的
+/// 白名单，文档内部的 `@feature enable/disable` 只能**收窄**这个集合，
+/// 不能扩宽——否则文档就能自行绕过调用方的限制。交集为空则报错。
+///
+/// 未声明任何 `@feature` 的文档若仅靠版本基线（如 v3），则基线特性与
+/// `allowed` 交集；只要交集非空即放行。
+pub fn parse_with_features(
+    text: &str,
+    allowed: FeatureSet,
+) -> Result<(Value, FeatureSet), String> {
+    let (rest, declared) = strip_version(text)?;
+    let (rest, feats, base, had) = strip_features(&rest)?;
+    let v = declared.or(base).unwrap_or(Version::V1);
+    let feats = features_for(v, feats, had);
+    let effective = feats.intersection(allowed);
+    if effective.is_empty() {
+        return Err(format!(
+            "sml: 文档请求的特性 {feats} 与调用方允许的特性 {allowed} 无交集"
+        ));
+    }
+    let val = parse_impl(&rest, v, effective)?;
+    Ok((val, effective))
+}
+
+/// 不含版本处理的底层解析（文本入口）
+fn parse_impl(text: &str, version: Version, features: FeatureSet) -> Result<Value, String> {
     let toks = tokenize(text)?;
+    parse_impl_tokens(toks, version, features)
+}
+
+/// 不含版本处理的底层解析（token 流入口，供 include 展开后零拷贝复用）
+fn parse_impl_tokens(
+    toks: Vec<Tok>,
+    version: Version,
+    features: FeatureSet,
+) -> Result<Value, String> {
     let mut p = Parser {
         toks,
         i: 0,
         fragments: BTreeMap::new(),
         contracts: BTreeMap::new(),
+        features,
+        ns_stack: Vec::new(),
     };
     // 顶层支持三种形态，与 `to_sml` 的输出对称：
     //   - `[ ... ]` 数组：to_sml 对非对象走 dump_inline，会输出顶层数组
@@ -1169,6 +1729,9 @@ fn parse_impl(text: &str) -> Result<Value, String> {
     // 注：顶层**标量**仍不可往返（SML 顶层需为容器），这是格式固有限制。
     match p.peek() {
         Some(Tok::LBrack) => {
+            if !p.features.has(Feature::TopArray) {
+                return Err("sml: 顶层数组需要特性 `top-level-array`，但当前特性集已禁用".into());
+            }
             p.next();
             p.parse_array()
         }
@@ -1214,72 +1777,634 @@ fn strip_line_comment(line: &str) -> &str {
     line
 }
 
-/// 若该行是 include 指令，返回目标路径；否则返回 None
-fn include_target(line: &str) -> Option<String> {
+/// 单个 include 目标的解析结果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncludeTarget {
+    /// 相对路径或裸名（无扩展名时按 `implicit-ns` 推导 `as`）。
+    pub raw: String,
+    /// 命名空间（点分路径 `a.b.c`）。`None` 表示普通内联。
+    /// 若 `raw` 无扩展名且开启 `implicit-ns`，则自动填充为文件名。
+    pub namespace: Option<String>,
+    /// 是否经 `import` 关键字（语义等同 `include`）。
+    pub via_import: bool,
+}
+
+/// 解析一行 include / import 指令，返回 0..N 个目标。
+///
+/// 支持形态（逗号分隔多目标，`import` 为 `include` 别名）：
+/// - `include "x.sml"`                普通内联（带扩展名、无 as）
+/// - `include "foo"`                  无扩展名 ⇒ 默认 `as foo`（implicit-ns）
+/// - `include "x.sml" as ui.form`     命名空间内联（点分路径）
+/// - `include "a", "b" as y, "c"`     多目标（multi-include）
+/// - `import ui.buttons, admin.panel`  import 别名
+/// - `include "*.sml"`                glob 通配（需 `glob-include`）
+/// - `include re:"widget_.*\.sml"`    正则匹配（需 `regex-include`）
+///
+/// 返回 `Ok(None)` 表示该行不是 include 指令；`Err` 表示特性未开启等语义错误。
+fn parse_include_line(line: &str, features: FeatureSet) -> Result<Option<Vec<IncludeTarget>>, String> {
     let content = strip_line_comment(line).trim();
     let content = content.strip_prefix('@').unwrap_or(content).trim_start();
-    // 复用词法器处理路径，使含空格的路径（引号串）能被正确识别
-    let toks = tokenize(content).ok()?;
-    match toks.as_slice() {
-        [Tok::Word(w), Tok::Str(p)] if w == "include" => Some(p.clone()),
-        [Tok::Word(w), Tok::Word(p)] if w == "include" => Some(p.clone()),
-        _ => None,
+    // 轻量手写解析，不依赖 tokenize（避免 `*` 等字符在 tokenize 阶段被误判）。
+    // 形式：`include "x" [as ns], "y" as ns2, ...`（import 等价）
+    let (via_import, rest) = if let Some(r) = content.strip_prefix("include ") {
+        (false, r.trim_start())
+    } else if let Some(r) = content.strip_prefix("import ") {
+        (true, r.trim_start())
+    } else {
+        return Ok(None);
+    };
+    if !features.has(Feature::Include) {
+        return Ok(None);
     }
+    let mut targets: Vec<IncludeTarget> = Vec::new();
+    let mut rest = rest;
+    loop {
+        // 提取一个路径（引号串或裸词，直到逗号 / as / 行尾）
+        let (path, tail) = match next_token(rest) {
+            Some((p, t)) => (p, t),
+            None => {
+                if targets.is_empty() && rest.trim().is_empty() {
+                    return Ok(None);
+                } else {
+                    break;
+                }
+            }
+        };
+        rest = tail.trim_start();
+        // 可选 `as ns`
+        let mut ns: Option<String> = None;
+        let rest_after = if let Some(stripped) = rest.strip_prefix("as ") {
+            let (n, t) = match next_token(stripped.trim_start()) {
+                Some((n, t)) => (n, t),
+                None => return Ok(None),
+            };
+            ns = Some(n);
+            t.trim_start()
+        } else {
+            rest
+        };
+        targets.push(finalize_target(path, ns, via_import, features));
+        // 逗号分隔多目标
+        if let Some(stripped) = rest_after.strip_prefix(',') {
+            if !features.has(Feature::MultiInclude) {
+                return Ok(None);
+            }
+            rest = stripped.trim_start();
+            continue;
+        } else {
+            rest = rest_after;
+            break;
+        }
+    }
+    if targets.is_empty() {
+        return Ok(None);
+    }
+    // 特性预检查：glob / regex 模式在解析阶段就拦截（避免走到普通路径解析引发诡异错误）
+    for t in &targets {
+        // 先查 re: 前缀（正则模式里的 `*` 是元字符，不是 glob 通配）
+        if t.raw.starts_with("re:") {
+            if !features.has(Feature::RegexInclude) {
+                return Err("sml: 正则 include 需要特性 `regex-include`（请 @feature enable regex-include）".into());
+            }
+            continue;
+        }
+        if t.raw.contains('*') && !features.has(Feature::GlobInclude) {
+            return Err("sml: 通配 include 需要特性 `glob-include`（请 @feature enable glob-include）".into());
+        }
+    }
+    Ok(Some(targets))
+}
+
+/// 从字符串开头提取下一个 token：引号串（支持 `\"` 与 `\\`）或直到空白/逗号/`as` 的裸词。
+/// 返回 (token 文本, 剩余字符串)。
+fn next_token(s: &str) -> Option<(String, &str)> {
+    let s = s.trim_start();
+    if s.is_empty() {
+        return None;
+    }
+    if s.starts_with('"') {
+        // 引号串（按字节处理，路径通常为 ASCII）
+        let bytes = s.as_bytes();
+        let mut i = 1;
+        let mut out = String::new();
+        while i < bytes.len() {
+            if bytes[i] == b'"' {
+                i += 1;
+                break;
+            }
+            if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                // 转义：保留转义后的字符（\. -> .，\" -> " 等）
+                i += 1;
+                out.push(bytes[i] as char);
+                i += 1;
+            } else {
+                out.push(bytes[i] as char);
+                i += 1;
+            }
+        }
+        Some((out, &s[i..]))
+    } else {
+        // 裸词：取到空白或逗号
+        let end = s
+            .find(|c: char| c.is_whitespace() || c == ',')
+            .unwrap_or(s.len());
+        let (tok, tail) = s.split_at(end);
+        Some((tok.trim().to_string(), tail))
+    }
+}
+
+/// 根据原始路径与可选命名空间，套用 implicit-ns 规则，产出最终目标。
+fn finalize_target(
+    raw: String,
+    ns: Option<String>,
+    via_import: bool,
+    features: FeatureSet,
+) -> IncludeTarget {
+    let namespace = match ns {
+        Some(n) => Some(n),
+        None => {
+            // `import a.b.c`：点分一律视为命名空间路径，自动 `as a.b.c`
+            // `include "foo"`（无点）：implicit-ns 默认以文件名为命名空间
+            if via_import || (features.has(Feature::ImplicitNs) && !raw.contains('.')) {
+                Some(raw.clone())
+            } else {
+                None
+            }
+        }
+    };
+    IncludeTarget {
+        raw,
+        namespace,
+        via_import,
+    }
+}
+
+/// 把一个 include 目标解析为 0..N 个实际文件路径（已相对 `base` 解析、未 canonicalize）。
+///
+/// 支持：
+/// - glob：`raw` 含 `*` 且开启 `glob-include` → 遍历 `base` 下直接条目做 `*` 通配匹配
+/// - 正则：`raw` 以 `re:"..."` 形式且开启 `regex-include` → 遍历 `base` 下条目做最小正则匹配
+/// - ext-rewrite：开启 `ext-rewrite` 时允许 `raw` 带非 `.sml` 扩展名（否则按原补 `.sml` 逻辑）
+/// - 普通：`import` 点分转目录层级、裸名补 `.sml`
+fn resolve_target_paths(
+    t: &IncludeTarget,
+    base: &Path,
+    features: FeatureSet,
+) -> Result<Vec<PathBuf>, String> {
+    // 正则模式：re:"<pattern>"
+    if let Some(pat) = t.raw.strip_prefix("re:") {
+        if !features.has(Feature::RegexInclude) {
+            return Err("sml: 正则 include 需要特性 `regex-include`（请 @feature enable regex-include）".into());
+        }
+        let pat = pat.trim_matches('"');
+        // 模式可含目录前缀（如 re:"lib/widget_.*"）：拆出目录并入 base（归一化分隔符）
+        let pat = pat.replace('/', std::path::MAIN_SEPARATOR_STR);
+        let (dir, pat) = split_dir(&pat);
+        return glob_or_regex_dir(&base.join(dir), pat, Some(pat), features);
+    }
+    // glob 模式：含 `*`
+    if t.raw.contains('*') {
+        if !features.has(Feature::GlobInclude) {
+            return Err("sml: 通配 include 需要特性 `glob-include`（请 @feature enable glob-include）".into());
+        }
+        let normalized = t.raw.replace('/', std::path::MAIN_SEPARATOR_STR);
+        let (dir, pat) = split_dir(&normalized);
+        return glob_or_regex_dir(&base.join(dir), pat, None, features);
+    }
+    // 普通路径
+    let path = if t.via_import {
+        let rel = t
+            .raw
+            .split('.')
+            .collect::<Vec<_>>()
+            .join(std::path::MAIN_SEPARATOR_STR);
+        base.join(rel).with_extension("sml")
+    } else if t.raw.contains('.') {
+        // 带扩展名：默认直接读该文件
+        // 开启 ext-rewrite 时允许非 .sml 扩展名（当 sml 解析）；关闭时若非 .sml 也允许读，
+        // 但语义上仍要求文件存在，由 canonicalize 报错兜底。
+        let _ = features.has(Feature::ExtRewrite);
+        base.join(&t.raw)
+    } else {
+        base.join(format!("{}.sml", t.raw))
+    };
+    Ok(vec![path])
+}
+
+/// 遍历 `base` 目录的直接条目，按 glob（`pattern` 含 `*`）或正则（`regex` 为 Some）匹配，
+/// 把 `a/b/pattern` 拆成 (`a/b`, `pattern`)，便于把目录部分并入 base。
+fn split_dir(pat: &str) -> (&str, &str) {
+    match pat.rfind(std::path::MAIN_SEPARATOR) {
+        Some(idx) => (&pat[..idx], &pat[idx + 1..]),
+        None => ("", pat),
+    }
+}
+
+/// 返回命中的完整路径。目录本身不作为命中（仅文件）。
+fn glob_or_regex_dir(
+    base: &Path,
+    pattern: &str,
+    regex: Option<&str>,
+    _features: FeatureSet,
+) -> Result<Vec<PathBuf>, String> {
+    let mut hits: Vec<PathBuf> = Vec::new();
+    let entries = std::fs::read_dir(base)
+        .map_err(|e| format!("include 目录读取失败 {}: {e}", base.display()))?;
+    // 用于正则匹配的模式字符串（不含 re: 前缀与引号）
+    let re = regex.map(|r| compile_regex(r));
+    for ent in entries {
+        let ent = ent.map_err(|e| format!("include 目录遍历失败: {e}"))?;
+        let p = ent.path();
+        if p.is_dir() {
+            continue; // 只匹配文件
+        }
+        let name = match p.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n,
+            None => continue,
+        };
+        let matched = if let Some(re) = &re {
+            regex_matches(re, name)
+        } else {
+            // glob：`pattern` 形如 `*.sml` 或 `widgets/*.sml`；这里只处理文件名部分的通配
+            let pat_file = pattern.rsplit(std::path::MAIN_SEPARATOR).next().unwrap_or(pattern);
+            glob_matches(pat_file, name)
+        };
+        if matched {
+            hits.push(p);
+        }
+    }
+    // 结果按文件名排序，保证跨平台顺序稳定
+    hits.sort();
+    Ok(hits)
+}
+
+/// 手写最小 glob 匹配（仅支持 `*` 通配，匹配整个文件名）。
+fn glob_matches(pattern: &str, text: &str) -> bool {
+    // 将 `a*b*c` 拆分为字面段，段间用 `*` 连接
+    let segs: Vec<&str> = pattern.split('*').collect();
+    if segs.is_empty() {
+        return text.is_empty();
+    }
+    let mut pos = 0usize;
+    // 首段若非 `*` 开头，必须前缀匹配
+    if !pattern.starts_with('*') {
+        if !text[pos..].starts_with(segs[0]) {
+            return false;
+        }
+        pos += segs[0].len();
+    }
+    for seg in &segs[if pattern.starts_with('*') { 0 } else { 1 }..] {
+        if seg.is_empty() {
+            continue;
+        }
+        match text[pos..].find(seg) {
+            Some(idx) => pos += idx + seg.len(),
+            None => return false,
+        }
+    }
+    // 末段若非 `*` 结尾，必须后缀匹配
+    if !pattern.ends_with('*') {
+        if pos != text.len() {
+            return false;
+        }
+    }
+    true
+}
+
+/// 编译一个受限正则（支持 `. * + ? ^ $ [a-z] [^a-z] \.` 转义），返回可匹配闭包用的结构。
+/// 这里采用「NFA-less」的回溯匹配器，足够文件名场景使用。
+struct MiniRegex {
+    pattern: String,
+}
+
+fn compile_regex(pat: &str) -> MiniRegex {
+    // 去掉可能的首尾 `^`/`$` 锚（由 matcher 解释）
+    MiniRegex {
+        pattern: pat.to_string(),
+    }
+}
+
+/// 用受限正则匹配整个 `text`（默认全匹配，支持 `^`/`$` 锚点）。
+fn regex_matches(re: &MiniRegex, text: &str) -> bool {
+    let pat = &re.pattern;
+    let anchored_start = pat.starts_with('^');
+    let anchored_end = pat.ends_with('$');
+    let p = if anchored_start { &pat[1..] } else { pat };
+    let p = if anchored_end { &p[..p.len().saturating_sub(1)] } else { p };
+    // 尝试从 text 的每个位置开始匹配（非锚定时）
+    if anchored_start {
+        backtrack_match(p, text, 0).is_some()
+    } else {
+        for start in 0..=text.len() {
+            if backtrack_match(p, text, start).is_some() {
+                if !anchored_end {
+                    return true;
+                }
+                // 锚定结尾：必须匹配到 text 末端
+                if backtrack_match(p, text, start) == Some(text.len()) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+}
+
+/// 回溯匹配：从 `text[ti]` 开始尝试匹配 `pat[pi]`，返回成功时 text 的消耗终点（usize）。
+fn backtrack_match(pat: &str, text: &str, ti: usize) -> Option<usize> {
+    // 递归实现，模式索引 pi 通过 chars 迭代
+    let pchars: Vec<char> = pat.chars().collect();
+    let tchars: Vec<char> = text.chars().collect();
+    fn go(pchars: &[char], tchars: &[char], pi: usize, ti: usize) -> Option<usize> {
+        let mut pi = pi;
+        let mut ti = ti;
+        while pi < pchars.len() {
+            match pchars[pi] {
+                '\\' => {
+                    // 转义下一个字符（如 \. 匹配字面的 .）
+                    if pi + 1 >= pchars.len() {
+                        return None;
+                    }
+                    let pc = pchars[pi + 1];
+                    if ti >= tchars.len() || tchars[ti] != pc {
+                        return None;
+                    }
+                    pi += 2;
+                    ti += 1;
+                }
+                '.' => {
+                    if ti >= tchars.len() {
+                        return None;
+                    }
+                    pi += 1;
+                    ti += 1;
+                }
+                '*' => {
+                    // 匹配前一个原子零次或多次（贪婪）
+                    // 回退：尝试匹配零次（跳过 * 与前一原子），或匹配一次后继续
+                    let prev = if pi >= 1 { Some(pchars[pi - 1]) } else { None };
+                    // 零次：跳过 '*'（以及其前的普通原子已由上层处理，这里仅跳过 '*'）
+                    // 但为简化，* 作用于前一原子：先尝试消耗一字符再递归
+                    if ti < tchars.len() {
+                        // 贪婪：尽量多匹配
+                        let mut end = ti;
+                        match prev {
+                            Some('.') => {
+                                while end < tchars.len() {
+                                    end += 1;
+                                }
+                            }
+                            Some(c) if c != '\\' => {
+                                while end < tchars.len() && tchars[end] == c {
+                                    end += 1;
+                                }
+                            }
+                            _ => {}
+                        }
+                        // 从 end 回退尝试让后续模式匹配
+                        let mut e = end;
+                        while e >= ti {
+                            if let Some(r) = go(pchars, tchars, pi + 1, e) {
+                                return Some(r);
+                            }
+                            if e == ti {
+                                break;
+                            }
+                            e -= 1;
+                        }
+                    }
+                    // 零次匹配：跳过 '*'
+                    return go(pchars, tchars, pi + 1, ti);
+                }
+                '+' => {
+                    if ti >= tchars.len() {
+                        return None;
+                    }
+                    let prev = pchars.get(pi.wrapping_sub(1)).copied();
+                    let mut consumed = 0;
+                    match prev {
+                        Some('.') => {
+                            if ti >= tchars.len() {
+                                return None;
+                            }
+                            consumed = 1;
+                        }
+                        Some(c) if c != '\\' => {
+                            if tchars[ti] != c {
+                                return None;
+                            }
+                            consumed = 1;
+                            while ti + consumed < tchars.len()
+                                && tchars[ti + consumed] == c
+                            {
+                                consumed += 1;
+                            }
+                        }
+                        _ => return None,
+                    }
+                    pi += 1;
+                    ti += consumed;
+                }
+                '?' => {
+                    // 前一原子的零或一
+                    let prev = pchars.get(pi.wrapping_sub(1)).copied();
+                    if ti < tchars.len() {
+                        match prev {
+                            Some('.') => {
+                                pi += 1;
+                                ti += 1;
+                            }
+                            Some(c) if c != '\\' => {
+                                if tchars[ti] == c {
+                                    pi += 1;
+                                    ti += 1;
+                                } else {
+                                    pi += 1; // 零次
+                                }
+                            }
+                            _ => {
+                                pi += 1; // 零次
+                            }
+                        }
+                    } else {
+                        pi += 1;
+                    }
+                }
+                '[' => {
+                    // 字符类 [abc] 或 [^abc] 或 [a-z]
+                    let mut j = pi + 1;
+                    let negate = if j < pchars.len() && pchars[j] == '^' {
+                        j += 1;
+                        true
+                    } else {
+                        false
+                    };
+                    let mut cls = Vec::new();
+                    while j < pchars.len() && pchars[j] != ']' {
+                        if j + 2 < pchars.len()
+                            && pchars[j + 1] == '-'
+                            && pchars[j + 2] != ']'
+                        {
+                            let lo = pchars[j];
+                            let hi = pchars[j + 2];
+                            cls.push((lo, hi));
+                            j += 3;
+                        } else {
+                            cls.push((pchars[j], pchars[j]));
+                            j += 1;
+                        }
+                    }
+                    if j >= pchars.len() {
+                        return None; // 未闭合
+                    }
+                    if ti >= tchars.len() {
+                        return None;
+                    }
+                    let c = tchars[ti];
+                    let in_cls = cls.iter().any(|(lo, hi)| c >= *lo && c <= *hi);
+                    let ok = if negate { !in_cls } else { in_cls };
+                    if !ok {
+                        return None;
+                    }
+                    pi = j + 1;
+                    ti += 1;
+                }
+                c => {
+                    if ti >= tchars.len() || tchars[ti] != c {
+                        return None;
+                    }
+                    pi += 1;
+                    ti += 1;
+                }
+            }
+        }
+        Some(ti)
+    }
+    go(&pchars, &tchars, 0, ti)
 }
 
 /// 把 text 中的 include 指令递归展开为不含指令的纯 SML 文本。
 ///
 /// `base` 为相对路径的解析基准目录（通常是当前文件所在目录）。
+/// `features` 决定是否允许 `include` / `namespace`（禁用则遇到指令即报错）。
 /// 循环引用与缺失文件都会返回错误，不会静默跳过。
-pub fn resolve_includes(text: &str, base: &Path) -> Result<String, String> {
-    let mut out = String::new();
+/// 把 text 中的 include 指令递归展开为 token 流（方向 B：零拷贝，不拼巨大中间字符串）。
+///
+/// 每个被包含文件只 `tokenize` 一次；命名空间 `as a.b.c` 用零拷贝的开/闭块 token
+/// （`Word(a) LBrace Word(b) LBrace Word(c) LBrace ... RBrace RBrace RBrace`）包裹，
+/// 不复制文件内容文本。子文件内的 `@version`/`@feature` 指令行在 tokenize 前被剥离，
+/// 由主文件统一控制特性集（符合「文档只能收窄」的设计）。
+pub fn resolve_includes(
+    text: &str,
+    base: &Path,
+    features: FeatureSet,
+) -> Result<Vec<Tok>, String> {
     let mut stack: Vec<PathBuf> = Vec::new();
-    expand_includes(text, base, &mut out, &mut stack)?;
-    Ok(out)
+    let mut toks: Vec<Tok> = Vec::new();
+    expand_includes(text, base, &mut stack, features, &mut toks)?;
+    Ok(toks)
 }
 
+/// 递归展开 include 到 `out` token 流。
 fn expand_includes(
     text: &str,
     base: &Path,
-    out: &mut String,
     stack: &mut Vec<PathBuf>,
+    features: FeatureSet,
+    out: &mut Vec<Tok>,
 ) -> Result<(), String> {
     if stack.len() >= MAX_INCLUDE_DEPTH {
         return Err(format!("include 嵌套超过 {MAX_INCLUDE_DEPTH} 层"));
     }
     for line in text.lines() {
-        match include_target(line) {
-            Some(rel) => {
-                let path = base.join(&rel);
-                let canon = path
-                    .canonicalize()
-                    .map_err(|e| format!("include 无法定位 {}: {e}", path.display()))?;
-                // stack 是「当前正在展开的文件链」，命中即成环
-                if stack.iter().any(|p| p == &canon) {
-                    return Err(format!("include 循环引用: {}", canon.display()));
+        match parse_include_line(line, features)? {
+            Some(targets) => {
+                if !features.has(Feature::Include) {
+                    return Err("sml: 当前特性集禁用了 include（include 特性）".into());
                 }
-                let content = std::fs::read_to_string(&canon)
-                    .map_err(|e| format!("include 读取失败 {}: {e}", canon.display()))?;
-                let child_base = canon
-                    .parent()
-                    .map(|p| p.to_path_buf())
-                    .unwrap_or_else(|| PathBuf::from("."));
-                stack.push(canon);
-                expand_includes(&content, &child_base, out, stack)?;
-                stack.pop();
+                for t in targets {
+                    if t.namespace.is_some() && !features.has(Feature::Namespace) {
+                        return Err(
+                            "sml: 当前特性集禁用了命名空间包含（namespace 特性）".into(),
+                        );
+                    }
+                    // 把一个 target 解析为 0..N 个实际文件路径（支持 glob/regex/ext-rewrite）
+                    let paths = resolve_target_paths(&t, base, features)?;
+                    for path in paths {
+                        let canon = path.canonicalize().map_err(|e| {
+                            format!("include 无法定位 {}: {e}", path.display())
+                        })?;
+                        // stack 是「当前正在展开的文件链」，命中即成环
+                        if stack.iter().any(|p| p == &canon) {
+                            return Err(format!("include 循环引用: {}", canon.display()));
+                        }
+                        let content = std::fs::read_to_string(&canon)
+                            .map_err(|e| format!("include 读取失败 {}: {e}", canon.display()))?;
+                        let child_base = canon
+                            .parent()
+                            .map(|p| p.to_path_buf())
+                            .unwrap_or_else(|| PathBuf::from("."));
+                        stack.push(canon.clone());
+                        // 命名空间包含：用 `ns { ... }` 包裹子文件 tokens（零拷贝）
+                        if let Some(ns) = &t.namespace {
+                            for seg in ns.split('.') {
+                                out.push(Tok::Word(seg.to_string()));
+                                out.push(Tok::LBrace);
+                            }
+                            let inner =
+                                expand_file_tokens(&content, &child_base, stack, features)?;
+                            out.extend(inner);
+                            for _ in ns.split('.') {
+                                out.push(Tok::RBrace);
+                            }
+                        } else {
+                            let inner =
+                                expand_file_tokens(&content, &child_base, stack, features)?;
+                            out.extend(inner);
+                        }
+                        stack.pop();
+                    }
+                }
             }
             None => {
-                out.push_str(line);
-                out.push('\n');
+                // 非 include 行：直接 tokenize 该行并追加（保持行级语义，零拷贝）
+                let line_toks = tokenize(line).map_err(|e| {
+                    format!("include 预处理词法错误：{e}（于行：{line}）")
+                })?;
+                out.extend(line_toks);
             }
         }
     }
     Ok(())
 }
 
+/// 读取单个文件内容，剥离其自身的 `@version`/`@feature` 行后 tokenize。
+/// 子文件不引入新特性维度，由主文件/调用方统一控制。
+fn expand_file_tokens(
+    content: &str,
+    base: &Path,
+    stack: &mut Vec<PathBuf>,
+    features: FeatureSet,
+) -> Result<Vec<Tok>, String> {
+    // 剥离子文件内的版本/特性指令行，避免污染 token 流
+    let cleaned: String = content
+        .lines()
+        .filter(|l| {
+            let t = strip_line_comment(l).trim();
+            let t = t.strip_prefix('@').unwrap_or(t).trim_start();
+            !(t.starts_with("version") || t.starts_with("feature"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut toks = Vec::new();
+    expand_includes(&cleaned, base, stack, features, &mut toks)?;
+    Ok(toks)
+}
+
 /// 解析 SML 文件，并展开其中的 include 指令。
 ///
-/// 相对路径以**该文件所在目录**为基准。
+/// 相对路径以**该文件所在目录**为基准。include 展开为零拷贝 token 流，
+/// 不拼接中间大字符串（方向 B）。
 pub fn parse_file(path: impl AsRef<Path>) -> Result<Value, String> {
     let path = path.as_ref();
     let text = std::fs::read_to_string(path)
@@ -1288,8 +2413,16 @@ pub fn parse_file(path: impl AsRef<Path>) -> Result<Value, String> {
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."));
-    let expanded = resolve_includes(&text, &base)?;
-    parse(&expanded)
+    // 主文件先剥离版本/特性指令。
+    // 便捷入口 `parse_file` 的「调用方允许集」为全开（文档自身声明决定启用哪些特性，
+    // 真正的调用方限制由 `parse_with_features` / `parse_allowed` 负责）。
+    let (rest, declared) = strip_version(&text)?;
+    let (rest, feats, base_ver, had) = strip_features(&rest)?;
+    let v = declared.or(base_ver).unwrap_or(Version::V1);
+    let feats = features_for(v, feats, had);
+    let allowed = FeatureSet::all().intersection(feats);
+    let toks = resolve_includes(&rest, &base, allowed)?;
+    parse_impl_tokens(toks, v, allowed)
 }
 
 /// 解析到对象 (失败抛 `ParseError`)
@@ -3140,10 +4273,10 @@ mod tests {
     // ---------------- version ----------------
 
     #[test]
-    fn version_defaults_to_current_when_absent() {
-        // 既有文档没有版本声明，必须仍能解析且默认为当前版本
+    fn version_defaults_to_v1_when_absent() {
+        // 既有文档没有版本声明，必须仍能解析且默认为 V1（裸词即字符串，向后兼容）
         let (v, ver) = parse_versioned("a: 1\n").unwrap();
-        assert_eq!(ver, Version::CURRENT);
+        assert_eq!(ver, Version::V1);
         assert_eq!(v.get("a"), Some(&Value::Int(1)));
     }
 
@@ -3217,7 +4350,7 @@ mod tests {
     fn include_inlines_external_file() {
         let d = tmpdir("inline");
         std::fs::write(d.join("part.sml"), "port: 8080\n").unwrap();
-        std::fs::write(d.join("main.sml"), "host: local\ninclude \"part.sml\"\n").unwrap();
+        std::fs::write(d.join("main.sml"), "@version v1\nhost: local\ninclude \"part.sml\"\n").unwrap();
 
         let v = parse_file(d.join("main.sml")).unwrap();
         assert_eq!(v.get("host").unwrap().as_str(), Some("local"));
@@ -3240,10 +4373,10 @@ mod tests {
         // 关键：相对路径按「被包含文件自身目录」解析，而非进程工作目录
         let d = tmpdir("nested");
         std::fs::create_dir_all(d.join("sub")).unwrap();
-        std::fs::write(d.join("sub/leaf.sml"), "leaf: yes\n").unwrap();
+        std::fs::write(d.join("sub/leaf.sml"), "@version v1\nleaf: yes\n").unwrap();
         // mid 在根，include sub/mid2；mid2 在 sub 内，include leaf.sml（相对 sub）
-        std::fs::write(d.join("sub/mid2.sml"), "include \"leaf.sml\"\n").unwrap();
-        std::fs::write(d.join("main.sml"), "include \"sub/mid2.sml\"\n").unwrap();
+        std::fs::write(d.join("sub/mid2.sml"), "@version v1\ninclude \"leaf.sml\"\n").unwrap();
+        std::fs::write(d.join("main.sml"), "@version v1\ninclude \"sub/mid2.sml\"\n").unwrap();
 
         let v = parse_file(d.join("main.sml")).unwrap();
         assert_eq!(
@@ -3258,8 +4391,8 @@ mod tests {
     fn include_inside_block_injects_fields() {
         // 文本内联语义：可在块内注入一组字段
         let d = tmpdir("block");
-        std::fs::write(d.join("fields.sml"), "region: cn-north-1\nzone: a\n").unwrap();
-        std::fs::write(d.join("main.sml"), "server web {\ninclude \"fields.sml\"\nport: 8080\n}\n").unwrap();
+        std::fs::write(d.join("fields.sml"), "@version v1\nregion: cn-north-1\nzone: a\n").unwrap();
+        std::fs::write(d.join("main.sml"), "@version v1\nserver web {\ninclude \"fields.sml\"\nport: 8080\n}\n").unwrap();
 
         let v = parse_file(d.join("main.sml")).unwrap();
         let server = v.get("server").expect("应有 server 块");
@@ -3296,12 +4429,115 @@ mod tests {
     }
 
     #[test]
+    fn glob_include_requires_feature() {
+        // 未开启 glob-include 时，`*` 模式应报错
+        let d = tmpdir("globoff");
+        std::fs::write(d.join("a.sml"), "x: 1\n").unwrap();
+        std::fs::write(d.join("main.sml"), "@version v1\ninclude \"*.sml\"\n").unwrap();
+        let err = parse_file(d.join("main.sml")).unwrap_err();
+        assert!(err.contains("glob-include"), "应要求 glob-include，got: {err}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn glob_include_expands_multiple_files() {
+        // 开启 glob-include 后，`lib/*.sml` 展开为子目录下所有 .sml（main.sml 不在该目录，避免自包含）
+        let d = tmpdir("glob");
+        std::fs::create_dir_all(d.join("lib")).unwrap();
+        std::fs::write(d.join("lib/a.sml"), "@version v1\nx: 1\n").unwrap();
+        std::fs::write(d.join("lib/b.sml"), "@version v1\ny: 2\n").unwrap();
+        std::fs::write(d.join("note.txt"), "ignored\n").unwrap();
+        std::fs::write(d.join("main.sml"), "@version v1\n@feature enable glob-include\ninclude \"lib/*.sml\"\n").unwrap();
+        let v = parse_file(d.join("main.sml")).unwrap();
+        assert_eq!(v.get("x"), Some(&Value::Int(1)));
+        assert_eq!(v.get("y"), Some(&Value::Int(2)));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn regex_include_requires_feature() {
+        let d = tmpdir("regexoff");
+        std::fs::write(d.join("a.sml"), "x: 1\n").unwrap();
+        std::fs::write(d.join("main.sml"), "@version v1\ninclude \"re:.*\\.sml\"\n").unwrap();
+        let err = parse_file(d.join("main.sml")).unwrap_err();
+        assert!(err.contains("regex-include"), "应要求 regex-include，got: {err}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn regex_include_matches_files() {
+        let d = tmpdir("regex");
+        std::fs::write(d.join("widget_a.sml"), "@version v1\nx: 1\n").unwrap();
+        std::fs::write(d.join("widget_b.sml"), "@version v1\ny: 2\n").unwrap();
+        std::fs::write(d.join("other.sml"), "@version v1\nz: 3\n").unwrap();
+        std::fs::write(
+            d.join("main.sml"),
+            "@version v1\n@feature enable regex-include\ninclude \"re:widget_.*\\.sml\"\n",
+        )
+        .unwrap();
+        let v = parse_file(d.join("main.sml")).unwrap();
+        assert_eq!(v.get("x"), Some(&Value::Int(1)));
+        assert_eq!(v.get("y"), Some(&Value::Int(2)));
+        assert_eq!(v.get("z"), None, "other.sml 不应被正则匹配");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn ext_rewrite_allows_non_sml() {
+        // ext-rewrite 开启时，include 非 .sml 文件按 sml 解析
+        let d = tmpdir("exrew");
+        std::fs::write(d.join("conf.smlc"), "@version v1\nx: 9\n").unwrap();
+        std::fs::write(
+            d.join("main.sml"),
+            "@version v1\n@feature enable ext-rewrite\ninclude \"conf.smlc\"\n",
+        )
+        .unwrap();
+        let v = parse_file(d.join("main.sml")).unwrap();
+        assert_eq!(v.get("x"), Some(&Value::Int(9)));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
     fn include_line_is_not_confused_with_key_named_include() {
-        // `key: include` 是指令吗？不是——前面有 key 与冒号
-        assert_eq!(include_target("key: include"), None);
-        assert_eq!(include_target("include \"a.sml\""), Some("a.sml".into()));
-        assert_eq!(include_target("@include \"a.sml\""), Some("a.sml".into()));
-        assert_eq!(include_target("# include \"a.sml\""), None, "注释行不生效");
+        let f = FeatureSet::baseline();
+        // `key: include` 不是指令——前面有 key 与冒号
+        assert_eq!(parse_include_line("key: include", f), Ok(None));
+        // 带扩展名无 as ⇒ 普通内联（namespace = None）
+        assert_eq!(
+            parse_include_line("include \"a.sml\"", f),
+            Ok(Some(vec![IncludeTarget { raw: "a.sml".into(), namespace: None, via_import: false }]))
+        );
+        // @include 等价
+        assert_eq!(
+            parse_include_line("@include \"a.sml\"", f),
+            Ok(Some(vec![IncludeTarget { raw: "a.sml".into(), namespace: None, via_import: false }]))
+        );
+        // 显式 as ns
+        assert_eq!(
+            parse_include_line("include \"a.sml\" as ui.form", f),
+            Ok(Some(vec![IncludeTarget { raw: "a.sml".into(), namespace: Some("ui.form".into()), via_import: false }]))
+        );
+        // 无扩展名 ⇒ implicit-ns 默认 as 文件名
+        assert_eq!(
+            parse_include_line("include \"widgets\"", f),
+            Ok(Some(vec![IncludeTarget { raw: "widgets".into(), namespace: Some("widgets".into()), via_import: false }]))
+        );
+        // import 别名
+        assert_eq!(
+            parse_include_line("import ui.buttons", f),
+            Ok(Some(vec![IncludeTarget { raw: "ui.buttons".into(), namespace: Some("ui.buttons".into()), via_import: true }]))
+        );
+        // 多目标（需 multi-include）
+        let fm = FeatureSet::all();
+        assert_eq!(
+            parse_include_line("include \"a.sml\", \"b\" as y", fm),
+            Ok(Some(vec![
+                IncludeTarget { raw: "a.sml".into(), namespace: None, via_import: false },
+                IncludeTarget { raw: "b".into(), namespace: Some("y".into()), via_import: false },
+            ]))
+        );
+        // 注释行不生效
+        assert_eq!(parse_include_line("# include \"a.sml\"", f), Ok(None));
     }
 
     // ---------------- 邮箱 / 裸词中的 @ ----------------
@@ -3551,5 +4787,120 @@ mod tests {
         assert!(j.contains("\"name\":\"John\""));
         let back = json_to_value(&j).unwrap();
         assert_eq!(back, v);
+    }
+}
+
+// ===========================================================================
+// @feature 特性裁剪 + 调用方限制 测试
+// ===========================================================================
+
+#[cfg(test)]
+mod feature {
+    use super::*;
+
+    #[test]
+    fn feature_unknown_name_errors() {
+        let r = parse("@feature enable nope\nx: 1\n");
+        assert!(r.is_err());
+        assert!(r.unwrap_err().contains("未知特性"));
+    }
+
+    #[test]
+    fn feature_whitelist_narrows() {
+        // 仅保留 bareword 与 include，其它（env/fragment/contract...）关闭
+        let v = match parse("@feature whitelist bareword-string,include\nx: John\n").unwrap() {
+            Value::Object(m) => m,
+            _ => panic!("应为对象"),
+        };
+        assert_eq!(v.get("x"), Some(&Value::Str("John".into())));
+    }
+
+    #[test]
+    fn feature_blacklist_removes() {
+        // 关掉 bareword-string：v1 文档里裸词字符串也应被拒
+        let r = parse("@feature blacklist bareword-string\nx: John\n");
+        assert!(r.is_err());
+        assert!(r.unwrap_err().contains("字符串必须加引号"));
+    }
+
+    #[test]
+    fn feature_mode_whitelist_enable() {
+        // mode whitelist 后基集清空，仅 enable 的生效
+        let r = parse("@feature mode whitelist\n@feature enable fragment\nx: &frag\n");
+        // fragment 没定义，回退为字符串 "&frag"，不报错即可
+        assert!(r.is_ok());
+    }
+
+    #[test]
+    fn caller_allowed_intersection_empty_errors() {
+        // 调用方只接受 env；文档用白名单模式只开 contract —— 与调用方无交集则报错
+        let allowed = FeatureSet::none().with(Feature::Env);
+        let r = parse_with_features(
+            "@feature mode whitelist\n@feature enable contract\nx: 1\n",
+            allowed,
+        );
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn caller_allowed_subset_ok() {
+        // 调用方允许全部，文档收窄到 bareword+include，应成功
+        let allowed = FeatureSet::all();
+        let (v, eff) = parse_with_features(
+            "@feature whitelist bareword-string,include\nx: John\n",
+            allowed,
+        )
+        .unwrap();
+        assert!(eff.has(Feature::BarewordStr));
+        assert!(eff.has(Feature::Include));
+        assert!(!eff.has(Feature::Env));
+        assert_eq!(v.get("x"), Some(&Value::Str("John".into())));
+    }
+
+    #[test]
+    fn feature_namespace_include() {
+        // 用临时文件验证 include "x.sml" as ns 把键挂到 ns 下。
+        // 用相对路径 + 正斜杠，避开 Windows 反斜杠在字符串转义中的处理。
+        // 注意：include 展开只在 parse_file 进行，故这里把主文档也落盘。
+        let dir = std::env::temp_dir().join("sml_feat_ns_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let sub = dir.join("sub.sml");
+        let main = dir.join("main.sml");
+        std::fs::write(&sub, "a: 1\nb: 2\n").unwrap();
+        // 用正斜杠书写相对路径，避免反斜杠被字符串转义吃掉
+        let rel = format!("include \"sub.sml\" as pkg\n");
+        std::fs::write(&main, &rel).unwrap();
+        let v = match parse_file(&main) {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&dir);
+                panic!("parse_file 失败: {e}");
+            }
+        };
+        let _ = std::fs::remove_dir_all(&dir);
+        let pkg = match v.get("pkg") {
+            Some(Value::Object(m)) => m.clone(),
+            _ => panic!("pkg 应为对象"),
+        };
+        assert_eq!(pkg.get("a"), Some(&Value::Int(1)));
+        assert_eq!(pkg.get("b"), Some(&Value::Int(2)));
+    }
+
+    #[test]
+    fn version_v3_disables_bareword() {
+        // v3 默认关闭 bareword-string；裸词应被拒
+        let r = parse("@version v3\nname: John\n");
+        assert!(r.is_err());
+        // 但引号字符串可用
+        let v = parse("@version v3\nname: \"John\"\nage: 27\n").unwrap();
+        assert_eq!(v.get("name"), Some(&Value::Str("John".into())));
+        assert_eq!(v.get("age"), Some(&Value::Int(27)));
+    }
+
+    #[test]
+    fn feature_base_derives_strict() {
+        // @feature base v3 等价于 v3 严格
+        let r = parse("@feature base v3\nname: John\n");
+        assert!(r.is_err());
     }
 }
