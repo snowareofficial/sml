@@ -24,7 +24,7 @@ npm run package          # 同步解析器 + 打包（推荐，等价于下面�
 #   python scripts/sync-parser.py
 #   npx --yes @vscode/vsce package
 
-code --install-extension sml-lang-0.1.0.vsix
+code --install-extension sml-lang-0.2.0.vsix
 ```
 
 一条命令打包并安装（覆盖旧版）：
