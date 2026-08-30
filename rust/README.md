@@ -374,6 +374,53 @@ cargo run --example include_demo --features serde   # 额外打印 JSON
 cargo run --example derive_demo                     # derive 宏「自然」序列化
 ```
 
+## C-ABI（供 C / C++ / 其他语言调用）
+
+`crate-type` 含 `cdylib`，编译后可直接链接。返回的 `*mut c_char` 一律由 `sml_free` 释放；
+失败返回 `NULL`。
+
+| 函数 | 说明 |
+|---|---|
+| `sml_parse(text)` | 解析文本 → JSON 字符串 |
+| `sml_parse_file(path)` | 解析文件 → JSON 字符串，带文件上下文，自动处理 `include` / glob / `@contract` |
+| `sml_parse_ex(text, opts_json)` | 增强版：可启用特性、注入环境变量、限定版本（见下） |
+| `sml_dump(json)` | JSON 字符串 → SML |
+| `sml_features()` | 返回支持的特性名 JSON 数组，如 `["include","env","contract","glob-include",...]` |
+| `sml_version()` | 版本字符串 |
+| `sml_free(p)` | 释放上述函数返回的字符串 |
+
+`sml_parse_ex` 的 `opts_json` 三个可选字段：
+
+```json
+{
+  "features": ["glob-include", "contract"],
+  "env":      { "APP_ENV": "prod" },
+  "allow":    ["v1", "v3"]
+}
+```
+
+- `features` — 调用方额外启用的特性（与文档 `@feature` 取交集）
+- `env` — 调用期间临时注入进程环境，供 `$env.X` 内联解析，返回前自动恢复原值
+- `allow` — 限定文档 `@version` 必须在此范围内；空数组表示不限制
+
+任一环节失败（语法错误 / 版本不符 / 特性越权 / 文件缺失）均返回 `NULL`。
+
+```c
+#include "sml_rs.h"
+
+char *json = sml_parse_file("app.sml");
+if (json) { puts(json); sml_free(json); }
+
+char *opts = "{\"env\":{\"APP_ENV\":\"prod\"}}";
+char *out  = sml_parse_ex(text, opts);
+```
+
+C / C++ 桥接头文件与示例见 `../c/sml_rs.h`、`../cpp/sml_rs.hpp`（与原生
+`sml.h` / `sml.hpp` 并存，互不干扰）。
+
+> 注意：`sml_parse_ex` 的 `env` 注入会临时改进程环境，**非并发安全**，
+> 请在 FFI 同步调用的前提下使用。
+
 ## 多语言实现
 
 | 语言 | 位置 |
@@ -745,6 +792,55 @@ cargo run --example include_demo
 cargo run --example include_demo --features serde   # also prints JSON
 cargo run --example derive_demo                     # derive macros
 ```
+
+## C-ABI (for C / C++ / other languages)
+
+`crate-type` includes `cdylib`, so the artifact can be linked directly. Every returned
+`*mut c_char` must be released with `sml_free`; failures return `NULL`.
+
+| Function | Description |
+|---|---|
+| `sml_parse(text)` | Parse text → JSON string |
+| `sml_parse_file(path)` | Parse a file → JSON string, with file context; handles `include` / glob / `@contract` |
+| `sml_parse_ex(text, opts_json)` | Extended: enable features, inject env vars, restrict version (see below) |
+| `sml_dump(json)` | JSON string → SML |
+| `sml_features()` | Supported feature names as a JSON array, e.g. `["include","env","contract","glob-include",...]` |
+| `sml_version()` | Version string |
+| `sml_free(p)` | Release strings returned by the functions above |
+
+`sml_parse_ex` accepts three optional `opts_json` fields:
+
+```json
+{
+  "features": ["glob-include", "contract"],
+  "env":      { "APP_ENV": "prod" },
+  "allow":    ["v1", "v3"]
+}
+```
+
+- `features` — extra features the caller enables (intersected with the document's `@feature`)
+- `env` — temporarily injected into the process env during the call for `$env.X` inlining;
+  the previous values are restored before returning
+- `allow` — the document's `@version` must fall in this set; an empty array means no restriction
+
+Any failure (syntax error / version mismatch / unauthorized feature / missing file)
+returns `NULL`.
+
+```c
+#include "sml_rs.h"
+
+char *json = sml_parse_file("app.sml");
+if (json) { puts(json); sml_free(json); }
+
+char *opts = "{\"env\":{\"APP_ENV\":\"prod\"}}";
+char *out  = sml_parse_ex(text, opts);
+```
+
+C / C++ bridge headers and examples live in `../c/sml_rs.h` and `../cpp/sml_rs.hpp`
+(they coexist with the native `sml.h` / `sml.hpp` without interfering).
+
+> Note: the `env` injection of `sml_parse_ex` mutates the process environment and is
+> **not concurrency-safe** — only use it under synchronous FFI calls.
 
 ## Other language implementations
 
