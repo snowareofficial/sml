@@ -48,7 +48,7 @@
   </header>
   <nav>
     <a class="home" href="{{ .Site.Home.RelPermalink }}">SML</a>
-    {{ if eq .Site.Language.Lang "en" }}
+    {{ if $isEn }}
       <a href="{{ .Site.Home.RelPermalink }}book/">Textbook</a>
       <a href="{{ .Site.Home.RelPermalink }}playground/">Playground</a>
     {{ else if eq .Section "book" }}

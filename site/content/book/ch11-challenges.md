@@ -1,5 +1,6 @@
 ---
 title: "第 11 章：实战翻译挑战"
+translationKey: "book-ch11"
 ---
 
 # 第 11 章：实战翻译挑战

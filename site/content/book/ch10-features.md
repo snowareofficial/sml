@@ -1,5 +1,6 @@
 ---
 title: "第 10 章：feature 完整参考"
+translationKey: "book-ch10"
 ---
 
 # 第 10 章：feature 完整参考

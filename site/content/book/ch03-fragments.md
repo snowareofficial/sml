@@ -1,5 +1,6 @@
 ---
 title: "第 3 章：片段继承"
+translationKey: "book-ch03"
 ---
 
 # 第 3 章：片段继承
