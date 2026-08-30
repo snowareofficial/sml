@@ -9,3 +9,9 @@ out/
 
 # Python
 __pycache__/
+
+# 构建/测试临时产物（C / C++ 编译输出与日志）
+*.exe
+*.txt
+inc_tmp/
+
