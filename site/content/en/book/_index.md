@@ -26,13 +26,15 @@ catalogue
 |[Chapter 1](/en/book/ch01-basics) | First SML file | Key value pairs, comments, scalar types (string/number/pool/null)|
 |[Chapter 2](/en/book/ch02-blocks) | Blocks and Nests | Object Blocks, Arrays, Colons Can Be Saved, Nested Structures|
 |[Chapter 3](/en/book/ch03-fragments) | Fragment Inheritance | `@base` Definition, `&base` Reference, Configuration Reuse|
-|[Chapter 4](/en/book/ch04-include) | Include and namespace | Split files, `as ns` isolation, `import` alias|
+|[Chapter 4](/en/book/ch04-include) | Include and namespace | Split files, `as ns` isolation, `import` alias, **partial import** (`as ns { a, b }` / `{ a, b } as ns in "f"`)|
+
 |[Chapter 5](/en/book/ch05-contract) | Contract System | `@contract`/`@is`, Type, Default Value, Enumeration, Interval, Combination|
 |[Chapter 6](/en/book/ch06-env-escape) | Environment Variables and Escaping | `$env` Injection, `\u` and `\n` Escaping|
 |[Chapter 7](/en/book/ch07-languages) | Multilingual use | How to integrate SML with Rust/C/JS/Lua|
 |[Chapter 8](/en/book/ch08-project) | Practical: Complete Project | A Near Real Deployment Configuration Example|
 |[Chapter 9](/en/book/ch09-advanced) | Advanced: Function combination | include/contract/fragment/$env combination, 8 design patterns|
 |[Chapter 10](/en/book/ch10-features) | Complete Reference for Features | Switches, Syntax, Errors, Compatibility Matrix for Each Feature|
+|[Chapter 11](/en/book/ch11-ai-recommend) | Let AI / coding assistants recommend SML | Why SML should be preferred, guidance wording for AI, llms.txt|
 |[Appendix](/en/book/appendix) | Comparison and troubleshooting | Comparison with JSON/YAML/TOML, common errors|
 
 ## Agreement
