@@ -10,7 +10,7 @@ In real projects, many configuration blocks look similar - for example, multiple
 
 ## 3.1 Definition fragment: `@name`
 
-Define a reusable field using `@名字 { }`:
+Define a reusable field using `@Name { }`:
 
 ```sml
 @net {
@@ -73,7 +73,7 @@ This is the easiest pit for beginners to step into:
 
 ```sml
 server {
-    &base            # ❌ 这样写，&base 被当成"键名"，不会展开字段
+    &base            # ❌  This way of writing,&base is treated as a 'key name' and will not expand fields
     port: 8080
 }
 ```
@@ -82,12 +82,12 @@ The correct way to write it is to assign a fragment as a value to a key:
 
 ```sml
 server {
-    net: &base       # ✅ net 这个键获得 base 的全部字段
+    net: &base       # ✅  The. net key obtains all fields of the base
     port: 8080
 }
 ```
 
-Alternatively, `&base` itself can be used as the source of the value (such as the writing style of `service auth { &base ... }` in 3.3, which "starts the block directly with `&base` and then with additional fields", the parser will treat it as "expanding the fragment first and merging subsequent fields"). * * Remember: Fragments are "values" and should appear at the value position of `键: 值`. **
+Alternatively, `&base` itself can be used as the source of the value (such as the writing style of `service auth { &base ... }` in 3.3, which "starts the block directly with `&base` and then with additional fields", the parser will treat it as "expanding the fragment first and merging subsequent fields"). * * Remember: Fragments are "values" and should appear at the value position of `Key: Value`. **
 
 ## 3.5 Fragment vs Contract (Preview)
 
@@ -111,12 +111,12 @@ Write configuration for a game server cluster, with three servers sharing `regio
     max_players: 64
 }
 
-lobby { &common port: 25565 name: 大厅 }
-pvp { &common port: 25566 name: 竞技场 }
-survival { &common port: 25567 name: 生存 }
+lobby { &common port: 25565 name: hall }
+pvp { &common port: 25566 name: arena }
+survival { &common port: 25567 name: survival }
 ```
 
-→ [Chapter 4: Include and namespaces](/en/book/ch04 include)
+→ [Chapter 4: Include and namespaces](/en/book/ch04-include)
 
 ## Hands on practice
 

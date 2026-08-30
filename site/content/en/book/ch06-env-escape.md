@@ -14,7 +14,7 @@ There are often sensitive values (API Key, password) or values that vary with th
 secrets {
     resendApiKey: $env.RESEND_API_KEY
     dbPassword: $env.DB_PASSWORD
-    optionalWebhook: $env.UNSET_WEBHOOK   # 未设置 -> 空串，不报错
+    optionalWebhook: $env.UNSET_WEBHOOK   # Not set ->empty string, no error reported
 }
 ```
 
@@ -43,8 +43,8 @@ Common escaping supported in quotation string:
 Example:
 
 ```sml
-banner: "SML \u{1F680} 上线 \n第二行\t制表"
-label: "雪花 \u{2744} snow"
+banner: "SML \u{1F680} go online \nthe second line\ttabulation"
+label: "snowflake \u{2744} snow"
 path: "C:\\Program Files\\app"
 ```
 
@@ -71,7 +71,7 @@ path: "C:\\Program Files\\app"
    greeting: "你好 \u{1F44B}"
    ```
 
-→ [Chapter 7: Multilingual Use](/en/book/ch07 languages)
+→ [Chapter 7: Multilingual Use](/en/book/ch07-languages)
 
 ## Hands on practice
 

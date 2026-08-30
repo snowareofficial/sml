@@ -42,7 +42,7 @@ let json = serde_json::to_string(&v)?;   // {"name":"John","age":27}
 # include "sml.h"
 char err[256] = {0};
 sml_value *v = sml_parse("name: John\nage: 27", err, sizeof(err));
-/* v->type == SML_STR ("John") ... 用 sml_free(v) 释放 */
+/* v->type == SML_STR ("John") ... free it with sml_free(v) */
 ```
 
 The contract system has been 100% aligned with Rust, and the behavior of the four ends of `CONFIG_CONTRACT` is consistent.
@@ -60,7 +60,7 @@ console.log(stringify(v));
 SML  ↔  JSON conversion (isomorphic):
 
 ```js
-const obj = parse(smlText);              // 普通 JS 对象
+const obj = parse(smlText);              // Ordinary JS object
 const json = JSON.stringify(obj);
 const sml = stringify(JSON.parse(json));
 ```
@@ -69,12 +69,12 @@ const sml = stringify(JSON.parse(json));
 
 ```lua
 local sml = require("lib.sml")
-local v, err = sml.load(text)   -- 解析
-print(sml.dump(v))              -- 序列化
+local v, err = sml.load(text)   -- Parse
+print(sml.dump(v))              -- Serialization
 ```
 
 ```bash
-soupx lua/sml.sar config.sml     # 解析并打印
+soupx lua/sml.sar config.sml     # Analyze and print
 ```
 
 ## 7.5 Other
