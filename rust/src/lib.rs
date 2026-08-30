@@ -2709,6 +2709,9 @@ fn parse_opts_json(opts: &str) -> Result<(Vec<Feature>, Vec<(String, String)>, V
 /// - env:      注入到进程环境, 供 `$env.X` 内联解析 (调用期间临时设置并恢复)。
 /// - allow:    限定文档声明的版本必须在此范围内; 空数组表示不限制。
 /// 失败 (语法/版本/特性越权/文件找不到) 返回 NULL。
+// env 注入/恢复：edition 2024 起 set_var/remove_var 为 unsafe，
+// 需 unsafe 块；edition 2021 下该块多余，故一并 allow 掉告警。
+#[allow(unused_unsafe)]
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub extern "C" fn sml_parse_ex(text: *const c_char, opts: *const c_char) -> *mut c_char {
@@ -2731,7 +2734,7 @@ pub extern "C" fn sml_parse_ex(text: *const c_char, opts: *const c_char) -> *mut
         .map(|(k, _)| (k.clone(), std::env::var(k).ok()))
         .collect();
     for (k, v) in &env {
-        std::env::set_var(k, v);
+        unsafe { std::env::set_var(k, v) };
     }
     let result = (|| {
         // 构造调用方允许特性集: 基础全集 并 上 opts 指定特性。
@@ -2753,8 +2756,8 @@ pub extern "C" fn sml_parse_ex(text: *const c_char, opts: *const c_char) -> *mut
     // 恢复 env
     for (k, v) in &prev {
         match v {
-            Some(old) => std::env::set_var(k, old),
-            None => std::env::remove_var(k),
+            Some(old) => unsafe { std::env::set_var(k, old) },
+            None => unsafe { std::env::remove_var(k) },
         }
     }
     match result {
