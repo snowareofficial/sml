@@ -1,0 +1,69 @@
+{
+  "intro": {
+    "task": "Write an SML configuration that includes <b>name</b> (string gateway), <b>port</b> (integer 8080), <b>debug</b> (boolean true), <b>tags </b> (array containing logging and metrics). After finishing writing, click on 'Verify' and then look at the parsing results.",
+    "main": "name: gateway\nport: 8080\ndebug: true\ntags: [ logging metrics ]",
+    "hint": "Try changing the port to \"8080\" (in quotation marks), and the verification will tell you that it is not an integer 8080."
+  },
+  "ch01": {
+    "task": "Describe a person using SML: <b>firstName</b>(\"John Doe\"), <b>state</b>(Naked words NY), <b>age</b>(27), <b>ratio</b>(0.75), <b>enabled</b>(true), <b>note</b>(null). Pay attention to when quotation marks must be added.",
+    "main": "firstName: \"John Doe\"\nstate: NY\nage: 27\nratio: 0.75\nenabled: true\nnote: null\nchinese: 中文无需引号",
+    "hint": "Remove the quotation marks from firstName and see if the naked word NY and the quotation mark string \"John Doe\" are both strings in the result - the answer is: they are both strings, but NY does not need quotation marks."
+  },
+  "ch02": {
+    "task": "Write an <b>address </b> block (street, city=\"New York\", state=NY), an <b>database </b> block containing two primary/duplicate sub blocks (each containing host and port=5432), and an <b>users</b> array with elements containing name/role blocks.",
+    "main": "address {\n  street: \"21 2nd Street\"\n  city: \"New York\"\n  state: NY\n}\ndatabase {\n  primary { host: db1 port: 5432 }\n  replica { host: db2 port: 5432 }\n}\ntags: [ logging metrics tracing ]\nusers: [\n  { name: alice role: admin }\n  { name: bob role: user }\n]",
+    "hint": "Try writing address { } as address: { }, will the result be the same?"
+  },
+  "ch03": {
+    "task": "Define <b>@base { region, timeout }</b>, and then write two <b>service</b> blocks (auth, billing) both <b>&base</b>, each covering port and name.",
+    "main": "@base {\n  region: cn-north-1\n  timeout: 30\n}\nservice auth { &base port: 7100 name: auth-svc }\nservice billing { &base port: 7200 name: billing-svc }",
+    "hint": "Miswrite&base as the naked word (remove&) and see what happens."
+  },
+  "ch04": {
+    "task": "include \"ui\" as ui， Among them, ui.sml has title and powered. The main file is accessed through <b>ui.title</b>/<b>ui.powered</b>.",
+    "main": "include \"ui\" as ui\ntitle: ui.title\npowered: ui.powered",
+    "files": {
+      "ui.sml": "title: \"My App\"\npowered: Snoware"
+    },
+    "hint": "Add an second.sml file and include \"second\" as s in the main file to access s.xxx."
+  },
+  "ch05": {
+    "task": "Define <b>@contract Server strict { name: str, port: int min 1024 max 65535, region: str }</b>, and write a valid data using <b>@is Server</b> (name=lobby, port=25565, region=ap-est-1).",
+    "main": "@contract Server strict {\n  name: str\n  port: int min 1024 max 65535\n  region: str\n}\n@is Server\nname: 大厅\nport: 25565\nregion: ap-east-1",
+    "hint": "Change the port to 80 (less than 1024) and see how the contract validation reports an error."
+  },
+  "ch06": {
+    "task": "Write an <b>secrets </b> block, including apiKey: $env.RESEND_API_KEY and dbPassword: $env.DB_PASSWORD; Write another banner string using <b>\\u{1F680}</b> to escape emojis.",
+    "main": "secrets {\n  apiKey: $env.RESEND_API_KEY\n  dbPassword: $env.DB_PASSWORD\n}\nbanner: \"SML \\u{1F680} 上线\"",
+    "hint": "It is not possible to set real environment variables in the browser, so $env.X will parse as an empty string - this is the expected behavior, and validation will determine based on this."
+  },
+  "ch07": {
+    "task": "Define <b>@contract User { id: str, email: str, role: enum(user,admin,owner) default user }</b>, write data using <b>@is User</b> (id=u_1, email=a @ b.c), and verify that the role automatically takes the default user.",
+    "main": "@contract User {\n  id: str\n  email: str\n  role: enum(user, admin, owner) default user\n}\n@is User\nid: u_1\nemail: a@b.c",
+    "hint": "The same contract behaves consistently in Rust/C/JS/Lua - try changing role to owner."
+  },
+  "ch08": {
+    "task": "Write a deployment configuration that is close to reality: <b>@contract Service</b> Defined in the main file, <b>@is Service</b> write name/port/debug; Service auth and billing are both <b>&base</b> and cover port/name; The database block contains url($env) and pool{min,max}; Features array.",
+    "main": "@contract Service loose {\n  name: str\n  port: int default 8080 min 1 max 65535\n  debug: bool default false\n}\n@base {\n  region: cn-north-1\n  timeout: 30\n}\n\n@is Service\nname: gateway\nport: 9090\ndebug: true\n\npeers: [ auth billing ]\nservice auth { &base port: 7100 name: auth-svc }\nservice billing { &base port: 7200 name: billing-svc }\n\ndatabase: {\n  url: $env.DATABASE_URL\n  pool: { min: 2 max: 16 }\n}\nfeatures: [ logging metrics tracing ]",
+    "hint": "This is a deployment configuration that is close to reality: contract+fragment+$env used together (contract definition is placed in the main file to avoid cross file references)."
+  },
+  "ch09": {
+    "task": "Using contract combination: Define <b>@contract Endpoint { host: str, port: int }</b> and <b>@contract Service { name: str, main: Endpoint, peers: array[Endpoint] ? }</b>, and then use @is Service to write the main and a peers element.",
+    "main": "@contract Endpoint {\n  host: str\n  port: int\n}\n@contract Service {\n  name: str\n  main: Endpoint\n  peers: array[Endpoint] ?\n}\n@is Service\nname: gateway\nmain: { host: localhost port: 8080 }\npeers: [ { host: db port: 5432 } ]",
+    "hint": "Endpoint is reused by the main field and array[Endpoint], which is called 'contract combination'."
+  },
+  "ch10": {
+    "task": "Use <b>include</b> to load multiple subfiles into their respective namespaces: <b>include \"auth.sml\" as auth</b> and <b>include \"billing.sml\" as billing</b>. Each subfile uses @is Module and includes a name field. Verify that both the auth and billing namespaces are correctly loaded.",
+    "main": "include \"auth.sml\" as auth\ninclude \"billing.sml\" as billing\nroot: ok",
+    "files": {
+      "auth.sml": "@contract Module { name: str }\n@is Module\nname: auth",
+      "billing.sml": "@contract Module { name: str }\n@is Module\nname: billing"
+    },
+    "hint": "Include... as auth/as billing loads different files into isolated namespaces to avoid field conflicts."
+  },
+  "appendix": {
+    "task": "Write a SML: <b>name</b>(John), <b>age</b>(27), <b>adesk</b> block with city=NY, <b>tags, </b> array length 2. This paragraph should yield consistent results in any language parsing.",
+    "main": "name: John\nage: 27\naddress: { city: NY }\ntags: [ a b ]",
+    "hint": "Imagine this paragraph as Rust/C/JS/Lua parsing, where the field names and nested structures should be exactly the same."
+  }
+}

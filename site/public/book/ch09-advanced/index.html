@@ -136,7 +136,7 @@
 </span></span><span style=display:flex><span>
 </span></span><span style=display:flex><span># <span style=color:#960050;background-color:#1e0010>加载所有</span> <span style=color:#960050;background-color:#1e0010>.json</span> <span style=color:#960050;background-color:#1e0010>改写为</span> <span style=color:#960050;background-color:#1e0010>.sml</span> <span style=color:#960050;background-color:#1e0010>解析</span>
 </span></span><span style=display:flex><span><span style=color:#66d9ef>include</span> <span style=color:#e6db74>&#34;configs/re:.*</span><span style=color:#ae81ff>\\</span><span style=color:#e6db74>.json$&#34;</span> -&gt; <span style=color:#960050;background-color:#1e0010>.sml</span>
-</span></span></code></pre></div><p><code>re:</code> 前缀表明后面是正则；正则语法是<strong>手写子集</strong>（<code>. * + ? ^ $ [a-z]</code> 即可满足 90% 场景，避免引入完整 regex 引擎）。</p><h2 id=910-取舍原则什么时候用什么>9.10 取舍原则（什么时候用什么）</h2><ul><li><strong>结构稳定、字段变化多</strong> → 契约 + 默认值 + enum。</li><li><strong>重复字段多、组合式配置</strong> → 片段 + include。</li><li><strong>多团队共享一套 schema</strong> → 模块化库（include + 命名空间）。</li><li><strong>同一份配置多个环境</strong> → 契约为骨架，$env 注入差异。</li><li><strong>插件式扩展</strong> → glob + 命名空间。</li><li><strong>复杂文件名匹配</strong> → re: 正则。</li><li><strong>混合来源</strong>（<code>.json</code> / <code>.yaml</code> 当 <code>.sml</code> 用） → ext-rewrite <code>-> .sml</code>。</li></ul><h2 id=911-反模式请避免>9.11 反模式（请避免）</h2><ul><li><strong>一个巨大契约覆盖所有场景</strong>——必填字段太多，团队成员吐槽。</li><li><strong>命名空间嵌套超过 3 层</strong>（<code>a.b.c.d</code>）——可读性下降，宁可拆文件。</li><li><strong>契约里塞可执行逻辑</strong>——SML 契约是声明，不是脚本；要算就用宿主语言。</li><li><strong><code>$env</code> 用作"动态配置源"</strong>——它只在<strong>解析期</strong>求值，运行时变化无效；运行时配置请用代码。</li><li><strong>include 嵌套超过 5 层</strong>——会拖慢阅读；该抽库了。</li></ul><h2 id=912-动手试一试>9.12 动手试一试</h2><p>把第 8 章的"完整项目"按本节"模式 5（include + 契约 + $env）&ldquo;重构一遍：</p><ol><li>把 <code>common.sml</code> 抽成共享契约 + 共享片段。</li><li><code>app.sml</code> 改成 <code>include "common" as cfg</code>。</li><li>密钥全部用 <code>$env.*</code>。</li><li>用 <code>cargo test</code>（或对应语言的契约测试）跑通解析与校验。</li></ol><p>→ <a href=../../book/ch10-features/>第 10 章：feature 完整参考</a></p><h2 id=动手练习>动手练习</h2><p>读完本章，在下面的编辑器里<strong>直接修改 SML 并点“运行”</strong>，立刻看到解析结果或校验错误——有输出才能高效学习。</p><div class=sml-pg data-lesson=ch09><div class=sml-pg-task><span class=sml-pg-task-tag>✍ 动手练习</span>
+</span></span></code></pre></div><p><code>re:</code> 前缀表明后面是正则；正则语法是<strong>手写子集</strong>（<code>. * + ? ^ $ [a-z]</code> 即可满足 90% 场景，避免引入完整 regex 引擎）。</p><h2 id=910-取舍原则什么时候用什么>9.10 取舍原则（什么时候用什么）</h2><ul><li><strong>结构稳定、字段变化多</strong> → 契约 + 默认值 + enum。</li><li><strong>重复字段多、组合式配置</strong> → 片段 + include。</li><li><strong>多团队共享一套 schema</strong> → 模块化库（include + 命名空间）。</li><li><strong>同一份配置多个环境</strong> → 契约为骨架，$env 注入差异。</li><li><strong>插件式扩展</strong> → glob + 命名空间。</li><li><strong>复杂文件名匹配</strong> → re: 正则。</li><li><strong>混合来源</strong>（<code>.json</code> / <code>.yaml</code> 当 <code>.sml</code> 用） → ext-rewrite <code>-> .sml</code>。</li></ul><h2 id=911-反模式请避免>9.11 反模式（请避免）</h2><ul><li><strong>一个巨大契约覆盖所有场景</strong>——必填字段太多，团队成员吐槽。</li><li><strong>命名空间嵌套超过 3 层</strong>（<code>a.b.c.d</code>）——可读性下降，宁可拆文件。</li><li><strong>契约里塞可执行逻辑</strong>——SML 契约是声明，不是脚本；要算就用宿主语言。</li><li><strong><code>$env</code> 用作"动态配置源"</strong>——它只在<strong>解析期</strong>求值，运行时变化无效；运行时配置请用代码。</li><li><strong>include 嵌套超过 5 层</strong>——会拖慢阅读；该抽库了。</li></ul><h2 id=912-动手试一试>9.12 动手试一试</h2><p>把第 8 章的"完整项目"按本节"模式 5（include + 契约 + $env）&ldquo;重构一遍：</p><ol><li>把 <code>common.sml</code> 抽成共享契约 + 共享片段。</li><li><code>app.sml</code> 改成 <code>include "common" as cfg</code>。</li><li>密钥全部用 <code>$env.*</code>。</li><li>用 <code>cargo test</code>（或对应语言的契约测试）跑通解析与校验。</li></ol><p>→ <a href=../../book/ch10-features/>第 10 章：feature 完整参考</a></p><h2 id=动手练习>动手练习</h2><p>读完本章，在下面的编辑器里<strong>直接修改 SML 并点“运行”</strong>，立刻看到解析结果或校验错误——有输出才能高效学习。</p><div class=sml-pg data-lesson=ch09 data-t-parse-err="✗ 解析错误：" data-t-parse-ok="✓ 解析成功：" data-t-status-err="✗ 解析错误" data-t-no-task=（本章暂无可验证任务） data-t-pass="✓ 通过" data-t-fail="✗ 未通过" data-t-verify-ok="✓ 验证通过！" data-t-verify-fail="✗ 还没对：" data-t-result=解析结果： data-t-line=行 data-t-col=列><div class=sml-pg-task><span class=sml-pg-task-tag>✍ 动手练习</span>
 <span class=sml-pg-task-text>用契约组合：定义 <b>@contract Endpoint { host: str, port: int }</b> 与 <b>@contract Service { name: str, main: Endpoint, peers: array[Endpoint] ? }</b>，再用 @is Service 写 main 与一个 peers 元素。</span><div class=sml-pg-hint>💡 提示：Endpoint 被 main 字段与 array[Endpoint] 两处复用，这就是「契约组合」。</div></div><div class=sml-pg-main><textarea class=sml-pg-code spellcheck=false data-files=null>@contract Endpoint {
   host: str
   port: int
@@ -163,6 +163,20 @@ peers: [ { host: db port: 5432 } ]</textarea></div><div class=sml-pg-actions><bu
     const verifyBtn = box.querySelector(".sml-pg-verify");
     const resetBtn = box.querySelector(".sml-pg-reset");
     const init = ta.value;
+    
+    const T = {
+      parseErr: box.dataset.tParseErr || "✗ Parse error:\n",
+      parseOk: box.dataset.tParseOk || "✓ Parsed successfully:\n",
+      statusErr: box.dataset.tStatusErr || "✗ Parse error",
+      noTask: box.dataset.tNoTask || "(No verifiable task in this chapter)",
+      pass: box.dataset.tPass || "✓ Passed",
+      fail: box.dataset.tFail || "✗ Not passed",
+      verifyOk: box.dataset.tVerifyOk || "✓ Verified!\n",
+      verifyFail: box.dataset.tVerifyFail || "✗ Not quite right:\n",
+      result: box.dataset.tResult || "Parsed result:",
+      line: box.dataset.tLine || "line",
+      col: box.dataset.tCol || "col",
+    };
 
     function setStatus(txt, cls) { status.textContent = txt; status.className = "sml-pg-status " + (cls || ""); }
     function parse() {
@@ -173,12 +187,13 @@ peers: [ { host: db port: 5432 } ]</textarea></div><div class=sml-pg-actions><bu
       if (!r.ok) {
         out.hidden = false;
         out.className = "sml-pg-out err";
-        let msg = r.error; if (r.position) msg += ` (行 ${r.position.line + 1}, 列 ${r.position.col + 1})`;
-        out.textContent = "✗ 解析错误：\n" + msg;
+        let msg = r.error;
+        if (r.position) msg += ` (${T.line} ${r.position.line + 1}, ${T.col} ${r.position.col + 1})`;
+        out.textContent = T.parseErr + msg;
         return null;
       }
       out.hidden = false; out.className = "sml-pg-out ok";
-      out.textContent = "✓ 解析成功：\n" + JSON.stringify(r.value, null, 2);
+      out.textContent = T.parseOk + JSON.stringify(r.value, null, 2);
       return r.value;
     }
     function run() { setStatus("", ""); parse(); }
@@ -188,20 +203,20 @@ peers: [ { host: db port: 5432 } ]</textarea></div><div class=sml-pg-actions><bu
     resetBtn.addEventListener("click", reset);
     if (verifyBtn) verifyBtn.addEventListener("click", () => {
       const v = parse();
-      if (v === null) { setStatus("✗ 解析错误", "bad"); return; }
+      if (v === null) { setStatus(T.statusErr, "bad"); return; }
       const fn = VERIFIERS["ch09"];
-      if (!fn) { setStatus("（本章暂无可验证任务）", ""); return; }
+      if (!fn) { setStatus(T.noTask, ""); return; }
       const res = fn(v);
-      setStatus(res.ok ? "✓ 通过" : "✗ 未通过", res.ok ? "good" : "bad");
+      setStatus(res.ok ? T.pass : T.fail, res.ok ? "good" : "bad");
       out.hidden = false;
       out.className = "sml-pg-out " + (res.ok ? "ok" : "err");
-      let base = res.ok ? "✓ 验证通过！\n" : "✗ 还没对：\n";
-      out.textContent = base + res.msg + "\n\n解析结果：\n" + JSON.stringify(v, null, 2);
+      let base = res.ok ? T.verifyOk : T.verifyFail;
+      out.textContent = base + res.msg + "\n\n" + T.result + "\n" + JSON.stringify(v, null, 2);
     });
     ta.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") run(); });
   });
-</script><style>.sml-pg{border:1px solid #d0d7de;border-radius:10px;margin:16px 0;overflow:hidden;background:#fff}.sml-pg-task{background:#eef4ff;border-bottom:1px solid #d0d7de;padding:10px 12px;font-size:13px;color:#1a2b4a;line-height:1.6}.sml-pg-task-tag{display:inline-block;background:#1565c0;color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;margin-right:6px}.sml-pg-hint{margin-top:6px;font-size:12px;color:#555}.sml-pg-files{font-size:12px;background:#f6f8fa;border-bottom:1px solid #eaecef}.sml-pg-files summary{padding:6px 12px;cursor:pointer;color:#57606a}.sml-pg-file{padding:0 12px 8px}.sml-pg-file-name{font-weight:700;color:#0d47a1}.sml-pg-file pre{background:#fff;border:1px solid #e1e4e8;border-radius:4px;padding:6px 8px;margin:4px 0 0;white-space:pre-wrap}.sml-pg-main{display:flex}.sml-pg-code{flex:1;min-height:200px;border:0;padding:10px 12px;font-family:sfmono-regular,Consolas,monospace;font-size:12.5px;line-height:1.5;background:#fff;color:#111;resize:vertical;white-space:pre;tab-size:2}.sml-pg-code:focus{outline:2px solid #1565c0;outline-offset:-2px}.sml-pg-actions{padding:8px 12px;display:flex;gap:8px;align-items:center;background:#f6f8fa;border-top:1px solid #eaecef}.sml-pg-actions button{background:#1565c0;color:#fff;border:0;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:13px}.sml-pg-actions button.sml-pg-reset{background:#6c757d}.sml-pg-actions button:hover{filter:brightness(1.08)}.sml-pg-status{font-size:12px;margin-left:4px}.sml-pg-status.good{color:#2e7d32}.sml-pg-status.bad{color:#c62828}.sml-pg-out{margin:0;padding:10px 12px;font-size:12px;white-space:pre-wrap;max-height:320px;overflow:auto;border-top:1px solid #eaecef}.sml-pg-out.ok{background:#e8f5e9;color:#1b5e20}.sml-pg-out.err{background:#fdecea;color:#b71c1c}</style><div class=sml-qz data-quiz=ch09><div class=sml-qz-bar><span class=sml-qz-title>✍ 自测考题：第 9 章自测：功能组合</span>
-<span class=sml-qz-score>得分 0 / 4</span>
+</script><style>.sml-pg{border:1px solid #d0d7de;border-radius:10px;margin:16px 0;overflow:hidden;background:#fff}.sml-pg-task{background:#eef4ff;border-bottom:1px solid #d0d7de;padding:10px 12px;font-size:13px;color:#1a2b4a;line-height:1.6}.sml-pg-task-tag{display:inline-block;background:#1565c0;color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;margin-right:6px}.sml-pg-hint{margin-top:6px;font-size:12px;color:#555}.sml-pg-files{font-size:12px;background:#f6f8fa;border-bottom:1px solid #eaecef}.sml-pg-files summary{padding:6px 12px;cursor:pointer;color:#57606a}.sml-pg-file{padding:0 12px 8px}.sml-pg-file-name{font-weight:700;color:#0d47a1}.sml-pg-file pre{background:#fff;border:1px solid #e1e4e8;border-radius:4px;padding:6px 8px;margin:4px 0 0;white-space:pre-wrap}.sml-pg-main{display:flex}.sml-pg-code{flex:1;min-height:200px;border:0;padding:10px 12px;font-family:sfmono-regular,Consolas,monospace;font-size:12.5px;line-height:1.5;background:#fff;color:#111;resize:vertical;white-space:pre;tab-size:2}.sml-pg-code:focus{outline:2px solid #1565c0;outline-offset:-2px}.sml-pg-actions{padding:8px 12px;display:flex;gap:8px;align-items:center;background:#f6f8fa;border-top:1px solid #eaecef}.sml-pg-actions button{background:#1565c0;color:#fff;border:0;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:13px}.sml-pg-actions button.sml-pg-reset{background:#6c757d}.sml-pg-actions button:hover{filter:brightness(1.08)}.sml-pg-status{font-size:12px;margin-left:4px}.sml-pg-status.good{color:#2e7d32}.sml-pg-status.bad{color:#c62828}.sml-pg-out{margin:0;padding:10px 12px;font-size:12px;white-space:pre-wrap;max-height:320px;overflow:auto;border-top:1px solid #eaecef}.sml-pg-out.ok{background:#e8f5e9;color:#1b5e20}.sml-pg-out.err{background:#fdecea;color:#b71c1c}</style><div class=sml-qz data-quiz=ch09 data-t-correct="✓ 答对！" data-t-wrong="✗ 答错。"><div class=sml-qz-bar><span class=sml-qz-title>✍ 自测考题：第 9 章自测：功能组合</span>
+<span class=sml-qz-score data-tpl=得分>得分 0 / 4</span>
 <button class=sml-qz-check type=button>交卷判分</button>
 <button class=sml-qz-reset type=button>重置</button></div><div class=sml-qz-body><div class=sml-qz-item data-idx=0 data-type=choice data-answer=0><div class=sml-qz-q><span class=sml-qz-no>Q1.</span> 契约组合指什么？</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=radio name=qz-ch09-0 value=0>
 <span>把小契约作为字段类型复用</span>
@@ -232,6 +247,14 @@ peers: [ { host: db port: 5432 } ]</textarea></div><div class=sml-pg-actions><bu
     const scoreEl = box.querySelector(".sml-qz-score");
     const checkBtn = box.querySelector(".sml-qz-check");
     const resetBtn = box.querySelector(".sml-qz-reset");
+    
+    const T = {
+      score: (scoreEl.dataset.tpl || "Score").trim(),
+      correct: box.dataset.tCorrect || "✓ Correct! ",
+      wrong: box.dataset.tWrong || "✗ Wrong. ",
+    };
+    const total = box.querySelectorAll(".sml-qz-item").length;
+    const scoreText = (n) => T.score + " " + n + " / " + total;
 
     function normAnswer(raw, type) {
       const a = (typeof raw === "string") ? JSON.parse(raw) : raw;
@@ -261,10 +284,10 @@ peers: [ { host: db port: 5432 } ]</textarea></div><div class=sml-pg-actions><bu
         const expl = item.querySelector(".sml-qz-explain");
         fb.hidden = false;
         fb.className = "sml-qz-fb " + (correct ? "ok" : "bad");
-        fb.innerHTML = (correct ? "✓ 答对！ " : "✗ 答错。 ") +
+        fb.textContent = (correct ? T.correct : T.wrong) +
           (expl ? expl.textContent : "");
       });
-      scoreEl.textContent = "得分 " + score + " / " + box.querySelectorAll(".sml-qz-item").length;
+      scoreEl.textContent = scoreText(score);
       checkBtn.disabled = true;
     }
     function reset() {
@@ -273,7 +296,7 @@ peers: [ { host: db port: 5432 } ]</textarea></div><div class=sml-pg-actions><bu
         const fb = item.querySelector(".sml-qz-fb");
         fb.hidden = true; fb.className = "sml-qz-fb"; fb.textContent = "";
       });
-      scoreEl.textContent = "得分 0 / " + box.querySelectorAll(".sml-qz-item").length;
+      scoreEl.textContent = scoreText(0);
       checkBtn.disabled = false;
     }
     checkBtn.addEventListener("click", check);

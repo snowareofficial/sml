@@ -1,0 +1,596 @@
+{
+  "intro": {
+    "title": "Preface self-test",
+    "items": [
+      {
+        "q": "What kind of \"temperament\" does SML most resemble below?",
+        "type": "choice",
+        "options": [
+          "Strictly indented Python",
+          "Declarative notes that can save quotation marks/commas",
+          "Compiled strongly typed language",
+          "Binary serialization format"
+        ],
+        "answer": 1,
+        "explain": "SML is a declarative data/configuration format where quotation marks and commas can be omitted, and the structure is delimited by {}, like writing notes."
+      },
+      {
+        "q": "Which of the following statements is correct?",
+        "type": "bool",
+        "options": [
+          "SML must be written as a strict JSON tree",
+          "The SML parsing result is a language independent key value tree"
+        ],
+        "answer": 1,
+        "explain": "The parsing result (key value tree) of SML is isomorphic in Rust/C/JS/Lua, which is precisely why it is cross language friendly."
+      },
+      {
+        "q": "In SML, which symbol below can be annotated?",
+        "type": "multi",
+        "options": [
+          "#",
+          "--",
+          "//",
+          "/* */"
+        ],
+        "answer": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "explain": "SML supports three types of line comments (up to the end of the line): #, --, and//, as well as/*... */block comments (across lines); There are also _ *... * _ as alternative block annotation styles."
+      }
+    ]
+  },
+  "ch01": {
+    "title": "Chapter 1 Self testing: Basic Key Values",
+    "items": [
+      {
+        "q": "Which line in SML will parse NY into a string (instead of an error)?",
+        "type": "choice",
+        "options": [
+          "state: \"NY\"",
+          "state: NY",
+          "state: (NY)",
+          "state = NY"
+        ],
+        "answer": 1,
+        "explain": "The bare word of SML defaults to a string, and state: NY is equivalent to state: \"NY\"."
+      },
+      {
+        "q": "Judgment: After parsing age: 27, 27 is an integer instead of a string.",
+        "type": "bool",
+        "options": [
+          "Correct",
+          "Wrong"
+        ],
+        "answer": 0,
+        "explain": "Numbers without quotation marks will be parsed as numeric types (integers/floating points), and the age field is an integer of 27."
+      },
+      {
+        "q": "Which of the following values is a scalar type supported by SML?",
+        "type": "multi",
+        "options": [
+          "true / false",
+          "null",
+          "0.75",
+          "Date string of January 1, 2024"
+        ],
+        "answer": [
+          0,
+          1,
+          2
+        ],
+        "explain": "SML scalars support boolean, null, integer, floating-point, and string; The essence of a date is a string and there is no specific date type."
+      },
+      {
+        "q": "Do I need to write \"hello\" as a value in Chinese?",
+        "type": "bool",
+        "options": [
+          "No need, just use bare words",
+          "Quotation marks must be added"
+        ],
+        "answer": 0,
+        "explain": "Chinese and other non ASCII naked words themselves are strings, city: Beijing is legal and does not require quotation marks."
+      }
+    ]
+  },
+  "ch02": {
+    "title": "Chapter 2 Self Test: Blocks and Arrays",
+    "items": [
+      {
+        "q": "Is the result of writing address { city: NY } and address: { city: NY } the same?",
+        "type": "bool",
+        "options": [
+          "same",
+          "Different, the first one is an array"
+        ],
+        "answer": 0,
+        "explain": "The colon before the block in SML can be omitted, and address { } is equivalent to address: { }, both of which are object blocks."
+      },
+      {
+        "q": "Which of the following can correctly represent an array?",
+        "type": "choice",
+        "options": [
+          "tags: logging metrics tracing",
+          "tags: [ logging metrics tracing ]",
+          "tags: ( logging metrics )",
+          "tags = [logging, metrics]"
+        ],
+        "answer": 1,
+        "explain": "The array is wrapped in square brackets [ ]; The elements within square brackets are separated by spaces, and commas can also be omitted."
+      },
+      {
+        "q": "What is the correct intra row object { name: alice role: admin }?",
+        "type": "choice",
+        "options": [
+          "Fields must be separated by commas",
+          "Separate fields with spaces",
+          "Must line break",
+          "Cannot support intra row objects"
+        ],
+        "answer": 1,
+        "explain": "Fields within the line objects { } are separated by spaces, with role: admin following closely behind name: alice."
+      },
+      {
+        "q": "Judgment: SML arrays can mix different types, such as [ 1 \"two\" true ].",
+        "type": "bool",
+        "options": [
+          "Correct",
+          "Wrong"
+        ],
+        "answer": 0,
+        "explain": "SML does not restrict array element types, [ 1 \"two\" true ] is a valid heterogeneous array."
+      }
+    ]
+  },
+  "ch03": {
+    "title": "Chapter 3 Self testing: Fragment Inheritance",
+    "items": [
+      {
+        "q": "Which symbol is used to define reusable fragments?",
+        "type": "choice",
+        "options": [
+          "@base",
+          "&base",
+          "@is",
+          "include"
+        ],
+        "answer": 0,
+        "explain": "@base { } defines fragment templates, and&base references them elsewhere for inheritance and merging."
+      },
+      {
+        "q": "In service auth { &base port: 7100 }, if @base has already defined port: 7000, what is the result port?",
+        "type": "choice",
+        "options": [
+          "7000 (fragment priority)",
+          "7100 (local coverage)",
+          "Both have it.",
+          "error report"
+        ],
+        "answer": 1,
+        "explain": "After referencing&base, the local field will overwrite the same named field in the fragment, with a port of 7100."
+      },
+      {
+        "q": "Judgment:&base must be placed on the first line of the block to take effect.",
+        "type": "bool",
+        "options": [
+          "Wrong, unlimited location",
+          "Yes, it must be the first field"
+        ],
+        "answer": 0,
+        "explain": "&The base reference can appear at any field position within the block, and SML will first perform fragment merging before parsing other fields."
+      },
+      {
+        "q": "What problems does fragment inheritance mainly solve?",
+        "type": "multi",
+        "options": [
+          "Reduce duplicate configurations",
+          "Unified public fields",
+          "Mandatory Type Check",
+          "Automatically generate documents"
+        ],
+        "answer": [
+          0,
+          1
+        ],
+        "explain": "Fragments are used to extract and reuse common fields such as region/timeout to avoid duplicate writing for each service."
+      }
+    ]
+  },
+  "ch04": {
+    "title": "Chapter 4 Self testing: Include and namespace",
+    "items": [
+      {
+        "q": "What is the purpose of including \"ui\" as ui?",
+        "type": "choice",
+        "options": [
+          "Merge the content of ui.sml into the root",
+          "Load ui.sml into the UI namespace",
+          "Rename file",
+          "Delete file"
+        ],
+        "answer": 1,
+        "explain": "Hang the parsing results of the included files in the UI namespace and access them using ui.title to avoid naming conflicts."
+      },
+      {
+        "q": "Where does the UI come from when writing title: ui.title as the main file?",
+        "type": "choice",
+        "options": [
+          "Variables defined in the current file",
+          "The namespace included earlier",
+          "Built in constants",
+          "environment variable"
+        ],
+        "answer": 1,
+        "explain": "ui.title refers to the title field in the namespace loaded with include \"ui\" as ui."
+      },
+      {
+        "q": "Judgment: 'include' can introduce multiple files, each of which can use 'as' to start a different namespace.",
+        "type": "bool",
+        "options": [
+          "Correct",
+          "Wrong"
+        ],
+        "answer": 0,
+        "explain": "You can include \"a\" as a and \"b\" as b multiple times, each isolated and not polluting the root namespace."
+      },
+      {
+        "q": "Will the glob include \"modules/*. sml\" as m?",
+        "type": "choice",
+        "options": [
+          "Only contains one file",
+          "Load all matching files into the m namespace",
+          "error report",
+          "Recurse subdirectories "
+        ],
+        "answer": 1,
+        "explain": "After enabling the globe feature, all files matched by *. sml will be batch loaded into the m namespace."
+      }
+    ]
+  },
+  "ch05": {
+    "title": "Chapter 5 Self testing: Contract System",
+    "items": [
+      {
+        "q": "What does loose mean in @contract Server loose { port: int min 1024 }?",
+        "type": "choice",
+        "options": [
+          "Port must be>=1024",
+          "Allow extra fields outside the contract",
+          "Fixed field order",
+          "Must be encrypted"
+        ],
+        "answer": 1,
+        "explain": "The SML contract defaults to strict (rejecting undeclared fields) and allows for additional fields only when written as loose; Min 1024 is the lower bound constraint for the port."
+      },
+      {
+        "q": "port: int min 1024 max 65535， Which of the following values will fail verification?",
+        "type": "choice",
+        "options": [
+          "1024",
+          "8080",
+          "80",
+          "65535"
+        ],
+        "answer": 2,
+        "explain": "If 80 is less than min 1024, contract verification will report an error; The rest are within the [1024, 65535] range."
+      },
+      {
+        "q": "What does role: enum(user, admin, owner) mean by default user?",
+        "type": "multi",
+        "options": [
+          "Role can only take one of the three options",
+          "Default user when role is omitted",
+          "Role must be a string",
+          "Role is an array"
+        ],
+        "answer": [
+          0,
+          1
+        ],
+        "explain": "Enum limits the set of values, default fills in the default value 'user' when the field is not provided."
+      },
+      {
+        "q": "Judgment: Data written after @is Server with incorrect field types will also be blocked by the contract.",
+        "type": "bool",
+        "options": [
+          "Correct",
+          "Wrong"
+        ],
+        "answer": 0,
+        "explain": "The contract will check the field type, for example, if a field declaring str is written as a number, the verification will fail."
+      }
+    ]
+  },
+  "ch06": {
+    "title": "Chapter 6 Self testing: Environment Variables and Escaping",
+    "items": [
+      {
+        "q": "What syntax is used to inject environment variables into values?",
+        "type": "choice",
+        "options": [
+          "$env.API_KEY",
+          "${API_KEY}",
+          "env(API_KEY)",
+          "@env API_KEY"
+        ],
+        "answer": 0,
+        "explain": "SML injects the values of environment variables into $env.NAME during the parsing period."
+      },
+      {
+        "q": "What does $env.X usually parse into when running Playground in a browser?",
+        "type": "choice",
+        "options": [
+          "Real system variables",
+          "Empty string (cannot be retrieved)",
+          "Error interrupt",
+          "String '$env.X'"
+        ],
+        "answer": 1,
+        "explain": "The front-end JS parser cannot access real environment variables, and when $env.X cannot be retrieved, it will be parsed as an empty string, which is the expected behavior."
+      },
+      {
+        "q": "Judgment: \\u{1F680} will be escaped as an emoji character in the string.",
+        "type": "bool",
+        "options": [
+          "Correct",
+          "Wrong"
+        ],
+        "answer": 0,
+        "explain": "SML supports \\u{...} code point escape, \\u{1F680} is 🚀。"
+      },
+      {
+        "q": "Which escape is supported by SML?",
+        "type": "multi",
+        "options": [
+          "\\n Line Break",
+          "\\t tab symbol",
+          "\\\" quotation marks",
+          "\\x41 hexadecimal byte"
+        ],
+        "answer": [
+          0,
+          1,
+          2
+        ],
+        "explain": "SML supports common escape schemes such as \\n, \\t, \\\", etc; C-style byte escaping such as \\x41 is not its standard escape form."
+      }
+    ]
+  },
+  "ch07": {
+    "title": "Chapter 7 Self Test: Multilingual Use",
+    "items": [
+      {
+        "q": "What is the behavior of SML contracts in multiple languages?",
+        "type": "choice",
+        "options": [
+          "Each language implements it on its own and may not be consistent",
+          "Isomorphic consistency",
+          "Only Rust supports it",
+          "Only JS is supported"
+        ],
+        "answer": 1,
+        "explain": "The parsing results and contract validation of SML are isomorphic and consistent in Rust/C/JS/Lua, which is the core selling point."
+      },
+      {
+        "q": "Judgment: The field names and nested structures obtained from parsing the same SML file using Rust and Lua should be exactly the same.",
+        "type": "bool",
+        "options": [
+          "Correct",
+          "Wrong"
+        ],
+        "answer": 0,
+        "explain": "This is precisely the manifestation of SML's cross language friendliness: data isomorphism, host language is just a carrier."
+      },
+      {
+        "q": "Which export is usually used to call a parser in JS?",
+        "type": "choice",
+        "options": [
+          "parseSafe / parse",
+          "eval_sml",
+          "deserialize",
+          "load_file"
+        ],
+        "answer": 0,
+        "explain": "sml.mjs exports parse/parseSafe (with error object return), which is the actual entrance used by the front-end playground."
+      }
+    ]
+  },
+  "ch08": {
+    "title": "Chapter 8 Self testing: Practical Projects",
+    "items": [
+      {
+        "q": "What capabilities are typically combined in a real deployment configuration?",
+        "type": "multi",
+        "options": [
+          "@Contract verification structure",
+          "Include splitting public configuration",
+          "&Base fragment reuse",
+          "@feature switch optional syntax"
+        ],
+        "answer": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "explain": "Practical projects often involve contracts include、 Use fragments, $env, and features together to form a maintainable configuration."
+      },
+      {
+        "q": "What type is peers: [ auth billing ]?",
+        "type": "choice",
+        "options": [
+          "array of objects",
+          "String array",
+          "Numerical array",
+          "Boolean array"
+        ],
+        "answer": 1,
+        "explain": "The naked word auth billing in square brackets is parsed as a string array [\"auth\",\"billing\"]."
+      },
+      {
+        "q": "Judgment: It is a good practice for database: { url: $env.DATABASE_URL } to leave sensitive information outside the source code.",
+        "type": "bool",
+        "options": [
+          "Correct",
+          "Wrong"
+        ],
+        "answer": 0,
+        "explain": "Inject password/connection string with $env to avoid writing the key in the configuration file."
+      }
+    ]
+  },
+  "ch09": {
+    "title": "Chapter 9 Self Test: Function Combination",
+    "items": [
+      {
+        "q": "What does contract combination refer to?",
+        "type": "choice",
+        "options": [
+          "Reuse small contracts as field types",
+          "Merge multiple files",
+          "Automatic compression configuration",
+          "generate code"
+        ],
+        "answer": 0,
+        "explain": "If the Endpoint contract is reused by Service's main: Endpoint and array[Endpoint], it forms a type combination."
+      },
+      {
+        "q": "Which mode is suitable for \"multi environment shared basic configuration\"?",
+        "type": "choice",
+        "options": [
+          "Fragment+include",
+          "Only use one large file",
+          "Copy and paste",
+          "Environment variables cover all"
+        ],
+        "answer": 0,
+        "explain": "Extract the common fields into @base fragments, and include them in each environment to overwrite the different fields, making it the easiest to maintain."
+      },
+      {
+        "q": "Judgment: array[Endpoint]? At the end? Indicates that this field can be omitted.",
+        "type": "bool",
+        "options": [
+          "Correct",
+          "Wrong"
+        ],
+        "answer": 0,
+        "explain": "This field is optional (null/default) and will not trigger a contract error if not provided."
+      },
+      {
+        "q": "Is it recommended to use \"pre validation\" in design patterns?",
+        "type": "multi",
+        "options": [
+          "@contract strict",
+          "@Is verifying at the entrance",
+          "Check at runtime",
+          "Completely unverified"
+        ],
+        "answer": [
+          0,
+          1
+        ],
+        "explain": "Using strict contract+@ is to verify can expose incorrect configurations as early as possible at the configuration loading entry"
+      }
+    ]
+  },
+  "ch10": {
+    "title": "Chapter 10 Self testing: Feature Reference",
+    "items": [
+      {
+        "q": "Which feature should be used to enable the include feature in Glob configuration?",
+        "type": "choice",
+        "options": [
+          "@feature enable glob",
+          "@feature glob on",
+          "enable glob",
+          "@glob"
+        ],
+        "answer": 0,
+        "explain": "The syntax is @feature enable glob, and only when enabled can include \"x/*. sml\" be compatible."
+      },
+      {
+        "q": "Judgment: Without declaring @feature, all SML basic syntax (key value/block/array/contract) is still available.",
+        "type": "bool",
+        "options": [
+          "Correct",
+          "Wrong"
+        ],
+        "answer": 0,
+        "explain": "Features only control optional/extended syntax, core syntax is enabled by default and does not require declaration."
+      },
+      {
+        "q": "Which of the following belongs to the expansion capability of feature control?",
+        "type": "multi",
+        "options": [
+          "Globe package includes",
+          "Naked word string",
+          "$env injection",
+          "Implicit namespace"
+        ],
+        "answer": [
+          0,
+          3
+        ],
+        "explain": "Glob and implicit ns are feature switching terms; Naked words and $env are basic syntax."
+      },
+      {
+        "q": "What are the common mistakes in writing @feature (such as spelling a wrong name)?",
+        "type": "choice",
+        "options": [
+          "Silent ignore",
+          "Report 'Unknown Feature' class error",
+          "Automatic correction",
+          "As an annotation"
+        ],
+        "answer": 1,
+        "explain": "The parser will recognize unknown feature names and report an error, indicating a list of available features."
+      }
+    ]
+  },
+  "appendix": {
+    "title": "Appendix Self Test",
+    "items": [
+      {
+        "q": "What is the significant difference between SML and JSON?",
+        "type": "multi",
+        "options": [
+          "Quotation marks can be omitted",
+          "Commas can be omitted",
+          "The structure relies on {} instead of indentation",
+          "Root object name must be written"
+        ],
+        "answer": [
+          0,
+          1,
+          2
+        ],
+        "explain": "SML naked word quotation marks, spaces/line breaks separated by commas, delimited by curly braces; There is no need to strictly add quotation marks and commas like JSON."
+      },
+      {
+        "q": "Judgment: SML's contract system (@contract) does not have a direct equivalent in JSON Schema.",
+        "type": "bool",
+        "options": [
+          "Correct",
+          "Wrong"
+        ],
+        "answer": 0,
+        "explain": "SML builds the contract into the configuration language itself, while JSON requires an additional schema file, and the two are positioned differently."
+      },
+      {
+        "q": "When troubleshooting 'fields not yet effective', prioritize checking?",
+        "type": "choice",
+        "options": [
+          "Spelling/namespace/contract strict",
+          "graphics card driver",
+          "network bandwidth",
+          "Operating system version"
+        ],
+        "answer": 0,
+        "explain": "The ineffective configuration is often due to misspelling of field names, lack of namespace references, or discarding redundant fields in strict contracts."
+      }
+    ]
+  }
+}

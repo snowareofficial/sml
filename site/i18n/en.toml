@@ -1,0 +1,110 @@
+# English strings
+# Used by shortcodes (sml-playground / sml-challenge / sml-quiz)
+
+[pg_task]
+other = "✍ Hands-on exercise"
+
+[pg_hint]
+other = "💡 Hint: "
+
+[pg_files]
+other = "Virtual files (referenced by include)"
+
+[pg_run]
+other = "Run ▶"
+
+[pg_verify]
+other = "Verify ✓"
+
+[pg_reset]
+other = "Reset"
+
+[pg_parse_err]
+other = "✗ Parse error:\n"
+
+[pg_parse_ok]
+other = "✓ Parsed successfully:\n"
+
+[pg_status_err]
+other = "✗ Parse error"
+
+[pg_no_task]
+other = "(No verifiable task in this chapter)"
+
+[pg_pass]
+other = "✓ Passed"
+
+[pg_fail]
+other = "✗ Not passed"
+
+[pg_verify_ok]
+other = "✓ Verified!\n"
+
+[pg_verify_fail]
+other = "✗ Not quite right:\n"
+
+[pg_result]
+other = "Parsed result:"
+
+[err_line_col]
+other = "line"
+
+[err_col]
+other = "col"
+
+[ch_source]
+other = "Source material (to translate)"
+
+[ch_answer]
+other = "Your SML answer (editable)"
+
+[ch_placeholder]
+other = "Write the equivalent SML config here…"
+
+[ch_verify]
+other = "Verify ✓"
+
+[ch_clear]
+other = "Clear"
+
+[ch_hint]
+other = "💡 Hint: "
+
+[ch_parse_fail]
+other = "✗ Parse failed: "
+
+[ch_status_err]
+other = "✗ Parse error"
+
+[ch_no_verifier]
+other = "(No verifier function)"
+
+[ch_done]
+other = "✓ You translated the source material into equivalent SML 🎉"
+
+[ch_complete]
+other = "✓ Challenge complete"
+
+[ch_fail]
+other = "✗ Not passed"
+
+[ch_cur_result]
+other = "Current parsed result:"
+
+[quiz_title]
+other = "✍ Self-check quiz: "
+
+[quiz_score]
+other = "Score"
+
+[quiz_submit]
+other = "Submit"
+
+[quiz_reset]
+other = "Reset"
+
+[quiz_correct]
+other = "✓ Correct! "
+
+[quiz_wrong]
+other = "✗ Wrong. "

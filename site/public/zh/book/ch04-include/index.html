@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+
+<html lang="zh">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>第 4 章：include 与命名空间 · SML { ❄ } — SNOWARE Markup Language</title>
+  <style>
+    body { font-family: system-ui, "Microsoft YaHei", sans-serif; margin: 0; background: #fafafa; color: #111; }
+    header { background: #111; color: #fff; padding: 18px 32px; display: flex; align-items: center; gap: 12px; }
+    header h1 { margin: 0; font-size: 20px; }
+    header a { color: #fff; text-decoration: none; }
+    header .flake { color: #42A5F5; font-size: 22px; }
+    header .lang-switch { margin-left: auto; display: flex; gap: 6px; }
+    header .lang-switch a { color: #90caf9; font-size: 13px; padding: 4px 10px; border: 1px solid #333; border-radius: 6px; text-decoration: none; }
+    header .lang-switch a.active { background: #1565C0; color: #fff; border-color: #1565C0; }
+    nav { background: #1c1c1c; padding: 8px 32px; position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 4px 18px; }
+    nav a { color: #90caf9; text-decoration: none; font-size: 14px; }
+    nav a:hover { text-decoration: underline; }
+    nav .home { color: #fff; font-weight: 600; }
+    main { max-width: 880px; margin: 24px auto; padding: 0 24px; }
+     
+    h2 { scroll-margin-top: 56px; }
+    article { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 24px 32px; }
+    h1, h2, h3 { color: #0d47a1; }
+    h2 { border-bottom: 2px solid #42A5F5; padding-bottom: 6px; }
+    code { background: #eef4fb; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; color: #1565C0; }
+    pre { background: #111; color: #e8f1fb; padding: 12px; border-radius: 6px; overflow-x: auto; }
+    pre code { background: none; color: inherit; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background: #eef4fb; color: #0d47a1; }
+    .links { display: flex; gap: 12px; margin: 16px 0; }
+    .btn { display: inline-block; background: #1565C0; color: #fff; padding: 10px 22px; border-radius: 8px; text-decoration: none; font-weight: 600; }
+    .btn:hover { background: #0d47a1; }
+    footer { text-align: center; padding: 24px; color: #666; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="../../../sml.svg" alt="sml" style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))">
+    <h1><a href="../../../">SML { ❄ }</a></h1>
+    <span class="lang-switch">
+      
+        <a href="../../../" class="active">中文</a>
+      
+        <a href="../../../en/" class="">EN</a>
+      
+    </span>
+  </header>
+  <nav>
+    <a class="home" href="../../../">SML</a>
+    
+      <a href="../../../book/">教科书</a>
+      
+      <a href="#特性一览">特性一览</a>
+      <a href="#多语言实现对照">多语言实现对照</a>
+      <a href="#快速使用">快速使用</a>
+      <a href="#契约系统contract">契约系统</a>
+      <a href="#进阶特性">进阶特性</a>
+      <a href="#落地应用">落地应用</a>
+      <a href="#完整示例">完整示例</a>
+      <a href="#本地-playground">Playground</a>
+      
+    
+  </nav>
+  <main>
+    
+<article>
+  <h1>第 4 章：include 与命名空间</h1>
+  <h1 id="第-4-章include-与命名空间">第 4 章：include 与命名空间</h1>
+<p>当配置越来越长，你会想把不同部分拆到不同文件。SML 用 <code>include</code> 把多个文件拼成一个逻辑整体。</p>
+<blockquote>
+<p>设计哲学：<strong>从极简到丰富，功能可裁剪</strong>。基础 include 默认开启；复杂的多目标 / 通配 / 正则需 <code>@feature enable</code> 显式开启，避免重蹈 YAML 过度复杂。</p>
+</blockquote>
+<h2 id="41-基础内联include-文件">4.1 基础内联：<code>include &quot;文件&quot;</code></h2>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span># app<span style="color:#960050;background-color:#1e0010">.sml</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">include</span> <span style="color:#e6db74">&#34;common.sml&#34;</span>
+</span></span><span style="display:flex;"><span>app: myapp
+</span></span></code></pre></div><p><code>common.sml</code> 的内容会被<strong>原样贴进来</strong>，就像你手写在那一样。也可以出现在块内部（局部注入字段）：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>database {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">include</span> <span style="color:#e6db74">&#34;conf.d/db.sml&#34;</span>   # <span style="color:#960050;background-color:#1e0010">只给</span> database <span style="color:#960050;background-color:#1e0010">块注入字段</span>
+</span></span><span style="display:flex;"><span>    pool: <span style="color:#ae81ff">16</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>要点：</p>
+<ul>
+<li>相对路径按<strong>被包含文件自身目录</strong>解析（和 C 预处理器一致），嵌套包含也符合直觉。</li>
+<li>循环引用、文件缺失都会<strong>报错</strong>，不会静默跳过。</li>
+<li>嵌套层级上限 32 层。</li>
+</ul>
+<h2 id="42-命名空间把文件装进独立作用域">4.2 命名空间：把文件装进独立作用域</h2>
+<p>如果 <code>common.sml</code> 里有很多键，直接内联可能和主文件<strong>撞名</strong>。用 <code>as</code> 给它一个命名空间：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span><span style="color:#66d9ef">include</span> <span style="color:#e6db74">&#34;ui.sml&#34;</span> <span style="color:#66d9ef">as</span> ui
+</span></span><span style="display:flex;"><span># <span style="color:#960050;background-color:#1e0010">现在</span> ui.sml <span style="color:#960050;background-color:#1e0010">里的键都被收在</span> ui <span style="color:#960050;background-color:#1e0010">下面</span>
+</span></span><span style="display:flex;"><span>title: ui.title
+</span></span></code></pre></div><p><code>as ui</code> 等价于把 ui.sml 的内容包进 <code>ui { ... }</code> 块。</p>
+<h3 id="不带扩展名--默认命名空间">不带扩展名 = 默认命名空间</h3>
+<p><strong>干净规则</strong>：带扩展名 = 内联；不带扩展名 = 命名空间（名字取文件名）。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span><span style="color:#66d9ef">include</span> <span style="color:#e6db74">&#34;ui&#34;</span>          # <span style="color:#960050;background-color:#1e0010">等价于</span> <span style="color:#66d9ef">include</span> <span style="color:#e6db74">&#34;ui.sml&#34;</span> <span style="color:#66d9ef">as</span> ui
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">include</span> <span style="color:#e6db74">&#34;ui.sml&#34;</span>      # <span style="color:#960050;background-color:#1e0010">内联（带扩展名）</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">include</span> <span style="color:#e6db74">&#34;ui.sml&#34;</span> <span style="color:#66d9ef">as</span> ui.form.widgets   # <span style="color:#960050;background-color:#1e0010">显式指定，优先</span>
+</span></span></code></pre></div><h2 id="43-点分路径嵌套命名空间">4.3 点分路径（嵌套命名空间）</h2>
+<p><code>as</code> 后面支持 <code>a.b.c</code>，等价于 Rust 的模块路径：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span><span style="color:#66d9ef">include</span> <span style="color:#e6db74">&#34;widgets.sml&#34;</span> <span style="color:#66d9ef">as</span> ui.form.widgets
+</span></span></code></pre></div><p>展开后逻辑结构是 <code>ui { form { widgets { ... } } }</code>。用 <code>ui.form.widgets.Button</code> 这样的前缀去访问。</p>
+<h2 id="44-宏与契约也随命名空间隔离">4.4 宏与契约也随命名空间隔离</h2>
+<p>命名空间不止隔离数据，还隔离<strong>片段与契约定义</strong>。在被包含文件里定义的 <code>@contract</code> / <code>@name</code>，对外必须用 <code>ns.</code> 前缀引用：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span># widgets<span style="color:#960050;background-color:#1e0010">.sml</span> <span style="color:#960050;background-color:#1e0010">内部</span>
+</span></span><span style="display:flex;"><span>@contract Button { label: str }
+</span></span><span style="display:flex;"><span>@name primary = { label: <span style="color:#e6db74">&#34;OK&#34;</span> }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span># <span style="color:#960050;background-color:#1e0010">主文件引用时必须带前缀</span>
+</span></span><span style="display:flex;"><span>@is ui.form.widgets.Button
+</span></span><span style="display:flex;"><span>button: &amp;ui.form.widgets.primary
+</span></span></code></pre></div><blockquote>
+<p>文件<strong>内部</strong>对自身宏的自引用仍按本地名解析（不用前缀），只有<strong>对外暴露</strong>才需要 <code>ns.</code> 前缀。解析器按&quot;命名空间栈&quot;自动加前缀。</p>
+</blockquote>
+<h2 id="45-多目标与-import-别名">4.5 多目标与 <code>import</code> 别名</h2>
+<p>逗号分隔一次包含多个目标；<code>import</code> 是 <code>include</code> 的等价写法：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span><span style="color:#66d9ef">include</span> <span style="color:#e6db74">&#34;a.sml&#34;</span>, <span style="color:#e6db74">&#34;b.sml&#34;</span> <span style="color:#66d9ef">as</span> y, <span style="color:#e6db74">&#34;c&#34;</span>
+</span></span><span style="display:flex;"><span>import ui.buttons, admin.panel
+</span></span></code></pre></div><blockquote>
+<p>多目标 / <code>import</code> 别名属于&quot;丰富层&quot;，需 <code>@feature enable multi</code> 开启（见 4.7）。</p>
+</blockquote>
+<h2 id="46-冲突即报错不静默">4.6 冲突即报错（不静默）</h2>
+<p>命名空间是<strong>独占作用域</strong>，绝不静默覆盖：</p>
+<ul>
+<li>同一命名空间内重复定义同名契约 / 片段 → 报错。</li>
+<li>缺失文件 / 循环引用 / 超 32 层嵌套 → 报错。</li>
+</ul>
+<h2 id="47-feature-分层可裁剪">4.7 Feature 分层（可裁剪）</h2>
+<table>
+	<thead>
+			<tr>
+					<th>层</th>
+					<th>feature</th>
+					<th>能力</th>
+					<th>默认</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>0</td>
+					<td><code>include</code></td>
+					<td>基础 <code>include &quot;x.sml&quot;</code> 内联</td>
+					<td>开</td>
+			</tr>
+			<tr>
+					<td>1</td>
+					<td><code>namespace</code></td>
+					<td><code>as ns</code> + 点分路径 + 宏/契约隔离</td>
+					<td>开</td>
+			</tr>
+			<tr>
+					<td>1</td>
+					<td><code>implicit-ns</code></td>
+					<td>无扩展名 <code>include &quot;foo&quot;</code> ⇒ <code>as foo</code></td>
+					<td>开</td>
+			</tr>
+			<tr>
+					<td>2</td>
+					<td><code>multi</code></td>
+					<td>逗号多目标、<code>import</code> 别名</td>
+					<td>关</td>
+			</tr>
+			<tr>
+					<td>2</td>
+					<td><code>glob</code></td>
+					<td><code>*</code> 通配 <code>dir/*.sml</code></td>
+					<td>关</td>
+			</tr>
+			<tr>
+					<td>3</td>
+					<td><code>regex</code></td>
+					<td><code>re:</code> / <code>/.../</code> 正则匹配</td>
+					<td>关</td>
+			</tr>
+			<tr>
+					<td>3</td>
+					<td><code>ext-rewrite</code></td>
+					<td><code>-&gt; .sml</code> 把非 sml 文件当 sml 解析</td>
+					<td>关</td>
+			</tr>
+	</tbody>
+</table>
+<p>开启方式：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>@feature enable glob
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">include</span> <span style="color:#e6db74">&#34;widgets/*.sml&#34;</span>
+</span></span></code></pre></div><h2 id="48-零拷贝性能小贴士">4.8 零拷贝（性能小贴士）</h2>
+<p><code>include</code> 不会把文件内容深拷贝拼成大字符串。每个文件读入后只持有其切片，解析器消费一段&quot;切片流&quot;，遇到 <code>as a.b</code> 时插入零拷贝的开块 / 闭块字面量。文件内容只解析一次，内存 = 各文件切片之和。你无需关心，但知道它很高效就好。</p>
+<h2 id="49-动手试一试">4.9 动手试一试</h2>
+<ol>
+<li>建 <code>common.sml</code>，写 <code>@net { region: cn-north-1 timeout: 30 }</code>。</li>
+<li>建 <code>app.sml</code>：
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span><span style="color:#66d9ef">include</span> <span style="color:#e6db74">&#34;common.sml&#34;</span> <span style="color:#66d9ef">as</span> cfg
+</span></span><span style="display:flex;"><span>service {
+</span></span><span style="display:flex;"><span>    region: cfg.net.region
+</span></span><span style="display:flex;"><span>    name: gateway
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div></li>
+<li>解析 <code>app.sml</code>，确认 <code>service.region</code> 取到 <code>cn-north-1</code>。</li>
+</ol>
+<p>→ <a href="../../../book/ch05-contract">第 5 章：契约系统</a></p>
+<h2 id="动手练习">动手练习</h2>
+<p>读完本章，在下面的编辑器里<strong>直接修改 SML 并点“运行”</strong>，立刻看到解析结果或校验错误——有输出才能高效学习。</p>
+
+
+
+
+<div class="sml-pg" data-lesson="ch04">
+  
+  <div class="sml-pg-task">
+    <span class="sml-pg-task-tag">✍ 动手练习</span>
+    <span class="sml-pg-task-text">include "ui" as ui，其中 ui.sml 有 title 与 powered。主文件通过 <b>ui.title</b> / <b>ui.powered</b> 访问。</span>
+    <div class="sml-pg-hint">💡 提示：增加一个 second.sml 文件并在主文件里 include &#34;second&#34; as s，访问 s.xxx。</div>
+  </div>
+  
+  
+  <details class="sml-pg-files">
+    <summary>虚拟文件（可在 include 中引用）</summary>
+    
+    <div class="sml-pg-file"><div class="sml-pg-file-name">ui.sml</div><pre>title: &#34;My App&#34;
+powered: Snoware</pre></div>
+    
+  </details>
+  
+  <div class="sml-pg-main">
+    <textarea class="sml-pg-code" spellcheck="false" data-files='{&#34;ui.sml&#34;:&#34;title: \&#34;My App\&#34;\npowered: Snoware&#34;}'>include &#34;ui&#34; as ui
+title: ui.title
+powered: ui.powered</textarea>
+  </div>
+  <div class="sml-pg-actions">
+    <button class="sml-pg-run" type="button">运行 ▶</button>
+    <button class="sml-pg-verify" type="button">验证 ✓</button>
+    <button class="sml-pg-reset" type="button">重置</button>
+    <span class="sml-pg-status"></span>
+  </div>
+  <pre class="sml-pg-out" hidden></pre>
+</div>
+
+<script type="module">
+  import { parseSafe } from "/sml.mjs";
+  import { VERIFIERS } from "/sml-verify.js";
+  document.querySelectorAll('.sml-pg[data-lesson="ch04"]').forEach((box) => {
+    const ta = box.querySelector(".sml-pg-code");
+    const out = box.querySelector(".sml-pg-out");
+    const status = box.querySelector(".sml-pg-status");
+    const runBtn = box.querySelector(".sml-pg-run");
+    const verifyBtn = box.querySelector(".sml-pg-verify");
+    const resetBtn = box.querySelector(".sml-pg-reset");
+    const init = ta.value;
+
+    function setStatus(txt, cls) { status.textContent = txt; status.className = "sml-pg-status " + (cls || ""); }
+    function parse() {
+      const src = ta.value;
+      let files = {};
+      try { files = JSON.parse(ta.dataset.files || "{}"); } catch (e) {}
+      const r = parseSafe(src, { files });
+      if (!r.ok) {
+        out.hidden = false;
+        out.className = "sml-pg-out err";
+        let msg = r.error; if (r.position) msg += ` (行 ${r.position.line + 1}, 列 ${r.position.col + 1})`;
+        out.textContent = "✗ 解析错误：\n" + msg;
+        return null;
+      }
+      out.hidden = false; out.className = "sml-pg-out ok";
+      out.textContent = "✓ 解析成功：\n" + JSON.stringify(r.value, null, 2);
+      return r.value;
+    }
+    function run() { setStatus("", ""); parse(); }
+    function reset() { ta.value = init; out.hidden = true; setStatus("", ""); }
+
+    runBtn.addEventListener("click", run);
+    resetBtn.addEventListener("click", reset);
+    if (verifyBtn) verifyBtn.addEventListener("click", () => {
+      const v = parse();
+      if (v === null) { setStatus("✗ 解析错误", "bad"); return; }
+      const fn = VERIFIERS["ch04"];
+      if (!fn) { setStatus("（本章暂无可验证任务）", ""); return; }
+      const res = fn(v);
+      setStatus(res.ok ? "✓ 通过" : "✗ 未通过", res.ok ? "good" : "bad");
+      out.hidden = false;
+      out.className = "sml-pg-out " + (res.ok ? "ok" : "err");
+      let base = res.ok ? "✓ 验证通过！\n" : "✗ 还没对：\n";
+      out.textContent = base + res.msg + "\n\n解析结果：\n" + JSON.stringify(v, null, 2);
+    });
+    ta.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") run(); });
+  });
+</script>
+
+<style>
+  .sml-pg { border: 1px solid #d0d7de; border-radius: 10px; margin: 16px 0; overflow: hidden; background: #ffffff; }
+  .sml-pg-task { background: #eef4ff; border-bottom: 1px solid #d0d7de; padding: 10px 12px; font-size: 13px; color: #1a2b4a; line-height: 1.6; }
+  .sml-pg-task-tag { display: inline-block; background: #1565C0; color: #fff; border-radius: 4px; padding: 1px 7px; font-size: 11px; font-weight: 700; margin-right: 6px; }
+  .sml-pg-hint { margin-top: 6px; font-size: 12px; color: #555; }
+  .sml-pg-files { font-size: 12px; background: #f6f8fa; border-bottom: 1px solid #eaecef; }
+  .sml-pg-files summary { padding: 6px 12px; cursor: pointer; color: #57606a; }
+  .sml-pg-file { padding: 0 12px 8px; }
+  .sml-pg-file-name { font-weight: 700; color: #0d47a1; }
+  .sml-pg-file pre { background: #fff; border: 1px solid #e1e4e8; border-radius: 4px; padding: 6px 8px; margin: 4px 0 0; white-space: pre-wrap; }
+  .sml-pg-main { display: flex; }
+  .sml-pg-code { flex: 1; min-height: 200px; border: 0; padding: 10px 12px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12.5px; line-height: 1.5; background: #ffffff; color: #111; resize: vertical; white-space: pre; tab-size: 2; }
+  .sml-pg-code:focus { outline: 2px solid #1565C0; outline-offset: -2px; }
+  .sml-pg-actions { padding: 8px 12px; display: flex; gap: 8px; align-items: center; background: #f6f8fa; border-top: 1px solid #eaecef; }
+  .sml-pg-actions button { background: #1565C0; color: #fff; border: 0; padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .sml-pg-actions button.sml-pg-reset { background: #6c757d; }
+  .sml-pg-actions button:hover { filter: brightness(1.08); }
+  .sml-pg-status { font-size: 12px; margin-left: 4px; }
+  .sml-pg-status.good { color: #2e7d32; }
+  .sml-pg-status.bad { color: #c62828; }
+  .sml-pg-out { margin: 0; padding: 10px 12px; font-size: 12px; white-space: pre-wrap; max-height: 320px; overflow: auto; border-top: 1px solid #eaecef; }
+  .sml-pg-out.ok { background: #e8f5e9; color: #1b5e20; }
+  .sml-pg-out.err { background: #fdecea; color: #b71c1c; }
+</style>
+
+
+
+
+<div class="sml-qz" data-quiz="ch04">
+  <div class="sml-qz-bar">
+    <span class="sml-qz-title">✍ 自测考题：第 4 章自测：include 与命名空间</span>
+    <span class="sml-qz-score">得分 0 / 4</span>
+    <button class="sml-qz-check" type="button">交卷判分</button>
+    <button class="sml-qz-reset" type="button">重置</button>
+  </div>
+  <div class="sml-qz-body">
+    
+    <div class="sml-qz-item" data-idx="0" data-type="choice" data-answer="1">
+      <div class="sml-qz-q"><span class="sml-qz-no">Q1.</span> include &#34;ui&#34; as ui 的作用是什么？</div>
+      <div class="sml-qz-opts">
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch04-0" value="0">
+          <span>把 ui.sml 内容并入根</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch04-0" value="1">
+          <span>把 ui.sml 装入 ui 命名空间</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch04-0" value="2">
+          <span>重命名文件</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch04-0" value="3">
+          <span>删除文件</span>
+        </label>
+        
+      </div>
+      <div class="sml-qz-explain" hidden>as ui 把被 include 的文件解析结果挂到 ui 命名空间下，用 ui.title 访问，避免命名冲突。</div>
+      <div class="sml-qz-fb" hidden></div>
+    </div>
+    
+    <div class="sml-qz-item" data-idx="1" data-type="choice" data-answer="1">
+      <div class="sml-qz-q"><span class="sml-qz-no">Q2.</span> 主文件写 title: ui.title，ui 来自哪里？</div>
+      <div class="sml-qz-opts">
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch04-1" value="0">
+          <span>当前文件定义的变量</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch04-1" value="1">
+          <span>前面 include 进来的命名空间</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch04-1" value="2">
+          <span>内置常量</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch04-1" value="3">
+          <span>环境变量</span>
+        </label>
+        
+      </div>
+      <div class="sml-qz-explain" hidden>ui.title 引用的是 include &#34;ui&#34; as ui 装入的命名空间里的 title 字段。</div>
+      <div class="sml-qz-fb" hidden></div>
+    </div>
+    
+    <div class="sml-qz-item" data-idx="2" data-type="bool" data-answer="0">
+      <div class="sml-qz-q"><span class="sml-qz-no">Q3.</span> 判断：include 可以引入多个文件，每个都能用 as 起不同命名空间。</div>
+      <div class="sml-qz-opts">
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch04-2" value="0">
+          <span>对</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch04-2" value="1">
+          <span>错</span>
+        </label>
+        
+      </div>
+      <div class="sml-qz-explain" hidden>可以 include &#34;a&#34; as a、include &#34;b&#34; as b 多次，各自隔离，互不污染根命名空间。</div>
+      <div class="sml-qz-fb" hidden></div>
+    </div>
+    
+    <div class="sml-qz-item" data-idx="3" data-type="choice" data-answer="1">
+      <div class="sml-qz-q"><span class="sml-qz-no">Q4.</span> glob 写法 include &#34;modules/*.sml&#34; as m 会？</div>
+      <div class="sml-qz-opts">
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch04-3" value="0">
+          <span>只包含一个文件</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch04-3" value="1">
+          <span>把匹配的所有文件装入 m 命名空间</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch04-3" value="2">
+          <span>报错</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-ch04-3" value="3">
+          <span>递归子目录</span>
+        </label>
+        
+      </div>
+      <div class="sml-qz-explain" hidden>启用 glob feature 后，*.sml 匹配到的所有文件会被批量装入 m 命名空间。</div>
+      <div class="sml-qz-fb" hidden></div>
+    </div>
+    
+  </div>
+</div>
+
+<script type="module">
+  document.querySelectorAll('.sml-qz[data-quiz="ch04"]').forEach((box) => {
+    const scoreEl = box.querySelector(".sml-qz-score");
+    const checkBtn = box.querySelector(".sml-qz-check");
+    const resetBtn = box.querySelector(".sml-qz-reset");
+
+    function normAnswer(raw, type) {
+      const a = (typeof raw === "string") ? JSON.parse(raw) : raw;
+      if (type === "multi") return Array.isArray(a) ? a.slice().sort((x,y)=>x-y) : [];
+      if (type === "bool") return [a];
+      return [a];
+    }
+    function selected(item) {
+      const type = item.dataset.type;
+      const inputs = item.querySelectorAll("input");
+      const sel = [];
+      inputs.forEach(inp => { if (inp.checked) sel.push(parseInt(inp.value, 10)); });
+      return type === "multi" ? sel.slice().sort((x,y)=>x-y) : sel.slice(0,1);
+    }
+    function arrEq(a, b) { return a.length === b.length && a.every((v,i)=>v===b[i]); }
+
+    function check() {
+      let score = 0;
+      box.querySelectorAll(".sml-qz-item").forEach((item) => {
+        const type = item.dataset.type;
+        const ans = normAnswer(item.dataset.answer, type);
+        const got = selected(item);
+        const fb = item.querySelector(".sml-qz-fb");
+        const correct = arrEq(got, ans);
+        if (correct) score++;
+        item.querySelectorAll("input").forEach(i => i.disabled = true);
+        const expl = item.querySelector(".sml-qz-explain");
+        fb.hidden = false;
+        fb.className = "sml-qz-fb " + (correct ? "ok" : "bad");
+        fb.innerHTML = (correct ? "✓ 答对！ " : "✗ 答错。 ") +
+          (expl ? expl.textContent : "");
+      });
+      scoreEl.textContent = "得分 " + score + " / " + box.querySelectorAll(".sml-qz-item").length;
+      checkBtn.disabled = true;
+    }
+    function reset() {
+      box.querySelectorAll(".sml-qz-item").forEach((item) => {
+        item.querySelectorAll("input").forEach(i => { i.checked = false; i.disabled = false; });
+        const fb = item.querySelector(".sml-qz-fb");
+        fb.hidden = true; fb.className = "sml-qz-fb"; fb.textContent = "";
+      });
+      scoreEl.textContent = "得分 0 / " + box.querySelectorAll(".sml-qz-item").length;
+      checkBtn.disabled = false;
+    }
+    checkBtn.addEventListener("click", check);
+    resetBtn.addEventListener("click", reset);
+  });
+</script>
+
+<style>
+  .sml-qz { border: 1px solid #30363d; border-radius: 10px; margin: 18px 0; overflow: hidden; background: #0d1117; }
+  .sml-qz-bar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #161b22; border-bottom: 1px solid #30363d; }
+  .sml-qz-title { font-size: 13px; color: #e6edf3; font-weight: 600; }
+  .sml-qz-score { font-size: 12px; color: #8b949e; }
+  .sml-qz-bar button { background: #1f6feb; color: #fff; border: 0; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .sml-qz-bar button.sml-qz-reset { background: #30363d; }
+  .sml-qz-bar button:hover { filter: brightness(1.1); }
+  .sml-qz-bar button:disabled { opacity: .5; cursor: default; }
+  .sml-qz-body { padding: 6px 14px 12px; }
+  .sml-qz-item { padding: 12px 0; border-bottom: 1px solid #21262d; }
+  .sml-qz-item:last-child { border-bottom: 0; }
+  .sml-qz-q { font-size: 13.5px; color: #e6edf3; margin-bottom: 8px; }
+  .sml-qz-no { color: #58a6ff; font-weight: 700; margin-right: 4px; }
+  .sml-qz-opt { display: block; font-size: 13px; color: #c9d1d9; padding: 4px 0; cursor: pointer; }
+  .sml-qz-opt input { margin-right: 8px; vertical-align: middle; }
+  .sml-qz-fb { font-size: 12px; margin-top: 6px; padding: 6px 10px; border-radius: 6px; }
+  .sml-qz-fb.ok { background: rgba(63,185,80,.12); color: #3fb950; }
+  .sml-qz-fb.bad { background: rgba(248,81,73,.12); color: #f85149; }
+</style>
+
+
+</article>
+
+  </main>
+  <footer>SML · SNOWARE Markup Language · { ❄ }</footer>
+</body>
+</html>
