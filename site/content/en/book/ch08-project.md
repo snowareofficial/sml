@@ -96,7 +96,7 @@ When writing SML configuration, think in this order:
 
 -Do you want to read the complete design specifications? List of features of [Site homepage](../).
 
-Congratulations on reading this textbook! Now you can use SML to write production level configurations. → [Chapter 9: Advanced](/en/book/ch09 advanced)
+Congratulations on reading this textbook! Now you can use SML to write production level configurations. → [Chapter 9: Advanced](/en/book/ch09-advanced)
 
 ## Hands on practice
 

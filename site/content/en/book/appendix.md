@@ -36,26 +36,26 @@ This appendix compares SML with common formats and lists the most common errors 
 ## A.3 Grammar Quick Check
 
 ```
-键值：      key: value
-裸词串：    state: NY
-引号串：    name: "John Doe"
-整数：      age: 27
-浮点：      ratio: 0.75
-布尔：      on: true
-空值：      x: null
-对象块：    a { b: 1 }    ≡   a: { b: 1 }
-数组：      list: [ a b c ]
-行注释：    #  --  //
-块注释：    /* ... */     _* ... *_
-片段定义：  @name { ... }
-片段引用：  key: &name
-契约定义：  @contract Name loose { field: type ... }
-契约应用：  @is Name
-include：   include "x.sml"        （内联）
-            include "ui" as ui     （命名空间）
+Key-Value:key: value
+Naked word string:state: NY
+Quotation string:name: "John Doe"
+integer:age: 27
+floating point:ratio: 0.75
+Boolean:on: true
+null value:x: null
+Object Block:a { b: 1 }    ≡   a: { b: 1 }
+array:list: [ a b c ]
+Line comments:#  --  //
+Block annotation:/* ... */     _* ... *_
+Fragment definition:@name { ... }
+Fragment reference:key: &name
+Contract Definition:@contract Name loose { field: type ... }
+Contract application:@is Name
+include：   include "x.sml"        (inline)
+            include "ui" as ui     (namespace)
             include "a", "b" as y  （多目标，需 feature）
-环境变量：  secret: $env.API_KEY
-转义：      "line1\nline2 \u{2744}"
+environment variable:secret: $env.API_KEY
+escape:"line1\nline2 \u{2744}"
 ```
 
 ## A.4 version and features
