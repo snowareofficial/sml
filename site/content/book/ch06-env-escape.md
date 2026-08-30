@@ -64,4 +64,13 @@ path: "C:\\Program Files\\app"
    greeting: "你好 \u{1F44B}"
    ```
 
-→ [第 7 章：多语言使用](./ch07-languages)
+→ [第 7 章：多语言使用](/book/ch07-languages)
+
+## 动手练习
+
+读完本章，在下面的编辑器里**直接修改 SML 并点“运行”**，立刻看到解析结果或校验错误——有输出才能高效学习。
+
+{{< sml-playground "ch06" >}}
+
+{{< sml-quiz "ch06" >}}
+

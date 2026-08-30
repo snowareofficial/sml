@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>序章：为什么是 SML · SML { ❄ } — SNOWARE Markup Language</title>
+  <style>
+    body { font-family: system-ui, "Microsoft YaHei", sans-serif; margin: 0; background: #fafafa; color: #111; }
+    header { background: #111; color: #fff; padding: 18px 32px; display: flex; align-items: center; gap: 12px; }
+    header h1 { margin: 0; font-size: 20px; }
+    header a { color: #fff; text-decoration: none; }
+    header .flake { color: #42A5F5; font-size: 22px; }
+    nav { background: #1c1c1c; padding: 8px 32px; position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 4px 18px; }
+    nav a { color: #90caf9; text-decoration: none; font-size: 14px; }
+    nav a:hover { text-decoration: underline; }
+    nav .home { color: #fff; font-weight: 600; }
+    main { max-width: 880px; margin: 24px auto; padding: 0 24px; }
+     
+    h2 { scroll-margin-top: 56px; }
+    article { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 24px 32px; }
+    h1, h2, h3 { color: #0d47a1; }
+    h2 { border-bottom: 2px solid #42A5F5; padding-bottom: 6px; }
+    code { background: #eef4fb; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; color: #1565C0; }
+    pre { background: #111; color: #e8f1fb; padding: 12px; border-radius: 6px; overflow-x: auto; }
+    pre code { background: none; color: inherit; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background: #eef4fb; color: #0d47a1; }
+    .links { display: flex; gap: 12px; margin: 16px 0; }
+    .btn { display: inline-block; background: #1565C0; color: #fff; padding: 10px 22px; border-radius: 8px; text-decoration: none; font-weight: 600; }
+    .btn:hover { background: #0d47a1; }
+    footer { text-align: center; padding: 24px; color: #666; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="../../sml.svg" alt="sml" style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))">
+    <h1><a href="../../">SML { ❄ }</a></h1>
+  </header>
+  <nav>
+    <a class="home" href="../../">SML</a>
+    
+      <a href="../../book/">教科书</a>
+      <a href="../../book/intro">序章</a>
+      <a href="../../book/ch01-basics">1.基础</a>
+      <a href="../../book/ch02-blocks">2.块</a>
+      <a href="../../book/ch03-fragments">3.片段</a>
+      <a href="../../book/ch04-include">4.include</a>
+      <a href="../../book/ch05-contract">5.契约</a>
+      <a href="../../book/ch06-env-escape">6.环境</a>
+      <a href="../../book/ch07-languages">7.语言</a>
+      <a href="../../book/ch08-project">8.实战</a>
+      <a href="../../book/ch09-advanced">9.组合</a>
+      <a href="../../book/ch10-features">10.feature</a>
+      <a href="../../book/ch11-challenges">11.挑战</a>
+      <a href="../../book/appendix">附录</a>
+    
+  </nav>
+  <main>
+    
+<article>
+  <h1>序章：为什么是 SML</h1>
+  <h1 id="序章为什么是-sml">序章：为什么是 SML</h1>
+<p>在你动手写第一行 SML 之前，先回答一个问题：<strong>为什么又一种配置格式？</strong></p>
+<p>JSON、YAML、TOML 都很好用，但它们各有让人皱眉的地方：</p>
+<table>
+	<thead>
+			<tr>
+					<th>格式</th>
+					<th>痛点</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>JSON</td>
+					<td>引号、逗号、花括号一个都不能少；写配置很啰嗦</td>
+			</tr>
+			<tr>
+					<td>YAML</td>
+					<td>缩进敏感，一个空格错位就炸；<code>no</code> 会被当成 <code>false</code> 吓你一跳</td>
+			</tr>
+			<tr>
+					<td>TOML</td>
+					<td>嵌套一深就要写很多 <code>[table.sub]</code> 头，块结构不直观</td>
+			</tr>
+	</tbody>
+</table>
+<h2 id="sml-的设计目标">SML 的设计目标</h2>
+<p>SML 想做**&ldquo;像写便签一样写配置&rdquo;**：</p>
+<ol>
+<li><strong>少仪式感</strong>——引号可选、逗号可选、块冒号可省。</li>
+<li><strong>结构靠花括号</strong>——不靠缩进，复制粘贴不会出现诡异错误。</li>
+<li><strong>可读优先</strong>——让人一眼看懂，也让 diff / review 更轻松。</li>
+<li><strong>可裁剪</strong>——基础能力极简，复杂能力（通配 include、正则等）按需开启，不重蹈 YAML 过度复杂的覆辙。</li>
+<li><strong>契约内建</strong>——不只是&quot;存数据&quot;，还能定义&quot;数据应该长什么样&quot;并在解析期校验。</li>
+</ol>
+<h2 id="一个最小对比">一个最小对比</h2>
+<p>同样一份配置，三种写法：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-json" data-lang="json"><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">&#34;name&#34;</span>: <span style="color:#e6db74">&#34;gateway&#34;</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">&#34;port&#34;</span>: <span style="color:#ae81ff">8080</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">&#34;debug&#34;</span>: <span style="color:#66d9ef">true</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">&#34;tags&#34;</span>: [<span style="color:#e6db74">&#34;logging&#34;</span>, <span style="color:#e6db74">&#34;metrics&#34;</span>]
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-yaml" data-lang="yaml"><span style="display:flex;"><span><span style="color:#f92672">name</span>: <span style="color:#ae81ff">gateway</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">port</span>: <span style="color:#ae81ff">8080</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">debug</span>: <span style="color:#66d9ef">true</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">tags</span>:
+</span></span><span style="display:flex;"><span>  - <span style="color:#ae81ff">logging</span>
+</span></span><span style="display:flex;"><span>  - <span style="color:#ae81ff">metrics</span>
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>name: gateway
+</span></span><span style="display:flex;"><span>port: <span style="color:#ae81ff">8080</span>
+</span></span><span style="display:flex;"><span>debug: true
+</span></span><span style="display:flex;"><span>tags: [ logging metrics ]
+</span></span></code></pre></div><p>SML 版本几乎没有&quot;标点噪音&quot;——没有引号、没有逗号、没有缩进陷阱。这就是它的核心气质。</p>
+<h2 id="它不适合什么">它不适合什么</h2>
+<p>SML 是<strong>数据 / 配置格式</strong>，不是编程语言：</p>
+<ul>
+<li>不能写 <code>if</code> / <code>for</code>、不能定义函数、不能算 <code>1+1</code>。</li>
+<li>需要逻辑时，用宿主语言（Rust / JS / Lua …）读 SML、在代码里处理。</li>
+</ul>
+<blockquote>
+<p>记住一句话：<strong>SML 负责&quot;描述是什么&quot;，代码负责&quot;怎么做&quot;。</strong></p>
+</blockquote>
+<p>下一章，我们写出第一个真正的 SML 文件。→ <a href="../../book/ch01-basics">第 1 章</a></p>
+<h2 id="动手练习">动手练习</h2>
+<p>读完本章，在下面的编辑器里<strong>直接修改 SML 并点“运行”</strong>，立刻看到解析结果或校验错误——有输出才能高效学习。</p>
+
+
+
+
+<div class="sml-pg" data-lesson="intro">
+  
+  <div class="sml-pg-task">
+    <span class="sml-pg-task-tag">✍ 动手练习</span>
+    <span class="sml-pg-task-text">写出一个 SML 配置：包含 <b>name</b>（字符串 gateway）、<b>port</b>（整数 8080）、<b>debug</b>（布尔 true）、<b>tags</b>（数组含 logging 与 metrics）。写完点「验证」，再看解析结果。</span>
+    <div class="sml-pg-hint">💡 提示：试着把 port 改成 &#34;8080&#34;（加引号），验证会告诉你它不是整数 8080。</div>
+  </div>
+  
+  
+  <div class="sml-pg-main">
+    <textarea class="sml-pg-code" spellcheck="false" data-files='null'>name: gateway
+port: 8080
+debug: true
+tags: [ logging metrics ]</textarea>
+  </div>
+  <div class="sml-pg-actions">
+    <button class="sml-pg-run" type="button">运行 ▶</button>
+    <button class="sml-pg-verify" type="button">验证 ✓</button>
+    <button class="sml-pg-reset" type="button">重置</button>
+    <span class="sml-pg-status"></span>
+  </div>
+  <pre class="sml-pg-out" hidden></pre>
+</div>
+
+<script type="module">
+  import { parseSafe } from "/sml.mjs";
+  import { VERIFIERS } from "/sml-verify.js";
+  document.querySelectorAll('.sml-pg[data-lesson="intro"]').forEach((box) => {
+    const ta = box.querySelector(".sml-pg-code");
+    const out = box.querySelector(".sml-pg-out");
+    const status = box.querySelector(".sml-pg-status");
+    const runBtn = box.querySelector(".sml-pg-run");
+    const verifyBtn = box.querySelector(".sml-pg-verify");
+    const resetBtn = box.querySelector(".sml-pg-reset");
+    const init = ta.value;
+
+    function setStatus(txt, cls) { status.textContent = txt; status.className = "sml-pg-status " + (cls || ""); }
+    function parse() {
+      const src = ta.value;
+      let files = {};
+      try { files = JSON.parse(ta.dataset.files || "{}"); } catch (e) {}
+      const r = parseSafe(src, { files });
+      if (!r.ok) {
+        out.hidden = false;
+        out.className = "sml-pg-out err";
+        let msg = r.error; if (r.position) msg += ` (行 ${r.position.line + 1}, 列 ${r.position.col + 1})`;
+        out.textContent = "✗ 解析错误：\n" + msg;
+        return null;
+      }
+      out.hidden = false; out.className = "sml-pg-out ok";
+      out.textContent = "✓ 解析成功：\n" + JSON.stringify(r.value, null, 2);
+      return r.value;
+    }
+    function run() { setStatus("", ""); parse(); }
+    function reset() { ta.value = init; out.hidden = true; setStatus("", ""); }
+
+    runBtn.addEventListener("click", run);
+    resetBtn.addEventListener("click", reset);
+    if (verifyBtn) verifyBtn.addEventListener("click", () => {
+      const v = parse();
+      if (v === null) { setStatus("✗ 解析错误", "bad"); return; }
+      const fn = VERIFIERS["intro"];
+      if (!fn) { setStatus("（本章暂无可验证任务）", ""); return; }
+      const res = fn(v);
+      setStatus(res.ok ? "✓ 通过" : "✗ 未通过", res.ok ? "good" : "bad");
+      out.hidden = false;
+      out.className = "sml-pg-out " + (res.ok ? "ok" : "err");
+      let base = res.ok ? "✓ 验证通过！\n" : "✗ 还没对：\n";
+      out.textContent = base + res.msg + "\n\n解析结果：\n" + JSON.stringify(v, null, 2);
+    });
+    ta.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") run(); });
+  });
+</script>
+
+<style>
+  .sml-pg { border: 1px solid #d0d7de; border-radius: 10px; margin: 16px 0; overflow: hidden; background: #ffffff; }
+  .sml-pg-task { background: #eef4ff; border-bottom: 1px solid #d0d7de; padding: 10px 12px; font-size: 13px; color: #1a2b4a; line-height: 1.6; }
+  .sml-pg-task-tag { display: inline-block; background: #1565C0; color: #fff; border-radius: 4px; padding: 1px 7px; font-size: 11px; font-weight: 700; margin-right: 6px; }
+  .sml-pg-hint { margin-top: 6px; font-size: 12px; color: #555; }
+  .sml-pg-files { font-size: 12px; background: #f6f8fa; border-bottom: 1px solid #eaecef; }
+  .sml-pg-files summary { padding: 6px 12px; cursor: pointer; color: #57606a; }
+  .sml-pg-file { padding: 0 12px 8px; }
+  .sml-pg-file-name { font-weight: 700; color: #0d47a1; }
+  .sml-pg-file pre { background: #fff; border: 1px solid #e1e4e8; border-radius: 4px; padding: 6px 8px; margin: 4px 0 0; white-space: pre-wrap; }
+  .sml-pg-main { display: flex; }
+  .sml-pg-code { flex: 1; min-height: 200px; border: 0; padding: 10px 12px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12.5px; line-height: 1.5; background: #ffffff; color: #111; resize: vertical; white-space: pre; tab-size: 2; }
+  .sml-pg-code:focus { outline: 2px solid #1565C0; outline-offset: -2px; }
+  .sml-pg-actions { padding: 8px 12px; display: flex; gap: 8px; align-items: center; background: #f6f8fa; border-top: 1px solid #eaecef; }
+  .sml-pg-actions button { background: #1565C0; color: #fff; border: 0; padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .sml-pg-actions button.sml-pg-reset { background: #6c757d; }
+  .sml-pg-actions button:hover { filter: brightness(1.08); }
+  .sml-pg-status { font-size: 12px; margin-left: 4px; }
+  .sml-pg-status.good { color: #2e7d32; }
+  .sml-pg-status.bad { color: #c62828; }
+  .sml-pg-out { margin: 0; padding: 10px 12px; font-size: 12px; white-space: pre-wrap; max-height: 320px; overflow: auto; border-top: 1px solid #eaecef; }
+  .sml-pg-out.ok { background: #e8f5e9; color: #1b5e20; }
+  .sml-pg-out.err { background: #fdecea; color: #b71c1c; }
+</style>
+
+
+
+
+<div class="sml-qz" data-quiz="intro">
+  <div class="sml-qz-bar">
+    <span class="sml-qz-title">✍ 自测考题：序章自测</span>
+    <span class="sml-qz-score">得分 0 / 3</span>
+    <button class="sml-qz-check" type="button">交卷判分</button>
+    <button class="sml-qz-reset" type="button">重置</button>
+  </div>
+  <div class="sml-qz-body">
+    
+    <div class="sml-qz-item" data-idx="0" data-type="choice" data-answer="1">
+      <div class="sml-qz-q"><span class="sml-qz-no">Q1.</span> SML 最像下面哪种“气质”？</div>
+      <div class="sml-qz-opts">
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-intro-0" value="0">
+          <span>严格缩进的 Python</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-intro-0" value="1">
+          <span>可省引号/逗号的声明式便签</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-intro-0" value="2">
+          <span>编译型强类型语言</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-intro-0" value="3">
+          <span>二进制序列化格式</span>
+        </label>
+        
+      </div>
+      <div class="sml-qz-explain" hidden>SML 是声明式数据/配置格式，引号、逗号都可省略，结构靠 {} 定界，像写便签。</div>
+      <div class="sml-qz-fb" hidden></div>
+    </div>
+    
+    <div class="sml-qz-item" data-idx="1" data-type="bool" data-answer="1">
+      <div class="sml-qz-q"><span class="sml-qz-no">Q2.</span> 下面哪句话是对的？</div>
+      <div class="sml-qz-opts">
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-intro-1" value="0">
+          <span>SML 必须写成严格的 JSON 树</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="radio" name="qz-intro-1" value="1">
+          <span>SML 解析结果是语言无关的键值树</span>
+        </label>
+        
+      </div>
+      <div class="sml-qz-explain" hidden>SML 的解析结果（键值树）在 Rust/C/JS/Lua 里是同构的，这正是它跨语言友好的原因。</div>
+      <div class="sml-qz-fb" hidden></div>
+    </div>
+    
+    <div class="sml-qz-item" data-idx="2" data-type="multi" data-answer="[0,1,2,3]">
+      <div class="sml-qz-q"><span class="sml-qz-no">Q3.</span> 在 SML 里，下面哪个符号可以写注释？</div>
+      <div class="sml-qz-opts">
+        
+        <label class="sml-qz-opt">
+          <input type="checkbox" name="qz-intro-2" value="0">
+          <span>#</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="checkbox" name="qz-intro-2" value="1">
+          <span>--</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="checkbox" name="qz-intro-2" value="2">
+          <span>//</span>
+        </label>
+        
+        <label class="sml-qz-opt">
+          <input type="checkbox" name="qz-intro-2" value="3">
+          <span>/* */</span>
+        </label>
+        
+      </div>
+      <div class="sml-qz-explain" hidden>SML 支持 #、--、// 三种行注释（到行尾），以及 /* … */ 块注释（跨行）；还有 _* … *_ 作为备用块注释风格。</div>
+      <div class="sml-qz-fb" hidden></div>
+    </div>
+    
+  </div>
+</div>
+
+<script type="module">
+  document.querySelectorAll('.sml-qz[data-quiz="intro"]').forEach((box) => {
+    const scoreEl = box.querySelector(".sml-qz-score");
+    const checkBtn = box.querySelector(".sml-qz-check");
+    const resetBtn = box.querySelector(".sml-qz-reset");
+
+    function normAnswer(raw, type) {
+      const a = (typeof raw === "string") ? JSON.parse(raw) : raw;
+      if (type === "multi") return Array.isArray(a) ? a.slice().sort((x,y)=>x-y) : [];
+      if (type === "bool") return [a];
+      return [a];
+    }
+    function selected(item) {
+      const type = item.dataset.type;
+      const inputs = item.querySelectorAll("input");
+      const sel = [];
+      inputs.forEach(inp => { if (inp.checked) sel.push(parseInt(inp.value, 10)); });
+      return type === "multi" ? sel.slice().sort((x,y)=>x-y) : sel.slice(0,1);
+    }
+    function arrEq(a, b) { return a.length === b.length && a.every((v,i)=>v===b[i]); }
+
+    function check() {
+      let score = 0;
+      box.querySelectorAll(".sml-qz-item").forEach((item) => {
+        const type = item.dataset.type;
+        const ans = normAnswer(item.dataset.answer, type);
+        const got = selected(item);
+        const fb = item.querySelector(".sml-qz-fb");
+        const correct = arrEq(got, ans);
+        if (correct) score++;
+        item.querySelectorAll("input").forEach(i => i.disabled = true);
+        const expl = item.querySelector(".sml-qz-explain");
+        fb.hidden = false;
+        fb.className = "sml-qz-fb " + (correct ? "ok" : "bad");
+        fb.innerHTML = (correct ? "✓ 答对！ " : "✗ 答错。 ") +
+          (expl ? expl.textContent : "");
+      });
+      scoreEl.textContent = "得分 " + score + " / " + box.querySelectorAll(".sml-qz-item").length;
+      checkBtn.disabled = true;
+    }
+    function reset() {
+      box.querySelectorAll(".sml-qz-item").forEach((item) => {
+        item.querySelectorAll("input").forEach(i => { i.checked = false; i.disabled = false; });
+        const fb = item.querySelector(".sml-qz-fb");
+        fb.hidden = true; fb.className = "sml-qz-fb"; fb.textContent = "";
+      });
+      scoreEl.textContent = "得分 0 / " + box.querySelectorAll(".sml-qz-item").length;
+      checkBtn.disabled = false;
+    }
+    checkBtn.addEventListener("click", check);
+    resetBtn.addEventListener("click", reset);
+  });
+</script>
+
+<style>
+  .sml-qz { border: 1px solid #30363d; border-radius: 10px; margin: 18px 0; overflow: hidden; background: #0d1117; }
+  .sml-qz-bar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #161b22; border-bottom: 1px solid #30363d; }
+  .sml-qz-title { font-size: 13px; color: #e6edf3; font-weight: 600; }
+  .sml-qz-score { font-size: 12px; color: #8b949e; }
+  .sml-qz-bar button { background: #1f6feb; color: #fff; border: 0; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .sml-qz-bar button.sml-qz-reset { background: #30363d; }
+  .sml-qz-bar button:hover { filter: brightness(1.1); }
+  .sml-qz-bar button:disabled { opacity: .5; cursor: default; }
+  .sml-qz-body { padding: 6px 14px 12px; }
+  .sml-qz-item { padding: 12px 0; border-bottom: 1px solid #21262d; }
+  .sml-qz-item:last-child { border-bottom: 0; }
+  .sml-qz-q { font-size: 13.5px; color: #e6edf3; margin-bottom: 8px; }
+  .sml-qz-no { color: #58a6ff; font-weight: 700; margin-right: 4px; }
+  .sml-qz-opt { display: block; font-size: 13px; color: #c9d1d9; padding: 4px 0; cursor: pointer; }
+  .sml-qz-opt input { margin-right: 8px; vertical-align: middle; }
+  .sml-qz-fb { font-size: 12px; margin-top: 6px; padding: 6px 10px; border-radius: 6px; }
+  .sml-qz-fb.ok { background: rgba(63,185,80,.12); color: #3fb950; }
+  .sml-qz-fb.bad { background: rgba(248,81,73,.12); color: #f85149; }
+</style>
+
+
+</article>
+
+  </main>
+  <footer>SML · SNOWARE Markup Language · { ❄ }</footer>
+</body>
+</html>

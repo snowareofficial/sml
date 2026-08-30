@@ -1,0 +1,106 @@
+{{ $lesson := .Get 0 | default "contract" }}
+{{ $data := index site.Data "sml-lessons" }}
+{{ $cfg := index $data $lesson | default (index $data "contract") }}
+{{ $hasTask := and $cfg.task (ne $cfg.task "") }}
+<div class="sml-pg" data-lesson="{{ $lesson }}">
+  {{ if $hasTask }}
+  <div class="sml-pg-task">
+    <span class="sml-pg-task-tag">✍ 动手练习</span>
+    <span class="sml-pg-task-text">{{ $cfg.task | safeHTML }}</span>
+    {{ if $cfg.hint }}<div class="sml-pg-hint">💡 提示：{{ $cfg.hint }}</div>{{ end }}
+  </div>
+  {{ end }}
+  {{ if $cfg.files }}
+  <details class="sml-pg-files">
+    <summary>虚拟文件（可在 include 中引用）</summary>
+    {{ range $name, $body := $cfg.files }}
+    <div class="sml-pg-file"><div class="sml-pg-file-name">{{ $name }}</div><pre>{{ $body }}</pre></div>
+    {{ end }}
+  </details>
+  {{ end }}
+  <div class="sml-pg-main">
+    <textarea class="sml-pg-code" spellcheck="false" data-files='{{ $cfg.files | jsonify }}'>{{ $cfg.main }}</textarea>
+  </div>
+  <div class="sml-pg-actions">
+    <button class="sml-pg-run" type="button">运行 ▶</button>
+    {{ if $hasTask }}<button class="sml-pg-verify" type="button">验证 ✓</button>{{ end }}
+    <button class="sml-pg-reset" type="button">重置</button>
+    <span class="sml-pg-status"></span>
+  </div>
+  <pre class="sml-pg-out" hidden></pre>
+</div>
+
+<script type="module">
+  import { parseSafe } from "/sml.mjs";
+  import { VERIFIERS } from "/sml-verify.js";
+  document.querySelectorAll('.sml-pg[data-lesson="{{ $lesson }}"]').forEach((box) => {
+    const ta = box.querySelector(".sml-pg-code");
+    const out = box.querySelector(".sml-pg-out");
+    const status = box.querySelector(".sml-pg-status");
+    const runBtn = box.querySelector(".sml-pg-run");
+    const verifyBtn = box.querySelector(".sml-pg-verify");
+    const resetBtn = box.querySelector(".sml-pg-reset");
+    const init = ta.value;
+
+    function setStatus(txt, cls) { status.textContent = txt; status.className = "sml-pg-status " + (cls || ""); }
+    function parse() {
+      const src = ta.value;
+      let files = {};
+      try { files = JSON.parse(ta.dataset.files || "{}"); } catch (e) {}
+      const r = parseSafe(src, { files });
+      if (!r.ok) {
+        out.hidden = false;
+        out.className = "sml-pg-out err";
+        let msg = r.error; if (r.position) msg += ` (行 ${r.position.line + 1}, 列 ${r.position.col + 1})`;
+        out.textContent = "✗ 解析错误：\n" + msg;
+        return null;
+      }
+      out.hidden = false; out.className = "sml-pg-out ok";
+      out.textContent = "✓ 解析成功：\n" + JSON.stringify(r.value, null, 2);
+      return r.value;
+    }
+    function run() { setStatus("", ""); parse(); }
+    function reset() { ta.value = init; out.hidden = true; setStatus("", ""); }
+
+    runBtn.addEventListener("click", run);
+    resetBtn.addEventListener("click", reset);
+    if (verifyBtn) verifyBtn.addEventListener("click", () => {
+      const v = parse();
+      if (v === null) { setStatus("✗ 解析错误", "bad"); return; }
+      const fn = VERIFIERS["{{ $lesson }}"];
+      if (!fn) { setStatus("（本章暂无可验证任务）", ""); return; }
+      const res = fn(v);
+      setStatus(res.ok ? "✓ 通过" : "✗ 未通过", res.ok ? "good" : "bad");
+      out.hidden = false;
+      out.className = "sml-pg-out " + (res.ok ? "ok" : "err");
+      let base = res.ok ? "✓ 验证通过！\n" : "✗ 还没对：\n";
+      out.textContent = base + res.msg + "\n\n解析结果：\n" + JSON.stringify(v, null, 2);
+    });
+    ta.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") run(); });
+  });
+</script>
+
+<style>
+  .sml-pg { border: 1px solid #d0d7de; border-radius: 10px; margin: 16px 0; overflow: hidden; background: #ffffff; }
+  .sml-pg-task { background: #eef4ff; border-bottom: 1px solid #d0d7de; padding: 10px 12px; font-size: 13px; color: #1a2b4a; line-height: 1.6; }
+  .sml-pg-task-tag { display: inline-block; background: #1565C0; color: #fff; border-radius: 4px; padding: 1px 7px; font-size: 11px; font-weight: 700; margin-right: 6px; }
+  .sml-pg-hint { margin-top: 6px; font-size: 12px; color: #555; }
+  .sml-pg-files { font-size: 12px; background: #f6f8fa; border-bottom: 1px solid #eaecef; }
+  .sml-pg-files summary { padding: 6px 12px; cursor: pointer; color: #57606a; }
+  .sml-pg-file { padding: 0 12px 8px; }
+  .sml-pg-file-name { font-weight: 700; color: #0d47a1; }
+  .sml-pg-file pre { background: #fff; border: 1px solid #e1e4e8; border-radius: 4px; padding: 6px 8px; margin: 4px 0 0; white-space: pre-wrap; }
+  .sml-pg-main { display: flex; }
+  .sml-pg-code { flex: 1; min-height: 200px; border: 0; padding: 10px 12px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12.5px; line-height: 1.5; background: #ffffff; color: #111; resize: vertical; white-space: pre; tab-size: 2; }
+  .sml-pg-code:focus { outline: 2px solid #1565C0; outline-offset: -2px; }
+  .sml-pg-actions { padding: 8px 12px; display: flex; gap: 8px; align-items: center; background: #f6f8fa; border-top: 1px solid #eaecef; }
+  .sml-pg-actions button { background: #1565C0; color: #fff; border: 0; padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .sml-pg-actions button.sml-pg-reset { background: #6c757d; }
+  .sml-pg-actions button:hover { filter: brightness(1.08); }
+  .sml-pg-status { font-size: 12px; margin-left: 4px; }
+  .sml-pg-status.good { color: #2e7d32; }
+  .sml-pg-status.bad { color: #c62828; }
+  .sml-pg-out { margin: 0; padding: 10px 12px; font-size: 12px; white-space: pre-wrap; max-height: 320px; overflow: auto; border-top: 1px solid #eaecef; }
+  .sml-pg-out.ok { background: #e8f5e9; color: #1b5e20; }
+  .sml-pg-out.err { background: #fdecea; color: #b71c1c; }
+</style>

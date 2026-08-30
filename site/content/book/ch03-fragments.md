@@ -116,4 +116,13 @@ pvp { &common port: 25566 name: 竞技场 }
 survival { &common port: 25567 name: 生存 }
 ```
 
-→ [第 4 章：include 与命名空间](./ch04-include)
+→ [第 4 章：include 与命名空间](/book/ch04-include)
+
+## 动手练习
+
+读完本章，在下面的编辑器里**直接修改 SML 并点“运行”**，立刻看到解析结果或校验错误——有输出才能高效学习。
+
+{{< sml-playground "ch03" >}}
+
+{{< sml-quiz "ch03" >}}
+

@@ -91,4 +91,13 @@ soupx lua/sml.sar config.sml     # 解析并打印
 | 前端 / Node 服务 | `sml.mjs` |
 | Soup 生态 / 脚本 | `lib/sml.soup` |
 
-→ [第 8 章：实战项目](./ch08-project)
+→ [第 8 章：实战项目](/book/ch08-project)
+
+## 动手练习
+
+读完本章，在下面的编辑器里**直接修改 SML 并点“运行”**，立刻看到解析结果或校验错误——有输出才能高效学习。
+
+{{< sml-playground "ch07" >}}
+
+{{< sml-quiz "ch07" >}}
+

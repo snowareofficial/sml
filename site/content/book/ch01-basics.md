@@ -82,7 +82,7 @@ state: "NY"
 
 ```sml
 email: alice@example.com     # 裸词，@ 在中间，安全
-from: "sal <sal@mail.swebase.cn>"   # 含空格 -> 引号
+from: "SML Team <dev@mail.swebase.cn>"   # 含空格 -> 引号
 ```
 
 ## 1.5 动手试一试
@@ -99,4 +99,13 @@ active: true
 
 然后用任意语言的解析器读它，会得到一棵键值树。下一章我们会把键值组织成**块和数组**，那才是 SML 真正强大的地方。
 
-→ [第 2 章：块与嵌套](./ch02-blocks)
+→ [第 2 章：块与嵌套](/book/ch02-blocks)
+
+## 动手练习
+
+读完本章，在下面的编辑器里**直接修改 SML 并点“运行”**，立刻看到解析结果或校验错误——有输出才能高效学习。
+
+{{< sml-playground "ch01" >}}
+
+{{< sml-quiz "ch01" >}}
+

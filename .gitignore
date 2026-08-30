@@ -22,4 +22,6 @@ site-dioxus/
 site/.wrangler/
 site/dev.log
 site/build_site.log
+site/hugo_server.log
+site/hugo_server.err
 

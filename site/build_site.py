@@ -14,12 +14,24 @@ import shutil
 
 SITE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(SITE, "public")
+JS_SRC = os.path.join(os.path.dirname(SITE), "js", "sml.mjs")   # 仓库根 /js/sml.mjs
+STATIC_SML = os.path.join(SITE, "static", "sml.mjs")
+
+
+def sync_sml_js():
+    """把最新 js/sml.mjs 同步到 static/sml.mjs，保证 playground 与 shortcode 用同一解析器。"""
+    if not os.path.exists(JS_SRC):
+        print("!! 跳过 sml.mjs 同步：找不到", JS_SRC)
+        return
+    shutil.copyfile(JS_SRC, STATIC_SML)
+    print("sml.mjs 同步 ->", STATIC_SML)
 
 
 def main():
     if "--serve" in sys.argv:
         subprocess.call(["hugo", "server"], cwd=SITE)
         return 0
+    sync_sml_js()   # 先同步最新解析器到 static/
     shutil.rmtree(OUT, ignore_errors=True)
     os.makedirs(OUT, exist_ok=True)
     r = subprocess.call(["hugo", "--destination", OUT, "--ignoreCache", "--logLevel", "warn"],

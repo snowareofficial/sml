@@ -1,0 +1,103 @@
+{{ $quiz := .Get 0 | default "intro" }}
+{{ $data := index site.Data "sml-quizzes" }}
+{{ $cfg := index $data $quiz | default (index $data "intro") }}
+<div class="sml-qz" data-quiz="{{ $quiz }}">
+  <div class="sml-qz-bar">
+    <span class="sml-qz-title">✍ 自测考题：{{ $cfg.title }}</span>
+    <span class="sml-qz-score">得分 0 / {{ len $cfg.items }}</span>
+    <button class="sml-qz-check" type="button">交卷判分</button>
+    <button class="sml-qz-reset" type="button">重置</button>
+  </div>
+  <div class="sml-qz-body">
+    {{ range $i, $it := $cfg.items }}
+    <div class="sml-qz-item" data-idx="{{ $i }}" data-type="{{ $it.type }}" data-answer="{{ $it.answer | jsonify }}">
+      <div class="sml-qz-q"><span class="sml-qz-no">Q{{ add $i 1 }}.</span> {{ $it.q }}</div>
+      <div class="sml-qz-opts">
+        {{ range $j, $opt := $it.options }}
+        <label class="sml-qz-opt">
+          <input type="{{ if eq $it.type "multi" }}checkbox{{ else }}radio{{ end }}" name="qz-{{ $quiz }}-{{ $i }}" value="{{ $j }}">
+          <span>{{ $opt }}</span>
+        </label>
+        {{ end }}
+      </div>
+      <div class="sml-qz-explain" hidden>{{ $it.explain }}</div>
+      <div class="sml-qz-fb" hidden></div>
+    </div>
+    {{ end }}
+  </div>
+</div>
+
+<script type="module">
+  document.querySelectorAll('.sml-qz[data-quiz="{{ $quiz }}"]').forEach((box) => {
+    const scoreEl = box.querySelector(".sml-qz-score");
+    const checkBtn = box.querySelector(".sml-qz-check");
+    const resetBtn = box.querySelector(".sml-qz-reset");
+
+    function normAnswer(raw, type) {
+      const a = (typeof raw === "string") ? JSON.parse(raw) : raw;
+      if (type === "multi") return Array.isArray(a) ? a.slice().sort((x,y)=>x-y) : [];
+      if (type === "bool") return [a];
+      return [a];
+    }
+    function selected(item) {
+      const type = item.dataset.type;
+      const inputs = item.querySelectorAll("input");
+      const sel = [];
+      inputs.forEach(inp => { if (inp.checked) sel.push(parseInt(inp.value, 10)); });
+      return type === "multi" ? sel.slice().sort((x,y)=>x-y) : sel.slice(0,1);
+    }
+    function arrEq(a, b) { return a.length === b.length && a.every((v,i)=>v===b[i]); }
+
+    function check() {
+      let score = 0;
+      box.querySelectorAll(".sml-qz-item").forEach((item) => {
+        const type = item.dataset.type;
+        const ans = normAnswer(item.dataset.answer, type);
+        const got = selected(item);
+        const fb = item.querySelector(".sml-qz-fb");
+        const correct = arrEq(got, ans);
+        if (correct) score++;
+        item.querySelectorAll("input").forEach(i => i.disabled = true);
+        const expl = item.querySelector(".sml-qz-explain");
+        fb.hidden = false;
+        fb.className = "sml-qz-fb " + (correct ? "ok" : "bad");
+        fb.innerHTML = (correct ? "✓ 答对！ " : "✗ 答错。 ") +
+          (expl ? expl.textContent : "");
+      });
+      scoreEl.textContent = "得分 " + score + " / " + box.querySelectorAll(".sml-qz-item").length;
+      checkBtn.disabled = true;
+    }
+    function reset() {
+      box.querySelectorAll(".sml-qz-item").forEach((item) => {
+        item.querySelectorAll("input").forEach(i => { i.checked = false; i.disabled = false; });
+        const fb = item.querySelector(".sml-qz-fb");
+        fb.hidden = true; fb.className = "sml-qz-fb"; fb.textContent = "";
+      });
+      scoreEl.textContent = "得分 0 / " + box.querySelectorAll(".sml-qz-item").length;
+      checkBtn.disabled = false;
+    }
+    checkBtn.addEventListener("click", check);
+    resetBtn.addEventListener("click", reset);
+  });
+</script>
+
+<style>
+  .sml-qz { border: 1px solid #30363d; border-radius: 10px; margin: 18px 0; overflow: hidden; background: #0d1117; }
+  .sml-qz-bar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #161b22; border-bottom: 1px solid #30363d; }
+  .sml-qz-title { font-size: 13px; color: #e6edf3; font-weight: 600; }
+  .sml-qz-score { font-size: 12px; color: #8b949e; }
+  .sml-qz-bar button { background: #1f6feb; color: #fff; border: 0; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .sml-qz-bar button.sml-qz-reset { background: #30363d; }
+  .sml-qz-bar button:hover { filter: brightness(1.1); }
+  .sml-qz-bar button:disabled { opacity: .5; cursor: default; }
+  .sml-qz-body { padding: 6px 14px 12px; }
+  .sml-qz-item { padding: 12px 0; border-bottom: 1px solid #21262d; }
+  .sml-qz-item:last-child { border-bottom: 0; }
+  .sml-qz-q { font-size: 13.5px; color: #e6edf3; margin-bottom: 8px; }
+  .sml-qz-no { color: #58a6ff; font-weight: 700; margin-right: 4px; }
+  .sml-qz-opt { display: block; font-size: 13px; color: #c9d1d9; padding: 4px 0; cursor: pointer; }
+  .sml-qz-opt input { margin-right: 8px; vertical-align: middle; }
+  .sml-qz-fb { font-size: 12px; margin-top: 6px; padding: 6px 10px; border-radius: 6px; }
+  .sml-qz-fb.ok { background: rgba(63,185,80,.12); color: #3fb950; }
+  .sml-qz-fb.bad { background: rgba(248,81,73,.12); color: #f85149; }
+</style>
