@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html lang="zh">
 <head>
   <meta charset="utf-8">
@@ -10,6 +11,9 @@
     header h1 { margin: 0; font-size: 20px; }
     header a { color: #fff; text-decoration: none; }
     header .flake { color: #42A5F5; font-size: 22px; }
+    header .lang-switch { margin-left: auto; display: flex; gap: 6px; }
+    header .lang-switch a { color: #90caf9; font-size: 13px; padding: 4px 10px; border: 1px solid #333; border-radius: 6px; text-decoration: none; }
+    header .lang-switch a.active { background: #1565C0; color: #fff; border-color: #1565C0; }
     nav { background: #1c1c1c; padding: 8px 32px; position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 4px 18px; }
     nav a { color: #90caf9; text-decoration: none; font-size: 14px; }
     nav a:hover { text-decoration: underline; }
@@ -36,6 +40,13 @@
   <header>
     <img src="../../sml.svg" alt="sml" style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))">
     <h1><a href="../../">SML { ❄ }</a></h1>
+    <span class="lang-switch">
+      
+        <a href="../../" class="active">中文</a>
+      
+        <a href="../../en/" class="">EN</a>
+      
+    </span>
   </header>
   <nav>
     <a class="home" href="../../">SML</a>
@@ -192,7 +203,7 @@
 </span></span></code></pre></div></li>
 <li>解析 <code>app.sml</code>，确认 <code>service.region</code> 取到 <code>cn-north-1</code>。</li>
 </ol>
-<p>→ <a href="../../book/ch05-contract">第 5 章：契约系统</a></p>
+<p>→ <a href="../../book/ch05-contract/">第 5 章：契约系统</a></p>
 <h2 id="动手练习">动手练习</h2>
 <p>读完本章，在下面的编辑器里<strong>直接修改 SML 并点“运行”</strong>，立刻看到解析结果或校验错误——有输出才能高效学习。</p>
 
