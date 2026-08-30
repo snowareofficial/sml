@@ -50,9 +50,9 @@ title: ui.title
 **Clean rule**: with extension=inline; Without extension=namespace (name takes file name).
 
 ```sml
-include "ui"          # Equivalent to include "ui. sml" as ui
+include "ui"          # Equivalent to include "ui.sml" as ui
 include "ui.sml"      # Inline (with extension)
-include "ui.sml" as ui.form.widgets   # Explicitly specified, priority given
+include "ui.sml" as ui.form.widgets   # Explicit namespace, takes priority
 ```
 
 ## 4.3 Pointwise path (nested namespace)

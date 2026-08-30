@@ -4,7 +4,7 @@ translationKey: "book-ch09"
 ---
 # Chapter 9: Advanced - Function Combination and Design Patterns
 
-The first 8 chapters respectively learned key values, blocks, fragments include、 Contract, environmental variables, and multilingual integration. This chapter combines them - real SML configurations rarely use only one capability.
+The first 8 chapters respectively learned key values, blocks, fragments include, Contract, environmental variables, and multilingual integration. This chapter combines them - real SML configurations rarely use only one capability.
 
 >After completing this chapter, you will know what a production level SML configuration library should look like, why it should be written this way, and how to make choices.
 
@@ -95,14 +95,14 @@ Contract fields can also be trimmed as needed - using `optional`/`default` allow
     host:     str
     port:     int  default 5432 min 1 max 65535
     user:     str  default app
-    password: str  ?               # Optional: Local/Test Empty
+    password: str  ?               # Optional: may be empty for local/test
     sslmode:  enum(disable, allow, require) default require
 }
 ```
 
 -Production: Fill in all fields, `sslmode: require` is required.
 
--Development: `password` (empty connection+trust authentication) is optional, `sslmode: disable`。
+-Development: `password` (empty connection+trust authentication) is optional, `sslmode: disable`. 
 
 -CI: The contract treats **undeclared fields** as errors - so mock fields inserted in the testing environment will be immediately detected.
 
@@ -129,7 +129,7 @@ service api { &cfg.base }
 service api { log_level: debug }
 ```
 
->Note: SML currently does not have built-in complex merge semantics for "merge by name"; The above writing method relies on **contract+include namespace** handwritten overlay. For more complex merges, it is recommended to use libraries such as `sml-merge` on the Rust/JS side (see reference) https://github.com/snoware/sml-merge ）.
+>Note: SML currently does not have built-in complex merge semantics for "merge by name"; The above writing method relies on **contract+include namespace** handwritten overlay. For more complex merges, it is recommended to use libraries such as `sml-merge` on the Rust/JS side (see reference) https://github.com/snoware/sml-merge ).
 
 ## 9.5 Mode 4: Three piece set of include+contract+$env
 
@@ -158,7 +158,7 @@ gateway {
 secrets {
     api_key: $env.API_KEY
     db_password: $env.DB_PASSWORD
-    webhook: $env.OPTIONAL_WEBHOOK   # Not set ->empty string
+    webhook: $env.OPTIONAL_WEBHOOK   # Unset -> empty string
 }
 ```
 
@@ -212,7 +212,7 @@ type User = { id: string; email: string; role: 'user'|'admin'|'owner'; age?: num
 
 ## 9.7 Mode 6: Contract combination+recursion
 
-Using `Arrangement [contract name]` to express "contract array" - suitable for list type data:
+Using `array[ContractName]` to express a "contract array" — suitable for list data:
 
 ```sml
 @contract Endpoint { host: str port: int }

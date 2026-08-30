@@ -36,7 +36,7 @@ There are also two types of block annotations (which can span multiple lines):
 ```sml
 /* This is a comment
    Can write many lines */
-_* This is also a comment，Soup Habitual writing style *_
+_* This is also a block comment, the Soup-family convention *_
 ```
 
 >Note: `#`, `--` inside the * * quotation marks of the string will not be treated as comments, so feel free to write them.
@@ -57,8 +57,8 @@ SML will automatically recognize the type of value:
 Hands on trial:
 
 ```sml
-firstName: "John Doe"     # Containing spaces ->must be quoted
-state: NY                 # Single word ->Naked word is sufficient
+firstName: "John Doe"     # Contains spaces -> must be quoted
+state: NY                 # Single word -> a bare word is enough
 age: 27                   # Integer
 ratio: 0.75               # Floating point
 enabled: true             # Boolean
@@ -82,7 +82,7 @@ But emails with `@` can also be written directly naked (because `@` is just a re
 
 ```sml
 email: alice@example.com     # Naked word, @ in the middle, safe
-from: "SML Team <dev@mail.swebase.cn>"   # Containing spaces ->quotation marks
+from: "SML Team <dev@mail.swebase.cn>"   # Contains spaces -> needs quotes
 ```
 
 ## 1.5 Give it a try with your hands

@@ -14,7 +14,7 @@ There are often sensitive values (API Key, password) or values that vary with th
 secrets {
     resendApiKey: $env.RESEND_API_KEY
     dbPassword: $env.DB_PASSWORD
-    optionalWebhook: $env.UNSET_WEBHOOK   # Not set ->empty string, no error reported
+    optionalWebhook: $env.UNSET_WEBHOOK   # Unset -> empty string, no error
 }
 ```
 

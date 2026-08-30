@@ -100,7 +100,7 @@ Error codes: `multi.dup-name`, `multi.empty`.
 |Sort | Dictionary order determined, consistent across platforms|
 |Implicit `as` | Applicable - `include "widgets/*"` ⇒ `as widgets`|
 
-Error code: `glob.not-found` (if 0 matches) `glob.malformed`。
+Error code: `glob.not-found` (if 0 matches) `glob.malformed`. 
 
 ### `regex` (**default off**)
 
@@ -111,7 +111,7 @@ Error code: `glob.not-found` (if 0 matches) `glob.malformed`。
 |Status | Default Off|
 |Open | `@feature enable regex`|
 |Grammar | `include "re:^v[0-9]+\\.sml$" as versions`|
-|Regular subset| `.` `*` `+` `?` `^` `$` `[a-z]`、`\\.` `\\d` `\\w` |
+|Regular subset| `.` `*` `+` `?` `^` `$` `[a-z]`, `\\.` `\\d` `\\w` |
 |Performance | Handwritten recursive backtracking, O (n · m) sufficient file name short string|
 |Attention | Use `\\.` as the path delimiter (`\` also needs to be double written in md)|
 
@@ -137,7 +137,7 @@ Parse files with any suffix as `.sml`.
 |----|----|
 |Status | Default On|
 |Grammar | `@contract Name [loose] { field: type [default v] [min n] [max n] [enum(a,b)] [?] [required] }`|
-|Reference type | `str` `int` `num` `bool` XQZ `array[T]` `enum(...)` or another contract name|
+|Reference type | `str` `int` `num` `bool` `array[T]` `enum(...)` or another contract name|
 |Strictness | default strictness; `loose` allows undeclared fields|
 |Nested | Infinite; Recursive contract detects loops when referenced|
 |Wrong position | Accurate to rows and columns|
@@ -241,7 +241,7 @@ This is the implementation foundation of 'customizable functionality, don't fall
 
 |Features | Impact on parsing time | Cross platform differences|
 |---------|----------------|------------|
-|`include` | O (total file size) | Path delimiter normalization (`/`) ↔  `\`） |
+|`include` | O (total file size) | Path delimiter normalization (`/`) ↔ `\`) |
 |`namespace` | Extremely small (path compiled once) | None|
 |`multi` | Linear superposition | None|
 |`glob` | O (n) file enumeration | hidden files (`.foo`) default **not** included|
