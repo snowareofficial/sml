@@ -15,3 +15,6 @@ __pycache__/
 *.txt
 inc_tmp/
 
+# Dioxus 站点（独立未发布）
+site-dioxus/
+
