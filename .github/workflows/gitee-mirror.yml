@@ -1,0 +1,66 @@
+# Gitee (snoware/sml) 为本项目的权威上游仓库；本 workflow 将其镜像同步到 GitHub。
+#
+# 因为 GitHub Actions 的定时触发在仓库长期无活动时会被自动停用，
+# 所以同时提供 workflow_dispatch 手动触发与仓库内 push 触发作为兜底。
+
+name: Mirror Gitee → GitHub
+
+on:
+  schedule:
+    # 每 6 小时同步一次（UTC）
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: '强制推送（覆盖 GitHub 端历史）'
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gitee-mirror
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 从 Gitee 裸克隆（含全部分支与标签）
+        run: |
+          git clone --mirror https://gitee.com/snoware/sml.git repo.git
+          cd repo.git
+          echo "== Gitee 分支 =="
+          git for-each-ref --format='%(refname:short)' refs/heads/
+          echo "== Gitee 标签 =="
+          git for-each-ref --format='%(refname:short)' refs/tags/
+
+      - name: 推送至 GitHub
+        env:
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          cd repo.git
+          git remote add github \
+            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/snowareofficial/sml.git"
+          # --prune 会删除 GitHub 上 Gitee 已不存在的分支；
+          # --mirror 同步全部 refs（heads/tags）。
+          if [ "$FORCE" = "true" ]; then
+            echo "强制模式：git push --mirror --prune --force"
+            git push --mirror --prune --force github
+          else
+            git push --mirror --prune github || {
+              echo "::warning::普通推送失败（可能是 history 分叉），改用 --force 重试"
+              git push --mirror --prune --force github
+            }
+          fi
+
+      - name: 校验同步结果
+        run: |
+          cd repo.git
+          echo "== 本地(Gitee) HEAD =="
+          git for-each-ref --format='%(refname:short) %(objectname:short)' refs/heads/
+          echo "== GitHub 远端 =="
+          git ls-remote --heads github | sed 's#refs/heads/##'
