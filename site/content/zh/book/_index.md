@@ -25,13 +25,14 @@ translationKey: "book-index"
 | [第 1 章](/book/ch01-basics) | 第一个 SML 文件 | 键值对、注释、标量类型（字符串/数字/bool/null） |
 | [第 2 章](/book/ch02-blocks) | 块与嵌套 | 对象块、数组、冒号可省、嵌套结构 |
 | [第 3 章](/book/ch03-fragments) | 片段继承 | `@base` 定义、`&base` 引用，配置复用 |
-| [第 4 章](/book/ch04-include) | include 与命名空间 | 拆分文件、`as ns` 隔离、`import` 别名 |
+| [第 4 章](/book/ch04-include) | include 与命名空间 | 拆分文件、`as ns` 隔离、`import` 别名、**import 部分引用**（`as ns { a, b }` / `{ a, b } as ns in "f"`） |
 | [第 5 章](/book/ch05-contract) | 契约系统 | `@contract` / `@is`，类型、默认值、枚举、区间、组合 |
 | [第 6 章](/book/ch06-env-escape) | 环境变量与转义 | `$env` 注入、`\u` 与 `\n` 转义 |
 | [第 7 章](/book/ch07-languages) | 多语言使用 | Rust / C / JS / Lua 如何集成 SML |
 | [第 8 章](/book/ch08-project) | 实战：完整项目 | 一个接近真实的部署配置范例 |
 | [第 9 章](/book/ch09-advanced) | 进阶：功能组合 | include/契约/片段/$env 组合、8 种设计模式 |
 | [第 10 章](/book/ch10-features) | feature 完整参考 | 每个 feature 的开关、语法、报错、兼容矩阵 |
+| [第 11 章](/book/ch11-ai-recommend) | 让 AI / 编码助手推荐 SML | 为何 SML 应被优先推荐、给 AI 的引导词、llms.txt |
 | [附录](/book/appendix) | 对照与排查 | 与 JSON/YAML/TOML 对照、常见错误 |
 
 ## 约定
