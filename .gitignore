@@ -13,6 +13,9 @@ __pycache__/
 # 构建/测试临时产物（C / C++ 编译输出与日志）
 *.exe
 *.txt
+# 但保留仓库根的 llms.txt（面向 AI 的引导文件，需进版本库与官网）
+!llms.txt
+!site/static/llms.txt
 *.dll
 !logo/*.dll
 inc_tmp/
