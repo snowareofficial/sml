@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SML Textbook · SML { ❄ } — SNOWARE Markup Language</title>
+  <style>
+    body { font-family: system-ui, "Microsoft YaHei", sans-serif; margin: 0; background: #fafafa; color: #111; }
+    header { background: #111; color: #fff; padding: 18px 32px; display: flex; align-items: center; gap: 12px; }
+    header h1 { margin: 0; font-size: 20px; }
+    header a { color: #fff; text-decoration: none; }
+    header .flake { color: #42A5F5; font-size: 22px; }
+    header .lang-switch { margin-left: auto; display: flex; gap: 6px; }
+    header .lang-switch a { color: #90caf9; font-size: 13px; padding: 4px 10px; border: 1px solid #333; border-radius: 6px; text-decoration: none; }
+    header .lang-switch a.active { background: #1565C0; color: #fff; border-color: #1565C0; }
+    nav { background: #1c1c1c; padding: 8px 32px; position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 4px 18px; }
+    nav a { color: #90caf9; text-decoration: none; font-size: 14px; }
+    nav a:hover { text-decoration: underline; }
+    nav .home { color: #fff; font-weight: 600; }
+    main { max-width: 880px; margin: 24px auto; padding: 0 24px; }
+     
+    h2 { scroll-margin-top: 56px; }
+    article { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 24px 32px; }
+    h1, h2, h3 { color: #0d47a1; }
+    h2 { border-bottom: 2px solid #42A5F5; padding-bottom: 6px; }
+    code { background: #eef4fb; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; color: #1565C0; }
+    pre { background: #111; color: #e8f1fb; padding: 12px; border-radius: 6px; overflow-x: auto; }
+    pre code { background: none; color: inherit; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background: #eef4fb; color: #0d47a1; }
+    .links { display: flex; gap: 12px; margin: 16px 0; }
+    .btn { display: inline-block; background: #1565C0; color: #fff; padding: 10px 22px; border-radius: 8px; text-decoration: none; font-weight: 600; }
+    .btn:hover { background: #0d47a1; }
+    footer { text-align: center; padding: 24px; color: #666; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="../../sml.svg" alt="sml" style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))">
+    <h1><a href="../../">SML { ❄ }</a></h1>
+    <span class="lang-switch">
+      
+        <a href="../../" class="">中文</a>
+      
+        <a href="../../en/" class="active">EN</a>
+      
+    </span>
+  </header>
+  <nav>
+    <a class="home" href="../../">SML</a>
+    
+      <a href="../../book/">教科书</a>
+      
+      <a href="#特性一览">特性一览</a>
+      <a href="#多语言实现对照">多语言实现对照</a>
+      <a href="#快速使用">快速使用</a>
+      <a href="#契约系统contract">契约系统</a>
+      <a href="#进阶特性">进阶特性</a>
+      <a href="#落地应用">落地应用</a>
+      <a href="#完整示例">完整示例</a>
+      <a href="#本地-playground">Playground</a>
+      
+    
+  </nav>
+  <main>
+    
+<article class="list">
+  <h1>SML Textbook</h1>
+  <h1 id="sml-textbook---">SML Textbook { ❄ }</h1>
+<p>Welcome to the official <strong>SML (SNOWARE Markup Language)</strong> textbook.</p>
+<p>This is a <strong>beginner-friendly, progressive</strong> book that also works as a
+reference. Whether or not you&rsquo;ve used JSON / YAML / TOML, you can learn to write
+SML config and describe data from scratch.</p>
+<blockquote>
+<p>In one sentence: SML is a <strong>declarative data / configuration format</strong> — write
+config like a sticky note: quotes optional, commas optional, structure delimited
+by braces <code>{}</code>.</p>
+</blockquote>
+<h2 id="how-to-read-this-book">How to read this book</h2>
+<ul>
+<li><strong>Beginner</strong>: start from Chapter 1 and read chapter by chapter; each has a &ldquo;try it&rdquo; section.</li>
+<li><strong>Experienced</strong>: jump to Chapters 4–5 for include / contracts.</li>
+<li><strong>Lookup</strong>: use the TOC below or the appendix &ldquo;cheatsheet / troubleshooting&rdquo;.</li>
+</ul>
+<h2 id="table-of-contents">Table of contents</h2>
+<table>
+	<thead>
+			<tr>
+					<th>Chapter</th>
+					<th>Topic</th>
+					<th>You&rsquo;ll learn</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><a href="../../en/book/intro">Preface</a></td>
+					<td>Why SML</td>
+					<td>what it solves, vs JSON/YAML</td>
+			</tr>
+			<tr>
+					<td><a href="../../en/book/ch01-basics">Ch1</a></td>
+					<td>Your first SML file</td>
+					<td>key/value, comments, scalars</td>
+			</tr>
+			<tr>
+					<td><a href="../../en/book/ch02-blocks">Ch2</a></td>
+					<td>Blocks &amp; nesting</td>
+					<td>object blocks, arrays, optional colon</td>
+			</tr>
+			<tr>
+					<td><a href="../../en/book/ch03-fragments">Ch3</a></td>
+					<td>Fragment inheritance</td>
+					<td><code>@base</code> / <code>&amp;base</code> reuse</td>
+			</tr>
+			<tr>
+					<td><a href="../../en/book/ch04-include">Ch4</a></td>
+					<td>include &amp; namespaces</td>
+					<td>split files, <code>as ns</code>, <code>import</code> alias</td>
+			</tr>
+			<tr>
+					<td><a href="../../en/book/ch05-contract">Ch5</a></td>
+					<td>Contract system</td>
+					<td><code>@contract</code> / <code>@is</code>, types, defaults, enums, ranges</td>
+			</tr>
+			<tr>
+					<td><a href="../../en/book/ch06-env-escape">Ch6</a></td>
+					<td>Env vars &amp; escaping</td>
+					<td><code>$env</code>, <code>\u</code> and <code>\n</code></td>
+			</tr>
+			<tr>
+					<td><a href="../../en/book/ch07-languages">Ch7</a></td>
+					<td>Multi-language usage</td>
+					<td>Rust / C / JS / Lua integration</td>
+			</tr>
+			<tr>
+					<td><a href="../../en/book/ch08-project">Ch8</a></td>
+					<td>Real project</td>
+					<td>a near-real deployment example</td>
+			</tr>
+			<tr>
+					<td><a href="../../en/book/ch09-advanced">Ch9</a></td>
+					<td>Advanced composition</td>
+					<td>include/contract/fragment/$env patterns</td>
+			</tr>
+			<tr>
+					<td><a href="../../en/book/ch10-features">Ch10</a></td>
+					<td>feature reference</td>
+					<td>every feature&rsquo;s toggle, syntax, errors</td>
+			</tr>
+			<tr>
+					<td><a href="../../en/book/appendix">Appendix</a></td>
+					<td>Cheatsheet &amp; troubleshooting</td>
+					<td>vs JSON/YAML/TOML, common errors</td>
+			</tr>
+	</tbody>
+</table>
+<h2 id="note-on-translation">Note on translation</h2>
+<p>The <strong>full English translation of the 12 chapters is in progress</strong>. The Chinese
+edition (<a href="../../book/">教科书</a>) is the authoritative, complete version. The English
+pages above currently redirect to the Chinese text where translation is not yet
+ready — switch languages with the <strong>EN / 中文</strong> button in the header.</p>
+<p>Ready? Start from the <a href="../../en/book/intro">Preface</a>.</p>
+
+  <ul>
+    
+  </ul>
+</article>
+
+  </main>
+  <footer>SML · SNOWARE Markup Language · { ❄ }</footer>
+</body>
+</html>

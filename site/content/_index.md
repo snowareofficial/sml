@@ -1,5 +1,6 @@
 ---
 title: "SML { ❄ } — SNOWARE Markup Language"
+translationKey: "zh-home"
 ---
 
 # SML { ❄ }
