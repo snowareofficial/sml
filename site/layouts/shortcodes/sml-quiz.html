@@ -1,12 +1,18 @@
 {{ $quiz := .Get 0 | default "intro" }}
-{{ $data := index site.Data "sml-quizzes" }}
+{{/* 题库按语言取值：英文用 data/sml-quizzes_en.json（下划线命名，避免与
+      Hugo 的语言后缀机制 *.en.json 的 key 冲突导致取到中文版） */}}
+{{/* shortcode 里的 . 是 shortcode 对象，需经 .Page 才能取页面属性 */}}
+{{ $isEn := in .Page.RelPermalink "/en/" }}
+{{ $data := index site.Data (cond $isEn "sml-quizzes_en" "sml-quizzes") }}
 {{ $cfg := index $data $quiz | default (index $data "intro") }}
-<div class="sml-qz" data-quiz="{{ $quiz }}">
+<div class="sml-qz" data-quiz="{{ $quiz }}"
+     data-t-correct="{{ i18n "quiz_correct" }}"
+     data-t-wrong="{{ i18n "quiz_wrong" }}">
   <div class="sml-qz-bar">
-    <span class="sml-qz-title">✍ 自测考题：{{ $cfg.title }}</span>
-    <span class="sml-qz-score">得分 0 / {{ len $cfg.items }}</span>
-    <button class="sml-qz-check" type="button">交卷判分</button>
-    <button class="sml-qz-reset" type="button">重置</button>
+    <span class="sml-qz-title">{{ i18n "quiz_title" }}{{ $cfg.title }}</span>
+    <span class="sml-qz-score" data-tpl="{{ i18n "quiz_score" }}">{{ i18n "quiz_score" }} 0 / {{ len $cfg.items }}</span>
+    <button class="sml-qz-check" type="button">{{ i18n "quiz_submit" }}</button>
+    <button class="sml-qz-reset" type="button">{{ i18n "quiz_reset" }}</button>
   </div>
   <div class="sml-qz-body">
     {{ range $i, $it := $cfg.items }}
@@ -32,6 +38,14 @@
     const scoreEl = box.querySelector(".sml-qz-score");
     const checkBtn = box.querySelector(".sml-qz-check");
     const resetBtn = box.querySelector(".sml-qz-reset");
+    // i18n: 由 Hugo i18n 注入的文案模板
+    const T = {
+      score: (scoreEl.dataset.tpl || "Score").trim(),
+      correct: box.dataset.tCorrect || "✓ Correct! ",
+      wrong: box.dataset.tWrong || "✗ Wrong. ",
+    };
+    const total = box.querySelectorAll(".sml-qz-item").length;
+    const scoreText = (n) => T.score + " " + n + " / " + total;
 
     function normAnswer(raw, type) {
       const a = (typeof raw === "string") ? JSON.parse(raw) : raw;
@@ -61,10 +75,10 @@
         const expl = item.querySelector(".sml-qz-explain");
         fb.hidden = false;
         fb.className = "sml-qz-fb " + (correct ? "ok" : "bad");
-        fb.innerHTML = (correct ? "✓ 答对！ " : "✗ 答错。 ") +
+        fb.textContent = (correct ? T.correct : T.wrong) +
           (expl ? expl.textContent : "");
       });
-      scoreEl.textContent = "得分 " + score + " / " + box.querySelectorAll(".sml-qz-item").length;
+      scoreEl.textContent = scoreText(score);
       checkBtn.disabled = true;
     }
     function reset() {
@@ -73,7 +87,7 @@
         const fb = item.querySelector(".sml-qz-fb");
         fb.hidden = true; fb.className = "sml-qz-fb"; fb.textContent = "";
       });
-      scoreEl.textContent = "得分 0 / " + box.querySelectorAll(".sml-qz-item").length;
+      scoreEl.textContent = scoreText(0);
       checkBtn.disabled = false;
     }
     checkBtn.addEventListener("click", check);

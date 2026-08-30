@@ -37,7 +37,7 @@
 </span></span><span style=display:flex><span><span style=color:#66d9ef>local</span> v, err <span style=color:#f92672>=</span> sml.load(text)   <span style=color:#75715e>-- 解析</span>
 </span></span><span style=display:flex><span>print(sml.dump(v))              <span style=color:#75715e>-- 序列化</span>
 </span></span></code></pre></div><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none><code class=language-bash data-lang=bash><span style=display:flex><span>soupx lua/sml.sar config.sml     <span style=color:#75715e># 解析并打印</span>
-</span></span></code></pre></div><h2 id=75-其他>7.5 其他</h2><ul><li><strong>C++</strong>（<code>cpp/</code>）：头文件 + 单编译单元，零第三方依赖，解析失败抛 <code>sml::ParseError</code>（含行列位置）。</li><li><strong>Python</strong>：见 <code>rust/</code> 外的 py 绑定。</li></ul><h2 id=76-选哪个>7.6 选哪个？</h2><table><thead><tr><th>你在写</th><th>用</th></tr></thead><tbody><tr><td>Rust 程序 / 命令行工具</td><td><code>swsml</code></td></tr><tr><td>嵌入式 / 系统层</td><td>C / C++</td></tr><tr><td>前端 / Node 服务</td><td><code>sml.mjs</code></td></tr><tr><td>Soup 生态 / 脚本</td><td><code>lib/sml.soup</code></td></tr></tbody></table><p>→ <a href=../../book/ch08-project/>第 8 章：实战项目</a></p><h2 id=动手练习>动手练习</h2><p>读完本章，在下面的编辑器里<strong>直接修改 SML 并点“运行”</strong>，立刻看到解析结果或校验错误——有输出才能高效学习。</p><div class=sml-pg data-lesson=ch07><div class=sml-pg-task><span class=sml-pg-task-tag>✍ 动手练习</span>
+</span></span></code></pre></div><h2 id=75-其他>7.5 其他</h2><ul><li><strong>C++</strong>（<code>cpp/</code>）：头文件 + 单编译单元，零第三方依赖，解析失败抛 <code>sml::ParseError</code>（含行列位置）。</li><li><strong>Python</strong>：见 <code>rust/</code> 外的 py 绑定。</li></ul><h2 id=76-选哪个>7.6 选哪个？</h2><table><thead><tr><th>你在写</th><th>用</th></tr></thead><tbody><tr><td>Rust 程序 / 命令行工具</td><td><code>swsml</code></td></tr><tr><td>嵌入式 / 系统层</td><td>C / C++</td></tr><tr><td>前端 / Node 服务</td><td><code>sml.mjs</code></td></tr><tr><td>Soup 生态 / 脚本</td><td><code>lib/sml.soup</code></td></tr></tbody></table><p>→ <a href=../../book/ch08-project/>第 8 章：实战项目</a></p><h2 id=动手练习>动手练习</h2><p>读完本章，在下面的编辑器里<strong>直接修改 SML 并点“运行”</strong>，立刻看到解析结果或校验错误——有输出才能高效学习。</p><div class=sml-pg data-lesson=ch07 data-t-parse-err="✗ 解析错误：" data-t-parse-ok="✓ 解析成功：" data-t-status-err="✗ 解析错误" data-t-no-task=（本章暂无可验证任务） data-t-pass="✓ 通过" data-t-fail="✗ 未通过" data-t-verify-ok="✓ 验证通过！" data-t-verify-fail="✗ 还没对：" data-t-result=解析结果： data-t-line=行 data-t-col=列><div class=sml-pg-task><span class=sml-pg-task-tag>✍ 动手练习</span>
 <span class=sml-pg-task-text>定义 <b>@contract User { id: str, email: str, role: enum(user,admin,owner) default user }</b>，用 <b>@is User</b> 写数据（id=u_1, email=a@b.c），验证 role 自动取默认 user。</span><div class=sml-pg-hint>💡 提示：同一份契约在 Rust/C/JS/Lua 行为一致——改 role 为 owner 试试。</div></div><div class=sml-pg-main><textarea class=sml-pg-code spellcheck=false data-files=null>@contract User {
   id: str
   email: str
@@ -59,6 +59,20 @@ email: a@b.c</textarea></div><div class=sml-pg-actions><button class=sml-pg-run 
     const verifyBtn = box.querySelector(".sml-pg-verify");
     const resetBtn = box.querySelector(".sml-pg-reset");
     const init = ta.value;
+    
+    const T = {
+      parseErr: box.dataset.tParseErr || "✗ Parse error:\n",
+      parseOk: box.dataset.tParseOk || "✓ Parsed successfully:\n",
+      statusErr: box.dataset.tStatusErr || "✗ Parse error",
+      noTask: box.dataset.tNoTask || "(No verifiable task in this chapter)",
+      pass: box.dataset.tPass || "✓ Passed",
+      fail: box.dataset.tFail || "✗ Not passed",
+      verifyOk: box.dataset.tVerifyOk || "✓ Verified!\n",
+      verifyFail: box.dataset.tVerifyFail || "✗ Not quite right:\n",
+      result: box.dataset.tResult || "Parsed result:",
+      line: box.dataset.tLine || "line",
+      col: box.dataset.tCol || "col",
+    };
 
     function setStatus(txt, cls) { status.textContent = txt; status.className = "sml-pg-status " + (cls || ""); }
     function parse() {
@@ -69,12 +83,13 @@ email: a@b.c</textarea></div><div class=sml-pg-actions><button class=sml-pg-run 
       if (!r.ok) {
         out.hidden = false;
         out.className = "sml-pg-out err";
-        let msg = r.error; if (r.position) msg += ` (行 ${r.position.line + 1}, 列 ${r.position.col + 1})`;
-        out.textContent = "✗ 解析错误：\n" + msg;
+        let msg = r.error;
+        if (r.position) msg += ` (${T.line} ${r.position.line + 1}, ${T.col} ${r.position.col + 1})`;
+        out.textContent = T.parseErr + msg;
         return null;
       }
       out.hidden = false; out.className = "sml-pg-out ok";
-      out.textContent = "✓ 解析成功：\n" + JSON.stringify(r.value, null, 2);
+      out.textContent = T.parseOk + JSON.stringify(r.value, null, 2);
       return r.value;
     }
     function run() { setStatus("", ""); parse(); }
@@ -84,20 +99,20 @@ email: a@b.c</textarea></div><div class=sml-pg-actions><button class=sml-pg-run 
     resetBtn.addEventListener("click", reset);
     if (verifyBtn) verifyBtn.addEventListener("click", () => {
       const v = parse();
-      if (v === null) { setStatus("✗ 解析错误", "bad"); return; }
+      if (v === null) { setStatus(T.statusErr, "bad"); return; }
       const fn = VERIFIERS["ch07"];
-      if (!fn) { setStatus("（本章暂无可验证任务）", ""); return; }
+      if (!fn) { setStatus(T.noTask, ""); return; }
       const res = fn(v);
-      setStatus(res.ok ? "✓ 通过" : "✗ 未通过", res.ok ? "good" : "bad");
+      setStatus(res.ok ? T.pass : T.fail, res.ok ? "good" : "bad");
       out.hidden = false;
       out.className = "sml-pg-out " + (res.ok ? "ok" : "err");
-      let base = res.ok ? "✓ 验证通过！\n" : "✗ 还没对：\n";
-      out.textContent = base + res.msg + "\n\n解析结果：\n" + JSON.stringify(v, null, 2);
+      let base = res.ok ? T.verifyOk : T.verifyFail;
+      out.textContent = base + res.msg + "\n\n" + T.result + "\n" + JSON.stringify(v, null, 2);
     });
     ta.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") run(); });
   });
-</script><style>.sml-pg{border:1px solid #d0d7de;border-radius:10px;margin:16px 0;overflow:hidden;background:#fff}.sml-pg-task{background:#eef4ff;border-bottom:1px solid #d0d7de;padding:10px 12px;font-size:13px;color:#1a2b4a;line-height:1.6}.sml-pg-task-tag{display:inline-block;background:#1565c0;color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;margin-right:6px}.sml-pg-hint{margin-top:6px;font-size:12px;color:#555}.sml-pg-files{font-size:12px;background:#f6f8fa;border-bottom:1px solid #eaecef}.sml-pg-files summary{padding:6px 12px;cursor:pointer;color:#57606a}.sml-pg-file{padding:0 12px 8px}.sml-pg-file-name{font-weight:700;color:#0d47a1}.sml-pg-file pre{background:#fff;border:1px solid #e1e4e8;border-radius:4px;padding:6px 8px;margin:4px 0 0;white-space:pre-wrap}.sml-pg-main{display:flex}.sml-pg-code{flex:1;min-height:200px;border:0;padding:10px 12px;font-family:sfmono-regular,Consolas,monospace;font-size:12.5px;line-height:1.5;background:#fff;color:#111;resize:vertical;white-space:pre;tab-size:2}.sml-pg-code:focus{outline:2px solid #1565c0;outline-offset:-2px}.sml-pg-actions{padding:8px 12px;display:flex;gap:8px;align-items:center;background:#f6f8fa;border-top:1px solid #eaecef}.sml-pg-actions button{background:#1565c0;color:#fff;border:0;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:13px}.sml-pg-actions button.sml-pg-reset{background:#6c757d}.sml-pg-actions button:hover{filter:brightness(1.08)}.sml-pg-status{font-size:12px;margin-left:4px}.sml-pg-status.good{color:#2e7d32}.sml-pg-status.bad{color:#c62828}.sml-pg-out{margin:0;padding:10px 12px;font-size:12px;white-space:pre-wrap;max-height:320px;overflow:auto;border-top:1px solid #eaecef}.sml-pg-out.ok{background:#e8f5e9;color:#1b5e20}.sml-pg-out.err{background:#fdecea;color:#b71c1c}</style><div class=sml-qz data-quiz=ch07><div class=sml-qz-bar><span class=sml-qz-title>✍ 自测考题：第 7 章自测：多语言使用</span>
-<span class=sml-qz-score>得分 0 / 3</span>
+</script><style>.sml-pg{border:1px solid #d0d7de;border-radius:10px;margin:16px 0;overflow:hidden;background:#fff}.sml-pg-task{background:#eef4ff;border-bottom:1px solid #d0d7de;padding:10px 12px;font-size:13px;color:#1a2b4a;line-height:1.6}.sml-pg-task-tag{display:inline-block;background:#1565c0;color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;margin-right:6px}.sml-pg-hint{margin-top:6px;font-size:12px;color:#555}.sml-pg-files{font-size:12px;background:#f6f8fa;border-bottom:1px solid #eaecef}.sml-pg-files summary{padding:6px 12px;cursor:pointer;color:#57606a}.sml-pg-file{padding:0 12px 8px}.sml-pg-file-name{font-weight:700;color:#0d47a1}.sml-pg-file pre{background:#fff;border:1px solid #e1e4e8;border-radius:4px;padding:6px 8px;margin:4px 0 0;white-space:pre-wrap}.sml-pg-main{display:flex}.sml-pg-code{flex:1;min-height:200px;border:0;padding:10px 12px;font-family:sfmono-regular,Consolas,monospace;font-size:12.5px;line-height:1.5;background:#fff;color:#111;resize:vertical;white-space:pre;tab-size:2}.sml-pg-code:focus{outline:2px solid #1565c0;outline-offset:-2px}.sml-pg-actions{padding:8px 12px;display:flex;gap:8px;align-items:center;background:#f6f8fa;border-top:1px solid #eaecef}.sml-pg-actions button{background:#1565c0;color:#fff;border:0;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:13px}.sml-pg-actions button.sml-pg-reset{background:#6c757d}.sml-pg-actions button:hover{filter:brightness(1.08)}.sml-pg-status{font-size:12px;margin-left:4px}.sml-pg-status.good{color:#2e7d32}.sml-pg-status.bad{color:#c62828}.sml-pg-out{margin:0;padding:10px 12px;font-size:12px;white-space:pre-wrap;max-height:320px;overflow:auto;border-top:1px solid #eaecef}.sml-pg-out.ok{background:#e8f5e9;color:#1b5e20}.sml-pg-out.err{background:#fdecea;color:#b71c1c}</style><div class=sml-qz data-quiz=ch07 data-t-correct="✓ 答对！" data-t-wrong="✗ 答错。"><div class=sml-qz-bar><span class=sml-qz-title>✍ 自测考题：第 7 章自测：多语言使用</span>
+<span class=sml-qz-score data-tpl=得分>得分 0 / 3</span>
 <button class=sml-qz-check type=button>交卷判分</button>
 <button class=sml-qz-reset type=button>重置</button></div><div class=sml-qz-body><div class=sml-qz-item data-idx=0 data-type=choice data-answer=1><div class=sml-qz-q><span class=sml-qz-no>Q1.</span> SML 契约在多种语言里的行为是？</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=radio name=qz-ch07-0 value=0>
 <span>各语言自己实现、可能不一致</span>
@@ -121,6 +136,14 @@ email: a@b.c</textarea></div><div class=sml-pg-actions><button class=sml-pg-run 
     const scoreEl = box.querySelector(".sml-qz-score");
     const checkBtn = box.querySelector(".sml-qz-check");
     const resetBtn = box.querySelector(".sml-qz-reset");
+    
+    const T = {
+      score: (scoreEl.dataset.tpl || "Score").trim(),
+      correct: box.dataset.tCorrect || "✓ Correct! ",
+      wrong: box.dataset.tWrong || "✗ Wrong. ",
+    };
+    const total = box.querySelectorAll(".sml-qz-item").length;
+    const scoreText = (n) => T.score + " " + n + " / " + total;
 
     function normAnswer(raw, type) {
       const a = (typeof raw === "string") ? JSON.parse(raw) : raw;
@@ -150,10 +173,10 @@ email: a@b.c</textarea></div><div class=sml-pg-actions><button class=sml-pg-run 
         const expl = item.querySelector(".sml-qz-explain");
         fb.hidden = false;
         fb.className = "sml-qz-fb " + (correct ? "ok" : "bad");
-        fb.innerHTML = (correct ? "✓ 答对！ " : "✗ 答错。 ") +
+        fb.textContent = (correct ? T.correct : T.wrong) +
           (expl ? expl.textContent : "");
       });
-      scoreEl.textContent = "得分 " + score + " / " + box.querySelectorAll(".sml-qz-item").length;
+      scoreEl.textContent = scoreText(score);
       checkBtn.disabled = true;
     }
     function reset() {
@@ -162,7 +185,7 @@ email: a@b.c</textarea></div><div class=sml-pg-actions><button class=sml-pg-run 
         const fb = item.querySelector(".sml-qz-fb");
         fb.hidden = true; fb.className = "sml-qz-fb"; fb.textContent = "";
       });
-      scoreEl.textContent = "得分 0 / " + box.querySelectorAll(".sml-qz-item").length;
+      scoreEl.textContent = scoreText(0);
       checkBtn.disabled = false;
     }
     checkBtn.addEventListener("click", check);

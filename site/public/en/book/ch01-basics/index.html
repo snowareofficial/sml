@@ -1,7 +1,7 @@
-<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Chapter 1: The First SML File · SML { ❄ } — SNOWARE Markup Language</title><style>body{font-family:system-ui,microsoft yahei,sans-serif;margin:0;background:#fafafa;color:#111}header{background:#111;color:#fff;padding:18px 32px;display:flex;align-items:center;gap:12px}header h1{margin:0;font-size:20px}header a{color:#fff;text-decoration:none}header .flake{color:#42a5f5;font-size:22px}header .lang-switch{margin-left:auto;display:flex;gap:6px}header .lang-switch a{color:#90caf9;font-size:13px;padding:4px 10px;border:1px solid #333;border-radius:6px;text-decoration:none}header .lang-switch a.active{background:#1565c0;color:#fff;border-color:#1565c0}nav{background:#1c1c1c;padding:8px 32px;position:sticky;top:0;z-index:10;display:flex;flex-wrap:wrap;gap:4px 18px}nav a{color:#90caf9;text-decoration:none;font-size:14px}nav a:hover{text-decoration:underline}nav .home{color:#fff;font-weight:600}main{max-width:880px;margin:24px auto;padding:0 24px}h2{scroll-margin-top:56px}article{background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:24px 32px}h1,h2,h3{color:#0d47a1}h2{border-bottom:2px solid #42a5f5;padding-bottom:6px}code{background:#eef4fb;padding:2px 6px;border-radius:4px;font-size:.9em;color:#1565c0}pre{background:#111;color:#e8f1fb;padding:12px;border-radius:6px;overflow-x:auto}pre code{background:0 0;color:inherit}table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#eef4fb;color:#0d47a1}.links{display:flex;gap:12px;margin:16px 0}.btn{display:inline-block;background:#1565c0;color:#fff;padding:10px 22px;border-radius:8px;text-decoration:none;font-weight:600}.btn:hover{background:#0d47a1}footer{text-align:center;padding:24px;color:#666;font-size:13px}</style></head><body><header><img src=../../../sml.svg alt=sml style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))"><h1><a href=../../../>SML { ❄ }</a></h1><span class=lang-switch><a href=../../../>中文</a>
-<a href=../../../en/ class=active>EN</a></span></header><nav><a class=home href=../../../>SML</a>
-<a href=../../../book/>Textbook</a>
-<a href=../../../playground/>Playground</a></nav><main><article><h1>Chapter 1: The First SML File</h1><h1 id=chapter-1-the-first-sml-file>Chapter 1: The First SML File</h1><p>The goal of this chapter is to write a parsed SML file that understands key value pairs, comments, and scalar types.</p><h2 id=11-the-simplest-document>1.1 The simplest document</h2><p>New <code>hello.sml</code>:</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none><code class=language-sml data-lang=sml><span style=display:flex><span>name: John
+<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Chapter 1: The First SML File · SML { ❄ } — SNOWARE Markup Language</title><style>body{font-family:system-ui,microsoft yahei,sans-serif;margin:0;background:#fafafa;color:#111}header{background:#111;color:#fff;padding:18px 32px;display:flex;align-items:center;gap:12px}header h1{margin:0;font-size:20px}header a{color:#fff;text-decoration:none}header .flake{color:#42a5f5;font-size:22px}header .lang-switch{margin-left:auto;display:flex;gap:6px}header .lang-switch a{color:#90caf9;font-size:13px;padding:4px 10px;border:1px solid #333;border-radius:6px;text-decoration:none}header .lang-switch a.active{background:#1565c0;color:#fff;border-color:#1565c0}nav{background:#1c1c1c;padding:8px 32px;position:sticky;top:0;z-index:10;display:flex;flex-wrap:wrap;gap:4px 18px}nav a{color:#90caf9;text-decoration:none;font-size:14px}nav a:hover{text-decoration:underline}nav .home{color:#fff;font-weight:600}main{max-width:880px;margin:24px auto;padding:0 24px}h2{scroll-margin-top:56px}article{background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:24px 32px}h1,h2,h3{color:#0d47a1}h2{border-bottom:2px solid #42a5f5;padding-bottom:6px}code{background:#eef4fb;padding:2px 6px;border-radius:4px;font-size:.9em;color:#1565c0}pre{background:#111;color:#e8f1fb;padding:12px;border-radius:6px;overflow-x:auto}pre code{background:0 0;color:inherit}table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#eef4fb;color:#0d47a1}.links{display:flex;gap:12px;margin:16px 0}.btn{display:inline-block;background:#1565c0;color:#fff;padding:10px 22px;border-radius:8px;text-decoration:none;font-weight:600}.btn:hover{background:#0d47a1}footer{text-align:center;padding:24px;color:#666;font-size:13px}</style></head><body><header><img src=../../../en/sml.svg alt=sml style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))"><h1><a href=../../../en/>SML { ❄ }</a></h1><span class=lang-switch><a href=../../../>中文</a>
+<a href=../../../en/ class=active>EN</a></span></header><nav><a class=home href=../../../en/>SML</a>
+<a href=../../../en/book/>Textbook</a>
+<a href=../../../en/playground/>Playground</a></nav><main><article><h1>Chapter 1: The First SML File</h1><h1 id=chapter-1-the-first-sml-file>Chapter 1: The First SML File</h1><p>The goal of this chapter is to write a parsed SML file that understands key value pairs, comments, and scalar types.</p><h2 id=11-the-simplest-document>1.1 The simplest document</h2><p>New <code>hello.sml</code>:</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none><code class=language-sml data-lang=sml><span style=display:flex><span>name: John
 </span></span><span style=display:flex><span>age: <span style=color:#ae81ff>27</span>
 </span></span></code></pre></div><p>That&rsquo;s it. Two rows of key value pairs, separated by colons for keys and values. No need for quotation marks, no need for curly braces, no need for commas.</p><blockquote><p>In SML, <strong>keys</strong> are always bare words (letters, numbers, underscores, hyphens);<strong>The value</strong> can be a naked word or enclosed in quotation marks.</p></blockquote><h2 id=12-annotations>1.2 Annotations</h2><p>SML supports three types of line comments, any of which can be used:</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none><code class=language-sml data-lang=sml><span style=display:flex><span># Well number annotation (most commonly used)
 </span></span><span style=display:flex><span>-- Double Horizontal Annotation (Soup/Lua Style)
@@ -28,16 +28,20 @@
 </span></span><span style=display:flex><span>city: <span style=color:#960050;background-color:#1e0010>北京</span>
 </span></span><span style=display:flex><span>age: <span style=color:#ae81ff>30</span>
 </span></span><span style=display:flex><span>active: true
-</span></span></code></pre></div><p>Then read it with a parser in any language, and you will get a key value tree. In the next chapter, we will organize key values into blocks and arrays, which is the true strength of SML.</p><p>→ [Chapter 2: Blocks and Nesting](/en/book/ch02 blocks)</p><h2 id=hands-on-practice>Hands on practice</h2><p>After reading this chapter, directly modify SML in the editor below and click &ldquo;Run&rdquo; to immediately see the parsing results or validation errors - having output is necessary for efficient learning.</p><div class=sml-pg data-lesson=ch01><div class=sml-pg-task><span class=sml-pg-task-tag>✍ 动手练习</span>
-<span class=sml-pg-task-text>用 SML 描述一个人：<b>firstName</b>("John Doe")、<b>state</b>(裸词 NY)、<b>age</b>(27)、<b>ratio</b>(0.75)、<b>enabled</b>(true)、<b>note</b>(null)。注意何时必须加引号。</span><div class=sml-pg-hint>💡 提示：把 firstName 的引号去掉，看裸词 NY 和引号串 "John Doe" 在结果里是否都是字符串——答案是：都是字符串，只是 NY 不需要引号。</div></div><div class=sml-pg-main><textarea class=sml-pg-code spellcheck=false data-files=null>firstName: &#34;John Doe&#34;
+</span></span></code></pre></div><p>Then read it with a parser in any language, and you will get a key value tree. In the next chapter, we will organize key values into blocks and arrays, which is the true strength of SML.</p><p>→ [Chapter 2: Blocks and Nesting](/en/book/ch02 blocks)</p><h2 id=hands-on-practice>Hands on practice</h2><p>After reading this chapter, directly modify SML in the editor below and click &ldquo;Run&rdquo; to immediately see the parsing results or validation errors - having output is necessary for efficient learning.</p><div class=sml-pg data-lesson=ch01 data-t-parse-err="✗ Parse error:
+" data-t-parse-ok="✓ Parsed successfully:
+" data-t-status-err="✗ Parse error" data-t-no-task="(No verifiable task in this chapter)" data-t-pass="✓ Passed" data-t-fail="✗ Not passed" data-t-verify-ok="✓ Verified!
+" data-t-verify-fail="✗ Not quite right:
+" data-t-result="Parsed result:" data-t-line=line data-t-col=col><div class=sml-pg-task><span class=sml-pg-task-tag>✍ Hands-on exercise</span>
+<span class=sml-pg-task-text>Describe a person using SML: <b>firstName</b>("John Doe"), <b>state</b>(Naked words NY), <b>age</b>(27), <b>ratio</b>(0.75), <b>enabled</b>(true), <b>note</b>(null). Pay attention to when quotation marks must be added.</span><div class=sml-pg-hint>💡 Hint: Remove the quotation marks from firstName and see if the naked word NY and the quotation mark string "John Doe" are both strings in the result - the answer is: they are both strings, but NY does not need quotation marks.</div></div><div class=sml-pg-main><textarea class=sml-pg-code spellcheck=false data-files=null>firstName: &#34;John Doe&#34;
 state: NY
 age: 27
 ratio: 0.75
 enabled: true
 note: null
-chinese: 中文无需引号</textarea></div><div class=sml-pg-actions><button class=sml-pg-run type=button>运行 ▶</button>
-<button class=sml-pg-verify type=button>验证 ✓</button>
-<button class=sml-pg-reset type=button>重置</button>
+chinese: 中文无需引号</textarea></div><div class=sml-pg-actions><button class=sml-pg-run type=button>Run ▶</button>
+<button class=sml-pg-verify type=button>Verify ✓</button>
+<button class=sml-pg-reset type=button>Reset</button>
 <span class=sml-pg-status></span></div><pre class=sml-pg-out hidden></pre></div><script type=module>
   import { parseSafe } from "/sml.mjs";
   import { VERIFIERS } from "/sml-verify.js";
@@ -49,6 +53,20 @@ chinese: 中文无需引号</textarea></div><div class=sml-pg-actions><button cl
     const verifyBtn = box.querySelector(".sml-pg-verify");
     const resetBtn = box.querySelector(".sml-pg-reset");
     const init = ta.value;
+    
+    const T = {
+      parseErr: box.dataset.tParseErr || "✗ Parse error:\n",
+      parseOk: box.dataset.tParseOk || "✓ Parsed successfully:\n",
+      statusErr: box.dataset.tStatusErr || "✗ Parse error",
+      noTask: box.dataset.tNoTask || "(No verifiable task in this chapter)",
+      pass: box.dataset.tPass || "✓ Passed",
+      fail: box.dataset.tFail || "✗ Not passed",
+      verifyOk: box.dataset.tVerifyOk || "✓ Verified!\n",
+      verifyFail: box.dataset.tVerifyFail || "✗ Not quite right:\n",
+      result: box.dataset.tResult || "Parsed result:",
+      line: box.dataset.tLine || "line",
+      col: box.dataset.tCol || "col",
+    };
 
     function setStatus(txt, cls) { status.textContent = txt; status.className = "sml-pg-status " + (cls || ""); }
     function parse() {
@@ -59,12 +77,13 @@ chinese: 中文无需引号</textarea></div><div class=sml-pg-actions><button cl
       if (!r.ok) {
         out.hidden = false;
         out.className = "sml-pg-out err";
-        let msg = r.error; if (r.position) msg += ` (行 ${r.position.line + 1}, 列 ${r.position.col + 1})`;
-        out.textContent = "✗ 解析错误：\n" + msg;
+        let msg = r.error;
+        if (r.position) msg += ` (${T.line} ${r.position.line + 1}, ${T.col} ${r.position.col + 1})`;
+        out.textContent = T.parseErr + msg;
         return null;
       }
       out.hidden = false; out.className = "sml-pg-out ok";
-      out.textContent = "✓ 解析成功：\n" + JSON.stringify(r.value, null, 2);
+      out.textContent = T.parseOk + JSON.stringify(r.value, null, 2);
       return r.value;
     }
     function run() { setStatus("", ""); parse(); }
@@ -74,46 +93,54 @@ chinese: 中文无需引号</textarea></div><div class=sml-pg-actions><button cl
     resetBtn.addEventListener("click", reset);
     if (verifyBtn) verifyBtn.addEventListener("click", () => {
       const v = parse();
-      if (v === null) { setStatus("✗ 解析错误", "bad"); return; }
+      if (v === null) { setStatus(T.statusErr, "bad"); return; }
       const fn = VERIFIERS["ch01"];
-      if (!fn) { setStatus("（本章暂无可验证任务）", ""); return; }
+      if (!fn) { setStatus(T.noTask, ""); return; }
       const res = fn(v);
-      setStatus(res.ok ? "✓ 通过" : "✗ 未通过", res.ok ? "good" : "bad");
+      setStatus(res.ok ? T.pass : T.fail, res.ok ? "good" : "bad");
       out.hidden = false;
       out.className = "sml-pg-out " + (res.ok ? "ok" : "err");
-      let base = res.ok ? "✓ 验证通过！\n" : "✗ 还没对：\n";
-      out.textContent = base + res.msg + "\n\n解析结果：\n" + JSON.stringify(v, null, 2);
+      let base = res.ok ? T.verifyOk : T.verifyFail;
+      out.textContent = base + res.msg + "\n\n" + T.result + "\n" + JSON.stringify(v, null, 2);
     });
     ta.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") run(); });
   });
-</script><style>.sml-pg{border:1px solid #d0d7de;border-radius:10px;margin:16px 0;overflow:hidden;background:#fff}.sml-pg-task{background:#eef4ff;border-bottom:1px solid #d0d7de;padding:10px 12px;font-size:13px;color:#1a2b4a;line-height:1.6}.sml-pg-task-tag{display:inline-block;background:#1565c0;color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;margin-right:6px}.sml-pg-hint{margin-top:6px;font-size:12px;color:#555}.sml-pg-files{font-size:12px;background:#f6f8fa;border-bottom:1px solid #eaecef}.sml-pg-files summary{padding:6px 12px;cursor:pointer;color:#57606a}.sml-pg-file{padding:0 12px 8px}.sml-pg-file-name{font-weight:700;color:#0d47a1}.sml-pg-file pre{background:#fff;border:1px solid #e1e4e8;border-radius:4px;padding:6px 8px;margin:4px 0 0;white-space:pre-wrap}.sml-pg-main{display:flex}.sml-pg-code{flex:1;min-height:200px;border:0;padding:10px 12px;font-family:sfmono-regular,Consolas,monospace;font-size:12.5px;line-height:1.5;background:#fff;color:#111;resize:vertical;white-space:pre;tab-size:2}.sml-pg-code:focus{outline:2px solid #1565c0;outline-offset:-2px}.sml-pg-actions{padding:8px 12px;display:flex;gap:8px;align-items:center;background:#f6f8fa;border-top:1px solid #eaecef}.sml-pg-actions button{background:#1565c0;color:#fff;border:0;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:13px}.sml-pg-actions button.sml-pg-reset{background:#6c757d}.sml-pg-actions button:hover{filter:brightness(1.08)}.sml-pg-status{font-size:12px;margin-left:4px}.sml-pg-status.good{color:#2e7d32}.sml-pg-status.bad{color:#c62828}.sml-pg-out{margin:0;padding:10px 12px;font-size:12px;white-space:pre-wrap;max-height:320px;overflow:auto;border-top:1px solid #eaecef}.sml-pg-out.ok{background:#e8f5e9;color:#1b5e20}.sml-pg-out.err{background:#fdecea;color:#b71c1c}</style><div class=sml-qz data-quiz=ch01><div class=sml-qz-bar><span class=sml-qz-title>✍ 自测考题：第 1 章自测：基础键值</span>
-<span class=sml-qz-score>得分 0 / 4</span>
-<button class=sml-qz-check type=button>交卷判分</button>
-<button class=sml-qz-reset type=button>重置</button></div><div class=sml-qz-body><div class=sml-qz-item data-idx=0 data-type=choice data-answer=1><div class=sml-qz-q><span class=sml-qz-no>Q1.</span> 下面哪一行在 SML 里会把 NY 解析成字符串（而不是报错）？</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=radio name=qz-ch01-0 value=0>
+</script><style>.sml-pg{border:1px solid #d0d7de;border-radius:10px;margin:16px 0;overflow:hidden;background:#fff}.sml-pg-task{background:#eef4ff;border-bottom:1px solid #d0d7de;padding:10px 12px;font-size:13px;color:#1a2b4a;line-height:1.6}.sml-pg-task-tag{display:inline-block;background:#1565c0;color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;margin-right:6px}.sml-pg-hint{margin-top:6px;font-size:12px;color:#555}.sml-pg-files{font-size:12px;background:#f6f8fa;border-bottom:1px solid #eaecef}.sml-pg-files summary{padding:6px 12px;cursor:pointer;color:#57606a}.sml-pg-file{padding:0 12px 8px}.sml-pg-file-name{font-weight:700;color:#0d47a1}.sml-pg-file pre{background:#fff;border:1px solid #e1e4e8;border-radius:4px;padding:6px 8px;margin:4px 0 0;white-space:pre-wrap}.sml-pg-main{display:flex}.sml-pg-code{flex:1;min-height:200px;border:0;padding:10px 12px;font-family:sfmono-regular,Consolas,monospace;font-size:12.5px;line-height:1.5;background:#fff;color:#111;resize:vertical;white-space:pre;tab-size:2}.sml-pg-code:focus{outline:2px solid #1565c0;outline-offset:-2px}.sml-pg-actions{padding:8px 12px;display:flex;gap:8px;align-items:center;background:#f6f8fa;border-top:1px solid #eaecef}.sml-pg-actions button{background:#1565c0;color:#fff;border:0;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:13px}.sml-pg-actions button.sml-pg-reset{background:#6c757d}.sml-pg-actions button:hover{filter:brightness(1.08)}.sml-pg-status{font-size:12px;margin-left:4px}.sml-pg-status.good{color:#2e7d32}.sml-pg-status.bad{color:#c62828}.sml-pg-out{margin:0;padding:10px 12px;font-size:12px;white-space:pre-wrap;max-height:320px;overflow:auto;border-top:1px solid #eaecef}.sml-pg-out.ok{background:#e8f5e9;color:#1b5e20}.sml-pg-out.err{background:#fdecea;color:#b71c1c}</style><div class=sml-qz data-quiz=ch01 data-t-correct="✓ Correct! " data-t-wrong="✗ Wrong. "><div class=sml-qz-bar><span class=sml-qz-title>✍ Self-check quiz: Chapter 1 Self testing: Basic Key Values</span>
+<span class=sml-qz-score data-tpl=Score>Score 0 / 4</span>
+<button class=sml-qz-check type=button>Submit</button>
+<button class=sml-qz-reset type=button>Reset</button></div><div class=sml-qz-body><div class=sml-qz-item data-idx=0 data-type=choice data-answer=1><div class=sml-qz-q><span class=sml-qz-no>Q1.</span> Which line in SML will parse NY into a string (instead of an error)?</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=radio name=qz-ch01-0 value=0>
 <span>state: "NY"</span>
 </label><label class=sml-qz-opt><input type=radio name=qz-ch01-0 value=1>
 <span>state: NY</span>
 </label><label class=sml-qz-opt><input type=radio name=qz-ch01-0 value=2>
 <span>state: (NY)</span>
 </label><label class=sml-qz-opt><input type=radio name=qz-ch01-0 value=3>
-<span>state = NY</span></label></div><div class=sml-qz-explain hidden>SML 的裸词（bareword）默认就是字符串，state: NY 与 state: "NY" 等价。</div><div class=sml-qz-fb hidden></div></div><div class=sml-qz-item data-idx=1 data-type=bool data-answer=0><div class=sml-qz-q><span class=sml-qz-no>Q2.</span> 判断：age: 27 解析后，27 是整数而不是字符串。</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=radio name=qz-ch01-1 value=0>
-<span>对</span>
+<span>state = NY</span></label></div><div class=sml-qz-explain hidden>The bare word of SML defaults to a string, and state: NY is equivalent to state: "NY".</div><div class=sml-qz-fb hidden></div></div><div class=sml-qz-item data-idx=1 data-type=bool data-answer=0><div class=sml-qz-q><span class=sml-qz-no>Q2.</span> Judgment: After parsing age: 27, 27 is an integer instead of a string.</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=radio name=qz-ch01-1 value=0>
+<span>Correct</span>
 </label><label class=sml-qz-opt><input type=radio name=qz-ch01-1 value=1>
-<span>错</span></label></div><div class=sml-qz-explain hidden>没有引号的数字会被解析为数值类型（整数/浮点），age 字段是整数 27。</div><div class=sml-qz-fb hidden></div></div><div class=sml-qz-item data-idx=2 data-type=multi data-answer=[0,1,2]><div class=sml-qz-q><span class=sml-qz-no>Q3.</span> 下面哪个值是 SML 支持的标量类型？</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=checkbox name=qz-ch01-2 value=0>
+<span>Wrong</span></label></div><div class=sml-qz-explain hidden>Numbers without quotation marks will be parsed as numeric types (integers/floating points), and the age field is an integer of 27.</div><div class=sml-qz-fb hidden></div></div><div class=sml-qz-item data-idx=2 data-type=multi data-answer=[0,1,2]><div class=sml-qz-q><span class=sml-qz-no>Q3.</span> Which of the following values is a scalar type supported by SML?</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=checkbox name=qz-ch01-2 value=0>
 <span>true / false</span>
 </label><label class=sml-qz-opt><input type=checkbox name=qz-ch01-2 value=1>
 <span>null</span>
 </label><label class=sml-qz-opt><input type=checkbox name=qz-ch01-2 value=2>
 <span>0.75</span>
 </label><label class=sml-qz-opt><input type=checkbox name=qz-ch01-2 value=3>
-<span>2024-01-01 这种日期串</span></label></div><div class=sml-qz-explain hidden>SML 标量支持 bool、null、整型、浮点、字符串；日期本质是字符串，没有专门的日期类型。</div><div class=sml-qz-fb hidden></div></div><div class=sml-qz-item data-idx=3 data-type=bool data-answer=0><div class=sml-qz-q><span class=sml-qz-no>Q4.</span> 中文“你好”作为值，需要写成 "你好" 吗？</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=radio name=qz-ch01-3 value=0>
-<span>不需要，裸词即可</span>
+<span>Date string of January 1, 2024</span></label></div><div class=sml-qz-explain hidden>SML scalars support boolean, null, integer, floating-point, and string; The essence of a date is a string and there is no specific date type.</div><div class=sml-qz-fb hidden></div></div><div class=sml-qz-item data-idx=3 data-type=bool data-answer=0><div class=sml-qz-q><span class=sml-qz-no>Q4.</span> Do I need to write "hello" as a value in Chinese?</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=radio name=qz-ch01-3 value=0>
+<span>No need, just use bare words</span>
 </label><label class=sml-qz-opt><input type=radio name=qz-ch01-3 value=1>
-<span>必须加引号</span></label></div><div class=sml-qz-explain hidden>中文等非 ASCII 裸词本身就是字符串，city: 北京 是合法的，无需引号。</div><div class=sml-qz-fb hidden></div></div></div></div><script type=module>
+<span>Quotation marks must be added</span></label></div><div class=sml-qz-explain hidden>Chinese and other non ASCII naked words themselves are strings, city: Beijing is legal and does not require quotation marks.</div><div class=sml-qz-fb hidden></div></div></div></div><script type=module>
   document.querySelectorAll('.sml-qz[data-quiz="ch01"]').forEach((box) => {
     const scoreEl = box.querySelector(".sml-qz-score");
     const checkBtn = box.querySelector(".sml-qz-check");
     const resetBtn = box.querySelector(".sml-qz-reset");
+    
+    const T = {
+      score: (scoreEl.dataset.tpl || "Score").trim(),
+      correct: box.dataset.tCorrect || "✓ Correct! ",
+      wrong: box.dataset.tWrong || "✗ Wrong. ",
+    };
+    const total = box.querySelectorAll(".sml-qz-item").length;
+    const scoreText = (n) => T.score + " " + n + " / " + total;
 
     function normAnswer(raw, type) {
       const a = (typeof raw === "string") ? JSON.parse(raw) : raw;
@@ -143,10 +170,10 @@ chinese: 中文无需引号</textarea></div><div class=sml-pg-actions><button cl
         const expl = item.querySelector(".sml-qz-explain");
         fb.hidden = false;
         fb.className = "sml-qz-fb " + (correct ? "ok" : "bad");
-        fb.innerHTML = (correct ? "✓ 答对！ " : "✗ 答错。 ") +
+        fb.textContent = (correct ? T.correct : T.wrong) +
           (expl ? expl.textContent : "");
       });
-      scoreEl.textContent = "得分 " + score + " / " + box.querySelectorAll(".sml-qz-item").length;
+      scoreEl.textContent = scoreText(score);
       checkBtn.disabled = true;
     }
     function reset() {
@@ -155,7 +182,7 @@ chinese: 中文无需引号</textarea></div><div class=sml-pg-actions><button cl
         const fb = item.querySelector(".sml-qz-fb");
         fb.hidden = true; fb.className = "sml-qz-fb"; fb.textContent = "";
       });
-      scoreEl.textContent = "得分 0 / " + box.querySelectorAll(".sml-qz-item").length;
+      scoreEl.textContent = scoreText(0);
       checkBtn.disabled = false;
     }
     checkBtn.addEventListener("click", check);

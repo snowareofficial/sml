@@ -1,7 +1,17 @@
 {{ $ch := .Get 0 | default "caddyfile" }}
-{{ $data := index site.Data "sml-challenges" }}
+{{ $isEn := in .Page.RelPermalink "/en/" }}
+{{ $data := index site.Data (cond $isEn "sml-challenges_en" "sml-challenges") }}
 {{ $cfg := index $data $ch | default (index $data "caddyfile") }}
-<div class="sml-ch" data-ch="{{ $ch }}">
+<div class="sml-ch" data-ch="{{ $ch }}"
+     data-t-parse-fail="{{ i18n "ch_parse_fail" }}"
+     data-t-status-err="{{ i18n "ch_status_err" }}"
+     data-t-no-verifier="{{ i18n "ch_no_verifier" }}"
+     data-t-done="{{ i18n "ch_done" }}"
+     data-t-complete="{{ i18n "ch_complete" }}"
+     data-t-fail="{{ i18n "ch_fail" }}"
+     data-t-cur-result="{{ i18n "ch_cur_result" }}"
+     data-t-line="{{ i18n "err_line_col" }}"
+     data-t-col="{{ i18n "err_col" }}">
   <div class="sml-ch-bar">
     <span class="sml-ch-title">🔧 {{ $cfg.title }}</span>
     <span class="sml-ch-diff">{{ $cfg.difficulty }}</span>
@@ -10,20 +20,20 @@
   <div class="sml-ch-prompt">{{ $cfg.prompt | safeHTML }}</div>
   <div class="sml-ch-grid">
     <div class="sml-ch-col">
-      <div class="sml-ch-h">原始材料（待翻译）</div>
+      <div class="sml-ch-h">{{ i18n "ch_source" }}</div>
       <pre class="sml-ch-src-readonly">{{ $cfg.source }}</pre>
     </div>
     <div class="sml-ch-col">
-      <div class="sml-ch-h">你的 SML 答案（可编辑）</div>
-      <textarea class="sml-ch-ans" spellcheck="false" placeholder="在此手写等价的 SML 配置…"></textarea>
+      <div class="sml-ch-h">{{ i18n "ch_answer" }}</div>
+      <textarea class="sml-ch-ans" spellcheck="false" placeholder="{{ i18n "ch_placeholder" }}"></textarea>
     </div>
   </div>
   <div class="sml-ch-actions">
-    <button class="sml-ch-verify" type="button">验证 ✓</button>
-    <button class="sml-ch-clear" type="button">清空</button>
+    <button class="sml-ch-verify" type="button">{{ i18n "ch_verify" }}</button>
+    <button class="sml-ch-clear" type="button">{{ i18n "ch_clear" }}</button>
   </div>
   <div class="sml-ch-fb" hidden></div>
-  {{ if $cfg.hint }}<div class="sml-ch-hint">💡 提示：{{ $cfg.hint }}</div>{{ end }}
+  {{ if $cfg.hint }}<div class="sml-ch-hint">{{ i18n "ch_hint" }}{{ $cfg.hint }}</div>{{ end }}
 </div>
 
 <script type="module">
@@ -35,27 +45,47 @@
     const status = box.querySelector(".sml-ch-status");
     const verifyBtn = box.querySelector(".sml-ch-verify");
     const clearBtn = box.querySelector(".sml-ch-clear");
+    // i18n: 文案由 Hugo i18n 注入
+    const T = {
+      parseFail: box.dataset.tParseFail || "✗ Parse failed: ",
+      statusErr: box.dataset.tStatusErr || "✗ Parse error",
+      noVerifier: box.dataset.tNoVerifier || "(No verifier function)",
+      done: box.dataset.tDone || "✓ Verified! You translated it into equivalent SML 🎉",
+      complete: box.dataset.tComplete || "✓ Challenge complete",
+      fail: box.dataset.tFail || "✗ Not passed",
+      curResult: box.dataset.tCurResult || "Current parsed result:",
+      line: box.dataset.tLine || "line",
+      col: box.dataset.tCol || "col",
+    };
 
     function verify() {
       const r = parseSafe(ans.value);
       if (!r.ok) {
         fb.hidden = false; fb.className = "sml-ch-fb bad";
-        let msg = r.error; if (r.position) msg += ` (行 ${r.position.line + 1}, 列 ${r.position.col + 1})`;
-        fb.textContent = "✗ 解析失败：" + msg;
-        status.textContent = "✗ 解析错误"; status.style.color = "#c62828";
+        let msg = r.error;
+        if (r.position) msg += ` (${T.line} ${r.position.line + 1}, ${T.col} ${r.position.col + 1})`;
+        fb.textContent = T.parseFail + msg;
+        status.textContent = T.statusErr; status.style.color = "#c62828";
         return;
       }
       const fn = CH_VERIFIERS["{{ $ch }}"];
-      const res = fn ? fn(r.value) : { ok: false, msg: "（无验证函数）" };
+      const res = fn ? fn(r.value) : { ok: false, msg: T.noVerifier };
       fb.hidden = false;
       if (res.ok) {
         fb.className = "sml-ch-fb ok";
-        fb.innerHTML = "✓ 验证通过！你成功把原始材料等价翻译成了 SML 🎉<br><pre>" + JSON.stringify(r.value, null, 2) + "</pre>";
-        status.textContent = "✓ 挑战完成"; status.style.color = "#2e7d32";
+        const pre = document.createElement("pre");
+        pre.textContent = JSON.stringify(r.value, null, 2);
+        fb.textContent = "";
+        fb.append(T.done, document.createElement("br"), pre);
+        status.textContent = T.complete; status.style.color = "#2e7d32";
       } else {
         fb.className = "sml-ch-fb bad";
-        fb.innerHTML = "✗ " + res.msg + "<br><br>当前解析结果：<pre>" + JSON.stringify(r.value, null, 2) + "</pre>";
-        status.textContent = "✗ 未通过"; status.style.color = "#c62828";
+        const pre = document.createElement("pre");
+        pre.textContent = JSON.stringify(r.value, null, 2);
+        fb.textContent = "";
+        fb.append("✗ " + res.msg, document.createElement("br"), document.createElement("br"),
+                  T.curResult, pre);
+        status.textContent = T.fail; status.style.color = "#c62828";
       }
     }
     ans.addEventListener("input", () => { if (!fb.hidden) { fb.hidden = true; status.textContent = ""; } });

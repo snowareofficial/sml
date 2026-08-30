@@ -1,18 +1,30 @@
 {{ $lesson := .Get 0 | default "contract" }}
-{{ $data := index site.Data "sml-lessons" }}
+{{ $isEn := in .Page.RelPermalink "/en/" }}
+{{ $data := index site.Data (cond $isEn "sml-lessons_en" "sml-lessons") }}
 {{ $cfg := index $data $lesson | default (index $data "contract") }}
 {{ $hasTask := and $cfg.task (ne $cfg.task "") }}
-<div class="sml-pg" data-lesson="{{ $lesson }}">
+<div class="sml-pg" data-lesson="{{ $lesson }}"
+     data-t-parse-err="{{ i18n "pg_parse_err" }}"
+     data-t-parse-ok="{{ i18n "pg_parse_ok" }}"
+     data-t-status-err="{{ i18n "pg_status_err" }}"
+     data-t-no-task="{{ i18n "pg_no_task" }}"
+     data-t-pass="{{ i18n "pg_pass" }}"
+     data-t-fail="{{ i18n "pg_fail" }}"
+     data-t-verify-ok="{{ i18n "pg_verify_ok" }}"
+     data-t-verify-fail="{{ i18n "pg_verify_fail" }}"
+     data-t-result="{{ i18n "pg_result" }}"
+     data-t-line="{{ i18n "err_line_col" }}"
+     data-t-col="{{ i18n "err_col" }}">
   {{ if $hasTask }}
   <div class="sml-pg-task">
-    <span class="sml-pg-task-tag">✍ 动手练习</span>
+    <span class="sml-pg-task-tag">{{ i18n "pg_task" }}</span>
     <span class="sml-pg-task-text">{{ $cfg.task | safeHTML }}</span>
-    {{ if $cfg.hint }}<div class="sml-pg-hint">💡 提示：{{ $cfg.hint }}</div>{{ end }}
+    {{ if $cfg.hint }}<div class="sml-pg-hint">{{ i18n "pg_hint" }}{{ $cfg.hint }}</div>{{ end }}
   </div>
   {{ end }}
   {{ if $cfg.files }}
   <details class="sml-pg-files">
-    <summary>虚拟文件（可在 include 中引用）</summary>
+    <summary>{{ i18n "pg_files" }}</summary>
     {{ range $name, $body := $cfg.files }}
     <div class="sml-pg-file"><div class="sml-pg-file-name">{{ $name }}</div><pre>{{ $body }}</pre></div>
     {{ end }}
@@ -22,9 +34,9 @@
     <textarea class="sml-pg-code" spellcheck="false" data-files='{{ $cfg.files | jsonify }}'>{{ $cfg.main }}</textarea>
   </div>
   <div class="sml-pg-actions">
-    <button class="sml-pg-run" type="button">运行 ▶</button>
-    {{ if $hasTask }}<button class="sml-pg-verify" type="button">验证 ✓</button>{{ end }}
-    <button class="sml-pg-reset" type="button">重置</button>
+    <button class="sml-pg-run" type="button">{{ i18n "pg_run" }}</button>
+    {{ if $hasTask }}<button class="sml-pg-verify" type="button">{{ i18n "pg_verify" }}</button>{{ end }}
+    <button class="sml-pg-reset" type="button">{{ i18n "pg_reset" }}</button>
     <span class="sml-pg-status"></span>
   </div>
   <pre class="sml-pg-out" hidden></pre>
@@ -41,6 +53,20 @@
     const verifyBtn = box.querySelector(".sml-pg-verify");
     const resetBtn = box.querySelector(".sml-pg-reset");
     const init = ta.value;
+    // i18n: 文案由 Hugo i18n 注入（data-t-* 属性）
+    const T = {
+      parseErr: box.dataset.tParseErr || "✗ Parse error:\n",
+      parseOk: box.dataset.tParseOk || "✓ Parsed successfully:\n",
+      statusErr: box.dataset.tStatusErr || "✗ Parse error",
+      noTask: box.dataset.tNoTask || "(No verifiable task in this chapter)",
+      pass: box.dataset.tPass || "✓ Passed",
+      fail: box.dataset.tFail || "✗ Not passed",
+      verifyOk: box.dataset.tVerifyOk || "✓ Verified!\n",
+      verifyFail: box.dataset.tVerifyFail || "✗ Not quite right:\n",
+      result: box.dataset.tResult || "Parsed result:",
+      line: box.dataset.tLine || "line",
+      col: box.dataset.tCol || "col",
+    };
 
     function setStatus(txt, cls) { status.textContent = txt; status.className = "sml-pg-status " + (cls || ""); }
     function parse() {
@@ -51,12 +77,13 @@
       if (!r.ok) {
         out.hidden = false;
         out.className = "sml-pg-out err";
-        let msg = r.error; if (r.position) msg += ` (行 ${r.position.line + 1}, 列 ${r.position.col + 1})`;
-        out.textContent = "✗ 解析错误：\n" + msg;
+        let msg = r.error;
+        if (r.position) msg += ` (${T.line} ${r.position.line + 1}, ${T.col} ${r.position.col + 1})`;
+        out.textContent = T.parseErr + msg;
         return null;
       }
       out.hidden = false; out.className = "sml-pg-out ok";
-      out.textContent = "✓ 解析成功：\n" + JSON.stringify(r.value, null, 2);
+      out.textContent = T.parseOk + JSON.stringify(r.value, null, 2);
       return r.value;
     }
     function run() { setStatus("", ""); parse(); }
@@ -66,15 +93,15 @@
     resetBtn.addEventListener("click", reset);
     if (verifyBtn) verifyBtn.addEventListener("click", () => {
       const v = parse();
-      if (v === null) { setStatus("✗ 解析错误", "bad"); return; }
+      if (v === null) { setStatus(T.statusErr, "bad"); return; }
       const fn = VERIFIERS["{{ $lesson }}"];
-      if (!fn) { setStatus("（本章暂无可验证任务）", ""); return; }
+      if (!fn) { setStatus(T.noTask, ""); return; }
       const res = fn(v);
-      setStatus(res.ok ? "✓ 通过" : "✗ 未通过", res.ok ? "good" : "bad");
+      setStatus(res.ok ? T.pass : T.fail, res.ok ? "good" : "bad");
       out.hidden = false;
       out.className = "sml-pg-out " + (res.ok ? "ok" : "err");
-      let base = res.ok ? "✓ 验证通过！\n" : "✗ 还没对：\n";
-      out.textContent = base + res.msg + "\n\n解析结果：\n" + JSON.stringify(v, null, 2);
+      let base = res.ok ? T.verifyOk : T.verifyFail;
+      out.textContent = base + res.msg + "\n\n" + T.result + "\n" + JSON.stringify(v, null, 2);
     });
     ta.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") run(); });
   });

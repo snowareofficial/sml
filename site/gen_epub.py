@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""gen_epub.py — 把 site/content/book/ 下的教科书 Markdown 打包成 EPUB。
+"""gen_epub.py — 把 site/content/zh/book/ 下的中文教科书 Markdown 打包成 EPUB。
 
 纯标准库实现（zipfile + 手写轻量 Markdown->XHTML 转换），零第三方依赖。
 
@@ -15,7 +15,7 @@ import zipfile
 import html as _html
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-BOOK_DIR = os.path.join(HERE, "content", "book")
+BOOK_DIR = os.path.join(HERE, "content", "zh", "book")
 OUT_DEFAULT = os.path.join(HERE, "public", "sml-book.epub")
 
 # 章节顺序（相对 book 目录的文件名，不含 .md）。顺序即书的阅读顺序。
