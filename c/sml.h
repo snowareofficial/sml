@@ -87,6 +87,9 @@ size_t sml_arr_len(const sml_value *arr);
 /* ---- 解析 ---- */
 /* 解析 SML 文本。成功返回新值; 失败返回 NULL 并把错误写入 err(若非 NULL, 至少 256 字节) */
 sml_value *sml_parse(const char *text, char *err, size_t errsz);
+/* 解析 SML 文件: 展开 include / @include 文本内联后解析。
+** 相对路径以文件所在目录为基准。失败返回 NULL 并写 err。 */
+sml_value *sml_parse_file(const char *path, char *err, size_t errsz);
 
 /* ---- 序列化 ---- */
 /* 序列化为 SML 文本 (round-trip)。返回调用方 sml_free_str 释放的字符串 */

@@ -4,7 +4,7 @@
 	<meta name="generator" content="Hugo 0.164.0">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SML — SNOWARE Markup Language · SML { ❄ } — SNOWARE Markup Language</title>
+  <title>SML { ❄ } — SNOWARE Markup Language · SML { ❄ } — SNOWARE Markup Language</title>
   <style>
     body { font-family: system-ui, "Microsoft YaHei", sans-serif; margin: 0; background: #fafafa; color: #111; }
     header { background: #111; color: #fff; padding: 18px 32px; display: flex; align-items: center; gap: 12px; }
@@ -42,96 +42,262 @@
   <main>
     
 <article class="list">
-  <h1>SML — SNOWARE Markup Language</h1>
+  <h1>SML { ❄ } — SNOWARE Markup Language</h1>
   <h1 id="sml---">SML { ❄ }</h1>
-<img src="sml.svg" alt="sml logo" style="width:120px;height:120px;display:block;margin:8px auto 16px">
-<p><strong>SNOWARE Markup Language</strong>：声明式数据/配置格式，JSON/YAML 的替代品。</p>
-<p>黑花括号 <strong>{}</strong> 表示语法骨架（块的边界），蓝色雪花 <strong>❄</strong> 表示精确的取值点。</p>
-<div class="links">
-  <a class="btn" href="https://gitee.com/snoware/sml" target="_blank">Gitee 仓库 →</a>
-</div>
-<h2 id="特性">特性</h2>
+<p><strong>SML（SNOWARE Markup Language）</strong> 是一种声明式数据 / 配置格式，定位为 JSON / YAML / TOML 的轻量替代品。它强调<strong>可读性</strong>与<strong>少仪式感</strong>：引号可选、块冒号可省、逗号可选、支持片段继承与契约校验。</p>
+<blockquote>
+<p>仓库：<a href="https://gitee.com/snoware/sml">snoware/sml</a> ｜ 多语言实现：Rust (<code>swsml</code>) · C (<code>sml.c</code>) · JavaScript (<code>sml.mjs</code>) · Lua (<code>lib/sml.soup</code>) · C++ · Python</p>
+</blockquote>
+<h2 id="特性一览">特性一览</h2>
 <ul>
-<li><strong>引号可选</strong>：裸词即字符串（<code>state: NY</code>）</li>
+<li><strong>引号可选</strong>：裸词即字符串；含空格 / 特殊字符才需引号</li>
 <li><strong>块冒号可省</strong>：<code>address { }</code> ≡ <code>address: { }</code></li>
-<li><strong>数组分隔灵活</strong>：<code>[ a b c ]</code>、每行一个、逗号可选</li>
-<li><strong>片段继承</strong>：<code>@name { }</code> 定义，<code>&amp;name</code> 引用</li>
-<li><strong>环境变量内联</strong>：<code>$env.VAR</code></li>
-<li><strong>类型自识别</strong>：<code>true/false/null</code> / 数字 / 字符串</li>
+<li><strong>数组分隔灵活</strong>：逗号可选 <code>[ a b c ]</code> ≡ <code>[ a, b, c ]</code></li>
+<li><strong>片段继承</strong>：<code>@base { }</code> 定义、<code>&amp;base</code> 引用，实现配置复用</li>
+<li><strong>include 内联</strong>：<code>include &quot;common.sml&quot;</code> 递归展开外部文件</li>
+<li><strong>环境变量</strong>：<code>$env.HOME</code> 在解析期内联</li>
+<li><strong>契约系统</strong>：<code>@contract</code> / <code>@is</code> 对配置做类型与结构校验（严格 / 宽松两种模式）</li>
+<li><strong>零依赖</strong>：各实现互不耦合，可单独嵌入（WASM / 沙箱 / 编辑器）</li>
 </ul>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>firstName: John
+<h2 id="多语言实现对照">多语言实现对照</h2>
+<table>
+	<thead>
+			<tr>
+					<th>语言</th>
+					<th>仓库 / 文件</th>
+					<th>状态</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>Rust</td>
+					<td><code>rust/</code> (<code>swsml</code>)</td>
+					<td>✅ 可用（契约系统完整，serde 桥接）</td>
+			</tr>
+			<tr>
+					<td>C</td>
+					<td><code>c/sml.c</code></td>
+					<td>✅ 可用（契约系统已与 Rust 100% 对齐）</td>
+			</tr>
+			<tr>
+					<td>JavaScript</td>
+					<td><code>js/sml.mjs</code></td>
+					<td>✅ 可用（零依赖 ESM，浏览器 / Node 通用，含契约与 playground）</td>
+			</tr>
+			<tr>
+					<td>Lua</td>
+					<td><code>lua/lib/sml.lua</code></td>
+					<td>✅ 可用（Soup 生态 <code>lib/sml.soup</code> 同源）</td>
+			</tr>
+			<tr>
+					<td>C++</td>
+					<td><code>cpp/</code></td>
+					<td>✅ 可用</td>
+			</tr>
+			<tr>
+					<td>Python</td>
+					<td><code>rust/</code> 外另见 <code>py</code> 绑定</td>
+					<td>✅ 可用</td>
+			</tr>
+	</tbody>
+</table>
+<blockquote>
+<p>契约系统已在 <strong>Rust / C / JavaScript</strong> 三端对齐：同一份 <code>CONFIG_CONTRACT</code> 定义，三端解析行为一致。</p>
+</blockquote>
+<h2 id="快速使用">快速使用</h2>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span># <span style="color:#960050;background-color:#1e0010">基础键值</span>
+</span></span><span style="display:flex;"><span>firstName: John
 </span></span><span style="display:flex;"><span>age: <span style="color:#ae81ff">27</span>
 </span></span><span style="display:flex;"><span>address:
 </span></span><span style="display:flex;"><span>{
 </span></span><span style="display:flex;"><span>    streetAddress: <span style="color:#e6db74">&#34;21 2nd Street&#34;</span>
 </span></span><span style="display:flex;"><span>    state: NY
 </span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span># <span style="color:#960050;background-color:#1e0010">数组（逗号可选）</span>
 </span></span><span style="display:flex;"><span>phoneNumbers: [ { <span style="color:#66d9ef">type</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">home</span> <span style="color:#960050;background-color:#1e0010">}</span> { <span style="color:#66d9ef">type</span><span style="color:#66d9ef">:</span> <span style="color:#66d9ef">office</span> <span style="color:#960050;background-color:#1e0010">}</span> ]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span># <span style="color:#960050;background-color:#1e0010">片段继承</span>
 </span></span><span style="display:flex;"><span>@base { region: cn-north-<span style="color:#ae81ff">1</span> }
 </span></span><span style="display:flex;"><span>server web { &amp;base port: <span style="color:#ae81ff">8080</span> }
-</span></span></code></pre></div><h2 id="多语言实现">多语言实现</h2>
+</span></span></code></pre></div><h3 id="rust">Rust</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-rust" data-lang="rust"><span style="display:flex;"><span><span style="color:#66d9ef">use</span> sml::parse;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">let</span> v <span style="color:#f92672">=</span> parse(<span style="color:#e6db74">&#34;name: John</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">age: 27&#34;</span>).unwrap();
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">assert_eq!</span>(v[<span style="color:#e6db74">&#34;name&#34;</span>], <span style="color:#e6db74">&#34;John&#34;</span>);
+</span></span></code></pre></div><h3 id="c">C</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;sml.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#66d9ef">char</span> err[<span style="color:#ae81ff">256</span>] <span style="color:#f92672">=</span> {<span style="color:#ae81ff">0</span>};
+</span></span><span style="display:flex;"><span>sml_value <span style="color:#f92672">*</span>v <span style="color:#f92672">=</span> <span style="color:#a6e22e">sml_parse</span>(<span style="color:#e6db74">&#34;name: John</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">age: 27&#34;</span>, err, <span style="color:#66d9ef">sizeof</span>(err));
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* v-&gt;type == SML_STR (&#34;John&#34;) ... 用 sml_free(v) 释放 */</span>
+</span></span></code></pre></div><h3 id="javascript">JavaScript</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-js" data-lang="js"><span style="display:flex;"><span><span style="color:#66d9ef">import</span> { <span style="color:#a6e22e">parse</span>, <span style="color:#a6e22e">stringify</span> } <span style="color:#a6e22e">from</span> <span style="color:#e6db74">&#34;./sml.mjs&#34;</span>;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">const</span> <span style="color:#a6e22e">v</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">parse</span>(<span style="color:#e6db74">&#39;name: John\nage: 27&#39;</span>);
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">console</span>.<span style="color:#a6e22e">log</span>(<span style="color:#a6e22e">stringify</span>(<span style="color:#a6e22e">v</span>));
+</span></span></code></pre></div><h2 id="契约系统contract">契约系统（Contract）</h2>
+<p>契约是 SML 的「配置 Schema」：定义一组字段的类型、是否必填、默认值、取值范围，并在 <code>@is</code> 应用处做校验。非常适合「用 SML 做应用配置」的场景。</p>
+<h3 id="定义契约">定义契约</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>@contract ResenderConfig loose {
+</span></span><span style="display:flex;"><span>    api_key:     str                # <span style="color:#960050;background-color:#1e0010">必填字符串</span>
+</span></span><span style="display:flex;"><span>    port:        int  default <span style="color:#ae81ff">8080</span> min <span style="color:#ae81ff">1</span> max <span style="color:#ae81ff">65535</span>
+</span></span><span style="display:flex;"><span>    debug:       bool default false
+</span></span><span style="display:flex;"><span>    mode:        enum(active, disabled) default active
+</span></span><span style="display:flex;"><span>    tags:        array[str] ?      # <span style="color:#960050;background-color:#1e0010">可选字符串数组</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>字段修饰符：</p>
 <table>
 	<thead>
 			<tr>
-					<th>语言</th>
-					<th>库</th>
-					<th>状态</th>
+					<th>修饰符</th>
+					<th>含义</th>
 			</tr>
 	</thead>
 	<tbody>
 			<tr>
-					<td><strong>Soup / Lua</strong></td>
-					<td><code>lib/sml.soup</code>（打包 <code>sml.sar</code>，零依赖）</td>
-					<td>✅ 原生</td>
+					<td><code>str</code> / <code>int</code> / <code>num</code> / <code>bool</code></td>
+					<td>字段类型</td>
 			</tr>
 			<tr>
-					<td><strong>Rust</strong></td>
-					<td><code>sml-rs</code> crate（rlib + cdylib，C-ABI）</td>
-					<td>✅ 可用</td>
+					<td><code>enum(a, b, c)</code></td>
+					<td>枚举，取值须在其中</td>
 			</tr>
 			<tr>
-					<td><strong>C</strong></td>
-					<td><code>c/sml.h</code> + <code>c/sml.c</code>（纯 C99 自包含，零依赖）</td>
-					<td>✅ 可用</td>
+					<td><code>array[T]</code></td>
+					<td>数组，元素类型 <code>T</code>（如 <code>array[int]</code>、<code>array[str]</code>）</td>
 			</tr>
 			<tr>
-					<td><strong>JavaScript</strong></td>
-					<td><code>js/sml.mjs</code>（ESM，零依赖）</td>
-					<td>✅ 可用</td>
+					<td><code>?</code> 或 <code>optional</code></td>
+					<td>可选字段</td>
+			</tr>
+			<tr>
+					<td><code>required</code></td>
+					<td>显式必填（默认即必填）</td>
+			</tr>
+			<tr>
+					<td><code>default &lt;值&gt;</code></td>
+					<td>缺失时填入该默认值（并自动视为可选）</td>
+			</tr>
+			<tr>
+					<td><code>min &lt;数&gt;</code> / <code>max &lt;数&gt;</code></td>
+					<td>数值取值范围（含端点）</td>
 			</tr>
 	</tbody>
 </table>
-<blockquote>
-<p>C 库为自包含实现（非仅头文件桥），提供 <code>sml_parse/sml_dump/sml_obj_get/sml_get_path/sml_parse_json</code> 等完整 API，可直接 <code>gcc sml.c example.c -o demo</code> 编译。</p>
+<h3 id="应用契约">应用契约</h3>
+<p>两种写法：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span># <span style="color:#960050;background-color:#1e0010">写法一：匿名块（顶层直接</span> @is<span style="color:#960050;background-color:#1e0010">）</span>
+</span></span><span style="display:flex;"><span>@contract Cfg loose { api_key: str port: int default <span style="color:#ae81ff">8080</span> }
+</span></span><span style="display:flex;"><span>@is Cfg
+</span></span><span style="display:flex;"><span>api_key: re_abc
+</span></span><span style="display:flex;"><span>port: <span style="color:#ae81ff">8080</span>
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span># <span style="color:#960050;background-color:#1e0010">写法二：字段级</span> / <span style="color:#960050;background-color:#1e0010">块级</span> @is
+</span></span><span style="display:flex;"><span>server prod {
+</span></span><span style="display:flex;"><span>    @is Cfg
+</span></span><span style="display:flex;"><span>    api_key: re_prod
+</span></span><span style="display:flex;"><span>    port: <span style="color:#ae81ff">9090</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="严格-vs-宽松">严格 vs 宽松</h3>
+<ul>
+<li><strong><code>loose</code></strong>：允许出现契约未声明的字段（容错，适合演进中的配置）</li>
+<li><strong><code>strict</code></strong>：禁止任何未声明字段，否则校验失败</li>
+</ul>
+<h3 id="组合契约递归引用">组合契约（递归引用）</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>@contract Endpoint { host: str port: int }
+</span></span><span style="display:flex;"><span>@contract Service {
+</span></span><span style="display:flex;"><span>    name:  str
+</span></span><span style="display:flex;"><span>    main:  Endpoint          # <span style="color:#960050;background-color:#1e0010">引用另一个契约</span>
+</span></span><span style="display:flex;"><span>    peers: array[Endpoint]   # <span style="color:#960050;background-color:#1e0010">契约数组</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>@is Service
+</span></span><span style="display:flex;"><span>name: gateway
+</span></span><span style="display:flex;"><span>main: { host: localhost port: <span style="color:#ae81ff">8080</span> }
+</span></span><span style="display:flex;"><span>peers: [ { host: a port: <span style="color:#ae81ff">1</span> } { host: b port: <span style="color:#ae81ff">2</span> } ]
+</span></span></code></pre></div><blockquote>
+<p>契约校验失败会返回带位置的精确错误（如 <code>contract: Service — 字段 main.port 大于最大值 65535</code>），方便编辑器 / CLI 直接定位。</p>
 </blockquote>
-<h2 id="快速使用">快速使用</h2>
-<p><strong>Lua / Soup</strong></p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-lua" data-lang="lua"><span style="display:flex;"><span><span style="color:#66d9ef">local</span> sml <span style="color:#f92672">=</span> require(<span style="color:#e6db74">&#34;lib.sml&#34;</span>)
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">local</span> v, err <span style="color:#f92672">=</span> sml.load(text)   <span style="color:#75715e">-- 解析</span>
-</span></span><span style="display:flex;"><span>print(sml.dump(v))              <span style="color:#75715e">-- 序列化</span>
-</span></span></code></pre></div><p><strong>Rust</strong></p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-rust" data-lang="rust"><span style="display:flex;"><span><span style="color:#66d9ef">use</span> sml::{parse, to_sml};
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">let</span> v <span style="color:#f92672">=</span> parse(<span style="color:#e6db74">&#34;name: John&#34;</span>)<span style="color:#f92672">?</span>;
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">println!</span>(<span style="color:#e6db74">&#34;</span><span style="color:#e6db74">{}</span><span style="color:#e6db74">&#34;</span>, to_sml(<span style="color:#f92672">&amp;</span>v));
-</span></span></code></pre></div><p><strong>C</strong></p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>sml_value <span style="color:#f92672">*</span>v <span style="color:#f92672">=</span> <span style="color:#a6e22e">sml_parse</span>(<span style="color:#e6db74">&#34;name: John&#34;</span>, err, <span style="color:#66d9ef">sizeof</span> err);
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">printf</span>(<span style="color:#e6db74">&#34;%s</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, <span style="color:#a6e22e">sml_obj_get</span>(v, <span style="color:#e6db74">&#34;name&#34;</span>)<span style="color:#f92672">-&gt;</span>u.s);
-</span></span></code></pre></div><p><strong>JavaScript</strong></p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-js" data-lang="js"><span style="display:flex;"><span><span style="color:#66d9ef">import</span> { <span style="color:#a6e22e">parse</span>, <span style="color:#a6e22e">stringify</span> } <span style="color:#a6e22e">from</span> <span style="color:#e6db74">&#34;./js/sml.mjs&#34;</span>;
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">const</span> <span style="color:#a6e22e">v</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">parse</span>(<span style="color:#e6db74">&#34;name: John&#34;</span>);
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">console</span>.<span style="color:#a6e22e">log</span>(<span style="color:#a6e22e">stringify</span>(<span style="color:#a6e22e">v</span>));
-</span></span></code></pre></div><h2 id="落地应用">落地应用</h2>
+<h2 id="进阶特性">进阶特性</h2>
+<h3 id="include-文本内联">include 文本内联</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span># main<span style="color:#960050;background-color:#1e0010">.sml</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">include</span> <span style="color:#e6db74">&#34;common.sml&#34;</span>      # <span style="color:#960050;background-color:#1e0010">递归展开，防环、深度</span> <span style="color:#960050;background-color:#1e0010">≤</span> <span style="color:#ae81ff">32</span>
+</span></span><span style="display:flex;"><span>app: myapp
+</span></span></code></pre></div><p><code>common.sml</code> 的内容会被内联到 <code>include</code> 所在位置。也可写 <code>@include &quot;x.sml&quot;</code>。</p>
+<h3 id="u-转义">\u 转义</h3>
+<p>字符串支持 <code>\u{XXXX}</code> 与 <code>\uXXXX</code> Unicode 转义，解析期转为 UTF-8：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>label: <span style="color:#e6db74">&#34;雪花 </span><span style="color:#960050;background-color:#1e0010">\</span><span style="color:#e6db74">u{2744} snow&#34;</span>
+</span></span></code></pre></div><h3 id="json-双向桥接">JSON 双向桥接</h3>
+<p>SML 与 JSON 同构（均为树状键值 / 数组），可无损互转：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-js" data-lang="js"><span style="display:flex;"><span><span style="color:#66d9ef">import</span> { <span style="color:#a6e22e">parse</span>, <span style="color:#a6e22e">stringify</span> } <span style="color:#a6e22e">from</span> <span style="color:#e6db74">&#34;./sml.mjs&#34;</span>;
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// SML -&gt; JSON
+</span></span></span><span style="display:flex;"><span><span style="color:#66d9ef">const</span> <span style="color:#a6e22e">obj</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">parse</span>(<span style="color:#a6e22e">smlText</span>);            <span style="color:#75715e">// 普通 JS 对象
+</span></span></span><span style="display:flex;"><span><span style="color:#66d9ef">const</span> <span style="color:#a6e22e">json</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">JSON</span>.<span style="color:#a6e22e">stringify</span>(<span style="color:#a6e22e">obj</span>);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// JSON -&gt; SML
+</span></span></span><span style="display:flex;"><span><span style="color:#66d9ef">const</span> <span style="color:#a6e22e">sml</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">stringify</span>(<span style="color:#a6e22e">JSON</span>.<span style="color:#a6e22e">parse</span>(<span style="color:#a6e22e">json</span>));
+</span></span></code></pre></div><p>Rust 侧通过 <code>serde</code> feature 提供 <code>sml::serde::from_str</code> / <code>to_string</code>，任意 <code>#[derive(Deserialize)]</code> 结构体都能一键反序列化。</p>
+<h2 id="落地应用">落地应用</h2>
+<p>SML 已被多个真实项目采用：</p>
 <ul>
-<li><strong>BamZap</strong> 包管理器：<code>HetuFile.sml</code> 声明式部署文件（<a href="https://bamzap.swebase.cn">bamzap.swebase.cn</a>）</li>
-<li><strong>soupmake</strong> 构建系统：<code>LanTuFile.sml</code> 构建配置（与 <code>Soupfile</code> 等价）</li>
+<li><strong>BamZap</strong>（包管理器）：<code>bamzap.sml</code> 仓库清单使用 SML 描述依赖、源、构建脚本</li>
+<li><strong>soupmake</strong>（Soup 构建系统）：用 SML 描述构件与依赖图</li>
+<li><strong>resender</strong>（Resend 发信工具）：用 SML 的契约系统做 <code>AppConfig</code> 持久化</li>
 </ul>
-<h2 id="仓库">仓库</h2>
-<ul>
-<li>源码：<a href="https://gitee.com/snoware/sml">gitee.com/snoware/sml</a></li>
-<li>许可证：MulanPSL-2.0</li>
-</ul>
+<h3 id="resender-中的使用">resender 中的使用</h3>
+<p><a href="https://gitee.com/snoware/resender">resender</a> 是一个 Rhai 驱动 + Slint GUI 的 Resend 邮件发送工具，它的配置文件 <code>resender.sml</code> 直接用 SML <strong>契约</strong>保证结构正确：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>@contract ResenderConfig loose {
+</span></span><span style="display:flex;"><span>    api_key:    str
+</span></span><span style="display:flex;"><span>    from:       str
+</span></span><span style="display:flex;"><span>    to:         array[str]
+</span></span><span style="display:flex;"><span>    subject:    str default <span style="color:#e6db74">&#34;Hello&#34;</span>
+</span></span><span style="display:flex;"><span>    port:       int default <span style="color:#ae81ff">465</span>  min <span style="color:#ae81ff">1</span> max <span style="color:#ae81ff">65535</span>
+</span></span><span style="display:flex;"><span>    tls:        bool default true
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>@is ResenderConfig
+</span></span><span style="display:flex;"><span>api_key: re_xxxxxx
+</span></span><span style="display:flex;"><span>from: me@example.com
+</span></span><span style="display:flex;"><span>to: [ alice@example.com bob@example.com ]
+</span></span><span style="display:flex;"><span>subject: Weekly Report
+</span></span><span style="display:flex;"><span>port: <span style="color:#ae81ff">465</span>
+</span></span><span style="display:flex;"><span>tls: true
+</span></span></code></pre></div><p>其 Rust 端 <code>src/config.rs</code> 维护 <code>CONFIG_CONTRACT</code> 常量（即上面的契约文本），保存时把当前配置序列化回 SML 并自动附上 <code>@is ResenderConfig</code>，读取时再校验——这正是「契约即 Schema」的典型用法。</p>
+<h2 id="完整示例">完整示例</h2>
+<p>一个接近真实的部署配置范例：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>@version v1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>@contract Service loose {
+</span></span><span style="display:flex;"><span>    name:    str
+</span></span><span style="display:flex;"><span>    port:    int  default <span style="color:#ae81ff">8080</span> min <span style="color:#ae81ff">1</span> max <span style="color:#ae81ff">65535</span>
+</span></span><span style="display:flex;"><span>    debug:   bool default false
+</span></span><span style="display:flex;"><span>    peers:   array[str] ?
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>@base {
+</span></span><span style="display:flex;"><span>    region: cn-north-<span style="color:#ae81ff">1</span>
+</span></span><span style="display:flex;"><span>    timeout: <span style="color:#ae81ff">30</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span># <span style="color:#960050;background-color:#1e0010">顶层应用契约</span>
+</span></span><span style="display:flex;"><span>@is Service
+</span></span><span style="display:flex;"><span>name: gateway
+</span></span><span style="display:flex;"><span>port: <span style="color:#ae81ff">9090</span>
+</span></span><span style="display:flex;"><span>debug: true
+</span></span><span style="display:flex;"><span>peers: [ auth billing ]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span># <span style="color:#960050;background-color:#1e0010">片段继承复用</span>
+</span></span><span style="display:flex;"><span>service auth { &amp;base port: <span style="color:#ae81ff">7100</span> name: auth-svc }
+</span></span><span style="display:flex;"><span>service billing { &amp;base port: <span style="color:#ae81ff">7200</span> name: billing-svc }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span># <span style="color:#960050;background-color:#1e0010">嵌套块</span> + <span style="color:#960050;background-color:#1e0010">数组</span>
+</span></span><span style="display:flex;"><span>database: {
+</span></span><span style="display:flex;"><span>    url: <span style="color:#e6db74">&#34;postgres://localhost:5432/app&#34;</span>
+</span></span><span style="display:flex;"><span>    pool: { min: <span style="color:#ae81ff">2</span> max: <span style="color:#ae81ff">16</span> }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>features: [ logging metrics tracing ]
+</span></span></code></pre></div><h2 id="本地-playground">本地 Playground</h2>
+<p>不想装任何东西？直接在浏览器里试：<strong><a href="./playground/">SML Playground →</a></strong></p>
+<p>左侧写 SML（含契约），右侧实时显示解析结果或精确错误位置。</p>
 
   <ul>
+    
+    <li><a href="./playground/">SML Playground</a></li>
     
   </ul>
 </article>
