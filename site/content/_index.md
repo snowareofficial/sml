@@ -14,10 +14,20 @@ title: "SML { ❄ } — SNOWARE Markup Language"
 - **块冒号可省**：`address { }` ≡ `address: { }`
 - **数组分隔灵活**：逗号可选 `[ a b c ]` ≡ `[ a, b, c ]`
 - **片段继承**：`@base { }` 定义、`&base` 引用，实现配置复用
-- **include 内联**：`include "common.sml"` 递归展开外部文件
+- **include 内联 / 命名空间**：`include "x.sml"` 递归展开；`include "x.sml" as a.b` 以点分路径隔离进独立作用域（含宏 / 契约），冲突即报错
 - **环境变量**：`$env.HOME` 在解析期内联
 - **契约系统**：`@contract` / `@is` 对配置做类型与结构校验（严格 / 宽松两种模式）
 - **零依赖**：各实现互不耦合，可单独嵌入（WASM / 沙箱 / 编辑器）
+
+## 📖 SML 教科书
+
+从零开始、循序渐进，也能当工具书随时查。→ **[在线阅读](/book/)**
+
+- [序章：为什么是 SML](/book/intro)
+- [第 1 章：第一个 SML 文件](/book/ch01-basics) · [第 2 章：块与嵌套](/book/ch02-blocks) · [第 3 章：片段继承](/book/ch03-fragments)
+- [第 4 章：include 与命名空间](/book/ch04-include) · [第 5 章：契约系统](/book/ch05-contract) · [第 6 章：环境变量与转义](/book/ch06-env-escape)
+- [第 7 章：多语言使用](/book/ch07-languages) · [第 8 章：实战项目](/book/ch08-project) · [附录：对照与排查](/book/appendix)
+- 离线版：**[下载 EPUB](/sml-book.epub)**
 
 ## 多语言实现对照
 
@@ -161,15 +171,95 @@ peers: [ { host: a port: 1 } { host: b port: 2 } ]
 
 ## 进阶特性
 
-### include 文本内联
+### include 与命名空间（可裁剪设计）
+
+> 设计哲学：**从极简到丰富，功能可裁剪**——基础能力默认开启，复杂能力（多目标 / 通配 / 正则 / 扩展名重写）必须显式 `@feature enable` 才生效，避免重蹈 YAML 过度复杂的覆辙。
+
+**基础形态**
 
 ```sml
-# main.sml
-include "common.sml"      # 递归展开，防环、深度 ≤ 32
+# 带扩展名 ⇒ 普通内联（内容直接并入当前作用域）
+include "common.sml"
 app: myapp
+
+# 不带扩展名 ⇒ 默认命名空间 = 文件名（零样板隔离）
+include "ui"          # 等价于 include "ui.sml" as ui
+title: ui.title       # 用前缀访问
+
+# 显式指定命名空间（覆盖默认）
+include "ui.sml" as ui.form.widgets
 ```
 
-`common.sml` 的内容会被内联到 `include` 所在位置。也可写 `@include "x.sml"`。
+规则很干净：**带扩展名 = 内联；不带扩展名 = 命名空间（以文件名为 ns）**。显式 `as` 始终优先。
+
+**点分路径（嵌套命名空间）**
+
+`ns` 支持 `a.b.c` 形式，等价于 Rust 的模块路径，展开为嵌套块 `a { b { c { ... } } }`。
+
+**宏与契约也随命名空间隔离（2b）**
+
+命名空间不止隔离数据键值，还隔离**宏与契约定义**：被包含文件里定义的 `@contract` / `@name` / `@base` 必须以 `ns.` 前缀对外引用，调用方才能找到：
+
+```sml
+# widgets.sml 内部
+@contract Button { label: str }
+@name primary = { label: "OK" }
+
+# 主文件引用时必须带前缀
+@is ui.form.widgets.Button
+button: &ui.form.widgets.primary
+```
+
+> 被包含文件**内部**对自身宏的自引用仍按本地名解析（无需前缀），只有**对外暴露**才需要 `ns.` 前缀——解析器按"当前命名空间栈"自动给宏注册表加前缀。
+
+**冲突即报错（不静默）**
+
+命名空间是**独占作用域**，绝不静默覆盖：
+
+- 宏/契约在 `as ns` 后注册为 `ns.Name`，调用方必须带前缀引用；同一命名空间内重复定义同名契约/片段 → 报错。
+- 缺失文件 / 循环引用 / 超过 32 层嵌套 → 报错。
+- 主文件顶层键与 `include "x" as ns` 的命名空间名冲突时，解析层应报错（Rust 实现当前以「同名键冲突提升为数组」兜底，严格冲突报错为后续版本）。
+
+**多目标与 `import` 别名**
+
+逗号分隔一次包含多个目标；`import` 是 `include` 的等价写法（语义一致）：
+
+```sml
+include "a.sml", "b.sml" as y, "c"          # 多目标，各自可有 as
+import ui.buttons, admin.panel              # import 别名写法
+```
+
+**通配与正则（需 feature 开启）**
+
+```sml
+@feature enable glob
+include "widgets/*.sml"        # glob 通配，按文件名排序逐个包含
+
+@feature enable regex
+include /plugins/.*\.sml/      # 正则匹配（/.../ 定界或 re: 前缀）
+```
+
+**零拷贝切片（性能）**
+
+`include` 不会把文件内容深拷贝拼接成一大段文本。每个被包含文件读入后只持有其字符串切片，解析器消费一段「切片流」：遇到 `include "x" as a.b` 时插入零拷贝的开块字面量 `a { b {`、接入 x 的切片、再插入闭块 `} }`。文件内容只被解析一次，无中间大字符串，内存占用 = 各文件切片之和。
+
+**Feature 分层（可裁剪）**
+
+| 层 | feature | 能力 | 默认 |
+|----|---------|------|------|
+| 0 | `include` | 基础 `include "x.sml"` 内联（带扩展名才内联） | 开 |
+| 1 | `namespace` | `as ns` + 点分路径 + 宏/契约隔离 + 冲突报错 | 开 |
+| 1 | `implicit-ns` | 无扩展名 `include "foo"` ⇒ `as foo` 默认命名空间 | 开 |
+| 2 | `multi-include` | 逗号多目标 `a, b, c` 与 `import` 别名 | 关 |
+| 2 | `glob-include` | `*` 通配 `dir/*.sml` | 关 |
+| 3 | `regex-include` | `re:` / `/.../` 正则匹配 | 关 |
+| 3 | `ext-rewrite` | `-> .sml` 把非 sml 文件当 sml 解析 | 关 |
+
+默认仅开启 `include` + `namespace` + `implicit-ns`（极简三件套）。复杂能力需 `@feature enable` 显式 opt-in。
+
+**跨语言一致**
+
+Rust / C / JavaScript / Lua 四端共用同一语义：点分路径、宏/契约隔离、冲突报错、切片式零拷贝、feature 分层裁剪。
 
 ### \u 转义
 

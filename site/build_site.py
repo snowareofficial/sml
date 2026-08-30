@@ -28,6 +28,12 @@ def main():
         print("!! 构建失败")
         return r
     print("sml 官网 -> %s" % OUT)
+    # 教科书 EPUB（纯标准库，无第三方依赖）
+    try:
+        import gen_epub
+        gen_epub.build_epub(os.path.join(OUT, "sml-book.epub"))
+    except Exception as e:  # 即便 EPUB 失败也不阻断站点
+        print("!! EPUB 生成失败（站点不受影响）:", e)
     if "--deploy" in sys.argv:
         r = subprocess.call(["wrangler", "pages", "deploy", OUT,
                              "--project-name", "sml-site"], cwd=SITE)
