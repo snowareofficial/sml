@@ -4545,11 +4545,11 @@ mod tests {
     #[test]
     fn email_in_bare_word_survives() {
         // 回归：裸词中的 `@` 曾被切成 At token，导致邮箱被截断为 `a`
-        let v = parse("to: a@b.c\nfrom: \"sal <sal@mail.swebase.cn>\"\n").unwrap();
+        let v = parse("to: a@b.c\nfrom: \"SML Team <dev@mail.swebase.cn>\"\n").unwrap();
         assert_eq!(v.get("to").unwrap().as_str(), Some("a@b.c"), "got: {v:?}");
         assert_eq!(
             v.get("from").unwrap().as_str(),
-            Some("sal <sal@mail.swebase.cn>"),
+            Some("SML Team <dev@mail.swebase.cn>"),
             "got: {v:?}"
         );
     }
@@ -4558,7 +4558,7 @@ mod tests {
     fn email_roundtrips_through_to_sml() {
         let v = Value::Object(BTreeMap::from([(
             "to".to_string(),
-            Value::Str("SALflake@qq.com".into()),
+            Value::Str("dev@mail.swebase.cn".into()),
         )]));
         let back = parse(&to_sml(&v)).unwrap();
         assert_eq!(back, v, "邮箱必须能往返，got:\n{}", to_sml(&v));

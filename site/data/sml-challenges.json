@@ -1,0 +1,23 @@
+{
+  "caddyfile": {
+    "title": "挑战 1 · Caddyfile → SML",
+    "difficulty": "★★☆",
+    "prompt": "下面是一段 Caddyfile。请用 SML 表达<b>等价</b>配置：把站点块变成嵌套块，把 <code>key value</code> 变成 <code>key: value</code>。完成后点「验证」，系统会检查关键字段是否都正确翻译。验证逻辑是 JS 直接解析你的 SML 并断言结果。",
+    "source": "example.com {\n    reverse_proxy localhost:8080\n    tls internal\n    encode gzip\n}",
+    "hint": "Caddyfile 的 `example.com { }` 块 == SML 的 `example.com { }` 嵌套块；`tls internal` == `tls: internal`。"
+  },
+  "docker-compose": {
+    "title": "挑战 2 · docker-compose.yml → SML（高难度）",
+    "difficulty": "★★★",
+    "prompt": "把下面 docker-compose 片段翻译成 SML。<b>注意</b>：YAML 的数组 <code>[a, b]</code> 在 SML 里写成 <code>[ a b ]</code>；带连字符的键名（如 <code>container_name</code>）直接当裸词键即可。验证会检查 services.web 与 services.db 的关键字段。",
+    "source": "services:\n  web:\n    image: nginx:1.27\n    ports:\n      - \"80:80\"\n    depends_on:\n      - db\n  db:\n    image: postgres:16\n    environment:\n      POSTGRES_PASSWORD: secret",
+    "hint": "SML 裸词里连字符 `-`、下划线 `_` 都是合法的键字符，所以 container_name / POSTGRES_PASSWORD 不用引号。"
+  },
+  "nginx": {
+    "title": "挑战 3 · nginx.conf → SML（高难度）",
+    "difficulty": "★★★",
+    "prompt": "把下面 nginx server 块翻译成 SML。nginx 的 <code>listen 80;</code> == SML <code>listen: 80</code>；<code>location / { }</code> 是嵌套块；<code>proxy_pass http://app;</code> 是带空格的值，需要引号。验证检查 server 块的关键指令。",
+    "source": "server {\n    listen 80;\n    server_name example.com;\n    location / {\n        proxy_pass http://app:3000;\n    }\n    location /api {\n        proxy_pass http://api:4000;\n    }\n}",
+    "hint": "proxy_pass 的值含空格和冒号，必须加引号：`proxy_pass: \"http://app:3000\"`。但 `server_name example.com` 的 example.com 是裸词即可。"
+  }
+}

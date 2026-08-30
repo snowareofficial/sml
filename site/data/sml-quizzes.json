@@ -1,0 +1,370 @@
+{
+  "intro": {
+    "title": "序章自测",
+    "items": [
+      {
+        "q": "SML 最像下面哪种“气质”？",
+        "type": "choice",
+        "options": ["严格缩进的 Python", "可省引号/逗号的声明式便签", "编译型强类型语言", "二进制序列化格式"],
+        "answer": 1,
+        "explain": "SML 是声明式数据/配置格式，引号、逗号都可省略，结构靠 {} 定界，像写便签。"
+      },
+      {
+        "q": "下面哪句话是对的？",
+        "type": "bool",
+        "options": ["SML 必须写成严格的 JSON 树", "SML 解析结果是语言无关的键值树"],
+        "answer": 1,
+        "explain": "SML 的解析结果（键值树）在 Rust/C/JS/Lua 里是同构的，这正是它跨语言友好的原因。"
+      },
+      {
+        "q": "在 SML 里，下面哪个符号可以写注释？",
+        "type": "multi",
+        "options": ["#", "--", "//", "/* */"],
+        "answer": [0, 1, 2, 3],
+        "explain": "SML 支持 #、--、// 三种行注释（到行尾），以及 /* … */ 块注释（跨行）；还有 _* … *_ 作为备用块注释风格。"
+      }
+    ]
+  },
+  "ch01": {
+    "title": "第 1 章自测：基础键值",
+    "items": [
+      {
+        "q": "下面哪一行在 SML 里会把 NY 解析成字符串（而不是报错）？",
+        "type": "choice",
+        "options": ["state: \"NY\"", "state: NY", "state: (NY)", "state = NY"],
+        "answer": 1,
+        "explain": "SML 的裸词（bareword）默认就是字符串，state: NY 与 state: \"NY\" 等价。"
+      },
+      {
+        "q": "判断：age: 27 解析后，27 是整数而不是字符串。",
+        "type": "bool",
+        "options": ["对", "错"],
+        "answer": 0,
+        "explain": "没有引号的数字会被解析为数值类型（整数/浮点），age 字段是整数 27。"
+      },
+      {
+        "q": "下面哪个值是 SML 支持的标量类型？",
+        "type": "multi",
+        "options": ["true / false", "null", "0.75", "2024-01-01 这种日期串"],
+        "answer": [0, 1, 2],
+        "explain": "SML 标量支持 bool、null、整型、浮点、字符串；日期本质是字符串，没有专门的日期类型。"
+      },
+      {
+        "q": "中文“你好”作为值，需要写成 \"你好\" 吗？",
+        "type": "bool",
+        "options": ["不需要，裸词即可", "必须加引号"],
+        "answer": 0,
+        "explain": "中文等非 ASCII 裸词本身就是字符串，city: 北京 是合法的，无需引号。"
+      }
+    ]
+  },
+  "ch02": {
+    "title": "第 2 章自测：块与数组",
+    "items": [
+      {
+        "q": "address { city: NY } 和 address: { city: NY } 两种写法结果一样吗？",
+        "type": "bool",
+        "options": ["一样", "不一样，第一个是数组"],
+        "answer": 0,
+        "explain": "SML 中块前的冒号可省，address { } 与 address: { } 等价，都是对象块。"
+      },
+      {
+        "q": "下面哪个能正确表示一个数组？",
+        "type": "choice",
+        "options": ["tags: logging metrics tracing", "tags: [ logging metrics tracing ]", "tags: ( logging metrics )", "tags = [logging, metrics]"],
+        "answer": 1,
+        "explain": "数组用方括号 [ ] 包裹；方括号内元素用空格分隔，逗号也可省略。"
+      },
+      {
+        "q": "行内对象 { name: alice role: admin } 正确的是？",
+        "type": "choice",
+        "options": ["必须用逗号分隔字段", "字段间空格分隔即可", "必须换行", "不支持行内对象"],
+        "answer": 1,
+        "explain": "行内对象 { } 内字段用空格分隔，role: admin 紧跟 name: alice 即可。"
+      },
+      {
+        "q": "判断：SML 的数组可以混合不同类型，如 [ 1 \"two\" true ]。",
+        "type": "bool",
+        "options": ["对", "错"],
+        "answer": 0,
+        "explain": "SML 不限制数组元素类型，[ 1 \"two\" true ] 是合法的异构数组。"
+      }
+    ]
+  },
+  "ch03": {
+    "title": "第 3 章自测：片段继承",
+    "items": [
+      {
+        "q": "定义可复用片段用哪个符号？",
+        "type": "choice",
+        "options": ["@base", "&base", "@is", "include"],
+        "answer": 0,
+        "explain": "@base { } 定义片段模板，&base 在别处引用它进行继承合并。"
+      },
+      {
+        "q": "service auth { &base port: 7100 } 里，如果 @base 已定义 port: 7000，结果 port 是？",
+        "type": "choice",
+        "options": ["7000（片段优先）", "7100（本地覆盖）", "两个都有", "报错"],
+        "answer": 1,
+        "explain": "引用 &base 后，本地字段会覆盖片段中的同名字段，port 取 7100。"
+      },
+      {
+        "q": "判断：&base 必须放在块的第一行才能生效。",
+        "type": "bool",
+        "options": ["错，位置不限", "对，必须是首字段"],
+        "answer": 0,
+        "explain": "&base 引用可以出现在块内任意字段位置，SML 会先做片段合并再解析其他字段。"
+      },
+      {
+        "q": "片段继承主要解决什么问题？",
+        "type": "multi",
+        "options": ["减少重复配置", "统一公共字段", "强制类型检查", "自动生成文档"],
+        "answer": [0, 1],
+        "explain": "片段用于把 region/timeout 等公共字段抽出来复用，避免每个服务重复写。"
+      }
+    ]
+  },
+  "ch04": {
+    "title": "第 4 章自测：include 与命名空间",
+    "items": [
+      {
+        "q": "include \"ui\" as ui 的作用是什么？",
+        "type": "choice",
+        "options": ["把 ui.sml 内容并入根", "把 ui.sml 装入 ui 命名空间", "重命名文件", "删除文件"],
+        "answer": 1,
+        "explain": "as ui 把被 include 的文件解析结果挂到 ui 命名空间下，用 ui.title 访问，避免命名冲突。"
+      },
+      {
+        "q": "主文件写 title: ui.title，ui 来自哪里？",
+        "type": "choice",
+        "options": ["当前文件定义的变量", "前面 include 进来的命名空间", "内置常量", "环境变量"],
+        "answer": 1,
+        "explain": "ui.title 引用的是 include \"ui\" as ui 装入的命名空间里的 title 字段。"
+      },
+      {
+        "q": "判断：include 可以引入多个文件，每个都能用 as 起不同命名空间。",
+        "type": "bool",
+        "options": ["对", "错"],
+        "answer": 0,
+        "explain": "可以 include \"a\" as a、include \"b\" as b 多次，各自隔离，互不污染根命名空间。"
+      },
+      {
+        "q": "glob 写法 include \"modules/*.sml\" as m 会？",
+        "type": "choice",
+        "options": ["只包含一个文件", "把匹配的所有文件装入 m 命名空间", "报错", "递归子目录"],
+        "answer": 1,
+        "explain": "启用 glob feature 后，*.sml 匹配到的所有文件会被批量装入 m 命名空间。"
+      }
+    ]
+  },
+  "ch05": {
+    "title": "第 5 章自测：契约系统",
+    "items": [
+      {
+        "q": "@contract Server loose { port: int min 1024 } 中 loose 表示？",
+        "type": "choice",
+        "options": ["端口必须 >= 1024", "允许契约外多余字段", "字段顺序固定", "必须加密"],
+        "answer": 1,
+        "explain": "SML 契约默认严格（拒绝未声明字段），写 loose 才放宽允许额外字段；min 1024 才是端口下界约束。"
+      },
+      {
+        "q": "port: int min 1024 max 65535，下面哪个值会校验失败？",
+        "type": "choice",
+        "options": ["1024", "8080", "80", "65535"],
+        "answer": 2,
+        "explain": "80 小于 min 1024，契约校验会报错；其余都在 [1024, 65535] 区间内。"
+      },
+      {
+        "q": "role: enum(user, admin, owner) default user 表示？",
+        "type": "multi",
+        "options": ["role 只能取三者之一", "省略 role 时默认 user", "role 必须是字符串", "role 是数组"],
+        "answer": [0, 1],
+        "explain": "enum 限定取值集合，default 在未提供该字段时填充默认值 user。"
+      },
+      {
+        "q": "判断：@is Server 之后写的数据，字段类型不对也会被契约拦下。",
+        "type": "bool",
+        "options": ["对", "错"],
+        "answer": 0,
+        "explain": "契约会检查字段类型，例如声明 str 的字段写成数字就会校验失败。"
+      }
+    ]
+  },
+  "ch06": {
+    "title": "第 6 章自测：环境变量与转义",
+    "items": [
+      {
+        "q": "把环境变量注入值用哪个语法？",
+        "type": "choice",
+        "options": ["$env.API_KEY", "${API_KEY}", "env(API_KEY)", "@env API_KEY"],
+        "answer": 0,
+        "explain": "SML 用 $env.NAME 在解析期注入环境变量的值。"
+      },
+      {
+        "q": "浏览器里跑 playground 时，$env.X 通常解析成什么？",
+        "type": "choice",
+        "options": ["真实系统变量", "空串（取不到）", "报错中断", "字符串 \"$env.X\""],
+        "answer": 1,
+        "explain": "前端 JS 解析器无法访问真实环境变量，$env.X 取不到时解析为空串，这是预期行为。"
+      },
+      {
+        "q": "判断：\\u{1F680} 会在字符串里被转义成一个 emoji 字符。",
+        "type": "bool",
+        "options": ["对", "错"],
+        "answer": 0,
+        "explain": "SML 支持 \\u{...} 码点转义，\\u{1F680} 就是 🚀。"
+      },
+      {
+        "q": "下面哪个转义是 SML 支持的？",
+        "type": "multi",
+        "options": ["\\n 换行", "\\t 制表符", "\\\" 引号", "\\x41 十六进制字节"],
+        "answer": [0, 1, 2],
+        "explain": "SML 支持 \\n \\t \\\" 等常见转义；\\x41 这类 C 风格字节转义不是其标准转义形式。"
+      }
+    ]
+  },
+  "ch07": {
+    "title": "第 7 章自测：多语言使用",
+    "items": [
+      {
+        "q": "SML 契约在多种语言里的行为是？",
+        "type": "choice",
+        "options": ["各语言自己实现、可能不一致", "同构一致", "只有 Rust 支持", "只有 JS 支持"],
+        "answer": 1,
+        "explain": "SML 的解析结果和契约校验在 Rust/C/JS/Lua 都是同构一致的，这是核心卖点。"
+      },
+      {
+        "q": "判断：同一份 SML 文件，用 Rust 和 Lua 解析，得到的字段名和嵌套结构应完全相同。",
+        "type": "bool",
+        "options": ["对", "错"],
+        "answer": 0,
+        "explain": "这正是 SML 跨语言友好的体现：数据同构，主机语言只是载体。"
+      },
+      {
+        "q": "在 JS 里调用解析器通常用哪个导出？",
+        "type": "choice",
+        "options": ["parseSafe / parse", "eval_sml", "deserialize", "load_file"],
+        "answer": 0,
+        "explain": "sml.mjs 导出 parse / parseSafe（带错误对象返回），是前端 playground 实际使用的入口。"
+      }
+    ]
+  },
+  "ch08": {
+    "title": "第 8 章自测：实战项目",
+    "items": [
+      {
+        "q": "一个真实部署配置通常会组合哪些能力？",
+        "type": "multi",
+        "options": ["@contract 校验结构", "include 拆分公共配置", "&base 片段复用", "@feature 开关可选语法"],
+        "answer": [0, 1, 2, 3],
+        "explain": "实战项目往往把契约、include、片段、$env、feature 一起用，形成可维护的配置。"
+      },
+      {
+        "q": "peers: [ auth billing ] 是什么类型？",
+        "type": "choice",
+        "options": ["对象数组", "字符串数组", "数字数组", "布尔数组"],
+        "answer": 1,
+        "explain": "方括号内是裸词 auth billing，被解析为字符串数组 [\"auth\",\"billing\"]。"
+      },
+      {
+        "q": "判断：database: { url: $env.DATABASE_URL } 把敏感信息留在源码外，是好的实践。",
+        "type": "bool",
+        "options": ["对", "错"],
+        "answer": 0,
+        "explain": "用 $env 注入密码/连接串，避免把密钥写死在配置文件里。"
+      }
+    ]
+  },
+  "ch09": {
+    "title": "第 9 章自测：功能组合",
+    "items": [
+      {
+        "q": "契约组合指什么？",
+        "type": "choice",
+        "options": ["把小契约作为字段类型复用", "把多个文件合并", "自动压缩配置", "生成代码"],
+        "answer": 0,
+        "explain": "如 Endpoint 契约被 Service 的 main: Endpoint 和 array[Endpoint] 复用，形成类型组合。"
+      },
+      {
+        "q": "哪种模式适合“多环境共享基础配置”？",
+        "type": "choice",
+        "options": ["片段 + include", "只用一个大文件", "复制粘贴", "环境变量覆盖全部"],
+        "answer": 0,
+        "explain": "把公共字段抽成 @base 片段，各环境 include 后覆盖差异字段，最易维护。"
+      },
+      {
+        "q": "判断：array[Endpoint] ? 末尾的 ? 表示该字段可省略。",
+        "type": "bool",
+        "options": ["对", "错"],
+        "answer": 0,
+        "explain": "? 表示该字段可选（nullable/可缺省），不提供时不会触发契约错误。"
+      },
+      {
+        "q": "设计模式里“校验前置”推荐用？",
+        "type": "multi",
+        "options": ["@contract strict", "@is 在入口校验", "运行时才检查", "完全不校验"],
+        "answer": [0, 1],
+        "explain": "用 strict 契约 + @is 在配置加载入口就校验，能尽早暴露错误配置。"
+      }
+    ]
+  },
+  "ch10": {
+    "title": "第 10 章自测：feature 参考",
+    "items": [
+      {
+        "q": "开启 glob 通配 include 用哪个 feature？",
+        "type": "choice",
+        "options": ["@feature enable glob", "@feature glob on", "enable glob", "@glob"],
+        "answer": 0,
+        "explain": "语法是 @feature enable glob，启用后 include \"x/*.sml\" 才支持通配。"
+      },
+      {
+        "q": "判断：不声明 @feature，SML 基础语法（键值/块/数组/契约）仍全部可用。",
+        "type": "bool",
+        "options": ["对", "错"],
+        "answer": 0,
+        "explain": "feature 只控制可选/扩展语法，核心语法默认开启，无需声明。"
+      },
+      {
+        "q": "下面哪个属于 feature 控制的扩展能力？",
+        "type": "multi",
+        "options": ["glob 通配 include", "裸词字符串", "$env 注入", "隐式命名空间"],
+        "answer": [0, 3],
+        "explain": "glob 和 implicit-ns 等是 feature 开关项；裸词、$env 是基础语法。"
+      },
+      {
+        "q": "@feature 写错（如拼错名字）通常会？",
+        "type": "choice",
+        "options": ["静默忽略", "报“未知 feature”类错误", "自动修正", "当作注释"],
+        "answer": 1,
+        "explain": "解析器会识别未知 feature 名并报错，提示可用 feature 清单。"
+      }
+    ]
+  },
+  "appendix": {
+    "title": "附录自测",
+    "items": [
+      {
+        "q": "与 JSON 相比，SML 的显著区别是？",
+        "type": "multi",
+        "options": ["引号可省", "逗号可省", "结构靠 {} 而非缩进", "必须写根对象名"],
+        "answer": [0, 1, 2],
+        "explain": "SML 裸词省引号、空格/换行分隔省逗号，用花括号定界；无需像 JSON 那样严格加引号逗号。"
+      },
+      {
+        "q": "判断：SML 的契约系统（@contract）在 JSON Schema 里没有直接等价物。",
+        "type": "bool",
+        "options": ["对", "错"],
+        "answer": 0,
+        "explain": "SML 把契约内建进配置语言本身，JSON 需额外 Schema 文件，二者定位不同。"
+      },
+      {
+        "q": "排查“字段未生效”时，优先检查？",
+        "type": "choice",
+        "options": ["拼写/命名空间/契约 strict", "显卡驱动", "网络带宽", "操作系统版本"],
+        "answer": 0,
+        "explain": "配置不生效多因字段名拼错、命名空间没引用、或 strict 契约把多余字段丢弃。"
+      }
+    ]
+  }
+}

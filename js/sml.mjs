@@ -1,19 +1,22 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 // SML — SNOWARE Markup Language (JavaScript 实现, ESM)
 //
-// 纯 JS、零依赖，Node ≥14 与浏览器均可用。语法与 Soup 生态的
+// 纯 JS、零依赖，Node >=14 与浏览器均可用。语法与 Soup 生态的
 // lib/sml.soup (Lua) 及 sml-rs (Rust) 对齐：
 //   裸词字符串 / 引号串（转义 + $env 内联）/ true/false/null / 数字 /
 //   块 key { } / 裸块 type name { } / 数组 [ ] / 逗号可选 /
 //   注释：单行 `#` / `--` / `//`，多行 `/* */` 与 `_* *_` /
 //   @name { } 片段定义 & 引用 /
-//   @contract Name [loose] { ... } 契约定义与 @is Name 契约应用。
+//   @contract Name [loose] { ... } 契约定义与 @is Name 契约应用 /
+//   include "x" [as ns] 多文件包含与命名空间隔离 /
+//   @feature enable/disable 功能裁剪。
 //
 // API:
-//   parse(text)   -> value | throws        （解析 SML 文本）
-//   parseSafe(text) -> { ok, value|error }  （安全版，不抛异常）
-//   stringify(v)  -> string                 （序列化回 SML，round-trip）
-//   dump(v)       -> string                 （同 stringify）
+//   parse(text, opts?)            -> value | throws
+//       opts.files: { "ui.sml": "...", ... }  虚拟文件表（用于 include）
+//       opts.features: Set<string> | null      开启的 feature（null = 全部默认开）
+//   parseSafe(text, opts?)        -> { ok, value|error, position }
+//   stringify(v) / dump(v)        -> string   （序列化回 SML，round-trip）
 //   契约错误以 message 中 "contract:" 前缀标识，可被 playground 高亮。
 
 // ---------------------------------------------------------------------------
@@ -60,8 +63,22 @@ function tokenize(text) {
         if (cc === "\\" && i + 1 < n) {
           i++;
           const e = text[i];
-          s += ({ n: "\n", t: "\t", r: "\r", "0": "\0", '"': '"', "\\": "\\" }[e] ?? e);
-          i++;
+          if (e === "u") {
+            // \u{1F680} 或 \u1F680（4 位十六进制码点）
+            if (text[i + 1] === "{") {
+              let j = i + 2, hex = "";
+              while (j < n && text[j] !== "}") { hex += text[j]; j++; }
+              i = j + 1;
+              s += String.fromCodePoint(parseInt(hex, 16));
+            } else {
+              const hex = text.slice(i + 1, i + 5);
+              i += 4;
+              s += String.fromCodePoint(parseInt(hex, 16));
+            }
+          } else {
+            s += ({ n: "\n", t: "\t", r: "\r", "0": "\0", '"': '"', "\\": "\\" }[e] ?? e);
+            i++;
+          }
         } else { s += cc; i++; }
       }
       toks.push({ t: "str", v: s, pos: qStart });
@@ -70,7 +87,6 @@ function tokenize(text) {
       toks.push({ t: c, v: c, pos: i });
       i++;
     } else if (c === "?") {
-      // 契约字段可选修饰符
       flush();
       toks.push({ t: "?", v: "?", pos: i });
       i++;
@@ -103,12 +119,35 @@ export function offsetToPosition(text, offset) {
 // 值转换
 // ---------------------------------------------------------------------------
 
-function coerceWord(w, fragments) {
+function envLookup(name) {
+  if (typeof process !== "undefined" && process.env && name in process.env) {
+    return process.env[name];
+  }
+  if (typeof globalThis !== "undefined" && globalThis.__SML_ENV__ && name in globalThis.__SML_ENV__) {
+    return globalThis.__SML_ENV__[name];
+  }
+  return "";
+}
+
+function coerceWord(w, fragments, nsMap) {
   if (w === "true") return true;
   if (w === "false") return false;
   if (w === "null") return null;
   const ev = w.match(/^\$env\.(.+)$/);
-  if (ev) return (typeof process !== "undefined" && process.env && process.env[ev[1]]) ?? "";
+  if (ev) return envLookup(ev[1]);
+  // 命名空间解引用：ns.field(.sub) 取值（如 include "ui" as ui 后 ui.title）
+  if (nsMap && w.includes(".")) {
+    const dot = w.indexOf(".");
+    const head = w.slice(0, dot);
+    if (Object.prototype.hasOwnProperty.call(nsMap, head)) {
+      let cur = nsMap[head];
+      for (const k of w.slice(dot + 1).split(".")) {
+        if (cur != null && typeof cur === "object" && !Array.isArray(cur)) cur = cur[k];
+        else return w;
+      }
+      if (cur !== undefined) return cur;
+    }
+  }
   if (w.startsWith("&")) {
     const name = w.slice(1);
     if (fragments.has(name)) return structuredClone(fragments.get(name));
@@ -122,7 +161,7 @@ function coerceWord(w, fragments) {
 
 function coerceStr(s, fragments) {
   const ev = s.match(/^\$env\.(.+)$/);
-  if (ev) return (typeof process !== "undefined" && process.env && process.env[ev[1]]) ?? "";
+  if (ev) return envLookup(ev[1]);
   return s;
 }
 
@@ -161,24 +200,18 @@ function valueMatchesType(v, sp) {
   }
 }
 
-// 把契约中声明的默认值填进 obj（仅当字段缺失且声明了 default）
 function applyDefaults(contract, obj) {
   for (const [k, sp] of Object.entries(contract.fields)) {
-    if (!(k in obj) && sp.def !== undefined) {
-      obj[k] = sp.def;
-    }
+    if (!(k in obj) && sp.def !== undefined) obj[k] = sp.def;
   }
 }
 
-// 递归校验 obj 是否满足 contract；返回 null 表示通过，否则返回错误串
 function checkContract(contracts, contract, obj, path) {
   const errs = [];
   for (const [k, sp] of Object.entries(contract.fields)) {
     const full = path ? `${path}.${k}` : k;
     if (!(k in obj)) {
-      if (sp.required && sp.def === undefined) {
-        errs.push(`契约字段缺失: ${full}`);
-      }
+      if (sp.required && sp.def === undefined) errs.push(`契约字段缺失: ${full}`);
       continue;
     }
     const v = obj[k];
@@ -203,7 +236,6 @@ function checkContract(contracts, contract, obj, path) {
       if (hi !== undefined && v > hi) errs.push(`字段 ${full} 大于最大值 ${hi}`);
     }
   }
-  // loose 模式允许未声明字段；strict 模式禁止未声明字段
   if (!contract.loose) {
     for (const k of Object.keys(obj)) {
       if (k === "__type" || k === "__name") continue;
@@ -216,13 +248,105 @@ function checkContract(contracts, contract, obj, path) {
 }
 
 // ---------------------------------------------------------------------------
+// include / feature 解析辅助
+// ---------------------------------------------------------------------------
+
+const DEFAULT_FEATURES = new Set([
+  "include", "namespace", "implicit-ns", "contract", "env", "escape",
+  "fragment", "top-array", "bareword-str",
+]);
+
+// 从文本里扫出 @feature enable/disable 声明，返回生效的 feature Set
+function collectFeatures(text, base) {
+  const feats = new Set(base || DEFAULT_FEATURES);
+  const re = /@feature\s+(enable|disable)\s+([^\n@]+)/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const mode = m[1];
+    const words = m[2].trim().split(/\s+/).filter(Boolean);
+    for (const w of words) {
+      if (mode === "enable") feats.add(w);
+      else feats.delete(w);
+    }
+  }
+  return feats;
+}
+
+// 把 "a.b.c" 这样的点分路径在 obj 上建成嵌套块，返回最内层对象
+function ensureNsPath(obj, path) {
+  let cur = obj;
+  for (const part of path.split(".").filter(Boolean)) {
+    if (cur[part] === undefined || typeof cur[part] !== "object" || Array.isArray(cur[part])) {
+      cur[part] = {};
+    }
+    cur = cur[part];
+  }
+  return cur;
+}
+
+// 把 src 合并进 target（对象合并；同键：src 覆盖，若都为对象则深合并）
+function mergeInto(target, src) {
+  for (const k of Object.keys(src)) {
+    if (k === "__type" || k === "__name") continue;
+    if (src[k] && typeof src[k] === "object" && !Array.isArray(src[k]) &&
+        target[k] && typeof target[k] === "object" && !Array.isArray(target[k])) {
+      mergeInto(target[k], src[k]);
+    } else {
+      target[k] = src[k];
+    }
+  }
+}
+
+// 解析 include 目标列表文本（如 `"a.sml" as x, "b" import y` 或 `import a.b.c, d`）
+function parseIncludeTargets(line, feats) {
+  // 拆逗号（仅在引号外）
+  const parts = [];
+  let buf = "", inStr = false;
+  for (const ch of line) {
+    if (ch === '"') { inStr = !inStr; buf += ch; }
+    else if (ch === "," && !inStr) { parts.push(buf.trim()); buf = ""; }
+    else buf += ch;
+  }
+  if (buf.trim()) parts.push(buf.trim());
+
+  const targets = [];
+  for (let raw of parts) {
+    let ns = null;
+    let viaImport = false;
+    // as ns
+    const asM = raw.match(/\bas\s+([A-Za-z0-9_.\-]+)/);
+    if (asM) { ns = asM[1]; raw = raw.slice(0, asM.index) + raw.slice(asM.index + asM[0].length); }
+    if (/\bimport\b/.test(raw)) viaImport = true;
+    // 取路径：引号内 或 裸词（import 形式）
+    const qM = raw.match(/"([^"]+)"/);
+    const wM = raw.match(/([A-Za-z0-9_.\-]+)/);
+    let path = qM ? qM[1] : (wM ? wM[1] : null);
+    if (!path) continue;
+    // 隐式命名空间：无扩展名且 implicit-ns 开启时
+    if (feats.has("implicit-ns") && !path.includes(".") && !ns) {
+      ns = path;
+    }
+    // 补 .sml
+    if (!path.includes(".")) path += ".sml";
+    targets.push({ path, ns, viaImport });
+  }
+  return targets;
+}
+
+// ---------------------------------------------------------------------------
 // 解析（递归下降）
 // ---------------------------------------------------------------------------
 
-export function parse(text) {
+export function parse(text, opts) {
+  opts = opts || {};
+  const files = opts.files || {};
+  const baseFeatures = opts.features || null;
+  const nsPrefix = opts.nsPrefix || "";
+
   const toks = tokenize(text);
-  const fragments = new Map();   // 片段: name -> value
-  const contracts = {};          // 契约: name -> { fields, loose }
+  const fragments = new Map();
+  const contracts = {};
+  const nsMap = {};
   let i = 0;
   const peek = () => toks[i];
   const fail = (msg, pos) => {
@@ -233,16 +357,16 @@ export function parse(text) {
     throw e;
   };
 
-  // 读取一个裸词 / 引号串的字面量（不进 fragments &）
+  const feats = collectFeatures(text, baseFeatures);
+
   function literal() {
     const t = peek();
     if (!t) fail("sml: 期望字面量");
     if (t.t === "str") { i++; return coerceStr(t.v, fragments); }
-    if (t.t === "word") { i++; return coerceWord(t.v, fragments); }
+    if (t.t === "word") { i++; return coerceWord(t.v, fragments, nsMap); }
     fail("sml: 期望字面量, 得 " + t.t);
   }
 
-  // 解析一个契约字段规格（消费 `type ? optional default ...` 等），返回 FieldSpec
   function parseFieldSpec() {
     const t = peek();
     if (!t || t.t !== "word") fail("sml: 字段类型期望标识符");
@@ -254,7 +378,7 @@ export function parse(text) {
     else if (typeWord === "num") sp.type = "num";
     else if (typeWord === "bool") sp.type = "bool";
     else if (typeWord === "any") sp.type = "any";
-    else     if (typeWord === "enum") {
+    else if (typeWord === "enum") {
       sp.type = "enum";
       sp.enumVals = [];
       if (peek() && peek().t === "(") {
@@ -279,11 +403,9 @@ export function parse(text) {
         if (peek() && peek().t === "]") i++;
       }
     } else {
-      // 引用其它契约名 -> 组合契约
       sp.type = "contract";
       sp.refName = typeWord;
     }
-    // 修饰符: ? / optional / required / default / min / max
     let defaultSet = false;
     while (true) {
       const m = peek();
@@ -292,12 +414,7 @@ export function parse(text) {
       if (m.t === "word") {
         if (m.v === "optional") { sp.required = false; i++; continue; }
         if (m.v === "required") { sp.required = true; i++; continue; }
-        if (m.v === "default") {
-          i++;
-          sp.def = literal();
-          defaultSet = true;
-          continue;
-        }
+        if (m.v === "default") { i++; sp.def = literal(); defaultSet = true; continue; }
         if (m.v === "min") { i++; sp.min = Number(literal()); continue; }
         if (m.v === "max") { i++; sp.max = Number(literal()); continue; }
       }
@@ -307,7 +424,6 @@ export function parse(text) {
     return sp;
   }
 
-  // 解析契约体: { field: type ...; field2: ... } 直到 }
   function parseContractBody() {
     const fields = {};
     if (peek() && peek().t === "{") i++; else fail("sml: @contract 后须契约体 { }");
@@ -316,14 +432,31 @@ export function parse(text) {
       if (peek().t !== "word") fail("sml: 契约字段期望名称, 得 " + peek().t);
       const fkey = peek().v; i++;
       if (peek() && peek().t === ":") i++;
-      // 字段可能带块: `addr: { city: str }` —— 这里只接受单层 type 规格
       const sp = parseFieldSpec();
       fields[fkey] = sp;
-      // 跳过可选尾随逗号/分号
       if (peek() && (peek().t === "," || peek().t === ";")) i++;
     }
     if (peek() && peek().t === "}") i++;
     return fields;
+  }
+
+  // 解析 include：返回若干 { text, ns } 目标并递归 parse
+  function resolveIncludes(line) {
+    if (!feats.has("include")) fail("sml: include 未启用（需要 feature 'include'）");
+    const targets = parseIncludeTargets(line, feats);
+    const results = [];
+    for (const tg of targets) {
+      let text = files[tg.path];
+      if (text === undefined) {
+        // 也允许直接用 key（不带扩展名）
+        text = files[tg.path.replace(/\.sml$/, "")];
+      }
+      if (text === undefined) fail("sml: include 目标未找到: " + tg.path);
+      const childPrefix = tg.ns ? nsPrefix + tg.ns + "." : nsPrefix;
+      const v = parse(text, { files, features: feats, nsPrefix: childPrefix });
+      results.push({ value: v, ns: tg.ns });
+    }
+    return results;
   }
 
   function parseBlock(closing) {
@@ -354,6 +487,17 @@ export function parse(text) {
           i++;
           continue;
         }
+        if (fname === "feature") {
+          // 已在 collectFeatures 处理，这里只需消费掉这一条 @feature 指令的 token：
+          // 直到行尾（下一个 @ 指令、块边界、或 , ; 作为语句分隔）
+          while (i < toks.length) {
+            const tk = toks[i];
+            if (tk.t === "@" || tk.t === "}" || tk.t === "]") break;
+            if (tk.t === "," || tk.t === ";") { i++; break; }
+            i++;
+          }
+          continue;
+        }
         if (fname === "contract") {
           i++;
           const cname = peek() && peek().v;
@@ -363,7 +507,7 @@ export function parse(text) {
           if (peek() && peek().t === "word" && peek().v === "loose") { loose = true; i++; }
           else if (peek() && peek().t === "word" && peek().v === "strict") { loose = false; i++; }
           const fields = parseContractBody();
-          contracts[cname] = { fields, loose };
+          contracts[nsPrefix + cname] = { fields, loose };
           continue;
         }
         if (fname === "is") {
@@ -371,7 +515,8 @@ export function parse(text) {
           const cname = peek() && peek().v;
           if (!cname) fail("sml: @is 后须契约名");
           i++;
-          appliedContract = cname;
+          appliedContract = nsPrefix + cname;
+          if (!(appliedContract in contracts)) appliedContract = cname; // 回退裸名
           continue;
         }
         // @name [type [name]] { ... } 片段定义
@@ -386,11 +531,54 @@ export function parse(text) {
           i++;
           const sub = parseBlock("}");
           if (ftype) { sub.__type = ftype; if (farg) sub.__name = farg; }
-          fragments.set(fname, sub);
+          fragments.set(nsPrefix + fname, sub);
         }
         continue;
       }
+      // include 处理：键为 include / import
       const key = (peek() && peek().v);
+      if (key === "include" || key === "import") {
+        i++;
+        if (peek() && peek().t === ":") i++;
+        // 收集 include 参数：引号路径 / as / 命名空间词 / 逗号；遇到 `:`（下个键）
+        // 或 @ / } / ] 即停止。tokenize 已去换行，故用这些边界切分语句。
+        const importMode = (key === "import");
+        let line = "";
+        let lastWasAs = false;
+        while (peek()) {
+          const tk = peek();
+          if (tk.t === "str") { line += tk.v + " "; i++; lastWasAs = false; continue; }
+          if (tk.t === "word" && tk.v === "as") { line += " as "; i++; lastWasAs = true; continue; }
+          if (tk.t === ",") { line += ","; i++; lastWasAs = false; continue; }
+          if (tk.t === ":") break;                       // 下一行键开始
+          if (tk.t === "@" || tk.t === "}" || tk.t === "]") break;
+          if (tk.t === "word" && lastWasAs) { line += tk.v; i++; lastWasAs = false; continue; }
+          if (tk.t === "word" && importMode) { line += tk.v; i++; lastWasAs = false; continue; }
+          if (tk.t === "word" && !lastWasAs) break;       // 其它裸词（下一行的键）停下
+          break;
+        }
+        const resolved = resolveIncludes(line);
+        for (const r of resolved) {
+          if (r.ns) {
+            const target = ensureNsPath(node, r.ns);
+            mergeInto(target, r.value);
+            nsMap[r.ns] = r.value;
+          } else {
+            mergeInto(node, r.value);
+          }
+        }
+        continue;
+      }
+      // 片段展开：块首字段为 &name 且其后是其它键值（非 `&name: v` 退化形式）时，
+      // 将已定义片段的字段合并进当前块，再继续解析后续字段。
+      if (typeof key === "string" && key.startsWith("&") && !(peek() && peek().t === ":")) {
+        const fName = key.slice(1);
+        if (fragments.has(fName)) {
+          i++; // 消费掉 &name token，避免重复处理
+          Object.assign(node, structuredClone(fragments.get(fName)));
+          continue;
+        }
+      }
       if (key === undefined) fail("sml: 期望键");
       i++;
       let colon = false;
@@ -406,7 +594,7 @@ export function parse(text) {
         if (found) {
           const args = [];
           while (peek() && (peek().t === "word" || peek().t === "str")) {
-            args.push(peek().t === "str" ? coerceStr(peek().v, fragments) : coerceWord(peek().v, fragments));
+            args.push(peek().t === "str" ? coerceStr(peek().v, fragments) : coerceWord(peek().v, fragments, nsMap));
             i++;
           }
           if (peek() && peek().t === "{") {
@@ -427,12 +615,12 @@ export function parse(text) {
         i++;
         setField(key, parseArray());
       } else if (nxt && (nxt.t === "word" || nxt.t === "str")) {
-        setField(key, nxt.t === "str" ? coerceStr(nxt.v, fragments) : coerceWord(nxt.v, fragments));
+        setField(key, nxt.t === "str" ? coerceStr(nxt.v, fragments) : coerceWord(nxt.v, fragments, nsMap));
         i++;
       } else if (colon) {
         setField(key, null);
       } else {
-        setField(key, coerceWord(key, fragments));
+        setField(key, coerceWord(key, fragments, nsMap));
       }
     }
     if (appliedContract) {
@@ -440,9 +628,7 @@ export function parse(text) {
       if (!c) fail("sml: 应用未定义契约 " + appliedContract);
       applyDefaults(c, node);
       const errs = checkContract(contracts, c, node, "");
-      if (errs) {
-        fail("contract: " + appliedContract + " — " + errs.join("; "));
-      }
+      if (errs) fail("contract: " + appliedContract + " — " + errs.join("; "));
     }
     return node;
   }
@@ -457,7 +643,7 @@ export function parse(text) {
         i++;
         arr.push(parseBlock("}"));
       } else if (tok.t === "word" || tok.t === "str") {
-        arr.push(tok.t === "str" ? coerceStr(tok.v, fragments) : coerceWord(tok.v, fragments));
+        arr.push(tok.t === "str" ? coerceStr(tok.v, fragments) : coerceWord(tok.v, fragments, nsMap));
         i++;
       } else break;
     }
@@ -471,9 +657,10 @@ export function parse(text) {
 }
 
 /// 安全解析，不抛异常。
-export function parseSafe(text) {
-  try { return { ok: true, value: parse(text) }; }
-  catch (e) {
+export function parseSafe(text, opts) {
+  try {
+    return { ok: true, value: parse(text, opts) };
+  } catch (e) {
     const msg = String((e && e.message) || e);
     const pos = typeof e?.pos === "number" ? e.pos : null;
     return {
@@ -506,9 +693,7 @@ function dumpValue(v, indent, out) {
     if (v.length === 0) out.push("[]");
     else {
       out.push("[");
-      for (const e of v) {
-        out.push("\n" + "  ".repeat(indent + 1) + dumpInline(e));
-      }
+      for (const e of v) out.push("\n" + "  ".repeat(indent + 1) + dumpInline(e));
       out.push("\n" + pad + "]");
     }
   } else if (typeof v === "object") {
@@ -577,4 +762,9 @@ port: 99999
 `;
   const r = parseSafe(c);
   console.log("contract (bad):", JSON.stringify(r));
+
+  // include 自检
+  const main = `include "ui" as ui\ntitle: ui.title`;
+  const files = { "ui.sml": `title: Hello` };
+  console.log("include:", JSON.stringify(parse(main, { files })));
 }

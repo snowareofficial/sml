@@ -81,7 +81,7 @@ apiKey: $env.RESEND_API_KEY
 # 词中 @ 无需转义（仅词首的 @ 才是片段标记）
 contact {
     to: a@b.c
-    from: "sal <sal@mail.swebase.cn>"
+    from: "SML Team <dev@mail.swebase.cn>"
 }
 ```
 
@@ -445,7 +445,7 @@ apiKey: $env.RESEND_API_KEY
 # `@` inside a word needs no escaping (only a leading `@` is a fragment marker)
 contact {
     to: a@b.c
-    from: "sal <sal@mail.swebase.cn>"
+    from: "SML Team <dev@mail.swebase.cn>"
 }
 ```
 

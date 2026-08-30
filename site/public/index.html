@@ -41,14 +41,17 @@
   <nav>
     <a class="home" href="./">SML</a>
     
-    <a href="#特性一览">特性一览</a>
-    <a href="#多语言实现对照">多语言实现对照</a>
-    <a href="#快速使用">快速使用</a>
-    <a href="#契约系统contract">契约系统</a>
-    <a href="#进阶特性">进阶特性</a>
-    <a href="#落地应用">落地应用</a>
-    <a href="#完整示例">完整示例</a>
-    <a href="#本地-playground">Playground</a>
+      <a href="./book/">教科书</a>
+      
+      <a href="#特性一览">特性一览</a>
+      <a href="#多语言实现对照">多语言实现对照</a>
+      <a href="#快速使用">快速使用</a>
+      <a href="#契约系统contract">契约系统</a>
+      <a href="#进阶特性">进阶特性</a>
+      <a href="#落地应用">落地应用</a>
+      <a href="#完整示例">完整示例</a>
+      <a href="#本地-playground">Playground</a>
+      
     
   </nav>
   <main>
@@ -66,10 +69,19 @@
 <li><strong>块冒号可省</strong>：<code>address { }</code> ≡ <code>address: { }</code></li>
 <li><strong>数组分隔灵活</strong>：逗号可选 <code>[ a b c ]</code> ≡ <code>[ a, b, c ]</code></li>
 <li><strong>片段继承</strong>：<code>@base { }</code> 定义、<code>&amp;base</code> 引用，实现配置复用</li>
-<li><strong>include 内联</strong>：<code>include &quot;common.sml&quot;</code> 递归展开外部文件</li>
+<li><strong>include 内联 / 命名空间</strong>：<code>include &quot;x.sml&quot;</code> 递归展开；<code>include &quot;x.sml&quot; as a.b</code> 以点分路径隔离进独立作用域（含宏 / 契约），冲突即报错</li>
 <li><strong>环境变量</strong>：<code>$env.HOME</code> 在解析期内联</li>
 <li><strong>契约系统</strong>：<code>@contract</code> / <code>@is</code> 对配置做类型与结构校验（严格 / 宽松两种模式）</li>
 <li><strong>零依赖</strong>：各实现互不耦合，可单独嵌入（WASM / 沙箱 / 编辑器）</li>
+</ul>
+<h2 id="-sml-教科书">📖 SML 教科书</h2>
+<p>从零开始、循序渐进，也能当工具书随时查。→ <strong><a href="./book/">在线阅读</a></strong></p>
+<ul>
+<li><a href="./book/intro">序章：为什么是 SML</a></li>
+<li><a href="./book/ch01-basics">第 1 章：第一个 SML 文件</a> · <a href="./book/ch02-blocks">第 2 章：块与嵌套</a> · <a href="./book/ch03-fragments">第 3 章：片段继承</a></li>
+<li><a href="./book/ch04-include">第 4 章：include 与命名空间</a> · <a href="./book/ch05-contract">第 5 章：契约系统</a> · <a href="./book/ch06-env-escape">第 6 章：环境变量与转义</a></li>
+<li><a href="./book/ch07-languages">第 7 章：多语言使用</a> · <a href="./book/ch08-project">第 8 章：实战项目</a> · <a href="./book/ch09-advanced">第 9 章：功能组合与设计模式</a> · <a href="./book/ch10-features">第 10 章：feature 完整参考</a> · <a href="./book/ch11-challenges">第 11 章：实战翻译挑战</a> · <a href="./book/appendix">附录：对照与排查</a></li>
+<li>离线版：<strong><a href="./sml-book.epub">下载 EPUB</a></strong></li>
 </ul>
 <h2 id="多语言实现对照">多语言实现对照</h2>
 <table>
@@ -235,11 +247,113 @@
 <p>契约校验失败会返回带位置的精确错误（如 <code>contract: Service — 字段 main.port 大于最大值 65535</code>），方便编辑器 / CLI 直接定位。</p>
 </blockquote>
 <h2 id="进阶特性">进阶特性</h2>
-<h3 id="include-文本内联">include 文本内联</h3>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span># main<span style="color:#960050;background-color:#1e0010">.sml</span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">include</span> <span style="color:#e6db74">&#34;common.sml&#34;</span>      # <span style="color:#960050;background-color:#1e0010">递归展开，防环、深度</span> <span style="color:#960050;background-color:#1e0010">≤</span> <span style="color:#ae81ff">32</span>
+<h3 id="include-与命名空间可裁剪设计">include 与命名空间（可裁剪设计）</h3>
+<blockquote>
+<p>设计哲学：<strong>从极简到丰富，功能可裁剪</strong>——基础能力默认开启，复杂能力（多目标 / 通配 / 正则 / 扩展名重写）必须显式 <code>@feature enable</code> 才生效，避免重蹈 YAML 过度复杂的覆辙。</p>
+</blockquote>
+<p><strong>基础形态</strong></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span># <span style="color:#960050;background-color:#1e0010">带扩展名</span> <span style="color:#960050;background-color:#1e0010">⇒</span> <span style="color:#960050;background-color:#1e0010">普通内联（内容直接并入当前作用域）</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">include</span> <span style="color:#e6db74">&#34;common.sml&#34;</span>
 </span></span><span style="display:flex;"><span>app: myapp
-</span></span></code></pre></div><p><code>common.sml</code> 的内容会被内联到 <code>include</code> 所在位置。也可写 <code>@include &quot;x.sml&quot;</code>。</p>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span># <span style="color:#960050;background-color:#1e0010">不带扩展名</span> <span style="color:#960050;background-color:#1e0010">⇒</span> <span style="color:#960050;background-color:#1e0010">默认命名空间</span> = <span style="color:#960050;background-color:#1e0010">文件名（零样板隔离）</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">include</span> <span style="color:#e6db74">&#34;ui&#34;</span>          # <span style="color:#960050;background-color:#1e0010">等价于</span> <span style="color:#66d9ef">include</span> <span style="color:#e6db74">&#34;ui.sml&#34;</span> <span style="color:#66d9ef">as</span> ui
+</span></span><span style="display:flex;"><span>title: ui.title       # <span style="color:#960050;background-color:#1e0010">用前缀访问</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span># <span style="color:#960050;background-color:#1e0010">显式指定命名空间（覆盖默认）</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">include</span> <span style="color:#e6db74">&#34;ui.sml&#34;</span> <span style="color:#66d9ef">as</span> ui.form.widgets
+</span></span></code></pre></div><p>规则很干净：<strong>带扩展名 = 内联；不带扩展名 = 命名空间（以文件名为 ns）</strong>。显式 <code>as</code> 始终优先。</p>
+<p><strong>点分路径（嵌套命名空间）</strong></p>
+<p><code>ns</code> 支持 <code>a.b.c</code> 形式，等价于 Rust 的模块路径，展开为嵌套块 <code>a { b { c { ... } } }</code>。</p>
+<p><strong>宏与契约也随命名空间隔离（2b）</strong></p>
+<p>命名空间不止隔离数据键值，还隔离<strong>宏与契约定义</strong>：被包含文件里定义的 <code>@contract</code> / <code>@name</code> / <code>@base</code> 必须以 <code>ns.</code> 前缀对外引用，调用方才能找到：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span># widgets<span style="color:#960050;background-color:#1e0010">.sml</span> <span style="color:#960050;background-color:#1e0010">内部</span>
+</span></span><span style="display:flex;"><span>@contract Button { label: str }
+</span></span><span style="display:flex;"><span>@name primary = { label: <span style="color:#e6db74">&#34;OK&#34;</span> }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span># <span style="color:#960050;background-color:#1e0010">主文件引用时必须带前缀</span>
+</span></span><span style="display:flex;"><span>@is ui.form.widgets.Button
+</span></span><span style="display:flex;"><span>button: &amp;ui.form.widgets.primary
+</span></span></code></pre></div><blockquote>
+<p>被包含文件<strong>内部</strong>对自身宏的自引用仍按本地名解析（无需前缀），只有<strong>对外暴露</strong>才需要 <code>ns.</code> 前缀——解析器按&quot;当前命名空间栈&quot;自动给宏注册表加前缀。</p>
+</blockquote>
+<p><strong>冲突即报错（不静默）</strong></p>
+<p>命名空间是<strong>独占作用域</strong>，绝不静默覆盖：</p>
+<ul>
+<li>宏/契约在 <code>as ns</code> 后注册为 <code>ns.Name</code>，调用方必须带前缀引用；同一命名空间内重复定义同名契约/片段 → 报错。</li>
+<li>缺失文件 / 循环引用 / 超过 32 层嵌套 → 报错。</li>
+<li>主文件顶层键与 <code>include &quot;x&quot; as ns</code> 的命名空间名冲突时，解析层应报错（Rust 实现当前以「同名键冲突提升为数组」兜底，严格冲突报错为后续版本）。</li>
+</ul>
+<p><strong>多目标与 <code>import</code> 别名</strong></p>
+<p>逗号分隔一次包含多个目标；<code>import</code> 是 <code>include</code> 的等价写法（语义一致）：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span><span style="color:#66d9ef">include</span> <span style="color:#e6db74">&#34;a.sml&#34;</span>, <span style="color:#e6db74">&#34;b.sml&#34;</span> <span style="color:#66d9ef">as</span> y, <span style="color:#e6db74">&#34;c&#34;</span>          # <span style="color:#960050;background-color:#1e0010">多目标，各自可有</span> <span style="color:#66d9ef">as</span>
+</span></span><span style="display:flex;"><span>import ui.buttons, admin.panel              # import <span style="color:#960050;background-color:#1e0010">别名写法</span>
+</span></span></code></pre></div><p><strong>通配与正则（需 feature 开启）</strong></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>@feature enable glob
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">include</span> <span style="color:#e6db74">&#34;widgets/*.sml&#34;</span>        # glob <span style="color:#960050;background-color:#1e0010">通配，按文件名排序逐个包含</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>@feature enable regex
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">include</span> /plugins/<span style="color:#960050;background-color:#1e0010">.*\.sml/</span>      # <span style="color:#960050;background-color:#1e0010">正则匹配（/.../</span> <span style="color:#960050;background-color:#1e0010">定界或</span> re: <span style="color:#960050;background-color:#1e0010">前缀）</span>
+</span></span></code></pre></div><p><strong>零拷贝切片（性能）</strong></p>
+<p><code>include</code> 不会把文件内容深拷贝拼接成一大段文本。每个被包含文件读入后只持有其字符串切片，解析器消费一段「切片流」：遇到 <code>include &quot;x&quot; as a.b</code> 时插入零拷贝的开块字面量 <code>a { b {</code>、接入 x 的切片、再插入闭块 <code>} }</code>。文件内容只被解析一次，无中间大字符串，内存占用 = 各文件切片之和。</p>
+<p><strong>Feature 分层（可裁剪）</strong></p>
+<table>
+	<thead>
+			<tr>
+					<th>层</th>
+					<th>feature</th>
+					<th>能力</th>
+					<th>默认</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>0</td>
+					<td><code>include</code></td>
+					<td>基础 <code>include &quot;x.sml&quot;</code> 内联（带扩展名才内联）</td>
+					<td>开</td>
+			</tr>
+			<tr>
+					<td>1</td>
+					<td><code>namespace</code></td>
+					<td><code>as ns</code> + 点分路径 + 宏/契约隔离 + 冲突报错</td>
+					<td>开</td>
+			</tr>
+			<tr>
+					<td>1</td>
+					<td><code>implicit-ns</code></td>
+					<td>无扩展名 <code>include &quot;foo&quot;</code> ⇒ <code>as foo</code> 默认命名空间</td>
+					<td>开</td>
+			</tr>
+			<tr>
+					<td>2</td>
+					<td><code>multi-include</code></td>
+					<td>逗号多目标 <code>a, b, c</code> 与 <code>import</code> 别名</td>
+					<td>关</td>
+			</tr>
+			<tr>
+					<td>2</td>
+					<td><code>glob-include</code></td>
+					<td><code>*</code> 通配 <code>dir/*.sml</code></td>
+					<td>关</td>
+			</tr>
+			<tr>
+					<td>3</td>
+					<td><code>regex-include</code></td>
+					<td><code>re:</code> / <code>/.../</code> 正则匹配</td>
+					<td>关</td>
+			</tr>
+			<tr>
+					<td>3</td>
+					<td><code>ext-rewrite</code></td>
+					<td><code>-&gt; .sml</code> 把非 sml 文件当 sml 解析</td>
+					<td>关</td>
+			</tr>
+	</tbody>
+</table>
+<p>默认仅开启 <code>include</code> + <code>namespace</code> + <code>implicit-ns</code>（极简三件套）。复杂能力需 <code>@feature enable</code> 显式 opt-in。</p>
+<p><strong>跨语言一致</strong></p>
+<p>Rust / C / JavaScript / Lua 四端共用同一语义：点分路径、宏/契约隔离、冲突报错、切片式零拷贝、feature 分层裁剪。</p>
 <h3 id="u-转义">\u 转义</h3>
 <p>字符串支持 <code>\u{XXXX}</code> 与 <code>\uXXXX</code> Unicode 转义，解析期转为 UTF-8：</p>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>label: <span style="color:#e6db74">&#34;雪花 </span><span style="color:#960050;background-color:#1e0010">\</span><span style="color:#e6db74">u{2744} snow&#34;</span>
@@ -318,6 +432,8 @@
   <ul>
     
     <li><a href="./playground/">SML Playground</a></li>
+    
+    <li><a href="./book/">SML 教科书</a></li>
     
   </ul>
 </article>

@@ -30,6 +30,8 @@ CHAPTERS = [
     ("ch06-env-escape", "第 6 章：环境变量与转义"),
     ("ch07-languages", "第 7 章：多语言使用"),
     ("ch08-project", "第 8 章：实战——完整项目配置"),
+    ("ch09-advanced", "第 9 章：进阶——功能组合与设计模式"),
+    ("ch10-features", "第 10 章：feature 完整参考"),
     ("appendix", "附录：对照与排查"),
 ]
 
@@ -120,6 +122,18 @@ def md_to_xhtml(md):
         if re.match(r"^---+$", line.strip()):
             flush_list()
             out.append("<hr/>")
+            i += 1
+            continue
+        # Hugo shortcode（EPUB 无法交互，转成提示框）
+        if line.strip().startswith("{{<") or line.strip().startswith("{{%"):
+            flush_list()
+            m = re.search(r'sml-playground\s+"([^"]+)"', line)
+            key = m.group(1) if m else ""
+            out.append(
+                '<div class="exercise"><strong>动手练习</strong>：本章交互式练习请在 '
+                'SML 官网 <a href="https://sml.snoware.org/book/">在线教科书</a> 中运行'
+                '（浏览器内嵌可编辑 SML 解析器）。</div>'
+            )
             i += 1
             continue
         # 标题
