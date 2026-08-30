@@ -39,15 +39,30 @@
   </header>
   <nav>
     <a class="home" href="{{ .Site.Home.RelPermalink }}">SML</a>
-    {{ with .Site.GetPage "/" }}
-    <a href="#特性一览">特性一览</a>
-    <a href="#多语言实现对照">多语言实现对照</a>
-    <a href="#快速使用">快速使用</a>
-    <a href="#契约系统contract">契约系统</a>
-    <a href="#进阶特性">进阶特性</a>
-    <a href="#落地应用">落地应用</a>
-    <a href="#完整示例">完整示例</a>
-    <a href="#本地-playground">Playground</a>
+    {{ if eq .Section "book" }}
+      <a href="{{ .Site.Home.RelPermalink }}book/">教科书</a>
+      <a href="{{ .Site.Home.RelPermalink }}book/intro">序章</a>
+      <a href="{{ .Site.Home.RelPermalink }}book/ch01-basics">1.基础</a>
+      <a href="{{ .Site.Home.RelPermalink }}book/ch02-blocks">2.块</a>
+      <a href="{{ .Site.Home.RelPermalink }}book/ch03-fragments">3.片段</a>
+      <a href="{{ .Site.Home.RelPermalink }}book/ch04-include">4.include</a>
+      <a href="{{ .Site.Home.RelPermalink }}book/ch05-contract">5.契约</a>
+      <a href="{{ .Site.Home.RelPermalink }}book/ch06-env-escape">6.环境</a>
+      <a href="{{ .Site.Home.RelPermalink }}book/ch07-languages">7.语言</a>
+      <a href="{{ .Site.Home.RelPermalink }}book/ch08-project">8.实战</a>
+      <a href="{{ .Site.Home.RelPermalink }}book/appendix">附录</a>
+    {{ else }}
+      <a href="{{ .Site.Home.RelPermalink }}book/">教科书</a>
+      {{ with .Site.GetPage "/" }}
+      <a href="#特性一览">特性一览</a>
+      <a href="#多语言实现对照">多语言实现对照</a>
+      <a href="#快速使用">快速使用</a>
+      <a href="#契约系统contract">契约系统</a>
+      <a href="#进阶特性">进阶特性</a>
+      <a href="#落地应用">落地应用</a>
+      <a href="#完整示例">完整示例</a>
+      <a href="#本地-playground">Playground</a>
+      {{ end }}
     {{ end }}
   </nav>
   <main>
