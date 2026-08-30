@@ -1,0 +1,21 @@
+fix(site): 修复多语言识别与交互部件 i18n
+
+问题1: /en/ 首页空白、英文页 lang 属性错误
+  根因: Hugo 不会自动把 content/en/ 当作英语内容目录，必须显式配置 contentDir。
+  未配置时 en 下的页面被并入默认语言（lang=zh、section=en），
+  而 /en/ 是 en 的空首页（contentLen=0 / pages=0）。
+  修复: 中文内容移入 content/zh/，hugo.toml 为 zh / en 各配 contentDir。
+  修复后 ZH 16 页 / EN 16 页对称，英文页 lang=en、section=book 正确。
+  同步更新 gen_epub.py 的书源路径为 content/zh/book。
+
+问题2: 练习 / 自测题 / 翻译挑战等交互部件未翻译
+  - 新增 i18n/zh.toml、i18n/en.toml 存放部件 UI 文案
+  - 三个 shortcode 改用 {{ i18n ... }}；JS 文案经 data-t-* 属性注入
+    注意: shortcode 里的 . 是 shortcode 对象，须用 .Page.RelPermalink
+  - 翻译部件数据: sml-quizzes / sml-lessons / sml-challenges，
+    生成 *_en.json 英文版。用下划线命名（避免 *.en.json 与中文版
+    key 同名冲突导致取到中文），shortcode 按 .Page.RelPermalink 选择
+  - 新增工具: translate_widget_data.py（翻译）、fix_widget_ph.py
+    （模糊还原被百度改写的占位符）、fix_widget_cjk.py（清理中文残留）
+  - 保留: SML 教学示例中的中文（如 city: 北京、chinese: 中文无需引号），
+    它演示「中文裸词即字符串」，翻译会破坏教学意图

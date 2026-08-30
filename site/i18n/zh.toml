@@ -1,0 +1,110 @@
+# 中文文案（默认语言）
+# 供 shortcode（sml-playground / sml-challenge / sml-quiz）使用
+
+[pg_task]
+other = "✍ 动手练习"
+
+[pg_hint]
+other = "💡 提示："
+
+[pg_files]
+other = "虚拟文件（可在 include 中引用）"
+
+[pg_run]
+other = "运行 ▶"
+
+[pg_verify]
+other = "验证 ✓"
+
+[pg_reset]
+other = "重置"
+
+[pg_parse_err]
+other = "✗ 解析错误："
+
+[pg_parse_ok]
+other = "✓ 解析成功："
+
+[pg_status_err]
+other = "✗ 解析错误"
+
+[pg_no_task]
+other = "（本章暂无可验证任务）"
+
+[pg_pass]
+other = "✓ 通过"
+
+[pg_fail]
+other = "✗ 未通过"
+
+[pg_verify_ok]
+other = "✓ 验证通过！"
+
+[pg_verify_fail]
+other = "✗ 还没对："
+
+[pg_result]
+other = "解析结果："
+
+[err_line_col]
+other = "行"
+
+[err_col]
+other = "列"
+
+[ch_source]
+other = "原始材料（待翻译）"
+
+[ch_answer]
+other = "你的 SML 答案（可编辑）"
+
+[ch_placeholder]
+other = "在此手写等价的 SML 配置…"
+
+[ch_verify]
+other = "验证 ✓"
+
+[ch_clear]
+other = "清空"
+
+[ch_hint]
+other = "💡 提示："
+
+[ch_parse_fail]
+other = "✗ 解析失败："
+
+[ch_status_err]
+other = "✗ 解析错误"
+
+[ch_no_verifier]
+other = "（无验证函数）"
+
+[ch_done]
+other = "✓ 你成功把原始材料等价翻译成了 SML 🎉"
+
+[ch_complete]
+other = "✓ 挑战完成"
+
+[ch_fail]
+other = "✗ 未通过"
+
+[ch_cur_result]
+other = "当前解析结果："
+
+[quiz_title]
+other = "✍ 自测考题："
+
+[quiz_score]
+other = "得分"
+
+[quiz_submit]
+other = "交卷判分"
+
+[quiz_reset]
+other = "重置"
+
+[quiz_correct]
+other = "✓ 答对！"
+
+[quiz_wrong]
+other = "✗ 答错。"

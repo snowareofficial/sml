@@ -1,0 +1,23 @@
+{
+  "caddyfile": {
+    "title": "Challenge 1: Caddyfile → SML",
+    "difficulty": "★★☆",
+    "prompt": "Below is a Caddyfile. Please use SML to express <b> equivalent </b> configuration: Change the site block to a nested block, and change <code>key value</code> to <code>key: value</code>. After completion, click 'Verify' and the system will check if all key fields are translated correctly. The verification logic is JS directly parsing your SML and asserting the result.",
+    "source": "example.com {\n    reverse_proxy localhost:8080\n    tls internal\n    encode gzip\n}",
+    "hint": "`example.com { }` block of Caddyfile==`example.com { }` nested block of SML; `tls internal` == `tls: internal`。"
+  },
+  "docker-compose": {
+    "title": "Challenge 2: Docker-compose.yml → SML (High Difficulty)",
+    "difficulty": "★★★",
+    "prompt": "Translate the docker compose fragment below into SML. <b> Note that the array <code>[a, b]</code> of </b>: YAML is written as <code>[ a b ]</code> in SML; The key names with hyphens (such as <code>container_name</code>) can be directly used as bare word keys. Verification will check the key fields of services.web and services.db.",
+    "source": "services:\n  web:\n    image: nginx:1.27\n    ports:\n      - \"80:80\"\n    depends_on:\n      - db\n  db:\n    image: postgres:16\n    environment:\n      POSTGRES_PASSWORD: secret",
+    "hint": "The hyphens `-` and underscores `_` in SML bare words are legal key characters, so container_name/POSTGRES-PASSWORD does not use quotation marks."
+  },
+  "nginx": {
+    "title": "Challenge 3: nginx.conf → SML (High Difficulty)",
+    "difficulty": "★★★",
+    "prompt": "Translate the nginx server block below into SML. Nginx's <code>listen 80; </code> == SML <code>listen: 80</code>； <code>location/{ }</code> are nested blocks; <code>proxy_pass http://app; </code> is a value with spaces and requires quotation marks. Verify the key instructions for checking the server block.",
+    "source": "server {\n    listen 80;\n    server_name example.com;\n    location / {\n        proxy_pass http://app:3000;\n    }\n    location /api {\n        proxy_pass http://api:4000;\n    }\n}",
+    "hint": "The value of proxy passed contains spaces and colons, and must be enclosed in quotation marks: `proxy_pass: \"http://app:3000\"`. But the example.com of `server_name example.com` can be bare words."
+  }
+}

@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+
+<html lang="zh">
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>第 11 章：实战翻译挑战 · SML { ❄ } — SNOWARE Markup Language</title>
+  <style>
+    body { font-family: system-ui, "Microsoft YaHei", sans-serif; margin: 0; background: #fafafa; color: #111; }
+    header { background: #111; color: #fff; padding: 18px 32px; display: flex; align-items: center; gap: 12px; }
+    header h1 { margin: 0; font-size: 20px; }
+    header a { color: #fff; text-decoration: none; }
+    header .flake { color: #42A5F5; font-size: 22px; }
+    header .lang-switch { margin-left: auto; display: flex; gap: 6px; }
+    header .lang-switch a { color: #90caf9; font-size: 13px; padding: 4px 10px; border: 1px solid #333; border-radius: 6px; text-decoration: none; }
+    header .lang-switch a.active { background: #1565C0; color: #fff; border-color: #1565C0; }
+    nav { background: #1c1c1c; padding: 8px 32px; position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 4px 18px; }
+    nav a { color: #90caf9; text-decoration: none; font-size: 14px; }
+    nav a:hover { text-decoration: underline; }
+    nav .home { color: #fff; font-weight: 600; }
+    main { max-width: 880px; margin: 24px auto; padding: 0 24px; }
+     
+    h2 { scroll-margin-top: 56px; }
+    article { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 24px 32px; }
+    h1, h2, h3 { color: #0d47a1; }
+    h2 { border-bottom: 2px solid #42A5F5; padding-bottom: 6px; }
+    code { background: #eef4fb; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; color: #1565C0; }
+    pre { background: #111; color: #e8f1fb; padding: 12px; border-radius: 6px; overflow-x: auto; }
+    pre code { background: none; color: inherit; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background: #eef4fb; color: #0d47a1; }
+    .links { display: flex; gap: 12px; margin: 16px 0; }
+    .btn { display: inline-block; background: #1565C0; color: #fff; padding: 10px 22px; border-radius: 8px; text-decoration: none; font-weight: 600; }
+    .btn:hover { background: #0d47a1; }
+    footer { text-align: center; padding: 24px; color: #666; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="../../../sml.svg" alt="sml" style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))">
+    <h1><a href="../../../">SML { ❄ }</a></h1>
+    <span class="lang-switch">
+      
+        <a href="../../../" class="active">中文</a>
+      
+        <a href="../../../en/" class="">EN</a>
+      
+    </span>
+  </header>
+  <nav>
+    <a class="home" href="../../../">SML</a>
+    
+      <a href="../../../book/">教科书</a>
+      
+      <a href="#特性一览">特性一览</a>
+      <a href="#多语言实现对照">多语言实现对照</a>
+      <a href="#快速使用">快速使用</a>
+      <a href="#契约系统contract">契约系统</a>
+      <a href="#进阶特性">进阶特性</a>
+      <a href="#落地应用">落地应用</a>
+      <a href="#完整示例">完整示例</a>
+      <a href="#本地-playground">Playground</a>
+      
+    
+  </nav>
+  <main>
+    
+<article>
+  <h1>第 11 章：实战翻译挑战</h1>
+  <h1 id="第-11-章实战翻译挑战">第 11 章：实战翻译挑战</h1>
+<p>光看会忘记，动手才记住。这一章不给标准答案——给你<strong>原始配置</strong>，要你<strong>手写等价的 SML</strong>，再点「验证」让解析器实时判分。</p>
+<p>这些挑战刻意选了工程里常见的格式（Caddyfile / docker-compose / nginx），它们和 SML 的「块 + 键值」思维高度相通。翻译时记住三条：</p>
+<ol>
+<li>块 = 块：<code>name { }</code> 两边通用；</li>
+<li>键值对：<code>key value</code>（Caddy/nginx）或 <code>key: value</code>（YAML）都对应 SML 的 <code>key: value</code>；</li>
+<li>数组：SML 用 <code>[ a b c ]</code>（逗号可省），YAML 用 <code>[a, b, c]</code>。</li>
+</ol>
+<p>下面是三个难度递增的挑战。每题右侧白底编辑器里<strong>直接写 SML</strong>，写错或漏字段都会即时提示。</p>
+<h2 id="挑战-1caddyfile--sml">挑战 1：Caddyfile → SML</h2>
+
+
+
+<div class="sml-ch" data-ch="caddyfile">
+  <div class="sml-ch-bar">
+    <span class="sml-ch-title">🔧 挑战 1 · Caddyfile → SML</span>
+    <span class="sml-ch-diff">★★☆</span>
+    <span class="sml-ch-status"></span>
+  </div>
+  <div class="sml-ch-prompt">下面是一段 Caddyfile。请用 SML 表达<b>等价</b>配置：把站点块变成嵌套块，把 <code>key value</code> 变成 <code>key: value</code>。完成后点「验证」，系统会检查关键字段是否都正确翻译。验证逻辑是 JS 直接解析你的 SML 并断言结果。</div>
+  <div class="sml-ch-grid">
+    <div class="sml-ch-col">
+      <div class="sml-ch-h">原始材料（待翻译）</div>
+      <pre class="sml-ch-src-readonly">example.com {
+    reverse_proxy localhost:8080
+    tls internal
+    encode gzip
+}</pre>
+    </div>
+    <div class="sml-ch-col">
+      <div class="sml-ch-h">你的 SML 答案（可编辑）</div>
+      <textarea class="sml-ch-ans" spellcheck="false" placeholder="在此手写等价的 SML 配置…"></textarea>
+    </div>
+  </div>
+  <div class="sml-ch-actions">
+    <button class="sml-ch-verify" type="button">验证 ✓</button>
+    <button class="sml-ch-clear" type="button">清空</button>
+  </div>
+  <div class="sml-ch-fb" hidden></div>
+  <div class="sml-ch-hint">💡 提示：Caddyfile 的 `example.com { }` 块 == SML 的 `example.com { }` 嵌套块；`tls internal` == `tls: internal`。</div>
+</div>
+
+<script type="module">
+  import { parseSafe } from "/sml.mjs";
+  import { CH_VERIFIERS } from "/sml-verify.js";
+  document.querySelectorAll('.sml-ch[data-ch="caddyfile"]').forEach((box) => {
+    const ans = box.querySelector(".sml-ch-ans");
+    const fb = box.querySelector(".sml-ch-fb");
+    const status = box.querySelector(".sml-ch-status");
+    const verifyBtn = box.querySelector(".sml-ch-verify");
+    const clearBtn = box.querySelector(".sml-ch-clear");
+
+    function verify() {
+      const r = parseSafe(ans.value);
+      if (!r.ok) {
+        fb.hidden = false; fb.className = "sml-ch-fb bad";
+        let msg = r.error; if (r.position) msg += ` (行 ${r.position.line + 1}, 列 ${r.position.col + 1})`;
+        fb.textContent = "✗ 解析失败：" + msg;
+        status.textContent = "✗ 解析错误"; status.style.color = "#c62828";
+        return;
+      }
+      const fn = CH_VERIFIERS["caddyfile"];
+      const res = fn ? fn(r.value) : { ok: false, msg: "（无验证函数）" };
+      fb.hidden = false;
+      if (res.ok) {
+        fb.className = "sml-ch-fb ok";
+        fb.innerHTML = "✓ 验证通过！你成功把原始材料等价翻译成了 SML 🎉<br><pre>" + JSON.stringify(r.value, null, 2) + "</pre>";
+        status.textContent = "✓ 挑战完成"; status.style.color = "#2e7d32";
+      } else {
+        fb.className = "sml-ch-fb bad";
+        fb.innerHTML = "✗ " + res.msg + "<br><br>当前解析结果：<pre>" + JSON.stringify(r.value, null, 2) + "</pre>";
+        status.textContent = "✗ 未通过"; status.style.color = "#c62828";
+      }
+    }
+    ans.addEventListener("input", () => { if (!fb.hidden) { fb.hidden = true; status.textContent = ""; } });
+    verifyBtn.addEventListener("click", verify);
+    clearBtn.addEventListener("click", () => { ans.value = ""; fb.hidden = true; status.textContent = ""; });
+  });
+</script>
+
+<style>
+  .sml-ch { border: 1px solid #d0d7de; border-radius: 10px; margin: 18px 0; overflow: hidden; background: #ffffff; }
+  .sml-ch-bar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #f6f8fa; border-bottom: 1px solid #d0d7de; }
+  .sml-ch-title { font-size: 13.5px; color: #0d47a1; font-weight: 700; }
+  .sml-ch-diff { font-size: 12px; color: #b26a00; }
+  .sml-ch-status { font-size: 12px; margin-left: auto; }
+  .sml-ch-prompt { font-size: 13px; color: #333; padding: 10px 12px; line-height: 1.6; }
+  .sml-ch-grid { display: flex; gap: 0; flex-wrap: wrap; }
+  .sml-ch-col { flex: 1 1 320px; min-width: 280px; }
+  .sml-ch-col:first-child { border-right: 1px solid #d0d7de; }
+  .sml-ch-h { font-size: 11px; color: #57606a; padding: 6px 12px 0; font-weight: 600; }
+  .sml-ch-src-readonly { background: #f0f3f6; color: #24292f; margin: 0; padding: 10px 12px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; }
+  .sml-ch-ans { width: 100%; min-height: 220px; box-sizing: border-box; margin: 0; padding: 10px 12px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12.5px; line-height: 1.5; background: #ffffff; color: #111; border: 0; resize: vertical; tab-size: 2; white-space: pre; }
+  .sml-ch-ans:focus { outline: 2px solid #1565C0; outline-offset: -2px; }
+  .sml-ch-actions { padding: 10px 12px; display: flex; gap: 8px; }
+  .sml-ch-actions button { background: #1565C0; color: #fff; border: 0; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .sml-ch-actions button.sml-ch-clear { background: #6c757d; }
+  .sml-ch-actions button:hover { filter: brightness(1.08); }
+  .sml-ch-fb { font-size: 12.5px; margin: 0 12px 12px; padding: 10px 12px; border-radius: 6px; }
+  .sml-ch-fb.ok { background: #e8f5e9; color: #2e7d32; }
+  .sml-ch-fb.bad { background: #fdecea; color: #c62828; }
+  .sml-ch-fb pre { background: rgba(0,0,0,.04); padding: 8px; border-radius: 4px; overflow: auto; margin: 8px 0 0; }
+  .sml-ch-hint { font-size: 12px; color: #57606a; padding: 8px 12px 12px; border-top: 1px solid #eaecef; }
+</style>
+
+<h2 id="挑战-2docker-compose--sml高难度">挑战 2：docker-compose → SML（高难度）</h2>
+
+
+
+<div class="sml-ch" data-ch="docker-compose">
+  <div class="sml-ch-bar">
+    <span class="sml-ch-title">🔧 挑战 2 · docker-compose.yml → SML（高难度）</span>
+    <span class="sml-ch-diff">★★★</span>
+    <span class="sml-ch-status"></span>
+  </div>
+  <div class="sml-ch-prompt">把下面 docker-compose 片段翻译成 SML。<b>注意</b>：YAML 的数组 <code>[a, b]</code> 在 SML 里写成 <code>[ a b ]</code>；带连字符的键名（如 <code>container_name</code>）直接当裸词键即可。验证会检查 services.web 与 services.db 的关键字段。</div>
+  <div class="sml-ch-grid">
+    <div class="sml-ch-col">
+      <div class="sml-ch-h">原始材料（待翻译）</div>
+      <pre class="sml-ch-src-readonly">services:
+  web:
+    image: nginx:1.27
+    ports:
+      - &#34;80:80&#34;
+    depends_on:
+      - db
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: secret</pre>
+    </div>
+    <div class="sml-ch-col">
+      <div class="sml-ch-h">你的 SML 答案（可编辑）</div>
+      <textarea class="sml-ch-ans" spellcheck="false" placeholder="在此手写等价的 SML 配置…"></textarea>
+    </div>
+  </div>
+  <div class="sml-ch-actions">
+    <button class="sml-ch-verify" type="button">验证 ✓</button>
+    <button class="sml-ch-clear" type="button">清空</button>
+  </div>
+  <div class="sml-ch-fb" hidden></div>
+  <div class="sml-ch-hint">💡 提示：SML 裸词里连字符 `-`、下划线 `_` 都是合法的键字符，所以 container_name / POSTGRES_PASSWORD 不用引号。</div>
+</div>
+
+<script type="module">
+  import { parseSafe } from "/sml.mjs";
+  import { CH_VERIFIERS } from "/sml-verify.js";
+  document.querySelectorAll('.sml-ch[data-ch="docker-compose"]').forEach((box) => {
+    const ans = box.querySelector(".sml-ch-ans");
+    const fb = box.querySelector(".sml-ch-fb");
+    const status = box.querySelector(".sml-ch-status");
+    const verifyBtn = box.querySelector(".sml-ch-verify");
+    const clearBtn = box.querySelector(".sml-ch-clear");
+
+    function verify() {
+      const r = parseSafe(ans.value);
+      if (!r.ok) {
+        fb.hidden = false; fb.className = "sml-ch-fb bad";
+        let msg = r.error; if (r.position) msg += ` (行 ${r.position.line + 1}, 列 ${r.position.col + 1})`;
+        fb.textContent = "✗ 解析失败：" + msg;
+        status.textContent = "✗ 解析错误"; status.style.color = "#c62828";
+        return;
+      }
+      const fn = CH_VERIFIERS["docker-compose"];
+      const res = fn ? fn(r.value) : { ok: false, msg: "（无验证函数）" };
+      fb.hidden = false;
+      if (res.ok) {
+        fb.className = "sml-ch-fb ok";
+        fb.innerHTML = "✓ 验证通过！你成功把原始材料等价翻译成了 SML 🎉<br><pre>" + JSON.stringify(r.value, null, 2) + "</pre>";
+        status.textContent = "✓ 挑战完成"; status.style.color = "#2e7d32";
+      } else {
+        fb.className = "sml-ch-fb bad";
+        fb.innerHTML = "✗ " + res.msg + "<br><br>当前解析结果：<pre>" + JSON.stringify(r.value, null, 2) + "</pre>";
+        status.textContent = "✗ 未通过"; status.style.color = "#c62828";
+      }
+    }
+    ans.addEventListener("input", () => { if (!fb.hidden) { fb.hidden = true; status.textContent = ""; } });
+    verifyBtn.addEventListener("click", verify);
+    clearBtn.addEventListener("click", () => { ans.value = ""; fb.hidden = true; status.textContent = ""; });
+  });
+</script>
+
+<style>
+  .sml-ch { border: 1px solid #d0d7de; border-radius: 10px; margin: 18px 0; overflow: hidden; background: #ffffff; }
+  .sml-ch-bar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #f6f8fa; border-bottom: 1px solid #d0d7de; }
+  .sml-ch-title { font-size: 13.5px; color: #0d47a1; font-weight: 700; }
+  .sml-ch-diff { font-size: 12px; color: #b26a00; }
+  .sml-ch-status { font-size: 12px; margin-left: auto; }
+  .sml-ch-prompt { font-size: 13px; color: #333; padding: 10px 12px; line-height: 1.6; }
+  .sml-ch-grid { display: flex; gap: 0; flex-wrap: wrap; }
+  .sml-ch-col { flex: 1 1 320px; min-width: 280px; }
+  .sml-ch-col:first-child { border-right: 1px solid #d0d7de; }
+  .sml-ch-h { font-size: 11px; color: #57606a; padding: 6px 12px 0; font-weight: 600; }
+  .sml-ch-src-readonly { background: #f0f3f6; color: #24292f; margin: 0; padding: 10px 12px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; }
+  .sml-ch-ans { width: 100%; min-height: 220px; box-sizing: border-box; margin: 0; padding: 10px 12px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12.5px; line-height: 1.5; background: #ffffff; color: #111; border: 0; resize: vertical; tab-size: 2; white-space: pre; }
+  .sml-ch-ans:focus { outline: 2px solid #1565C0; outline-offset: -2px; }
+  .sml-ch-actions { padding: 10px 12px; display: flex; gap: 8px; }
+  .sml-ch-actions button { background: #1565C0; color: #fff; border: 0; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .sml-ch-actions button.sml-ch-clear { background: #6c757d; }
+  .sml-ch-actions button:hover { filter: brightness(1.08); }
+  .sml-ch-fb { font-size: 12.5px; margin: 0 12px 12px; padding: 10px 12px; border-radius: 6px; }
+  .sml-ch-fb.ok { background: #e8f5e9; color: #2e7d32; }
+  .sml-ch-fb.bad { background: #fdecea; color: #c62828; }
+  .sml-ch-fb pre { background: rgba(0,0,0,.04); padding: 8px; border-radius: 4px; overflow: auto; margin: 8px 0 0; }
+  .sml-ch-hint { font-size: 12px; color: #57606a; padding: 8px 12px 12px; border-top: 1px solid #eaecef; }
+</style>
+
+<h2 id="挑战-3nginxconf--sml高难度">挑战 3：nginx.conf → SML（高难度）</h2>
+
+
+
+<div class="sml-ch" data-ch="nginx">
+  <div class="sml-ch-bar">
+    <span class="sml-ch-title">🔧 挑战 3 · nginx.conf → SML（高难度）</span>
+    <span class="sml-ch-diff">★★★</span>
+    <span class="sml-ch-status"></span>
+  </div>
+  <div class="sml-ch-prompt">把下面 nginx server 块翻译成 SML。nginx 的 <code>listen 80;</code> == SML <code>listen: 80</code>；<code>location / { }</code> 是嵌套块；<code>proxy_pass http://app;</code> 是带空格的值，需要引号。验证检查 server 块的关键指令。</div>
+  <div class="sml-ch-grid">
+    <div class="sml-ch-col">
+      <div class="sml-ch-h">原始材料（待翻译）</div>
+      <pre class="sml-ch-src-readonly">server {
+    listen 80;
+    server_name example.com;
+    location / {
+        proxy_pass http://app:3000;
+    }
+    location /api {
+        proxy_pass http://api:4000;
+    }
+}</pre>
+    </div>
+    <div class="sml-ch-col">
+      <div class="sml-ch-h">你的 SML 答案（可编辑）</div>
+      <textarea class="sml-ch-ans" spellcheck="false" placeholder="在此手写等价的 SML 配置…"></textarea>
+    </div>
+  </div>
+  <div class="sml-ch-actions">
+    <button class="sml-ch-verify" type="button">验证 ✓</button>
+    <button class="sml-ch-clear" type="button">清空</button>
+  </div>
+  <div class="sml-ch-fb" hidden></div>
+  <div class="sml-ch-hint">💡 提示：proxy_pass 的值含空格和冒号，必须加引号：`proxy_pass: &#34;http://app:3000&#34;`。但 `server_name example.com` 的 example.com 是裸词即可。</div>
+</div>
+
+<script type="module">
+  import { parseSafe } from "/sml.mjs";
+  import { CH_VERIFIERS } from "/sml-verify.js";
+  document.querySelectorAll('.sml-ch[data-ch="nginx"]').forEach((box) => {
+    const ans = box.querySelector(".sml-ch-ans");
+    const fb = box.querySelector(".sml-ch-fb");
+    const status = box.querySelector(".sml-ch-status");
+    const verifyBtn = box.querySelector(".sml-ch-verify");
+    const clearBtn = box.querySelector(".sml-ch-clear");
+
+    function verify() {
+      const r = parseSafe(ans.value);
+      if (!r.ok) {
+        fb.hidden = false; fb.className = "sml-ch-fb bad";
+        let msg = r.error; if (r.position) msg += ` (行 ${r.position.line + 1}, 列 ${r.position.col + 1})`;
+        fb.textContent = "✗ 解析失败：" + msg;
+        status.textContent = "✗ 解析错误"; status.style.color = "#c62828";
+        return;
+      }
+      const fn = CH_VERIFIERS["nginx"];
+      const res = fn ? fn(r.value) : { ok: false, msg: "（无验证函数）" };
+      fb.hidden = false;
+      if (res.ok) {
+        fb.className = "sml-ch-fb ok";
+        fb.innerHTML = "✓ 验证通过！你成功把原始材料等价翻译成了 SML 🎉<br><pre>" + JSON.stringify(r.value, null, 2) + "</pre>";
+        status.textContent = "✓ 挑战完成"; status.style.color = "#2e7d32";
+      } else {
+        fb.className = "sml-ch-fb bad";
+        fb.innerHTML = "✗ " + res.msg + "<br><br>当前解析结果：<pre>" + JSON.stringify(r.value, null, 2) + "</pre>";
+        status.textContent = "✗ 未通过"; status.style.color = "#c62828";
+      }
+    }
+    ans.addEventListener("input", () => { if (!fb.hidden) { fb.hidden = true; status.textContent = ""; } });
+    verifyBtn.addEventListener("click", verify);
+    clearBtn.addEventListener("click", () => { ans.value = ""; fb.hidden = true; status.textContent = ""; });
+  });
+</script>
+
+<style>
+  .sml-ch { border: 1px solid #d0d7de; border-radius: 10px; margin: 18px 0; overflow: hidden; background: #ffffff; }
+  .sml-ch-bar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #f6f8fa; border-bottom: 1px solid #d0d7de; }
+  .sml-ch-title { font-size: 13.5px; color: #0d47a1; font-weight: 700; }
+  .sml-ch-diff { font-size: 12px; color: #b26a00; }
+  .sml-ch-status { font-size: 12px; margin-left: auto; }
+  .sml-ch-prompt { font-size: 13px; color: #333; padding: 10px 12px; line-height: 1.6; }
+  .sml-ch-grid { display: flex; gap: 0; flex-wrap: wrap; }
+  .sml-ch-col { flex: 1 1 320px; min-width: 280px; }
+  .sml-ch-col:first-child { border-right: 1px solid #d0d7de; }
+  .sml-ch-h { font-size: 11px; color: #57606a; padding: 6px 12px 0; font-weight: 600; }
+  .sml-ch-src-readonly { background: #f0f3f6; color: #24292f; margin: 0; padding: 10px 12px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; }
+  .sml-ch-ans { width: 100%; min-height: 220px; box-sizing: border-box; margin: 0; padding: 10px 12px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12.5px; line-height: 1.5; background: #ffffff; color: #111; border: 0; resize: vertical; tab-size: 2; white-space: pre; }
+  .sml-ch-ans:focus { outline: 2px solid #1565C0; outline-offset: -2px; }
+  .sml-ch-actions { padding: 10px 12px; display: flex; gap: 8px; }
+  .sml-ch-actions button { background: #1565C0; color: #fff; border: 0; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .sml-ch-actions button.sml-ch-clear { background: #6c757d; }
+  .sml-ch-actions button:hover { filter: brightness(1.08); }
+  .sml-ch-fb { font-size: 12.5px; margin: 0 12px 12px; padding: 10px 12px; border-radius: 6px; }
+  .sml-ch-fb.ok { background: #e8f5e9; color: #2e7d32; }
+  .sml-ch-fb.bad { background: #fdecea; color: #c62828; }
+  .sml-ch-fb pre { background: rgba(0,0,0,.04); padding: 8px; border-radius: 4px; overflow: auto; margin: 8px 0 0; }
+  .sml-ch-hint { font-size: 12px; color: #57606a; padding: 8px 12px 12px; border-top: 1px solid #eaecef; }
+</style>
+
+<h2 id="为什么这么做">为什么这么做</h2>
+<p>把别的格式翻译成 SML，最能考验你有没有真正理解「SML 就是一棵树」。当你能凭直觉把任意配置映射成 <code>块 / 键值 / 数组</code> 三件套，你就已经掌握 SML 的精髓了。</p>
+<p>→ <a href="../../../book/appendix">附录：对照与排查</a></p>
+
+</article>
+
+  </main>
+  <footer>SML · SNOWARE Markup Language · { ❄ }</footer>
+</body>
+</html>

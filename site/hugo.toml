@@ -13,11 +13,15 @@ relativeURLs = true
 [params]
   description = "SML（SNOWARE Markup Language）与 BamZap 包管理器的独立站点"
 
-# 多语言：zh 默认 (content/), en (content/en/ 由 Hugo 自动识别)
+# 多语言：每种语言用独立 contentDir（Hugo 不会自动把 content/en 当语言目录，
+# 必须显式声明，否则 en 下页面会被并入默认语言，导致 /en/ 首页为空、
+# 页面 lang 属性错误）
 [languages]
   [languages.zh]
+    contentDir = "content/zh"
     weight = 1
     label = "中文"
   [languages.en]
+    contentDir = "content/en"
     weight = 2
     label = "EN"

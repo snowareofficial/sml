@@ -13,7 +13,7 @@
 <a href=../book/ch09-advanced>9.组合</a>
 <a href=../book/ch10-features>10.feature</a>
 <a href=../book/ch11-challenges>11.挑战</a>
-<a href=../book/appendix>附录</a></nav><main><article class=list><h1>SML 教科书</h1><h1 id=sml-教科书--->SML 教科书 { ❄ }</h1><p>欢迎来到 <strong>SML（SNOWARE Markup Language）</strong> 的官方教科书。</p><p>这是一本<strong>循序渐进、面向初学者</strong>的教材，同时也<strong>可作工具书随时翻阅</strong>。无论你有没有用过 JSON / YAML / TOML，都能从零开始学会用 SML 写配置、描述数据。</p><blockquote><p>一句话理解 SML：它是一种<strong>声明式的数据 / 配置格式</strong>，像写便签一样写配置——引号可省、逗号可省、结构靠花括号 <code>{}</code> 定界。</p></blockquote><h2 id=这本书怎么读>这本书怎么读</h2><ul><li><strong>零基础</strong>：从第 1 章开始，一章一章往下读，每章都有「动手试一试」。</li><li><strong>有经验</strong>：直接跳到第 4–5 章看 include / 契约等进阶能力。</li><li><strong>查用法</strong>：用下面目录跳到对应章节，或读附录的「对照表 / 错误排查」。</li></ul><h2 id=目录>目录</h2><table><thead><tr><th>章节</th><th>主题</th><th>你会学到</th></tr></thead><tbody><tr><td><a href=../book/intro/>序章</a></td><td>为什么是 SML</td><td>它解决什么问题、和 JSON/YAML 的区别</td></tr><tr><td><a href=../book/ch01-basics/>第 1 章</a></td><td>第一个 SML 文件</td><td>键值对、注释、标量类型（字符串/数字/bool/null）</td></tr><tr><td><a href=../book/ch02-blocks/>第 2 章</a></td><td>块与嵌套</td><td>对象块、数组、冒号可省、嵌套结构</td></tr><tr><td><a href=../book/ch03-fragments/>第 3 章</a></td><td>片段继承</td><td><code>@base</code> 定义、<code>&amp;base</code> 引用，配置复用</td></tr><tr><td><a href=../book/ch04-include/>第 4 章</a></td><td>include 与命名空间</td><td>拆分文件、<code>as ns</code> 隔离、<code>import</code> 别名</td></tr><tr><td><a href=../book/ch05-contract/>第 5 章</a></td><td>契约系统</td><td><code>@contract</code> / <code>@is</code>，类型、默认值、枚举、区间、组合</td></tr><tr><td><a href=../book/ch06-env-escape/>第 6 章</a></td><td>环境变量与转义</td><td><code>$env</code> 注入、<code>\u</code> 与 <code>\n</code> 转义</td></tr><tr><td><a href=../book/ch07-languages/>第 7 章</a></td><td>多语言使用</td><td>Rust / C / JS / Lua 如何集成 SML</td></tr><tr><td><a href=../book/ch08-project/>第 8 章</a></td><td>实战：完整项目</td><td>一个接近真实的部署配置范例</td></tr><tr><td><a href=../book/ch09-advanced/>第 9 章</a></td><td>进阶：功能组合</td><td>include/契约/片段/$env 组合、8 种设计模式</td></tr><tr><td><a href=../book/ch10-features/>第 10 章</a></td><td>feature 完整参考</td><td>每个 feature 的开关、语法、报错、兼容矩阵</td></tr><tr><td><a href=../book/appendix/>附录</a></td><td>对照与排查</td><td>与 JSON/YAML/TOML 对照、常见错误</td></tr></tbody></table><h2 id=约定>约定</h2><ul><li>所有示例都是<strong>真实可解析</strong>的 SML 文本。</li><li>代码块标注 <code>sml</code> 的是 SML 源码；标注 <code>rust</code> / <code>js</code> / <code>c</code> / <code>lua</code> 的是宿主语言调用。</li><li>示例中 <code>#</code>、<code>--</code>、<code>//</code> 都是注释，怎么写都行。</li></ul><p>准备好了吗？从 <a href=../book/intro/>序章</a> 开始吧。</p><h2 id=动手练习>动手练习</h2><p>读完本章，在下面的编辑器里<strong>直接修改 SML 并点“运行”</strong>，立刻看到解析结果或校验错误——有输出才能高效学习。</p><div class=sml-pg data-lesson=intro><div class=sml-pg-task><span class=sml-pg-task-tag>✍ 动手练习</span>
+<a href=../book/appendix>附录</a></nav><main><article class=list><h1>SML 教科书</h1><h1 id=sml-教科书--->SML 教科书 { ❄ }</h1><p>欢迎来到 <strong>SML（SNOWARE Markup Language）</strong> 的官方教科书。</p><p>这是一本<strong>循序渐进、面向初学者</strong>的教材，同时也<strong>可作工具书随时翻阅</strong>。无论你有没有用过 JSON / YAML / TOML，都能从零开始学会用 SML 写配置、描述数据。</p><blockquote><p>一句话理解 SML：它是一种<strong>声明式的数据 / 配置格式</strong>，像写便签一样写配置——引号可省、逗号可省、结构靠花括号 <code>{}</code> 定界。</p></blockquote><h2 id=这本书怎么读>这本书怎么读</h2><ul><li><strong>零基础</strong>：从第 1 章开始，一章一章往下读，每章都有「动手试一试」。</li><li><strong>有经验</strong>：直接跳到第 4–5 章看 include / 契约等进阶能力。</li><li><strong>查用法</strong>：用下面目录跳到对应章节，或读附录的「对照表 / 错误排查」。</li></ul><h2 id=目录>目录</h2><table><thead><tr><th>章节</th><th>主题</th><th>你会学到</th></tr></thead><tbody><tr><td><a href=../book/intro/>序章</a></td><td>为什么是 SML</td><td>它解决什么问题、和 JSON/YAML 的区别</td></tr><tr><td><a href=../book/ch01-basics/>第 1 章</a></td><td>第一个 SML 文件</td><td>键值对、注释、标量类型（字符串/数字/bool/null）</td></tr><tr><td><a href=../book/ch02-blocks/>第 2 章</a></td><td>块与嵌套</td><td>对象块、数组、冒号可省、嵌套结构</td></tr><tr><td><a href=../book/ch03-fragments/>第 3 章</a></td><td>片段继承</td><td><code>@base</code> 定义、<code>&amp;base</code> 引用，配置复用</td></tr><tr><td><a href=../book/ch04-include/>第 4 章</a></td><td>include 与命名空间</td><td>拆分文件、<code>as ns</code> 隔离、<code>import</code> 别名</td></tr><tr><td><a href=../book/ch05-contract/>第 5 章</a></td><td>契约系统</td><td><code>@contract</code> / <code>@is</code>，类型、默认值、枚举、区间、组合</td></tr><tr><td><a href=../book/ch06-env-escape/>第 6 章</a></td><td>环境变量与转义</td><td><code>$env</code> 注入、<code>\u</code> 与 <code>\n</code> 转义</td></tr><tr><td><a href=../book/ch07-languages/>第 7 章</a></td><td>多语言使用</td><td>Rust / C / JS / Lua 如何集成 SML</td></tr><tr><td><a href=../book/ch08-project/>第 8 章</a></td><td>实战：完整项目</td><td>一个接近真实的部署配置范例</td></tr><tr><td><a href=../book/ch09-advanced/>第 9 章</a></td><td>进阶：功能组合</td><td>include/契约/片段/$env 组合、8 种设计模式</td></tr><tr><td><a href=../book/ch10-features/>第 10 章</a></td><td>feature 完整参考</td><td>每个 feature 的开关、语法、报错、兼容矩阵</td></tr><tr><td><a href=../book/appendix/>附录</a></td><td>对照与排查</td><td>与 JSON/YAML/TOML 对照、常见错误</td></tr></tbody></table><h2 id=约定>约定</h2><ul><li>所有示例都是<strong>真实可解析</strong>的 SML 文本。</li><li>代码块标注 <code>sml</code> 的是 SML 源码；标注 <code>rust</code> / <code>js</code> / <code>c</code> / <code>lua</code> 的是宿主语言调用。</li><li>示例中 <code>#</code>、<code>--</code>、<code>//</code> 都是注释，怎么写都行。</li></ul><p>准备好了吗？从 <a href=../book/intro/>序章</a> 开始吧。</p><h2 id=动手练习>动手练习</h2><p>读完本章，在下面的编辑器里<strong>直接修改 SML 并点“运行”</strong>，立刻看到解析结果或校验错误——有输出才能高效学习。</p><div class=sml-pg data-lesson=intro data-t-parse-err="✗ 解析错误：" data-t-parse-ok="✓ 解析成功：" data-t-status-err="✗ 解析错误" data-t-no-task=（本章暂无可验证任务） data-t-pass="✓ 通过" data-t-fail="✗ 未通过" data-t-verify-ok="✓ 验证通过！" data-t-verify-fail="✗ 还没对：" data-t-result=解析结果： data-t-line=行 data-t-col=列><div class=sml-pg-task><span class=sml-pg-task-tag>✍ 动手练习</span>
 <span class=sml-pg-task-text>写出一个 SML 配置：包含 <b>name</b>（字符串 gateway）、<b>port</b>（整数 8080）、<b>debug</b>（布尔 true）、<b>tags</b>（数组含 logging 与 metrics）。写完点「验证」，再看解析结果。</span><div class=sml-pg-hint>💡 提示：试着把 port 改成 "8080"（加引号），验证会告诉你它不是整数 8080。</div></div><div class=sml-pg-main><textarea class=sml-pg-code spellcheck=false data-files=null>name: gateway
 port: 8080
 debug: true
@@ -31,6 +31,20 @@ tags: [ logging metrics ]</textarea></div><div class=sml-pg-actions><button clas
     const verifyBtn = box.querySelector(".sml-pg-verify");
     const resetBtn = box.querySelector(".sml-pg-reset");
     const init = ta.value;
+    
+    const T = {
+      parseErr: box.dataset.tParseErr || "✗ Parse error:\n",
+      parseOk: box.dataset.tParseOk || "✓ Parsed successfully:\n",
+      statusErr: box.dataset.tStatusErr || "✗ Parse error",
+      noTask: box.dataset.tNoTask || "(No verifiable task in this chapter)",
+      pass: box.dataset.tPass || "✓ Passed",
+      fail: box.dataset.tFail || "✗ Not passed",
+      verifyOk: box.dataset.tVerifyOk || "✓ Verified!\n",
+      verifyFail: box.dataset.tVerifyFail || "✗ Not quite right:\n",
+      result: box.dataset.tResult || "Parsed result:",
+      line: box.dataset.tLine || "line",
+      col: box.dataset.tCol || "col",
+    };
 
     function setStatus(txt, cls) { status.textContent = txt; status.className = "sml-pg-status " + (cls || ""); }
     function parse() {
@@ -41,12 +55,13 @@ tags: [ logging metrics ]</textarea></div><div class=sml-pg-actions><button clas
       if (!r.ok) {
         out.hidden = false;
         out.className = "sml-pg-out err";
-        let msg = r.error; if (r.position) msg += ` (行 ${r.position.line + 1}, 列 ${r.position.col + 1})`;
-        out.textContent = "✗ 解析错误：\n" + msg;
+        let msg = r.error;
+        if (r.position) msg += ` (${T.line} ${r.position.line + 1}, ${T.col} ${r.position.col + 1})`;
+        out.textContent = T.parseErr + msg;
         return null;
       }
       out.hidden = false; out.className = "sml-pg-out ok";
-      out.textContent = "✓ 解析成功：\n" + JSON.stringify(r.value, null, 2);
+      out.textContent = T.parseOk + JSON.stringify(r.value, null, 2);
       return r.value;
     }
     function run() { setStatus("", ""); parse(); }
@@ -56,20 +71,20 @@ tags: [ logging metrics ]</textarea></div><div class=sml-pg-actions><button clas
     resetBtn.addEventListener("click", reset);
     if (verifyBtn) verifyBtn.addEventListener("click", () => {
       const v = parse();
-      if (v === null) { setStatus("✗ 解析错误", "bad"); return; }
+      if (v === null) { setStatus(T.statusErr, "bad"); return; }
       const fn = VERIFIERS["intro"];
-      if (!fn) { setStatus("（本章暂无可验证任务）", ""); return; }
+      if (!fn) { setStatus(T.noTask, ""); return; }
       const res = fn(v);
-      setStatus(res.ok ? "✓ 通过" : "✗ 未通过", res.ok ? "good" : "bad");
+      setStatus(res.ok ? T.pass : T.fail, res.ok ? "good" : "bad");
       out.hidden = false;
       out.className = "sml-pg-out " + (res.ok ? "ok" : "err");
-      let base = res.ok ? "✓ 验证通过！\n" : "✗ 还没对：\n";
-      out.textContent = base + res.msg + "\n\n解析结果：\n" + JSON.stringify(v, null, 2);
+      let base = res.ok ? T.verifyOk : T.verifyFail;
+      out.textContent = base + res.msg + "\n\n" + T.result + "\n" + JSON.stringify(v, null, 2);
     });
     ta.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") run(); });
   });
-</script><style>.sml-pg{border:1px solid #d0d7de;border-radius:10px;margin:16px 0;overflow:hidden;background:#fff}.sml-pg-task{background:#eef4ff;border-bottom:1px solid #d0d7de;padding:10px 12px;font-size:13px;color:#1a2b4a;line-height:1.6}.sml-pg-task-tag{display:inline-block;background:#1565c0;color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;margin-right:6px}.sml-pg-hint{margin-top:6px;font-size:12px;color:#555}.sml-pg-files{font-size:12px;background:#f6f8fa;border-bottom:1px solid #eaecef}.sml-pg-files summary{padding:6px 12px;cursor:pointer;color:#57606a}.sml-pg-file{padding:0 12px 8px}.sml-pg-file-name{font-weight:700;color:#0d47a1}.sml-pg-file pre{background:#fff;border:1px solid #e1e4e8;border-radius:4px;padding:6px 8px;margin:4px 0 0;white-space:pre-wrap}.sml-pg-main{display:flex}.sml-pg-code{flex:1;min-height:200px;border:0;padding:10px 12px;font-family:sfmono-regular,Consolas,monospace;font-size:12.5px;line-height:1.5;background:#fff;color:#111;resize:vertical;white-space:pre;tab-size:2}.sml-pg-code:focus{outline:2px solid #1565c0;outline-offset:-2px}.sml-pg-actions{padding:8px 12px;display:flex;gap:8px;align-items:center;background:#f6f8fa;border-top:1px solid #eaecef}.sml-pg-actions button{background:#1565c0;color:#fff;border:0;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:13px}.sml-pg-actions button.sml-pg-reset{background:#6c757d}.sml-pg-actions button:hover{filter:brightness(1.08)}.sml-pg-status{font-size:12px;margin-left:4px}.sml-pg-status.good{color:#2e7d32}.sml-pg-status.bad{color:#c62828}.sml-pg-out{margin:0;padding:10px 12px;font-size:12px;white-space:pre-wrap;max-height:320px;overflow:auto;border-top:1px solid #eaecef}.sml-pg-out.ok{background:#e8f5e9;color:#1b5e20}.sml-pg-out.err{background:#fdecea;color:#b71c1c}</style><div class=sml-qz data-quiz=intro><div class=sml-qz-bar><span class=sml-qz-title>✍ 自测考题：序章自测</span>
-<span class=sml-qz-score>得分 0 / 3</span>
+</script><style>.sml-pg{border:1px solid #d0d7de;border-radius:10px;margin:16px 0;overflow:hidden;background:#fff}.sml-pg-task{background:#eef4ff;border-bottom:1px solid #d0d7de;padding:10px 12px;font-size:13px;color:#1a2b4a;line-height:1.6}.sml-pg-task-tag{display:inline-block;background:#1565c0;color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;margin-right:6px}.sml-pg-hint{margin-top:6px;font-size:12px;color:#555}.sml-pg-files{font-size:12px;background:#f6f8fa;border-bottom:1px solid #eaecef}.sml-pg-files summary{padding:6px 12px;cursor:pointer;color:#57606a}.sml-pg-file{padding:0 12px 8px}.sml-pg-file-name{font-weight:700;color:#0d47a1}.sml-pg-file pre{background:#fff;border:1px solid #e1e4e8;border-radius:4px;padding:6px 8px;margin:4px 0 0;white-space:pre-wrap}.sml-pg-main{display:flex}.sml-pg-code{flex:1;min-height:200px;border:0;padding:10px 12px;font-family:sfmono-regular,Consolas,monospace;font-size:12.5px;line-height:1.5;background:#fff;color:#111;resize:vertical;white-space:pre;tab-size:2}.sml-pg-code:focus{outline:2px solid #1565c0;outline-offset:-2px}.sml-pg-actions{padding:8px 12px;display:flex;gap:8px;align-items:center;background:#f6f8fa;border-top:1px solid #eaecef}.sml-pg-actions button{background:#1565c0;color:#fff;border:0;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:13px}.sml-pg-actions button.sml-pg-reset{background:#6c757d}.sml-pg-actions button:hover{filter:brightness(1.08)}.sml-pg-status{font-size:12px;margin-left:4px}.sml-pg-status.good{color:#2e7d32}.sml-pg-status.bad{color:#c62828}.sml-pg-out{margin:0;padding:10px 12px;font-size:12px;white-space:pre-wrap;max-height:320px;overflow:auto;border-top:1px solid #eaecef}.sml-pg-out.ok{background:#e8f5e9;color:#1b5e20}.sml-pg-out.err{background:#fdecea;color:#b71c1c}</style><div class=sml-qz data-quiz=intro data-t-correct="✓ 答对！" data-t-wrong="✗ 答错。"><div class=sml-qz-bar><span class=sml-qz-title>✍ 自测考题：序章自测</span>
+<span class=sml-qz-score data-tpl=得分>得分 0 / 3</span>
 <button class=sml-qz-check type=button>交卷判分</button>
 <button class=sml-qz-reset type=button>重置</button></div><div class=sml-qz-body><div class=sml-qz-item data-idx=0 data-type=choice data-answer=1><div class=sml-qz-q><span class=sml-qz-no>Q1.</span> SML 最像下面哪种“气质”？</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=radio name=qz-intro-0 value=0>
 <span>严格缩进的 Python</span>
@@ -93,6 +108,14 @@ tags: [ logging metrics ]</textarea></div><div class=sml-pg-actions><button clas
     const scoreEl = box.querySelector(".sml-qz-score");
     const checkBtn = box.querySelector(".sml-qz-check");
     const resetBtn = box.querySelector(".sml-qz-reset");
+    
+    const T = {
+      score: (scoreEl.dataset.tpl || "Score").trim(),
+      correct: box.dataset.tCorrect || "✓ Correct! ",
+      wrong: box.dataset.tWrong || "✗ Wrong. ",
+    };
+    const total = box.querySelectorAll(".sml-qz-item").length;
+    const scoreText = (n) => T.score + " " + n + " / " + total;
 
     function normAnswer(raw, type) {
       const a = (typeof raw === "string") ? JSON.parse(raw) : raw;
@@ -122,10 +145,10 @@ tags: [ logging metrics ]</textarea></div><div class=sml-pg-actions><button clas
         const expl = item.querySelector(".sml-qz-explain");
         fb.hidden = false;
         fb.className = "sml-qz-fb " + (correct ? "ok" : "bad");
-        fb.innerHTML = (correct ? "✓ 答对！ " : "✗ 答错。 ") +
+        fb.textContent = (correct ? T.correct : T.wrong) +
           (expl ? expl.textContent : "");
       });
-      scoreEl.textContent = "得分 " + score + " / " + box.querySelectorAll(".sml-qz-item").length;
+      scoreEl.textContent = scoreText(score);
       checkBtn.disabled = true;
     }
     function reset() {
@@ -134,7 +157,7 @@ tags: [ logging metrics ]</textarea></div><div class=sml-pg-actions><button clas
         const fb = item.querySelector(".sml-qz-fb");
         fb.hidden = true; fb.className = "sml-qz-fb"; fb.textContent = "";
       });
-      scoreEl.textContent = "得分 0 / " + box.querySelectorAll(".sml-qz-item").length;
+      scoreEl.textContent = scoreText(0);
       checkBtn.disabled = false;
     }
     checkBtn.addEventListener("click", check);

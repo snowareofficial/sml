@@ -1,7 +1,7 @@
-<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Chapter 3: Fragment Inheritance · SML { ❄ } — SNOWARE Markup Language</title><style>body{font-family:system-ui,microsoft yahei,sans-serif;margin:0;background:#fafafa;color:#111}header{background:#111;color:#fff;padding:18px 32px;display:flex;align-items:center;gap:12px}header h1{margin:0;font-size:20px}header a{color:#fff;text-decoration:none}header .flake{color:#42a5f5;font-size:22px}header .lang-switch{margin-left:auto;display:flex;gap:6px}header .lang-switch a{color:#90caf9;font-size:13px;padding:4px 10px;border:1px solid #333;border-radius:6px;text-decoration:none}header .lang-switch a.active{background:#1565c0;color:#fff;border-color:#1565c0}nav{background:#1c1c1c;padding:8px 32px;position:sticky;top:0;z-index:10;display:flex;flex-wrap:wrap;gap:4px 18px}nav a{color:#90caf9;text-decoration:none;font-size:14px}nav a:hover{text-decoration:underline}nav .home{color:#fff;font-weight:600}main{max-width:880px;margin:24px auto;padding:0 24px}h2{scroll-margin-top:56px}article{background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:24px 32px}h1,h2,h3{color:#0d47a1}h2{border-bottom:2px solid #42a5f5;padding-bottom:6px}code{background:#eef4fb;padding:2px 6px;border-radius:4px;font-size:.9em;color:#1565c0}pre{background:#111;color:#e8f1fb;padding:12px;border-radius:6px;overflow-x:auto}pre code{background:0 0;color:inherit}table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#eef4fb;color:#0d47a1}.links{display:flex;gap:12px;margin:16px 0}.btn{display:inline-block;background:#1565c0;color:#fff;padding:10px 22px;border-radius:8px;text-decoration:none;font-weight:600}.btn:hover{background:#0d47a1}footer{text-align:center;padding:24px;color:#666;font-size:13px}</style></head><body><header><img src=../../../sml.svg alt=sml style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))"><h1><a href=../../../>SML { ❄ }</a></h1><span class=lang-switch><a href=../../../>中文</a>
-<a href=../../../en/ class=active>EN</a></span></header><nav><a class=home href=../../../>SML</a>
-<a href=../../../book/>Textbook</a>
-<a href=../../../playground/>Playground</a></nav><main><article><h1>Chapter 3: Fragment Inheritance</h1><h1 id=chapter-3-fragment-inheritance>Chapter 3: Fragment Inheritance</h1><p>In real projects, many configuration blocks look similar - for example, multiple services require <code>region</code>, <code>timeout</code>, <code>dns</code>. Repetitive writing is both verbose and prone to inconsistency. SML uses fragments to solve this problem.</p><blockquote><p>One sentence: <strong>Fragment is &ldquo;value reuse&rdquo;</strong> - defining a set of fields once and expanding them everywhere by referencing.</p></blockquote><h2 id=31-definition-fragment-name>3.1 Definition fragment: <code>@name</code></h2><p>Define a reusable field using <code>@名字 { }</code>:</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none><code class=language-sml data-lang=sml><span style=display:flex><span>@net {
+<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Chapter 3: Fragment Inheritance · SML { ❄ } — SNOWARE Markup Language</title><style>body{font-family:system-ui,microsoft yahei,sans-serif;margin:0;background:#fafafa;color:#111}header{background:#111;color:#fff;padding:18px 32px;display:flex;align-items:center;gap:12px}header h1{margin:0;font-size:20px}header a{color:#fff;text-decoration:none}header .flake{color:#42a5f5;font-size:22px}header .lang-switch{margin-left:auto;display:flex;gap:6px}header .lang-switch a{color:#90caf9;font-size:13px;padding:4px 10px;border:1px solid #333;border-radius:6px;text-decoration:none}header .lang-switch a.active{background:#1565c0;color:#fff;border-color:#1565c0}nav{background:#1c1c1c;padding:8px 32px;position:sticky;top:0;z-index:10;display:flex;flex-wrap:wrap;gap:4px 18px}nav a{color:#90caf9;text-decoration:none;font-size:14px}nav a:hover{text-decoration:underline}nav .home{color:#fff;font-weight:600}main{max-width:880px;margin:24px auto;padding:0 24px}h2{scroll-margin-top:56px}article{background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:24px 32px}h1,h2,h3{color:#0d47a1}h2{border-bottom:2px solid #42a5f5;padding-bottom:6px}code{background:#eef4fb;padding:2px 6px;border-radius:4px;font-size:.9em;color:#1565c0}pre{background:#111;color:#e8f1fb;padding:12px;border-radius:6px;overflow-x:auto}pre code{background:0 0;color:inherit}table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#eef4fb;color:#0d47a1}.links{display:flex;gap:12px;margin:16px 0}.btn{display:inline-block;background:#1565c0;color:#fff;padding:10px 22px;border-radius:8px;text-decoration:none;font-weight:600}.btn:hover{background:#0d47a1}footer{text-align:center;padding:24px;color:#666;font-size:13px}</style></head><body><header><img src=../../../en/sml.svg alt=sml style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))"><h1><a href=../../../en/>SML { ❄ }</a></h1><span class=lang-switch><a href=../../../>中文</a>
+<a href=../../../en/ class=active>EN</a></span></header><nav><a class=home href=../../../en/>SML</a>
+<a href=../../../en/book/>Textbook</a>
+<a href=../../../en/playground/>Playground</a></nav><main><article><h1>Chapter 3: Fragment Inheritance</h1><h1 id=chapter-3-fragment-inheritance>Chapter 3: Fragment Inheritance</h1><p>In real projects, many configuration blocks look similar - for example, multiple services require <code>region</code>, <code>timeout</code>, <code>dns</code>. Repetitive writing is both verbose and prone to inconsistency. SML uses fragments to solve this problem.</p><blockquote><p>One sentence: <strong>Fragment is &ldquo;value reuse&rdquo;</strong> - defining a set of fields once and expanding them everywhere by referencing.</p></blockquote><h2 id=31-definition-fragment-name>3.1 Definition fragment: <code>@name</code></h2><p>Define a reusable field using <code>@名字 { }</code>:</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none><code class=language-sml data-lang=sml><span style=display:flex><span>@net {
 </span></span><span style=display:flex><span>    region: cn-north-<span style=color:#ae81ff>1</span>
 </span></span><span style=display:flex><span>    dns: internal.swebase.cn
 </span></span><span style=display:flex><span>    timeout: <span style=color:#ae81ff>30</span>
@@ -41,15 +41,19 @@
 </span></span><span style=display:flex><span>lobby { &amp;common port: <span style=color:#ae81ff>25565</span> name: <span style=color:#960050;background-color:#1e0010>大厅</span> }
 </span></span><span style=display:flex><span>pvp { &amp;common port: <span style=color:#ae81ff>25566</span> name: <span style=color:#960050;background-color:#1e0010>竞技场</span> }
 </span></span><span style=display:flex><span>survival { &amp;common port: <span style=color:#ae81ff>25567</span> name: <span style=color:#960050;background-color:#1e0010>生存</span> }
-</span></span></code></pre></div><p>→ [Chapter 4: Include and namespaces](/en/book/ch04 include)</p><h2 id=hands-on-practice>Hands on practice</h2><p>After reading this chapter, directly modify SML in the editor below and click &ldquo;Run&rdquo; to immediately see the parsing results or validation errors - having output is necessary for efficient learning.</p><div class=sml-pg data-lesson=ch03><div class=sml-pg-task><span class=sml-pg-task-tag>✍ 动手练习</span>
-<span class=sml-pg-task-text>定义 <b>@base { region, timeout }</b>，再写两个 <b>service</b> 块（auth、billing）都 <b>&base</b> 并各自覆盖 port 与 name。</span><div class=sml-pg-hint>💡 提示：把 &amp;base 误写成裸词（去掉 &）看看会发生什么。</div></div><div class=sml-pg-main><textarea class=sml-pg-code spellcheck=false data-files=null>@base {
+</span></span></code></pre></div><p>→ [Chapter 4: Include and namespaces](/en/book/ch04 include)</p><h2 id=hands-on-practice>Hands on practice</h2><p>After reading this chapter, directly modify SML in the editor below and click &ldquo;Run&rdquo; to immediately see the parsing results or validation errors - having output is necessary for efficient learning.</p><div class=sml-pg data-lesson=ch03 data-t-parse-err="✗ Parse error:
+" data-t-parse-ok="✓ Parsed successfully:
+" data-t-status-err="✗ Parse error" data-t-no-task="(No verifiable task in this chapter)" data-t-pass="✓ Passed" data-t-fail="✗ Not passed" data-t-verify-ok="✓ Verified!
+" data-t-verify-fail="✗ Not quite right:
+" data-t-result="Parsed result:" data-t-line=line data-t-col=col><div class=sml-pg-task><span class=sml-pg-task-tag>✍ Hands-on exercise</span>
+<span class=sml-pg-task-text>Define <b>@base { region, timeout }</b>, and then write two <b>service</b> blocks (auth, billing) both <b>&base</b>, each covering port and name.</span><div class=sml-pg-hint>💡 Hint: Miswrite&amp;base as the naked word (remove&) and see what happens.</div></div><div class=sml-pg-main><textarea class=sml-pg-code spellcheck=false data-files=null>@base {
   region: cn-north-1
   timeout: 30
 }
 service auth { &amp;base port: 7100 name: auth-svc }
-service billing { &amp;base port: 7200 name: billing-svc }</textarea></div><div class=sml-pg-actions><button class=sml-pg-run type=button>运行 ▶</button>
-<button class=sml-pg-verify type=button>验证 ✓</button>
-<button class=sml-pg-reset type=button>重置</button>
+service billing { &amp;base port: 7200 name: billing-svc }</textarea></div><div class=sml-pg-actions><button class=sml-pg-run type=button>Run ▶</button>
+<button class=sml-pg-verify type=button>Verify ✓</button>
+<button class=sml-pg-reset type=button>Reset</button>
 <span class=sml-pg-status></span></div><pre class=sml-pg-out hidden></pre></div><script type=module>
   import { parseSafe } from "/sml.mjs";
   import { VERIFIERS } from "/sml-verify.js";
@@ -61,6 +65,20 @@ service billing { &amp;base port: 7200 name: billing-svc }</textarea></div><div 
     const verifyBtn = box.querySelector(".sml-pg-verify");
     const resetBtn = box.querySelector(".sml-pg-reset");
     const init = ta.value;
+    
+    const T = {
+      parseErr: box.dataset.tParseErr || "✗ Parse error:\n",
+      parseOk: box.dataset.tParseOk || "✓ Parsed successfully:\n",
+      statusErr: box.dataset.tStatusErr || "✗ Parse error",
+      noTask: box.dataset.tNoTask || "(No verifiable task in this chapter)",
+      pass: box.dataset.tPass || "✓ Passed",
+      fail: box.dataset.tFail || "✗ Not passed",
+      verifyOk: box.dataset.tVerifyOk || "✓ Verified!\n",
+      verifyFail: box.dataset.tVerifyFail || "✗ Not quite right:\n",
+      result: box.dataset.tResult || "Parsed result:",
+      line: box.dataset.tLine || "line",
+      col: box.dataset.tCol || "col",
+    };
 
     function setStatus(txt, cls) { status.textContent = txt; status.className = "sml-pg-status " + (cls || ""); }
     function parse() {
@@ -71,12 +89,13 @@ service billing { &amp;base port: 7200 name: billing-svc }</textarea></div><div 
       if (!r.ok) {
         out.hidden = false;
         out.className = "sml-pg-out err";
-        let msg = r.error; if (r.position) msg += ` (行 ${r.position.line + 1}, 列 ${r.position.col + 1})`;
-        out.textContent = "✗ 解析错误：\n" + msg;
+        let msg = r.error;
+        if (r.position) msg += ` (${T.line} ${r.position.line + 1}, ${T.col} ${r.position.col + 1})`;
+        out.textContent = T.parseErr + msg;
         return null;
       }
       out.hidden = false; out.className = "sml-pg-out ok";
-      out.textContent = "✓ 解析成功：\n" + JSON.stringify(r.value, null, 2);
+      out.textContent = T.parseOk + JSON.stringify(r.value, null, 2);
       return r.value;
     }
     function run() { setStatus("", ""); parse(); }
@@ -86,50 +105,58 @@ service billing { &amp;base port: 7200 name: billing-svc }</textarea></div><div 
     resetBtn.addEventListener("click", reset);
     if (verifyBtn) verifyBtn.addEventListener("click", () => {
       const v = parse();
-      if (v === null) { setStatus("✗ 解析错误", "bad"); return; }
+      if (v === null) { setStatus(T.statusErr, "bad"); return; }
       const fn = VERIFIERS["ch03"];
-      if (!fn) { setStatus("（本章暂无可验证任务）", ""); return; }
+      if (!fn) { setStatus(T.noTask, ""); return; }
       const res = fn(v);
-      setStatus(res.ok ? "✓ 通过" : "✗ 未通过", res.ok ? "good" : "bad");
+      setStatus(res.ok ? T.pass : T.fail, res.ok ? "good" : "bad");
       out.hidden = false;
       out.className = "sml-pg-out " + (res.ok ? "ok" : "err");
-      let base = res.ok ? "✓ 验证通过！\n" : "✗ 还没对：\n";
-      out.textContent = base + res.msg + "\n\n解析结果：\n" + JSON.stringify(v, null, 2);
+      let base = res.ok ? T.verifyOk : T.verifyFail;
+      out.textContent = base + res.msg + "\n\n" + T.result + "\n" + JSON.stringify(v, null, 2);
     });
     ta.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") run(); });
   });
-</script><style>.sml-pg{border:1px solid #d0d7de;border-radius:10px;margin:16px 0;overflow:hidden;background:#fff}.sml-pg-task{background:#eef4ff;border-bottom:1px solid #d0d7de;padding:10px 12px;font-size:13px;color:#1a2b4a;line-height:1.6}.sml-pg-task-tag{display:inline-block;background:#1565c0;color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;margin-right:6px}.sml-pg-hint{margin-top:6px;font-size:12px;color:#555}.sml-pg-files{font-size:12px;background:#f6f8fa;border-bottom:1px solid #eaecef}.sml-pg-files summary{padding:6px 12px;cursor:pointer;color:#57606a}.sml-pg-file{padding:0 12px 8px}.sml-pg-file-name{font-weight:700;color:#0d47a1}.sml-pg-file pre{background:#fff;border:1px solid #e1e4e8;border-radius:4px;padding:6px 8px;margin:4px 0 0;white-space:pre-wrap}.sml-pg-main{display:flex}.sml-pg-code{flex:1;min-height:200px;border:0;padding:10px 12px;font-family:sfmono-regular,Consolas,monospace;font-size:12.5px;line-height:1.5;background:#fff;color:#111;resize:vertical;white-space:pre;tab-size:2}.sml-pg-code:focus{outline:2px solid #1565c0;outline-offset:-2px}.sml-pg-actions{padding:8px 12px;display:flex;gap:8px;align-items:center;background:#f6f8fa;border-top:1px solid #eaecef}.sml-pg-actions button{background:#1565c0;color:#fff;border:0;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:13px}.sml-pg-actions button.sml-pg-reset{background:#6c757d}.sml-pg-actions button:hover{filter:brightness(1.08)}.sml-pg-status{font-size:12px;margin-left:4px}.sml-pg-status.good{color:#2e7d32}.sml-pg-status.bad{color:#c62828}.sml-pg-out{margin:0;padding:10px 12px;font-size:12px;white-space:pre-wrap;max-height:320px;overflow:auto;border-top:1px solid #eaecef}.sml-pg-out.ok{background:#e8f5e9;color:#1b5e20}.sml-pg-out.err{background:#fdecea;color:#b71c1c}</style><div class=sml-qz data-quiz=ch03><div class=sml-qz-bar><span class=sml-qz-title>✍ 自测考题：第 3 章自测：片段继承</span>
-<span class=sml-qz-score>得分 0 / 4</span>
-<button class=sml-qz-check type=button>交卷判分</button>
-<button class=sml-qz-reset type=button>重置</button></div><div class=sml-qz-body><div class=sml-qz-item data-idx=0 data-type=choice data-answer=0><div class=sml-qz-q><span class=sml-qz-no>Q1.</span> 定义可复用片段用哪个符号？</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=radio name=qz-ch03-0 value=0>
+</script><style>.sml-pg{border:1px solid #d0d7de;border-radius:10px;margin:16px 0;overflow:hidden;background:#fff}.sml-pg-task{background:#eef4ff;border-bottom:1px solid #d0d7de;padding:10px 12px;font-size:13px;color:#1a2b4a;line-height:1.6}.sml-pg-task-tag{display:inline-block;background:#1565c0;color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;margin-right:6px}.sml-pg-hint{margin-top:6px;font-size:12px;color:#555}.sml-pg-files{font-size:12px;background:#f6f8fa;border-bottom:1px solid #eaecef}.sml-pg-files summary{padding:6px 12px;cursor:pointer;color:#57606a}.sml-pg-file{padding:0 12px 8px}.sml-pg-file-name{font-weight:700;color:#0d47a1}.sml-pg-file pre{background:#fff;border:1px solid #e1e4e8;border-radius:4px;padding:6px 8px;margin:4px 0 0;white-space:pre-wrap}.sml-pg-main{display:flex}.sml-pg-code{flex:1;min-height:200px;border:0;padding:10px 12px;font-family:sfmono-regular,Consolas,monospace;font-size:12.5px;line-height:1.5;background:#fff;color:#111;resize:vertical;white-space:pre;tab-size:2}.sml-pg-code:focus{outline:2px solid #1565c0;outline-offset:-2px}.sml-pg-actions{padding:8px 12px;display:flex;gap:8px;align-items:center;background:#f6f8fa;border-top:1px solid #eaecef}.sml-pg-actions button{background:#1565c0;color:#fff;border:0;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:13px}.sml-pg-actions button.sml-pg-reset{background:#6c757d}.sml-pg-actions button:hover{filter:brightness(1.08)}.sml-pg-status{font-size:12px;margin-left:4px}.sml-pg-status.good{color:#2e7d32}.sml-pg-status.bad{color:#c62828}.sml-pg-out{margin:0;padding:10px 12px;font-size:12px;white-space:pre-wrap;max-height:320px;overflow:auto;border-top:1px solid #eaecef}.sml-pg-out.ok{background:#e8f5e9;color:#1b5e20}.sml-pg-out.err{background:#fdecea;color:#b71c1c}</style><div class=sml-qz data-quiz=ch03 data-t-correct="✓ Correct! " data-t-wrong="✗ Wrong. "><div class=sml-qz-bar><span class=sml-qz-title>✍ Self-check quiz: Chapter 3 Self testing: Fragment Inheritance</span>
+<span class=sml-qz-score data-tpl=Score>Score 0 / 4</span>
+<button class=sml-qz-check type=button>Submit</button>
+<button class=sml-qz-reset type=button>Reset</button></div><div class=sml-qz-body><div class=sml-qz-item data-idx=0 data-type=choice data-answer=0><div class=sml-qz-q><span class=sml-qz-no>Q1.</span> Which symbol is used to define reusable fragments?</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=radio name=qz-ch03-0 value=0>
 <span>@base</span>
 </label><label class=sml-qz-opt><input type=radio name=qz-ch03-0 value=1>
 <span>&amp;base</span>
 </label><label class=sml-qz-opt><input type=radio name=qz-ch03-0 value=2>
 <span>@is</span>
 </label><label class=sml-qz-opt><input type=radio name=qz-ch03-0 value=3>
-<span>include</span></label></div><div class=sml-qz-explain hidden>@base { } 定义片段模板，&amp;base 在别处引用它进行继承合并。</div><div class=sml-qz-fb hidden></div></div><div class=sml-qz-item data-idx=1 data-type=choice data-answer=1><div class=sml-qz-q><span class=sml-qz-no>Q2.</span> service auth { &amp;base port: 7100 } 里，如果 @base 已定义 port: 7000，结果 port 是？</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=radio name=qz-ch03-1 value=0>
-<span>7000（片段优先）</span>
+<span>include</span></label></div><div class=sml-qz-explain hidden>@base { } defines fragment templates, and&amp;base references them elsewhere for inheritance and merging.</div><div class=sml-qz-fb hidden></div></div><div class=sml-qz-item data-idx=1 data-type=choice data-answer=1><div class=sml-qz-q><span class=sml-qz-no>Q2.</span> In service auth { &amp;base port: 7100 }, if @base has already defined port: 7000, what is the result port?</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=radio name=qz-ch03-1 value=0>
+<span>7000 (fragment priority)</span>
 </label><label class=sml-qz-opt><input type=radio name=qz-ch03-1 value=1>
-<span>7100（本地覆盖）</span>
+<span>7100 (local coverage)</span>
 </label><label class=sml-qz-opt><input type=radio name=qz-ch03-1 value=2>
-<span>两个都有</span>
+<span>Both have it.</span>
 </label><label class=sml-qz-opt><input type=radio name=qz-ch03-1 value=3>
-<span>报错</span></label></div><div class=sml-qz-explain hidden>引用 &amp;base 后，本地字段会覆盖片段中的同名字段，port 取 7100。</div><div class=sml-qz-fb hidden></div></div><div class=sml-qz-item data-idx=2 data-type=bool data-answer=0><div class=sml-qz-q><span class=sml-qz-no>Q3.</span> 判断：&amp;base 必须放在块的第一行才能生效。</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=radio name=qz-ch03-2 value=0>
-<span>错，位置不限</span>
+<span>error report</span></label></div><div class=sml-qz-explain hidden>After referencing&amp;base, the local field will overwrite the same named field in the fragment, with a port of 7100.</div><div class=sml-qz-fb hidden></div></div><div class=sml-qz-item data-idx=2 data-type=bool data-answer=0><div class=sml-qz-q><span class=sml-qz-no>Q3.</span> Judgment:&amp;base must be placed on the first line of the block to take effect.</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=radio name=qz-ch03-2 value=0>
+<span>Wrong, unlimited location</span>
 </label><label class=sml-qz-opt><input type=radio name=qz-ch03-2 value=1>
-<span>对，必须是首字段</span></label></div><div class=sml-qz-explain hidden>&amp;base 引用可以出现在块内任意字段位置，SML 会先做片段合并再解析其他字段。</div><div class=sml-qz-fb hidden></div></div><div class=sml-qz-item data-idx=3 data-type=multi data-answer=[0,1]><div class=sml-qz-q><span class=sml-qz-no>Q4.</span> 片段继承主要解决什么问题？</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=checkbox name=qz-ch03-3 value=0>
-<span>减少重复配置</span>
+<span>Yes, it must be the first field</span></label></div><div class=sml-qz-explain hidden>&amp;The base reference can appear at any field position within the block, and SML will first perform fragment merging before parsing other fields.</div><div class=sml-qz-fb hidden></div></div><div class=sml-qz-item data-idx=3 data-type=multi data-answer=[0,1]><div class=sml-qz-q><span class=sml-qz-no>Q4.</span> What problems does fragment inheritance mainly solve?</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=checkbox name=qz-ch03-3 value=0>
+<span>Reduce duplicate configurations</span>
 </label><label class=sml-qz-opt><input type=checkbox name=qz-ch03-3 value=1>
-<span>统一公共字段</span>
+<span>Unified public fields</span>
 </label><label class=sml-qz-opt><input type=checkbox name=qz-ch03-3 value=2>
-<span>强制类型检查</span>
+<span>Mandatory Type Check</span>
 </label><label class=sml-qz-opt><input type=checkbox name=qz-ch03-3 value=3>
-<span>自动生成文档</span></label></div><div class=sml-qz-explain hidden>片段用于把 region/timeout 等公共字段抽出来复用，避免每个服务重复写。</div><div class=sml-qz-fb hidden></div></div></div></div><script type=module>
+<span>Automatically generate documents</span></label></div><div class=sml-qz-explain hidden>Fragments are used to extract and reuse common fields such as region/timeout to avoid duplicate writing for each service.</div><div class=sml-qz-fb hidden></div></div></div></div><script type=module>
   document.querySelectorAll('.sml-qz[data-quiz="ch03"]').forEach((box) => {
     const scoreEl = box.querySelector(".sml-qz-score");
     const checkBtn = box.querySelector(".sml-qz-check");
     const resetBtn = box.querySelector(".sml-qz-reset");
+    
+    const T = {
+      score: (scoreEl.dataset.tpl || "Score").trim(),
+      correct: box.dataset.tCorrect || "✓ Correct! ",
+      wrong: box.dataset.tWrong || "✗ Wrong. ",
+    };
+    const total = box.querySelectorAll(".sml-qz-item").length;
+    const scoreText = (n) => T.score + " " + n + " / " + total;
 
     function normAnswer(raw, type) {
       const a = (typeof raw === "string") ? JSON.parse(raw) : raw;
@@ -159,10 +186,10 @@ service billing { &amp;base port: 7200 name: billing-svc }</textarea></div><div 
         const expl = item.querySelector(".sml-qz-explain");
         fb.hidden = false;
         fb.className = "sml-qz-fb " + (correct ? "ok" : "bad");
-        fb.innerHTML = (correct ? "✓ 答对！ " : "✗ 答错。 ") +
+        fb.textContent = (correct ? T.correct : T.wrong) +
           (expl ? expl.textContent : "");
       });
-      scoreEl.textContent = "得分 " + score + " / " + box.querySelectorAll(".sml-qz-item").length;
+      scoreEl.textContent = scoreText(score);
       checkBtn.disabled = true;
     }
     function reset() {
@@ -171,7 +198,7 @@ service billing { &amp;base port: 7200 name: billing-svc }</textarea></div><div 
         const fb = item.querySelector(".sml-qz-fb");
         fb.hidden = true; fb.className = "sml-qz-fb"; fb.textContent = "";
       });
-      scoreEl.textContent = "得分 0 / " + box.querySelectorAll(".sml-qz-item").length;
+      scoreEl.textContent = scoreText(0);
       checkBtn.disabled = false;
     }
     checkBtn.addEventListener("click", check);
