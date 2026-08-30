@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html lang="zh">
 <head>
 	<meta name="generator" content="Hugo 0.164.0">
@@ -11,6 +12,9 @@
     header h1 { margin: 0; font-size: 20px; }
     header a { color: #fff; text-decoration: none; }
     header .flake { color: #42A5F5; font-size: 22px; }
+    header .lang-switch { margin-left: auto; display: flex; gap: 6px; }
+    header .lang-switch a { color: #90caf9; font-size: 13px; padding: 4px 10px; border: 1px solid #333; border-radius: 6px; text-decoration: none; }
+    header .lang-switch a.active { background: #1565C0; color: #fff; border-color: #1565C0; }
     nav { background: #1c1c1c; padding: 8px 32px; position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 4px 18px; }
     nav a { color: #90caf9; text-decoration: none; font-size: 14px; }
     nav a:hover { text-decoration: underline; }
@@ -37,6 +41,13 @@
   <header>
     <img src="./sml.svg" alt="sml" style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))">
     <h1><a href="./">SML { ❄ }</a></h1>
+    <span class="lang-switch">
+      
+        <a href="./" class="active">中文</a>
+      
+        <a href="./en/" class="">EN</a>
+      
+    </span>
   </header>
   <nav>
     <a class="home" href="./">SML</a>
@@ -77,10 +88,10 @@
 <h2 id="-sml-教科书">📖 SML 教科书</h2>
 <p>从零开始、循序渐进，也能当工具书随时查。→ <strong><a href="./book/">在线阅读</a></strong></p>
 <ul>
-<li><a href="./book/intro">序章：为什么是 SML</a></li>
-<li><a href="./book/ch01-basics">第 1 章：第一个 SML 文件</a> · <a href="./book/ch02-blocks">第 2 章：块与嵌套</a> · <a href="./book/ch03-fragments">第 3 章：片段继承</a></li>
-<li><a href="./book/ch04-include">第 4 章：include 与命名空间</a> · <a href="./book/ch05-contract">第 5 章：契约系统</a> · <a href="./book/ch06-env-escape">第 6 章：环境变量与转义</a></li>
-<li><a href="./book/ch07-languages">第 7 章：多语言使用</a> · <a href="./book/ch08-project">第 8 章：实战项目</a> · <a href="./book/ch09-advanced">第 9 章：功能组合与设计模式</a> · <a href="./book/ch10-features">第 10 章：feature 完整参考</a> · <a href="./book/ch11-challenges">第 11 章：实战翻译挑战</a> · <a href="./book/appendix">附录：对照与排查</a></li>
+<li><a href="./book/intro/">序章：为什么是 SML</a></li>
+<li><a href="./book/ch01-basics/">第 1 章：第一个 SML 文件</a> · <a href="./book/ch02-blocks/">第 2 章：块与嵌套</a> · <a href="./book/ch03-fragments/">第 3 章：片段继承</a></li>
+<li><a href="./book/ch04-include/">第 4 章：include 与命名空间</a> · <a href="./book/ch05-contract/">第 5 章：契约系统</a> · <a href="./book/ch06-env-escape/">第 6 章：环境变量与转义</a></li>
+<li><a href="./book/ch07-languages/">第 7 章：多语言使用</a> · <a href="./book/ch08-project/">第 8 章：实战项目</a> · <a href="./book/ch09-advanced/">第 9 章：功能组合与设计模式</a> · <a href="./book/ch10-features/">第 10 章：feature 完整参考</a> · <a href="./book/ch11-challenges/">第 11 章：实战翻译挑战</a> · <a href="./book/appendix/">附录：对照与排查</a></li>
 <li>离线版：<strong><a href="./sml-book.epub">下载 EPUB</a></strong></li>
 </ul>
 <h2 id="多语言实现对照">多语言实现对照</h2>
@@ -430,6 +441,8 @@
 <p>左侧写 SML（含契约），右侧实时显示解析结果或精确错误位置。</p>
 
   <ul>
+    
+    <li><a href="./en/">SML { ❄ } — SNOWARE Markup Language</a></li>
     
     <li><a href="./playground/">SML Playground</a></li>
     

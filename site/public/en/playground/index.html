@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 
-<html lang="zh">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -38,20 +38,20 @@
 </head>
 <body>
   <header>
-    <img src="../sml.svg" alt="sml" style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))">
-    <h1><a href="../">SML { ❄ }</a></h1>
+    <img src="../../sml.svg" alt="sml" style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))">
+    <h1><a href="../../">SML { ❄ }</a></h1>
     <span class="lang-switch">
       
-        <a href="../" class="active">中文</a>
+        <a href="../../" class="">中文</a>
       
-        <a href="../en/" class="">EN</a>
+        <a href="../../en/" class="active">EN</a>
       
     </span>
   </header>
   <nav>
-    <a class="home" href="../">SML</a>
+    <a class="home" href="../../">SML</a>
     
-      <a href="../book/">教科书</a>
+      <a href="../../book/">教科书</a>
       
       <a href="#特性一览">特性一览</a>
       <a href="#多语言实现对照">多语言实现对照</a>
@@ -69,7 +69,9 @@
 <article>
   <h1>SML Playground</h1>
   <h1 id="sml-playground---">SML Playground { ❄ }</h1>
-<p>在浏览器里直接解析 SML —— 支持契约校验、片段继承、include 转义。基于最新 JavaScript 实现（<code>sml.mjs</code>，零依赖 ESM）。</p>
+<p>Parse SML right in your browser — with contract validation, fragment inheritance
+and include escaping. Powered by the latest JavaScript implementation (<code>sml.mjs</code>,
+zero-dependency ESM).</p>
 <style>
   .pg-wrap { display: flex; gap: 16px; flex-wrap: wrap; }
   .pg-pane { flex: 1 1 360px; min-width: 300px; }
@@ -97,20 +99,20 @@
   .pg-samples button:hover { background: #0d47a1; }
 </style>
 <div class="pg-samples">
-  <span style="font-size:13px;color:#555;">示例：</span>
-  <button data-sample="contract">契约校验</button>
-  <button data-sample="fragment">片段继承</button>
-  <button data-sample="array">数组/枚举</button>
-  <button data-sample="bad">故意出错</button>
+  <span style="font-size:13px;color:#555;">Samples:</span>
+  <button data-sample="contract">Contract</button>
+  <button data-sample="fragment">Fragment</button>
+  <button data-sample="array">Array/Enum</button>
+  <button data-sample="bad">Deliberate error</button>
 </div>
 <div class="pg-wrap">
   <div class="pg-pane">
-    <h3>SML 源码</h3>
+    <h3>SML source</h3>
     <textarea id="src" spellcheck="false"></textarea>
   </div>
   <div class="pg-pane">
-    <h3>解析结果</h3>
-    <pre id="out">（输入左侧内容…）</pre>
+    <h3>Parse result</h3>
+    <pre id="out">（type on the left…）</pre>
   </div>
 </div>
 <div class="pg-bar" id="bar"></div>
@@ -162,14 +164,14 @@ extra: oops`,
     if (r.ok) {
       out.classList.remove("error");
       out.textContent = JSON.stringify(r.value, null, 2);
-      bar.innerHTML = '<span class="ok">✓ 解析成功</span> · ' +
-        Object.keys(flatten(r.value)).length + " 个叶子字段";
+      bar.innerHTML = '<span class="ok">✓ parsed</span> · ' +
+        Object.keys(flatten(r.value)).length + " leaf fields";
     } else {
       out.classList.add("error");
       let msg = r.error;
-      if (r.position) msg += `  (行 ${r.position.line + 1}, 列 ${r.position.col + 1})`;
+      if (r.position) msg += `  (line ${r.position.line + 1}, col ${r.position.col + 1})`;
       out.textContent = "✗ " + msg;
-      bar.innerHTML = '<span class="bad">✗ 解析失败</span>';
+      bar.innerHTML = '<span class="bad">✗ parse failed</span>';
     }
   }
 
@@ -192,7 +194,6 @@ extra: oops`,
     });
   });
 
-  // 初始示例
   src.value = SAMPLES.contract;
   render();
 </script>
