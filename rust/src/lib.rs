@@ -2601,6 +2601,198 @@ pub extern "C" fn sml_version() -> *mut c_char {
 }
 
 // ---------------------------------------------------------------------------
+// v3 扩展 ABI (与基础 sml_parse 并存, 不破坏既有符号)
+// 暴露 $env 内联 / glob-include / @feature / @contract 等 v3 能力。
+// 这些入口独立于 c/ 与 cpp/ 的纯 native 实现, 仅供需要完整 v3 功能的
+// 调用方链接本 cdylib 使用。
+// ---------------------------------------------------------------------------
+
+/// 极简解析 opts JSON: 仅识别顶层 object 的
+///   "features": [ "glob-include", ... ]
+///   "env":      { "KEY": "VAL", ... }
+///   "allow":    [ "v1", "v2", "v3" ]
+/// 返回 (features: Vec<Feature>, env: Vec<(String,String)>, allow: Vec<Version>)。
+/// 任何字段缺失即视为空/不限制; 解析失败返回 Err。
+fn parse_opts_json(opts: &str) -> Result<(Vec<Feature>, Vec<(String, String)>, Vec<Version>), String> {
+    let mut features: Vec<Feature> = Vec::new();
+    let mut env: Vec<(String, String)> = Vec::new();
+    let mut allow: Vec<Version> = Vec::new();
+    if opts.trim().is_empty() {
+        return Ok((features, env, allow));
+    }
+    // 手工 tokenizer: 仅支持本结构, 不引第三方依赖。
+    let b = opts.as_bytes();
+    let mut i = 0usize;
+    let len = b.len();
+    // 跳到首个 {
+    while i < len && b[i] != b'{' { i += 1; }
+    if i >= len { return Err("opts 不是 JSON object".into()); }
+    i += 1; // 越过 {
+    loop {
+        // 跳空白与逗号
+        while i < len && (b[i] == b' ' || b[i] == b'\t' || b[i] == b'\n' || b[i] == b'\r' || b[i] == b',') { i += 1; }
+        if i >= len || b[i] == b'}' { break; }
+        // 读 key (双引号字符串)
+        if b[i] != b'"' { return Err("opts key 须为字符串".into()); }
+        i += 1;
+        let ks = i;
+        while i < len && b[i] != b'"' { i += 1; }
+        let key = std::str::from_utf8(&b[ks..i]).map_err(|_| "opts key 非法 UTF-8".to_string())?.to_string();
+        i += 1; // 越过 "
+        while i < len && (b[i] == b' ' || b[i] == b':' || b[i] == b'\t') { i += 1; }
+        match key.as_str() {
+            "features" | "allow" => {
+                // 读数组 [ ... ]
+                if i >= len || b[i] != b'[' { return Err(format!("opts.{key} 须为数组")); }
+                i += 1;
+                loop {
+                    while i < len && (b[i] == b' ' || b[i] == b'\t' || b[i] == b'\n' || b[i] == b'\r' || b[i] == b',') { i += 1; }
+                    if i < len && b[i] == b']' { i += 1; break; }
+                    if i >= len || b[i] != b'"' { return Err(format!("opts.{key} 元素须为字符串")); }
+                    i += 1;
+                    let vs = i;
+                    while i < len && b[i] != b'"' { i += 1; }
+                    let val = std::str::from_utf8(&b[vs..i]).map_err(|_| "opts 值非法 UTF-8".to_string())?.to_string();
+                    i += 1;
+                    if key == "features" {
+                        features.push(Feature::from_name(&val).ok_or_else(|| format!("未知特性 {val}"))?);
+                    } else {
+                        allow.push(Version::from_word(&val).ok_or_else(|| format!("未知版本 {val}"))?);
+                    }
+                }
+            }
+            "env" => {
+                if i >= len || b[i] != b'{' { return Err("opts.env 须为 object".into()); }
+                i += 1;
+                loop {
+                    while i < len && (b[i] == b' ' || b[i] == b'\t' || b[i] == b'\n' || b[i] == b'\r' || b[i] == b',') { i += 1; }
+                    if i < len && b[i] == b'}' { i += 1; break; }
+                    if i >= len || b[i] != b'"' { return Err("opts.env key 须为字符串".into()); }
+                    i += 1;
+                    let ks = i;
+                    while i < len && b[i] != b'"' { i += 1; }
+                    let ek = std::str::from_utf8(&b[ks..i]).map_err(|_| "opts.env key 非法".to_string())?.to_string();
+                    i += 1;
+                    while i < len && (b[i] == b' ' || b[i] == b':' || b[i] == b'\t') { i += 1; }
+                    if i >= len || b[i] != b'"' { return Err("opts.env value 须为字符串".into()); }
+                    i += 1;
+                    let vs = i;
+                    while i < len && b[i] != b'"' { i += 1; }
+                    let ev = std::str::from_utf8(&b[vs..i]).map_err(|_| "opts.env value 非法".to_string())?.to_string();
+                    i += 1;
+                    env.push((ek, ev));
+                }
+            }
+            _ => {
+                // 跳过未知字段的值 (标量/数组/对象)
+                let mut depth = 0i32;
+                loop {
+                    if i >= len { break; }
+                    match b[i] {
+                        b'"' => { i += 1; while i < len && b[i] != b'"' { if b[i] == b'\\' { i += 2; } else { i += 1; } } i += 1; }
+                        b'{' | b'[' => { depth += 1; i += 1; }
+                        b'}' | b']' => { depth -= 1; i += 1; if depth <= 0 { break; } }
+                        _ => { i += 1; }
+                    }
+                }
+            }
+        }
+    }
+    Ok((features, env, allow))
+}
+
+/// sml_parse_ex(text, opts_json) -> JSON 字符串 (调用方 sml_free) 或 NULL。
+///
+/// opts_json 示例:
+///   {"features":["glob-include","contract"],"env":{"APP_ENV":"prod"},"allow":["v1","v3"]}
+/// - features: 调用方额外启用的特性 (与文档 @feature 取交集)。
+/// - env:      注入到进程环境, 供 `$env.X` 内联解析 (调用期间临时设置并恢复)。
+/// - allow:    限定文档声明的版本必须在此范围内; 空数组表示不限制。
+/// 失败 (语法/版本/特性越权/文件找不到) 返回 NULL。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub extern "C" fn sml_parse_ex(text: *const c_char, opts: *const c_char) -> *mut c_char {
+    if text.is_null() {
+        return ptr::null_mut();
+    }
+    let t = unsafe { std::ffi::CStr::from_ptr(text) }.to_string_lossy().into_owned();
+    let opts_str = if opts.is_null() {
+        String::new()
+    } else {
+        unsafe { std::ffi::CStr::from_ptr(opts) }.to_string_lossy().into_owned()
+    };
+    let (feats, env, allow) = match parse_opts_json(&opts_str) {
+        Ok(x) => x,
+        Err(_) => return ptr::null_mut(),
+    };
+    // 临时注入 env (非并发安全, FFI 同步调用假设)。
+    let prev: Vec<(String, Option<String>)> = env
+        .iter()
+        .map(|(k, _)| (k.clone(), std::env::var(k).ok()))
+        .collect();
+    for (k, v) in &env {
+        std::env::set_var(k, v);
+    }
+    let result = (|| {
+        // 构造调用方允许特性集: 基础全集 并 上 opts 指定特性。
+        let mut allowed = FeatureSet::all();
+        for f in &feats {
+            allowed = allowed.with(*f);
+        }
+        let val = parse_with_features(&t, allowed).map(|(v, _)| v)?;
+        if !allow.is_empty() {
+            let declared = strip_version(&t).ok().and_then(|(_, d)| d);
+            if let Some(d) = declared {
+                if !allow.contains(&d) {
+                    return Err(format!("文档声明版本 {} 不在 allow 范围", d.name()));
+                }
+            }
+        }
+        Ok(jsonify(&val))
+    })();
+    // 恢复 env
+    for (k, v) in &prev {
+        match v {
+            Some(old) => std::env::set_var(k, old),
+            None => std::env::remove_var(k),
+        }
+    }
+    match result {
+        Ok(s) => cstr(&s),
+        Err(_) => ptr::null_mut(),
+    }
+}
+
+/// sml_parse_file(path) -> JSON 字符串 (调用方 sml_free) 或 NULL。
+/// 桥接内部 parse_file: 自动处理 include / glob / @contract 校验, 带文件上下文。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub extern "C" fn sml_parse_file(path: *const c_char) -> *mut c_char {
+    if path.is_null() {
+        return ptr::null_mut();
+    }
+    let p = unsafe { std::ffi::CStr::from_ptr(path) }.to_string_lossy().into_owned();
+    match parse_file(&p) {
+        Ok(v) => cstr(&jsonify(&v)),
+        Err(_) => ptr::null_mut(),
+    }
+}
+
+/// sml_features() -> 当前支持的特性名 JSON 数组 (调用方 sml_free)。
+/// 例: ["include","env","contract","glob-include", ...]
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub extern "C" fn sml_features() -> *mut c_char {
+    let names: Vec<&str> = FEATURES.iter().map(|(n, _)| *n).collect();
+    let body = names
+        .iter()
+        .map(|n| format!("\"{}\"", n))
+        .collect::<Vec<_>>()
+        .join(",");
+    cstr(&format!("[{}]", body))
+}
+
+// ---------------------------------------------------------------------------
 // 内部: JSON <-> Value (供 C-ABI 便捷桥)
 // ---------------------------------------------------------------------------
 
