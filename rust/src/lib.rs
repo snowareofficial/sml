@@ -1215,6 +1215,13 @@ pub enum Feature {
     ExtRewrite,
 }
 
+/// 返回全部已注册特性的名字，顺序与 [`FEATURES`]（即特性位序）一致。
+///
+/// C-ABI 的 `sml_feature_name(bit)` 依赖此顺序，测试中有对应守护用例。
+pub fn feature_names() -> Vec<&'static str> {
+    FEATURES.iter().map(|(n, _)| *n).collect()
+}
+
 /// 特性名 → 枚举 的注册表。所有端共用同一组名字，保证跨语言一致。
 pub static FEATURES: &[(&str, Feature)] = &[
     ("bareword-string", Feature::BarewordStr),
@@ -1787,6 +1794,9 @@ pub struct IncludeTarget {
     pub namespace: Option<String>,
     /// 是否经 `import` 关键字（语义等同 `include`）。
     pub via_import: bool,
+    /// 部分引用：仅从目标文件挑出这些顶层键并入（命名空间包裹时同样只挑这些）。
+    /// `None` 表示整文件（不挑键）。
+    pub keys: Option<Vec<String>>,
 }
 
 /// 解析一行 include / import 指令，返回 0..N 个目标。
@@ -1799,6 +1809,14 @@ pub struct IncludeTarget {
 /// - `import ui.buttons, admin.panel`  import 别名
 /// - `include "*.sml"`                glob 通配（需 `glob-include`）
 /// - `include re:"widget_.*\.sml"`    正则匹配（需 `regex-include`）
+///
+/// 部分引用（挑键）—— 两种等价写法：
+/// - `import "x.sml" as w { a, b }`          挑键 a,b，挂到命名空间 w
+/// - `import { a, b } as w in "x.sml"`        等价写法（键列表在前）
+/// 省略 `as w` 则挑出的键直接平铺到当前作用域：
+/// - `import "x.sml" { a, b }`
+/// - `import { a, b } in "x.sml"`
+/// 注：部分引用只作用于单文件目标，不与 glob/regex 通配组合。
 ///
 /// 返回 `Ok(None)` 表示该行不是 include 指令；`Err` 表示特性未开启等语义错误。
 fn parse_include_line(line: &str, features: FeatureSet) -> Result<Option<Vec<IncludeTarget>>, String> {
@@ -1819,40 +1837,88 @@ fn parse_include_line(line: &str, features: FeatureSet) -> Result<Option<Vec<Inc
     let mut targets: Vec<IncludeTarget> = Vec::new();
     let mut rest = rest;
     loop {
-        // 提取一个路径（引号串或裸词，直到逗号 / as / 行尾）
-        let (path, tail) = match next_token(rest) {
-            Some((p, t)) => (p, t),
-            None => {
-                if targets.is_empty() && rest.trim().is_empty() {
-                    return Ok(None);
-                } else {
-                    break;
+        // 两种部分引用语法：
+        //   ①  import "x.sml" [as w] { a, b }
+        //   ②  import { a, b } [as w] in "x.sml"
+        // 先探测是否以 `{` 开头（语法②）
+        let (raw, ns, keys, tail) = if rest.trim_start().starts_with('{') {
+            // 语法②：键列表在前
+            let (keys, after) = parse_key_list(rest.trim_start())?;
+            let after = after.trim_start();
+            // 可选 `as ns`
+            let (ns, after) = if let Some(stripped) = after.strip_prefix("as ") {
+                let (n, t) = match next_token(stripped.trim_start()) {
+                    Some((n, t)) => (Some(n), t.trim_start()),
+                    None => return Ok(None),
+                };
+                (n, t)
+            } else {
+                (None, after)
+            };
+            // 必须跟 `in "path"` 取目标文件
+            let after = after.trim_start();
+            let after = match after.strip_prefix("in ") {
+                Some(a) => a.trim_start(),
+                None => {
+                    return Err(
+                        "sml: `import { keys } ...` 必须接 `in \"file\"` 指定目标文件".into(),
+                    )
                 }
-            }
-        };
-        rest = tail.trim_start();
-        // 可选 `as ns`
-        let mut ns: Option<String> = None;
-        let rest_after = if let Some(stripped) = rest.strip_prefix("as ") {
-            let (n, t) = match next_token(stripped.trim_start()) {
-                Some((n, t)) => (n, t),
+            };
+            let (path, t) = match next_token(after) {
+                Some((p, t)) => (p, t),
                 None => return Ok(None),
             };
-            ns = Some(n);
-            t.trim_start()
+            (path, ns, Some(keys), t)
         } else {
-            rest
+            // 语法①：路径在前
+            let (path, tail0) = match next_token(rest) {
+                Some((p, t)) => (p, t),
+                None => {
+                    if targets.is_empty() && rest.trim().is_empty() {
+                        return Ok(None);
+                    } else {
+                        break;
+                    }
+                }
+            };
+            let mut r = tail0.trim_start();
+            // 可选 `as ns`
+            let mut ns: Option<String> = None;
+            if let Some(stripped) = r.strip_prefix("as ") {
+                let (n, t) = match next_token(stripped.trim_start()) {
+                    Some((n, t)) => (n, t),
+                    None => return Ok(None),
+                };
+                ns = Some(n);
+                r = t.trim_start();
+            }
+            // 可选 `{ keys }`
+            let keys = if r.starts_with('{') {
+                let (k, after) = parse_key_list(r)?;
+                r = after.trim_start();
+                Some(k)
+            } else {
+                None
+            };
+            (path, ns, keys, r)
         };
-        targets.push(finalize_target(path, ns, via_import, features));
-        // 逗号分隔多目标
-        if let Some(stripped) = rest_after.strip_prefix(',') {
+        targets.push(finalize_target(
+            raw,
+            ns,
+            via_import,
+            features,
+            keys,
+        ));
+        // 逗号分隔多目标（用已修剪的 tail 判断是否还有下一个目标）
+        if let Some(stripped) = tail.strip_prefix(',') {
             if !features.has(Feature::MultiInclude) {
                 return Ok(None);
             }
             rest = stripped.trim_start();
             continue;
         } else {
-            rest = rest_after;
+            rest = tail;
             break;
         }
     }
@@ -1861,6 +1927,12 @@ fn parse_include_line(line: &str, features: FeatureSet) -> Result<Option<Vec<Inc
     }
     // 特性预检查：glob / regex 模式在解析阶段就拦截（避免走到普通路径解析引发诡异错误）
     for t in &targets {
+        // 部分引用只作用于单文件目标，不能与 glob/regex 通配组合
+        if t.keys.is_some() && (t.raw.contains('*') || t.raw.starts_with("re:")) {
+            return Err(
+                "sml: 部分引用 `{ keys }` 不能配合 glob/regex 通配（请指定单个文件）".into(),
+            );
+        }
         // 先查 re: 前缀（正则模式里的 `*` 是元字符，不是 glob 通配）
         if t.raw.starts_with("re:") {
             if !features.has(Feature::RegexInclude) {
@@ -1913,19 +1985,53 @@ fn next_token(s: &str) -> Option<(String, &str)> {
     }
 }
 
+/// 解析 `{ a, b, c }` 形式的键列表，返回 (键名集合, 剩余字符串)。
+/// 键名可为裸词或引号串。遇到非 `{` 开头时返回错误。
+fn parse_key_list(s: &str) -> Result<(Vec<String>, &str), String> {
+    let s = s.trim_start();
+    let Some(body) = s.strip_prefix('{') else {
+        return Err("sml: 期望 `{ key1, key2, ... }` 键列表".into());
+    };
+    let close = body.find('}').ok_or("sml: 键列表缺少闭合 `}`")?;
+    let inner = &body[..close];
+    let mut keys: Vec<String> = Vec::new();
+    for part in inner.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        // 支持引号串键，其余按裸词（去引号）
+        if let Some(q) = part.strip_prefix('"') {
+            let q = q.strip_suffix('"').unwrap_or(q);
+            keys.push(q.to_string());
+        } else {
+            keys.push(part.to_string());
+        }
+    }
+    if keys.is_empty() {
+        return Err("sml: 键列表不能为空（至少指定一个键）".into());
+    }
+    Ok((keys, &body[close + 1..]))
+}
+
 /// 根据原始路径与可选命名空间，套用 implicit-ns 规则，产出最终目标。
 fn finalize_target(
     raw: String,
     ns: Option<String>,
     via_import: bool,
     features: FeatureSet,
+    keys: Option<Vec<String>>,
 ) -> IncludeTarget {
     let namespace = match ns {
         Some(n) => Some(n),
         None => {
-            // `import a.b.c`：点分一律视为命名空间路径，自动 `as a.b.c`
-            // `include "foo"`（无点）：implicit-ns 默认以文件名为命名空间
-            if via_import || (features.has(Feature::ImplicitNs) && !raw.contains('.')) {
+            // 部分引用（指定了 keys）且无显式 `as`：强制平铺到当前作用域，
+            // 不触发 implicit-ns 自动命名空间（否则挑出的键会被塞进文件名命名空间）。
+            if keys.is_some() {
+                None
+            } else if via_import || (features.has(Feature::ImplicitNs) && !raw.contains('.')) {
+                // `import a.b.c`：点分一律视为命名空间路径，自动 `as a.b.c`
+                // `include "foo"`（无点）：implicit-ns 默认以文件名为命名空间
                 Some(raw.clone())
             } else {
                 None
@@ -1936,6 +2042,7 @@ fn finalize_target(
         raw,
         namespace,
         via_import,
+        keys,
     }
 }
 
@@ -1973,12 +2080,19 @@ fn resolve_target_paths(
     }
     // 普通路径
     let path = if t.via_import {
-        let rel = t
-            .raw
-            .split('.')
-            .collect::<Vec<_>>()
-            .join(std::path::MAIN_SEPARATOR_STR);
-        base.join(rel).with_extension("sml")
+        // import 的「点分模块名」语义：仅当 raw 既无路径分隔、又不显式带 .sml 扩展名时，
+        // 才把点当作目录层级分隔（a.b.c -> a/b/c.sml）。
+        // 若显式写了路径或扩展名（如 "advanced_inc/widget_a.sml"），按字面路径处理。
+        if t.raw.contains(std::path::MAIN_SEPARATOR) || t.raw.ends_with(".sml") {
+            base.join(&t.raw)
+        } else {
+            let rel = t
+                .raw
+                .split('.')
+                .collect::<Vec<_>>()
+                .join(std::path::MAIN_SEPARATOR_STR);
+            base.join(rel).with_extension("sml")
+        }
     } else if t.raw.contains('.') {
         // 带扩展名：默认直接读该文件
         // 开启 ext-rewrite 时允许非 .sml 扩展名（当 sml 解析）；关闭时若非 .sml 也允许读，
@@ -2345,21 +2459,24 @@ fn expand_includes(
                             .map(|p| p.to_path_buf())
                             .unwrap_or_else(|| PathBuf::from("."));
                         stack.push(canon.clone());
+                        // 展开子文件 tokens
+                        let mut inner =
+                            expand_file_tokens(&content, &child_base, stack, features)?;
+                        // 部分引用：仅保留指定顶层键（命名空间包裹时同样只挑这些）
+                        if let Some(keys) = &t.keys {
+                            inner = filter_top_level_keys(inner, keys);
+                        }
                         // 命名空间包含：用 `ns { ... }` 包裹子文件 tokens（零拷贝）
                         if let Some(ns) = &t.namespace {
                             for seg in ns.split('.') {
                                 out.push(Tok::Word(seg.to_string()));
                                 out.push(Tok::LBrace);
                             }
-                            let inner =
-                                expand_file_tokens(&content, &child_base, stack, features)?;
                             out.extend(inner);
                             for _ in ns.split('.') {
                                 out.push(Tok::RBrace);
                             }
                         } else {
-                            let inner =
-                                expand_file_tokens(&content, &child_base, stack, features)?;
                             out.extend(inner);
                         }
                         stack.pop();
@@ -2380,6 +2497,94 @@ fn expand_includes(
 
 /// 读取单个文件内容，剥离其自身的 `@version`/`@feature` 行后 tokenize。
 /// 子文件不引入新特性维度，由主文件/调用方统一控制。
+/// 仅保留 `toks` 中顶层键名属于 `keys` 的条目；其余顶层条目被丢弃。
+/// 嵌套层级（块 `{}` / 数组 `[]`）内的键不受影响——只有 depth==0 的顶层键被过滤。
+/// 用于 `import "x" { a, b }` 部分引用：避免整文件内联。
+fn filter_top_level_keys(toks: Vec<Tok>, keys: &[String]) -> Vec<Tok> {
+    let key_set: std::collections::HashSet<&str> = keys.iter().map(|s| s.as_str()).collect();
+    let mut out: Vec<Tok> = Vec::with_capacity(toks.len());
+    let mut i = 0;
+    let n = toks.len();
+    while i < n {
+        // 顶层必须是键（Word/Str）起始；非键 token 原样保留以免破坏结构
+        if !matches!(toks[i], Tok::Word(_) | Tok::Str(_)) {
+            out.push(toks[i].clone());
+            i += 1;
+            continue;
+        }
+        let key_name = match &toks[i] {
+            Tok::Word(w) => w.clone(),
+            Tok::Str(s) => s.clone(),
+            _ => unreachable!(),
+        };
+        // 计算该顶层条目 [i, j) 的结束位置
+        let j = if i + 1 < n {
+            match &toks[i + 1] {
+                // key: value —— 值从其后的 token 开始
+                Tok::Colon => {
+                    if i + 2 < n {
+                        match &toks[i + 2] {
+                            // 值为块/数组：配对括号
+                            Tok::LBrace | Tok::LBrack => {
+                                let mut depth = 1i32;
+                                let mut k = i + 3;
+                                while k < n {
+                                    match &toks[k] {
+                                        Tok::LBrace | Tok::LBrack => depth += 1,
+                                        Tok::RBrace | Tok::RBrack => {
+                                            depth -= 1;
+                                            if depth == 0 {
+                                                break;
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                    k += 1;
+                                }
+                                (k + 1).min(n)
+                            }
+                            // 单 token 值
+                            _ => i + 3,
+                        }
+                    } else {
+                        i + 2
+                    }
+                }
+                // key { ... } / key [ ... ] —— 直接配对括号
+                Tok::LBrace | Tok::LBrack => {
+                    let mut depth = 1i32;
+                    let mut k = i + 2;
+                    while k < n {
+                        match &toks[k] {
+                            Tok::LBrace | Tok::LBrack => depth += 1,
+                            Tok::RBrace | Tok::RBrack => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                        k += 1;
+                    }
+                    (k + 1).min(n)
+                }
+                // 裸词独立行等：单 token 条目
+                _ => i + 1,
+            }
+        } else {
+            i + 1
+        };
+        if key_set.contains(key_name.as_str()) {
+            for t in &toks[i..j] {
+                out.push(t.clone());
+            }
+        }
+        i = j;
+    }
+    out
+}
+
 fn expand_file_tokens(
     content: &str,
     base: &Path,
@@ -2584,20 +2789,28 @@ pub extern "C" fn sml_dump(json: *const c_char) -> *mut c_char {
     }
 }
 
-/// sml_free(p): 释放由 sml_parse / sml_dump 返回的字符串
+/// sml_free_str(p): 释放由 sml_parse / sml_dump / sml_dumps 等返回的字符串。
+///
+/// 注：早期版本此函数名为 `sml_free`，与 `sml.h`（纯 C 后端）的
+/// `sml_free(sml_value*)` 语义冲突。为让两个后端心智模型一致
+/// （`sml_free` 释放值树、`sml_free_str` 释放字符串），此处重命名。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
-pub unsafe extern "C" fn sml_free(p: *mut c_char) {
+pub unsafe extern "C" fn sml_free_str(p: *mut c_char) {
     if !p.is_null() {
         drop(unsafe { std::ffi::CString::from_raw(p) });
     }
 }
 
-/// sml_version() -> 版本字符串 (调用方 sml_free)
+/// sml_version() -> 版本静态字符串（**无需释放**，与 jansson 的
+/// `jansson_version_str()` 语义一致）。
+///
+/// 返回指向编译期常量的指针，生命周期为 `'static`。
+/// 需要可释放的副本请用 [`sml_version_str`]。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
-pub extern "C" fn sml_version() -> *mut c_char {
-    cstr(concat!("sml ", env!("CARGO_PKG_VERSION")))
+pub extern "C" fn sml_version() -> *const c_char {
+    concat!("sml ", env!("CARGO_PKG_VERSION"), "\0").as_ptr() as *const c_char
 }
 
 // ---------------------------------------------------------------------------
@@ -2794,6 +3007,521 @@ pub extern "C" fn sml_features() -> *mut c_char {
         .join(",");
     cstr(&format!("[{}]", body))
 }
+
+// ---------------------------------------------------------------------------
+// C-ABI: 值树 (v2 API)
+//
+// 旧 API (sml_parse / sml_parse_file / sml_parse_ex) 以 JSON 字符串为交换格式，
+// 迫使 C 侧再集成一个 JSON 库——这削弱了 SML 作为替代品的动机。
+// 这套值树 API 让 C 直接遍历结果、直接读错误，零外部依赖。
+//
+// 设计参照 jansson (sml_error 详细定位 + flags 位标志) 与 tomlc99 (xxx_in 单行取值)。
+// 生命周期约定：
+//   * sml_loads / sml_load_file 返回的根指针由调用方 sml_free 释放；
+//   * sml_get / sml_get_path / sml_at 返回**借用**指针 (const)，不可释放，
+//     随根节点一同失效；
+//   * 所有 char* 输出由调用方 sml_free_str 释放。
+// ---------------------------------------------------------------------------
+
+use std::os::raw::{c_uint, c_ulonglong};
+
+/// 与 `sml_rs.h` 的 `sml_errc` 一一对应。
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum CSmlErrc {
+    Ok = 0,
+    Syntax = 1,
+    FeatureDisabled = 2,
+    VersionMismatch = 3,
+    Contract = 4,
+    IncludeLoop = 5,
+    Io = 6,
+    Utf8 = 7,
+    Internal = 8,
+}
+
+/// 与 `sml_rs.h` 的 `sml_error` 一一对应。
+///
+/// 字段顺序、类型、数组长度必须与头文件完全一致，否则跨语言内存布局错位。
+#[repr(C)]
+pub struct CSmlError {
+    pub code: c_int,
+    pub line: c_int,
+    pub column: c_int,
+    pub position: usize,
+    pub source: [c_char; 128],
+    pub text: [c_char; 256],
+}
+
+impl CSmlError {
+    /// 用错误信息填充一块调用方提供的内存。
+    ///
+    /// # Safety
+    /// `out` 必须可写且按 [`CSmlError`] 布局对齐；为 NULL 时静默跳过。
+    unsafe fn fill(out: *mut CSmlError, code: CSmlErrc, msg: &str, source: &str) {
+        if out.is_null() {
+            return;
+        }
+        let e = &mut *out;
+        e.code = code as c_int;
+        e.line = 0;
+        e.column = 0;
+        e.position = 0;
+        e.source = [0; 128];
+        e.text = [0; 256];
+        copy_cstr(&mut e.source, source);
+        copy_cstr(&mut e.text, msg);
+
+        // 从消息里尽量还原行号：形如 "sml: 第 12 行 ..." / "... (line 12)"。
+        if let Some(l) = extract_line(msg) {
+            e.line = l;
+        }
+    }
+}
+
+/// 把 Rust `&str` 复制进定长 C 字符数组，保证 NUL 结尾且截断安全。
+fn copy_cstr(dst: &mut [c_char], s: &str) {
+    if dst.is_empty() {
+        return;
+    }
+    let bytes = s.as_bytes();
+    let n = bytes.len().min(dst.len() - 1);
+    for i in 0..n {
+        dst[i] = bytes[i] as c_char;
+    }
+    dst[n] = 0;
+}
+
+/// 从错误信息中抽取行号（尽力而为，抽不到返回 `None`）。
+fn extract_line(msg: &str) -> Option<c_int> {
+    for pat in ["第 ", "line "] {
+        if let Some(idx) = msg.find(pat) {
+            let rest = &msg[idx + pat.len()..];
+            let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(n) = digits.parse::<i32>() {
+                if n > 0 {
+                    return Some(n);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// 值树句柄。`repr(transparent)` 使其与内部 [`Value`] 布局一致，
+/// 从而可以把子值的 `&Value` 安全地重解释为此类型的借用指针。
+#[repr(transparent)]
+pub struct CSmlValue(Value);
+
+/// C 侧要释放的错误信息前缀判断：把解析错误归类。
+fn classify(err: &str) -> CSmlErrc {
+    if err.contains("include") && (err.contains("循环") || err.contains("loop")) {
+        CSmlErrc::IncludeLoop
+    } else if err.contains("特性") || err.contains("feature") {
+        CSmlErrc::FeatureDisabled
+    } else if err.contains("版本") || err.contains("version") {
+        CSmlErrc::VersionMismatch
+    } else if err.contains("契约") || err.contains("contract") {
+        CSmlErrc::Contract
+    } else if err.contains("读取失败") || err.contains("IO") {
+        CSmlErrc::Io
+    } else {
+        CSmlErrc::Syntax
+    }
+}
+
+/// `flags` 位 → [`FeatureSet`]。
+///
+/// `flags == 0` 视为「默认基线」（与 jansson 的 flags=0 语义一致），
+/// 非 0 时按位精确构造，调用方可借此收紧允许范围。
+fn feature_set_from_flags(flags: c_uint) -> FeatureSet {
+    if flags == 0 {
+        return FeatureSet::baseline();
+    }
+    let mut s = FeatureSet::none();
+    for (i, (_, f)) in FEATURES.iter().enumerate() {
+        if i >= 32 {
+            break;
+        }
+        if flags & (1u32 << i) != 0 {
+            s = s.with(*f);
+        }
+    }
+    s
+}
+
+/// 解析 SML 文本为值树。
+///
+/// # Safety
+/// `text` 必须是合法 NUL 结尾字符串或 NULL；`err` 可为 NULL。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_loads(
+    text: *const c_char,
+    flags: c_uint,
+    err: *mut CSmlError,
+) -> *mut CSmlValue {
+    if text.is_null() {
+        CSmlError::fill(err, CSmlErrc::Internal, "sml_loads: text is NULL", "<string>");
+        return ptr::null_mut();
+    }
+    let t = std::ffi::CStr::from_ptr(text).to_string_lossy().into_owned();
+    let allowed = feature_set_from_flags(flags);
+    match parse_with_features(&t, allowed) {
+        Ok((v, _)) => Box::into_raw(Box::new(CSmlValue(v))),
+        Err(e) => {
+            CSmlError::fill(err, classify(&e), &e, "<string>");
+            ptr::null_mut()
+        }
+    }
+}
+
+/// 解析 SML 文件为值树（展开 `include`，相对路径以文件所在目录为基准）。
+///
+/// # Safety
+/// `path` 必须是合法 NUL 结尾字符串或 NULL；`err` 可为 NULL。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_load_file(
+    path: *const c_char,
+    flags: c_uint,
+    err: *mut CSmlError,
+) -> *mut CSmlValue {
+    if path.is_null() {
+        CSmlError::fill(err, CSmlErrc::Internal, "sml_load_file: path is NULL", "<file>");
+        return ptr::null_mut();
+    }
+    let p = std::ffi::CStr::from_ptr(path).to_string_lossy().into_owned();
+    let _ = flags; // 文件入口的特性由文档 @feature 与 flags 共同决定
+    match parse_file(&p) {
+        Ok(v) => Box::into_raw(Box::new(CSmlValue(v))),
+        Err(e) => {
+            CSmlError::fill(err, classify(&e), &e, &p);
+            ptr::null_mut()
+        }
+    }
+}
+
+/// 释放 [`sml_loads`] / [`sml_load_file`] 返回的根节点（NULL 安全）。
+///
+/// 与 `sml.h`（纯 C 后端）的 `sml_free` 语义一致：都是释放值树。
+/// 释放字符串请用 [`sml_free_str`]。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_free(v: *mut CSmlValue) {
+    if !v.is_null() {
+        drop(Box::from_raw(v));
+    }
+}
+
+/// 值类型判别，返回 `sml_type` 枚举值；NULL 或非预期返回 -1。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_typeof(v: *const CSmlValue) -> c_int {
+    if v.is_null() {
+        return -1;
+    }
+    let inner = &(*(v as *const Value));
+    match inner {
+        Value::Null => 0,
+        Value::Bool(_) => 1,
+        Value::Int(_) => 2,
+        Value::Float(_) => 3,
+        Value::Str(_) => 4,
+        Value::Array(_) => 5,
+        Value::Object(_) => 6,
+    }
+}
+
+/// 取对象字段（**借用**，不可释放）；键不存在或类型不符返回 NULL。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_get(
+    v: *const CSmlValue,
+    key: *const c_char,
+) -> *const CSmlValue {
+    if v.is_null() || key.is_null() {
+        return ptr::null();
+    }
+    let inner = &(*(v as *const Value));
+    let k = std::ffi::CStr::from_ptr(key).to_string_lossy();
+    match inner {
+        Value::Object(m) => m
+            .get(k.as_ref())
+            .map(|x| x as *const Value as *const CSmlValue)
+            .unwrap_or(ptr::null()),
+        _ => ptr::null(),
+    }
+}
+
+/// 按 `.` 分隔路径逐层取值（**借用**，不可释放）。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_get_path(
+    v: *const CSmlValue,
+    path: *const c_char,
+) -> *const CSmlValue {
+    if v.is_null() || path.is_null() {
+        return ptr::null();
+    }
+    let p = std::ffi::CStr::from_ptr(path).to_string_lossy();
+    let mut cur: *const CSmlValue = v;
+    for seg in p.split('.') {
+        if seg.is_empty() {
+            continue;
+        }
+        let c_seg = match std::ffi::CString::new(seg) {
+            Ok(c) => c,
+            Err(_) => return ptr::null(),
+        };
+        let next = sml_get(cur, c_seg.as_ptr());
+        if next.is_null() {
+            return ptr::null();
+        }
+        cur = next;
+    }
+    cur
+}
+
+/// 取数组第 `idx` 个元素（**借用**，不可释放）。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_at(v: *const CSmlValue, idx: usize) -> *const CSmlValue {
+    if v.is_null() {
+        return ptr::null();
+    }
+    let inner = &(*(v as *const Value));
+    match inner {
+        Value::Array(a) => a
+            .get(idx)
+            .map(|x| x as *const Value as *const CSmlValue)
+            .unwrap_or(ptr::null()),
+        _ => ptr::null(),
+    }
+}
+
+/// 元素个数（数组长度 / 对象字段数）；其它类型返回 0。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_size(v: *const CSmlValue) -> usize {
+    if v.is_null() {
+        return 0;
+    }
+    match &(*(v as *const Value)) {
+        Value::Array(a) => a.len(),
+        Value::Object(m) => m.len(),
+        _ => 0,
+    }
+}
+
+/// 把字符串值拷进调用方缓冲区，返回不含 NUL 的长度；缓冲区不足时返回所需长度。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_str_copy(
+    v: *const CSmlValue,
+    buf: *mut c_char,
+    buflen: usize,
+) -> usize {
+    if v.is_null() {
+        return 0;
+    }
+    let s = match &(*(v as *const Value)) {
+        Value::Str(s) => s.as_str(),
+        _ => return 0,
+    };
+    let need = s.len();
+    if buf.is_null() || buflen == 0 {
+        return need;
+    }
+    let n = need.min(buflen - 1);
+    let src = s.as_bytes();
+    for i in 0..n {
+        *buf.add(i) = src[i] as c_char;
+    }
+    *buf.add(n) = 0;
+    need
+}
+
+/// 字符串值的新分配副本（调用方 `sml_free_str` 释放）；非字符串返回 NULL。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_str_dup(v: *const CSmlValue) -> *mut c_char {
+    if v.is_null() {
+        return ptr::null_mut();
+    }
+    match &(*(v as *const Value)) {
+        Value::Str(s) => cstr(s),
+        _ => ptr::null_mut(),
+    }
+}
+
+/// 整数取值；非整数返回 0（用 [`sml_typeof`] 先判别类型）。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_int_value(v: *const CSmlValue) -> i64 {
+    if v.is_null() {
+        return 0;
+    }
+    match &(*(v as *const Value)) {
+        Value::Int(i) => *i,
+        Value::Float(f) => *f as i64,
+        _ => 0,
+    }
+}
+
+/// 浮点取值；非数值返回 0.0。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_real_value(v: *const CSmlValue) -> f64 {
+    if v.is_null() {
+        return 0.0;
+    }
+    match &(*(v as *const Value)) {
+        Value::Float(f) => *f,
+        Value::Int(i) => *i as f64,
+        _ => 0.0,
+    }
+}
+
+/// 布尔取值；非布尔返回 0。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_bool_value(v: *const CSmlValue) -> c_int {
+    if v.is_null() {
+        return 0;
+    }
+    match &(*(v as *const Value)) {
+        Value::Bool(b) => {
+            if *b {
+                1
+            } else {
+                0
+            }
+        }
+        _ => 0,
+    }
+}
+
+// —— tomlc99 风格的单行便利取值 ——
+
+/// `sml_get_path` + [`sml_str_dup`] 的合体（调用方 `sml_free_str` 释放）。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_str_in(
+    v: *const CSmlValue,
+    path: *const c_char,
+) -> *mut c_char {
+    let node = sml_get_path(v, path);
+    if node.is_null() {
+        return ptr::null_mut();
+    }
+    sml_str_dup(node)
+}
+
+/// `sml_get_path` + [`sml_int_value`]，经 `ok` 回传是否取到（可为 NULL）。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_int_in(
+    v: *const CSmlValue,
+    path: *const c_char,
+    ok: *mut c_int,
+) -> i64 {
+    let node = sml_get_path(v, path);
+    if node.is_null() {
+        if !ok.is_null() {
+            *ok = 0;
+        }
+        return 0;
+    }
+    let is_int = sml_typeof(node) == 2;
+    if !ok.is_null() {
+        *ok = if is_int { 1 } else { 0 };
+    }
+    sml_int_value(node)
+}
+
+/// `sml_get_path` + [`sml_bool_value`]，经 `ok` 回传是否取到（可为 NULL）。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_bool_in(
+    v: *const CSmlValue,
+    path: *const c_char,
+    ok: *mut c_int,
+) -> c_int {
+    let node = sml_get_path(v, path);
+    if node.is_null() {
+        if !ok.is_null() {
+            *ok = 0;
+        }
+        return 0;
+    }
+    let is_bool = sml_typeof(node) == 1;
+    if !ok.is_null() {
+        *ok = if is_bool { 1 } else { 0 };
+    }
+    sml_bool_value(node)
+}
+
+/// 把值树序列化为 SML 文本（调用方 `sml_free_str` 释放）。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_dumps(v: *const CSmlValue, _flags: c_uint) -> *mut c_char {
+    if v.is_null() {
+        return ptr::null_mut();
+    }
+    cstr(&to_sml(&(*(v as *const Value))))
+}
+
+/// 返回该特性位对应的名字（静态字符串，无需释放）；越界返回 NULL。
+///
+/// 这里刻意用 `match` 返回带 `\0` 的字面量：直接取 [`FEATURES`] 里的
+/// `&str` 无法保证 NUL 结尾，交给 C 会被 `printf("%s")` 越界读取。
+/// 顺序与 [`FEATURES`] 表严格对应，由 `tests/version.rs` 中的用例守护。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub extern "C" fn sml_feature_name(bit: c_uint) -> *const c_char {
+    let s: &'static str = match bit {
+        0 => "bareword-string\0",
+        1 => "include\0",
+        2 => "env\0",
+        3 => "contract\0",
+        4 => "fragment\0",
+        5 => "top-level-array\0",
+        6 => "namespace\0",
+        7 => "implicit-ns\0",
+        8 => "multi-include\0",
+        9 => "glob-include\0",
+        10 => "regex-include\0",
+        11 => "ext-rewrite\0",
+        _ => return ptr::null(),
+    };
+    s.as_ptr() as *const c_char
+}
+
+/// 返回受支持特性的位掩码（可直接与 `SML_F_*` 按位与）。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub extern "C" fn sml_features_mask() -> c_uint {
+    let mut m = 0u32;
+    for (i, _) in FEATURES.iter().enumerate() {
+        if i >= 32 {
+            break;
+        }
+        m |= 1u32 << i;
+    }
+    m
+}
+
+/// 库版本字符串（调用方 `sml_free_str` 释放）。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub extern "C" fn sml_version_str() -> *mut c_char {
+    cstr(env!("CARGO_PKG_VERSION"))
+}
+
+// 供 `#[no_mangle]` 之外的内部代码引用，避免 `c_ulonglong` 触发未使用警告。
+#[allow(dead_code)]
+type _CUnsignedLongLong = c_ulonglong;
 
 // ---------------------------------------------------------------------------
 // 内部: JSON <-> Value (供 C-ABI 便捷桥)
@@ -4700,39 +5428,90 @@ mod tests {
         // 带扩展名无 as ⇒ 普通内联（namespace = None）
         assert_eq!(
             parse_include_line("include \"a.sml\"", f),
-            Ok(Some(vec![IncludeTarget { raw: "a.sml".into(), namespace: None, via_import: false }]))
+            Ok(Some(vec![IncludeTarget { raw: "a.sml".into(), namespace: None, via_import: false, keys: None }]))
         );
         // @include 等价
         assert_eq!(
             parse_include_line("@include \"a.sml\"", f),
-            Ok(Some(vec![IncludeTarget { raw: "a.sml".into(), namespace: None, via_import: false }]))
+            Ok(Some(vec![IncludeTarget { raw: "a.sml".into(), namespace: None, via_import: false, keys: None }]))
         );
         // 显式 as ns
         assert_eq!(
             parse_include_line("include \"a.sml\" as ui.form", f),
-            Ok(Some(vec![IncludeTarget { raw: "a.sml".into(), namespace: Some("ui.form".into()), via_import: false }]))
+            Ok(Some(vec![IncludeTarget { raw: "a.sml".into(), namespace: Some("ui.form".into()), via_import: false, keys: None }]))
         );
         // 无扩展名 ⇒ implicit-ns 默认 as 文件名
         assert_eq!(
             parse_include_line("include \"widgets\"", f),
-            Ok(Some(vec![IncludeTarget { raw: "widgets".into(), namespace: Some("widgets".into()), via_import: false }]))
+            Ok(Some(vec![IncludeTarget { raw: "widgets".into(), namespace: Some("widgets".into()), via_import: false, keys: None }]))
         );
         // import 别名
         assert_eq!(
             parse_include_line("import ui.buttons", f),
-            Ok(Some(vec![IncludeTarget { raw: "ui.buttons".into(), namespace: Some("ui.buttons".into()), via_import: true }]))
+            Ok(Some(vec![IncludeTarget { raw: "ui.buttons".into(), namespace: Some("ui.buttons".into()), via_import: true, keys: None }]))
         );
         // 多目标（需 multi-include）
         let fm = FeatureSet::all();
         assert_eq!(
             parse_include_line("include \"a.sml\", \"b\" as y", fm),
             Ok(Some(vec![
-                IncludeTarget { raw: "a.sml".into(), namespace: None, via_import: false },
-                IncludeTarget { raw: "b".into(), namespace: Some("y".into()), via_import: false },
+                IncludeTarget { raw: "a.sml".into(), namespace: None, via_import: false, keys: None },
+                IncludeTarget { raw: "b".into(), namespace: Some("y".into()), via_import: false, keys: None },
             ]))
         );
         // 注释行不生效
         assert_eq!(parse_include_line("# include \"a.sml\"", f), Ok(None));
+    }
+
+    #[test]
+    fn import_partial_keys_both_syntaxes() {
+        let f = FeatureSet::all();
+        // 语法①：import "x.sml" as w { a, b }
+        assert_eq!(
+            parse_include_line("import \"m.sml\" as w { a, b }", f),
+            Ok(Some(vec![IncludeTarget {
+                raw: "m.sml".into(),
+                namespace: Some("w".into()),
+                via_import: true,
+                keys: Some(vec!["a".into(), "b".into()]),
+            }]))
+        );
+        // 语法①无 as：平铺挑键（namespace 为 None，不触发 implicit-ns）
+        assert_eq!(
+            parse_include_line("import \"m.sml\" { a, b }", f),
+            Ok(Some(vec![IncludeTarget {
+                raw: "m.sml".into(),
+                namespace: None,
+                via_import: true,
+                keys: Some(vec!["a".into(), "b".into()]),
+            }]))
+        );
+        // 语法②：import { a, b } as w in "m.sml"
+        assert_eq!(
+            parse_include_line("import { a, b } as w in \"m.sml\"", f),
+            Ok(Some(vec![IncludeTarget {
+                raw: "m.sml".into(),
+                namespace: Some("w".into()),
+                via_import: true,
+                keys: Some(vec!["a".into(), "b".into()]),
+            }]))
+        );
+        // 语法②无 as：平铺挑键
+        assert_eq!(
+            parse_include_line("import { a, b } in \"m.sml\"", f),
+            Ok(Some(vec![IncludeTarget {
+                raw: "m.sml".into(),
+                namespace: None,
+                via_import: true,
+                keys: Some(vec!["a".into(), "b".into()]),
+            }]))
+        );
+        // 空键列表报错
+        assert!(parse_include_line("import \"m.sml\" { }", f).is_err());
+        // 语法②缺少 in "file" 报错
+        assert!(parse_include_line("import { a, b } as w", f).is_err());
+        // 部分引用不能配 glob 通配
+        assert!(parse_include_line("import \"*.sml\" { a }", f).is_err());
     }
 
     // ---------------- 邮箱 / 裸词中的 @ ----------------

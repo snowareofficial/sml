@@ -26,5 +26,7 @@ fn main() {
     if edition == "2024" {
         println!("cargo:rustc-cfg=edge2024");
     }
+    // 声明自定义 cfg，消除 unexpected_cfgs 警告
+    println!("cargo::rustc-check-cfg=cfg(edge2024)");
     println!("cargo:rerun-if-changed=Cargo.toml");
 }
