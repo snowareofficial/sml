@@ -11,7 +11,7 @@
 </span></span><span style=display:flex><span>    city: New York
 </span></span><span style=display:flex><span>    state: NY
 </span></span><span style=display:flex><span>}
-</span></span></code></pre></div><p>The above two writing methods are completely equivalent. <code>address { }</code> ≡ <code>address: { }</code>， You can use whichever you like.</p><h2 id=22-blocks-can-be-infinitely-nested>2.2 blocks can be infinitely nested</h2><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none><code class=language-sml data-lang=sml><span style=display:flex><span>database {
+</span></span></code></pre></div><p>The above two writing methods are completely equivalent. <code>address { }</code> ≡ <code>address: { }</code>, You can use whichever you like.</p><h2 id=22-blocks-can-be-infinitely-nested>2.2 blocks can be infinitely nested</h2><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none><code class=language-sml data-lang=sml><span style=display:flex><span>database {
 </span></span><span style=display:flex><span>    primary {
 </span></span><span style=display:flex><span>        host: db1.internal
 </span></span><span style=display:flex><span>        port: <span style=color:#ae81ff>5432</span>
@@ -22,7 +22,7 @@
 </span></span><span style=display:flex><span>    }
 </span></span><span style=display:flex><span>}
 </span></span></code></pre></div><blockquote><p>Key point: SML does not rely on indentation to determine hierarchy, but relies on curly braces. So you can freely indent, indentation errors have no impact on parsing (but it is recommended to keep indentation, which is friendly to people).</p></blockquote><h2 id=23-array>2.3 Array</h2><p>Square brackets <code>[]</code> represent arrays. Commas can be omitted between elements, and line breaks can also be used:</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none><code class=language-sml data-lang=sml><span style=display:flex><span>tags: [ logging metrics tracing ]      # Naked word array, commas can be omitted
-</span></span><span style=display:flex><span>ports: [ <span style=color:#ae81ff>80</span>, <span style=color:#ae81ff>443</span>, <span style=color:#ae81ff>8080</span> ]               # Even <span style=color:#66d9ef>with</span> commas
+</span></span><span style=display:flex><span>ports: [ <span style=color:#ae81ff>80</span>, <span style=color:#ae81ff>443</span>, <span style=color:#ae81ff>8080</span> ]               # Commas are also fine
 </span></span><span style=display:flex><span>empty: []
 </span></span></code></pre></div><p>Array elements can also be blocks (object arrays):</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none><code class=language-sml data-lang=sml><span style=display:flex><span>endpoints: [
 </span></span><span style=display:flex><span>    { path: /health method: GET }
