@@ -1,5 +1,6 @@
 ---
 title: "第 8 章：实战——完整项目配置"
+translationKey: "book-ch08"
 ---
 
 # 第 8 章：实战：完整项目配置

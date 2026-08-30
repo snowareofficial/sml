@@ -1,0 +1,270 @@
+<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Chapter 9: Advanced - Function Combination and Design Patterns · SML { ❄ } — SNOWARE Markup Language</title><style>body{font-family:system-ui,microsoft yahei,sans-serif;margin:0;background:#fafafa;color:#111}header{background:#111;color:#fff;padding:18px 32px;display:flex;align-items:center;gap:12px}header h1{margin:0;font-size:20px}header a{color:#fff;text-decoration:none}header .flake{color:#42a5f5;font-size:22px}header .lang-switch{margin-left:auto;display:flex;gap:6px}header .lang-switch a{color:#90caf9;font-size:13px;padding:4px 10px;border:1px solid #333;border-radius:6px;text-decoration:none}header .lang-switch a.active{background:#1565c0;color:#fff;border-color:#1565c0}nav{background:#1c1c1c;padding:8px 32px;position:sticky;top:0;z-index:10;display:flex;flex-wrap:wrap;gap:4px 18px}nav a{color:#90caf9;text-decoration:none;font-size:14px}nav a:hover{text-decoration:underline}nav .home{color:#fff;font-weight:600}main{max-width:880px;margin:24px auto;padding:0 24px}h2{scroll-margin-top:56px}article{background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:24px 32px}h1,h2,h3{color:#0d47a1}h2{border-bottom:2px solid #42a5f5;padding-bottom:6px}code{background:#eef4fb;padding:2px 6px;border-radius:4px;font-size:.9em;color:#1565c0}pre{background:#111;color:#e8f1fb;padding:12px;border-radius:6px;overflow-x:auto}pre code{background:0 0;color:inherit}table{border-collapse:collapse;width:100%;margin:12px 0}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#eef4fb;color:#0d47a1}.links{display:flex;gap:12px;margin:16px 0}.btn{display:inline-block;background:#1565c0;color:#fff;padding:10px 22px;border-radius:8px;text-decoration:none;font-weight:600}.btn:hover{background:#0d47a1}footer{text-align:center;padding:24px;color:#666;font-size:13px}</style></head><body><header><img src=../../../sml.svg alt=sml style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))"><h1><a href=../../../>SML { ❄ }</a></h1><span class=lang-switch><a href=../../../>中文</a>
+<a href=../../../en/ class=active>EN</a></span></header><nav><a class=home href=../../../>SML</a>
+<a href=../../../book/>Textbook</a>
+<a href=../../../playground/>Playground</a></nav><main><article><h1>Chapter 9: Advanced - Function Combination and Design Patterns</h1><h1 id=chapter-9-advanced---function-combination-and-design-patterns>Chapter 9: Advanced - Function Combination and Design Patterns</h1><p>The first 8 chapters respectively learned key values, blocks, fragments include、 Contract, environmental variables, and multilingual integration. This chapter combines them - real SML configurations rarely use only one capability.</p><blockquote><p>After completing this chapter, you will know what a production level SML configuration library should look like, why it should be written this way, and how to make choices.</p></blockquote><h2 id=91-a-panoramic-view>9.1 A panoramic view</h2><p>First, let&rsquo;s take a look at SML&rsquo;s&rsquo; capability stack &lsquo;:</p><table><thead><tr><th>Layer</th><th>Ability</th><th>Solution</th><th>Default</th></tr></thead><tbody><tr><td>Data</td><td>Key value, block, array, scalar</td><td>Description</td><td>Open</td></tr><tr><td>Reuse</td><td>Fragment <code>@name</code>/<code>&amp;name</code></td><td>Copy of values</td><td>Open</td></tr><tr><td>Split</td><td><code>include</code></td><td>Cross file Reuse</td><td>Open</td></tr><tr><td>Isolation</td><td><code>as ns</code> (dotted path)</td><td>namespace</td><td>open</td></tr><tr><td>Default</td><td>No extension ⇒ <code>as foo</code></td><td>Implicit namespace</td><td>Open</td></tr><tr><td>Batch</td><td>Multi objective <code>,</code>, import alias</td><td>Multiple in one go</td><td>Related</td></tr><tr><td>Matching</td><td><code>*</code> universal glob</td><td>File name matching</td><td>Off</td></tr><tr><td>Match</td><td><code>re:</code>/<code>/.../</code> Regular</td><td>Complex File Name</td><td>Off</td></tr><tr><td>Rewrite</td><td><code>*->*.sml</code></td><td>Treat any suffix as sml</td><td>Off</td></tr><tr><td>Constraint</td><td><code>@contract</code>/<code>@is</code></td><td>Shape Verification</td><td>Open</td></tr><tr><td>Injection</td><td><code>$env.VAR</code></td><td>Environment Variables</td><td>On</td></tr><tr><td>Escaping</td><td><code>\n</code> <code>\u{XXXX}</code></td><td>String Escaping</td><td>Open</td></tr><tr><td>Multilingual</td><td>Rust/C/JS/Lua Parser</td><td>Cross Ecological</td><td>-</td></tr></tbody></table><p><strong>The default seven piece set allows you to use it out of the box;</strong> Default four on demand opt in for**, avoiding the pitfalls of YAML complexity.</p><h2 id=92-mode-1-modular-configuration-library>9.2 Mode 1: Modular Configuration Library</h2><p>Extract the &lsquo;General Configuration Fragment+Contract&rsquo; into a shared library and bring in the business project <code>include</code>.</p><h3 id=library-file-sml-libnetsml>Library file (<code>sml-lib/net.sml</code>)</h3><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none><code class=language-sml data-lang=sml><span style=display:flex><span>@contract Service {
+</span></span><span style=display:flex><span>    name:   str
+</span></span><span style=display:flex><span>    port:   int  min <span style=color:#ae81ff>1</span> max <span style=color:#ae81ff>65535</span>
+</span></span><span style=display:flex><span>    region: str
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>@default-http {
+</span></span><span style=display:flex><span>    port: <span style=color:#ae81ff>80</span>
+</span></span><span style=display:flex><span>    region: cn-north-<span style=color:#ae81ff>1</span>
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>@default-https {
+</span></span><span style=display:flex><span>    port: <span style=color:#ae81ff>443</span>
+</span></span><span style=display:flex><span>    region: cn-north-<span style=color:#ae81ff>1</span>
+</span></span><span style=display:flex><span>}
+</span></span></code></pre></div><h3 id=business-project-appsml>Business Project (<code>app.sml</code>)</h3><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none><code class=language-sml data-lang=sml><span style=display:flex><span>@version v1
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span># Create a namespace for the entire file
+</span></span><span style=display:flex><span><span style=color:#66d9ef>include</span> <span style=color:#e6db74>&#34;sml-lib/net&#34;</span> <span style=color:#66d9ef>as</span> net
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>gateway {
+</span></span><span style=display:flex><span>    @is net.Service
+</span></span><span style=display:flex><span>    &amp;net.default-http
+</span></span><span style=display:flex><span>    name: api-gw
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>admin {
+</span></span><span style=display:flex><span>    @is net.Service
+</span></span><span style=display:flex><span>    &amp;net.default-https
+</span></span><span style=display:flex><span>    name: admin-panel
+</span></span><span style=display:flex><span>    port: <span style=color:#ae81ff>8443</span>
+</span></span><span style=display:flex><span>}
+</span></span></code></pre></div><p>main points:</p><p>-<code>include "sml-lib/net"</code> without extension ⇒ Implicit <code>as net</code> (equivalent to explicit <code>as net</code>).</p><p>-The namespace isolates the <code>@contract</code> and <code>@name</code> of the library, which are referenced by <code>net.Service</code>/<code>&amp;net.default-http</code> in the business.</p><p>-Libraries can be independently released (even in Git submodule/package management).</p><p>-When the same library is included by multiple projects, the macro/contract names <strong>do not conflict</strong> - because they are all installed in different namespaces.</p><h2 id=93-mode-2-customizable-schema-feature-flag>9.3 Mode 2: Customizable schema (feature flag)</h2><p>Contract fields can also be trimmed as needed - using <code>optional</code>/<code>default</code> allows the same contract to have different &lsquo;required sets&rsquo; in different environments.</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none><code class=language-sml data-lang=sml><span style=display:flex><span>@contract Database strict {
+</span></span><span style=display:flex><span>    host:     str
+</span></span><span style=display:flex><span>    port:     int  default <span style=color:#ae81ff>5432</span> min <span style=color:#ae81ff>1</span> max <span style=color:#ae81ff>65535</span>
+</span></span><span style=display:flex><span>    user:     str  default app
+</span></span><span style=display:flex><span>    password: str  ?               # <span style=color:#960050;background-color:#1e0010>可选：本地/测试用空</span>
+</span></span><span style=display:flex><span>    sslmode:  enum(disable, allow, require) default require
+</span></span><span style=display:flex><span>}
+</span></span></code></pre></div><p>-Production: Fill in all fields, <code>sslmode: require</code> is required.</p><p>-Development: <code>password</code> (empty connection+trust authentication) is optional, <code>sslmode: disable</code>。</p><p>-CI: The contract treats <strong>undeclared fields</strong> as errors - so mock fields inserted in the testing environment will be immediately detected.</p><blockquote><p>One contract, multiple profiles. By relying on the &ldquo;optional+default+strict mode&rdquo; three piece set, there is no need to introduce multiple contracts.</p></blockquote><h2 id=94-mode-3-generate-by-environment-env-overlay>9.4 Mode 3: Generate by Environment (env overlay)</h2><p>Same basic configuration, stacking different segments in different environments - typical three-stage dev/staging/prod:</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none><code class=language-sml data-lang=sml><span style=display:flex><span># base<span style=color:#960050;background-color:#1e0010>.sml</span>
+</span></span><span style=display:flex><span>@base {
+</span></span><span style=display:flex><span>    region: cn-north-<span style=color:#ae81ff>1</span>
+</span></span><span style=display:flex><span>    timeout: <span style=color:#ae81ff>30</span>
+</span></span><span style=display:flex><span>    log_level: info
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>service api { &amp;base port: <span style=color:#ae81ff>8080</span> name: api }
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span># env/dev.sml
+</span></span><span style=display:flex><span><span style=color:#66d9ef>include</span> <span style=color:#e6db74>&#34;base&#34;</span> <span style=color:#66d9ef>as</span> cfg
+</span></span><span style=display:flex><span>service api { &amp;cfg.base }
+</span></span><span style=display:flex><span># Covering log_1evel does not require writing the complete path: can be directly appended
+</span></span><span style=display:flex><span>service api { log_level: debug }
+</span></span></code></pre></div><blockquote><p>Note: SML currently does not have built-in complex merge semantics for &ldquo;merge by name&rdquo;; The above writing method relies on <strong>contract+include namespace</strong> handwritten overlay. For more complex merges, it is recommended to use libraries such as <code>sml-merge</code> on the Rust/JS side (see reference) <a href=https://github.com/snoware/sml-merge>https://github.com/snoware/sml-merge</a> ）.</p></blockquote><h2 id=95-mode-4-three-piece-set-of-includecontractenv>9.5 Mode 4: Three piece set of include+contract+$env</h2><p>This is the most common and stable production usage:</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none><code class=language-sml data-lang=sml><span style=display:flex><span># common<span style=color:#960050;background-color:#1e0010>.sml</span>
+</span></span><span style=display:flex><span>@contract Service {
+</span></span><span style=display:flex><span>    name: str
+</span></span><span style=display:flex><span>    port: int  default <span style=color:#ae81ff>8080</span>
+</span></span><span style=display:flex><span>    debug: bool default false
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span># app<span style=color:#960050;background-color:#1e0010>.sml</span>
+</span></span><span style=display:flex><span>@version v1
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>include</span> <span style=color:#e6db74>&#34;common&#34;</span> <span style=color:#66d9ef>as</span> cfg
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>gateway {
+</span></span><span style=display:flex><span>    @is cfg.Service
+</span></span><span style=display:flex><span>    name: gateway
+</span></span><span style=display:flex><span>    port: <span style=color:#ae81ff>9090</span>
+</span></span><span style=display:flex><span>    debug: $env.DEBUG
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>secrets {
+</span></span><span style=display:flex><span>    api_key: $env.API_KEY
+</span></span><span style=display:flex><span>    db_password: $env.DB_PASSWORD
+</span></span><span style=display:flex><span>    webhook: $env.OPTIONAL_WEBHOOK   # <span style=color:#960050;background-color:#1e0010>未设</span> -&gt; <span style=color:#960050;background-color:#1e0010>空串</span>
+</span></span><span style=display:flex><span>}
+</span></span></code></pre></div><p>Why Stable:</p><p>-<strong>Contract</strong> Guarantee Structure.</p><p>-<strong>include namespace</strong> ensures that contracts do not pollute the scope of the main file.</p><p>-<strong>$env</strong> prevents sensitive values from being stored.</p><p>-The disadvantage (in development state) is also obvious: <code>$env</code> is evaluated only during the parsing period, and the value cannot be seen during IDE debugging - the solution is to use <code>sml-playground</code> or write a mock env loader yourself.</p><h2 id=96-mode-5-protocol-level-contract-front-end-and-back-end-shared-schema>9.6 Mode 5: Protocol level contract (&ldquo;front-end and back-end shared schema&rdquo;)</h2><p>The SML contract is a pure declaration without language binding. The same contract can simultaneously bind:</p><p>-Configuration file (<code>.sml</code>)</p><p>-Types generated by backend Go/Rust code</p><p>-Front end TS type (automatically generated)</p><p>-API request/response verification</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none><code class=language-sml data-lang=sml><span style=display:flex><span>@contract User {
+</span></span><span style=display:flex><span>    id:    str
+</span></span><span style=display:flex><span>    email: str
+</span></span><span style=display:flex><span>    role:  enum(user, admin, owner) default user
+</span></span><span style=display:flex><span>    age:   int  min <span style=color:#ae81ff>0</span> max <span style=color:#ae81ff>150</span> ?
+</span></span><span style=display:flex><span>}
+</span></span></code></pre></div><p>Backend Rust:</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none><code class=language-rust data-lang=rust><span style=display:flex><span><span style=color:#75715e>// Automatically derived from. sml by swsml derive macro
+</span></span></span><span style=display:flex><span># [derive(FromSmlContract)]
+</span></span><span style=display:flex><span><span style=color:#66d9ef>struct</span> <span style=color:#a6e22e>User</span> { id: String, email: String, role: <span style=color:#a6e22e>Role</span>, age: Option<span style=color:#f92672>&lt;</span><span style=color:#66d9ef>u8</span><span style=color:#f92672>&gt;</span> }
+</span></span></code></pre></div><p>Front end TS:</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none><code class=language-ts data-lang=ts><span style=display:flex><span><span style=color:#75715e>// Automatically generated from. sml by swml ts codegen
+</span></span></span><span style=display:flex><span><span style=color:#66d9ef>type</span> <span style=color:#a6e22e>User</span> <span style=color:#f92672>=</span> { <span style=color:#a6e22e>id</span>: <span style=color:#66d9ef>string</span>; <span style=color:#a6e22e>email</span>: <span style=color:#66d9ef>string</span>; <span style=color:#a6e22e>role</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;user&#39;</span><span style=color:#f92672>|</span><span style=color:#e6db74>&#39;admin&#39;</span><span style=color:#f92672>|</span><span style=color:#e6db74>&#39;owner&#39;</span>; <span style=color:#a6e22e>age?</span>: <span style=color:#66d9ef>number</span> };
+</span></span></code></pre></div><blockquote><p>SML itself is a &lsquo;protocol level&rsquo; - a schema, shared across four endpoints, and consistent behavior.</p></blockquote><h2 id=97-mode-6-contract-combinationrecursion>9.7 Mode 6: Contract combination+recursion</h2><p>Using <code>array[契约名]</code> to express &ldquo;contract array&rdquo; - suitable for list type data:</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none><code class=language-sml data-lang=sml><span style=display:flex><span>@contract Endpoint { host: str port: int }
+</span></span><span style=display:flex><span>@contract Service {
+</span></span><span style=display:flex><span>    name:  str
+</span></span><span style=display:flex><span>    main:  Endpoint                # <span style=color:#960050;background-color:#1e0010>单个</span>
+</span></span><span style=display:flex><span>    peers: array[Endpoint]         # <span style=color:#960050;background-color:#1e0010>列表</span>
+</span></span><span style=display:flex><span>    back:  Endpoint?               # <span style=color:#960050;background-color:#1e0010>可选</span>
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>@is Service
+</span></span><span style=display:flex><span>name: gateway
+</span></span><span style=display:flex><span>main:  { host: a port: <span style=color:#ae81ff>1</span> }
+</span></span><span style=display:flex><span>peers: [ { host: b port: <span style=color:#ae81ff>2</span> } { host: c port: <span style=color:#ae81ff>3</span> } ]
+</span></span></code></pre></div><p>Unrestricted number of recursion layers (parsing period detects loop references; loop references=errors).</p><h2 id=98-pattern-7-globcontract-unified-schema-for-all-modules>9.8 Pattern 7: glob+contract (&ldquo;Unified schema for all modules&rdquo;)</h2><blockquote><p><code>@feature enable glob</code> needs to be enabled.</p></blockquote><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none><code class=language-sml data-lang=sml><span style=display:flex><span>@feature enable glob
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>@contract Module {
+</span></span><span style=display:flex><span>    name:  str
+</span></span><span style=display:flex><span>    entry: str
+</span></span><span style=display:flex><span>    deps:  array[str] ?
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span># Load all.<span style=color:#960050;background-color:#1e0010> </span>sml files under modules/<span style=color:#66d9ef>as</span> submodules <span style=color:#66d9ef>and</span> verify them separately
+</span></span><span style=display:flex><span><span style=color:#66d9ef>include</span> <span style=color:#e6db74>&#34;modules/*.sml&#34;</span> <span style=color:#66d9ef>as</span> modules
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span># Afterwards, modules.<span style=color:#960050;background-color:#1e0010> </span>auth/modules.<span style=color:#960050;background-color:#1e0010> </span>billing can be used for access
+</span></span><span style=display:flex><span>gateway {
+</span></span><span style=display:flex><span>    primary: modules.auth
+</span></span><span style=display:flex><span>    fallback: modules.billing
+</span></span><span style=display:flex><span>}
+</span></span></code></pre></div><p>Suitable for <strong>plugin system</strong>: Each plugin is an independent. sml file, with unified contract verification and unified namespace access.</p><h2 id=99-mode-8-re-regularly-perform-batch-processing-according-to-naming-rules>9.9 Mode 8: re: Regularly perform batch processing according to naming rules</h2><blockquote><p><code>@feature enable regex</code> needs to be enabled.</p></blockquote><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none><code class=language-sml data-lang=sml><span style=display:flex><span>@feature enable regex
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span># Load all.<span style=color:#960050;background-color:#1e0010> </span>sml files starting <span style=color:#66d9ef>with</span> <span style=color:#a6e22e>&#39;v&#39;</span> (such <span style=color:#66d9ef>as</span> v1.<span style=color:#960050;background-color:#1e0010> </span>sml/v2.<span style=color:#960050;background-color:#1e0010> </span>sml)
+</span></span><span style=display:flex><span><span style=color:#66d9ef>include</span> <span style=color:#e6db74>&#34;re:^v[0-9]+</span><span style=color:#ae81ff>\\</span><span style=color:#e6db74>.sml$&#34;</span> <span style=color:#66d9ef>as</span> versions
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span># Load all.<span style=color:#960050;background-color:#1e0010> </span>json files <span style=color:#66d9ef>and</span> rewrite them to.<span style=color:#960050;background-color:#1e0010> </span>sml for parsing
+</span></span><span style=display:flex><span><span style=color:#66d9ef>include</span> <span style=color:#e6db74>&#34;configs/re:.*</span><span style=color:#ae81ff>\\</span><span style=color:#e6db74>.json$&#34;</span> -&gt; <span style=color:#960050;background-color:#1e0010>.sml</span>
+</span></span></code></pre></div><p>The <code>re:</code> prefix indicates that it is followed by regularization; The regular syntax is <strong>handwritten subset</strong> (<code>. * + ? ^ $ [a-z]</code> can meet 90% of the scenarios, avoiding the introduction of a complete regex engine).</p><h2 id=910-principle-of-choice-when-to-use-what>9.10 Principle of Choice (When to Use What)</h2><p>-Stable structure and frequent field changes → Contract+default value+enum.</p><p>-Multiple repeated fields, combined configuration ->fragment+include.</p><p>-<strong>Multiple teams share a schema</strong> → modular library (include+namespace).</p><p>-<strong>Same configuration for multiple environments</strong> → Contract as skeleton, $env injected with differences.</p><p>-<strong>Plug in extension</strong> → glob+namespace.</p><p>-<strong>Complex file name matching</strong> → re: regular.</p><p>-<strong>Mixed source</strong> (<code>.json</code>/<code>.yaml</code> used as <code>.sml</code>) → ext rewrite <code>-> .sml</code>.</p><h2 id=911-anti-pattern-please-avoid>9.11 anti pattern (please avoid)</h2><p>-<strong>One huge contract covers all scenarios</strong> - there are too many required fields, and team members roast.</p><p>-Nesting namespaces more than 3 layers (<code>a.b.c.d</code>) - Decreased readability, it is better to split files.</p><p>-The executable logic in the contract - SML contract is a declaration, not a script; To calculate, use the host language.</p><p>-<code>$env</code> is used as a &ldquo;dynamic configuration source&rdquo; - it is only evaluated during the parsing period, and runtime changes are invalid; Please use code for runtime configuration.</p><p>-<strong>Include nested more than 5 layers</strong> - will slow down reading; It&rsquo;s time to draw inventory.</p><h2 id=912-give-it-a-try-with-your-hands>9.12 Give it a try with your hands</h2><p>Refactor the &ldquo;Complete Project&rdquo; in Chapter 8 according to the &ldquo;Mode 5 (include+contract+$env)&rdquo; in this section:</p><ol><li><p>Extract <code>common.sml</code> into a shared contract and shared fragments.</p></li><li><p>Change <code>app.sml</code> to <code>include "common" as cfg</code>.</p></li><li><p>Use <code>$env.*</code> for all keys.</p></li><li><p>Use <code>cargo test</code> (or corresponding language contract testing) to run parsing and verification.</p></li></ol><p>→ [Chapter 10: Complete Reference to Features](/en/book/ch10 features)</p><h2 id=hands-on-practice>Hands on practice</h2><p>After reading this chapter, directly modify SML in the editor below and click &ldquo;Run&rdquo; to immediately see the parsing results or validation errors - having output is necessary for efficient learning.</p><div class=sml-pg data-lesson=ch09><div class=sml-pg-task><span class=sml-pg-task-tag>✍ 动手练习</span>
+<span class=sml-pg-task-text>用契约组合：定义 <b>@contract Endpoint { host: str, port: int }</b> 与 <b>@contract Service { name: str, main: Endpoint, peers: array[Endpoint] ? }</b>，再用 @is Service 写 main 与一个 peers 元素。</span><div class=sml-pg-hint>💡 提示：Endpoint 被 main 字段与 array[Endpoint] 两处复用，这就是「契约组合」。</div></div><div class=sml-pg-main><textarea class=sml-pg-code spellcheck=false data-files=null>@contract Endpoint {
+  host: str
+  port: int
+}
+@contract Service {
+  name: str
+  main: Endpoint
+  peers: array[Endpoint] ?
+}
+@is Service
+name: gateway
+main: { host: localhost port: 8080 }
+peers: [ { host: db port: 5432 } ]</textarea></div><div class=sml-pg-actions><button class=sml-pg-run type=button>运行 ▶</button>
+<button class=sml-pg-verify type=button>验证 ✓</button>
+<button class=sml-pg-reset type=button>重置</button>
+<span class=sml-pg-status></span></div><pre class=sml-pg-out hidden></pre></div><script type=module>
+  import { parseSafe } from "/sml.mjs";
+  import { VERIFIERS } from "/sml-verify.js";
+  document.querySelectorAll('.sml-pg[data-lesson="ch09"]').forEach((box) => {
+    const ta = box.querySelector(".sml-pg-code");
+    const out = box.querySelector(".sml-pg-out");
+    const status = box.querySelector(".sml-pg-status");
+    const runBtn = box.querySelector(".sml-pg-run");
+    const verifyBtn = box.querySelector(".sml-pg-verify");
+    const resetBtn = box.querySelector(".sml-pg-reset");
+    const init = ta.value;
+
+    function setStatus(txt, cls) { status.textContent = txt; status.className = "sml-pg-status " + (cls || ""); }
+    function parse() {
+      const src = ta.value;
+      let files = {};
+      try { files = JSON.parse(ta.dataset.files || "{}"); } catch (e) {}
+      const r = parseSafe(src, { files });
+      if (!r.ok) {
+        out.hidden = false;
+        out.className = "sml-pg-out err";
+        let msg = r.error; if (r.position) msg += ` (行 ${r.position.line + 1}, 列 ${r.position.col + 1})`;
+        out.textContent = "✗ 解析错误：\n" + msg;
+        return null;
+      }
+      out.hidden = false; out.className = "sml-pg-out ok";
+      out.textContent = "✓ 解析成功：\n" + JSON.stringify(r.value, null, 2);
+      return r.value;
+    }
+    function run() { setStatus("", ""); parse(); }
+    function reset() { ta.value = init; out.hidden = true; setStatus("", ""); }
+
+    runBtn.addEventListener("click", run);
+    resetBtn.addEventListener("click", reset);
+    if (verifyBtn) verifyBtn.addEventListener("click", () => {
+      const v = parse();
+      if (v === null) { setStatus("✗ 解析错误", "bad"); return; }
+      const fn = VERIFIERS["ch09"];
+      if (!fn) { setStatus("（本章暂无可验证任务）", ""); return; }
+      const res = fn(v);
+      setStatus(res.ok ? "✓ 通过" : "✗ 未通过", res.ok ? "good" : "bad");
+      out.hidden = false;
+      out.className = "sml-pg-out " + (res.ok ? "ok" : "err");
+      let base = res.ok ? "✓ 验证通过！\n" : "✗ 还没对：\n";
+      out.textContent = base + res.msg + "\n\n解析结果：\n" + JSON.stringify(v, null, 2);
+    });
+    ta.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") run(); });
+  });
+</script><style>.sml-pg{border:1px solid #d0d7de;border-radius:10px;margin:16px 0;overflow:hidden;background:#fff}.sml-pg-task{background:#eef4ff;border-bottom:1px solid #d0d7de;padding:10px 12px;font-size:13px;color:#1a2b4a;line-height:1.6}.sml-pg-task-tag{display:inline-block;background:#1565c0;color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;margin-right:6px}.sml-pg-hint{margin-top:6px;font-size:12px;color:#555}.sml-pg-files{font-size:12px;background:#f6f8fa;border-bottom:1px solid #eaecef}.sml-pg-files summary{padding:6px 12px;cursor:pointer;color:#57606a}.sml-pg-file{padding:0 12px 8px}.sml-pg-file-name{font-weight:700;color:#0d47a1}.sml-pg-file pre{background:#fff;border:1px solid #e1e4e8;border-radius:4px;padding:6px 8px;margin:4px 0 0;white-space:pre-wrap}.sml-pg-main{display:flex}.sml-pg-code{flex:1;min-height:200px;border:0;padding:10px 12px;font-family:sfmono-regular,Consolas,monospace;font-size:12.5px;line-height:1.5;background:#fff;color:#111;resize:vertical;white-space:pre;tab-size:2}.sml-pg-code:focus{outline:2px solid #1565c0;outline-offset:-2px}.sml-pg-actions{padding:8px 12px;display:flex;gap:8px;align-items:center;background:#f6f8fa;border-top:1px solid #eaecef}.sml-pg-actions button{background:#1565c0;color:#fff;border:0;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:13px}.sml-pg-actions button.sml-pg-reset{background:#6c757d}.sml-pg-actions button:hover{filter:brightness(1.08)}.sml-pg-status{font-size:12px;margin-left:4px}.sml-pg-status.good{color:#2e7d32}.sml-pg-status.bad{color:#c62828}.sml-pg-out{margin:0;padding:10px 12px;font-size:12px;white-space:pre-wrap;max-height:320px;overflow:auto;border-top:1px solid #eaecef}.sml-pg-out.ok{background:#e8f5e9;color:#1b5e20}.sml-pg-out.err{background:#fdecea;color:#b71c1c}</style><div class=sml-qz data-quiz=ch09><div class=sml-qz-bar><span class=sml-qz-title>✍ 自测考题：第 9 章自测：功能组合</span>
+<span class=sml-qz-score>得分 0 / 4</span>
+<button class=sml-qz-check type=button>交卷判分</button>
+<button class=sml-qz-reset type=button>重置</button></div><div class=sml-qz-body><div class=sml-qz-item data-idx=0 data-type=choice data-answer=0><div class=sml-qz-q><span class=sml-qz-no>Q1.</span> 契约组合指什么？</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=radio name=qz-ch09-0 value=0>
+<span>把小契约作为字段类型复用</span>
+</label><label class=sml-qz-opt><input type=radio name=qz-ch09-0 value=1>
+<span>把多个文件合并</span>
+</label><label class=sml-qz-opt><input type=radio name=qz-ch09-0 value=2>
+<span>自动压缩配置</span>
+</label><label class=sml-qz-opt><input type=radio name=qz-ch09-0 value=3>
+<span>生成代码</span></label></div><div class=sml-qz-explain hidden>如 Endpoint 契约被 Service 的 main: Endpoint 和 array[Endpoint] 复用，形成类型组合。</div><div class=sml-qz-fb hidden></div></div><div class=sml-qz-item data-idx=1 data-type=choice data-answer=0><div class=sml-qz-q><span class=sml-qz-no>Q2.</span> 哪种模式适合“多环境共享基础配置”？</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=radio name=qz-ch09-1 value=0>
+<span>片段 + include</span>
+</label><label class=sml-qz-opt><input type=radio name=qz-ch09-1 value=1>
+<span>只用一个大文件</span>
+</label><label class=sml-qz-opt><input type=radio name=qz-ch09-1 value=2>
+<span>复制粘贴</span>
+</label><label class=sml-qz-opt><input type=radio name=qz-ch09-1 value=3>
+<span>环境变量覆盖全部</span></label></div><div class=sml-qz-explain hidden>把公共字段抽成 @base 片段，各环境 include 后覆盖差异字段，最易维护。</div><div class=sml-qz-fb hidden></div></div><div class=sml-qz-item data-idx=2 data-type=bool data-answer=0><div class=sml-qz-q><span class=sml-qz-no>Q3.</span> 判断：array[Endpoint] ? 末尾的 ? 表示该字段可省略。</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=radio name=qz-ch09-2 value=0>
+<span>对</span>
+</label><label class=sml-qz-opt><input type=radio name=qz-ch09-2 value=1>
+<span>错</span></label></div><div class=sml-qz-explain hidden>? 表示该字段可选（nullable/可缺省），不提供时不会触发契约错误。</div><div class=sml-qz-fb hidden></div></div><div class=sml-qz-item data-idx=3 data-type=multi data-answer=[0,1]><div class=sml-qz-q><span class=sml-qz-no>Q4.</span> 设计模式里“校验前置”推荐用？</div><div class=sml-qz-opts><label class=sml-qz-opt><input type=checkbox name=qz-ch09-3 value=0>
+<span>@contract strict</span>
+</label><label class=sml-qz-opt><input type=checkbox name=qz-ch09-3 value=1>
+<span>@is 在入口校验</span>
+</label><label class=sml-qz-opt><input type=checkbox name=qz-ch09-3 value=2>
+<span>运行时才检查</span>
+</label><label class=sml-qz-opt><input type=checkbox name=qz-ch09-3 value=3>
+<span>完全不校验</span></label></div><div class=sml-qz-explain hidden>用 strict 契约 + @is 在配置加载入口就校验，能尽早暴露错误配置。</div><div class=sml-qz-fb hidden></div></div></div></div><script type=module>
+  document.querySelectorAll('.sml-qz[data-quiz="ch09"]').forEach((box) => {
+    const scoreEl = box.querySelector(".sml-qz-score");
+    const checkBtn = box.querySelector(".sml-qz-check");
+    const resetBtn = box.querySelector(".sml-qz-reset");
+
+    function normAnswer(raw, type) {
+      const a = (typeof raw === "string") ? JSON.parse(raw) : raw;
+      if (type === "multi") return Array.isArray(a) ? a.slice().sort((x,y)=>x-y) : [];
+      if (type === "bool") return [a];
+      return [a];
+    }
+    function selected(item) {
+      const type = item.dataset.type;
+      const inputs = item.querySelectorAll("input");
+      const sel = [];
+      inputs.forEach(inp => { if (inp.checked) sel.push(parseInt(inp.value, 10)); });
+      return type === "multi" ? sel.slice().sort((x,y)=>x-y) : sel.slice(0,1);
+    }
+    function arrEq(a, b) { return a.length === b.length && a.every((v,i)=>v===b[i]); }
+
+    function check() {
+      let score = 0;
+      box.querySelectorAll(".sml-qz-item").forEach((item) => {
+        const type = item.dataset.type;
+        const ans = normAnswer(item.dataset.answer, type);
+        const got = selected(item);
+        const fb = item.querySelector(".sml-qz-fb");
+        const correct = arrEq(got, ans);
+        if (correct) score++;
+        item.querySelectorAll("input").forEach(i => i.disabled = true);
+        const expl = item.querySelector(".sml-qz-explain");
+        fb.hidden = false;
+        fb.className = "sml-qz-fb " + (correct ? "ok" : "bad");
+        fb.innerHTML = (correct ? "✓ 答对！ " : "✗ 答错。 ") +
+          (expl ? expl.textContent : "");
+      });
+      scoreEl.textContent = "得分 " + score + " / " + box.querySelectorAll(".sml-qz-item").length;
+      checkBtn.disabled = true;
+    }
+    function reset() {
+      box.querySelectorAll(".sml-qz-item").forEach((item) => {
+        item.querySelectorAll("input").forEach(i => { i.checked = false; i.disabled = false; });
+        const fb = item.querySelector(".sml-qz-fb");
+        fb.hidden = true; fb.className = "sml-qz-fb"; fb.textContent = "";
+      });
+      scoreEl.textContent = "得分 0 / " + box.querySelectorAll(".sml-qz-item").length;
+      checkBtn.disabled = false;
+    }
+    checkBtn.addEventListener("click", check);
+    resetBtn.addEventListener("click", reset);
+  });
+</script><style>.sml-qz{border:1px solid #30363d;border-radius:10px;margin:18px 0;overflow:hidden;background:#0d1117}.sml-qz-bar{display:flex;align-items:center;gap:10px;padding:8px 12px;background:#161b22;border-bottom:1px solid #30363d}.sml-qz-title{font-size:13px;color:#e6edf3;font-weight:600}.sml-qz-score{font-size:12px;color:#8b949e}.sml-qz-bar button{background:#1f6feb;color:#fff;border:0;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px}.sml-qz-bar button.sml-qz-reset{background:#30363d}.sml-qz-bar button:hover{filter:brightness(1.1)}.sml-qz-bar button:disabled{opacity:.5;cursor:default}.sml-qz-body{padding:6px 14px 12px}.sml-qz-item{padding:12px 0;border-bottom:1px solid #21262d}.sml-qz-item:last-child{border-bottom:0}.sml-qz-q{font-size:13.5px;color:#e6edf3;margin-bottom:8px}.sml-qz-no{color:#58a6ff;font-weight:700;margin-right:4px}.sml-qz-opt{display:block;font-size:13px;color:#c9d1d9;padding:4px 0;cursor:pointer}.sml-qz-opt input{margin-right:8px;vertical-align:middle}.sml-qz-fb{font-size:12px;margin-top:6px;padding:6px 10px;border-radius:6px}.sml-qz-fb.ok{background:rgba(63,185,80,.12);color:#3fb950}.sml-qz-fb.bad{background:rgba(248,81,73,.12);color:#f85149}</style></article></main><footer>SML · SNOWARE Markup Language · { ❄ }</footer></body></html>

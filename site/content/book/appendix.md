@@ -1,5 +1,6 @@
 ---
 title: "附录：对照与排查"
+translationKey: "book-appendix"
 ---
 
 # 附录：对照与排查
