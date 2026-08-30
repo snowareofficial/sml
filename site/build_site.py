@@ -47,8 +47,14 @@ def main():
     except Exception as e:  # 即便 EPUB 失败也不阻断站点
         print("!! EPUB 生成失败（站点不受影响）:", e)
     if "--deploy" in sys.argv:
-        r = subprocess.call(["wrangler", "pages", "deploy", OUT,
-                             "--project-name", "sml-site"], cwd=SITE)
+        # Windows 下 wrangler 是 .cmd，且需保证 npm 全局路径在 PATH
+        deploy_cmd = ["wrangler", "pages", "deploy", OUT, "--project-name", "sml-site"]
+        if os.name == "nt":
+            npm_global = os.path.join(os.environ.get("APPDATA", ""), "npm")
+            if npm_global and npm_global not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = npm_global + os.pathsep + os.environ.get("PATH", "")
+            deploy_cmd[0] = "wrangler.cmd"
+        r = subprocess.call(deploy_cmd, cwd=SITE)
         return r
     return 0
 
