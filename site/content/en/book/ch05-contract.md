@@ -37,7 +37,7 @@ List of field modifiers:
 Two ways of writing:
 
 ```sml
-# Writing Method 1: Anonymous Block Top Level Direct @ is
+# Style 1: @is at the top level of an anonymous block
 @contract Cfg loose { api_key: str port: int default 8080 }
 @is Cfg
 api_key: re_abc
@@ -45,7 +45,7 @@ port: 8080
 ```
 
 ```sml
-# Writing 2: Block level @ is
+# Style 2: block-level @is
 server prod {
     @is Cfg
     api_key: re_prod
@@ -53,7 +53,7 @@ server prod {
 }
 ```
 
-Verification occurs during **parsing period**: a precise error with location is returned directly in violation of the contract, such as `contract: Service — field main.port Greater than the maximum value 65535`.
+Verification occurs during **parsing period**: a precise error with location is returned directly in violation of the contract, such as `contract: Service — field main.port is greater than the max 65535`.
 
 ## 5.3 Strict vs Loose
 
@@ -89,7 +89,7 @@ Nested blocks will recursively verify and backfill with default values. The refe
 
 ## 5.5 Real Example: Resender Email Tool
 
-[resender]( https://gitee.com/snoware/resender ）Using SML contract for `AppConfig` persistence:
+[resender]( https://gitee.com/snoware/resender )Using SML contract for `AppConfig` persistence:
 
 ```sml
 @contract ResenderConfig loose {

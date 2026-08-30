@@ -6,7 +6,7 @@ translationKey: "book-ch07"
 
 SML is a format that needs to be parsed by the host language to be "usable". Each language implementation is decoupled from each other and can be embedded separately (WASM/sandbox/editor are all acceptable). Below are the four most commonly used integration methods.
 
-## 7.1 Rust（`swsml`）
+## 7.1 Rust(`swsml`)
 
 ```rust
 use sml::parse;
@@ -36,7 +36,7 @@ let json = serde_json::to_string(&v)?;   // {"name":"John","age":27}
 
 >`Value` handwriting implements `Serialize`/`Deserialize`, serialized as natural `27` instead of `{"Int":27}`. When serde is not enabled, crate has zero dependencies.
 
-## 7.2 C（`sml.c`）
+## 7.2 C(`sml.c`)
 
 ```c
 # include "sml.h"
@@ -47,7 +47,7 @@ sml_value *v = sml_parse("name: John\nage: 27", err, sizeof(err));
 
 The contract system has been 100% aligned with Rust, and the behavior of the four ends of `CONFIG_CONTRACT` is consistent.
 
-## 7.3 JavaScript（`sml.mjs`）
+## 7.3 JavaScript(`sml.mjs`)
 
 Zero dependency ESM, browser/node compatible, including contracts and Playground:
 
@@ -65,7 +65,7 @@ const json = JSON.stringify(obj);
 const sml = stringify(JSON.parse(json));
 ```
 
-## 7.4 Lua / Soup（`lib/sml.soup`）
+## 7.4 Lua / Soup(`lib/sml.soup`)
 
 ```lua
 local sml = require("lib.sml")
@@ -74,7 +74,7 @@ print(sml.dump(v))              -- Serialization
 ```
 
 ```bash
-soupx lua/sml.sar config.sml     # Analyze and print
+soupx lua/sml.sar config.sml     # Parse and print
 ```
 
 ## 7.5 Other

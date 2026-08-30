@@ -492,7 +492,7 @@
           0,
           1
         ],
-        "explain": "Using strict contract+@ is to verify can expose incorrect configurations as early as possible at the configuration loading entry"
+        "explain": "Using strict contract+@is to verify can expose incorrect configurations as early as possible at the configuration loading entry"
       }
     ]
   },

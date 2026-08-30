@@ -36,26 +36,26 @@ This appendix compares SML with common formats and lists the most common errors 
 ## A.3 Grammar Quick Check
 
 ```
-Key-Value:key: value
-Naked word string:state: NY
-Quotation string:name: "John Doe"
-integer:age: 27
-floating point:ratio: 0.75
-Boolean:on: true
-null value:x: null
-Object Block:a { b: 1 }    ≡   a: { b: 1 }
-array:list: [ a b c ]
-Line comments:#  --  //
-Block annotation:/* ... */     _* ... *_
-Fragment definition:@name { ... }
-Fragment reference:key: &name
-Contract Definition:@contract Name loose { field: type ... }
-Contract application:@is Name
-include：   include "x.sml"        (inline)
-            include "ui" as ui     (namespace)
-            include "a", "b" as y  （多目标，需 feature）
-environment variable:secret: $env.API_KEY
-escape:"line1\nline2 \u{2744}"
+Key-value:          key: value
+Bare word string:   state: NY
+Quoted string:      name: "John Doe"
+Integer:            age: 27
+Float:              ratio: 0.75
+Boolean:            on: true
+Null:               x: null
+Object block:       a { b: 1 }    ≡   a: { b: 1 }
+Array:              list: [ a b c ]
+Line comments:      #  --  //
+Block comments:     /* ... */     _* ... *_
+Fragment define:    @name { ... }
+Fragment ref:       key: &name
+Contract define:    @contract Name loose { field: type ... }
+Contract apply:     @is Name
+include:            include "x.sml"        (inline)
+                    include "ui" as ui     (namespace)
+                    include "a", "b" as y  (multi-target, needs feature)
+Env variable:       secret: $env.API_KEY
+Escape:             "line1\nline2 \u{2744}"
 ```
 
 ## A.4 version and features
