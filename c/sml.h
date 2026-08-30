@@ -14,6 +14,12 @@
 ** 解析:   sml_parse(text) -> sml_value* (失败返回 NULL, err 填充错误信息)
 ** 序列化: sml_dump(v)    -> char* (调用方 sml_free_str 释放)
 ** 释放:   sml_free(v)    /  sml_free_str(s)
+**
+** 两个后端，二选一链接（不可同时 include）:
+**   sml.h     — 本文件，纯 C99 自包含实现。零依赖，功能为基础集。
+**   sml_rs.h  — 桥接 Rust crate `swsml` 的 cdylib，提供 v3 完整能力
+**               ($env 内联 / glob-include / @feature / @contract)。
+**   两者的 sml_free / sml_free_str 语义一致，但值模型不同，不要混用。
 */
 
 #ifndef SML_H
@@ -96,10 +102,12 @@ sml_value *sml_parse_file(const char *path, char *err, size_t errsz);
 char *sml_dump(const sml_value *v);
 void sml_free_str(char *s);
 
-/* ---- C-ABI 桥 (链接 sml-rs cdylib 时用; 纯 C 实现下亦可直接调 sml_parse) ---- */
-/* 解析 SML 文本 -> JSON 字符串 (调用方 sml_free_cstr 释放); 失败返回 NULL */
+/* ---- JSON 互转 (纯 C 实现, 自带极简 JSON 解析/序列化, 零外部依赖) ---- */
+/* 解析 SML 文本并序列化为 JSON 字符串 (调用方 sml_free_cstr 释放); 失败返回 NULL。
+** 适合宿主已有 JSON 处理流程的场景; 若要直接遍历值树,
+** 用 sml_parse + sml_obj_get / sml_get_path 更省一次序列化开销。 */
 char *sml_parse_json(const char *text);
-/* 接受 JSON 字符串 -> SML 文本 */
+/* 接受 JSON 字符串, 输出 SML 文本 (调用方 sml_free_cstr 释放) */
 char *sml_dump_from_json(const char *json);
 void sml_free_cstr(char *p);
 

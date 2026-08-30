@@ -32,3 +32,7 @@ site/hugo_server.err
 site/.baidu.env
 *.baidu.env
 
+# 临时/调试脚本（非库代码，勿提交）
+_du.py
+c/build_check.py
+
