@@ -30,7 +30,7 @@ title: "SML { ❄ } — SNOWARE Markup Language"
 | C++ | `cpp/` | ✅ 可用 |
 | Python | `rust/` 外另见 `py` 绑定 | ✅ 可用 |
 
-> 契约系统已在 **Rust / C / JavaScript** 三端对齐：同一份 `CONFIG_CONTRACT` 定义，三端解析行为一致。
+> 契约系统已在 **Rust / C / JavaScript / C++** 四端对齐：同一份 `CONFIG_CONTRACT` 定义，四端解析行为一致。
 
 ## 快速使用
 
@@ -76,6 +76,17 @@ import { parse, stringify } from "./sml.mjs";
 const v = parse('name: John\nage: 27');
 console.log(stringify(v));
 ```
+
+### C++
+
+```cpp
+#include "sml.hpp"
+sml::Value v = sml::parse("name: John\nage: 27");
+// v["name"].as_str() == "John" ｜ v["age"].as_int() == 27
+// 解析失败时抛 sml::ParseError（含行列位置）
+```
+
+> C++ 实现 `cpp/` 为头文件 + 单编译单元（`sml.cpp`），零第三方依赖；`run_tests.py` 跑 `test_comments.cpp` / `test_contracts.cpp` 两套契约与注释测试。
 
 ## 契约系统（Contract）
 

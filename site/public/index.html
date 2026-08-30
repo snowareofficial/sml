@@ -114,7 +114,7 @@
 	</tbody>
 </table>
 <blockquote>
-<p>契约系统已在 <strong>Rust / C / JavaScript</strong> 三端对齐：同一份 <code>CONFIG_CONTRACT</code> 定义，三端解析行为一致。</p>
+<p>契约系统已在 <strong>Rust / C / JavaScript / C++</strong> 四端对齐：同一份 <code>CONFIG_CONTRACT</code> 定义，四端解析行为一致。</p>
 </blockquote>
 <h2 id="快速使用">快速使用</h2>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span># <span style="color:#960050;background-color:#1e0010">基础键值</span>
@@ -145,7 +145,15 @@
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-js" data-lang="js"><span style="display:flex;"><span><span style="color:#66d9ef">import</span> { <span style="color:#a6e22e">parse</span>, <span style="color:#a6e22e">stringify</span> } <span style="color:#a6e22e">from</span> <span style="color:#e6db74">&#34;./sml.mjs&#34;</span>;
 </span></span><span style="display:flex;"><span><span style="color:#66d9ef">const</span> <span style="color:#a6e22e">v</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">parse</span>(<span style="color:#e6db74">&#39;name: John\nage: 27&#39;</span>);
 </span></span><span style="display:flex;"><span><span style="color:#a6e22e">console</span>.<span style="color:#a6e22e">log</span>(<span style="color:#a6e22e">stringify</span>(<span style="color:#a6e22e">v</span>));
-</span></span></code></pre></div><h2 id="契约系统contract">契约系统（Contract）</h2>
+</span></span></code></pre></div><h3 id="c-1">C++</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-cpp" data-lang="cpp"><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;sml.hpp&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span>sml<span style="color:#f92672">::</span>Value v <span style="color:#f92672">=</span> sml<span style="color:#f92672">::</span>parse(<span style="color:#e6db74">&#34;name: John</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">age: 27&#34;</span>);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// v[&#34;name&#34;].as_str() == &#34;John&#34; ｜ v[&#34;age&#34;].as_int() == 27
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// 解析失败时抛 sml::ParseError（含行列位置）
+</span></span></span></code></pre></div><blockquote>
+<p>C++ 实现 <code>cpp/</code> 为头文件 + 单编译单元（<code>sml.cpp</code>），零第三方依赖；<code>run_tests.py</code> 跑 <code>test_comments.cpp</code> / <code>test_contracts.cpp</code> 两套契约与注释测试。</p>
+</blockquote>
+<h2 id="契约系统contract">契约系统（Contract）</h2>
 <p>契约是 SML 的「配置 Schema」：定义一组字段的类型、是否必填、默认值、取值范围，并在 <code>@is</code> 应用处做校验。非常适合「用 SML 做应用配置」的场景。</p>
 <h3 id="定义契约">定义契约</h3>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-sml" data-lang="sml"><span style="display:flex;"><span>@contract ResenderConfig loose {
