@@ -18,3 +18,8 @@ inc_tmp/
 # Dioxus 站点（独立未发布）
 site-dioxus/
 
+# Wrangler 运行时缓存与本机日志
+site/.wrangler/
+site/dev.log
+site/build_site.log
+
