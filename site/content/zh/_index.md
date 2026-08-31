@@ -58,9 +58,9 @@ address:
 # 数组（逗号可选）
 phoneNumbers: [ { type: home } { type: office } ]
 
-# 片段继承
+# 片段继承（&name 是值引用，写作 key: &name）
 @base { region: cn-north-1 }
-server web { &base port: 8080 }
+region: &base
 ```
 
 ### Rust

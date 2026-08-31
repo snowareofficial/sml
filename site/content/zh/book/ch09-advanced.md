@@ -115,7 +115,7 @@ admin {
     log_level: info
 }
 
-service api { &base port: 8080 name: api }
+service api { cfg: &base port: 8080 name: api }
 
 # env/dev.sml
 include "base" as cfg

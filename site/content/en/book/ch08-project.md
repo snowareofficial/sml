@@ -39,8 +39,8 @@ debug: true
 peers: [ auth billing ]
 
 # Fragment inheritance reuse
-service auth { &base port: 7100 name: auth-svc }
-service billing { &base port: 7200 name: billing-svc }
+service auth { cfg: &base port: 7100 name: auth-svc }
+service billing { cfg: &base port: 7200 name: billing-svc }
 
 # Nested block+array
 database: {
