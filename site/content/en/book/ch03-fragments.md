@@ -50,22 +50,29 @@ Fragments are commonly used to inject common fields into multiple services:
     timeout: 30
 }
 
-service auth { &base port: 7100 name: auth-svc }
-service billing { &base port: 7200 name: billing-svc }
+service auth {
+    cfg: &base
+    port: 7100
+    name: auth-svc
+}
+service billing {
+    cfg: &base
+    port: 7200
+    name: billing-svc
+}
 ```
 
 `service auth` is equivalent to:
 
 ```sml
 service auth {
-    region: cn-north-1
-    timeout: 30
+    cfg: { region: cn-north-1, timeout: 30 }
     port: 7100
     name: auth-svc
 }
 ```
 
-`service billing` also obtained the same `region`/`timeout`, but `port`/`name` were different from each other. **Reuse+individuality**, perfect.
+`service billing` also obtained the same `region`/`timeout` via its `cfg` key, but `port`/`name` were different from each other. **Reuse+individuality**, perfect.
 
 ## 3.4 Important Details: `&name` will not be unfolded when written naked within the block
 

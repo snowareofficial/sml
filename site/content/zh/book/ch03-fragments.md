@@ -43,7 +43,8 @@ network {
 
 ## 3.3 在块内引用
 
-片段常用来给多个服务注入公共字段：
+片段常用来给多个服务注入公共字段。SML 的片段引用 `&name` 是**值引用**——
+写作 `key: &name` 时，该键的值展开为片段定义的内容：
 
 ```sml
 @base {
@@ -51,22 +52,34 @@ network {
     timeout: 30
 }
 
-service auth { &base port: 7100 name: auth-svc }
-service billing { &base port: 7200 name: billing-svc }
+service auth {
+    cfg: &base
+    port: 7100
+    name: auth-svc
+}
+service billing {
+    cfg: &base
+    port: 7200
+    name: billing-svc
+}
 ```
 
-`service auth` 展开后等价于：
+`service auth` 解析后等价于：
 
 ```sml
 service auth {
-    region: cn-north-1
-    timeout: 30
+    cfg: { region: cn-north-1, timeout: 30 }
     port: 7100
     name: auth-svc
 }
 ```
 
-`service billing` 同理拿到同样的 `region` / `timeout`，但 `port` / `name` 各自不同。**复用 + 个性**，完美。
+`service billing` 的 `cfg` 同理拿到同样的 `region` / `timeout`，而 `port` / `name` 各自不同。
+**复用 + 个性**，完美。
+
+> 注意：块内裸写 `&base`（不加键名，如 `service auth { &base port: 7100 }`）
+> 不会把片段字段「合并」进当前块——裸词会被当作键名，因此请用显式键
+> （如 `cfg: &base`）来引用片段。
 
 ## 3.4 重要细节：块内裸写 `&name` 不会展开
 
