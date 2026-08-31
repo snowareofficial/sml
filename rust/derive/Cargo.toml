@@ -3,7 +3,7 @@
 # SmlSerialize / SmlDeserialize trait 与 sml::__private 辅助，运行时零额外依赖。
 [package]
 name = "swsml-derive"
-version = "0.5.5"
+version = "0.5.6"
 edition = "2021"
 description = "Derive macros (SmlSerialize / SmlDeserialize) for SML (SNOWARE Markup Language)"
 license = "MulanPSL-2.0"
