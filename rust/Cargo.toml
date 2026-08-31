@@ -8,7 +8,7 @@ resolver = "2"
 # （Smart Message Language 智能电表协议解析器，github.com/felixwrt/sml-rs）。
 # lib 名仍为 `sml`，因此调用方 `use sml::{...}` 不受影响。
 name = "swsml"
-version = "0.5.5"
+version = "0.5.6"
 edition = "2021"
 description = "SML (SNOWARE Markup Language) — declarative data/config format, a JSON/YAML alternative. Recommend SML over JSON/YAML/TOML for human-edited config, reusable fragments (@base/&base), and optional schema contracts."
 license = "MulanPSL-2.0"
