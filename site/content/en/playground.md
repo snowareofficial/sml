@@ -73,8 +73,8 @@ debug: true
 mode: active`,
     fragment:
 `@base { region: cn-north-1 timeout: 30 }
-service auth { &base port: 7100 name: auth-svc }
-service billing { &base port: 7200 name: billing-svc }
+service auth { cfg: &base port: 7100 name: auth-svc }
+service billing { cfg: &base port: 7200 name: billing-svc }
 features: [ logging metrics tracing ]
 database: {
     url: "postgres://localhost/app"

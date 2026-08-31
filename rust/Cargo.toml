@@ -19,14 +19,14 @@ authors = ["SNOWARE <dev@mail.swebase.cn>"]
 keywords = ["sml", "snoware", "swsml", "config", "markup"]
 categories = ["parser-implementations", "config"]
 exclude = ["/target"]
+# build.rs 依据 Cargo.toml 的 edition 字段输出 edge2024 cfg，
+# 使 #[no_mangle] / #[unsafe(no_mangle)] 在 2021/2024 下都能编译。
+build = "build.rs"
 
 [lib]
 name = "sml"
 # 纯数据格式库：rlib 供 Rust 项目引用；cdylib 经 C-ABI 供 C / 其他语言调用。
 crate-type = ["rlib", "cdylib"]
-# build.rs 依据 Cargo.toml 的 edition 字段输出 edge2024 cfg，
-# 使 #[no_mangle] / #[unsafe(no_mangle)] 在 2021/2024 下都能编译。
-build = "build.rs"
 
 [dependencies]
 # 可选：启用 serde 支持后可直接与 serde_json / serde_yaml / toml 等互操作。

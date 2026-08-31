@@ -64,9 +64,9 @@ address:
 # arrays (commas optional)
 phoneNumbers: [ { type: home } { type: office } ]
 
-# fragment inheritance
+# fragment inheritance (&name is a value reference, write as key: &name)
 @base { region: cn-north-1 }
-server web { &base port: 8080 }
+region: &base
 ```
 
 ### Rust

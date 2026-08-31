@@ -40,8 +40,8 @@ debug: true
 peers: [ auth billing ]
 
 # 片段继承复用
-service auth { &base port: 7100 name: auth-svc }
-service billing { &base port: 7200 name: billing-svc }
+service auth { cfg: &base port: 7100 name: auth-svc }
+service billing { cfg: &base port: 7200 name: billing-svc }
 
 # 嵌套块 + 数组
 database: {
