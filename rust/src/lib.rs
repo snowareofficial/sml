@@ -646,6 +646,9 @@ struct Parser {
     contracts: BTreeMap<String, Contract>,
     /// 生效特性集（已与调用方允许范围交集）
     features: FeatureSet,
+    /// 当前值嵌套深度（块 / 数组的递归层数）。
+    /// 由 `parse_block` / `parse_array` 的 wrapper 维护，用于防止栈溢出。
+    depth: usize,
     /// 命名空间栈：每个块（含 include `as ns` 产生的块）的名字依次入栈。
     /// 宏/契约注册与引用时，按栈路径加前缀（如 `ui.form.Button`），
     /// 使命名空间真正隔离宏，而非仅隔离数据键值。
@@ -836,8 +839,23 @@ impl Parser {
         }
     }
 
-    /// 解析对象/块, 直到遇到 closing (None=顶层)
+    /// 解析对象/块, 直到遇到 closing (None=顶层)。
+    /// 外层 wrapper：深度守卫，防止 `a{a{a{ ... }}}` 无限递归导致栈溢出。
+    /// 实际实现见 [`Parser::parse_block_inner`]。
     fn parse_block(&mut self, closing: Option<Tok>) -> Result<Value, String> {
+        if self.depth >= MAX_VALUE_DEPTH {
+            return Err(format!(
+                "sml: 嵌套过深（超过 {} 层），疑似递归或恶意输入",
+                MAX_VALUE_DEPTH
+            ));
+        }
+        self.depth += 1;
+        let r = self.parse_block_inner(closing);
+        self.depth -= 1;
+        r
+    }
+
+    fn parse_block_inner(&mut self, closing: Option<Tok>) -> Result<Value, String> {
         let mut node: BTreeMap<String, Value> = BTreeMap::new();
         // 块内若声明了 `@is Name`，在块解析完成后应用契约
         let mut applied_contract: Option<String> = None;
@@ -1092,7 +1110,22 @@ impl Parser {
         }
     }
 
+    /// 外层 wrapper：深度守卫，防止深度嵌套数组触发递归下降的栈溢出。
+    /// 实际实现见 [`Parser::parse_array_inner`]。
     fn parse_array(&mut self) -> Result<Value, String> {
+        if self.depth >= MAX_VALUE_DEPTH {
+            return Err(format!(
+                "sml: 嵌套过深（超过 {} 层），疑似递归或恶意输入",
+                MAX_VALUE_DEPTH
+            ));
+        }
+        self.depth += 1;
+        let r = self.parse_array_inner();
+        self.depth -= 1;
+        r
+    }
+
+    fn parse_array_inner(&mut self) -> Result<Value, String> {
         let mut arr = Vec::new();
         loop {
             match self.peek().cloned() {
@@ -1107,6 +1140,10 @@ impl Parser {
                 Some(Tok::LBrace) => {
                     self.next();
                     arr.push(self.parse_block(Some(Tok::RBrace))?);
+                }
+                Some(Tok::LBrack) => {
+                    self.next();
+                    arr.push(self.parse_array_inner()?);
                 }
                 Some(Tok::Word(w)) => {
                     arr.push(coerce_word(&w, &self.fragments, self.features, &self.ns_prefix())?);
@@ -1725,6 +1762,7 @@ fn parse_impl_tokens(
         fragments: BTreeMap::new(),
         contracts: BTreeMap::new(),
         features,
+        depth: 0,
         ns_stack: Vec::new(),
     };
     // 顶层支持三种形态，与 `to_sml` 的输出对称：
@@ -1762,6 +1800,16 @@ fn parse_impl_tokens(
 // 相对路径按**被包含文件自身所在目录**解析（与 C 预处理器一致），
 // 而非进程工作目录，因此嵌套 include 时路径行为可预期。
 // ---------------------------------------------------------------------------
+
+/// 值嵌套深度上限：防止 `a{a{a{ ... }}}` 这类深度嵌套触发递归下降的栈溢出。
+///
+/// 与 [`MAX_INCLUDE_DEPTH`] 互补 —— 后者只保护 include 的文件嵌套，不保护
+/// 单个文档内部块/数组的嵌套。栈溢出在 Rust 中是 abort，
+/// **无法被 catch_unwind 捕获**，因此必须在递归入口主动限深，
+/// 而不是依赖上层错误处理。
+///
+/// 128 层与 serde_json 的 RECURSION_LIMIT 对齐，远超任何真实配置所需。
+const MAX_VALUE_DEPTH: usize = 128;
 
 /// 嵌套深度上限：既防栈溢出，也让异常深层的引用尽早失败
 const MAX_INCLUDE_DEPTH: usize = 32;
@@ -2650,8 +2698,58 @@ impl std::error::Error for ParseError {}
 // 序列化
 // ---------------------------------------------------------------------------
 
+/// 判断字符串作为裸词写出是否安全（可无损 round-trip 回来仍是 `Str`）。
+///
+/// 允许裸写的「安全标识符」需满足：
+/// - 非空；
+/// - 不等于保留字面量 `true` / `false` / `null` / `inf` / `nan`；
+/// - 不是纯数字或浮点字面量（否则 `coerce_word` 会把它字面量化成 Int/Float）；
+/// - 不以注释前缀开头：`--` `//` `/*` `*/` `*` `_*`；
+/// - 不含任何会破坏语法的字符：空白、`:` `#` `{` `}` `,` `[` `]` `"` `\` `/` `*`；
+/// - 首字符必须是字母或 `_`（避免 `-x` / `.x` / 数字开头等歧义）；
+/// - 其余字符只能是 `[A-Za-z0-9_-]`（kebab-case 的 `-` 在中间是安全的，
+///   只有行首的 `--` 才是注释）。
+///
+/// 任何不满足的情况都加引号，确保序列化结果解析回来仍是原字符串。
+fn needs_quote(s: &str) -> bool {
+    if s.is_empty() {
+        return true;
+    }
+    match s {
+        "true" | "false" | "null" | "inf" | "nan" => return true,
+        _ => {}
+    }
+    // 纯数字 / 浮点会被字面量化成 Int/Float
+    if s.parse::<i64>().is_ok() || s.parse::<f64>().is_ok() {
+        return true;
+    }
+    // 注释前缀（仅出现在开头才危险）
+    if s.starts_with("--")
+        || s.starts_with("//")
+        || s.starts_with("/*")
+        || s.starts_with("*/")
+        || s.starts_with("*")
+        || s.starts_with("_*")
+    {
+        return true;
+    }
+    // 会破坏语法的字符
+    if s.contains([' ', '\t', '\n', '\r', ':', '#', '{', '}', ',', '[', ']', '"', '\\', '/', '*'])
+    {
+        return true;
+    }
+    // 首字符必须是字母或下划线
+    match s.chars().next() {
+        Some(c) if c.is_alphabetic() || c == '_' => {}
+        _ => return true,
+    }
+    // 其余字符只允许 [A-Za-z0-9_.-]（`.` 在中间安全，如 `web.example`；
+    // 仅 `.` 开头才有歧义，已由首字符规则拦截）
+    !s.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
+}
+
 fn quote_if_needed(s: &str) -> String {
-    if s.is_empty() || s.contains([' ', '\t', '\n', '\r', ':', '#', '{', '}']) {
+    if needs_quote(s) {
         format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
     } else {
         s.to_string()
@@ -2668,7 +2766,11 @@ fn dump_block(m: &BTreeMap<String, Value>, indent: usize, out: &mut String) {
     }
     out.push_str(&format!("\n{}{{", "  ".repeat(indent)));
     for (k, val) in m {
-        out.push_str(&format!("\n{}{}: ", "  ".repeat(indent + 1), k));
+        out.push_str(&format!(
+            "\n{}{}: ",
+            "  ".repeat(indent + 1),
+            quote_if_needed(k)
+        ));
         dump_value(val, indent + 1, out);
     }
     out.push_str(&format!("\n{}}}", "  ".repeat(indent)));
@@ -2680,7 +2782,14 @@ fn dump_value(v: &Value, indent: usize, out: &mut String) {
         Value::Null => out.push_str("null"),
         Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
         Value::Int(i) => out.push_str(&i.to_string()),
-        Value::Float(f) => out.push_str(&format!("{}", f)),
+        Value::Float(f) => {
+            // 强制保留小数点，避免 1.0 被 Display 写成 "1" 后 round-trip 成 Int
+            if f.fract() == 0.0 {
+                out.push_str(&format!("{:.1}", f));
+            } else {
+                out.push_str(&format!("{}", f));
+            }
+        }
         Value::Str(s) => out.push_str(&quote_if_needed(s)),
         Value::Array(a) => {
             if a.is_empty() {
@@ -2738,7 +2847,7 @@ pub fn to_sml(v: &Value) -> String {
             dump_block(m, 0, &mut out);
         } else {
             for (k, val) in m {
-                out.push_str(&format!("{}: ", k));
+                out.push_str(&format!("{}: ", quote_if_needed(k)));
                 dump_value(val, 0, &mut out);
                 out.push('\n');
             }
@@ -5687,6 +5796,147 @@ mod tests {
         // 转义 \u 序列
         let v3 = parse(r#"k: "\u{4fee}\u{590d}""#).unwrap();
         assert_eq!(v3.get("k").and_then(|x| x.as_str()), Some("修复"));
+    }
+
+    #[test]
+    fn nested_depth_within_limit_succeeds() {
+        // 在 MAX_VALUE_DEPTH(128) 内应正常解析：每层 `a: {`
+        let open = "a: {".repeat(120);
+        let close = "}".repeat(120);
+        let text = format!("{open} leaf: 1{close}");
+        let v = parse(&text);
+        assert!(v.is_ok(), "120 层嵌套应解析成功，实际 {v:?}");
+    }
+
+    #[test]
+    fn deep_nesting_exceeding_limit_is_rejected() {
+        // `a: { a: { ... }}` 超过 128 层必须返回 Err，绝不能栈溢出(abort/segfault)
+        let open = "a: {".repeat(1000);
+        let close = "}".repeat(1000);
+        let text = format!("{open} leaf: 1{close}");
+        let v = parse(&text);
+        assert!(
+            v.is_err(),
+            "超深嵌套必须被拒绝（返回 Err），而不是栈溢出崩溃；实际 {v:?}"
+        );
+        assert!(
+            v.unwrap_err().contains("嵌套过深"),
+            "错误信息应提示嵌套过深"
+        );
+    }
+
+    #[test]
+    fn serialize_string_literalization_is_prevented() {
+        // B1: "true"/"null"/"8080"/"1.5" 序列化后必须仍是字符串，不能变 Bool/Null/Int/Float
+        for (raw, expect) in [
+            ("true", "\"true\""),
+            ("false", "\"false\""),
+            ("null", "\"null\""),
+            ("8080", "\"8080\""),
+            ("1.5", "\"1.5\""),
+            ("inf", "\"inf\""),
+        ] {
+            let v = Value::Object({
+                let mut m = BTreeMap::new();
+                m.insert("k".into(), Value::Str(raw.into()));
+                m
+            });
+            let out = to_sml(&v);
+            assert!(
+                out.contains(expect),
+                "字符串 {:?} 序列化应加引号得到 {}，实际: {:?}",
+                raw,
+                expect,
+                out
+            );
+            // round-trip: 再解析仍是 Str
+            let back = parse(&out).unwrap();
+            assert_eq!(
+                back.get("k").and_then(|x| x.as_str()),
+                Some(raw),
+                "round-trip 后 {:?} 应仍是字符串",
+                raw
+            );
+        }
+    }
+
+    #[test]
+    fn serialize_comment_prefix_is_quoted() {
+        // B2: 以注释符开头的字符串必须引号，否则再解析被吞成 Null
+        for raw in ["--flag", "//path", "/*x*/", "_*x*_"] {
+            let v = Value::Object({
+                let mut m = BTreeMap::new();
+                m.insert("k".into(), Value::Str(raw.into()));
+                m
+            });
+            let out = to_sml(&v);
+            assert!(out.contains(&format!("\"{}\"", raw)), "{} 应被引号, 得 {:?}", raw, out);
+            let back = parse(&out).unwrap();
+            assert_eq!(back.get("k").and_then(|x| x.as_str()), Some(raw));
+        }
+    }
+
+    #[test]
+    fn serialize_comma_and_brackets_are_quoted() {
+        // B3/B4: 含逗号/方括号的字符串必须引号，否则裂键或截断
+        for raw in ["a,b", "a[b", "a]b", "[", "]"] {
+            let v = Value::Object({
+                let mut m = BTreeMap::new();
+                m.insert("k".into(), Value::Str(raw.into()));
+                m
+            });
+            let out = to_sml(&v);
+            assert!(out.contains(&format!("\"{}\"", raw)), "{} 应被引号, 得 {:?}", raw, out);
+            let back = parse(&out).unwrap();
+            assert_eq!(back.get("k").and_then(|x| x.as_str()), Some(raw));
+        }
+    }
+
+    #[test]
+    fn serialize_keys_are_quoted_when_needed() {
+        // B5: 含特殊字符的键必须引号，否则文档结构损坏
+        for key in ["a b", "a#b", "a,b", "http://x"] {
+            let mut m = BTreeMap::new();
+            m.insert(key.to_string(), Value::Int(1));
+            let out = to_sml(&Value::Object(m));
+            let back = parse(&out).unwrap();
+            let got = back.get(key).and_then(|x| match x {
+                Value::Int(n) => Some(*n),
+                _ => None,
+            });
+            assert_eq!(got, Some(1), "键 {:?} 应可 round-trip, 得 {:?}", key, out);
+        }
+    }
+
+    #[test]
+    fn serialize_float_keeps_decimal_point() {
+        // B6: Float(1.0) 必须序列化为 "1.0"，round-trip 回来仍是 Float
+        let v = Value::Object({
+            let mut m = BTreeMap::new();
+            m.insert("f".into(), Value::Float(1.0));
+            m
+        });
+        let out = to_sml(&v);
+        let back = parse(&out).unwrap();
+        assert_eq!(back.get("f"), Some(&Value::Float(1.0)), "Float(1.0) 不能变成 Int, 得 {:?}", out);
+    }
+
+    #[test]
+    fn parse_nested_array_roundtrip() {
+        // B7: 嵌套数组应能被解析
+        let v = parse("a: [[1 2] [3 4]]").unwrap();
+        let a = match v.get("a") {
+            Some(Value::Array(a)) => a,
+            _ => panic!("a 应为数组"),
+        };
+        assert_eq!(a.len(), 2);
+        assert_eq!(
+            match &a[0] {
+                Value::Array(x) => x.len(),
+                _ => 0,
+            },
+            2
+        );
     }
 
     #[test]
