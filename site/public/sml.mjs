@@ -298,13 +298,19 @@ function mergeInto(target, src) {
 }
 
 // 解析 include 目标列表文本（如 `"a.sml" as x, "b" import y` 或 `import a.b.c, d`）
+// 部分引用（挑键）两种写法：
+//   ① "x.sml" as w { a, b }       —— 路径在前，{ keys } 在后
+//   ② { a, b } as w in "x.sml"     —— 键列表在前，in "file" 指定目标
+// 省略 as 时挑出的键平铺；as ns 时挂到命名空间。
 function parseIncludeTargets(line, feats) {
-  // 拆逗号（仅在引号外）
+  // 拆逗号（仅在引号外，且不在 {} 括号内——部分引用的键列表逗号不应拆分目标）
   const parts = [];
-  let buf = "", inStr = false;
+  let buf = "", inStr = false, depth = 0;
   for (const ch of line) {
     if (ch === '"') { inStr = !inStr; buf += ch; }
-    else if (ch === "," && !inStr) { parts.push(buf.trim()); buf = ""; }
+    else if (ch === "{" && !inStr) { depth++; buf += ch; }
+    else if (ch === "}" && !inStr) { depth = Math.max(0, depth - 1); buf += ch; }
+    else if (ch === "," && !inStr && depth === 0) { parts.push(buf.trim()); buf = ""; }
     else buf += ch;
   }
   if (buf.trim()) parts.push(buf.trim());
@@ -313,22 +319,47 @@ function parseIncludeTargets(line, feats) {
   for (let raw of parts) {
     let ns = null;
     let viaImport = false;
+    let keys = null;
+
+    // 提取 `in "file"` 或 `in file`：作为目标路径（语法②）
+    const inM = raw.match(/\bin\s+"?([^"\s]+)"?/);
+    let inPath = null;
+    if (inM) {
+      inPath = inM[1];
+      raw = raw.slice(0, inM.index) + raw.slice(inM.index + inM[0].length);
+    }
+
+    // 提取 `{ k1, k2, ... }` 部分引用键列表（语法① / ② 都可能出现）
+    const braceM = raw.match(/\{\s*([^}]*)\s*\}/);
+    if (braceM) {
+      keys = braceM[1].split(",").map((s) => s.trim().replace(/^"|"$/g, "")).filter(Boolean);
+      if (keys.length === 0) fail("sml: 键列表不能为空（至少指定一个键）");
+      raw = raw.slice(0, braceM.index) + raw.slice(braceM.index + braceM[0].length);
+    }
+
     // as ns
     const asM = raw.match(/\bas\s+([A-Za-z0-9_.\-]+)/);
     if (asM) { ns = asM[1]; raw = raw.slice(0, asM.index) + raw.slice(asM.index + asM[0].length); }
     if (/\bimport\b/.test(raw)) viaImport = true;
-    // 取路径：引号内 或 裸词（import 形式）
-    const qM = raw.match(/"([^"]+)"/);
-    const wM = raw.match(/([A-Za-z0-9_.\-]+)/);
-    let path = qM ? qM[1] : (wM ? wM[1] : null);
+
+    // 取路径：in "file" 优先，否则引号内，否则裸词（import 形式）
+    let path = inPath;
+    if (!path) {
+      const qM = raw.match(/"([^"]+)"/);
+      const wM = raw.match(/([A-Za-z0-9_.\-]+)/);
+      path = qM ? qM[1] : (wM ? wM[1] : null);
+    }
     if (!path) continue;
-    // 隐式命名空间：无扩展名且 implicit-ns 开启时
-    if (feats.has("implicit-ns") && !path.includes(".") && !ns) {
+
+    // 部分引用不触发 implicit-ns 自动命名空间（否则挑出的键会被塞进文件名命名空间）
+    if (keys && !ns) {
+      // 平铺到当前作用域，ns 保持 null
+    } else if (feats.has("implicit-ns") && !path.includes(".") && !ns) {
       ns = path;
     }
-    // 补 .sml
-    if (!path.includes(".")) path += ".sml";
-    targets.push({ path, ns, viaImport });
+    // 补 .sml（点分模块名 implicit-ns 已由 ns 处理，这里仅补裸扩展名）
+    if (!path.includes(".") && !path.includes("/")) path += ".sml";
+    targets.push({ path, ns, viaImport, keys });
   }
   return targets;
 }
@@ -454,7 +485,15 @@ export function parse(text, opts) {
       if (text === undefined) fail("sml: include 目标未找到: " + tg.path);
       const childPrefix = tg.ns ? nsPrefix + tg.ns + "." : nsPrefix;
       const v = parse(text, { files, features: feats, nsPrefix: childPrefix });
-      results.push({ value: v, ns: tg.ns });
+      // 部分引用：仅保留指定顶层键（命名空间挂在 ns 下时同样只挑这些）
+      let filtered = v;
+      if (tg.keys && Array.isArray(tg.keys)) {
+        filtered = {};
+        for (const k of tg.keys) {
+          if (k in v) filtered[k] = v[k];
+        }
+      }
+      results.push({ value: filtered, ns: tg.ns });
     }
     return results;
   }
@@ -549,7 +588,10 @@ export function parse(text, opts) {
           const tk = peek();
           if (tk.t === "str") { line += tk.v + " "; i++; lastWasAs = false; continue; }
           if (tk.t === "word" && tk.v === "as") { line += " as "; i++; lastWasAs = true; continue; }
+          if (tk.t === "word" && tk.v === "in") { line += " in "; i++; lastWasAs = false; continue; }
           if (tk.t === ",") { line += ","; i++; lastWasAs = false; continue; }
+          if (tk.t === "{") { line += "{"; i++; lastWasAs = false; continue; }
+          if (tk.t === "}") { line += "} "; i++; lastWasAs = false; continue; }
           if (tk.t === ":") break;                       // 下一行键开始
           if (tk.t === "@" || tk.t === "}" || tk.t === "]") break;
           if (tk.t === "word" && lastWasAs) { line += tk.v; i++; lastWasAs = false; continue; }
