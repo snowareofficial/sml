@@ -1,5 +1,7 @@
 # Rust
 target/
+# 本地校验/验证用构建目录（cargo 验证产物，非源码）
+rust/target_verify/
 Cargo.lock
 
 # 构建产物
@@ -38,4 +40,17 @@ site/.baidu.env
 # 临时/调试脚本（非库代码，勿提交）
 _du.py
 c/build_check.py
+
+# Hugo 生成的站点产物（由 site/content 与 site/static 重新生成，勿提交）
+site/public/
+# 但保留前端运行必需的静态资源（同源于 site/static 或由构建脚本产出一次）
+!site/public/llms.txt
+!site/public/sml.mjs
+!site/public/sml.svg
+!site/public/sml-verify.js
+!site/public/.gitkeep
+
+# 报告与打包产物（安全扫描报告、电子书导出等）
+swsml-*.zip
+sml-book.epub
 
