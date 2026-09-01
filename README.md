@@ -14,6 +14,8 @@
 - **环境变量内联**：`$env.VAR`
 - **契约（Contract）**：可选 schema 层，提供结构体/枚举/默认值/区间约束（见下）
 - **类型自识别**：`true/false/null` / 数字 / 字符串
+- **解析期条件 `@when`**（opt-in）：按 `$env.*` 在解析期裁剪字段，需 `@feature enable when`
+- **解析期循环 `@for`**（opt-in）：有界列表展开为数组，需 `@feature enable for`
 
 ```sml
 firstName: John

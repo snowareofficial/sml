@@ -5,7 +5,7 @@ translationKey: "book-ch10"
 
 # 第 10 章：feature 完整参考
 
-SML 的设计原则是"**从极简到丰富，功能可裁剪**"——基础七件套默认开启；复杂能力默认关闭，需要时用 `@feature enable` 显式开启。
+SML 的设计原则是"**从极简到丰富，功能可裁剪**"——基础九件套默认开启；复杂能力默认关闭，需要时用 `@feature enable` 显式开启。
 
 本章是**每个 feature 的权威参考**：开启方式、语法、报错信息、与其它 feature 的关系。
 
@@ -199,6 +199,71 @@ SML 的设计原则是"**从极简到丰富，功能可裁剪**"——基础七�
 | 关闭 | `@feature disable bareword-str`——之后所有字符串必须引号 |
 | 触发 | 当版本 `v.strict-strings()` 设定时 |
 
+### `when`（**默认关**）
+
+解析期静态条件裁剪：按 `$env.*` 在解析阶段决定「下一个字段/块」是否保留。
+
+| 项 | 值 |
+|----|----|
+| 状态 | 默认关 |
+| 开启 | `@feature enable when` |
+| 语法 | `@when $env.NAME [==\|!= "value"]`（无运算符时为真值测试） |
+| 作用域 | 紧邻的**下一个**字段/块（消费后清空） |
+| 条件形式 | **闭集**：仅 `$env.NAME` 真值，或 `$env.NAME ==`/`!=` 字面量 |
+| 依赖 | 条件左侧 `$env.*` 要求 `env` 特性已开启 |
+
+```sml
+@version v1
+@feature enable when
+
+@when $env.ENV == "prod"
+log_level: warn        # 仅 prod 环境出现
+
+@when $env.DEBUG       # 真值测试：非空且非 "0"/"false"
+verbose: true
+```
+
+> **设计取舍**：不做通用表达式（`&&`/`||`/`()`/函数调用）。一旦支持就必须引入求值器与沙箱、
+> 超时、禁 IO 等防护，与「SML 是纯数据格式」冲突。复合条件请拆成多个 `@when`，
+> 或在构建期用外部工具按环境生成不同文件。
+
+### `for`（**默认关**）
+
+解析期有界循环展开：把 `in` 后的有限列表逐项代入循环体，生成一个**数组**。
+
+| 项 | 值 |
+|----|----|
+| 状态 | 默认关 |
+| 开启 | `@feature enable for` |
+| 语法 | `key: @for VAR in a b c { ... }` |
+| 循环变量 | 只读绑定，循环体内以 `${VAR}` 文本插值引用 |
+| 列表 | `in` 后的**有限枚举**（裸词或引号串），无 `while`、无递归 |
+| 作用域 | 嵌套 `@for` 时内层可见外层绑定（同名内层覆盖） |
+
+```sml
+@version v1
+@feature enable for
+
+hosts: @for h in web api db {
+  name: "${h}"
+  port: 8080
+}
+# ⇒ hosts: [ {name:"web",port:8080}, {name:"api",...}, {name:"db",...} ]
+```
+
+> **组合陷阱 `@when × @for`**：
+> - 外层 `@when` 写在 `@for` **字段之前**时，条件为假则**整个 `hosts` 字段都不出现**
+>   （不是数组变空，而是键被删除）——「`@when` 过滤的是字段，不是某一轮迭代」。
+> - `@when` 写在 `@for` **块内部**时，它作用于块内紧邻的下一个字段，会**逐元素**求值。
+> 两者语义不同，务必分清。
+
+> **为什么不做通用循环**：有界循环（`for ... in` 枚举）属于 LOOP 语言（原始递归），
+> 算不了 Ackermann 函数，故非图灵完备；一旦引入 `while`/递归就必须配套沙箱与资源配额，
+> 那与「SML 是纯数据格式」冲突。
+
+完整可运行示例见 [`examples/for_when.sml`](https://github.com/your-org/sml/blob/main/examples/for_when.sml)
+（`@when` + `@for` + 嵌套 `@for` + 组合陷阱一次性演示）。
+
 ## 10.3 兼容矩阵
 
 | feature ↓ \ → | 与 namespace | 与 multi | 与 glob | 与 regex |
@@ -222,12 +287,17 @@ SML 解析器按"feature bitmask"运行：
 ```text
 FeatureSet = (include | namespace | implicit-ns | contract | env | escape
               | fragment | top-array | bareword-str
-              | multi | glob | regex | ext-rewrite)
+              | multi | glob | regex | ext-rewrite
+              | when | for)
 ```
 
-- 核心层（默认开）7 个 bit 默认 = 1。
-- 进阶层（默认关）4 个 bit 默认 = 0。
+- 核心层（默认开）9 个 bit 默认 = 1（含 `when`、`for` 之外的全部基础能力）。
+- 进阶层（默认关）`multi | glob | regex | ext-rewrite | when | for` 6 个 bit 默认 = 0。
 - 解析器对未开启的 feature 直接拒绝对应语法（解析期报错，**不静默跳过**）。
+
+> `when` / `for` 属于「解析期指令」家族，由 Rust 端的 cargo feature `when` 统一门控编译；
+> 文档层的 `when`/`for` 特性开关控制运行时是否允许该语法。编译期与运行时两层解耦：
+> 即使构建时未开启 cargo feature，其它特性不受影响。
 
 这就是"功能可裁剪、不要步入 YAML 覆辙"的实现基础。
 
