@@ -19,7 +19,7 @@
 # 中文
 
 SML（SNOWARE Markup Language）命令行转换器 / 多目标翻译器：把一份 SML 文档一键翻译成
-Slint、LVGL (C)、XML、SVG、LaTeX、Markdown，对接 Hugo / Zola 静态文档站，或用规则表做
+Slint、LVGL (XML)、XML、SVG、LaTeX、Markdown，对接 Hugo / Zola 静态文档站，或用规则表做
 自定义代码生成——无需写任何胶水代码。
 
 ## 为什么有用（站在人的角度）
@@ -57,8 +57,8 @@ smlconv input.sml --format json -o out.json
 # SML -> Slint
 smlconv input.sml --format slint -o ui.slint
 
-# SML -> LVGL C 源码
-smlconv input.sml --format lvgl -o ui.c
+# SML -> LVGL UI XML（LVGL v8.3+ 原生 XML，由 LVGL XML 引擎加载；非 C 源码）
+smlconv input.sml --format lvgl -o ui.xml
 
 # SML -> XML / SVG / LaTeX / Markdown
 smlconv input.sml --format xml
@@ -105,7 +105,7 @@ MulanPSL-2.0
 
 **SML (SNOWARE Markup Language) command-line converter / multi-target translator.**
 
-`smlconv` turns an SML document into Slint, LVGL (C), XML, SVG, LaTeX, Markdown,
+`smlconv` turns an SML document into Slint, LVGL (XML), XML, SVG, LaTeX, Markdown,
 wires it into Hugo/Zola doc sites, or drives custom code-gen via rule tables —
 no glue code required.
 
@@ -147,8 +147,8 @@ smlconv input.sml --format json -o out.json
 # SML -> Slint
 smlconv input.sml --format slint -o ui.slint
 
-# SML -> LVGL C source
-smlconv input.sml --format lvgl -o ui.c
+# SML -> LVGL UI XML (LVGL v8.3+ native XML, loaded by the LVGL XML engine; not C source)
+smlconv input.sml --format lvgl -o ui.xml
 
 # SML -> XML / SVG / LaTeX / Markdown
 smlconv input.sml --format xml
