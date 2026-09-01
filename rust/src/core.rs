@@ -913,6 +913,9 @@ impl Parser {
         let mut node: BTreeMap<String, Value> = BTreeMap::new();
         // 块内若声明了 `@is Name`，在块解析完成后应用契约
         let mut applied_contract: Option<String> = None;
+        // `@when <条件>` 的求值结果，作用于**紧邻的下一个**键/块（消费后清空）。
+        // None = 无待应用的条件；Some(true/false) = 下一个字段应保留/丢弃。
+        let mut pending_when: Option<bool> = None;
         loop {
             let tok = match self.peek().cloned() {
                 None => {
@@ -1058,6 +1061,31 @@ impl Parser {
                         applied_contract = Some(resolved);
                         continue;
                     }
+                    // —— 条件裁剪：`@when <条件>`（作用于紧邻的下一个字段/块）——
+                    //
+                    // 注意：`@when { .. }` / `@when type: X { .. }` 是**定义名为
+                    // when 的片段**，是既有合法语法，必须继续走下面的片段定义
+                    // 分支，不得被当指令拦截（否则会破坏已有文档）。
+                    // 故仅当后面不是片段形式时，才按条件指令处理。
+                    let is_fragment_form = match self.peek() {
+                        Some(Tok::LBrace) => true,
+                        Some(Tok::Word(w)) => w == "type" || w == "name",
+                        _ => false,
+                    };
+                    if fname == "when" && !is_fragment_form {
+                        if !self.features.has(Feature::When) {
+                            return Err(
+                                "@when 需要特性 `when`，请先写 `@feature enable when`（该特性默认关闭）"
+                                    .into(),
+                            );
+                        }
+                        if pending_when.is_some() {
+                            return Err("sml: `@when` 连续出现两次；它只作用于紧邻的下一个字段/块".into());
+                        }
+                        let cond = eval_when_cond(self)?;
+                        pending_when = Some(cond);
+                        continue;
+                    }
                     // 可选显式参数：`type: X` 与 `name: Y`（顺序不限、均可省略）。
                     //
                     // v4 起废弃 v3 的位置参数形式（`@f Server [prod] { .. }`）。
@@ -1162,6 +1190,11 @@ impl Parser {
                         self.next();
                     }
                     let val = self.parse_value(&key, colon)?;
+                    // `@when` 条件为假：值已解析（token 已消费），但不写入父节点。
+                    // 必须先解析再丢弃，否则其 token 会被当成下一个键，导致误报。
+                    if let Some(false) = pending_when.take() {
+                        continue;
+                    }
                     // 同名冲突 -> 提升为数组
                     if let Some(existing) = node.get_mut(&key) {
                         match existing {
@@ -1176,6 +1209,12 @@ impl Parser {
                     }
                 }
             }
+        }
+        // 悬空的 `@when`：条件后没有跟随任何字段/块，几乎可以肯定是笔误
+        //（例如把 `@when` 写在了块末尾，或条件本想作用于块内却被写到了块外）。
+        // 静默忽略会让作者以为条件生效了，故显式报错。
+        if pending_when.is_some() {
+            return Err("sml: `@when` 后未跟随任何字段/块；它只作用于紧邻的下一个字段/块".into());
         }
         // 块结束：若声明了 `@is`，应用契约（填默认值 + 校验 + 严格性检查）
         if let Some(cname) = applied_contract {
@@ -1492,6 +1531,15 @@ pub enum Feature {
     RegexInclude,
     /// 扩展名重写 `include "x.conf" -> "x.sml"`（将非 sml 当 sml 解析）。
     ExtRewrite,
+    /// `@when <条件>` 条件裁剪（作用于紧邻的下一个字段/块）。
+    ///
+    /// **opt-in**：不在 `baseline()` 中，需文档显式 `@feature enable when`。
+    /// 条件只支持 `$env.NAME` 与 `==` / `!=` 比较这一**闭集**形式，
+    /// 不引入通用表达式求值器（无沙箱/无 IO/无注入面）。
+    ///
+    /// 追加在末尾以保证既有特性位序不变（C-ABI `sml_feature_name(bit)`
+    /// 与该位序绑定，见 `feature_names` 的守护用例）。
+    When,
 }
 
 /// 返回全部已注册特性的名字，顺序与 [`FEATURES`]（即特性位序）一致。
@@ -1515,6 +1563,7 @@ pub static FEATURES: &[(&str, Feature)] = &[
     ("glob-include", Feature::GlobInclude),
     ("regex-include", Feature::RegexInclude),
     ("ext-rewrite", Feature::ExtRewrite),
+    ("when", Feature::When),
 ];
 
 impl Feature {
@@ -1645,6 +1694,85 @@ fn tok_word(t: &Tok) -> String {
     match t {
         Tok::Word(s) | Tok::Str(s) => s.clone(),
         _ => String::new(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `@when <条件>` —— 解析期静态条件裁剪
+// ---------------------------------------------------------------------------
+
+/// `@when` 支持的条件形式（**闭集**）：
+///
+/// ```text
+/// @when $env.NAME              # 真值：值非空且不等于 "0" / "false"
+/// @when $env.NAME == "value"   # 相等（右侧可为引号串或裸词）
+/// @when $env.NAME != "value"   # 不等
+/// ```
+///
+/// # 为什么不做成通用表达式
+///
+/// 一旦支持 `&&` / `||` / 括号 / 函数调用，就必须引入表达式求值器，进而需要
+/// 沙箱、超时、禁 IO 等一整套防护，且与「SML 是纯数据格式」的定位冲突。
+/// 这里只做**闭集模式匹配**：解析器直接读取 1 或 3 个 token，没有任何求值。
+/// 想表达复合条件请拆成多个 `@when`（或用外层构建工具按环境生成不同文件）。
+///
+/// 只读取 `$env.*`：环境变量是唯一在解析期就有确定值、且语义无歧义的输入。
+/// 不支持引用文档内其它字段，避免产生求值顺序与前向引用的复杂语义。
+fn eval_when_cond(
+    p: &mut Parser,
+) -> Result<bool, String> {
+    // 左侧：必须是 `$env.NAME`
+    let lhs = match p.next() {
+        Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
+        other => return Err(format!("sml: `@when` 后须条件（如 `$env.ENV == \"prod\"`），得 {:?}", other)),
+    };
+    let var = lhs.strip_prefix("$env.").ok_or_else(|| {
+        format!(
+            "sml: `@when` 的条件左侧只支持 `$env.NAME`，得 `{lhs}`\
+             （暂不支持文档内字段引用）"
+        )
+    })?;
+    if var.is_empty() {
+        return Err("sml: `@when` 的 `$env.` 后须变量名".into());
+    }
+    if !p.features.has(Feature::Env) {
+        return Err(format!("sml: `@when $env.{var}` 需要特性 `env`，但当前特性集已禁用"));
+    }
+    let actual = p.env_var(var);
+
+    // 运算符：可选。`==` / `!=` 不是特殊 token，词法器会切成 Word。
+    let op = match p.peek() {
+        Some(Tok::Word(w)) if w == "==" || w == "!=" || w == "=" => {
+            let op = w.clone();
+            p.next();
+            Some(op)
+        }
+        _ => None,
+    };
+
+    match op {
+        None => {
+            // 真值测试：空串 / "0" / "false" 视为假
+            Ok(!actual.is_empty() && actual != "0" && actual != "false")
+        }
+        Some(op) => {
+            let rhs = match p.next() {
+                Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
+                other => return Err(format!("sml: `@when` 的 `{op}` 后须比较值，得 {:?}", other)),
+            };
+            // 漏写比较值时（`@when $env.X ==` 后直接换行写下一个字段），
+            // 下一个字段名会被当成比较值吃掉，只在更后面才报出莫名的
+            // 「期望键」错误。这里提前识别并给出准确提示。
+            if p.peek() == Some(&Tok::Colon) {
+                return Err(format!(
+                    "sml: `@when` 的 `{op}` 后缺少比较值（写成了 `{op}` 后直接换行）；\
+                     正确形式如 `@when $env.ENV == \"prod\"`"
+                ));
+            }
+            // 单 `=` 按 `==` 处理（与多数配置语言一致），但要求显式写出
+            let eq = actual == rhs;
+            Ok(if op == "!=" { !eq } else { eq })
+        }
     }
 }
 
