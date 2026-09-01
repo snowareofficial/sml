@@ -11,7 +11,7 @@ positioned as a lightweight alternative to JSON / YAML / TOML. It emphasizes
 omitted, commas are optional, and it supports fragment inheritance and contract
 validation.
 
-> Repo: [snoware/sml](https://gitee.com/snoware/sml) ｜ Bindings: Rust (`swsml`) · C (`sml.c`) · JavaScript (`sml.mjs`) · Lua (`lib/sml.soup`) · C++ · Python
+> Repo: [snoware/sml](https://gitee.com/snoware/sml) ｜ **Reference implementation: Rust (`swsml`)** ｜ Experimental (not guaranteed): C (`sml.c`) · JavaScript (`sml.mjs`) · Lua (`lib/sml.soup`) · C++ · Python
 
 ## Features
 
@@ -22,6 +22,7 @@ validation.
 - **include inline / namespaces**: `include "x.sml"` expands recursively; `include "x.sml" as a.b` isolates into a dotted scope (macros & contracts included), conflicts error out
 - **Environment variables**: `$env.HOME` inlined at parse time
 - **Contract system**: `@contract` / `@is` validate config type & structure (strict / loose modes)
+- **Multi-target emit**: once parsed to `Value`, compile to Markdown / LaTeX / XML / SVG / Slint UI / custom formats (emit backends)
 - **Zero dependencies**: each implementation is decoupled, embeddable individually (WASM / sandbox / editor)
 
 ## 📖 SML Textbook
@@ -37,17 +38,30 @@ Start from zero and progress step by step, or use it as a reference anytime.
 
 ## Implementations
 
+> **Implementation status (important)**
+>
+> - **Rust (`rust/`, crate `swsml`) is the reference implementation.** Grammar, contract
+>   system, emit backends, tests and security scanning (OSV dependency audit + full
+>   regression suite) are all defined against it. It is currently the **only continuously
+>   maintained and version-guaranteed** implementation — use Rust for production.
+> - **All non-Rust implementations (C / JavaScript / Lua / C++ / Python) are marked
+>   "experimental".** They ship with the repo and do run and embed, but they are **not
+>   guaranteed** to match Rust behaviour, have **no API stability promise**, and are **not
+>   covered** by the routine vulnerability scan or regression tests. Evaluate before use;
+>   issues are welcome.
+
 | Lang | Repo / file | Status |
 |------|------------|--------|
-| Rust | `rust/` (`swsml`) | ✅ usable (full contract system, serde bridge) |
-| C | `c/sml.c` | ✅ usable (contracts aligned 100% with Rust) |
-| JavaScript | `js/sml.mjs` | ✅ usable (zero-dep ESM, browser / Node, with contracts & playground) |
-| Lua | `lua/lib/sml.lua` | ✅ usable (same source as Soup `lib/sml.soup`) |
-| C++ | `cpp/` | ✅ usable |
-| Python | see `py` bindings | ✅ usable |
+| Rust | `rust/` (`swsml`) | ✅ **Reference · recommended** (full contract system, serde bridge, routine vuln scan) |
+| C | `c/sml.c` | ⚠️ Experimental (not guaranteed) |
+| JavaScript | `js/sml.mjs` | ⚠️ Experimental (not guaranteed, zero-dep ESM, browser / Node, contracts & playground) |
+| Lua | `lua/lib/sml.lua` | ⚠️ Experimental (not guaranteed, same source as Soup `lib/sml.soup`) |
+| C++ | `cpp/` | ⚠️ Experimental (not guaranteed) |
+| Python | see `py` bindings | ⚠️ Experimental (not guaranteed) |
 
-> The contract system is aligned across **Rust / C / JavaScript / C++**: the same
-> `CONFIG_CONTRACT` definition parses identically on all four.
+> The Rust implementation defines the contract-system spec and its verdicts. C / JavaScript /
+> C++ were once verified against it, but since non-Rust ports are now "not guaranteed",
+> cross-language consistency is no longer a version promise.
 
 ## Quick start
 
@@ -102,6 +116,45 @@ sml::Value v = sml::parse("name: John\nage: 27");
 // v["name"].as_str() == "John" ｜ v["age"].as_int() == 27
 // throws sml::ParseError (with line/col) on failure
 ```
+
+## Versioning (`@version`)
+
+SML declares the syntax version a document follows via `@version`, so the parser
+can still read old documents if a future incompatible syntax is introduced. The
+current implementation supports **v1 / v2 / v3** (`@version` accepts `v1`/`1`,
+`v2`/`2`, `v3`/`3`; anything outside `v1..v3` errors outright), with **v3** as
+the latest baseline.
+
+| Version | Semantics | String syntax |
+|---------|-----------|---------------|
+| **v1** (default) | initial public release; barewords are strings, types auto-detected | `name: John` ✅ |
+| **v2** | draft; introduced the incompatible "strings must be quoted" rule | `name: "John"` required |
+| **v3** (CURRENT) | finalized; same semantics as v2; free text must be `"..."` | `name: "John"` required |
+
+> v2 and v3 share **identical string semantics** — v2 is the draft codename, v3
+> the finalized one. Numbers / `bool` / `null` / fragment refs `&x` / env vars
+> `$env.X` remain **barewords** under v2 / v3 — only free strings need quotes.
+
+```sml
+# default v1: barewords are strings
+name: John
+age: 27
+tags: [ a b c ]          # bareword array elements OK
+
+# explicit v3: strings must be quoted, scalars stay bare
+@version v3
+name: "John"
+age: 27
+active: true
+tags: [ "a" "b" "c" ]    # array elements also quoted
+ref: &frag               # fragment ref still bareword
+```
+
+Undefined fragment refs are **hard errors** under v3 (no silent downgrade to a
+string). Callers can also restrict accepted versions via
+`parse_allowed(docs, &[Version::V1, Version::V2, Version::V3])` — out-of-range
+documents are rejected, so `@version` cannot become a backdoor around capability
+limits.
 
 ## Contract system
 
@@ -264,6 +317,46 @@ const sml = stringify(JSON.parse(json));
 
 Rust provides `sml::serde::from_str` / `to_string` via the `serde` feature — any
 `#[derive(Deserialize)]` struct deserializes in one step.
+
+### Multi-target emit
+
+SML is not just a config format — once parsed to a `Value`, it can be **compiled /
+translated into other host formats** via built-in backends, feeding the same data
+into different ecosystems:
+
+| feature | target | entry function |
+|---------|--------|---------------|
+| `emit-markdown` | Markdown / GFM | `to_markdown` |
+| `emit-latex` | LaTeX document | `to_latex` |
+| `emit-xml` | XML / LVGL UI | `to_xml` / `to_lvgl` |
+| `emit-svg` | SVG graphics | `to_svg` |
+| `emit-slint` | Slint DSL (Rust/Qt GUI) | `to_slint` |
+| `emit-custom` | user-defined SML template generator | `to_custom` |
+
+All are on by default; if you only need parse / serialize-back-to-SML, set
+`default-features = false` to drop every `emit-*`, and this module is excluded
+from compilation entirely.
+
+Conventions: objects / blocks generally map to a host "container / element /
+environment", arrays to a "list / sequence", and string scalars are **escaped by
+default** to prevent injecting host reserved characters (e.g. XML `<`, `&`). Bare
+block metadata `__type` / `__name` selects backend semantics rather than being
+emitted as ordinary fields.
+
+```rust
+use sml::{parse, emit::to_markdown, emit::MarkdownOptions};
+
+let v = parse("# title\nbody: content\nitems: [ a b c ]").unwrap();
+// SML -> Markdown
+let md = to_markdown(&v, &MarkdownOptions::new()).unwrap();
+// SML -> Slint GUI description
+use sml::emit::{to_slint, SlintOptions};
+let slint = to_slint(&v, &SlintOptions::new()).unwrap();
+```
+
+> Emit backends cap recursion depth (`MAX_VALUE_DEPTH = 128`) against untrusted
+> input: over-deep nesting returns `Err` instead of stack-overflowing the host,
+> avoiding DoS.
 
 ## Real-world usage
 

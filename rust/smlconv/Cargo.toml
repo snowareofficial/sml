@@ -1,0 +1,35 @@
+# smlconv — SML (SNOWARE Markup Language) 命令行转换器 / 多目标翻译器。
+#
+# ⚠️ 实验性 (EXPERIMENTAL)：此 crate 从 swsml 主 crate 拆分为独立发布，
+#    对外 CLI 接口与 emit 后端组合仍可能随用户反馈调整，暂不做语义化稳定性承诺。
+#    生产关键路径请勿依赖其精确行为；建议关注版本号变更日志。
+[package]
+name = "smlconv"
+version = "0.1.5"
+edition = "2021"
+description = "(EXPERIMENTAL) SML command-line converter: translate SML into slint/lvgl/json/xml/svg/latex/markdown/hugo, and render custom targets via rule tables."
+license = "MulanPSL-2.0"
+repository = "https://gitee.com/snoware/sml"
+homepage = "https://sml.swebase.cn"
+readme = "README.md"
+authors = ["SNOWARE <dev@mail.swebase.cn>"]
+keywords = ["sml", "converter", "codegen", "slint", "experimental"]
+categories = ["command-line-utilities"]
+exclude = ["/target"]
+
+[[bin]]
+name = "smlconv"
+path = "src/main.rs"
+
+[dependencies]
+# 复用 swsml 的解析器与 sml::emit::* 翻译后端，自身不重复实现。
+swsml = { version = "0.5.8", path = "../", features = [
+    "sml",
+    "emit-markdown",
+    "emit-slint",
+    "emit-latex",
+    "emit-xml",
+    "emit-svg",
+    "emit-custom",
+] }
+clap = { version = "4.5", features = ["derive"] }

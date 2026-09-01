@@ -150,8 +150,15 @@ pub fn to_value<T: Serialize + ?Sized>(value: &T) -> Result<Value, String> {
 }
 
 /// 任意 serde 类型序列化为 SML 文本（等价于 `toml::to_string`）。
+#[cfg(feature = "sml")]
 pub fn to_string<T: Serialize + ?Sized>(value: &T) -> Result<String, String> {
     Ok(crate::to_sml(&to_value(value)?))
+}
+
+#[cfg(not(feature = "sml"))]
+pub fn to_string<T: Serialize + ?Sized>(value: &T) -> Result<String, String> {
+    let _ = value;
+    Err("sml feature not enabled".to_string())
 }
 
 // ---- Serializer: T: Serialize -> Value ----
@@ -560,14 +567,18 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
     where
         V: Visitor<'de>,
     {
-        match self.0 {
+        // 按引用匹配：`Value` 实现了 `Drop`，按值绑定会触发 E0509（无法部分移出）。
+        // 需要所有权的分支（Vec / BTreeMap）显式 clone。
+        match &self.0 {
             Value::Null => visitor.visit_unit(),
-            Value::Bool(b) => visitor.visit_bool(b),
-            Value::Int(i) => visitor.visit_i64(i),
-            Value::Float(f) => visitor.visit_f64(f),
-            Value::Str(s) => visitor.visit_string(s),
-            Value::Array(a) => visitor.visit_seq(SeqDeserializer { items: a, idx: 0 }),
-            Value::Object(m) => visitor.visit_map(MapDeserializer { map: m, pending: None }),
+            Value::Bool(b) => visitor.visit_bool(*b),
+            Value::Int(i) => visitor.visit_i64(*i),
+            Value::Float(f) => visitor.visit_f64(*f),
+            Value::Str(s) => visitor.visit_str(s),
+            Value::Array(a) => visitor.visit_seq(SeqDeserializer { items: a.clone(), idx: 0 }),
+            Value::Object(m) => {
+                visitor.visit_map(MapDeserializer { map: m.clone(), pending: None })
+            }
         }
     }
 
@@ -575,9 +586,9 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
     where
         V: Visitor<'de>,
     {
-        match self.0 {
-            Value::Bool(b) => visitor.visit_bool(b),
-            other => Err(type_err(&other, "布尔")),
+        match &self.0 {
+            Value::Bool(b) => visitor.visit_bool(*b),
+            other => Err(type_err(other, "布尔")),
         }
     }
 
@@ -595,14 +606,14 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
     where
         V: Visitor<'de>,
     {
-        match self.0 {
-            Value::Int(i) if i >= 0 => visitor.visit_u64(i as u64),
+        match &self.0 {
+            Value::Int(i) if *i >= 0 => visitor.visit_u64(*i as u64),
             Value::Float(f)
-                if f.fract() == 0.0 && f >= 0.0 && f <= u64::MAX as f64 =>
+                if f.fract() == 0.0 && *f >= 0.0 && *f <= u64::MAX as f64 =>
             {
-                visitor.visit_u64(f as u64)
+                visitor.visit_u64(*f as u64)
             }
-            other => Err(type_err(&other, "u64")),
+            other => Err(type_err(other, "u64")),
         }
     }
 
@@ -610,20 +621,20 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
     where
         V: Visitor<'de>,
     {
-        match self.0 {
-            Value::Int(i) => visitor.visit_f32(i as f32),
-            Value::Float(f) => visitor.visit_f32(f as f32),
-            other => Err(type_err(&other, "f32")),
+        match &self.0 {
+            Value::Int(i) => visitor.visit_f32(*i as f32),
+            Value::Float(f) => visitor.visit_f32(*f as f32),
+            other => Err(type_err(other, "f32")),
         }
     }
     fn deserialize_f64<V>(self, visitor: V) -> Result<V::Value, Error>
     where
         V: Visitor<'de>,
     {
-        match self.0 {
-            Value::Int(i) => visitor.visit_f64(i as f64),
-            Value::Float(f) => visitor.visit_f64(f),
-            other => Err(type_err(&other, "f64")),
+        match &self.0 {
+            Value::Int(i) => visitor.visit_f64(*i as f64),
+            Value::Float(f) => visitor.visit_f64(*f),
+            other => Err(type_err(other, "f64")),
         }
     }
 
@@ -631,11 +642,11 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
     where
         V: Visitor<'de>,
     {
-        match self.0 {
+        match &self.0 {
             Value::Str(s) if s.chars().count() == 1 => {
                 visitor.visit_char(s.chars().next().unwrap())
             }
-            other => Err(type_err(&other, "字符")),
+            other => Err(type_err(other, "字符")),
         }
     }
 
@@ -643,9 +654,9 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
     where
         V: Visitor<'de>,
     {
-        match self.0 {
-            Value::Str(s) => visitor.visit_string(s),
-            other => Err(type_err(&other, "字符串")),
+        match &self.0 {
+            Value::Str(s) => visitor.visit_str(s),
+            other => Err(type_err(other, "字符串")),
         }
     }
     fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, Error>
@@ -659,13 +670,13 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
     where
         V: Visitor<'de>,
     {
-        match self.0 {
+        match &self.0 {
             Value::Array(items) => {
                 let mut buf = Vec::with_capacity(items.len());
                 for it in items {
                     match it {
-                        Value::Int(i) if (0..=255).contains(&i) => buf.push(i as u8),
-                        other => return Err(type_err(&other, "字节")),
+                        Value::Int(i) if (0..=255).contains(i) => buf.push(*i as u8),
+                        other => return Err(type_err(other, "字节")),
                     }
                 }
                 visitor.visit_byte_buf(buf)
@@ -724,9 +735,9 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
     where
         V: Visitor<'de>,
     {
-        match self.0 {
-            Value::Array(a) => visitor.visit_seq(SeqDeserializer { items: a, idx: 0 }),
-            other => Err(type_err(&other, "数组")),
+        match &self.0 {
+            Value::Array(a) => visitor.visit_seq(SeqDeserializer { items: a.clone(), idx: 0 }),
+            other => Err(type_err(other, "数组")),
         }
     }
     fn deserialize_tuple<V>(self, _len: usize, visitor: V) -> Result<V::Value, Error>
@@ -751,9 +762,11 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
     where
         V: Visitor<'de>,
     {
-        match self.0 {
-            Value::Object(m) => visitor.visit_map(MapDeserializer { map: m, pending: None }),
-            other => Err(type_err(&other, "块/对象")),
+        match &self.0 {
+            Value::Object(m) => {
+                visitor.visit_map(MapDeserializer { map: m.clone(), pending: None })
+            }
+            other => Err(type_err(other, "块/对象")),
         }
     }
     fn deserialize_struct<V>(
@@ -777,21 +790,25 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
     where
         V: Visitor<'de>,
     {
-        match self.0 {
+        match &self.0 {
             Value::Str(s) => visitor.visit_enum(EnumDeserializer {
-                variant: s,
+                variant: s.clone(),
                 kind: EnumKind::Unit,
             }),
-            Value::Object(mut m) => {
+            Value::Object(m) => {
+                // 取副本后按需 `remove`：`Value` 实现 `Drop`，不可从原值部分移出。
+                let mut m = m.clone();
                 // 1) SML 专有约定：`__type` 键（与 SmlSerialize 输出一致）
                 if let Some(ty) = m.remove("__type") {
-                    let variant = match ty {
-                        Value::Str(s) => s,
+                    let variant = match &ty {
+                        Value::Str(s) => s.clone(),
                         _ => return Err(de::Error::custom("`__type` 的值必须是字符串")),
                     };
                     let kind = match m.remove("_value") {
-                        Some(Value::Array(items)) => EnumKind::Tuple(items),
-                        Some(other) => EnumKind::Newtype(other),
+                        Some(v) => match &v {
+                            Value::Array(items) => EnumKind::Tuple(items.clone()),
+                            _ => EnumKind::Newtype(v),
+                        },
                         None if m.is_empty() => EnumKind::Unit,
                         None => EnumKind::Struct(m),
                     };
@@ -802,9 +819,9 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
                 //    {"Circle": 3}                        -> 单值变体
                 if m.len() == 1 {
                     let (k, v) = m.pop_first().expect("len==1 必有键");
-                    let kind = match v {
-                        Value::Str(s) if s == k => EnumKind::Unit,
-                        other => EnumKind::Newtype(other),
+                    let kind = match &v {
+                        Value::Str(s) if *s == k => EnumKind::Unit,
+                        _ => EnumKind::Newtype(v),
                     };
                     return visitor.visit_enum(EnumDeserializer { variant: k, kind });
                 }
@@ -812,7 +829,7 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
                     "枚举块需要 `__type` 键（SML 约定）或单键外部标签 `{ VariantName: ... }`",
                 ))
             }
-            other => Err(type_err(&other, "枚举")),
+            other => Err(type_err(other, "枚举")),
         }
     }
 

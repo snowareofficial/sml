@@ -170,6 +170,14 @@ fn check_type(
             _ => None,
         };
         if let Some(n) = n {
+            // 显式拒绝非有限值（NaN/inf）：NaN 的所有比较都为 false，会令 min/max
+            // 校验被静默穿透；inf 同理不是合法数值（审计 #2）。
+            if !n.is_finite() {
+                return Err(format!(
+                    "sml: 字段 `{}` 的值为非有限数（NaN/inf），不可作为数值约束的取值（契约 `{}`）",
+                    field, contract
+                ));
+            }
             if let Some(lo) = spec.min {
                 if n < lo {
                     return Err(format!(
@@ -293,7 +301,13 @@ enum Tok {
     RBrack,  // ]
     Comma,   // ,
     Colon,   // :
-    At,      // @
+    At,      // @（紧邻其后内容，如 `@name` / `@contract`）
+    /// 孤立的 `@`：其后紧跟空白或行尾，没有片段名/指令名。
+    ///
+    /// 必须与 `At` 区分——若统一成 `At`，孤立 `@` 会把**其后紧跟的块**
+    /// 当成片段体消费掉（`@` + `mailer { .. }` 与 `@mailer { .. }`
+    /// 的 token 流完全相同），导致内容被静默丢弃且不报错。
+    BareAt,
     Str(String),   // 引号串 (已解码)
     Word(String),  // 裸词
 }
@@ -341,7 +355,7 @@ fn tokenize(text: &str) -> Result<Vec<Tok>, String> {
                             }
                         }
                     }
-                    // `/*` 多行注释，直到 `*/`
+                    // `/*` 多行注释，直到 `*/`；EOF 未闭合则报错（与未闭合字符串一致）
                     Some('*') => {
                         chars.next(); // 吃掉 *
                         loop {
@@ -353,7 +367,7 @@ fn tokenize(text: &str) -> Result<Vec<Tok>, String> {
                                     }
                                 }
                                 Some(_) => {}
-                                None => break,
+                                None => return Err("sml: 未闭合的块注释 /* ... */（遇到文件结尾）".to_string()),
                             }
                         }
                     }
@@ -374,7 +388,7 @@ fn tokenize(text: &str) -> Result<Vec<Tok>, String> {
                                 }
                             }
                             Some(_) => {}
-                            None => break,
+                            None => return Err("sml: 未闭合的块注释 _* ... *_（遇到文件结尾）".to_string()),
                         }
                     }
                 } else {
@@ -435,7 +449,15 @@ fn tokenize(text: &str) -> Result<Vec<Tok>, String> {
                                     })?;
                                     s.push(ch);
                                 }
-                                Some(other) => s.push(other),
+                                Some(other) => {
+                                    // 未知转义（非 n/t/r/0/"/\/u）：必须报错，而非静默丢弃
+                                    // 反斜杠（P1-5：\U \d \z 等会让路径/正则静默损坏）。
+                                    // 与 \u 系列一致的严格策略：非法转义即失败。
+                                    return Err(format!(
+                                        "sml: 字符串含未知转义符 \\{}（仅支持 \\n \\t \\r \\0 \\\" \\\\ \\uXXXX）",
+                                        other
+                                    ));
+                                }
                                 // B9：转义符后遇 EOF，未闭合的反斜杠报错
                                 None => {
                                     return Err(
@@ -482,7 +504,14 @@ fn tokenize(text: &str) -> Result<Vec<Tok>, String> {
                 // 否则 `a@b.c` 会被切成 `Word("a")` + `At` + `Word("b.c")`，
                 // 后半段在解析时被丢弃，导致邮箱静默损坏为 `a`。
                 if buf.is_empty() {
-                    toks.push(Tok::At);
+                    // 仅当 `@` 与后随内容紧邻（无空白）时才是片段/指令标记。
+                    // 孤立 `@`（后接空白或行尾）单独记为 BareAt，交由解析器报错，
+                    // 避免其后的块被误认作片段体而静默丢弃。
+                    let adjacent = match chars.peek() {
+                        None => false,
+                        Some(c) => !c.is_whitespace(),
+                    };
+                    toks.push(if adjacent { Tok::At } else { Tok::BareAt });
                 } else {
                     buf.push(c);
                 }
@@ -499,16 +528,31 @@ fn tokenize(text: &str) -> Result<Vec<Tok>, String> {
     Ok(toks)
 }
 
+/// 查环境变量：优先查本次解析的**覆盖表**（`env_overrides`），未命中才回落
+/// 到真实进程环境。覆盖表仅作用于本次解析，不修改进程环境（避免线程不安全的
+/// `std::env::set_var` 与跨解析污染）。
+fn lookup_env(overrides: Option<&BTreeMap<String, String>>, name: &str) -> String {
+    if let Some(m) = overrides {
+        if let Some(v) = m.get(name) {
+            return v.clone();
+        }
+    }
+    std::env::var(name).unwrap_or_default()
+}
+
 /// 把裸词 `w` 转为 Value。
 ///
 /// 受 `features` 控制：关闭 `BarewordStr` 后纯字符串裸词（如 `John`）被拒绝，
 /// 必须写作 `"John"`；仍允许的非字符串裸词：bool / null / 数字 /
 /// 片段引用 `&x`（需 `fragment`）/ 环境变量 `$env.X`（需 `env`）。
+///
+/// `env` 为本次解析的环境变量覆盖表（见 [`lookup_env`]）。
 fn coerce_word(
     w: &str,
     fragments: &BTreeMap<String, Value>,
     features: FeatureSet,
     ns_prefix: &str,
+    env: Option<&BTreeMap<String, String>>,
 ) -> Result<Value, String> {
     match w {
         "true" => return Ok(Value::Bool(true)),
@@ -521,7 +565,7 @@ fn coerce_word(
         if !features.has(Feature::Env) {
             return Err(format!("sml: 当前特性集禁用了 `$env`（env），裸词 `{}` 无法解析", w));
         }
-        return Ok(Value::Str(std::env::var(ev).unwrap_or_default()));
+        return Ok(Value::Str(lookup_env(env, ev)));
     }
     // 片段引用 &name（需 fragment 特性）。命名空间隔离：先查裸名，再逐级查 ns 前缀。
     if let Some(name) = w.strip_prefix('&') {
@@ -545,10 +589,20 @@ fn coerce_word(
                 }
             }
         }
-        return Ok(Value::Str(w.to_string()));
+        // 片段特性已开启但名字未定义：必须报错，不能静默降级为字符串
+        // （否则拼错的片段名会得到 Str("&name")，下游 .get 取到 None，难以排查）。
+        return Err(format!("sml: 未定义的片段引用 `{}`", w));
     }
     // 数字: int / float / 科学计数
     if let Ok(i) = w.parse::<i64>() {
+        // 保留前导零语义：以 `0` 开头且非 0x/0b 的纯数字（如 0755、007）必须保留为
+        // 字符串，否则权限位/编号会被静默改写（P1-4：mode: 0755 不应变成 755）。
+        // 0xFF / 0b101 等显式进制前缀不在其列，按原逻辑（非 i64 十进制）走下方字符串。
+        if w.starts_with('0') && w.len() > 1 && !w.starts_with("0x") && !w.starts_with("0b") {
+            if w.chars().all(|c| c.is_ascii_digit()) {
+                return Ok(Value::Str(w.to_string()));
+            }
+        }
         return Ok(Value::Int(i));
     }
     // B10：整数超 i64 范围时，不能静默降级为 Float（会丢精度，
@@ -592,9 +646,17 @@ struct Parser {
     /// 宏/契约注册与引用时，按栈路径加前缀（如 `ui.form.Button`），
     /// 使命名空间真正隔离宏，而非仅隔离数据键值。
     ns_stack: Vec<String>,
+    /// 本次解析的环境变量覆盖表。`$env.X` 先在此查表，未命中才读进程环境。
+    /// 用于 FFI 等「不修改进程环境」的注入场景（见 [`Self::env_var`]）。
+    env: BTreeMap<String, String>,
 }
 
 impl Parser {
+    /// 查 `$env.X`：先查本次解析的覆盖表，再回落进程环境。
+    fn env_var(&self, name: &str) -> String {
+        lookup_env(Some(&self.env), name)
+    }
+
     /// 当前命名空间前缀（栈路径用 "." 连接，空栈返回空串）
     fn ns_prefix(&self) -> String {
         if self.ns_stack.is_empty() {
@@ -617,6 +679,11 @@ impl Parser {
     fn peek(&self) -> Option<&Tok> {
         self.toks.get(self.i)
     }
+    /// 前看 n 个 token（n=0 等价于 [`Self::peek`]）。
+    /// 用于区分「关键字参数 `type:` `name:`」与「恰巧同名的片段名」。
+    fn peek_at(&self, n: usize) -> Option<&Tok> {
+        self.toks.get(self.i + n)
+    }
     fn next(&mut self) -> Option<Tok> {
         let t = self.toks.get(self.i).cloned();
         if t.is_some() {
@@ -630,9 +697,14 @@ impl Parser {
         let mut fields: BTreeMap<String, FieldSpec> = BTreeMap::new();
         loop {
             match self.peek().cloned() {
-                None | Some(Tok::RBrace) => {
+                Some(Tok::RBrace) => {
                     self.next();
                     break;
+                }
+                None => {
+                    // 契约体未闭合（缺 `}` 即遇到文件结尾）：必须报错，否则后续顶层
+                    // key 会被错位吞进契约体，最终主文档静默清空（P0-1）。
+                    return Err("sml: 契约体未闭合（缺少结束符号 }）".to_string());
                 }
                 Some(Tok::Comma) => {
                     self.next();
@@ -746,7 +818,13 @@ impl Parser {
                     "default" => {
                         self.next();
                         default = Some(match self.next() {
-                            Some(Tok::Word(w2)) => coerce_word(&w2, &self.fragments, self.features, &self.ns_prefix())?,
+                            Some(Tok::Word(w2)) => coerce_word(
+                                &w2,
+                                &self.fragments,
+                                self.features,
+                                &self.ns_prefix(),
+                                Some(&self.env),
+                            )?,
                             Some(Tok::Str(s)) => Value::Str(s),
                             other => {
                                 return Err(format!("sml: default 期望值, 得 {:?}", other))
@@ -772,7 +850,16 @@ impl Parser {
     fn parse_spec_number(&mut self) -> Result<f64, String> {
         match self.next() {
             Some(Tok::Word(w)) => {
-                w.parse::<f64>().map_err(|_| format!("sml: 期望数字, 得 `{}`", w))
+                let f = w
+                    .parse::<f64>()
+                    .map_err(|_| format!("sml: 期望数字, 得 `{}`", w))?;
+                // 拒绝 NaN/inf 作为边界：Rust 的 "nan".parse::<f64>() == Ok(NaN)，
+                // 而 NaN 的所有比较均为 false，会让 min/max 校验被静默绕过
+                // （审计 #2）。
+                if !f.is_finite() {
+                    return Err(format!("sml: 数字边界必须为有限值, 得 `{}`", w));
+                }
+                Ok(f)
             }
             other => Err(format!("sml: 期望数字, 得 {:?}", other)),
         }
@@ -800,7 +887,22 @@ impl Parser {
         let mut applied_contract: Option<String> = None;
         loop {
             let tok = match self.peek().cloned() {
-                None => break,
+                None => {
+                    // 文件结尾：若本块期望闭合符号（嵌套块/数组），则未闭合，必须报错；
+                    // 否则为顶层正常结束。
+                    if closing.is_some() {
+                        let want = match closing {
+                            Some(Tok::RBrace) => "}",
+                            Some(Tok::RBrack) => "]",
+                            _ => unreachable!(),
+                        };
+                        return Err(format!(
+                            "sml: 未闭合的块/数组（遇到文件结尾，缺少结束符号 {}）",
+                            want
+                        ));
+                    }
+                    break;
+                }
                 Some(t) => t,
             };
             match tok {
@@ -810,12 +912,57 @@ impl Parser {
                             self.next();
                             break;
                         }
+                        // 嵌套块内遇到类型不匹配的右符号（如 `}` 与 `]` 混用）：
+                        // 必须报错，而非静默吞掉，否则后续内容会被错误吞并。
+                        let want = match cl {
+                            Tok::RBrace => "}",
+                            Tok::RBrack => "]",
+                            _ => unreachable!(),
+                        };
+                        let got = match tok {
+                            Tok::RBrace => "}",
+                            Tok::RBrack => "]",
+                            _ => unreachable!(),
+                        };
+                        return Err(format!(
+                            "sml: 块/数组未正确闭合：期望 {}，却遇到 {}",
+                            want, got
+                        ));
                     }
-                    // 顶层遇右括号也停
-                    break;
+                    // 顶层遇到多余的右括号 `}` / `]`：必须报错（之前静默忽略，
+                    // 会掩盖作者漏写的 `key:`、错配括号等问题）。
+                    let got = match tok {
+                        Tok::RBrace => "}",
+                        Tok::RBrack => "]",
+                        _ => unreachable!(),
+                    };
+                    return Err(format!("sml: 多余的结束符号 {}", got));
                 }
                 Tok::Comma => {
-                    self.next();
+                    // 逗号在 SML 中只用于对象字段分隔（`k: v, k2: v2`）与数组元素分隔
+                    // （由 `parse_array_inner` 处理，不会到此处）。
+                    // 此处遇到的逗号若属于「对象字段分隔」，其后应是 `key:` 形式；
+                    // 否则是裸词拆分（如 `a: x,y`）或非法孤立逗号，必须报错而非静默吞掉
+                    // （P2-7：裸词逗号会凭空拆出第二个键）。
+                    let looks_like_field_sep = matches!(
+                        self.toks.get(self.i + 1),
+                        Some(Tok::Word(_)) | Some(Tok::Str(_))
+                    ) && matches!(self.toks.get(self.i + 2), Some(Tok::Colon));
+                    if looks_like_field_sep {
+                        self.next();
+                    } else {
+                        return Err(
+                            "sml: 非预期的逗号（裸词中不可含逗号，请用 [..] 数组或 \"...\" 引号）".into(),
+                        );
+                    }
+                }
+                // 孤立 `@`：其后没有片段名/指令名。必须报错——否则其后紧跟的
+                // 块会被当作片段体消费，导致内容被静默丢弃（不报错）。
+                Tok::BareAt => {
+                    return Err(
+                        "sml: 孤立的 `@` 不是合法指令；片段定义须写作 `@name { ... }`（`@` 与名字之间不可有空白），或删除该 `@`"
+                            .into(),
+                    );
                 }
                 Tok::At => {
                     // @name { ... } 片段定义 (不进主树)
@@ -883,28 +1030,73 @@ impl Parser {
                         applied_contract = Some(resolved);
                         continue;
                     }
-                    // 可选 type [name] 参数
+                    // 可选显式参数：`type: X` 与 `name: Y`（顺序不限、均可省略）。
+                    //
+                    // v4 起废弃 v3 的位置参数形式（`@f Server [prod] { .. }`）。
+                    // 原因：位置参数使 `@nosuch Word { .. }`（拼错的指令）与
+                    // 「片段定义 + type 参数」在 token 流上完全同形，解析器无法判别，
+                    // 只能把块当片段体吃掉 —— 内容被静默丢弃且不报错。
+                    // 改为显式关键字后，任何位置参数形式都可安全地判为错误。
                     let mut ftype: Option<String> = None;
                     let mut farg: Option<String> = None;
-                    if let Some(Tok::Word(s)) = self.peek().cloned() {
-                        if *self.peek().unwrap() != Tok::LBrace {
-                            self.next();
-                            ftype = Some(s);
-                            if let Some(Tok::Word(s2)) = self.peek().cloned() {
-                                if *self.peek().unwrap() != Tok::LBrace {
-                                    self.next();
-                                    farg = Some(s2);
-                                }
-                            }
+                    loop {
+                        // 仅当 `type`/`name` 后紧邻冒号时才视为参数，
+                        // 这样名为 `type`/`name` 的片段（`@type { .. }`）仍可正常定义。
+                        let is_param = matches!(self.peek(), Some(Tok::Word(w)) if w == "type" || w == "name")
+                            && matches!(self.peek_at(1), Some(Tok::Colon));
+                        if !is_param {
+                            break;
                         }
+                        let kw = match self.next() {
+                            Some(Tok::Word(w)) => w,
+                            _ => unreachable!("is_param 已保证为 Word"),
+                        };
+                        self.next(); // 冒号
+                        let val = match self.next() {
+                            Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
+                            other => {
+                                return Err(format!(
+                                    "sml: 片段 `@{fname}` 的参数 `{kw}:` 后须值, 得 {:?}",
+                                    other
+                                ))
+                            }
+                        };
+                        if kw == "type" {
+                            if ftype.is_some() {
+                                return Err(format!(
+                                    "sml: 片段 `@{fname}` 的 `type:` 参数重复"
+                                ));
+                            }
+                            ftype = Some(val);
+                        } else {
+                            if farg.is_some() {
+                                return Err(format!(
+                                    "sml: 片段 `@{fname}` 的 `name:` 参数重复"
+                                ));
+                            }
+                            farg = Some(val);
+                        }
+                    }
+                    // 既非 `{` 也非流末尾：既可能是拼错的指令，也可能是旧的位置参数形式。
+                    // 两种意图无法区分，故错误信息同时给出两条排查指引。
+                    if !matches!(self.peek(), Some(Tok::LBrace) | None) {
+                        return Err(format!(
+                            "sml: `@{fname}` 不是合法指令且缺少片段体 {{ ... }}；\
+                             若本意是「片段定义」，其参数须显式写作 `type: X` 与 `name: Y`\
+                             （如 `@{fname} type: Server name: prod {{ .. }}`），\
+                             位置参数形式（`@{fname} X [Y] {{ .. }}`）自 v4 起已废弃，\
+                             不带参数时写作 `@{fname} {{ .. }}`；\
+                             若本意是「指令」，请检查拼写（合法指令：contract / is / version / feature）"
+                        ));
                     }
                     if self.peek() == Some(&Tok::LBrace) {
                         self.next();
-                        let mut sub = match self.parse_block(Some(Tok::RBrace))? {
-                            Value::Object(m) => m,
+                        let blk = self.parse_block(Some(Tok::RBrace))?;
+                        let mut sub = match &blk {
+                            Value::Object(m) => m.clone(),
                             other => {
                                 let mut m = BTreeMap::new();
-                                m.insert("_value".into(), other);
+                                m.insert("_value".into(), other.clone());
                                 m
                             }
                         };
@@ -922,6 +1114,13 @@ impl Parser {
                         }
                         // 命名空间前缀隔离：片段定义按当前 ns 栈路径注册
                         self.fragments.insert(self.qualify(&fname), Value::Object(sub));
+                    } else {
+                        // `@name` 既不是已知指令（contract/is）也不是片段定义（后无 `{`）：
+                        // 必须报错，而非静默吞掉后续行/块（P0-2：单独 `@` 会清空整个文档）。
+                        return Err(format!(
+                            "sml: `@{}` 不是合法指令且缺少片段体 {{ ... }}，无法解析",
+                            fname
+                        ));
                     }
                 }
                 _ => {
@@ -963,54 +1162,73 @@ impl Parser {
     }
 
     /// 解析一个值 (在 key 之后)
+    /// 预扫描：当前位置是否形如裸块的**参数部分**（`[name...] {`），
+    /// 即连续若干 `Word`/`Str` 后紧跟 `{`。不消费任何 token。
+    fn bare_block_ahead(&self) -> bool {
+        if !matches!(self.peek(), Some(Tok::Word(_)) | Some(Tok::Str(_))) {
+            return false;
+        }
+        let mut probe = self.i;
+        while probe < self.toks.len() {
+            match &self.toks[probe] {
+                Tok::Word(_) | Tok::Str(_) => probe += 1,
+                Tok::LBrace => return true,
+                _ => return false,
+            }
+        }
+        false
+    }
+
+    /// 解析裸块体：调用前类型名本身已消费，当前位置处于参数处；
+    /// `key` 即写入块内的 `__type`。返回解析出的块。
+    fn parse_bare_block(&mut self, key: &str) -> Result<Value, String> {
+        let mut args: Vec<Value> = Vec::new();
+        while let Some(t) = self.peek().cloned() {
+            match t {
+                Tok::Word(w) => {
+                    args.push(coerce_word(
+                        &w,
+                        &self.fragments,
+                        self.features,
+                        &self.ns_prefix(),
+                        Some(&self.env),
+                    )?);
+                    self.next();
+                }
+                Tok::Str(_) => {
+                    if let Some(Tok::Str(s)) = self.next() {
+                        args.push(Value::Str(s));
+                    }
+                }
+                _ => break,
+            }
+        }
+        if self.peek() != Some(&Tok::LBrace) {
+            return Err("sml: 语法错误".into());
+        }
+        self.next();
+        // 进入子块 = 进入该 block 名字的命名空间
+        self.ns_stack.push(key.to_string());
+        let mut sub = self.parse_block(Some(Tok::RBrace))?;
+        self.ns_stack.pop();
+        if let Value::Object(m) = &mut sub {
+            m.insert("__type".into(), Value::Str(key.to_string()));
+            // 裸块参数全部保留：首个作 __name，其余放入 __args 数组，
+            // 不再静默丢弃（P1-3：`server web prod {}` 的 web/prod 都应可见）。
+            if !args.is_empty() {
+                m.insert("__name".into(), args[0].clone());
+                if args.len() > 1 {
+                    m.insert("__args".into(), Value::Array(args[1..].to_vec()));
+                }
+            }
+        }
+        Ok(sub)
+    }
+
     fn parse_value(&mut self, key: &str, colon: bool) -> Result<Value, String> {
         // 无冒号且后继是裸词: 可能是裸块 `type [name] { }`
-        if !colon && matches!(self.peek(), Some(Tok::Word(_))) {
-            // 预扫描: 收集参数直到 { / 结束; 若发现 { 则按裸块处理
-            let mut probe = self.i;
-            let mut found_block = false;
-            while probe < self.toks.len() {
-                match &self.toks[probe] {
-                    Tok::Word(_) | Tok::Str(_) => probe += 1,
-                    Tok::LBrace => {
-                        found_block = true;
-                        break;
-                    }
-                    _ => break,
-                }
-            }
-            if found_block {
-                // 裸块: key 为类型, 参数在 { 前
-                let mut args: Vec<Value> = Vec::new();
-                while let Some(t) = self.peek().cloned() {
-                    match t {
-                        Tok::Word(w) => {
-                            args.push(coerce_word(&w, &self.fragments, self.features, &self.ns_prefix())?);
-                            self.next();
-                        }
-                        Tok::Str(_) => {
-                            if let Some(Tok::Str(s)) = self.next() {
-                                args.push(Value::Str(s));
-                            }
-                        }
-                        _ => break,
-                    }
-                }
-                if self.peek() == Some(&Tok::LBrace) {
-                    self.next();
-                    // 进入子块 = 进入该 block 名字的命名空间
-                    self.ns_stack.push(key.to_string());
-                    let mut sub = self.parse_block(Some(Tok::RBrace))?;
-                    self.ns_stack.pop();
-                    if let Value::Object(m) = &mut sub {
-                        m.insert("__type".into(), Value::Str(key.to_string()));
-                        if args.len() == 1 {
-                            m.insert("__name".into(), args.remove(0));
-                        }
-                    }
-                    return Ok(sub);
-                }
-            }
+        if !colon && self.bare_block_ahead() {
+            return self.parse_bare_block(key);
         }
         match self.peek().cloned() {
             Some(Tok::LBrace) => {
@@ -1023,11 +1241,28 @@ impl Parser {
             }
             Some(tok @ (Tok::Word(_) | Tok::Str(_))) => {
                 let v = match tok {
-                    Tok::Word(w) => coerce_word(&w, &self.fragments, self.features, &self.ns_prefix())?,
+                    Tok::Word(w) => coerce_word(
+                        &w,
+                        &self.fragments,
+                        self.features,
+                        &self.ns_prefix(),
+                        Some(&self.env),
+                    )?,
                     Tok::Str(s) => {
-                        let ev = s.strip_prefix("$env.");
-                        match ev {
-                            Some(name) => Value::Str(std::env::var(name).unwrap_or_default()),
+                        // 引号串同样承认 `$env.X` 内联（v3 严格模式下裸词不可用时
+                        // 这是唯一写法），但必须**与裸词路径一致**地受 `Feature::Env`
+                        // 约束：否则调用方禁用 env 特性后，文档仍可用引号串绕过限制
+                        // 读取任意环境变量。
+                        match s.strip_prefix("$env.") {
+                            Some(name) => {
+                                if !self.features.has(Feature::Env) {
+                                    return Err(format!(
+                                        "sml: 当前特性集禁用了 `$env`（env），字符串 `\"{}\"` 无法解析",
+                                        s
+                                    ));
+                                }
+                                Value::Str(self.env_var(name))
+                            }
                             None => Value::Str(s),
                         }
                     }
@@ -1042,7 +1277,13 @@ impl Parser {
                     // 有冒号但无值: 空值
                     Ok(Value::Null)
                 } else {
-                    Ok(coerce_word(key, &self.fragments, self.features, &self.ns_prefix())?)
+                    Ok(coerce_word(
+                        key,
+                        &self.fragments,
+                        self.features,
+                        &self.ns_prefix(),
+                        Some(&self.env),
+                    )?)
                 }
             }
             _ => Err("sml: 语法错误".into()),
@@ -1068,10 +1309,17 @@ impl Parser {
         let mut arr = Vec::new();
         loop {
             match self.peek().cloned() {
-                None => break,
+                None => {
+                    // 顶层数组未闭合（缺少 `]`）：必须报错，而非按 EOF 静默收尾。
+                    return Err("sml: 未闭合的数组（遇到文件结尾，缺少结束符号 ]）".to_string());
+                }
                 Some(Tok::RBrack) => {
                     self.next();
                     break;
+                }
+                Some(Tok::RBrace) => {
+                    // 顶层数组遇到多余的 `}`：必须报错，而非静默忽略。
+                    return Err("sml: 多余的结束符号 }（数组应以 ] 闭合）".to_string());
                 }
                 Some(Tok::Comma) => {
                     self.next();
@@ -1082,11 +1330,26 @@ impl Parser {
                 }
                 Some(Tok::LBrack) => {
                     self.next();
-                    arr.push(self.parse_array_inner()?);
+                    // 走 wrapper 以复用 depth 守卫（否则嵌套数组会绕过 128 层限制导致栈溢出 DoS）
+                    arr.push(self.parse_array()?);
                 }
                 Some(Tok::Word(w)) => {
-                    arr.push(coerce_word(&w, &self.fragments, self.features, &self.ns_prefix())?);
-                    self.next();
+                    // 数组内的裸块 `Type [name] { ... }`：表达**有序**元素序列。
+                    // 对象字段用 BTreeMap 存储（键有序、不可保书写序），因此
+                    // 需要保序的子元素（UI 布局、文档章节）需写作数组。
+                    if self.bare_block_ahead() {
+                        self.next(); // 消费类型名
+                        arr.push(self.parse_bare_block(&w)?);
+                    } else {
+                        arr.push(coerce_word(
+                            &w,
+                            &self.fragments,
+                            self.features,
+                            &self.ns_prefix(),
+                            Some(&self.env),
+                        )?);
+                        self.next();
+                    }
                 }
                 Some(Tok::Str(_)) => {
                     if let Some(Tok::Str(s)) = self.next() {
@@ -1113,23 +1376,33 @@ pub enum Version {
     /// v3：正式版。取消自动字符串无引号，自由文本必须写作 `"..."`；
     ///     数字 / bool / null / 片段引用 `&x` / 环境变量 `$env.X` 仍为裸词。
     V3,
+    /// v4：片段定义的 `type` / `name` 参数改为**显式**关键字形式：
+    ///     `@f type: Server name: prod { .. }`；
+    ///     废弃 v3 的位置参数形式（`@f Server prod { .. }`）。
+    ///
+    /// 动机：位置参数使「拼错的指令 `@nosuch Word { .. }`」与
+    /// 「片段定义 + type 参数」在 token 流上完全同形，无法判别，
+    /// 导致块被当作片段体消费、内容静默丢失且不报错。
+    /// 语法与 v3 其余部分完全兼容（字符串引号、标量裸词等规则不变）。
+    V4,
 }
 
 impl Version {
     /// 当前实现支持的最新版本
-    pub const CURRENT: Version = Version::V3;
+    pub const CURRENT: Version = Version::V4;
 
     /// 是否要求字符串显式引号（v2 / v3 为严格模式）
     pub fn strict_strings(self) -> bool {
         self >= Version::V2
     }
 
-    /// 解析版本字面量（`v1`/`1`、`v2`/`2`、`v3`/`3`）
+    /// 解析版本字面量（`v1`/`1`、`v2`/`2`、`v3`/`3`、`v4`/`4`）
     pub(crate) fn from_word(w: &str) -> Option<Version> {
         match w {
             "v1" | "1" => Some(Version::V1),
             "v2" | "2" => Some(Version::V2),
             "v3" | "3" => Some(Version::V3),
+            "v4" | "4" => Some(Version::V4),
             _ => None,
         }
     }
@@ -1140,6 +1413,7 @@ impl Version {
             Version::V1 => "v1",
             Version::V2 => "v2",
             Version::V3 => "v3",
+            Version::V4 => "v4",
         }
     }
 }
@@ -1403,7 +1677,7 @@ fn apply_feature_directive(
             let v = Version::from_word(words.get(2).map(|s| s.as_str()).unwrap_or(""))
                 .ok_or_else(|| {
                     format!(
-                        "@feature base 需要 v1/v2/v3，收到 `{}`",
+                        "@feature base 需要 v1/v2/v3/v4，收到 `{}`",
                         words.get(2).cloned().unwrap_or_default()
                     )
                 })?;
@@ -1496,24 +1770,105 @@ fn apply_feature_directive(
 /// （例如 v3 默认关闭裸词字符串）。
 fn strip_features(text: &str) -> Result<(String, FeatureSet, Option<Version>, bool), String> {
     let mut out = String::new();
+    let spans = compute_string_spans(text);
     let mut feats = FeatureSet::all();
     let mut mode = FeatureMode::Default;
     let mut base: Option<Version> = None;
     let mut had_feature = false;
 
+    let mut line_start = 0usize;
     for line in text.lines() {
-        match apply_feature_directive(line, &mut feats, &mut mode, &mut base) {
-            Ok(true) => {
-                had_feature = true;
-                continue; // 指令行被消费，不进入剩余文本
+        // 多行字符串内的行（如 `note: "..."` 跨行）里的 `@feature` 不是指令，跳过以免破坏数据
+        if !line_starts_in_string(text, line_start, &spans) {
+            match apply_feature_directive(line, &mut feats, &mut mode, &mut base) {
+                Ok(true) => {
+                    had_feature = true;
+                    line_start = advance_line(line_start, line, text);
+                    continue; // 指令行被消费，不进入剩余文本
+                }
+                Ok(false) => {}
+                Err(e) => return Err(e), // 指令非法（如未知特性名）必须上浮，不能静默吞掉
             }
-            Ok(false) => {}
-            Err(e) => return Err(e), // 指令非法（如未知特性名）必须上浮，不能静默吞掉
         }
         out.push_str(line);
         out.push('\n');
+        line_start = advance_line(line_start, line, text);
     }
     Ok((out, feats, base, had_feature))
+}
+
+/// 计算文本中所有字符串字面量的字节区间（含单引号/双引号、单行与多行三引号）。
+/// 用于让「按行剥离指令」在字符串内部时跳过，避免破坏多行字符串数据
+/// （如 `note: "line1\n@version v1\nline2"` 中的 @version 被误当指令）。
+fn compute_string_spans(text: &str) -> Vec<(usize, usize)> {
+    let bytes = text.as_bytes();
+    let mut spans = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if c == b'"' || c == b'\'' {
+            let quote = c;
+            // 三引号（多行）？
+            let triple = i + 2 < bytes.len() && bytes[i + 1] == quote && bytes[i + 2] == quote;
+            let end = if triple {
+                // 找到下一个 """" / ''' 作为结束
+                let mut j = i + 3;
+                let mut found = None;
+                while j + 2 < bytes.len() {
+                    if bytes[j] == quote && bytes[j + 1] == quote && bytes[j + 2] == quote {
+                        found = Some(j + 3);
+                        break;
+                    }
+                    j += 1;
+                }
+                found.unwrap_or(bytes.len())
+            } else {
+                // 单行：遇到未转义的同类引号结束
+                let mut j = i + 1;
+                let mut found = None;
+                while j < bytes.len() {
+                    if bytes[j] == b'\\' {
+                        j += 2;
+                        continue;
+                    }
+                    if bytes[j] == quote {
+                        found = Some(j + 1);
+                        break;
+                    }
+                    j += 1;
+                }
+                found.unwrap_or(bytes.len())
+            };
+            spans.push((i, end));
+            i = end;
+        } else {
+            i += 1;
+        }
+    }
+    spans
+}
+
+/// 判断 `line` 起始字节 `start` 是否落在任一字符串区间内（字符串内的行不算指令）。
+fn line_starts_in_string(_text: &str, start: usize, spans: &[(usize, usize)]) -> bool {
+    // 指令通常位于行首（可有缩进）。检测起始位置是否在字符串内即可。
+    spans.iter().any(|(s, e)| start >= *s && start < *e)
+}
+
+/// 推进到下一行的起始字节偏移（处理 \n；CRLF 也兼容）。
+fn advance_line(mut start: usize, line: &str, text: &str) -> usize {
+    start += line.len();
+    if text[start..].starts_with('\n') {
+        start += 1;
+        if text[start..].starts_with('\r') {
+            start += 1;
+        }
+    } else if text[start..].starts_with('\r') {
+        start += 1;
+        if text[start..].starts_with('\n') {
+            start += 1;
+        }
+    }
+    start
 }
 
 /// 若该行是 `@version` 声明，返回版本字面量；否则返回 None。
@@ -1541,10 +1896,19 @@ fn version_directive(line: &str) -> Result<Option<String>, String> {
 /// 允许多次声明（include 进来的文件可各自声明），但必须一致；
 /// 声明了实现不支持的版本时报错，避免静默按错误语法解析。
 pub(crate) fn strip_version(text: &str) -> Result<(String, Option<Version>), String> {
+    let spans = compute_string_spans(text);
     let mut declared: Option<Version> = None;
     let mut rest = String::new();
+    let mut line_start = 0usize;
     for line in text.lines() {
-        if let Some(lit) = version_directive(line)? {
+        // 多行字符串内的行（如 `note: "..."` 跨行）里的 @version 不是指令，原样保留
+        let is_directive = if line_starts_in_string(text, line_start, &spans) {
+            false
+        } else {
+            matches!(version_directive(line)?, Some(_))
+        };
+        if is_directive {
+            let lit = version_directive(line)?.unwrap();
             let v = Version::from_word(&lit).ok_or_else(|| {
                 format!(
                     "不支持的 SML 版本 `{lit}`（本实现支持 {}）",
@@ -1558,10 +1922,12 @@ pub(crate) fn strip_version(text: &str) -> Result<(String, Option<Version>), Str
                 }
                 Some(_) => {}
             }
+            line_start = advance_line(line_start, line, text);
             continue;
         }
         rest.push_str(line);
         rest.push('\n');
+        line_start = advance_line(line_start, line, text);
     }
     Ok((rest, declared))
 }
@@ -1591,7 +1957,7 @@ pub fn parse_versioned(text: &str) -> Result<(Value, Version), String> {
     // 版本优先级：@version 显式声明 > @feature base > 默认 V1
     let v = declared.or(base).unwrap_or(Version::V1);
     let feats = features_for(v, feats, had);
-    Ok((parse_impl(&rest, v, feats)?, v))
+    Ok((parse_impl(&rest, v, feats, BTreeMap::new())?, v))
 }
 
 /// 解析 SML 文件：展开 include，并返回其声明的语法版本
@@ -1609,7 +1975,7 @@ pub fn parse_file_versioned(path: impl AsRef<Path>) -> Result<(Value, Version), 
     let v = declared.or(base_ver).unwrap_or(Version::V1);
     let feats = features_for(v, allowed, had);
     let toks = resolve_includes(&rest, &base, allowed)?;
-    let val = parse_impl_tokens(toks, v, feats)?;
+    let val = parse_impl_tokens(toks, v, feats, BTreeMap::new())?;
     Ok((val, v))
 }
 
@@ -1625,7 +1991,7 @@ pub fn parse(text: &str) -> Result<Value, String> {
     let (rest, feats, base, had) = strip_features(&rest)?;
     let v = declared.or(base).unwrap_or(Version::V1);
     let feats = features_for(v, feats, had);
-    parse_impl(&rest, v, feats)
+    parse_impl(&rest, v, feats, BTreeMap::new())
 }
 
 /// 解析 SML 文本，并限制文档声明的版本必须在 `allowed` 范围内。
@@ -1654,7 +2020,7 @@ pub fn parse_allowed(
         ));
     }
     let feats = features_for(v, feats, had);
-    parse_impl(&rest, v, feats)
+    parse_impl(&rest, v, feats, BTreeMap::new())
 }
 
 /// 解析 SML 文本，同时限制文档使用的**特性子集**必须在 `allowed` 内。
@@ -1679,14 +2045,46 @@ pub fn parse_with_features(
             "sml: 文档请求的特性 {feats} 与调用方允许的特性 {allowed} 无交集"
         ));
     }
-    let val = parse_impl(&rest, v, effective)?;
+    let val = parse_impl(&rest, v, effective, BTreeMap::new())?;
+    Ok((val, effective))
+}
+
+/// 与 [`parse_with_features`] 相同，但额外提供**环境变量覆盖表**。
+///
+/// `$env.X` 会先在此表中查找，未命中才回落到进程环境。表内的值**只作用于
+/// 本次解析**，不会写入进程环境——因此该函数是线程安全的，也不会影响
+/// `PATH` / `LD_PRELOAD` 等影响进程行为的变量。
+///
+/// 供 FFI（`sml_parse_ex` 的 `env` 选项）等需要注入变量、又不便改进程环境的
+/// 场景使用。
+pub fn parse_with_features_env(
+    text: &str,
+    allowed: FeatureSet,
+    env: BTreeMap<String, String>,
+) -> Result<(Value, FeatureSet), String> {
+    let (rest, declared) = strip_version(text)?;
+    let (rest, feats, base, had) = strip_features(&rest)?;
+    let v = declared.or(base).unwrap_or(Version::V1);
+    let feats = features_for(v, feats, had);
+    let effective = feats.intersection(allowed);
+    if effective.is_empty() {
+        return Err(format!(
+            "sml: 文档请求的特性 {feats} 与调用方允许的特性 {allowed} 无交集"
+        ));
+    }
+    let val = parse_impl(&rest, v, effective, env)?;
     Ok((val, effective))
 }
 
 /// 不含版本处理的底层解析（文本入口）
-fn parse_impl(text: &str, version: Version, features: FeatureSet) -> Result<Value, String> {
+fn parse_impl(
+    text: &str,
+    version: Version,
+    features: FeatureSet,
+    env: BTreeMap<String, String>,
+) -> Result<Value, String> {
     let toks = tokenize(text)?;
-    parse_impl_tokens(toks, version, features)
+    parse_impl_tokens(toks, version, features, env)
 }
 
 /// 不含版本处理的底层解析（token 流入口，供 include 展开后零拷贝复用）
@@ -1694,6 +2092,7 @@ fn parse_impl_tokens(
     toks: Vec<Tok>,
     version: Version,
     features: FeatureSet,
+    env: BTreeMap<String, String>,
 ) -> Result<Value, String> {
     let mut p = Parser {
         toks,
@@ -1703,6 +2102,7 @@ fn parse_impl_tokens(
         features,
         depth: 0,
         ns_stack: Vec::new(),
+        env,
     };
     // 顶层支持三种形态，与 `to_sml` 的输出对称：
     //   - `[ ... ]` 数组：to_sml 对非对象走 dump_inline，会输出顶层数组
@@ -1752,6 +2152,10 @@ const MAX_VALUE_DEPTH: usize = 128;
 
 /// 嵌套深度上限：既防栈溢出，也让异常深层的引用尽早失败
 const MAX_INCLUDE_DEPTH: usize = 32;
+
+/// 单次 include 展开的总文件读取次数上限（防指数膨胀 DoS）。
+/// 仅按「被实际展开的文件个数」计数（非深度），覆盖菱形重复包含导致的 2^N 爆炸。
+const MAX_INCLUDE_EXPANSIONS: u64 = 10_000;
 
 /// 剥离行尾注释，正确跳过引号内的 `#`（如 `key: "a#b"` 中的 # 不是注释起点）
 pub(crate) fn strip_line_comment(line: &str) -> &str {
@@ -1819,7 +2223,9 @@ pub(crate) fn parse_include_line(line: &str, features: FeatureSet) -> Result<Opt
         return Ok(None);
     };
     if !features.has(Feature::Include) {
-        return Ok(None);
+        return Err(
+            "sml: 当前特性集禁用了 include/import（include 特性未启用）".into(),
+        );
     }
     let mut targets: Vec<IncludeTarget> = Vec::new();
     let mut rest = rest;
@@ -1900,7 +2306,13 @@ pub(crate) fn parse_include_line(line: &str, features: FeatureSet) -> Result<Opt
         // 逗号分隔多目标（用已修剪的 tail 判断是否还有下一个目标）
         if let Some(stripped) = tail.strip_prefix(',') {
             if !features.has(Feature::MultiInclude) {
-                return Ok(None);
+                // 与其余三类（include/glob/regex）保持一致：特性未启用时返回 Err，
+                // 而非静默 `Ok(None)` 把整行当普通内容解析导致数据污染
+                // （此前会注入垃圾键且零报错）。
+                return Err(
+                    "sml: 多目标 include 需要特性 `multi-include`（请 @feature enable multi-include）"
+                        .into(),
+                );
             }
             rest = stripped.trim_start();
             continue;
@@ -2174,37 +2586,59 @@ fn glob_matches(pattern: &str, text: &str) -> bool {
 
 /// 编译一个受限正则（支持 `. * + ? ^ $ [a-z] [^a-z] \.` 转义），返回可匹配闭包用的结构。
 /// 这里采用「NFA-less」的回溯匹配器，足够文件名场景使用。
-struct MiniRegex {
+pub struct MiniRegex {
     pattern: String,
 }
 
-fn compile_regex(pat: &str) -> MiniRegex {
-    // 去掉可能的首尾 `^`/`$` 锚（由 matcher 解释）
+/// 受限正则的模式长度上限：防止超长模式构造的灾难性回溯（ReDoS）。
+const MAX_REGEX_LEN: usize = 256;
+/// 单次匹配的最大回溯步数：无记忆化回溯在恶意模式（如 `a*a*a*...*b`）下会指数级
+/// 爆炸，故设步数上限——超出即视为不匹配，避免挂死整个解析（审计 #3）。
+const MAX_REGEX_STEPS: u64 = 2_000_000;
+
+pub fn compile_regex(pat: &str) -> MiniRegex {
+    // 去掉可能的首尾 `^`/`$` 锚（由 matcher 解释）后做长度上限检查
+    let inner = pat
+        .strip_prefix('^')
+        .or_else(|| Some(pat))
+        .map(|s| s.strip_suffix('$').unwrap_or(s))
+        .unwrap_or(pat);
+    if inner.chars().count() > MAX_REGEX_LEN {
+        // 超出上限：用不可能匹配的模式占位（调用方会得到 false），不 panic
+        return MiniRegex {
+            pattern: "\u{0}".to_string(),
+        };
+    }
     MiniRegex {
         pattern: pat.to_string(),
     }
 }
 
 /// 用受限正则匹配整个 `text`（默认全匹配，支持 `^`/`$` 锚点）。
-fn regex_matches(re: &MiniRegex, text: &str) -> bool {
+pub fn regex_matches(re: &MiniRegex, text: &str) -> bool {
     let pat = &re.pattern;
     let anchored_start = pat.starts_with('^');
     let anchored_end = pat.ends_with('$');
     let p = if anchored_start { &pat[1..] } else { pat };
     let p = if anchored_end { &p[..p.len().saturating_sub(1)] } else { p };
-    // 尝试从 text 的每个位置开始匹配（非锚定时）
+    // 步数预算必须**跨所有起始位置共享**：预算若是每次调用的局部变量，
+    // 每个起点都能重新拿到 MAX_REGEX_STEPS 步，实际总开销 = 起点数 × 2M。
+    // 而 glob/regex include 会对目录中每个文件名各调用一次本函数，
+    // 一个恶意模式即可把整个解析挂死（安全审计 P3-1）。故在此统一持有并传递。
+    let mut steps: u64 = 0;
     if anchored_start {
-        backtrack_match(p, text, 0).is_some()
+        backtrack_match(p, text, 0, &mut steps).is_some()
     } else {
         for start in 0..=text.len() {
-            if backtrack_match(p, text, start).is_some() {
-                if !anchored_end {
-                    return true;
-                }
-                // 锚定结尾：必须匹配到 text 末端
-                if backtrack_match(p, text, start) == Some(text.len()) {
-                    return true;
-                }
+            if steps > MAX_REGEX_STEPS {
+                // 预算耗尽：整次匹配判定为「不匹配」，不再尝试剩余起点。
+                break;
+            }
+            // 每个起点只算一次：既省一半开销，也避免「是否匹配到末端」
+            // 被两次独立判定（原写法对同一起点调用两次，可能得出不同结论）。
+            match backtrack_match(p, text, start, &mut steps) {
+                Some(end) if !anchored_end || end == text.len() => return true,
+                _ => {}
             }
         }
         false
@@ -2212,11 +2646,18 @@ fn regex_matches(re: &MiniRegex, text: &str) -> bool {
 }
 
 /// 回溯匹配：从 `text[ti]` 开始尝试匹配 `pat[pi]`，返回成功时 text 的消耗终点（usize）。
-fn backtrack_match(pat: &str, text: &str, ti: usize) -> Option<usize> {
+///
+/// `steps` 由调用方持有并在**整个匹配过程**中共享累积，用于跨起点统一限流。
+fn backtrack_match(pat: &str, text: &str, ti: usize, steps: &mut u64) -> Option<usize> {
     // 递归实现，模式索引 pi 通过 chars 迭代
     let pchars: Vec<char> = pat.chars().collect();
     let tchars: Vec<char> = text.chars().collect();
-    fn go(pchars: &[char], tchars: &[char], pi: usize, ti: usize) -> Option<usize> {
+    fn go(pchars: &[char], tchars: &[char], pi: usize, ti: usize, steps: &mut u64) -> Option<usize> {
+        // 步数预算：每次进入一个匹配决策都计一步，超出上限即中止（防 ReDoS）
+        *steps += 1;
+        if *steps > MAX_REGEX_STEPS {
+            return None;
+        }
         let mut pi = pi;
         let mut ti = ti;
         while pi < pchars.len() {
@@ -2265,7 +2706,7 @@ fn backtrack_match(pat: &str, text: &str, ti: usize) -> Option<usize> {
                         // 从 end 回退尝试让后续模式匹配
                         let mut e = end;
                         while e >= ti {
-                            if let Some(r) = go(pchars, tchars, pi + 1, e) {
+                            if let Some(r) = go(pchars, tchars, pi + 1, e, steps) {
                                 return Some(r);
                             }
                             if e == ti {
@@ -2275,7 +2716,7 @@ fn backtrack_match(pat: &str, text: &str, ti: usize) -> Option<usize> {
                         }
                     }
                     // 零次匹配：跳过 '*'
-                    return go(pchars, tchars, pi + 1, ti);
+                    return go(pchars, tchars, pi + 1, ti, steps);
                 }
                 '+' => {
                     if ti >= tchars.len() {
@@ -2381,7 +2822,7 @@ fn backtrack_match(pat: &str, text: &str, ti: usize) -> Option<usize> {
         }
         Some(ti)
     }
-    go(&pchars, &tchars, 0, ti)
+    go(&pchars, &tchars, 0, ti, steps)
 }
 
 /// 把 text 中的 include 指令递归展开为不含指令的纯 SML 文本。
@@ -2402,22 +2843,45 @@ pub fn resolve_includes(
 ) -> Result<Vec<Tok>, String> {
     let mut stack: Vec<PathBuf> = Vec::new();
     let mut toks: Vec<Tok> = Vec::new();
-    expand_includes(text, base, &mut stack, features, &mut toks)?;
+    let mut expansions: u64 = 0;
+    expand_includes(text, base, &mut stack, features, &mut toks, &mut expansions)?;
     Ok(toks)
 }
 
 /// 递归展开 include 到 `out` token 流。
+/// `expansions` 为「全局已展开文件计数」，用于防御指数膨胀 DoS（同一文件被多处包含仍计数）。
 fn expand_includes(
     text: &str,
     base: &Path,
     stack: &mut Vec<PathBuf>,
     features: FeatureSet,
     out: &mut Vec<Tok>,
+    expansions: &mut u64,
 ) -> Result<(), String> {
     if stack.len() >= MAX_INCLUDE_DEPTH {
         return Err(format!("include 嵌套超过 {MAX_INCLUDE_DEPTH} 层"));
     }
+    // 沙箱根：所有 include 命中的文件必须位于 base（规范化为绝对路径）之内，
+    // 否则拒绝，防止 `../` 或 glob/regex 模式越界读取任意文件（路径遍历漏洞）。
+    let base_canon = match base.canonicalize() {
+        Ok(p) => p,
+        Err(_) => base.to_path_buf(),
+    };
+    let spans = compute_string_spans(text);
+    let mut line_start = 0usize;
     for line in text.lines() {
+        // 多行字符串内部的行（如 `"...\ninclude \"x\"\n..."`）里的 include 不是指令，
+        // 更不能被当作文件读取（防止字符串内伪造 include 触发任意文件读取）。
+        let inside_string = line_starts_in_string(text, line_start, &spans);
+        line_start = advance_line(line_start, line, text);
+        if inside_string {
+            // 当作普通行 tokenize（保持与字符串片段一致），不进入 include 解析分支
+            let line_toks = tokenize(line).map_err(|e| {
+                format!("include 预处理词法错误：{e}（于行：{line}）")
+            })?;
+            out.extend(line_toks);
+            continue;
+        }
         match parse_include_line(line, features)? {
             Some(targets) => {
                 if !features.has(Feature::Include) {
@@ -2435,20 +2899,40 @@ fn expand_includes(
                         let canon = path.canonicalize().map_err(|e| {
                             format!("include 无法定位 {}: {e}", path.display())
                         })?;
+                        // 路径遍历防护：规范化后必须仍位于沙箱根 base 之内
+                        if !canon.starts_with(&base_canon) {
+                            return Err(format!(
+                                "include 越界拒绝：{} 不在基准目录 {} 内",
+                                canon.display(),
+                                base_canon.display()
+                            ));
+                        }
                         // stack 是「当前正在展开的文件链」，命中即成环
                         if stack.iter().any(|p| p == &canon) {
                             return Err(format!("include 循环引用: {}", canon.display()));
                         }
                         let content = std::fs::read_to_string(&canon)
                             .map_err(|e| format!("include 读取失败 {}: {e}", canon.display()))?;
+                        *expansions += 1;
+                        if *expansions > MAX_INCLUDE_EXPANSIONS {
+                            return Err(format!(
+                                "include 展开次数超过上限 {}（疑似指数膨胀 DoS）",
+                                MAX_INCLUDE_EXPANSIONS
+                            ));
+                        }
                         let child_base = canon
                             .parent()
                             .map(|p| p.to_path_buf())
                             .unwrap_or_else(|| PathBuf::from("."));
                         stack.push(canon.clone());
-                        // 展开子文件 tokens
-                        let mut inner =
-                            expand_file_tokens(&content, &child_base, stack, features)?;
+                        // 展开子文件 tokens（共享全局展开计数，防钻石型重复包含爆炸）
+                        let mut inner = expand_file_tokens(
+                            &content,
+                            &child_base,
+                            stack,
+                            features,
+                            expansions,
+                        )?;
                         // 部分引用：仅保留指定顶层键（命名空间包裹时同样只挑这些）
                         if let Some(keys) = &t.keys {
                             inner = filter_top_level_keys(inner, keys);
@@ -2577,11 +3061,20 @@ fn expand_file_tokens(
     base: &Path,
     stack: &mut Vec<PathBuf>,
     features: FeatureSet,
+    expansions: &mut u64,
 ) -> Result<Vec<Tok>, String> {
-    // 剥离子文件内的版本/特性指令行，避免污染 token 流
+    // 剥离子文件内的版本/特性指令行，避免污染 token 流。
+    // 多行字符串内部的行不算指令，须跳过（否则会破坏字符串数据，如 "line\n@version\n..."）。
+    let spans = compute_string_spans(content);
+    let mut line_start = 0usize;
     let cleaned: String = content
         .lines()
         .filter(|l| {
+            let inside = line_starts_in_string(content, line_start, &spans);
+            line_start = advance_line(line_start, l, content);
+            if inside {
+                return true; // 字符串内：保留
+            }
             let t = strip_line_comment(l).trim();
             let t = t.strip_prefix('@').unwrap_or(t).trim_start();
             !(t.starts_with("version") || t.starts_with("feature"))
@@ -2589,7 +3082,7 @@ fn expand_file_tokens(
         .collect::<Vec<_>>()
         .join("\n");
     let mut toks = Vec::new();
-    expand_includes(&cleaned, base, stack, features, &mut toks)?;
+    expand_includes(&cleaned, base, stack, features, &mut toks, expansions)?;
     Ok(toks)
 }
 
@@ -2614,7 +3107,38 @@ pub fn parse_file(path: impl AsRef<Path>) -> Result<Value, String> {
     let feats = features_for(v, feats, had);
     let allowed = FeatureSet::all().intersection(feats);
     let toks = resolve_includes(&rest, &base, allowed)?;
-    parse_impl_tokens(toks, v, allowed)
+    parse_impl_tokens(toks, v, allowed, BTreeMap::new())
+}
+
+/// 同 [`parse_file`]，但额外接受一个「调用方允许特性集」`caller_allowed`，
+/// 与文档 `@feature` 声明取交集。用于 FFI（`sml_load_file(flags)`）让调用方
+/// 通过 `flags` 限制文件入口能力（如禁用 `include`/`env`）。
+///
+/// 行为：
+/// - 最终允许集 = `FeatureSet::all() ∩ 文档声明特性 ∩ caller_allowed`。
+/// - 若交集为空（调用方禁用了一切可用特性），视为「不允许任何能力」并报错，
+///   避免静默以全开集回退读取文件（那会令 `flags` 形同虚设）。
+pub fn parse_file_features(
+    path: impl AsRef<Path>,
+    caller_allowed: FeatureSet,
+) -> Result<Value, String> {
+    let path = path.as_ref();
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| format!("读取失败 {}: {e}", path.display()))?;
+    let base = path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
+    let (rest, declared) = strip_version(&text)?;
+    let (rest, feats, base_ver, had) = strip_features(&rest)?;
+    let v = declared.or(base_ver).unwrap_or(Version::V1);
+    let feats = features_for(v, feats, had);
+    let allowed = FeatureSet::all().intersection(feats).intersection(caller_allowed);
+    if allowed.is_empty() {
+        return Err("sml: 调用方 flags 与文档特性交集为空，不允许任何解析能力".into());
+    }
+    let toks = resolve_includes(&rest, &base, allowed)?;
+    parse_impl_tokens(toks, v, allowed, BTreeMap::new())
 }
 
 /// 解析到对象 (失败抛 `ParseError`)
@@ -2650,6 +3174,7 @@ impl std::error::Error for ParseError {}
 ///   只有行首的 `--` 才是注释）。
 ///
 /// 任何不满足的情况都加引号，确保序列化结果解析回来仍是原字符串。
+#[cfg(feature = "sml")]
 fn needs_quote(s: &str) -> bool {
     if s.is_empty() {
         return true;
@@ -2688,8 +3213,13 @@ fn needs_quote(s: &str) -> bool {
 }
 
 // TODO: keep value ordering stable for deterministic dumps. іӏоѵеԛіанхун
+#[cfg(feature = "sml")]
 fn quote_if_needed(s: &str) -> String {
     if needs_quote(s) {
+        // 注意：此处**不能**通过转义 `$` 来阻止 `$env.` 展开——
+        // `\u{24}` 之类转义在词法阶段就被解码，解码后的值与未转义形式
+        // 不可区分，`Tok::Str` 也无从判断是否发生过转义。
+        // 该 round-trip 限制已在 `to_sml` 文档中说明（禁用 env 特性即可规避）。
         format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
     } else {
         s.to_string()
@@ -2699,7 +3229,12 @@ fn quote_if_needed(s: &str) -> String {
 /// 输出一个块。含 `__type` / `__name` 的块也按普通块原样输出所有键，
 /// 保证元数据（枚举带数据变体的 `__type` 标记等）可完整往返。
 /// SML 的裸块 `type [name] { ... }` 解析后正是 `__type` / `__name` 键。
-fn dump_block(m: &BTreeMap<String, Value>, indent: usize, out: &mut String) {
+#[cfg(feature = "sml")]
+fn dump_block(m: &BTreeMap<String, Value>, indent: usize, depth: usize, out: &mut String) {
+    if depth > MAX_VALUE_DEPTH {
+        out.push_str("/* …深度超限… */ {}");
+        return;
+    }
     if m.is_empty() {
         out.push_str("{}");
         return;
@@ -2711,12 +3246,17 @@ fn dump_block(m: &BTreeMap<String, Value>, indent: usize, out: &mut String) {
             "  ".repeat(indent + 1),
             quote_if_needed(k)
         ));
-        dump_value(val, indent + 1, out);
+        dump_value(val, indent + 1, depth + 1, out);
     }
     out.push_str(&format!("\n{}}}", "  ".repeat(indent)));
 }
 
-fn dump_value(v: &Value, indent: usize, out: &mut String) {
+#[cfg(feature = "sml")]
+fn dump_value(v: &Value, indent: usize, depth: usize, out: &mut String) {
+    if depth > MAX_VALUE_DEPTH {
+        out.push_str("/* …深度超限… */ null");
+        return;
+    }
     let pad = "  ".repeat(indent);
     match v {
         Value::Null => out.push_str("null"),
@@ -2724,7 +3264,10 @@ fn dump_value(v: &Value, indent: usize, out: &mut String) {
         Value::Int(i) => out.push_str(&i.to_string()),
         Value::Float(f) => {
             // 强制保留小数点，避免 1.0 被 Display 写成 "1" 后 round-trip 成 Int
-            if f.fract() == 0.0 {
+            if !f.is_finite() {
+                // NaN/inf 无合法 SML 字面量；序列化为带引号字符串（见 dump_scalar）
+                out.push_str(&format!("\"{}\"", f.to_string()));
+            } else if f.fract() == 0.0 {
                 out.push_str(&format!("{:.1}", f));
             } else {
                 out.push_str(&format!("{}", f));
@@ -2738,38 +3281,55 @@ fn dump_value(v: &Value, indent: usize, out: &mut String) {
                 out.push('[');
                 for e in a {
                     out.push('\n');
-                    out.push_str(&format!("{}{}", "  ".repeat(indent + 1), dump_inline(e)));
+                    out.push_str(&format!("{}{}", "  ".repeat(indent + 1), dump_inline(e, depth + 1)));
                 }
                 out.push_str(&format!("\n{}]", pad));
             }
         }
-        Value::Object(m) => dump_block(m, indent, out),
+        Value::Object(m) => dump_block(m, indent, depth + 1, out),
     }
 }
 
+#[cfg(feature = "sml")]
 fn dump_scalar(v: &Value) -> String {
     match v {
         Value::Null => "null".into(),
         Value::Bool(b) => b.to_string(),
         Value::Int(i) => i.to_string(),
-        Value::Float(f) => f.to_string(),
+        // 强制保留小数点，避免 1.0 被 Display 写成 "1" 后 round-trip 成 Int
+        Value::Float(f) => {
+            if !f.is_finite() {
+                // NaN/inf 没有合法的 SML 字面量；序列化为带引号字符串，
+                // 回读得到 Str 而非非法/改变类型的字面量。
+                format!("\"{}\"", f.to_string())
+            } else if f.fract() == 0.0 {
+                format!("{:.1}", f)
+            } else {
+                format!("{}", f)
+            }
+        }
         Value::Str(s) => quote_if_needed(s),
         _ => "".into(),
     }
 }
 
-fn dump_inline(v: &Value) -> String {
+#[cfg(feature = "sml")]
+fn dump_inline(v: &Value, depth: usize) -> String {
+    if depth > MAX_VALUE_DEPTH {
+        return "/* …深度超限… */ null".to_string();
+    }
     match v {
         Value::Object(m) => {
-            // 含 __type/__name 的块原样输出所有键，保证元数据可往返
+            // 含 __type/__name 的块原样输出所有键，保证元数据可往返；
+            // 嵌套对象的键也必须 quote_if_needed（如 "x y"），否则无法解析回去
             let parts: Vec<String> = m
                 .iter()
-                .map(|(k, val)| format!("{}: {}", k, dump_inline(val)))
+                .map(|(k, val)| format!("{}: {}", quote_if_needed(k), dump_inline(val, depth + 1)))
                 .collect();
             format!("{{ {} }}", parts.join(", "))
         }
         Value::Array(a) => {
-            let parts: Vec<String> = a.iter().map(dump_inline).collect();
+            let parts: Vec<String> = a.iter().map(|e| dump_inline(e, depth + 1)).collect();
             format!("[ {} ]", parts.join(", "))
         }
         other => dump_scalar(other),
@@ -2780,20 +3340,35 @@ fn dump_inline(v: &Value) -> String {
 ///
 /// 含 `__type` / `__name` 的块（如枚举带数据变体序列化的结果）
 /// 会原样输出所有键，保证元数据可完整往返。
+///
+/// # 已知限制（`$env` 与 round-trip）
+///
+/// 以 `$env.` 开头的字符串值**无法**无损往返：即使序列化时加了引号，
+/// 再次解析时仍会被当作环境变量内联展开（引号串路径也承认 `$env.X`，
+/// 见 `parse_value`）。例如 `Value::Str("$env.PATH")` 写出为
+/// `"$env.PATH"`，读回来变成 `PATH` 的实际值。
+///
+/// 该限制无法在序列化侧绕过——SML 的转义（`\u{24}`）在词法阶段即解码，
+/// 解码后的值与未转义形式不可区分。
+///
+/// **因此**：解析任何**不可信**的 SML 文档时，应显式禁用 `env` 特性
+/// （[`parse_with_features`] + `FeatureSet::without(Feature::Env)`），
+/// 这样 `$env.X` 一律解析失败，既杜绝环境变量读取，也消除 round-trip 歧义。
+#[cfg(feature = "sml")]
 pub fn to_sml(v: &Value) -> String {
     let mut out = String::new();
     if let Value::Object(m) = v {
         if m.contains_key("__type") {
-            dump_block(m, 0, &mut out);
+            dump_block(m, 0, 0, &mut out);
         } else {
             for (k, val) in m {
                 out.push_str(&format!("{}: ", quote_if_needed(k)));
-                dump_value(val, 0, &mut out);
+                dump_value(val, 0, 0, &mut out);
                 out.push('\n');
             }
         }
     } else {
-        out.push_str(&dump_inline(v));
+        out.push_str(&dump_inline(v, 0));
     }
     out
 }

@@ -37,13 +37,23 @@ fn v3_quoted_string_ok() {
 }
 
 #[test]
+// 这里的 `3.14` 是**测试数据**（裸词标量），不是圆周率近似值：
+// 改成 `std::f64::consts::PI` 会改变断言对象，故就地豁免该 lint。
+#[allow(clippy::approx_constant)]
 fn v3_scalars_still_bareword() {
-    let v = parse("@version v3\nn: 42\nf: 3.14\nb: true\nz: null\nref: &frag\n").unwrap();
+    let v = parse("@version v3\nn: 42\nf: 3.14\nb: true\nz: null\n").unwrap();
     assert_eq!(v.get("n"), Some(&Value::Int(42)));
     assert_eq!(v.get("f"), Some(&Value::Float(3.14)));
     assert_eq!(v.get("b"), Some(&Value::Bool(true)));
     assert_eq!(v.get("z"), Some(&Value::Null));
-    assert_eq!(v.get("ref"), Some(&Value::Str("&frag".into())));
+}
+
+#[test]
+fn v3_undefined_fragment_is_error() {
+    // v3 下未定义片段引用同样报错，不再静默降级为字符串
+    let r = parse("@version v3\nref: &frag\n");
+    assert!(r.is_err());
+    assert!(r.unwrap_err().contains("未定义的片段引用"));
 }
 
 #[test]
