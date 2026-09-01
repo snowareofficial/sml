@@ -264,17 +264,18 @@ fn gen_struct_serialize(
                 let key_lit = LitStr::new(&key, Span::call_site());
                 if attrs.flatten {
                     stmts.push(quote! {
-                        match ::sml::SmlSerialize::to_sml_value(&self.#fid) {
+                        let __val = ::sml::SmlSerialize::to_sml_value(&self.#fid);
+                        match &__val {
                             ::sml::Value::Object(__inner) => {
                                 for (__k, __v) in __inner {
-                                    __m.insert(__k, __v);
+                                    __m.insert(__k.clone(), __v.clone());
                                 }
                             }
                             __other => {
                                 ::std::panic!(
                                     "字段 `{}` (flatten) 序列化结果必须是块，实际为 {}",
                                     #key_lit,
-                                    ::sml::__private::describe_value(&__other)
+                                    ::sml::__private::describe_value(__other)
                                 )
                             }
                         }

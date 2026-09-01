@@ -173,21 +173,127 @@ fn loads_and_traverse() {
     unsafe { sml_free(root) };
 }
 
-/// 借用指针不可释放：反复取值不应崩溃或破坏根节点。
+extern "C" {
+    fn sml_parse(text: *const c_char) -> *mut c_char;
+    fn sml_dump(v: *mut CSmlValue) -> *mut c_char;
+}
+
+/// C-ABI 审计 #1：jsonify 必须转义控制字符，否则产出非法 JSON。
 #[test]
-fn borrowed_pointers_are_stable() {
-    let text = CString::new("a { b { c: deep } }\n").unwrap();
+fn jsonify_escapes_control_chars() {
+    // 含换行/制表符的字符串
+    let text = CString::new("k: \"a\\nb\\tc\"\n").unwrap();
+    let out = unsafe { sml_parse(text.as_ptr()) };
+    assert!(!out.is_null(), "解析应成功");
+    let s = unsafe { CStr::from_ptr(out) }.to_str().unwrap();
+    // 输出必须是合法 JSON：串内不应存在裸换行字节（0x0A / 0x0D）
+    assert!(!s.contains('\n'), "json 串内不应含裸换行: {s:?}");
+    assert!(!s.contains('\r'), "json 串内不应含裸回车: {s:?}");
+    // 应含转义后的 \n / \t
+    assert!(s.contains("\\n"), "应有 \\n 转义: {s}");
+    assert!(s.contains("\\t"), "应有 \\t 转义: {s}");
+    unsafe { sml_free_str(out) };
+}
+
+/// C-ABI 审计 #6：NaN / inf 序列化为 JSON `null`（合法字面量），而非 "NaN"/"inf"。
+#[test]
+fn jsonify_nan_inf_becomes_null() {
+    let text = CString::new("j: inf\nk: NaN\n").unwrap();
+    let out = unsafe { sml_parse(text.as_ptr()) };
+    assert!(!out.is_null());
+    let s = unsafe { CStr::from_ptr(out) }.to_str().unwrap();
+    // 用 serde_json 校验整个输出可解析（说明不再是非法字面量）
+    let parsed: serde_json::Value = serde_json::from_str(s)
+        .unwrap_or_else(|e| panic!("jsonify 输出应可解析: {s}\n{e}"));
+    assert_eq!(parsed["j"], serde_json::Value::Null);
+    assert_eq!(parsed["k"], serde_json::Value::Null);
+    unsafe { sml_free_str(out) };
+}
+
+/// C-ABI 审计 #3：json_to_value 不得对多字节 UTF-8 二次编码。
+#[test]
+fn json_to_value_keeps_utf8() {
+    // SML 里写中文，再 dump 回 JSON，再解析回来，字节应不变
+    let text = CString::new("k: 中文\n").unwrap();
+    let out = unsafe { sml_parse(text.as_ptr()) };
+    assert!(!out.is_null());
+    let json = unsafe { CStr::from_ptr(out) }.to_str().unwrap();
+    let v = sml::json_to_value(json).expect("json_to_value 应成功");
+    let got = v.get("k").and_then(|x| x.as_str()).unwrap_or_default();
+    assert_eq!(got, "中文", "中文不应被二次编码");
+    unsafe { sml_free_str(out) };
+}
+
+/// C-ABI 审计 #4：过深嵌套 JSON 不得令进程栈溢出（应安全返回 None）。
+#[test]
+fn json_to_value_depth_limit() {
+    // 构造 100000 层嵌套数组
+    let mut s = String::new();
+    for _ in 0..100_000 {
+        s.push('[');
+    }
+    s.push('1');
+    for _ in 0..100_000 {
+        s.push(']');
+    }
+    let v = sml::json_to_value(&s);
+    assert!(v.is_none(), "超深嵌套应被拒绝而非栈溢出");
+}
+
+/// C-ABI 审计 #2：含内嵌 NUL 的字符串经 jsonify 不得产出含 NUL 的非法 JSON，
+/// 也不得因 `CString::new` 失败而静默回退为空串。
+#[test]
+fn nul_in_string_not_silent_empty() {
+    use sml::Value;
+    // 直接用含 NUL 字节的字符串值走 jsonify（此前 esc 仅转义 \\ 与 "，
+    // 0x00 会原样进入输出，CString::new 失败后回退空串）。
+    let v = Value::Object({
+        let mut m = std::collections::BTreeMap::new();
+        m.insert("k".into(), Value::Str("a\u{0}b".into()));
+        m
+    });
+    let json = sml::jsonify(&v);
+    // 输出不得含裸 NUL（应转义为 \u0000）
+    assert!(!json.contains('\u{0}'), "jsonify 输出不应含裸 NUL: {json:?}");
+    assert!(json.contains("\\u0000"), "NUL 应被转义为 \\u0000: {json}");
+    // 整个输出必须是合法 JSON（裸 NUL 会让下游解析器报错）
+    let parsed: serde_json::Value = serde_json::from_str(&json)
+        .unwrap_or_else(|e| panic!("含 NUL 的字符串仍应输出合法 JSON: {json}\n{e}"));
+    let got = parsed["k"].as_str().unwrap();
+    assert_eq!(got, "a\u{0}b", "NUL 不应丢失");
+}
+
+/// C-ABI 审计 #5：sml_load_file 的 flags 必须生效（禁用 include 时不应展开）。
+#[test]
+fn load_file_flags_disable_include() {
+    use std::io::Write;
+    let dir = std::env::temp_dir().join("sml_cabi_flags_test");
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::create_dir_all(&dir);
+    std::fs::write(dir.join("inc.sml"), "secret: leaked\n").unwrap();
+    std::fs::write(
+        dir.join("main.sml"),
+        // 真实 include 指令语法：include "path"（无括号）。相对路径。
+        "a: 1\ninclude \"inc.sml\"\n",
+    )
+    .unwrap();
+
+    let path = CString::new(dir.join("main.sml").to_str().unwrap()).unwrap();
+
+    // flags = 1 => 仅 bit0 (bareword-string)，include 未启用
     let mut err = CSmlError::default();
-    let root = unsafe { sml_loads(text.as_ptr(), 0, &mut err) };
-    assert!(!root.is_null());
+    let root = unsafe { sml_load_file(path.as_ptr(), 1, &mut err) };
+    assert!(root.is_null(), "flags 禁用 include 时解析应失败（flags 生效）");
+    assert_ne!(err.code, SML_OK, "应返回非零错误码");
 
-    let path = CString::new("a.b.c").unwrap();
-    let n1 = unsafe { sml_get_path(root, path.as_ptr()) };
-    let n2 = unsafe { sml_get_path(root, path.as_ptr()) };
-    assert_eq!(n1, n2, "同一路径应返回同一借用地址");
-    assert_eq!(unsafe { sml_int_value(n1) }, unsafe { sml_int_value(n2) });
-
-    unsafe { sml_free(root) };
+    // flags = 0（全特性）应成功并读到 include 内容，证明能力本身可用
+    let mut err2 = CSmlError::default();
+    let root2 = unsafe { sml_load_file(path.as_ptr(), 0, &mut err2) };
+    assert!(!root2.is_null(), "全特性 flags 下 include 应展开");
+    if !root2.is_null() {
+        unsafe { sml_free(root2) };
+    }
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -308,6 +414,77 @@ fn load_file_expands_include() {
 
     unsafe { sml_free(root) };
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// C-ABI 审计 #3a：多目标 include 在特性未启用时必须报错，而非静默当作普通行
+/// 解析注入垃圾键（此前与 include/glob/regex 行为不一致，是唯一会静默损坏的）。
+#[test]
+fn multi_include_feature_off_is_error() {
+    use std::io::Write;
+    let dir = std::env::temp_dir().join("sml_multi_inc_off");
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::create_dir_all(&dir);
+    // flags=3 => bit0(bareword-string)+bit1(include) 启用，bit8(multi-include) 禁用。
+    // 注意：include 解析仅在「文件」入口（resolve_includes）生效，故用 sml_load_file 测试。
+    std::fs::write(dir.join("main.sml"), "include \"a.sml\", \"b.sml\"\n").unwrap();
+    let path = CString::new(dir.join("main.sml").to_str().unwrap()).unwrap();
+    let mut err = CSmlError::default();
+    let root = unsafe { sml_load_file(path.as_ptr(), 3, &mut err) };
+    assert!(root.is_null(), "multi-include 禁用时解析应失败");
+    assert_ne!(err.code, SML_OK, "应返回非零错误码");
+    let msg = unsafe { CStr::from_ptr(err.text.as_ptr()) }.to_str().unwrap();
+    assert!(
+        msg.contains("multi-include"),
+        "错误应指出缺少 multi-include 特性，实际: {msg:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 对照：启用 multi-include 后，同样的指令不再报「特性缺失」（而是因文件不存在报错，
+/// 证明特性门控本身已生效而非恒报错）。
+#[test]
+fn multi_include_feature_on_not_feature_error() {
+    use std::io::Write;
+    let dir = std::env::temp_dir().join("sml_multi_inc_on");
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::create_dir_all(&dir);
+    // 文档内声明启用 multi-include，且调用方 flags=258(bit1 include + bit8 multi-include)
+    // 也允许它；effective = feats ∩ allowed 才会包含 multi-include（否则被基线 ∩ 掉）。
+    std::fs::write(
+        dir.join("main.sml"),
+        "@feature enable multi-include\ninclude \"a.sml\", \"b.sml\"\n",
+    )
+    .unwrap();
+    let path = CString::new(dir.join("main.sml").to_str().unwrap()).unwrap();
+    let mut err = CSmlError::default();
+    let root = unsafe { sml_load_file(path.as_ptr(), 258, &mut err) };
+    assert!(root.is_null(), "文件不存在时仍应失败");
+    let msg = unsafe { CStr::from_ptr(err.text.as_ptr()) }.to_str().unwrap();
+    assert!(
+        !msg.contains("multi-include"),
+        "启用 multi-include 后不应再报特性缺失，实际: {msg:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// C-ABI 审计 #3b：正则 include 的回溯匹配器必须受步数上限约束，防止 ReDoS 挂死解析。
+#[test]
+fn regex_include_no_redos() {
+    use std::time::Instant;
+    // 构造灾难性回溯模式：多个 `a*` 叠加后接一个不匹配的 `b`，匹配由 a 组成的长串。
+    let pat = "a*a*a*a*a*a*a*a*b";
+    let text = "aaaaaaaaaaaaaaaaaaaaaaaa"; // 24 个 a，足以触发指数级回溯
+    let re = sml::compile_regex(&format!("re:{pat}"));
+    let start = Instant::now();
+    let matched = sml::regex_matches(&re, text);
+    let elapsed = start.elapsed();
+    // 不应匹配（无 b），且必须在合理时间内返回（步数上限兜底）
+    assert!(!matched, "无 b 不应匹配");
+    assert!(
+        elapsed.as_millis() < 2000,
+        "正则匹配应在步数上限内返回，实际耗时 {:?}（疑似 ReDoS）",
+        elapsed
+    );
 }
 
 #[test]

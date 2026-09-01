@@ -301,3 +301,83 @@ fn loose_still_validates_declared_fields() {
     );
     assert!(e.contains("port"), "loose 下已声明字段仍须校验，got: {e}");
 }
+
+// ---------------------------------------------------------------------------
+// 数值边界 NaN/inf 防护（审计报告 #2）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn nan_min_max_bound_rejected() {
+    // 边界本身为 NaN/inf 时，min/max 校验不应被静默绕过
+    let e = err(
+        "@contract S { ratio: num min nan max nan }
+         x { @is S
+             ratio: 99999 }",
+    );
+    assert!(!e.is_empty(), "NaN 边界应被拒绝，实际通过了约束: {e}");
+    assert!(e.contains("有限") || e.contains("nan") || e.contains("数字边界"), "got: {e}");
+}
+
+#[test]
+fn nan_value_rejected_by_bounds() {
+    let e = err(
+        "@contract S { ratio: num min 0 max 1 }
+         x { @is S
+             ratio: nan }",
+    );
+    assert!(!e.is_empty(), "NaN 值应被 min/max 校验拒绝，实际穿透: {e}");
+    assert!(e.contains("非有限") || e.contains("NaN"), "got: {e}");
+}
+
+#[test]
+fn inf_value_rejected_by_bounds() {
+    let e = err(
+        "@contract S { ratio: num min 0 max 1 }
+         x { @is S
+             ratio: inf }",
+    );
+    assert!(!e.is_empty(), "inf 值应被 min/max 校验拒绝，实际穿透: {e}");
+}
+
+#[test]
+fn normal_bounds_still_work() {
+    // 回归：正常边界仍生效
+    let e = err(
+        "@contract S { ratio: num min 0 max 1 }
+         x { @is S
+             ratio: 5 }",
+    );
+    assert!(e.contains("上界") || e.contains("大于"), "got: {e}");
+    // 正常范围内应通过
+    ok("@contract S { ratio: num min 0 max 1 }
+       x { @is S ratio: 0.5 }");
+}
+
+#[test]
+fn undefined_fragment_reference_is_error() {
+    // 修复前：未定义的片段引用静默降级为字符串 Str("&nope")，
+    // 拼错的片段名（如 &prod-db）不会报错，下游 .get 取到 None，难以排查。
+    // 现在应与契约引用一致地报错。
+    let e = err("k: &nope");
+    assert!(
+        e.contains("未定义的片段引用"),
+        "未定义片段应报错，实际: {e}"
+    );
+
+    // 片段名拼错（&prod 写成 &prod-db）也报错，而非静默得到 "&prod-db"
+    let e2 = err("cfg { host: &prod-db }");
+    assert!(
+        e2.contains("未定义的片段引用"),
+        "拼错片段名应报错，实际: {e2}"
+    );
+
+    // 定义体内的自引用（@base { x: &base }）同样报错，不会无限递归降级为字符串
+    let e3 = err("@base { x: &base } k: &base");
+    assert!(
+        e3.contains("未定义的片段引用"),
+        "自引用片段应报错，实际: {e3}"
+    );
+
+    // 已定义的片段引用仍正常工作
+    ok("@db { host: \"h\" port: 5432 } k: &db");
+}

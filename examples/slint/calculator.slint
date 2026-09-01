@@ -1,0 +1,373 @@
+component CalcButton inherits Rectangle {
+  background: ta.pressed ? root.bg.darker(0.25) : (ta.has-hover ? root.bg.brighter(0.12) : root.bg);
+  border-radius: 8px;
+  min-height: 48px;
+  min-width: 40px;
+  Text {
+    color: #eef2ff;
+    font-size: 16px;
+    font-weight: 600;
+    height: 100%;
+    horizontal-alignment: center;
+    text: root.label;
+    vertical-alignment: center;
+    width: 100%;
+  }
+  ta := TouchArea {
+    clicked => {
+      root.clicked();
+    }
+  }
+  callback clicked();
+  in-out property <string> label: "";
+  in-out property <color> bg: #2b3145;
+}
+export component Calc inherits Window {
+  background: #0f1117;
+  height: 640px;
+  title: "SML × Slint 科学计算器";
+  width: 380px;
+  VerticalLayout {
+    padding: 14px;
+    spacing: 10px;
+    Rectangle {
+      background: #171a24;
+      border-radius: 12px;
+      height: 104px;
+      VerticalLayout {
+        padding: 14px;
+        spacing: 6px;
+        Text {
+          color: #6b7280;
+          font-size: 13px;
+          horizontal-alignment: right;
+          text: root.hint;
+        }
+        Text {
+          color: #f2f5ff;
+          font-size: 36px;
+          font-weight: 700;
+          horizontal-alignment: right;
+          text: root.entry;
+          vertical-alignment: center;
+        }
+      }
+    }
+    GridLayout {
+      spacing: 6px;
+      Row {
+        CalcButton {
+          bg: #232838;
+          label: "sin";
+          clicked => {
+            root.press("sin");
+          }
+        }
+        CalcButton {
+          bg: #232838;
+          label: "cos";
+          clicked => {
+            root.press("cos");
+          }
+        }
+        CalcButton {
+          bg: #232838;
+          label: "tan";
+          clicked => {
+            root.press("tan");
+          }
+        }
+        CalcButton {
+          bg: #232838;
+          label: "ln";
+          clicked => {
+            root.press("ln");
+          }
+        }
+        CalcButton {
+          bg: #232838;
+          label: "log";
+          clicked => {
+            root.press("log");
+          }
+        }
+      }
+      Row {
+        CalcButton {
+          bg: #232838;
+          label: "x^2";
+          clicked => {
+            root.press("sqr");
+          }
+        }
+        CalcButton {
+          bg: #232838;
+          label: "√";
+          clicked => {
+            root.press("sqrt");
+          }
+        }
+        CalcButton {
+          bg: #232838;
+          label: "x^y";
+          clicked => {
+            root.press("^");
+          }
+        }
+        CalcButton {
+          bg: #232838;
+          label: "1/x";
+          clicked => {
+            root.press("inv");
+          }
+        }
+        CalcButton {
+          bg: #232838;
+          label: "π";
+          clicked => {
+            root.press("pi");
+          }
+        }
+      }
+      Row {
+        CalcButton {
+          bg: #e05263;
+          label: "C";
+          clicked => {
+            root.press("C");
+          }
+        }
+        CalcButton {
+          bg: #e05263;
+          label: "CE";
+          clicked => {
+            root.press("CE");
+          }
+        }
+        CalcButton {
+          bg: #232838;
+          label: "±";
+          clicked => {
+            root.press("neg");
+          }
+        }
+        CalcButton {
+          bg: #4f7cff;
+          label: "÷";
+          clicked => {
+            root.press("/");
+          }
+        }
+        CalcButton {
+          bg: #4f7cff;
+          label: "%";
+          clicked => {
+            root.press("%");
+          }
+        }
+      }
+      Row {
+        CalcButton {
+          label: "7";
+          clicked => {
+            root.press("7");
+          }
+        }
+        CalcButton {
+          label: "8";
+          clicked => {
+            root.press("8");
+          }
+        }
+        CalcButton {
+          label: "9";
+          clicked => {
+            root.press("9");
+          }
+        }
+        CalcButton {
+          bg: #4f7cff;
+          label: "×";
+          clicked => {
+            root.press("*");
+          }
+        }
+        CalcButton {
+          bg: #232838;
+          label: "e";
+          clicked => {
+            root.press("euler");
+          }
+        }
+      }
+      Row {
+        CalcButton {
+          label: "4";
+          clicked => {
+            root.press("4");
+          }
+        }
+        CalcButton {
+          label: "5";
+          clicked => {
+            root.press("5");
+          }
+        }
+        CalcButton {
+          label: "6";
+          clicked => {
+            root.press("6");
+          }
+        }
+        CalcButton {
+          bg: #4f7cff;
+          label: "−";
+          clicked => {
+            root.press("-");
+          }
+        }
+        CalcButton {
+          bg: #232838;
+          label: "10^x";
+          clicked => {
+            root.press("pow10");
+          }
+        }
+      }
+      Row {
+        CalcButton {
+          label: "1";
+          clicked => {
+            root.press("1");
+          }
+        }
+        CalcButton {
+          label: "2";
+          clicked => {
+            root.press("2");
+          }
+        }
+        CalcButton {
+          label: "3";
+          clicked => {
+            root.press("3");
+          }
+        }
+        CalcButton {
+          bg: #4f7cff;
+          label: "+";
+          clicked => {
+            root.press("+");
+          }
+        }
+        CalcButton {
+          bg: #232838;
+          label: "ANS";
+          clicked => {
+            root.press("ans");
+          }
+        }
+      }
+      Row {
+        CalcButton {
+          colspan: 2;
+          label: "0";
+          clicked => {
+            root.press("0");
+          }
+        }
+        CalcButton {
+          label: ".";
+          clicked => {
+            root.press(".");
+          }
+        }
+        CalcButton {
+          bg: #2ecc71;
+          colspan: 2;
+          label: "=";
+          clicked => {
+            root.press("=");
+          }
+        }
+      }
+    }
+  }
+  function fmt(v: float) -> string {
+    if (Math.abs(v) >= 1000000000000) { return v.to-precision(6); }
+    if (Math.abs(v - Math.round(v)) < 0.001) { return v.to-fixed(0); }
+    if (Math.abs(v * 10 - Math.round(v * 10)) < 0.001) { return v.to-fixed(1); }
+    if (Math.abs(v * 100 - Math.round(v * 100)) < 0.001) { return v.to-fixed(2); }
+    if (Math.abs(v * 1000 - Math.round(v * 1000)) < 0.001) { return v.to-fixed(3); }
+    if (Math.abs(v * 10000 - Math.round(v * 10000)) < 0.001) { return v.to-fixed(4); }
+    if (Math.abs(v * 100000 - Math.round(v * 100000)) < 0.001) { return v.to-fixed(5); }
+    return v.to-fixed(6);
+  }
+  function is-digit(k: string) -> bool {
+    return k == "0" || k == "1" || k == "2" || k == "3" || k == "4" || k == "5" || k == "6" || k == "7" || k == "8" || k == "9";
+  }
+  function apply-op(a: float, b: float, o: string) -> float {
+    if (o == "") { return b; }
+    if (o == "+") { return a + b; }
+    if (o == "-") { return a - b; }
+    if (o == "*") { return a * b; }
+    if (o == "/") { if (b == 0) { return 0; } return a / b; }
+    if (o == "^") { return Math.pow(a, b); }
+    if (o == "%") { return Math.mod(a, b); }
+    return b;
+  }
+  function press(key: string) {
+    if (root.is-digit(key)) {
+        if (root.fresh) { root.entry = key; root.fresh = false; }
+        else if (root.entry == "0") { root.entry = key; }
+        else { root.entry = root.entry + key; }
+        return;
+    }
+    if (key == ".") {
+        if (root.fresh || root.entry == "0") { root.entry = "0."; root.fresh = false; root.has-dot = true; return; }
+        if (!root.has-dot) { root.entry = root.entry + "."; root.has-dot = true; }
+        return;
+    }
+    if (key == "+" || key == "-" || key == "*" || key == "/" || key == "^" || key == "%") {
+        root.acc = root.apply-op(root.acc, root.entry.to-float(), root.op);
+        root.op = key;
+        root.entry = root.fmt(root.acc);
+        root.hint = root.fmt(root.acc) + " " + key;
+        root.fresh = true;
+        root.has-dot = false;
+        return;
+    }
+    if (key == "=") {
+        root.acc = root.apply-op(root.acc, root.entry.to-float(), root.op);
+        root.last = root.acc;
+        root.entry = root.fmt(root.acc);
+        root.hint = "";
+        root.op = "";
+        root.fresh = true;
+        root.has-dot = false;
+        return;
+    }
+    if (key == "C") { root.entry = "0"; root.acc = 0; root.op = ""; root.hint = ""; root.fresh = true; root.has-dot = false; return; }
+    if (key == "CE") { root.entry = "0"; root.fresh = true; root.has-dot = false; return; }
+    if (key == "sin") { root.entry = root.fmt(Math.sin(root.entry.to-float() * 1deg)); root.fresh = true; return; }
+    if (key == "cos") { root.entry = root.fmt(Math.cos(root.entry.to-float() * 1deg)); root.fresh = true; return; }
+    if (key == "tan") { root.entry = root.fmt(Math.tan(root.entry.to-float() * 1deg)); root.fresh = true; return; }
+    if (key == "ln") { root.entry = root.fmt(Math.ln(root.entry.to-float())); root.fresh = true; return; }
+    if (key == "log") { root.entry = root.fmt(Math.log(root.entry.to-float(), 10)); root.fresh = true; return; }
+    if (key == "sqr") { root.entry = root.fmt(root.entry.to-float() * root.entry.to-float()); root.fresh = true; return; }
+    if (key == "sqrt") { root.entry = root.fmt(Math.sqrt(root.entry.to-float())); root.fresh = true; return; }
+    if (key == "inv") { root.entry = root.fmt(1 / root.entry.to-float()); root.fresh = true; return; }
+    if (key == "neg") { root.entry = root.fmt(-1 * root.entry.to-float()); root.fresh = true; return; }
+    if (key == "pow10") { root.entry = root.fmt(Math.pow(10, root.entry.to-float())); root.fresh = true; return; }
+    if (key == "pi") { root.entry = root.fmt(3.14159265358979); root.fresh = true; return; }
+    if (key == "euler") { root.entry = root.fmt(2.71828182845905); root.fresh = true; return; }
+    if (key == "ans") { root.entry = root.fmt(root.last); root.fresh = true; return; }
+  }
+  in-out property <string> entry: "0";
+  in-out property <string> hint: "";
+  in-out property <float> acc: 0;
+  in-out property <float> last: 0;
+  in-out property <string> op: "";
+  in-out property <bool> fresh: true;
+  in-out property <bool> has-dot: false;
+}

@@ -242,8 +242,22 @@ local function parse_block(tokens, i, closing, fragments)
       -- （不进主树，存入 fragments；保留 __type/__name 供 & 引用还原）
       i = i + 1
       local fname = tokens[i]; i = i + 1
-      if tokens[i] == ":" then i = i + 1 end
-      local ftype, fname_arg = nil, nil
+      if fname == "version" then
+        -- `@version vN` 是版本声明指令，不是片段定义（与 Rust/C/JS 对齐）。
+        -- 必须特判，否则 version 被当作片段名，其后紧跟的块会被吃掉导致内容丢失
+        -- （如 `showcase.sml` 的 `@version v1` + `address { ... }` 整段丢失）。
+        local lit = tokens[i]
+        if lit == "v1" or lit == "1" then
+          -- 当前实现支持 v1（裸词即字符串）
+        elseif lit == "v2" or lit == "2" or lit == "v3" or lit == "3" then
+          error("sml: 版本 `" .. tostring(lit) .. "` 超出本实现接受范围 (v1)")
+        else
+          error("sml: 未知版本 `" .. tostring(lit) .. "`；仅支持 v1")
+        end
+        i = i + 1
+      else
+        if tokens[i] == ":" then i = i + 1 end
+        local ftype, fname_arg = nil, nil
       -- 若紧跟裸块（下一个非 { 非 : 的 token），当作 type name
       if tokens[i] and tokens[i] ~= "{" and tokens[i] ~= ":" then
         ftype = tokens[i]; i = i + 1
@@ -259,6 +273,7 @@ local function parse_block(tokens, i, closing, fragments)
           if fname_arg then sub.__name = fname_arg end
         end
         fragments[fname] = sub
+      end
       end
     else
       -- 读 key

@@ -14,6 +14,7 @@ pub trait SmlSerialize {
     fn to_sml_value(&self) -> Value;
 
     /// 序列化为 SML 文本（等价于 [`to_sml`] 作用于本类型生成的值）。
+    #[cfg(feature = "sml")]
     fn to_sml(&self) -> String {
         crate::to_sml(&self.to_sml_value())
     }
@@ -42,6 +43,7 @@ pub trait SmlDeserialize: Sized {
 /// let text = sml::to_string(&cfg);
 /// assert_eq!(text, "host: web.example\nport: 8080\n");
 /// ```
+#[cfg(feature = "sml")]
 pub fn to_string<T: SmlSerialize + ?Sized>(value: &T) -> String {
     crate::to_sml(&value.to_sml_value())
 }
@@ -131,10 +133,22 @@ pub mod __private {
                     match v {
                         Value::Int(i) => <$t>::try_from(*i)
                             .map_err(|_| format!("整数 {i} 超出 {} 范围", stringify!($t))),
-                        Value::Float(f)
-                            if f.fract() == 0.0
-                                && *f >= <$t>::MIN as f64
-                                && *f <= <$t>::MAX as f64 => Ok(*f as $t),
+                        Value::Float(f) if f.fract() == 0.0 => {
+                            // 整数型浮点：严格上下界校验。
+                            // 大整数类型（i64/u64/i128/u128）的 MAX 在 f64 中无法精确表示，
+                            // `<$t>::MAX as f64` 会向上舍入为「超出范围」的值，导致边界检查失效
+                            // （如 i64 <- 9223372036854775808.0 被误判为合法）。
+                            // 因此对「MAX 不可精确表示」的大类型，用 `>=` 拒绝该边界值（fail-closed，
+                            // 因为该浮点值本就无法无损回读为整数）；小类型 MAX 可精确表示，用 `>` 即可。
+                            const LARGE: bool = (<$t>::MAX as f64) > 9.007_199_254_740_992e15_f64;
+                            let max_f = <$t>::MAX as f64;
+                            let min_f = <$t>::MIN as f64;
+                            if *f < min_f || *f > max_f || (LARGE && *f == max_f) {
+                                Err(format!("浮点数 {f} 超出 {} 范围", stringify!($t)))
+                            } else {
+                                Ok(*f as $t)
+                            }
+                        }
                         Value::Float(f) => Err(format!("期望整数，实际为小数 {f}")),
                         other => Err(format!("期望整数，实际为 {}", describe_value(other))),
                     }
@@ -142,7 +156,7 @@ pub mod __private {
             }
         )*};
     }
-    impl_int!(i8, i16, i32, i64, isize, u8, u16, u32, usize);
+    impl_int!(i8, i16, i32, i64, isize, u8, u16, u32);
 
     impl SmlSerialize for u64 {
         #[inline]
@@ -155,7 +169,46 @@ pub mod __private {
         fn from_sml_value(v: &Value) -> Result<Self, String> {
             match v {
                 Value::Int(i) => u64::try_from(*i).map_err(|_| format!("整数 {i} 为负数，超出 u64 范围")),
-                Value::Float(f) if f.fract() == 0.0 && *f >= 0.0 => Ok(*f as u64),
+                Value::Float(f) if f.fract() == 0.0 => {
+                    const LARGE: bool = (u64::MAX as f64) > 9.007_199_254_740_992e15_f64;
+                    let max_f = u64::MAX as f64;
+                    if *f < 0.0 || *f > max_f || (LARGE && *f == max_f) {
+                        Err(format!("浮点数 {f} 超出 u64 范围"))
+                    } else {
+                        Ok(*f as u64)
+                    }
+                }
+                Value::Float(f) => Err(format!("期望非负整数，实际为 {f}")),
+                other => Err(format!("期望整数，实际为 {}", describe_value(other))),
+            }
+        }
+    }
+
+    impl SmlSerialize for usize {
+        #[inline]
+        fn to_sml_value(&self) -> Value {
+            // 此前 `*self as i64` 在 u64::MAX 等情况下回绕为 -1（静默变负数）。
+            // 改用 u64 的饱和逻辑：能放进 i64 就用 Int，否则退化为 Float。
+            u64::try_from(*self)
+                .map(|u| Value::Int(u as i64))
+                .unwrap_or_else(|_| Value::Float(*self as f64))
+        }
+    }
+    impl SmlDeserialize for usize {
+        #[inline]
+        fn from_sml_value(v: &Value) -> Result<Self, String> {
+            match v {
+                Value::Int(i) => usize::try_from(*i)
+                    .map_err(|_| format!("整数 {i} 超出 usize 范围")),
+                Value::Float(f) if f.fract() == 0.0 => {
+                    const LARGE: bool = (usize::MAX as f64) > 9.007_199_254_740_992e15_f64;
+                    let max_f = usize::MAX as f64;
+                    if *f < 0.0 || *f > max_f || (LARGE && *f == max_f) {
+                        Err(format!("浮点数 {f} 超出 usize 范围"))
+                    } else {
+                        Ok(*f as usize)
+                    }
+                }
                 Value::Float(f) => Err(format!("期望非负整数，实际为 {f}")),
                 other => Err(format!("期望整数，实际为 {}", describe_value(other))),
             }
@@ -174,8 +227,20 @@ pub mod __private {
                 #[inline]
                 fn from_sml_value(v: &Value) -> Result<Self, String> {
                     match v {
-                        Value::Int(i) => Ok(*i as $t),
-                        Value::Float(f) if f.fract() == 0.0 => Ok(*f as $t),
+                        // 此前 `Ok(*i as $t)` 对无符号类型会静默饱和
+                        // （如 u128 <- Int(-1) 变成 u128::MAX）。改用 try_from 严格校验。
+                        Value::Int(i) => <$t>::try_from(*i)
+                            .map_err(|_| format!("整数 {i} 超出 {} 范围", stringify!($t))),
+                        Value::Float(f) if f.fract() == 0.0 => {
+                            const LARGE: bool = (<$t>::MAX as f64) > 9.007_199_254_740_992e15_f64;
+                            let max_f = <$t>::MAX as f64;
+                            let min_f = <$t>::MIN as f64;
+                            if *f < min_f || *f > max_f || (LARGE && *f == max_f) {
+                                Err(format!("浮点数 {f} 超出 {} 范围", stringify!($t)))
+                            } else {
+                                Ok(*f as $t)
+                            }
+                        }
                         Value::Float(f) => Err(format!("期望整数，实际为小数 {f}")),
                         other => Err(format!("期望整数，实际为 {}", describe_value(other))),
                     }

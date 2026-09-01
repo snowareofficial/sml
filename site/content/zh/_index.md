@@ -7,7 +7,7 @@ translationKey: "zh-home"
 
 **SML（SNOWARE Markup Language）** 是一种声明式数据 / 配置格式，定位为 JSON / YAML / TOML 的轻量替代品。它强调**可读性**与**少仪式感**：引号可选、块冒号可省、逗号可选、支持片段继承与契约校验。
 
-> 仓库：[snoware/sml](https://gitee.com/snoware/sml) ｜ 多语言实现：Rust (`swsml`) · C (`sml.c`) · JavaScript (`sml.mjs`) · Lua (`lib/sml.soup`) · C++ · Python
+> 仓库：[snoware/sml](https://gitee.com/snoware/sml) ｜ **参考实现：Rust (`swsml`)** ｜ 实验性实现（暂不保证）：C (`sml.c`) · JavaScript (`sml.mjs`) · Lua (`lib/sml.soup`) · C++ · Python
 
 ## 特性一览
 
@@ -18,6 +18,7 @@ translationKey: "zh-home"
 - **include 内联 / 命名空间**：`include "x.sml"` 递归展开；`include "x.sml" as a.b` 以点分路径隔离进独立作用域（含宏 / 契约），冲突即报错
 - **环境变量**：`$env.HOME` 在解析期内联
 - **契约系统**：`@contract` / `@is` 对配置做类型与结构校验（严格 / 宽松两种模式）
+- **多目标转译**：解析为 `Value` 后可编译为 Markdown / LaTeX / XML / SVG / Slint UI / 自定义格式（emit 后端）
 - **零依赖**：各实现互不耦合，可单独嵌入（WASM / 沙箱 / 编辑器）
 
 ## 📖 SML 教科书
@@ -32,16 +33,21 @@ translationKey: "zh-home"
 
 ## 多语言实现对照
 
+> **实现状态说明（重要）**
+>
+> - **Rust（`rust/`，crate `swsml`）是 SML 的参考实现**：语法、契约系统、emit 后端、测试与安全扫描（OSV 依赖漏洞扫描 + 完整回归测试）均以它为准，也是目前**唯一持续维护并做版本保证**的实现。生产使用请选择 Rust。
+> - **Rust 以外的实现（C / JavaScript / Lua / C++ / Python）目前标记为「实验性（experimental）」**：随仓库一并提供，可运行、可嵌入，但**暂不保证**与 Rust 行为完全一致、暂不保证 API 稳定、暂不纳入例行的漏洞扫描与回归测试。请自行评估后使用，发现问题欢迎提 issue。
+
 | 语言 | 仓库 / 文件 | 状态 |
 |------|------------|------|
-| Rust | `rust/` (`swsml`) | ✅ 可用（契约系统完整，serde 桥接） |
-| C | `c/sml.c` | ✅ 可用（契约系统已与 Rust 100% 对齐） |
-| JavaScript | `js/sml.mjs` | ✅ 可用（零依赖 ESM，浏览器 / Node 通用，含契约与 playground） |
-| Lua | `lua/lib/sml.lua` | ✅ 可用（Soup 生态 `lib/sml.soup` 同源） |
-| C++ | `cpp/` | ✅ 可用 |
-| Python | `rust/` 外另见 `py` 绑定 | ✅ 可用 |
+| Rust | `rust/` (`swsml`) | ✅ **参考实现 · 推荐**（契约系统完整，serde 桥接，例行漏洞扫描） |
+| C | `c/sml.c` | ⚠️ 实验性（暂不保证，契约系统曾与 Rust 对齐，后续变更不承诺同步） |
+| JavaScript | `js/sml.mjs` | ⚠️ 实验性（暂不保证，零依赖 ESM，浏览器 / Node 通用，含契约与 playground） |
+| Lua | `lua/lib/sml.lua` | ⚠️ 实验性（暂不保证，Soup 生态 `lib/sml.soup` 同源） |
+| C++ | `cpp/` | ⚠️ 实验性（暂不保证） |
+| Python | `rust/` 外另见 `py` 绑定 | ⚠️ 实验性（暂不保证） |
 
-> 契约系统已在 **Rust / C / JavaScript / C++** 四端对齐：同一份 `CONFIG_CONTRACT` 定义，四端解析行为一致。
+> 契约系统的规范与判定以 **Rust 实现**为准；C / JavaScript / C++ 曾做过对齐验证，但因非 Rust 实现已进入「暂不保证」状态，跨端一致性不再作为版本承诺。
 
 ## 快速使用
 
@@ -98,6 +104,35 @@ sml::Value v = sml::parse("name: John\nage: 27");
 ```
 
 > C++ 实现 `cpp/` 为头文件 + 单编译单元（`sml.cpp`），零第三方依赖；`run_tests.py` 跑 `test_comments.cpp` / `test_contracts.cpp` 两套契约与注释测试。
+
+## 版本演进（`@version`）
+
+SML 通过 `@version` 声明文档遵循的语法版本，使解析器在将来引入不兼容语法时仍能正确读取旧文档。当前实现支持 **v1 / v2 / v3**（`@version` 接受 `v1`/`1`、`v2`/`2`、`v3`/`3`，超出 `v1..v3` 范围会直接报错），最新基线为 **v3**。
+
+| 版本 | 语义 | 字符串写法 |
+|------|------|-----------|
+| **v1**（默认） | 初始公开版。裸词即字符串，类型自动识别 | `name: John` ✅ |
+| **v2** | 草案版，引入「字符串必须显式引号」的不兼容语法 | `name: "John"` 必引号 |
+| **v3**（CURRENT） | 正式版，与 v2 同语义。自由文本必须写作 `"..."` | `name: "John"` 必引号 |
+
+> v2 与 v3 在字符串处理上**语义一致**，v2 为草案代号、v3 为正式代号。数字 / `bool` / `null` / 片段引用 `&x` / 环境变量 `$env.X` 在 v2 / v3 下**仍为裸词**——只有自由字符串需要引号。
+
+```sml
+# 默认 v1：裸词即字符串
+name: John
+age: 27
+tags: [ a b c ]          # 数组裸词元素合法
+
+# 显式 v3：字符串必须引号，标量仍裸词
+@version v3
+name: "John"
+age: 27
+active: true
+tags: [ "a" "b" "c" ]    # 数组元素也必须引号
+ref: &frag               # 片段引用仍是裸词
+```
+
+未定义片段引用在 v3 下**直接报错**（不再静默降级为字符串）。调用方还可用 `parse_allowed(docs, &[Version::V1, Version::V2, Version::V3])` 限制接受版本范围——超出范围的文档会被拒绝，防止 `@version` 成为绕过能力限制的后门。
 
 ## 契约系统（Contract）
 
@@ -262,6 +297,8 @@ include /plugins/.*\.sml/      # 正则匹配（/.../ 定界或 re: 前缀）
 
 Rust / C / JavaScript / Lua 四端共用同一语义：点分路径、宏/契约隔离、冲突报错、切片式零拷贝、feature 分层裁剪。
 
+> 注：以上为**规范层面的目标**；当前**仅 Rust 实现做保证**，C / JavaScript / Lua 属实验性实现，暂不保证已完整跟进（feature 分层裁剪等以 Rust 为准）。
+
 ### \u 转义
 
 字符串支持 `\u{XXXX}` 与 `\uXXXX` Unicode 转义，解析期转为 UTF-8：
@@ -284,6 +321,36 @@ const sml = stringify(JSON.parse(json));
 ```
 
 Rust 侧通过 `serde` feature 提供 `sml::serde::from_str` / `to_string`，任意 `#[derive(Deserialize)]` 结构体都能一键反序列化。
+
+### 多目标转译（emit）
+
+SML 不只是配置格式——解析为 `Value` 后，可经由内置后端**编译 / 转译为其它宿主格式**，把同一份数据喂给不同生态：
+
+| feature | 目标 | 入口函数 |
+|---------|------|----------|
+| `emit-markdown` | Markdown / GFM | `to_markdown` |
+| `emit-latex` | LaTeX 文档 | `to_latex` |
+| `emit-xml` | XML / LVGL UI | `to_xml` / `to_lvgl` |
+| `emit-svg` | SVG 图形 | `to_svg` |
+| `emit-slint` | Slint DSL（Rust/Qt GUI） | `to_slint` |
+| `emit-custom` | 用户自定义 SML 模板生成器 | `to_custom` |
+
+默认全部开启；若只需解析 / 序列化回 SML，可 `default-features = false` 关掉所有 `emit-*`，本模块整体不参与编译。
+
+通用约定：对象 / 块通常映射为宿主的「容器 / 元素 / 环境」，数组映射为「列表 / 序列」，字符串标量默认**自动转义**防止注入宿主保留字（如 XML 的 `<`、`&`）。裸块元数据 `__type` / `__name` 被后端用来选择语义，而非当作普通字段输出。
+
+```rust
+use sml::{parse, emit::to_markdown, emit::MarkdownOptions};
+
+let v = parse("# 标题\nbody: 内容\nitems: [ a b c ]").unwrap();
+// SML -> Markdown
+let md = to_markdown(&v, &MarkdownOptions::new()).unwrap();
+// SML -> Slint GUI 描述
+use sml::emit::{to_slint, SlintOptions};
+let slint = to_slint(&v, &SlintOptions::new()).unwrap();
+```
+
+> 转译后端对不可信输入做了递归深度上限（`MAX_VALUE_DEPTH = 128`）保护：超深嵌套会返回 `Err` 而非栈溢出崩溃，避免 DoS。
 
 ## 落地应用
 

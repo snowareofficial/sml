@@ -4,7 +4,15 @@ translationKey: "book-ch07"
 ---
 # Chapter 7: Multilingual Use
 
-SML is a format that needs to be parsed by the host language to be "usable". Each language implementation is decoupled from each other and can be embedded separately (WASM/sandbox/editor are all acceptable). Below are the four most commonly used integration methods.
+SML is a format that needs to be parsed by the host language to be "usable". Each language implementation is decoupled from each other and can be embedded separately (WASM/sandbox/editor are all acceptable). Below are the most commonly used integration methods.
+
+> **Scope note first**: **only the Rust implementation (`swsml`) is the reference and is
+> continuously maintained** — grammar, contracts, vulnerability scanning and regression tests
+> are all defined against it. Use Rust in production.
+> **C / JavaScript / Lua (Soup) / C++ / Python are experimental and not guaranteed**: they may
+> diverge from Rust behaviour, have no API stability promise, and are not covered by the
+> routine vulnerability scan or regression tests. Statements like "aligned with Rust" below are
+> **historical results** and are for reference only.
 
 ## 7.1 Rust(`swsml`)
 
@@ -45,7 +53,8 @@ sml_value *v = sml_parse("name: John\nage: 27", err, sizeof(err));
 /* v->type == SML_STR ("John") ... free it with sml_free(v) */
 ```
 
-The contract system has been 100% aligned with Rust, and the behavior of the four ends of `CONFIG_CONTRACT` is consistent.
+The contract system was once 100% aligned with Rust (the `CONFIG_CONTRACT` behaved consistently
+on all ends); note the C implementation is now **experimental and not guaranteed**.
 
 ## 7.3 JavaScript(`sml.mjs`)
 
@@ -85,12 +94,12 @@ soupx lua/sml.sar config.sml     # Parse and print
 
 ## 7.6 Which one to choose?
 
-|You are writing | using|
-|--------|----|
-|Rust programs/command-line tools | `swsml`|
-|Embedded/System Layer | C/C++|
-|Front end/Node Services | `sml.mjs`|
-|Soup Ecology/Script | `lib/sml.soup`|
+|You are writing | using| Guarantee|
+|--------|----|----|
+|Rust programs/command-line tools | `swsml`| ✅ Reference, production-ready|
+|Embedded/System Layer | C/C++| ⚠️ Experimental, not guaranteed|
+|Front end/Node Services | `sml.mjs`| ⚠️ Experimental, not guaranteed|
+|Soup Ecology/Script | `lib/sml.soup`| ⚠️ Experimental, not guaranteed|
 
 Chapter 8: Practical Projects (/book/ch08 project)
 

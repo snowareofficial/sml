@@ -1,0 +1,10 @@
+[package]
+name = "slint_check"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+i-slint-compiler = { path = "C:/Users/sakeen/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/i-slint-compiler-1.17.1" }
+tokio = { version = "1", features = ["rt", "macros"] }
+
+[workspace]

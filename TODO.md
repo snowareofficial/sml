@@ -67,19 +67,19 @@
 |---|---|---|---|---|---|
 | 顶层数组无法解析 | `dump`/`stringify` 能输出顶层数组，但 `parse` 只认键值块，导致「能写不能读」（如发信历史这类对象数组） | ✅ 已修 | ✅ 已修 | ✅ 已修 | ✅ 已修 |
 | 词中 `@` 截断邮箱 | `a@b.c` 被切成 `a` + `@` + `b.c`，后半段丢失，邮箱静默损坏为 `a` | ✅ 已修 | ✅ 已修 | ✅ 已修 | ✅ 已修（原本即正常） |
-| `@version` 未处理 | `@version v1` 被当片段名，吞掉后续内容，解析结果为空对象 | ✅ 原生支持 | ❌ **待修** | ✅ 已修 | ✅ 已修 |
+| `@version` 未处理 | `@version v1` 被当片段名，吞掉后续内容，解析结果为空对象 | ✅ 原生支持 | ✅ 已修 | ✅ 已修 | ✅ 已修 |
 | 顶层数组 dump 格式 | Lua 的 `dump` 顶层数组输出 `1: { }` 键值形式，而非 `[ ]`，与 load 不对称 | — | ✅ 已修 | — | — |
 
 ## 二、未完成项（按优先级）
 
 ### P0 — 阻断性
 
-- [ ] **Lua：`@version v1` 未处理**
+- [x] **Lua：`@version v1` 未处理**
   - 现象：`Sml.load('@version v1\naddress { state: NY }')` 返回**空表**，内容全丢
   - 参照：C 实现已在 `parse_block` 的 `T_AT` 分支加特判（`strcmp(fname,"version")==0`）；
-    JS 实现已在 `@` 分支加版本校验。Lua 需同样处理
+    JS 实现已在 `@` 分支加版本校验。Lua 已同样处理
   - 影响：`showcase.sml`（含 `@version v1`）在 Lua 下解析不出 `address` 字段
-  - 验证：`luajit _t2.lua` 中 `with version` 用例当前输出 `keys=[]`
+  - 验证：`soupx lua/main.lua showcase.sml` 实测 `address` 块完整解析；`@version v2` 报错（对齐 C/Rust）
 
 ### P1 — 一致性
 
