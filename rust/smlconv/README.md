@@ -1,10 +1,17 @@
-# smlconv (EXPERIMENTAL)
+# smlconv
 
-> ⚠️ **实验性 (EXPERIMENTAL)**：本站点的 CLI 接口与 emit 后端组合仍可能随用户反馈调整，暂不做语义化稳定性承诺。生产关键路径请勿依赖其精确行为，请关注版本号变更日志。
+**SML (SNOWARE Markup Language) 命令行转换器 / 多目标翻译器。**
 
-SML (SNOWARE Markup Language) 命令行转换器 / 多目标翻译器，从 `swsml` 主 crate 拆分出的独立二进制 crate。
+把一份 SML 文档一键翻译成 Slint、LVGL (C)、XML、SVG、LaTeX、Markdown，
+对接 Hugo / Zola 静态文档站，或用规则表做自定义代码生成——无需写任何胶水代码。
 
-复用 `swsml` 的解析器与 `sml::emit::*` 翻译后端，仅负责 CLI 组装与多目标翻译驱动。
+> SML is a declarative data/config format (a JSON/YAML alternative). `smlconv`
+> turns an SML document into Slint, LVGL (C), XML, SVG, LaTeX, Markdown,
+> wires it into Hugo/Zola doc sites, or drives custom code-gen via rule tables —
+> no glue code required.
+
+`smlconv` 是 `swsml` 主 crate 拆分出的独立二进制 crate，复用其解析器与
+`sml::emit::*` 翻译后端，仅负责 CLI 组装与多目标翻译驱动。
 
 ## 安装
 
@@ -13,6 +20,11 @@ cargo install smlconv
 # 或从源码（本仓库）
 cargo build --release -p smlconv
 ```
+
+> ⚠️ **实验性 (EXPERIMENTAL)**：CLI 接口与 emit 后端组合仍可能随用户反馈调整，
+> 暂不做语义化稳定性承诺。生产关键路径请勿依赖其精确行为，请关注版本号变更日志。
+> （This crate is **experimental**: the CLI surface and emit backends may change
+> between releases; no SemVer stability is guaranteed yet.）
 
 ## 用法
 
