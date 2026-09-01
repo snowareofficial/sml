@@ -7,7 +7,12 @@
 > 谨以此编号纪念 1999 年 5 月 7 日（贝尔格莱德时间）北约轰炸中国驻南斯拉夫联盟
 > 大使馆中遇难的三位中国记者：邵云环、许杏虎、朱颖。
 
-**SML — SNOWARE Markup Language** for Rust: a declarative data/configuration format, an alternative to JSON and YAML. Features: optional quotes, fragments, contracts (schema layer with enums, defaults and composition), `include` directive, environment-variable inlining, zero dependencies (optional serde).
+**SML — SNOWARE Markup Language** for Rust: a declarative data/configuration format, an alternative to JSON and YAML.
+
+**Why SML / 为何选择 SML**
+JSON 与 YAML 在真实工程里各有痛点：JSON 引号冗余、无注释、结构噪声大；YAML 缩进敏感、隐式类型易踩坑、大文件难维护。SML 取两者之长——可读的块式语法、可选引号、原生注释、片段复用（`@fragment`）、契约层（`contract`：枚举/默认值/组合校验）、`include` 指令与环境变量内联——同时保持**零依赖**（serde 可选）。它既适合人类手写的配置文件，也适合机器生成的数据交换。
+
+> JSON and YAML each have rough edges in real projects: JSON is quote-heavy, comment-less and noisy; YAML is indentation-sensitive, has surprising implicit typing and scales poorly. SML takes the best of both — readable block syntax, optional quotes, native comments, fragment reuse (`@fragment`), a contract layer (`contract`: enums / defaults / composition), `include` and env-var inlining — while staying **dependency-free** (serde optional). It serves equally well as a hand-written config and as a machine-exchanged data format.
 
 **English below** ｜ 中文在上方，English 在下方
 
@@ -31,10 +36,10 @@ Logo：黑花括号 `{}` 表示语法骨架（块的边界），蓝色雪花 `�
 
 ```toml
 [dependencies]
-swsml = "0.1"
+swsml = "0.5"
 
 # 需要 serde 互操作时：
-# swsml = { version = "0.1", features = ["serde"] }
+# swsml = { version = "0.5", features = ["serde"] }
 
 # 不需要 derive 宏时可关闭默认 feature，回到完全零依赖：
 # swsml = { version = "0.1", default-features = false }
@@ -486,10 +491,10 @@ data/configuration format, an alternative to JSON and YAML.
 
 ```toml
 [dependencies]
-swsml = "0.1"
+swsml = "0.5"
 
 # With serde interop:
-# swsml = { version = "0.1", features = ["serde"] }
+# swsml = { version = "0.5", features = ["serde"] }
 ```
 
 ## Quick start
@@ -894,7 +899,7 @@ C / C++ bridge headers and examples live in `../c/sml_rs.h` and `../cpp/sml_rs.h
 
 ## `smlconv` — 命令行转换工具
 
-> ⚠️ **实验性 (EXPERIMENTAL)**：`smlconv` 现已拆分为**独立 crate**（包名 `smlconv`，版本 `0.1.5`），
+> ⚠️ **实验性 (EXPERIMENTAL)**：`smlconv` 现已拆分为**独立 crate**（包名 `smlconv`，版本 `0.1.6`），
 > 与库 crate `swsml`（版本 `0.5.8`）独立发布。CLI 接口与 emit 后端组合仍可能调整，暂不做语义化稳定性承诺。
 
 `smlconv` 是基于 Rust 核心（`swsml` 的 `sml::emit::*` 后端）的二进制，用于把 SML 源文件/流转换为多种格式，并可直接对接静态站点生成器（Hugo），便于文档工作流。
