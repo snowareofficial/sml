@@ -51,6 +51,7 @@
     {{ if $isEn }}
       <a href="{{ .Site.Home.RelPermalink }}book/">Textbook</a>
       <a href="{{ .Site.Home.RelPermalink }}playground/">Playground</a>
+      <a href="{{ .Site.Home.RelPermalink }}gitee/">Gitee</a>
     {{ else if eq .Section "book" }}
       <a href="{{ .Site.Home.RelPermalink }}book/">教科书</a>
       <a href="{{ .Site.Home.RelPermalink }}book/intro">序章</a>
@@ -77,6 +78,7 @@
       <a href="#落地应用">落地应用</a>
       <a href="#完整示例">完整示例</a>
       <a href="#本地-playground">Playground</a>
+      <a href="{{ .Site.Home.RelPermalink }}gitee/">Gitee 动态</a>
       {{ end }}
     {{ end }}
   </nav>
