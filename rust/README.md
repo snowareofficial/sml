@@ -897,30 +897,34 @@ C / C++ bridge headers and examples live in `../c/sml_rs.h` and `../cpp/sml_rs.h
 | C | `../c/sml.h` |
 | JavaScript | `../js/sml.mjs` |
 
-## `smlconv` — 命令行转换工具
+## `smlconv` — Command-line converter
 
-> ⚠️ **实验性 (EXPERIMENTAL)**：`smlconv` 现已拆分为**独立 crate**（包名 `smlconv`，版本 `0.1.6`），
-> 与库 crate `swsml`（版本 `0.5.8`）独立发布。CLI 接口与 emit 后端组合仍可能调整，暂不做语义化稳定性承诺。
+> ⚠️ **EXPERIMENTAL**: `smlconv` is now split into a **standalone crate** (package `smlconv`, version `0.1.6`),
+> published independently from the library crate `swsml` (version `0.5.8`). The CLI surface and emit-backend
+> combinations may still change as users give feedback; no SemVer stability is guaranteed yet. Do not rely on
+> its exact behavior in production-critical paths; watch the changelog.
 
-`smlconv` 是基于 Rust 核心（`swsml` 的 `sml::emit::*` 后端）的二进制，用于把 SML 源文件/流转换为多种格式，并可直接对接静态站点生成器（Hugo），便于文档工作流。
+`smlconv` is a binary built on the Rust core (the `sml::emit::*` backends of `swsml`). It converts an SML
+source file/stream into multiple formats and can plug directly into static-site generators (Hugo / Zola)
+for documentation workflows.
 
 ```text
 smlconv [input] [-o out] [--format FMT] [--hugo-root DIR] [--hugo-section KEY] [--hugo-lang zh|en|all] ...
 ```
 
-- `input` 缺省时从 stdin 读取；`-o` 缺省时写 stdout（Hugo/Zola 模式忽略 `-o`，直接落盘）。
-- `--to FMT`：`md`(默认) / `xml` / `svg` / `latex` / `slint` / `lvgl` / `custom` / `sml`。
-- `--feature vN`：指定解析版本（v1–v4），缺省按文档声明或 V4。
-- `--to custom` 需配合 `--custom-rules <file.sml>`：用一份含 `rules` 数组的 SML 文档描述模板规则（见下）。
+- `input` defaults to stdin; `-o` defaults to stdout (Hugo/Zola modes ignore `-o` and write files directly).
+- `--to FMT`: `md` (default) / `xml` / `svg` / `latex` / `slint` / `lvgl` / `custom` / `sml`.
+- `--feature vN`: declare the parse version (v1–v4); defaults to the document declaration or V4.
+- `--to custom` requires `--custom-rules <file.sml>`: an SML document holding a `rules` array that describes template rules (see below).
 
-### 自定义生成器（custom）
+### Custom generators (`custom`)
 
 ```bash
-# 用规则文档把数据渲染为任意文本
+# render data to arbitrary text with a rule document
 smlconv data.sml --to custom --custom-rules rules.sml
 ```
 
-`rules.sml` 示例（每条规则 `match` 目标类型，`template` 用 `{value}`/`{key}`/`{nested}`/`{items:TPL}` 占位符）：
+Example `rules.sml` (each rule `match`es a target type; `template` uses `{value}` / `{key}` / `{nested}` / `{items:TPL}` placeholders):
 
 ```sml
 @version v4
@@ -931,15 +935,18 @@ rules: [
 ]
 ```
 
-> 注意：`custom` 按**规则在 `rules` 数组里的顺序**渲染顶层字段（确定性输出，如 Dockerfile 要求 `FROM` 在最前），且 `select_rule` 会用「字段名」匹配 `match` 规则——所以写成 `match: "base"` 既能命中字段 `base` 又能定序。数组字段用 `{items:TPL}` 循环展开，`TPL` 内可再含 `{value}`/`{item}`。
+> Note: `custom` renders top-level fields in **the order of the rules in the `rules` array** (deterministic
+> output — e.g. a Dockerfile requires `FROM` first), and `select_rule` matches `match` against the **field
+> name** — so `match: "base"` both hits the field `base` and fixes its order. Array fields expand with
+> `{items:TPL}`; `TPL` may itself contain `{value}` / `{item}`.
 
-**生成 Dockerfile**（示例见 `examples/docker_data.sml` + `examples/docker_rules.sml`）：
+**Generate a Dockerfile** (see `examples/docker_data.sml` + `examples/docker_rules.sml`):
 
 ```bash
 smlconv examples/docker_data.sml --to custom --custom-rules examples/docker_rules.sml
 ```
 
-`docker_rules.sml`：
+`docker_rules.sml`:
 ```sml
 @version v4
 rules: [
@@ -951,7 +958,7 @@ rules: [
   { match: "cmd"       template: "CMD {value}\n" }
 ]
 ```
-`docker_data.sml`：
+`docker_data.sml`:
 ```sml
 @version v4
 base: "ubuntu:22.04"
@@ -961,7 +968,7 @@ ports: [ "8080" "9090" ]
 deps: [ "curl" "git" "build-essential" ]
 cmd: "[\"python3\", \"app.py\"]"
 ```
-输出：
+Output:
 ```dockerfile
 FROM ubuntu:22.04
 MAINTAINER sakeen <salflake@qq.com>
@@ -974,41 +981,42 @@ RUN apt-get update && apt-get install -y build-essential
 CMD ["python3", "app.py"]
 ```
 
-### LVGL 转换（lvgl）
+### LVGL conversion (`lvgl`)
 
 ```bash
-smlconv ui.sml --to lvgl        # 输出 LVGL UI XML（<screen>/<label>/<button>...）
+smlconv ui.sml --to lvgl        # outputs LVGL UI XML (<screen>/<label>/<button>...)
 ```
 
-源文件约定：用 `__type` 指定部件（`lv_label`→`<label>` 自动去前缀）、`__name`→`name` 属性、
-`children` 数组放子部件、`on_<event>` 字段→`<event name="..." handler="..."/>`。
-示例见 `examples/lvgl_demo.sml`。
+Source conventions: `__type` selects the widget (`lv_label` → `<label>`, the prefix is stripped
+automatically), `__name` → the `name` attribute, `children` arrays hold child widgets, and `on_<event>`
+fields become `<event name="..." handler="..."/>`. See `examples/lvgl_demo.sml`.
 
-### Hugo 集成
+### Hugo integration
 
 ```bash
 smlconv docs/app.sml --hugo ./site/content --hugo-lang zh --hugo-section docs
-# 生成 ./site/content/zh/docs/app.md （YAML front matter）
+# writes ./site/content/zh/docs/app.md (YAML front matter)
 ```
 
-### Zola 集成
+### Zola integration
 
 ```bash
-# 仅生成内容文件（TOML front matter，定界符 +++）
+# content files only (TOML front matter, +++ delimiters)
 smlconv docs/app.sml --zola ./site/content --zola-section docs
 
-# 生成后自动调用本机 zola 渲染站点
+# also run the local `zola` to render the site afterwards
 smlconv docs/app.sml --zola ./site/content --zola-build
 ```
 
-> `--zola-build` 需要本机已安装 `zola`（PATH 可寻或位于常见安装目录）。未安装会给出明确提示，而非静默失败。
-> `--hugo` 与 `--zola` 互斥，只能选其一。
+> `--zola-build` requires `zola` installed locally (resolvable via PATH or in a common install directory).
+> If it is missing, smlconv prints a clear message instead of failing silently.
+> `--hugo` and `--zola` are mutually exclusive — pick one.
 
-构建方式：
+Build:
 
 ```bash
-cargo build --release -p smlconv        # 产物 target/release/smlconv(.exe)
-# 或从源码安装
+cargo build --release -p smlconv        # artifact: target/release/smlconv(.exe)
+# or install from source
 cargo install --path smlconv
 ```
 
