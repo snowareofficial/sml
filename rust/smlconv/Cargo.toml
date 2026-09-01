@@ -5,7 +5,7 @@
 #    生产关键路径请勿依赖其精确行为；建议关注版本号变更日志。
 [package]
 name = "smlconv"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 description = "(EXPERIMENTAL) SML command-line converter: translate SML into slint/lvgl/json/xml/svg/latex/markdown/hugo, and render custom targets via rule tables."
 license = "MulanPSL-2.0"
@@ -29,7 +29,7 @@ path = "src/main.rs"
 
 [dependencies]
 # 复用 swsml 的解析器与 sml::emit::* 翻译后端，自身不重复实现。
-swsml = { version = "0.5.8", path = "../", features = [
+swsml = { version = "0.5.9", path = "../", features = [
     "sml",
     "emit-markdown",
     "emit-slint",
