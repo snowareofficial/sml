@@ -55,6 +55,13 @@ emit-xml = []
 emit-svg = []
 # 用户自定义生成器：用 SML 本身描述规则表 + 模板，渲染任意 Value
 emit-custom = []
+# 解析期条件原语 `@when`（以及未来的 `@for`）。
+#
+# 只门控**实现**；运行时 `Feature::When` 枚举项始终存在，以保证
+# C-ABI `sml_feature_name(bit)` 的位序稳定（位序变了会破坏 C 调用方）。
+# 文档层面的启用仍需 `@feature enable when` —— 兼容性是文档属性，
+# 不能随构建配置漂移，否则五端（Rust/C/JS/C++/Lua）行为对不齐。
+when = []
 # 命令行工具 smlconv 已拆分为独立 crate `smlconv`（见 ../smlconv），
 # 依赖 swsml 的 emit 后端；主库 sml 保持零依赖（不引入 clap）。
 default = [
@@ -66,6 +73,7 @@ default = [
     "emit-xml",
     "emit-svg",
     "emit-custom",
+    "when",
 ]
 
 [dev-dependencies]
