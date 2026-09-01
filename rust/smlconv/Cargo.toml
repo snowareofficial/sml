@@ -5,7 +5,7 @@
 #    生产关键路径请勿依赖其精确行为；建议关注版本号变更日志。
 [package]
 name = "smlconv"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 description = "(EXPERIMENTAL) SML command-line converter: translate SML into slint/lvgl/json/xml/svg/latex/markdown/hugo, and render custom targets via rule tables."
 license = "MulanPSL-2.0"
@@ -13,8 +13,14 @@ repository = "https://gitee.com/snoware/sml"
 homepage = "https://sml.swebase.cn"
 readme = "README.md"
 authors = ["SNOWARE <dev@mail.swebase.cn>"]
-keywords = ["sml", "converter", "codegen", "slint", "experimental"]
-categories = ["command-line-utilities"]
+keywords = ["sml", "converter", "codegen", "parser", "slint"]
+categories = [
+    "command-line-utilities",
+    "parser-implementations",
+    "template-engine",
+    "text-processing",
+    "gui",
+]
 exclude = ["/target"]
 
 [[bin]]
