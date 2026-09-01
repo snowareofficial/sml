@@ -797,6 +797,7 @@ pub extern "C" fn sml_feature_name(bit: c_uint) -> *const c_char {
         9 => "glob-include\0",
         10 => "regex-include\0",
         11 => "ext-rewrite\0",
+        12 => "when\0",
         _ => return ptr::null(),
     };
     s.as_ptr() as *const c_char
