@@ -28,7 +28,7 @@ First, let's take a look at SML's' capability stack ':
 |Escaping | `\n` `\u{XXXX}` | String Escaping | Open|
 |Multilingual | Rust/C/JS/Lua Parser | Cross Ecological | -|
 
-**The default seven piece set allows you to use it out of the box;** Default four on demand opt in for**, avoiding the pitfalls of YAML complexity.
+**The default nine piece set allows you to use it out of the box;** Default six on demand opt in for**, avoiding the pitfalls of YAML complexity.
 
 ## 9.2 Mode 1: Modular Configuration Library
 

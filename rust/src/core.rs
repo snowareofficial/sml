@@ -321,8 +321,10 @@ fn check_type_contract_ref(
 // 解析: 词法 + 递归下降
 // ---------------------------------------------------------------------------
 
+/// 词法单元。`pub(crate)` 仅为让 `cond` 等子模块复用解析器游标，
+/// 不对外暴露（核心模块本身是私有的）。
 #[derive(Debug, Clone, PartialEq)]
-enum Tok {
+pub(crate) enum Tok {
     LBrace,  // {
     RBrace,  // }
     LBrack,  // [
@@ -659,14 +661,15 @@ fn coerce_word(
     Ok(Value::Str(w.to_string()))
 }
 
-struct Parser {
+/// 解析器。`pub(crate)` 仅为让 `cond` 等子模块复用游标，不对外暴露。
+pub(crate) struct Parser {
     toks: Vec<Tok>,
     i: usize,
     fragments: BTreeMap<String, Value>,
     /// 契约表：名 -> 契约。由 `@contract Name { ... }` 填充
     contracts: BTreeMap<String, Contract>,
     /// 生效特性集（已与调用方允许范围交集）
-    features: FeatureSet,
+    pub(crate) features: FeatureSet,
     /// 当前值嵌套深度（块 / 数组的递归层数）。
     /// 由 `parse_block` / `parse_array` 的 wrapper 维护，用于防止栈溢出。
     depth: usize,
@@ -677,12 +680,134 @@ struct Parser {
     /// 本次解析的环境变量覆盖表。`$env.X` 先在此查表，未命中才读进程环境。
     /// 用于 FFI 等「不修改进程环境」的注入场景（见 [`Self::env_var`]）。
     env: BTreeMap<String, String>,
+    /// `@for var in ... { ... }` 的只读循环变量绑定。`${var}` 在字符串值里解析为
+    /// 这里的值。作用域按 `@for` 嵌套自然叠加（内层覆盖外层同名），属于 cond 模块
+    /// 的解析期指令家族，由 cargo feature `when` 门控整体带入。
+    loop_vars: BTreeMap<String, String>,
 }
 
 impl Parser {
     /// 查 `$env.X`：先查本次解析的覆盖表，再回落进程环境。
-    fn env_var(&self, name: &str) -> String {
+    pub(crate) fn env_var(&self, name: &str) -> String {
         lookup_env(Some(&self.env), name)
+    }
+
+    /// 查 `@for` 循环变量 `${var}`（只读绑定）。未绑定返回 None。
+    pub(crate) fn loop_var(&self, name: &str) -> Option<&String> {
+        self.loop_vars.get(name)
+    }
+
+    /// 字符串插值：把 `${var}`（循环变量）与 `$env.NAME` 替换为实际值。
+    /// 这是 `@for` 把迭代值注入循环体的主要手段（只读、文本级）。
+    ///
+    /// - `${var}`：查 [`Self::loop_var`]，未绑定则原样保留（避免静默丢信息）；
+    /// - `$env.NAME`：查环境变量（受 `Feature::Env` 约束，见下方调用点）；
+    /// - 其它：`${`/`$env.` 以外的 `$` 视为普通字符。
+    fn interp_str(&self, s: &str) -> String {
+        // 先做 `${var}` 替换（循环变量优先于环境变量语义，且二者前缀不同不会冲突）。
+        let mut out = String::with_capacity(s.len());
+        let mut chars = s.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '$' {
+                if chars.peek() == Some(&'{') {
+                    // 收集 `${ ... }` 中的名字
+                    chars.next(); // 消费 '{'
+                    let mut name = String::new();
+                    for cc in chars.by_ref() {
+                        if cc == '}' {
+                            break;
+                        }
+                        name.push(cc);
+                    }
+                    if let Some(v) = self.loop_var(name.trim()) {
+                        out.push_str(v);
+                        continue;
+                    }
+                    // 未绑定：原样保留 `${name}`，让作者能发现笔误而非静默空串
+                    out.push('$');
+                    out.push('{');
+                    out.push_str(&name);
+                    out.push('}');
+                    continue;
+                }
+                // 非 `${` 的 `$`（如孤立 `$env` 写错、或普通 `$`）：原样保留
+            }
+            out.push(c);
+        }
+        // 再处理 `$env.NAME`（与裸词路径一致受 `Feature::Env` 约束）
+        if out.contains("$env.") && self.features.has(Feature::Env) {
+            // 仅当特性开启才替换，否则保留原串由上层 parse_value 报错
+            let replaced = out.replace("$env.", "\u{0}ENV\u{0}");
+            // 用临时哨兵拆分，避免与正常文本冲突
+            let mut r = String::new();
+            let mut parts = replaced.split("\u{0}ENV\u{0}");
+            if let Some(head) = parts.next() {
+                r.push_str(head);
+            }
+            for name in parts {
+                // name 可能是 `FOO.xxx` 或 `FOO"` 等；取到第一个非标识符字符为止
+                let end = name
+                    .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.'))
+                    .unwrap_or(name.len());
+                let (var, tail) = name.split_at(end);
+                r.push_str(&self.env_var(var));
+                r.push_str(tail);
+            }
+            out = r;
+        }
+        out
+    }
+
+    /// 从当前游标（应在 `{` 处）切出整个块的内部 token（不含两端括号），并推进游标越过 `}`。
+    /// 用于 `@for` 对每个迭代值重放（重放语义：同份模板 + 不同循环变量 = 不同对象）。
+    fn slice_block_tokens(&mut self) -> Result<Vec<Tok>, String> {
+        if self.peek() != Some(&Tok::LBrace) {
+            return Err("sml: `@for` 后须 `{ ... }` 循环体".into());
+        }
+        self.next(); // 消费 '{'
+        let mut depth = 1usize;
+        let mut inner = Vec::new();
+        loop {
+            match self.next() {
+                None => {
+                    return Err(
+                        "sml: `@for` 循环体未闭合（遇到文件结尾，缺少结束符号 }）".into(),
+                    )
+                }
+                Some(Tok::LBrace) => {
+                    depth += 1;
+                    inner.push(Tok::LBrace);
+                }
+                Some(Tok::RBrace) => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break; // 不把最后的 '}' 纳入 inner
+                    }
+                    inner.push(Tok::RBrace);
+                }
+                Some(t) => inner.push(t),
+            }
+        }
+        Ok(inner)
+    }
+
+    /// 以当前解析器为蓝本，生成一个**块级子解析器**，专用于重放 `@for` 的某一轮迭代。
+    /// 继承片段表/契约表/特性集/命名空间/环境变量，但用独立的 `loop_vars`
+    /// （叠加当前迭代的 `${var}=item`，以支持嵌套 `@for` 看到外层绑定）。
+    fn spawn_for_child(&self, inner: Vec<Tok>, var: &str, item: &str) -> Parser {
+        let mut loop_vars = self.loop_vars.clone();
+        loop_vars.insert(var.to_string(), item.to_string());
+        Parser {
+            toks: inner,
+            i: 0,
+            fragments: self.fragments.clone(),
+            contracts: self.contracts.clone(),
+            features: self.features,
+            depth: self.depth + 1,
+            ns_stack: self.ns_stack.clone(),
+            env: self.env.clone(),
+            loop_vars,
+        }
     }
 
     /// 当前命名空间前缀（栈路径用 "." 连接，空栈返回空串）
@@ -704,7 +829,8 @@ impl Parser {
         }
     }
 
-    fn peek(&self) -> Option<&Tok> {
+    /// 前看当前 token。`pub(crate)` 仅为让 `cond` 等子模块复用游标，不对外暴露。
+    pub(crate) fn peek(&self) -> Option<&Tok> {
         self.toks.get(self.i)
     }
     /// 前看 n 个 token（n=0 等价于 [`Self::peek`]）。
@@ -712,7 +838,8 @@ impl Parser {
     fn peek_at(&self, n: usize) -> Option<&Tok> {
         self.toks.get(self.i + n)
     }
-    fn next(&mut self) -> Option<Tok> {
+    /// 消费并返回当前 token。`pub(crate)` 仅为让 `cond` 等子模块复用游标，不对外暴露。
+    pub(crate) fn next(&mut self) -> Option<Tok> {
         let t = self.toks.get(self.i).cloned();
         if t.is_some() {
             self.i += 1;
@@ -1067,24 +1194,30 @@ impl Parser {
                     // when 的片段**，是既有合法语法，必须继续走下面的片段定义
                     // 分支，不得被当指令拦截（否则会破坏已有文档）。
                     // 故仅当后面不是片段形式时，才按条件指令处理。
-                    let is_fragment_form = match self.peek() {
-                        Some(Tok::LBrace) => true,
-                        Some(Tok::Word(w)) => w == "type" || w == "name",
-                        _ => false,
-                    };
-                    if fname == "when" && !is_fragment_form {
-                        if !self.features.has(Feature::When) {
-                            return Err(
-                                "@when 需要特性 `when`，请先写 `@feature enable when`（该特性默认关闭）"
-                                    .into(),
-                            );
+                    //
+                    // cargo feature `when` 关闭时整段不编译：此时 `@when <条件>`
+                    // 不是已知指令，会继续走片段定义分支并报出原有错误。
+                    #[cfg(feature = "when")]
+                    {
+                        let is_fragment_form = match self.peek() {
+                            Some(Tok::LBrace) => true,
+                            Some(Tok::Word(w)) => w == "type" || w == "name",
+                            _ => false,
+                        };
+                        if fname == "when" && !is_fragment_form {
+                            if !self.features.has(Feature::When) {
+                                return Err(
+                                    "@when 需要特性 `when`，请先写 `@feature enable when`（该特性默认关闭）"
+                                        .into(),
+                                );
+                            }
+                            if pending_when.is_some() {
+                                return Err("sml: `@when` 连续出现两次；它只作用于紧邻的下一个字段/块".into());
+                            }
+                            let cond = crate::cond::eval_when_cond(self)?;
+                            pending_when = Some(cond);
+                            continue;
                         }
-                        if pending_when.is_some() {
-                            return Err("sml: `@when` 连续出现两次；它只作用于紧邻的下一个字段/块".into());
-                        }
-                        let cond = eval_when_cond(self)?;
-                        pending_when = Some(cond);
-                        continue;
                     }
                     // 可选显式参数：`type: X` 与 `name: Y`（顺序不限、均可省略）。
                     //
@@ -1294,6 +1427,16 @@ impl Parser {
     }
 
     fn parse_value(&mut self, key: &str, colon: bool) -> Result<Value, String> {
+        // 值位置的 `@for var in ... { }` 指令：有界循环展开为数组。
+        // 受 cargo feature `when` 门控（与 `@when` 同属 cond 解析期指令家族）。
+        #[cfg(feature = "when")]
+        if let Some(Tok::At) = self.peek() {
+            if let Some(Tok::Word(w)) = self.peek_at(1) {
+                if w == "for" {
+                    return self.parse_for_value();
+                }
+            }
+        }
         // 无冒号且后继是裸词: 可能是裸块 `type [name] { }`
         if !colon && self.bare_block_ahead() {
             return self.parse_bare_block(key);
@@ -1317,22 +1460,16 @@ impl Parser {
                         Some(&self.env),
                     )?,
                     Tok::Str(s) => {
-                        // 引号串同样承认 `$env.X` 内联（v3 严格模式下裸词不可用时
-                        // 这是唯一写法），但必须**与裸词路径一致**地受 `Feature::Env`
-                        // 约束：否则调用方禁用 env 特性后，文档仍可用引号串绕过限制
-                        // 读取任意环境变量。
-                        match s.strip_prefix("$env.") {
-                            Some(name) => {
-                                if !self.features.has(Feature::Env) {
-                                    return Err(format!(
-                                        "sml: 当前特性集禁用了 `$env`（env），字符串 `\"{}\"` 无法解析",
-                                        s
-                                    ));
-                                }
-                                Value::Str(self.env_var(name))
-                            }
-                            None => Value::Str(s),
+                        // 引号串承认 `${var}`（@for 循环变量）与 `$env.NAME` 内联插值。
+                        // 必须**与裸词路径一致**地受 `Feature::Env` 约束：否则调用方
+                        // 禁用 env 特性后，文档仍可用引号串绕过限制读取任意环境变量。
+                        if s.contains("$env.") && !self.features.has(Feature::Env) {
+                            return Err(format!(
+                                "sml: 当前特性集禁用了 `$env`（env），字符串 `\"{}\"` 无法解析",
+                                s
+                            ));
                         }
+                        Value::Str(self.interp_str(&s))
                     }
                     _ => unreachable!(),
                 };
@@ -1356,6 +1493,38 @@ impl Parser {
             }
             _ => Err("sml: 语法错误".into()),
         }
+    }
+
+    /// 值位置的 `@for var in a b c { ... }`：有界循环展开为数组。
+    ///
+    /// 受 cargo feature `when` 门控；运行时另受文档层 `for` 特性约束
+    /// （需 `@feature enable for`，否则报「未启用」）。
+    ///
+    /// 关键约束（见 [`Feature::For`] 文档）：
+    /// - 只在 `in` 后的**有限枚举列表**上遍历，无 `while`、无递归 —— LOOP 语言，非图灵完备；
+    /// - 循环变量 `${var}` 只读，`${var}` 在循环体内文本插值；
+    /// - 组合 `@when` × `@for`：外层 `@when` 作用于整个 `hosts: @for ...`（条件为假则
+    ///   整段数组不出现），即「`@when` 过滤的是字段，不是某一轮迭代」——这是设计陷阱。
+    #[cfg(feature = "when")]
+    fn parse_for_value(&mut self) -> Result<Value, String> {
+        if !self.features.has(Feature::For) {
+            return Err(
+                "sml: `@for` 未启用，需在文档中 `@feature enable for`（或在契约中声明）".into(),
+            );
+        }
+        // 解析 `var in a b c`，游标停在 `{` 处。
+        let (var, items) = crate::cond::eval_for_header(self)?;
+        // 切出循环体内部 token（不含两端括号），游标已越过 `}`。
+        let body = self.slice_block_tokens()?;
+
+        let mut arr = Vec::with_capacity(items.len());
+        for item in &items {
+            let mut child = self.spawn_for_child(body.clone(), &var, item);
+            // 子解析器从块内部 token 起始，已无外层 `}`，故以 EOF 为结束（closing=None）。
+            let val = child.parse_block(None)?;
+            arr.push(val);
+        }
+        Ok(Value::Array(arr))
     }
 
     /// 外层 wrapper：深度守卫，防止深度嵌套数组触发递归下降的栈溢出。
@@ -1540,6 +1709,19 @@ pub enum Feature {
     /// 追加在末尾以保证既有特性位序不变（C-ABI `sml_feature_name(bit)`
     /// 与该位序绑定，见 `feature_names` 的守护用例）。
     When,
+    /// `@for var in a b c { ... }` 有界循环展开（作用于值位置，生成数组）。
+    ///
+    /// **opt-in**：不在 `baseline()` 中，需文档显式 `@feature enable for`。
+    /// 刻意**不引入通用表达式求值器，也不是图灵完备的**：
+    /// 1. **循环有界**：只遍历有限列表（`in` 后的显式枚举），无 `while`；
+    /// 2. **变量只读**：`${var}` 是只读绑定，循环体不能修改它或列表；
+    /// 3. **无递归**：模板不能引用自身。
+    ///
+    /// 有界循环属于 LOOP 语言（原始递归），算不了 Ackermann 函数；一旦引入
+    /// `while`/递归就必须配套沙箱与资源配额——那与「SML 是纯数据格式」冲突。
+    ///
+    /// 追加在 `When` 之后以保位序稳定。
+    For,
 }
 
 /// 返回全部已注册特性的名字，顺序与 [`FEATURES`]（即特性位序）一致。
@@ -1564,6 +1746,7 @@ pub static FEATURES: &[(&str, Feature)] = &[
     ("regex-include", Feature::RegexInclude),
     ("ext-rewrite", Feature::ExtRewrite),
     ("when", Feature::When),
+    ("for", Feature::For),
 ];
 
 impl Feature {
@@ -1694,85 +1877,6 @@ fn tok_word(t: &Tok) -> String {
     match t {
         Tok::Word(s) | Tok::Str(s) => s.clone(),
         _ => String::new(),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// `@when <条件>` —— 解析期静态条件裁剪
-// ---------------------------------------------------------------------------
-
-/// `@when` 支持的条件形式（**闭集**）：
-///
-/// ```text
-/// @when $env.NAME              # 真值：值非空且不等于 "0" / "false"
-/// @when $env.NAME == "value"   # 相等（右侧可为引号串或裸词）
-/// @when $env.NAME != "value"   # 不等
-/// ```
-///
-/// # 为什么不做成通用表达式
-///
-/// 一旦支持 `&&` / `||` / 括号 / 函数调用，就必须引入表达式求值器，进而需要
-/// 沙箱、超时、禁 IO 等一整套防护，且与「SML 是纯数据格式」的定位冲突。
-/// 这里只做**闭集模式匹配**：解析器直接读取 1 或 3 个 token，没有任何求值。
-/// 想表达复合条件请拆成多个 `@when`（或用外层构建工具按环境生成不同文件）。
-///
-/// 只读取 `$env.*`：环境变量是唯一在解析期就有确定值、且语义无歧义的输入。
-/// 不支持引用文档内其它字段，避免产生求值顺序与前向引用的复杂语义。
-fn eval_when_cond(
-    p: &mut Parser,
-) -> Result<bool, String> {
-    // 左侧：必须是 `$env.NAME`
-    let lhs = match p.next() {
-        Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
-        other => return Err(format!("sml: `@when` 后须条件（如 `$env.ENV == \"prod\"`），得 {:?}", other)),
-    };
-    let var = lhs.strip_prefix("$env.").ok_or_else(|| {
-        format!(
-            "sml: `@when` 的条件左侧只支持 `$env.NAME`，得 `{lhs}`\
-             （暂不支持文档内字段引用）"
-        )
-    })?;
-    if var.is_empty() {
-        return Err("sml: `@when` 的 `$env.` 后须变量名".into());
-    }
-    if !p.features.has(Feature::Env) {
-        return Err(format!("sml: `@when $env.{var}` 需要特性 `env`，但当前特性集已禁用"));
-    }
-    let actual = p.env_var(var);
-
-    // 运算符：可选。`==` / `!=` 不是特殊 token，词法器会切成 Word。
-    let op = match p.peek() {
-        Some(Tok::Word(w)) if w == "==" || w == "!=" || w == "=" => {
-            let op = w.clone();
-            p.next();
-            Some(op)
-        }
-        _ => None,
-    };
-
-    match op {
-        None => {
-            // 真值测试：空串 / "0" / "false" 视为假
-            Ok(!actual.is_empty() && actual != "0" && actual != "false")
-        }
-        Some(op) => {
-            let rhs = match p.next() {
-                Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
-                other => return Err(format!("sml: `@when` 的 `{op}` 后须比较值，得 {:?}", other)),
-            };
-            // 漏写比较值时（`@when $env.X ==` 后直接换行写下一个字段），
-            // 下一个字段名会被当成比较值吃掉，只在更后面才报出莫名的
-            // 「期望键」错误。这里提前识别并给出准确提示。
-            if p.peek() == Some(&Tok::Colon) {
-                return Err(format!(
-                    "sml: `@when` 的 `{op}` 后缺少比较值（写成了 `{op}` 后直接换行）；\
-                     正确形式如 `@when $env.ENV == \"prod\"`"
-                ));
-            }
-            // 单 `=` 按 `==` 处理（与多数配置语言一致），但要求显式写出
-            let eq = actual == rhs;
-            Ok(if op == "!=" { !eq } else { eq })
-        }
     }
 }
 
@@ -2260,6 +2364,7 @@ fn parse_impl_tokens(
         depth: 0,
         ns_stack: Vec::new(),
         env,
+        loop_vars: BTreeMap::new(),
     };
     // 顶层支持三种形态，与 `to_sml` 的输出对称：
     //   - `[ ... ]` 数组：to_sml 对非对象走 dump_inline，会输出顶层数组

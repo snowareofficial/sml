@@ -4,7 +4,7 @@ translationKey: "book-ch10"
 ---
 # Chapter 10: Complete Reference to Features
 
-The design principle of SML is "from minimalism to richness, with customizable functions" - the basic seven piece set is enabled by default; Complex abilities are disabled by default and can be explicitly enabled using `@feature enable` when needed.
+The design principle of SML is "from minimalism to richness, with customizable functions" - the basic nine piece set is enabled by default; Complex abilities are disabled by default and can be explicitly enabled using `@feature enable` when needed.
 
 This chapter is an authoritative reference for each feature: opening methods, syntax, error messages, and relationships with other features.
 
@@ -201,6 +201,78 @@ Naked words are automatically recognized as strings.
 |Close | `@feature disable bareword-str` - all strings must be quoted afterwards|
 |Trigger | When version `v.strict-strings()` is set|
 
+### `when` (**default off**)
+
+Parse-time static conditional pruning: based on `$env.*`, decide at parse stage
+whether the **next field/block** is kept.
+
+|Item | Value|
+|----|----|
+|Status | Default Off|
+|Enable | `@feature enable when`|
+|Syntax | `@when $env.NAME [==\|!= "value"]` (no operator = truthiness test)|
+|Scope | The **next** field/block immediately (cleared after consumption)|
+|Condition form | **Closed set**: only `$env.NAME` truthiness, or `$env.NAME ==`/`!=` literal|
+|Dependency | The `$env.*` left-hand side requires the `env` feature to be on|
+
+```sml
+@version v1
+@feature enable when
+
+@when $env.ENV == "prod"
+log_level: warn        # only appears in prod
+
+@when $env.DEBUG       # truthiness: non-empty and not "0"/"false"
+verbose: true
+```
+
+> **Design trade-off**: no general expressions (`&&`/`||`/`()`/function calls).
+> Supporting them would require an evaluator plus sandbox, timeout and IO-restriction
+> guards, conflicting with "SML is a pure data format". Split compound conditions into
+> multiple `@when`, or generate per-environment files with an external build tool.
+
+### `for` (**default off**)
+
+Parse-time bounded loop unrolling: substitute each item of the finite list after
+`in` into the loop body, producing an **array**.
+
+|Item | Value|
+|----|----|
+|Status | Default Off|
+|Enable | `@feature enable for`|
+|Syntax | `key: @for VAR in a b c { ... }`|
+|Loop variable | Read-only binding, referenced inside the body via `${VAR}` text interpolation|
+|List | The **finite enumeration** after `in` (naked word or quoted string); no `while`, no recursion|
+|Scope | In nested `@for`, the inner level sees the outer binding (same name shadowed by inner)|
+
+```sml
+@version v1
+@feature enable for
+
+hosts: @for h in web api db {
+  name: "${h}"
+  port: 8080
+}
+# ⇒ hosts: [ {name:"web",port:8080}, {name:"api",...}, {name:"db",...} ]
+```
+
+> **Combination trap `@when × @for`**:
+> - When outer `@when` is written **before** the `@for` field, a false condition means
+>   the **whole `hosts` field disappears** (not an empty array, the key is deleted) —
+>   "`@when` filters the field, not a single iteration".
+> - When `@when` is written **inside** the `@for` body, it applies to the next field
+>   within the block and is evaluated **per-element**.
+> The two semantics differ — keep them straight.
+
+> **Why no general loops**: bounded `for ... in` enumeration belongs to LOOP (primitive
+> recursive) languages — it cannot compute Ackermann, thus is not Turing-complete; once
+> `while`/recursion is introduced, sandbox and resource quotas become mandatory, which
+> conflicts with "SML is a pure data format".
+
+A complete runnable example is in
+[`examples/for_when.sml`](https://github.com/your-org/sml/blob/main/examples/for_when.sml)
+(`@when` + `@for` + nested `@for` + combination trap, demonstrated in one file).
+
 ## 10.3 Compatibility Matrix
 
 |Features ↓→| with namespace | with multi | with globe | with regex|
@@ -226,14 +298,20 @@ SML parser runs according to "feature bitmask":
 ```text
 FeatureSet = (include | namespace | implicit-ns | contract | env | escape
               | fragment | top-array | bareword-str
-              | multi | glob | regex | ext-rewrite)
+              | multi | glob | regex | ext-rewrite
+              | when | for)
 ```
 
--Core layer (default enabled) 7 bits default=1.
+-Core layer (default enabled) 9 bits default=1 (all basics except `when`/`for`).
 
--Entering the hierarchy (default off) 4 bits default=0.
+-Entering the hierarchy (default off) `multi | glob | regex | ext-rewrite | when | for` 6 bits default=0.
 
 -The parser directly rejects the corresponding syntax for unopened features (parsing error, **not silently skipping**).
+
+> `when`/`for` belong to the "parse-time directive" family, gated by the Rust-side cargo
+> feature `when` at compile time; the document-level `when`/`for` feature switches control
+> whether the syntax is allowed at runtime. Compile-time and runtime are decoupled: even if
+> the cargo feature is off at build time, other features are unaffected.
 
 This is the implementation foundation of 'customizable functionality, don't fall into the same path as YAML'.
 

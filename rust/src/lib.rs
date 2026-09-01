@@ -87,6 +87,13 @@ use std::collections::BTreeMap;
 mod value;
 mod core;
 mod c_abi;
+/// 解析期条件/重复原语（`@when`，未来 `@for`）。
+///
+/// 由 cargo feature `when` 门控：不需要这套能力的构建可关掉，省掉相关代码。
+/// 注意运行时 `Feature::When` 不受此门控（兼容性是文档属性，须始终可判定），
+/// 详见模块文档。
+#[cfg(feature = "when")]
+mod cond;
 #[cfg(feature = "serde")]
 mod serde_bridge;
 mod derive_macro;
