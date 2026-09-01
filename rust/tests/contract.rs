@@ -48,6 +48,108 @@ fn missing_required_field_fails() {
     assert!(e.contains("必填"), "got: {e}");
 }
 
+// ---------------------------------------------------------------------------
+// 错误定位：嵌套字段报错要给出**完整路径**（`api.port`），而不是只报最内层
+// 字段名（`port`）—— 深层配置里多个契约都可能有 `port`，只报字段名无法判断
+// 出错位置。
+// ---------------------------------------------------------------------------
+
+/// 组合契约：`App { db: Database, api: Service }`，其中 Database 还嵌了 Credentials。
+const NESTED: &str = "
+@contract Credentials { user: str  pass: str }
+@contract Database { host: str default localhost
+                     port: int min 1 max 65535
+                     creds: Credentials }
+@contract Service { name: str
+                    port: int min 1 max 65535
+                    tags: [str] optional }
+@contract App { db: Database  api: Service }
+";
+
+#[test]
+fn error_path_covers_nested_contract_field() {
+    let e = err(&format!(
+        "{NESTED}
+         app {{ @is App
+              db {{ host: h  port: 5432  creds {{ user: admin  pass: 12345 }} }}
+              api {{ name: gw  port: 443 }} }}"
+    ));
+    // 最内层的 pass 类型错，路径应追溯到 db.creds.pass
+    assert!(e.contains("db.creds.pass"), "应给出完整路径，got: {e}");
+}
+
+#[test]
+fn error_path_covers_child_block_field() {
+    let e = err(&format!(
+        "{NESTED}
+         app {{ @is App
+              db {{ host: h  port: 5432  creds {{ user: a  pass: b }} }}
+              api {{ name: gw  port: \"443\" }} }}"
+    ));
+    assert!(e.contains("api.port"), "应给出完整路径，got: {e}");
+}
+
+#[test]
+fn error_path_covers_array_element_index() {
+    let e = err(&format!(
+        "{NESTED}
+         app {{ @is App
+              db {{ host: h  port: 5432  creds {{ user: a  pass: b }} }}
+              api {{ name: gw  port: 443  tags: [web, 8080] }} }}"
+    ));
+    // 第 2 个元素（下标 1）是 int，应为 str
+    assert!(e.contains("api.tags[1]"), "数组错误应带下标，got: {e}");
+}
+
+#[test]
+fn error_path_covers_undeclared_field_in_child_block() {
+    let e = err(&format!(
+        "{NESTED}
+         app {{ @is App
+              db {{ host: h  port: 5432  creds {{ user: a  pass: b }}  extra: 1 }}
+              api {{ name: gw  port: 443 }} }}"
+    ));
+    assert!(e.contains("db.extra"), "未声明字段应带所在块路径，got: {e}");
+}
+
+#[test]
+fn error_path_covers_missing_composed_block() {
+    let e = err(&format!(
+        "{NESTED}
+         app {{ @is App
+              db {{ host: h  port: 5432 }}
+              api {{ name: gw  port: 443 }} }}"
+    ));
+    assert!(e.contains("db.creds"), "必填组合字段应带路径，got: {e}");
+}
+
+#[test]
+fn error_path_covers_range_violation() {
+    let e = err(&format!(
+        "{NESTED}
+         app {{ @is App
+              db {{ host: h  port: 99999  creds {{ user: a  pass: b }} }}
+              api {{ name: gw  port: 443 }} }}"
+    ));
+    assert!(e.contains("db.port"), "超上界应带路径，got: {e}");
+    assert!(e.contains("65535"), "应提示上界值，got: {e}");
+}
+
+/// 顶层块自身的直接字段没有路径前缀：顶层块不进 ns_stack（否则 `@is App`
+/// 会被 qualify 成 `app.App` 而找不到契约），故只报字段名。
+#[test]
+fn top_level_field_has_no_path_prefix() {
+    let e = err(&format!(
+        "{NESTED}
+         app {{ @is App
+              db {{ host: h  port: 5432  creds {{ user: a  pass: b }} }}
+              api {{ name: gw  port: 443 }}
+              extra: 1 }}"
+    ));
+    assert!(e.contains("extra"), "got: {e}");
+    assert!(!e.contains("app.extra"), "顶层字段不应带前缀，got: {e}");
+}
+
 #[test]
 fn type_mismatch_fails() {
     // port 声明为 int，实际给了字符串
