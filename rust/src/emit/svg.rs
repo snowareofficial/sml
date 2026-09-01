@@ -129,6 +129,16 @@ fn emit_svg_node(
         return Err(format!("svg: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
     }
     let pad = " ".repeat(depth * opt.base.indent);
+    // SML merges repeated blocks of the same name into an array
+    // (e.g. several `circle { }` blocks). Expand them into sibling elements,
+    // preserving source order. Without this the array falls through to the
+    // scalar branch and the elements are lost (see slint's emit_slint).
+    if let Value::Array(a) = v {
+        for item in a {
+            emit_svg_node(item, inferred, fallback_tag, opt, depth, is_root, out)?;
+        }
+        return Ok(());
+    }
     if let Value::Object(m) = v {
         let tag = sanitize_xml_name(block_type(v).or(inferred).unwrap_or(fallback_tag));
         let mut attrs = String::new();
