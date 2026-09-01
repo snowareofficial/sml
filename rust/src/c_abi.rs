@@ -1,4 +1,5 @@
 use crate::core::*;
+#[cfg(feature = "sml")]
 use crate::core::to_sml;
 use crate::value::*;
 use std::collections::BTreeMap;
@@ -9,36 +10,65 @@ use std::collections::BTreeMap;
 use std::os::raw::{c_char, c_int};
 use std::ptr;
 
-fn cstr(s: &str) -> *mut c_char {
-    let c = std::ffi::CString::new(s).unwrap_or_default();
-    c.into_raw()
+/// 把 `&str` 编码为 NUL 结尾的 C 字符串。
+///
+/// 若 `s` 含内嵌 NUL（`CString::new` 失败），返回 `None` 而非静默回退为空串——
+/// 调用方应据以返回 NULL 并（在可用处）置错误码，避免「拿到空结果却无错误」的
+/// 数据完整性陷阱（见 C-ABI 审计报告 #2）。
+fn cstr(s: &str) -> Option<*mut c_char> {
+    match std::ffi::CString::new(s) {
+        Ok(c) => Some(c.into_raw()),
+        Err(_) => None,
+    }
+}
+
+/// [`cstr`] 的便捷封装：失败时返回 `NULL`（与既有 `sml_parse` 等「失败返回 NULL」
+/// 的约定一致）。调用处若持有 `err` 参数，应优先自行返回 NULL 并填充错误。
+fn cstr_or_null(s: &str) -> *mut c_char {
+    cstr(s).unwrap_or(ptr::null_mut())
 }
 
 /// sml_parse(text) -> 返回 JSON 字符串 (调用方 sml_free 释放); 失败返回 NULL
+///
+/// # Safety
+/// `text` 必须是合法 NUL 结尾的 C 字符串，或 NULL（NULL 直接返回 NULL）。
+/// 传入悬垂 / 非 NUL 结尾的指针是未定义行为。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
-pub extern "C" fn sml_parse(text: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn sml_parse(text: *const c_char) -> *mut c_char {
     if text.is_null() {
         return ptr::null_mut();
     }
     let t = unsafe { std::ffi::CStr::from_ptr(text) }.to_string_lossy().into_owned();
     match parse(&t) {
-        Ok(v) => cstr(&jsonify(&v)),
+        Ok(v) => cstr_or_null(&jsonify(&v)),
         Err(_) => ptr::null_mut(),
     }
 }
 
 /// sml_dump(json) -> 接受 JSON 字符串, 序列化为 SML; 调用方 sml_free
+///
+/// # Safety
+/// `json` 必须是合法 NUL 结尾的 C 字符串，或 NULL（NULL 直接返回 NULL）。
+/// 传入悬垂 / 非 NUL 结尾的指针是未定义行为。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
-pub extern "C" fn sml_dump(json: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn sml_dump(json: *const c_char) -> *mut c_char {
     if json.is_null() {
         return ptr::null_mut();
     }
     let j = unsafe { std::ffi::CStr::from_ptr(json) }.to_string_lossy().into_owned();
-    match json_to_value(&j) {
-        Some(v) => cstr(&to_sml(&v)),
-        None => ptr::null_mut(),
+    #[cfg(feature = "sml")]
+    {
+        match json_to_value(&j) {
+            Some(v) => cstr_or_null(&to_sml(&v)),
+            None => ptr::null_mut(),
+        }
+    }
+    #[cfg(not(feature = "sml"))]
+    {
+        let _ = j;
+        ptr::null_mut()
     }
 }
 
@@ -172,15 +202,19 @@ fn parse_opts_json(opts: &str) -> Result<(Vec<Feature>, Vec<(String, String)>, V
 /// opts_json 示例:
 ///   {"features":["glob-include","contract"],"env":{"APP_ENV":"prod"},"allow":["v1","v3"]}
 /// - features: 调用方额外启用的特性 (与文档 @feature 取交集)。
-/// - env:      注入到进程环境, 供 `$env.X` 内联解析 (调用期间临时设置并恢复)。
+/// - env:      环境变量**覆盖表**，供 `$env.X` 内联解析。仅作用于本次调用，
+///             不写入进程环境（避免并发调用下 `set_var` 的数据竞争，以及
+///             覆盖 `PATH` / `LD_PRELOAD` 等影响进程行为的变量）。
 /// - allow:    限定文档声明的版本必须在此范围内; 空数组表示不限制。
 /// 失败 (语法/版本/特性越权/文件找不到) 返回 NULL。
-// env 注入/恢复：edition 2024 起 set_var/remove_var 为 unsafe，
-// 需 unsafe 块；edition 2021 下该块多余，故一并 allow 掉告警。
-#[allow(unused_unsafe)]
+///
+/// # Safety
+/// `text` 必须为合法 NUL 结尾的 C 字符串或 NULL；`opts` 可为 NULL（表示不传选项），
+/// 非 NULL 时同样必须是合法 NUL 结尾的 C 字符串。传入悬垂 / 非 NUL 结尾的指针
+/// 是未定义行为。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
-pub extern "C" fn sml_parse_ex(text: *const c_char, opts: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn sml_parse_ex(text: *const c_char, opts: *const c_char) -> *mut c_char {
     if text.is_null() {
         return ptr::null_mut();
     }
@@ -194,21 +228,16 @@ pub extern "C" fn sml_parse_ex(text: *const c_char, opts: *const c_char) -> *mut
         Ok(x) => x,
         Err(_) => return ptr::null_mut(),
     };
-    // 临时注入 env (非并发安全, FFI 同步调用假设)。
-    let prev: Vec<(String, Option<String>)> = env
-        .iter()
-        .map(|(k, _)| (k.clone(), std::env::var(k).ok()))
-        .collect();
-    for (k, v) in &env {
-        unsafe { std::env::set_var(k, v) };
-    }
+    // env 仅作为本次解析的覆盖表传入，不触碰进程环境：
+    // 线程安全，且不会让文档通过覆盖 PATH / LD_PRELOAD 等变量影响宿主行为。
     let result = (|| {
         // 构造调用方允许特性集: 基础全集 并 上 opts 指定特性。
         let mut allowed = FeatureSet::all();
         for f in &feats {
             allowed = allowed.with(*f);
         }
-        let val = parse_with_features(&t, allowed).map(|(v, _)| v)?;
+        let env_map: BTreeMap<String, String> = env.into_iter().collect();
+        let val = parse_with_features_env(&t, allowed, env_map).map(|(v, _)| v)?;
         if !allow.is_empty() {
             let declared = strip_version(&t).ok().and_then(|(_, d)| d);
             if let Some(d) = declared {
@@ -219,30 +248,30 @@ pub extern "C" fn sml_parse_ex(text: *const c_char, opts: *const c_char) -> *mut
         }
         Ok(jsonify(&val))
     })();
-    // 恢复 env
-    for (k, v) in &prev {
-        match v {
-            Some(old) => unsafe { std::env::set_var(k, old) },
-            None => unsafe { std::env::remove_var(k) },
-        }
-    }
     match result {
-        Ok(s) => cstr(&s),
+        Ok(s) => cstr_or_null(&s),
         Err(_) => ptr::null_mut(),
     }
 }
 
 /// sml_parse_file(path) -> JSON 字符串 (调用方 sml_free) 或 NULL。
 /// 桥接内部 parse_file: 自动处理 include / glob / @contract 校验, 带文件上下文。
+///
+/// # Safety
+/// `path` 必须为合法 NUL 结尾的 C 字符串或 NULL（NULL 直接返回 NULL）。
+/// 传入悬垂 / 非 NUL 结尾的指针是未定义行为。
+///
+/// 注：`include` 的路径遍历防护（canonicalize + starts_with）在 Rust 侧生效，
+/// 传入任意路径都不会越出主文件所在目录。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
-pub extern "C" fn sml_parse_file(path: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn sml_parse_file(path: *const c_char) -> *mut c_char {
     if path.is_null() {
         return ptr::null_mut();
     }
     let p = unsafe { std::ffi::CStr::from_ptr(path) }.to_string_lossy().into_owned();
     match parse_file(&p) {
-        Ok(v) => cstr(&jsonify(&v)),
+        Ok(v) => cstr_or_null(&jsonify(&v)),
         Err(_) => ptr::null_mut(),
     }
 }
@@ -258,7 +287,7 @@ pub extern "C" fn sml_features() -> *mut c_char {
         .map(|n| format!("\"{}\"", n))
         .collect::<Vec<_>>()
         .join(",");
-    cstr(&format!("[{}]", body))
+    cstr_or_null(&format!("[{}]", body))
 }
 
 // ---------------------------------------------------------------------------
@@ -445,8 +474,8 @@ pub unsafe extern "C" fn sml_load_file(
         return ptr::null_mut();
     }
     let p = std::ffi::CStr::from_ptr(path).to_string_lossy().into_owned();
-    let _ = flags; // 文件入口的特性由文档 @feature 与 flags 共同决定
-    match parse_file(&p) {
+    let allowed = feature_set_from_flags(flags);
+    match parse_file_features(&p, allowed) {
         Ok(v) => Box::into_raw(Box::new(CSmlValue(v))),
         Err(e) => {
             CSmlError::fill(err, classify(&e), &e, &p);
@@ -487,6 +516,12 @@ pub unsafe extern "C" fn sml_typeof(v: *const CSmlValue) -> c_int {
 }
 
 /// 取对象字段（**借用**，不可释放）；键不存在或类型不符返回 NULL。
+///
+/// # 安全契约（调用方必须遵守）
+/// 返回的指针**借用**自 `v` 指向的值，**没有独立所有权**：
+/// - 不得传给 [`sml_free`]（会 double free）；
+/// - 不得在 `v` 被 `sml_free` 之后继续使用（use-after-free）；
+/// - 需要延长生命周期时，必须先 `sml_clone` 取得独立副本。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_get(
@@ -508,6 +543,9 @@ pub unsafe extern "C" fn sml_get(
 }
 
 /// 按 `.` 分隔路径逐层取值（**借用**，不可释放）。
+///
+/// 生命周期约束同 [`sml_get`]：返回值借用自 `v`，不可释放、不可跨越 `v` 的
+/// 释放点使用。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_get_path(
@@ -537,6 +575,9 @@ pub unsafe extern "C" fn sml_get_path(
 }
 
 /// 取数组第 `idx` 个元素（**借用**，不可释放）。
+///
+/// 生命周期约束同 [`sml_get`]：返回值借用自 `v`，不可释放、不可跨越 `v` 的
+/// 释放点使用。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_at(v: *const CSmlValue, idx: usize) -> *const CSmlValue {
@@ -603,7 +644,10 @@ pub unsafe extern "C" fn sml_str_dup(v: *const CSmlValue) -> *mut c_char {
         return ptr::null_mut();
     }
     match &(*(v as *const Value)) {
-        Value::Str(s) => cstr(s),
+        Value::Str(s) => match cstr(s) {
+            Some(p) => p,
+            None => ptr::null_mut(),
+        },
         _ => ptr::null_mut(),
     }
 }
@@ -722,7 +766,14 @@ pub unsafe extern "C" fn sml_dumps(v: *const CSmlValue, _flags: c_uint) -> *mut 
     if v.is_null() {
         return ptr::null_mut();
     }
-    cstr(&to_sml(&(*(v as *const Value))))
+    #[cfg(feature = "sml")]
+    {
+        cstr_or_null(&to_sml(&(*(v as *const Value))))
+    }
+    #[cfg(not(feature = "sml"))]
+    {
+        ptr::null_mut()
+    }
 }
 
 /// 返回该特性位对应的名字（静态字符串，无需释放）；越界返回 NULL。
@@ -769,7 +820,7 @@ pub extern "C" fn sml_features_mask() -> c_uint {
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub extern "C" fn sml_version_str() -> *mut c_char {
-    cstr(env!("CARGO_PKG_VERSION"))
+    cstr_or_null(env!("CARGO_PKG_VERSION"))
 }
 
 // 供 `#[no_mangle]` 之外的内部代码引用，避免 `c_ulonglong` 触发未使用警告。
@@ -780,15 +831,41 @@ type _CUnsignedLongLong = c_ulonglong;
 // 内部: JSON <-> Value (供 C-ABI 便捷桥)
 // ---------------------------------------------------------------------------
 
-pub(crate) fn jsonify(v: &Value) -> String {
+pub fn jsonify(v: &Value) -> String {
     fn esc(s: &str) -> String {
-        s.replace('\\', "\\\\").replace('"', "\\\"")
+        let mut out = String::with_capacity(s.len() + 2);
+        for c in s.chars() {
+            match c {
+                '\\' => out.push_str("\\\\"),
+                '"' => out.push_str("\\\""),
+                '\n' => out.push_str("\\n"),
+                '\r' => out.push_str("\\r"),
+                '\t' => out.push_str("\\t"),
+                // 控制字符 (0x00-0x1F) 必须转义为 \u00XX，否则产出非法 JSON
+                // （下游 JSON 解析器遇裸换行/NUL 必报错）。此前仅转义 \\ 与 "，
+                // 导致含换行的字符串被吐出成非法 JSON（C-ABI 审计 #1）。
+                c if (c as u32) < 0x20 => {
+                    out.push_str(&format!("\\u{:04x}", c as u32));
+                }
+                c => out.push(c),
+            }
+        }
+        out
     }
     match v {
         Value::Null => "null".into(),
         Value::Bool(b) => b.to_string(),
         Value::Int(i) => i.to_string(),
-        Value::Float(f) => f.to_string(),
+        // NaN/inf 不是合法 JSON 字面量（`f.to_string()` 产出 "NaN"/"inf"，
+        // 下游解析器必拒，且不可回读为 SML）。退化为 JSON `null`，既不破坏
+        // 输出合法性，也明确标记「该值非有限数」（C-ABI 审计 #6）。
+        Value::Float(f) => {
+            if f.is_finite() {
+                f.to_string()
+            } else {
+                "null".into()
+            }
+        }
         Value::Str(s) => format!("\"{}\"", esc(s)),
         Value::Array(a) => {
             let parts: Vec<String> = a.iter().map(jsonify).collect();
@@ -804,7 +881,7 @@ pub(crate) fn jsonify(v: &Value) -> String {
     }
 }
 
-pub(crate) fn json_to_value(s: &str) -> Option<Value> {
+pub fn json_to_value(s: &str) -> Option<Value> {
     let bytes = s.as_bytes();
     let mut i = 0;
     let _n = bytes.len();
@@ -813,43 +890,71 @@ pub(crate) fn json_to_value(s: &str) -> Option<Value> {
             *i += 1;
         }
     };
+    // 字符串解析：把字节累积进 `buf`，解析结束后整体按 UTF-8 解码。
+    // 此前逐字节 `out.push(c as char)` 会把每个 UTF-8 字节当成一个码点，
+    // 导致中文等多字节字符被二次编码成乱码（C-ABI 审计 #3）。
     let mut parse_str = |b: &[u8], i: &mut usize| -> Option<String> {
         skip_ws(b, i);
         if *i >= b.len() || b[*i] != b'"' {
             return None;
         }
         *i += 1;
-        let mut out = String::new();
+        let mut buf: Vec<u8> = Vec::new();
         while *i < b.len() {
             let c = b[*i];
             if c == b'"' {
                 *i += 1;
-                return Some(out);
+                return String::from_utf8(buf).ok();
             }
             if c == b'\\' && *i + 1 < b.len() {
                 *i += 1;
                 let e = b[*i];
-                out.push(match e {
-                    b'n' => '\n',
-                    b't' => '\t',
-                    b'r' => '\r',
-                    b'"' => '"',
-                    b'\\' => '\\',
-                    _ => e as char,
-                });
+                match e {
+                    b'n' => buf.push(b'\n'),
+                    b't' => buf.push(b'\t'),
+                    b'r' => buf.push(b'\r'),
+                    b'"' => buf.push(b'"'),
+                    b'\\' => buf.push(b'\\'),
+                    b'/' => buf.push(b'/'),
+                    b'u' => {
+                        // \uXXXX：读取 4 位十六进制，解码为码点后按 UTF-8 写入。
+                        if *i + 4 < b.len() {
+                            let hex = std::str::from_utf8(&b[*i + 1..*i + 5]).ok()?;
+                            if let Ok(cp) = u32::from_str_radix(hex, 16) {
+                                if let Some(ch) = std::char::from_u32(cp) {
+                                    let mut tmp = [0u8; 4];
+                                    buf.extend_from_slice(ch.encode_utf8(&mut tmp).as_bytes());
+                                } else {
+                                    buf.extend_from_slice('\u{FFFD}'.encode_utf8(&mut [0u8; 4]).as_bytes());
+                                }
+                                *i += 5;
+                                continue;
+                            }
+                        }
+                        buf.extend_from_slice('\u{FFFD}'.encode_utf8(&mut [0u8; 4]).as_bytes());
+                    }
+                    _ => buf.push(e),
+                }
             } else {
-                out.push(c as char);
+                buf.push(c);
             }
             *i += 1;
         }
         None
     };
+    // 递归深度上限：不可信 JSON 可能构造极深嵌套直接令宿主进程栈溢出
+    // （abort，不可捕获），故需限制（C-ABI 审计 #4）。
+    const MAX_DEPTH: usize = 128;
     fn parse_val_impl(
         b: &[u8],
         i: &mut usize,
         s: &str,
         parse_str: &dyn Fn(&[u8], &mut usize) -> Option<String>,
+        depth: usize,
     ) -> Option<Value> {
+        if depth > MAX_DEPTH {
+            return None;
+        }
         let mut skip_ws = |b: &[u8], i: &mut usize| {
             while *i < b.len() && matches!(b[*i], b' ' | b'\t' | b'\n' | b'\r') {
                 *i += 1;
@@ -875,7 +980,7 @@ pub(crate) fn json_to_value(s: &str) -> Option<Value> {
                     if *i < b.len() && b[*i] == b':' {
                         *i += 1;
                     }
-                    let v = parse_val_impl(b, i, s, parse_str)?;
+                    let v = parse_val_impl(b, i, s, parse_str, depth + 1)?;
                     m.insert(k, v);
                     skip_ws(b, i);
                     if *i < b.len() && b[*i] == b',' {
@@ -896,7 +1001,7 @@ pub(crate) fn json_to_value(s: &str) -> Option<Value> {
                     return Some(Value::Array(a));
                 }
                 loop {
-                    a.push(parse_val_impl(b, i, s, parse_str)?);
+                    a.push(parse_val_impl(b, i, s, parse_str, depth + 1)?);
                     skip_ws(b, i);
                     if *i < b.len() && b[*i] == b',' {
                         *i += 1;
@@ -951,6 +1056,6 @@ pub(crate) fn json_to_value(s: &str) -> Option<Value> {
             }
         }
     }
-    parse_val_impl(bytes, &mut i, s, &parse_str)
+    parse_val_impl(bytes, &mut i, s, &parse_str, 0)
 }
 

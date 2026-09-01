@@ -5,7 +5,10 @@ translationKey: "book-ch07"
 
 # 第 7 章：多语言使用
 
-SML 是格式，要"用起来"得靠宿主语言解析它。各语言实现互不耦合、可单独嵌入（WASM / 沙箱 / 编辑器都行）。下面给出最常用的四种集成方式。
+SML 是格式，要"用起来"得靠宿主语言解析它。各语言实现互不耦合、可单独嵌入（WASM / 沙箱 / 编辑器都行）。下面给出最常用的几种集成方式。
+
+> **先说清楚适用范围**：**只有 Rust 实现（`swsml`）是参考实现并持续维护**——语法、契约、漏洞扫描与回归测试都以它为准，生产请用 Rust。
+> **C / JavaScript / Lua（Soup）/ C++ / Python 属实验性实现，暂不保证**与 Rust 行为一致、不保证 API 稳定、不纳入例行漏洞扫描与回归测试。本章中标注「已与 Rust 对齐」的内容为**历史对齐结论**，仅作参考。
 
 ## 7.1 Rust（`swsml`）
 
@@ -46,7 +49,7 @@ sml_value *v = sml_parse("name: John\nage: 27", err, sizeof(err));
 /* v->type == SML_STR ("John") ... 用 sml_free(v) 释放 */
 ```
 
-契约系统已与 Rust **100% 对齐**，同一份 `CONFIG_CONTRACT` 四端行为一致。
+契约系统曾与 Rust **100% 对齐**（同一份 `CONFIG_CONTRACT` 四端行为一致）；请注意 C 实现现为**实验性、暂不保证**。
 
 ## 7.3 JavaScript（`sml.mjs`）
 
@@ -85,12 +88,12 @@ soupx lua/sml.sar config.sml     # 解析并打印
 
 ## 7.6 选哪个？
 
-| 你在写 | 用 |
-|--------|----|
-| Rust 程序 / 命令行工具 | `swsml` |
-| 嵌入式 / 系统层 | C / C++ |
-| 前端 / Node 服务 | `sml.mjs` |
-| Soup 生态 / 脚本 | `lib/sml.soup` |
+| 你在写 | 用 | 保证 |
+|--------|----|------|
+| Rust 程序 / 命令行工具 | `swsml` | ✅ 参考实现，生产推荐 |
+| 嵌入式 / 系统层 | C / C++ | ⚠️ 实验性，暂不保证 |
+| 前端 / Node 服务 | `sml.mjs` | ⚠️ 实验性，暂不保证 |
+| Soup 生态 / 脚本 | `lib/sml.soup` | ⚠️ 实验性，暂不保证 |
 
 → [第 8 章：实战项目](/book/ch08-project)
 

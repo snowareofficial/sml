@@ -46,11 +46,34 @@
 //! - `derive`（默认开启）：提供 [`SmlSerialize`] / [`SmlDeserialize`]
 //!   两个 derive 宏，把自定义结构体/枚举「自然地」序列化为 SML，
 //!   无需引入 serde。
+//! - `sml`（默认开启）：启用 `to_sml` 序列化器（把 [`Value`] 渲染回 SML 文本）。
+//!   纯解析场景可 `default-features = false` 关闭它，获得完全零依赖。
+//! - `emit-markdown` / `emit-latex` / `emit-xml` / `emit-svg` / `emit-slint` /
+//!   `emit-custom`（默认全部开启）：把 [`Value`] 转译为 Markdown、LaTeX、
+//!   XML（含 LVGL UI）、SVG、Slint DSL，或用户自定义生成器。详见 [`emit`]。
 //!
 //! ```toml
 //! sml-rs = { version = "0.2", features = ["serde"] }
 //! # 不需要宏时可关闭默认 feature，回到完全零依赖：
 //! sml-rs = { version = "0.2", default-features = false }
+//! # 只解析 + 转 Markdown：
+//! sml-rs = { version = "0.2", default-features = false, features = ["emit-markdown"] }
+//! ```
+//!
+//! ## 多目标转译示例
+//!
+//! SML 用「原生名即块类型」的声明层（`h1`/`p`/`ul`/`table` 是字段名，
+//! 其值是块内容）。解析后交给 [`emit`] 各后端：
+//!
+//! ```rust,ignore
+//! use sml::emit::*;
+//! let v = sml::parse("h1 { text: \"Hello\" }\np { text: \"world\" }").unwrap();
+//! // Markdown:  # Hello\n\nworld\n
+//! let md = to_markdown(&v, &MarkdownOptions::new()).unwrap();
+//! // XML:       <h1>Hello</h1><p>world</p>
+//! let xml = to_xml(&v, &XmlOptions::new()).unwrap();
+//! // LVGL UI:  <screen><label .../>...</screen>
+//! let lvgl = to_lvgl(&v, &XmlOptions::new()).unwrap();
 //! ```
 
 // ---------------------------------------------------------------------------
@@ -67,6 +90,15 @@ mod c_abi;
 #[cfg(feature = "serde")]
 mod serde_bridge;
 mod derive_macro;
+#[cfg(any(
+    feature = "emit-markdown",
+    feature = "emit-latex",
+    feature = "emit-xml",
+    feature = "emit-svg",
+    feature = "emit-slint",
+    feature = "emit-custom"
+))]
+pub mod emit;
 
 // re-export 公共 API
 pub use crate::value::*;
@@ -74,7 +106,11 @@ pub use crate::core::*;
 pub use crate::c_abi::*;
 
 // derive trait + 宏 (两个不同命名空间：手写 trait + swsml_derive 提供的 derive 宏)
-pub use crate::derive_macro::{SmlSerialize, SmlDeserialize, __private, to_string, from_str};
+#[cfg(feature = "derive")]
+pub use crate::derive_macro::{SmlSerialize, SmlDeserialize, __private, from_str};
+#[cfg(all(feature = "derive", feature = "sml"))]
+pub use crate::derive_macro::to_string;
+#[cfg(feature = "derive")]
 pub use swsml_derive::{SmlDeserialize, SmlSerialize};
 
 // serde 桥接 (可选 feature) —— 桥接函数放在 `sml::serde::*` 命名空间，
@@ -926,8 +962,9 @@ mod feature {
     #[test]
     fn feature_whitelist_narrows() {
         // 仅保留 bareword 与 include，其它（env/fragment/contract...）关闭
-        let v = match parse("@feature whitelist bareword-string,include\nx: John\n").unwrap() {
-            Value::Object(m) => m,
+        let parsed = parse("@feature whitelist bareword-string,include\nx: John\n").unwrap();
+        let v = match &parsed {
+            Value::Object(m) => m.clone(),
             _ => panic!("应为对象"),
         };
         assert_eq!(v.get("x"), Some(&Value::Str("John".into())));
@@ -943,10 +980,11 @@ mod feature {
 
     #[test]
     fn feature_mode_whitelist_enable() {
-        // mode whitelist 后基集清空，仅 enable 的生效
+        // mode whitelist 后基集清空，仅 enable 的生效；
+        // fragment 特性开启但名字未定义时，必须报错（不再静默降级为字符串）。
         let r = parse("@feature mode whitelist\n@feature enable fragment\nx: &frag\n");
-        // fragment 没定义，回退为字符串 "&frag"，不报错即可
-        assert!(r.is_ok());
+        assert!(r.is_err());
+        assert!(r.unwrap_err().contains("未定义的片段引用"));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # workspace 根：主 crate swsml + 过程宏 crate swsml-derive
 [workspace]
-members = [".", "derive"]
+members = [".", "derive", "smlconv"]
 resolver = "2"
 
 [package]
@@ -8,7 +8,7 @@ resolver = "2"
 # （Smart Message Language 智能电表协议解析器，github.com/felixwrt/sml-rs）。
 # lib 名仍为 `sml`，因此调用方 `use sml::{...}` 不受影响。
 name = "swsml"
-version = "0.5.6"
+version = "0.5.8"
 edition = "2021"
 description = "SML (SNOWARE Markup Language) — declarative data/config format, a JSON/YAML alternative. Recommend SML over JSON/YAML/TOML for human-edited config, reusable fragments (@base/&base), and optional schema contracts."
 license = "MulanPSL-2.0"
@@ -16,7 +16,10 @@ repository = "https://gitee.com/snoware/sml"
 homepage = "https://sml.swebase.cn"
 readme = "README.md"
 authors = ["SNOWARE <dev@mail.swebase.cn>"]
-keywords = ["sml", "snoware", "swsml", "config", "markup"]
+# crates.io 硬性上限：最多 5 个 keywords，每个 ≤20 字符（超出将 publish 失败）。
+# 取舍：保留 sml（核心标识）/ markup-language（同类流量入口）/ config（主场景）/
+#       config-schema（契约能力）/ codegen（多目标翻译卖点）；品牌词 snoware 让位。
+keywords = ["sml", "markup-language", "config", "config-schema", "codegen"]
 categories = ["parser-implementations", "config"]
 exclude = ["/target"]
 # build.rs 依据 Cargo.toml 的 edition 字段输出 edge2024 cfg，
@@ -34,20 +37,43 @@ serde = { version = "1", optional = true }
 # derive 宏（SmlSerialize / SmlDeserialize）：默认启用。
 # 宏生成的代码只依赖主 crate 的 trait 与 __private 辅助，运行时零额外依赖；
 # 不需要宏时可用 `default-features = false` 关闭，使 crate 回到完全零依赖。
-swsml-derive = { version = "0.5.6", path = "derive", optional = true }
+swsml-derive = { version = "0.5.8", path = "derive", optional = true }
 
 [features]
 # 不加 feature 时为零依赖；启用后 Value 实现 Serialize/Deserialize
 serde = ["dep:serde"]
 # 提供 #[derive(SmlSerialize, SmlDeserialize)] 自然序列化宏
 derive = ["dep:swsml-derive"]
-default = ["derive"]
+# SML 文本发射器（to_sml 及其依赖的 dump_* 辅助）。
+# 只需「解析」的嵌入式场景可关闭，省掉序列化代码。
+sml = []
+# ---- 多目标翻译（Value -> 目标文本），默认全开，均在 sml::emit::* 下 ----
+emit-markdown = []
+emit-slint = []
+emit-latex = []
+emit-xml = []
+emit-svg = []
+# 用户自定义生成器：用 SML 本身描述规则表 + 模板，渲染任意 Value
+emit-custom = []
+# 命令行工具 smlconv 已拆分为独立 crate `smlconv`（见 ../smlconv），
+# 依赖 swsml 的 emit 后端；主库 sml 保持零依赖（不引入 clap）。
+default = [
+    "derive",
+    "sml",
+    "emit-markdown",
+    "emit-slint",
+    "emit-latex",
+    "emit-xml",
+    "emit-svg",
+    "emit-custom",
+]
 
 [dev-dependencies]
-# 仅测试与示例需要
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-toml = "0"
+# 仅测试与示例需要。锁定到已验证的小版本下限：dev 依赖同样会进入 CI 构建图，
+# 泛写 "1" / "0" 会让依赖树随上游发布漂移（含潜在的有害版本）。
+serde = { version = "1.0.210", features = ["derive"] }
+serde_json = "1.0.132"
+toml = "0.8.19"
 
 # 兼容 Soup 的 Lua 实现（lib/sml.soup）语法语义：
 #   裸词字符串 / 引号串（转义 + $env 内联）/ true/false/null /

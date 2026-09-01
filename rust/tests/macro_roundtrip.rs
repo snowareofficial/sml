@@ -337,6 +337,76 @@ fn type_error_message_is_informative() {
     assert!(err.contains("字符串"), "错误应说明期望类型: {err}");
 }
 
+// ---------------------------------------------------------------------------
+// derive 整数转换边界（审计报告：静默饱和 / 回绕）
+// ---------------------------------------------------------------------------
+
+fn v_int(i: i64) -> sml::Value {
+    sml::Value::Int(i)
+}
+fn v_float(f: f64) -> sml::Value {
+    sml::Value::Float(f)
+}
+
+#[test]
+fn u64_float_overflow_rejected() {
+    // u64 <- Float(1e30) 此前静默饱和成 u64::MAX
+    let r: Result<u64, _> = u64::from_sml_value(&v_float(1e30));
+    assert!(r.is_err(), "1e30 超出 u64 范围，应报错而非饱和");
+}
+
+#[test]
+fn u128_int_negative_rejected() {
+    // u128 <- Int(-1) 此前静默变成 u128::MAX
+    let r: Result<u128, _> = u128::from_sml_value(&v_int(-1));
+    assert!(r.is_err(), "负数不能填入 u128，应报错");
+}
+
+#[test]
+fn i128_float_overflow_rejected() {
+    // i128 <- Float(1e40) 此前静默饱和成 i128::MAX
+    let r: Result<i128, _> = i128::from_sml_value(&v_float(1e40));
+    assert!(r.is_err(), "1e40 超出 i128 范围，应报错");
+}
+
+#[test]
+fn i64_float_boundary_no_saturation() {
+    // i64 <- Float(9223372036854775808.0) == i64::MAX+1，此前误判合法并饱和成 MAX
+    let r: Result<i64, _> = i64::from_sml_value(&v_float(9223372036854775808.0));
+    assert!(r.is_err(), "i64::MAX+1 浮点应被拒绝（边界舍入）");
+    // 合法边界 i64::MAX 仍可通过
+    let ok: i64 = i64::from_sml_value(&v_int(i64::MAX)).unwrap();
+    assert_eq!(ok, i64::MAX);
+}
+
+#[test]
+fn usize_serialize_no_wrap() {
+    // usize(u64::MAX) 序列化此前 as i64 回绕成 -1
+    let v = u64::MAX.to_sml_value();
+    match v {
+        sml::Value::Int(i) => assert!(i >= 0, "u64::MAX 不应回绕为负数，实际 {i}"),
+        sml::Value::Float(_) => {} // 退化为 Float 也可接受（u64::MAX 无法放进 i64）
+        other => panic!("意外类型 {other:?}"),
+    }
+}
+
+#[test]
+fn i8_out_of_range_rejected() {
+    // i8 <- Float(200) 应报错
+    let r: Result<i8, _> = i8::from_sml_value(&v_float(200.0));
+    assert!(r.is_err(), "200 超出 i8 范围");
+    // i8 <- Int(200) 也应报错
+    let r2: Result<i8, _> = i8::from_sml_value(&v_int(200));
+    assert!(r2.is_err(), "200 超出 i8 范围");
+}
+
+#[test]
+fn float_fraction_rejected_for_int() {
+    // 小数不能填整数（精确性）
+    let r: Result<i32, _> = i32::from_sml_value(&v_float(1.5));
+    assert!(r.is_err(), "1.5 不是合法整数");
+}
+
 #[test]
 fn toml_rs_style_top_level_functions() {
     let s = Server {
