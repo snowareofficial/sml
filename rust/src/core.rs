@@ -96,11 +96,27 @@ pub struct Contract {
     pub allow_extra: bool,
 }
 
+/// 拼接字段路径：`("api", "port")` -> `"api.port"`。
+///
+/// 用于让错误信息定位到**嵌套字段**而非只报最内层字段名：深层配置里
+/// 多个契约都可能有 `port`，只报 `字段 port` 无法判断出错位置。
+/// 父路径为空时直接返回子名（顶层字段没有前缀）。
+fn join_path(parent: &str, child: &str) -> String {
+    if parent.is_empty() {
+        child.to_string()
+    } else {
+        format!("{}.{}", parent, child)
+    }
+}
+
 /// 校验值是否符合类型规格。
 /// `contracts` 供 `ContractRef`（组合）递归查找被引用契约。
+///
+/// `path` 是该字段的**完整路径**（如 `api.port`、`items[2].name`），
+/// 由调用方在递归时用 [`join_path`] 拼接后传入，仅用于错误信息定位。
 fn check_type(
     contract: &str,
-    field: &str,
+    path: &str,
     spec: &FieldSpec,
     v: &Value,
     contracts: &BTreeMap<String, Contract>,
@@ -116,20 +132,39 @@ fn check_type(
                 let target = contracts.get(ref_name).ok_or_else(|| {
                     format!(
                         "sml: 字段 `{}` 引用了未定义的契约 `{}`（契约 `{}`）",
-                        field, ref_name, contract
+                        path, ref_name, contract
                     )
                 })?;
-                apply_contract(target, &mut sub, contracts)?;
+                apply_contract(target, &mut sub, contracts, path)?;
                 Ok(())
             }
             _ => Err(format!(
                 "sml: 字段 `{}` 应为块并按契约 `{}` 校验，实际为 {}（契约 `{}`）",
-                field,
+                path,
                 ref_name,
                 value_kind(v),
                 contract
             )),
         };
+    }
+
+    // 数组：逐元素校验，错误**直接向上传播**（路径带下标，如 `tags[1]`）。
+    //
+    // 不能写成 `.all(|it| check_type(...).is_ok())` 再回落到下面的通用错误：
+    // 那样会丢弃下标，只报 `tags 类型应为 [str]` 而不指出是第几个元素出错。
+    if let (TypeSpec::Array(inner), Value::Array(items)) = (&spec.ty, v) {
+        let elem = FieldSpec {
+            ty: (**inner).clone(),
+            required: true,
+            default: None,
+            min: None,
+            max: None,
+        };
+        for (i, it) in items.iter().enumerate() {
+            check_type(contract, &format!("{}[{}]", path, i), &elem, it, contracts)?;
+        }
+        // 元素全部通过。数组本身不参与 min/max 区间校验（那是数值语义），直接返回。
+        return Ok(());
     }
 
     let ok = match (&spec.ty, v) {
@@ -141,22 +176,12 @@ fn check_type(
         (TypeSpec::Enum(vals), Value::Str(s)) => vals.iter().any(|x| x == s),
         // 裸词数字会被 coerce 成 Int/Float，故枚举也接受被 coerce 成标量的情形
         (TypeSpec::Enum(vals), Value::Int(i)) => vals.iter().any(|x| x == &i.to_string()),
-        (TypeSpec::Array(inner), Value::Array(items)) => items.iter().all(|it| {
-            check_type(
-                contract,
-                field,
-                &FieldSpec { ty: (**inner).clone(), required: true, default: None, min: None, max: None },
-                it,
-                contracts,
-            )
-            .is_ok()
-        }),
         _ => false,
     };
     if !ok {
         return Err(format!(
             "sml: 字段 `{}` 类型应为 {}，实际为 {}（契约 `{}`）",
-            field,
+            path,
             spec.ty.name(),
             value_kind(v),
             contract
@@ -175,14 +200,14 @@ fn check_type(
             if !n.is_finite() {
                 return Err(format!(
                     "sml: 字段 `{}` 的值为非有限数（NaN/inf），不可作为数值约束的取值（契约 `{}`）",
-                    field, contract
+                    path, contract
                 ));
             }
             if let Some(lo) = spec.min {
                 if n < lo {
                     return Err(format!(
                         "sml: 字段 `{}` 值 {} 小于下界 {}（契约 `{}`）",
-                        field, n, lo, contract
+                        path, n, lo, contract
                     ));
                 }
             }
@@ -190,7 +215,7 @@ fn check_type(
                 if n > hi {
                     return Err(format!(
                         "sml: 字段 `{}` 值 {} 大于上界 {}（契约 `{}`）",
-                        field, n, hi, contract
+                        path, n, hi, contract
                     ));
                 }
             }
@@ -219,6 +244,7 @@ fn apply_contract(
     c: &Contract,
     node: &mut BTreeMap<String, Value>,
     contracts: &BTreeMap<String, Contract>,
+    path: &str,
 ) -> Result<(), String> {
     // 1) 严格性：未声明字段一律拒绝（组合字段本身已在 fields 声明，其
     //    内部字段由被引用契约在自己的 apply_contract 中负责校验）
@@ -227,7 +253,7 @@ fn apply_contract(
             if !c.fields.contains_key(k) {
                 return Err(format!(
                     "sml: 字段 `{}` 未在契约 `{}` 中声明（严格模式；如需允许额外字段请在契约名后写 `loose`）",
-                    k, c.name
+                    join_path(path, k), c.name
                 ));
             }
         }
@@ -241,24 +267,25 @@ fn apply_contract(
                 } else if spec.required {
                     return Err(format!(
                         "sml: 字段 `{}` 必填但缺失（契约 `{}`）",
-                        k, c.name
+                        join_path(path, k), c.name
                     ));
                 }
             }
             Some(v) => {
+                let field_path = join_path(path, k);
                 // 组合会回填子块默认值，故需要可变副本
                 if matches!(spec.ty, TypeSpec::ContractRef(_)) {
                     // 先按**原值**校验必须是块，否则会退化成
                     // 「子字段缺失」这类误导性错误
-                    check_type(&c.name, k, spec, v, contracts)?;
+                    check_type(&c.name, &field_path, spec, v, contracts)?;
                     let mut sub = match v {
                         Value::Object(m) => m.clone(),
                         _ => unreachable!("check_type 已保证为块"),
                     };
-                    check_type_contract_ref(&c.name, k, spec, &mut sub, contracts)?;
+                    check_type_contract_ref(&c.name, &field_path, spec, &mut sub, contracts)?;
                     node.insert(k.clone(), Value::Object(sub));
                 } else {
-                    check_type(&c.name, k, spec, v, contracts)?;
+                    check_type(&c.name, &field_path, spec, v, contracts)?;
                 }
             }
         }
@@ -269,7 +296,7 @@ fn apply_contract(
 /// 对「组合字段」递归应用被引用契约（会回填子块默认值）
 fn check_type_contract_ref(
     contract: &str,
-    field: &str,
+    path: &str,
     spec: &FieldSpec,
     sub: &mut BTreeMap<String, Value>,
     contracts: &BTreeMap<String, Contract>,
@@ -281,12 +308,13 @@ fn check_type_contract_ref(
     let target = contracts.get(&ref_name).ok_or_else(|| {
         format!(
             "sml: 字段 `{}` 引用了未定义的契约 `{}`（契约 `{}`）",
-            field, ref_name, contract
+            path, ref_name, contract
         )
     })?;
     // 先做基础类型校验（值须为块），再递归应用
-    check_type(contract, field, spec, &Value::Object(sub.clone()), contracts)?;
-    apply_contract(target, sub, contracts)
+    check_type(contract, path, spec, &Value::Object(sub.clone()), contracts)?;
+    // 把完整路径传下去，子块的错误才能定位到 `parent.child` 而非只报字段名
+    apply_contract(target, sub, contracts, path)
 }
 
 // ---------------------------------------------------------------------------
@@ -1156,7 +1184,8 @@ impl Parser {
                 .get(&cname)
                 .cloned()
                 .ok_or_else(|| format!("sml: 未定义的契约 `{}`", cname))?;
-            apply_contract(&c, &mut node, &self.contracts)?;
+            // 用命名空间栈拼出当前块路径（如 `api`、`ns.api`），作为错误定位前缀
+            apply_contract(&c, &mut node, &self.contracts, &self.ns_prefix())?;
         }
         Ok(Value::Object(node))
     }
