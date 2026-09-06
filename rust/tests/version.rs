@@ -43,7 +43,7 @@ fn v3_quoted_string_ok() {
 fn v3_scalars_still_bareword() {
     let v = parse("@version v3\nn: 42\nf: 3.14\nb: true\nz: null\n").unwrap();
     assert_eq!(v.get("n"), Some(&Value::Int(42)));
-    assert_eq!(v.get("f"), Some(&Value::Float(3.14)));
+    assert_eq!(v.get("f"), Some(&Value::float(3.14)));
     assert_eq!(v.get("b"), Some(&Value::Bool(true)));
     assert_eq!(v.get("z"), Some(&Value::Null));
 }

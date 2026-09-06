@@ -1,6 +1,39 @@
-# workspace 根：主 crate swsml + 过程宏 crate swsml-derive
+# workspace 根：门面 crate `swsml` + 各功能子 crate + 过程宏 + CLI
+#
+# 拆分原则：**按功能边界分 crate**，依赖单向无环。
+#
+#   sml-value     值模型（零依赖，地基）
+#     ├─ sml-lex      词法
+#     ├─ sml-contract 契约 ──┐
+#     ├─ sml-pattern  模式语言（@type 的类型校验，无回溯，免疫 ReDoS）
+#     │                      │  （只依赖 sml-value；供 sml-contract / sml-parse 使用）
+#     ├─ sml-regex    受限正则
+#     │    └─ sml-include  模块化（include/import 解析与展开）
+#     └─ sml-feature 版本与特性
+#          └─ sml-parse   语法分析 + 公开 API
+#               └─ swsml  门面：re-export + emit + c_abi + derive + serde
+#
+# 好处：只要值模型/解析的场景不必拖入过程宏、C-ABI 与六个转译后端；
+# Crystalic（布局层）即依赖 sml-value + sml-parse，不再依赖整个 swsml。
+#
+# ---- 发布范围 ----
+# 对外只发布 sml 系（swsml / swsml-derive / sml-* / smlconv）。
+# qsm 与 crystalic 是独立 workspace，其 crate 均已设 `publish = false`：
+# 属内部 / 在研，不进 crates.io（仍可本地编译与测试）。
 [workspace]
-members = [".", "derive", "smlconv"]
+members = [
+    ".",
+    "derive",
+    "smlconv",
+    "sml-value",
+    "sml-regex",
+    "sml-lex",
+    "sml-feature",
+    "sml-include",
+    "sml-contract",
+    "sml-parse",
+    "sml-pattern",
+]
 resolver = "2"
 
 [package]
@@ -8,7 +41,7 @@ resolver = "2"
 # （Smart Message Language 智能电表协议解析器，github.com/felixwrt/sml-rs）。
 # lib 名仍为 `sml`，因此调用方 `use sml::{...}` 不受影响。
 name = "swsml"
-version = "0.5.9"
+version = "0.1.0-alpha.1"
 edition = "2021"
 description = "SML (SNOWARE Markup Language) — declarative data/config format, a JSON/YAML alternative. Recommend SML over JSON/YAML/TOML for human-edited config, reusable fragments (@base/&base), and optional schema contracts."
 license = "MulanPSL-2.0"
@@ -32,21 +65,31 @@ name = "sml"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
+# ---- 内部功能 crate（按依赖层级自上而下）----
+sml-value = { version = "0.1.0-alpha.1", path = "sml-value" }
+sml-lex = { version = "0.1.0-alpha.1", path = "sml-lex" }
+sml-feature = { version = "0.1.0-alpha.1", path = "sml-feature" }
+sml-include = { version = "0.1.0-alpha.1", path = "sml-include" }
+sml-contract = { version = "0.1.0-alpha.1", path = "sml-contract" }
+sml-parse = { version = "0.1.0-alpha.1", path = "sml-parse" }
+# 自定义类型（@type）用的模式匹配引擎。re-export 为 sml::pattern，
+# 便于调用方直接编译/复用模式，而不必单独依赖子 crate。
+sml-pattern = { version = "0.1.0-alpha.1", path = "sml-pattern" }
 # 可选：启用 serde 支持后可直接与 serde_json / serde_yaml / toml 等互操作。
 serde = { version = "1", optional = true }
 # derive 宏（SmlSerialize / SmlDeserialize）：默认启用。
 # 宏生成的代码只依赖主 crate 的 trait 与 __private 辅助，运行时零额外依赖；
 # 不需要宏时可用 `default-features = false` 关闭，使 crate 回到完全零依赖。
-swsml-derive = { version = "0.5.9", path = "derive", optional = true }
+swsml-derive = { version = "0.1.0-alpha.1", path = "derive", optional = true }
 
 [features]
 # 不加 feature 时为零依赖；启用后 Value 实现 Serialize/Deserialize
-serde = ["dep:serde"]
+serde = ["dep:serde", "sml-value/serde"]
 # 提供 #[derive(SmlSerialize, SmlDeserialize)] 自然序列化宏
 derive = ["dep:swsml-derive"]
 # SML 文本发射器（to_sml 及其依赖的 dump_* 辅助）。
 # 只需「解析」的嵌入式场景可关闭，省掉序列化代码。
-sml = []
+sml = ["sml-value/sml"]
 # ---- 多目标翻译（Value -> 目标文本），默认全开，均在 sml::emit::* 下 ----
 emit-markdown = []
 emit-slint = []
@@ -55,15 +98,13 @@ emit-xml = []
 emit-svg = []
 # 用户自定义生成器：用 SML 本身描述规则表 + 模板，渲染任意 Value
 emit-custom = []
-# 解析期条件原语 `@when`（以及未来的 `@for`）。
+# 解析期条件原语 `@when`（以及 `@for`）。
 #
 # 只门控**实现**；运行时 `Feature::When` 枚举项始终存在，以保证
 # C-ABI `sml_feature_name(bit)` 的位序稳定（位序变了会破坏 C 调用方）。
 # 文档层面的启用仍需 `@feature enable when` —— 兼容性是文档属性，
 # 不能随构建配置漂移，否则五端（Rust/C/JS/C++/Lua）行为对不齐。
-when = []
-# 命令行工具 smlconv 已拆分为独立 crate `smlconv`（见 ../smlconv），
-# 依赖 swsml 的 emit 后端；主库 sml 保持零依赖（不引入 clap）。
+when = ["sml-parse/when"]
 default = [
     "derive",
     "sml",

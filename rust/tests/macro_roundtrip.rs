@@ -121,7 +121,7 @@ fn enum_data_roundtrip() {
     match &c.to_sml_value() {
         sml::Value::Object(m) => {
             assert_eq!(m.get("__type"), Some(&sml::Value::Str("Circle".into())));
-            assert_eq!(m.get("_value"), Some(&sml::Value::Float(3.0)));
+            assert_eq!(m.get("_value"), Some(&sml::Value::float(3.0)));
         }
         other => panic!("期望块，实际为 {other:?}"),
     }
@@ -134,8 +134,8 @@ fn enum_data_roundtrip() {
             assert_eq!(
                 m.get("_value"),
                 Some(&sml::Value::Array(vec![
-                    sml::Value::Float(1.0),
-                    sml::Value::Float(2.0)
+                    sml::Value::float(1.0),
+                    sml::Value::float(2.0)
                 ]))
             );
         }
@@ -147,8 +147,8 @@ fn enum_data_roundtrip() {
     match &r.to_sml_value() {
         sml::Value::Object(m) => {
             assert_eq!(m.get("__type"), Some(&sml::Value::Str("Rect".into())));
-            assert_eq!(m.get("w"), Some(&sml::Value::Float(4.0)));
-            assert_eq!(m.get("h"), Some(&sml::Value::Float(5.0)));
+            assert_eq!(m.get("w"), Some(&sml::Value::float(4.0)));
+            assert_eq!(m.get("h"), Some(&sml::Value::float(5.0)));
         }
         other => panic!("期望块，实际为 {other:?}"),
     }
@@ -345,7 +345,7 @@ fn v_int(i: i64) -> sml::Value {
     sml::Value::Int(i)
 }
 fn v_float(f: f64) -> sml::Value {
-    sml::Value::Float(f)
+    sml::Value::float(f)
 }
 
 #[test]
@@ -385,7 +385,7 @@ fn usize_serialize_no_wrap() {
     let v = u64::MAX.to_sml_value();
     match v {
         sml::Value::Int(i) => assert!(i >= 0, "u64::MAX 不应回绕为负数，实际 {i}"),
-        sml::Value::Float(_) => {} // 退化为 Float 也可接受（u64::MAX 无法放进 i64）
+        sml::Value::Float(_, _) => {} // 退化为 Float 也可接受（u64::MAX 无法放进 i64）
         other => panic!("意外类型 {other:?}"),
     }
 }

@@ -1,8 +1,6 @@
 //! serde 桥接（可选 feature: `serde`）
 //! 本文件内容原为 `pub mod serde { ... }`，拆分后由 lib.rs 重新 `pub mod serde { pub use ... }`。
-use crate::core::*;
 use crate::value::*;
-use crate::derive_macro::__private;
 
 use ::serde::de::{self, MapAccess, SeqAccess, Visitor};
 use ::serde::ser::{
@@ -19,7 +17,7 @@ type Error = ::serde::de::value::Error;
 fn type_err(v: &Value, expected: &str) -> Error {
     de::Error::custom(format!(
         "期望 {expected}，实际为 {}",
-        crate::derive_macro::__private::describe_value(v)
+        crate::describe_value(v)
     ))
 }
 
@@ -32,7 +30,7 @@ impl Serialize for Value {
             Value::Null => serializer.serialize_unit(),
             Value::Bool(b) => serializer.serialize_bool(*b),
             Value::Int(i) => serializer.serialize_i64(*i),
-            Value::Float(f) => serializer.serialize_f64(*f),
+            Value::Float(f, _) => serializer.serialize_f64(*f),
             Value::Str(s) => serializer.serialize_str(s),
             // Vec<Value> / 逐项委托，递归依赖 Value 自身的 impl
             Value::Array(a) => a.serialize(serializer),
@@ -88,10 +86,10 @@ impl<'de> Visitor<'de> for ValueVisitor {
     fn visit_u64<E: de::Error>(self, v: u64) -> Result<Value, E> {
         Ok(i64::try_from(v)
             .map(Value::Int)
-            .unwrap_or_else(|_| Value::Float(v as f64)))
+            .unwrap_or_else(|_| Value::float(v as f64)))
     }
     fn visit_f64<E: de::Error>(self, v: f64) -> Result<Value, E> {
-        Ok(Value::Float(v))
+        Ok(Value::float(v))
     }
     fn visit_str<E: de::Error>(self, v: &str) -> Result<Value, E> {
         Ok(Value::Str(v.to_string()))
@@ -134,12 +132,10 @@ impl<'de> Visitor<'de> for ValueVisitor {
 /// let s: Server = sml::serde::from_str("host: web.example\nport: 8080\n").unwrap();
 /// assert_eq!(s.host, "web.example");
 /// ```
-pub fn from_str<T: de::DeserializeOwned>(text: &str) -> Result<T, String> {
-    let value = crate::parse(text)?;
-    from_value(value)
-}
-
 /// 从任意 [`Value`] 反序列化到任意 serde 类型。
+///
+/// 注：直接吃 SML 文本的 `from_str` 在门面 crate `swsml` 中
+/// （它需要解析器，而解析器依赖本 crate，放这里会形成循环依赖）。
 pub fn from_value<T: de::DeserializeOwned>(value: Value) -> Result<T, String> {
     T::deserialize(ValueDeserializer(value)).map_err(|e| e.to_string())
 }
@@ -203,13 +199,13 @@ impl Serializer for ValueSerializer {
     fn serialize_u64(self, v: u64) -> Result<Value, Error> {
         Ok(i64::try_from(v)
             .map(Value::Int)
-            .unwrap_or_else(|_| Value::Float(v as f64)))
+            .unwrap_or_else(|_| Value::float(v as f64)))
     }
     fn serialize_f32(self, v: f32) -> Result<Value, Error> {
-        Ok(Value::Float(v as f64))
+        Ok(Value::float(v as f64))
     }
     fn serialize_f64(self, v: f64) -> Result<Value, Error> {
-        Ok(Value::Float(v))
+        Ok(Value::float(v))
     }
     fn serialize_char(self, v: char) -> Result<Value, Error> {
         Ok(Value::Str(v.to_string()))
@@ -544,7 +540,7 @@ macro_rules! deser_int {
             where V: Visitor<'de> {
                 match self.0 {
                     Value::Int(i) => $v.$call(i as _),
-                    Value::Float(f)
+                    Value::Float(f, _)
                         if f.fract() == 0.0
                             && f >= i64::MIN as f64
                             && f <= i64::MAX as f64 =>
@@ -573,7 +569,7 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
             Value::Null => visitor.visit_unit(),
             Value::Bool(b) => visitor.visit_bool(*b),
             Value::Int(i) => visitor.visit_i64(*i),
-            Value::Float(f) => visitor.visit_f64(*f),
+            Value::Float(f, _) => visitor.visit_f64(*f),
             Value::Str(s) => visitor.visit_str(s),
             Value::Array(a) => visitor.visit_seq(SeqDeserializer { items: a.clone(), idx: 0 }),
             Value::Object(m) => {
@@ -608,7 +604,7 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
     {
         match &self.0 {
             Value::Int(i) if *i >= 0 => visitor.visit_u64(*i as u64),
-            Value::Float(f)
+            Value::Float(f, _)
                 if f.fract() == 0.0 && *f >= 0.0 && *f <= u64::MAX as f64 =>
             {
                 visitor.visit_u64(*f as u64)
@@ -623,7 +619,7 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
     {
         match &self.0 {
             Value::Int(i) => visitor.visit_f32(*i as f32),
-            Value::Float(f) => visitor.visit_f32(*f as f32),
+            Value::Float(f, _) => visitor.visit_f32(*f as f32),
             other => Err(type_err(other, "f32")),
         }
     }
@@ -633,7 +629,7 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
     {
         match &self.0 {
             Value::Int(i) => visitor.visit_f64(*i as f64),
-            Value::Float(f) => visitor.visit_f64(*f),
+            Value::Float(f, _) => visitor.visit_f64(*f),
             other => Err(type_err(other, "f64")),
         }
     }

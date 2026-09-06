@@ -31,7 +31,7 @@ use crate::emit::{
 fn num_attr(v: &Value) -> Option<String> {
     match v {
         Value::Int(i) => Some(i.to_string()),
-        Value::Float(f) => Some({
+        Value::Float(f, _) => Some({
             if *f == f.trunc() && f.is_finite() && f.abs() < 1e15 {
                 format!("{:.1}", f)
             } else {

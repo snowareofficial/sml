@@ -15,9 +15,17 @@ const path = require("path");
 
 // 桥接层是 ESM，扩展宿主为 CJS，故用动态 import 载入
 let sml = null;
+let smlLoadError = null;
 async function ensureSml() {
-  if (!sml) {
-    sml = await import("./sml-parse.mjs");
+  if (!sml && !smlLoadError) {
+    try {
+      sml = await import("./sml-parse.mjs");
+    } catch (e) {
+      // 加载失败必须留下痕迹：VSCode 会静默吞掉 provider 抛出的异常，
+      // 若此处不记录，用户只会觉得「补全不存在」而无从排查。
+      smlLoadError = e;
+      console.error("[SML] 解析器加载失败，补全与诊断不可用：", e);
+    }
   }
   return sml;
 }
@@ -117,6 +125,73 @@ const CONSTANTS = ["true", "false", "null"].map((c) => ({
   detail: "字面量",
 }));
 
+// 模式（@type）关键字：中英等价，二者可混写（sml-pattern 的 BILINGUAL 表）
+const PATTERN_KEYWORDS = [
+  { zh: "序列", en: "seq", detail: "顺序匹配其后各项（值为数组）" },
+  { zh: "类", en: "class", detail: "字符类：数字/字母/空白/字/任意" },
+  { zh: "次", en: "times", detail: "量词：4 或 \"+\" / \"*\"；也可写 次: { 最小, 最大 }" },
+  { zh: "最小", en: "min", detail: "量词下界：与 次 / 最大 配合，或直接平铺在元素上" },
+  { zh: "最大", en: "max", detail: "量词上界：省略则无上界（min..*）" },
+  { zh: "名", en: "name", detail: "命名捕获" },
+  { zh: "字面", en: "lit", detail: "字面量（精确匹配）" },
+  { zh: "任一", en: "alt", detail: "多选一（分支）" },
+  { zh: "组", en: "group", detail: "内联分组（值为数组）" },
+  { zh: "用", en: "use", detail: "引用另一条规则" },
+  { zh: "可选", en: "optional", detail: "该项可省略" },
+  { zh: "直到", en: "until", detail: "推进直到其后条件成立（JS 引擎暂不支持，请用 Rust 引擎）" },
+  { zh: "正则", en: "regex", detail: "regex 逃生舱：直接写正则表达式" },
+].flatMap((k) => [
+  {
+    label: k.zh,
+    kind: vscode.CompletionItemKind.Keyword,
+    detail: `模式关键字：${k.detail}`,
+    insertText: `${k.zh}: `,
+  },
+  {
+    label: k.en,
+    kind: vscode.CompletionItemKind.Keyword,
+    detail: `模式关键字（英文）：${k.detail}`,
+    documentation: `等价于中文关键字「${k.zh}」`,
+    insertText: `${k.en}: `,
+  },
+]);
+
+// 字符类取值（中英等价）
+const PATTERN_CLASSES = [
+  { zh: "数字", en: "digit" },
+  { zh: "字母", en: "alpha" },
+  { zh: "空白", en: "space" },
+  { zh: "字", en: "word" },
+  { zh: "任意", en: "any" },
+].flatMap((c) => [
+  {
+    label: c.zh,
+    kind: vscode.CompletionItemKind.TypeParameter,
+    detail: `字符类：${c.zh}`,
+  },
+  {
+    label: c.en,
+    kind: vscode.CompletionItemKind.TypeParameter,
+    detail: `字符类（英文）：${c.zh}`,
+  },
+]);
+
+// 特性名（供 @feature enable/disable 补全）。带说明区分默认开启与 opt-in。
+const FEATURE_NAMES = [
+  { n: "contract", d: "契约系统 @contract / @is（默认开启）" },
+  { n: "fragment", d: "片段复用 @name / &name（默认开启）" },
+  { n: "include", d: "文件包含 include（默认开启）" },
+  { n: "env", d: "$env.VAR 环境变量内插（默认开启）" },
+  { n: "namespace", d: "include ... as ns 命名空间（默认开启）" },
+  { n: "typed-block", d: "块级类型标注 `<契约名> <块名> { }`（opt-in）" },
+  { n: "when", d: "@when 条件裁剪（opt-in）" },
+  { n: "for", d: "@for 有界循环展开（opt-in）" },
+].map((f) => ({
+  label: f.n,
+  kind: vscode.CompletionItemKind.Property,
+  detail: `特性：${f.d}`,
+}));
+
 // ---------------------------------------------------------------------------
 // 诊断
 // ---------------------------------------------------------------------------
@@ -150,9 +225,62 @@ async function updateDiagnostics(doc, collection) {
 // 激活
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// 语义高亮：块级类型标注 `<契约名> <块名> { .. }`
+// ---------------------------------------------------------------------------
+//
+// grammar（TextMate 正则）无法知道哪些名字是契约 —— 那是语义，只有解析过文档
+// 才知道。故这里按「文档中已定义的契约名」反查块首词，用 decorations 给它上
+// 类型色，让「这块数据受哪个契约约束」一眼可见。
+function initSemanticHighlight(context) {
+  const deco = vscode.window.createTextEditorDecorationType({
+    color: new vscode.ThemeColor("symbolIcon.classForeground"),
+  });
+
+  const refresh = async (editor) => {
+    if (!editor || editor.document.languageId !== "sml") return;
+    const mod = await ensureSml();
+    if (!mod || !mod.findAnnotatedBlocks) return;
+    const text = editor.document.getText();
+    const blocks = mod.findAnnotatedBlocks(text, mod.collectContractNames(text));
+    editor.setDecorations(
+      deco,
+      blocks.map(
+        (b) => new vscode.Range(b.line, b.col, b.line, b.col + b.length)
+      )
+    );
+  };
+
+  if (vscode.window.activeTextEditor) refresh(vscode.window.activeTextEditor);
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor((e) => refresh(e))
+  );
+
+  // 文档变更防抖：契约定义可能刚写完，稍后再反查
+  let timer = null;
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeTextDocument((e) => {
+      if (e.document.languageId !== "sml") return;
+      const editor = vscode.window.activeTextEditor;
+      if (!editor || editor.document !== e.document) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => refresh(editor), 200);
+    })
+  );
+}
+
 function activate(context) {
   const collection = vscode.languages.createDiagnosticCollection("sml");
   context.subscriptions.push(collection);
+
+  // 启动自检：解析器不可用时明确告知，避免「补全静默失效」无从排查
+  ensureSml().then((m) => {
+    if (!m) {
+      vscode.window.showWarningMessage(
+        "SML 扩展：解析器加载失败，补全与错误提示不可用（详见「扩展主机」输出日志）。"
+      );
+    }
+  });
 
   // 变更即校验（防抖，避免大文件频繁解析）
   let timer = null;
@@ -179,27 +307,73 @@ function activate(context) {
         .lineAt(position)
         .text.slice(0, position.character);
       const fullText = document.getText();
-      const { collectContractNames, collectFragmentNames, collectKeys } = await ensureSml();
+      const mod = await ensureSml();
+      if (!mod) return [];
+      const { collectContractNames, collectFragmentNames, collectKeys, collectTypeNames } = mod;
       const items = [];
+      const contractNames = collectContractNames(fullText);
+      const typeNames = collectTypeNames(fullText);
+      const before = fullText.slice(0, document.offsetAt(position));
+
+      // SML 标识符可含中文（如契约名 `受理人`），故所有位置匹配统一用 CJK 感知的字符类
+      // `[A-Za-z0-9_\u4e00-\u9fa5]`，避免 \w 把中文名整个漏掉导致补全/标注失效。
+      const ID = "A-Za-z0-9_\\u4e00-\\u9fa5";
 
       // 1) 行首或 @ 触发：指令
-      if (/(^|\s)@\w*$/.test(linePrefix) || /^\s*$/.test(linePrefix)) {
+      if (new RegExp(`(^|\\s)@[${ID}]*$`).test(linePrefix) || /^\s*$/.test(linePrefix)) {
         items.push(...DIRECTIVES);
       }
 
-      // 2) 契约体内（键后跟冒号）：类型 + 修饰符
-      const isContractBody = /@contract[^{]*\{[^}]*$/s.test(
-        fullText.slice(0, document.offsetAt(position))
-      );
+      // 1b) 行首：契约名直接作块级类型标注 `<契约名> <块名> { .. }`
+      //     （与既有裸块同形，零新语法；需 @feature enable typed-block 才校验）
+      if (new RegExp(`^\\s*[${ID}]*$`).test(linePrefix) && !linePrefix.includes("@")) {
+        for (const n of contractNames) {
+          items.push({
+            label: n,
+            kind: vscode.CompletionItemKind.Struct,
+            detail: "契约名 · 块级类型标注 `<契约名> <块名> { }`",
+            documentation: new vscode.MarkdownString(
+              "以契约名作为块前缀，声明该块即校验：\n\n```sml\n" +
+                `${n} 实例名 {\n  ...\n}\n` +
+                "```\n\n等价于在块内首行写 `@is " +
+                n +
+                "`。需 `@feature enable typed-block`。"
+            ),
+          });
+        }
+      }
+
+      // 1c) @feature enable/disable 之后：特性名
+      if (new RegExp(`@feature\\s+(enable|disable)\\s+[${ID}]*$`).test(linePrefix)) {
+        items.push(...FEATURE_NAMES);
+      }
+
+      // 2) 契约体内（键后跟冒号）：内置类型 + **@type 自定义类型** + 修饰符
+      const isContractBody = /@contract[^{]*\{[^}]*$/s.test(before);
       if (isContractBody) {
-        if (/:\s*\w*$/.test(linePrefix)) items.push(...CONTRACT_TYPES);
-        else items.push(...MODIFIERS, ...CONTRACT_TYPES);
+        const typeItems = [
+          ...CONTRACT_TYPES,
+          ...typeNames.map((n) => ({
+            label: n,
+            kind: vscode.CompletionItemKind.TypeParameter,
+            detail: "自定义类型（@type 声明的模式）",
+          })),
+        ];
+        if (new RegExp(`:\\s*[${ID}]*$`).test(linePrefix)) items.push(...typeItems);
+        else items.push(...MODIFIERS, ...typeItems);
+      }
+
+      // 2b) @type 模式体内：模式关键字（中英）与字符类
+      const isTypeBody = /@type[^{]*\{[^}]*$/s.test(before);
+      if (isTypeBody) {
+        if (new RegExp(`(类|class)\\s*:\\s*[${ID}]*$`).test(linePrefix)) items.push(...PATTERN_CLASSES);
+        else items.push(...PATTERN_KEYWORDS, ...PATTERN_CLASSES);
       }
 
       // 3) 值位置（冒号后）：常量 / 片段引用 / 契约名（组合）
-      if (/:\s*\w*$/.test(linePrefix) && !isContractBody) {
+      if (new RegExp(`:\\s*[${ID}]*$`).test(linePrefix) && !isContractBody) {
         items.push(...CONSTANTS);
-        for (const n of collectContractNames(fullText)) {
+        for (const n of contractNames) {
           items.push({
             label: n,
             kind: vscode.CompletionItemKind.Struct,
@@ -216,9 +390,18 @@ function activate(context) {
         }
       }
 
-      // 4) @is 之后：已定义的契约名
-      if (/@is\s+\w*$/.test(linePrefix)) {
-        for (const n of collectContractNames(fullText)) {
+      // 4) @is 之后：契约名；@is type( 之后：契约名并自动补右括号
+      if (new RegExp(`@is\\s+type\\([${ID}]*$`).test(linePrefix)) {
+        for (const n of contractNames) {
+          items.push({
+            label: n,
+            kind: vscode.CompletionItemKind.Struct,
+            detail: "契约名（类型标注形式 @is type(契约名)）",
+            insertText: n + ")",
+          });
+        }
+      } else if (new RegExp(`@is\\s+[${ID}]*$`).test(linePrefix)) {
+        for (const n of contractNames) {
           items.push({
             label: n,
             kind: vscode.CompletionItemKind.Struct,
@@ -228,7 +411,7 @@ function activate(context) {
       }
 
       // 5) 行首键名补全（同文档出现过的键）
-      if (/^\s*\w*$/.test(linePrefix) && !isContractBody && !linePrefix.includes("@")) {
+      if (new RegExp(`^\\s*[${ID}]*$`).test(linePrefix) && !isContractBody && !linePrefix.includes("@")) {
         for (const k of collectKeys(fullText)) {
           items.push({
             label: k,
@@ -256,7 +439,7 @@ function activate(context) {
   // —— 悬浮说明：契约/指令关键字 ——
   const hoverProvider = {
     provideHover(document, position) {
-      const range = document.getWordRangeAtPosition(position, /[@&]?[\w.-]+/);
+      const range = document.getWordRangeAtPosition(position, /[@&]?[A-Za-z0-9_\u4e00-\u9fa5.\-]+/);
       if (!range) return null;
       const word = document.getText(range);
       const map = {
@@ -307,6 +490,34 @@ function activate(context) {
       }
     )
   );
+
+  // —— 自定义高亮：HL-cfg.sml + 强度开关（见 src/highlight.js）——
+  require("./highlight.js").initHighlight(context);
+
+  // —— 语义高亮：块级类型标注 `<契约名> <块名> { .. }` 的契约名 ——
+  initSemanticHighlight(context);
+
+  suggestIconTheme(context);
+}
+
+// 文件图标主题需用户选择才生效，故首次激活时询问一次（可永久关闭提示）
+async function suggestIconTheme(context) {
+  const KEY = "sml.iconThemePrompted";
+  if (context.globalState.get(KEY)) return;
+  const cfg = vscode.workspace.getConfiguration("workbench");
+  const current = cfg.get("iconTheme", "");
+  if (current === "sml-icons") return;
+
+  const pick = await vscode.window.showInformationMessage(
+    "SML：是否为 .sml 文件启用青色 {*} 图标？（继承现有图标集，只影响 .sml）",
+    "启用",
+    "不再提示"
+  );
+  if (pick === "启用") {
+    await cfg.update("iconTheme", "sml-icons", vscode.ConfigurationTarget.Global);
+  } else if (pick === "不再提示") {
+    await context.globalState.update(KEY, true);
+  }
 }
 
 function deactivate() {}

@@ -136,9 +136,9 @@ Parse files with any suffix as `.sml`.
 |Item | Value|
 |----|----|
 |Status | Default On|
-|Grammar | `@contract Name [loose] { field: type [default v] [min n] [max n] [enum(a,b)] [?] [required] }`|
+|Grammar | `@contract Name [loose\|strict] { field: type [default v] [min n] [max n] [enum(a,b)] [?] [required] }`|
 |Reference type | `str` `int` `num` `bool` `array[T]` `enum(...)` or another contract name|
-|Strictness | default strictness; `loose` allows undeclared fields|
+|Strictness | default strictness; `loose` allows undeclared fields; `strict` makes strictness explicit (same as default, for readability)|
 |Nested | Infinite; Recursive contract detects loops when referenced|
 |Wrong position | Accurate to rows and columns|
 
@@ -243,6 +243,7 @@ Parse-time bounded loop unrolling: substitute each item of the finite list after
 |Syntax | `key: @for VAR in a b c { ... }`|
 |Loop variable | Read-only binding, referenced inside the body via `${VAR}` text interpolation|
 |List | The **finite enumeration** after `in` (naked word or quoted string); no `while`, no recursion|
+|Interpolation position | `${VAR}` is **only allowed in value position** (e.g. `name: "${h}"`); **key position is not supported** and raises a parse error|
 |Scope | In nested `@for`, the inner level sees the outer binding (same name shadowed by inner)|
 
 ```sml
@@ -268,6 +269,13 @@ hosts: @for h in web api db {
 > recursive) languages — it cannot compute Ackermann, thus is not Turing-complete; once
 > `while`/recursion is introduced, sandbox and resource quotas become mandatory, which
 > conflicts with "SML is a pure data format".
+
+> **`${VAR}` is NOT supported in key position**: the `{`/`}` inside `${VAR}` are treated as
+> block boundaries by the lexer, which would split the key and silently produce garbage.
+> Loop-variable interpolation **only accepts value position** (`name: "${h}"`); for
+> "dynamic keys", use an array instead: `hosts: @for h in a b c { name: "${h}", ... }` and
+> index by `name` on the consumer side. Writing `${VAR}` in a key position raises an
+> explicit error (fail-fast), not garbage.
 
 A complete runnable example is in
 [`examples/for_when.sml`](https://github.com/your-org/sml/blob/main/examples/for_when.sml)

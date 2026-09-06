@@ -26,6 +26,6 @@
 # 公共基础片段：内网服务通用网络设置（用 @name 定义，&name 引用）
 @net {
     region: cn-north-1
-    dns: internal.swebase.cn
+    dns: internal.example.com
     timeout: 30
 }

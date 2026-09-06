@@ -16,7 +16,7 @@ translationKey: "book-ch03"
 ```sml
 @net {
     region: cn-north-1
-    dns: internal.swebase.cn
+    dns: internal.example.com
     timeout: 30
 }
 ```
@@ -36,7 +36,7 @@ network: &net
 ```sml
 network {
     region: cn-north-1
-    dns: internal.swebase.cn
+    dns: internal.example.com
     timeout: 30
 }
 ```

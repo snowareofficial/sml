@@ -303,7 +303,7 @@ pub(crate) fn scalar_text(v: &Value) -> String {
         Value::Null => String::new(),
         Value::Bool(b) => b.to_string(),
         Value::Int(i) => i.to_string(),
-        Value::Float(f) => {
+        Value::Float(f, _) => {
             if !f.is_finite() {
                 // NaN/inf 没有对应的宿主字面量；输出为可被读回的裸文本标记
                 // （避免被当成标识符或非法字面量，破坏 round-trip）。

@@ -14,7 +14,14 @@
      data-t-verify-fail="{{ i18n "pg_verify_fail" }}"
      data-t-result="{{ i18n "pg_result" }}"
      data-t-line="{{ i18n "err_line_col" }}"
-     data-t-col="{{ i18n "err_col" }}">
+     data-t-col="{{ i18n "err_col" }}"
+     data-t-engine="{{ i18n "pg_engine" }}"
+     data-t-engine-js="{{ i18n "pg_engine_js" }}"
+     data-t-engine-rs="{{ i18n "pg_engine_rs" }}"
+     data-t-wasm-loading="{{ i18n "pg_wasm_loading" }}"
+     data-t-wasm-fail="{{ i18n "pg_wasm_fail" }}"
+     data-t-view-sml="{{ i18n "pg_view_sml" }}"
+     data-t-view-json="{{ i18n "pg_view_json" }}">
   {{ if $hasTask }}
   <div class="sml-pg-task">
     <span class="sml-pg-task-tag">{{ i18n "pg_task" }}</span>
@@ -37,6 +44,13 @@
     <button class="sml-pg-run" type="button">{{ i18n "pg_run" }}</button>
     {{ if $hasTask }}<button class="sml-pg-verify" type="button">{{ i18n "pg_verify" }}</button>{{ end }}
     <button class="sml-pg-reset" type="button">{{ i18n "pg_reset" }}</button>
+    <label class="sml-pg-engine">
+      <span class="sml-pg-engine-label"></span>
+      <select class="sml-pg-engine-sel">
+        <option value="js">{{ i18n "pg_engine_js" }}</option>
+        <option value="rs">{{ i18n "pg_engine_rs" }}</option>
+      </select>
+    </label>
     <span class="sml-pg-status"></span>
   </div>
   <pre class="sml-pg-out" hidden></pre>
@@ -66,9 +80,23 @@
       result: box.dataset.tResult || "Parsed result:",
       line: box.dataset.tLine || "line",
       col: box.dataset.tCol || "col",
+      engine: box.dataset.tEngine || "Engine: ",
+      wasmLoading: box.dataset.tWasmLoading || "⏳ Loading Rust engine…",
+      wasmFail: box.dataset.tWasmFail || "✗ Rust engine failed, falling back to JS: ",
+      viewSml: box.dataset.tViewSml || "SML view (lossless)",
+      viewJson: box.dataset.tViewJson || "JSON view (lossy)",
     };
 
+    // 引擎选择。默认 JS —— 既有教程的 VERIFIERS 依赖 JS 解析结果，
+    // 切到 Rust 会让值类型不同（如长号一端是 Str 一端是 Int），故切换后
+    // 隐藏「验证」按钮，避免给出误导性结论。
+    const sel = box.querySelector(".sml-pg-engine-sel");
+    box.querySelector(".sml-pg-engine-label").textContent = T.engine;
+    let rsEngine = null;      // 懒加载：只有切到 Rust 才去 fetch wasm
+    let rsLoading = null;
+
     function setStatus(txt, cls) { status.textContent = txt; status.className = "sml-pg-status " + (cls || ""); }
+
     function parse() {
       const src = ta.value;
       let files = {};
@@ -86,11 +114,63 @@
       out.textContent = T.parseOk + JSON.stringify(r.value, null, 2);
       return r.value;
     }
-    function run() { setStatus("", ""); parse(); }
+
+    /** Rust 引擎：懒加载 wasm，失败则回退 JS。 */
+    async function ensureRs() {
+      if (rsEngine) return rsEngine;
+      if (!rsLoading) {
+        rsLoading = (async () => {
+          const mod = await import("/sml-rs.js");
+          return await mod.loadSmlRs("/sml.wasm");
+        })();
+      }
+      return rsLoading.then((e) => (rsEngine = e));
+    }
+
+    async function runRs() {
+      setStatus(T.wasmLoading, "");
+      let eng;
+      try {
+        eng = await ensureRs();
+      } catch (e) {
+        setStatus(T.wasmFail + (e && e.message ? e.message : e), "bad");
+        return runJs(); // 回退
+      }
+      setStatus("", "");
+      const r = eng.parse(ta.value);
+      if (!r.ok) {
+        out.hidden = false; out.className = "sml-pg-out err";
+        out.textContent = T.parseErr + r.error;
+        return;
+      }
+      out.hidden = false; out.className = "sml-pg-out ok";
+      out.textContent =
+        T.parseOk + "\n\n" +
+        "── " + T.viewSml + " ──\n" + r.sml +
+        "\n\n── " + T.viewJson + " ──\n" +
+        JSON.stringify(JSON.parse(r.json), null, 2);
+    }
+
+    function runJs() { setStatus("", ""); parse(); }
+
+    function run() {
+      if (sel && sel.value === "rs") return runRs();
+      return runJs();
+    }
+
     function reset() { ta.value = init; out.hidden = true; setStatus("", ""); }
+
+    function syncVerifyVisibility() {
+      if (!verifyBtn) return;
+      // VERIFIERS 基于 JS 解析结果；Rust 引擎下值类型不同，验证结论不可靠
+      verifyBtn.hidden = sel && sel.value === "rs";
+    }
 
     runBtn.addEventListener("click", run);
     resetBtn.addEventListener("click", reset);
+    if (sel) sel.addEventListener("change", syncVerifyVisibility);
+    syncVerifyVisibility();
+
     if (verifyBtn) verifyBtn.addEventListener("click", () => {
       const v = parse();
       if (v === null) { setStatus(T.statusErr, "bad"); return; }
@@ -124,6 +204,10 @@
   .sml-pg-actions button { background: #1565C0; color: #fff; border: 0; padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
   .sml-pg-actions button.sml-pg-reset { background: #6c757d; }
   .sml-pg-actions button:hover { filter: brightness(1.08); }
+  .sml-pg-engine { margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 12px; color: #57606a; }
+  .sml-pg-engine-label { white-space: nowrap; }
+  .sml-pg-engine-sel { font-size: 12px; padding: 3px 6px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; color: #111; cursor: pointer; }
+  .sml-pg-engine-sel:focus { outline: 2px solid #1565C0; outline-offset: -1px; }
   .sml-pg-status { font-size: 12px; margin-left: 4px; }
   .sml-pg-status.good { color: #2e7d32; }
   .sml-pg-status.bad { color: #c62828; }

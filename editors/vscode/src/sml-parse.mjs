@@ -34,10 +34,14 @@ export function diagnose(text) {
   ];
 }
 
+// SML 标识符可含中文（如契约名 `受理人`），故收集函数一律用 Unicode 感知正则：
+// `[\p{L}_]` 匹配任意语言的字母或下划线，`[\p{L}\p{N}_.\-]` 含字母/数字/点/连字符。
+// 仅用 `[A-Za-z_][\w.-]*` 会把中文契约名整个漏掉，导致补全/高亮/跳转全部失效。
+
 /// 收集文档中出现过的契约名（供补全）
 export function collectContractNames(text) {
   const names = new Set();
-  const re = /@contract\s+([A-Za-z_][\w.-]*)/g;
+  const re = /@contract\s+([\p{L}_][\p{L}\p{N}_.\-]*)/gu;
   let m;
   while ((m = re.exec(text)) !== null) names.add(m[1]);
   return [...names];
@@ -46,7 +50,7 @@ export function collectContractNames(text) {
 /// 收集文档中出现过的片段名（供补全）
 export function collectFragmentNames(text) {
   const names = new Set();
-  const re = /@([A-Za-z_][\w.-]*)\s*\{/g;
+  const re = /@([\p{L}_][\p{L}\p{N}_.\-]*)\s*\{/gu;
   let m;
   while ((m = re.exec(text)) !== null) {
     if (m[1] !== "contract" && m[1] !== "is" && m[1] !== "version" && m[1] !== "include") {
@@ -56,10 +60,51 @@ export function collectFragmentNames(text) {
   return [...names];
 }
 
+/// 收集 @type 声明的自定义类型名（供契约字段的类型位补全）
+///
+/// `@type name: 手机号 { ... }` -> "手机号"
+export function collectTypeNames(text) {
+  const names = new Set();
+  const re = /@type\s+name:\s*([^\s{]+)/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const n = m[1];
+    // 排除 `name` 关键字本身被误当作类型名（如 `@type name: { }` 的残缺写法）
+    if (n && n !== "name") names.add(n);
+  }
+  return [...names];
+}
+
+/// 定位块级类型标注 `<契约名> <块名> { .. }` 中契约名的位置（供语义高亮）。
+///
+/// grammar 无法知道哪些名字是契约名（那是语义），故由扩展按已定义的契约名
+/// 反查并用 decorations 上色。
+///
+/// 判定：行首第一个词命中契约表，且后面**至少还有一个词**再接 `{`
+/// （`contact { }` 这类无名块不是类型标注，须排除）。
+///
+/// 返回 [{ line, col, length, name }]，line/col 从 0 起。
+export function findAnnotatedBlocks(text, contractNames) {
+  const set = new Set(contractNames || []);
+  if (set.size === 0) return [];
+  const out = [];
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const m = /^(\s*)([^\s:{}]+)(?:\s+[^\s{}]+)+\s*\{/.exec(line);
+    if (!m) continue;
+    const head = m[2];
+    if (head.startsWith("@")) continue; // 指令 / 片段定义不是类型标注
+    if (!set.has(head)) continue;
+    out.push({ line: i, col: m[1].length, length: head.length, name: head });
+  }
+  return out;
+}
+
 /// 收集文档中出现过的键名（供同文档内补全）
 export function collectKeys(text) {
   const keys = new Set();
-  const re = /^\s*([A-Za-z_][\w.-]*)\s*:/gm;
+  const re = /^\s*([\p{L}_][\p{L}\p{N}_.\-]*)\s*:/gmu;
   let m;
   while ((m = re.exec(text)) !== null) keys.add(m[1]);
   return [...keys];

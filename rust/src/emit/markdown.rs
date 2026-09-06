@@ -221,10 +221,10 @@ pub fn to_markdown(v: &Value, opt: &MarkdownOptions) -> Result<String, String> {
             if k == "__type" || k == "__name" {
                 continue;
             }
-            emit_value(val, Some(k), opt, 0, &mut out)?;
+            emit_value(val, Some(k), opt, 0, 0, &mut out)?;
         }
     } else {
-        emit_value(v, None, opt, 0, &mut out)?;
+        emit_value(v, None, opt, 0, 0, &mut out)?;
     }
     // 收尾规范化：保证末尾单个换行
     while out.ends_with("\n\n") {
@@ -246,6 +246,7 @@ fn emit_value(
     inferred: Option<&str>,
     opt: &MarkdownOptions,
     depth: usize,
+    hlevel: usize,
     out: &mut String,
 ) -> Result<(), String> {
     if depth > MAX_VALUE_DEPTH {
@@ -255,7 +256,7 @@ fn emit_value(
         Value::Null => {}
         Value::Bool(b) => out.push_str(&b.to_string()),
         Value::Int(i) => out.push_str(&i.to_string()),
-        Value::Float(_) => out.push_str(&scalar_text(v)),
+        Value::Float(_, _) => out.push_str(&scalar_text(v)),
         Value::Str(s) => {
             // 带推断类型（如 p: "text"）时渲染为对应块
             if let Some(ty) = inferred {
@@ -265,7 +266,7 @@ fn emit_value(
                         if level > 0 {
                             out.push_str(&format!("{} {}\n\n", "#".repeat(level), escape_text(s, &opt.base)));
                         } else {
-                            out.push_str(&format!("{}\n\n", escape_text(s, &opt.base)));
+                            out.push_str(&format!("{}\n\n", apply_roles(&escape_text(s, &opt.base))));
                         }
                         return Ok(());
                     }
@@ -280,13 +281,13 @@ fn emit_value(
         }
         Value::Array(a) => {
             for item in a {
-                emit_value(item, inferred, opt, depth + 1, out)?;
+                emit_value(item, inferred, opt, depth + 1, hlevel, out)?;
                 if !out.ends_with('\n') {
                     out.push('\n');
                 }
             }
         }
-        Value::Object(_) => emit_object(v, inferred, opt, depth + 1, out)?,
+        Value::Object(_) => emit_object(v, inferred, opt, depth + 1, hlevel, out)?,
     }
     Ok(())
 }
@@ -296,6 +297,7 @@ fn emit_object(
     inferred: Option<&str>,
     opt: &MarkdownOptions,
     depth: usize,
+    hlevel: usize,
     out: &mut String,
 ) -> Result<(), String> {
     if depth > MAX_VALUE_DEPTH {
@@ -344,7 +346,7 @@ fn emit_object(
                 } else {
                     "- ".to_string()
                 };
-                emit_list_item(item, opt, depth + 1, &marker, &pad, out)?;
+                emit_list_item(item, opt, depth + 1, hlevel, &marker, &pad, out)?;
             }
             out.push('\n');
         }
@@ -400,9 +402,48 @@ fn emit_object(
                 name
             ));
         }
+        Some("topic") | Some("section") => {
+            // 结构即逻辑：嵌套层级映射到标题级别（h1..h6）。
+            let lvl = (hlevel + 1).min(6);
+            let title = block_heading_text(v, opt);
+            // 若有 label，则给标题加 id，供 {ref: label} 交叉引用跳转。
+            let id = v.get("label").and_then(|x| x.as_str()).unwrap_or("");
+            if id.is_empty() {
+                out.push_str(&format!("{} {}\n\n", "#".repeat(lvl), title));
+            } else {
+                out.push_str(&format!(
+                    "<h{lvl} id=\"{id}\">{title}</h{lvl}>\n\n",
+                    lvl = lvl,
+                    id = escape_xml_attr(id),
+                    title = title
+                ));
+            }
+            emit_children(v, opt, depth, hlevel, out)?;
+        }
+        Some("para") => {
+            let content = block_text_content(v, opt);
+            out.push_str(&format!("{}\n\n", content));
+        }
+        Some("quote") => {
+            let content = block_text_content(v, opt);
+            for line in content.lines() {
+                out.push_str(&format!("> {}\n", line));
+            }
+            out.push('\n');
+        }
+        Some("math") => {
+            let content = block_text_content(v, opt);
+            out.push_str(&format!("<div class=\"math\">\\[{}\\]</div>\n\n", content));
+        }
+        Some("theorem") => {
+            out.push_str(&render_theorem(v, opt));
+        }
+        Some("proof") => {
+            out.push_str(&render_proof(v, opt));
+        }
         _ => {
             // 无类型或未知类型：作为「字段分组」渲染为小节
-            emit_generic_object(v, opt, depth + 1, out)?;
+            emit_generic_object(v, opt, depth + 1, hlevel, out)?;
         }
     }
     Ok(())
@@ -411,7 +452,7 @@ fn emit_object(
 /// 取块的主文本：优先 `text` 字段，否则第一个标量字段，否则把子块逐行展开。
 fn block_text_content(v: &Value, opt: &MarkdownOptions) -> String {
     if let Some(t) = v.get("text") {
-        return escape_text(&scalar_text(t), &opt.base);
+        return apply_roles(&escape_text(&scalar_text(t), &opt.base));
     }
     // 遍历对象字段，拼接标量；忽略元数据
     let mut parts: Vec<String> = Vec::new();
@@ -423,13 +464,13 @@ fn block_text_content(v: &Value, opt: &MarkdownOptions) -> String {
             match val {
                 Value::Str(s) => parts.push(escape_text(s, &opt.base)),
                 Value::Int(i) => parts.push(i.to_string()),
-                Value::Float(_) => parts.push(scalar_text(val)),
+                Value::Float(_, _) => parts.push(scalar_text(val)),
                 Value::Bool(b) => parts.push(b.to_string()),
                 _ => {}
             }
         }
     }
-    parts.join(" ")
+    apply_roles(&parts.join(" "))
 }
 
 /// 列表项提取：优先 `items` 数组，否则对象自身为数组，否则单行文本。
@@ -450,6 +491,7 @@ fn emit_list_item(
     item: &Value,
     opt: &MarkdownOptions,
     depth: usize,
+    hlevel: usize,
     marker: &str,
     pad: &str,
     out: &mut String,
@@ -475,7 +517,7 @@ fn emit_list_item(
         Value::Object(_) => {
             // 子块：渲染其文本，保持缩进
             let mut sub = String::new();
-            emit_object(item, None, opt, depth + 1, &mut sub)?;
+            emit_object(item, None, opt, depth + 1, hlevel, &mut sub)?;
             // 去掉尾部空行，合并到同一列表项
             let sub = sub.trim_end();
             if sub.is_empty() {
@@ -547,6 +589,7 @@ fn emit_generic_object(
     v: &Value,
     opt: &MarkdownOptions,
     depth: usize,
+    hlevel: usize,
     out: &mut String,
 ) -> Result<(), String> {
     if depth > MAX_VALUE_DEPTH {
@@ -566,7 +609,7 @@ fn emit_generic_object(
             // Markdown 结构字符与 HTML，否则可伪造标题/新列表项（安全审计 P2-2）。
             let key = md_escape_key(k);
             match val {
-                Value::Str(_) | Value::Int(_) | Value::Float(_) | Value::Bool(_) => {
+                Value::Str(_) | Value::Int(_) | Value::Float(_, _) | Value::Bool(_) => {
                     out.push_str(&format!("{}- **{}**: {}\n", pad, key, md_escape_inline(&scalar_text(val))));
                 }
                 Value::Null => {
@@ -576,7 +619,7 @@ fn emit_generic_object(
                     out.push_str(&format!("{}- **{}**:\n", pad, key));
                     for item in a {
                         let mut sub = String::new();
-                        emit_value(item, Some(k), opt, depth + 1, &mut sub)?;
+                        emit_value(item, Some(k), opt, depth + 1, hlevel, &mut sub)?;
                         for line in sub.lines() {
                             out.push_str(&format!("{}{}\n", pad, line));
                         }
@@ -584,7 +627,7 @@ fn emit_generic_object(
                 }
                 Value::Object(_) => {
                     out.push_str(&format!("{}- **{}**:\n", pad, key));
-                    emit_generic_object(val, opt, depth + 1, out)?;
+                    emit_generic_object(val, opt, depth + 1, hlevel, out)?;
                 }
             }
         }
@@ -616,4 +659,214 @@ fn object_attrs(v: &Value, skip: &[&str]) -> String {
         }
     }
     s
+}
+
+// ===========================================================================
+// 语义文档块支持（SML 文档写作约定，不改语言本身）
+// ===========================================================================
+
+/// 容器块渲染时跳过的元数据键。
+const DOC_META: &[&str] = &["__type", "__name", "title", "label", "children", "type"];
+
+/// 把正文里的内联语义角色 `{role: arg}` 转换为 HTML。
+///
+/// 输入文本已通过 `escape_text` 做了 XML 转义，因此角色实参也是安全的，
+/// 直接包进标签即可（无需二次转义）。未知角色或非法结构原样保留。
+fn apply_roles(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '{' {
+            let mut inner = String::new();
+            let mut depth = 1usize;
+            let mut closed = false;
+            while let Some(d) = chars.next() {
+                if d == '{' {
+                    depth += 1;
+                    inner.push(d);
+                } else if d == '}' {
+                    depth -= 1;
+                    if depth == 0 {
+                        closed = true;
+                        break;
+                    } else {
+                        inner.push(d);
+                    }
+                } else {
+                    inner.push(d);
+                }
+            }
+            if closed {
+                if let Some(html) = role_to_html(&inner) {
+                    out.push_str(&html);
+                    continue;
+                }
+                out.push('{');
+                out.push_str(&inner);
+                out.push('}');
+            } else {
+                out.push('{');
+                out.push_str(&inner);
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn strip_quotes(s: &str) -> &str {
+    let s = s.trim();
+    let n = s.len();
+    if n >= 2 {
+        let b = s.as_bytes();
+        // 原始引号 " 或 '
+        if (b[0] == b'"' && b[n - 1] == b'"') || (b[0] == b'\'' && b[n - 1] == b'\'') {
+            return &s[1..n - 1];
+        }
+        // 已 XML 转义的 &quot;（文本先转义再走角色后处理）
+        if n >= 6 && &s[0..6] == "&quot;" && &s[n - 6..] == "&quot;" {
+            return &s[6..n - 6];
+        }
+    }
+    s
+}
+
+fn role_to_html(inner: &str) -> Option<String> {
+    let inner = inner.trim();
+    let mut it = inner.splitn(2, ':');
+    let role = it.next()?.trim();
+    let arg = it.next()?.trim();
+    if arg.is_empty() {
+        return None;
+    }
+    match role {
+        "ref" => {
+            let (target, label) = match arg.split_once('|') {
+                Some((t, l)) => (t.trim(), l.trim()),
+                None => (arg, arg),
+            };
+            Some(format!("<a class=\"ref\" href=\"#{}\">{}</a>", target, label))
+        }
+        "term" => Some(format!("<dfn>{}</dfn>", strip_quotes(arg))),
+        "math" => Some(format!("<span class=\"math\">\\({}\\)</span>", strip_quotes(arg))),
+        "em" => Some(format!("<em>{}</em>", arg)),
+        "strong" => Some(format!("<strong>{}</strong>", arg)),
+        _ => None,
+    }
+}
+
+/// 取容器块的标题文本（用于 `topic`/`section`/`theorem` 等）：
+/// 优先 `title` → `__name` → `text` → 首个标量。
+fn block_heading_text(v: &Value, opt: &MarkdownOptions) -> String {
+    if let Some(t) = v.get("title").and_then(|x| x.as_str()) {
+        return apply_roles(&escape_text(t, &opt.base));
+    }
+    if let Some(n) = block_name(v) {
+        return apply_roles(&escape_text(n, &opt.base));
+    }
+    if let Some(t) = v.get("text").and_then(|x| x.as_str()) {
+        return apply_roles(&escape_text(t, &opt.base));
+    }
+    block_text_content(v, opt)
+}
+
+/// 渲染容器（`topic`/`theorem`/`proof`/...）的子内容：
+/// 优先 `children` 数组；再遍历其余对象/数组型字段（跳过元数据与标量）。
+/// `hlevel` 仅由 `topic`/`section` 在递归时 +1，使「结构即逻辑」映射到标题层级。
+fn emit_children(
+    v: &Value,
+    opt: &MarkdownOptions,
+    depth: usize,
+    hlevel: usize,
+    out: &mut String,
+) -> Result<(), String> {
+    if let Some(Value::Array(children)) = v.get("children") {
+        for child in children {
+            emit_value(child, None, opt, depth + 1, hlevel + 1, out)?;
+        }
+    }
+    if let Value::Object(m) = v {
+        for (k, val) in m {
+            if DOC_META.contains(&k.as_str()) {
+                continue;
+            }
+            match val {
+                Value::Object(_) => {
+                    emit_object(val, Some(k), opt, depth + 1, hlevel + 1, out)?;
+                }
+                Value::Array(a) => {
+                    if a.iter().all(|x| matches!(x, Value::Object(_))) {
+                        for item in a {
+                            emit_object(item, Some(k), opt, depth + 1, hlevel + 1, out)?;
+                        }
+                    } else {
+                        for item in a {
+                            out.push_str(&format!(
+                                "{}\n\n",
+                                apply_roles(&md_escape_inline(&scalar_text(item)))
+                            ));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 把定理渲染为语义 raw-HTML（`<article class="theorem">`），
+/// 靠 Hugo 的 `unsafe=true` 透传；内部子块用 `child_to_html` 逐段生成 HTML。
+fn render_theorem(v: &Value, opt: &MarkdownOptions) -> String {
+    let id = v.get("label").and_then(|x| x.as_str()).unwrap_or("");
+    let id_attr = if id.is_empty() {
+        String::new()
+    } else {
+        format!(" id=\"{}\"", escape_xml_attr(id))
+    };
+    let title: String = match v.get("title") {
+        Some(Value::Str(s)) => s.clone(),
+        _ => block_name(v).unwrap_or("").to_string(),
+    };
+    let mut body = String::new();
+    if let Some(Value::Array(children)) = v.get("children") {
+        for child in children {
+            body.push_str(&child_to_html(child, opt));
+        }
+    }
+    let mut s = String::new();
+    s.push_str(&format!("<article class=\"theorem\"{}>\n", id_attr));
+    if !title.is_empty() {
+        s.push_str(&format!(
+            "<h3 class=\"theorem-title\">{}</h3>\n",
+            apply_roles(&escape_text(&title, &opt.base))
+        ));
+    }
+    s.push_str(&body);
+    s.push_str("</article>\n\n");
+    s
+}
+
+/// 把证明渲染为 `<div class="proof">`。
+fn render_proof(v: &Value, opt: &MarkdownOptions) -> String {
+    let mut body = String::new();
+    if let Some(Value::Array(children)) = v.get("children") {
+        for child in children {
+            body.push_str(&child_to_html(child, opt));
+        }
+    }
+    format!("<div class=\"proof\">\n{}</div>\n\n", body)
+}
+
+/// 把定理/证明内部的叶子块渲染为语义 HTML 片段。
+/// 用 raw-HTML 包裹，避免依赖 Goldmark 不支持的 `markdown="1"` 内联解析。
+fn child_to_html(v: &Value, opt: &MarkdownOptions) -> String {
+    match block_type(v) {
+        Some("math") => format!("<div class=\"math\">\\[{}\\]</div>\n", block_text_content(v, opt)),
+        Some("quote") => format!("<blockquote>{}</blockquote>\n", block_text_content(v, opt)),
+        Some("theorem") => render_theorem(v, opt),
+        Some("proof") => render_proof(v, opt),
+        _ => format!("<p>{}</p>\n", block_text_content(v, opt)),
+    }
 }

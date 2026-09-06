@@ -1,47 +1,16 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! 解析期条件/重复原语：`@when`（已实现）；`@for` 为规划中的未来原语。
+//! 解析期条件/重复原语：`@when`（已实现）与 `@for`。
 //!
-//! 本模块由 cargo feature `when` 门控（见 Cargo.toml）。
+//! 本模块由 cargo feature `when` 门控。
 //!
-//! # 为什么单独成模块
-//!
-//! `@when` / `@for` 是 SML 从「纯数据格式」往外延伸的部分，语义与核心解析
-//! 相对独立。单独成模块后：
-//! - 核心 `core.rs` 不必关心条件/循环的细节，只保留调用点；
-//! - 不需要这套能力（如嵌入式解析只读配置）的构建可用 cargo feature 关掉，
-//!   省掉相关代码；
-//! - 新增原语（如 `@for`）时改动集中在此，不扩散到解析器主体。
-//!
-//! # 编译期 feature 与运行时 FeatureSet 的分工
-//!
-//! 两层各管一件事，**不可互相替代**：
-//!
-//! | 层 | 机制 | 管什么 |
-//! |---|---|---|
-//! | 编译期 | cargo feature `when` | 这段代码要不要编译进库 |
-//! | 运行时 | [`crate::Feature::When`] | 这份文档能不能用该语法 |
-//!
-//! 运行时那层不能省：兼容性是**文档属性**而非构建属性。若只靠 cargo feature，
-//! 用「编译了 when 的库」解析旧文档时行为会随构建配置漂移，五端
-//! （Rust/C/JS/C++/Lua）就对不齐了。
-//!
-//! 因此 [`crate::Feature::When`] 枚举项**始终存在**（不受本 feature 门控），
-//! 以保证 C-ABI `sml_feature_name(bit)` 的位序稳定；本 feature 只门控实现。
-//!
-//! # 计算能力边界（架构约束）
-//!
-//! 本模块刻意**不引入通用表达式求值器**，也**不是图灵完备**的，靠三条不变量：
-//!
-//! 1. **循环有界**：`@for` 只遍历有限列表，无 `while`；
-//! 2. **变量只读**：`${item}` 是只读绑定，循环体不能修改它或列表；
-//! 3. **无递归**：模板不能引用自身。
-//!
-//! 有界循环 + 条件在理论上属于 LOOP 语言（原始递归函数），算不了 Ackermann
-//! 函数，故即便将来放开嵌套也仍非图灵完备。一旦引入 `while` / 递归 / 任意
-//! 函数调用，就必须配套沙箱、超时与资源配额——那与「SML 是纯数据格式」的
-//! 定位冲突，应避免。
+//! 刻意**不**独立成 crate：需要直接操作 `Parser` 的词法游标
+//! （`next`/`peek`/`peek_at`），外置会造成 parse ↔ cond 循环依赖。
 
-use crate::{Feature, Parser, Tok};
+use sml_feature::Feature;
+use sml_lex::Tok;
+use sml_value::Value;
+
+use crate::parser::Parser;
 
 /// `@when` 支持的条件形式（**闭集**）：
 ///
@@ -63,7 +32,7 @@ use crate::{Feature, Parser, Tok};
 ///
 /// 词法器没有 `=`/`==` 特殊 token，`==` 会以 `Word("==")` 出现，故本函数
 /// 无需改动 tokenize 即可工作。
-pub(crate) fn eval_when_cond(p: &mut Parser) -> Result<bool, String> {
+pub fn eval_when_cond(p: &mut Parser) -> Result<bool, String> {
     // 左侧：必须是 `$env.NAME`
     let lhs = match p.next() {
         Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
@@ -141,7 +110,7 @@ pub(crate) fn eval_when_cond(p: &mut Parser) -> Result<bool, String> {
 /// - `in` 后的枚举项只接受裸词或引号串（**有限列表**，不允许 `$env.*` 展开为多个项，
 ///   那是另一层次的「有界」语义，留待将来）；
 /// - 至少须有 1 个枚举项，否则报错（空循环体无意义）。
-pub(crate) fn eval_for_header(p: &mut Parser) -> Result<(String, Vec<String>), String> {
+pub fn eval_for_header(p: &mut Parser) -> Result<(String, Vec<String>), String> {
     // 消费 `@`
     match p.next() {
         Some(Tok::At) => {}

@@ -1,0 +1,28 @@
+[package]
+name = "sml-parse"
+version = "0.1.0-alpha.1"
+edition = "2021"
+description = "SML 语法分析：递归下降解析器与公开 parse API（parse / parse_file / loads）。"
+license = "MulanPSL-2.0"
+repository = "https://gitee.com/snoware/sml"
+
+[lib]
+name = "sml_parse"
+
+[dependencies]
+sml-value = { path = "../sml-value", default-features = false }
+sml-lex = { path = "../sml-lex", default-features = false }
+sml-feature = { path = "../sml-feature", default-features = false }
+sml-include = { path = "../sml-include", default-features = false }
+sml-contract = { path = "../sml-contract", default-features = false }
+sml-pattern = { version = "0.1.0-alpha.1", path = "../sml-pattern" }
+
+[features]
+default = []
+# 解析期条件/循环原语（`@when` / `@for`，见内部模块 `cond`）。
+#
+# 刻意**不**拆为独立 crate：`cond` 需要直接操作 `Parser` 的词法游标
+# （`next`/`peek`/`peek_at`），若外置会造成 parse ↔ cond 循环依赖。
+# 只门控**实现**；运行时 `Feature::When` 枚举项始终存在（在 sml-feature 中），
+# 以保证 C-ABI `sml_feature_name(bit)` 的位序稳定。
+when = []

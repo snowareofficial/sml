@@ -1,7 +1,9 @@
-use crate::core::*;
+use sml_parse::*;
+use sml_parse::strip_version;
+use sml_feature::FEATURES;
 #[cfg(feature = "sml")]
-use crate::core::to_sml;
-use crate::value::*;
+use sml_value::to_sml;
+use sml_value::*;
 use std::collections::BTreeMap;
 // ---------------------------------------------------------------------------
 // C-ABI (cdylib, 供 C / 其它语言调用)
@@ -508,7 +510,7 @@ pub unsafe extern "C" fn sml_typeof(v: *const CSmlValue) -> c_int {
         Value::Null => 0,
         Value::Bool(_) => 1,
         Value::Int(_) => 2,
-        Value::Float(_) => 3,
+        Value::Float(_, _) => 3,
         Value::Str(_) => 4,
         Value::Array(_) => 5,
         Value::Object(_) => 6,
@@ -661,7 +663,7 @@ pub unsafe extern "C" fn sml_int_value(v: *const CSmlValue) -> i64 {
     }
     match &(*(v as *const Value)) {
         Value::Int(i) => *i,
-        Value::Float(f) => *f as i64,
+        Value::Float(f, _) => *f as i64,
         _ => 0,
     }
 }
@@ -674,7 +676,7 @@ pub unsafe extern "C" fn sml_real_value(v: *const CSmlValue) -> f64 {
         return 0.0;
     }
     match &(*(v as *const Value)) {
-        Value::Float(f) => *f,
+        Value::Float(f, _) => *f,
         Value::Int(i) => *i as f64,
         _ => 0.0,
     }
@@ -861,7 +863,7 @@ pub fn jsonify(v: &Value) -> String {
         // NaN/inf 不是合法 JSON 字面量（`f.to_string()` 产出 "NaN"/"inf"，
         // 下游解析器必拒，且不可回读为 SML）。退化为 JSON `null`，既不破坏
         // 输出合法性，也明确标记「该值非有限数」（C-ABI 审计 #6）。
-        Value::Float(f) => {
+        Value::Float(f, _) => {
             if f.is_finite() {
                 f.to_string()
             } else {
@@ -1051,7 +1053,7 @@ pub fn json_to_value(s: &str) -> Option<Value> {
                 if let Ok(iv) = tok.parse::<i64>() {
                     Some(Value::Int(iv))
                 } else if let Ok(fv) = tok.parse::<f64>() {
-                    Some(Value::Float(fv))
+                    Some(Value::float(fv))
                 } else {
                     None
                 }
@@ -1059,5 +1061,42 @@ pub fn json_to_value(s: &str) -> Option<Value> {
         }
     }
     parse_val_impl(bytes, &mut i, s, &parse_str, 0)
+}
+
+// ---------------------------------------------------------------------------
+// wasm 专用：宿主内存分配
+//
+// wasm32-unknown-unknown 的 cdylib **不导出 malloc/free**（宿主默认是
+// wasm-bindgen 生态，由 JS 侧管理内存）。但本 crate 刻意不依赖 wasm-bindgen
+// —— 那样会引入 __wbindgen_placeholder__ 等导入，导致裸
+// WebAssembly.instantiate 失败，SML 也就无法在纯静态站点上跑。
+//
+// 因此这里补两个最小分配器，供宿主写入输入字符串后再调 sml_* 系列。
+// 用 cfg 门控，仅在 wasm 构建中出现，不影响 native / cdylib 的既有 ABI。
+// ---------------------------------------------------------------------------
+
+/// 分配 `n` 字节（内容清零），返回指针；失败返回 NULL。
+///
+/// 宿主应按 C 字符串惯例在末尾写 NUL；用完须调用 [`sml_dealloc`] 释放。
+#[cfg(target_arch = "wasm32")]
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub extern "C" fn sml_alloc(n: usize) -> *mut u8 {
+    let mut buf: Vec<u8> = vec![0u8; n];
+    let p = buf.as_mut_ptr();
+    std::mem::forget(buf); // 所有权移交宿主，避免此处立即释放
+    p
+}
+
+/// 释放 [`sml_alloc`] 得到的指针。
+#[cfg(target_arch = "wasm32")]
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_dealloc(p: *mut u8, n: usize) {
+    if p.is_null() || n == 0 {
+        return;
+    }
+    // len=0 / cap=n：不构造任何元素，仅回收分配，避免对未初始化内存调 drop
+    let _ = Vec::<u8>::from_raw_parts(p, 0, n);
 }
 

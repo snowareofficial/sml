@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="640" height="300" viewBox="0 0 640 300" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="640" height="300" fill="#0f1117" id="bg"/>
+  <text x="24" y="40" fill="#eef2ff" font-size="20" id="title">
+    月度概览
+  </text>
+  <text x="616" y="295" fill="#5b6172" font-size="11" id="stamp">
+    更新于 2026-09-02
+  </text>
+  <g id="cards">
+    <g fill="#1b2030" radius="12" id="card1">
+      <rect x="24" y="64" width="184" height="200" fill="#1b2030" rx="12"/>
+      <text x="40" y="101" fill="#9aa3b8" font-size="13">
+        销售额
+      </text>
+      <text x="40" y="156" fill="#2ecc71" font-size="28">
+        ¥42.5K
+      </text>
+      <rect x="40" y="204" width="132.48" height="8" fill="#2ecc71" rx="4"/>
+    </g>
+    <g fill="#1b2030" radius="12" id="card2">
+      <rect x="228" y="64" width="184" height="200" fill="#1b2030" rx="12"/>
+      <text x="244" y="101" fill="#9aa3b8" font-size="13">
+        用户数
+      </text>
+      <text x="244" y="156" fill="#60a5fa" font-size="28">
+        8,234
+      </text>
+      <rect x="244" y="204" width="101.2" height="8" fill="#60a5fa" rx="4"/>
+    </g>
+    <g fill="#1b2030" radius="12" id="card3">
+      <rect x="432" y="64" width="184" height="200" fill="#1b2030" rx="12"/>
+      <text x="448" y="101" fill="#9aa3b8" font-size="13">
+        留存率
+      </text>
+      <text x="448" y="156" fill="#a78bfa" font-size="28">
+        91%
+      </text>
+      <rect x="448" y="204" width="167.44" height="8" fill="#a78bfa" rx="4"/>
+    </g>
+  </g>
+</svg>

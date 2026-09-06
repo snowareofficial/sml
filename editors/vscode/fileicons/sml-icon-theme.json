@@ -1,0 +1,14 @@
+{
+  "comment": "SML 文件图标主题（最小侵入版）：不继承任何图标集，因此只有 .sml 有图标，其他文件保持无图标。若希望其他文件也有图标（沿用 Seti），请改用 SML Icons + Seti 主题。",
+  "iconDefinitions": {
+    "_sml_file": {
+      "iconPath": "./sml-file.svg"
+    }
+  },
+  "fileExtensions": {
+    "sml": "_sml_file"
+  },
+  "languageIds": {
+    "sml": "_sml_file"
+  }
+}

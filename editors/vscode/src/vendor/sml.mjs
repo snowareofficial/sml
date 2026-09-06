@@ -18,7 +18,44 @@
 //   parseSafe(text, opts?)        -> { ok, value|error, position }
 //   stringify(v) / dump(v)        -> string   （序列化回 SML，round-trip）
 //   契约错误以 message 中 "contract:" 前缀标识，可被 playground 高亮。
-
+//
+// ===========================================================================
+// ⚠️ 与 Rust 实现（swsml）的已知差异 —— 改动本文件前请先读
+// ===========================================================================
+//
+// 本实现与 Rust 侧在**语义安全**上已对齐（前导零、超范围整数、inf/nan），
+// 但以下差异由 JavaScript 语言能力决定，**无法在本实现内消除**。
+// 若发现新差异，请先判断属于哪一类：
+//
+// 【A 类 · 能力限制，不可修】—— 需要 Rust 引擎才能得到 Rust 的行为
+//   A1. 无法区分 1.0 与 1
+//       JS 的 Number("1.0") === 1，String(1.0) === "1"。
+//       Rust 侧有独立的 Value::Float，且保存原始字面量（raw），
+//       能输出 1.0 / 1.10 / 1e10。本实现做不到 —— number 是原始值，
+//       无法携带 raw；装箱成 new Number(x) 会让 typeof 变成 "object"，
+//       破坏契约系统的 isNum/isInt 与 JSON.stringify。
+//   A2. 大整数阈值不同（2^53 vs 2^63）
+//       Rust i64 上界 9223372036854775807（19 位）；
+//       JS  MAX_SAFE_INTEGER 9007199254740991（16 位）。
+//       因此 330106201503071234 在 Rust 侧是精确的 Int，
+//       在本实现必须保为字符串（否则 Number() 会静默损坏）。
+//       差异方向是**更保守** —— 宁可保字符串，也不损坏。
+//       连带后果：str 契约在长号上，Rust 侧会拦截、本实现会放行（见 5.8）。
+//
+// 【B 类 · 已修，不得回退】
+//   B1. 裸词 inf / nan 曾被 Number() 解析成 NaN（挪威问题同类）。
+//       修法见 coerceWord 的 numericHead 闸门。
+//   B2. 前导零（0571 / -007）曾被吃掉。修法见 LEADING_ZERO_INT。
+//   B3. enum 语法：本实现曾只认 enum(...) / enum a b c，
+//       而官网文档与 Rust 都用 enum [ ... ]，两端完全相反。
+//       现已三种都支持，以 enum [ ... ] 为准。
+//
+// 【同步提醒】
+//   仓库源文件是 **js/sml.mjs**，但 Playground 加载的是
+//   **site/static/sml.mjs**（shortcode 里写死 "/sml.mjs"）。
+//   两者曾是两个手工副本并发生漂移 —— 改完本文件后，
+//   务必运行 `python _sync_playground.py` 同步，否则网页上不生效。
+//
 // ---------------------------------------------------------------------------
 // 词法
 // ---------------------------------------------------------------------------
@@ -82,7 +119,12 @@ function tokenize(text) {
         } else { s += cc; i++; }
       }
       toks.push({ t: "str", v: s, pos: qStart });
-    } else if ("(){}[]:,".includes(c)) {
+    } else if ("{}[]:,".includes(c)) {
+      // ⚠️ 括号 `(` `)` **不是**分隔符，必须与 Rust 侧（sml-lex 的 Tok 只有
+      // { } [ ] , : @）一致：裸词值 `备注: (重要)` / `公式: f(x)` 里的括号是
+      // 普通字符。此前把它们列进分隔符，会把 `(重要)` 切成独立 token，
+      // 导致值静默损坏成 null 并产生 `(`/`)` 垃圾键 —— 与 Rust 解析结果相反。
+      // enum(...) 的兼容由 parseFieldSpec 在解析层重组（见 parseFieldSpec）。
       flush();
       toks.push({ t: c, v: c, pos: i });
       i++;
@@ -129,6 +171,14 @@ function envLookup(name) {
   return "";
 }
 
+// 数字字面量形态（十进制 / 定点 / 科学计数，含正负号）。
+// 刻意不接受 0x / 0o / 0b 等进制前缀与 `1_000` 分隔符 —— 它们一律按字符串处理。
+const NUMERIC_LITERAL = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
+// 纯整数（无小数点、无指数）
+const INT_LITERAL = /^[+-]?\d+$/;
+// 带前导零的纯整数（0 之后还有数字），如 007 / 0755 / -007
+const LEADING_ZERO_INT = /^[+-]?0\d+$/;
+
 function coerceWord(w, fragments, nsMap) {
   if (w === "true") return true;
   if (w === "false") return false;
@@ -153,7 +203,24 @@ function coerceWord(w, fragments, nsMap) {
     if (fragments.has(name)) return structuredClone(fragments.get(name));
     return w;
   }
-  if (/^-?\d+\.?\d*$/.test(w) || /^-?\.\d+$/.test(w) || /^-?\d+\.?\d*[eE][+-]?\d+$/.test(w)) {
+  // 只有首字符为数字或小数点的词才承认是数字字面量（剥离正负号后判断）。
+  //
+  // Rust 的 f64 解析器接受 `inf` / `infinity` / `nan` 且大小写不敏感，
+  // 若不设此闸，`status: inf`、`ratio: nan` 这类裸词会被静默解析成 NaN ——
+  // 与 YAML 1.1 把 `NO` 识别成 false 是同一类问题（挪威问题）。
+  const digits = w.replace(/^[+-]/, "");
+  const head = digits.charAt(0);
+  const numericHead = head === "." || (head >= "0" && head <= "9");
+  if (numericHead && NUMERIC_LITERAL.test(w)) {
+    // 前导零保留为字符串：mode: 0755 不应变成 755
+    if (LEADING_ZERO_INT.test(w)) return w;
+    // 超出安全整数范围的纯整数保留为字符串。
+    //
+    // 这里用 2^53 而非 Rust 的 i64 上界：JS 只有 Number（IEEE 754 双精度），
+    // 超出 2^53 的整数无法精确表示，转 Number 即静默损坏（如 18 位身份证号）。
+    // 与 Rust 侧「i64 内即精确」的差异源于两种语言数值类型的能力上限，
+    // 差异方向是更保守 —— 宁可保为字符串，也不损坏。
+    if (INT_LITERAL.test(w) && !Number.isSafeInteger(Number(w))) return w;
     return Number(w);
   }
   return w;
@@ -179,6 +246,7 @@ function typeName(sp) {
   if (sp.type === "enum") return "enum(" + sp.enumVals.join("|") + ")";
   if (sp.type === "array") return "array[" + (sp.arrInner ? typeName(sp.arrInner) : "?") + "]";
   if (sp.type === "contract") return sp.refName;
+  if (sp.type === "pattern") return sp.refName;
   return sp.type;
 }
 
@@ -196,6 +264,7 @@ function valueMatchesType(v, sp) {
       return v.every((e) => valueMatchesType(e, sp.arrInner));
     }
     case "contract": return true; // 组合契约在应用阶段递归校验
+    case "pattern": return typeof v === "string"; // 格式校验在应用阶段（含引号提示）
     default: return true;
   }
 }
@@ -215,6 +284,24 @@ function checkContract(contracts, contract, obj, path) {
       continue;
     }
     const v = obj[k];
+    // 自定义模式类型：非字符串必须显式报错并提示加引号——
+    // 像 `证件号: 221099 1988 0987 1211` 这种裸写会被词法切成数字，
+    // 只剩末段还不报错，是本项目明确要消灭的「静默数据损坏」。
+    if (sp.type === "pattern") {
+      if (typeof v !== "string") {
+        errs.push(`字段 ${full} 类型 ${sp.refName} 要求字符串（号码 / 编号 / 身份证请用引号包裹），实得 ${Array.isArray(v) ? "array" : typeof v}`);
+        continue;
+      }
+      // 防御：JS RegExp 有回溯，超长输入直接拒绝而非硬算
+      if (v.length > 4096) {
+        errs.push(`字段 ${full} 的值过长（${v.length} > 4096），拒绝校验`);
+        continue;
+      }
+      let ok = false;
+      try { ok = sp.patternRe.test(v); } catch { ok = false; }
+      if (!ok) errs.push(`字段 ${full} 的值 \`${v}\` 不符合类型 ${sp.refName} 的格式要求`);
+      continue;
+    }
     if (sp.type === "contract") {
       const sub = contracts[sp.refName];
       if (!sub) { errs.push(`契约 ${sp.refName} 未定义（字段 ${full}）`); continue; }
@@ -377,6 +464,8 @@ export function parse(text, opts) {
   const toks = tokenize(text);
   const fragments = new Map();
   const contracts = {};
+  // @type 自定义类型：名 -> 模式数据（Loom-in-SML：规则即 SML 数据）
+  const types = new Map();
   const nsMap = {};
   let i = 0;
   const peek = () => toks[i];
@@ -398,6 +487,125 @@ export function parse(text, opts) {
     fail("sml: 期望字面量, 得 " + t.t);
   }
 
+  // —— 模式语言（Loom-in-SML）：编译为 JS RegExp ——
+  //
+  // 与 Rust 侧的差异必须知道：JS RegExp 存在回溯，不是 NFA 引擎。
+  // 缓解措施：
+  //   1) 不支持 直到/until（避免懒惰量词的高危结构，明确报错而非静默）
+  //   2) 校验值长度上限 4096
+  //   3) 结构化模式生成的量词大多有界，风险可控
+  //   4) regex 逃生舱内嵌用户正则时同样受上述约束
+  const PATTERN_MAX_LEN = 4096;
+  function escapeRe(s) {
+    return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  function classToRe(c) {
+    // Unicode 语义，与 Rust 侧对齐：数字含全角、字母含汉字
+    const table = {
+      "数字": "\\p{Nd}", digit: "\\p{Nd}",
+      "字母": "\\p{L}", alpha: "\\p{L}",
+      "空白": "\\s", space: "\\s",
+      "字": "[\\p{L}\\p{Nd}_]", word: "[\\p{L}\\p{Nd}_]",
+      "任意": "[\\s\\S]", any: "[\\s\\S]",
+    };
+    if (table[c]) return table[c];
+    if ([...c].length === 1) return escapeRe(c);
+    throw new Error("sml: 未知字符类 `" + c + "`");
+  }
+  // 量词描述 → [min, max]（max===undefined 表示无上界）。
+  // 支持：数字 / "+" / "*" / "?" / "a-b" 字符串。
+  function quantToMinMax(t) {
+    if (typeof t === "number") return [t, t];
+    if (t === "+") return [1, undefined];
+    if (t === "*") return [0, undefined];
+    if (t === "?") return [0, 1];
+    if (/^\d+$/.test(t)) return [Number(t), Number(t)];
+    const m = /^(\d+)-(\d+)$/.exec(t);
+    if (m) return [Number(m[1]), Number(m[2])];
+    throw new Error("sml: 未知量词 `" + t + "`");
+  }
+  // [min, max] → 正则量词片段（无上界写作 {min,}）。
+  function minMaxToRe(min, max) {
+    if (max === undefined) return "{" + min + ",}";
+    return "{" + min + "," + max + "}";
+  }
+  function compilePatternToRe(v, stack) {
+    stack = stack || [];
+    const build = (node) => {
+      if (Array.isArray(node)) return node.map(build).join("");
+      if (typeof node === "string") return escapeRe(node);
+      if (node == null || typeof node !== "object")
+        throw new Error("sml: 模式元素类型不支持");
+      const g = (...keys) => {
+        for (const k of keys) if (node[k] !== undefined) return node[k];
+        return undefined;
+      };
+      if (g("直到", "until") !== undefined)
+        throw new Error("sml: JS 引擎暂不支持 直到/until（懒惰量词在高危结构下有回溯风险；该场景请用 Rust 引擎）");
+      let base;
+      if (g("字面", "lit", "literal") !== undefined)
+        base = escapeRe(String(g("字面", "lit", "literal")));
+      else if (g("类", "class") !== undefined)
+        base = classToRe(String(g("类", "class")));
+      else if (g("任一", "alt", "any-of") !== undefined)
+        base = "(?:" + g("任一", "alt", "any-of").map((x) => build(x)).join("|") + ")";
+      else if (g("组", "group") !== undefined)
+        base = "(?:" + build(g("组", "group")) + ")";
+      else if (g("序列", "seq") !== undefined)
+        base = build(g("序列", "seq"));
+      else if (g("用", "use") !== undefined) {
+        const name = String(g("用", "use"));
+        if (stack.includes(name)) throw new Error("sml: 规则 `" + name + "` 循环引用");
+        if (!types.has(name)) throw new Error("sml: 未定义的规则 `" + name + "`");
+        stack.push(name);
+        const p = build(types.get(name));
+        stack.pop();
+        return p; // 引用处不重复应用量词/命名
+      }
+      else if (g("正则", "regex", "re") !== undefined)
+        base = "(?:" + String(g("正则", "regex", "re")).replace(/^\^/, "").replace(/\$$/, "") + ")";
+      else throw new Error("sml: 无法识别的模式元素");
+      // —— 量词：支持 次: 数字/符号/a-b、次: {最小,最大}（中英等价）、
+      //     或直接 最小/最大 平铺在元素上（机翻等价的直觉写法）——
+      let qMin = undefined, qMax = undefined;
+      const times = g("次", "times", "repeat");
+      if (times !== undefined) {
+        if (typeof times === "object" && times !== null) {
+          // 对象形式：{ 最小: n, 最大: m }（键名走 i18n，中英等价）
+          const lo = times["最小"] ?? times["min"];
+          const hi = times["最大"] ?? times["max"];
+          if (lo !== undefined) qMin = Number(lo);
+          if (hi !== undefined) qMax = Number(hi);
+        } else {
+          const [mn, mx] = quantToMinMax(times);
+          qMin = mn; qMax = mx;
+        }
+      }
+      // 平铺形式：直接把 最小/最大 写在模式元素上
+      const flatMin = g("最小", "min");
+      const flatMax = g("最大", "max");
+      if (flatMin !== undefined) qMin = Number(flatMin);
+      if (flatMax !== undefined) qMax = Number(flatMax);
+      // 可选：等价 {0,1}，仅当未显式给出量词时生效
+      const isOptional = node["可选"] === true || node["optional"] === true;
+      if (isOptional && qMin === undefined && qMax === undefined) { qMin = 0; qMax = 1; }
+      // 校验并应用：非法输入一律抛出明确错误，绝不静默忽略
+      if (qMin !== undefined || qMax !== undefined) {
+        if ((qMin !== undefined && !Number.isInteger(qMin)) ||
+            (qMax !== undefined && !Number.isInteger(qMax)))
+          throw new Error("sml: 量词最小/最大必须为整数");
+        if (qMin !== undefined && qMin < 0) throw new Error("sml: 量词最小不能为负（得 " + qMin + "）");
+        if (qMax !== undefined && qMin !== undefined && qMax < qMin)
+          throw new Error("sml: 量词最大(" + qMax + ")不能小于最小(" + qMin + ")");
+        const mn = qMin === undefined ? 0 : qMin;
+        base = "(?:" + base + ")" + minMaxToRe(mn, qMax);
+      }
+      return base;
+    };
+    const body = build(v);
+    return new RegExp("^(?:" + body + ")$", "u");
+  }
+
   function parseFieldSpec() {
     const t = peek();
     if (!t || t.t !== "word") fail("sml: 字段类型期望标识符");
@@ -409,9 +617,36 @@ export function parse(text, opts) {
     else if (typeWord === "num") sp.type = "num";
     else if (typeWord === "bool") sp.type = "bool";
     else if (typeWord === "any") sp.type = "any";
-    else if (typeWord === "enum") {
+    else if (typeWord.startsWith("enum(")) {
+      // `enum(公开, 内部, 机密)` 的兼容重组。
+      //
+      // 括号不再是分隔符后（与 Rust 词法对齐），这类写法会被 `,` 切成
+      // Word("enum(公开") , Word("内部") , Word("机密)") —— 此处按
+      // 「起于 enum( 、止于以 ) 结尾的词」重组回枚举成员列表。
+      // 官网与教程大量使用 `enum(a, b, c)`，而 Rust 侧只认 `enum [ ... ]`，
+      // 故这一层兼容是两端行为统一的必要代价。
       sp.type = "enum";
       sp.enumVals = [];
+      let rest = typeWord.slice(5); // 去掉前缀 "enum("
+      for (;;) {
+        if (rest.endsWith(")")) {
+          const last = rest.slice(0, -1);
+          if (last !== "") sp.enumVals.push(last);
+          break;
+        }
+        sp.enumVals.push(rest);
+        if (peek() && peek().t === ",") i++;
+        const nx = peek();
+        if (!nx || (nx.t !== "word" && nx.t !== "str")) break;
+        rest = nx.v;
+        i++;
+      }
+    } else if (typeWord === "enum") {
+      sp.type = "enum";
+      sp.enumVals = [];
+      // 三种写法都接受，但以 `enum [ ... ]` 为准 —— 它是官网文档与 Rust 实现
+      // 使用的形式。此前本实现只认 `enum(...)` / `enum a b c`，导致
+      // 「按官网文档写的契约在 Playground 上报错」，与 Rust 侧完全相反。
       if (peek() && peek().t === "(") {
         i++;
         while (peek() && peek().t !== ")") {
@@ -420,6 +655,14 @@ export function parse(text, opts) {
           else break;
         }
         if (peek() && peek().t === ")") i++;
+      } else if (peek() && peek().t === "[") {
+        i++;
+        while (peek() && peek().t !== "]") {
+          if (peek().t === "word" || peek().t === "str") { sp.enumVals.push(peek().v); i++; }
+          else if (peek().t === ",") i++;
+          else break;
+        }
+        if (peek() && peek().t === "]") i++;
       } else {
         while (peek() && (peek().t === "word" || peek().t === "str")) { sp.enumVals.push(peek().v); i++; }
       }
@@ -433,6 +676,12 @@ export function parse(text, opts) {
         }
         if (peek() && peek().t === "]") i++;
       }
+    } else if (types.has(typeWord)) {
+      // @type 声明的自定义类型：解析期即编译为 RegExp（缓存），校验期直接用
+      sp.type = "pattern";
+      sp.refName = typeWord;
+      sp.patValue = types.get(typeWord);
+      sp.patternRe = compilePatternToRe(sp.patValue);
     } else {
       sp.type = "contract";
       sp.refName = typeWord;
@@ -537,6 +786,26 @@ export function parse(text, opts) {
           }
           continue;
         }
+        if (fname === "type") {
+          i++; // 消费指令名 type（本分支与其它分支一致：fname 由自己消费）
+          // 自定义类型：`@type name: X { 模式 }`。
+          // 仅显式 name: 形式是指令；`@type { }` 仍是「名为 type 的片段」
+          // （与 Rust 实现的边界一致，回归测试守着该语义）。
+          const isDecl = peek() && peek().t === "word" && peek().v === "name"
+            && toks[i + 1] && toks[i + 1].t === ":";
+          if (isDecl) {
+            i += 2; // 消费 name 与 :
+            if (!peek() || (peek().t !== "word" && peek().t !== "str"))
+              fail("sml: @type name: 后须类型名");
+            const tname = peek().v; i++;
+            if (!peek() || peek().t !== "{") fail("sml: @type " + tname + " 后须 { } 模式体");
+            i++;
+            const body = parseBlock("}");
+            types.set(nsPrefix + tname, body);
+            continue;
+          }
+          // 非指令形式：下落到片段定义逻辑（片段名 = "type"）
+        }
         if (fname === "contract") {
           i++;
           const cname = peek() && peek().v;
@@ -551,9 +820,17 @@ export function parse(text, opts) {
         }
         if (fname === "is") {
           i++;
-          const cname = peek() && peek().v;
-          if (!cname) fail("sml: @is 后须契约名");
+          const raw = peek() && peek().v;
+          if (!raw) fail("sml: @is 后须契约名");
           i++;
+          // `@is type(契约名)` 与 `@is 契约名` 等价 —— 括号形式让「类型标注」
+          // 的意图更显眼，且与块级标注 `type(契约名) 块名 { .. }` 同形。
+          // 括号在词法中不是分隔符，故 `type(办事人)` 整体是一个 word，
+          // 字符串层解包即可。仅当契约表里**确实存在**名为 `type(x)` 的契约时
+          // 才按原名解析（极端但合法的老文档）—— 向后兼容优先，与 Rust 一致。
+          const inner = /^type\((.+)\)$/.exec(raw);
+          const nameExists = raw in contracts || nsPrefix + raw in contracts;
+          const cname = inner && !nameExists ? inner[1] : raw;
           appliedContract = nsPrefix + cname;
           if (!(appliedContract in contracts)) appliedContract = cname; // 回退裸名
           continue;
@@ -644,6 +921,20 @@ export function parse(text, opts) {
             const sub = parseBlock("}");
             sub.__type = key;
             if (args.length === 1) sub.__name = args[0];
+            // —— 块级类型标注：`<契约名> <块名> { .. }` ——
+            //
+            // 裸块首词若命中契约表，自动把该契约应用到本块，等价于块内首行
+            // `@is 契约名`。与既有裸块 `type [name...] { }` 完全同形，故零新语法；
+            // 由 opt-in 特性 `typed-block` 门控，未开启时既有文档行为不变。
+            if (feats.has("typed-block") && feats.has("contract")) {
+              const cname = key in contracts ? key : nsPrefix + key in contracts ? nsPrefix + key : null;
+              if (cname) {
+                const c = contracts[cname];
+                applyDefaults(c, sub);
+                const errs = checkContract(contracts, c, sub, "");
+                if (errs) fail("contract: " + cname + " — " + errs.join("; "));
+              }
+            }
             setField(key, sub);
             continue;
           }

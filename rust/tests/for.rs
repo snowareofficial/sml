@@ -192,6 +192,17 @@ hosts: @for h in a b {
     );
 }
 
+// ── 7b. 键名位置不支持 ${var} 插值：必须显式报错（fail-fast），不静默生成垃圾 ──
+#[test]
+fn key_position_interp_is_rejected() {
+    let doc = "hosts: @for h in a b { ${h}_port: 80 }\n";
+    let e = err_env(doc, &[]);
+    assert!(
+        e.contains("键名") || e.contains("${var}"),
+        "键名位置 ${{var}} 应报错，实际: {e}"
+    );
+}
+
 // ── 8. 端到端：examples/for_when.sml 整体可解析且结构正确 ─────────────────
 #[test]
 fn example_for_when_sml_parses() {

@@ -82,20 +82,7 @@
 
 // ---------------------------------------------------------------------------
 
-use std::collections::BTreeMap;
-
-mod value;
-mod core;
 mod c_abi;
-/// 解析期条件/重复原语（`@when`，未来 `@for`）。
-///
-/// 由 cargo feature `when` 门控：不需要这套能力的构建可关掉，省掉相关代码。
-/// 注意运行时 `Feature::When` 不受此门控（兼容性是文档属性，须始终可判定），
-/// 详见模块文档。
-#[cfg(feature = "when")]
-mod cond;
-#[cfg(feature = "serde")]
-mod serde_bridge;
 mod derive_macro;
 #[cfg(any(
     feature = "emit-markdown",
@@ -107,10 +94,29 @@ mod derive_macro;
 ))]
 pub mod emit;
 
-// re-export 公共 API
-pub use crate::value::*;
-pub use crate::core::*;
-pub use crate::c_abi::*;
+// ---------------------------------------------------------------------------
+// re-export：把各功能 crate 的公共 API 聚合到 `sml::` 单一命名空间，
+// 使既有调用方 `use sml::{parse, Value, Feature, …}` 完全不受拆分影响。
+// ---------------------------------------------------------------------------
+pub use sml_value::{describe_value, Value};
+/// 自定义类型（`@type`）使用的模式匹配引擎：无回溯、免疫 ReDoS。
+pub use sml_pattern as pattern;
+#[cfg(feature = "sml")]
+pub use sml_value::to_sml;
+
+pub use sml_feature::{feature_names, Feature, FeatureSet, Version, FEATURES};
+pub use sml_contract::{Contract, FieldSpec, TypeSpec};
+pub use sml_include::{
+    IncludeTarget, MiniRegex, compile_regex, parse_include_line, regex_matches,
+    strip_line_comment,
+};
+#[cfg(feature = "when")]
+pub use sml_lex::Tok;
+pub use sml_parse::{
+    loads, parse, parse_allowed, parse_file, parse_file_features, parse_file_versioned,
+    parse_versioned, parse_with_features, parse_with_features_env, ParseError,
+};
+pub use c_abi::*;
 
 // derive trait + 宏 (两个不同命名空间：手写 trait + swsml_derive 提供的 derive 宏)
 #[cfg(feature = "derive")]
@@ -122,14 +128,23 @@ pub use swsml_derive::{SmlDeserialize, SmlSerialize};
 
 // serde 桥接 (可选 feature) —— 桥接函数放在 `sml::serde::*` 命名空间，
 // 与 derive 体系的 `sml::to_string` / `sml::from_str`（基于 SmlSerialize trait）区分。
+//
+// `from_str` 需要解析器，故在本 crate 实现（sml-value 不能反向依赖 sml-parse）。
 #[cfg(feature = "serde")]
 pub mod serde {
-    pub use crate::serde_bridge::*;
+    pub use sml_value::serde::{from_value, to_string, to_value};
+
+    /// 从 SML 文本直接反序列化到任意 `Deserialize` 类型（等价于 `toml::from_str`）。
+    pub fn from_str<T: serde::de::DeserializeOwned>(text: &str) -> Result<T, String> {
+        let value = crate::parse(text)?;
+        from_value(value)
+    }
 }
 
 
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
 
     // ---------------- version ----------------
 
@@ -466,6 +481,8 @@ mod tests {
         );
     }
 
+    // `to_sml` 仅在 `sml` feature 下存在（见 sml-value::to_sml 的 cfg 门控）。
+    #[cfg(feature = "sml")]
     #[test]
     fn email_roundtrips_through_to_sml() {
         let v = Value::Object(BTreeMap::from([(
@@ -560,7 +577,7 @@ mod tests {
         let v: Value = serde_json::from_str(r#"{"s":"x","i":5,"f":1.5,"b":true,"n":null,"a":[1,2]}"#).unwrap();
         assert_eq!(v.get("s").unwrap().as_str(), Some("x"));
         assert_eq!(v.get("i"), Some(&Value::Int(5)));
-        assert_eq!(v.get("f"), Some(&Value::Float(1.5)));
+        assert_eq!(v.get("f"), Some(&Value::float(1.5)));
         assert_eq!(v.get("b"), Some(&Value::Bool(true)));
         assert_eq!(v.get("n"), Some(&Value::Null));
         assert!(matches!(v.get("a"), Some(Value::Array(a)) if a.len() == 2));
@@ -774,17 +791,39 @@ mod tests {
     }
 
     #[test]
-    fn b11_fragment_reference_is_value_not_merge() {
-        // B11: 文档示例 `server web { &base port: 8080 }` 无法解析（裸词当键）。
-        // 正确语义：&name 是值引用，写作 `key: &name`。
-        // 错误写法必须报错：
-        assert!(
-            parse("@base { region: cn }\nserver web { &base port: 8080 }").is_err(),
-            "B11: 块内裸写 &base 必须报错（不是合并语义）"
+    fn b11_block_bare_fragment_merges() {
+        // B11(修订): 块内裸 `&name` = 片段字段**合并**（对齐教程 ch03/ch08 与 JS 引擎）。
+        // 此前判为错误（值引用唯一），导致「strict 契约 + 片段复用」不可用。
+        // `key: &name`（带冒号）仍是值引用，语义不变。
+        let v = parse("@base { region: cn }\nweb { &base port: 8080 }")
+            .expect("块内裸 &base 应合并展开");
+        let web = v.get("web").expect("应有 web 块");
+        assert_eq!(
+            web.get("region").and_then(|x| x.as_str()),
+            Some("cn"),
+            "合并语义失效: {web:?}"
         );
-        // 正确写法解析成功，&base 作为值引用附着在显式键上：
+        assert_eq!(web.get("port"), Some(&Value::Int(8080)), "显式字段应保留");
+
+        // 同名行为对齐 JS 引擎实测（_probe_js_cover.mjs）：
+        // 片段在前 + 显式在后 → 数组提升；显式在前 + 片段在后 → 片段覆盖
+        let v = parse("@base { port: 1 }\nweb { &base port: 8080 }").expect("应成功");
+        assert_eq!(
+            v.get("web").unwrap().get("port"),
+            Some(&Value::Array(vec![Value::Int(1), Value::Int(8080)])),
+            "片段在前+显式在后应为数组（对齐 JS）"
+        );
+
+        let v = parse("@base { port: 1 }\nweb { port: 8080 &base }").expect("应成功");
+        assert_eq!(
+            v.get("web").unwrap().get("port"),
+            Some(&Value::Int(1)),
+            "显式在前+片段在后应片段覆盖（对齐 JS）"
+        );
+
+        // 值引用保持不变：
         let ok = "@base { region: cn-north-1 }\nregion: &base";
-        let v = parse(ok).expect("B11: region: &base 应成功");
+        let v = parse(ok).expect("region: &base 应成功");
         let region = v.get("region").expect("B11: 应有 region 键");
         assert!(
             matches!(region, Value::Object(_)),
@@ -850,12 +889,12 @@ mod tests {
         // B6: Float(1.0) 必须序列化为 "1.0"，round-trip 回来仍是 Float
         let v = Value::Object({
             let mut m = BTreeMap::new();
-            m.insert("f".into(), Value::Float(1.0));
+            m.insert("f".into(), Value::float(1.0));
             m
         });
         let out = to_sml(&v);
         let back = parse(&out).unwrap();
-        assert_eq!(back.get("f"), Some(&Value::Float(1.0)), "Float(1.0) 不能变成 Int, 得 {:?}", out);
+        assert_eq!(back.get("f"), Some(&Value::float(1.0)), "Float(1.0) 不能变成 Int, 得 {:?}", out);
     }
 
     #[test]
@@ -913,9 +952,11 @@ mod tests {
     fn parse_fragment() {
         let text = "@base { region: cn-north-1 }\nserver web { &base }\n";
         let v = parse(text).unwrap();
-        // &base 展开为字段 (键名 "&base", 值=片段对象), 与 Lua 实现一致
+        // 块内裸 `&base` = 片段字段合并（对齐教程 ch03/ch08 与 JS 引擎）。
+        // 旧语义把 "&base" 作为字面键保留（值=片段对象），与教程教的
+        // 「片段复用」相悖，已随 B11 修订一并更新。
         assert_eq!(
-            v.get("server.&base.region"),
+            v.get("server").and_then(|s| s.get("region")),
             Some(&Value::Str("cn-north-1".into()))
         );
         assert_eq!(v.get("server.__type"), Some(&Value::Str("server".into())));

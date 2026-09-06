@@ -206,15 +206,30 @@ fn emit_object(v: &Value, inferred: Option<&str>, opt: &LatexOptions, depth: usi
         return Err(format!("latex: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
     }
     let ty = block_type(v).or(inferred);
+    // 容器保序：SML 对象字段按名字排序存储（BTreeMap），同级写 `h1`/`p`/`ul`
+    // 会按字典序输出、正文乱序；只有 `children` 数组能表达**文档顺序**。
+    // 故凡带 `children` 的块一律按数组顺序输出子元素 —— 但下列类型自身
+    // 已定义了子元素的语义（`items` / `header` / `text` / 行内强调），不参与。
+    if block_children(v).is_some()
+        && !matches!(
+            ty,
+            Some("h1") | Some("h2") | Some("h3") | Some("h4") | Some("h5") | Some("h6")
+                | Some("p") | Some("ul") | Some("ol") | Some("table") | Some("code")
+                | Some("blockquote") | Some("em") | Some("strong") | Some("math")
+                | Some("equation")
+        )
+    {
+        return emit_container(v, opt, depth, out);
+    }
     match ty {
-        Some("h1") => heading(v, "section", opt, out),
-        Some("h2") => heading(v, "subsection", opt, out),
-        Some("h3") => heading(v, "subsubsection", opt, out),
-        Some("h4") => heading(v, "paragraph", opt, out),
-        Some("h5") => heading(v, "subparagraph", opt, out),
-        Some("h6") => heading(v, "subparagraph", opt, out),
+        Some("h1") => heading(v, "section", opt, depth, out)?,
+        Some("h2") => heading(v, "subsection", opt, depth, out)?,
+        Some("h3") => heading(v, "subsubsection", opt, depth, out)?,
+        Some("h4") => heading(v, "paragraph", opt, depth, out)?,
+        Some("h5") => heading(v, "subparagraph", opt, depth, out)?,
+        Some("h6") => heading(v, "subparagraph", opt, depth, out)?,
         Some("p") => {
-            let c = block_text(v, opt);
+            let c = block_text(v, opt, depth)?;
             out.push_str(&format!("{}\n\n", c));
         }
         Some("ul") | Some("ol") => {
@@ -225,14 +240,11 @@ fn emit_object(v: &Value, inferred: Option<&str>, opt: &LatexOptions, depth: usi
                 let body = match item {
                     Value::Str(s) => escape_latex(s),
                     Value::Object(_) => {
-                        let t = block_text(item, opt);
-                        if let Some(done) = item.get("done") {
-                            if let Value::Bool(b) = done {
-                                let mark = if *b { "[x]" } else { "[ ]" };
-                                return Err(format!("LaTeX 不支持任务勾选，遇到 done 字段于列表项: {}", mark));
-                            }
+                        if let Some(Value::Bool(b)) = item.get("done") {
+                            let mark = if *b { "[x]" } else { "[ ]" };
+                            return Err(format!("LaTeX 不支持任务勾选，遇到 done 字段于列表项: {}", mark));
                         }
-                        t
+                        block_text(item, opt, depth)?
                     }
                     other => scalar_text(other),
                 };
@@ -262,7 +274,7 @@ fn emit_object(v: &Value, inferred: Option<&str>, opt: &LatexOptions, depth: usi
             out.push_str("\\end{verbatim}\n\n");
         }
         Some("blockquote") => {
-            let c = block_text(v, opt);
+            let c = block_text(v, opt, depth)?;
             out.push_str("\\begin{quote}\n");
             out.push_str(&c);
             if !c.ends_with('\n') {
@@ -272,64 +284,174 @@ fn emit_object(v: &Value, inferred: Option<&str>, opt: &LatexOptions, depth: usi
         }
         Some("table") => emit_latex_table(v, opt, out)?,
         Some("em") => {
-            out.push_str(&format!("\\emph{{{}}}", block_text(v, opt)));
+            out.push_str(&format!("\\emph{{{}}}", block_text(v, opt, depth)?));
         }
         Some("strong") => {
-            out.push_str(&format!("\\textbf{{{}}}", block_text(v, opt)));
+            out.push_str(&format!("\\textbf{{{}}}", block_text(v, opt, depth)?));
         }
-        Some("math") | Some("equation") if opt.math => {
-            let body = v.get("text").or_else(|| v.get("body"))
-                .and_then(|x| x.as_str())
-                .unwrap_or("");
-            // 数学内容无法转义（转义会破坏公式语义），因此改为**拒绝**含
-            // 文件读写 / shell 执行 / 包加载原语的内容：这些原语可让
-            // 不可信数据读取本地文件或在开启 shell-escape 时执行任意命令。
-            check_latex_raw(body)?;
-            let env = if ty == Some("equation") { "equation" } else { "math" };
-            if env == "math" {
-                out.push_str(&format!("${}$", body));
-            } else {
-                out.push_str(&format!("\\begin{{{}}}\n{}\n\\end{{{}}}\n", env, body, env));
-            }
-        }
+        Some("math") | Some("equation") => emit_math(v, ty == Some("equation"), opt, out)?,
         _ => emit_description(v, opt, depth + 1, out)?,
     }
     Ok(())
 }
 
-fn heading(v: &Value, cmd: &str, _opt: &LatexOptions, out: &mut String) {
-    let c = block_text(v, _opt);
-    out.push_str(&format!("\\{}{{{}}}\n\n", cmd, c));
+/// 数学块/行内公式。`opt.math` 关闭时退化为**转义后的纯文本**，
+/// 而不是之前的 `description` 环境 —— 后者会把 `$E=mc^2$` 包成
+/// `\item[text] ...` 并转义掉 `^`，既不可读也不像公式。
+fn emit_math(v: &Value, is_equation: bool, opt: &LatexOptions, out: &mut String) -> Result<(), String> {
+    let body = raw_body(v);
+    if !opt.math {
+        out.push_str(&escape_latex(&body));
+        return Ok(());
+    }
+    // 数学内容无法转义（转义会破坏公式语义），因此改为**拒绝**含
+    // 文件读写 / shell 执行 / 包加载原语的内容：这些原语可让
+    // 不可信数据读取本地文件或在开启 shell-escape 时执行任意命令。
+    check_latex_raw(&body)?;
+    if is_equation {
+        out.push_str(&format!("\\begin{{equation}}\n{}\n\\end{{equation}}\n", body));
+    } else {
+        out.push_str(&format!("${}$", body));
+    }
+    Ok(())
 }
 
-fn block_text(v: &Value, _opt: &LatexOptions) -> String {
-    if let Some(t) = v.get("text") {
-        return escape_latex(&scalar_text(t));
+/// 取块的原始文本（`text` 优先，其次 `body`），不做任何转义。
+fn raw_body(v: &Value) -> String {
+    v.get("text")
+        .or_else(|| v.get("body"))
+        .map(scalar_text)
+        .unwrap_or_default()
+}
+
+/// 容器：按 `children` 数组顺序输出子元素。
+fn emit_container(v: &Value, opt: &LatexOptions, depth: usize, out: &mut String) -> Result<(), String> {
+    if depth > MAX_VALUE_DEPTH {
+        return Err(format!("latex: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
     }
-    // 拼接标量字段
-    let mut parts = Vec::new();
-    if let Value::Object(m) = v {
-        for (k, val) in m {
-            if k == "__type" || k == "__name" {
-                continue;
-            }
-            match val {
-                Value::Str(s) => parts.push(escape_latex(s)),
-                Value::Int(i) => parts.push(i.to_string()),
-                Value::Float(_) => parts.push(scalar_text(val)),
-                Value::Bool(b) => parts.push(b.to_string()),
-                _ => {}
+    for kid in block_children(v).unwrap_or_default() {
+        emit_value(kid, None, opt, depth + 1, out)?;
+    }
+    Ok(())
+}
+
+/// 取 `children` 数组的元素引用（保序）。
+fn block_children(v: &Value) -> Option<Vec<&Value>> {
+    match v.get("children") {
+        Some(Value::Array(a)) => Some(a.iter().collect()),
+        _ => None,
+    }
+}
+
+fn heading(v: &Value, cmd: &str, opt: &LatexOptions, depth: usize, out: &mut String) -> Result<(), String> {
+    let c = block_text(v, opt, depth)?;
+    out.push_str(&format!("\\{}{{{}}}\n\n", cmd, c));
+    Ok(())
+}
+
+/// 行内类型：可嵌在段落文本里渲染（`p { text: "a" em { text: "b" } }`）。
+fn is_inline_ty(t: Option<&str>) -> bool {
+    matches!(t, Some("em") | Some("strong") | Some("code") | Some("math") | Some("equation"))
+}
+
+/// 把一个值渲染为**行内** LaTeX（`em`/`strong`/`code` 等强调，或标量文本）。
+///
+/// - `inferred` 是字段名：裸块 `em { }` 解析后只以字段名存在（**不带**
+///   `__type`），必须靠它推断类型；`children` 数组里的裸块同理。
+/// - 非行内类型的对象返回空串：块级内容（列表/表格）塞进 `\emph{}`
+///   会产出无法编译的 LaTeX，宁可丢弃也不产出坏码。
+fn inline_text(v: &Value, inferred: Option<&str>, opt: &LatexOptions, depth: usize) -> Result<String, String> {
+    if depth > MAX_VALUE_DEPTH {
+        return Err(format!("latex: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
+    }
+    let Value::Object(_) = v else {
+        return Ok(escape_latex(&scalar_text(v)));
+    };
+    let ty = block_type(v).or(inferred);
+    if !is_inline_ty(ty) {
+        return Ok(String::new());
+    }
+    match ty {
+        Some("em") => Ok(format!("\\emph{{{}}}", block_text(v, opt, depth + 1)?)),
+        Some("strong") => Ok(format!("\\textbf{{{}}}", block_text(v, opt, depth + 1)?)),
+        Some("code") => Ok(format!("\\texttt{{{}}}", escape_latex(&raw_body(v)))),
+        Some("math") | Some("equation") => {
+            let body = raw_body(v);
+            if opt.math {
+                check_latex_raw(&body)?;
+                if ty == Some("equation") {
+                    Ok(format!("\\begin{{equation}}\n{}\n\\end{{equation}}", body))
+                } else {
+                    Ok(format!("${}$", body))
+                }
+            } else {
+                Ok(escape_latex(&body))
             }
         }
+        _ => Ok(String::new()),
     }
-    parts.join(" ")
 }
 
+/// 取块的文本内容。
+///
+/// 拼接顺序：**`text` 标量 → `children` 数组（保序）→ 其余字段（按名字序）**。
+/// 之所以把 `text` 提前：SML 对象字段按名字排序存储，若纯按名字序，
+/// `li { text: "前缀" em { text: "x" } }` 会渲染成 `\emph{x} 前缀`（`em` < `text`），
+/// 与书写顺序相反。`text` 是各后端公认的「主文本」键，置前最符合直觉。
+///
+/// 需要完全自定义顺序时用 `children` 数组：
+/// `p { children: [ "前缀 " em { text: "x" } " 后缀" ] }`。
+fn block_text(v: &Value, opt: &LatexOptions, depth: usize) -> Result<String, String> {
+    if depth > MAX_VALUE_DEPTH {
+        return Err(format!("latex: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
+    }
+    let Value::Object(m) = v else {
+        return Ok(escape_latex(&scalar_text(v)));
+    };
+    let mut parts: Vec<String> = Vec::new();
+    // 1. 主文本
+    if let Some(t) = m.get("text") {
+        if !matches!(t, Value::Object(_) | Value::Array(_)) {
+            parts.push(escape_latex(&scalar_text(t)));
+        }
+    }
+    // 2. children 数组：唯一保序载体
+    let mut kids: Vec<&Value> = Vec::new();
+    if let Some(Value::Array(a)) = m.get("children") {
+        kids.extend(a.iter());
+    }
+    for item in kids {
+        parts.push(inline_text(item, None, opt, depth + 1)?);
+    }
+    // 3. 其余字段（含 `text` 的对象/数组形式，如 `text { em { ... } }`）
+    for (k, val) in m {
+        match k.as_str() {
+            "__type" | "__name" | "__args" | "children" => {}
+            "text" if !matches!(val, Value::Object(_) | Value::Array(_)) => {}
+            _ => match val {
+                Value::Null => {}
+                Value::Object(_) | Value::Array(_) => {
+                    parts.push(inline_text(val, Some(k), opt, depth + 1)?);
+                }
+                other => parts.push(escape_latex(&scalar_text(other))),
+            },
+        }
+    }
+    Ok(parts.join(" ").trim().to_string())
+}
+
+/// 列表项来源（按优先级）：显式 `items` 数组 → `children` 数组 → 自身是数组。
+///
+/// `children` 的加入让 `li { }` 子块写法可用 —— 注意**不能用**多个同名
+/// `li { }` 裸块并列：SML 对象字段按名字存储，同名的后者会覆盖前者。
 fn list_items(v: &Value) -> Vec<Value> {
     if let Some(items) = v.get("items") {
         if let Value::Array(a) = items {
             return a.clone();
         }
+    }
+    if let Some(Value::Array(a)) = v.get("children") {
+        return a.clone();
     }
     if let Value::Array(a) = v {
         return a.clone();
@@ -385,7 +507,8 @@ fn emit_description(v: &Value, opt: &LatexOptions, depth: usize, out: &mut Strin
     if let Value::Object(m) = v {
         out.push_str("\\begin{description}\n");
         for (k, val) in m {
-            if k == "__type" || k == "__name" {
+            // `children` 由 emit_container 负责（保序），此处避免重复输出
+            if k == "__type" || k == "__name" || k == "children" {
                 continue;
             }
             let body = match val {

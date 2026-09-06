@@ -404,6 +404,30 @@ fn loose_still_validates_declared_fields() {
     assert!(e.contains("port"), "loose 下已声明字段仍须校验，got: {e}");
 }
 
+#[test]
+fn explicit_strict_keyword_same_as_default() {
+    // 显式 `strict` 与「什么都不写」等价（此前 Rust 侧不认 strict，
+    // 会误报「@contract X 后须 { ... }」——教程 ch05/ch09 均在用它）。
+    let v = ok(
+        "@contract Server strict { host: str }
+         db {
+             @is Server
+             host: db1.internal
+         }",
+    );
+    assert_eq!(v.get("db.host").unwrap().as_str(), Some("db1.internal"));
+
+    let e = err(
+        "@contract Server strict { host: str }
+         db {
+             @is Server
+             host: db1.internal
+             prot: 5432
+         }",
+    );
+    assert!(e.contains("prot"), "显式 strict 下未声明字段应被拒绝, got: {e}");
+}
+
 // ---------------------------------------------------------------------------
 // 数值边界 NaN/inf 防护（审计报告 #2）
 // ---------------------------------------------------------------------------
@@ -420,25 +444,38 @@ fn nan_min_max_bound_rejected() {
     assert!(e.contains("有限") || e.contains("nan") || e.contains("数字边界"), "got: {e}");
 }
 
+/// 非有限值被数值校验拒绝。
+///
+/// 输入用**溢出**（1e309）而非裸词 inf/nan：裸词已不再被词法层识别为浮点数
+/// （见 `sml-lex` 的 `numeric_head` 闸门），溢出才是当前唯一会解析出
+/// Float(inf) 的路径。契约侧「非有限数不可作为约束取值」的防护仍然必要。
 #[test]
-fn nan_value_rejected_by_bounds() {
-    let e = err(
-        "@contract S { ratio: num min 0 max 1 }
-         x { @is S
-             ratio: nan }",
-    );
-    assert!(!e.is_empty(), "NaN 值应被 min/max 校验拒绝，实际穿透: {e}");
-    assert!(e.contains("非有限") || e.contains("NaN"), "got: {e}");
+fn non_finite_value_rejected_by_bounds() {
+    for lit in ["1e309", "-1e309"] {
+        let e = err(&format!(
+            "@contract S {{ ratio: num min 0 max 1 }}
+             x {{ @is S
+                 ratio: {lit} }}",
+        ));
+        assert!(!e.is_empty(), "非有限值 `{lit}` 应被拒绝，实际穿透: {e}");
+        assert!(e.contains("非有限"), "期望报非有限数错误，got: {e}");
+    }
 }
 
+/// 裸词 inf / nan 在 num 字段上因类型不匹配被拒。
+///
+/// 这是 P4 改动后的新行为：它们在词法层就是 Str，进不到数值校验阶段。
+/// 拒绝发生在更早的类型层，安全性不低于原先。
 #[test]
-fn inf_value_rejected_by_bounds() {
-    let e = err(
-        "@contract S { ratio: num min 0 max 1 }
-         x { @is S
-             ratio: inf }",
-    );
-    assert!(!e.is_empty(), "inf 值应被 min/max 校验拒绝，实际穿透: {e}");
+fn bareword_nan_inf_rejected_by_num_type() {
+    for lit in ["inf", "nan", "NaN", "-inf"] {
+        let e = err(&format!(
+            "@contract S {{ ratio: num min 0 max 1 }}
+             x {{ @is S
+                 ratio: {lit} }}",
+        ));
+        assert!(!e.is_empty(), "裸词 `{lit}` 不应通过 num 校验: {e}");
+    }
 }
 
 #[test]
