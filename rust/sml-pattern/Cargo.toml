@@ -1,8 +1,10 @@
 [package]
 name = "sml-pattern"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 edition = "2021"
 license = "MulanPSL-2.0"
+repository = "https://gitee.com/snoware/sml"
+readme = "README.md"
 description = "SML 模式语言（Loom 融入 SML）：L1 无回溯匹配引擎，免疫 ReDoS"
 
 [dependencies]

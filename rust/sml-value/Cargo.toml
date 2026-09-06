@@ -1,10 +1,11 @@
 [package]
 name = "sml-value"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 edition = "2021"
 description = "SML 值模型：Value 类型、SML 文本表示（to_sml）与 serde 桥接。零依赖，可单独用于嵌入式场景。"
 license = "MulanPSL-2.0"
 repository = "https://gitee.com/snoware/sml"
+readme = "README.md"
 
 [lib]
 name = "sml_value"

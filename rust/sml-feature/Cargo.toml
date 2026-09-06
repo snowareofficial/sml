@@ -1,10 +1,11 @@
 [package]
 name = "sml-feature"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 edition = "2021"
 description = "SML 版本与特性系统（纯数据层）：Version、Feature/FeatureSet 及名字注册表。"
 license = "MulanPSL-2.0"
 repository = "https://gitee.com/snoware/sml"
+readme = "README.md"
 
 [lib]
 name = "sml_feature"
