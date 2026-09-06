@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<screen name="login" width="320" height="240" style="layout:flex;flex_flow:column;pad_row:12;flex_main_place:center;flex_cross_place:center;pad_all:16">
+  <label name="title" width="288" height="28">
+    欢迎回来
+  </label>
+  <textarea name="user" width="288" height="36" placeholder-text="用户名"/>
+  <textarea name="pass" width="288" height="36" password="true" placeholder-text="密码"/>
+  <obj name="buttons" width="288" height="40" style="layout:flex;flex_flow:row;pad_column:12;flex_main_place:start;flex_cross_place:start">
+    <button name="btn_login" width="138" height="40">
+      登录
+      <event name="click" handler="on_login"/>
+    </button>
+    <button name="btn_cancel" width="138" height="40">
+      取消
+      <event name="click" handler="on_cancel"/>
+    </button>
+  </obj>
+</screen>

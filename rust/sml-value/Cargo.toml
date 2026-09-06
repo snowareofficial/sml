@@ -1,0 +1,21 @@
+[package]
+name = "sml-value"
+version = "0.1.0-alpha.1"
+edition = "2021"
+description = "SML 值模型：Value 类型、SML 文本表示（to_sml）与 serde 桥接。零依赖，可单独用于嵌入式场景。"
+license = "MulanPSL-2.0"
+repository = "https://gitee.com/snoware/sml"
+
+[lib]
+name = "sml_value"
+
+[dependencies]
+serde = { version = "1", optional = true }
+
+[features]
+# SML 文本序列化器（to_sml）。只需解析/承载数据时可关闭，回到完全零依赖。
+sml = []
+# Value 的 Serialize/Deserialize 实现 + to_value/from_value 桥接。
+# 注：吃 SML 文本的 `from_str` 在门面 crate（需要解析器）。
+serde = ["dep:serde"]
+default = []

@@ -1,0 +1,19 @@
+[package]
+name = "sml-contract"
+version = "0.1.0-alpha.1"
+edition = "2021"
+description = "SML 契约系统：@contract 定义与 @is 应用、类型校验、默认值填充、min/max 与枚举约束。"
+license = "MulanPSL-2.0"
+repository = "https://gitee.com/snoware/sml"
+
+[lib]
+name = "sml_contract"
+
+[dependencies]
+# 自定义类型（@type）的模式匹配引擎：无回溯，免疫 ReDoS。
+# 与 sml-value 同层，不引入更重的依赖。
+sml-pattern = { version = "0.1.0-alpha.1", path = "../sml-pattern" }
+sml-value = { path = "../sml-value", default-features = false }
+
+[features]
+default = []

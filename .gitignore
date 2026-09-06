@@ -54,3 +54,26 @@ site/public/
 swsml-*.zip
 sml-book.epub
 
+# 私有报送件 / 内部报告（不进版本库）
+SML_政务数据密级标注规范_报送稿.*
+SML图形管线项目_全量文档合集.md
+SML_数字字面量保真性审计报告.md
+报送邮件.txt
+
+# 文档演示产物与 AI 生成图（由 examples/doc-demo 与 image_gen 产出，勿提交）
+examples/doc-demo/
+generated-images/
+
+# 漏洞扫描报告等（敏感，勿提交）
+vex.zip
+swsml-*.zip
+
+# 构建/生成产物
+build/settings/
+rust/qsm/target-*/
+rust/qsm/web/pkg/
+node_modules/
+
+# 任意层级的临时/调试脚本（_ 开头，非库代码，勿提交）
+**/_*
+

@@ -74,7 +74,7 @@ fn showcase_contract_parses_and_applies() {
     // 严格模式：Server 未声明额外字段；Metrics 标记 loose 故允许
     assert_eq!(
         v.get("metrics.latency"),
-        Some(&sml::Value::Float(12.5))
+        Some(&sml::Value::float(12.5))
     );
     assert!(
         v.get("metrics.customCounter").is_some(),

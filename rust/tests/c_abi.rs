@@ -196,9 +196,13 @@ fn jsonify_escapes_control_chars() {
 }
 
 /// C-ABI 审计 #6：NaN / inf 序列化为 JSON `null`（合法字面量），而非 "NaN"/"inf"。
+///
+/// 输入改用**溢出**（1e309）而非裸词 inf/nan：裸词 `inf` / `nan` 已不再被识别为
+/// 浮点数（见 `sml-lex` 的 `numeric_head` 闸门），溢出才是当前唯一会产生
+/// Float(inf) 的解析路径。本测试守护的是**序列化侧**的防护，与词法侧无关。
 #[test]
 fn jsonify_nan_inf_becomes_null() {
-    let text = CString::new("j: inf\nk: NaN\n").unwrap();
+    let text = CString::new("j: 1e309\nk: -1e309\n").unwrap();
     let out = unsafe { sml_parse(text.as_ptr()) };
     assert!(!out.is_null());
     let s = unsafe { CStr::from_ptr(out) }.to_str().unwrap();

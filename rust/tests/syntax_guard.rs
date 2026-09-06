@@ -478,3 +478,114 @@ fn v4_version_accepted() {
     assert!(parse("@version v4\n@f S { x: 1 }\n").is_err());
     assert!(parse("@version v4\n@f type: S { x: 1 }\nk: &f\n").is_ok());
 }
+
+// ---------- 5. 括号是普通词字符 / enum(...) 兼容 / @is type(契约名) ----------
+//
+// 背景：括号 `(` `)` 在本语言词法中**不是**分隔符（Tok 只有 { } [ ] , : @）。
+// JS 实现曾把它们列进分隔符，导致 `备注: (重要)` 被切成独立 token、值静默
+// 损坏为 null 并产生 `(`/`)` 垃圾键 —— 与 Rust 侧结果完全相反。
+// 下列断言锁住两端一致的行为，任何一端退化都会立刻失败。
+
+#[test]
+fn paren_is_ordinary_word_character() {
+    let v = parse("备注: (重要)\n公式: f(x)\n").unwrap();
+    assert_eq!(v.get("备注").and_then(|x| x.as_str()), Some("(重要)"));
+    assert_eq!(v.get("公式").and_then(|x| x.as_str()), Some("f(x)"));
+}
+
+#[test]
+fn enum_paren_form_accepted_and_validates() {
+    // 官网与教程大量使用 `enum(a, b, c)`：逗号分隔、空格分隔、方括号都要能解析
+    for body in [
+        "enum(公开, 内部, 机密)",
+        "enum(公开 内部 机密)",
+        "enum [ 公开 内部 机密 ]",
+    ] {
+        let src = format!("@contract D {{ level: {body} }}\nd {{ @is D\n level: 机密 }}\n");
+        let v = parse(&src).unwrap_or_else(|e| panic!("{body} 应可解析，实际报错: {e}"));
+        let got = v
+            .get("d")
+            .and_then(|d| d.get("level"))
+            .and_then(|x| x.as_str());
+        assert_eq!(got, Some("机密"), "{body} 的枚举成员取值不对");
+    }
+    // 兼容不得削弱校验：越界值仍须被拦下
+    let src = "@contract D { level: enum(公开, 内部, 机密) }\nd { @is D\n level: 绝密 }\n";
+    assert!(parse(src).is_err(), "enum(...) 的越界值未被拦下");
+}
+
+#[test]
+fn is_type_call_form_is_equivalent_to_bare_name() {
+    // `@is type(契约名)` 等价于 `@is 契约名`
+    let bare = parse("@contract 办事人 strict {\n姓名: str\n}\n@is 办事人\n姓名: 张三\n").unwrap();
+    let call = parse("@contract 办事人 strict {\n姓名: str\n}\n@is type(办事人)\n姓名: 张三\n").unwrap();
+    assert_eq!(format!("{bare:?}"), format!("{call:?}"));
+}
+
+#[test]
+fn is_type_call_form_still_validates() {
+    // 类型标注形式不得绕过契约校验
+    let src = "@contract 办事人 strict {\n姓名: str\n手机: str\n}\n@is type(办事人)\n姓名: 张三\n";
+    let e = parse(src).unwrap_err();
+    assert!(e.contains("手机"), "应报缺失字段 手机，实际: {e}");
+}
+
+// ---------- 6. 块级类型标注 `<契约名> <块名> { .. }`（opt-in: typed-block） ----------
+//
+// 与既有裸块 `type [name...] { }` 同形，故零新语法：首词命中契约表才应用契约。
+
+#[test]
+fn typed_block_is_opt_in() {
+    // 未开启：行为与旧版完全一致 —— 首词仅作 __type 元数据，不做任何校验
+    let src = "@contract 受理人 strict {\n姓名: str\n手机: str\n}\n受理人 窗口一 {\n姓名: 张三\n}\n";
+    let v = parse(src).expect("未开启 typed-block 时不应校验");
+    let blk = v.get("受理人").expect("块应存在");
+    assert_eq!(blk.get("__type").and_then(|x| x.as_str()), Some("受理人"));
+    assert_eq!(blk.get("__name").and_then(|x| x.as_str()), Some("窗口一"));
+}
+
+#[test]
+fn typed_block_applies_contract_and_defaults() {
+    let src = "@feature enable typed-block\n@contract 受理人 strict {\n姓名: str\n手机: str\n角色: enum(窗口, 审批) default 窗口\n}\n受理人 窗口一 {\n姓名: 张三\n手机: \"13800138000\"\n}\n";
+    let v = parse(src).unwrap();
+    let blk = v.get("受理人").unwrap();
+    // 默认值应被填充（证明契约真的生效了）
+    assert_eq!(blk.get("角色").and_then(|x| x.as_str()), Some("窗口"));
+    // 元数据仍然保留
+    assert_eq!(blk.get("__name").and_then(|x| x.as_str()), Some("窗口一"));
+}
+
+#[test]
+fn typed_block_still_validates() {
+    let src = "@feature enable typed-block\n@contract 受理人 strict {\n姓名: str\n手机: str\n}\n受理人 窗口一 {\n姓名: 张三\n}\n";
+    let e = parse(src).unwrap_err();
+    assert!(e.contains("手机"), "应报缺失字段 手机，实际: {e}");
+}
+
+#[test]
+fn typed_block_leaves_ordinary_bare_block_untouched() {
+    // 首词不是契约名时，必须仍是普通裸块（不得误报契约未定义）
+    let src = "@feature enable typed-block\n@contract 受理人 strict {\n姓名: str\n}\nserver web {\nport: 8080\n}\n";
+    let v = parse(src).unwrap();
+    let blk = v.get("server").expect("普通裸块应保留");
+    assert_eq!(blk.get("__type").and_then(|x| x.as_str()), Some("server"));
+    assert!(blk.get("port").is_some());
+}
+
+#[test]
+fn typed_block_composes_with_type() {
+    // type（值格式）+ contract（块结构）+ 块级标注 三层组合
+    let src = "@feature enable typed-block\n@type name: 手机号 {\n序列: [\n{ 字面: \"1\" }\n{ 名: 后续, 类: 数字, 次: 10 }\n]\n}\n@contract 受理人 strict {\n姓名: str\n手机: 手机号\n}\n受理人 窗口一 {\n姓名: 张三\n手机: \"13800138000\"\n}\n";
+    assert!(parse(src).is_ok(), "合法组合应通过");
+    // 值格式错误应由 type 层拦下
+    let bad = src.replace("13800138000", "23800138000");
+    let e = parse(&bad).unwrap_err();
+    assert!(e.contains("手机号"), "type 应拦下非法号码，实际: {e}");
+}
+
+#[test]
+fn contract_named_type_still_resolves_by_original_name() {
+    // 向后兼容：契约真的叫 `type` 时，`@is type` 不得被当成类型标注解包
+    let v = parse("@contract type strict {\n姓名: str\n}\n@is type\n姓名: 张三\n").unwrap();
+    assert_eq!(v.get("姓名").and_then(|x| x.as_str()), Some("张三"));
+}

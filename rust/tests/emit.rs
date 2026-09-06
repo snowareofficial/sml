@@ -12,6 +12,7 @@
 
 use sml::emit::*;
 use sml::parse;
+use sml::Value;
 
 fn v(src: &str) -> sml::Value {
     parse(src).expect("parse failed")
@@ -251,6 +252,101 @@ fn latex_verbatim_cannot_break_out() {
 }
 
 #[test]
+fn latex_children_preserves_order() {
+    // SML 对象字段按名字（BTreeMap 字典序）存储：同级写 h1/p/ul
+    // 会输出成 blockquote < code < h1 < p < table < ul 的乱序。
+    // `children` 数组是唯一保序载体，必须按数组顺序输出。
+    let val = v("section { children: [ h2 { text: \"A\" } p { text: \"first\" } h2 { text: \"B\" } p { text: \"second\" } ] }");
+    let out = to_latex(&val, &LatexOptions::new()).unwrap();
+    let ia = out.find("subsection{A}").expect("missing A");
+    let ifirst = out.find("first").expect("missing first");
+    let ib = out.find("subsection{B}").expect("missing B");
+    let isecond = out.find("second").expect("missing second");
+    assert!(ia < ifirst && ifirst < ib && ib < isecond, "顺序未按 children 保持: {}", out);
+}
+
+#[test]
+fn latex_li_child_blocks() {
+    // `li { }` 子块写法：裸块 `li` 解析后只以字段名存在（无 __type），
+    // 需靠字段名推断为列表项。此前只认 `items: [...]`。
+    let val = v("ul { children: [ li { text: \"one\" } li { text: \"two\" } ] }");
+    let out = to_latex(&val, &LatexOptions::new()).unwrap();
+    assert!(out.contains("\\item one"), "缺少 li 项: {}", out);
+    assert!(out.contains("\\item two"), "缺少 li 项: {}", out);
+}
+
+#[test]
+fn latex_inline_em_strong_in_paragraph() {
+    // 行内强调此前被静默丢弃（`p { em {...} }` 什么都不输出）。
+    let val = v("p { children: [ \"see \" em { text: \"italic\" } \" and \" strong { text: \"bold\" } ] }");
+    let out = to_latex(&val, &LatexOptions::new()).unwrap();
+    assert!(out.contains("\\emph{italic}"), "行内 em 丢失: {}", out);
+    assert!(out.contains("\\textbf{bold}"), "行内 strong 丢失: {}", out);
+    // 顺序必须按 children
+    assert!(out.find("see") < out.find("\\emph{italic}"), "顺序错: {}", out);
+}
+
+#[test]
+fn latex_text_precedes_inline_field() {
+    // 列表项 `li { text: \"前缀\" em { text: \"x\" } }`：`em` < `text` 字典序，
+    // 若纯按字段序渲染会变成 `\emph{x} 前缀`。`text` 是公认主文本键，须置前。
+    let val = v("ul { children: [ li { text: \"前缀\" em { text: \"强调\" } } ] }");
+    let out = to_latex(&val, &LatexOptions::new()).unwrap();
+    assert!(out.contains("\\item 前缀"), "列表项缺失: {}", out);
+    assert!(
+        out.find("前缀") < out.find("\\emph{强调}"),
+        "text 未前置，顺序错: {}",
+        out
+    );
+}
+
+#[test]
+fn latex_block_level_inline_is_dropped_not_broken() {
+    // 块级内容（列表/表格）塞进 \emph{} 会产出无法编译的 LaTeX，
+    // 宁可丢弃也不产出坏码。
+    let val = v("em { ul { items: [ \"a\" ] } }");
+    let out = to_latex(&val, &LatexOptions::new()).unwrap();
+    assert!(!out.contains("\\begin{itemize}"), "块级内容不该被塞进 \\emph: {}", out);
+}
+
+#[test]
+fn latex_math_off_escapes_instead_of_description() {
+    // math 关闭时（默认）：退化为转义纯文本，而非之前的 description 环境
+    // （后者把公式包成 \item[text] 并转义掉 ^，既不可读也不像公式）。
+    let val = v("math { text: \"E = mc^2\" }");
+    let out = to_latex(&val, &LatexOptions::new()).unwrap();
+    assert!(!out.contains("\\begin{description}"), "不该退化为 description: {}", out);
+    assert!(out.contains("\\textasciicircum{}"), "未转义: {}", out);
+}
+
+#[test]
+fn latex_math_on_passthrough() {
+    let val = v("math { text: \"E = mc^2\" }\nequation { text: \"a^2+b^2=c^2\" }");
+    let mut opt = LatexOptions::new();
+    opt.math = true;
+    let out = to_latex(&val, &opt).unwrap();
+    assert!(out.contains("$E = mc^2$"), "行内公式未透传: {}", out);
+    assert!(out.contains("\\begin{equation}\na^2+b^2=c^2\n\\end{equation}"), "公式环境未生成: {}", out);
+}
+
+#[test]
+fn latex_math_on_still_blocks_dangerous_primitives() {
+    // 即使开启 --math，\write18 / \input 等危险原语仍必须被拒绝。
+    let val = v("math { text: \"x \\\\write18{rm -rf /} y\" }");
+    let mut opt = LatexOptions::new();
+    opt.math = true;
+    assert!(to_latex(&val, &opt).is_err(), "危险原语未被拦截");
+}
+
+#[test]
+fn latex_code_block_lang_comment() {
+    let val = v("code { lang: rust text: \"fn main() {}\" }");
+    let out = to_latex(&val, &LatexOptions::new()).unwrap();
+    assert!(out.contains("% language: rust"), "缺少语言注释: {}", out);
+    assert!(out.contains("\\begin{verbatim}\nfn main() {}\n\\end{verbatim}"), "verbatim 缺失: {}", out);
+}
+
+#[test]
 fn latex_description_amp_escaped() {
     // description 标量中的 & 应被转义
     let val = v("item: \"a & b\"");
@@ -439,10 +535,11 @@ fn parse_array_nesting_is_depth_limited() {
 fn nan_inf_serialization_is_roundtrip_safe() {
     use sml::Value::*;
     // 修复前：to_sml 输出 NaN / inf 字面量，回读后类型改变，round-trip 破坏。
+    // 程序构造：raw 一律 None（见 Value::float 的失效规则）
     let cases = vec![
-        Float(f64::NAN),
-        Float(f64::INFINITY),
-        Float(f64::NEG_INFINITY),
+        Value::float(f64::NAN),
+        Value::float(f64::INFINITY),
+        Value::float(f64::NEG_INFINITY),
     ];
     for f in &cases {
         let out = sml::to_sml(f);
@@ -461,7 +558,7 @@ fn nan_inf_serialization_is_roundtrip_safe() {
     }
 
     // 其它后端也应把非有限 Float 渲染为安全文本（非裸标识符/非法字面量）
-    let v = Float(f64::NAN);
+    let v = Value::float(f64::NAN);
     let md = to_markdown(&v, &MarkdownOptions::new()).unwrap();
     assert!(md.contains("nan"), "markdown 应渲染 nan: {md}");
 }

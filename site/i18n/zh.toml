@@ -108,3 +108,24 @@ other = "✓ 答对！"
 
 [quiz_wrong]
 other = "✗ 答错。"
+
+[pg_engine]
+other = "引擎："
+
+[pg_engine_js]
+other = "JS（浏览器原生）"
+
+[pg_engine_rs]
+other = "Rust（wasm，保真）"
+
+[pg_wasm_loading]
+other = "⏳ 正在加载 Rust 引擎…"
+
+[pg_wasm_fail]
+other = "✗ Rust 引擎加载失败，已回退到 JS 引擎："
+
+[pg_view_sml]
+other = "SML 视图（无损，Rust 值模型真实呈现）"
+
+[pg_view_json]
+other = "JSON 视图（有损：Int/Float 不分，超 2^53 会被改坏）"

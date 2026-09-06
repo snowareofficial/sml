@@ -105,7 +105,7 @@ fn slint_value_str(v: &Value, _opt: &SlintOptions) -> String {
         Value::Str(s) => format!("\"{}\"", slint_escape_str(s)),
         Value::Bool(b) => b.to_string(),
         Value::Int(i) => i.to_string(),
-        Value::Float(_) => scalar_text(v),
+        Value::Float(_, _) => scalar_text(v),
         Value::Null => "null".to_string(),
         other => format!("\"{}\"", slint_escape_str(&scalar_text(other))),
     }

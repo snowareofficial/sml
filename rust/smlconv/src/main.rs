@@ -131,6 +131,13 @@ struct Cli {
     /// 自定义生成器规则文件（仅 `--to custom` 时需要）：含 `rules` 数组的 SML 文档
     #[arg(long = "custom-rules")]
     custom_rules: Option<PathBuf>,
+
+    /// LaTeX：放行数学块原样透传（`math`/`equation` → `$..$` / `equation` 环境）。
+    ///
+    /// 默认关闭：数学内容无法转义（转义会破坏公式语义），关闭时公式退化为
+    /// 转义后的纯文本。仅在**信任输入源**时开启。
+    #[arg(long = "math")]
+    math: bool,
 }
 
 /// 把 clap 解析结果转换为内部使用的运行时参数。
@@ -147,6 +154,7 @@ struct Args {
     zola_build: bool,
     title: Option<String>,
     custom_rules: Option<PathBuf>,
+    math: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -179,6 +187,7 @@ fn parse_args() -> Result<Args, String> {
         zola_build: cli.zola_build,
         title: cli.title,
         custom_rules: cli.custom_rules,
+        math: cli.math,
     })
 }
 
@@ -257,6 +266,7 @@ fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, String> {
         Format::Latex => {
             let opt = LatexOptions {
                 base: EmitOptions::default(),
+                math: args.math,
                 ..Default::default()
             };
             sml::emit::to_latex(value, &opt)

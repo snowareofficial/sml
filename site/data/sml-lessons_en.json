@@ -65,5 +65,10 @@
     "task": "Write a SML: <b>name</b>(John), <b>age</b>(27), <b>adesk</b> block with city=NY, <b>tags, </b> array length 2. This paragraph should yield consistent results in any language parsing.",
     "main": "name: John\nage: 27\naddress: { city: NY }\ntags: [ a b ]",
     "hint": "Imagine this paragraph as Rust/C/JS/Lua parsing, where the field names and nested structures should be exactly the same."
+  },
+  "gov": {
+    "task": "Add a third window: <b>城管窗口</b> (名称=门头招牌备案, 承诺时限=10, 电话=\"0571-87654323\", reuse locale info via <b>&base</b>), and change 公安窗口 密级 to <b>内部</b>.",
+    "main": "// ── 区政务数据交换 · 示范文件 ──\n\n@contract 事项 strict {\n  名称: str\n  部门: str\n  承诺时限: int min 1 max 90\n  密级: enum [ 公开 内部 秘密 机密 绝密 ] default 公开\n  电话: str\n  // 片段展开的字段也要在契约中声明 —— 契约面必须完整\n  办理地点: str\n  区划代码: str\n}\n\n// 各部门共享的属地信息：一处定义，处处展开\n@base {\n  办理地点: 区行政服务中心\n  区划代码: \"330106\"\n}\n\n公安窗口 {\n  @is 事项\n  名称: 居住证办理\n  部门: 公安分局\n  承诺时限: 7\n  电话: \"0571-87654321\"\n  &base\n}\n\n人社窗口 {\n  @is 事项\n  名称: 社保卡申领\n  部门: 人社局\n  承诺时限: 5\n  密级: 内部\n  电话: \"0571-87654322\"\n  &base\n}",
+    "hint": "Set 密级 to 内部涉密 (not in the enum whitelist) or 承诺时限 to 91 (over max 90) to watch the contract intercept."
   }
 }

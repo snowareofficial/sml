@@ -134,9 +134,9 @@ SML 的设计原则是"**从极简到丰富，功能可裁剪**"——基础九�
 | 项 | 值 |
 |----|----|
 | 状态 | 默认开 |
-| 语法 | `@contract Name [loose] { field: type [default v] [min n] [max n] [enum(a,b)] [?] [required] }` |
+| 语法 | `@contract Name [loose\|strict] { field: type [default v] [min n] [max n] [enum(a,b)] [?] [required] }` |
 | 引用类型 | `str` `int` `num` `bool` `array[T]` `enum(...)` 或另一个契约名 |
-| 严格度 | 默认严格；`loose` 允许未声明字段 |
+| 严格度 | 默认严格；`loose` 允许未声明字段；`strict` 显式声明严格（与默认等价，仅为可读性） |
 | 嵌套 | 无限；递归契约在被引用时检测环 |
 | 错误位置 | 精确到行列 |
 
@@ -238,6 +238,7 @@ verbose: true
 | 语法 | `key: @for VAR in a b c { ... }` |
 | 循环变量 | 只读绑定，循环体内以 `${VAR}` 文本插值引用 |
 | 列表 | `in` 后的**有限枚举**（裸词或引号串），无 `while`、无递归 |
+| 插值位置 | `${VAR}` **仅允许出现在值位置**（如 `name: "${h}"`）；**键名位置不支持**，会解析报错 |
 | 作用域 | 嵌套 `@for` 时内层可见外层绑定（同名内层覆盖） |
 
 ```sml
@@ -260,6 +261,11 @@ hosts: @for h in web api db {
 > **为什么不做通用循环**：有界循环（`for ... in` 枚举）属于 LOOP 语言（原始递归），
 > 算不了 Ackermann 函数，故非图灵完备；一旦引入 `while`/递归就必须配套沙箱与资源配额，
 > 那与「SML 是纯数据格式」冲突。
+
+> **键名位置不支持 `${VAR}`**：`${VAR}` 中的 `{`/`}` 会被词法层当作块边界，导致键被拆散、
+> 静默生成错误结构。因此循环变量插值**只接受值位置**（`name: "${h}"`）；若需"动态键名"，
+> 请用数组表达：`hosts: @for h in a b c { name: "${h}", ... }`，再用代码侧按 `name` 索引。
+> 在键名处写 `${VAR}` 会**显式报错**（fail-fast），而非产出垃圾。
 
 完整可运行示例见 [`examples/for_when.sml`](https://github.com/your-org/sml/blob/main/examples/for_when.sml)
 （`@when` + `@for` + 嵌套 `@for` + 组合陷阱一次性演示）。

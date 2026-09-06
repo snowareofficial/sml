@@ -108,3 +108,24 @@ other = "✓ Correct! "
 
 [quiz_wrong]
 other = "✗ Wrong. "
+
+[pg_engine]
+other = "Engine: "
+
+[pg_engine_js]
+other = "JS (browser native)"
+
+[pg_engine_rs]
+other = "Rust (wasm, fidelity)"
+
+[pg_wasm_loading]
+other = "⏳ Loading Rust engine…"
+
+[pg_wasm_fail]
+other = "✗ Failed to load Rust engine, falling back to JS: "
+
+[pg_view_sml]
+other = "SML view (lossless, true Rust value model)"
+
+[pg_view_json]
+other = "JSON view (lossy: no Int/Float distinction, >2^53 gets corrupted)"

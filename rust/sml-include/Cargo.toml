@@ -1,0 +1,19 @@
+[package]
+name = "sml-include"
+version = "0.1.0-alpha.1"
+edition = "2021"
+description = "SML 模块化：include/import 指令解析、glob 与正则匹配、跨文件展开。"
+license = "MulanPSL-2.0"
+repository = "https://gitee.com/snoware/sml"
+
+[lib]
+name = "sml_include"
+
+[dependencies]
+sml-value = { path = "../sml-value", default-features = false }
+sml-lex = { path = "../sml-lex", default-features = false }
+sml-feature = { path = "../sml-feature", default-features = false }
+sml-regex = { path = "../sml-regex", default-features = false }
+
+[features]
+default = []

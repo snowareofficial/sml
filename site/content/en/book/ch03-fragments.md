@@ -15,7 +15,7 @@ Define a reusable field using `@Name { }`:
 ```sml
 @net {
     region: cn-north-1
-    dns: internal.swebase.cn
+    dns: internal.example.com
     timeout: 30
 }
 ```
@@ -35,7 +35,7 @@ After parsing, `network` will obtain:
 ```sml
 network {
     region: cn-north-1
-    dns: internal.swebase.cn
+    dns: internal.example.com
     timeout: 30
 }
 ```

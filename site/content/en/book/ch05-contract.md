@@ -55,6 +55,60 @@ server prod {
 
 Verification occurs during **parsing period**: a precise error with location is returned directly in violation of the contract, such as `contract: Service — field main.port is greater than the max 65535`.
 
+### 5.2.1 Type-annotation form: `@is type(ContractName)`
+
+After `@is` you can also write a "type annotation" form. It is **exactly equivalent** to `@is ContractName` — only the contract name is wrapped in type parentheses to emphasize "this is a type constraint":
+
+```sml
+@contract Clerk strict {
+    name: str
+    phone: str
+}
+window-one {
+    @is type(Clerk)        # equivalent to @is Clerk
+    name: Zhang San
+    phone: "13800138000"
+}
+```
+
+Both forms verify identically (missing fields still report "contract field missing", defaults still fill in). If a contract happens to be named `type`, then `@is type` is still resolved as "the contract named type" and is never misinterpreted as an annotation unwrap.
+
+### 5.2.2 Block-level type annotation: `<ContractName> <blockName> { }`
+
+If writing a line of `@is` inside a block still feels unnatural, you can put the contract name **in front of the block name**, like typing a variable:
+
+```sml
+@feature enable typed-block     # this form must be turned on explicitly
+
+@contract Clerk strict {
+    name: str
+    phone: phone-num
+}
+@type name: phone-num {         # type = "shape of a value", contract = "shape of a block"
+    序列: [ { 字面: "1" } { 名: 后续, 类: 数字, 次: 10 } ]
+}
+
+Clerk window-one {              # contract name + block name = this block is constrained
+    name: Zhang San
+    phone: "13800138000"
+}
+```
+
+This is **exactly the same shape** as the existing bare-block form `type [name...] { }`. The only difference: when the first word is an **already-defined contract name**, it is automatically applied as a type constraint, equivalent to writing `@is ContractName` on the block's first line. Non-contract words (e.g. `server web { }`) behave exactly as before, so existing documents are unaffected. This capability is **opt-in** and requires `@feature enable typed-block`.
+
+### Parentheses are ordinary characters
+
+In SML, `( )` are **ordinary characters**, not syntax symbols. So a bare-word value can contain parentheses directly, without quotes:
+
+```sml
+note: (important)          # the value is the string "(important)", not lost
+priority: (P0) urgent
+```
+
+Contract enums are also written with parentheses: `enum(public, internal, confidential)`, `enum(active, disabled)`.
+
+> Note: an older JS engine version treated parentheses as separators and silently truncated values (e.g. `(important)` became `null`); this is now fixed. The Rust engine was always correct. Cross-checking with both engines is the safest.
+
 ## 5.3 Strict vs Loose
 
 -**Default Strict** (Nothing written after the contract name): Prohibit any undeclared fields, spelling errors `prot` will be immediately detected.

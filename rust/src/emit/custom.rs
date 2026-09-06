@@ -31,12 +31,12 @@
 //! 安全限制：递归深度上限 `MAX_VALUE_DEPTH`(128)，单节点循环上限 100000 元素；
 //! 规则解析失败返回 `Err(String)`。
 
-use crate::Value;
+use sml_value::Value;
 use crate::emit::{EmitOptions, scalar_text, block_type, MAX_VALUE_DEPTH};
 use std::collections::HashSet;
 
 #[cfg(feature = "sml")]
-use crate::core::to_sml;
+use sml_value::to_sml;
 
 const MAX_LOOP: usize = 100_000;
 
