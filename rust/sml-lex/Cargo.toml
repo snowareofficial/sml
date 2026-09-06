@@ -10,10 +10,10 @@ repository = "https://gitee.com/snoware/sml"
 name = "sml_lex"
 
 [dependencies]
-sml-value = { path = "../sml-value", default-features = false }
+sml-value = { path = "../sml-value", version = "0.1.0-alpha.1", default-features = false }
 # 裸词能否当字符串由 Feature::BarewordStr 决定，故词法层需要特性集。
 # 这是 sml-feature 必须「纯数据、不依赖词法」的原因（否则成环）。
-sml-feature = { path = "../sml-feature", default-features = false }
+sml-feature = { path = "../sml-feature", version = "0.1.0-alpha.1", default-features = false }
 
 [features]
 default = []

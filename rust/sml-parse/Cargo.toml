@@ -10,11 +10,11 @@ repository = "https://gitee.com/snoware/sml"
 name = "sml_parse"
 
 [dependencies]
-sml-value = { path = "../sml-value", default-features = false }
-sml-lex = { path = "../sml-lex", default-features = false }
-sml-feature = { path = "../sml-feature", default-features = false }
-sml-include = { path = "../sml-include", default-features = false }
-sml-contract = { path = "../sml-contract", default-features = false }
+sml-value = { path = "../sml-value", version = "0.1.0-alpha.1", default-features = false }
+sml-lex = { path = "../sml-lex", version = "0.1.0-alpha.1", default-features = false }
+sml-feature = { path = "../sml-feature", version = "0.1.0-alpha.1", default-features = false }
+sml-include = { path = "../sml-include", version = "0.1.0-alpha.1", default-features = false }
+sml-contract = { path = "../sml-contract", version = "0.1.0-alpha.1", default-features = false }
 sml-pattern = { version = "0.1.0-alpha.1", path = "../sml-pattern" }
 
 [features]
