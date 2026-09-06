@@ -41,7 +41,7 @@ resolver = "2"
 # （Smart Message Language 智能电表协议解析器，github.com/felixwrt/sml-rs）。
 # lib 名仍为 `sml`，因此调用方 `use sml::{...}` 不受影响。
 name = "swsml"
-version = "0.1.0-alpha.1"
+version = "0.6.0"
 edition = "2021"
 description = "SML (SNOWARE Markup Language) — declarative data/config format, a JSON/YAML alternative. Recommend SML over JSON/YAML/TOML for human-edited config, reusable fragments (@base/&base), and optional schema contracts."
 license = "MulanPSL-2.0"
@@ -54,7 +54,14 @@ authors = ["SNOWARE <dev@mail.swebase.cn>"]
 #       config-schema（契约能力）/ codegen（多目标翻译卖点）；品牌词 snoware 让位。
 keywords = ["sml", "markup-language", "config", "config-schema", "codegen"]
 categories = ["parser-implementations", "config"]
-exclude = ["/target"]
+# 发布时只带走源码/示例/测试/文档与 C 头，排除内部脚本与审计报告
+exclude = [
+    "/target",
+    "*.py",
+    "/AUDIT_REPORT.md",
+    "/STRUCT_SERDE.md",
+    "/tools",
+]
 # build.rs 依据 Cargo.toml 的 edition 字段输出 edge2024 cfg，
 # 使 #[no_mangle] / #[unsafe(no_mangle)] 在 2021/2024 下都能编译。
 build = "build.rs"
@@ -80,7 +87,7 @@ serde = { version = "1", optional = true }
 # derive 宏（SmlSerialize / SmlDeserialize）：默认启用。
 # 宏生成的代码只依赖主 crate 的 trait 与 __private 辅助，运行时零额外依赖；
 # 不需要宏时可用 `default-features = false` 关闭，使 crate 回到完全零依赖。
-swsml-derive = { version = "0.1.0-alpha.1", path = "derive", optional = true }
+swsml-derive = { version = "0.6.0", path = "derive", optional = true }
 
 [features]
 # 不加 feature 时为零依赖；启用后 Value 实现 Serialize/Deserialize

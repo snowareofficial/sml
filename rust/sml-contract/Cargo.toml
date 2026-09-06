@@ -13,7 +13,7 @@ name = "sml_contract"
 # 自定义类型（@type）的模式匹配引擎：无回溯，免疫 ReDoS。
 # 与 sml-value 同层，不引入更重的依赖。
 sml-pattern = { version = "0.1.0-alpha.1", path = "../sml-pattern" }
-sml-value = { path = "../sml-value", default-features = false }
+sml-value = { path = "../sml-value", version = "0.1.0-alpha.1", default-features = false }
 
 [features]
 default = []

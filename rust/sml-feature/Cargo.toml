@@ -10,7 +10,7 @@ repository = "https://gitee.com/snoware/sml"
 name = "sml_feature"
 
 [dependencies]
-sml-value = { path = "../sml-value", default-features = false }
+sml-value = { path = "../sml-value", version = "0.1.0-alpha.1", default-features = false }
 
 [features]
 default = []
