@@ -5,6 +5,7 @@ edition = "2021"
 description = "SML 语法分析：递归下降解析器与公开 parse API（parse / parse_file / loads）。"
 license = "MulanPSL-2.0"
 repository = "https://gitee.com/snoware/sml"
+readme = "README.md"
 
 [lib]
 name = "sml_parse"

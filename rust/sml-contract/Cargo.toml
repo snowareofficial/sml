@@ -5,6 +5,7 @@ edition = "2021"
 description = "SML 契约系统：@contract 定义与 @is 应用、类型校验、默认值填充、min/max 与枚举约束。"
 license = "MulanPSL-2.0"
 repository = "https://gitee.com/snoware/sml"
+readme = "README.md"
 
 [lib]
 name = "sml_contract"

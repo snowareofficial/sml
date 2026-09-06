@@ -5,6 +5,7 @@ edition = "2021"
 description = "SML 模块化：include/import 指令解析、glob 与正则匹配、跨文件展开。"
 license = "MulanPSL-2.0"
 repository = "https://gitee.com/snoware/sml"
+readme = "README.md"
 
 [lib]
 name = "sml_include"

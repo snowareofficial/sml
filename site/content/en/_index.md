@@ -121,15 +121,16 @@ sml::Value v = sml::parse("name: John\nage: 27");
 
 SML declares the syntax version a document follows via `@version`, so the parser
 can still read old documents if a future incompatible syntax is introduced. The
-current implementation supports **v1 / v2 / v3** (`@version` accepts `v1`/`1`,
-`v2`/`2`, `v3`/`3`; anything outside `v1..v3` errors outright), with **v3** as
+current implementation supports **v1 / v2 / v3 / v4** (`@version` accepts `v1`/`1`,
+`v2`/`2`, `v3`/`3`; anything outside `v1..v4` errors outright), with **v4** as
 the latest baseline.
 
 | Version | Semantics | String syntax |
 |---------|-----------|---------------|
 | **v1** (default) | initial public release; barewords are strings, types auto-detected | `name: John` ✅ |
 | **v2** | draft; introduced the incompatible "strings must be quoted" rule | `name: "John"` required |
-| **v3** (CURRENT) | finalized; same semantics as v2; free text must be `"..."` | `name: "John"` required |
+| **v3** | finalized; same semantics as v2; free text must be `"..."` | `name: "John"` required |
+| **v4** (CURRENT) | fragment definitions use explicit `type` / `name` keywords (`@f type: Server name: prod`), dropping v3's positional form (`@f Server prod`); otherwise fully compatible with v3 | `name: "John"` required |
 
 > v2 and v3 share **identical string semantics** — v2 is the draft codename, v3
 > the finalized one. Numbers / `bool` / `null` / fragment refs `&x` / env vars
@@ -152,7 +153,7 @@ ref: &frag               # fragment ref still bareword
 
 Undefined fragment refs are **hard errors** under v3 (no silent downgrade to a
 string). Callers can also restrict accepted versions via
-`parse_allowed(docs, &[Version::V1, Version::V2, Version::V3])` — out-of-range
+`parse_allowed(docs, &[Version::V1, Version::V2, Version::V3, Version::V4])` — out-of-range
 documents are rejected, so `@version` cannot become a backdoor around capability
 limits.
 
@@ -406,3 +407,7 @@ Don't want to install anything? Try it in the browser:
 
 Write SML (with contracts) on the left, see parsed result or precise error
 location on the right.
+
+## Download
+
+- **VS Code Extension 0.4.1**: [download sml-lang-0.4.1.vsix](/dl/sml-lang-0.4.1.vsix) (manual install; see the [downloads page](/en/downloads/))
