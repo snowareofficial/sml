@@ -16,7 +16,9 @@ sml-value = { path = "../sml-value", version = "0.1.0-alpha.1", default-features
 sml-lex = { path = "../sml-lex", version = "0.1.0-alpha.1", default-features = false }
 sml-feature = { path = "../sml-feature", version = "0.1.0-alpha.1", default-features = false }
 sml-include = { path = "../sml-include", version = "0.1.0-alpha.1", default-features = false }
-sml-contract = { path = "../sml-contract", version = "0.1.0-alpha.1", default-features = false }
+# 必须钉 alpha.2：本 crate 用到 `TypeSpec::Ext`（alpha.2 才有）。
+# 若仍写 alpha.1，crates.io 解析到旧版会让发布出去的包编译不过。
+sml-contract = { path = "../sml-contract", version = "0.1.0-alpha.2", default-features = false }
 sml-pattern = { version = "0.1.0-alpha.1", path = "../sml-pattern" }
 
 [features]
