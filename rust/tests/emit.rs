@@ -454,47 +454,64 @@ fn deeply_nested(depth: usize) -> sml::Value {
 // 深度保护现已覆盖各 emit 后端（xml.rs / svg.rs / slint.rs / latex.rs / markdown.rs
 // 均在递归处检查 MAX_VALUE_DEPTH），故本测试不再忽略 —— 它正是防止"某个后端
 // 漏加保护又被悄悄放过"的回归网。
+//
+// ⚠️ 但必须在**显式大栈**的线程里跑：Rust 测试线程栈默认仅 2MB，而本用例要构造
+// 5 万层嵌套的 Value —— 栈不够时"测试自身"先溢出，反而掩盖了真正要验证的后端行为
+// （这两条用例此前被 `#[ignore]` 掩着，放开后才暴露出这一点）。
+// 用 256MB 栈是为了**区分两种失败**：测试资源不足（不该失败）与实现漏了深度保护（该失败）。
+fn with_big_stack<F: FnOnce() + Send + 'static>(f: F) {
+    std::thread::Builder::new()
+        .stack_size(256 * 1024 * 1024)
+        .spawn(f)
+        .expect("spawn big-stack thread")
+        .join()
+        .expect("test body panicked");
+}
+
 #[test]
 fn emit_depth_limit_does_not_overflow() {
-    use sml::Value::*;
-    // 50000 层嵌套：修复前各 to_* 递归栈溢出（exit -1073740791/-1073741571 等）。
-    // 修复后应在深度上限处返回 Err（或安全截断），绝不 abort 宿主。
-    let deep = deeply_nested(50_000);
+    with_big_stack(|| {
+        // 50000 层嵌套：修复前各 to_* 递归栈溢出（exit -1073740791/-1073741571 等）。
+        // 修复后应在深度上限处返回 Err（或安全截断），绝不 abort 宿主。
+        let deep = deeply_nested(50_000);
 
-    // markdown：返回 Err 而非崩溃
-    let r = to_markdown(&deep, &MarkdownOptions::new());
-    assert!(r.is_err(), "markdown 超深嵌套应报错而非 abort");
+        // markdown：返回 Err 而非崩溃
+        let r = to_markdown(&deep, &MarkdownOptions::new());
+        assert!(r.is_err(), "markdown 超深嵌套应报错而非 abort");
 
-    // to_sml 输出字符串（已安全截断，不崩溃）
-    let out = sml::to_sml(&deep);
-    assert!(!out.is_empty(), "to_sml 超深嵌套应返回截断输出而非崩溃");
-    // 截断占位符存在，证明走入了深度上限分支
-    assert!(out.contains("深度超限"), "to_sml 应含深度超限占位符: {out}");
+        // to_sml 输出字符串（已安全截断，不崩溃）
+        let out = sml::to_sml(&deep);
+        assert!(!out.is_empty(), "to_sml 超深嵌套应返回截断输出而非崩溃");
+        // 截断占位符存在，证明走入了深度上限分支
+        assert!(out.contains("深度超限"), "to_sml 应含深度超限占位符: {out}");
 
-    // 其余后端同样不应 panic/abort
-    let _ = to_latex(&deep, &LatexOptions::new());
-    let _ = to_xml(&deep, &XmlOptions::new());
-    let _ = to_lvgl(&deep, &XmlOptions::new());
-    let _ = to_svg(&deep, &SvgOptions::new());
-    let _ = to_slint(&deep, &SlintOptions::new());
+        // 其余后端同样不应 panic/abort
+        let _ = to_latex(&deep, &LatexOptions::new());
+        let _ = to_xml(&deep, &XmlOptions::new());
+        let _ = to_lvgl(&deep, &XmlOptions::new());
+        let _ = to_svg(&deep, &SvgOptions::new());
+        let _ = to_slint(&deep, &SlintOptions::new());
 
-    // 正常深度（1000）仍能正常序列化
-    let ok = deeply_nested(100);
-    let r2 = to_markdown(&ok, &MarkdownOptions::new());
-    assert!(r2.is_ok(), "100 层嵌套应正常: {:?}", r2.err());
+        // 正常深度（100）仍能正常序列化
+        let ok = deeply_nested(100);
+        let r2 = to_markdown(&ok, &MarkdownOptions::new());
+        assert!(r2.is_ok(), "100 层嵌套应正常: {:?}", r2.err());
 
-    // P0-2：deeply_nested(50_000) 的超深 Value 在 drop 时应由迭代式 Drop 安全释放，
-    // 不再因递归析构栈溢出 abort（让 deep 在测试结束时自然 drop 即验证此点）。
+        // P0-2：deeply_nested(50_000) 的超深 Value 在 drop 时应由迭代式 Drop 安全释放，
+        // 不再因递归析构栈溢出 abort（让 deep 在测试结束时自然 drop 即验证此点）。
+    });
 }
 
 #[test]
 fn value_deep_drop_does_not_overflow() {
     // P0-2：深层嵌套 Value 的析构必须通过迭代式 Drop 完成，不能递归调用导致栈溢出。
     // 若实现退化，此测试会栈溢出 abort。
-    let deep = deeply_nested(50_000);
-    // 经过 emit 调用后（证明其可被访问），drop 也不应溢出
-    let _ = sml::to_sml(&deep);
-    // deep 离开作用域时触发迭代式 Drop
+    with_big_stack(|| {
+        let deep = deeply_nested(50_000);
+        // 经过 emit 调用后（证明其可被访问），drop 也不应溢出
+        let _ = sml::to_sml(&deep);
+        // deep 离开作用域时触发迭代式 Drop
+    });
 }
 
 #[test]
@@ -532,7 +549,6 @@ fn parse_array_nesting_is_depth_limited() {
 
 #[test]
 fn nan_inf_serialization_is_roundtrip_safe() {
-    use sml::Value::*;
     // 修复前：to_sml 输出 NaN / inf 字面量，回读后类型改变，round-trip 破坏。
     // 程序构造：raw 一律 None（见 Value::float 的失效规则）
     let cases = vec![

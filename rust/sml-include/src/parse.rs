@@ -8,8 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use sml_feature::{Feature, FeatureSet};
-use sml_lex::Tok;
-use sml_regex::{MiniRegex, compile_regex, regex_matches};
+use sml_regex::{compile_regex, regex_matches};
 
 /// 值嵌套深度上限：防止 `a{a{a{ ... }}}` 这类深度嵌套触发递归下降的栈溢出。
 ///
@@ -188,7 +187,8 @@ pub fn parse_include_line(line: &str, features: FeatureSet) -> Result<Option<Vec
             rest = stripped.trim_start();
             continue;
         } else {
-            rest = tail;
+            // `rest = tail` 在此处是死赋值：紧接着 break，循环外也没有再读 rest
+            // （unused_assignments 指出的就是这一处）。
             break;
         }
     }

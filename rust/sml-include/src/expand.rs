@@ -4,12 +4,10 @@
 //! 与 [`crate`]（指令解析）分开，是因为这部分要读文件系统、递归展开，
 //! 且受 `MAX_INCLUDE_DEPTH` / `MAX_INCLUDE_EXPANSIONS` 双重限深保护。
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use sml_feature::{Feature, FeatureSet};
 use sml_lex::{Tok, advance_line, compute_string_spans, line_starts_in_string, tokenize};
-use sml_value::Value;
 
 use crate::{
     MAX_INCLUDE_DEPTH, MAX_INCLUDE_EXPANSIONS, parse_include_line,

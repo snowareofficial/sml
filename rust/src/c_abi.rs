@@ -3,7 +3,6 @@ use sml_parse::strip_version;
 use sml_feature::FEATURES;
 #[cfg(feature = "sml")]
 use sml_value::to_sml;
-use sml_value::*;
 use std::collections::BTreeMap;
 // ---------------------------------------------------------------------------
 // C-ABI (cdylib, 供 C / 其它语言调用)
@@ -895,7 +894,7 @@ pub fn json_to_value(s: &str) -> Option<Value> {
     let bytes = s.as_bytes();
     let mut i = 0;
     let _n = bytes.len();
-    let mut skip_ws = |b: &[u8], i: &mut usize| {
+    let skip_ws = |b: &[u8], i: &mut usize| {
         while *i < b.len() && matches!(b[*i], b' ' | b'\t' | b'\n' | b'\r') {
             *i += 1;
         }
@@ -903,7 +902,7 @@ pub fn json_to_value(s: &str) -> Option<Value> {
     // 字符串解析：把字节累积进 `buf`，解析结束后整体按 UTF-8 解码。
     // 此前逐字节 `out.push(c as char)` 会把每个 UTF-8 字节当成一个码点，
     // 导致中文等多字节字符被二次编码成乱码（C-ABI 审计 #3）。
-    let mut parse_str = |b: &[u8], i: &mut usize| -> Option<String> {
+    let parse_str = |b: &[u8], i: &mut usize| -> Option<String> {
         skip_ws(b, i);
         if *i >= b.len() || b[*i] != b'"' {
             return None;
@@ -965,7 +964,7 @@ pub fn json_to_value(s: &str) -> Option<Value> {
         if depth > MAX_DEPTH {
             return None;
         }
-        let mut skip_ws = |b: &[u8], i: &mut usize| {
+        let skip_ws = |b: &[u8], i: &mut usize| {
             while *i < b.len() && matches!(b[*i], b' ' | b'\t' | b'\n' | b'\r') {
                 *i += 1;
             }
