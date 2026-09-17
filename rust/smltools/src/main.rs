@@ -275,6 +275,50 @@ fn load_input(text: &str, args: &Args) -> Result<Value, String> {
     }
 }
 
+/// 目录批量转换：把 `dir` 下所有匹配输入格式的文件逐个转换，写入 `--output` 目录。
+///
+/// 这是「可选文件夹结构」的最小可用形态 —— 存量配置仓库（一堆 `.json`/`.yaml`/`.toml`）
+/// 可以整目录迁进 SML，而不必逐个文件敲命令。输出文件与原文件同名，仅扩展名改为目标格式。
+///
+/// 刻意只做**同名平铺**而不复刻子目录：迁移场景下先看一眼结果，再决定怎么组织，
+/// 比自动猜测目录结构更安全（猜错会把文件写到意外位置）。
+fn convert_dir(dir: &Path, args: &Args) -> Result<usize, String> {
+    let out_dir = args
+        .output
+        .as_ref()
+        .ok_or_else(|| "目录模式下必须用 -o/--output 指定输出目录（避免污染源目录）".to_string())?;
+    std::fs::create_dir_all(out_dir).map_err(|e| format!("mkdir {}: {e}", out_dir.display()))?;
+
+    let want_ext = args.input_format.name();
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)
+        .map_err(|e| format!("read_dir {}: {e}", dir.display()))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| {
+            p.is_file()
+                && p.extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.eq_ignore_ascii_case(want_ext))
+                    .unwrap_or(false)
+        })
+        .collect();
+    entries.sort(); // 输出顺序稳定，便于 diff
+
+    let mut n = 0usize;
+    for p in entries {
+        let text =
+            std::fs::read_to_string(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
+        let value = load_input(&text, args).map_err(|e| format!("{}: {e}", p.display()))?;
+        let value = if args.strip { strip_value(&value) } else { value };
+        let out = emit(&value, args.format, args).map_err(|e| format!("{}: {e}", p.display()))?;
+        let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("out");
+        let out_path = out_dir.join(format!("{stem}.{}", args.format.name()));
+        std::fs::write(&out_path, out).map_err(|e| format!("write {}: {e}", out_path.display()))?;
+        eprintln!("{} -> {}", p.display(), out_path.display());
+        n += 1;
+    }
+    Ok(n)
+}
+
 /// 剥离 SML 专有痕迹（`--strip`）。
 ///
 /// 片段 / 契约 / include / `$env` / `@when` 都在**解析期**消解，解析结果本身已是纯数据；
@@ -791,6 +835,22 @@ fn main() -> ExitCode {
     if args.hugo.is_some() && args.zola.is_some() {
         eprintln!("smltools: --hugo 与 --zola 互斥，请只选其一");
         return ExitCode::from(2);
+    }
+
+    // 目录批量模式：输入是目录时，逐个文件转换到 --output 目录（lint 模式不适用）
+    if !args.lint {
+        if let Some(dir) = args.input.as_ref().filter(|p| p.is_dir()) {
+            return match convert_dir(dir, &args) {
+                Ok(n) => {
+                    eprintln!("smltools: 已转换 {n} 个文件");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("smltools: {e}");
+                    ExitCode::from(2)
+                }
+            };
+        }
     }
 
     let text = match read_input(&args.input) {
