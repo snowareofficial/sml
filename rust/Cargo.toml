@@ -77,8 +77,11 @@ sml-value = { version = "0.1.0-alpha.1", path = "sml-value" }
 sml-lex = { version = "0.1.0-alpha.1", path = "sml-lex" }
 sml-feature = { version = "0.1.0-alpha.1", path = "sml-feature" }
 sml-include = { version = "0.1.0-alpha.1", path = "sml-include" }
-sml-contract = { version = "0.1.0-alpha.1", path = "sml-contract" }
-sml-parse = { version = "0.1.0-alpha.1", path = "sml-parse" }
+# 这两个子 crate 在 0.6.1 里升到 alpha.2（新增 ext 外置扩展模块 / TypeSpec::Ext）。
+# 版本要求必须显式钉到 alpha.2：否则 crates.io 可能解析到 alpha.1，
+# 而那份没有 `ext`，本 crate 的 `pub use sml_parse::ext` 会编译失败。
+sml-contract = { version = "0.1.0-alpha.2", path = "sml-contract" }
+sml-parse = { version = "0.1.0-alpha.2", path = "sml-parse" }
 # 自定义类型（@type）用的模式匹配引擎。re-export 为 sml::pattern，
 # 便于调用方直接编译/复用模式，而不必单独依赖子 crate。
 sml-pattern = { version = "0.1.0-alpha.1", path = "sml-pattern" }
