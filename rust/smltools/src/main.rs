@@ -33,6 +33,57 @@ use clap::Parser;
 use sml::{parse, to_sml, Value, Version};
 use std::path::Path;
 
+mod lint;
+mod yaml;
+
+/// 输入格式（迁移用）：SML 是原生格式，JSON / YAML 是「迁入」格式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InputFormat {
+    Sml,
+    Json,
+    Yaml,
+}
+
+impl InputFormat {
+    fn parse(s: &str) -> Option<InputFormat> {
+        match s.to_ascii_lowercase().as_str() {
+            "sml" => Some(InputFormat::Sml),
+            "json" => Some(InputFormat::Json),
+            "yaml" | "yml" => Some(InputFormat::Yaml),
+            _ => None,
+        }
+    }
+
+    /// 按扩展名推断（显式 `--from` 优先于此）。
+    fn detect(path: Option<&Path>) -> InputFormat {
+        match path.and_then(|p| p.extension()).and_then(|e| e.to_str()) {
+            Some(e) if e.eq_ignore_ascii_case("json") => InputFormat::Json,
+            Some(e) if e.eq_ignore_ascii_case("yaml") || e.eq_ignore_ascii_case("yml") => {
+                InputFormat::Yaml
+            }
+            _ => InputFormat::Sml,
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        match self {
+            InputFormat::Sml => "sml",
+            InputFormat::Json => "json",
+            InputFormat::Yaml => "yaml",
+        }
+    }
+}
+
+/// 决定输入格式：显式 `--from` > 扩展名推断 > SML。
+fn resolve_input_format(explicit: Option<&str>, input: Option<&Path>) -> Result<InputFormat, String> {
+    match explicit {
+        Some(s) => {
+            InputFormat::parse(s).ok_or_else(|| format!("unknown input format `{s}` (sml|json|yaml)"))
+        }
+        None => Ok(InputFormat::detect(input)),
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 enum Format {
     /// 原样回显（SML 序列化）。
@@ -130,6 +181,27 @@ struct Cli {
     #[arg(long = "to", alias = "format", default_value = "md")]
     format: String,
 
+    /// 输入格式：sml(默认) / json / yaml。
+    ///
+    /// 缺省按输入文件扩展名推断（`.json` → json，`.yaml`/`.yml` → yaml，其余 → sml）；
+    /// 从 stdin 读且未显式指定时按 sml 处理。
+    ///
+    /// 迁移示例：`smltools -i app.json --from json --to sml > app.sml`
+    #[arg(long = "from", alias = "input-format")]
+    from: Option<String>,
+
+    /// 剥离 SML 专有痕迹再转换：内部标记键 `__name`/`__type`，以及浮点的原始字面量文本。
+    ///
+    /// 片段 / 契约 / include / `$env` / `@when` 在解析期就已消解，解析结果本身已是纯数据；
+    /// `--strip` 清掉剩余那两处，使输出能被 JSON 等格式**无损**消化。
+    #[arg(long = "strip")]
+    strip: bool,
+
+    /// 静态检查模式（不产出转换结果）：报解析错误、未使用的片段/契约、tab 缩进、
+    /// 空值字段、过深嵌套等。存在 error 级问题时退出码为 1。
+    #[arg(long = "lint")]
+    lint: bool,
+
     /// 显式声明解析版本（v1..v4）；缺省按文档声明或 V4
     #[arg(long = "feature")]
     feature: Option<String>,
@@ -174,11 +246,56 @@ struct Cli {
     math: bool,
 }
 
+/// 按输入格式把文本转成 `Value`。
+///
+/// SML 走完整解析（版本 / 特性 / include / 契约）；JSON 与 YAML 是**迁入**格式，
+/// 直接解析成数据，不参与 SML 的版本与特性机制。
+fn load_input(text: &str, args: &Args) -> Result<Value, String> {
+    match args.input_format {
+        InputFormat::Sml => {
+            parse_with(text, &args.input, args.feature).map_err(|e| format!("parse error: {e}"))
+        }
+        // 复用 crate 内既有实现（与 C-ABI 同款：零依赖、带深度限制与 UTF-8 修正）
+        InputFormat::Json => sml::json_to_value(text)
+            .ok_or_else(|| "JSON 解析失败：不是合法 JSON，或嵌套过深".to_string()),
+        InputFormat::Yaml => yaml::parse(text).map_err(|e| format!("YAML 解析失败：{e}")),
+    }
+}
+
+/// 剥离 SML 专有痕迹（`--strip`）。
+///
+/// 片段 / 契约 / include / `$env` / `@when` 都在**解析期**消解，解析结果本身已是纯数据；
+/// 真正会把「SML 特色」带进其它格式的只剩两处：
+/// 1. 内部标记键 `__name` / `__type` —— 块级类型标注留下的脚手架；
+/// 2. 浮点的原始字面量 —— `1.50` 这种写法只有 SML 保留，JSON 只能给出 `1.5`。
+///
+/// 清掉这两者，输出即可被 JSON 等格式无损消化（`1.5` 是等值数值，不是信息丢失）。
+fn strip_value(v: &Value) -> Value {
+    match v {
+        Value::Object(m) => {
+            let mut out = std::collections::BTreeMap::new();
+            for (k, val) in m {
+                if k == "__name" || k == "__type" {
+                    continue;
+                }
+                out.insert(k.clone(), strip_value(val));
+            }
+            Value::Object(out)
+        }
+        Value::Array(a) => Value::Array(a.iter().map(strip_value).collect()),
+        Value::Float(f, _) => Value::float(*f),
+        other => other.clone(),
+    }
+}
+
 /// 把 clap 解析结果转换为内部使用的运行时参数。
 struct Args {
     input: Option<PathBuf>,
     output: Option<PathBuf>,
     format: Format,
+    input_format: InputFormat,
+    strip: bool,
+    lint: bool,
     feature: Option<Version>,
     hugo: Option<PathBuf>,
     hugo_lang: Option<String>,
@@ -195,6 +312,7 @@ fn parse_args() -> Result<Args, String> {
     let cli = Cli::parse();
     let format = Format::parse(&cli.format)
         .ok_or_else(|| format!("unknown format `{}` (可选：{})", cli.format, Format::names()))?;
+    let input_format = resolve_input_format(cli.from.as_deref(), cli.input.as_deref())?;
     let feature = match cli.feature.as_deref() {
         None => None,
         Some(v) => {
@@ -212,6 +330,9 @@ fn parse_args() -> Result<Args, String> {
         input: cli.input,
         output: cli.output,
         format,
+        input_format,
+        strip: cli.strip,
+        lint: cli.lint,
         feature,
         hugo: cli.hugo,
         hugo_lang: cli.hugo_lang,
@@ -666,13 +787,36 @@ fn main() -> ExitCode {
         }
     };
 
-    let value = match parse_with(&text, &args.input, args.feature) {
+    // lint 模式：只做静态检查，不产出转换结果
+    if args.lint {
+        if args.input_format != InputFormat::Sml {
+            eprintln!(
+                "smltools: --lint 只能检查 SML 文档（当前 --from {}）",
+                args.input_format.name()
+            );
+            return ExitCode::from(2);
+        }
+        let report = lint::check(&text, &args.input);
+        for m in &report.messages {
+            eprintln!("{m}");
+        }
+        if report.has_error {
+            return ExitCode::from(1);
+        }
+        if report.messages.is_empty() {
+            eprintln!("smltools: 未发现问题");
+        }
+        return ExitCode::SUCCESS;
+    }
+
+    let value = match load_input(&text, &args) {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("smltools: parse error: {e}");
+            eprintln!("smltools: {e}");
             return ExitCode::from(1);
         }
     };
+    let value = if args.strip { strip_value(&value) } else { value };
 
     let rendered = match emit(&value, args.format, &args) {
         Ok(s) => s,
