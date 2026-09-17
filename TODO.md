@@ -240,6 +240,38 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
 
 ---
 
+## 三·八、清仓库欠账（2026-09-18 完成）
+
+- **警告清零**：workspace **19 → 0**
+  - `cargo fix` 清 unused import / unused mut（sml-value / sml-lex / sml-include / sml-parse / c_abi）
+  - 3 处「赋值后未读」：sml-regex 量词初值（改延迟初始化）、sml-include `parse` 的 `rest` 死赋值
+  - 2 处死代码：smlconv 的 `Format::name` **改为用起来**（`--to` 报错里的格式列表原先手写，
+    与 `name()` 两处维护 —— 0.6.1 加 `html` 时就得人工同步两处；现由 `Format::ALL` 生成）；
+    `rust/src/lib.rs` 的 `tmpdir` 恢复（见下）
+- ⚠️ **根因/教训**：`rust/src/lib.rs` 的 `mod tests` **漏写 `#[cfg(test)]`**，
+  导致非测试构建下模块仍被编译，其内部 import 与辅助函数被误报 unused/dead_code；
+  `cargo fix` 据此删掉了 `tmpdir` —— 而它被 10+ 处测试调用，删完 `cargo test` 直接编译失败。
+  **今后：看到 `mod tests` 缺 cfg 要先补，再动 cargo fix。**
+- **smlconv 标题推断**（旧注释与实现各说各话）：改为 `--title` > 文档顶层 `title` 字段 >
+  文件名 stem > `"doc"`，并传入真实解析结果（原先两个调用点都传 `&Value::Null`，
+  文档标题永远读不到）；删除永不触发的 `__name` 分支与两处错误注释；
+  `sanitize_filename` / `sanitize_section` 保留 Unicode 字母数字
+  （原先只认 ASCII，`我的长篇小说` → `______.md`）
+- **测试栈溢出**：`emit_depth_limit_does_not_overflow` / `value_deep_drop_does_not_overflow`
+  改在 256MB 栈线程里跑 —— Rust 测试线程默认仅 2MB，构造 5 万层嵌套时**测试自身**先溢出，
+  会掩盖真正要验证的后端行为。改用大栈后可区分「测试资源不足」与「实现漏保护」，
+  实测后端深度保护到位（43 passed / 0 ignored）；全量测试退出码 `0xC00000FD` 已消除
+- **残留清理**：`rust/tests/_tmp_probe.rs`、`rust/tests/_ec_out.txt` 已删
+- **ISSUE 第一节判据更正**：原判据有误，已按源码核对结果改写
+
+**剩余待办（按建议顺序）**
+
+1. 丙 · 跨实现一致性套件（先小范围：`typed-block` / 括号词法 / `@is type(X)` / 量词对象式 / 数字字面量）
+2. 丁 · 编辑器接契约语义诊断（前置条件早已具备，属"白捡的果子"）
+3. 乙 · 功能缺口（EPUB 直出、章节分页 + TOC、语义部件 figure/admonition/footnote…）
+
+---
+
 ## 四、已完成
 
 - [x] Rust：顶层数组解析（`parse_impl` 支持 `[`/`{`/键值三种顶层形态）
