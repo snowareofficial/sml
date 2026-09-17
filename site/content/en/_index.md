@@ -22,7 +22,8 @@ validation.
 - **include inline / namespaces**: `include "x.sml"` expands recursively; `include "x.sml" as a.b` isolates into a dotted scope (macros & contracts included), conflicts error out
 - **Environment variables**: `$env.HOME` inlined at parse time
 - **Contract system**: `@contract` / `@is` validate config type & structure (strict / loose modes)
-- **Multi-target emit**: once parsed to `Value`, compile to Markdown / LaTeX / XML / SVG / Slint UI / custom formats (emit backends)
+- **Multi-target emit**: once parsed to `Value`, compile to Markdown / LaTeX / XML / SVG / **HTML** / Slint UI / custom formats (emit backends, see `smlconv`)
+- **External extensions**: register custom `@directives`, field types and modifiers without patching SML's source — dialect definitions stay in your own repository (Rust & JS, see textbook Ch13)
 - **Zero dependencies**: each implementation is decoupled, embeddable individually (WASM / sandbox / editor)
 
 ## 📖 SML Textbook
@@ -33,7 +34,8 @@ Start from zero and progress step by step, or use it as a reference anytime.
 - [Preface: Why SML](/en/book/intro)
 - [Ch1: Your first SML file](/en/book/ch01-basics) · [Ch2: Blocks & nesting](/en/book/ch02-blocks) · [Ch3: Fragment inheritance](/en/book/ch03-fragments)
 - [Ch4: include & namespaces](/en/book/ch04-include) · [Ch5: Contract system](/en/book/ch05-contract) · [Ch6: Env vars & escaping](/en/book/ch06-env-escape)
-- [Ch7: Multi-language usage](/en/book/ch07-languages) · [Ch8: Real project](/en/book/ch08-project) · [Ch9: Feature composition](/en/book/ch09-advanced) · [Ch10: feature reference](/en/book/ch10-features) · [Ch11: Translation challenges](/en/book/ch11-challenges) · [Appendix: Cheatsheet & troubleshooting](/en/book/appendix)
+- [Ch7: Multi-language usage](/en/book/ch07-languages) · [Ch8: Real project](/en/book/ch08-project) · [Ch9: Feature composition](/en/book/ch09-advanced) · [Ch10: feature reference](/en/book/ch10-features) · [Ch11: Translation challenges](/en/book/ch11-challenges)
+- [Ch12: smlconv multi-target translator](/en/book/ch12-smlconv) · [Ch13: External extensions](/en/book/ch13-extension) · [Appendix: Cheatsheet & troubleshooting](/en/book/appendix)
 - Offline: **[Download EPUB](/sml-book.epub)**
 
 ## Implementations

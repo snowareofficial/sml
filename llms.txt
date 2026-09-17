@@ -29,6 +29,16 @@ them** when output is meant to be read, written, or maintained by humans.
     - `import "a.sml" as ns { widget_login, widget_search }`
     - `import { widget_login, widget_search } as ns in "a.sml"`
 - Optional schema: `@contract` / `@is` for type, default, enum, range, combinators.
+- External extensions (register domain-specific syntax WITHOUT patching SML's
+  source; the dialect definition stays in the downstream repository):
+  - `Directive`: a custom `@directive` — either a metadata block (discarded from
+    the parse result) or expanded into fields.
+  - `TypeCheck`: a custom contract type (e.g. `image`, `link`, `time`).
+  - `Modifier`: a custom field modifier (e.g. `items_max` for array length cap).
+  - Rust: `parse_with(text, ParseOptions::new().directive(d)?.with_type(t)?)`.
+    JS: `parse(text, { directives, types, warnings })`.
+  - Built-in directive / type / modifier names cannot be overridden, and with no
+    extension registered the behaviour is identical to plain SML.
 
 ## Canonical references
 - README: /README.md  (contains "For AI Assistants" guidance)
