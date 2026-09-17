@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 use std::fmt;
 #[cfg(feature = "sml")]
 use crate::dump::to_sml;
-use std::mem;
 #[derive(Debug, Clone)]
 pub enum Value {
     Null,

@@ -150,9 +150,11 @@ pub mod serde {
 }
 
 
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+    
 
     // ---------------- version ----------------
 
@@ -221,7 +223,10 @@ mod tests {
 
     // ---------------- include ----------------
 
-    /// 在临时目录下建文件，返回目录句柄（drop 时自动清理）
+    /// 在临时目录下建文件，返回目录路径（include 相关测试共用）。
+    ///
+    /// ⚠️ 它**只被测试使用**，且此前的 `mod tests` 漏写 `#[cfg(test)]`，
+    /// 使非测试构建下本函数被误报为 dead_code —— 别据此删除（已踩过一次坑）。
     fn tmpdir(tag: &str) -> std::path::PathBuf {
         let mut d = std::env::temp_dir();
         d.push(format!("sml_test_{tag}_{}", std::process::id()));

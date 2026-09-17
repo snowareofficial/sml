@@ -38,7 +38,8 @@ pub fn tokenize(text: &str) -> Result<Vec<Tok>, String> {
     let mut toks = Vec::new();
     let mut chars = text.chars().peekable();
     let mut buf = String::new();
-    let mut flush = |buf: &mut String, toks: &mut Vec<Tok>| {
+    // 闭包只按参数操作，不捕获可变状态，故无需 mut
+    let flush = |buf: &mut String, toks: &mut Vec<Tok>| {
         if !buf.is_empty() {
             toks.push(Tok::Word(std::mem::take(buf)));
         }

@@ -148,7 +148,9 @@ fn backtrack_match(pat: &str, text: &str, ti: usize, steps: &mut u64) -> Option<
                         return None;
                     }
                     let prev = pchars.get(pi.wrapping_sub(1)).copied();
-                    let mut consumed = 0;
+                    // 延迟初始化：下面 match 的每条非返回分支都会赋值，
+                    // 原先的 `= 0` 初值永远不会被读到（unused_assignments）。
+                    let mut consumed;
                     match prev {
                         Some('.') => {
                             if ti >= tchars.len() {

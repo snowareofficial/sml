@@ -30,7 +30,6 @@ use sml::emit::{
     SvgOptions, XmlOptions, to_custom, to_html, to_lvgl,
 };
 use clap::Parser;
-use std::io::IsTerminal;
 use sml::{parse, to_sml, Value, Version};
 use std::path::Path;
 
@@ -50,6 +49,30 @@ enum Format {
 }
 
 impl Format {
+    /// 全部格式。用于 `--to` 报错提示 —— 原先提示里的
+    /// `(md|xml|svg|latex|slint|lvgl|html|custom|sml)` 是**手写**的，
+    /// 与 `name()` 两处维护；0.6.1 新增 `html` 时就得靠人工同步两个地方。
+    const ALL: [Format; 9] = [
+        Format::Markdown,
+        Format::Xml,
+        Format::Svg,
+        Format::Latex,
+        Format::Slint,
+        Format::Lvgl,
+        Format::Html,
+        Format::Custom,
+        Format::Sml,
+    ];
+
+    /// 供错误提示用的格式名列表（由 [`Self::ALL`] + `name()` 生成，不会再漂移）。
+    fn names() -> String {
+        Self::ALL
+            .iter()
+            .map(|f| f.name())
+            .collect::<Vec<_>>()
+            .join("|")
+    }
+
     fn parse(s: &str) -> Option<Format> {
         match s.to_ascii_lowercase().as_str() {
             "md" | "markdown" => Some(Format::Markdown),
@@ -164,7 +187,7 @@ struct Args {
 fn parse_args() -> Result<Args, String> {
     let cli = Cli::parse();
     let format = Format::parse(&cli.format)
-        .ok_or_else(|| format!("unknown format `{}` (md|xml|svg|latex|slint|lvgl|html|custom|sml)", cli.format))?;
+        .ok_or_else(|| format!("unknown format `{}` (可选：{})", cli.format, Format::names()))?;
     let feature = match cli.feature.as_deref() {
         None => None,
         Some(v) => {
@@ -370,6 +393,7 @@ fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, String> {
 /// Hugo 集成：包裹最小 front matter 并以 `<name>.md` 落盘。
 fn write_hugo(
     body: &str,
+    value: &Value,
     args: &Args,
     input_path: &Option<PathBuf>,
 ) -> Result<(), String> {
@@ -378,8 +402,9 @@ fn write_hugo(
         .as_ref()
         .ok_or_else(|| "internal: write_hugo called without --hugo".to_string())?;
 
-    // 计算目标文件名：优先 @feature base，否则取输入文件名 stem，否则 "doc"
-    let inferred = infer_title(&Value::Null, input_path, &args.title);
+    // 计算文件名/标题：--title > 文档顶层 title 字段 > 输入文件名 stem > "doc"
+    // （此处曾传 &Value::Null，使文档内的标题信息永远读不到；现传入解析结果）
+    let inferred = infer_title(value, input_path, &args.title);
     let stem = sanitize_filename(&inferred);
 
     let mut dest = hugo_dir.clone();
@@ -416,6 +441,7 @@ fn write_hugo(
 /// - 无语言子目录概念（多语言走 `content/<lang>/` 由调用方自行决定，这里不内置）。
 fn write_zola(
     body: &str,
+    value: &Value,
     args: &Args,
     input_path: &Option<PathBuf>,
 ) -> Result<(), String> {
@@ -424,7 +450,7 @@ fn write_zola(
         .as_ref()
         .ok_or_else(|| "internal: write_zola called without --zola".to_string())?;
 
-    let inferred = infer_title(&Value::Null, input_path, &args.title);
+    let inferred = infer_title(value, input_path, &args.title);
     let stem = sanitize_filename(&inferred);
 
     let mut dest = zola_dir.clone();
@@ -502,15 +528,24 @@ fn which_zola() -> Option<std::path::PathBuf> {
     None
 }
 
-/// 尝试从 SML 文本中提取 `@feature base <name>` 作为标题；失败则退回输入名或 "doc"。
+/// 推断文档标题：`--title` > 文档顶层 `title` 字段 > 输入文件名 stem > `"doc"`。
+///
+/// 两处历史问题在此一并纠正：
+/// 1. 旧注释声称「从 SML 文本提取 `@feature base <name>`」，但实现里从来没有这段逻辑；
+///    而 `@feature base` 只接受版本号（v1/v2/v3/v4），本来也承载不了名字 —— 注释与实现各说各话。
+///    这里换成真正可用的推源头：文档顶层的 `title:` 字段。
+/// 2. 旧实现会读顶层 `__name`，但两个调用点都传 `&Value::Null`，该分支**从未被触发过**；
+///    顶层也基本不会出现 `__name`（它来自片段/块级标注的字段值，不是顶层键），属死代码，已移除。
 fn infer_title(value: &Value, input: &Option<PathBuf>, explicit: &Option<String>) -> String {
     if let Some(t) = explicit {
         return t.clone();
     }
-    // value 顶层若有 __name（来自 @name 片段）也可借用
     if let Value::Object(m) = value {
-        if let Some(Value::Str(s)) = m.get("__name") {
-            return s.clone();
+        // `title: 我的小说` 与 `title: "我的小说"` 都取（裸词已是字符串）
+        if let Some(Value::Str(s)) = m.get("title") {
+            if !s.trim().is_empty() {
+                return s.clone();
+            }
         }
     }
     if let Some(p) = input {
@@ -529,7 +564,10 @@ fn sanitize_filename(s: &str) -> String {
     }
     s.chars()
         .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+            // 保留 **Unicode** 字母数字：原先只认 ASCII，中文标题会被整体替换成
+            // 下划线（`我的长篇小说` → `______`），文件名里的标题信息全丢。
+            // 文件系统对 UTF-8 文件名无障碍，不必牺牲可读性。
+            if c.is_alphanumeric() || matches!(c, '-' | '_' | '.') {
                 c
             } else {
                 '_'
@@ -568,7 +606,10 @@ fn sanitize_section(s: &str) -> String {
     let cleaned: String = s
         .chars()
         .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+            // 同 sanitize_filename：保留 Unicode 字母数字（中文章节名不再被抹平）。
+            // 安全性不受影响 —— `/`、`\` 仍被替换，首尾的 `.` 由下方 trim 掉，
+            // 因此 `..` 与路径分隔符依旧无法逃出目标目录。
+            if c.is_alphanumeric() || matches!(c, '-' | '_' | '.') {
                 c
             } else {
                 '_'
@@ -633,7 +674,7 @@ fn main() -> ExitCode {
 
     // Hugo 模式：忽略 -o，直接落盘为 .md
     if args.hugo.is_some() {
-        match write_hugo(&rendered, &args, &args.input) {
+        match write_hugo(&rendered, &value, &args, &args.input) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("smlconv: {e}");
@@ -642,7 +683,7 @@ fn main() -> ExitCode {
         }
     } else if args.zola.is_some() {
         // Zola 模式：忽略 -o，直接落盘为 TOML-front-matter 的 .md
-        match write_zola(&rendered, &args, &args.input) {
+        match write_zola(&rendered, &value, &args, &args.input) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("smlconv: {e}");

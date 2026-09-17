@@ -8,7 +8,6 @@
 
 use sml_feature::Feature;
 use sml_lex::Tok;
-use sml_value::Value;
 
 use crate::parser::Parser;
 
