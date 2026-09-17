@@ -1,49 +1,132 @@
 <!DOCTYPE html>
 {{ $isEn := in .RelPermalink "/en/" }}
-<html lang="{{ if $isEn }}en{{ else }}zh{{ end }}">
+<html lang="{{ if $isEn }}en{{ else }}zh{{ end }}" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ .Title }} · {{ .Site.Title }}</title>
+  <script>
+    // 主题在 CSS 之前落地，避免刷新时闪白。
+    // **默认暗色**：SML 站是信息密集的文档站，暗色更利于长时间集中阅读。
+    (function () {
+      try {
+        var t = localStorage.getItem("sml-theme");
+        document.documentElement.dataset.theme = (t === "light" || t === "dark") ? t : "dark";
+      } catch (e) { document.documentElement.dataset.theme = "dark"; }
+    })();
+  </script>
   <style>
-    body { font-family: system-ui, "Microsoft YaHei", sans-serif; margin: 0; background: #fafafa; color: #111; }
-    header { background: #111; color: #fff; padding: 18px 32px; display: flex; align-items: center; gap: 12px; }
-    header h1 { margin: 0; font-size: 20px; }
+    /* ---------------------------------------------------------------
+       配色变量的唯一来源。默认（:root）= 暗色；
+       [data-theme="light"] 覆盖为浅色。改颜色只需改这一处。
+       暗色不是简单反相：正文用略偏冷的高亮灰(#e6edf3)而非纯白，
+       长时间阅读时对比过强反而累眼；只把标题与强调提到纯白附近。
+       --------------------------------------------------------------- */
+    :root {
+      --bg: #0d1117;          /* 页面底色 */
+      --bg-elev: #161b22;     /* 卡片 / 代码块 */
+      --bg-nav: #010409;      /* 顶栏（比页面更深，形成层次） */
+      --fg: #e6edf3;          /* 正文 */
+      --fg-dim: #8b949e;      /* 次要文字 */
+      --border: #262d36;
+      --accent: #58a6ff;      /* 主强调色（链接 / 按钮） */
+      --accent-strong: #ffffff;
+      --accent-soft: #1f6feb;
+      --code-fg: #79c0ff;
+      --th: #1c2128;          /* 表头 */
+      --shadow: 0 1px 3px rgba(0, 0, 0, .5);
+    }
+    html[data-theme="light"] {
+      --bg: #fafafa;
+      --bg-elev: #ffffff;
+      --bg-nav: #111111;
+      --fg: #111111;
+      --fg-dim: #666666;
+      --border: #e0e0e0;
+      --accent: #1565c0;
+      --accent-strong: #ffffff;
+      --accent-soft: #0d47a1;
+      --code-fg: #1565c0;
+      --th: #eef4fb;
+      --shadow: 0 1px 3px rgba(0, 0, 0, .08);
+    }
+    body { font-family: system-ui, "Microsoft YaHei", sans-serif; margin: 0; background: var(--bg); color: var(--fg); }
+    header { background: var(--bg-nav); color: #fff; padding: 12px 32px; display: flex; align-items: center; gap: 12px; }
+    header h1 { margin: 0; font-size: 19px; letter-spacing: .3px; }
     header a { color: #fff; text-decoration: none; }
-    header .flake { color: #42A5F5; font-size: 22px; }
-    header .lang-switch { margin-left: auto; display: flex; gap: 6px; }
-    header .lang-switch a { color: #90caf9; font-size: 13px; padding: 4px 10px; border: 1px solid #333; border-radius: 6px; text-decoration: none; }
-    header .lang-switch a.active { background: #1565C0; color: #fff; border-color: #1565C0; }
-    nav { background: #1c1c1c; padding: 8px 32px; position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 4px 18px; }
-    nav a { color: #90caf9; text-decoration: none; font-size: 14px; }
+    header .flake { color: var(--accent); font-size: 22px; }
+    header .actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+    /* 顶栏按钮：VSIX 下载 / 联系我们 / 语言 / 主题，统一成同一套胶囊样式 */
+    header .actions .pill {
+      color: #cfe3ff; font-size: 13px; padding: 4px 10px; border: 1px solid #30363d;
+      border-radius: 999px; text-decoration: none; background: transparent; cursor: pointer;
+      font-family: inherit; line-height: 1.6; white-space: nowrap;
+    }
+    header .actions .pill:hover { border-color: var(--accent); color: #fff; }
+    header .actions .pill.active { background: var(--accent-soft); color: #fff; border-color: var(--accent-soft); }
+    header .actions .icon-btn { font-size: 15px; padding: 3px 9px; }
+    /* 「联系我们」下拉：两种渠道（QQ 群 / 邮箱） */
+    .menu { position: relative; }
+    .menu > .pill { user-select: none; }
+    .menu-panel {
+      display: none; position: absolute; right: 0; top: calc(100% + 6px); min-width: 220px;
+      background: var(--bg-elev); border: 1px solid var(--border); border-radius: 10px;
+      padding: 6px; box-shadow: var(--shadow); z-index: 50;
+    }
+    .menu.open .menu-panel { display: block; }
+    .menu-panel a { display: block; padding: 8px 10px; border-radius: 7px; color: var(--fg); font-size: 13px; text-decoration: none; }
+    .menu-panel a:hover { background: var(--th); color: var(--accent); }
+    .menu-panel .hint { display: block; padding: 4px 10px 8px; color: var(--fg-dim); font-size: 12px; }
+    nav { background: var(--bg-elev); padding: 8px 32px; position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 4px 18px; border-bottom: 1px solid var(--border); }
+    nav a { color: var(--accent); text-decoration: none; font-size: 14px; }
     nav a:hover { text-decoration: underline; }
-    nav .home { color: #fff; font-weight: 600; }
+    nav .home { color: var(--fg); font-weight: 600; }
     main { max-width: 880px; margin: 24px auto; padding: 0 24px; }
-    /* 章节书签跳转后标题不被顶栏遮挡 */
     h2 { scroll-margin-top: 56px; }
-    article { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 24px 32px; }
-    h1, h2, h3 { color: #0d47a1; }
-    h2 { border-bottom: 2px solid #42A5F5; padding-bottom: 6px; }
-    code { background: #eef4fb; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; color: #1565C0; }
-    pre { background: #111; color: #e8f1fb; padding: 12px; border-radius: 6px; overflow-x: auto; }
+    article { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 10px; padding: 24px 32px; box-shadow: var(--shadow); }
+    h1, h2, h3 { color: var(--accent); }
+    h1 { color: var(--accent-strong); }
+    h2 { border-bottom: 2px solid var(--accent-soft); padding-bottom: 6px; }
+    a { color: var(--accent); }
+    code { background: var(--th); padding: 2px 6px; border-radius: 4px; font-size: .9em; color: var(--code-fg); }
+    pre { background: var(--bg-nav); color: #e8f1fb; padding: 12px; border-radius: 6px; overflow-x: auto; border: 1px solid var(--border); }
     pre code { background: none; color: inherit; }
     table { border-collapse: collapse; width: 100%; margin: 12px 0; }
-    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-    th { background: #eef4fb; color: #0d47a1; }
-    .links { display: flex; gap: 12px; margin: 16px 0; }
-    .btn { display: inline-block; background: #1565C0; color: #fff; padding: 10px 22px; border-radius: 8px; text-decoration: none; font-weight: 600; }
-    .btn:hover { background: #0d47a1; }
-    footer { text-align: center; padding: 24px; color: #666; font-size: 13px; }
+    th, td { border: 1px solid var(--border); padding: 8px; text-align: left; }
+    th { background: var(--th); color: var(--accent-strong); }
+    blockquote { border-left: 3px solid var(--accent-soft); margin: 12px 0; padding: 2px 14px; color: var(--fg-dim); }
+    ul.links { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; padding: 0; list-style: none; }
+    .btn { display: inline-block; background: var(--accent-soft); color: #fff; padding: 10px 22px; border-radius: 8px; text-decoration: none; font-weight: 600; }
+    .btn:hover { background: var(--accent); }
+    footer { text-align: center; padding: 28px 24px 40px; color: var(--fg-dim); font-size: 13px; }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer .contact { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px 18px; justify-content: center; }
   </style>
 </head>
 <body>
   <header>
     <img src="{{ .Site.Home.RelPermalink }}sml.svg" alt="sml" style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))">
     <h1><a href="{{ .Site.Home.RelPermalink }}">SML { ❄ }</a></h1>
-    <span class="lang-switch">
+    <span class="actions">
+      {{/* VSIX 下载：放在语言切换左边，便于编辑器用户一步取用 */}}
+      <a class="pill" href="{{ .Site.Home.RelPermalink }}dl/sml-lang-0.4.2.vsix" title="{{ if $isEn }}Download the VS Code extension (.vsix){{ else }}下载 VS Code 扩展（.vsix）{{ end }}">⬇ VSIX</a>
+      {{/* 联系我们：两个渠道（QQ 群 / 邮箱） */}}
+      <span class="menu" id="contact-menu">
+        <button class="pill" id="contact-btn" aria-haspopup="true" aria-expanded="false">{{ if $isEn }}Contact{{ else }}联系我们{{ end }}</button>
+        <span class="menu-panel">
+          {{ if $isEn }}
+            <span class="hint">Questions, bug reports, or just to say hi:</span>
+          {{ else }}
+            <span class="hint">问题反馈、使用疑问，或随便聊聊：</span>
+            <a href="https://qm.qq.com/q/b7xG7tr8ha" target="_blank" rel="noopener">QQ 群 · 点击加入</a>
+          {{ end }}
+          <a href="mailto:dev@mail.swebase.cn">dev@mail.swebase.cn</a>
+        </span>
+      </span>
       {{ range .Site.Languages }}
-        <a href="{{ if eq .Lang "zh" }}/{{ else }}/{{ .Lang }}/{{ end }}" class="{{ if eq .Lang (cond $isEn "en" "zh") }}active{{ end }}">{{ .Label }}</a>
+        <a class="pill {{ if eq .Lang (cond $isEn "en" "zh") }}active{{ end }}" href="{{ if eq .Lang "zh" }}/{{ else }}/{{ .Lang }}/{{ end }}">{{ .Label }}</a>
       {{ end }}
+      <button class="pill icon-btn" id="theme-toggle" title="{{ if $isEn }}Toggle theme{{ else }}切换亮/暗主题{{ end }}">🌙</button>
     </span>
   </header>
   <nav>
@@ -66,6 +149,8 @@
       <a href="{{ .Site.Home.RelPermalink }}book/ch09-advanced">9.组合</a>
       <a href="{{ .Site.Home.RelPermalink }}book/ch10-features">10.feature</a>
       <a href="{{ .Site.Home.RelPermalink }}book/ch11-challenges">11.挑战</a>
+      <a href="{{ .Site.Home.RelPermalink }}book/ch12-smlconv">12.smlconv</a>
+      <a href="{{ .Site.Home.RelPermalink }}book/ch13-extension">13.扩展</a>
       <a href="{{ .Site.Home.RelPermalink }}book/appendix">附录</a>
     {{ else }}
       <a href="{{ .Site.Home.RelPermalink }}book/">教科书</a>
@@ -85,6 +170,41 @@
   <main>
     {{ block "main" . }}{{ end }}
   </main>
-  <footer>SML · SNOWARE Markup Language · { ❄ }</footer>
+  <footer>
+    <div>SML · SNOWARE Markup Language · { ❄ }</div>
+    <div class="contact">
+      {{ if not $isEn }}<a href="https://qm.qq.com/q/b7xG7tr8ha" target="_blank" rel="noopener">QQ 群</a>{{ end }}
+      <a href="mailto:dev@mail.swebase.cn">dev@mail.swebase.cn</a>
+      <a href="https://gitee.com/snoware/sml">Gitee</a>
+      <a href="https://github.com/snowareofficial/sml">GitHub</a>
+    </div>
+  </footer>
+  <script>
+    // 主题切换：写入 localStorage，刷新后保持
+    (function () {
+      var root = document.documentElement;
+      var btn = document.getElementById("theme-toggle");
+      function sync() { btn.textContent = root.dataset.theme === "dark" ? "🌙" : "☀️"; }
+      sync();
+      btn.addEventListener("click", function () {
+        root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+        try { localStorage.setItem("sml-theme", root.dataset.theme); } catch (e) {}
+        sync();
+      });
+    })();
+    // 「联系我们」下拉：点击开合，点空白处或按 Esc 关闭
+    (function () {
+      var menu = document.getElementById("contact-menu");
+      var btn = document.getElementById("contact-btn");
+      function close() { menu.classList.remove("open"); btn.setAttribute("aria-expanded", "false"); }
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var open = menu.classList.toggle("open");
+        btn.setAttribute("aria-expanded", open ? "true" : "false");
+      });
+      document.addEventListener("click", close);
+      document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
+    })();
+  </script>
 </body>
 </html>

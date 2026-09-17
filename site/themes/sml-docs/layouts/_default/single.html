@@ -1,6 +1,12 @@
 {{ define "main" }}
 <article>
+  {{/* 正文自带 H1 时不再重复渲染标题。
+       此前模板固定输出 <h1>{{ .Title }}</h1>，而多数页面正文里也写了
+       `# 标题`，于是页面上出现两行大标题（Gitee 页最明显）。
+       判断依据用渲染后的 .Content，避免依赖作者是否记得省略 H1。 */}}
+  {{ if not (strings.Contains .Content "<h1") }}
   <h1>{{ .Title }}</h1>
+  {{ end }}
   {{ .Content }}
 </article>
 {{ end }}

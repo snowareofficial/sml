@@ -1,6 +1,9 @@
 {{ define "main" }}
 <article class="list">
+  {{/* 同 single.html：正文已有 H1 时不重复输出标题 */}}
+  {{ if not (strings.Contains .Content "<h1") }}
   <h1>{{ .Title }}</h1>
+  {{ end }}
   {{ .Content }}
   <ul>
     {{ range .Pages }}
