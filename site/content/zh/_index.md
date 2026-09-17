@@ -6,8 +6,8 @@ translationKey: "zh-home"
 # SML { ❄ }
 
 <p align="center">
-  <a href="https://crates.io/crates/swsml"><img src="/badge/swsml.svg" alt="swsml on crates.io"></a>
-  <a href="https://gitee.com/snoware/sml"><img src="/badge/gitee.svg" alt="Gitee stars &amp; forks"></a>
+  <a href="https://crates.io/crates/swsml"><img src="/badge/live/swsml.svg" alt="swsml on crates.io"></a>
+  <a href="https://gitee.com/snoware/sml"><img src="/badge/live/gitee.svg" alt="Gitee stars &amp; forks"></a>
 </p>
 
 **SML（SNOWARE Markup Language）** 是一种声明式数据 / 配置格式，定位为 JSON / YAML / TOML 的轻量替代品。它强调**可读性**与**少仪式感**：引号可选、块冒号可省、逗号可选、支持片段继承与契约校验。

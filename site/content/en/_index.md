@@ -6,8 +6,8 @@ translationKey: "en-home"
 # SML { ❄ }
 
 <p align="center">
-  <a href="https://crates.io/crates/swsml"><img src="/badge/swsml.svg" alt="swsml on crates.io"></a>
-  <a href="https://gitee.com/snoware/sml"><img src="/badge/gitee.svg" alt="Gitee stars &amp; forks"></a>
+  <a href="https://crates.io/crates/swsml"><img src="/badge/live/swsml.svg" alt="swsml on crates.io"></a>
+  <a href="https://gitee.com/snoware/sml"><img src="/badge/live/gitee.svg" alt="Gitee stars &amp; forks"></a>
 </p>
 
 **SML (SNOWARE Markup Language)** is a declarative data / configuration format,
