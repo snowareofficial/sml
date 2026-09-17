@@ -105,11 +105,15 @@
 </head>
 <body>
   <header>
-    <img src="{{ .Site.Home.RelPermalink }}sml.svg" alt="sml" style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))">
+    {{/* 跨语言共享的静态资源必须用 relURL：static/ 下的文件都在**站点根**，
+         而英文站的 .Site.Home 是 /en/，用它拼会得到 /en/sml.svg（并在
+         relativeURLs 下被改写成 ../../en/sml.svg）→ logo 404。 */}}
+    <img src="{{ "sml.svg" | relURL }}" alt="sml" style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))">
     <h1><a href="{{ .Site.Home.RelPermalink }}">SML { ❄ }</a></h1>
     <span class="actions">
       {{/* VSIX 下载：放在语言切换左边，便于编辑器用户一步取用 */}}
-      <a class="pill" href="{{ .Site.Home.RelPermalink }}dl/sml-lang-0.4.2.vsix" title="{{ if $isEn }}Download the VS Code extension (.vsix){{ else }}下载 VS Code 扩展（.vsix）{{ end }}">⬇ VSIX</a>
+      {{/* 同 logo：dl/ 在站点根，不属于任何语言，故用 relURL 而非 Home.RelPermalink */}}
+      <a class="pill" href="{{ "dl/sml-lang-0.4.2.vsix" | relURL }}" title="{{ if $isEn }}Download the VS Code extension (.vsix){{ else }}下载 VS Code 扩展（.vsix）{{ end }}">⬇ VSIX</a>
       {{/* 联系我们：两个渠道（QQ 群 / 邮箱） */}}
       <span class="menu" id="contact-menu">
         <button class="pill" id="contact-btn" aria-haspopup="true" aria-expanded="false">{{ if $isEn }}Contact{{ else }}联系我们{{ end }}</button>
