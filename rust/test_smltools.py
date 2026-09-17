@@ -4,7 +4,7 @@ import subprocess, os, sys
 # （原先写死 E:/smv-target/... 与 C:/Users/<用户名>/...，属审计的 PII 项）
 RUST = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(RUST)
-BIN = os.environ.get("SMLCONV_BIN", os.path.join(RUST, "target", "debug", "smlconv.exe"))
+BIN = os.environ.get("SMLCONV_BIN", os.path.join(RUST, "target", "debug", "smltools.exe"))
 EX = os.path.join(REPO, "examples")
 
 def run(args, inp=None):

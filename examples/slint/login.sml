@@ -3,7 +3,7 @@
 #  SML -> Slint 登录界面
 #  ---------------------------------------------------------------------------
 #  转换：python examples/slint/build.py login.sml
-#        （内部走 smlconv -i login.sml --to slint -o login.slint）
+#        （内部走 smltools -i login.sml --to slint -o login.slint）
 #  预览：VS Code 装 Slint 扩展后打开 login.slint，点右上角 "Show Preview"
 #
 #  SML 侧约定（Slint 后端，见 rust/src/emit/slint.rs）：

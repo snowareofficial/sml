@@ -2,7 +2,7 @@
 #
 # 用法：python rust/tools/list_crates.py
 #
-# 约定：对外只发布 sml 系（swsml / swsml-derive / sml-* / smlconv）；
+# 约定：对外只发布 sml 系（swsml / swsml-derive / sml-* / smltools）；
 # qsm 与 crystalic 是独立 workspace，其 crate 均设 publish = false（内部 / 在研）。
 
 import os

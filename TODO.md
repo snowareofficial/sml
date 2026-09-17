@@ -215,7 +215,7 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
   并用 `git filter-repo`（`--path` 删文件历史 + `--replace-text` 替换明文
   + `--replace-message` 净提交信息）从**全部历史**清除。
   ⚠️ **那对密钥仍需去服务商控制台作废轮换**（已泄露，清历史不等于失效）
-- PII：`site/serve_local.py`、`rust/test_smlconv.py`、`rust/osv_check.py`、
+- PII：`site/serve_local.py`、`rust/test_smltools.py`、`rust/osv_check.py`、
   `examples/slint/slint_check/Cargo.toml` 里硬编码的本机绝对路径
   （`C:\Users\<用户名>\...`）已改为基于 `__file__` 推导
 - dead code 信号（都查实并处理）：`rust/tests/emit.rs` 那条陈旧 `#[ignore]`
@@ -245,14 +245,14 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
 - **警告清零**：workspace **19 → 0**
   - `cargo fix` 清 unused import / unused mut（sml-value / sml-lex / sml-include / sml-parse / c_abi）
   - 3 处「赋值后未读」：sml-regex 量词初值（改延迟初始化）、sml-include `parse` 的 `rest` 死赋值
-  - 2 处死代码：smlconv 的 `Format::name` **改为用起来**（`--to` 报错里的格式列表原先手写，
+  - 2 处死代码：smltools 的 `Format::name` **改为用起来**（`--to` 报错里的格式列表原先手写，
     与 `name()` 两处维护 —— 0.6.1 加 `html` 时就得人工同步两处；现由 `Format::ALL` 生成）；
     `rust/src/lib.rs` 的 `tmpdir` 恢复（见下）
 - ⚠️ **根因/教训**：`rust/src/lib.rs` 的 `mod tests` **漏写 `#[cfg(test)]`**，
   导致非测试构建下模块仍被编译，其内部 import 与辅助函数被误报 unused/dead_code；
   `cargo fix` 据此删掉了 `tmpdir` —— 而它被 10+ 处测试调用，删完 `cargo test` 直接编译失败。
   **今后：看到 `mod tests` 缺 cfg 要先补，再动 cargo fix。**
-- **smlconv 标题推断**（旧注释与实现各说各话）：改为 `--title` > 文档顶层 `title` 字段 >
+- **smltools 标题推断**（旧注释与实现各说各话）：改为 `--title` > 文档顶层 `title` 字段 >
   文件名 stem > `"doc"`，并传入真实解析结果（原先两个调用点都传 `&Value::Null`，
   文档标题永远读不到）；删除永不触发的 `__name` 分支与两处错误注释；
   `sanitize_filename` / `sanitize_section` 保留 Unicode 字母数字

@@ -50,7 +50,7 @@ cargo clippy --all-features --all-targets
 | OSV 0 命中的含义 | 仅覆盖**已披露** CVE；未披露漏洞 / 0day / 供应链投毒查不到 |
 | `c_abi.rs` 的 20+ 处 `unsafe` | 仅靠**人工审阅 + 测试**覆盖，**未跑 Miri**，未做 UB 形式化验证 |
 | 安全门禁自动化 | `osv_check.py` / `clippy_report.py` / fuzz **均未接入 CI**，回归不会被自动发现 |
-| `smlconv` 外部命令 | `Command::new("zola").arg("build")` 依赖 PATH，属外部攻击面，本轮未审计 |
+| `smltools` 外部命令 | `Command::new("zola").arg("build")` 依赖 PATH，属外部攻击面，本轮未审计 |
 | 审计方法论 | 前六轮均为「人工枚举攻击面」，非覆盖率驱动的持续 fuzz |
 | 非 Rust 实现 | C / C++ / Lua / JS / Python **未扫描**，官网已标注「实验性、暂不保证」 |
 
@@ -165,7 +165,7 @@ cargo clippy --all-features --all-targets
 
 ## 0-B. 第三轮审计（2026-09-01）：emit 注入面、ReDoS 与依赖 CVE（已修复）
 
-**范围**：Rust 实现全量（40 个依赖包 + 8 个源文件 + `smlconv` bin）。
+**范围**：Rust 实现全量（40 个依赖包 + 8 个源文件 + `smltools` bin）。
 **方法**：依赖 CVE 查询（OSV.dev，脚本 `osv_check.py`）+ 源码审计 + 19 个 PoC 实测。
 **结果**：依赖 **0 CVE**；发现并修复 6 项；另发现 1 项既有正确性缺陷（未改，见文末）。
 

@@ -17,14 +17,14 @@
 # Crystalic（布局层）即依赖 sml-value + sml-parse，不再依赖整个 swsml。
 #
 # ---- 发布范围 ----
-# 对外只发布 sml 系（swsml / swsml-derive / sml-* / smlconv）。
+# 对外只发布 sml 系（swsml / swsml-derive / sml-* / smltools）。
 # qsm 与 crystalic 是独立 workspace，其 crate 均已设 `publish = false`：
 # 属内部 / 在研，不进 crates.io（仍可本地编译与测试）。
 [workspace]
 members = [
     ".",
     "derive",
-    "smlconv",
+    "smltools",
     "sml-value",
     "sml-regex",
     "sml-lex",

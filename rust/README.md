@@ -897,19 +897,19 @@ C / C++ bridge headers and examples live in `../c/sml_rs.h` and `../cpp/sml_rs.h
 | C | `../c/sml.h` |
 | JavaScript | `../js/sml.mjs` |
 
-## `smlconv` — Command-line converter
+## `smltools` — Command-line converter
 
-> ⚠️ **EXPERIMENTAL**: `smlconv` is now split into a **standalone crate** (package `smlconv`, version `0.1.6`),
+> ⚠️ **EXPERIMENTAL**: `smltools` is now split into a **standalone crate** (package `smltools`, version `0.1.6`),
 > published independently from the library crate `swsml` (version `0.5.8`). The CLI surface and emit-backend
 > combinations may still change as users give feedback; no SemVer stability is guaranteed yet. Do not rely on
 > its exact behavior in production-critical paths; watch the changelog.
 
-`smlconv` is a binary built on the Rust core (the `sml::emit::*` backends of `swsml`). It converts an SML
+`smltools` is a binary built on the Rust core (the `sml::emit::*` backends of `swsml`). It converts an SML
 source file/stream into multiple formats and can plug directly into static-site generators (Hugo / Zola)
 for documentation workflows.
 
 ```text
-smlconv [input] [-o out] [--format FMT] [--hugo-root DIR] [--hugo-section KEY] [--hugo-lang zh|en|all] ...
+smltools [input] [-o out] [--format FMT] [--hugo-root DIR] [--hugo-section KEY] [--hugo-lang zh|en|all] ...
 ```
 
 - `input` defaults to stdin; `-o` defaults to stdout (Hugo/Zola modes ignore `-o` and write files directly).
@@ -921,7 +921,7 @@ smlconv [input] [-o out] [--format FMT] [--hugo-root DIR] [--hugo-section KEY] [
 
 ```bash
 # render data to arbitrary text with a rule document
-smlconv data.sml --to custom --custom-rules rules.sml
+smltools data.sml --to custom --custom-rules rules.sml
 ```
 
 Example `rules.sml` (each rule `match`es a target type; `template` uses `{value}` / `{key}` / `{nested}` / `{items:TPL}` placeholders):
@@ -943,7 +943,7 @@ rules: [
 **Generate a Dockerfile** (see `examples/docker_data.sml` + `examples/docker_rules.sml`):
 
 ```bash
-smlconv examples/docker_data.sml --to custom --custom-rules examples/docker_rules.sml
+smltools examples/docker_data.sml --to custom --custom-rules examples/docker_rules.sml
 ```
 
 `docker_rules.sml`:
@@ -984,7 +984,7 @@ CMD ["python3", "app.py"]
 ### LVGL conversion (`lvgl`)
 
 ```bash
-smlconv ui.sml --to lvgl        # outputs LVGL UI XML (<screen>/<label>/<button>...)
+smltools ui.sml --to lvgl        # outputs LVGL UI XML (<screen>/<label>/<button>...)
 ```
 
 Source conventions: `__type` selects the widget (`lv_label` → `<label>`, the prefix is stripped
@@ -994,7 +994,7 @@ fields become `<event name="..." handler="..."/>`. See `examples/lvgl_demo.sml`.
 ### Hugo integration
 
 ```bash
-smlconv docs/app.sml --hugo ./site/content --hugo-lang zh --hugo-section docs
+smltools docs/app.sml --hugo ./site/content --hugo-lang zh --hugo-section docs
 # writes ./site/content/zh/docs/app.md (YAML front matter)
 ```
 
@@ -1002,22 +1002,22 @@ smlconv docs/app.sml --hugo ./site/content --hugo-lang zh --hugo-section docs
 
 ```bash
 # content files only (TOML front matter, +++ delimiters)
-smlconv docs/app.sml --zola ./site/content --zola-section docs
+smltools docs/app.sml --zola ./site/content --zola-section docs
 
 # also run the local `zola` to render the site afterwards
-smlconv docs/app.sml --zola ./site/content --zola-build
+smltools docs/app.sml --zola ./site/content --zola-build
 ```
 
 > `--zola-build` requires `zola` installed locally (resolvable via PATH or in a common install directory).
-> If it is missing, smlconv prints a clear message instead of failing silently.
+> If it is missing, smltools prints a clear message instead of failing silently.
 > `--hugo` and `--zola` are mutually exclusive — pick one.
 
 Build:
 
 ```bash
-cargo build --release -p smlconv        # artifact: target/release/smlconv(.exe)
+cargo build --release -p smltools        # artifact: target/release/smltools(.exe)
 # or install from source
-cargo install --path smlconv
+cargo install --path smltools
 ```
 
 ## License

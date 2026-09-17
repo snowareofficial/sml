@@ -4,7 +4,7 @@
     python build.py                 # calculator.sml -> calculator.slint
     python build.py foo.sml         # 指定源
 
-依赖 rust/ 下的 smlconv（先 `python rust/build_smlconv.py` 构建）。
+依赖 rust/ 下的 smltools（先 `python rust/build_smltools.py` 构建）。
 """
 import os
 import subprocess
@@ -13,19 +13,19 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 SMLCONV = os.path.join(HERE, "..", "..", "rust", "..", "rust")
 CANDIDATES = [
-    r"E:/smv-target/debug/smlconv.exe",
-    os.path.join(HERE, "..", "..", "rust", "target", "debug", "smlconv.exe"),
+    r"E:/smv-target/debug/smltools.exe",
+    os.path.join(HERE, "..", "..", "rust", "target", "debug", "smltools.exe"),
 ]
 
 
-def find_smlconv() -> str:
+def find_smltools() -> str:
     env = os.environ.get("SMLCONV")
     if env and os.path.isfile(env):
         return env
     for p in CANDIDATES:
         if os.path.isfile(p):
             return os.path.normpath(p)
-    raise SystemExit("找不到 smlconv，请先运行：python rust/build_smlconv.py")
+    raise SystemExit("找不到 smltools，请先运行：python rust/build_smltools.py")
 
 
 def main() -> int:
@@ -34,7 +34,7 @@ def main() -> int:
     out_path = os.path.splitext(src_path)[0] + ".slint"
 
     proc = subprocess.run(
-        [find_smlconv(), "-i", src_path, "--to", "slint", "-o", out_path],
+        [find_smltools(), "-i", src_path, "--to", "slint", "-o", out_path],
         capture_output=True,
         text=True,
         errors="replace",

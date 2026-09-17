@@ -3,7 +3,7 @@
 #  SML -> SVG 示例：迷你折线图（多层嵌套）
 #  ---------------------------------------------------------------------------
 #  转换：python examples/svg/build.py chart.sml
-#        （内部走 smlconv -i chart.sml --to svg -o chart.svg）
+#        （内部走 smltools -i chart.sml --to svg -o chart.svg）
 #  预览：浏览器直接打开 chart.svg
 #
 #  SML 侧约定（SVG 后端，见 rust/src/emit/svg.rs）：

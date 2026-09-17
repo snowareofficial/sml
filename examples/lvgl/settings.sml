@@ -3,7 +3,7 @@
 #  SML -> LVGL (v9 UI XML) 多层示例：设置面板
 #  ---------------------------------------------------------------------------
 #  转换：python tools/sml2lvgl.py --sml examples/lvgl/settings.sml --out build/settings
-#        （若 smlconv 不在 rust/target/{debug,release} 下，追加 --smlconv 指向二进制）
+#        （若 smltools 不在 rust/target/{debug,release} 下，追加 --smltools 指向二进制）
 #  产物：build/settings/{project.xml,globals.xml,screens/settings.xml,ui_gen.c,ui_gen.h}
 #
 #  应用侧只需：#include "ui_gen.h"，调用 ui_settings_create() 得到屏幕，

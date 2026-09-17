@@ -1,13 +1,16 @@
 ---
-title: "第 12 章：smlconv 多目标翻译器"
+title: "第 12 章：smltools 多目标翻译器"
 translationKey: "book-ch12"
+# 本章原名 ch12-smlconv（crate 改名 smlconv → smltools），保留旧地址跳转
+aliases:
+  - "/book/ch12-smlconv/"
 ---
 
-# 第 12 章：smlconv 多目标翻译器
+# 第 12 章：smltools 多目标翻译器
 
-`smlconv` 是 SML 的命令行转译器：把**同一份 SML 文档**一键翻译成 Slint、LVGL、XML、SVG、LaTeX、Markdown、HTML，或直接对接 Hugo / Zola 静态站点，还能用规则表做任意文本的代码生成——全程**零胶水代码**。
+`smltools` 是 SML 的命令行转译器：把**同一份 SML 文档**一键翻译成 Slint、LVGL、XML、SVG、LaTeX、Markdown、HTML，或直接对接 Hugo / Zola 静态站点，还能用规则表做任意文本的代码生成——全程**零胶水代码**。
 
-> 一句话：`swsml` 是库（解析 + 翻译后端 `sml::emit::*`），`smlconv` 是把这些后端串起来的 CLI 前端。这一章学怎么用它。
+> 一句话：`swsml` 是库（解析 + 翻译后端 `sml::emit::*`），`smltools` 是把这些后端串起来的 CLI 前端。这一章学怎么用它。
 
 > ⚠️ **实验性**：CLI 接口与 emit 后端组合仍可能随版本调整，生产关键路径请关注版本号变更。
 
@@ -15,13 +18,13 @@ translationKey: "book-ch12"
 
 ```bash
 # 从 crates.io 安装（需 Rust 工具链）
-cargo install smlconv
+cargo install smltools
 
 # 或从本仓库源码构建
-cargo build --release -p smlconv
+cargo build --release -p smltools
 ```
 
-装好后 `smlconv --help` 能看到全部参数。
+装好后 `smltools --help` 能看到全部参数。
 
 ## 12.2 最简用法：SML → Markdown
 
@@ -38,7 +41,7 @@ section {
 翻译为 Markdown：
 
 ```bash
-smlconv -i doc.sml --to md
+smltools -i doc.sml --to md
 ```
 
 输出（节选）：
@@ -54,7 +57,7 @@ SML 写一遍，到处翻译。
 省略 `-i` 时从 stdin 读，省略 `-o` 时写到 stdout，所以管道写法也行：
 
 ```bash
-cat doc.sml | smlconv --to md
+cat doc.sml | smltools --to md
 ```
 
 ## 12.3 翻译到更多目标
@@ -63,13 +66,13 @@ cat doc.sml | smlconv --to md
 
 | 目标 | 命令 | 典型用途 |
 |------|------|----------|
-| Markdown | `smlconv -i d.sml --to md` | 文档、README |
-| XML | `smlconv -i d.sml --to xml` | 数据交换、配置导出 |
-| SVG | `smlconv -i d.sml --to svg` | 图表、可视化 |
-| LaTeX | `smlconv -i d.sml --to latex` | 论文、排版 |
-| Slint | `smlconv -i d.sml --to slint -o ui.slint` | **用 SML 描述 UI，生成 Slint 界面** |
-| LVGL | `smlconv -i d.sml --to lvgl -o ui.xml` | 嵌入式屏（LVGL v8.3+ 原生 XML） |
-| HTML | `smlconv -i d.sml --to html` | 网页片段 |
+| Markdown | `smltools -i d.sml --to md` | 文档、README |
+| XML | `smltools -i d.sml --to xml` | 数据交换、配置导出 |
+| SVG | `smltools -i d.sml --to svg` | 图表、可视化 |
+| LaTeX | `smltools -i d.sml --to latex` | 论文、排版 |
+| Slint | `smltools -i d.sml --to slint -o ui.slint` | **用 SML 描述 UI，生成 Slint 界面** |
+| LVGL | `smltools -i d.sml --to lvgl -o ui.xml` | 嵌入式屏（LVGL v8.3+ 原生 XML） |
+| HTML | `smltools -i d.sml --to html` | 网页片段 |
 
 ## 12.4 实战：用 SML 描述界面，生成 Slint
 
@@ -93,10 +96,10 @@ Window {
 ```
 
 ```bash
-smlconv -i panel.sml --to slint -o panel.slint
+smltools -i panel.sml --to slint -o panel.slint
 ```
 
-打开 `panel.slint` 即可在 Slint 设计器里预览。`smlconv` 把 SML 的块结构映射成 Slint 的组件与控件，你不再为每种 UI 框架手搓解析与模板。
+打开 `panel.slint` 即可在 Slint 设计器里预览。`smltools` 把 SML 的块结构映射成 Slint 的组件与控件，你不再为每种 UI 框架手搓解析与模板。
 
 > 想看 SML → Slint 的完整字段约定，可查阅 `swsml` 的 `sml::emit::to_slint` 文档。
 
@@ -106,10 +109,10 @@ smlconv -i panel.sml --to slint -o panel.slint
 
 ```bash
 # Hugo：生成 content/zh/docs/<name>.md
-smlconv -i doc.sml --hugo ./site --hugo-lang zh --hugo-section docs
+smltools -i doc.sml --hugo ./site --hugo-lang zh --hugo-section docs
 
 # Zola：生成带 TOML front matter 的 .md
-smlconv -i doc.sml --zola ./content --zola-section docs
+smltools -i doc.sml --zola ./content --zola-section docs
 ```
 
 `--hugo` / `--zola` 模式下会忽略 `-o`，直接按输入文件名（或 `@feature base` 指定的名字）落盘，发布流水线少一个手工转换环节。
@@ -119,7 +122,7 @@ smlconv -i doc.sml --zola ./content --zola-section docs
 `--to custom` 配合 `--custom-rules` 指定一份 SML 规则表，描述"匹配什么、输出什么"，就能渲染 Dockerfile、代码脚手架等任意文本，不必引入重量级模板引擎：
 
 ```bash
-smlconv -i data.sml --to custom --custom-rules rules.sml -o out.txt
+smltools -i data.sml --to custom --custom-rules rules.sml -o out.txt
 ```
 
 规则表本身也是 SML——你用同一种语言描述数据和生成逻辑。
@@ -129,9 +132,9 @@ smlconv -i data.sml --to custom --custom-rules rules.sml -o out.txt
 拿你手头任意一份 SML 配置，试翻译成不同目标，体会"写一遍、到处用"：
 
 ```bash
-smlconv -i your.sml --to xml
-smlconv -i your.sml --to svg
-smlconv -i your.sml --to latex
+smltools -i your.sml --to xml
+smltools -i your.sml --to svg
+smltools -i your.sml --to latex
 ```
 
 → [附录：与 JSON/YAML/TOML 对照](/book/appendix)

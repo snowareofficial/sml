@@ -4,7 +4,7 @@
     python build.py                 # chart.sml -> chart.svg
     python build.py foo.sml         # 指定源
 
-依赖 rust/ 下的 smlconv（先 `cargo build -p smlconv`）。
+依赖 rust/ 下的 smltools（先 `cargo build -p smltools`）。
 """
 import os
 import subprocess
@@ -13,19 +13,19 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 CANDIDATES = [
     os.environ.get("SMLCONV", ""),
-    r"E:/snoware-target/debug/smlconv.exe",   # CARGO_TARGET_DIR 指向 E 盘时
-    r"E:/snoware-target/release/smlconv.exe",
-    r"E:/smv-target/debug/smlconv.exe",
-    os.path.join(HERE, "..", "..", "rust", "target", "debug", "smlconv.exe"),
-    os.path.join(HERE, "..", "..", "rust", "target", "release", "smlconv.exe"),
+    r"E:/snoware-target/debug/smltools.exe",   # CARGO_TARGET_DIR 指向 E 盘时
+    r"E:/snoware-target/release/smltools.exe",
+    r"E:/smv-target/debug/smltools.exe",
+    os.path.join(HERE, "..", "..", "rust", "target", "debug", "smltools.exe"),
+    os.path.join(HERE, "..", "..", "rust", "target", "release", "smltools.exe"),
 ]
 
 
-def find_smlconv() -> str:
+def find_smltools() -> str:
     for p in CANDIDATES:
         if p and os.path.isfile(p):
             return os.path.normpath(p)
-    raise SystemExit("找不到 smlconv，请先构建：cd rust && cargo build -p smlconv")
+    raise SystemExit("找不到 smltools，请先构建：cd rust && cargo build -p smltools")
 
 
 def main() -> int:
@@ -34,7 +34,7 @@ def main() -> int:
     out_path = os.path.splitext(src_path)[0] + ".svg"
 
     proc = subprocess.run(
-        [find_smlconv(), "-i", src_path, "--to", "svg", "-o", out_path],
+        [find_smltools(), "-i", src_path, "--to", "svg", "-o", out_path],
         capture_output=True,
         text=True,
         errors="replace",

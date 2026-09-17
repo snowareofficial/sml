@@ -23,7 +23,7 @@ translationKey: "zh-home"
 - **include 内联 / 命名空间**：`include "x.sml"` 递归展开；`include "x.sml" as a.b` 以点分路径隔离进独立作用域（含宏 / 契约），冲突即报错
 - **环境变量**：`$env.HOME` 在解析期内联
 - **契约系统**：`@contract` / `@is` 对配置做类型与结构校验（严格 / 宽松两种模式）
-- **多目标转译**：解析为 `Value` 后可编译为 Markdown / LaTeX / XML / SVG / **HTML** / Slint UI / 自定义格式（emit 后端，见 `smlconv`）
+- **多目标转译**：解析为 `Value` 后可编译为 Markdown / LaTeX / XML / SVG / **HTML** / Slint UI / 自定义格式（emit 后端，见 `smltools`）
 - **外置扩展**：不改 SML 源码即可注册自定义 `@指令`、字段类型与修饰符 —— 方言定义留在你自己的仓库（Rust 与 JS，见教科书第 13 章）
 - **零依赖**：各实现互不耦合，可单独嵌入（WASM / 沙箱 / 编辑器）
 
@@ -35,7 +35,7 @@ translationKey: "zh-home"
 - [第 1 章：第一个 SML 文件](/book/ch01-basics) · [第 2 章：块与嵌套](/book/ch02-blocks) · [第 3 章：片段继承](/book/ch03-fragments)
 - [第 4 章：include 与命名空间](/book/ch04-include) · [第 5 章：契约系统](/book/ch05-contract) · [第 6 章：环境变量与转义](/book/ch06-env-escape)
 - [第 7 章：多语言使用](/book/ch07-languages) · [第 8 章：实战项目](/book/ch08-project) · [第 9 章：功能组合与设计模式](/book/ch09-advanced) · [第 10 章：feature 完整参考](/book/ch10-features) · [第 11 章：实战翻译挑战](/book/ch11-challenges)
-- [第 12 章：smlconv 多目标翻译器](/book/ch12-smlconv) · [第 13 章：外置扩展](/book/ch13-extension) · [附录：对照与排查](/book/appendix)
+- [第 12 章：smltools 多目标翻译器](/book/ch12-smltools) · [第 13 章：外置扩展](/book/ch13-extension) · [附录：对照与排查](/book/appendix)
 - 离线版：**[下载 EPUB](/sml-book.epub)**
 
 ## 多语言实现对照

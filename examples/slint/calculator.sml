@@ -2,7 +2,7 @@
 # =============================================================================
 #  SML -> Slint 科学计算器
 #  ---------------------------------------------------------------------------
-#  转换：smlconv -i calculator.sml --to slint -o calculator.slint
+#  转换：smltools -i calculator.sml --to slint -o calculator.slint
 #  预览：VS Code 装 Slint 扩展后打开 calculator.slint，点右上角 "Show Preview"
 #
 #  SML 侧约定（本后端）：
