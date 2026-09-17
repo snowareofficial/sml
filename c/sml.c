@@ -1584,6 +1584,12 @@ static int resolve_includes(const char *text, const char *base,
                     free(canon); free(content); free(line); free(inc);
                     return -1;
                 }
+            } else {
+                /* 基准目录无法规范化 → **拒绝**，不能因为"没法比"就放行
+                   （fail-open 会让越界读取在校验失败时静默通过）。 */
+                snprintf(err, errsz, "sml: include 基准目录不可解析，已拒绝: %s", base);
+                free(canon); free(content); free(line); free(inc);
+                return -1;
             }
             int cyc = 0;
             for (int i = 0; i < depth; i++)

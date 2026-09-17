@@ -451,11 +451,10 @@ fn deeply_nested(depth: usize) -> sml::Value {
     v
 }
 
-// 已知待办：to_xml/to_svg/to_lvgl/to_latex 等后端的 render 仍缺少 MAX_VALUE_DEPTH
-// 深度保护（markdown 已加），对超深嵌套会 Rust 栈溢出。本测试先忽略，待这些后端
-// 补齐与 markdown 一致的保护后再放开。custom 后端已通过 custom_dockerfile 等测试覆盖。
+// 深度保护现已覆盖各 emit 后端（xml.rs / svg.rs / slint.rs / latex.rs / markdown.rs
+// 均在递归处检查 MAX_VALUE_DEPTH），故本测试不再忽略 —— 它正是防止"某个后端
+// 漏加保护又被悄悄放过"的回归网。
 #[test]
-#[ignore = "其他 emit 后端（xml/svg/lvgl/latex）尚未补齐深度保护，会栈溢出"]
 fn emit_depth_limit_does_not_overflow() {
     use sml::Value::*;
     // 50000 层嵌套：修复前各 to_* 递归栈溢出（exit -1073740791/-1073741571 等）。

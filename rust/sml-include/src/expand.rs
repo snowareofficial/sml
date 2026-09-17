@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use sml_feature::{Feature, FeatureSet};
 use sml_lex::{Tok, advance_line, compute_string_spans, line_starts_in_string, tokenize};
-use sml_value::{MAX_VALUE_DEPTH, Value};
+use sml_value::Value;
 
 use crate::{
     MAX_INCLUDE_DEPTH, MAX_INCLUDE_EXPANSIONS, parse_include_line,
@@ -43,10 +43,16 @@ pub fn expand_includes(
     }
     // 沙箱根：所有 include 命中的文件必须位于 base（规范化为绝对路径）之内，
     // 否则拒绝，防止 `../` 或 glob/regex 模式越界读取任意文件（路径遍历漏洞）。
-    let base_canon = match base.canonicalize() {
-        Ok(p) => p,
-        Err(_) => base.to_path_buf(),
-    };
+    //
+    // 规范化失败时**必须拒绝**而不是回落到未规范化的 base —— 回落后
+    // `starts_with` 比较的对象就变成一个可能含 `..` 的路径，越界校验会静默失效
+    // （安全默认、无法校验即不放行）。
+    let base_canon = base.canonicalize().map_err(|e| {
+        format!(
+            "include 基准目录不可解析，无法做越界校验，已拒绝继续：{}（{e}）",
+            base.display()
+        )
+    })?;
     let spans = compute_string_spans(text);
     let mut line_start = 0usize;
     for line in text.lines() {

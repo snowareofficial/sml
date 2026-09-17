@@ -47,7 +47,15 @@ function configPath() {
     .get("highlight.configFile", "HL-cfg.sml");
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) return null;
-  return path.join(folder.uri.fsPath, rel);
+  // 只允许工作区内的**相对**路径。该配置项可被仓库自带的
+  // .vscode/settings.json 提供，若不加限制，恶意仓库即可让扩展去读
+  // 工作区之外的任意文件（`../../…` 或绝对路径）。
+  if (path.isAbsolute(rel)) return null;
+  const root = path.resolve(folder.uri.fsPath);
+  const full = path.resolve(root, rel);
+  const relCheck = path.relative(root, full);
+  if (relCheck.startsWith("..") || path.isAbsolute(relCheck)) return null;
+  return full;
 }
 
 function mode() {
