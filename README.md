@@ -1,5 +1,9 @@
 # sml { ❄ } — SNOWARE Markup Language
 
+[![swsml on crates.io](badge/swsml.svg)](https://crates.io/crates/swsml)
+[![Gitee](badge/gitee.svg)](https://gitee.com/snoware/sml)
+[![License](https://img.shields.io/badge/license-MulanPSL--2.0-1f6feb.svg)](LICENSE)
+
 声明式数据/配置格式，JSON/YAML 的替代品。Logo：黑花括号 `{}` 表示语法骨架（块的边界），蓝色雪花 `❄` 表示精确的取值点。
 
 **独立仓库**（snoware/sml）：soup 主仓内保留本目录作为副本/镜像源。

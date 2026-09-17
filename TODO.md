@@ -199,6 +199,45 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
 
 ---
 
+## 三·六、安全审计（2026-09-18，三轮 agent 扫描 + 修复）
+
+**已修（全部已提交）**
+
+- 严重：JS 原型污染（**5 处入口** —— include 命名空间路径 / 文档键 / 片段合并 /
+  契约默认值 / 部分引用）、C include 路径穿越、C 带名块 use-after-free
+- 高：C 与 C++ 的递归深度守卫（与 Rust `MAX_VALUE_DEPTH=128` 同口径）、
+  C 的 `json_to_value` 深度、JS 内联正则源长度与量词上界、C include 规范化改动态分配
+- 中：C/C++ 的 include 越界校验改 **fail-closed**（原先规范化失败即跳过校验）、
+  LSP `Content-Length` 上限（16MiB）、C 侧 include **全局展开次数**上限
+  `MAX_INC_EXPANSIONS=256`（挡菱形包含的指数级文件读取）
+- 凭据：`site/.baidu.env.example` 曾含**真实**百度翻译 APPID/KEY，已改占位符，
+  并用 `git filter-repo --replace-text` 从**全部历史**清除。
+  ⚠️ **那对密钥仍需在百度控制台作废轮换**（已泄露，清历史不等于失效）
+- PII：`site/serve_local.py`、`rust/test_smlconv.py`、`rust/osv_check.py`、
+  `examples/slint/slint_check/Cargo.toml` 里硬编码的本机绝对路径
+  （`C:\Users\<用户名>\...`）已改为基于 `__file__` 推导
+- dead code 信号（都查实并处理）：`rust/tests/emit.rs` 那条陈旧 `#[ignore]`
+  （各后端其实早已加深度保护，放开后直接通过）、`sml-include` 的 `MAX_VALUE_DEPTH`
+  死导入、JS 的 `PATTERN_MAX_LEN` 死常量（定义在 `parse()` 内而校验处写死 4096）
+
+**未修（低危，留观）**
+
+- Lua 侧无深度守卫（Lua 栈溢出由 `pcall` 接住，不崩溃）
+- `lua/lib/sml.soup` 无危险键概念（Lua 无原型链，不构成同类漏洞）
+
+## 三·七、徽章与跨站调用（2026-09-18）
+
+- `tools/gen_badge.py`：**手写**徽章 SVG 生成器（零第三方依赖，走官方 API）
+  - `badge/swsml.svg` —— crates.io **多数据合一**（版本 + 下载量 + 版本数，带雪花图标）
+  - `badge/gitee.svg` —— Gitee **stars + forks 合一**
+  - 同时同步到 `site/static/badge/` 供官网引用；数据是**快照**，刷新时重跑脚本
+- **跨站调用**：`https://sml.swebase.cn/lib/sml.mjs`（连同 `lib/sml.wasm`、
+  `lib/sml-rs.js`、`lib/sml-verify.js`），CORS 由 `site/static/_headers` 放行，
+  `/lib/` 入口由 `build_site.py` 每次构建从 `js/sml.mjs` 同步。
+  注意：只暴露 `sml.mjs` 的话调用方拿不到 wasm 对照能力，故四个文件必须一起暴露
+
+---
+
 ## 四、已完成
 
 - [x] Rust：顶层数组解析（`parse_impl` 支持 `[`/`{`/键值三种顶层形态）

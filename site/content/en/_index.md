@@ -5,6 +5,11 @@ translationKey: "en-home"
 
 # SML { ❄ }
 
+<p align="center">
+  <a href="https://crates.io/crates/swsml"><img src="/badge/swsml.svg" alt="swsml on crates.io"></a>
+  <a href="https://gitee.com/snoware/sml"><img src="/badge/gitee.svg" alt="Gitee stars &amp; forks"></a>
+</p>
+
 **SML (SNOWARE Markup Language)** is a declarative data / configuration format,
 positioned as a lightweight alternative to JSON / YAML / TOML. It emphasizes
 **readability** and **low ceremony**: quotes are optional, block colons can be

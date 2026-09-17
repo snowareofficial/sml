@@ -4,7 +4,9 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-i-slint-compiler = { path = "C:/Users/sakeen/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/i-slint-compiler-1.17.1" }
+# 曾用 path 指向本机 cargo registry（把开发机绝对路径写进了仓库，属审计 PII 项）。
+# 改为版本依赖，由 cargo 自行解析。
+i-slint-compiler = "1.17.1"
 tokio = { version = "1", features = ["rt", "macros"] }
 
 [workspace]

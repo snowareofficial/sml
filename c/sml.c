@@ -1485,6 +1485,9 @@ char *sml_dump_from_json(const char *json) {
 ** ===================================================================== */
 
 #define MAX_INC_DEPTH 32
+/* 全局 include 展开次数上限：防「菱形包含」（A 含 B、C，B 与 C 又各含 D…）
+   造成指数级文件读取。与 Rust 侧 MAX_INCLUDE_EXPANSIONS 同口径。 */
+#define MAX_INC_EXPANSIONS 256
 
 static void path_dir(const char *path, char *out, size_t outsz) {
     const char *slash = strrchr(path, '/');
@@ -1518,9 +1521,15 @@ static char *try_include_target(const char *line) {
 /* 递归展开 include。stack 为已展开文件规范路径 (防环) */
 static int resolve_includes(const char *text, const char *base,
                             sbuf *out, char (*stack)[1024], int depth,
+                            long *expansions,
                             char *err, size_t errsz) {
     if (depth >= MAX_INC_DEPTH) {
         snprintf(err, errsz, "sml: include 嵌套超过 %d 层", MAX_INC_DEPTH);
+        return -1;
+    }
+    /* 展开次数是**全局**计数（跨整棵包含树），嵌套深度限制挡不住菱形包含 */
+    if (++(*expansions) > MAX_INC_EXPANSIONS) {
+        snprintf(err, errsz, "sml: include 展开次数超过 %d 次上限", MAX_INC_EXPANSIONS);
         return -1;
     }
     const char *p = text;
@@ -1606,7 +1615,7 @@ static int resolve_includes(const char *text, const char *base,
             char childbase[1024];
             path_dir(canon, childbase, sizeof(childbase));
             free(canon);
-            if (resolve_includes(content, childbase, out, stack, depth + 1, err, errsz) != 0) {
+            if (resolve_includes(content, childbase, out, stack, depth + 1, expansions, err, errsz) != 0) {
                 free(content); free(line); free(inc);
                 return -1;
             }
@@ -1646,7 +1655,8 @@ sml_value *sml_parse_file(const char *path, char *err, size_t errsz) {
     sbuf out;
     memset(&out, 0, sizeof(out));
     char stack[MAX_INC_DEPTH + 1][1024];
-    if (resolve_includes(text, base, &out, stack, 0, err, errsz) != 0) {
+    long expansions = 0;
+    if (resolve_includes(text, base, &out, stack, 0, &expansions, err, errsz) != 0) {
         free(text);
         free(out.buf);
         return NULL;

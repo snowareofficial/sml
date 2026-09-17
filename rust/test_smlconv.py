@@ -1,11 +1,14 @@
 import subprocess, os, sys
 
-BIN = "E:/smv-target/debug/smlconv.exe"
-EX = "c:/Users/sakeen/Desktop/sml/examples"
+# 路径一律相对本文件推导；二进制位置可用环境变量 SMLCONV_BIN 覆盖
+# （原先写死 E:/smv-target/... 与 C:/Users/<用户名>/...，属审计的 PII 项）
+RUST = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(RUST)
+BIN = os.environ.get("SMLCONV_BIN", os.path.join(RUST, "target", "debug", "smlconv.exe"))
+EX = os.path.join(REPO, "examples")
 
 def run(args, inp=None):
-    p = subprocess.run([BIN] + args, input=inp, capture_output=True,
-                       cwd="c:/Users/sakeen/Desktop/sml/rust")
+    p = subprocess.run([BIN] + args, input=inp, capture_output=True, cwd=RUST)
     return p.returncode, p.stdout.decode("utf-8","replace"), p.stderr.decode("utf-8","replace")
 
 # 测试 1: stdin -> markdown

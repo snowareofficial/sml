@@ -1,8 +1,9 @@
 """用 OSV.dev API 检查 Cargo.lock 中所有依赖的已知漏洞。"""
-import json, re, urllib.request, sys
+import json, os, re, urllib.request, sys
 
-ROOT = "C:/Users/sakeen/Desktop/sml/rust"
-lock = open(ROOT + "/Cargo.lock", encoding="utf-8").read()
+# 路径基于本文件位置推导（不写死开发机绝对路径：审计曾发现硬编码 C:\Users\<用户名>）
+ROOT = os.path.dirname(os.path.abspath(__file__))
+lock = open(os.path.join(ROOT, "Cargo.lock"), encoding="utf-8").read()
 
 pkgs = []
 for block in lock.split("[[package]]")[1:]:

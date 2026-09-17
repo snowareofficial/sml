@@ -378,6 +378,9 @@ function collectFeatures(text, base) {
 const PATTERN_MAX_LEN = 4096; // 被校验值的长度上限：超长输入直接拒收，不交给 RegExp 硬算
 const REGEX_SRC_MAX = 200;    // 用户内联正则的源长度上限
 const QUANT_MAX = 1000;       // 量词上界：挡住 `次: 999999999` 这类展开
+// 块/数组嵌套上限：与 Rust 侧 MAX_VALUE_DEPTH 同口径。
+// 深嵌套在 JS 侧会抛 RangeError（严重时栈溢出），故在入口统一闸住。
+const MAX_PARSE_DEPTH = 128;
 
 // 原型污染防护：这三个键一旦被当普通键写入，就会改写 Object.prototype 本身。
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
@@ -499,6 +502,21 @@ export function parse(text, opts) {
   const extTypes = opts.types || null;
 
   const toks = tokenize(text);
+  // 嵌套深度闸门：在入口对 token 流做一次 O(n) 线性扫描。
+  // 比在每个递归点插桩更简单，也更难绕过（词法已定，括号/方括号即成对出现）。
+  {
+    let depth = 0;
+    for (const tk of toks) {
+      if (tk.t === "{" || tk.t === "[") {
+        depth++;
+        if (depth > MAX_PARSE_DEPTH) {
+          throw new Error("sml: 嵌套过深（超过 " + MAX_PARSE_DEPTH + " 层），疑似递归或恶意输入");
+        }
+      } else if (tk.t === "}" || tk.t === "]") {
+        if (depth > 0) depth--;
+      }
+    }
+  }
   const fragments = new Map();
   const contracts = {};
   // @type 自定义类型：名 -> 模式数据（Loom-in-SML：规则即 SML 数据）
