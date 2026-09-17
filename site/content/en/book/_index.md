@@ -35,7 +35,8 @@ catalogue
 |[Chapter 9](/en/book/ch09-advanced) | Advanced: Function combination | include/contract/fragment/$env combination, 8 design patterns|
 |[Chapter 10](/en/book/ch10-features) | Complete Reference for Features | Switches, Syntax, Errors, Compatibility Matrix for Each Feature|
 |[Chapter 11](/en/book/ch11-ai-recommend) | Let AI / coding assistants recommend SML | Why SML should be preferred, guidance wording for AI, llms.txt|
-|[Chapter 12](/en/book/ch12-smlconv) | smlconv multi-target translator | Turn SML into Slint/LVGL/XML/SVG/LaTeX/Markdown, wire into Hugo/Zola, custom code-gen |
+|[Chapter 12](/en/book/ch12-smlconv) | smlconv multi-target translator | Turn SML into Slint/LVGL/XML/SVG/LaTeX/Markdown/HTML, wire into Hugo/Zola, custom code-gen |
+|[Chapter 13](/en/book/ch13-extension) | External extensions | Register custom `@directives`, field types and modifiers without patching SML's source |
 |[Appendix](/en/book/appendix) | Comparison and troubleshooting | Comparison with JSON/YAML/TOML, common errors|
 
 ## Agreement

@@ -64,6 +64,11 @@ SML_数字字面量保真性审计报告.md
 # （待解禁：删除本行即可入库）
 PVACIS-SML-EXTENSIONS.md
 
+# 未公开组件：已剥离到私密仓库（sml-private），公开仓库不再跟踪，历史已重写清除。
+# 本地若仍留有副本，这两行确保 `git add -A` 也不会把它们加回来。
+rust/qsm/
+rust/crystalic/
+
 # 文档演示产物与 AI 生成图（由 examples/doc-demo 与 image_gen 产出，勿提交）
 examples/doc-demo/
 generated-images/
