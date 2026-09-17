@@ -4,7 +4,7 @@
   `# # 1.1 xxx`  -> `## 1.1 xxx`
   `## # xxx`     -> `### xxx`
 
-起因：translate_code_comments.py 早期版本把 Markdown 标题误判为代码注释，
+起因：早期的代码注释翻译脚本把 Markdown 标题误判为代码注释，
 在 `#` 后插入了空格（已修复脚本）。本脚本做一次性还原。
 """
 import os
