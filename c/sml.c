@@ -988,7 +988,10 @@ static sml_value *parse_block(parser *ps, tok_type closing) {
                     sml_value *sub = parse_block(ps, T_RBRACE);
                     sml_obj_set(sub, "__type", sml_new_str(key));
                     if (sml_arr_len(args) == 1)
-                        sml_obj_set(sub, "__name", sml_arr_get(args, 0));
+                        /* 必须克隆再存：args 下一行就被 sml_free，直接借用
+                           args[0] 会让 `__name` 变成悬垂指针，根节点释放时
+                           二次释放 —— 即已知的「带名块堆损坏」。 */
+                        sml_obj_set(sub, "__name", sml_clone(sml_arr_get(args, 0)));
                     sml_free(args);
                     if (field_is)
                         apply_or_fail(ps, sub, field_is);
@@ -1513,24 +1516,55 @@ static int resolve_includes(const char *text, const char *base,
             content[sz] = '\0';
             fclose(f);
 
-            char canon[1024];
+            /* 规范化为绝对路径。改用**动态分配**：固定 1024 缓冲在长路径下
+               会规范化失败，若那时回落到未规范化的 path，下面的越界校验与
+               循环检测就等于失效（Rust 侧口径是 canonicalize + starts_with）。 */
+            char *canon = NULL;
 #ifdef _WIN32
-            if (_fullpath(canon, path, sizeof(canon)) == NULL) strcpy(canon, path);
+            canon = _fullpath(NULL, path, 0);
 #else
-            if (realpath(path, canon) == NULL) strcpy(canon, path);
+            canon = realpath(path, NULL);
 #endif
+            if (!canon) {
+                snprintf(err, errsz, "sml: include 路径无法解析: %s", path);
+                free(content); free(line); free(inc);
+                return -1;
+            }
+            /* 路径穿越防护：被包含文件必须仍在基准目录之内。
+               缺这道校验时 `include "../../etc/passwd"` 会把任意文件内容
+               内联进解析结果。 */
+            char *basec = NULL;
+#ifdef _WIN32
+            basec = _fullpath(NULL, base, 0);
+#else
+            basec = realpath(base, NULL);
+#endif
+            if (basec) {
+                size_t bl = strlen(basec);
+                int inside = strncmp(canon, basec, bl) == 0 &&
+                             (canon[bl] == '/' || canon[bl] == '\\' || canon[bl] == '\0');
+                free(basec);
+                if (!inside) {
+                    snprintf(err, errsz, "sml: include 目标越出基准目录: %s", inc);
+                    free(canon); free(content); free(line); free(inc);
+                    return -1;
+                }
+            }
             int cyc = 0;
             for (int i = 0; i < depth; i++)
                 if (strcmp(stack[i], canon) == 0) { cyc = 1; break; }
             if (cyc) {
                 snprintf(err, errsz, "sml: include 循环引用: %s", canon);
-                free(content); free(line); free(inc);
+                free(canon); free(content); free(line); free(inc);
                 return -1;
             }
-            strcpy(stack[depth], canon);
+            strncpy(stack[depth], canon, 1023);
+            stack[depth][1023] = '\0';
 
+            /* 子基准用**规范化后的**路径，避免把未规范化的路径继续传下去 */
             char childbase[1024];
-            path_dir(path, childbase, sizeof(childbase));
+            path_dir(canon, childbase, sizeof(childbase));
+            free(canon);
             if (resolve_includes(content, childbase, out, stack, depth + 1, err, errsz) != 0) {
                 free(content); free(line); free(inc);
                 return -1;

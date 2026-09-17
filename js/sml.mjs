@@ -294,8 +294,8 @@ function checkContract(contracts, contract, obj, path) {
         continue;
       }
       // 防御：JS RegExp 有回溯，超长输入直接拒绝而非硬算
-      if (v.length > 4096) {
-        errs.push(`字段 ${full} 的值过长（${v.length} > 4096），拒绝校验`);
+      if (v.length > PATTERN_MAX_LEN) {
+        errs.push(`字段 ${full} 的值过长（${v.length} > ${PATTERN_MAX_LEN}），拒绝校验`);
         continue;
       }
       let ok = false;
@@ -369,10 +369,25 @@ function collectFeatures(text, base) {
   return feats;
 }
 
+// —— 模式 / 正则的三处上限，集中定义 ——
+// 此前 `PATTERN_MAX_LEN` 定义在 parse() 内部而校验处却写死 4096，常量成了死代码；
+// 现在统一提到模块级，两处都能引用。
+const PATTERN_MAX_LEN = 4096; // 被校验值的长度上限：超长输入直接拒收，不交给 RegExp 硬算
+const REGEX_SRC_MAX = 200;    // 用户内联正则的源长度上限
+const QUANT_MAX = 1000;       // 量词上界：挡住 `次: 999999999` 这类展开
+
+// 原型污染防护：这三个键一旦被当普通键写入，就会改写 Object.prototype 本身。
+const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 // 把 "a.b.c" 这样的点分路径在 obj 上建成嵌套块，返回最内层对象
 function ensureNsPath(obj, path) {
   let cur = obj;
   for (const part of path.split(".").filter(Boolean)) {
+    // 命名空间段含危险键时**直接报错**：否则 `include "x.sml" as __proto__.p`
+    // 会顺着原型链把被包含文件的字段合并进全局 Object.prototype。
+    if (DANGEROUS_KEYS.has(part)) {
+      throw new Error("sml: 命名空间段不可使用 `" + part + "`");
+    }
     if (cur[part] === undefined || typeof cur[part] !== "object" || Array.isArray(cur[part])) {
       cur[part] = {};
     }
@@ -385,6 +400,8 @@ function ensureNsPath(obj, path) {
 function mergeInto(target, src) {
   for (const k of Object.keys(src)) {
     if (k === "__type" || k === "__name") continue;
+    // 同上：JSON.parse 之来源可能产生 own 的 `__proto__` 键，合并前必须拦掉
+    if (DANGEROUS_KEYS.has(k)) continue;
     if (src[k] && typeof src[k] === "object" && !Array.isArray(src[k]) &&
         target[k] && typeof target[k] === "object" && !Array.isArray(target[k])) {
       mergeInto(target[k], src[k]);
@@ -511,8 +528,9 @@ export function parse(text, opts) {
   //   1) 不支持 直到/until（避免懒惰量词的高危结构，明确报错而非静默）
   //   2) 校验值长度上限 4096
   //   3) 结构化模式生成的量词大多有界，风险可控
-  //   4) regex 逃生舱内嵌用户正则时同样受上述约束
-  const PATTERN_MAX_LEN = 4096;
+  //   4) regex 逃生舱内嵌用户正则时同样受上述约束（长度上限 REGEX_SRC_MAX）
+  //   5) 量词上界 QUANT_MAX
+  // 三个常量定义在模块级（见文件上方），此处不再重复声明。
   function escapeRe(s) {
     return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
@@ -579,8 +597,15 @@ export function parse(text, opts) {
         stack.pop();
         return p; // 引用处不重复应用量词/命名
       }
-      else if (g("正则", "regex", "re") !== undefined)
-        base = "(?:" + String(g("正则", "regex", "re")).replace(/^\^/, "").replace(/\$$/, "") + ")";
+      else if (g("正则", "regex", "re") !== undefined) {
+        // 用户内联正则：JS RegExp 会回溯，`(a+)+$` 这类能指数级挂死主线程。
+        // 源长度闸门是最省事也最难绕的第一道防线（与值长上限 PATTERN_MAX_LEN 配合）。
+        const reSrc = String(g("正则", "regex", "re"));
+        if (reSrc.length > REGEX_SRC_MAX) {
+          throw new Error("sml: 内联正则过长（" + reSrc.length + " > " + REGEX_SRC_MAX + "），拒绝编译");
+        }
+        base = "(?:" + reSrc.replace(/^\^/, "").replace(/\$$/, "") + ")";
+      }
       else throw new Error("sml: 无法识别的模式元素");
       // —— 量词：支持 次: 数字/符号/a-b、次: {最小,最大}（中英等价）、
       //     或直接 最小/最大 平铺在元素上（机翻等价的直觉写法）——
@@ -612,6 +637,11 @@ export function parse(text, opts) {
             (qMax !== undefined && !Number.isInteger(qMax)))
           throw new Error("sml: 量词最小/最大必须为整数");
         if (qMin !== undefined && qMin < 0) throw new Error("sml: 量词最小不能为负（得 " + qMin + "）");
+        // 上界：`次: 999999999` 会被展开成十亿条指令，编译期先于步数预算就把内存吃光
+        if (qMin !== undefined && qMin > QUANT_MAX)
+          throw new Error("sml: 量词最小过大（" + qMin + " > " + QUANT_MAX + "）");
+        if (qMax !== undefined && qMax > QUANT_MAX)
+          throw new Error("sml: 量词最大过大（" + qMax + " > " + QUANT_MAX + "）");
         if (qMax !== undefined && qMin !== undefined && qMax < qMin)
           throw new Error("sml: 量词最大(" + qMax + ")不能小于最小(" + qMin + ")");
         const mn = qMin === undefined ? 0 : qMin;
