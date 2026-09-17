@@ -9,6 +9,11 @@ use std::collections::BTreeMap;
 
 use sml_value::Value;
 
+/// 外置扩展点：下游注册自己的字段类型，无需改动本 crate 源码。
+pub mod ext;
+
+pub use ext::{ContractExt, Modifier, TypeCheck};
+
 // ---------------------------------------------------------------------------
 // 契约（Contract）—— 可选的 schema 层
 //
@@ -68,6 +73,10 @@ pub enum TypeSpec {
         name: String,
         pat: sml_pattern::Pat,
     },
+    /// **外置类型**：由下游通过 [`crate::ext::TypeCheck`] 注册。
+    /// 名字与校验规则都留在下游仓库，规范层不认识它 —— 这正是扩展点的意义：
+    /// 「`image` / `link` 是什么」不该由数据格式来回答。
+    Ext(String),
 }
 
 impl TypeSpec {
@@ -82,6 +91,7 @@ impl TypeSpec {
             TypeSpec::Enum(vals) => format!("enum [{}]", vals.join(" ")),
             TypeSpec::ContractRef(name) => name.clone(),
         TypeSpec::Pattern { name, .. } => name.clone(),
+        TypeSpec::Ext(name) => name.clone(),
         }
     }
 }
@@ -98,6 +108,16 @@ pub struct FieldSpec {
     pub min: Option<f64>,
     /// 数值上界（含）
     pub max: Option<f64>,
+    /// **外置类型**的校验器（见 [`crate::ext::TypeCheck`]）。
+    ///
+    /// 只在 `ty` 为 [`TypeSpec::Ext`] 时有值。随字段规格一起传递，
+    /// 因此校验时**不需要全局注册表**（契约可跨块复用、也可安全克隆）。
+    pub ext: Option<std::sync::Arc<dyn crate::ext::TypeCheck>>,
+    /// **外置修饰符**解析出的值（字段名 → 值）。
+    /// `FieldSpec` 本身没有对应字段时（如 `items_max`）存放在这里。
+    pub ext_data: BTreeMap<String, Value>,
+    /// 本字段上生效的**外置修饰符**，校验期依次回调 [`crate::ext::Modifier::check`]。
+    pub mods: Vec<std::sync::Arc<dyn crate::ext::Modifier>>,
 }
 
 /// 契约（schema）：一组字段规格
@@ -185,6 +205,22 @@ fn check_type(
         };
     }
 
+    // 外置类型：校验器随字段规格带来（见 `FieldSpec::ext`），故此处无需全局查表。
+    // 「这个类型是什么」由下游回答，规范层只负责把错误包装上字段名与路径。
+    if let TypeSpec::Ext(name) = &spec.ty {
+        return match &spec.ext {
+            Some(t) => t.check(v).map_err(|e| {
+                format!(
+                    "sml: 字段 `{}` 不符合扩展类型 `{}`：{}（契约 `{}`）",
+                    path, name, e, contract
+                )
+            }),
+            // 有类型名但没有校验器：契约多半是从别处直接构造的（如序列化产物），
+            // 此时**放行**而不是误报 —— 没有校验器就无从判定，报错才是假警报。
+            None => Ok(()),
+        };
+    }
+
     // 数组：逐元素校验，错误**直接向上传播**（路径带下标，如 `tags[1]`）。
     //
     // 不能写成 `.all(|it| check_type(...).is_ok())` 再回落到下面的通用错误：
@@ -196,11 +232,19 @@ fn check_type(
             default: None,
             min: None,
             max: None,
+            // 外置元素类型（如 `[image]`）沿用同一个校验器
+            ext: spec.ext.clone(),
+            // 修饰符作用于**字段整体**，不逐元素重复；故元素规格不带这两项
+            ext_data: BTreeMap::new(),
+            mods: Vec::new(),
         };
         for (i, it) in items.iter().enumerate() {
             check_type(contract, &format!("{}[{}]", path, i), &elem, it, contracts)?;
         }
-        // 元素全部通过。数组本身不参与 min/max 区间校验（那是数值语义），直接返回。
+        // 元素全部通过。数组本身不参与 min/max 区间校验（那是数值语义）。
+        // 但**外置修饰符仍要跑**（`items_max` 这类约束正是作用在数组整体上），
+        // 否则数组字段的扩展修饰符会被静默跳过。
+        check_ext_mods(contract, path, spec, v)?;
         return Ok(());
     }
 
@@ -257,6 +301,29 @@ fn check_type(
                 }
             }
         }
+    }
+    // 外置修饰符的校验期钩子：内置校验（类型 / 枚举 / 区间）**全部通过后**才交给下游。
+    // 顺序不能反 —— 先满足规范层语义再看领域规则，否则错误信息会失去层次。
+    check_ext_mods(contract, path, spec, v)
+}
+
+/// 依次回调字段上的外置修饰符（[`crate::ext::Modifier::check`]）。
+fn check_ext_mods(
+    contract: &str,
+    path: &str,
+    spec: &FieldSpec,
+    v: &Value,
+) -> Result<(), String> {
+    for m in &spec.mods {
+        m.check(spec, v).map_err(|e| {
+            format!(
+                "sml: 字段 `{}` 不符合修饰符 `{}`：{}（契约 `{}`）",
+                path,
+                m.name(),
+                e,
+                contract
+            )
+        })?;
     }
     Ok(())
 }

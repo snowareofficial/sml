@@ -26,9 +26,10 @@
 | 实现 | 状态 | 说明 |
 |---|---|---|
 | Rust | ✅ **已实现** | `@contract` / `@is` + 校验 + 默认值 + **组合** + **严格模式/loose**；22 个测试通过 |
-| C | ⏳ 待实现 | 需移植 `Contract` / `FieldSpec` / `TypeSpec` + `apply_contract` |
-| JS | ⏳ 待实现 | 同上 |
-| Lua | ⏳ 待实现 | 同上 |
+| C | ✅ **已实现** | `c/sml.c` 有 `ccontract` / `apply_contract_rec` / `parse_contract_body`（此前误标为"待实现"，2026-09-18 更正） |
+| C++ | ✅ **已实现** | `cpp/sml.cpp` 封装同一套能力 |
+| JS | ✅ **已实现** | `js/sml.mjs` 有契约表、`@is` 处理与默认值填充（此前误标为"待实现"，2026-09-18 更正） |
+| Lua | ⏳ 待实现 | **唯一未落地的一侧** |
 
 **已在 resender 中落地使用**：`AppConfig` 的 SML 持久化应用了契约
 （`src/config.rs` 的 `CONFIG_CONTRACT`），读取时校验字段类型并补齐缺失默认值。
@@ -126,6 +127,77 @@ luajit _verify_showcase.lua
 
 上述 `_probe_*` / `_verify_showcase.*` / `_t*.c` / `_t*.lua` / `_t*.mjs`
 均为**临时文件**，待一致性测试套件（P1）落地后应清理或正式化。
+
+## 三·五、外置扩展机制（0.6.1 新增，进行中）
+
+目标：让下游注册自定义 `@指令` 与自定义契约类型，**不必改动 crate 源码**，
+也不必把方言名字写进 SML 规范层。根因见下「方言为什么会诞生」。
+
+### 已落地（Rust）
+
+- [x] `sml-parse::ext`：`Directive` trait / `Outcome`（Discard 元数据块 · Emit 展开）/
+      `Diagnostic`（弃用警告）/ `DirectiveTable` / `ParseOptions` / `parse_with()`
+- [x] `sml-contract::ext`：`TypeCheck` trait / `ContractExt` / `TypeSpec::Ext` /
+      `FieldSpec.ext`（校验器随字段规格走，校验期不查全局表）
+- [x] `swsml` 门面导出 `sml::ext` / `sml::contract_ext`
+- [x] 版本：`sml-parse` / `sml-contract` → `0.1.0-alpha.2`（后者含不兼容改动：
+      `TypeSpec` 加 `Ext` 变体、`FieldSpec` 加 `ext` 字段）
+
+### 待办（按序）
+
+- [x] **`Modifier` 扩展点**：`items_max`（数组元素数量上限）之类。
+      必须**新起名字**，不能复用 `max` —— `max` 在 Rust 侧是数值上界，
+      `sml-contract/src/lib.rs` 明写"数组不参与 min/max 校验"；PVACIS 把 `max` 当数量上限，
+      同形不同义，复用会造成两端语义分叉。
+      （已实现：解析期 `apply` 改写规格 + 校验期 `check` 回调；数组字段同样会跑回调）
+- [x] **JS 侧同步**：`js/sml.mjs` 加 `parse(text, { directives, types, warnings })`，
+      与 Rust 侧同样的语义（外置类型判定次序 `@type` > 外置 > 契约引用）。
+      已同步三处副本：`site/static/`、`site/public/`、`editors/vscode/src/vendor/`。
+
+### 同步时暴露的既有跨实现差异（记下，不在扩展点里擅自改）
+
+- **未注册指令**：Rust 侧**报错**；JS 侧落进「片段定义」分支**静默收下**（`@form F { }`
+  变成名为 `form` 的片段，不进主树也不报错）。两端行为不同 —— 收敛前先决定以哪侧为准。
+- **数组类型写法**：Rust 侧 `[str]`；JS 侧 `parseFieldSpec` 要求首 token 是 word，
+  故 `[str]` 会报"字段类型期望标识符"，只认 `array [ str ]`。
+- **数组元素的逐元素校验**：Rust 侧对 `[image]` 逐元素调外置校验器；
+  JS 侧 `valueMatchesType` 的 array 分支未逐元素校验外置类型。
+- [ ] 清理 `sml-parse` 的 8 个既有 unused import 与 `when` 关闭时的 2 个 dead_code
+- [ ] 教科书补一节「外置扩展」+ `CHANGELOG.md`
+
+### 方言为什么会诞生（根因，勿忘）
+
+PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数据树**」。这是**通用需求**，
+不是 PVACIS 独有。因为 swsml 没有这个口子，它才 fork 出自己的 Go 子集解析器
+（`Backend/internal/pkg/smlform/smlform.go`），于是方言诞生、两端文档互不相通
+（`@form Name { }` 在 swsml 里会被判为"缺少片段体"而整篇失败）。
+
+另注：`@form Name { }` 这类**位置参数形式**自 v4 起已被刻意废弃
+（`sml-parse/src/parser.rs` 的注释详述了原因：与"拼错的指令"同形，会静默吞掉块内容）。
+外置指令可显式开启 `positional()` 兼容既有方言文档，但会产出弃用诊断。
+
+### 其它实现的处置（2026-09-18 定）
+
+| 侧 | 是否需要改 | 结论 |
+|---|---|---|
+| **Go（PVACIS `smlform`）** | **暂不需要** | 它是独立子集解析器，继续可用。若要将同一份方言定义两端共用，有两条路：<br>① 在 Go 侧实现**同样的注册接口**（对称但重复）<br>② 走 C-ABI —— **不可行**：`Directive`/`TypeCheck` 是 trait 对象，C-ABI 传不了<br>③ （备选）给 C-ABI 加一层"按名注册的函数指针表"，复杂度高，暂不做 |
+| **C（纯 C99 `c/sml.c`）** | **不建议改** | 该版本已知"带名块堆损坏"，此前已建议弃用；再给它加扩展点不划算。新能力应走 `c/sml_rs.h`（桥接 Rust cdylib） |
+| **C（`c/sml_rs.h` 桥接）** | **受限于 C-ABI** | 无法暴露外置扩展。C 调用方只能用**无扩展**路径；方言文档需注明"需 Rust 侧 + 注册扩展" |
+| **C++（`cpp/sml.cpp` / `sml_rs.cpp`）** | 同 C | 同上 |
+| **Lua** | 契约都还没实现 | 优先级最低 |
+
+### 从 Go 解析器可并入 swsml 的项（对比结论，2026-09-18）
+
+| 能力 | Go 侧 | 处置 |
+|---|---|---|
+| token 携带行号 | `smlform.go:63-67` | **高价值**，待办：给 `Tok` 加 `line`（注意 include 跨文件行号归属） |
+| 标量/列表双形态归一 | `toStrSlice` :829-849 | 下沉到 `sml-value`，零风险 |
+| 未知指令跳过整行 | :583-588 | 仅作 **opt-in**，默认保持严格（防静默丢内容） |
+| 未知 `{}` 块整块跳过 | :591-608 | 同上 |
+| 同行多裸词聚合 | :226-237 | 同上 |
+| 未闭合字符串容错 / `min`/`max` 静默忽略 | :136-138 / :442-453 | **不并入**（与既有审计项冲突） |
+
+---
 
 ## 四、已完成
 

@@ -11,6 +11,7 @@
 //! | `emit-svg`       | SVG             | [`to_svg`]                        |
 //! | `emit-slint`     | Slint DSL       | [`to_slint`]                      |
 //! | `emit-custom`    | 用户 SML 生成器 | [`to_custom`]                     |
+//! | `emit-html`      | 排版 HTML5     | [`to_html`]                       |
 //!
 //! 默认全部开启。若只需解析/序列化回 SML，可 `default-features = false`
 //! （关闭 `sml` 与所有 `emit-*`），此时本模块整体不参与编译。
@@ -366,3 +367,8 @@ pub use slint::{to_slint, SlintOptions};
 mod custom;
 #[cfg(feature = "emit-custom")]
 pub use custom::{to_custom, CustomRule, CustomOptions};
+
+#[cfg(feature = "emit-html")]
+mod html;
+#[cfg(feature = "emit-html")]
+pub use html::{to_html, HtmlOptions};

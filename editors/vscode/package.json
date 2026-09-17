@@ -2,7 +2,7 @@
   "name": "sml-lang",
   "displayName": "SML (SNOWARE Markup Language)",
   "description": "SML 语言支持：语法高亮、错误提示、补全、悬浮说明与格式化",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "publisher": "snoware",
   "icon": "images/icon.png",
   "license": "MulanPSL-2.0",
@@ -113,7 +113,7 @@
   "scripts": {
     "sync-parser": "python scripts/sync-parser.py",
     "package": "npm run sync-parser && npx --yes @vscode/vsce package",
-    "install-local": "npm run package && code --install-extension sml-lang-0.4.1.vsix --force"
+    "install-local": "npm run package && code --install-extension sml-lang-0.4.2.vsix --force"
   },
   "devDependencies": {
     "@types/vscode": "^1.80.0",

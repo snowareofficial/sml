@@ -4,12 +4,12 @@ title: "Download"
 
 # Download SML { ❄ }
 
-## VS Code Extension (0.4.1)
+## VS Code Extension (0.4.2)
 
 Adds SML syntax highlighting, diagnostics, completion, hover and formatting to
 VSCode.
 
-- Download: [sml-lang-0.4.1.vsix](/dl/sml-lang-0.4.1.vsix)
+- Download: [sml-lang-0.4.2.vsix](/dl/sml-lang-0.4.2.vsix)
 - Install: VSCode → Extensions → `...` → Install from VSIX, then pick the
   downloaded file
 - Docs: the extension folder ships both `README.md` (Chinese) and

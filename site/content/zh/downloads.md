@@ -4,11 +4,11 @@ title: "下载"
 
 # 下载 SML { ❄ }
 
-## VS Code 扩展（0.4.1）
+## VS Code 扩展（0.4.2）
 
 为 VSCode 提供 SML 的语法高亮、错误提示、补全、悬浮说明与格式化。
 
-- 下载：[sml-lang-0.4.1.vsix](/dl/sml-lang-0.4.1.vsix)
+- 下载：[sml-lang-0.4.2.vsix](/dl/sml-lang-0.4.2.vsix)
 - 安装：VSCode → 扩展 → `...` → 从 VSIX 安装，选择下载的文件
 - 说明：扩展目录内含 `README.md`（中文）与 `README.en.md`（英文）
 

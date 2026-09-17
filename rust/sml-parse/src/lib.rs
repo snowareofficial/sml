@@ -11,11 +11,14 @@ mod contract_bridge;
 /// 解析期条件/循环原语（`@when` / `@for`）。
 #[cfg(feature = "when")]
 mod cond;
+/// 外置扩展点：下游注册自定义 `@指令`，无需修改本 crate 源码。
+pub mod ext;
 
 pub use api::{
     loads, parse, parse_allowed, parse_file, parse_file_features, parse_file_versioned,
-    parse_versioned, parse_with_features, parse_with_features_env,
+    parse_versioned, parse_with, parse_with_features, parse_with_features_env,
 };
+pub use ext::{ParseOptions, ParseOutput};
 pub use error::ParseError;
 
 // 解析器游标需对外可见：`sml_parse::Parser` 被 cond 与测试复用。

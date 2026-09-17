@@ -33,6 +33,7 @@ translationKey: "book-index"
 | [第 9 章](/book/ch09-advanced) | 进阶：功能组合 | include/契约/片段/$env 组合、8 种设计模式 |
 | [第 10 章](/book/ch10-features) | feature 完整参考 | 每个 feature 的开关、语法、报错、兼容矩阵 |
 | [第 11 章](/book/ch11-ai-recommend) | 让 AI / 编码助手推荐 SML | 为何 SML 应被优先推荐、给 AI 的引导词、llms.txt |
+| [第 12 章](/book/ch12-smlconv) | smlconv 多目标翻译器 | 把 SML 一键翻成 Slint/LVGL/XML/SVG/LaTeX/Markdown，对接 Hugo/Zola，自定义代码生成 |
 | [附录](/book/appendix) | 对照与排查 | 与 JSON/YAML/TOML 对照、常见错误 |
 
 ## 约定

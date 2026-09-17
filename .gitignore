@@ -60,6 +60,10 @@ SML图形管线项目_全量文档合集.md
 SML_数字字面量保真性审计报告.md
 报送邮件.txt
 
+# PVACIS 对 SML 的方言扩展说明：PVACIS 仍在开发，待投入使用并做好开源准备前不对外
+# （待解禁：删除本行即可入库）
+PVACIS-SML-EXTENSIONS.md
+
 # 文档演示产物与 AI 生成图（由 examples/doc-demo 与 image_gen 产出，勿提交）
 examples/doc-demo/
 generated-images/

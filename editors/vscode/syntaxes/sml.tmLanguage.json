@@ -215,7 +215,8 @@
       "end": "\"",
       "patterns": [
         { "name": "constant.character.escape.sml", "match": "\\\\." },
-        { "name": "variable.other.interpolation.sml", "match": "\\$\\{[^}]*\\}" }
+        { "name": "variable.other.interpolation.sml", "match": "\\$\\{[^}]*\\}" },
+        { "comment": "字符串内的环境变量引用：$env.NAME 同样着色，便于在引号串里一眼看出嵌入了环境变量", "include": "#envvar" }
       ]
     },
     "envvar": {

@@ -782,7 +782,12 @@ pub unsafe extern "C" fn sml_dumps(v: *const CSmlValue, _flags: c_uint) -> *mut 
 ///
 /// 这里刻意用 `match` 返回带 `\0` 的字面量：直接取 [`FEATURES`] 里的
 /// `&str` 无法保证 NUL 结尾，交给 C 会被 `printf("%s")` 越界读取。
-/// 顺序与 [`FEATURES`] 表严格对应，由 `tests/version.rs` 中的用例守护。
+/// 顺序与 [`FEATURES`] 表严格对应，由 `tests/c_abi.rs` 的
+/// `feature_name_matches_features_table` 用例守护。
+///
+/// ⚠️ **新增特性时必须同步这张表**：`sml-feature` 的 `FEATURES` 增长后，
+/// 若这里漏补，C 调用方会对新特性位拿到 NULL（既有的失败即由此而来：
+/// `typed-block` 入表后本函数未同步，bit 14 返回 NULL）。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub extern "C" fn sml_feature_name(bit: c_uint) -> *const c_char {
@@ -801,6 +806,7 @@ pub extern "C" fn sml_feature_name(bit: c_uint) -> *const c_char {
         11 => "ext-rewrite\0",
         12 => "when\0",
         13 => "for\0",
+        14 => "typed-block\0",
         _ => return ptr::null(),
     };
     s.as_ptr() as *const c_char

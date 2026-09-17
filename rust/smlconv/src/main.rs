@@ -26,12 +26,13 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use sml::emit::{
-    CustomOptions, EmitOptions, LatexOptions, MarkdownOptions, SlintOptions, SvgOptions,
-    XmlOptions, to_custom, to_lvgl,
+    CustomOptions, EmitOptions, HtmlOptions, LatexOptions, MarkdownOptions, SlintOptions,
+    SvgOptions, XmlOptions, to_custom, to_html, to_lvgl,
 };
 use clap::Parser;
 use std::io::IsTerminal;
 use sml::{parse, to_sml, Value, Version};
+use std::path::Path;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 enum Format {
@@ -45,6 +46,7 @@ enum Format {
     Slint,
     Lvgl,
     Custom,
+    Html,
 }
 
 impl Format {
@@ -56,6 +58,7 @@ impl Format {
             "latex" | "tex" => Some(Format::Latex),
             "slint" => Some(Format::Slint),
             "lvgl" => Some(Format::Lvgl),
+            "html" | "htm" => Some(Format::Html),
             "custom" => Some(Format::Custom),
             "sml" => Some(Format::Sml),
             _ => None,
@@ -71,6 +74,7 @@ impl Format {
             Format::Latex => "latex",
             Format::Slint => "slint",
             Format::Lvgl => "lvgl",
+            Format::Html => "html",
             Format::Custom => "custom",
         }
     }
@@ -92,7 +96,7 @@ struct Cli {
     #[arg(short = 'o', long = "output")]
     output: Option<PathBuf>,
 
-    /// 目标格式：md(默认) / xml / svg / latex / slint / lvgl / custom / sml
+    /// 目标格式：md(默认) / xml / svg / latex / slint / lvgl / html / custom / sml
     #[arg(long = "to", alias = "format", default_value = "md")]
     format: String,
 
@@ -160,7 +164,7 @@ struct Args {
 fn parse_args() -> Result<Args, String> {
     let cli = Cli::parse();
     let format = Format::parse(&cli.format)
-        .ok_or_else(|| format!("unknown format `{}` (md|xml|svg|latex|slint|lvgl|custom|sml)", cli.format))?;
+        .ok_or_else(|| format!("unknown format `{}` (md|xml|svg|latex|slint|lvgl|html|custom|sml)", cli.format))?;
     let feature = match cli.feature.as_deref() {
         None => None,
         Some(v) => {
@@ -226,7 +230,12 @@ fn read_input(input: &Option<PathBuf>) -> Result<String, String> {
 
 /// 按指定版本解析。当前 crate 的 `parse` 统一使用 CURRENT(V4) 解析器，
 /// `--feature` 用于显式声明文档意图版本；V4 之前文件一般也能被兼容解析。
-fn parse_with(text: &str, feature: Option<Version>) -> Result<Value, String> {
+///
+/// 指定了输入文件时，先按**输入文件所在目录**递归展开 `include`/`@include`
+/// 指令（把按章节拆分的「结构文件 + 数据文件」拼成完整文档），再交给 `parse`
+/// 解析。stdin 输入没有基准目录，只能回退到 `parse`（此时 `include` 无法解析
+/// 相对路径，建议用 `-i` 文件输入）。
+fn parse_with(text: &str, input_path: &Option<PathBuf>, feature: Option<Version>) -> Result<Value, String> {
     if let Some(v) = feature {
         if v != Version::V4 {
             eprintln!(
@@ -235,7 +244,56 @@ fn parse_with(text: &str, feature: Option<Version>) -> Result<Value, String> {
             );
         }
     }
-    parse(text)
+    match input_path {
+        Some(p) => {
+            let base = p.parent().unwrap_or_else(|| Path::new("."));
+            let expanded = expand_includes(text, base)?;
+            parse(&expanded)
+        }
+        None => parse(text),
+    }
+}
+
+/// 行级展开 `include "path"` / `@include "path"` / `import "path"` 指令。
+///
+/// 路径相对「包含方文件所在目录」递归解析（与 smlsml 的 include 语义一致）；
+/// 嵌套展开受 16 层深度保护，防止循环包含导致无限递归。仅支持普通文件路径，
+/// 不含 glob / regex 模式包含（满足「结构文件按章节 include 数据文件」需求）。
+fn expand_includes(text: &str, base: &Path) -> Result<String, String> {
+    expand_includes_impl(text, base, 0)
+}
+
+fn expand_includes_impl(text: &str, base: &Path, depth: usize) -> Result<String, String> {
+    if depth > 16 {
+        return Err("smlconv: include 嵌套超过 16 层".into());
+    }
+    let mut out = String::new();
+    for line in text.lines() {
+        let trimmed = line.trim_start();
+        let core = trimmed.strip_prefix('@').unwrap_or(trimmed);
+        let rest = core
+            .strip_prefix("include ")
+            .or_else(|| core.strip_prefix("import "));
+        if let Some(rest) = rest {
+            let path = rest.trim();
+            if let Some(rel) = path
+                .strip_prefix('"')
+                .and_then(|s| s.find('"').map(|i| &s[..i]))
+            {
+                let full = base.join(rel);
+                let inc = std::fs::read_to_string(&full)
+                    .map_err(|e| format!("smlconv: include 读取 {} 失败: {e}", full.display()))?;
+                let inc_base = full.parent().unwrap_or(base);
+                out.push_str(&expand_includes_impl(&inc, inc_base, depth + 1)?);
+                out.push('\n');
+                continue;
+            }
+            return Err(format!("smlconv: include 路径解析失败: {line}"));
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    Ok(out)
 }
 
 /// 选择后端做部分翻译。
@@ -284,6 +342,13 @@ fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, String> {
                 ..Default::default()
             };
             to_lvgl(value, &opt)
+        }
+        Format::Html => {
+            let opt = HtmlOptions {
+                base: EmitOptions::default(),
+                ..Default::default()
+            };
+            to_html(value, &opt)
         }
         Format::Custom => {
             // 自定义生成器需要规则文件：读取 → 解析 → 构建 CustomOptions
@@ -550,7 +615,7 @@ fn main() -> ExitCode {
         }
     };
 
-    let value = match parse_with(&text, args.feature) {
+    let value = match parse_with(&text, &args.input, args.feature) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("smlconv: parse error: {e}");

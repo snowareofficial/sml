@@ -247,6 +247,7 @@ function typeName(sp) {
   if (sp.type === "array") return "array[" + (sp.arrInner ? typeName(sp.arrInner) : "?") + "]";
   if (sp.type === "contract") return sp.refName;
   if (sp.type === "pattern") return sp.refName;
+  if (sp.type === "ext") return sp.refName;
   return sp.type;
 }
 
@@ -300,6 +301,15 @@ function checkContract(contracts, contract, obj, path) {
       let ok = false;
       try { ok = sp.patternRe.test(v); } catch { ok = false; }
       if (!ok) errs.push(`字段 ${full} 的值 \`${v}\` 不符合类型 ${sp.refName} 的格式要求`);
+      continue;
+    }
+    if (sp.type === "ext") {
+      // 外置类型：由下游的判定函数回答合不合法。
+      // 约定返回值：true 通过 / false 失败 / 字符串 = 失败原因；抛错也按失败处理。
+      let r;
+      try { r = sp.extCheck(v); } catch (e) { r = String((e && e.message) || e); }
+      if (r === false) errs.push(`字段 ${full} 不符合扩展类型 ${sp.refName}`);
+      else if (typeof r === "string") errs.push(`字段 ${full} 不符合扩展类型 ${sp.refName}：${r}`);
       continue;
     }
     if (sp.type === "contract") {
@@ -460,6 +470,13 @@ export function parse(text, opts) {
   const files = opts.files || {};
   const baseFeatures = opts.features || null;
   const nsPrefix = opts.nsPrefix || "";
+  // —— 外置扩展（与 Rust 侧 `sml::ext` / `sml::contract_ext` 对齐）——
+  //   opts.directives: { "form": { positional?: bool, call(arg, body) -> {discard:true} | {emit: 对象} } }
+  //   opts.types:      { "image": (v) => true | false | "错误信息" }
+  //   opts.warnings:   []   传入数组时，弃用提示会 push 进去（与 Rust 的 Diagnostic 对应）
+  // 不带这些选项时，行为与未扩展时**完全一致**。
+  const extDirs = opts.directives || null;
+  const extTypes = opts.types || null;
 
   const toks = tokenize(text);
   const fragments = new Map();
@@ -682,6 +699,13 @@ export function parse(text, opts) {
       sp.refName = typeWord;
       sp.patValue = types.get(typeWord);
       sp.patternRe = compilePatternToRe(sp.patValue);
+    } else if (extTypes && extTypes[typeWord]) {
+      // 外置类型（下游注册，如 image / link / time）：
+      // 名字与规则都留在下游，本文件不需要知道「image 是什么」。
+      // 判定次序与 Rust 侧一致：@type > 外置 > 契约引用。
+      sp.type = "ext";
+      sp.refName = typeWord;
+      sp.extCheck = extTypes[typeWord];
     } else {
       sp.type = "contract";
       sp.refName = typeWord;
@@ -733,7 +757,15 @@ export function parse(text, opts) {
       }
       if (text === undefined) fail("sml: include 目标未找到: " + tg.path);
       const childPrefix = tg.ns ? nsPrefix + tg.ns + "." : nsPrefix;
-      const v = parse(text, { files, features: feats, nsPrefix: childPrefix });
+      // 外置扩展随 include 递归传递：被包含的文件里同样可以用方言指令与外置类型
+      const v = parse(text, {
+        files,
+        features: feats,
+        nsPrefix: childPrefix,
+        directives: extDirs || undefined,
+        types: extTypes || undefined,
+        warnings: opts.warnings,
+      });
       // 部分引用：仅保留指定顶层键（命名空间挂在 ns 下时同样只挑这些）
       let filtered = v;
       if (tg.keys && Array.isArray(tg.keys)) {
@@ -805,6 +837,48 @@ export function parse(text, opts) {
             continue;
           }
           // 非指令形式：下落到片段定义逻辑（片段名 = "type"）
+        }
+        // —— 外置扩展指令（下游注册，无需改动本文件）——
+        //
+        // 与 Rust 侧 `sml_parse::ext::Directive` 对齐。内置指令名由调用方自行回避
+        // （与内置同名会改写核心语义，Rust 侧在注册时就拒绝）。
+        //
+        // 未注册时**不要**在这里兜底：未知名指令在 JS 侧会落进下面的「片段定义」
+        // 分支（而 Rust 侧是报错）—— 这是既有差异，另行收敛，不在扩展点里改。
+        if (extDirs && extDirs[fname]) {
+          i++; // 消费指令名
+          if (peek() && peek().t === ":") i++;
+          let arg = null;
+          // 显式形式（推荐）：`@xxx name: X { }` —— 与片段参数同形，无歧义
+          if (peek() && peek().t === "word" && peek().v === "name"
+              && toks[i + 1] && toks[i + 1].t === ":") {
+            i += 2;
+            if (!peek() || (peek().t !== "word" && peek().t !== "str"))
+              fail("sml: 扩展指令 @" + fname + " 的 name: 后须值");
+            arg = peek().v; i++;
+          } else if (extDirs[fname].positional && peek() && peek().t === "word"
+                     && toks[i + 1] && toks[i + 1].t === "{") {
+            // 位置参数（v4 起废弃）：仅指令显式开启时接受，并产出弃用警告
+            arg = peek().v; i++;
+            if (Array.isArray(opts.warnings)) {
+              opts.warnings.push({
+                kind: "deprecated",
+                message: "sml: 扩展指令 `@" + fname + " " + arg
+                  + " { .. }` 使用了位置参数形式；自 v4 起推荐显式写作 `@" + fname
+                  + " name: " + arg + " { .. }`",
+              });
+            }
+          }
+          let body = null;
+          if (peek() && peek().t === "{") { i++; body = parseBlock("}"); }
+          const out = extDirs[fname].call(arg, body);
+          // discard（或不返回）= 元数据块，不进主树；emit = 展开合并进当前块
+          if (out && out.emit !== undefined) {
+            const em = out.emit;
+            if (em && typeof em === "object" && !Array.isArray(em)) Object.assign(node, em);
+            else fail("sml: 扩展指令 @" + fname + " 的 emit 须返回对象（用于合并进所在块）");
+          }
+          continue;
         }
         if (fname === "contract") {
           i++;
