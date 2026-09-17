@@ -33,6 +33,7 @@ use clap::Parser;
 use sml::{parse, to_sml, Value, Version};
 use std::path::Path;
 
+mod highlight;
 mod lint;
 mod toml;
 mod yaml;
@@ -100,6 +101,12 @@ enum Format {
     /// TOML 序列化。对接 Cargo / pyproject / 各类 TOML 配置生态。
     /// TOML 顶层必须是表，故非对象输入会得到空文档。
     Toml,
+    /// **编辑器高亮生成**：把「高亮定制 SML」在原版 TextMate 基线上升级为
+    /// 定制化的 `sml.tmLanguage.json`（VSCode / VSIX 用）。
+    ///
+    /// 与其它后端不同，这里输入不是数据而是**定制声明**（`directives` / `elements` /
+    /// `types` / `rules`），语义见 `highlight` 模块文档。
+    TmLanguage,
     #[default]
     Markdown,
     Xml,
@@ -115,10 +122,11 @@ impl Format {
     /// 全部格式。用于 `--to` 报错提示 —— 原先提示里的
     /// `(md|xml|svg|latex|slint|lvgl|html|custom|sml)` 是**手写**的，
     /// 与 `name()` 两处维护；0.6.1 新增 `html` 时就得靠人工同步两个地方。
-    const ALL: [Format; 11] = [
+    const ALL: [Format; 12] = [
         Format::Markdown,
         Format::Json,
         Format::Toml,
+        Format::TmLanguage,
         Format::Xml,
         Format::Svg,
         Format::Latex,
@@ -143,6 +151,7 @@ impl Format {
             "md" | "markdown" => Some(Format::Markdown),
             "json" => Some(Format::Json),
             "toml" => Some(Format::Toml),
+            "tmlanguage" | "tm" => Some(Format::TmLanguage),
             "xml" => Some(Format::Xml),
             "svg" => Some(Format::Svg),
             "latex" | "tex" => Some(Format::Latex),
@@ -160,6 +169,7 @@ impl Format {
             Format::Sml => "sml",
             Format::Json => "json",
             Format::Toml => "toml",
+            Format::TmLanguage => "tmlanguage",
             Format::Markdown => "markdown",
             Format::Xml => "xml",
             Format::Svg => "svg",
@@ -188,7 +198,10 @@ struct Cli {
     #[arg(short = 'o', long = "output")]
     output: Option<PathBuf>,
 
-    /// 目标格式：md(默认) / json / toml / xml / svg / latex / slint / lvgl / html / custom / sml
+    /// 目标格式：md(默认) / json / toml / tmlanguage / xml / svg / latex / slint / lvgl / html / custom / sml
+    ///
+    /// `--to tmlanguage` 是特例：输入为**高亮定制声明**（directives/elements/types/rules），
+    /// 输出为升级后的 TextMate 高亮文件（在原版基线上增补），供 VSCode / VSIX 使用。
     #[arg(long = "to", alias = "format", default_value = "md")]
     format: String,
 
@@ -519,6 +532,8 @@ fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, String> {
         // 不再另写一份序列化，避免两处行为漂移。
         Format::Json => Ok(sml::jsonify(value)),
         Format::Toml => Ok(toml::to_toml(value)),
+        // 高亮生成：输入是「定制声明」，输出是升级后的 tmLanguage（基线 + 增补）
+        Format::TmLanguage => highlight::generate(value),
         Format::Xml => {
             let opt = XmlOptions {
                 base: EmitOptions {

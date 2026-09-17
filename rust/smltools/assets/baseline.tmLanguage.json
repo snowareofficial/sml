@@ -1,0 +1,255 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "SML",
+  "scopeName": "source.sml",
+  "fileTypes": ["sml"],
+  "comment": "三类符号分色：声明（@contract / @片段定义）用 entity.name.* 定义色；调用（@is / &片段引用）用 variable.other.member 引用色；指令（@version / @feature / @when / @for / include / import）用 keyword.control 指令色。类型与修饰符对齐 Rust（support.type.primitive / storage.modifier）。键名与名字支持中文。",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#contract-block" },
+    { "include": "#type-block" },
+    { "include": "#directive" },
+    { "include": "#string" },
+    { "include": "#envvar" },
+    { "include": "#fragment-ref" },
+    { "include": "#constant" },
+    { "include": "#number" },
+    { "include": "#key" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comment": {
+      "patterns": [
+        { "name": "comment.line.number-sign.sml", "match": "#.*$" },
+        { "name": "comment.line.double-dash.sml", "match": "--.*$" },
+        { "name": "comment.line.double-slash.sml", "match": "//.*$" },
+        { "name": "comment.block.slash-star.sml", "begin": "/\\*", "end": "\\*/" },
+        { "name": "comment.block.underscore-star.sml", "begin": "_\\*", "end": "\\*_" }
+      ]
+    },
+
+    "contract-block": {
+      "comment": "契约声明：@contract Name [loose|strict] { ... }。类型/修饰符高亮只在契约体内生效，业务数据区的同名裸词不会被误判。",
+      "begin": "(@contract)\\s+([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)?(?:\\s+(loose|strict))?\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.other.declaration.sml" },
+        "2": { "name": "entity.name.type.sml" },
+        "3": { "name": "storage.modifier.sml" },
+        "4": { "name": "punctuation.definition.block.sml" }
+      },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.definition.block.sml" } },
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#contract-block" },
+        { "include": "#contract-field" },
+        { "include": "#contract-enum" },
+        { "include": "#contract-type" },
+        { "include": "#contract-modifier" },
+        { "include": "#string" },
+        { "include": "#number" },
+        { "include": "#constant" },
+        { "include": "#punctuation" }
+      ]
+    },
+    "type-block": {
+      "comment": "@type name: X { ... } 自定义模式类型。块内启用模式语言的作用域：关键字、内置字符类、量词各自着色。",
+      "begin": "(@type)\\s+name:\\s*([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)?\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.other.declaration.sml" },
+        "2": { "name": "entity.name.type.sml" },
+        "3": { "name": "punctuation.definition.block.sml" }
+      },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.definition.block.sml" } },
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#type-block" },
+        { "include": "#pattern-brace" },
+        { "include": "#pattern-class" },
+        { "include": "#pattern-keyword" },
+        { "include": "#string" },
+        { "include": "#number" },
+        { "include": "#constant" },
+        { "include": "#punctuation" }
+      ]
+    },
+    "pattern-brace": {
+      "comment": "模式体内的平衡花括号：内联块 { 名: 年, 类: 数字 } 的 } 此前会提前终止外层 @type 块。由本规则消化嵌套的 {}，保证 @type 作用域覆盖到真正的收尾 }。",
+      "begin": "\\{",
+      "end": "\\}",
+      "patterns": [
+        { "include": "#pattern-brace" },
+        { "include": "#pattern-class" },
+        { "include": "#pattern-keyword" },
+        { "include": "#comment" },
+        { "include": "#string" },
+        { "include": "#number" }
+      ]
+    },
+    "pattern-keyword": {
+      "comment": "模式语言关键字（中英等价）。any-of 置于最前，避免被 any 抢先匹配。",
+      "match": "(?<!\\w)(any\\-of|序列|类|任一|组|用|直到|次|可选|名|最小|最大|字面|seq|class|alt|group|use|until|times|repeat|optional|name|min|max|lit|literal)(?!\\w)",
+      "name": "keyword.other.pattern.sml"
+    },
+    "pattern-class": {
+      "comment": "内置字符类取值（中英等价）：与 Rust 原始类型同色。",
+      "match": "(?<!\\w)(数字|字母|空白|字|任意|digit|alpha|space|word|any)(?!\\w)",
+      "name": "support.type.primitive.sml"
+    },
+    "contract-field": {
+      "comment": "契约字段名：与 Rust struct 字段同色。支持中文键名。",
+      "match": "([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)\\s*(?=:)",
+      "captures": { "1": { "name": "variable.other.member.sml" } }
+    },
+    "contract-enum": {
+      "comment": "enum [ a b c ] 与 enum(a,b,c)：enum 与括号为类型色，括号内为枚举成员。",
+      "match": "\\b(enum)\\s*([\\[(])([^\\])]*)([\\])])",
+      "captures": {
+        "1": { "name": "support.type.primitive.sml" },
+        "2": { "name": "support.type.primitive.sml" },
+        "3": { "name": "variable.other.enummember.sml" },
+        "4": { "name": "support.type.primitive.sml" }
+      }
+    },
+    "contract-type": {
+      "comment": "字段类型：与 Rust 原始类型同色。",
+      "match": "\\b(str|int|num|bool|any|array|enum)\\b",
+      "name": "support.type.primitive.sml"
+    },
+    "contract-modifier": {
+      "comment": "约束修饰符：与 Rust 的 pub/mut 同色。",
+      "match": "\\b(required|optional|default|min|max)\\b",
+      "name": "storage.modifier.sml"
+    },
+
+    "directive": {
+      "comment": "指令与片段定义。@is 是契约「调用」，契约名用引用色以区别于 @contract 处的「声明」色。",
+      "patterns": [
+        {
+          "comment": "调用契约（类型标注形式）：@is type(契约名) —— 与 `@is 契约名` 等价。type 为标注关键字色，契约名为引用色。必须排在裸名形式之前，否则 `type` 会被整块当作契约名。",
+          "match": "(@is)\\s+(type)(\\()([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)(\\))",
+          "captures": {
+            "1": { "name": "keyword.control.sml" },
+            "2": { "name": "keyword.other.declaration.sml" },
+            "3": { "name": "punctuation.definition.type.sml" },
+            "4": { "name": "variable.other.member.sml" },
+            "5": { "name": "punctuation.definition.type.sml" }
+          }
+        },
+        {
+          "comment": "调用契约：@is Name —— 契约名为引用色（区别于声明处的 entity.name.type）",
+          "match": "(@is)\\s+([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)",
+          "captures": {
+            "1": { "name": "keyword.control.sml" },
+            "2": { "name": "variable.other.member.sml" }
+          }
+        },
+        {
+          "comment": "版本声明：@version v1..v4（数字简写亦可）",
+          "match": "(@version)\\s+(v[1-4]|[1-4])\\b",
+          "captures": {
+            "1": { "name": "keyword.control.sml" },
+            "2": { "name": "constant.other.version.sml" }
+          }
+        },
+        {
+          "comment": "特性开关：@feature enable|disable|mode <name>",
+          "match": "(@feature)\\s+(enable|disable|mode)\\s+([\\w.\\-]+)",
+          "captures": {
+            "1": { "name": "keyword.control.sml" },
+            "2": { "name": "keyword.other.sml" },
+            "3": { "name": "entity.name.type.sml" }
+          }
+        },
+        {
+          "comment": "条件：@when $env.X == \"1\"",
+          "begin": "(@when)\\b",
+          "beginCaptures": { "1": { "name": "keyword.control.sml" } },
+          "end": "$",
+          "patterns": [
+            { "include": "#envvar" },
+            { "name": "keyword.operator.comparison.sml", "match": "(==|!=)" },
+            { "name": "string.quoted.double.sml", "match": "\"[^\"]*\"" },
+            { "name": "constant.language.sml", "match": "\\b(true|false)\\b" }
+          ]
+        },
+        {
+          "comment": "循环：@for var in a b c { ... }",
+          "match": "(@for)\\s+([A-Za-z_][\\w]*)\\s+(in)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.sml" },
+            "2": { "name": "variable.other.loop-variable.sml" },
+            "3": { "name": "keyword.other.sml" }
+          }
+        },
+        {
+          "comment": "import/include 行（含部分引用 { a, b } 与 as ns）",
+          "begin": "^\\s*(@?import|@?include)\\b",
+          "beginCaptures": { "1": { "name": "keyword.control.import.sml" } },
+          "end": "$",
+          "patterns": [
+            {
+              "match": "\\{([^}]*)\\}",
+              "captures": { "1": { "name": "variable.other.member.sml" } }
+            },
+            { "match": "\\b(as|in)\\b", "name": "keyword.other.sml" },
+            { "match": "\"([^\"]*)\"", "name": "string.quoted.double.sml" },
+            { "match": "[A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*", "name": "entity.name.namespace.sml" }
+          ]
+        },
+        {
+          "comment": "片段声明 @name：@ 为声明符、名为定义色。@ 前不得是单词字符——否则邮箱 a@b.c 里的 @b、ops@example.com 里的 @example 会被误判成片段声明",
+          "match": "(?<![\\w])(@)([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)",
+          "captures": {
+            "1": { "name": "keyword.other.declaration.sml" },
+            "2": { "name": "entity.name.function.fragment.sml" }
+          }
+        }
+      ]
+    },
+
+    "string": {
+      "name": "string.quoted.double.sml",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        { "name": "constant.character.escape.sml", "match": "\\\\." },
+        { "name": "variable.other.interpolation.sml", "match": "\\$\\{[^}]*\\}" },
+        { "comment": "字符串内的环境变量引用：$env.NAME 同样着色，便于在引号串里一眼看出嵌入了环境变量", "include": "#envvar" }
+      ]
+    },
+    "envvar": {
+      "name": "variable.other.env.sml",
+      "match": "\\$env\\.[A-Za-z_][\\w]*"
+    },
+    "fragment-ref": {
+      "comment": "片段调用 &name：& 为引用运算符、名为引用色。& 前不得是单词字符——避免 a&b、ops&dev 之类被误判成引用。",
+      "match": "(?<![\\w])(&)([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)",
+      "captures": {
+        "1": { "name": "keyword.operator.reference.sml" },
+        "2": { "name": "variable.other.member.sml" }
+      }
+    },
+    "constant": {
+      "name": "constant.language.sml",
+      "match": "\\b(true|false|null)\\b"
+    },
+    "number": {
+      "name": "constant.numeric.sml",
+      "match": "(?<!\\w)-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?"
+    },
+    "key": {
+      "comment": "数据区键名：支持中文。",
+      "match": "^\\s*([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)\\s*(?=:|\\s*\\{)",
+      "captures": { "1": { "name": "variable.other.member.sml" } }
+    },
+    "punctuation": {
+      "patterns": [
+        { "name": "punctuation.definition.block.sml", "match": "[{}]" },
+        { "name": "punctuation.definition.array.sml", "match": "[\\[\\]]" },
+        { "name": "punctuation.separator.key-value.sml", "match": ":" }
+      ]
+    }
+  }
+}
