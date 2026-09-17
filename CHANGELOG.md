@@ -6,11 +6,34 @@
 版本号遵循 Cargo 的语义化版本解释：**0.x 阶段 MINOR 变化视为不兼容**（0.6 → 0.7 会让下游无法自动更新），
 PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.6.0 → 0.6.1），只有真正的破坏性改动才动 MINOR。
 
-`swsml`（库）与 `smlconv`（CLI）版本号互相独立，各记各的小节。
+`swsml`（库）与 `smltools`（CLI）版本号互相独立，各记各的小节。
 
 ---
 
 ## [未发布]
+
+## [0.2.0] — 2026-09-18 · smltools（原 smlconv）
+
+### 变更
+
+- **crate 改名：`smlconv` → `smltools`。** 原 `smlconv` crate 不再更新，包名、二进制名与
+  全部文档/脚本引用一并迁移。改名对下游是**不兼容变更**（`Cargo.toml`、脚本、CI 里的包名与
+  命令名都要改），故按 0.x 纪律动 MINOR（0.1.9 → 0.2.0）。
+  新名字也更贴合定位：它不只是「转换器」，还包含**迁移**（`--from json|yaml`）、
+  **特征剥离**（`--strip`）与 **lint**。
+- 站点章节 URL `/book/ch12-smlconv/` → `/book/ch12-smltools/`，旧地址用 Hugo
+  `aliases` 保留跳转（避免已发布链接 404）。
+
+### 新增
+
+- `--to json`：SML → JSON。用于**对接既有工具链**（jq / 各类 JSON 库 / 只吃 JSON 的 API），
+  而不是替代 SML；复用 crate 内既有的 `jsonify`，不另写序列化以免行为漂移。
+  注意：键按**字典序**输出（`Value::Object` 基于 `BTreeMap`），原始书写顺序不保留。
+- `--from json|yaml`：把存量 JSON / YAML 迁进 SML。缺省按扩展名自动推断
+  （`.json` → json，`.yaml`/`.yml` → yaml，其余 → sml）。
+  YAML 侧为**最小可用子集**（块/流式映射与序列、引号、数字、布尔、null、注释、
+  块标量 `|`/`>`、锚点与别名），不追求完整 YAML 1.2；`yes/no/on/off` 一律当字符串
+  （避免「挪威问题」）。不支持 `? 复杂键`、`!!` 标签、合并键 `<<` 与多文档。
 
 ## [0.6.1] — 2026-09-18 · swsml
 
@@ -46,7 +69,7 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 文档 / 工具链
 
-- 教科书新增第 12 章「smlconv 多目标翻译器」（中英），并补进目录页。
+- 教科书新增第 12 章「smltools 多目标翻译器」（中英），并补进目录页。
 - VSCode 扩展 **0.4.2**：引号串内的环境变量引用 `$env.NAME` 现在同样着色（此前只有 `${...}` 着色）。
 - `site/public/sml.mjs` 同步至源实现 `js/sml.mjs`（此前是落后副本）：
   括号 `(` `)` **不再是分隔符**（与 Rust 词法 `sml-lex` 对齐，`备注: (重要)` 不再被切成垃圾键）、
@@ -56,7 +79,7 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ---
 
-## [0.1.9] — 2026-09-18 · smlconv
+## [0.1.9] — 2026-09-18 · smltools
 
 ### 新增
 
@@ -69,4 +92,4 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 - 新增长文档压测素材 `story/`：35 万字 SML 小说样本 `novel.sml`、生成脚本 `gen_novel.py`、
   七个后端（`sml/md/svg/slint/lvgl/latex/xml`）的产出，以及压测发现的功能缺口报告
-  `ISSUE_smlconv_缺失功能.md`。用于回归「超长文档解析 + 全后端 emit」的健康度。
+  `ISSUE_smltools_缺失功能.md`。用于回归「超长文档解析 + 全后端 emit」的健康度。

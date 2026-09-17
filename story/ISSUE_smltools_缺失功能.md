@@ -1,8 +1,8 @@
-# Issue：smlconv 功能缺失报告（部件 / 长文档产出 / 跨格式一致性）
+# Issue：smltools 功能缺失报告（部件 / 长文档产出 / 跨格式一致性）
 
-- 组件：smlconv（`rust/smlconv`）+ emit 后端（`rust/src/emit/*`）
+- 组件：smltools（`rust/smltools`）+ emit 后端（`rust/src/emit/*`）
 - 现象来源：以一份约 35 万字（`novel.sml`，351,217 非 ASCII 字符）的 SML 长篇科幻小说
-  压测 smlconv，7 个后端（sml/md/svg/slint/lvgl/latex/xml）均**能解析并成功 emit**，
+  压测 smltools，7 个后端（sml/md/svg/slint/lvgl/latex/xml）均**能解析并成功 emit**，
   说明长文档的解析与基本转译能力是健康的；但在"写小说 / 写结构化长文"这一真实场景下，
   暴露出以下**功能缺失与不一致**。按用户要求，重点报告「部件（组件）」相关缺口。
 
@@ -41,7 +41,7 @@
 ## 二、长文档（小说）缺少直接产出格式：EPUB / 独立 HTML
 
 - `--to` 取值：`md|markdown|xml|svg|latex|slint|lvgl|custom|sml`，**没有 EPUB，也没有独立 HTML**。
-- 写一部长篇小说的自然目标是电子书（EPUB）或自带样式的 HTML 站点，但 smlconv 只能先
+- 写一部长篇小说的自然目标是电子书（EPUB）或自带样式的 HTML 站点，但 smltools 只能先
   `--to md` 再依赖外部工具（pandoc）转 EPUB，链路断裂、且丢失 SML 的 `label` 锚点/
   多视图等语义。
 - 现有 `--hugo` / `--zola` 是"落盘成 front-matter 的 .md"，仍需外部 `hugo`/`zola build`，
@@ -56,7 +56,7 @@
 
 - 35 万字文档 `--to md` 只产出**单个大文件**；没有按 `section` 拆多文件、没有 TOC、没有分卷。
 - `emit/markdown.rs` 的 `topic`/`section` 已能映射 `h1..h6` 并带 `id` 锚点（基础设施已具备），
-  但 smlconv 层没有把"章节 → 文件"或"章节 → TOC"的能力暴露出来。
+  但 smltools 层没有把"章节 → 文件"或"章节 → TOC"的能力暴露出来。
 
 **建议**：`--split-by section`（每章一个 .md/文件）、`--toc`（生成目录）、`--hugo` 已支持，
 补齐 Zola/Hugo 之外的原生分章与 TOC。
@@ -74,7 +74,7 @@ em / strong / del / topic / section / para / quote / math / theorem / proof` 以
 1. **`figure` / `figcaption`（图 + 图注 + 图号）**：`img` 已支持，但无带编号图注的语义包裹，
    长文档插图文无法自动编号与交叉引用。
 2. **`admonition` / `callout`（提示框 / 警告框 / 注意框）**：文档站（Hugo/Docsify）标配，
-   smlconv 无对应块类型，只能退化成 generic object 渲染成难看的 `### key` 列表。
+   smltools 无对应块类型，只能退化成 generic object 渲染成难看的 `### key` 列表。
 3. **`footnote`（脚注）**：`MarkdownOptions` 注释里把脚注列为 v2 规划特性，但**代码未实现**
    （实测无 `footnote` 分支）。
 4. **`definition list`（定义列表）**：无语义块，只能靠 generic object 近似。
@@ -117,8 +117,8 @@ sub/sup/toc），并让 `theorem/proof/math` 与内联角色在 latex/svg 等后
 
 ## 六、无增量 emit
 
-- `smlconv` 每次都是**整篇重 emit**；改一处也要重转全部 35 万字。
-- 对长文档，局部改动后整篇重转既慢又浪费；smlconv 不提供"只重转变更块"的能力。
+- `smltools` 每次都是**整篇重 emit**；改一处也要重转全部 35 万字。
+- 对长文档，局部改动后整篇重转既慢又浪费；smltools 不提供"只重转变更块"的能力。
 
 **建议**：emit 层按块做内容哈希缓存，只重算源文本变更过的块，支持"增量 emit / 增量写出"。
 
@@ -155,14 +155,14 @@ sub/sup/toc），并让 `theorem/proof/math` 与内联角色在 latex/svg 等后
 python gen_novel.py
 
 # 全后端 emit 均成功（验证解析/基本转译健康）
-smlconv -i novel.sml --to md   -o novel.out.md
-smlconv -i novel.sml --to svg  -o novel.out.svg
-smlconv -i novel.sml --to slint -o novel.out.slint
-smlconv -i novel.sml --to lvgl -o novel.out.lvgl
-smlconv -i novel.sml --to latex -o novel.out.latex
-smlconv -i novel.sml --to xml  -o novel.out.xml
-smlconv -i novel.sml --to sml  -o novel.out.sml
+smltools -i novel.sml --to md   -o novel.out.md
+smltools -i novel.sml --to svg  -o novel.out.svg
+smltools -i novel.sml --to slint -o novel.out.slint
+smltools -i novel.sml --to lvgl -o novel.out.lvgl
+smltools -i novel.sml --to latex -o novel.out.latex
+smltools -i novel.sml --to xml  -o novel.out.xml
+smltools -i novel.sml --to sml  -o novel.out.sml
 
 # 暴露问题一的写法（解析失败）：
-# 在 novel.sml 顶部加  @feature base "星海回响"  -> smlconv: parse error
+# 在 novel.sml 顶部加  @feature base "星海回响"  -> smltools: parse error
 ```

@@ -3,13 +3,13 @@
 
 Pipeline
 --------
-    ui.sml  --(smlconv --to lvgl)-->  generic LVGL XML
+    ui.sml  --(smltools --to lvgl)-->  generic LVGL XML
              --(normalise)-->         LVGL Pro XML project (project.xml / globals.xml / screens/*.xml)
              --(lved generate | builtin emitter)-->  ui_gen.c / ui_gen.h
 
 Why the normalise step exists
 -----------------------------
-`smlconv --to lvgl` emits a *generic* LVGL XML (stripped `lv_` prefixes, `<event>`
+`smltools --to lvgl` emits a *generic* LVGL XML (stripped `lv_` prefixes, `<event>`
 children, no `<view>` root). LVGL Pro's real schema wants `lv_label`/`lv_button`,
 an `<event_cb>` element and a `<view>` wrapper, so the two are not interchangeable.
 
@@ -21,7 +21,7 @@ plain LVGL v9 C for the supported widget/attribute subset.
 Usage
 -----
     python tools/sml2lvgl.py --sml ui.sml --out build/ui [--name main]
-    python tools/sml2lvgl.py --sml ui.sml --out build/ui --smlconv path/to/smlconv
+    python tools/sml2lvgl.py --sml ui.sml --out build/ui --smltools path/to/smltools
     python tools/sml2lvgl.py --sml ui.sml --out build/ui --lved path/to/lved-cli.js
 
 Env
@@ -41,7 +41,7 @@ import xml.etree.ElementTree as ET
 # widget vocabulary
 # --------------------------------------------------------------------------
 
-# generic tag (from smlconv) -> LVGL Pro tag
+# generic tag (from smltools) -> LVGL Pro tag
 WIDGET_TAGS = {
     "obj", "label", "button", "slider", "bar", "switch", "checkbox",
     "arc", "image", "dropdown", "text_input", "text_box", "textarea",
@@ -141,34 +141,34 @@ C_FLEX_FLOW_ENUM = {
 }
 
 # --------------------------------------------------------------------------
-# step 1: SML -> generic LVGL XML (via smlconv)
+# step 1: SML -> generic LVGL XML (via smltools)
 # --------------------------------------------------------------------------
 
 
-def find_smlconv(explicit=None):
+def find_smltools(explicit=None):
     if explicit:
         return explicit
     here = os.path.dirname(os.path.abspath(__file__))
     root = os.path.dirname(here)
     for cand in (
-        os.path.join(root, "rust", "target", "debug", "smlconv.exe"),
-        os.path.join(root, "rust", "target", "release", "smlconv.exe"),
-        os.path.join(root, "rust", "target", "debug", "smlconv"),
-        os.path.join(root, "rust", "target", "release", "smlconv"),
+        os.path.join(root, "rust", "target", "debug", "smltools.exe"),
+        os.path.join(root, "rust", "target", "release", "smltools.exe"),
+        os.path.join(root, "rust", "target", "debug", "smltools"),
+        os.path.join(root, "rust", "target", "release", "smltools"),
     ):
         if os.path.isfile(cand):
             return cand
-    return shutil.which("smlconv")
+    return shutil.which("smltools")
 
 
-def sml_to_generic_xml(sml_path, smlconv):
-    """Run `smlconv --to lvgl` and return the XML text."""
-    if not smlconv:
-        raise SystemExit("smlconv not found; build it or pass --smlconv")
-    r = subprocess.run([smlconv, "-i", sml_path, "--to", "lvgl"],
+def sml_to_generic_xml(sml_path, smltools):
+    """Run `smltools --to lvgl` and return the XML text."""
+    if not smltools:
+        raise SystemExit("smltools not found; build it or pass --smltools")
+    r = subprocess.run([smltools, "-i", sml_path, "--to", "lvgl"],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
-        raise SystemExit(f"smlconv failed ({r.returncode}):\n{r.stderr}")
+        raise SystemExit(f"smltools failed ({r.returncode}):\n{r.stderr}")
     return r.stdout
 
 
@@ -238,14 +238,14 @@ def normalise(elem):
 
 def to_pro_xml(generic_xml, screen_name):
     text = generic_xml.strip()
-    # strip the xml declaration smlconv emits, ET dislikes it with encoding=
+    # strip the xml declaration smltools emits, ET dislikes it with encoding=
     text = re.sub(r"^<\?xml[^>]*\?>\s*", "", text)
     root = ET.fromstring(text)
     nodes = normalise(root)
     if len(nodes) != 1 or nodes[0].tag != "screen":
         nodes = [n for n in nodes if n.tag == "screen"]
     if not nodes:
-        raise SystemExit("no <screen> found in smlconv lvgl output")
+        raise SystemExit("no <screen> found in smltools lvgl output")
     screen = nodes[0]
     if not screen.attrib.get("name"):
         screen.set("name", screen_name)
@@ -501,7 +501,7 @@ def main():
     ap.add_argument("--name", default=None, help="screen name (default: SML file stem)")
     ap.add_argument("--width", type=int, default=320)
     ap.add_argument("--height", type=int, default=240)
-    ap.add_argument("--smlconv", default=None, help="path to smlconv binary")
+    ap.add_argument("--smltools", default=None, help="path to smltools binary")
     ap.add_argument("--lved", default=None, help="path to lved-cli.js; enables the Pro codegen")
     ap.add_argument("--no-c", action="store_true", help="only emit the LVGL Pro XML project")
     args = ap.parse_args()
@@ -510,7 +510,7 @@ def main():
     screen_name = re.sub(r"\W", "_", screen_name)
 
     print(f"[1/4] SML -> generic LVGL XML  ({args.sml})")
-    generic = sml_to_generic_xml(args.sml, find_smlconv(args.smlconv))
+    generic = sml_to_generic_xml(args.sml, find_smltools(args.smltools))
     print(generic.strip())
 
     print("\n[2/4] normalise -> LVGL Pro XML")

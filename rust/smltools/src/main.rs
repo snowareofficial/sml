@@ -1,6 +1,6 @@
 // Copyright (C) SNOWARE
 // SPDX-License-Identifier: MulanPSL-2.0
-//! `smlconv` — SML 命令行转译器（部分 emit / 文档站集成）。
+//! `smltools` — SML 命令行转译器（部分 emit / 文档站集成）。
 //!
 //! ⚠️ **实验性 (EXPERIMENTAL)**：本 crate 已从 `swsml` 主 crate 拆分为独立发布
 //! （版本 `0.1.5`），CLI 接口与 emit 后端组合仍可能随用户反馈调整，暂不做语义化
@@ -9,10 +9,10 @@
 //! 把一份 SML 文档经解析后，使用选定的 emit 后端翻译为目标文本：
 //!
 //! ```text
-//! smlconv -i doc.sml --to md            # SML -> Markdown
-//! smlconv -i doc.sml --to xml -o d.xml  # SML -> XML
-//! cat doc.sml | smlconv --to svg        # 管道：stdin -> stdout
-//! smlconv -i doc.sml --hugo content/zh  # 生成 content/zh/doc.md（含 front matter）
+//! smltools -i doc.sml --to md            # SML -> Markdown
+//! smltools -i doc.sml --to xml -o d.xml  # SML -> XML
+//! cat doc.sml | smltools --to svg        # 管道：stdin -> stdout
+//! smltools -i doc.sml --hugo content/zh  # 生成 content/zh/doc.md（含 front matter）
 //! ```
 //!
 //! `--to` 取值：`md`/`markdown`/`xml`/`svg`/`latex`/`slint`/`lvgl`/`custom`/`sml`。
@@ -37,6 +37,10 @@ use std::path::Path;
 enum Format {
     /// 原样回显（SML 序列化）。
     Sml,
+    /// JSON 序列化。用途不是"替代 SML"，而是**对接现有工具链**：
+    /// jq / 各类 JSON 库 / 只吃 JSON 的 API —— 让 SML 融进既有生态，
+    /// 而不必要求对方先支持 SML。与 `--from json` 一起构成迁移闭环。
+    Json,
     #[default]
     Markdown,
     Xml,
@@ -52,8 +56,9 @@ impl Format {
     /// 全部格式。用于 `--to` 报错提示 —— 原先提示里的
     /// `(md|xml|svg|latex|slint|lvgl|html|custom|sml)` 是**手写**的，
     /// 与 `name()` 两处维护；0.6.1 新增 `html` 时就得靠人工同步两个地方。
-    const ALL: [Format; 9] = [
+    const ALL: [Format; 10] = [
         Format::Markdown,
+        Format::Json,
         Format::Xml,
         Format::Svg,
         Format::Latex,
@@ -76,6 +81,7 @@ impl Format {
     fn parse(s: &str) -> Option<Format> {
         match s.to_ascii_lowercase().as_str() {
             "md" | "markdown" => Some(Format::Markdown),
+            "json" => Some(Format::Json),
             "xml" => Some(Format::Xml),
             "svg" => Some(Format::Svg),
             "latex" | "tex" => Some(Format::Latex),
@@ -91,6 +97,7 @@ impl Format {
     fn name(&self) -> &'static str {
         match self {
             Format::Sml => "sml",
+            Format::Json => "json",
             Format::Markdown => "markdown",
             Format::Xml => "xml",
             Format::Svg => "svg",
@@ -105,7 +112,7 @@ impl Format {
 
 #[derive(clap::Parser)]
 #[command(
-    name = "smlconv",
+    name = "smltools",
     version,
     about = "SML 转换工具：把 SML 源转换为多种格式，并可直接对接 Hugo / Zola 静态站点生成器（实验性）",
     long_about = None
@@ -119,7 +126,7 @@ struct Cli {
     #[arg(short = 'o', long = "output")]
     output: Option<PathBuf>,
 
-    /// 目标格式：md(默认) / xml / svg / latex / slint / lvgl / html / custom / sml
+    /// 目标格式：md(默认) / json / xml / svg / latex / slint / lvgl / html / custom / sml
     #[arg(long = "to", alias = "format", default_value = "md")]
     format: String,
 
@@ -239,8 +246,8 @@ fn read_input(input: &Option<PathBuf>) -> Result<String, String> {
                 Ok(Ok(s)) => Ok(s),
                 Ok(Err(e)) => Err(format!("read stdin: {e}")),
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(
-                    "未检测到输入：请用 `-i <file.sml>` 指定文件，或用管道 `cat x.sml | smlconv`。\n\
-                     运行 `smlconv --help` 查看完整用法。"
+                    "未检测到输入：请用 `-i <file.sml>` 指定文件，或用管道 `cat x.sml | smltools`。\n\
+                     运行 `smltools --help` 查看完整用法。"
                         .to_string(),
                 ),
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(
@@ -262,7 +269,7 @@ fn parse_with(text: &str, input_path: &Option<PathBuf>, feature: Option<Version>
     if let Some(v) = feature {
         if v != Version::V4 {
             eprintln!(
-                "smlconv: note: 解析器以 v4 模式工作；声明 `--feature {}` 仅作提示",
+                "smltools: note: 解析器以 v4 模式工作；声明 `--feature {}` 仅作提示",
                 v.name()
             );
         }
@@ -288,7 +295,7 @@ fn expand_includes(text: &str, base: &Path) -> Result<String, String> {
 
 fn expand_includes_impl(text: &str, base: &Path, depth: usize) -> Result<String, String> {
     if depth > 16 {
-        return Err("smlconv: include 嵌套超过 16 层".into());
+        return Err("smltools: include 嵌套超过 16 层".into());
     }
     let mut out = String::new();
     for line in text.lines() {
@@ -305,13 +312,13 @@ fn expand_includes_impl(text: &str, base: &Path, depth: usize) -> Result<String,
             {
                 let full = base.join(rel);
                 let inc = std::fs::read_to_string(&full)
-                    .map_err(|e| format!("smlconv: include 读取 {} 失败: {e}", full.display()))?;
+                    .map_err(|e| format!("smltools: include 读取 {} 失败: {e}", full.display()))?;
                 let inc_base = full.parent().unwrap_or(base);
                 out.push_str(&expand_includes_impl(&inc, inc_base, depth + 1)?);
                 out.push('\n');
                 continue;
             }
-            return Err(format!("smlconv: include 路径解析失败: {line}"));
+            return Err(format!("smltools: include 路径解析失败: {line}"));
         }
         out.push_str(line);
         out.push('\n');
@@ -330,6 +337,9 @@ fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, String> {
             };
             sml::emit::to_markdown(value, &opt)
         }
+        // JSON：直接复用 crate 内既有的 `jsonify`（与 C-ABI 同款实现，零依赖、带转义），
+        // 不再另写一份序列化，避免两处行为漂移。
+        Format::Json => Ok(sml::jsonify(value)),
         Format::Xml => {
             let opt = XmlOptions {
                 base: EmitOptions {
@@ -480,7 +490,7 @@ fn write_zola(
             Some(p) => p,
             None => {
                 return Err(
-                    "smlconv: --zola-build 需要本机安装 `zola`（未找到，请先安装或将 zola 加入 PATH）"
+                    "smltools: --zola-build 需要本机安装 `zola`（未找到，请先安装或将 zola 加入 PATH）"
                         .to_string(),
                 )
             }
@@ -490,9 +500,9 @@ fn write_zola(
             .arg("build")
             .current_dir(zola_dir)
             .status()
-            .map_err(|e| format!("smlconv: 无法启动 zola: {e}"))?;
+            .map_err(|e| format!("smltools: 无法启动 zola: {e}"))?;
         if !status.success() {
-            return Err(format!("smlconv: zola build 失败 (exit {:?})", status.code()));
+            return Err(format!("smltools: zola build 失败 (exit {:?})", status.code()));
         }
         eprintln!("zola build 完成");
     }
@@ -633,25 +643,25 @@ fn main() -> ExitCode {
     let args = match parse_args() {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("smlconv: {e}");
+            eprintln!("smltools: {e}");
             return ExitCode::from(2);
         }
     };
 
     // 互斥 / 依赖校验
     if args.zola_build && args.zola.is_none() {
-        eprintln!("smlconv: --zola-build 必须与 --zola <dir> 一起使用");
+        eprintln!("smltools: --zola-build 必须与 --zola <dir> 一起使用");
         return ExitCode::from(2);
     }
     if args.hugo.is_some() && args.zola.is_some() {
-        eprintln!("smlconv: --hugo 与 --zola 互斥，请只选其一");
+        eprintln!("smltools: --hugo 与 --zola 互斥，请只选其一");
         return ExitCode::from(2);
     }
 
     let text = match read_input(&args.input) {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("smlconv: {e}");
+            eprintln!("smltools: {e}");
             return ExitCode::from(2);
         }
     };
@@ -659,7 +669,7 @@ fn main() -> ExitCode {
     let value = match parse_with(&text, &args.input, args.feature) {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("smlconv: parse error: {e}");
+            eprintln!("smltools: parse error: {e}");
             return ExitCode::from(1);
         }
     };
@@ -667,7 +677,7 @@ fn main() -> ExitCode {
     let rendered = match emit(&value, args.format, &args) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("smlconv: emit error: {e}");
+            eprintln!("smltools: emit error: {e}");
             return ExitCode::from(1);
         }
     };
@@ -677,7 +687,7 @@ fn main() -> ExitCode {
         match write_hugo(&rendered, &value, &args, &args.input) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("smlconv: {e}");
+                eprintln!("smltools: {e}");
                 ExitCode::from(2)
             }
         }
@@ -686,7 +696,7 @@ fn main() -> ExitCode {
         match write_zola(&rendered, &value, &args, &args.input) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("smlconv: {e}");
+                eprintln!("smltools: {e}");
                 ExitCode::from(2)
             }
         }
@@ -698,7 +708,7 @@ fn main() -> ExitCode {
                     ExitCode::SUCCESS
                 }
                 Err(e) => {
-                    eprintln!("smlconv: write {}: {e}", p.display());
+                    eprintln!("smltools: write {}: {e}", p.display());
                     ExitCode::from(2)
                 }
             },
