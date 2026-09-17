@@ -32,9 +32,12 @@ site/build_site.log
 site/hugo_server.log
 site/hugo_server.err
 
-# 本地凭据文件（含密钥，切勿提交）—— 通用规则，不绑定具体服务商
+# 本地凭据文件（含密钥，切勿提交）—— 通用规则，不绑定具体服务商。
+# ⚠️ 必须包含 `*.env`：`.baidu.env` 这类「前缀 + .env 后缀」的命名只有它能匹配。
+# （曾因漏掉这条，把本机真实凭据文件提交进了仓库。）
 .env
-.env.local
+.env.*
+*.env
 *.env.local
 
 # 临时/调试脚本（非库代码，勿提交）
