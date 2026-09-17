@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iomanip>
 #include <algorithm>
+#include <filesystem>
 #include <iostream>
 
 namespace sml {
@@ -513,6 +514,10 @@ static bool resolve_and_check(const ValuePtr& v, const TypeSpec& spec,
 // ===========================================================================
 // Parser internals
 // ===========================================================================
+/* 值嵌套深度上限：与 C / Rust 侧同口径（Rust 为 MAX_VALUE_DEPTH=128）。
+   `a{a{a{ … }}}` 会把递归下降一路压栈，栈溢出在 C++ 里同样接不住。 */
+#define SML_MAX_VALUE_DEPTH 128
+
 struct PState {
     std::vector<Token> toks;
     size_t i = 0;
@@ -521,12 +526,14 @@ struct PState {
     std::string include_dir;
     std::string* err = nullptr;
     std::vector<std::string> include_stack;
+    int depth = 0;              /* 当前块/数组嵌套深度（栈溢出防护） */
 };
 
 // forward decls
 static void set_field_local(const ValuePtr& node, const std::string& k, const ValuePtr& v);
 
 static ValuePtr parse_value(PState& st);
+static ValuePtr parse_value_inner(PState& st);
 
 static ValuePtr parse_array(PState& st) {
     auto arr = Value::array();
@@ -542,7 +549,24 @@ static ValuePtr parse_array(PState& st) {
 static ValuePtr parse_block(PState& st, bool top = false);
 
 // parse a value: object / array / scalar
+//
+// 守卫 wrapper：真正的实现在 parse_value_inner。包一层而不是改每个 return 点，
+// 是为了不漏任何出口（parse_value 有多个提前返回）。
 static ValuePtr parse_value(PState& st) {
+    if (st.depth >= SML_MAX_VALUE_DEPTH) {
+        if (st.err)
+            *st.err = "sml: 嵌套过深（超过 " + std::to_string(SML_MAX_VALUE_DEPTH)
+                      + " 层），疑似递归或恶意输入";
+        st.depth = 0;
+        return Value::null();
+    }
+    st.depth++;
+    ValuePtr v = parse_value_inner(st);
+    if (st.depth > 0) st.depth--;
+    return v;
+}
+
+static ValuePtr parse_value_inner(PState& st) {
     if (st.i >= st.toks.size()) return Value::null();
     auto& t = st.toks[st.i];
     if (t.t == Token::T::LBrace)  return parse_block(st);
@@ -627,7 +651,26 @@ static ValuePtr parse_block(PState& st, bool top) {
                     if (!path.empty() && path[0]=='"' && path.back()=='"') path = path.substr(1, path.size()-2);
                     if (!st.include_dir.empty()) {
                         std::string full = st.include_dir + "/" + path;
-                        std::ifstream f(full);
+                        /* 路径穿越防护：规范化后必须仍在基准目录之内。
+                           缺这道校验时 `@include "../../etc/passwd"` 会把任意文件读进来。 */
+                        namespace fs = std::filesystem;
+                        std::error_code ec1, ec2;
+                        fs::path canon = fs::weakly_canonical(fs::path(full), ec1);
+                        fs::path basec = fs::weakly_canonical(fs::path(st.include_dir), ec2);
+                        /* 初值 false = fail-closed：规范化失败时**拒绝**，
+                           而不是"比不了就放行"。 */
+                        bool inside = false;
+                        if (!ec1 && !ec2) {
+                            inside = true;
+                            auto cit = canon.begin();
+                            for (auto bit = basec.begin(); bit != basec.end(); ++bit, ++cit) {
+                                if (cit == canon.end() || *cit != *bit) { inside = false; break; }
+                            }
+                        }
+                        if (!inside && st.err)
+                            *st.err = "sml: include 目标越出基准目录: " + path;
+                        /* 越界时不打开任何文件（传空路径必然失败），控制流保持原样 */
+                        std::ifstream f(inside ? full : std::string());
                         if (f) {
                             std::stringstream ss; ss << f.rdbuf();
                             std::string inc = ss.str();

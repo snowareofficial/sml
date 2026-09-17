@@ -272,6 +272,9 @@ function valueMatchesType(v, sp) {
 
 function applyDefaults(contract, obj) {
   for (const [k, sp] of Object.entries(contract.fields)) {
+    // 契约字段名来自文档，同样不可为危险键（纵深防御；
+    // `in` 判定已挡住 __proto__ 之类，这里兜住 prototype 这类非原型链键）
+    if (DANGEROUS_KEYS.has(k)) continue;
     if (!(k in obj) && sp.def !== undefined) obj[k] = sp.def;
   }
 }
@@ -801,6 +804,8 @@ export function parse(text, opts) {
       if (tg.keys && Array.isArray(tg.keys)) {
         filtered = {};
         for (const k of tg.keys) {
+          // 键名来自 include 行文本（用户可控），同样要挡危险键
+          if (DANGEROUS_KEYS.has(k)) continue;
           if (k in v) filtered[k] = v[k];
         }
       }

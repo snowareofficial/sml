@@ -63,6 +63,9 @@ const DiagnosticSeverity = { Error: 1, Warning: 2, Information: 3, Hint: 4 };
 const docs = new Map(); // uri -> text
 
 // ——— 帧读写 ———
+// 单条消息字节上限：Content-Length 可由对端随意声称，不设限会被撑爆内存
+const MAX_MESSAGE_BYTES = 16 * 1024 * 1024;
+
 let buffer = Buffer.alloc(0);
 process.stdin.on("data", (chunk) => {
   buffer = Buffer.concat([buffer, chunk]);
@@ -73,6 +76,12 @@ process.stdin.on("data", (chunk) => {
     const m = /Content-Length: (\d+)/i.exec(header);
     if (!m) { buffer = Buffer.alloc(0); break; }
     const len = parseInt(m[1], 10);
+    // 上限保护：协议头声称的长度可以被任意伪造，不设限会让本进程
+    // 一路 Buffer.concat 直到内存耗尽。超限即丢弃当前缓冲并重新同步。
+    if (!Number.isFinite(len) || len < 0 || len > MAX_MESSAGE_BYTES) {
+      buffer = Buffer.alloc(0);
+      break;
+    }
     const start = headerEnd + 4;
     if (buffer.length < start + len) break;
     const body = buffer.slice(start, start + len).toString();
