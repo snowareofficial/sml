@@ -5,12 +5,9 @@
 //! 而 `sml-lex` 又依赖 `sml-feature` 的 `FeatureSet`——
 //! 放进 `sml-feature` 会形成循环依赖。
 
-use std::collections::BTreeMap;
-
 use sml_feature::{FEATURES, Feature, FeatureMode, FeatureSet, Version};
 use sml_lex::{Tok, advance_line, compute_string_spans, line_starts_in_string, tokenize};
 use sml_include::strip_line_comment;
-use sml_value::Value;
 
 /// 取出 token 的字符串内容（Word / Str 都取其文本；其余返回空串）。
 pub fn tok_word(t: &Tok) -> String {

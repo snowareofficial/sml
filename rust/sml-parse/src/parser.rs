@@ -2,15 +2,15 @@
 //! SML 语法分析器：递归下降，消费 [`Tok`] 序列产出 [`Value`] 树。
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use sml_feature::{Feature, FeatureSet, Version};
-use sml_lex::{Tok, coerce_word, lookup_env, tokenize};
-use sml_contract::{Contract, FieldSpec, TypeSpec};
+use sml_feature::{Feature, FeatureSet};
+use sml_lex::{Tok, coerce_word, lookup_env};
+use sml_contract::{Contract, ContractExt, FieldSpec, Modifier, TypeCheck, TypeSpec};
 use sml_value::{MAX_VALUE_DEPTH, Value};
 
-use crate::scan::{strip_features, strip_version};
 use crate::contract_bridge::apply_contract;
+use crate::ext::{Diagnostic, DiagnosticKind, DirectiveTable, Outcome};
 
 /// 解析器。`pub` 仅为让 `cond` 等子模块复用游标，不对外暴露。
 pub struct Parser {
@@ -38,6 +38,13 @@ pub struct Parser {
     /// 这里的值。作用域按 `@for` 嵌套自然叠加（内层覆盖外层同名），属于 cond 模块
     /// 的解析期指令家族，由 cargo feature `when` 门控整体带入。
     pub(crate) loop_vars: BTreeMap<String, String>,
+    /// 外置 `@` 指令表（由下游注册，见 [`crate::ext`]）。
+    /// 为空表时解析行为与既有实现**完全一致**，故零扩展 = 零影响。
+    pub(crate) directives: Arc<DirectiveTable>,
+    /// 非致命诊断（弃用提示等），随结果一并返回，不打断解析。
+    pub(crate) diags: Vec<Diagnostic>,
+    /// 外置契约类型表（由下游注册，见 [`crate::ext`]）。
+    pub(crate) contract_ext: Arc<ContractExt>,
 }
 
 impl Parser {
@@ -114,6 +121,10 @@ impl Parser {
 
     /// 从当前游标（应在 `{` 处）切出整个块的内部 token（不含两端括号），并推进游标越过 `}`。
     /// 用于 `@for` 对每个迭代值重放（重放语义：同份模板 + 不同循环变量 = 不同对象）。
+    ///
+    /// 仅 `@for` 使用：随 cargo feature `when` 一起编译，关闭时不参与编译
+    /// （否则会留一条 dead_code 警告，掩盖真正的问题）。
+    #[cfg(feature = "when")]
     fn slice_block_tokens(&mut self) -> Result<Vec<Tok>, String> {
         if self.peek() != Some(&Tok::LBrace) {
             return Err("sml: `@for` 后须 `{ ... }` 循环体".into());
@@ -148,6 +159,54 @@ impl Parser {
     /// 以当前解析器为蓝本，生成一个**块级子解析器**，专用于重放 `@for` 的某一轮迭代。
     /// 继承片段表/契约表/特性集/命名空间/环境变量，但用独立的 `loop_vars`
     /// （叠加当前迭代的 `${var}=item`，以支持嵌套 `@for` 看到外层绑定）。
+    /// 取外置指令的参数名。
+    ///
+    /// 两种写法都收，但位置参数形式会产出一条弃用诊断：
+    /// - **显式（推荐）**：`@xxx name: X { .. }` —— 与片段定义的参数写法一致，
+    ///   不与「拼错的指令」同形，v4 起是唯一不带歧义的形式；
+    /// - **位置参数**：`@xxx X { .. }` —— v4 起废弃，仅在指令显式声明
+    ///   `positional()` 时接受，为既有方言文档留迁移期通道。
+    fn take_directive_arg(
+        &mut self,
+        fname: &str,
+        positional: bool,
+    ) -> Result<Option<String>, String> {
+        // 显式形式：紧邻的 `name` 后必须跟冒号，否则它是普通裸词（如块体首键）。
+        let is_explicit = matches!(self.peek(), Some(Tok::Word(w)) if w.as_str() == "name")
+            && matches!(self.peek_at(1), Some(Tok::Colon));
+        if is_explicit {
+            self.next(); // `name`
+            self.next(); // `:`
+            return match self.next() {
+                Some(Tok::Word(s)) | Some(Tok::Str(s)) => Ok(Some(s)),
+                other => Err(format!(
+                    "sml: 扩展指令 `@{fname}` 的 `name:` 后须值，得 {other:?}"
+                )),
+            };
+        }
+        // 位置参数：裸词后必须紧跟 `{`，否则这个裸词多半属于别的语法成分，
+        // 不在此处消费（交给后续分支，避免把正常内容当参数吃掉）。
+        if positional && matches!(self.peek(), Some(Tok::Word(_)))
+            && matches!(self.peek_at(1), Some(Tok::LBrace))
+        {
+            let w = match self.next() {
+                Some(Tok::Word(s)) => s,
+                _ => unreachable!("前一步已确认是 Word"),
+            };
+            self.diags.push(Diagnostic {
+                kind: DiagnosticKind::Deprecated,
+                message: format!(
+                    "sml: 扩展指令 `@{fname} {w} {{ .. }}` 使用了位置参数形式；\
+                     自 v4 起推荐显式写作 `@{fname} name: {w} {{ .. }}`"
+                ),
+            });
+            return Ok(Some(w));
+        }
+        Ok(None)
+    }
+
+    /// 同 `slice_block_tokens`：`@for` 专用，随 feature `when` 一起编译。
+    #[cfg(feature = "when")]
     fn spawn_for_child(&self, inner: Vec<Tok>, var: &str, item: &str) -> Parser {
         let mut loop_vars = self.loop_vars.clone();
         loop_vars.insert(var.to_string(), item.to_string());
@@ -162,6 +221,11 @@ impl Parser {
             ns_stack: self.ns_stack.clone(),
             env: self.env.clone(),
             loop_vars,
+            directives: Arc::clone(&self.directives),
+            // 子解析器独立收集：`@for` 体内触发的诊断暂不回传父级
+            // （回传需要跨 &mut 借用，收益不抵复杂度；循环体通常不含弃用写法）。
+            diags: Vec::new(),
+            contract_ext: Arc::clone(&self.contract_ext),
         }
     }
 
@@ -255,6 +319,8 @@ impl Parser {
 
     /// 解析单个字段的类型与修饰符
     fn parse_field_spec(&mut self) -> Result<FieldSpec, String> {
+        // 命中外置类型时，把校验器带出去（塞进 `FieldSpec::ext`，校验期无需再查表）。
+        let mut ext_ty: Option<Arc<dyn TypeCheck>> = None;
         let ty = match self.next() {
             Some(Tok::Word(w)) => match w.as_str() {
                 "str" => TypeSpec::Str,
@@ -321,9 +387,11 @@ impl Parser {
                     }
                     TypeSpec::Enum(vals)
                 }
-                // 非内置类型名：先查 @type 声明的自定义类型（模式校验），
-                // 未命中再回落为**契约引用**（组合）。
-                // 次序不可颠倒：@type 与契约同名时，自定义类型优先。
+                // 非内置类型名，按此顺序判定：
+                //   1. @type 声明的自定义类型（模式校验）
+                //   2. **外置注册的类型**（下游定义，如 image / link / time）
+                //   3. 回落为契约引用（组合）
+                // 次序不可颠倒：@type 与外置/契约同名时，越靠前越"显式"。
                 other => {
                     if let Some(pat) = self.types.get(other) {
                         let compiled = sml_pattern::compile_rule(pat, &self.types)
@@ -334,6 +402,9 @@ impl Parser {
                             name: other.to_string(),
                             pat: compiled,
                         }
+                    } else if let Some(t) = self.contract_ext.type_arc(other) {
+                        ext_ty = Some(t);
+                        TypeSpec::Ext(other.to_string())
                     } else {
                         TypeSpec::ContractRef(other.to_string())
                     }
@@ -347,8 +418,17 @@ impl Parser {
                         "num" => TypeSpec::Num,
                         "bool" => TypeSpec::Bool,
                         "any" => TypeSpec::Any,
+                        // 数组元素也接受外置类型（如 `[image]`）
                         other => {
-                            return Err(format!("sml: 未知数组元素类型 `{}`", other))
+                            match self.contract_ext.type_arc(other) {
+                                Some(t) => {
+                                    ext_ty = Some(t);
+                                    TypeSpec::Ext(other.to_string())
+                                }
+                                None => {
+                                    return Err(format!("sml: 未知数组元素类型 `{}`", other))
+                                }
+                            }
                         }
                     },
                     other => {
@@ -368,6 +448,8 @@ impl Parser {
         let mut default = None;
         let mut min = None;
         let mut max = None;
+        // 命中的**外置修饰符**：留到 FieldSpec 构造之后再 apply（它需要 &mut FieldSpec）。
+        let mut pending_mods: Vec<(Arc<dyn Modifier>, Value)> = Vec::new();
         loop {
             // 若当前是 `标识符 :` 则视为下一个字段的开始，停止读修饰符
             let is_next_field = matches!(self.peek(), Some(Tok::Word(_)))
@@ -409,12 +491,66 @@ impl Parser {
                         self.next();
                         max = Some(self.parse_spec_number()?);
                     }
-                    _ => break,
+                    // 未知词：先查**外置修饰符**表，未命中才按"下一个字段的开始"退出。
+                    // 内置修饰符名在注册期就被拒绝，故不会与上面各分支抢。
+                    other => match self.contract_ext.modifier_arc(other) {
+                        Some(m) => {
+                            self.next(); // 消费修饰符名
+                            let v = self.parse_modifier_value()?;
+                            pending_mods.push((m, v));
+                        }
+                        None => break,
+                    },
                 },
                 _ => break,
             }
         }
-        Ok(FieldSpec { ty, required, default, min, max })
+        let mut spec = FieldSpec {
+            ty,
+            required,
+            default,
+            min,
+            max,
+            ext: ext_ty,
+            ext_data: BTreeMap::new(),
+            mods: Vec::new(),
+        };
+        // 外置修饰符：解析期改写规格，并把值带进校验期（供 `Modifier::check` 使用）。
+        for (m, v) in pending_mods {
+            m.apply(&mut spec, &v)?;
+            spec.ext_data.insert(m.name().to_string(), v);
+            spec.mods.push(m);
+        }
+        Ok(spec)
+    }
+
+    /// 解析外置修饰符的取值：裸词 / 引号串 / 块 / 数组。
+    fn parse_modifier_value(&mut self) -> Result<Value, String> {
+        match self.peek().cloned() {
+            Some(Tok::Word(w)) => {
+                self.next();
+                coerce_word(
+                    &w,
+                    &self.fragments,
+                    self.features,
+                    &self.ns_prefix(),
+                    Some(&self.env),
+                )
+            }
+            Some(Tok::Str(s)) => {
+                self.next();
+                Ok(Value::Str(s))
+            }
+            Some(Tok::LBrace) => {
+                self.next();
+                self.parse_block(Some(Tok::RBrace))
+            }
+            Some(Tok::LBrack) => {
+                self.next();
+                self.parse_array()
+            }
+            other => Err(format!("sml: 修饰符期望取值，得 {other:?}")),
+        }
     }
 
     fn parse_spec_number(&mut self) -> Result<f64, String> {
@@ -546,6 +682,38 @@ impl Parser {
                     };
                     if self.peek() == Some(&Tok::Colon) {
                         self.next();
+                    }
+                    // —— 外置扩展指令（下游注册，无需改动本 crate）——
+                    //
+                    // 命中条件：注册表里存在同名指令。内置指令名在注册阶段就被拒绝
+                    // （见 `DirectiveTable::register`），故这里绝不会拦截到
+                    // contract / is / type / version / feature / when / for。
+                    //
+                    // 这是「方言」的收编口：下游要挂元数据块（表单描述、处理流等）时，
+                    // 不必 fork 解析器，也不必把这些名字写进 SML 规范层 —— 方言定义
+                    // 留在下游仓库，SML 核心保持通用。
+                    if let Some(d) = self.directives.get_arc(&fname) {
+                        let arg = self.take_directive_arg(&fname, d.positional())?;
+                        let body = if self.peek() == Some(&Tok::LBrace) {
+                            self.next();
+                            self.parse_block(Some(Tok::RBrace))?
+                        } else {
+                            Value::Null
+                        };
+                        // 注：`Value` 实现了 `Drop`（浮点原始字面量需手工释放），
+                        // 因此不能按值 match 出内部字段（E0509），这里借引用再克隆。
+                        match &d.call(arg.as_deref(), body)? {
+                            // 元数据块：文档里写了，解析结果里不出现
+                            Outcome::Discard => {}
+                            // 展开进主树：值必须是对象，其字段合并进指令所在的块
+                            Outcome::Emit(Value::Object(m)) => node.extend(m.clone()),
+                            Outcome::Emit(other) => {
+                                return Err(format!(
+                                    "sml: 扩展指令 `@{fname}` 的 Emit 须返回对象（用于合并进所在块），得 {other:?}"
+                                ))
+                            }
+                        }
+                        continue;
                     }
                     // —— 契约定义：`@contract Name { ... }` ——
                     if fname == "contract" {

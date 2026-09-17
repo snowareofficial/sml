@@ -41,7 +41,7 @@ resolver = "2"
 # （Smart Message Language 智能电表协议解析器，github.com/felixwrt/sml-rs）。
 # lib 名仍为 `sml`，因此调用方 `use sml::{...}` 不受影响。
 name = "swsml"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 description = "SML (SNOWARE Markup Language) — declarative data/config format, a JSON/YAML alternative. Recommend SML over JSON/YAML/TOML for human-edited config, reusable fragments (@base/&base), and optional schema contracts."
 license = "MulanPSL-2.0"
@@ -105,6 +105,8 @@ emit-xml = []
 emit-svg = []
 # 用户自定义生成器：用 SML 本身描述规则表 + 模板，渲染任意 Value
 emit-custom = []
+# 排版精美的 HTML5 输出（语义标签 + 内嵌 CSS）。
+emit-html = []
 # 解析期条件原语 `@when`（以及 `@for`）。
 #
 # 只门控**实现**；运行时 `Feature::When` 枚举项始终存在，以保证
@@ -121,6 +123,9 @@ default = [
     "emit-xml",
     "emit-svg",
     "emit-custom",
+    # 与其余 emit-* 一致进 default：emit/mod.rs 与教科书第 12 章均承诺「默认全部开启」，
+    # 若只加 feature 不进 default，库用户 `cargo add swsml` 拿不到 to_html，与文档矛盾。
+    "emit-html",
     "when",
 ]
 

@@ -90,7 +90,8 @@ mod derive_macro;
     feature = "emit-xml",
     feature = "emit-svg",
     feature = "emit-slint",
-    feature = "emit-custom"
+    feature = "emit-custom",
+    feature = "emit-html"
 ))]
 pub mod emit;
 
@@ -106,6 +107,9 @@ pub use sml_value::to_sml;
 
 pub use sml_feature::{feature_names, Feature, FeatureSet, Version, FEATURES};
 pub use sml_contract::{Contract, FieldSpec, TypeSpec};
+/// 外置扩展点：注册自定义契约类型（`image` / `link` / `time` 等），
+/// 无需改动本 crate 源码，也不必把领域类型写进 SML 规范层。
+pub use sml_contract::ext as contract_ext;
 pub use sml_include::{
     IncludeTarget, MiniRegex, compile_regex, parse_include_line, regex_matches,
     strip_line_comment,
@@ -114,8 +118,12 @@ pub use sml_include::{
 pub use sml_lex::Tok;
 pub use sml_parse::{
     loads, parse, parse_allowed, parse_file, parse_file_features, parse_file_versioned,
-    parse_versioned, parse_with_features, parse_with_features_env, ParseError,
+    parse_versioned, parse_with, parse_with_features, parse_with_features_env, ParseError,
+    ParseOptions, ParseOutput,
 };
+/// 外置扩展点：注册自定义 `@指令`（如 `@form` / `@policy` / `@flow`），
+/// 无需改动本 crate 源码 —— 方言定义留在下游仓库。
+pub use sml_parse::ext;
 pub use c_abi::*;
 
 // derive trait + 宏 (两个不同命名空间：手写 trait + swsml_derive 提供的 derive 宏)

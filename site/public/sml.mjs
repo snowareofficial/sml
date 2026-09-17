@@ -119,7 +119,12 @@ function tokenize(text) {
         } else { s += cc; i++; }
       }
       toks.push({ t: "str", v: s, pos: qStart });
-    } else if ("(){}[]:,".includes(c)) {
+    } else if ("{}[]:,".includes(c)) {
+      // ⚠️ 括号 `(` `)` **不是**分隔符，必须与 Rust 侧（sml-lex 的 Tok 只有
+      // { } [ ] , : @）一致：裸词值 `备注: (重要)` / `公式: f(x)` 里的括号是
+      // 普通字符。此前把它们列进分隔符，会把 `(重要)` 切成独立 token，
+      // 导致值静默损坏成 null 并产生 `(`/`)` 垃圾键 —— 与 Rust 解析结果相反。
+      // enum(...) 的兼容由 parseFieldSpec 在解析层重组（见 parseFieldSpec）。
       flush();
       toks.push({ t: c, v: c, pos: i });
       i++;
@@ -242,6 +247,7 @@ function typeName(sp) {
   if (sp.type === "array") return "array[" + (sp.arrInner ? typeName(sp.arrInner) : "?") + "]";
   if (sp.type === "contract") return sp.refName;
   if (sp.type === "pattern") return sp.refName;
+  if (sp.type === "ext") return sp.refName;
   return sp.type;
 }
 
@@ -295,6 +301,15 @@ function checkContract(contracts, contract, obj, path) {
       let ok = false;
       try { ok = sp.patternRe.test(v); } catch { ok = false; }
       if (!ok) errs.push(`字段 ${full} 的值 \`${v}\` 不符合类型 ${sp.refName} 的格式要求`);
+      continue;
+    }
+    if (sp.type === "ext") {
+      // 外置类型：由下游的判定函数回答合不合法。
+      // 约定返回值：true 通过 / false 失败 / 字符串 = 失败原因；抛错也按失败处理。
+      let r;
+      try { r = sp.extCheck(v); } catch (e) { r = String((e && e.message) || e); }
+      if (r === false) errs.push(`字段 ${full} 不符合扩展类型 ${sp.refName}`);
+      else if (typeof r === "string") errs.push(`字段 ${full} 不符合扩展类型 ${sp.refName}：${r}`);
       continue;
     }
     if (sp.type === "contract") {
@@ -455,6 +470,13 @@ export function parse(text, opts) {
   const files = opts.files || {};
   const baseFeatures = opts.features || null;
   const nsPrefix = opts.nsPrefix || "";
+  // —— 外置扩展（与 Rust 侧 `sml::ext` / `sml::contract_ext` 对齐）——
+  //   opts.directives: { "form": { positional?: bool, call(arg, body) -> {discard:true} | {emit: 对象} } }
+  //   opts.types:      { "image": (v) => true | false | "错误信息" }
+  //   opts.warnings:   []   传入数组时，弃用提示会 push 进去（与 Rust 的 Diagnostic 对应）
+  // 不带这些选项时，行为与未扩展时**完全一致**。
+  const extDirs = opts.directives || null;
+  const extTypes = opts.types || null;
 
   const toks = tokenize(text);
   const fragments = new Map();
@@ -507,14 +529,22 @@ export function parse(text, opts) {
     if ([...c].length === 1) return escapeRe(c);
     throw new Error("sml: 未知字符类 `" + c + "`");
   }
-  function quantToRe(t) {
-    if (typeof t === "number") return "{" + t + "}";
-    const simple = { "+": "+", "*": "*", "?": "?" };
-    if (simple[t]) return simple[t];
-    if (/^\d+$/.test(t)) return "{" + t + "}";
+  // 量词描述 → [min, max]（max===undefined 表示无上界）。
+  // 支持：数字 / "+" / "*" / "?" / "a-b" 字符串。
+  function quantToMinMax(t) {
+    if (typeof t === "number") return [t, t];
+    if (t === "+") return [1, undefined];
+    if (t === "*") return [0, undefined];
+    if (t === "?") return [0, 1];
+    if (/^\d+$/.test(t)) return [Number(t), Number(t)];
     const m = /^(\d+)-(\d+)$/.exec(t);
-    if (m) return "{" + m[1] + "," + m[2] + "}";
+    if (m) return [Number(m[1]), Number(m[2])];
     throw new Error("sml: 未知量词 `" + t + "`");
+  }
+  // [min, max] → 正则量词片段（无上界写作 {min,}）。
+  function minMaxToRe(min, max) {
+    if (max === undefined) return "{" + min + ",}";
+    return "{" + min + "," + max + "}";
   }
   function compilePatternToRe(v, stack) {
     stack = stack || [];
@@ -552,9 +582,41 @@ export function parse(text, opts) {
       else if (g("正则", "regex", "re") !== undefined)
         base = "(?:" + String(g("正则", "regex", "re")).replace(/^\^/, "").replace(/\$$/, "") + ")";
       else throw new Error("sml: 无法识别的模式元素");
+      // —— 量词：支持 次: 数字/符号/a-b、次: {最小,最大}（中英等价）、
+      //     或直接 最小/最大 平铺在元素上（机翻等价的直觉写法）——
+      let qMin = undefined, qMax = undefined;
       const times = g("次", "times", "repeat");
-      if (times !== undefined) base = "(?:" + base + ")" + quantToRe(times);
-      if (node["可选"] === true || node["optional"] === true) base = "(?:" + base + ")?";
+      if (times !== undefined) {
+        if (typeof times === "object" && times !== null) {
+          // 对象形式：{ 最小: n, 最大: m }（键名走 i18n，中英等价）
+          const lo = times["最小"] ?? times["min"];
+          const hi = times["最大"] ?? times["max"];
+          if (lo !== undefined) qMin = Number(lo);
+          if (hi !== undefined) qMax = Number(hi);
+        } else {
+          const [mn, mx] = quantToMinMax(times);
+          qMin = mn; qMax = mx;
+        }
+      }
+      // 平铺形式：直接把 最小/最大 写在模式元素上
+      const flatMin = g("最小", "min");
+      const flatMax = g("最大", "max");
+      if (flatMin !== undefined) qMin = Number(flatMin);
+      if (flatMax !== undefined) qMax = Number(flatMax);
+      // 可选：等价 {0,1}，仅当未显式给出量词时生效
+      const isOptional = node["可选"] === true || node["optional"] === true;
+      if (isOptional && qMin === undefined && qMax === undefined) { qMin = 0; qMax = 1; }
+      // 校验并应用：非法输入一律抛出明确错误，绝不静默忽略
+      if (qMin !== undefined || qMax !== undefined) {
+        if ((qMin !== undefined && !Number.isInteger(qMin)) ||
+            (qMax !== undefined && !Number.isInteger(qMax)))
+          throw new Error("sml: 量词最小/最大必须为整数");
+        if (qMin !== undefined && qMin < 0) throw new Error("sml: 量词最小不能为负（得 " + qMin + "）");
+        if (qMax !== undefined && qMin !== undefined && qMax < qMin)
+          throw new Error("sml: 量词最大(" + qMax + ")不能小于最小(" + qMin + ")");
+        const mn = qMin === undefined ? 0 : qMin;
+        base = "(?:" + base + ")" + minMaxToRe(mn, qMax);
+      }
       return base;
     };
     const body = build(v);
@@ -572,7 +634,31 @@ export function parse(text, opts) {
     else if (typeWord === "num") sp.type = "num";
     else if (typeWord === "bool") sp.type = "bool";
     else if (typeWord === "any") sp.type = "any";
-    else if (typeWord === "enum") {
+    else if (typeWord.startsWith("enum(")) {
+      // `enum(公开, 内部, 机密)` 的兼容重组。
+      //
+      // 括号不再是分隔符后（与 Rust 词法对齐），这类写法会被 `,` 切成
+      // Word("enum(公开") , Word("内部") , Word("机密)") —— 此处按
+      // 「起于 enum( 、止于以 ) 结尾的词」重组回枚举成员列表。
+      // 官网与教程大量使用 `enum(a, b, c)`，而 Rust 侧只认 `enum [ ... ]`，
+      // 故这一层兼容是两端行为统一的必要代价。
+      sp.type = "enum";
+      sp.enumVals = [];
+      let rest = typeWord.slice(5); // 去掉前缀 "enum("
+      for (;;) {
+        if (rest.endsWith(")")) {
+          const last = rest.slice(0, -1);
+          if (last !== "") sp.enumVals.push(last);
+          break;
+        }
+        sp.enumVals.push(rest);
+        if (peek() && peek().t === ",") i++;
+        const nx = peek();
+        if (!nx || (nx.t !== "word" && nx.t !== "str")) break;
+        rest = nx.v;
+        i++;
+      }
+    } else if (typeWord === "enum") {
       sp.type = "enum";
       sp.enumVals = [];
       // 三种写法都接受，但以 `enum [ ... ]` 为准 —— 它是官网文档与 Rust 实现
@@ -613,6 +699,13 @@ export function parse(text, opts) {
       sp.refName = typeWord;
       sp.patValue = types.get(typeWord);
       sp.patternRe = compilePatternToRe(sp.patValue);
+    } else if (extTypes && extTypes[typeWord]) {
+      // 外置类型（下游注册，如 image / link / time）：
+      // 名字与规则都留在下游，本文件不需要知道「image 是什么」。
+      // 判定次序与 Rust 侧一致：@type > 外置 > 契约引用。
+      sp.type = "ext";
+      sp.refName = typeWord;
+      sp.extCheck = extTypes[typeWord];
     } else {
       sp.type = "contract";
       sp.refName = typeWord;
@@ -664,7 +757,15 @@ export function parse(text, opts) {
       }
       if (text === undefined) fail("sml: include 目标未找到: " + tg.path);
       const childPrefix = tg.ns ? nsPrefix + tg.ns + "." : nsPrefix;
-      const v = parse(text, { files, features: feats, nsPrefix: childPrefix });
+      // 外置扩展随 include 递归传递：被包含的文件里同样可以用方言指令与外置类型
+      const v = parse(text, {
+        files,
+        features: feats,
+        nsPrefix: childPrefix,
+        directives: extDirs || undefined,
+        types: extTypes || undefined,
+        warnings: opts.warnings,
+      });
       // 部分引用：仅保留指定顶层键（命名空间挂在 ns 下时同样只挑这些）
       let filtered = v;
       if (tg.keys && Array.isArray(tg.keys)) {
@@ -737,6 +838,48 @@ export function parse(text, opts) {
           }
           // 非指令形式：下落到片段定义逻辑（片段名 = "type"）
         }
+        // —— 外置扩展指令（下游注册，无需改动本文件）——
+        //
+        // 与 Rust 侧 `sml_parse::ext::Directive` 对齐。内置指令名由调用方自行回避
+        // （与内置同名会改写核心语义，Rust 侧在注册时就拒绝）。
+        //
+        // 未注册时**不要**在这里兜底：未知名指令在 JS 侧会落进下面的「片段定义」
+        // 分支（而 Rust 侧是报错）—— 这是既有差异，另行收敛，不在扩展点里改。
+        if (extDirs && extDirs[fname]) {
+          i++; // 消费指令名
+          if (peek() && peek().t === ":") i++;
+          let arg = null;
+          // 显式形式（推荐）：`@xxx name: X { }` —— 与片段参数同形，无歧义
+          if (peek() && peek().t === "word" && peek().v === "name"
+              && toks[i + 1] && toks[i + 1].t === ":") {
+            i += 2;
+            if (!peek() || (peek().t !== "word" && peek().t !== "str"))
+              fail("sml: 扩展指令 @" + fname + " 的 name: 后须值");
+            arg = peek().v; i++;
+          } else if (extDirs[fname].positional && peek() && peek().t === "word"
+                     && toks[i + 1] && toks[i + 1].t === "{") {
+            // 位置参数（v4 起废弃）：仅指令显式开启时接受，并产出弃用警告
+            arg = peek().v; i++;
+            if (Array.isArray(opts.warnings)) {
+              opts.warnings.push({
+                kind: "deprecated",
+                message: "sml: 扩展指令 `@" + fname + " " + arg
+                  + " { .. }` 使用了位置参数形式；自 v4 起推荐显式写作 `@" + fname
+                  + " name: " + arg + " { .. }`",
+              });
+            }
+          }
+          let body = null;
+          if (peek() && peek().t === "{") { i++; body = parseBlock("}"); }
+          const out = extDirs[fname].call(arg, body);
+          // discard（或不返回）= 元数据块，不进主树；emit = 展开合并进当前块
+          if (out && out.emit !== undefined) {
+            const em = out.emit;
+            if (em && typeof em === "object" && !Array.isArray(em)) Object.assign(node, em);
+            else fail("sml: 扩展指令 @" + fname + " 的 emit 须返回对象（用于合并进所在块）");
+          }
+          continue;
+        }
         if (fname === "contract") {
           i++;
           const cname = peek() && peek().v;
@@ -751,9 +894,17 @@ export function parse(text, opts) {
         }
         if (fname === "is") {
           i++;
-          const cname = peek() && peek().v;
-          if (!cname) fail("sml: @is 后须契约名");
+          const raw = peek() && peek().v;
+          if (!raw) fail("sml: @is 后须契约名");
           i++;
+          // `@is type(契约名)` 与 `@is 契约名` 等价 —— 括号形式让「类型标注」
+          // 的意图更显眼，且与块级标注 `type(契约名) 块名 { .. }` 同形。
+          // 括号在词法中不是分隔符，故 `type(办事人)` 整体是一个 word，
+          // 字符串层解包即可。仅当契约表里**确实存在**名为 `type(x)` 的契约时
+          // 才按原名解析（极端但合法的老文档）—— 向后兼容优先，与 Rust 一致。
+          const inner = /^type\((.+)\)$/.exec(raw);
+          const nameExists = raw in contracts || nsPrefix + raw in contracts;
+          const cname = inner && !nameExists ? inner[1] : raw;
           appliedContract = nsPrefix + cname;
           if (!(appliedContract in contracts)) appliedContract = cname; // 回退裸名
           continue;
@@ -844,6 +995,20 @@ export function parse(text, opts) {
             const sub = parseBlock("}");
             sub.__type = key;
             if (args.length === 1) sub.__name = args[0];
+            // —— 块级类型标注：`<契约名> <块名> { .. }` ——
+            //
+            // 裸块首词若命中契约表，自动把该契约应用到本块，等价于块内首行
+            // `@is 契约名`。与既有裸块 `type [name...] { }` 完全同形，故零新语法；
+            // 由 opt-in 特性 `typed-block` 门控，未开启时既有文档行为不变。
+            if (feats.has("typed-block") && feats.has("contract")) {
+              const cname = key in contracts ? key : nsPrefix + key in contracts ? nsPrefix + key : null;
+              if (cname) {
+                const c = contracts[cname];
+                applyDefaults(c, sub);
+                const errs = checkContract(contracts, c, sub, "");
+                if (errs) fail("contract: " + cname + " — " + errs.join("; "));
+              }
+            }
             setField(key, sub);
             continue;
           }

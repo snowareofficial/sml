@@ -25,7 +25,7 @@ npm run package          # sync parser + package (recommended; equivalent to the
 #   python scripts/sync-parser.py
 #   npx --yes @vscode/vsce package
 
-code --install-extension sml-lang-0.4.1.vsix
+code --install-extension sml-lang-0.4.2.vsix
 ```
 
 One command to package and install (overwrites the old version):

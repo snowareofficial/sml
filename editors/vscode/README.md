@@ -24,7 +24,7 @@ npm run package          # 同步解析器 + 打包（推荐，等价于下面�
 #   python scripts/sync-parser.py
 #   npx --yes @vscode/vsce package
 
-code --install-extension sml-lang-0.4.1.vsix
+code --install-extension sml-lang-0.4.2.vsix
 ```
 
 一条命令打包并安装（覆盖旧版）：
@@ -103,7 +103,7 @@ to call `vsce` without a global install:
 ```bash
 cd editors/vscode
 npm run package          # sync parser + package (recommended)
-code --install-extension sml-lang-0.4.1.vsix
+code --install-extension sml-lang-0.4.2.vsix
 ```
 
 One command to package and install (overwrites the old version): `npm run install-local`.

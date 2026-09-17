@@ -6,13 +6,15 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use sml_feature::{Feature, FeatureSet, Version};
-use sml_include::{expand_includes, resolve_includes};
+use sml_include::resolve_includes;
 use sml_lex::{Tok, tokenize};
-use sml_value::{MAX_VALUE_DEPTH, Value};
+use sml_value::Value;
 
 use crate::error::ParseError;
+use crate::ext::{ParseOptions, ParseOutput};
 use crate::parser::Parser;
 use crate::scan::{features_for, strip_features, strip_version};
 
@@ -26,7 +28,7 @@ pub fn parse_versioned(text: &str) -> Result<(Value, Version), String> {
     // 版本优先级：@version 显式声明 > @feature base > 默认 V1
     let v = declared.or(base).unwrap_or(Version::V1);
     let feats = features_for(v, feats, had);
-    Ok((parse_impl(&rest, v, feats, BTreeMap::new())?, v))
+    Ok((parse_impl(&rest, feats, BTreeMap::new())?, v))
 }
 
 /// 解析 SML 文件：展开 include，并返回其声明的语法版本
@@ -44,7 +46,7 @@ pub fn parse_file_versioned(path: impl AsRef<Path>) -> Result<(Value, Version), 
     let v = declared.or(base_ver).unwrap_or(Version::V1);
     let feats = features_for(v, allowed, had);
     let toks = resolve_includes(&rest, &base, allowed)?;
-    let val = parse_impl_tokens(toks, v, feats, BTreeMap::new())?;
+    let val = parse_impl_tokens(toks, feats, BTreeMap::new())?;
     Ok((val, v))
 }
 
@@ -60,7 +62,42 @@ pub fn parse(text: &str) -> Result<Value, String> {
     let (rest, feats, base, had) = strip_features(&rest)?;
     let v = declared.or(base).unwrap_or(Version::V1);
     let feats = features_for(v, feats, had);
-    parse_impl(&rest, v, feats, BTreeMap::new())
+    parse_impl(&rest, feats, BTreeMap::new())
+}
+
+/// 带**外置扩展**的解析入口（扩展点见 [`crate::ext`]）。
+///
+/// 与 [`parse`] 的唯一差别：可传入 [`ParseOptions`]，让下游注册的自定义 `@指令` 生效，
+/// 并额外返回非致命诊断（如「位置参数形式已废弃」）。
+/// 传入空选项（[`ParseOptions::new`]）时，行为与 [`parse`] **完全一致**。
+///
+/// 用途：下游要挂「带类型的元数据块，且不进主数据树」（表单描述 / 处理流 / 文章块等）
+/// 时，**不必 fork 解析器、也不必把方言名字写进 SML 规范层** —— 方言留在下游仓库。
+///
+/// ```ignore
+/// use sml_parse::ext::{Directive, Outcome, ParseOptions};
+/// use sml_value::Value;
+///
+/// struct Form; // 收集 `@form ... { }` 这类元数据块，不进主树
+/// impl Directive for Form {
+///     fn name(&self) -> &str { "form" }
+///     fn positional(&self) -> bool { true } // 兼容既有的 `@form Name { }` 写法
+///     fn call(&self, _arg: Option<&str>, _body: Value) -> Result<Outcome, String> {
+///         Ok(Outcome::Discard)
+///     }
+/// }
+///
+/// let out = sml_parse::parse_with("name: x\n@form F { a: 1 }\n", ParseOptions::new().directive(Form)?)?;
+/// assert_eq!(out.value.get("name"), Some(&Value::Str("x".into())));
+/// # Ok::<(), String>(())
+/// ```
+pub fn parse_with(text: &str, opts: ParseOptions) -> Result<ParseOutput, String> {
+    let (rest, declared) = strip_version(text)?;
+    let (rest, feats, base, had) = strip_features(&rest)?;
+    let v = declared.or(base).unwrap_or(Version::V1);
+    let feats = features_for(v, feats, had);
+    let toks = tokenize(&rest)?;
+    parse_impl_tokens_ext(toks, feats, BTreeMap::new(), opts)
 }
 
 /// 解析 SML 文本，并限制文档声明的版本必须在 `allowed` 范围内。
@@ -89,7 +126,7 @@ pub fn parse_allowed(
         ));
     }
     let feats = features_for(v, feats, had);
-    parse_impl(&rest, v, feats, BTreeMap::new())
+    parse_impl(&rest, feats, BTreeMap::new())
 }
 
 /// 解析 SML 文本，同时限制文档使用的**特性子集**必须在 `allowed` 内。
@@ -114,7 +151,7 @@ pub fn parse_with_features(
             "sml: 文档请求的特性 {feats} 与调用方允许的特性 {allowed} 无交集"
         ));
     }
-    let val = parse_impl(&rest, v, effective, BTreeMap::new())?;
+    let val = parse_impl(&rest, effective, BTreeMap::new())?;
     Ok((val, effective))
 }
 
@@ -141,28 +178,42 @@ pub fn parse_with_features_env(
             "sml: 文档请求的特性 {feats} 与调用方允许的特性 {allowed} 无交集"
         ));
     }
-    let val = parse_impl(&rest, v, effective, env)?;
+    let val = parse_impl(&rest, effective, env)?;
     Ok((val, effective))
 }
 
 /// 不含版本处理的底层解析（文本入口）
 fn parse_impl(
     text: &str,
-    version: Version,
     features: FeatureSet,
     env: BTreeMap<String, String>,
 ) -> Result<Value, String> {
     let toks = tokenize(text)?;
-    parse_impl_tokens(toks, version, features, env)
+    parse_impl_tokens(toks, features, env)
 }
 
 /// 不含版本处理的底层解析（token 流入口，供 include 展开后零拷贝复用）
+///
+/// 为什么这里**不收** `version`：版本的影响在调用这一层就已经全部折算进 `features` 了
+/// （见 `features_for(v, …)`），`Parser` 只认特性集、不认版本号。
+/// 原先保留这个参数是为"对称"，实际从没被读过 —— 与其挂着等一个 `unused` 警告，
+/// 不如删掉：调用方少一个需要正确传递、却完全不产生效果的值。
 fn parse_impl_tokens(
     toks: Vec<Tok>,
-    version: Version,
     features: FeatureSet,
     env: BTreeMap<String, String>,
 ) -> Result<Value, String> {
+    // 无扩展路径：直接丢掉 diagnostics，与既有签名保持一致。
+    Ok(parse_impl_tokens_ext(toks, features, env, ParseOptions::new())?.value)
+}
+
+/// 同 [`parse_impl_tokens`]，但携带外置扩展（见 [`crate::ext`]）。
+fn parse_impl_tokens_ext(
+    toks: Vec<Tok>,
+    features: FeatureSet,
+    env: BTreeMap<String, String>,
+    opts: ParseOptions,
+) -> Result<ParseOutput, String> {
     let mut p = Parser {
         toks,
         i: 0,
@@ -174,6 +225,9 @@ fn parse_impl_tokens(
         ns_stack: Vec::new(),
         env,
         loop_vars: BTreeMap::new(),
+        directives: Arc::new(opts.directives),
+        diags: Vec::new(),
+        contract_ext: Arc::new(opts.contract_ext),
     };
     // 顶层支持三种形态，与 `to_sml` 的输出对称：
     //   - `[ ... ]` 数组：to_sml 对非对象走 dump_inline，会输出顶层数组
@@ -182,7 +236,7 @@ fn parse_impl_tokens(
     //   - `{ ... }` 顶层对象块
     //   - 键值块（传统形态）
     // 注：顶层**标量**仍不可往返（SML 顶层需为容器），这是格式固有限制。
-    match p.peek() {
+    let value = match p.peek() {
         Some(Tok::LBrack) => {
             if !p.features.has(Feature::TopArray) {
                 return Err("sml: 顶层数组需要特性 `top-level-array`，但当前特性集已禁用".into());
@@ -195,7 +249,11 @@ fn parse_impl_tokens(
             p.parse_block(Some(Tok::RBrace))
         }
         _ => p.parse_block(None),
-    }
+    };
+    Ok(ParseOutput {
+        value: value?,
+        diagnostics: p.diags,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -236,7 +294,7 @@ pub fn parse_file(path: impl AsRef<Path>) -> Result<Value, String> {
     let feats = features_for(v, feats, had);
     let allowed = FeatureSet::all().intersection(feats);
     let toks = resolve_includes(&rest, &base, allowed)?;
-    parse_impl_tokens(toks, v, allowed, BTreeMap::new())
+    parse_impl_tokens(toks, allowed, BTreeMap::new())
 }
 
 /// 同 [`parse_file`]，但额外接受一个「调用方允许特性集」`caller_allowed`，
@@ -267,7 +325,7 @@ pub fn parse_file_features(
         return Err("sml: 调用方 flags 与文档特性交集为空，不允许任何解析能力".into());
     }
     let toks = resolve_includes(&rest, &base, allowed)?;
-    parse_impl_tokens(toks, v, allowed, BTreeMap::new())
+    parse_impl_tokens(toks, allowed, BTreeMap::new())
 }
 
 /// 解析到对象 (失败抛 `ParseError`)
