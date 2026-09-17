@@ -210,9 +210,11 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
 - 中：C/C++ 的 include 越界校验改 **fail-closed**（原先规范化失败即跳过校验）、
   LSP `Content-Length` 上限（16MiB）、C 侧 include **全局展开次数**上限
   `MAX_INC_EXPANSIONS=256`（挡菱形包含的指数级文件读取）
-- 凭据：`site/.baidu.env.example` 曾含**真实**百度翻译 APPID/KEY，已改占位符，
-  并用 `git filter-repo --replace-text` 从**全部历史**清除。
-  ⚠️ **那对密钥仍需在百度控制台作废轮换**（已泄露，清历史不等于失效）
+- 凭据：站点曾把**第三方翻译 API 的 APPID/KEY 明文**写进凭据模板并入库。
+  处置：删除凭据模板与全部调用该 API 的脚本（6 个），
+  并用 `git filter-repo`（`--path` 删文件历史 + `--replace-text` 替换明文
+  + `--replace-message` 净提交信息）从**全部历史**清除。
+  ⚠️ **那对密钥仍需去服务商控制台作废轮换**（已泄露，清历史不等于失效）
 - PII：`site/serve_local.py`、`rust/test_smlconv.py`、`rust/osv_check.py`、
   `examples/slint/slint_check/Cargo.toml` 里硬编码的本机绝对路径
   （`C:\Users\<用户名>\...`）已改为基于 `__file__` 推导
