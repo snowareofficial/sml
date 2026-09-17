@@ -485,9 +485,32 @@ typedef struct {
     ccontract *contracts;   /* 全局契约表 (跨块可见) */
     int failed;             /* 契约校验失败标志 (不依赖 errbuf 内容) */
     int version;            /* 语法版本: 1=V1(裸词即字符串) 2=V2 3=V3(字符串须引号) */
+    int depth;              /* 当前块/数组嵌套深度（栈溢出防护，见 parse_block） */
 } parser;
 
+/* 值嵌套深度上限：与 Rust 侧 MAX_VALUE_DEPTH 同口径。
+   `a{a{a{ ... }}}` 这类输入会让递归下降一路压栈；栈溢出在 C 里是段错误，
+   **无法被错误处理接住**，只能在递归入口主动限深。 */
+#define SML_MAX_VALUE_DEPTH 128
+
 static sml_value *parse_block(parser *ps, tok_type closing);
+static sml_value *parse_block_inner(parser *ps, tok_type closing);
+
+/* parse_block 的守卫 wrapper：真正的实现在 parse_block_inner。
+   包一层而不是改每个 return 点，是为了不遗漏任何出口（错误路径同样要复位深度）。 */
+static sml_value *parse_block(parser *ps, tok_type closing) {
+    if (ps->depth >= SML_MAX_VALUE_DEPTH) {
+        snprintf(ps->lx->errbuf, ps->lx->errsz,
+                 "sml: 嵌套过深（超过 %d 层），疑似递归或恶意输入", SML_MAX_VALUE_DEPTH);
+        ps->failed = 1;
+        ps->depth = 0;
+        return sml_new_null();
+    }
+    ps->depth++;
+    sml_value *v = parse_block_inner(ps, closing);
+    if (ps->depth > 0) ps->depth--;
+    return v;
+}
 
 static token *peek(parser *ps) {
     return &ps->lx->toks[ps->lx->pos];
@@ -849,7 +872,7 @@ static sml_value *parse_array(parser *ps) {
 }
 
 /* 解析块/对象。closing=T_RBRACE 或 T_EOF(顶层) */
-static sml_value *parse_block(parser *ps, tok_type closing) {
+static sml_value *parse_block_inner(parser *ps, tok_type closing) {
     sml_value *obj = sml_new_object();
     char *block_is = NULL;  /* 块级 @is 契约名 (作用于本块) */
     for (;;) {
@@ -1272,8 +1295,20 @@ char *sml_dump(const sml_value *v) {
 ** ===================================================================== */
 
 /* 最小 JSON -> sml_value (字符串/数字/bool/null/数组/对象) */
+static sml_value *json_to_value(const char **pp);
+static sml_value *json_to_value_depth(const char **pp, int depth);
+
+/* 入口 wrapper：JSON 侧同样需要深度上限，
+   否则 `[[[[ … ]]]]` 这种输入会把递归下降的栈打穿（段错误，接不住）。 */
 static sml_value *json_to_value(const char **pp) {
+    return json_to_value_depth(pp, 0);
+}
+
+static sml_value *json_to_value_depth(const char **pp, int depth) {
     const char *p = *pp;
+    /* 超限即返回 null：调用方只有 `if (v) ... push/set`，会自然跳过，
+       且外层循环仍靠 *p 推进，不会死循环。 */
+    if (depth > SML_MAX_VALUE_DEPTH) return sml_new_null();
     while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
     if (*p == '{') {
         p++;
@@ -1287,7 +1322,7 @@ static sml_value *json_to_value(const char **pp) {
             if (*p == '"') p++;
             while (*p && *p != ':') p++;
             if (*p == ':') p++;
-            sml_value *v = json_to_value(&p);
+            sml_value *v = json_to_value_depth(&p, depth + 1);
             if (v) sml_obj_set(obj, key, v);
             while (*p && *p != ',' && *p != '}') p++;
             if (*p == ',') p++;
@@ -1299,7 +1334,7 @@ static sml_value *json_to_value(const char **pp) {
         p++;
         sml_value *arr = sml_new_array();
         while (*p && *p != ']') {
-            sml_value *v = json_to_value(&p);
+            sml_value *v = json_to_value_depth(&p, depth + 1);
             if (v) sml_arr_push(arr, v);
             while (*p && *p != ',' && *p != ']') p++;
             if (*p == ',') p++;

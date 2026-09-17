@@ -812,6 +812,10 @@ export function parse(text, opts) {
   function parseBlock(closing) {
     const node = {};
     const setField = (k, v) => {
+      // 原型污染防护：文档里的**键名**同样不可为危险键。
+      // 只堵 include 的命名空间路径不够 —— `__proto__: x` 直接写在文档里，
+      // 赋值时会顺着原型链改写该对象的原型。
+      if (DANGEROUS_KEYS.has(k)) fail("sml: 键名不可使用 `" + k + "`");
       if (node[k] === undefined) node[k] = v;
       else if (Array.isArray(node[k])) node[k].push(v);
       else node[k] = [node[k], v];
@@ -998,7 +1002,13 @@ export function parse(text, opts) {
         const fName = key.slice(1);
         if (fragments.has(fName)) {
           i++; // 消费掉 &name token，避免重复处理
-          Object.assign(node, structuredClone(fragments.get(fName)));
+          // 片段合并同样跳过危险键：片段体可能来自外部构造（JSON 等），
+          // 直接 Object.assign 会把危险键原样写进当前块。
+          const frag = structuredClone(fragments.get(fName));
+          for (const fk of Object.keys(frag)) {
+            if (DANGEROUS_KEYS.has(fk)) continue;
+            node[fk] = frag[fk];
+          }
           continue;
         }
       }

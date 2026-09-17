@@ -19,12 +19,26 @@ STATIC_SML = os.path.join(SITE, "static", "sml.mjs")
 
 
 def sync_sml_js():
-    """把最新 js/sml.mjs 同步到 static/sml.mjs，保证 playground 与 shortcode 用同一解析器。"""
+    """把最新 js/sml.mjs 同步到 static/sml.mjs，保证 playground 与 shortcode 用同一解析器。
+
+    同时维护**对外跨站入口** static/lib/：
+        import { parse } from "https://sml.swebase.cn/lib/sml.mjs"
+    放行头见 static/_headers。wasm 与桥接脚本必须一起放进去 —— 只给 sml.mjs
+    的话，调用方用不了 wasm 对照（sml-rs.js 会去 fetch sml.wasm）。
+    """
     if not os.path.exists(JS_SRC):
         print("!! 跳过 sml.mjs 同步：找不到", JS_SRC)
         return
     shutil.copyfile(JS_SRC, STATIC_SML)
     print("sml.mjs 同步 ->", STATIC_SML)
+    lib = os.path.join(SITE, "static", "lib")
+    os.makedirs(lib, exist_ok=True)
+    shutil.copyfile(JS_SRC, os.path.join(lib, "sml.mjs"))
+    for name in ("sml.wasm", "sml-rs.js", "sml-verify.js"):
+        s = os.path.join(SITE, "static", name)
+        if os.path.exists(s):
+            shutil.copyfile(s, os.path.join(lib, name))
+    print("跨站入口同步 ->", lib)
 
 
 def main():
