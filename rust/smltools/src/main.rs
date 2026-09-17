@@ -107,6 +107,12 @@ enum Format {
     /// 与其它后端不同，这里输入不是数据而是**定制声明**（`directives` / `elements` /
     /// `types` / `rules`），语义见 `highlight` 模块文档。
     TmLanguage,
+    /// **编辑器定制包**：一份 SML 定制 → 多份产物（语法 + 颜色主题 + 项目内生效片段
+    /// + Zed 查询与主题），输出到 `-o` 指定的**目录**。
+    ///
+    /// 与其它后端不同，它是「一对多」的：语法给扩展编译用，settings 片段给项目就地生效用，
+    /// Zed 侧另有 Tree-sitter 查询与主题。
+    Highlight,
     #[default]
     Markdown,
     Xml,
@@ -122,11 +128,12 @@ impl Format {
     /// 全部格式。用于 `--to` 报错提示 —— 原先提示里的
     /// `(md|xml|svg|latex|slint|lvgl|html|custom|sml)` 是**手写**的，
     /// 与 `name()` 两处维护；0.6.1 新增 `html` 时就得靠人工同步两个地方。
-    const ALL: [Format; 12] = [
+    const ALL: [Format; 13] = [
         Format::Markdown,
         Format::Json,
         Format::Toml,
         Format::TmLanguage,
+        Format::Highlight,
         Format::Xml,
         Format::Svg,
         Format::Latex,
@@ -152,6 +159,7 @@ impl Format {
             "json" => Some(Format::Json),
             "toml" => Some(Format::Toml),
             "tmlanguage" | "tm" => Some(Format::TmLanguage),
+            "highlight" | "editor" => Some(Format::Highlight),
             "xml" => Some(Format::Xml),
             "svg" => Some(Format::Svg),
             "latex" | "tex" => Some(Format::Latex),
@@ -170,6 +178,7 @@ impl Format {
             Format::Json => "json",
             Format::Toml => "toml",
             Format::TmLanguage => "tmlanguage",
+            Format::Highlight => "highlight",
             Format::Markdown => "markdown",
             Format::Xml => "xml",
             Format::Svg => "svg",
@@ -534,6 +543,9 @@ fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, String> {
         Format::Toml => Ok(toml::to_toml(value)),
         // 高亮生成：输入是「定制声明」，输出是升级后的 tmLanguage（基线 + 增补）
         Format::TmLanguage => highlight::generate(value),
+        // 定制包是一对多的（多文件、多目录），无法用「返回一个字符串」的 emit 表达，
+        // 由 main 单独处理（见那里的 generate_package 分支）。
+        Format::Highlight => Err("internal: 编辑器定制包由 main 单独处理（多文件输出）".to_string()),
         Format::Xml => {
             let opt = XmlOptions {
                 base: EmitOptions {
@@ -906,6 +918,33 @@ fn main() -> ExitCode {
         }
     };
     let value = if args.strip { strip_value(&value) } else { value };
+
+    // 编辑器定制包：一份输入 → 多份产物，按相对路径写到 -o 目录下（缺省当前目录）
+    if args.format == Format::Highlight {
+        let out_dir = args.output.clone().unwrap_or_else(|| PathBuf::from("."));
+        let items = match highlight::generate_package(&value) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("smltools: {e}");
+                return ExitCode::from(1);
+            }
+        };
+        for it in &items {
+            let p = out_dir.join(&it.path);
+            if let Some(parent) = p.parent() {
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    eprintln!("smltools: mkdir {}: {e}", parent.display());
+                    return ExitCode::from(2);
+                }
+            }
+            if let Err(e) = std::fs::write(&p, &it.content) {
+                eprintln!("smltools: write {}: {e}", p.display());
+                return ExitCode::from(2);
+            }
+            eprintln!("wrote {}", p.display());
+        }
+        return ExitCode::SUCCESS;
+    }
 
     let rendered = match emit(&value, args.format, &args) {
         Ok(s) => s,

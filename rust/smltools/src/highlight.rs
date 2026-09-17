@@ -48,6 +48,16 @@ use sml::{jsonify, Value};
 /// `rust/smltools/assets/baseline.tmLanguage.json`（见该目录 README）。
 const BASELINE: &str = include_str!("../assets/baseline.tmLanguage.json");
 
+/// 一份生成产物：**相对路径** + 内容。调用方负责落盘。
+///
+/// 路径是相对的（如 `syntaxes/sml.tmLanguage.json`、`zed/themes/sml.json`），
+/// 因为一个定制包会展开成多个文件、分布在 VSIX 与 Zed 两种目录结构下。
+#[derive(Debug, Clone)]
+pub struct Generated {
+    pub path: String,
+    pub content: String,
+}
+
 /// 一条用户精细规则。
 struct Rule {
     name: String,
@@ -259,6 +269,234 @@ fn regex_escape(s: &str) -> String {
     out
 }
 
+// ============================================================================
+// 编辑器定制包：同一份 SML 定制 → 多份产物
+// ============================================================================
+
+/// 取「scope → 颜色」映射（定制文件里的 `colors:` 段）。
+///
+/// 为什么不只生成语法（scope）还要管颜色：真实诉求常常不是「哪些词算关键字」，
+/// 而是「我的方言关键字要跟标准指令**不同色**」。只给 scope 的话，用户还得自己
+/// 去编辑器里配 tokenColors —— 那等于把定制工作推回给用户。
+fn collect_colors(root: &Value) -> Result<Vec<(String, String)>, String> {
+    match root.get("colors") {
+        None => Ok(Vec::new()),
+        Some(Value::Object(m)) => {
+            let mut out = Vec::new();
+            for (scope, v) in m {
+                let Some(c) = v.as_str() else {
+                    return Err(format!("colors.{scope} 必须是颜色字符串（如 \"#C586C0\"）"));
+                };
+                if !is_color(c) {
+                    return Err(format!(
+                        "colors.{scope} = `{c}` 不是合法颜色（支持 #RGB / #RGBA / #RRGGBB / #RRGGBBAA）"
+                    ));
+                }
+                out.push((scope.clone(), c.to_string()));
+            }
+            Ok(out)
+        }
+        Some(_) => Err("colors 必须是对象，如 `colors: { keyword.control.form.sml: \"#C586C0\" }`".to_string()),
+    }
+}
+
+fn is_color(c: &str) -> bool {
+    let h = c.strip_prefix('#').unwrap_or("");
+    matches!(h.len(), 3 | 4 | 6 | 8) && !h.is_empty() && h.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// `[{scope, settings:{foreground}}]` —— VSCode 主题与项目内片段共用这个形状。
+fn textmate_rules(colors: &[(String, String)]) -> Vec<Value> {
+    colors
+        .iter()
+        .map(|(scope, color)| {
+            let mut st = BTreeMap::new();
+            st.insert("foreground".to_string(), Value::Str(color.clone()));
+            let mut r = BTreeMap::new();
+            r.insert("scope".to_string(), Value::Str(scope.clone()));
+            r.insert("settings".to_string(), Value::Object(st));
+            Value::Object(r)
+        })
+        .collect()
+}
+
+/// VSCode 颜色主题（打进 VSIX 用）。
+fn vscode_theme(name: &str, colors: &[(String, String)]) -> Value {
+    let mut root = BTreeMap::new();
+    root.insert(
+        "$schema".to_string(),
+        Value::Str("vscode://schemas/color-theme".to_string()),
+    );
+    root.insert("name".to_string(), Value::Str(format!("{name} (SML custom)")));
+    root.insert("type".to_string(), Value::Str("dark".to_string()));
+    root.insert("tokenColors".to_string(), Value::Array(textmate_rules(colors)));
+    Value::Object(root)
+}
+
+/// 可直接粘进 `.vscode/settings.json` 的片段 —— 让定制**在项目内立即生效**，
+/// 不必打包扩展、不必重启编辑器。
+///
+/// 这是「不改核心、就地扩展」最轻的一档：一个项目想给自家方言上色，
+/// 放一个文件、复制一段配置即可；要分发给别人时再把同一份 SML 编译成 VSIX。
+fn vscode_settings_fragment(colors: &[(String, String)]) -> Value {
+    let mut tcc = BTreeMap::new();
+    tcc.insert("textMateRules".to_string(), Value::Array(textmate_rules(colors)));
+    let mut root = BTreeMap::new();
+    root.insert(
+        "editor.tokenColorCustomizations".to_string(),
+        Value::Object(tcc),
+    );
+    Value::Object(root)
+}
+
+/// TextMate scope 前缀 → Zed 主题的**语法语义键**。
+///
+/// Zed 的主题按语义键（`keyword` / `variable` / `type` …）着色，而不是 TextMate
+/// 的 scope 名，所以必须做一次映射。映射不到的 scope 由调用方收进注释里告知用户，
+/// **不静默丢弃**（静默丢弃会让人以为"颜色没生效是我的错"）。
+fn zed_syntax_key(scope: &str) -> Option<&'static str> {
+    let s = scope.to_ascii_lowercase();
+    // 次序重要：先长前缀，后短前缀，避免 `constant.numeric` 落到 `constant`。
+    if s.starts_with("constant.numeric") {
+        Some("number")
+    } else if s.starts_with("constant") {
+        Some("constant")
+    } else if s.starts_with("keyword") {
+        Some("keyword")
+    } else if s.starts_with("comment") {
+        Some("comment")
+    } else if s.starts_with("string") {
+        Some("string")
+    } else if s.starts_with("support.type") || s.starts_with("entity.name.type") {
+        Some("type")
+    } else if s.starts_with("entity.name.function") {
+        Some("function")
+    } else if s.starts_with("entity") {
+        Some("entity")
+    } else if s.starts_with("variable") {
+        Some("variable")
+    } else if s.starts_with("punctuation") {
+        Some("punctuation")
+    } else if s.starts_with("storage") {
+        Some("attribute")
+    } else {
+        None
+    }
+}
+
+/// Zed 主题文件。
+fn zed_theme(name: &str, colors: &[(String, String)]) -> Value {
+    let mut syntax = BTreeMap::new();
+    for (scope, color) in colors {
+        if let Some(key) = zed_syntax_key(scope) {
+            let mut c = BTreeMap::new();
+            c.insert("color".to_string(), Value::Str(color.clone()));
+            syntax.insert(key.to_string(), Value::Object(c));
+        }
+    }
+    let mut style = BTreeMap::new();
+    style.insert("syntax".to_string(), Value::Object(syntax));
+    let mut theme = BTreeMap::new();
+    theme.insert("name".to_string(), Value::Str(format!("{name} (SML custom)")));
+    theme.insert("appearance".to_string(), Value::Str("dark".to_string()));
+    theme.insert("style".to_string(), Value::Object(style));
+
+    let mut root = BTreeMap::new();
+    root.insert(
+        "$schema".to_string(),
+        Value::Str("https://zed.dev/schema/themes/v0.2.0.json".to_string()),
+    );
+    root.insert("name".to_string(), Value::Str(format!("{name} (SML custom)")));
+    root.insert("author".to_string(), Value::Str("SNOWARE".to_string()));
+    root.insert("themes".to_string(), Value::Array(vec![Value::Object(theme)]));
+    Value::Object(root)
+}
+
+/// Zed 高亮查询（`highlights.scm`）。
+///
+/// **诚实说明**：Zed 用 Tree-sitter 查询，节点名由 grammar 决定，而不是 TextMate
+/// 的 scope。所以这里产出的是「按常见节点名书写的查询 + 显式的匹配谓词」，
+/// 文件头会写明它依赖 `editors/zed/grammars/sml`（tree-sitter grammar），
+/// 节点名不一致时需要对照 grammar 调整 —— 这一点不写清楚就是坑。
+fn zed_highlights(custom: &Value) -> Result<String, String> {
+    let directives = str_array(custom, "directives")?;
+    let mut s = String::new();
+    s.push_str("; 由 smltools 生成（--to highlight）—— 请勿手改，改那份 SML 定制文件。\n");
+    s.push_str(";\n");
+    s.push_str("; ⚠️ 本查询依赖 tree-sitter-sml grammar 的节点名（见 editors/zed/grammars/sml）。\n");
+    s.push_str(";    若你的 grammar 节点名不同（如用 (integer) 而非 (number)），请对照 grammar 调整。\n");
+    s.push_str(";    Zed 用 Tree-sitter，不使用 TextMate 的 scope 名 —— 这是与 VSIX 侧的本质差异。\n\n");
+    s.push_str("(comment) @comment\n");
+    s.push_str("(string) @string\n");
+    s.push_str("(number) @number\n");
+    s.push_str("(boolean) @boolean\n");
+    s.push_str("(env_var) @variable\n");
+    s.push_str("(fragment_ref) @variable\n");
+    s.push_str("(key) @property\n");
+    s.push_str("(type_name) @type\n");
+    s.push_str("(punctuation) @punctuation\n");
+    if !directives.is_empty() {
+        s.push_str("\n; 方言指令（本定制的重点）：只有这些名字按关键字着色\n");
+        s.push_str("((directive) @keyword\n");
+        s.push_str(&format!(
+            "  (#match? @keyword \"^({})$\"))\n",
+            directives
+                .iter()
+                .map(|d| regex_escape(d))
+                .collect::<Vec<_>>()
+                .join("|")
+        ));
+    } else {
+        s.push_str("(directive) @keyword\n");
+    }
+    Ok(s)
+}
+
+/// 生成**编辑器定制包**：一份或多份产物。
+///
+/// 两种消费方式对应两类产物：
+/// - **就地生效**：`vscode/settings.fragment.json` 粘进项目的 `.vscode/settings.json`
+/// - **扩展编译**：`syntaxes/sml.tmLanguage.json` + `themes/` 是 VSIX 的构建输入
+///
+/// Zed 侧另出 `zed/highlights.scm` + `zed/themes/sml.json`。
+pub fn generate_package(custom: &Value) -> Result<Vec<Generated>, String> {
+    let name = custom
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("SML")
+        .to_string();
+    let colors = collect_colors(custom)?;
+
+    let mut out = vec![
+        // 语法本身（VSIX 与项目内都需要）
+        Generated {
+            path: "syntaxes/sml.tmLanguage.json".to_string(),
+            content: generate(custom)?,
+        },
+        // Zed 查询
+        Generated {
+            path: "zed/highlights.scm".to_string(),
+            content: zed_highlights(custom)?,
+        },
+    ];
+
+    if !colors.is_empty() {
+        out.push(Generated {
+            path: "themes/sml-color-theme.json".to_string(),
+            content: jsonify(&vscode_theme(&name, &colors)),
+        });
+        out.push(Generated {
+            path: "vscode/settings.fragment.json".to_string(),
+            content: jsonify(&vscode_settings_fragment(&colors)),
+        });
+        out.push(Generated {
+            path: "zed/themes/sml.json".to_string(),
+            content: jsonify(&zed_theme(&name, &colors)),
+        });
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -335,5 +573,92 @@ mod tests {
     #[test]
     fn rule_missing_match_rejected() {
         assert!(gen(r#"rules: [ { name: "x.sml" } ]"#).is_err());
+    }
+
+    // ---- 编辑器定制包（项目内生效 / 扩展编译 / Zed）----
+
+    fn pkg(src: &str) -> Vec<Generated> {
+        let v = sml::parse(src).unwrap();
+        generate_package(&v).unwrap()
+    }
+
+    fn find<'a>(out: &'a [Generated], path: &str) -> &'a str {
+        out.iter()
+            .find(|g| g.path == path)
+            .unwrap_or_else(|| {
+                panic!(
+                    "缺少产物 `{path}`，实得：{:?}",
+                    out.iter().map(|g| &g.path).collect::<Vec<_>>()
+                )
+            })
+            .content
+            .as_str()
+    }
+
+    const CUSTOM: &str = concat!(
+        "name: MyDialect\n",
+        "directives: [ form policy ]\n",
+        "colors: {\n",
+        "    keyword.control.directive.sml: \"#C586C0\"\n",
+        "    variable.other.member.sml: \"#9CDCFE\"\n",
+        "}\n"
+    );
+
+    #[test]
+    fn package_contains_all_artifacts() {
+        let out = pkg(CUSTOM);
+        for p in [
+            "syntaxes/sml.tmLanguage.json",
+            "zed/highlights.scm",
+            "themes/sml-color-theme.json",
+            "vscode/settings.fragment.json",
+            "zed/themes/sml.json",
+        ] {
+            find(&out, p);
+        }
+    }
+
+    #[test]
+    fn no_colors_means_no_theme_artifacts() {
+        let out = pkg("directives: [ form ]");
+        assert!(
+            out.iter().all(|g| !g.path.starts_with("themes/")),
+            "没写 colors 就不该产出主题"
+        );
+        assert_eq!(out.len(), 2, "应只有语法与 Zed 查询");
+    }
+
+    #[test]
+    fn invalid_color_rejected() {
+        let v = sml::parse("colors: { a.b: \"red\" }\n").unwrap();
+        let e = generate_package(&v).unwrap_err();
+        assert!(e.contains("合法颜色"), "应报颜色非法：{e}");
+    }
+
+    #[test]
+    fn settings_fragment_is_project_local_ready() {
+        let out = pkg(CUSTOM);
+        let frag = find(&out, "vscode/settings.fragment.json");
+        assert!(frag.contains("editor.tokenColorCustomizations"), "缺 {frag}");
+        assert!(frag.contains("textMateRules"), "缺 textMateRules：{frag}");
+        assert!(frag.contains("#C586C0"), "缺色值：{frag}");
+    }
+
+    #[test]
+    fn zed_highlights_restrict_directives() {
+        let out = pkg(CUSTOM);
+        let scm = find(&out, "zed/highlights.scm");
+        assert!(scm.contains("#match?"), "方言指令应经谓词限定：{scm}");
+        assert!(scm.contains("form|policy"), "应含方言指令名：{scm}");
+        assert!(scm.contains("tree-sitter"), "应说明依赖 grammar：{scm}");
+    }
+
+    #[test]
+    fn zed_theme_maps_scope_to_syntax_key() {
+        let out = pkg(CUSTOM);
+        let theme = find(&out, "zed/themes/sml.json");
+        assert!(theme.contains("\"keyword\""), "应映射出 keyword：{theme}");
+        assert!(theme.contains("\"variable\""), "应映射出 variable：{theme}");
+        assert!(theme.contains("#C586C0"), "应含色值：{theme}");
     }
 }
