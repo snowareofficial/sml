@@ -34,6 +34,7 @@ use sml::{parse, to_sml, Value, Version};
 use std::path::Path;
 
 mod lint;
+mod toml;
 mod yaml;
 
 /// 输入格式（迁移用）：SML 是原生格式，JSON / YAML 是「迁入」格式。
@@ -41,6 +42,7 @@ mod yaml;
 enum InputFormat {
     Sml,
     Json,
+    Toml,
     Yaml,
 }
 
@@ -49,6 +51,7 @@ impl InputFormat {
         match s.to_ascii_lowercase().as_str() {
             "sml" => Some(InputFormat::Sml),
             "json" => Some(InputFormat::Json),
+            "toml" => Some(InputFormat::Toml),
             "yaml" | "yml" => Some(InputFormat::Yaml),
             _ => None,
         }
@@ -58,6 +61,7 @@ impl InputFormat {
     fn detect(path: Option<&Path>) -> InputFormat {
         match path.and_then(|p| p.extension()).and_then(|e| e.to_str()) {
             Some(e) if e.eq_ignore_ascii_case("json") => InputFormat::Json,
+            Some(e) if e.eq_ignore_ascii_case("toml") => InputFormat::Toml,
             Some(e) if e.eq_ignore_ascii_case("yaml") || e.eq_ignore_ascii_case("yml") => {
                 InputFormat::Yaml
             }
@@ -69,6 +73,7 @@ impl InputFormat {
         match self {
             InputFormat::Sml => "sml",
             InputFormat::Json => "json",
+            InputFormat::Toml => "toml",
             InputFormat::Yaml => "yaml",
         }
     }
@@ -92,6 +97,9 @@ enum Format {
     /// jq / 各类 JSON 库 / 只吃 JSON 的 API —— 让 SML 融进既有生态，
     /// 而不必要求对方先支持 SML。与 `--from json` 一起构成迁移闭环。
     Json,
+    /// TOML 序列化。对接 Cargo / pyproject / 各类 TOML 配置生态。
+    /// TOML 顶层必须是表，故非对象输入会得到空文档。
+    Toml,
     #[default]
     Markdown,
     Xml,
@@ -107,9 +115,10 @@ impl Format {
     /// 全部格式。用于 `--to` 报错提示 —— 原先提示里的
     /// `(md|xml|svg|latex|slint|lvgl|html|custom|sml)` 是**手写**的，
     /// 与 `name()` 两处维护；0.6.1 新增 `html` 时就得靠人工同步两个地方。
-    const ALL: [Format; 10] = [
+    const ALL: [Format; 11] = [
         Format::Markdown,
         Format::Json,
+        Format::Toml,
         Format::Xml,
         Format::Svg,
         Format::Latex,
@@ -133,6 +142,7 @@ impl Format {
         match s.to_ascii_lowercase().as_str() {
             "md" | "markdown" => Some(Format::Markdown),
             "json" => Some(Format::Json),
+            "toml" => Some(Format::Toml),
             "xml" => Some(Format::Xml),
             "svg" => Some(Format::Svg),
             "latex" | "tex" => Some(Format::Latex),
@@ -149,6 +159,7 @@ impl Format {
         match self {
             Format::Sml => "sml",
             Format::Json => "json",
+            Format::Toml => "toml",
             Format::Markdown => "markdown",
             Format::Xml => "xml",
             Format::Svg => "svg",
@@ -177,13 +188,14 @@ struct Cli {
     #[arg(short = 'o', long = "output")]
     output: Option<PathBuf>,
 
-    /// 目标格式：md(默认) / json / xml / svg / latex / slint / lvgl / html / custom / sml
+    /// 目标格式：md(默认) / json / toml / xml / svg / latex / slint / lvgl / html / custom / sml
     #[arg(long = "to", alias = "format", default_value = "md")]
     format: String,
 
-    /// 输入格式：sml(默认) / json / yaml。
+    /// 输入格式：sml(默认) / json / toml / yaml。
     ///
-    /// 缺省按输入文件扩展名推断（`.json` → json，`.yaml`/`.yml` → yaml，其余 → sml）；
+    /// 缺省按输入文件扩展名推断（`.json` → json，`.toml` → toml，
+    /// `.yaml`/`.yml` → yaml，其余 → sml）；
     /// 从 stdin 读且未显式指定时按 sml 处理。
     ///
     /// 迁移示例：`smltools -i app.json --from json --to sml > app.sml`
@@ -258,6 +270,7 @@ fn load_input(text: &str, args: &Args) -> Result<Value, String> {
         // 复用 crate 内既有实现（与 C-ABI 同款：零依赖、带深度限制与 UTF-8 修正）
         InputFormat::Json => sml::json_to_value(text)
             .ok_or_else(|| "JSON 解析失败：不是合法 JSON，或嵌套过深".to_string()),
+        InputFormat::Toml => toml::parse(text).map_err(|e| format!("TOML 解析失败：{e}")),
         InputFormat::Yaml => yaml::parse(text).map_err(|e| format!("YAML 解析失败：{e}")),
     }
 }
@@ -461,6 +474,7 @@ fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, String> {
         // JSON：直接复用 crate 内既有的 `jsonify`（与 C-ABI 同款实现，零依赖、带转义），
         // 不再另写一份序列化，避免两处行为漂移。
         Format::Json => Ok(sml::jsonify(value)),
+        Format::Toml => Ok(toml::to_toml(value)),
         Format::Xml => {
             let opt = XmlOptions {
                 base: EmitOptions {

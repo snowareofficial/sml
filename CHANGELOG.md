@@ -29,8 +29,14 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 - `--to json`：SML → JSON。用于**对接既有工具链**（jq / 各类 JSON 库 / 只吃 JSON 的 API），
   而不是替代 SML；复用 crate 内既有的 `jsonify`，不另写序列化以免行为漂移。
   注意：键按**字典序**输出（`Value::Object` 基于 `BTreeMap`），原始书写顺序不保留。
+- `--to toml` / `--from toml`：与 TOML **双向互转**（对接 Cargo / pyproject 等生态）。
+  解析支持表 `[a.b]`、表数组 `[[a]]`、点号键、内联表、跨行数组、
+  基本/字面量/多行字符串（含 `\uXXXX`）、整数（`_` / `0x` / `0o` / `0b`）、
+  浮点（含 `inf`/`nan`）、布尔；**日期时间按字符串保留**（与 SML 裸词日期同为字符串，
+  往返不改变形态）。序列化按 TOML 的唯一正解输出：标量键在前、子表 `[path]`、
+  对象数组 `[[path]]`。
 - `--from json|yaml`：把存量 JSON / YAML 迁进 SML。缺省按扩展名自动推断
-  （`.json` → json，`.yaml`/`.yml` → yaml，其余 → sml）。
+  （`.json` → json，`.toml` → toml，`.yaml`/`.yml` → yaml，其余 → sml）。
   YAML 侧为**最小可用子集**（块/流式映射与序列、引号、数字、布尔、null、注释、
   块标量 `|`/`>`、锚点与别名），不追求完整 YAML 1.2；`yes/no/on/off` 一律当字符串
   （避免「挪威问题」）。不支持 `? 复杂键`、`!!` 标签、合并键 `<<` 与多文档。
