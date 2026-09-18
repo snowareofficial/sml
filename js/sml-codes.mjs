@@ -16,6 +16,8 @@ export const E_CLI_005 = "E-CLI-005";
 export const E_CLI_006 = "E-CLI-006";
 /// [E-CLI-007] 输出后端报错：输出后端报错（内层原因见原始错误）
 export const E_CLI_007 = "E-CLI-007";
+/// [E-CLI-008] 命令行用法错误：命令行用法错误：未知参数、缺少取值或取值非法
+export const E_CLI_008 = "E-CLI-008";
 /// [E-CONTRACT-001] 未定义的契约：引用了未定义的契约
 export const E_CONTRACT_001 = "E-CONTRACT-001";
 /// [E-CONTRACT-002] 字段类型不符：字段类型应为期望类型，实际为其它类型
@@ -126,6 +128,8 @@ export const E_INCLUDE_009 = "E-INCLUDE-009";
 export const E_INCLUDE_010 = "E-INCLUDE-010";
 /// [E-INCLUDE-011] include 预处理词法失败：include 预处理阶段的词法失败
 export const E_INCLUDE_011 = "E-INCLUDE-011";
+/// [E-INCLUDE-012] include 路径写法非法：include 路径写法非法（未加引号或含非法字符）
+export const E_INCLUDE_012 = "E-INCLUDE-012";
 /// [E-INTERNAL-001] 内部错误：内部错误：走到了不应到达的分支
 export const E_INTERNAL_001 = "E-INTERNAL-001";
 /// [E-INTERNAL-002] 内置资源损坏：内置资源损坏（打包或构建事故）
@@ -286,6 +290,7 @@ export const ALL = Object.freeze([
   E_CLI_005,
   E_CLI_006,
   E_CLI_007,
+  E_CLI_008,
   E_CONTRACT_001,
   E_CONTRACT_002,
   E_CONTRACT_003,
@@ -341,6 +346,7 @@ export const ALL = Object.freeze([
   E_INCLUDE_009,
   E_INCLUDE_010,
   E_INCLUDE_011,
+  E_INCLUDE_012,
   E_INTERNAL_001,
   E_INTERNAL_002,
   E_IO_001,
@@ -418,4 +424,4 @@ export const ALL = Object.freeze([
   W_LINT_005,
 ]);
 
-export const COUNT = 137;
+export const COUNT = 139;
