@@ -1061,6 +1061,58 @@ static sml_value *parse_array(parser *ps) {
     return v;
 }
 
+/* 数组元素位置的裸块 `type [name…] { … }`（W4 的 B 类对齐点）。
+   与 Rust 的 `bare_block_ahead()` + `parse_bare_block()` **逐字对应**：
+
+   * 入口判据：当前 token 必须是 **T_WORD**。Rust 的 `Some(Tok::Str(_))` 分支直接当字符串
+     元素、不试裸块 —— 所以 `[ "sec" { } ]` 在两端都**不是**块，别顺手给 T_STR 也开。
+   * 预扫描：从当前位置起，连续的词/串之后紧跟 `{` 才算裸块；撞上别的 token（含 `]`、
+     EOF）即「不是」。因此 `[ hello world ]` 仍是两个标量元素（Rust 同）。
+   * 识别成功：消费掉「类型词 [参数…] { … }」并返回块对象，块内写
+     `__type` = 类型词（**原词**，不经 coerce）、`__name` = 首个参数、多余参数进 `__args`
+     —— 与 Rust `parse_bare_block` 一致（参数不再静默丢弃）。
+   * 不识别：返回 NULL 且**一个 token 都不消费**，调用方按原来的标量路径处理。
+
+   为什么参数要 clone 后存：`args` 这个临时数组下面就被 sml_free，直接借用其中的值会让
+   `__name` / `__args` 变成悬垂指针（与 parse_block 里「带名块堆损坏」那条注释同因）。 */
+static sml_value *try_parse_array_bare_block(parser *ps) {
+    if (peek(ps)->t != T_WORD) return NULL;
+    size_t probe = ps->lx->pos;
+    int found = 0;
+    while (probe < ps->lx->n) {
+        tok_type pt = ps->lx->toks[probe].t;
+        if (pt == T_WORD || pt == T_STR) probe++;
+        else if (pt == T_LBRACE) { found = 1; break; }
+        else break;
+    }
+    if (!found) return NULL;
+    /* ⚠️ 先**消费类型名**再收参数（Rust：`self.next(); // 消费类型名` 然后
+       `parse_bare_block(&w)`）。漏掉这一次消费，类型词就会被当成第一个参数 ⇒
+       `section 情节 { }` 得到 `__name: section` + `__args: [情节]`（实测踩过）。 */
+    token *first = next(ps);
+    const char *type_word = first->v;   /* 原词（token 存活到 lex_free） */
+    sml_value *args = sml_new_array();
+    while (peek(ps)->t == T_WORD || peek(ps)->t == T_STR) {
+        token *at = next(ps);
+        sml_arr_push(args, at->t == T_STR ? sml_new_str(at->v) : coerce_word(at->v, ps));
+    }
+    next(ps);   /* `{`（预扫描已保证在此） */
+    sml_value *sub = parse_block(ps, T_RBRACE);
+    sml_obj_set(sub, "__type", sml_new_str(type_word));
+    if (sml_arr_len(args) > 0) {
+        size_t i;
+        sml_obj_set(sub, "__name", sml_clone(sml_arr_get(args, 0)));
+        if (sml_arr_len(args) > 1) {
+            sml_value *extra = sml_new_array();
+            for (i = 1; i < sml_arr_len(args); i++)
+                sml_arr_push(extra, sml_clone(sml_arr_get(args, i)));
+            sml_obj_set(sub, "__args", extra);
+        }
+    }
+    sml_free(args);
+    return sub;
+}
+
 static sml_value *parse_array_inner(parser *ps) {
     sml_value *arr = sml_new_array();
     for (;;) {
@@ -1091,7 +1143,14 @@ static sml_value *parse_array_inner(parser *ps) {
         } else if (t->t == T_STR) {
             sml_arr_push(arr, sml_new_str(next(ps)->v));
         } else if (t->t == T_WORD) {
-            sml_arr_push(arr, coerce_word(next(ps)->v, ps));
+            /* 数组位置的裸块 `type [name…] { … }`（W4 的 B 类差异所在）。
+               改前这里只有「当标量」一条路 ⇒ `[ section 情节 { … } ]` 被拆成
+               `section`、`情节`、`{ … }` **三个**元素，而 Rust 是一个块对象
+               （`{ __type: section, __name: 情节, … }`）。判据与写法照抄 Rust，
+               见 try_parse_array_bare_block。 */
+            sml_value *blk = try_parse_array_bare_block(ps);
+            if (blk) sml_arr_push(arr, blk);
+            else     sml_arr_push(arr, coerce_word(next(ps)->v, ps));
         } else if (t->t == T_RBRACE) {
             /* 数组里多余的 `}` ⇒ E-PARSE-003（W16 落地；Rust 一直报它，JS 同批已改）。
                改前这一格落在下面的兜底 else 里**静默跳过**：`m: [ } ]` 得到 `{"m":[]}`，
@@ -1325,11 +1384,26 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                     next(ps);
                     sml_value *sub = parse_block(ps, T_RBRACE);
                     sml_obj_set(sub, "__type", sml_new_str(key));
-                    if (sml_arr_len(args) == 1)
-                        /* 必须克隆再存：args 下一行就被 sml_free，直接借用
-                           args[0] 会让 `__name` 变成悬垂指针，根节点释放时
-                           二次释放 —— 即已知的「带名块堆损坏」。 */
+                    /* 裸块参数**不再丢**：首个 ⇒ `__name`、其余 ⇒ `__args`，与 Rust
+                       `parse_bare_block` 一致（数组位置是同一个写法，见
+                       try_parse_array_bare_block；两处必须同步改，否则同一份输入在
+                       键位置与数组位置会得到不同的树）。
+                       改前只在「恰好一个参数」时写 `__name`，两个以上参数**直接丢弃**
+                       —— 与 Rust 的 `server web prod {}`（⇒ `__name: web` +
+                       `__args: [prod]`）不符，属静默改数据。
+                       必须克隆再存：args 下一行就被 sml_free，直接借用 args[0] 会让
+                       `__name` / `__args` 变成悬垂指针，根节点释放时二次释放 ——
+                       即已知的「带名块堆损坏」。 */
+                    if (sml_arr_len(args) > 0) {
+                        size_t i;
                         sml_obj_set(sub, "__name", sml_clone(sml_arr_get(args, 0)));
+                        if (sml_arr_len(args) > 1) {
+                            sml_value *extra = sml_new_array();
+                            for (i = 1; i < sml_arr_len(args); i++)
+                                sml_arr_push(extra, sml_clone(sml_arr_get(args, i)));
+                            sml_obj_set(sub, "__args", extra);
+                        }
+                    }
                     sml_free(args);
                     if (field_is)
                         apply_or_fail(ps, sub, field_is);
@@ -1489,14 +1563,16 @@ static void dump_element(sbuf *b, const sml_value *v, int indent);
 static void dump_object_body(sbuf *b, const sml_value *v, int indent);
 static void dump_array_body(sbuf *b, const sml_value *v, int indent);
 
-/* 该对象是否有"体"（排除内部标记键 __type / __name）。
-   有体时 dump_value 会输出 `\n{ … }`（另起一行）⇒ 键后面**不能**留行尾空格（W4 ①）。 */
+/* 该对象是否为**非空**对象 —— 它决定两处「形态选择」，两处判据都必须与 Rust 一致：
+   ① `key:` 之后**要不要**补那个空格（W4 ①）：Rust `starts_inline(v)` 的定义是
+      「**空**对象才同行渲染」，非空对象会另起一行写 `{ … }` ⇒ 键后**不留**行尾空格。
+   ② `dump_value` 里写 `{}` 还是 `\n{ … }`：Rust `dump_block` 同样是「空 ⇒ `{}`」。
+   ⚠️ 原先这里**排除** `__type` / `__name`（把它们当内部标记键），那正是 A 类差异的根源：
+   这两个键在 Rust 侧是**要往返的数据键**（原样序列化），于是「只有元数据的块」在 C 里被
+   判成「空体」⇒ 输成 `{}`，**元数据被静默丢掉**。现在按「有没有键」判。 */
 static int obj_has_body(const sml_value *v) {
     if (!v || v->type != SML_OBJECT) return 0;
-    sml_field *f;
-    for (f = v->u.obj.head; f; f = f->next)
-        if (strcmp(f->key, "__type") && strcmp(f->key, "__name")) return 1;
-    return 0;
+    return v->u.obj.head != NULL;
 }
 
 /* 容器是否「扁平」：**直接子项全是标量**（不再嵌对象 / 数组）。
@@ -1533,12 +1609,14 @@ static int is_flat(const sml_value *v) {
 /* 写对象体：**不含**开头的 `{`（由调用方写），负责逐键换行与收尾 `}`。
    抽出来是为了让「键后面接的块」（先写 `\n{`，见 dump_value）与
    「数组元素里的对象」（`{` 跟在同一行，见 dump_element）共用同一套键渲染 ——
-   与 Rust `dump.rs` 里 `dump_object_body` / `dump_block` / `dump_element` 的关系同构。 */
+   与 Rust `dump.rs` 里 `dump_object_body` / `dump_block` / `dump_element` 的关系同构。
+   ⚠️ **所有键都写**，包括 `__type` / `__name`：Rust `dump_object_body` 是
+   `for (k, val) in m`（不筛键），因为裸块 `type [name] { … }` 解析后就长成这两个键，
+   序列化时必须能写回去（否则元数据不往返）。这是 A 类差异的修复点。 */
 static void dump_object_body(sbuf *b, const sml_value *v, int indent) {
     sml_field *f;
     int j;
     for (f = v->u.obj.head; f; f = f->next) {
-        if (!strcmp(f->key, "__type") || !strcmp(f->key, "__name")) continue;
         sb_add(b, "\n");
         for (j = 0; j < indent + 1; j++) sb_add(b, "  ");
         sb_add(b, f->key);
@@ -1599,11 +1677,10 @@ static void dump_value(sbuf *b, const sml_value *v, int indent) {
             break;
         }
         case SML_OBJECT: {
-            int has_body = 0;
-            sml_field *f;
-            for (f = v->u.obj.head; f; f = f->next)
-                if (strcmp(f->key, "__type") && strcmp(f->key, "__name")) { has_body = 1; break; }
-            if (!has_body) { sb_add(b, "{}"); break; }
+            /* 空对象写 `{}`、非空写 `\n{ … }` —— 与 Rust `dump_block` 同判据。
+               （A 类：这里原先排除 __type/__name，于是「只有元数据的块」被误判成空对象、
+               元数据被静默丢掉。） */
+            if (!obj_has_body(v)) { sb_add(b, "{}"); break; }
             /* `key:` 之后另起一行写 `{ … }`，与 Rust `dump_block` 同形。 */
             sb_add(b, "\n");
             int j;
@@ -1654,8 +1731,9 @@ static void dump_inline(sbuf *b, const sml_value *v) {
             sb_add(b, "{ ");
             int first = 1;
             sml_field *f;
+            /* 同 dump_object_body：**不筛键**（含 __type / __name），与 Rust
+               `dump_inline` 的 `m.iter()` 一致。 */
             for (f = v->u.obj.head; f; f = f->next) {
-                if (!strcmp(f->key, "__type") || !strcmp(f->key, "__name")) continue;
                 if (!first) sb_add(b, ", ");
                 first = 0;
                 sb_add(b, f->key);
@@ -1708,15 +1786,27 @@ char *sml_dump(const sml_value *v) {
     memset(&b, 0, sizeof(b));
     if (v->type == SML_OBJECT) {
         sml_field *f;
-        for (f = v->u.obj.head; f; f = f->next) {
-            if (!strcmp(f->key, "__type") || !strcmp(f->key, "__name")) continue;
-            sb_add(&b, f->key);
-            /* 同 dump_value：值是有体的对象时（另起一行渲染）**不留**行尾空格（W4 ①）。
-               顶层这里是绝大多数 `key: ` 尾随空格的来源。 */
-            if (obj_has_body(f->value)) sb_add(&b, ":");
-            else                        sb_add(&b, ": ");
-            dump_value(&b, f->value, 0);
-            sb_addc(&b, '\n');
+        /* 顶层分叉与 Rust `to_sml` 逐字对应：带 `__type` 的对象是**裸块的树形**
+           （`type [name] { … }` 解析出来的），按 `dump_block(0,0)` 渲染 —— 先换行再
+           `{`、逐键、收尾 `}`；空对象写 `{}`。不带 `__type` 的才是「顶层逐键成行」。
+           （A 类：原先这里无条件逐键、并把 __type/__name 跳过。） */
+        if (sml_obj_get(v, "__type") != NULL) {
+            if (obj_has_body(v)) {
+                sb_add(&b, "\n{");
+                dump_object_body(&b, v, 0);
+            } else {
+                sb_add(&b, "{}");
+            }
+        } else {
+            for (f = v->u.obj.head; f; f = f->next) {
+                sb_add(&b, f->key);
+                /* 同 dump_value：值是有体的对象时（另起一行渲染）**不留**行尾空格（W4 ①）。
+                   顶层这里是绝大多数 `key: ` 尾随空格的来源。 */
+                if (obj_has_body(f->value)) sb_add(&b, ":");
+                else                        sb_add(&b, ": ");
+                dump_value(&b, f->value, 0);
+                sb_addc(&b, '\n');
+            }
         }
     } else {
         /* 顶层非对象：与数组元素同一套规则（扁平单行 / 含结构展开），
