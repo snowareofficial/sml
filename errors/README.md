@@ -47,7 +47,7 @@ E - CONTRACT - 002
 | **Rust** | ✅ 全量（语言层四 crate：`sml-lex` / `sml-parse` / `sml-contract` / `sml-include`） | 引用 `rust/sml-codes` 的**常量**；错误类型是 `SmlError`，`code()` 取码、`message()` 取文案，`Display` 把码缀在文案之后 |
 | **JS** | ✅ 全量（解析器 + 契约校验 + 模式引擎） | `e.code`（`parseSafe` 亦返回 `code`）；码是**字符串字面量** —— 该文件要能单文件在浏览器里跑，不能 import 生成物 |
 | **C**（原生，`c/sml.c`） | ✅ 全量（23 个码） | 用 `c/sml_codes.h` 的宏；**码作消息前缀**写进同一个 `err` 缓冲（`E-XXX-NNN 文案`），取码 `sscanf(err, "%15s", code)`；`err==NULL` 或 `errsz==0` 时**一个字节都不写**（W13 的性质，必须保住） |
-| **C++**（原生，`cpp/sml.cpp`） | ✅ 全量（22 个码） | 同上口径；取码用 `err.substr(0, err.find(' '))`。码表声明含 `cpp` 的 22 条已逐条对齐 |
+| **C++**（原生，`cpp/sml.cpp`） | ✅ 全量（27 个码） | 同上口径；取码用 `err.substr(0, err.find(' '))`。码表声明含 `cpp` 的 27 条已逐条对齐（W18 补齐了 include 那 5 条：002/004/010/011 与 E-LIMIT-003） |
 | **Lua** | ❌ **本仓库做不了** | `lua/` 下只有 `main.lua`（demo 入口）与 `lua/lib/sml.soup`，而 **`.soup` 是编译产物、源码不在本仓库**，`MANIFEST.json` 也没写源在哪。要动它得先回到 Soup 工程拿 `.tl` 源码 + `soupc` 重编回填 |
 | **C-ABI** | ✅ 已带 | `sml_error.code`（粗粒度枚举，9 档，供 C 侧 `switch`）+ `sml_error.code_str[16]`（真实码）；`classify()` 改成**读码**而不是猜中文关键词 |
 | **smltools** | ⏳ 只有文案（部分随 `Display` 显示出来） | 待办 |
@@ -63,6 +63,11 @@ E - CONTRACT - 002
 - **落地 W10 时发现：`impls` 字段有多处「声明与实现不符」** —— 声明了某端、但该端其实静默。
   已逐条核实并分开处理：真能补齐的补齐（`E-PARSE-001` / `E-LEX-004` / `E-INCLUDE-001` 等），
   补不了的把声明改正并写进 `note`（如 `E-IO-002` 目前**没有任何实现**报它，归 W16 判定）。
+- **C++ 的 include 是"声明与实现不符"的重灾区**（W18 修）：`E-INCLUDE-002` 声明了 `cpp`，
+  但实现里环检测的栈 push 完立刻 pop、**永远为空**，这条码实际不可能触发；`E-LIMIT-003` /
+  `E-INCLUDE-004` / `E-INCLUDE-010` / `E-INCLUDE-011` 则根本没有对应实现，同一条件分别
+  表现为「静默跳过」「报成 E-INCLUDE-001」「丢弃子文件的词法错误」。
+  教训：**`impls` 是claim，不是证据** —— 清点时看到某端在 `impls` 里，仍要实测它真的会报。
   **改码表前先实测，别按 `impls` 反推。**
 
 ## 加一条码

@@ -14,14 +14,25 @@
 
 | 套件 | 命令 | 结果 |
 |---|---|---|
-| Rust 全 workspace | `cargo test --workspace` | **467 通过 / 0 失败**（连跑 3 次一致） |
+| Rust 全 workspace | `cargo test --workspace` | **481 通过 / 0 失败**（44 个 target）⚠️ **但退出码是 1**，见下 |
 | 其中 `smltools` | `cargo test -p smltools` | 65 通过（`xml` 子集 26） |
-| C | `python build_check.py --run` | rc=0，`ALL LIMIT TESTS PASSED` |
-| C++ | `python build_verify.py` | rc=0（example / contract / comments / limits / rs-bridge 全 rc=0） |
+| C | `python build_check.py --run` | rc=0，`ALL LIMIT TESTS PASSED` + `ALL CODE TESTS PASSED` |
+| C++ | `python build_verify.py` | 六 target 全 rc=0（example / CONTRACT / COMMENTS / LIMITS / **CODES 80 条全过** / RS-BRIDGE） |
+| JS 错误码 | `node js/probe-error-codes.mjs` | `ALL OK`（与 Rust 同条件同码） |
 
-> ⚠️ 曾出现**一次** `cargo test --workspace` 返回 `rc=1` 但 0 个失败用例、合计 466 的现象，
-> 之后连跑 3 次均正常（467 / rc=0），**未能复现**。遇到时用
-> `cargo test --workspace --no-fail-fast` 抓是哪个 target，别急着怀疑自己的改动。
+> ⚠️ **`cargo test --workspace` 会返回 `rc=1`，而测试本身 0 失败**（2026-09-18 查明；
+> 此前记的「返回 rc=1 但 0 失败、未能复现」就是这个，现在能稳定复现了）。
+> 直接原因：`swsml-derive` 的 **doctest 编译不过** ——
+> `error[E0463]: can't find crate for proc_macro2 / quote / syn`，随后
+> `error: doctest failed, to rerun pass -p swsml-derive --doc`。
+> 判别实验（都实测过）：
+> - `cargo test --workspace --doc` → **rc=0**，doctest 全过（含 derive 那 1 条）；
+> - `cargo test -p swsml-derive --doc` → **rc=0**，1 条通过；
+> - 只有「**整个 workspace 一起构建 + 再跑 doctest**」才炸。
+> 这个组合指向 **feature 统一**：全量构建时 `syn` / `quote` 的那份 rlib，与 rustdoc
+> 从 doctest 命令行拿到的 `--extern` 路径不是同一份。**与本次改动无关**
+> （`rust/derive/` 未动，工作区干净）。已登记为 **W19**。
+> **判读测试结果时以 `test result: ok. N passed; 0 failed` 为准，别只看退出码。**
 
 **两块新基建**（2026-09-18）：
 
@@ -315,14 +326,16 @@ python site/build_site.py             # 完整构建（含上面两步 + Hugo + 
 
 ## 7. 下个会话的第一件事
 
-1. ~~先提交这批改动~~ **已完成**（§1.2，共 10 笔 + 本文件的同步提交；提交前跑过 §5 的四组命令）。
-   `git push` 属对外动作，按 §6 先告知用户。
-2. **直接做 W10（错误码落地五端）** —— 码表已就绪、无阻塞，是当前收益最高的一件。
-   建议落地顺序：Rust（`sml-lex` / `sml-parse` / `sml-contract` / `sml-include` 的错误类型
-   加 `code`）→ JS（`e.code`）→ C / C++ / Lua（C-ABI 输出码）→ 用测试钉住「同因同码」。
-   落地时以 `errors/README.md` 的**清点表**为对照，它带着每一处的文件行号与原始文案。
-3. **之后是 W16 → W3**（静默清单判定 → 顶层标量统一）。W16 必须**先出判定表**再动实现，
-   否则会在四个实现里来回改。
+1. **`git push`** —— 按 §6 属对外动作，用户已同意「**做完再推**」，现在轮到它了。
+2. **W10 已收口到四端**（Rust / JS / C / C++ / C-ABI 全带码，见 `errors/README.md` 的落地进度表），
+   **W18 已插队修完**（§9）。W10 剩下的尾巴只有两处，而且都**不是本仓库内能做完的**：
+   - **Lua**：`lua/lib/sml.soup` 是**编译产物**，源码不在本仓库。用户给了 Soup 工程地址
+     （`gitee.com/snoware/soup`），但**他自己也不知道 `sml` 在其中哪个位置** ——
+     要推进得先请用户在 Soup 工程里定位 `sml` 的 `.tl` 源码（或确认它就在该仓库）。
+   - **`smltools` 的部分输出**仍只有文案。
+3. **然后 W16 → W3**（静默清单判定 → 顶层标量统一）。W16 必须**先出判定表**再动实现，
+   否则会在四个实现里来回改。W18 的修法给了 W16 一个可复用的范式：
+   **先让判别实验变红，再动实现**（见 §9）。
 4. 用户若给更极端的 XML（>64 MB 或多文件目录），先按 §4-11 的方法量时间 / 内存**再决定**
    是否上迭代式解析 —— 不要凭感觉重构。
 
@@ -382,7 +395,10 @@ JS/C/C++/Lua 里**手写的**码字面量必须都在 `codes.sml` 里。
 有意保留的跨端差异（用例里写 `want = null`，**待 W16 判定**）：JS 未定义片段引用
 被当普通键、未知特性被静默加入集合。别把它们当成本次的漏做。
 
-### 8.5 ⚠️ 顺带挖出的既有 P0：C++ `@include` 会毁文档（**不是 W10 引入**，已登记为 W18）
+### 8.5 ⚠️ 顺带挖出的既有 P0：C++ `@include` 会毁文档（**不是 W10 引入**，登记为 W18）
+
+> **✅ 已修**（用户批准插队）：修法与验证见 §9。下面这段是当时的**发现记录**，保留原样 ——
+> 尤其是最后那条「动手顺序」，事后被判别实验证实是对的。
 
 派 agent 做 C++ 侧时，为查 `E-INCLUDE-002` 顺手实测出来的。`cpp/sml.cpp` 的 `@include` 展开：
 
@@ -449,3 +465,63 @@ JS/C/C++/Lua 里**手写的**码字面量必须都在 `codes.sml` 里。
   不是主因，别在它身上花时间。
 
 **给下一会话的规矩**：动手前先确认 C 盘有空间；写文件失败要立刻 `git status` 看有没有文件被截断。
+
+---
+
+## 9. W18：C++ `@include` 修复（已完成）
+
+**用户批准插队**（W10 收口后的第一件事）。只改一个实现文件（`cpp/sml.cpp`）+ 一个测试文件
+（`cpp/test_codes.cpp`），但判决依据是**判别实验**，不是"我改完了"。
+
+### 9.1 改法：照 Rust/C 的架构，而不是"修那个索引"
+
+把 include 从「边解析边往 `st.toks` 中间插 token」挪到**解析之前的一次递归展开**
+（新函数 `expand_includes`），链栈只装「根 → 当前」这一条路径：
+
+- **环检测**：命中链栈即成环 → `E-INCLUDE-002`。**只判当前路径 ⇒ 菱形包含合法** ——
+  这正是 W18 条目里那条警告的正解（「见过即拒」会误伤菱形）。
+- **嵌套深度 32** → `E-INCLUDE-004`（与 Rust `MAX_INCLUDE_DEPTH` / C `MAX_INC_DEPTH` 同值）。
+- **全局展开次数 10000** → `E-LIMIT-003`：**深度上限挡不住菱形包含的 2^N 膨胀**，
+  而 C++ 原先**完全没有**这道闸。用例用一个 20 层「每层包含下一层两次」的链打出来
+  （2^20 次读取 ≫ 10000）。
+- 子文件的基准目录换成**它自己的所在目录**（与 Rust/C 一致）—— 原先一律相对根目录，
+  子目录里的链式包含会找不到文件。
+- 顺带三处同源静默：基准目录不可解析原被 `weakly_canonical`（只做词法规范化）消解成
+  "目录里没这个文件"、报出 `E-INCLUDE-001`（**错码**）→ 改用严格 `canonical` 报
+  `E-INCLUDE-010`；子文件的词法错误原被**丢弃**、残段照插（未闭合字符串 ⇒ 静默截断的文档）
+  → 报 `E-INCLUDE-011`；超深包含原为静默跳过（字段凭空消失）→ `E-INCLUDE-004`。
+- `parse_block` 里的 include 分支只剩「吃掉三个 token」（`include_dir` 为空 = 按 API 约定
+  关闭 include）。`PState` 的 `include_dir` / `include_stack` 两个字段随之删除 ——
+  解析器不必再知道 include 存在，那个"永远是空的死栈"也就无处可藏。
+
+### 9.2 判别实验（这一步才是验收）
+
+脚本把 **HEAD 版 `sml.cpp`** 取出来，配**同一份新用例**编译运行：
+
+| 实现 | 结果 |
+|---|---|
+| 新（含修复） | rc=0，**0 失败**，`ALL CODE TESTS PASSED`（CODES 共 **80** 条断言） |
+| HEAD（W10 之后、W18 之前） | rc=1，**14 条红** |
+
+旧版那 14 条里最有信息量的是**四格「静默通过」**：自包含、互包含、超深包含、膨胀炸弹
+在旧实现上**全都成功返回、没有任何错误**。这正面证实了 §8.5 那条警告 ——
+off-by-one 恰好压住了无限展开（旧版**没挂**），所以"只改索引"确实会把它变成真死循环。
+
+一条**反例用例**要单独说：菱形包含（a→b、a→c、b 与 c 都→d）必须**合法**。它是用来挡住
+「把环检测写成见过即拒（集合而不是链栈）」这种修法的 —— 只写正向用例的套件挡不住它。
+顺带钉住一个语义：叶子被包含两次 ⇒ 字段在 token 流里出现两次 ⇒ 按 SML 的重复键规则
+**合并成数组**（`from_d` 是 `[4, 4]`，不是 `4`）。我第一版断言写的就是 4，跑出来才发现 ——
+**是断言错了，不是实现错了**。这类"测试先红"的时刻，先怀疑断言。
+
+### 9.3 复验命令（我实际跑的）
+
+```bash
+cd cpp && python build_verify.py          # 六 target 全 rc=0（CODES 80 条全过）
+cd cpp && g++ -std=c++17 -Wall -Wextra -I. -o t_codes.exe test_codes.cpp sml.cpp
+                                          # 零新增告警（-Wall -Wextra 比 build_verify 更严）
+```
+
+`errors/codes.sml` 回填了 5 条的 `impls`（`E-INCLUDE-002/004/010/011` + `E-LIMIT-003`；
+C++ 从 22 个码涨到 **27 个**），两个生成器已重跑（`errors.json` 仍是 137 条 —— 只改了
+`impls`/`note`，不动码）。
+
