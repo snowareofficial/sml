@@ -545,6 +545,11 @@ function activate(context) {
   // —— 自定义高亮：HL-cfg.sml + 强度开关（见 src/highlight.js）——
   require("./highlight.js").initHighlight(context);
 
+  // —— 特别高亮：把选中词在整个工作区点亮（见 src/special-highlight.js）——
+  // 与上面的「自定义高亮」不是一回事：那个按 HL-cfg.sml 静态配置点亮**关键词**，
+  // 这个是**临时探照灯** —— 选中什么就点亮什么，再触发一次即取消。
+  require("./special-highlight.js").initSpecialHighlight(context);
+
   // —— 语义高亮：块级类型标注 `<契约名> <块名> { .. }` 的契约名 ——
   initSemanticHighlight(context);
 

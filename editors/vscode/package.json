@@ -39,6 +39,14 @@
     {
       "command": "sml.createHighlightConfig",
       "title": "SML: 创建 HL-cfg.sml 高亮配置"
+    },
+    {
+      "command": "sml.specialHighlight",
+      "title": "SML: 特别高亮选中词（当前工作区）"
+    },
+    {
+      "command": "sml.clearSpecialHighlight",
+      "title": "SML: 清除特别高亮"
     }
   ],
   "contributes": {
@@ -84,6 +92,20 @@
         "editor.tabCompletion": "on"
       }
     },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "sml.specialHighlight",
+          "when": "editorHasSelection && editorLangId == sml",
+          "group": "navigation@9"
+        },
+        {
+          "command": "sml.clearSpecialHighlight",
+          "when": "sml.specialHighlightActive",
+          "group": "navigation@10"
+        }
+      ]
+    },
     "configuration": {
       "title": "SML",
       "properties": {
@@ -106,6 +128,21 @@
           "type": "string",
           "default": "HL-cfg.sml",
           "description": "自定义高亮配置文件路径（相对工作区根目录），不存在时静默跳过"
+        },
+        "sml.specialHighlight.include": {
+          "type": "string",
+          "default": "**/*.sml",
+          "description": "「特别高亮」的搜索范围（glob；默认只搜 .sml，遵循 files.exclude）"
+        },
+        "sml.specialHighlight.caseSensitive": {
+          "type": "boolean",
+          "default": true,
+          "description": "「特别高亮」是否区分大小写"
+        },
+        "sml.specialHighlight.wholeWord": {
+          "type": "boolean",
+          "default": false,
+          "description": "「特别高亮」是否只匹配完整词（按 SML 标识符字符类判边界）"
         }
       }
     }
