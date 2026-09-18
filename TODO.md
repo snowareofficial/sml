@@ -320,7 +320,7 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
 | **W7** | 解析器一次报多条错误 | `rust/sml-parse/src`（错误收集）、`js/sml.mjs`、`editors/vscode/src` | 同一文档的多个错误一次全部返回；旧 `parse()` 行为不变（只加新 API） | 无 | ✋ |
 | **W8** | Zed：填 `extension.toml` + 编译验证 grammar | `editors/zed/` | `tree-sitter generate && tree-sitter parse test/parse/*.sml` 无 `ERROR`；`extension.toml` 指向可用 grammar | 需 tree-sitter CLI（联网下载） | 🤖 |
 | **W9** | 残余风险：Miri / 安全门禁 / 非 Rust 实现扫描进 CI | CI 配置、`rust/{miri_check,osv_check}.py` | CI 里跑得起来，失败能挡住合并 | 无 | 🤖 |
-| **W10** | 错误码**落地到五端**：`errors/codes.sml` 已定 **137 条**码（W11 已录全）。**Rust ✅ / JS ✅ / C-ABI ✅ 已带码**（提交 `b04375d`、`912a608`，见 `errors/README.md` 的「码的落地进度」）；**C / C++ 原生实现进行中（已派 agent）**；**Lua 卡住（见下）**；`smltools` 的部分输出仍只有文案 | 剩余：`c/sml.c`、`cpp/sml.cpp`（用 `c/sml_codes.h` 的宏，**别手打字符串**） | 已完成：Rust/JS 错误对象带 `code`、C-ABI 出 `code_str`、`rust/tests/error_codes.rs` 与 `js/probe-error-codes.mjs` 同条件同码。剩余：C/C++ 带码后补「同一条件五端同码」的断言 | 无 | ✋ |
+| **W10** | 错误码**落地到五端**：`errors/codes.sml` 已定 **137 条**码（W11 已录全）。**Rust ✅ / JS ✅ / C ✅ / C++ ✅ / C-ABI ✅ 已全部带码**（见 `errors/README.md` 的「码的落地进度」）；**Lua ❌ 本仓库做不了**（源码不在本仓库，见下）；`smltools` 的部分输出仍只有文案 | 剩余：Lua（须回 Soup 工程）、`smltools` 的部分输出 | 四端各有一份「触发条件 → 期望码」用例，**交集部分逐一同码**：`rust/tests/error_codes.rs`、`js/probe-error-codes.mjs`、`c/test_codes.c`、`cpp/test_codes.cpp`；生成链路 `errors/gen_codes.py`（含「手写码字面量必须在表里」的反向校验） | 无 | ✋ |
 
 > **Lua 为什么卡住（2026-09-18 查证）**：`lua/` 下只有 `main.lua`（demo 入口）与
 > `lua/lib/sml.soup`。**`lib/sml.soup` 是编译产物，本仓库里没有它的源码**，

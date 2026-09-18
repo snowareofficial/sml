@@ -31,8 +31,12 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
     源码里手写的码字面量都在表里（挡「手打错一位数字」）。`--check` 给 CI。
   - **测试**：`rust/tests/error_codes.rs`（23 条「触发条件 → 期望码」+ 生成物与码表一致性）
     与 `js/probe-error-codes.mjs`（同一组条件，期望码逐一相同）。
-  - 尚未带码：C / C++ 的**原生**实现、Lua、`smltools` 的部分输出。进度见
-    `errors/README.md` 的「码的落地进度」。
+  - **C 与 C++ 的原生实现也已全量带码**（C 23 个码 / C++ 22 个码；码作**消息前缀**写进同一个
+    `err` 缓冲，形如 `E-LEX-001 文案`，取码 `sscanf(err, "%15s", code)`）。
+    四端各有一份「触发条件 → 期望码」用例：`rust/tests/error_codes.rs`、
+    `js/probe-error-codes.mjs`、`c/test_codes.c`、`cpp/test_codes.cpp`，**交集部分逐一同码**。
+  - 仍缺：**Lua**（`lua/lib/sml.soup` 是编译产物、源码不在本仓库，须回 Soup 工程重编）
+    与 `smltools` 的部分输出。进度见 `errors/README.md` 的「码的落地进度」。
 - **错误码体系（`E-<领域>-<序号>`）+ 官网查询工具**：`errors/codes.sml` 是唯一事实来源
   （用 SML 写，因此 `smltools` 自己就能校验它），`errors/gen_json.py` 走**真实工具链**
   `smltools --to json` 生成 `site/static/errors.json`，官网新增 `/errors` 查询页
@@ -65,6 +69,31 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 变更
 
+- ⚠️ **C 与 C++ 的一批对外行为变更**（W10 落地时顺手修的缺陷，每处都有「触发条件 → 期望码」
+  用例，并用**判别实验**证明过：把修复还原成旧实现后，同一份用例会失败）。
+  它们不是「文案改了」，是**取值或成败结论变了**：
+  - **C++：`min`/`max` 边界原用 `std::stoll`**（而 `TypeModifiers` 是 `double`）——
+    `stoll("0.5")` 按 strtoll 语义**返回 0 且不抛异常**，于是 `max 0.5` 把上界调成 0
+    （**合法值被误判越界**）、`min 0.5` 把下界调成 0（**越界值被漏放**）；`"abc"` 才抛，
+    又被 `catch(...){}` 吞掉（**边界静默丢失**）。改为 f64 解析 + 语法闸门 + 有限性检查，
+    报 `E-PARSE-022` / `E-CONTRACT-010`（与 Rust 同码）。
+  - **C++：`coerce_word` 进 `stoll` 前没清 `errno`** —— 同一线程里只要先前有过一次溢出，
+    后面**每个普通整数**都被判成 `Float`，于是声明为 `int` 的字段被契约**误报
+    `E-CONTRACT-002`**（合法数据被判类型错误）。纯 bug，同源修复。
+  - **C++：`@include` 目标不存在**原先静默，现报 `E-INCLUDE-001`（其余端都报）。
+    ⚠️ 该分支必须用 `inside` 设闸，否则会**覆盖**越界那条的 `E-INCLUDE-003`（把码报错）。
+  - **C++：未知转义**原先静默接受，现报 `E-LEX-004`，接受集收窄到 Rust 的严格集
+    （`\n \t \r \0 \" \\ \uXXXX`）；全仓 `.sml` 与 `cpp/*.cpp` 都没用到被去掉的 C 风格转义。
+  - **C：超 i64 的整数字面量**原先被 `strtoll` **静默夹成 `LLONG_MAX/MIN`**（错值、形态却像
+    正常值，还能通过 `int` 契约校验），现改为**保留为字符串**（对齐 Rust 的 `coerce_word`；
+    `strtod` 那支不动 —— 它给的 `Float(inf)` 本来就和 Rust 一致）。
+  - **C：契约 `min`/`max` 边界**原先 `atof` 且不看错误 —— `min abc` 静默，`max abc` 竟然报
+    **`E-CONTRACT-005`（错码）**，把合法值判成越界。改为 `strtod` + `endptr` 尾随校验：
+    非数字 → `E-PARSE-022`、非有限 → `E-CONTRACT-010`。
+  - **C：未闭合的块 / 数组**原先静默返回残缺对象，现报 `E-PARSE-001`
+    （块 / 数组 / 契约体三种；顶层块正常结束不算）。
+  - **C++：`1e400` 原被归成 `Str`**（Rust 与 C 都是 `Float(inf)`），现对齐为 `Float(inf)`；
+    超 i64 整数则保持 `Str`（这两格方向相反，别搞混）。
 - ⚠️ **不兼容：语言层 crate 的错误类型由 `String` 改为带码错误**
   （`sml-lex` 0.1.0-alpha.3 / `sml-include` 0.1.0-alpha.2 / `sml-contract` 0.1.0-alpha.3 /
   `sml-parse` 0.1.0-alpha.3）。影响面被压到最小：
