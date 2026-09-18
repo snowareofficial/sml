@@ -52,11 +52,22 @@ fn drive(args: &[&str], stdin: Option<&str>) -> Out {
             .expect("写入 stdin 失败");
     }
     let out = child.wait_with_output().expect("等待 smltools 失败");
-    Out {
+    let o = Out {
         stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
         stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
         code: out.status.code(),
-    }
+    };
+    // 全局不变式：CLI 输出里不得出现 `smltools: smltools:` 这类**重复工具前缀**。
+    // 成因：`Err` 文案若自带 `smltools: `，外层统一 `eprintln!("smltools: {e}")` 就会叠两层，
+    // 让用户以为消息被嵌了一层。修复只删内层前缀；注释能提醒人，**断言才拦得住人**。
+    // 放在 `drive`（所有用例的唯一出口）里，于是每条 CLI 调用都过一遍这条不变式。
+    assert!(
+        !o.all().contains("smltools: smltools:"),
+        "CLI 输出出现重复前缀 `smltools: smltools:`：\n--- stdout ---\n{}\n--- stderr ---\n{}",
+        o.stdout,
+        o.stderr
+    );
+    o
 }
 
 /// 断言一次调用（含给定 stdin）的输出里出现期望码，并返回产物（供退出码断言）。
@@ -301,6 +312,30 @@ fn include_unquoted_path_is_include_012() {
     let main = write_file(&dir, "main.sml", "include nope.sml\n");
     let o = assert_code(&["-i", &s(&main)], None, "E-INCLUDE-012");
     assert_eq!(o.code, Some(1), "语言层/展开失败应以退出码 1 结束");
+}
+
+/// 不变式：任何 CLI 输出都不得出现**重复工具前缀** `smltools: smltools:`。
+///
+/// 成因：这几条 `Err` 文案原先自带 `smltools: `（`E-INCLUDE-012` 未加引号、
+/// `E-INCLUDE-001` 读取失败、`E-INCLUDE-004` 嵌套超限），外层再统一
+/// `eprintln!("smltools: {e}")` 就叠成两层。
+///
+/// `drive()` 已对**每次**调用断言同一不变式；这里再显式钉一份，让规则有个可读的用例名。
+#[test]
+fn cli_output_has_no_duplicate_tool_prefix() {
+    let dir = tmpdir("noprefix");
+    let unquoted = write_file(&dir, "unquoted.sml", "include nope.sml\n");
+    let missing = write_file(&dir, "missing.sml", "include \"nope.sml\"\n");
+    let depth = write_file(&dir, "depth.sml", "include \"depth.sml\"\n");
+    for path in [&unquoted, &missing, &depth] {
+        let o = drive(&["-i", &s(path)], None);
+        assert!(
+            !o.all().contains("smltools: smltools:"),
+            "{} 出现重复前缀：\n{}",
+            path.display(),
+            o.all()
+        );
+    }
 }
 
 // ================= 特性（FEATURE） =================
