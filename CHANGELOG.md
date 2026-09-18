@@ -112,6 +112,12 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   - ⚠️ **分支保护（W9.4）由用户在 GitHub 仓库设置里开启，不入库**：建议开「合并前要求 CI 通过」、
     「禁止直推 main」、「撤销/重开 PR 的权限收口」。核对清单见本会话 W9.4 报告。
 
+  - **`C` 的 `sml_dump` 与 Rust `to_sml` 对齐（W4 ①）**：「键: 后接对象体」时不再留行尾空格
+    （改前 `topic: `、改后 `topic:`）。改的是 `c/sml.c` 两处（`sml_dump()` 顶层循环与
+    `dump_value()` 的嵌套对象），新增 `obj_has_body()` 判定；标量 / `{}` / `[]` 仍保留 `: `。
+    这是 C↔Rust 序列化比对里占比最大的一类差异（19 个不一致文件里多数首行就是它）。
+    比对装置见 `tools/check_dump_parity.py`。
+
 ### 变更
 
 - ⚠️ **不兼容：`swsml` 的 emit 后端返回类型从 `Result<_, String>` 改为 `Result<_, SmlError>`**

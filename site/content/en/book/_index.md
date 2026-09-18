@@ -56,3 +56,10 @@ After reading this chapter, directly modify SML in the editor below and click "R
 {{< sml-playground "intro" >}}
 
 {{< sml-quiz "intro" >}}
+
+---
+
+## What's new (2026-09)
+
+- **Same error codes across five implementations**: Rust / C / C++ / JS / Lua now report the **same code** for the same class of error; inputs that used to pass silently (unterminated string / unclosed block comment / unknown escape / invalid `\u` / stray `}` in an array / mismatched closer / unregistered directive / undefined fragment reference / top-level scalar) now **fail loudly**. 141 codes in total.
+- **Zed extension**: the Tree-sitter grammar under `editors/zed/` has been verified with `tree-sitter generate` + `tree-sitter parse` (0 `ERROR` on both corpus files). See the "Editor support" section on the home page and `editors/zed/README.md`.

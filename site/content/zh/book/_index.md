@@ -53,3 +53,9 @@ translationKey: "book-index"
 
 {{< sml-quiz "intro" >}}
 
+---
+
+## 本轮新增（2026-09）
+
+- **五端同码**：Rust / C / C++ / JS / Lua 对同一类错误报同一个码；此前「静默通过」的输入（未闭合字符串 / 未闭合块注释 / 未知转义 / 非法 `\u` / 数组里多余的 `}` / 闭合符错配 / 未注册指令 / 未定义片段引用 / 顶层标量）现在**都显式报错**。码表共 **141 条**。
+- **Zed 扩展**：`editors/zed/` 的 Tree-sitter grammar 已通过 `tree-sitter generate` + `tree-sitter parse` 验证（两份语料 0 `ERROR`）。安装方式见首页「编辑器支持」与 `editors/zed/README.md`。
