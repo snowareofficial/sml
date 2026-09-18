@@ -15,8 +15,10 @@
 #   - `done`    = 列在 `impls` 里的实现**都已经真的报这个错**（行为一致）；
 #   - `partial` = 各端行为不一致，差异写在该条的 `note` 里。
 #   它描述的是**行为是否已实现**，与「是否已经带上码」无关 —— 后者是 W10 的活。
-#   码的落地进度：**Rust 与 JS 已全量带码**（W10 第一/二部分），C / C++ / Lua 还只有文案。
+#   码的落地进度：**五端（Rust / JS / C / C++ / Lua）与 smltools 均已全量带码**（W10 已完成）。
 #   逐端怎么带、新端怎么加，见 errors/README.md 的「码的落地进度」一节。
+#   （这一行曾长期停在「C / C++ / Lua 还只有文案」—— 落地过程中忘了同步，是"文档自己打自己脸"
+#   的典型：本文件与 README 的说法相反时，**以 README 的进度表为准**，它每次落地都会改。）
 #
 # 分层（`impls` 里的名字按层看，这样 W10 能一眼圈定落地范围）：
 #   语言层    —— W10 的落地对象，五端必须同码：
@@ -199,8 +201,8 @@ codes: [
     # ================= 深度与预算上限（语言层） =================
     { id: E-LIMIT-001 domain: LIMIT severity: E title: "嵌套过深"
       msg: "嵌套过深，超过本实现的上限层数，疑似递归或恶意输入"
-      impls: [ rust js c cpp smltools ] status: partial
-      note: "上限 128 层，各端一致；**Lua 侧没有深度计数**（深嵌套会耗尽 C 栈），C++ 的纯块嵌套可绕过守卫 —— 两者见 README 清点的风险一节。XML 迁入超限同报此码" }
+      impls: [ rust js c cpp lua smltools ] status: partial
+      note: "上限 128 层。**口径已实测统一**（用闭合嵌套逐格扫过五端，块与数组两条入口都扫）：文档根不计层 ⇒ **128 层放行、第 129 层报此码**。改前是分裂的：块嵌套 Rust/C 只放行 127（守卫用 >=，而文案写「**超过** 128 层」，自相矛盾），C++ 的**数组**入口更是白送一层（`key: [ ]` 直接调 parse_array、绕过 depth 计数 ⇒ 129 层才报）—— W15 一并收敛：Rust/C 的守卫改 >，C++ 补了带守卫的 parse_array_nested。XML 迁入超限同报此码。**C 与 Lua 的 parse_array 不递归嵌套数组**，这两端没有可限的数组深度入口，那属数据正确性（C 见 W17，Lua 见 W20）" }
     { id: E-LIMIT-002 domain: LIMIT severity: E title: "模式匹配超步数预算"
       msg: "模式匹配超出步数预算，疑似病态规则或超长输入"
       impls: [ rust ] status: partial
@@ -359,7 +361,7 @@ codes: [
     { id: E-INCLUDE-005 domain: INCLUDE severity: E title: "键列表语法非法"
       msg: "键列表语法非法：期望键列表、或键列表为空、或缺少闭合"
       impls: [ rust js ] status: partial
-      note: "⚠️ JS 在空键列表这条分支上会抛宿主 ReferenceError（报告函数不在其作用域内），属实现缺陷，不是本码文案 —— 见 README 清点" }
+      note: "**W14 已修**：JS 在空键列表这条分支上原抛宿主 ReferenceError（报告函数不在其作用域内），走 parseSafe 更被静默吞成 ok=false 且无码；现两路都给本码。⚠️ 两端**入口不同**：JS 在解析器内部处理 include（`include \"x.sml\" as w { }` 走全量 parse），Rust 在 sml-include 的指令解析里（要直接调 parse_include_line）—— 故 probe 与 rust/tests/error_codes.rs 各有一条同条件用例，见后者的 include_key_list_codes" }
     { id: E-INCLUDE-006 domain: INCLUDE severity: E title: "未定义的片段引用"
       msg: "未定义的片段引用"
       impls: [ rust ] status: partial

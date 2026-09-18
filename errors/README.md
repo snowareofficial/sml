@@ -50,7 +50,7 @@ E - CONTRACT - 002
 | **C++**（原生，`cpp/sml.cpp`） | ✅ 全量（27 个码） | 同上口径；取码用 `err.substr(0, err.find(' '))`。码表声明含 `cpp` 的 27 条已逐条对齐（W18 补齐了 include 那 5 条：002/004/010/011 与 E-LIMIT-003） |
 | **Lua** | ✅ 已带（适用本实现的 **7 个码**） | 用 `lua/lib/sml.soup`；**码作消息前缀**写进返回的 `err` 字符串（`Sml.load(text) -> value, err`），取码 `err:match("^(%S+)")`。⚠️ 抛错必须写 `error(msg, 0)` —— Lua 默认会往消息前插位置信息，把码挤到中间。⚠️ **`E-INCLUDE-001` 不适用**：Lua 实现没有 include 语法，已从该条 `impls` 移除 |
 | **C-ABI** | ✅ 已带 | `sml_error.code`（粗粒度枚举，9 档，供 C 侧 `switch`）+ `sml_error.code_str[16]`（真实码）；`classify()` 改成**读码**而不是猜中文关键词 |
-| **smltools** | ⏳ 只有文案（部分随 `Display` 显示出来） | 待办 |
+| **smltools** | ✅ 已带（工具层全量） | 引用 `sml-codes` 的**常量**；CLI / 迁入格式 / lint / highlight 定制的每条诊断都带码。⚠️ 口径与其它 Rust 侧一致是**码后缀**（`文案 [E-XXX-NNN]`，见 `sml-codes` 的 `Display`），而 C/C++/Lua 是**码前缀** —— 两者都满足「取码」需求，但格式不同，属 W3/W16 的话题。lint 的解析类问题**透传语言层码**（不包成 E-LINT） |
 
 两条最容易搞混的：
 
