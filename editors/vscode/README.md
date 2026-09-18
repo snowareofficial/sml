@@ -68,6 +68,13 @@ SML 语法小、解析器（`js/sml.mjs`）零依赖且可直接 import，进程
 - 补全基于文本扫描（正则），非完整语义分析。
 - 「悬浮显示契约展开结果」只覆盖**顶层**标注块：嵌在别的块里的标注块取不到实例时，
   悬浮会明说「未找到可展开的实例」，只显示契约声明 —— 不猜、不编。
+  ⚠️ **前置条件（最常见的「怎么没有展开」）**：展开那一半要**整份文档都能通过校验**
+  （语法 **和** 契约 —— 桥接层的 `contractInstance` 内部就是 `parseSafe(text)`）。
+  文档里只要有**任何**错误，悬浮就只显示契约声明、并在下面注明「未找到可展开的实例」。
+  **先看问题面板有没有红字，再看悬浮**。
+  ⚠️ 也要注意写法：契约标注写在**块内**（`web {` 的下一行写 `@is Server`）；
+  写成 `web @is Server { }`（块名后紧跟）**不是合法语法** —— Rust 报 `E-PARSE-012`、
+  JS 报「多余的结束符号 }」。
 - 「跳转到定义」同理只做**同名定义**（文档级名字），不做作用域分析。
 
 ## 文件结构
@@ -103,7 +110,8 @@ Provides editing support for [SML](../README.md) (SNOWARE Markup Language).
 | **Syntax highlighting** | keys, strings, numbers, bool/null, comments, directives, fragments, contract keywords, types, modifiers |
 | **Diagnostics** | real-time parse with errors located to exact line/column (red squiggles + Problems panel) |
 | **Completion** | directives, contract keywords, types, modifiers, literals, contract names, fragment names, in-document keys |
-| **Hover** | hover `@contract` / `@is` / `loose` / `include` to see explanations and examples |
+| **Hover** | ① hover `@contract` / `@is` / `loose` / `include` for explanations and examples; ② **hover a contract name to see the instance after the contract is applied** — defaults really filled in by the parser, not a copy of the declaration |
+| **Go to definition** | `@is Server` → `@contract Server`; `&base` → `@base { }` (F12 / Ctrl+click) |
 | **Formatting** | reformat per SML spec (parse → serialize); no change if parse fails |
 
 ## Install (from source)
@@ -146,3 +154,14 @@ coordination. The cost is being limited to VSCode.
   [CHANGELOG](../../CHANGELOG.md).
 - On parse failure only the **first** error is reported.
 - Completion is based on text scanning (regex), not full semantic analysis.
+- "Hover shows the expanded contract result" covers **top-level** annotated blocks only; when no
+  instance can be found the hover says so explicitly ("no expandable instance found") and shows the
+  declaration alone — it never guesses.
+  ⚠️ **Precondition (the usual reason people think it is broken)**: the expansion half requires the
+  **whole document** to validate (syntax **and** contracts — `contractInstance` calls
+  `parseSafe(text)` internally). If the document has *any* error, the hover shows the declaration
+  only, plus the "no expandable instance found" note. **Check the Problems panel first.**
+  ⚠️ Also mind the syntax: put `@is` **inside** the block (on the line after `web {`).
+  Writing `web @is Server { }` is **not valid SML** (Rust: `E-PARSE-012`; JS: "stray closing brace").
+- "Go to definition" also only resolves **same-name definitions** (document-level names) — no scope
+  analysis.

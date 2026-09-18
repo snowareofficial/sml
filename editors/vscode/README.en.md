@@ -9,7 +9,8 @@ Provides editing support for [SML](../README.md) (SNOWARE Markup Language).
 | **Syntax highlighting** | keys, strings, numbers, bool/null, comments, directives, fragments, contract keywords, types, modifiers |
 | **Diagnostics** | real-time parse with errors located to exact line/column (red squiggles + Problems panel) |
 | **Completion** | directives, contract keywords, types, modifiers, literals, contract names, fragment names, in-document keys |
-| **Hover** | hover `@contract` / `@is` / `loose` / `include` to see explanations and examples |
+| **Hover** | ① hover `@contract` / `@is` / `loose` / `include` for explanations and examples; ② **hover a contract name to see the instance after the contract is applied** — defaults really filled in by the parser, not a copy of the declaration |
+| **Go to definition** | `@is Server` → `@contract Server`; `&base` → `@base { }` (F12 / Ctrl+click) |
 | **Formatting** | reformat per SML spec (parse → serialize); no change if parse fails |
 
 ## Install (from source)
@@ -77,6 +78,17 @@ and reuse it; the extension's core logic needs no rewrite (see
 - On parse failure only the **first** error is reported (the parser stops at the
   first error); fix it and re-trigger to see later errors.
 - Completion is based on text scanning (regex), not full semantic analysis.
+- "Hover shows the expanded contract result" covers **top-level** annotated blocks only; when no
+  instance can be found the hover says so explicitly ("no expandable instance found") and shows the
+  declaration alone — it never guesses.
+  ⚠️ **Precondition (the usual reason people think it is broken)**: the expansion half requires the
+  **whole document** to validate (syntax **and** contracts — `contractInstance` calls
+  `parseSafe(text)` internally). If the document has *any* error, the hover shows the declaration
+  only, plus the "no expandable instance found" note. **Check the Problems panel first.**
+  ⚠️ Also mind the syntax: put `@is` **inside** the block (on the line after `web {`).
+  Writing `web @is Server { }` is **not valid SML** (Rust: `E-PARSE-012`; JS: "stray closing brace").
+- "Go to definition" also only resolves **same-name definitions** (document-level names) — no scope
+  analysis.
 
 ## File structure
 
