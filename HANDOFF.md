@@ -1,7 +1,11 @@
 # 移交文档
 
 > 面向下一个会话。读完即可接手，不必翻聊天记录。
-> 末次提交 `3995998`（2026-09-18）。上一会话的全部改动**已按主题分 10 笔提交**（清单见 §1.2，`git log --oneline` 可直接对照）。
+> 本文件主体写于提交 `3995998`（2026-09-18）；那一轮的全部改动**已按主题分 10 笔提交**（清单见 §1.2，`git log --oneline` 可直接对照）。
+> **此后又落了四笔**（都在 2026-09-18 当天，`git log` 可查）：W16 的 **C 批**（§15）、
+> W16 的 **JS 批**（§16）、**W12**（官网错误码通配 / 深链 + 教科书搜索接入码表，
+> 验收脚本 `site/tools/tools_js_check.mjs`），以及各自带出的文档收口。
+> 当前工作区**干净**，全部测试基线见 §0 与 §5。
 > 疑问多数能在这三处找到答案：本文件 §3（规格与实测）、§4（坑）、`TODO.md` §五（任务分解）。
 
 ## 0. 现状（一分钟版）
@@ -316,6 +320,15 @@ python errors/gen_json.py             # errors/codes.sml -> site/static/errors.j
 python errors/gen_json.py --check     # 只校验不写文件（CI 用）
 python site/tools/gen_search_index.py # content/**/*.md -> site/static/search-index.json
 python site/build_site.py             # 完整构建（含上面两步 + Hugo + EPUB）
+
+# 官网小工具（W12：错误码通配 / 深链 + 教科书搜索接入码表）—— 不需要浏览器
+node site/tools/tools_js_check.mjs    # 10 条断言（极小 DOM 桩 + vm 里真跑脚本）
+python site/tools/_w12_disc.py        # 判别实验：HEAD 版必须红（7 条）
+
+# JS（探针 + 四份副本一致性 + 副本冒烟）
+node js/probe-error-codes.mjs         # ALL OK（45 条用例）
+python tools/check_js_copies.py       # 四份副本与 js/sml.mjs 逐字节一致（--fix 同步）
+node js/_w16_copies_smoke.mjs         # 直接对副本跑 9 条断言（站点 / 扩展各一遍）
 ```
 
 **环境注意（两条，本轮都踩过）**：
