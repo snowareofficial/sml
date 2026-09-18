@@ -79,24 +79,31 @@ function tokenize(text) {
       while (i < n && text[i] !== "\n") i++;
     } else if (c === "/" && text[i + 1] === "*") {
       i += 2;
+      let closed = false;
       while (i < n) {
-        if (text[i] === "*" && text[i + 1] === "/") { i += 2; break; }
+        if (text[i] === "*" && text[i + 1] === "/") { i += 2; closed = true; break; }
         i++;
       }
+      // EOF 未闭合的块注释必须报错（与 Rust 的 sml-lex 同码）：
+      // 此前静默吞掉文件剩余部分，后面的键会凭空消失。
+      if (!closed) throwCode("E-LEX-002", "sml: 未闭合的块注释 /* ... */（遇到文件结尾）");
     } else if (c === "_" && text[i + 1] === "*") {
       i += 2;
+      let closed = false;
       while (i < n) {
-        if (text[i] === "*" && text[i + 1] === "_") { i += 2; break; }
+        if (text[i] === "*" && text[i + 1] === "_") { i += 2; closed = true; break; }
         i++;
       }
+      if (!closed) throwCode("E-LEX-003", "sml: 未闭合的块注释 _* ... *_（遇到文件结尾）");
     } else if (c === '"') {
       flush();
       const qStart = i;
       let s = "";
       i++;
+      let closed = false;
       while (i < n) {
         const cc = text[i];
-        if (cc === '"') { i++; break; }
+        if (cc === '"') { i++; closed = true; break; }
         if (cc === "\\" && i + 1 < n) {
           i++;
           const e = text[i];
@@ -105,18 +112,45 @@ function tokenize(text) {
             if (text[i + 1] === "{") {
               let j = i + 2, hex = "";
               while (j < n && text[j] !== "}") { hex += text[j]; j++; }
+              // W16：码点非法必须报码 —— 原先直接 `String.fromCodePoint(parseInt(...))`，
+              // 非法输入会抛**宿主 RangeError**（没有码，等于逃出错误码体系）。
+              if (j >= n || !/^[0-9a-fA-F]+$/.test(hex)) {
+                throwCode("E-LEX-005", "sml: Unicode 转义非法（\\u{...} 缺失或非十六进制）");
+              }
               i = j + 1;
-              s += String.fromCodePoint(parseInt(hex, 16));
+              const cp = parseInt(hex, 16);
+              if (!Number.isFinite(cp) || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) {
+                throwCode("E-LEX-005", "sml: Unicode 转义非法（码点越界或落在代理区）");
+              }
+              s += String.fromCodePoint(cp);
             } else {
               const hex = text.slice(i + 1, i + 5);
+              if (!/^[0-9a-fA-F]{4}$/.test(hex)) {
+                throwCode("E-LEX-005", "sml: Unicode 转义非法（\\u 后须 4 位十六进制）");
+              }
               i += 4;
-              s += String.fromCodePoint(parseInt(hex, 16));
+              const cp = parseInt(hex, 16);
+              if (cp >= 0xd800 && cp <= 0xdfff) {
+                throwCode("E-LEX-005", "sml: Unicode 转义非法（代理区码点）");
+              }
+              s += String.fromCodePoint(cp);
             }
           } else {
-            s += ({ n: "\n", t: "\t", r: "\r", "0": "\0", '"': '"', "\\": "\\" }[e] ?? e);
+            // W16：接受集收窄到 Rust 的严格集（`\n \t \r \0 \" \\ \uXXXX`）。
+            // 原先未知转义**原样保留**（`\q` 静默变成 `q`）—— 属静默改数据。
+            const m = { n: "\n", t: "\t", r: "\r", "0": "\0", '"': '"', "\\": "\\" }[e];
+            if (m === undefined) {
+              throwCode("E-LEX-004", "sml: 字符串含未知转义符 \\" + e);
+            }
+            s += m;
             i++;
           }
         } else { s += cc; i++; }
+      }
+      // W16：未闭合字符串必须报码。原先静默把文件剩余部分吃进字符串 ——
+      // 后面的键会凭空消失（数据被悄悄截断）。
+      if (!closed) {
+        throwCode("E-LEX-001", "sml: 字符串未闭合（遇到文件结尾，缺少结束引号）");
       }
       toks.push({ t: "str", v: s, pos: qStart });
     } else if ("{}[]:,".includes(c)) {
@@ -191,12 +225,21 @@ function throwCode(code, msg) {
   throw e;
 }
 
-function coerceWord(w, fragments, nsMap) {
+function coerceWord(w, fragments, nsMap, feats) {
   if (w === "true") return true;
   if (w === "false") return false;
   if (w === "null") return null;
   const ev = w.match(/^\$env\.(.+)$/);
-  if (ev) return envLookup(ev[1]);
+  if (ev) {
+    // W16：`env` 特性关闭时**不得静默内插**。此前 JS 无条件内插 —— 用 `parse(text,
+    // {features})` 当沙箱的调用方（如编辑器/服务端）会以为已经关掉了环境读取。
+    // 码与 Rust 同：coerce_word 里 `$env` 未启用报 E-FEATURE-002（不是 001）。
+    if (feats && !feats.has("env")) {
+      throw throwCode("E-FEATURE-002",
+        "sml: 当前特性集禁用了 `$env`（env），裸词 `" + w + "` 无法解析");
+    }
+    return envLookup(ev[1]);
+  }
   // 命名空间解引用：ns.field(.sub) 取值（如 include "ui" as ui 后 ui.title）
   if (nsMap && w.includes(".")) {
     const dot = w.indexOf(".");
@@ -211,9 +254,16 @@ function coerceWord(w, fragments, nsMap) {
     }
   }
   if (w.startsWith("&")) {
+    // W16：`fragment` 特性关闭 ⇒ E-FEATURE-001（与 Rust 的 coerce_word 同码）；
+    // 开着但名字未定义 ⇒ **E-INCLUDE-006**（改前 `return w` 静默退化成字符串，
+    // 拼错的片段名于是变成普通数据，下游取值取不到还查不出原因）。
+    if (feats && !feats.has("fragment")) {
+      throw throwCode("E-FEATURE-001",
+        "sml: 当前特性集禁用了片段引用（fragment），`" + w + "` 无法解析");
+    }
     const name = w.slice(1);
     if (fragments.has(name)) return structuredClone(fragments.get(name));
-    return w;
+    throw throwCode("E-INCLUDE-006", "sml: 未定义的片段引用 `" + w + "`");
   }
   // 只有首字符为数字或小数点的词才承认是数字字面量（剥离正负号后判断）。
   //
@@ -238,9 +288,16 @@ function coerceWord(w, fragments, nsMap) {
   return w;
 }
 
-function coerceStr(s, fragments) {
+function coerceStr(s, fragments, feats) {
   const ev = s.match(/^\$env\.(.+)$/);
-  if (ev) return envLookup(ev[1]);
+  if (ev) {
+    // 与 coerceWord 同一道闸（引号串里的 `$env.X` 同样要受 `env` 特性管辖）
+    if (feats && !feats.has("env")) {
+      throw throwCode("E-FEATURE-002",
+        "sml: 当前特性集禁用了 `$env`（env），字符串 `" + s + "` 无法解析");
+    }
+    return envLookup(ev[1]);
+  }
   return s;
 }
 
@@ -384,12 +441,27 @@ function collectFeatures(text, base) {
   return feats;
 }
 
+// 把 `@feature ...` **整行**从正文里剥掉（行级，与 Rust 的 `strip_features` 同口径）。
+//
+// ⚠️ 为什么必须在**词法之前**做：`tokenize` 会丢掉换行，解析器再也分不清「这条指令到哪
+// 结束」。原先解析器那版靠「遇到 @ / } / ] / , / ; 就停」猜边界 —— 而特性名后面通常直接
+// 跟着下一个块（`@feature enable for` + `svg { … }`），于是它把 `svg { …` 一起吞掉，
+// **整份文档静默变成 `{}`**。实测 `_probe2.sml`：旧实现得 `{}`，Rust 得完整树（W16 修）。
+function stripFeatureLines(text) {
+  return String(text).replace(/^[ \t]*@feature[^\n]*\n?/gm, "");
+}
+
 // —— 模式 / 正则的三处上限，集中定义 ——
 // 此前 `PATTERN_MAX_LEN` 定义在 parse() 内部而校验处却写死 4096，常量成了死代码；
 // 现在统一提到模块级，两处都能引用。
 const PATTERN_MAX_LEN = 4096; // 被校验值的长度上限：超长输入直接拒收，不交给 RegExp 硬算
 const REGEX_SRC_MAX = 200;    // 用户内联正则的源长度上限
 const QUANT_MAX = 1000;       // 量词上界：挡住 `次: 999999999` 这类展开
+// 模式最坏展开的**编译期**预算（E-LIMIT-002，理由见 compilePatternToRe 的注释：
+// JS 是原生 RegExp、运行时插不进计数器，只能编译期估上界）。取值 1e5 的经验依据：
+// 正常业务模式（几十个原子 × 有界量词 ≤ 1000）远低于它，而嵌套量词
+// `(a*)*`（1e6）、`(a{1000}){1000}`（1e6）这类灾难性回溯形状会被挡住。
+const PATTERN_STEP_BUDGET = 100000;
 // 块/数组嵌套上限：与 Rust 侧 MAX_VALUE_DEPTH 同口径。
 // 深嵌套在 JS 侧会抛 RangeError（严重时栈溢出），故在入口统一闸住。
 const MAX_PARSE_DEPTH = 128;
@@ -516,7 +588,9 @@ export function parse(text, opts) {
   const extDirs = opts.directives || null;
   const extTypes = opts.types || null;
 
-  const toks = tokenize(text);
+  // `@feature` 整行在**词法之前**剥掉（见 stripFeatureLines 的说明）——
+  // 特性集仍由下面的 collectFeatures 从**原文**读，两者互不影响。
+  const toks = tokenize(stripFeatureLines(text));
   // 嵌套深度闸门：在入口对 token 流做一次 O(n) 线性扫描。
   // 比在每个递归点插桩更简单，也更难绕过（词法已定，括号/方括号即成对出现）。
   {
@@ -555,8 +629,8 @@ export function parse(text, opts) {
   function literal() {
     const t = peek();
     if (!t) fail("E-PARSE-021", "sml: 期望字面量");
-    if (t.t === "str") { i++; return coerceStr(t.v, fragments); }
-    if (t.t === "word") { i++; return coerceWord(t.v, fragments, nsMap); }
+    if (t.t === "str") { i++; return coerceStr(t.v, fragments, feats); }
+    if (t.t === "word") { i++; return coerceWord(t.v, fragments, nsMap, feats); }
     fail("E-PARSE-021", "sml: 期望字面量, 得 " + t.t);
   }
 
@@ -605,9 +679,26 @@ export function parse(text, opts) {
   }
   function compilePatternToRe(v, stack) {
     stack = stack || [];
+    // W16：**编译期**「最坏展开」预算（E-LIMIT-002）。
+    //
+    // JS 把模式编译成**原生 RegExp**，运行时插不进步数计数器 —— Rust 的 `sml-regex`
+    // 是自研回溯引擎，能在每次匹配决策处计步（`MAX_REGEX_STEPS`）；JS 没有这个位置。
+    // 于是预算落在**编译期**：估算最坏情况的原子重复次数 ——
+    //   顺序 = 各元素**求和**、量词 = 与之**相乘**（`次: {m,n}` 取 n；`*` / `+`
+    //   无上界时取 `QUANT_MAX` 作保守代理；内联正则按 `REGEX_SRC_MAX` 计入）。
+    // 它挡的是 `(a*)*` / `(a{1000}){1000}` 这类**嵌套量词**造成的灾难性回溯 ——
+    // 与 Rust 的步数预算是**同一个因**（防病态模式挂死主线程）、**同码**，
+    // 但条件粒度不同（Rust 在运行时限步、JS 在编译期估上界），已写进码表的 note。
     const build = (node) => {
-      if (Array.isArray(node)) return node.map(build).join("");
-      if (typeof node === "string") return escapeRe(node);
+      if (Array.isArray(node)) {
+        let src = "", cost = 0;
+        for (const x of node) { const r = build(x); src += r.src; cost += r.cost; }
+        return { src: src, cost: cost };
+      }
+      if (typeof node === "string") {
+        const s = escapeRe(node);
+        return { src: s, cost: Math.max(1, node.length) };
+      }
       if (node == null || typeof node !== "object")
         throw throwCode("E-CONTRACT-013", "sml: 模式元素类型不支持");
       const g = (...keys) => {
@@ -616,18 +707,29 @@ export function parse(text, opts) {
       };
       if (g("直到", "until") !== undefined)
         throw throwCode("E-CONTRACT-013", "sml: JS 引擎暂不支持 直到/until（懒惰量词在高危结构下有回溯风险；该场景请用 Rust 引擎）");
-      let base;
-      if (g("字面", "lit", "literal") !== undefined)
-        base = escapeRe(String(g("字面", "lit", "literal")));
-      else if (g("类", "class") !== undefined)
+      let base, cost;
+      if (g("字面", "lit", "literal") !== undefined) {
+        const lit = String(g("字面", "lit", "literal"));
+        base = escapeRe(lit);
+        cost = Math.max(1, lit.length);
+      } else if (g("类", "class") !== undefined) {
         base = classToRe(String(g("类", "class")));
-      else if (g("任一", "alt", "any-of") !== undefined)
-        base = "(?:" + g("任一", "alt", "any-of").map((x) => build(x)).join("|") + ")";
-      else if (g("组", "group") !== undefined)
-        base = "(?:" + build(g("组", "group")) + ")";
-      else if (g("序列", "seq") !== undefined)
-        base = build(g("序列", "seq"));
-      else if (g("用", "use") !== undefined) {
+        cost = 1;
+      } else if (g("任一", "alt", "any-of") !== undefined) {
+        // 分支取**最大**代价（任一分支都可能在回溯中被尝试）
+        const parts = g("任一", "alt", "any-of").map((x) => build(x));
+        cost = 0;
+        for (const p of parts) cost = Math.max(cost, p.cost);
+        base = "(?:" + parts.map((p) => p.src).join("|") + ")";
+      } else if (g("组", "group") !== undefined) {
+        const p = build(g("组", "group"));
+        base = "(?:" + p.src + ")";
+        cost = p.cost;
+      } else if (g("序列", "seq") !== undefined) {
+        const p = build(g("序列", "seq"));
+        base = p.src;
+        cost = p.cost;
+      } else if (g("用", "use") !== undefined) {
         const name = String(g("用", "use"));
         if (stack.includes(name)) throw throwCode("E-CONTRACT-014", "sml: 规则 `" + name + "` 循环引用");
         if (!types.has(name)) throw throwCode("E-CONTRACT-014", "sml: 未定义的规则 `" + name + "`");
@@ -644,6 +746,10 @@ export function parse(text, opts) {
           throw throwCode("E-LIMIT-007", "sml: 内联正则过长（" + reSrc.length + " > " + REGEX_SRC_MAX + "），拒绝编译");
         }
         base = "(?:" + reSrc.replace(/^\^/, "").replace(/\$$/, "") + ")";
+        // 内联正则内部**可能本身就带量词**（`(a+)+`），无法从外面看穿，故按
+        // 「最坏 = 允许的最大源长度」计入代价：这样「内联正则 + 无界量词」
+        // （经典 ReDoS 形状）会直接超预算被拒，而单独一个内联正则照常可用。
+        cost = REGEX_SRC_MAX;
       }
       else throw throwCode("E-CONTRACT-013", "sml: 无法识别的模式元素");
       // —— 量词：支持 次: 数字/符号/a-b、次: {最小,最大}（中英等价）、
@@ -685,11 +791,19 @@ export function parse(text, opts) {
           throw throwCode("E-CONTRACT-015", "sml: 量词最大(" + qMax + ")不能小于最小(" + qMin + ")");
         const mn = qMin === undefined ? 0 : qMin;
         base = "(?:" + base + ")" + minMaxToRe(mn, qMax);
+        // 量词把代价**乘上去**：`(a*)*` ⇒ 1000 × 1000 = 1e6，超预算即拒
+        const mult = qMax === undefined ? QUANT_MAX : Math.max(qMax, mn);
+        cost *= Math.max(1, mult);
       }
-      return base;
+      return { src: base, cost: cost };
     };
-    const body = build(v);
-    return new RegExp("^(?:" + body + ")$", "u");
+    const r = build(v);
+    if (r.cost > PATTERN_STEP_BUDGET) {
+      throw throwCode("E-LIMIT-002",
+        "sml: 模式匹配超出步数预算（编译期估算最坏展开 " + r.cost + " > "
+        + PATTERN_STEP_BUDGET + "），疑似病态规则");
+    }
+    return new RegExp("^(?:" + r.src + ")$", "u");
   }
 
   /// 新建字段规格（默认值集中在一处，避免两条解析路径手写两份而漂移）。
@@ -895,7 +1009,15 @@ export function parse(text, opts) {
       const tok = peek();
       if (tok.t === "}" || tok.t === "]") {
         if (closing === tok.t) { i++; break; }
-        break;
+        // W16：闭合符**不匹配**必须报错，不再静默结束本块。
+        // 原先这里直接 `break`（且**不消费**该 token）：`a { ] }` 静默得到 `{"a":{}}`，
+        // `]` 被吞掉、数据形状被悄悄改掉。码按 Rust 分两种：
+        //   - 块内遇到 `]` ⇒ E-PARSE-002（闭合符错配）；
+        //   - 顶层（closing === null）遇到多余的 `}` / `]` ⇒ E-PARSE-003（多余的结束符号）。
+        if (tok.t === "]" && closing === "}") {
+          fail("E-PARSE-002", "sml: 闭合符错配（块应以 } 闭合，却遇到 ]）");
+        }
+        fail("E-PARSE-003", "sml: 多余的结束符号 " + tok.t + "（此处没有需要关闭的容器）");
       }
       if (tok.t === ",") { i++; continue; }
       if (tok.t === "@") {
@@ -912,11 +1034,15 @@ export function parse(text, opts) {
           continue;
         }
         if (fname === "feature") {
-          // 已在 collectFeatures 处理，这里只需消费掉这一条 @feature 指令的 token：
-          // 直到行尾（下一个 @ 指令、块边界、或 , ; 作为语句分隔）
+          // 正常情况下**到不了这里**：`@feature` 整行已在词法前被 stripFeatureLines 剥掉。
+          // 这里只兜住病理情况（`@feature` 写在行中间）。⚠️ 别改回「遇到 } / ] 才停」的老写法：
+          // tokenize 已丢换行，那样会把后面第一个块的**开头与内容**一起吞掉（整份文档 -> `{}`）。
+          i++; // 消费 feature
           while (i < toks.length) {
             const tk = toks[i];
-            if (tk.t === "@" || tk.t === "}" || tk.t === "]") break;
+            // 下一个字段（`word :`）或任何容器边界即停 —— 宁可少吃不误吃
+            if (tk.t === "word" && toks[i + 1] && toks[i + 1].t === ":") break;
+            if (tk.t === "@" || tk.t === "{" || tk.t === "}" || tk.t === "[" || tk.t === "]") break;
             if (tk.t === "," || tk.t === ";") { i++; break; }
             i++;
           }
@@ -985,6 +1111,9 @@ export function parse(text, opts) {
           continue;
         }
         if (fname === "contract") {
+          // W16：契约未启用时不得静默生效。这条不只是「行为差异」——用它当沙箱的
+          // 调用方（parseSafe / 编辑器）会以为契约校验已被关掉，实际照样执行。
+          if (!feats.has("contract")) fail("E-FEATURE-001", "sml: @contract 需要特性 `contract`，但当前特性集已禁用");
           i++;
           const cname = peek() && peek().v;
           if (!cname) fail("E-PARSE-019", "sml: @contract 后须契约名");
@@ -997,6 +1126,8 @@ export function parse(text, opts) {
           continue;
         }
         if (fname === "is") {
+          // W16：`@is` 与 `@contract` 同属 contract 特性（Rust 侧同样两道都门控）
+          if (!feats.has("contract")) fail("E-FEATURE-001", "sml: @is 需要特性 `contract`，但当前特性集已禁用");
           i++;
           const raw = peek() && peek().v;
           if (!raw) fail("E-PARSE-019", "sml: @is 后须契约名");
@@ -1013,18 +1144,47 @@ export function parse(text, opts) {
           if (!(appliedContract in contracts)) appliedContract = cname; // 回退裸名
           continue;
         }
-        // @name [type [name]] { ... } 片段定义
-        i++;
-        if (peek() && peek().t === ":") i++;
+        // —— 片段定义：`@name { ... }`；参数只认**显式**写法 `type:` / `name:` ——
+        //
+        // W16：此前这里对**任何** `@xxx` 都静默宽容 —— `@foo bar { x: 1 }`（位置参数）
+        // 被当片段收下（拼错的指令名于是变成数据）、`@foo bar`（无片段体）整行丢掉。
+        // 现在按 Rust 的判据报错，⚠️ 但**不一刀切**：`@foo { ... }`（无参数带体）
+        // 仍是合法片段定义。
+        i++; // 消费片段名（与其它分支一致：fname 由自己消费）
         let ftype = null, farg = null;
-        if (peek() && peek().t === "word") {
-          ftype = peek().v; i++;
-          if (peek() && peek().t === "word") { farg = peek().v; i++; }
-        }
-        if (peek() && peek().t === "{") {
+        // 显式参数：仅当 `type`/`name` **紧跟冒号**时才算参数
+        // （故名为 `type` 的片段 `@type { .. }` 仍可定义 —— 与 Rust 的 is_param 一致）
+        while (peek() && peek().t === "word"
+               && (peek().v === "type" || peek().v === "name")
+               && toks[i + 1] && toks[i + 1].t === ":") {
+          const kw = peek().v;
+          i += 2; // 消费 type/name 与 :
+          const vt = peek();
+          if (!vt || (vt.t !== "word" && vt.t !== "str")) {
+            fail("E-PARSE-020", "sml: 片段 `@" + fname + "` 的参数 `" + kw + ":` 后须值");
+          }
+          if (kw === "type") {
+            if (ftype !== null) fail("E-PARSE-020", "sml: 片段 `@" + fname + "` 的 `type:` 参数重复");
+            ftype = vt.v;
+          } else {
+            if (farg !== null) fail("E-PARSE-020", "sml: 片段 `@" + fname + "` 的 `name:` 参数重复");
+            farg = vt.v;
+          }
           i++;
+        }
+        if (!peek() || peek().t !== "{") {
+          fail("E-PARSE-005", "sml: `@" + fname + "` 不是合法指令且缺少片段体 { ... }；"
+            + "若本意是「片段定义」，参数须显式写作 `type: X` 与 `name: Y`"
+            + "（位置参数形式自 v4 起已废弃；不带参数时写作 `@" + fname + " { ... }`）；"
+            + "若本意是「指令」，请检查拼写（合法指令：contract / is / version / type）");
+        }
+        i++;
+        {
           const sub = parseBlock("}");
           if (ftype) { sub.__type = ftype; if (farg) sub.__name = farg; }
+          if (!feats.has("fragment")) {
+            fail("E-FEATURE-001", "sml: 片段定义 `@" + fname + "` 需要特性 `fragment`，但当前特性集已禁用");
+          }
           fragments.set(nsPrefix + fname, sub);
         }
         continue;
@@ -1097,7 +1257,7 @@ export function parse(text, opts) {
         if (found) {
           const args = [];
           while (peek() && (peek().t === "word" || peek().t === "str")) {
-            args.push(peek().t === "str" ? coerceStr(peek().v, fragments) : coerceWord(peek().v, fragments, nsMap));
+            args.push(peek().t === "str" ? coerceStr(peek().v, fragments, feats) : coerceWord(peek().v, fragments, nsMap, feats));
             i++;
           }
           if (peek() && peek().t === "{") {
@@ -1132,12 +1292,12 @@ export function parse(text, opts) {
         i++;
         setField(key, parseArray());
       } else if (nxt && (nxt.t === "word" || nxt.t === "str")) {
-        setField(key, nxt.t === "str" ? coerceStr(nxt.v, fragments) : coerceWord(nxt.v, fragments, nsMap));
+        setField(key, nxt.t === "str" ? coerceStr(nxt.v, fragments, feats) : coerceWord(nxt.v, fragments, nsMap, feats));
         i++;
       } else if (colon) {
         setField(key, null);
       } else {
-        setField(key, coerceWord(key, fragments, nsMap));
+        setField(key, coerceWord(key, fragments, nsMap, feats));
       }
     }
     if (appliedContract) {
@@ -1152,9 +1312,10 @@ export function parse(text, opts) {
 
   function parseArray() {
     const arr = [];
+    let closed = false;
     while (i < toks.length) {
       const tok = peek();
-      if (tok.t === "]") { i++; break; }
+      if (tok.t === "]") { i++; closed = true; break; }
       if (tok.t === ",") { i++; continue; }
       if (tok.t === "{") {
         i++;
@@ -1169,14 +1330,30 @@ export function parse(text, opts) {
         i++;
         arr.push(parseArray());
       } else if (tok.t === "word" || tok.t === "str") {
-        arr.push(tok.t === "str" ? coerceStr(tok.v, fragments) : coerceWord(tok.v, fragments, nsMap));
+        arr.push(tok.t === "str" ? coerceStr(tok.v, fragments, feats) : coerceWord(tok.v, fragments, nsMap, feats));
         i++;
+      } else if (tok.t === "}") {
+        // W16：数组里多余的 `}` ⇒ E-PARSE-003（与 Rust 同码）。
+        // 原先落到下面的 `else break`，`m: [ } ]` 静默得到 `{"m":[]}`。
+        fail("E-PARSE-003", "sml: 多余的结束符号 }（数组应以 ] 闭合）");
       } else break;
+    }
+    // W16：顶层数组未闭合（缺少 `]`）必须报错，而非按 EOF 静默收尾。
+    if (!closed && i >= toks.length) {
+      fail("E-PARSE-001", "sml: 未闭合的数组（遇到文件结尾，缺少结束符号 ]）");
     }
     return arr;
   }
 
   const first = peek();
+  // W16：顶层标量不可往返 ⇒ `E-PARSE-008`（判据：顶层**恰好一个标量 token**）。
+  // 此前 `42` 会被 `parseBlock(null)` 当成「键即值」的裸键，解析成 `{"42": 42}`
+  // —— **凭空造键**，重新序列化得到 `"42": 42` ≠ `42`（与 Rust/C 实测同病，四端一致）。
+  // 判据边界：`hello world`（两 token）得到 `{"hello":"world"}`、值能往返 ⇒ 不算；
+  // 带指令的顶层标量（token 数 > 1）**不报** —— 有意保守，宁漏不误伤。
+  if (toks.length === 1 && (toks[0].t === "word" || toks[0].t === "str")) {
+    fail("E-PARSE-008", "sml: 顶层须为容器（键值块、对象块或数组），单独的标量无法往返");
+  }
   if (first && first.t === "[") { i++; return parseArray(); }
   if (first && first.t === "{") { i++; return parseBlock("}"); }
   return parseBlock(null);

@@ -109,6 +109,7 @@
 | Rust（顶层标量） | `a8a37df` | `E-PARSE-008` 接线（此前是死码） | 摘掉检查 ⇒ `top_level_scalar_needs_a_container` 红 |
 | JS 第一批 | `5bd0b64` | 未闭合字符串/块注释、未知转义、`\u` 非法、数组里多余的 `}`、闭合符错配、顶层多余的 `}`/`]`、未闭合数组、顶层标量（另修 `@feature` 吞文档） | 换回 HEAD 版 JS ⇒ **10 条红** |
 | C 批 | （见 `git log`） | 同上 LEX 五条 + `E-PARSE-002/003/005/008` + `E-INCLUDE-006`；顺带对齐 `@contract X strict`、片段显式参数 `type:`/`name:` | HEAD 版 `sml.c` 配同一份 `test_codes.c` ⇒ **20 条红**；新实现 0 红（断言 62 → 82） |
+| **JS 余额 4 条**（+ 副本漏同步修复） | （见 `git log`） | 未注册指令 `E-PARSE-005`（顺带片段显式参数 ⇒ `E-PARSE-020`）、未定义片段引用 `E-INCLUDE-006`、**特性门控**（`contract`/`fragment` ⇒ `E-FEATURE-001`、`env` ⇒ `E-FEATURE-002`）、模式预算 `E-LIMIT-002`（JS 落在**编译期**） | HEAD 版 `js/sml.mjs` 配同一份 `probe-error-codes.mjs` ⇒ **13 条红**；新实现 `ALL OK`（45 条用例） |
 
 **C 批的全仓扫描记录**（41 个 `.sml`，`c/_w16_scan.py`）：OK 29 → 22、FAIL 12 → 19，
 7 条 OK→FAIL 逐条查过根因，**没有一条是「原本正确的文档被误伤」**：
@@ -127,9 +128,30 @@
   —— 同因不同码，属 W3/W16 的后续话题。
 - C 的 `@feature` / `@when` / `@for` 落 `E-PARSE-005`（提示指向拼写而非「未实现」）。
 
-**未落地**：JS 余额 4 条、C++ 6 条（先实测现状）、Lua 6 条、Rust 侧 6 条、
-以及最后的统一收口（`impls` 全表回填 / CHANGELOG 行为变更段 / README 静默清单改写 /
-TODO 的 W16 行）。
+**未落地**：Lua 6 条、C++ 6 条（先实测现状）、Rust 侧 6 条、
+以及最后的统一收口（`impls` 全表回填 / README 静默清单终稿 / TODO 的 W16 行收尾）。
+
+**JS 批的全仓扫描记录**（41 个 `.sml`，`js/_w16_scan.mjs`，HEAD 版 vs 当前版同进程对照）：
+OK 30 → 26、结论变化 6 个，逐条判定：
+
+| 文件 | 改后码 | 判定 |
+|---|---|---|
+| `_for_probe.sml` / `_probe2.sml` / `_probe3.sml` / `_probe_for.sml` | `E-PARSE-005` | 未跟踪遗留探针（用 `@feature` / `@for`，JS 不实现这些特性/指令） |
+| `examples/for_when.sml` | `E-PARSE-005` | 同上（该文件依赖 Rust 侧 soupc 的 `@when` / `@for`） |
+| `examples/app.sml` | `E-CONTRACT-001` → `E-INCLUDE-006` | **改动前后都失败**，只是码更准确；根因是 JS 的 include 不带回片段表（见下） |
+
+⚠️ **顺带查明的 JS 架构缺口（未改，已登记）**：JS 的 include 是「把子文件**单独 parse**
+再合并数据」，**不携带子文件的片段表 / 契约表 / 类型表**；而 Rust / C++ / Lua 都是
+**解析前文本展开**（W20 的 Lua 就是这个架构）。后果：`include` 之后的 `&name`、
+以及「契约写在被包含文件里」的 `@is`，在 JS 下必然失败（`examples/app.sml` 正是这一格）。
+修它等于重做 include，属独立任务。
+
+⚠️ **另一处同批修掉的真缺陷**：W16 的 JS 首批（`5bd0b64`）在改 `js/sml.mjs` 时
+**四份副本一份都没同步** —— 官网 Playground（`site/static/sml.mjs`）与 VSCode 扩展
+（`editors/vscode/src/vendor/sml.mjs`）继续用 `b82dd4a` 时代的旧解析器，源码里的修复
+在站点与编辑器里完全没生效。现已同步，并新增**已跟踪**的闸门
+`tools/check_js_copies.py`（校验四份副本与源文件逐字节一致，`--fix` 一键同步），
+外加「直接 import 副本」的冒烟（`js/_w16_copies_smoke.mjs`，站点/扩展各 9 条断言）。
 
 ### 4.1 A1 / A2（JSON 桥失败不写进 err）的口径说明
 

@@ -122,7 +122,7 @@ codes: [
     { id: E-PARSE-005 domain: PARSE severity: E title: "不是合法指令且缺少片段体"
       msg: "该指令名不是合法指令且缺少片段体"
       impls: [ rust js c ] status: partial
-      note: "只有 Rust 与 C 会提示排查方向（合法指令名单）。JS 在未注册指令**带**片段体时仍静默当作片段定义（W16 余额，未做）。⚠️ C 的粒度更粗：它没有指令注册表，`@feature` / `@when` / `@for` 这些**它不实现的指令**也一并落此码（与拼错的指令在 token 流上同形、无法区分）—— 方向是「响亮拒绝」而不是静默丢行，但用户看到的提示会指向「拼写」；C++/Lua 待做" }
+      note: "三端都提示排查方向（合法指令名单）。**W16 起 JS 也报**（同批顺带支持片段显式参数 `type:` / `name:`，并接线 `E-PARSE-020`）—— 改前 JS 对 `@foo bar { .. }` 静默当片段定义、对 `@foo bar` 静默丢整行。⚠️ **C 与 JS 的粒度都比 Rust 粗**：它们没有 Rust 那种「指令注册表 + 候选名单」，`@feature` / `@when` / `@for` 这些**本端不实现的指令**与拼错的指令在 token 流上同形，一并落此码（用户看到的提示会指向「拼写」）—— 方向都是「响亮拒绝」而不是静默丢行；C++/Lua 待做" }
     { id: E-PARSE-006 domain: PARSE severity: E title: "期望键或标识符"
       msg: "期望键或标识符，得其它记号"
       impls: [ rust js cpp lua ] status: partial
@@ -180,8 +180,8 @@ codes: [
       note: "JS 侧对应「@contract 后须契约体」「@type 后须类型名」「@is 后须契约名」等文案" }
     { id: E-PARSE-020 domain: PARSE severity: E title: "片段参数语法非法"
       msg: "片段参数非法：`type` 或 `name` 参数后缺少取值，或同一参数重复"
-      impls: [ rust c ] status: partial
-      note: "C 侧是 W16 补片段**显式参数**（`type: X` / `name: Y`）时一并接线的：此前 C 只认位置参数形式，显式形式既不被识别、也不报错（`@f type: Server { ... }` 会被静默丢掉整条定义）" }
+      impls: [ rust c js ] status: partial
+      note: "C 与 JS 的这条码都是 W16 补片段**显式参数**（`type: X` / `name: Y`）时一并接线的：两端此前只认位置参数形式，显式形式既不被识别、也不报错（`@f type: Server { ... }` 会被静默丢掉整条定义，或退化成错误的树）" }
     { id: E-PARSE-021 domain: PARSE severity: E title: "default 缺取值"
       msg: "`default` 修饰符后缺少取值"
       impls: [ rust cpp js lua ] status: partial
@@ -206,8 +206,8 @@ codes: [
       note: "上限 128 层。**口径已实测统一**（用闭合嵌套逐格扫过五端，块与数组两条入口都扫）：文档根不计层 ⇒ **128 层放行、第 129 层报此码**。改前是分裂的：块嵌套 Rust/C 只放行 127（守卫用 >=，而文案写「**超过** 128 层」，自相矛盾），C++ 的**数组**入口更是白送一层（`key: [ ]` 直接调 parse_array、绕过 depth 计数 ⇒ 129 层才报）—— W15 一并收敛：Rust/C 的守卫改 >，C++ 补了带守卫的 parse_array_nested。XML 迁入超限同报此码。**C 与 Lua 的 parse_array 不递归嵌套数组**，这两端没有可限的数组深度入口，那属数据正确性（C 见 W17，Lua 见 W20）" }
     { id: E-LIMIT-002 domain: LIMIT severity: E title: "模式匹配超步数预算"
       msg: "模式匹配超出步数预算，疑似病态规则或超长输入"
-      impls: [ rust ] status: partial
-      note: "JS 侧只有「源码长度」与「待校验值长度」两道闸，**没有步数预算**，病态正则仍可占满主线程" }
+      impls: [ js ] status: partial
+      note: "⚠️ **这条码此前是「声明与实现不符」**：表里写 `impls: [rust]`，而 `sml-regex` 实测**超步数时静默判「不匹配」**（`MAX_REGEX_STEPS = 2_000_000`，超了返回 false、不报码）—— 归 Rust 批修，修完再把 `rust` 加回来。**JS 已于 W16 落地**：JS 把模式编译成**原生 RegExp**，运行时插不进步数计数器，故预算落在**编译期**（估算最坏展开：顺序求和、量词求积、内联正则按源长上限计入，超 `PATTERN_STEP_BUDGET` 即拒绝编译）—— 与 Rust 同一个因（防病态模式挂死主线程）、同码，但**条件粒度不同**（Rust 运行时限步、JS 编译期估上界），已写进实现注释" }
     { id: E-LIMIT-003 domain: LIMIT severity: E title: "include 展开次数超限"
       msg: "include 展开次数超过上限，疑似指数膨胀"
       impls: [ rust c cpp lua ] status: partial
@@ -243,12 +243,12 @@ codes: [
     # ================= 特性、版本与环境变量（语言层） =================
     { id: E-FEATURE-001 domain: FEATURE severity: E title: "特性未启用"
       msg: "该语法需要相应特性，请先启用该特性"
-      impls: [ rust lua ] status: partial
-      note: "Rust 覆盖 include/import、multi-include、glob-include、regex-include、namespace、contract、`@is`、`@when`、`@for`、fragment、top-level-array 等；**JS 只对 include 做了门控**，其余静默放行；用字段表达是哪个特性，码共用；**Lua 对 include 的高级写法（`as ns` 命名空间 / glob / regex / 多目标 / 部分引用）显式报此码**（W20 第二阶段：这些不做，但**绝不静默**）" }
+      impls: [ rust js lua ] status: partial
+      note: "Rust 覆盖 include/import、multi-include、glob-include、regex-include、namespace、contract、`@is`、`@when`、`@for`、fragment、top-level-array 等；**JS 原只对 include 做了门控**，W16 起补齐 `contract`（`@contract` / `@is`）与 `fragment`（片段定义与 `&` 引用）—— 这条不只是行为差异：把 parser 当沙箱用的调用方（`parseSafe` / 编辑器）会以为已经关掉了契约校验，实际照样执行；用字段表达是哪个特性，码共用；**Lua 对 include 的高级写法（`as ns` 命名空间 / glob / regex / 多目标 / 部分引用）显式报此码**（W20 第二阶段：这些不做，但**绝不静默**）。⚠️ **C 不用这条码**：它没有特性集，遇到不实现的指令落 `E-PARSE-005`" }
     { id: E-FEATURE-002 domain: FEATURE severity: E title: "环境变量被禁用"
       msg: "当前特性集禁用了环境变量内联，裸词或字符串无法解析"
-      impls: [ rust ] status: partial
-      note: "`@when` 的条件用环境变量时同报此码；JS 无条件内插，无门控" }
+      impls: [ rust js ] status: partial
+      note: "`@when` 的条件用环境变量时同报此码；**JS 改前无条件内插（无门控）**，W16 起裸词与引号串里的 `$env.X` 都受 `env` 特性管辖（关掉即报此码，与 Rust 的 `coerce_word` 同码 —— 注意不是 `E-FEATURE-001`）" }
     { id: E-FEATURE-003 domain: FEATURE severity: E title: "未知特性名"
       msg: "未知特性名"
       impls: [ rust ] status: partial
@@ -365,8 +365,8 @@ codes: [
       note: "**W14 已修**：JS 在空键列表这条分支上原抛宿主 ReferenceError（报告函数不在其作用域内），走 parseSafe 更被静默吞成 ok=false 且无码；现两路都给本码。⚠️ 两端**入口不同**：JS 在解析器内部处理 include（`include \"x.sml\" as w { }` 走全量 parse），Rust 在 sml-include 的指令解析里（要直接调 parse_include_line）—— 故 probe 与 rust/tests/error_codes.rs 各有一条同条件用例，见后者的 include_key_list_codes" }
     { id: E-INCLUDE-006 domain: INCLUDE severity: E title: "未定义的片段引用"
       msg: "未定义的片段引用"
-      impls: [ rust c ] status: partial
-      note: "含命名空间逐级回退后仍未命中的情形。C 改前把未命中的引用 `return sml_new_str(w)` 静默退化成字符串（下游取值取不到、还查不出原因），W16 起报此码；用户已裁决这类必须报错（「这种不应该出现，堪比 void」）。JS 仍把未定义引用静默当普通键处理（W16 余额，未做）" }
+      impls: [ rust js c ] status: partial
+      note: "含命名空间逐级回退后仍未命中的情形。C 改前把未命中的引用 `return sml_new_str(w)` 静默退化成字符串（下游取值取不到、还查不出原因），W16 起报此码；JS 改前同样静默当普通键。用户已裁决这类必须报错（「这种不应该出现，堪比 void」）。⚠️ **JS 的判定面比 Rust 宽**：JS 的 include 是「把子文件单独 parse 再合并数据」，**不携带子文件的片段表** —— 而 Rust/C++/Lua 都是**解析前文本展开**，跨文件片段天然可见。于是 `examples/app.sml`（`include` 后用 `&net`）在 JS 下必报此码、在 Rust 下正常。这是既有能力缺口（W16 让它从「静默字符串」变成「响亮拒绝」），已登记待单独修" }
     { id: E-INCLUDE-007 domain: INCLUDE severity: E title: "片段展开结果不是对象"
       msg: "片段展开结果不是对象，无法与所在块合并"
       impls: [ rust ] status: done

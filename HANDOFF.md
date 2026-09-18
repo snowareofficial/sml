@@ -22,7 +22,8 @@
 | 其中 `smltools` | `cargo test -p smltools` | **119 通过 / 0 失败**（bin 74 + 集成 `tests/error_codes.rs` 45；`xml` 子集 26 在 bin 里） |
 | C | `python build_check.py --run` | rc=0，`ALL LIMIT TESTS PASSED` + `ALL CODE TESTS PASSED`（CODE **82** 条断言；W16 的 C 批后从 62 涨到 82） |
 | C++ | `python build_verify.py` | 六 target 全 rc=0（example / CONTRACT / COMMENTS / LIMITS / **CODES 80 条全过** / RS-BRIDGE） |
-| JS 错误码 | `node js/probe-error-codes.mjs` | `ALL OK`（与 Rust 同条件同码） |
+| JS 错误码 | `node js/probe-error-codes.mjs` | `ALL OK`（**45 条用例** + 深度闸门 + `parseSafe`；含 W16 余额的 005 / 020 / 006 / 001 / 002 / LIMIT-002 与各自的正对照） |
+| JS 四份副本 | `python tools/check_js_copies.py` | 与 `js/sml.mjs` **逐字节一致**（rc=0）；`--fix` 一键同步 |
 | Lua | `python lua/run_check.py` | rc=0，`ALL LUA CHECKS PASSED`（入口自检 + `E-IO-001` + **120 条**码用例，含 include 组 38 条） |
 
 > ✅ **`cargo test --workspace` 复核为 `rc=0` / 46 targets / 528 passed / 0 failed**（2026-09-18）。
@@ -877,7 +878,8 @@ Rust 得完整树。改法：**词法前剥掉整行**（同 Rust 的 `strip_fea
 
 ### 14.6 下一批的第一件事
 
-~~**C 侧那 10 条**~~ **✅ 已完成（2026-09-18，见 §15）** → 下一批是 **Lua 那 6 条**
+~~**C 侧那 10 条**~~ **✅ 已完成（2026-09-18，见 §15）**；
+~~**JS 余额 4 条**~~ **✅ 已完成（2026-09-18，见 §16）** → 下一批是 **Lua 那 6 条**
 （`lua/lib/sml.soup`；跑 `python lua/run_check.py`；码的写法保持 `error(msg, 0)` + 码作消息前缀；
 其中 `a { ] }` 现在报的是 **`E-PARSE-003`（错码）**，要改成 `E-PARSE-002`）
 → 再 **C++ 那 6 条（先实测现状，别照判定表假设）** → 再 **Rust 那 6 条** → 最后**统一收口**。
@@ -963,3 +965,72 @@ Rust 得完整树。改法：**词法前剥掉整行**（同 Rust 的 `strip_fea
 已修 normcase 坑）、`_w16_one.c`（打印单个文件的码，用于按行二分）、`_w16_dump.c`（打印解析结果，
 用于判定「原先的树是不是错的」）、`_w16_count.py`（数 C 侧用到的码数，回填 README 用）、
 `_w16_head_sml.c` / `_w16_sml_before.c`（HEAD 快照，可随时重生成）。
+
+---
+
+## 16. W16 的 JS 批（余额 4 条 + 顺带修「四份副本漏同步」）（已完成，2026-09-18）
+
+改动面：`js/sml.mjs`、`js/probe-error-codes.mjs`、**四份副本**（同步）、
+新 `tools/check_js_copies.py`（**已跟踪**的闸门）+ 码表/文档收口。
+
+### 16.1 实现（4 条 + 1 个安全修复）
+
+| # | 条件 | 改前 | 改后 |
+|---|---|---|---|
+| ① | `@foo bar { x: 1 }`（位置参数）/ `@foo bar`（无片段体） | 被当片段收下 / 整行丢掉 | `E-PARSE-005` |
+| ② | `@f type: { }`、`@f type: A type: B { }` | 静默丢掉整条定义 / 解析出错误的树 | `E-PARSE-020` |
+| ③ | `x: &nosuchfrag` | 退化成字符串 `&nosuchfrag` | `E-INCLUDE-006` |
+| ④ | 特性门控：`@contract` / `@is` / 片段定义 / `&` 引用 / `$env.X` | **全无门控**（只有 include 做了） | `contract`、`fragment` ⇒ `E-FEATURE-001`；`env` ⇒ **`E-FEATURE-002`**（与 Rust 的 `coerce_word` 同码，别混成 001） |
+| ⑤ | 模式预算 | 编译成原生 RegExp，`(a*)*` 可灾难性回溯 | `E-LIMIT-002`（**编译期**最坏展开估算，`PATTERN_STEP_BUDGET = 1e5`） |
+
+**实现要点**：
+- `coerceWord` / `coerceStr` 各多收一个 `feats` 参数（6 个调用点全在 `parse()` 内，同一批改完）。
+- 片段分支重写为「显式参数 `type:` / `name:`（仅当紧跟冒号时才算参数）+ 否则 `{` 才算有体」
+  —— 与 Rust 的 `is_param` 判据一致；⚠️ **`@foo { … }` 仍是合法片段定义**（正对照在探针里）。
+- ④ 是**安全修复**：`parse(text, {features})` 当沙箱用的调用方此前会以为已经关掉了契约/片段/env，
+  实际照样执行。改法照 Rust：`@contract` 与 `@is` 都查 `Feature::Contract`。
+- ⑤ 的粒度必须说清：JS 是**原生 RegExp**，运行时插不进步数计数器（Rust 的 `sml-regex` 是自研
+  回溯引擎才计得了步）⇒ JS 的预算落在**编译期**：顺序求和、量词求积（`*`/`+` 按 `QUANT_MAX` 代理）、
+  内联正则按 `REGEX_SRC_MAX` 计入。同因同码、条件粒度不同，已写进码表 `note`。
+
+### 16.2 ⚠️ 顺带修的真缺陷：四份副本漏同步（不是本批引入）
+
+W16 的 JS 首批（`5bd0b64`）只改了 `js/sml.mjs`，**四份副本一份都没同步**。取证：
+
+| 对象 | sha256 前 16 位 | 字节 |
+|---|---|---|
+| `js/sml.mjs`（HEAD） | `5bc3469f482b38e3` | 62721 |
+| 四份副本（改前） | `00fff0fc40589203` | 57263 |
+
+且四份副本与 `git show b82dd4a:js/sml.mjs` **逐字节相同** ⇒ 它们停在 W14 那一版，
+即「首批的修复从未进过站点与扩展」。后果：官网 Playground（`site/static/sml.mjs`）与
+VSCode 扩展（`editors/vscode/src/vendor/sml.mjs`）**继续用旧解析器**。
+
+处置：① 新增**已跟踪**的 `tools/check_js_copies.py`（默认校验四份副本与 `js/sml.mjs`
+逐字节一致、不一致 rc=1；`--fix` 一键同步）——把「靠人记着」换成闸门；
+② 四份副本已同步；③ `js/_w16_copies_smoke.mjs` **直接 import 副本本身**跑 9 条断言
+（站点与扩展各一遍）——**只比字节证明不了「加载的那一份在运行时确实报新码」**。
+
+### 16.3 验收与全仓扫描
+
+- **判别实验**：HEAD 版 `js/sml.mjs`（脚本自动 `git show` 出快照 `js/_head_sml.mjs`）
+  跑**同一份**新探针 ⇒ **13 条红**；新实现 `ALL OK`（45 条用例 + 深度闸门 + `parseSafe` 交码）。
+- **全仓 41 个 `.sml` 扫描**（`js/_w16_scan.mjs`：同进程里 HEAD 与 NEW 各扫一遍，只打印结论变化）：
+  OK 30 → 26、变化 6 个 —— 4 个未跟踪遗留探针 + `examples/for_when.sml`（都依赖 JS 不实现的
+  `@feature`/`@when`/`@for`）+ `examples/app.sml`（改动前后**都失败**，码从 `E-CONTRACT-001`
+  变成更准确的 `E-INCLUDE-006`）。**无一是「原本正确的文档被误伤」**。
+- 驱动脚本 `js/_w16_disc.py`（判别 + 副本冒烟 + 字节一致 + 全仓扫描，一次跑完）。
+
+### 16.4 ⚠️ 顺带查明、**未改**：JS 的 include 架构与其它三端不同（已登记为 **W23**）
+
+JS 的 include 是「把子文件**单独 parse** 再合并数据」，**不携带子文件的片段表 / 契约表 / 类型表**；
+Rust / C++ / Lua 都是**解析前文本展开**（W20 的 Lua 就是这个架构）。后果：`include` 之后的
+`&name`、以及「契约写在被包含文件里」的 `@is`，在 JS 下必然失败（`examples/app.sml` 正是这一格）——
+W16 只把「静默给错串」改成「响亮拒绝」，**能力没补**。修它等于重做 include（W23，✋ 需拍板）。
+
+### 16.5 下一批（Lua）的入口
+
+`lua/lib/sml.soup` + `python lua/run_check.py`（当前 rc=0 / 120 条）；6 条清单在 §14.3，
+其中 `a { ] }` 现在报 **`E-PARSE-003`（错码）**、要改成 `E-PARSE-002`；码的写法保持
+`error(msg, 0)` + 码作消息前缀。判别实验的现成做法：把 `lua/lib/sml.soup` 换成 HEAD 版
+跑同一份套件（W20 期间用过，记得随后按 sha256 还原）。

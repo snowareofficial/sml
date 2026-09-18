@@ -24,8 +24,8 @@ codes, document on codes, report bugs with codes.
 The table answers "which codes exist"; whether an implementation **actually raises** a given code is
 a separate matter — see the "code landing status" section of
 [`errors/README.md`](https://gitee.com/snoware/sml/blob/master/errors/README.md) in the repository.
-Today **Rust, JS and the C-ABI carry codes**; the native C / C++ implementations and Lua are still
-catching up.
+Today **Rust, JS, the C-ABI and the native C implementation carry codes**; the native C++ implementation
+and Lua are still catching up.
 
 <div id="errors-app">
   <p>Loading the code table… (if this never fills in, <code>errors.json</code> was not generated:

@@ -21,7 +21,7 @@ SML 的每类错误都有**稳定的机器可读码**，形如 `E-CONTRACT-002`�
 
 码表回答的是「有哪些码」；**实现是否真的会报出这个码**是另一件事，进度见仓库
 [`errors/README.md`](https://gitee.com/snoware/sml/blob/master/errors/README.md) 的
-「码的落地进度」。目前 **Rust、JS 与 C-ABI 已全量带码**，C / C++ 的原生实现与 Lua 还在跟进。
+「码的落地进度」。目前 **Rust、JS、C-ABI 与 C（原生）已全量带码**，C++ 的原生实现与 Lua 还在跟进。
 
 <div id="errors-app">
   <p>正在加载错误码表……（若长时间无内容，说明 <code>errors.json</code> 未生成：
