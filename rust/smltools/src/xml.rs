@@ -44,6 +44,10 @@ use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 
 use sml::Value;
+use sml_codes::{
+    SmlError, E_LIMIT_001, E_MIGRATE_001, E_MIGRATE_002, E_MIGRATE_003, E_MIGRATE_004,
+    E_MIGRATE_005, E_MIGRATE_006, E_MIGRATE_007, E_MIGRATE_008, E_MIGRATE_009, E_MIGRATE_010,
+};
 
 /// 值嵌套深度上限。
 ///
@@ -55,8 +59,8 @@ const MAX_DEPTH: usize = 128;
 /// 从 XML 文本解析出 `Value`。顶层是「根元素名 → 元素对象」的单键对象。
 ///
 /// 空文档（只有空白 / 注释 / 声明）返回空对象 —— SML 顶层须为容器。
-/// 一切错误都是 `Err(String)`（`第 N 行（字符偏移 M）：说明`），本模块不 panic。
-pub fn parse(text: &str) -> Result<Value, String> {
+/// 一切错误都是带码的 [`SmlError`]（`第 N 行（字符偏移 M）：说明 [码]`），本模块不 panic。
+pub fn parse(text: &str) -> Result<Value, SmlError> {
     // BOM 不是 XML 内容，但在真实文件里很常见（Windows 记事本另存为）
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
 
@@ -88,7 +92,8 @@ pub fn parse(text: &str) -> Result<Value, String> {
             break;
         }
         if p.b[p.pos] != b'<' {
-            return Err(p.err(p.pos, "顶层出现文本内容（XML 顶层只允许空白）"));
+            // E-MIGRATE-001：迁入文档在顶层出现了文本内容（只允许空白）。
+            return Err(p.err(E_MIGRATE_001, p.pos, "顶层出现文本内容（XML 顶层只允许空白）"));
         }
         roots.push(p.element(0)?);
     }
@@ -128,9 +133,13 @@ impl<'a> Parser<'a> {
         (line, chars)
     }
 
-    fn err(&self, at: usize, msg: impl AsRef<str>) -> String {
+    /// 构造一条带码错误：`第 N 行（字符偏移 M）：说明 [码]`。
+    fn err(&self, code: &'static str, at: usize, msg: impl AsRef<str>) -> SmlError {
         let (line, chars) = self.locate(at);
-        format!("第 {line} 行（字符偏移 {chars}）：{}", msg.as_ref())
+        SmlError::new(
+            code,
+            format!("第 {line} 行（字符偏移 {chars}）：{}", msg.as_ref()),
+        )
     }
 
     // ---- 基础扫描 ------------------------------------------------------------
@@ -153,7 +162,7 @@ impl<'a> Parser<'a> {
     }
 
     /// 跳过空白与三类「非元素」构造：注释、处理指令、DOCTYPE。
-    fn skip_misc(&mut self) -> Result<(), String> {
+    fn skip_misc(&mut self) -> Result<(), SmlError> {
         loop {
             self.skip_ws();
             if self.starts_with("<!--") {
@@ -168,7 +177,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn skip_comment(&mut self) -> Result<(), String> {
+    fn skip_comment(&mut self) -> Result<(), SmlError> {
         let start = self.pos;
         self.pos += 4; // "<!--"
         match self.text[self.pos..].find("-->") {
@@ -176,11 +185,12 @@ impl<'a> Parser<'a> {
                 self.pos += i + 3;
                 Ok(())
             }
-            None => Err(self.err(start, "注释未闭合（缺少 `-->`）")),
+            // E-MIGRATE-007：注释 / 处理指令 / DOCTYPE / CDATA 未闭合共用此码。
+            None => Err(self.err(E_MIGRATE_007, start, "注释未闭合（缺少 `-->`）")),
         }
     }
 
-    fn skip_pi(&mut self) -> Result<(), String> {
+    fn skip_pi(&mut self) -> Result<(), SmlError> {
         let start = self.pos;
         self.pos += 2; // "<?"
         match self.text[self.pos..].find("?>") {
@@ -188,12 +198,12 @@ impl<'a> Parser<'a> {
                 self.pos += i + 2;
                 Ok(())
             }
-            None => Err(self.err(start, "处理指令未闭合（缺少 `?>`）")),
+            None => Err(self.err(E_MIGRATE_007, start, "处理指令未闭合（缺少 `?>`）")),
         }
     }
 
     /// 跳过 `<!DOCTYPE …>`，含 `[ … ]` 内部子集（子集里的 `>` 不结束声明）。
-    fn skip_doctype(&mut self) -> Result<(), String> {
+    fn skip_doctype(&mut self) -> Result<(), SmlError> {
         let start = self.pos;
         self.pos += 9; // "<!DOCTYPE"
         let mut in_subset = false;
@@ -228,11 +238,11 @@ impl<'a> Parser<'a> {
                 },
             }
         }
-        Err(self.err(start, "`<!DOCTYPE` 未闭合（缺少 `>`）"))
+        Err(self.err(E_MIGRATE_007, start, "`<!DOCTYPE` 未闭合（缺少 `>`）"))
     }
 
     /// 解码一个实体（游标停在 `&`）。未知实体按错误处理，不静默吞掉。
-    fn decode_entity(&mut self, out: &mut String) -> Result<(), String> {
+    fn decode_entity(&mut self, out: &mut String) -> Result<(), SmlError> {
         let start = self.pos;
         // 实体名极短（最长也就 `&#x10FFFF;` = 10 字符），扫 16 个**字符**即可判定
         // 「没有 `;`」，同时避免在 400KB 单行上整篇 find。
@@ -248,8 +258,15 @@ impl<'a> Parser<'a> {
             }
         }
         let semi = match semi {
+            // E-MIGRATE-009：实体未闭合，或使用了未支持的实体名。
             Some(s) => s,
-            None => return Err(self.err(start, "`&` 之后未找到实体结束符 `;`（或实体名过长）")),
+            None => {
+                return Err(self.err(
+                    E_MIGRATE_009,
+                    start,
+                    "`&` 之后未找到实体结束符 `;`（或实体名过长）",
+                ))
+            }
         };
         let ent = &self.text[start + 1..semi];
         let ch = match ent {
@@ -261,6 +278,7 @@ impl<'a> Parser<'a> {
             _ => {
                 let num = ent.strip_prefix('#').ok_or_else(|| {
                     self.err(
+                        E_MIGRATE_009,
                         start,
                         format!("未知实体 `&{ent};`（仅支持 lt/gt/amp/quot/apos 与 &#nn;/&#xnn;）"),
                     )
@@ -269,10 +287,16 @@ impl<'a> Parser<'a> {
                     Some(h) => (16u32, h),
                     None => (10u32, num),
                 };
-                let code = u32::from_str_radix(digits, radix)
-                    .map_err(|_| self.err(start, format!("实体 `&{ent};` 的数字部分非法")))?;
+                // E-MIGRATE-010：实体的数字部分非法（非十六进制，或不是合法码点，含代理区）。
+                let code = u32::from_str_radix(digits, radix).map_err(|_| {
+                    self.err(E_MIGRATE_010, start, format!("实体 `&{ent};` 的数字部分非法"))
+                })?;
                 char::from_u32(code).ok_or_else(|| {
-                    self.err(start, format!("实体 `&{ent};` 不是合法 Unicode 码点"))
+                    self.err(
+                        E_MIGRATE_010,
+                        start,
+                        format!("实体 `&{ent};` 不是合法 Unicode 码点"),
+                    )
                 })?
             }
         };
@@ -284,19 +308,34 @@ impl<'a> Parser<'a> {
     // ---- 元素 ----------------------------------------------------------------
 
     /// 解析一个完整元素，返回 `(标签名, 值)`。游标停在 `<`。
-    fn element(&mut self, depth: usize) -> Result<(String, Value), String> {
+    fn element(&mut self, depth: usize) -> Result<(String, Value), SmlError> {
         if depth >= MAX_DEPTH {
+            // E-LIMIT-001：XML 迁入超限同报此码（与语言层的嵌套上限共用）。
             return Err(self.err(
+                E_LIMIT_001,
                 self.pos,
                 format!("嵌套深度超过上限 {MAX_DEPTH}（已停止解析，未崩溃）"),
             ));
         }
         let open = self.pos;
         match self.b.get(open + 1) {
-            Some(b'/') => return Err(self.err(open, "多余的结束标签（没有与之匹配的开始标签）")),
-            Some(b'!') => return Err(self.err(open, "此处不支持 `<!` 声明（只认注释与 DOCTYPE）")),
-            Some(b'?') => return Err(self.err(open, "此处不支持 `<?` 处理指令")),
-            None => return Err(self.err(open, "文件在 `<` 处结束，标签不完整")),
+            // E-MIGRATE-005：多余的结束标签。
+            Some(b'/') => {
+                return Err(self.err(E_MIGRATE_005, open, "多余的结束标签（没有与之匹配的开始标签）"))
+            }
+            // E-MIGRATE-008：此处不支持该声明或处理指令（只认注释与 DOCTYPE）。
+            Some(b'!') => {
+                return Err(self.err(
+                    E_MIGRATE_008,
+                    open,
+                    "此处不支持 `<!` 声明（只认注释与 DOCTYPE）",
+                ))
+            }
+            Some(b'?') => {
+                return Err(self.err(E_MIGRATE_008, open, "此处不支持 `<?` 处理指令"))
+            }
+            // E-MIGRATE-002：标签未闭合（文件在标签内提前结束）。
+            None => return Err(self.err(E_MIGRATE_002, open, "文件在 `<` 处结束，标签不完整")),
             _ => {}
         }
         self.pos = open + 1;
@@ -306,7 +345,8 @@ impl<'a> Parser<'a> {
             self.pos += 1;
         }
         if self.pos == name_start {
-            return Err(self.err(open, "标签名为空"));
+            // E-MIGRATE-003：标签名为空。
+            return Err(self.err(E_MIGRATE_003, open, "标签名为空"));
         }
         let name = self.text[name_start..self.pos].to_string();
 
@@ -315,7 +355,12 @@ impl<'a> Parser<'a> {
         let self_closing = loop {
             self.skip_ws();
             if self.pos >= self.b.len() {
-                return Err(self.err(open, format!("标签 <{name}> 未闭合（文件在属性区结束）")));
+                // E-MIGRATE-002：标签未闭合（含属性区结束、标签名后立即结束两种形态）。
+                return Err(self.err(
+                    E_MIGRATE_002,
+                    open,
+                    format!("标签 <{name}> 未闭合（文件在属性区结束）"),
+                ));
             }
             match self.b[self.pos] {
                 b'>' => {
@@ -327,7 +372,12 @@ impl<'a> Parser<'a> {
                         self.pos += 2;
                         break true;
                     }
-                    return Err(self.err(self.pos, "属性区出现单独的 `/`（自闭合应写作 `/>`）"));
+                    // E-MIGRATE-006：属性区语法非法（自闭合写成单个斜杠）。
+                    return Err(self.err(
+                        E_MIGRATE_006,
+                        self.pos,
+                        "属性区出现单独的 `/`（自闭合应写作 `/>`）",
+                    ));
                 }
                 _ => {
                     let (k, v) = self.attribute(&name)?;
@@ -355,7 +405,12 @@ impl<'a> Parser<'a> {
         let mut text_buf = String::new();
         loop {
             if self.pos >= self.b.len() {
-                return Err(self.err(open, format!("标签 <{name}> 未闭合（文件提前结束）")));
+                // E-MIGRATE-002：标签未闭合（文件提前结束）。
+                return Err(self.err(
+                    E_MIGRATE_002,
+                    open,
+                    format!("标签 <{name}> 未闭合（文件提前结束）"),
+                ));
             }
             match self.b[self.pos] {
                 b'<' => {
@@ -367,14 +422,21 @@ impl<'a> Parser<'a> {
                         }
                         let close = &self.text[cs..self.pos];
                         if close != name {
+                            // E-MIGRATE-004：结束标签与开始标签不匹配。
                             return Err(self.err(
+                                E_MIGRATE_004,
                                 cs,
                                 format!("结束标签 </{close}> 与开始标签 <{name}> 不匹配"),
                             ));
                         }
                         self.skip_ws();
                         if self.b.get(self.pos) != Some(&b'>') {
-                            return Err(self.err(self.pos, format!("结束标签 </{name}> 缺少 `>`")));
+                            // E-MIGRATE-004：结束标签缺少闭合符号。
+                            return Err(self.err(
+                                E_MIGRATE_004,
+                                self.pos,
+                                format!("结束标签 </{name}> 缺少 `>`"),
+                            ));
                         }
                         self.pos += 1;
                         break;
@@ -390,12 +452,23 @@ impl<'a> Parser<'a> {
                                 text_buf.push_str(&self.text[self.pos..end]);
                                 self.pos = end + 3;
                             }
-                            None => return Err(self.err(start, "CDATA 段未闭合（缺少 `]]>`）")),
+                            None => {
+                                return Err(self.err(
+                                    E_MIGRATE_007,
+                                    start,
+                                    "CDATA 段未闭合（缺少 `]]>`）",
+                                ))
+                            }
                         }
                     } else if self.starts_with("<?") {
                         self.skip_pi()?;
                     } else if self.starts_with("<!") {
-                        return Err(self.err(self.pos, "元素内容里出现不支持的 `<!` 声明"));
+                        // E-MIGRATE-008：不支持的声明（只认注释；DOCTYPE 只在顶层）。
+                        return Err(self.err(
+                            E_MIGRATE_008,
+                            self.pos,
+                            "元素内容里出现不支持的 `<!` 声明",
+                        ));
                     } else {
                         let (child, cv) = self.element(depth + 1)?;
                         entries.push((child, cv));
@@ -448,19 +521,29 @@ impl<'a> Parser<'a> {
     }
 
     /// 解析一个属性，返回 `(名, 值)`。值必须用引号括起（XML 的裸值属性严格说非法）。
-    fn attribute(&mut self, tag: &str) -> Result<(String, String), String> {
+    fn attribute(&mut self, tag: &str) -> Result<(String, String), SmlError> {
         let start = self.pos;
         while self.pos < self.b.len() && !is_name_end(self.b[self.pos]) {
             self.pos += 1;
         }
         if self.pos == start {
-            return Err(self.err(start, format!("<{tag}> 的属性区出现非法字符")));
+            // E-MIGRATE-006：属性区语法非法（出现非法字符）。
+            return Err(self.err(
+                E_MIGRATE_006,
+                start,
+                format!("<{tag}> 的属性区出现非法字符"),
+            ));
         }
         let key = self.text[start..self.pos].to_string();
 
         self.skip_ws();
         if self.b.get(self.pos) != Some(&b'=') {
-            return Err(self.err(self.pos, format!("<{tag}> 的属性 `{key}` 缺少 `=`")));
+            // E-MIGRATE-006：属性区语法非法（缺少等号）。
+            return Err(self.err(
+                E_MIGRATE_006,
+                self.pos,
+                format!("<{tag}> 的属性 `{key}` 缺少 `=`"),
+            ));
         }
         self.pos += 1;
         self.skip_ws();
@@ -471,7 +554,9 @@ impl<'a> Parser<'a> {
                 q
             }
             _ => {
+                // E-MIGRATE-006：属性区语法非法（取值未加引号）。
                 return Err(self.err(
+                    E_MIGRATE_006,
                     self.pos,
                     format!("<{tag}> 的属性 `{key}` 的值必须用引号括起"),
                 ))
@@ -481,7 +566,12 @@ impl<'a> Parser<'a> {
         let mut buf = String::new();
         loop {
             if self.pos >= self.b.len() {
-                return Err(self.err(start, format!("<{tag}> 的属性 `{key}` 引号未闭合")));
+                // E-MIGRATE-006：属性区语法非法（引号未闭合）。
+                return Err(self.err(
+                    E_MIGRATE_006,
+                    start,
+                    format!("<{tag}> 的属性 `{key}` 引号未闭合"),
+                ));
             }
             let c = self.b[self.pos];
             if c == quote {
@@ -491,7 +581,9 @@ impl<'a> Parser<'a> {
             match c {
                 b'&' => self.decode_entity(&mut buf)?,
                 b'<' => {
+                    // E-MIGRATE-006：属性区语法非法（取值里出现尖括号）。
                     return Err(self.err(
+                        E_MIGRATE_006,
                         self.pos,
                         format!("<{tag}> 的属性 `{key}` 的值里不允许出现 `<`"),
                     ))
@@ -673,7 +765,7 @@ mod tests {
     #[test]
     fn entity_window_does_not_split_multibyte() {
         let e = parse("<r>&😀😀😀😀</r>").unwrap_err();
-        assert!(e.contains("实体结束符"), "{e}");
+        assert!(e.message().contains("实体结束符"), "{e}");
         let v = parse("<r>&#x1F600;</r>").unwrap();
         assert_eq!(s(at(&v, "r")), "😀");
     }
@@ -681,11 +773,11 @@ mod tests {
     #[test]
     fn unknown_entity_is_an_error() {
         let e = parse("<r>&nbsp;</r>").unwrap_err();
-        assert!(e.contains("未知实体"), "{e}");
+        assert!(e.message().contains("未知实体"), "{e}");
         let e = parse("<r>&#xZZ;</r>").unwrap_err();
-        assert!(e.contains("数字部分非法"), "{e}");
+        assert!(e.message().contains("数字部分非法"), "{e}");
         let e = parse("<r>&#xD800;</r>").unwrap_err();
-        assert!(e.contains("不是合法 Unicode"), "{e}");
+        assert!(e.message().contains("不是合法 Unicode"), "{e}");
     }
 
     #[test]
@@ -770,9 +862,9 @@ mod tests {
     #[test]
     fn mismatched_close_tag_reports_line_and_offset() {
         let e = parse("<r>\n  <a>x</r>\n").unwrap_err();
-        assert!(e.contains("第 2 行"), "{e}");
-        assert!(e.contains("字符偏移"), "{e}");
-        assert!(e.contains("不匹配"), "{e}");
+        assert!(e.message().contains("第 2 行"), "{e}");
+        assert!(e.message().contains("字符偏移"), "{e}");
+        assert!(e.message().contains("不匹配"), "{e}");
     }
 
     /// XML 常整篇一行：行号退化成 1，必须靠字符偏移定位。
@@ -781,8 +873,8 @@ mod tests {
         let pad = "x".repeat(2000);
         let src = format!("<r><t>{pad}</t></wrong>");
         let e = parse(&src).unwrap_err();
-        assert!(e.contains("第 1 行"), "{e}");
-        assert!(e.contains("字符偏移 2"), "{e}");
+        assert!(e.message().contains("第 1 行"), "{e}");
+        assert!(e.message().contains("字符偏移 2"), "{e}");
     }
 
     #[test]
@@ -813,7 +905,7 @@ mod tests {
         let open = "<a>".repeat(2000);
         let close = "</a>".repeat(2000);
         let e = parse(&format!("{open}x{close}")).unwrap_err();
-        assert!(e.contains("嵌套深度超过上限"), "{e}");
+        assert!(e.message().contains("嵌套深度超过上限"), "{e}");
     }
 
     /// 上限之内的嵌套要正常解析：128 层对象（根 = 第 0 层）。

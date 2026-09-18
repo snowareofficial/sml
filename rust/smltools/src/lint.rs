@@ -13,12 +13,15 @@
 //! | warning | 空值字段（`key:` 后既无值，下一有效行也没缩进进去） |
 //! | warning | 嵌套过深（超过 `MAX_VALUE_DEPTH` 的一半） |
 //!
-//! 输出格式 `路径:行号: 级别: 说明`，grep / 编辑器 / CI 都好吃。
+//! 输出格式 `路径:行号: 级别: 说明 [码]`，grep / 编辑器 / CI 都好吃。
+//! 码取自 `errors/codes.sml` 的 LINT 领域（`E-LINT-001`、`W-LINT-001..005`）；
+//! 解析类问题**原样透传**语言层的码，不包成 `E-LINT-*`。
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use sml::{parse, Value};
+use sml_codes::{E_LINT_001, W_LINT_001, W_LINT_002, W_LINT_003, W_LINT_004, W_LINT_005};
 
 /// 检查结果。
 pub struct Report {
@@ -29,15 +32,19 @@ pub struct Report {
 }
 
 impl Report {
-    fn push(&mut self, name: &str, line: usize, level: &str, msg: &str) {
+    /// 追加一条诊断：`路径:行号: 级别: 说明 [码]`。
+    ///
+    /// 码缀在文案之后（与 `SmlError` 的 `Display` 同口径）：读文案时不受打扰，
+    /// 需要码时一眼可见 —— lint 输出也是对外交互面，用户据此能查到码表。
+    fn push(&mut self, name: &str, line: usize, level: &str, code: &str, msg: &str) {
         if level == "error" {
             self.has_error = true;
         }
         if line == 0 {
-            self.messages.push(format!("{name}: {level}: {msg}"));
+            self.messages.push(format!("{name}: {level}: {msg} [{code}]"));
         } else {
             self.messages
-                .push(format!("{name}:{line}: {level}: {msg}"));
+                .push(format!("{name}:{line}: {level}: {msg} [{code}]"));
         }
     }
 }
@@ -64,9 +71,9 @@ pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
     // ---- 1. 解析 ----
     let parsed = parse(text);
     if let Err(e) = &parsed {
-        // 文案带上错误码（`Display` 会缀上 `[E-...]`）：lint 输出是对外交互面，
-        // 用户据此能查到码表，而不是只能贴一句中文。
-        report.push(&name, 0, "error", &e.to_string());
+        // 解析错误的码**原样透传**（E-LEX-* / E-PARSE-* / E-CONTRACT-* …），
+        // 不换成 E-LINT-*：lint 只是呈现者，语言层的码才是事实。
+        report.push(&name, 0, "error", e.code(), e.message());
     }
 
     // ---- 2. 逐行文本检查 ----
@@ -84,7 +91,14 @@ pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
     for (no, raw, indent) in &lines {
         // tab 缩进
         if raw.starts_with('\t') || raw.starts_with(" \t") {
-            report.push(&name, *no, "error", "缩进里出现 tab；SML 缩进敏感，请统一用空格");
+            // E-LINT-001：缩进里出现制表符（按错误处理 —— 制表符宽度因编辑器而异）。
+            report.push(
+                &name,
+                *no,
+                "error",
+                E_LINT_001,
+                "缩进里出现 tab；SML 缩进敏感，请统一用空格",
+            );
         }
         let body = strip_comment(raw).trim();
         if body.is_empty() {
@@ -124,15 +138,24 @@ pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
 
     for (nm, no) in &fragment_defs {
         if !used_frags.contains_key(nm) {
-            report.push(&name, *no, "warning", &format!("片段 `@{nm}` 定义后从未被 `&{nm}` 引用"));
-        }
-    }
-    for (nm, no) in &contract_defs {
-        if !used_contracts.contains_key(nm) {
+            // W-LINT-001：片段定义后从未被引用。
             report.push(
                 &name,
                 *no,
                 "warning",
+                W_LINT_001,
+                &format!("片段 `@{nm}` 定义后从未被 `&{nm}` 引用"),
+            );
+        }
+    }
+    for (nm, no) in &contract_defs {
+        if !used_contracts.contains_key(nm) {
+            // W-LINT-002：契约定义后从未被应用。
+            report.push(
+                &name,
+                *no,
+                "warning",
+                W_LINT_002,
                 &format!("契约 `@contract {nm}` 定义后从未被 `@is {nm}` 应用"),
             );
         }
@@ -160,10 +183,12 @@ pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
         let path: Vec<&str> = stack.iter().map(|(_, k)| k.as_str()).collect();
         let full = format!("{}\u{1}{}", path.join("/"), k);
         if let Some(prev) = seen.get(&full) {
+            // W-LINT-003：同一块内键名重复（静默数据丢失的常见来源）。
             report.push(
                 &name,
                 *no,
                 "warning",
+                W_LINT_003,
                 &format!("键 `{k}` 在同一块内重复（第 {prev} 行已出现），后者会覆盖前者"),
             );
         } else {
@@ -180,7 +205,14 @@ pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
                 None => true,
             };
             if empty {
-                report.push(&name, *no, "warning", &format!("字段 `{k}` 是空值"));
+                // W-LINT-004：字段是空值。
+                report.push(
+                    &name,
+                    *no,
+                    "warning",
+                    W_LINT_004,
+                    &format!("字段 `{k}` 是空值"),
+                );
             }
         }
         stack.push((*indent, k));
@@ -190,10 +222,12 @@ pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
     if let Ok(v) = &parsed {
         let d = depth_of(v);
         if d > DEPTH_WARN {
+            // W-LINT-005：嵌套超过建议阈值（只提醒可读性，不是拒绝 —— 解析上限见 E-LIMIT-001）。
             report.push(
                 &name,
                 0,
                 "warning",
+                W_LINT_005,
                 &format!(
                     "嵌套深度 {d} 已超过建议阈值 {DEPTH_WARN}（解析上限为 MAX_VALUE_DEPTH）"
                 ),
@@ -280,5 +314,49 @@ fn depth_of(v: &Value) -> usize {
         Value::Array(a) => 1 + a.iter().map(depth_of).max().unwrap_or(0),
         Value::Object(m) => 1 + m.values().map(depth_of).max().unwrap_or(0),
         _ => 1,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn messages(src: &str) -> String {
+        check(src, &None).messages.join("\n")
+    }
+
+    /// 每条诊断都带上码 —— 这些码是 lint 的对外契约（`errors/codes.sml` 的 LINT 领域）。
+    #[test]
+    fn every_diagnostic_carries_a_code() {
+        // E-LINT-001：tab 缩进
+        assert!(messages("\tk: 1\n").contains("[E-LINT-001]"), "tab 缩进应带码");
+        // W-LINT-001 / 002 / 003 / 004：四类告警
+        let src = "@frag { a: 1 }\n@contract Unused { a: int }\nk: 1\nk: 2\nempty:\n";
+        let out = messages(src);
+        for want in ["[W-LINT-001]", "[W-LINT-002]", "[W-LINT-003]", "[W-LINT-004]"] {
+            assert!(out.contains(want), "期望含 {want}：\n{out}");
+        }
+    }
+
+    /// W-LINT-005：嵌套超过建议阈值（阈值 64，解析上限 128）。
+    #[test]
+    fn deep_nesting_warns_with_code() {
+        let mut src = String::new();
+        for i in 0..70 {
+            src.push_str(&"  ".repeat(i));
+            src.push_str(&format!("k{i} {{\n"));
+        }
+        for i in (0..70).rev() {
+            src.push_str(&"  ".repeat(i));
+            src.push_str("}\n");
+        }
+        assert!(messages(&src).contains("[W-LINT-005]"), "深嵌套应带码");
+    }
+
+    /// 解析类问题**透传语言层的码**，不换成 E-LINT-*。
+    #[test]
+    fn parse_error_keeps_language_layer_code() {
+        let out = messages("a {\n");
+        assert!(out.contains("[E-PARSE-001]"), "应透传 E-PARSE-001：\n{out}");
     }
 }

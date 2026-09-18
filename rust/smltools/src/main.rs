@@ -34,6 +34,12 @@ use sml::emit::{
 };
 use clap::Parser;
 use sml::{parse, to_sml, Value, Version};
+use sml_codes::{
+    SmlError, E_CLI_001, E_CLI_002, E_CLI_003, E_CLI_004, E_CLI_005, E_CLI_006, E_CLI_007,
+    E_EXT_006, E_FEATURE_004, E_INCLUDE_001, E_INCLUDE_004, E_INTERNAL_001, E_IO_001, E_IO_003,
+    E_IO_004, E_IO_005, E_IO_006, E_IO_007, E_LIMIT_004, E_LIMIT_005, E_LIMIT_006, E_MIGRATE_017,
+    I_FEATURE_001,
+};
 use std::path::Path;
 
 mod highlight;
@@ -41,6 +47,36 @@ mod lint;
 mod toml;
 mod xml;
 mod yaml;
+
+/// 把「输出后端」（`swsml::emit::*`）返回的**无码** `String` 映射成带码错误。
+///
+/// `swsml` 的 emit 后端目前仍返回 `Result<_, String>`（无码），而码表把这件事拆成了几条
+/// 更具体的条目 —— 它们是**后端产生、由 CLI 呈现**的：
+/// - `E-LIMIT-004` 递归深度超限（各后端共用）；
+/// - `E-LIMIT-005` / `E-LIMIT-006` custom 生成器的输出长度 / 数组循环上限；
+/// - 其余一律 `E-CLI-007`「输出后端报错（内层原因见原始错误）」。
+///
+/// ⚠️ 这里靠**文案前缀**判定：只有当 `swsml` 让 emit 后端也返回带码错误时才能拿掉。
+/// 代价是上游改文案会静默退化成 `E-CLI-007`（仍是合法码，只是粒度变粗）；
+/// `tests/error_codes.rs` 里钉了这几条，改文案会让用例**响亮地**失败。
+fn backend_error(inner: String) -> SmlError {
+    let code = if inner.contains("递归深度超过上限") {
+        E_LIMIT_004
+    } else if inner.starts_with("custom: 输出超过长度上限") {
+        E_LIMIT_005
+    } else if inner.starts_with("custom: 数组超过循环上限") {
+        E_LIMIT_006
+    } else {
+        E_CLI_007
+    };
+    SmlError::new(code, inner)
+}
+
+/// `CustomOptions::from_generator` 的失败原因（缺 `rules` / `rules` 为空 / 某条规则缺模板）
+/// 正对应 `E-EXT-006`（custom 规则文档非法）。同 [`backend_error`]，也是文案面判定的权宜之计。
+fn custom_rules_error(inner: String) -> SmlError {
+    SmlError::new(E_EXT_006, inner)
+}
 
 /// 输入格式（迁移用）：SML 是原生格式，JSON / TOML / YAML / XML 是「迁入」格式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,10 +151,15 @@ impl InputFormat {
 }
 
 /// 决定输入格式：显式 `--from` > 扩展名推断 > SML。
-fn resolve_input_format(explicit: Option<&str>, input: Option<&Path>) -> Result<InputFormat, String> {
+fn resolve_input_format(
+    explicit: Option<&str>,
+    input: Option<&Path>,
+) -> Result<InputFormat, SmlError> {
     match explicit {
-        Some(s) => InputFormat::parse(s)
-            .ok_or_else(|| format!("unknown input format `{s}` (sml|json|toml|yaml|xml)")),
+        // `E-CLI-001`：显式指定时取值校验；按扩展名推断不会走到这里。
+        Some(s) => InputFormat::parse(s).ok_or_else(|| {
+            SmlError::new(E_CLI_001, format!("unknown input format `{s}` (sml|json|toml|yaml|xml)"))
+        }),
         None => Ok(InputFormat::detect(input)),
     }
 }
@@ -317,17 +358,17 @@ struct Cli {
 ///
 /// SML 走完整解析（版本 / 特性 / include / 契约）；JSON / TOML / YAML / XML 是
 /// **迁入**格式，直接解析成数据，不参与 SML 的版本与特性机制。
-fn load_input(text: &str, args: &Args) -> Result<Value, String> {
+fn load_input(text: &str, args: &Args) -> Result<Value, SmlError> {
     match args.input_format {
-        InputFormat::Sml => {
-            parse_with(text, &args.input, args.feature).map_err(|e| format!("parse error: {e}"))
-        }
+        InputFormat::Sml => parse_with(text, &args.input, args.feature),
         // 复用 crate 内既有实现（与 C-ABI 同款：零依赖、带深度限制与 UTF-8 修正）
-        InputFormat::Json => sml::json_to_value(text)
-            .ok_or_else(|| "JSON 解析失败：不是合法 JSON，或嵌套过深".to_string()),
-        InputFormat::Toml => toml::parse(text).map_err(|e| format!("TOML 解析失败：{e}")),
-        InputFormat::Yaml => yaml::parse(text).map_err(|e| format!("YAML 解析失败：{e}")),
-        InputFormat::Xml => xml::parse(text).map_err(|e| format!("XML 解析失败：{e}")),
+        // E-MIGRATE-017：「非法 JSON」与「嵌套过深」在底层共用一个空值，故合为一码。
+        InputFormat::Json => sml::json_to_value(text).ok_or_else(|| {
+            SmlError::new(E_MIGRATE_017, "JSON 解析失败：不是合法 JSON，或嵌套过深")
+        }),
+        InputFormat::Toml => toml::parse(text).map_err(|e| e.context("TOML 解析失败：")),
+        InputFormat::Yaml => yaml::parse(text).map_err(|e| e.context("YAML 解析失败：")),
+        InputFormat::Xml => xml::parse(text).map_err(|e| e.context("XML 解析失败：")),
     }
 }
 
@@ -338,16 +379,22 @@ fn load_input(text: &str, args: &Args) -> Result<Value, String> {
 ///
 /// 刻意只做**同名平铺**而不复刻子目录：迁移场景下先看一眼结果，再决定怎么组织，
 /// 比自动猜测目录结构更安全（猜错会把文件写到意外位置）。
-fn convert_dir(dir: &Path, args: &Args) -> Result<usize, String> {
-    let out_dir = args
-        .output
-        .as_ref()
-        .ok_or_else(|| "目录模式下必须用 -o/--output 指定输出目录（避免污染源目录）".to_string())?;
-    std::fs::create_dir_all(out_dir).map_err(|e| format!("mkdir {}: {e}", out_dir.display()))?;
+fn convert_dir(dir: &Path, args: &Args) -> Result<usize, SmlError> {
+    // E-CLI-005：缺省输出会污染源目录，故直接拒绝而不是猜。
+    let out_dir = args.output.as_ref().ok_or_else(|| {
+        SmlError::new(
+            E_CLI_005,
+            "目录模式下必须用 -o/--output 指定输出目录（避免污染源目录）",
+        )
+    })?;
+    // E-IO-003：写入文件或创建目录失败。
+    std::fs::create_dir_all(out_dir)
+        .map_err(|e| SmlError::new(E_IO_003, format!("mkdir {}: {e}", out_dir.display())))?;
 
     let want = args.input_format;
+    // E-IO-004：目录批量模式的入口，与单文件读取失败（E-IO-001）分开。
     let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)
-        .map_err(|e| format!("read_dir {}: {e}", dir.display()))?
+        .map_err(|e| SmlError::new(E_IO_004, format!("read_dir {}: {e}", dir.display())))?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| {
             p.is_file()
@@ -361,14 +408,19 @@ fn convert_dir(dir: &Path, args: &Args) -> Result<usize, String> {
 
     let mut n = 0usize;
     for p in entries {
-        let text =
-            std::fs::read_to_string(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
-        let value = load_input(&text, args).map_err(|e| format!("{}: {e}", p.display()))?;
+        // E-IO-001：读取失败（文档入口）。
+        let text = std::fs::read_to_string(&p)
+            .map_err(|e| SmlError::new(E_IO_001, format!("read {}: {e}", p.display())))?;
+        // 用 context 补上文件名前缀而**保留内层码**（不能 format 成 String 否则码会丢）。
+        let value = load_input(&text, args).map_err(|e| e.context(&format!("{}: ", p.display())))?;
         let value = if args.strip { strip_value(&value) } else { value };
-        let out = emit(&value, args.format, args).map_err(|e| format!("{}: {e}", p.display()))?;
+        let out =
+            emit(&value, args.format, args).map_err(|e| e.context(&format!("{}: ", p.display())))?;
         let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("out");
         let out_path = out_dir.join(format!("{stem}.{}", args.format.name()));
-        std::fs::write(&out_path, out).map_err(|e| format!("write {}: {e}", out_path.display()))?;
+        // E-IO-003：写入失败。
+        std::fs::write(&out_path, out)
+            .map_err(|e| SmlError::new(E_IO_003, format!("write {}: {e}", out_path.display())))?;
         eprintln!("{} -> {}", p.display(), out_path.display());
         n += 1;
     }
@@ -421,10 +473,15 @@ struct Args {
     math: bool,
 }
 
-fn parse_args() -> Result<Args, String> {
+fn parse_args() -> Result<Args, SmlError> {
     let cli = Cli::parse();
-    let format = Format::parse(&cli.format)
-        .ok_or_else(|| format!("unknown format `{}` (可选：{})", cli.format, Format::names()))?;
+    // E-CLI-002：输出格式取值未知（文案附带全部可用取值）。
+    let format = Format::parse(&cli.format).ok_or_else(|| {
+        SmlError::new(
+            E_CLI_002,
+            format!("unknown format `{}` (可选：{})", cli.format, Format::names()),
+        )
+    })?;
     let input_format = resolve_input_format(cli.from.as_deref(), cli.input.as_deref())?;
     let feature = match cli.feature.as_deref() {
         None => None,
@@ -434,7 +491,13 @@ fn parse_args() -> Result<Args, String> {
                 "v2" | "2" => Version::V2,
                 "v3" | "3" => Version::V3,
                 "v4" | "4" => Version::V4,
-                _ => return Err(format!("unknown feature version `{v}` (v1..v4)")),
+                // E-FEATURE-004：命令行传入非法版本名归此码（不是新的语言错误）。
+                _ => {
+                    return Err(SmlError::new(
+                        E_FEATURE_004,
+                        format!("unknown feature version `{v}` (v1..v4)"),
+                    ))
+                }
             };
             Some(ver)
         }
@@ -460,10 +523,11 @@ fn parse_args() -> Result<Args, String> {
 }
 
 /// 读取输入：文件或 stdin。
-fn read_input(input: &Option<PathBuf>) -> Result<String, String> {
+fn read_input(input: &Option<PathBuf>) -> Result<String, SmlError> {
     match input {
+        // E-IO-001：读取文件失败（文档入口；include 展开那条读取路径同码）。
         Some(p) => std::fs::read_to_string(p)
-            .map_err(|e| format!("read {}: {e}", p.display())),
+            .map_err(|e| SmlError::new(E_IO_001, format!("read {}: {e}", p.display()))),
         None => {
             // 没有 -i 时从 stdin 读。但 stdin 若是交互式终端（无管道/重定向），
             // read_to_string 会无限等待用户输入，表现为“卡死”。
@@ -478,15 +542,18 @@ fn read_input(input: &Option<PathBuf>) -> Result<String, String> {
             // 500ms 内没任何输入（说明在等终端键盘），判定为“无输入”。
             match rx.recv_timeout(std::time::Duration::from_millis(500)) {
                 Ok(Ok(s)) => Ok(s),
-                Ok(Err(e)) => Err(format!("read stdin: {e}")),
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(
+                // E-IO-006：读取标准输入失败。
+                Ok(Err(e)) => Err(SmlError::new(E_IO_006, format!("read stdin: {e}"))),
+                // E-IO-005：用法提示而非读文件失败 —— 标准输入是终端且未给输入文件时给出。
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(SmlError::new(
+                    E_IO_005,
                     "未检测到输入：请用 `-i <file.sml>` 指定文件，或用管道 `cat x.sml | smltools`。\n\
-                     运行 `smltools --help` 查看完整用法。"
-                        .to_string(),
-                ),
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(
-                    "读取 stdin 时通道中断（内部错误）".to_string(),
-                ),
+                     运行 `smltools --help` 查看完整用法。",
+                )),
+                // E-IO-006：通道中断（码表把它与「读取失败」合为一条）。
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    Err(SmlError::new(E_IO_006, "读取 stdin 时通道中断（内部错误）"))
+                }
             }
         }
     }
@@ -499,22 +566,29 @@ fn read_input(input: &Option<PathBuf>) -> Result<String, String> {
 /// 指令（把按章节拆分的「结构文件 + 数据文件」拼成完整文档），再交给 `parse`
 /// 解析。stdin 输入没有基准目录，只能回退到 `parse`（此时 `include` 无法解析
 /// 相对路径，建议用 `-i` 文件输入）。
-fn parse_with(text: &str, input_path: &Option<PathBuf>, feature: Option<Version>) -> Result<Value, String> {
+fn parse_with(
+    text: &str,
+    input_path: &Option<PathBuf>,
+    feature: Option<Version>,
+) -> Result<Value, SmlError> {
     if let Some(v) = feature {
         if v != Version::V4 {
+            // I-FEATURE-001：解析器按其固定版本模式工作，命令行声明的特性版本仅作提示。
             eprintln!(
-                "smltools: note: 解析器以 v4 模式工作；声明 `--feature {}` 仅作提示",
-                v.name()
+                "smltools: note: 解析器以 v4 模式工作；声明 `--feature {}` 仅作提示 [{}]",
+                v.name(),
+                I_FEATURE_001
             );
         }
     }
     match input_path {
         Some(p) => {
             let base = p.parent().unwrap_or_else(|| Path::new("."));
+            // include 展开自带的码（E-INCLUDE-*）**原样向上传**，不再套一层 parse 前缀。
             let expanded = expand_includes(text, base)?;
-            parse(&expanded).map_err(|e| e.to_string())
+            parse(&expanded).map_err(|e| e.context("parse error: "))
         }
-        None => parse(text).map_err(|e| e.to_string()),
+        None => parse(text).map_err(|e| e.context("parse error: ")),
     }
 }
 
@@ -523,13 +597,18 @@ fn parse_with(text: &str, input_path: &Option<PathBuf>, feature: Option<Version>
 /// 路径相对「包含方文件所在目录」递归解析（与 smlsml 的 include 语义一致）；
 /// 嵌套展开受 16 层深度保护，防止循环包含导致无限递归。仅支持普通文件路径，
 /// 不含 glob / regex 模式包含（满足「结构文件按章节 include 数据文件」需求）。
-fn expand_includes(text: &str, base: &Path) -> Result<String, String> {
+fn expand_includes(text: &str, base: &Path) -> Result<String, SmlError> {
     expand_includes_impl(text, base, 0)
 }
 
-fn expand_includes_impl(text: &str, base: &Path, depth: usize) -> Result<String, String> {
+fn expand_includes_impl(text: &str, base: &Path, depth: usize) -> Result<String, SmlError> {
     if depth > 16 {
-        return Err("smltools: include 嵌套超过 16 层".into());
+        // E-INCLUDE-004：smltools 自带的展开上限也归此码（数值与语言层的 32 不同，
+        // 差异用文案表达，码相同）。
+        return Err(SmlError::new(
+            E_INCLUDE_004,
+            "smltools: include 嵌套超过 16 层",
+        ));
     }
     let mut out = String::new();
     for line in text.lines() {
@@ -545,14 +624,24 @@ fn expand_includes_impl(text: &str, base: &Path, depth: usize) -> Result<String,
                 .and_then(|s| s.find('"').map(|i| &s[..i]))
             {
                 let full = base.join(rel);
-                let inc = std::fs::read_to_string(&full)
-                    .map_err(|e| format!("smltools: include 读取 {} 失败: {e}", full.display()))?;
+                // E-INCLUDE-001：include 无法定位或读取目标文件。
+                let inc = std::fs::read_to_string(&full).map_err(|e| {
+                    SmlError::new(
+                        E_INCLUDE_001,
+                        format!("smltools: include 读取 {} 失败: {e}", full.display()),
+                    )
+                })?;
                 let inc_base = full.parent().unwrap_or(base);
                 out.push_str(&expand_includes_impl(&inc, inc_base, depth + 1)?);
                 out.push('\n');
                 continue;
             }
-            return Err(format!("smltools: include 路径解析失败: {line}"));
+            // 「路径没有用引号括起」这条：码表里没有更贴切的条目，
+            // 归 E-INCLUDE-001（无法定位目标文件）——见报告里的「待裁决」。
+            return Err(SmlError::new(
+                E_INCLUDE_001,
+                format!("smltools: include 路径解析失败: {line}"),
+            ));
         }
         out.push_str(line);
         out.push('\n');
@@ -561,7 +650,10 @@ fn expand_includes_impl(text: &str, base: &Path, depth: usize) -> Result<String,
 }
 
 /// 选择后端做部分翻译。
-fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, String> {
+///
+/// `swsml::emit::*` 目前返回 `Result<_, String>`（无码），故统一经 [`backend_error`]
+/// 补码；本模块自带的两个编辑器后端（tmlanguage / highlight）已经直接返回带码错误。
+fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, SmlError> {
     match fmt {
         Format::Sml => Ok(to_sml(value)),
         Format::Markdown => {
@@ -569,7 +661,7 @@ fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, String> {
                 base: EmitOptions::default(),
                 ..Default::default()
             };
-            sml::emit::to_markdown(value, &opt)
+            sml::emit::to_markdown(value, &opt).map_err(backend_error)
         }
         // JSON：直接复用 crate 内既有的 `jsonify`（与 C-ABI 同款实现，零依赖、带转义），
         // 不再另写一份序列化，避免两处行为漂移。
@@ -579,7 +671,11 @@ fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, String> {
         Format::TmLanguage => highlight::generate(value),
         // 定制包是一对多的（多文件、多目录），无法用「返回一个字符串」的 emit 表达，
         // 由 main 单独处理（见那里的 generate_package 分支）。
-        Format::Highlight => Err("internal: 编辑器定制包由 main 单独处理（多文件输出）".to_string()),
+        // E-INTERNAL-001：走到了不应到达的分支（main 本应先拦截）。
+        Format::Highlight => Err(SmlError::new(
+            E_INTERNAL_001,
+            "internal: 编辑器定制包由 main 单独处理（多文件输出）",
+        )),
         Format::Xml => {
             let opt = XmlOptions {
                 base: EmitOptions {
@@ -588,11 +684,11 @@ fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, String> {
                 },
                 ..Default::default()
             };
-            sml::emit::to_xml(value, &opt)
+            sml::emit::to_xml(value, &opt).map_err(backend_error)
         }
         Format::Svg => {
             let opt = SvgOptions::default();
-            sml::emit::to_svg(value, &opt)
+            sml::emit::to_svg(value, &opt).map_err(backend_error)
         }
         Format::Latex => {
             let opt = LatexOptions {
@@ -600,11 +696,11 @@ fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, String> {
                 math: args.math,
                 ..Default::default()
             };
-            sml::emit::to_latex(value, &opt)
+            sml::emit::to_latex(value, &opt).map_err(backend_error)
         }
         Format::Slint => {
             let opt = SlintOptions::default();
-            sml::emit::to_slint(value, &opt)
+            sml::emit::to_slint(value, &opt).map_err(backend_error)
         }
         Format::Lvgl => {
             let opt = XmlOptions {
@@ -614,28 +710,38 @@ fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, String> {
                 },
                 ..Default::default()
             };
-            to_lvgl(value, &opt)
+            to_lvgl(value, &opt).map_err(backend_error)
         }
         Format::Html => {
             let opt = HtmlOptions {
                 base: EmitOptions::default(),
                 ..Default::default()
             };
-            to_html(value, &opt)
+            to_html(value, &opt).map_err(backend_error)
         }
         Format::Custom => {
             // 自定义生成器需要规则文件：读取 → 解析 → 构建 CustomOptions
-            let rules_path = args
-                .custom_rules
-                .as_ref()
-                .ok_or_else(|| "`--to custom` 需要配合 `--custom-rules <file.sml>` 指定规则文档".to_string())?;
-            let rules_text = std::fs::read_to_string(rules_path)
-                .map_err(|e| format!("read {}: {e}", rules_path.display()))?;
-            let gen = parse(&rules_text)
-                .map_err(|e| format!("解析规则文档 {} 失败: {e}", rules_path.display()))?;
-            let opt = CustomOptions::from_generator(&gen)
-                .map_err(|e| format!("构建 custom 规则失败: {e}"))?;
-            to_custom(value, &opt)
+            // E-CLI-003：依赖项缺失（`--to custom` 必须配 `--custom-rules`）。
+            let rules_path = args.custom_rules.as_ref().ok_or_else(|| {
+                SmlError::new(
+                    E_CLI_003,
+                    "`--to custom` 需要配合 `--custom-rules <file.sml>` 指定规则文档",
+                )
+            })?;
+            // E-IO-001：规则文件读取失败（与文档入口同格）。
+            let rules_text = std::fs::read_to_string(rules_path).map_err(|e| {
+                SmlError::new(E_IO_001, format!("read {}: {e}", rules_path.display()))
+            })?;
+            // E-CLI-006：规则文档本身是 SML，解析失败的内层原因是 E-LEX-* / E-PARSE-*
+            // （内层文案随消息一并保留，外层码换成「规则文档解析失败」）。
+            let gen = parse(&rules_text).map_err(|e| {
+                e.with_code(E_CLI_006)
+                    .context(&format!("解析规则文档 {} 失败: ", rules_path.display()))
+            })?;
+            // E-EXT-006：规则文档非法（缺 rules / rules 为空 / 某条规则缺模板）。
+            let opt =
+                CustomOptions::from_generator(&gen).map_err(|e| custom_rules_error(e))?;
+            to_custom(value, &opt).map_err(backend_error)
         }
     }
 }
@@ -646,11 +752,11 @@ fn write_hugo(
     value: &Value,
     args: &Args,
     input_path: &Option<PathBuf>,
-) -> Result<(), String> {
-    let hugo_dir = args
-        .hugo
-        .as_ref()
-        .ok_or_else(|| "internal: write_hugo called without --hugo".to_string())?;
+) -> Result<(), SmlError> {
+    // E-INTERNAL-001：走到了不应到达的分支（调用点应已保证 --hugo 存在）。
+    let hugo_dir = args.hugo.as_ref().ok_or_else(|| {
+        SmlError::new(E_INTERNAL_001, "internal: write_hugo called without --hugo")
+    })?;
 
     // 计算文件名/标题：--title > 文档顶层 title 字段 > 输入文件名 stem > "doc"
     // （此处曾传 &Value::Null，使文档内的标题信息永远读不到；现传入解析结果）
@@ -664,7 +770,9 @@ fn write_hugo(
     if !args.hugo_section.is_empty() {
         dest = dest.join(sanitize_section(&args.hugo_section));
     }
-    std::fs::create_dir_all(&dest).map_err(|e| format!("mkdir {}: {e}", dest.display()))?;
+    // E-IO-003：写入文件或创建目录失败。
+    std::fs::create_dir_all(&dest)
+        .map_err(|e| SmlError::new(E_IO_003, format!("mkdir {}: {e}", dest.display())))?;
     let out_path = dest.join(format!("{stem}.md"));
 
     let title = args
@@ -678,7 +786,7 @@ fn write_hugo(
     );
     let content = format!("{fm}{body}");
     std::fs::write(&out_path, content)
-        .map_err(|e| format!("write {}: {e}", out_path.display()))?;
+        .map_err(|e| SmlError::new(E_IO_003, format!("write {}: {e}", out_path.display())))?;
     eprintln!("wrote {}", out_path.display());
     Ok(())
 }
@@ -694,11 +802,11 @@ fn write_zola(
     value: &Value,
     args: &Args,
     input_path: &Option<PathBuf>,
-) -> Result<(), String> {
-    let zola_dir = args
-        .zola
-        .as_ref()
-        .ok_or_else(|| "internal: write_zola called without --zola".to_string())?;
+) -> Result<(), SmlError> {
+    // E-INTERNAL-001：走到了不应到达的分支（调用点应已保证 --zola 存在）。
+    let zola_dir = args.zola.as_ref().ok_or_else(|| {
+        SmlError::new(E_INTERNAL_001, "internal: write_zola called without --zola")
+    })?;
 
     let inferred = infer_title(value, input_path, &args.title);
     let stem = sanitize_filename(&inferred);
@@ -707,7 +815,9 @@ fn write_zola(
     if !args.zola_section.is_empty() {
         dest = dest.join(sanitize_section(&args.zola_section));
     }
-    std::fs::create_dir_all(&dest).map_err(|e| format!("mkdir {}: {e}", dest.display()))?;
+    // E-IO-003：写入文件或创建目录失败。
+    std::fs::create_dir_all(&dest)
+        .map_err(|e| SmlError::new(E_IO_003, format!("mkdir {}: {e}", dest.display())))?;
     let out_path = dest.join(format!("{stem}.md"));
 
     let title = args
@@ -721,18 +831,19 @@ fn write_zola(
     );
     let content = format!("{fm}{body}");
     std::fs::write(&out_path, content)
-        .map_err(|e| format!("write {}: {e}", out_path.display()))?;
+        .map_err(|e| SmlError::new(E_IO_003, format!("write {}: {e}", out_path.display())))?;
     eprintln!("wrote {}", out_path.display());
 
     // 可选：生成后调用 `zola build` 渲染静态站点。
     if args.zola_build {
+        // E-IO-007：外部工具不可用（未安装或无法启动），或其构建失败。
         let zola = match which_zola() {
             Some(p) => p,
             None => {
-                return Err(
-                    "smltools: --zola-build 需要本机安装 `zola`（未找到，请先安装或将 zola 加入 PATH）"
-                        .to_string(),
-                )
+                return Err(SmlError::new(
+                    E_IO_007,
+                    "smltools: --zola-build 需要本机安装 `zola`（未找到，请先安装或将 zola 加入 PATH）",
+                ))
             }
         };
         eprintln!("running `zola build` in {}", zola_dir.display());
@@ -740,9 +851,12 @@ fn write_zola(
             .arg("build")
             .current_dir(zola_dir)
             .status()
-            .map_err(|e| format!("smltools: 无法启动 zola: {e}"))?;
+            .map_err(|e| SmlError::new(E_IO_007, format!("smltools: 无法启动 zola: {e}")))?;
         if !status.success() {
-            return Err(format!("smltools: zola build 失败 (exit {:?})", status.code()));
+            return Err(SmlError::new(
+                E_IO_007,
+                format!("smltools: zola build 失败 (exit {:?})", status.code()),
+            ));
         }
         eprintln!("zola build 完成");
     }
@@ -888,13 +1002,15 @@ fn main() -> ExitCode {
         }
     };
 
-    // 互斥 / 依赖校验
+    // 互斥 / 依赖校验（E-CLI-003：互斥项同时给出，或依赖项缺失）
     if args.zola_build && args.zola.is_none() {
-        eprintln!("smltools: --zola-build 必须与 --zola <dir> 一起使用");
+        let e = SmlError::new(E_CLI_003, "--zola-build 必须与 --zola <dir> 一起使用");
+        eprintln!("smltools: {e}");
         return ExitCode::from(2);
     }
     if args.hugo.is_some() && args.zola.is_some() {
-        eprintln!("smltools: --hugo 与 --zola 互斥，请只选其一");
+        let e = SmlError::new(E_CLI_003, "--hugo 与 --zola 互斥，请只选其一");
+        eprintln!("smltools: {e}");
         return ExitCode::from(2);
     }
 
@@ -925,9 +1041,11 @@ fn main() -> ExitCode {
     // lint 模式：只做静态检查，不产出转换结果
     if args.lint {
         if args.input_format != InputFormat::Sml {
+            // E-CLI-004：lint 只能检查 SML 文档。
             eprintln!(
-                "smltools: --lint 只能检查 SML 文档（当前 --from {}）",
-                args.input_format.name()
+                "smltools: --lint 只能检查 SML 文档（当前 --from {}）[{}]",
+                args.input_format.name(),
+                E_CLI_004
             );
             return ExitCode::from(2);
         }
@@ -967,12 +1085,14 @@ fn main() -> ExitCode {
             let p = out_dir.join(&it.path);
             if let Some(parent) = p.parent() {
                 if let Err(e) = std::fs::create_dir_all(parent) {
-                    eprintln!("smltools: mkdir {}: {e}", parent.display());
+                    let e = SmlError::new(E_IO_003, format!("mkdir {}: {e}", parent.display()));
+                    eprintln!("smltools: {e}");
                     return ExitCode::from(2);
                 }
             }
             if let Err(e) = std::fs::write(&p, &it.content) {
-                eprintln!("smltools: write {}: {e}", p.display());
+                let e = SmlError::new(E_IO_003, format!("write {}: {e}", p.display()));
+                eprintln!("smltools: {e}");
                 return ExitCode::from(2);
             }
             eprintln!("wrote {}", p.display());
@@ -1014,7 +1134,12 @@ fn main() -> ExitCode {
                     ExitCode::SUCCESS
                 }
                 Err(e) => {
-                    eprintln!("smltools: write {}: {e}", p.display());
+                    // E-IO-003：写入文件失败。
+                    eprintln!(
+                        "smltools: write {}: {e} [{}]",
+                        p.display(),
+                        E_IO_003
+                    );
                     ExitCode::from(2)
                 }
             },
@@ -1025,5 +1150,44 @@ fn main() -> ExitCode {
                 ExitCode::SUCCESS
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `backend_error` 的文案前缀映射：`swsml` 的 emit 后端返回无码 `String`，
+    /// 这里把码表里更具体的三条挑出来，其余落回 `E-CLI-007`。
+    ///
+    /// ⚠️ 这几条**故意钉住上游文案**：`swsml` 一旦改文案，这里会失败 ——
+    /// 那正是提醒「映射需要同步」，而不是让码静默退化成 `E-CLI-007`。
+    #[test]
+    fn backend_error_maps_known_prefixes() {
+        assert_eq!(
+            backend_error("markdown: 递归深度超过上限 128".into()).code(),
+            E_LIMIT_004
+        );
+        assert_eq!(
+            backend_error("custom: 输出超过长度上限 1048576 字节（模板存在放大，请检查 `{nested}` 是否重复出现）".into())
+                .code(),
+            E_LIMIT_005
+        );
+        assert_eq!(
+            backend_error("custom: 数组超过循环上限 100000".into()).code(),
+            E_LIMIT_006
+        );
+        // 其它后端错误一律「输出后端报错」，内层原因留在文案里。
+        let e = backend_error("table 缺少 header 数组".into());
+        assert_eq!(e.code(), E_CLI_007);
+        assert!(e.message().contains("header"), "内层原因要保留：{e}");
+    }
+
+    #[test]
+    fn custom_rules_error_is_ext_006() {
+        assert_eq!(
+            custom_rules_error("custom 生成器缺少 rules 数组".into()).code(),
+            E_EXT_006
+        );
     }
 }

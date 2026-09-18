@@ -39,6 +39,19 @@
 use std::collections::BTreeMap;
 
 use sml::{jsonify, Value};
+use sml_codes::{SmlError, E_EXT_007, E_INTERNAL_002};
+
+/// E-EXT-007：编辑器定制文档非法（作用域名、规则锚点、颜色取值不符规范）。
+fn bad_doc(msg: impl Into<String>) -> SmlError {
+    SmlError::new(E_EXT_007, msg)
+}
+
+/// E-INTERNAL-002：内置资源损坏（内置高亮基线不是合法 JSON、缺少必需字段）。
+///
+/// 这类错误用户无解，只能升级或重装；出现即打包或构建事故。
+fn broken_asset(msg: impl Into<String>) -> SmlError {
+    SmlError::new(E_INTERNAL_002, msg)
+}
 
 /// 原版高亮基线。
 ///
@@ -69,9 +82,9 @@ struct Rule {
 /// 在基线上增补，返回完整的 tmLanguage JSON 文本。
 ///
 /// 入参是**已解析**的定制数据（`--to tmlanguage` 走的是与其它后端同样的解析路径）。
-pub fn generate(custom: &Value) -> Result<String, String> {
+pub fn generate(custom: &Value) -> Result<String, SmlError> {
     let mut base = sml::json_to_value(BASELINE)
-        .ok_or_else(|| "内置高亮基线不是合法 JSON（资产损坏）".to_string())?;
+        .ok_or_else(|| broken_asset("内置高亮基线不是合法 JSON（资产损坏）"))?;
 
     let directives = str_array(custom, "directives")?;
     let elements = str_array(custom, "elements")?;
@@ -80,22 +93,23 @@ pub fn generate(custom: &Value) -> Result<String, String> {
 
     // 可选覆盖 scopeName / name
     let Value::Object(base_map) = &mut base else {
-        return Err("内置高亮基线的顶层不是对象（资产损坏）".to_string());
+        return Err(broken_asset("内置高亮基线的顶层不是对象（资产损坏）"));
     };
     for key in ["scopeName", "name"] {
         if let Some(v) = custom.get(key).and_then(|x| x.as_str()) {
             if key == "scopeName" && !is_valid_scope(v) {
-                return Err(format!(
+                // E-EXT-007：作用域名不符规范。
+                return Err(bad_doc(format!(
                     "scopeName `{v}` 非法：须形如 `x.y`（至少一个点；各段为字母/数字/`_`/`-` 且非空）\
                      —— 写坏会让语法根本挂不上语言"
-                ));
+                )));
             }
             base_map.insert(key.to_string(), Value::Str(v.to_string()));
         }
     }
 
     let Some(Value::Array(patterns)) = base_map.get_mut("patterns") else {
-        return Err("内置高亮基线缺少 patterns 数组（资产损坏）".to_string());
+        return Err(broken_asset("内置高亮基线缺少 patterns 数组（资产损坏）"));
     };
 
     // 锚点表**从基线动态读取**（`{"include": "#xxx"}` 里的 xxx）——
@@ -111,7 +125,9 @@ pub fn generate(custom: &Value) -> Result<String, String> {
         })
         .collect();
     if anchors.is_empty() {
-        return Err("内置高亮基线的 patterns 里没有可用的 include 锚点（资产损坏）".to_string());
+        return Err(broken_asset(
+            "内置高亮基线的 patterns 里没有可用的 include 锚点（资产损坏）",
+        ));
     }
 
     let at = |name: &str| anchors.iter().position(|a| a == name);
@@ -126,11 +142,12 @@ pub fn generate(custom: &Value) -> Result<String, String> {
             None => tail.push(pattern(&r.name, &r.pattern)),
             Some((anchor, is_after)) => {
                 let Some(pos) = at(&anchor) else {
-                    return Err(format!(
+                    // E-EXT-007：规则锚点不符规范（锚点不存在时列出可用锚点，绝不静默追加到末尾）。
+                    return Err(bad_doc(format!(
                         "rules[{i}] 的{}锚点 `{anchor}` 不存在；可用锚点：{}",
                         if is_after { " after " } else { " before " },
                         anchors.join(", ")
-                    ));
+                    )));
                 };
                 let v = pattern(&r.name, &r.pattern);
                 if is_after {
@@ -187,7 +204,7 @@ fn is_valid_scope(s: &str) -> bool {
 }
 
 /// 取顶层字符串数组字段（缺失 → 空数组；类型不对 → 报错）。
-fn str_array(root: &Value, key: &str) -> Result<Vec<String>, String> {
+fn str_array(root: &Value, key: &str) -> Result<Vec<String>, SmlError> {
     let mut out = Vec::new();
     match root.get(key) {
         None => {}
@@ -195,37 +212,41 @@ fn str_array(root: &Value, key: &str) -> Result<Vec<String>, String> {
             for (i, v) in a.iter().enumerate() {
                 match v.as_str() {
                     Some(s) => out.push(s.to_string()),
-                    None => return Err(format!("{key}[{i}] 不是字符串（应为名字）")),
+                    // E-EXT-007：定制文档的字段形态不符规范。
+                    None => return Err(bad_doc(format!("{key}[{i}] 不是字符串（应为名字）"))),
                 }
             }
         }
-        Some(_) => return Err(format!("{key} 必须是数组，如 `{key}: [ a b c ]`")),
+        Some(_) => return Err(bad_doc(format!("{key} 必须是数组，如 `{key}: [ a b c ]`"))),
     }
     Ok(out)
 }
 
 /// 解析 `rules`：每项必须有 `name` 与 `match`；`after` / `before` 至多其一。
-fn collect_rules(root: &Value) -> Result<Vec<Rule>, String> {
+fn collect_rules(root: &Value) -> Result<Vec<Rule>, SmlError> {
     let arr = match root.get("rules") {
         None => return Ok(Vec::new()),
         Some(Value::Array(a)) => a,
-        Some(_) => return Err("rules 必须是数组".to_string()),
+        Some(_) => return Err(bad_doc("rules 必须是数组")),
     };
     let mut out = Vec::new();
     for (i, r) in arr.iter().enumerate() {
         let name = r
             .get("name")
             .and_then(|x| x.as_str())
-            .ok_or_else(|| format!("rules[{i}] 缺少 name（TextMate scope 名）"))?;
+            .ok_or_else(|| bad_doc(format!("rules[{i}] 缺少 name（TextMate scope 名）")))?;
         let m = r
             .get("match")
             .and_then(|x| x.as_str())
-            .ok_or_else(|| format!("rules[{i}] 缺少 match（匹配正则字符串）"))?;
+            .ok_or_else(|| bad_doc(format!("rules[{i}] 缺少 match（匹配正则字符串）")))?;
         let after = r.get("after").and_then(|x| x.as_str());
         let before = r.get("before").and_then(|x| x.as_str());
         let anchor = match (after, before) {
+            // E-EXT-007：规则里同时给出同侧两个锚点也算非法（位置无法确定）。
             (Some(_), Some(_)) => {
-                return Err(format!("rules[{i}] 同时给了 after 与 before，位置无法确定"))
+                return Err(bad_doc(format!(
+                    "rules[{i}] 同时给了 after 与 before，位置无法确定"
+                )))
             }
             (Some(a), None) => Some((a.to_string(), true)),
             (None, Some(b)) => Some((b.to_string(), false)),
@@ -278,25 +299,31 @@ fn regex_escape(s: &str) -> String {
 /// 为什么不只生成语法（scope）还要管颜色：真实诉求常常不是「哪些词算关键字」，
 /// 而是「我的方言关键字要跟标准指令**不同色**」。只给 scope 的话，用户还得自己
 /// 去编辑器里配 tokenColors —— 那等于把定制工作推回给用户。
-fn collect_colors(root: &Value) -> Result<Vec<(String, String)>, String> {
+fn collect_colors(root: &Value) -> Result<Vec<(String, String)>, SmlError> {
     match root.get("colors") {
         None => Ok(Vec::new()),
         Some(Value::Object(m)) => {
             let mut out = Vec::new();
             for (scope, v) in m {
                 let Some(c) = v.as_str() else {
-                    return Err(format!("colors.{scope} 必须是颜色字符串（如 \"#C586C0\"）"));
+                    // E-EXT-007：颜色取值不符规范（此处是形态不对）。
+                    return Err(bad_doc(format!(
+                        "colors.{scope} 必须是颜色字符串（如 \"#C586C0\"）"
+                    )));
                 };
                 if !is_color(c) {
-                    return Err(format!(
+                    // E-EXT-007：颜色取值不符规范（此处是取值非法）。
+                    return Err(bad_doc(format!(
                         "colors.{scope} = `{c}` 不是合法颜色（支持 #RGB / #RGBA / #RRGGBB / #RRGGBBAA）"
-                    ));
+                    )));
                 }
                 out.push((scope.clone(), c.to_string()));
             }
             Ok(out)
         }
-        Some(_) => Err("colors 必须是对象，如 `colors: { keyword.control.form.sml: \"#C586C0\" }`".to_string()),
+        Some(_) => Err(bad_doc(
+            "colors 必须是对象，如 `colors: { keyword.control.form.sml: \"#C586C0\" }`",
+        )),
     }
 }
 
@@ -418,7 +445,7 @@ fn zed_theme(name: &str, colors: &[(String, String)]) -> Value {
 /// 的 scope。所以这里产出的是「按常见节点名书写的查询 + 显式的匹配谓词」，
 /// 文件头会写明它依赖 `editors/zed/grammars/sml`（tree-sitter grammar），
 /// 节点名不一致时需要对照 grammar 调整 —— 这一点不写清楚就是坑。
-fn zed_highlights(custom: &Value) -> Result<String, String> {
+fn zed_highlights(custom: &Value) -> Result<String, SmlError> {
     let directives = str_array(custom, "directives")?;
     let mut s = String::new();
     s.push_str("; 由 smltools 生成（--to highlight）—— 请勿手改，改那份 SML 定制文件。\n");
@@ -466,7 +493,7 @@ fn zed_highlights(custom: &Value) -> Result<String, String> {
 /// - **扩展编译**：`syntaxes/sml.tmLanguage.json` + `themes/` 是 VSIX 的构建输入
 ///
 /// Zed 侧另出 `zed/highlights.scm` + `zed/themes/sml.json`。
-pub fn generate_package(custom: &Value) -> Result<Vec<Generated>, String> {
+pub fn generate_package(custom: &Value) -> Result<Vec<Generated>, SmlError> {
     let name = custom
         .get("name")
         .and_then(|v| v.as_str())
@@ -508,7 +535,7 @@ pub fn generate_package(custom: &Value) -> Result<Vec<Generated>, String> {
 mod tests {
     use super::*;
 
-    fn gen(src: &str) -> Result<String, String> {
+    fn gen(src: &str) -> Result<String, SmlError> {
         let v = sml::parse(src)?;
         generate(&v)
     }
@@ -550,9 +577,10 @@ mod tests {
     fn missing_anchor_errors_with_available_list() {
         let src = r#"rules: [ { name: "x.sml"  match: "x"  after: nope } ]"#;
         let e = gen(src).unwrap_err();
-        assert!(e.contains("锚点"), "应提到锚点：{e}");
-        assert!(e.contains("可用锚点"), "应列出可用锚点：{e}");
-        assert!(e.contains("directive"), "列表应含 directive：{e}");
+        assert!(e.message().contains("锚点"), "应提到锚点：{e}");
+        assert!(e.message().contains("可用锚点"), "应列出可用锚点：{e}");
+        assert!(e.message().contains("directive"), "列表应含 directive：{e}");
+        assert_eq!(e.code(), E_EXT_007, "锚点非法应报 E-EXT-007");
     }
 
     #[test]
@@ -639,7 +667,8 @@ mod tests {
     fn invalid_color_rejected() {
         let v = sml::parse("colors: { a.b: \"red\" }\n").unwrap();
         let e = generate_package(&v).unwrap_err();
-        assert!(e.contains("合法颜色"), "应报颜色非法：{e}");
+        assert!(e.message().contains("合法颜色"), "应报颜色非法：{e}");
+        assert_eq!(e.code(), E_EXT_007, "颜色非法应报 E-EXT-007");
     }
 
     #[test]

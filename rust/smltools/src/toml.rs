@@ -16,9 +16,22 @@
 use std::collections::BTreeMap;
 
 use sml::Value;
+use sml_codes::{SmlError, E_MIGRATE_011, E_MIGRATE_012};
+
+/// E-MIGRATE-011：TOML 语法非法（不是键值形式、键名为空、缺少取值、内联表缺等号）。
+fn syntax(msg: impl Into<String>) -> SmlError {
+    SmlError::new(E_MIGRATE_011, msg)
+}
+
+/// E-MIGRATE-012：TOML 表定义冲突（同名已存在且不是表，或不是表数组）。
+///
+/// 与语法错误分开：这类是「语法没问题，但语义上不能这样重复定义」。
+fn conflict(msg: impl Into<String>) -> SmlError {
+    SmlError::new(E_MIGRATE_012, msg)
+}
 
 /// 解析 TOML 文本。
-pub fn parse(text: &str) -> Result<Value, String> {
+pub fn parse(text: &str) -> Result<Value, SmlError> {
     let mut root: BTreeMap<String, Value> = BTreeMap::new();
     let mut cur: Vec<String> = Vec::new();
     let lines: Vec<&str> = text.lines().collect();
@@ -44,7 +57,7 @@ pub fn parse(text: &str) -> Result<Value, String> {
         } else {
             let (kpart, vpart) = line
                 .split_once('=')
-                .ok_or_else(|| format!("第 {no} 行：不是 `键 = 值` 形式：`{line}`"))?;
+                .ok_or_else(|| syntax(format!("第 {no} 行：不是 `键 = 值` 形式：`{line}`")))?;
             let keys = parse_key_path(kpart.trim())?;
             // 值可能跨行：数组/内联表按括号平衡判断，多行字符串按 `"""` 是否闭合判断。
             // 续行用 `\n` 连接（不能是空格）—— 多行字符串的换行是内容的一部分。
@@ -227,7 +240,7 @@ fn balanced(s: &str) -> bool {
 }
 
 /// 解析键路径：`a.b`、`"a b".c`、`'x'`。
-fn parse_key_path(s: &str) -> Result<Vec<String>, String> {
+fn parse_key_path(s: &str) -> Result<Vec<String>, SmlError> {
     let mut out = Vec::new();
     let mut cur = String::new();
     let (mut in_s, mut in_d) = (false, false);
@@ -260,7 +273,7 @@ fn parse_key_path(s: &str) -> Result<Vec<String>, String> {
         out.push(cur.trim().to_string());
     }
     if out.is_empty() {
-        return Err(format!("空的键名：`{s}`"));
+        return Err(syntax(format!("空的键名：`{s}`")));
     }
     Ok(out)
 }
@@ -270,7 +283,7 @@ fn ensure_table<'a>(
     root: &'a mut BTreeMap<String, Value>,
     path: &[String],
     no: usize,
-) -> Result<(), String> {
+) -> Result<(), SmlError> {
     let mut cur = root;
     for k in path.iter() {
         if !cur.contains_key(k) {
@@ -283,9 +296,9 @@ fn ensure_table<'a>(
             Some(Value::Object(sub)) => sub,
             Some(Value::Array(a)) => match a.last_mut() {
                 Some(Value::Object(sub)) => sub,
-                _ => return Err(format!("第 {no} 行：`{k}` 不是表数组")),
+                _ => return Err(conflict(format!("第 {no} 行：`{k}` 不是表数组"))),
             },
-            _ => return Err(format!("第 {no} 行：`{k}` 已存在且不是表")),
+            _ => return Err(conflict(format!("第 {no} 行：`{k}` 已存在且不是表"))),
         };
     }
     Ok(())
@@ -296,8 +309,10 @@ fn push_array_table(
     root: &mut BTreeMap<String, Value>,
     path: &[String],
     no: usize,
-) -> Result<(), String> {
-    let (last, parents) = path.split_last().ok_or_else(|| format!("第 {no} 行：空表名"))?;
+) -> Result<(), SmlError> {
+    let (last, parents) = path
+        .split_last()
+        .ok_or_else(|| syntax(format!("第 {no} 行：空表名")))?;
     // 先确保父路径存在
     let mut cur = root;
     for k in parents {
@@ -308,11 +323,11 @@ fn push_array_table(
             Some(Value::Object(sub)) => cur = sub,
             Some(Value::Array(a)) => {
                 let Some(Value::Object(sub)) = a.last_mut() else {
-                    return Err(format!("第 {no} 行：`{k}` 不是表数组"));
+                    return Err(conflict(format!("第 {no} 行：`{k}` 不是表数组")));
                 };
                 cur = sub;
             }
-            _ => return Err(format!("第 {no} 行：`{k}` 不是表")),
+            _ => return Err(conflict(format!("第 {no} 行：`{k}` 不是表"))),
         }
     }
     match cur.get_mut(last) {
@@ -320,7 +335,7 @@ fn push_array_table(
         None => {
             cur.insert(last.clone(), Value::Array(vec![Value::Object(BTreeMap::new())]));
         }
-        Some(_) => return Err(format!("第 {no} 行：`{last}` 已存在且不是表数组")),
+        Some(_) => return Err(conflict(format!("第 {no} 行：`{last}` 已存在且不是表数组"))),
     }
     Ok(())
 }
@@ -332,7 +347,7 @@ fn insert_keys(
     keys: &[String],
     val: Value,
     no: usize,
-) -> Result<(), String> {
+) -> Result<(), SmlError> {
     // 先定位到 cur 指向的表
     let mut tmp_root = std::mem::take(root);
     ensure_table(&mut tmp_root, cur, no)?;
@@ -341,7 +356,9 @@ fn insert_keys(
     if !cur.is_empty() {
         node = descend(&mut tmp_root, cur);
     }
-    let (last, parents) = keys.split_last().ok_or_else(|| format!("第 {no} 行：空键"))?;
+    let (last, parents) = keys
+        .split_last()
+        .ok_or_else(|| syntax(format!("第 {no} 行：空键")))?;
     for k in parents {
         if !node.contains_key(k) {
             node.insert(k.clone(), Value::Object(BTreeMap::new()));
@@ -350,7 +367,7 @@ fn insert_keys(
             Some(Value::Object(sub)) => node = sub,
             _ => {
                 *root = tmp_root;
-                return Err(format!("第 {no} 行：`{k}` 不是表，无法作为前缀"));
+                return Err(conflict(format!("第 {no} 行：`{k}` 不是表，无法作为前缀")));
             }
         }
     }
@@ -383,10 +400,10 @@ fn descend<'a>(
 }
 
 /// 解析一个 TOML 值。
-fn parse_value(s: &str, no: usize) -> Result<Value, String> {
+fn parse_value(s: &str, no: usize) -> Result<Value, SmlError> {
     let t = s.trim();
     if t.is_empty() {
-        return Err(format!("第 {no} 行：缺少值"));
+        return Err(syntax(format!("第 {no} 行：缺少值")));
     }
     // 多行字符串
     if let Some(rest) = t.strip_prefix("\"\"\"") {
@@ -425,7 +442,7 @@ fn parse_value(s: &str, no: usize) -> Result<Value, String> {
             }
             let (k, v) = p
                 .split_once('=')
-                .ok_or_else(|| format!("第 {no} 行：内联表里 `{p}` 缺少 `=`"))?;
+                .ok_or_else(|| syntax(format!("第 {no} 行：内联表里 `{p}` 缺少 `=`")))?;
             let keys = parse_key_path(k.trim())?;
             let val = parse_value(v, no)?;
             let mut node = &mut m;
@@ -436,7 +453,7 @@ fn parse_value(s: &str, no: usize) -> Result<Value, String> {
                 }
                 match node.get_mut(kk) {
                     Some(Value::Object(sub)) => node = sub,
-                    _ => return Err(format!("第 {no} 行：`{kk}` 不是表")),
+                    _ => return Err(conflict(format!("第 {no} 行：`{kk}` 不是表"))),
                 }
             }
             node.insert(last.clone(), val);

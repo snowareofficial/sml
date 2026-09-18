@@ -145,6 +145,26 @@ front matter 的 `.md`；`--zola-build` 会顺带调用本机 `zola build`（需
 | 1 | 解析 / 翻译失败（`--lint` 发现 error 级问题也算） |
 | 2 | 参数或 IO 错误（如目录模式漏了 `-o`） |
 
+### 错误码
+
+每条面向用户的报错/告警都会**带上错误码**，码取自唯一事实来源 `errors/codes.sml`
+（查询页 <https://sml.swebase.cn/errors/>）。码缀在文案之后，与 Rust 侧 `SmlError` 的
+`Display` 同口径：
+
+```text
+$ smltools --from nosuch
+smltools: unknown input format `nosuch` (sml|json|toml|yaml|xml) [E-CLI-001]
+
+$ smltools --lint -i doc.sml
+doc.sml:1: error: 缩进里出现 tab；SML 缩进敏感，请统一用空格 [E-LINT-001]
+```
+
+涉及的工具层领域：`CLI`（命令行与用法）、`MIGRATE`（JSON/TOML/YAML/XML 迁入）、
+`LINT`（`--lint` 诊断）、`IO`（读写与外部工具）、`INTERNAL`（不应发生）；
+输出后端的递归/放大超限另用 `LIMIT`，编辑器定制文档非法用 `EXT`。
+解析类问题**原样透传**语言层的码（`E-LEX-*` / `E-PARSE-*` / `E-CONTRACT-*` …），
+不包成 CLI 的码。
+
 其它参数（`--math` 放行 LaTeX 数学块透传、`--feature v1..v4`、`--title` 等）见 `smltools --help`。
 
 ## 与 swsml 的关系
@@ -313,6 +333,26 @@ local `zola build` (zola must be installed).
 | 0 | Success |
 | 1 | Parse / translation failure (`--lint` with error-level findings included) |
 | 2 | Bad arguments or IO error (e.g. directory mode without `-o`) |
+
+### Error codes
+
+Every user-facing error/warning carries an **error code** from the single source of truth
+`errors/codes.sml` (lookup page <https://sml.swebase.cn/errors/>). The code is appended after
+the message, matching the Rust-side `SmlError` `Display` convention:
+
+```text
+$ smltools --from nosuch
+smltools: unknown input format `nosuch` (sml|json|toml|yaml|xml) [E-CLI-001]
+
+$ smltools --lint -i doc.sml
+doc.sml:1: error: 缩进里出现 tab；SML 缩进敏感，请统一用空格 [E-LINT-001]
+```
+
+Tool-layer domains: `CLI` (usage), `MIGRATE` (JSON/TOML/YAML/XML import), `LINT`
+(`--lint` diagnostics), `IO` (reads/writes and external tools), `INTERNAL` (should not
+happen). Backend recursion/amplification limits use `LIMIT`; invalid editor-customisation
+documents use `EXT`. Parse-level problems **pass through** the language-layer code
+(`E-LEX-*` / `E-PARSE-*` / `E-CONTRACT-*` …) rather than being wrapped in a CLI code.
 
 Other flags (`--math` to pass LaTeX math blocks through, `--feature v1..v4`, `--title`, …) are
 listed by `smltools --help`.
