@@ -54,18 +54,26 @@ if (typeof m.findOccurrences === "function") {
   check(f("abc", "").length === 0, "空词返回空");
 }
 
-// —— 「声明了却没实现的命令」闸门 ——
-// 这类 bug 只在用户点下去时才暴露（command not found）；静态就能查出来，必须查。
+// —— 命令「声明 ↔ 实现」双向闸门 + 无效贡献点回归闸门 ——
+//   ① 声明了却没实现（`contributes.commands` 或菜单里出现、代码却没 registerCommand）
+//      ⇒ 用户点下去才炸「command not found」；
+//   ② 实现了却没声明（代码 registerCommand、`contributes.commands` 里没有）
+//      ⇒ 命令**不会出现在命令面板**（右键菜单仍可能可用，因为菜单不要求声明）；
+//   ③ 顶层 `commands` 这个**无效贡献点**必须不存在 —— 本仓库真踩过：6 条命令全写在
+//      顶层，VS Code 静默忽略 ⇒ 命令面板里搜不到任何 SML 命令；而旧闸门恰好也在读
+//      顶层 `pkg.commands`，等于「校验了一个没人看的键」，于是一路绿灯。
 try {
   const pkg = JSON.parse(readFileSync("package.json", "utf-8"));
-  const declared = [
-    ...(pkg.commands || []).map((c) => c.command),
-    ...Object.values(pkg.contributes?.menus || {}).flat().map((x) => x.command),
-  ].filter(Boolean);
+  check(!("commands" in pkg), "命令声明在 contributes.commands（顶层 commands 是无效键）");
+  const declared = (pkg.contributes?.commands || []).map((c) => c.command);
+  const menuCmds = Object.values(pkg.contributes?.menus || {}).flat().map((x) => x.command);
   const jsFiles = readdirSync("src").filter((f) => f.endsWith(".js"));
   const src = jsFiles.map((f) => readFileSync(path.join("src", f), "utf-8")).join("\n");
-  for (const id of [...new Set(declared)]) {
+  for (const id of [...new Set([...declared, ...menuCmds].filter(Boolean))]) {
     check(src.includes(`registerCommand("${id}"`), `命令已实现：${id}`);
+  }
+  for (const id of [...new Set([...src.matchAll(/registerCommand\(\s*"([^"]+)"/g)].map((m) => m[1]))]) {
+    check(declared.includes(id), `命令已声明（命令面板可见）：${id}`);
   }
   const whens = Object.values(pkg.contributes?.menus || {})
     .flat()
