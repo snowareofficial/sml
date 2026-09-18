@@ -102,9 +102,11 @@ static std::string unescape_unicode(const std::string& inner, std::string* err) 
                 j++; // consume }
             }
             if (hex.empty()) { if(err)*err=code_prefix(SML_E_LEX_005, "sml: empty unicode escape"); return out; }
+            if (!brace && hex.size() != 4) { if(err)*err=code_prefix(SML_E_LEX_005, "sml: unicode 转义位数不足（须四位十六进制或 \\u{...}）"); return out; }
             // parse hex
             unsigned long cp = 0;
             try { cp = std::stoul(hex, nullptr, 16); } catch(...) { if(err)*err=code_prefix(SML_E_LEX_005, "sml: bad unicode codepoint"); return out; }
+            if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) { if(err)*err=code_prefix(SML_E_LEX_005, "sml: unicode 码点非法（超出范围或可代理区）"); return out; }
             // encode UTF-8
             if (cp <= 0x7F) out.push_back((char)cp);
             else if (cp <= 0x7FF) {
@@ -156,19 +158,27 @@ static std::vector<Token> tokenize(const std::string& text, std::string* err) {
         if (c == '/' && c2 == '/') { while (i < n && text[i] != '\n') i++; continue; }
         if (c == '/' && c2 == '*') {
             i += 2;
+            bool closed = false;
             while (i + 1 < n && !(text[i] == '*' && text[i+1] == '/')) {
                 if (text[i] == '\n') line++;
                 i++;
             }
-            i += 2; continue;
+            if (i + 1 < n) { i += 2; closed = true; }
+            if (!closed) { if (err) *err = code_prefix(SML_E_LEX_002,
+                             "sml: 未闭合的块注释 /* ... */（遇到文件结尾）"); return toks; }
+            continue;
         }
         if (c == '_' && c2 == '*') {
             i += 2;
+            bool closed = false;
             while (i + 1 < n && !(text[i] == '*' && text[i+1] == '_')) {
                 if (text[i] == '\n') line++;
                 i++;
             }
-            i += 2; continue;
+            if (i + 1 < n) { i += 2; closed = true; }
+            if (!closed) { if (err) *err = code_prefix(SML_E_LEX_003,
+                             "sml: 未闭合的块注释 _* ... *_（遇到文件结尾）"); return toks; }
+            continue;
         }
 
         switch (c) {
@@ -307,7 +317,8 @@ static ValuePtr coerce_word(const std::string& raw,
     if (t.size() > 0 && t[0] == '&') {
         auto it = fragments.find(t.substr(1));
         if (it != fragments.end()) return it->second->clone();
-        return Value::string(t); // undefined -> keep as-is
+        if (err) *err = code_prefix(SML_E_INCLUDE_006, "sml: 片段引用 " + t + " 指向一个不存在的片段");
+        return Value::null();
     }
     // bool
     if (t == "true")  return Value::boolean(true);
@@ -674,6 +685,12 @@ static ValuePtr parse_array(PState& st) {
         if (st.aborted) break;          // 出错/超限后立刻收手，别继续建树
         auto& t = st.toks[st.i];
         if (t.t == Token::T::RBracket) { st.i++; closed = true; break; }
+        if (t.t == Token::T::RBrace) {
+            // 数组里多余的 `}`（没有与之匹配的开始符号）⇒ E-PARSE-003（W16）
+            if (st.err && st.err->empty())
+                *st.err = code_prefix(SML_E_PARSE_003, "sml: 数组里出现多余的 '}'（没有与之匹配的开始符号）");
+            st.i++; st.aborted = true; break;
+        }
         if (t.t == Token::T::Comma) { st.i++; continue; }
         arr->arr.push_back(parse_value(st));
     }
@@ -790,12 +807,23 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
     while (st.i < st.toks.size()) {
         if (st.aborted) break;          // 出错/超限后立刻收手，别继续建树
         auto& tok = st.toks[st.i];
-        if (tok.t == Token::T::RBrace) { st.i++; closed = true; break; }
+        if (tok.t == Token::T::RBrace) {
+            if (require_close) { st.i++; closed = true; break; }
+            // 顶层（require_close=false）遇到 `}` ⇒ 多余的（stray）→ E-PARSE-003（W16）
+            if (st.err && st.err->empty())
+                *st.err = code_prefix(SML_E_PARSE_003, "sml: 多余的 '}'（没有与之匹配的开始符号）");
+            st.i++; st.aborted = true; break;
+        }
         if (tok.t == Token::T::RBracket) {
-            if (top) { /* top-level array handled elsewhere */ }
-            // stray ']' in block -> error
-            if (st.err) *st.err = code_prefix(SML_E_PARSE_003, "sml: unexpected ']' at line " + std::to_string(tok.line));
-            st.i++; break;
+            // 块内遇到 `]`（期望 `}`）⇒ 闭合符错配；顶层遇到 `]` ⇒ 多余的（stray）
+            if (require_close) {
+                if (st.err && st.err->empty())
+                    *st.err = code_prefix(SML_E_PARSE_002, "sml: 闭合符错配（块期望 '}'，却遇到 ']'）");
+            } else {
+                if (st.err && st.err->empty())
+                    *st.err = code_prefix(SML_E_PARSE_003, "sml: 多余的 ']'（没有与之匹配的开始符号）");
+            }
+            st.i++; st.aborted = true; break;
         }
         if (tok.t == Token::T::Comma) { st.i++; continue; }
 
@@ -812,18 +840,38 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
             st.i++;
             if (st.i >= st.toks.size()) break;
             std::string fname = st.toks[st.i].s; st.i++;
-            if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::Colon) st.i++;
-            // optional type + name
+            // W16：未注册指令（`@foo ...`）只允许**显式** `type:` / `name:` 参数；
+            //   位置参数（如 `@foo bar`）与缺少片段体 `{ ... }` ⇒ E-PARSE-005。
+            //   `@foo { x: 1 }`（无参数）仍合法；`@foo type: X name: Y { ... }` 须成功。
             std::string ftype, fname_arg;
-            if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::Word &&
-                st.toks[st.i].s != "{") {
-                ftype = st.toks[st.i].s; st.i++;
-                if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::Word &&
-                    st.toks[st.i].s != "{") {
-                    fname_arg = st.toks[st.i].s; st.i++;
+            while (st.i < st.toks.size() && st.toks[st.i].t == Token::T::Word &&
+                   (st.toks[st.i].s == "type" || st.toks[st.i].s == "name") &&
+                   st.i+1 < st.toks.size() && st.toks[st.i+1].t == Token::T::Colon) {
+                bool is_type = (st.toks[st.i].s == "type");
+                st.i += 2; // type/name + ':'
+                const auto& vt = st.toks[st.i];
+                if (vt.t != Token::T::Word) {
+                    if (st.err && st.err->empty())
+                        *st.err = code_prefix(SML_E_PARSE_005, "sml: 片段 `" + fname + "` 的参数缺少值");
+                    st.aborted = true; st.i++; break;
                 }
+                if (is_type) {
+                    if (!ftype.empty()) { if(st.err&&st.err->empty())*st.err=code_prefix(SML_E_PARSE_005,"sml: 片段 `"+fname+"` 的 type 参数重复"); st.aborted=true; break; }
+                    ftype = vt.s;
+                } else {
+                    if (!fname_arg.empty()) { if(st.err&&st.err->empty())*st.err=code_prefix(SML_E_PARSE_005,"sml: 片段 `"+fname+"` 的 name 参数重复"); st.aborted=true; break; }
+                    fname_arg = vt.s;
+                }
+                st.i++; // 消费参数值
             }
-            if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::LBrace) {
+            if (!st.aborted) {
+                if (!(st.i < st.toks.size() && st.toks[st.i].t == Token::T::LBrace)) {
+                    if (st.err && st.err->empty())
+                        *st.err = code_prefix(SML_E_PARSE_005,
+                            "sml: `@" + fname + "` 不是合法指令且缺少片段体 { ... }；若本意是片段定义，参数须显式写作 `type: X` 与 `name: Y`（位置参数形式已废弃；不带参数时写作 `@" + fname + " { ... }`）");
+                    st.aborted = true;
+                    break;
+                }
                 st.i++; // consume {
                 auto sub = parse_block_nested(st);
                 if (!ftype.empty()) {
@@ -1207,6 +1255,14 @@ static ValuePtr parse_impl(const std::string& text, std::string* err, const std:
     if (st.toks.empty()) return Value::object();
 
     auto& first = st.toks[0];
+    // W16 B0：顶层只能是容器（键值块/对象块/数组），单个标量无法往返 ⇒ E-PARSE-008。
+    //   判定：只有一个 token 且它不是 [ 或 {（即裸词 / 引号串 / 数字，tokenizer 都记为 Word）。
+    if (st.toks.size() == 1 && first.t == Token::T::Word) {
+        if (err && err->empty())
+            *err = code_prefix(SML_E_PARSE_008,
+                "sml: 顶层只能是容器（键值块/对象块/数组），单个标量无法往返");
+        return nullptr;
+    }
     ValuePtr result;
     if (first.t == Token::T::LBracket) {
         st.i = 1;

@@ -18,13 +18,12 @@
 //     「有实现、无用例」的码，显式登记在此，免得后来者以为它没做。
 //
 // 已知与 Rust 的**行为差异**（不在此断言，免得把差异写死成契约）：
-//   - `k: "\u12"`：Rust 报 E-LEX-005（位数不足），本实现接受任意位十六进制。
-//     故 E-LEX-005 改从「空码点 / 缺闭合 / 码点溢出」三侧构造同一语义条件。
-//   - `k: "\uD800"`：Rust 报 E-LEX-005（代理区非法码点），本实现按码点编码，不校验代理区。
-//   - 未闭合块注释：本实现静默接受 —— `E-LEX-002`/`E-LEX-003` 的 `impls` 仅列 rust，
-//     note 也写明「其余四端静默接受」，属**已登记**的静默点，这里不假装有码。
-//     （注意：**未知转义**不属此类 —— `E-LEX-004` 的 `impls` 明列 cpp，本实现此前
-//     静默放行属「声明与实现不符」，现已补上，见下面的用例。）
+//   ⚠️ 以下三条**已随 W16 末段对齐**：旧注释称「本实现静默接受」是 W16 之前的过时描述，已更正。
+//   - `k: "\u12"`（位数不足）/ `k: "\uD800"`（代理区）/ 未闭合块注释 `* … */` 与 `_* … *_`
+//     现在**都报码**（E-LEX-005 / E-LEX-005 / E-LEX-002 / E-LEX-003），与 Rust 同码；
+//     见下 `test_w16_codes()` 的 lex 组断言。E-LEX-004（未知转义）此前静默放行属
+//     「声明与实现不符」，现已补上（见下面的用例）。
+//   其余仍属真实的端间差异（数值归类、include 触发写法等）记在下方。
 //   - 数值字面量的**归类**（值模型层）：关键格子已在下面的 [value model] 组钉住，
 //     但跨端仍有差异，逐格记清（这几格极易搞反）：
 //       超 i64 的**纯整数**：Rust = **Str**（B10：round-trip 安全、零精度损失）、
@@ -173,8 +172,8 @@ static void test_parse_codes() {
                 "@contract C { a: [ ] }\n", SML_E_PARSE_024);
 
     // 多余的结束符号（块里出现 `]`）
-    expect_code("stray closing bracket",
-                "x { ] }\n", SML_E_PARSE_003);
+    expect_code("stray closing bracket (mismatch: block expects '}', got ']')",
+                "x { ] }\n", SML_E_PARSE_002);
 }
 
 // ------------------------------------------------------------------
@@ -710,7 +709,7 @@ static void test_positive_controls() {
 
     // 裸块与片段体仍要正常闭合
     expect_ok("bare block closed", "pool greeter { max: 10 }\n");
-    expect_ok("fragment body closed", "@f type X name y { a: 1 }\n");
+    expect_ok("fragment body closed", "@f type: X name: y { a: 1 }\n");
 
     // 回归（errno 串味）：同一文档里**先**出现溢出字面量，后面的普通整数不得
     // 被误判成 Float —— 否则声明为 int 的合法字段会报出不该报的 E-CONTRACT-002。
@@ -738,6 +737,48 @@ static void test_err_null_safe() {
     std::cout << "  ok: err=NULL does not crash\n";
 }
 
+// ------------------------------------------------------------------
+// W16：把静默改成报错的一批（见 TASK-hy3.md / c/test_codes.c）。
+// 每条严格性都配**正对照**：把静默改成报错，最大的风险是误伤合法文档，
+// 只测「应当失败」的一半会看不出误伤。期望值与 Rust / JS / Lua / C 逐字同码。
+static void test_w16_codes() {
+    std::cout << "[W16: lex]\n";
+    expect_code("W16 unterminated string", "k: \"abc\n", SML_E_LEX_001);
+    expect_code("W16 unclosed /* comment", "k: 1\n/* abc\n", SML_E_LEX_002);
+    expect_code("W16 unclosed _* comment", "k: 1\n_* abc\n", SML_E_LEX_003);
+    expect_code("W16 unknown escape", "k: \"a\\qb\"\n", SML_E_LEX_004);
+    expect_code("W16 \\u too few digits", "k: \"\\u12\"\n", SML_E_LEX_005);
+
+    expect_ok("W16 legal escapes", "k: \"a\\nb\\tc\"\n");
+    expect_ok("W16 \\u fixed 4 digits", "k: \"\\u4e2d\"\n");
+    expect_ok("W16 \\u braced", "k: \"\\u{1F680}\"\n");
+    expect_ok("W16 /* comment closed", "k: 1\n/* ok */\n");
+    expect_ok("W16 _* comment closed", "k: 1\n_* ok *_ \n");
+
+    std::cout << "[W16: parse/include]\n";
+    expect_code("W16 stray } in array", "m: [ } ]\n", SML_E_PARSE_003);
+    expect_code("W16 closing mismatch a { ] }", "a { ] }\n", SML_E_PARSE_002);
+    expect_code("W16 stray } at top", "k: 1\n}\n", SML_E_PARSE_003);
+    expect_code("W16 stray ] at top", "k: 1\n]\n", SML_E_PARSE_003);
+    expect_code("W16 unregistered directive (positional+body)", "@foo bar { x: 1 }\n", SML_E_PARSE_005);
+    expect_code("W16 unregistered directive (positional, no body)", "@foo bar\n", SML_E_PARSE_005);
+    expect_code("W16 undefined fragment ref", "x: &nosuchfrag\n", SML_E_INCLUDE_006);
+    expect_code("W16 top-level scalar (bareword)", "42\n", SML_E_PARSE_008);
+    expect_code("W16 top-level scalar (quoted)", "\"42\"\n", SML_E_PARSE_008);
+
+    expect_ok("W16 fragment explicit params", "@foo type: Server name: p { x: 1 }\n");
+    expect_ok("W16 fragment no params", "@foo { x: 1 }\n");
+    expect_ok("W16 fragment def + ref", "@foo { x: 1 }\ny: &foo\n");
+    expect_ok("W16 two-token bare key pair", "hello world\n");
+    expect_ok("W16 key-value block", "42: x\n");
+    expect_ok("W16 object block", "{ a: 1 }\n");
+    expect_ok("W16 top-level array", "[1, 2]\n");
+    expect_ok("W16 nested array", "m: [ 1, [2, 3], 4 ]\n");
+    expect_ok("W16 top-level scalar with directive", "@version v1\n42\n");
+    expect_ok("W16 empty input", "");
+    expect_ok("W16 comment only", "# c\n");
+}
+
 int main() {
     test_lex_codes();
     test_parse_codes();
@@ -748,6 +789,7 @@ int main() {
     test_limit_and_include();
     test_include_expansion();
     test_positive_controls();
+    test_w16_codes();
     test_err_null_safe();
 
     if (failures == 0) {
