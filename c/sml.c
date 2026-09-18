@@ -1486,6 +1486,16 @@ static int needs_quote(const char *s) {
 static void dump_value(sbuf *b, const sml_value *v, int indent);
 static void dump_inline(sbuf *b, const sml_value *v);
 
+/* 该对象是否有"体"（排除内部标记键 __type / __name）。
+   有体时 dump_value 会输出 `\n{ … }`（另起一行）⇒ 键后面**不能**留行尾空格（W4 ①）。 */
+static int obj_has_body(const sml_value *v) {
+    if (!v || v->type != SML_OBJECT) return 0;
+    sml_field *f;
+    for (f = v->u.obj.head; f; f = f->next)
+        if (strcmp(f->key, "__type") && strcmp(f->key, "__name")) return 1;
+    return 0;
+}
+
 static void dump_value(sbuf *b, const sml_value *v, int indent) {
     char num[64];
     if (!v) { sb_add(b, "null"); return; }
@@ -1538,7 +1548,13 @@ static void dump_value(sbuf *b, const sml_value *v, int indent) {
                 sb_add(b, "\n");
                 for (j = 0; j < indent + 1; j++) sb_add(b, "  ");
                 sb_add(b, f->key);
-                sb_add(b, ": ");
+                /* W4 ①：「键: 后接块」**不留行尾空格**。
+                   对象体的 dump 是从 `\n{ … }` 起的一整块，这里若写 ": "，
+                   那个空格就落在行尾（Rust `to_sml` 早就不留了，见 CHANGELOG
+                   「to_sml 不再在『键: 后接块』时于行尾留空格」）。
+                   标量 / 空容器（同行渲染）照旧用 ": "。 */
+                if (obj_has_body(f->value)) sb_add(b, ":");
+                else                        sb_add(b, ": ");
                 dump_value(b, f->value, indent + 1);
             }
             sb_add(b, "\n");
@@ -1617,7 +1633,10 @@ char *sml_dump(const sml_value *v) {
         for (f = v->u.obj.head; f; f = f->next) {
             if (!strcmp(f->key, "__type") || !strcmp(f->key, "__name")) continue;
             sb_add(&b, f->key);
-            sb_add(&b, ": ");
+            /* 同 dump_value：值是有体的对象时（另起一行渲染）**不留**行尾空格（W4 ①）。
+               顶层这里是绝大多数 `key: ` 尾随空格的来源。 */
+            if (obj_has_body(f->value)) sb_add(&b, ":");
+            else                        sb_add(&b, ": ");
             dump_value(&b, f->value, 0);
             sb_addc(&b, '\n');
         }
