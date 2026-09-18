@@ -1104,8 +1104,22 @@ YAML 用**改动前的 release 二进制**跑同一份探针：旧 `rc=0` 静默
   与 `_default` / `_lib` 目录（Hugo / Pages 结构）。
 - `_gov_demo.sml` → **已跟踪**夹具 `rust/tests/fixtures/gov_demo.sml`（它被
   `rust/tests/gov_demo.rs` 真读，留在 `**/_*` 之下等于「测试只在本人机器上过」）。
-- ⚠️ **本批起，仓库里不再有随手的 `_` 探针**：本轮用过的临时脚本（判别实验、扫描、快照）
-  都在归档目录里 —— 想复现得先用归档里的版本，或按 §15.5/§16.5 的说明重写。
+- ⚠️ **归档规则当场就被修正过一次（同日晚些时候）—— 记下来，别再犯**：
+  第一版规则是「`_` 开头一律归档」，**这是错的**。查下去发现大量 `_` 文件是**在用的工具 /
+  被文档当命令引用**：`_sync_playground.py` 与 `_sync_wasm.py` 是站点四份副本的**同步入口**
+  （`js/sml.mjs` 的注释里写着「务必运行」）、`_build_wasm.py`、`_check_*.py`、`_w16_cmp.py` /
+  `_w16_scan.py` / `_w12_disc.py` 是 HANDOFF/§15.5/§16.5 里**列出的可复现命令**、
+  `rust/qsm/**` 下是整套 qsm-acl 工具（`qsm-acl/web/README.md` 直接引用其中两个）。
+  而 `.gitignore` 的 `**/_*` 早就把它们挡在版本库之外 ⇒ **删它们对「仓库整洁」零贡献，
+  只有反作用**（丢工具 + 文档指向不存在的文件）。
+  **修正后的规则**：**源代码 / 脚本（`.py` `.mjs` `.c` `.cpp` `.js` `.lua` `.sh`）+ 整个
+  `_lvgl_probe/` `_lvgl_test/` 测试台 = 保留**（共 **206 个文件已全部还原原位**）；
+  只有**纯产物**（日志、转储 `.txt`、`__pycache__`、编译出的 `.exe`/`.o`、`.svg`/`.png`、
+  SquareLine `.xml`）留在归档 —— **46 个**，在 `%TEMP%\sml-underscore-archive-20260918\`。
+- **教训（给下一位 agent）**：判据不是「文件名长什么样」，而是「**有没有代码/文档在引用它**」
+  + 「**是不是纯产物**」。而且我第一遍查引用用的是 `git grep`（**只覆盖已跟踪文件**），
+  **盲区正是 `.gitignore` 里的目录** —— `rust/qsm/**` 整个被忽略，里面「脚本 A 调脚本 B」
+  当时根本看不见。补扫**全工作区**（含被忽略的文件）才查出来。查完再删，别先删再查。
 - 清理后**四套回归全 rc=0**（C `build_check.py --run` / JS `probe-error-codes.mjs` + 副本一致 /
   Lua `run_check.py` / Rust `cargo test --workspace`）。
 
@@ -1131,7 +1145,17 @@ YAML 用**改动前的 release 二进制**跑同一份探针：旧 `rc=0` 静默
 （`git rev-list --all --objects` 逐名比对，全无）⇒ **不需要 filter-repo**；
 ② 已跟踪文件里对这些名字**只有 `.gitignore` 本身**提到 ⇒ 可安全移动。
 
-### 18.2 还差一步：首次 push（需要你的凭据）
+### 18.2 首次 push ✅ **已完成（2026-09-18，用户执行）**
+
+远端 `main` 已到位：本地 `refs/remotes/origin/main` = **`1b68545`**，与本地 `main` 同步
+（`git status -sb` 显示 `## main...origin/main`、无 ahead）。私库的 7 个资产现在**在可信服务器上有版本、有备份**。
+
+> 注：我这边的 `git ls-remote` 仍报 `unable to get password from user` —— 因为本机
+> `credential.helper=manager-core` 而 **GCM 没装**，**我这条非交互通道**拿不到凭据；
+> 你自己终端里输口令那次是成功的（`push -u` 把 `origin/main` 跟踪分支写下来了）。
+> 后续如果想让**非交互**也能推（脚本 / CI），再按下面三条里挑一条配好。
+
+<details><summary>原先记录的三条路（保留备查）</summary>
 
 非交互试探失败：本机 `git config --global credential.helper = manager-core`，但
 **GCM 并没装** ⇒ `git: 'credential-manager-core' is not a git command` + `fatal: unable to get password from user`。
@@ -1146,7 +1170,13 @@ YAML 用**改动前的 release 二进制**跑同一份探针：旧 `rc=0` 静默
 3. 最省事：`cd Desktop\sml_secret && git push -u origin main` 直接输账号口令
    —— 但那是 **HTTP 明文**，只在内网做，且**建议尽早换 SSH / 让服务器开 HTTPS**。
 
-推成功后回来把 TODO §三·九 的那行勾掉即可（HANDOFF 这节也可标「已完成」）。
+</details>
+
+**端口实测结论**（保留）：`3000` 开放（Gitea HTTP，**明文**）、**`22` 开放（SSH，首选）**、
+`443` / `8443` / `80` / `2222` 全部关闭；`~/.ssh/known_hosts` 里已有 `10.16.144.2`（以前连过），
+但 `~/.ssh` 下**当前没有密钥对** —— 要配 SSH 得先 `ssh-keygen` 再把公钥贴进 Gitea。
+**待办（不急）**：让「非交互推送」可用（SSH 密钥 或 装 GCM / 用 Token），并把 3000 的明文换成
+HTTPS —— 现在能用，只是安全性和自动化上还有欠账。
 
 ### 18.3 纪律（下一位 agent / 未来的你）
 

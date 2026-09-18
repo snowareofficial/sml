@@ -176,11 +176,18 @@ OK 30 → 26、结论变化 6 个，逐条判定：
   （含不可达对象）+ `.git` 文本文件里搜某个内部报送件里的人名 ⇒ **只在 4 个工作区文件里出现，
   版本库里从来没有**（那 4 个文件早已被 `.gitignore` 的「私有报送件」段挡住）⇒
   **不需要 filter-repo**。4 个文件已**移出仓库**（移动而非删除，路径见对话回复 / HANDOFF §17）。
-- **`_` 前缀杂物**：`.gitignore` 有 `**/_*`，故它们也从未入库；243 个未跟踪文件 + 2 个杂物目录
-  已归档到 `%TEMP%\sml-underscore-archive-20260918\`（保留相对路径，可整体搬回）；
-  4 个 `__pycache__` 删除。**7 个已跟踪的 `_` 文件保留**（Hugo `_index.md` ×4 是 Hugo 结构必需、
-  `site/_add_quizzes.py` / `_run_verify.py` / `_verify_lessons.mjs` 是站点工具），
-  `_default` / `_lib` 这类**目录**同样保留（Hugo / Pages 结构）。
+- **`_` 前缀文件**：`.gitignore` 有 `**/_*`，故它们从未入库 ⇒ 清理是**整洁性**问题、不是泄露问题。
+  ⚠️ **规则当场修正过一次**：第一版按「`_` 开头一律归档」执行，但其中大量文件是**在用的工具 /
+  被文档当命令引用**（`_sync_playground.py`、`_sync_wasm.py` 是站点四份副本的同步入口；
+  `_w16_cmp.py` / `_w16_scan.py` / `_w12_disc.py` 在 HANDOFF 里是可复现命令；
+  `rust/qsm/**` 是整套 qsm-acl 工具，被 `qsm-acl/web/README.md` 引用）。
+  **最终规则**：源代码/脚本（`.py .mjs .c .cpp .js .lua .sh`）+ `_lvgl_probe/` `_lvgl_test/`
+  测试台 = **保留**（**206 个已全部还原原位**）；只有**纯产物**（日志、`.txt` 转储、`.pyc`、
+  编译出的 `.exe`/`.o`、`.svg`/`.png`、SquareLine `.xml`）留在
+  `%TEMP%\sml-underscore-archive-20260918\`（**46 个**）。**7 个已跟踪的 `_` 文件保留**
+  （Hugo `_index.md` ×4 + 站点工具 ×3），`_default` / `_lib` 这类目录同样保留。
+  **教训**：判据是「有没有代码/文档引用」+「是不是纯产物」，不是文件名前缀；
+  且查引用**不能只用 `git grep`**（它只覆盖已跟踪文件，`.gitignore` 里的目录是盲区）。
 - 其中 `_gov_demo.sml` **不是杂物**：它被 `rust/tests/gov_demo.rs` 真读，却因 `**/_*` 从未入库
   ⇒ 该测试只在「本机恰好有那个文件」时通过。已改名挪到**已跟踪**的
   `rust/tests/fixtures/gov_demo.sml` 并同步测试路径（清理后 C / JS / Lua / Rust 四套回归全 rc=0）。

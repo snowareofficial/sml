@@ -298,7 +298,8 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
 | 资产归集（7 个：报送稿 md/sml/txt/pdf、报送邮件、图形管线合集、数字字面量审计报告） | ✅ 已移入 `Desktop\sml_secret` |
 | 私库本地初始化 + 首次提交（`1b68545`）+ README（用途 / 清单 / 纪律） | ✅ |
 | `git remote add origin http://10.16.144.2:3000/CrystalicCore/sml_secret.git` | ✅ |
-| **首次 push** | ⛔ **待用户执行**：本机 `credential.helper=manager-core` 但 **GCM 并未安装**（`git: 'credential-manager-core' is not a git command`）⇒ 非交互 push 失败。见下方「怎么推」 |
+| **首次 push** | ✅ **已完成（2026-09-18，用户执行）**：远端 `main` = **`1b68545`**，本地 `origin/main` 跟踪分支已同步（`## main...origin/main`，无 ahead）⇒ 7 个资产在可信服务器上**有版本、有备份**了 |
+| 非交互推送 / HTTPS（欠账） | ⬜ 不急：本机 `credential.helper=manager-core` 但 **GCM 没装** ⇒ 我这条通道拿不到凭据（你自己输口令是通的）；且 **3000 是 HTTP 明文**。要配 SSH 密钥（22 端口已开，`~/.ssh` 目前无密钥对）或装 GCM / 用 Token，并建议让服务器开 HTTPS |
 | 主库守卫 `tools/check_private_assets.py` | ✅ 已加（查历史 / 索引 / `.gitignore` 规则在位），当前通过 |
 
 **怎么推（三选一，建议按序）**：
