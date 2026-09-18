@@ -90,11 +90,12 @@ int main(void) {
     char *t;
     char err[256];
     sml_value *v;
-    /* ⚠️ 这里没有「嵌套数组」的用例，原因不是漏写：
-       C 的 parse_array **不递归**（元素只处理块/字符串/裸词，遇到 '[' 直接跳过并丢弃），
-       所以嵌套数组在 C 里既不会递归、也不会报错 —— 它是被静默丢掉的，
-       属**数据正确性**问题（与 JS 早先修掉的「嵌套数组静默截断」同类），
-       已单独登记；在它修好之前，把「嵌套数组应当报深度错」写成期望只会误导人。 */
+    /* 嵌套数组（W17 已修）：`nest_arrays()` 现在有对应的深度入口了。
+       修之前 C 的 parse_array **不递归**（`[` 落到兜底 else 被 `next` 丢掉），所以深数组
+       既不会递归、也不会报错 —— 它是被**静默吞空**的（`a: ` + 100 层 `[..]` → `{"a":[]}`），
+       这正是当时不在这里写期望的原因（写「应当报深度错」只会误导人）。
+       **值层面的正确性在 test_codes.c 的 `expect_json` 里钉**（与跨端探针同口径），
+       本文件只钉深度边界与「不许崩」。 */
 
     /* 1) 正常深度：守卫不能误伤（上限 128 层，100 层应当照常解析） */
     t = nest_blocks(100);
@@ -108,8 +109,8 @@ int main(void) {
     t = nest_arrays(100);
     memset(err, 0, sizeof(err));
     v = sml_parse(t, err, sizeof(err));
-    /* 只断言「不崩」：值对不对是上面说的那个待办，不在这里判。 */
-    CHECK(v != NULL, "100 层数组嵌套应当解析成功（内容正确性见文件头注释）");
+    /* 只断言「不崩」：值对不对由 test_codes.c 的 expect_json 钉（见文件头注释）。 */
+    CHECK(v != NULL, "100 层数组嵌套应当解析成功（内容正确性见 test_codes.c）");
     if (!v) printf("      err: %s\n", err);
     sml_free(v);
     free(t);
@@ -123,7 +124,8 @@ int main(void) {
        而"差一格"正是实际发生的 bug（C 原先用 `>=`，128 层就报，而文案写「超过 128 层」）。
        口径来源：五端**闭合**嵌套实测（改前 Rust 127 / C 127 / C++ 128 / JS 128 / Lua 128，
        现统一为 128 / 129）。
-       注：只钉块嵌套 —— C 的 parse_array 不递归嵌套数组（见文件头注释），没有对应的深度入口。 */
+       W17 之后**数组嵌套也有深度入口了**（parse_array 与 parse_block 共用 ps->depth），
+       故下面块与数组**各钉一组**，口径同为 128 放行 / 129 报。 */
     t = nest_blocks(128);
     memset(err, 0, sizeof(err));
     v = sml_parse(t, err, sizeof(err));
@@ -134,6 +136,24 @@ int main(void) {
 
     t = nest_blocks(129);
     expect_error("129 层块嵌套", t);
+    free(t);
+
+    /* 数组嵌套的同一组边界（W17）。
+       ⚠️ 这两格在修之前**测不了**：那时 `[` 被静默丢掉，129 层也会"成功"返回
+       `{"a":[]}`，把它期望成 E-LIMIT-001 只会误导人。
+       ⚠️ 两者的**判别力不同**，别混：128 层那格是「守卫不能误伤」，改前改后**都通过**
+       （改前它也是"成功"的，只是内容被吞空）；真正能抓 W17 的是**129 层那格**
+       （改前静默成功 → `expect_error` 红）与 test_codes.c 的 7 条形状断言。 */
+    t = nest_arrays(128);
+    memset(err, 0, sizeof(err));
+    v = sml_parse(t, err, sizeof(err));
+    CHECK(v != NULL, "128 层数组嵌套应当放行（与块嵌套同口径）");
+    if (!v) printf("      err: %s\n", err);
+    sml_free(v);
+    free(t);
+
+    t = nest_arrays(129);
+    expect_error("129 层数组嵌套", t);
     free(t);
 
     /* 3) err 为空：越界写与空指针写的回归（深嵌套、版本、契约、空指针入参四条路径） */
