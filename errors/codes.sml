@@ -207,8 +207,8 @@ codes: [
       note: "JS 侧只有「源码长度」与「待校验值长度」两道闸，**没有步数预算**，病态正则仍可占满主线程" }
     { id: E-LIMIT-003 domain: LIMIT severity: E title: "include 展开次数超限"
       msg: "include 展开次数超过上限，疑似指数膨胀"
-      impls: [ rust c ] status: partial
-      note: "两端上限数值不同（差异用字段表达，不靠文案）；嵌套层数的上限另见 E-INCLUDE-004" }
+      impls: [ rust c cpp ] status: partial
+      note: "三端上限数值都是 10000（差异用字段表达，不靠文案）；嵌套层数的上限另见 E-INCLUDE-004。此闸挡的是**菱形包含的 2^N 膨胀**，深度上限挡不住；C++ 原先完全没有这个闸（W18 一并补上，含 2^20 次读取的用例）" }
     { id: E-LIMIT-004 domain: LIMIT severity: E title: "输出递归深度超过上限"
       msg: "递归深度超过上限（翻译后端）"
       impls: [ rust ] status: partial
@@ -347,15 +347,15 @@ codes: [
     { id: E-INCLUDE-002 domain: INCLUDE severity: E title: "include 循环引用"
       msg: "include 循环引用"
       impls: [ rust c cpp ] status: partial
-      note: "JS 无环检测，自包含会耗尽调用栈（抛宿主 RangeError），不是此码" }
+      note: "JS 无环检测，自包含会耗尽调用栈（抛宿主 RangeError），不是此码；C++ 原先声明了此端却**不可能触发**（环检测的栈 push 完立刻 pop、永远为空），W18 已修好并给出反向用例（菱形包含必须合法）" }
     { id: E-INCLUDE-003 domain: INCLUDE severity: E title: "include 越界拒绝"
       msg: "include 目标不在基准目录内，已拒绝"
       impls: [ rust c cpp ] status: partial
       note: "安全边界：阻止 include 逃出工程目录；JS 用虚拟文件表，无基准目录概念" }
     { id: E-INCLUDE-004 domain: INCLUDE severity: E title: "include 嵌套超过上限"
       msg: "include 嵌套超过上限层数"
-      impls: [ rust c ] status: partial
-      note: "两端上限数值不同；smltools 自带的 include 展开上限也归此码（数值又不同）—— 差异用字段表达" }
+      impls: [ rust c cpp ] status: partial
+      note: "三端上限数值都是 32（Rust MAX_INCLUDE_DEPTH / C MAX_INC_DEPTH / C++ SML_MAX_INCLUDE_DEPTH）；smltools 自带的 include 展开上限也归此码（数值不同）—— 差异用字段表达；C++ 原先既无此码也无上限：超深包含是**静默跳过**（字段凭空消失），W18 一并修好" }
     { id: E-INCLUDE-005 domain: INCLUDE severity: E title: "键列表语法非法"
       msg: "键列表语法非法：期望键列表、或键列表为空、或缺少闭合"
       impls: [ rust js ] status: partial
@@ -377,12 +377,12 @@ codes: [
       note: "部分引用只取键，通配会命中多个文件 —— 组合语义未定义，故直接拒绝" }
     { id: E-INCLUDE-010 domain: INCLUDE severity: E title: "基准目录不可解析"
       msg: "include 基准目录不可解析，无法做越界校验，已拒绝继续"
-      impls: [ rust c ] status: done
-      note: "fail-closed：宁可拒绝也不放行；C 的文案是「已拒绝」" }
+      impls: [ rust c cpp ] status: done
+      note: "fail-closed：宁可拒绝也不放行；C 的文案是「已拒绝」。C++ 原先用 weakly_canonical（只做词法规范化，不存在的目录也会\"成功\"规范化），于是这一格被降级成「目录里没这个文件」而报出 E-INCLUDE-001（错码）—— W18 改用严格 canonical" }
     { id: E-INCLUDE-011 domain: INCLUDE severity: E title: "include 预处理词法失败"
       msg: "include 预处理阶段的词法失败"
-      impls: [ rust ] status: done
-      note: "与文档正文的词法错误（E-LEX-*）区分：此处指 include 行在展开前的词法阶段就失败" }
+      impls: [ rust cpp ] status: done
+      note: "与文档正文的词法错误（E-LEX-*）区分：此处指 include 行在展开前的词法阶段就失败。C++ 原先**丢弃**了子文件的词法错误、把残缺 token 段插进去（未闭合字符串会变成静默截断的文档），W18 改为报此码" }
 
     # ================= 扩展点（语言层） =================
     { id: E-EXT-001 domain: EXT severity: E title: "未注册的指令、类型或修饰符"
