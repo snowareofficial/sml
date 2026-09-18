@@ -325,3 +325,49 @@ python site/build_site.py             # 完整构建（含上面两步 + Hugo + 
    否则会在四个实现里来回改。
 4. 用户若给更极端的 XML（>64 MB 或多文件目录），先按 §4-11 的方法量时间 / 内存**再决定**
    是否上迭代式解析 —— 不要凭感觉重构。
+
+## 8. W10 第一步（已完成，提交 `b04375d`）与环境事故
+
+### 8.1 做完的：码表 → 生成链路 → Rust 全量带码
+
+- **生成链路**：`errors/gen_codes.py` 从唯一事实来源 `errors/codes.sml` 生成三份产物
+  （`rust/sml-codes/src/codes.rs`、`js/sml-codes.mjs`、`c/sml_codes.h`）。
+  `--check` 只校验不写（CI 用）。**改码表后必须重跑**，否则
+  `rust/tests/error_codes.rs::generated_codes_match_registry` 会当场拦住。
+- **新 crate `rust/sml-codes`**（零依赖）：码常量 + `SmlError`（`code()` / `message()` /
+  `Display` 把码缀在文案后 / `From<SmlError> for String` 只取文案）。
+  后者是关键：既有 `Result<_, String>` 的调用方 `?` 一行都不用改。
+- **Rust 一侧已全量带码**：`sml-lex`(a3)、`sml-include`(a2)、`sml-contract`(a3)、
+  `sml-parse`(a3) 的语言层错误点全改完（词法 7 + 片段/include 11 + 契约 11 + 语法/特性/上限 48）。
+  新码 `E-EXT-008`（外置指令执行失败）。
+- **C-ABI**：`sml_error` 加 `code_str[16]`（真实错误码）；`classify` 改成**读码**而不是
+  猜文案关键词；`c/sml_rs.h`、`cpp/sml_rs.{hpp,cpp}` 同步。
+- **测试**：`rust/tests/error_codes.rs` 9 个用例，23 条「触发条件 → 期望码」，
+  外加「生成物 vs 码表」一致性。全 workspace **473 passed / 0 failed**。
+
+**两条踩过的坑**：
+1. `SmlError::new(码, "字面量".into())` 会 E0283（`.into()` 失去推断目标）——
+   直接传字面量即可，别再套 `.into()`。
+2. 码表要**按语义条件**而不是按「报错位置」划：`enum` 取值不在列表内原本落进
+   Rust 的通用类型错误，与 JS 的「未知枚举值」不是同一个码。落地时把
+   `E-CONTRACT-006` 单拆出来，否则「同因同码」当场破功。
+
+**还没做（W10 的剩余部分）**：JS 的 `e.code`（含四份副本）、C/C++ **原生实现**的码、
+Lua 侧、`errors/README.md` 的码表状态回填（`status` 该从 partial 改 done 的那些）、
+CHANGELOG 条目。C/C++ 的原生实现只认字符串码，请用 `c/sml_codes.h` 里的宏。
+
+### 8.2 环境事故（**务必转告用户**）
+
+- 本机 **C 盘（400 GB）已 100% 写满**，工作区只剩不到 20 MB 可用。表现：
+  编辑器写文件报 **ENOSPC**（`rust/sml-parse/src/parser.rs` 曾被**截断成 0 字节**，
+  已从 git 恢复并用脚本重做；教训：**磁盘紧张时不要直接改大文件**，先 `git checkout` 恢复
+  再用脚本一次性重放），shell 偶发无法执行、命令输出丢失。
+- 已回收 757 MB（`rust/crystalic/target` 542 MB、`rust/target_verify` 154 MB、
+  `rust/qsm/target-linux` 60 MB —— 都是构建产物），但**很快又被外部进程吃光**。
+  工作区内已无可回收的大目录（`_*.py`、`dist/`、`tools/` 都是真内容，别删）。
+- 真正的大头在工作区之外：`C:\Users\sakeen\AppData` 106 GB、`Desktop` 41 GB、
+  `Videos` 16 GB、`.lmstudio` 10 GB。**这些都要用户自己决定**。
+- `.cargo/registry/cache` 只有 463 MB 且被环境的 safe-delete 闸门挡住（>500 文件要确认），
+  不是主因，别在它身上花时间。
+
+**给下一会话的规矩**：动手前先确认 C 盘有空间；写文件失败要立刻 `git status` 看有没有文件被截断。
