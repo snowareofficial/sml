@@ -43,7 +43,11 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
     （`python lua/run_check.py`），**交集部分逐一同码**。
   - `E-INCLUDE-001` 的 `impls` 移除了 `lua`：Lua 实现**没有 include 语法**，本条对它不适用；
     此前那句「Lua 的宿主入口报文件不存在」是**归类错误**（那是 `E-IO-001` 的格子）。
-  - 仍缺：`smltools` 的部分输出。进度见 `errors/README.md` 的「码的落地进度」。
+  - **`smltools`（工具层）也已带码**（CLI / 迁入格式 / lint / highlight 定制，口径是 Rust 的
+    **码后缀** `文案 [E-XXX-NNN]`）；新增 `rust/smltools/tests/error_codes.rs`（40 条端到端用例，
+    驱动真实二进制、断言 stderr 带码 + 退出码）。
+    至此 **W10 收口：五端 + 工具层全部落地**。唯一剩下的 Lua 缺口是**能力**问题不是码的问题
+    （Lua 没有契约/include 实现，见 W20）。进度见 `errors/README.md` 的「码的落地进度」。
 - **错误码体系（`E-<领域>-<序号>`）+ 官网查询工具**：`errors/codes.sml` 是唯一事实来源
   （用 SML 写，因此 `smltools` 自己就能校验它），`errors/gen_json.py` 走**真实工具链**
   `smltools --to json` 生成 `site/static/errors.json`，官网新增 `/errors` 查询页
@@ -76,6 +80,28 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 变更
 
+- ⚠️ **五端嵌套深度边界统一为「128 层放行 / 第 129 层报 `E-LIMIT-001`」**
+  （W15 带出来的既有不一致）。改动前**各端差一格甚至内部就不一致**，用**闭合**嵌套
+  （`("a { "):rep(N) + ("} "):rep(N)`）逐格扫五端实测量到的：
+
+  | 端 | 旧：块嵌套 max-OK | 旧：数组嵌套 max-OK |
+  |---|---|---|
+  | Rust / C | 127 | 128 |
+  | JS | 128 | 128 |
+  | C++ | 128 | **129** |
+  | Lua | 128（W15 新增守卫） | 不递归（N/A） |
+
+  两处根因：① Rust 与 C 的守卫用 `>=`，**128 层就报，而文案写的是「超过 128 层」——
+  行为与自己的文案自相矛盾**；② C++ 的 `key: [ ... ]` 分支**直接调 `parse_array`**，
+  绕过 `parse_value` 上的守卫，于是**第一层数组白送一层**（这与 W13 修的「块嵌套直接递归
+  绕过守卫」是同一个洞，当时只补了块、漏了数组）。
+  现统一为「文档根不计层」：Rust 两处 + C 一处守卫改 `>`，C++ 补 `parse_array_nested`。
+  边界已**逐格钉住**在 `rust/tests/error_codes.rs`、`c/test_limits.c`、`cpp/test_limits.cpp`、
+  `lua/test_codes.lua` 四处（只测 100 与 100000 是**测不出差一格**的）。
+- ⚠️ **JS 空键列表曾抛宿主 `ReferenceError`**（W14 修）：`include "x.sml" as w { }` 这条分支
+  调用了 `parse()` 作用域内的局部报告函数。尤其要留意 **`parseSafe()` 路径当时是"静默"的**
+  —— 它把异常吞成 `{ok:false}` 且**不给 `code`**，用户既没拿到码、也看不到异常。
+  现在两条 API 都给出 `E-INCLUDE-005`。5 份 `sml.mjs` 副本已同步（逐字节一致）。
 - ⚠️ **Lua 的三处行为变更**（W10 落地 Lua 侧时一并发生；判别实验：同一份用例配 HEAD 版
   实现 **15 条红**，新实现 26 通过 / 0 失败）：
   - **未闭合的块 / 数组不再"能解析"**：原先 `a { b: 1`（文件到此结束）会**静默**返回
