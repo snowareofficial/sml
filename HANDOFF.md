@@ -19,6 +19,7 @@
 | C | `python build_check.py --run` | rc=0，`ALL LIMIT TESTS PASSED` + `ALL CODE TESTS PASSED` |
 | C++ | `python build_verify.py` | 六 target 全 rc=0（example / CONTRACT / COMMENTS / LIMITS / **CODES 80 条全过** / RS-BRIDGE） |
 | JS 错误码 | `node js/probe-error-codes.mjs` | `ALL OK`（与 Rust 同条件同码） |
+| Lua | `python lua/run_check.py` | rc=0，`ALL LUA CHECKS PASSED`（入口自检 + `E-IO-001` + 26 条码用例） |
 
 > ⚠️ **`cargo test --workspace` 会返回 `rc=1`，而测试本身 0 失败**（2026-09-18 查明；
 > 此前记的「返回 rc=1 但 0 失败、未能复现」就是这个，现在能稳定复现了）。
@@ -329,10 +330,10 @@ python site/build_site.py             # 完整构建（含上面两步 + Hugo + 
 1. **`git push`** —— 按 §6 属对外动作，用户已同意「**做完再推**」，现在轮到它了。
 2. **W10 已收口到四端**（Rust / JS / C / C++ / C-ABI 全带码，见 `errors/README.md` 的落地进度表），
    **W18 已插队修完**（§9）。W10 剩下的尾巴只有两处，而且都**不是本仓库内能做完的**：
-   - **Lua**：`lua/lib/sml.soup` 是**编译产物**，源码不在本仓库。用户给了 Soup 工程地址
-     （`gitee.com/snoware/soup`），但**他自己也不知道 `sml` 在其中哪个位置** ——
-     要推进得先请用户在 Soup 工程里定位 `sml` 的 `.tl` 源码（或确认它就在该仓库）。
-   - **`smltools` 的部分输出**仍只有文案。
+   - ~~**Lua 做不了**~~ **已完成（见 §10）**：前一条断言「`.soup` 是编译产物、源码不在本仓库」
+     是**错的** —— 它就是纯 Lua 源码，`luajit lua/main.lua` 直接就能跑。
+     用户给的 Soup 工程地址（`gitee.com/snoware/soup`）因此**不需要了**。
+   - **`smltools` 的部分输出**仍只有文案 —— 这现在是 W10 唯一的尾巴。
 3. **然后 W16 → W3**（静默清单判定 → 顶层标量统一）。W16 必须**先出判定表**再动实现，
    否则会在四个实现里来回改。W18 的修法给了 W16 一个可复用的范式：
    **先让判别实验变红，再动实现**（见 §9）。
@@ -367,14 +368,17 @@ python site/build_site.py             # 完整构建（含上面两步 + Hugo + 
 
 **W10 的现状（收口）**：
 
-- **Rust ✅ / JS ✅ / C ✅ / C++ ✅ / C-ABI ✅ 已全部带码**（C 23 个码、C++ 22 个码）。
+- **Rust ✅ / JS ✅ / C ✅ / C++ ✅ / Lua ✅ / C-ABI ✅ 已全部带码**
+  （C 23 个码、C++ 27 个码、Lua 7 个适用码）。
   JS 见 §8.3；C/C++ 由两个 agent 并行完成，**做法、裁决与踩过的坑见 §8.6**。
-- **Lua ❌ 本仓库做不了**（原因见下）；`smltools` 的部分输出仍只有文案（未做）。
-- **Lua 侧：卡住，原因是硬的**（2026-09-18 查证）——`lua/` 下只有 `main.lua` 与
-  `lua/lib/sml.soup`，而 **`.soup` 是编译产物、这个仓库里没有它的源码**，
-  `MANIFEST.json` 也没写源在哪；记忆里那个 Soup 工程路径（`~/Downloads/lua-5.5.1/lua`）
-  **已不存在**。要动它得先回到 Soup 工程拿 `.tl` 源码 + `soupc` 重编，
-  **不是本仓库内能完成的活**。
+- **Lua 也已带码（见 §10）**；`smltools` 的部分输出仍只有文案（未做）。
+- ~~**Lua 侧：卡住，原因是硬的**~~ —— **这条已作废**（2026-09-18 查证时判断错了）。
+  当时写的理由是「`lua/` 下只有 `main.lua` 与 `lua/lib/sml.soup`，而 **`.soup` 是编译产物、
+  这个仓库里没有它的源码**，`MANIFEST.json` 也没写源在哪；记忆里那个 Soup 工程路径
+  （`~/Downloads/lua-5.5.1/lua`）**已不存在**」。
+  **实际**：`.soup` 只是 Soup 的**打包扩展名**，内容是**没被编译的纯 Lua 源码**
+  （489 行，带人的注释），`luajit lua/main.lua` 当场就能跑。整条"阻塞"是**按扩展名猜出来的**。
+  保留这段是为了记住教训：**「改不了」的结论也必须实测过才能写下来**。
 - ~~`errors/README.md` 的码表状态回填与 `CHANGELOG.md` 条目~~ **已完成**（提交见 `git log`）。
   ⚠️ 一处**容易想错**的地方已写进 `codes.sml` 表头与 README：`status` 描述的是
   **行为**（各端报不报这个错），与「带没带码」是两件事 —— 所以 W10 落地完
@@ -524,4 +528,69 @@ cd cpp && g++ -std=c++17 -Wall -Wextra -I. -o t_codes.exe test_codes.cpp sml.cpp
 `errors/codes.sml` 回填了 5 条的 `impls`（`E-INCLUDE-002/004/010/011` + `E-LIMIT-003`；
 C++ 从 22 个码涨到 **27 个**），两个生成器已重跑（`errors.json` 仍是 137 条 —— 只改了
 `impls`/`note`，不动码）。
+
+---
+
+## 10. W10 最后一块：Lua 带码（已完成）
+
+### 10.1 先纠一个错前提
+
+上一会话把 Lua 标成「❌ 本仓库做不了」，理由是「`lua/lib/sml.soup` 是编译产物」。
+**这个前提是错的**：`.soup` 只是 Soup 的**打包扩展名**，内容是**没编译过的纯 Lua 源码**
+（489 行：`local Sml = {}` / `tokenize` / `parse_block` / `Sml.load` / `Sml.dump`，
+开头还带着人的注释）。实测 `luajit lua/main.lua` 当场跑通（本机
+`C:\msys64\ucrt64\bin\luajit.EXE`），自检输出 `self-test: a=1 b.c='hi'`。
+
+**「编译产物」是按扩展名猜的，没跑过就写进了移交文档** —— 这个仓库已经因为"按声明反推"
+吃过一次亏（W10 的 `impls` 声明与实现不符），这是第二次。教训已写进 TODO 的 W10 更正条里。
+
+### 10.2 做法：三件与其它端不同的事
+
+适用 Lua 的码只有 **7 条**（`E-PARSE-001/003/006/012`、`E-FEATURE-004`、`E-IO-001`、
+`E-INTERNAL-001`）—— 因为 Lua 的实现面本来就窄（无契约、无 include）。
+
+1. **`error(msg, 0)` 的 level=0 是必须的**。Lua 的 `error()` 默认会往消息**前面插位置信息**
+   （`lua/lib/sml.soup:229: ...`），那会把码挤到消息中间，调用方按「首个空格之前」取码就会
+   拿到 `lua/lib/sml.soup:229:` 这种东西 —— 码等于白加。判别实验的日志把这点印得很清楚。
+2. **pcall 出口要判断「已经带码了，就别再包一层」**：`Sml.load` 里的 `has_code(msg)` 命中就
+   把内层消息原样透出（它比外层具体得多），否则才归 `E-PARSE-012`（兜底码）。
+3. **`E-INCLUDE-001` 从 `impls` 移除了 `lua`**：Lua 没有 include 语法，本条对它不适用。
+   码表里那句「Lua 的宿主入口报文件不存在」是**归类错误** —— 宿主入口读的是文档本身，
+   归 `E-IO-001`（与 C 的 `sml_parse_file` 同一格）。
+
+### 10.3 判别实验 **加上** 全仓扫描（两步都要）
+
+**判别实验**：同一份 `lua/test_codes.lua` 配 HEAD 版实现 → **11 通过 / 15 失败**；
+配新实现 → **26 通过 / 0 失败**。旧版那 15 条里最要紧的是**四条 "parsed OK but should fail"**：
+未闭合块、未闭合嵌套块、未闭合数组、`:` 当键名 —— 全是**静默**的。
+
+**全仓扫描**（比判别实验更能抓到问题）：把仓库里**41 个 `.sml`** 同时喂给新/旧两份实现，
+对比结论。old 28 OK / 13 ERR，new 26 OK / 15 ERR。**两个文件从 OK 变成 ERR**，逐个查过：
+
+| 文件 | 用了什么 | 为什么不是误伤 |
+|---|---|---|
+| `examples/app.sml` | `@is` ×1、`include` ×3 | Lua 全不支持 |
+| `SML_政务数据密级标注规范_报送稿.sml` | `@is` ×2、`@contract` ×2 | Lua 全不支持 |
+
+两者**此前都是"能解析"但树是错的**：`include "x.sml"` 被当成裸块键，把后面到第一个 `{`
+的内容全吞进片段体。所以这不是"新检查误伤了合法文档"，而是**把「静默给错树」改成了
+「响亮地拒绝」**。剩下 13 个 ERR 的文件改动前后都是 ERR，只是从笼统的 `parse:` 变成了具体码。
+
+**这一步值得单列**：只跑判别实验的话，我会以为"用例全绿 = 改对了"。全仓扫描才抓到
+「新严格性会改变**真实文档**的结论」这一类影响。**动一个解析器，就要拿真实语料扫一遍。**
+
+### 10.4 扫描顺带挖出的能力缺口：W20
+
+Lua 的契约 / include **完全没实现**（`@is Service` 被当成片段定义、把紧随的 `name` 当
+"类型/名字"参数吃掉）。这是**既有缺口、非 W10 引入**，但 W10 让它从静默变成报错。
+要不要在 Lua 里补契约 / include 是**产品决定**，已登记 **W20**，等用户拍板。
+
+### 10.5 复验命令
+
+```bash
+python lua/run_check.py        # rc=0 / ALL LUA CHECKS PASSED（入口自检 + E-IO-001 + 26 条码用例）
+luajit lua/test_codes.lua      # 直接跑也行（会自动按脚本位置找 lib.sml）
+python errors/gen_codes.py     # 反向校验会扫 lua/lib/sml.soup 里的码字面量
+```
+
 
