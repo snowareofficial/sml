@@ -103,7 +103,10 @@
     footer .contact { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px 18px; justify-content: center; }
   </style>
 </head>
-<body>
+<body
+  data-root="{{ "/" | relURL }}"
+  data-errors-url="{{ "errors.json" | relURL }}"
+  data-search-url="{{ "search-index.json" | relURL }}">
   <header>
     {{/* 跨语言共享的静态资源必须用 relURL：static/ 下的文件都在**站点根**，
          而英文站的 .Site.Home 是 /en/，用它拼会得到 /en/sml.svg（并在
@@ -170,6 +173,10 @@
       <a href="{{ .Site.Home.RelPermalink }}gitee/">Gitee 动态</a>
       {{ end }}
     {{ end }}
+    {{/* 搜索与错误码对**所有**页面都可见，故放在 if/else 之外；
+         用 .Site.Home.RelPermalink 拼路径，中英文各自落在 /search/ 与 /en/search/。 */}}
+    <a href="{{ .Site.Home.RelPermalink }}search/">{{ if $isEn }}Search{{ else }}搜索{{ end }}</a>
+    <a href="{{ .Site.Home.RelPermalink }}errors/">{{ if $isEn }}Error codes{{ else }}错误码{{ end }}</a>
   </nav>
   <main>
     {{ block "main" . }}{{ end }}
@@ -210,5 +217,9 @@
       document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
     })();
   </script>
+  {{/* 搜索与错误码查询：零依赖，按「容器是否存在」自启用。
+       用 relURL 而非 Home.RelPermalink —— static/ 下的文件在**站点根**，
+       英文站拼 Home 会得到 /en/site-tools.js（404）。 */}}
+  <script src="{{ "site-tools.js" | relURL }}" defer></script>
 </body>
 </html>
