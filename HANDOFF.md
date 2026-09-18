@@ -1108,3 +1108,50 @@ YAML 用**改动前的 release 二进制**跑同一份探针：旧 `rc=0` 静默
   都在归档目录里 —— 想复现得先用归档里的版本，或按 §15.5/§16.5 的说明重写。
 - 清理后**四套回归全 rc=0**（C `build_check.py --run` / JS `probe-error-codes.mjs` + 副本一致 /
   Lua `run_check.py` / Rust `cargo test --workspace`）。
+
+---
+
+## 18. 私有资产的家：内网 `sml_secret`（2026-09-18）
+
+**起因**：敏感资产（报送件 / 内部报告）此前只能「躺在主库工作区 + 靠 `.gitignore` 挡」
+—— **没有版本、没有备份**；而主库 `sml` 是公开的（GitHub / Gitee）。用户给了内网可信服务器
+上的私有库地址（Gitea 1.27.3 @ `10.16.144.2:3000`，组织 `CrystalicCore`，库名 `sml_secret`）。
+
+### 18.1 已做
+
+| 项 | 说明 |
+|---|---|
+| 资产归集 | 7 个：报送稿 `md` / `sml` / `sml.txt` / **`pdf`（上一轮文本扫描漏掉的二进制件）**、`报送邮件.txt`、`SML图形管线项目_全量文档合集.md`、`SML_数字字面量保真性审计报告.md` ⇒ 全部**移出主库工作区**，进 `C:\Users\sakeen\Desktop\sml_secret`（主库工作区现在**一个都不留**） |
+| 私库初始化 | `git init -b main`；README 写清「用途 / 资产清单 / 纪律 / 含个人信息不要外发」；`.gitignore` 挡 Office 临时件；首次提交 **`1b68545`** |
+| 远程 | `git remote add origin http://10.16.144.2:3000/CrystalicCore/sml_secret.git` |
+| 主库守卫 | 新增 `tools/check_private_assets.py`：查**历史**（含已删文件）/ **索引** / `.gitignore` 规则是否在位；当前 **OK**（只写文件名模式，**不写任何个人信息**） |
+| 主库文档 | `.gitignore` 私有段的注释改成「正主在私库」；TODO 新增 §三·九 |
+
+**移动前查过两件事**（避免拆坏东西）：① 这些名字在**任何提交的历史对象里都不存在**
+（`git rev-list --all --objects` 逐名比对，全无）⇒ **不需要 filter-repo**；
+② 已跟踪文件里对这些名字**只有 `.gitignore` 本身**提到 ⇒ 可安全移动。
+
+### 18.2 还差一步：首次 push（需要你的凭据）
+
+非交互试探失败：本机 `git config --global credential.helper = manager-core`，但
+**GCM 并没装** ⇒ `git: 'credential-manager-core' is not a git command` + `fatal: unable to get password from user`。
+
+**端口实测**（决定用哪条路）：`3000` 开放（Gitea HTTP，**明文**）、**`22` 开放（SSH）**、
+`443` / `8443` / `80` / `2222` 全部关闭。所以：
+
+1. **首选 SSH**：把 `~/.ssh/id_*.pub` 加到 Gitea「设置 → SSH 密钥」，
+   `git remote set-url origin ssh://git@10.16.144.2:3000/CrystalicCore/sml_secret.git`，
+   再 `git push -u origin main`（Gitea 的 SSH 若不在 22 端口，按它的文档换）；
+2. **次选 Token**：Gitea「设置 → 应用 → 生成令牌」，push 时密码填令牌；
+3. 最省事：`cd Desktop\sml_secret && git push -u origin main` 直接输账号口令
+   —— 但那是 **HTTP 明文**，只在内网做，且**建议尽早换 SSH / 让服务器开 HTTPS**。
+
+推成功后回来把 TODO §三·九 的那行勾掉即可（HANDOFF 这节也可标「已完成」）。
+
+### 18.3 纪律（下一位 agent / 未来的你）
+
+- 新的敏感件**只进私库**，不要再放进主库工作区；主库 `.gitignore` 那几条规则与
+  `tools/check_private_assets.py` **都不许删**（后者可进 CI）。
+- 私库含**个人信息**（报送邮件里的姓名）：不要 clone 到不受控的机器、不要截图外发。
+- `Desktop\sml_secret` 与 `Desktop\sml` 是**两个互不包含**的仓库 —— 别在其中之一里
+  对另一个做 `git add`（比如别把 `sml_secret` 放进主库目录内）。

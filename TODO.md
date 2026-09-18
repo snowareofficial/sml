@@ -284,6 +284,36 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
 
 ---
 
+## 三·九、私有资产的家：内网 `sml_secret`（2026-09-18）
+
+**问题**：报送件 / 内部报告此前「躺在主库工作区 + 靠 `.gitignore` 挡」——等于**没有版本、
+没有备份、交接只能靠拷 U 盘**；而主库 `sml` 是公开的（GitHub / Gitee）。
+
+**方案**：内网可信服务器（Gitea 1.27.3 @ `10.16.144.2:3000`）上的私有库
+`CrystalicCore/sml_secret`；工作副本**放在主库之外**（`Desktop\sml_secret`），
+主库工作区不再保留这些文件。
+
+| 项 | 状态 |
+|---|---|
+| 资产归集（7 个：报送稿 md/sml/txt/pdf、报送邮件、图形管线合集、数字字面量审计报告） | ✅ 已移入 `Desktop\sml_secret` |
+| 私库本地初始化 + 首次提交（`1b68545`）+ README（用途 / 清单 / 纪律） | ✅ |
+| `git remote add origin http://10.16.144.2:3000/CrystalicCore/sml_secret.git` | ✅ |
+| **首次 push** | ⛔ **待用户执行**：本机 `credential.helper=manager-core` 但 **GCM 并未安装**（`git: 'credential-manager-core' is not a git command`）⇒ 非交互 push 失败。见下方「怎么推」 |
+| 主库守卫 `tools/check_private_assets.py` | ✅ 已加（查历史 / 索引 / `.gitignore` 规则在位），当前通过 |
+
+**怎么推（三选一，建议按序）**：
+
+1. **SSH（最稳，已探明 22 端口开放）**：把本机 `~/.ssh/id_*.pub` 加到 Gitea「设置 → SSH 密钥」，
+   然后 `git remote set-url origin ssh://git@10.16.144.2:3000/CrystalicCore/sml_secret.git`
+   （若 Gitea 的 SSH 端口不是 22，用 `ssh://git@10.16.144.2:<端口>/...`）。
+2. **Token + 凭据管理器**：在 Gitea「设置 → 应用 → 生成令牌」，`git push` 时用户名填账号、
+   密码填**令牌**；或 `git config --global credential.helper manager`（装上 GCM）后只输一次。
+3. **直接输口令**：`cd Desktop\sml_secret && git push -u origin main`，提示时输入 Gitea 账号口令。
+   ⚠️ 该地址是 **HTTP 明文**（443/8443 都关闭，探过），口令/令牌在局域网内可被嗅探
+   —— 只在内网用，且**优先 SSH**。若服务器能开 HTTPS，建议开。
+
+**纪律**：新的敏感件**只进私库**；主库 `.gitignore` 那几条规则与守卫脚本都不许删。
+
 ## 四、已完成
 
 - [x] Rust：顶层数组解析（`parse_impl` 支持 `[`/`{`/键值三种顶层形态）
