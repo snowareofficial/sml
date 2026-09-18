@@ -21,7 +21,9 @@ if not arg or #arg == 0 then
 else
   local f = io.open(arg[1], "r")
   if not f then
-    io.stderr:write("文件不存在: " .. arg[1] .. "\n")
+    -- 入口文件读不出来 → E-IO-001（与 C 的 sml_parse_file fopen 失败同码）。
+    -- 取码：err:match("^(%S+)") —— 码是稳定契约，文案不是（见 errors/codes.sml）。
+    io.stderr:write("E-IO-001 sml: 读取失败，文件不存在或不可读: " .. arg[1] .. "\n")
     return
   end
   local text = f:read("a"); f:close()

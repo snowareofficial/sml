@@ -42,6 +42,31 @@ function Sml.new()
 end
 
 ------------------------------------------------------------------------------
+-- 错误码约定（W10）—— 与 c/sml.h、cpp/sml.hpp 同一口径
+--
+--   失败消息**以错误码开头**，码与文案之间用一个空格分隔，形如
+--       "E-PARSE-001 sml: 未闭合的块（遇到文件结尾，缺少结束符号 }）"
+--   码内不含空格，故调用方取「第一个空格之前」的部分即为码：
+--       local code = err:match("^(%S+)")
+--   码是稳定契约、文案不是（各端措辞可以不同，码相同即同一件事）。
+--   码表（唯一事实来源）见 errors/codes.sml。
+--
+-- ⚠️ `error(msg, 0)` 的 level=0 是**必须**的：Lua 默认会往消息前面插一段位置
+--    （"lua/lib/sml.soup:229: ..."），那会把码挤到消息中间，调用方按「首个空格
+--    之前」取码就会拿到 "lua/lib/sml.soup:229:" 这种东西 —— 码等于白加。
+--    level=0 同时也让 pcall 捕到的消息与抛出的完全一致，外层包装能据此判断
+--    「这条已经带码了，别再包一层」。
+------------------------------------------------------------------------------
+local function fail(code, msg)
+  error(code .. " sml: " .. msg, 0)
+end
+
+-- 消息是否已经带码（E-XXX-NNN / W-XXX-NNN / I-XXX-NNN 开头）
+local function has_code(msg)
+  return string.match(msg, "^[EWI]%-%u+%-%d%d%d ") ~= nil
+end
+
+------------------------------------------------------------------------------
 -- 词法：逐字符扫描，产出 token 流
 --   独立 token：{ } [ ] ,
 --   引号串：保留内部空格/转义
@@ -226,13 +251,13 @@ local function parse_block(tokens, i, closing, fragments)
       if closing == "}" then
         return node, i + 1
       else
-        error("sml: 未匹配的右大括号 '}' at token " .. i)
+        fail("E-PARSE-003", "未匹配的右大括号 '}'（没有与之匹配的开始符号）at token " .. i)
       end
     elseif tok == "]" then
       if closing == "]" then
         return node, i + 1
       else
-        error("sml: 未匹配的右方括号 ']' at token " .. i)
+        fail("E-PARSE-003", "未匹配的右方括号 ']'（没有与之匹配的开始符号）at token " .. i)
       end
     end
     if tok == "," then
@@ -250,9 +275,9 @@ local function parse_block(tokens, i, closing, fragments)
         if lit == "v1" or lit == "1" then
           -- 当前实现支持 v1（裸词即字符串）
         elseif lit == "v2" or lit == "2" or lit == "v3" or lit == "3" then
-          error("sml: 版本 `" .. tostring(lit) .. "` 超出本实现接受范围 (v1)")
+          fail("E-FEATURE-004", "版本 `" .. tostring(lit) .. "` 超出本实现接受范围 (v1)")
         else
-          error("sml: 未知版本 `" .. tostring(lit) .. "`；仅支持 v1")
+          fail("E-FEATURE-004", "未知版本 `" .. tostring(lit) .. "`；仅支持 v1")
         end
         i = i + 1
       else
@@ -276,6 +301,14 @@ local function parse_block(tokens, i, closing, fragments)
       end
       end
     else
+      -- 键位置只接受裸词/引号串。结构记号落在这里是**语法错误**，不能当键名 ——
+      -- 否则 `a { { x } }` 会把多余的 `{` 当键、`: 1` 会把 `:` 当键，解析"成功"
+      -- 但树是错的（探针实测 `:` 真的成了键名）。与 Rust/JS/C++ 同码（E-PARSE-006）。
+      -- 注：`}` `]` `,` `@` 已在上面的分支处理，走不到这里。
+      if tok == "{" or tok == "[" or tok == ":" then
+        fail("E-PARSE-006",
+             "期望键或标识符，得结构记号 '" .. tostring(tok) .. "' at token " .. i)
+      end
       -- 读 key
       local key = tok
       i = i + 1
@@ -314,6 +347,14 @@ local function parse_block(tokens, i, closing, fragments)
       end
     end
   end
+  -- 走到文件结尾仍未见到结束符 → E-PARSE-001。
+  -- `closing` 为 nil 只出现在**顶层裸块**（`a: 1\nb: 2` 这种没有外层花括号的），
+  -- 到 EOF 收尾是合法的；由 `{` 开启的块（closing == "}"）没闭合就是错。
+  -- 原先这里**静默返回残缺的树**：探针实测 `a { b: 1`（文件到此结束）解析"成功"、
+  -- 得到 {a={b=1}} —— 用户拿到的是被截断的文档，却没有任何提示。
+  if closing ~= nil then
+    fail("E-PARSE-001", "未闭合的块（遇到文件结尾，缺少结束符号 '" .. closing .. "'）")
+  end
   return node, i
 end
 
@@ -335,7 +376,9 @@ parse_array = function(tokens, i, fragments)
       i = i + 1
     end
   end
-  return arr, i
+  -- 数组**必须**闭合：parse_array 的两个调用点（parse_block 的 `key: [ ...`、
+  -- Sml.load 的顶层 `[ ...`）都先消费过 `[`，所以走到 EOF 一定是没闭合 → E-PARSE-001。
+  fail("E-PARSE-001", "未闭合的数组（遇到文件结尾，缺少结束符号 ']'）")
 end
 
 ------------------------------------------------------------------------------
@@ -343,10 +386,16 @@ end
 ------------------------------------------------------------------------------
 function Sml.load(text)
   if type(text) ~= "string" then
-    return nil, "sml.load: 期望字符串"
+    -- 与 C 的 `sml_parse(NULL)` 同一个格子：坏入参属「走到了不该走的分支」→ E-INTERNAL-001
+    return nil, "E-INTERNAL-001 sml: 期望字符串入参，实得 " .. type(text)
   end
   local ok, toks = pcall(tokenize, text)
-  if not ok then return nil, "tokenize: " .. tostring(toks) end
+  if not ok then
+    -- tokenize 目前不会抛（词法层刻意宽松），留此分支只为不静默吞掉意外异常。
+    -- 归 E-PARSE-012（解析阶段兜底）而不是某个 E-LEX-*：这里拿到的是 Lua 的异常，
+    -- 说明的是"没能给出更具体原因"，不是某个确定的词法条件。
+    return nil, "E-PARSE-012 sml: 词法阶段异常: " .. tostring(toks)
+  end
   local fragments = {}
   local ok2, node = pcall(function()
     -- 顶层支持三种形态，与 dump 的输出对称：
@@ -363,7 +412,14 @@ function Sml.load(text)
     end
     return (select(1, parse_block(toks, 1, nil, fragments)))
   end)
-  if not ok2 then return nil, "parse: " .. tostring(node) end
+  if not ok2 then
+    -- 已经带码的（fail 抛出的）**原样透出**：它比外层包装具体得多。
+    -- 不带码的才归 E-PARSE-012（解析阶段兜底）。看到这个码就是个信号：
+    -- 那里上下文不足，应当单独改进，而不是靠扩大兜底范围把问题盖住。
+    local m = tostring(node)
+    if has_code(m) then return nil, m end
+    return nil, "E-PARSE-012 sml: 解析失败: " .. m
+  end
   return node, nil
 end
 

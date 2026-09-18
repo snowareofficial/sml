@@ -104,7 +104,7 @@ codes: [
     { id: E-PARSE-001 domain: PARSE severity: E title: "未闭合的块或数组"
       msg: "未闭合的块或数组，遇到文件结尾"
       impls: [ rust cpp c js lua ] status: partial
-      note: "Rust 另分契约体与 `@for` 循环体两种未闭合；JS 只在数组类型简写 `[T]` 缺 `]` 时报错，普通块或数组到文件结尾会静默返回。**C 与 C++ 原先也静默（声明与实现不符），W10 期间补齐**：块 / 数组 / 契约体三种到 EOF 都报此码，顶层块正常结束不算" }
+      note: "Rust 另分契约体与 `@for` 循环体两种未闭合；JS 只在数组类型简写 `[T]` 缺 `]` 时报错，普通块或数组到文件结尾会静默返回。**C、C++ 与 Lua 原先也静默（声明与实现不符），W10 期间补齐**：C/C++ 覆盖块 / 数组 / 契约体三种，Lua 覆盖块 / 数组两种（Lua 无契约体语法）；三端顶层裸块到 EOF 收尾都算合法" }
     { id: E-PARSE-002 domain: PARSE severity: E title: "闭合符错配"
       msg: "块或数组未正确闭合：期望一个符号，却遇到另一个"
       impls: [ rust ] status: partial
@@ -112,7 +112,7 @@ codes: [
     { id: E-PARSE-003 domain: PARSE severity: E title: "多余的结束符号"
       msg: "多余的结束符号，没有与之匹配的开始符号"
       impls: [ rust lua cpp ] status: partial
-      note: "JS 静默返回空对象" }
+      note: "JS 静默返回空对象；Lua 原先抛的是**不带码**的笼统文案「未匹配的右大括号/右方括号」，W10 期间加码" }
     { id: E-PARSE-004 domain: PARSE severity: E title: "孤立的 at 符号"
       msg: "孤立的 at 符号不是合法指令（符号与名字之间不可有空白）"
       impls: [ rust ] status: partial
@@ -124,7 +124,7 @@ codes: [
     { id: E-PARSE-006 domain: PARSE severity: E title: "期望键或标识符"
       msg: "期望键或标识符，得其它记号"
       impls: [ rust js cpp lua ] status: partial
-      note: "亦覆盖数组元素类型、契约字段名等位置；`default` 与 `min`/`max` 的字面量位置另有 E-PARSE-021、E-PARSE-022" }
+      note: "亦覆盖数组元素类型、契约字段名等位置；`default` 与 `min`/`max` 的字面量位置另有 E-PARSE-021、E-PARSE-022。**Lua 原先静默**（`:` 会被当成键名、多余的 `{` 会被当成键），W10 期间补齐（探针实测 `: 1` 解析出键名为 `:` 的树）" }
     { id: E-PARSE-007 domain: PARSE severity: E title: "裸词中含逗号"
       msg: "非预期的逗号：裸词中不可含逗号，请改用数组或引号包裹"
       impls: [ rust ] status: partial
@@ -342,8 +342,8 @@ codes: [
     # ================= 片段与 include（语言层） =================
     { id: E-INCLUDE-001 domain: INCLUDE severity: E title: "include 文件缺失或读取失败"
       msg: "include 无法定位或读取目标文件"
-      impls: [ rust c cpp js lua ] status: partial
-      note: "C 侧「路径无法规范化解析」同报此码；Lua 的宿主入口报文件不存在" }
+      impls: [ rust c cpp js ] status: partial
+      note: "C 侧「路径无法规范化解析」同报此码。**Lua 已从 impls 移除**：Lua 实现根本没有 include 语法（`include \"x\"` 与 `@include \"x\"` 都被静默当普通键），本条对它不适用；此前写的「Lua 的宿主入口报文件不存在」是**归类错误** —— 宿主入口读的是文档本身，归 E-IO-001（与 C 的 sml_parse_file 同格）" }
     { id: E-INCLUDE-002 domain: INCLUDE severity: E title: "include 循环引用"
       msg: "include 循环引用"
       impls: [ rust c cpp ] status: partial
@@ -419,7 +419,7 @@ codes: [
     { id: E-IO-001 domain: IO severity: E title: "读取失败"
       msg: "读取文件失败"
       impls: [ rust c lua ] status: partial
-      note: "Rust 侧同时覆盖文档入口与 include 展开两条读文件路径" }
+      note: "Rust 侧同时覆盖文档入口与 include 展开两条读文件路径；Lua 侧是宿主入口 `lua/main.lua` 读不到输入文件（与 C 的 sml_parse_file fopen 失败同格）" }
     { id: E-IO-002 domain: IO severity: E title: "输入为空"
       msg: "输入为空"
       impls: [ c ] status: partial
