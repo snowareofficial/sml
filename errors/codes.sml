@@ -209,8 +209,8 @@ codes: [
       note: "JS 侧只有「源码长度」与「待校验值长度」两道闸，**没有步数预算**，病态正则仍可占满主线程" }
     { id: E-LIMIT-003 domain: LIMIT severity: E title: "include 展开次数超限"
       msg: "include 展开次数超过上限，疑似指数膨胀"
-      impls: [ rust c cpp ] status: partial
-      note: "三端上限数值都是 10000（差异用字段表达，不靠文案）；嵌套层数的上限另见 E-INCLUDE-004。此闸挡的是**菱形包含的 2^N 膨胀**，深度上限挡不住；C++ 原先完全没有这个闸（W18 一并补上，含 2^20 次读取的用例）" }
+      impls: [ rust c cpp lua ] status: partial
+      note: "三端上限数值都是 10000（差异用字段表达，不靠文案）；嵌套层数的上限另见 E-INCLUDE-004。此闸挡的是**菱形包含的 2^N 膨胀**，深度上限挡不住；C++ 原先完全没有这个闸（W18 一并补上，含 2^20 次读取的用例）；Lua 同为 10000（**全局**计数，菱形 2^20 用例已入套件）" }
     { id: E-LIMIT-004 domain: LIMIT severity: E title: "输出递归深度超过上限"
       msg: "递归深度超过上限（翻译后端）"
       impls: [ rust ] status: partial
@@ -242,8 +242,8 @@ codes: [
     # ================= 特性、版本与环境变量（语言层） =================
     { id: E-FEATURE-001 domain: FEATURE severity: E title: "特性未启用"
       msg: "该语法需要相应特性，请先启用该特性"
-      impls: [ rust ] status: partial
-      note: "Rust 覆盖 include/import、multi-include、glob-include、regex-include、namespace、contract、`@is`、`@when`、`@for`、fragment、top-level-array 等；**JS 只对 include 做了门控**，其余静默放行；用字段表达是哪个特性，码共用" }
+      impls: [ rust lua ] status: partial
+      note: "Rust 覆盖 include/import、multi-include、glob-include、regex-include、namespace、contract、`@is`、`@when`、`@for`、fragment、top-level-array 等；**JS 只对 include 做了门控**，其余静默放行；用字段表达是哪个特性，码共用；**Lua 对 include 的高级写法（`as ns` 命名空间 / glob / regex / 多目标 / 部分引用）显式报此码**（W20 第二阶段：这些不做，但**绝不静默**）" }
     { id: E-FEATURE-002 domain: FEATURE severity: E title: "环境变量被禁用"
       msg: "当前特性集禁用了环境变量内联，裸词或字符串无法解析"
       impls: [ rust ] status: partial
@@ -344,20 +344,20 @@ codes: [
     # ================= 片段与 include（语言层） =================
     { id: E-INCLUDE-001 domain: INCLUDE severity: E title: "include 文件缺失或读取失败"
       msg: "include 无法定位或读取目标文件"
-      impls: [ rust c cpp js ] status: partial
-      note: "C 侧「路径无法规范化解析」同报此码。**Lua 已从 impls 移除**：Lua 实现根本没有 include 语法（`include \"x\"` 与 `@include \"x\"` 都被静默当普通键），本条对它不适用；此前写的「Lua 的宿主入口报文件不存在」是**归类错误** —— 宿主入口读的是文档本身，归 E-IO-001（与 C 的 sml_parse_file 同格）" }
+      impls: [ rust c cpp js lua ] status: partial
+      note: "C 侧「路径无法规范化解析」同报此码。⚠️ 本条曾把 lua 从 impls **移除**（当时 Lua 根本没有 include 语法，`include \"x\"` 与 `@include \"x\"` 都被静默当普通键）；**W20 第二阶段补上 include 后 lua 已回到 impls**；此前写的「Lua 的宿主入口报文件不存在」是**归类错误** —— 宿主入口读的是文档本身，归 E-IO-001（与 C 的 sml_parse_file 同格）" }
     { id: E-INCLUDE-002 domain: INCLUDE severity: E title: "include 循环引用"
       msg: "include 循环引用"
-      impls: [ rust c cpp ] status: partial
-      note: "JS 无环检测，自包含会耗尽调用栈（抛宿主 RangeError），不是此码；C++ 原先声明了此端却**不可能触发**（环检测的栈 push 完立刻 pop、永远为空），W18 已修好并给出反向用例（菱形包含必须合法）" }
+      impls: [ rust c cpp lua ] status: partial
+      note: "JS 无环检测，自包含会耗尽调用栈（抛宿主 RangeError），不是此码；C++ 原先声明了此端却**不可能触发**（环检测的栈 push 完立刻 pop、永远为空），W18 已修好并给出反向用例（菱形包含必须合法）；Lua 由 W20 第二阶段实现，同用**链栈**（只判「根→当前」），故菱形包含同样合法、自包含/互包含报此码" }
     { id: E-INCLUDE-003 domain: INCLUDE severity: E title: "include 越界拒绝"
       msg: "include 目标不在基准目录内，已拒绝"
-      impls: [ rust c cpp ] status: partial
-      note: "安全边界：阻止 include 逃出工程目录；JS 用虚拟文件表，无基准目录概念" }
+      impls: [ rust c cpp lua ] status: partial
+      note: "安全边界：阻止 include 逃出工程目录；JS 用虚拟文件表，无基准目录概念；Lua 按**路径分量**比前缀（不是字符串前缀），越界即拒绝（W20 第二阶段）" }
     { id: E-INCLUDE-004 domain: INCLUDE severity: E title: "include 嵌套超过上限"
       msg: "include 嵌套超过上限层数"
-      impls: [ rust c cpp ] status: partial
-      note: "三端上限数值都是 32（Rust MAX_INCLUDE_DEPTH / C MAX_INC_DEPTH / C++ SML_MAX_INCLUDE_DEPTH）；smltools 自带的 include 展开上限也归此码（数值不同）—— 差异用字段表达；C++ 原先既无此码也无上限：超深包含是**静默跳过**（字段凭空消失），W18 一并修好" }
+      impls: [ rust c cpp lua ] status: partial
+      note: "三端上限数值都是 32（Rust MAX_INCLUDE_DEPTH / C MAX_INC_DEPTH / C++ SML_MAX_INCLUDE_DEPTH）；smltools 自带的 include 展开上限也归此码（数值不同）—— 差异用字段表达；C++ 原先既无此码也无上限：超深包含是**静默跳过**（字段凭空消失），W18 一并修好；Lua 也取 32，且**文档根不计层**（31 层放行 / 32 层报，边界本身有用例钉住）" }
     { id: E-INCLUDE-005 domain: INCLUDE severity: E title: "键列表语法非法"
       msg: "键列表语法非法：期望键列表、或键列表为空、或缺少闭合"
       impls: [ rust js ] status: partial
@@ -379,17 +379,17 @@ codes: [
       note: "部分引用只取键，通配会命中多个文件 —— 组合语义未定义，故直接拒绝" }
     { id: E-INCLUDE-010 domain: INCLUDE severity: E title: "基准目录不可解析"
       msg: "include 基准目录不可解析，无法做越界校验，已拒绝继续"
-      impls: [ rust c cpp ] status: done
-      note: "fail-closed：宁可拒绝也不放行；C 的文案是「已拒绝」。C++ 原先用 weakly_canonical（只做词法规范化，不存在的目录也会\"成功\"规范化），于是这一格被降级成「目录里没这个文件」而报出 E-INCLUDE-001（错码）—— W18 改用严格 canonical" }
+      impls: [ rust c cpp lua ] status: done
+      note: "fail-closed：宁可拒绝也不放行；C 的文案是「已拒绝」。C++ 原先用 weakly_canonical（只做词法规范化，不存在的目录也会\"成功\"规范化），于是这一格被降级成「目录里没这个文件」而报出 E-INCLUDE-001（错码）—— W18 改用严格 canonical；Lua 同理 fail-closed（`base` 为空串亦算不可解析 → 报此码）" }
     { id: E-INCLUDE-011 domain: INCLUDE severity: E title: "include 预处理词法失败"
       msg: "include 预处理阶段的词法失败"
       impls: [ rust cpp ] status: done
-      note: "与文档正文的词法错误（E-LEX-*）区分：此处指 include 行在展开前的词法阶段就失败。C++ 原先**丢弃**了子文件的词法错误、把残缺 token 段插进去（未闭合字符串会变成静默截断的文档），W18 改为报此码" }
+      note: "与文档正文的词法错误（E-LEX-*）区分：此处指 include 行在展开前的词法阶段就失败。C++ 原先**丢弃**了子文件的词法错误、把残缺 token 段插进去（未闭合字符串会变成静默截断的文档），W18 改为报此码。⚠️ **Lua 不在 impls，是设计差异不是漏做**：Lua 把 include 展开成文本后**整体词法**一次，子文件里的未闭合字符串/注释走正文的**静默清单**（已实测：子文件与正文同一表现，都静默），故不单独报此码" }
 
     { id: E-INCLUDE-012 domain: INCLUDE severity: E title: "include 路径写法非法"
       msg: "include 路径写法非法（未加引号或含非法字符）"
-      impls: [ smltools ] status: done
-      note: "smltools 的 include 展开要求路径加引号；未加引号时原先**暂归 E-INCLUDE-001** —— 那是**已知错码**（用户拿 E-INCLUDE-001 去查会看到「文件缺失或读取失败」，被误导），W21 立此码归位。⚠️ 语言层（`sml-include::parse_include_line`）对「未加引号」的判定归它自己的实现，本条目前只有 smltools 落地" }
+      impls: [ lua smltools ] status: done
+      note: "smltools 的 include 展开要求路径加引号；未加引号时原先**暂归 E-INCLUDE-001** —— 那是**已知错码**（用户拿 E-INCLUDE-001 去查会看到「文件缺失或读取失败」，被误导），W21 立此码归位。⚠️ 语言层（`sml-include::parse_include_line`）对「未加引号」的判定归它自己的实现，**Lua 也已落地**（W20 第二阶段：未加引号 / 引号未闭合 / 多余字符都报此码，`include` 与 `@include` 两种写法一致）" }
 
     # ================= 扩展点（语言层） =================
     { id: E-EXT-001 domain: EXT severity: E title: "未注册的指令、类型或修饰符"

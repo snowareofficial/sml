@@ -27,7 +27,11 @@ else
     return
   end
   local text = f:read("a"); f:close()
-  local v, err = Sml.load(text)
+  -- include 沙箱根 = **输入文件所在目录**（W20 第二阶段）。
+  -- 不给 base 就等同于「include 关闭」（与改动前一致）；给了才展开，
+  -- 且 `@include "../x"` 这类越界会被拒。无目录部分时退化为当前目录 "."。
+  local dir = string.match(arg[1], "^(.+)[/\\]") or "."
+  local v, err = Sml.load(text, dir)
   if err then
     io.stderr:write("解析失败: " .. err .. "\n")
   else

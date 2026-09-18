@@ -6,8 +6,10 @@
 -- 本文件不在 —— 本文件的期望值就是抄码表，抄错会被下面的断言当场抓住）。
 --
 -- 覆盖范围：Lua 侧**真的会报**的码。故意不测的（给不存在的东西编用例等于发护照）：
---   * E-INCLUDE-001：Lua 实现**没有 include 语法**（`include "x"` 与 `@include "x"`
---     都被静默当普通键），本条对它不适用 —— 码表已把 lua 从 impls 移除。
+--   * （W20 第二阶段**作废**了原先这条）~~E-INCLUDE-001：Lua 没有 include 语法~~
+--     —— Lua 现在有 include（`include "x"` 与 `@include "x"` 两种都认），本条已有用例；
+--     include 的高级写法（`as ns` / glob / regex / 多目标 / 部分引用）显式报
+--     E-FEATURE-001，也已有用例。故这两条不再属于「故意不测」。
 --   * E-LEX-001（未闭合字符串）、E-LEX-002/003（未闭合块注释）、顶层标量：
 --     属 errors/README.md「静默清单」里**已登记**的静默点，归 W16 判定。
 --     本文件把它们放在「不许一报到底」组里**反向钉住**：现在不该发码。
@@ -360,6 +362,200 @@ local function test_contract_positive()
     "@contract S { host: str }\nx { @is S host: \"a b\" }\n")
   expect_ok("explicit required keyword",
     "@contract S { host: str required }\nx { @is S host: h }\n")
+
+  -- 指令（`@`）不得被当作前一个键的**裸块参数**吞掉（W20 第二阶段修的那格）。
+  -- 背景：`common.sml` 的嵌套块注释残留一个无害的 `key: */`，旧写法随即把紧随的
+  -- `@contract Service loose { … }` 整块吞掉、报出无关的 E-PARSE-003，
+  -- 连带 include 了它的 examples/app.sml 也无法解析。
+  -- 最小复现（改动前 E-PARSE-003，Rust 实跑 rc=0 得 {"g":"*/"}）。
+  local v7 = expect_ok("directive not swallowed as bare-block arg",
+    'g */\n@contract C { env: enum [ a b ] }\nkept: 1\n')
+  if v7 then
+    report("  -> 指令未被吞、后续字段可见", "kept=1", tostring(v7.kept),
+           v7.kept == 1 and v7.C == nil and v7.contract == nil)
+  end
+end
+
+-- ------------------------------------------------------------------
+-- include：E-INCLUDE-001/002/003/004/010/012 + E-LIMIT-003（W20 第二阶段）
+--
+-- 判别实验（改动前实测）：include 完全是**惰性**的 —— `include "x.sml"` 被当成
+-- 裸块键，把后面到第一个 `{` 的内容全吞进片段体，于是「解析成功但树是错的」；
+-- W10 给键位置加码后改成明确报 E-PARSE-006（本阶段的红基线）。
+-- 判据用真实文件：沙箱建在**系统临时目录**里、用完删掉（不往仓库写任何东西）。
+--
+-- 口径：Rust `sml-include` 与 C `resolve_includes`。
+--   * 存在判定在越界判定**之前** ⇒「越界且不存在」报 E-INCLUDE-001；
+--   * 环检测用**链栈** ⇒ 菱形包含合法（重复键按 SML 规则合并成数组）；
+--   * 深度 32 / 展开 10000，「文档根不计层」；v4 那格用文件链实测边界。
+-- ⚠️ E-INCLUDE-011（include 预处理词法失败）在本端**不可达**：Lua 的 tokenize
+--    刻意宽松、从不抛异常（未闭合字符串/块注释归 W16 的静默清单），故不编用例。
+-- ------------------------------------------------------------------
+local function test_include_codes()
+  io.write("[INCLUDE]\n")
+
+  -- ---- 沙箱：系统临时目录，用完清理 ----
+  local win = package.config:sub(1, 1) == "\\"
+  local stem = os.tmpname()
+  local root = stem .. "_inc"
+  local inside = root .. "/in"
+  local function mkdir(p)
+    if win then os.execute('mkdir "' .. p .. '" 2>nul')
+    else os.execute('mkdir -p "' .. p .. '"') end
+  end
+  local function rmdir(p)
+    if win then os.execute('rmdir "' .. p .. '" 2>nul')
+    else os.execute('rmdir "' .. p .. '" 2>/dev/null') end
+  end
+  mkdir(root); mkdir(inside)
+  local written = {}
+  local function put(dir, name, text)
+    local p = dir .. "/" .. name
+    local f = assert(io.open(p, "wb"))
+    f:write(text); f:close()
+    written[#written + 1] = p
+    return p
+  end
+  -- 沙箱外的既有文件（用于「越界且**存在**」那一格）
+  put(root, "outside.sml", "outside: 1\n")
+
+  local function ierr(tag, src, base, want)
+    local v, err = Sml.load(src, base)
+    if v ~= nil then
+      failures = failures + 1
+      io.write(string.format("FAIL: %s parsed OK but should fail\n", tag))
+      return
+    end
+    report(tag, want, err, code_is(err, want))
+  end
+  local function iok(tag, src, base)
+    local v, err = Sml.load(src, base)
+    if v == nil then
+      failures = failures + 1
+      io.write(string.format("FAIL: %s should parse OK, got \"%s\"\n", tag, tostring(err)))
+      return nil
+    end
+    passed = passed + 1
+    io.write(string.format("  ok: %s -> (no error)\n", tag))
+    return v
+  end
+
+  -- E-INCLUDE-012 路径写法非法（未加引号 / 引号未闭合 / 多余字符）
+  ierr("include unquoted path", "include nope.sml\n", inside, "E-INCLUDE-012")
+  ierr("@include unquoted path", "@include nope.sml\n", inside, "E-INCLUDE-012")
+  ierr("include unclosed quote", 'include "nope.sml\n', inside, "E-INCLUDE-012")
+  -- E-INCLUDE-001 目标不存在
+  ierr("include target missing", 'include "nope.sml"\n', inside, "E-INCLUDE-001")
+  -- 越界的**且不存在** → 存在判定在前，报 001（不是 003）
+  ierr("escaped AND missing -> 001 (existence first)",
+       'include "../also_missing_xyz.sml"\n', inside, "E-INCLUDE-001")
+  -- E-INCLUDE-003 越界（目标存在、但在沙箱之外）
+  ierr("escape the sandbox", 'include "../outside.sml"\n', inside, "E-INCLUDE-003")
+  ierr("escape the sandbox (@include form)", '@include "../outside.sml"\n', inside, "E-INCLUDE-003")
+  -- E-INCLUDE-010 基准目录不可解析（fail-closed）
+  ierr("base dir does not exist", 'include "x.sml"\n', root .. "_no_such_base", "E-INCLUDE-010")
+  ierr("base is empty string", 'include "x.sml"\n', "", "E-INCLUDE-010")
+  -- E-INCLUDE-002 环（互包含）；自包含同样成环
+  put(inside, "cyc_a.sml", 'include "cyc_b.sml"\n')
+  put(inside, "cyc_b.sml", 'include "cyc_a.sml"\n')
+  ierr("include cycle (mutual)", 'include "cyc_a.sml"\n', inside, "E-INCLUDE-002")
+  put(inside, "selfinc.sml", 'include "selfinc.sml"\n')
+  ierr("include cycle (self)", 'include "selfinc.sml"\n', inside, "E-INCLUDE-002")
+
+  -- E-INCLUDE-004 嵌套超 32 层：**文档根不计层** ⇒ 先钉住边界（31 层放行 / 32 层报）
+  local function chain(prefix, n)
+    for k = 1, n do
+      local body = (k < n) and ('include "' .. prefix .. (k + 1) .. '.sml"\n') or "leaf: 1\n"
+      put(inside, prefix .. k .. ".sml", body)
+    end
+    return 'include "' .. prefix .. '1.sml"\n'
+  end
+  local v31 = iok("include nesting 31 layers (at/below the limit)", chain("deep", 31), inside)
+  if v31 then
+    report("  -> 最深层字段可达", "1", tostring(v31.leaf), v31.leaf == 1)
+  end
+  ierr("include nesting 32 layers (> limit)", chain("deep2", 32), inside, "E-INCLUDE-004")
+
+  -- E-LIMIT-003 展开次数超 10000（**全局**计数，防菱形 2^N 膨胀）
+  -- 14 层「每层把下一层包含两次」⇒ 无界时 2^1+…+2^14 = 2^15-2 = 32766 次 > 10000
+  -- （少一层只有 2^14-2 = 16382… 实测过：13 层时 2^13-1 = 8191 < 10000，**不够**）
+  for k = 1, 14 do
+    local nxt = (k < 14)
+      and ('include "dia_' .. (k + 1) .. '.sml"\ninclude "dia_' .. (k + 1) .. '.sml"\n')
+      or "leaf: 1\n"
+    put(inside, "dia_" .. k .. ".sml", nxt)
+  end
+  ierr("expansions exceed 10000 (diamond blow-up)",
+       'include "dia_1.sml"\n', inside, "E-LIMIT-003")
+
+  -- 正向：菱形包含**合法**（不是环）；重复键按 SML 规则合并成数组
+  put(inside, "dl.sml", "k: 1\n")
+  local vd = iok("diamond include is legal (not a cycle)",
+                 'include "dl.sml"\ninclude "dl.sml"\n', inside)
+  if vd then
+    report("  -> 重复键合并为数组", "1,1",
+           type(vd.k) == "table" and (tostring(vd.k[1]) .. "," .. tostring(vd.k[2])) or tostring(vd.k),
+           type(vd.k) == "table" and vd.k[1] == 1 and vd.k[2] == 1)
+  end
+  -- 正向：嵌套 include（两侧字段都在）
+  put(inside, "ch_b.sml", "from_b: 2\n")
+  put(inside, "ch_a.sml", 'include "ch_b.sml"\nfrom_a: 1\n')
+  local vc = iok("nested include keeps both sides' fields", 'include "ch_a.sml"\n', inside)
+  if vc then
+    report("  -> from_a 与 from_b 都在", "1/2",
+           tostring(vc.from_a) .. "/" .. tostring(vc.from_b),
+           vc.from_a == 1 and vc.from_b == 2)
+  end
+  -- 正向：@include 形式等价
+  local va2 = iok("@include form works", '@include "ch_b.sml"\n', inside)
+  if va2 then report("  -> @include 展开出字段", "2", tostring(va2.from_b), va2.from_b == 2) end
+  -- 正向：子文件的 @version/@feature 行会被剥离（与 Rust expand_file_tokens 同口径）
+  put(inside, "meta.sml", "@version v4\nmv: 1\n")
+  local vm = iok("child @version line is stripped", 'include "meta.sml"\n', inside)
+  if vm then report("  -> 子文件字段仍在", "1", tostring(vm.mv), vm.mv == 1) end
+  -- 正向：base 不给 ⇒ include 关闭，**不读文件**（缺文件也不报错）
+  local vn = iok("base omitted => include disabled (no file read)",
+                 'include "definitely_missing_xyz.sml"\n')
+  if vn then report("  -> 未展开也不报错", "-", "-", true) end
+
+  -- 本阶段不做：遇到即**显式报错**，绝不静默
+  ierr("namespace (as) unsupported", 'include "x.sml" as ns\n', inside, "E-FEATURE-001")
+  ierr("glob unsupported", 'include "*.sml"\n', inside, "E-FEATURE-001")
+  ierr("regex unsupported", 'include "re:widget_.*"\n', inside, "E-FEATURE-001")
+  ierr("multi-target unsupported", 'include "a.sml", "b.sml"\n', inside, "E-FEATURE-001")
+  ierr("partial reference unsupported", 'include "x.sml" { a, b }\n', inside, "E-FEATURE-001")
+
+  -- 指令检测只看**行首**；且不展开块注释/多行字符串里的 include（否则会去读文件）
+  local vk = iok("key named include: with colon is not a directive", "include: 5\n", inside)
+  if vk then report("  -> include 作为普通键", "5", tostring(vk.include), vk.include == 5) end
+  iok('include inside /* */ block comment is not expanded',
+      '/* head\ninclude "definitely_missing_xyz.sml"\n*/\nk: 1\n', inside)
+  iok("include inside multi-line string is not expanded",
+      's: "head\ninclude "definitely_missing_xyz.sml"\ntail"\nk: 1\n', inside)
+
+  -- 端到端：仓库里的 examples/app.sml（include + 片段 + 契约 + $env 同时用上）
+  local root_dir = self:match("^(.+)[/\\]") or "."
+  local app_path = root_dir .. "/../examples/app.sml"
+  local af = io.open(app_path, "rb")
+  if af == nil then
+    failures = failures + 1
+    io.write("FAIL: cannot open " .. app_path .. "\n")
+  else
+    local atext = af:read("*a"); af:close()
+    local vapp = iok("examples/app.sml end-to-end (include + fragment + contract)",
+                     atext, root_dir .. "/../examples")
+    if vapp then
+      report("  -> api.name 来自契约块", "gateway", tostring(vapp.api and vapp.api.name),
+             vapp.api ~= nil and vapp.api.name == "gateway")
+      report("  -> network.region 来自被 include 的片段", "cn-north-1",
+             tostring(vapp.network and vapp.network.region),
+             vapp.network ~= nil and vapp.network.region == "cn-north-1")
+    end
+  end
+
+  -- ---- 清理沙箱 ----
+  for k = 1, #written do os.remove(written[k]) end
+  rmdir(inside); rmdir(root)
 end
 
 -- ------------------------------------------------------------------
@@ -397,6 +593,7 @@ test_feature_codes()
 test_host_codes()
 test_contract_codes()
 test_contract_positive()
+test_include_codes()
 test_positive_controls()
 
 io.write(string.format("\n%d 通过, %d 失败\n", passed, failures))

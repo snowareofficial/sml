@@ -588,6 +588,29 @@ end
 ------------------------------------------------------------------------------
 local parse_array  -- 前向声明（在 parse_block 内被调用）
 
+-- 词 run 之后**紧跟指令（`@`）**？是则这个 key 绝不能走「裸块」那条路。
+--
+-- 理由：裸块的参数扫描（下文的贪心收参数）会把 `@` 连同其后的指令体
+-- （如 `@contract … { … }`）一并当成参数/裸块体吞掉，把后续字段卷进去。
+-- 实测（W20 第二阶段为让 `examples/app.sml` 可用而暴露）：
+--   `common.sml` 的嵌套块注释 `/* … 与 /* */ 等价 … */` 里那个内层 `*/`
+--   会提前结束注释（Rust 同样如此），残留一个无害的 `key: */`；旧写法随即吞掉
+--   紧随的 `@contract Service loose { … }` 整块，报出**无关的** E-PARSE-003
+--   （最小复现：`"g */\n@contract C { p: int default 8080 env: enum [ a b ] }\n"`，
+--   改动前 E-PARSE-003，Rust 实跑 rc=0 得 `{"g":"*/"}`）。`app.sml` include 了
+--   `common.sml`，于是也解析不了。
+--
+-- ⚠️ 这里**只收窄「吞指令」这一格**，其余仍沿用既有贪心扫描。
+--   若改成 Rust 的完整前瞻（`bare_block_ahead`：词 run 后必须紧跟 `{`），
+--   会让 `examples/for_when.sml`（用了本端不支持的 `@when`/`@for`）与
+--   `examples/slint/login.sml`（反引号串里的 `:`）从「能解析」变成报错 ——
+--   那属另一次对齐（W20 报告已登记为待裁决项），本轮不连带。
+local function words_then_directive(tokens, i)
+  local k = i
+  while is_word_tok(tokens[k]) do k = k + 1 end
+  return (k > i) and tokens[k] == "@"
+end
+
 local function parse_block(tokens, i, closing, fragments, contracts, depth)
   enter_depth(depth)
   local node = {}
@@ -724,7 +747,8 @@ local function parse_block(tokens, i, closing, fragments, contracts, depth)
         local arr
         arr, i = parse_array(tokens, i + 1, fragments, contracts, depth + 1)
         set_field(key, arr)
-      elseif not colon and nxt ~= nil and nxt ~= "}" and nxt ~= "]" and nxt ~= "," then
+      elseif not colon and nxt ~= nil and nxt ~= "}" and nxt ~= "]" and nxt ~= ","
+             and not words_then_directive(tokens, i) then
         -- 裸块：key 为类型，后续 token 直到 { 为参数
         local args = {}
         while tokens[i] and tokens[i] ~= "{" and tokens[i] ~= "}" and tokens[i] ~= "]" and tokens[i] ~= "," do
@@ -784,14 +808,348 @@ parse_array = function(tokens, i, fragments, contracts, depth)
 end
 
 ------------------------------------------------------------------------------
--- 公开：load（同时支持 Sml.load(text) 静态调用与实例调用）
+-- include 展开（W20 第二阶段）—— 对齐 Rust `sml-include` 与 C `resolve_includes`
+--
+-- API：`Sml.load(text, base)`
+--   * `base == nil` ⇒ **include 关闭**：`include` 行当普通键处理，与改动前完全一致
+--     （也是 C++ 的 `include_dir` 为空即关闭同口径）；
+--   * `base` 给了 ⇒ 展开，且 `base` 是**沙箱根**（越界即拒绝）。
+--
+-- 语法：`include "file"` 与 `@include "file"` **两种都认**（与 C 同口径）。
+-- 检测只看**行首**（与 Rust `parse_include_line`、C `try_include_target` 同口径），
+-- 故 `foo: include "x"`（值位置）不会被误判成指令。
+--
+-- **本阶段不做**（遇到这些写法**显式报错**，绝不静默；见 include_line_path）：
+--   部分引用 `{ keys }`、命名空间 `as ns`、多目标 `,`、glob `*`、regex `re:`。
+--
+-- 码与判定顺序（照 Rust/C/C++）：
+--   E-INCLUDE-001 目标不存在/读不出来（**先判存在再比前缀** ⇒「越界且不存在」报此码）
+--   E-INCLUDE-003 越界（按**路径分量**比前缀，不是字符串前缀）
+--   E-INCLUDE-002 环（**链栈**：只判「根→当前」这条路径 ⇒ **菱形包含合法**）
+--   E-INCLUDE-004 嵌套超 32 层（**文档根不计层**）
+--   E-LIMIT-003  展开次数超 10000（**全局**计数，防菱形 2^N 膨胀）
+--   E-INCLUDE-010 基准目录不可解析（fail-closed：解析不了就拒绝）
+--   E-INCLUDE-012 include 路径写法非法（未加引号 / 引号未闭合 / 多余字符）
+--
+-- ⚠️ 与 Rust 的两处已知差异（W20 报告已登记）：
+--   1. Lua 没有 realpath/canonicalize ⇒ 本端只做**词法规范化**。`..` 穿越被挡住，
+--      但**符号链接逃逸检测不到**（Rust/C/C++ 的 canonicalize/realpath 能）。
+--   2. 本端**跳过块注释内的行**（写在 `/* */` 里的 include 不展开）。Rust 的
+--      `expand_includes` 只识别多行字符串、不认块注释，会把注释里的 include 也展开
+--      （等于读文件）—— 那是应当修掉的行为，本端不模仿（报告里记为发现）。
+-- ⚠️ E-INCLUDE-011（include 预处理词法失败）在本端**不可达**：Lua 的 tokenize
+--    刻意宽松、从不抛异常（未闭合字符串/块注释属 W16 的静默清单），故无从触发。
 ------------------------------------------------------------------------------
-function Sml.load(text)
+
+local MAX_INCLUDE_DEPTH = 32
+local MAX_INCLUDE_EXPANSIONS = 10000
+local IS_WINDOWS = package.config:sub(1, 1) == "\\"
+
+-- 词法路径规范化：统一分隔符为 `/`、消掉 `.`、把 `..` 应用到已累计的分量上。
+--   * 绝对路径：`..` 在根处钳位（`/..` == `/`，与 realpath 同语义）；
+--   * 相对路径：`..` 越出起点时**保留**前导 `..`（越界与否交给前缀校验判，不在此放行）。
+-- 返回 nil 表示**无法规范化**（空串或非字符串）⇒ 调用方 fail-closed。
+local function norm_path(p)
+  if type(p) ~= "string" or p == "" then return nil end
+  local s = string.gsub(p, "\\", "/")
+  local abs = false
+  local drive = nil
+  local body = s
+  if string.match(s, "^%a:") then
+    abs = true
+    drive = string.upper(string.sub(s, 1, 1))
+    body = string.match(s, "^%a:(.*)$")
+  elseif string.sub(s, 1, 1) == "/" then
+    abs = true
+  end
+  local parts = {}
+  for seg in string.gmatch(body, "[^/]+") do
+    if seg == "." then
+      -- 丢弃
+    elseif seg == ".." then
+      if #parts > 0 then
+        parts[#parts] = nil
+      elseif not abs then
+        parts[#parts + 1] = ".."
+      end
+      -- 绝对路径：根处钳位，丢弃
+    else
+      parts[#parts + 1] = seg
+    end
+  end
+  local joined = table.concat(parts, "/")
+  if not abs then
+    if joined == "" then return "." end
+    return joined
+  end
+  if drive == nil then
+    return "/" .. joined
+  end
+  return drive .. ":/" .. joined
+end
+
+-- Windows 文件系统不区分大小写：比较前缀与判环时必须折叠大小写，
+-- 否则 `C:/Foo` 与 `c:/foo` 会被当成两条路径（越界校验会误报 E-INCLUDE-003）。
+local function fold_path(p)
+  if IS_WINDOWS then return string.lower(p) end
+  return p
+end
+
+-- 目录是否存在。Lua 没有 stat，但 `io.open` 会给出 errno（第 3 个返回值）：
+--   * POSIX：目录本身可按文件打开（拿到句柄）⇒ 存在；
+--   * Windows：目录打不开，errno = EACCES(13) / EISDIR(21)；**不存在**是 ENOENT(2)。
+-- 于是「打不开但 errno 不是 ENOENT」⇒ 存在（目录）。不写任何探测文件。
+local function dir_exists(p)
+  local f, _, errno = io.open(p, "r")
+  if f then f:close(); return true end
+  return errno == 13 or errno == 21
+end
+
+-- 逐行取出 (正文, 行尾)。行尾为 "\n" 或 ""（末行无换行）。非 include 行原样输出。
+local function split_lines(text)
+  local res = {}
+  local start, n = 1, #text
+  while start <= n do
+    local nl = string.find(text, "\n", start, true)
+    if nl == nil then
+      res[#res + 1] = { string.sub(text, start), "" }
+      start = n + 1
+    else
+      res[#res + 1] = { string.sub(text, start, nl - 1), "\n" }
+      start = nl + 1
+    end
+  end
+  return res
+end
+
+-- 推进「字符串 / 块注释」词法状态（可跨行）。规则与 tokenize 一致。
+-- 目的：多行字符串或 `/* */` 里写的 include **不是指令**，不得去读文件。
+local function advance_lex_state(in_str, block, s)
+  local i, n = 1, #s
+  while i <= n do
+    local c = string.sub(s, i, i)
+    local c2 = (i < n) and string.sub(s, i + 1, i + 1) or ""
+    if in_str then
+      if c == "\\" and i < n then i = i + 2
+      elseif c == '"' then in_str = false; i = i + 1
+      else i = i + 1 end
+    elseif block ~= nil then
+      local closer2 = (block == "/*") and "/" or "_"
+      if c == "*" and c2 == closer2 then block = nil; i = i + 2
+      else i = i + 1 end
+    else
+      if c == '"' then in_str = true; i = i + 1
+      elseif c == "/" and c2 == "*" then block = "/*"; i = i + 2
+      elseif c == "_" and c2 == "*" then block = "_*"; i = i + 2
+      elseif c == "#" then break                    -- 行注释：到行尾
+      elseif c == "-" and c2 == "-" then break
+      elseif c == "/" and c2 == "/" then break
+      else i = i + 1 end
+    end
+  end
+  return in_str, block
+end
+
+-- canon 是否在 base 之内（**按路径分量**）。两者都须已 norm_path 归一化。
+local function within(base, canon)
+  if base == canon then return true end
+  if base == "." then
+    -- cwd 作根：相对路径且不以 `..` 开头即在其中
+    return canon ~= ".." and string.sub(canon, 1, 3) ~= "../"
+       and string.sub(canon, 1, 1) ~= "/"
+  end
+  local prefix = (string.sub(base, -1) == "/") and base or (base .. "/")
+  return string.sub(canon, 1, #prefix) == prefix
+end
+
+-- 判断某一行是否为 include 指令：
+--   是指令 → 返回路径（已剥引号）；不是 → nil；是**非法或本阶段未实现**的写法 → fail()。
+local function include_line_path(body)
+  local s = string.gsub(body, "^[ \t\r]+", "")
+  if string.sub(s, 1, 1) == "@" then
+    s = string.gsub(s, "^@[ \t]*", "")
+  end
+  -- 关键字后**必须跟空白**：`include:` / `includes:` 因此不会被误判为指令
+  local rest = string.match(s, "^include([ \t].*)$")
+  if rest == nil then return nil end
+  local after = string.match(rest, "^[ \t]+(.*)$")
+  if after == nil or after == "" then return nil end
+  if string.sub(after, 1, 1) ~= '"' then
+    fail("E-INCLUDE-012", "include 路径写法非法（未加引号）：" .. body)
+  end
+  -- 引号串（支持 \" 与 \\，与 Rust next_token 同口径）
+  local i, n, buf = 2, #after, {}
+  local closed = false
+  while i <= n do
+    local c = string.sub(after, i, i)
+    if c == "\\" and i < n then
+      buf[#buf + 1] = string.sub(after, i + 1, i + 1); i = i + 2
+    elseif c == '"' then
+      closed = true; i = i + 1; break
+    else
+      buf[#buf + 1] = c; i = i + 1
+    end
+  end
+  if not closed then
+    fail("E-INCLUDE-012", "include 路径写法非法（引号未闭合）：" .. body)
+  end
+  local path = table.concat(buf)
+  -- 去行尾注释后看残余：非空即属**未实现**的形态，显式报错而不是静默丢弃
+  local t = string.gsub(string.sub(after, i), "^[ \t\r]+", "")
+  local extra = ""
+  if t ~= "" and string.sub(t, 1, 1) ~= "#"
+     and string.sub(t, 1, 2) ~= "//" and string.sub(t, 1, 2) ~= "--" then
+    extra = t
+  end
+  if string.sub(path, 1, 3) == "re:" then
+    fail("E-FEATURE-001", "正则 include（re:）需要特性 regex-include，本实现未启用")
+  end
+  if string.find(path, "*", 1, true) ~= nil then
+    fail("E-FEATURE-001", "通配 include 需要特性 glob-include，本实现未启用")
+  end
+  if extra ~= "" then
+    if extra == "as" or string.match(extra, "^as[ \t]") then
+      fail("E-FEATURE-001", "命名空间 include（as）需要特性 namespace，本实现未启用")
+    end
+    if string.sub(extra, 1, 1) == "," then
+      fail("E-FEATURE-001", "多目标 include 需要特性 multi-include，本实现未启用")
+    end
+    if string.sub(extra, 1, 1) == "{" then
+      fail("E-FEATURE-001", "部分引用（{ keys }）本实现未启用")
+    end
+    fail("E-INCLUDE-012", "include 路径写法非法（含非法字符）：" .. body)
+  end
+  return path
+end
+
+-- 子文件的 `@version` / `@feature` 行：丢弃（与 Rust `expand_file_tokens` 同口径）。
+-- 只认「`@` 后紧跟关键字且后随空白或行尾」，故 `version: 1` 这种普通键不会被误删。
+local function is_meta_line(body)
+  local s = string.gsub(body, "^[ \t\r]+", "")
+  if string.sub(s, 1, 1) == "@" then
+    s = string.gsub(s, "^@[ \t]*", "")
+  end
+  return s == "version" or string.match(s, "^version[ \t]") ~= nil
+      or s == "feature" or string.match(s, "^feature[ \t]") ~= nil
+end
+
+-- 递归展开：把 include 行换成「被包含文件递归展开后」的文本。
+--   stack     = 「根→当前」的文件链（只装**被包含**的文件；文档根不计层，与 Rust 同口径）
+--   counters  = { expansions = 全局展开次数, dirs = 目录存在性缓存 }
+--   is_child  = 是否为被包含的文件（是则剥掉其 @version/@feature 行）
+local function expand_text(text, base, stack, counters, is_child)
+  if #stack >= MAX_INCLUDE_DEPTH then
+    fail("E-INCLUDE-004", "include 嵌套超过 " .. MAX_INCLUDE_DEPTH .. " 层")
+  end
+  local nbase = norm_path(base)
+  if nbase == nil then
+    fail("E-INCLUDE-010", "include 基准目录不可解析，无法做越界校验，已拒绝继续：" .. tostring(base))
+  end
+  counters.dirs = counters.dirs or {}
+  local de = counters.dirs[nbase]
+  if de == nil then
+    de = dir_exists(nbase)
+    counters.dirs[nbase] = de
+  end
+  if not de then
+    -- fail-closed：解析不了基准目录就拒绝，绝不「比不了就放行」
+    fail("E-INCLUDE-010", "include 基准目录不可解析，无法做越界校验，已拒绝继续：" .. tostring(base))
+  end
+  local fbase = fold_path(nbase)
+  local out = {}
+  local in_str, block = false, nil
+  local lines = split_lines(text)
+  for k = 1, #lines do
+    local body, term = lines[k][1], lines[k][2]
+    local skip = in_str or (block ~= nil)
+    if (not skip) and is_child and is_meta_line(body) then
+      -- 子文件的版本/特性指令行：丢弃（避免污染 token 流）
+    else
+      local path = nil
+      if not skip then path = include_line_path(body) end
+      if path ~= nil then
+        -- 目标：绝对路径直接用；相对路径相对**当前文件所在目录**解析
+        local target
+        if string.sub(path, 1, 1) == "/" or string.match(path, "^%a:") then
+          target = norm_path(path)
+        else
+          target = norm_path(nbase .. "/" .. path)
+        end
+        if target == nil then
+          fail("E-INCLUDE-001", "include 无法定位：" .. path)
+        end
+        -- ⚠️ 判定顺序照 Rust/C/C++：**先** canonicalize（本端用「能打开」近似）
+        --    **再**比前缀，故「越界且不存在」报 E-INCLUDE-001 而不是 003。
+        --    先打开再校验也避免「先读了沙箱外的文件再拒绝」。
+        local fh = io.open(target, "rb")
+        if fh == nil then
+          fail("E-INCLUDE-001", "include 目标不存在或读不出来：" .. path)
+        end
+        local ftarget = fold_path(target)
+        if not within(fbase, ftarget) then
+          fh:close()
+          fail("E-INCLUDE-003", "include 越界拒绝（目标不在基准目录内）：" .. path)
+        end
+        for si = 1, #stack do
+          if stack[si] == ftarget then
+            fh:close()
+            fail("E-INCLUDE-002", "include 循环引用：" .. path)
+          end
+        end
+        local data = fh:read("*a")
+        fh:close()
+        if data == nil then
+          fail("E-INCLUDE-001", "include 目标读不出来：" .. path)
+        end
+        counters.expansions = counters.expansions + 1
+        if counters.expansions > MAX_INCLUDE_EXPANSIONS then
+          fail("E-LIMIT-003",
+               "include 展开次数超过上限 " .. MAX_INCLUDE_EXPANSIONS .. "（疑似指数膨胀）")
+        end
+        -- 子文件的基准目录 = 它自己的所在目录（嵌套 include 相对**父文件**解析）
+        local child_base = string.match(target, "^(.*)/[^/]*$")
+        if child_base == nil then child_base = "." end
+        if child_base == "" then child_base = "/" end
+        stack[#stack + 1] = ftarget
+        out[#out + 1] = expand_text(data, child_base, stack, counters, true)
+        stack[#stack] = nil
+        -- 保留一个换行，避免与后一行粘连
+        if term == "\n" then out[#out + 1] = "\n" end
+      else
+        out[#out + 1] = body
+        out[#out + 1] = term
+      end
+    end
+    in_str, block = advance_lex_state(in_str, block, body)
+  end
+  return table.concat(out)
+end
+
+------------------------------------------------------------------------------
+-- 公开：load（同时支持 Sml.load(text) 静态调用与实例调用）
+--   Sml.load(text)         —— include 关闭（与改动前一致）
+--   Sml.load(text, base)   —— include 开启，base 为沙箱根（W20 第二阶段）
+------------------------------------------------------------------------------
+function Sml.load(text, base)
   if type(text) ~= "string" then
     -- 与 C 的 `sml_parse(NULL)` 同一个格子：坏入参属「走到了不该走的分支」→ E-INTERNAL-001
     return nil, "E-INTERNAL-001 sml: 期望字符串入参，实得 " .. type(text)
   end
-  local ok, toks = pcall(tokenize, text)
+  if base ~= nil and type(base) ~= "string" then
+    return nil, "E-INTERNAL-001 sml: base 参数须为字符串或 nil，实得 " .. type(base)
+  end
+  local src = text
+  if base ~= nil then
+    -- include 在**词法之前**一次性展开：把 include 行换成被包含文件的文本。
+    local ok0, expanded = pcall(expand_text, text, base, {}, { expansions = 0 }, false)
+    if not ok0 then
+      local m0 = tostring(expanded)
+      if has_code(m0) then return nil, m0 end
+      return nil, "E-PARSE-012 sml: include 展开失败: " .. m0
+    end
+    src = expanded
+  end
+  local ok, toks = pcall(tokenize, src)
   if not ok then
     -- tokenize 目前不会抛（词法层刻意宽松），留此分支只为不静默吞掉意外异常。
     -- 归 E-PARSE-012（解析阶段兜底）而不是某个 E-LEX-*：这里拿到的是 Lua 的异常，
