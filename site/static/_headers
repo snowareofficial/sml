@@ -1,0 +1,36 @@
+# Cloudflare Pages 响应头（构建时由 Hugo 原样拷到 public/_headers）
+#
+# 目的：允许**任意站点**跨域加载 SML 的解析器与对照实现。
+#   import { parse } from "https://sml.swebase.cn/lib/sml.mjs"
+#
+# 说明：
+# - `/lib/` 是对外稳定入口（由 build_site.py 从 js/sml.mjs 同步），
+#   根路径 `/sml.mjs` 保留给本站页面与既有引用，两者都放行。
+# - wasm 与桥接脚本必须一起放行：只给 sml.mjs 的话，调用方拿不到
+#   wasm 对照能力（sml-rs.js 会去 fetch sml.wasm）。
+# - 这些文件都是纯前端静态资源，不含凭据、不读 cookie，故 `*` 是安全的。
+
+/lib/*
+  Access-Control-Allow-Origin: *
+  Cross-Origin-Resource-Policy: cross-origin
+  Cache-Control: public, max-age=600
+
+/sml.mjs
+  Access-Control-Allow-Origin: *
+  Cross-Origin-Resource-Policy: cross-origin
+
+/sml.wasm
+  Access-Control-Allow-Origin: *
+  Cross-Origin-Resource-Policy: cross-origin
+  Content-Type: application/wasm
+
+/sml-rs.js
+  Access-Control-Allow-Origin: *
+  Cross-Origin-Resource-Policy: cross-origin
+
+/sml-verify.js
+  Access-Control-Allow-Origin: *
+  Cross-Origin-Resource-Policy: cross-origin
+
+/sml.svg
+  Access-Control-Allow-Origin: *
