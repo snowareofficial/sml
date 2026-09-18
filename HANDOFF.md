@@ -20,7 +20,7 @@
 |---|---|---|
 | Rust 全 workspace | `cargo test --workspace` | **538 通过 / 0 失败 / 2 ignored**（46 个 target），**rc=0** —— W16 期间复测（见 §14.5：构建期偶发文件占用，重试即过） |
 | 其中 `smltools` | `cargo test -p smltools` | **119 通过 / 0 失败**（bin 74 + 集成 `tests/error_codes.rs` 45；`xml` 子集 26 在 bin 里） |
-| C | `python build_check.py --run` | rc=0，`ALL LIMIT TESTS PASSED` + `ALL CODE TESTS PASSED` |
+| C | `python build_check.py --run` | rc=0，`ALL LIMIT TESTS PASSED` + `ALL CODE TESTS PASSED`（CODE **82** 条断言；W16 的 C 批后从 62 涨到 82） |
 | C++ | `python build_verify.py` | 六 target 全 rc=0（example / CONTRACT / COMMENTS / LIMITS / **CODES 80 条全过** / RS-BRIDGE） |
 | JS 错误码 | `node js/probe-error-codes.mjs` | `ALL OK`（与 Rust 同条件同码） |
 | Lua | `python lua/run_check.py` | rc=0，`ALL LUA CHECKS PASSED`（入口自检 + `E-IO-001` + **120 条**码用例，含 include 组 38 条） |
@@ -877,8 +877,10 @@ Rust 得完整树。改法：**词法前剥掉整行**（同 Rust 的 `strip_fea
 
 ### 14.6 下一批的第一件事
 
-**C 侧那 10 条**（与 JS 同源、有 `sml_codes.h` 宏约束，改动面最清楚）
-→ 再做 **Lua** → 再 **C++**（先实测）→ 再 **Rust 那 6 条** → 最后**统一收口**。
+~~**C 侧那 10 条**~~ **✅ 已完成（2026-09-18，见 §15）** → 下一批是 **Lua 那 6 条**
+（`lua/lib/sml.soup`；跑 `python lua/run_check.py`；码的写法保持 `error(msg, 0)` + 码作消息前缀；
+其中 `a { ] }` 现在报的是 **`E-PARSE-003`（错码）**，要改成 `E-PARSE-002`）
+→ 再 **C++ 那 6 条（先实测现状，别照判定表假设）** → 再 **Rust 那 6 条** → 最后**统一收口**。
 
 ### 14.7 顺带发现、**未改**（不属 W16，另行登记）
 
@@ -886,4 +888,78 @@ Rust 得完整树。改法：**词法前剥掉整行**（同 Rust 的 `strip_fea
   Rust 得 `[{__type:"rect", …}]`（合并进元素）。属数据形状差异。
 - **`_probe_for.sml` 那类** `@for` + 片段混写：JS 报 `E-PARSE-003`、Rust 报 `E-PARSE-006`。
 - 仓库根有一批**未跟踪**的遗留探针（`_probe2.sml` / `_probe3.sml` / `_probe_for.sml` / `_lvgl_test/`），
-  W5 的待办里写了要收编后删除 —— 它们会让"全仓扫描"的 FAIL 计数带上噪声（本轮已按此逐条判读）。
+  W5 的待办里写了要收编后删除 —— 它们会让"全仓扫描"的 FAIL 计数带上噪声（本轮已按此逐条判读）
+
+---
+
+## 15. W16 的 C 批（已完成，2026-09-18）
+
+**只改两个文件**：`c/sml.c` + `c/test_codes.c`（外加码表与文档的收口）。C 侧的码从 **23 → 34**。
+逐条记录也在 `errors/silence-decisions.md` 的 §4（含落地进度表与全仓扫描判定表）。
+
+### 15.1 实现（8 处）
+
+| # | 位置 | 改法 |
+|---|---|---|
+| 1 | `lexer` 结构 | 新增 `failed` 标志 + `lex_err()` 助手（**只记第一条**，缓冲区为空时一个字节都不写 —— 与 W13 的 `set_err` 同约定） |
+| 2 | 词法：字符串 | EOF 未闭 → `E-LEX-001`；未知转义 → `E-LEX-004`（改前 `default` 把该字符收下、**连反斜杠一起丢**）；`\u` 位数不足/非十六进制/花括号未闭合/代理区 → `E-LEX-005`（改前不足四位照收，静默变控制字符） |
+| 3 | 词法：`/*` 与 `_*` | EOF 未闭 → `E-LEX-002` / `E-LEX-003`（改前吃到文件结尾，**后面整篇凭空消失**） |
+| 4 | `sml_parse` 入口 | 见 `lx.failed` **立即返回 NULL**（否则后续语法错会覆盖第一个错的码 —— 与 Rust 的 `tokenize()` 短路同义）；另加 `E-PARSE-008` 判据 = `lx.n == 2 && toks[0] 是 WORD/STR`（C 的 token 流末尾固定有 `T_EOF`，故「恰好一个标量」= n == 2，与 Rust 的判据逐字一致） |
+| 5 | `parse_block_inner` 结束符 | 顶层遇 `}`/`]` → `E-PARSE-003`；本层期望 `}` 却遇 `]` → `E-PARSE-002`（改前两格都静默） |
+| 6 | `parse_array_inner` | 数组里多余 `}` → `E-PARSE-003`（改前落兜底 `else` 静默跳过；其余孤立 token 仍静默，**不扩范围**） |
+| 7 | 指令/片段分支 | 位置参数形式与「没有片段体」→ `E-PARSE-005`（与 Rust 的 `is_param` 判据一致）；**顺带**支持显式参数 `type:` / `name:`（含 `E-PARSE-020` 两条：参数后缺取值、参数重复） |
+| 8 | `coerce_word` | 未命中的 `&name` → `E-INCLUDE-006`（改前 `return sml_new_str(w)` 静默退化成字符串）；另把 `err_unclosed` / `apply_or_fail` 加上 `ps->failed` 闸，坐实「**第一条错误为准**」 |
+
+**两条「顺带对齐」（不做就会把合法文档拒掉）**：① `@contract X strict { … }` —— Rust/JS 接受
+`strict`（与默认等价），C 只认 `loose`，于是契约体被整个跳过、`strict { … }` 变成数据块；
+② 片段显式参数 `@foo type: X name: Y { … }`（Rust 的 v4 写法，C 只支持已废弃的位置参数）。
+
+### 15.2 判别实验（验收标准）
+
+`c/_w16_cmp.py codes` —— 把 **HEAD 版 `sml.c`**（`git show HEAD:c/sml.c`，脚本自己写快照）
+配**同一份新 `test_codes.c`** 编译运行：
+
+| 实现 | 结果 |
+|---|---|
+| 新（含修复） | rc=0，**0 失败**，`ALL CODE TESTS PASSED`（断言 **82** 条） |
+| HEAD | rc=1，**20 条红**（rc 报 `20 FAILURES`） |
+
+`c/_w16_cmp.py limits`：HEAD 与新版都 rc=0 ⇒ **W13 的性质（10 万层不崩、`err=NULL`/`errsz=0`
+一个字节都不写）保住了**。计数不能只看"全绿"：本轮**数了 `ok:` 行**（82），
+防的是「断言写在跑不到的出口上」那类假绿。
+
+### 15.3 全仓扫描（41 个 `.sml`，走 `sml_parse_file`）
+
+`c/_w16_scan.py before|after|diff`：**OK 29 → 22、FAIL 12 → 19**，7 条 OK→FAIL 逐条查过：
+
+| 文件 | 改后码 | 改前「OK」的真面目 |
+|---|---|---|
+| `examples/for_when.sml` | `E-PARSE-005` | 解析结果是**空树**（C 从未实现 `@feature`/`@when`/`@for`） |
+| `examples/slint/login.sml` | `E-PARSE-003` | 树是**错的**；**Rust 对同一文件也失败**（`E-PARSE-006`） |
+| `_gov_demo.sml` | `E-CONTRACT-004` | 因 `]` 提前中断、后半篇被静默丢弃才「OK」（C 无「键位置裸 `&name` 合并」） |
+| `_probe2/_probe3/_probe_for/_for_probe.sml` | `E-PARSE-005` | 未跟踪遗留探针（W5 待办里说要收编后删除） |
+
+⇒ **没有一条是「原本正确的文档被误伤」**。判定依据用的工具是 `c/_w16_one.c`（打印码）与
+`c/_w16_dump.c`（打印解析结果）—— 「原先 OK」必须掏出**当时的树**来看，不能只凭「它没报错」。
+
+**两个坑**：① `_w16_scan.py` 的 `parse()` 必须 `os.path.normcase` 归一化路径 —— 两次运行的
+盘符大小写可能不同（`c:` vs `C:`），不归一化会把 41 个文件**全部**判成「消失 + 新增」（踩过）；
+② 临时探针 `.sml` 别落在仓库根或 `c/` —— 会被 `find_sml()` 当语料扫进去，污染 FAIL 计数。
+
+### 15.4 顺带查明、**未改**（另行登记）
+
+- **C 没有指令注册表**：`@feature` / `@when` / `@for` 这些**它不实现的指令**与拼错的指令在
+  token 流上同形，一并落 `E-PARSE-005` —— 方向是「响亮拒绝」而不是静默丢行，但提示会指向
+  「拼写」（粒度不足）。已写进该条码的 `note`。
+- **C 无「键位置裸 `&name` 合并进当前块」**（Rust 有，`parser.rs` 的裸片段合并）⇒ `_gov_demo.sml`
+  报 `E-CONTRACT-004`。补齐属**能力**问题，不属 W16。
+- **`examples/slint/login.sml` 两端都解析不了**：它依赖反引号表达式，而 Rust 与 C 的词法器都会
+  把表达式里的半角引号 / `#` 当结构字符切开（`#` 起注释时**不 flush 当前词**）——
+  **同因不同码**（Rust `E-PARSE-006`、C `E-PARSE-003`），归 W3/W16 的后续话题。
+
+### 15.5 本轮用到的脚本（都在 `c/`，`_` 开头不入库）
+
+`_w16_cmp.py`（判别实验：probe / codes / limits 三档）、`_w16_scan.py`（全仓扫描 before/after/diff，
+已修 normcase 坑）、`_w16_one.c`（打印单个文件的码，用于按行二分）、`_w16_dump.c`（打印解析结果，
+用于判定「原先的树是不是错的」）、`_w16_count.py`（数 C 侧用到的码数，回填 README 用）、
+`_w16_head_sml.c` / `_w16_sml_before.c`（HEAD 快照，可随时重生成）。

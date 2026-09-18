@@ -99,3 +99,46 @@
 
 > 判定完成后：把结论回填 `errors/README.md` 的清单（每条标注「改成报错（码 X）」或
 > 「规范允许静默」），再按 §1 的实现清单动手；`E-PARSE-008` 那条要单独进 CHANGELOG。
+
+## 4. 落地进度（逐端）
+
+用户裁决是「全做」，故 §1.1/§1.2 的 B 组按端逐批落地。**已落地**：
+
+| 批次 | 提交 | 覆盖的条件 | 判别实验 |
+|---|---|---|---|
+| Rust（顶层标量） | `a8a37df` | `E-PARSE-008` 接线（此前是死码） | 摘掉检查 ⇒ `top_level_scalar_needs_a_container` 红 |
+| JS 第一批 | `5bd0b64` | 未闭合字符串/块注释、未知转义、`\u` 非法、数组里多余的 `}`、闭合符错配、顶层多余的 `}`/`]`、未闭合数组、顶层标量（另修 `@feature` 吞文档） | 换回 HEAD 版 JS ⇒ **10 条红** |
+| C 批 | （见 `git log`） | 同上 LEX 五条 + `E-PARSE-002/003/005/008` + `E-INCLUDE-006`；顺带对齐 `@contract X strict`、片段显式参数 `type:`/`name:` | HEAD 版 `sml.c` 配同一份 `test_codes.c` ⇒ **20 条红**；新实现 0 红（断言 62 → 82） |
+
+**C 批的全仓扫描记录**（41 个 `.sml`，`c/_w16_scan.py`）：OK 29 → 22、FAIL 12 → 19，
+7 条 OK→FAIL 逐条查过根因，**没有一条是「原本正确的文档被误伤」**：
+
+| 文件 | 改后码 | 根因（改前「OK」的真面目） |
+|---|---|---|
+| `examples/for_when.sml` | `E-PARSE-005` | C 从未实现 `@feature`/`@when`/`@for`；改前解析结果是**空树** |
+| `examples/slint/login.sml` | `E-PARSE-003` | 改前树是**错的**（下文反引号问题）；**Rust 对同一文件也失败**（`E-PARSE-006`） |
+| `_gov_demo.sml` | `E-CONTRACT-004` | C 无「键位置裸 `&name` 合并」；改前因 `]` 提前中断、后半篇被静默丢弃才「OK」 |
+| `_probe2/_probe3/_probe_for/_for_probe.sml` | `E-PARSE-005` | 未跟踪遗留探针（W5 的待办里写了要收编后删除） |
+
+**顺带查明、未改（另行登记）**：
+- `examples/slint/login.sml` 依赖**反引号表达式**（如把 `root.msg != ""` 用反引号包起来），
+  而 **Rust 与 C 的词法器都会把表达式里的半角引号 / `#` 当结构字符切开**（`#` 起注释时
+  **不 flush 当前词**）⇒ 该文件当前**两端都解析不了**（Rust `E-PARSE-006`、C `E-PARSE-003`）
+  —— 同因不同码，属 W3/W16 的后续话题。
+- C 的 `@feature` / `@when` / `@for` 落 `E-PARSE-005`（提示指向拼写而非「未实现」）。
+
+**未落地**：JS 余额 4 条、C++ 6 条（先实测现状）、Lua 6 条、Rust 侧 6 条、
+以及最后的统一收口（`impls` 全表回填 / CHANGELOG 行为变更段 / README 静默清单改写 /
+TODO 的 W16 行）。
+
+### 4.1 A1 / A2（JSON 桥失败不写进 err）的口径说明
+
+`sml_parse(text, err, errsz)` 的**每条**失败路径现在都会带码（含新的词法错误与兜底
+`E-PARSE-012`）。但 `sml_parse_json(text)` 的签名**没有 err 槽位**（`char *sml_parse_json(const char *)`
+是公开 API），调用方只能靠「返回 NULL」判断失败、看不到具体码 —— 要改就得加/改公开接口，
+属对外接口变更，**需用户拍板**，故本批未动。同理 `sml_dump_from_json`。
+
+### 4.2 A3–A6（serde 保真 / 序列化深度 / 诊断出口 / JS 步数预算）
+
+都在别的实现层（`rust/sml-value` 的 serde 桥与序列化、JS 模式引擎），**不在 C 批范围**，
+留给 Rust 侧那 6 条与 JS 余额一起做。
