@@ -27,33 +27,33 @@
   "activationEvents": [
     "onLanguage:sml"
   ],
-  "commands": [
-    {
-      "command": "sml.reloadHighlight",
-      "title": "SML: 重载自定义高亮配置"
-    },
-    {
-      "command": "sml.setHighlightMode",
-      "title": "SML: 设置高亮强度（全部 / 极简 / 关闭）"
-    },
-    {
-      "command": "sml.createHighlightConfig",
-      "title": "SML: 创建 HL-cfg.sml 高亮配置"
-    },
-    {
-      "command": "sml.specialHighlight",
-      "title": "SML: 特别高亮选中词（当前工作区）"
-    },
-    {
-      "command": "sml.clearSpecialHighlight",
-      "title": "SML: 清除特别高亮"
-    },
-    {
-      "command": "sml.selfCheck",
-      "title": "SML: 自检（悬浮 / 跳转 / 高亮没反应时先跑这个）"
-    }
-  ],
   "contributes": {
+    "commands": [
+      {
+        "command": "sml.reloadHighlight",
+        "title": "SML: 重载自定义高亮配置"
+      },
+      {
+        "command": "sml.setHighlightMode",
+        "title": "SML: 设置高亮强度（全部 / 极简 / 关闭）"
+      },
+      {
+        "command": "sml.createHighlightConfig",
+        "title": "SML: 创建 HL-cfg.sml 高亮配置"
+      },
+      {
+        "command": "sml.specialHighlight",
+        "title": "SML: 特别高亮选中词（当前工作区）"
+      },
+      {
+        "command": "sml.clearSpecialHighlight",
+        "title": "SML: 清除特别高亮"
+      },
+      {
+        "command": "sml.selfCheck",
+        "title": "SML: 自检（悬浮 / 跳转 / 高亮没反应时先跑这个）"
+      }
+    ],
     "languages": [
       {
         "id": "sml",

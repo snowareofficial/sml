@@ -516,6 +516,15 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 修复
 
+- **VSCode 扩展：6 条命令从未出现在命令面板（`package.json` 的贡献点写错了位置）**：命令原先
+  声明在**顶层 `commands`** —— 那不是有效贡献点，VS Code **静默忽略**它 ⇒ **命令面板里搜不到
+  任何 SML 命令**（右键菜单仍可用，因为它走 `contributes.menus`，与 commands 声明无关）。
+  已整块搬进 **`contributes.commands`**（26 行纯位移，diff 干净）。
+  ⚠️ 为什么一直没发现：**发布闸门也在读顶层 `pkg.commands`** —— 等于「校验了一个没人看的键」，
+  于是一路绿灯。闸门已改成**双向断言**（声明↔实现各自互为子集），并新增一条回归闸门：
+  **顶层 `commands` 必须不存在**。反向联调验证过：把顶层 `commands` 加回去 ⇒ 闸门报
+  `✗ 命令声明在 contributes.commands（顶层 commands 是无效键）` 且 rc=1。
+
 - ⚠️ **C++ 解析器四处静默错解（2026-09-19，与 W4 同批）**：
   1. **`$env.X` 在值位置被拆成两个 token** ⇒ 值退化成 `null`，而 `env.X` 掉到**键位置凭空造出一个键**
      （`examples/secrets.sml`：`resendApiKey: null` + `env.RESEND_API_KEY: env.RESEND_API_KEY`）。
