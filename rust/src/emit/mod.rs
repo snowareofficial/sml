@@ -26,12 +26,40 @@
 //!   被后端用来选择语义，而非当作普通字段输出。
 
 use crate::Value;
+use sml_codes::{SmlError, E_CLI_007, E_LIMIT_004};
 
 /// 递归深度上限。与解析侧 `MAX_VALUE_DEPTH` 保持一致：公开 `Value` 类型
 /// 可被不可信输入（如 C-ABI `json_to_value` 无深度限制）构造为任意深嵌套，
 /// 任一 emit 后端若不设深度上限会在递归序列化时栈溢出（abort 宿主）。
 /// 超过此深度时后端返回 `Err` 而非崩溃。
 pub(crate) const MAX_VALUE_DEPTH: usize = 128;
+
+// ---------------------------------------------------------------------------
+// 带码错误辅助（各后端共用）
+//
+// emit 后端返回 `Result<_, SmlError>` 而不是 `Result<_, String>`：**码必须
+// 由产生它的后端带上**。历史上这里返回无码 `String`，调用方（smltools）
+// 只能靠**文案前缀**猜码 —— 上游一改文案，码就静默退化成兜底码，而测试
+// 因为喂的是手写字面量照样绿。把 `SmlError` 作为返回类型，码与文案同时
+// 出自后端本身，调用方无需（也无法）再猜。
+// ---------------------------------------------------------------------------
+
+/// 各后端共用的递归深度错误：`E-LIMIT-004`（递归深度超过上限，翻译后端共用）。
+pub(crate) fn depth_error(backend: &str) -> SmlError {
+    SmlError::new(
+        E_LIMIT_004,
+        format!("{backend}: 递归深度超过上限 {}", MAX_VALUE_DEPTH),
+    )
+}
+
+/// 未归类到更具体码的输出后端错误：`E-CLI-007`（输出后端报错，内层原因见原始错误）。
+///
+/// 各后端**自身**的失败（表格缺 `header`、Slint 属性类型非法、LaTeX 危险原语、
+/// Markdown 拒绝 HTML 透传标签等）都归此码；预算类/规则类错误已在各自位置
+/// 直接带 `E-LIMIT-*` / `E-EXT-*`，不经这里。
+pub(crate) fn backend_error(msg: impl Into<String>) -> SmlError {
+    SmlError::new(E_CLI_007, msg)
+}
 
 /// 转译选项。各后端可解释其关心的字段，未识别字段忽略。
 #[derive(Debug, Clone)]

@@ -22,9 +22,10 @@
 
 use crate::Value;
 use crate::emit::{
-    EmitOptions, escape_xml_attr, escape_xml_text, scalar_text, block_type, sanitize_xml_name,
-    sanitize_xml_attr_name, sanitize_xml_uri, is_uri_attr, MAX_VALUE_DEPTH,
+    depth_error, EmitOptions, escape_xml_attr, escape_xml_text, scalar_text, block_type,
+    sanitize_xml_name, sanitize_xml_attr_name, sanitize_xml_uri, is_uri_attr, MAX_VALUE_DEPTH,
 };
+use sml_codes::SmlError;
 
 /// 数值属性：仅接受整数/浮点，拒绝任意非数字字符串（防止属性注入）。
 /// 返回 `Some(s)` 表示合法数值字符串；`None` 表示该字段不是数字，应跳过。
@@ -97,7 +98,7 @@ impl SvgOptions {
     }
 }
 
-pub fn to_svg(v: &Value, opt: &SvgOptions) -> Result<String, String> {
+pub fn to_svg(v: &Value, opt: &SvgOptions) -> Result<String, SmlError> {
     let mut out = String::new();
     if opt.base.standalone {
         out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
@@ -124,9 +125,9 @@ fn emit_svg_node(
     depth: usize,
     is_root: bool,
     out: &mut String,
-) -> Result<(), String> {
+) -> Result<(), SmlError> {
     if depth > MAX_VALUE_DEPTH {
-        return Err(format!("svg: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
+        return Err(depth_error("svg"));
     }
     let pad = " ".repeat(depth * opt.base.indent);
     // SML merges repeated blocks of the same name into an array
