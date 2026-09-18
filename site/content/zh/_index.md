@@ -12,7 +12,8 @@ translationKey: "zh-home"
 
 **SML（SNOWARE Markup Language）** 是一种声明式数据 / 配置格式，定位为 JSON / YAML / TOML 的轻量替代品。它强调**可读性**与**少仪式感**：引号可选、块冒号可省、逗号可选、支持片段继承与契约校验。
 
-> 仓库：[snoware/sml](https://gitee.com/snoware/sml) ｜ **参考实现：Rust (`swsml`)** ｜ 实验性实现（暂不保证）：C (`sml.c`) · JavaScript (`sml.mjs`) · Lua (`lib/sml.soup`) · C++ · Python
+> 仓库：[snoware/sml](https://gitee.com/snoware/sml) ｜ **参考实现：Rust (`swsml`)** ｜ 其它实现：C (`sml.c`) · C++ (`sml.cpp`) · JavaScript (`sml.mjs`) · Lua (`lib/sml.soup`) · Python
+> **五端同码**：同一类错误在 Rust / C / C++ / JS / Lua 上报**同一个错误码**（[码表 141 条](/errors)，2026-09 起静默点全部改为显式报错）
 
 ## 特性一览
 
