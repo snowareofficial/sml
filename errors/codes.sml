@@ -106,7 +106,7 @@ codes: [
     { id: E-PARSE-001 domain: PARSE severity: E title: "未闭合的块或数组"
       msg: "未闭合的块或数组，遇到文件结尾"
       impls: [ rust cpp c js lua ] status: partial
-      note: "Rust 另分契约体与 `@for` 循环体两种未闭合；JS 只在数组类型简写 `[T]` 缺 `]` 时报错，普通块或数组到文件结尾会静默返回。**C、C++ 与 Lua 原先也静默（声明与实现不符），W10 期间补齐**：C/C++ 覆盖块 / 数组 / 契约体三种，Lua 覆盖块 / 数组两种（Lua 无契约体语法）；三端顶层裸块到 EOF 收尾都算合法" }
+      note: "Rust 另分契约体与 `@for` 循环体两种未闭合；JS 只在数组类型简写 `[T]` 缺 `]` 时报错，普通块或数组到文件结尾会静默返回。**C、C++ 与 Lua 原先也静默（声明与实现不符），W10 期间补齐**：C/C++ 覆盖块 / 数组 / 契约体三种，Lua 覆盖块 / 数组两种（Lua 原先没有契约体，W20 补上后也覆盖契约体）；三端顶层裸块到 EOF 收尾都算合法" }
     { id: E-PARSE-002 domain: PARSE severity: E title: "闭合符错配"
       msg: "块或数组未正确闭合：期望一个符号，却遇到另一个"
       impls: [ rust ] status: partial
@@ -176,22 +176,22 @@ codes: [
       note: "`in` 之后至少须有一个枚举项" }
     { id: E-PARSE-019 domain: PARSE severity: E title: "指令头语法非法"
       msg: "指令头语法非法：`@contract` / `@is` / `@type` 后缺少契约名、类型名或模式体"
-      impls: [ rust js ] status: partial
+      impls: [ rust js lua ] status: partial
       note: "JS 侧对应「@contract 后须契约体」「@type 后须类型名」「@is 后须契约名」等文案" }
     { id: E-PARSE-020 domain: PARSE severity: E title: "片段参数语法非法"
       msg: "片段参数非法：`type` 或 `name` 参数后缺少取值，或同一参数重复"
       impls: [ rust ] status: partial }
     { id: E-PARSE-021 domain: PARSE severity: E title: "default 缺取值"
       msg: "`default` 修饰符后缺少取值"
-      impls: [ rust cpp js ] status: partial
+      impls: [ rust cpp js lua ] status: partial
       note: "JS 侧报「期望字面量」（与 E-PARSE-022 共用同一处检查）；C++ 在 W10 期间补进 impls" }
     { id: E-PARSE-022 domain: PARSE severity: E title: "数值边界取值非数字"
       msg: "`min` 或 `max` 的边界取值不是数字"
-      impls: [ rust c cpp js ] status: partial
+      impls: [ rust c cpp js lua ] status: partial
       note: "取值非有限数的情形见 E-CONTRACT-010。C 与 C++ 在 W10 期间补齐；此前 C 更糟：`max abc` 把非法边界当 0，报的是 **E-CONTRACT-005 这个错码**（把合法值判成越界）" }
     { id: E-PARSE-023 domain: PARSE severity: E title: "enum 后不是数组"
       msg: "`enum` 后须为数组"
-      impls: [ rust cpp ] status: partial
+      impls: [ rust cpp lua ] status: partial
       note: "C++ 报「enum needs ...」；取值不在列表内是另一条码（E-CONTRACT-006）" }
     { id: E-PARSE-024 domain: PARSE severity: E title: "契约定义内字段规格语法非法"
       msg: "契约定义里的字段规格语法非法：类型为空、数组或枚举缺少闭合、字段名为空"
@@ -285,25 +285,25 @@ codes: [
     # ================= 契约（语言层） =================
     { id: E-CONTRACT-001 domain: CONTRACT severity: E title: "未定义的契约"
       msg: "引用了未定义的契约"
-      impls: [ rust c cpp js ] status: partial
+      impls: [ rust c cpp js lua ] status: partial
       note: "含字段引用了未定义契约的嵌套情形；C++ 报「unknown contract」" }
     { id: E-CONTRACT-002 domain: CONTRACT severity: E title: "字段类型不符"
       msg: "字段类型应为期望类型，实际为其它类型"
-      impls: [ rust c cpp js ] status: partial
+      impls: [ rust c cpp js lua ] status: partial
       note: "JS 报「类型错误：期望某类型，实得某类型」；C++ 按期望类型分别报" }
     { id: E-CONTRACT-003 domain: CONTRACT severity: E title: "必填字段缺失"
       msg: "字段必填但缺失"
-      impls: [ rust c cpp js ] status: partial }
+      impls: [ rust c cpp js lua ] status: partial }
     { id: E-CONTRACT-004 domain: CONTRACT severity: E title: "未声明字段（严格模式）"
       msg: "字段未在契约中声明；确需放宽请在契约名后写 loose"
-      impls: [ rust c cpp js ] status: partial }
+      impls: [ rust c cpp js lua ] status: partial }
     { id: E-CONTRACT-005 domain: CONTRACT severity: E title: "数值越界"
       msg: "字段值小于下界或大于上界"
-      impls: [ rust c cpp js ] status: partial
+      impls: [ rust c cpp js lua ] status: partial
       note: "取值非有限数的情形是 E-CONTRACT-010" }
     { id: E-CONTRACT-006 domain: CONTRACT severity: E title: "枚举取值非法"
       msg: "取值不在枚举列表内"
-      impls: [ rust c cpp js ] status: partial
+      impls: [ rust c cpp js lua ] status: partial
       note: "C 侧注释里专门论证了「必须与 E-CONTRACT-002 区分」；W10 期间核实 C 确实在报，故补进 impls" }
     { id: E-CONTRACT-007 domain: CONTRACT severity: E title: "外置类型校验失败"
       msg: "字段不符合扩展类型的要求"
@@ -311,7 +311,7 @@ codes: [
       note: "失败原因由注册方提供，随消息一并返回" }
     { id: E-CONTRACT-008 domain: CONTRACT severity: E title: "组合字段应为块"
       msg: "字段应为块并按该契约校验，实际不是块"
-      impls: [ rust c cpp js ] status: partial
+      impls: [ rust c cpp js lua ] status: partial
       note: "C++ 报「contract applied to non-object」；C 侧 W10 期间核实确实在报，补进 impls" }
     { id: E-CONTRACT-009 domain: CONTRACT severity: E title: "自定义类型格式不符"
       msg: "字段的值不符合该类型的格式要求"
@@ -319,7 +319,7 @@ codes: [
       note: "含要求字符串却给了数字（号码、编号、身份证需引号）与值过长拒绝校验；模式编译或匹配失败也归此码" }
     { id: E-CONTRACT-010 domain: CONTRACT severity: E title: "数值约束取值为非有限数"
       msg: "字段的值为非有限数，不能作为数值约束的取值"
-      impls: [ rust c cpp ] status: partial
+      impls: [ rust c cpp lua ] status: partial
       note: "JS 侧未见对应检查。C 与 C++ 在 W10 期间补齐：min/max 边界取到 nan/1e400 时同报此码（此前 C 静默、C++ 把边界吞掉）" }
     { id: E-CONTRACT-011 domain: CONTRACT severity: E title: "外置修饰符校验失败"
       msg: "字段不符合扩展修饰符的要求"
@@ -327,7 +327,7 @@ codes: [
       note: "与 E-CONTRACT-007（外置**类型**）区分：修饰符与类型是两套注册点" }
     { id: E-CONTRACT-012 domain: CONTRACT severity: E title: "未知数组元素类型"
       msg: "数组元素类型名未知，且不是已注册的扩展类型"
-      impls: [ rust ] status: partial }
+      impls: [ rust lua ] status: partial }
     { id: E-CONTRACT-013 domain: CONTRACT severity: E title: "模式定义非法"
       msg: "模式定义非法：未知字符类、未知量词、不支持的元素，或无法识别的元素"
       impls: [ rust js ] status: partial
@@ -385,6 +385,11 @@ codes: [
       msg: "include 预处理阶段的词法失败"
       impls: [ rust cpp ] status: done
       note: "与文档正文的词法错误（E-LEX-*）区分：此处指 include 行在展开前的词法阶段就失败。C++ 原先**丢弃**了子文件的词法错误、把残缺 token 段插进去（未闭合字符串会变成静默截断的文档），W18 改为报此码" }
+
+    { id: E-INCLUDE-012 domain: INCLUDE severity: E title: "include 路径写法非法"
+      msg: "include 路径写法非法（未加引号或含非法字符）"
+      impls: [ smltools ] status: partial
+      note: "smltools 的 include 展开要求路径加引号；未加引号时原先**暂归 E-INCLUDE-001** —— 那是**已知错码**（用户拿 E-INCLUDE-001 去查会看到「文件缺失或读取失败」，被误导），W21 立此码归位。⚠️ 语言层（`sml-include::parse_include_line`）对「未加引号」的判定归它自己的实现，本条目前只有 smltools 落地" }
 
     # ================= 扩展点（语言层） =================
     { id: E-EXT-001 domain: EXT severity: E title: "未注册的指令、类型或修饰符"
@@ -575,6 +580,11 @@ codes: [
     { id: E-CLI-007 domain: CLI severity: E title: "输出后端报错"
       msg: "输出后端报错（内层原因见原始错误）"
       impls: [ smltools ] status: done }
+
+    { id: E-CLI-008 domain: CLI severity: E title: "命令行用法错误"
+      msg: "命令行用法错误：未知参数、缺少取值或取值非法"
+      impls: [ smltools ] status: partial
+      note: "clap 自身的用法错误（未知参数 / 缺取值 / 非法枚举）原先由 clap 直接打印并 exit 2、**不带码**；W21 立此码，让 smltools 接管这层输出（在其消息上补码，不重写 clap 的用法提示）。与 E-CLI-001..007 的区别：那七条是**我们自己**的校验，本条是**解析器/框架**报的用法错误" }
 
     # ================= lint 诊断（工具层） =================
     { id: E-LINT-001 domain: LINT severity: E title: "缩进里出现制表符"
