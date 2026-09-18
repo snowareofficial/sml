@@ -67,6 +67,33 @@ local function has_code(msg)
 end
 
 ------------------------------------------------------------------------------
+-- 深度上限（W15）—— 与其它端**同为 128 层**（Rust `MAX_VALUE_DEPTH`、
+-- C/C++ `SML_MAX_VALUE_DEPTH`），超限报 `E-LIMIT-001`。
+--
+-- 计法：**文档根不算一层**（根 = 0 层）。每进一个块（`a { … }`）或一个数组
+-- （`k: [ … ]`）层数 +1，进入前判 `depth > MAX_VALUE_DEPTH`。于是
+--   `("a { "):rep(128)`（128 层）照常解析；第 129 层起报 E-LIMIT-001。
+-- 为什么用**参数**逐层传递而不是一个可变计数器：
+--   * 变量计数器必须先加后减，一旦哪个提前 return 漏了减，上限就会随着深度
+--     累积而失效；参数在每层栈帧里各自独立，不需要递减，也无从「复位」——
+--     而「超限后把深度复位为 0」正是 C/C++ 踩过的坑（复位不会让栈帧退回去，
+--     外层循环又从 0 往下钻，「每 128 层一轮」反复压栈，10 万层照样打穿栈）。
+--   * 超限时 fail() → error() 会沿 pcall 一路退栈到 Sml.load，中途**没有**
+--     任何 protected call 会拦住它，所以不会留下半截树被当成成功返回。
+-- 无深度参数的调用：`depth == nil` 会让下面的比较当场报 Lua 错（被 Sml.load
+--   的 pcall 兜成 E-PARSE-012）—— 是响的，不是静默放行。**新增递归入口必须
+--   一并把 depth 传下去**，否则就是绕过上限（C++ 的纯块嵌套就是这么被打穿的）。
+------------------------------------------------------------------------------
+local MAX_VALUE_DEPTH = 128
+
+local function enter_depth(depth)
+  if depth > MAX_VALUE_DEPTH then
+    fail("E-LIMIT-001",
+         "嵌套过深（超过 " .. MAX_VALUE_DEPTH .. " 层），疑似递归或恶意输入")
+  end
+end
+
+------------------------------------------------------------------------------
 -- 词法：逐字符扫描，产出 token 流
 --   独立 token：{ } [ ] ,
 --   引号串：保留内部空格/转义
@@ -224,13 +251,15 @@ end
 
 ------------------------------------------------------------------------------
 -- 语法：递归下降
---   parse_block(tokens, i, closing) -> node, next_i
+--   parse_block(tokens, i, closing, fragments, depth) -> node, next_i
 --   node 为 map；遇到 `key:` 后 { -> 子块；[ -> 数组；否则标量。
 --   裸块 `type name { }` -> { __type=type, __name=name, ...body }
+--   depth 为当前嵌套层数（文档根 = 0），见上面 MAX_VALUE_DEPTH 一节。
 ------------------------------------------------------------------------------
 local parse_array  -- 前向声明（在 parse_block 内被调用）
 
-local function parse_block(tokens, i, closing, fragments)
+local function parse_block(tokens, i, closing, fragments, depth)
+  enter_depth(depth)
   local node = {}
   local n = #tokens
   -- 同名 key 冲突时提升为数组（避免静默覆盖，见 Bug 1）
@@ -292,7 +321,7 @@ local function parse_block(tokens, i, closing, fragments)
       end
       if tokens[i] == "{" then
         local sub
-        sub, i = parse_block(tokens, i + 1, "}", fragments)
+        sub, i = parse_block(tokens, i + 1, "}", fragments, depth + 1)
         if ftype then
           sub.__type = ftype
           if fname_arg then sub.__name = fname_arg end
@@ -317,11 +346,11 @@ local function parse_block(tokens, i, closing, fragments)
       local nxt = tokens[i]
       if nxt == "{" then
         local sub
-        sub, i = parse_block(tokens, i + 1, "}", fragments)
+        sub, i = parse_block(tokens, i + 1, "}", fragments, depth + 1)
         set_field(key, sub)
       elseif nxt == "[" then
         local arr
-        arr, i = parse_array(tokens, i + 1, fragments)
+        arr, i = parse_array(tokens, i + 1, fragments, depth + 1)
         set_field(key, arr)
       elseif not colon and nxt ~= nil and nxt ~= "}" and nxt ~= "]" and nxt ~= "," then
         -- 裸块：key 为类型，后续 token 直到 { 为参数
@@ -332,7 +361,7 @@ local function parse_block(tokens, i, closing, fragments)
         end
         if tokens[i] == "{" then
           local sub
-          sub, i = parse_block(tokens, i + 1, "}", fragments)
+          sub, i = parse_block(tokens, i + 1, "}", fragments, depth + 1)
           sub.__type = key
           if #args == 1 then sub.__name = args[1] end
           set_field(key, sub)
@@ -358,7 +387,8 @@ local function parse_block(tokens, i, closing, fragments)
   return node, i
 end
 
-parse_array = function(tokens, i, fragments)
+parse_array = function(tokens, i, fragments, depth)
+  enter_depth(depth)
   local arr = {}
   local n = #tokens
   while i <= n do
@@ -369,7 +399,7 @@ parse_array = function(tokens, i, fragments)
       i = i + 1
     elseif tok == "{" then
       local sub
-      sub, i = parse_block(tokens, i + 1, "}", fragments)
+      sub, i = parse_block(tokens, i + 1, "}", fragments, depth + 1)
       arr[#arr+1] = sub
     else
       arr[#arr+1] = coerce(tok, fragments)
@@ -404,13 +434,14 @@ function Sml.load(text)
     --   - `{ ... }` 顶层对象块
     --   - 键值块（传统形态）
     -- 注：顶层标量不可往返（SML 顶层需为容器），这是格式固有限制。
+    -- 三个顶层入口一律从 depth = 0（文档根）开始，与 Sml 的「128 层」口径一致。
     local first = toks[1]
     if first == "[" then
-      return (select(1, parse_array(toks, 2, fragments)))
+      return (select(1, parse_array(toks, 2, fragments, 0)))
     elseif first == "{" then
-      return (select(1, parse_block(toks, 2, "}", fragments)))
+      return (select(1, parse_block(toks, 2, "}", fragments, 0)))
     end
-    return (select(1, parse_block(toks, 1, nil, fragments)))
+    return (select(1, parse_block(toks, 1, nil, fragments, 0)))
   end)
   if not ok2 then
     -- 已经带码的（fail 抛出的）**原样透出**：它比外层包装具体得多。
