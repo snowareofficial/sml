@@ -47,6 +47,10 @@
     {
       "command": "sml.clearSpecialHighlight",
       "title": "SML: 清除特别高亮"
+    },
+    {
+      "command": "sml.selfCheck",
+      "title": "SML: 自检（悬浮 / 跳转 / 高亮没反应时先跑这个）"
     }
   ],
   "contributes": {
@@ -103,6 +107,11 @@
           "command": "sml.clearSpecialHighlight",
           "when": "sml.specialHighlightActive",
           "group": "navigation@10"
+        },
+        {
+          "command": "sml.selfCheck",
+          "when": "editorLangId == sml",
+          "group": "navigation@11"
         }
       ]
     },
