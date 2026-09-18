@@ -312,6 +312,58 @@ function reportVendor() {
   }
 }
 
+/// 「.sml 文件没被当成 SML 打开」是「悬浮 / 诊断 / 补全 / 右键菜单**全都没反应**」的
+/// 头号原因，而且它**不留任何痕迹**：
+///   · provider 是按语言选择器（`{ language: "sml" }`）注册的 ⇒ 语言不符就不会被调用；
+///   · 右键菜单项带 `when: editorLangId == sml` ⇒ 直接不显示；
+///   · TextMate 语法也绑在 `sml` 这个语言上 ⇒ 连高亮都不生效。
+/// 于是「扩展坏了」和「文件没被识别」看起来一模一样。这里把它变成一句话 + 一个按钮。
+/// 注意：`workspaceContains:**/*.sml` 让扩展在**工作区里有 .sml 时**也会激活 ——
+/// 否则语言模式不对时扩展压根不激活，这段检查根本跑不到（鸡生蛋问题）。
+function initLanguageGuard(context) {
+  const warned = new Set();
+  const check = async (doc) => {
+    if (!doc || !/\.sml$/i.test(doc.fileName || "")) return;
+    if (doc.languageId === "sml") return;
+    const key = doc.uri.toString() + "@" + doc.languageId;
+    if (warned.has(key)) return;
+    warned.add(key);
+    log(`⚠️ ${doc.fileName} 当前语言模式是「${doc.languageId}」—— SML 的悬浮 / 诊断 / 补全 / 右键菜单都不会生效`);
+    const pick = await vscode.window.showWarningMessage(
+      `SML：这个 .sml 文件的语言模式是「${doc.languageId}」，所以悬浮 / 诊断 / 右键菜单都没有反应。`,
+      "设为 SML",
+      "打开自检"
+    );
+    if (pick === "设为 SML") {
+      try {
+        await vscode.languages.setTextDocumentLanguage(doc, "sml");
+        log("已把该文件语言模式改为 sml ✓");
+      } catch (e) {
+        log("改语言模式失败：" + (e && e.message));
+        log("  ⇒ 本窗口没有注册 `sml` 语言 ⇒ 扩展**没有被加载**（被禁用 / 受限模式 / 未安装），此时连右键菜单都不会出现。");
+        vscode.window.showErrorMessage(
+          "改不成功：本窗口没有注册 SML 语言 —— 扩展没被加载（检查是否被禁用、是否处于受限模式）。"
+        );
+      }
+    } else if (pick === "打开自检") {
+      vscode.commands.executeCommand("sml.selfCheck");
+    }
+  };
+  context.subscriptions.push(vscode.workspace.onDidOpenTextDocument((d) => check(d)));
+  vscode.workspace.textDocuments.forEach((d) => check(d));
+  // 启动时先报一句「sml 语言是否已注册」—— 这是「扩展到底加载了没有」的判据
+  if (vscode.languages.getLanguages) {
+    vscode.languages.getLanguages().then(
+      (langs) => {
+        const has = langs.includes("sml");
+        log("SML 语言已注册：" + (has ? "✓" : "✗ —— 扩展没被加载（被禁用 / 受限模式 / 未安装），此时连右键菜单都不会出现"));
+        if (!has) log("  ⇒ 修复：扩展面板里确认 snoware.sml-lang 已启用、未被「限制模式」拦下，然后重启窗口。");
+      },
+      () => {}
+    );
+  }
+}
+
 /// 自检：把「为什么没反应」的每一环摊开写进「输出 → SML」。
 /// 它只**报告**，不做任何修改 —— 排查工具不该顺手改状态。
 function initSelfCheck(context) {
@@ -342,6 +394,13 @@ function initSelfCheck(context) {
       const need = ["sml.specialHighlight", "sml.clearSpecialHighlight", "sml.selfCheck"];
       log("命令注册：" + need.map((c) => c + (cmds.includes(c) ? " ✓" : " ✗")).join("  "));
       if (!cmds.includes("sml.specialHighlight")) log("  ⇒ 缺 `sml.specialHighlight` ⇒ **装的是旧包**，重装 VSIX 即可");
+
+      // `sml` 语言是否已注册：判「扩展到底加载了没有」。没注册时，语言模式改不回 SML，
+      // 右键菜单也不会出现 —— 这是「看起来像扩展坏了」的另一种真身。
+      try {
+        const langs = await vscode.languages.getLanguages();
+        log("SML 语言已注册：" + (langs.includes("sml") ? "✓" : "✗ —— 扩展没被加载（被禁用 / 受限模式 / 未安装）"));
+      } catch { /* 拿不到不影响后续 */ }
 
       const ed = vscode.window.activeTextEditor;
       if (!ed) {
@@ -689,6 +748,7 @@ function activate(context) {
 
   // —— 自检：把「为什么没反应」摊开写进「输出 → SML」——
   initSelfCheck(context);
+  initLanguageGuard(context);
 
   // —— 自定义高亮：HL-cfg.sml + 强度开关（见 src/highlight.js）——
   require("./highlight.js").initHighlight(context);

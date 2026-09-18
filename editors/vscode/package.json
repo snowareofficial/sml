@@ -25,7 +25,8 @@
   ],
   "main": "./src/extension.js",
   "activationEvents": [
-    "onLanguage:sml"
+    "onLanguage:sml",
+    "workspaceContains:**/*.sml"
   ],
   "contributes": {
     "commands": [

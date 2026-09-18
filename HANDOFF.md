@@ -1642,3 +1642,44 @@ hover 到底返回什么、命令有没有接线，全是盲区。于是本轮�
 （`FINDSTR: Cannot open ;`），于是「造坏→跑闸门→还原」这种原子操作被拆散，`package.json`
 真的被留在坏状态里（备份也备了坏状态）。**结论**：需要「改→测→还原」的联调，一律写进
 **一个 python 脚本**里用 `try/finally` 保证还原，别用 shell 链。
+
+### 22.11 「悬停/右键全无反应」的查法 + 「字段组合高亮」的真 bug（2026-09-19）
+
+**先查资料（用户要求）**，三条结论都改变了判断：
+
+| 出处 | 结论 | 对本仓库的意义 |
+|---|---|---|
+| [Activation Events](https://code.visualstudio.com/api/references/activation-events) | **1.74 起**，你自己贡献的语言/命令/视图/自定义编辑器**会自动激活**，不必写 `onLanguage` | `activationEvents: onLanguage:sml` 冗余但无害；**但语言模式不是 `sml` 时，就什么都不激活** |
+| [Contribution Points](https://code.visualstudio.com/api/references/contribution-points) | `contributes.menus` 的 `when` 只影响**该菜单**；`editor/context` 默认分组 `navigation` 排最前（我们在 `navigation@10/11`）；**菜单引用命令不要求命令先声明在 `contributes.commands`** | 与 §22.10 完全吻合：命令面板那条路死了，右键那条路仍活着 |
+| [Writing a VS Code extension in ES modules (2025)](https://jan.miksovsky.com/posts/2025/03-17-vs-code-extension.html) | CJS 入口 + **动态 `import()` 载入 ESM** 是社区标准做法（`vscode` 模块只能在 CJS 侧取） | 本扩展「CJS + 动态 import 桥接层」的架构**不是问题源**，可以放心 |
+
+**① 「字段组合的高亮有问题」= 真 bug，已修**：`#key` 整个 match 被 `^\s*` 锚在**行首** ⇒
+同一行的第二个及以后的字段一律不着色。用仓库现成的**真实 Oniguruma 探针**
+（`scripts/_verify_tokenize.mjs` 的骨架，拷成 `_probe_key.mjs`，`_` 开头不入库）实测：
+
+| 写法 | 改前 | 改后 |
+|---|---|---|
+| `web { host: a, port: 8080 }` | `host✗ port✗` | `host✓ port✓` |
+| `web { host: a port: 8080 }`（无逗号） | `host✗ port✗` | `host✓ port✓` |
+| `address { city: Shanghai  zip: "200120" }`（语料原句） | `city✗ zip✗` | `city✓ zip✓` |
+| `m: [ { a: 1, b: 2 } ]` | `a✗ b✗` | `a✓ b✓` |
+| `a: 1 b: 2` | `b✗` | `b✓` |
+| 负向 `m: [ hello, world ]` / `issuer: https://x` / `# 注释里 foo:` | 均无色 | **仍无色** ✓ |
+
+三分支 + 两道保险：`(?<!:)` 挡住值里的冒号（`url: https://…` 的 `https` 不着键色）、
+`(?=:)` 挡住数组裸值。**注意**：`_verify_grammar.mjs`（JS 侧镜像）原来读 `repo.key.match`，
+改成分支数组后它**静默漏检**（报 `数据键名 -> (none)`）—— 这说明「闸门要跟着结构走」，
+已改成多分支联合 + 全局扫描 + 新增 3 条用例。
+
+**② 「悬停/右键都无效」的头号真身：文件没被当成 SML**。语言模式 ≠ `sml` ⇒ provider 不被调用、
+右键项被 `when` 藏掉、语法也不生效 —— **三件事一起坏**，与「扩展坏了」无法区分。已加：
+`workspaceContains:**/*.sml` 激活事件（否则语言模式不对时扩展压根不激活，检查跑不到 =
+鸡生蛋）+ 语言守卫（发现 `.sml` 却是别的语言模式就弹警告并给「设为 SML」按钮）+
+自检面板报 `SML 语言已注册：✓/✗`（✗ = 扩展没被加载）。假宿主里做了**全链路验证**：
+`plain.sml`（languageId=`plaintext`）→ 警告弹出 → 点「设为 SML」→ `languageId` 变 `sml` ✓。
+
+⚠️ **新踩的坑（比上次那个更隐蔽）**：`修改→跑闸门 | findstr ... && 打包` —— **管道会把退出码
+吃掉**（`A | findstr` 的 rc 是 findstr 的）。于是 `_prepublish.mjs` 明明报了
+`FAIL grammar 正则层 / 1 FAILED`（真闸门，`exit(failed?1:0)`），后面的 `vsce package`
+**照样执行了**，只有人眼能从输出里看出不对。**结论**：依赖退出码的串联，一律**不加管道**；
+要过滤输出就重定向到文件、跑完再读文件。

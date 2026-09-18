@@ -37,7 +37,12 @@ const rules = {
   "枚举": new RegExp(repo["contract-enum"].match),
   "类型": new RegExp(repo["contract-type"].match),
   "修饰符": new RegExp(repo["contract-modifier"].match),
-  "数据键名": new RegExp(repo.key.match),
+  // `#key` 是多分支（行首 / 紧跟 `{` 或 `,` / 空格分隔的后续键），JS 侧合并成
+  // 一个**全局**联合体做镜像检查：只要该行里**任意一个**匹配的组含有期望词，就算命中。
+  "数据键名": new RegExp(
+    (repo.key.patterns ? repo.key.patterns.map((p) => "(?:" + p.match + ")") : [repo.key.match]).join("|"),
+    "g"
+  ),
 };
 
 const cases = [
@@ -78,20 +83,37 @@ const cases = [
   ["承诺时限: int min 1 max 90", "类型", "int"],
   ["承诺时限: int min 1 max 90", "修饰符", "min"],
   ["区划代码: \"330106\"", "数据键名", "区划代码"],
+  // 同一行多个字段（「字段组合」）：非行首的键也要命中
+  ["web { host: a, port: 8080 }", "数据键名", "port"],
+  ['address { city: Shanghai  zip: "200120" }', "数据键名", "zip"],
+  ["m: [ { a: 1, b: 2 } ]", "数据键名", "b"],
 ];
 
 let fail = 0;
 for (const [src, rule, expect, negated] of cases) {
-  const m = src.match(rules[rule]);
-  let got = "";
-  if (m) {
-    for (let i = 1; i < m.length; i++) if ((m[i] || "").includes(expect)) got = m[i];
-    if (!got) got = m[0];
+  const re = rules[rule];
+  re.lastIndex = 0;
+  const hits = [];
+  if (re.global) {
+    let x;
+    while ((x = re.exec(src)) !== null) {
+      hits.push(x);
+      if (x[0].length === 0) re.lastIndex++;   // 防零宽匹配死循环
+    }
+  } else {
+    const x = src.match(re);
+    if (x) hits.push(x);
   }
-  const ok = negated ? !m : m && got.includes(expect);
+  // 全局规则下「任意一个匹配的任意一组含期望词」即算命中（同一行多字段就靠这个）
+  let got = "";
+  for (const x of hits) {
+    for (let i = 0; i < x.length; i++) if ((x[i] || "").includes(expect)) got = x[i];
+    if (!got && x[0].includes(expect)) got = x[0];
+  }
+  const ok = negated ? hits.length === 0 : hits.length > 0 && got.includes(expect);
   if (!ok) fail++;
   const tag = negated ? " (期望不匹配)" : "";
-  console.log(`${ok ? "ok  " : "FAIL"}  ${rule.padEnd(18)} ${src.padEnd(52)} -> ${got || "(none)"}${ok && negated ? " ✓未命中" : ""}`);
+  console.log(`${ok ? "ok  " : "FAIL"}  ${rule.padEnd(18)} ${src.padEnd(52)} -> ${got || (hits[0] ? hits[0][0] : "(none)")}${ok && negated ? " ✓未命中" : ""}`);
 }
 
 // 分色断言：声明与调用必须不同 scope
