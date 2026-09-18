@@ -108,3 +108,35 @@ node_modules/
 # 任意层级的临时/调试脚本（_ 开头，非库代码，勿提交）
 **/_*
 
+# ── `**/_*` 的精确例外 ────────────────────────────────────────────────────
+# 上面这条规则的本意是挡「本机临时探针」，但它连带挡掉了下面这些**必须入库**的文件。
+# 判据不是「文件名像不像临时脚本」，而是「有没有被引用 / 是不是纯产物」，
+# 每条单独注明理由。**凡自述「一次性 / 临时（_ 开头不入库）」或硬编码本机绝对路径的
+# 一律不放行**（tools/_*、site/tools/_*、story/_validate_novel.py、
+# editors/vscode/scripts/_probe*.py 均属此类，维持忽略）。
+
+# 1) Cloudflare Pages 的部署配置：static/_headers 里是跨域放行规则（CORS / CORP /
+#    Content-Type）。Hugo 构建时会把 static/ 原样拷到 public/，Pages 再据此发响应头。
+#    它**本身就是站点构建的输入**，丢了它 ⇒ 换机器或 CI 构出来的站点没有这批响应头，
+#    外部站点 import "https://sml.swebase.cn/lib/sml.mjs" 会被 CORS 拦掉。
+#    引用处：site/build_site.py:26（「放行头见 static/_headers」）、TODO.md:242。
+!site/static/_headers
+
+# 2) tree-sitter python 绑定的包入口（tree-sitter generate 产出，共 5 行）。
+#    同目录的 binding.c 与 py.typed 已经入库，唯独缺 __init__.py ⇒
+#    `import tree_sitter_sml` 直接失败，仓库里的 python 绑定是残的；
+#    同理缺 .pyi ⇒ 类型提示丢失。其它语言绑定（go/node/rust/swift）都已入库。
+!editors/zed/grammars/sml/bindings/python/tree_sitter_sml/__init__.py
+!editors/zed/grammars/sml/bindings/python/tree_sitter_sml/__init__.pyi
+
+# 3) VSCode 扩展的发布闸门与校验脚本（手写的持久工具，非一次性探针）。
+#    它们不引入新的安全风险，也不含本机绝对路径；缺了它们「发布前在真实 Oniguruma
+#    引擎上验证高亮」这道硬门槛就无法复现。注意：目前仓库里**尚未有任何文件引用**
+#    它们（package.json 只引用 scripts/sync-parser.py），是否保留由后续决定。
+!editors/vscode/scripts/_prepublish.mjs
+!editors/vscode/scripts/_verify_grammar.mjs
+!editors/vscode/scripts/_verify_tokenize.mjs
+!editors/vscode/scripts/_verify_hlcfg.mjs
+!editors/vscode/scripts/_verify_ext.mjs
+!editors/vscode/scripts/_gen_seti_theme.py
+
