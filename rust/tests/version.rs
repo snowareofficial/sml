@@ -25,7 +25,7 @@ fn v3_bareword_string_rejected() {
     let r = parse("@version v3\nname: John\n");
     assert!(r.is_err(), "v3 裸词字符串应被拒绝: {:?}", r);
     let msg = r.unwrap_err();
-    assert!(msg.contains("引号") || msg.contains("\""), "错误信息应提示加引号: {msg}");
+    assert!(msg.message().contains("引号") || msg.message().contains("\""), "错误信息应提示加引号: {msg}");
 }
 
 #[test]
@@ -53,7 +53,7 @@ fn v3_undefined_fragment_is_error() {
     // v3 下未定义片段引用同样报错，不再静默降级为字符串
     let r = parse("@version v3\nref: &frag\n");
     assert!(r.is_err());
-    assert!(r.unwrap_err().contains("未定义的片段引用"));
+    assert!(r.unwrap_err().message().contains("未定义的片段引用"));
 }
 
 #[test]
@@ -102,7 +102,7 @@ fn parse_allowed_rejects_out_of_range() {
     let r = parse_allowed("@version v3\nname: \"John\"\n", &[Version::V1]);
     assert!(r.is_err(), "超出版本范围应拒绝");
     let msg = r.unwrap_err();
-    assert!(msg.contains("版本范围"), "应提示版本范围: {msg}");
+    assert!(msg.message().contains("版本范围"), "应提示版本范围: {msg}");
 }
 
 #[test]

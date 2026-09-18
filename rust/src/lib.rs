@@ -184,15 +184,16 @@ mod tests {
     #[test]
     fn unsupported_version_is_rejected() {
         let err = parse_versioned("@version v99\na: 1\n").unwrap_err();
-        assert!(err.contains("不支持"), "应拒绝不支持的版本，got: {err}");
-        assert!(err.contains("v99"), "错误应含版本号，got: {err}");
+        assert!(err.message().contains("不支持"), "应拒绝不支持的版本，got: {err}");
+        assert!(err.message().contains("v99"), "错误应含版本号，got: {err}");
     }
 
     #[test]
     fn conflicting_version_is_rejected() {
         let err = parse_versioned("@version v1\n@version v2\n").unwrap_err();
         // v2 尚未定义，优先报「不支持」
-        assert!(!err.is_empty());
+        assert!(!err.message().is_empty());
+        assert_eq!(err.code(), sml_codes::E_FEATURE_004);
         // 两个都支持但不一致时的路径：v1 与 v1 不冲突
         let (_, ver) = parse_versioned("@version v1\n@version v1\n").unwrap();
         assert_eq!(ver, Version::V1, "重复但一致的声明应被接受");
@@ -201,7 +202,7 @@ mod tests {
     #[test]
     fn version_is_reserved_as_fragment_name() {
         let err = parse("@version { x: 1 }\n").unwrap_err();
-        assert!(err.contains("保留") || err.contains("版本声明"), "got: {err}");
+        assert!(err.message().contains("保留") || err.message().contains("版本声明"), "got: {err}");
     }
 
     #[test]
@@ -297,7 +298,7 @@ mod tests {
         std::fs::write(d.join("a.sml"), "include \"b.sml\"\n").unwrap();
         std::fs::write(d.join("b.sml"), "include \"a.sml\"\n").unwrap();
         let err = parse_file(d.join("a.sml")).unwrap_err();
-        assert!(err.contains("循环引用"), "应报循环引用，got: {err}");
+        assert!(err.message().contains("循环引用"), "应报循环引用，got: {err}");
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -306,7 +307,7 @@ mod tests {
         let d = tmpdir("missing");
         std::fs::write(d.join("m.sml"), "include \"nope.sml\"\n").unwrap();
         let err = parse_file(d.join("m.sml")).unwrap_err();
-        assert!(err.contains("nope.sml"), "错误应含缺失文件名，got: {err}");
+        assert!(err.message().contains("nope.sml"), "错误应含缺失文件名，got: {err}");
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -324,7 +325,7 @@ mod tests {
         std::fs::write(d.join("a.sml"), "x: 1\n").unwrap();
         std::fs::write(d.join("main.sml"), "@version v1\ninclude \"*.sml\"\n").unwrap();
         let err = parse_file(d.join("main.sml")).unwrap_err();
-        assert!(err.contains("glob-include"), "应要求 glob-include，got: {err}");
+        assert!(err.message().contains("glob-include"), "应要求 glob-include，got: {err}");
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -349,7 +350,7 @@ mod tests {
         std::fs::write(d.join("a.sml"), "x: 1\n").unwrap();
         std::fs::write(d.join("main.sml"), "@version v1\ninclude \"re:.*\\.sml\"\n").unwrap();
         let err = parse_file(d.join("main.sml")).unwrap_err();
-        assert!(err.contains("regex-include"), "应要求 regex-include，got: {err}");
+        assert!(err.message().contains("regex-include"), "应要求 regex-include，got: {err}");
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -679,7 +680,7 @@ mod tests {
             "超深嵌套必须被拒绝（返回 Err），而不是栈溢出崩溃；实际 {v:?}"
         );
         assert!(
-            v.unwrap_err().contains("嵌套过深"),
+            v.unwrap_err().message().contains("嵌套过深"),
             "错误信息应提示嵌套过深"
         );
     }
@@ -1017,7 +1018,7 @@ mod feature {
     fn feature_unknown_name_errors() {
         let r = parse("@feature enable nope\nx: 1\n");
         assert!(r.is_err());
-        assert!(r.unwrap_err().contains("未知特性"));
+        assert!(r.unwrap_err().message().contains("未知特性"));
     }
 
     #[test]
@@ -1036,7 +1037,7 @@ mod feature {
         // 关掉 bareword-string：v1 文档里裸词字符串也应被拒
         let r = parse("@feature blacklist bareword-string\nx: John\n");
         assert!(r.is_err());
-        assert!(r.unwrap_err().contains("字符串必须加引号"));
+        assert!(r.unwrap_err().message().contains("字符串必须加引号"));
     }
 
     #[test]
@@ -1045,7 +1046,7 @@ mod feature {
         // fragment 特性开启但名字未定义时，必须报错（不再静默降级为字符串）。
         let r = parse("@feature mode whitelist\n@feature enable fragment\nx: &frag\n");
         assert!(r.is_err());
-        assert!(r.unwrap_err().contains("未定义的片段引用"));
+        assert!(r.unwrap_err().message().contains("未定义的片段引用"));
     }
 
     #[test]

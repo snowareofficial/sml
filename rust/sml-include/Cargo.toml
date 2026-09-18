@@ -1,6 +1,8 @@
 [package]
 name = "sml-include"
-version = "0.1.0-alpha.1"
+# 0.1.0-alpha.2：**含不兼容改动** —— 指令解析与 include 展开的错误类型由
+# `String` 改为 `sml_codes::SmlError`（带错误码）。
+version = "0.1.0-alpha.2"
 edition = "2021"
 description = "SML 模块化：include/import 指令解析、glob 与正则匹配、跨文件展开。"
 license = "MulanPSL-2.0"
@@ -11,6 +13,7 @@ readme = "README.md"
 name = "sml_include"
 
 [dependencies]
+sml-codes = { path = "../sml-codes", version = "0.1.0-alpha.1", default-features = false }
 sml-value = { path = "../sml-value", version = "0.1.0-alpha.1", default-features = false }
 sml-lex = { path = "../sml-lex", version = "0.1.0-alpha.1", default-features = false }
 sml-feature = { path = "../sml-feature", version = "0.1.0-alpha.1", default-features = false }

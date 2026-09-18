@@ -8,6 +8,7 @@
 
 use std::collections::BTreeMap;
 
+use sml_codes::SmlError;
 use sml_contract::Contract;
 use sml_value::Value;
 
@@ -24,6 +25,6 @@ pub(crate) fn check(
     node: &mut BTreeMap<String, Value>,
     contracts: &ContractMap,
     path: &str,
-) -> Result<(), String> {
+) -> Result<(), SmlError> {
     apply_contract(c, node, contracts, path)
 }

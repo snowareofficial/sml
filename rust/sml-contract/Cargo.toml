@@ -4,7 +4,7 @@ name = "sml-contract"
 # `TypeSpec` 或以字面量构造 `FieldSpec` 需跟着改）：
 #   - `TypeSpec` 新增 `Ext(String)` 变体
 #   - `FieldSpec` 新增 `ext` 字段（外置类型的校验器）
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 edition = "2021"
 description = "SML 契约系统：@contract 定义与 @is 应用、类型校验、默认值填充、min/max 与枚举约束。"
 license = "MulanPSL-2.0"
@@ -15,6 +15,7 @@ readme = "README.md"
 name = "sml_contract"
 
 [dependencies]
+sml-codes = { path = "../sml-codes", version = "0.1.0-alpha.1", default-features = false }
 # 自定义类型（@type）的模式匹配引擎：无回溯，免疫 ReDoS。
 # 与 sml-value 同层，不引入更重的依赖。
 sml-pattern = { version = "0.1.0-alpha.1", path = "../sml-pattern" }

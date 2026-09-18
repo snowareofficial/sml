@@ -512,9 +512,9 @@ fn parse_with(text: &str, input_path: &Option<PathBuf>, feature: Option<Version>
         Some(p) => {
             let base = p.parent().unwrap_or_else(|| Path::new("."));
             let expanded = expand_includes(text, base)?;
-            parse(&expanded)
+            parse(&expanded).map_err(|e| e.to_string())
         }
-        None => parse(text),
+        None => parse(text).map_err(|e| e.to_string()),
     }
 }
 

@@ -64,7 +64,9 @@ pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
     // ---- 1. 解析 ----
     let parsed = parse(text);
     if let Err(e) = &parsed {
-        report.push(&name, 0, "error", e);
+        // 文案带上错误码（`Display` 会缀上 `[E-...]`）：lint 输出是对外交互面，
+        // 用户据此能查到码表，而不是只能贴一句中文。
+        report.push(&name, 0, "error", &e.to_string());
     }
 
     // ---- 2. 逐行文本检查 ----

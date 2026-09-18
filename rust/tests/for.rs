@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 /// 需要显式 enable，故统一加 `@feature enable for` 头（组合测试还会用到 `when`）。
 const HDR: &str = "@version v1\n@feature enable for\n@feature enable when\n";
 
-fn parse_env(body: &str, vars: &[(&str, &str)]) -> Result<Value, String> {
+fn parse_env(body: &str, vars: &[(&str, &str)]) -> Result<Value, sml::ParseError> {
     let mut env = BTreeMap::new();
     for (k, v) in vars {
         env.insert((*k).to_string(), (*v).to_string());
@@ -36,7 +36,7 @@ fn ok_env(body: &str, vars: &[(&str, &str)]) -> Value {
 fn err_env(body: &str, vars: &[(&str, &str)]) -> String {
     match parse_env(body, vars) {
         Ok(_) => panic!("应失败，实际通过了:\n{HDR}{body}"),
-        Err(e) => e,
+        Err(e) => e.to_string(),
     }
 }
 
@@ -71,7 +71,7 @@ fn for_requires_feature_enable() {
     let v = parse_with_features_env(doc, feats, BTreeMap::new())
         .expect_err("未 enable for 应报错");
     assert!(
-        v.contains("for"),
+        v.message().contains("for"),
         "报错应提示未启用 for，实际: {v}"
     );
 }

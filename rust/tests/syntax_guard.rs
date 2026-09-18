@@ -430,7 +430,7 @@ fn v4_positional_fragment_params_rejected() {
     ] {
         let e = parse(src).unwrap_err();
         assert!(
-            e.contains("type:") && e.contains("name:"),
+            e.message().contains("type:") && e.message().contains("name:"),
             "错误信息应指引显式写法，源码 {src:?}，实际: {e}"
         );
     }
@@ -442,7 +442,7 @@ fn unknown_directive_name_with_block_must_error() {
     for src in ["@nosuch\nblk { x: 1 }\n", "@versoin v1\nblk { x: 1 }\n"] {
         let e = parse(src).unwrap_err();
         assert!(
-            e.contains("type:") || e.contains("不是合法指令"),
+            e.message().contains("type:") || e.message().contains("不是合法指令"),
             "源码 {src:?} 应报错，实际: {e}"
         );
     }
@@ -451,9 +451,9 @@ fn unknown_directive_name_with_block_must_error() {
 #[test]
 fn v4_duplicate_params_rejected() {
     let e = parse("@f type: A type: B { x: 1 }\n").unwrap_err();
-    assert!(e.contains("重复"), "实际: {e}");
+    assert!(e.message().contains("重复"), "实际: {e}");
     let e = parse("@f name: A name: B { x: 1 }\n").unwrap_err();
-    assert!(e.contains("重复"), "实际: {e}");
+    assert!(e.message().contains("重复"), "实际: {e}");
 }
 
 #[test]
@@ -527,7 +527,7 @@ fn is_type_call_form_still_validates() {
     // 类型标注形式不得绕过契约校验
     let src = "@contract 办事人 strict {\n姓名: str\n手机: str\n}\n@is type(办事人)\n姓名: 张三\n";
     let e = parse(src).unwrap_err();
-    assert!(e.contains("手机"), "应报缺失字段 手机，实际: {e}");
+    assert!(e.message().contains("手机"), "应报缺失字段 手机，实际: {e}");
 }
 
 // ---------- 6. 块级类型标注 `<契约名> <块名> { .. }`（opt-in: typed-block） ----------
@@ -559,7 +559,7 @@ fn typed_block_applies_contract_and_defaults() {
 fn typed_block_still_validates() {
     let src = "@feature enable typed-block\n@contract 受理人 strict {\n姓名: str\n手机: str\n}\n受理人 窗口一 {\n姓名: 张三\n}\n";
     let e = parse(src).unwrap_err();
-    assert!(e.contains("手机"), "应报缺失字段 手机，实际: {e}");
+    assert!(e.message().contains("手机"), "应报缺失字段 手机，实际: {e}");
 }
 
 #[test]
@@ -580,7 +580,7 @@ fn typed_block_composes_with_type() {
     // 值格式错误应由 type 层拦下
     let bad = src.replace("13800138000", "23800138000");
     let e = parse(&bad).unwrap_err();
-    assert!(e.contains("手机号"), "type 应拦下非法号码，实际: {e}");
+    assert!(e.message().contains("手机号"), "type 应拦下非法号码，实际: {e}");
 }
 
 #[test]

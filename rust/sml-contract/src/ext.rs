@@ -21,6 +21,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use sml_codes::{E_EXT_002, SmlError};
 use sml_value::Value;
 
 use crate::FieldSpec;
@@ -90,32 +91,44 @@ impl ContractExt {
     }
 
     /// 注册一个外置类型。与内置类型同名、或重复注册，一律报错（不静默覆盖）。
-    pub fn register_type(&mut self, t: impl TypeCheck + 'static) -> Result<(), String> {
+    pub fn register_type(&mut self, t: impl TypeCheck + 'static) -> Result<(), SmlError> {
         let name = t.name().to_string();
         if BUILTIN_TYPES.contains(&name.as_str()) {
-            return Err(format!(
-                "sml: 不可注册与内置类型同名的扩展类型 `{name}`（内置：{}）",
-                BUILTIN_TYPES.join(" / ")
+            return Err(SmlError::new(
+                E_EXT_002,
+                format!(
+                    "sml: 不可注册与内置类型同名的扩展类型 `{name}`（内置：{}）",
+                    BUILTIN_TYPES.join(" / ")
+                ),
             ));
         }
         if self.types.contains_key(&name) {
-            return Err(format!("sml: 扩展类型 `{name}` 已注册"));
+            return Err(SmlError::new(
+                E_EXT_002,
+                format!("sml: 扩展类型 `{name}` 已注册"),
+            ));
         }
         self.types.insert(name, Arc::new(t));
         Ok(())
     }
 
     /// 注册一个外置修饰符。与内置修饰符同名、或重复注册，一律报错。
-    pub fn register_modifier(&mut self, m: impl Modifier + 'static) -> Result<(), String> {
+    pub fn register_modifier(&mut self, m: impl Modifier + 'static) -> Result<(), SmlError> {
         let name = m.name().to_string();
         if BUILTIN_MODIFIERS.contains(&name.as_str()) {
-            return Err(format!(
-                "sml: 不可注册与内置修饰符同名的扩展修饰符 `{name}`（内置：{}）",
-                BUILTIN_MODIFIERS.join(" / ")
+            return Err(SmlError::new(
+                E_EXT_002,
+                format!(
+                    "sml: 不可注册与内置修饰符同名的扩展修饰符 `{name}`（内置：{}）",
+                    BUILTIN_MODIFIERS.join(" / ")
+                ),
             ));
         }
         if self.modifiers.contains_key(&name) {
-            return Err(format!("sml: 扩展修饰符 `{name}` 已注册"));
+            return Err(SmlError::new(
+                E_EXT_002,
+                format!("sml: 扩展修饰符 `{name}` 已注册"),
+            ));
         }
         self.modifiers.insert(name, Arc::new(m));
         Ok(())

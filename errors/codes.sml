@@ -397,6 +397,10 @@ codes: [
       msg: "编辑器定制文档非法：作用域名、规则锚点、颜色取值不符规范"
       impls: [ smltools ] status: done
       note: "覆盖 `--to highlight` 与 `--to tmlanguage` 的输入校验；规则里同时给出同侧两个锚点也算非法（位置无法确定）" }
+    { id: E-EXT-008 domain: EXT severity: E title: "外置指令执行失败"
+      msg: "外置指令处理该输入时失败"
+      impls: [ rust ] status: done
+      note: "失败原因由注册方（`Directive::call` 的返回值）给出，随消息一并返回；与「未注册」（E-EXT-001）、「取值为空」（E-EXT-003）、「返回非对象」（E-EXT-004）区分" }
 
     # ================= 输入输出（宿主绑定层） =================
     { id: E-IO-001 domain: IO severity: E title: "读取失败"
