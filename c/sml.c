@@ -308,7 +308,24 @@ typedef struct {
     size_t n, cap, pos;
     char *errbuf;
     size_t errsz;
+    int failed;      /* 词法错误已记（只记第一条）；sml_parse 见到它立即返回 NULL */
 } lexer;
+
+/* 词法错误写入：**只记第一条**（与 Rust 的 `tokenize()` 返回 Err 即短路同义），
+   码写在消息最前（口径同 set_err）。为什么必须短路：词法与语法共用一个 err 缓冲，
+   若带着词法错误继续解析，解析器写的后续错误会**覆盖**它 —— 用户拿到的码就不是
+   第一个错的码了（W16 之前 C 的 LEX 层根本不报，这个"谁覆盖谁"的问题因此没暴露）。
+
+   复用的 `errbuf`/`errsz` 与 set_err 同一约定：缓冲区为空或大小为 0 时一个字节都不写。 */
+static void lex_err(lexer *lx, const char *fmt, ...) {
+    va_list ap;
+    if (lx->failed) return;
+    lx->failed = 1;
+    if (!lx->errbuf || lx->errsz == 0) return;
+    va_start(ap, fmt);
+    vsnprintf(lx->errbuf, lx->errsz, fmt, ap);
+    va_end(ap);
+}
 
 static void lex_push(lexer *lx, tok_type t, char *v) {
     if (lx->n >= lx->cap) {
@@ -348,26 +365,34 @@ static void lex_run(lexer *lx, const char *text) {
             /* 斜杠斜杠 单行注释到行尾 */
             while (*p && *p != '\n') p++;
         } else if (c == '/' && p[1] == '*') {
-            /* 斜杠星 多行注释，直到 星斜杠 */
+            /* 斜杠星 多行注释，直到 星斜杠。**EOF 未闭合 ⇒ E-LEX-002**
+               （W16：改前静默吃到文件结尾 —— 后面整篇内容凭空消失，一个错都不报）。 */
             p += 2;
+            int closed = 0;
             while (*p) {
-                if (*p == '*' && p[1] == '/') { p += 2; break; }
+                if (*p == '*' && p[1] == '/') { p += 2; closed = 1; break; }
                 p++;
             }
+            if (!closed)
+                lex_err(lx, SML_E_LEX_002 " 未闭合的块注释 /* ... */（遇到文件结尾）");
         } else if (c == '_' && p[1] == '*') {
-            /* `_*` 多行注释，直到 `*_` */
+            /* `_*` 多行注释，直到 `*_`。**EOF 未闭合 ⇒ E-LEX-003**（同上）。 */
             p += 2;
+            int closed = 0;
             while (*p) {
-                if (*p == '*' && p[1] == '_') { p += 2; break; }
+                if (*p == '*' && p[1] == '_') { p += 2; closed = 1; break; }
                 p++;
             }
+            if (!closed)
+                lex_err(lx, SML_E_LEX_003 " 未闭合的块注释 _* ... *_（遇到文件结尾）");
         } else if (c == '"') {
             FLUSH();
             p++;
             char sb[4096];
             size_t slen = 0;
+            int closed = 0;   /* 见过结束引号；否则 EOF ⇒ E-LEX-001 */
             while (*p) {
-                if (*p == '"') { p++; break; }
+                if (*p == '"') { p++; closed = 1; break; }
                 if (*p == '\\' && p[1]) {
                     p++;
                     char e = *p;
@@ -379,27 +404,48 @@ static void lex_run(lexer *lx, const char *text) {
                         case '"': sb[slen++] = '"'; break;
                         case '\\': sb[slen++] = '\\'; break;
                         case 'u': {
+                            /* \uXXXX（定长四位）或 \u{...}。两类失败都报 E-LEX-005：
+                               ① 定长形式**不足 4 位**（改前照收：`"\u12"` 静默变成控制字符
+                                  U+0012，Rust/JS 都报 005，C 是唯一的异类）；
+                               ② 非十六进制、花括号未闭合、空 hex；
+                               ③ 非法码点（代理区 D800-DFFF / 超出 U+10FFFF）——
+                                  put_utf8 会把它们编成非法 UTF-8，正是 Rust
+                                  `char::from_u32` 拒绝的那两类。 */
                             int has_brace = 0;
                             if (*(p + 1) == '{') { has_brace = 1; p++; }
                             unsigned long cp = 0;
-                            int cnt = 0;
+                            int cnt = 0, bad = 0;
                             while (1) {
                                 if (has_brace) {
                                     if (*(p + 1) == '}') { p++; break; }
-                                    if (!*(p + 1)) break;
+                                    if (!*(p + 1)) { bad = 1; break; }
                                 } else {
                                     if (cnt >= 4) break;
                                 }
                                 int h = hexdigit((unsigned char)*(p + 1));
-                                if (h < 0) break;
+                                if (h < 0) { bad = 1; break; }
                                 cp = cp * 16 + (unsigned long)h;
                                 cnt++;
                                 p++;
                             }
-                            put_utf8(sb, &slen, cp);
+                            if (!bad && !has_brace && cnt != 4) bad = 1;
+                            if (!bad && cnt == 0) bad = 1;
+                            if (!bad && (cp > 0x10FFFFUL ||
+                                         (cp >= 0xD800UL && cp <= 0xDFFFUL))) bad = 1;
+                            if (bad)
+                                lex_err(lx, SML_E_LEX_005
+                                        " Unicode 转义非法（位数不足、非十六进制、或非法码点）");
+                            else
+                                put_utf8(sb, &slen, cp);
                             break;
                         }
-                        default:  sb[slen++] = e; break;
+                        default:
+                            /* 未知转义 ⇒ E-LEX-004。改前 default 只把该字符原样收下、
+                               **反斜杠直接丢掉**：`"C:\Users"` 静默变成 `C:Users`
+                               （路径/正则被悄悄改坏）。Rust 与 C++ 同为严格策略。 */
+                            lex_err(lx, SML_E_LEX_004
+                                    " 字符串含未知转义符 \\%c（仅支持 \\n \\t \\r \\0 \\\" \\\\ \\uXXXX）", e);
+                            break;
                     }
                     p++;
                 } else {
@@ -408,6 +454,10 @@ static void lex_run(lexer *lx, const char *text) {
                 if (slen >= sizeof(sb) - 5) break;
             }
             sb[slen] = '\0';
+            /* 未闭合字符串 ⇒ E-LEX-001（改前把余下全文当串内容，静默吞掉整篇）。
+               注意只在**真的遇到文件结尾**时报：上面那个缓冲区保护 break 不属于此条件。 */
+            if (!closed && *p == '\0')
+                lex_err(lx, SML_E_LEX_001 " 字符串未闭合（缺少结束引号）");
             lex_push(lx, T_STR, strdup(sb));
         } else if (c == '{') { FLUSH(); lex_push(lx, T_LBRACE, NULL); p++; }
         else if (c == '}') { FLUSH(); lex_push(lx, T_RBRACE, NULL); p++; }
@@ -569,6 +619,7 @@ static sml_value *parse_block(parser *ps, tok_type closing) {
    却遇到文件结尾」时报 E_PARSE_001，契约体未闭合也归同一条。
    注：顶层（closing==T_EOF）遇到文件结尾是**正常**结束，不算未闭合，不报。 */
 static void err_unclosed(parser *ps, const char *what) {
+    if (ps->failed) return;   /* **第一条错误为准**：别覆盖已经写在 err 里的码 */
     set_err(ps->lx->errbuf, ps->lx->errsz,
             SML_E_PARSE_001 " 未闭合的%s（遇到文件结尾，缺少结束符号）", what);
     ps->failed = 1;
@@ -609,7 +660,16 @@ static sml_value *coerce_word(const char *w, parser *ps) {
                 return sml_clone(f->val);
             }
         }
-        return sml_new_str(w);
+        /* 未定义的片段引用 ⇒ E-INCLUDE-006（W16，与 Rust/JS 同码）。
+           改前这里 `return sml_new_str(w)`：拼错的片段名**静默退化**成普通字符串
+           `"&nosuchfrag"`，下游取值取不到还查不出原因 —— 用户已裁决这类必须报错
+           （"这种不应该出现，堪比 void"）。
+           返回 NULL 是安全的：sml_obj_set 见到 NULL 会跳过该键，且 ps->failed
+           会让各解析循环立刻收手（与 v2 裸词报错那条路径同一处理方式）。 */
+        set_err(ps->lx->errbuf, ps->lx->errsz,
+                SML_E_INCLUDE_006 " 未定义的片段引用 `%s`", w);
+        ps->failed = 1;
+        return NULL;
     }
     /* 数字 */
     char *end = NULL;
@@ -834,8 +894,12 @@ static int apply_contract_name(parser *ps, sml_value *node, const char *name,
     return apply_contract_rec(ps, c, node, err, errsz);
 }
 
-/* 应用契约；失败则置 parser.failed 标志 (不依赖 errbuf 是否有遗留内容) */
+/* 应用契约；失败则置 parser.failed 标志 (不依赖 errbuf 是否有遗留内容)。
+   `ps->failed` 已经是 1 时**直接返回**：块级 `@is` 是在块解析**结束处**应用的，
+   而块体里可能已经报过更具体的错（词法 / 语法 / 未定义片段引用）—— 不加这道
+   闸，后应用的契约错会把它覆盖掉，用户拿到的码就不是第一个错。 */
 static void apply_or_fail(parser *ps, sml_value *node, const char *name) {
+    if (ps->failed) return;
     if (apply_contract_name(ps, node, name, ps->lx->errbuf, ps->lx->errsz) != 0)
         ps->failed = 1;
 }
@@ -1028,12 +1092,18 @@ static sml_value *parse_array_inner(parser *ps) {
             sml_arr_push(arr, sml_new_str(next(ps)->v));
         } else if (t->t == T_WORD) {
             sml_arr_push(arr, coerce_word(next(ps)->v, ps));
+        } else if (t->t == T_RBRACE) {
+            /* 数组里多余的 `}` ⇒ E-PARSE-003（W16 落地；Rust 一直报它，JS 同批已改）。
+               改前这一格落在下面的兜底 else 里**静默跳过**：`m: [ } ]` 得到 `{"m":[]}`，
+               与输入形状不符却毫无提示 —— 属「静默改数据」，正是本批要堵的一类。 */
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_PARSE_003 " 多余的结束符号 `}`，没有与之匹配的开始符号");
+            ps->failed = 1;
+            break;
         } else {
-            /* 兜底：其余 token（例如数组里多余的 `}`）仍然**静默跳过**。
-               ⚠️ 这是已知的端间不一致，**不属 W17 范围，别顺手改**：Rust 对多余的 `}`
-               报 `E-PARSE-003`，而 C 与 JS 一样静默（`m: [ } ]` 实测两端都得到 `{"m":[]}`）。
-               已登记进 errors/README 的静默清单，归 W16 判定「改成报错」还是
-               「写进规范、明确允许静默」。 */
+            /* 兜底：其余 token（孤立 `:` / `@` / `?` / `=` 等）仍**静默跳过**。
+               ⚠️ 不在本批（W16 判定表）范围内，别顺手扩：判定表只把「数组里多余的 `}`」
+               定为改成报错，其余留给后续逐条判定。 */
             next(ps);
         }
     }
@@ -1054,7 +1124,24 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
         }
         if (t->t == T_RBRACE || t->t == T_RBRACK) {
             if (closing == t->t) { next(ps); break; }
-            if (closing == T_EOF) break; /* 顶层遇右括号也停 */
+            if (closing == T_EOF) {
+                /* 顶层（closing==T_EOF）遇到结束符号：没有与之匹配的开始符号 ⇒
+                   E-PARSE-003（W16）。改前这里直接 break：`a: 1` + `}` 静默成功，
+                   而 Rust / JS 都报 003。 */
+                set_err(ps->lx->errbuf, ps->lx->errsz,
+                        SML_E_PARSE_003 " 多余的结束符号 `%s`，没有与之匹配的开始符号",
+                        t->t == T_RBRACE ? "}" : "]");
+                ps->failed = 1;
+                break;
+            }
+            /* 本层期望 `}`，却遇到 `]` ⇒ 闭合符错配 E-PARSE-002（W16）。
+               改前这一格落到下面的 key 分支，`kt->t` 既不是 WORD 也不是 STR 就
+               直接 break —— `a { ] }` 静默得到 `{"a":{}}`（Rust 报 002，JS 同批已改）。 */
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_PARSE_002 " 闭合符错配：期望 `}`，实得 `%s`",
+                    t->t == T_RBRACE ? "}" : "]");
+            ps->failed = 1;
+            break;
         }
         if (t->t == T_COMMA) { next(ps); continue; }
         if (t->t == T_AT) {
@@ -1093,6 +1180,15 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                 int loose = 0;
                 if (peek(ps)->t == T_WORD && strcmp(peek(ps)->v, "loose") == 0) {
                     loose = 1; next(ps);
+                } else if (peek(ps)->t == T_WORD && strcmp(peek(ps)->v, "strict") == 0) {
+                    /* 显式严格（与默认等价，写出来只为可读性/团队规范）—— Rust 与 JS
+                       都接受它（rust/sml-parse/src/parser.rs、js/sml.mjs）。
+                       此前 C **只认 loose**：`@contract X strict { ... }` 会让
+                       parse_contract_body 见不到 `{` 而直接返回 —— 契约字段为空、
+                       紧跟的 `{ ... }` 变成名为 `strict` 的数据块（静默给错树）。
+                       W16 全仓扫描抓到（`_gov_demo.sml`）。这里只做**对齐**，不改语义：
+                       strict ≡ 默认严格。 */
+                    next(ps);
                 }
                 ccontract *c = (ccontract *)calloc(1, sizeof(ccontract));
                 c->name = strdup(cname);
@@ -1124,19 +1220,64 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                 }
                 continue;
             }
-            /* 片段定义: @name [type [name]] { ... } */
-            next(ps);
+            /* 片段定义: `@name { ... }`；参数只认**显式**写法 `type: X` / `name: Y`。
+               ⚠️ **位置参数形式**（`@name X [Y] { ... }`）自 v4 起已废弃 —— 它与
+               「拼错的指令」在 token 流上完全同形、无法判别，故一律报 E-PARSE-005
+               （与 Rust 同判据），而不是猜。
+               改前 C 的行为（两端都不报错）：`@foo bar { x: 1 }` 被**静默**当片段收下
+               （拼错的指令名于是变成数据）；`@foo bar`（无体）**静默丢掉整行**。
+               判据逐字对齐 Rust（`parser.rs` 的 is_param）：
+                 · 只有 `type`/`name` **紧跟冒号**才算参数（`@type { .. }` 仍可定义）；
+                 · 参数读完后既不是 `{` 也不是文件末尾 ⇒ 位置参数形式 ⇒ 005；
+                 · 没有片段体（后面不是 `{`）⇒ 005。 */
+            next(ps);                 /* @ */
             token *ft = next(ps);
-            if (ft->t != T_WORD && ft->t != T_STR) break;
-            char *fname = ft->v;
-            if (peek(ps)->t == T_COLON) next(ps);
-            char *ftype = NULL, *farg = NULL;
-            if (peek(ps)->t == T_WORD) {
-                ftype = next(ps)->v;
-                if (peek(ps)->t == T_WORD) farg = next(ps)->v;
+            if (ft->t != T_WORD && ft->t != T_STR) {
+                /* `@` 后不是名字（如孤立 `@`、`@ {`）：Rust 报 E-PARSE-011，
+                   不属本批（W16 判定表）范围，保持既有的「停止解析本层」行为。 */
+                break;
             }
-            if (peek(ps)->t == T_LBRACE) {
-                next(ps);
+            char *fname = ft->v;
+            char *ftype = NULL, *farg = NULL;
+            int dir_bad = 0;
+            while (peek(ps)->t == T_WORD &&
+                   (strcmp(peek(ps)->v, "type") == 0 || strcmp(peek(ps)->v, "name") == 0) &&
+                   peek_at(ps, 1)->t == T_COLON) {
+                int is_type = (strcmp(peek(ps)->v, "type") == 0);
+                const char *kw = is_type ? "type" : "name";
+                next(ps);   /* type / name */
+                next(ps);   /* : */
+                token *vt = peek(ps);
+                if (vt->t != T_WORD && vt->t != T_STR) {
+                    set_err(ps->lx->errbuf, ps->lx->errsz,
+                            SML_E_PARSE_020 " 片段 `@%s` 的参数 `%s:` 后须值", fname, kw);
+                    ps->failed = 1;
+                    dir_bad = 1;
+                    break;
+                }
+                if ((is_type ? ftype : farg) != NULL) {
+                    set_err(ps->lx->errbuf, ps->lx->errsz,
+                            SML_E_PARSE_020 " 片段 `@%s` 的 `%s:` 参数重复", fname, kw);
+                    ps->failed = 1;
+                    dir_bad = 1;
+                    break;
+                }
+                if (is_type) ftype = next(ps)->v;
+                else         farg  = next(ps)->v;
+            }
+            if (dir_bad) break;
+            if (peek(ps)->t != T_LBRACE) {
+                set_err(ps->lx->errbuf, ps->lx->errsz,
+                        SML_E_PARSE_005 " `@%s` 不是合法指令且缺少片段体 { ... }；"
+                        "若本意是「片段定义」，参数须显式写作 `type: X` 与 `name: Y`"
+                        "（位置参数形式自 v4 起已废弃；不带参数时写作 `@%s { ... }`）；"
+                        "若本意是「指令」，请检查拼写（合法指令：contract / is / version）",
+                        fname, fname);
+                ps->failed = 1;
+                break;
+            }
+            next(ps);                 /* { */
+            {
                 sml_value *sub = parse_block(ps, T_RBRACE);
                 if (ftype) {
                     sml_obj_set(sub, "__type", sml_new_str(ftype));
@@ -1251,6 +1392,27 @@ sml_value *sml_parse(const char *text, char *err, size_t errsz) {
     lx.errbuf = err;
     lx.errsz = errsz;
     lex_run(&lx, text);
+    /* 词法错误**先收手**：词法与语法共用一个 err 缓冲，若带着词法错误继续解析，
+       解析器写的后续错误会覆盖它，用户拿到的码就不是**第一个**错的码。
+       与 Rust 的 `tokenize()` 返回 Err 即短路同义。 */
+    if (lx.failed) {
+        lex_free(&lx);
+        return NULL;
+    }
+    /* 顶层标量不可往返 ⇒ E-PARSE-008（与 Rust 同判据：**顶层恰好一个标量 token**）。
+       改前这里是**静默造键**：`42` 走 parse_block(T_EOF) 的「键即值」分支，被解析成
+       `{"42": 42}`，重新序列化得到 `"42": 42` ≠ `42` —— 数据形状被悄悄改掉
+       （与 W17 的 C 嵌套数组同族：不报错，但数据错）。
+       判据与 Rust 逐字一致：`hello world`（两 token，得 `{"hello":"world"}`，值可往返）
+       **不算**；带指令的顶层标量（token 数 > 1）**不报** —— 有意保守，宁漏不误伤。
+       注：C 的 token 流末尾固定有一个 T_EOF，故「恰好一个标量」= n == 2。 */
+    if (lx.n == 2 && (lx.toks[0].t == T_WORD || lx.toks[0].t == T_STR)) {
+        if (err && errsz)
+            set_err(err, errsz,
+                    SML_E_PARSE_008 " 顶层须为容器（键值块、对象块或数组），单独的标量无法往返");
+        lex_free(&lx);
+        return NULL;
+    }
     parser ps;
     memset(&ps, 0, sizeof(ps));
     ps.lx = &lx;

@@ -4,8 +4,10 @@
  * （见 errors/README.md 与 errors/codes.sml）。期望值一律用 sml_codes.h 的宏，
  * 不手打字符串 —— 顺带保证「宏真的能被 C 测试 include 到」。
  *
- * 覆盖范围：C 侧**真的会报**的码。C 的 LEX 层不报错（未闭合字符串/块注释、
- * 未知转义一律静默接受，见 README 清点），故这里没有 LEX 用例。
+ * 覆盖范围：C 侧**真的会报**的码。W16 起 LEX 层也报（未闭合字符串/块注释、
+ * 未知转义、非法 \u 转义 —— 此前一律静默接受），故这里**有** LEX 用例。
+ * 每条新增的严格性都配一条**正对照**（`expect_ok`）：把静默改成报错，
+ * 最大的风险是误伤合法文档，只测"应当失败"的一半会看不出误伤。
  *
  * 另有**不产生错误码**的保真用例，同属跨端契约，故一并放在本文件：
  *   - `test_numeric_fidelity`：超 i64 的纯整数形态必须原样保留为字符串，不能变成被夹住的
@@ -73,6 +75,23 @@ static void expect_code(const char *tag, const char *src, const char *want) {
         return;
     }
     report(tag, want, err, code_is(err, want));
+}
+
+/* 正对照：合法形态必须**照常解析成功**。
+   W16 是「把静默改成报错」的一批，最大的风险是**误伤合法文档** —— 故每条新增的
+   严格性都配一条正对照（成对出现才说明收得准）。 */
+static void expect_ok(const char *tag, const char *src) {
+    char err[256];
+    sml_value *v;
+    memset(err, 0, sizeof(err));
+    v = sml_parse(src, err, sizeof(err));
+    if (v) {
+        printf("  ok: %-30s -> 解析成功\n", tag);
+        sml_free(v);
+        return;
+    }
+    printf("FAIL: %s 应当解析成功，实得 \"%s\"\n", tag, err);
+    failures++;
 }
 
 /* ---- 文件型用例（include）的辅助 ---- */
@@ -338,6 +357,90 @@ static void test_unclosed_codes(void) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 词法层：E-LEX-001 ~ E-LEX-005（W16 落地）                            */
+/* ------------------------------------------------------------------ */
+/* 改前 C 的 LEX 层**一条都不报**（未闭合字符串/块注释、未知转义、非法 \u 转义
+   全部静默接受），其中三处是「静默改数据」：
+     `"C:\Users"`  → `C:Users`（未知转义连反斜杠一起丢）
+     `"\u12"`      → 控制字符 U+0012（定长四位不足照收）
+     `"abc`（EOF） → 把余下全文当串内容（整篇结构被吞）
+   期望值与 Rust / JS **逐字同码**（见 rust/tests/error_codes.rs、js/probe-error-codes.mjs）。 */
+static void test_lex_codes(void) {
+    printf("[LEX]\n");
+
+    expect_code("未闭合字符串", "k: \"abc\n", SML_E_LEX_001);
+    expect_code("未闭合块注释 /*", "k: 1\n/* 没有收尾\n", SML_E_LEX_002);
+    expect_code("未闭合块注释 _*", "k: 1\n_* 没有收尾\n", SML_E_LEX_003);
+    expect_code("未知转义", "k: \"a\\qb\"\n", SML_E_LEX_004);
+    /* 定长四位不足：改前静默变成 U+0012（控制字符），Rust/JS 都报 005 */
+    expect_code("\\u 位数不足", "k: \"\\u12\"\n", SML_E_LEX_005);
+    expect_code("\\u 非十六进制", "k: \"\\uZZZZ\"\n", SML_E_LEX_005);
+    /* 代理区码点：put_utf8 会编成非法 UTF-8（Rust char::from_u32 拒绝同一类） */
+    expect_code("\\u 代理区码点", "k: \"\\uD800\"\n", SML_E_LEX_005);
+    expect_code("\\u 花括号未闭合", "k: \"\\u{1F680\"\n", SML_E_LEX_005);
+
+    /* 正对照：合法转义与合法 \u 一律不许被误伤 */
+    expect_ok("全部合法转义", "k: \"a\\nb\\t\\r\\0\\\"c\\\\d\"\n");
+    expect_ok("\\u 定长四位", "k: \"\\u4e2d\"\n");
+    expect_ok("\\u 花括号形式", "k: \"\\u{1F680}\"\n");
+    expect_ok("块注释正常闭合", "k: 1\n/* ok */\n");
+    expect_ok("_* 注释正常闭合", "k: 1\n_* ok *_\n");
+}
+
+/* ------------------------------------------------------------------ */
+/* 语法层：E-PARSE-002 / 003 / 005 / 008、E-INCLUDE-006（W16 落地）      */
+/* ------------------------------------------------------------------ */
+/* 这一组全是改前**静默通过**的条件（改前实测见 c/_w16_probe.c 的输出）：
+     `m: [ } ]`        → {"m":[]}                  （静默改数据）
+     `a { ] }`         → {"a":{}}                  （静默改数据）
+     `a: 1` + `}`      → {"a":1}                   （静默忽略）
+     `@foo bar { … }`  → 被当片段收下（拼错的指令名变成数据）
+     `@foo bar`        → 整行静默丢掉
+     `x: &nosuchfrag`  → 退化成字符串 "&nosuchfrag"
+     `42`              → 造键 {"42":42}（与 W17 的嵌套数组同族：数据形状被悄悄改掉） */
+static void test_syntax_w16_codes(void) {
+    printf("[PARSE / INCLUDE：W16]\n");
+
+    expect_code("数组里多余的 }", "m: [ } ]\n", SML_E_PARSE_003);
+    expect_code("闭合符错配 a { ] }", "a { ] }\n", SML_E_PARSE_002);
+    expect_code("顶层多余的 }", "a: 1\n}\n", SML_E_PARSE_003);
+    expect_code("顶层多余的 ]", "a: 1\n]\n", SML_E_PARSE_003);
+
+    /* 未注册指令：只认「位置参数」与「没有片段体」两种形态（与 Rust 判据一致）。
+       ⚠️ 不能一刀切：`@foo { x: 1 }`（无参数、带体）是**合法的片段定义**，见下面的正对照。 */
+    expect_code("未注册指令（位置参数带体）", "@foo bar { x: 1 }\n", SML_E_PARSE_005);
+    expect_code("未注册指令（位置参数无体）", "@foo bar\n", SML_E_PARSE_005);
+
+    expect_code("未定义片段引用", "x: &nosuchfrag\n", SML_E_INCLUDE_006);
+    /* 「第一条错误为准」：块体里先报 006，块级 @is 的契约错**不得**覆盖它
+       （apply_or_fail 的 failed 闸；去掉那道闸这条会变成 E-CONTRACT-004）。 */
+    expect_code("未定义片段引用（不被契约错覆盖）",
+                "@contract C { x: int }\nb {\n  @is C\n  y: &nope\n}\n",
+                SML_E_INCLUDE_006);
+
+    /* 顶层标量：判据 = 顶层**恰好一个标量 token**（与 Rust 逐字一致） */
+    expect_code("顶层标量（裸词）", "42\n", SML_E_PARSE_008);
+    expect_code("顶层标量（单词）", "hello\n", SML_E_PARSE_008);
+    expect_code("顶层标量（引号串）", "\"hi\"\n", SML_E_PARSE_008);
+    expect_code("顶层标量（布尔）", "true\n", SML_E_PARSE_008);
+
+    /* 正对照：合法顶层形态与合法片段定义
+       ⚠️ `@foo { x: 1 }` 是片段定义（无位置参数），不是「未注册指令」——
+       这条正对照就是用来挡住「把 @ 开头一律判 005」那种一刀切修法的。 */
+    expect_ok("片段定义（无参数带体）", "@foo { x: 1 }\n");
+    expect_ok("片段定义 + 引用", "@foo { x: 1 }\ny: &foo\n");
+    expect_ok("片段定义（显式参数）", "@foo type: Server name: prod { x: 1 }\n");
+    expect_ok("两 token 裸键对", "hello world\n");
+    expect_ok("键值块", "42: x\n");
+    expect_ok("对象块", "{ a: 1 }\n");
+    expect_ok("顶层数组", "[1, 2]\n");
+    expect_ok("带指令的顶层标量（有意不报）", "@version v1\n42\n");
+    expect_ok("嵌套数组", "m: [ 1, [2, 3], 4 ]\n");
+    expect_ok("空输入", "");
+    expect_ok("只有注释", "# 只有注释\n");
+}
+
+/* ------------------------------------------------------------------ */
 /* 契约 min/max 边界取值：E-PARSE-022 / E-CONTRACT-010                 */
 /* ------------------------------------------------------------------ */
 static void test_bound_codes(void) {
@@ -492,6 +595,8 @@ int main(void) {
     test_contract_codes();
     test_parse_and_limit();
     test_unclosed_codes();
+    test_lex_codes();
+    test_syntax_w16_codes();
     test_bound_codes();
     test_numeric_fidelity();
     test_nested_arrays();

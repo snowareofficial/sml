@@ -79,28 +79,28 @@ codes: [
     # ================= 词法（语言层） =================
     { id: E-LEX-001 domain: LEX severity: E title: "字符串未闭合"
       msg: "字符串未闭合（缺少结束引号）"
-      impls: [ rust cpp ] status: partial
-      note: "JS、C、Lua 目前**静默接受**未闭合字符串（把余下全文当串内容），只有 Rust 与 C++ 报错 —— 属 W3 要统一的行为差异" }
+      impls: [ rust cpp js c ] status: partial
+      note: "改前 JS、C、Lua **静默接受**未闭合字符串（把余下全文当串内容，整篇结构被吞）。**W16 起 JS（首批）与 C（C 批）都报此码**；C 侧同时收手 —— 词法错一旦记下，sml_parse 立即返回 NULL，不让后续语法错覆盖第一个错的码。Lua 待做" }
     { id: E-LEX-002 domain: LEX severity: E title: "未闭合块注释（斜杠星号）"
       msg: "未闭合的块注释，遇到文件结尾"
-      impls: [ rust ] status: partial
-      note: "其余四端静默接受；C++ 还会因此丢掉后续内容（见 README 清点的静默清单）" }
+      impls: [ rust js c ] status: partial
+      note: "改前 C 与 C++ 都静默：C 把注释一路吃到文件结尾、之后**整篇内容凭空消失**，C++ 还会丢掉后续内容（见 README 清点的静默清单）。**W16 起 JS（首批）与 C（C 批）报此码**；C++、Lua 待做" }
     { id: E-LEX-003 domain: LEX severity: E title: "未闭合块注释（下划线星号）"
       msg: "未闭合的块注释，遇到文件结尾"
-      impls: [ rust ] status: partial
-      note: "其余四端静默接受" }
+      impls: [ rust js c ] status: partial
+      note: "改前其余四端静默接受（C 同样会吃掉文件剩余部分）。**W16 起 JS（首批）与 C（C 批）报此码**；C++、Lua 待做" }
     { id: E-LEX-004 domain: LEX severity: E title: "字符串含未知转义符"
       msg: "字符串含未知转义符，转义集见规范"
-      impls: [ rust cpp ] status: partial
-      note: "严格策略：未知转义即失败，避免路径与正则被静默损坏；JS 直接取该字符本身，静默" }
+      impls: [ rust cpp js c ] status: partial
+      note: "严格策略：未知转义即失败，避免路径与正则被静默损坏。C 改前 default 分支把该字符原样收下、**连反斜杠一起丢掉**（Windows 路径那类值会被静默改坏），W16 起与 Rust/C++/JS 同码" }
     { id: E-LEX-005 domain: LEX severity: E title: "Unicode 转义非法"
       msg: "Unicode 转义非法（位数不足、非十六进制、或非法码点）"
-      impls: [ rust cpp ] status: partial
-      note: "含代理区码点；定长四位不足时一并报此码。JS 会抛出宿主运行时异常（不是码）" }
+      impls: [ rust cpp js c ] status: partial
+      note: "含代理区码点；定长四位不足时一并报此码。C 改前不足四位照收（静默变成控制字符），W16 起报此码；JS 改前抛宿主运行时异常（不是码），W16 首批已改为带码" }
     { id: E-LEX-006 domain: LEX severity: E title: "转义符后遇文件结束"
       msg: "字符串中的转义符后遇到文件结束"
       impls: [ rust ] status: partial
-      note: "其余四端静默接受" }
+      note: "其余端静默接受。⚠️ 同因不同码：C 的解析入口对该输入报 E-LEX-001（它没有 Rust 那种按行重建，转义符后遇 EOF 就是未闭合串）—— 两个实现口径不同，未合并" }
 
     # ================= 语法（语言层） =================
     { id: E-PARSE-001 domain: PARSE severity: E title: "未闭合的块或数组"
@@ -109,20 +109,20 @@ codes: [
       note: "Rust 另分契约体与 `@for` 循环体两种未闭合；JS 只在数组类型简写 `[T]` 缺 `]` 时报错，普通块或数组到文件结尾会静默返回。**C、C++ 与 Lua 原先也静默（声明与实现不符），W10 期间补齐**：C/C++ 覆盖块 / 数组 / 契约体三种，Lua 覆盖块 / 数组两种（Lua 原先没有契约体，W20 补上后也覆盖契约体）；三端顶层裸块到 EOF 收尾都算合法" }
     { id: E-PARSE-002 domain: PARSE severity: E title: "闭合符错配"
       msg: "块或数组未正确闭合：期望一个符号，却遇到另一个"
-      impls: [ rust ] status: partial
-      note: "JS 在闭合符不匹配时直接结束当前块（静默接受）；C 与 Lua 只报笼统的未匹配结束符" }
+      impls: [ rust js c ] status: partial
+      note: "改前 JS 在闭合符不匹配时直接结束当前块（静默），C 只报笼统的未匹配结束符。**W16 起 JS（首批）与 C（C 批）都报此码** —— C 侧 `a { ] }` 此前静默得到空对象（数据形状被悄悄改掉）；Lua 待做" }
     { id: E-PARSE-003 domain: PARSE severity: E title: "多余的结束符号"
       msg: "多余的结束符号，没有与之匹配的开始符号"
-      impls: [ rust lua cpp ] status: partial
-      note: "JS 静默返回空对象；Lua 原先抛的是**不带码**的笼统文案「未匹配的右大括号/右方括号」，W10 期间加码" }
+      impls: [ rust lua cpp js c ] status: partial
+      note: "Lua 原先抛的是**不带码**的笼统文案「未匹配的右大括号/右方括号」，W10 期间加码。**W16 起 JS 与 C 都报此码**：覆盖顶层多余的 `}`/`]` 与数组里多余的 `}` 两类 —— C 改前这两格都静默（`m: [ } ]` 得空数组、键值块后多一个 `}` 直接通过）" }
     { id: E-PARSE-004 domain: PARSE severity: E title: "孤立的 at 符号"
       msg: "孤立的 at 符号不是合法指令（符号与名字之间不可有空白）"
       impls: [ rust ] status: partial
-      note: "历史上孤立 at 会静默吞掉后续整块内容，故必须报错而非忽略；JS 对同类输入报 E-PARSE-011" }
+      note: "历史上孤立 at 会静默吞掉后续整块内容，故必须报错而非忽略；JS 对同类输入报 E-PARSE-011。⚠️ C 是第三种映射：它的词法器不区分「@ 与名字之间有空白」—— `@` 换行后跟 `k: 1` 会把它当片段名，于是落 E-PARSE-005（同因不同码，未合并；W16 的 C 批扫过全仓语料，无一受影响）" }
     { id: E-PARSE-005 domain: PARSE severity: E title: "不是合法指令且缺少片段体"
       msg: "该指令名不是合法指令且缺少片段体"
-      impls: [ rust js ] status: partial
-      note: "只有 Rust 会提示合法指令名单；JS 在未注册指令**带**片段体时会静默当作片段定义（见静默清单）" }
+      impls: [ rust js c ] status: partial
+      note: "只有 Rust 与 C 会提示排查方向（合法指令名单）。JS 在未注册指令**带**片段体时仍静默当作片段定义（W16 余额，未做）。⚠️ C 的粒度更粗：它没有指令注册表，`@feature` / `@when` / `@for` 这些**它不实现的指令**也一并落此码（与拼错的指令在 token 流上同形、无法区分）—— 方向是「响亮拒绝」而不是静默丢行，但用户看到的提示会指向「拼写」；C++/Lua 待做" }
     { id: E-PARSE-006 domain: PARSE severity: E title: "期望键或标识符"
       msg: "期望键或标识符，得其它记号"
       impls: [ rust js cpp lua ] status: partial
@@ -133,8 +133,8 @@ codes: [
       note: "其余四端把逗号当普通分隔符切分，无此报错" }
     { id: E-PARSE-008 domain: PARSE severity: E title: "顶层标量不可往返"
       msg: "顶层须为容器（键值块、对象块或数组），单独的标量无法往返"
-      impls: [ rust ] status: partial
-      note: "**这条码此前是「死码」（W16 查明并接线）**：全仓只有常量定义 + doctest/文档引用，**没有一处 `SmlError::new(E_PARSE_008, …)`** —— 而改前 `42` 会被静默当成「键即值」的裸键、解析成 `{\"42\": 42}`（**凭空造键**，重新序列化 ≠ 原文；与 W17 的 C 嵌套数组同族）。Rust 自 W16 起真的报它，判据 = **顶层恰好一个标量 token**（故 `hello world` 这类两 token 的裸键对**不算**，它值可往返）。⚠️ **已知边界**：带指令的顶层标量（`@version v1` + `42`）token 数 > 1，按此判据**不报** —— 有意保守，宁漏不误伤。JS/C/C++/Lua 正在对齐（W16）" }
+      impls: [ rust js c ] status: partial
+      note: "**这条码此前是「死码」（W16 查明并接线）**：全仓只有常量定义 + doctest/文档引用，**没有一处 `SmlError::new(E_PARSE_008, …)`** —— 而改前 `42` 会被静默当成「键即值」的裸键、解析成 `{\"42\": 42}`（**凭空造键**，重新序列化 ≠ 原文；与 W17 的 C 嵌套数组同族）。Rust 自 W16 起真的报它，判据 = **顶层恰好一个标量 token**（故 `hello world` 这类两 token 的裸键对**不算**，它值可往返）。⚠️ **已知边界**：带指令的顶层标量（`@version v1` + `42`）token 数 > 1，按此判据**不报** —— 有意保守，宁漏不误伤。**JS 与 C 已于 W16 对齐**（三端判据逐字一致，C 的 token 流末尾固定有一个 T_EOF，故「恰好一个标量」= n == 2）；C++、Lua 待做" }
     { id: E-PARSE-009 domain: PARSE severity: E title: "命名空间段非法"
       msg: "命名空间段不可使用该名字"
       impls: [ js ] status: partial
@@ -180,7 +180,8 @@ codes: [
       note: "JS 侧对应「@contract 后须契约体」「@type 后须类型名」「@is 后须契约名」等文案" }
     { id: E-PARSE-020 domain: PARSE severity: E title: "片段参数语法非法"
       msg: "片段参数非法：`type` 或 `name` 参数后缺少取值，或同一参数重复"
-      impls: [ rust ] status: partial }
+      impls: [ rust c ] status: partial
+      note: "C 侧是 W16 补片段**显式参数**（`type: X` / `name: Y`）时一并接线的：此前 C 只认位置参数形式，显式形式既不被识别、也不报错（`@f type: Server { ... }` 会被静默丢掉整条定义）" }
     { id: E-PARSE-021 domain: PARSE severity: E title: "default 缺取值"
       msg: "`default` 修饰符后缺少取值"
       impls: [ rust cpp js lua ] status: partial
@@ -364,8 +365,8 @@ codes: [
       note: "**W14 已修**：JS 在空键列表这条分支上原抛宿主 ReferenceError（报告函数不在其作用域内），走 parseSafe 更被静默吞成 ok=false 且无码；现两路都给本码。⚠️ 两端**入口不同**：JS 在解析器内部处理 include（`include \"x.sml\" as w { }` 走全量 parse），Rust 在 sml-include 的指令解析里（要直接调 parse_include_line）—— 故 probe 与 rust/tests/error_codes.rs 各有一条同条件用例，见后者的 include_key_list_codes" }
     { id: E-INCLUDE-006 domain: INCLUDE severity: E title: "未定义的片段引用"
       msg: "未定义的片段引用"
-      impls: [ rust ] status: partial
-      note: "含命名空间逐级回退后仍未命中的情形；JS 把未定义引用静默当普通键处理" }
+      impls: [ rust c ] status: partial
+      note: "含命名空间逐级回退后仍未命中的情形。C 改前把未命中的引用 `return sml_new_str(w)` 静默退化成字符串（下游取值取不到、还查不出原因），W16 起报此码；用户已裁决这类必须报错（「这种不应该出现，堪比 void」）。JS 仍把未定义引用静默当普通键处理（W16 余额，未做）" }
     { id: E-INCLUDE-007 domain: INCLUDE severity: E title: "片段展开结果不是对象"
       msg: "片段展开结果不是对象，无法与所在块合并"
       impls: [ rust ] status: done
