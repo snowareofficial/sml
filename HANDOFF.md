@@ -354,10 +354,15 @@ python site/build_site.py             # 完整构建（含上面两步 + Hugo + 
 
 **还没做（W10 的剩余部分）**：
 - **JS 已完成**（见 §8.3，提交 `912a608`）。
-- C/C++ **原生实现**的码（`c/sml.c` 与 `cpp/sml.cpp` 各有上百处 `snprintf(errbuf, …)`；
-  码用 `c/sml_codes.h` 的宏，**不要手打字符串**）。
-- Lua 侧：`lua/lib/sml.soup` 是**编译产物**，要改得先有 Soup 工具链（`soupc`），
-  别直接用文本编辑器改它 —— 先确认 `lua/` 下的源在哪。
+- C/C++ **原生实现**的码（`c/sml.c` 与 `cpp/sml.cpp`；码用 `c/sml_codes.h` 的宏，
+  **不要手打字符串**）。**已派两个可写盘的 agent 并行做**（团队 `w10`：`c-native` 只碰 `c/`、
+  `cpp-native` 只碰 `cpp/`），约定：码作消息前缀写进同一个 `err` 缓冲，且必须保住
+  W13 的性质（`err==NULL` / `errsz==0` 时一个字节都不写）。
+- Lua 侧：**卡住，原因是硬的**（2026-09-18 查证）——`lua/` 下只有 `main.lua` 与
+  `lua/lib/sml.soup`，而 **`.soup` 是编译产物、这个仓库里没有它的源码**，
+  `MANIFEST.json` 也没写源在哪；记忆里那个 Soup 工程路径（`~/Downloads/lua-5.5.1/lua`）
+  **已不存在**。要动它得先回到 Soup 工程拿 `.tl` 源码 + `soupc` 重编，
+  **不是本仓库内能完成的活**。
 - ~~`errors/README.md` 的码表状态回填与 `CHANGELOG.md` 条目~~ **已完成**（提交见 `git log`）。
   ⚠️ 一处**容易想错**的地方已写进 `codes.sml` 表头与 README：`status` 描述的是
   **行为**（各端报不报这个错），与「带没带码」是两件事 —— 所以 W10 落地完

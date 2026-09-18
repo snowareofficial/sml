@@ -320,7 +320,14 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
 | **W7** | 解析器一次报多条错误 | `rust/sml-parse/src`（错误收集）、`js/sml.mjs`、`editors/vscode/src` | 同一文档的多个错误一次全部返回；旧 `parse()` 行为不变（只加新 API） | 无 | ✋ |
 | **W8** | Zed：填 `extension.toml` + 编译验证 grammar | `editors/zed/` | `tree-sitter generate && tree-sitter parse test/parse/*.sml` 无 `ERROR`；`extension.toml` 指向可用 grammar | 需 tree-sitter CLI（联网下载） | 🤖 |
 | **W9** | 残余风险：Miri / 安全门禁 / 非 Rust 实现扫描进 CI | CI 配置、`rust/{miri_check,osv_check}.py` | CI 里跑得起来，失败能挡住合并 | 无 | 🤖 |
-| **W10** | 错误码**落地到五端**：`errors/codes.sml` 已定 **136 条**码（W11 已录全）。**Rust ✅ / JS ✅ / C-ABI ✅ 已带码**（提交 `b04375d`、`912a608`，见 `errors/README.md` 的「码的落地进度」篇）；**C / C++ 原生实现、Lua、smltools 的部分输出仍只有文案** | 剩余：`c/sml.c`、`cpp/sml.cpp`（用 `c/sml_codes.h` 的宏，**别手打字符串**）、`lua/lib/sml.soup`（**编译产物**，需 Soup 工具链，先确认源在哪） | 已完成部分：Rust/JS 错误对象带 `code`、C-ABI 出 `code_str`、`rust/tests/error_codes.rs` 与 `js/probe-error-codes.mjs` 同条件同码。剩余部分：C/C++/Lua 带码后补「同一条件五端同码」的断言 | 无 | ✋ |
+| **W10** | 错误码**落地到五端**：`errors/codes.sml` 已定 **136 条**码（W11 已录全）。**Rust ✅ / JS ✅ / C-ABI ✅ 已带码**（提交 `b04375d`、`912a608`，见 `errors/README.md` 的「码的落地进度」）；**C / C++ 原生实现进行中（已派 agent）**；**Lua 卡住（见下）**；`smltools` 的部分输出仍只有文案 | 剩余：`c/sml.c`、`cpp/sml.cpp`（用 `c/sml_codes.h` 的宏，**别手打字符串**） | 已完成：Rust/JS 错误对象带 `code`、C-ABI 出 `code_str`、`rust/tests/error_codes.rs` 与 `js/probe-error-codes.mjs` 同条件同码。剩余：C/C++ 带码后补「同一条件五端同码」的断言 | 无 | ✋ |
+
+> **Lua 为什么卡住（2026-09-18 查证）**：`lua/` 下只有 `main.lua`（demo 入口）与
+> `lua/lib/sml.soup`。**`lib/sml.soup` 是编译产物，本仓库里没有它的源码**，
+> `lua/MANIFEST.json` 也没写源在哪。记忆里那个 Soup 工程路径
+> （`~/Downloads/lua-5.5.1/lua`）**已不存在**。
+> 所以 Lua 带码必须先回到 Soup 工程拿到 sml 的 `.tl` 源码、用 `soupc` 重编再回填 `.soup`，
+> **不是本仓库内能完成的事**。要动它之前先去找 Soup 工程的实际位置。
 | ~~**W11**~~ ✅ | ~~错误码总表**录全**（46 / 约 120）~~ **已完成 2026-09-18**：按语义条件清点五端 + `smltools`（CLI / 迁入格式 / lint / 定制）+ 编辑器，**46 → 135 条 / 14 个领域**，分四层（语言层 / 宿主绑定层 / 工具层 / 编辑器层）；新增 `DERIVE` / `MIGRATE` / `CLI` / `LINT` / `EDITOR` 五域；`coverage` 改「全量」；`status` 的语义（**行为是否已实现**，与是否带码无关）在表头明确定义；清点范围与「该报错却静默」清单落进 `errors/README.md` | `errors/codes.sml`、`errors/README.md`、`site/content/{zh,en}/errors.md`、`site/static/site-tools.js` | ✅ 135 条 id 唯一 / 领域已声明 / 级别与码前缀一致 / 字段无缺 / **0 处转义或插值损坏**；`gen_json.py` 通过并重生成 `errors.json`；官网领域筛选按数据生成，无需改模板 | 无 | ✅ |
 | **W12** | 错误码查询工具接上**搜索**：官网 `/errors` 目前是关键词过滤，教科书 `/search` 已可搜 | `site/static/site-tools.js` | 两处都能按码与前缀（`E-CONTRACT-*`）检索；结果可深链（`/errors/#E-PARSE-008`） | 无 | 🤖 |
 | ~~**W13**~~ ✅ | ~~**安全**：C++ 深度守卫被绕过 + C 错误路径越界写~~ **已完成 2026-09-18**，且**比原描述更严重**：① C++ 子块直接递归、不增长深度计数；② **修①时发现光补「走受限入口」不够** —— 守卫超限后把深度复位为 0，而复位不会让栈帧退回，外层又从 0 往下钻（每 128 层一轮反复压栈），10 万层照样崩；③ **C 有同一个问题**（审计曾据「parse_block 是带守卫的 wrapper」判定 C 无此洞，实测 10 万层块嵌套段错误）；④ C 的越界写不止那两处 —— `sml.h` 明写 `err` 可为 `NULL`，而所有 `snprintf(errbuf, ...)` 在 `NULL` 时都是空指针写（共 21 处 + 2 处 dummy 缓冲）。**修法**：C++ 加 `aborted` 中止标志、各层循环 break（与 Rust 当年靠 `Result` 传播 `?` 同一思路）；C 复用既有 `ps->failed` 同样 break；C 的错误写入全部收敛到 `set_err()` 助手（缓冲区为空则一个字节不写） | `cpp/sml.cpp`、`c/sml.c`、`cpp/test_limits.cpp`、`c/test_limits.c`、`cpp/build_verify.py`、`c/build_check.py`、`c/Makefile` | ✅ 新增两侧回归用例：10 万层块/数组/交替嵌套**报错返回而不崩**、100 层照常解析、`err=NULL`/`errsz=0` 四条路径一个字节都不写。`c/build_check.py --run` 与 `cpp/build_verify.py` 全绿（后者含 contract/comments/rs-bridge 对照） | 清点记录（`errors/README.md`） | ✅ |
@@ -332,8 +339,9 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
 **建议顺序**：W13（安全，最优先）→ W16（静默清单判定，是 W3 的前置）→ W3 → W4 → W5 → W6 → W7 → W9。
 W14 / W15 范围封闭，但与 W3 改同一批文件（`js/sml.mjs`、`lua/`），**必须与 W3 串行**；
 W8 等 tree-sitter CLI（联网），W12 完全独立。
-W10 的剩余部分（C/C++/Lua 带码）与 W4（C `sml_dump` 比对）改同一批 `c/` 文件，**建议串在一起做**；
-Lua 要动 `lua/lib/sml.soup`（编译产物）之前，先确认那目录下的源与工具链在哪。
+W10 的剩余部分（C/C++ 带码）与 W4（C `sml_dump` 比对）改同一批 `c/` 文件，**建议串在一起做**；
+Lua 那一份要动 `lua/lib/sml.soup`（编译产物）之前，先解决「源码根本不在这仓库」这个前提
+（见 W10 那一行下面的说明）。
 W3/W4/W5 共享同一批文件（`c/`、`js/`、`lua/`），**必须串行**；其余两两之间无文件重叠，可并行。
 
 ---
