@@ -51,6 +51,36 @@ fn lex_escape_at_eof_needs_the_lexer() {
     assert_code("k: \"abc\\", "E-LEX-004");
 }
 
+/// 顶层标量**不可往返** ⇒ `E-PARSE-008`（W16 接线）。
+///
+/// 改之前这里是**静默造键**：`42` 被 `parse_block(None)` 当成「键即值」的裸词键，
+/// 解析成 `{"42": 42}`，重新序列化得到 `"42": 42` ≠ `42` —— 数据形状被悄悄改掉。
+/// 而 `E-PARSE-008` 一直躺在 `sml-codes` 里（名字就叫「顶层标量不可往返」）、
+/// **从未被接线**：全仓只有常量定义与 doctest 引用。
+///
+/// 判据（已实测定死）：**顶层恰好一个标量 token**。故 `hello world`（两 token，
+/// 得 `{"hello":"world"}`、值可往返）**不算**；带指令的顶层标量（token 数 > 1）
+/// 也**不报** —— 有意保守，宁漏不误伤。
+#[test]
+fn top_level_scalar_needs_a_container() {
+    assert_code("42\n", "E-PARSE-008");
+    assert_code("hello\n", "E-PARSE-008");
+    assert_code("\"hi\"\n", "E-PARSE-008");
+    assert_code("true\n", "E-PARSE-008");
+
+    // 正对照：合法顶层形态一律不受影响（这些值都能往返）
+    for ok in [
+        "a: 1\n",
+        "a: 1\nb: 2\n",
+        "[1, 2]\n",
+        "{ a: 1 }\n",
+        "42: x\n",
+        "hello world\n",
+    ] {
+        assert!(parse(ok).is_ok(), "应当仍然解析成功：{ok:?}");
+    }
+}
+
 /// 语法层：`E-PARSE-*`。
 #[test]
 fn parse_codes() {
