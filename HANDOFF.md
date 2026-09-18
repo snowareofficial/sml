@@ -1187,3 +1187,31 @@ HTTPS —— 现在能用，只是安全性和自动化上还有欠账。
 - 私库含**个人信息**（报送邮件里的姓名）：不要 clone 到不受控的机器、不要截图外发。
 - `Desktop\sml_secret` 与 `Desktop\sml` 是**两个互不包含**的仓库 —— 别在其中之一里
   对另一个做 `git add`（比如别把 `sml_secret` 放进主库目录内）。
+
+## 19. Zed 扩展语法状态（2026-09-19，W8 收口）
+
+**结论**：Zed 的 Tree-sitter 语法**已编译验证通过**，生成物已入库；但「正式发布」所需的
+独立仓库**尚未创建/push**，故扩展此刻不能开箱加载 —— 属预期。
+
+**验证（本机，tree-sitter-cli@0.22.6）**：
+```bash
+cd editors/zed/grammars/sml
+tree-sitter generate                       # 生成 src/parser.c（≈53 KB）/ grammar.json / node-types.json
+tree-sitter parse test/parse/basic.sml     # 0 ERROR / 0 MISSING
+tree-sitter parse test/parse/advanced.sml  # 0 ERROR / 0 MISSING
+```
+
+**已入库（monorepo，`editors/zed/grammars/sml/`）**：`grammar.js`（源）、`src/`（生成物）、
+`bindings/`、`Cargo.toml`、`package.json`、`binding.gyp` 等 tree-sitter 脚手架，以及
+`test/parse/{basic,advanced}.sml` + 其 README。
+
+**发布仓库决策（用户 2026-09-19 定）**：
+- 源真相留在 monorepo；另开独立镜像仓库 `snoware/tree-sitter-sml`（只含 grammar 子树，不含其它），
+  供 `editors/zed/extension.toml` 的 `[grammars.sml]` 引用。
+- `extension.toml` 已填 `repository = "https://gitee.com/snoware/tree-sitter-sml"`，
+  `rev` 仍占位 `REPLACE_WITH_COMMIT_SHA`，待该仓库首次 push 后填入真实短 sha。
+- 本地开发要立刻见效：`extension.toml` 顶部注释里有 `file://` + 本机绝对路径的写法。
+
+**待办（用户侧）**：在 gitee 建空仓库 `snoware/tree-sitter-sml` → 把
+`Desktop/tree-sitter-sml/`（本机已备好镜像内容）push 上去 → 把首个 commit 短 sha 发给 agent
+填进 `rev`。详见 `TASK-hy3-w8-w9.md` §W8.4 / §W8.5。
