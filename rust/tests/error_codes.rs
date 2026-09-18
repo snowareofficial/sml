@@ -97,6 +97,26 @@ fn contract_codes() {
 fn include_codes() {
     // 未定义的片段引用（拼错片段名不该静默变成字符串）
     assert_code("k: &nope\n", "E-INCLUDE-006");
+    // 键列表语法非法（空键列表）见下面的 include_key_list_codes —— 它走不到 `parse()`。
+}
+
+/// `E-INCLUDE-005`（键列表语法非法：空键列表）只有**直接走 include 指令解析**才看得到。
+///
+/// 理由与上面 `lex_escape_at_eof_needs_the_lexer` 相同：`parse()` 不做 include 展开
+/// （那是 `sml-include` 的活），这条分支在 `parse_include_line` 里。
+/// JS 侧是在解析器内部处理 include，所以 `js/probe-error-codes.mjs` 能用
+/// `include "x.sml" as w { }` 走全量 `parse()` 触发它。**同一个语义条件（空键列表），
+/// 两端入口不同，码必须相同** —— 这正是本文件要钉的关系；少了这一条，
+/// 「probe 与 error_codes.rs 同条件同码」那句话就不成立了。
+///
+/// （W14 带出来的：JS 那条分支原先抛宿主 `ReferenceError`，走 `parseSafe` 更是被
+/// 静默吞成 `ok:false` + 无码。修完才有这条跨端对应关系。)
+#[test]
+fn include_key_list_codes() {
+    match sml_include::parse_include_line("import \"m.sml\" { }", sml_feature::FeatureSet::all()) {
+        Ok(_) => panic!("空键列表应当失败"),
+        Err(e) => assert_eq!(e.code(), "E-INCLUDE-005"),
+    }
 }
 
 /// 特性与版本：`E-FEATURE-*`。
@@ -115,6 +135,18 @@ fn limit_codes() {
     let src = "a { ".repeat(200);
     let got = code_of(&src);
     assert_eq!(got, "E-LIMIT-001", "深嵌套应报 E-LIMIT-001");
+    // 边界要**逐格**钉住，不能只测 200（200 在两种口径下都报，测不出差一格）。
+    // 口径：128 层放行、第 129 层报此码 —— 这是**实测**出来的（五端闭合嵌套扫过一遍）：
+    //   Rust 127 / C 127 / C++ 128 / JS 128 / Lua 128（改前）→ 统一为 128 / 129。
+    //   Rust 与 C 原先用 `>=`，128 层就报，而文案写的是「**超过** 128 层」，自相矛盾。
+    // ⚠️ 必须用**闭合**输入：不闭合会被 E-PARSE-001（未闭合块）先抓住，测到的不是深度。
+    let nest = |n: usize| "a { ".repeat(n) + &"} ".repeat(n);
+    assert!(parse(&nest(128)).is_ok(), "128 层应放行");
+    assert_code(&nest(129), "E-LIMIT-001");
+    // 数组入口必须同口径 —— 两处守卫历史上就各自绕过过（只补一条会漏另一条）。
+    let arr = |n: usize| "k: ".to_string() + &"[ ".repeat(n) + &"] ".repeat(n);
+    assert!(parse(&arr(128)).is_ok(), "128 层数组应放行");
+    assert_code(&arr(129), "E-LIMIT-001");
 }
 
 /// `Display` 要把码缀在文案之后 —— 用户看到的每一句话都能拿去查码表。

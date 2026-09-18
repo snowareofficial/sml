@@ -741,6 +741,21 @@ static ValuePtr parse_block_nested(PState& st) {
     return v;
 }
 
+/* 深入一层**数组**：`key: [ ... ]`。
+   与 parse_block_nested 同一个理由 —— 这个位置原先**直接**调 parse_array，绕过了
+   parse_value 上的守卫，于是 depth 不增长，`a: [[[ … ]]]` 的**第一层数组白送一层**。
+   实测（闭合嵌套扫过五端）：块嵌套上限 128，数组却到 129 —— 本实现**自身两条路径
+   就不一致**。这与 W13 修的「块嵌套直接递归绕过守卫」是同一个洞，当时只补了块、漏了数组。
+   （`parse_value_inner` 里的 `[` 与顶层的 `[` 不在这里：前者本就在 parse_value 的守卫
+    之内，后者是**文档根**，按各端口径根不计层。） */
+static ValuePtr parse_array_nested(PState& st) {
+    if (depth_exceeded(st)) return Value::null();
+    st.depth++;
+    ValuePtr v = parse_array(st);
+    if (st.depth > 0) st.depth--;
+    return v;
+}
+
 static ValuePtr parse_value_inner(PState& st) {
     if (st.i >= st.toks.size()) return Value::null();
     auto& t = st.toks[st.i];
@@ -958,8 +973,11 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
             auto sub = parse_block_nested(st);
             set_field_local(node, key, sub);
         } else if (nxt.t == Token::T::LBracket) {
+            /* ⚠️ 必须走**带守卫**的 parse_array_nested，不能直接调 parse_array ——
+               直接调会绕过 depth 计数，让 `key: [ ... ]` 的第一层数组白送一层
+               （实测：数组到 129 层而块只到 128 层）。理由见 parse_array_nested。 */
             st.i++;
-            auto arr = parse_array(st);
+            auto arr = parse_array_nested(st);
             set_field_local(node, key, arr);
         } else if (!colon && nxt.t==Token::T::Word && nxt.s != "}" && nxt.s != "]" && nxt.s != ",") {
             // bare block: key is type, subsequent tokens until '{' are args

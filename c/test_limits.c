@@ -118,6 +118,24 @@ int main(void) {
     CASE("10 万层块嵌套");
     t = nest_blocks(100000); expect_error("10 万层块嵌套", t);  free(t);
 
+    /* 2.5) 边界要**逐格**钉住：128 层放行、第 129 层报此码。
+       只测 100 与 100000 是**测不出「差一格」**的 —— 这两个数在两种口径下结果一样，
+       而"差一格"正是实际发生的 bug（C 原先用 `>=`，128 层就报，而文案写「超过 128 层」）。
+       口径来源：五端**闭合**嵌套实测（改前 Rust 127 / C 127 / C++ 128 / JS 128 / Lua 128，
+       现统一为 128 / 129）。
+       注：只钉块嵌套 —— C 的 parse_array 不递归嵌套数组（见文件头注释），没有对应的深度入口。 */
+    t = nest_blocks(128);
+    memset(err, 0, sizeof(err));
+    v = sml_parse(t, err, sizeof(err));
+    CHECK(v != NULL, "128 层块嵌套应当放行（各端口径）");
+    if (!v) printf("      err: %s\n", err);
+    sml_free(v);
+    free(t);
+
+    t = nest_blocks(129);
+    expect_error("129 层块嵌套", t);
+    free(t);
+
     /* 3) err 为空：越界写与空指针写的回归（深嵌套、版本、契约、空指针入参四条路径） */
     CASE("err=NULL：深嵌套");
     t = nest_blocks(100000); expect_error_no_buf("10 万层块嵌套", t); free(t);
