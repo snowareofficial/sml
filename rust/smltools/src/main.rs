@@ -13,8 +13,11 @@
 //! smltools -i doc.sml --to xml -o d.xml  # SML -> XML
 //! cat doc.sml | smltools --to svg        # 管道：stdin -> stdout
 //! smltools -i doc.sml --hugo content/zh  # 生成 content/zh/doc.md（含 front matter）
+//! smltools -i app.json --from json --to sml   # 迁移：JSON -> SML
+//! smltools -i chip.svd --from xml --to sml    # 迁移：XML -> SML（扩展名自动推断）
 //! ```
 //!
+//! `--from` 取值：`sml`（默认）/`json`/`toml`/`yaml`/`xml`，缺省按扩展名推断。
 //! `--to` 取值：`md`/`markdown`/`xml`/`svg`/`latex`/`slint`/`lvgl`/`custom`/`sml`。
 //! `--hugo <dir>` 会让 markdown 输出裹上最小 Hugo front matter，并以输入文件名
 //! （或 `@feature base` 指定的名称）落盘为 `.md`，可直接被 `hugo` 收录。
@@ -36,15 +39,17 @@ use std::path::Path;
 mod highlight;
 mod lint;
 mod toml;
+mod xml;
 mod yaml;
 
-/// 输入格式（迁移用）：SML 是原生格式，JSON / YAML 是「迁入」格式。
+/// 输入格式（迁移用）：SML 是原生格式，JSON / TOML / YAML / XML 是「迁入」格式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum InputFormat {
     Sml,
     Json,
     Toml,
     Yaml,
+    Xml,
 }
 
 impl InputFormat {
@@ -54,20 +59,48 @@ impl InputFormat {
             "json" => Some(InputFormat::Json),
             "toml" => Some(InputFormat::Toml),
             "yaml" | "yml" => Some(InputFormat::Yaml),
+            "xml" => Some(InputFormat::Xml),
             _ => None,
         }
     }
 
+    /// 该格式认的文件扩展名。
+    ///
+    /// 单一事实来源：扩展名列表原先在 `detect()` 里手写一遍、在目录批量里又用
+    /// `name()` 拼一遍，两处漂移就会出「单文件认、整目录不认」这类怪事。
+    ///
+    /// `.svd` 归入 XML：CMSIS-SVD 本来就是一份 XML，芯片描述文件是迁移场景里
+    /// 体量最大的一类，让用户为此多敲一次 `--from xml` 没有意义。
+    fn extensions(&self) -> &'static [&'static str] {
+        match self {
+            InputFormat::Sml => &["sml"],
+            InputFormat::Json => &["json"],
+            InputFormat::Toml => &["toml"],
+            InputFormat::Yaml => &["yaml", "yml"],
+            InputFormat::Xml => &["xml", "svd"],
+        }
+    }
+
+    fn matches_ext(&self, ext: &str) -> bool {
+        self.extensions().iter().any(|e| e.eq_ignore_ascii_case(ext))
+    }
+
     /// 按扩展名推断（显式 `--from` 优先于此）。
     fn detect(path: Option<&Path>) -> InputFormat {
-        match path.and_then(|p| p.extension()).and_then(|e| e.to_str()) {
-            Some(e) if e.eq_ignore_ascii_case("json") => InputFormat::Json,
-            Some(e) if e.eq_ignore_ascii_case("toml") => InputFormat::Toml,
-            Some(e) if e.eq_ignore_ascii_case("yaml") || e.eq_ignore_ascii_case("yml") => {
-                InputFormat::Yaml
+        const MIGRATABLE: [InputFormat; 4] = [
+            InputFormat::Json,
+            InputFormat::Toml,
+            InputFormat::Yaml,
+            InputFormat::Xml,
+        ];
+        if let Some(ext) = path.and_then(|p| p.extension()).and_then(|e| e.to_str()) {
+            for f in MIGRATABLE {
+                if f.matches_ext(ext) {
+                    return f;
+                }
             }
-            _ => InputFormat::Sml,
         }
+        InputFormat::Sml
     }
 
     fn name(&self) -> &'static str {
@@ -76,6 +109,7 @@ impl InputFormat {
             InputFormat::Json => "json",
             InputFormat::Toml => "toml",
             InputFormat::Yaml => "yaml",
+            InputFormat::Xml => "xml",
         }
     }
 }
@@ -83,9 +117,8 @@ impl InputFormat {
 /// 决定输入格式：显式 `--from` > 扩展名推断 > SML。
 fn resolve_input_format(explicit: Option<&str>, input: Option<&Path>) -> Result<InputFormat, String> {
     match explicit {
-        Some(s) => {
-            InputFormat::parse(s).ok_or_else(|| format!("unknown input format `{s}` (sml|json|yaml)"))
-        }
+        Some(s) => InputFormat::parse(s)
+            .ok_or_else(|| format!("unknown input format `{s}` (sml|json|toml|yaml|xml)")),
         None => Ok(InputFormat::detect(input)),
     }
 }
@@ -214,10 +247,10 @@ struct Cli {
     #[arg(long = "to", alias = "format", default_value = "md")]
     format: String,
 
-    /// 输入格式：sml(默认) / json / toml / yaml。
+    /// 输入格式：sml(默认) / json / toml / yaml / xml。
     ///
     /// 缺省按输入文件扩展名推断（`.json` → json，`.toml` → toml，
-    /// `.yaml`/`.yml` → yaml，其余 → sml）；
+    /// `.yaml`/`.yml` → yaml，`.xml`/`.svd` → xml，其余 → sml）；
     /// 从 stdin 读且未显式指定时按 sml 处理。
     ///
     /// 迁移示例：`smltools -i app.json --from json --to sml > app.sml`
@@ -282,8 +315,8 @@ struct Cli {
 
 /// 按输入格式把文本转成 `Value`。
 ///
-/// SML 走完整解析（版本 / 特性 / include / 契约）；JSON 与 YAML 是**迁入**格式，
-/// 直接解析成数据，不参与 SML 的版本与特性机制。
+/// SML 走完整解析（版本 / 特性 / include / 契约）；JSON / TOML / YAML / XML 是
+/// **迁入**格式，直接解析成数据，不参与 SML 的版本与特性机制。
 fn load_input(text: &str, args: &Args) -> Result<Value, String> {
     match args.input_format {
         InputFormat::Sml => {
@@ -294,6 +327,7 @@ fn load_input(text: &str, args: &Args) -> Result<Value, String> {
             .ok_or_else(|| "JSON 解析失败：不是合法 JSON，或嵌套过深".to_string()),
         InputFormat::Toml => toml::parse(text).map_err(|e| format!("TOML 解析失败：{e}")),
         InputFormat::Yaml => yaml::parse(text).map_err(|e| format!("YAML 解析失败：{e}")),
+        InputFormat::Xml => xml::parse(text).map_err(|e| format!("XML 解析失败：{e}")),
     }
 }
 
@@ -311,7 +345,7 @@ fn convert_dir(dir: &Path, args: &Args) -> Result<usize, String> {
         .ok_or_else(|| "目录模式下必须用 -o/--output 指定输出目录（避免污染源目录）".to_string())?;
     std::fs::create_dir_all(out_dir).map_err(|e| format!("mkdir {}: {e}", out_dir.display()))?;
 
-    let want_ext = args.input_format.name();
+    let want = args.input_format;
     let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)
         .map_err(|e| format!("read_dir {}: {e}", dir.display()))?
         .filter_map(|e| e.ok().map(|e| e.path()))
@@ -319,7 +353,7 @@ fn convert_dir(dir: &Path, args: &Args) -> Result<usize, String> {
             p.is_file()
                 && p.extension()
                     .and_then(|e| e.to_str())
-                    .map(|e| e.eq_ignore_ascii_case(want_ext))
+                    .map(|e| want.matches_ext(e))
                     .unwrap_or(false)
         })
         .collect();
