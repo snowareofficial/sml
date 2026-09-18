@@ -13,6 +13,28 @@
 const vscode = require("vscode");
 const path = require("path");
 
+// ---------------------------------------------------------------------------
+// ⚠️ 顶层访问 vscode API 的安全护栏 —— 别删这段注释，它标的是一个致命坑
+// ---------------------------------------------------------------------------
+// **顶层绝不能直接读枚举成员。** VS Code 会**移除**枚举：本机 VS Code **1.138.0** 的扩展宿主里
+// `vscode.InsertTextFormat` 已经不存在（`extensionHostProcess.js` 里该名字出现 0 次，自带
+// `out/vscode-dts/vscode.d.ts` 里也没有 `enum InsertTextFormat`）。而
+//     insertTextFormat: INSERT_SNIPPET
+// 写在模块顶层 ⇒ **加载模块时就抛** `TypeError: Cannot read properties of undefined (reading 'Snippet')`
+// ⇒ 整个扩展的 `activate` 从不执行 ⇒ provider / 命令 / 输出面板全都不会注册。而报错只落在
+// 「扩展主机」日志里，界面上表现就是「悬停 / 右键菜单 / 特别高亮全都没反应」——与「扩展坏了」
+// 无法区分。本仓库从 0.4.1 起就一直是这样（HANDOFF §22.12）。
+// 因此：枚举一律经 helper 取，取不到就用**协议数值**（这几个数值是线上协议的稳定常量）。
+const INSERT_SNIPPET = 2; // InsertTextFormat.Snippet
+const INSERT_PLAIN = 1;   // InsertTextFormat.PlainText
+
+/// 取 `CompletionItemKind` 的成员；枚举被移除时退化为 fallback（0 = Text，仅图标不同，不影响功能）
+function CK(name, fallback) {
+  const e = vscode.CompletionItemKind;
+  const v = e ? e[name] : undefined;
+  return v === undefined ? fallback : v;
+}
+
 // 桥接层是 ESM，扩展宿主为 CJS，故用动态 import 载入
 let sml = null;
 let smlLoadError = null;
@@ -60,14 +82,14 @@ const EXPECT_VENDOR = { size: 69404, shaPrefix: "70f1ee47" };
 const DIRECTIVES = [
   {
     label: "@version v1",
-    kind: vscode.CompletionItemKind.Keyword,
+    kind: CK("Keyword", 0),
     detail: "版本声明",
     documentation: "声明文档遵循的 SML 语法版本，须写在文档开头。",
     insertText: "@version v1",
   },
   {
     label: "@contract",
-    kind: vscode.CompletionItemKind.Keyword,
+    kind: CK("Keyword", 0),
     detail: "契约定义",
     documentation: new vscode.MarkdownString(
       "定义契约（schema），为块提供字段类型、枚举、默认值、区间约束。\n\n" +
@@ -75,30 +97,30 @@ const DIRECTIVES = [
         "契约定义本身不进解析结果。需要 `loose` 才允许未声明字段。"
     ),
     insertText: "@contract ${1:Name} {\n\t$0\n}",
-    insertTextFormat: vscode.InsertTextFormat.Snippet,
+    insertTextFormat: INSERT_SNIPPET,
   },
   {
     label: "@is",
-    kind: vscode.CompletionItemKind.Keyword,
+    kind: CK("Keyword", 0),
     detail: "应用契约",
     documentation: new vscode.MarkdownString(
       "在当前块应用契约：校验字段类型/枚举/区间，并填充缺失字段的默认值。\n\n" +
         "契约须在 `@is` 之前定义。\n\n```sml\ndb {\n    @is Server\n    host: db1.internal\n}\n```"
     ),
     insertText: "@is ${1:Name}",
-    insertTextFormat: vscode.InsertTextFormat.Snippet,
+    insertTextFormat: INSERT_SNIPPET,
   },
   {
     label: "include",
-    kind: vscode.CompletionItemKind.Keyword,
+    kind: CK("Keyword", 0),
     detail: "引入外部文件",
     documentation: "把外部 .sml 文件内联进来。相对路径按**被包含文件自身所在目录**解析。",
     insertText: 'include "${1:path}"',
-    insertTextFormat: vscode.InsertTextFormat.Snippet,
+    insertTextFormat: INSERT_SNIPPET,
   },
   {
     label: "import (部分引用)",
-    kind: vscode.CompletionItemKind.Keyword,
+    kind: CK("Keyword", 0),
     detail: "只挑指定顶层键并入，避免整文件 copy",
     documentation: new vscode.MarkdownString(
       "部分引用：只从目标文件挑出指定顶层键并入当前作用域（不引入其余键）。\n\n" +
@@ -107,7 +129,7 @@ const DIRECTIVES = [
         "```sml\nimport { login } as w in \"widgets.sml\"\n```"
     ),
     insertText: 'import "${1:path}" { ${2:key1}, ${3:key2} }',
-    insertTextFormat: vscode.InsertTextFormat.Snippet,
+    insertTextFormat: INSERT_SNIPPET,
   },
 ];
 
@@ -122,11 +144,11 @@ const CONTRACT_TYPES = [
   { label: "enum [ ]", detail: "枚举：取值须来自给定列表" },
 ].map((t) => ({
   label: t.label,
-  kind: vscode.CompletionItemKind.TypeParameter,
+  kind: CK("TypeParameter", 0),
   detail: `类型：${t.detail}`,
   insertText: t.label === "enum [ ]" ? "enum [ ${1:a} ${2:b} ]" : t.label,
   insertTextFormat:
-    t.label === "enum [ ]" ? vscode.InsertTextFormat.Snippet : vscode.InsertTextFormat.PlainText,
+    t.label === "enum [ ]" ? INSERT_SNIPPET : INSERT_PLAIN,
 }));
 
 const MODIFIERS = [
@@ -138,13 +160,13 @@ const MODIFIERS = [
   { label: "loose", detail: "允许契约未声明的字段（写在契约名后）" },
 ].map((m) => ({
   label: m.label,
-  kind: vscode.CompletionItemKind.Keyword,
+  kind: CK("Keyword", 0),
   detail: `修饰符：${m.detail}`,
 }));
 
 const CONSTANTS = ["true", "false", "null"].map((c) => ({
   label: c,
-  kind: vscode.CompletionItemKind.Constant,
+  kind: CK("Constant", 0),
   detail: "字面量",
 }));
 
@@ -166,13 +188,13 @@ const PATTERN_KEYWORDS = [
 ].flatMap((k) => [
   {
     label: k.zh,
-    kind: vscode.CompletionItemKind.Keyword,
+    kind: CK("Keyword", 0),
     detail: `模式关键字：${k.detail}`,
     insertText: `${k.zh}: `,
   },
   {
     label: k.en,
-    kind: vscode.CompletionItemKind.Keyword,
+    kind: CK("Keyword", 0),
     detail: `模式关键字（英文）：${k.detail}`,
     documentation: `等价于中文关键字「${k.zh}」`,
     insertText: `${k.en}: `,
@@ -189,12 +211,12 @@ const PATTERN_CLASSES = [
 ].flatMap((c) => [
   {
     label: c.zh,
-    kind: vscode.CompletionItemKind.TypeParameter,
+    kind: CK("TypeParameter", 0),
     detail: `字符类：${c.zh}`,
   },
   {
     label: c.en,
-    kind: vscode.CompletionItemKind.TypeParameter,
+    kind: CK("TypeParameter", 0),
     detail: `字符类（英文）：${c.zh}`,
   },
 ]);
@@ -211,7 +233,7 @@ const FEATURE_NAMES = [
   { n: "for", d: "@for 有界循环展开（opt-in）" },
 ].map((f) => ({
   label: f.n,
-  kind: vscode.CompletionItemKind.Property,
+  kind: CK("Property", 0),
   detail: `特性：${f.d}`,
 }));
 
@@ -516,7 +538,7 @@ function activate(context) {
         for (const n of contractNames) {
           items.push({
             label: n,
-            kind: vscode.CompletionItemKind.Struct,
+            kind: CK("Struct", 0),
             detail: "契约名 · 块级类型标注 `<契约名> <块名> { }`",
             documentation: new vscode.MarkdownString(
               "以契约名作为块前缀，声明该块即校验：\n\n```sml\n" +
@@ -541,7 +563,7 @@ function activate(context) {
           ...CONTRACT_TYPES,
           ...typeNames.map((n) => ({
             label: n,
-            kind: vscode.CompletionItemKind.TypeParameter,
+            kind: CK("TypeParameter", 0),
             detail: "自定义类型（@type 声明的模式）",
           })),
         ];
@@ -562,14 +584,14 @@ function activate(context) {
         for (const n of contractNames) {
           items.push({
             label: n,
-            kind: vscode.CompletionItemKind.Struct,
+            kind: CK("Struct", 0),
             detail: "契约（组合：字段值须符合该契约）",
           });
         }
         for (const n of collectFragmentNames(fullText)) {
           items.push({
             label: "&" + n,
-            kind: vscode.CompletionItemKind.Reference,
+            kind: CK("Reference", 0),
             detail: "片段引用（展开为片段内容）",
             insertText: "&" + n,
           });
@@ -581,7 +603,7 @@ function activate(context) {
         for (const n of contractNames) {
           items.push({
             label: n,
-            kind: vscode.CompletionItemKind.Struct,
+            kind: CK("Struct", 0),
             detail: "契约名（类型标注形式 @is type(契约名)）",
             insertText: n + ")",
           });
@@ -590,7 +612,7 @@ function activate(context) {
         for (const n of contractNames) {
           items.push({
             label: n,
-            kind: vscode.CompletionItemKind.Struct,
+            kind: CK("Struct", 0),
             detail: "契约名",
           });
         }
@@ -601,7 +623,7 @@ function activate(context) {
         for (const k of collectKeys(fullText)) {
           items.push({
             label: k,
-            kind: vscode.CompletionItemKind.Property,
+            kind: CK("Property", 0),
             detail: "本文档中出现过的键",
             insertText: `${k}: `,
           });

@@ -1683,3 +1683,51 @@ hover 到底返回什么、命令有没有接线，全是盲区。于是本轮�
 `FAIL grammar 正则层 / 1 FAILED`（真闸门，`exit(failed?1:0)`），后面的 `vsce package`
 **照样执行了**，只有人眼能从输出里看出不对。**结论**：依赖退出码的串联，一律**不加管道**；
 要过滤输出就重定向到文件、跑完再读文件。
+
+### 22.12 🔴 本扩展**从来没有真正激活过**：顶层读了 VS Code 1.138 已移除的 API
+
+**用户反馈**：「悬停无效」。此时语言模式已确认是 `SML`（状态栏截图），禁用列表里也只有
+`snoware.soup-lang`（不是 sml-lang）。**别再猜了 —— VS Code 把一切都写在磁盘上**：
+
+| 去哪读 | 能读到什么 |
+|---|---|
+| `%APPDATA%\Code\logs\<会话>\window*/exthost\exthost.log` | **扩展激活记录**：`ExtensionService#_doActivateExtension snoware.sml-lang, startup: false, activationEvent: 'onLanguage:sml'`，紧跟 `[error] Activating extension … failed due to an error:` + **完整调用栈** |
+| `…\window*/exthost\output_logging_*/<n>-<面板名>.log` | **每个输出面板的落盘**（我们自己那个会叫 `*-SML.log`）。⚠️ **没有这个文件 = 扩展从未激活**（面板只在 activate 时创建） |
+| `%APPDATA%\Code\User\globalStorage\state.vscdb`（sqlite） | `extensionsIdentifiers/disabled` —— **被禁用的扩展**（本次排除了 `snoware.soup-lang`） |
+| `…\workspaceStorage\<hash>\state.vscdb` | 工作区级禁用 / 受信任状态 |
+
+**证据链**（全部来自上面第一、二行）：
+
+```
+2026-09-19 07:34:21.617 [info] ExtensionService#_doActivateExtension snoware.sml-lang, activationEvent: 'onLanguage:sml'
+2026-09-19 07:34:21.622 [error] Activating extension snoware.sml-lang failed due to an error:
+2026-09-19 07:34:21.622 [error] TypeError: Cannot read properties of undefined (reading 'Snippet')
+    at Object.<anonymous> (…\snoware.sml-lang-0.4.2\src\extension.js:78:47)   ← 模块**加载**阶段
+```
+日志最早一条是 **0.4.1 / 09-18 20:30**（`…0.4.1\src\extension.js:55:47`，同一句），
+0.4.2 也一样 ⇒ **这个扩展从来没有成功激活过**。而且没有 `*-SML.log` ⇒ 输出面板也没建。
+
+**根因**：第 78 行第 47 列正是 `insertTextFormat: vscode.InsertTextFormat.Snippet,` 的
+`.Snippet` 访问点 ⇒ **`vscode.InsertTextFormat` 在 VS Code 1.138 里根本不存在**。查证（本机
+`d:\Microsoft VS Code\7debcd0e2a\resources\app`）：
+* `out\vs\workbench\api\node\extensionHostProcess.js`（宿主 bundle）里 `InsertTextFormat` **0 次**，
+  而 `CompletionItemKind` 3 次、`DiagnosticSeverity` 1 次；
+* 自带的 `out\vscode-dts\vscode.d.ts` 里**没有** `enum InsertTextFormat`（`enum CompletionItemKind` 有）。
+
+**为什么自检/假宿主都没发现**：`@types/vscode@^1.80` 是**编译期**口径（它当然有该枚举），
+而我的假宿主是我照着 `@types` 手写的 mock —— **我把不存在的 API 也 mock 进去了**，
+于是「跑得好好的」。**假宿主的 API 面必须对齐目标宿主，而不是对齐类型声明。**
+
+**已修**：`INSERT_SNIPPET = 2` / `INSERT_PLAIN = 1`（线上协议数值）+ `vscode.CompletionItemKind`
+改经 `CK(name, fallback)`；顶层护栏注释；`_verify_ext.mjs` 加「**已被移除的 API**」黑名单
+（现含 `InsertTextFormat`，先剥注释再匹配）；假宿主**故意删掉** `InsertTextFormat`（对齐 1.138），
+顶层再读它就当场 `activate` 抛异常 —— 这条回归闸门以后能自动抓住同类问题。
+
+**给下一位的三条结论**：
+1. **顶层（模块作用域）永远不要直接读 `vscode.<枚举>.<成员>`** —— 宿主会移除枚举，一读就炸**整个模块**，
+   而且 `activate` 连执行机会都没有，报错只在日志里。要么经 helper 取、要么用协议数值。
+2. `engines.vscode: ^1.80.0` 只保证**不会装到更老的**宿主上，**不保证**你用到的 API 在新宿主上还在。
+   定期拿**目标宿主**的 `vscode.d.ts`（`<安装目录>\<hash>\resources\app\out\vscode-dts\vscode.d.ts`）
+   把 `src/*.js` 里所有 `vscode.<名字>` 抽出来对一遍（本次脚本：`%TEMP%\audit_api.py`，未入库）。
+3. 排查「扩展没反应」**先读 `exthost.log` 与 `output_logging_*`**，别再从界面猜：前者给你激活失败与
+   调用栈，后者「有没有那个面板文件」直接说明激活有没有走到创建面板那一步。

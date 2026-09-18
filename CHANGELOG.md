@@ -516,6 +516,24 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 修复
 
+- 🔴 **VSCode 扩展在 VS Code 1.138 上从来没能激活过（致命：顶层读了已被移除的 API）**
+  （`editors/vscode/src/extension.js`）：`DIRECTIVES` 等模块级数组里写了
+  `insertTextFormat: vscode.InsertTextFormat.Snippet`，而 **VS Code 1.138 的扩展宿主里
+  `vscode.InsertTextFormat` 已被移除**（实测：宿主 bundle `extensionHostProcess.js` 里该名字
+  出现 **0** 次；VS Code 自带的 `out/vscode-dts/vscode.d.ts` 里没有 `enum InsertTextFormat`）。
+  顶层读它的成员 ⇒ **加载模块时即抛** `TypeError: Cannot read properties of undefined
+  (reading 'Snippet')` ⇒ `activate` 从不执行 ⇒ provider / 命令 / 输出面板**全都不注册**；
+  报错只落在「扩展主机」日志里，界面上就是「**悬停 / 右键菜单 / 特别高亮全都没反应**」。
+  证据（本机日志）：`Activating extension snoware.sml-lang failed…`，从 **0.4.1（09-18 20:30）**
+  到 0.4.2 每次激活都失败 —— 也就是说这个扩展此前**一次都没有真正跑起来过**。
+  修法：`INSERT_SNIPPET = 2` / `INSERT_PLAIN = 1`（线上协议数值）+ `CompletionItemKind`
+  改经 `CK(name, fallback)` 取值（枚举缺失时退化为 Text，仅图标不同）；顶层新增护栏注释。
+  闸门：`scripts/_verify_ext.mjs` 新增「**已被移除的 API**」黑名单（现含 `InsertTextFormat`，
+  先剥注释再匹配，避免注释里提到就误报）；假宿主**故意不提供** `InsertTextFormat`（对齐 1.138），
+  只要顶层再读它，`activate` 就会当场抛异常。
+  ⚠️ 教训：`devDependencies` 里的 `@types/vscode@^1.80` 是**编译期**的口径，运行期扩展宿主的
+  API 演进只能拿**目标版本**的 `vscode.d.ts` / 宿主 bundle 去核（见 HANDOFF §22.12）。
+
 - **语法高亮：同一行的第二个及以后的字段不着色（「字段组合」/ 内联对象全中）**
   （`editors/vscode/syntaxes/sml.tmLanguage.json` 的 `#key`）：该规则整个 match 被 `^\s*`
   **锚在行首**，于是只有行首那个词算键。真实 Oniguruma 引擎实测：
