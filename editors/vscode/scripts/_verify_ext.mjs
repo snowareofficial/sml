@@ -88,6 +88,27 @@ try {
   check(false, "package.json 命令 / 菜单一致性检查", String(e && e.message));
 }
 
+// —— 「已被新版 VS Code 移除的 API」闸门 ——
+// 为什么必须有：顶层读一个**已不存在**的枚举成员，会让**整个扩展模块加载失败** ——
+// `activate` 从不执行、provider / 命令 / 输出面板全都不注册，而报错只落在「扩展主机」日志里。
+// 界面上表现就是「悬停 / 右键菜单 / 特别高亮全都没反应」，与「扩展坏了」无法区分（极难自查）。
+// 本仓库真栽过：VS Code **1.138** 的扩展宿主里没有 `vscode.InsertTextFormat`
+// （宿主 bundle 里 0 次出现、自带 vscode.d.ts 里无 `enum InsertTextFormat`），而
+// `insertTextFormat: vscode.InsertTextFormat.Snippet` 写在模块顶层 ⇒ 从 0.4.1 起
+// **一次都没激活成功**（HANDOFF §22.12）。
+{
+  const banned = [
+    ["InsertTextFormat", "1.138 起宿主里已无此枚举；顶层读它会炸掉整个模块 ⇒ 改用数值 2 / 1（见 extension.js 的 INSERT_SNIPPET / INSERT_PLAIN）"],
+  ];
+  // 先剥掉注释，免得注释里提到被禁名字就误报
+  const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+  const files = readdirSync("src").filter((f) => f.endsWith(".js") || f.endsWith(".mjs"));
+  for (const [name, why] of banned) {
+    const hit = files.filter((f) => new RegExp(`vscode\\.${name}\\b`).test(strip(readFileSync(path.join("src", f), "utf-8"))));
+    check(hit.length === 0, `未使用已被移除的 API：vscode.${name}`, hit.length ? `出现在 ${hit.join("、")} —— ${why}` : "");
+  }
+}
+
 // —— 新增模块的语法闸门（node --check：不执行、只解析）——
 for (const f of ["src/special-highlight.js", "src/highlight.js", "src/extension.js"]) {
   const r = spawnSync(process.execPath, ["--check", f], { encoding: "utf-8" });
