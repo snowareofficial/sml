@@ -96,6 +96,13 @@ SML 语法小、解析器（`js/sml.mjs`）零依赖且可直接 import，进程
 面板里同时记录扩展激活与解析器加载的结果 —— 那是「静默失效」的最后一环。
 （悬浮自己遇到「取不到实例」时也会把原因写进该面板，同一文档版本只解释一次。）
 
+**另一个高频真身：文件没被当成 SML。** 语言模式不是 `sml` 时，provider（按语言选择器注册）
+不会被调用、右键菜单项（`when: editorLangId == sml`）不显示、TextMate 语法也不生效 ⇒
+**悬浮 / 诊断 / 补全 / 右键菜单一起失效**，看起来就像"扩展坏了"。扩展现在会在启动时检查：
+只要工作区里有 `.sml` 文件就会激活（`workspaceContains:**/*.sml`），发现某个 `.sml` 的语言模式
+不是 SML 时**弹一个警告并提供「设为 SML」按钮**；自检面板也会报告
+`SML 语言已注册：✓/✗`（✗ 就说明扩展根本没被加载：被禁用 / 受限模式 / 未安装）。
+
 ## 已知限制
 
 - ~~**契约校验不生效**~~：此说明**已过时**（2026-09-18 更正）。JS 实现的契约
@@ -228,6 +235,16 @@ The report goes to the "**Output → SML**" panel:
 
 The panel also records activation and parser-load results — the last link in a silent failure chain.
 (The hover itself logs *why* when it cannot find an instance; once per document version.)
+
+**The other common root cause: the file is not treated as SML.** When the language mode is not `sml`,
+the providers (registered per language selector) are never called, the context-menu items
+(`when: editorLangId == sml`) are hidden, and the TextMate grammar does not apply either — so
+**hover, diagnostics, completion and the context menu all die together**, looking like a broken
+extension. The extension now activates whenever the workspace contains any `.sml` file
+(`workspaceContains:**/*.sml`) and, on finding a `.sml` file with a non-SML language mode, shows a
+warning with a **"设为 SML"** (set to SML) button; the self-check also reports
+`SML 语言已注册：✓/✗` (a ✗ means the extension was never loaded: disabled / restricted mode /
+not installed).
 
 ## Known limitations
 

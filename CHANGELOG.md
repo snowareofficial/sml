@@ -516,6 +516,30 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 修复
 
+- **语法高亮：同一行的第二个及以后的字段不着色（「字段组合」/ 内联对象全中）**
+  （`editors/vscode/syntaxes/sml.tmLanguage.json` 的 `#key`）：该规则整个 match 被 `^\s*`
+  **锚在行首**，于是只有行首那个词算键。真实 Oniguruma 引擎实测：
+  `web { host: a, port: 8080 }` → `host✗ port✗`；`m: [ { a: 1, b: 2 } ]` → `a✗ b✗`；
+  `a: 1 b: 2` → `b✗`；语料 `address { city: Shanghai  zip: "200120" }`、
+  `{ type: home   number: "…" }` 同样中招。
+  现改为三分支：① 行首键（原逻辑，允许缩进）；② 紧跟 `{` / `,` 且其后是 `:` 的词；
+  ③ **空格分隔**的后续键（SML 分隔符可省）。两道防误伤：`(?<!:)` 挡住 `url: https://…`
+  这类**值里的冒号**（`https` 不得着键色），`(?=:)` 挡住数组裸值 `[ a, b ]`。
+  实测修复后全部着色、负向零误判（注释里的 `词:` 因注释规则优先仍然无色）。
+  闸门：`scripts/_verify_tokenize.mjs` 新增 5 条「同行多字段」+ 3 条负向断言（真实引擎）；
+  `scripts/_verify_grammar.mjs` 的 JS 侧镜像改为**多分支联合 + 全局扫描**（原来读
+  `repo.key.match`，改成分支数组后它静默漏检 ⇒ 已修，并补 3 条用例）。
+
+- **VSCode 扩展：「.sml 没被当成 SML」⇒ 悬浮 / 诊断 / 补全 / 右键菜单一起失效**
+  （`editors/vscode/src/extension.js` 新增语言守卫 + `package.json` 加
+  `workspaceContains:**/*.sml` 激活事件）：语言模式不是 `sml` 时，provider（按语言选择器
+  注册）不被调用、右键菜单项（`when: editorLangId == sml`）不显示、TextMate 语法也不生效
+  —— 与「扩展坏了」完全无法区分，且**不留任何痕迹**。现在：工作区里只要有 `.sml` 就会激活
+  （否则语言模式不对时扩展压根不激活，检查根本跑不到 —— 鸡生蛋问题），发现 `.sml` 语言模式
+  不是 SML 就弹警告并给「**设为 SML**」按钮（调 `languages.setTextDocumentLanguage`）；
+  改不动时说明本窗口没注册 `sml` 语言 ⇒ **扩展没被加载**；自检面板新增
+  `SML 语言已注册：✓/✗` 一行作为判据。
+
 - **VSCode 扩展：6 条命令从未出现在命令面板（`package.json` 的贡献点写错了位置）**：命令原先
   声明在**顶层 `commands`** —— 那不是有效贡献点，VS Code **静默忽略**它 ⇒ **命令面板里搜不到
   任何 SML 命令**（右键菜单仍可用，因为它走 `contributes.menus`，与 commands 声明无关）。

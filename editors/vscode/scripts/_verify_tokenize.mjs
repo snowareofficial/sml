@@ -119,6 +119,40 @@ function scopesCovering(line, needle, tokens) {
   check("块内字符类「数字」命中 support.type.primitive", s3 !== null && s3.join(" ").includes("support.type.primitive"), s3?.join(" | "));
 }
 
+// ---- 断言 4：同一行多个字段（「字段组合」/ 内联对象）每个键都要着色 ----
+// 回归背景：#key 原先整个 match 被 ^\s* 锚在行首 ⇒ `web { host: a, port: 8080 }` 里
+// 只有行首那个词着色，同行的 host / port 全无色（真实引擎实测过）。
+{
+  const cases = [
+    "web { host: example.com, port: 8080 }",     // 逗号分隔
+    "web { host: example.com port: 8080 }",      // 无逗号（SML 分隔符可省）
+    'address { city: Shanghai  zip: "200120" }', // 语料 showcase_contract.sml 原句
+    '{ type: home   number: "212 555-1234" }',   // 语料 showcase.sml 原句
+    "m: [ { a: 1, b: 2 } ]",                     // 数组里的内联对象
+  ];
+  for (const line of cases) {
+    const toks = tokensOfLine(line);
+    const bad = [];
+    const re = /([A-Za-z_\u4e00-\u9fa5][\w.\-\u4e00-\u9fa5]*)\s*:/g;
+    let m;
+    while ((m = re.exec(line)) !== null) {
+      const s = m.index, e = m.index + m[1].length;
+      const sc = toks.filter((t) => t.startIndex < e && t.endIndex > s).map((t) => t.scopes[t.scopes.length - 1]);
+      if (!sc.includes("variable.other.member.sml")) bad.push(m[1]);
+    }
+    check(`同行多字段全部着色：${line}`, bad.length === 0, bad.length ? "无色：" + bad.join("、") : "");
+  }
+  // 负向 1：数组里的裸值不是键
+  const s1 = scopesCovering("m: [ hello, world ]", "hello");
+  check("数组裸值不着键色", s1 !== null && !s1.join(" ").includes("variable.other.member"), s1?.join(" | "));
+  // 负向 2：值里的冒号（URL）不是键
+  const s2 = scopesCovering("issuer: https://sso.swebase.cn", "https");
+  check("值里的 URL 不着键色", s2 !== null && !s2.join(" ").includes("variable.other.member"), s2?.join(" | "));
+  // 负向 3：注释里的 `词:` 不是键（注释规则必须优先）
+  const s3 = scopesCovering("# SML: state: NY", "state");
+  check("注释里的词不着键色", s3 !== null && !s3.join(" ").includes("variable.other.member"), s3?.join(" | "));
+}
+
 // ---- 全文 tokenize 不抛异常 ----
 {
   let threw = null;

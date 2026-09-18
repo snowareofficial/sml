@@ -240,9 +240,23 @@
       "match": "(?<!\\w)-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?"
     },
     "key": {
-      "comment": "数据区键名：支持中文。",
-      "match": "^\\s*([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)\\s*(?=:|\\s*\\{)",
-      "captures": { "1": { "name": "variable.other.member.sml" } }
+      "comment": "数据区键名：支持中文。两个分支 —— ① 行首键（允许缩进）；② 同行后续键 / 内联对象键（紧跟 `{` 或 `,`，且其后是 `:`）。此前只有分支 ①（整个 match 被 ^\\s* 锚在行首），于是 `web { host: a, port: 8080 }` 里只有行首那个词着色，同行的 host / port 全无色 —— 真实 Oniguruma 引擎实测 `host✗ port✗`，即「字段组合（同一行多字段 / 内联对象）」着不上色。",
+      "patterns": [
+        {
+          "match": "^\\s*([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)\\s*(?=:|\\s*\\{)",
+          "captures": { "1": { "name": "variable.other.member.sml" } }
+        },
+        {
+          "comment": "紧跟 `{` 或 `,` 的词，且其后是 `:` 才算键 —— `(?=:)` 是为了不把数组里的 `a, b` 这类值误当键。",
+          "match": "([{,])\\s*([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)\\s*(?=:)",
+          "captures": { "2": { "name": "variable.other.member.sml" } }
+        },
+        {
+          "comment": "无逗号分隔的后续键（SML 分隔符可省）：词前是空白、其后是 `:`。两道保险：① `(?<!:)` 要求这个空白**不是紧跟在冒号后**（否则 `url: https://x` 里的 `https` 会被误当键）；② `(?!/)` 排除 `: //`。语料 `address { city: Shanghai  zip: \"200120\" }` 就属这一类。",
+          "match": "(?<!:)\\s+([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)\\s*(?=:(?!/))",
+          "captures": { "1": { "name": "variable.other.member.sml" } }
+        }
+      ]
     },
     "punctuation": {
       "patterns": [
