@@ -418,3 +418,15 @@ location on the right.
 ## Download
 
 - **VS Code Extension 0.4.1**: [download sml-lang-0.4.1.vsix](/dl/sml-lang-0.4.1.vsix) (manual install; see the [downloads page](/en/downloads/))
+
+
+## Editor support
+
+| Editor | How to get it | What it does |
+|---|---|---|
+| **VS Code** | Package locally from `editors/vscode/` and install the `.vsix`: `npm run package` → `code --install-extension sml-lang-0.4.2.vsix`. **Not on the marketplace** (publishing is deliberately on hold). | Syntax highlighting, diagnostics, completion, hover (via LSP) |
+| **Zed** | In Zed, run `zed: install dev extension` and pick the `editors/zed/` directory of this repo. See `editors/zed/README.md`. | Syntax highlighting, bracket matching, comment toggling (Tree-sitter) |
+
+> ⚠️ **Zed cannot install a `.vsix`**: VSIX is a VS Code–only package format. Zed uses its own
+> extension format (`extension.toml` + a Tree-sitter grammar). The two rows above are
+> **different things**, not the same package behind different buttons.

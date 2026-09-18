@@ -440,3 +440,15 @@ features: [ logging metrics tracing ]
 ## 下载
 
 - **VS Code 扩展 0.4.1**：[下载 sml-lang-0.4.1.vsix](/dl/sml-lang-0.4.1.vsix)（手动安装，见 [下载页](/downloads/)）
+
+
+## 编辑器支持
+
+| 编辑器 | 获取方式 | 能力 |
+|---|---|---|
+| **VS Code** | 从本仓库 `editors/vscode/` 本地打包后安装（`.vsix`）：`npm run package` → `code --install-extension sml-lang-0.4.2.vsix`。**未上架市场**（上架流程繁琐，刻意暂缓） | 语法高亮、诊断、补全、悬浮说明（走 LSP） |
+| **Zed** | 在 Zed 里执行 `zed: install dev extension`，选择本仓库的 `editors/zed/` 目录。详见 `editors/zed/README.md` | 语法高亮、括号匹配、注释切换（Tree-sitter） |
+
+> ⚠️ **Zed 装不了 `.vsix`**：VSIX 是 VS Code 专用的包格式；Zed 用的是自己的扩展格式
+> （`extension.toml` + Tree-sitter grammar），两套不通用。所以上面两行是**两个不同的东西**，
+> 不是同一个包换了个按钮。
