@@ -14,26 +14,31 @@
 
 | 套件 | 命令 | 结果 |
 |---|---|---|
-| Rust 全 workspace | `cargo test --workspace` | **481 通过 / 0 失败**（44 个 target）⚠️ **但退出码是 1**，见下 |
-| 其中 `smltools` | `cargo test -p smltools` | 65 通过（`xml` 子集 26） |
+| Rust 全 workspace | `cargo test --workspace` | **528 通过 / 0 失败**（46 个 target），**rc=0** —— 复核过，见下 |
+| 其中 `smltools` | `cargo test -p smltools` | **110 通过 / 0 失败**（bin 70 + 新集成 `tests/error_codes.rs` 40；`xml` 子集 26 在 bin 里） |
 | C | `python build_check.py --run` | rc=0，`ALL LIMIT TESTS PASSED` + `ALL CODE TESTS PASSED` |
 | C++ | `python build_verify.py` | 六 target 全 rc=0（example / CONTRACT / COMMENTS / LIMITS / **CODES 80 条全过** / RS-BRIDGE） |
 | JS 错误码 | `node js/probe-error-codes.mjs` | `ALL OK`（与 Rust 同条件同码） |
 | Lua | `python lua/run_check.py` | rc=0，`ALL LUA CHECKS PASSED`（入口自检 + `E-IO-001` + 26 条码用例） |
 
-> ⚠️ **`cargo test --workspace` 会返回 `rc=1`，而测试本身 0 失败**（2026-09-18 查明；
-> 此前记的「返回 rc=1 但 0 失败、未能复现」就是这个，现在能稳定复现了）。
-> 直接原因：`swsml-derive` 的 **doctest 编译不过** ——
-> `error[E0463]: can't find crate for proc_macro2 / quote / syn`，随后
-> `error: doctest failed, to rerun pass -p swsml-derive --doc`。
-> 判别实验（都实测过）：
-> - `cargo test --workspace --doc` → **rc=0**，doctest 全过（含 derive 那 1 条）；
-> - `cargo test -p swsml-derive --doc` → **rc=0**，1 条通过；
-> - 只有「**整个 workspace 一起构建 + 再跑 doctest**」才炸。
-> 这个组合指向 **feature 统一**：全量构建时 `syn` / `quote` 的那份 rlib，与 rustdoc
-> 从 doctest 命令行拿到的 `--extern` 路径不是同一份。**与本次改动无关**
-> （`rust/derive/` 未动，工作区干净）。已登记为 **W19**。
-> **判读测试结果时以 `test result: ok. N passed; 0 failed` 为准，别只看退出码。**
+> ✅ **`cargo test --workspace` 复核为 `rc=0` / 46 targets / 528 passed / 0 failed**（2026-09-18）。
+> 此前记的「rc=1 但 0 失败、未能复现」**已查明，且不是仓库缺陷**。唯一红的是 `swsml-derive`
+> 的 doctest 编译（`E0463: can't find crate for proc_macro2 / quote / syn`），而
+> `-p swsml-derive --doc` 与 `--workspace --doc` 收到的 rustdoc 命令行**逐字符一致**、每条
+> `--extern` 指向的文件都存在 —— 我原先猜的「**feature 统一**」**已被证伪**
+> （`cargo tree --duplicates` 里 proc-macro2/quote 单版本、无分叉）。
+> 判为**共享 target 目录中该 doctest 所链接构件的瞬时不一致**：`--extern sml=` 指向的是
+> **无 hash 的 `libsml.rlib`**，根因是 `swsml ↔ swsml-derive` 的**循环 dev-dependency**，
+> cargo 每次构建都报 `output filename collision`（rust-lang/cargo#6313）。实测该文件会被别的
+> 配置变体改写（`cargo build -p swsml --no-default-features` 之后 4932198 → 1994448 字节）；
+> 共享目录被"半成品构建 / 中断的构建"留下不一致状态时就会 E0463。
+> **再遇到时**：`cargo clean -p swsml-derive && cargo test --workspace` 即可恢复。
+> 判读仍以 `test result: ok. N passed; 0 failed` 为准，别只看退出码。
+> ⚠️ **更正两个数**：① `rust/derive/src/lib.rs` 里的 ``` 只有 **2 处** = **1 个**代码块
+> （我曾记成「76 个标记 / 38 个代码块」—— 那是 **PowerShell 把反引号当转义符**造成的假数字，
+> 见 §11.3）；② 那条 doctest **本来就在跑**，所以 `doctest = false` 的代价是 **1 条**测试、
+> 不是 38 条 —— 结论仍是「别关」，但数量级差了 38 倍。
+> **未能确定性复现**（有决定性反向证据 + 机制级证据，但构造不出稳定复现）。
 
 **两块新基建**（2026-09-18）：
 
@@ -79,7 +84,7 @@
 | **站点搜索** | `a4ba6fc` | 新 `site/tools/gen_search_index.py`、新 `site/content/{zh,en}/search.md`、`site/static/search-index.json` |
 | **文档** | `3995998` | `README.md`、新 `README.en.md`、`rust/README.md`、`rust/smltools/README.md`（整篇重写）、`rust/AUDIT_REPORT.md`、`CHANGELOG.md`、`TODO.md`、本文件 |
 
-> 提交前已跑 §5 的四组命令：Rust `467 passed / 0 failed`、C `ALL LIMIT TESTS PASSED`、
+> 提交前已跑 §5 的四组命令：Rust `528 passed / 0 failed`、C `ALL LIMIT TESTS PASSED`、
 > C++ 五个 target 全 `rc=0`。
 > 注：`c/build_check.py` 与 `site/public/` 在 `.gitignore` 里，`git add` 会对这些路径报
 > 「ignored」告警但**其余文件照常暂存**（退出码为 1）；`site/public/sml.mjs` 是已跟踪的
@@ -277,7 +282,7 @@ DTD 内部子集自定义的实体不解析；混合内容多段文本按出现�
 
 ```bash
 cd rust
-cargo test --workspace                 # 467 通过 / 0 失败（全集；qsm/crystalic 不在 members 里）
+cargo test --workspace                 # 528 通过 / 0 失败（全集；qsm/crystalic 不在 members 里）
 cargo test -p smltools                 # 65 个（xml 占 26）
 cargo test -p sml-value --features sml # to_sml 排版的回归（行宽 / 行尾空白 / 深度守卫）
 cargo check --workspace                # 应为 0 warning（只剩 "hard linking" 环境噪声）
@@ -643,3 +648,36 @@ python errors/gen_codes.py     # 反向校验会扫 lua/lib/sml.soup 里的码�
 另外它挑出 `errors/codes.sml` 顶部那句「C / C++ / Lua 还只有文案」**是我写的、且已过期**
 （README 的进度表是对的）。这类"文档自己打自己脸"比代码 bug 更容易骗过下一会话，已改，
 并在该行写明「与 README 冲突时以 README 为准」。
+
+
+### 11.3 W19 收口：查了，但**不该改**（以及我两个错误的更正）
+
+`w19-flaky` 的结论是「**不可复现、非仓库缺陷、未改任何文件**」—— 这是一个"查了但不该改"的正确结局。
+它做了我上一轮**没做到**的一步：把 `-p swsml-derive --doc` 与 `--workspace --doc` 收到的
+rustdoc 命令行**逐字符抓出来对比**，确认每条 `--extern` 指向的文件都存在 ⇒ **我原先猜的
+「feature 统一」被证伪**。真正的机制是共享 target 里**无 hash 的 `libsml.rlib`** 被别的配置变体
+污染（`swsml ↔ swsml-derive` 循环 dev-dependency ⇒ cargo `output filename collision`，#6313）。
+每条都见 §0 的注记。
+
+**它更正了我两个错误，两个都值得记：**
+
+1. **「76 个 ``` 标记 / 38 个代码块」是假数字。** 真实是 **2 个标记 = 1 个代码块**。
+   成因：我把计数写在 `python -c "..."` 里，**PowerShell 把反引号当转义符**改写了我递过去的
+   代码 —— 它甚至能复现出同样的假值 76，换成 `.py` 文件立刻变回 2。
+   教训：**数字一旦经过一层工具，就要用另一种方式复核**；"看起来像是量过的"最危险。
+   （它当时是在纠正**我任务书里的这个数**，而且我原本据它写了"38 个示例没人跑"的结论。）
+2. **我替它写的理由「有单测 ⇒ 上游改文案会响亮失败」也是错的。** 那两条单测喂的是**自己的
+   字面量**，钉的是**映射逻辑**、不是上游措辞 ⇒ 上游一改文案，码会**静默**退化成 `E-CLI-007`。
+   **是它主动把这句话收回来的** —— 如果我按它去回答用户"这里安全"，就是拿错的事实做决策。
+   现已在 `rust/smltools/src/main.rs` 的测试模块里补**真实上游错误**触发的加固用例（见下条提交）。
+
+**它顺带查出的三件事（登记，不属本轮）**：
+- `sml-value/src/serde_bridge.rs:128` 的 doctest **永不编译**（`#[cfg(feature = "serde")]` 默认不开）
+  —— 全仓唯一一条"名义存在、实际从不运行"的测试；
+- 每次构建 4 条 `output filename collision` 告警；根治要拆循环 dev-dep，代价是 derive 那条
+  唯一真实的 doctest ⇒ **得不偿失，需用户拍板**；
+- 它把全仓 doctest 面摸清了：**4 条会编译通过 / 2 条显式 `ignore` / 9 条非 Rust / 1 条静默死掉**。
+
+**它还撞出一个我的操作失误**：我为了测五端深度边界，往 `rust/tests/` 写了个临时探针
+`_tmp_depth_probe.rs` 又删掉，它正好撞上 cargo "列进 target 又被删"的竞态。
+**教训：临时探针别写进 `tests/` 目录**（那里会被 cargo 当 target 扫描），写 `target/` 或 OUT_DIR。
