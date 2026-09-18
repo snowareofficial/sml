@@ -118,6 +118,79 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
     这是 C↔Rust 序列化比对里占比最大的一类差异（19 个不一致文件里多数首行就是它）。
     比对装置见 `tools/check_dump_parity.py`。
 
+- ⚠️ **`C` 的 `sml_dump` 与 Rust `to_sml` 全面对齐完成（W4 ②③）**：装置
+  `tools/check_dump_parity.py` 拿 34 个语料逐个对照，本轮把 **「行数与 Rust 一致」从 10/19
+  收敛到 19/19、总行数差距从 13343 行降到 0 行**。
+  - **② 行内 vs 展开**（提交 `76bbb46`）：C 原先把数组元素里的容器整个**压成一行**，
+    现在按 Rust 的判据「**直接子项全是标量**才算扁平、扁平才留一行」渲染（新增
+    `is_flat()` / `dump_element()`，`dump_object_body` / `dump_array_body` 抽出复用）。
+    ⚠️ `is_flat` **只看一层、不递归** —— 递归版是**恒真判据**（Rust 侧当初真踩过：
+    编译与测试全绿、只是完全没生效）。顺带修掉量具本体的一个坑：`tools/dump_c.c` 的 stdout
+    在 Windows 默认**文本模式**，`\n` 被翻译成 `\r\n` ⇒ 逐字节比对**每个文件都必判不一致**
+    （内容里本就带 `\r\n` 的文档还会被二次翻译成 `\r\r\n`，行数虚高 293 行）。
+  - **③ A 类：`__type` / `__name` 不再被丢掉**：C 的 dumper 原先把这两个键当「内部标记」跳过，
+    而它们是**要往返的数据键**（裸块 `type [name] { … }` 解析后的元数据；Rust 侧原样序列化）。
+    后果不只是少两行 —— **只有元数据的块会被判成「空体」⇒ 输成 `{}`**，元数据静默消失。
+    现在三处（`dump_object_body` / `dump_inline` / `sml_dump` 顶层）**都不筛键**，
+    顶层并按 Rust `to_sml` 的分叉处理（带 `__type` ⇒ 按块渲染）。
+  - **③ B 类：数组位置的裸块**（`c/sml.c` 解析器）：`m: [ section 情节 { x: 1 } ]` 原先被拆成
+    `section`、`情节`、`{ x: 1 }` **三个**元素，Rust 是**一个**块对象
+    `{ __type: section, __name: 情节, … }`。判据与写法照抄 Rust 的
+    `bare_block_ahead()` + `parse_bare_block()`（含「**先消费类型名、再收参数**」这一步 ——
+    漏了它 `__name` 会变成类型名本身，实测踩过；`Str` 开头的元素**不算**裸块，两端一致）。
+  - **顺带补齐「裸块参数不丢」**（Rust P1-3 的行为）：两个以上参数原先被**静默丢弃**，
+    现在首个进 `__name`、其余进 `__args`，键位置与数组位置同构（改前连「两个参数」都既不写
+    `__name` 也不写 `__args`）。
+  - **判别实验**：用 `git show HEAD:c/sml.c` 另编一个 dumper，与改动后在**同一份用例**上对照 ——
+    `topic 云天明童话 { label: a }` 改前输出 `topic:` / `label: a`（元数据**丢**）、改后带
+    `__type: topic` / `__name: 云天明童话`；`m: [ screen login { width: 320 } ]` 改前 3 个元素、
+    改后 1 个。**正对照**（`m: [ hello world ]`、`m: [ "sec" { … } ]`、`k: { x: 1 }`）两侧
+    逐字节相同 ⇒「没顺手改坏」被钉住。复验：`python tools/check_dump_parity.py`。
+  - **剩余两类（本轮未改，待判定）**：**引号策略**（C 的 `needs_quote()` 只认空白与 `:`/`#`/`{}`，
+    比 Rust 宽松：中文标点、`%`、`1.1`、`0x20` 都不加引号）与**键顺序**（Rust 的 `Value::Object`
+    是 `BTreeMap` ⇒ 键排序输出，C 保源序）。⚠️ 键顺序是**数据保真级**差异（Rust 侧丢源序），
+    不只是排版 —— 要判定的是「哪一端该改」，见 HANDOFF §22.3。
+- ⚠️ **`C++`（`cpp/sml.cpp`）同病，一并同步对齐**：C 改完后用同一套判据量 C++，发现它
+  **多缺一整类** —— ② 也没做（数组元素里的容器一律压成一行）、③ A 类（dumper 五处跳过
+  `__type`/`__name`，含把「只有元数据的块」误判成空体 ⇒ 输成 `{}`）、③ B 类（数组位置裸块
+  被拆成多个元素）、以及裸块参数静默丢弃。已按 Rust `dump.rs` / C `sml.c` 的**逐函数结构**
+  重写其序列化层（`is_flat` / `starts_inline` / `dump_object_body` / `dump_array_body` /
+  `dump_element` / `dump_inline` / `dump_value` / `to_sml`）并补上数组位置裸块的解析。
+  - **量具是本轮新写的**（C++ 没有 parity 工具）：`Parser::to_sml` ↔ `smltools --to sml`，
+    同一份 34 个 `.sml` 的语料集 ⇒ **「行数不同」15 → 2**、行数一致 11 → **24**；
+    6 个原生 target 全 rc=0（`RS-BRIDGE` 因本机没有 Rust cdylib 而跳过 —— 那是 W9 起的
+    fail-closed 设计，不是本轮引入的失败）。
+  - **判别实验**：`git show HEAD:cpp/sml.cpp` 另编一个 dumper 对照 —— `topic 云天明童话 { label: a }`
+    改前丢元数据、`m: [ screen login { width: 320 } ]` 改前 **3 个**元素、
+    `server web prod { x: 1 }` 改前丢 `web`/`prod`；**正对照**（`m: [ "sec" { x: 1 } ]`、
+    `m: [ hello world ]`、`a { }`、`k: { x: 1 }`）两侧逐字节相同。
+  - ⚠️ **撞见一处「收紧即炸」，故只做了一半**：把**键位置**的裸块判据也收紧成 Rust 的
+    `bare_block_ahead` 之后，`examples/secrets.sml`、`examples/slint/login.sml`、
+    `rust/tests/fixtures/gov_demo.sml`、`examples/advanced.sml`、`showcase.sml` 会从
+    「静默错解」直接变成 `E-PARSE-006` **解析失败** —— 那个过宽的判据一直在**吞**本实现的
+    另外几处解析缺陷（`$` 独立 token 的 `$env`、`@contract X strict {`、反引号串）。
+    故**本轮退回原判据**，只保留「参数不丢」（`__name` / `__args`）这条对齐；
+    过宽判据与它掩盖的三处缺陷已登记（见下方「已知限制」与 HANDOFF §22.6）。
+- **`.gitignore` 的 `**/_*` 补 9 条精确例外（提交 `65b5bfd`）**：这条规则本意是挡「本机临时探针」，
+  却连带挡掉了**必须入库**的文件 —— `site/static/_headers`（Cloudflare Pages 的 CORS 响应头；
+  丢了它，第三方站点 `import … from "https://sml.swebase.cn/lib/sml.mjs"` 会被跨域拦掉）、
+  tree-sitter python 绑定的 `__init__.py` / `__init__.pyi`（缺了 `import tree_sitter_sml` 直接失败，
+  而同目录 `binding.c` / `py.typed` 早已入库）、VS Code 扩展的 6 个发布闸门脚本。
+  **只追加 `!` 例外，不删规则、不放宽任何既有规则**；凡自述「一次性脚本」或硬编码本机绝对路径的
+  一律**不放行**（`tools/_*`、`site/tools/_*`、`story/_validate_novel.py`、`_probe*.py` 维持忽略）。
+  ⚠️ 判据看**退出码**而不是 `check-ignore -v` 的文本 —— 命中 `!` 行恰恰表示「**不再**被忽略」。
+- **VSCode 扩展重打（提交 `60fbffa`）**：已入库的 `sml-lang-0.4.2.vsix` 里装的是 **W16 修复之前**
+  的解析器（包内 `src/vendor/sml.mjs` **45466 B** vs 工作区 **69404 B**），即「未注册指令 /
+  未定义片段引用 / 特性门控 / 模式预算」四条修复**一个都没到用户手里**；包内 README 还停留在
+  0.4.1 且含已被推翻的结论。已重打（**111347 → 125275 B**），包内每个文件与工作区**逐字节一致**
+  （唯一 `DIFF` 的 `readme.md` 是 vsce 把相对链接改写成绝对地址的正常行为）。
+  ⚠️ 教训：**「`vendor/` 与源一致」只能证明同步脚本跑过，证明不了包是新的** —— 判据必须落到
+  「**包内 vs 工作区**」。本机**已安装**的仍是 `snoware.sml-lang-0.4.1`（旧解析器）⇒ 需要重装，
+  步骤与核对方法见 HANDOFF §22.4。
+- **文档与 `llms.txt` 跟上本轮功能（提交 `4d34098` 等）**：`llms.txt` + 官网中英 13 个页面 +
+  编辑器 README —— 五端同码、错误码通配与深链、教科书搜索接入码表、以及
+  「Zed 装不了 vsix / VSCode 与 Zed 的获取方式分开写清」。
+
 ### 变更
 
 - ⚠️ **不兼容：`swsml` 的 emit 后端返回类型从 `Result<_, String>` 改为 `Result<_, SmlError>`**
@@ -541,6 +614,15 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 已知限制
 
+- ⚠️ **C++ 解析器三处遗留缺陷（2026-09-19 定位，**未改**；都不是本轮引入的）**：
+  ① **键位置的裸块判据过宽**（只要「后继是个词」就试，且参数收集是**贪心**的 —— 一直吃到
+  `{` / `}` / `,`，中间任何 token 都算参数）⇒ `examples/common.sml` 把注释闭合符那一串
+  （裸词 + 星斜杠 + `@contract …`）整段当成裸块参数：**C++ 14 行 vs Rust 1 行**；
+  ② **`$` 是独立 token**、在键位置被直接跳过 ⇒ `$env.X` 退化成「键 `env.X` + 值 = 下一个词」，
+  `examples/secrets.sml` 因此 `resendApiKey: null`（Rust：`""`）、文件 5 行 vs Rust 6 行；
+  ③ **收紧 ① 会立刻暴露**的三处：`@contract X strict { … }`（契约两词名）、反引号串、
+  `@feature` ⇒ 5 个语料从「静默错解」变成 `E-PARSE-006` 失败 ⇒ **要修 ① 必须先修 ③**。
+  判据/证据/二分脚本见 `HANDOFF` §22.6；修完 ③ 再收紧 ①，C++ 的「行数不同」应能到 **0**。
 - XML 里名为 `_attrs` / `_text` 的**子元素**会与保留键同名并按同名兄弟规则并成数组
   （可预测，不静默覆盖）。
 - DTD 内部子集自定义的实体不解析（DOCTYPE 整体跳过），用到时按未知实体报错。
