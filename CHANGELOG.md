@@ -14,6 +14,23 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 新增
 
+- **错误码真正落到实现里（W10 第一/二部分）**：此前码表只是「文档里的一张表」，
+  各端报错**只有文案**，于是「同一个错误在不同实现里是三句话」无法被机器判定。现在：
+  - **Rust 全量带码**：`sml-lex` / `sml-parse` / `sml-contract` / `sml-include` 的语言层
+    错误点全部带码（词法 7 + 片段/include 11 + 契约 11 + 语法/特性/上限 48）。新 crate
+    `sml-codes` 提供码常量与带码错误类型 `SmlError`（`code()` / `message()`，
+    `Display` 把码缀在文案之后）。新增码 `E-EXT-008`（外置指令执行失败）。
+  - **JS 全量带码**：`parse()` 抛出的错误带 `e.code`（`parseSafe` 亦返回 `code`），
+    契约校验的每条原因各自带码，模式引擎与词法层的宿主异常也改走带码入口。
+  - **C-ABI 带真实码**：`sml_error` 新增 `code_str[16]`（`code` 仍是粗粒度枚举，供 `switch`）；
+    归类函数从「猜中文关键词」改成**读码**（文案一改就归类错的老问题一并消失）。
+  - **生成链路**：新脚本 `errors/gen_codes.py` 从唯一事实来源 `errors/codes.sml` 生成
+    `rust/sml-codes/src/codes.rs`、`js/sml-codes.mjs`、`c/sml_codes.h`，并**反向校验**
+    源码里手写的码字面量都在表里（挡「手打错一位数字」）。`--check` 给 CI。
+  - **测试**：`rust/tests/error_codes.rs`（23 条「触发条件 → 期望码」+ 生成物与码表一致性）
+    与 `js/probe-error-codes.mjs`（同一组条件，期望码逐一相同）。
+  - 尚未带码：C / C++ 的**原生**实现、Lua、`smltools` 的部分输出。进度见
+    `errors/README.md` 的「码的落地进度」。
 - **错误码体系（`E-<领域>-<序号>`）+ 官网查询工具**：`errors/codes.sml` 是唯一事实来源
   （用 SML 写，因此 `smltools` 自己就能校验它），`errors/gen_json.py` 走**真实工具链**
   `smltools --to json` 生成 `site/static/errors.json`，官网新增 `/errors` 查询页
@@ -46,6 +63,18 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 变更
 
+- ⚠️ **不兼容：语言层 crate 的错误类型由 `String` 改为带码错误**
+  （`sml-lex` 0.1.0-alpha.3 / `sml-include` 0.1.0-alpha.2 / `sml-contract` 0.1.0-alpha.3 /
+  `sml-parse` 0.1.0-alpha.3）。影响面被压到最小：
+  - `impl From<SmlError> for String` 只取**文案**，所以既有那些 `Result<_, String>` 的
+    调用方 `?` 一行都不用改，行为也不变；
+  - `sml_parse::ParseError` 成了 `SmlError` 的别名，名字保留；
+  - `Display` 现在会把码缀在文案之后（`sml: 字段 ... [E-CONTRACT-002]`）——
+    这是**可观察的变化**，若有逐字比对错误文案的 golden 需同步；
+  - 因此 `swsml` 下次发版需按 **MINOR** 处理（0.x 阶段 MINOR 视为不兼容），
+    本文件所在版本号未动。
+- `sml_error`（C-ABI）结构体新增 `code_str[16]`：**字段布局变了**，C/C++ 调用方
+  按头文件重新编译即可（`c/sml_rs.h` 与 `cpp/sml_rs.hpp` 已同步，C++ 的 `Error` 亦加 `code_str`）。
 - **`to_sml` 排版规则**（`sml-value/src/dump.rs`，**影响所有 SML 文本输出**）：
   数组元素与顶层非对象值改为「**扁平才留一行，含容器就展开多行**」——
   扁平 = 直接子项全是标量。于是 `phoneNumbers: [ { type: home } { type: office } ]`

@@ -358,8 +358,10 @@ python site/build_site.py             # 完整构建（含上面两步 + Hugo + 
   码用 `c/sml_codes.h` 的宏，**不要手打字符串**）。
 - Lua 侧：`lua/lib/sml.soup` 是**编译产物**，要改得先有 Soup 工具链（`soupc`），
   别直接用文本编辑器改它 —— 先确认 `lua/` 下的源在哪。
-- `errors/README.md` 的码表状态回填（`status` 该从 `partial` 改 `done` 的那些）
-  与 `CHANGELOG.md` 条目。
+- ~~`errors/README.md` 的码表状态回填与 `CHANGELOG.md` 条目~~ **已完成**（提交见 `git log`）。
+  ⚠️ 一处**容易想错**的地方已写进 `codes.sml` 表头与 README：`status` 描述的是
+  **行为**（各端报不报这个错），与「带没带码」是两件事 —— 所以 W10 落地完
+  **不会**让任何一条 `status` 自动变 `done`。别去批量改它。
 
 ### 8.3 JS 一侧（已完成，提交 `912a608`）
 
