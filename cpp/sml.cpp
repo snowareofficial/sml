@@ -677,6 +677,65 @@ static void set_field_local(const ValuePtr& node, const std::string& k, const Va
 
 static ValuePtr parse_value(PState& st);
 static ValuePtr parse_value_inner(PState& st);
+static ValuePtr parse_block_nested(PState& st);   // 定义在后（带深度守卫）
+
+/* 本实现把**引号串**也存成 Word token（见 `coerce` 里的
+   `t[0]=='"' && t.back()=='"'`），而 Rust 里引号串是独立的 `Tok::Str` ——
+   那条分支**不试裸块**。故预扫描要显式排掉它，否则 `[ "sec" { x: 1 } ]`
+   会被当成「类型名 "sec" 的裸块」（实测踩过一次）。 */
+static bool is_quoted_word(const Token& tk) {
+    return tk.t == Token::T::Word && tk.s.size() >= 2 &&
+           tk.s.front() == '"' && tk.s.back() == '"';
+}
+
+/* 预扫描：当前位置起「连续词之后紧跟 `{`」⇒ 是裸块的参数部分。
+   对应 Rust `bare_block_ahead()`。两点照抄它：
+   ① 入口**只认「裸词」**（引自上面的 is_quoted_word）—— Rust 的 `Some(Tok::Str(_))`
+      分支直接当字符串元素，故 `[ "sec" { } ]` 两端都**不是**块；
+   ② 撞上别的 token（含 `]`、EOF）即「不是」⇒ `[ hello world ]` 仍是两个标量元素。 */
+static bool bare_block_ahead(const PState& st) {
+    if (st.i >= st.toks.size() || st.toks[st.i].t != Token::T::Word) return false;
+    if (is_quoted_word(st.toks[st.i])) return false;
+    size_t p = st.i;
+    while (p < st.toks.size()) {
+        auto tt = st.toks[p].t;
+        if (tt == Token::T::Word) p++;
+        else if (tt == Token::T::LBrace) return true;
+        else return false;
+    }
+    return false;
+}
+
+/* 数组元素位置的裸块 `type [name…] { … }`（W4 ③ B 类）。
+   改前这里只有「当标量」一条路 ⇒ `[ section 情节 { x: 1 } ]` 被拆成 `section`、`情节`、
+   `{ x: 1 }` **三个**元素，而 Rust 是**一个**块对象。
+   与键位置的裸块（parse_block 里那一段）同构：`__type` = 类型词、首个参数 ⇒ `__name`、
+   其余 ⇒ `__args`（参数不再静默丢弃）。
+   前置条件：当前位置是**类型词**；本函数消费掉整个「类型词 [参数…] { … }」。 */
+static ValuePtr parse_bare_block(PState& st) {
+    std::string type_word = st.toks[st.i].s;
+    st.i++;                                   // 先消费类型名（Rust: self.next()）
+    std::vector<ValuePtr> args;
+    while (st.i < st.toks.size() && st.toks[st.i].t == Token::T::Word) {
+        args.push_back(coerce(st.toks[st.i], st.fragments, st.err));
+        st.i++;
+    }
+    if (st.i >= st.toks.size() || st.toks[st.i].t != Token::T::LBrace) return Value::null();
+    st.i++;                                   // `{`
+    auto sub = parse_block_nested(st);
+    if (sub && sub->tag == Value::Tag::Obj) {
+        sub->obj.push_back({"__type", Value::string(type_word)});
+        if (!args.empty()) {
+            sub->obj.push_back({"__name", args[0]});
+            if (args.size() > 1) {
+                auto extra = Value::array();
+                for (size_t k = 1; k < args.size(); k++) extra->arr.push_back(args[k]);
+                sub->obj.push_back({"__args", extra});
+            }
+        }
+    }
+    return sub;
+}
 
 static ValuePtr parse_array(PState& st) {
     auto arr = Value::array();
@@ -692,6 +751,13 @@ static ValuePtr parse_array(PState& st) {
             st.i++; st.aborted = true; break;
         }
         if (t.t == Token::T::Comma) { st.i++; continue; }
+        /* 数组位置的裸块（W4 ③ B 类）：判据见 bare_block_ahead / parse_bare_block。
+           ⚠️ 只放在**数组**分派处（Rust 也只在 parse_array_inner 里调 bare_block_ahead）；
+           值位置 `k: section 情节 { … }` 在两端都**不是**块，别顺手也改那里。 */
+        if (t.t == Token::T::Word && bare_block_ahead(st)) {
+            arr->arr.push_back(parse_bare_block(st));
+            continue;
+        }
         arr->arr.push_back(parse_value(st));
     }
     /* 走到文件结尾还没见到 `]` → E-PARSE-001。原先这里是**静默返回残缺数组**，
@@ -1029,6 +1095,18 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
             set_field_local(node, key, arr);
         } else if (!colon && nxt.t==Token::T::Word && nxt.s != "}" && nxt.s != "]" && nxt.s != ",") {
             // bare block: key is type, subsequent tokens until '{' are args
+            /* ⚠️ 这个判据**故意比 Rust 宽**（只要后继是个词就试），而且参数收集是**贪心**的
+               （一直吃到 `{` / `}` / `,`，中间任何 token 都算参数）—— 那是本实现的既有行为，
+               本轮**没有**把它收紧成 Rust 的 `bare_block_ahead()`（parser.rs:1180）。
+               试过的结论：收紧之后 `examples/secrets.sml`、`examples/slint/login.sml`、
+               `rust/tests/fixtures/gov_demo.sml`、`examples/advanced.sml`、`showcase.sml`
+               会从「静默错解」直接变成 `E-PARSE-006` **解析失败** —— 因为它们依赖的构造
+               （`$` 独立 token 的 `$env`、`@contract X strict {`、反引号串）在本实现里
+               另有缺陷，先前正好被这个过宽的判据吞掉了。**过宽判据本身是已知缺陷，已登记**
+               （`examples/common.sml` 至今把注释闭合符那一串当成裸块参数：C++ 14 行 vs
+               Rust 1 行）；要修它得先修上面那几个解析缺陷，不在 W4 范围内。
+               本轮只做 W4 ③ 的对齐：参数**不再静默丢弃** —— 首个 ⇒ `__name`、
+               其余 ⇒ `__args`（与 Rust `parse_bare_block` 一致）。 */
             std::vector<std::string> args;
             while (st.i < st.toks.size() && st.toks[st.i].t != Token::T::LBrace &&
                    st.toks[st.i].t != Token::T::RBrace && st.toks[st.i].t != Token::T::Comma) {
@@ -1038,7 +1116,15 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                 st.i++;
                 auto sub = parse_block_nested(st);
                 sub->obj.push_back({"__type", Value::string(key)});
-                if (args.size()==1) sub->obj.push_back({"__name", Value::string(args[0])});
+                if (!args.empty()) {
+                    sub->obj.push_back({"__name", Value::string(args[0])});
+                    if (args.size() > 1) {
+                        auto extra = Value::array();
+                        for (size_t k = 1; k < args.size(); k++)
+                            extra->arr.push_back(Value::string(args[k]));
+                        sub->obj.push_back({"__args", extra});
+                    }
+                }
                 set_field_local(node, key, sub);
             } else {
                 // no body -> treat as scalar string
@@ -1338,31 +1424,128 @@ bool Parser::apply_contract(const ValuePtr& val,
 
 // ===========================================================================
 // to_sml  (round-trip friendly, mirrors Rust to_sml)
+//
+// ⚠️ W4 ②③（2026-09-19）：本段与 Rust `sml-value/src/dump.rs` 以及 C `c/sml.c`
+//    的结构**逐函数对应** —— `is_flat` / `starts_inline` / `dump_object_body` /
+//    `dump_array_body` / `dump_element` / `dump_inline` / `dump_value` / `to_sml`。
+//    改这里请三侧一起对照，别只改一侧（本实现的 ② 与 ③ 一直是缺的：
+//    数组元素里的容器被压成一行、`__type`/`__name` 被当内部标记跳过）。
 // ===========================================================================
 static void dump_value(const ValuePtr& v, int indent, std::string& out);
+static void dump_element(const ValuePtr& v, int indent, std::string& out);
+static void dump_inline(const ValuePtr& v, std::string& out);
+static void dump_object_body(const ValuePtr& v, int indent, std::string& out);
+static void dump_array_body(const ValuePtr& v, int indent, std::string& out);
+static bool is_flat(const ValuePtr& v);
+static bool starts_inline(const ValuePtr& v);
 
-static void dump_inline_obj(const ValuePtr& v, std::string& out) {
-    std::string parts;
-    bool first = true;
-    for (auto& kv : v->obj) {
-        if (kv.first=="__type"||kv.first=="__name") continue;
-        if (!first) parts += ", ";
-        first = false;
-        std::string vs;
-        if (kv.second->tag==Value::Tag::Str) {
-            if (kv.second->s.find(' ') != std::string::npos || kv.second->s.empty())
-                vs = "\"" + kv.second->s + "\"";
-            else vs = kv.second->s;
-        } else {
-            std::string tmp; dump_value(kv.second, 0, tmp); vs = tmp;
+/* 值是否要紧跟在 `键:` 之后、**同一行**开始写（Rust `starts_inline`）：
+   只有**空**对象才同行；非空对象由 dump_value 先换行再写 `{` ⇒ 键后**不留**行尾空格（W4 ①）。 */
+static bool starts_inline(const ValuePtr& v) {
+    return !(v && v->tag == Value::Tag::Obj && !v->obj.empty());
+}
+
+/* 容器是否「扁平」：**直接子项全是标量**（不再嵌对象 / 数组）。
+   与 Rust `dump.rs::is_flat`、C `sml.c::is_flat` 同一判据，是「一行写完」还是
+   「展开多行」的唯一开关：
+     `{ type: home }`                      扁平 → `[ { type: home } ]` 仍是一行
+     `{ children: [ … ] }`                 非扁平 → `\n{ … }` 展开
+   ⚠️ **只看一层，不递归**：递归版（「子孙全是标量」）是**恒真判据** —— 任何对象的
+   子孙最终都会落到标量，于是所有东西都被判成扁平、排版分毫不改。Rust 侧当初写这段时
+   真踩过这个坑（编译与测试全绿，只是完全没生效）。 */
+static bool is_flat(const ValuePtr& v) {
+    if (!v) return true;
+    if (v->tag == Value::Tag::Obj) {
+        for (auto& kv : v->obj) {
+            const ValuePtr& fv = kv.second;
+            if (fv && (fv->tag == Value::Tag::Obj || fv->tag == Value::Tag::Arr)) return false;
         }
-        parts += kv.first + ": " + vs;
+        return true;
     }
-    out += parts;
+    if (v->tag == Value::Tag::Arr) {
+        for (auto& iv : v->arr)
+            if (iv && (iv->tag == Value::Tag::Obj || iv->tag == Value::Tag::Arr)) return false;
+        return true;
+    }
+    return true;   // 标量一律扁平
+}
+
+/* 写对象体：**不含**开头的 `{`，逐键换行 + 收尾 `}`。
+   ⚠️ **所有键都写**，包括 `__type` / `__name`：裸块 `type [name] { … }` 解析后就长成
+   这两个键，序列化必须能写回去（W4 ③ A 类）。改前这几处把它们当「内部标记」跳过，
+   后果不只是每个块少两行 —— **只有元数据的块会被判成空体 ⇒ 输成 `{}`**，元数据静默消失。 */
+static void dump_object_body(const ValuePtr& v, int indent, std::string& out) {
+    for (auto& kv : v->obj) {
+        out += "\n";
+        out += std::string((size_t)(indent + 1) * 2, ' ');
+        out += kv.first;
+        out += starts_inline(kv.second) ? ": " : ":";
+        dump_value(kv.second, indent + 1, out);
+    }
+    out += "\n";
+    out += std::string((size_t)indent * 2, ' ');
+    out += "}";
+}
+
+/* 写数组体：**不含**开头的 `[`。每元素先换行 + 缩进，再由 dump_element 决定
+   「一行写完」还是「就地展开」。 */
+static void dump_array_body(const ValuePtr& v, int indent, std::string& out) {
+    out += "[";
+    for (auto& e : v->arr) {
+        out += "\n";
+        out += std::string((size_t)(indent + 1) * 2, ' ');
+        dump_element(e, indent + 1, out);
+    }
+    out += "\n";
+    out += std::string((size_t)indent * 2, ' ');
+    out += "]";
+}
+
+/* 把值压成**一行**写。契约：只对「扁平」值调用（见 is_flat）——
+   因此它内部的递归永远不会撞上容器，压出来的行里不会再有换行。
+   ⚠️ **不筛键**（含 __type / __name），与 Rust `dump_inline` 的 `m.iter()` 一致。 */
+static void dump_inline(const ValuePtr& v, std::string& out) {
+    if (!v) { out += "null"; return; }
+    switch (v->tag) {
+        case Value::Tag::Null: out += "null"; break;
+        case Value::Tag::Bool: out += v->b ? "true" : "false"; break;
+        case Value::Tag::Int:  out += std::to_string(v->i); break;
+        case Value::Tag::Float: {
+            std::ostringstream os; os << std::setprecision(17) << v->f;
+            out += os.str();
+            break;
+        }
+        case Value::Tag::Str:
+            if (v->s.find(' ') != std::string::npos || v->s.empty())
+                out += "\"" + v->s + "\"";
+            else out += v->s;
+            break;
+        case Value::Tag::Arr: {
+            out += "[ ";
+            for (size_t k = 0; k < v->arr.size(); k++) {
+                if (k) out += ", ";
+                dump_inline(v->arr[k], out);
+            }
+            out += " ]";
+            break;
+        }
+        case Value::Tag::Obj: {
+            out += "{ ";
+            bool first = true;
+            for (auto& kv : v->obj) {
+                if (!first) out += ", ";
+                first = false;
+                out += kv.first + ": ";
+                dump_inline(kv.second, out);
+            }
+            out += " }";
+            break;
+        }
+    }
 }
 
 static void dump_value(const ValuePtr& v, int indent, std::string& out) {
-    std::string pad((size_t)indent*2, ' ');
+    if (!v) { out += "null"; return; }
     switch (v->tag) {
         case Value::Tag::Null: out += "null"; break;
         case Value::Tag::Bool: out += v->b ? "true" : "false"; break;
@@ -1380,57 +1563,71 @@ static void dump_value(const ValuePtr& v, int indent, std::string& out) {
             break;
         case Value::Tag::Arr: {
             if (v->arr.empty()) { out += "[]"; break; }
-            out += "[\n";
-            for (auto& e : v->arr) {
-                out += pad + "  ";
-                if (e->tag==Value::Tag::Obj) {
-                    out += "{ ";
-                    dump_inline_obj(e, out);
-                    out += " }\n";
-                } else {
-                    std::string tmp; dump_value(e, indent+1, tmp);
-                    out += tmp + "\n";
-                }
-            }
-            out += pad + "]";
+            dump_array_body(v, indent, out);
             break;
         }
         case Value::Tag::Obj: {
-            bool has_body = false;
-            for (auto& kv : v->obj) if (kv.first!="__type"&&kv.first!="__name"){has_body=true;break;}
-            if (!has_body) { out += "{}"; break; }
-            out += "\n" + pad + "{";
-            for (auto& kv : v->obj) {
-                if (kv.first=="__type"||kv.first=="__name") continue;
-                out += "\n" + pad + "  " + kv.first + ": ";
-                dump_value(kv.second, indent+1, out);
-            }
-            out += "\n" + pad + "}";
+            /* 空对象写 `{}`、非空写 `\n{ … }` —— 与 Rust `dump_block` 同判据
+               （A 类：这里原先排除 __type/__name 判「空体」，只有元数据的块会被误判）。 */
+            if (v->obj.empty()) { out += "{}"; break; }
+            out += "\n";
+            out += std::string((size_t)indent * 2, ' ');
+            out += "{";
+            dump_object_body(v, indent, out);
             break;
         }
     }
 }
 
+/* 写一个「元素」：扁平的走单行（dump_inline），含结构的**就地展开**成多行。
+   调用方负责**已**写好本元素开头的换行与缩进（`indent` 即该缩进级别），
+   因此这里不在开头补缩进；展开出来的续行由各自递归负责对齐。
+   对应 Rust `dump.rs::dump_element`（W4 ② 的对齐点）。 */
+static void dump_element(const ValuePtr& v, int indent, std::string& out) {
+    if (!v) { out += "null"; return; }
+    if (is_flat(v)) { dump_inline(v, out); return; }
+    switch (v->tag) {
+        case Value::Tag::Obj:
+            /* 与 dump_value 的 Obj 分支只差这一行：这里是数组元素位置，
+               `{` 要跟在**当前行**（缩进已由调用方写好），不能再另起一行。 */
+            out += "{";
+            dump_object_body(v, indent, out);
+            break;
+        case Value::Tag::Arr:
+            dump_array_body(v, indent, out);
+            break;
+        default:
+            dump_inline(v, out);
+            break;
+    }
+}
+
 std::string Parser::to_sml(const ValuePtr& v) {
     std::string out;
-    // top-level array
-    if (v->tag == Value::Tag::Arr) {
-        dump_value(v, 0, out);
-        out += "\n";
-        return out;
-    }
+    if (!v) return out;
     if (v->tag == Value::Tag::Obj) {
-        std::string body;
+        /* 顶层分叉与 Rust `to_sml` 逐字对应：带 `__type` 的对象是**裸块的树形**
+           （`type [name] { … }` 解析出来的），按 `dump_block(0,0)` 渲染 —— 先换行再
+           `{`、逐键、收尾 `}`；空对象写 `{}`。不带 `__type` 的才是「顶层逐键成行」。
+           （A 类：原先这里无条件逐键、并把 __type/__name 跳过。） */
+        if (v->has("__type")) {
+            if (v->obj.empty()) { out += "{}"; return out; }
+            out += "\n{";
+            dump_object_body(v, 0, out);
+            return out;
+        }
         for (auto& kv : v->obj) {
-            if (kv.first=="__type"||kv.first=="__name") continue;
-            out += kv.first + ": ";
-            std::string tmp; dump_value(kv.second, 0, tmp);
-            out += tmp + "\n";
+            out += kv.first;
+            out += starts_inline(kv.second) ? ": " : ":";
+            dump_value(kv.second, 0, out);
+            out += "\n";
         }
         return out;
     }
-    dump_value(v, 0, out);
-    out += "\n";
+    /* 顶层非对象：与数组元素同一套规则（扁平单行 / 含结构展开），
+       Rust 侧 to_sml 走的也是 dump_element（顶层数组曾被整坨压成一行并非此处问题，
+       见 dump_element/is_flat）。 */
+    dump_element(v, 0, out);
     return out;
 }
 
