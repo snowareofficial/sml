@@ -180,6 +180,8 @@
 #define SML_E_LIMIT_008 "E-LIMIT-008"
 /* [E-LIMIT-009] 量词取值超上限：量词的重复次数超过上限 */
 #define SML_E_LIMIT_009 "E-LIMIT-009"
+/* [E-LIMIT-010] 内存分配失败：内存分配失败 */
+#define SML_E_LIMIT_010 "E-LIMIT-010"
 /* [E-LINT-001] 缩进里出现制表符：缩进里出现制表符：SML 缩进敏感，请统一用空格 */
 #define SML_E_LINT_001 "E-LINT-001"
 /* [E-MIGRATE-001] 顶层出现文本内容：迁入文档在顶层出现了文本内容（只允许空白） */
@@ -281,6 +283,6 @@
 /* [W-LINT-005] 嵌套超过建议阈值：嵌套深度已超过建议阈值 */
 #define SML_W_LINT_005 "W-LINT-005"
 
-#define SML_CODES_COUNT 136
+#define SML_CODES_COUNT 137
 
 #endif /* SML_CODES_H */

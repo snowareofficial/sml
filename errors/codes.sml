@@ -232,6 +232,10 @@ codes: [
       msg: "量词的重复次数超过上限"
       impls: [ js ] status: done
       note: "与「量词本身非法」（E-CONTRACT-015）区分：此处是数值过大，属预算问题" }
+    { id: E-LIMIT-010 domain: LIMIT severity: E title: "内存分配失败"
+      msg: "内存分配失败"
+      impls: [ c cpp ] status: partial
+      note: "纯 C / C++ 实现要自己管内存，malloc 失败是可报的错误条件（Rust 遇到 OOM 直接 abort，JS 由宿主抛 RangeError，都没有这个码）。缓冲不够与分配失败要分开：前者是调用方的错（E-IO-*），后者是资源耗尽" }
 
     # ================= 特性、版本与环境变量（语言层） =================
     { id: E-FEATURE-001 domain: FEATURE severity: E title: "特性未启用"
