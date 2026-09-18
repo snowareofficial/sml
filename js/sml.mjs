@@ -79,24 +79,31 @@ function tokenize(text) {
       while (i < n && text[i] !== "\n") i++;
     } else if (c === "/" && text[i + 1] === "*") {
       i += 2;
+      let closed = false;
       while (i < n) {
-        if (text[i] === "*" && text[i + 1] === "/") { i += 2; break; }
+        if (text[i] === "*" && text[i + 1] === "/") { i += 2; closed = true; break; }
         i++;
       }
+      // EOF 未闭合的块注释必须报错（与 Rust 的 sml-lex 同码）：
+      // 此前静默吞掉文件剩余部分，后面的键会凭空消失。
+      if (!closed) throwCode("E-LEX-002", "sml: 未闭合的块注释 /* ... */（遇到文件结尾）");
     } else if (c === "_" && text[i + 1] === "*") {
       i += 2;
+      let closed = false;
       while (i < n) {
-        if (text[i] === "*" && text[i + 1] === "_") { i += 2; break; }
+        if (text[i] === "*" && text[i + 1] === "_") { i += 2; closed = true; break; }
         i++;
       }
+      if (!closed) throwCode("E-LEX-003", "sml: 未闭合的块注释 _* ... *_（遇到文件结尾）");
     } else if (c === '"') {
       flush();
       const qStart = i;
       let s = "";
       i++;
+      let closed = false;
       while (i < n) {
         const cc = text[i];
-        if (cc === '"') { i++; break; }
+        if (cc === '"') { i++; closed = true; break; }
         if (cc === "\\" && i + 1 < n) {
           i++;
           const e = text[i];
@@ -105,18 +112,45 @@ function tokenize(text) {
             if (text[i + 1] === "{") {
               let j = i + 2, hex = "";
               while (j < n && text[j] !== "}") { hex += text[j]; j++; }
+              // W16：码点非法必须报码 —— 原先直接 `String.fromCodePoint(parseInt(...))`，
+              // 非法输入会抛**宿主 RangeError**（没有码，等于逃出错误码体系）。
+              if (j >= n || !/^[0-9a-fA-F]+$/.test(hex)) {
+                throwCode("E-LEX-005", "sml: Unicode 转义非法（\\u{...} 缺失或非十六进制）");
+              }
               i = j + 1;
-              s += String.fromCodePoint(parseInt(hex, 16));
+              const cp = parseInt(hex, 16);
+              if (!Number.isFinite(cp) || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) {
+                throwCode("E-LEX-005", "sml: Unicode 转义非法（码点越界或落在代理区）");
+              }
+              s += String.fromCodePoint(cp);
             } else {
               const hex = text.slice(i + 1, i + 5);
+              if (!/^[0-9a-fA-F]{4}$/.test(hex)) {
+                throwCode("E-LEX-005", "sml: Unicode 转义非法（\\u 后须 4 位十六进制）");
+              }
               i += 4;
-              s += String.fromCodePoint(parseInt(hex, 16));
+              const cp = parseInt(hex, 16);
+              if (cp >= 0xd800 && cp <= 0xdfff) {
+                throwCode("E-LEX-005", "sml: Unicode 转义非法（代理区码点）");
+              }
+              s += String.fromCodePoint(cp);
             }
           } else {
-            s += ({ n: "\n", t: "\t", r: "\r", "0": "\0", '"': '"', "\\": "\\" }[e] ?? e);
+            // W16：接受集收窄到 Rust 的严格集（`\n \t \r \0 \" \\ \uXXXX`）。
+            // 原先未知转义**原样保留**（`\q` 静默变成 `q`）—— 属静默改数据。
+            const m = { n: "\n", t: "\t", r: "\r", "0": "\0", '"': '"', "\\": "\\" }[e];
+            if (m === undefined) {
+              throwCode("E-LEX-004", "sml: 字符串含未知转义符 \\" + e);
+            }
+            s += m;
             i++;
           }
         } else { s += cc; i++; }
+      }
+      // W16：未闭合字符串必须报码。原先静默把文件剩余部分吃进字符串 ——
+      // 后面的键会凭空消失（数据被悄悄截断）。
+      if (!closed) {
+        throwCode("E-LEX-001", "sml: 字符串未闭合（遇到文件结尾，缺少结束引号）");
       }
       toks.push({ t: "str", v: s, pos: qStart });
     } else if ("{}[]:,".includes(c)) {
@@ -384,6 +418,16 @@ function collectFeatures(text, base) {
   return feats;
 }
 
+// 把 `@feature ...` **整行**从正文里剥掉（行级，与 Rust 的 `strip_features` 同口径）。
+//
+// ⚠️ 为什么必须在**词法之前**做：`tokenize` 会丢掉换行，解析器再也分不清「这条指令到哪
+// 结束」。原先解析器那版靠「遇到 @ / } / ] / , / ; 就停」猜边界 —— 而特性名后面通常直接
+// 跟着下一个块（`@feature enable for` + `svg { … }`），于是它把 `svg { …` 一起吞掉，
+// **整份文档静默变成 `{}`**。实测 `_probe2.sml`：旧实现得 `{}`，Rust 得完整树（W16 修）。
+function stripFeatureLines(text) {
+  return String(text).replace(/^[ \t]*@feature[^\n]*\n?/gm, "");
+}
+
 // —— 模式 / 正则的三处上限，集中定义 ——
 // 此前 `PATTERN_MAX_LEN` 定义在 parse() 内部而校验处却写死 4096，常量成了死代码；
 // 现在统一提到模块级，两处都能引用。
@@ -516,7 +560,9 @@ export function parse(text, opts) {
   const extDirs = opts.directives || null;
   const extTypes = opts.types || null;
 
-  const toks = tokenize(text);
+  // `@feature` 整行在**词法之前**剥掉（见 stripFeatureLines 的说明）——
+  // 特性集仍由下面的 collectFeatures 从**原文**读，两者互不影响。
+  const toks = tokenize(stripFeatureLines(text));
   // 嵌套深度闸门：在入口对 token 流做一次 O(n) 线性扫描。
   // 比在每个递归点插桩更简单，也更难绕过（词法已定，括号/方括号即成对出现）。
   {
@@ -895,7 +941,15 @@ export function parse(text, opts) {
       const tok = peek();
       if (tok.t === "}" || tok.t === "]") {
         if (closing === tok.t) { i++; break; }
-        break;
+        // W16：闭合符**不匹配**必须报错，不再静默结束本块。
+        // 原先这里直接 `break`（且**不消费**该 token）：`a { ] }` 静默得到 `{"a":{}}`，
+        // `]` 被吞掉、数据形状被悄悄改掉。码按 Rust 分两种：
+        //   - 块内遇到 `]` ⇒ E-PARSE-002（闭合符错配）；
+        //   - 顶层（closing === null）遇到多余的 `}` / `]` ⇒ E-PARSE-003（多余的结束符号）。
+        if (tok.t === "]" && closing === "}") {
+          fail("E-PARSE-002", "sml: 闭合符错配（块应以 } 闭合，却遇到 ]）");
+        }
+        fail("E-PARSE-003", "sml: 多余的结束符号 " + tok.t + "（此处没有需要关闭的容器）");
       }
       if (tok.t === ",") { i++; continue; }
       if (tok.t === "@") {
@@ -912,11 +966,15 @@ export function parse(text, opts) {
           continue;
         }
         if (fname === "feature") {
-          // 已在 collectFeatures 处理，这里只需消费掉这一条 @feature 指令的 token：
-          // 直到行尾（下一个 @ 指令、块边界、或 , ; 作为语句分隔）
+          // 正常情况下**到不了这里**：`@feature` 整行已在词法前被 stripFeatureLines 剥掉。
+          // 这里只兜住病理情况（`@feature` 写在行中间）。⚠️ 别改回「遇到 } / ] 才停」的老写法：
+          // tokenize 已丢换行，那样会把后面第一个块的**开头与内容**一起吞掉（整份文档 -> `{}`）。
+          i++; // 消费 feature
           while (i < toks.length) {
             const tk = toks[i];
-            if (tk.t === "@" || tk.t === "}" || tk.t === "]") break;
+            // 下一个字段（`word :`）或任何容器边界即停 —— 宁可少吃不误吃
+            if (tk.t === "word" && toks[i + 1] && toks[i + 1].t === ":") break;
+            if (tk.t === "@" || tk.t === "{" || tk.t === "}" || tk.t === "[" || tk.t === "]") break;
             if (tk.t === "," || tk.t === ";") { i++; break; }
             i++;
           }
@@ -1152,9 +1210,10 @@ export function parse(text, opts) {
 
   function parseArray() {
     const arr = [];
+    let closed = false;
     while (i < toks.length) {
       const tok = peek();
-      if (tok.t === "]") { i++; break; }
+      if (tok.t === "]") { i++; closed = true; break; }
       if (tok.t === ",") { i++; continue; }
       if (tok.t === "{") {
         i++;
@@ -1171,12 +1230,28 @@ export function parse(text, opts) {
       } else if (tok.t === "word" || tok.t === "str") {
         arr.push(tok.t === "str" ? coerceStr(tok.v, fragments) : coerceWord(tok.v, fragments, nsMap));
         i++;
+      } else if (tok.t === "}") {
+        // W16：数组里多余的 `}` ⇒ E-PARSE-003（与 Rust 同码）。
+        // 原先落到下面的 `else break`，`m: [ } ]` 静默得到 `{"m":[]}`。
+        fail("E-PARSE-003", "sml: 多余的结束符号 }（数组应以 ] 闭合）");
       } else break;
+    }
+    // W16：顶层数组未闭合（缺少 `]`）必须报错，而非按 EOF 静默收尾。
+    if (!closed && i >= toks.length) {
+      fail("E-PARSE-001", "sml: 未闭合的数组（遇到文件结尾，缺少结束符号 ]）");
     }
     return arr;
   }
 
   const first = peek();
+  // W16：顶层标量不可往返 ⇒ `E-PARSE-008`（判据：顶层**恰好一个标量 token**）。
+  // 此前 `42` 会被 `parseBlock(null)` 当成「键即值」的裸键，解析成 `{"42": 42}`
+  // —— **凭空造键**，重新序列化得到 `"42": 42` ≠ `42`（与 Rust/C 实测同病，四端一致）。
+  // 判据边界：`hello world`（两 token）得到 `{"hello":"world"}`、值能往返 ⇒ 不算；
+  // 带指令的顶层标量（token 数 > 1）**不报** —— 有意保守，宁漏不误伤。
+  if (toks.length === 1 && (toks[0].t === "word" || toks[0].t === "str")) {
+    fail("E-PARSE-008", "sml: 顶层须为容器（键值块、对象块或数组），单独的标量无法往返");
+  }
   if (first && first.t === "[") { i++; return parseArray(); }
   if (first && first.t === "{") { i++; return parseBlock("}"); }
   return parseBlock(null);
