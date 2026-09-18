@@ -48,7 +48,7 @@ E - CONTRACT - 002
 | **JS** | ✅ 全量（解析器 + 契约校验 + 模式引擎） | `e.code`（`parseSafe` 亦返回 `code`）；码是**字符串字面量** —— 该文件要能单文件在浏览器里跑，不能 import 生成物 |
 | **C**（原生，`c/sml.c`） | ✅ 全量（23 个码） | 用 `c/sml_codes.h` 的宏；**码作消息前缀**写进同一个 `err` 缓冲（`E-XXX-NNN 文案`），取码 `sscanf(err, "%15s", code)`；`err==NULL` 或 `errsz==0` 时**一个字节都不写**（W13 的性质，必须保住） |
 | **C++**（原生，`cpp/sml.cpp`） | ✅ 全量（27 个码） | 同上口径；取码用 `err.substr(0, err.find(' '))`。码表声明含 `cpp` 的 27 条已逐条对齐（W18 补齐了 include 那 5 条：002/004/010/011 与 E-LIMIT-003） |
-| **Lua** | ✅ 已带（适用本实现的 **7 个码**） | 用 `lua/lib/sml.soup`；**码作消息前缀**写进返回的 `err` 字符串（`Sml.load(text) -> value, err`），取码 `err:match("^(%S+)")`。⚠️ 抛错必须写 `error(msg, 0)` —— Lua 默认会往消息前插位置信息，把码挤到中间。⚠️ **`E-INCLUDE-001` 不适用**：Lua 实现没有 include 语法，已从该条 `impls` 移除 |
+| **Lua** | ✅ 已带（适用本实现的 **28 个码**；口径 = `sml.soup` **非注释行**里出现的码字面量，另有宿主入口 `lua/main.lua` 的 `E-IO-001`） | 用 `lua/lib/sml.soup`；**码作消息前缀**写进返回的 `err` 字符串（`Sml.load(text[, base]) -> value, err`，W20 起第二参数 = include 沙箱根，**不给 = include 关闭**），取码 `err:match("^(%S+)")`。⚠️ 抛错必须写 `error(msg, 0)` —— Lua 默认会往消息前插位置信息，把码挤到中间。⚠️ `E-INCLUDE-001` **现在适用**（W20 第二阶段给 Lua 补上了 include；此前「不适用、已从 `impls` 移除」的注记已作废），include 那一族码（`002/003/004/010/012` + `E-LIMIT-003` + `E-FEATURE-001`）也已回填 `lua` |
 | **C-ABI** | ✅ 已带 | `sml_error.code`（粗粒度枚举，9 档，供 C 侧 `switch`）+ `sml_error.code_str[16]`（真实码）；`classify()` 改成**读码**而不是猜中文关键词 |
 | **smltools** | ✅ 已带（工具层全量） | 引用 `sml-codes` 的**常量**；CLI / 迁入格式 / lint / highlight 定制的每条诊断都带码。⚠️ 口径与其它 Rust 侧一致是**码后缀**（`文案 [E-XXX-NNN]`，见 `sml-codes` 的 `Display`），而 C/C++/Lua 是**码前缀** —— 两者都满足「取码」需求，但格式不同，属 W3/W16 的话题。lint 的解析类问题**透传语言层码**（不包成 E-LINT） |
 
@@ -60,12 +60,16 @@ E - CONTRACT - 002
   「触发条件 → 期望码」的用例（`rust/tests/error_codes.rs`、`js/probe-error-codes.mjs`、
   `c/test_codes.c`、`cpp/test_codes.cpp`、`lua/test_codes.lua`），互不相交的部分按实现
   结构差异豁免，**交集部分逐一同码**。
-- **Lua 的实现面本来就窄**（不是 W10 造成的）：它**没有契约（`@contract` / `@is`）也没有
-  include**。这带来一个反直觉的后果：`examples/app.sml`、`SML_政务数据密级标注规范_报送稿.sml`
-  这类文档在 Lua 里**以前是"能解析"的 —— 但解析出的树是错的**（`include "x.sml"` 被当成裸块
-  键、把后面到第一个 `{` 的内容全吞进片段体）。W10 给键位置加码后它们开始**明确报错**。
-  从「静默给错树」变成「响亮地拒绝」是**本意**，但它是用户可见的行为变更，已记进 CHANGELOG，
-  并登记为 W20（要不要在 Lua 里补契约/include 是产品决定，不是补码）。
+- **Lua 的实现面本来就窄**（不是 W10 造成的），**但 W20 两个阶段已把它补齐**：
+  一阶段补契约（`@contract` / `@is` + 默认值回填），二阶段补 include（沙箱根、链栈环检测、
+  深度 32、全局展开 10000、`E-INCLUDE-012` 路径写法校验）。补之前有个反直觉的后果：
+  `examples/app.sml`、`SML_政务数据密级标注规范_报送稿.sml` 这类文档在 Lua 里**以前是
+  "能解析"的 —— 但解析出的树是错的**（`include "x.sml"` 被当成裸块键、把后面到第一个 `{`
+  的内容全吞进片段体）。W10 给键位置加码后它们开始**明确报错**；W20 之后它们**真的解析对了**。
+  从「静默给错树」→「响亮地拒绝」→「真支持」三步都是用户可见的行为变更，都记进了 CHANGELOG。
+  **仍不做的**（Lua 没有对应机制，遇到**显式报错、绝不静默**）：`@type` 外置类型、模式类型、
+  `@when` / `@for` 等，逐条登记在 `lua/lib/sml.soup` 文件头与 `lua/test_codes.lua` 的
+  「故意不测」清单里（那份清单本身也要随能力变化更新 —— W20 二阶段就作废了其中一条）。
 - **落地 W10 时发现：`impls` 字段有多处「声明与实现不符」** —— 声明了某端、但该端其实静默。
   已逐条核实并分开处理：真能补齐的补齐（`E-PARSE-001` / `E-LEX-004` / `E-INCLUDE-001` 等），
   补不了的把声明改正并写进 `note`（如 `E-IO-002` 目前**没有任何实现**报它，归 W16 判定）。
