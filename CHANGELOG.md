@@ -80,6 +80,14 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 变更
 
+- ⚠️ **不兼容：`swsml` 的 emit 后端返回类型从 `Result<_, String>` 改为 `Result<_, SmlError>`**
+  （W21 ④ 的根治；`CustomOptions::from_generator` 的签名同步变化）。
+  **这是公开 API 的破坏性变更** —— 按本仓「0.x 的 MINOR 变化视为不兼容」的规矩，发版时应走
+  **0.6.1 → 0.7.0**。
+  ⚠️ **发版清单**：bump `rust/Cargo.toml` 的 swsml 版本时，`rust/smltools/Cargo.toml` 里
+  `swsml = { version = "0.6.1", path = "../" }` 的**版本要求必须同步到 0.7.0** —— 否则
+  crates.io 会解析到旧版（那份 emit 仍返回 `String`），本仓直接编译失败。
+  换来的是：**码从上游带下来**，不再由 smltools 按**文案前缀**猜。
 - ⚠️ **Lua 补上契约（`@contract` / `@is`）**（W20 第一阶段）：此前 Lua **完全没有契约概念** ——
   `@contract S { … }` 与 `@is Service` 都被当成**片段定义**，于是 `examples/full.sml`、
   `showcase_contract.sml`、`SML_政务数据密级标注规范_报送稿.sml` 这类文档**"能解析"但树是错的**
@@ -192,6 +200,18 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 修复
 
+- **`smltools` 不再按文案猜码**（W21 ④）：删掉 `backend_error` / `custom_rules_error` 两个
+  文案前缀映射函数；`E-LIMIT-004`（8 个后端共 20 处递归深度）、`E-LIMIT-005`（custom 输出超长）、
+  `E-LIMIT-006`（custom 数组循环）、`E-EXT-006`（custom 规则文档非法）、`E-CLI-007`（各后端
+  自身失败）现在**都由 emit 后端自己带码**。新增 6 个**喂真实上游错误**的单元测试 ——
+  不是手写字面量（那正是旧做法失效的原因）。
+- **`toml.rs::descend` 的 `unreachable!()` 改为带码 `Err`**（W21 ③）：**panic 是不可接受的
+  对用户失败方式**（一份畸形 TOML 就能让工具崩，而不是给出带码错误）。走真实解析路径**不可达**
+  （`insert_keys` 的 `ensure_table` 已保证前置条件），故按**防御性**处理并写明；
+  另有一条**故意违反前置条件**的用例证明「万一走到也只给带码错误、不 panic」。
+- **clap 的用法错误现在带 `E-CLI-008`**（W21 ②）：`Cli::try_parse()` 接管那层输出 ——
+  **保留** clap 的 Usage 提示与退出码 2，只在其后追加码；`--help` / `--version` **不受影响**
+  （实测 rc=0、输出里不含码）。
 - **C++ `@include` 会毁掉文档，且环检测名存实亡**（W18，P0 数据完整性）：
   `@include "b.sml"` 的目标文件字段**全部丢失**，includer 自己后面的字段也被吞掉 ——
   实测 a.sml = `@include "b.sml"` + `from_a: 1` 解析完只剩一个垃圾键 `include = "include"`。
