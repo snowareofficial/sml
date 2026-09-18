@@ -43,7 +43,8 @@ static void demo_traverse() {
                             "  host: web.example\n"
                             "  port: 8080\n"
                             "}\n"
-                            "tags: [ a b c ]\n";
+                            "tags: [ a b c ]\n"
+                            "list: [ 1, [2, 3], 4 ]\n";
 
     auto r = sml::loads(doc);
     if (!r.ok()) {
@@ -55,7 +56,7 @@ static void demo_traverse() {
     const sml::Value &root = r.value;
 
     check(root.type() == sml::Type::Object, "root is an object");
-    check(root.size() == 5, "root has 5 fields");
+    check(root.size() == 6, "root has 6 fields");
 
     // Scalars
     check(root.get("name").str().value_or("") == "John", "name == \"John\"");
@@ -76,6 +77,19 @@ static void demo_traverse() {
     check(tags.type() == sml::Type::Array, "tags is an array");
     check(tags.size() == 3, "tags has 3 elements");
     check(!tags.at(3).valid(), "out-of-range index is invalid");
+
+    // Nested arrays (W17 的同类风险位)：本包装只是 C-ABI 的薄封装（不实现解析器），
+    // 但它自带一条「取元素」路径（at/size），所以照样实测 —— 原生 C 实现当年正是在
+    // 这一格静默错解（`[ 1, [2, 3], 4 ]` 变成 `{"m":[1,2,3],"4":4}`，凭空多一个键）。
+    auto list = root.get("list");
+    check(list.type() == sml::Type::Array && list.size() == 3, "list has 3 elements");
+    auto inner = list.at(1);
+    check(inner.type() == sml::Type::Array && inner.size() == 2,
+          "element 1 is a nested array of 2");
+    check(inner.at(0).as_int().value_or(0) == 2 && inner.at(1).as_int().value_or(0) == 3,
+          "nested array preserves [2, 3]");
+    check(list.at(0).as_int().value_or(0) == 1 && list.at(2).as_int().value_or(0) == 4,
+          "scalars around the nested array survive (no phantom key)");
 
     // Round-trip back to SML
     check(!root.dumps().empty(), "dumps() produced output");
