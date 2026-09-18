@@ -10,13 +10,18 @@
 依赖的 JS 侧增强（已完成）：token 记录字符偏移 `pos`、错误携带位置、
 新增 `offsetToPosition(text, offset)`、`parseSafe` 返回 `pos` / `position`。
 
-- [ ] **契约校验接入编辑器**：契约仅 Rust 支持，JS 侧只做语法解析，
-      故字段类型/枚举/区间等**语义**错误在编辑器中不会报出（已在扩展 README 说明）。
-      契约移植到 JS 后（见下节）即可自动获得语义诊断
+- [x] **契约校验接入编辑器**：JS 侧契约**已实现**（`js/sml.mjs` 有契约表 / `@is` 处理 /
+      默认值填充），故语义诊断的**前置条件已具备** —— 此处原写「契约仅 Rust 支持」，
+      2026-09-18 更正。**仍未验证**：编辑器是否已把语义错误呈现出来（属 VSCode 侧接线）
 - [ ] **一次报出多条错误**：当前解析器遇错即停，编辑器只显示第一条
-- [ ] **LSP server**：抽一层 LSP 以支持 Neovim / JetBrains 等编辑器
-- [ ] **跳转到契约定义**：`@is Server` → 跳到 `@contract Server`
-- [ ] **悬停显示契约展开结果**：展示默认值填充后的最终结构
+- [x] **LSP server**：`editors/lsp/server.mjs` 已实现 diagnostics / completion /
+      definition / hover —— 2026-09-18 更正勾选状态（此前未勾但实际已做）
+- [x] **跳转到契约定义（VSCode 侧已补齐，2026-09-18）**：`editors/vscode/src/sml-parse.mjs`
+      新增 `findDefinition(text, name, kind)`，`extension.js` 注册 `DefinitionProvider` ——
+      `@is Server` → `@contract Server`，`&base` → `@base { }`；中文名可跳（`\p{L}` 系列），
+      邮箱 `a@b.c` 不会被误判成指令（后顾断言）。顺带修 `collectFragmentNames` 保留名单不全
+      （`@when` / `@for` / `@feature` / `@type` 曾被当成片段名塞进补全列表）
+- [ ] **悬停显示契约展开结果**：展示默认值填充后的最终结构（现有 hover 只显示关键字说明）
 
 ## 新特性：契约（Contract）
 
@@ -29,7 +34,7 @@
 | C | ✅ **已实现** | `c/sml.c` 有 `ccontract` / `apply_contract_rec` / `parse_contract_body`（此前误标为"待实现"，2026-09-18 更正） |
 | C++ | ✅ **已实现** | `cpp/sml.cpp` 封装同一套能力 |
 | JS | ✅ **已实现** | `js/sml.mjs` 有契约表、`@is` 处理与默认值填充（此前误标为"待实现"，2026-09-18 更正） |
-| Lua | ⏳ 待实现 | **唯一未落地的一侧** |
+| Lua | ⏳ 待实现 | **唯一未落地的一侧**。2026-09-18 用户决定：**允许引入 native** —— 即允许 Lua 侧走 C-ABI 绑定 Rust 的契约实现，而不要求在纯 Lua 里再重写一遍。选型时优先走绑定（`lua/` 侧已有链接 C 的现成先例），移植只在绑定不可行时才考虑 |
 
 **已在 resender 中落地使用**：`AppConfig` 的 SML 持久化应用了契约
 （`src/config.rs` 的 `CONFIG_CONTRACT`），读取时校验字段类型并补齐缺失默认值。
@@ -289,3 +294,57 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
 - [x] Rust：契约测试 12 项 + showcase 验证 1 项（`tests/contract.rs`、`tests/contract_showcase.rs`）
 - [x] README：新增契约章节
 - [x] `showcase_contract.sml`：契约能力展示（已用 Rust 验证通过）
+- [x] JS（2026-09-18）：**契约 `[T]` 数组类型简写**曾未实现（照 README 写
+      `tags: [str] optional` 会在编辑器里**假报错**）；**嵌套数组值**曾把
+      `m: [ [ a ] ]` 静默解析成 `{"m":[],"[":"a"}`（数据损坏、不报错）。
+      两处均已修，并与 Rust 对齐；探针 `js/_probe_contract_types.mjs`（19 个用例）
+      是 W5 一致性用例集的种子。副本同步：扩展 `vendor/` + 站点 `static/`、`public/`
+- [x] VSCode（2026-09-18）：跳转到定义（`@is X` → `@contract X`、`&f` → `@f { }`）
+      + 悬浮显示**applyDefaults 之后**的契约结构（取不到实例时明说「未找到」，不编）
+
+---
+
+## 五、剩余工作分解（2026-09-18）
+
+按「**能独立验证**」切分，每条都写清文件范围（并行时不互相踩）、验收标准、依赖。
+✋ = 需要人工判断（动公开语义 / 跨多实现）；🤖 = 范围封闭、验收可自动化，适合派 agent。
+
+| # | 任务 | 文件范围 | 验收标准 | 依赖 | 并行 |
+|---|---|---|---|---|---|
+| ~~**W1**~~ ✅ | ~~`sml-regex` 量词 off-by-one（`+`/`?`/`*` 全部：原子被强制消费一次）~~ **已完成 2026-09-18**：另发现并修掉 `^...$` 锚点松判（`^conf\.sml$` 会匹配 `conf.sml.bak`）；`sml-regex` 升 `0.1.0-alpha.3`；workspace 467 通过 / 0 失败 | `rust/sml-regex/src/lib.rs`、`rust/tests/security.rs`、`rust/AUDIT_REPORT.md`、`CHANGELOG.md` | ✅ 9 个新单测 + `security.rs` 改按正确语义断言 + ReDoS 预算测试仍通过 | 无 | ✅ |
+| ~~**W2**~~ ✅ | ~~hover 显示**默认值填充后**的契约结构~~ **已完成 2026-09-18**：`contractHoverMarkdown` 组装两段（声明 + 解析器应用契约后的实例），无实例时明说「未找到」；顺带修 JS 契约 `[T]` 简写（曾对合法 SML 假报错） | `editors/vscode/src/{extension.js,sml-parse.mjs}`、`js/sml.mjs`、`editors/vscode/README.md` | ✅ node 探针实测：`port: 5432`/`tls: false` 确实被填进实例；非契约名返回 null；嵌套块正确退化为「未找到」 | 无 | ✅ |
+| **W3** | 顶层标量行为四实现统一为**显式报错** | `c/`、`cpp/`、`js/sml.mjs`、`lua/`、`rust/` + 文档 | **口径已定（2026-09-18）**：四端一律显式报 `E-PARSE-008`，**码必须一致、文案不要求逐字一致**；禁止静默（当前 JS/C/Lua 行为未定义）。各端各配一条单测 | 需先调研取证 | 🤖 |
+| **W4** | C `sml_dump` 与 Rust `to_sml` 逐字节比对 | `c/`、`rust/tests/` | 一批用例输出逐字节相同；有差异则逐条列明并判定是否可接受 | W3 之后（同批文件） | 🤖 |
+| **W5** | 跨实现一致性套件（conformance） | 新 `tests/conformance/`（用例集 + 各语言 runner） | 一份共享用例被 Rust/C/C++/JS/Lua 各跑一遍，结果一致；临时探针脚本（`_probe_*`/`_verify_showcase.*`）收编后删除 | W3/W4 之后 | 🤖 |
+| **W6** | Lua 侧契约（走 native 绑定） | `lua/`、`c/` 的导出面 | Lua 能校验 `@contract`/`@is` 并回填默认值，与 Rust 行为一致（复用 W5 用例集） | W5 的用例集 | ✋ |
+| **W7** | 解析器一次报多条错误 | `rust/sml-parse/src`（错误收集）、`js/sml.mjs`、`editors/vscode/src` | 同一文档的多个错误一次全部返回；旧 `parse()` 行为不变（只加新 API） | 无 | ✋ |
+| **W8** | Zed：填 `extension.toml` + 编译验证 grammar | `editors/zed/` | `tree-sitter generate && tree-sitter parse test/parse/*.sml` 无 `ERROR`；`extension.toml` 指向可用 grammar | 需 tree-sitter CLI（联网下载） | 🤖 |
+| **W9** | 残余风险：Miri / 安全门禁 / 非 Rust 实现扫描进 CI | CI 配置、`rust/{miri_check,osv_check}.py` | CI 里跑得起来，失败能挡住合并 | 无 | 🤖 |
+| **W10** | 错误码**落地到五端**：`errors/codes.sml` 已定 **135 条**码（W11 已录全），但各端报错**还没带码**（目前只有文案） | `rust/`（`sml-parse`、`sml-lex`、`sml-contract`、`sml-include`）、`js/sml.mjs`、`c/`、`cpp/`、`lua/` | 各端错误对象带 `code` 字段（Rust：`ParserError.code` / C-ABI 输出码；JS：`e.code`；C/C++/Lua 同）；同一条件五端同码；有测试钉住 | 无（码表已就绪） | ✋ |
+| ~~**W11**~~ ✅ | ~~错误码总表**录全**（46 / 约 120）~~ **已完成 2026-09-18**：按语义条件清点五端 + `smltools`（CLI / 迁入格式 / lint / 定制）+ 编辑器，**46 → 135 条 / 14 个领域**，分四层（语言层 / 宿主绑定层 / 工具层 / 编辑器层）；新增 `DERIVE` / `MIGRATE` / `CLI` / `LINT` / `EDITOR` 五域；`coverage` 改「全量」；`status` 的语义（**行为是否已实现**，与是否带码无关）在表头明确定义；清点范围与「该报错却静默」清单落进 `errors/README.md` | `errors/codes.sml`、`errors/README.md`、`site/content/{zh,en}/errors.md`、`site/static/site-tools.js` | ✅ 135 条 id 唯一 / 领域已声明 / 级别与码前缀一致 / 字段无缺 / **0 处转义或插值损坏**；`gen_json.py` 通过并重生成 `errors.json`；官网领域筛选按数据生成，无需改模板 | 无 | ✅ |
+| **W12** | 错误码查询工具接上**搜索**：官网 `/errors` 目前是关键词过滤，教科书 `/search` 已可搜 | `site/static/site-tools.js` | 两处都能按码与前缀（`E-CONTRACT-*`）检索；结果可深链（`/errors/#E-PARSE-008`） | 无 | 🤖 |
+| ~~**W13**~~ ✅ | ~~**安全**：C++ 深度守卫被绕过 + C 错误路径越界写~~ **已完成 2026-09-18**，且**比原描述更严重**：① C++ 子块直接递归、不增长深度计数；② **修①时发现光补「走受限入口」不够** —— 守卫超限后把深度复位为 0，而复位不会让栈帧退回，外层又从 0 往下钻（每 128 层一轮反复压栈），10 万层照样崩；③ **C 有同一个问题**（审计曾据「parse_block 是带守卫的 wrapper」判定 C 无此洞，实测 10 万层块嵌套段错误）；④ C 的越界写不止那两处 —— `sml.h` 明写 `err` 可为 `NULL`，而所有 `snprintf(errbuf, ...)` 在 `NULL` 时都是空指针写（共 21 处 + 2 处 dummy 缓冲）。**修法**：C++ 加 `aborted` 中止标志、各层循环 break（与 Rust 当年靠 `Result` 传播 `?` 同一思路）；C 复用既有 `ps->failed` 同样 break；C 的错误写入全部收敛到 `set_err()` 助手（缓冲区为空则一个字节不写） | `cpp/sml.cpp`、`c/sml.c`、`cpp/test_limits.cpp`、`c/test_limits.c`、`cpp/build_verify.py`、`c/build_check.py`、`c/Makefile` | ✅ 新增两侧回归用例：10 万层块/数组/交替嵌套**报错返回而不崩**、100 层照常解析、`err=NULL`/`errsz=0` 四条路径一个字节都不写。`c/build_check.py --run` 与 `cpp/build_verify.py` 全绿（后者含 contract/comments/rs-bridge 对照） | 清点记录（`errors/README.md`） | ✅ |
+| **W17** | C 的**嵌套数组被静默丢弃**（数据正确性） | `c/sml.c`（`parse_array`） | `parse_array` 不递归：元素只处理块/字符串/裸词，遇到 `[` 直接跳过 → `a: [[1]]` 之类被静默错解（与 JS 早先修掉的「嵌套数组静默截断」同类）。验收：嵌套数组与 Rust/JS 行为一致，并配回归用例；修好后可把深度用例补回 `c/test_limits.c`（现在那里写了一行注释说明为何缺席） | 无 | ✋ |
+| **W14** | JS 空键列表抛 `ReferenceError` | `js/sml.mjs`（及四份副本） | 报告函数是 `parse` 的**局部量**，空键列表分支引用不到它 → 用户看到宿主异常而非 `E-INCLUDE-005`。验收：该分支抛带码的正常错误 + 一条回归用例 | 无（但与 W3 同改 `js/sml.mjs`，需串行） | 🤖 |
+| **W15** | Lua 补深度上限，与 `E-LIMIT-001` 对齐 | `lua/lib/sml.soup` | 深嵌套不再耗尽 C 栈，改为显式报码；上限与其它端一致（128 层）。验收：深嵌套用例返回错误而非崩溃 | 无（但与 W3 同改 `lua/`，需串行） | 🤖 |
+| **W16** | 「静默清单」逐条判定并回填码表 | `errors/README.md` 的静默清单、各实现、`errors/codes.sml` | 清单里每条判定为「改成报错（给码）」或「写进规范、明确允许静默」，判定结果回填码表的 `status` 与规范文档。**先出判定表再动实现** —— W3 只是其中的顶层标量一条 | W11 的清单 | ✋ |
+
+**建议顺序**：W13（安全，最优先）→ W16（静默清单判定，是 W3 的前置）→ W3 → W4 → W5 → W6 → W7 → W9。
+W14 / W15 范围封闭，但与 W3 改同一批文件（`js/sml.mjs`、`lua/`），**必须与 W3 串行**；
+W8 等 tree-sitter CLI（联网），W12 完全独立。
+W3/W4/W5 共享同一批文件（`c/`、`js/`、`lua/`），**必须串行**；其余两两之间无文件重叠，可并行。
+
+---
+
+## 六、发布纪律（2026-09-18 用户定，开工/发版前先看这一节）
+
+- **任何对外发布前必须先告知用户**（crates.io `cargo publish`、站点发布、
+  仓库打 tag/release 都算）。不要自行发版 —— 用户要「发布前说一声」。
+  落地含义：`CHANGELOG.md` 的 `## [未发布]` 可以随时累积，但**把它变成版本号那一步
+  必须等用户点头**；`Cargo.toml` 里的版本号也不要在没通知的情况下改。
+- **VSCode 扩展（VSIX）上架市场：暂缓**。理由：上架流程麻烦（publisher 资质、
+  人工审核、每次发版都要重走一遍）。现状保持不变 —— `editors/vscode/` 用
+  `npm run package` 本地打包 `.vsix` 后手动安装即可；README 里对「未上架」的说明
+  是**有意为之**，不是待补的短板。
+- 相关：Zed 扩展的 grammar 要拆独立仓库才能正式发布（见 `editors/zed/README.md`），
+  该拆分同属「发布」动作，同样先告知用户再动。

@@ -19,8 +19,11 @@
 # 中文
 
 SML（SNOWARE Markup Language）命令行转换器 / 多目标翻译器：把一份 SML 文档一键翻译成
-Slint、LVGL (XML)、XML、SVG、LaTeX、Markdown，对接 Hugo / Zola 静态文档站，或用规则表做
-自定义代码生成——无需写任何胶水代码。
+Slint、LVGL (XML)、XML、SVG、LaTeX、Markdown、HTML、JSON、TOML，对接 Hugo / Zola 静态文档站，
+或用规则表做自定义代码生成——无需写任何胶水代码。
+
+也能**反向**把存量配置搬进 SML（`--from json|toml|yaml|xml`，含 CMSIS-SVD 这类大 XML），
+并附带 `--lint` 静态检查、`--strip` 剥离与**用 SML 定制编辑器高亮**（TextMate / Zed）。
 
 ## 为什么有用（站在人的角度）
 
@@ -51,31 +54,98 @@ cargo build --release -p smltools
 ## 用法
 
 ```bash
-# SML -> JSON（默认）
-smltools input.sml --format json -o out.json
-
-# SML -> Slint
-smltools input.sml --format slint -o ui.slint
-
-# SML -> LVGL UI XML（LVGL v8.3+ 原生 XML，由 LVGL XML 引擎加载；非 C 源码）
-smltools input.sml --format lvgl -o ui.xml
-
-# SML -> XML / SVG / LaTeX / Markdown
-smltools input.sml --format xml
-smltools input.sml --format svg
-smltools input.sml --format latex
-smltools input.sml --format markdown
-
-# SML -> Hugo（需 --hugo-root）
-smltools input.sml --format hugo --hugo-root ./site \
-    --hugo-section docs --hugo-lang all
-
-# 自定义生成器：规则表 + 模板
-smltools input.sml --rule rules.sml --template '{{section.name}}'
-smltools input.sml --rule rules.sml --template-file tmpl.txt
+# 翻译：SML → 目标格式（`--to` 与 `--format` 等价，默认 md）
+smltools -i doc.sml --to md                # Markdown（默认）
+smltools -i doc.sml --to json              # JSON（对接 jq 等既有工具链）
+smltools -i doc.sml --to toml              # TOML
+smltools -i doc.sml --to xml               # XML
+smltools -i doc.sml --to svg               # SVG 图表
+smltools -i doc.sml --to latex              # LaTeX
+smltools -i doc.sml --to slint -o ui.slint  # Slint UI
+smltools -i doc.sml --to lvgl -o ui.xml     # LVGL v8.3+ 原生 XML（非 C 源码）
+smltools -i doc.sml --to html               # 语义 HTML5
+smltools -i doc.sml --to sml                # 回写 SML（幂等：规范化 / 重新排版）
+smltools -i data.sml --to custom --custom-rules rules.sml -o out.txt
 ```
 
-省略 `INPUT` 时从 stdin 读取，省略 `OUTPUT` 时写到 stdout。
+省略 `-i` 从 stdin 读，省略 `-o` 写 stdout：
+
+```bash
+cat doc.sml | smltools --to md
+```
+
+### 迁移：把存量配置搬进 SML（`--from`）
+
+`--from` 支持 `sml`（默认）/ `json` / `toml` / `yaml` / `xml`，**缺省按扩展名推断**：
+`.json` → json，`.toml` → toml，`.yaml`/`.yml` → yaml，`.xml`/`.svd` → xml，其余按 sml。
+
+```bash
+smltools -i app.json  --to sml > app.sml     # JSON  → SML
+smltools -i conf.yaml --to sml > conf.sml    # YAML  → SML
+smltools -i Cargo.toml --to sml > c.sml      # TOML  → SML
+smltools -i chip.svd   --to sml > chip.sml   # XML / CMSIS-SVD → SML（--from 可省）
+```
+
+`--from xml` 的映射约定：根元素 → 顶层单键对象；子元素 → 键，**同名兄弟合并为数组**（保序）；
+**纯文本元素折叠为字符串**（`<name>PWR</name>` → `name: PWR`）；属性 → `_attrs`；
+元素同时有属性/子元素时文本才进 `_text`；空元素 → `{}`；**叶子一律字符串**
+（XML 无类型，不猜数字/布尔）；命名空间前缀保留；按 XML 规范先做行尾归一（`\r\n` → `\n`）。
+
+### 目录批量
+
+```bash
+smltools -i conf.d -o out/ --from json --to sml
+```
+
+输入是目录时逐个转换，**同名平铺**到 `-o` 目录（刻意不复刻子目录结构，
+免得猜错目录把文件写到意外位置）。
+
+### 检查与瘦身
+
+```bash
+smltools --lint -i doc.sml                # 静态检查（不产出转换结果）
+smltools -i doc.sml --to json --strip     # 剥离 SML 专有痕迹
+```
+
+- `--lint`：报解析错误、未使用的片段/契约、tab 缩进、空值字段、过深嵌套等；
+  有 error 级问题时退出码 1。**只检查 SML**（配合 `--from json` 等会直接报错）。
+- `--strip`：清掉内部标记键 `__name`/`__type` 与浮点的原始字面量。片段 / 契约 /
+  `include` / `$env` / `@when` 在**解析期**就消解了，解析结果本身已是纯数据。
+
+### 定制编辑器高亮
+
+```bash
+smltools -i my-dialect.sml --to tmlanguage         # 升级后的 TextMate 语法（写到 stdout）
+smltools -i my-dialect.sml --to highlight -o out/  # 一套 5 份产物（写到目录）
+```
+
+`--to highlight` 是「一对多」的，产出 `syntaxes/sml.tmLanguage.json`、
+`vscode/settings.fragment.json`（项目内就地生效）、`themes/`、`zed/highlights.scm`、
+`zed/themes/sml.json`。这两个后端的输入**不是数据**，而是「高亮定制声明」
+（`directives` / `elements` / `types` / `colors` / `rules`）。
+
+> Zed 用 Tree-sitter，查询要放到扩展的 `languages/sml/highlights.scm` 才生效
+> —— 生成的 `zed/highlights.scm` 是**待复制**的暂存产物，详见 `editors/zed/README.md`。
+
+### 文档站集成
+
+```bash
+smltools -i doc.sml --hugo ./site --hugo-lang zh --hugo-section docs
+smltools -i doc.sml --zola ./content --zola-section docs --zola-build
+```
+
+`--hugo` / `--zola` 模式下忽略 `-o`，按文件名（或 `--title`、文档顶层 `title`）落盘带
+front matter 的 `.md`；`--zola-build` 会顺带调用本机 `zola build`（需已安装 zola）。
+
+### 退出码
+
+| 码 | 含义 |
+|---|---|
+| 0 | 成功 |
+| 1 | 解析 / 翻译失败（`--lint` 发现 error 级问题也算） |
+| 2 | 参数或 IO 错误（如目录模式漏了 `-o`） |
+
+其它参数（`--math` 放行 LaTeX 数学块透传、`--feature v1..v4`、`--title` 等）见 `smltools --help`。
 
 ## 与 swsml 的关系
 
@@ -106,8 +176,12 @@ MulanPSL-2.0
 **SML (SNOWARE Markup Language) command-line converter / multi-target translator.**
 
 `smltools` turns an SML document into Slint, LVGL (XML), XML, SVG, LaTeX, Markdown,
-wires it into Hugo/Zola doc sites, or drives custom code-gen via rule tables —
-no glue code required.
+HTML, JSON or TOML, wires it into Hugo/Zola doc sites, or drives custom code-gen via
+rule tables — no glue code required.
+
+It also migrates **existing** configs into SML (`--from json|toml|yaml|xml`, including
+large XML such as CMSIS-SVD), and ships `--lint`, `--strip` and
+**SML-defined editor highlighting** (TextMate / Zed).
 
 ## Why it matters (from a human perspective)
 
@@ -141,32 +215,107 @@ cargo build --release -p smltools
 ## Usage
 
 ```bash
-# SML -> JSON (default)
-smltools input.sml --format json -o out.json
-
-# SML -> Slint
-smltools input.sml --format slint -o ui.slint
-
-# SML -> LVGL UI XML (LVGL v8.3+ native XML, loaded by the LVGL XML engine; not C source)
-smltools input.sml --format lvgl -o ui.xml
-
-# SML -> XML / SVG / LaTeX / Markdown
-smltools input.sml --format xml
-smltools input.sml --format svg
-smltools input.sml --format latex
-smltools input.sml --format markdown
-
-# SML -> Hugo (requires --hugo-root)
-smltools input.sml --format hugo --hugo-root ./site \
-    --hugo-section docs --hugo-lang all
-
-# Custom generator: rule table + template
-smltools input.sml --rule rules.sml --template '{{section.name}}'
-smltools input.sml --rule rules.sml --template-file tmpl.txt
+# Translate: SML -> target format (`--to` and `--format` are synonyms; default is md)
+smltools -i doc.sml --to md                # Markdown (default)
+smltools -i doc.sml --to json              # JSON (feed jq / any JSON-only toolchain)
+smltools -i doc.sml --to toml              # TOML
+smltools -i doc.sml --to xml               # XML
+smltools -i doc.sml --to svg               # SVG diagrams
+smltools -i doc.sml --to latex             # LaTeX
+smltools -i doc.sml --to slint -o ui.slint # Slint UI
+smltools -i doc.sml --to lvgl -o ui.xml    # LVGL v8.3+ native XML (not C source)
+smltools -i doc.sml --to html              # Semantic HTML5
+smltools -i doc.sml --to sml               # Write SML back (idempotent normalisation)
+smltools -i data.sml --to custom --custom-rules rules.sml -o out.txt
 ```
 
-When `INPUT` is omitted, smltools reads from stdin; when `OUTPUT` is omitted,
-it writes to stdout.
+Omit `-i` to read from stdin, omit `-o` to write to stdout:
+
+```bash
+cat doc.sml | smltools --to md
+```
+
+### Migration: bring existing configs into SML (`--from`)
+
+`--from` accepts `sml` (default) / `json` / `toml` / `yaml` / `xml`, and **infers it from
+the file extension** when omitted: `.json` → json, `.toml` → toml, `.yaml`/`.yml` → yaml,
+`.xml`/`.svd` → xml, anything else → sml.
+
+```bash
+smltools -i app.json  --to sml > app.sml     # JSON  -> SML
+smltools -i conf.yaml --to sml > conf.sml    # YAML  -> SML
+smltools -i Cargo.toml --to sml > c.sml      # TOML  -> SML
+smltools -i chip.svd   --to sml > chip.sml   # XML / CMSIS-SVD -> SML (--from optional)
+```
+
+`--from xml` mapping: root element → a single top-level key; child elements → keys with
+**same-name siblings merged into an array** (document order preserved); **text-only
+elements collapse to plain strings** (`<name>PWR</name>` → `name: PWR`); attributes → `_attrs`;
+text goes to `_text` only when the element also has attributes or children; empty elements →
+`{}`; **every leaf stays a string** (XML has no types — no guessing ints/bools); namespace
+prefixes are preserved; line endings are normalised per the XML spec (`\r\n` → `\n`).
+
+### Directory batch
+
+```bash
+smltools -i conf.d -o out/ --from json --to sml
+```
+
+When the input is a directory, every matching file is converted and written **flat** into the
+`-o` directory (sub-directories are deliberately not recreated: guessing a layout is worse than
+writing files elsewhere by accident).
+
+### Checking and stripping
+
+```bash
+smltools --lint -i doc.sml                # static checks only, no translation output
+smltools -i doc.sml --to json --strip     # strip SML-only traces
+```
+
+- `--lint`: reports parse errors, unused fragments/contracts, tab indentation, empty fields,
+  excessive nesting, …; exit code 1 when any error-level finding exists. **SML input only**
+  (combining it with `--from json` etc. is rejected).
+- `--strip`: removes the internal marker keys `__name`/`__type` and float raw literals.
+  Fragments / contracts / `include` / `$env` / `@when` are already resolved **at parse time**,
+  so the parsed value is plain data to begin with.
+
+### Custom editor highlighting
+
+```bash
+smltools -i my-dialect.sml --to tmlanguage         # upgraded TextMate grammar (stdout)
+smltools -i my-dialect.sml --to highlight -o out/  # a bundle of 5 artifacts (directory)
+```
+
+`--to highlight` is one-to-many: `syntaxes/sml.tmLanguage.json`,
+`vscode/settings.fragment.json` (takes effect inside the project), `themes/`,
+`zed/highlights.scm`, `zed/themes/sml.json`. For both backends the input is **not data** but a
+highlighting declaration (`directives` / `elements` / `types` / `colors` / `rules`).
+
+> Zed uses Tree-sitter, so the query only takes effect at the extension's
+> `languages/sml/highlights.scm` — the generated `zed/highlights.scm` is a staging artifact
+> meant to be copied. See `editors/zed/README.md`.
+
+### Doc-site integration
+
+```bash
+smltools -i doc.sml --hugo ./site --hugo-lang zh --hugo-section docs
+smltools -i doc.sml --zola ./content --zola-section docs --zola-build
+```
+
+In `--hugo` / `--zola` mode `-o` is ignored; the front-matter `.md` is written using the file
+name (or `--title`, or the document's top-level `title`). `--zola-build` additionally runs the
+local `zola build` (zola must be installed).
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Success |
+| 1 | Parse / translation failure (`--lint` with error-level findings included) |
+| 2 | Bad arguments or IO error (e.g. directory mode without `-o`) |
+
+Other flags (`--math` to pass LaTeX math blocks through, `--feature v1..v4`, `--title`, …) are
+listed by `smltools --help`.
 
 ## Relationship with swsml
 
