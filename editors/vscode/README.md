@@ -10,7 +10,8 @@
 | **错误提示** | 实时解析并定位错误到精确行列（红色波浪线 + 问题面板），**含契约语义错误** |
 | **补全** | 指令、契约关键字、类型、修饰符、字面量、契约名、片段名、本文档键名 |
 | **悬浮说明** | ① 悬停 `@contract` / `@is` / `loose` / `include` 等关键字看解释；② **悬停契约名看「填入默认值后的结构」**（来自解析结果，不是抄一遍声明） |
-| **跳转到定义** | `@is Server` → `@contract Server`；`&base` → `@base { }`（F12 / Ctrl+点击） |
+| **跳转到定义** | `@is Server` → `@contract Server`；`&base` → `@base { }`（F12 / Ctrl+点击 / 右键「转到定义」，三者同一套 provider） |
+| **特别高亮** | 选中一个词 → 右键「特别高亮选中词（当前工作区）」：把该词在**整个工作区**里点亮（状态栏显示 N 处 / M 文件；点状态栏或对同一个词再触发一次即清除） |
 | **格式化** | 按 SML 规范重排（解析 → 序列化），解析失败时不改动文件 |
 
 ## 安装（从源码）
@@ -56,6 +57,27 @@ SML 语法小、解析器（`js/sml.mjs`）零依赖且可直接 import，进程
 
 若将来需支持其他编辑器，可把 `src/sml-parse.mjs` 包一层 LSP server 复用，
 扩展主体逻辑无需重写（见 [TODO.md](../../TODO.md)）。
+
+## 特别高亮（临时探照灯）
+
+把光标放到一个词上（或选中一段**同一行**内的文字）→ 右键 →
+「**SML: 特别高亮选中词（当前工作区）**」：
+
+- 该词在**整个工作区**内的所有出现处都会被点亮；搜索范围由 `sml.specialHighlight.include`
+  控制（默认 `**/*.sml`，遵循 `files.exclude`）。
+- 状态栏显示 `N 处 / M 文件`；触到上限会标注**已截断**（不假装搜全了）。
+  清除方式有三个：**点状态栏**、对**同一个词再触发一次**命令、右键「SML: 清除特别高亮」
+  （后者仅在有高亮时出现）。
+- 编辑正在高亮的文件时会**就地重扫该文件**（快），不会整工作区重搜。
+
+⚠️ 三点是刻意为之，别「优化」掉：① **字面**匹配 —— 选中 `(`、`*`、`[` 也按字面找，
+不当正则（否则轻则少命中、重则抛异常）；② **不做语义判断** —— 注释、字符串里的同名文字
+同样点亮（文本级探照灯的价值在**可预期**，「聪明」在这里是负资产：用户没法预测哪处会亮）；
+③ 只给**可见编辑器**上色（VSCode 的 decorations 只能作用于可见编辑器），其余文件仍计入
+统计，打开时按缓存补上。
+
+> 与「自定义高亮」的区别：`HL-cfg.sml` 那套（`sml.reloadHighlight` / `sml.setHighlightMode`）
+> 是**静态配置**关键词配色；「特别高亮」是**临时**的、跟着你当前选中的词走。
 
 ## 已知限制
 
@@ -111,7 +133,8 @@ Provides editing support for [SML](../README.md) (SNOWARE Markup Language).
 | **Diagnostics** | real-time parse with errors located to exact line/column (red squiggles + Problems panel) |
 | **Completion** | directives, contract keywords, types, modifiers, literals, contract names, fragment names, in-document keys |
 | **Hover** | ① hover `@contract` / `@is` / `loose` / `include` for explanations and examples; ② **hover a contract name to see the instance after the contract is applied** — defaults really filled in by the parser, not a copy of the declaration |
-| **Go to definition** | `@is Server` → `@contract Server`; `&base` → `@base { }` (F12 / Ctrl+click) |
+| **Go to definition** | `@is Server` → `@contract Server`; `&base` → `@base { }` (F12 / Ctrl+click / right-click "Go to Definition" — all three use the same provider) |
+| **Spotlight highlight** | select a word → right-click "SML: 特别高亮选中词（当前工作区）": lights up **every occurrence in the workspace** (status bar shows N matches / M files; click it or re-run on the same word to clear) |
 | **Formatting** | reformat per SML spec (parse → serialize); no change if parse fails |
 
 ## Install (from source)
@@ -143,6 +166,31 @@ Or install manually: VSCode → `Extensions` → `...` → `Install from VSIX`.
 SML has a small grammar and a zero-dependency parser (`js/sml.mjs`) that can be
 imported directly, so in-process calls are lighter — no install, no port
 coordination. The cost is being limited to VSCode.
+
+## Spotlight highlight (temporary searchlight)
+
+Put the cursor on a word (or select text **within one line**) → right-click →
+"**SML: 特别高亮选中词（当前工作区）**":
+
+- Every occurrence of that word **across the workspace** is highlighted. The search scope is
+  `sml.specialHighlight.include` (default `**/*.sml`, honouring `files.exclude`).
+- The status bar shows `N matches / M files`; hitting a cap is reported as **truncated**
+  (it never pretends the search was exhaustive). Clear it by **clicking the status bar**,
+  **re-running the command on the same word**, or right-click → "SML: 清除特别高亮"
+  (the last one only appears while a highlight is active).
+- Editing a highlighted file re-scans **that file only** (fast) — no workspace-wide re-search.
+
+⚠️ Three deliberate choices, do not "optimise" them away: ① **literal** matching — selecting
+`(`, `*` or `[` searches for those characters, not a regex (a regex would under-match or throw);
+② **no semantic filtering** — the same text inside comments or strings is highlighted too (a
+text-level searchlight is valuable because it is *predictable*; cleverness here is a liability
+because users cannot predict what lights up); ③ only **visible editors** can be decorated
+(VSCode API), so other files still count towards the totals and get painted from the cache when
+opened.
+
+> Difference from "custom highlighting": the `HL-cfg.sml` mechanism
+> (`sml.reloadHighlight` / `sml.setHighlightMode`) is **static** keyword colouring;
+> the spotlight is **temporary** and follows whatever word you select.
 
 ## Known limitations
 

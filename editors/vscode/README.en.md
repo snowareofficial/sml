@@ -10,7 +10,8 @@ Provides editing support for [SML](../README.md) (SNOWARE Markup Language).
 | **Diagnostics** | real-time parse with errors located to exact line/column (red squiggles + Problems panel) |
 | **Completion** | directives, contract keywords, types, modifiers, literals, contract names, fragment names, in-document keys |
 | **Hover** | ① hover `@contract` / `@is` / `loose` / `include` for explanations and examples; ② **hover a contract name to see the instance after the contract is applied** — defaults really filled in by the parser, not a copy of the declaration |
-| **Go to definition** | `@is Server` → `@contract Server`; `&base` → `@base { }` (F12 / Ctrl+click) |
+| **Go to definition** | `@is Server` → `@contract Server`; `&base` → `@base { }` (F12 / Ctrl+click / right-click "Go to Definition" — all three use the same provider) |
+| **Spotlight highlight** | select a word → right-click "SML: 特别高亮选中词（当前工作区）": lights up **every occurrence in the workspace** (status bar shows N matches / M files; click it or re-run on the same word to clear) |
 | **Formatting** | reformat per SML spec (parse → serialize); no change if parse fails |
 
 ## Install (from source)
@@ -62,6 +63,26 @@ coordination. The cost is being limited to VSCode.
 If other editors need support later, wrap `src/sml-parse.mjs` in an LSP server
 and reuse it; the extension's core logic needs no rewrite (see
 [TODO.md](../../TODO.md)).
+
+## Spotlight highlight (temporary searchlight)
+
+Put the cursor on a word (or select text **within one line**) → right-click →
+"**SML: 特别高亮选中词（当前工作区）**":
+
+- Every occurrence of that word **across the workspace** is highlighted; the scope comes from
+  `sml.specialHighlight.include` (default `**/*.sml`, honouring `files.exclude`).
+- The status bar shows `N matches / M files`; hitting a cap is reported as **truncated**.
+  Clear it by **clicking the status bar**, **re-running the command on the same word**, or
+  right-click → "SML: 清除特别高亮" (shown only while a highlight is active).
+- Editing a highlighted file re-scans **that file only** (fast) — never the whole workspace.
+
+⚠️ Deliberate: ① **literal** matching (selecting `(`, `*`, `[` searches for those characters,
+not a regex); ② **no semantic filtering** — matches inside comments/strings light up too
+(predictability is the point); ③ only **visible editors** can be decorated, so other files count
+towards the totals and get painted from the cache when opened.
+
+> Not to be confused with the `HL-cfg.sml` mechanism (`sml.reloadHighlight` /
+> `sml.setHighlightMode`), which is **static** keyword colouring; the spotlight is **temporary**.
 
 ## Known limitations
 

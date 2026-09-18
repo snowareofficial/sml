@@ -106,6 +106,47 @@ export function findDefinition(text, name, kind = "contract") {
   return null;
 }
 
+/// 在文本里找 `term` 的**字面**出现位置（编辑器「特别高亮」用）。
+///
+/// 不按正则解释 —— 用户选中 `(`、`*`、`[` 这类字符时也必须按字面找，
+/// 否则轻则少命中、重则抛异常。返回 `[{ line, col, length }]`（行列从 0 起）。
+///
+/// 选项：`caseSensitive`（默认 true）、`wholeWord`（默认 false）、`max`（默认 20000，超出即停）。
+/// 放在本模块而非 `extension.js`，是为了**能脱离 VSCode 用 node 直接测**（与悬浮/跳转同一理由）。
+export function findOccurrences(text, term, options = {}) {
+  const { caseSensitive = true, wholeWord = false, max = 20000 } = options;
+  const out = [];
+  if (!text || !term) return out;
+  const hay = caseSensitive ? text : text.toLowerCase();
+  const needle = caseSensitive ? term : term.toLowerCase();
+
+  // 行首表：一次扫完，之后二分定位 —— 比每个命中都重新数换行快得多（大文件下差一个量级）
+  const starts = [0];
+  for (let i = 0; i < text.length; i++) if (text[i] === "\n") starts.push(i + 1);
+  const pos = (idx) => {
+    let lo = 0, hi = starts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (starts[mid] <= idx) lo = mid;
+      else hi = mid - 1;
+    }
+    return { line: lo, col: idx - starts[lo] };
+  };
+  // 词边界用「SML 标识符字符集」判：字母（含中文）/数字/_/./-/@/&
+  const isWordChar = (ch) => ch !== undefined && /[\p{L}\p{N}_.\-@&]/u.test(ch);
+
+  let i = 0;
+  while (out.length < max) {
+    const k = hay.indexOf(needle, i);
+    if (k < 0) break;
+    i = k + Math.max(1, needle.length);   // 空串已在上面挡掉，这里保证前进
+    if (wholeWord && (isWordChar(text[k - 1]) || isWordChar(text[k + term.length]))) continue;
+    const { line, col } = pos(k);
+    out.push({ line, col, length: term.length });
+  }
+  return out;
+}
+
 /// 收集 @type 声明的自定义类型名（供契约字段的类型位补全）
 ///
 /// `@type name: 手机号 { ... }` -> "手机号"
