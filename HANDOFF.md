@@ -1265,3 +1265,39 @@ tree-sitter parse test/parse/advanced.sml  # 0 ERROR / 0 MISSING
 这套测试是几周内在 **Windows** 上长出来的（路径、换行、shell 假设都可能埋着），
 **Linux 上第一次跑很可能会红，而且多数不是 W9 的错**。分诊顺序：
 `guards`（最轻，先确认基础环境） → `rust` / `rust-serde` → `non-rust` → `osv` → `miri`。
+
+
+---
+
+## 21. W4 首次比对：C `sml_dump` ↔ Rust `to_sml`（2026-09-19，**只量未改**）
+
+**为什么要有这件事**：C 与 Rust 各有一套序列化器，两边都「解析成功、输出看着都对」，
+但**输出可以不一样**。这类差异不会让任何一端的测试变红，只会等到跨端交换数据时才炸。
+
+**装置（已入库，可复用）**：
+
+```bash
+python tools/check_dump_parity.py            # 全仓 *.sml（排除 `_*` 临时探针）
+python tools/check_dump_parity.py --show 3   # 每个不一致文件多打几处差异
+```
+
+- `tools/dump_c.c`：C 侧只有 `sml_parse_file` + `sml_dump`、**没有**公开 dump CLI，
+  所以这个小程序是比对必需的那一半（编译由 Python 驱动自动完成）。
+- Rust 侧用 `smltools --to sml`（默认找 `rust/target/release`，可用 `SMLTOOLS` 覆盖）。
+- 退出码 `1` = 存在**两端都解析成功但输出不同**的项（即真差异）。
+
+**首次结果（2026-09-19，语料 34 个 `.sml`）**：完全一致 **0**；不一致 **19**；
+C 解析失败 **15**（解析层缺口，如 `@feature`/`@when`、`include` 读取、契约必填、
+`@version v4`、`examples/slint/login.sml` 的反引号问题 —— **不算**序列化差异）。
+
+已识别的四类差异（按「是不是已定的口径」排）：
+
+| # | 现象 | 例 | 判定 |
+|---|---|---|---|
+| 1 | **`键:` 后接块时的行尾空格**：C 写 `topic: `（带尾随空格），Rust 写 `topic:` | `examples/doc-demo/*.sml`、`examples/lvgl/*.sml`、`examples/advanced_inc/*.sml` | **Rust 侧已改、C 没跟上**（见 CHANGELOG「`to_sml` 不再在『键: 后接块』时于行尾留空格」）⇒ 照改 |
+| 2 | **块/数组「行内 vs 展开」**：C 把含容器的数组压成一行，Rust 展开多行 | `examples/doc-demo/guide.sml`、`examples/micro/CH32V103xx.sml` | **同上**：Rust 的新排版规则「扁平才留一行，含容器就展开多行」⇒ 照改 |
+| 3 | **引号策略**：C 对含特殊字符（中文、`:`、`*`）的裸键不加引号，Rust 加 | `examples/common.sml`：`等价，仅书写风格不同: */` ↔ `"等价，仅书写风格不同": "*/"` | 涉及**回读保真**（Rust 更稳），要判定后统一 |
+| 4 | **键顺序**：`editors/zed/grammars/sml/test/parse/basic.sml` 首行 C 是 `firstName: John`、Rust 是 `address:` | — | **未知**，下一步单独查（是插入序 vs 别的原因） |
+
+**下一步（未做）**：先修 1、2（口径已定、风险低），再判定 3，最后查 4；
+每修一类就重跑 `check_dump_parity.py`，看 19 条收敛到多少。
