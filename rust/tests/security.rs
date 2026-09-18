@@ -611,10 +611,10 @@ fn regex_step_budget_is_shared_across_start_positions() {
 #[test]
 fn regex_still_matches_correctly() {
     // 对照：共享预算不得破坏正常匹配语义。
-    // 注意 MiniRegex 的既有语法限制：
+    // MiniRegex 的语法边界：
     //   - `\x` 只做**字面**转义，不支持 `\d` 等字符类简写；
-    //   - `+` `?` `*` 是**字符级**量词（只作用于前一个字符），
-    //     不能作用于字符类 `[0-9]+` 或分组。故数字段用重复字符类表达。
+    //   - 量词 `+` `?` `*` 作用于**前一个原子**（普通字符 / `.` / `[a-z]` 字符类），
+    //     不支持分组 `(...)` 与 `{m,n}`。
     let re = compile_regex(r"^widget_[0-9][0-9]\.sml$");
     assert!(regex_matches(&re, "widget_01.sml"), "正常文件名应匹配");
     assert!(!regex_matches(&re, "widget_x1.sml"), "字符类范围误匹配");
@@ -625,19 +625,57 @@ fn regex_still_matches_correctly() {
     assert!(regex_matches(&re2, "a/b/c.sml"), "非锚定结尾匹配失效");
     assert!(!regex_matches(&re2, "a/b/c.txt"), "非锚定结尾误匹配");
 
-    // `+` 作用于普通字符。
-    // 已知既有 off-by-one（非本次审计引入）：前一字符已由 default 分支消耗一次，
-    // 而 `+` 分支又要求**至少再消耗一个**，故 `x+` 实际等价于 `xx*`。
-    // 这里按**当前**行为断言，锁定现状以免被误判为回归；修复前请勿改动。
+    // `+` = 一个或多个。
+    // 2026-09-18 修复量词 off-by-one：修复前原子被强制消费一次、量词只管**额外**次数，
+    // 故 `x+` 等价 `xx*`（`^ab+c$` 匹配 `abbc` 却不匹配 `abc`）。
+    // 本测试此前按旧行为断言并注明「锁定现状」，现已改为正确语义。
     let re3 = compile_regex(r"^ab+c$");
+    assert!(regex_matches(&re3, "abc"), "`+` 应接受恰好一次");
     assert!(regex_matches(&re3, "abbc"), "`+` 多次匹配失效");
-    assert!(!regex_matches(&re3, "abc"), "`+` 现状应等价于 `xx*`");
-    assert!(!regex_matches(&re3, "ac"), "`+` 误匹配零次");
+    assert!(!regex_matches(&re3, "ac"), "`+` 不应匹配零次");
+    assert!(regex_matches(&re3, "abbbc"), "`+` 应吃下连续多个 b");
+    assert!(!regex_matches(&re3, "abxbc"), "`+` 不应跨过非 b 字符");
+
+    // `?` = 零或一次、`*` = 零或多次（与 `+` 同一次修复）
+    assert!(regex_matches(&compile_regex(r"^ab?c$"), "ac"), "`?` 应允许零次");
+    assert!(regex_matches(&compile_regex(r"^ab?c$"), "abc"), "`?` 应允许一次");
+    assert!(
+        !regex_matches(&compile_regex(r"^ab?c$"), "abbc"),
+        "`?` 不应允许两次"
+    );
+    assert!(regex_matches(&compile_regex(r"^a*b$"), "b"), "`*` 应允许零次");
+    assert!(
+        !regex_matches(&compile_regex(r"^a*b$"), "aaac"),
+        "`*` 不应吃下非 a 字符"
+    );
+
+    // 量词现在也作用于字符类（修复前 `[0-9]+` 会失效）
+    assert!(
+        regex_matches(&compile_regex(r"^[0-9]+$"), "01"),
+        "`+` 应作用于字符类"
+    );
+    assert!(
+        !regex_matches(&compile_regex(r"^[0-9]+$"), "1a"),
+        "`+` 不应吃下类外字符"
+    );
+
+    // `^` 与 `$` 同时出现时两端都要卡住。
+    // 同一次修复翻出的第二个缺陷：修复前只判「能匹配」，`^conf\.sml$` 会匹配
+    // `conf.sml.bak`（前缀匹配），对按文件名做 include 过滤的场景是危险的松判。
+    let re6 = compile_regex(r"^conf\.sml$");
+    assert!(regex_matches(&re6, "conf.sml"), "正常文件名应匹配");
+    assert!(
+        !regex_matches(&re6, "conf.sml.bak"),
+        "`$` 在 `^` 同时存在时也必须生效（修复前会误匹配）"
+    );
+    assert!(!regex_matches(&re6, "x.conf.sml"), "`^` 仍须从头匹配");
 
     // 字符类范围与取反
     let re4 = compile_regex(r"^[a-c][a-c]\.txt$");
     assert!(regex_matches(&re4, "ab.txt"), "字符类匹配失效");
     assert!(!regex_matches(&re4, "ad.txt"), "字符类范围误匹配");
+    assert!(regex_matches(&compile_regex(r"^[^0-9]+$"), "abc"), "取反类失效");
+    assert!(!regex_matches(&compile_regex(r"^[^0-9]+$"), "a1"), "取反类误匹配");
 
     // `*` 与 `.`
     let re5 = compile_regex(r"^a.*z$");
