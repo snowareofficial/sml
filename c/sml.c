@@ -20,6 +20,7 @@
 */
 
 #include "sml.h"
+#include "sml_codes.h"   /* 错误码宏；唯一事实来源 errors/codes.sml（见 errors/README.md）*/
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,6 +28,7 @@
 #include <ctype.h>
 #include <math.h>
 #include <stdarg.h>
+#include <errno.h>   /* strtoll 溢出判定（ERANGE）：见 coerce_word 的 B10 分支 */
 
 /* =====================================================================
 ** 0. 错误信息写入
@@ -42,7 +44,16 @@
    256，于是那 1 字节的临时缓冲被写到至多 255 字节，直接踩栈；调用方写成
    `sml_parse(text, NULL, 256)` 就能触发。同理，所有直接 `snprintf(errbuf, ...)`
    的点在 errbuf 为 NULL 时是空指针写（同样只需传 NULL 即崩）。
-   两类问题在这里一起消失：只要缓冲区为空，就一个字节都不写。 */
+   两类问题在这里一起消失：只要缓冲区为空，就一个字节都不写。
+
+   **错误码约定（W10）**：sml.h 的报错接口没有放码的槽位，故把**错误码写在消息最前**，
+   码与文案之间用一个空格分隔，形如 `E-LIMIT-001 嵌套过深（超过 128 层）...`。
+   码取自 `sml_codes.h` 的宏（唯一事实来源 errors/codes.sml），**不手打字符串**。
+   码内不含空格，调用方取第一个空格之前的部分即可。取码方式见 sml.h 的「解析」一节。
+
+   本文件**每一处**报错都带码，没有例外：连内存分配失败也有 —— 纯 C/C++ 要自己管内存，
+   malloc 失败是可报的错误条件，码表为它单列了 E-LIMIT-010（`SML_E_LIMIT_010`）。
+   新增报错点时同时补码与用例（码表是唯一事实来源 errors/codes.sml）。 */
 static void set_err(char *buf, size_t sz, const char *fmt, ...) {
     va_list ap;
     if (!buf || sz == 0) return;
@@ -526,7 +537,8 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing);
 static sml_value *parse_block(parser *ps, tok_type closing) {
     if (ps->depth >= SML_MAX_VALUE_DEPTH) {
         set_err(ps->lx->errbuf, ps->lx->errsz,
-                "sml: 嵌套过深（超过 %d 层），疑似递归或恶意输入", SML_MAX_VALUE_DEPTH);
+                SML_E_LIMIT_001 " 嵌套过深（超过 %d 层），疑似递归或恶意输入",
+                SML_MAX_VALUE_DEPTH);
         ps->failed = 1;
         /* ⚠️ 这里**不能**只把 depth 复位为 0 就了事（最初就是这么写的，实测仍崩）：
            复位不会让已经压上去的栈帧退回来，外层循环随即又从 0 开始往下钻，于是
@@ -538,6 +550,16 @@ static sml_value *parse_block(parser *ps, tok_type closing) {
     sml_value *v = parse_block_inner(ps, closing);
     if (ps->depth > 0) ps->depth--;
     return v;
+}
+
+/* 未闭合的块/数组/契约体（遇到文件结尾就收尾了）：E-PARSE-001。
+   与 Rust 同码：rust/sml-parse/src/parser.rs 在「本层期望闭合符号（closing 非 None）
+   却遇到文件结尾」时报 E_PARSE_001，契约体未闭合也归同一条。
+   注：顶层（closing==T_EOF）遇到文件结尾是**正常**结束，不算未闭合，不报。 */
+static void err_unclosed(parser *ps, const char *what) {
+    set_err(ps->lx->errbuf, ps->lx->errsz,
+            SML_E_PARSE_001 " 未闭合的%s（遇到文件结尾，缺少结束符号）", what);
+    ps->failed = 1;
 }
 
 static token *peek(parser *ps) {
@@ -579,8 +601,19 @@ static sml_value *coerce_word(const char *w, parser *ps) {
     }
     /* 数字 */
     char *end = NULL;
+    errno = 0;   /* ERANGE 必须「先清零再检查」，否则会读到之前调用留下的旧值 */
     long long iv = strtoll(w, &end, 10);
-    if (end && *end == '\0' && end != w) return sml_new_int(iv);
+    if (end && *end == '\0' && end != w) {
+        /* B10（对齐 Rust sml-lex 的 coerce_word）：**纯整数形态但超出 i64** 时，
+           保留为字符串 —— 不能返回被夹住的 Int。Rust 在 `w.parse::<i64>()` 失败且
+           looks_int 时 `return Ok(Value::Str(w.to_string()))`（round-trip 安全、零精度
+           损失），且该 return **早于** bareword-string 检查，故 v2/v3 下同样不报
+           E-FEATURE-005 —— 这里保持同一分支顺序。
+           修之前 `99999999999999999999` 会变成 Int 9223372036854775807（静默错值，
+           且能通过 `int` 契约校验）。 */
+        if (errno == ERANGE) return sml_new_str(w);
+        return sml_new_int(iv);
+    }
     /* 浮点 (含 .5 / 1e3 等 strtod 可解析) */
     if (strchr(w, '.') || strchr(w, 'e') || strchr(w, 'E')) {
         char *fend = NULL;
@@ -590,7 +623,7 @@ static sml_value *coerce_word(const char *w, parser *ps) {
     /* V2/V3 严格模式：自由字符串必须加引号 */
     if (ps->version >= 2) {
         set_err(ps->lx->errbuf, ps->lx->errsz,
-                "sml v2/v3: 字符串必须加引号，裸词 `%s` 应写作 \"%s\"", w, w);
+                SML_E_FEATURE_005 " v2/v3 字符串必须加引号，裸词 `%s` 应写作 \"%s\"", w, w);
         ps->failed = 1;
         return NULL;
     }
@@ -677,13 +710,18 @@ static int check_type(parser *ps, const char *cname, const cfield *spec,
         }
         case CT_CONTRACTREF: {
             if (v->type != SML_OBJECT) {
-                ok = 0;
-                break;
+                /* 「组合字段应为块」是**独立条件**（E-CONTRACT-008），不能与「类型不符」
+                   （E-CONTRACT-002）共用一个码 —— Rust / JS 侧同样区分，否则同一份文档
+                   在 C 与它们之间会拿到不同的码，「同因同码」当场破功。 */
+                set_err(err, errsz,
+                         SML_E_CONTRACT_008 " 字段 `%s` 应为块并按契约 `%s` 校验，实际为 %s（契约 `%s`）",
+                         spec->name, spec->ref_name, kind_name(v), cname);
+                return -1;
             }
             ccontract *tgt = contract_find(ps, spec->ref_name);
             if (!tgt) {
                 set_err(err, errsz,
-                         "sml: 字段 `%s` 引用了未定义的契约 `%s`（契约 `%s`）",
+                         SML_E_CONTRACT_001 " 字段 `%s` 引用了未定义的契约 `%s`（契约 `%s`）",
                          spec->name, spec->ref_name, cname);
                 return -1;
             }
@@ -693,8 +731,17 @@ static int check_type(parser *ps, const char *cname, const cfield *spec,
         }
     }
     if (!ok) {
+        /* 「取值不在枚举列表内」是**独立条件**（E-CONTRACT-006），不能与「类型不符」
+           （E-CONTRACT-002）共用一个码 —— Rust / JS 侧同样区分（见 rust/sml-contract
+           的 check_type：`if let TypeSpec::Enum(..)` 单独返回 E_CONTRACT_006）。 */
+        if (spec->ty == CT_ENUM) {
+            set_err(err, errsz,
+                     SML_E_CONTRACT_006 " 字段 `%s` 类型应为 enum，实际取值不在列表内（契约 `%s`）",
+                     spec->name, cname);
+            return -1;
+        }
         set_err(err, errsz,
-                 "sml: 字段 `%s` 类型应为 %s，实际为 %s（契约 `%s`）",
+                 SML_E_CONTRACT_002 " 字段 `%s` 类型应为 %s，实际为 %s（契约 `%s`）",
                  spec->name, type_name(spec->ty), kind_name(v), cname);
         return -1;
     }
@@ -707,13 +754,13 @@ static int check_type(parser *ps, const char *cname, const cfield *spec,
         if (isnum) {
             if (spec->min_set && n < spec->min) {
                 set_err(err, errsz,
-                         "sml: 字段 `%s` 值 %g 小于下界 %g（契约 `%s`）",
+                         SML_E_CONTRACT_005 " 字段 `%s` 值 %g 小于下界 %g（契约 `%s`）",
                          spec->name, n, spec->min, cname);
                 return -1;
             }
             if (spec->max_set && n > spec->max) {
                 set_err(err, errsz,
-                         "sml: 字段 `%s` 值 %g 大于上界 %g（契约 `%s`）",
+                         SML_E_CONTRACT_005 " 字段 `%s` 值 %g 大于上界 %g（契约 `%s`）",
                          spec->name, n, spec->max, cname);
                 return -1;
             }
@@ -740,7 +787,7 @@ static int apply_contract_rec(parser *ps, ccontract *c, sml_value *node,
                 if (strcmp(cf->name, f->key) == 0) { found = 1; break; }
             if (!found) {
                 set_err(err, errsz,
-                         "sml: 字段 `%s` 未在契约 `%s` 中声明（严格模式；如需允许额外字段请在契约名后写 `loose`）",
+                         SML_E_CONTRACT_004 " 字段 `%s` 未在契约 `%s` 中声明（严格模式；如需允许额外字段请在契约名后写 `loose`）",
                          f->key, c->name);
                 return -1;
             }
@@ -754,7 +801,8 @@ static int apply_contract_rec(parser *ps, ccontract *c, sml_value *node,
                 sml_obj_set(node, cf->name, sml_clone(cf->def));
             } else if (cf->required) {
                 set_err(err, errsz,
-                         "sml: 字段 `%s` 必填但缺失（契约 `%s`）", cf->name, c->name);
+                         SML_E_CONTRACT_003 " 字段 `%s` 必填但缺失（契约 `%s`）",
+                         cf->name, c->name);
                 return -1;
             }
         } else {
@@ -768,7 +816,7 @@ static int apply_contract_name(parser *ps, sml_value *node, const char *name,
                                char *err, size_t errsz) {
     ccontract *c = contract_find(ps, name);
     if (!c) {
-        set_err(err, errsz, "sml: 引用了未定义的契约 `%s`", name);
+        set_err(err, errsz, SML_E_CONTRACT_001 " 引用了未定义的契约 `%s`", name);
         return -1;
     }
     return apply_contract_rec(ps, c, node, err, errsz);
@@ -780,14 +828,58 @@ static void apply_or_fail(parser *ps, sml_value *node, const char *name) {
         ps->failed = 1;
 }
 
+/* min/max 的边界取值：必须是十进制数字，且为**有限**值。
+   非数字/非十进制写法 -> E-PARSE-022；非有限（nan / 1e400）-> E-CONTRACT-010。
+   与 Rust 同码（rust/sml-parse/src/parser.rs 的 parse_spec_number：只收 Tok::Word 且
+   f64 可解析；`!f.is_finite()` 时报 E_CONTRACT_010；其它一律 E_PARSE_022）。
+   修之前这里是 `atof()` 且不看结果：`min abc` 静默变成下界 0，`max abc` 更糟 ——
+   非法边界当 0 后把合法值判成 E-CONTRACT-005（**错码**）。 */
+static int parse_bound_value(parser *ps, const char *kw, double *out) {
+    token *nv = next(ps);
+    char *end = NULL;
+    double d;
+    if (!nv || nv->t != T_WORD) {
+        /* Rust 对 Tok::Str / 缺取值（EOF）同样报 E_PARSE_022（"期望数字"） */
+        set_err(ps->lx->errbuf, ps->lx->errsz,
+                SML_E_PARSE_022 " `%s` 的边界取值不是数字", kw);
+        ps->failed = 1;
+        return -1;
+    }
+    /* C99 的 strtod 还认 "0x10"（十六进制浮点，= 16.0），而 Rust 的 f64::from_str 不认。
+       不收窄就会比 Rust 多接受一种写法；十进制浮点/科学计数/ inf / nan 都不含 x X p P。 */
+    if (strpbrk(nv->v, "xXpP") != NULL) {
+        set_err(ps->lx->errbuf, ps->lx->errsz,
+                SML_E_PARSE_022 " `%s` 的边界取值 `%s` 不是数字", kw, nv->v);
+        ps->failed = 1;
+        return -1;
+    }
+    d = strtod(nv->v, &end);
+    if (!end || end == nv->v || *end != '\0') {
+        set_err(ps->lx->errbuf, ps->lx->errsz,
+                SML_E_PARSE_022 " `%s` 的边界取值 `%s` 不是数字", kw, nv->v);
+        ps->failed = 1;
+        return -1;
+    }
+    if (!isfinite(d)) {
+        /* NaN 的所有比较均为 false，会令 min/max 校验被静默穿透（Rust 侧审计 #2 同因） */
+        set_err(ps->lx->errbuf, ps->lx->errsz,
+                SML_E_CONTRACT_010 " `%s` 的边界取值 `%s` 非有限数，不能作为数值约束的取值", kw, nv->v);
+        ps->failed = 1;
+        return -1;
+    }
+    *out = d;
+    return 0;
+}
+
 /* 解析契约体 (调用前已消费 '{'；负责消费 '}') */
 static void parse_contract_body(parser *ps, ccontract *c) {
     if (peek(ps)->t != T_LBRACE) return;
     next(ps); /* consume { */
     while (1) {
         token *ft = peek(ps);
+        if (ps->failed) break;   /* 出错后立刻收手：否则会继续吞 token 并可能覆盖已写的错误码 */
         if (ft->t == T_RBRACE) { next(ps); break; }
-        if (ft->t == T_EOF) break;
+        if (ft->t == T_EOF) { err_unclosed(ps, "契约体"); break; }
         if (ft->t != T_WORD && ft->t != T_STR) { next(ps); continue; }
         char *fname = next(ps)->v;
         if (peek(ps)->t == T_COLON) next(ps);
@@ -856,14 +948,12 @@ static void parse_contract_body(parser *ps, ccontract *c) {
             if (mt->t != T_WORD) break;
             if (strcmp(mt->v, "min") == 0) {
                 next(ps);
-                token *nv = next(ps);
-                if (nv && nv->t == T_WORD) { cf->min = atof(nv->v); cf->min_set = 1; }
+                if (parse_bound_value(ps, "min", &cf->min) == 0) cf->min_set = 1;
                 continue;
             }
             if (strcmp(mt->v, "max") == 0) {
                 next(ps);
-                token *nv = next(ps);
-                if (nv && nv->t == T_WORD) { cf->max = atof(nv->v); cf->max_set = 1; }
+                if (parse_bound_value(ps, "max", &cf->max) == 0) cf->max_set = 1;
                 continue;
             }
             if (strcmp(mt->v, "loose") == 0) {
@@ -882,7 +972,8 @@ static sml_value *parse_array(parser *ps) {
         token *t = peek(ps);
         if (ps->failed) break;   /* 出错/超限后立刻收手，让栈退掉（见 parse_block） */
         if (t->t == T_RBRACK) { next(ps); break; }
-        if (t->t == T_EOF) { break; }
+        /* 数组以 `[` 开场（本函数只在消费掉 `[` 之后被调用），故遇 EOF 即未闭合 */
+        if (t->t == T_EOF) { err_unclosed(ps, "数组"); break; }
         if (t->t == T_COMMA) { next(ps); continue; }
         if (t->t == T_LBRACE) {
             next(ps);
@@ -905,7 +996,11 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
     for (;;) {
         token *t = peek(ps);
         if (ps->failed) break;   /* 出错/超限后立刻收手，让栈退掉（见 parse_block） */
-        if (t->t == T_EOF) break;
+        if (t->t == T_EOF) {
+            /* 只在「本层期望 `}`」时才算未闭合；顶层（closing==T_EOF）遇 EOF 是正常结束 */
+            if (closing == T_RBRACE) err_unclosed(ps, "块");
+            break;
+        }
         if (t->t == T_RBRACE || t->t == T_RBRACK) {
             if (closing == t->t) { next(ps); break; }
             if (closing == T_EOF) break; /* 顶层遇右括号也停 */
@@ -924,14 +1019,14 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                     else if (strcmp(lit->v, "v3") == 0 || strcmp(lit->v, "3") == 0) ver = 3;
                     if (ver == 0) {
                         set_err(ps->lx->errbuf, ps->lx->errsz,
-                                "sml: 未知版本 `%s`；仅支持 v1/v2/v3", lit->v);
+                                SML_E_FEATURE_004 " 未知版本 `%s`；仅支持 v1/v2/v3", lit->v);
                         ps->failed = 1;
                     } else if (ver > 3) {
                         /* 超出本实现支持的版本范围 (V1..V3)。注意这条分支当前不可达：
                            上面只可能解析出 ver ∈ {1,2,3}（见审计记录）。保留它是因为将来
                            放宽版本时仍需要兜底，但别以为它被测试覆盖到了。 */
                         set_err(ps->lx->errbuf, ps->lx->errsz,
-                                "sml: 版本 v%d 超出本库接受范围 (v1..v3)", ver);
+                                SML_E_FEATURE_004 " 版本 v%d 超出本库接受范围 (v1..v3)", ver);
                         ps->failed = 1;
                     } else {
                         ps->version = ver;
@@ -1096,7 +1191,7 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
 
 sml_value *sml_parse(const char *text, char *err, size_t errsz) {
     if (!text) {
-        if (err && errsz) set_err(err, errsz, "sml: null text");
+        if (err && errsz) set_err(err, errsz, SML_E_INTERNAL_001 " 空指针入参（text 为 NULL）");
         return NULL;
     }
     if (err && errsz) err[0] = '\0';   /* 成功时保持为空，避免误判 */
@@ -1129,7 +1224,8 @@ sml_value *sml_parse(const char *text, char *err, size_t errsz) {
     while (f) { struct frag *nx = f->next; free(f->name); sml_free(f->val); f = nx; }
     lex_free(&lx);
     if (!v) {
-        if (err && errsz && err[0] == '\0') set_err(err, errsz, "sml: parse failed");
+        if (err && errsz && err[0] == '\0')
+            set_err(err, errsz, SML_E_PARSE_012 " 解析失败：未能给出更具体的原因");
         return NULL;
     }
     return v;
@@ -1552,12 +1648,12 @@ static int resolve_includes(const char *text, const char *base,
                             long *expansions,
                             char *err, size_t errsz) {
     if (depth >= MAX_INC_DEPTH) {
-        set_err(err, errsz, "sml: include 嵌套超过 %d 层", MAX_INC_DEPTH);
+        set_err(err, errsz, SML_E_INCLUDE_004 " include 嵌套超过 %d 层", MAX_INC_DEPTH);
         return -1;
     }
     /* 展开次数是**全局**计数（跨整棵包含树），嵌套深度限制挡不住菱形包含 */
     if (++(*expansions) > MAX_INC_EXPANSIONS) {
-        set_err(err, errsz, "sml: include 展开次数超过 %d 次上限", MAX_INC_EXPANSIONS);
+        set_err(err, errsz, SML_E_LIMIT_003 " include 展开次数超过 %d 次上限", MAX_INC_EXPANSIONS);
         return -1;
     }
     const char *p = text;
@@ -1565,7 +1661,7 @@ static int resolve_includes(const char *text, const char *base,
         const char *nl = strchr(p, '\n');
         size_t linelen = nl ? (size_t)(nl - p) : strlen(p);
         char *line = (char *)malloc(linelen + 1);
-        if (!line) { set_err(err, errsz, "sml: oom"); return -1; }
+        if (!line) { set_err(err, errsz, SML_E_LIMIT_010 " 内存分配失败（include 行缓冲）"); return -1; }
         memcpy(line, p, linelen);
         line[linelen] = '\0';
 
@@ -1575,7 +1671,7 @@ static int resolve_includes(const char *text, const char *base,
             snprintf(path, sizeof(path), "%s/%s", base, inc);
             FILE *f = fopen(path, "rb");
             if (!f) {
-                set_err(err, errsz, "sml: include 读取失败 %s", path);
+                set_err(err, errsz, SML_E_INCLUDE_001 " include 读取失败 %s", path);
                 free(line); free(inc);
                 return -1;
             }
@@ -1583,7 +1679,7 @@ static int resolve_includes(const char *text, const char *base,
             long sz = ftell(f);
             fseek(f, 0, SEEK_SET);
             char *content = (char *)malloc((size_t)sz + 1);
-            if (!content) { fclose(f); set_err(err, errsz, "sml: oom"); free(line); free(inc); return -1; }
+            if (!content) { fclose(f); set_err(err, errsz, SML_E_LIMIT_010 " 内存分配失败（include 文件内容）"); free(line); free(inc); return -1; }
             fread(content, 1, (size_t)sz, f);
             content[sz] = '\0';
             fclose(f);
@@ -1598,7 +1694,7 @@ static int resolve_includes(const char *text, const char *base,
             canon = realpath(path, NULL);
 #endif
             if (!canon) {
-                set_err(err, errsz, "sml: include 路径无法解析: %s", path);
+                set_err(err, errsz, SML_E_INCLUDE_001 " include 路径无法解析: %s", path);
                 free(content); free(line); free(inc);
                 return -1;
             }
@@ -1617,14 +1713,14 @@ static int resolve_includes(const char *text, const char *base,
                              (canon[bl] == '/' || canon[bl] == '\\' || canon[bl] == '\0');
                 free(basec);
                 if (!inside) {
-                    set_err(err, errsz, "sml: include 目标越出基准目录: %s", inc);
+                    set_err(err, errsz, SML_E_INCLUDE_003 " include 目标越出基准目录: %s", inc);
                     free(canon); free(content); free(line); free(inc);
                     return -1;
                 }
             } else {
                 /* 基准目录无法规范化 → **拒绝**，不能因为"没法比"就放行
                    （fail-open 会让越界读取在校验失败时静默通过）。 */
-                set_err(err, errsz, "sml: include 基准目录不可解析，已拒绝: %s", base);
+                set_err(err, errsz, SML_E_INCLUDE_010 " include 基准目录不可解析，已拒绝: %s", base);
                 free(canon); free(content); free(line); free(inc);
                 return -1;
             }
@@ -1632,7 +1728,7 @@ static int resolve_includes(const char *text, const char *base,
             for (int i = 0; i < depth; i++)
                 if (strcmp(stack[i], canon) == 0) { cyc = 1; break; }
             if (cyc) {
-                set_err(err, errsz, "sml: include 循环引用: %s", canon);
+                set_err(err, errsz, SML_E_INCLUDE_002 " include 循环引用: %s", canon);
                 free(canon); free(content); free(line); free(inc);
                 return -1;
             }
@@ -1661,19 +1757,19 @@ static int resolve_includes(const char *text, const char *base,
 
 sml_value *sml_parse_file(const char *path, char *err, size_t errsz) {
     if (!path) {
-        if (err && errsz) set_err(err, errsz, "sml: null path");
+        if (err && errsz) set_err(err, errsz, SML_E_INTERNAL_001 " 空指针入参（path 为 NULL）");
         return NULL;
     }
     FILE *f = fopen(path, "rb");
     if (!f) {
-        if (err && errsz) set_err(err, errsz, "sml: 读取失败 %s", path);
+        if (err && errsz) set_err(err, errsz, SML_E_IO_001 " 读取失败 %s", path);
         return NULL;
     }
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
     fseek(f, 0, SEEK_SET);
     char *text = (char *)malloc((size_t)sz + 1);
-    if (!text) { fclose(f); if (err && errsz) set_err(err, errsz, "sml: oom"); return NULL; }
+    if (!text) { fclose(f); set_err(err, errsz, SML_E_LIMIT_010 " 内存分配失败（入口文件内容）"); return NULL; }
     fread(text, 1, (size_t)sz, f);
     text[sz] = '\0';
     fclose(f);
