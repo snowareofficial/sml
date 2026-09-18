@@ -5,7 +5,7 @@
 #
 # **决策（2026-09-19，用户定）**：源真相留在 monorepo（`editors/zed/grammars/sml/`），
 # 另开独立**发布镜像**仓库 `snoware/tree-sitter-sml`（只含 grammar 子树），下方已填它的 URL。
-# `rev` 仍占位 `REPLACE_WITH_COMMIT_SHA`，待该镜像仓库首次 push 后填入真实短 sha。
+# `rev` 已填入该镜像仓库首版 commit：`b72396d37ebb90f9d05bb52937827b8b1265d72a`（2026-09-19 用户回传）。
 #
 # 本地开发要立刻见效，仍可临时改成 `file://` + 本机绝对路径（下面注释保留写法）：
 #   repository = "file:///C:/Users/<你>/Desktop/sml/editors/zed/grammars/sml"
@@ -25,4 +25,4 @@ repository = "https://gitee.com/snoware/sml"
 
 [grammars.sml]
 repository = "https://gitee.com/snoware/tree-sitter-sml"
-rev = "REPLACE_WITH_COMMIT_SHA"
+rev = "b72396d37ebb90f9d05bb52937827b8b1265d72a"
