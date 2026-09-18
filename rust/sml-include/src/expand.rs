@@ -6,6 +6,10 @@
 
 use std::path::{Path, PathBuf};
 
+use sml_codes::{
+    E_FEATURE_001, E_INCLUDE_001, E_INCLUDE_002, E_INCLUDE_003, E_INCLUDE_004, E_INCLUDE_010,
+    E_INCLUDE_011, E_IO_001, E_LIMIT_003, SmlError,
+};
 use sml_feature::{Feature, FeatureSet};
 use sml_lex::{Tok, advance_line, compute_string_spans, line_starts_in_string, tokenize};
 
@@ -18,7 +22,7 @@ pub fn resolve_includes(
     text: &str,
     base: &Path,
     features: FeatureSet,
-) -> Result<Vec<Tok>, String> {
+) -> Result<Vec<Tok>, SmlError> {
     let mut stack: Vec<PathBuf> = Vec::new();
     let mut toks: Vec<Tok> = Vec::new();
     let mut expansions: u64 = 0;
@@ -35,9 +39,12 @@ pub fn expand_includes(
     features: FeatureSet,
     out: &mut Vec<Tok>,
     expansions: &mut u64,
-) -> Result<(), String> {
+) -> Result<(), SmlError> {
     if stack.len() >= MAX_INCLUDE_DEPTH {
-        return Err(format!("include 嵌套超过 {MAX_INCLUDE_DEPTH} 层"));
+        return Err(SmlError::new(
+            E_INCLUDE_004,
+            format!("include 嵌套超过 {MAX_INCLUDE_DEPTH} 层"),
+        ));
     }
     // 沙箱根：所有 include 命中的文件必须位于 base（规范化为绝对路径）之内，
     // 否则拒绝，防止 `../` 或 glob/regex 模式越界读取任意文件（路径遍历漏洞）。
@@ -46,9 +53,12 @@ pub fn expand_includes(
     // `starts_with` 比较的对象就变成一个可能含 `..` 的路径，越界校验会静默失效
     // （安全默认、无法校验即不放行）。
     let base_canon = base.canonicalize().map_err(|e| {
-        format!(
-            "include 基准目录不可解析，无法做越界校验，已拒绝继续：{}（{e}）",
-            base.display()
+        SmlError::new(
+            E_INCLUDE_010,
+            format!(
+                "include 基准目录不可解析，无法做越界校验，已拒绝继续：{}（{e}）",
+                base.display()
+            ),
         )
     })?;
     let spans = compute_string_spans(text);
@@ -60,8 +70,12 @@ pub fn expand_includes(
         line_start = advance_line(line_start, line, text);
         if inside_string {
             // 当作普通行 tokenize（保持与字符串片段一致），不进入 include 解析分支
+            // 内层是词法错误（E-LEX-*），外壳标 E-INCLUDE-011；内层码保留在文案里。
             let line_toks = tokenize(line).map_err(|e| {
-                format!("include 预处理词法错误：{e}（于行：{line}）")
+                SmlError::new(
+                    E_INCLUDE_011,
+                    format!("include 预处理词法错误：{e}（于行：{line}）"),
+                )
             })?;
             out.extend(line_toks);
             continue;
@@ -69,39 +83,59 @@ pub fn expand_includes(
         match parse_include_line(line, features)? {
             Some(targets) => {
                 if !features.has(Feature::Include) {
-                    return Err("sml: 当前特性集禁用了 include（include 特性）".into());
+                    return Err(SmlError::new(
+                        E_FEATURE_001,
+                        "sml: 当前特性集禁用了 include（include 特性）",
+                    ));
                 }
                 for t in targets {
                     if t.namespace.is_some() && !features.has(Feature::Namespace) {
-                        return Err(
-                            "sml: 当前特性集禁用了命名空间包含（namespace 特性）".into(),
-                        );
+                        return Err(SmlError::new(
+                            E_FEATURE_001,
+                            "sml: 当前特性集禁用了命名空间包含（namespace 特性）",
+                        ));
                     }
                     // 把一个 target 解析为 0..N 个实际文件路径（支持 glob/regex/ext-rewrite）
                     let paths = resolve_target_paths(&t, base, features)?;
                     for path in paths {
                         let canon = path.canonicalize().map_err(|e| {
-                            format!("include 无法定位 {}: {e}", path.display())
+                            SmlError::new(
+                                E_INCLUDE_001,
+                                format!("include 无法定位 {}: {e}", path.display()),
+                            )
                         })?;
                         // 路径遍历防护：规范化后必须仍位于沙箱根 base 之内
                         if !canon.starts_with(&base_canon) {
-                            return Err(format!(
-                                "include 越界拒绝：{} 不在基准目录 {} 内",
-                                canon.display(),
-                                base_canon.display()
+                            return Err(SmlError::new(
+                                E_INCLUDE_003,
+                                format!(
+                                    "include 越界拒绝：{} 不在基准目录 {} 内",
+                                    canon.display(),
+                                    base_canon.display()
+                                ),
                             ));
                         }
                         // stack 是「当前正在展开的文件链」，命中即成环
                         if stack.iter().any(|p| p == &canon) {
-                            return Err(format!("include 循环引用: {}", canon.display()));
+                            return Err(SmlError::new(
+                                E_INCLUDE_002,
+                                format!("include 循环引用: {}", canon.display()),
+                            ));
                         }
-                        let content = std::fs::read_to_string(&canon)
-                            .map_err(|e| format!("include 读取失败 {}: {e}", canon.display()))?;
+                        let content = std::fs::read_to_string(&canon).map_err(|e| {
+                            SmlError::new(
+                                E_IO_001,
+                                format!("include 读取失败 {}: {e}", canon.display()),
+                            )
+                        })?;
                         *expansions += 1;
                         if *expansions > MAX_INCLUDE_EXPANSIONS {
-                            return Err(format!(
-                                "include 展开次数超过上限 {}（疑似指数膨胀 DoS）",
-                                MAX_INCLUDE_EXPANSIONS
+                            return Err(SmlError::new(
+                                E_LIMIT_003,
+                                format!(
+                                    "include 展开次数超过上限 {}（疑似指数膨胀 DoS）",
+                                    MAX_INCLUDE_EXPANSIONS
+                                ),
                             ));
                         }
                         let child_base = canon
@@ -141,7 +175,10 @@ pub fn expand_includes(
             None => {
                 // 非 include 行：直接 tokenize 该行并追加（保持行级语义，零拷贝）
                 let line_toks = tokenize(line).map_err(|e| {
-                    format!("include 预处理词法错误：{e}（于行：{line}）")
+                    SmlError::new(
+                        E_INCLUDE_011,
+                        format!("include 预处理词法错误：{e}（于行：{line}）"),
+                    )
                 })?;
                 out.extend(line_toks);
             }
@@ -246,7 +283,7 @@ pub fn expand_file_tokens(
     stack: &mut Vec<PathBuf>,
     features: FeatureSet,
     expansions: &mut u64,
-) -> Result<Vec<Tok>, String> {
+) -> Result<Vec<Tok>, SmlError> {
     // 剥离子文件内的版本/特性指令行，避免污染 token 流。
     // 多行字符串内部的行不算指令，须跳过（否则会破坏字符串数据，如 "line\n@version\n..."）。
     let spans = compute_string_spans(content);

@@ -16,7 +16,7 @@ fn ok(text: &str) -> sml::Value {
 fn err(text: &str) -> String {
     match parse(text) {
         Ok(_) => panic!("应校验失败，实际通过了:\n{text}"),
-        Err(e) => e,
+        Err(e) => e.to_string(),
     }
 }
 

@@ -5,6 +5,9 @@
 //! 而 `sml-lex` 又依赖 `sml-feature` 的 `FeatureSet`——
 //! 放进 `sml-feature` 会形成循环依赖。
 
+use sml_codes::{
+    E_FEATURE_003, E_FEATURE_004, E_FEATURE_006, E_FEATURE_007, E_FEATURE_008, SmlError,
+};
 use sml_feature::{FEATURES, Feature, FeatureMode, FeatureSet, Version};
 use sml_lex::{Tok, advance_line, compute_string_spans, line_starts_in_string, tokenize};
 use sml_include::strip_line_comment;
@@ -34,7 +37,7 @@ pub fn apply_feature_directive(
     feats: &mut FeatureSet,
     mode: &mut FeatureMode,
     base: &mut Option<Version>,
-) -> Result<bool, String> {
+) -> Result<bool, SmlError> {
     let content = strip_line_comment(line).trim();
     let toks = match tokenize(content) {
         Ok(t) => t,
@@ -58,7 +61,7 @@ pub fn apply_feature_directive(
     // 去掉首 token `@`，使后续 words[0]=="feature"
     let words: Vec<String> = words[1..].to_vec();
     if words.len() < 2 {
-        return Err("@feature 指令缺少参数".into());
+        return Err(SmlError::new(E_FEATURE_007, "@feature 指令缺少参数"));
     }
     let arg = words[1].as_str();
     // 把 `enable x,y,z` / `whitelist a,b` 的多名拆开
@@ -74,9 +77,12 @@ pub fn apply_feature_directive(
         "base" => {
             let v = Version::from_word(words.get(2).map(|s| s.as_str()).unwrap_or(""))
                 .ok_or_else(|| {
-                    format!(
-                        "@feature base 需要 v1/v2/v3/v4，收到 `{}`",
-                        words.get(2).cloned().unwrap_or_default()
+                    SmlError::new(
+                        E_FEATURE_004,
+                        format!(
+                            "@feature base 需要 v1/v2/v3/v4，收到 `{}`",
+                            words.get(2).cloned().unwrap_or_default()
+                        ),
                     )
                 })?;
             *feats = FeatureSet::for_version(v);
@@ -88,7 +94,12 @@ pub fn apply_feature_directive(
             *mode = match m {
                 "whitelist" => FeatureMode::Whitelist,
                 "blacklist" => FeatureMode::Blacklist,
-                _ => return Err(format!("@feature mode 需要 whitelist/blacklist，收到 `{m}`")),
+                _ => {
+                    return Err(SmlError::new(
+                        E_FEATURE_008,
+                        format!("@feature mode 需要 whitelist/blacklist，收到 `{m}`"),
+                    ))
+                }
             };
             if *mode == FeatureMode::Whitelist {
                 // 白名单：基集先清空，后续 enable 显式置位
@@ -103,9 +114,12 @@ pub fn apply_feature_directive(
             // 真正的「收窄为仅所列」由显式 `@feature mode whitelist` 控制。
             for n in names(2) {
                 let f = Feature::from_name(&n).ok_or_else(|| {
-                    format!(
-                        "未知特性 `{n}`，可用：{}",
-                        FEATURES.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ")
+                    SmlError::new(
+                        E_FEATURE_003,
+                        format!(
+                            "未知特性 `{n}`，可用：{}",
+                            FEATURES.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ")
+                        ),
                     )
                 })?;
                 *feats = feats.with(f);
@@ -115,9 +129,12 @@ pub fn apply_feature_directive(
         "disable" => {
             for n in names(2) {
                 let f = Feature::from_name(&n).ok_or_else(|| {
-                    format!(
-                        "未知特性 `{n}`，可用：{}",
-                        FEATURES.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ")
+                    SmlError::new(
+                        E_FEATURE_003,
+                        format!(
+                            "未知特性 `{n}`，可用：{}",
+                            FEATURES.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ")
+                        ),
                     )
                 })?;
                 *feats = feats.without(f);
@@ -129,9 +146,12 @@ pub fn apply_feature_directive(
             let mut s = FeatureSet::none();
             for n in names(2) {
                 let f = Feature::from_name(&n).ok_or_else(|| {
-                    format!(
-                        "未知特性 `{n}`，可用：{}",
-                        FEATURES.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ")
+                    SmlError::new(
+                        E_FEATURE_003,
+                        format!(
+                            "未知特性 `{n}`，可用：{}",
+                            FEATURES.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ")
+                        ),
                     )
                 })?;
                 s = s.with(f);
@@ -143,9 +163,12 @@ pub fn apply_feature_directive(
             let mut s = FeatureSet::all();
             for n in names(2) {
                 let f = Feature::from_name(&n).ok_or_else(|| {
-                    format!(
-                        "未知特性 `{n}`，可用：{}",
-                        FEATURES.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ")
+                    SmlError::new(
+                        E_FEATURE_003,
+                        format!(
+                            "未知特性 `{n}`，可用：{}",
+                            FEATURES.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ")
+                        ),
                     )
                 })?;
                 s = s.without(f);
@@ -153,7 +176,10 @@ pub fn apply_feature_directive(
             *feats = s;
             Ok(true)
         }
-        _ => Err(format!("未知 @feature 子命令 `{arg}`，可用 base/mode/enable/disable")),
+        _ => Err(SmlError::new(
+            E_FEATURE_006,
+            format!("未知 @feature 子命令 `{arg}`，可用 base/mode/enable/disable"),
+        )),
     }
 }
 
@@ -166,7 +192,7 @@ pub fn apply_feature_directive(
 /// 返回值三元组：(剩余文本, 特性集, @feature base 声明的版本, 是否出现过 @feature 指令)。
 /// 若文档从未声明 `@feature`，则 `had_feature=false`，调用方应改以版本基线派生特性集
 /// （例如 v3 默认关闭裸词字符串）。
-pub fn strip_features(text: &str) -> Result<(String, FeatureSet, Option<Version>, bool), String> {
+pub fn strip_features(text: &str) -> Result<(String, FeatureSet, Option<Version>, bool), SmlError> {
     let mut out = String::new();
     let spans = compute_string_spans(text);
     let mut feats = FeatureSet::all();
@@ -201,7 +227,7 @@ pub fn strip_features(text: &str) -> Result<(String, FeatureSet, Option<Version>
 /// 若该行是 `@version` 声明，返回版本字面量；否则返回 None。
 ///
 /// `version` 是保留字：不允许作为片段名（`@version { }`）使用。
-pub fn version_directive(line: &str) -> Result<Option<String>, String> {
+pub fn version_directive(line: &str) -> Result<Option<String>, SmlError> {
     let content = strip_line_comment(line).trim();
     // 词法失败的行（如未闭合引号）不是版本声明，交由主解析器报更准确的错
     let toks = match tokenize(content) {
@@ -211,9 +237,10 @@ pub fn version_directive(line: &str) -> Result<Option<String>, String> {
     match toks.as_slice() {
         [Tok::At, Tok::Word(w), Tok::Word(v)] if w == "version" => Ok(Some(v.clone())),
         [Tok::At, Tok::Word(w), Tok::Str(v)] if w == "version" => Ok(Some(v.clone())),
-        [Tok::At, Tok::Word(w), ..] if w == "version" => Err(
-            "`@version` 是版本声明指令，须写作 `@version v1`；`version` 不可作为片段名".into(),
-        ),
+        [Tok::At, Tok::Word(w), ..] if w == "version" => Err(SmlError::new(
+            E_FEATURE_004,
+            "`@version` 是版本声明指令，须写作 `@version v1`；`version` 不可作为片段名",
+        )),
         _ => Ok(None),
     }
 }
@@ -222,7 +249,7 @@ pub fn version_directive(line: &str) -> Result<Option<String>, String> {
 ///
 /// 允许多次声明（include 进来的文件可各自声明），但必须一致；
 /// 声明了实现不支持的版本时报错，避免静默按错误语法解析。
-pub fn strip_version(text: &str) -> Result<(String, Option<Version>), String> {
+pub fn strip_version(text: &str) -> Result<(String, Option<Version>), SmlError> {
     let spans = compute_string_spans(text);
     let mut declared: Option<Version> = None;
     let mut rest = String::new();
@@ -237,15 +264,21 @@ pub fn strip_version(text: &str) -> Result<(String, Option<Version>), String> {
         if is_directive {
             let lit = version_directive(line)?.unwrap();
             let v = Version::from_word(&lit).ok_or_else(|| {
-                format!(
-                    "不支持的 SML 版本 `{lit}`（本实现支持 {}）",
-                    Version::CURRENT.name()
+                SmlError::new(
+                    E_FEATURE_004,
+                    format!(
+                        "不支持的 SML 版本 `{lit}`（本实现支持 {}）",
+                        Version::CURRENT.name()
+                    ),
                 )
             })?;
             match declared {
                 None => declared = Some(v),
                 Some(prev) if prev != v => {
-                    return Err(format!("@version 冲突：{} 与 {}", prev.name(), v.name()))
+                    return Err(SmlError::new(
+                        E_FEATURE_004,
+                        format!("@version 冲突：{} 与 {}", prev.name(), v.name()),
+                    ))
                 }
                 Some(_) => {}
             }

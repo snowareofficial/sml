@@ -10,7 +10,7 @@ fn ok<S: AsRef<str>>(src: S) -> sml::Value {
 }
 
 fn err<S: AsRef<str>>(src: S) -> String {
-    sml::parse(src.as_ref()).unwrap_err()
+    sml::parse(src.as_ref()).unwrap_err().to_string()
 }
 
 const DOC: &str = r#"

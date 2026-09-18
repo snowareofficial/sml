@@ -60,7 +60,10 @@ typedef struct {
     int    column;          /* 1-based 列号；0 = 未知 */
     size_t position;        /* 字节偏移 */
     char   source[128];     /* 来源（文件名或 <string>） */
-    char   text[256];       /* 错误信息 */
+    char   text[256];       /* 错误信息（人读；**不含**码） */
+    char   code_str[16];    /* 错误码，如 "E-PARSE-008"；见 errors/codes.sml。
+                             * code 是粗粒度枚举（9 档，供 switch），
+                             * code_str 才是稳定契约（同因同码、不随文案变）。 */
 } sml_error;
 
 /* ==================================================================== *

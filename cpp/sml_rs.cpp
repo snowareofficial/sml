@@ -198,6 +198,7 @@ Error to_error(const sml_error &e) {
     // Arrays are fixed-size and NUL-terminated by the Rust side.
     out.source = std::string(e.source);
     out.text = std::string(e.text);
+    out.code_str = std::string(e.code_str);
     return out;
 }
 

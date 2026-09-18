@@ -334,6 +334,12 @@ pub struct CSmlError {
     pub position: usize,
     pub source: [c_char; 128],
     pub text: [c_char; 256],
+    /// **真实错误码**（如 `E-PARSE-008`），来自 `errors/codes.sml`。
+    ///
+    /// 与 `code` 的分工：`code` 是粗粒度枚举（领域大类的历史 ABI，9 个取值），
+    /// `code_str` 才是**稳定契约**——同一触发条件五端同码，且码不会随文案改写而变。
+    /// 只容纳 15 字节，编译器生成的码一律 `E-<领域>-<三位序号>`，装得下。
+    pub code_str: [c_char; 16],
 }
 
 impl CSmlError {
@@ -341,7 +347,13 @@ impl CSmlError {
     ///
     /// # Safety
     /// `out` 必须可写且按 [`CSmlError`] 布局对齐；为 NULL 时静默跳过。
-    unsafe fn fill(out: *mut CSmlError, code: CSmlErrc, msg: &str, source: &str) {
+    unsafe fn fill(
+        out: *mut CSmlError,
+        code: CSmlErrc,
+        code_str: &str,
+        msg: &str,
+        source: &str,
+    ) {
         if out.is_null() {
             return;
         }
@@ -352,8 +364,10 @@ impl CSmlError {
         e.position = 0;
         e.source = [0; 128];
         e.text = [0; 256];
+        e.code_str = [0; 16];
         copy_cstr(&mut e.source, source);
         copy_cstr(&mut e.text, msg);
+        copy_cstr(&mut e.code_str, code_str);
 
         // 从消息里尽量还原行号：形如 "sml: 第 12 行 ..." / "... (line 12)"。
         if let Some(l) = extract_line(msg) {
@@ -396,20 +410,25 @@ fn extract_line(msg: &str) -> Option<c_int> {
 #[repr(transparent)]
 pub struct CSmlValue(Value);
 
-/// C 侧要释放的错误信息前缀判断：把解析错误归类。
-fn classify(err: &str) -> CSmlErrc {
-    if err.contains("include") && (err.contains("循环") || err.contains("loop")) {
-        CSmlErrc::IncludeLoop
-    } else if err.contains("特性") || err.contains("feature") {
-        CSmlErrc::FeatureDisabled
-    } else if err.contains("版本") || err.contains("version") {
-        CSmlErrc::VersionMismatch
-    } else if err.contains("契约") || err.contains("contract") {
-        CSmlErrc::Contract
-    } else if err.contains("读取失败") || err.contains("IO") {
-        CSmlErrc::Io
-    } else {
-        CSmlErrc::Syntax
+/// 把**错误码**归类为 C 侧的粗粒度枚举 `sml_errc`。
+///
+/// 这里原本是按文案里的中文关键词猜（`contains("特性")` …）—— 文案一改就归类错。
+/// 现在改成读码本身：码是稳定契约（见 `errors/codes.sml`），归类不会漂移。
+/// `sml_errc` 保持粗粒度是**有意的**：它是给 C 调用方做 `switch` 用的历史 ABI，
+/// 精确的码请读 [`CSmlError::code_str`]。
+fn classify(code: &str) -> CSmlErrc {
+    match code {
+        // 版本声明非法：历史行为归到「版本不匹配」这一档
+        "E-FEATURE-004" => CSmlErrc::VersionMismatch,
+        // 循环引用：历史行为单独一档
+        "E-INCLUDE-002" => CSmlErrc::IncludeLoop,
+        _ => match code.split('-').nth(1).unwrap_or("") {
+            "FEATURE" => CSmlErrc::FeatureDisabled,
+            "CONTRACT" => CSmlErrc::Contract,
+            "IO" => CSmlErrc::Io,
+            "INTERNAL" => CSmlErrc::Internal,
+            _ => CSmlErrc::Syntax,
+        },
     }
 }
 
@@ -445,7 +464,13 @@ pub unsafe extern "C" fn sml_loads(
     err: *mut CSmlError,
 ) -> *mut CSmlValue {
     if text.is_null() {
-        CSmlError::fill(err, CSmlErrc::Internal, "sml_loads: text is NULL", "<string>");
+        CSmlError::fill(
+            err,
+            CSmlErrc::Internal,
+            sml_codes::E_INTERNAL_001,
+            "sml_loads: text is NULL",
+            "<string>",
+        );
         return ptr::null_mut();
     }
     let t = std::ffi::CStr::from_ptr(text).to_string_lossy().into_owned();
@@ -453,7 +478,7 @@ pub unsafe extern "C" fn sml_loads(
     match parse_with_features(&t, allowed) {
         Ok((v, _)) => Box::into_raw(Box::new(CSmlValue(v))),
         Err(e) => {
-            CSmlError::fill(err, classify(&e), &e, "<string>");
+            CSmlError::fill(err, classify(e.code()), e.code(), e.message(), "<string>");
             ptr::null_mut()
         }
     }
@@ -471,7 +496,13 @@ pub unsafe extern "C" fn sml_load_file(
     err: *mut CSmlError,
 ) -> *mut CSmlValue {
     if path.is_null() {
-        CSmlError::fill(err, CSmlErrc::Internal, "sml_load_file: path is NULL", "<file>");
+        CSmlError::fill(
+            err,
+            CSmlErrc::Internal,
+            sml_codes::E_INTERNAL_001,
+            "sml_load_file: path is NULL",
+            "<file>",
+        );
         return ptr::null_mut();
     }
     let p = std::ffi::CStr::from_ptr(path).to_string_lossy().into_owned();
@@ -479,7 +510,7 @@ pub unsafe extern "C" fn sml_load_file(
     match parse_file_features(&p, allowed) {
         Ok(v) => Box::into_raw(Box::new(CSmlValue(v))),
         Err(e) => {
-            CSmlError::fill(err, classify(&e), &e, &p);
+            CSmlError::fill(err, classify(e.code()), e.code(), e.message(), &p);
             ptr::null_mut()
         }
     }

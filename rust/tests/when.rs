@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 /// 需要显式 enable，故统一加 `@feature enable when` 头。
 const HDR: &str = "@version v1\n@feature enable when\n";
 
-fn parse_env(body: &str, vars: &[(&str, &str)]) -> Result<Value, String> {
+fn parse_env(body: &str, vars: &[(&str, &str)]) -> Result<Value, sml::ParseError> {
     let mut env = BTreeMap::new();
     for (k, v) in vars {
         env.insert((*k).to_string(), (*v).to_string());
@@ -34,7 +34,7 @@ fn ok_env(body: &str, vars: &[(&str, &str)]) -> Value {
 fn err_env(body: &str, vars: &[(&str, &str)]) -> String {
     match parse_env(body, vars) {
         Ok(_) => panic!("应失败，实际通过了:\n{HDR}{body}"),
-        Err(e) => e,
+        Err(e) => e.to_string(),
     }
 }
 
@@ -47,7 +47,7 @@ fn err_no_enable(body: &str, vars: &[(&str, &str)]) -> String {
     let feats = sml::FeatureSet::baseline().with(Feature::When);
     match parse_with_features_env(body, feats, env) {
         Ok(_) => panic!("应失败，实际通过了:\n{body}"),
-        Err(e) => e,
+        Err(e) => e.to_string(),
     }
 }
 

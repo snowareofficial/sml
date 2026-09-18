@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use sml_codes::{E_FEATURE_001, E_FEATURE_004, E_FEATURE_009, E_IO_001, SmlError};
 use sml_feature::{Feature, FeatureSet, Version};
 use sml_include::resolve_includes;
 use sml_lex::{Tok, tokenize};
@@ -22,7 +23,7 @@ use crate::scan::{features_for, strip_features, strip_version};
 ///
 /// 未声明版本时按 `V1` 处理（裸词即字符串），**既有文档不受影响**；
 /// 显式 `@version v3` 则返回 `V3`（此时字符串需引号）。
-pub fn parse_versioned(text: &str) -> Result<(Value, Version), String> {
+pub fn parse_versioned(text: &str) -> Result<(Value, Version), SmlError> {
     let (rest, declared) = strip_version(text)?;
     let (rest, feats, base, had) = strip_features(&rest)?;
     // 版本优先级：@version 显式声明 > @feature base > 默认 V1
@@ -32,10 +33,11 @@ pub fn parse_versioned(text: &str) -> Result<(Value, Version), String> {
 }
 
 /// 解析 SML 文件：展开 include，并返回其声明的语法版本
-pub fn parse_file_versioned(path: impl AsRef<Path>) -> Result<(Value, Version), String> {
+pub fn parse_file_versioned(path: impl AsRef<Path>) -> Result<(Value, Version), SmlError> {
     let path = path.as_ref();
-    let text =
-        std::fs::read_to_string(path).map_err(|e| format!("读取失败 {}: {e}", path.display()))?;
+    let text = std::fs::read_to_string(path).map_err(|e| {
+        SmlError::new(E_IO_001, format!("读取失败 {}: {e}", path.display()))
+    })?;
     let base = path
         .parent()
         .map(|p| p.to_path_buf())
@@ -57,7 +59,7 @@ pub fn parse_file_versioned(path: impl AsRef<Path>) -> Result<(Value, Version), 
 ///
 /// **向后兼容**：未声明 `@version` 的文档按 `V1` 解析（裸词即字符串），
 /// 既有大量 v1 文档不受影响；仅显式 `@version v2|v3` 才启用严格字符串。
-pub fn parse(text: &str) -> Result<Value, String> {
+pub fn parse(text: &str) -> Result<Value, SmlError> {
     let (rest, declared) = strip_version(text)?;
     let (rest, feats, base, had) = strip_features(&rest)?;
     let v = declared.or(base).unwrap_or(Version::V1);
@@ -91,7 +93,7 @@ pub fn parse(text: &str) -> Result<Value, String> {
 /// assert_eq!(out.value.get("name"), Some(&Value::Str("x".into())));
 /// # Ok::<(), String>(())
 /// ```
-pub fn parse_with(text: &str, opts: ParseOptions) -> Result<ParseOutput, String> {
+pub fn parse_with(text: &str, opts: ParseOptions) -> Result<ParseOutput, SmlError> {
     let (rest, declared) = strip_version(text)?;
     let (rest, feats, base, had) = strip_features(&rest)?;
     let v = declared.or(base).unwrap_or(Version::V1);
@@ -110,19 +112,22 @@ pub fn parse_with(text: &str, opts: ParseOptions) -> Result<ParseOutput, String>
 pub fn parse_allowed(
     text: &str,
     allowed: &[Version],
-) -> Result<Value, String> {
+) -> Result<Value, SmlError> {
     let (rest, declared) = strip_version(text)?;
     let (rest, feats, base, had) = strip_features(&rest)?;
     let v = declared.or(base).unwrap_or(Version::V1);
     if !allowed.contains(&v) {
-        return Err(format!(
-            "sml: 文档声明版本 {} 不在本库接受的版本范围 {{{}}} 内",
-            v.name(),
-            allowed
-                .iter()
-                .map(|x| x.name())
-                .collect::<Vec<_>>()
-                .join(", ")
+        return Err(SmlError::new(
+            E_FEATURE_004,
+            format!(
+                "sml: 文档声明版本 {} 不在本库接受的版本范围 {{{}}} 内",
+                v.name(),
+                allowed
+                    .iter()
+                    .map(|x| x.name())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
         ));
     }
     let feats = features_for(v, feats, had);
@@ -140,15 +145,16 @@ pub fn parse_allowed(
 pub fn parse_with_features(
     text: &str,
     allowed: FeatureSet,
-) -> Result<(Value, FeatureSet), String> {
+) -> Result<(Value, FeatureSet), SmlError> {
     let (rest, declared) = strip_version(text)?;
     let (rest, feats, base, had) = strip_features(&rest)?;
     let v = declared.or(base).unwrap_or(Version::V1);
     let feats = features_for(v, feats, had);
     let effective = feats.intersection(allowed);
     if effective.is_empty() {
-        return Err(format!(
-            "sml: 文档请求的特性 {feats} 与调用方允许的特性 {allowed} 无交集"
+        return Err(SmlError::new(
+            E_FEATURE_009,
+            format!("sml: 文档请求的特性 {feats} 与调用方允许的特性 {allowed} 无交集"),
         ));
     }
     let val = parse_impl(&rest, effective, BTreeMap::new())?;
@@ -167,15 +173,16 @@ pub fn parse_with_features_env(
     text: &str,
     allowed: FeatureSet,
     env: BTreeMap<String, String>,
-) -> Result<(Value, FeatureSet), String> {
+) -> Result<(Value, FeatureSet), SmlError> {
     let (rest, declared) = strip_version(text)?;
     let (rest, feats, base, had) = strip_features(&rest)?;
     let v = declared.or(base).unwrap_or(Version::V1);
     let feats = features_for(v, feats, had);
     let effective = feats.intersection(allowed);
     if effective.is_empty() {
-        return Err(format!(
-            "sml: 文档请求的特性 {feats} 与调用方允许的特性 {allowed} 无交集"
+        return Err(SmlError::new(
+            E_FEATURE_009,
+            format!("sml: 文档请求的特性 {feats} 与调用方允许的特性 {allowed} 无交集"),
         ));
     }
     let val = parse_impl(&rest, effective, env)?;
@@ -187,7 +194,7 @@ fn parse_impl(
     text: &str,
     features: FeatureSet,
     env: BTreeMap<String, String>,
-) -> Result<Value, String> {
+) -> Result<Value, SmlError> {
     let toks = tokenize(text)?;
     parse_impl_tokens(toks, features, env)
 }
@@ -202,7 +209,7 @@ fn parse_impl_tokens(
     toks: Vec<Tok>,
     features: FeatureSet,
     env: BTreeMap<String, String>,
-) -> Result<Value, String> {
+) -> Result<Value, SmlError> {
     // 无扩展路径：直接丢掉 diagnostics，与既有签名保持一致。
     Ok(parse_impl_tokens_ext(toks, features, env, ParseOptions::new())?.value)
 }
@@ -213,7 +220,7 @@ fn parse_impl_tokens_ext(
     features: FeatureSet,
     env: BTreeMap<String, String>,
     opts: ParseOptions,
-) -> Result<ParseOutput, String> {
+) -> Result<ParseOutput, SmlError> {
     let mut p = Parser {
         toks,
         i: 0,
@@ -239,7 +246,10 @@ fn parse_impl_tokens_ext(
     let value = match p.peek() {
         Some(Tok::LBrack) => {
             if !p.features.has(Feature::TopArray) {
-                return Err("sml: 顶层数组需要特性 `top-level-array`，但当前特性集已禁用".into());
+                return Err(SmlError::new(
+                    E_FEATURE_001,
+                    "sml: 顶层数组需要特性 `top-level-array`，但当前特性集已禁用",
+                ));
             }
             p.next();
             p.parse_array()
@@ -277,10 +287,10 @@ fn parse_impl_tokens_ext(
 /// 而不是依赖上层错误处理。
 ///
 
-pub fn parse_file(path: impl AsRef<Path>) -> Result<Value, String> {
+pub fn parse_file(path: impl AsRef<Path>) -> Result<Value, SmlError> {
     let path = path.as_ref();
     let text = std::fs::read_to_string(path)
-        .map_err(|e| format!("读取失败 {}: {e}", path.display()))?;
+        .map_err(|e| SmlError::new(E_IO_001, format!("读取失败 {}: {e}", path.display())))?;
     let base = path
         .parent()
         .map(|p| p.to_path_buf())
@@ -308,10 +318,10 @@ pub fn parse_file(path: impl AsRef<Path>) -> Result<Value, String> {
 pub fn parse_file_features(
     path: impl AsRef<Path>,
     caller_allowed: FeatureSet,
-) -> Result<Value, String> {
+) -> Result<Value, SmlError> {
     let path = path.as_ref();
     let text = std::fs::read_to_string(path)
-        .map_err(|e| format!("读取失败 {}: {e}", path.display()))?;
+        .map_err(|e| SmlError::new(E_IO_001, format!("读取失败 {}: {e}", path.display())))?;
     let base = path
         .parent()
         .map(|p| p.to_path_buf())
@@ -322,14 +332,17 @@ pub fn parse_file_features(
     let feats = features_for(v, feats, had);
     let allowed = FeatureSet::all().intersection(feats).intersection(caller_allowed);
     if allowed.is_empty() {
-        return Err("sml: 调用方 flags 与文档特性交集为空，不允许任何解析能力".into());
+        return Err(SmlError::new(
+            E_FEATURE_009,
+            "sml: 调用方 flags 与文档特性交集为空，不允许任何解析能力",
+        ));
     }
     let toks = resolve_includes(&rest, &base, allowed)?;
     parse_impl_tokens(toks, allowed, BTreeMap::new())
 }
 
-/// 解析到对象 (失败抛 `ParseError`)
+/// 解析到对象 (失败抛 `ParseError`，它带**错误码**，见 [`sml_codes::SmlError`])
 pub fn loads(text: &str) -> Result<Value, ParseError> {
-    parse(text).map_err(ParseError)
+    parse(text)
 }
 

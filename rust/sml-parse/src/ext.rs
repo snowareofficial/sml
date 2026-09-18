@@ -329,8 +329,8 @@ mod tests {
         let src = format!("{CONTRACT}doc {{\n @is F\n images: [ \"http://x\" ]\n}}\n");
         let r = crate::parse_with(&src, ParseOptions::new().with_type(Image).unwrap());
         let e = r.expect_err("非法证据 id 应被外置类型拦下");
-        assert!(e.contains("ev-"), "错误信息应带上外置类型的理由：{e}");
-        assert!(e.contains("images[0]"), "错误信息应带上字段路径：{e}");
+        assert!(e.message().contains("ev-"), "错误信息应带上外置类型的理由：{e}");
+        assert!(e.message().contains("images[0]"), "错误信息应带上字段路径：{e}");
     }
 
     /// 未注册 `image` 时，它仍是「未知数组元素类型」—— 零扩展 = 零影响。
@@ -384,7 +384,7 @@ mod tests {
             ParseOptions::new().with_modifier(ItemsMax).unwrap(),
         )
         .expect_err("超量应被外置修饰符拦下");
-        assert!(e.contains("items_max") && e.contains("最多 2 项"), "{e}");
+        assert!(e.message().contains("items_max") && e.message().contains("最多 2 项"), "{e}");
     }
 
     /// 未注册时 `items_max` 仍是非法写法 —— 零扩展 = 零影响。

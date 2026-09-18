@@ -6,6 +6,9 @@
 //! 刻意**不**独立成 crate：需要直接操作 `Parser` 的词法游标
 //! （`next`/`peek`/`peek_at`），外置会造成 parse ↔ cond 循环依赖。
 
+use sml_codes::{
+    E_FEATURE_002, E_INTERNAL_001, E_PARSE_014, E_PARSE_015, E_PARSE_018, SmlError,
+};
 use sml_feature::Feature;
 use sml_lex::Tok;
 
@@ -31,29 +34,39 @@ use crate::parser::Parser;
 ///
 /// 词法器没有 `=`/`==` 特殊 token，`==` 会以 `Word("==")` 出现，故本函数
 /// 无需改动 tokenize 即可工作。
-pub fn eval_when_cond(p: &mut Parser) -> Result<bool, String> {
+pub fn eval_when_cond(p: &mut Parser) -> Result<bool, SmlError> {
     // 左侧：必须是 `$env.NAME`
     let lhs = match p.next() {
         Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
         other => {
-            return Err(format!(
-                "sml: `@when` 后须条件（如 `$env.ENV == \"prod\"`），得 {:?}",
-                other
+            return Err(SmlError::new(
+                E_PARSE_014,
+                format!(
+                    "sml: `@when` 后须条件（如 `$env.ENV == \"prod\"`），得 {:?}",
+                    other
+                ),
             ))
         }
     };
     let var = lhs.strip_prefix("$env.").ok_or_else(|| {
-        format!(
-            "sml: `@when` 的条件左侧只支持 `$env.NAME`，得 `{lhs}`\
-             （暂不支持文档内字段引用）"
+        SmlError::new(
+            E_PARSE_014,
+            format!(
+                "sml: `@when` 的条件左侧只支持 `$env.NAME`，得 `{lhs}`\
+            （暂不支持文档内字段引用）"
+            ),
         )
     })?;
     if var.is_empty() {
-        return Err("sml: `@when` 的 `$env.` 后须变量名".into());
+        return Err(SmlError::new(
+            E_PARSE_014,
+            "sml: `@when` 的 `$env.` 后须变量名",
+        ));
     }
     if !p.features.has(Feature::Env) {
-        return Err(format!(
-            "sml: `@when $env.{var}` 需要特性 `env`，但当前特性集已禁用"
+        return Err(SmlError::new(
+            E_FEATURE_002,
+            format!("sml: `@when $env.{var}` 需要特性 `env`，但当前特性集已禁用"),
         ));
     }
     let actual = p.env_var(var);
@@ -77,9 +90,9 @@ pub fn eval_when_cond(p: &mut Parser) -> Result<bool, String> {
             let rhs = match p.next() {
                 Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
                 other => {
-                    return Err(format!(
-                        "sml: `@when` 的 `{op}` 后须比较值，得 {:?}",
-                        other
+                    return Err(SmlError::new(
+                        E_PARSE_015,
+                        format!("sml: `@when` 的 `{op}` 后须比较值，得 {:?}", other),
                     ))
                 }
             };
@@ -87,9 +100,12 @@ pub fn eval_when_cond(p: &mut Parser) -> Result<bool, String> {
             // 下一个字段名会被当成比较值吃掉，只在更后面才报出莫名的
             // 「期望键」错误。这里提前识别并给出准确提示。
             if p.peek() == Some(&Tok::Colon) {
-                return Err(format!(
-                    "sml: `@when` 的 `{op}` 后缺少比较值（写成了 `{op}` 后直接换行）；\
+                return Err(SmlError::new(
+                    E_PARSE_015,
+                    format!(
+                        "sml: `@when` 的 `{op}` 后缺少比较值（写成了 `{op}` 后直接换行）；\
                      正确形式如 `@when $env.ENV == \"prod\"`"
+                    ),
                 ));
             }
             // 单 `=` 按 `==` 处理（与多数配置语言一致），但要求显式写出
@@ -109,14 +125,14 @@ pub fn eval_when_cond(p: &mut Parser) -> Result<bool, String> {
 /// - `in` 后的枚举项只接受裸词或引号串（**有限列表**，不允许 `$env.*` 展开为多个项，
 ///   那是另一层次的「有界」语义，留待将来）；
 /// - 至少须有 1 个枚举项，否则报错（空循环体无意义）。
-pub fn eval_for_header(p: &mut Parser) -> Result<(String, Vec<String>), String> {
+pub fn eval_for_header(p: &mut Parser) -> Result<(String, Vec<String>), SmlError> {
     // 消费 `@`
     match p.next() {
         Some(Tok::At) => {}
         other => {
-            return Err(format!(
-                "sml: 内部错误：eval_for_header 期望 `@`，得 {:?}",
-                other
+            return Err(SmlError::new(
+                E_INTERNAL_001,
+                format!("sml: 内部错误：eval_for_header 期望 `@`，得 {:?}", other),
             ))
         }
     }
@@ -124,9 +140,9 @@ pub fn eval_for_header(p: &mut Parser) -> Result<(String, Vec<String>), String> 
     match p.next() {
         Some(Tok::Word(w)) if w == "for" => {}
         other => {
-            return Err(format!(
-                "sml: 内部错误：eval_for_header 期望 `for`，得 {:?}",
-                other
+            return Err(SmlError::new(
+                E_INTERNAL_001,
+                format!("sml: 内部错误：eval_for_header 期望 `for`，得 {:?}", other),
             ))
         }
     }
@@ -134,9 +150,9 @@ pub fn eval_for_header(p: &mut Parser) -> Result<(String, Vec<String>), String> 
     let var = match p.next() {
         Some(Tok::Word(w)) => w,
         other => {
-            return Err(format!(
-                "sml: `@for` 后须为循环变量名（裸词），得 {:?}",
-                other
+            return Err(SmlError::new(
+                E_PARSE_018,
+                format!("sml: `@for` 后须为循环变量名（裸词），得 {:?}", other),
             ))
         }
     };
@@ -144,9 +160,9 @@ pub fn eval_for_header(p: &mut Parser) -> Result<(String, Vec<String>), String> 
     match p.next() {
         Some(Tok::Word(w)) if w == "in" => {}
         other => {
-            return Err(format!(
-                "sml: `@for` 变量 `{var}` 后须为关键字 `in`，得 {:?}",
-                other
+            return Err(SmlError::new(
+                E_PARSE_018,
+                format!("sml: `@for` 变量 `{var}` 后须为关键字 `in`，得 {:?}", other),
             ))
         }
     }
@@ -166,16 +182,24 @@ pub fn eval_for_header(p: &mut Parser) -> Result<(String, Vec<String>), String> 
                 items.push(s);
             }
             Some(other) => {
-                return Err(format!(
-                    "sml: `@for ... in` 后须枚举项或 `{{`，得 {:?}",
-                    other
+                return Err(SmlError::new(
+                    E_PARSE_018,
+                    format!("sml: `@for ... in` 后须枚举项或 `{{`，得 {:?}", other),
                 ))
             }
-            None => return Err("sml: `@for` 缺少循环体 `{ ... }`".into()),
+            None => {
+                return Err(SmlError::new(
+                    E_PARSE_018,
+                    "sml: `@for` 缺少循环体 `{ ... }`",
+                ))
+            }
         }
     }
     if items.is_empty() {
-        return Err("sml: `@for` 的 `in` 后至少须有一个枚举项".into());
+        return Err(SmlError::new(
+            E_PARSE_018,
+            "sml: `@for` 的 `in` 后至少须有一个枚举项",
+        ));
     }
     Ok((var, items))
 }

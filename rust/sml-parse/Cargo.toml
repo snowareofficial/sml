@@ -1,7 +1,9 @@
 [package]
 name = "sml-parse"
 # 0.1.0-alpha.2：新增 `ext` 外置扩展模块（Directive / ParseOptions / parse_with）。
-version = "0.1.0-alpha.2"
+# 0.1.0-alpha.3：**含不兼容改动** —— 全部公开解析入口的错误类型由 `String`
+#   改为 `sml_codes::SmlError`（带错误码，见 errors/codes.sml）；`ParseError` 变成它的别名。
+version = "0.1.0-alpha.3"
 edition = "2021"
 description = "SML 语法分析：递归下降解析器与公开 parse API（parse / parse_file / loads）。"
 license = "MulanPSL-2.0"
@@ -12,13 +14,16 @@ readme = "README.md"
 name = "sml_parse"
 
 [dependencies]
+sml-codes = { path = "../sml-codes", version = "0.1.0-alpha.1", default-features = false }
 sml-value = { path = "../sml-value", version = "0.1.0-alpha.1", default-features = false }
-sml-lex = { path = "../sml-lex", version = "0.1.0-alpha.1", default-features = false }
+# 必须钉 alpha.3：带码错误类型（`SmlError`）是 alpha.3 才有的返回类型。
+sml-lex = { path = "../sml-lex", version = "0.1.0-alpha.3", default-features = false }
 sml-feature = { path = "../sml-feature", version = "0.1.0-alpha.1", default-features = false }
-sml-include = { path = "../sml-include", version = "0.1.0-alpha.1", default-features = false }
-# 必须钉 alpha.2：本 crate 用到 `TypeSpec::Ext`（alpha.2 才有）。
-# 若仍写 alpha.1，crates.io 解析到旧版会让发布出去的包编译不过。
-sml-contract = { path = "../sml-contract", version = "0.1.0-alpha.2", default-features = false }
+# 必须钉 alpha.2：带码错误类型是 alpha.2 才有的返回类型。
+sml-include = { path = "../sml-include", version = "0.1.0-alpha.2", default-features = false }
+# 必须钉 alpha.3：本 crate 用到 `TypeSpec::Ext`（alpha.2 才有）与带码校验错误（alpha.3）。
+# 若仍写旧版，crates.io 解析到旧版会让发布出去的包编译不过。
+sml-contract = { path = "../sml-contract", version = "0.1.0-alpha.3", default-features = false }
 sml-pattern = { version = "0.1.0-alpha.1", path = "../sml-pattern" }
 
 [features]

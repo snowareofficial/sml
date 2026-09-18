@@ -1,6 +1,8 @@
 [package]
 name = "sml-lex"
-version = "0.1.0-alpha.2"
+# 0.1.0-alpha.3：**含不兼容改动** —— `tokenize` / `coerce_word` 的错误类型由
+# `String` 改为 `sml_codes::SmlError`（带错误码，见 errors/codes.sml）。
+version = "0.1.0-alpha.3"
 edition = "2021"
 description = "SML 词法分析：tokenize、裸词强制转换、环境变量内联。"
 license = "MulanPSL-2.0"
@@ -11,6 +13,8 @@ readme = "README.md"
 name = "sml_lex"
 
 [dependencies]
+# 错误码是语言层契约（见 errors/codes.sml）：词法层报的每个错都要带码。
+sml-codes = { path = "../sml-codes", version = "0.1.0-alpha.1", default-features = false }
 sml-value = { path = "../sml-value", version = "0.1.0-alpha.1", default-features = false }
 # 裸词能否当字符串由 Feature::BarewordStr 决定，故词法层需要特性集。
 # 这是 sml-feature 必须「纯数据、不依赖词法」的原因（否则成环）。

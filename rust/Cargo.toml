@@ -25,6 +25,7 @@ members = [
     ".",
     "derive",
     "smltools",
+    "sml-codes",
     "sml-value",
     "sml-regex",
     "sml-lex",
@@ -73,15 +74,20 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 # ---- 内部功能 crate（按依赖层级自上而下）----
+# 错误码（唯一事实来源 errors/codes.sml）：语言层各 crate 与 C-ABI 都用它，
+# 从而保证「同一触发条件五端同码」在 Rust 侧是**编译期常量**而不是手抄字面量。
+sml-codes = { version = "0.1.0-alpha.1", path = "sml-codes" }
 sml-value = { version = "0.1.0-alpha.1", path = "sml-value" }
-sml-lex = { version = "0.1.0-alpha.1", path = "sml-lex" }
+# 必须钉到 alpha.3：带码错误类型（`SmlError`）是 alpha.3 才有的返回类型。
+sml-lex = { version = "0.1.0-alpha.3", path = "sml-lex" }
 sml-feature = { version = "0.1.0-alpha.1", path = "sml-feature" }
-sml-include = { version = "0.1.0-alpha.1", path = "sml-include" }
-# 这两个子 crate 在 0.6.1 里升到 alpha.2（新增 ext 外置扩展模块 / TypeSpec::Ext）。
-# 版本要求必须显式钉到 alpha.2：否则 crates.io 可能解析到 alpha.1，
-# 而那份没有 `ext`，本 crate 的 `pub use sml_parse::ext` 会编译失败。
-sml-contract = { version = "0.1.0-alpha.2", path = "sml-contract" }
-sml-parse = { version = "0.1.0-alpha.2", path = "sml-parse" }
+sml-include = { version = "0.1.0-alpha.2", path = "sml-include" }
+# 这两个子 crate 在 0.6.1 里升到 alpha.2（新增 ext 外置扩展模块 / TypeSpec::Ext），
+# 并在此后升到 alpha.3（错误类型带码）。
+# 版本要求必须显式钉到对应 alpha：否则 crates.io 可能解析到旧版，
+# 而那份没有 `ext` / 错误类型还是 `String`，本 crate 会编译失败。
+sml-contract = { version = "0.1.0-alpha.3", path = "sml-contract" }
+sml-parse = { version = "0.1.0-alpha.3", path = "sml-parse" }
 # 自定义类型（@type）用的模式匹配引擎。re-export 为 sml::pattern，
 # 便于调用方直接编译/复用模式，而不必单独依赖子 crate。
 sml-pattern = { version = "0.1.0-alpha.1", path = "sml-pattern" }

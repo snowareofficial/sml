@@ -1,0 +1,15 @@
+[package]
+name = "sml-codes"
+version = "0.1.0-alpha.1"
+edition = "2021"
+description = "SML 错误码常量与带码错误类型（唯一事实来源：errors/codes.sml）。"
+license = "MulanPSL-2.0"
+repository = "https://gitee.com/snoware/sml"
+readme = "README.md"
+
+[lib]
+name = "sml_codes"
+
+[dependencies]
+# 刻意零依赖：错误码是**语言层契约**，要被 sml-lex / sml-parse / sml-contract /
+# sml-include 各方共用，不能反过来拖入它们中的任何一个（否则成环）。

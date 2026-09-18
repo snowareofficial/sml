@@ -49,7 +49,10 @@ struct Error {
     int column = 0; // 1-based; 0 when unknown
     std::size_t position = 0;
     std::string source; // file name, or "<string>"
-    std::string text;   // human-readable message
+    std::string text;   // human-readable message (**without** the code)
+    // 错误码，如 "E-PARSE-008"（见 errors/codes.sml）。
+    // code 是粗粒度枚举（供 switch），code_str 才是稳定契约：同因同码，且不随文案改写而变。
+    std::string code_str;
 
     bool ok() const { return code == Err::Ok; }
     explicit operator bool() const { return !ok(); }
