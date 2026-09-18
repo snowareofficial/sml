@@ -899,21 +899,31 @@ C / C++ bridge headers and examples live in `../c/sml_rs.h` and `../cpp/sml_rs.h
 
 ## `smltools` — Command-line converter
 
-> ⚠️ **EXPERIMENTAL**: `smltools` is now split into a **standalone crate** (package `smltools`, version `0.1.6`),
-> published independently from the library crate `swsml` (version `0.5.8`). The CLI surface and emit-backend
+> ⚠️ **EXPERIMENTAL**: `smltools` is a **standalone crate** (package `smltools`, version `0.2.0`),
+> released independently from the library crate `swsml` (version `0.6.1`). The CLI surface and emit-backend
 > combinations may still change as users give feedback; no SemVer stability is guaranteed yet. Do not rely on
 > its exact behavior in production-critical paths; watch the changelog.
+>
+> Full CLI reference (中文 / English): [`smltools/README.md`](smltools/README.md).
 
 `smltools` is a binary built on the Rust core (the `sml::emit::*` backends of `swsml`). It converts an SML
-source file/stream into multiple formats and can plug directly into static-site generators (Hugo / Zola)
-for documentation workflows.
+source file/stream into multiple formats, **migrates JSON/YAML/TOML/XML into SML**, and can plug directly
+into static-site generators (Hugo / Zola) for documentation workflows.
 
 ```text
-smltools [input] [-o out] [--format FMT] [--hugo-root DIR] [--hugo-section KEY] [--hugo-lang zh|en|all] ...
+smltools -i in.sml [-o out] [--to FMT] [--from FMT] [--strip] [--lint] \
+         [--hugo DIR --hugo-section KEY --hugo-lang zh|en] [--zola DIR] ...
 ```
 
-- `input` defaults to stdin; `-o` defaults to stdout (Hugo/Zola modes ignore `-o` and write files directly).
-- `--to FMT`: `md` (default) / `xml` / `svg` / `latex` / `slint` / `lvgl` / `custom` / `sml`.
+- `-i/--input` defaults to stdin; `-o/--output` defaults to stdout (Hugo/Zola modes ignore `-o` and write files directly).
+  When `-i` points at a **directory**, every matching file is converted flat into the `-o` directory.
+- `--to FMT` (alias `--format`): `markdown`/`md` (default) / `json` / `toml` / `xml` / `svg` / `latex` / `slint` /
+  `lvgl` / `html` / `custom` / `sml` / `tmlanguage` / `highlight`.
+- `--from FMT` (alias `--input-format`): `sml` (default) / `json` / `toml` / `yaml` / `xml`; inferred from the
+  file extension when omitted (`.json`, `.toml`, `.yaml`/`.yml`, `.xml`/`.svd`).
+- `--strip`: drop SML-only traces (`__name`/`__type`, float raw literals) so the output is plain data.
+- `--lint`: static checks only (parses, unused fragments/contracts, tab indentation, …); exit 1 on errors.
+  **SML input only.**
 - `--feature vN`: declare the parse version (v1–v4); defaults to the document declaration or V4.
 - `--to custom` requires `--custom-rules <file.sml>`: an SML document holding a `rules` array that describes template rules (see below).
 

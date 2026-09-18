@@ -62,19 +62,91 @@ cat doc.sml | smltools --to md
 
 ## 12.3 Translate to more targets
 
-`--to` accepts: `md`/`markdown`, `xml`, `svg`, `latex`, `slint`, `lvgl`, `html`, `custom`, `sml`.
+`--to` accepts: `md`/`markdown` (default), `json`, `toml`, `xml`, `svg`, `latex`, `slint`,
+`lvgl`, `html`, `custom`, `sml`, plus `tmlanguage` / `highlight` for editors.
 
 | Target | Command | Typical use |
 |--------|---------|-------------|
 | Markdown | `smltools -i d.sml --to md` | docs, README |
+| JSON | `smltools -i d.sml --to json` | feed jq / JSON-only toolchains |
+| TOML | `smltools -i d.sml --to toml` | Cargo / pyproject ecosystems |
 | XML | `smltools -i d.sml --to xml` | data exchange, config export |
 | SVG | `smltools -i d.sml --to svg` | diagrams, visualization |
 | LaTeX | `smltools -i d.sml --to latex` | papers, typesetting |
 | Slint | `smltools -i d.sml --to slint -o ui.slint` | **describe UI in SML, generate Slint** |
 | LVGL | `smltools -i d.sml --to lvgl -o ui.xml` | embedded screens (LVGL v8.3+ native XML) |
 | HTML | `smltools -i d.sml --to html` | web fragments |
+| SML | `smltools -i d.sml --to sml` | normalise / re-layout (idempotent) |
 
-## 12.4 In practice: describe a UI in SML, emit Slint
+## 12.4 Migration: bring existing configs into SML
+
+`--from` accepts `sml` (default) / `json` / `toml` / `yaml` / `xml`, and **infers it from the
+file extension** when omitted: `.json` → json, `.toml` → toml, `.yaml`/`.yml` → yaml,
+`.xml`/`.svd` → xml, anything else → sml.
+
+```bash
+smltools -i app.json  --to sml > app.sml     # JSON  -> SML
+smltools -i conf.yaml --to sml > conf.sml    # YAML  -> SML
+smltools -i Cargo.toml --to sml > c.sml      # TOML  -> SML
+smltools -i chip.svd   --to sml > chip.sml   # XML / CMSIS-SVD -> SML (--from optional)
+```
+
+The reverse works too (`--from sml --to json`, and so on). On the JSON side keys are emitted in
+**lexicographic order** (`Value::Object` is a `BTreeMap`), so the original writing order is not
+preserved — a known limitation, recorded in the CHANGELOG.
+
+To get a feel for the scale, take a real file: a 432 KB CMSIS-SVD (CH32V103xx) becomes roughly
+277 KB / 6500 lines of SML with every register and bitfield intact and diffable. And
+`xml→json` is **byte-for-byte identical** to `xml→sml→json`, which is how you know the
+conversion lost nothing.
+
+### XML / SVD mapping rules
+
+- Root element → a single top-level key; child elements → keys, **same-name siblings merged into
+  an array** (document order preserved)
+- **Text-only elements collapse to plain strings**: `<name>PWR</name>` → `name: PWR`
+- Attributes → `_attrs`; text goes to `_text` only when the element **also** has attributes or
+  children
+- Empty elements → `{}`; **every leaf stays a string** (XML has no types — no guessing)
+- Namespace prefixes preserved (`xs:name`, `xmlns:xs`); CDATA verbatim; line endings normalised
+  per the XML spec (`\r\n` → `\n`)
+
+> Why there is no "automatically fold repeated structures into fragments": SML fragments are
+> **parameterless value copies**. Seven DMA channels whose offsets and descriptions all differ
+> share no parameter to factor out, so merging them would only reshape the data without shrinking
+> it. The size reduction comes from the collapsing and layout rules above, not from magic.
+
+## 12.5 The rest of the toolbox
+
+```bash
+# Directory batch: migrate a whole directory (flat into the -o dir, sub-dirs not recreated)
+smltools -i conf.d -o out/ --from json --to sml
+
+# Static checks: no translation output; exit code 1 when error-level findings exist
+smltools --lint -i doc.sml
+
+# Strip SML-only traces so JSON and friends can consume the output losslessly
+smltools -i doc.sml --to json --strip
+```
+
+`--lint` only checks SML documents (combining it with `--from json` is an error). `--strip`
+removes the internal marker keys `__name`/`__type` and float raw literals — fragments,
+contracts, `include`, `$env` and `@when` are all resolved **at parse time**, so the parsed value
+is plain data already.
+
+**Defining editor highlighting in SML** is the most unusual item in this chapter: the input is not
+data but a highlighting declaration.
+
+```bash
+smltools -i my-dialect.sml --to tmlanguage         # upgraded TextMate grammar (stdout)
+smltools -i my-dialect.sml --to highlight -o out/  # a bundle of 5 artifacts (directory)
+```
+
+`--to highlight` emits `syntaxes/sml.tmLanguage.json`, `vscode/settings.fragment.json` (takes
+effect inside the project), `themes/`, `zed/highlights.scm` and `zed/themes/sml.json`. So even
+"colour my own dialect" is expressed as SML — the same input format as every other backend.
+
+## 12.6 In practice: describe a UI in SML, emit Slint
 
 SML unifies "config, data, UI structure" into one source of truth. A settings panel, for example:
 
@@ -103,7 +175,7 @@ Open `panel.slint` in the Slint designer to preview. `smltools` maps SML's block
 
 > For the full SML→Slint field conventions, see `swsml`'s `sml::emit::to_slint` docs.
 
-## 12.5 Doc-site automation: Hugo / Zola
+## 12.7 Doc-site automation: Hugo / Zola
 
 Feed SML straight into a static-site generator; it emits front-matter `.md` files:
 
@@ -117,7 +189,7 @@ smltools -i doc.sml --zola ./content --zola-section docs
 
 In `--hugo` / `--zola` mode, `-o` is ignored and files are written by input filename (or the name from `@feature base`), dropping one manual step from your publish pipeline.
 
-## 12.6 Custom generators: rule tables for arbitrary text
+## 12.8 Custom generators: rule tables for arbitrary text
 
 `--to custom` plus `--custom-rules` points at an SML rule table describing "what to match, what to emit", letting you render Dockerfiles, scaffolds or any text without a heavyweight templating engine:
 
@@ -127,7 +199,7 @@ smltools -i data.sml --to custom --custom-rules rules.sml -o out.txt
 
 The rule table is SML too — you describe both the data and the generation logic in the same language.
 
-## 12.7 Hands-on
+## 12.9 Hands-on
 
 Take any SML config you have and try translating it to different targets to feel "write once, use everywhere":
 
@@ -136,5 +208,16 @@ smltools -i your.sml --to xml
 smltools -i your.sml --to svg
 smltools -i your.sml --to latex
 ```
+
+Then go the other way — take an existing JSON / YAML / TOML / XML and migrate it in:
+
+```bash
+smltools -i your.json --to sml | head -40     # look at the first 40 lines before committing
+smltools -i your.json --to sml -o your.sml
+smltools -i your.sml --to json | diff - <(smltools -i your.json --to json)   # round-trip self-check
+```
+
+That last line is the important one: you do not have to take "migration loses nothing" on faith —
+diff it yourself.
 
 → [Appendix: SML vs JSON/YAML/TOML](/en/book/appendix)
