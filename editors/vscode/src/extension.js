@@ -436,12 +436,24 @@ function activate(context) {
     )
   );
 
-  // —— 悬浮说明：契约/指令关键字 ——
+  // —— 悬浮说明：契约展开结果 + 指令关键字 ——
   const hoverProvider = {
-    provideHover(document, position) {
+    async provideHover(document, position) {
       const range = document.getWordRangeAtPosition(position, /[@&]?[A-Za-z0-9_\u4e00-\u9fa5.\-]+/);
       if (!range) return null;
       const word = document.getText(range);
+
+      // 契约名（`@is Server` / `@contract Server` 里的 Server）→ 显示契约展开结果。
+      // 内容由桥接层组装（纯文本，可脱离 VSCode 单测），这里只做包装。
+      const mod = await ensureSml();
+      if (mod && mod.contractHoverMarkdown && mod.collectContractNames) {
+        const text = document.getText();
+        if (mod.collectContractNames(text).includes(word)) {
+          const md = mod.contractHoverMarkdown(text, word);
+          if (md) return new vscode.Hover(new vscode.MarkdownString(md), range);
+        }
+      }
+
       const map = {
         "@contract": "**契约定义**：为块定义字段类型、枚举、默认值与区间约束。定义本身不进解析结果。",
         "@is": "**应用契约**：校验当前块并填充缺失字段的默认值。契约须在 `@is` 之前定义。",
@@ -461,6 +473,45 @@ function activate(context) {
   };
   context.subscriptions.push(
     vscode.languages.registerHoverProvider({ language: "sml", scheme: "file" }, hoverProvider)
+  );
+
+  // —— 跳转到定义：`@is Server` -> `@contract Server`；`&base` -> `@base { }` ——
+  //
+  // 只做「同名定义」的跳转，不做作用域分析（SML 的片段/契约是文档级名字）。
+  // 找不到定义时返回 null，交给 VSCode 显示「未找到定义」——不要自己弹窗报错，
+  // 否则用户只是把光标放到一个普通裸词上也会被打断。
+  context.subscriptions.push(
+    vscode.languages.registerDefinitionProvider(
+      { language: "sml", scheme: "file" },
+      {
+        async provideDefinition(document, position) {
+          const mod = await ensureSml();
+          if (!mod || !mod.findDefinition) return null;
+          // 允许 `&`/`@` 前缀与中文名（与补全、语义高亮用同一套字符类）
+          const range = document.getWordRangeAtPosition(
+            position,
+            /[@&]?[A-Za-z0-9_\u4e00-\u9fa5.\-]+/
+          );
+          if (!range) return null;
+          const word = document.getText(range);
+          const isRef = word.startsWith("&");
+          const name = isRef ? word.slice(1) : word;
+          if (!name) return null;
+          const text = document.getText();
+          // `&frag` 只可能是片段；裸名（含 `@is Server` 的 Server）先按契约找，再退回片段
+          for (const kind of isRef ? ["fragment"] : ["contract", "fragment"]) {
+            const loc = mod.findDefinition(text, name, kind);
+            if (!loc) continue;
+            const start = new vscode.Position(loc.line, loc.col);
+            return new vscode.Location(
+              document.uri,
+              new vscode.Range(start, start.translate({ characterDelta: loc.length }))
+            );
+          }
+          return null;
+        },
+      }
+    )
   );
 
   // —— 格式化：把当前文档按 SML 规范重排（解析 -> stringify）——
