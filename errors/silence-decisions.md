@@ -111,6 +111,8 @@
 | C 批 | （见 `git log`） | 同上 LEX 五条 + `E-PARSE-002/003/005/008` + `E-INCLUDE-006`；顺带对齐 `@contract X strict`、片段显式参数 `type:`/`name:` | HEAD 版 `sml.c` 配同一份 `test_codes.c` ⇒ **20 条红**；新实现 0 红（断言 62 → 82） |
 | **JS 余额 4 条**（+ 副本漏同步修复） | （见 `git log`） | 未注册指令 `E-PARSE-005`（顺带片段显式参数 ⇒ `E-PARSE-020`）、未定义片段引用 `E-INCLUDE-006`、**特性门控**（`contract`/`fragment` ⇒ `E-FEATURE-001`、`env` ⇒ `E-FEATURE-002`）、模式预算 `E-LIMIT-002`（JS 落在**编译期**） | HEAD 版 `js/sml.mjs` 配同一份 `probe-error-codes.mjs` ⇒ **13 条红**；新实现 `ALL OK`（45 条用例） |
 | **Rust A 批 6 条**（+ 两个新码） | （见 `git log`） | `sml-regex` 的三条失败路径（非法 ⇒ **新码 `E-PARSE-025`**、过长 ⇒ `E-LIMIT-007`、超预算 ⇒ `E-LIMIT-002`）、`to_sml_checked` 深度超限 ⇒ `E-LIMIT-004`、serde 桥 u64 超 i64 ⇒ `E-DERIVE-002`、C-ABI 新增 `sml_dump_err` 写码、YAML 未知转义 ⇒ **新码 `E-MIGRATE-018`** | ① `sml-regex` 的宽松入口（= 旧行为）与 `*_checked`（新行为）在**同一份输入**上同时断言 ⇒ 「改前确实静默」被钉进测试；② YAML 用**改动前的 release 二进制**跑同一份探针：旧 `rc=0` 静默保留 `\d` / 新 `rc=1` + `E-MIGRATE-018`，正对照两侧逐字节相同；③ `security.rs` 的 `regex_failures_report_codes` 端到端覆盖三个码 |
+| **Lua 末段 6 条** | （见 git log） | 词法 `fail()` 带码透传（`A0`）+ 未闭合字符串/块注释（`/*`/`_*`）+ 未知转义 + `\u` 非法（定长四位+代理区+超范围）+ 数组里多余的 `}` + 闭合符错配 + 顶层多余的 `}`/`]` + 未注册指令（显式 `type:`/`name:`、位置参数/缺体 ⇒ `E-PARSE-005`）+ 未定义片段引用 ⇒ `E-INCLUDE-006` + 顶层标量 ⇒ `E-PARSE-008` | HEAD 版 `lua/lib/sml.soup` 配同一份 `lua/_w16_probe.lua` ⇒ **13 条红**；新实现 `ALL PASS`（30 条，16 条正对照防误伤） |
+| **C++ 末段 6 条** | （见 git log） | 同 Lua 的 LEX 五条 + `E-PARSE-002/003/005/008` + `E-INCLUDE-006`；块注释/字符串/转义/闭合符/顶层标量/未注册指令/未定义片段引用全部对齐 C/Rust | HEAD 版 `cpp/sml.cpp` 配 `cpp/test_codes.cpp` 同一份 30 条 ⇒ 2 条红；新实现 `CODES 全绿`（原 80 + 30 = 110 条） |
 
 **C 批的全仓扫描记录**（41 个 `.sml`，`c/_w16_scan.py`）：OK 29 → 22、FAIL 12 → 19，
 7 条 OK→FAIL 逐条查过根因，**没有一条是「原本正确的文档被误伤」**：
@@ -129,8 +131,11 @@
   —— 同因不同码，属 W3/W16 的后续话题。
 - C 的 `@feature` / `@when` / `@for` 落 `E-PARSE-005`（提示指向拼写而非「未实现」）。
 
-**未落地**：Lua 6 条、C++ 6 条（先实测现状）、
-以及最后的统一收口（README 静默清单终稿 / TODO 的 W16 行收尾）。
+**统一收口已完成**（2026-09-18）：码表 `impls` 回填 + 两生成器重跑、CHANGELOG 各端行为变更段、README 静默清单终稿、TODO 的 W16 行、HANDOFF 同步；五端 W16 全部落地，进度见 TODO.md 的 W16 行。
+
+**Lua 末段 6 条**（提交见 git log；覆盖 `E-LEX-001`~`E-LEX-005` + `E-PARSE-002/003/005/008` + `E-INCLUDE-006`；另修词法 `fail()` 带码透传 `A0`、片段显式参数 `type:`/`name:` ⇒ `E-PARSE-020`、`\u` 代理区/超范围校验）：HEAD 版 `lua/lib/sml.soup` 配同一份探针 `lua/_w16_probe.lua` ⇒ **13 条红**（改前静默的那些）；新实现 `ALL PASS`（30 条用例，其中 16 条正对照防误伤）。全仓扫描 `lua/_w16_scan.lua`（before/after 差集，排除 `_` 前缀临时探针）：改后失败数 22→19，**3 条 OK→FAIL 逐条查过根因，没有一条是「原本正确的文档被误伤」** —— `examples/for_when.sml`（`@when`/`@for` 是 Rust/soupc 专有，Lua 本就不实现）、`examples/advanced.sml`（`@feature` 未注册，改前 `E-PARSE-006`、改后 `E-PARSE-005`，都失败只是码更精确）、`examples/app.sml`（依赖 include 展开的 `&net`，关闭 include 后 `&net` 未定义，改前被静默保留、改后明确报 `E-INCLUDE-006`）。
+
+**C++ 末段 6 条**（覆盖同 Lua 的 LEX 五条 + `E-PARSE-002/003/005/008` + `E-INCLUDE-006`；块注释/字符串/转义/闭合符/顶层标量/未注册指令/未定义片段引用全部对齐 C/Rust）：HEAD 版 `cpp/sml.cpp` 配同一份 `cpp/_w16_scan.cpp` ⇒ 2 条红（`examples/for_when.sml` OK→`E-PARSE-005`、`examples/advanced.sml` `E-PARSE-006`→`E-PARSE-005`）；新实现 `CODES 全绿`（原 80 + 新增 30 = 110 条）。全仓扫描 before/after 差集：**2 条 OK→FAIL，无「原本正确文档被误伤」** —— 两条均为 Rust/soupc 专有特性（Lua/C++/基础 C 都不实现），现在明确拒绝而非静默给错树。
 
 **JS 批的全仓扫描记录**（41 个 `.sml`，`js/_w16_scan.mjs`，HEAD 版 vs 当前版同进程对照）：
 OK 30 → 26、结论变化 6 个，逐条判定：
