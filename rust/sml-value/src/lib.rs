@@ -31,7 +31,7 @@ mod serde_bridge;
 pub use value::{describe_value, MAX_VALUE_DEPTH, Value};
 
 #[cfg(feature = "sml")]
-pub use dump::to_sml;
+pub use dump::{to_sml, to_sml_checked};
 
 /// serde 桥接函数（`Value` ↔ 任意 serde 类型）。
 #[cfg(feature = "serde")]

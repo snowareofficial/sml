@@ -11,4 +11,9 @@ pub use parse::{
 };
 
 // glob / regex 匹配转发自 sml-regex，保持 `sml_include::` 单一入口
-pub use sml_regex::{MiniRegex, compile_regex, regex_matches};
+// （`*_checked` 是 W16 的显式失败入口：过长 / 非法 / 超预算都报原因，
+//   由 `parse.rs` 的 `map_regex_err` 映射成 E-LIMIT-007 / E-PARSE-025 / E-LIMIT-002）
+pub use sml_regex::{
+    compile_regex, compile_regex_checked, regex_matches, regex_matches_checked, MiniRegex,
+    RegexError, MAX_REGEX_LEN, MAX_REGEX_STEPS,
+};

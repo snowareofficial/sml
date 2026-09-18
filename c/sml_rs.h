@@ -191,6 +191,16 @@ char *sml_parse      (const char *text);                    /* -> JSON */
 char *sml_parse_file (const char *path);                    /* -> JSON */
 char *sml_parse_ex   (const char *text, const char *opts_json); /* -> JSON */
 char *sml_dump       (const char *json);                    /* JSON -> SML */
+/* 同上，但**失败时写 err**（W16 新增符号）。
+ *
+ * 为什么另开符号而不改 `sml_dump`：它的签名是**已发布的 C-ABI 契约**，加参数会
+ * 破坏既有调用方 —— 与 v3 扩展的 `sml_parse_ex` 同一做法（新符号并存）。
+ *
+ * 失败情形与码：
+ *   输入不是合法 JSON（或嵌套过深）⇒ E-PARSE-012（兜底：底层只给「是/否」）
+ *   序列化深度超过上限        ⇒ E-LIMIT-004（此时**不再**吐出带占位文本的 SML）
+ * err 可为 NULL（行为退化成与 sml_dump 相同，只是仍不写诊断）。 */
+char *sml_dump_err   (const char *json, sml_error *err);
 char *sml_features   (void);                                /* -> JSON 数组 */
 char *sml_version_str(void);                                /* 版本串（副本） */
 

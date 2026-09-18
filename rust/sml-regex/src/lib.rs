@@ -11,23 +11,66 @@
 //!   （如 `a*a*a*…*b`）下会指数级爆炸，超限即判为不匹配，而非挂死解析。
 
 /// 编译后的受限正则（只有模式串，匹配由 [`regex_matches`] 解释执行）。
+///
+/// `W16` 顺带给它加上 `Debug` / `Clone`：`compile_regex_checked` 返回
+/// `Result<MiniRegex, RegexError>`，没有 `Debug` 时调用方连 `unwrap_err()` 都用不了。
+#[derive(Debug, Clone)]
 pub struct MiniRegex {
     pattern: String,
 }
 
 /// 受限正则的模式长度上限：防止超长模式构造的灾难性回溯（ReDoS）。
-const MAX_REGEX_LEN: usize = 256;
+pub const MAX_REGEX_LEN: usize = 256;
 /// 单次匹配的最大回溯步数：无记忆化回溯在恶意模式（如 `a*a*a*...*b`）下会指数级
 /// 爆炸，故设步数上限——超出即视为不匹配，避免挂死整个解析（审计 #3）。
-const MAX_REGEX_STEPS: u64 = 2_000_000;
+pub const MAX_REGEX_STEPS: u64 = 2_000_000;
+
+/// 编译/匹配失败的原因（W16）。
+///
+/// **本 crate 是零依赖的引擎层，故不带码** —— 只报「为什么失败」，由调用方
+/// （`sml-include`）按 `errors/codes.sml` 映射成码：
+/// `TooLong ⇒ E-LIMIT-007`、`Illegal ⇒ E-PARSE-025`、`Budget ⇒ E-LIMIT-002`。
+/// 这与各端「引擎给原因、上层给码」的分层一致。
+///
+/// 为什么要有这套入口：改前 [`compile_regex`] / [`regex_matches`] 对
+/// 「模式过长」「模式非法」「步数超预算」**一律静默判「不匹配」** ——
+/// 于是「模式写错了」在用户眼里表现成「目录里没有匹配的文件」，无从排查。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RegexError {
+    /// 模式源码超过 [`MAX_REGEX_LEN`]（⇒ `E-LIMIT-007`）
+    TooLong { len: usize, max: usize },
+    /// 模式语法非法：量词之前没有可重复的原子（含连续两个量词）、字符类未闭合、
+    /// 以反斜杠结尾（⇒ `E-PARSE-025`）
+    Illegal { why: &'static str },
+    /// 回溯步数预算耗尽（⇒ `E-LIMIT-002`）
+    Budget { steps: u64, max: u64 },
+}
+
+impl std::fmt::Display for RegexError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RegexError::TooLong { len, max } => {
+                write!(f, "受限正则模式过长（{len} > {max}）")
+            }
+            RegexError::Illegal { why } => write!(f, "受限正则模式语法非法：{why}"),
+            RegexError::Budget { steps, max } => {
+                write!(f, "受限正则匹配超出步数预算（{steps} > {max} 步），疑似病态模式")
+            }
+        }
+    }
+}
+
+impl std::error::Error for RegexError {}
+
+/// 去掉首尾 `^` / `$` 锚（锚由 matcher 解释，不参与长度与语法检查）。
+fn strip_anchors(pat: &str) -> &str {
+    let s = pat.strip_prefix('^').unwrap_or(pat);
+    s.strip_suffix('$').unwrap_or(s)
+}
 
 pub fn compile_regex(pat: &str) -> MiniRegex {
     // 去掉可能的首尾 `^`/`$` 锚（由 matcher 解释）后做长度上限检查
-    let inner = pat
-        .strip_prefix('^')
-        .or_else(|| Some(pat))
-        .map(|s| s.strip_suffix('$').unwrap_or(s))
-        .unwrap_or(pat);
+    let inner = strip_anchors(pat);
     if inner.chars().count() > MAX_REGEX_LEN {
         // 超出上限：用不可能匹配的模式占位（调用方会得到 false），不 panic
         return MiniRegex {
@@ -39,8 +82,85 @@ pub fn compile_regex(pat: &str) -> MiniRegex {
     }
 }
 
+/// [`compile_regex`] 的**显式失败**版本（W16）：模式过长或语法非法都返回原因，
+/// 而不是悄悄给一个「永不匹配」的正则。生产路径（regex-include）应走这个入口。
+pub fn compile_regex_checked(pat: &str) -> Result<MiniRegex, RegexError> {
+    let inner = strip_anchors(pat);
+    let len = inner.chars().count();
+    if len > MAX_REGEX_LEN {
+        return Err(RegexError::TooLong {
+            len,
+            max: MAX_REGEX_LEN,
+        });
+    }
+    validate_pattern(inner)?;
+    Ok(MiniRegex {
+        pattern: pat.to_string(),
+    })
+}
+
+/// 模式语法预检：与 [`backtrack_match`] 的判定**同一条规则**（那里遇到非法就
+/// `return None` = 不匹配），只是把「不匹配」提前成「编译期报错」。
+///
+/// 规则（两边必须一致，否则预检会放过运行期才炸的模式）：
+/// - 量词（`*` `+` `?`）必须紧跟在一个原子之后，且不能连续出现两个量词；
+/// - 字符类 `[` 必须闭合；
+/// - 反斜杠必须后跟一个字符（模式不能以 `\` 结尾）。
+fn validate_pattern(inner: &str) -> Result<(), RegexError> {
+    let pchars: Vec<char> = inner.chars().collect();
+    let mut i = 0usize;
+    let mut prev_was_atom = false;
+    while i < pchars.len() {
+        let c = pchars[i];
+        if matches!(c, '*' | '+' | '?') {
+            if !prev_was_atom {
+                return Err(RegexError::Illegal {
+                    why: "量词之前没有可重复的原子（或连续出现两个量词）",
+                });
+            }
+            prev_was_atom = false; // `a*` 之后不能再跟量词
+            i += 1;
+            continue;
+        }
+        match parse_atom(&pchars, i) {
+            Some((n, _)) => {
+                prev_was_atom = true;
+                i += n;
+            }
+            None => {
+                return Err(RegexError::Illegal {
+                    why: "字符类 `[` 未闭合，或模式以孤立的反斜杠结尾",
+                })
+            }
+        }
+    }
+    Ok(())
+}
+
 /// 用受限正则匹配整个 `text`（默认全匹配，支持 `^`/`$` 锚点）。
+///
+/// ⚠️ 步数预算耗尽时它**静默判「不匹配」**（既有行为，被 40+ 处断言依赖）。
+/// 需要「预算耗尽要报错」的调用方走 [`regex_matches_checked`]。
 pub fn regex_matches(re: &MiniRegex, text: &str) -> bool {
+    matches_inner(re, text).0
+}
+
+/// [`regex_matches`] 的**显式失败**版本（W16）：步数预算耗尽时返回
+/// `RegexError::Budget`（⇒ `E-LIMIT-002`），而不是静默算作「不匹配」。
+pub fn regex_matches_checked(re: &MiniRegex, text: &str) -> Result<bool, RegexError> {
+    let (matched, steps) = matches_inner(re, text);
+    if steps > MAX_REGEX_STEPS {
+        return Err(RegexError::Budget {
+            steps,
+            max: MAX_REGEX_STEPS,
+        });
+    }
+    Ok(matched)
+}
+
+/// 内部：返回 `(是否匹配, 实际步数)`；步数超过预算时匹配结果按「不匹配」返回，
+/// 由两个公开入口决定是静默（[`regex_matches`]）还是报错（[`regex_matches_checked`]）。
+fn matches_inner(re: &MiniRegex, text: &str) -> (bool, u64) {
     let pat = &re.pattern;
     let anchored_start = pat.starts_with('^');
     let anchored_end = pat.ends_with('$');
@@ -51,7 +171,7 @@ pub fn regex_matches(re: &MiniRegex, text: &str) -> bool {
     // 而 glob/regex include 会对目录中每个文件名各调用一次本函数，
     // 一个恶意模式即可把整个解析挂死（安全审计 P3-1）。故在此统一持有并传递。
     let mut steps: u64 = 0;
-    if anchored_start {
+    let matched = if anchored_start {
         // ⚠️ 这里必须和下面的循环一样校验 `anchored_end`：只判 `is_some()` 的话，
         // `^...$` 会退化成「前缀匹配」——`^conf\.sml$` 能匹配 `conf.sml.bak`。
         // 这是与量词 off-by-one 同一次修复中翻出来的第二个既有缺陷（见 AUDIT_REPORT）。
@@ -60,6 +180,7 @@ pub fn regex_matches(re: &MiniRegex, text: &str) -> bool {
             None => false,
         }
     } else {
+        let mut hit = false;
         for start in 0..=text.len() {
             if steps > MAX_REGEX_STEPS {
                 // 预算耗尽：整次匹配判定为「不匹配」，不再尝试剩余起点。
@@ -68,12 +189,16 @@ pub fn regex_matches(re: &MiniRegex, text: &str) -> bool {
             // 每个起点只算一次：既省一半开销，也避免「是否匹配到末端」
             // 被两次独立判定（原写法对同一起点调用两次，可能得出不同结论）。
             match backtrack_match(p, text, start, &mut steps) {
-                Some(end) if !anchored_end || end == text.len() => return true,
+                Some(end) if !anchored_end || end == text.len() => {
+                    hit = true;
+                    break;
+                }
                 _ => {}
             }
         }
-        false
-    }
+        hit
+    };
+    (matched, steps)
 }
 
 /// 一个「原子」：可被量词作用的单位（一个字符，或一个字符类）。

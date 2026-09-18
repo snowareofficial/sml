@@ -105,14 +105,32 @@ pub use sml_pattern as pattern;
 #[cfg(feature = "sml")]
 pub use sml_value::to_sml;
 
+/// 与 [`to_sml`] 相同，但**深度超限返回 `E-LIMIT-004`**（W16）而不是静默写占位文本。
+///
+/// `sml-value` 是零依赖 crate，它的 `to_sml_checked` 只能带消息（码写作 `文案 [码]`）；
+/// 门面这一层把码**提出来变成结构化字段**，与 Rust 侧其它错误的口径一致
+/// （`SmlError::code()` 可取到码，`Display` 仍把码缀在文案后）。故这里先剥掉
+/// sml-value 已经在文案里附上的那个 `[码]` 后缀，免得显示两次。
+#[cfg(feature = "sml")]
+pub fn to_sml_checked(v: &Value) -> Result<String, sml_codes::SmlError> {
+    sml_value::to_sml_checked(v).map_err(|m| {
+        let msg = match m.rsplit_once(" [E-") {
+            Some((head, _)) => head.to_string(),
+            None => m,
+        };
+        sml_codes::SmlError::new(sml_codes::E_LIMIT_004, msg)
+    })
+}
+
 pub use sml_feature::{feature_names, Feature, FeatureSet, Version, FEATURES};
 pub use sml_contract::{Contract, FieldSpec, TypeSpec};
 /// 外置扩展点：注册自定义契约类型（`image` / `link` / `time` 等），
 /// 无需改动本 crate 源码，也不必把领域类型写进 SML 规范层。
 pub use sml_contract::ext as contract_ext;
 pub use sml_include::{
-    IncludeTarget, MiniRegex, compile_regex, parse_include_line, regex_matches,
-    strip_line_comment,
+    IncludeTarget, MiniRegex, RegexError, compile_regex, compile_regex_checked,
+    parse_include_line, regex_matches, regex_matches_checked, strip_line_comment,
+    MAX_REGEX_LEN, MAX_REGEX_STEPS,
 };
 #[cfg(feature = "when")]
 pub use sml_lex::Tok;

@@ -86,8 +86,14 @@ fn from_str_missing_option_fields_default() {
 
 #[test]
 fn from_str_enum_variants() {
-    // 单元变体：裸词（SML 顶层裸词包裹为 {"in-maintenance": "in-maintenance"}）
-    let m: Status = sml::serde::from_str("in-maintenance").unwrap();
+    // 单元变体：`{"in-maintenance": "in-maintenance"}`。
+    //
+    // ⚠️ **W16 起顶层裸词不再是合法 SML**（`E-PARSE-008`：顶层标量不可往返，
+    // 改前 `in-maintenance` 会被静默造键成 `{"in-maintenance": "in-maintenance"}`），
+    // 故必须写出等价的键值形式。本用例此前一直是「靠那个造键行为过的」——
+    // 而这条套件只在 `--features serde` 下编译，全量 `cargo test --workspace`
+    // 跑不到它，W16 改完后它坏了两个月没人发现（W16 的 A 批一并修正）。
+    let m: Status = sml::serde::from_str("in-maintenance: in-maintenance").unwrap();
     assert_eq!(m, Status::Maintenance);
     // 带数据变体：__type 块
     let c: Shape = sml::serde::from_str("{ __type: Circle _value: 3 }").unwrap();
@@ -189,4 +195,36 @@ fn interop_with_json_roundtrip() {
     let json = serde_json::to_string(&v).unwrap();
     let back: sml::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(back, v);
+}
+
+/// W16：超出 `i64` 的 `u64` **不再静默降级为 f64**（丢精度），改为报错。
+///
+/// 改前两条路径都是 `i64::try_from(v).map(Int).unwrap_or_else(|_| Value::float(v as f64))`：
+/// f64 只有 53 位精度，`18446744073709551615` 一转过去就不再相等（回读也不是原值）。
+/// 码是 `E-DERIVE-002`，但本 crate 刻意零依赖（不引 `sml-codes`），故码以
+/// `[E-DERIVE-002]` 后缀出现在文案里，而不是结构化字段 —— 与 C/C++/Lua 的「码作
+/// 消息前缀」是同一类取舍（见该条码的 note）。
+#[test]
+fn u64_beyond_i64_is_reported_not_lossy() {
+    // ① 反序列化方向：JSON 的大整数不再变成 Float
+    let e = serde_json::from_str::<sml::Value>("18446744073709551615")
+        .expect_err("超出 i64 的 u64 应报错");
+    assert!(e.to_string().contains("E-DERIVE-002"), "实得：{e}");
+
+    // ② 序列化方向：Rust 结构里的 u64 字段同理
+    let e2 = sml::serde::to_value(&u64::MAX).expect_err("u64::MAX 应报错");
+    assert!(e2.to_string().contains("E-DERIVE-002"), "实得：{e2}");
+
+    // ③ 正对照：i64 范围内照常落 Int（含边界值本身）
+    assert_eq!(
+        serde_json::from_str::<sml::Value>("9223372036854775807").unwrap(),
+        sml::Value::Int(i64::MAX)
+    );
+    assert_eq!(sml::serde::to_value(&123u64).unwrap(), sml::Value::Int(123));
+    assert_eq!(
+        sml::serde::to_value(&(i64::MAX as u64)).unwrap(),
+        sml::Value::Int(i64::MAX)
+    );
+    // 边界外一格就已经报错（不是"到 u64::MAX 才报"）
+    assert!(sml::serde::to_value(&(i64::MAX as u64 + 1)).is_err());
 }

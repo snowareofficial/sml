@@ -23,7 +23,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use sml::Value;
-use sml_codes::{SmlError, E_MIGRATE_013, E_MIGRATE_014, E_MIGRATE_015, E_MIGRATE_016};
+use sml_codes::{SmlError, E_MIGRATE_013, E_MIGRATE_014, E_MIGRATE_015, E_MIGRATE_016, E_MIGRATE_018};
 
 /// E-MIGRATE-013：YAML 结构非法（意外内容、不是键值形式、缩进过深、流式结构后有多余字符）。
 fn structure(msg: impl Into<String>) -> SmlError {
@@ -41,6 +41,15 @@ fn undefined_alias(msg: impl Into<String>) -> SmlError {
 }
 
 /// E-MIGRATE-016：流式结构里出现非法 UTF-8。
+/// YAML 双引号串里的未知/不完整转义 ⇒ `E-MIGRATE-018`（W16 新增）。
+///
+/// 用户裁决是「收紧，但**只在迁移层收紧**」：不动 SML 解析器与值模型
+/// （SML 自己的转义严格性走 `E-LEX-004`）。刻意**不复用** `E-MIGRATE-013` ——
+/// 那条码的标题与文案是「YAML 结构非法」，把转义塞进去等于改一条已发布码的含义。
+fn bad_escape(msg: impl Into<String>) -> SmlError {
+    SmlError::new(E_MIGRATE_018, msg)
+}
+
 fn bad_utf8(msg: impl Into<String>) -> SmlError {
     SmlError::new(E_MIGRATE_016, msg)
 }
@@ -204,45 +213,49 @@ fn block_scalar_kind(s: &str) -> Option<BlockScalar> {
 ///
 /// 这里不绕道 `parse_scalar`：`Value` 实现了 `Drop`，按值 match 其内部 `String`
 /// 会触发 E0509（不能从 Drop 类型里移出字段），直接处理引号更省事也少一次分配。
-fn unquote_key(k: &str) -> String {
+fn unquote_key(k: &str) -> Result<String, SmlError> {
     let t = k.trim();
     if t.len() >= 2 && t.starts_with('"') && t.ends_with('"') {
         return unescape_double(&t[1..t.len() - 1]);
     }
     if t.len() >= 2 && t.starts_with('\'') && t.ends_with('\'') {
-        return t[1..t.len() - 1].replace("''", "'");
+        return Ok(t[1..t.len() - 1].replace("''", "'"));
     }
-    t.to_string()
+    Ok(t.to_string())
 }
 
 /// 标量取值：引号 / 布尔 / null / 数字 / 裸词。
-fn parse_scalar(t: &str) -> Value {
+fn parse_scalar(t: &str) -> Result<Value, SmlError> {
     let t = t.trim();
     if t.len() >= 2 && t.starts_with('"') && t.ends_with('"') {
-        return Value::Str(unescape_double(&t[1..t.len() - 1]));
+        return Ok(Value::Str(unescape_double(&t[1..t.len() - 1])?));
     }
     if t.len() >= 2 && t.starts_with('\'') && t.ends_with('\'') {
         // 单引号里只有 `''` 一种转义（表示一个单引号）
-        return Value::Str(t[1..t.len() - 1].replace("''", "'"));
+        return Ok(Value::Str(t[1..t.len() - 1].replace("''", "'")));
     }
-    match t {
+    Ok(match t {
         "null" | "Null" | "NULL" | "~" | "" => Value::Null,
         "true" | "True" | "TRUE" => Value::Bool(true),
         "false" | "False" | "FALSE" => Value::Bool(false),
         _ => {
             if let Some(i) = parse_int(t) {
-                return Value::Int(i);
+                return Ok(Value::Int(i));
             }
             if let Some(f) = parse_float(t) {
-                return Value::float(f);
+                return Ok(Value::float(f));
             }
             Value::Str(t.to_string())
         }
-    }
+    })
 }
 
-/// 双引号内的转义。
-fn unescape_double(s: &str) -> String {
+/// 双引号内的转义。**未知转义 / 结尾孤立反斜杠 ⇒ `E-MIGRATE-018`**（W16）。
+///
+/// 改前这里是「原样保留 `\` + 该字符」的宽松处理：`path: "C:\d"` 这类写错的 YAML
+/// 会被**静默**搬进 SML —— 用户以为拿到的是原始字面量，实际是一段被改坏的文本。
+/// 现在与 SML 自己的转义严格性（`E-LEX-004`）对齐，但**只作用于迁移层**。
+fn unescape_double(s: &str) -> Result<String, SmlError> {
     let mut out = String::with_capacity(s.len());
     let mut it = s.chars();
     while let Some(c) = it.next() {
@@ -259,14 +272,18 @@ fn unescape_double(s: &str) -> String {
             Some('\\') => out.push('\\'),
             Some('/') => out.push('/'),
             Some(other) => {
-                // 未知转义：原样保留（YAML 规范也应报错，这里宽松处理）
-                out.push('\\');
-                out.push(other);
+                return Err(bad_escape(format!(
+                    "YAML 双引号串里的未知转义 `\\{other}`（仅支持 \\n \\t \\r \\0 \\\" \\\\ \\/）"
+                )))
             }
-            None => out.push('\\'),
+            None => {
+                return Err(bad_escape(
+                    "YAML 双引号串以孤立的反斜杠结尾（转义符后无字符）",
+                ))
+            }
         }
     }
-    out
+    Ok(out)
 }
 
 /// 整数：十进制（可带正负号与 `_` 分隔）、`0x` / `0o` / `0b`。
@@ -378,10 +395,10 @@ impl<'a> FlowParser<'a> {
                     if self.i < self.s.len() && self.s[self.i] == b':' {
                         self.i += 1;
                         let v = self.value(no)?;
-                        m.insert(unquote_key(&key), v);
+                        m.insert(unquote_key(&key)?, v);
                     } else {
                         // `{a, b}` 形态：无值键按 null
-                        m.insert(unquote_key(&key), Value::Null);
+                        m.insert(unquote_key(&key)?, Value::Null);
                     }
                     self.skip_ws();
                     if self.i < self.s.len() && self.s[self.i] == b',' {
@@ -405,7 +422,7 @@ impl<'a> FlowParser<'a> {
                 if self.i < self.s.len() {
                     self.i += 1; // 收尾引号
                 }
-                Ok(Value::Str(unescape_double(&raw)))
+                Ok(Value::Str(unescape_double(&raw)?))
             }
             _ => {
                 let t = self.raw_token(no)?;
@@ -416,7 +433,7 @@ impl<'a> FlowParser<'a> {
                         .cloned()
                         .ok_or_else(|| undefined_alias(format!("第 {no} 行：别名 `*{}` 未定义", name.trim())));
                 }
-                Ok(parse_scalar(&t))
+                parse_scalar(&t)
             }
         }
     }
@@ -492,8 +509,7 @@ impl Parser {
             self.parse_map(indent)
         } else {
             self.i += 1;
-            let v = parse_scalar(&text);
-            Ok(v)
+            parse_scalar(&text)
         }
     }
 
@@ -520,7 +536,7 @@ impl Parser {
             let Some((raw_key, rest)) = split_map_entry(&text) else {
                 return Err(structure(format!("第 {lno} 行：不是 `键: 值` 形式 `{text}`")));
             };
-            let key = unquote_key(&raw_key);
+            let key = unquote_key(&raw_key)?;
             self.i += 1;
 
             let val = if !rest.is_empty() {
@@ -737,7 +753,7 @@ impl Parser {
             }
             return Ok(v);
         }
-        Ok(parse_scalar(t))
+        parse_scalar(t)
     }
 }
 
@@ -854,6 +870,30 @@ spec:
         let v = parse("a: \"hello\\nworld\"\nb: 'it''s'\n").unwrap();
         assert_eq!(kv(&v, "a"), &Value::Str("hello\nworld".into()));
         assert_eq!(kv(&v, "b"), &Value::Str("it's".into()));
+    }
+
+    /// W16：未知转义**不再宽松保留**，改报 `E-MIGRATE-018`（只在迁移层收紧）。
+    ///
+    /// 改前的行为是「原样保留 `\` + 该字符」：`path: "C:\d"` 会被静默搬进 SML ——
+    /// 用户以为拿到的是原始字面量，实际是一段被改坏的文本（与 SML 侧 E-LEX-004 同类）。
+    #[test]
+    fn unknown_escape_is_rejected() {
+        let e = parse("path: \"C:\\d\\x\"\n").unwrap_err();
+        assert_eq!(e.code(), "E-MIGRATE-018", "实得：{}", e.message());
+        // 键名里的未知转义同样要拦（走的是同一个解码器）
+        let e2 = parse("\"k\\q\": 1\n").unwrap_err();
+        assert_eq!(e2.code(), "E-MIGRATE-018", "实得：{}", e2.message());
+        // 正对照：合法转义（含 `\/`）照常解码，不许误伤
+        let v = parse("a: \"x\\ny\\tz\\\"q\\\\w\\/e\"\n").unwrap();
+        assert_eq!(kv(&v, "a"), &Value::Str("x\ny\tz\"q\\w/e".into()));
+    }
+
+    /// 正对照：单引号串只有 `''` 一种转义，反斜杠在其中是**普通字符** ——
+    /// 收紧双引号转义不该动到它（YAML 规范如此，且已有单测钉着）。
+    #[test]
+    fn single_quoted_backslash_stays_literal() {
+        let v = parse("a: 'C:\\d\\x'\n").unwrap();
+        assert_eq!(kv(&v, "a"), &Value::Str("C:\\d\\x".into()));
     }
 
     #[test]

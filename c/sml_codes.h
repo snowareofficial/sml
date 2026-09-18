@@ -222,6 +222,8 @@
 #define SML_E_MIGRATE_016 "E-MIGRATE-016"
 /* [E-MIGRATE-017] 不是合法 JSON：迁入文本不是合法 JSON（或嵌套过深） */
 #define SML_E_MIGRATE_017 "E-MIGRATE-017"
+/* [E-MIGRATE-018] YAML 未知转义：YAML 双引号串里出现未知转义序列 */
+#define SML_E_MIGRATE_018 "E-MIGRATE-018"
 /* [E-PARSE-001] 未闭合的块或数组：未闭合的块或数组，遇到文件结尾 */
 #define SML_E_PARSE_001 "E-PARSE-001"
 /* [E-PARSE-002] 闭合符错配：块或数组未正确闭合：期望一个符号，却遇到另一个 */
@@ -270,6 +272,8 @@
 #define SML_E_PARSE_023 "E-PARSE-023"
 /* [E-PARSE-024] 契约定义内字段规格语法非法：契约定义里的字段规格语法非法：类型为空、数组或枚举缺少闭合、字段名为空 */
 #define SML_E_PARSE_024 "E-PARSE-024"
+/* [E-PARSE-025] 受限正则模式非法：受限正则模式语法非法：量词之前没有可重复的原子、字符类未闭合，或以反斜杠结尾 */
+#define SML_E_PARSE_025 "E-PARSE-025"
 /* [I-FEATURE-001] 命令行特性与解析器版本不一致：解析器按其固定版本模式工作，命令行声明的特性版本仅作提示 */
 #define SML_I_FEATURE_001 "I-FEATURE-001"
 /* [W-EDITOR-001] 自定义词与官方关键字冲突：自定义词与官方关键字冲突，已忽略 */
@@ -287,6 +291,6 @@
 /* [W-LINT-005] 嵌套超过建议阈值：嵌套深度已超过建议阈值 */
 #define SML_W_LINT_005 "W-LINT-005"
 
-#define SML_CODES_COUNT 139
+#define SML_CODES_COUNT 141
 
 #endif /* SML_CODES_H */

@@ -303,6 +303,61 @@ pub fn to_sml(v: &Value) -> String {
     out
 }
 
+/// 值树的最大嵌套深度。**迭代实现（显式栈）**，故意不递归。
+///
+/// 为什么不能递归：这个函数的用途正是「在递归写之前判断会不会太深」——
+/// 5 万层的值用递归实现会**自己**先把栈写爆（Rust 栈溢出是 abort，接不住），
+/// 与 `dump_element` 注释里记的那次 `0xC00000FD` 是同一类。
+#[cfg(feature = "sml")]
+fn max_value_depth(v: &Value) -> usize {
+    let mut stack: Vec<(&Value, usize)> = vec![(v, 1)];
+    let mut max = 1usize;
+    while let Some((cur, d)) = stack.pop() {
+        if d > max {
+            max = d;
+        }
+        match cur {
+            Value::Object(m) => {
+                for val in m.values() {
+                    stack.push((val, d + 1));
+                }
+            }
+            Value::Array(a) => {
+                for val in a {
+                    stack.push((val, d + 1));
+                }
+            }
+            _ => {}
+        }
+    }
+    max
+}
+
+/// 与 [`to_sml`] 相同，但**深度超限返回错误**而不是静默写占位文本（W16）。
+///
+/// 改前：超过 [`crate::MAX_VALUE_DEPTH`] 时各处守卫会写下
+/// `/* …深度超限… */ null` 之类的占位内容 —— 产物看着像合法 SML、回读却是 `null`，
+/// **数据被悄悄改掉且不报错**。现在把这条静默降级变成显式失败。
+///
+/// 为什么错误类型是 `String` 而不是 `sml_codes::SmlError`：本 crate 刻意**零依赖**
+/// （连 `sml-codes` 都不引，见 Cargo.toml 的说明），而 serde 桥同理只能带消息。
+/// 故这里按仓库对这类层的既有约定，把码写成 **`文案 [E-LIMIT-004]`** 后缀；
+/// 门面 crate 的 `sml::to_sml_checked` 会把它转成结构化的 `SmlError`。
+///
+/// 注：`to_sml` 本身**保持不失败**（超限仍写占位文本）—— 它被 40+ 处以
+/// 「总能给你一份文本」的契约使用（含 `Display`），改签名是破坏性变更；
+/// 需要错误语义的调用方（CLI、C-ABI）走本函数。
+#[cfg(feature = "sml")]
+pub fn to_sml_checked(v: &Value) -> Result<String, String> {
+    let d = max_value_depth(v);
+    if d > MAX_VALUE_DEPTH {
+        return Err(format!(
+            "序列化深度 {d} 超过上限 {MAX_VALUE_DEPTH}，拒绝输出占位文本 [E-LIMIT-004]"
+        ));
+    }
+    Ok(to_sml(v))
+}
+
 /// `to_sml` 排版规则（扁平才留一行 / 含结构展开）与深度守卫的回归测试。
 ///
 /// 这两件事都**只靠测试通过是测不出来的**：判据写错成恒真时，226 个测试照样全绿、
@@ -385,6 +440,26 @@ mod tests {
         }
         let out = to_sml(&v);
         assert!(out.contains("深度超限"), "应被深度守卫截住：{}", &out[..80.min(out.len())]);
+    }
+
+    /// W16：`to_sml_checked` 把「深度超限」变成**可报的错误**（`E-LIMIT-004`），
+    /// 而 `to_sml` 仍按旧契约写占位文本（上面那个用例钉着）—— 两者刻意共存：
+    /// `to_sml` 有 40+ 处调用方依赖「总能给你一份文本」，改签名是破坏性变更。
+    ///
+    /// 本 crate 零依赖（不引 `sml-codes`），故码以 `[E-LIMIT-004]` 后缀出现在文案里。
+    #[test]
+    fn checked_variant_reports_depth_instead_of_placeholder() {
+        let mut v = Value::Array(vec![]);
+        for _ in 0..5000 {
+            v = Value::Array(vec![v]);
+        }
+        let e = to_sml_checked(&v).expect_err("超深值应报错，而不是给占位文本");
+        assert!(e.contains("E-LIMIT-004"), "实得：{e}");
+        assert!(e.contains("深度"), "实得：{e}");
+        // 正对照：不超限的值照常序列化，且与 `to_sml` 的输出**逐字节一致**
+        // （checked 只是多一道预检，不改变排版）
+        let ok = obj(vec![("a", Value::Int(1)), ("b", Value::Str("x".into()))]);
+        assert_eq!(to_sml_checked(&ok).unwrap(), to_sml(&ok));
     }
 
     #[test]

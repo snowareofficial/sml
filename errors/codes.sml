@@ -198,6 +198,10 @@ codes: [
       msg: "契约定义里的字段规格语法非法：类型为空、数组或枚举缺少闭合、字段名为空"
       impls: [ cpp ] status: partial
       note: "C++ 把契约定义解析与取值校验放在同一层，故这些语法错误目前只在该端出现" }
+    { id: E-PARSE-025 domain: PARSE severity: E title: "受限正则模式非法"
+      msg: "受限正则模式语法非法：量词之前没有可重复的原子、字符类未闭合，或以反斜杠结尾"
+      impls: [ rust ] status: done
+      note: "W16 新增（用户已授权自动新增码）。报告方是 `sml-include` 的 regex-include（`include /re/`）：此前 `sml-regex` 对非法模式一律**静默判「不匹配」** —— 于是「模式写错了」表现成「目录里没有匹配的文件」，用户查不出原因（与 E-LIMIT-002 / E-LIMIT-007 是同一族：引擎层静默、上层无从判断）。引擎层是零依赖的 `sml-regex`，它只报**原因**（`RegexError`），码由 `sml-include` 映射成 —— 与各端「引擎给原因、上层给码」的分层一致。其余四端没有这个受限正则引擎（C++/Lua 的 regex-include 走 E-FEATURE-001 明确拒绝）" }
 
     # ================= 深度与预算上限（语言层） =================
     { id: E-LIMIT-001 domain: LIMIT severity: E title: "嵌套过深"
@@ -206,8 +210,8 @@ codes: [
       note: "上限 128 层。**口径已实测统一**（用闭合嵌套逐格扫过五端，块与数组两条入口都扫）：文档根不计层 ⇒ **128 层放行、第 129 层报此码**。改前是分裂的：块嵌套 Rust/C 只放行 127（守卫用 >=，而文案写「**超过** 128 层」，自相矛盾），C++ 的**数组**入口更是白送一层（`key: [ ]` 直接调 parse_array、绕过 depth 计数 ⇒ 129 层才报）—— W15 一并收敛：Rust/C 的守卫改 >，C++ 补了带守卫的 parse_array_nested。XML 迁入超限同报此码。**C 与 Lua 的 parse_array 不递归嵌套数组**，这两端没有可限的数组深度入口，那属数据正确性（C 见 W17，Lua 见 W20）" }
     { id: E-LIMIT-002 domain: LIMIT severity: E title: "模式匹配超步数预算"
       msg: "模式匹配超出步数预算，疑似病态规则或超长输入"
-      impls: [ js ] status: partial
-      note: "⚠️ **这条码此前是「声明与实现不符」**：表里写 `impls: [rust]`，而 `sml-regex` 实测**超步数时静默判「不匹配」**（`MAX_REGEX_STEPS = 2_000_000`，超了返回 false、不报码）—— 归 Rust 批修，修完再把 `rust` 加回来。**JS 已于 W16 落地**：JS 把模式编译成**原生 RegExp**，运行时插不进步数计数器，故预算落在**编译期**（估算最坏展开：顺序求和、量词求积、内联正则按源长上限计入，超 `PATTERN_STEP_BUDGET` 即拒绝编译）—— 与 Rust 同一个因（防病态模式挂死主线程）、同码，但**条件粒度不同**（Rust 运行时限步、JS 编译期估上界），已写进实现注释" }
+      impls: [ rust js ] status: partial
+      note: "⚠️ **这条码此前是「声明与实现不符」**（表里写 `impls: [rust]`，而 `sml-regex` 实测**超步数时静默判「不匹配」**）—— **W16 已修**：`sml-regex` 新增 `regex_matches_checked`，预算耗尽返回 `RegexError::Budget`，由 `sml-include` 映射成此码（宽松入口 `regex_matches` 保留旧行为，40+ 处断言依赖它）。**JS 同批落地**：JS 把模式编译成**原生 RegExp**，运行时插不进步数计数器，故预算落在**编译期**（估算最坏展开：顺序求和、量词求积、内联正则按源长上限计入，超 `PATTERN_STEP_BUDGET` 即拒绝编译）—— 与 Rust 同一个因（防病态模式挂死主线程）、同码，但**条件粒度不同**（Rust 运行时限步、JS 编译期估上界），已写进两边实现注释" }
     { id: E-LIMIT-003 domain: LIMIT severity: E title: "include 展开次数超限"
       msg: "include 展开次数超过上限，疑似指数膨胀"
       impls: [ rust c cpp lua ] status: partial
@@ -215,7 +219,7 @@ codes: [
     { id: E-LIMIT-004 domain: LIMIT severity: E title: "输出递归深度超过上限"
       msg: "递归深度超过上限（翻译后端）"
       impls: [ rust ] status: partial
-      note: "各输出后端（markdown、xml、svg、slint、latex、html、custom、lvgl）共用此码；JS 的序列化无深度闸" }
+      note: "各输出后端（markdown、xml、svg、slint、latex、html、custom、lvgl）共用此码。W16 追加一处：**`sml-value` 的 SML 序列化**（`to_sml_checked`）也报它 —— 改前是静默写占位文本（`/* …深度超限… */ null`：看着合法、回读变成 null）。⚠️ 两点须知道：① `to_sml` **仍不失败**（40+ 处调用方依赖「总能给你一份文本」，改签名是破坏性变更），只有 `to_sml_checked` 报错；② 用户路径上这一格是**防御性**的 —— 解析层自己的上限（`E-LIMIT-001`、C-ABI JSON 的 `MAX_DEPTH = 128`、XML 的 128）通常先拦住，实际会触发它的是**库用户程序化构造的深树**。JS 的序列化无深度闸" }
     { id: E-LIMIT-005 domain: LIMIT severity: E title: "custom 输出长度超上限"
       msg: "custom 生成器输出超过长度上限（模板存在放大）"
       impls: [rust smltools ] status: done
@@ -225,8 +229,8 @@ codes: [
       impls: [rust smltools ] status: done }
     { id: E-LIMIT-007 domain: LIMIT severity: E title: "模式源码长度超上限"
       msg: "模式（正则）源码超过长度上限，拒绝编译"
-      impls: [ js ] status: partial
-      note: "Rust 侧同样有长度闸，但当前是**静默不匹配**（不报错），见 README 清点的静默清单" }
+      impls: [ rust js ] status: partial
+      note: "JS 侧是内联正则的源长度闸（`REGEX_SRC_MAX = 200`）。**Rust 侧 W16 补齐**：`sml-regex` 的 `MAX_REGEX_LEN = 256` 原先只是给一个「永不匹配」的正则占位（静默），现在 `compile_regex_checked` 返回 `RegexError::TooLong`，由 `sml-include` 映射成此码 —— 于是「模式写错了」不再表现成「目录里没有匹配的文件」" }
     { id: E-LIMIT-008 domain: LIMIT severity: E title: "待校验值长度超上限"
       msg: "待校验字符串超过长度上限，拒绝校验"
       impls: [ rust js ] status: done
@@ -469,7 +473,7 @@ codes: [
     { id: E-DERIVE-002 domain: DERIVE severity: E title: "数值超出目标类型范围"
       msg: "数值超出目标宿主类型的取值范围"
       impls: [ rust ] status: done
-      note: "含无符号类型收到负数、整型收到小数" }
+      note: "含无符号类型收到负数、整型收到小数。W16 追加一处：**serde 桥把超出 i64 的 u64 从「静默降级为 f64」改成报此码**（f64 只有 53 位精度，`u64::MAX` 一转过去就不再相等）。⚠️ 这一处码**以 `[E-DERIVE-002]` 后缀出现在文案里**、不是结构化字段：`sml-value` 刻意零依赖（不引 `sml-codes`），而 serde 的错误类型本就是 message-only —— 与 C/C++/Lua 的「码作消息前缀」是同一类取舍。备选口径（保真优先）是把值保留为字符串，见 `serde_bridge.rs` 的注释" }
     { id: E-DERIVE-003 domain: DERIVE severity: E title: "未知的枚举值或变体"
       msg: "未知的枚举值或枚举变体"
       impls: [ rust ] status: done }
@@ -540,7 +544,7 @@ codes: [
     { id: E-MIGRATE-013 domain: MIGRATE severity: E title: "YAML 结构非法"
       msg: "YAML 结构非法：出现意外内容、不是键值形式、缩进过深，或流式结构后有多余字符"
       impls: [ smltools ] status: partial
-      note: "未知转义序列目前**宽松保留**（原样写入反斜杠加字符）而不报错 —— 与 YAML 规范不一致，属已知取舍" }
+      note: "本条只管**结构**。~~未知转义序列目前宽松保留~~ —— **W16 起未知转义改报 `E-MIGRATE-018`**（用户裁决「收紧，但只在迁移层」）；刻意没有复用本条，因为把转义塞进「结构非法」等于改一条已发布码的含义" }
     { id: E-MIGRATE-014 domain: MIGRATE severity: E title: "YAML 流式结构未闭合"
       msg: "YAML 流式结构未闭合"
       impls: [ smltools ] status: done }
@@ -554,6 +558,10 @@ codes: [
       msg: "迁入文本不是合法 JSON（或嵌套过深）"
       impls: [ smltools ] status: partial
       note: "底层对「非法」与「过深」返回同一个空值，故合为一码；嵌套过深另见 E-LIMIT-001" }
+    { id: E-MIGRATE-018 domain: MIGRATE severity: E title: "YAML 未知转义"
+      msg: "YAML 双引号串里出现未知转义序列"
+      impls: [ smltools ] status: done
+      note: "W16 新增。改前是**宽松保留**（原样写入反斜杠加该字符，见 E-MIGRATE-013 的旧 note），于是一份写错的 YAML 会被静默搬进 SML（路径与正则被悄悄改坏）。用户裁决：**收紧，但只在迁移层收紧** —— 不动 SML 解析器与值模型（SML 自己的转义严格性走 E-LEX-004）。⚠️ 未复用 E-MIGRATE-013 是刻意的：那条码的标题与文案是「YAML 结构非法」，把转义塞进去等于**改一条已发布码的含义**，违反「码一旦发布就不再变含义」" }
 
     # ================= 命令行与工具用法（工具层） =================
     { id: E-CLI-001 domain: CLI severity: E title: "输入格式未知"
