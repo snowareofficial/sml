@@ -217,11 +217,11 @@ codes: [
       note: "各输出后端（markdown、xml、svg、slint、latex、html、custom、lvgl）共用此码；JS 的序列化无深度闸" }
     { id: E-LIMIT-005 domain: LIMIT severity: E title: "custom 输出长度超上限"
       msg: "custom 生成器输出超过长度上限（模板存在放大）"
-      impls: [ smltools ] status: done
+      impls: [rust smltools ] status: done
       note: "提示检查被重复引用的嵌套片段；属工具层预算" }
     { id: E-LIMIT-006 domain: LIMIT severity: E title: "custom 数组循环次数超上限"
       msg: "custom 生成器数组超过循环上限"
-      impls: [ smltools ] status: done }
+      impls: [rust smltools ] status: done }
     { id: E-LIMIT-007 domain: LIMIT severity: E title: "模式源码长度超上限"
       msg: "模式（正则）源码超过长度上限，拒绝编译"
       impls: [ js ] status: partial
@@ -388,7 +388,7 @@ codes: [
 
     { id: E-INCLUDE-012 domain: INCLUDE severity: E title: "include 路径写法非法"
       msg: "include 路径写法非法（未加引号或含非法字符）"
-      impls: [ smltools ] status: partial
+      impls: [ smltools ] status: done
       note: "smltools 的 include 展开要求路径加引号；未加引号时原先**暂归 E-INCLUDE-001** —— 那是**已知错码**（用户拿 E-INCLUDE-001 去查会看到「文件缺失或读取失败」，被误导），W21 立此码归位。⚠️ 语言层（`sml-include::parse_include_line`）对「未加引号」的判定归它自己的实现，本条目前只有 smltools 落地" }
 
     # ================= 扩展点（语言层） =================
@@ -412,7 +412,7 @@ codes: [
       impls: [ rust ] status: done }
     { id: E-EXT-006 domain: EXT severity: E title: "custom 规则文档非法"
       msg: "自定义生成规则文档非法：缺少 rules、rules 为空，或某条规则缺少模板"
-      impls: [ smltools ] status: done }
+      impls: [rust smltools ] status: done }
     { id: E-EXT-007 domain: EXT severity: E title: "编辑器定制文档非法"
       msg: "编辑器定制文档非法：作用域名、规则锚点、颜色取值不符规范"
       impls: [ smltools ] status: done
@@ -579,11 +579,11 @@ codes: [
       note: "规则文档本身是 SML，解析失败的内层原因是 E-LEX-* 或 E-PARSE-*" }
     { id: E-CLI-007 domain: CLI severity: E title: "输出后端报错"
       msg: "输出后端报错（内层原因见原始错误）"
-      impls: [ smltools ] status: done }
+      impls: [rust smltools ] status: done }
 
     { id: E-CLI-008 domain: CLI severity: E title: "命令行用法错误"
       msg: "命令行用法错误：未知参数、缺少取值或取值非法"
-      impls: [ smltools ] status: partial
+      impls: [ smltools ] status: done
       note: "clap 自身的用法错误（未知参数 / 缺取值 / 非法枚举）原先由 clap 直接打印并 exit 2、**不带码**；W21 立此码，让 smltools 接管这层输出（在其消息上补码，不重写 clap 的用法提示）。与 E-CLI-001..007 的区别：那七条是**我们自己**的校验，本条是**解析器/框架**报的用法错误" }
 
     # ================= lint 诊断（工具层） =================
