@@ -465,7 +465,10 @@ function parseIncludeTargets(line, feats) {
     const braceM = raw.match(/\{\s*([^}]*)\s*\}/);
     if (braceM) {
       keys = braceM[1].split(",").map((s) => s.trim().replace(/^"|"$/g, "")).filter(Boolean);
-      if (keys.length === 0) fail("E-INCLUDE-005", "sml: 键列表不能为空（至少指定一个键）");
+      // 本函数在 parse() 作用域之外，拿不到其中的 fail()（那是个 const 闭包，
+      // 直接调用会抛宿主 ReferenceError: fail is not defined）。必须用模块级的
+      // throwCode()，才能把稳定的 e.code 交给调用方。
+      if (keys.length === 0) throw throwCode("E-INCLUDE-005", "sml: 键列表不能为空（至少指定一个键）");
       raw = raw.slice(0, braceM.index) + raw.slice(braceM.index + braceM[0].length);
     }
 
