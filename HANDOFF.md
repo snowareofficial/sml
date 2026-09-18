@@ -28,7 +28,7 @@
 | Rust **serde 套件**（⚠️ 不在上面那条里！） | `cargo test --features serde --test serde_bridge` + `cargo test -p sml-value --features sml,serde` | 10 通过 + 5 单测 + 1 doctest，全 rc=0。**这条必须单独跑**：`tests/serde_bridge.rs` 是 `#![cfg(feature = "serde")]`，而 `cargo test --workspace` **不开 serde** ⇒ 少了它，该套件坏掉两个月都没人发现（§17.2 的教训） |
 | 其中 `smltools` | `cargo test -p smltools` | **119 通过 / 0 失败**（bin 74 + 集成 `tests/error_codes.rs` 45；`xml` 子集 26 在 bin 里） |
 | C | `python build_check.py --run` | rc=0，`ALL LIMIT TESTS PASSED` + `ALL CODE TESTS PASSED`（CODE **82** 条断言；W16 的 C 批后从 62 涨到 82） |
-| C++ | `python build_verify.py` | 六 target 全 rc=0（example / CONTRACT / COMMENTS / LIMITS / **CODES 80 条全过** / RS-BRIDGE） |
+| C++ | `python build_verify.py` | 六 target 全 rc=0（example / CONTRACT / COMMENTS / LIMITS / **CODES 110 条全过** / RS-BRIDGE） |
 | JS 错误码 | `node js/probe-error-codes.mjs` | `ALL OK`（**45 条用例** + 深度闸门 + `parseSafe`；含 W16 余额的 005 / 020 / 006 / 001 / 002 / LIMIT-002 与各自的正对照） |
 | JS 四份副本 | `python tools/check_js_copies.py` | 与 `js/sml.mjs` **逐字节一致**（rc=0）；`--fix` 一键同步 |
 | Lua | `python lua/run_check.py` | rc=0，`ALL LUA CHECKS PASSED`（入口自检 + `E-IO-001` + **120 条**码用例，含 include 组 38 条） |
@@ -118,7 +118,7 @@
 | # | 一句话 | 备注 |
 |---|---|---|
 | **W10** | 错误码**落地到五端**：各端错误对象带 `code`（Rust `ParserError.code` / JS `e.code` / C-ABI 输出码 / C++ / Lua），同一条件五端同码 | 码表已就绪，**无阻塞** |
-| **W16** | 「静默清单」逐条判定「改成报错」还是「写进规范允许静默」，回填码表 `status` | 是 W3 的前置；**先出判定表再动实现** |
+| **W16** | 「静默清单」逐条判定「改成报错」还是「写进规范允许静默」，回填码表 `status` | ✅ **已完成**（2026-09-18，五端全落地 + 统一收口；见 TODO.md 的 W16 行与 CHANGELOG） |
 | **W3** | 顶层标量四实现统一为显式报错（口径已定：**码必须一致、文案不要求逐字**） | W16 的子集 |
 | **W4/W5/W6** | C `sml_dump` 与 Rust `to_sml` 逐字节比对 → 跨实现一致性套件 → Lua 侧契约（走 C-ABI） | 三者共享 `c/`、`js/`、`lua/`，**必须串行** |
 | **W7** | 解析器一次报多条错误 | |
@@ -829,7 +829,9 @@ C 的数组里出现多余 `}` 仍**静默跳过**（`m: [ } ]` → `{"m":[]}`�
 而解析器那分支靠"遇到 `}` 才停"猜边界，`tokenize` 早已丢换行）—— 实测 `_probe2.sml` 旧 JS 得 `{}`、
 Rust 得完整树。改法：**词法前剥掉整行**（同 Rust 的 `strip_features`）。
 
-### 14.3 未落地（逐批清单，**码已定**）
+### 14.3 逐批清单（**码已定，截至 2026-09-18 全部完成**）
+
+> ⚠️ 本节是交接时的逐批清单（码已定）。截至 2026-09-18，**JS 余额 / C 10 条 / Lua 6 条 / C++ 6 条 / Rust 6 条 / 统一收口 已全部完成**，逐批的判别实验与全仓扫描记录见 §15 / §16 / §17.1 与 CHANGELOG 的各端行为变更段，落地结论见 TODO.md 的 W16 行。下面保留原清单作为「当时为什么这么分」的来龙去脉。
 
 **JS 余额 4 条**
 - 未注册指令 → `E-PARSE-005`。⚠️ Rust 的规则比直觉细：`@foo { }`（无参数带体）是**合法片段定义**；
@@ -895,10 +897,10 @@ Rust 得完整树。改法：**词法前剥掉整行**（同 Rust 的 `strip_fea
 ### 14.6 下一批的第一件事
 
 ~~**C 侧那 10 条**~~ **✅ 已完成（2026-09-18，见 §15）**；
-~~**JS 余额 4 条**~~ **✅ 已完成（2026-09-18，见 §16）** → 下一批是 **Lua 那 6 条**
-（`lua/lib/sml.soup`；跑 `python lua/run_check.py`；码的写法保持 `error(msg, 0)` + 码作消息前缀；
-其中 `a { ] }` 现在报的是 **`E-PARSE-003`（错码）**，要改成 `E-PARSE-002`）
-→ 再 **C++ 那 6 条（先实测现状，别照判定表假设）** → 再 **Rust 那 6 条** → 最后**统一收口**。
+~~**JS 余额 4 条**~~ **✅ 已完成（2026-09-18，见 §16）** **Lua 那 6 条** ✅ **已完成**（见 CHANGELOG「Lua：W16 末段 6 条」；其中 `a { ] }` 已改报 `E-PARSE-002`）；
+**C++ 那 6 条** ✅ **已完成**（见 CHANGELOG「C++：W16 末段 6 条」）；
+**Rust 那 6 条** ✅ **已完成**（见 §17.1）；
+**统一收口**（码表 `impls` 回填 + 两生成器重跑、`CHANGELOG.md` 各端行为变更段、`errors/README.md` 静默清单终稿、TODO 的 W16 行、本文件 §14 末段同步）✅ **已完成（2026-09-18）**。W16 整轮收口，进度见 TODO.md 的 W16 行。
 
 ### 14.7 顺带发现、**未改**（不属 W16，另行登记）
 
