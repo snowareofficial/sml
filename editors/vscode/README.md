@@ -37,6 +37,10 @@ npm run install-local
 
 或手动安装：VSCode → `扩展` → `...` → `从 VSIX 安装`，选择生成的 `.vsix`。
 
+> **这个 `.vsix` 只有 VS Code 能用**：VSIX 是 VS Code 专用的打包格式，**Zed 装不了它** ——
+> Zed 用 `extension.toml` + Tree-sitter grammar，是另一套技术栈（`editors/zed/`）。
+> Zed 用户请看 [Zed 扩展说明](../zed/README.md)。
+
 > **为什么必须 `npm run package` 而不是直接 `vsce package`**：
 > 打包前需运行 `scripts/sync-parser.py`，把仓库的 `js/sml.mjs` 复制到
 > `src/vendor/`。VSIX 只包含扩展目录内的文件，若桥接层直接 import
@@ -116,6 +120,10 @@ code --install-extension sml-lang-0.4.2.vsix
 One command to package and install (overwrites the old version): `npm run install-local`.
 Or install manually: VSCode → `Extensions` → `...` → `Install from VSIX`.
 
+> **This `.vsix` is VS Code only**: VSIX is a VS Code-specific package format — **Zed
+> cannot install it** (Zed uses `extension.toml` + a Tree-sitter grammar, a different
+> stack, under `editors/zed/`). Zed users: see the [Zed extension README](../zed/README.md).
+
 > **Why `npm run package` and not just `vsce package`**: before packaging,
 > `scripts/sync-parser.py` copies the repo's `js/sml.mjs` into `src/vendor/`.
 > The VSIX only contains files inside the extension directory; if the bridge
@@ -130,9 +138,11 @@ coordination. The cost is being limited to VSCode.
 
 ## Known limitations
 
-- **Contract validation does not run**: contracts are currently only supported in
-  the Rust implementation; the JS implementation only does syntax parsing. So
-  semantic errors (type mismatch, enum out-of-range) **will not be reported** in
-  the editor; syntax errors are reported normally.
+- ~~**Contract validation does not run**~~: this note is **outdated** (corrected
+  2026-09-18). The JS implementation **does support** contracts (`@contract` /
+  `@is` / default fill-in / strict vs `loose` / `[T]` array types), so semantic
+  errors such as type mismatch or enum out-of-range **are reported** in the editor;
+  the historic gap was that the `[T]` shorthand was unimplemented — see
+  [CHANGELOG](../../CHANGELOG.md).
 - On parse failure only the **first** error is reported.
 - Completion is based on text scanning (regex), not full semantic analysis.

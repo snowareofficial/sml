@@ -92,6 +92,35 @@ soupx lua/sml.sar config.sml     # Parse and print
 
 -Python: See py binding outside `rust/`.
 
+## Error codes: the same code on all five implementations
+
+The same class of error raises **the same code** (of the form `E-CONTRACT-002`) in
+**Rust / C / C++ / JS / Lua**, so there is no need to remember each implementation's
+wording — remember the code: the [error code reference](/en/errors/) is the single
+entry point. The single source of truth is `errors/codes.sml` in the repository
+(**141 codes** today), distributed to per-implementation constants by a generator.
+How you **extract** the code differs: Rust appends it (`message [E-XXX-NNN]`), C / C++ /
+Lua put it at the **front** of the message, and JS exposes it as the `e.code` field.
+
+One consequence worth knowing up front: **inputs that used to "parse" now fail with a
+code.** They only parsed because the resulting tree was wrong anyway (unterminated
+strings, a stray `}` inside an array, undefined fragment references, top-level scalars
+all used to yield a silently wrong tree). A loud rejection beats silent bad data.
+
+Recent per-implementation progress (several faces of the same effort):
+
+- **Lua**: gained contracts (`@contract` / `@is` plus default fill-in) and `include`
+  (sandbox root, cycle detection with a chain stack, nesting limit 32 / global expansion
+  limit 10000). It used to treat `include` as an ordinary key and swallow everything up
+  to the next `{` into the fragment body — no error, just a wrong tree.
+- **C++**: `@include` works again — it now expands **before parsing**, with chain-stack
+  cycle detection plus depth / expansion caps. Previously every field of the included
+  file was lost, along with the includer's own trailing fields.
+- **C**: nested arrays used to lose data and even **invent keys**, because the inner `]`
+  was read as the outer terminator (`m: [ 1, [2, 3], 4 ]` yielded `{"m":[1,2,3],"4":4}`).
+  It now matches Rust / JS byte for byte, and `sml_dump` output is aligned with Rust's
+  `to_sml` (no trailing space after `key:` when an object body follows).
+
 ## 7.6 Which one to choose?
 
 |You are writing | using| Guarantee|

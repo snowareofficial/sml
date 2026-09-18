@@ -37,6 +37,11 @@ npm run install-local
 Or install manually: VSCode → `Extensions` → `...` → `Install from VSIX`, and
 select the generated `.vsix`.
 
+> **This `.vsix` is VS Code only**: VSIX is a VS Code-specific package format — **Zed
+> cannot install it** (Zed uses `extension.toml` + a Tree-sitter grammar, i.e. a
+> different stack, kept under `editors/zed/`). Zed users: see the
+> [Zed extension README](../zed/README.md).
+
 > **Why `npm run package` and not just `vsce package`**:
 > Before packaging, `scripts/sync-parser.py` copies the repo's `js/sml.mjs`
 > into `src/vendor/`. The VSIX only contains files inside the extension
@@ -59,11 +64,16 @@ and reuse it; the extension's core logic needs no rewrite (see
 
 ## Known limitations
 
-- **Contract validation does not run**: contracts are currently only supported
-  in the Rust implementation (see [TODO.md](../../TODO.md)); the JS
-  implementation only does syntax parsing. So semantic errors like type
-  mismatches or enum out-of-range **will not be reported** in the editor; syntax
-  errors are reported normally.
+- ~~**Contract validation does not run**~~: this note is **outdated** (corrected
+  2026-09-18). The JS implementation **does support** contracts (`@contract` /
+  `@is` / default fill-in / strict vs `loose` / `[T]` array types), so semantic
+  errors such as type mismatch, enum out-of-range and undeclared fields are
+  reported together with syntax errors. The historic gap was that the `[T]`
+  shorthand was unimplemented (writing `tags: [str] optional` per the docs used to
+  produce a false error); fixed — see [CHANGELOG](../../CHANGELOG.md).
+- The diagnostic text is the parser's own message (no code suffix in the editor):
+  look up the condition on [/errors/](https://sml.swebase.cn/errors/) by keyword, or
+  use `parseSafe()` in your own tooling, which does return a stable `code`.
 - On parse failure only the **first** error is reported (the parser stops at the
   first error); fix it and re-trigger to see later errors.
 - Completion is based on text scanning (regex), not full semantic analysis.

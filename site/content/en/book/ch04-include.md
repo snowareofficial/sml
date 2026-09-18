@@ -100,6 +100,21 @@ The namespace is **exclusive scope** and will never silently overwrite:
 
 -Missing file/circular reference/nested beyond 32 layers → error.
 
+-A malformed **path** (missing quotes / unterminated quote / trailing junk) → `E-INCLUDE-012`.
+It used to be filed as `E-INCLUDE-001` (file missing), sending you to hunt for a file that
+"does not exist" when the real problem is a missing pair of quotes.
+
+Every error has a stable **code**, identical across the five implementations — search by code
+rather than by message text (see the [error code reference](/en/errors/)).
+
+> **Implementation detail (it affects how you write documents)**: Rust / C / C++ / Lua all
+> expand the included file into the text **before parsing** and then lex the whole thing once;
+> JS currently parses the sub-file separately and merges the data, **without bringing back**
+> the sub-file's fragment table or contract table. So a contract defined in an included file
+> and applied with `@is` in the main file — and a `&fragment` reference placed after the
+> `include` — fail under JS. For documents meant to work everywhere, put contracts in the
+> main file (or inline them).
+
 ## 4.7 Feature layering (customizable)
 
 |Layer | Feature | Ability | Default|
