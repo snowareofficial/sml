@@ -189,7 +189,15 @@ static std::vector<Token> tokenize(const std::string& text, std::string* err) {
             case ',': toks.emplace_back(Token::T::Comma, ",", line); i++; continue;
             case ':': toks.emplace_back(Token::T::Colon, ":", line); i++; continue;
             case '@': toks.emplace_back(Token::T::At, "@", line); i++; continue;
-            case '$': toks.emplace_back(Token::T::Dollar, "$", line); i++; continue;
+            /* ⚠️ `$` **不再**切出独立 token：Rust 的词法器不把 `$` 当特殊字符，
+               `$env.NAME` 整个是一个**裸词**（`coerce_word` 里早有 `$env.` 分支，
+               见 sml-lex/src/lib.rs 的 coerce_word 与 "$env 内联" 的既有注释）。
+               改前这里发 Token::T::Dollar，于是值位置的 `k: $env.X` 被切成
+               `$` + `env.X` 两个 token：值退化成 null，而 `env.X` 掉到**键位置变出一个新键**
+               —— 实测 examples/secrets.sml 得到 `resendApiKey: null` 与凭空多出的
+               `env.RESEND_API_KEY` 键（Rust 是 `resendApiKey: ""`）。
+               删掉这一支后，下面的裸词循环会把 `$env.X` 整体读成一个词，与 Rust 同构。 */
+
             case '"': {
                 i++;
                 std::string buf;
@@ -980,11 +988,19 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
             if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::Colon) st.i++;
             // contract-level `loose` (allow undeclared fields)
             Contract c; c.name = cname;
-            if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::Word && st.toks[st.i].s=="loose") {
-                c.allow_extra = true; st.i++;
+            /* 契约级修饰符：`loose`（允许未声明字段）与 `strict`（默认；显式写出也合法）。
+               ⚠️ 改前**只认 `loose`**：`@contract 事项 strict { … }` 里的 `strict` 不被消费
+               ⇒ 后面那个 `{` 就不再是「紧跟契约名」⇒ 整条契约声明被跳过、紧随的块体被当成
+               普通键值解析（实测 rust/tests/fixtures/gov_demo.sml 报 E-PARSE-006）。
+               与 Rust 对照：`@contract X strict` 两边都应成功且 allow_extra=false。 */
+            if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::Word &&
+                (st.toks[st.i].s=="loose" || st.toks[st.i].s=="strict")) {
+                c.allow_extra = (st.toks[st.i].s == "loose");
+                st.i++;
             }
             if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::LBrace) {
                 st.i++; // consume {
+                bool closed = false;
                 while (st.i < st.toks.size() && st.toks[st.i].t != Token::T::RBrace) {
                     // each field is "name: Type mods..." until next field (newline not tokenized)
                     // We collect tokens until we see a Word followed by Colon that starts a new field,
@@ -1010,7 +1026,19 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                         else if (st.err) *st.err = e;
                     }
                 }
-                if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::RBrace) st.i++;
+                if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::RBrace) { st.i++; closed = true; }
+                /* 契约体未闭合必须报错（Rust 同格：E-PARSE-001「契约体未闭合（缺少结束符号 ）」）。
+                   改前这里是 `if (…) st.i++;` —— **有 `}` 才吃、没有就算了**，于是
+                   `@contract C { a: str`（缺 `}`）整份解析**成功**，与「未闭合块必报错」
+                   的既有口径相反。这处松口一直存在，只是改前 strict 契约进不了本分支
+                   才没被看见（探针：前缀 `@contract 事项 strict {` HEAD 报 E-PARSE-001、
+                   只修 strict 的第一版反而变成 rc=0 —— 就是它）。 */
+                if (!closed && !st.aborted) {
+                    if (st.err && st.err->empty())
+                        *st.err = code_prefix(SML_E_PARSE_001,
+                                              "sml: 契约体未闭合（缺少结束符号 ）");
+                    st.aborted = true;
+                }
             }
             st.contracts[cname] = c;
             continue;
@@ -1047,10 +1075,9 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                 st.aborted = true;
                 break;
             }
-            /* `$` 在本实现的 tokenizer 里是**独立 token**，而 Rust 的 Tok 没有它
-               （`$` 属于裸词，见 js/sml.mjs 的注释）。在这里报 E-PARSE-006 会与
-               Rust 相反（Rust 把 `$` 当键名接受），故保持跳过 —— 已登记待定，
-               与 E-PARSE-006 的其余口径分开处理。 */
+            /* 其余记号（`]` / `,` / `@`）仍**静默跳过** —— 这条兜底与上面 bad_token
+               的三格是有意分开的（W16 只把那三格判成错误）。`$` 已不再是独立 token
+               （见 tokenizer 里的说明），故本兜底不再有它那一格。 */
             st.i++; continue;
         }
         std::string key = tok.s;
@@ -1093,35 +1120,34 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
             st.i++;
             auto arr = parse_array_nested(st);
             set_field_local(node, key, arr);
-        } else if (!colon && nxt.t==Token::T::Word && nxt.s != "}" && nxt.s != "]" && nxt.s != ",") {
+        } else if (!colon && bare_block_ahead(st)) {
             // bare block: key is type, subsequent tokens until '{' are args
-            /* ⚠️ 这个判据**故意比 Rust 宽**（只要后继是个词就试），而且参数收集是**贪心**的
-               （一直吃到 `{` / `}` / `,`，中间任何 token 都算参数）—— 那是本实现的既有行为，
-               本轮**没有**把它收紧成 Rust 的 `bare_block_ahead()`（parser.rs:1180）。
-               试过的结论：收紧之后 `examples/secrets.sml`、`examples/slint/login.sml`、
-               `rust/tests/fixtures/gov_demo.sml`、`examples/advanced.sml`、`showcase.sml`
-               会从「静默错解」直接变成 `E-PARSE-006` **解析失败** —— 因为它们依赖的构造
-               （`$` 独立 token 的 `$env`、`@contract X strict {`、反引号串）在本实现里
-               另有缺陷，先前正好被这个过宽的判据吞掉了。**过宽判据本身是已知缺陷，已登记**
-               （`examples/common.sml` 至今把注释闭合符那一串当成裸块参数：C++ 14 行 vs
-               Rust 1 行）；要修它得先修上面那几个解析缺陷，不在 W4 范围内。
-               本轮只做 W4 ③ 的对齐：参数**不再静默丢弃** —— 首个 ⇒ `__name`、
-               其余 ⇒ `__args`（与 Rust `parse_bare_block` 一致）。 */
-            std::vector<std::string> args;
-            while (st.i < st.toks.size() && st.toks[st.i].t != Token::T::LBrace &&
-                   st.toks[st.i].t != Token::T::RBrace && st.toks[st.i].t != Token::T::Comma) {
-                args.push_back(st.toks[st.i].s); st.i++;
+            /* 判据 = Rust 键位置那一支（parser.rs:1180：`if !colon && self.bare_block_ahead()`）。
+               ⚠️ 改前这里只要求「后继是个词」，而且参数是**贪心**收的（一直吃到
+               `{` / `}` / `,`，中间任何 token 都算参数）。那个过宽的判据会**吞掉**
+               本实现后面几处语法缺陷的痕迹 —— 实测：单独收紧它会让
+               `examples/secrets.sml`（`$` 独立 token）、`slint/login.sml`（反引号串）、
+               `gov_demo.sml`（`@contract X strict {`）从「静默错解」变成
+               `E-PARSE-006` **硬失败**。**故顺序是「先修那三处、再收紧判据」**
+               （反过来做等于把能解析的文件变成不能解析）。三处修完后收紧的收益：
+               `examples/common.sml` 不再把注释闭合符那一串当成裸块参数
+               （改前 C++ 14 行 vs Rust 1 行）。
+               参数**不再静默丢弃**：首个 ⇒ `__name`、其余 ⇒ `__args`；
+               参数经 coerce（与 Rust `parse_bare_block`、C 侧一致）。 */
+            std::vector<ValuePtr> args;
+            while (st.i < st.toks.size() && st.toks[st.i].t == Token::T::Word) {
+                args.push_back(coerce(st.toks[st.i], st.fragments, st.err));
+                st.i++;
             }
             if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::LBrace) {
                 st.i++;
                 auto sub = parse_block_nested(st);
                 sub->obj.push_back({"__type", Value::string(key)});
                 if (!args.empty()) {
-                    sub->obj.push_back({"__name", Value::string(args[0])});
+                    sub->obj.push_back({"__name", args[0]});
                     if (args.size() > 1) {
                         auto extra = Value::array();
-                        for (size_t k = 1; k < args.size(); k++)
-                            extra->arr.push_back(Value::string(args[k]));
+                        for (size_t k = 1; k < args.size(); k++) extra->arr.push_back(args[k]);
                         sub->obj.push_back({"__args", extra});
                     }
                 }
