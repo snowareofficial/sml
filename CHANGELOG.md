@@ -618,6 +618,12 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   `enum(...)` 写法在解析层兼容重组、量词支持 `{最小,最大}` 对象式与平铺 `最小/最大`、
   `@is type(契约名)` 等价形式、块级类型标注 `typed-block`（opt-in）。
 - `site/public/llms.txt`：VSCode 扩展版本号更正。
+- **Zed 扩展语法首次通过编译验证（W8）**：`editors/zed/grammars/sml/grammar.js` 用
+  `tree-sitter-cli@0.22.6` 跑 `generate`，并用 `parse test/parse/{basic,advanced}.sml`
+  验证，**两份语料均无 `ERROR`、无 `MISSING`**；生成的 `src/parser.c`（约 53 KB）、
+  `src/grammar.json`、`src/node-types.json` 已提交进 monorepo。发布仓库定为独立镜像
+  `snoware/tree-sitter-sml`，`extension.toml` 的 `[grammars.sml]` 已指向它
+  （`rev` 待该仓库首次 push 后填真实 sha）。
 
 ---
 

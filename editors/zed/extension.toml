@@ -2,20 +2,17 @@
 #
 # Zed 官方文档里 `[grammars.<name>]` **只有 `repository` + `rev` 两个字段**，没有 `path`
 # —— 也就是说 Zed 会把 grammar 当作一个**独立 Git 仓库**克隆下来，不认 monorepo 子目录。
-# 本仓库是 monorepo（grammar 在 editors/zed/grammars/sml），因此下面的 repository 必须
-# 按用途改成下面两种之一，**开箱即用的值不存在**：
 #
-#   1) 本地开发（改完 grammar 想立刻在 Zed 里看见效果）
-#      repository = "file:///C:/Users/<你>/Desktop/sml/editors/zed/grammars/sml"
-#      rev        = "<上一步那个目录所属仓库的 HEAD 短 sha>"
-#      注意：file:// 后必须是**本机绝对路径**，且该目录要在一个已提交的 Git 仓库里。
+# **决策（2026-09-19，用户定）**：源真相留在 monorepo（`editors/zed/grammars/sml/`），
+# 另开独立**发布镜像**仓库 `snoware/tree-sitter-sml`（只含 grammar 子树），下方已填它的 URL。
+# `rev` 仍占位 `REPLACE_WITH_COMMIT_SHA`，待该镜像仓库首次 push 后填入真实短 sha。
 #
-#   2) 正式发布（给用户装）
-#      把 grammars/sml 拆成独立仓库（建议 snoware/tree-sitter-sml）后填：
-#      repository = "https://gitee.com/snoware/tree-sitter-sml"
-#      rev        = "<该仓库某个 commit sha>"
+# 本地开发要立刻见效，仍可临时改成 `file://` + 本机绝对路径（下面注释保留写法）：
+#   repository = "file:///C:/Users/<你>/Desktop/sml/editors/zed/grammars/sml"
+#   rev        = "<该目录所属仓库的 HEAD 短 sha>"
+#   （注意 file:// 后必须是本机绝对路径，且该目录要在一个已提交的 Git 仓库里）
 #
-# 现状：本文件里填的是**占位值**，直接安装会因找不到仓库而失败 —— 这是有意为之，
+# 现状：下方 `rev` 是占位值，直接安装会因找不到对应 commit 而失败 —— 这是有意为之，
 # 免得提交一个写死某台机器路径的配置。详见 README.md「安装与已知限制」。
 
 id = "sml"
@@ -27,5 +24,5 @@ authors = ["SNOWARE <dev@mail.swebase.cn>"]
 repository = "https://gitee.com/snoware/sml"
 
 [grammars.sml]
-repository = "file:///REPLACE/WITH/ABSOLUTE/PATH/TO/sml/editors/zed/grammars/sml"
+repository = "https://gitee.com/snoware/tree-sitter-sml"
 rev = "REPLACE_WITH_COMMIT_SHA"

@@ -56,18 +56,21 @@ editors/zed/
 
 ## 已知限制（都是实情，不是免责声明）
 
-1. **未在本机跑过 `tree-sitter generate`**：本仓库当前环境没有 tree-sitter CLI，
-   而安装它需要联网下载。所以 `grammar.js` 是**按语法规范手写、未编译验证**的。
-   验证方法（一条命令，见 `grammars/sml/test/parse/README.md`）：
+1. **Zed grammar 已通过编译验证（2026-09-19）**：用 `tree-sitter-cli@0.22.6` 跑了
+   `generate`，并用 `parse test/parse/basic.sml` 与 `parse test/parse/advanced.sml`
+   验证，**两份语料均 0 `ERROR`、0 `MISSING`**；生成的 `src/parser.c`（约 53 KB）、
+   `src/grammar.json`、`src/node-types.json` 已随本目录一同提交进 monorepo。
+   验证命令（见 `grammars/sml/test/parse/README.md`）：
    ```bash
    cd editors/zed/grammars/sml && tree-sitter generate && tree-sitter parse test/parse/*.sml
    ```
-   输出里不该有 `ERROR`。因此也**没有**提交标准的 `test/corpus/*.txt`
-   （那需要手推期望语法树，没跑过就提交等于埋雷）。
-2. **grammar 必须独立成仓库**：Zed 的 `extension.toml` 只认 `repository` + `rev`
-   （官方文档没有 `path` 字段），会整仓克隆。本仓库是 monorepo，所以现在只能
-   `file://` + 绝对路径做本地开发；要发布就得把 `grammars/sml/` 拆成
-   `snoware/tree-sitter-sml`。
+   仍**未**提交标准的 `test/corpus/*.txt`（那需要手推期望语法树，留待后续补充）。
+2. **grammar 的发布仓库已定（2026-09-19）**：Zed 的 `extension.toml` 只认
+   `repository` + `rev`（官方文档没有 `path` 字段），会整仓克隆，不认 monorepo 子目录。
+   因此源真相留在 monorepo（`editors/zed/grammars/sml/`）的**同时**，另开独立发布仓库
+   `snoware/tree-sitter-sml` 作**下游镜像**（只用于发布，不含其它内容）；`extension.toml`
+   的 `[grammars.sml]` 已指向它，`rev` 待该仓库首次 push 后填真实短 sha。本地开发要立刻
+   见效仍可用 `file://` + 本机绝对路径（见 `extension.toml` 顶部注释）。
 3. **与权威实现的刻意差异**（Tree-sitter 正则不支持环视，`grammar.js` 文件头有完整列表）：
    - `a--b` 这里会整段当裸词，`swsml` 的 lexer 会切成 `a` + 行注释；
    - 数字同样能被裸词正则匹配，靠 `prec(1)` 让 `number` 胜出。
