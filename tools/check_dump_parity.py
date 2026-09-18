@@ -38,6 +38,16 @@ def find_smltools():
     return None
 
 
+def norm_tail(t):
+    """去掉输出**末尾**的空行再比。
+
+    为什么要这一步：Rust 侧走的是 `smltools --to sml`，它在正文后还会多打一个换行
+    （实测 `a: []` → Rust `"a: []\\n\\n"`、C `"a: []\\n"`）。那是 **CLI 打印**的差异，
+    不是 `to_sml` 与 `sml_dump` 的差异；不归一化的话每一个文件都会判成不一致。
+    """
+    return t.rstrip("\n") + ("\n" if t.strip() else "")
+
+
 def corpus():
     out = []
     for b, d, fs in os.walk(ROOT):
@@ -77,7 +87,11 @@ def main():
     print("Rust 侧工具 : %s" % sml)
     print("语料 %d 个\n" % len(files))
 
-    same, diff, cerr, rerr = [], [], [], []
+    same, diff, cerr, rerr, tail_only = [], [], [], [], []
+    # 行数一致计数：② 的「行内 vs 展开」只影响**行数**，而 ③ 引号 / ④ 键顺序
+    # 几乎每个文件都命中（Rust 用 BTreeMap 排序、C 保源序），会把「完全一致」
+    # 压成 0，看不出 ② 有没有收敛。故单列一项：归一化尾部后行数是否相同。
+    lsame = 0
     for f in files:
         rel = os.path.relpath(f, ROOT)
         p = subprocess.run([exe, f], capture_output=True, timeout=180)
@@ -92,18 +106,28 @@ def main():
             rerr.append((rel, msg.splitlines()[0][:100] if msg else "rc=%d" % q.returncode))
             continue
         rbody = (q.stdout or b"").decode("utf-8", "replace")
-        (same if cbody == rbody else diff).append((rel, cbody, rbody))
+        if cbody == rbody:
+            same.append((rel, cbody, rbody))
+        elif norm_tail(cbody) == norm_tail(rbody):
+            tail_only.append(rel)
+        else:
+            if len(norm_tail(cbody).splitlines()) == len(norm_tail(rbody).splitlines()):
+                lsame += 1
+            diff.append((rel, cbody, rbody))
 
     print("== 汇总 ==")
     print("  完全一致 : %d" % len(same))
     print("  **不一致**: %d" % len(diff))
+    print("  仅尾部换行差异（已按 CLI 打印差异忽略）: %d" % len(tail_only))
+    print("  其中行数已一致（② 行内/展开已对齐，剩余差异来自引号/键序）: %d" % lsame)
     print("  C 解析失败: %d（这些**不算**序列化差异，是解析层面的已知缺口）" % len(cerr))
     print("  Rust 失败 : %d" % len(rerr))
 
     if diff:
         print("\n== 不一致清单 ==")
         for rel, c, r in diff:
-            cl, rl = c.splitlines(), r.splitlines()
+            # 用归一化后的文本取行：Rust CLI 的尾部多一个换行会让 Rust 恒多 1 行
+            cl, rl = norm_tail(c).splitlines(), norm_tail(r).splitlines()
             strip_eq = [x.rstrip() for x in cl] == [x.rstrip() for x in rl]
             print("   %-46s 行数 C=%-5d Rust=%-5d 仅行尾空白差异:%s"
                   % (rel, len(cl), len(rl), "是" if strip_eq else "否"))
