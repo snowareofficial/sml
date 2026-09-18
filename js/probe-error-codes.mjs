@@ -16,7 +16,7 @@
 import { parse, parseSafe } from "./sml.mjs";
 
 const CASES = [
-  // [源码, 期望码或 null（null = 本端本就静默）]
+  // [源码, 期望码或 null（null = 应当解析成功）, 可选 parse 选项]
   ["@version v9\nk: 1\n", "E-FEATURE-004"],
   // JS 侧未知特性被静默加入集合（Rust 报 E-FEATURE-003）—— 跨端差异，待 W16 判定
   ["@feature enable nosuch\nk: 1\n", null],
@@ -29,8 +29,8 @@ const CASES = [
   // 空键列表：解析目标列表在 parse() 作用域之外，曾抛宿主 ReferenceError
   // （fail is not defined）而不是带码错误 —— W14 修。
   ["include \"x.sml\" as w { }\n", "E-INCLUDE-005"],
-  // JS 侧未定义片段引用被当普通键（Rust 报 E-INCLUDE-006）—— 跨端差异，待 W16 判定
-  ["k: &nope\n", null],
+  // W16 余额①：未定义片段引用原先被当普通键（静默退化成字符串），现与 Rust 同码
+  ["k: &nope\n", "E-INCLUDE-006"],
   // —— W16 落地：LEX / PARSE 的静默点改为显式报码（与 Rust 同码） ——
   ["k: \"abc\n", "E-LEX-001"],          // 未闭合字符串（原先静默吃进文件剩余部分）
   ["k: 1\n/* 未闭合\n", "E-LEX-002"],   // 未闭合块注释
@@ -51,13 +51,41 @@ const CASES = [
   ["42: x\n", null],
   // `@feature` 整行在词法前剥掉：此前靠「遇到 } 就停」猜边界，会把整份文档吞成 {}
   ["@feature enable for\nsvg {\n  w: 1\n}\n", null],
+  // —— W16 余额②：未注册指令（位置参数 / 无片段体）⇒ E-PARSE-005 ——
+  ["@foo bar { x: 1 }\n", "E-PARSE-005"],
+  ["@foo bar\n", "E-PARSE-005"],
+  ["@f type: { x: 1 }\n", "E-PARSE-020"],       // 显式参数后缺取值
+  ["@f type: A type: B { }\n", "E-PARSE-020"],  // 同一参数重复
+  // 正对照：`@foo { }`（无参数带体）是**合法片段定义**，不许被一律判 005 误伤
+  ["@foo { x: 1 }\n", null],
+  ["@f { x: 1 }\ny: &f\n", null],
+  ["@f type: Server name: prod { x: 1 }\ny: &f\n", null],
+  // —— W16 余额③：特性门控（此前 env / contract / fragment 全无门控，
+  //      只有 include 做了 —— 把 parser 当沙箱用时，「关掉」其实没关）——
+  ["k: &f\n", "E-FEATURE-001", { features: ["include"] }],          // fragment 关闭
+  ["@f { x: 1 }\n", "E-FEATURE-001", { features: ["include"] }],    // 片段定义需 fragment
+  ["@contract C { x: int }\n", "E-FEATURE-001", { features: ["include"] }], // 契约未启用
+  ["a { @is C }\n", "E-FEATURE-001", { features: ["include"] }],    // @is 同属 contract
+  ["k: $env.NOPE_X\n", "E-FEATURE-002", { features: ["include"] }], // env 关闭（码是 002 不是 001）
+  // 正对照：把特性开着就不许误伤
+  ["k: $env.NOPE_X\n", null, { features: ["env"] }],
+  // —— W16 余额④：模式匹配的预算。JS 是原生 RegExp，运行时插不进计数器，
+  //      故预算落在**编译期**（最坏展开估算，见 sml.mjs 的 compilePatternToRe）——
+  ["@type name: T { 序列: [ { 组: { 类: 数字, 次: \"+\" }, 次: \"+\" } ] }\n@contract C { x: T }\n",
+   "E-LIMIT-002"],                                     // `(a*)*` 形状：1000 × 1000
+  ["@type name: T { 序列: [ { 正则: \"^a+$\", 次: \"+\" } ] }\n@contract C { x: T }\n",
+   "E-LIMIT-002"],                                     // 内联正则 + 无界量词（经典 ReDoS 形状）
+  // 正对照：正常模式（有界量词 / 单独内联正则）必须照常编译
+  ["@type name: T { 序列: [ { 类: 数字, 次: 3 } ] }\n@contract C { x: T }\n", null],
+  ["@type name: T { 序列: [ { 正则: \"^a+$\", 次: 2 } ] }\n@contract C { x: T }\n", null],
+  ["@type name: T { 序列: [ { 名: 段, 类: 数字, 次: 4 } { 类: 空白, 次: \"+\" } ] }\n@contract C { x: T }\n", null],
 ];
 
 let bad = 0;
-for (const [src, want] of CASES) {
+for (const [src, want, opts] of CASES) {
   let got = null;
   try {
-    parse(src);
+    parse(src, opts);
   } catch (e) {
     got = e.code || null;
   }
