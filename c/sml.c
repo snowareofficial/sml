@@ -535,7 +535,15 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing);
    包一层而不是改每个 return 点，是为了不遗漏任何出口（错误路径同样要收尾）。
    真正让递归**收手**的不是这一层的返回值，而是 ps->failed + 各解析循环的 break。 */
 static sml_value *parse_block(parser *ps, tok_type closing) {
-    if (ps->depth >= SML_MAX_VALUE_DEPTH) {
+    /* 口径（各端一致，**已实测钉住**）：`ps->depth` 是「进入本块**前**已进入的层数」
+       （根块为 0），故允许 `depth == SML_MAX_VALUE_DEPTH` —— 第 128 层块放行、
+       第 129 层报此码。
+       ⚠️ 这里原先是 `>=`：128 层就被拒，而下面的文案写的是「**超过** 128 层」，
+       行为与文案自相矛盾；且与 C++ / JS / Lua 实测边界（128 放行 / 129 报）差一格。
+       改动前用闭合嵌套 `("a { "):rep(N) + ("} "):rep(N)` 实测量过五端：
+       Rust 127 / C 127 / C++ 128 / JS 128 / Lua 128。
+       （本文件只有这一处解析守卫：`parse_array` 不递归嵌套数组，见 W17。） */
+    if (ps->depth > SML_MAX_VALUE_DEPTH) {
         set_err(ps->lx->errbuf, ps->lx->errsz,
                 SML_E_LIMIT_001 " 嵌套过深（超过 %d 层），疑似递归或恶意输入",
                 SML_MAX_VALUE_DEPTH);

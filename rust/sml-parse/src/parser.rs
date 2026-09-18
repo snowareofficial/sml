@@ -587,7 +587,14 @@ impl Parser {
     /// 外层 wrapper：深度守卫，防止 `a{a{a{ ... }}}` 无限递归导致栈溢出。
     /// 实际实现见 [`Parser::parse_block_inner`]。
     pub(crate) fn parse_block(&mut self, closing: Option<Tok>) -> Result<Value, SmlError> {
-        if self.depth >= MAX_VALUE_DEPTH {
+        // 口径（各端一致，**已实测钉住**）：`depth` 是「进入本块**前**已进入的层数」
+        // （根块为 0），故允许 `depth == MAX_VALUE_DEPTH` —— 第 128 层块放行、
+        // 第 129 层报此码。
+        // ⚠️ 这里原先是 `>=`：128 层就被拒，而文案写的是「**超过** 128 层」，
+        //    行为与文案自相矛盾；且与 C++ / JS / Lua 实测边界（128 放行 / 129 报）
+        //    差一格。改动前用闭合嵌套 `("a { "):rep(N) + ("} "):rep(N)` 实测量过五端：
+        //    Rust 127 / C 127 / C++ 128 / JS 128 / Lua 128。
+        if self.depth > MAX_VALUE_DEPTH {
             return Err(SmlError::new(E_LIMIT_001, format!(
                 "sml: 嵌套过深（超过 {} 层），疑似递归或恶意输入",
                 MAX_VALUE_DEPTH
@@ -1262,7 +1269,9 @@ impl Parser {
     /// 外层 wrapper：深度守卫，防止深度嵌套数组触发递归下降的栈溢出。
     /// 实际实现见 [`Parser::parse_array_inner`]。
     pub(crate) fn parse_array(&mut self) -> Result<Value, SmlError> {
-        if self.depth >= MAX_VALUE_DEPTH {
+        // 与 `parse_block` 同一口径（`>` 而非 `>=`，128 层放行 / 129 层报）——
+        // 两处必须一起改，否则块嵌套与数组嵌套的边界会差一格。
+        if self.depth > MAX_VALUE_DEPTH {
             return Err(SmlError::new(E_LIMIT_001, format!(
                 "sml: 嵌套过深（超过 {} 层），疑似递归或恶意输入",
                 MAX_VALUE_DEPTH
