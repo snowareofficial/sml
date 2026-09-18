@@ -14,6 +14,10 @@
 --   * E-PARSE-012（解析阶段兜底）：Lua 侧它是 pcall 的兜底出口，**构造不出来** ——
 --     与 C++ 的 E-LIMIT-010 同类，属「有实现、无可用例」，显式登记在此，
 --     免得后来者以为它没做。
+--   * 「纯数组嵌套」`a: [[[ … ]]]`：Lua 的 parse_array **不递归处理 `[`**（数组元素位置的
+--     `[` 被当裸词 coerce），所以它既不递归、也无从触发深度上限 —— 属**数据正确性**
+--     问题（与 C 已登记的「嵌套数组被静默丢弃」同类），不在本组范围。数组入口的
+--     深度上限改用「块 / 数组交替」形式测（`a { x: [ … ] }`，见 test_limit_codes）。
 --
 -- 用法：luajit lua/test_codes.lua      （或走 lua/run_check.py，它会自己找解释器）
 
@@ -94,6 +98,66 @@ local function test_parse_codes()
 end
 
 -- ------------------------------------------------------------------
+-- 深度上限：E-LIMIT-001（W15，上限 128 层，与 Rust/C/C++ 同口径）
+--
+-- 判别实验（改动前实测）：
+--   * 129 / 200 层块嵌套 → **静默解析成功**（拿到的是被套了 200 层的树，无任何提示）
+--   * 块/数组交替 65 / 100 层 → 同样静默成功
+--   * 20000 层 → 报的是 `E-PARSE-012 ... stack overflow`（pcall 兜底码），
+--     即「靠宿主栈溢出偶然报错」，不是本码 —— 码表里声明的 lua 实现等于没做
+-- 修完这三格都必须变成 E-LIMIT-001。
+--
+-- ⚠️ 两个方向都要钉：
+--   * 超限 → E-LIMIT-001 且**返回 nil**（error 会沿 pcall 退到 Sml.load，不许留下
+--     半截的树当成功返回）；
+--   * 128 层以内（含 128）必须照常解析成功 —— 只测失败路径的套件，在上限被写成
+--     0 或 1 时会照样全绿。
+-- ------------------------------------------------------------------
+local function nest_blocks(n)
+  -- `a { a { … } }`：纯块嵌套，输入**是闭合的**（不闭合会先被 E-PARSE-001 抓走，
+  -- 测到的就是另一条码了）。
+  return string.rep("a { ", n) .. string.rep("} ", n)
+end
+
+local function nest_block_array(n)
+  -- `a { x: [ a { x: [ … ] } ] }`：块与数组交替 —— 每轮同时走 parse_block 与
+  -- parse_array 两个递归入口（只给一条入口加守卫，这里会漏）。
+  -- 每轮长 2 层，故 64 轮 = 128 层。
+  return string.rep("a { x: [ ", n) .. string.rep("] } ", n)
+end
+
+local function test_limit_codes()
+  io.write("[LIMIT]\n")
+
+  -- 超限：块入口
+  expect_code("block nesting 129 layers", nest_blocks(129), "E-LIMIT-001")
+  expect_code("block nesting 200 layers", nest_blocks(200), "E-LIMIT-001")
+  -- 超限：数组入口（块/数组交替，两个递归入口都会被走到）
+  expect_code("block/array nesting 130 layers", nest_block_array(65), "E-LIMIT-001")
+  expect_code("block/array nesting 200 layers", nest_block_array(100), "E-LIMIT-001")
+  -- 改前报的是 E-PARSE-012（stack overflow 兜底），改后必须是深度码
+  expect_code("block nesting 20000 layers (was stack overflow)",
+              nest_blocks(20000), "E-LIMIT-001")
+
+  -- 反向对照：上限内必须照常解析（含正好 128 层这一格 —— 别把上限算错一格）
+  expect_ok("block nesting 127 layers", nest_blocks(127))
+  expect_ok("block nesting 128 layers (at the limit)", nest_blocks(128))
+  expect_ok("block/array nesting 128 layers (at the limit)", nest_block_array(64))
+
+  -- 正向对照加强版：128 层不只是「不报错」，还得是**完整的树**（叶子能走到）。
+  -- 防的是「超限时提前 return 半截树、却被当成功」那类修法。
+  local deep, derr = Sml.load(string.rep("a { ", 128) .. "leaf: 1" .. string.rep("} ", 128))
+  local ok_deep = deep ~= nil
+  local cur = deep
+  for _ = 1, 128 do
+    if type(cur) ~= "table" then ok_deep = false; break end
+    cur = cur.a
+  end
+  if ok_deep then ok_deep = (type(cur) == "table" and cur.leaf == 1) end
+  report("128 layers fully parsed (leaf reachable)", "(no error)", derr, ok_deep)
+end
+
+-- ------------------------------------------------------------------
 -- 特性：E-FEATURE-004（版本声明）
 -- ------------------------------------------------------------------
 local function test_feature_codes()
@@ -150,6 +214,7 @@ end
 
 io.write("lua/test_codes.lua — 触发条件 → 期望码（W10，Lua 侧）\n")
 test_parse_codes()
+test_limit_codes()
 test_feature_codes()
 test_host_codes()
 test_positive_controls()
