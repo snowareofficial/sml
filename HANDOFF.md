@@ -1209,7 +1209,7 @@ tree-sitter parse test/parse/advanced.sml  # 0 ERROR / 0 MISSING
 - 源真相留在 monorepo；另开独立镜像仓库 `snoware/tree-sitter-sml`（只含 grammar 子树，不含其它），
   供 `editors/zed/extension.toml` 的 `[grammars.sml]` 引用。
 - `extension.toml` 已填 `repository = "https://gitee.com/snoware/tree-sitter-sml"`，
-  `rev` 仍占位 `REPLACE_WITH_COMMIT_SHA`，待该仓库首次 push 后填入真实短 sha。
+  `rev` 已填该仓库首版 commit `b72396d37ebb90f9d05bb52937827b8b1265d72a`（2026-09-19 用户回传）。
 - 本地开发要立刻见效：`extension.toml` 顶部注释里有 `file://` + 本机绝对路径的写法。
 
 **待办（用户侧）**：在 gitee 建空仓库 `snoware/tree-sitter-sml` → 把

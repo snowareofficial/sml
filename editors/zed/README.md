@@ -69,7 +69,7 @@ editors/zed/
    `repository` + `rev`（官方文档没有 `path` 字段），会整仓克隆，不认 monorepo 子目录。
    因此源真相留在 monorepo（`editors/zed/grammars/sml/`）的**同时**，另开独立发布仓库
    `snoware/tree-sitter-sml` 作**下游镜像**（只用于发布，不含其它内容）；`extension.toml`
-   的 `[grammars.sml]` 已指向它，`rev` 待该仓库首次 push 后填真实短 sha。本地开发要立刻
+   的 `[grammars.sml]` 已指向它，`rev` 已填该仓库首版 commit `b72396d…`（2026-09-19）。本地开发要立刻
    见效仍可用 `file://` + 本机绝对路径（见 `extension.toml` 顶部注释）。
 3. **与权威实现的刻意差异**（Tree-sitter 正则不支持环视，`grammar.js` 文件头有完整列表）：
    - `a--b` 这里会整段当裸词，`swsml` 的 lexer 会切成 `a` + 行注释；
