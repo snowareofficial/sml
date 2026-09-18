@@ -31,6 +31,29 @@ async function ensureSml() {
 }
 
 // ---------------------------------------------------------------------------
+// 输出面板（「输出 → SML」）+ 自检
+// ---------------------------------------------------------------------------
+// 为什么需要它：provider 抛的异常 VSCode 只在「扩展主机」日志里留一行，用户看不到；
+// 而「悬停为什么不显示展开」「命令为什么没反应」这类问题**必须能从编辑器里问出来** ——
+// 否则只能靠猜（本项目已经为「猜」付过一次代价：把非法的 `web @is Server { }` 当成
+// 扩展坏了去查）。
+let outChannel = null;
+function channel() {
+  if (!outChannel) outChannel = vscode.window.createOutputChannel("SML");
+  return outChannel;
+}
+function log(line) {
+  channel().appendLine(line);
+}
+// 同一份文档只解释一次「为什么没有展开」，避免鼠标划过就刷屏
+const explained = new Set();
+
+// 本仓库当前 `src/vendor/sml.mjs` 的指纹（每次重打 VSIX 后同步这里；
+// 与 sync-parser.py 打印的值同源）。自检会拿它对**已安装的包**做一次核对 ——
+// 「包是不是新的」这件事以前只靠人肉解包比对（见 HANDOFF §22.2 第 1 条）。
+const EXPECT_VENDOR = { size: 69404, shaPrefix: "70f1ee47" };
+
+// ---------------------------------------------------------------------------
 // 补全候选
 // ---------------------------------------------------------------------------
 
@@ -269,15 +292,119 @@ function initSemanticHighlight(context) {
   );
 }
 
+/// 报告**包内**解析器的指纹：与仓库当前版本对不上 ⇒ 装的是旧包（或源码又改过）。
+/// 这条以前只能靠人肉解包比对（HANDOFF §22.2 第 1 条），现在编辑器里就能问到。
+function reportVendor() {
+  try {
+    const fs = require("fs");
+    const crypto = require("crypto");
+    const b = fs.readFileSync(path.join(__dirname, "vendor", "sml.mjs"));
+    const sha = crypto.createHash("sha256").update(b).digest("hex").slice(0, 16);
+    log(`包内解析器 vendor/sml.mjs：${b.length} B / sha256 ${sha}`);
+    if (b.length === EXPECT_VENDOR.size && sha.startsWith(EXPECT_VENDOR.shaPrefix)) {
+      log("  ⇒ 与仓库当前版本一致 ✓（含 W16 之后的解析器）");
+    } else {
+      log(`  ⚠️ 与仓库当前版本**不一致**（期望 ${EXPECT_VENDOR.size} B / ${EXPECT_VENDOR.shaPrefix}…）`);
+      log("  ⇒ 装的是旧包：重打并重装 VSIX（见 editors/vscode/README 的安装一节）");
+    }
+  } catch (e) {
+    log("包内解析器读取失败：" + (e && e.message));
+  }
+}
+
+/// 自检：把「为什么没反应」的每一环摊开写进「输出 → SML」。
+/// 它只**报告**，不做任何修改 —— 排查工具不该顺手改状态。
+function initSelfCheck(context) {
+  context.subscriptions.push(
+    vscode.commands.registerCommand("sml.selfCheck", async () => {
+      channel().show(true);
+      log("");
+      log("========== SML 扩展自检 ==========");
+      log("时间：" + new Date().toLocaleString());
+      try {
+        const pkg = (context.extension && context.extension.packageJSON) || {};
+        log(`扩展：snoware.sml-lang ${pkg.version || "?"}（目录 ${context.extensionPath}）`);
+      } catch { /* 拿不到版本不影响自检 */ }
+
+      const mod = await ensureSml();
+      log("桥接层 sml-parse.mjs：" +
+        (mod ? "已加载 ✓" : "**未加载 ✗**" + (smlLoadError ? " —— " + (smlLoadError.message || smlLoadError) : "")));
+      reportVendor();
+      if (!mod) {
+        log("⇒ 解析器不可用：补全 / 悬浮 / 诊断 / 跳转**全部失效**。先修上面那条报错，或重装扩展。");
+        log("========== 自检结束 ==========");
+        return;
+      }
+
+      // 命令是否注册（能直接判出「装的是旧包」：旧包里没有 sml.specialHighlight）
+      let cmds = [];
+      try { cmds = await vscode.commands.getCommands(true); } catch { /* 忽略 */ }
+      const need = ["sml.specialHighlight", "sml.clearSpecialHighlight", "sml.selfCheck"];
+      log("命令注册：" + need.map((c) => c + (cmds.includes(c) ? " ✓" : " ✗")).join("  "));
+      if (!cmds.includes("sml.specialHighlight")) log("  ⇒ 缺 `sml.specialHighlight` ⇒ **装的是旧包**，重装 VSIX 即可");
+
+      const ed = vscode.window.activeTextEditor;
+      if (!ed) {
+        log("当前没有打开的编辑器（provider 只对已打开的 .sml 生效）。");
+        log("========== 自检结束 ==========");
+        return;
+      }
+      const doc = ed.document;
+      log("当前文件：" + doc.uri.fsPath);
+      log("语言模式：languageId = " + doc.languageId +
+        (doc.languageId === "sml" ? " ✓" : " ⚠️ **不是 sml** ⇒ 所有 provider 都不生效（右下角点语言模式改成 SML）"));
+      if (doc.languageId !== "sml") { log("========== 自检结束 =========="); return; }
+
+      const text = doc.getText();
+      const r = mod.parseSafe ? mod.parseSafe(text) : { ok: true };
+      log("文档校验：" + (r.ok ? "通过 ✓" : "**失败 ✗** → " + r.error));
+      if (!r.ok) log("  ⇒ 两点后果：① 诊断面板有红字；② 悬浮的「展开」那半段不会出现（它还要求整份文档全绿）");
+
+      const names = mod.collectContractNames ? mod.collectContractNames(text) : [];
+      const frags = mod.collectFragmentNames ? mod.collectFragmentNames(text) : [];
+      log("本文档声明的契约：" + (names.length ? names.join("、") : "（无）"));
+      log("本文档声明的片段：" + (frags.length ? frags.join("、") : "（无）"));
+
+      const sel = ed.selection;
+      const wr = doc.getWordRangeAtPosition(sel.active, /[@&]?[A-Za-z0-9_\u4e00-\u9fa5.\-]+/);
+      const word = wr ? doc.getText(wr) : "";
+      const name = word.startsWith("&") ? word.slice(1) : word;
+      log("光标下的词：" + JSON.stringify(word) + (wr ? `（第 ${wr.start.line + 1} 行第 ${wr.start.character + 1} 列）` : "（此处没有词）"));
+
+      if (names.includes(name)) {
+        let inst = null;
+        try { inst = mod.contractInstance ? mod.contractInstance(text, name) : null; } catch { /* 忽略 */ }
+        log(`契约 \`${name}\`：声明 ✓；实例 ` +
+          (inst ? `✓（块 \`${inst.key}\`，第 ${inst.line + 1} 行）⇒ 悬浮会显示「填入默认值后的结构」`
+                : "✗ ⇒ 悬浮**只显示声明**"));
+        if (!inst) log(`  取不到实例的常见原因：文档没通过校验 / 没有**顶层** \`@is ${name}\` 块`);
+      } else {
+        log("⇒ 光标不在契约名上：悬浮的契约展开只对**契约名**生效（`@is X` / `@contract X` 里的 X）");
+      }
+
+      const def = mod.findDefinition
+        ? mod.findDefinition(text, name, word.startsWith("&") ? "fragment" : "contract")
+        : null;
+      log("跳转到定义：" + (def ? `✓ 会跳到第 ${def.line + 1} 行第 ${def.col + 1} 列` : "✗ 找不到同名定义（只做文档级同名匹配）"));
+      log("========== 自检结束 ==========");
+      vscode.window.showInformationMessage("SML 自检完成：结果在「输出 → SML」面板");
+    })
+  );
+}
+
 function activate(context) {
   const collection = vscode.languages.createDiagnosticCollection("sml");
-  context.subscriptions.push(collection);
+  context.subscriptions.push(collection, channel());
+  log("扩展激活（" + new Date().toLocaleString() + "）—— 有「没反应」的地方，执行命令 `SML: 自检`");
 
   // 启动自检：解析器不可用时明确告知，避免「补全静默失效」无从排查
   ensureSml().then((m) => {
-    if (!m) {
+    if (m) {
+      log("解析器加载成功 ✓（补全 / 悬浮 / 跳转 / 诊断可用）");
+    } else {
+      log("解析器加载失败 ✗" + (smlLoadError ? "：" + (smlLoadError.message || smlLoadError) : ""));
       vscode.window.showWarningMessage(
-        "SML 扩展：解析器加载失败，补全与错误提示不可用（详见「扩展主机」输出日志）。"
+        "SML 扩展：解析器加载失败，补全与错误提示不可用（详见「输出 → SML」）。"
       );
     }
   });
@@ -450,7 +577,25 @@ function activate(context) {
         const text = document.getText();
         if (mod.collectContractNames(text).includes(word)) {
           const md = mod.contractHoverMarkdown(text, word);
-          if (md) return new vscode.Hover(new vscode.MarkdownString(md), range);
+          if (md) {
+            // 「只显示声明、没有展开」是最容易被当成「功能坏了」的一种情况，
+            // 故把**原因**写进输出面板（同一文档版本只解释一次，免得鼠标划过就刷屏）。
+            const key = document.uri.toString() + "@" + document.version;
+            if (!explained.has(key)) {
+              if (explained.size > 200) explained.clear();
+              explained.add(key);
+              let inst = null;
+              try { inst = mod.contractInstance ? mod.contractInstance(text, word) : null; } catch { /* 忽略 */ }
+              if (!inst) {
+                const r = mod.parseSafe ? mod.parseSafe(text) : { ok: true };
+                log(`悬停「${word}」：只显示契约声明（取不到实例）`);
+                log(!r.ok
+                  ? `  原因：文档未通过校验 —— ${r.error}`
+                  : `  原因：文档能解析，但没有用 \`@is ${word}\` 标注的**顶层**块（嵌在别的块里不算）`);
+              }
+            }
+            return new vscode.Hover(new vscode.MarkdownString(md), range);
+          }
         }
       }
 
@@ -541,6 +686,9 @@ function activate(context) {
       }
     )
   );
+
+  // —— 自检：把「为什么没反应」摊开写进「输出 → SML」——
+  initSelfCheck(context);
 
   // —— 自定义高亮：HL-cfg.sml + 强度开关（见 src/highlight.js）——
   require("./highlight.js").initHighlight(context);

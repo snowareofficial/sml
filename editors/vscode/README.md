@@ -12,6 +12,7 @@
 | **悬浮说明** | ① 悬停 `@contract` / `@is` / `loose` / `include` 等关键字看解释；② **悬停契约名看「填入默认值后的结构」**（来自解析结果，不是抄一遍声明） |
 | **跳转到定义** | `@is Server` → `@contract Server`；`&base` → `@base { }`（F12 / Ctrl+点击 / 右键「转到定义」，三者同一套 provider） |
 | **特别高亮** | 选中一个词 → 右键「特别高亮选中词（当前工作区）」：把该词在**整个工作区**里点亮（状态栏显示 N 处 / M 文件；点状态栏或对同一个词再触发一次即清除） |
+| **自检** | 悬浮 / 跳转 / 高亮「没反应」时，右键「SML: 自检」：把扩展版本、**包内解析器指纹**、命令注册、语言模式、文档校验结果、光标下的词能不能跳转 —— 逐条写进「输出 → SML」 |
 | **格式化** | 按 SML 规范重排（解析 → 序列化），解析失败时不改动文件 |
 
 ## 安装（从源码）
@@ -79,6 +80,22 @@ SML 语法小、解析器（`js/sml.mjs`）零依赖且可直接 import，进程
 > 与「自定义高亮」的区别：`HL-cfg.sml` 那套（`sml.reloadHighlight` / `sml.setHighlightMode`）
 > 是**静态配置**关键词配色；「特别高亮」是**临时**的、跟着你当前选中的词走。
 
+## 没反应时先跑自检
+
+悬浮不出展开、跳转没动静、特别高亮没反应 —— 先别怀疑编辑器：**右键 →「SML: 自检」**
+（或命令面板搜 `SML: 自检`），结果写在「**输出 → SML**」面板。它逐条报告：
+
+- 扩展版本与**包内解析器指纹**（`vendor/sml.mjs` 的字节数 + sha256 前缀）—— 与仓库当前版本
+  对不上就说明**装的是旧包**，重打重装即可；
+- 命令是否注册（缺 `sml.specialHighlight` 同样说明装的是旧包）；
+- 当前文件的**语言模式**（不是 `sml` 时，所有 provider 都不生效 —— 右下角可改）；
+- **文档校验结果** —— 这是「悬浮只显示声明、没有展开」的**第一大原因**：展开那半段要求
+  整份文档全绿（语法 **和** 契约）；
+- 光标下的词是不是契约名、有没有实例可展开、能不能跳到定义。
+
+面板里同时记录扩展激活与解析器加载的结果 —— 那是「静默失效」的最后一环。
+（悬浮自己遇到「取不到实例」时也会把原因写进该面板，同一文档版本只解释一次。）
+
 ## 已知限制
 
 - ~~**契约校验不生效**~~：此说明**已过时**（2026-09-18 更正）。JS 实现的契约
@@ -135,6 +152,7 @@ Provides editing support for [SML](../README.md) (SNOWARE Markup Language).
 | **Hover** | ① hover `@contract` / `@is` / `loose` / `include` for explanations and examples; ② **hover a contract name to see the instance after the contract is applied** — defaults really filled in by the parser, not a copy of the declaration |
 | **Go to definition** | `@is Server` → `@contract Server`; `&base` → `@base { }` (F12 / Ctrl+click / right-click "Go to Definition" — all three use the same provider) |
 | **Spotlight highlight** | select a word → right-click "SML: 特别高亮选中词（当前工作区）": lights up **every occurrence in the workspace** (status bar shows N matches / M files; click it or re-run on the same word to clear) |
+| **Self-check** | hover / go-to-definition / highlight "not working"? right-click "SML: 自检": reports extension version, **bundled parser fingerprint**, registered commands, language mode, document validation and whether the word under the cursor is navigable — all into the "Output → SML" panel |
 | **Formatting** | reformat per SML spec (parse → serialize); no change if parse fails |
 
 ## Install (from source)
@@ -191,6 +209,25 @@ opened.
 > Difference from "custom highlighting": the `HL-cfg.sml` mechanism
 > (`sml.reloadHighlight` / `sml.setHighlightMode`) is **static** keyword colouring;
 > the spotlight is **temporary** and follows whatever word you select.
+
+## When nothing happens, run the self-check first
+
+Hover shows no expansion, go-to-definition does nothing, the spotlight does not react — before
+blaming the editor: **right-click → "SML: 自检"** (or run `SML: 自检` from the command palette).
+The report goes to the "**Output → SML**" panel:
+
+- extension version and the **bundled parser fingerprint** (`vendor/sml.mjs` size + sha256 prefix) —
+  a mismatch means you are running an **old package** (rebuild + reinstall);
+- whether the commands are registered (a missing `sml.specialHighlight` also means an old package);
+- the **language mode** of the current file (anything but `sml` and no provider fires — the language
+  picker in the status bar changes it);
+- **document validation** — the number-one reason for "hover shows the declaration only, no
+  expansion": the expansion half requires the whole document to validate (syntax **and** contracts);
+- whether the word under the cursor is a contract name, whether an instance exists, whether it is
+  navigable.
+
+The panel also records activation and parser-load results — the last link in a silent failure chain.
+(The hover itself logs *why* when it cannot find an instance; once per document version.)
 
 ## Known limitations
 

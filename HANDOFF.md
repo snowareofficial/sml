@@ -1581,3 +1581,37 @@ C++ dumper 探针（`%TEMP%\w4cpp_measure.py`），跑同一份语料：
 **验证链**：`node scripts/_verify_ext.mjs`（EXT VERIFY ALL PASS）→ `node scripts/_prepublish.mjs`
 （PREPUBLISH ALL PASS）→ 重打 VSIX（**20 项 / 134476 B**；包内逐字节核对：除 `readme.md` 的
 链接改写外全一致，`src/vendor/sml.mjs` 仍是 69404 B / `70f1ee47…`）。
+
+### 22.9 「重启窗口后还是没反应」→ 造了个**假 VSCode 宿主**，并给扩展装上自检
+
+**背景**：用户报「重启窗口后悬停/选择高亮还是没有」。这类问题此前**无从取证** ——
+仓库的扩展测试只跑桥接层（`sml-parse.mjs`），**从不跑 `extension.js`**：provider 有没有注册、
+hover 到底返回什么、命令有没有接线，全是盲区。于是本轮造了一个假宿主（`%TEMP%\fakehost.mjs`，
+**未入库**）：用 `Module._load` 把 `require("vscode")` 换成 mock，然后**真的 activate 扩展**、
+真的调 provider 与命令。
+
+**假宿主当场给出的结论**（全部来自**真代码**，不是猜）：
+
+| 检查 | 结果 |
+|---|---|
+| `activate()` | 不抛异常 ✓；注册 completion/hover/definition/formatting 各 1、命令 6 条 |
+| 悬浮（文档**有**契约错误） | 返回 Hover，但**只有声明段** —— 与设计一致（展开要求文档全绿） |
+| 悬浮（文档**干净**） | **两段都在**：声明 + 「填入默认值后的结构 —— 来自块 `web`（第 9 行）」+ 实例（`port: 8080` / `tls: false` 是解析器真填的） |
+| 定义跳转 | ✓ 返回 `{line:0, col:10}`（指向 `@contract Server`） |
+| 特别高亮 | ✓ 装饰真的落到编辑器（可见文档命中 2 处 → 2 个 range），`sml.specialHighlightActive` 置位 ✓ |
+| 自检命令 | ✓ 输出含包内指纹 `69404 B / 70f1ee476ab684fc`、命令注册、语言模式、文档校验失败原因 |
+
+⚠️ **假宿主自己先骗了我一次**：它缺 `Position.translate`，于是定义跳转抛 `TypeError`，
+看起来像**扩展有 bug**。去 `@types/vscode` 里核（`Position.translate(lineDelta?, characterDelta?)`
+**是真实 API**，d.ts:357/366）才发现是宿主不完整 —— **先核实 API 再改代码**，否则会「修」掉一个
+不存在的问题。另一次是 `findFiles` 返回的 Uri 被二次包裹，导致「工作区 0 命中」的假信号。
+
+**因此给扩展补了自检**（`SML: 自检` + 「输出 → SML」面板）：把上表那几项逐条摊给用户 ——
+扩展版本、**包内解析器指纹**、命令注册、语言模式、文档校验结果、光标下的词是否契约名、
+有无可展开实例（以及**为什么没有**）、能否跳转。悬浮取不到实例时也把原因写进面板
+（同一文档版本只解释一次）。**这条同时把「装的是旧包」变成可自查**：以前只能人肉解包比对
+（§22.2 第 1 条）。
+
+**给下一位**：`%TEMP%\fakehost.mjs` 是现成的「扩展无 VSCode 集成测试」骨架，要扩就扩它
+（mock 里缺 API 就补 mock，**先去 d.ts 确认真实签名**）；`_verify_ext.mjs` 里那条
+「声明了却没实现的命令」闸门也是这轮加的，别再让它退化成只打印 ✗ 却 exit 0。
