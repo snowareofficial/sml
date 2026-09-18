@@ -250,13 +250,23 @@ Contracts (`@contract` / `@is`) are landed in Rust / C / C++ / JS; **Lua is the 
 |---|---|---|
 | VSCode | `editors/vscode/` | highlighting, diagnostics, completion, hover, formatting |
 | LSP | `editors/lsp/` | language server: diagnostics, completion, go-to-contract, hover |
-| Zed | `editors/zed/` | highlighting, bracket matching, comment toggling (Tree-sitter grammar skeleton) |
+| Zed | `editors/zed/` | highlighting, bracket matching, comment toggling (Tree-sitter grammar, verified with `tree-sitter generate` + `parse`) |
 | Any TextMate editor | `smltools --to tmlanguage` | describe highlighting in SML itself |
 
 Installation notes and known limitations: [`editors/vscode/README.md`](editors/vscode/README.md)
-and [`editors/zed/README.md`](editors/zed/README.md). The VSCode extension is **not published to
-the marketplace** (package a `.vsix` locally and install it; publishing is deliberately on hold).
-The Zed extension needs its grammar split into its own repository before it can be published.
+and [`editors/zed/README.md`](editors/zed/README.md).
+
+**How to get it**:
+
+- **VSCode**: run `npm run package` in `editors/vscode/`, then
+  `code --install-extension sml-lang-0.4.2.vsix` (or install from the VSIX manually).
+  The extension is **not published to the marketplace** (publishing is deliberately on hold).
+- **Zed**: run `zed: install dev extension` in Zed and pick the `editors/zed/` directory
+  of this repo. ⚠️ **Zed cannot install a `.vsix`** — VSIX is a VS Code–only format;
+  Zed uses its own extension format (`extension.toml` + a Tree-sitter grammar).
+  Publishing the Zed extension still requires the grammar to live in its own repository
+  (there is now a publish mirror `snoware/tree-sitter-sml`, and `extension.toml` points at
+  its first commit).
 
 ## Usage
 

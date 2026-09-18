@@ -230,12 +230,22 @@ let v = parse_file("app.sml")?;
 |---|---|---|
 | VSCode | `editors/vscode/` | 高亮、错误提示、补全、悬浮说明、格式化 |
 | LSP | `editors/lsp/` | 语言服务：诊断、补全、跳到契约定义、悬浮 |
-| Zed | `editors/zed/` | 语法高亮、括号匹配、注释切换（Tree-sitter grammar 骨架） |
+| Zed | `editors/zed/` | 语法高亮、括号匹配、注释切换（Tree-sitter grammar，已通过 `tree-sitter generate` + `parse` 验证） |
 | 任意 TextMate 编辑器 | `smltools --to tmlanguage` | 用 SML 自己定制高亮，产出 tmLanguage |
 
 安装与已知限制见 [`editors/vscode/README.md`](editors/vscode/README.md) 与
-[`editors/zed/README.md`](editors/zed/README.md)。VSCode 扩展**未上架市场**（本地打包安装即可，
-上架流程暂缓）；Zed 扩展要正式发布需先把 grammar 拆成独立仓库。
+[`editors/zed/README.md`](editors/zed/README.md)。
+
+**怎么拿到**：
+
+- **VSCode**：在 `editors/vscode/` 里 `npm run package`，然后
+  `code --install-extension sml-lang-0.4.2.vsix`（或从 VSIX 手动安装）。
+  扩展**未上架市场**（上架流程繁琐，刻意暂缓）。
+- **Zed**：在 Zed 里执行 `zed: install dev extension`，选本仓库的 `editors/zed/` 目录。
+  ⚠️ **Zed 装不了 `.vsix`** —— VSIX 是 VS Code 专用的包格式，Zed 用自己的扩展格式
+  （`extension.toml` + Tree-sitter grammar），两者不通用。
+  Zed 扩展要正式发布，还需把 grammar 拆成独立仓库（现已有发布镜像
+  `snoware/tree-sitter-sml`，`extension.toml` 指向它的首版 commit）。
 
 ## 使用
 
