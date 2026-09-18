@@ -42,6 +42,9 @@ site/hugo_server.err
 
 # 临时/调试脚本（非库代码，勿提交）
 _du.py
+
+# AI 协作工具的本地状态（团队/会话数据），不进版本库
+.codebuddy/
 c/build_check.py
 
 # Hugo 生成的站点产物（由 site/content 与 site/static 重新生成，勿提交）
