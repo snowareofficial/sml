@@ -1,0 +1,130 @@
+# CI：在 GitHub 跑测试与门禁（Gitee 是权威源，GitHub 是镜像 + CI）。
+#
+# 设计要点：
+# - 本仓库是 monorepo，各端实现分散在不同目录，每个 job 的工作目录 / 命令都显式写清。
+# - 失败必须传导：任何 `run:` 步骤 rc≠0 ⇒ 该 job 失败 ⇒ 挡住合并。
+#   不写 `|| true`、不加 `continue-on-error`。
+# - 门禁的全部价值在「失败真的会红」：osv_check.py 有洞即失败、build_verify.py 的
+#   RS-BRIDGE 缺库即失败（见 TASK-hy3-w8-w9.md §W9）。
+# - 注意：workflow 的 `name:` 不要含特殊字符（如箭头 →），否则 GitHub 会静默拒绝解析。
+#   本文件 name 用纯 ASCII。
+
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Rust 全 workspace 测试（默认不开 serde，故 serde 套件单列在 rust-serde）
+  rust:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: 测试 workspace
+        run: cargo test --workspace
+
+  # serde 套件不在 --workspace 里（tests/serde_bridge.rs 是 cfg(feature = "serde")），必须单列
+  rust-serde:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: serde 桥
+        run: cargo test --features serde --test serde_bridge
+      - name: sml-value serde
+        run: cargo test -p sml-value --features sml,serde
+
+  # 非 Rust 各端自检：C / C++ / JS / Lua
+  # C++ 的 RS-BRIDGE 链接 Rust cdylib，故先构建 release 再显式传 SML_RUST_LIB
+  non-rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: 构建 Rust cdylib（供 C++ RS-BRIDGE 链接）
+        working-directory: rust
+        run: cargo build --release
+      - name: C 检查（必须在 c/ 里跑）
+        working-directory: c
+        run: python3 build_check.py --run
+      - name: C++ 验证（脚本内部 cwd=HERE，从哪跑都一样）
+        env:
+          SML_RUST_LIB: ${{ github.workspace }}/rust/target/release
+        run: python3 cpp/build_verify.py
+      - name: JS 错误码探针
+        run: node js/probe-error-codes.mjs
+      - name: JS 四份副本一致性
+        run: python3 tools/check_js_copies.py
+      - name: Lua 检查
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y luajit
+          python3 lua/run_check.py
+
+  # 守卫：私有资产不进主库 + 错误码生成物幂等（需要全历史，故 fetch-depth: 0）
+  guards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: 构建 smltools 并加入 PATH（错误码生成器依赖它）
+        working-directory: rust
+        run: |
+          cargo build --release -p smltools
+          echo "$PWD/target/release" >> "$GITHUB_PATH"
+      - name: 私有资产守卫
+        run: python3 tools/check_private_assets.py
+      - name: 错误码生成物幂等校验
+        run: |
+          python3 errors/gen_json.py
+          python3 errors/gen_codes.py
+          git diff --exit-code
+
+  # Miri：C-ABI 的 UB 检测（很慢，单独 job + 超时，不允许 continue-on-error）
+  miri:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装 nightly + Miri
+        run: |
+          rustup toolchain install nightly --component miri
+          cargo +nightly miri setup
+      - name: Miri 跑 c_abi
+        run: python3 miri_check.py --test c_abi --timeout 300 --no-setup
+
+  # OSV 依赖漏洞门禁（依赖 W9.1 的退出码）
+  osv:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: OSV 依赖漏洞门禁
+        run: python3 osv_check.py

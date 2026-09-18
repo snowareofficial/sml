@@ -93,6 +93,25 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   取不到实例时明说「未找到可展开的实例」—— 悬浮里最容易骗人的就是「看起来像结果」的东西。
   顺带修 `collectFragmentNames` 的保留名单（`@when`/`@for`/`@feature`/`@type` 曾被当成片段名）。
 
+### 工程 / CI
+
+- **安全门禁进 CI（W9，2026-09-19）**：新增 `.github/workflows/ci.yml`，在 GitHub 跑六个 job
+  （`rust` / `rust-serde` / `non-rust` / `guards` / `miri` / `osv`），Gitee 是权威源、GitHub 是镜像 + CI。
+  设计铁律：**失败严格传导**（无 `|| true`、无 `continue-on-error`），门禁的价值全在「失败真的会红」。
+  - **`rust/osv_check.py` 修掉「有洞只 WARN」**：现在发现已知漏洞**直接 rc=1**；且**任一依赖查询失败也 rc=1**
+    （fail-closed —— 「查不到」不等于「没有漏洞」）。漏洞默认**不可**豁免，CI 网络抖动可
+    `--allow-network-error` 豁免，本地排查用 `--allow-vuln`。
+  - **`cpp/build_verify.py` 的 RS-BRIDGE 修掉「假绿」**：原先缺 Rust cdylib 时只打印「RS-BRIDGE 跳过」
+    就 `sys.exit(0)`，门禁等于失效；现在缺库**直接 rc=1**（fail-closed）。`SML_RUST_LIB` 默认值从写死的
+    `E:/snoware-target/release` 改为**仓库内相对推导**（`rust/target/release`）；CI 里先 `cargo build --release`
+    再显式传 `SML_RUST_LIB`，本地缺库排查可 `--allow-skip-rs-bridge`。
+  - **`guards` job**：私有资产守卫 `tools/check_private_assets.py`（需 `fetch-depth:0`）+ 错误码生成物
+    幂等校验（`errors/gen_json.py` + `errors/gen_codes.py` 后跟 `git diff --exit-code`）。
+  - **`miri` job**：`miri_check.py --test c_abi`（C-ABI 的 UB 检测），单独 job + `timeout-minutes: 60`，
+    不允许 `continue-on-error`。
+  - ⚠️ **分支保护（W9.4）由用户在 GitHub 仓库设置里开启，不入库**：建议开「合并前要求 CI 通过」、
+    「禁止直推 main」、「撤销/重开 PR 的权限收口」。核对清单见本会话 W9.4 报告。
+
 ### 变更
 
 - ⚠️ **不兼容：`swsml` 的 emit 后端返回类型从 `Result<_, String>` 改为 `Result<_, SmlError>`**

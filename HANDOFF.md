@@ -28,7 +28,7 @@
 | Rust **serde 套件**（⚠️ 不在上面那条里！） | `cargo test --features serde --test serde_bridge` + `cargo test -p sml-value --features sml,serde` | 10 通过 + 5 单测 + 1 doctest，全 rc=0。**这条必须单独跑**：`tests/serde_bridge.rs` 是 `#![cfg(feature = "serde")]`，而 `cargo test --workspace` **不开 serde** ⇒ 少了它，该套件坏掉两个月都没人发现（§17.2 的教训） |
 | 其中 `smltools` | `cargo test -p smltools` | **119 通过 / 0 失败**（bin 74 + 集成 `tests/error_codes.rs` 45；`xml` 子集 26 在 bin 里） |
 | C | `python build_check.py --run` | rc=0，`ALL LIMIT TESTS PASSED` + `ALL CODE TESTS PASSED`（CODE **82** 条断言；W16 的 C 批后从 62 涨到 82） |
-| C++ | `python cpp/build_verify.py`（脚本内部自己 `cwd=HERE`，从仓库根跑也行） | 前五个 target rc=0（example / CONTRACT / COMMENTS / LIMITS / **CODES 110 条全过**）。⚠️ **RS-BRIDGE 这一格当前是「假绿」**：它需要 `SML_RUST_LIB`（默认写死 `E:/snoware-target/release`）里有 Rust cdylib，**缺库时脚本只打印「RS-BRIDGE 跳过」然后 `sys.exit(0)`** ⇒ 整体仍 rc=0（2026-09-18 实测：`ld returned 1 exit status`，返回码却是 0）。**「六 target 全 rc=0」只在 Rust release 产物就位时成立** —— 修法见 `TASK-hy3-w8-w9.md` §W9.1b。⚠️ 另：**C 的 `build_check.py` 必须在 `c/` 里跑**（从仓库根跑会 `fatal error: sml.c: No such file or directory`） |
+| C++ | `python cpp/build_verify.py`（脚本内部自己 `cwd=HERE`，从仓库根跑也行） | 六 target 全 rc=0（example / CONTRACT / COMMENTS / LIMITS / CODES 110 条 / **RS-BRIDGE**）。⚠️ **RS-BRIDGE 的「假绿」已于 W9（2026-09-19）修掉**：原先缺库时脚本只打印「RS-BRIDGE 跳过」就 `sys.exit(0)`（整体 rc=0），等于门禁失效；现在缺库**直接 rc=1**（fail-closed），`SML_RUST_LIB` 默认值也改成仓库内相对推导（`rust/target/release`，不再写死 `E:/snoware-target`）。CI 里先 `cargo build --release` 再显式传 `SML_RUST_LIB`；本地缺库排查可 `--allow-skip-rs-bridge`。⚠️ 另：**C 的 `build_check.py` 必须在 `c/` 里跑**（从仓库根跑会 `fatal error: sml.c: No such file or directory`） |
 | JS 错误码 | `node js/probe-error-codes.mjs` | `ALL OK`（**45 条用例** + 深度闸门 + `parseSafe`；含 W16 余额的 005 / 020 / 006 / 001 / 002 / LIMIT-002 与各自的正对照） |
 | JS 四份副本 | `python tools/check_js_copies.py` | 与 `js/sml.mjs` **逐字节一致**（rc=0）；`--fix` 一键同步 |
 | Lua | `python lua/run_check.py` | rc=0，`ALL LUA CHECKS PASSED`（入口自检 + `E-IO-001` + **120 条**码用例，含 include 组 38 条） |
@@ -51,6 +51,8 @@
 > 见 §11.3）；② 那条 doctest **本来就在跑**，所以 `doctest = false` 的代价是 **1 条**测试、
 > 不是 38 条 —— 结论仍是「别关」，但数量级差了 38 倍。
 > **未能确定性复现**（有决定性反向证据 + 机制级证据，但构造不出稳定复现）。
+
+> **CI 已落地（2026-09-19，W9）**：`.github/workflows/ci.yml` 在 GitHub 跑六个 job（`rust` / `rust-serde` / `non-rust` / `guards` / `miri` / `osv`），Gitee 是权威源、GitHub 是镜像 + CI。失败严格传导（**无 `|| true` / 无 `continue-on-error`**）：`rust/osv_check.py` 有洞即失败 + 网络失败 fail-closed（CI 网络抖动可 `--allow-network-error` 豁免，但漏洞默认不可豁免）；`cpp/build_verify.py` 的 RS-BRIDGE 缺库即失败（可 `--allow-skip-rs-bridge` 豁免）。本机已逐条验证非 Rust 各端自检命令（C / C++ / JS 副本 / Lua）全 rc=0；`rust` / `rust-serde` / `miri` / `osv` 需在 Linux CI 跑（osv 依赖外网 OSV API）。⚠️ **分支保护（W9.4）由用户在 GitHub 仓库设置里开启，不入库**，待办见 §2 的 W9-分支保护 行。
 
 **两块新基建**（2026-09-18）：
 
@@ -123,7 +125,8 @@
 | **W4/W5/W6** | C `sml_dump` 与 Rust `to_sml` 逐字节比对 → 跨实现一致性套件 → Lua 侧契约（走 C-ABI） | 三者共享 `c/`、`js/`、`lua/`，**必须串行** |
 | **W7** | 解析器一次报多条错误 | |
 | **W8** | Zed grammar 编译验证（需联网装 tree-sitter CLI）+ `extension.toml` 指向可用 grammar | grammar 已在 `editors/zed/`，见 §3.4 |
-| **W9** | Miri / 安全门禁 / 非 Rust 实现扫描进 CI | |
+| **W9** | Miri / 安全门禁 / 非 Rust 实现扫描进 CI | ✅ **已完成**（2026-09-19：`ci.yml` + `osv_check.py`/`build_verify.py` 去假绿；详见 §0 的 CI 备注） |
+| **W9-分支保护** | GitHub 分支保护（required checks / 禁止直推 main / 撤销权限）由用户在仓库设置里开启，**不入库** | ✋ 待用户决定（核对清单见本会话 W9.4 报告） |
 | **W12** | 错误码查询工具接搜索（按码与前缀检索 + 深链 `/errors/#E-PARSE-008`） | 独立 |
 | **W14** | JS 空键列表抛 `ReferenceError`（报告函数是 `parse` 的局部量） | 与 W3 同改 `js/sml.mjs`，需串行 |
 | **W15** | Lua 补深度上限，对齐 `E-LIMIT-001`（128 层） | 与 W3 同改 `lua/`，需串行 |
@@ -333,6 +336,17 @@ node js/probe-error-codes.mjs         # ALL OK（45 条用例）
 python tools/check_js_copies.py       # 四份副本与 js/sml.mjs 逐字节一致（--fix 同步）
 node js/_w16_copies_smoke.mjs         # 直接对副本跑 9 条断言（站点 / 扩展各一遍）
 ```
+
+```bash
+# CI（W9，2026-09-19）：本地对照 .github/workflows/ci.yml 的等价命令
+cd rust && python osv_check.py        # 有洞即失败；网络失败 fail-closed（可 --allow-network-error 豁免）
+cd rust && python miri_check.py --test c_abi --timeout 300   # 需 nightly + miri
+cd cpp && SML_RUST_LIB="$(pwd)/../rust/target/release" python build_verify.py  # RS-BRIDGE 缺库即失败（可 --allow-skip-rs-bridge）
+cd rust && cargo build --release -p smltools && errors/gen_json.py && errors/gen_codes.py  # 错误码生成物幂等
+python tools/check_private_assets.py  # 私有资产守卫（需 fetch-depth:0）
+```
+
+> ⚠️ **CI 与本地跑法要点**：① `build_verify.py` 的 RS-BRIDGE 必须先有 Rust cdylib（先 `cargo build --release`，产物名以 `rust/Cargo.toml` 的 `crate-type=["rlib","cdylib"]` + `[lib] name="sml"` 为准 → Linux `libsml.so`）；② `gen_json.py` / `gen_codes.py` 依赖 `smltools` 二进制（在 PATH 或 `rust/target/release/` 下）；③ `check_private_assets.py` 要全历史，本地需 `git fetch --unshallow` 才等价于 CI 的 `fetch-depth: 0`。
 
 **环境注意（两条，本轮都踩过）**：
 - PowerShell 下**不要**直接跑这些命令去比字节：AMSI 会随机崩，默认编码也可能不是 UTF-8。
