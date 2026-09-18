@@ -28,7 +28,7 @@
 | Rust **serde 套件**（⚠️ 不在上面那条里！） | `cargo test --features serde --test serde_bridge` + `cargo test -p sml-value --features sml,serde` | 10 通过 + 5 单测 + 1 doctest，全 rc=0。**这条必须单独跑**：`tests/serde_bridge.rs` 是 `#![cfg(feature = "serde")]`，而 `cargo test --workspace` **不开 serde** ⇒ 少了它，该套件坏掉两个月都没人发现（§17.2 的教训） |
 | 其中 `smltools` | `cargo test -p smltools` | **119 通过 / 0 失败**（bin 74 + 集成 `tests/error_codes.rs` 45；`xml` 子集 26 在 bin 里） |
 | C | `python build_check.py --run` | rc=0，`ALL LIMIT TESTS PASSED` + `ALL CODE TESTS PASSED`（CODE **82** 条断言；W16 的 C 批后从 62 涨到 82） |
-| C++ | `python build_verify.py` | 六 target 全 rc=0（example / CONTRACT / COMMENTS / LIMITS / **CODES 110 条全过** / RS-BRIDGE） |
+| C++ | `python cpp/build_verify.py`（脚本内部自己 `cwd=HERE`，从仓库根跑也行） | 前五个 target rc=0（example / CONTRACT / COMMENTS / LIMITS / **CODES 110 条全过**）。⚠️ **RS-BRIDGE 这一格当前是「假绿」**：它需要 `SML_RUST_LIB`（默认写死 `E:/snoware-target/release`）里有 Rust cdylib，**缺库时脚本只打印「RS-BRIDGE 跳过」然后 `sys.exit(0)`** ⇒ 整体仍 rc=0（2026-09-18 实测：`ld returned 1 exit status`，返回码却是 0）。**「六 target 全 rc=0」只在 Rust release 产物就位时成立** —— 修法见 `TASK-hy3-w8-w9.md` §W9.1b。⚠️ 另：**C 的 `build_check.py` 必须在 `c/` 里跑**（从仓库根跑会 `fatal error: sml.c: No such file or directory`） |
 | JS 错误码 | `node js/probe-error-codes.mjs` | `ALL OK`（**45 条用例** + 深度闸门 + `parseSafe`；含 W16 余额的 005 / 020 / 006 / 001 / 002 / LIMIT-002 与各自的正对照） |
 | JS 四份副本 | `python tools/check_js_copies.py` | 与 `js/sml.mjs` **逐字节一致**（rc=0）；`--fix` 一键同步 |
 | Lua | `python lua/run_check.py` | rc=0，`ALL LUA CHECKS PASSED`（入口自检 + `E-IO-001` + **120 条**码用例，含 include 组 38 条） |
