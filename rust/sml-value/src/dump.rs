@@ -59,6 +59,58 @@ fn quote_if_needed(s: &str) -> String {
     }
 }
 
+/// 容器是否「扁平」：**直接子项全是标量**（不含对象 / 数组）。
+///
+/// 这是 [`dump_element`] 决定「一行写完」还是「展开多行」的唯一判据：
+/// `{ type: home }`、`{ offset: "0x00" size: "0x400" }` 扁平 → 紧凑一行；
+/// `{ fields: { field: [ … ] } }` 里嵌了容器 → 展开多行。
+///
+/// ⚠️ **只看一层，不递归**。递归版（「子孙全是标量」）是个恒真判据 ——
+/// 任何对象的子孙最终都会落到标量，于是所有东西都被判成扁平、排版分毫不改。
+/// 写这段时真踩了这个坑（编译与测试全绿，只是完全没生效）。
+/// 非递归顺带去掉了一处递归，程序构造的超深 `Value` 也撑不爆栈。
+#[cfg(feature = "sml")]
+fn is_flat(v: &Value) -> bool {
+    fn scalar(v: &Value) -> bool {
+        !matches!(v, Value::Object(_) | Value::Array(_))
+    }
+    match v {
+        Value::Object(m) => m.values().all(scalar),
+        Value::Array(a) => a.iter().all(scalar),
+        _ => true,
+    }
+}
+
+/// 值是否要紧跟在 `键:` 之后、**同一行**开始写。
+///
+/// 非空对象由 [`dump_block`] 先写换行再写 `{`，此时若一律在键后补空格，
+/// 行尾就会留下一个看不见的空格 —— 既有输出里每处「键后接块」都这样
+/// （实测 SVD 产物 3 行行尾带空白）。新版面会成倍放大这个问题，故按值类型决定。
+#[cfg(feature = "sml")]
+fn starts_inline(v: &Value) -> bool {
+    !matches!(v, Value::Object(m) if !m.is_empty())
+}
+
+/// 写对象体：**不含**开头的 `{`（由调用方写），负责逐键换行与收尾 `}`。
+///
+/// 抽出来是为了让「块里的对象」（缩进后跟 `\n{`，见 [`dump_block`]）与
+/// 「数组元素里的对象」（`{` 跟在同一行）共用同一套键渲染。
+#[cfg(feature = "sml")]
+fn dump_object_body(m: &BTreeMap<String, Value>, indent: usize, depth: usize, out: &mut String) {
+    for (k, val) in m {
+        out.push_str(&format!(
+            "\n{}{}:",
+            "  ".repeat(indent + 1),
+            quote_if_needed(k)
+        ));
+        if starts_inline(val) {
+            out.push(' ');
+        }
+        dump_value(val, indent + 1, depth + 1, out);
+    }
+    out.push_str(&format!("\n{}}}", "  ".repeat(indent)));
+}
+
 /// 输出一个块。含 `__type` / `__name` 的块也按普通块原样输出所有键，
 /// 保证元数据（枚举带数据变体的 `__type` 标记等）可完整往返。
 /// SML 的裸块 `type [name] { ... }` 解析后正是 `__type` / `__name` 键。
@@ -73,15 +125,44 @@ fn dump_block(m: &BTreeMap<String, Value>, indent: usize, depth: usize, out: &mu
         return;
     }
     out.push_str(&format!("\n{}{{", "  ".repeat(indent)));
-    for (k, val) in m {
-        out.push_str(&format!(
-            "\n{}{}: ",
-            "  ".repeat(indent + 1),
-            quote_if_needed(k)
-        ));
-        dump_value(val, indent + 1, depth + 1, out);
+    dump_object_body(m, indent, depth, out);
+}
+
+/// 写一个「元素」：扁平的走单行（[`dump_inline`]），含结构的展开成多行。
+///
+/// 调用方负责**已**写好本元素开头的换行与缩进（`indent` 即该缩进级别），
+/// 因此这里不在开头补缩进，展开出来的续行由各自递归负责对齐。
+#[cfg(feature = "sml")]
+fn dump_element(v: &Value, indent: usize, depth: usize, out: &mut String) {
+    // 深度守卫必须在最前：下面的 `Value::Array` 分支会**直接递归自己**
+    // （`dump_inline` 那条路自带守卫，这条没有），少了它，深层嵌套数组
+    // （如 5 万层 `[[[[…]]]]`）会把栈写爆 —— 实测触发 0xC00000FD。
+    if depth > MAX_VALUE_DEPTH {
+        out.push_str("/* …深度超限… */ null");
+        return;
     }
-    out.push_str(&format!("\n{}}}", "  ".repeat(indent)));
+    if is_flat(v) {
+        out.push_str(&dump_inline(v, depth));
+        return;
+    }
+    match v {
+        Value::Object(m) => {
+            out.push('{');
+            dump_object_body(m, indent, depth, out);
+        }
+        Value::Array(a) => {
+            out.push('[');
+            for e in a {
+                out.push('\n');
+                out.push_str(&"  ".repeat(indent + 1));
+                dump_element(e, indent + 1, depth + 1, out);
+            }
+            out.push_str(&format!("\n{}]", "  ".repeat(indent)));
+        }
+        // `is_flat` 为假只可能是容器；标量一律扁平。真到这儿也退化成单行，
+        // 不 panic（本模块对外的承诺是「总能写出一份文本」）。
+        _ => out.push_str(&dump_inline(v, depth)),
+    }
 }
 
 #[cfg(feature = "sml")]
@@ -135,7 +216,8 @@ fn dump_value(v: &Value, indent: usize, depth: usize, out: &mut String) {
                 out.push('[');
                 for e in a {
                     out.push('\n');
-                    out.push_str(&format!("{}{}", "  ".repeat(indent + 1), dump_inline(e, depth + 1)));
+                    out.push_str(&"  ".repeat(indent + 1));
+                    dump_element(e, indent + 1, depth + 1, out);
                 }
                 out.push_str(&format!("\n{}]", pad));
             }
@@ -205,13 +287,114 @@ pub fn to_sml(v: &Value) -> String {
             dump_block(m, 0, 0, &mut out);
         } else {
             for (k, val) in m {
-                out.push_str(&format!("{}: ", quote_if_needed(k)));
+                // 同 [`starts_inline`]：块值自己会换行，别在行尾留空格
+                out.push_str(&format!("{}:", quote_if_needed(k)));
+                if starts_inline(val) {
+                    out.push(' ');
+                }
                 dump_value(val, 0, 0, &mut out);
                 out.push('\n');
             }
         }
     } else {
-        out.push_str(&dump_inline(v, 0));
+        // 顶层非对象：与数组元素同一套规则（扁平单行 / 含结构展开）
+        dump_element(v, 0, 0, &mut out);
     }
     out
+}
+
+/// `to_sml` 排版规则（扁平才留一行 / 含结构展开）与深度守卫的回归测试。
+///
+/// 这两件事都**只靠测试通过是测不出来的**：判据写错成恒真时，226 个测试照样全绿、
+/// 产物却一个字节没变。所以这里直接对**输出的行**下断言（行宽、行内容）。
+#[cfg(all(test, feature = "sml"))]
+mod tests {
+    use super::*;
+
+    fn obj(pairs: Vec<(&str, Value)>) -> Value {
+        let mut m = BTreeMap::new();
+        for (k, v) in pairs {
+            m.insert(k.to_string(), v);
+        }
+        Value::Object(m)
+    }
+
+    fn s(x: &str) -> Value {
+        Value::Str(x.to_string())
+    }
+
+    #[test]
+    fn flat_container_stays_on_one_line() {
+        let v = obj(vec![(
+            "phoneNumbers",
+            Value::Array(vec![
+                obj(vec![("type", s("home"))]),
+                obj(vec![("type", s("office"))]),
+            ]),
+        )]);
+        let out = to_sml(&v);
+        assert!(out.contains("{ type: home }"), "扁平容器应一行写完：{out}");
+        assert!(out.contains("{ type: office }"), "{out}");
+        assert!(out.lines().all(|l| l.len() < 40), "不该出现换行展开：{out}");
+    }
+
+    #[test]
+    fn structured_element_expands_across_lines() {
+        let reg = obj(vec![
+            ("name", s("CTLR")),
+            (
+                "registers",
+                obj(vec![(
+                    "register",
+                    Value::Array(vec![obj(vec![("name", s("CTLR"))])]),
+                )]),
+            ),
+        ]);
+        let v = obj(vec![("peripheral", Value::Array(vec![reg]))]);
+        let out = to_sml(&v);
+        // 含容器的元素展开：`registers` 另起一行（注意键有缩进，故 trim 后再比）
+        assert!(
+            out.lines().any(|l| l.trim() == "registers:"),
+            "含容器的键应换行：{out}"
+        );
+        // 但最内层仍是扁平的 → 保持一行
+        assert!(
+            out.lines().any(|l| l.trim() == "{ name: CTLR }"),
+            "扁平叶子应仍在一行：{out}"
+        );
+        assert!(
+            out.lines().all(|l| l.len() < 60),
+            "展开后不该再有超长行：{out}"
+        );
+        // 键后接块时不该在行尾留空格（既有输出里每处都留了一个）
+        assert!(
+            out.lines().all(|l| l == l.trim_end()),
+            "不该出现行尾空白：{out}"
+        );
+    }
+
+    /// 深层嵌套数组必须被深度守卫截住，而不是把栈写爆。
+    ///
+    /// 实测过：`dump_element` 的数组分支会直接递归自己，漏掉守卫时这一例触发
+    /// `0xC00000FD`（STATUS_STACK_OVERFLOW）。
+    #[test]
+    fn deep_nested_array_is_guarded_not_overflowing() {
+        let mut v = Value::Array(vec![]);
+        for _ in 0..5000 {
+            v = Value::Array(vec![v]);
+        }
+        let out = to_sml(&v);
+        assert!(out.contains("深度超限"), "应被深度守卫截住：{}", &out[..80.min(out.len())]);
+    }
+
+    #[test]
+    fn empty_containers_and_scalars_unchanged() {
+        let v = obj(vec![
+            ("a", Value::Array(vec![])),
+            ("b", obj(vec![])),
+            ("c", Value::Int(1)),
+            ("d", Value::Bool(true)),
+        ]);
+        assert_eq!(to_sml(&v), "a: []\nb: {}\nc: 1\nd: true\n");
+    }
 }
