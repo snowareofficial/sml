@@ -180,6 +180,8 @@ pub const E_LIMIT_007: &str = "E-LIMIT-007";
 pub const E_LIMIT_008: &str = "E-LIMIT-008";
 /// [E-LIMIT-009] 量词取值超上限：量词的重复次数超过上限
 pub const E_LIMIT_009: &str = "E-LIMIT-009";
+/// [E-LIMIT-010] 内存分配失败：内存分配失败
+pub const E_LIMIT_010: &str = "E-LIMIT-010";
 /// [E-LINT-001] 缩进里出现制表符：缩进里出现制表符：SML 缩进敏感，请统一用空格
 pub const E_LINT_001: &str = "E-LINT-001";
 /// [E-MIGRATE-001] 顶层出现文本内容：迁入文档在顶层出现了文本内容（只允许空白）
@@ -369,6 +371,7 @@ pub const ALL: &[&str] = &[
     E_LIMIT_007,
     E_LIMIT_008,
     E_LIMIT_009,
+    E_LIMIT_010,
     E_LINT_001,
     E_MIGRATE_001,
     E_MIGRATE_002,
@@ -422,4 +425,4 @@ pub const ALL: &[&str] = &[
 ];
 
 /// 码总数（与 `errors/codes.sml` 的 `count` 对齐）。
-pub const COUNT: usize = 136;
+pub const COUNT: usize = 137;

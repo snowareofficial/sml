@@ -91,7 +91,7 @@ E - CONTRACT - 002
 
 ## 清点（2026-09-18）
 
-`codes.sml` 里的 135 条码是对全部实现**按语义条件清点**出来的产物。清点规则：同一条件在多端
+`codes.sml` 里的码是对全部实现**按语义条件清点**出来的产物。清点规则：同一条件在多端
 出现只算一条；同一语义在 5 个函数里各报一次也只算一条（位置合并到该条的 `note`）。
 
 清了这些范围：
@@ -105,6 +105,9 @@ E - CONTRACT - 002
 | 编辑器 | VSCode 扩展与 LSP 桥 |
 
 结果：**135 条 / 14 个领域**（127 错误 + 7 告警 + 1 提示；按 `status` 分 67 条 done / 68 条 partial）。
+（此后落地 W10 时又补了两条：`E-EXT-008` 外置指令执行失败、`E-LIMIT-010` 内存分配失败 ——
+所以**当前是 137 条 / 129 错误 + 7 告警 + 1 提示 / 68 done + 69 partial**。
+条数的权威出处是 `site/static/errors.json` 的 `count` 字段，别在正文里另记一份；
 按领域：`PARSE` 24、`MIGRATE` 17、`CONTRACT` 15、`FEATURE` 11、`INCLUDE` 11、`LIMIT` 9、
 `DERIVE` 8、`CLI` 7、`EXT` 7、`IO` 7、`LEX` 6、`LINT` 6、`EDITOR` 5、`INTERNAL` 2。
 

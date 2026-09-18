@@ -17,7 +17,7 @@
     "MIGRATE": "迁入格式（JSON / TOML / YAML / XML）",
     "PARSE": "语法"
   },
-  "count": 136,
+  "count": 137,
   "codes": [
     {
       "id": "E-CLI-001",
@@ -1108,6 +1108,19 @@
       ],
       "status": "done",
       "note": "与「量词本身非法」（E-CONTRACT-015）区分：此处是数值过大，属预算问题"
+    },
+    {
+      "id": "E-LIMIT-010",
+      "severity": "error",
+      "domain": "LIMIT",
+      "title": "内存分配失败",
+      "msg": "内存分配失败",
+      "impls": [
+        "c",
+        "cpp"
+      ],
+      "status": "partial",
+      "note": "纯 C / C++ 实现要自己管内存，malloc 失败是可报的错误条件（Rust 遇到 OOM 直接 abort，JS 由宿主抛 RangeError，都没有这个码）。缓冲不够与分配失败要分开：前者是调用方的错（E-IO-*），后者是资源耗尽"
     },
     {
       "id": "E-LINT-001",
