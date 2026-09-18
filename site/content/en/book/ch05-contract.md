@@ -8,6 +8,12 @@ The previous paragraph was about 'value reuse'. **A contract is a "shape constra
 
 >Applicable scenario: When using SML for **application configuration**, the contract is your schema. Correction of incorrect field names, omission of required fields, and filling in port numbers beyond the specified range - an error message will be generated during parsing, and you will be informed of the accuracy to the line or column.
 
+>**Availability**: contracts run on **Rust (the reference implementation), JS, C, C++ and Lua**
+>(Lua support was added recently), and the same contract violation raises **the same error code**
+>on all of them — see the [error code reference](/en/errors/). Whatever is not implemented yet
+>**fails loudly** instead of pretending to pass: Lua, for example, rejects external types (`@type`)
+>and pattern types outright, and records why in the implementation.
+
 ## 5.1 Definition of Contract: `@contract`
 
 ```sml

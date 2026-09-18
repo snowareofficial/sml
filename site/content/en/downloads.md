@@ -16,9 +16,11 @@ VSCode.
   `README.en.md` (English)
 
 > The extension is not on the Marketplace; only a manual VSIX install is
-> provided. Contract validation currently runs only in the Rust implementation,
-> so the editor does not report semantic errors (see "Known limitations" in the
-> extension README).
+> provided (VSIX is a VS Code-only format — Zed cannot install it; Zed users
+> should read `editors/zed/README.md` in the repository).
+> Contracts (`@contract` / `@is`) are supported by Rust, JS, C, C++ and Lua, so
+> the editor **does report semantic errors** too (the earlier "contracts are
+> Rust-only" note is outdated — see "Known limitations" in the extension README).
 
 Reference implementations for each language (Rust `swsml`, etc.) ship with the
 source repository — see the [home page](/en/).

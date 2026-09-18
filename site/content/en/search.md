@@ -17,6 +17,10 @@ no network calls, no tracking, no third-party search library.
 
 - Every textbook chapter (both languages: intro, chapters 1–13, appendix)
 - Reading-oriented pages such as the home page, Playground and examples
+- **Error codes**: when a query looks like a code (`E-CONTRACT-002`, `E-CONTRACT-*`), the page
+  **lazily loads** `errors.json` and lists "code hits" above the prose hits; clicking one deep-links
+  to [`/en/errors/#<code>`](/en/errors/). If `errors.json` cannot be fetched it is skipped
+  silently and prose hits work as usual
 - **Not** the Gitee activity feed or the downloads page — their content is injected at runtime or is
   just links, so hits would be meaningless
 

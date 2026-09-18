@@ -32,6 +32,12 @@ This appendix compares SML with common formats and lists the most common errors 
 |Loop include error | A contains B, and B contains A in turn | Break loop dependency|
 |`@is` report contract undefined | Contract written after `@is` | Move `@contract` to before `@is`|
 |Namespace conflict | Same ns duplicate definition `@name`/`@contract` | Rename, or use different `as ns`|
+|Document that "used to parse" now errors | It was one of the silently-wrong inputs (unterminated string, stray `}` in an array, top-level scalar, …) | Fix per its code: usually a missing quote or an extra `}`|
+
+>Errors carry a stable **code** (`E-XXX-NNN`): the same condition raises the same code on all five
+>implementations (Rust / C / C++ / JS / Lua). Look the code up in the
+>[error code reference](/en/errors/) rather than pasting the message — wording may differ per
+>implementation, the code may not.
 
 ## A.3 Grammar Quick Check
 
