@@ -23,6 +23,9 @@ const CASES = [
   ["@contract S { port: int }\nserver {\n  @is S\n  port: 1\n  extra: 2\n}\n", "E-CONTRACT-004"],
   ["@contract S { ratio: num min 0 max 1 }\nserver {\n  @is S\n  ratio: 2\n}\n", "E-CONTRACT-005"],
   ["include \"nope.sml\"\n", "E-INCLUDE-001"],
+  // 空键列表：解析目标列表在 parse() 作用域之外，曾抛宿主 ReferenceError
+  // （fail is not defined）而不是带码错误 —— W14 修。
+  ["include \"x.sml\" as w { }\n", "E-INCLUDE-005"],
   // JS 侧未定义片段引用被当普通键（Rust 报 E-INCLUDE-006）—— 跨端差异，待 W16 判定
   ["k: &nope\n", null],
 ];
