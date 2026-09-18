@@ -91,7 +91,9 @@ smltools -i chip.svd   --to sml > chip.sml   # XML / CMSIS-SVD → SML（--from 
 ```
 
 反向同样成立（`--from sml --to json` 等）。JSON 一侧键按**字典序**输出
-（`Value::Object` 基于 `BTreeMap`），原始书写顺序不保留 —— 这是已知限制，已记进 CHANGELOG。
+（`Value::Object` 基于 `BTreeMap`），原始书写顺序不保留 —— 这不是缺陷而是**语言约定**：
+对象键序**不保证**（Rust 排序、C / C++ / JS / Lua 保源序），要保序请用**数组**。
+详见 README 的「跨实现差异与约定」。
 
 拿一份真实文件感受规模：432 KB 的 CMSIS-SVD（CH32V103xx）迁成 SML 约 277 KB / 6500 行，
 每个寄存器、每个位域都在，可读可 diff；`xml→json` 与 `xml→sml→json` 结果**逐字节一致**，

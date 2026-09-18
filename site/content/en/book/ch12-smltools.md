@@ -93,7 +93,9 @@ smltools -i chip.svd   --to sml > chip.sml   # XML / CMSIS-SVD -> SML (--from op
 
 The reverse works too (`--from sml --to json`, and so on). On the JSON side keys are emitted in
 **lexicographic order** (`Value::Object` is a `BTreeMap`), so the original writing order is not
-preserved — a known limitation, recorded in the CHANGELOG.
+preserved — this is a **language convention**, not a defect: object key order is **not guaranteed**
+(the Rust reference implementation sorts; C / C++ / JS / Lua keep source order). Use **arrays** when
+order matters. See "Cross-implementation divergences and conventions" in the README.
 
 To get a feel for the scale, take a real file: a 432 KB CMSIS-SVD (CH32V103xx) becomes roughly
 277 KB / 6500 lines of SML with every register and bitfield intact and diffable. And

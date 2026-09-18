@@ -40,9 +40,14 @@ region: &base
 ```
 
 > **On fragment references**: `&name` is a **value reference** — writing `key: &name` expands
-> the fragment's content as that key's value. Writing a bare `&base` inside a block does *not*
-> expand into fields, because a bare word inside a block is treated as a key name. To make a
-> block "inherit" a fragment's fields, reference it key by key (`region: &base`).
+> the fragment's content as that key's value.
+> **A bare `&base` on its own line inside a block is a *field splice* in the Rust reference
+> implementation**: the fragment's fields are merged into the enclosing block (measured:
+> `@base { a: 1 b: 2 }` plus `w { c: 3` + `&base }` ⇒ `{ w: { a: 1, b: 2, c: 3 } }`), so those
+> fields must still be declared in any strict contract.
+> ⚠️ **C / C++ do not implement this splice yet** (they treat the bare word as a key name, which
+> leaves an extra `&base` key — a strict contract then reports an undeclared field). Known
+> cross-implementation divergence, tracked in [TODO.md](TODO.md).
 
 **Top-level shapes**: the top level accepts key-value blocks, `{ ... }` object blocks and
 `[ ... ]` arrays. Arrays are convenient for record lists (e.g. a send history):
@@ -243,6 +248,25 @@ let v = parse_file("app.sml")?;
 
 Contracts (`@contract` / `@is`) are landed in Rust / C / C++ / JS; **Lua is the only side left**
 (see the "Contracts" section of [TODO.md](TODO.md)).
+
+### Cross-implementation divergences and conventions
+
+Implementations agree on almost everything (**the same condition yields the same error code**).
+The two items below are **intentional** divergences, documented so that you depend on the
+**convention** rather than on one implementation's output:
+
+1. **Object key order is NOT guaranteed (convention)**: an object (`{ … }` or a key-value block)
+   is a **map**, not a sequence. The Rust reference implementation backs `Value::Object` with a
+   `BTreeMap` and serialises keys **sorted**; C / C++ / JS / Lua preserve **source order**.
+   ⇒ Never rely on object key order. When order matters, use an **array** (`[ … ]`; array elements
+   are ordered, and elements may be bare blocks, e.g. `[ section 情节 { … } ]`).
+2. **Quoting style (divergence; both forms are legal)**: Rust's `to_sml` quotes bare keys/values
+   containing special characters (CJK punctuation, `%`, number-looking `1.1`, prefixed `0x20`);
+   C / C++ quote only on whitespace and `:` `#` `{` `}`. ⇒ The same data may be *written*
+   differently on either side (each side reads its own output back).
+   ⚠️ **Fidelity caveat**: under the looser policy, a "number-looking string" is **reclassified**
+   on read-back (`schemaVersion: 1.1` comes back as a float, not a string) — quote explicitly when
+   you need strict string fidelity.
 
 ## Editor support
 
