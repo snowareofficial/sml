@@ -148,6 +148,40 @@ fn backend_error_is_cli_007() {
     assert_code(&["--to", "md"], Some("table { rows: [ a ] }\n"), "E-CLI-007");
 }
 
+#[test]
+fn clap_unknown_argument_is_cli_008() {
+    // clap 自身的用法错误原先**不带码**（直接打印并 exit 2）；现由 smltools 补码。
+    let o = assert_code(&["--nosuch-flag"], None, "E-CLI-008");
+    assert_eq!(o.code, Some(2), "用法错误应保留退出码 2");
+    // clap 的用法提示必须保留：那是有用的帮助文本，不能被改写掉。
+    assert!(
+        o.all().contains("Usage"),
+        "应保留 clap 的用法提示：\n{}",
+        o.all()
+    );
+}
+
+#[test]
+fn clap_missing_value_is_cli_008() {
+    let o = assert_code(&["--to"], None, "E-CLI-008");
+    assert_eq!(o.code, Some(2), "缺取值应保留退出码 2");
+}
+
+#[test]
+fn clap_help_and_version_are_not_errors() {
+    // `--help` / `--version` 走 clap 的 Err 通道，但那是**正常输出**：
+    // 不得补上 E-CLI-008，退出码必须是 0，且打印到 stdout。
+    let help = drive(&["--help"], None);
+    assert_eq!(help.code, Some(0), "--help 应正常退出");
+    assert!(!help.all().contains("E-CLI-008"), "--help 不能被当作用法错误");
+    assert!(help.stdout.contains("Usage"), "--help 应把用法打印到 stdout");
+
+    let ver = drive(&["--version"], None);
+    assert_eq!(ver.code, Some(0), "--version 应正常退出");
+    assert!(!ver.all().contains("E-CLI-008"), "--version 不能被当作用法错误");
+    assert!(ver.stdout.contains("smltools"), "--version 应把版本打印到 stdout");
+}
+
 // ================= 迁入格式（MIGRATE） =================
 
 #[test]
@@ -257,6 +291,16 @@ fn include_depth_limit_is_include_004() {
     let dir = tmpdir("incdepth");
     let main = write_file(&dir, "self.sml", "include \"self.sml\"\n");
     assert_code(&["-i", &s(&main)], None, "E-INCLUDE-004");
+}
+
+#[test]
+fn include_unquoted_path_is_include_012() {
+    // 未加引号的 include 路径是**写法非法**，不是「文件缺失或读取失败」。
+    // 改动前这里错报 E-INCLUDE-001（用户拿它去查会被误导）。
+    let dir = tmpdir("incunquoted");
+    let main = write_file(&dir, "main.sml", "include nope.sml\n");
+    let o = assert_code(&["-i", &s(&main)], None, "E-INCLUDE-012");
+    assert_eq!(o.code, Some(1), "语言层/展开失败应以退出码 1 结束");
 }
 
 // ================= 特性（FEATURE） =================

@@ -22,9 +22,10 @@
 
 use crate::Value;
 use crate::emit::{
-    EmitOptions, MAX_VALUE_DEPTH, block_name, block_type, escape_xml_attr, escape_xml_text,
-    sanitize_xml_uri, scalar_text,
+    depth_error, EmitOptions, MAX_VALUE_DEPTH, block_name, block_type, escape_xml_attr,
+    escape_xml_text, sanitize_xml_uri, scalar_text,
 };
+use sml_codes::SmlError;
 
 /// HTML 专属选项。
 #[derive(Debug, Clone)]
@@ -59,7 +60,7 @@ impl HtmlOptions {
 }
 
 /// SML 值 → HTML 文本。
-pub fn to_html(v: &Value, opt: &HtmlOptions) -> Result<String, String> {
+pub fn to_html(v: &Value, opt: &HtmlOptions) -> Result<String, SmlError> {
     let mut body = String::new();
     if let Value::Object(_) = v {
         emit_object(v, None, opt, 0, 0, &mut body)?;
@@ -140,9 +141,9 @@ fn emit_value(
     depth: usize,
     hlevel: usize,
     out: &mut String,
-) -> Result<(), String> {
+) -> Result<(), SmlError> {
     if depth > MAX_VALUE_DEPTH {
-        return Err(format!("html: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
+        return Err(depth_error("html"));
     }
     match v {
         Value::Null => {}
@@ -179,9 +180,9 @@ fn emit_object(
     depth: usize,
     hlevel: usize,
     out: &mut String,
-) -> Result<(), String> {
+) -> Result<(), SmlError> {
     if depth > MAX_VALUE_DEPTH {
-        return Err(format!("html: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
+        return Err(depth_error("html"));
     }
     let ty = block_type(v).or(inferred);
     let pad = indent_str(depth);
@@ -279,7 +280,7 @@ fn emit_object(
 }
 
 /// 渲染插图块 `img { src, alt, caption? }` 为 `<figure>`。
-fn render_img(v: &Value, _opt: &HtmlOptions, depth: usize, out: &mut String) -> Result<(), String> {
+fn render_img(v: &Value, _opt: &HtmlOptions, depth: usize, out: &mut String) -> Result<(), SmlError> {
     let pad = indent_str(depth);
     let src = sanitize_xml_uri(
         v.get("src").and_then(|x| x.as_str()).unwrap_or(""),
@@ -362,7 +363,7 @@ fn emit_children(
     depth: usize,
     hlevel: usize,
     out: &mut String,
-) -> Result<(), String> {
+) -> Result<(), SmlError> {
     if let Some(Value::Array(children)) = v.get("children") {
         for child in children {
             emit_value(child, None, opt, depth + 1, hlevel + 1, out)?;
@@ -398,9 +399,9 @@ fn emit_generic_object(
     depth: usize,
     hlevel: usize,
     out: &mut String,
-) -> Result<(), String> {
+) -> Result<(), SmlError> {
     if depth > MAX_VALUE_DEPTH {
-        return Err(format!("html: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
+        return Err(depth_error("html"));
     }
     let pad = indent_str(depth);
     if let Value::Object(m) = v {

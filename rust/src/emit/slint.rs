@@ -16,9 +16,10 @@
 
 use crate::Value;
 use crate::emit::{
-    EmitOptions, scalar_text, block_type, block_name, sanitize_slint_ident, slint_handler_safe,
-    slint_expr_safe, MAX_VALUE_DEPTH,
+    backend_error, depth_error, EmitOptions, scalar_text, block_type, block_name,
+    sanitize_slint_ident, slint_handler_safe, slint_expr_safe, MAX_VALUE_DEPTH,
 };
+use sml_codes::SmlError;
 
 #[derive(Debug, Clone)]
 pub struct SlintOptions {
@@ -42,7 +43,7 @@ impl SlintOptions {
     }
 }
 
-pub fn to_slint(v: &Value, opt: &SlintOptions) -> Result<String, String> {
+pub fn to_slint(v: &Value, opt: &SlintOptions) -> Result<String, SmlError> {
     let mut out = String::new();
     if let Value::Object(m) = v {
         for (k, val) in m {
@@ -118,9 +119,9 @@ fn emit_slint(
     depth: usize,
     _is_root: bool,
     out: &mut String,
-) -> Result<(), String> {
+) -> Result<(), SmlError> {
     if depth > MAX_VALUE_DEPTH {
-        return Err(format!("slint: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
+        return Err(depth_error("slint"));
     }
     // 同名重复元素（SML 把 `Button { } Button { }` 合并为该键下的数组）
     // 展开为同级元素序列，保持书写顺序。
@@ -223,7 +224,7 @@ fn emit_slint_decl(
     opt: &SlintOptions,
     depth: usize,
     out: &mut String,
-) -> Result<(), String> {
+) -> Result<(), SmlError> {
     let pad = " ".repeat(depth * opt.base.indent);
     let n = sanitize_slint_ident(name.unwrap_or("unnamed"));
     let args = sanitize_slint_args(v.get("args").and_then(|x| x.as_str()).unwrap_or(""));
@@ -235,7 +236,7 @@ fn emit_slint_decl(
         SlintDecl::Property => {
             let ty = sanitize_slint_type(v.get("type").and_then(|x| x.as_str()).unwrap_or("string"));
             if ty.is_empty() {
-                return Err("slint: property 声明缺少合法类型".to_string());
+                return Err(backend_error("slint: property 声明缺少合法类型"));
             }
             // access: in / out / in-out / private（默认 in-out，便于宿主语言读写）
             let prefix = match v.get("access").and_then(|x| x.as_str()).unwrap_or("in-out") {
@@ -270,9 +271,9 @@ fn emit_slint_decl(
 }
 
 /// 渲染对象体：属性 + 子元素 + 回调。
-fn emit_slint_body(v: &Value, opt: &SlintOptions, depth: usize, out: &mut String) -> Result<(), String> {
+fn emit_slint_body(v: &Value, opt: &SlintOptions, depth: usize, out: &mut String) -> Result<(), SmlError> {
     if depth > MAX_VALUE_DEPTH {
-        return Err(format!("slint: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
+        return Err(depth_error("slint"));
     }
     let pad = " ".repeat(depth * opt.base.indent);
     if let Value::Object(m) = v {
@@ -340,9 +341,9 @@ fn is_callback_name(k: &str) -> bool {
         | "current-item-changed" | "value-changed" | "text-changed" | "pointer-event")
 }
 
-fn emit_callback(ev: &str, val: &Value, opt: &SlintOptions, depth: usize, out: &mut String) -> Result<(), String> {
+fn emit_callback(ev: &str, val: &Value, opt: &SlintOptions, depth: usize, out: &mut String) -> Result<(), SmlError> {
     if depth > MAX_VALUE_DEPTH {
-        return Err(format!("slint: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
+        return Err(depth_error("slint"));
     }
     let pad = " ".repeat(depth * opt.base.indent);
     // 把常见事件名映射到 Slint 原生回调名，并做标识符白名单清洗

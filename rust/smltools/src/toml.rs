@@ -16,7 +16,7 @@
 use std::collections::BTreeMap;
 
 use sml::Value;
-use sml_codes::{SmlError, E_MIGRATE_011, E_MIGRATE_012};
+use sml_codes::{SmlError, E_INTERNAL_001, E_MIGRATE_011, E_MIGRATE_012};
 
 /// E-MIGRATE-011：TOML 语法非法（不是键值形式、键名为空、缺少取值、内联表缺等号）。
 fn syntax(msg: impl Into<String>) -> SmlError {
@@ -28,6 +28,14 @@ fn syntax(msg: impl Into<String>) -> SmlError {
 /// 与语法错误分开：这类是「语法没问题，但语义上不能这样重复定义」。
 fn conflict(msg: impl Into<String>) -> SmlError {
     SmlError::new(E_MIGRATE_012, msg)
+}
+
+/// E-INTERNAL-001：内部错误（走到了不应到达的分支）。
+///
+/// 出现即 bug，但**绝不能用 panic 表达**：用户拿一份畸形 TOML 不该让工具崩，
+/// 而应拿到一个带码的普通错误。故所有「本应不可能」的分支一律返回此码。
+fn internal(msg: impl Into<String>) -> SmlError {
+    SmlError::new(E_INTERNAL_001, msg)
 }
 
 /// 解析 TOML 文本。
@@ -354,7 +362,7 @@ fn insert_keys(
     // 再按 keys 逐级深入
     let mut node: &mut BTreeMap<String, Value> = &mut tmp_root;
     if !cur.is_empty() {
-        node = descend(&mut tmp_root, cur);
+        node = descend(&mut tmp_root, cur, no)?;
     }
     let (last, parents) = keys
         .split_last()
@@ -378,25 +386,31 @@ fn insert_keys(
 
 /// 取 `path` 指向的可变表。
 ///
-/// 前置条件：调用方已用 [`ensure_table`] 建好路径，故这里「取不到」不可能发生。
-/// 用 `unreachable!` 而不是 `break`：提前 `return cur` 会与循环内的可变借用
-/// 冲突（E0499，返回值要求借用持续到 `'a`）。
+/// 前置条件：调用方已用 [`ensure_table`] 建好路径，所以正常情况下「取不到」
+/// 不会发生。**但这里仍返回 `Err` 而不是 `unreachable!`**：panic 不是可接受的
+/// 对用户失败方式 —— 用户拿一份畸形 TOML 不该让工具崩，而应看到带码的错误
+/// （`E-INTERNAL-001`）。本分支属**防御性**处理：经 `ensure_table` 之后实际不可达
+/// （`ensure_table` 与本地对 `Object`、以及表数组末元素为 `Object` 的判定完全一致）。
+///
+/// 另外：这里能 `Ok(cur)` 安全返回、也能在循环内 `return Err`，都不会与 `cur`
+/// 的可变借用冲突（`Err` 分支不携带借用，借用在此结束）。
 fn descend<'a>(
     root: &'a mut BTreeMap<String, Value>,
     path: &[String],
-) -> &'a mut BTreeMap<String, Value> {
+    no: usize,
+) -> Result<&'a mut BTreeMap<String, Value>, SmlError> {
     let mut cur = root;
     for k in path {
         cur = match cur.get_mut(k) {
             Some(Value::Object(sub)) => sub,
             Some(Value::Array(a)) => match a.last_mut() {
                 Some(Value::Object(sub)) => sub,
-                _ => unreachable!("ensure_table 已保证路径上是表"),
+                _ => return Err(internal(format!("第 {no} 行：`{k}` 不是表"))),
             },
-            _ => unreachable!("ensure_table 已保证路径上是表"),
+            _ => return Err(internal(format!("第 {no} 行：`{k}` 不是表"))),
         };
     }
-    cur
+    Ok(cur)
 }
 
 /// 解析一个 TOML 值。
@@ -666,5 +680,16 @@ mod tests {
         root.insert("srv".to_string(), Value::Array(vec![Value::Object(item)]));
         let out = to_toml(&Value::Object(root));
         assert!(out.contains("[[srv]]"), "应输出表数组头：{out}");
+    }
+
+    /// 防御性分支：`descend` 的前置条件是「路径已由 `ensure_table` 建好」。
+    /// 这里**绕过**前置条件，验证它返回**带码错误而不是 panic**
+    /// —— 改动前该分支是 `unreachable!()`，会让整个测试进程崩掉。
+    #[test]
+    fn descend_returns_coded_err_instead_of_panicking() {
+        let mut root = BTreeMap::new();
+        root.insert("a".to_string(), Value::Int(1));
+        let err = descend(&mut root, &["a".to_string()], 7).unwrap_err();
+        assert_eq!(err.code(), E_INTERNAL_001);
     }
 }

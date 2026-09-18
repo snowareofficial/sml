@@ -23,9 +23,10 @@
 
 use crate::Value;
 use crate::emit::{
-    EmitOptions, escape_xml_attr, escape_xml_text, scalar_text, block_type, block_name,
+    depth_error, EmitOptions, escape_xml_attr, escape_xml_text, scalar_text, block_type, block_name,
     sanitize_xml_name, sanitize_xml_attr_name, sanitize_xml_uri, is_uri_attr, MAX_VALUE_DEPTH,
 };
+use sml_codes::SmlError;
 
 /// 写入一条属性：属性名过事件处理器黑名单，URI 类属性值过 scheme 白名单。
 /// 返回 false 表示该属性被安全策略丢弃（事件属性）。
@@ -66,7 +67,7 @@ impl XmlOptions {
 }
 
 /// SML → 通用 XML。
-pub fn to_xml(v: &Value, opt: &XmlOptions) -> Result<String, String> {
+pub fn to_xml(v: &Value, opt: &XmlOptions) -> Result<String, SmlError> {
     let mut out = String::new();
     if opt.base.standalone {
         out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
@@ -91,9 +92,9 @@ fn emit_node(
     opt: &XmlOptions,
     depth: usize,
     out: &mut String,
-) -> Result<(), String> {
+) -> Result<(), SmlError> {
     if depth > MAX_VALUE_DEPTH {
-        return Err(format!("xml: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
+        return Err(depth_error("xml"));
     }
     let pad = " ".repeat(depth * opt.base.indent);
     match v {
@@ -177,7 +178,7 @@ fn emit_node(
 /// - 子部件：`children` 数组，或对象内联的「非属性」对象字段；
 /// - 属性：除保留键外所有标量字段 → LVGL 属性；
 /// - 事件：`on_<event>` 字段（如 `on_click`）→ `<event name="click" handler="..."/>`。
-pub fn to_lvgl(v: &Value, opt: &XmlOptions) -> Result<String, String> {
+pub fn to_lvgl(v: &Value, opt: &XmlOptions) -> Result<String, SmlError> {
     let mut out = String::new();
     if opt.base.standalone {
         out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
@@ -207,9 +208,9 @@ fn lv_short(ty: &str) -> &str {
     ty.strip_prefix("lv_").unwrap_or(ty)
 }
 
-fn emit_lvgl_node(v: &Value, tag: &str, opt: &XmlOptions, depth: usize, out: &mut String) -> Result<(), String> {
+fn emit_lvgl_node(v: &Value, tag: &str, opt: &XmlOptions, depth: usize, out: &mut String) -> Result<(), SmlError> {
     if depth > MAX_VALUE_DEPTH {
-        return Err(format!("lvgl: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
+        return Err(depth_error("lvgl"));
     }
     let pad = " ".repeat(depth * opt.base.indent);
     let tag = sanitize_xml_name(tag);

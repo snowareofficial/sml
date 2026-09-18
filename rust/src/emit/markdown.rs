@@ -23,9 +23,11 @@
 
 use crate::Value;
 use crate::emit::{
-    EmitOptions, escape_text, escape_xml_attr, is_uri_attr, scalar_text, block_type, block_name,
-    sanitize_xml_name, sanitize_xml_attr_name, sanitize_xml_uri, MAX_VALUE_DEPTH,
+    backend_error, depth_error, EmitOptions, escape_text, escape_xml_attr, is_uri_attr, scalar_text,
+    block_type, block_name, sanitize_xml_name, sanitize_xml_attr_name, sanitize_xml_uri,
+    MAX_VALUE_DEPTH,
 };
+use sml_codes::SmlError;
 
 /// 过滤危险 URI scheme：`javascript:` / `vbscript:` / `data:`（图片除外）一律清空，
 /// 防止 Markdown 链接/图片触发 XSS。
@@ -79,10 +81,10 @@ const HTML_PASSTHROUGH_DENY: &[&str] = &[
 ];
 
 /// 检查 HTML 透传标签名是否安全。返回 `Err` 表示该标签被安全策略拒绝。
-fn check_html_passthrough_tag(name: &str) -> Result<String, String> {
+fn check_html_passthrough_tag(name: &str) -> Result<String, SmlError> {
     let tag = sanitize_xml_name(name);
     if HTML_PASSTHROUGH_DENY.contains(&tag.to_ascii_lowercase().as_str()) {
-        return Err(format!("markdown: HTML 透传拒绝危险标签 `<{tag}>`"));
+        return Err(backend_error(format!("markdown: HTML 透传拒绝危险标签 `<{tag}>`")));
     }
     Ok(tag)
 }
@@ -213,7 +215,7 @@ impl MarkdownOptions {
 }
 
 /// SML 值 → Markdown 文本。
-pub fn to_markdown(v: &Value, opt: &MarkdownOptions) -> Result<String, String> {
+pub fn to_markdown(v: &Value, opt: &MarkdownOptions) -> Result<String, SmlError> {
     let mut out = String::new();
     // 顶层若是对象（文档），遍历其字段，字段名即 SML 风格块类型
     if let Value::Object(m) = v {
@@ -248,9 +250,9 @@ fn emit_value(
     depth: usize,
     hlevel: usize,
     out: &mut String,
-) -> Result<(), String> {
+) -> Result<(), SmlError> {
     if depth > MAX_VALUE_DEPTH {
-        return Err(format!("markdown: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
+        return Err(depth_error("markdown"));
     }
     match v {
         Value::Null => {}
@@ -299,9 +301,9 @@ fn emit_object(
     depth: usize,
     hlevel: usize,
     out: &mut String,
-) -> Result<(), String> {
+) -> Result<(), SmlError> {
     if depth > MAX_VALUE_DEPTH {
-        return Err(format!("markdown: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
+        return Err(depth_error("markdown"));
     }
     let ty = block_type(v).or(inferred);
     let pad = indent_str(depth, opt);
@@ -495,9 +497,9 @@ fn emit_list_item(
     marker: &str,
     pad: &str,
     out: &mut String,
-) -> Result<(), String> {
+) -> Result<(), SmlError> {
     if depth > MAX_VALUE_DEPTH {
-        return Err(format!("markdown: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
+        return Err(depth_error("markdown"));
     }
     // 任务列表项：{ text, done }
     if opt.task_list {
@@ -542,7 +544,7 @@ fn emit_list_item(
     Ok(())
 }
 
-fn emit_table(v: &Value, opt: &MarkdownOptions, pad: &str, out: &mut String) -> Result<(), String> {
+fn emit_table(v: &Value, opt: &MarkdownOptions, pad: &str, out: &mut String) -> Result<(), SmlError> {
     let header = v.get("header").and_then(|x| match x {
         Value::Array(a) => Some(a.clone()),
         _ => None,
@@ -554,7 +556,7 @@ fn emit_table(v: &Value, opt: &MarkdownOptions, pad: &str, out: &mut String) -> 
 
     let header = match header {
         Some(h) => h,
-        None => return Err("table 缺少 header 数组".to_string()),
+        None => return Err(backend_error("table 缺少 header 数组")),
     };
     let rows = rows.unwrap_or_default();
 
@@ -591,9 +593,9 @@ fn emit_generic_object(
     depth: usize,
     hlevel: usize,
     out: &mut String,
-) -> Result<(), String> {
+) -> Result<(), SmlError> {
     if depth > MAX_VALUE_DEPTH {
-        return Err(format!("markdown: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
+        return Err(depth_error("markdown"));
     }
     let pad = indent_str(depth, opt);
     if let Value::Object(m) = v {
@@ -780,7 +782,7 @@ fn emit_children(
     depth: usize,
     hlevel: usize,
     out: &mut String,
-) -> Result<(), String> {
+) -> Result<(), SmlError> {
     if let Some(Value::Array(children)) = v.get("children") {
         for child in children {
             emit_value(child, None, opt, depth + 1, hlevel + 1, out)?;

@@ -35,10 +35,9 @@ use sml::emit::{
 use clap::Parser;
 use sml::{parse, to_sml, Value, Version};
 use sml_codes::{
-    SmlError, E_CLI_001, E_CLI_002, E_CLI_003, E_CLI_004, E_CLI_005, E_CLI_006, E_CLI_007,
-    E_EXT_006, E_FEATURE_004, E_INCLUDE_001, E_INCLUDE_004, E_INTERNAL_001, E_IO_001, E_IO_003,
-    E_IO_004, E_IO_005, E_IO_006, E_IO_007, E_LIMIT_004, E_LIMIT_005, E_LIMIT_006, E_MIGRATE_017,
-    I_FEATURE_001,
+    SmlError, E_CLI_001, E_CLI_002, E_CLI_003, E_CLI_004, E_CLI_005, E_CLI_006, E_CLI_008,
+    E_FEATURE_004, E_INCLUDE_001, E_INCLUDE_004, E_INCLUDE_012, E_INTERNAL_001, E_IO_001, E_IO_003,
+    E_IO_004, E_IO_005, E_IO_006, E_IO_007, E_MIGRATE_017, I_FEATURE_001,
 };
 use std::path::Path;
 
@@ -47,36 +46,6 @@ mod lint;
 mod toml;
 mod xml;
 mod yaml;
-
-/// 把「输出后端」（`swsml::emit::*`）返回的**无码** `String` 映射成带码错误。
-///
-/// `swsml` 的 emit 后端目前仍返回 `Result<_, String>`（无码），而码表把这件事拆成了几条
-/// 更具体的条目 —— 它们是**后端产生、由 CLI 呈现**的：
-/// - `E-LIMIT-004` 递归深度超限（各后端共用）；
-/// - `E-LIMIT-005` / `E-LIMIT-006` custom 生成器的输出长度 / 数组循环上限；
-/// - 其余一律 `E-CLI-007`「输出后端报错（内层原因见原始错误）」。
-///
-/// ⚠️ 这里靠**文案前缀**判定：只有当 `swsml` 让 emit 后端也返回带码错误时才能拿掉。
-/// 代价是上游改文案会静默退化成 `E-CLI-007`（仍是合法码，只是粒度变粗）；
-/// `tests/error_codes.rs` 里钉了这几条，改文案会让用例**响亮地**失败。
-fn backend_error(inner: String) -> SmlError {
-    let code = if inner.contains("递归深度超过上限") {
-        E_LIMIT_004
-    } else if inner.starts_with("custom: 输出超过长度上限") {
-        E_LIMIT_005
-    } else if inner.starts_with("custom: 数组超过循环上限") {
-        E_LIMIT_006
-    } else {
-        E_CLI_007
-    };
-    SmlError::new(code, inner)
-}
-
-/// `CustomOptions::from_generator` 的失败原因（缺 `rules` / `rules` 为空 / 某条规则缺模板）
-/// 正对应 `E-EXT-006`（custom 规则文档非法）。同 [`backend_error`]，也是文案面判定的权宜之计。
-fn custom_rules_error(inner: String) -> SmlError {
-    SmlError::new(E_EXT_006, inner)
-}
 
 /// 输入格式（迁移用）：SML 是原生格式，JSON / TOML / YAML / XML 是「迁入」格式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -473,8 +442,7 @@ struct Args {
     math: bool,
 }
 
-fn parse_args() -> Result<Args, SmlError> {
-    let cli = Cli::parse();
+fn parse_args(cli: Cli) -> Result<Args, SmlError> {
     // E-CLI-002：输出格式取值未知（文案附带全部可用取值）。
     let format = Format::parse(&cli.format).ok_or_else(|| {
         SmlError::new(
@@ -602,13 +570,13 @@ fn expand_includes(text: &str, base: &Path) -> Result<String, SmlError> {
 }
 
 fn expand_includes_impl(text: &str, base: &Path, depth: usize) -> Result<String, SmlError> {
+    // ⚠️ 这里（及本函数内其余 `Err`）的消息**不要再自带 `smltools: ` 前缀**：
+    // 外层 `main`/`convert_dir` 打印时统一是 `eprintln!("smltools: {e}")`，
+    // 内层再加一遍会打出 `smltools: smltools: …` 的重复前缀，误导用户以为消息被嵌了两层。
     if depth > 16 {
         // E-INCLUDE-004：smltools 自带的展开上限也归此码（数值与语言层的 32 不同，
         // 差异用文案表达，码相同）。
-        return Err(SmlError::new(
-            E_INCLUDE_004,
-            "smltools: include 嵌套超过 16 层",
-        ));
+        return Err(SmlError::new(E_INCLUDE_004, "include 嵌套超过 16 层"));
     }
     let mut out = String::new();
     for line in text.lines() {
@@ -628,7 +596,7 @@ fn expand_includes_impl(text: &str, base: &Path, depth: usize) -> Result<String,
                 let inc = std::fs::read_to_string(&full).map_err(|e| {
                     SmlError::new(
                         E_INCLUDE_001,
-                        format!("smltools: include 读取 {} 失败: {e}", full.display()),
+                        format!("include 读取 {} 失败: {e}", full.display()),
                     )
                 })?;
                 let inc_base = full.parent().unwrap_or(base);
@@ -636,11 +604,14 @@ fn expand_includes_impl(text: &str, base: &Path, depth: usize) -> Result<String,
                 out.push('\n');
                 continue;
             }
-            // 「路径没有用引号括起」这条：码表里没有更贴切的条目，
-            // 归 E-INCLUDE-001（无法定位目标文件）——见报告里的「待裁决」。
+            // E-INCLUDE-012：include 路径写法非法（未加引号）。
+            //
+            // 这里原先**暂归 E-INCLUDE-001**（无法定位或读取目标文件）—— 那是已知
+            // 错码：用户拿 E-INCLUDE-001 去查会看到「文件缺失或读取失败」，被误导。
+            // 「路径没加引号」与「文件不存在」是两回事，现已归位到 E-INCLUDE-012。
             return Err(SmlError::new(
-                E_INCLUDE_001,
-                format!("smltools: include 路径解析失败: {line}"),
+                E_INCLUDE_012,
+                format!("include 路径写法非法（未加引号）: {line}"),
             ));
         }
         out.push_str(line);
@@ -651,8 +622,11 @@ fn expand_includes_impl(text: &str, base: &Path, depth: usize) -> Result<String,
 
 /// 选择后端做部分翻译。
 ///
-/// `swsml::emit::*` 目前返回 `Result<_, String>`（无码），故统一经 [`backend_error`]
-/// 补码；本模块自带的两个编辑器后端（tmlanguage / highlight）已经直接返回带码错误。
+/// `swsml::emit::*` 已统一返回 `Result<_, SmlError>`：**码由后端自己带上**
+/// （递归深度 `E-LIMIT-004`、custom 输出超长 `E-LIMIT-005`、custom 数组循环
+/// `E-LIMIT-006`、custom 规则文档非法 `E-EXT-006`、其余后端自身失败 `E-CLI-007`），
+/// 本函数只做**原样透传**，不再按文案前缀猜码。
+/// 本模块自带的两个编辑器后端（tmlanguage / highlight）同样直接返回带码错误。
 fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, SmlError> {
     match fmt {
         Format::Sml => Ok(to_sml(value)),
@@ -661,7 +635,7 @@ fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, SmlError> {
                 base: EmitOptions::default(),
                 ..Default::default()
             };
-            sml::emit::to_markdown(value, &opt).map_err(backend_error)
+            sml::emit::to_markdown(value, &opt)
         }
         // JSON：直接复用 crate 内既有的 `jsonify`（与 C-ABI 同款实现，零依赖、带转义），
         // 不再另写一份序列化，避免两处行为漂移。
@@ -684,11 +658,11 @@ fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, SmlError> {
                 },
                 ..Default::default()
             };
-            sml::emit::to_xml(value, &opt).map_err(backend_error)
+            sml::emit::to_xml(value, &opt)
         }
         Format::Svg => {
             let opt = SvgOptions::default();
-            sml::emit::to_svg(value, &opt).map_err(backend_error)
+            sml::emit::to_svg(value, &opt)
         }
         Format::Latex => {
             let opt = LatexOptions {
@@ -696,11 +670,11 @@ fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, SmlError> {
                 math: args.math,
                 ..Default::default()
             };
-            sml::emit::to_latex(value, &opt).map_err(backend_error)
+            sml::emit::to_latex(value, &opt)
         }
         Format::Slint => {
             let opt = SlintOptions::default();
-            sml::emit::to_slint(value, &opt).map_err(backend_error)
+            sml::emit::to_slint(value, &opt)
         }
         Format::Lvgl => {
             let opt = XmlOptions {
@@ -710,14 +684,14 @@ fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, SmlError> {
                 },
                 ..Default::default()
             };
-            to_lvgl(value, &opt).map_err(backend_error)
+            to_lvgl(value, &opt)
         }
         Format::Html => {
             let opt = HtmlOptions {
                 base: EmitOptions::default(),
                 ..Default::default()
             };
-            to_html(value, &opt).map_err(backend_error)
+            to_html(value, &opt)
         }
         Format::Custom => {
             // 自定义生成器需要规则文件：读取 → 解析 → 构建 CustomOptions
@@ -738,10 +712,10 @@ fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, SmlError> {
                 e.with_code(E_CLI_006)
                     .context(&format!("解析规则文档 {} 失败: ", rules_path.display()))
             })?;
-            // E-EXT-006：规则文档非法（缺 rules / rules 为空 / 某条规则缺模板）。
-            let opt =
-                CustomOptions::from_generator(&gen).map_err(|e| custom_rules_error(e))?;
-            to_custom(value, &opt).map_err(backend_error)
+            // E-EXT-006：规则文档非法（缺 rules / rules 为空 / 某条规则缺模板）——
+            // 码由 `from_generator` 自己带上，这里原样透传。
+            let opt = CustomOptions::from_generator(&gen)?;
+            to_custom(value, &opt)
         }
     }
 }
@@ -842,7 +816,7 @@ fn write_zola(
             None => {
                 return Err(SmlError::new(
                     E_IO_007,
-                    "smltools: --zola-build 需要本机安装 `zola`（未找到，请先安装或将 zola 加入 PATH）",
+                    "--zola-build 需要本机安装 `zola`（未找到，请先安装或将 zola 加入 PATH）",
                 ))
             }
         };
@@ -851,11 +825,11 @@ fn write_zola(
             .arg("build")
             .current_dir(zola_dir)
             .status()
-            .map_err(|e| SmlError::new(E_IO_007, format!("smltools: 无法启动 zola: {e}")))?;
+            .map_err(|e| SmlError::new(E_IO_007, format!("无法启动 zola: {e}")))?;
         if !status.success() {
             return Err(SmlError::new(
                 E_IO_007,
-                format!("smltools: zola build 失败 (exit {:?})", status.code()),
+                format!("zola build 失败 (exit {:?})", status.code()),
             ));
         }
         eprintln!("zola build 完成");
@@ -994,7 +968,27 @@ fn hugo_date() -> String {
 }
 
 fn main() -> ExitCode {
-    let args = match parse_args() {
+    // E-CLI-008：命令行用法错误（未知参数 / 缺取值 / 非法枚举）。
+    //
+    // clap 自身的用法错误原先由 clap **直接打印并 exit 2、不带码**。这里用
+    // `try_parse` 接管这层输出：在 clap 的消息上补码，但**不改写**它的用法提示
+    // （那是有用的帮助文本），退出码仍是 2（与 E-CLI-001..007 一致）。
+    let cli = match Cli::try_parse() {
+        Ok(c) => c,
+        // `--help` / `--version` 也走 Err 通道，但那是**正常输出**（exit code 0）：
+        // 原样打印到对应流，不能被当作用法错误处理。
+        Err(e) if e.exit_code() == 0 => {
+            let _ = e.print();
+            return ExitCode::SUCCESS;
+        }
+        Err(e) => {
+            let err = SmlError::new(E_CLI_008, e.render().to_string());
+            eprintln!("smltools: {err}");
+            return ExitCode::from(2);
+        }
+    };
+
+    let args = match parse_args(cli) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("smltools: {e}");
@@ -1157,43 +1151,79 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
 
-    /// `backend_error` 的文案前缀映射：`swsml` 的 emit 后端返回无码 `String`，
-    /// 这里把码表里更具体的三条挑出来，其余落回 `E-CLI-007`。
+    /// 造一个深度 `levels` 的嵌套对象（用于触发后端的递归深度闸）。
+    fn deep_value(levels: usize) -> Value {
+        let mut v = Value::Str("x".to_string());
+        for _ in 0..levels {
+            let mut m = std::collections::BTreeMap::new();
+            m.insert("child".to_string(), v);
+            v = Value::Object(m);
+        }
+        v
+    }
+
+    /// ⚠️ 这组用例喂的是**真实的上游错误**（直接调用 `sml::emit::*` 让它自己报错），
+    /// 而不是本文件手写的字面量 —— 因此它钉的是「码真的由 emit 后端带上」，
+    /// 上游换码会让这里**响亮地**失败。
     ///
-    /// ⚠️ **这几条钉的是本函数的映射逻辑，不是上游文案。** 下面喂进 `backend_error` 的
-    /// 全是**本文件手写的字面量** —— 所以 `swsml` 改了 emit 后端的文案时，**这里照样绿**，
-    /// 而码会**静默**从 `E-LIMIT-004/005/006` 退化成 `E-CLI-007`（仍是合法码，只是粒度变粗）。
-    ///
-    /// 要真正恢复「上游改文案就红」，只能喂**真实上游错误**（不经 CLI，直接调
-    /// `sml::emit::to_custom` 造出真实报错再过 `backend_error`）—— 见 TODO 的 **W21**。
-    /// 本注释原先写着「这几条故意钉住上游文案、`swsml` 一旦改文案这里会失败」，
-    /// **那是错的**，已更正（写它的时候把"钉映射"当成了"钉上游措辞"）。
+    /// 历史：本模块原先靠 `backend_error` 按**文案前缀**猜码，用例喂的是手写字面量，
+    /// 所以上游一改文案，码会静默退化成兜底码而用例照样绿（W21 根治后已删除该函数）。
     #[test]
-    fn backend_error_maps_known_prefixes() {
-        assert_eq!(
-            backend_error("markdown: 递归深度超过上限 128".into()).code(),
-            E_LIMIT_004
-        );
-        assert_eq!(
-            backend_error("custom: 输出超过长度上限 1048576 字节（模板存在放大，请检查 `{nested}` 是否重复出现）".into())
-                .code(),
-            E_LIMIT_005
-        );
-        assert_eq!(
-            backend_error("custom: 数组超过循环上限 100000".into()).code(),
-            E_LIMIT_006
-        );
-        // 其它后端错误一律「输出后端报错」，内层原因留在文案里。
-        let e = backend_error("table 缺少 header 数组".into());
-        assert_eq!(e.code(), E_CLI_007);
-        assert!(e.message().contains("header"), "内层原因要保留：{e}");
+    fn emit_depth_error_carries_limit_004_from_upstream() {
+        let e = sml::emit::to_markdown(&deep_value(200), &MarkdownOptions::new()).unwrap_err();
+        assert_eq!(e.code(), sml_codes::E_LIMIT_004);
     }
 
     #[test]
-    fn custom_rules_error_is_ext_006() {
-        assert_eq!(
-            custom_rules_error("custom 生成器缺少 rules 数组".into()).code(),
-            E_EXT_006
-        );
+    fn emit_custom_array_loop_carries_limit_006_from_upstream() {
+        // 规则模板里带 `{items:...}`，待渲染值是一个超过 100000 元素的数组。
+        let rules = sml::parse("rules: [ { match: \"big\" template: \"{items:{item}\\n}\" } ]\n")
+            .expect("规则文档应可解析");
+        let opt = CustomOptions::from_generator(&rules).expect("规则文档应合法");
+        let mut m = std::collections::BTreeMap::new();
+        m.insert("big".to_string(), Value::Array(vec![Value::Int(1); 100_001]));
+        let e = sml::emit::to_custom(&Value::Object(m), &opt).unwrap_err();
+        assert_eq!(e.code(), sml_codes::E_LIMIT_006);
+    }
+
+    #[test]
+    fn emit_custom_output_limit_carries_limit_005_from_upstream() {
+        // 每层模板把 `{nested}` 展开 3 次 → 40 层递归足够撞上 8MiB 输出上限。
+        let rules = sml::parse(
+            "rules: [ { match: \"node\" template: \"<{value}>{nested}{nested}{nested}\" } ]\n",
+        )
+        .expect("规则文档应可解析");
+        let opt = CustomOptions::from_generator(&rules).expect("规则文档应合法");
+        let mut v = Value::Str("leaf".to_string());
+        for _ in 0..40 {
+            let mut m = std::collections::BTreeMap::new();
+            m.insert("__type".to_string(), Value::Str("node".to_string()));
+            m.insert("child".to_string(), v);
+            v = Value::Object(m);
+        }
+        let e = sml::emit::to_custom(&v, &opt).unwrap_err();
+        assert_eq!(e.code(), sml_codes::E_LIMIT_005);
+    }
+
+    /// `from_generator` 的三条失败路径（缺 `rules` / `rules` 为空 / 某条规则缺 `template`）
+    /// 都必须真的能触发，且都带 `E-EXT-006`。
+    #[test]
+    fn custom_rules_doc_error_carries_ext_006_from_upstream() {
+        for src in [
+            "norules: 1\n",                          // 缺 rules
+            "rules: []\n",                           // rules 为空
+            "rules: [ { match: \"x\" } ]\n",         // 某条规则缺 template
+        ] {
+            let gen = sml::parse(src).expect("文档应可解析");
+            let e = CustomOptions::from_generator(&gen).unwrap_err();
+            assert_eq!(e.code(), sml_codes::E_EXT_006, "输入：{src}");
+        }
+    }
+
+    #[test]
+    fn markdown_backend_error_carries_cli_007_from_upstream() {
+        let v = sml::parse("table { rows: [ a ] }\n").expect("文档应可解析");
+        let e = sml::emit::to_markdown(&v, &MarkdownOptions::new()).unwrap_err();
+        assert_eq!(e.code(), sml_codes::E_CLI_007);
     }
 }

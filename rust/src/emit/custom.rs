@@ -29,10 +29,11 @@
 //! | `{items:TPL}`   | 对数组每个元素套用子模板 TPL               |
 //!
 //! 安全限制：递归深度上限 `MAX_VALUE_DEPTH`(128)，单节点循环上限 100000 元素；
-//! 规则解析失败返回 `Err(String)`。
+//! 规则解析失败返回带码错误（`E-EXT-006`）。
 
 use sml_value::Value;
-use crate::emit::{EmitOptions, scalar_text, block_type, MAX_VALUE_DEPTH};
+use crate::emit::{depth_error, EmitOptions, scalar_text, block_type, MAX_VALUE_DEPTH};
+use sml_codes::{SmlError, E_EXT_006, E_LIMIT_005, E_LIMIT_006};
 use std::collections::HashSet;
 
 #[cfg(feature = "sml")]
@@ -49,9 +50,18 @@ const MAX_LOOP: usize = 100_000;
 const MAX_OUTPUT: usize = 8 * 1024 * 1024;
 
 /// 带上限地追加文本：超过 [`MAX_OUTPUT`] 返回 Err（而非继续吃内存）。
-fn push_capped(out: &mut String, s: &str) -> Result<(), String> {
+///
+/// 码为 `E-LIMIT-005`（custom 输出长度超上限）—— 由本后端自行带上，
+/// 调用方不再靠文案前缀猜。
+fn push_capped(out: &mut String, s: &str) -> Result<(), SmlError> {
     if out.len().saturating_add(s.len()) > MAX_OUTPUT {
-        return Err(format!("custom: 输出超过长度上限 {} 字节（模板存在放大，请检查 `{{nested}}` 是否重复出现）", MAX_OUTPUT));
+        return Err(SmlError::new(
+            E_LIMIT_005,
+            format!(
+                "custom: 输出超过长度上限 {} 字节（模板存在放大，请检查 `{{nested}}` 是否重复出现）",
+                MAX_OUTPUT
+            ),
+        ));
     }
     out.push_str(s);
     Ok(())
@@ -99,16 +109,19 @@ impl CustomOptions {
         self
     }
     /// 从生成器文档（SML 解析出的 Value）构建规则表。
-    pub fn from_generator(gen: &Value) -> Result<Self, String> {
+    ///
+    /// 失败原因（缺 `rules` / `rules` 为空 / 某条规则缺 `template`）统一带
+    /// `E-EXT-006`（custom 规则文档非法）。
+    pub fn from_generator(gen: &Value) -> Result<Self, SmlError> {
         let mut opt = CustomOptions::new();
         let rules = gen.get("rules").and_then(|x| match x {
             Value::Array(a) => Some(a.clone()),
             _ => None,
-        }).ok_or_else(|| "custom 生成器缺少 rules 数组".to_string())?;
+        }).ok_or_else(|| SmlError::new(E_EXT_006, "custom 生成器缺少 rules 数组"))?;
 
         for (i, r) in rules.iter().enumerate() {
             let template = r.get("template").and_then(|x| x.as_str())
-                .ok_or_else(|| format!("规则 #{} 缺少 template 字符串", i))?;
+                .ok_or_else(|| SmlError::new(E_EXT_006, format!("规则 #{} 缺少 template 字符串", i)))?;
             let match_type = r.get("match").and_then(|x| x.as_str()).map(|s| s.to_string());
             let match_key = r.get("match-key").and_then(|x| x.as_str()).map(|s| s.to_string());
             opt.rules.push(CustomRule {
@@ -118,7 +131,7 @@ impl CustomOptions {
             });
         }
         if opt.rules.is_empty() {
-            return Err("custom 生成器 rules 为空".to_string());
+            return Err(SmlError::new(E_EXT_006, "custom 生成器 rules 为空"));
         }
         Ok(opt)
     }
@@ -133,7 +146,7 @@ fn field_allowed(k: &str, opt: &CustomOptions) -> bool {
 }
 
 /// 应用自定义规则把 SML 值转译为文本。
-pub fn to_custom(v: &Value, opt: &CustomOptions) -> Result<String, String> {
+pub fn to_custom(v: &Value, opt: &CustomOptions) -> Result<String, SmlError> {
     let mut out = String::new();
     if let Value::Object(m) = v {
         // 1) 优先按 rules 的出现顺序输出，保证顶层字段有确定性顺序
@@ -177,9 +190,9 @@ fn render(
     depth: usize,
     _loop: usize,
     out: &mut String,
-) -> Result<(), String> {
+) -> Result<(), SmlError> {
     if depth > MAX_VALUE_DEPTH {
-        return Err(format!("custom: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
+        return Err(depth_error("custom"));
     }
     let rule = match select_rule(v, key, opt) {
         Some(r) => r,
@@ -211,7 +224,10 @@ fn render(
         }
         Value::Array(a) => {
             if a.len() > MAX_LOOP {
-                return Err(format!("custom: 数组超过循环上限 {}", MAX_LOOP));
+                return Err(SmlError::new(
+                    E_LIMIT_006,
+                    format!("custom: 数组超过循环上限 {}", MAX_LOOP),
+                ));
             }
             // 数组本身若被规则模板用 {items:TPL} 描述，则按循环渲染
             for tpl_key in collect_item_templates(&rule.template) {
@@ -295,7 +311,7 @@ fn replace_all_once(template: &str, subs: &[(String, String)]) -> String {
 }
 
 /// 渲染数组元素的子模板（{items:TPL} 中的 TPL 部分）。
-fn render_item(item: &Value, tpl: &str, opt: &CustomOptions, depth: usize) -> Result<String, String> {
+fn render_item(item: &Value, tpl: &str, opt: &CustomOptions, depth: usize) -> Result<String, SmlError> {
     let item_text = scalar_text(item);
     // 嵌套的 {nested} 对数组元素也支持
     let mut nested = String::new();

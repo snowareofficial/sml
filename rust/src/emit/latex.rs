@@ -19,7 +19,10 @@
 //! v2：`math` 选项开启时，`math`/`equation` 块原样透传 `$...$`/`$$...$$`。
 
 use crate::Value;
-use crate::emit::{EmitOptions, escape_latex, scalar_text, block_type, MAX_VALUE_DEPTH};
+use crate::emit::{
+    backend_error, depth_error, EmitOptions, escape_latex, scalar_text, block_type, MAX_VALUE_DEPTH,
+};
+use sml_codes::SmlError;
 
 /// LaTeX 专属选项。
 #[derive(Debug, Clone)]
@@ -76,14 +79,14 @@ const LATEX_DANGEROUS: &[&str] = &[
 
 /// 检查 LaTeX 原始内容（数学公式等）是否含危险控制序列。
 /// 命中即返回 Err——此类内容不能安全地改写，只能拒绝输出。
-fn check_latex_raw(body: &str) -> Result<(), String> {
+fn check_latex_raw(body: &str) -> Result<(), SmlError> {
     for seg in body.split('\\').skip(1) {
         let name: String = seg.chars().take_while(|c| c.is_ascii_alphabetic()).collect();
         if LATEX_DANGEROUS.contains(&name.as_str()) {
-            return Err(format!(
+            return Err(backend_error(format!(
                 "latex: 拒绝输出含危险控制序列 `\\{}` 的数学内容",
                 name
-            ));
+            )));
         }
     }
     Ok(())
@@ -141,7 +144,7 @@ fn sanitize_documentclass(s: &str) -> String {
     }
 }
 
-pub fn to_latex(v: &Value, opt: &LatexOptions) -> Result<String, String> {
+pub fn to_latex(v: &Value, opt: &LatexOptions) -> Result<String, SmlError> {
     let mut out = String::new();
     if opt.full_document && opt.base.standalone {
         let class = sanitize_documentclass(&opt.documentclass);
@@ -163,9 +166,9 @@ pub fn to_latex(v: &Value, opt: &LatexOptions) -> Result<String, String> {
     Ok(out)
 }
 
-fn emit_value(v: &Value, inferred: Option<&str>, opt: &LatexOptions, depth: usize, out: &mut String) -> Result<(), String> {
+fn emit_value(v: &Value, inferred: Option<&str>, opt: &LatexOptions, depth: usize, out: &mut String) -> Result<(), SmlError> {
     if depth > MAX_VALUE_DEPTH {
-        return Err(format!("latex: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
+        return Err(depth_error("latex"));
     }
     match v {
         Value::Object(_) => emit_object(v, inferred, opt, depth + 1, out)?,
@@ -201,9 +204,9 @@ fn latex_heading(level: usize) -> &'static str {
     }
 }
 
-fn emit_object(v: &Value, inferred: Option<&str>, opt: &LatexOptions, depth: usize, out: &mut String) -> Result<(), String> {
+fn emit_object(v: &Value, inferred: Option<&str>, opt: &LatexOptions, depth: usize, out: &mut String) -> Result<(), SmlError> {
     if depth > MAX_VALUE_DEPTH {
-        return Err(format!("latex: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
+        return Err(depth_error("latex"));
     }
     let ty = block_type(v).or(inferred);
     // 容器保序：SML 对象字段按名字排序存储（BTreeMap），同级写 `h1`/`p`/`ul`
@@ -242,7 +245,10 @@ fn emit_object(v: &Value, inferred: Option<&str>, opt: &LatexOptions, depth: usi
                     Value::Object(_) => {
                         if let Some(Value::Bool(b)) = item.get("done") {
                             let mark = if *b { "[x]" } else { "[ ]" };
-                            return Err(format!("LaTeX 不支持任务勾选，遇到 done 字段于列表项: {}", mark));
+                            return Err(backend_error(format!(
+                                "LaTeX 不支持任务勾选，遇到 done 字段于列表项: {}",
+                                mark
+                            )));
                         }
                         block_text(item, opt, depth)?
                     }
@@ -298,7 +304,7 @@ fn emit_object(v: &Value, inferred: Option<&str>, opt: &LatexOptions, depth: usi
 /// 数学块/行内公式。`opt.math` 关闭时退化为**转义后的纯文本**，
 /// 而不是之前的 `description` 环境 —— 后者会把 `$E=mc^2$` 包成
 /// `\item[text] ...` 并转义掉 `^`，既不可读也不像公式。
-fn emit_math(v: &Value, is_equation: bool, opt: &LatexOptions, out: &mut String) -> Result<(), String> {
+fn emit_math(v: &Value, is_equation: bool, opt: &LatexOptions, out: &mut String) -> Result<(), SmlError> {
     let body = raw_body(v);
     if !opt.math {
         out.push_str(&escape_latex(&body));
@@ -325,9 +331,9 @@ fn raw_body(v: &Value) -> String {
 }
 
 /// 容器：按 `children` 数组顺序输出子元素。
-fn emit_container(v: &Value, opt: &LatexOptions, depth: usize, out: &mut String) -> Result<(), String> {
+fn emit_container(v: &Value, opt: &LatexOptions, depth: usize, out: &mut String) -> Result<(), SmlError> {
     if depth > MAX_VALUE_DEPTH {
-        return Err(format!("latex: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
+        return Err(depth_error("latex"));
     }
     for kid in block_children(v).unwrap_or_default() {
         emit_value(kid, None, opt, depth + 1, out)?;
@@ -343,7 +349,7 @@ fn block_children(v: &Value) -> Option<Vec<&Value>> {
     }
 }
 
-fn heading(v: &Value, cmd: &str, opt: &LatexOptions, depth: usize, out: &mut String) -> Result<(), String> {
+fn heading(v: &Value, cmd: &str, opt: &LatexOptions, depth: usize, out: &mut String) -> Result<(), SmlError> {
     let c = block_text(v, opt, depth)?;
     out.push_str(&format!("\\{}{{{}}}\n\n", cmd, c));
     Ok(())
@@ -360,9 +366,9 @@ fn is_inline_ty(t: Option<&str>) -> bool {
 ///   `__type`），必须靠它推断类型；`children` 数组里的裸块同理。
 /// - 非行内类型的对象返回空串：块级内容（列表/表格）塞进 `\emph{}`
 ///   会产出无法编译的 LaTeX，宁可丢弃也不产出坏码。
-fn inline_text(v: &Value, inferred: Option<&str>, opt: &LatexOptions, depth: usize) -> Result<String, String> {
+fn inline_text(v: &Value, inferred: Option<&str>, opt: &LatexOptions, depth: usize) -> Result<String, SmlError> {
     if depth > MAX_VALUE_DEPTH {
-        return Err(format!("latex: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
+        return Err(depth_error("latex"));
     }
     let Value::Object(_) = v else {
         return Ok(escape_latex(&scalar_text(v)));
@@ -401,9 +407,9 @@ fn inline_text(v: &Value, inferred: Option<&str>, opt: &LatexOptions, depth: usi
 ///
 /// 需要完全自定义顺序时用 `children` 数组：
 /// `p { children: [ "前缀 " em { text: "x" } " 后缀" ] }`。
-fn block_text(v: &Value, opt: &LatexOptions, depth: usize) -> Result<String, String> {
+fn block_text(v: &Value, opt: &LatexOptions, depth: usize) -> Result<String, SmlError> {
     if depth > MAX_VALUE_DEPTH {
-        return Err(format!("latex: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
+        return Err(depth_error("latex"));
     }
     let Value::Object(m) = v else {
         return Ok(escape_latex(&scalar_text(v)));
@@ -459,10 +465,10 @@ fn list_items(v: &Value) -> Vec<Value> {
     vec![v.clone()]
 }
 
-fn emit_latex_table(v: &Value, _opt: &LatexOptions, out: &mut String) -> Result<(), String> {
+fn emit_latex_table(v: &Value, _opt: &LatexOptions, out: &mut String) -> Result<(), SmlError> {
     let header = match v.get("header") {
         Some(Value::Array(a)) => a.clone(),
-        _ => return Err("LaTeX table 缺少 header 数组".to_string()),
+        _ => return Err(backend_error("LaTeX table 缺少 header 数组")),
     };
     let rows = match v.get("rows") {
         Some(Value::Array(a)) => a.clone(),
@@ -500,9 +506,9 @@ fn cell_text(v: &Value) -> String {
 }
 
 /// 无类型对象 → description 环境。
-fn emit_description(v: &Value, opt: &LatexOptions, depth: usize, out: &mut String) -> Result<(), String> {
+fn emit_description(v: &Value, opt: &LatexOptions, depth: usize, out: &mut String) -> Result<(), SmlError> {
     if depth > MAX_VALUE_DEPTH {
-        return Err(format!("latex: 递归深度超过上限 {}", MAX_VALUE_DEPTH));
+        return Err(depth_error("latex"));
     }
     if let Value::Object(m) = v {
         out.push_str("\\begin{description}\n");
