@@ -22,6 +22,8 @@
 #define SML_E_CLI_006 "E-CLI-006"
 /* [E-CLI-007] 输出后端报错：输出后端报错（内层原因见原始错误） */
 #define SML_E_CLI_007 "E-CLI-007"
+/* [E-CLI-008] 命令行用法错误：命令行用法错误：未知参数、缺少取值或取值非法 */
+#define SML_E_CLI_008 "E-CLI-008"
 /* [E-CONTRACT-001] 未定义的契约：引用了未定义的契约 */
 #define SML_E_CONTRACT_001 "E-CONTRACT-001"
 /* [E-CONTRACT-002] 字段类型不符：字段类型应为期望类型，实际为其它类型 */
@@ -132,6 +134,8 @@
 #define SML_E_INCLUDE_010 "E-INCLUDE-010"
 /* [E-INCLUDE-011] include 预处理词法失败：include 预处理阶段的词法失败 */
 #define SML_E_INCLUDE_011 "E-INCLUDE-011"
+/* [E-INCLUDE-012] include 路径写法非法：include 路径写法非法（未加引号或含非法字符） */
+#define SML_E_INCLUDE_012 "E-INCLUDE-012"
 /* [E-INTERNAL-001] 内部错误：内部错误：走到了不应到达的分支 */
 #define SML_E_INTERNAL_001 "E-INTERNAL-001"
 /* [E-INTERNAL-002] 内置资源损坏：内置资源损坏（打包或构建事故） */
@@ -283,6 +287,6 @@
 /* [W-LINT-005] 嵌套超过建议阈值：嵌套深度已超过建议阈值 */
 #define SML_W_LINT_005 "W-LINT-005"
 
-#define SML_CODES_COUNT 137
+#define SML_CODES_COUNT 139
 
 #endif /* SML_CODES_H */
