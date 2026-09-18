@@ -41,11 +41,34 @@ def sync_sml_js():
     print("跨站入口同步 ->", lib)
 
 
+def gen_site_data():
+    """生成两个**数据驱动页面**依赖的 JSON：
+      - errors.json        错误码表（源：errors/codes.sml）
+      - search-index.json  教科书搜索索引（源：content/**/*.md）
+
+    必须在 hugo 之前生成 —— 它们在 static/ 下，Hugo 构建时会把 static 复制进 public。
+    失败时只告警不阻断（与 EPUB 一致）：页面会显示「加载失败」而不是整站构建挂掉，
+    这样定位问题比「构建直接失败但不说哪里错」容易。
+    """
+    tools = [
+        (os.path.join(os.path.dirname(SITE), "errors", "gen_json.py"), "错误码表"),
+        (os.path.join(SITE, "tools", "gen_search_index.py"), "搜索索引"),
+    ]
+    for script, label in tools:
+        if not os.path.exists(script):
+            print("!! %s 生成脚本缺失，跳过：%s" % (label, script))
+            continue
+        r = subprocess.call([sys.executable, script])
+        if r != 0:
+            print("!! %s 生成失败（退出码 %d），页面将显示加载失败" % (label, r))
+
+
 def main():
     if "--serve" in sys.argv:
         subprocess.call(["hugo", "server"], cwd=SITE)
         return 0
     sync_sml_js()   # 先同步最新解析器到 static/
+    gen_site_data()  # 再生成数据驱动页面用的 JSON
     shutil.rmtree(OUT, ignore_errors=True)
     os.makedirs(OUT, exist_ok=True)
     r = subprocess.call(["hugo", "--destination", OUT, "--ignoreCache", "--logLevel", "warn"],
