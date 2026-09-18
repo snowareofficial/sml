@@ -18,7 +18,7 @@
 
 | 套件 | 命令 | 结果 |
 |---|---|---|
-| Rust 全 workspace | `cargo test --workspace` | **537 通过 / 0 失败**（46 个 target），**rc=0** —— 连跑 3 次一致，见下 |
+| Rust 全 workspace | `cargo test --workspace` | **538 通过 / 0 失败 / 2 ignored**（46 个 target），**rc=0** —— W16 期间复测（见 §14.5：构建期偶发文件占用，重试即过） |
 | 其中 `smltools` | `cargo test -p smltools` | **119 通过 / 0 失败**（bin 74 + 集成 `tests/error_codes.rs` 45；`xml` 子集 26 在 bin 里） |
 | C | `python build_check.py --run` | rc=0，`ALL LIMIT TESTS PASSED` + `ALL CODE TESTS PASSED` |
 | C++ | `python build_verify.py` | 六 target 全 rc=0（example / CONTRACT / COMMENTS / LIMITS / **CODES 80 条全过** / RS-BRIDGE） |
@@ -780,3 +780,110 @@ C 的数组里出现多余 `}` 仍**静默跳过**（`m: [ } ]` → `{"m":[]}`�
 即 Rust 侧现在**每次都是冷构建**；且 **C: 只剩 2.9 GB**（§8.2 记过这个风险）。
 本轮的 Rust 构建一律用 `CARGO_TARGET_DIR=E:\snoware-target`（E: 有 81 GB），
 **别用默认的 `rust/target`（在 C 盘）** —— 否则有填满 C 盘的风险。
+
+---
+
+## 14. W16（「静默清单」逐条落地）—— **进行中，交接要点**
+
+用户裁决见 §14.1，逐条判定表在 **`errors/silence-decisions.md`**（含四端实测矩阵）。
+本节的用处：**下一位接手者不需要重新测量任何现状**，照着 §14.3 的清单逐批做即可。
+
+### 14.1 用户裁决（已定，2026-09-18）
+
+| 问题 | 裁决 |
+|---|---|
+| 静默清单做多少 | **全做** —— 让各端在这些条件下与 Rust **同码**报错 |
+| `sml-regex` 非法/超长模式静默「不匹配」 | **报错，自动新增码** |
+| YAML 未知转义 | **收紧，但不要污染 SML**（只在迁移层） |
+| `&undefined` 片段引用 | **必须报错**（"这种不应该出现，堪比 `void`"）⇒ Rust 现在是对的，另三端对齐 |
+
+**「顶层标量」判据（已实测定死）**：顶层**恰好一个标量 token** ⇒ `E-PARSE-008`。
+四端改前一致地把 `42` 造键成 `{"42":42}`；`hello world`（两 token）值能往返 ⇒ **不算**；
+带指令的顶层标量（token 数 > 1）**不报** —— 有意保守，宁漏不误伤。
+
+### 14.2 已落地（两笔，都有判别实验）
+
+| 提交 | 内容 |
+|---|---|
+| `a8a37df` | **`E-PARSE-008` 接线（Rust）**：它此前是**死码**（全仓只有常量定义 + doctest 引用，没有一处 `SmlError::new(E_PARSE_008, …)`），而 `42` 被静默造键。判别实验：摘掉检查 ⇒ `top_level_scalar_needs_a_container` 红；还原后 11 passed |
+| `5bd0b64` | **JS 第一批 9 条**：未闭合字符串/块注释、未知转义、`\u` 非法、数组里多余的 `}`、闭合符错配、顶层多余的 `}`/`]`、未闭合数组、顶层标量。判别实验：换回 HEAD 版 JS ⇒ **10 条红**（正是新增用例）；全仓 41 个 `.sml` 扫描新增 FAIL = 1（未跟踪遗留探针） |
+
+`5bd0b64` 顺带修掉一个**既有 P0**：`@feature` 会把**整份文档吞成 `{}`**（`collectFeatures` 是行级读的，
+而解析器那分支靠"遇到 `}` 才停"猜边界，`tokenize` 早已丢换行）—— 实测 `_probe2.sml` 旧 JS 得 `{}`、
+Rust 得完整树。改法：**词法前剥掉整行**（同 Rust 的 `strip_features`）。
+
+### 14.3 未落地（逐批清单，**码已定**）
+
+**JS 余额 4 条**
+- 未注册指令 → `E-PARSE-005`。⚠️ Rust 的规则比直觉细：`@foo { }`（无参数带体）是**合法片段定义**；
+  只有**位置参数**形式（`@foo bar { }`）与"没有片段体"才报 005。别一刀切。
+- 未定义片段引用 `x: &nosuchfrag` → `E-INCLUDE-006`。⚠️ 现有套件 `["k: &nope\n", null]`
+  **钉住了旧的静默行为**，实现时要一起改（并把它从「本来就静默」清单里划掉）。
+- 特性门控（`env` / `contract` / `fragment` 无门控，只有 include 有）→ `E-FEATURE-001`。
+- 模式匹配加步数预算 → `E-LIMIT-002`。
+
+**C 10 条**（`c/sml.c`；用例加进 `c/test_codes.c` / `c/test_limits.c`，跑 `python c/build_check.py --run`）
+- LEX 四条：未闭合字符串 `E-LEX-001`、未闭合块注释 `E-LEX-002`/`E-LEX-003`、未知转义 `E-LEX-004`。
+- 数组里多余的 `}` → `E-PARSE-003`、闭合符错配 → `E-PARSE-002`、未注册指令 → `E-PARSE-005`、
+  未定义片段引用 → `E-INCLUDE-006`、顶层标量 → `E-PARSE-008`。
+- **`sml_parse_json()` / `sml_parse()` 失败要写 `err`**（现在返回 NULL 但 err 为空，调用方分不清
+  「空结果」与「出错」）—— 能判具体码就写，兜底 `E-PARSE-012`。
+- ⚠️ 守住 W13 的性质：`err == NULL` 或 `errsz == 0` 时**一个字节都不许写**（`test_limits.c` 在钉）。
+
+**Lua 6 条**（`lua/lib/sml.soup`；跑 `python lua/run_check.py`）
+- 同 C 那一组，另：⚠️ `a { ] }` 现在报 **`E-PARSE-003`（错码）**，要改成 `E-PARSE-002`（同因同码）。
+- 码的写法保持 `error(msg, 0)` + 码作消息前缀。
+
+**C++ 6 条**（`cpp/sml.cpp`；跑 `python cpp/build_verify.py`）
+- **先实测现状**（判定表里 C++ 那几格写的是「需实测」，别照表假设）。
+
+**Rust 侧 6 条**
+- regex 非法模式 → **新增 `E-PARSE-025`**（用户已授权「自动新增码」）；模式过长 → `E-LIMIT-007`
+  （`impls` 现为 `[js]`，要加 `rust`）；步数预算耗尽 → `E-LIMIT-002`。
+  ⚠️ **`E-LIMIT-002` 是「声明与实现不符」**：`impls: [rust]`，而 `sml-regex` 实测是**静默返回 false**。
+- C-ABI 的 JSON 入口失败要写 `err`。
+- serde 桥 `u64` 超 `i64` 静默变浮点（**丢精度**）→ `E-DERIVE-002`（或按保真口径保留为字符串，先判断设计意图）。
+- `sml-value` 序列化深度超限静默降级为占位文本 → `E-LIMIT-004`。
+- YAML 未知转义 → `E-MIGRATE-013`（**只在 `rust/smltools` 的迁移层收紧，不许改 SML 解析器/值模型**）。
+
+**收口（最后一起做）**：`errors/codes.sml` 按端回填 `impls` + 重跑两个生成器、CHANGELOG 的
+**行为变更段**逐条写明（这批会让一批畸形文档开始报错）、`errors/README.md` 的「静默清单」改写成
+判定结果、TODO 的 W16 行、以及 `errors/silence-decisions.md` 标注落地进度。
+
+### 14.4 方法（这轮验证有效的三条，别丢）
+
+1. **判别实验是唯一验收标准**：把修复还原成旧实现，**同一份用例必须红**。
+   本轮两次都靠它立住（E-PARSE-008 的 `if false && …` 摘除法、JS 的 HEAD 版替换法）。
+2. **每批都做全仓 `.sml` 扫描**：行为变更期唯一的安全网。本轮靠它抓到
+   `@feature` 吞文档（旧实现 `{}`）与三处遗留探针。
+3. **逐批单独提交**：agent 随时会被收走，**落盘才算进度**。
+
+### 14.5 环境（**务必转告用户**，本轮实测）
+
+- ⚠️ **agent 团队被整体拆掉 3 次**（`lua-contract`、`w21`、整个 `w16` 队）。
+  `.codebuddy/teams/<name>/` 会**整个消失**；`w16` 那 5 个成员**一个字节都没写**（除 js 动了两格）。
+  **结论：这个环境里别依赖 agent** —— 由 lead 自己按端逐批做，慢但每批都可验证。
+- ⚠️ **Rust target 目录被清过**：`rust/target` 与 `E:\snoware-target\debug` 都不在了（后者只剩 `scan`），
+  即 Rust 每次都是**冷构建**；且 **C 盘只剩约 2.9 GB**（§8.2 记过这个风险）。
+  ⇒ **一律 `CARGO_TARGET_DIR=E:\snoware-target`**（E: 有 81 GB），别用默认目录（会写 C 盘）。
+  本轮据此跑 `cargo build -p smltools` / `--release --all-features` / `test --workspace` 都成功。
+- ⚠️ **`cargo test --workspace` 会因文件占用失败**：`failed to rename archive file ... (os error 5)`；
+  **等几秒重试即过**（同 `verify_rs.py` 对 `os error 32` 的重试逻辑）。别当成代码问题。
+- ⚠️ **PowerShell 会 AMSI 崩溃**（`AccessViolationException`，本轮崩了 3 次），
+  且 `>` 重定向默认写 **UTF-16**（读的时候会看到乱码/匹配不上）。
+  **用 Python 驱动子进程最稳**（本轮所有验证脚本都是这么写的，放在 `E:\smltmp\`）。
+- **现状数字**：Rust 全量 `rc=0` / 46 targets / **538 passed / 0 failed / 2 ignored**；
+  JS `node js/probe-error-codes.mjs` → `ALL OK`；码表 **139 条**。
+
+### 14.6 下一批的第一件事
+
+**C 侧那 10 条**（与 JS 同源、有 `sml_codes.h` 宏约束，改动面最清楚）
+→ 再做 **Lua** → 再 **C++**（先实测）→ 再 **Rust 那 6 条** → 最后**统一收口**。
+
+### 14.7 顺带发现、**未改**（不属 W16，另行登记）
+
+- **数组里的裸块 `Type { }` 两端不同**：JS 得 `["rect", {…}]`（类型名成了独立元素），
+  Rust 得 `[{__type:"rect", …}]`（合并进元素）。属数据形状差异。
+- **`_probe_for.sml` 那类** `@for` + 片段混写：JS 报 `E-PARSE-003`、Rust 报 `E-PARSE-006`。
+- 仓库根有一批**未跟踪**的遗留探针（`_probe2.sml` / `_probe3.sml` / `_probe_for.sml` / `_lvgl_test/`），
+  W5 的待办里写了要收编后删除 —— 它们会让"全仓扫描"的 FAIL 计数带上噪声（本轮已按此逐条判读）。
