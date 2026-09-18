@@ -14,6 +14,27 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 新增
 
+- **VSCode 扩展：特别高亮（临时探照灯）** —— 选中一个词 → 右键 →
+  「SML: 特别高亮选中词（当前工作区）」，把该词在**整个工作区**里点亮：
+  - 两条命令：`sml.specialHighlight`（右键菜单，`when = editorHasSelection && editorLangId == sml`）、
+    `sml.clearSpecialHighlight`（仅在有高亮时出现）；**对同一个词再触发一次 = 取消**。
+  - 状态栏显示 `N 处 / M 文件`，触到上限标注**已截断**（不假装搜全了）；点状态栏即清除。
+  - 三个配置：`sml.specialHighlight.include`（默认 `**/*.sml`，遵循 `files.exclude`）、
+    `.caseSensitive`（默认 true）、`.wholeWord`（默认 false）。
+  - **三段逻辑是刻意这么写的**：① **字面**匹配 —— 选中 `(`、`*`、`[` 也按字面找，不当正则
+    （当正则会少命中甚至抛异常）；② **不做语义判断** —— 注释/字符串里的同名文字同样点亮
+    （文本级探照灯的价值在**可预期**，「聪明」在这里是负资产：用户没法预测哪处会亮）；
+    ③ 只给**可见编辑器**上色（decorations 的 API 限制），其余文件仍计入统计、打开时按缓存补上。
+    编辑正在高亮的文件时**就地重扫该文件**（快），不整工作区重搜。
+  - 搜索逻辑放在桥接层 `sml-parse.mjs::findOccurrences`（**纯函数、可脱离 VSCode 用 node 直测**，
+    与悬浮/跳转同一取舍）；内部用行首表 + 二分定位，大文件下比「每个命中都重新数换行」快一个量级。
+  - 顺带把扩展自检 `scripts/_verify_ext.mjs` 补成**真有断言**：`findOccurrences` 七条
+    （跨行定位 / `wholeWord` / 大小写 / 字面特殊字符 / `max` / 空词）、**「声明了却没实现的命令」闸门**
+    （拿 `package.json` 的 `commands` + `menus` 逐个反查 `registerCommand` —— 这类 bug 只在用户
+    点下去时才暴露为 command not found）、三个 `.js` 的 `node --check` 语法闸门；
+    并改成**失败即退出码 1**（此前只打印 ✗ 却始终 `exit 0`，于是 `_prepublish.mjs` 里那一步
+    永远显示 ok —— 门槛形同虚设），脚本也不再依赖当前工作目录。
+
 - **错误码真正落到实现里（W10 第一/二部分）**：此前码表只是「文档里的一张表」，
   各端报错**只有文案**，于是「同一个错误在不同实现里是三句话」无法被机器判定。现在：
   - **Rust 全量带码**：`sml-lex` / `sml-parse` / `sml-contract` / `sml-include` 的语言层

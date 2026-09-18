@@ -9,7 +9,8 @@
 > **W4 ②③ 的 C↔Rust 序列化对齐**（§22.3）、以及**四路并行批**
 > （W4 ② ／ `.gitignore` 例外 ／ 文档与 `llms.txt` ／ VSIX 重打，§22.1）
 > 与各自带出的文档收口。
-> ⚠️ **待你做的一件事**：把重打后的 VSIX 装到本机（你现在的编辑器还跑着 0.4.1 的旧解析器）—— §22.4。
+> ✅ **VSIX 已是新版**：本机装的就是 `snoware.sml-lang-0.4.2`（含 W16 之后的解析器），
+> 0.4.1 已被 `.obsolete` 标 true —— 见 §22.4；编辑器侧的「特别高亮」见 §22.8。
 > 当前工作区**干净**，全部测试基线见 §0 与 §5。
 > 疑问多数能在这三处找到答案：本文件 §3（规格与实测）、§4（坑）、`TODO.md` §五（任务分解）。
 
@@ -1412,22 +1413,45 @@ dumper，与改动后在**同一份用例**上对照：
    README 中英 / `llms.txt`（Key facts）/ `ch12-smltools.md` / §3.2。**Rust 侧不动**
    （换保序映射会牵动契约 / include / `@for` 一串按 BTreeMap 写的地方）。
 
-### 22.4 ⚠️ 需要你做的一步：把重打后的 VSIX 装到本机
+### 22.4 VSIX：✅ **已是新版（2026-09-19 实测确认）**
 
-**现状（我实测）**：本机已安装的是 **`snoware.sml-lang-0.4.1`**，其
-`src/vendor/sml.mjs` = **45466 B**（sha256 前缀 `c6e2d09a`）⇒ **你的编辑器至今跑的还是
-W16 之前的解析器**（高亮/诊断/补全拿到的是旧行为）。重打的是 0.4.2，两者不是一个目录。
+**过程**：原先本机装的是 `snoware.sml-lang-0.4.1`（`src/vendor/sml.mjs` = 45466 B ⇒ W16 之前的
+解析器）；重打 0.4.2 后用户已安装。**实测确认**（不是「应该装好了」）：
 
-装（二选一）：
+| 项 | 值 |
+|---|---|
+| 已安装 | `snoware.sml-lang-0.4.2`，`src/vendor/sml.mjs` = **69404 B / sha256 `70f1ee47…`** |
+| 旧版状态 | `.obsolete` = `{"snoware.sml-lang-0.4.1": true}`；`extensions.json` 记的是 version **0.4.2** |
+| 结论 | 编辑器加载的就是新版（0.4.1 目录只是还没被清掉） |
+
+**用「已安装的那份」代码真跑一遍**（`~/.vscode/extensions/snoware.sml-lang-0.4.2/src/sml-parse.mjs`，
+不采信「文件在不在」）：
+
+| 能力 | 结果 |
+|---|---|
+| 定义跳转 `findDefinition(Server, contract)` / `(base, fragment)` | ✅ `{line:0,col:10,length:6}` / `{line:6,col:1,length:4}`；不存在的名字 → `null` |
+| 契约展开 `contractInstance` | ✅ `{key:"web", value:{host:"example.com", port:8080, tls:false}}` —— **默认值是解析器真填的** |
+| 悬浮 `contractHoverMarkdown` | ✅ 声明段 + 「**填入默认值后的结构** —— 来自块 `w`（第 5 行）」+ 实例 |
+| 诊断 / 补全名字集合 | ✅ `[]` / 契约+片段+键全在 |
+| 对照：0.4.1 的 `sml-parse.mjs` | ❌ `findDefinition` ✗ `contractInstance` ✗ `contractHoverMarkdown` ✗（**所以「没展开、没跳转」恰好是 0.4.1 的表现**） |
+
+⚠️ **「契约展开看不到」的四个常见原因（都写进扩展 README 了）**：
+1. **没重载窗口**（装完扩展必须 Reload，否则扩展宿主还是旧的）。
+2. **文档没全绿** —— 展开那一半要求整份文档通过校验（语法 **和** 契约；`contractInstance`
+   内部就是 `parseSafe(text)`）⇒ 有任何错误时只显示声明 + 「_未找到可展开的实例_」。
+   **先看问题面板。**
+3. **光标不在契约名上**（要落在 `@contract Server` 或 `@is Server` 的 `Server`，且该契约
+   在**本文档**声明）。
+4. **写法不对**：`@is` 要写在**块内**；`web @is Server { }`（块名后紧跟）**不是合法语法** ——
+   Rust 报 `E-PARSE-012`、JS 报「多余的结束符号 }」（C/C++ 碰巧接受，但契约语义也不对）。
+   **这是排查时我自己先踩的坑**：拿这种写法去测，结论会指向「扩展坏了」。
+
+**装法（留档，重装/换机器时用）**：
 
 ```bash
 code --install-extension editors\vscode\sml-lang-0.4.2.vsix --force   # 直接装已重打的包
 cd editors\vscode && npm run install-local                            # 会先重打包再装（需联网拉 vsce）
 ```
-
-装完**怎么验**（告诉我一声，我来跑）：`%USERPROFILE%\.vscode\extensions\snoware.sml-lang-0.4.2\src\vendor\sml.mjs`
-应是 **69404 B、sha256 前缀 `70f1ee47`**；再在编辑器里对一条 W16 用例（如未注册指令
-`@foo bar { }`）看是否报出**带码**的诊断。
 
 **版本号口径**（你 2026-09-19 定）：**保持 0.4.2** —— 未上架、手动 `--force` 安装，
 且升版本要**同步 4 处**（`package.json` 的 `version` 与 `install-local`、中英 `README` 各一处），
@@ -1521,3 +1545,39 @@ C++ dumper 探针（`%TEMP%\w4cpp_measure.py`），跑同一份语料：
    **不展开**」的说明与**参照实现的实际行为相反**（`TODO.md` 里那条 `[x]` 也是照这个错前提
    勾掉的）⇒ 本轮**已更正 README 中英**（写明 Rust 是 splice、C/C++ 尚未实现，属跨实现差异），
    并登记 C/C++ 的补齐任务。
+
+### 22.8 VSCode 扩展：特别高亮（临时探照灯）+ 自检升级（2026-09-19）
+
+**需求（用户原话）**：「提供选择 → 右键 → 自定义当前工作区特别高亮」。
+
+**做法**：新模块 `editors/vscode/src/special-highlight.js`（`extension.js` 里一行接线），
+搜索逻辑放桥接层 `sml-parse.mjs::findOccurrences` —— **纯函数、可脱离 VSCode 用 node 直测**
+（与悬浮/跳转同一个取舍：能在 node 里测的逻辑，别绑在编辑器 API 上）。
+
+| 项 | 内容 |
+|---|---|
+| 命令 | `sml.specialHighlight`（右键菜单，`when = editorHasSelection && editorLangId == sml`）、`sml.clearSpecialHighlight`（`when = sml.specialHighlightActive`，由代码 `setContext` 维护） |
+| 交互 | 再触发同一个词 = 取消；状态栏 `N 处 / M 文件`（触上限标**已截断**），点状态栏即清除 |
+| 配置 | `sml.specialHighlight.include`（默认 `**/*.sml`，遵循 `files.exclude`）/ `.caseSensitive` / `.wholeWord` |
+| 上限 | 文件 500 / 命中 20000 / 单文件 4 MB（超了**明说截断**，不假装搜全） |
+
+**三段刻意取舍**（写进代码注释与 README，别被「优化」掉）：① **字面**匹配 —— 选中
+`(`、`*`、`[` 也按字面找，不当正则（当正则会少命中甚至抛异常）；② **不做语义判断** ——
+注释/字符串里的同名文字同样点亮（文本级探照灯的价值在**可预期**，「聪明」在这里是负资产）；
+③ 只给**可见编辑器**上色（decorations 的 API 限制），其余文件仍计入统计、打开时按缓存补上。
+
+**踩到的两个环境事实**：① `@types/vscode`（`^1.80`）里**没有 `findTextInFiles`** ⇒ 改用
+`workspace.findFiles` + `workspace.fs.readFile`（有类型、SML 工作区小，够用）；
+② 扩展自检脚本原先用 `path.resolve("src/…")`，**只有恰好 cd 到扩展目录时才跑得对** ⇒
+改成从 `import.meta.url` 推出扩展根目录再 `chdir`。
+
+**顺带升级自检（这一节的隐藏价值）**：`scripts/_verify_ext.mjs` 之前**只打印 ✗ 却始终
+`exit 0`** ⇒ `_prepublish.mjs` 里那一步永远显示 ok，**门槛形同虚设**。现在它有：
+① `findOccurrences` **七条断言**（跨行定位 / `wholeWord` / 大小写 / 字面特殊字符 / `max` / 空词）；
+② **「声明了却没实现的命令」闸门** —— 拿 `package.json` 的 `commands` + `menus` 逐个反查
+`registerCommand`（这类 bug 只在用户点下去时才暴露为 command not found，静态就能查，必须查）；
+③ 三个 `.js` 的 `node --check` 语法闸门；④ **失败即 rc=1**。
+
+**验证链**：`node scripts/_verify_ext.mjs`（EXT VERIFY ALL PASS）→ `node scripts/_prepublish.mjs`
+（PREPUBLISH ALL PASS）→ 重打 VSIX（**20 项 / 134476 B**；包内逐字节核对：除 `readme.md` 的
+链接改写外全一致，`src/vendor/sml.mjs` 仍是 69404 B / `70f1ee47…`）。
