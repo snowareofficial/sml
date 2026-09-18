@@ -22,6 +22,9 @@
       邮箱 `a@b.c` 不会被误判成指令（后顾断言）。顺带修 `collectFragmentNames` 保留名单不全
       （`@when` / `@for` / `@feature` / `@type` 曾被当成片段名塞进补全列表）
 - [ ] **悬停显示契约展开结果**：展示默认值填充后的最终结构（现有 hover 只显示关键字说明）
+- [ ] **把重打后的 VSIX 装到本机**（0.4.2，包内解析器 = W16 之后）：本机现装的是
+      `snoware.sml-lang-0.4.1`（`src/vendor/sml.mjs` 45466 B ⇒ 旧解析器，W16 的四条修复
+      一个都没生效）。装法、核对哈希与「装完在编辑器里看什么」见 HANDOFF §22.4
 
 ## 新特性：契约（Contract）
 
@@ -352,7 +355,8 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
 | ~~**W1**~~ ✅ | ~~`sml-regex` 量词 off-by-one（`+`/`?`/`*` 全部：原子被强制消费一次）~~ **已完成 2026-09-18**：另发现并修掉 `^...$` 锚点松判（`^conf\.sml$` 会匹配 `conf.sml.bak`）；`sml-regex` 升 `0.1.0-alpha.3`；workspace 467 通过 / 0 失败 | `rust/sml-regex/src/lib.rs`、`rust/tests/security.rs`、`rust/AUDIT_REPORT.md`、`CHANGELOG.md` | ✅ 9 个新单测 + `security.rs` 改按正确语义断言 + ReDoS 预算测试仍通过 | 无 | ✅ |
 | ~~**W2**~~ ✅ | ~~hover 显示**默认值填充后**的契约结构~~ **已完成 2026-09-18**：`contractHoverMarkdown` 组装两段（声明 + 解析器应用契约后的实例），无实例时明说「未找到」；顺带修 JS 契约 `[T]` 简写（曾对合法 SML 假报错） | `editors/vscode/src/{extension.js,sml-parse.mjs}`、`js/sml.mjs`、`editors/vscode/README.md` | ✅ node 探针实测：`port: 5432`/`tls: false` 确实被填进实例；非契约名返回 null；嵌套块正确退化为「未找到」 | 无 | ✅ |
 | **W3** | 顶层标量行为四实现统一为**显式报错** | `c/`、`cpp/`、`js/sml.mjs`、`lua/`、`rust/` + 文档 | **口径已定（2026-09-18）**：四端一律显式报 `E-PARSE-008`，**码必须一致、文案不要求逐字一致**；禁止静默（当前 JS/C/Lua 行为未定义）。各端各配一条单测 | 需先调研取证 | 🤖 |
-| **W4** | C `sml_dump` 与 Rust `to_sml` 逐字节比对 | `c/`、`rust/tests/` | 一批用例输出逐字节相同；有差异则逐条列明并判定是否可接受 | W3 之后（同批文件） | 🤖 |
+| ~~**W4**~~ ✅ **主体已完成（2026-09-18 ~ 19）** | ~~C `sml_dump` 与 Rust `to_sml` 逐字节比对~~ **已完成**：装置 `tools/check_dump_parity.py`（语料 34 个）；① 行尾空格、② 行内/展开、③ **A 类**（dumper 丢 `__type`/`__name`）、**B 类**（数组裸块被拆成 3 个元素）、顺带补齐「裸块参数不丢」（`__name`/`__args`）全部对齐 ⇒ **「行数与 Rust 一致」19/19、总行数差距 13343 → 0 行**；判别实验用 `git show HEAD:c/sml.c` 另编 dumper 对照，正对照逐字节相同。**剩余两类未改（要拍板）**：**引号策略**（C 的 `needs_quote()` 比 Rust 宽松）与**键顺序**（Rust `BTreeMap` 排序 vs C 保源序 —— ⚠️ **数据保真级**，Rust 侧丢源序）。详见 HANDOFF §21 / §22.3；**C++ 同批对齐**（`cpp/sml.cpp`：它连 ② 都没做，且 dumper 五处跳过元数据）⇒ C++↔Rust「行数不同」**15 → 2**、原生六 target 全绿，遗留缺陷见下一行 | `c/`、`cpp/sml.cpp`、`tools/check_dump_parity.py`、`tools/dump_c.c` | ✅ `c/build_check.py --run` ALL PASSED；parity「行数一致」19/19；C++ 六 target rc=0（RS-BRIDGE 缺 cdylib 跳过，属 W9 的 fail-closed） | W3（只剩 Lua/C++ 两格顶层标量，与本条无关） | ✅ |
+| **W4-C++遗留** | **C++ 解析器三处遗留缺陷**（2026-09-19 **定位未改**，均**非本轮引入**）：① **键位置裸块判据过宽** + 参数收集**贪心**（吃到 `{`/`}`/`,`，中间任何 token 都算参数）⇒ `examples/common.sml` 被注释闭合符那一串骗到（C++ 14 行 vs Rust 1 行）；② **`$` 是独立 token**、在键位置被跳过 ⇒ `$env.X` 退化成「键 `env.X` + 值 = 下一个词」（`examples/secrets.sml` 5 vs 6 行、`resendApiKey: null`）；③ **收紧 ① 会立刻暴露**的三处：`@contract X strict { … }`（契约两词名）、反引号串、`@feature` ⇒ 5 个语料从「静默错解」变 `E-PARSE-006` **硬失败**。**正确顺序：先修 ③、再收紧 ①**（反过来做等于把能解析的文件变成不能解析 —— 我第一版就是这么错的）。证据/定位手法（HEAD vs 新版逐前缀对比）见 HANDOFF §22.5–22.6 | `cpp/sml.cpp` | 修 ③ 后收紧 ① ⇒ C++ 语料「行数不同」= **0**；`build_verify.py` 六 target 保持 rc=0 | 无 | ✋ |
 | **W5** | 跨实现一致性套件（conformance） | 新 `tests/conformance/`（用例集 + 各语言 runner） | 一份共享用例被 Rust/C/C++/JS/Lua 各跑一遍，结果一致；临时探针脚本（`_probe_*`/`_verify_showcase.*`）收编后删除 | W3/W4 之后 | 🤖 |
 | **W6** 📌 **能力已由 W20 一阶段实现（纯 Lua）；本条只剩「走 native 绑定」这条路 —— 用户已定「native 可先不做」，故挂起** | Lua 侧契约**走 native 绑定**（即复用 C-ABI / Rust 的实现，而不是在 `lua/lib/sml.soup` 里再写一遍） | `lua/`、`c/` 的导出面 | ⚠️ **别重复实现**：`@contract` / `@is` 校验 + 默认值回填**已经做完了**（W20 一阶段，纯 Lua，13 条码逐条用 `smltools` **实跑**核实过）。本条若将来要做，只有「让 Lua 绑定调 C-ABI 的契约校验」这一种形态，属**性能/一致性收益**，不是能力缺口 | 原定复用 W5 的用例集（W5 仍未做） | ✋ |
 | **W7** | 解析器一次报多条错误 | `rust/sml-parse/src`（错误收集）、`js/sml.mjs`、`editors/vscode/src` | 同一文档的多个错误一次全部返回；旧 `parse()` 行为不变（只加新 API） | 无 | ✋ |

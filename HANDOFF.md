@@ -2,11 +2,14 @@
 
 > 面向下一个会话。读完即可接手，不必翻聊天记录。
 > 本文件主体写于提交 `3995998`（2026-09-18）；那一轮的全部改动**已按主题分 10 笔提交**（清单见 §1.2，`git log --oneline` 可直接对照）。
-> **此后又落了五笔**（都在 2026-09-18 当天，`git log` 可查）：W16 的 **C 批**（§15）、
+> **此后又落了九笔**（2026-09-18 ~ 19，`git log` 可查）：W16 的 **C 批**（§15）、
 > W16 的 **JS 批**（§16）、**W12**（官网错误码通配 / 深链 + 教科书搜索接入码表，
 > 验收脚本 `site/tools/tools_js_check.mjs`）、W16 的 **Rust A 批**（§17.1，含两个新码）、
-> **仓库清理**（§17.3：敏感件移出 + `_` 前缀杂物归档 + 政务样例夹具转为已跟踪），
-> 以及各自带出的文档收口。
+> **仓库清理**（§17.3）、**私有资产的家 `sml_secret`**（§18，已推送）、
+> **W4 ②③ 的 C↔Rust 序列化对齐**（§22.3）、以及**四路并行批**
+> （W4 ② ／ `.gitignore` 例外 ／ 文档与 `llms.txt` ／ VSIX 重打，§22.1）
+> 与各自带出的文档收口。
+> ⚠️ **待你做的一件事**：把重打后的 VSIX 装到本机（你现在的编辑器还跑着 0.4.1 的旧解析器）—— §22.4。
 > 当前工作区**干净**，全部测试基线见 §0 与 §5。
 > 疑问多数能在这三处找到答案：本文件 §3（规格与实测）、§4（坑）、`TODO.md` §五（任务分解）。
 
@@ -1301,3 +1304,177 @@ C 解析失败 **15**（解析层缺口，如 `@feature`/`@when`、`include` 读
 
 **下一步（未做）**：先修 1、2（口径已定、风险低），再判定 3，最后查 4；
 每修一类就重跑 `check_dump_parity.py`，看 19 条收敛到多少。
+
+> **✅ 1 与 2 已做完（2026-09-19，见 §22.3）**：本轮把「行数与 Rust 一致」做到 **19/19**、
+> 总行数差距 **13343 → 0 行**。**3（引号）与 4（键顺序）仍未改** —— 它们不影响行数，
+> 且 4 是**数据保真级**问题（要判定「哪一端该改」），不是顺手能改的。
+
+---
+
+## 22. W4 收口 + 四路并行批（2026-09-19）
+
+### 22.1 四路并行 agent：产出、我的复核方式、提交
+
+| 提交 | 谁 | 做了什么 | 我**独立复核**的方式（不采信自述） |
+|---|---|---|---|
+| `76bbb46` | w4b | **W4 ②**：C 的数组/对象元素「行内 vs 展开」对齐 Rust；抽出 `is_flat()` / `dump_element()`；顺带修 `tools/dump_c.c` 的 Windows 文本模式 | `cd c && python build_check.py --run`（rc=0 / ALL PASSED）+ `check_dump_parity.py`（行数一致 **7/19 → 10/19**、总差距 13343 → 48） |
+| `65b5bfd` | ign | **`.gitignore` 的 `**/_*` 补 9 条精确例外**（`site/static/_headers`、tree-sitter python 绑定的 `__init__.py(i)`、VS Code 6 个发布闸门脚本）；**只加 `!`、不删规则、不放宽既有规则** | 用**退出码**逐条复核（文本会骗人，见 §22.2 第 3 条）：应放行的 9 个不再忽略、应忽略的 10 个仍忽略；`numstat` = **+32/0** |
+| `4d34098` | docs | `llms.txt` + 官网中英 13 个页面 + 编辑器 README 跟上本轮功能 | 它的报告**没落盘**（见下方 ⚠️），我自己读 diff 复核：15 个文件代码围栏全部成对、+169/−11 |
+| `60fbffa` | vsix | 重打 `editors/vscode/sml-lang-0.4.2.vsix`（包内解析器 45466 → 69404 B） | 解包后**包内 vs 工作区**逐字节比（`src/vendor/sml.mjs` = 69404 B / sha256 前缀 `70f1ee47`）；`git check-ignore` 确认该包未被忽略 |
+
+⚠️ **面板上三个 ✗ 不是它们失败**：产出都在磁盘上，是这台机器的 **PowerShell/AMSI
+`AccessViolationException`** 在运行末尾打断（`docs` 连报告都没来得及落盘，所以我只能读 diff 复核）。
+**下一位**：派并行任务时要求「**每完成一步就写报告**」，别攒到最后一步。
+
+### 22.2 三条方法论级的教训（这轮真踩出来的，别丢）
+
+1. **「`vendor/` == `js/sml.mjs`」证明不了「包是新的」**：这两件事在本仓库是**分离**的
+   （同步脚本会跑，但**没人重打包**）。判据必须落到「**包内 vs 工作区**」——
+   旧 0.4.2 就是这么放过期的：**09-07 打的包、09-18 才补提交进库、源码在提交当晚又改了一次**。
+2. **查「有没有被引用」不能用 ripgrep / 编辑器全局搜索**：它们遵守 `.gitignore`，会把
+   **被测文件自己**漏掉（两次得到「0 引用」的**假信号**）。必须 `git grep`（只搜已跟踪文件）。
+   —— 这条同时解释了第一轮 `_` 文件清理为何误判：`.gitignore` 里的 `rust/qsm/**` 是盲区，
+   里面「脚本 A 调脚本 B」当时根本看不见（§17.3）。
+3. **`git check-ignore -v` 的文本会骗人**：命中 `!` 行表示「**不再**被忽略」。
+   判据看**退出码**（`git check-ignore -q` 的 rc）—— 只看文本会把结论判反。
+
+### 22.3 W4 ②③：C ↔ Rust 序列化对齐（`c/sml.c`，本轮）
+
+**装置**：`python tools/check_dump_parity.py`（§21：语料 34 个、C 解析失败 15 个不计入、
+Rust 失败 0）。口径：只看「两端都解析成功」的 **19** 个。
+
+| 指标 | 改前 | 改后 |
+|---|---|---|
+| 「行数与 Rust 一致」 | 10 / 19 | **19 / 19** |
+| 总行数差距（19 个文件合计） | **13343 行** | **0 行** |
+
+**② 行内/展开**（`76bbb46`）：判据 = Rust `dump.rs::is_flat` —— **直接子项全是标量**才算扁平，
+**只看一层、不递归**（递归版是**恒真判据**；Rust 侧当初写这段时真踩过：编译与测试全绿、
+只是完全没生效）。C 侧新增 `is_flat()` / `dump_element()`，`dump_object_body` / `dump_array_body`
+抽出复用（与 Rust 的 `dump_object_body` / `dump_block` / `dump_element` 同构）。
+**量具本体还有个坑**：`tools/dump_c.c` 的 stdout 在 Windows 默认是**文本模式**，`\n` → `\r\n`
+⇒ 逐字节比对**每个文件都必判不一致**（内容里自带 `\r\n` 的文档还会被二次翻译成 `\r\r\n`，
+`yuntianming_original.sml` 的行数因此虚高 293 行）。已 `_setmode(_O_BINARY)`。
+
+**③ A 类（dumper 丢掉 `__type`/`__name`）**：C 把这两个键当「内部标记」跳过，Rust 原样输出。
+后果不只是少两行 —— **只有元数据的块被判成「空体」⇒ 输成 `{}`**（元数据静默消失）。
+现在 `dump_object_body` / `dump_inline` / `sml_dump` 三处**都不筛键**；`obj_has_body()` 的语义
+也从「排除元数据键后还有没有键」改成「**是不是非空对象**」（与 Rust `starts_inline` 的
+「空对象才同行」对齐，`{}` / 标量仍保留 `: `）。顶层按 Rust `to_sml` 分叉：
+`sml_obj_get(v, "__type")` 命中 ⇒ 按块渲染（`\n{` + 逐键 + `}`）。
+
+**③ B 类（解析器把裸块拆成三个数组元素）**：新增 `try_parse_array_bare_block()`，判据与写法
+**照抄** Rust 的 `bare_block_ahead()` + `parse_bare_block()`。⚠️ 两个必须照抄的点：
+① 入口**只认 `T_WORD`**（Rust 的 `Some(Tok::Str(_))` 分支直接当字符串元素 ⇒ `[ "sec" { } ]`
+两端都**不是**块）；② **先 `next()` 消费类型名、再收参数** —— 漏了这一步，类型词会被当成
+第一个参数（实测得到 `__name: section` + `__args: [情节]`，我当场踩过一次）。
+
+**顺带补齐「裸块参数不丢」**（Rust P1-3 的行为）：两个以上参数原先**被静默丢弃** ⇒ 现在
+首个进 `__name`、其余进 `__args`；**键位置与数组位置同构**（改前键位置连「恰好两个参数」
+都既不写 `__name` 也不写 `__args`）。这条是新发现的行为缺口，不是 A/B 表里列的。
+
+**判别实验**（脚本在 `%TEMP%\w4abc_diff.py`，**未入库**）：用 `git show HEAD:c/sml.c` 另编一个
+dumper，与改动后在**同一份用例**上对照：
+
+| 用例 | 改前（HEAD） | 改后（工作区） |
+|---|---|---|
+| `topic 云天明童话 { label: a }` | `topic:` + `label: a`（**元数据丢**） | 带 `__type: topic` / `__name: 云天明童话` |
+| `m: [ screen login { width: 320 } ]` | `screen`、`login`、`{ width: 320 }` **三个元素** | 一个块对象 `{ width: 320, __type: screen, __name: login }` |
+| `server web prod { x: 1 }`（键位置） | 只有 `x: 1`（**`web`/`prod` 丢**） | `__name: web` + `__args: [prod]` |
+| 正对照 `m: [ hello world ]` / `m: [ "sec" { … } ]` / `k: { x: 1 }` | — | **两侧逐字节相同** |
+
+**复验命令**：`cd c && python build_check.py --run`（`=== ALL PASSED ===`）+
+`python tools/check_dump_parity.py`（汇总行应显示「行数已一致: 19」）。
+
+**剩余未改（要判定「哪一端该改」，不是顺手改）**：
+
+1. **引号策略**：C 的 `needs_quote()` 只认空白与 `:`/`#`/`{}`，比 Rust 宽松 ——
+   `等价，仅书写风格不同: */`（C）↔ `"…": "*/"`（Rust）、`schemaVersion: 1.1`（C）↔ `"1.1"`（Rust）、
+   `hex: 0x20` / `oct: 0o17` / `big: 1_000`（C 裸写、Rust 全加引号）。**回读保真**上 Rust 更稳。
+2. **键顺序**：Rust 的 `Value::Object` 是 `BTreeMap`（键排序输出），C 保**源序** —— **19/19 全命中**。
+   ⚠️ 这条是**数据保真级**（Rust 侧**丢源序**），不只是排版：要么 Rust 换成保序映射（大改，
+   会动到契约/include/`@for` 等一串按 BTreeMap 写的地方），要么把「对象键序不保证、
+   需要保序就用数组」写成明文约定。**需拍板**，我没动。
+
+### 22.4 ⚠️ 需要你做的一步：把重打后的 VSIX 装到本机
+
+**现状（我实测）**：本机已安装的是 **`snoware.sml-lang-0.4.1`**，其
+`src/vendor/sml.mjs` = **45466 B**（sha256 前缀 `c6e2d09a`）⇒ **你的编辑器至今跑的还是
+W16 之前的解析器**（高亮/诊断/补全拿到的是旧行为）。重打的是 0.4.2，两者不是一个目录。
+
+装（二选一）：
+
+```bash
+code --install-extension editors\vscode\sml-lang-0.4.2.vsix --force   # 直接装已重打的包
+cd editors\vscode && npm run install-local                            # 会先重打包再装（需联网拉 vsce）
+```
+
+装完**怎么验**（告诉我一声，我来跑）：`%USERPROFILE%\.vscode\extensions\snoware.sml-lang-0.4.2\src\vendor\sml.mjs`
+应是 **69404 B、sha256 前缀 `70f1ee47`**；再在编辑器里对一条 W16 用例（如未注册指令
+`@foo bar { }`）看是否报出**带码**的诊断。
+
+**版本号口径**（你 2026-09-19 定）：**保持 0.4.2** —— 未上架、手动 `--force` 安装，
+且升版本要**同步 4 处**（`package.json` 的 `version` 与 `install-local`、中英 `README` 各一处），
+漏一处就立刻制造新漂移。
+
+### 22.5 C++ 同步对齐（`cpp/sml.cpp`，同一批做的）
+
+**为什么多做这一件**：C 改完后用**同一套判据**量了 `cpp/`（它有公开 API `Parser::to_sml`），
+发现它**同病、而且多缺一整类**。既然「`__type`/`__name` 要往返」已定为口径，C++ 是兄弟实现，
+就一并做 —— **C 已改好，可当逐行参照**。
+
+| 缺口 | C++ 改前 | 改后 |
+|---|---|---|
+| ② 行内 vs 展开 | 数组元素里的对象**一律**压成 `{ k: v }` 一行（压根没有 `is_flat`/`dump_element`） | 与 Rust `dump.rs` / C `sml.c` **逐函数对应**：`is_flat` / `starts_inline` / `dump_object_body` / `dump_array_body` / `dump_element` / `dump_inline` / `dump_value` / `to_sml` |
+| ③ A 类 | dumper **五处**跳过 `__type`/`__name`（含 `has_body` 判据）⇒ 元数据丢；**只有元数据的块被当成空体输成 `{}`** | 全都不筛键；顶层按 Rust `to_sml` 分叉（`v->has("__type")` ⇒ 按块渲染） |
+| ③ B 类 | 数组位置裸块被拆成多个元素（`parse_array` 里只有「当标量」一条路） | 新增 `bare_block_ahead()` / `parse_bare_block()`，判据与写法**照抄 Rust** |
+| 参数 | 两个以上参数静默丢弃 | 首个 ⇒ `__name`、其余 ⇒ `__args`（**只做了这一半**，见 §22.6） |
+
+⚠️ **本实现把引号串也存成 `Word` token**（`coerce` 里靠 `t[0]=='"' && t.back()=='"'` 判断），
+而 Rust 里引号串是独立的 `Tok::Str`（那条分支**不试裸块**）⇒ `bare_block_ahead` 必须**显式排掉**
+引号串，否则 `[ "sec" { x: 1 } ]` 会被当成「类型名 `"sec"` 的裸块」。**我第一版就踩了**，
+靠用例 t10 当场抓到。
+
+**量具（本轮新写，未入库）**：C++ 没有 parity 工具，仿 `check_dump_parity.py` 写了个极小的
+C++ dumper 探针（`%TEMP%\w4cpp_measure.py`），跑同一份语料：
+
+| 指标 | 改前 | 改后 |
+|---|---|---|
+| 行数与 Rust 一致 | 11 | **24** |
+| **行数不同** | **15** | **2** |
+| C++ 解析失败 | 7 | **7（未新增）** |
+
+剩下 2 个**都不是本轮引入**，且都已登记（§22.6）：`examples/common.sml`（判据过宽旧账）与
+`examples/secrets.sml`（`$` 独立 token 旧账）。
+
+⚠️ **量具本身又踩了同一个坑**：C++ 探针的 `std::cout` 在 Windows 也是**文本模式**，
+`yuntianming_original.sml`（内容自带 `\r\n`）被二次翻译成 `\r\r\n` ⇒ 虚高 293 行（741 vs 448）
+—— 与 §22.3 里 `tools/dump_c.c` 那处**是同一个错**。已 `_setmode(_O_BINARY)` 修掉。
+**下次给任何「dump 到 stdout」的量具都先加这一行**（C 侧已修、C++ 侧是本轮踩的）。
+
+**C++ 原生回归**：`cd cpp && python build_verify.py --allow-skip-rs-bridge` ⇒
+`CONTRACT / COMMENTS / LIMITS / CODES` 全 rc=0。⚠️ 带 `--allow-skip-rs-bridge` 是因为本机
+`rust/target/release` 下**没有 Rust cdylib**（`SML_RUST_LIB` 默认指仓库内相对路径，而我们的
+构建产物在 `E:\snoware-target`）—— 这是 W9 把 RS-BRIDGE 改成 fail-closed 之后的**正常行为**，
+不是本轮引入的失败；要跑那一条得先 `cargo build --release` 出 cdylib。
+
+### 22.6 ⚠️ 新登记：C++ 解析器三处遗留缺陷（**定位未改**）
+
+「收紧即炸」这件事本身是面镜子：把**键位置**的裸块判据收紧成 Rust 的 `bare_block_ahead`
+之后，一批文件从「静默错解」直接变成 `E-PARSE-006` **解析失败** —— 说明那个过宽判据一直在
+**吞**它们。三条都**不是本轮引入**：
+
+| # | 缺陷 | 证据 |
+|---|---|---|
+| ① | **键位置裸块判据过宽**：`!colon && 后继是词`，且参数收集**贪心**（一直吃到 `{`/`}`/`,`，中间任何 token 都算参数） | `examples/common.sml`：注释闭合符留下的 `等价，仅书写风格不同` + 星斜杠 + `@ contract …` 被整段当成裸块参数 ⇒ **C++ 14 行 vs Rust 1 行** |
+| ② | **`$` 是独立 token**（`Token::T::Dollar`），在键位置被直接跳过 ⇒ `$env.X` 退化成「键 `env.X` + 值 = 下一个词」 | `examples/secrets.sml`：`resendApiKey: null`（Rust 是 `""`）、凭空多出 `env.RESEND_API_KEY` 键、文件 5 行 vs Rust 6 行 |
+| ③ | **收紧 ① 会立刻暴露**的三处：`@contract X strict { … }`（契约两词名）、反引号串、`@feature` | 收紧后这 5 个从「静默错解」变**硬失败**：`secrets.sml`、`slint/login.sml`、`gov_demo.sml`、`examples/advanced.sml`、`showcase.sml` |
+
+**处置**：本轮**退回** ① 的收紧（只保留「参数不丢」这条对齐），三条写进 `CHANGELOG` 的
+「已知限制」与 `TODO.md` 的 §五。**正确顺序是「先修 ③、再收紧 ①」** —— 反过来做，
+等于把一批还能解析的文件变成不能解析（这正是我第一版的错）。
+
+**定位手法（可复现）**：HEAD 版与新版各编一个 dumper，对**逐行前缀**跑同一份输入，
+找第一个「**两边 rc/输出不同**」的前缀 —— 那一行附近就是分歧构造。
+⚠️ 判据必须是「两边不同」而**不是**「新版失败」：截断本身会产生「未闭合块」的假失败
+（我第一次二分就被这个骗了）。脚本在 `%TEMP%\w4cpp_bisect2.py`（未入库）。
