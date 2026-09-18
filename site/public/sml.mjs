@@ -674,12 +674,56 @@ export function parse(text, opts) {
     return new RegExp("^(?:" + body + ")$", "u");
   }
 
+  /// 新建字段规格（默认值集中在一处，避免两条解析路径手写两份而漂移）。
+  function newFieldSpec() {
+    return { type: "any", required: true, def: undefined, min: undefined, max: undefined, enumVals: null, arrInner: null, refName: null };
+  }
+
+  /// 解析字段修饰符（`?` / `optional` / `required` / `default v` / `min n` / `max n`）。
+  ///
+  /// 抽成函数是因为 `[T]` 简写与「类型名开头」两条路径都要用同一套规则。
+  function parseFieldModifiers(sp) {
+    let defaultSet = false;
+    while (true) {
+      const m = peek();
+      if (!m) break;
+      if (m.t === "?") { sp.required = false; i++; continue; }
+      if (m.t === "word") {
+        if (m.v === "optional") { sp.required = false; i++; continue; }
+        if (m.v === "required") { sp.required = true; i++; continue; }
+        if (m.v === "default") { i++; sp.def = literal(); defaultSet = true; continue; }
+        if (m.v === "min") { i++; sp.min = Number(literal()); continue; }
+        if (m.v === "max") { i++; sp.max = Number(literal()); continue; }
+      }
+      break;
+    }
+    if (defaultSet) sp.required = false;
+    return sp;
+  }
+
   function parseFieldSpec() {
     const t = peek();
+    // `[T]` 数组类型简写 —— Rust 侧与 README / 教程一直用的写法。
+    //
+    // 此前 JS 只认 `array [T]` 关键字形式，于是文档里照抄的 `tags: [str] optional`
+    // 会在这里抛「字段类型期望标识符」：**对合法 SML 的假报错**，
+    // 而 README 的契约示例恰好就是 `[str]`。VSCode 扩展直接复用了本解析器，
+    // 因此这一处假报错会一路显示到编辑器里。
+    if (t && t.t === "[") {
+      i++;
+      let inner = null;
+      if (peek() && peek().t !== "]") inner = parseFieldSpec();
+      if (peek() && peek().t === "]") i++;
+      else fail("sml: 数组类型 `[T]` 缺少 `]`");
+      const sp = newFieldSpec();
+      sp.type = "array";
+      sp.arrInner = inner;
+      return parseFieldModifiers(sp);
+    }
     if (!t || t.t !== "word") fail("sml: 字段类型期望标识符");
     const typeWord = t.v;
     i++;
-    let sp = { type: "any", required: true, def: undefined, min: undefined, max: undefined, enumVals: null, arrInner: null, refName: null };
+    let sp = newFieldSpec();
     if (typeWord === "str") sp.type = "str";
     else if (typeWord === "int") sp.type = "int";
     else if (typeWord === "num") sp.type = "num";
@@ -761,22 +805,7 @@ export function parse(text, opts) {
       sp.type = "contract";
       sp.refName = typeWord;
     }
-    let defaultSet = false;
-    while (true) {
-      const m = peek();
-      if (!m) break;
-      if (m.t === "?") { sp.required = false; i++; continue; }
-      if (m.t === "word") {
-        if (m.v === "optional") { sp.required = false; i++; continue; }
-        if (m.v === "required") { sp.required = true; i++; continue; }
-        if (m.v === "default") { i++; sp.def = literal(); defaultSet = true; continue; }
-        if (m.v === "min") { i++; sp.min = Number(literal()); continue; }
-        if (m.v === "max") { i++; sp.max = Number(literal()); continue; }
-      }
-      break;
-    }
-    if (defaultSet) sp.required = false;
-    return sp;
+    return parseFieldModifiers(sp);
   }
 
   function parseContractBody() {
@@ -1112,6 +1141,15 @@ export function parse(text, opts) {
       if (tok.t === "{") {
         i++;
         arr.push(parseBlock("}"));
+      } else if (tok.t === "[") {
+        // 嵌套数组（`m: [ [ a ] [ b ] ]`）必须递归。
+        //
+        // 此前缺少这一支，落到 `else break`：数组被**静默截断**，剩下的 `[` 被外层
+        // 块解析当成键名 —— `m: [ [ a ] ]` 会得到 `{"m":[],"[":"a"}`：
+        // 不报错，但数据是错的。Rust 侧同一输入得到 `{"m":[["a"]]}`。
+        // 嵌套深度由入口处的 MAX_PARSE_DEPTH 闸门统一封顶。
+        i++;
+        arr.push(parseArray());
       } else if (tok.t === "word" || tok.t === "str") {
         arr.push(tok.t === "str" ? coerceStr(tok.v, fragments) : coerceWord(tok.v, fragments, nsMap));
         i++;
