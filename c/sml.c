@@ -26,6 +26,30 @@
 #include <string.h>
 #include <ctype.h>
 #include <math.h>
+#include <stdarg.h>
+
+/* =====================================================================
+** 0. 错误信息写入
+** ===================================================================== */
+
+/* 统一的错误写入。**缓冲区允许为 NULL** —— sml.h 写的是 err「若非 NULL」，
+   即调用方可以不关心文案；缓冲区为空（或大小为 0）时这里一个字节都不写，
+   失败与否由调用方自行置 failed 标志。
+
+   为什么必须统一走这里：审计发现两条路径写成
+       snprintf(errbuf ? errbuf : (char[1]){0}, errsz, ...)
+   本意是「没有缓冲就丢弃」，但 snprintf **按 errsz 写** —— 传进来的 errsz 可能是
+   256，于是那 1 字节的临时缓冲被写到至多 255 字节，直接踩栈；调用方写成
+   `sml_parse(text, NULL, 256)` 就能触发。同理，所有直接 `snprintf(errbuf, ...)`
+   的点在 errbuf 为 NULL 时是空指针写（同样只需传 NULL 即崩）。
+   两类问题在这里一起消失：只要缓冲区为空，就一个字节都不写。 */
+static void set_err(char *buf, size_t sz, const char *fmt, ...) {
+    va_list ap;
+    if (!buf || sz == 0) return;
+    va_start(ap, fmt);
+    vsnprintf(buf, sz, fmt, ap);
+    va_end(ap);
+}
 
 /* =====================================================================
 ** 1. 值构造 / 释放 / 容器
@@ -497,13 +521,17 @@ static sml_value *parse_block(parser *ps, tok_type closing);
 static sml_value *parse_block_inner(parser *ps, tok_type closing);
 
 /* parse_block 的守卫 wrapper：真正的实现在 parse_block_inner。
-   包一层而不是改每个 return 点，是为了不遗漏任何出口（错误路径同样要复位深度）。 */
+   包一层而不是改每个 return 点，是为了不遗漏任何出口（错误路径同样要收尾）。
+   真正让递归**收手**的不是这一层的返回值，而是 ps->failed + 各解析循环的 break。 */
 static sml_value *parse_block(parser *ps, tok_type closing) {
     if (ps->depth >= SML_MAX_VALUE_DEPTH) {
-        snprintf(ps->lx->errbuf, ps->lx->errsz,
-                 "sml: 嵌套过深（超过 %d 层），疑似递归或恶意输入", SML_MAX_VALUE_DEPTH);
+        set_err(ps->lx->errbuf, ps->lx->errsz,
+                "sml: 嵌套过深（超过 %d 层），疑似递归或恶意输入", SML_MAX_VALUE_DEPTH);
         ps->failed = 1;
-        ps->depth = 0;
+        /* ⚠️ 这里**不能**只把 depth 复位为 0 就了事（最初就是这么写的，实测仍崩）：
+           复位不会让已经压上去的栈帧退回来，外层循环随即又从 0 开始往下钻，于是
+           「每 128 层一轮」反复压栈，10 万层块嵌套照样打穿栈。真正收手靠 ps->failed：
+           parse_array / parse_block_inner 的循环见到它就 break，栈才会一层层退掉。 */
         return sml_new_null();
     }
     ps->depth++;
@@ -561,10 +589,8 @@ static sml_value *coerce_word(const char *w, parser *ps) {
     }
     /* V2/V3 严格模式：自由字符串必须加引号 */
     if (ps->version >= 2) {
-        if (ps->lx->errbuf) {
-            snprintf(ps->lx->errbuf, ps->lx->errsz,
-                     "sml v2/v3: 字符串必须加引号，裸词 `%s` 应写作 \"%s\"", w, w);
-        }
+        set_err(ps->lx->errbuf, ps->lx->errsz,
+                "sml v2/v3: 字符串必须加引号，裸词 `%s` 应写作 \"%s\"", w, w);
         ps->failed = 1;
         return NULL;
     }
@@ -656,7 +682,7 @@ static int check_type(parser *ps, const char *cname, const cfield *spec,
             }
             ccontract *tgt = contract_find(ps, spec->ref_name);
             if (!tgt) {
-                snprintf(err, errsz,
+                set_err(err, errsz,
                          "sml: 字段 `%s` 引用了未定义的契约 `%s`（契约 `%s`）",
                          spec->name, spec->ref_name, cname);
                 return -1;
@@ -667,7 +693,7 @@ static int check_type(parser *ps, const char *cname, const cfield *spec,
         }
     }
     if (!ok) {
-        snprintf(err, errsz,
+        set_err(err, errsz,
                  "sml: 字段 `%s` 类型应为 %s，实际为 %s（契约 `%s`）",
                  spec->name, type_name(spec->ty), kind_name(v), cname);
         return -1;
@@ -680,13 +706,13 @@ static int check_type(parser *ps, const char *cname, const cfield *spec,
         else if (v->type == SML_FLOAT) { n = v->u.f;           isnum = 1; }
         if (isnum) {
             if (spec->min_set && n < spec->min) {
-                snprintf(err, errsz,
+                set_err(err, errsz,
                          "sml: 字段 `%s` 值 %g 小于下界 %g（契约 `%s`）",
                          spec->name, n, spec->min, cname);
                 return -1;
             }
             if (spec->max_set && n > spec->max) {
-                snprintf(err, errsz,
+                set_err(err, errsz,
                          "sml: 字段 `%s` 值 %g 大于上界 %g（契约 `%s`）",
                          spec->name, n, spec->max, cname);
                 return -1;
@@ -713,7 +739,7 @@ static int apply_contract_rec(parser *ps, ccontract *c, sml_value *node,
             for (cfield *cf = c->fields; cf; cf = cf->next)
                 if (strcmp(cf->name, f->key) == 0) { found = 1; break; }
             if (!found) {
-                snprintf(err, errsz,
+                set_err(err, errsz,
                          "sml: 字段 `%s` 未在契约 `%s` 中声明（严格模式；如需允许额外字段请在契约名后写 `loose`）",
                          f->key, c->name);
                 return -1;
@@ -727,7 +753,7 @@ static int apply_contract_rec(parser *ps, ccontract *c, sml_value *node,
             if (cf->def) {
                 sml_obj_set(node, cf->name, sml_clone(cf->def));
             } else if (cf->required) {
-                snprintf(err, errsz,
+                set_err(err, errsz,
                          "sml: 字段 `%s` 必填但缺失（契约 `%s`）", cf->name, c->name);
                 return -1;
             }
@@ -742,7 +768,7 @@ static int apply_contract_name(parser *ps, sml_value *node, const char *name,
                                char *err, size_t errsz) {
     ccontract *c = contract_find(ps, name);
     if (!c) {
-        snprintf(err, errsz, "sml: 引用了未定义的契约 `%s`", name);
+        set_err(err, errsz, "sml: 引用了未定义的契约 `%s`", name);
         return -1;
     }
     return apply_contract_rec(ps, c, node, err, errsz);
@@ -854,6 +880,7 @@ static sml_value *parse_array(parser *ps) {
     sml_value *arr = sml_new_array();
     for (;;) {
         token *t = peek(ps);
+        if (ps->failed) break;   /* 出错/超限后立刻收手，让栈退掉（见 parse_block） */
         if (t->t == T_RBRACK) { next(ps); break; }
         if (t->t == T_EOF) { break; }
         if (t->t == T_COMMA) { next(ps); continue; }
@@ -877,6 +904,7 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
     char *block_is = NULL;  /* 块级 @is 契约名 (作用于本块) */
     for (;;) {
         token *t = peek(ps);
+        if (ps->failed) break;   /* 出错/超限后立刻收手，让栈退掉（见 parse_block） */
         if (t->t == T_EOF) break;
         if (t->t == T_RBRACE || t->t == T_RBRACK) {
             if (closing == t->t) { next(ps); break; }
@@ -895,15 +923,15 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                     else if (strcmp(lit->v, "v2") == 0 || strcmp(lit->v, "2") == 0) ver = 2;
                     else if (strcmp(lit->v, "v3") == 0 || strcmp(lit->v, "3") == 0) ver = 3;
                     if (ver == 0) {
-                        snprintf(ps->lx->errbuf ? ps->lx->errbuf : (char[1]){0},
-                                 ps->lx->errsz,
-                                 "sml: 未知版本 `%s`；仅支持 v1/v2/v3", lit->v);
+                        set_err(ps->lx->errbuf, ps->lx->errsz,
+                                "sml: 未知版本 `%s`；仅支持 v1/v2/v3", lit->v);
                         ps->failed = 1;
                     } else if (ver > 3) {
-                        /* 超出本实现支持的版本范围 (V1..V3) */
-                        snprintf(ps->lx->errbuf ? ps->lx->errbuf : (char[1]){0},
-                                 ps->lx->errsz,
-                                 "sml: 版本 v%d 超出本库接受范围 (v1..v3)", ver);
+                        /* 超出本实现支持的版本范围 (V1..V3)。注意这条分支当前不可达：
+                           上面只可能解析出 ver ∈ {1,2,3}（见审计记录）。保留它是因为将来
+                           放宽版本时仍需要兜底，但别以为它被测试覆盖到了。 */
+                        set_err(ps->lx->errbuf, ps->lx->errsz,
+                                "sml: 版本 v%d 超出本库接受范围 (v1..v3)", ver);
                         ps->failed = 1;
                     } else {
                         ps->version = ver;
@@ -1068,7 +1096,7 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
 
 sml_value *sml_parse(const char *text, char *err, size_t errsz) {
     if (!text) {
-        if (err && errsz) snprintf(err, errsz, "sml: null text");
+        if (err && errsz) set_err(err, errsz, "sml: null text");
         return NULL;
     }
     if (err && errsz) err[0] = '\0';   /* 成功时保持为空，避免误判 */
@@ -1101,7 +1129,7 @@ sml_value *sml_parse(const char *text, char *err, size_t errsz) {
     while (f) { struct frag *nx = f->next; free(f->name); sml_free(f->val); f = nx; }
     lex_free(&lx);
     if (!v) {
-        if (err && errsz && err[0] == '\0') snprintf(err, errsz, "sml: parse failed");
+        if (err && errsz && err[0] == '\0') set_err(err, errsz, "sml: parse failed");
         return NULL;
     }
     return v;
@@ -1524,12 +1552,12 @@ static int resolve_includes(const char *text, const char *base,
                             long *expansions,
                             char *err, size_t errsz) {
     if (depth >= MAX_INC_DEPTH) {
-        snprintf(err, errsz, "sml: include 嵌套超过 %d 层", MAX_INC_DEPTH);
+        set_err(err, errsz, "sml: include 嵌套超过 %d 层", MAX_INC_DEPTH);
         return -1;
     }
     /* 展开次数是**全局**计数（跨整棵包含树），嵌套深度限制挡不住菱形包含 */
     if (++(*expansions) > MAX_INC_EXPANSIONS) {
-        snprintf(err, errsz, "sml: include 展开次数超过 %d 次上限", MAX_INC_EXPANSIONS);
+        set_err(err, errsz, "sml: include 展开次数超过 %d 次上限", MAX_INC_EXPANSIONS);
         return -1;
     }
     const char *p = text;
@@ -1537,7 +1565,7 @@ static int resolve_includes(const char *text, const char *base,
         const char *nl = strchr(p, '\n');
         size_t linelen = nl ? (size_t)(nl - p) : strlen(p);
         char *line = (char *)malloc(linelen + 1);
-        if (!line) { snprintf(err, errsz, "sml: oom"); return -1; }
+        if (!line) { set_err(err, errsz, "sml: oom"); return -1; }
         memcpy(line, p, linelen);
         line[linelen] = '\0';
 
@@ -1547,7 +1575,7 @@ static int resolve_includes(const char *text, const char *base,
             snprintf(path, sizeof(path), "%s/%s", base, inc);
             FILE *f = fopen(path, "rb");
             if (!f) {
-                snprintf(err, errsz, "sml: include 读取失败 %s", path);
+                set_err(err, errsz, "sml: include 读取失败 %s", path);
                 free(line); free(inc);
                 return -1;
             }
@@ -1555,7 +1583,7 @@ static int resolve_includes(const char *text, const char *base,
             long sz = ftell(f);
             fseek(f, 0, SEEK_SET);
             char *content = (char *)malloc((size_t)sz + 1);
-            if (!content) { fclose(f); snprintf(err, errsz, "sml: oom"); free(line); free(inc); return -1; }
+            if (!content) { fclose(f); set_err(err, errsz, "sml: oom"); free(line); free(inc); return -1; }
             fread(content, 1, (size_t)sz, f);
             content[sz] = '\0';
             fclose(f);
@@ -1570,7 +1598,7 @@ static int resolve_includes(const char *text, const char *base,
             canon = realpath(path, NULL);
 #endif
             if (!canon) {
-                snprintf(err, errsz, "sml: include 路径无法解析: %s", path);
+                set_err(err, errsz, "sml: include 路径无法解析: %s", path);
                 free(content); free(line); free(inc);
                 return -1;
             }
@@ -1589,14 +1617,14 @@ static int resolve_includes(const char *text, const char *base,
                              (canon[bl] == '/' || canon[bl] == '\\' || canon[bl] == '\0');
                 free(basec);
                 if (!inside) {
-                    snprintf(err, errsz, "sml: include 目标越出基准目录: %s", inc);
+                    set_err(err, errsz, "sml: include 目标越出基准目录: %s", inc);
                     free(canon); free(content); free(line); free(inc);
                     return -1;
                 }
             } else {
                 /* 基准目录无法规范化 → **拒绝**，不能因为"没法比"就放行
                    （fail-open 会让越界读取在校验失败时静默通过）。 */
-                snprintf(err, errsz, "sml: include 基准目录不可解析，已拒绝: %s", base);
+                set_err(err, errsz, "sml: include 基准目录不可解析，已拒绝: %s", base);
                 free(canon); free(content); free(line); free(inc);
                 return -1;
             }
@@ -1604,7 +1632,7 @@ static int resolve_includes(const char *text, const char *base,
             for (int i = 0; i < depth; i++)
                 if (strcmp(stack[i], canon) == 0) { cyc = 1; break; }
             if (cyc) {
-                snprintf(err, errsz, "sml: include 循环引用: %s", canon);
+                set_err(err, errsz, "sml: include 循环引用: %s", canon);
                 free(canon); free(content); free(line); free(inc);
                 return -1;
             }
@@ -1633,19 +1661,19 @@ static int resolve_includes(const char *text, const char *base,
 
 sml_value *sml_parse_file(const char *path, char *err, size_t errsz) {
     if (!path) {
-        if (err && errsz) snprintf(err, errsz, "sml: null path");
+        if (err && errsz) set_err(err, errsz, "sml: null path");
         return NULL;
     }
     FILE *f = fopen(path, "rb");
     if (!f) {
-        if (err && errsz) snprintf(err, errsz, "sml: 读取失败 %s", path);
+        if (err && errsz) set_err(err, errsz, "sml: 读取失败 %s", path);
         return NULL;
     }
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
     fseek(f, 0, SEEK_SET);
     char *text = (char *)malloc((size_t)sz + 1);
-    if (!text) { fclose(f); if (err && errsz) snprintf(err, errsz, "sml: oom"); return NULL; }
+    if (!text) { fclose(f); if (err && errsz) set_err(err, errsz, "sml: oom"); return NULL; }
     fread(text, 1, (size_t)sz, f);
     text[sz] = '\0';
     fclose(f);

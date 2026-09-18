@@ -14,8 +14,13 @@ all: sml_demo
 sml_demo: sml.c sml.h example.c
 	$(CC) $(CFLAGS) sml.c example.c -o sml_demo
 
-test: sml_demo
+test: sml_demo test_limits
 	./sml_demo
+	./test_limits
+
+# 回归用例：深度上限 +「err 允许为 NULL」（说明见 test_limits.c 头部）
+test_limits: sml.c sml.h test_limits.c
+	$(CC) $(CFLAGS) sml.c test_limits.c -o test_limits
 
 # 桥接 Rust 后端 (sml.dll / libsml.dll.a): 与原生实现并存, 获得 v3 能力
 rs: example_rs.c sml_rs.h
@@ -23,4 +28,4 @@ rs: example_rs.c sml_rs.h
 	./example_rs
 
 clean:
-	rm -f sml_demo example_rs
+	rm -f sml_demo example_rs test_limits

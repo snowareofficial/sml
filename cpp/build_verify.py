@@ -43,6 +43,15 @@ if rc == 0:
     print("COMMENTS rc=%d" % rc2)
     if rc2 != 0: sys.exit(rc2)
 
+# --- 深度守卫回归用例：纯块嵌套曾绕过守卫打穿栈，必须报错而不是崩 ---
+rc = run(["g++", "-std=c++17", "-I.", "-o", "t_limits.exe", "test_limits.cpp", "sml.cpp"])
+if rc == 0:
+    rc2, out = run_out([os.path.join(HERE, "t_limits.exe")])
+    with open(os.path.join(HERE, "t_limits_out.txt"), "w", encoding="utf-8") as f:
+        f.write(out)
+    print("LIMITS rc=%d" % rc2)
+    if rc2 != 0: sys.exit(rc2)
+
 # --- 桥接 Rust cdylib 的 v3 能力 (sml_rs.* 与原生 sml.cpp 并存) ---
 RUST_LIB = os.environ.get("SML_RUST_LIB", r"E:/snoware-target/release")
 rc = run(["g++", "-std=c++17", "-I.", "-o", "example_rs.exe",

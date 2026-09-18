@@ -527,6 +527,11 @@ struct PState {
     std::string* err = nullptr;
     std::vector<std::string> include_stack;
     int depth = 0;              /* 当前块/数组嵌套深度（栈溢出防护） */
+    /* 一旦置位就**放弃解析**：各层循环立即 break，递归随之退栈。
+       为什么需要它：光把 depth 复位并不够 —— 复位不会让栈帧退回去，外层循环接着又
+       从 0 往下钻，于是「128 层一轮」地反复压栈，最终照样打穿（实测）。
+       中止与 err 是否存在无关（err 允许为 NULL）。 */
+    bool aborted = false;
 };
 
 // forward decls
@@ -538,6 +543,7 @@ static ValuePtr parse_value_inner(PState& st);
 static ValuePtr parse_array(PState& st) {
     auto arr = Value::array();
     while (st.i < st.toks.size()) {
+        if (st.aborted) break;          // 出错/超限后立刻收手，别继续建树
         auto& t = st.toks[st.i];
         if (t.t == Token::T::RBracket) { st.i++; break; }
         if (t.t == Token::T::Comma) { st.i++; continue; }
@@ -548,20 +554,48 @@ static ValuePtr parse_array(PState& st) {
 
 static ValuePtr parse_block(PState& st, bool top = false);
 
+// 深度守卫：超限就报错并**置中止标志**。返回 true 表示「不该继续深入」，调用方立即
+// 返回 null。
+//
+// 抽成函数是因为有**两个**入口共用同一套计数（parse_value 与 parse_block_nested）——
+// 守卫逻辑复制一份迟早会漂移，而漂移的后果是「某一侧的上限悄悄变大」。
+//
+// ⚠️ 这里**不能**改成「把 depth 复位为 0」了事（最初就是这么写的，实测仍会崩）：
+// 复位不会让已经压上去的栈帧退回来，外层循环随即又从 0 开始往下钻，于是「每 128 层
+// 一轮」反复压栈，10 万层块嵌套照样打穿栈。真正的收手是置 aborted，由各层循环 break
+// 让栈一层层退掉。
+static bool depth_exceeded(PState& st) {
+    if (st.aborted) return true;      // 已经决定放弃，别再往下走
+    if (st.depth < SML_MAX_VALUE_DEPTH) return false;
+    if (st.err)
+        *st.err = "sml: 嵌套过深（超过 " + std::to_string(SML_MAX_VALUE_DEPTH)
+                  + " 层），疑似递归或恶意输入";
+    st.aborted = true;
+    return true;
+}
+
 // parse a value: object / array / scalar
 //
 // 守卫 wrapper：真正的实现在 parse_value_inner。包一层而不是改每个 return 点，
 // 是为了不漏任何出口（parse_value 有多个提前返回）。
 static ValuePtr parse_value(PState& st) {
-    if (st.depth >= SML_MAX_VALUE_DEPTH) {
-        if (st.err)
-            *st.err = "sml: 嵌套过深（超过 " + std::to_string(SML_MAX_VALUE_DEPTH)
-                      + " 层），疑似递归或恶意输入";
-        st.depth = 0;
-        return Value::null();
-    }
+    if (depth_exceeded(st)) return Value::null();
     st.depth++;
     ValuePtr v = parse_value_inner(st);
+    if (st.depth > 0) st.depth--;
+    return v;
+}
+
+// 深入一层**块**：`key { ... }`、`key @is C { ... }`、片段体 `@f { ... }`、裸块。
+//
+// ⚠️ 这些位置原先**直接**递归 parse_block，绕过了 parse_value 上的守卫 —— 于是 depth
+// 根本不增长，`a{b{c{...}}}` 这种纯块嵌套可以一路递归下去打穿栈（栈溢出在 C++ 里同样是
+// 不可捕获的崩溃）。块嵌套必须与值嵌套共用同一个 depth 计数，否则「128 层上限」只对
+// 数组生效，对块形同虚设 —— 这正是审计里记的那条。四类调用点全部改走这里。
+static ValuePtr parse_block_nested(PState& st) {
+    if (depth_exceeded(st)) return Value::null();
+    st.depth++;
+    ValuePtr v = parse_block(st);
     if (st.depth > 0) st.depth--;
     return v;
 }
@@ -588,6 +622,7 @@ static ValuePtr parse_block(PState& st, bool top) {
     // Here we are at the first token INSIDE a block (caller passed after '{' or at start).
     // For top-level, we are at token 0.
     while (st.i < st.toks.size()) {
+        if (st.aborted) break;          // 出错/超限后立刻收手，别继续建树
         auto& tok = st.toks[st.i];
         if (tok.t == Token::T::RBrace) { st.i++; break; }
         if (tok.t == Token::T::RBracket) {
@@ -624,7 +659,7 @@ static ValuePtr parse_block(PState& st, bool top) {
             }
             if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::LBrace) {
                 st.i++; // consume {
-                auto sub = parse_block(st);
+                auto sub = parse_block_nested(st);
                 if (!ftype.empty()) {
                     sub->obj.push_back({"__type", Value::string(ftype)});
                     if (!fname_arg.empty()) sub->obj.push_back({"__name", Value::string(fname_arg)});
@@ -769,7 +804,7 @@ static ValuePtr parse_block(PState& st, bool top) {
                 std::string cname = st.toks[st.i].s; st.i++;
                 if (st.i < st.toks.size() && st.toks[st.i].t == Token::T::LBrace) {
                     st.i++;
-                    auto sub = parse_block(st);
+                    auto sub = parse_block_nested(st);
                     std::string e;
                     Parser::apply_contract(sub, st.contracts, cname, &e);
                     if (!e.empty() && st.err) *st.err = e;
@@ -782,7 +817,7 @@ static ValuePtr parse_block(PState& st, bool top) {
         }
         if (nxt.t == Token::T::LBrace) {
             st.i++;
-            auto sub = parse_block(st);
+            auto sub = parse_block_nested(st);
             set_field_local(node, key, sub);
         } else if (nxt.t == Token::T::LBracket) {
             st.i++;
@@ -797,7 +832,7 @@ static ValuePtr parse_block(PState& st, bool top) {
             }
             if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::LBrace) {
                 st.i++;
-                auto sub = parse_block(st);
+                auto sub = parse_block_nested(st);
                 sub->obj.push_back({"__type", Value::string(key)});
                 if (args.size()==1) sub->obj.push_back({"__name", Value::string(args[0])});
                 set_field_local(node, key, sub);
@@ -877,7 +912,9 @@ ValuePtr Parser::parse(const std::string& text, std::string* err, const std::str
     } else {
         result = parse_block(st, true);
     }
-    if (err && !err->empty()) return nullptr;
+    // aborted 必须独立于 err 判断：调用方可以不传 err（为 NULL 时文案被丢弃），
+    // 但「解析已中止」这件事照样要让整体失败，否则会静默返回一棵被截断的树。
+    if (st.aborted || (err && !err->empty())) return nullptr;
     return result;
 }
 
