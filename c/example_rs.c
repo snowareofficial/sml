@@ -49,7 +49,8 @@ static void demo_traverse(void) {
                       "  host: web.example\n"
                       "  port: 8080\n"
                       "}\n"
-                      "tags: [ a b c ]\n";
+                      "tags: [ a b c ]\n"
+                      "list: [ 1, [2, 3], 4 ]\n";
 
     sml_error err;
     sml_value *root = sml_loads(doc, 0, &err);
@@ -60,7 +61,7 @@ static void demo_traverse(void) {
     }
 
     CHECK(sml_typeof(root) == SML_TYPE_OBJECT, "root is an object");
-    CHECK(sml_size(root) == 5, "root has 5 fields");
+    CHECK(sml_size(root) == 6, "root has 6 fields");
 
     /* Scalars */
     const sml_value *name = sml_get(root, "name");
@@ -91,6 +92,21 @@ static void demo_traverse(void) {
     CHECK(tags && sml_typeof(tags) == SML_TYPE_ARRAY, "tags is an array");
     CHECK(sml_size(tags) == 3, "tags has 3 elements");
     CHECK(sml_at(tags, 3) == NULL, "out-of-range index returns NULL");
+
+    /* 嵌套数组（W17 的同类风险位）：桥接**不实现解析器**（走 Rust 引擎），但它自己有
+       一条「取元素」的路径（sml_at / sml_size），所以照样要**实测**而不是想当然 ——
+       C 的原生实现当年正是在这一格静默错解（`m: [ 1, [2, 3], 4 ]` 变成
+       `{"m":[1,2,3],"4":4}`，凭空多一个键，见 CHANGELOG 的 W17）。 */
+    const sml_value *list = sml_get(root, "list");
+    CHECK(list && sml_typeof(list) == SML_TYPE_ARRAY && sml_size(list) == 3,
+          "list has 3 elements");
+    const sml_value *inner = list ? sml_at(list, 1) : NULL;
+    CHECK(inner && sml_typeof(inner) == SML_TYPE_ARRAY && sml_size(inner) == 2,
+          "element 1 is a nested array of 2 (borrowed handle, walkable)");
+    CHECK(sml_int_value(sml_at(inner, 0)) == 2 && sml_int_value(sml_at(inner, 1)) == 3,
+          "nested array preserves [2, 3]");
+    CHECK(sml_int_value(sml_at(list, 0)) == 1 && sml_int_value(sml_at(list, 2)) == 4,
+          "scalars around the nested array survive (no phantom key)");
 
     /* Serialize back to SML */
     char *dumped = sml_dumps(root, 0);
