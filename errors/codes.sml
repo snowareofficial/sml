@@ -579,7 +579,8 @@ codes: [
       note: "规则文档本身是 SML，解析失败的内层原因是 E-LEX-* 或 E-PARSE-*" }
     { id: E-CLI-007 domain: CLI severity: E title: "输出后端报错"
       msg: "输出后端报错（内层原因见原始错误）"
-      impls: [rust smltools ] status: done }
+      impls: [ rust smltools ] status: done
+      note: "**W21 已根治**：码现在由 `swsml` 的 emit 后端**自己带**（`rust/src/emit/mod.rs` 的 `backend_error()`），不再是 smltools 按**文案前缀**猜出来的 —— 那套猜法有个隐蔽的静默失效：它的单测喂的是**自己手写的字面量**，上游一改文案，测试照样绿、码静默退化成更粗的东西。⚠️ **候选拆分**（本轮不拆：拆码=改对外契约，且这些条件彼此异质，该先想清按什么维度拆）：markdown 的 HTML 透传拒绝危险标签、latex 的危险控制序列、latex 任务勾选不支持、md/latex 的 table 缺 header、slint 的 property 声明缺合法类型" }
 
     { id: E-CLI-008 domain: CLI severity: E title: "命令行用法错误"
       msg: "命令行用法错误：未知参数、缺少取值或取值非法"
