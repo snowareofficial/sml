@@ -1229,3 +1229,39 @@ tree-sitter parse test/parse/advanced.sml  # 0 ERROR / 0 MISSING
 **待办（用户侧）**：在 gitee 建空仓库 `snoware/tree-sitter-sml` → 把
 `Desktop/tree-sitter-sml/`（本机已备好镜像内容）push 上去 → 把首个 commit 短 sha 发给 agent
 填进 `rev`。详见 `TASK-hy3-w8-w9.md` §W8.4 / §W8.5。
+
+
+---
+
+## 20. CI 宿在哪 / 分支保护怎么办（2026-09-19 定）
+
+`ci.yml` 已经能在 GitHub 上跑（`rust` / `rust-serde` / `non-rust` / `guards` / `miri` / `osv` 六个 job），
+但**「跑得起来」≠「挡得住」**。本仓库的拓扑决定了这件事比看上去麻烦：
+
+- **Gitee 是权威源**，日常提交推 Gitee；
+- **GitHub 是镜像 + CI**（`sync-from-gitee.yml` 单向同步），CI 只在 GitHub 上跑；
+- ⇒ 你往 Gitee 直接推时，**GitHub 侧的分支保护（required checks / 禁止直推）根本拦不到你**。
+
+### 19.1 三条路（按推荐度排序）
+
+| # | 方案 | 效果 | 代价 |
+|---|---|---|---|
+| **1（推荐）** | **自建 Gitea 上跑 CI + 开保护**：把仓库推一份到 `http://10.16.144.2:3000`（Gitea **1.27.3**，已实测支持 Actions），工作流放 `.gitea/workflows/*.yaml`（语法与 GitHub Actions 基本一致，job/steps/uses 几乎可照抄），管理员开启 Actions 并注册一个 act_runner（跑在你自己的机器上）；分支保护在 Gitea 仓库「设置 → 分支」里开（require status checks / 需 PR / 限制直推） | CI 与门禁**都在你自己机器上**；保护作用在**权威源**上，真拦得住；不依赖任何会员 | 要维护一个 runner（一次性的，之后基本不管） |
+| 2 | **把开发主战场挪到 GitHub**：在 GitHub 上用 PR 开发，靠 sync 工作流拉回 Gitee；GitHub 分支保护开起来就有效 | 零额外成本，`ci.yml` 现成 | 改变你的提交习惯；Gitee 仍是权威源时两边要盯 |
+| 3 | **保持现状（CI 当告警）**：不开保护，CI 红了看邮件/网页 | 零成本 | 拦不住任何东西 —— 门禁的价值只剩「事后知道」 |
+
+> **Gitee Go 不在候选里**：它要会员（用户 2026-09-19 指出），且这条路同样不解决「保护要作用在权威源上」的问题。
+
+### 19.2 required checks 怎么配（开了保护之后再定）
+
+- **先列**：`rust` / `rust-serde` / `non-rust` / `guards` —— 这些都快（分钟级）、且失败基本都是真问题。
+- **先别列**：`miri`（最长 60 分钟）、`osv`（依赖外网 OSV API，偶发抖动）。
+  让它们跑成**报警**；等观察一段时间确认稳定，再把 `osv` 提为 required。
+- **理由**：门禁的全部价值在「挡住真的坏提交」。一旦它开始因为环境抖动误挡，
+  人就会习惯性绕过（force push / 直接关掉检查）—— 那才是门禁真正的死法。
+
+### 19.3 首次跑红的预期
+
+这套测试是几周内在 **Windows** 上长出来的（路径、换行、shell 假设都可能埋着），
+**Linux 上第一次跑很可能会红，而且多数不是 W9 的错**。分诊顺序：
+`guards`（最轻，先确认基础环境） → `rust` / `rust-serde` → `non-rust` → `osv` → `miri`。
