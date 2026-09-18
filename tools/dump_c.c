@@ -13,7 +13,19 @@
 #include <stdio.h>
 #include "sml.h"
 
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
+
 int main(int argc, char **argv) {
+#ifdef _WIN32
+    /* Windows 的 stdout 默认是**文本模式**，会把 sml_dump 输出里的 '\n'
+       翻译成 "\r\n"。那不是序列化差异，却会让与 Rust 的逐字节比对
+       **每一个文件都判成不一致**（实测：C `b'a: []\r\n'` vs Rust `b'a: []\n\n'`，
+       tail 归一化也救不了）。改成二进制模式，输出的就纯粹是 sml_dump 的原文。 */
+    _setmode(_fileno(stdout), _O_BINARY);
+#endif
     for (int i = 1; i < argc; i++) {
         char err[512];
         err[0] = '\0';

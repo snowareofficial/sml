@@ -1485,6 +1485,9 @@ static int needs_quote(const char *s) {
 
 static void dump_value(sbuf *b, const sml_value *v, int indent);
 static void dump_inline(sbuf *b, const sml_value *v);
+static void dump_element(sbuf *b, const sml_value *v, int indent);
+static void dump_object_body(sbuf *b, const sml_value *v, int indent);
+static void dump_array_body(sbuf *b, const sml_value *v, int indent);
 
 /* 该对象是否有"体"（排除内部标记键 __type / __name）。
    有体时 dump_value 会输出 `\n{ … }`（另起一行）⇒ 键后面**不能**留行尾空格（W4 ①）。 */
@@ -1494,6 +1497,79 @@ static int obj_has_body(const sml_value *v) {
     for (f = v->u.obj.head; f; f = f->next)
         if (strcmp(f->key, "__type") && strcmp(f->key, "__name")) return 1;
     return 0;
+}
+
+/* 容器是否「扁平」：**直接子项全是标量**（不再嵌对象 / 数组）。
+   与 Rust `dump.rs::is_flat` 同一判据，是「一行写完」还是「展开多行」的唯一开关：
+     `{ type: home }`                      扁平 → `[ { type: home } ]` 仍是一行
+     `[ { type: home } { type: office } ]` 扁平 → 一行（子项全是标量）
+     `{ children: [ … ] }`                 非扁平 → `\n{ … }` 展开
+
+   ⚠️ **只看一层，不递归**。递归版（「子孙全是标量」）是恒真判据 —— 任何对象的
+   子孙最终都会落到标量，于是所有东西都被判成扁平、排版分毫不改。Rust 侧写这段时
+   真踩过这个坑（编译与测试全绿，只是完全没生效），这里按同一规则实现，别改回递归。
+   `__type` / `__name` 在 C 侧存为字符串，天然算标量，不影响判定（与 Rust 一致）。 */
+static int is_flat(const sml_value *v) {
+    if (!v) return 1;
+    if (v->type == SML_OBJECT) {
+        sml_field *f;
+        for (f = v->u.obj.head; f; f = f->next) {
+            const sml_value *fv = f->value;
+            if (fv && (fv->type == SML_OBJECT || fv->type == SML_ARRAY)) return 0;
+        }
+        return 1;
+    }
+    if (v->type == SML_ARRAY) {
+        size_t i;
+        for (i = 0; i < v->u.arr.len; i++) {
+            const sml_value *iv = v->u.arr.items[i];
+            if (iv && (iv->type == SML_OBJECT || iv->type == SML_ARRAY)) return 0;
+        }
+        return 1;
+    }
+    return 1; /* 标量一律扁平 */
+}
+
+/* 写对象体：**不含**开头的 `{`（由调用方写），负责逐键换行与收尾 `}`。
+   抽出来是为了让「键后面接的块」（先写 `\n{`，见 dump_value）与
+   「数组元素里的对象」（`{` 跟在同一行，见 dump_element）共用同一套键渲染 ——
+   与 Rust `dump.rs` 里 `dump_object_body` / `dump_block` / `dump_element` 的关系同构。 */
+static void dump_object_body(sbuf *b, const sml_value *v, int indent) {
+    sml_field *f;
+    int j;
+    for (f = v->u.obj.head; f; f = f->next) {
+        if (!strcmp(f->key, "__type") || !strcmp(f->key, "__name")) continue;
+        sb_add(b, "\n");
+        for (j = 0; j < indent + 1; j++) sb_add(b, "  ");
+        sb_add(b, f->key);
+        /* W4 ①：「键: 后接块」**不留行尾空格**。
+           对象体的 dump 是从 `\n{ … }` 起的一整块，这里若写 ": "，
+           那个空格就落在行尾（Rust `to_sml` 早就不留了，见 CHANGELOG
+           「to_sml 不再在『键: 后接块』时于行尾留空格」）。
+           标量 / 空容器（同行渲染）照旧用 ": "。 */
+        if (obj_has_body(f->value)) sb_add(b, ":");
+        else                        sb_add(b, ": ");
+        dump_value(b, f->value, indent + 1);
+    }
+    sb_add(b, "\n");
+    for (j = 0; j < indent; j++) sb_add(b, "  ");
+    sb_addc(b, '}');
+}
+
+/* 写数组体：**不含**开头的 `[`（由调用方写）。每个元素先换行 + 缩进，
+   再由 dump_element 决定「一行写完」还是「就地展开」。 */
+static void dump_array_body(sbuf *b, const sml_value *v, int indent) {
+    size_t i;
+    int j;
+    sb_addc(b, '[');
+    for (i = 0; i < v->u.arr.len; i++) {
+        sb_add(b, "\n");
+        for (j = 0; j < indent + 1; j++) sb_add(b, "  ");
+        dump_element(b, v->u.arr.items[i], indent + 1);
+    }
+    sb_add(b, "\n");
+    for (j = 0; j < indent; j++) sb_add(b, "  ");
+    sb_addc(b, ']');
 }
 
 static void dump_value(sbuf *b, const sml_value *v, int indent) {
@@ -1519,18 +1595,7 @@ static void dump_value(sbuf *b, const sml_value *v, int indent) {
             break;
         case SML_ARRAY: {
             if (v->u.arr.len == 0) { sb_add(b, "[]"); break; }
-            sb_addc(b, '[');
-            size_t i;
-            for (i = 0; i < v->u.arr.len; i++) {
-                sb_add(b, "\n");
-                int j;
-                for (j = 0; j < indent + 1; j++) sb_add(b, "  ");
-                dump_inline(b, v->u.arr.items[i]);
-            }
-            sb_add(b, "\n");
-            int j;
-            for (j = 0; j < indent; j++) sb_add(b, "  ");
-            sb_addc(b, ']');
+            dump_array_body(b, v, indent);
             break;
         }
         case SML_OBJECT: {
@@ -1539,32 +1604,21 @@ static void dump_value(sbuf *b, const sml_value *v, int indent) {
             for (f = v->u.obj.head; f; f = f->next)
                 if (strcmp(f->key, "__type") && strcmp(f->key, "__name")) { has_body = 1; break; }
             if (!has_body) { sb_add(b, "{}"); break; }
+            /* `key:` 之后另起一行写 `{ … }`，与 Rust `dump_block` 同形。 */
             sb_add(b, "\n");
             int j;
             for (j = 0; j < indent; j++) sb_add(b, "  ");
             sb_addc(b, '{');
-            for (f = v->u.obj.head; f; f = f->next) {
-                if (!strcmp(f->key, "__type") || !strcmp(f->key, "__name")) continue;
-                sb_add(b, "\n");
-                for (j = 0; j < indent + 1; j++) sb_add(b, "  ");
-                sb_add(b, f->key);
-                /* W4 ①：「键: 后接块」**不留行尾空格**。
-                   对象体的 dump 是从 `\n{ … }` 起的一整块，这里若写 ": "，
-                   那个空格就落在行尾（Rust `to_sml` 早就不留了，见 CHANGELOG
-                   「to_sml 不再在『键: 后接块』时于行尾留空格」）。
-                   标量 / 空容器（同行渲染）照旧用 ": "。 */
-                if (obj_has_body(f->value)) sb_add(b, ":");
-                else                        sb_add(b, ": ");
-                dump_value(b, f->value, indent + 1);
-            }
-            sb_add(b, "\n");
-            for (j = 0; j < indent; j++) sb_add(b, "  ");
-            sb_addc(b, '}');
+            dump_object_body(b, v, indent);
             break;
         }
     }
 }
 
+/* 把值压成**一行**写。契约：只对「扁平」值调用（见 is_flat）——
+   因此它内部的递归永远不会撞上容器，压出来的行里不会再有换行。
+   W4 ② 之前这里是**无条件**压行（数组项一律走它），于是整棵子树被塞进一行；
+   现在由 dump_element 按 is_flat 决定是否走这里。 */
 static void dump_inline(sbuf *b, const sml_value *v) {
     char num[64];
     if (!v) { sb_add(b, "null"); return; }
@@ -1624,6 +1678,30 @@ static void dump_inline(sbuf *b, const sml_value *v) {
     }
 }
 
+/* 写一个「元素」：扁平的走单行（dump_inline），含结构的**就地展开**成多行。
+   调用方负责**已**写好本元素开头的换行与缩进（`indent` 即该缩进级别），
+   因此这里不在开头补缩进；展开出来的续行由各自递归负责对齐。
+   对应 Rust `dump.rs::dump_element`（W4 ② 的对齐点）。 */
+static void dump_element(sbuf *b, const sml_value *v, int indent) {
+    if (!v) { sb_add(b, "null"); return; }
+    if (is_flat(v)) { dump_inline(b, v); return; }
+    switch (v->type) {
+        case SML_OBJECT:
+            /* 与 dump_value 的 OBJECT 分支的差别就在这一行：这里是数组元素位置，
+               `{` 要跟在**当前行**（缩进已由调用方写好），不能再另起一行。 */
+            sb_addc(b, '{');
+            dump_object_body(b, v, indent);
+            break;
+        case SML_ARRAY:
+            dump_array_body(b, v, indent);
+            break;
+        default:
+            /* is_flat 为假只可能是容器；标量一律扁平。真到这儿也退化成单行。 */
+            dump_inline(b, v);
+            break;
+    }
+}
+
 char *sml_dump(const sml_value *v) {
     if (!v) return NULL;
     sbuf b;
@@ -1641,7 +1719,10 @@ char *sml_dump(const sml_value *v) {
             sb_addc(&b, '\n');
         }
     } else {
-        dump_inline(&b, v);
+        /* 顶层非对象：与数组元素同一套规则（扁平单行 / 含结构展开），
+           Rust 侧 to_sml 走的也是 dump_element。W4 ② 之前这里无脑 dump_inline，
+           顶层一个嵌套数组会被整坨压进一行。 */
+        dump_element(&b, v, 0);
     }
     return b.buf ? b.buf : strdup("");
 }
