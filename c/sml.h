@@ -91,10 +91,21 @@ sml_value *sml_arr_get(const sml_value *arr, size_t i);
 size_t sml_arr_len(const sml_value *arr);
 
 /* ---- 解析 ---- */
+/* 错误码约定 (W10):
+**   失败时写入 err 的消息**以错误码开头**, 码与文案之间用一个空格分隔, 形如
+**       "E-LIMIT-001 嵌套过深（超过 128 层），疑似递归或恶意输入"
+**   码内不含空格, 故调用方取「第一个空格之前」的部分即为码:
+**       char code[16];
+**       sscanf(err, "%15s", code);   // -> "E-LIMIT-001"
+**   码是稳定契约、文案不是: 码相同即同一件事, 各端措辞可以不同。
+**   码表 (唯一事实来源) 见 errors/codes.sml; C 侧宏见 sml_codes.h, 用宏而非手打字符串。
+**   err 允许为 NULL 或 errsz 为 0, 此时一个字节都不写 (失败与否由返回值 NULL 表达);
+**   成功时 err[0] 会置 '\0' (若非 NULL)。
+**   没有例外: 连内存分配失败也带码 (E-LIMIT-010) —— C 要自己管内存, malloc 失败是可报条件。 */
 /* 解析 SML 文本。成功返回新值; 失败返回 NULL 并把错误写入 err(若非 NULL, 至少 256 字节) */
 sml_value *sml_parse(const char *text, char *err, size_t errsz);
 /* 解析 SML 文件: 展开 include / @include 文本内联后解析。
-** 相对路径以文件所在目录为基准。失败返回 NULL 并写 err。 */
+** 相对路径以文件所在目录为基准。失败返回 NULL 并写 err (同上, 带码)。 */
 sml_value *sml_parse_file(const char *path, char *err, size_t errsz);
 
 /* ---- 序列化 ---- */

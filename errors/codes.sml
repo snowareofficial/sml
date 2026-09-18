@@ -104,7 +104,7 @@ codes: [
     { id: E-PARSE-001 domain: PARSE severity: E title: "未闭合的块或数组"
       msg: "未闭合的块或数组，遇到文件结尾"
       impls: [ rust cpp c js lua ] status: partial
-      note: "Rust 另分契约体与 `@for` 循环体两种未闭合；JS 只在数组类型简写 `[T]` 缺 `]` 时报错，普通块或数组到文件结尾会静默返回" }
+      note: "Rust 另分契约体与 `@for` 循环体两种未闭合；JS 只在数组类型简写 `[T]` 缺 `]` 时报错，普通块或数组到文件结尾会静默返回。**C 与 C++ 原先也静默（声明与实现不符），W10 期间补齐**：块 / 数组 / 契约体三种到 EOF 都报此码，顶层块正常结束不算" }
     { id: E-PARSE-002 domain: PARSE severity: E title: "闭合符错配"
       msg: "块或数组未正确闭合：期望一个符号，却遇到另一个"
       impls: [ rust ] status: partial
@@ -181,12 +181,12 @@ codes: [
       impls: [ rust ] status: partial }
     { id: E-PARSE-021 domain: PARSE severity: E title: "default 缺取值"
       msg: "`default` 修饰符后缺少取值"
-      impls: [ rust js ] status: partial
-      note: "JS 侧报「期望字面量」（与 E-PARSE-022 共用同一处检查）" }
+      impls: [ rust cpp js ] status: partial
+      note: "JS 侧报「期望字面量」（与 E-PARSE-022 共用同一处检查）；C++ 在 W10 期间补进 impls" }
     { id: E-PARSE-022 domain: PARSE severity: E title: "数值边界取值非数字"
       msg: "`min` 或 `max` 的边界取值不是数字"
-      impls: [ rust js ] status: partial
-      note: "取值非有限数的情形见 E-CONTRACT-010" }
+      impls: [ rust c cpp js ] status: partial
+      note: "取值非有限数的情形见 E-CONTRACT-010。C 与 C++ 在 W10 期间补齐；此前 C 更糟：`max abc` 把非法边界当 0，报的是 **E-CONTRACT-005 这个错码**（把合法值判成越界）" }
     { id: E-PARSE-023 domain: PARSE severity: E title: "enum 后不是数组"
       msg: "`enum` 后须为数组"
       impls: [ rust cpp ] status: partial
@@ -301,23 +301,24 @@ codes: [
       note: "取值非有限数的情形是 E-CONTRACT-010" }
     { id: E-CONTRACT-006 domain: CONTRACT severity: E title: "枚举取值非法"
       msg: "取值不在枚举列表内"
-      impls: [ rust cpp js ] status: partial }
+      impls: [ rust c cpp js ] status: partial
+      note: "C 侧注释里专门论证了「必须与 E-CONTRACT-002 区分」；W10 期间核实 C 确实在报，故补进 impls" }
     { id: E-CONTRACT-007 domain: CONTRACT severity: E title: "外置类型校验失败"
       msg: "字段不符合扩展类型的要求"
       impls: [ rust js ] status: partial
       note: "失败原因由注册方提供，随消息一并返回" }
     { id: E-CONTRACT-008 domain: CONTRACT severity: E title: "组合字段应为块"
       msg: "字段应为块并按该契约校验，实际不是块"
-      impls: [ rust cpp js ] status: partial
-      note: "C++ 报「contract applied to non-object」" }
+      impls: [ rust c cpp js ] status: partial
+      note: "C++ 报「contract applied to non-object」；C 侧 W10 期间核实确实在报，补进 impls" }
     { id: E-CONTRACT-009 domain: CONTRACT severity: E title: "自定义类型格式不符"
       msg: "字段的值不符合该类型的格式要求"
       impls: [ rust js ] status: partial
       note: "含要求字符串却给了数字（号码、编号、身份证需引号）与值过长拒绝校验；模式编译或匹配失败也归此码" }
     { id: E-CONTRACT-010 domain: CONTRACT severity: E title: "数值约束取值为非有限数"
       msg: "字段的值为非有限数，不能作为数值约束的取值"
-      impls: [ rust ] status: partial
-      note: "JS 侧未见对应检查" }
+      impls: [ rust c cpp ] status: partial
+      note: "JS 侧未见对应检查。C 与 C++ 在 W10 期间补齐：min/max 边界取到 nan/1e400 时同报此码（此前 C 静默、C++ 把边界吞掉）" }
     { id: E-CONTRACT-011 domain: CONTRACT severity: E title: "外置修饰符校验失败"
       msg: "字段不符合扩展修饰符的要求"
       impls: [ rust ] status: partial
@@ -422,7 +423,7 @@ codes: [
     { id: E-IO-002 domain: IO severity: E title: "输入为空"
       msg: "输入为空"
       impls: [ c ] status: partial
-      note: "其余端对空输入返回空容器，不报错" }
+      note: "⚠️ **声明与实现不符**（W10 期间实测）：本条 impls 只写了 c，但 C 对空输入 / 空文件 / 仅空白文件**都返回空容器、不报错**，与其余端一致 —— 也就是说目前**没有任何实现报这个码**。「空输入算不算错」需要五端统一口径，属 W16 的判定对象，W10 未动" }
     { id: E-IO-003 domain: IO severity: E title: "写入或建目录失败"
       msg: "写入文件或创建目录失败"
       impls: [ smltools ] status: done }
@@ -445,8 +446,8 @@ codes: [
     # ================= 内部错误（宿主绑定层） =================
     { id: E-INTERNAL-001 domain: INTERNAL severity: E title: "内部错误"
       msg: "内部错误：走到了不应到达的分支"
-      impls: [ rust c cpp lua smltools ] status: partial
-      note: "Rust 的不可达断言、C-ABI 与 C 的空指针入参、Lua 的入参类型检查、smltools 的不可达分支都归此码。出现即 bug，请带最小复现报 issue；对外文案统一，细节只进日志与诊断" }
+      impls: [ rust c lua smltools ] status: partial
+      note: "Rust 的不可达断言、C-ABI 与 C 的空指针入参、Lua 的入参类型检查、smltools 的不可达分支都归此码。出现即 bug，请带最小复现报 issue；对外文案统一，细节只进日志与诊断。**C++ 不在其中**（W10 期间核实：它的 API 用 std::string* 而非裸缓冲，没有空指针入参面）" }
     { id: E-INTERNAL-002 domain: INTERNAL severity: E title: "内置资源损坏"
       msg: "内置资源损坏（打包或构建事故）"
       impls: [ smltools ] status: done

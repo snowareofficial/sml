@@ -52,6 +52,17 @@ if rc == 0:
     print("LIMITS rc=%d" % rc2)
     if rc2 != 0: sys.exit(rc2)
 
+# --- 错误码回归（W10，C++ 侧）：触发条件 → 期望码，码是跨端契约 ---
+rc = run(["g++", "-std=c++17", "-I.", "-o", "t_codes.exe", "test_codes.cpp", "sml.cpp"])
+if rc == 0:
+    rc2, out = run_out([os.path.join(HERE, "t_codes.exe")])
+    with open(os.path.join(HERE, "t_codes_out.txt"), "w", encoding="utf-8") as f:
+        f.write(out)
+    print("CODES rc=%d" % rc2)
+    if rc2 != 0: sys.exit(rc2)
+else:
+    sys.exit(rc)
+
 # --- 桥接 Rust cdylib 的 v3 能力 (sml_rs.* 与原生 sml.cpp 并存) ---
 RUST_LIB = os.environ.get("SML_RUST_LIB", r"E:/snoware-target/release")
 rc = run(["g++", "-std=c++17", "-I.", "-o", "example_rs.exe",
