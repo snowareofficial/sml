@@ -1,16 +1,22 @@
 //! 政务示范样例守护测试。
 //!
-//! 官网 demo 页（/demo-gov/）的练习场预填内容来自 `_gov_demo.sml`。
+//! 官网 demo 页（/demo-gov/）的练习场预填内容来自 `tests/fixtures/gov_demo.sml`
+//! （内容同时也存在于 `site/data/sml-lessons.json`）。
 //! 该文件被两个引擎（Rust wasm / JS）同时在页面上解析，因此它必须：
 //! 1. 能被 Rust 解析器无错接受；
 //! 2. 关键语义（strict 契约、enum 白名单、片段展开、字符串保真）符合预期。
-//! 样例改动 → 同步更新 `js` 端 `_test_gov_demo.mjs` 与 demo 页文案。
+//! 样例改动 → 同步更新 `site/data/sml-lessons.json` 与 demo 页文案。
+//!
+//! ⚠️ **夹具位置是本轮（2026-09-18）挪进来的**：它原先叫 `_gov_demo.sml`、放在仓库根，
+//! 而 `.gitignore` 有 `**/_*` ⇒ **这个夹具从未进过版本库**，于是 `cargo test` 只在
+//! 「本机恰好有那个文件」时才过（换台机器 / CI 必红，且报的是「读取失败」这种与测试
+//! 意图无关的错）。清理仓库里的 `_` 文件时一并改名挪进 `tests/fixtures/`，现在它是**已跟踪**的。
 
 use sml::Value;
 
 fn gov_src() -> String {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../_gov_demo.sml");
-    std::fs::read_to_string(path).expect("读取 _gov_demo.sml 失败")
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/gov_demo.sml");
+    std::fs::read_to_string(path).expect("读取 tests/fixtures/gov_demo.sml 失败")
 }
 
 #[test]
