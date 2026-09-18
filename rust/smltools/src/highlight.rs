@@ -425,7 +425,10 @@ fn zed_highlights(custom: &Value) -> Result<String, String> {
     s.push_str(";\n");
     s.push_str("; ⚠️ 本查询依赖 tree-sitter-sml grammar 的节点名（见 editors/zed/grammars/sml）。\n");
     s.push_str(";    若你的 grammar 节点名不同（如用 (integer) 而非 (number)），请对照 grammar 调整。\n");
-    s.push_str(";    Zed 用 Tree-sitter，不使用 TextMate 的 scope 名 —— 这是与 VSIX 侧的本质差异。\n\n");
+    s.push_str(";    Zed 用 Tree-sitter，不使用 TextMate 的 scope 名 —— 这是与 VSIX 侧的本质差异。\n");
+    s.push_str(";\n");
+    s.push_str("; 位置说明：Zed 只读扩展里的 languages/<语言>/highlights.scm，本文件是**待复制**的\n");
+    s.push_str(";    暂存产物，复制过去才生效（见 editors/zed/README.md）。\n\n");
     s.push_str("(comment) @comment\n");
     s.push_str("(string) @string\n");
     s.push_str("(number) @number\n");
@@ -434,12 +437,16 @@ fn zed_highlights(custom: &Value) -> Result<String, String> {
     s.push_str("(fragment_ref) @variable\n");
     s.push_str("(key) @property\n");
     s.push_str("(type_name) @type\n");
-    s.push_str("(punctuation) @punctuation\n");
+    // 标点用**匿名 token 列表**而不是 `(punctuation)`：把 `{`/`}` 做成具名节点会让
+    // 语法无法区分开闭括号（同一个节点名套两边），grammar 里也就没法做括号配对。
+    s.push_str("[\"{\" \"}\" \"[\" \"]\" \":\" \",\"] @punctuation\n");
     if !directives.is_empty() {
         s.push_str("\n; 方言指令（本定制的重点）：只有这些名字按关键字着色\n");
+        s.push_str("; ⚠️ 谓词带 `@`：grammar 里 `directive` 节点的文本是 `@form` 而不是 `form`，\n");
+        s.push_str(";    写成 `^form$` 会永远匹配不上（高亮静默失效）。\n");
         s.push_str("((directive) @keyword\n");
         s.push_str(&format!(
-            "  (#match? @keyword \"^({})$\"))\n",
+            "  (#match? @keyword \"^@({})$\"))\n",
             directives
                 .iter()
                 .map(|d| regex_escape(d))
@@ -651,6 +658,18 @@ mod tests {
         assert!(scm.contains("#match?"), "方言指令应经谓词限定：{scm}");
         assert!(scm.contains("form|policy"), "应含方言指令名：{scm}");
         assert!(scm.contains("tree-sitter"), "应说明依赖 grammar：{scm}");
+        // 谓词必须带 `@`：grammar 的 `directive` 节点文本是 `@form`。
+        // 这对不上时查询不会报错，只会静默不上色 —— 只能靠这条钉住。
+        assert!(
+            scm.contains("^@(form|policy)$"),
+            "谓词应匹配含 `@` 的 directive 节点文本：{scm}"
+        );
+        // 标点用匿名 token 列表，不能用 `(punctuation)`（grammar 里没有这个节点）
+        assert!(scm.contains("[\"{\" \"}\""), "标点应写成匿名 token 列表：{scm}");
+        assert!(
+            !scm.contains("(punctuation)"),
+            "不应引用 grammar 不存在的 (punctuation) 节点：{scm}"
+        );
     }
 
     #[test]
