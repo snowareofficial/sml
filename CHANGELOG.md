@@ -31,12 +31,19 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
     源码里手写的码字面量都在表里（挡「手打错一位数字」）。`--check` 给 CI。
   - **测试**：`rust/tests/error_codes.rs`（23 条「触发条件 → 期望码」+ 生成物与码表一致性）
     与 `js/probe-error-codes.mjs`（同一组条件，期望码逐一相同）。
-  - **C 与 C++ 的原生实现也已全量带码**（C 23 个码 / C++ 22 个码；码作**消息前缀**写进同一个
-    `err` 缓冲，形如 `E-LEX-001 文案`，取码 `sscanf(err, "%15s", code)`）。
-    四端各有一份「触发条件 → 期望码」用例：`rust/tests/error_codes.rs`、
-    `js/probe-error-codes.mjs`、`c/test_codes.c`、`cpp/test_codes.cpp`，**交集部分逐一同码**。
-  - 仍缺：**Lua**（`lua/lib/sml.soup` 是编译产物、源码不在本仓库，须回 Soup 工程重编）
-    与 `smltools` 的部分输出。进度见 `errors/README.md` 的「码的落地进度」。
+  - **C 与 C++ 的原生实现也已全量带码**（C 23 个码 / C++ 27 个码；码作**消息前缀**写进同一个
+    `err` 缓冲，形如 `E-LEX-001 文案`，取码 `sscanf(err, "%15s", code)` / `err.substr(0, err.find(' '))`）。
+  - **Lua 也已带码**（适用本实现的 7 个码）。⚠️ 与其它端最大的不同：Lua 的 `error()` 默认会
+    往消息**前面插位置信息**（`lua/lib/sml.soup:229: ...`），那会把码挤到消息中间 ——
+    所以抛错一律写成 `error(msg, 0)`，并在 `Sml.load` 的 pcall 出口判断「这条已经带码了，
+    别再包一层」。宿主入口 `lua/main.lua` 读不到输入文件报 `E-IO-001`（与 C 的
+    `sml_parse_file` 同一格）。
+  - 五端各有一份「触发条件 → 期望码」用例：`rust/tests/error_codes.rs`、
+    `js/probe-error-codes.mjs`、`c/test_codes.c`、`cpp/test_codes.cpp`、`lua/test_codes.lua`
+    （`python lua/run_check.py`），**交集部分逐一同码**。
+  - `E-INCLUDE-001` 的 `impls` 移除了 `lua`：Lua 实现**没有 include 语法**，本条对它不适用；
+    此前那句「Lua 的宿主入口报文件不存在」是**归类错误**（那是 `E-IO-001` 的格子）。
+  - 仍缺：`smltools` 的部分输出。进度见 `errors/README.md` 的「码的落地进度」。
 - **错误码体系（`E-<领域>-<序号>`）+ 官网查询工具**：`errors/codes.sml` 是唯一事实来源
   （用 SML 写，因此 `smltools` 自己就能校验它），`errors/gen_json.py` 走**真实工具链**
   `smltools --to json` 生成 `site/static/errors.json`，官网新增 `/errors` 查询页
@@ -69,6 +76,20 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 变更
 
+- ⚠️ **Lua 的三处行为变更**（W10 落地 Lua 侧时一并发生；判别实验：同一份用例配 HEAD 版
+  实现 **15 条红**，新实现 26 通过 / 0 失败）：
+  - **未闭合的块 / 数组不再"能解析"**：原先 `a { b: 1`（文件到此结束）会**静默**返回
+    `{a={b=1}}` —— 用户拿到被截断的文档却没有任何提示；现在报 `E-PARSE-001`。
+    顶层**裸块**（`a: 1` + `b: 2` 这种没有外层花括号的）到 EOF 收尾仍然合法 ——
+    这一格最容易误伤，已有反向用例钉住。
+  - **键位置的结构记号不再被当成键名**：原先 `: 1` 会解析出键名为 `:` 的树（静默），
+    `a { { x } }` 报的是「未匹配的右大括号」（**错误的码**）；现在都报 `E-PARSE-006`。
+  - **副作用（要留意）**：用了 `@contract` / `@is` / `include` 的文档
+    （如 `examples/app.sml`、`SML_政务数据密级标注规范_报送稿.sml`）在 Lua 里
+    **以前是"能解析"的，但解析出的树是错的** —— `include "x.sml"` 被当成裸块键，
+    把后面到第一个 `{` 的内容全吞进片段体。现在它们明确报 `E-PARSE-006`。
+    从「静默给错树」变成「响亮地拒绝」是本意，但**这是用户可见的变化**：
+    要不要在 Lua 里补契约 / include 支持是**产品决定**，已登记为 W20。
 - ⚠️ **C++ include 的两处语义变更**（W18，与 Rust/C 对齐）：
   - **子文件的基准目录换成它自己的所在目录** —— 嵌套 include 现在相对**父文件**解析。
     原先一律相对根目录，子目录里的链式包含会找不到文件；Rust/C 一直是前一口径。

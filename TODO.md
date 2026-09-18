@@ -320,14 +320,17 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
 | **W7** | 解析器一次报多条错误 | `rust/sml-parse/src`（错误收集）、`js/sml.mjs`、`editors/vscode/src` | 同一文档的多个错误一次全部返回；旧 `parse()` 行为不变（只加新 API） | 无 | ✋ |
 | **W8** | Zed：填 `extension.toml` + 编译验证 grammar | `editors/zed/` | `tree-sitter generate && tree-sitter parse test/parse/*.sml` 无 `ERROR`；`extension.toml` 指向可用 grammar | 需 tree-sitter CLI（联网下载） | 🤖 |
 | **W9** | 残余风险：Miri / 安全门禁 / 非 Rust 实现扫描进 CI | CI 配置、`rust/{miri_check,osv_check}.py` | CI 里跑得起来，失败能挡住合并 | 无 | 🤖 |
-| **W10** | 错误码**落地到五端**：`errors/codes.sml` 已定 **137 条**码（W11 已录全）。**Rust ✅ / JS ✅ / C ✅ / C++ ✅ / C-ABI ✅ 已全部带码**（见 `errors/README.md` 的「码的落地进度」）；**Lua ❌ 本仓库做不了**（源码不在本仓库，见下）；`smltools` 的部分输出仍只有文案 | 剩余：Lua（须回 Soup 工程）、`smltools` 的部分输出 | 四端各有一份「触发条件 → 期望码」用例，**交集部分逐一同码**：`rust/tests/error_codes.rs`、`js/probe-error-codes.mjs`、`c/test_codes.c`、`cpp/test_codes.cpp`；生成链路 `errors/gen_codes.py`（含「手写码字面量必须在表里」的反向校验） | 无 | ✋ |
+| **W10** | 错误码**落地到五端**：`errors/codes.sml` 已定 **137 条**码（W11 已录全）。**Rust ✅ / JS ✅ / C ✅ / C++ ✅ / Lua ✅ / C-ABI ✅ 已全部带码**（见 `errors/README.md` 的「码的落地进度」）；`smltools` 的部分输出仍只有文案 | 剩余：`smltools` 的部分输出 | 五端各有一份「触发条件 → 期望码」用例，**交集部分逐一同码**：`rust/tests/error_codes.rs`、`js/probe-error-codes.mjs`、`c/test_codes.c`、`cpp/test_codes.cpp`、`lua/test_codes.lua`（`python lua/run_check.py`）；生成链路 `errors/gen_codes.py`（含「手写码字面量必须在表里」的反向校验） | 无 | ✋ |
 
-> **Lua 为什么卡住（2026-09-18 查证）**：`lua/` 下只有 `main.lua`（demo 入口）与
-> `lua/lib/sml.soup`。**`lib/sml.soup` 是编译产物，本仓库里没有它的源码**，
-> `lua/MANIFEST.json` 也没写源在哪。记忆里那个 Soup 工程路径
-> （`~/Downloads/lua-5.5.1/lua`）**已不存在**。
-> 所以 Lua 带码必须先回到 Soup 工程拿到 sml 的 `.tl` 源码、用 `soupc` 重编再回填 `.soup`，
-> **不是本仓库内能完成的事**。要动它之前先去找 Soup 工程的实际位置。
+> **⚠️ 前一条记录是错的，已更正（2026-09-18）**：这里原本写着「`lib/sml.soup` 是编译产物、
+> **本仓库里没有它的源码**，必须先回 Soup 工程拿 `.tl` 重编」。**这个前提是假的**：
+> `lua/lib/sml.soup` 就是**纯 Lua 源码**（一个 489 行的文本文件，`local Sml = {}` /
+> `tokenize` / `parse_block` / `Sml.load` / `Sml.dump`，开头还带着人的注释），
+> `.soup` 只是 Soup 的**打包扩展名**，内容并没有被编译。实测
+> `luajit lua/main.lua`（本机 `C:\msys64\ucrt64\bin\luajit.EXE`）**直接就能跑**，
+> 自检输出 `self-test: a=1 b.c='hi'` —— 不需要 `soupx`、不需要 Soup 工程。
+> 教训：**「编译产物」是按扩展名猜的，没有实测**；这个仓库已经因为"按声明反推"吃过一次亏
+> （W10 的 `impls` 声明与实现不符）。遇到"这东西改不了"的结论，先去跑一次再说。
 | ~~**W11**~~ ✅ | ~~错误码总表**录全**（46 / 约 120）~~ **已完成 2026-09-18**：按语义条件清点五端 + `smltools`（CLI / 迁入格式 / lint / 定制）+ 编辑器，**46 → 135 条 / 14 个领域**，分四层（语言层 / 宿主绑定层 / 工具层 / 编辑器层）；新增 `DERIVE` / `MIGRATE` / `CLI` / `LINT` / `EDITOR` 五域；`coverage` 改「全量」；`status` 的语义（**行为是否已实现**，与是否带码无关）在表头明确定义；清点范围与「该报错却静默」清单落进 `errors/README.md` | `errors/codes.sml`、`errors/README.md`、`site/content/{zh,en}/errors.md`、`site/static/site-tools.js` | ✅ 135 条 id 唯一 / 领域已声明 / 级别与码前缀一致 / 字段无缺 / **0 处转义或插值损坏**；`gen_json.py` 通过并重生成 `errors.json`；官网领域筛选按数据生成，无需改模板 | 无 | ✅ |
 | **W12** | 错误码查询工具接上**搜索**：官网 `/errors` 目前是关键词过滤，教科书 `/search` 已可搜 | `site/static/site-tools.js` | 两处都能按码与前缀（`E-CONTRACT-*`）检索；结果可深链（`/errors/#E-PARSE-008`） | 无 | 🤖 |
 | ~~**W13**~~ ✅ | ~~**安全**：C++ 深度守卫被绕过 + C 错误路径越界写~~ **已完成 2026-09-18**，且**比原描述更严重**：① C++ 子块直接递归、不增长深度计数；② **修①时发现光补「走受限入口」不够** —— 守卫超限后把深度复位为 0，而复位不会让栈帧退回，外层又从 0 往下钻（每 128 层一轮反复压栈），10 万层照样崩；③ **C 有同一个问题**（审计曾据「parse_block 是带守卫的 wrapper」判定 C 无此洞，实测 10 万层块嵌套段错误）；④ C 的越界写不止那两处 —— `sml.h` 明写 `err` 可为 `NULL`，而所有 `snprintf(errbuf, ...)` 在 `NULL` 时都是空指针写（共 21 处 + 2 处 dummy 缓冲）。**修法**：C++ 加 `aborted` 中止标志、各层循环 break（与 Rust 当年靠 `Result` 传播 `?` 同一思路）；C 复用既有 `ps->failed` 同样 break；C 的错误写入全部收敛到 `set_err()` 助手（缓冲区为空则一个字节不写） | `cpp/sml.cpp`、`c/sml.c`、`cpp/test_limits.cpp`、`c/test_limits.c`、`cpp/build_verify.py`、`c/build_check.py`、`c/Makefile` | ✅ 新增两侧回归用例：10 万层块/数组/交替嵌套**报错返回而不崩**、100 层照常解析、`err=NULL`/`errsz=0` 四条路径一个字节都不写。`c/build_check.py --run` 与 `cpp/build_verify.py` 全绿（后者含 contract/comments/rs-bridge 对照） | 清点记录（`errors/README.md`） | ✅ |
@@ -337,6 +340,7 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
 | **W16** | 「静默清单」逐条判定并回填码表 | `errors/README.md` 的静默清单、各实现、`errors/codes.sml` | 清单里每条判定为「改成报错（给码）」或「写进规范、明确允许静默」，判定结果回填码表的 `status` 与规范文档。**先出判定表再动实现** —— W3 只是其中的顶层标量一条 | W11 的清单 | ✋ |
 | **W18** | ✅ **已修（2026-09-18）**：C++ 的 `@include` 恢复可用 —— include 挪到**解析之前**的递归展开，链栈只判当前路径，并补齐嵌套深度 32（`E-INCLUDE-004`）与**全局**展开次数 10000（`E-LIMIT-003`）两道闸。链式包含两侧字段都在；自包含/互包含报 `E-INCLUDE-002`；**菱形包含合法**（反向用例挡住「见过即拒」那种修法）。顺带修四处：基准目录不可解析报 `E-INCLUDE-010`（原被 `weakly_canonical` 消解成 `E-INCLUDE-001` 错码）、子文件词法错误报 `E-INCLUDE-011`（原被丢弃、残段照插）、超深包含报 `E-INCLUDE-004`（原静默跳过）、嵌套 include 的基准改为相对**父文件**目录 | `cpp/sml.cpp`、`cpp/test_codes.cpp` | ① 链式包含两侧字段都在 ✅；② 自包含/互包含明确报错 ✅。**当时那条警告已被验证**：判别实验里 HEAD 版的自包含/互包含/超深/膨胀**四格全是「静默通过」**，且 off-by-one 确实压住了无限展开（旧版没挂） | 无 | ✅ |
 | **W19** | ⚠️ **`cargo test --workspace` 常红（rc=1），但测试 0 失败**（既有，2026-09-18 查明）：`swsml-derive` 的 doctest 编译不过 —— `error[E0463]: can't find crate for proc_macro2 / quote / syn` + `doctest failed, to rerun pass -p swsml-derive --doc`。判别实验：`cargo test --workspace --doc` **rc=0**（doctest 全过）、`cargo test -p swsml-derive --doc` **rc=0**，只有「**全 workspace 构建 + 再跑 doctest**」才炸 → 指向 **feature 统一**（全量构建出的 `syn`/`quote` rlib 与 rustdoc 从 doctest 命令行拿到的 `--extern` 不是同一份）。**妨碍很大**：只看退出码的 CI 会把真失败也当成这条已知噪声（上一会话因此记过一条「rc=1 但 0 失败、未能复现」） | `rust/derive/Cargo.toml`、`rust/Cargo.toml` | 让 `cargo test --workspace` 干净退出。候选：① 用 `cargo tree -e features` 逐 crate 对比，找出是哪个成员多开了 `syn`/`quote` 的 feature；② 变通（先在 CI 落地）：拆成 `cargo test --workspace --exclude swsml-derive` + `cargo test -p swsml-derive --doc` 两段。**别用 `[lib] doctest = false` 糊过去** —— 那等于把最后一条真的 doctest 也关掉 | 无 | ✋ |
+| **W20** | ⚠️ **Lua 实现缺契约与 include 支持**（既有，非 W10 引入）：Lua 的 `parse_block` 对 `@contract` / `@is` / include **全无处理** —— `@is Service` 被当成片段定义、把紧随的 `name` 当"类型/名字"参数吃掉；`include "x.sml"` 被当成裸块键，把后面到第一个 `{` 的内容**全吞进片段体**。于是 `examples/app.sml`、`SML_政务数据密级标注规范_报送稿.sml` 这类文档**"能解析"但树是错的**（实测：全仓 41 个 `.sml` 里，改动前 28 OK，其中 2 个是"错树"）。W10 给键位置加码后它们改为明确报 `E-PARSE-006` —— **变响亮了，但能力缺口仍在** | `lua/lib/sml.soup` | 先决定再动手：① 补契约（`@contract` / `@is` 校验 + 默认值）与 include；② 或明确把 Lua 声明为**子集实现**并写进 README 能力矩阵，同时给"遇到不支持的指令"一个**更准确的码**（现在报的 `E-PARSE-006` 只是局部症状，不是根因）。**这是产品决定，不是补码** —— 先问用户 | W10 的键位置检查（已完成，正是它把问题暴露出来） | ✋ |
 
 **建议顺序**：W13（安全，最优先）→ W16（静默清单判定，是 W3 的前置）→ W3 → W4 → W5 → W6 → W7 → W9。
 W14 / W15 范围封闭，但与 W3 改同一批文件（`js/sml.mjs`、`lua/`），**必须与 W3 串行**；
