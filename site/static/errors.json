@@ -98,10 +98,11 @@
       "title": "输出后端报错",
       "msg": "输出后端报错（内层原因见原始错误）",
       "impls": [
+        "rust",
         "smltools"
       ],
       "status": "done",
-      "note": ""
+      "note": "**W21 已根治**：码现在由 `swsml` 的 emit 后端**自己带**（`rust/src/emit/mod.rs` 的 `backend_error()`），不再是 smltools 按**文案前缀**猜出来的 —— 那套猜法有个隐蔽的静默失效：它的单测喂的是**自己手写的字面量**，上游一改文案，测试照样绿、码静默退化成更粗的东西。⚠️ **候选拆分**（本轮不拆：拆码=改对外契约，且这些条件彼此异质，该先想清按什么维度拆）：markdown 的 HTML 透传拒绝危险标签、latex 的危险控制序列、latex 任务勾选不支持、md/latex 的 table 缺 header、slint 的 property 声明缺合法类型"
     },
     {
       "id": "E-CLI-008",
@@ -112,7 +113,7 @@
       "impls": [
         "smltools"
       ],
-      "status": "partial",
+      "status": "done",
       "note": "clap 自身的用法错误（未知参数 / 缺取值 / 非法枚举）原先由 clap 直接打印并 exit 2、**不带码**；W21 立此码，让 smltools 接管这层输出（在其消息上补码，不重写 clap 的用法提示）。与 E-CLI-001..007 的区别：那七条是**我们自己**的校验，本条是**解析器/框架**报的用法错误"
     },
     {
@@ -545,6 +546,7 @@
       "title": "custom 规则文档非法",
       "msg": "自定义生成规则文档非法：缺少 rules、rules 为空，或某条规则缺少模板",
       "impls": [
+        "rust",
         "smltools"
       ],
       "status": "done",
@@ -842,7 +844,7 @@
       "impls": [
         "smltools"
       ],
-      "status": "partial",
+      "status": "done",
       "note": "smltools 的 include 展开要求路径加引号；未加引号时原先**暂归 E-INCLUDE-001** —— 那是**已知错码**（用户拿 E-INCLUDE-001 去查会看到「文件缺失或读取失败」，被误导），W21 立此码归位。⚠️ 语言层（`sml-include::parse_include_line`）对「未加引号」的判定归它自己的实现，本条目前只有 smltools 落地"
     },
     {
@@ -1095,6 +1097,7 @@
       "title": "custom 输出长度超上限",
       "msg": "custom 生成器输出超过长度上限（模板存在放大）",
       "impls": [
+        "rust",
         "smltools"
       ],
       "status": "done",
@@ -1107,6 +1110,7 @@
       "title": "custom 数组循环次数超上限",
       "msg": "custom 生成器数组超过循环上限",
       "impls": [
+        "rust",
         "smltools"
       ],
       "status": "done",
