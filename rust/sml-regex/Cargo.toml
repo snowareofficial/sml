@@ -1,6 +1,9 @@
 [package]
 name = "sml-regex"
-version = "0.1.0-alpha.2"
+# alpha.3：量词语义修正（`+`/`?`/`*` 的 off-by-one）与 `^...$` 锚点松判修正，
+# 两者都改变既有匹配结果 → 属破坏性语义变更，按纪律升 alpha 序号。
+# 下游 sml-include 的要求是 `^0.1.0-alpha.1`，可解析到本版，无需同步改。
+version = "0.1.0-alpha.3"
 edition = "2021"
 description = "SML 的受限正则引擎：供 regex-include 使用，带步数上限以杜绝回溯爆炸。零依赖。"
 license = "MulanPSL-2.0"
