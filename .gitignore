@@ -3,6 +3,15 @@ target/
 # 本地校验/验证用构建目录（cargo 验证产物，非源码）
 rust/target_verify/
 Cargo.lock
+# 例外：**主 Rust workspace 的锁文件必须入库**（Cargo 官方建议：含二进制 crate 的
+# workspace 提交 Cargo.lock）。原因不是洁癖，是两条实打实的：
+#   1) `rust/osv_check.py` 在导入时就读 `<repo>/rust/Cargo.lock`；CI 的 `osv` job 是
+#      **独立 checkout**，没有锁文件 ⇒ 直接 FileNotFoundError ⇒ 该 job 必红（红的
+#      原因还不是漏洞，纯属误导）；
+#   2) 不锁版本 ⇒ CI 每次都解析"当天最新"的依赖，与本地测过的不是同一套，
+#      OSV 门禁也就查的不是你实际用的那一份。
+# 其余 crate 的锁文件（如 editors/zed/grammars/sml/Cargo.lock）继续忽略。
+!rust/Cargo.lock
 
 # 构建产物
 *.sar
