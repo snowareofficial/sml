@@ -23,6 +23,27 @@
 use std::collections::{BTreeMap, HashMap};
 
 use sml::Value;
+use sml_codes::{SmlError, E_MIGRATE_013, E_MIGRATE_014, E_MIGRATE_015, E_MIGRATE_016};
+
+/// E-MIGRATE-013：YAML 结构非法（意外内容、不是键值形式、缩进过深、流式结构后有多余字符）。
+fn structure(msg: impl Into<String>) -> SmlError {
+    SmlError::new(E_MIGRATE_013, msg)
+}
+
+/// E-MIGRATE-014：YAML 流式结构未闭合。
+fn unclosed_flow(msg: impl Into<String>) -> SmlError {
+    SmlError::new(E_MIGRATE_014, msg)
+}
+
+/// E-MIGRATE-015：别名引用了未定义的锚点。
+fn undefined_alias(msg: impl Into<String>) -> SmlError {
+    SmlError::new(E_MIGRATE_015, msg)
+}
+
+/// E-MIGRATE-016：流式结构里出现非法 UTF-8。
+fn bad_utf8(msg: impl Into<String>) -> SmlError {
+    SmlError::new(E_MIGRATE_016, msg)
+}
 
 /// 预处理后的一行。
 #[derive(Debug, Clone)]
@@ -38,7 +59,7 @@ struct Line {
 }
 
 /// 从文本解析 YAML 子集。空文档按空对象返回（SML 顶层须为容器）。
-pub fn parse(text: &str) -> Result<Value, String> {
+pub fn parse(text: &str) -> Result<Value, SmlError> {
     let mut p = Parser {
         lines: preprocess(text),
         i: 0,
@@ -52,10 +73,10 @@ pub fn parse(text: &str) -> Result<Value, String> {
     let v = p.parse_node(indent)?;
     p.skip_blank();
     if p.i < p.lines.len() {
-        return Err(format!(
+        return Err(structure(format!(
             "第 {} 行：意外的内容 `{}`（缩进不一致，或存在多份文档）",
             p.lines[p.i].no, p.lines[p.i].text
-        ));
+        )));
     }
     Ok(v)
 }
@@ -314,7 +335,7 @@ impl<'a> FlowParser<'a> {
         }
     }
 
-    fn value(&mut self, no: usize) -> Result<Value, String> {
+    fn value(&mut self, no: usize) -> Result<Value, SmlError> {
         self.skip_ws();
         if self.i >= self.s.len() {
             return Ok(Value::Null);
@@ -326,7 +347,7 @@ impl<'a> FlowParser<'a> {
                 loop {
                     self.skip_ws();
                     if self.i >= self.s.len() {
-                        return Err(format!("第 {no} 行：`[` 未闭合"));
+                        return Err(unclosed_flow(format!("第 {no} 行：`[` 未闭合")));
                     }
                     if self.s[self.i] == b']' {
                         self.i += 1;
@@ -346,7 +367,7 @@ impl<'a> FlowParser<'a> {
                 loop {
                     self.skip_ws();
                     if self.i >= self.s.len() {
-                        return Err(format!("第 {no} 行：`{{` 未闭合"));
+                        return Err(unclosed_flow(format!("第 {no} 行：`{{` 未闭合")));
                     }
                     if self.s[self.i] == b'}' {
                         self.i += 1;
@@ -393,7 +414,7 @@ impl<'a> FlowParser<'a> {
                         .anchors
                         .get(name.trim())
                         .cloned()
-                        .ok_or_else(|| format!("第 {no} 行：别名 `*{}` 未定义", name.trim()));
+                        .ok_or_else(|| undefined_alias(format!("第 {no} 行：别名 `*{}` 未定义", name.trim())));
                 }
                 Ok(parse_scalar(&t))
             }
@@ -401,7 +422,7 @@ impl<'a> FlowParser<'a> {
     }
 
     /// 读到分隔符（`,` / `]` / `}` / `:`）或引号结束为止的原始片段。
-    fn raw_token(&mut self, no: usize) -> Result<String, String> {
+    fn raw_token(&mut self, no: usize) -> Result<String, SmlError> {
         self.skip_ws();
         if self.i < self.s.len() && (self.s[self.i] == b'"' || self.s[self.i] == b'\'') {
             let quote = self.s[self.i];
@@ -422,7 +443,7 @@ impl<'a> FlowParser<'a> {
         }
         std::str::from_utf8(&self.s[start..self.i])
             .map(|s| s.trim().to_string())
-            .map_err(|_| format!("第 {no} 行：流式结构里有非法 UTF-8"))
+            .map_err(|_| bad_utf8(format!("第 {no} 行：流式结构里有非法 UTF-8")))
     }
 }
 
@@ -441,7 +462,7 @@ impl Parser {
     }
 
     /// 解析一个节点：序列 / 映射 / 标量。
-    fn parse_node(&mut self, indent: usize) -> Result<Value, String> {
+    fn parse_node(&mut self, indent: usize) -> Result<Value, SmlError> {
         self.skip_blank();
         if self.i >= self.lines.len() {
             return Ok(Value::Null);
@@ -464,7 +485,7 @@ impl Parser {
             let v = f.value(no)?;
             f.skip_ws();
             if f.i < f.s.len() {
-                return Err(format!("第 {no} 行：流式结构后有多余字符"));
+                return Err(structure(format!("第 {no} 行：流式结构后有多余字符")));
             }
             Ok(v)
         } else if is_map_entry(&text) {
@@ -477,7 +498,7 @@ impl Parser {
     }
 
     /// 块映射。
-    fn parse_map(&mut self, indent: usize) -> Result<Value, String> {
+    fn parse_map(&mut self, indent: usize) -> Result<Value, SmlError> {
         let mut m = BTreeMap::new();
         loop {
             self.skip_blank();
@@ -494,10 +515,10 @@ impl Parser {
                 break; // 交给上层的序列解析
             }
             if lindent > indent {
-                return Err(format!("第 {lno} 行：缩进过深 `{text}`"));
+                return Err(structure(format!("第 {lno} 行：缩进过深 `{text}`")));
             }
             let Some((raw_key, rest)) = split_map_entry(&text) else {
-                return Err(format!("第 {lno} 行：不是 `键: 值` 形式 `{text}`"));
+                return Err(structure(format!("第 {lno} 行：不是 `键: 值` 形式 `{text}`")));
             };
             let key = unquote_key(&raw_key);
             self.i += 1;
@@ -545,7 +566,7 @@ impl Parser {
     }
 
     /// 块序列。
-    fn parse_seq(&mut self, indent: usize) -> Result<Value, String> {
+    fn parse_seq(&mut self, indent: usize) -> Result<Value, SmlError> {
         let mut items = Vec::new();
         loop {
             self.skip_blank();
@@ -589,7 +610,12 @@ impl Parser {
     ///
     /// 做法是把它们拼成一个**临时行集**（首行作为缩进 0 的虚拟行，后续行按
     /// `seq_indent + 2` 重基准），再交给普通的映射解析，避免为内联映射单写一套逻辑。
-    fn parse_inline_map(&mut self, seq_indent: usize, first: String, no: usize) -> Result<Value, String> {
+    fn parse_inline_map(
+        &mut self,
+        seq_indent: usize,
+        first: String,
+        no: usize,
+    ) -> Result<Value, SmlError> {
         let mut sub = vec![Line {
             indent: 0,
             text: first,
@@ -624,7 +650,7 @@ impl Parser {
     }
 
     /// 块标量 `|` / `>`：内容为后续所有缩进大于当前键的行。
-    fn parse_block_scalar(&mut self, key_indent: usize, kind: BlockScalar) -> Result<Value, String> {
+    fn parse_block_scalar(&mut self, key_indent: usize, kind: BlockScalar) -> Result<Value, SmlError> {
         let mut collected: Vec<(usize, String)> = Vec::new();
         let mut min_indent: Option<usize> = None;
         while self.i < self.lines.len() {
@@ -686,7 +712,7 @@ impl Parser {
     }
 
     /// 标量或流式结构。
-    fn scalar_or_flow(&mut self, t: &str, no: usize) -> Result<Value, String> {
+    fn scalar_or_flow(&mut self, t: &str, no: usize) -> Result<Value, SmlError> {
         let t = t.trim();
         if t.is_empty() {
             return Ok(Value::Null);
@@ -696,7 +722,7 @@ impl Parser {
                 .anchors
                 .get(name.trim())
                 .cloned()
-                .ok_or_else(|| format!("第 {no} 行：别名 `*{}` 未定义", name.trim()));
+                .ok_or_else(|| undefined_alias(format!("第 {no} 行：别名 `*{}` 未定义", name.trim())));
         }
         if t.starts_with('[') || t.starts_with('{') {
             let mut f = FlowParser {
@@ -707,7 +733,7 @@ impl Parser {
             let v = f.value(no)?;
             f.skip_ws();
             if f.i < f.s.len() {
-                return Err(format!("第 {no} 行：流式结构后有多余字符"));
+                return Err(structure(format!("第 {no} 行：流式结构后有多余字符")));
             }
             return Ok(v);
         }

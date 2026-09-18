@@ -30,6 +30,9 @@ name = "smltools"
 path = "src/main.rs"
 
 [dependencies]
+# 错误码（唯一事实来源 errors/codes.sml）：CLI / 迁入格式 / lint 三层的对外错误
+# 都引用这里的**常量**而不是手写字面量，避免打错一位数字。见 errors/README.md。
+sml-codes = { version = "0.1.0-alpha.1", path = "../sml-codes" }
 # 复用 swsml 的解析器与 sml::emit::* 翻译后端，自身不重复实现。
 swsml = { version = "0.6.1", path = "../", features = [
     "sml",
