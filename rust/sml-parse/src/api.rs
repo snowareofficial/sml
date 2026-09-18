@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use sml_codes::{E_FEATURE_001, E_FEATURE_004, E_FEATURE_009, E_IO_001, SmlError};
+use sml_codes::{E_FEATURE_001, E_FEATURE_004, E_FEATURE_009, E_IO_001, E_PARSE_008, SmlError};
 use sml_feature::{Feature, FeatureSet, Version};
 use sml_include::resolve_includes;
 use sml_lex::{Tok, tokenize};
@@ -236,13 +236,32 @@ fn parse_impl_tokens_ext(
         diags: Vec::new(),
         contract_ext: Arc::new(opts.contract_ext),
     };
+    // 顶层标量不可往返 ⇒ `E-PARSE-008`（W16 接线）。
+    //
+    // 改之前这里是**静默造键**：`42` 走下面的 `parse_block(None)`，被当成「键即值」的
+    // 裸词键，解析成 `{"42": 42}` —— 重新序列化得到 `"42": 42` ≠ `42`，数据形状被悄悄
+    // 改掉（与 W17 的 C 嵌套数组同族）。而这条码一直躺在 `sml-codes` 里、名字就叫
+    // 「顶层标量不可往返」，却**从未被接线**：全仓只有常量定义与 doctest 引用，
+    // 没有一处 `SmlError::new(E_PARSE_008, …)`。W16 起改为此处显式报错。
+    //
+    // 【判据（已实测定死）】顶层**恰好一个标量 token**：
+    //   - `a: 1` / `42: x` / `[1,2]` / `{ a: 1 }` 不是单 token 或走容器分支 ⇒ 不受影响；
+    //   - `hello world`（两 token）得到 `{"hello":"world"}`，重写为 `hello: world`，
+    //     **值能往返** ⇒ 不算标量。
+    // 【已知边界】带指令的顶层标量（如 `@version v1` + `42`）token 数 > 1，按本判据
+    //   **不报** —— 有意保守（宁漏不误伤）：指令与标量的组合另有语义，不在此处一刀切。
+    if matches!(p.toks.as_slice(), [Tok::Word(_)] | [Tok::Str(_)]) {
+        return Err(SmlError::new(
+            E_PARSE_008,
+            "sml: 顶层须为容器（键值块、对象块或数组），单独的标量无法往返",
+        ));
+    }
     // 顶层支持三种形态，与 `to_sml` 的输出对称：
     //   - `[ ... ]` 数组：to_sml 对非对象走 dump_inline，会输出顶层数组
     //     （如「历史记录」这类对象数组）。此前 parse 只认键值块，导致
     //     能序列化却读不回（"期望键, 得 LBrack"），是不对称缺陷。
     //   - `{ ... }` 顶层对象块
     //   - 键值块（传统形态）
-    // 注：顶层**标量**仍不可往返（SML 顶层需为容器），这是格式固有限制。
     let value = match p.peek() {
         Some(Tok::LBrack) => {
             if !p.features.has(Feature::TopArray) {

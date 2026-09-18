@@ -134,7 +134,7 @@ codes: [
     { id: E-PARSE-008 domain: PARSE severity: E title: "顶层标量不可往返"
       msg: "顶层须为容器（键值块、对象块或数组），单独的标量无法往返"
       impls: [ rust ] status: partial
-      note: "**W3 的主对象**：Rust 已有说明与文档；JS 把标量当键（得到形如键为 42 的对象），C/C++/Lua 只在注释里陈述该限制。目标：四端一律显式报此码，禁止静默" }
+      note: "**这条码此前是「死码」（W16 查明并接线）**：全仓只有常量定义 + doctest/文档引用，**没有一处 `SmlError::new(E_PARSE_008, …)`** —— 而改前 `42` 会被静默当成「键即值」的裸键、解析成 `{\"42\": 42}`（**凭空造键**，重新序列化 ≠ 原文；与 W17 的 C 嵌套数组同族）。Rust 自 W16 起真的报它，判据 = **顶层恰好一个标量 token**（故 `hello world` 这类两 token 的裸键对**不算**，它值可往返）。⚠️ **已知边界**：带指令的顶层标量（`@version v1` + `42`）token 数 > 1，按此判据**不报** —— 有意保守，宁漏不误伤。JS/C/C++/Lua 正在对齐（W16）" }
     { id: E-PARSE-009 domain: PARSE severity: E title: "命名空间段非法"
       msg: "命名空间段不可使用该名字"
       impls: [ js ] status: partial
