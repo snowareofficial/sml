@@ -157,20 +157,19 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   重写其序列化层（`is_flat` / `starts_inline` / `dump_object_body` / `dump_array_body` /
   `dump_element` / `dump_inline` / `dump_value` / `to_sml`）并补上数组位置裸块的解析。
   - **量具是本轮新写的**（C++ 没有 parity 工具）：`Parser::to_sml` ↔ `smltools --to sml`，
-    同一份 34 个 `.sml` 的语料集 ⇒ **「行数不同」15 → 2**、行数一致 11 → **24**；
+    同一份 34 个 `.sml` 的语料集 ⇒ **「行数不同」15 → 2 → 0**、行数一致 11 → **26**；
     6 个原生 target 全 rc=0（`RS-BRIDGE` 因本机没有 Rust cdylib 而跳过 —— 那是 W9 起的
     fail-closed 设计，不是本轮引入的失败）。
   - **判别实验**：`git show HEAD:cpp/sml.cpp` 另编一个 dumper 对照 —— `topic 云天明童话 { label: a }`
     改前丢元数据、`m: [ screen login { width: 320 } ]` 改前 **3 个**元素、
     `server web prod { x: 1 }` 改前丢 `web`/`prod`；**正对照**（`m: [ "sec" { x: 1 } ]`、
     `m: [ hello world ]`、`a { }`、`k: { x: 1 }`）两侧逐字节相同。
-  - ⚠️ **撞见一处「收紧即炸」，故只做了一半**：把**键位置**的裸块判据也收紧成 Rust 的
+  - ⚠️ **「收紧即炸」这一段值得记下来**：把**键位置**的裸块判据也收紧成 Rust 的
     `bare_block_ahead` 之后，`examples/secrets.sml`、`examples/slint/login.sml`、
     `rust/tests/fixtures/gov_demo.sml`、`examples/advanced.sml`、`showcase.sml` 会从
     「静默错解」直接变成 `E-PARSE-006` **解析失败** —— 那个过宽的判据一直在**吞**本实现的
-    另外几处解析缺陷（`$` 独立 token 的 `$env`、`@contract X strict {`、反引号串）。
-    故**本轮退回原判据**，只保留「参数不丢」（`__name` / `__args`）这条对齐；
-    过宽判据与它掩盖的三处缺陷已登记（见下方「已知限制」与 HANDOFF §22.6）。
+    另外几处解析缺陷。于是**先退回**，按「**先修缺陷、再收紧判据**」的顺序做（见下方「修复」）：
+    最终 C++ ↔ Rust 的「行数不同」= **0**（26/26 一致）。**反过来做就是把能解析的文件变成不能解析。**
 - **`.gitignore` 的 `**/_*` 补 9 条精确例外（提交 `65b5bfd`）**：这条规则本意是挡「本机临时探针」，
   却连带挡掉了**必须入库**的文件 —— `site/static/_headers`（Cloudflare Pages 的 CORS 响应头；
   丢了它，第三方站点 `import … from "https://sml.swebase.cn/lib/sml.mjs"` 会被跨域拦掉）、
@@ -485,6 +484,22 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 修复
 
+- ⚠️ **C++ 解析器四处静默错解（2026-09-19，与 W4 同批）**：
+  1. **`$env.X` 在值位置被拆成两个 token** ⇒ 值退化成 `null`，而 `env.X` 掉到**键位置凭空造出一个键**
+     （`examples/secrets.sml`：`resendApiKey: null` + `env.RESEND_API_KEY: env.RESEND_API_KEY`）。
+     根因是词法器把 `$` 切成独立 token，而 Rust 里 `$` 就是**普通词字符**（`coerce_word` 里的
+     `$env.` 分支一直没被走到）。现在不再切 `$` ⇒ 实测 `resendApiKey: ""` 等三个键全部正确、与 Rust 一致。
+  2. **`@contract X strict { … }` 的 `strict` 不被消费** ⇒ 后面那个 `{` 不再是「紧跟契约名」，
+     **整条契约声明被跳过**（`rust/tests/fixtures/gov_demo.sml`）。现在 `loose` 与 `strict` 都消费
+     （`allow_extra` 分别 true / false）。
+  3. **契约体未闭合静默通过**（`if (…) st.i++;` —— 有 `}` 才吃、没有就算了）⇒ 现在报
+     `E-PARSE-001 契约体未闭合（缺少结束符号 }）`，与 Rust 同格。
+  4. **键位置的裸块判据过宽**（只要「后继是个词」就试，参数收集还**贪心**地吃到 `{`/`}`/`,`）
+     ⇒ 改用 Rust 的 `bare_block_ahead()`，参数只收词且经 `coerce`；`examples/common.sml`
+     从 **14 行 → 1 行**（= Rust）。
+     ⚠️ **顺序很重要**：先修 1–3 再收紧 4 —— 反过来做，`secrets.sml` / `slint/login.sml` /
+     `gov_demo.sml` / `advanced.sml` / `showcase.sml` 会从「静默错解」直接变成 `E-PARSE-006` 硬失败
+     （那个过宽判据一直在吞 1–3 的痕迹）。结果：C++ ↔ Rust 的「行数不同」**2 → 0**。
 - **三处「测试自己坏了、却没人知道」**（W16 的 A 批顺带查出并修好）：
   1. `rust/tests/c_abi.rs` 里的 `CSmlError` **镜像结构缺 `code_str`**（W10 给真实 ABI
      结构加了这个字段，测试侧没跟着改）⇒ `CSmlError::fill` 会**写到测试这块结构之外
@@ -614,15 +629,25 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 已知限制
 
-- ⚠️ **C++ 解析器三处遗留缺陷（2026-09-19 定位，**未改**；都不是本轮引入的）**：
-  ① **键位置的裸块判据过宽**（只要「后继是个词」就试，且参数收集是**贪心**的 —— 一直吃到
-  `{` / `}` / `,`，中间任何 token 都算参数）⇒ `examples/common.sml` 把注释闭合符那一串
-  （裸词 + 星斜杠 + `@contract …`）整段当成裸块参数：**C++ 14 行 vs Rust 1 行**；
-  ② **`$` 是独立 token**、在键位置被直接跳过 ⇒ `$env.X` 退化成「键 `env.X` + 值 = 下一个词」，
-  `examples/secrets.sml` 因此 `resendApiKey: null`（Rust：`""`）、文件 5 行 vs Rust 6 行；
-  ③ **收紧 ① 会立刻暴露**的三处：`@contract X strict { … }`（契约两词名）、反引号串、
-  `@feature` ⇒ 5 个语料从「静默错解」变成 `E-PARSE-006` 失败 ⇒ **要修 ① 必须先修 ③**。
-  判据/证据/二分脚本见 `HANDOFF` §22.6；修完 ③ 再收紧 ①，C++ 的「行数不同」应能到 **0**。
+- **对象键序不保证（约定，2026-09-19 定）**：对象（`{ … }` 与键值块）是**映射**不是序列 ——
+  参照实现 Rust 的 `Value::Object` 基于 `BTreeMap`（序列化**按键排序**），C / C++ / JS / Lua
+  **保源序**。⇒ **不要依赖对象的键序**；需要有序序列时用**数组**（`[ … ]`，元素可写成裸块）。
+  已写进 `README.md` / `README.en.md` 的「跨实现差异与约定」、`llms.txt`、`ch12-smltools.md`、
+  `HANDOFF` §3.2。**Rust 侧不改**（换保序映射会牵动契约 / include / `@for` 一串按 BTreeMap 写的地方）。
+- **引号策略是跨端差异（注明，2026-09-19 定）**：Rust 的 `to_sml` 对含特殊字符的裸键/值加引号
+  （中文标点、`%`、看起来像数字的 `1.1`、`0x20`），C / C++ 只对含空白与 `:` `#` `{` `}` 的加；
+  两种写法都能被各自读回。⚠️ **但有保真后果**：宽松策略下「看起来像数字的字符串」回读会
+  **被重新归类**（`schemaVersion: 1.1` 回来是浮点）—— 需要严格保真的字符串请显式加引号。
+  **不统一实现**，只写清（README 中英 + `HANDOFF` §3.2）。
+- ⚠️ **两处「自己人」的问题（2026-09-19 定位，**未改**）**：
+  ① **`examples/slint/login.sml` 是坏样例 —— 所有实现都拒（含 Rust）**：`` text: `root.busy ? "登录中…" : "登录"` ``
+  里的**三目冒号**落到键位置 ⇒ `E-PARSE-006`（C 报 E-PARSE-003）。根因：**反引号不是字符串定界符**
+  （Rust / C / C++ 都只当它是**普通裸词字符**，`` `#0f1117` `` 里的 `#` 还会起注释），而该文件头注释
+  却宣称支持三目 `` `a ? b : c` `` ⇒ 样例与实现不符。**要么改样例，要么给语言补「反引号原始串」**。
+  ② **行级 `&frag` 展开（splice）C / C++ 未实现**：Rust 把块内独立一行的 `&base` **展开进父块**
+  （实测 ⇒ `{"w":{"a":1,"b":2,"c":3}}`），C / C++ 把它当键名 ⇒ 多一个 `&base` 键，**严格契约报
+  `E-CONTRACT-004`**（`rust/tests/fixtures/gov_demo.sml`）。⚠️ 同批发现 **README 中英原先写反**
+  （说「块内裸写 `&base` 不展开」）—— 已按参照实现的实际行为更正。详见 `HANDOFF` §22.7。
 - XML 里名为 `_attrs` / `_text` 的**子元素**会与保留键同名并按同名兄弟规则并成数组
   （可预测，不静默覆盖）。
 - DTD 内部子集自定义的实体不解析（DOCTYPE 整体跳过），用到时按未知实体报错。

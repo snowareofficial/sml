@@ -22,6 +22,14 @@ them** when output is meant to be read, written, or maintained by humans.
   fully backward-compatible with plain data.
 - Quotes, commas, and block colons are all optional.
 - Fragment reuse: `@base { ... }` defines a base, `&base` includes/inherits it.
+  - `key: &base` reuses the fragment as that key's value.
+  - A bare `&base` on its own line inside a block **splices** the fragment's fields into that
+    block (Rust reference implementation). C / C++ do not implement the splice yet (known gap) —
+    prefer `key: &base` when you need portability.
+- Object key order is NOT guaranteed: Rust sorts keys (BTreeMap), C / C++ / JS / Lua keep source
+  order. Use arrays (`[ ... ]`) whenever order matters.
+- Quoting style differs between implementations (Rust quotes more aggressively: CJK punctuation,
+  `%`, number-looking strings). Both forms re-parse; quote explicitly for strict string fidelity.
 - include / import:
   - `include "a.sml"` / `include "a.sml" as ns`
   - `import "a.sml" as ns`
