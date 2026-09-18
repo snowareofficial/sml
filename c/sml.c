@@ -530,6 +530,8 @@ typedef struct {
 
 static sml_value *parse_block(parser *ps, tok_type closing);
 static sml_value *parse_block_inner(parser *ps, tok_type closing);
+static sml_value *parse_array(parser *ps);
+static sml_value *parse_array_inner(parser *ps);
 
 /* parse_block 的守卫 wrapper：真正的实现在 parse_block_inner。
    包一层而不是改每个 return 点，是为了不遗漏任何出口（错误路径同样要收尾）。
@@ -542,7 +544,9 @@ static sml_value *parse_block(parser *ps, tok_type closing) {
        行为与文案自相矛盾；且与 C++ / JS / Lua 实测边界（128 放行 / 129 报）差一格。
        改动前用闭合嵌套 `("a { "):rep(N) + ("} "):rep(N)` 实测量过五端：
        Rust 127 / C 127 / C++ 128 / JS 128 / Lua 128。
-       （本文件只有这一处解析守卫：`parse_array` 不递归嵌套数组，见 W17。） */
+       本文件有**两处**同一守卫、共用 `ps->depth`：`parse_block` 与 `parse_array`
+       （后者是 W17 补的 —— 嵌套数组递归落地时**必须同时**给闸，理由见那里的注释）。
+       Rust 侧同样块与数组共用一个 `depth` 计数器，故两处口径一致。 */
     if (ps->depth > SML_MAX_VALUE_DEPTH) {
         set_err(ps->lx->errbuf, ps->lx->errsz,
                 SML_E_LIMIT_001 " 嵌套过深（超过 %d 层），疑似递归或恶意输入",
@@ -974,7 +978,26 @@ static void parse_contract_body(parser *ps, ccontract *c) {
     }
 }
 
+/* parse_array 的守卫 wrapper：真正的实现在 parse_array_inner。
+   与 parse_block **共用同一个 `ps->depth`**（Rust 侧同样块与数组共用一个 depth 计数器），
+   故「128 层放行 / 第 129 层报 E-LIMIT-001」对块嵌套与数组嵌套是同一口径。
+   ⚠️ 这层是 W17 补的：给 parse_array_inner 加嵌套数组递归时**必须同时**给闸 ——
+   只加递归等于把「静默错解」换成「栈溢出」，而后者在 C 里是段错误，错误处理接不住。 */
 static sml_value *parse_array(parser *ps) {
+    if (ps->depth > SML_MAX_VALUE_DEPTH) {
+        set_err(ps->lx->errbuf, ps->lx->errsz,
+                SML_E_LIMIT_001 " 嵌套过深（超过 %d 层），疑似递归或恶意输入",
+                SML_MAX_VALUE_DEPTH);
+        ps->failed = 1;
+        return sml_new_null();
+    }
+    ps->depth++;
+    sml_value *v = parse_array_inner(ps);
+    if (ps->depth > 0) ps->depth--;
+    return v;
+}
+
+static sml_value *parse_array_inner(parser *ps) {
     sml_value *arr = sml_new_array();
     for (;;) {
         token *t = peek(ps);
@@ -986,11 +1009,31 @@ static sml_value *parse_array(parser *ps) {
         if (t->t == T_LBRACE) {
             next(ps);
             sml_arr_push(arr, parse_block(ps, T_RBRACE));
+        } else if (t->t == T_LBRACK) {
+            /* 嵌套数组 `m: [ [a] b ]` / `m: [[1]]`（W17）。
+               此前**没有这一支**，`[` 落到最后的 else 被 `next` 丢掉；后果不是"少一层"，
+               而是**静默错解 + 凭空造键**（改前实测，与 Rust/JS 都不一致）：
+                 `m: [ [ a ] ]`         → `{"m":["a"]}`         （期望 `{"m":[["a"]]}`）
+                 `m: [ 1, [2, 3], 4 ]`  → `{"m":[1,2,3],"4":4}` （内层 `]` 被外层当结束符，
+                                                                    剩下的 `4` 变成了键）
+                 `m: [ [a], [b] ]`      → `{"m":["a"]}`         （`[b]` 整个丢掉）
+                 `a: ` + 100 层 `[..]`  → `{"a":[]}`            （全被吞成空数组）
+               与 Rust（parser.rs 的 `Tok::LBrack` → `self.parse_array()`）和 JS
+               （同源 bug 早先已修）对齐。
+               ⚠️ **必须走 wrapper `parse_array`**（不是直接调 inner）：深度守卫只在
+               wrapper 里，直接递归 inner 会让深数组绕过上限 —— 那就是栈溢出。 */
+            next(ps);
+            sml_arr_push(arr, parse_array(ps));
         } else if (t->t == T_STR) {
             sml_arr_push(arr, sml_new_str(next(ps)->v));
         } else if (t->t == T_WORD) {
             sml_arr_push(arr, coerce_word(next(ps)->v, ps));
         } else {
+            /* 兜底：其余 token（例如数组里多余的 `}`）仍然**静默跳过**。
+               ⚠️ 这是已知的端间不一致，**不属 W17 范围，别顺手改**：Rust 对多余的 `}`
+               报 `E-PARSE-003`，而 C 与 JS 一样静默（`m: [ } ]` 实测两端都得到 `{"m":[]}`）。
+               已登记进 errors/README 的静默清单，归 W16 判定「改成报错」还是
+               「写进规范、明确允许静默」。 */
             next(ps);
         }
     }

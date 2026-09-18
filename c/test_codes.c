@@ -7,9 +7,12 @@
  * 覆盖范围：C 侧**真的会报**的码。C 的 LEX 层不报错（未闭合字符串/块注释、
  * 未知转义一律静默接受，见 README 清点），故这里没有 LEX 用例。
  *
- * 另有**不产生错误码**的保真用例（见 test_numeric_fidelity）：超 i64 的纯整数形态
- * 必须原样保留为字符串，不能变成被夹住的 Int —— 它不是「报哪个码」的问题，但同样是
- * 跨端契约（Rust 侧 B10），所以放在本文件一起钉住。
+ * 另有**不产生错误码**的保真用例，同属跨端契约，故一并放在本文件：
+ *   - `test_numeric_fidelity`：超 i64 的纯整数形态必须原样保留为字符串，不能变成被夹住的
+ *     Int（Rust 侧 B10）。
+ *   - `test_nested_arrays`（W17）：嵌套数组的**形状**必须与 Rust/JS 逐字一致。修之前
+ *     `[` 被兜底 else 静默丢掉，`m: [ 1, [2, 3], 4 ]` 会得到 `{"m":[1,2,3],"4":4}` ——
+ *     不报错，但数据错、还**凭空多一个键**（比"少一层"更坏，因为假键会被下游当真实数据）。
  *
  * 三个码**无法在本文件构造**，只在此说明、不写用例（写了会误导人）：
  *   - E-PARSE-012（解析失败兜底）：当前所有失败路径都会先写入带码的消息，
@@ -448,12 +451,50 @@ static void test_numeric_fidelity(void) {
     }
 }
 
+/* ------------------------------------------------------------------ */
+/* 嵌套数组（W17）：值层面的回归，期望值与 Rust/JS **逐字一致**          */
+/* ------------------------------------------------------------------ */
+/* 用 `sml_parse_json` 比对整体形状，而不是逐层 `sml_arr_get`：嵌套数组要钉的是
+   「整棵子树的形状」，逐层取下标既长又容易写错；而 JSON 是各端共有的口径，
+   这里的期望值全部是从 Rust/JS **实跑抄来的**（不是读代码推的）。 */
+static void expect_json(const char *tag, const char *src, const char *want) {
+    char *j = sml_parse_json(src);
+    if (j && strcmp(j, want) == 0) {
+        printf("  ok: %-34s -> %s\n", tag, want);
+    } else {
+        printf("FAIL: %s\n      期望 %s\n      实得 %s\n", tag, want,
+               j ? j : "(解析失败/无输出)");
+        failures++;
+    }
+    sml_free_cstr(j);
+}
+
+static void test_nested_arrays(void) {
+    printf("[嵌套数组：值层面（W17）]\n");
+
+    /* ⚠️ 修前实测（改之前下面这些**全部**是错的，而且一个错都不报）：
+         m: [ [ a ] ]        → {"m":["a"]}           （少一层）
+         m: [ 1, [2, 3], 4 ] → {"m":[1,2,3],"4":4}   （**凭空多一个键 "4"**）
+         m: [ [a], [b] ]     → {"m":["a"]}           （`[b]` 整个丢掉）
+         a: + 100 层 `[..]`  → {"a":[]}              （吞成空数组）
+       根因：`[` 落到 `parse_array` 的兜底 else 被 `next` 丢掉 —— 内层的 `]` 于是被外层
+       当成结束符，剩下的 token 交给外层块解析、被当成键名（假键 `"4"` 就是这么来的）。 */
+    expect_json("一层嵌套", "m: [ [ a ] ]\n", "{\"m\":[[\"a\"]]}");
+    expect_json("夹在标量之间", "m: [ 1, [2, 3], 4 ]\n", "{\"m\":[1,[2,3],4]}");
+    expect_json("双层嵌套", "m: [[1]]\n", "{\"m\":[[1]]}");
+    expect_json("顶层嵌套数组", "[[a]]\n", "[[\"a\"]]");
+    expect_json("块与数组混排", "m: [ { x: 1 } [ y ] ]\n", "{\"m\":[{\"x\":1},[\"y\"]]}");
+    expect_json("两个子数组", "m: [ [a], [b] ]\n", "{\"m\":[[\"a\"],[\"b\"]]}");
+    expect_json("深三层", "m: [[[z]]]\n", "{\"m\":[[[\"z\"]]]}");
+}
+
 int main(void) {
     test_contract_codes();
     test_parse_and_limit();
     test_unclosed_codes();
     test_bound_codes();
     test_numeric_fidelity();
+    test_nested_arrays();
     test_feature_codes();
     test_include_codes();
     test_io_and_internal();
