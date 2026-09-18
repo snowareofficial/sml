@@ -649,9 +649,10 @@ struct PState {
     size_t i = 0;
     std::map<std::string,ValuePtr> fragments;
     std::map<std::string,Contract> contracts;
-    std::string include_dir;
     std::string* err = nullptr;
-    std::vector<std::string> include_stack;
+    /* 原先这里还有 include_dir / include_stack 两个字段：include 是**边解析边插 token**
+       处理的（W18 前的写法），所以状态得挂在解析器上。现在展开挪到解析前的
+       `expand_includes` 里，链栈是那次递归的局部变量，解析器不必再知道 include 的存在。 */
     int depth = 0;              /* 当前块/数组嵌套深度（栈溢出防护） */
     /* 一旦置位就**放弃解析**：各层循环立即 break，递归随之退栈。
        为什么需要它：光把 depth 复位并不够 —— 复位不会让栈帧退回去，外层循环接着又
@@ -830,59 +831,16 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                 continue;
             }
             if (dir == "include" || dir == "include!") {
+                /* 展开已在解析**之前**的 expand_includes 里做完（W18）。走到这里只剩两种
+                   情形：① 调用方没传 include_dir（按 sml.hpp 的约定 = include 功能关闭）；
+                   ② 这一句已在展开时被内联成子文件的 token 段。故此处只把三个 token
+                   （`@`、`include`、路径）吃掉，不做文件工作。
+                   ⚠️ 别在此处改回「边解析边插 token」：往 st.toks 中间插一段再靠 st.i++
+                   找位置，正是 W18 那个 off-by-one 的温床 —— 先插到路径 token 之前、
+                   再 st.i++ 吃掉路径，恰好跳过插入段的**首 token**，于是 `include`
+                   退化成裸块键、把 includer 后续字段和被包含文件的字段一起吞掉。 */
                 st.i += 2;
-                if (st.i < st.toks.size()) {
-                    std::string path = st.toks[st.i].s;
-                    if (!path.empty() && path[0]=='"' && path.back()=='"') path = path.substr(1, path.size()-2);
-                    if (!st.include_dir.empty()) {
-                        std::string full = st.include_dir + "/" + path;
-                        /* 路径穿越防护：规范化后必须仍在基准目录之内。
-                           缺这道校验时 `@include "../../etc/passwd"` 会把任意文件读进来。 */
-                        namespace fs = std::filesystem;
-                        std::error_code ec1, ec2;
-                        fs::path canon = fs::weakly_canonical(fs::path(full), ec1);
-                        fs::path basec = fs::weakly_canonical(fs::path(st.include_dir), ec2);
-                        /* 初值 false = fail-closed：规范化失败时**拒绝**，
-                           而不是"比不了就放行"。 */
-                        bool inside = false;
-                        if (!ec1 && !ec2) {
-                            inside = true;
-                            auto cit = canon.begin();
-                            for (auto bit = basec.begin(); bit != basec.end(); ++bit, ++cit) {
-                                if (cit == canon.end() || *cit != *bit) { inside = false; break; }
-                            }
-                        }
-                        if (!inside && st.err)
-                            *st.err = code_prefix(SML_E_INCLUDE_003, "sml: include 目标越出基准目录: " + path);
-                        /* 越界时不打开任何文件（传空路径必然失败），控制流保持原样 */
-                        std::ifstream f(inside ? full : std::string());
-                        if (f) {
-                            std::stringstream ss; ss << f.rdbuf();
-                            std::string inc = ss.str();
-                            bool cyc=false;
-                            for (auto& s:st.include_stack) if(s==full){cyc=true;break;}
-                            if (!cyc && st.include_stack.size() < 32) {
-                                st.include_stack.push_back(full);
-                                std::string e2;
-                                auto sub_toks = tokenize(inc, &e2);
-                                st.toks.insert(st.toks.begin() + (long long)st.i,
-                                               sub_toks.begin(), sub_toks.end());
-                                st.include_stack.pop_back();
-                            }
-                        } else if (inside && st.err) {
-                            /* 目标不存在或读不出来 → E-INCLUDE-001。
-                               codes.sml 该条的 impls 明列 cpp（[rust c cpp js lua]），
-                               但此前这里是**静默跳过**：探针实测 `@include "nope.sml"`
-                               返回成功且无任何错误（见 _w10_probe_log.txt 的
-                               「INCLUDE-001 missing | ok=1 | err=」）。
-                               闸在 `inside` 上是必须的：越界那条已经写过 E-INCLUDE-003，
-                               不设此闸会把正确的码覆盖成 E-INCLUDE-001（码反而报错）。 */
-                            *st.err = code_prefix(SML_E_INCLUDE_001,
-                                                  "sml: include 读取失败: " + path);
-                        }
-                    }
-                    st.i++;
-                }
+                if (st.i < st.toks.size()) st.i++;
                 continue;
             }
             if (dir == "contract") {
@@ -1083,6 +1041,133 @@ ValuePtr Value::array_with(const std::vector<ValuePtr>& elems) {
 }
 
 // ===========================================================================
+// include 展开（W18）
+// ===========================================================================
+/* 把 `@include "f"` 三个 token 原地换掉，换成 f 的 token 段（递归展开）。
+ *
+ * 为什么不继续「边解析边插 token」（W18 前的写法）：那种写法每次插入都要让 `st.i`
+ * 恰好落在插入段的首 token 上，而「先插到路径 token 之前、再 st.i++ 吃掉路径」的顺序
+ * 会让 st.i **跳过插入段的首 token**。后果是 `include` 退化成裸块键，把 includer 后面
+ * 的字段和被包含文件的字段一起吞掉 —— 实测 a.sml = `@include "b.sml"` + `from_a: 1`
+ * 解析完只剩一个垃圾键 `include = "include"`。
+ *
+ * ⚠️ 也**不能只改索引**：那个 off-by-one 恰好压住了无限展开（首 token 被跳过 ⇒ 嵌套的
+ *    `@include` 永远不会被当成指令），而环检测用的栈当时是 push 完立刻 pop、**永远为空**，
+ *    于是自包含/互包含根本拦不住。只修索引会把「被压住的无限展开」放出来变成真死循环。
+ *    环检测必须同时给出：本函数用**链栈**（只装根到当前这条路径），故菱形包含仍合法。
+ *
+ * 语义与 Rust 的 sml-include::expand_includes / C 的 resolve_includes 对齐：
+ *   - 环检测按**链栈**（只判当前路径）→ 菱形包含合法，自包含/互包含报 E-INCLUDE-002；
+ *   - 嵌套深度上限 32（E-INCLUDE-004，与 Rust 的 MAX_INCLUDE_DEPTH 同值）；
+ *   - 展开次数是**全局**计数（E-LIMIT-003）：深度上限挡不住菱形包含的 2^N 膨胀；
+ *   - 被包含文件的基准目录换成**它自己的所在目录**（嵌套 include 相对父文件解析）；
+ *   - 越界即拒绝（E-INCLUDE-003）；基准目录本身不可解析也拒绝（E-INCLUDE-010，
+ *     fail-closed：不比一个比不了的对象就放行，等于把越界校验静默关掉）。
+ */
+#define SML_MAX_INCLUDE_DEPTH 32
+#define SML_MAX_INCLUDE_EXPANSIONS 10000
+
+static bool expand_includes(std::vector<Token>& toks,
+                            const std::string& include_dir,
+                            std::vector<std::string>& chain,
+                            long long& expansions,
+                            std::string* err) {
+    namespace fs = std::filesystem;
+    if (chain.size() >= SML_MAX_INCLUDE_DEPTH) {
+        if (err) *err = code_prefix(SML_E_INCLUDE_004, "sml: include 嵌套超过 "
+                                    + std::to_string(SML_MAX_INCLUDE_DEPTH) + " 层");
+        return false;
+    }
+    /* 沙箱根用**严格** canonical（不用 weakly_canonical）：目录不存在时就要失败。
+       weakly_canonical 只做词法规范化，一个不存在的基准目录会被它"成功"规范化，
+       于是「基准目录不可解析」被降级成「目录里没这个文件」，报出另一个码。 */
+    std::error_code ebase;
+    fs::path basec = fs::canonical(fs::path(include_dir), ebase);
+    if (ebase) {
+        if (err) *err = code_prefix(SML_E_INCLUDE_010,
+            "sml: include 基准目录不可解析，无法做越界校验，已拒绝继续: " + include_dir);
+        return false;
+    }
+    std::vector<Token> out;
+    out.reserve(toks.size());
+    for (size_t k = 0; k < toks.size(); ) {
+        const Token& t = toks[k];
+        const bool is_inc = (t.t == Token::T::At && k + 2 < toks.size() &&
+                             toks[k+1].t == Token::T::Word &&
+                             (toks[k+1].s == "include" || toks[k+1].s == "include!") &&
+                             toks[k+2].t == Token::T::Word);
+        if (!is_inc) { out.push_back(t); k++; continue; }
+
+        std::string path = toks[k+2].s;
+        if (!path.empty() && path[0] == '"' && path.back() == '"')
+            path = path.substr(1, path.size() - 2);
+
+        /* 与 Rust 同序：先 canonicalize 目标，失败即 E-INCLUDE-001。故「越界**且**不存在」
+           的路径报的是此码而不是 E-INCLUDE-003（C 侧 fopen 在前，结论相同）。 */
+        std::error_code etgt;
+        fs::path target = fs::canonical(fs::path(include_dir) / path, etgt);
+        if (etgt) {
+            if (err) *err = code_prefix(SML_E_INCLUDE_001, "sml: include 读取失败: " + path);
+            return false;
+        }
+        /* 路径穿越防护：按**路径分量**比较，不能按字符串前缀 —— `/tmp/ab` 以 `/tmp/a`
+           为字符串前缀，但那不是同一棵子树。缺这道校验时 `@include "../../etc/passwd"`
+           会把任意文件内联进解析结果。 */
+        bool inside = true;
+        {
+            auto cit = target.begin();
+            for (auto bit = basec.begin(); bit != basec.end(); ++bit, ++cit) {
+                if (cit == target.end() || *cit != *bit) { inside = false; break; }
+            }
+        }
+        if (!inside) {
+            if (err) *err = code_prefix(SML_E_INCLUDE_003,
+                                        "sml: include 目标越出基准目录: " + path);
+            return false;
+        }
+        const std::string canon = target.string();
+        for (const auto& s : chain) {
+            if (s == canon) {
+                if (err) *err = code_prefix(SML_E_INCLUDE_002,
+                                            "sml: include 循环引用: " + canon);
+                return false;
+            }
+        }
+        ++expansions;
+        if (expansions > SML_MAX_INCLUDE_EXPANSIONS) {
+            if (err) *err = code_prefix(SML_E_LIMIT_003, "sml: include 展开次数超过上限 "
+                + std::to_string(SML_MAX_INCLUDE_EXPANSIONS) + "（疑似指数膨胀 DoS）");
+            return false;
+        }
+        std::ifstream f(target, std::ios::binary);
+        if (!f) {
+            if (err) *err = code_prefix(SML_E_INCLUDE_001, "sml: include 读取失败: " + path);
+            return false;
+        }
+        std::stringstream ss; ss << f.rdbuf();
+        std::string e2;
+        std::vector<Token> sub = tokenize(ss.str(), &e2);
+        if (!e2.empty()) {
+            /* 子文件的词法失败 → E-INCLUDE-011（与 Rust 同口径：失败发生在 include
+               预处理阶段）。⚠️ 修复前这里**丢掉了 e2**、把残缺 token 段插进去 ——
+               子文件里的未闭合字符串会变成静默截断的文档。 */
+            if (err) *err = code_prefix(SML_E_INCLUDE_011,
+                                        "sml: include 预处理词法错误：" + e2);
+            return false;
+        }
+        chain.push_back(canon);
+        const bool ok = expand_includes(sub, target.parent_path().string(),
+                                        chain, expansions, err);
+        chain.pop_back();
+        if (!ok) return false;
+        out.insert(out.end(), sub.begin(), sub.end());
+        k += 3;
+    }
+    toks.swap(out);
+    return true;
+}
+
+// ===========================================================================
 // Parser::parse
 // ===========================================================================
 /* 真正的解析实现。公开入口 `Parser::parse` 是它的薄包装，只为接住
@@ -1090,10 +1175,17 @@ ValuePtr Value::array_with(const std::vector<ValuePtr>& elems) {
    是为了让这次改动只有两行、看得清。 */
 static ValuePtr parse_impl(const std::string& text, std::string* err, const std::string& include_dir) {
     PState st;
-    st.include_dir = include_dir;
     st.err = err;
     st.toks = tokenize(text, err);
     if (err && !err->empty()) return nullptr;
+    /* include 在**解析前**一次性展开完（W18）：解析器拿到的 token 流里不再有 include
+       指令，也就没有「插一段 token 再对齐 st.i」这回事。include_dir 为空 = 按 sml.hpp
+       的约定关闭 include，指令留给 parse_block 吃掉。 */
+    if (!include_dir.empty()) {
+        std::vector<std::string> chain;
+        long long expansions = 0;
+        if (!expand_includes(st.toks, include_dir, chain, expansions, err)) return nullptr;
+    }
     if (st.toks.empty()) return Value::object();
 
     auto& first = st.toks[0];

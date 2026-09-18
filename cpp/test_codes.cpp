@@ -42,15 +42,16 @@
 //     `include` / `import` 行，JS 的文档也写裸 `include`，C 两种都认 —— 本实现是
 //     唯一只认 `@` 别名的。另：`include_dir` 为空时 `@include` 整段被静默忽略。
 //     补裸 `include` 是**加语法**而非补码，不在此顺手做。
-//   - ⚠️ **`@include` 的成功展开本身是坏的（既有缺陷，HEAD 版同样复现，非本次引入）**：
-//     实测 a.sml = `@include "b.sml"` + `from_a: 1` 解析后**只剩一个垃圾键
-//     `include = "include"`** —— includer 自己的 `from_a` 与被包含文件的字段一起丢失。
-//     根因：把目标文件的 token **插到路径 token 之前**后又 `st.i++`，恰好跳过插入段的
-//     首个 token（也就是嵌套的 `@`），于是 `include` 退化成裸块键、把后续字段全当参数吞掉。
-//     **警告**：别把它"修"成单纯的索引修正 —— 那个 off-by-one 恰好压住了无限展开，
-//     只改索引会让 a↔b 变成真正的死循环（因为循环检测用的栈是 push 完立刻 pop，
-//     永远为空）。要修必须同时给出环检测/展开上限。故本文件**只测**越界与缺失，
-//     不写"展开成功"的正向用例（见 `_w10_inc_chain_run.py` 的复现）。
+//   - ⚠️ **`@include` 的成功展开曾经是坏的（W18，已修）**：修复前 a.sml =
+//     `@include "b.sml"` + `from_a: 1` 解析后只剩一个垃圾键 `include = "include"`
+//     —— includer 自己的 `from_a` 与被包含文件的字段一起丢失。根因是「边解析边插
+//     token」：把目标文件的 token 插到路径 token 之前后又 `st.i++`，恰好跳过插入段的
+//     首个 token。现在 include 挪到**解析之前**的 `expand_includes` 里递归展开，
+//     链栈只装当前路径（与 Rust/C 同架构）。用例见下面 [INCLUDE expansion / W18] 组。
+//     ⚠️ 这里记着**当时为什么不能只修索引**：那个 off-by-one 恰好压住了无限展开
+//     （首 token 被跳过 ⇒ 嵌套的 `@include` 永远不被当指令），而环检测的栈是 push 完
+//     立刻 pop、**永远为空**，自包含根本拦不住。故修索引必须同时给出环检测 + 上限，
+//     否则 a↔b 会变成真死循环。本文件的正向用例（链式/菱形）正是钉住这一点。
 //
 // 编译运行：
 //     g++ -std=c++17 -Wall -Wextra -I. test_codes.cpp sml.cpp -o t_codes.exe && ./t_codes.exe
@@ -62,7 +63,10 @@
 
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 
 static int failures = 0;
@@ -258,9 +262,6 @@ static void test_contract_codes() {
 }
 
 // ------------------------------------------------------------------
-// 上限与 include：E-LIMIT-001 / E-INCLUDE-003
-// ------------------------------------------------------------------
-// ------------------------------------------------------------------
 // min/max 边界字面量：E-PARSE-022 / E-CONTRACT-010 / E-CONTRACT-005
 //
 // 这一组直接钉住「边界必须按 f64 生效」：修复前 C++ 用 std::stoll，会把
@@ -306,7 +307,7 @@ static void test_bound_literals() {
 }
 
 static void test_limit_and_include() {
-    std::cout << "[LIMIT / INCLUDE]\n";
+    std::cout << "[LIMIT]\n";
 
     // 深嵌套必须报错返回，而不是打穿栈（200 层 > 上限 128）。
     // 两条入口都要测：块嵌套走 parse_block_nested、数组嵌套走 parse_value —— 它们
@@ -319,16 +320,263 @@ static void test_limit_and_include() {
     for (int i = 0; i < 200; i++) deep_arr += "[ ";
     expect_code("array nesting too deep (200)", deep_arr, SML_E_LIMIT_001);
 
-    // include 越界：目标不在基准目录内，已拒绝
-    expect_code("include escapes base dir",
-                "@include \"../sml.cpp\"\n", SML_E_INCLUDE_003, ".");
+    // include 的用例已移到下面的 [INCLUDE expansion / W18] 组：那里用真实临时目录，
+    // 越界那条改成**目标真实存在**（Rust/C 都是先 canonicalize 再比前缀，故目标不
+    // 存在时先报 E-INCLUDE-001，用不存在的路径测越界是测不出越界的）。
+}
 
-    // include 目标不存在 → E-INCLUDE-001。
-    // codes.sml 该条的 impls 明列 cpp（[rust c cpp js lua]），此前却是静默跳过。
-    // 这两条**必须成对**：只加下面这条而不加「越界」那条时，若实现里忘了用
-    // `inside` 设闸，E-INCLUDE-003 会被这条的码覆盖 —— 单测一条测不出来。
-    expect_code("include target missing",
-                "@include \"_no_such_include.sml\"\n", SML_E_INCLUDE_001, ".");
+// ------------------------------------------------------------------
+// include 展开（W18）：E-INCLUDE-001/002/003/004/010/011、E-LIMIT-003
+//
+// 这一组是 W18 的验收用例，**同时是判别实验**：
+//   - 链式包含两侧字段都在：修复前只剩垃圾键 `include = "include"`，用例直接红。
+//   - 自包含 / 互包含 → E-INCLUDE-002：修复前环检测的栈 push 完立刻 pop、永远为空，
+//     自包含根本拦不住（旧的 off-by-one 恰好压住了无限展开，只改索引就变死循环）。
+//   - **菱形包含必须合法**：这条是反例 —— 把环检测写成「见过即拒」（集合而非链栈）
+//     会把菱形包含误判成环，这条用例专门挡住那种"修法"。
+//   - 子目录链式包含：子文件的基准目录是**它自己的**所在目录，修复前一律相对根目录。
+//
+// 需要真实文件，故用系统临时目录建临时工程，跑完删掉。
+// ------------------------------------------------------------------
+namespace fs = std::filesystem;
+
+static std::string fresh_dir(const std::string& tag) {
+    std::error_code ec;
+    fs::path d = fs::temp_directory_path(ec) / ("sml_w18_" + tag);
+    fs::remove_all(d, ec);
+    fs::create_directories(d, ec);
+    return d.string();
+}
+
+static void write_in(const std::string& dir, const std::string& name, const std::string& body) {
+    std::error_code ec;
+    fs::path p = fs::path(dir) / name;
+    fs::create_directories(p.parent_path(), ec);
+    std::ofstream f(p, std::ios::binary);
+    f << body;
+}
+
+// 以 dir 为基准目录解析 dir/name 的内容（读文件而不是内联，免去转义引号的噪音）
+static sml::ValuePtr parse_in(const std::string& dir, const std::string& name, std::string* err) {
+    std::ifstream f(fs::path(dir) / name, std::ios::binary);
+    std::stringstream ss; ss << f.rdbuf();
+    return sml::Parser::parse(ss.str(), err, dir);
+}
+
+static void expect_int(const std::string& tag, const sml::ValuePtr& v,
+                       const std::string& key, long long want) {
+    sml::ValuePtr got = v ? v->get(key) : nullptr;
+    if (got && got->tag == sml::Value::Tag::Int && got->i == want) {
+        std::cout << "  ok: " << tag << " -> " << key << " = " << want << "\n";
+    } else {
+        std::cout << "FAIL: " << tag << " -> " << key << " expected " << want << "\n";
+        failures++;
+    }
+}
+
+// 重复键在 SML 里**合并成数组**（set_field_local）：菱形包含会让叶子的字段在 token
+// 流里出现两次，故断言它是 [4, 4] —— 这比断言"值为 4"更贴事实，也顺带钉住
+// 「同一个文件被包含两次 ≠ 环」这个结论。
+static void expect_int_arr(const std::string& tag, const sml::ValuePtr& v,
+                           const std::string& key, const std::vector<long long>& want) {
+    sml::ValuePtr got = v ? v->get(key) : nullptr;
+    bool ok = got && got->tag == sml::Value::Tag::Arr && got->arr.size() == want.size();
+    for (std::size_t i = 0; ok && i < want.size(); i++) {
+        sml::ValuePtr e = got->arr[i];
+        ok = e && e->tag == sml::Value::Tag::Int && e->i == want[i];
+    }
+    if (ok) {
+        std::cout << "  ok: " << tag << " -> " << key << " = [";
+        for (std::size_t i = 0; i < want.size(); i++)
+            std::cout << (i ? ", " : "") << want[i];
+        std::cout << "]\n";
+    } else {
+        std::cout << "FAIL: " << tag << " -> " << key << " expected an array of "
+                  << want.size() << " int(s)\n";
+        failures++;
+    }
+}
+
+static void expect_code_in_dir(const std::string& tag, const std::string& dir,
+                               const std::string& name, const char* want) {
+    std::string err;
+    sml::ValuePtr v = parse_in(dir, name, &err);
+    if (v) {
+        std::cout << "FAIL: " << tag << " parsed OK but should fail\n";
+        failures++;
+        return;
+    }
+    report(tag, want, err, code_is(err, want));
+}
+
+static void test_include_expansion() {
+    std::cout << "[INCLUDE expansion / W18]\n";
+
+    // ① 链式包含：includer 与被包含文件的字段**都在**（W18 的验收条件之一）
+    {
+        std::string d = fresh_dir("chain");
+        write_in(d, "b.sml", "from_b: 2\n");
+        write_in(d, "a.sml", "@include \"b.sml\"\nfrom_a: 1\n");
+        std::string err;
+        sml::ValuePtr v = parse_in(d, "a.sml", &err);
+        if (!v) {
+            std::cout << "FAIL: chained include should parse, got \"" << err << "\"\n";
+            failures++;
+        } else {
+            expect_int("chained include: includer's own field", v, "from_a", 1);
+            expect_int("chained include: included file's field", v, "from_b", 2);
+        }
+        fs::remove_all(d);
+    }
+
+    // ② 嵌套 include 相对**父文件所在目录**解析（子目录里的链）
+    {
+        std::string d = fresh_dir("subdir");
+        write_in(d, "sub/c.sml", "from_c: 3\n");
+        write_in(d, "sub/b.sml", "@include \"c.sml\"\nfrom_b: 2\n");
+        write_in(d, "a.sml", "@include \"sub/b.sml\"\nfrom_a: 1\n");
+        std::string err;
+        sml::ValuePtr v = parse_in(d, "a.sml", &err);
+        if (!v) {
+            std::cout << "FAIL: subdir chained include should parse, got \"" << err << "\"\n";
+            failures++;
+        } else {
+            expect_int("subdir include: root field", v, "from_a", 1);
+            expect_int("subdir include: middle field", v, "from_b", 2);
+            expect_int("subdir include: grandchild field", v, "from_c", 3);
+        }
+        fs::remove_all(d);
+    }
+
+    // ③ 自包含 → E-INCLUDE-002
+    {
+        std::string d = fresh_dir("self");
+        write_in(d, "a.sml", "@include \"a.sml\"\nfrom_a: 1\n");
+        expect_code_in_dir("self include", d, "a.sml", SML_E_INCLUDE_002);
+        fs::remove_all(d);
+    }
+
+    // ④ 互包含（a→b→a）→ E-INCLUDE-002
+    {
+        std::string d = fresh_dir("mutual");
+        write_in(d, "a.sml", "@include \"b.sml\"\n");
+        write_in(d, "b.sml", "@include \"a.sml\"\n");
+        expect_code_in_dir("mutual include", d, "a.sml", SML_E_INCLUDE_002);
+        fs::remove_all(d);
+    }
+
+    // ⑤ 菱形包含（a→b、a→c、b 与 c 都→d）**必须合法**：反例见组头的说明
+    {
+        std::string d = fresh_dir("diamond");
+        write_in(d, "d.sml", "from_d: 4\n");
+        write_in(d, "b.sml", "@include \"d.sml\"\nfrom_b: 2\n");
+        write_in(d, "c.sml", "@include \"d.sml\"\nfrom_c: 3\n");
+        write_in(d, "a.sml", "@include \"b.sml\"\n@include \"c.sml\"\nfrom_a: 1\n");
+        std::string err;
+        sml::ValuePtr v = parse_in(d, "a.sml", &err);
+        if (!v) {
+            std::cout << "FAIL: diamond include must be legal, got \"" << err << "\"\n";
+            failures++;
+        } else {
+            expect_int("diamond include: root", v, "from_a", 1);
+            expect_int("diamond include: left branch", v, "from_b", 2);
+            expect_int("diamond include: right branch", v, "from_c", 3);
+            expect_int_arr("diamond include: shared leaf (包含两次 → 键合并成数组)",
+                           v, "from_d", {4, 4});
+        }
+        fs::remove_all(d);
+    }
+
+    // ⑥ 嵌套超过 32 层 → E-INCLUDE-004。
+    //    修复前这里是**静默跳过**（栈恒空 ⇒ `size() < 32` 恒真，其实连 32 都不生效），
+    //    字段凭空消失且没有任何提示。
+    {
+        std::string d = fresh_dir("deep");
+        for (int i = 0; i < 40; i++) {
+            if (i == 39) write_in(d, "f39.sml", "leaf: 1\n");
+            else write_in(d, "f" + std::to_string(i) + ".sml",
+                          "@include \"f" + std::to_string(i + 1) + ".sml\"\n");
+        }
+        expect_code_in_dir("include nesting deeper than 32", d, "f0.sml", SML_E_INCLUDE_004);
+        fs::remove_all(d);
+    }
+
+    // ⑦ 菱形膨胀（每层把下一层包含两次 → 2^20 次读取）→ E-LIMIT-003。
+    //    修复前 C++ **完全没有**这个闸（Rust/C 都有）：深度上限挡不住菱形膨胀。
+    {
+        std::string d = fresh_dir("bomb");
+        const int N = 20;
+        for (int i = 0; i < N; i++) {
+            std::string body;
+            if (i == N - 1) {
+                body = "leaf: 1\n";
+            } else {
+                std::string inc = "@include \"l" + std::to_string(i + 1) + ".sml\"\n";
+                body = inc + inc;
+            }
+            write_in(d, "l" + std::to_string(i) + ".sml", body);
+        }
+        expect_code_in_dir("diamond expansion bomb (2^20)", d, "l0.sml", SML_E_LIMIT_003);
+        fs::remove_all(d);
+    }
+
+    // ⑧ 越界：目标**真实存在**但在基准目录之外 → E-INCLUDE-003。
+    //    必须用存在的文件测：与 Rust/C 同序（先 canonicalize，失败即 E-INCLUDE-001），
+    //    拿一个不存在的路径测越界，测到的其实是「读不到」。
+    {
+        std::string a = fresh_dir("escape_in");
+        std::string b = fresh_dir("escape_out");
+        write_in(b, "target.sml", "secret: 1\n");
+        write_in(a, "a.sml", "@include \"../" + fs::path(b).filename().string() + "/target.sml\"\n");
+        expect_code_in_dir("include escapes base dir (target exists)", a, "a.sml", SML_E_INCLUDE_003);
+        fs::remove_all(a);
+        fs::remove_all(b);
+    }
+
+    // ⑨ 目标不存在 → E-INCLUDE-001
+    {
+        std::string d = fresh_dir("missing");
+        write_in(d, "a.sml", "@include \"_no_such_include.sml\"\n");
+        expect_code_in_dir("include target missing", d, "a.sml", SML_E_INCLUDE_001);
+        fs::remove_all(d);
+    }
+
+    // ⑩ 基准目录本身不可解析 → E-INCLUDE-010（fail-closed）。
+    //    修复前这里被报成 E-INCLUDE-003：根因是用了 weakly_canonical —— 它只做词法
+    //    规范化，一个**不存在**的目录也会"成功"规范化，于是「基准目录不可解析」被
+    //    降级成「目录里没这个文件」，报出另一个码（错码比静默更坏）。现改用严格 canonical。
+    {
+        std::string d = fresh_dir("nobase");
+        write_in(d, "a.sml", "@include \"x.sml\"\n");
+        std::string err;
+        sml::ValuePtr v = sml::Parser::parse("@include \"x.sml\"\n", &err, d + "_no_such_base");
+        report("base dir unresolvable", SML_E_INCLUDE_010, err,
+               (!v && code_is(err, SML_E_INCLUDE_010)));
+        fs::remove_all(d);
+    }
+
+    // ⑪ 子文件里的词法失败 → E-INCLUDE-011。
+    //    修复前**丢掉了子文件的词法错误**、把残缺 token 段插进去 —— 未闭合字符串会
+    //    变成静默截断的文档（这正是 W18 那一类「文档被悄悄毁掉」的毛病）。
+    {
+        std::string d = fresh_dir("lex");
+        write_in(d, "bad.sml", "k: \"unterminated\n");
+        write_in(d, "a.sml", "@include \"bad.sml\"\n");
+        expect_code_in_dir("lexical error inside included file", d, "a.sml", SML_E_INCLUDE_011);
+        fs::remove_all(d);
+    }
+
+    // ⑫ include_dir 为空 = 按 sml.hpp 的约定关闭 include：指令被跳过，文档其余部分照常解析
+    {
+        std::string err;
+        sml::ValuePtr v = sml::Parser::parse("@include \"whatever.sml\"\nfrom_a: 1\n", &err);
+        if (!v) {
+            std::cout << "FAIL: include disabled should not error, got \"" << err << "\"\n";
+            failures++;
+        } else {
+            expect_int("include disabled (empty dir): directive skipped", v, "from_a", 1);
+        }
+    }
 }
 
 // ------------------------------------------------------------------
@@ -498,6 +746,7 @@ int main() {
     test_eof_and_key_position();
     test_value_model();
     test_limit_and_include();
+    test_include_expansion();
     test_positive_controls();
     test_err_null_safe();
 
