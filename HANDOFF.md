@@ -352,9 +352,29 @@ python site/build_site.py             # 完整构建（含上面两步 + Hugo + 
    Rust 的通用类型错误，与 JS 的「未知枚举值」不是同一个码。落地时把
    `E-CONTRACT-006` 单拆出来，否则「同因同码」当场破功。
 
-**还没做（W10 的剩余部分）**：JS 的 `e.code`（含四份副本）、C/C++ **原生实现**的码、
-Lua 侧、`errors/README.md` 的码表状态回填（`status` 该从 partial 改 done 的那些）、
-CHANGELOG 条目。C/C++ 的原生实现只认字符串码，请用 `c/sml_codes.h` 里的宏。
+**还没做（W10 的剩余部分）**：
+- **JS 已完成**（见 §8.3，提交 `912a608`）。
+- C/C++ **原生实现**的码（`c/sml.c` 与 `cpp/sml.cpp` 各有上百处 `snprintf(errbuf, …)`；
+  码用 `c/sml_codes.h` 的宏，**不要手打字符串**）。
+- Lua 侧：`lua/lib/sml.soup` 是**编译产物**，要改得先有 Soup 工具链（`soupc`），
+  别直接用文本编辑器改它 —— 先确认 `lua/` 下的源在哪。
+- `errors/README.md` 的码表状态回填（`status` 该从 `partial` 改 `done` 的那些）
+  与 `CHANGELOG.md` 条目。
+
+### 8.3 JS 一侧（已完成，提交 `912a608`）
+
+`fail(msg, pos)` → `fail(code, msg, pos)`（22 个调用点补码）；新增模块级
+`throwCode(code, msg)` 接管模式引擎/词法层的 15 处 `throw new Error`；
+契约校验 `checkContract` 的 `errs.push(字符串)` → `errs.push({code, msg})`（12 处原因），
+两处「汇总后一次抛出」用**第一条的码**、文案仍是全部原因的拼接；
+`parseSafe` 多返回一个 `code`。四份副本已同步（逐字节一致）。
+
+测试：`js/probe-error-codes.mjs`（`node js/probe-error-codes.mjs` → ALL OK），
+与 `rust/tests/error_codes.rs` 是同一组条件。`errors/gen_codes.py` 也补上了反向校验：
+JS/C/C++/Lua 里**手写的**码字面量必须都在 `codes.sml` 里。
+
+有意保留的跨端差异（用例里写 `want = null`，**待 W16 判定**）：JS 未定义片段引用
+被当普通键、未知特性被静默加入集合。别把它们当成本次的漏做。
 
 ### 8.2 环境事故（**务必转告用户**）
 
