@@ -18,6 +18,14 @@
 --     `[` 被当裸词 coerce），所以它既不递归、也无从触发深度上限 —— 属**数据正确性**
 --     问题（与 C 已登记的「嵌套数组被静默丢弃」同类），不在本组范围。数组入口的
 --     深度上限改用「块 / 数组交替」形式测（`a { x: [ … ] }`，见 test_limit_codes）。
+--   * E-CONTRACT-007 / 009 / 011（外置类型、模式类型、外置修饰符）：Lua 没有 `@type`
+--     与扩展注册点，属另一件事（W20 报告已登记），故不测；E-PARSE-024 是 C++ 把契约
+--     解析与取值校验并入同一层后自有的码，本端不可达。E-CONTRACT-012 只有
+--     「数组元素类型未知」这一条可达分支（本端没有外置类型）。
+--
+-- W20 起**契约（@contract / @is）已在 Lua 落地**：见文件后半的 test_contract_codes
+-- 与 test_contract_positive。口径逐条对照 rust/sml-parse/src/parser.rs 的
+-- parse_field_spec 与 rust/sml-contract/src/lib.rs 的 apply_contract。
 --
 -- 用法：luajit lua/test_codes.lua      （或走 lua/run_check.py，它会自己找解释器）
 
@@ -68,6 +76,10 @@ local function expect_ok(tag, src)
   end
   passed = passed + 1
   io.write(string.format("  ok: %s -> (no error)\n", tag))
+  -- ⚠️ 必须把解析结果**返回**：契约组的正向用例要在上面「断言填出来的值」，
+  --    原先这里没有 return，于是 `local v = expect_ok(...)` 恒为 nil、
+  --    那些断言会被整段跳过 —— 套件照样全绿，却没有证明任何默认值。
+  return v
 end
 
 -- ------------------------------------------------------------------
@@ -185,6 +197,172 @@ local function test_host_codes()
 end
 
 -- ------------------------------------------------------------------
+-- 契约：E-CONTRACT-* / E-PARSE-019/021/022/023（W20）
+--
+-- 判别实验（改动前实测，报告里贴了原始输出）：
+--   * Lua 原先**完全没有契约概念** —— `@contract` 与 `@is` 都被当成片段定义，
+--     `@is Service` 还会把紧随的 `name` 当「类型/名字」参数吃掉。本组用例
+--     改动前 **29 / 33 是红的**（大多报 E-PARSE-006 这个局部症状，或
+--     「解析成功但树是错的」），改动后每一条都落在下面写死的码上。
+--
+-- 口径来源（逐条对照源码，不是按码表反推）：
+--   * 类型 / 修饰符的解析：rust/sml-parse/src/parser.rs 的 parse_field_spec
+--   * 校验与默认值填充：  rust/sml-contract/src/lib.rs 的 apply_contract / check_type
+--   * 码：                rust/tests/error_codes.rs 的 contract_codes
+--
+-- ⚠️ 本组只覆盖 Lua **真的会报**的码：E-CONTRACT-007 / 009 / 011 需要 `@type`
+--    或扩展注册点（Lua 没有），E-PARSE-024 是 C++ 独有的码 —— 见文件头说明。
+-- ------------------------------------------------------------------
+local function test_contract_codes()
+  io.write("[CONTRACT]\n")
+
+  -- E-CONTRACT-001 引用了未定义的契约（含组合字段引用的嵌套情形）
+  expect_code("unknown contract (@is)", "server { @is Nope }\n", "E-CONTRACT-001")
+  expect_code("unknown contract (composition)",
+    "@contract S { a: Nope }\nsrv {\n  @is S\n  a { x: 1 }\n}\n", "E-CONTRACT-001")
+  -- E-CONTRACT-002 字段类型不符
+  expect_code("type mismatch int (bareword)",
+    "@contract S { port: int }\nserver {\n  @is S\n  port: oops\n}\n", "E-CONTRACT-002")
+  expect_code("type mismatch str (number given)",
+    "@contract S { host: str }\nserver {\n  @is S\n  host: 42\n}\n", "E-CONTRACT-002")
+  expect_code("type mismatch array element",
+    "@contract S { tags: [str] }\nx { @is S tags: [ a 2 ] }\n", "E-CONTRACT-002")
+  -- E-CONTRACT-003 必填字段缺失（非 optional 且无 default）
+  expect_code("missing required field",
+    "@contract S { port: int }\nserver { @is S }\n", "E-CONTRACT-003")
+  -- E-CONTRACT-004 未声明字段（严格模式是默认；loose 见正向组）
+  expect_code("undeclared field (strict)",
+    "@contract S { port: int }\nserver {\n  @is S\n  port: 1\n  extra: 2\n}\n", "E-CONTRACT-004")
+  -- 未声明字段：**语法元数据也不豁免**。裸块带参数（`addr Sub { … }`）时子块含
+  -- __type/__name，Rust 实测同样报 E-CONTRACT-004（smltools：`addr.__name` 未声明）；
+  -- C++ 侧显式跳过这两个键 —— 本端以 Rust 为准（W20 报告已登记该差异）。
+  expect_code("meta keys count as undeclared (strict)",
+    "@contract A { city: str }\n@contract S { addr: A }\n" ..
+    "x {\n  @is S\n  addr Sub { city: Beijing }\n}\n",
+    "E-CONTRACT-004")
+  -- E-CONTRACT-005 数值越界（下界 / 上界各一格）
+  expect_code("below min",
+    "@contract S { ratio: num min 0 max 1 }\nsrv {\n  @is S\n  ratio: -1\n}\n", "E-CONTRACT-005")
+  expect_code("above max",
+    "@contract S { ratio: num min 0 max 1 }\nsrv {\n  @is S\n  ratio: 2\n}\n", "E-CONTRACT-005")
+  -- E-CONTRACT-006 枚举取值不在列表内（**不能**与 E-CONTRACT-002 混用）
+  expect_code("enum value not in list",
+    "@contract S { st: enum [ a b ] }\nsrv {\n  @is S\n  st: c\n}\n", "E-CONTRACT-006")
+  -- E-CONTRACT-008 组合字段应为块却给了标量
+  expect_code("composition field is scalar",
+    "@contract A { city: str }\n@contract S { addr: A }\nsrv {\n  @is S\n  addr: nope\n}\n",
+    "E-CONTRACT-008")
+  -- E-CONTRACT-010 非有限数：既覆盖**边界字面量**（nan / inf），也覆盖**值**（1e400）
+  expect_code("min bound nan", "@contract S { n: num min nan }\nx { @is S n: 5 }\n",
+              "E-CONTRACT-010")
+  expect_code("max bound inf", "@contract S { n: num max inf }\nx { @is S n: 5 }\n",
+              "E-CONTRACT-010")
+  expect_code("non-finite value vs bounds",
+    "@contract S { ratio: num min 0 max 1 }\nx { @is S ratio: 1e400 }\n", "E-CONTRACT-010")
+  -- E-PARSE-022 边界取值非数字（与上面的非有限数**分属两条码**）
+  expect_code("min bound not a number",
+    "@contract S { n: num min abc }\nx { @is S n: 1 }\n", "E-PARSE-022")
+  expect_code("max bound not a number",
+    "@contract S { n: num max xyz }\nx { @is S n: 1 }\n", "E-PARSE-022")
+  -- E-PARSE-023 enum 后须为数组
+  expect_code("enum needs array", "@contract S { st: enum a b }\nx { @is S st: a }\n",
+              "E-PARSE-023")
+  -- E-CONTRACT-012 数组元素类型未知（本端只有这一条可达分支）
+  expect_code("unknown array element type",
+    "@contract S { xs: [nope] }\nx { @is S xs: [ 1 ] }\n", "E-CONTRACT-012")
+  -- E-PARSE-019 指令头语法非法（@contract / @is 缺名字或缺体）
+  expect_code("@contract without name", "@contract { a: str }\nx: 1\n", "E-PARSE-019")
+  expect_code("@contract without body", "@contract S\nx: 1\n", "E-PARSE-019")
+  expect_code("@is without name", "x { @is }\n", "E-PARSE-019")
+  -- E-PARSE-021 default 修饰符后缺取值
+  expect_code("default without value",
+    "@contract S { a: str default }\nx { @is S }\n", "E-PARSE-021")
+  -- E-PARSE-001 契约体未闭合（缺 `}` 遇到文件结尾）
+  expect_code("unclosed contract body", "@contract S { a: str\nx: 1\n", "E-PARSE-001")
+  -- E-PARSE-006 契约体里字段名 / 冒号位置非法
+  expect_code("contract field without colon", "@contract S { a str }\nx: 1\n", "E-PARSE-006")
+  expect_code("contract field key is structural", "@contract S { : str }\nx: 1\n", "E-PARSE-006")
+end
+
+-- ------------------------------------------------------------------
+-- 契约正向对照：**断言填出来的值**，不只断言「没报错」。
+-- 只测失败路径的套件，在「@is 被整条忽略」时依然会全绿 —— 这组就是拦它的。
+-- ------------------------------------------------------------------
+local function test_contract_positive()
+  io.write("[CONTRACT positive controls]\n")
+
+  -- 默认值必须**真的填进结果树**
+  local v = expect_ok("defaults filled",
+    "@contract S { host: str  port: int default 8080  tls: bool default true }\n" ..
+    "server {\n  @is S\n  host: db1\n}\n")
+  if v then
+    report("  -> server.port == 8080", "8080", tostring(v.server and v.server.port),
+           v.server ~= nil and v.server.port == 8080)
+    report("  -> server.tls == true", "true", tostring(v.server and v.server.tls),
+           v.server ~= nil and v.server.tls == true)
+    report("  -> server.host 保留", "db1", tostring(v.server and v.server.host),
+           v.server ~= nil and v.server.host == "db1")
+  end
+
+  -- optional 且无默认值 -> 字段不出现，也不报错
+  local v2 = expect_ok("optional may be absent",
+    "@contract S { note: str optional }\nx { @is S }\n")
+  if v2 then
+    report("  -> x.note 不出现", "nil", tostring(v2.x and v2.x.note),
+           v2.x ~= nil and v2.x.note == nil)
+  end
+
+  -- loose 显式放宽未声明字段（同样输入在严格模式报 E-CONTRACT-004，见上组）
+  local v3 = expect_ok("loose allows extra",
+    "@contract S loose { host: str }\nx {\n  @is S\n  host: h\n  extra: 1\n}\n")
+  if v3 then
+    report("  -> loose 下 extra 保留", "1", tostring(v3.x and v3.x.extra),
+           v3.x ~= nil and v3.x.extra == 1)
+  end
+
+  -- 组合：递归校验 + 把被引用契约的 default 填进**子块**
+  local v4 = expect_ok("composition + nested default",
+    "@contract A { city: str  country: str default CN }\n" ..
+    "@contract S { addr: A }\nx {\n  @is S\n  addr { city: Beijing }\n}\n")
+  if v4 then
+    report("  -> x.addr.country == CN", "CN",
+           tostring(v4.x and v4.x.addr and v4.x.addr.country),
+           v4.x ~= nil and v4.x.addr ~= nil and v4.x.addr.country == "CN")
+  end
+
+  -- 契约定义本身不进主树（否则 `@contract S` 会污染数据）
+  local v5 = expect_ok("contract definition not in tree", "@contract S { a: str }\nx: 1\n")
+  if v5 then
+    report("  -> 结果里无 contract / S 键", "x=1", tostring(v5.x),
+           v5.contract == nil and v5.S == nil and v5.x == 1)
+  end
+
+  -- 同一契约可应用到多个块（默认值各自独立填充）
+  local v6 = expect_ok("contract applies to multiple blocks",
+    "@contract S { port: int default 80 }\na { @is S }\nb { @is S port: 9090 }\n")
+  if v6 then
+    report("  -> a.port==80 且 b.port==9090", "80/9090",
+           tostring(v6.a and v6.a.port) .. "/" .. tostring(v6.b and v6.b.port),
+           v6.a ~= nil and v6.a.port == 80 and v6.b ~= nil and v6.b.port == 9090)
+  end
+
+  -- 各类型的正向：数组、枚举（含逗号列表）、num/bool/any/int、引号串
+  expect_ok("enum accepts declared value",
+    "@contract S { st: enum [ active retired ] }\nx { @is S st: active }\n")
+  expect_ok("enum accepts comma list",
+    "@contract S { st: enum [ a, b ] }\nx { @is S st: b }\n")
+  expect_ok("array of str accepts barewords",
+    "@contract S { tags: [str] }\nx { @is S tags: [ a b ] }\n")
+  expect_ok("num / bool / any / int accept right kinds",
+    "@contract S { r: num  b: bool  z: any  i: int }\n" ..
+    "x { @is S r: 1.5 b: true z: whatever i: 7 }\n")
+  expect_ok("str accepts quoted value",
+    "@contract S { host: str }\nx { @is S host: \"a b\" }\n")
+  expect_ok("explicit required keyword",
+    "@contract S { host: str required }\nx { @is S host: h }\n")
+end
+
+-- ------------------------------------------------------------------
 -- 正向对照 + 「不许一报到底」
 --
 -- 后半段尤其重要：静默清单里那几条（未闭合字符串、未闭合块注释、顶层标量）
@@ -217,6 +395,8 @@ test_parse_codes()
 test_limit_codes()
 test_feature_codes()
 test_host_codes()
+test_contract_codes()
+test_contract_positive()
 test_positive_controls()
 
 io.write(string.format("\n%d 通过, %d 失败\n", passed, failures))
