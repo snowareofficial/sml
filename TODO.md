@@ -316,11 +316,11 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
 | **W3** | 顶层标量行为四实现统一为**显式报错** | `c/`、`cpp/`、`js/sml.mjs`、`lua/`、`rust/` + 文档 | **口径已定（2026-09-18）**：四端一律显式报 `E-PARSE-008`，**码必须一致、文案不要求逐字一致**；禁止静默（当前 JS/C/Lua 行为未定义）。各端各配一条单测 | 需先调研取证 | 🤖 |
 | **W4** | C `sml_dump` 与 Rust `to_sml` 逐字节比对 | `c/`、`rust/tests/` | 一批用例输出逐字节相同；有差异则逐条列明并判定是否可接受 | W3 之后（同批文件） | 🤖 |
 | **W5** | 跨实现一致性套件（conformance） | 新 `tests/conformance/`（用例集 + 各语言 runner） | 一份共享用例被 Rust/C/C++/JS/Lua 各跑一遍，结果一致；临时探针脚本（`_probe_*`/`_verify_showcase.*`）收编后删除 | W3/W4 之后 | 🤖 |
-| **W6** | Lua 侧契约（走 native 绑定） | `lua/`、`c/` 的导出面 | Lua 能校验 `@contract`/`@is` 并回填默认值，与 Rust 行为一致（复用 W5 用例集） | W5 的用例集 | ✋ |
+| **W6** 📌 **能力已由 W20 一阶段实现（纯 Lua）；本条只剩「走 native 绑定」这条路 —— 用户已定「native 可先不做」，故挂起** | Lua 侧契约**走 native 绑定**（即复用 C-ABI / Rust 的实现，而不是在 `lua/lib/sml.soup` 里再写一遍） | `lua/`、`c/` 的导出面 | ⚠️ **别重复实现**：`@contract` / `@is` 校验 + 默认值回填**已经做完了**（W20 一阶段，纯 Lua，13 条码逐条用 `smltools` **实跑**核实过）。本条若将来要做，只有「让 Lua 绑定调 C-ABI 的契约校验」这一种形态，属**性能/一致性收益**，不是能力缺口 | 原定复用 W5 的用例集（W5 仍未做） | ✋ |
 | **W7** | 解析器一次报多条错误 | `rust/sml-parse/src`（错误收集）、`js/sml.mjs`、`editors/vscode/src` | 同一文档的多个错误一次全部返回；旧 `parse()` 行为不变（只加新 API） | 无 | ✋ |
 | **W8** | Zed：填 `extension.toml` + 编译验证 grammar | `editors/zed/` | `tree-sitter generate && tree-sitter parse test/parse/*.sml` 无 `ERROR`；`extension.toml` 指向可用 grammar | 需 tree-sitter CLI（联网下载） | 🤖 |
 | **W9** | 残余风险：Miri / 安全门禁 / 非 Rust 实现扫描进 CI | CI 配置、`rust/{miri_check,osv_check}.py` | CI 里跑得起来，失败能挡住合并 | 无 | 🤖 |
-| **W10** | 错误码**落地到五端**：`errors/codes.sml` 已定 **137 条**码（W11 已录全）。**Rust ✅ / JS ✅ / C ✅ / C++ ✅ / Lua ✅ / C-ABI ✅ 已全部带码**（见 `errors/README.md` 的「码的落地进度」）；`smltools` 的部分输出仍只有文案 | 剩余：`smltools` 的部分输出 | 五端各有一份「触发条件 → 期望码」用例，**交集部分逐一同码**：`rust/tests/error_codes.rs`、`js/probe-error-codes.mjs`、`c/test_codes.c`、`cpp/test_codes.cpp`、`lua/test_codes.lua`（`python lua/run_check.py`）；生成链路 `errors/gen_codes.py`（含「手写码字面量必须在表里」的反向校验） | 无 | ✋ |
+| **W10** ✅ **已完成（2026-09-18）** | 错误码**落地到五端 + 工具层**：`errors/codes.sml` 现共 **139 条**码（W11 录全；W20/W21 各加一个 —— `E-INCLUDE-012`、`E-CLI-008`）。**Rust / JS / C / C++ / Lua / C-ABI / smltools 已全部带码**（见 `errors/README.md` 的「码的落地进度」）；`smltools` 早先那截「部分输出只有文案」的尾巴已由 `ec925c2` 收掉，`emit` 后端后来也改成**自己带码**（W21 ④，删掉按文案前缀猜码的映射） | `errors/`、五端实现、`rust/smltools/` | 五端各有一份「触发条件 → 期望码」用例，**交集部分逐一同码**：`rust/tests/error_codes.rs`、`js/probe-error-codes.mjs`、`c/test_codes.c`、`cpp/test_codes.cpp`、`lua/test_codes.lua`（`python lua/run_check.py`）；工具层另有 `rust/smltools/tests/error_codes.rs`（45 条端到端，含「CLI 输出无重复工具前缀」不变式）；生成链路 `errors/gen_codes.py`（含「手写码字面量必须在表里」的反向校验） | 无 | ✅ |
 
 > **⚠️ 前一条记录是错的，已更正（2026-09-18）**：这里原本写着「`lib/sml.soup` 是编译产物、
 > **本仓库里没有它的源码**，必须先回 Soup 工程拿 `.tl` 重编」。**这个前提是假的**：
