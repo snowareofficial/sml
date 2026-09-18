@@ -66,6 +66,24 @@ local function has_code(msg)
   return string.match(msg, "^[EWI]%-%u+%-%d%d%d ") ~= nil
 end
 
+-- 把 Unicode 码点编成 UTF-8（照 c/sml.c 的 put_utf8，LuaJIT 5.1 未必有 utf8 库）。
+local function put_utf8(cp)
+  if cp <= 0x7F then
+    return string.char(cp)
+  elseif cp <= 0x7FF then
+    return string.char(0xC0 + math.floor(cp / 0x40), 0x80 + (cp % 0x40))
+  elseif cp <= 0xFFFF then
+    return string.char(0xE0 + math.floor(cp / 0x1000),
+                       0x80 + math.floor((cp % 0x1000) / 0x40),
+                       0x80 + (cp % 0x40))
+  else
+    return string.char(0xF0 + math.floor(cp / 0x40000),
+                       0x80 + math.floor((cp % 0x40000) / 0x1000),
+                       0x80 + math.floor((cp % 0x1000) / 0x40),
+                       0x80 + (cp % 0x40))
+  end
+end
+
 ------------------------------------------------------------------------------
 -- 深度上限（W15）—— 与其它端**同为 128 层**（Rust `MAX_VALUE_DEPTH`、
 -- C/C++ `SML_MAX_VALUE_DEPTH`），超限报 `E-LIMIT-001`。
@@ -125,49 +143,81 @@ local function tokenize(text)
     elseif c == "/" and c2 == "*" then
       -- `/*` 多行注释，直到 `*/`
       i = i + 2
+      local closed = false
       while i <= n do
         local a = string.sub(text, i, i)
         local b = (i < n) and string.sub(text, i + 1, i + 1) or ""
-        if a == "*" and b == "/" then i = i + 2; break end
+        if a == "*" and b == "/" then i = i + 2; closed = true; break end
         i = i + 1
       end
+      if not closed then fail("E-LEX-002", "未闭合的块注释 /* ... */（遇到文件结尾）") end
     elseif c == "_" and c2 == "*" then
       -- `_*` 多行注释，直到 `*_`
       i = i + 2
+      local closed = false
       while i <= n do
         local a = string.sub(text, i, i)
         local b = (i < n) and string.sub(text, i + 1, i + 1) or ""
-        if a == "*" and b == "_" then i = i + 2; break end
+        if a == "*" and b == "_" then i = i + 2; closed = true; break end
         i = i + 1
       end
+      if not closed then fail("E-LEX-003", "未闭合的块注释 _* ... *_（遇到文件结尾）") end
     elseif c == '"' then
       flush()
       local j = i + 1
       local qb = {}
+      local closed = false
       while j <= n do
         local cc = string.sub(text, j, j)
-        if cc == '"' then break end
+        if cc == '"' then closed = true; break end
         if cc == "\\" and j < n then
           j = j + 1
           local e = string.sub(text, j, j)
           -- 完整 Lua 风格转义
+          -- 仅支持：n t r 0 " \ u；其余（含 a b f v '）一律报 E-LEX-004
           if e == "n" then qb[#qb+1] = "\n"
           elseif e == "t" then qb[#qb+1] = "\t"
           elseif e == "r" then qb[#qb+1] = "\r"
           elseif e == "0" then qb[#qb+1] = "\0"
-          elseif e == "a" then qb[#qb+1] = "\a"
-          elseif e == "b" then qb[#qb+1] = "\b"
-          elseif e == "f" then qb[#qb+1] = "\f"
-          elseif e == "v" then qb[#qb+1] = "\v"
           elseif e == "\\" then qb[#qb+1] = "\\"
           elseif e == '"' then qb[#qb+1] = '"'
-          elseif e == "'" then qb[#qb+1] = "'"
-          else qb[#qb+1] = e end  -- 未知转义保留原字符
+          elseif e == "u" then
+            -- A5：\uXXXX（定长四位）或 \u{...}，非法 ⇒ E-LEX-005
+            local has_brace = false
+            if string.sub(text, j + 1, j + 1) == "{" then has_brace = true; j = j + 1 end
+            local cp = 0
+            local cnt = 0
+            local bad = false
+            while true do
+              if has_brace then
+                if string.sub(text, j + 1, j + 1) == "}" then j = j + 1; break end
+                if j >= n then bad = true; break end
+              else
+                if cnt >= 4 then break end
+              end
+              local h = tonumber(string.sub(text, j + 1, j + 1), 16)
+              if h == nil then bad = true; break end
+              cp = cp * 16 + h
+              cnt = cnt + 1
+              j = j + 1
+            end
+            if not bad and not has_brace and cnt ~= 4 then bad = true end
+            if not bad and cnt == 0 then bad = true end
+            if not bad and (cp > 0x10FFFF or (cp >= 0xD800 and cp <= 0xDFFF)) then bad = true end
+            if bad then
+              fail("E-LEX-005", "Unicode 转义非法（位数不足、非十六进制、或非法码点）")
+            else
+              qb[#qb+1] = put_utf8(cp)
+            end
+          else
+            fail("E-LEX-004", "字符串含未知转义符 \\" .. e .. "（仅支持 \\n \\t \\r \\0 \\\" \\\\ \\uXXXX）")
+          end
         else
           qb[#qb+1] = cc
         end
         j = j + 1
       end
+      if not closed then fail("E-LEX-001", "字符串未闭合（缺少结束引号）") end
       toks[#toks+1] = '"' .. table.concat(qb) .. '"'  -- 保留引号标记便于 coerce 识别
       i = j + 1
     elseif c == "{" or c == "}" or c == "[" or c == "]" or c == "," then
@@ -228,7 +278,7 @@ local function coerce(tok, fragments)
     if fragments and fragments[fn] then
       return deep_copy(fragments[fn])
     end
-    return tok  -- 未定义引用原样保留
+    fail("E-INCLUDE-006", "片段引用 `&" .. fn .. "` 指向一个不存在的片段")
   end
   -- 数字：支持 123 / 123.5 / .5 / -0.5 / 1e10 / 1E-3
   if string.match(tok, "^%-?%d+%.?%d*$") or
@@ -649,6 +699,9 @@ local function parse_block(tokens, i, closing, fragments, contracts, depth)
     elseif tok == "]" then
       if closing == "]" then
         return finish(i + 1)
+      elseif closing == "}" then
+        -- 块内遇到 `]`（期望 `}`）⇒ 闭合符错配（W16）
+        fail("E-PARSE-002", "闭合符错配（块期望 '}'，却遇到 ']'）at token " .. i)
       else
         fail("E-PARSE-003", "未匹配的右方括号 ']'（没有与之匹配的开始符号）at token " .. i)
       end
@@ -705,16 +758,40 @@ local function parse_block(tokens, i, closing, fragments, contracts, depth)
         pending_is = cname
         i = i + 1
       else
-        if tokens[i] == ":" then i = i + 1 end
+        -- 未注册指令（`@foo ...`）：按 C 的 is_param 口径处理（W16）。
+        --   只认**紧跟冒号**的 `type:` / `name:` 作为显式参数；出现位置参数
+        --   （无冒号的裸词，如 `@foo bar`）⇒ E-PARSE-005；缺少片段体 `{ ... }` ⇒ E-PARSE-005。
+        --   `@foo { x: 1 }`（无参数）仍合法（P6）；`@foo type: X name: Y { ... }` 须成功（第 15 格）。
         local ftype, fname_arg = nil, nil
-      -- 若紧跟裸块（下一个非 { 非 : 的 token），当作 type name
-      if tokens[i] and tokens[i] ~= "{" and tokens[i] ~= ":" then
-        ftype = tokens[i]; i = i + 1
-        if tokens[i] and tokens[i] ~= "{" and tokens[i] ~= ":" then
-          fname_arg = coerce(tokens[i], fragments); i = i + 1
+        while is_word_tok(tokens[i]) and (tokens[i] == "type" or tokens[i] == "name")
+              and tokens[i + 1] == ":" do
+          local is_type = (tokens[i] == "type")
+          local kw = is_type and "type" or "name"
+          i = i + 1            -- type / name
+          i = i + 1            -- :
+          local vt = tokens[i]
+          if not (is_word_tok(vt) or (type(vt) == "string" and string.sub(vt, 1, 1) == '"')) then
+            fail("E-PARSE-020", "片段 `@" .. fname .. "` 的参数 `" .. kw .. ":` 后须值")
+          end
+          if is_type then
+            if ftype ~= nil then
+              fail("E-PARSE-020", "片段 `@" .. fname .. "` 的 `" .. kw .. ":` 参数重复")
+            end
+            ftype = unquote(vt)
+          else
+            if fname_arg ~= nil then
+              fail("E-PARSE-020", "片段 `@" .. fname .. "` 的 `" .. kw .. ":` 参数重复")
+            end
+            fname_arg = coerce(vt, fragments)
+          end
+          i = i + 1            -- 消费参数值
         end
-      end
-      if tokens[i] == "{" then
+        if tokens[i] ~= "{" then
+          fail("E-PARSE-005",
+               "`@" .. fname .. "` 不是合法指令且缺少片段体 { ... }；若本意是片段定义，"
+            .. "参数须显式写作 `type: X` 与 `name: Y`（位置参数形式已废弃；不带参数时写作 `@"
+            .. fname .. " { ... }`）；若本意是指令，请检查拼写（合法指令：contract / is / version）")
+        end
         local sub
         sub, i = parse_block(tokens, i + 1, "}", fragments, contracts, depth + 1)
         if ftype then
@@ -722,7 +799,6 @@ local function parse_block(tokens, i, closing, fragments, contracts, depth)
           if fname_arg then sub.__name = fname_arg end
         end
         fragments[fname] = sub
-      end
       end
     else
       -- 键位置只接受裸词/引号串。结构记号落在这里是**语法错误**，不能当键名 ——
@@ -797,6 +873,9 @@ parse_array = function(tokens, i, fragments, contracts, depth)
       local sub
       sub, i = parse_block(tokens, i + 1, "}", fragments, contracts, depth + 1)
       arr[#arr+1] = sub
+    elseif tok == "}" then
+      -- 数组里多余的 `}`（没有与之匹配的开始符号）⇒ E-PARSE-003（W16）
+      fail("E-PARSE-003", "数组里出现多余的 '}'（没有与之匹配的开始符号）at token " .. i)
     else
       arr[#arr+1] = coerce(tok, fragments)
       i = i + 1
@@ -1151,10 +1230,11 @@ function Sml.load(text, base)
   end
   local ok, toks = pcall(tokenize, src)
   if not ok then
-    -- tokenize 目前不会抛（词法层刻意宽松），留此分支只为不静默吞掉意外异常。
-    -- 归 E-PARSE-012（解析阶段兜底）而不是某个 E-LEX-*：这里拿到的是 Lua 的异常，
-    -- 说明的是"没能给出更具体原因"，不是某个确定的词法条件。
-    return nil, "E-PARSE-012 sml: 词法阶段异常: " .. tostring(toks)
+    -- 词法层 `fail()` 抛出的错**带码**，必须原样透出（与下面解析阶段同一个规矩）；
+    -- 不带码的才是「没能给出更具体原因」→ E-PARSE-012 兜底。
+    local m = tostring(toks)
+    if has_code(m) then return nil, m end
+    return nil, "E-PARSE-012 sml: 词法阶段异常: " .. m
   end
   local fragments = {}
   -- 契约表（`@contract` 定义 → `@is` 应用）：与解析器共用同一份，见上方 W20 一节。
@@ -1173,6 +1253,12 @@ function Sml.load(text, base)
       return (select(1, parse_array(toks, 2, fragments, contracts, 0)))
     elseif first == "{" then
       return (select(1, parse_block(toks, 2, "}", fragments, contracts, 0)))
+    end
+    -- A10（W16）：顶层只能是容器（键值块 / 对象块 / 数组），单个标量无法往返 ⇒ E-PARSE-008。
+    --   判定：只有一个 token 且它不是 { 或 [（即裸词 / 引号串 / 数字）⇒ 报错。
+    --   `hello world`（2 token）、`@version v1` + `42`（4 token）、空输入（0 token）均不触发。
+    if #toks == 1 and first ~= "{" and first ~= "[" then
+      fail("E-PARSE-008", "顶层只能是容器（键值块 / 对象块 / 数组），单个标量无法往返：" .. tostring(first))
     end
     return (select(1, parse_block(toks, 1, nil, fragments, contracts, 0)))
   end)

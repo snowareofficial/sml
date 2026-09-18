@@ -11,8 +11,9 @@
 --     include 的高级写法（`as ns` / glob / regex / 多目标 / 部分引用）显式报
 --     E-FEATURE-001，也已有用例。故这两条不再属于「故意不测」。
 --   * E-LEX-001（未闭合字符串）、E-LEX-002/003（未闭合块注释）、顶层标量：
---     属 errors/README.md「静默清单」里**已登记**的静默点，归 W16 判定。
---     本文件把它们放在「不许一报到底」组里**反向钉住**：现在不该发码。
+--     原属 errors/README.md「静默清单」里**已登记**的静默点，归 W16 判定。
+--     W16 已把它们改为**响亮拒绝**（见 §2.5 / TASK-hy3.md）；本文件从「反向钉住不该发码」
+--     改为 `expect_code` **正向钉住**报的就是 E-LEX-001/002/003 与 E-PARSE-008。
 --   * E-PARSE-012（解析阶段兜底）：Lua 侧它是 pcall 的兜底出口，**构造不出来** ——
 --     与 C++ 的 E-LIMIT-010 同类，属「有实现、无可用例」，显式登记在此，
 --     免得后来者以为它没做。
@@ -579,15 +580,63 @@ local function test_positive_controls()
   -- 把「顶层裸块」也当成未闭合，会让所有没写外层花括号的文档全部报错）。
   expect_ok("top-level bare block ends at EOF", "a: 1\nb: 2\n")
 
-  -- 已登记的静默点：现在**不该**发码
-  expect_ok("silent (registered): top-level scalar", "42\n")
-  expect_ok("silent (registered): unterminated string", "k: \"abc\n")
-  expect_ok("silent (registered): unclosed /* comment", "k: 1\n/* never closed\n")
-  expect_ok("silent (registered): unclosed _* comment", "k: 1\n_* never closed\n")
+  -- 已登记的静默点（W16 判定）：这些输入现在**应当**响亮拒绝 —— 改前静默给错树 / 静默吞掉。
+  --   本组从 `expect_ok` 反向钉住改为 `expect_code` 正向钉住：报的就是下面这些码。
+  expect_code("silent (registered): top-level scalar", "42\n", "E-PARSE-008")
+  expect_code("silent (registered): unterminated string", "k: \"abc\n", "E-LEX-001")
+  expect_code("silent (registered): unclosed /* comment", "k: 1\n/* never closed\n", "E-LEX-002")
+  expect_code("silent (registered): unclosed _* comment", "k: 1\n_* never closed\n", "E-LEX-003")
+end
+
+-- ------------------------------------------------------------------
+-- 语法 / 词法：W16（把静默改成报错的一批；见 TASK-hy3.md / c/test_codes.c）
+-- ------------------------------------------------------------------
+-- 每条新增的严格性都配**正对照**：把静默改成报错，最大的风险是误伤合法文档，
+-- 只测「应当失败」的一半会看不出误伤。期望值与 Rust / JS / C 逐字同码
+-- （见 rust/tests/error_codes.rs、js/probe-error-codes.mjs、c/test_codes.c）。
+local function test_w16_codes()
+  io.write("[LEX / W16]\n")
+  expect_code("未闭合字符串", "k: \"abc\n", "E-LEX-001")
+  expect_code("未闭合块注释 /*", "k: 1\n/* abc\n", "E-LEX-002")
+  expect_code("未闭合块注释 _*", "k: 1\n_* abc\n", "E-LEX-003")
+  expect_code("未知转义", "k: \"a\\qb\"\n", "E-LEX-004")
+  expect_code("\\u 位数不足", "k: \"\\u12\"\n", "E-LEX-005")
+
+  -- 正对照：合法转义与合法 \u 一律不许被误伤
+  expect_ok("合法转义", "k: \"a\\nb\\t\\r\\0\\\"c\\\\d\"\n")
+  expect_ok("\\u 定长四位", "k: \"\\u4e2d\"\n")
+  expect_ok("\\u 花括号形式", "k: \"\\u{1F680}\"\n")
+  expect_ok("块注释正常闭合", "k: 1\n/* ok */\n")
+  expect_ok("_* 注释正常闭合", "k: 1\n_* ok *_ \n")
+
+  io.write("[PARSE / INCLUDE：W16]\n")
+  expect_code("数组里多余的 }", "m: [ } ]\n", "E-PARSE-003")
+  expect_code("闭合符错配 a { ] }", "a { ] }\n", "E-PARSE-002")
+  expect_code("顶层多余的 }", "k: 1\n}\n", "E-PARSE-003")
+  expect_code("顶层多余的 ]", "k: 1\n]\n", "E-PARSE-003")
+  expect_code("未注册指令（位置参数带体）", "@foo bar { x: 1 }\n", "E-PARSE-005")
+  expect_code("未注册指令（位置参数无体）", "@foo bar\n", "E-PARSE-005")
+  expect_code("未定义片段引用", "x: &nosuchfrag\n", "E-INCLUDE-006")
+  expect_code("顶层标量（裸词）", "42\n", "E-PARSE-008")
+  expect_code("顶层标量（引号串）", "\"42\"\n", "E-PARSE-008")
+
+  -- 正对照：合法顶层形态与合法片段定义；挡住「把 @ 开头一律判 005」那种一刀切修法
+  expect_ok("片段显式参数(应成功)", "@foo type: Server name: p { x: 1 }\n")
+  expect_ok("片段定义（无参数）", "@foo { x: 1 }\n")
+  expect_ok("片段定义+引用", "@foo { x: 1 }\ny: &foo\n")
+  expect_ok("两 token 裸键对", "hello world\n")
+  expect_ok("键值块", "42: x\n")
+  expect_ok("对象块", "{ a: 1 }\n")
+  expect_ok("顶层数组", "[1, 2]\n")
+  expect_ok("嵌套数组", "m: [ 1, [2, 3], 4 ]\n")
+  expect_ok("带指令的顶层标量", "@version v1\n42\n")
+  expect_ok("空输入", "")
+  expect_ok("只有注释", "# c\n")
 end
 
 io.write("lua/test_codes.lua — 触发条件 → 期望码（W10，Lua 侧）\n")
 test_parse_codes()
+test_w16_codes()
 test_limit_codes()
 test_feature_codes()
 test_host_codes()
