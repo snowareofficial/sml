@@ -250,18 +250,359 @@ deep_copy = function(v)
 end
 
 ------------------------------------------------------------------------------
+-- 契约（W20）：`@contract` / `@is`
+--
+-- 口径照 rust/sml-parse/src/parser.rs 的 parse_field_spec 与
+-- rust/sml-contract/src/lib.rs 的 apply_contract，**码与语义逐条对齐**：
+--
+--   @contract Name [loose|strict] { field: Type mods... }   定义（不进主树）
+--   @is Name                                                 在当前块应用
+--
+-- 类型：  str / int / num / bool / any / [T] / enum [ a b ] / 契约名（组合）
+-- 修饰符：optional / required / default <值> / min <数> / max <数>
+--
+-- 本阶段**刻意不做**（见 W20 报告）：
+--   * E-CONTRACT-007（外置类型）与 E-CONTRACT-009（模式类型）：Lua 没有
+--     `@type`，那要 sml-pattern 的引擎，另立；
+--   * `array [T]`：Rust 的 parse_field_spec 里**没有** `array` 关键字
+--     （`array` 会落成契约引用），故本实现不发明该语法。
+--
+-- 值模型差异（Lua 表不区分数组/对象、nil 即 null），已登记进报告：
+--   * `[]` 与 `{}` 解析后都是空表 → 空表对数组类型放行（Rust 会拒 `{}`）；
+--   * `x: null` 与「缺 x」在 Lua 里都是 nil → 显式 null 会被当成缺字段。
+------------------------------------------------------------------------------
+
+-- 结构记号：出现在「期望标识符」的位置即为语法错误（与 Rust 的 token 集一致）
+local STRUCT_CHARS = { ["{"]=true, ["}"]=true, ["["]=true, ["]"]=true,
+                       [","]=true, [":"]=true, ["@"]=true }
+
+local function unquote(tok)
+  -- 引号串 token 保留了两端引号（便于 coerce 识别），取名/枚举值时要剥掉
+  if type(tok) == "string" and #tok >= 2
+     and string.sub(tok, 1, 1) == '"' and string.sub(tok, -1) == '"' then
+    return string.sub(tok, 2, -2)
+  end
+  return tok
+end
+
+local function is_word_tok(tok)
+  return tok ~= nil and not STRUCT_CHARS[tok]
+end
+
+-- 「数组形态」：键全为数字（含空表）。Lua 无从区分 `[]` 与 `{}`，见文件头说明。
+local function is_list(v)
+  if type(v) ~= "table" then return false end
+  for k in pairs(v) do
+    if type(k) ~= "number" then return false end
+  end
+  return true
+end
+
+-- min / max 的边界字面量（与 Rust parse_spec_number 同口径）：
+--   非数字 → E-PARSE-022；nan / inf / 1e400 等非有限 → E-CONTRACT-010。
+-- ⚠️ 必须先拦 nan/inf：LuaJIT 的 tonumber("nan") 是 nil，会错报成 E-PARSE-022，
+--    而 Rust 的 "nan".parse::<f64>() 是 Ok(NaN)，随后因非有限报 E-CONTRACT-010。
+local function looks_number(tok)
+  return string.match(tok, "^[+-]?%d+$") ~= nil
+      or string.match(tok, "^[+-]?%d+%.%d*$") ~= nil
+      or string.match(tok, "^[+-]?%.%d+$") ~= nil
+      or string.match(tok, "^[+-]?%d+%.?%d*[eE][+-]?%d+$") ~= nil
+      or string.match(tok, "^[+-]?%.%d+[eE][+-]?%d+$") ~= nil
+end
+
+local function parse_bound(tok, what)
+  if not is_word_tok(tok) then
+    fail("E-PARSE-022", "`" .. what .. "` 的边界取值不是数字")
+  end
+  local mag = string.gsub(string.lower(tok), "^[+-]", "")
+  if mag == "nan" or mag == "inf" or mag == "infinity" then
+    fail("E-CONTRACT-010", "`" .. what .. "` 的边界必须为有限值，得 `" .. tok .. "`")
+  end
+  if not looks_number(tok) then
+    fail("E-PARSE-022", "`" .. what .. "` 的边界取值不是数字：`" .. tok .. "`")
+  end
+  local num = tonumber(tok)
+  if num == nil or num ~= num or num == math.huge or num == -math.huge then
+    fail("E-CONTRACT-010", "`" .. what .. "` 的边界必须为有限值，得 `" .. tok .. "`")
+  end
+  return num
+end
+
+-- 解析一个类型规格 -> spec, next_i
+local function parse_type(tokens, i)
+  local tok = tokens[i]
+  if not is_word_tok(tok) and tok ~= "[" then
+    fail("E-PARSE-006", "契约字段的类型期望标识符，得 '" .. tostring(tok) .. "'")
+  end
+  if tok == "[" then
+    i = i + 1
+    local el = tokens[i]
+    if not is_word_tok(el) then
+      fail("E-PARSE-006", "数组元素类型期望标识符，得 '" .. tostring(el) .. "'")
+    end
+    local elem
+    if el == "str" or el == "int" or el == "num" or el == "bool" or el == "any" then
+      elem = { kind = el }
+    else
+      -- 本实现没有 @type / 外置类型注册 → 与 Rust「未注册的数组元素类型」同码
+      fail("E-CONTRACT-012", "数组元素类型名未知：`" .. el .. "`")
+    end
+    i = i + 1
+    if tokens[i] == "]" then i = i + 1 end
+    return { kind = "array", elem = elem }, i
+  end
+  if tok == "enum" then
+    i = i + 1
+    if tokens[i] ~= "[" then
+      fail("E-PARSE-023", "`enum` 后须为 [ ... ]")
+    end
+    i = i + 1
+    local vals = {}
+    while true do
+      local v = tokens[i]
+      if v == nil or v == "]" then break end
+      -- Rust 对列表内的非取值记号是「跳过」而不是报错（parse_field_spec 的 `_ => next()`）
+      if STRUCT_CHARS[v] then i = i + 1
+      else vals[#vals + 1] = unquote(v); i = i + 1 end
+    end
+    if tokens[i] == "]" then i = i + 1 end
+    return { kind = "enum", values = vals }, i
+  end
+  -- `enum(a, b, c)` 兼容式（对齐 Rust parse_field_spec 的 `enum(` 分支）
+  local rest = string.match(tok, "^enum%((.*)$")
+  if rest then
+    local vals = {}
+    while true do
+      if string.sub(rest, -1) == ")" then
+        local last = string.sub(rest, 1, #rest - 1)
+        if #last > 0 then vals[#vals + 1] = last end
+        break
+      end
+      vals[#vals + 1] = rest
+      if tokens[i + 1] == "," then i = i + 1 end
+      local nx = tokens[i + 1]
+      if not is_word_tok(nx) then break end
+      rest = nx
+      i = i + 1
+    end
+    return { kind = "enum", values = vals }, i + 1
+  end
+  i = i + 1
+  if tok == "str" or tok == "int" or tok == "num" or tok == "bool" or tok == "any" then
+    return { kind = tok }, i
+  end
+  -- 非内置名 → 契约引用（组合）
+  return { kind = "contract", ref = unquote(tok) }, i
+end
+
+-- 解析单个字段的类型与修饰符 -> spec, next_i
+local function parse_field_spec(tokens, i, fragments)
+  local spec = { optional = false, has_default = false }
+  spec.type, i = parse_type(tokens, i)
+  while true do
+    local tok = tokens[i]
+    if tok == nil then break end
+    -- 下一个字段开始：`标识符 :`（Rust 的 is_next_field）
+    if is_word_tok(tok) and tokens[i + 1] == ":" then break end
+    if tok == "optional" then
+      spec.optional = true; i = i + 1
+    elseif tok == "required" then
+      spec.optional = false; i = i + 1
+    elseif tok == "default" then
+      i = i + 1
+      local dv = tokens[i]
+      if not is_word_tok(dv) then
+        fail("E-PARSE-021", "`default` 修饰符后缺少取值")
+      end
+      spec.default = coerce(dv, fragments)
+      spec.has_default = true
+      i = i + 1
+    elseif tok == "min" then
+      i = i + 1
+      spec.min = parse_bound(tokens[i], "min")
+      i = i + 1
+    elseif tok == "max" then
+      i = i + 1
+      spec.max = parse_bound(tokens[i], "max")
+      i = i + 1
+    else
+      -- 未知词（含未注册的外置修饰符）：按下个字段的开始退出
+      break
+    end
+  end
+  return spec, i
+end
+
+-- 解析契约体（`{ field: Type mods... }`）-> fields, next_i
+local function parse_contract_body(tokens, i, fragments)
+  local fields = {}
+  while true do
+    local tok = tokens[i]
+    if tok == nil then
+      -- 契约体未闭合（缺 `}` 即遇到文件结尾）
+      fail("E-PARSE-001", "契约体未闭合（缺少结束符号 }）")
+    end
+    if tok == "}" then
+      i = i + 1
+      break
+    end
+    if tok == "," then
+      i = i + 1
+    elseif STRUCT_CHARS[tok] then
+      fail("E-PARSE-006", "契约字段期望键，得结构记号 '" .. tok .. "'")
+    else
+      local key = unquote(tok)
+      i = i + 1
+      if tokens[i] ~= ":" then
+        fail("E-PARSE-006", "契约字段 `" .. key .. "` 后须有冒号")
+      end
+      i = i + 1
+      local spec
+      spec, i = parse_field_spec(tokens, i, fragments)
+      fields[key] = spec
+    end
+  end
+  return fields, i
+end
+
+local apply_contract  -- 前向声明（组合字段需要递归回本函数）
+
+-- 校验一个值是否符合字段规格；不符即 fail()（error，沿 pcall 退出）。
+-- `fs` 是**字段规格**（`{ type = TypeSpec, min = ..., max = ... }`）：min/max 是
+-- 字段级修饰符、不在 TypeSpec 上，故不能只把类型传进来。数组元素递归时用
+-- `{ type = elem }` 构造一个（元素不参与 min/max）。
+local function check_type(fs, v, contracts)
+  local ty = fs.type
+  if ty.kind == "any" then
+    return
+  end
+  if ty.kind == "contract" then
+    -- 组合：值须为块，递归按被引用契约校验（含填默认值）
+    if type(v) ~= "table" then
+      fail("E-CONTRACT-008", "字段应为块并按契约 `" .. ty.ref .. "` 校验，实际不是块")
+    end
+    apply_contract(v, contracts, ty.ref)
+    return
+  end
+  if ty.kind == "array" then
+    if not is_list(v) then
+      fail("E-CONTRACT-002", "字段类型应为数组，实际不是数组")
+    end
+    for idx = 1, #v do
+      check_type({ type = ty.elem }, v[idx], contracts)
+    end
+    return
+  end
+  if ty.kind == "enum" then
+    -- 枚举的「取值不在列表内」是独立条件，**不能**与「类型不符」共用码
+    local got
+    if type(v) == "string" then got = v
+    elseif type(v) == "number" and v == math.floor(v) then got = string.format("%d", v)
+    else fail("E-CONTRACT-006", "字段取值不在枚举列表内") end
+    for _, e in ipairs(ty.values) do
+      if e == got then return end
+    end
+    fail("E-CONTRACT-006", "字段取值 `" .. got .. "` 不在枚举列表内")
+  end
+  local ok =
+       (ty.kind == "str"  and type(v) == "string")
+    or (ty.kind == "int"  and type(v) == "number" and v == math.floor(v))
+    or (ty.kind == "num"  and type(v) == "number")
+    or (ty.kind == "bool" and type(v) == "boolean")
+  if not ok then
+    fail("E-CONTRACT-002", "字段类型应为 " .. ty.kind .. "，实际为 " .. type(v))
+  end
+  -- 数值区间：先拒非有限值（NaN 的一切比较均为假，会静默穿透 min/max）
+  if fs.min ~= nil or fs.max ~= nil then
+    local num
+    if type(v) == "number" then num = v end
+    if num ~= nil then
+      if num ~= num or num == math.huge or num == -math.huge then
+        fail("E-CONTRACT-010", "字段的值为非有限数，不可作为数值约束的取值")
+      end
+      if fs.min ~= nil and num < fs.min then
+        fail("E-CONTRACT-005", "字段值小于下界 " .. tostring(fs.min))
+      end
+      if fs.max ~= nil and num > fs.max then
+        fail("E-CONTRACT-005", "字段值大于上界 " .. tostring(fs.max))
+      end
+    end
+  end
+end
+
+-- 对块应用契约：严格性检查 + 填默认值 + 逐个字段校验
+apply_contract = function(node, contracts, name)
+  local c = contracts[name]
+  if c == nil then
+    fail("E-CONTRACT-001", "未定义的契约 `" .. tostring(name) .. "`")
+  end
+  if type(node) ~= "table" then
+    fail("E-CONTRACT-008", "契约只能应用于块，实际不是块")
+  end
+  -- 1) 严格性：未声明字段一律拒绝（默认严格；`loose` 显式放宽）。
+  --    ⚠️ `__type` / `__name` **不豁免** —— 与 Rust 实测一致：
+  --       `@contract A { city: str }` + `x { @is S addr Sub { city: Beijing } }`
+  --       （裸块带参数 → 子块含 __type/__name）在 Rust 上报 E-CONTRACT-004
+  --       「字段 `addr.__name` 未在契约 `A` 中声明」（用 smltools 实跑确认）。
+  --       C++ 侧显式跳过这两个键，与本端不同 —— 本端以 Rust 为准（W20 报告已登记）。
+  --       仅当子块是**普通** `key { ... }`（无 type/name 参数）时才没有这两键。
+  --    键按名排序遍历：Rust 用 BTreeMap（有序），本端 pairs 无序会让「报哪个键」
+  --    随机漂移，排序后与 Rust 一样确定。
+  if not c.allow_extra then
+    local meta = {}
+    for k in pairs(node) do meta[#meta + 1] = k end
+    table.sort(meta)
+    for _, k in ipairs(meta) do
+      if c.fields[k] == nil then
+        fail("E-CONTRACT-004",
+             "字段 `" .. tostring(k) .. "` 未在契约 `" .. name .. "` 中声明（严格模式）")
+      end
+    end
+  end
+  -- 2) 逐字段（按名排序，与 Rust 的 BTreeMap 迭代顺序一致）
+  local keys = {}
+  for k in pairs(c.fields) do keys[#keys + 1] = k end
+  table.sort(keys)
+  for _, k in ipairs(keys) do
+    local f = c.fields[k]
+    local v = node[k]
+    if v == nil then
+      if f.has_default then
+        node[k] = deep_copy(f.default)
+      elseif not f.optional then
+        fail("E-CONTRACT-003", "字段 `" .. k .. "` 必填但缺失")
+      end
+    else
+      check_type(f, v, contracts)
+    end
+  end
+end
+
+------------------------------------------------------------------------------
 -- 语法：递归下降
---   parse_block(tokens, i, closing, fragments, depth) -> node, next_i
+--   parse_block(tokens, i, closing, fragments, contracts, depth) -> node, next_i
 --   node 为 map；遇到 `key:` 后 { -> 子块；[ -> 数组；否则标量。
 --   裸块 `type name { }` -> { __type=type, __name=name, ...body }
+--   contracts 为契约表（名 -> 契约），由调用方传入并在解析中共用。
 --   depth 为当前嵌套层数（文档根 = 0），见上面 MAX_VALUE_DEPTH 一节。
 ------------------------------------------------------------------------------
 local parse_array  -- 前向声明（在 parse_block 内被调用）
 
-local function parse_block(tokens, i, closing, fragments, depth)
+local function parse_block(tokens, i, closing, fragments, contracts, depth)
   enter_depth(depth)
   local node = {}
   local n = #tokens
+  -- 本块声明的 `@is 契约名`：块结束时应用（Rust 的 applied_contract）
+  local pending_is = nil
+  -- 统一出口：块正常闭合时先应用契约，再返回。
+  -- ⚠️ 必须包住**所有** return 点（`tok == closing` 与 `tok == "}"` 两处提前返回），
+  --    否则「块内写了 @is 但契约没被应用」会静默通过。
+  local function finish(next_i)
+    if pending_is ~= nil then
+      apply_contract(node, contracts, pending_is)
+    end
+    return node, next_i
+  end
   -- 同名 key 冲突时提升为数组（避免静默覆盖，见 Bug 1）
   local function set_field(k, v)
     if node[k] == nil then
@@ -275,16 +616,16 @@ local function parse_block(tokens, i, closing, fragments, depth)
   while i <= n do
     local tok = tokens[i]
     if tok == closing then
-      return node, i + 1
+      return finish(i + 1)
     elseif tok == "}" then
       if closing == "}" then
-        return node, i + 1
+        return finish(i + 1)
       else
         fail("E-PARSE-003", "未匹配的右大括号 '}'（没有与之匹配的开始符号）at token " .. i)
       end
     elseif tok == "]" then
       if closing == "]" then
-        return node, i + 1
+        return finish(i + 1)
       else
         fail("E-PARSE-003", "未匹配的右方括号 ']'（没有与之匹配的开始符号）at token " .. i)
       end
@@ -309,6 +650,37 @@ local function parse_block(tokens, i, closing, fragments, depth)
           fail("E-FEATURE-004", "未知版本 `" .. tostring(lit) .. "`；仅支持 v1")
         end
         i = i + 1
+      elseif fname == "contract" then
+        -- 契约定义：`@contract Name [loose|strict] { ... }`（不进主树）
+        local cname = tokens[i]
+        if not is_word_tok(cname) then
+          fail("E-PARSE-019", "`@contract` 后须契约名")
+        end
+        cname = unquote(cname)
+        i = i + 1
+        -- 可选严格度修饰：`loose` 允许未声明字段；`strict` 与默认等价
+        local allow_extra = false
+        if tokens[i] == "loose" then allow_extra = true; i = i + 1
+        elseif tokens[i] == "strict" then i = i + 1 end
+        if tokens[i] ~= "{" then
+          fail("E-PARSE-019", "`@contract " .. cname .. "` 后须 `{ ... }`")
+        end
+        i = i + 1
+        local fields
+        fields, i = parse_contract_body(tokens, i, fragments)
+        contracts[cname] = { name = cname, fields = fields, allow_extra = allow_extra }
+      elseif fname == "is" then
+        -- 契约应用：`@is Name` 作用于**当前块**，块结束时校验（见 finish）
+        local cname = tokens[i]
+        if not is_word_tok(cname) then
+          fail("E-PARSE-019", "`@is` 后须契约名")
+        end
+        cname = unquote(cname)
+        -- `@is type(契约名)` 与 `@is 契约名` 等价（对齐 Rust 的 unwrap_type_call）
+        local inner = string.match(cname, "^type%((.+)%)$")
+        if inner and contracts[cname] == nil then cname = inner end
+        pending_is = cname
+        i = i + 1
       else
         if tokens[i] == ":" then i = i + 1 end
         local ftype, fname_arg = nil, nil
@@ -321,7 +693,7 @@ local function parse_block(tokens, i, closing, fragments, depth)
       end
       if tokens[i] == "{" then
         local sub
-        sub, i = parse_block(tokens, i + 1, "}", fragments, depth + 1)
+        sub, i = parse_block(tokens, i + 1, "}", fragments, contracts, depth + 1)
         if ftype then
           sub.__type = ftype
           if fname_arg then sub.__name = fname_arg end
@@ -346,11 +718,11 @@ local function parse_block(tokens, i, closing, fragments, depth)
       local nxt = tokens[i]
       if nxt == "{" then
         local sub
-        sub, i = parse_block(tokens, i + 1, "}", fragments, depth + 1)
+        sub, i = parse_block(tokens, i + 1, "}", fragments, contracts, depth + 1)
         set_field(key, sub)
       elseif nxt == "[" then
         local arr
-        arr, i = parse_array(tokens, i + 1, fragments, depth + 1)
+        arr, i = parse_array(tokens, i + 1, fragments, contracts, depth + 1)
         set_field(key, arr)
       elseif not colon and nxt ~= nil and nxt ~= "}" and nxt ~= "]" and nxt ~= "," then
         -- 裸块：key 为类型，后续 token 直到 { 为参数
@@ -361,7 +733,7 @@ local function parse_block(tokens, i, closing, fragments, depth)
         end
         if tokens[i] == "{" then
           local sub
-          sub, i = parse_block(tokens, i + 1, "}", fragments, depth + 1)
+          sub, i = parse_block(tokens, i + 1, "}", fragments, contracts, depth + 1)
           sub.__type = key
           if #args == 1 then sub.__name = args[1] end
           set_field(key, sub)
@@ -384,10 +756,10 @@ local function parse_block(tokens, i, closing, fragments, depth)
   if closing ~= nil then
     fail("E-PARSE-001", "未闭合的块（遇到文件结尾，缺少结束符号 '" .. closing .. "'）")
   end
-  return node, i
+  return finish(i)
 end
 
-parse_array = function(tokens, i, fragments, depth)
+parse_array = function(tokens, i, fragments, contracts, depth)
   enter_depth(depth)
   local arr = {}
   local n = #tokens
@@ -399,7 +771,7 @@ parse_array = function(tokens, i, fragments, depth)
       i = i + 1
     elseif tok == "{" then
       local sub
-      sub, i = parse_block(tokens, i + 1, "}", fragments, depth + 1)
+      sub, i = parse_block(tokens, i + 1, "}", fragments, contracts, depth + 1)
       arr[#arr+1] = sub
     else
       arr[#arr+1] = coerce(tok, fragments)
@@ -427,6 +799,9 @@ function Sml.load(text)
     return nil, "E-PARSE-012 sml: 词法阶段异常: " .. tostring(toks)
   end
   local fragments = {}
+  -- 契约表（`@contract` 定义 → `@is` 应用）：与解析器共用同一份，见上方 W20 一节。
+  -- 须与 fragments 一样是**每次 load 新建**的局部表，否则跨文档会串味。
+  local contracts = {}
   local ok2, node = pcall(function()
     -- 顶层支持三种形态，与 dump 的输出对称：
     --   - `[ ... ]` 数组：dump 对数组输出顶层数组（如「历史记录」这类对象数组）。
@@ -437,11 +812,11 @@ function Sml.load(text)
     -- 三个顶层入口一律从 depth = 0（文档根）开始，与 Sml 的「128 层」口径一致。
     local first = toks[1]
     if first == "[" then
-      return (select(1, parse_array(toks, 2, fragments, 0)))
+      return (select(1, parse_array(toks, 2, fragments, contracts, 0)))
     elseif first == "{" then
-      return (select(1, parse_block(toks, 2, "}", fragments, 0)))
+      return (select(1, parse_block(toks, 2, "}", fragments, contracts, 0)))
     end
-    return (select(1, parse_block(toks, 1, nil, fragments, 0)))
+    return (select(1, parse_block(toks, 1, nil, fragments, contracts, 0)))
   end)
   if not ok2 then
     -- 已经带码的（fail 抛出的）**原样透出**：它比外层包装具体得多。
