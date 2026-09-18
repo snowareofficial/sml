@@ -33,7 +33,8 @@ use sml::emit::{
     SvgOptions, XmlOptions, to_custom, to_html, to_lvgl,
 };
 use clap::Parser;
-use sml::{parse, to_sml, Value, Version};
+// `to_sml` 不再直接调用：SML 输出走带检查的 `sml::to_sml_checked`（W16，见 emit()）
+use sml::{parse, Value, Version};
 use sml_codes::{
     SmlError, E_CLI_001, E_CLI_002, E_CLI_003, E_CLI_004, E_CLI_005, E_CLI_006, E_CLI_008,
     E_FEATURE_004, E_INCLUDE_001, E_INCLUDE_004, E_INCLUDE_012, E_INTERNAL_001, E_IO_001, E_IO_003,
@@ -629,7 +630,10 @@ fn expand_includes_impl(text: &str, base: &Path, depth: usize) -> Result<String,
 /// 本模块自带的两个编辑器后端（tmlanguage / highlight）同样直接返回带码错误。
 fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, SmlError> {
     match fmt {
-        Format::Sml => Ok(to_sml(value)),
+        // W16：走**带检查**的序列化 —— 深度超限要报 `E-LIMIT-004`，
+        // 不能让 `to_sml` 静默写 `/* …深度超限… */ null` 占位文本（用户拿到的是
+        // 看着合法、回读变成 null 的文档）。`to_sml` 本身仍是不失败的（见它的文档）。
+        Format::Sml => sml::to_sml_checked(value),
         Format::Markdown => {
             let opt = MarkdownOptions {
                 base: EmitOptions::default(),

@@ -110,6 +110,7 @@
 | JS 第一批 | `5bd0b64` | 未闭合字符串/块注释、未知转义、`\u` 非法、数组里多余的 `}`、闭合符错配、顶层多余的 `}`/`]`、未闭合数组、顶层标量（另修 `@feature` 吞文档） | 换回 HEAD 版 JS ⇒ **10 条红** |
 | C 批 | （见 `git log`） | 同上 LEX 五条 + `E-PARSE-002/003/005/008` + `E-INCLUDE-006`；顺带对齐 `@contract X strict`、片段显式参数 `type:`/`name:` | HEAD 版 `sml.c` 配同一份 `test_codes.c` ⇒ **20 条红**；新实现 0 红（断言 62 → 82） |
 | **JS 余额 4 条**（+ 副本漏同步修复） | （见 `git log`） | 未注册指令 `E-PARSE-005`（顺带片段显式参数 ⇒ `E-PARSE-020`）、未定义片段引用 `E-INCLUDE-006`、**特性门控**（`contract`/`fragment` ⇒ `E-FEATURE-001`、`env` ⇒ `E-FEATURE-002`）、模式预算 `E-LIMIT-002`（JS 落在**编译期**） | HEAD 版 `js/sml.mjs` 配同一份 `probe-error-codes.mjs` ⇒ **13 条红**；新实现 `ALL OK`（45 条用例） |
+| **Rust A 批 6 条**（+ 两个新码） | （见 `git log`） | `sml-regex` 的三条失败路径（非法 ⇒ **新码 `E-PARSE-025`**、过长 ⇒ `E-LIMIT-007`、超预算 ⇒ `E-LIMIT-002`）、`to_sml_checked` 深度超限 ⇒ `E-LIMIT-004`、serde 桥 u64 超 i64 ⇒ `E-DERIVE-002`、C-ABI 新增 `sml_dump_err` 写码、YAML 未知转义 ⇒ **新码 `E-MIGRATE-018`** | ① `sml-regex` 的宽松入口（= 旧行为）与 `*_checked`（新行为）在**同一份输入**上同时断言 ⇒ 「改前确实静默」被钉进测试；② YAML 用**改动前的 release 二进制**跑同一份探针：旧 `rc=0` 静默保留 `\d` / 新 `rc=1` + `E-MIGRATE-018`，正对照两侧逐字节相同；③ `security.rs` 的 `regex_failures_report_codes` 端到端覆盖三个码 |
 
 **C 批的全仓扫描记录**（41 个 `.sml`，`c/_w16_scan.py`）：OK 29 → 22、FAIL 12 → 19，
 7 条 OK→FAIL 逐条查过根因，**没有一条是「原本正确的文档被误伤」**：
@@ -128,8 +129,8 @@
   —— 同因不同码，属 W3/W16 的后续话题。
 - C 的 `@feature` / `@when` / `@for` 落 `E-PARSE-005`（提示指向拼写而非「未实现」）。
 
-**未落地**：Lua 6 条、C++ 6 条（先实测现状）、Rust 侧 6 条、
-以及最后的统一收口（`impls` 全表回填 / README 静默清单终稿 / TODO 的 W16 行收尾）。
+**未落地**：Lua 6 条、C++ 6 条（先实测现状）、
+以及最后的统一收口（README 静默清单终稿 / TODO 的 W16 行收尾）。
 
 **JS 批的全仓扫描记录**（41 个 `.sml`，`js/_w16_scan.mjs`，HEAD 版 vs 当前版同进程对照）：
 OK 30 → 26、结论变化 6 个，逐条判定：
@@ -160,7 +161,26 @@ OK 30 → 26、结论变化 6 个，逐条判定：
 是公开 API），调用方只能靠「返回 NULL」判断失败、看不到具体码 —— 要改就得加/改公开接口，
 属对外接口变更，**需用户拍板**，故本批未动。同理 `sml_dump_from_json`。
 
-### 4.2 A3–A6（serde 保真 / 序列化深度 / 诊断出口 / JS 步数预算）
+### 4.2 A3–A6（serde 保真 / 序列化深度 / 诊断出口 / 步数预算）
 
-都在别的实现层（`rust/sml-value` 的 serde 桥与序列化、JS 模式引擎），**不在 C 批范围**，
-留给 Rust 侧那 6 条与 JS 余额一起做。
+都在别的实现层（`rust/sml-value` 的 serde 桥与序列化、模式引擎），**不在 C 批范围**。
+**现已全部落地**：A3（诊断出口）与 A4–A6 的 Rust 侧在 **Rust A 批**（见 §4 表格：
+`to_sml_checked` ⇒ `E-LIMIT-004`、serde 桥 u64 ⇒ `E-DERIVE-002`、`sml_dump_err`、
+`sml-regex` 三码），A6 的 JS 侧在 **JS 余额**（`E-LIMIT-002` 的编译期预算）。
+`sml_parse_json` / `sml_dump_from_json`（C 侧、无 err 槽位）**仍未动** —— 要改就得动公开接口，
+需用户拍板。
+
+### 4.3 顺带的仓库清理（2026-09-18，非 W16 内容，同一轮做的）
+
+- **敏感件排查**：全仓（含 `.codebuddy`）+ **git 全历史 145 个提交 + 2372 个对象**
+  （含不可达对象）+ `.git` 文本文件里搜某个内部报送件里的人名 ⇒ **只在 4 个工作区文件里出现，
+  版本库里从来没有**（那 4 个文件早已被 `.gitignore` 的「私有报送件」段挡住）⇒
+  **不需要 filter-repo**。4 个文件已**移出仓库**（移动而非删除，路径见对话回复 / HANDOFF §17）。
+- **`_` 前缀杂物**：`.gitignore` 有 `**/_*`，故它们也从未入库；243 个未跟踪文件 + 2 个杂物目录
+  已归档到 `%TEMP%\sml-underscore-archive-20260918\`（保留相对路径，可整体搬回）；
+  4 个 `__pycache__` 删除。**7 个已跟踪的 `_` 文件保留**（Hugo `_index.md` ×4 是 Hugo 结构必需、
+  `site/_add_quizzes.py` / `_run_verify.py` / `_verify_lessons.mjs` 是站点工具），
+  `_default` / `_lib` 这类**目录**同样保留（Hugo / Pages 结构）。
+- 其中 `_gov_demo.sml` **不是杂物**：它被 `rust/tests/gov_demo.rs` 真读，却因 `**/_*` 从未入库
+  ⇒ 该测试只在「本机恰好有那个文件」时通过。已改名挪到**已跟踪**的
+  `rust/tests/fixtures/gov_demo.sml` 并同步测试路径（清理后 C / JS / Lua / Rust 四套回归全 rc=0）。

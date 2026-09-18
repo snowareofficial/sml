@@ -216,6 +216,8 @@ export const E_MIGRATE_015 = "E-MIGRATE-015";
 export const E_MIGRATE_016 = "E-MIGRATE-016";
 /// [E-MIGRATE-017] 不是合法 JSON：迁入文本不是合法 JSON（或嵌套过深）
 export const E_MIGRATE_017 = "E-MIGRATE-017";
+/// [E-MIGRATE-018] YAML 未知转义：YAML 双引号串里出现未知转义序列
+export const E_MIGRATE_018 = "E-MIGRATE-018";
 /// [E-PARSE-001] 未闭合的块或数组：未闭合的块或数组，遇到文件结尾
 export const E_PARSE_001 = "E-PARSE-001";
 /// [E-PARSE-002] 闭合符错配：块或数组未正确闭合：期望一个符号，却遇到另一个
@@ -264,6 +266,8 @@ export const E_PARSE_022 = "E-PARSE-022";
 export const E_PARSE_023 = "E-PARSE-023";
 /// [E-PARSE-024] 契约定义内字段规格语法非法：契约定义里的字段规格语法非法：类型为空、数组或枚举缺少闭合、字段名为空
 export const E_PARSE_024 = "E-PARSE-024";
+/// [E-PARSE-025] 受限正则模式非法：受限正则模式语法非法：量词之前没有可重复的原子、字符类未闭合，或以反斜杠结尾
+export const E_PARSE_025 = "E-PARSE-025";
 /// [I-FEATURE-001] 命令行特性与解析器版本不一致：解析器按其固定版本模式工作，命令行声明的特性版本仅作提示
 export const I_FEATURE_001 = "I-FEATURE-001";
 /// [W-EDITOR-001] 自定义词与官方关键字冲突：自定义词与官方关键字冲突，已忽略
@@ -390,6 +394,7 @@ export const ALL = Object.freeze([
   E_MIGRATE_015,
   E_MIGRATE_016,
   E_MIGRATE_017,
+  E_MIGRATE_018,
   E_PARSE_001,
   E_PARSE_002,
   E_PARSE_003,
@@ -414,6 +419,7 @@ export const ALL = Object.freeze([
   E_PARSE_022,
   E_PARSE_023,
   E_PARSE_024,
+  E_PARSE_025,
   I_FEATURE_001,
   W_EDITOR_001,
   W_FEATURE_001,
@@ -424,4 +430,4 @@ export const ALL = Object.freeze([
   W_LINT_005,
 ]);
 
-export const COUNT = 139;
+export const COUNT = 141;

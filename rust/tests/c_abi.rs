@@ -13,6 +13,11 @@ use std::os::raw::{c_char, c_int, c_uint};
 
 // 与 c/sml_rs.h 的 sml_error 布局保持一致。
 // 数组字段超过 32 元素时 derive(Default) 不可用，故手动实现。
+//
+// ⚠️ **W16 查出的既有漂移**：这里原先**缺少 `code_str`**（W10 给真实 ABI 结构加了
+// 这个字段，测试侧没跟着改）。后果不是「少测一个字段」，而是 `CSmlError::fill` 会
+// **写到测试这块结构之外 16 字节** —— 栈上的越界写，属 UB，只是恰好没炸。
+// 凡是「与 C 头文件对齐」的镜像结构，改一边就必须改另一边。
 #[repr(C)]
 struct CSmlError {
     code: c_int,
@@ -21,6 +26,8 @@ struct CSmlError {
     position: usize,
     source: [c_char; 128],
     text: [c_char; 256],
+    /// 真实错误码（如 `E-PARSE-008`）；`code` 只是粗粒度枚举。
+    code_str: [c_char; 16],
 }
 
 impl Default for CSmlError {
@@ -32,8 +39,20 @@ impl Default for CSmlError {
             position: 0,
             source: [0; 128],
             text: [0; 256],
+            code_str: [0; 16],
         }
     }
+}
+
+/// 读出 `CSmlError.code_str`（NUL 结尾的定长数组）为 String。
+fn err_code_str(e: &CSmlError) -> String {
+    let bytes: Vec<u8> = e
+        .code_str
+        .iter()
+        .take_while(|c| **c != 0)
+        .map(|c| *c as u8)
+        .collect();
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 #[repr(transparent)]
@@ -57,6 +76,7 @@ extern "C" {
     fn sml_int_in(v: *const CSmlValue, path: *const c_char, ok: *mut c_int) -> i64;
     fn sml_bool_in(v: *const CSmlValue, path: *const c_char, ok: *mut c_int) -> c_int;
     fn sml_dumps(v: *const CSmlValue, flags: c_uint) -> *mut c_char;
+    fn sml_dump_err(json: *const c_char, err: *mut CSmlError) -> *mut c_char;
     fn sml_free_str(p: *mut c_char);
     fn sml_version() -> *const c_char;
     fn sml_features_mask() -> c_uint;
@@ -546,4 +566,48 @@ fn null_input_is_safe() {
     // NULL 安全释放
     unsafe { sml_free(std::ptr::null_mut()) };
     unsafe { sml_free_str(std::ptr::null_mut()) };
+}
+
+/// W16：JSON→SML 的入口终于带回**可查的码**（`sml_dump_err`），
+/// 并且深度超限不再吐「看着合法、回读变成 null」的占位文本。
+///
+/// 改前：`sml_dump(json)` 失败只返回 NULL，调用方分不清「不是 JSON」与「别的原因」；
+/// 超深值更是**成功返回**一段含 `/* …深度超限… */ null` 的文本（静默改数据）。
+#[test]
+fn dump_err_reports_codes() {
+    // ① 非法 JSON ⇒ E-PARSE-012（兜底码：底层只给 Option，没有更细的原因）
+    let bad = CString::new("这不是 JSON").unwrap();
+    let mut err = CSmlError::default();
+    let out = unsafe { sml_dump_err(bad.as_ptr(), &mut err) };
+    assert!(out.is_null(), "非法 JSON 应返回 NULL");
+    assert_eq!(err_code_str(&err), "E-PARSE-012", "实得：{:?}", err_code_str(&err));
+
+    // ② 正对照：合法 JSON 照常输出 SML
+    let good = CString::new(r#"{"a":1}"#).unwrap();
+    let mut err2 = CSmlError::default();
+    let out2 = unsafe { sml_dump_err(good.as_ptr(), &mut err2) };
+    assert!(!out2.is_null(), "合法 JSON 应给出文本");
+    let text = unsafe { CStr::from_ptr(out2) }.to_string_lossy().into_owned();
+    assert!(text.contains("a: 1"), "实得：{text}");
+    unsafe { sml_free_str(out2) };
+
+    // ③ 嵌套过深：JSON 入口自己的 `MAX_DEPTH = 128` 会**先**拦住（⇒ E-PARSE-012，
+    //    文案里写明「或嵌套过深」）。E-LIMIT-004（序列化深度闸）在 C-ABI 这条路上
+    //    属**防御性**：解析层先拦，走不到序列化层 —— 这一点在 dump.rs 的单测里直接钉
+    //    （程序化构造的深值走 `to_sml_checked` 才真正触发它）。
+    let deep = format!("{}1{}", "[".repeat(140), "]".repeat(140));
+    let deepc = CString::new(deep).unwrap();
+    let mut err3 = CSmlError::default();
+    let out3 = unsafe { sml_dump_err(deepc.as_ptr(), &mut err3) };
+    assert!(out3.is_null(), "超深 JSON 不应给出（带占位文本的）结果");
+    assert_eq!(err_code_str(&err3), "E-PARSE-012", "实得：{:?}", err_code_str(&err3));
+
+    // ④ 同一份超深值走 `sml_dumps`（值树入口）同样失败返回 NULL
+    let mut err4 = CSmlError::default();
+    let v = unsafe { sml_loads(CString::new("[1]").unwrap().as_ptr(), 0, &mut err4) };
+    assert!(!v.is_null(), "简单值树应加载成功");
+    let d = unsafe { sml_dumps(v, 0) };
+    assert!(!d.is_null(), "正常值树应能序列化");
+    unsafe { sml_free_str(d) };
+    unsafe { sml_free(v) };
 }

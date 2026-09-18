@@ -2,9 +2,11 @@
 
 > 面向下一个会话。读完即可接手，不必翻聊天记录。
 > 本文件主体写于提交 `3995998`（2026-09-18）；那一轮的全部改动**已按主题分 10 笔提交**（清单见 §1.2，`git log --oneline` 可直接对照）。
-> **此后又落了四笔**（都在 2026-09-18 当天，`git log` 可查）：W16 的 **C 批**（§15）、
+> **此后又落了五笔**（都在 2026-09-18 当天，`git log` 可查）：W16 的 **C 批**（§15）、
 > W16 的 **JS 批**（§16）、**W12**（官网错误码通配 / 深链 + 教科书搜索接入码表，
-> 验收脚本 `site/tools/tools_js_check.mjs`），以及各自带出的文档收口。
+> 验收脚本 `site/tools/tools_js_check.mjs`）、W16 的 **Rust A 批**（§17.1，含两个新码）、
+> **仓库清理**（§17.3：敏感件移出 + `_` 前缀杂物归档 + 政务样例夹具转为已跟踪），
+> 以及各自带出的文档收口。
 > 当前工作区**干净**，全部测试基线见 §0 与 §5。
 > 疑问多数能在这三处找到答案：本文件 §3（规格与实测）、§4（坑）、`TODO.md` §五（任务分解）。
 
@@ -22,7 +24,8 @@
 
 | 套件 | 命令 | 结果 |
 |---|---|---|
-| Rust 全 workspace | `cargo test --workspace` | **538 通过 / 0 失败 / 2 ignored**（46 个 target），**rc=0** —— W16 期间复测（见 §14.5：构建期偶发文件占用，重试即过） |
+| Rust 全 workspace | `cargo test --workspace` | **543 通过 / 0 失败**（46 个 target），**rc=0** —— W16 期间复测（见 §14.5：构建期偶发文件占用，重试即过） |
+| Rust **serde 套件**（⚠️ 不在上面那条里！） | `cargo test --features serde --test serde_bridge` + `cargo test -p sml-value --features sml,serde` | 10 通过 + 5 单测 + 1 doctest，全 rc=0。**这条必须单独跑**：`tests/serde_bridge.rs` 是 `#![cfg(feature = "serde")]`，而 `cargo test --workspace` **不开 serde** ⇒ 少了它，该套件坏掉两个月都没人发现（§17.2 的教训） |
 | 其中 `smltools` | `cargo test -p smltools` | **119 通过 / 0 失败**（bin 74 + 集成 `tests/error_codes.rs` 45；`xml` 子集 26 在 bin 里） |
 | C | `python build_check.py --run` | rc=0，`ALL LIMIT TESTS PASSED` + `ALL CODE TESTS PASSED`（CODE **82** 条断言；W16 的 C 批后从 62 涨到 82） |
 | C++ | `python build_verify.py` | 六 target 全 rc=0（example / CONTRACT / COMMENTS / LIMITS / **CODES 80 条全过** / RS-BRIDGE） |
@@ -1047,3 +1050,61 @@ W16 只把「静默给错串」改成「响亮拒绝」，**能力没补**。修
 其中 `a { ] }` 现在报 **`E-PARSE-003`（错码）**、要改成 `E-PARSE-002`；码的写法保持
 `error(msg, 0)` + 码作消息前缀。判别实验的现成做法：把 `lua/lib/sml.soup` 换成 HEAD 版
 跑同一份套件（W20 期间用过，记得随后按 sha256 还原）。
+
+---
+
+## 17. W16 的 Rust A 批（6 条）+ 仓库清理（已完成，2026-09-18）
+
+### 17.1 Rust A 批（改动面：`sml-regex` / `sml-value` / `sml-include` / `smltools` / `src/c_abi.rs`）
+
+| 条件 | 改前 | 改后 | 码 |
+|---|---|---|---|
+| 受限正则**非法**（量词前无原子、`[` 未闭合、`\` 结尾） | 一律判「不匹配」 | `compile_regex_checked` → `RegexError::Illegal`（`sml-include` 映射） | **新码 `E-PARSE-025`** |
+| 受限正则**过长**（> 256） | 占位成「永不匹配」 | `RegexError::TooLong` | `E-LIMIT-007` |
+| **步数预算耗尽** | 静默判「不匹配」 | `regex_matches_checked` → `RegexError::Budget` | `E-LIMIT-002` |
+| `sml-value` 序列化**深度超限** | 写占位文本 `/* …深度超限… */ null` | `to_sml_checked`（**迭代式**预扫深度，避免自己爆栈） | `E-LIMIT-004` |
+| serde 桥 **u64 超 i64** | 静默变 f64（丢精度） | `visit_u64` / `serialize_u64` 报错 | `E-DERIVE-002` |
+| YAML **未知转义** | 宽松保留（写错的 YAML 静默搬进 SML） | `unescape_double` 返回 `Result`（只在迁移层收紧） | **新码 `E-MIGRATE-018`** |
+| C-ABI **JSON 入口失败** | 只给 NULL、无诊断 | 新符号 `sml_dump_err(json, err)`（旧 `sml_dump` 签名不动，新符号并存） | `E-PARSE-012` / `E-LIMIT-004` |
+
+**口径要点**（三处「同因同码、粒度不同」，都写进了码表 `note`）：
+① **引擎层不带码**：`sml-regex` 零依赖，只报 `RegexError`（原因），码由 `sml-include` 映射；
+② **serde 桥与 `sml-value` 的码只在文案里**（`[E-DERIVE-002]` / `[E-LIMIT-004]`）—— 这两个
+crate 刻意零依赖，而 serde 的错误类型本就是 message-only；门面 `sml::to_sml_checked`
+会把码**提成结构化字段**；
+③ `to_sml` **仍不失败**（40+ 处调用方依赖「总能给你一份文本」），只有 `to_sml_checked` 报错；
+用户路径上 `E-LIMIT-004` 是**防御性**的（解析层的 128 层上限通常先拦）。
+
+**验收**：`sml-regex` 的宽松入口（= 旧行为）与 `*_checked`（新行为）**在同一份输入上同时
+断言**（`rust/tests/security.rs::regex_failures_report_codes`）⇒「改前确实静默」被钉进测试；
+YAML 用**改动前的 release 二进制**跑同一份探针：旧 `rc=0` 静默保留 `\d`、新 `rc=1` +
+`E-MIGRATE-018`，正对照两侧输出逐字节相同（`errors/_w16_yaml_disc.py`）；
+`cargo test --workspace` **543 passed / 0 failed**；`--features serde` 那两条套件
+（`serde_bridge` 10 条）也真跑过。
+
+### 17.2 顺带修好的三处「测试自己坏了、却没人知道」
+
+1. `rust/tests/c_abi.rs` 的 `CSmlError` **镜像缺 `code_str`**（W10 漏同步）⇒ `fill` 写到结构
+   之外 16 字节（栈上越界写，UB，恰好没炸）。
+2. `tests/serde_bridge.rs::from_str_enum_variants` 依赖顶层裸词，被 W16 的 `E-PARSE-008`
+   改动作废；它只在 `#![cfg(feature = "serde")]` 下编译，`cargo test --workspace` **跑不到**
+   ⇒ 早红无人知。**教训**：feature-gated 的套件要单独列进验证命令（见 §5）。
+3. `sml-value/src/serde_bridge.rs` 的 doctest 引用门面 crate 的 API ⇒ **从来没编译过**；
+   本轮真跑当场红，已改成真测 `from_value`。
+
+### 17.3 仓库清理（同一轮，用户要求）
+
+- **敏感件排查（决定性结论）**：某个内部报送件里的人名 **只出现在 4 个工作区文件**里；
+  **git 全历史 145 个提交、2372 个对象（含不可达）、`.git` 文本文件里都没有** ⇒
+  **不需要 filter-repo**（这 4 个文件早被 `.gitignore` 的「私有报送件」段挡住）。
+  4 个文件已**移出仓库**到 `C:\Users\sakeen\Desktop\sml-私有报送件-已移出\`（移动而非删除）。
+- **`_` 前缀杂物**：243 个未跟踪文件 + `_lvgl_probe/`、`_lvgl_test/` 两个目录已归档到
+  `%TEMP%\sml-underscore-archive-20260918\`（保留相对路径，**要恢复就整体搬回**）；
+  4 个 `__pycache__` 删除。**保留 7 个已跟踪的 `_` 文件**（Hugo `_index.md` ×4 + 站点工具 ×3）
+  与 `_default` / `_lib` 目录（Hugo / Pages 结构）。
+- `_gov_demo.sml` → **已跟踪**夹具 `rust/tests/fixtures/gov_demo.sml`（它被
+  `rust/tests/gov_demo.rs` 真读，留在 `**/_*` 之下等于「测试只在本人机器上过」）。
+- ⚠️ **本批起，仓库里不再有随手的 `_` 探针**：本轮用过的临时脚本（判别实验、扫描、快照）
+  都在归档目录里 —— 想复现得先用归档里的版本，或按 §15.5/§16.5 的说明重写。
+- 清理后**四套回归全 rc=0**（C `build_check.py --run` / JS `probe-error-codes.mjs` + 副本一致 /
+  Lua `run_check.py` / Rust `cargo test --workspace`）。

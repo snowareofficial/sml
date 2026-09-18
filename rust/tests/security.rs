@@ -774,3 +774,71 @@ fn custom_include_only_applies_to_text_field() {
     assert!(!out.contains("HIDDEN"), "include_only 被 text 绕过：{out}");
     assert!(out.contains("VISIBLE"), "白名单字段未渲染：{out}");
 }
+
+// ---------------------------------------------------------------------------
+// W16：受限正则的三条失败路径必须**报码**，而不是静默判「不匹配」
+//
+// 改前：模式过长 / 模式非法 / 步数超预算全都表现为「目录里没有匹配的文件」——
+// 用户看到的是「我的 glob 没匹配上」，而不是「我的模式写错了」。这三条码分别是
+// E-LIMIT-007 / E-PARSE-025 / E-LIMIT-002（引擎层只报原因，码在 sml-include 映射）。
+// ---------------------------------------------------------------------------
+
+#[test]
+fn regex_failures_report_codes() {
+    use sml::{FeatureSet, MAX_REGEX_LEN};
+
+    let base = std::env::temp_dir().join(format!("sml-w16-regex-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).expect("建临时目录失败");
+    std::fs::write(base.join("alpha.sml"), "a: 1\n").unwrap();
+    std::fs::write(base.join("beta.sml"), "b: 2\n").unwrap();
+    let feats = FeatureSet::all();
+
+    // ① 正对照：合法模式照常命中（收紧不得误伤）
+    let hits = sml_include::parse::glob_or_regex_dir(&base, "", Some(r"^[ab].*\.sml$"), feats)
+        .expect("合法正则应成功");
+    assert_eq!(hits.len(), 2, "合法正则应命中 2 个文件：{hits:?}");
+
+    // ② 量词之前没有原子 ⇒ E-PARSE-025
+    let e = sml_include::parse::glob_or_regex_dir(&base, "", Some("^*a"), feats)
+        .expect_err("非法模式应报错");
+    assert_eq!(e.code(), "E-PARSE-025", "实得：{}", e.message());
+
+    // ③ 字符类未闭合 ⇒ 同样 E-PARSE-025
+    let e = sml_include::parse::glob_or_regex_dir(&base, "", Some("[abc"), feats)
+        .expect_err("未闭合字符类应报错");
+    assert_eq!(e.code(), "E-PARSE-025", "实得：{}", e.message());
+
+    // ④ 模式过长 ⇒ E-LIMIT-007（改前 `compile_regex` 会给一个「永不匹配」的正则）
+    let long = "a".repeat(MAX_REGEX_LEN + 1);
+    let e = sml_include::parse::glob_or_regex_dir(&base, "", Some(&long), feats)
+        .expect_err("超长模式应报错");
+    assert_eq!(e.code(), "E-LIMIT-007", "实得：{}", e.message());
+
+    // ⑤ 引擎层：checked 入口把两类失败**分开**报（这是上层能映射出不同码的前提）
+    match sml::compile_regex_checked("^*a") {
+        Err(sml::RegexError::Illegal { .. }) => {}
+        other => panic!("非法模式应报 Illegal，实际：{other:?}"),
+    }
+    match sml::compile_regex_checked(&long) {
+        Err(sml::RegexError::TooLong { len, max }) => {
+            assert_eq!(max, MAX_REGEX_LEN);
+            assert!(len > max);
+        }
+        other => panic!("超长模式应报 TooLong，实际：{other:?}"),
+    }
+
+    // ⑥ 步数预算耗尽 ⇒ E-LIMIT-002（改前静默判「不匹配」）
+    //    同一份输入走**宽松**入口仍是 false（既有 40+ 处断言依赖它）；
+    //    走 checked 入口才把它变成可报的失败。
+    let pat = "a*".repeat(20) + "b";
+    let text = "a".repeat(100);
+    let re = sml::compile_regex_checked(&pat).unwrap();
+    assert!(!sml::regex_matches(&re, &text));
+    match sml::regex_matches_checked(&re, &text) {
+        Err(sml::RegexError::Budget { .. }) => {}
+        other => panic!("预算耗尽应报 Budget，实际：{other:?}"),
+    }
+
+    let _ = std::fs::remove_dir_all(&base);
+}

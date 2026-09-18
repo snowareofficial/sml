@@ -8,10 +8,11 @@
 use std::path::{Path, PathBuf};
 
 use sml_codes::{
-    E_FEATURE_001, E_INCLUDE_001, E_INCLUDE_005, E_INCLUDE_008, E_INCLUDE_009, SmlError,
+    E_FEATURE_001, E_INCLUDE_001, E_INCLUDE_005, E_INCLUDE_008, E_INCLUDE_009, E_LIMIT_002,
+    E_LIMIT_007, E_PARSE_025, SmlError,
 };
 use sml_feature::{Feature, FeatureSet};
-use sml_regex::{compile_regex, regex_matches};
+use sml_regex::{compile_regex_checked, regex_matches_checked, RegexError};
 
 /// 值嵌套深度上限：防止 `a{a{a{ ... }}}` 这类深度嵌套触发递归下降的栈溢出。
 ///
@@ -410,6 +411,20 @@ pub fn split_dir(pat: &str) -> (&str, &str) {
     }
 }
 
+/// 把受限正则引擎的失败原因映射成码（W16）。
+///
+/// 引擎层（零依赖的 `sml-regex`）只报「为什么失败」，码在本层映射 ——
+/// 与各端「引擎给原因、上层给码」的分层一致（见 `errors/codes.sml`）：
+/// 过长 ⇒ `E-LIMIT-007`、语法非法 ⇒ `E-PARSE-025`、步数超预算 ⇒ `E-LIMIT-002`。
+fn map_regex_err(e: RegexError) -> SmlError {
+    let code = match e {
+        RegexError::TooLong { .. } => E_LIMIT_007,
+        RegexError::Illegal { .. } => E_PARSE_025,
+        RegexError::Budget { .. } => E_LIMIT_002,
+    };
+    SmlError::new(code, format!("include 的受限正则：{e}"))
+}
+
 /// 返回命中的完整路径。目录本身不作为命中（仅文件）。
 pub fn glob_or_regex_dir(
     base: &Path,
@@ -424,8 +439,13 @@ pub fn glob_or_regex_dir(
             format!("include 目录读取失败 {}: {e}", base.display()),
         )
     })?;
-    // 用于正则匹配的模式字符串（不含 re: 前缀与引号）
-    let re = regex.map(|r| compile_regex(r));
+    // 用于正则匹配的模式字符串（不含 re: 前缀与引号）。
+    // W16：走**显式失败**的入口 —— 模式过长 / 非法都在这里就报码，
+    // 不再变成「永不匹配」（那会让用户以为「目录里没有匹配的文件」）。
+    let re = match regex {
+        Some(r) => Some(compile_regex_checked(r).map_err(map_regex_err)?),
+        None => None,
+    };
     for ent in entries {
         let ent = ent.map_err(|e| {
             SmlError::new(E_INCLUDE_001, format!("include 目录遍历失败: {e}"))
@@ -439,7 +459,8 @@ pub fn glob_or_regex_dir(
             None => continue,
         };
         let matched = if let Some(re) = &re {
-            regex_matches(re, name)
+            // 步数预算耗尽同样**报码**（E-LIMIT-002），而不是静默「不匹配」
+            regex_matches_checked(re, name).map_err(map_regex_err)?
         } else {
             // glob：`pattern` 形如 `*.sml` 或 `widgets/*.sml`；这里只处理文件名部分的通配
             let pat_file = pattern.rsplit(std::path::MAIN_SEPARATOR).next().unwrap_or(pattern);

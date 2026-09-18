@@ -1,8 +1,6 @@
 use sml_parse::*;
 use sml_parse::strip_version;
 use sml_feature::FEATURES;
-#[cfg(feature = "sml")]
-use sml_value::to_sml;
 use std::collections::BTreeMap;
 // ---------------------------------------------------------------------------
 // C-ABI (cdylib, 供 C / 其它语言调用)
@@ -62,13 +60,85 @@ pub unsafe extern "C" fn sml_dump(json: *const c_char) -> *mut c_char {
     #[cfg(feature = "sml")]
     {
         match json_to_value(&j) {
-            Some(v) => cstr_or_null(&to_sml(&v)),
+            // 深度超限（`E-LIMIT-004`）时也返回 NULL：宁可不给结果，
+            // 也不吐一份「看着合法、回读变成 null」的占位文本（W16）。
+            Some(v) => match crate::to_sml_checked(&v) {
+                Ok(s) => cstr_or_null(&s),
+                Err(_) => ptr::null_mut(),
+            },
             None => ptr::null_mut(),
         }
     }
     #[cfg(not(feature = "sml"))]
     {
         let _ = j;
+        ptr::null_mut()
+    }
+}
+
+/// sml_dump_err(json, err) —— 与 [`sml_dump`] 相同，但**失败时写 `err`**（W16）。
+///
+/// 为什么另开一个符号而不改 `sml_dump`：`sml_dump(json) -> *mut c_char` 是已发布的
+/// C-ABI 契约，加参数会破坏既有调用方。本文件的既定做法就是「新符号并存」
+/// （见 v3 扩展的 `sml_parse_ex`）。
+///
+/// 改前的痛点：`sml_dump` 遇到非法 JSON 只返回 NULL，调用方**无从区分**
+/// 「输入不是 JSON」与「别的原因」，也没有码可查。
+///
+/// # Safety
+/// `json` 须为合法 NUL 结尾的 C 字符串或 NULL；`err` 可为 NULL。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_dump_err(
+    json: *const c_char,
+    err: *mut CSmlError,
+) -> *mut c_char {
+    if json.is_null() {
+        CSmlError::fill(
+            err,
+            CSmlErrc::Internal,
+            sml_codes::E_INTERNAL_001,
+            "sml_dump_err: json is NULL",
+            "<string>",
+        );
+        return ptr::null_mut();
+    }
+    let j = unsafe { std::ffi::CStr::from_ptr(json) }.to_string_lossy().into_owned();
+    #[cfg(feature = "sml")]
+    {
+        match json_to_value(&j) {
+            Some(v) => match crate::to_sml_checked(&v) {
+                Ok(s) => cstr_or_null(&s),
+                Err(e) => {
+                    CSmlError::fill(err, classify(e.code()), e.code(), e.message(), "<string>");
+                    ptr::null_mut()
+                }
+            },
+            None => {
+                // JSON 解析失败：底层 `json_to_value` 只给 Option（没有更细的原因），
+                // 故按约定用兜底码 `E-PARSE-012`（"未能给出更具体的原因"），
+                // 粗粒度枚举沿用 `Syntax`（与 sml_rs.h 的 `sml_errc` 一一对应）。
+                CSmlError::fill(
+                    err,
+                    CSmlErrc::Syntax,
+                    sml_codes::E_PARSE_012,
+                    "输入不是合法 JSON（或嵌套过深）",
+                    "<string>",
+                );
+                ptr::null_mut()
+            }
+        }
+    }
+    #[cfg(not(feature = "sml"))]
+    {
+        let _ = j;
+        CSmlError::fill(
+            err,
+            CSmlErrc::Internal,
+            sml_codes::E_INTERNAL_001,
+            "sml_dump_err: 未启用 `sml` feature（无序列化器）",
+            "<string>",
+        );
         ptr::null_mut()
     }
 }
@@ -800,7 +870,12 @@ pub unsafe extern "C" fn sml_dumps(v: *const CSmlValue, _flags: c_uint) -> *mut 
     }
     #[cfg(feature = "sml")]
     {
-        cstr_or_null(&to_sml(&(*(v as *const Value))))
+        // W16：深度超限返回 NULL（不吐占位文本）。与 `sml_dumps` 的既有契约
+        // 「失败返回 NULL」一致 —— 只是以前那种「失败」根本不会发生。
+        match crate::to_sml_checked(&(*(v as *const Value))) {
+            Ok(s) => cstr_or_null(&s),
+            Err(_) => ptr::null_mut(),
+        }
     }
     #[cfg(not(feature = "sml"))]
     {

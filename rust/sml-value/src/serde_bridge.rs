@@ -82,11 +82,25 @@ impl<'de> Visitor<'de> for ValueVisitor {
     fn visit_i64<E: de::Error>(self, v: i64) -> Result<Value, E> {
         Ok(Value::Int(v))
     }
-    // 超出 i64 的大整数退化为 Float，避免直接报错丢失数据
+    // 超出 i64 的无符号整数：**报错**（W16），不再退化为 Float。
+    //
+    // 改前是 `Value::float(v as f64)` —— f64 只有 53 位精度，`u64::MAX` 这类值
+    // 一转过去就静默丢精度（`18446744073709551615` → 1.8446744073709552e19，
+    // 回读也不再相等）。这正是 W16 要消灭的一类「静默改数据」。
+    //
+    // 码是 `E-DERIVE-002`（“数值超出目标宿主类型范围”，语义恰好对得上），但
+    // **只能以 `[码]` 后缀落在文案里**：本 crate 是刻意零依赖（连 `sml-codes` 都不引），
+    // 而 serde 的错误类型本就是 message-only（`serde::de::value::Error`），没有放码的槽位。
+    // 这与 C/C++/Lua 的「码作消息前缀」是同一类取舍，已写进码表 note。
+    //
+    // 【备选口径】若将来倾向「保真优先于拒收」：把这里改成 `Value::Str(v.to_string())`
+    // （与 `coerce_word` 对超 i64 纯整数的处理一致）即可 —— 不丢精度，但值类型变成 Str。
     fn visit_u64<E: de::Error>(self, v: u64) -> Result<Value, E> {
-        Ok(i64::try_from(v)
-            .map(Value::Int)
-            .unwrap_or_else(|_| Value::float(v as f64)))
+        i64::try_from(v).map(Value::Int).map_err(|_| {
+            de::Error::custom(format!(
+                "无符号整数 {v} 超出 SML 整数范围（i64），拒绝静默降级为浮点 [E-DERIVE-002]"
+            ))
+        })
     }
     fn visit_f64<E: de::Error>(self, v: f64) -> Result<Value, E> {
         Ok(Value::float(v))
@@ -123,19 +137,27 @@ impl<'de> Visitor<'de> for ValueVisitor {
 // serde 桥：任意 `serde::Serialize / Deserialize` 类型 <-> SML
 // -----------------------------------------------------------------------
 
-/// 解析 SML 文本并一键反序列化到任意 serde 类型（等价于 `toml::from_str`）。
-///
-/// ```rust
-/// # use serde::Deserialize;
-/// # #[derive(Deserialize, Debug)]
-/// # struct Server { host: String, port: i32 }
-/// let s: Server = sml::serde::from_str("host: web.example\nport: 8080\n").unwrap();
-/// assert_eq!(s.host, "web.example");
-/// ```
 /// 从任意 [`Value`] 反序列化到任意 serde 类型。
 ///
-/// 注：直接吃 SML 文本的 `from_str` 在门面 crate `swsml` 中
-/// （它需要解析器，而解析器依赖本 crate，放这里会形成循环依赖）。
+/// ```rust
+/// use sml_value::Value;
+/// // 标量：Value -> 宿主类型
+/// let n: i32 = sml_value::serde::from_value(Value::Int(7)).unwrap();
+/// assert_eq!(n, 7);
+/// // 数组：Value::Array -> Vec<T>
+/// let v = Value::Array(vec![Value::Str("a".into()), Value::Str("b".into())]);
+/// let xs: Vec<String> = sml_value::serde::from_value(v).unwrap();
+/// assert_eq!(xs, vec!["a".to_string(), "b".to_string()]);
+/// ```
+///
+/// 这里刻意**不用 `#[derive(Deserialize)]` 的自定义结构**：本 crate 的 `serde`
+/// 依赖没开 `derive` feature（那是 dev/门面侧的事），doctest 里拿不到派生宏。
+///
+/// ⚠️ 本文件的这条 doctest 曾经是**全仓唯一一条「名义存在、实际从不运行」的测试**：
+/// 它写的是 `sml::serde::from_str(...)` —— 而 `sml` 是门面 crate，本 crate 不可能
+/// 引用它（会形成循环依赖），且 `serde` feature 默认关闭，故从来没人编译过它。
+/// W16 的 A 批在 `--features serde` 下真跑时它当场红了，已改成**真测 `from_value`**
+/// （文本入口 `from_str` 的 doctest 在门面 crate 里，那里才引用得到）。
 pub fn from_value<T: de::DeserializeOwned>(value: Value) -> Result<T, String> {
     T::deserialize(ValueDeserializer(value)).map_err(|e| e.to_string())
 }
@@ -196,10 +218,14 @@ impl Serializer for ValueSerializer {
     fn serialize_u32(self, v: u32) -> Result<Value, Error> {
         Ok(Value::Int(v as i64))
     }
+    // 与 `ValueVisitor::visit_u64` 同一口径（W16）：超出 i64 即报错，
+    // 不再悄悄写成精度只有 53 位的 f64。见那里的注释（含备选的「保真为字符串」口径）。
     fn serialize_u64(self, v: u64) -> Result<Value, Error> {
-        Ok(i64::try_from(v)
-            .map(Value::Int)
-            .unwrap_or_else(|_| Value::float(v as f64)))
+        i64::try_from(v).map(Value::Int).map_err(|_| {
+            de::Error::custom(format!(
+                "无符号整数 {v} 超出 SML 整数范围（i64），拒绝静默降级为浮点 [E-DERIVE-002]"
+            ))
+        })
     }
     fn serialize_f32(self, v: f32) -> Result<Value, Error> {
         Ok(Value::float(v as f64))
