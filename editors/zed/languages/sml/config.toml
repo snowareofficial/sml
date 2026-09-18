@@ -1,0 +1,25 @@
+# SML 语言配置（Zed）。
+#
+# 字段依据：https://zed.dev/docs/extensions/languages
+# `grammar` 的值必须与 extension.toml 里 `[grammars.<该值>]` 一致。
+
+name = "SML"
+grammar = "sml"
+
+path_suffixes = ["sml"]
+
+# SML 的注释有四种写法，sml-lex 全都认（见 rust/sml-lex/src/lib.rs）。
+# Zed 用**第一个**插入注释，其余供「切换注释」识别既有注释行。
+line_comments = ["# ", "-- ", "// "]
+
+# VSCode 侧 language-configuration.json 未指定缩进宽度（走编辑器默认 4），这里显式对齐
+tab_size = 4
+
+# 缩进规则：行尾 `{` 之后进一级，行首 `}` 回退一级。
+# 用 TOML 单引号字面量，免得反斜杠被二次转义。
+increase_indent_pattern = '\{\s*$'
+decrease_indent_pattern = '^\s*\}'
+
+# 与 VSCode 侧 wordPattern `[A-Za-z_][\w.-]*` 对齐：双击 `xs:name`、`read-write`
+# 这类键名时按整词选中。
+word_characters = [".", "-"]

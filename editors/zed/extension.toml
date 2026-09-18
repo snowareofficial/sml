@@ -1,0 +1,31 @@
+# SML 的 Zed 扩展（纯 grammar，无 Rust 代码）
+#
+# Zed 官方文档里 `[grammars.<name>]` **只有 `repository` + `rev` 两个字段**，没有 `path`
+# —— 也就是说 Zed 会把 grammar 当作一个**独立 Git 仓库**克隆下来，不认 monorepo 子目录。
+# 本仓库是 monorepo（grammar 在 editors/zed/grammars/sml），因此下面的 repository 必须
+# 按用途改成下面两种之一，**开箱即用的值不存在**：
+#
+#   1) 本地开发（改完 grammar 想立刻在 Zed 里看见效果）
+#      repository = "file:///C:/Users/<你>/Desktop/sml/editors/zed/grammars/sml"
+#      rev        = "<上一步那个目录所属仓库的 HEAD 短 sha>"
+#      注意：file:// 后必须是**本机绝对路径**，且该目录要在一个已提交的 Git 仓库里。
+#
+#   2) 正式发布（给用户装）
+#      把 grammars/sml 拆成独立仓库（建议 snoware/tree-sitter-sml）后填：
+#      repository = "https://gitee.com/snoware/tree-sitter-sml"
+#      rev        = "<该仓库某个 commit sha>"
+#
+# 现状：本文件里填的是**占位值**，直接安装会因找不到仓库而失败 —— 这是有意为之，
+# 免得提交一个写死某台机器路径的配置。详见 README.md「安装与已知限制」。
+
+id = "sml"
+name = "SML"
+version = "0.1.0"
+schema_version = 1
+description = "SML (SNOWARE Markup Language) 语言支持：语法高亮、括号匹配、注释切换"
+authors = ["SNOWARE <dev@mail.swebase.cn>"]
+repository = "https://gitee.com/snoware/sml"
+
+[grammars.sml]
+repository = "file:///REPLACE/WITH/ABSOLUTE/PATH/TO/sml/editors/zed/grammars/sml"
+rev = "REPLACE_WITH_COMMIT_SHA"
