@@ -15,7 +15,7 @@
 //   parse(text, opts?)            -> value | throws
 //       opts.files: { "ui.sml": "...", ... }  虚拟文件表（用于 include）
 //       opts.features: Set<string> | null      开启的 feature（null = 全部默认开）
-//   parseSafe(text, opts?)        -> { ok, value|error, position }
+//   parseSafe(text, opts?)        -> { ok, value|error, code, position }
 //   stringify(v) / dump(v)        -> string   （序列化回 SML，round-trip）
 //   契约错误以 message 中 "contract:" 前缀标识，可被 playground 高亮。
 //
@@ -179,6 +179,18 @@ const INT_LITERAL = /^[+-]?\d+$/;
 // 带前导零的纯整数（0 之后还有数字），如 007 / 0755 / -007
 const LEADING_ZERO_INT = /^[+-]?0\d+$/;
 
+/**
+ * 抛带**错误码**的错误（模块级版本；`parse()` 内部的对应物是 `fail`）。
+ * 码见 errors/codes.sml —— 那是唯一事实来源。
+ * @param {string} code 形如 "E-CONTRACT-013"
+ * @param {string} msg  人读文案（各端可不同）
+ */
+function throwCode(code, msg) {
+  const e = new Error(msg);
+  e.code = code;
+  throw e;
+}
+
 function coerceWord(w, fragments, nsMap) {
   if (w === "true") return true;
   if (w === "false") return false;
@@ -284,7 +296,7 @@ function checkContract(contracts, contract, obj, path) {
   for (const [k, sp] of Object.entries(contract.fields)) {
     const full = path ? `${path}.${k}` : k;
     if (!(k in obj)) {
-      if (sp.required && sp.def === undefined) errs.push(`契约字段缺失: ${full}`);
+      if (sp.required && sp.def === undefined) errs.push({ code: "E-CONTRACT-003", msg: `契约字段缺失: ${full}` });
       continue;
     }
     const v = obj[k];
@@ -293,17 +305,17 @@ function checkContract(contracts, contract, obj, path) {
     // 只剩末段还不报错，是本项目明确要消灭的「静默数据损坏」。
     if (sp.type === "pattern") {
       if (typeof v !== "string") {
-        errs.push(`字段 ${full} 类型 ${sp.refName} 要求字符串（号码 / 编号 / 身份证请用引号包裹），实得 ${Array.isArray(v) ? "array" : typeof v}`);
+        errs.push({ code: "E-CONTRACT-009", msg: `字段 ${full} 类型 ${sp.refName} 要求字符串（号码 / 编号 / 身份证请用引号包裹），实得 ${Array.isArray(v) ? "array" : typeof v}` });
         continue;
       }
       // 防御：JS RegExp 有回溯，超长输入直接拒绝而非硬算
       if (v.length > PATTERN_MAX_LEN) {
-        errs.push(`字段 ${full} 的值过长（${v.length} > ${PATTERN_MAX_LEN}），拒绝校验`);
+        errs.push({ code: "E-CONTRACT-009", msg: `字段 ${full} 的值过长（${v.length} > ${PATTERN_MAX_LEN}），拒绝校验` });
         continue;
       }
       let ok = false;
       try { ok = sp.patternRe.test(v); } catch { ok = false; }
-      if (!ok) errs.push(`字段 ${full} 的值 \`${v}\` 不符合类型 ${sp.refName} 的格式要求`);
+      if (!ok) errs.push({ code: "E-CONTRACT-009", msg: `字段 ${full} 的值 \`${v}\` 不符合类型 ${sp.refName} 的格式要求` });
       continue;
     }
     if (sp.type === "ext") {
@@ -311,36 +323,36 @@ function checkContract(contracts, contract, obj, path) {
       // 约定返回值：true 通过 / false 失败 / 字符串 = 失败原因；抛错也按失败处理。
       let r;
       try { r = sp.extCheck(v); } catch (e) { r = String((e && e.message) || e); }
-      if (r === false) errs.push(`字段 ${full} 不符合扩展类型 ${sp.refName}`);
-      else if (typeof r === "string") errs.push(`字段 ${full} 不符合扩展类型 ${sp.refName}：${r}`);
+      if (r === false) errs.push({ code: "E-CONTRACT-007", msg: `字段 ${full} 不符合扩展类型 ${sp.refName}` });
+      else if (typeof r === "string") errs.push({ code: "E-CONTRACT-007", msg: `字段 ${full} 不符合扩展类型 ${sp.refName}：${r}` });
       continue;
     }
     if (sp.type === "contract") {
       const sub = contracts[sp.refName];
-      if (!sub) { errs.push(`契约 ${sp.refName} 未定义（字段 ${full}）`); continue; }
+      if (!sub) { errs.push({ code: "E-CONTRACT-001", msg: `契约 ${sp.refName} 未定义（字段 ${full}）` }); continue; }
       if (v && typeof v === "object" && !Array.isArray(v)) {
         const subErr = checkContract(contracts, sub, v, full);
         if (subErr) errs.push(...subErr);
       } else {
-        errs.push(`字段 ${full} 应为主对象（组合契约 ${sp.refName}）`);
+        errs.push({ code: "E-CONTRACT-008", msg: `字段 ${full} 应为主对象（组合契约 ${sp.refName}）` });
       }
       continue;
     }
     if (!valueMatchesType(v, sp)) {
-      errs.push(`字段 ${full} 类型错误：期望 ${typeName(sp)}，实得 ${Array.isArray(v) ? "array" : typeof v}`);
+      errs.push({ code: "E-CONTRACT-002", msg: `字段 ${full} 类型错误：期望 ${typeName(sp)}，实得 ${Array.isArray(v) ? "array" : typeof v}` });
       continue;
     }
     if (sp.min !== undefined || sp.max !== undefined) {
       let lo = sp.min, hi = sp.max;
-      if (lo !== undefined && v < lo) errs.push(`字段 ${full} 小于最小值 ${lo}`);
-      if (hi !== undefined && v > hi) errs.push(`字段 ${full} 大于最大值 ${hi}`);
+      if (lo !== undefined && v < lo) errs.push({ code: "E-CONTRACT-005", msg: `字段 ${full} 小于最小值 ${lo}` });
+      if (hi !== undefined && v > hi) errs.push({ code: "E-CONTRACT-005", msg: `字段 ${full} 大于最大值 ${hi}` });
     }
   }
   if (!contract.loose) {
     for (const k of Object.keys(obj)) {
       if (k === "__type" || k === "__name") continue;
       if (!(k in contract.fields)) {
-        errs.push(`契约未声明字段：${path ? path + "." + k : k}`);
+        errs.push({ code: "E-CONTRACT-004", msg: `契约未声明字段：${path ? path + "." + k : k}` });
       }
     }
   }
@@ -392,7 +404,7 @@ function ensureNsPath(obj, path) {
     // 命名空间段含危险键时**直接报错**：否则 `include "x.sml" as __proto__.p`
     // 会顺着原型链把被包含文件的字段合并进全局 Object.prototype。
     if (DANGEROUS_KEYS.has(part)) {
-      throw new Error("sml: 命名空间段不可使用 `" + part + "`");
+      throw throwCode("E-PARSE-009", "sml: 命名空间段不可使用 `" + part + "`");
     }
     if (cur[part] === undefined || typeof cur[part] !== "object" || Array.isArray(cur[part])) {
       cur[part] = {};
@@ -453,7 +465,7 @@ function parseIncludeTargets(line, feats) {
     const braceM = raw.match(/\{\s*([^}]*)\s*\}/);
     if (braceM) {
       keys = braceM[1].split(",").map((s) => s.trim().replace(/^"|"$/g, "")).filter(Boolean);
-      if (keys.length === 0) fail("sml: 键列表不能为空（至少指定一个键）");
+      if (keys.length === 0) fail("E-INCLUDE-005", "sml: 键列表不能为空（至少指定一个键）");
       raw = raw.slice(0, braceM.index) + raw.slice(braceM.index + braceM[0].length);
     }
 
@@ -510,7 +522,7 @@ export function parse(text, opts) {
       if (tk.t === "{" || tk.t === "[") {
         depth++;
         if (depth > MAX_PARSE_DEPTH) {
-          throw new Error("sml: 嵌套过深（超过 " + MAX_PARSE_DEPTH + " 层），疑似递归或恶意输入");
+          throw throwCode("E-LIMIT-001", "sml: 嵌套过深（超过 " + MAX_PARSE_DEPTH + " 层），疑似递归或恶意输入");
         }
       } else if (tk.t === "}" || tk.t === "]") {
         if (depth > 0) depth--;
@@ -524,10 +536,13 @@ export function parse(text, opts) {
   const nsMap = {};
   let i = 0;
   const peek = () => toks[i];
-  const fail = (msg, pos) => {
+  // 抛**带错误码**的错误：码是稳定契约（见 errors/codes.sml），文案不是 ——
+  // 各端措辞可以不同，码相同就是同一件事。
+  const fail = (code, msg, pos) => {
     const t = toks[i];
     const p = (typeof pos === "number") ? pos : (t && typeof t.pos === "number" ? t.pos : (toks[toks.length - 1]?.pos ?? 0));
     const e = new Error(msg);
+    e.code = code;
     e.pos = p;
     throw e;
   };
@@ -536,10 +551,10 @@ export function parse(text, opts) {
 
   function literal() {
     const t = peek();
-    if (!t) fail("sml: 期望字面量");
+    if (!t) fail("E-PARSE-021", "sml: 期望字面量");
     if (t.t === "str") { i++; return coerceStr(t.v, fragments); }
     if (t.t === "word") { i++; return coerceWord(t.v, fragments, nsMap); }
-    fail("sml: 期望字面量, 得 " + t.t);
+    fail("E-PARSE-021", "sml: 期望字面量, 得 " + t.t);
   }
 
   // —— 模式语言（Loom-in-SML）：编译为 JS RegExp ——
@@ -566,7 +581,7 @@ export function parse(text, opts) {
     };
     if (table[c]) return table[c];
     if ([...c].length === 1) return escapeRe(c);
-    throw new Error("sml: 未知字符类 `" + c + "`");
+    throw throwCode("E-CONTRACT-013", "sml: 未知字符类 `" + c + "`");
   }
   // 量词描述 → [min, max]（max===undefined 表示无上界）。
   // 支持：数字 / "+" / "*" / "?" / "a-b" 字符串。
@@ -578,7 +593,7 @@ export function parse(text, opts) {
     if (/^\d+$/.test(t)) return [Number(t), Number(t)];
     const m = /^(\d+)-(\d+)$/.exec(t);
     if (m) return [Number(m[1]), Number(m[2])];
-    throw new Error("sml: 未知量词 `" + t + "`");
+    throw throwCode("E-CONTRACT-013", "sml: 未知量词 `" + t + "`");
   }
   // [min, max] → 正则量词片段（无上界写作 {min,}）。
   function minMaxToRe(min, max) {
@@ -591,13 +606,13 @@ export function parse(text, opts) {
       if (Array.isArray(node)) return node.map(build).join("");
       if (typeof node === "string") return escapeRe(node);
       if (node == null || typeof node !== "object")
-        throw new Error("sml: 模式元素类型不支持");
+        throw throwCode("E-CONTRACT-013", "sml: 模式元素类型不支持");
       const g = (...keys) => {
         for (const k of keys) if (node[k] !== undefined) return node[k];
         return undefined;
       };
       if (g("直到", "until") !== undefined)
-        throw new Error("sml: JS 引擎暂不支持 直到/until（懒惰量词在高危结构下有回溯风险；该场景请用 Rust 引擎）");
+        throw throwCode("E-CONTRACT-013", "sml: JS 引擎暂不支持 直到/until（懒惰量词在高危结构下有回溯风险；该场景请用 Rust 引擎）");
       let base;
       if (g("字面", "lit", "literal") !== undefined)
         base = escapeRe(String(g("字面", "lit", "literal")));
@@ -611,8 +626,8 @@ export function parse(text, opts) {
         base = build(g("序列", "seq"));
       else if (g("用", "use") !== undefined) {
         const name = String(g("用", "use"));
-        if (stack.includes(name)) throw new Error("sml: 规则 `" + name + "` 循环引用");
-        if (!types.has(name)) throw new Error("sml: 未定义的规则 `" + name + "`");
+        if (stack.includes(name)) throw throwCode("E-CONTRACT-014", "sml: 规则 `" + name + "` 循环引用");
+        if (!types.has(name)) throw throwCode("E-CONTRACT-014", "sml: 未定义的规则 `" + name + "`");
         stack.push(name);
         const p = build(types.get(name));
         stack.pop();
@@ -623,11 +638,11 @@ export function parse(text, opts) {
         // 源长度闸门是最省事也最难绕的第一道防线（与值长上限 PATTERN_MAX_LEN 配合）。
         const reSrc = String(g("正则", "regex", "re"));
         if (reSrc.length > REGEX_SRC_MAX) {
-          throw new Error("sml: 内联正则过长（" + reSrc.length + " > " + REGEX_SRC_MAX + "），拒绝编译");
+          throw throwCode("E-LIMIT-007", "sml: 内联正则过长（" + reSrc.length + " > " + REGEX_SRC_MAX + "），拒绝编译");
         }
         base = "(?:" + reSrc.replace(/^\^/, "").replace(/\$$/, "") + ")";
       }
-      else throw new Error("sml: 无法识别的模式元素");
+      else throw throwCode("E-CONTRACT-013", "sml: 无法识别的模式元素");
       // —— 量词：支持 次: 数字/符号/a-b、次: {最小,最大}（中英等价）、
       //     或直接 最小/最大 平铺在元素上（机翻等价的直觉写法）——
       let qMin = undefined, qMax = undefined;
@@ -656,15 +671,15 @@ export function parse(text, opts) {
       if (qMin !== undefined || qMax !== undefined) {
         if ((qMin !== undefined && !Number.isInteger(qMin)) ||
             (qMax !== undefined && !Number.isInteger(qMax)))
-          throw new Error("sml: 量词最小/最大必须为整数");
-        if (qMin !== undefined && qMin < 0) throw new Error("sml: 量词最小不能为负（得 " + qMin + "）");
+          throw throwCode("E-CONTRACT-015", "sml: 量词最小/最大必须为整数");
+        if (qMin !== undefined && qMin < 0) throw throwCode("E-CONTRACT-015", "sml: 量词最小不能为负（得 " + qMin + "）");
         // 上界：`次: 999999999` 会被展开成十亿条指令，编译期先于步数预算就把内存吃光
         if (qMin !== undefined && qMin > QUANT_MAX)
-          throw new Error("sml: 量词最小过大（" + qMin + " > " + QUANT_MAX + "）");
+          throw throwCode("E-LIMIT-009", "sml: 量词最小过大（" + qMin + " > " + QUANT_MAX + "）");
         if (qMax !== undefined && qMax > QUANT_MAX)
-          throw new Error("sml: 量词最大过大（" + qMax + " > " + QUANT_MAX + "）");
+          throw throwCode("E-LIMIT-009", "sml: 量词最大过大（" + qMax + " > " + QUANT_MAX + "）");
         if (qMax !== undefined && qMin !== undefined && qMax < qMin)
-          throw new Error("sml: 量词最大(" + qMax + ")不能小于最小(" + qMin + ")");
+          throw throwCode("E-CONTRACT-015", "sml: 量词最大(" + qMax + ")不能小于最小(" + qMin + ")");
         const mn = qMin === undefined ? 0 : qMin;
         base = "(?:" + base + ")" + minMaxToRe(mn, qMax);
       }
@@ -714,13 +729,13 @@ export function parse(text, opts) {
       let inner = null;
       if (peek() && peek().t !== "]") inner = parseFieldSpec();
       if (peek() && peek().t === "]") i++;
-      else fail("sml: 数组类型 `[T]` 缺少 `]`");
+      else fail("E-PARSE-001", "sml: 数组类型 `[T]` 缺少 `]`");
       const sp = newFieldSpec();
       sp.type = "array";
       sp.arrInner = inner;
       return parseFieldModifiers(sp);
     }
-    if (!t || t.t !== "word") fail("sml: 字段类型期望标识符");
+    if (!t || t.t !== "word") fail("E-PARSE-006", "sml: 字段类型期望标识符");
     const typeWord = t.v;
     i++;
     let sp = newFieldSpec();
@@ -810,10 +825,10 @@ export function parse(text, opts) {
 
   function parseContractBody() {
     const fields = {};
-    if (peek() && peek().t === "{") i++; else fail("sml: @contract 后须契约体 { }");
+    if (peek() && peek().t === "{") i++; else fail("E-PARSE-019", "sml: @contract 后须契约体 { }");
     while (peek() && peek().t !== "}") {
       if (peek().t === "," || peek().t === ";") { i++; continue; }
-      if (peek().t !== "word") fail("sml: 契约字段期望名称, 得 " + peek().t);
+      if (peek().t !== "word") fail("E-PARSE-006", "sml: 契约字段期望名称, 得 " + peek().t);
       const fkey = peek().v; i++;
       if (peek() && peek().t === ":") i++;
       const sp = parseFieldSpec();
@@ -826,7 +841,7 @@ export function parse(text, opts) {
 
   // 解析 include：返回若干 { text, ns } 目标并递归 parse
   function resolveIncludes(line) {
-    if (!feats.has("include")) fail("sml: include 未启用（需要 feature 'include'）");
+    if (!feats.has("include")) fail("E-FEATURE-001", "sml: include 未启用（需要 feature 'include'）");
     const targets = parseIncludeTargets(line, feats);
     const results = [];
     for (const tg of targets) {
@@ -835,7 +850,7 @@ export function parse(text, opts) {
         // 也允许直接用 key（不带扩展名）
         text = files[tg.path.replace(/\.sml$/, "")];
       }
-      if (text === undefined) fail("sml: include 目标未找到: " + tg.path);
+      if (text === undefined) fail("E-INCLUDE-001", "sml: include 目标未找到: " + tg.path);
       const childPrefix = tg.ns ? nsPrefix + tg.ns + "." : nsPrefix;
       // 外置扩展随 include 递归传递：被包含的文件里同样可以用方言指令与外置类型
       const v = parse(text, {
@@ -867,7 +882,7 @@ export function parse(text, opts) {
       // 原型污染防护：文档里的**键名**同样不可为危险键。
       // 只堵 include 的命名空间路径不够 —— `__proto__: x` 直接写在文档里，
       // 赋值时会顺着原型链改写该对象的原型。
-      if (DANGEROUS_KEYS.has(k)) fail("sml: 键名不可使用 `" + k + "`");
+      if (DANGEROUS_KEYS.has(k)) fail("E-PARSE-010", "sml: 键名不可使用 `" + k + "`");
       if (node[k] === undefined) node[k] = v;
       else if (Array.isArray(node[k])) node[k].push(v);
       else node[k] = [node[k], v];
@@ -882,13 +897,13 @@ export function parse(text, opts) {
       if (tok.t === ",") { i++; continue; }
       if (tok.t === "@") {
         i++;
-        if (!peek()) fail("sml: @ 后需名称");
+        if (!peek()) fail("E-PARSE-011", "sml: @ 后需名称");
         const fname = peek().v;
         if (fname === "version") {
           i++;
           const lit = (peek() && peek().v) ?? "";
           if (lit !== "v1" && lit !== "1") {
-            fail("sml: @version 须写作 `@version v1`；`version` 不可作为片段名");
+            fail("E-FEATURE-004", "sml: @version 须写作 `@version v1`；`version` 不可作为片段名");
           }
           i++;
           continue;
@@ -914,9 +929,9 @@ export function parse(text, opts) {
           if (isDecl) {
             i += 2; // 消费 name 与 :
             if (!peek() || (peek().t !== "word" && peek().t !== "str"))
-              fail("sml: @type name: 后须类型名");
+              fail("E-PARSE-019", "sml: @type name: 后须类型名");
             const tname = peek().v; i++;
-            if (!peek() || peek().t !== "{") fail("sml: @type " + tname + " 后须 { } 模式体");
+            if (!peek() || peek().t !== "{") fail("E-PARSE-019", "sml: @type " + tname + " 后须 { } 模式体");
             i++;
             const body = parseBlock("}");
             types.set(nsPrefix + tname, body);
@@ -940,7 +955,7 @@ export function parse(text, opts) {
               && toks[i + 1] && toks[i + 1].t === ":") {
             i += 2;
             if (!peek() || (peek().t !== "word" && peek().t !== "str"))
-              fail("sml: 扩展指令 @" + fname + " 的 name: 后须值");
+              fail("E-EXT-003", "sml: 扩展指令 @" + fname + " 的 name: 后须值");
             arg = peek().v; i++;
           } else if (extDirs[fname].positional && peek() && peek().t === "word"
                      && toks[i + 1] && toks[i + 1].t === "{") {
@@ -962,14 +977,14 @@ export function parse(text, opts) {
           if (out && out.emit !== undefined) {
             const em = out.emit;
             if (em && typeof em === "object" && !Array.isArray(em)) Object.assign(node, em);
-            else fail("sml: 扩展指令 @" + fname + " 的 emit 须返回对象（用于合并进所在块）");
+            else fail("E-EXT-004", "sml: 扩展指令 @" + fname + " 的 emit 须返回对象（用于合并进所在块）");
           }
           continue;
         }
         if (fname === "contract") {
           i++;
           const cname = peek() && peek().v;
-          if (!cname) fail("sml: @contract 后须契约名");
+          if (!cname) fail("E-PARSE-019", "sml: @contract 后须契约名");
           i++;
           let loose = false;
           if (peek() && peek().t === "word" && peek().v === "loose") { loose = true; i++; }
@@ -981,7 +996,7 @@ export function parse(text, opts) {
         if (fname === "is") {
           i++;
           const raw = peek() && peek().v;
-          if (!raw) fail("sml: @is 后须契约名");
+          if (!raw) fail("E-PARSE-019", "sml: @is 后须契约名");
           i++;
           // `@is type(契约名)` 与 `@is 契约名` 等价 —— 括号形式让「类型标注」
           // 的意图更显眼，且与块级标注 `type(契约名) 块名 { .. }` 同形。
@@ -1064,7 +1079,7 @@ export function parse(text, opts) {
           continue;
         }
       }
-      if (key === undefined) fail("sml: 期望键");
+      if (key === undefined) fail("E-PARSE-006", "sml: 期望键");
       i++;
       let colon = false;
       if (peek() && peek().t === ":") { colon = true; i++; }
@@ -1098,7 +1113,7 @@ export function parse(text, opts) {
                 const c = contracts[cname];
                 applyDefaults(c, sub);
                 const errs = checkContract(contracts, c, sub, "");
-                if (errs) fail("contract: " + cname + " — " + errs.join("; "));
+                if (errs) fail(errs[0].code, "contract: " + cname + " — " + errs.map((x) => x.msg).join("; "));
               }
             }
             setField(key, sub);
@@ -1124,10 +1139,10 @@ export function parse(text, opts) {
     }
     if (appliedContract) {
       const c = contracts[appliedContract];
-      if (!c) fail("sml: 应用未定义契约 " + appliedContract);
+      if (!c) fail("E-CONTRACT-001", "sml: 应用未定义契约 " + appliedContract);
       applyDefaults(c, node);
       const errs = checkContract(contracts, c, node, "");
-      if (errs) fail("contract: " + appliedContract + " — " + errs.join("; "));
+      if (errs) fail(errs[0].code, "contract: " + appliedContract + " — " + errs.map((x) => x.msg).join("; "));
     }
     return node;
   }
@@ -1174,6 +1189,9 @@ export function parseSafe(text, opts) {
     return {
       ok: false,
       error: msg,
+      // 错误码（见 errors/codes.sml）。取不到就是 null —— 不是所有失败都有码：
+      // 宿主自己抛的异常（如 RangeError）以及尚未带码的少数分支就没有。
+      code: (e && e.code) || null,
       pos,
       position: pos == null ? null : offsetToPosition(text, pos),
     };

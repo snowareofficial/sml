@@ -17,6 +17,7 @@
 """
 
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -35,6 +36,32 @@ GEN_NOTE = "本文件由 errors/gen_codes.py 从 errors/codes.sml 生成，请�
 def ident(code):
     """`E-LEX-001` -> `E_LEX_001`（Rust / C 标识符）。"""
     return code.replace("-", "_")
+
+
+# 手写码字面量的地方（生成物自己不查）
+LITERAL_FILES = [
+    "js/sml.mjs",
+    "c/sml.c",
+    "c/sml.h",
+    "cpp/sml.cpp",
+    "lua/lib/sml.soup",
+]
+CODE_RE = re.compile(r"\b[EWI]-[A-Z]+-\d{3}\b")
+
+
+def check_literals(known):
+    """扫源码里的码字面量，返回不在码表里的那些。"""
+    bad = []
+    for rel in LITERAL_FILES:
+        path = os.path.join(ROOT, rel)
+        if not os.path.exists(path):
+            continue
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for i, line in enumerate(f, 1):
+                for m in CODE_RE.finditer(line):
+                    if m.group(0) not in known:
+                        bad.append(("%s:%d" % (rel, i), m.group(0)))
+    return bad
 
 
 def rust_src(codes):
@@ -138,6 +165,17 @@ def main():
 
     codes = reg["codes"]
     codes = sorted(codes, key=lambda c: c["id"])  # 按 id 排序，与书写顺序无关
+
+    # 非 Rust 端的码是**手写的字符串字面量**（JS 要能单文件在浏览器里跑，
+    # C 用宏、Lua 用裸串），所以这里反过来查一遍：源码里出现的码必须都在表里。
+    # 这挡的是「手打错一位数字」——那种错编译器不管，只会悄悄变成另一个码。
+    bad_literals = check_literals(set(c["id"] for c in codes))
+    if bad_literals:
+        print("!! 这些码在源码里出现，但不在 errors/codes.sml 里：")
+        for where, code in bad_literals:
+            print("   - %s: %s" % (where, code))
+        print("   （码表是唯一事实来源；要么改源码，要么在 codes.sml 里补一条）")
+        return 1
 
     targets = [
         (RUST_OUT, rust_src(codes)),
