@@ -10,16 +10,20 @@
 迁移（JSON / TOML / YAML / **XML** ⇄ SML）、`--strip`、`--lint`、目录批量、
 **用 SML 自己定制编辑器高亮**。
 
+**W20 / W21 已收口**（见 §12）：**Lua 补齐契约与 include**，不再是"子集实现"（此前
+`examples/app.sml` 这类文档在 Lua 里"能解析但树是错的"）；`smltools` 新增两码
+（`E-INCLUDE-012` / `E-CLI-008`）并把**码从上游带下来**（删掉按文案猜码的映射）。
+
 **测试面**（本轮实测，数字可直接引用）：
 
 | 套件 | 命令 | 结果 |
 |---|---|---|
-| Rust 全 workspace | `cargo test --workspace` | **528 通过 / 0 失败**（46 个 target），**rc=0** —— 复核过，见下 |
-| 其中 `smltools` | `cargo test -p smltools` | **110 通过 / 0 失败**（bin 70 + 新集成 `tests/error_codes.rs` 40；`xml` 子集 26 在 bin 里） |
+| Rust 全 workspace | `cargo test --workspace` | **537 通过 / 0 失败**（46 个 target），**rc=0** —— 连跑 3 次一致，见下 |
+| 其中 `smltools` | `cargo test -p smltools` | **119 通过 / 0 失败**（bin 74 + 集成 `tests/error_codes.rs` 45；`xml` 子集 26 在 bin 里） |
 | C | `python build_check.py --run` | rc=0，`ALL LIMIT TESTS PASSED` + `ALL CODE TESTS PASSED` |
 | C++ | `python build_verify.py` | 六 target 全 rc=0（example / CONTRACT / COMMENTS / LIMITS / **CODES 80 条全过** / RS-BRIDGE） |
 | JS 错误码 | `node js/probe-error-codes.mjs` | `ALL OK`（与 Rust 同条件同码） |
-| Lua | `python lua/run_check.py` | rc=0，`ALL LUA CHECKS PASSED`（入口自检 + `E-IO-001` + 26 条码用例） |
+| Lua | `python lua/run_check.py` | rc=0，`ALL LUA CHECKS PASSED`（入口自检 + `E-IO-001` + **120 条**码用例，含 include 组 38 条） |
 
 > ✅ **`cargo test --workspace` 复核为 `rc=0` / 46 targets / 528 passed / 0 failed**（2026-09-18）。
 > 此前记的「rc=1 但 0 失败、未能复现」**已查明，且不是仓库缺陷**。唯一红的是 `swsml-derive`
@@ -44,7 +48,7 @@
 
 - **错误码（已全量）**：`errors/codes.sml` 是唯一事实来源 —— 它本身用 SML 写，所以
   `errors/gen_json.py` 能拿 `smltools` 自己校验它，并生成 `site/static/errors.json`
-  给官网 `/errors` 页。**137 条码 / 14 个领域 / 分四层**（语言层、宿主绑定层、工具层、
+  给官网 `/errors` 页。**139 条码 / 14 个领域 / 分四层**（W20/W21 各加一个：`E-INCLUDE-012`、`E-CLI-008`；以 `errors/gen_codes.py` 的输出为准）（语言层、宿主绑定层、工具层、
   编辑器层）。清点范围与「该报错却静默通过」清单见 `errors/README.md` 的「清点」一节。
   **码是稳定契约，文案不是** —— 这既是 W3（跨端统一）的抓手，也是 W10（把码落到五端）的前置。
 - **官网教科书搜索**：`site/tools/gen_search_index.py` 在**构建期**生成 44 页索引，
@@ -332,7 +336,9 @@ python site/build_site.py             # 完整构建（含上面两步 + Hugo + 
 
 ## 7. 下个会话的第一件事
 
-1. **`git push`** —— 按 §6 属对外动作，用户已同意「**做完再推**」，现在轮到它了。
+1. **`git push`** —— 属对外动作，**由用户自己执行**（他的原话是「然后我push」）。
+   本地领先 `github/main` **52 笔**（`git rev-list --count github/main..HEAD` 现查得）。
+   AI **不要**代推；推之前提醒他 §6 的发版清单（版本号、`Cargo.toml` 版本要求同步）。
 2. **W10 已收口到四端**（Rust / JS / C / C++ / C-ABI 全带码，见 `errors/README.md` 的落地进度表），
    **W18 已插队修完**（§9）。W10 剩下的尾巴只有两处，而且都**不是本仓库内能做完的**：
    - ~~**Lua 做不了**~~ **已完成（见 §10）**：前一条断言「`.soup` 是编译产物、源码不在本仓库」
@@ -681,3 +687,50 @@ rustdoc 命令行**逐字符抓出来对比**，确认每条 `--extern` 指向�
 **它还撞出一个我的操作失误**：我为了测五端深度边界，往 `rust/tests/` 写了个临时探针
 `_tmp_depth_probe.rs` 又删掉，它正好撞上 cargo "列进 target 又被删"的竞态。
 **教训：临时探针别写进 `tests/` 目录**（那里会被 cargo 当 target 扫描），写 `target/` 或 OUT_DIR。
+
+---
+
+## 12. W20 / W21：两个 agent 并行，以及 agent 被收走两次之后怎么接手
+
+团队 `w2021`，2 个**可写盘**的 agent：`lua-contract` 只碰 `lua/`、`w21` 只碰
+`rust/smltools/` 与 `rust/src/emit/`。**共享文档（`errors/**`、`CHANGELOG`、`TODO`、
+`HANDOFF`）由我独占** —— 两个 agent 同时改那几处必然打架，这条每次都省事。
+
+### 12.1 落地的东西（细节见 CHANGELOG）
+
+- **W20 一阶段**：Lua 补契约（`@contract` / `@is` + 默认值回填），13 条码逐条用 `smltools`
+  **实跑**核实（不是读源码推的）。顺带修一个**静默测试 bug**：`expect_ok` 不返回值 ⇒
+  8 条值断言被整段跳过、套件照样全绿 —— **靠"新增断言数与总数对不上"发现**。
+  这个信号值得一直盯着：**全绿不等于跑了**。
+- **W20 二阶段**：Lua 补 include，与 Rust/C++ 同架构（**解析前**展开成文本再整体词法）。
+  一处**刻意的端间差异**：Lua 不报 `E-INCLUDE-011`（它整体词法，子文件里的未闭合字符串
+  走正文的静默清单，已实测）—— 已写进码表 `note`，免得被当漏做补上。
+- **W21**：新增 `E-INCLUDE-012` / `E-CLI-008`；`toml.rs::descend` 的 `unreachable!()` 改
+  `Err`；**根治**：`emit` 后端自己带码，删掉按文案前缀猜码的映射（旧做法会让上游一改文案
+  就**静默**退化成 `E-CLI-007`，没有任何告警）。另删 6 处**重复工具前缀**并加不变式断言。
+
+### 12.2 agent 被意外收走两次：接手时该把预算花在哪
+
+`w21` 与 `lua-contract` 各被收走过一次，**原因不明**。两次的处理一样，且都有效：
+
+1. **先看落盘状态，不看它的报告** —— 报告可能根本来不及发（`lua-contract` 这次就是）。
+2. **先跑测试**，判断盘上的是"可运行的半成品"还是"坏掉的半成品"。
+3. **预算优先给判别实验，而不是补文档** —— 只有判别实验能回答"这些用例真的钉住实现了吗"。
+
+`lua-contract` 被收走时**实现与用例都在**，缺的只是它自己的验收报告。我只补了一件事：
+把 `lua/lib/sml.soup` 换成 **HEAD 版**跑同一份套件 ⇒ **26 条红**（含 10 条 include），
+随后按字节还原（sha256 一致）。**这一步比读它改的代码有用得多。**
+
+同轮还有一件"文档自己打自己脸"要顺手收拾：`lua/test_codes.lua` 文件头的
+「故意不测」清单里还写着「Lua 没有 include 语法，码表已把 lua 从 impls 移除」——
+能力补上后这条必须作废，否则下一会话会照它去"补"一个已经有了的东西。
+**改能力时，先 grep 一遍"没有 X / 不适用 X"的表述。**
+
+### 12.3 两条被反复验证的规矩
+
+- **"全绿"必须能反驳自己**。本轮靠别的信号发现过三次问题：`expect_ok` 不返回值
+  （断言数与总数对不上）、`test_include_codes` 有没有**接进 runner**（先数 `ok:` 行）、
+  `drive()` 里的不变式（把前缀加回去必须变红）。**断言要放在所有用例都必经的出口上。**
+- **报告里的输出要标明"哪一次构建"**。我和 `w21` 在同一分钟量同一个二进制、结论相反，
+  唯一原因是它贴的是**修前**那次构建的输出。它自己也认了这个教训：
+  **贴 CLI 输出一律注明"改动前/后 + 是否已 rebuild"。**
