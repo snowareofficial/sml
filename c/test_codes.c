@@ -295,6 +295,28 @@ static void test_include_codes(void) {
     }
     rm_file("_tc_exp_leaf.sml");
     rm_file("_tc_exp_root.sml");
+
+    /* 6) 路径**写法**非法：**未加引号** → E-INCLUDE-012。
+          旧实现在这里返回 NULL（"不是指令"）⇒ 整行被当普通内容写回，指令意图被**静默丢弃**
+          （连错都不报）。与 Rust / Lua 对齐后明确报码。 */
+    if (write_file("_tc_inc_unq.sml", "include nope.sml\n") != 0) {
+        printf("FAIL: 无法写「未加引号」临时文件\n");
+        failures++;
+    } else {
+        expect_code_file("include 路径未加引号", "_tc_inc_unq.sml", SML_E_INCLUDE_012);
+    }
+    rm_file("_tc_inc_unq.sml");
+
+    /* 7) 路径**写法**非法：**引号未闭合** → E-INCLUDE-012。
+          旧实现会拿残缺路径去 fopen ⇒ 报 E-INCLUDE-001（"读取失败"），把**写法**错误导成
+          "文件不存在"（与 Rust / Lua 同码之后归位）。 */
+    if (write_file("_tc_inc_unclosed.sml", "include \"nope.sml\n") != 0) {
+        printf("FAIL: 无法写「引号未闭合」临时文件\n");
+        failures++;
+    } else {
+        expect_code_file("include 引号未闭合", "_tc_inc_unclosed.sml", SML_E_INCLUDE_012);
+    }
+    rm_file("_tc_inc_unclosed.sml");
 }
 
 /* ------------------------------------------------------------------ */
