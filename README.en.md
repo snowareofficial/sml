@@ -289,7 +289,7 @@ and [`editors/zed/README.md`](editors/zed/README.md).
   ⚠️ **0.4.2 was repackaged**: it fixes a fatal issue where the extension **could not activate
   at all** on VS Code 1.13x (module-level code read `vscode.InsertTextFormat`, an enum removed
   from newer hosts; the symptom is "hover / context menu do nothing at all"). After installing,
-  right-click "SML: 自检" to check the bundled parser fingerprint (`69404 B / 70f1ee47…`).
+  right-click "SML: 自检" to check the bundled parser fingerprint (`73683 B / 0ea28eec…`).
 - **Zed**: run `zed: install dev extension` in Zed and pick the `editors/zed/` directory
   of this repo. ⚠️ **Zed cannot install a `.vsix`** — VSIX is a VS Code–only format;
   Zed uses its own extension format (`extension.toml` + a Tree-sitter grammar).

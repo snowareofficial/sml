@@ -31,6 +31,9 @@
       `snoware.sml-lang-0.4.2`，`src/vendor/sml.mjs` = **69404 B / sha256 `70f1ee47…`**（W16 之后的
       解析器）；0.4.1 已被 `.obsolete` 标 `true`、`extensions.json` 记的是 0.4.2 ⇒ 编辑器加载的就是新版。
       用**已安装的那份**代码实测：定义跳转 / 契约展开 / 诊断 / 补全全部正常（证据见 HANDOFF §22.4）
+      ⚠️ **后来又重打过两次**（W16 后续修复 + 本轮的 BOM 五端对齐）⇒ 包内解析器现在是
+      **73683 B / sha256 `0ea28eec…`**。重装后按 `TASK-hy3-w19.md §3` 再核对一次指纹
+      （该表与 `README{,.en}.md`、`site/content/{zh,en}/downloads.md` 已同步改成新值）。
 
 ## 新特性：契约（Contract）
 
