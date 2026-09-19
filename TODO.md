@@ -308,24 +308,53 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
 跨实现共享的文档**不要写 `@feature`**，块级类型标注改写 `@is 契约名`。
 （相关文档已就地更正：`ch05 §5.2.2`、`ch10`、`llms.txt`、`showcase_contract.sml` 注释、扩展 README。）
 
-### 待**逐条实测**的候选（本轮只做了名字粗扫，**不足以当结论**）
+### 已**逐条实测**完成（同轮做掉，不再是"待办"）
 
-方法（血的教训：本轮先因"只 grep `rust/src`"错了一次，又因"没真跑 C"错了第二次）：
-**① grep 该端*整棵*源码树；② 真跑该端的二进制取行为**。两把尺子都过，才写进文档。
+**判据全部是跑出来的行为**，不是 grep 推断 —— 上一轮那张"名字零命中"表**有假阴性**，已废弃并更正：
 
-粗扫结果（15 个特性名在各端的出现次数为 0 = 连名字都没有）：
+- **JS 用的是别名**：`DEFAULT_FEATURES` 里写 `top-array` / `bareword-str`（Rust 注册表叫
+  `top-level-array` / `bareword-string`），另有 Rust 没有的 `escape`。⇒ grep 名字**根本判不了** JS。
+- **C 没有名字表**，但实测**支持** `top-level-array`（`[ 1 2 3 ]` 通过）、`namespace`、`multi-include`
+  —— 所以"名字零命中"≠"没实现"。
+- **C++ 仓库里没有"跑文件"的入口**（`example.exe` 忽略参数、`scan.exe` 崩溃、`test_codes.exe` 跑自带套件，
+  且三者缺 DLL 时一律 `0xC0000135`）。本轮自编了 15 行 runner（`sml::Parser::parse` + `to_sml`，
+  `PATH` 加 `C:\msys64\ucrt64\bin`）才拿到 C++ 那一列。
 
-| 端 | 名字零命中的特性 |
+**产物**：完整矩阵已写进教科书 **`site/content/{zh,en}/book/ch10-features.md`（「实现面总表」）**，
+一并给出"三条给写文档的人的结论"。摘要（判据 = 真机行为）：
+
+| 结论 | 细节 |
 |---|---|
-| Rust | （全有）✓ 参考实现 |
-| JS | `bareword-string`、`top-level-array`、`multi-include`、`glob-include`、`regex-include`、`ext-rewrite` |
-| C | `top-level-array`、`namespace`、`implicit-ns`、`multi-include`、`regex-include`、`ext-rewrite`、`typed-block` |
-| C++ | `bareword-string`、`top-level-array`、`implicit-ns`、`multi-include`、`regex-include`、`ext-rewrite`、`typed-block` |
-| Lua | `bareword-string`、`top-level-array`、`implicit-ns`、`ext-rewrite`、`typed-block` |
+| `@feature` 门控**只有 Rust + JS** | C / C++ / Lua 实测一律 `E-PARSE-005` |
+| `@when` / `@for` **只有 Rust** | 其余四端 `E-PARSE-005`（**CS 文档里别再当跨端示例**） |
+| `top-level-array` 只有 **Rust + C** | JS `E-PARSE-003`、C++/Lua `E-PARSE-006` |
+| `namespace` / `multi-include` 只缺 **Lua** | 且 Lua 是**明确报码**（`E-FEATURE-001`），不是静默 |
+| `fragment` 的 `&base` 展开：C **不展开** | C 把 `&base` 留成键（＝ W4-片段行级展开那条欠账，实测确认） |
+| `typed-block`：C / C++ **静默** | 与"Rust 未开启该特性时"同档（仅 `__type`/`__name` 元数据）；**Lua 连元数据都丢** |
 
-⚠️ **这些 0 只说明"该字符串不在这端的源码里"**，既可能真是没实现，也可能是命名不同 / 门控表在别处。
-⇒ 逐条按上面两把尺子核对，然后：要么补齐实现（Rust 是基准），要么在 ch10 明确标注"仅 Rust/JS"。
-（建议顺序：先 `typed-block`，它已被文档大量引用；再 `ext-rewrite` / `glob-include` / `regex-include` 这三个 include 家族。）
+### 本轮顺手挖出的三个**新问题**（都还没修）
+
+1. **`examples/advanced.sml` 自己就跑不过**（Rust 报 `E-INCLUDE-012`「include 路径写法非法（未加引号）」
+   —— 指向 `import { widget_login } as w in "advanced_inc/widgets.sml"` 这一行；而
+   `rust/sml-include/src/parse.rs:80` 把这个"键列表在前"的写法列为**等价写法**）。
+   ⇒ 与 `examples/slint/login.sml` 同族（"样例与实现不符"），要么改样例、要么修实现/补文档。
+2. **所用 Rust release 二进制疑与源码不一致**：`glob-include` 实测**未展开**（把 `inc/*.sml` 当字面路径
+   open ⇒ `os error 123`），而 `parse.rs:367-377` 明明有 glob 分支；同一次测试里 `examples/advanced.sml`
+   报的 `E-INCLUDE-012` 也与源码注释矛盾。⇒ **重编 `smltools` 再复测**（先别把 Rust 那两格当定论）。
+3. **JS `parseSafe` 接受未闭合块**：`basic { a: 1`（缺 `}`）⇒ JS 返回 `{ok: true, value: {basic:{a:1}}}`
+   而 Rust / C / C++ / Lua **全部报 `E-PARSE-001`**。编辑器诊断（它用 `parseSafe`）因此**看不见这类错误**
+   —— 与"未闭合块在编辑器里不报红"直接相关，属该修的一条。
+
+### 复核方法（可重跑）
+
+本轮探针脚本（`%TEMP%` 下，**未入库**）：`probe_matrix2.py`（四端矩阵）、`probe_cpp.py`（编译 C++
+runner 并跑）、`probe_cal.py`（**先校准**：坏文档必须报错，端点才算数）、`probe_js_inc.py`（JS 的
+`opts.files` 形态）。**两条规矩必须照做**：
+
+1. **先校准探针**：拿一份坏文档（`basic { a: 1`）确认该端会报错 —— 否则"ok"可能只是"它根本没看"；
+2. **判定看文本，不看退出码**：**Lua 解析失败也返回 `rc=0`**（错误只写 stderr），**C 也是 rc=0**，
+   JS 的错误码在**顶层 `r.code`**（不是 `r.error.code`）。本轮前两版探针分别踩了这两脚，
+   分别得到"Lua 全绿"和"JS 全是 ERR:other"两个**假结论**。
 
 ---
 

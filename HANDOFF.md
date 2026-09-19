@@ -1684,6 +1684,44 @@ hover 到底返回什么、命令有没有接线，全是盲区。于是本轮�
 **照样执行了**，只有人眼能从输出里看出不对。**结论**：依赖退出码的串联，一律**不加管道**；
 要过滤输出就重定向到文件、跑完再读文件。
 
+### 22.12 跨实现「特性实现面」：**五端全部真机实测**（2026-09-19，用户要求"先标"）
+
+**做了什么**：用户选"先标"（文档标注，不补实现）+ 删站点旧包。于是把上一轮那张
+**只有 grep 的**零命中表**作废**，改成**跑出来的行为矩阵**，写进教科书
+`site/content/{zh,en}/book/ch10-features.md` 的「实现面总表」。
+
+**关键更正（上一轮的表有假阴性）**：
+- **JS 用别名**：`DEFAULT_FEATURES` = `top-array` / `bareword-str`（Rust 注册表是
+  `top-level-array` / `bareword-string`），另有 Rust 没有的 `escape` ⇒ **grep 名字判不了 JS**；
+- **C 无名字表，但实测支持** `top-level-array` / `namespace` / `multi-include` ⇒ "零命中"≠"没实现"；
+- **C++ 仓库里没有"跑文件"的入口**（`example.exe` 忽略 argv、`scan.exe` 崩、`test_codes.exe` 自跑套件；
+  且缺 DLL 时一律 `0xC0000135`，`PATH` 加 `C:\msys64\ucrt64\bin` 才能启动）
+  ⇒ 本轮自编 15 行 runner（`sml::Parser::parse` + `Parser::to_sml`）才拿到 C++ 列。
+
+**实测结论**（判据=真机行为；`?` = 未实测）：`@feature` 门控**只有 Rust + JS**（C/C++/Lua 一律
+`E-PARSE-005`）；**`@when`/`@for` 只有 Rust**；`top-level-array` 只有 **Rust + C**；`namespace`/
+`multi-include` 只缺 **Lua**（且是**明确报码**不是静默）；`fragment` 的 `&base` **C 不展开**（留成键）；
+`typed-block` C/C++ **静默**（= Rust 未开启档）、**Lua 连 `__type` 元数据都丢**。
+⚠️ **Rust 的 `glob-include` 本轮实测未展开**（`inc/*.sml` 被当字面路径 open ⇒ `os error 123`），
+而 `rust/sml-include/src/parse.rs:367-377` 明明有 glob 分支 ⇒ **疑所用 release 二进制与源码不一致**，
+与下一条相互印证。
+
+**顺手挖出三个新问题**（已登记 TODO §三·十）：① `examples/advanced.sml` **自己跑不过**
+（Rust 报 `E-INCLUDE-012`，而 `parse.rs:80` 把那个写法列为等价写法；与 `examples/slint/login.sml` 同族）；
+② Rust release 二进制疑过期（见上）；③ **JS `parseSafe` 接受未闭合块**（`basic { a: 1` ⇒ `ok:true`，
+Rust/C/C++/Lua 全报 `E-PARSE-001`）⇒ **编辑器诊断看不见这类错误**（编辑器正是用 `parseSafe`）。
+
+⚠️ **本轮踩的两脚，都在"探针自身"上**（不然会得出两个假结论）：
+1. **先校准**：拿坏文档确认该端**会**报错，否则"ok"可能只是"它根本没看"。校准当场抓出
+   **Lua 解析失败也返回 `rc=0`**（错误只写 stderr）⇒ v1 探针的 Lua 列"全绿"是假的；
+2. **判定看文本，不看 rc**：C 同样 rc=0（用 `CDUMP`/`CERR` 前缀判）、**JS 的码在顶层 `r.code`**
+   （我 v1 读的是 `r.error.code` ⇒ JS 列全是 `ERR:other`）。
+   ⇒ **写探针的成本远低于信一个假绿的代价**；脚本留在 `%TEMP%`（`probe_cal.py` / `probe_matrix2.py` /
+   `probe_cpp.py` / `probe_js_inc.py`，按仓库惯例 `_`/临时件不入库）。
+
+**给下一位**：要补实现就照 ch10 那张表从**行有 `❌` 的格子**挑（`typed-block` 是文档引用最多的一个）；
+要复核就**先跑 `probe_cal.py`**，校准不过就别信任何一列。
+
 ### 22.15 块级类型标注：文档缺一半 + **showcase 里是个假示例**（2026-09-19，用户点的）
 
 用户指着 `showcase_contract.sml:83` 的 `Metrics metrics { }` 问「这种语法文档化了吗？优点、潜力
