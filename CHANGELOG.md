@@ -69,6 +69,19 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 修复
 
+- **`sml-include`：`parse_file` 读不了「include + 跨行词法单元」的文档 —— 改为「按段词法」**
+  （`rust/sml-include/src/expand.rs` + `rust/sml-lex/src/lib.rs`）：上一笔只修了"整篇无 include"
+  的快路径，**既有 include、又有跨行块注释 / 多行字符串**的文档仍会走逐行路径而报 `E-INCLUDE-011`。
+  现改为**按段词法**：把文本切成"跨行单元与它覆盖的那些行**粘成一段**"
+  （新增 `sml_lex::compute_block_comment_spans` 与 `expand::segments`），逐段 `tokenize` 时
+  段内始终是自洽的词法单元 —— **不必**给 `Tok` 加位置信息（那是上一轮的候选正解，成本更高）。
+  ⚠️ **顺带堵掉一条安全漏洞**：旧的防护只覆盖**字符串**（`compute_string_spans`），
+  **块注释里写一行 `include "secret.sml"` 会被真的读盘并把内容内联**（任意文件读取 + 内容外泄）。
+  按段词法之后，注释所在段的开头不是 `include`，`parse_include_line` 自然返回 `None`。
+  验证：真 CLI 四例全绿（include+跨行块注释 ✓ / include+跨行字符串 ✓ / 注释里伪造 include 不展开 ✓ /
+  字符串里伪造 include 不展开 ✓），`examples/advanced.sml` 仍 110 行整篇可解析，
+  全仓 41 语料「只有 Rust 失败」仍为 **0**；新增两条回归测试（安全那条此前**无任何覆盖**）。
+
 - **`include` 路径「未加引号 / 引号未闭合」升为**语言级**规则 ⇒ `E-INCLUDE-012`**（`rust/sml-include`）：
   用户裁决「好的」。此前该规则**只有 Lua 有**（W20 第二阶段）；Rust 侧把未加引号当普通路径解析 ⇒
   `include nope.sml` 报 `E-INCLUDE-001`（"文件不存在"），用户被引去查**一个根本不该存在的文件**，

@@ -1790,6 +1790,35 @@ typed-block` 去掉（为让五端都能解析），但 `rust/tests/contract_sho
 - **方法**：本轮用两个 code-explorer subagent 并行摸「`Tok` 结构 + include 展开的逐行依赖」与
   「五端未加引号规则 + 测试覆盖」，主上下文只花在实现与决策上。
 
+### 22.15 「逐行 tokenize」欠账收口：**按段词法**（比"给 token 加位置"更省）
+
+**问题**（上一笔只修了一半）：`expand_includes` 逐行 `tokenize(line)` ⇒
+**既有 include、又有跨行词法单元**（多行块注释 / 多行字符串）的文档报 `E-INCLUDE-011`。
+
+**调研结论**（subagent）：`Tok` **不带任何位置信息**（纯枚举），解析器只认 token 顺序、
+不认行号/偏移 ⇒ 「整篇词法一次 + 按行替换」需要先给词法器加偏移产出（成本高、动核心 crate）。
+
+**实际采用的修法**（更省且不碰 token 结构）：**按段词法**。
+- `sml-lex` 新增 `compute_block_comment_spans`（与既有 `compute_string_spans` 并列；
+  与词法器一致：块注释不嵌套、行注释与字符串内的 `/*` 不算起点、`/* */` 与 `_* *_` 两种）。
+- `sml-include` 新增 `segments(text, string_spans)`：普通行各成一段，**跨行单元与它覆盖的行
+  粘成一段**；主循环与快路径都改用它（`for line in text.lines()` 全面退场）。
+- 段内是自洽的词法单元 ⇒ 逐段 `tokenize` 不再误判"未闭合"。
+
+⚠️ **顺带堵掉一条安全漏洞（本轮最有价值的附带发现）**：旧防护只覆盖**字符串**
+（`line_starts_in_string`），**块注释没管** ⇒ 注释里写一行 `include "secret.sml"`
+会被**真的读盘并内联**（任意文件读取 + 内容外泄）。按段之后，注释所在段的开头不是
+`include` ⇒ `parse_include_line` 返回 `None` ⇒ 与字符串内伪造 include 同等防护。
+
+**验证**：真 CLI 四例全绿（include+跨行块注释 / include+跨行字符串 / 注释里伪造不展开 /
+字符串里伪造不展开）；`examples/advanced.sml` 仍 110 行；全仓 41 语料「只有 Rust 失败」= 0；
+新增回归测试 2 条（`rust/src/lib.rs` 的 `include_with_multiline_block_comment_and_string`
+与 `include_inside_block_comment_is_not_expanded` —— 后者此前**无任何覆盖**）。
+
+**给下一位**：`segments` 是"跨行词法单元"的唯一处理点；再遇到"某种跨行写法读不了"，
+先看 `compute_block_comment_spans` 是否覆盖该写法（例如新增一种注释风格时），
+而**不是**再去改 `tokenize`。
+
 ### 22.15 块级类型标注：文档缺一半 + **showcase 里是个假示例**（2026-09-19，用户点的）
 
 用户指着 `showcase_contract.sml:83` 的 `Metrics metrics { }` 问「这种语法文档化了吗？优点、潜力

@@ -295,6 +295,69 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    /// 跨行词法单元与 include **共存**（文件入口的架构缺陷回归，2026-09-19）。
+    ///
+    /// 背景：`expand_includes` 原先**逐行** `tokenize(line)`，于是任何**跨行**的词法单元
+    /// （多行块注释 `/* … */`、多行字符串）都在第 1 行被判"未闭合" ⇒ **文件入口**
+    /// （`parse_file` / C-ABI `sml_load_file` / 编辑器）**读不了**这类文档。
+    /// 实测有 4 份语料中招（`examples/common.sml`、`examples/micro/CH32V103xx.sml` 等）；
+    /// 因为 `parse(text)`（整篇词法）没这个问题，所以此前没人发现。
+    /// 现改为"按段词法"：跨行单元与它覆盖的行粘成一段（见 `sml_include::expand::segments`）。
+    #[test]
+    fn include_with_multiline_block_comment_and_string() {
+        let d = tmpdir("segments");
+        std::fs::write(d.join("part.sml"), "a: 1\n").unwrap();
+
+        // ① include + 跨行块注释
+        std::fs::write(
+            d.join("m1.sml"),
+            "@version v1\ninclude \"part.sml\"\n/* 跨行\n   注释 */\nb: 2\n",
+        )
+        .unwrap();
+        let v = parse_file(d.join("m1.sml")).unwrap();
+        assert_eq!(v.get("a"), Some(&Value::Int(1)), "include 应生效");
+        assert_eq!(v.get("b"), Some(&Value::Int(2)), "块注释之后的内容应保留");
+
+        // ② include + 跨行字符串
+        std::fs::write(
+            d.join("m2.sml"),
+            "@version v1\ninclude \"part.sml\"\ns: \"多行\n字符串\"\n",
+        )
+        .unwrap();
+        let v = parse_file(d.join("m2.sml")).unwrap();
+        assert_eq!(v.get("a"), Some(&Value::Int(1)));
+        assert_eq!(v.get("s").and_then(|x| x.as_str()), Some("多行\n字符串"));
+
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// 安全回归：**块注释里的 `include` 不得被展开**。
+    ///
+    /// 原先的防护只覆盖字符串（`compute_string_spans`），**块注释没管** ⇒ 注释里写一行
+    /// `include "secret.sml"` 会被**真的读盘并内联**（文件内容被摊进解析结果，等同一条
+    /// 任意文件读取 + 内容外泄路径）。按段词法之后，注释所在段的开头不是 `include`，
+    /// 于是 `parse_include_line` 返回 `None` —— 与字符串内伪造 include 同等防护。
+    #[test]
+    fn include_inside_block_comment_is_not_expanded() {
+        let d = tmpdir("cmmt");
+        std::fs::write(d.join("secret.sml"), "SECRET: leak\n").unwrap();
+        std::fs::write(d.join("ok.sml"), "a: 1\n").unwrap();
+        std::fs::write(
+            d.join("m.sml"),
+            "@version v1\n/* 单行注释里 mention include \"secret.sml\" */\n\
+             /* 跨行注释\ninclude \"secret.sml\"\n*/\ninclude \"ok.sml\"\n",
+        )
+        .unwrap();
+        let v = parse_file(d.join("m.sml")).unwrap();
+        assert_eq!(v.get("a"), Some(&Value::Int(1)), "正常 include 应生效");
+        assert_eq!(
+            v.get("SECRET"),
+            None,
+            "注释里的 include 不得被展开 —— 那是一条任意文件读取路径"
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     #[test]
     fn include_inside_block_injects_fields() {
         // 文本内联语义：可在块内注入一组字段
