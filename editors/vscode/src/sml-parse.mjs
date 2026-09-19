@@ -277,6 +277,225 @@ export function findAnnotatedBlocks(text, contractNames) {
   return out;
 }
 
+/// 解析契约里**一行字段声明**的规格（类型 + 修饰符 + 行尾说明）。
+///
+/// 支持的写法（与教科书第 5 章一致）：
+///   `host: str`、`port: int default 5432 min 1 max 65535`、`tags: [str] optional`、
+///   `status: enum [ active standby ]`、`mode: enum(active, disabled) default active`、
+///   `address: Address`（组合：类型是另一个契约名）、`?` 等价 `optional`。
+/// 行尾 `# ...` 视为**字段说明**（hover 里直接展示 —— 这是 SML 里"字段文档"的写法）。
+///
+/// 返回 `{ name, type, enum, default, min, max, optional, required, comment, col, length }` 或 `null`。
+export function parseContractField(rawLine) {
+  // ⚠️ 必须先去掉行尾 `\r`（CRLF）；否则 `#.*$` 因 `.` 不匹配 `\r` 而失配，
+  // 行尾注释剥不掉，后面的 `(.*)$` 也跟着整条失配 —— 表现是「契约字段一个都解析不出来」。
+  rawLine = String(rawLine).replace(/\r+$/, "");
+  const noComment = rawLine.replace(/(^|[^"\\])#.*$/, "$1");
+  const m = /^\s*([^\s:#]+)\s*:\s*(.*)$/.exec(noComment);
+  if (!m) return null;
+  const name = m[1];
+  if (name.startsWith("@")) return null;
+  let rest = m[2].trim();
+  const hash = rawLine.indexOf("#");
+  const comment = hash >= 0 ? rawLine.slice(hash + 1).trim() : null;
+
+  const out = { name, type: null, enum: null, default: null, min: null, max: null, optional: false, required: false, comment, col: rawLine.indexOf(name), length: name.length };
+  // enum(...) / enum [...]
+  const em = /^enum\s*[([]([^)\]]*)[)\]]/.exec(rest);
+  if (em) {
+    out.enum = em[1].split(/[,\s]+/).filter(Boolean);
+    rest = rest.slice(em[0].length).trim();
+  }
+  const MOD = "(?:min|max|optional|required|enum)\\b";
+  const dm = new RegExp("\\bdefault\\s+(.+?)(?=\\s+" + MOD + "|$)").exec(rest);
+  if (dm) {
+    out.default = dm[1].trim();
+    rest = rest.replace(dm[0], " ");
+  }
+  const mm = /\bmin\s+(-?[\d.]+)/.exec(rest);
+  if (mm) { out.min = mm[1]; rest = rest.replace(mm[0], " "); }
+  const xm = /\bmax\s+(-?[\d.]+)/.exec(rest);
+  if (xm) { out.max = xm[1]; rest = rest.replace(xm[0], " "); }
+  if (/\boptional\b|\?/.test(rest)) out.optional = true;
+  if (/\brequired\b/.test(rest)) out.required = true;
+  rest = rest.replace(/\b(optional|required)\b/g, " ").replace(/\?/g, " ").trim();
+  out.type = rest.split(/\s+/)[0] || null;
+  // `default` 自动视为可选（与教科书第 5 章一致）
+  if (out.default !== null) out.optional = true;
+  return out;
+}
+
+/// 取某个契约的**全部字段**（含各自的行号，供「字段悬浮 / 跳到字段定义」用）。
+///
+/// 返回 `[{ ...parseContractField 的字段, line }]`；契约不存在时返回 `[]`。
+export function contractFields(text, contractName) {
+  const decl = contractDeclaration(text, contractName);
+  if (!decl) return [];
+  const lines = text.split("\n");
+  const out = [];
+  let depth = 0;
+  let started = false;
+  for (let i = decl.line; i < lines.length; i++) {
+    const { open, close } = bracesOf(lines[i]);
+    if (!started) {
+      started = true;
+      depth = open - close;
+    } else {
+      if (depth + open - close === 0 && close > 0) break;   // 契约结束
+      depth += open - close;
+    }
+    const raw = i === decl.line ? lines[i].slice(lines[i].indexOf("{") + 1) : lines[i];
+    if (i === decl.line && !raw.trim()) continue;
+    const f = parseContractField(raw);
+    if (f) out.push({ ...f, line: i });
+  }
+  return out;
+}
+
+/// 从 `line`（一个块的声明行）起按花括号配对找到收尾行；找不到返回 -1。
+function matchingCloseLine(text, line) {
+  const lines = text.split("\n");
+  let depth = 0;
+  for (let i = line; i < lines.length; i++) {
+    const { open, close } = bracesOf(lines[i]);
+    depth += open - close;
+    if (i > line || open > 0) {
+      if (depth <= 0) return i;
+    }
+  }
+  return -1;
+}
+
+/// 判断 `line` 落在哪个**契约声明体**内；返回 `{ name, startLine, endLine }` 或 `null`。
+export function contractAtLine(text, line) {
+  for (const name of collectContractNames(text)) {
+    const d = contractDeclaration(text, name);
+    if (!d || line < d.line) continue;
+    const end = matchingCloseLine(text, d.line);
+    if (end >= 0 && line <= end) return { name, startLine: d.line, endLine: end };
+  }
+  return null;
+}
+
+/// 找**光标所在（最内层）的块**：返回 `{ line, end }`（`line` 是块声明行，`end` 是收尾行）。
+///
+/// ⚠️ 别拿光标行直接喂 `blockPath` —— 它要求的是**块声明行**，喂键行会返回 null。
+/// （这正是此前的坑：数据区那一支永远取不到契约，于是字段悬浮只在声明处生效。）
+export function enclosingBlock(text, line) {
+  const lines = text.split("\n");
+  let best = null;
+  for (let i = 0; i < line && i < lines.length; i++) {
+    if (!blockDeclOf(lines[i])) continue;
+    const end = matchingCloseLine(text, i);
+    if (end >= line && (!best || i > best.line)) best = { line: i, end };
+  }
+  return best;
+}
+
+/// 找某个块**应用的契约名**：块内首个 `@is X` / `@is type(X)`，或 `契约名 块名 {` 形式。
+export function contractOfBlock(text, line, contractNames) {
+  const info = blockPath(text, line);
+  if (!info) return null;
+  if (info.contractFromHead && (contractNames || []).includes(info.contractFromHead)) {
+    return info.contractFromHead;
+  }
+  const lines = text.split("\n");
+  const end = info.closeLine >= 0 ? info.closeLine : line + 1;
+  for (let i = line + 1; i < end; i++) {
+    const m = /^\s*@is\s+(?:type\(\s*)?([^\s{)]+)/.exec(lines[i]);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+/// 把字段规格渲染成悬浮文本。`usage` 是「用在哪 / 当前值」这一段的补充说明。
+function renderField(f, contractName, usage) {
+  const out = ["**字段 `" + f.name + "`**" + (contractName ? "　（契约 `" + contractName + "`）" : "")];
+  const meta = [];
+  if (f.type) meta.push("类型 `" + f.type + "`");
+  if (f.enum) meta.push("枚举 " + f.enum.map((v) => "`" + v + "`").join(" / "));
+  if (f.default !== null) meta.push("默认 `" + f.default + "`");
+  if (f.min !== null || f.max !== null) meta.push("范围 " + (f.min !== null ? f.min : "−∞") + " – " + (f.max !== null ? f.max : "+∞"));
+  meta.push(f.required ? "必填" : f.optional ? "可选" : "必填（默认）");
+  out.push("");
+  out.push(meta.join("　·　"));
+  if (f.comment) {
+    // 行尾 `# ...` 就是 SML 里的字段文档 —— 直接展示，别让作者的解释只活在源码里
+    out.push("");
+    out.push("> " + f.comment);
+  }
+  if (usage) {
+    out.push("");
+    out.push(usage);
+  }
+  return out.join("\n");
+}
+
+/// 字段级悬浮：契约声明体里看**规格**，数据区里看**规格 + 当前值**。
+///
+/// 为什么值这个功能：契约声明里那 8 行字段（`port: int default 5432 min 1 max 65535`）
+/// 本身就带类型/默认值/区间/枚举与行尾说明，此前悬浮只在**契约名**上有 —— 停在字段上
+/// （无论声明处还是数据处）什么都不显示，等于把最有用的一层信息藏起来了。
+export function fieldHoverMarkdown(text, word, line) {
+  if (!word) return null;
+  const at = contractAtLine(text, line);
+  if (at) {
+    const f = contractFields(text, at.name).find((x) => x.name === word);
+    if (!f) return null;
+    const lines = text.split("\n");
+    let uses = 0;
+    for (const l of lines) if (new RegExp("^\\s*" + word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*:").test(l)) uses++;
+    uses = Math.max(0, uses - 1); // 减去声明处这一次
+    return renderField(f, at.name, uses ? `数据区有 ${uses} 处同名键（契约会给缺失的字段填默认值）` : "数据区暂无同名键");
+  }
+  // 数据区：光标可能在块内任意一行（键行），先定位到**最内层包含它的块**
+  const blk = enclosingBlock(text, line);
+  if (!blk) return null;
+  const side = contractOfBlock(text, blk.line, collectContractNames(text));
+  if (!side) return null;
+  const f = contractFields(text, side).find((x) => x.name === word);
+  if (!f) return null;
+  const info = blockPath(text, blk.line);
+  let usage = null;
+  if (info && info.value && typeof info.value === "object" && Object.prototype.hasOwnProperty.call(info.value, word)) {
+    const v = info.value[word];
+    const vs = typeof v === "string" ? v : stringify(v).replace(/\n\s*/g, " ").trim();
+    const bare = String(vs).replace(/^"|"$/g, "");
+    const fromDefault = f.default !== null && bare === String(f.default);
+    usage = "当前值：`" + vs + "`" + (fromDefault ? "（**未显式写**，来自契约默认值）" : "（块里显式写的）");
+  } else if (info) {
+    usage =
+      "这个块里**没有**写这个字段" +
+      (f.default !== null ? "（契约会填默认值 `" + f.default + "`）" : f.optional ? "（可选，没有默认值）" : "（**必填**，缺了会报错）");
+  }
+  return renderField(f, side, usage);
+}
+
+/// 字段级跳转：数据区的键 → 契约里的字段声明；契约里的字段 → 数据区第一处同名键。
+///
+/// 返回 `{ line, col, length }` 或 `null`（找不到就交给 VSCode 显示「未找到定义」）。
+export function findFieldDefinition(text, word, line) {
+  if (!word) return null;
+  const at = contractAtLine(text, line);
+  const esc = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const lines = text.split("\n");
+  if (at) {
+    // 字段声明处 → 数据区第一处同名键（跳过声明体自身）
+    for (let i = 0; i < lines.length; i++) {
+      if (i >= at.startLine && i <= at.endLine) continue;
+      const m = new RegExp("^\\s*(" + esc + ")\\s*:").exec(lines[i]);
+      if (m) return { line: i, col: m.index + m[1].length - word.length + (m[1].length - word.length), length: word.length };
+    }
+    return null;
+  }
+  const blk = enclosingBlock(text, line);
+  if (!blk) return null;
+  const side = contractOfBlock(text, blk.line, collectContractNames(text));
+  if (!side) return null;
+  const f = contractFields(text, side).find((x) => x.name === word);
+  return f ? { line: f.line, col: f.col, length: f.length } : null;
+}
+
 /// 提取 `@contract Name { ... }` 的**声明体**（纯文本括号配对，不做语义解析）。
 ///
 /// 返回 `{ line, col, length, body: string[] }` 或 `null`：
@@ -320,7 +539,10 @@ export function contractDeclaration(text, name) {
 ///
 /// SML 里字符串可含 `{}`、注释也可含 `{}`，直接数字符会把层级算错 ⇒ 路径也就错了。
 function bracesOf(rawLine) {
-  const l = rawLine
+  // ⚠️ 先去掉行尾 `\r`：Windows 上本仓库的文件是 CRLF，而 JS 正则里的 `.` **不匹配 `\r`**
+  // ⇒ `#.*$` 在 CRLF 行上匹配不到行尾、剥不掉注释，注释里的 `{}` 就会被算进层级。
+  // 这个坑先在 `parseContractField` 上踩实了（字段整条解析不出来），这里一并按同一规矩处理。
+  const l = String(rawLine).replace(/\r+$/, "")
     .replace(/"(?:[^"\\]|\\.)*"/g, '""')   // 字符串整体抹平（含转义）
     .replace(/#.*$/, "")                   // `#` 行尾注释
     .replace(/\/\/.*$/, "");               // `//` 行尾注释
@@ -369,16 +591,38 @@ export function blockPath(text, line) {
   const key = decl.name || decl.head;
 
   // 一次前向扫描：维护「当前处于哪几层块内」的名字栈；遇到 target 行就把栈定格为它的外层路径。
+  //
+  // ⚠️ 弹栈必须按**净关闭数**算，别按 `open - selfOpen + close`：
+  // `address { city: Beijing }` 这种**行内块**（open=1 / close=1，净 0）既不是块声明、
+  // 又不该弹掉外层 —— 老算法把它算成"多关了一层"，于是 `database { primary { } replica { } }`
+  // 里 `database` 被提前弹掉，路径只剩 `["replica"]`、值取不到（字段悬浮因此说"这个块里没写"）。
   const stack = [];
   let outer = null;
+  let prevWord = null;
   for (let i = 0; i < lines.length && outer === null; i++) {
     const d = blockDeclOf(lines[i]);
     if (i === line) outer = stack.slice();
-    if (d) stack.push(d.name || d.head);
     const { open, close } = bracesOf(lines[i]);
-    // 该行自身的 `{` 已计入 stack；`}` 弹栈（同一行 `{ }` 相抵）
-    const selfOpen = d ? 1 : 0;
-    for (let k = 0; k < open - selfOpen + close; k++) stack.pop();
+    if (d) {
+      stack.push(d.name || d.head);
+      // 本行若还多余的 `}`（罕见），按净关闭数弹
+      for (let k = 0; k < Math.max(0, close - (open - 1)); k++) stack.pop();
+    } else {
+      const net = close - open;
+      if (net > 0) {
+        for (let k = 0; k < net; k++) stack.pop();
+      } else if (net < 0) {
+        // 净打开但不是块声明：C/`stringify` 的 dump 风格把 `k:` 与 `{` 分成两行，
+        // 用上一非空行的词当这一层的名字（手写 SML 几乎不会走到这里）。
+        for (let k = 0; k < -net; k++) stack.push(prevWord || "?");
+      }
+    }
+    const t = lines[i].trim();
+    if (t && !t.startsWith("#") && !t.startsWith("//")) {
+      const km = /^([^\s:{}]+)\s*:/.exec(t);
+      if (km) prevWord = km[1];
+      else if (t.endsWith("{")) prevWord = t.slice(0, -1).trim().split(/\s+/).pop() || prevWord;
+    }
   }
   if (outer === null) return null;
   const path = [...outer, key];

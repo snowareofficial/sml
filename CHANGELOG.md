@@ -14,6 +14,28 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 新增
 
+- **VSCode 扩展：字段级悬浮与跳转 + 教科书补「字段说明与 i18n」**（`editors/vscode/src/sml-parse.mjs`）：
+  用户指着 `@contract Server { host… port… tls… tags… status… weight… address… }` 问
+  「各个字段能不能也有类似支持」—— 能，而且这 8 行本身已经带类型/默认值/区间/枚举与行尾说明，
+  此前却只在**契约名**上有悬浮，停在字段上什么都不显示。
+  - 新增 `parseContractField` / `contractFields`：解析类型（`str|int|num|bool|[T]|array[T]|<契约名>`）、
+    `enum(…)` 与 `enum [ … ]` 两种枚举写法、`default` / `min` / `max` / `optional`(`?`) / `required`，
+    并把**行尾 `#` 注释**收成字段说明。
+  - 新增 `fieldHoverMarkdown`：**声明处**给规格 + 说明；**数据区**给规格 + 说明 + **当前值**
+    （并指出「显式写的」还是「契约填的默认值」）。新增 `findFieldDefinition`：
+    **数据区的键 ↔ 契约里的字段声明**双向跳转。
+  - 顺带修两个真 bug（都是探针当场抓到的）：① **CRLF 下注释剥不掉** —— JS 的 `.` 不匹配 `\r`，
+    于是 `#.*$` 失配、整条字段行解析不出来（`bracesOf` 同因，注释里的 `{}` 会被算进层级）；
+    ② `blockPath` 的弹栈按 `open-selfOpen+close` 算**多弹一层** —— `address { city: Beijing }`
+    这种行内块（净 0）会把外层 `database` 弹掉，路径退化成 `["replica"]`、值取不到。
+    改为按**净关闭数**弹栈（净打开时用上一行的词补名，兼容 dump 风格 `k:` 换行 `{`）。
+  - 教科书 `site/content/{zh,en}/book/ch05-contract.md` 新增 **§5.1.1「字段说明与多语言（i18n）」**
+    （回答用户「sml 的 i18n？」：**实现里没有 i18n 层**，说明文字走行尾注释、多语言按数据建模
+    —— `title: { zh: …, en: … }` 或 `zh.sml`/`en.sml` 拆分）；ch12 §12.9 的编辑器能力表补
+    「悬浮字段 / 跳转到字段」两行。
+  闸门：`_verify_ext.mjs` 新增 13 条断言（**刻意用 CRLF 夹具**、行内块后路径仍完整、
+  两种枚举写法、`enum`/`min`/`max`/`default`、声明处与数据区悬浮、键→字段跳转）。
+
 - **VSCode 扩展：块名悬浮 + 「应用特殊颜色」（右键写进 `HL-cfg.sml`）**（`editors/vscode/src/`）：
   - **块名悬浮**：光标停在 `primary {` / `Server primary {` 上，显示**路径**（`database.primary`）、
     它应用的契约、以及**契约填充后的实际结构**（解析器真跑出来的），另附契约声明。
