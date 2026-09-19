@@ -262,7 +262,7 @@ let v = parse_file("app.sml")?;
   扩展**未上架市场**（上架流程繁琐，刻意暂缓）。
   ⚠️ **0.4.2 是重新打包的**：修掉了「在 VS Code 1.13x 上扩展根本无法激活」的致命问题
   （模块顶层读了新版宿主已移除的 `vscode.InsertTextFormat`，表现为悬浮 / 右键菜单全都没反应）。
-  装完可用右键「SML: 自检」核对包内解析器指纹（`69404 B / 70f1ee47…`）。
+  装完可用右键「SML: 自检」核对包内解析器指纹（`73683 B / 0ea28eec…`）。
 - **Zed**：在 Zed 里执行 `zed: install dev extension`，选本仓库的 `editors/zed/` 目录。
   ⚠️ **Zed 装不了 `.vsix`** —— VSIX 是 VS Code 专用的包格式，Zed 用自己的扩展格式
   （`extension.toml` + Tree-sitter grammar），两者不通用。

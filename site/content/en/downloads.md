@@ -35,7 +35,7 @@ formatting to VSCode — plus a few things that only make sense for SML:
 > an earlier 0.4.2, **install this file again** — the old package shows up as
 > "hover / context menu do nothing at all". After installing, right-click
 > "SML: 自检" to confirm the bundled parser fingerprint
-> (`69404 B / 70f1ee47…`).
+> (`73683 B / 0ea28eec…`).
 
 > The extension is not on the Marketplace; only a manual VSIX install is
 > provided (VSIX is a VS Code-only format — Zed cannot install it; Zed users

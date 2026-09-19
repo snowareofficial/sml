@@ -58,10 +58,15 @@ node scripts\_verify_activate.mjs   # 期望："ACTIVATE SMOKE ALL PASS"
 
 | 项 | 实测值（2026-09-19） |
 |---|---|
-| VSIX | `editors/vscode/sml-lang-0.4.2.vsix`，**20 项 / 约 149.8 KB** |
+| VSIX | `editors/vscode/sml-lang-0.4.2.vsix`，**20 项 / 157.5 KB（161304 B）** |
 | 站点托管副本 | `site/static/dl/sml-lang-0.4.2.vsix`（与上面同哈希） |
 | 版本号 | **保持 0.4.2**（未上架市场；升版本要同步 4 处，漏一处就制造漂移） |
-| 包内解析器指纹 | `src/vendor/sml.mjs` = **69404 B**，sha256 前缀 **70f1ee47** |
+| 包内解析器指纹 | `src/vendor/sml.mjs` = **73683 B**，sha256 前缀 **0ea28eec** |
+
+> ⚠️ **这三个数字（VSIX 大小 / 解析器大小 / sha 前缀）随解析器一起变。**
+> 本轮（BOM 五端对齐）改了 `js/sml.mjs` ⇒ 四份副本、`EXPECT_VENDOR`、VSIX 全都跟着更新，
+> 本表也已同步。**下次再重打，先把本表 + `README{,.en}.md` + `site/content/{zh,en}/downloads.md`
+> 里的旧值一起改掉** —— 否则验收的人会拿旧指纹去核对，然后以为「装错了包」。
 | 悬浮覆盖 | 契约名 · 块名 · **字段（声明处 + 数据区）** · 关键字 |
 | 图标主题 | `sml-icons-seti`（SML + Seti，**保留其他文件图标**）/ `sml-icons`（仅 .sml，⚠️ 别自动切它） |
 
@@ -95,7 +100,7 @@ for rel in ["src/extension.js", "src/sml-parse.mjs", "src/vendor/sml.mjs"]:
     print(("一致 ✓ " if ha==hb else "**不一致** ✗ "), rel, os.path.getsize(a), ha)
 PY
 ```
-期望：三行都是 `一致 ✓`，且 `src/vendor/sml.mjs` 是 **69404**、前缀 `70f1ee47`。
+期望：三行都是 `一致 ✓`，且 `src/vendor/sml.mjs` 是 **73683**、前缀 `0ea28eec`。
 
 **不符怎么办**：先确认装的是不是 `editors/vscode/sml-lang-0.4.2.vsix`（别装成 `site/static/dl/` 里的旧副本）；
 仍不一致 ⇒ 停下贴证据。
@@ -114,7 +119,7 @@ PY
 解析器加载成功 ✓（补全 / 悬浮 / 跳转 / 诊断可用）
 SML 语言已注册：✓
 桥接层 sml-parse.mjs：已加载 ✓
-包内解析器 vendor/sml.mjs：69404 B / sha256 70f1ee476ab684fc
+包内解析器 vendor/sml.mjs：73683 B / sha256 0ea28eec0253a864
 命令注册：sml.specialHighlight ✓  sml.clearSpecialHighlight ✓  sml.selfCheck ✓
 语言模式：languageId = sml ✓
 ```
@@ -246,7 +251,7 @@ python site\tools\gen_search_index.py     # 期望：输出 "44 页 / 约 230 KB
 - [ ] `_prepublish.mjs` → `PREPUBLISH ALL PASS`（6 步）
 - [ ] `_verify_ext.mjs` → `EXT VERIFY ALL PASS`
 - [ ] `_verify_activate.mjs` → `ACTIVATE SMOKE ALL PASS`
-- [ ] VSIX 装好 + 包内三文件与工作区一致（`vendor/sml.mjs` = 69404 B / `70f1ee47`）
+- [ ] VSIX 装好 + 包内三文件与工作区一致（`vendor/sml.mjs` = 73683 B / `0ea28eec`）
 - [ ] 「SML: 自检」面板里 `SML 语言已注册：✓`、`桥接层 … 已加载 ✓`、`语言模式：languageId = sml ✓`
 - [ ] W19.3 的 6 件事逐项符合
 - [ ] 非 SML 文件（.md/.json）**仍有图标**（图标主题回归点）
