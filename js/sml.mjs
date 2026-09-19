@@ -219,9 +219,12 @@ const LEADING_ZERO_INT = /^[+-]?0\d+$/;
  * @param {string} code 形如 "E-CONTRACT-013"
  * @param {string} msg  人读文案（各端可不同）
  */
-function throwCode(code, msg) {
+function throwCode(code, msg, pos) {
   const e = new Error(msg);
   e.code = code;
+  // `pos` 可选：带上它，`parseSafe` 才能把错误落到**正确的那一行**
+  // （不带 pos 的诊断会落在第 1 行 —— 见 `collectFeatures` 的未知名报错）
+  if (typeof pos === "number") e.pos = pos;
   throw e;
 }
 
@@ -448,17 +451,26 @@ const KNOWN_FEATURES = new Set([
 // 从文本里扫出 @feature enable/disable 声明，返回生效的 feature Set
 function collectFeatures(text, base) {
   const feats = new Set(base || DEFAULT_FEATURES);
-  const re = /@feature\s+(enable|disable)\s+([^\n@]+)/g;
+  // ⚠️ 必须**行首**（允许缩进）才算指令：`#   · @feature enable 显式开启…` 这种
+  // **注释里提到**的写法不是指令。旧写法 `/@feature…/g` 连注释里的也收 —— 以前
+  // "任意名字都静默入集"所以看不出来，一加未知名校验就冒出一堆**假错误**
+  // （`examples/advanced.sml:5` 就是这么中的：报"未知特性 `显式开启高级能力（glob-include`"）。
+  const re = /^[ \t]*@feature[ \t]+(enable|disable)[ \t]+([^\n]*)/gm;
   let m;
   while ((m = re.exec(text)) !== null) {
     const mode = m[1];
+    // 截掉行尾注释：`@feature enable for  # 备注` 不能把 `#` / `备注` 当特性名
+    let list = m[2];
+    const cut = list.search(/#|\/\/|--/);
+    if (cut >= 0) list = list.slice(0, cut);
     // 逗号与空白都算分隔（与 Rust 的 `scan.rs::names()` 一致：`@feature enable a, b` 合法）
-    const words = m[2].split(/[\s,]+/).filter(Boolean);
+    const words = list.split(/[\s,]+/).filter(Boolean);
     for (const w of words) {
       // 未知名**不得静默**：与 Rust 同码 E-FEATURE-003（见 KNOWN_FEATURES 的说明）
       if (!KNOWN_FEATURES.has(w)) {
         throwCode("E-FEATURE-003",
-          "sml: 未知特性 `" + w + "`，可用：" + [...KNOWN_FEATURES].join(", "));
+          "sml: 未知特性 `" + w + "`，可用：" + [...KNOWN_FEATURES].join(", "),
+          m.index);   // 带位置 ⇒ 诊断落在**该行**而不是第 1 行
       }
       if (mode === "enable") feats.add(w);
       else feats.delete(w);

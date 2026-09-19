@@ -69,6 +69,30 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 修复
 
+- 🔴 **编辑器诊断：凡用 `include` 的文档整行标红（`sml: include 目标未找到`）** —— 用户实测截图：
+  `examples/advanced.sml` 的 include / import 行全红，而**同一文件在命令行下完全正常**。
+  根因：扩展只把 `doc.getText()` 交给 JS 解析器，而 JS 的 include 走**宿主提供的文件表**
+  （`js/sml.mjs` 的 `resolveIncludes` 查 `files[路径]`），查不到就报 `E-INCLUDE-001`
+  「include 目标未找到」。修法：扩展新增 `buildFilesMap(doc)`
+  （`workspace.findFiles` + `workspace.fs.readFile`；键给**工作区相对路径 / 相对当前文档目录 /
+  裸文件名**三种形态以命中文档里的相对写法），**诊断、自检、格式化**三处都带上 `{ files }`。
+  实测 `examples/advanced.sml`：无文件表 1 条 → 有文件表 **0 条**。
+
+- **JS `collectFeatures` 把「注释里提到的 `@feature`」也当指令**（新增校验后暴露的既有 bug）：
+  它按 `/@feature\s+(enable|disable)\s+([^\n@]+)/g` **裸扫原文** ⇒ `examples/advanced.sml:5`
+  的注释行 `#   · @feature enable 显式开启高级能力（glob-include / …）` 被当成真指令。
+  **这个 bug 一直存在，只因旧实现"任意名字都静默入集"而无害**；我上一笔把未知名升为
+  `E-FEATURE-003` 时把它**激活成误报**（`未知特性 \`显式开启高级能力（glob-include\``，还落在
+  第 1 行）。现改为**行首**（允许缩进）才算指令 + **截掉行尾注释**（`#` / `//` / `--`）+
+  报错**带位置**（`throwCode(code, msg, pos)`）⇒ 诊断落在该行。
+  回归：`js/probe-error-codes.mjs` 增至 **57 条全绿**（新增三条正对照：`# @feature enable nosuch`、
+  `/* @feature enable nosuch */`、`@feature enable for  # 尾注释`）。
+  教训：**给"静默"加断言前，先确认静默背后的输入是不是真的合法**。
+
+- **工程：`HL-cfg.sml` 加入 `.gitignore`**：它是扩展命令在工作区根生成的**用户自定义高亮配置**
+  （词 → 颜色映射，属个人偏好、非项目资产），2026-09-19 被 `git add -A` 误提交一次
+  （随即 `git rm --cached` 并补上忽略规则）。
+
 - **C / C++ 对齐「未加引号 include ⇒ `E-INCLUDE-012`」**（`c/sml.c`、`cpp/sml.cpp`）：
   - **C**：`try_include_target` 原先只认「首词 `include` + 第二个 token 是 `T_STR`」，未加引号时
     返回 NULL（＝"不是指令"）⇒ 整行被当普通内容写回，**指令意图被静默丢弃（连错都不报）**。
