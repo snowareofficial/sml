@@ -440,14 +440,17 @@ features: [ logging metrics tracing ]
 
 ## 下载
 
-- **VS Code 扩展 0.4.1**：[下载 sml-lang-0.4.1.vsix](/dl/sml-lang-0.4.1.vsix)（手动安装，见 [下载页](/downloads/)）
+- **VS Code 扩展 0.4.2**：[下载 sml-lang-0.4.2.vsix](/dl/sml-lang-0.4.2.vsix)（手动安装，见 [下载页](/downloads/)）
+
+> ⚠️ 本版是**重新打包**：修掉了「在 VS Code 1.13x 上扩展根本无法激活」的致命问题
+> （模块顶层读了新版宿主已移除的 `vscode.InsertTextFormat`）。装过更早 0.4.2 请**重新下载安装**。
 
 
 ## 编辑器支持
 
 | 编辑器 | 获取方式 | 能力 |
 |---|---|---|
-| **VS Code** | 从本仓库 `editors/vscode/` 本地打包后安装（`.vsix`）：`npm run package` → `code --install-extension sml-lang-0.4.2.vsix`。**未上架市场**（上架流程繁琐，刻意暂缓） | 语法高亮、诊断、补全、悬浮说明（走 LSP） |
+| **VS Code** | 下载 [sml-lang-0.4.2.vsix](/dl/sml-lang-0.4.2.vsix) 后「从 VSIX 安装」；也可从本仓库 `editors/vscode/` 本地打包：`npm run package`。**未上架市场**（上架流程繁琐，刻意暂缓） | 语法高亮、诊断、补全、格式化和**跳转到定义**（`@is X` → `@contract X`、`&base` → `@base`）；**悬浮**给出契约声明 + **解析器填充默认值后的结构**，停在块名上还给路径与应用契约；**特殊颜色**（右键写入工作区 `HL-cfg.sml`，只对语法单元生效）；**特别高亮**（一个词点亮整个工作区）；**自检**（右键把「为什么没反应」逐条写进输出面板）。实现方式是**进程内直接调解析器，不启 LSP** |
 | **Zed** | 在 Zed 里执行 `zed: install dev extension`，选择本仓库的 `editors/zed/` 目录。详见 `editors/zed/README.md` | 语法高亮、括号匹配、注释切换（Tree-sitter） |
 
 > ⚠️ **Zed 装不了 `.vsix`**：VSIX 是 VS Code 专用的包格式；Zed 用的是自己的扩展格式

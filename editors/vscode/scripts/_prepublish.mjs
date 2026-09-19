@@ -17,7 +17,10 @@ const steps = [
   ["grammar 正则层（JS RegExp）", "scripts/_verify_grammar.mjs"],
   ["tokenize 层（Oniguruma 真实引擎）", "scripts/_verify_tokenize.mjs"],
   ["HL-cfg 自定义高亮", "scripts/_verify_hlcfg.mjs"],
-  ["扩展激活与解析器加载", "scripts/_verify_ext.mjs"],
+  ["扩展 API 与命令一致性", "scripts/_verify_ext.mjs"],
+  // ⚠️ 这一步是 2026-09-19 补的：此前从没有人**真跑过 activate()**，于是「顶层读了宿主里
+  // 已不存在的 API ⇒ 整个模块加载失败」这类致命错误一路漏到用户机器上（HANDOFF §22.12）。
+  ["扩展激活（mock 对齐 VS Code 1.138）", "scripts/_verify_activate.mjs"],
 ];
 
 // showcase.sml 必须在扩展诊断所用的 JS 引擎上零错误解析

@@ -138,5 +138,6 @@ node_modules/
 !editors/vscode/scripts/_verify_tokenize.mjs
 !editors/vscode/scripts/_verify_hlcfg.mjs
 !editors/vscode/scripts/_verify_ext.mjs
+!editors/vscode/scripts/_verify_activate.mjs
 !editors/vscode/scripts/_gen_seti_theme.py
 

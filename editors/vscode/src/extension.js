@@ -12,6 +12,7 @@
 
 const vscode = require("vscode");
 const path = require("path");
+const fs = require("fs");
 
 // ---------------------------------------------------------------------------
 // ⚠️ 顶层访问 vscode API 的安全护栏 —— 别删这段注释，它标的是一个致命坑
@@ -386,6 +387,107 @@ function initLanguageGuard(context) {
   }
 }
 
+/// 「应用特殊颜色」：把光标处 / 选中的词登记成 HL-cfg.sml 里的一组，并立即生效。
+///
+/// 为什么带「单元识别」这道闸门：特殊颜色若只按字面匹配，`active` 这类词会被染到
+/// 注释、字符串、无关的键上 —— 一处着色、满屏变色。SML 里「单元」是**语法位置**的概念
+/// （契约名 / 片段名 / 类型名 / 键 / 指令），所以默认只染语法位置；用户坚持按普通词染，
+/// 也可以显式选「按普通词着色」（`unit: text`）。
+///
+/// 配置写在**文件**里（HL-cfg.sml，随仓库走），不是编辑器私有状态 —— 换机器、换人
+/// 都能拿到同样的颜色，也能直接手写编辑（这正是「可以编写或选择」里的后半句）。
+function initApplyColor(context) {
+  const PRESETS = [
+    { label: "$(circle-filled) 琥珀 #ff9f43", color: "#ff9f43" },
+    { label: "$(circle-filled) 天青 #4ec9b0", color: "#4ec9b0" },
+    { label: "$(circle-filled) 品红 #d16d9e", color: "#d16d9e" },
+    { label: "$(circle-filled) 蓝紫 #9a7fd1", color: "#9a7fd1" },
+    { label: "$(circle-filled) 橙红 #e06c75", color: "#e06c75" },
+    { label: "$(circle-filled) 草绿 #98c379", color: "#98c379" },
+    { label: "$(circle-filled) 金黄 #e5c07b", color: "#e5c07b" },
+    { label: "$(circle-filled) 灰蓝 #7f8c9b", color: "#7f8c9b" },
+    { label: "$(symbol-color) 自定义…（#RRGGBB 或主题色 id）", color: null },
+  ];
+  context.subscriptions.push(
+    vscode.commands.registerCommand("sml.applySpecialColor", async () => {
+      const ed = vscode.window.activeTextEditor;
+      if (!ed) return vscode.window.showInformationMessage("先在 .sml 文件里选中一个词（或把光标放在词上）");
+      const mod = await ensureSml();
+      if (!mod || !mod.detectUnitKind || !mod.stringify) {
+        return vscode.window.showErrorMessage("解析器不可用（详见「输出 → SML」）");
+      }
+      const sel = ed.selection;
+      let word = "";
+      if (!sel.isEmpty) {
+        word = ed.document.getText(sel);
+      } else {
+        const r = ed.document.getWordRangeAtPosition(sel.active, /[@&]?[A-Za-z0-9_\u4e00-\u9fa5.\-]+/);
+        if (r) word = ed.document.getText(r);
+      }
+      word = word.trim().replace(/^[@&]/, "");
+      if (!word || /\s/.test(word)) {
+        return vscode.window.showInformationMessage("请选中**一个词**（不含空白）再应用特殊颜色");
+      }
+
+      const text = ed.document.getText();
+      let kind = mod.detectUnitKind(text, word);
+      if (!kind) {
+        const pick = await vscode.window.showWarningMessage(
+          `「${word}」在本文档里不是可识别的语法单元（契约 / 片段 / 类型 / 键 / 指令）。` +
+            "特殊颜色默认只对语法单元生效 —— 这样它不会染到注释和字符串里的同名文字。",
+          "按普通词着色",
+          "取消"
+        );
+        if (pick !== "按普通词着色") return;
+        kind = "text";
+      }
+
+      const COLOR = await vscode.window.showQuickPick(PRESETS, {
+        placeHolder: `给「${word}」（识别为 ${kind}${kind === "text" ? "：普通词" : ""}）选一个颜色`,
+      });
+      if (!COLOR) return;
+      let color = COLOR.color;
+      if (!color) {
+        color = await vscode.window.showInputBox({
+          prompt: "颜色：十六进制（#ff9f43）或主题色 id（editorError.foreground / charts.yellow）",
+          value: "#ff9f43",
+          validateInput: (v) =>
+            /^#[0-9a-fA-F]{6}$/.test(v) || /^[a-zA-Z][\w.]*$/.test(v)
+              ? null
+              : "形如 #ff9f43 或 editorError.foreground",
+        });
+        if (!color) return;
+      }
+
+      const hl = require("./highlight.js");
+      const p = hl.configPath ? hl.configPath() : null;
+      if (!p) {
+        return vscode.window.showErrorMessage("请先打开一个工作区文件夹 —— HL-cfg.sml 写在工作区根目录");
+      }
+      // 组名要能当 SML 键（不含空白；`-` 与 `.` 合法）
+      const groupName = `${kind}_${word}`.replace(/[^\p{L}\p{N}_.\-]/gu, "-");
+      const block = mod.stringify({ [groupName]: { words: [word], color, unit: kind } });
+      const header = fs.existsSync(p)
+        ? ""
+        : "# SML 自定义高亮配置（由「SML: 应用特殊颜色」生成；本文件自身也是 SML）\n" +
+          "#\n" +
+          "# 每个顶层块 = 一组：words 必填；color / background / bold / italic / underline /\n" +
+          "# matchCase 可选；unit 可选，限定只对某种**语法单元**生效\n" +
+          "# （contract / fragment / type / key / directive；缺省或 text = 按普通词着色）。\n";
+      try {
+        fs.appendFileSync(p, header + (header ? "\n" : "\n") + block + "\n", "utf-8");
+      } catch (e) {
+        return vscode.window.showErrorMessage("写入 HL-cfg.sml 失败：" + (e && e.message));
+      }
+      await hl.reload(false);
+      log(`应用特殊颜色：${word}（${kind}）→ ${color}，已写入 ${p}`);
+      vscode.window.showInformationMessage(
+        `已写入 ${path.basename(p)}：${groupName} → ${color}（立即生效；该文件可直接手写编辑）`
+      );
+    })
+  );
+}
+
 /// 自检：把「为什么没反应」的每一环摊开写进「输出 → SML」。
 /// 它只**报告**，不做任何修改 —— 排查工具不该顺手改状态。
 function initSelfCheck(context) {
@@ -656,7 +758,8 @@ function activate(context) {
       const mod = await ensureSml();
       if (mod && mod.contractHoverMarkdown && mod.collectContractNames) {
         const text = document.getText();
-        if (mod.collectContractNames(text).includes(word)) {
+        const contractNames = mod.collectContractNames(text);
+        if (contractNames.includes(word)) {
           const md = mod.contractHoverMarkdown(text, word);
           if (md) {
             // 「只显示声明、没有展开」是最容易被当成「功能坏了」的一种情况，
@@ -672,10 +775,30 @@ function activate(context) {
                 log(`悬停「${word}」：只显示契约声明（取不到实例）`);
                 log(!r.ok
                   ? `  原因：文档未通过校验 —— ${r.error}`
-                  : `  原因：文档能解析，但没有用 \`@is ${word}\` 标注的**顶层**块（嵌在别的块里不算）`);
+                  : `  原因：文档能解析，但没有用 \`@is ${word}\` 或 \`${word} 块名 {\` 标注的块`);
               }
             }
             return new vscode.Hover(new vscode.MarkdownString(md), range);
+          }
+        }
+
+        // 块名（`primary {` / `Server primary {`）→ 显示这个块的结构 + 它应用的契约。
+        // 为什么要做：块名上的悬停此前**什么都不显示**（只认契约名与关键字），
+        // 而用户最常停的地方就是块名 —— 于是「悬停没用」的印象多半来自这里。
+        if (mod.blockHoverMarkdown) {
+          const lineText = document.lineAt(position.line).text;
+          const bm = /^(\s*)([^\s:{}]+)(?:\s+([^\s{}]+))?\s*\{\s*(?:[#/].*)?$/.exec(lineText);
+          if (bm) {
+            const headCol = bm[1].length;
+            const headEnd = headCol + bm[2].length;
+            const nameCol = bm[3] ? lineText.indexOf(bm[3], headEnd) : -1;
+            const c = position.character;
+            const onHead = c >= headCol && c <= headEnd;
+            const onName = nameCol >= 0 && c >= nameCol && c <= nameCol + bm[3].length;
+            if (onHead || onName) {
+              const md = mod.blockHoverMarkdown(text, position.line, contractNames);
+              if (md) return new vscode.Hover(new vscode.MarkdownString(md), range);
+            }
           }
         }
       }
@@ -771,6 +894,9 @@ function activate(context) {
   // —— 自检：把「为什么没反应」摊开写进「输出 → SML」——
   initSelfCheck(context);
   initLanguageGuard(context);
+
+  // —— 特殊颜色：选中词 → 右键应用（写入 HL-cfg.sml，随仓库走）——
+  initApplyColor(context);
 
   // —— 自定义高亮：HL-cfg.sml + 强度开关（见 src/highlight.js）——
   require("./highlight.js").initHighlight(context);

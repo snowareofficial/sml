@@ -1684,6 +1684,42 @@ hover 到底返回什么、命令有没有接线，全是盲区。于是本轮�
 **照样执行了**，只有人眼能从输出里看出不对。**结论**：依赖退出码的串联，一律**不加管道**；
 要过滤输出就重定向到文件、跑完再读文件。
 
+### 22.13 块名悬浮 + 特殊颜色 + 文档全面更新（2026-09-19 收尾）
+
+**① 用户报「`showcase_contract.sml:52 primary` 悬停无提示」→ 两个叠加的缺口**：
+1. **块名压根没人处理**（只认契约名与关键字）—— 而用户最常停的就是块名；
+2. 即使点 `@is Server`，`contractInstance` **只认顶层块**，`database { primary { @is Server …
+   } }` 取不到实例 ⇒ 只剩契约声明（像「契约没生效」）。
+修法：桥接层新增 `blockPath()`（一次花括号配对扫描定出**路径**；先剥字符串与注释再数 `{}`）+
+`blockHoverMarkdown()`；`contractInstance` 改走路径查找（嵌套任意深）。`extension.js` 的悬浮
+provider 增加分支：光标落在块声明行的首词或第二词上 → 给「路径 + 应用契约 + 填充后结构 + 契约声明」。
+实测（`scripts/_probe_hover.mjs`，未入库）：`primary` → `路径 database.primary` + `port: 5432` /
+`tls: false`（契约真填的）；顺带回答用户「引用可以跳转吗」：**可以** ——
+`&base` → `@base` 定义行、`@is X` → `@contract X` 都命中。
+
+**② 新功能「应用特殊颜色」**（`sml.applySpecialColor`，编辑器右键菜单）：
+选中词 → 选色 → 写进工作区 `HL-cfg.sml`（**随仓库走**、可直接手写），立即生效。
+关键设计：**默认只对语法单元生效**（contract / fragment / type / key / directive）。
+理由与「spotlight 按字面匹配」形成对照 —— 特殊颜色若按字面染，`active` 会把注释、字符串、
+无关的键一起染（一处着色、满屏变色）。要按普通词染就显式选（`unit: text`）。
+实现：桥接层 `detectUnitKind` / `findUnitOccurrences`（后者按**语法位置**算 range，
+注释里的同名文字不算 —— 这条有断言守着）；`highlight.js` 的 `loadGroups` 认 `unit:` 字段、
+`applyTo` 对单元组走位置计算；`configPath` 从 `highlight.js` 导出（路径校验只有一处实现）。
+
+**③ 文档全面更新**（用户点名：教科书、教科书首页、llms.txt、AI 推荐语、扩展功能、VSIX）：
+`site/content/{zh,en}/_index.md`、`downloads.md`、`book/ch12-smltools.md`（新增 §12.9
+「编辑器：VS Code 扩展提供什么」，原 12.9 顺延 12.10）、根 `README.md`/`README.en.md`、
+`llms.txt`（新增 Editor support 一节 + 「用户问编辑器时怎么说」）+ 同步站点两份 llms 副本、
+把新 VSIX 复制到 `site/static/dl/`。
+⚠️ **顺手抓到两处文档错**（都属于「文档写了但没人核」）：首页仍写着**扩展 0.4.1**（链接也是
+0.4.1 的 vsix），以及能力写着「**走 LSP**」—— 本扩展**刻意不启 LSP**（进程内直调解析器，
+`extension.js` 顶部就写着这个取舍）。**文档里的能力描述也要当成断言来核**。
+
+**④ 新增闸门 `scripts/_verify_activate.mjs`**：用**对齐 VS Code 1.138 的 mock**
+（**故意不提供** `InsertTextFormat`）真跑 `activate()`，断言不抛异常 + 4 个 provider +
+关键命令注册；已挂进 `_prepublish.mjs`。这正是 §22.12 缺的那一步 ——
+`_verify_ext.mjs` 只加载桥接层，**从不加载 extension.js**，所以顶层读坏 API 它完全看不见。
+
 ### 22.12 🔴 本扩展**从来没有真正激活过**：顶层读了 VS Code 1.138 已移除的 API
 
 **用户反馈**：「悬停无效」。此时语言模式已确认是 `SML`（状态栏截图），禁用列表里也只有
