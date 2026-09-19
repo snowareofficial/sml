@@ -1684,6 +1684,42 @@ hover 到底返回什么、命令有没有接线，全是盲区。于是本轮�
 **照样执行了**，只有人眼能从输出里看出不对。**结论**：依赖退出码的串联，一律**不加管道**；
 要过滤输出就重定向到文件、跑完再读文件。
 
+### 22.14 图标主题事故：提示语与行为不一致（用户现场报的）
+
+**现场**：用户装完新 VSIX，看到我们首次激活的提示「是否为 .sml 文件启用青色图标？
+（**继承现有图标集，只影响 .sml**）」，按了「启用」⇒ **整个工作区的非 SML 文件图标全没了**
+（只剩 .sml 有图标）。
+
+**根因**：我们其实贡献了**两个**图标主题 ——
+`sml-icons`（**仅 .sml**，其他文件没有图标）与 `sml-icons-seti`（SML + Seti 兜底）。
+`contributes.iconThemes` 两个都在，但 `suggestIconTheme` 里写死的是 **`sml-icons`**。
+于是**文案说的是 `seti` 那个，代码设的是 `sml-icons` 这个**。这类「文案对、代码错」的 bug 最难自查：
+读代码看文案会觉得没问题，用起来却整片图标消失，而用户也想不到是扩展干的。
+
+**修法（四条一起）**：① 默认一律切 `sml-icons-seti`；② 用户已有**第三方**图标主题时不硬换
+（先提示、再把他送到 `workbench.action.selectIconTheme`，或明确选「仍然切换」）；
+③ 对已中招的人（`current === "sml-icons"`）给**一次性修复提示**；
+④ 新增命令 **`SML: 文件图标主题`** —— 图标主题是**全局设置**，「切错了怎么切回来」必须有一条路。
+
+**闸门（这才是本轮最有价值的部分）**：`_verify_activate.mjs` 里加了 3 条**行为断言** ——
+把 mock 的 `getConfiguration("workbench").update()` 写成**记录器**、把 `showInformationMessage`
+固定回「启用」，然后断言**真的调用了** `workbench.iconTheme = "sml-icons-seti"`，
+并且**绝没有**写成 `"sml-icons"`。这样以后谁再把默认值改错，闸门会当场红。
+
+⚠️ **顺带补掉一个"假绿灯"**：这份 mock 的 `context` 一直**没有 `globalState`**，而
+`suggestIconTheme` 是 `async`（fire-and-forget）—— 此前进程在它的 promise 跑起来之前就
+`process.exit(0)` 了，所以那个 `TypeError` 从没露过面。**这次加了 `await new Promise(setTimeout)`
+等异步路径跑完，才把它照出来**。教训：**测试要覆盖异步尾巴**，否则"全绿"只是因为跑得太早。
+
+**另外两件**：
+- **`editors/zed/README.md` 加了两编辑器能力对照表**，并明确写「本轮 VS Code 侧的功能扩展
+  **不影响** Zed 目录」——判据是"**是否碰了语法**"，不是"VS Code 侧发了版"（grammar /
+  `highlights.scm` / `extension.toml` 的 version 与 grammar rev 都没动）。
+- **新增 `TASK-hy3-w19.md`**：给"不需要判断力"的执行者的**手工验收单**（本仓库 `TASK-hy3*`
+  的传统体裁：敲什么命令 / 点什么按钮 / 期望看到什么 / 不符怎么办），覆盖三关闸门、
+  包内指纹核对、`SML: 自检` 面板逐行判读表、6 项手工验收、Zed 侧 `tree-sitter parse`、
+  两条历史坑复核（管道吃退出码 / CRLF 注释剥离）、文档同步 5 处 + 搜索索引。
+
 ### 22.13 块名悬浮 + 特殊颜色 + 文档全面更新（2026-09-19 收尾）
 
 **① 用户报「`showcase_contract.sml:52 primary` 悬停无提示」→ 两个叠加的缺口**：

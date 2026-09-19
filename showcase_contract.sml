@@ -80,8 +80,7 @@ database {
     latency: num min 0
 }
 
-metrics {
-    @is Metrics
+Metrics metrics {
     latency: 12.5
     customCounter: 7        # loose 下允许；严格模式会报错
 }

@@ -930,26 +930,104 @@ function activate(context) {
   initSemanticHighlight(context);
 
   suggestIconTheme(context);
+  initIconThemeCommand(context);
 }
 
 // 文件图标主题需用户选择才生效，故首次激活时询问一次（可永久关闭提示）
+//
+// ⚠️ 这里踩过一个很贵的坑（用户报「启用完别的文件全没图标了」）：
+// 我们**贡献了两个**图标主题 —— `sml-icons`（仅 .sml，其他文件没有图标）与
+// `sml-icons-seti`（SML + Seti 兜底，其他文件沿用 Seti）。提示语写的是「继承现有图标集，
+// 只影响 .sml」，但代码设的却是 **`sml-icons`** ⇒ 一按「启用」，用户整个工作区的图标全没了
+// （只剩 .sml 有图标）。**提示语与行为不一致**，是最难被发现的那类 bug：文案是对的，代码是错的。
+// 现在：默认一律用 `sml-icons-seti`；且**不覆盖**用户已有的第三方图标主题（改为引导他去选）；
+// 另外给已经中招的人（当前就是 `sml-icons`）一次性修复提示。
+const ICON_THEMES = {
+  ours: ["sml-icons-seti", "sml-icons"],
+  // 「继承其他文件图标」的那个（Seti 兜底）—— 一律优先用它
+  combined: "sml-icons-seti",
+  smlOnly: "sml-icons",
+};
+
 async function suggestIconTheme(context) {
-  const KEY = "sml.iconThemePrompted";
-  if (context.globalState.get(KEY)) return;
+  const promptedKey = "sml.iconThemePrompted";
+  const repairedKey = "sml.iconThemeRepairPrompted";
   const cfg = vscode.workspace.getConfiguration("workbench");
   const current = cfg.get("iconTheme", "");
-  if (current === "sml-icons") return;
+
+  // ① 修复路径：装过更早版本的用户被切到了「仅 .sml」主题 ⇒ 其他文件没有图标。
+  //    给一次「换成 SML + Seti」的机会（不强制，也不重复烦他）。
+  if (current === ICON_THEMES.smlOnly && !context.globalState.get(repairedKey)) {
+    await context.globalState.update(repairedKey, true);
+    const fix = await vscode.window.showInformationMessage(
+      "SML：当前文件图标主题是「SML Icons（仅 .sml）」，其他文件会没有图标。" +
+        "换成「SML Icons + Seti」可以保留其他文件的图标。",
+      "换成 SML + Seti",
+      "保持现状"
+    );
+    if (fix === "换成 SML + Seti") {
+      await cfg.update("iconTheme", ICON_THEMES.combined, vscode.ConfigurationTarget.Global);
+      vscode.window.showInformationMessage("已切换为「SML Icons + Seti」✓");
+    }
+    return;
+  }
+
+  if (context.globalState.get(promptedKey)) return;
+  if (ICON_THEMES.ours.includes(current)) return;
 
   const pick = await vscode.window.showInformationMessage(
-    "SML：是否为 .sml 文件启用青色 {*} 图标？（继承现有图标集，只影响 .sml）",
+    "SML：是否为 .sml 文件启用青色图标？（用「SML Icons + Seti」——其他文件沿用你原来的 Seti 图标）",
     "启用",
     "不再提示"
   );
   if (pick === "启用") {
-    await cfg.update("iconTheme", "sml-icons", vscode.ConfigurationTarget.Global);
+    // 用户已有**第三方**图标主题时不硬换（那会把他整套图标换掉，就是本次的教训）——
+    // 改为把他送到「文件图标主题」选择器，由他自己挑。
+    if (current && !ICON_THEMES.ours.includes(current)) {
+      const go = await vscode.window.showInformationMessage(
+        `你现在用的是「${current}」图标主题，直接切换会把它换掉。` +
+          "建议在图标主题选择器里手动选「SML Icons + Seti」（它自带 Seti 兜底）。",
+        "打开图标主题选择器",
+        "仍然切换"
+      );
+      if (go === "打开图标主题选择器") {
+        await vscode.commands.executeCommand("workbench.action.selectIconTheme");
+        return;
+      }
+      if (go !== "仍然切换") return;
+    }
+    await cfg.update("iconTheme", ICON_THEMES.combined, vscode.ConfigurationTarget.Global);
   } else if (pick === "不再提示") {
-    await context.globalState.update(KEY, true);
+    await context.globalState.update(promptedKey, true);
   }
+}
+
+/// 「SML: 文件图标主题」——把「切错了想切回来 / 想主动选」这件事变成一条命令。
+///
+/// 为什么必须给：图标主题是**全局设置**，一旦被切到「仅 .sml」，用户看到的是「整个工作区的
+/// 文件图标都没了」，却未必知道那是本扩展干的（更不知道该改哪个设置）。给一条能一键切回的路。
+function initIconThemeCommand(context) {
+  context.subscriptions.push(
+    vscode.commands.registerCommand("sml.selectIconTheme", async () => {
+      const cfg = vscode.workspace.getConfiguration("workbench");
+      const cur = cfg.get("iconTheme", "");
+      const pick = await vscode.window.showQuickPick(
+        [
+          { label: "SML Icons + Seti", description: "推荐：.sml 用 SML 图标，其他文件沿用 Seti", id: ICON_THEMES.combined },
+          { label: "SML Icons（仅 .sml）", description: "⚠️ 其他文件**不会**有图标（只在你只想看 .sml 时选）", id: ICON_THEMES.smlOnly },
+          { label: "打开 VS Code 的图标主题选择器…", description: `当前：${cur || "（未设置）"} —— 选回 Seti / Material 等你原来的主题`, id: "" },
+        ],
+        { placeHolder: "选择 .sml 文件图标方案" }
+      );
+      if (!pick) return;
+      if (!pick.id) {
+        await vscode.commands.executeCommand("workbench.action.selectIconTheme");
+        return;
+      }
+      await cfg.update("iconTheme", pick.id, vscode.ConfigurationTarget.Global);
+      vscode.window.showInformationMessage(`文件图标主题已切换为「${pick.label}」`);
+    })
+  );
 }
 
 function deactivate() {}
