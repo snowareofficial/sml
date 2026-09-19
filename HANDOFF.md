@@ -1722,6 +1722,51 @@ Rust/C/C++/Lua 全报 `E-PARSE-001`）⇒ **编辑器诊断看不见这类错误
 **给下一位**：要补实现就照 ch10 那张表从**行有 `❌` 的格子**挑（`typed-block` 是文档引用最多的一个）；
 要复核就**先跑 `probe_cal.py`**，校准不过就别信任何一列。
 
+### 22.13 「多加一份实现」的代价：CLI 私有 include 展开 → 静默丢数据 → 牵出库的逐行词法缺陷
+
+**起因**：用户圈了 `examples/advanced.sml:70`（`include "common.sml", "secrets.sml" as sec`）问
+"拓展对命名空间的支持？一个个全做"。实测五端后发现**不是语言不支持，而是 CLI 又实现了一遍**：
+
+`rust/smltools/src/main.rs` 原有一个 `expand_includes_impl`（**行级**、只认"行首单个引号路径"），
+与库 `sml-include` 是**两份实现**，实测三处分叉（第一处是**静默数据丢失**）：
+
+| 写法 | CLI（旧） | 库 / JS |
+|---|---|---|
+| `include "a.sml", "b.sml" as sec` | 只展开 `a.sml`，`continue` **把整行后半段丢掉** ⇒ 第二个文件**无声消失** | `a` 内容 + `sec: {…}` |
+| `include "inc/*.sml"` | 当**字面路径** open ⇒ `E-INCLUDE-001`（误导"文件读取失败"） | 真展开（glob） |
+| `import { k } as w in "f.sml"` | `E-INCLUDE-012`"写法非法" | 合法（`parse.rs:80` 自己列为**等价写法**） |
+
+⇒ **`examples/advanced.sml` 自己跑不过，根因就在这**。我上一轮把它记成"release 二进制疑过期"
+—— **判断错了**（已更正）：同一个函数就能解释全部三个现象。
+
+**修法**：删掉那份私有展开，`parse_with` 直接调 `sml::parse_file`（与 C-ABI `sml_load_file`、
+编辑器、样例注释推荐的**同一条路**）。净效果：`-60/+19` 行、两处实现**只可能一致**。
+连带行为变更（已同步）：自包含 `E-INCLUDE-004 → `**`E-INCLUDE-002`**（先判出循环引用，更准）；
+未加引号路径 `E-INCLUDE-012 → `**`E-INCLUDE-001`**（按库语义当路径）⇒ `E-INCLUDE-012` 在 CLI
+**退场**，`errors/codes.sml` 的 impls 改为 `[lua]`。两条 CLI 用例随之更新并写明理由。
+
+**⚠️ 修好之后才暴露的真问题**（所以"统一到库"这一步是被迫做对的）：
+`sml-include::expand_includes` 是**逐行** `tokenize(line)` ⇒ **任何跨行词法单元**
+（多行块注释 `/* … */`、多行字符串）都在第 1 行被判"未闭合"。实测**4 份语料**中招
+（`examples/common.sml`、`doc-demo/yuntianming_original.sml`、`micro/CH32V103xx.sml`、
+`slint/calculator.sml`）。注意**这不是 CLI 专属**：`parse(text)` 整篇词法所以没事，
+中招的是**文件入口**（`parse_file` / C-ABI `sml_load_file` / 编辑器）——**此前一直如此，只是没人走到**。
+
+**本轮的有界修法**：整篇**没有** include 时直接整篇词法一次（无 include ⇒ 展开是恒等操作，
+语义与 `parse` 相同）。全仓 41 个语料重扫："**只有 Rust 失败**" 4 → **0**；
+`examples/advanced.sml` 现在 **rc=0 / 110 行输出**（含 `sec: { k: 2 }`、glob 引入的 widget、
+契约默认值 `timeout: 30`）。
+**仍未修**（唯一欠账，已写进 TODO §三·十 第 4 条）：**既有 include、又有跨行词法单元**时仍走慢路径。
+
+**顺手修掉一个从我上一笔就红着的测试**：`f402044` 把 `showcase_contract.sml` 的 `@feature enable
+typed-block` 去掉（为让五端都能解析），但 `rust/tests/contract_showcase.rs` 仍按"契约已应用"断言
+`metrics.latency` ⇒ **一直失败**。教训：**改样例时必须跑依赖它的测试**（当时只跑了文档闸门）。
+现已按样例的**实际语义**（关闭态：块键是类型词 `Metrics`、只有 `__type`/`__name`）锁定，
+开启态由 `rust/tests/syntax_guard.rs` 的 5 条 `typed_block_*` 覆盖。
+
+**验证**：`cargo test -p sml-include -p sml-parse -p swsml -p smltools` **全绿**（76/45/59/22/9/34/43/… 各套件 0 failed）；
+`errors/gen_codes.py` + `gen_json.py` 重生成（141 码）。
+
 ### 22.15 块级类型标注：文档缺一半 + **showcase 里是个假示例**（2026-09-19，用户点的）
 
 用户指着 `showcase_contract.sml:83` 的 `Metrics metrics { }` 问「这种语法文档化了吗？优点、潜力

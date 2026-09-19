@@ -298,19 +298,30 @@ fn include_read_failure_is_include_001() {
 }
 
 #[test]
-fn include_depth_limit_is_include_004() {
+fn include_self_reference_is_include_002() {
+    // ⚠️ 行为变更（2026-09-19）：本用例原名 `include_depth_limit_is_include_004`，
+    // 断言 `E-INCLUDE-004`（16 层耗尽才发现）—— 那是 **CLI 自有展开**的行为。
+    // CLI 改为走库的 `parse_file` 后，库的链栈**先**判出循环引用 ⇒ `E-INCLUDE-002`，
+    // 诊断更准（"自己包含自己"本来就该说循环，而不是说"嵌套太深"）。
+    // ⚠️ `E-INCLUDE-004`（语言层 32 层上限）的覆盖不在这里 —— 库自身的用例负责。
     let dir = tmpdir("incdepth");
     let main = write_file(&dir, "self.sml", "include \"self.sml\"\n");
-    assert_code(&["-i", &s(&main)], None, "E-INCLUDE-004");
+    assert_code(&["-i", &s(&main)], None, "E-INCLUDE-002");
 }
 
 #[test]
-fn include_unquoted_path_is_include_012() {
-    // 未加引号的 include 路径是**写法非法**，不是「文件缺失或读取失败」。
-    // 改动前这里错报 E-INCLUDE-001（用户拿它去查会被误导）。
+fn include_unquoted_path_follows_library_semantics() {
+    // ⚠️ 行为变更（2026-09-19）：CLI 不再自己展开 include，也就**不再有它私有的
+    // "路径必须加引号"校验**（原 `E-INCLUDE-012`）。`include nope.sml` 现在按**库的**
+    // 语义走：未加引号视为路径 ⇒ 文件不存在 ⇒ `E-INCLUDE-001`。
+    //
+    // 为什么可以接受：CLI 与库对同一份文档给出**不同结论**才是更大的问题
+    // （`include "a.sml", "b.sml" as sec` 在 CLI 下会**静默丢掉**后半行）。
+    // `E-INCLUDE-012` 在 CLI 上退场，码表 `impls` 已同步为 `[lua]`；
+    // 若将来要把"未加引号即非法"定成语言级规则，必须实现在**库**里（单一事实来源）。
     let dir = tmpdir("incunquoted");
     let main = write_file(&dir, "main.sml", "include nope.sml\n");
-    let o = assert_code(&["-i", &s(&main)], None, "E-INCLUDE-012");
+    let o = assert_code(&["-i", &s(&main)], None, "E-INCLUDE-001");
     assert_eq!(o.code, Some(1), "语言层/展开失败应以退出码 1 结束");
 }
 

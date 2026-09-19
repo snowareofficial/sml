@@ -69,6 +69,43 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 修复
 
+- **`smltools`：include 展开统一到库 —— 修掉「多目标 include 静默丢数据」等三处 CLI/库分叉**
+  （`rust/smltools/src/main.rs`）：CLI 原来自带一份**行级** include 展开（只认"行首单个引号路径"），
+  与库的 `sml-include` 是两份实现，实测三处分叉，**第一处是静默数据丢失**：
+  - `include "common.sml", "secrets.sml" as sec` ⇒ 只展开第一个，`continue` 把整行后半段丢掉
+    ⇒ 第二个文件**无声消失**（`examples/advanced.sml:70` 就是这一行）；
+  - `include "inc/*.sml"` ⇒ 当字面路径读 ⇒ `E-INCLUDE-001`（误导为"文件读取失败"）；
+  - `import { key } as w in "f.sml"` ⇒ 报 `E-INCLUDE-012`，而库把它列为**等价写法**
+    （`rust/sml-include/src/parse.rs:80`）⇒ `examples/advanced.sml` 自己跑不过。
+
+  现在 CLI 直接调 `sml::parse_file`（与 C-ABI `sml_load_file`、编辑器、样例头部注释推荐的
+  **同一条路**），`multi-include` / `as ns` / 挑键 `{ k }` / `glob` / `regex` / `@feature` 全由库负责，
+  两处实现只可能一致。
+  **连带行为变更**（已同步测试与码表）：自包含由 `E-INCLUDE-004` 变
+  **`E-INCLUDE-002`（循环引用 —— 先判出比"嵌套太深"准）**；`include nope.sml`（未加引号）由
+  `E-INCLUDE-012` 变 **`E-INCLUDE-001`**（按库语义当路径解析）⇒ `E-INCLUDE-012` 在 CLI **退场**，
+  `errors/codes.sml` 的 `impls` 已改为 `[lua]`（只有 Lua 仍抛它）。
+
+- **`sml-include`：`parse_file` 读不了含「跨行词法单元」的文档（多行块注释 / 多行字符串）**
+  （`rust/sml-include/src/expand.rs` 的 `expand_includes`）：它是**逐行** `tokenize(line)`，
+  于是跨行的 `/* … */` 与 `"…"` 在**第 1 行**就报"未闭合"。实测受影响语料 **4 个**：
+  `examples/common.sml`（→ `E-LEX-002`）、`examples/doc-demo/yuntianming_original.sml`、
+  `examples/micro/CH32V103xx.sml`、`examples/slint/calculator.sml`（→ `E-LEX-001`）。
+  注意这条**不只影响 CLI**：`parse(text)` 无此问题（它整篇词法），所以此前没人发现 ——
+  中招的是**文件入口**（C-ABI `sml_load_file`、编辑器、`parse_file`）。
+  修法（有界）：**整篇没有任何 include 时直接整篇词法一次**（无 include ⇒ 展开是恒等操作，
+  语义与 `parse` 完全一致）。全仓 41 个语料重扫：**"只有 Rust 失败"从 4 → 0**，
+  `examples/advanced.sml` 随之整篇解析成功（110 行输出，含 `sec: { k: 2 }` 与 glob 引入的 widget）。
+  ⚠️ **遗留**：**既有 include、又有跨行词法单元**的文档仍走慢路径（见 `TODO.md`）。
+
+- **`rust/tests/contract_showcase.rs`：修掉自 `f402044` 起一直红的断言**：该提交把
+  `showcase_contract.sml` 的"假示例"去掉 `@feature enable typed-block`（为让五端都能解析），
+  但测试仍按"契约已应用"断言 `metrics.latency` ⇒ **一直失败**（当时只跑了文档闸门，
+  没跑 `cargo test -p swsml` —— 流程漏项）。现按样例的**实际语义**（关闭态）锁定：
+  块键是**类型词** `Metrics`、首词仅作 `__type` / `__name` 元数据、字段不校验；
+  **开启态**（契约生效 + default 填充 + strict 校验）由 `rust/tests/syntax_guard.rs` 的
+  5 条 `typed_block_*` 覆盖 —— 两边合起来才是完整语义。
+
 - 🔴 **VSCode 扩展：按「启用」会把用户其他文件的图标全弄没（提示语与行为不一致）**
   （`editors/vscode/src/extension.js` 的 `suggestIconTheme`）：提示语写的是
   「继承现有图标集，**只影响 .sml**」，代码却把 `workbench.iconTheme` 设成了 **`sml-icons`

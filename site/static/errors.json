@@ -854,11 +854,10 @@
       "title": "include 路径写法非法",
       "msg": "include 路径写法非法（未加引号或含非法字符）",
       "impls": [
-        "lua",
-        "smltools"
+        "lua"
       ],
-      "status": "done",
-      "note": "smltools 的 include 展开要求路径加引号；未加引号时原先**暂归 E-INCLUDE-001** —— 那是**已知错码**（用户拿 E-INCLUDE-001 去查会看到「文件缺失或读取失败」，被误导），W21 立此码归位。⚠️ 语言层（`sml-include::parse_include_line`）对「未加引号」的判定归它自己的实现，**Lua 也已落地**（W20 第二阶段：未加引号 / 引号未闭合 / 多余字符都报此码，`include` 与 `@include` 两种写法一致）"
+      "status": "partial",
+      "note": "⚠️ **2026-09-19 起 CLI（smltools）不再抛此码**：CLI 原先自带一份行级 include 展开（要求路径加引号，且把 `include \"a.sml\", \"b.sml\" as sec` 的后半行**静默丢弃**），现已删除、统一走库的 `sml::parse_file`；于是 `include nope.sml` 按库的语义走 ⇒ 报 `E-INCLUDE-001`（当路径解析后文件不存在）。若将来要把「未加引号即非法」定成**语言级**规则，必须在 `sml-include` 里实现（单一事实来源），那时再把 rust 加进 impls。**Lua 仍抛此码**（W20 第二阶段：未加引号 / 引号未闭合 / 多余字符，`include` 与 `@include` 一致）"
     },
     {
       "id": "E-INTERNAL-001",

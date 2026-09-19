@@ -72,13 +72,32 @@ fn showcase_contract_parses_and_applies() {
     );
 
     // 严格模式：Server 未声明额外字段；Metrics 标记 loose 故允许
+    // 块级类型标注 `Metrics metrics { }`：样例**故意不**开 `@feature enable typed-block`
+    // （见 `showcase_contract.sml` 84-90 行的注释 —— 五端里只有 Rust/JS 有 `@feature`，
+    // 开了它 C / C++ / Lua 会直接报 `E-PARSE-005`，样例就没法被五端解析了）。
+    // 因此这里锁的是**关闭态**的语义：
+    //   · 块键是**类型词** `Metrics`（不是块名 `metrics`）；
+    //   · 首词仅作 `__type` / `__name` 元数据；
+    //   · 字段原样保留，**不做**契约校验（`loose` 此时也不参与）。
+    // ⚠️ 开启态（契约生效 + default 填充 + strict 校验）由 `rust/tests/syntax_guard.rs`
+    // 的 5 条 `typed_block_*` 用例覆盖 —— 两边合起来才是完整语义，缺一不可。
+    let m = v
+        .get("Metrics")
+        .expect("未开 typed-block 时，块键应为类型词 Metrics");
     assert_eq!(
-        v.get("metrics.latency"),
-        Some(&sml::Value::float(12.5))
+        m.get("__type").and_then(|x| x.as_str()),
+        Some("Metrics"),
+        "关闭态：首词仅作 __type 元数据"
     );
+    assert_eq!(
+        m.get("__name").and_then(|x| x.as_str()),
+        Some("metrics"),
+        "关闭态：块名进 __name"
+    );
+    assert_eq!(m.get("latency"), Some(&sml::Value::float(12.5)));
     assert!(
-        v.get("metrics.customCounter").is_some(),
-        "loose 契约应保留未声明字段"
+        m.get("customCounter").is_some(),
+        "关闭态下未声明字段原样保留（此处并非 loose 在起作用）"
     );
     assert_eq!(
         v.get("database.primary.prot"),
@@ -90,5 +109,7 @@ fn showcase_contract_parses_and_applies() {
     assert_eq!(v.get("contract"), None);
     assert_eq!(v.get("Server"), None);
     assert_eq!(v.get("Address"), None);
-    assert_eq!(v.get("Metrics"), None);
+    // ⚠️ `Metrics` **不在此列**：样例未开 `typed-block`，`Metrics metrics { }` 因此是普通
+    // 裸块，键就是**类型词** `Metrics`（其 `__type`/`__name` 已在上面断言）。
+    // 开了该特性时块键才是**块名** `metrics` —— 见 `syntax_guard.rs` 的 `typed_block_*`。
 }

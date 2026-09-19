@@ -63,6 +63,39 @@ pub fn expand_includes(
     })?;
     let spans = compute_string_spans(text);
     let mut line_start = 0usize;
+
+    // —— 快速路径：整篇**没有** include 指令 ⇒ 整篇词法一次，不进逐行循环 ——
+    //
+    // 为什么必须有这条路：下面的慢路径是**逐行** `tokenize(line)`，因此任何**跨行的
+    // 词法单元**（多行块注释 `/* … */`、多行字符串）都会在第 1 行被判"未闭合"。
+    // 实测后果（文件入口全中：`parse_file` / C-ABI `sml_load_file` / 编辑器）：
+    //   · `examples/common.sml`（多行块注释）⇒ `E-LEX-002`；
+    //   · `examples/doc-demo/yuntianming_original.sml`、`examples/micro/CH32V103xx.sml`、
+    //     `examples/slint/calculator.sml`（多行字符串）⇒ `E-LEX-001`；
+    //   而 `parse(text)` 没这个问题（它整篇词法）。无 include 时"展开"本就是恒等操作，
+    //   故整篇词法即可，语义与 `parse` 完全一致。
+    //
+    // ⚠️ 已知遗留：**既有 include、又有跨行词法单元**的文档仍会走慢路径而报错
+    //   （见 TODO「逐行 tokenize 的架构缺陷」）—— 那条要改成"整篇词法 + 按行插入"。
+    {
+        let mut ls = 0usize;
+        let mut has_include = false;
+        for line in text.lines() {
+            let inside = line_starts_in_string(text, ls, &spans);
+            ls = advance_line(ls, line, text);
+            if inside {
+                continue; // 多行字符串内部的行不是指令（与下面的循环同判据）
+            }
+            if matches!(parse_include_line(line, features)?, Some(_)) {
+                has_include = true;
+                break;
+            }
+        }
+        if !has_include {
+            out.extend(tokenize(text)?);
+            return Ok(());
+        }
+    }
     for line in text.lines() {
         // 多行字符串内部的行（如 `"...\ninclude \"x\"\n..."`）里的 include 不是指令，
         // 更不能被当作文件读取（防止字符串内伪造 include 触发任意文件读取）。
