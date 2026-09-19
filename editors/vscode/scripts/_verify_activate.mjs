@@ -33,10 +33,23 @@ class Uri { constructor(p) { this.fsPath = p; this.scheme = "file"; } static fil
 class MarkdownString { constructor(v) { this.value = v; } }
 
 const registered = { providers: 0, commands: [] };
+const updates = [];   // 记录对设置的写入（用来断言「图标主题不会被切成仅 .sml 那个」）
 const context = {
   subscriptions: { push: (...x) => x.length },
   extensionPath: ROOT,
   extension: { packageJSON: { version: "test" } },
+  // ⚠️ 必须给 globalState/workspaceState：真实宿主一定提供，早先这份 mock 没给，
+  // 而进程又恰好在异步提示跑起来之前就 exit 了 ⇒ 洞里藏了个假绿灯（这次补上等待才暴露）。
+  globalState: {
+    _m: new Map(),
+    get(k) { return this._m.get(k); },
+    update(k, v) { this._m.set(k, v); return Promise.resolve(); },
+  },
+  workspaceState: {
+    _m: new Map(),
+    get(k) { return this._m.get(k); },
+    update(k, v) { this._m.set(k, v); return Promise.resolve(); },
+  },
 };
 const vscode = {
   Position, Range, Uri, MarkdownString,
@@ -58,7 +71,11 @@ const vscode = {
   workspace: {
     workspaceFolders: [{ uri: Uri.file(ROOT), name: "ws", index: 0 }],
     textDocuments: [],
-    getConfiguration: () => ({ get: (k, d) => d, update: async () => {} }),
+    // 记录 update 调用：图标主题那条断言全靠它（见下）
+    getConfiguration: (section) => ({
+      get: (k, d) => (section === "workbench" && k === "iconTheme" ? "" : d),
+      update: async (k, v) => { updates.push([`${section}.${k}`, v]); },
+    }),
     onDidOpenTextDocument: Disposable, onDidChangeTextDocument: Disposable,
     onDidSaveTextDocument: Disposable, onDidCloseTextDocument: Disposable,
     onDidChangeConfiguration: Disposable, onDidChangeWorkspaceFolders: Disposable,
@@ -74,7 +91,8 @@ const vscode = {
     createOutputChannel: () => ({ appendLine() {}, append() {}, show() {}, hide() {}, clear() {}, dispose() {} }),
     onDidChangeActiveTextEditor: Disposable,
     onDidChangeVisibleTextEditors: Disposable,
-    showInformationMessage: async () => undefined,
+    // 图标主题提示会问「是否启用」——这里回「启用」，好把它的**实际动作**断言出来
+    showInformationMessage: async () => "启用",
     showWarningMessage: async () => undefined,
     showErrorMessage: async () => undefined,
     showQuickPick: async () => undefined,
@@ -119,6 +137,20 @@ for (const id of ["sml.selfCheck", "sml.specialHighlight", "sml.applySpecialColo
   check(registered.commands.includes(id), `注册了命令 ${id}`);
 }
 check(!("InsertTextFormat" in vscode), "mock 确实没有 InsertTextFormat（对齐 1.138）");
+
+// —— 图标主题：提示语与行为必须一致 ——
+// 真踩过：提示写「继承现有图标集，只影响 .sml」，代码却设了 `sml-icons`（**仅 .sml**）
+// ⇒ 用户一按「启用」，整个工作区的文件图标全没了。文案是对的、代码是错的，极难发现。
+await new Promise((r) => setTimeout(r, 60));   // 让 activate 里那个异步提示跑完
+const themeUpdates = updates.filter(([k]) => k === "workbench.iconTheme");
+check(
+  themeUpdates.length === 1 && themeUpdates[0][1] === "sml-icons-seti",
+  "「启用」后切到「SML Icons + Seti」（合并主题）",
+  JSON.stringify(themeUpdates)
+);
+check(!updates.some(([, v]) => v === "sml-icons"),
+  "绝不自动切到「仅 .sml」（那会让其他文件没有图标）");
+check(registered.commands.includes("sml.selectIconTheme"), "注册了「文件图标主题」命令（可切回）");
 
 console.log(failed === 0 ? "\nACTIVATE SMOKE ALL PASS" : `\n${failed} 项失败`);
 process.exit(failed ? 1 : 0);

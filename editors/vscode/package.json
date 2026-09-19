@@ -55,6 +55,10 @@
         "title": "SML: 应用特殊颜色（写进 HL-cfg.sml，仅对语法单元生效）"
       },
       {
+        "command": "sml.selectIconTheme",
+        "title": "SML: 文件图标主题（SML+Seti / 仅 .sml / 换回其他主题）"
+      },
+      {
         "command": "sml.selfCheck",
         "title": "SML: 自检（悬浮 / 跳转 / 高亮没反应时先跑这个）"
       }
