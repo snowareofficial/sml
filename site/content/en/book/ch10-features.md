@@ -299,6 +299,28 @@ A complete runnable example is in
 
 >**Note 2**: `include "re:^.*\\.sml$"` has already covered all. sml, there is no need to use `include "*.sml"` again. Simultaneously using what may be interpreted as "glob priority" or "regex priority" may result in different cross implementation behaviors - SML specifies **explicit prefix priority**: `re:` follows regex; `*.sml` takes the globe.
 
+### `typed-block` (**default off**; ⚠️ **currently JavaScript only**)
+
+Block-level type annotation: put the contract name in front of the block name (`Metrics metrics { }`),
+equivalent to writing `@is Metrics` on the block's first line. No new tokens — it is **exactly the same
+shape** as the existing bare-block form `type [name] { }` and only takes effect when the first word is an
+**already-defined contract name**. See [§5.2.2](/en/book/ch05-contract).
+
+```sml
+@feature enable typed-block
+```
+
+| Item | Value |
+|---|---|
+| Default | **off** — without it the form degrades to a plain bare block: the contract is **not applied and no error is raised** (a silent divergence) |
+| Depends on | `contract` (the contract layer itself, default on) |
+| Implementations (audited 2026-09-19) | **JS only**: gated in `js/sml.mjs` by `feats.has("typed-block") && feats.has("contract")`. The Rust / C / C++ / Lua sources contain **no such feature name** (in `rust/src` it only appears in the C-ABI feature-name table as bit 14) |
+
+⚠️ On implementations that do not know it, `@feature enable typed-block` is **`E-FEATURE-003`
+(unknown feature name)** — so **do not use it in documents shared across implementations**
+(e.g. `showcase_contract.sml`); write `@is ContractName` instead, which is portable.
+(Error codes live in `errors/codes.sml`.)
+
 ## 10.4 Implementation Layer of Features (Architecture Tips)
 
 SML parser runs according to "feature bitmask":
@@ -307,7 +329,7 @@ SML parser runs according to "feature bitmask":
 FeatureSet = (include | namespace | implicit-ns | contract | env | escape
               | fragment | top-array | bareword-str
               | multi | glob | regex | ext-rewrite
-              | when | for)
+              | when | for | typed-block)
 ```
 
 -Core layer (default enabled) 9 bits default=1 (all basics except `when`/`for`).

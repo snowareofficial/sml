@@ -118,6 +118,49 @@ Clerk window-one {              # contract name + block name = this block is con
 
 This is **exactly the same shape** as the existing bare-block form `type [name...] { }`. The only difference: when the first word is an **already-defined contract name**, it is automatically applied as a type constraint, equivalent to writing `@is ContractName` on the block's first line. Non-contract words (e.g. `server web { }`) behave exactly as before, so existing documents are unaffected. This capability is **opt-in** and requires `@feature enable typed-block`.
 
+#### Implementation status, advantages and potential (audited 2026-09-19)
+
+**⚠️ Implementation status**: this form is **currently implemented in JavaScript only**
+(gated in `js/sml.mjs` by `feats.has("typed-block") && feats.has("contract")`). The Rust / C / C++ / Lua
+sources contain no such feature name — and the consequences come in two flavours, both worth remembering:
+
+| Situation | What actually happens |
+|---|---|
+| Not implemented **and** you write `@feature enable typed-block` | **`E-FEATURE-003` (unknown feature name)** — the document is simply unusable on that implementation |
+| Not implemented **and** you omit that `@feature` line | The form **degrades to a plain bare block** (two metadata keys: `__type: ContractName`, `__name: blockname`) — the contract is **neither validated nor default-filled, and no error is raised** (a silent divergence) |
+
+So: **do not use it in documents shared across implementations** — write `@is ContractName`, which is
+portable (`showcase_contract.sml` was changed for exactly this reason).
+
+**Advantages** (why this design is worth keeping):
+1. **Zero new syntax**: identical in shape to the existing bare block `type [name] { }` — no new tokens,
+   no breakage of existing documents; the only switch is the semantic condition "is the first word an
+   already-defined contract name?". Zero syntax growth is rare and precious in a format language.
+2. **Type-first, readable in place**: `Metrics metrics { }` tells you the shape at a glance, without
+   hunting for the `@is` line inside the block — the value grows with block size.
+3. **Naturally exploitable by tooling**: the contract name becomes a **structured position** rather than
+   a string, which is what lets an editor do something with it — the VS Code extension in this repo
+   already delivers: semantic highlighting of the contract name (`findAnnotatedBlocks`), hover showing
+   **path + applied contract + the contract-filled structure**, and navigation from `Metrics` to
+   `@contract Metrics`.
+4. **Convenient for generators**: when emitting SML programmatically, "type then name" is harder to get
+   wrong than "insert a directive inside the block".
+
+**Potential** (not built yet, but the road is paved):
+- **Schema export**: scan `@contract` plus block-level annotations and emit JSON Schema / TypeScript
+  types (the contract is already available at parse time; only an exporter is missing).
+- **Cross-file contract libraries**: together with `include` / namespaces, shapes could be shared across
+  repositories instead of living in one file.
+- **Migration help**: infer draft `@contract` blocks from existing data when porting JSON/YAML
+  (`smltools --from json` is a start).
+- **Deeper editor semantics**: block-level annotation plus contract composition is enough to answer
+  "which field is this block missing" and "which contract does this field come from" incrementally
+  (the extension currently provides hover and navigation, not field-level diagnostics).
+
+**Prerequisite for that potential**: it has to land in **Rust (the reference implementation)** first.
+Until then, treat it as a **dialect capability**, not general syntax — which is exactly why this section
+opens with "currently JavaScript only".
+
 ### Parentheses are ordinary characters
 
 In SML, `( )` are **ordinary characters**, not syntax symbols. So a bare-word value can contain parentheses directly, without quotes:

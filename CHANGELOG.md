@@ -12,6 +12,35 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ## [未发布]
 
+### 文档 / 工具链
+
+- **块级类型标注（`契约名 块名 { }`）的文档化补全 + 优点/潜力重估 + 一个"假示例"被修掉**：
+  用户指着 `showcase_contract.sml:83` 的 `Metrics metrics { }` 问「这种语法文档化了吗？优点潜力分析了吗？」
+  —— 审计结果是：**§5.2.2 有讲、但实现面与潜力没写，而且 showcase 那个例子是坏的**。
+  - **实现面审计（这次才查清）**：`typed-block` 在 **JS** 里实现
+    （`js/sml.mjs`：`feats.has("typed-block") && feats.has("contract")`）；**Rust / C / C++ / Lua 源码里
+    没有这个特性名**（`rust/src` 只在 C-ABI 的特性名表里登记了 bit 14）。后果两种，都致命：
+    ① 未实现 + 写了 `@feature enable typed-block` ⇒ **`E-FEATURE-003` 未知特性名**，文档在那端完全不可用；
+    ② 未实现 + 没写这条 `@feature` ⇒ 该写法**退化成普通裸块**（多出 `__type`/`__name` 元数据），
+    契约**既不校验也不填默认值，还不报错** —— 静默差异。
+  - **`showcase_contract.sml` 是坏的示例**：它用了 `Metrics metrics { }` 却**没有**开 `typed-block`
+    ⇒ 契约**静默没生效**，而注释还写着「loose 下允许；严格模式会报错」（严格模式压根没跑）。
+    已改成可移植写法（块内 `@is Metrics`，`loose` 保留在契约声明处），实测：`metrics` 块从
+    `{latency, customCounter, __type, __name}`（裸块）变成 `{latency, customCounter}`（**契约真的应用了**）；
+    顺便更新了文件头**过时**的「语言支持状态」（还写着 C/JS/Lua 待办）。
+  - **`ch10-features.md`（feature 完整参考）此前完全没有 `typed-block`** ⇒ 补 `FeatureSet` 位表 +
+    新增小节（默认关 / 依赖 contract / **仅 JS** / 未实现的端会报 `E-FEATURE-003`），中英各一份。
+  - **`ch05-contract.md` §5.2.2 新增「实现状态、优点与潜力」**（中英）：两种失败情形的对照表、
+    4 条优点（零新语法 / 类型前置可读 / 天然可被工具利用（本扩展已兑现语义高亮·悬浮·跳转）/
+    对生成侧友好）、4 条潜力（schema 导出 / 跨文件契约库 / 迁移辅助 / 更深的编辑器语义）+
+    **潜力兑现的前提：先在 Rust（参考实现）落地**，在那之前把它当**方言能力**而非通用语法。
+  - `llms.txt`：新增一段**明确劝阻** —— 除非用户在 JS 上，否则**不要**生成这个写法（避免 AI 把
+    只能在一端跑的语法写进用户的 Rust 工程）；同步站点两份副本。
+  - 扩展 README（中英）与根 `README.md` / `README.en.md` 的编辑器能力表注明：块级类型标注
+    我们也认（悬浮/语义高亮/跳转），但该写法**仅 JS 实现**。
+  - 复核：`showcase_contract.sml` 仍解析干净；`tools/check_dump_parity.py` 的「行数与 Rust 一致」
+    仍是 **19/19**（改展示文件没动摇 C↔Rust 的对齐基线）。
+
 ### 修复
 
 - 🔴 **VSCode 扩展：按「启用」会把用户其他文件的图标全弄没（提示语与行为不一致）**
