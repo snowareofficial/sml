@@ -11,7 +11,10 @@ use sml_codes::{
     E_INCLUDE_011, E_IO_001, E_LIMIT_003, SmlError,
 };
 use sml_feature::{Feature, FeatureSet};
-use sml_lex::{Tok, advance_line, compute_string_spans, line_starts_in_string, tokenize};
+use sml_lex::{
+    Tok, advance_line, compute_block_comment_spans, compute_string_spans, line_starts_in_string,
+    tokenize,
+};
 
 use crate::{
     MAX_INCLUDE_DEPTH, MAX_INCLUDE_EXPANSIONS, parse_include_line,
@@ -62,31 +65,16 @@ pub fn expand_includes(
         )
     })?;
     let spans = compute_string_spans(text);
-    let mut line_start = 0usize;
 
-    // —— 快速路径：整篇**没有** include 指令 ⇒ 整篇词法一次，不进逐行循环 ——
+    // —— 快速路径：整篇**没有** include 指令 ⇒ 整篇词法一次，不进逐段循环 ——
     //
-    // 为什么必须有这条路：下面的慢路径是**逐行** `tokenize(line)`，因此任何**跨行的
-    // 词法单元**（多行块注释 `/* … */`、多行字符串）都会在第 1 行被判"未闭合"。
-    // 实测后果（文件入口全中：`parse_file` / C-ABI `sml_load_file` / 编辑器）：
-    //   · `examples/common.sml`（多行块注释）⇒ `E-LEX-002`；
-    //   · `examples/doc-demo/yuntianming_original.sml`、`examples/micro/CH32V103xx.sml`、
-    //     `examples/slint/calculator.sml`（多行字符串）⇒ `E-LEX-001`；
-    //   而 `parse(text)` 没这个问题（它整篇词法）。无 include 时"展开"本就是恒等操作，
-    //   故整篇词法即可，语义与 `parse` 完全一致。
-    //
-    // ⚠️ 已知遗留：**既有 include、又有跨行词法单元**的文档仍会走慢路径而报错
-    //   （见 TODO「逐行 tokenize 的架构缺陷」）—— 那条要改成"整篇词法 + 按行插入"。
+    // 为什么必须有这条路：下面的慢路径按**段**词法，而"段"的切分再准也仍是分片的；
+    // 无 include 时"展开"本就是恒等操作，整篇词法一次最保险（语义与 `parse` 完全一致，
+    // 多行块注释 / 多行字符串自然全部处理正确）。
     {
-        let mut ls = 0usize;
         let mut has_include = false;
-        for line in text.lines() {
-            let inside = line_starts_in_string(text, ls, &spans);
-            ls = advance_line(ls, line, text);
-            if inside {
-                continue; // 多行字符串内部的行不是指令（与下面的循环同判据）
-            }
-            if matches!(parse_include_line(line, features)?, Some(_)) {
+        for seg in segments(text, &spans) {
+            if matches!(parse_include_line(seg, features)?, Some(_)) {
                 has_include = true;
                 break;
             }
@@ -96,23 +84,13 @@ pub fn expand_includes(
             return Ok(());
         }
     }
-    for line in text.lines() {
-        // 多行字符串内部的行（如 `"...\ninclude \"x\"\n..."`）里的 include 不是指令，
-        // 更不能被当作文件读取（防止字符串内伪造 include 触发任意文件读取）。
-        let inside_string = line_starts_in_string(text, line_start, &spans);
-        line_start = advance_line(line_start, line, text);
-        if inside_string {
-            // 当作普通行 tokenize（保持与字符串片段一致），不进入 include 解析分支
-            // 内层是词法错误（E-LEX-*），外壳标 E-INCLUDE-011；内层码保留在文案里。
-            let line_toks = tokenize(line).map_err(|e| {
-                SmlError::new(
-                    E_INCLUDE_011,
-                    format!("include 预处理词法错误：{e}（于行：{line}）"),
-                )
-            })?;
-            out.extend(line_toks);
-            continue;
-        }
+    // ⚠️ 这里**不再** `for line in text.lines()`：逐行 `tokenize` 会让任何**跨行的词法单元**
+    // （多行块注释 `/* … */`、多行字符串）在**第 1 行**就报"未闭合" —— 实测曾让 4 份语料
+    // 在文件入口（`parse_file` / C-ABI `sml_load_file` / 编辑器）直接读不了。
+    // 现在按**段**遍历：跨行单元与它所在的那些行粘成一段，段内是自洽的词法单元（见 `segments`）。
+    // 顺带把"字符串/注释里写一行 `include \"x.sml\"` 被真的展开"这条也堵住了：
+    // 那种行所在段的**开头**不是 `include`，`parse_include_line` 自然返回 `None`。
+    for line in segments(text, &spans) {
         match parse_include_line(line, features)? {
             Some(targets) => {
                 if !features.has(Feature::Include) {
@@ -218,6 +196,40 @@ pub fn expand_includes(
         }
     }
     Ok(())
+}
+
+/// 把文本切成若干「**词法单元不跨段**」的段。
+///
+/// - 普通行各自成一段；
+/// - **跨行**的词法单元（多行字符串、多行块注释）与它覆盖到的那些行**粘成一段**。
+///
+/// 为什么需要它：include 展开要逐段 `tokenize`，而逐行 tokenize 会把跨行单元在第 1 行
+/// 就判成"未闭合"（`E-LEX-001` / `E-LEX-002`）—— 那正是本函数要根治的架构缺陷。
+/// 它同时取代了原先"这一行是否在多行字符串内部"的判据（`line_starts_in_string`）：
+/// 跨行单元所在的段，其**开头**必然不是 `include`，于是 `parse_include_line` 自然返回
+/// `None` —— **注释里伪造的 include 不会被读文件**（与字符串内伪造 include 同等防护）。
+fn segments<'a>(text: &'a str, string_spans: &[(usize, usize)]) -> Vec<&'a str> {
+    let comment_spans = compute_block_comment_spans(text);
+    let multi: Vec<(usize, usize)> = string_spans
+        .iter()
+        .chain(comment_spans.iter())
+        .copied()
+        .filter(|(s, e)| text[*s..*e].contains('\n'))
+        .collect();
+    let inside_multi = |i: usize| multi.iter().any(|(s, e)| i >= *s && i < *e);
+    let mut segs = Vec::new();
+    let mut start = 0usize;
+    for (i, b) in text.as_bytes().iter().enumerate() {
+        // 只在"不在跨行单元内部"的换行处切段
+        if *b == b'\n' && !inside_multi(i) {
+            segs.push(&text[start..i]);
+            start = i + 1;
+        }
+    }
+    if start <= text.len() {
+        segs.push(&text[start..]);
+    }
+    segs
 }
 
 /// 读取单个文件内容，剥离其自身的 `@version`/`@feature` 行后 tokenize。

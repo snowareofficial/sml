@@ -345,13 +345,15 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
 3. **JS `parseSafe` 接受未闭合块**（**仍未修**）：`basic { a: 1`（缺 `}`）⇒ JS 返回
    `{ok: true, value: {basic:{a:1}}}`，而 Rust / C / C++ / Lua **全部报 `E-PARSE-001`**。
    编辑器诊断用的是 `parseSafe` ⇒ **这类错误在编辑器里不报红**。属该修的一条。
-4. **新登记：`sml-include` 的"逐行 tokenize"架构缺陷（只修了一半）**：`expand_includes` 逐行
-   `tokenize(line)` ⇒ 任何**跨行词法单元**（多行块注释、多行字符串）都会在第 1 行报"未闭合"。
-   本轮加了**快路径**（整篇无 include ⇒ 整篇词法一次），把"只有 Rust 失败的语料"从 **4 → 0**；
-   但**既有 include、又有跨行词法单元**的文档仍走慢路径而报错（例：
-   `include "common.sml"` + 主文件里一段跨行块注释）。正解是改成
-   "**整篇词法一次 + 按行插入被包含文件的 token**"（token 带位置信息，parse 报错能给行号即证），
-   或把 include 指令的识别前移到词法阶段。**这是本轮唯一还欠的实现债。**
+4. ✅ **已修（同日）：`sml-include` 的"逐行 tokenize"架构缺陷**：`expand_includes` 原先逐行
+   `tokenize(line)` ⇒ 任何**跨行词法单元**（多行块注释、多行字符串）都在第 1 行报"未闭合"，
+   **文件入口**（`parse_file` / C-ABI `sml_load_file` / 编辑器）读不了这类文档。修法**不是**
+   "给 token 加位置"，而是**按段词法**：把文本切成"跨行单元与它覆盖的行粘成一段"（新增
+   `sml-lex::compute_block_comment_spans` + `expand::segments`），段内是自洽的词法单元。
+   ⚠️ **顺带堵了一条安全漏洞**：原先只有"字符串里伪造 include"被防护（`compute_string_spans`），
+   **块注释里写一行 `include "secret.sml"` 会被真的读盘并内联** —— 现在注释所在段的开头不是
+   `include`，自然不成指令。回归测试：`include_with_multiline_block_comment_and_string`
+   与 `include_inside_block_comment_is_not_expanded`（`rust/src/lib.rs`，后者此前**无任何覆盖**）。
 5. ✅ **「未加引号即非法」已升为语言级规则**（用户裁决「好的」）：实现在
    `rust/sml-include/src/parse.rs`（`next_token_meta` 报告"是否加引号 / 引号是否闭合"，
    `parse_include_line` 只对 `include` 生效）⇒ `E-INCLUDE-012` 现在 **Rust（含 CLI）与 Lua 同码**，

@@ -484,6 +484,57 @@ pub fn line_starts_in_string(_text: &str, start: usize, spans: &[(usize, usize)]
     spans.iter().any(|(s, e)| start >= *s && start < *e)
 }
 
+/// 计算文本中所有**块注释**（`/* … */` 与 `_* … *_`）的字节区间。
+///
+/// 与 [`compute_string_spans`] 并列存在，理由也一样：**跨行**的块注释会让"逐行"处理失明。
+/// `sml-include` 现在按"跨行单元合并后的段"来词法（见 `expand.rs` 的 `segments`），
+/// 它必须知道某一行是否落在块注释里 —— 否则注释里写的一行 `include "x.sml"` 会被**真的展开**，
+/// 既错又危险（等同字符串里伪造 include 的那条任意文件读取路径）。
+///
+/// 与词法器保持一致：块注释**不嵌套**（`/*` 到最近一个 `*/`），且
+/// 行注释（`#` / `//` / `--` 到行尾）与字符串内部的 `/*` 都**不**开启块注释。
+pub fn compute_block_comment_spans(text: &str) -> Vec<(usize, usize)> {
+    let bytes = text.as_bytes();
+    let strings = compute_string_spans(text);
+    let in_string = |i: usize| strings.iter().any(|(s, e)| i >= *s && i < *e);
+    let mut spans = Vec::new();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if in_string(i) {
+            i += 1;
+            continue;
+        }
+        let b = bytes[i];
+        let skip_to_eol = b == b'#'
+            || (b == b'/' && bytes.get(i + 1) == Some(&b'/'))
+            || (b == b'-' && bytes.get(i + 1) == Some(&b'-'));
+        if skip_to_eol {
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        // `/* … */` 与 `_* … *_`：这两对都是块注释，按同样方式找最近的收尾。
+        let closer = match (b, bytes.get(i + 1)) {
+            (b'/', Some(b'*')) => Some((b'*', b'/')),
+            (b'_', Some(b'*')) => Some((b'*', b'_')),
+            _ => None,
+        };
+        if let Some((c1, c2)) = closer {
+            let mut j = i + 2;
+            while j + 1 < bytes.len() && !(bytes[j] == c1 && bytes[j + 1] == c2) {
+                j += 1;
+            }
+            let end = if j + 1 < bytes.len() { j + 2 } else { bytes.len() };
+            spans.push((i, end));
+            i = end;
+            continue;
+        }
+        i += 1;
+    }
+    spans
+}
+
 /// 推进到下一行的起始字节偏移（处理 \n；CRLF 也兼容）。
 pub fn advance_line(mut start: usize, line: &str, text: &str) -> usize {
     start += line.len();
