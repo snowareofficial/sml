@@ -201,7 +201,31 @@ smltools -i data.sml --to custom --custom-rules rules.sml -o out.txt
 
 The rule table is SML too — you describe both the data and the generation logic in the same language.
 
-## 12.9 Hands-on
+## 12.9 Editor: what the VS Code extension gives you
+
+`smltools` handles "file → another format"; the **editor extension** handles "while you are
+writing SML". Beyond syntax highlighting, diagnostics, completion and formatting, the 0.4.2
+VS Code extension (manual VSIX install, not on the Marketplace) adds a few things that only
+make sense for SML:
+
+| Capability | How | Why it matters |
+|---|---|---|
+| Hover a contract | cursor on a contract name (`@is Server`) | shows the declaration **plus the structure the parser actually produced after filling defaults** — the real result, not a restatement of the declaration |
+| Hover a block | cursor on a block name (`primary {`) | shows the block **path** (`database.primary`), the contract it applies and the filled structure |
+| Go to definition | `@is Server` → `@contract Server`; `&base` → `@base { }` | fragments/contracts are **document-level names**: same name, jump — no scope analysis |
+| Special colors | select a word → right-click "应用特殊颜色" | the color is written into the workspace `HL-cfg.sml` (**itself an SML file**, hand-editable, travels with the repo). By default it applies **only to syntax units** (contract / fragment / type / key / directive), so comments and strings with the same text stay as they are |
+| Spotlight | select a word → right-click | lights it up across the whole workspace (check the blast radius before renaming a field) |
+| Self-check | right-click "SML: 自检" | when hover / jump / highlighting "does nothing", it dumps every link in the chain (extension version, **bundled parser fingerprint**, registered commands, language mode, document validation, navigability) into the "Output → SML" panel |
+
+> Why these are worth building: SML's **contract layer is an optional overlay** — the same data
+> looks different with and without it. Hovering to show the *post-contract* result puts "what
+> the parser did" in front of you, which a plain text editor simply cannot do.
+>
+> Conversely, if it "does nothing", run **SML: 自检** first: the two most painful real causes have
+> been "the extension never activated" and "the file's *language mode* is not SML" — both look
+> exactly like a broken extension.
+
+## 12.10 Hands-on
 
 Take any SML config you have and try translating it to different targets to feel "write once, use everywhere":
 

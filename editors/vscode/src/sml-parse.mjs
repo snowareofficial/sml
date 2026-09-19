@@ -147,6 +147,95 @@ export function findOccurrences(text, term, options = {}) {
   return out;
 }
 
+/// 可被「特殊颜色」识别的语法单元种类。
+///
+/// 为什么需要这个：给一个词上色，如果只按**字面**匹配，那么一个普通的 `active`
+/// 会被染到程序里所有 `active` 上（包括注释、字符串、无关的键）。SML 的「单元」是
+/// **语法位置**的概念 —— 同一个词出现在不同位置含义不同。所以特殊颜色要么按单元着色
+/// （只染语法位置），要么用户明确选择「按普通词着色」（text）。
+export const UNIT_KINDS = ["contract", "fragment", "type", "key", "directive", "text"];
+
+/// 判定 `name` 在本文档里是哪种语法单元（按具体度排序，取最具体的那个）。
+///
+/// 顺序：契约 > 片段 > 类型 > 指令 > 键。都不是则返回 `null`
+/// （由调用方决定是否退化为「普通词」）。中文名同样适用。
+export function detectUnitKind(text, name) {
+  if (!name) return null;
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const B = "(?![\\p{L}\\p{N}_.\\-])";
+  const u = (p) => new RegExp(p, "u");
+  const lines = text.split("\n");
+  const any = (re) => lines.some((l) => re.test(l));
+  if (any(u("^\\s*@contract\\s+" + esc + B)) || any(u("^\\s*@is\\s+" + esc + B)) ||
+      any(u("^\\s*" + esc + "\\s+[^\\s{}]+\\s*\\{"))) return "contract";
+  if (any(u("^\\s*@" + esc + "\\s*\\{")) || any(u("&" + esc + B))) return "fragment";
+  if (any(u("^\\s*@type\\s+name:\\s*" + esc + B))) return "type";
+  if (any(u("^\\s*@" + esc + B)) || any(u("^\\s*@feature\\s+(?:enable|disable)\\s+" + esc + B))) return "directive";
+  if (any(u("^\\s*" + esc + "\\s*:"))) return "key";
+  return null;
+}
+
+/// 找出 `name` 作为**某种语法单元**出现的位置（供「特殊颜色」按单元着色）。
+///
+/// 与 `findOccurrences`（字面匹配）的区别：这里只认语法位置，例如
+/// `contract` 只染 `@contract X` / `@is X` / `X 块名 {`，不会染注释或字符串里的同名文字。
+/// `text` 退化为字面匹配（用户明确选择「按普通词着色」时用）。
+///
+/// 返回 `[{ line, col, length }]`（行列从 0 起），最多 `max` 条。
+export function findUnitOccurrences(text, name, unit = "text", max = 20000) {
+  if (!name) return [];
+  if (!unit || unit === "text") return findOccurrences(text, name, { wholeWord: true, max });
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const B = "(?![\\p{L}\\p{N}_.\\-])";
+  const pats = {
+    contract: [
+      "^\\s*@contract\\s+(" + esc + ")" + B,     // 定义处
+      "^\\s*@is\\s+(" + esc + ")" + B,           // 用法
+      "^\\s*(" + esc + ")\\s+[^\\s{}]+\\s*\\{",  // 块级类型标注 `<契约名> 块名 {`
+    ],
+    fragment: [
+      "^\\s*@(" + esc + ")\\s*\\{",              // 定义处 `@base {`
+      "&(" + esc + ")" + B,                      // 引用 `&base`
+    ],
+    type: [
+      "^\\s*@type\\s+name:\\s*(" + esc + ")" + B,  // 定义处
+      "^\\s*[^\\s:{}]+\\s*:\\s*(" + esc + ")" + B, // 契约字段的类型位
+    ],
+    key: ["^(\\s*)(" + esc + ")\\s*:"],          // 数据区键名
+    directive: ["^\\s*@(" + esc + ")" + B],
+  }[unit];
+  if (!pats) return findOccurrences(text, name, { wholeWord: true, max });
+  const lines = text.split("\n");
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    for (const p of pats) {
+      const re = new RegExp(p, "gu");
+      let m;
+      // 一行里同一模式可能多次（如 `&a &a`），逐个取
+      while ((m = re.exec(line)) !== null) {
+        if (m[0].length === 0) { re.lastIndex++; continue; }
+        // 抓取组：优先取含名字那一组（各组都试，取与 name 等长的那个）
+        let col = -1;
+        for (let g = m.length - 1; g >= 1; g--) {
+          if (m[g] === name) { col = m.index + m[0].lastIndexOf(m[g]); break; }
+        }
+        if (col < 0) col = m.index + (m[0].length - name.length);
+        out.push({ line: i, col, length: name.length });
+        if (out.length >= max) return out;
+      }
+    }
+  }
+  // 去重（同一位置可能被两条模式同时命中）
+  const seen = new Set();
+  return out.filter((r) => {
+    const k = r.line + ":" + r.col;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
 /// 收集 @type 声明的自定义类型名（供契约字段的类型位补全）
 ///
 /// `@type name: 手机号 { ... }` -> "手机号"
@@ -227,50 +316,176 @@ export function contractDeclaration(text, name) {
   return null;
 }
 
-/// 找出「用 `@is <契约名>` 标注的块」在**解析结果**里的实例（默认值已由解析器填充）。
+/// 把一行里「结构性的花括号」数出来（先剥掉字符串与注释，避免 `{` 被误算）。
 ///
-/// 做法：先在文本里找到 `@is <name>`，再向上找最近的 `名字 {`（或 `契约名 块名 {`）
-/// 取出块名，最后从解析结果里取该键 —— 拿到的就是**应用契约之后**的结构。
+/// SML 里字符串可含 `{}`、注释也可含 `{}`，直接数字符会把层级算错 ⇒ 路径也就错了。
+function bracesOf(rawLine) {
+  const l = rawLine
+    .replace(/"(?:[^"\\]|\\.)*"/g, '""')   // 字符串整体抹平（含转义）
+    .replace(/#.*$/, "")                   // `#` 行尾注释
+    .replace(/\/\/.*$/, "");               // `//` 行尾注释
+  let open = 0;
+  let close = 0;
+  for (const ch of l) {
+    if (ch === "{") open++;
+    else if (ch === "}") close++;
+  }
+  return { open, close };
+}
+
+/// 解析一行是不是**块声明**：`键 {`、`键 名 {`、`契约名 块名 {`（行尾注释与空白可省）。
 ///
-/// 只认**顶层**块：取不到就返回 `null`，由调用方退化为「只显示契约声明」。
-/// 宁可少显示，也不要显示错的内容。
+/// 返回 `{ head, name, col, headLen, nameCol }`：`head` 是首词（可能是键，也可能是契约名），
+/// `name` 是第二个词（若有两个词）。都是 0 起列号，供「悬停块名」判断光标落在哪个词上。
+function blockDeclOf(rawLine) {
+  const m = /^(\s*)([^\s:{}]+)(?:\s+([^\s{}]+))?\s*\{\s*(?:[#/].*)?$/.exec(rawLine);
+  if (!m) return null;
+  const head = m[2];
+  if (head.startsWith("@")) return null; // 指令 / 片段定义不是数据块
+  const col = m[1].length;
+  const name = m[3];
+  return {
+    head,
+    name,
+    col,
+    headLen: head.length,
+    nameCol: name ? col + head.length + (rawLine.slice(col + head.length).match(/^\s+/) || [""])[0].length : -1,
+  };
+}
+
+/// 求**某个块**在解析结果里的位置：自身名、完整路径、以及（按路径取到的）值。
 ///
-/// 返回 `{ key, line, value }` 或 `null`。
+/// `line` 是块声明行（0 起）。做法：从头做一次花括号配对扫描，得到每一层的名字栈，
+/// 第 `line` 行开的新块其路径就是「外层栈 + 自己」——这样**嵌套块**也能定位
+/// （此前只认顶层，`database { primary { @is Server … } }` 里 primary 的实例取不到，
+/// 于是悬停只剩契约声明，看起来就像「没生效」）。
+///
+/// 返回 `{ key, path, value, closeLine, contractFromHead }` 或 `null`。
+export function blockPath(text, line) {
+  const lines = text.split("\n");
+  if (line < 0 || line >= lines.length) return null;
+  const decl = blockDeclOf(lines[line]);
+  if (!decl) return null;
+  const key = decl.name || decl.head;
+
+  // 一次前向扫描：维护「当前处于哪几层块内」的名字栈；遇到 target 行就把栈定格为它的外层路径。
+  const stack = [];
+  let outer = null;
+  for (let i = 0; i < lines.length && outer === null; i++) {
+    const d = blockDeclOf(lines[i]);
+    if (i === line) outer = stack.slice();
+    if (d) stack.push(d.name || d.head);
+    const { open, close } = bracesOf(lines[i]);
+    // 该行自身的 `{` 已计入 stack；`}` 弹栈（同一行 `{ }` 相抵）
+    const selfOpen = d ? 1 : 0;
+    for (let k = 0; k < open - selfOpen + close; k++) stack.pop();
+  }
+  if (outer === null) return null;
+  const path = [...outer, key];
+
+  const r = parseSafe(text);
+  let value;
+  if (r.ok && r.value && typeof r.value === "object") {
+    value = r.value;
+    for (const seg of path) {
+      if (value === null || typeof value !== "object") { value = undefined; break; }
+      value = value[seg];
+    }
+  }
+  // 块的收尾行（供扫块体）：从声明行起按花括号配对找
+  let depth = 0;
+  let closeLine = -1;
+  for (let i = line; i < lines.length; i++) {
+    const { open, close } = bracesOf(lines[i]);
+    depth += open - close;
+    if (i > line || open > 0) {
+      if (depth <= 0) { closeLine = i; break; }
+    }
+  }
+  return { key, path, value, closeLine, contractFromHead: decl.name ? decl.head : null };
+}
+
+/// 找 `名字 {`（或 `契约名 块名 {`）在**解析结果**里的实例（默认值已由解析器填充）。
+///
+/// 现在支持**嵌套块**（走 `blockPath` 的路径查找）；取不到就返回 `null`，
+/// 由调用方退化为「只显示契约声明」——宁可少显示，也不要显示错的内容。
+///
+/// 返回 `{ key, path, line, value, contract }` 或 `null`。
 export function contractInstance(text, name) {
   if (!name) return null;
   const r = parseSafe(text);
   if (!r.ok) return null;
   const lines = text.split("\n");
   const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const top = (key) => (r.value && typeof r.value === "object" ? r.value[key] : undefined);
-  // `@is Name` 所在行往上找最近的 `名字 {`，取块名
-  const pickUp = (startLine) => {
-    for (let j = startLine; j >= 0; j--) {
-      const bm = /^\s*([^\s:{}]+)(?:\s+([^\s{}]+))?\s*\{\s*$/.exec(lines[j]);
-      if (!bm) continue;
-      const key = bm[2] || bm[1];
-      if (key.startsWith("@")) continue;
-      const value = top(key);
-      if (value === undefined) return null;
-      return { key, line: j, value };
-    }
-    return null;
-  };
   // 两种标注写法都认（文档主推 `@is`，类型标注形式在语义高亮里也在用）
   const isRe = new RegExp("^\\s*@is\\s+(" + esc + ")(?![\\p{L}\\p{N}_.\\-])", "u");
   const annoRe = new RegExp("^\\s*" + esc + "\\s+([^\\s{}]+)\\s*\\{\\s*$", "u");
   for (let i = 0; i < lines.length; i++) {
+    let declLine = -1;
     if (isRe.test(lines[i])) {
-      const hit = pickUp(i - 1);
-      if (hit) return hit;
+      // 往上找最近的块声明行
+      for (let j = i - 1; j >= 0; j--) {
+        if (blockDeclOf(lines[j])) { declLine = j; break; }
+      }
+    } else {
+      const a = annoRe.exec(lines[i]);
+      if (a && !a[1].startsWith("@")) declLine = i;
     }
-    const a = annoRe.exec(lines[i]);
-    if (a && !a[1].startsWith("@")) {
-      const value = top(a[1]);
-      if (value !== undefined) return { key: a[1], line: i, value };
+    if (declLine < 0) continue;
+    const info = blockPath(text, declLine);
+    if (info && info.value !== undefined) {
+      return { key: info.key, path: info.path, line: declLine, value: info.value, contract: name };
     }
   }
   return null;
+}
+
+/// 组装「块」的悬浮内容（Markdown）：光标停在块声明行上时用。
+///
+/// 三件事：① 这个块叫什么、在哪条路径上；② 它应用了哪个契约（块内 `@is X`
+/// 或 `契约名 块名 {` 形式）；③ **契约应用之后的实际结构**（解析器真跑出来的）。
+/// 没有契约的块也给结构 —— 悬停块名「什么都不显示」是最容易被当成扩展坏了的情况。
+export function blockHoverMarkdown(text, line, contractNames) {
+  const info = blockPath(text, line);
+  if (!info) return null;
+  const lines = text.split("\n");
+  const out = [];
+  out.push("**块 `" + info.key + "`**" + (info.path.length > 1 ? "　（路径 `" + info.path.join(".") + "`）" : ""));
+  // 契约：块内首个 `@is X`；或块声明行是 `契约名 块名 {`
+  let contract = null;
+  if (info.contractFromHead && (contractNames || []).includes(info.contractFromHead)) {
+    contract = info.contractFromHead;
+  } else if (info.closeLine > 0) {
+    for (let i = line + 1; i < info.closeLine; i++) {
+      const m = /^\s*@is\s+([^\s{]+)/.exec(lines[i]);
+      if (m) { contract = m[1]; break; }
+    }
+  }
+  if (contract) {
+    out.push("");
+    out.push("应用契约 **`" + contract + "`** —— 下面结构是**解析器应用契约后**的结果（缺失字段已按默认值填充）。");
+  }
+  if (info.value !== undefined) {
+    out.push("");
+    out.push("```sml");
+    for (const l of stringify(info.value).split("\n")) if (l.trim() !== "") out.push(l);
+    out.push("```");
+  } else {
+    out.push("");
+    out.push("_当前文档无法解析，取不到这个块的结构_（先修掉校验错误，这里就会显示结果）。");
+  }
+  if (contract) {
+    const decl = contractDeclaration(text, contract);
+    if (decl) {
+      out.push("");
+      out.push("**契约 `" + contract + "` 的声明**");
+      out.push("");
+      out.push("```sml");
+      for (const l of decl.body) out.push(l);
+      out.push("```");
+    }
+  }
+  return out.join("\n");
 }
 
 /// 组装契约的悬浮内容（Markdown）。契约名不存在时返回 `null`。

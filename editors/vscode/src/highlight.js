@@ -104,6 +104,13 @@ async function loadGroups() {
     }
     if (!kept.length) continue;
 
+    // `unit:`（可选）限定这组词**只在语法位置上**生效（contract / fragment / type /
+    // key / directive），不写或写 text 则按字面匹配（老行为不变）。
+    // 依据见 sml-parse.mjs 的 findUnitOccurrences：同一个词在不同位置含义不同，
+    // 按字面染会把注释、字符串里的同名文字一起染掉。
+    const unit = typeof val.unit === "string" ? val.unit.trim().toLowerCase() : "";
+    const unitOk = ["contract", "fragment", "type", "key", "directive"].includes(unit);
+
     groups.push({
       name,
       words: kept,
@@ -113,6 +120,7 @@ async function loadGroups() {
       italic: val.italic === true,
       underline: val.underline === true,
       matchCase: val.matchCase === true,
+      unit: unitOk ? unit : undefined,
     });
   }
   return { groups, skipped, file: p };
@@ -126,10 +134,10 @@ function buildTypes(groups) {
     if (g.bold) opts.fontWeight = "bold";
     if (g.italic) opts.fontStyle = "italic";
     if (g.underline) opts.textDecoration = "underline";
-    const pattern = new RegExp(
-      g.words.map(wordPattern).join("|"),
-      g.matchCase ? "g" : "gi"
-    );
+    // 单元限定的组不用正则（按语法位置算 range），省掉一次无用的全文扫描
+    const pattern = g.unit
+      ? null
+      : new RegExp(g.words.map(wordPattern).join("|"), g.matchCase ? "g" : "gi");
     state.decoTypes.push({ type: vscode.window.createTextEditorDecorationType(opts), pattern, group: g });
   }
 }
@@ -196,7 +204,19 @@ async function applyTo(editor) {
   }
 
   for (const d of state.decoTypes) {
-    editor.setDecorations(d.type, rangesOf(editor.document, d.pattern));
+    if (d.group && d.group.unit) {
+      // 单元限定：按**语法位置**取 range（不染注释/字符串里的同名文字）
+      const text = editor.document.getText();
+      const rs = [];
+      for (const w of d.group.words) {
+        for (const r of state.sml.findUnitOccurrences(text, w, d.group.unit)) {
+          rs.push(new vscode.Range(r.line, r.col, r.line, r.col + r.length));
+        }
+      }
+      editor.setDecorations(d.type, rs);
+    } else {
+      editor.setDecorations(d.type, rangesOf(editor.document, d.pattern));
+    }
   }
 }
 
@@ -299,4 +319,6 @@ function initHighlight(context) {
   reload(false);
 }
 
-module.exports = { initHighlight, applyTo, reload };
+// `configPath` 也导出：`sml.applySpecialColor` 要把新组写进同一份 HL-cfg.sml，
+// 路径解析（含越界防护）必须只有一处实现，否则两边迟早不一致。
+module.exports = { initHighlight, applyTo, reload, configPath };

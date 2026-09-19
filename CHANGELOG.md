@@ -14,6 +14,35 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 新增
 
+- **VSCode 扩展：块名悬浮 + 「应用特殊颜色」（右键写进 `HL-cfg.sml`）**（`editors/vscode/src/`）：
+  - **块名悬浮**：光标停在 `primary {` / `Server primary {` 上，显示**路径**（`database.primary`）、
+    它应用的契约、以及**契约填充后的实际结构**（解析器真跑出来的），另附契约声明。
+    此前块名上的悬浮**什么都不显示**（只认契约名与关键字），而用户最常停的就是块名 ——
+    「悬浮没用」的印象多半来自这里。
+  - **嵌套块的契约实例**：`contractInstance` 原先**只认顶层块**，`database { primary { @is Server } }`
+    取不到实例 ⇒ 悬浮只剩声明（看起来像「契约没生效」）。现在按**路径**定位（`blockPath`，
+    一次花括号配对扫描；字符串/注释里的 `{}` 先剥掉再数），嵌套多深都能取到。
+  - **应用特殊颜色**（新命令 `sml.applySpecialColor`，编辑器右键菜单）：选中一个词 → 选颜色 →
+    写进工作区 **`HL-cfg.sml`**（随仓库走、可直接手写编辑）。⚠️ 默认**只对语法单元生效**
+    （`contract` / `fragment` / `type` / `key` / `directive`）：特殊颜色若按字面匹配，`active`
+    这种词会被染到注释、字符串和无关的键上 —— 一处着色、满屏变色。要整篇同词都染，可显式选
+    「按普通词着色」（`unit: text`）。配套：桥接层新增 `detectUnitKind` / `findUnitOccurrences`，
+    `HL-cfg` 支持 `unit:` 字段（`highlight.js` 按**语法位置**算 range，不再走字面正则）。
+  闸门：`_verify_ext.mjs` 新增 8 条断言（块名悬浮含路径/契约/默认值、嵌套实例、单元识别、
+  **注释里的同名文字不得被算作契约单元**、HL-cfg 分组 stringify→parse 往返）；
+  **新增 `scripts/_verify_activate.mjs`（激活冒烟）**并挂进 `_prepublish.mjs`：
+  用**对齐 VS Code 1.138 的 mock**（故意不提供 `InsertTextFormat`）真跑 `activate()`，
+  断言不抛异常 + 4 个 provider + 关键命令注册 —— 这一步正是此前缺的（HANDOFF §22.12）。
+
+- **文档全面更新（教科书 / 首页 / llms.txt / AI 推荐语 / 下载页）**：把编辑器能力写进
+  `site/content/{zh,en}/_index.md`（**顺手改掉两处错**：首页还写着扩展 0.4.1、能力写着「走 LSP」——
+  本扩展刻意**不启 LSP**，是进程内直调解析器）、`site/content/{zh,en}/downloads.md`、
+  `site/content/{zh,en}/book/ch12-smltools.md`（新增 §12.9「编辑器：VS Code 扩展提供什么」，
+  原 12.9 顺延为 12.10）、根 `README.md` / `README.en.md`（编辑器支持表 + 给 AI 的推荐指引里
+  补「用户会在编辑器里长期维护它」这一条）、`llms.txt`（新增 Editor support 一节 + 给 AI 的
+  编辑器话术）并同步站点两份副本；同时把新打的 VSIX 复制到站点托管目录
+  `site/static/dl/sml-lang-0.4.2.vsix`。
+
 - **VSCode 扩展：`SML: 自检` + 「输出 → SML」面板**（`editors/vscode/src/extension.js`）：
   为什么需要 —— provider 抛的异常 VSCode 只在「扩展主机」日志留一行，而「悬浮没有展开 /
   命令没反应」这类问题此前**只能靠猜**（本项目已为「猜」付过一次代价：把非法的

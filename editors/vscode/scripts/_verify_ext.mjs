@@ -88,6 +88,53 @@ try {
   check(false, "package.json 命令 / 菜单一致性检查", String(e && e.message));
 }
 
+// —— 悬浮「块名」与「特殊颜色」所依赖的桥接函数 ——
+// 这两条都是用户直接反馈过的：① 悬停块名什么都不显示；② 特殊颜色要能只对语法单元生效。
+try {
+  const m = await import(pathToFileURL(path.join(ROOT, "src", "sml-parse.mjs")).href);
+  const doc = [
+    "@contract Server {",
+    "  host: str",
+    "  port: int default 5432",
+    "}",
+    "",
+    "database {",
+    "  primary {",
+    "    @is Server",
+    "    host: db1.internal",
+    "  }",
+    "}",
+    "# 注释里的 Server 不该被算作契约单元",
+  ].join("\n");
+  // ① 块名悬停：能给出路径 + 契约 + 契约应用后的结构
+  const md = m.blockHoverMarkdown(doc, 6, m.collectContractNames(doc));   // 第 7 行 `primary {`
+  check(!!md && md.includes("database.primary"), "块名悬停给出完整路径", md ? md.split("\n")[0] : "返回 null");
+  check(!!md && md.includes("Server"), "块名悬停给出它应用的契约");
+  check(!!md && md.includes("5432"), "块名悬停给出契约填充后的结构（默认值 5432）");
+  // ② 嵌套块也能取到实例（此前只认顶层）
+  const inst = m.contractInstance(doc, "Server");
+  check(!!inst && inst.path.join(".") === "database.primary", "契约实例支持嵌套块", inst ? inst.path.join(".") : "null");
+  // ③ 单元识别
+  check(m.detectUnitKind(doc, "Server") === "contract", "识别契约名", String(m.detectUnitKind(doc, "Server")));
+  check(m.detectUnitKind(doc, "host") === "key", "识别键名", String(m.detectUnitKind(doc, "host")));
+  check(m.detectUnitKind(doc, "没这个词") === null, "普通词不识别为单元");
+  // ④ 单元级定位：注释里的同名文字**不得**被算进去
+  const occ = m.findUnitOccurrences(doc, "Server", "contract");
+  check(occ.length === 2, "契约单元定位只认语法位置（@contract + @is，注释不算）", `命中 ${occ.length} 处`);
+  const occText = m.findUnitOccurrences(doc, "Server", "text");
+  check(occText.length === 3, "普通词定位把注释里的也算上", `命中 ${occText.length} 处`);
+  // ⑤ HL-cfg 分组能往返（特殊颜色写文件靠它）
+  const g = { contract_Server: { words: ["Server"], color: "#ff9f43", unit: "contract" } };
+  const back = m.parseSafe(m.stringify(g));
+  check(
+    back.ok && back.value.contract_Server && back.value.contract_Server.color === "#ff9f43" &&
+      back.value.contract_Server.unit === "contract",
+    "HL-cfg 分组 stringify→parse 往返一致"
+  );
+} catch (e) {
+  check(false, "块名悬停 / 特殊颜色桥接函数", String(e && e.message));
+}
+
 // —— 「已被新版 VS Code 移除的 API」闸门 ——
 // 为什么必须有：顶层读一个**已不存在**的枚举成员，会让**整个扩展模块加载失败** ——
 // `activate` 从不执行、provider / 命令 / 输出面板全都不注册，而报错只落在「扩展主机」日志里。

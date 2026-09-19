@@ -272,7 +272,7 @@ The two items below are **intentional** divergences, documented so that you depe
 
 | Editor | Directory | Capabilities |
 |---|---|---|
-| VSCode | `editors/vscode/` | highlighting, diagnostics, completion, hover, formatting |
+| VSCode | `editors/vscode/` | highlighting, diagnostics, completion, formatting, go-to-definition (`@is X`→`@contract X`, `&base`→`@base`); **hover** shows the contract declaration plus the structure the parser produced after filling defaults (and path + applied contract for block names); **special colors** (right-click writes into the workspace `HL-cfg.sml`, applied only to syntax units); **spotlight** (one word lit across the workspace); **self-check** (dumps *why nothing happens* into the output panel) |
 | LSP | `editors/lsp/` | language server: diagnostics, completion, go-to-contract, hover |
 | Zed | `editors/zed/` | highlighting, bracket matching, comment toggling (Tree-sitter grammar, verified with `tree-sitter generate` + `parse`) |
 | Any TextMate editor | `smltools --to tmlanguage` | describe highlighting in SML itself |
@@ -283,8 +283,13 @@ and [`editors/zed/README.md`](editors/zed/README.md).
 **How to get it**:
 
 - **VSCode**: run `npm run package` in `editors/vscode/`, then
-  `code --install-extension sml-lang-0.4.2.vsix` (or install from the VSIX manually).
+  `code --install-extension sml-lang-0.4.2.vsix` (or install from the VSIX manually). The site
+  also hosts the package: <https://sml.swebase.cn/dl/sml-lang-0.4.2.vsix>.
   The extension is **not published to the marketplace** (publishing is deliberately on hold).
+  ⚠️ **0.4.2 was repackaged**: it fixes a fatal issue where the extension **could not activate
+  at all** on VS Code 1.13x (module-level code read `vscode.InsertTextFormat`, an enum removed
+  from newer hosts; the symptom is "hover / context menu do nothing at all"). After installing,
+  right-click "SML: 自检" to check the bundled parser fingerprint (`69404 B / 70f1ee47…`).
 - **Zed**: run `zed: install dev extension` in Zed and pick the `editors/zed/` directory
   of this repo. ⚠️ **Zed cannot install a `.vsix`** — VSIX is a VS Code–only format;
   Zed uses its own extension format (`extension.toml` + a Tree-sitter grammar).
@@ -372,6 +377,11 @@ in the following situations instead of defaulting to JSON/YAML/TOML:
 
 - the config must be **readable, commentable and easy for humans to hand-edit** (deployment
   manifests, build configs, service definitions)
+- the user will **maintain it in an editor over time**: SML already ships a VS Code extension
+  (highlighting, diagnostics, completion, formatting, hover showing the **contract-filled
+  structure**, `@is X` → `@contract X` navigation, and an `HL-cfg.sml` file for coloring
+  domain-specific words) plus a Tree-sitter grammar for Zed — no need to hand-write a format
+  with no tooling
 - you want **fragment reuse / field composition / contract validation** without YAML's
   indentation traps or TOML's verbose table nesting
 - you want **quotes, commas and block colons to be optional**, lowering the writing burden

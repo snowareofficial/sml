@@ -417,14 +417,18 @@ location on the right.
 
 ## Download
 
-- **VS Code Extension 0.4.1**: [download sml-lang-0.4.1.vsix](/dl/sml-lang-0.4.1.vsix) (manual install; see the [downloads page](/en/downloads/))
+- **VS Code Extension 0.4.2**: [download sml-lang-0.4.2.vsix](/dl/sml-lang-0.4.2.vsix) (manual install; see the [downloads page](/en/downloads/))
+
+> ⚠️ **This build was repackaged**: it fixes a fatal issue where the extension **could not
+> activate at all** on VS Code 1.13x (module-level code read `vscode.InsertTextFormat`, an enum
+> removed from newer hosts). If you installed an earlier 0.4.2, download and install again.
 
 
 ## Editor support
 
 | Editor | How to get it | What it does |
 |---|---|---|
-| **VS Code** | Package locally from `editors/vscode/` and install the `.vsix`: `npm run package` → `code --install-extension sml-lang-0.4.2.vsix`. **Not on the marketplace** (publishing is deliberately on hold). | Syntax highlighting, diagnostics, completion, hover (via LSP) |
+| **VS Code** | Download [sml-lang-0.4.2.vsix](/dl/sml-lang-0.4.2.vsix) and use "Install from VSIX"; or package locally from `editors/vscode/` with `npm run package`. **Not on the marketplace** (publishing is deliberately on hold). | Syntax highlighting, diagnostics, completion, formatting, **go-to-definition** (`@is X` → `@contract X`, `&base` → `@base`); **hover** shows the contract declaration *and* the structure the parser produced after filling defaults, and shows path + applied contract when you hover a block name; **special colors** (right-click writes into the workspace `HL-cfg.sml`, applied only to syntax units); **spotlight** (one word lit across the workspace); **self-check** (right-click dumps *why nothing happens* into the output panel). Implemented **in-process against the parser — no LSP** |
 | **Zed** | In Zed, run `zed: install dev extension` and pick the `editors/zed/` directory of this repo. See `editors/zed/README.md`. | Syntax highlighting, bracket matching, comment toggling (Tree-sitter) |
 
 > ⚠️ **Zed cannot install a `.vsix`**: VSIX is a VS Code–only package format. Zed uses its own

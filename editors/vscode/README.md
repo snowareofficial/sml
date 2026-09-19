@@ -11,6 +11,9 @@
 | **补全** | 指令、契约关键字、类型、修饰符、字面量、契约名、片段名、本文档键名 |
 | **悬浮说明** | ① 悬停 `@contract` / `@is` / `loose` / `include` 等关键字看解释；② **悬停契约名看「填入默认值后的结构」**（来自解析结果，不是抄一遍声明） |
 | **跳转到定义** | `@is Server` → `@contract Server`；`&base` → `@base { }`（F12 / Ctrl+点击 / 右键「转到定义」，三者同一套 provider） |
+| **悬浮（块名）** | 光标停在块名上（`primary {` / `Server primary {`）：显示**路径**（`database.primary`）、它应用的契约、以及**契约填充后的实际结构**；没有契约的块也给结构 |
+| **跳转到定义** | `@is Server` → `@contract Server`；`&base` → `@base { }`；`契约名 块名 {` → `@contract 契约名`（F12 / Ctrl+点击） |
+| **特殊颜色** | 选中一个词 → 右键「应用特殊颜色」：选颜色后写进工作区的 **`HL-cfg.sml`**（随仓库走、可直接手写编辑）。默认**只对语法单元生效**（契约 / 片段 / 类型 / 键 / 指令）—— 这样不会把注释、字符串里的同名文字一起染掉；要整篇同词都染，可选「按普通词着色」（`unit: text`） |
 | **特别高亮** | 选中一个词 → 右键「特别高亮选中词（当前工作区）」：把该词在**整个工作区**里点亮（状态栏显示 N 处 / M 文件；点状态栏或对同一个词再触发一次即清除） |
 | **自检** | 悬浮 / 跳转 / 高亮「没反应」时，右键「SML: 自检」：把扩展版本、**包内解析器指纹**、命令注册、语言模式、文档校验结果、光标下的词能不能跳转 —— 逐条写进「输出 → SML」 |
 | **格式化** | 按 SML 规范重排（解析 → 序列化），解析失败时不改动文件 |
@@ -158,6 +161,9 @@ Provides editing support for [SML](../README.md) (SNOWARE Markup Language).
 | **Completion** | directives, contract keywords, types, modifiers, literals, contract names, fragment names, in-document keys |
 | **Hover** | ① hover `@contract` / `@is` / `loose` / `include` for explanations and examples; ② **hover a contract name to see the instance after the contract is applied** — defaults really filled in by the parser, not a copy of the declaration |
 | **Go to definition** | `@is Server` → `@contract Server`; `&base` → `@base { }` (F12 / Ctrl+click / right-click "Go to Definition" — all three use the same provider) |
+| **Hover on block names** | put the cursor on a block name (`primary {` / `Server primary {`): shows the **path** (`database.primary`), the contract it applies, and the **structure after the contract filled in defaults**; blocks without a contract still show their structure |
+| **Go to definition** | `@is Server` → `@contract Server`; `&base` → `@base { }`; `Contract block {` → `@contract Contract` (F12 / Ctrl+click) |
+| **Special colors** | select a word → right-click "应用特殊颜色" (apply special color): pick a color and it is written into the workspace **`HL-cfg.sml`** (travels with the repo, hand-editable). By default it applies **only to syntax units** (contract / fragment / type / key / directive) so comments and strings with the same text are not recolored; choose "按普通词着色" (`unit: text`) to color every occurrence |
 | **Spotlight highlight** | select a word → right-click "SML: 特别高亮选中词（当前工作区）": lights up **every occurrence in the workspace** (status bar shows N matches / M files; click it or re-run on the same word to clear) |
 | **Self-check** | hover / go-to-definition / highlight "not working"? right-click "SML: 自检": reports extension version, **bundled parser fingerprint**, registered commands, language mode, document validation and whether the word under the cursor is navigable — all into the "Output → SML" panel |
 | **Formatting** | reformat per SML spec (parse → serialize); no change if parse fails |
