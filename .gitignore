@@ -141,3 +141,10 @@ node_modules/
 !editors/vscode/scripts/_verify_activate.mjs
 !editors/vscode/scripts/_gen_seti_theme.py
 
+# ── 用户 / 工作区本地产物（不属于仓库）──────────────────────────────────────
+
+# SML 自定义高亮配置：由扩展命令「SML: 应用特殊颜色 / 创建 HL-cfg.sml」在**工作区根**生成，
+# 内容是**用户自己的**词 → 颜色映射（个人偏好，不是项目资产）。2026-09-19 曾被
+# `git add -A` 误提交一次（随即 `git rm --cached`），故在此挡掉。
+HL-cfg.sml
+

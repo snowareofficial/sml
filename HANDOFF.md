@@ -1882,6 +1882,41 @@ security / ext / number / type-pattern）全过。
 `include 路径未加引号 -> E-INCLUDE-012`、`include 引号未闭合 -> E-INCLUDE-012`）；
 `t_codes.exe` 124 行 `ALL CODE TESTS PASSED`（含 `include path unquoted -> E-INCLUDE-012`）
 
+### 22.18 编辑器「include 整片标红」的两层根因（含我自己引爆的一个既有 bug）
+
+用户截图：`examples/advanced.sml` 里 include / import 行整片红，悬停写
+`sml: include 目标未找到：common.sml …`，而**同一文件在命令行下完全正常**。
+
+**第一层（扩展侧）**：`updateDiagnostics` 只把 `doc.getText()` 交给 JS 解析器，而 JS 的 include
+走**宿主提供的文件表**（`js/sml.mjs::resolveIncludes` 查 `files[路径]`）⇒ 查不到即
+`E-INCLUDE-001「include 目标未找到」` ⇒ **凡用 include 的文档在编辑器里全红**。
+修法：新增 `buildFilesMap(doc)`（`workspace.findFiles("**/*.sml")` + `workspace.fs.readFile`；
+键给三种形态：**工作区相对路径 / 相对当前文档目录 / 裸文件名**，以命中文档里的相对写法），
+**诊断 / 自检 / 格式化**三处都带 `{ files }`。实测 `examples/advanced.sml`：无表 1 条 → 有表 **0 条**。
+（`_verify_activate.mjs` 的 mock 早就提供了 `findFiles` / `fs.readFile` / `asRelativePath` ✓，
+所以这条改动能在闸门下验证。）
+
+**第二层（JS 侧，既有 bug，被我上一笔激活）**：`collectFeatures` 裸扫
+`/@feature\s+(enable|disable)\s+([^\n@]+)/g` ⇒ **注释里提到**的 `@feature` 也被收
+（`examples/advanced.sml:5` 的 `#   · @feature enable 显式开启高级能力（glob-include / …）`），
+于是报 `未知特性 \`显式开启高级能力（glob-include\`` 且落在**第 1 行**（`throwCode` 不带 pos）。
+它一直存在、一直无害 —— 因为旧实现"**任意名字都静默入集**"；我上一笔加未知名校验（`E-FEATURE-003`）
+时把它**引爆成误报**。
+修法：**行首**（允许缩进）才算指令 + **截掉行尾注释**（`#` / `//` / `--`）+ `throwCode(code,msg,pos)`
+让诊断落在正确行。
+**教训（值得单抄一遍）**：**给"静默"加断言前，先确认静默背后的输入是不是真的合法** ——
+否则你只是把"沉默的兼容"换成"响亮的误报"。
+
+**验证**：`%TEMP%\verify_diag.mjs`（桥接层直接调 `diagnose`，含最小样例 + 真实 `advanced.sml`）
+**ALL OK**；`js/probe-error-codes.mjs` **57 条全绿**（新增 3 条"注释里的 @feature 不是指令"正对照）；
+`_prepublish.mjs`（含 mock 激活闸门）**ALL PASS**；VSIX 重打 **154.09 KB**、站点 **157784 B**、
+`EXPECT_VENDOR` 更新为 `72903 / 58150482`。
+
+⚠️ 第三次走「改 `js/sml.mjs` 必走的三件套」：① `check_js_copies.py --fix` 同步 4 份副本
+（71924 → **72903 B**）② 更新 `EXPECT_VENDOR` ③ 重打 VSIX（见 §22.16 与 §22.18 上文）。
+**顺带**：`HL-cfg.sml`（扩展生成的**用户**自定义高亮配置）被 `git add -A` 误提交一次，
+已 `git rm --cached` 并加入 `.gitignore` —— **提交前先看 `git status`，别用 `git add -A` 兜底**。
+
 ### 22.15 块级类型标注：文档缺一半 + **showcase 里是个假示例**（2026-09-19，用户点的）
 
 用户指着 `showcase_contract.sml:83` 的 `Metrics metrics { }` 问「这种语法文档化了吗？优点、潜力

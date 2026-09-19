@@ -74,7 +74,7 @@ const explained = new Set();
 // 本仓库当前 `src/vendor/sml.mjs` 的指纹（每次重打 VSIX 后同步这里；
 // 与 sync-parser.py 打印的值同源）。自检会拿它对**已安装的包**做一次核对 ——
 // 「包是不是新的」这件事以前只靠人肉解包比对（见 HANDOFF §22.2 第 1 条）。
-const EXPECT_VENDOR = { size: 71924, shaPrefix: "4cd6a128" };
+const EXPECT_VENDOR = { size: 72903, shaPrefix: "58150482" };
 
 // ---------------------------------------------------------------------------
 // 补全候选
@@ -242,13 +242,51 @@ const FEATURE_NAMES = [
 // 诊断
 // ---------------------------------------------------------------------------
 
+/// 为 `parseSafe(text, { files })` 准备**被包含文件的内容表**。
+///
+/// 为什么必需：JS 解析器把 include 目标查这张表（`files[路径]`），查不到就报
+/// `E-INCLUDE-001「include 目标未找到」`。扩展此前只传 `doc.getText()` ⇒
+/// **凡是用 include 的文档在编辑器里整行标红**（用户实测：`examples/advanced.sml`
+/// 的 include / import 行全红，而同一文件在命令行下完全正常）。
+///
+/// 键给三种形态以尽量命中"文档里的相对写法"：
+///   · 工作区相对路径（`examples/common.sml`）
+///   · 相对**当前文档目录**的路径（`common.sml` —— include 里通常这么写）
+///   · 裸文件名（兜底）
+async function buildFilesMap(doc) {
+  const map = Object.create(null);
+  let uris = [];
+  try {
+    uris = await vscode.workspace.findFiles("**/*.sml", "**/node_modules/**", 400);
+  } catch {
+    return map; // 拿不到列表就不传文件表（退回旧行为，不因此报错）
+  }
+  const docDir = doc.uri.path.replace(/\/[^/]*$/, "").replace(/^\//, "");
+  for (const u of uris) {
+    if (u.toString() === doc.uri.toString()) continue; // 自身由 text 提供
+    try {
+      const buf = await vscode.workspace.fs.readFile(u);
+      const text = Buffer.from(buf).toString("utf8");
+      const rel = String(vscode.workspace.asRelativePath(u, false)).replace(/\\/g, "/");
+      map[rel] = text;
+      const base = rel.split("/").pop();
+      if (base) map[base] = text;
+      if (docDir && rel.startsWith(docDir + "/")) map[rel.slice(docDir.length + 1)] = text;
+    } catch {
+      /* 单个文件读失败不影响其它 */
+    }
+  }
+  return map;
+}
+
 async function updateDiagnostics(doc, collection) {
   if (doc.languageId !== "sml") {
     collection.delete(doc.uri);
     return;
   }
   const { diagnose } = await ensureSml();
-  const items = diagnose(doc.getText());
+  const files = await buildFilesMap(doc); // ← 没有它，每个 include/import 行都会被标红
+  const items = diagnose(doc.getText(), { files });
   const diags = items.map((it) => {
     const range = new vscode.Range(
       new vscode.Position(it.line, it.col),
@@ -539,7 +577,9 @@ function initSelfCheck(context) {
       if (doc.languageId !== "sml") { log("========== 自检结束 =========="); return; }
 
       const text = doc.getText();
-      const r = mod.parseSafe ? mod.parseSafe(text) : { ok: true };
+      // 自检也要带文件表：否则凡含 include 的文档都会被判"校验失败"（同诊断那条根因）
+      const files = await buildFilesMap(doc);
+      const r = mod.parseSafe ? mod.parseSafe(text, { files }) : { ok: true };
       log("文档校验：" + (r.ok ? "通过 ✓" : "**失败 ✗** → " + r.error));
       if (!r.ok) log("  ⇒ 两点后果：① 诊断面板有红字；② 悬浮的「展开」那半段不会出现（它还要求整份文档全绿）");
 
@@ -891,7 +931,8 @@ function activate(context) {
         async provideDocumentFormattingEdits(document) {
           const { parseSafe, stringify } = await ensureSml();
           const text = document.getText();
-          const r = parseSafe(text);
+          // 带文件表：否则含 include 的文档会"无法格式化：include 目标未找到"
+          const r = parseSafe(text, { files: await buildFilesMap(document) });
           if (!r.ok) {
             vscode.window.showErrorMessage(`无法格式化：${r.error}`);
             return [];

@@ -20,8 +20,14 @@ export { parseSafe, parse, stringify, offsetToPosition };
 
 /// 解析文本，产出编辑器可用的诊断列表。
 /// 返回 [{ line, col, message, severity }]，line/col 从 0 起。
-export function diagnose(text) {
-  const r = parseSafe(text);
+///
+/// ⚠️ `opts.files` 是**必需**的（调用方给）：JS 解析器把 `include` 目标查到这张表里
+/// （`files[路径]`），查不到就报 `E-INCLUDE-001「include 目标未找到」`。
+/// 扩展此前只传文本 ⇒ **凡是用 include 的文档在编辑器里整行标红**（用户实测：
+/// `examples/advanced.sml` 的 include/import 行全红，而命令行/Rust 侧一切正常）。
+/// 文件表由宿主读盘提供（见 extension.js 的 `buildFilesMap`）。
+export function diagnose(text, opts) {
+  const r = parseSafe(text, opts);
   if (r.ok) return [];
   const pos = r.position ?? (r.pos != null ? offsetToPosition(text, r.pos) : { line: 0, col: 0 });
   // 解析一旦失败即中止，因此同时只有一条错误；把错误范围标到该行行尾

@@ -20,6 +20,11 @@ const CASES = [
   ["@version v9\nk: 1\n", "E-FEATURE-004"],
   // 未知名特性：此前 JS 静默加入集合（只有 Rust 报 E-FEATURE-003）—— 跨端差异，现已对齐
   ["@feature enable nosuch\nk: 1\n", "E-FEATURE-003"],
+  // 但**注释里提到的** `@feature` 不是指令（旧实现按 /@feature…/g 裸扫，连注释也收 ——
+  // 以前"任意名字静默入集"看不出来，一加校验就冒出假错误：advanced.sml:5 曾这么中过）
+  ["# @feature enable nosuch\nk: 1\n", null],
+  ["/* @feature enable nosuch */\nk: 1\n", null],
+  ["@feature enable for  # 行尾注释不是特性名\nk: 1\n", null],
   ["server { @is Nope }\n", "E-CONTRACT-001"],
   ["@contract S { port: int }\nserver { @is S }\n", "E-CONTRACT-003"],
   ["@contract S { port: int }\nserver {\n  @is S\n  port: oops\n}\n", "E-CONTRACT-002"],
