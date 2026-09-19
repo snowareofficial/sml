@@ -1852,6 +1852,36 @@ security / ext / number / type-pattern）全过。
 **判据是退出码，不是打印出来的 `ALL PASS`**（`_prepublish.mjs` 内部用 `r.status === 0` 判，
 但它自己打印的摘要里也会出现 `ALL PASS` 字样 —— 别混）。
 
+### 22.17 C / C++ 对齐 `E-INCLUDE-012`（未加引号即非法）+ 两个"闸门说谎"的教训
+
+上一轮把该规则升到语言层（Rust），本轮按 subagent 备好的方案对齐 C / C++。
+
+- **C**（`c/sml.c` 的 `try_include_target`）：原先只认「首词 `include` + 第二 token 是 `T_STR`」，
+  未加引号时返回 NULL（＝"不是指令"）⇒ 整行被当普通内容写回，**指令意图被静默丢弃（连错都不报）**。
+  现加 `err` 出参：未加引号 / **引号未闭合**都报 `E-INCLUDE-012`；调用点**先查 `terr`** 再当"非指令"。
+  顺带修掉「引号未闭合错报 `E-INCLUDE-001`」——旧实现拿残缺路径去 `fopen`，把**写法**错误导成
+  "文件不存在"。⚠️ 只把"未闭合引号"这一种词法错（比对 `SML_E_LEX_001`）归到 012，其它词法错
+  （如未知转义）保持旧行为，避免误伤。
+- **C++**（`cpp/sml.cpp` 的 `expand_includes`）：引号串与裸词**同型**（都存 `Word`，引号串只是内容
+  两侧补 `"`）⇒ 旧实现无法区分 `@include b.sml` 与 `@include "b.sml"`，目标存在就照常展开。
+  现在按「第二 token 是否以引号开头」判 ⇒ `E-INCLUDE-012`。C++ 只认 `@include`，故判据天然只作用
+  于该形式（无 `import` / `re:` 豁免之需）。**端间差异**：C++ 的"引号未闭合"在词法层已按
+  `E-LEX-001`（子文件 `E-INCLUDE-011`）拦下，走不到 012。
+
+**两个教训（比代码更值钱）**：
+
+1. **`c/build_check.py --run` 的打印会在半行处截断**（本轮看到 `-> E-PARSE-0` 就断了）⇒
+   我一度判定"`test_include_codes` 整组**没跑**"。**核实用例是否真跑，必须直接跑测试二进制**：
+   `test_codes_check.exe` **97 行**全量、`t_codes.exe` **124 行**，两条新用例都在里面。
+   这与仓库老毛病同族：**"绿"要先问"绿的是什么"**（打印被截断的闸门同样会说谎）。
+2. `cpp/build_verify.py` 的最后一步 **RS-BRIDGE 会失败**，因为它在 `rust/target/release` 找不到
+   cdylib —— 本仓库用 `E:\snoware-target` 作 target dir ⇒ 需 `--allow-skip-rs-bridge` 或设
+   `SML_RUST_LIB`。**不是**代码问题（HANDOFF 早有记载）。
+
+**验证**：`test_codes_check.exe` 97 行 `ALL CODE TESTS PASSED`（含
+`include 路径未加引号 -> E-INCLUDE-012`、`include 引号未闭合 -> E-INCLUDE-012`）；
+`t_codes.exe` 124 行 `ALL CODE TESTS PASSED`（含 `include path unquoted -> E-INCLUDE-012`）
+
 ### 22.15 块级类型标注：文档缺一半 + **showcase 里是个假示例**（2026-09-19，用户点的）
 
 用户指着 `showcase_contract.sml:83` 的 `Metrics metrics { }` 问「这种语法文档化了吗？优点、潜力

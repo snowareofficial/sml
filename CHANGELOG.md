@@ -69,6 +69,22 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 修复
 
+- **C / C++ 对齐「未加引号 include ⇒ `E-INCLUDE-012`」**（`c/sml.c`、`cpp/sml.cpp`）：
+  - **C**：`try_include_target` 原先只认「首词 `include` + 第二个 token 是 `T_STR`」，未加引号时
+    返回 NULL（＝"不是指令"）⇒ 整行被当普通内容写回，**指令意图被静默丢弃（连错都不报）**。
+    现给它加 `err` 出参：未加引号 / **引号未闭合**都报 `E-INCLUDE-012`；调用点先查 `terr` 再当"非指令"。
+    ⚠️ 引号未闭合原先会拿残缺路径去 `fopen` ⇒ 报 `E-INCLUDE-001`（"读取失败"），把**写法**错误导成
+    "文件不存在"；现在归位（只认 `E-LEX-001` 那一种词法错，其它词法错保持旧行为，避免误判）。
+  - **C++**：它的引号串与裸词**同型**（都存成 `Word`，引号串只是内容两侧补 `"`）⇒ 旧实现无法区分
+    `@include b.sml` 与 `@include "b.sml"`，目标存在就照常展开。现在 `expand_includes` 里按
+    「第二 token 是否以引号开头」判，报 `E-INCLUDE-012`。C++ 只认 `@include`，故判据天然只作用于该形式。
+    （⚠️ 端间差异：C++ 的"引号未闭合"在词法层已按 `E-LEX-001`/`E-INCLUDE-011` 拦下，走不到这里。）
+  **验证**：直接跑两个测试二进制（**不能只看 `build_check.py` 的打印** —— 它会在半行处截断，
+  见下条"工程"）：`test_codes_check.exe` 97 行 `ALL CODE TESTS PASSED`，含
+  `include 路径未加引号 -> E-INCLUDE-012`、`include 引号未闭合 -> E-INCLUDE-012`；
+  `t_codes.exe` 124 行 `ALL CODE TESTS PASSED`，含 `include path unquoted -> E-INCLUDE-012`。
+  码表 `impls` 改为 `[ rust lua c cpp smltools ]`。
+
 - **JS 解析器两处「静默」缺陷**（`js/sml.mjs`）—— 其中第一条**直接决定编辑器诊断能不能看见错误**：
   - **未闭合的块被接受**：`parseBlock` 的循环因 token 流耗尽而退出后直接 `return node` ⇒
     `basic { a: 1`（缺 `}`）返回 `{ok:true, value:{basic:{a:1}}}`，而 Rust / C / C++ / Lua

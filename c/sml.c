@@ -2028,17 +2028,40 @@ static void path_dir(const char *path, char *out, size_t outsz) {
 }
 
 /* 若行是 include 指令, 返回目标路径 (调用方 free); 否则返回 NULL */
-static char *try_include_target(const char *line) {
+static char *try_include_target(const char *line, char *err, size_t errsz) {
     lexer lx;
     memset(&lx, 0, sizeof(lx));
+    /* 给词法器一个错误缓冲：下面要区分「引号未闭合」（`E-LEX-001`）与其它词法错，
+       所以这次**不能**像以前那样把 errbuf 留空。 */
+    char lexbuf[256];
+    lexbuf[0] = '\0';
+    lx.errbuf = lexbuf;
+    lx.errsz = sizeof(lexbuf);
     lex_run(&lx, line);
     char *res = NULL;
     if (lx.n >= 2) {
         token *a = &lx.toks[0];
         token *b = &lx.toks[1];
         if (a->t == T_AT && lx.n >= 3) { a = &lx.toks[1]; b = &lx.toks[2]; }
-        if (a->t == T_WORD && strcmp(a->v, "include") == 0 && b->t == T_STR) {
-            res = strdup(b->v);
+        if (a->t == T_WORD && strcmp(a->v, "include") == 0) {
+            if (b->t == T_STR) {
+                /* 引号未闭合时词法器**仍会**推进一个 T_STR（内容是残缺路径），于是旧实现拿它去
+                   fopen ⇒ 报 `E-INCLUDE-001`（"读取失败"），把**写法**错误导成"文件不存在"。
+                   与 Rust / Lua 对齐：引号未闭合归 `E-INCLUDE-012`。
+                   ⚠️ 只认"未闭合"这一种词法错（比对码），其它词法错（如未知转义）保持旧行为。 */
+                if (lx.failed && strncmp(lexbuf, SML_E_LEX_001, strlen(SML_E_LEX_001)) == 0) {
+                    set_err(err, errsz,
+                            SML_E_INCLUDE_012 " include 路径写法非法（引号未闭合）");
+                } else {
+                    res = strdup(b->v);
+                }
+            } else if (b->t == T_WORD) {
+                /* **未加引号**：旧实现这里返回 NULL ⇒ 整行被当普通内容写回，指令意图被**静默**
+                   丢弃（连错都不报）。与 Rust / Lua 对齐：明确报 `E-INCLUDE-012`。
+                   注：`include:`（T_COLON）/ `include {`（T_LBRACE）/ 只有 `include`（lx.n<2）
+                   都不会命中此分支 —— 那些不是"路径写法错"。 */
+                set_err(err, errsz, SML_E_INCLUDE_012 " include 路径写法非法（未加引号）");
+            }
         }
     }
     lex_free(&lx);
@@ -2068,7 +2091,16 @@ static int resolve_includes(const char *text, const char *base,
         memcpy(line, p, linelen);
         line[linelen] = '\0';
 
-        char *inc = try_include_target(line);
+        /* 先查「写法非法」：是 include 指令、但路径没加引号（或引号未闭合）⇒ 明确报码，
+           而不是像旧实现那样当普通内容**静默**放过。 */
+        char terr[512];
+        terr[0] = '\0';
+        char *inc = try_include_target(line, terr, sizeof(terr));
+        if (!inc && terr[0]) {
+            set_err(err, errsz, "%s", terr);
+            free(line);
+            return -1;
+        }
         if (inc) {
             char path[1024];
             snprintf(path, sizeof(path), "%s/%s", base, inc);

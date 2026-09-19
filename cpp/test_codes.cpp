@@ -540,6 +540,17 @@ static void test_include_expansion() {
         fs::remove_all(d);
     }
 
+    // ⑨′ 路径**写法**非法：**未加引号** → E-INCLUDE-012。
+    //     词法器把引号串与裸词**都存成 `Word`**（引号串只是内容两侧补了 `"`），旧实现因此
+    //     无法区分是否加引号 ⇒ 目标存在就照常展开、不存在则报 E-INCLUDE-001（"读取失败"），
+    //     把**写法**错误导成"文件不存在"。本实现只认 `@include`，故用例必须带 `@`。
+    {
+        std::string d = fresh_dir("unquoted");
+        write_in(d, "a.sml", "@include nope.sml\n");
+        expect_code_in_dir("include path unquoted", d, "a.sml", SML_E_INCLUDE_012);
+        fs::remove_all(d);
+    }
+
     // ⑩ 基准目录本身不可解析 → E-INCLUDE-010（fail-closed）。
     //    修复前这里被报成 E-INCLUDE-003：根因是用了 weakly_canonical —— 它只做词法
     //    规范化，一个**不存在**的目录也会"成功"规范化，于是「基准目录不可解析」被

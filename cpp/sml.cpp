@@ -1276,6 +1276,19 @@ static bool expand_includes(std::vector<Token>& toks,
                              toks[k+2].t == Token::T::Word);
         if (!is_inc) { out.push_back(t); k++; continue; }
 
+        /* 路径**写法**非法（未加引号）⇒ `E-INCLUDE-012`。
+           为什么需要这条：词法器把引号串与裸词**都存成 `Word`**（引号串只是内容两侧补了 `"`），
+           于是旧实现无法区分 `@include b.sml` 与 `@include "b.sml"` —— 目标存在就照常展开、
+           不存在则报 `E-INCLUDE-001`（"读取失败"），把**写法**错误导成"文件不存在"。
+           与 Rust / Lua / C 对齐：明确报此码。
+           注：本实现只认 `@include`（裸 `include` 是普通键），故判据天然只作用于该形式；
+           而「引号未闭合」在**词法层**就已按 `E-LEX-001` 拦下（子文件里是 `E-INCLUDE-011`），
+           走不到这里 —— 这条端间差异记在 `errors/codes.sml` 的 E-INCLUDE-012 note 里。 */
+        if (toks[k+2].s.empty() || toks[k+2].s[0] != '"') {
+            if (err) *err = code_prefix(SML_E_INCLUDE_012, "sml: include 路径写法非法（未加引号）");
+            return false;
+        }
+
         std::string path = toks[k+2].s;
         if (!path.empty() && path[0] == '"' && path.back() == '"')
             path = path.substr(1, path.size() - 2);
