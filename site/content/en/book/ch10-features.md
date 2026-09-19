@@ -8,6 +8,15 @@ The design principle of SML is "from minimalism to richness, with customizable f
 
 This chapter is an authoritative reference for each feature: opening methods, syntax, error messages, and relationships with other features.
 
+> ⚠️ **Scope of this chapter (added after measurement, 2026-09-19)**: the **`@feature enable/disable`
+> gating mechanism itself** currently exists only on **Rust (reference implementation) and JS** —
+> **C / C++ / Lua treat `@feature …` as an illegal directive** (`E-PARSE-005`, measured; their legal
+> directives are only `contract` / `is` / `version`), so their capability set is **fixed**.
+> Individual features are also unevenly implemented (e.g. `typed-block` is Rust + JS only); see the
+> "implementations" row in each section and the audit table in [§5.2.2](/en/book/ch05-contract).
+> In documents shared across implementations, use forms all five understand (such as `@is`) and do
+> not rely on `@feature`.
+
 ## 10.1 How to turn on/off features
 
 At the beginning of the file, use the `@feature` command:
