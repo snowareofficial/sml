@@ -610,10 +610,11 @@
       "title": "未知特性名",
       "msg": "未知特性名",
       "impls": [
+        "js",
         "rust"
       ],
-      "status": "partial",
-      "note": "规范文案会附带可用特性列表；JS 把未知特性静默加入集合"
+      "status": "done",
+      "note": "规范文案会附带可用特性列表。**JS 原先把未知特性静默加入集合**（`feats.add(w)` 不校验）⇒ 用户以为开了某项能力、实际什么都没开且无提示；已对齐本码（`js/sml.mjs` 的 `KNOWN_FEATURES`，合法名 = Rust 注册表 15 个 **并集** JS 别名 `top-array`/`bareword-str`/`escape`，并支持逗号分隔）。⚠️ C / C++ / Lua 没有特性集（`@feature` 本身非法 ⇒ 落 `E-PARSE-005`），故不在 impls"
     },
     {
       "id": "E-FEATURE-004",

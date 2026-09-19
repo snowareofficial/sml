@@ -69,6 +69,24 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 修复
 
+- **JS 解析器两处「静默」缺陷**（`js/sml.mjs`）—— 其中第一条**直接决定编辑器诊断能不能看见错误**：
+  - **未闭合的块被接受**：`parseBlock` 的循环因 token 流耗尽而退出后直接 `return node` ⇒
+    `basic { a: 1`（缺 `}`）返回 `{ok:true, value:{basic:{a:1}}}`，而 Rust / C / C++ / Lua
+    全部报 `E-PARSE-001`。**编辑器诊断走 `parseSafe`，所以这类错误在编辑器里根本不报红** ——
+    与用户最初报的"诊断没反应"同源。数组路径早有 `closed` 标志检查（`parseArray`），块路径漏了；
+    现照抄同一判据（**不能**用 `i >= toks.length`：正常闭合的块消费掉 `}` 后 `i` 也恰好等于长度，
+    用后者会把合法文档误判成未闭合）。
+  - **未知特性名静默接受**：`collectFeatures` 把任何名字直接 `feats.add(w)` ⇒
+    `@feature enable no-such-thing` 静默通过（用户以为开了某项能力、实际什么都没开且无提示）。
+    现与 Rust 同码 **`E-FEATURE-003`**，并支持逗号分隔（与 Rust 的 `scan.rs::names()` 一致）；
+    合法名 = Rust 注册表 15 个 **并集** JS 别名 `top-array` / `bareword-str` / `escape`
+    （否则会把既有合法文档误报成"未知特性"）。
+  回归：`js/probe-error-codes.mjs` 新增 6 条（未闭合块 ×2 + 合法闭合正对照 + 别名/逗号正对照），
+  并把原先"期望 null"的未知名用例改为 `E-FEATURE-003` ⇒ **52 条全绿**；其余 JS 测试
+  （paren / contract / security / ext / number / type-pattern）全过。
+  连带：`js/sml.mjs` 的 **4 份副本**已同步（`python tools/check_js_copies.py --fix`），
+  扩展的 `EXPECT_VENDOR` 指纹与 **VSIX** 一并更新（`vendor/sml.mjs` 70.24 KB / `4cd6a128…`）。
+
 - **`sml-include`：`parse_file` 读不了「include + 跨行词法单元」的文档 —— 改为「按段词法」**
   （`rust/sml-include/src/expand.rs` + `rust/sml-lex/src/lib.rs`）：上一笔只修了"整篇无 include"
   的快路径，**既有 include、又有跨行块注释 / 多行字符串**的文档仍会走逐行路径而报 `E-INCLUDE-011`。

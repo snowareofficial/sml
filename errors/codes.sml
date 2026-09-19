@@ -255,8 +255,8 @@ codes: [
       note: "`@when` 的条件用环境变量时同报此码；**JS 改前无条件内插（无门控）**，W16 起裸词与引号串里的 `$env.X` 都受 `env` 特性管辖（关掉即报此码，与 Rust 的 `coerce_word` 同码 —— 注意不是 `E-FEATURE-001`）" }
     { id: E-FEATURE-003 domain: FEATURE severity: E title: "未知特性名"
       msg: "未知特性名"
-      impls: [ rust ] status: partial
-      note: "规范文案会附带可用特性列表；JS 把未知特性静默加入集合" }
+      impls: [ rust js ] status: done
+      note: "规范文案会附带可用特性列表。**JS 原先把未知特性静默加入集合**（`feats.add(w)` 不校验）⇒ 用户以为开了某项能力、实际什么都没开且无提示；已对齐本码（`js/sml.mjs` 的 `KNOWN_FEATURES`，合法名 = Rust 注册表 15 个 **并集** JS 别名 `top-array`/`bareword-str`/`escape`，并支持逗号分隔）。⚠️ C / C++ / Lua 没有特性集（`@feature` 本身非法 ⇒ 落 `E-PARSE-005`），故不在 impls" }
     { id: E-FEATURE-004 domain: FEATURE severity: E title: "版本声明非法"
       msg: "不支持的版本声明，或版本声明互相冲突"
       impls: [ rust c cpp js lua smltools ] status: partial

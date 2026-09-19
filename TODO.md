@@ -342,9 +342,12 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
 2. ~~**所用 Rust release 二进制疑与源码不一致**~~ ❌ **判断错了（已更正）**：glob 没展开同样是
    上面那份 CLI 私有展开造成的（它把 `inc/*.sml` 当字面路径 open），**不是**二进制过期。
    统一到库之后实测 `include "inc/*.sml"` 正常展开 ⇒ **无需重编复测**。
-3. **JS `parseSafe` 接受未闭合块**（**仍未修**）：`basic { a: 1`（缺 `}`）⇒ JS 返回
-   `{ok: true, value: {basic:{a:1}}}`，而 Rust / C / C++ / Lua **全部报 `E-PARSE-001`**。
-   编辑器诊断用的是 `parseSafe` ⇒ **这类错误在编辑器里不报红**。属该修的一条。
+3. ✅ **已修：JS `parseSafe` 接受未闭合块 + 未知特性名静默接受**：`parseBlock` 循环因 EOF 退出后
+   直接 `return node` ⇒ `basic { a: 1` 返回 `ok:true`（Rust / C / C++ / Lua 全报 `E-PARSE-001`）；
+   编辑器诊断走 `parseSafe`，所以这类错误**在编辑器里根本不报红**。现照 `parseArray` 的
+   `closed` 判据补齐（**不能**用 `i >= toks.length` —— 正常闭合后 `i` 也等于长度）。
+   同批对齐 `E-FEATURE-003`（未知名特性；合法名 = Rust 15 个 ∪ JS 别名 3 个，支持逗号分隔）。
+   回归：`js/probe-error-codes.mjs` 52 条全绿；4 份副本已同步、`EXPECT_VENDOR` 与 VSIX 已更新。
 4. ✅ **已修（同日）：`sml-include` 的"逐行 tokenize"架构缺陷**：`expand_includes` 原先逐行
    `tokenize(line)` ⇒ 任何**跨行词法单元**（多行块注释、多行字符串）都在第 1 行报"未闭合"，
    **文件入口**（`parse_file` / C-ABI `sml_load_file` / 编辑器）读不了这类文档。修法**不是**

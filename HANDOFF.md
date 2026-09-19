@@ -1819,6 +1819,39 @@ typed-block` 去掉（为让五端都能解析），但 `rust/tests/contract_sho
 先看 `compute_block_comment_spans` 是否覆盖该写法（例如新增一种注释风格时），
 而**不是**再去改 `tokenize`。
 
+### 22.16 JS 的两处「静默」：未闭合块被接受（编辑器诊断因此瞎）+ 未知特性名
+
+用户「请修复」的对象就是上一轮列的"JS `parseSafe` 接受未闭合块"。两条一起修（改点与全部既有
+JS 用例先用 code-explorer subagent 摸清，主上下文只花在实现上）。
+
+1. **`parseBlock` 缺未闭合判定**（`js/sml.mjs`）：循环因 token 流耗尽退出后直接 `return node` ⇒
+   `basic { a: 1`（缺 `}`）返回 `{ok:true}`。**数组路径 `parseArray` 早有 `closed` 标志检查，
+   块路径漏了**。⚠️ 判据必须照抄 `closed`：正常闭合的块消费掉 `}` 后 `i` 也恰好等于 `toks.length`，
+   写成 `i >= toks.length` 会把**合法文档**误判成未闭合。
+   这条为什么最要紧：**编辑器诊断走 `parseSafe`** ⇒ 未闭合块在编辑器里**根本不报红**
+   （与用户最初报的"诊断没反应"同源）。
+2. **`collectFeatures` 不校验名字**：任何名字直接 `feats.add(w)` ⇒ `@feature enable no-such-thing`
+   静默通过（用户以为开了能力、实际什么都没开，还无提示）。现与 Rust 同码 **`E-FEATURE-003`**，
+   支持逗号分隔（对齐 Rust `scan.rs::names()`）；合法名 = Rust 注册表 15 个 **∪** JS 别名
+   `top-array` / `bareword-str` / `escape`（漏了别名就会误报既有合法文档）。
+
+**回归**：`js/probe-error-codes.mjs` 新增 6 条（未闭合块 ×2、合法闭合正对照、别名与逗号正对照），
+原"未知名期望 null"改为 `E-FEATURE-003` ⇒ **52 条全绿**；其余 JS 测试（paren / contract /
+security / ext / number / type-pattern）全过。
+
+**连带链路（凡是改 `js/sml.mjs` 都必须走）**：① `python tools/check_js_copies.py --fix` 同步
+**4 份副本**（`site/static/sml.mjs`、`site/static/lib/sml.mjs`、`site/public/sml.mjs`、
+`editors/vscode/src/vendor/sml.mjs`）；② 扩展里的 **`EXPECT_VENDOR` 指纹**要跟着改
+（`69404/70f1ee47` → `71924/4cd6a128`），否则自检会把新包判成"旧包"；
+③ 重打 VSIX（vendor 变了）→ `_prepublish.mjs` → 站点同步（本轮 VSIX 156080 B / `f4b792a7`）。
+
+⚠️ **本轮自己踩的坑（比上次那个更隐蔽）**：我用 `&` **并发**跑 `_prepublish.mjs` 与
+`_verify_ext.mjs`，于是 `_prepublish` 报 `FAIL tokenize 层（Oniguruma 真实引擎）` + "禁止打包"。
+逐条单独跑（`%TEMP%\gates.py`）**5 步全 rc=0**，顺序重跑 `_prepublish` ⇒ **PREPUBLISH ALL PASS**。
+⇒ 两条结论：**闸门脚本会 spawn 子进程（Oniguruma 是 wasm 重活），一律顺序跑、别并发**；
+**判据是退出码，不是打印出来的 `ALL PASS`**（`_prepublish.mjs` 内部用 `r.status === 0` 判，
+但它自己打印的摘要里也会出现 `ALL PASS` 字样 —— 别混）。
+
 ### 22.15 块级类型标注：文档缺一半 + **showcase 里是个假示例**（2026-09-19，用户点的）
 
 用户指着 `showcase_contract.sml:83` 的 `Metrics metrics { }` 问「这种语法文档化了吗？优点、潜力

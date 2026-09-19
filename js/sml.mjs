@@ -425,6 +425,26 @@ const DEFAULT_FEATURES = new Set([
   "fragment", "top-array", "bareword-str",
 ]);
 
+// `@feature enable/disable` 的**合法名字表**（用于"未知名"校验）。
+//
+// 为什么需要它：此前 `collectFeatures` 把任何名字直接 `feats.add(w)` ⇒
+// `@feature enable no-such-thing` **静默通过**（`feats.has("no-such-thing")` 永远为 false，
+// 用户以为开了某项能力、其实什么都没开，且没有任何提示）。Rust 侧报 `E-FEATURE-003`
+// （`rust/sml-parse/src/scan.rs` 的 `apply_feature_directive`），这里对齐同码。
+//
+// ⚠️ 合法名 = Rust 注册表（`rust/sml-feature/src/lib.rs` 的 `FEATURES`）**并集** JS 自身别名：
+//   · `top-array` / `bareword-str` 是 JS 的写法（Rust 叫 `top-level-array` / `bareword-string`）；
+//   · `escape` 是 JS 独有。
+// 两种写法都算合法 —— 否则会把既有合法文档（如 `@feature enable top-array`）误报成未知特性。
+const KNOWN_FEATURES = new Set([
+  // 与 Rust 注册表同名（15 个）
+  "bareword-string", "include", "env", "contract", "fragment", "top-level-array",
+  "namespace", "implicit-ns", "multi-include", "glob-include", "regex-include",
+  "ext-rewrite", "when", "for", "typed-block",
+  // JS 别名 / 独有
+  "top-array", "bareword-str", "escape",
+]);
+
 // 从文本里扫出 @feature enable/disable 声明，返回生效的 feature Set
 function collectFeatures(text, base) {
   const feats = new Set(base || DEFAULT_FEATURES);
@@ -432,8 +452,14 @@ function collectFeatures(text, base) {
   let m;
   while ((m = re.exec(text)) !== null) {
     const mode = m[1];
-    const words = m[2].trim().split(/\s+/).filter(Boolean);
+    // 逗号与空白都算分隔（与 Rust 的 `scan.rs::names()` 一致：`@feature enable a, b` 合法）
+    const words = m[2].split(/[\s,]+/).filter(Boolean);
     for (const w of words) {
+      // 未知名**不得静默**：与 Rust 同码 E-FEATURE-003（见 KNOWN_FEATURES 的说明）
+      if (!KNOWN_FEATURES.has(w)) {
+        throwCode("E-FEATURE-003",
+          "sml: 未知特性 `" + w + "`，可用：" + [...KNOWN_FEATURES].join(", "));
+      }
       if (mode === "enable") feats.add(w);
       else feats.delete(w);
     }
@@ -1005,10 +1031,11 @@ export function parse(text, opts) {
       else node[k] = [node[k], v];
     };
     let appliedContract = null;
+    let closed = false;
     while (i < toks.length) {
       const tok = peek();
       if (tok.t === "}" || tok.t === "]") {
-        if (closing === tok.t) { i++; break; }
+        if (closing === tok.t) { i++; closed = true; break; }
         // W16：闭合符**不匹配**必须报错，不再静默结束本块。
         // 原先这里直接 `break`（且**不消费**该 token）：`a { ] }` 静默得到 `{"a":{}}`，
         // `]` 被吞掉、数据形状被悄悄改掉。码按 Rust 分两种：
@@ -1299,6 +1326,18 @@ export function parse(text, opts) {
       } else {
         setField(key, coerceWord(key, fragments, nsMap, feats));
       }
+    }
+    // 块**未闭合**（遇到文件结尾）必须报错。
+    //
+    // 此前循环因 token 流耗尽而退出后直接 `return node` ⇒ `basic { a: 1`（缺 `}`）被
+    // **静默接受**，而 Rust / C / C++ / Lua 全部报 `E-PARSE-001`。后果最重的一环是
+    // **编辑器诊断**（它走 `parseSafe`）因此看不见这类错误 —— 用户只会觉得"不报错但也不对"。
+    // 数组路径早就有这个检查（见 `parseArray` 的 `closed` 标志），块路径漏了。
+    //
+    // ⚠️ 判据必须是 `closed` 而**不是** `i >= toks.length`：正常闭合的块消费掉 `}` 之后
+    // `i` 也恰好等于长度，用后者会把**合法文档**误判成未闭合。
+    if (closing != null && !closed) {
+      fail("E-PARSE-001", "sml: 未闭合的块（遇到文件结尾，缺少结束符号 " + closing + "）");
     }
     if (appliedContract) {
       const c = contracts[appliedContract];
