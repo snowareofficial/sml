@@ -293,6 +293,42 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
 
 ---
 
+## 三·十、跨实现「特性口径」审计（2026-09-19，用户要求"补 + 还有没有了"）
+
+### 已**实测**确认（不是 grep 推断，是跑二进制得到的结果）
+
+| 事实 | 证据 |
+|---|---|
+| **`@feature enable/disable …` 门控机制本身只有 Rust + JS 有** | 编 `tools/dump_c.c` + `c/sml.c` 真跑：`@feature enable typed-block` ⇒ **`E-PARSE-005`**「`@feature` 不是合法指令…（合法指令：contract / is / version）」。C++ / Lua 源码里是**同一套 E-PARSE-005 路径与同一句文案**（`cpp/sml.cpp:918/945`、`lua/lib/sml.soup:763/790`），未单独运行 |
+| **`typed-block` 只有 Rust + JS 实现** | `rust/sml-feature/src/lib.rs:149,175`（`Feature::TypedBlock` 入表）+ `rust/sml-parse/src/parser.rs:1132`（门控）；`js/sml.mjs` 同款门控；C / C++ / Lua 源码里 `typed-block` **零命中** |
+| **C 上该写法会静默退化** | 不带 `@feature` 时 `Metrics metrics { latency: 12.5 }` 的 dump 里出现 `__type: Metrics` / `__name: metrics` ⇒ **契约不校验、不填默认值、也不报错** |
+| **"未知特性名"各端口径还不一致** | Rust 报 `E-FEATURE-003`（`rust/tests/error_codes.rs` 有断言）；**JS 静默接受**（实测 `ok = true`，`js/probe-error-codes.mjs` 自己也记着这是"跨端差异，待 W16 判定"）；C/C++/Lua 根本没这门 |
+
+⇒ **后果**：教科书第 10 章"用 `@feature` 裁剪能力"的叙述对 C / C++ / Lua **不适用**（能力集固定）；
+跨实现共享的文档**不要写 `@feature`**，块级类型标注改写 `@is 契约名`。
+（相关文档已就地更正：`ch05 §5.2.2`、`ch10`、`llms.txt`、`showcase_contract.sml` 注释、扩展 README。）
+
+### 待**逐条实测**的候选（本轮只做了名字粗扫，**不足以当结论**）
+
+方法（血的教训：本轮先因"只 grep `rust/src`"错了一次，又因"没真跑 C"错了第二次）：
+**① grep 该端*整棵*源码树；② 真跑该端的二进制取行为**。两把尺子都过，才写进文档。
+
+粗扫结果（15 个特性名在各端的出现次数为 0 = 连名字都没有）：
+
+| 端 | 名字零命中的特性 |
+|---|---|
+| Rust | （全有）✓ 参考实现 |
+| JS | `bareword-string`、`top-level-array`、`multi-include`、`glob-include`、`regex-include`、`ext-rewrite` |
+| C | `top-level-array`、`namespace`、`implicit-ns`、`multi-include`、`regex-include`、`ext-rewrite`、`typed-block` |
+| C++ | `bareword-string`、`top-level-array`、`implicit-ns`、`multi-include`、`regex-include`、`ext-rewrite`、`typed-block` |
+| Lua | `bareword-string`、`top-level-array`、`implicit-ns`、`ext-rewrite`、`typed-block` |
+
+⚠️ **这些 0 只说明"该字符串不在这端的源码里"**，既可能真是没实现，也可能是命名不同 / 门控表在别处。
+⇒ 逐条按上面两把尺子核对，然后：要么补齐实现（Rust 是基准），要么在 ch10 明确标注"仅 Rust/JS"。
+（建议顺序：先 `typed-block`，它已被文档大量引用；再 `ext-rewrite` / `glob-include` / `regex-include` 这三个 include 家族。）
+
+---
+
 ## 三·九、私有资产的家：内网 `sml_secret`（2026-09-18）
 
 **问题**：报送件 / 内部报告此前「躺在主库工作区 + 靠 `.gitignore` 挡」——等于**没有版本、
