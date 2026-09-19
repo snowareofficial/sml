@@ -35,6 +35,8 @@ yielding a wrong tree — unterminated string `E-LEX-001`, unterminated block co
 `E-PARSE-003`, mismatched closing bracket `E-PARSE-002`, unregistered directive `E-PARSE-005`,
 undefined fragment reference `E-INCLUDE-006`, top-level scalar `E-PARSE-008`. Newly added codes
 include `E-INCLUDE-012` (malformed include path) and `E-CLI-008` (smltools CLI usage error).
+(⚠️ 2026-09-19: the `smltools` half of `E-INCLUDE-012` was retired when the CLI switched to the
+library's include expansion — **only Lua raises it now**; the table below follows the code registry.)
 
 <div id="errors-app">
   <p>Loading the code table… (if this never fills in, <code>errors.json</code> was not generated:
