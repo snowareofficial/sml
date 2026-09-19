@@ -332,18 +332,26 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
 | `fragment` 的 `&base` 展开：C **不展开** | C 把 `&base` 留成键（＝ W4-片段行级展开那条欠账，实测确认） |
 | `typed-block`：C / C++ **静默** | 与"Rust 未开启该特性时"同档（仅 `__type`/`__name` 元数据）；**Lua 连元数据都丢** |
 
-### 本轮顺手挖出的三个**新问题**（都还没修）
+### 本轮顺手挖出的问题（2026-09-19 当日进展）
 
-1. **`examples/advanced.sml` 自己就跑不过**（Rust 报 `E-INCLUDE-012`「include 路径写法非法（未加引号）」
-   —— 指向 `import { widget_login } as w in "advanced_inc/widgets.sml"` 这一行；而
-   `rust/sml-include/src/parse.rs:80` 把这个"键列表在前"的写法列为**等价写法**）。
-   ⇒ 与 `examples/slint/login.sml` 同族（"样例与实现不符"），要么改样例、要么修实现/补文档。
-2. **所用 Rust release 二进制疑与源码不一致**：`glob-include` 实测**未展开**（把 `inc/*.sml` 当字面路径
-   open ⇒ `os error 123`），而 `parse.rs:367-377` 明明有 glob 分支；同一次测试里 `examples/advanced.sml`
-   报的 `E-INCLUDE-012` 也与源码注释矛盾。⇒ **重编 `smltools` 再复测**（先别把 Rust 那两格当定论）。
-3. **JS `parseSafe` 接受未闭合块**：`basic { a: 1`（缺 `}`）⇒ JS 返回 `{ok: true, value: {basic:{a:1}}}`
-   而 Rust / C / C++ / Lua **全部报 `E-PARSE-001`**。编辑器诊断（它用 `parseSafe`）因此**看不见这类错误**
-   —— 与"未闭合块在编辑器里不报红"直接相关，属该修的一条。
+1. ~~**`examples/advanced.sml` 自己就跑不过**~~ ✅ **已修**：根因不是二进制过期，而是
+   **CLI 自带一份行级 include 展开**（`smltools/src/main.rs`），与库 `sml-include` 分叉 ⇒
+   已删除、统一走 `sml::parse_file`。**`examples/advanced.sml` 现在整篇解析成功**。
+   ⚠️ 码表行为变更：自包含 `E-INCLUDE-004 → E-INCLUDE-002`、未加引号路径
+   `E-INCLUDE-012 → E-INCLUDE-001`（`E-INCLUDE-012` 在 CLI 退场，impls 已改 `[lua]`）。
+2. ~~**所用 Rust release 二进制疑与源码不一致**~~ ❌ **判断错了（已更正）**：glob 没展开同样是
+   上面那份 CLI 私有展开造成的（它把 `inc/*.sml` 当字面路径 open），**不是**二进制过期。
+   统一到库之后实测 `include "inc/*.sml"` 正常展开 ⇒ **无需重编复测**。
+3. **JS `parseSafe` 接受未闭合块**（**仍未修**）：`basic { a: 1`（缺 `}`）⇒ JS 返回
+   `{ok: true, value: {basic:{a:1}}}`，而 Rust / C / C++ / Lua **全部报 `E-PARSE-001`**。
+   编辑器诊断用的是 `parseSafe` ⇒ **这类错误在编辑器里不报红**。属该修的一条。
+4. **新登记：`sml-include` 的"逐行 tokenize"架构缺陷（只修了一半）**：`expand_includes` 逐行
+   `tokenize(line)` ⇒ 任何**跨行词法单元**（多行块注释、多行字符串）都会在第 1 行报"未闭合"。
+   本轮加了**快路径**（整篇无 include ⇒ 整篇词法一次），把"只有 Rust 失败的语料"从 **4 → 0**；
+   但**既有 include、又有跨行词法单元**的文档仍走慢路径而报错（例：
+   `include "common.sml"` + 主文件里一段跨行块注释）。正解是改成
+   "**整篇词法一次 + 按行插入被包含文件的 token**"（token 带位置信息，parse 报错能给行号即证），
+   或把 include 指令的识别前移到词法阶段。**这是本轮唯一还欠的实现债。**
 
 ### 复核方法（可重跑）
 

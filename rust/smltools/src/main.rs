@@ -35,10 +35,12 @@ use sml::emit::{
 use clap::Parser;
 // `to_sml` 不再直接调用：SML 输出走带检查的 `sml::to_sml_checked`（W16，见 emit()）
 use sml::{parse, Value, Version};
+// ⚠️ `E_INCLUDE_001/004/012` **不再由本 crate 抛出**：include 展开已统一交给库的
+// `sml::parse_file`（原先那份 CLI 自有的行级预处理已删除），这些码由 `sml-include` 带出。
 use sml_codes::{
     SmlError, E_CLI_001, E_CLI_002, E_CLI_003, E_CLI_004, E_CLI_005, E_CLI_006, E_CLI_008,
-    E_FEATURE_004, E_INCLUDE_001, E_INCLUDE_004, E_INCLUDE_012, E_INTERNAL_001, E_IO_001, E_IO_003,
-    E_IO_004, E_IO_005, E_IO_006, E_IO_007, E_MIGRATE_017, I_FEATURE_001,
+    E_FEATURE_004, E_INTERNAL_001, E_IO_001, E_IO_003, E_IO_004, E_IO_005, E_IO_006, E_IO_007,
+    E_MIGRATE_017, I_FEATURE_001,
 };
 use std::path::Path;
 
@@ -551,75 +553,29 @@ fn parse_with(
         }
     }
     match input_path {
-        Some(p) => {
-            let base = p.parent().unwrap_or_else(|| Path::new("."));
-            // include 展开自带的码（E-INCLUDE-*）**原样向上传**，不再套一层 parse 前缀。
-            let expanded = expand_includes(text, base)?;
-            parse(&expanded).map_err(|e| e.context("parse error: "))
-        }
+        // 有输入文件 ⇒ **交给库的 `parse_file`**：与 C-ABI `sml_load_file`、编辑器后端、
+        // 以及 `examples/advanced.sml` 头部写明的推荐用法（`sml::parse_file`）走**同一条**路径。
+        //
+        // 为什么不再自己展开：CLI 原有一份"行级 include 展开"（只认行首单个引号路径），
+        // 与库的 `sml-include` 分叉，实测三处后果，其中第一处是**静默数据丢失**：
+        //   · `include "common.sml", "secrets.sml" as sec`
+        //       ⇒ 只展开第一个，`continue` 把整行后半段丢掉 → 第二个文件**无声消失**；
+        //   · `include "inc/*.sml"` ⇒ 当字面路径读 ⇒ `E-INCLUDE-001`（误导为"文件读取失败"）；
+        //   · `import { key } as w in "f.sml"` ⇒ 报 `E-INCLUDE-012`，而库把该写法列为
+        //     **等价写法**（`rust/sml-include/src/parse.rs:80`）⇒ `examples/advanced.sml` 自己跑不过。
+        // 交给库之后，`multi-include` / `as ns` / 挑键 `{ k }` / `glob` / `regex` / `@feature`
+        // 全由库负责 —— 两处实现**只可能一致**。
+        Some(p) => sml::parse_file(p).map_err(|e| e.context("parse error: ")),
+        // stdin 没有基准目录，include 的相对路径无从解析（建议改用 `-i <file>`）。
         None => parse(text).map_err(|e| e.context("parse error: ")),
     }
 }
 
-/// 行级展开 `include "path"` / `@include "path"` / `import "path"` 指令。
-///
-/// 路径相对「包含方文件所在目录」递归解析（与 smlsml 的 include 语义一致）；
-/// 嵌套展开受 16 层深度保护，防止循环包含导致无限递归。仅支持普通文件路径，
-/// 不含 glob / regex 模式包含（满足「结构文件按章节 include 数据文件」需求）。
-fn expand_includes(text: &str, base: &Path) -> Result<String, SmlError> {
-    expand_includes_impl(text, base, 0)
-}
-
-fn expand_includes_impl(text: &str, base: &Path, depth: usize) -> Result<String, SmlError> {
-    // ⚠️ 这里（及本函数内其余 `Err`）的消息**不要再自带 `smltools: ` 前缀**：
-    // 外层 `main`/`convert_dir` 打印时统一是 `eprintln!("smltools: {e}")`，
-    // 内层再加一遍会打出 `smltools: smltools: …` 的重复前缀，误导用户以为消息被嵌了两层。
-    if depth > 16 {
-        // E-INCLUDE-004：smltools 自带的展开上限也归此码（数值与语言层的 32 不同，
-        // 差异用文案表达，码相同）。
-        return Err(SmlError::new(E_INCLUDE_004, "include 嵌套超过 16 层"));
-    }
-    let mut out = String::new();
-    for line in text.lines() {
-        let trimmed = line.trim_start();
-        let core = trimmed.strip_prefix('@').unwrap_or(trimmed);
-        let rest = core
-            .strip_prefix("include ")
-            .or_else(|| core.strip_prefix("import "));
-        if let Some(rest) = rest {
-            let path = rest.trim();
-            if let Some(rel) = path
-                .strip_prefix('"')
-                .and_then(|s| s.find('"').map(|i| &s[..i]))
-            {
-                let full = base.join(rel);
-                // E-INCLUDE-001：include 无法定位或读取目标文件。
-                let inc = std::fs::read_to_string(&full).map_err(|e| {
-                    SmlError::new(
-                        E_INCLUDE_001,
-                        format!("include 读取 {} 失败: {e}", full.display()),
-                    )
-                })?;
-                let inc_base = full.parent().unwrap_or(base);
-                out.push_str(&expand_includes_impl(&inc, inc_base, depth + 1)?);
-                out.push('\n');
-                continue;
-            }
-            // E-INCLUDE-012：include 路径写法非法（未加引号）。
-            //
-            // 这里原先**暂归 E-INCLUDE-001**（无法定位或读取目标文件）—— 那是已知
-            // 错码：用户拿 E-INCLUDE-001 去查会看到「文件缺失或读取失败」，被误导。
-            // 「路径没加引号」与「文件不存在」是两回事，现已归位到 E-INCLUDE-012。
-            return Err(SmlError::new(
-                E_INCLUDE_012,
-                format!("include 路径写法非法（未加引号）: {line}"),
-            ));
-        }
-        out.push_str(line);
-        out.push('\n');
-    }
-    Ok(out)
-}
+// 说明：此处原先挂着一份 **CLI 自带的行级 include 展开**（`expand_includes` /
+// `expand_includes_impl`）。它与库的 `sml-include` 是两份实现，且已实测分叉
+// （多目标只展开第一个且**静默丢弃后半行**、glob 当字面路径、库列为等价写法的
+// `import { k } as w in "f"` 被判非法 ⇒ `examples/advanced.sml` 自己跑不过）。
+// 已整体删除，统一走库的 `sml::parse_file`（见 `parse_with`），杜绝再次漂移。
 
 /// 选择后端做部分翻译。
 ///
