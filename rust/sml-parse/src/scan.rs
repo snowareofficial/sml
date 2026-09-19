@@ -250,6 +250,20 @@ pub fn version_directive(line: &str) -> Result<Option<String>, SmlError> {
 /// 允许多次声明（include 进来的文件可各自声明），但必须一致；
 /// 声明了实现不支持的版本时报错，避免静默按错误语法解析。
 pub fn strip_version(text: &str) -> Result<(String, Option<Version>), SmlError> {
+    // —— 文件级规范化：去掉开头的 **UTF-8 BOM**（U+FEFF）——
+    //
+    // 为什么放这里：本函数是**所有文本入口**（`parse` / `parse_with` / `parse_versioned` /
+    // `parse_file` / `parse_file_versioned` / `parse_file_features`）的**唯一漏斗**
+    // （每个入口第一步都调它）⇒ 一处收口，五端（Rust/C/C++/Lua/JS）语义才能一致。
+    //
+    // 为什么必须去：BOM **不是空白**（`char::is_whitespace('\u{feff}') == false`），
+    // 于是 `\u{feff}x: 1` 会被词法当成单词 `\u{feff}x` ⇒ **第一个键名被静默改掉**
+    // （本轮五端实测全中：Rust 输出 `"\u{feff}x": 1`、JS 输出 `{"\u{feff}x":1}`）。
+    // 来源极常见：Windows 记事本「另存为 UTF-8」、Excel 导出的文本。
+    //
+    // ⚠️ 仓库里 `smltools` 的 **YAML / XML 导入器早就各自去了 BOM**（`yaml.rs:93`、`xml.rs:63`），
+    // 只有 native SML 这条路径漏了 —— 属于"同一件事两套待遇"，本轮补齐。
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let spans = compute_string_spans(text);
     let mut declared: Option<Version> = None;
     let mut rest = String::new();

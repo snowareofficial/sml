@@ -41,6 +41,12 @@ _* This is also a block comment, the Soup-family convention *_
 
 >Note: `#`, `--` inside the * * quotation marks of the string will not be treated as comments, so feel free to write them.
 
+> **A BOM at the start of the file is ignored.** Notepad's "Save as UTF-8" puts an invisible
+> `U+FEFF` (byte order mark) at the very beginning. It is **not whitespace**, so unless it is
+> skipped it becomes part of the first key name — the key **silently** turns into `\uFEFFname`
+> (parsing still "succeeds", so it is hard to notice on your own). All five implementations
+> (Rust / C / C++ / Lua / JS) skip it, so a `.sml` saved by Notepad works as-is.
+
 ## 1.3 Scalar Types
 
 SML will automatically recognize the type of value:

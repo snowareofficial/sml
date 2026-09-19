@@ -378,6 +378,52 @@ runner 并跑）、`probe_cal.py`（**先校准**：坏文档必须报错，端�
 
 ---
 
+## 三·十一、词法层面「被遗漏的语法」审计（2026-09-19，用户问"还有被遗漏的语法吗"）
+
+方法：**20 个用例 × 5 端**，判据是"**用例里的键 `x` 是否幸存**" —— 这样能抓住
+"解析成功但键没了"这类**静默数据损坏**（只看"能不能解析"是抓不到的）。
+探针：`%TEMP%\probe_syntax.py`（含校准：坏文档必须五端都报 `E-PARSE-001`）。
+
+### ✅ 已修：开头 **BOM**（U+FEFF）—— 五端统一跳过
+
+**实测（字节级）**：五端**原先都**把 BOM 吃进第一个键名（Rust 输出 `"\uFEFFx": 1`、
+JS 输出 `{"\uFEFFx":1}`）—— 终端里看不见，属**静默改键名**。来源极常见：
+Windows 记事本「另存为 UTF-8」、Excel 导出文本。
+
+**修法（五端各一处，均按"文件级规范化"）**：
+
+| 端 | 收口点 |
+|---|---|
+| Rust | `sml-parse/src/scan.rs::strip_version`（**所有文本入口的唯一漏斗**）+ `sml-include/src/expand.rs::expand_file_tokens`（子文件） |
+| JS | `js/sml.mjs::parse()`（子文件也走它 ⇒ 一并覆盖） |
+| C | `c/sml.c::sml_parse` + `resolve_includes` 的子文件读取（`memmove` 就地去） |
+| C++ | `cpp/sml.cpp::Parser::parse` + include 的子文件读取 |
+| Lua | `lua/lib/sml.soup::Sml.load` + include 的子文件读取 |
+
+**测试**：五端各一条**断言"键名仍是 `x`"** —— Rust `rust/src/lib.rs::bom_is_stripped_on_all_entries`
+（文本入口 + 文件入口 + **被 include 的子文件**三条）、C `expect_json("BOM 开头", …)`、
+C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联断言、JS `js/probe-error-codes.mjs`。
+⚠️ **只断言"能解析"是抓不到这个 bug 的**：不去 BOM 也照样"解析成功"（这才叫静默）。
+**验收**：`%TEMP%\bom_bytes.py`（主文件 + 子文件 × 五端，查输出里还有没有 `EF BB BF` 字节）全绿 ✓。
+
+### ⏳ 待修（本轮**只登记**，用户定：先不动 Lua）
+
+1. **Lua：三引号多行字符串丢键** —— `s: """a\nb"""\nx: 1` ⇒ 输出里**没有** `x`。
+   复现：`luajit lua/main.lua <文件>`（探针用例 `字符串·三引号多行`）。其余四端正常。
+2. **Lua：`@feature … # 行尾注释` 吞掉下一行** —— `@feature enable when # note\nx: 1` ⇒ 输出里**没有** `x`。
+   同一份文档 Rust/JS 正常（C 报 `E-PARSE-005`，因为 C 本就没有 `@feature`）。
+   疑似该行的"去行尾注释"没生效，把下一行也吃了。
+
+### 🧹 顺带清掉
+
+- `site/public/dl/sml-lang-0.4.1.vsix`（**未被 git 跟踪**，但它是 Hugo 构建产物目录里的陈旧坏包）
+  已从磁盘删除；`site/static/dl/` 那份上一轮已 `git rm`。现在**两份下载目录都只有 0.4.2**。
+- 本轮**重打了 VSIX**（vendor 解析器变了）：`editors/vscode/sml-lang-0.4.2.vsix` = **161304 B**；
+  `EXPECT_VENDOR` 同步为 `{ size: 73683, shaPrefix: "0ea28eec0253a864" }`；
+  `tools/check_js_copies.py` 复核四份副本逐字节一致 ✓；`_prepublish.mjs` 七项闸门 ALL PASS ✓。
+
+---
+
 ## 三·九、私有资产的家：内网 `sml_secret`（2026-09-18）
 
 **问题**：报送件 / 内部报告此前「躺在主库工作区 + 靠 `.gitignore` 挡」——等于**没有版本、

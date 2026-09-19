@@ -358,6 +358,40 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    /// 文件级规范化：开头的 **UTF-8 BOM**（U+FEFF）必须被忽略。
+    ///
+    /// 为什么值得一条测试：BOM **不是空白**（`char::is_whitespace` 为假），不去掉就会被词法
+    /// 吞进第一个单词 ⇒ **第一个键名静默变成 `\u{feff}x`**（本轮五端实测全中）。
+    /// 来源极常见：Windows 记事本「另存为 UTF-8」、Excel 导出的文本。
+    /// 仓库里 `smltools` 的 YAML / XML 导入器**早就**各自去了 BOM（`yaml.rs:93`、`xml.rs:63`），
+    /// native SML 这条路径此前漏了 —— 所以这里把**三条入口**一起钉住：
+    /// ① 文本入口（`parse`）② 文件入口（`parse_file`）③ **被 include 的子文件**（另一条读盘路径）。
+    #[test]
+    fn bom_is_stripped_on_all_entries() {
+        // ① 文本入口
+        let v = parse("\u{feff}x: 1\n").expect("文本入口应忽略 BOM");
+        assert_eq!(v.get("x"), Some(&Value::Int(1)), "文本入口应忽略 BOM");
+
+        // ② 文件入口
+        let d = tmpdir("bom");
+        let main = d.join("main.sml");
+        std::fs::write(&main, "\u{feff}x: 1\n").unwrap();
+        let v = parse_file(&main).expect("文件入口应忽略 BOM");
+        assert_eq!(v.get("x"), Some(&Value::Int(1)), "文件入口应忽略 BOM");
+
+        // ③ 被 include 的子文件（由 sml-include 自己读盘，是**另一条**路径）
+        std::fs::write(d.join("child.sml"), "\u{feff}y: 2\n").unwrap();
+        std::fs::write(d.join("m2.sml"), "@version v1\ninclude \"child.sml\"\n").unwrap();
+        let v = parse_file(d.join("m2.sml")).expect("含 BOM 子文件的文档应能解析");
+        assert_eq!(
+            v.get("y"),
+            Some(&Value::Int(2)),
+            "被 include 的子文件也应忽略 BOM"
+        );
+
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     #[test]
     fn include_inside_block_injects_fields() {
         // 文本内联语义：可在块内注入一组字段

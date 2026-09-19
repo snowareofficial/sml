@@ -61,6 +61,30 @@ sync with the sources** (needs a rebuild + re-measure).
 3. **C / C++ / Lua have no `@feature`** (`E-PARSE-005`), so "trim capabilities with `@feature`" simply
    does not apply to them; they support `namespace` / `multi-include` etc. **unconditionally**.
 
+### Lexical-level differences (measured 2026-09-19, again from real binaries)
+
+The same round swept **lexical units** too (20 cases × 5 implementations; the verdict for each case is
+"did the case's key `x` survive", which is what catches **silent data corruption** — "does it parse at
+all" cannot see it):
+
+| Case family | Result |
+|---|---|
+| Leading **BOM** (U+FEFF) | ⚠️ **all five used to glue the BOM onto the first key name** (Rust printed `"\uFEFFx": 1`, JS `{"\uFEFFx":1}`) ⇒ **fixed on all five** this round (see below) |
+| Block comments `/* */`, `_* *_`, multi-line, **containing a `/*` mention**, at EOF without newline | ✅ all five agree |
+| Strings: single-line / multi-line / escapes / containing `#` `//` `/*` | ✅ all five agree |
+| **Triple-quoted multi-line string** | ❌ **Lua only**: the key is dropped (not fixed; registered) |
+| CRLF line endings, three line-comment styles, `@version` with trailing comment | ✅ all five agree |
+| `@feature … # trailing comment` | ❌ **Lua swallows the next line** (not fixed; registered); C reports `E-PARSE-005` (no `@feature`, see the table above) |
+
+**How the BOM was fixed (one place per implementation, all treated as file-level normalisation)**:
+Rust in `sml-parse::scan::strip_version` (**the single funnel of every text entry**) plus
+`sml-include::expand_file_tokens` (child files); JS in `parse()`; C in `sml_parse` plus the child-file
+read in `resolve_includes`; C++ in `Parser::parse` plus the include child-file read; Lua in `Sml.load`
+plus the include child-file read. Each implementation gained a test that **asserts the key is still
+`x`** — asserting "it parses" would not catch this (without the fix it still "parses fine").
+⚠️ Worth noting: `smltools`' **YAML / XML importers already stripped the BOM** (`yaml.rs:93`,
+`xml.rs:63`); only the native SML path was missing it — the same job treated two ways.
+
 ## 10.1 How to turn on/off features
 
 At the beginning of the file, use the `@feature` command:

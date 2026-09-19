@@ -611,6 +611,13 @@ static void test_nested_arrays(void) {
     expect_json("块与数组混排", "m: [ { x: 1 } [ y ] ]\n", "{\"m\":[{\"x\":1},[\"y\"]]}");
     expect_json("两个子数组", "m: [ [a], [b] ]\n", "{\"m\":[[\"a\"],[\"b\"]]}");
     expect_json("深三层", "m: [[[z]]]\n", "{\"m\":[[[\"z\"]]]}");
+
+    /* 文件级规范化：开头的 UTF-8 BOM（EF BB BF）必须被忽略。
+       ⚠️ 这里用 JSON 整体比对，而不是"能解析就行"：不去 BOM 也**解析成功**，
+          只是第一个键名**静默**变成 "\xEF\xBB\xBFx"（JSON 会是 {"\xEF\xBB\xBFx":1}）
+          —— 那正是本条要钉住的静默行为。来源很常见：记事本「另存为 UTF-8」。
+          (\xBF 后面接字符串拼接，避免 \xBFx 被当成一个十六进制转义吃掉。) */
+    expect_json("BOM 开头", "\xEF\xBB\xBF" "x: 1\n", "{\"x\":1}");
 }
 
 int main(void) {
