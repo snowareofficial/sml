@@ -140,6 +140,8 @@ node_modules/
 !editors/vscode/scripts/_verify_ext.mjs
 !editors/vscode/scripts/_verify_activate.mjs
 !editors/vscode/scripts/_gen_seti_theme.py
+#    4) include/import 编辑器导航的闸门（同上：手写持久工具，且已接进 _prepublish.mjs 的 steps）
+!editors/vscode/scripts/_verify_nav.mjs
 
 # ── 用户 / 工作区本地产物（不属于仓库）──────────────────────────────────────
 

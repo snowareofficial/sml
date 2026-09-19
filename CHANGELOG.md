@@ -69,6 +69,22 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 修复
 
+- **VSCode 扩展：`include` / `import` 的编辑器导航（跳转 / 悬停 / 补全）**（`src/extension.js` +
+  `src/sml-parse.mjs`）：模块化语法此前在编辑器里**只有诊断**、没有任何导航 ——
+  光标在 `include "conf.d/db.sml"` 上按 F12 什么都不会发生。
+  - **跳转**：光标停在路径上 ⇒ 跳到**被包含文件**（跨文件 `Location`）；
+  - **悬停**：显示解析到的路径（✓ 找到 / ✗ **未找到** —— 不许假装成功）+ 该文件的**顶层键**；
+  - **补全**：在路径位置列出工作区里的 `.sml`，按**相对当前文档目录**的写法插入（带引号）。
+  路径解析按 `include` 的语义（**相对被包含文件所在目录**，再退到工作区相对路径 / 裸文件名）。
+  为此桥接层新增 `parseIncludeTargets(line)`：返回每个目标的路径 + **行内列区间** ——
+  `getWordRangeAtPosition` 的字符类不含 `/`，跨目录路径只会拿到尾段，做不了精确导航。
+  规则照 `js/sml.mjs` 内部那份**未导出**的 `parseIncludeTargets` 重写（引号外且 `{}` 深度 0
+  的逗号才分隔目标；`import { k } as w in "x.sml"` 的路径在 `in` 之后；`re:"…"` 单独标记）。
+  ⚠️ **验证方式**：新增闸门 `scripts/_verify_nav.mjs`（已接进 `_prepublish.mjs` 的 steps）——
+  **真 activate 扩展 + 真调三个 provider + 用真文件断言**（跳转落点是不是那个文件、悬停有没有
+  列出目标顶层键、目标不存在时有没有说"未找到"、补全列了哪些）。**刻意不用"源码里有这段字符串"
+  那种断言** —— 那正是本仓库吃过亏的"校验一个没人看的键"。
+
 - 🔴 **编辑器诊断：凡用 `include` 的文档整行标红（`sml: include 目标未找到`）** —— 用户实测截图：
   `examples/advanced.sml` 的 include / import 行全红，而**同一文件在命令行下完全正常**。
   根因：扩展只把 `doc.getText()` 交给 JS 解析器，而 JS 的 include 走**宿主提供的文件表**

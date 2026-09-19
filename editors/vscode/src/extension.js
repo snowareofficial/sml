@@ -279,6 +279,50 @@ async function buildFilesMap(doc) {
   return map;
 }
 
+/// 解析某一行上的 `include` / `import` 目标，并把它们**解析成工作区文件 Uri**。
+///
+/// 返回 `[{ path, col, end, viaImport, regex, uri }]`；`uri === null` 表示没找到目标
+/// （悬停要如实说"未找到"，跳转则返回 null）。
+///
+/// 解析规则在桥接层 `parseIncludeTargets`（照 JS 解析器的 `parseIncludeTargets` 重写 ——
+/// 那个函数**未导出**）；这里只负责"路径 → Uri"：按 `include` 的语义**先相对当前文档目录**，
+/// 再退到工作区相对路径 / 裸文件名（与 `buildFilesMap` 的键策略一致）。
+async function resolveIncludeTargets(doc, line) {
+  const { parseIncludeTargets } = await ensureSml();
+  if (!parseIncludeTargets) return [];
+  const targets = parseIncludeTargets(line).map((t) => ({ ...t, uri: null }));
+  if (!targets.length) return targets;
+  let uris = [];
+  try {
+    uris = await vscode.workspace.findFiles("**/*.sml", "**/node_modules/**", 400);
+  } catch {
+    return targets;
+  }
+  const docDir = doc.uri.path.replace(/\/[^/]*$/, "");
+  for (const t of targets) {
+    if (t.regex) continue; // `re:"…"` 是正则匹配，不是文件路径
+    const want = t.path.replace(/\\/g, "/");
+    const cands = want.endsWith(".sml") ? [want] : [want, want + ".sml"];
+    for (const u of uris) {
+      if (u.toString() === doc.uri.toString()) continue;
+      const p = String(u.path || u.fsPath || "").replace(/\\/g, "/");
+      const rel = String(vscode.workspace.asRelativePath(u, false)).replace(/\\/g, "/");
+      const hit = cands.some(
+        (c) =>
+          p === docDir + "/" + c || // ① 相对当前文档目录（include 的语义）
+          p.endsWith("/" + c) || // ② 工作区内的相对路径
+          rel === c ||
+          rel.split("/").pop() === c.split("/").pop() // ③ 裸文件名兜底
+      );
+      if (hit) {
+        t.uri = u;
+        break;
+      }
+    }
+  }
+  return targets;
+}
+
 async function updateDiagnostics(doc, collection) {
   if (doc.languageId !== "sml") {
     collection.delete(doc.uri);
@@ -772,6 +816,34 @@ function activate(context) {
         }
       }
 
+      // 6) include / import 的**路径位置**：列出工作区里的 `.sml`（相对当前文档目录优先）。
+      //    这是"模块化语法在编辑器里能用"的一半 —— 另一半是跳转（见 provideDefinition）。
+      if (/^[\t ]*@?(include|import)[\t ]/.test(linePrefix)) {
+        const opened = (linePrefix.match(/"/g) || []).length % 2 === 1; // 引号已开、未闭合
+        // 不过滤"本行已用过的目标"：用户可能正想把这一处**改指到**别的文件，
+        // 而 VS Code 本身会按已输入内容过滤，重复列出来的代价很小。
+        let uris = [];
+        try {
+          uris = await vscode.workspace.findFiles("**/*.sml", "**/node_modules/**", 400);
+        } catch {
+          uris = [];
+        }
+        const docDir = document.uri.path.replace(/\/[^/]*$/, "");
+        for (const u of uris) {
+          if (u.toString() === document.uri.toString()) continue;
+          const p = String(u.path || u.fsPath || "").replace(/\\/g, "/");
+          const rel = String(vscode.workspace.asRelativePath(u, false)).replace(/\\/g, "/");
+          // 展示与插入都用"相对当前文档目录"的写法（include 就是按那个解析的）
+          const label = docDir && p.startsWith(docDir + "/") ? p.slice(docDir.length + 1) : rel;
+          items.push({
+            label,
+            kind: CK("File", 0),
+            detail: "被包含文件（工作区内）",
+            insertText: opened ? label : '"' + label + '"',
+          });
+        }
+      }
+
       return items;
     },
   };
@@ -796,6 +868,37 @@ function activate(context) {
       // 契约名（`@is Server` / `@contract Server` 里的 Server）→ 显示契约展开结果。
       // 内容由桥接层组装（纯文本，可脱离 VSCode 单测），这里只做包装。
       const mod = await ensureSml();
+
+      // include / import 的**路径**上：显示解析结果（找到 ✓ / 未找到 ✗ + 目标顶层键）。
+      // 为什么单独做：`getWordRangeAtPosition` 的字符类不含 `/`，路径跨目录时会只拿到尾段。
+      {
+        const line = document.lineAt(position).text;
+        if (/^[\t ]*@?(include|import)[\t ]/.test(line)) {
+          const tgs = await resolveIncludeTargets(document, line);
+          const hit = tgs.find((t) => position.character >= t.col - 1 && position.character <= t.end + 1);
+          if (hit) {
+            let md;
+            if (hit.regex) {
+              md = "**正则 include**：`" + hit.path + "`\n\n受限正则匹配由 Rust 侧的 `regex-include` 支持（需 `@feature enable regex-include`）。";
+            } else if (hit.uri) {
+              md = "**被包含文件**：`" + String(hit.uri.fsPath || hit.uri.path) + "` ✓\n\nF12 / Ctrl+Click 可跳过去。";
+              try {
+                const t = Buffer.from(await vscode.workspace.fs.readFile(hit.uri)).toString("utf8");
+                const keys = mod && mod.collectKeys ? mod.collectKeys(t) : [];
+                if (keys.length) {
+                  md += "\n\n**该文件顶层键**：" + keys.slice(0, 12).join("、") + (keys.length > 12 ? " …" : "");
+                }
+              } catch {
+                /* 读不到内容就只显示路径 */
+              }
+            } else {
+              md = "**未找到目标**：`" + hit.path + "`\n\n相对路径按**被包含文件所在目录**解析；检查文件名与是否在工作区内。";
+            }
+            return new vscode.Hover(new vscode.MarkdownString(md));
+          }
+        }
+      }
+
       if (mod && mod.contractHoverMarkdown && mod.collectContractNames) {
         const text = document.getText();
         const contractNames = mod.collectContractNames(text);
@@ -916,6 +1019,21 @@ function activate(context) {
               document.uri,
               new vscode.Range(start, start.translate({ characterDelta: loc.length }))
             );
+          }
+
+          // include / import 的**路径** ⇒ 跳到**被包含文件**（跨文件跳转）。
+          // 注意：光标落在关键字或路径上都能触发（路径列区间 ±1 是给引号/空格留余量）。
+          {
+            const line = document.lineAt(position).text;
+            if (/^[\t ]*@?(include|import)[\t ]/.test(line)) {
+              const tgs = await resolveIncludeTargets(document, line);
+              const hit = tgs.find(
+                (t) => position.character >= t.col - 1 && position.character <= t.end + 1
+              );
+              if (hit && hit.uri) {
+                return new vscode.Location(hit.uri, new vscode.Range(0, 0, 0, 0));
+              }
+            }
           }
           return null;
         },
