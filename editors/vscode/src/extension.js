@@ -801,6 +801,13 @@ function activate(context) {
             }
           }
         }
+
+        // 字段级：契约声明里停在字段名上（`port: int default 5432`），或数据区里停在
+        // 属于某契约的键上 → 给类型 / 枚举 / 默认值 / 区间 / 必填可选 + 行尾说明 + 当前值。
+        if (mod.fieldHoverMarkdown) {
+          const md = mod.fieldHoverMarkdown(text, word, position.line);
+          if (md) return new vscode.Hover(new vscode.MarkdownString(md), range);
+        }
       }
 
       const map = {
@@ -847,6 +854,19 @@ function activate(context) {
           const name = isRef ? word.slice(1) : word;
           if (!name) return null;
           const text = document.getText();
+          // 字段优先：数据区的键 → 契约里的字段声明；契约里的字段 → 数据区第一处同名键。
+          // 「键 → 字段」是这套契约机制里最省事的一跳：读到 `port: 9090` 想知道它是什么，
+          // 直接跳过去看 `port: int default 5432 min 1 max 65535`。
+          if (!isRef && mod.findFieldDefinition) {
+            const f = mod.findFieldDefinition(text, name, position.line);
+            if (f) {
+              const start = new vscode.Position(f.line, f.col);
+              return new vscode.Location(
+                document.uri,
+                new vscode.Range(start, start.translate({ characterDelta: f.length }))
+              );
+            }
+          }
           // `&frag` 只可能是片段；裸名（含 `@is Server` 的 Server）先按契约找，再退回片段
           for (const kind of isRef ? ["fragment"] : ["contract", "fragment"]) {
             const loc = mod.findDefinition(text, name, kind);

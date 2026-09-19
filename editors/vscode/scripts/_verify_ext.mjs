@@ -123,7 +123,68 @@ try {
   check(occ.length === 2, "契约单元定位只认语法位置（@contract + @is，注释不算）", `命中 ${occ.length} 处`);
   const occText = m.findUnitOccurrences(doc, "Server", "text");
   check(occText.length === 3, "普通词定位把注释里的也算上", `命中 ${occText.length} 处`);
-  // ⑤ HL-cfg 分组能往返（特殊颜色写文件靠它）
+  // ⑤ 字段级：解析 / 悬浮 / 跳转（用户点名「各个字段能不能也有类似支持」）
+  // 契约里除 `host` 外都给默认值 / 可选：这样每个块都能通过校验，才取得到「契约填充后的值」。
+  // （缺必填字段时契约校验会失败，取不到值 —— 那是设计，不是 bug：宁可少显示也不显示错。）
+  const crlf = [
+    "@contract Address { city: str }",
+    "",
+    "@contract Server {",
+    "    host: str                              # 必填（默认 required）",
+    "    port: int default 5432                 # 缺失时填 5432",
+    "    tags: [str] optional",
+    "    status: enum [ active standby ] default active",
+    "    weight: num min 0 max 100 default 10",
+    "    mode: enum(active, off) default active",
+    "    address: Address",
+    "}",
+    "",
+    "database {",
+    "    primary {",
+    "        @is Server",
+    "        host: db1.internal",
+    "        address { city: Beijing }",   // 行内块：必须**不**影响外层路径（曾多弹一层）
+    "    }",
+    "    replica {",
+    "        @is Server",
+    "        host: db2.internal",
+    "        port: 5433",
+    "        address { city: Shanghai }",
+    "    }",
+    "}",
+  ].join("\r\n");   // ⚠️ 故意用 CRLF：`. ` 不匹配 `\r`，注释剥离曾因此整条失配
+  const flds = m.contractFields(crlf, "Server");
+  check(flds.length === 7, "CRLF 下契约字段全部解析出来", `解析出 ${flds.length} 个`);
+  const port = flds.find((f) => f.name === "port");
+  check(!!port && port.type === "int" && port.default === "5432", "字段类型/默认值解析正确",
+    port ? `${port.type} default ${port.default}` : "无 port");
+  check(!!port && port.comment === "缺失时填 5432", "行尾 `#` 注释解析为字段说明", port ? String(port.comment) : "");
+  const status = flds.find((f) => f.name === "status");
+  check(!!status && Array.isArray(status.enum) && status.enum.length === 2, "enum [ ... ] 解析为枚举值",
+    status ? JSON.stringify(status.enum) : "");
+  const weight = flds.find((f) => f.name === "weight");
+  check(!!weight && weight.min === "0" && weight.max === "100", "min/max 区间解析正确");
+  const mode = flds.find((f) => f.name === "mode");
+  check(!!mode && Array.isArray(mode.enum) && mode.enum.join(",") === "active,off", "enum(...) 内联括号形式也解析",
+    mode ? JSON.stringify(mode.enum) : "");
+  // 声明处悬浮：给规格 + 行尾说明
+  const mdDecl = m.fieldHoverMarkdown(crlf, "port", port.line);
+  check(!!mdDecl && mdDecl.includes("`int`") && mdDecl.includes("5432") && mdDecl.includes("> 缺失时填 5432"),
+    "契约声明处悬浮给出类型/默认值/说明");
+  // 数据区悬浮：给规格 + 当前值（replica 里写的是 5433，与默认值不同）
+  const keyLine = crlf.split("\r\n").findIndex((l) => /^\s*port:\s*5433\s*$/.test(l));
+  const mdUse = m.fieldHoverMarkdown(crlf, "port", keyLine);
+  check(!!mdUse && mdUse.includes("5433") && mdUse.includes("显式写的"), "数据区悬浮给出当前值", mdUse ? mdUse.split("\n").pop() : "null");
+  // 行内块不得破坏“所在块”的定位（曾把 database 弹掉 ⇒ 路径只剩 ["replica"]、值取不到）
+  const rep = m.enclosingBlock(crlf, keyLine);
+  const bpi = m.blockPath(crlf, rep.line);
+  check(!!bpi && bpi.path.join(".") === "database.replica", "行内块之后路径仍完整", bpi ? bpi.path.join(".") : "null");
+  check(m.contractOfBlock(crlf, rep.line, m.collectContractNames(crlf)) === "Server", "找到块应用的契约");
+  // 跳转：数据区的键 → 契约里的字段声明
+  const fd = m.findFieldDefinition(crlf, "port", keyLine);
+  check(!!fd && fd.line === port.line, "数据区的键可跳到契约字段声明", fd ? `第 ${fd.line + 1} 行` : "null");
+
+  // ⑥ HL-cfg 分组能往返（特殊颜色写文件靠它）
   const g = { contract_Server: { words: ["Server"], color: "#ff9f43", unit: "contract" } };
   const back = m.parseSafe(m.stringify(g));
   check(

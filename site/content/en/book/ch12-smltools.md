@@ -212,6 +212,8 @@ make sense for SML:
 |---|---|---|
 | Hover a contract | cursor on a contract name (`@is Server`) | shows the declaration **plus the structure the parser actually produced after filling defaults** — the real result, not a restatement of the declaration |
 | Hover a block | cursor on a block name (`primary {`) | shows the block **path** (`database.primary`), the contract it applies and the filled structure |
+| Hover a field | cursor on a field inside a contract (`port: int default 5432  # filled when missing`), or on a data key that belongs to a contract | type / enum / default / range / required-or-optional + the **trailing `#` description** + the current value (and whether it was written explicitly or filled from the default). Field documentation lives in the comment — the hover surfaces it, see §5.1.1 |
+| Go to a field | data key → its field declaration in the contract (and back) | reading `port: 9090` and wondering what it is: jump straight to `port: int default 5432 min 1 max 65535` |
 | Go to definition | `@is Server` → `@contract Server`; `&base` → `@base { }` | fragments/contracts are **document-level names**: same name, jump — no scope analysis |
 | Special colors | select a word → right-click "应用特殊颜色" | the color is written into the workspace `HL-cfg.sml` (**itself an SML file**, hand-editable, travels with the repo). By default it applies **only to syntax units** (contract / fragment / type / key / directive), so comments and strings with the same text stay as they are |
 | Spotlight | select a word → right-click | lights it up across the whole workspace (check the blast radius before renaming a field) |

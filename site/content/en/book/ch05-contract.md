@@ -38,6 +38,22 @@ List of field modifiers:
 |`Default<value>` | Fill in default value when missing (also automatically considered optional)|
 |`Min<number>`/`Max<number>` | Numerical value range (including endpoints)|
 
+### 5.1.1 Field descriptions and i18n
+
+**SML has no separate i18n layer** (there is not a single `i18n` / `locale` in the implementations) —
+it is a "text is data" format: keys, values, contract names and fragment names are all written in
+plain Unicode, CJK needs no escaping and no `\uXXXX`. So the two concerns each have a home:
+
+| What you want | How SML does it |
+|---|---|
+| A **description** of what a field means | Put it in the **trailing comment** of the contract field (`port: int default 5432  # filled when missing`). Comments are for humans *and* tools: the editor hover **shows it** (see chapter 12 §12.9), so the explanation does not have to live only in the source |
+| **Localized copy** (one dataset, Chinese and English versions) | Model the language **as data**, not as syntax: `title: { zh: 登录, en: Sign in }`, or split `zh.sml` / `en.sml` with `@fragment` / `include` and pull in the one you need. Switching language is then a data change, not a parser change |
+
+> Why this is not baked into the grammar: a format-level i18n feature (`@label(zh: …)`) couples
+> **data** with **translation**, while SML is positioned as "a pure data format plus an optional
+> contract layer". Descriptions are *documentation* (comments); localization is *data* (nested
+> blocks or files). Each in its place — the parser never needs to know the "current language".
+
 ## 5.2 Application Contract: `@is`
 
 Two ways of writing:
