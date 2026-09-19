@@ -12,9 +12,46 @@ SML 的设计原则是"**从极简到丰富，功能可裁剪**"——基础九�
 > ⚠️ **本章的适用范围（2026-09-19 实测补充）**：`@feature enable/disable` 这套**门控机制本身**
 > 目前只有 **Rust（参考实现）与 JS** 有 —— **C / C++ / Lua 会把 `@feature …` 当非法指令**
 > （`E-PARSE-005`，实测；它们的合法指令只有 `contract` / `is` / `version`），因此能力集是**固定的**。
-> 另外各 feature 的实现面**不齐**（例如 `typed-block` 只有 Rust + JS），逐条情况见各小节里的
-> 「实现面」与 [§5.2.2](/book/ch05-contract) 的审计表；跨实现共享的文档请以
+> 另外各 feature 的实现面**不齐**（例如 `typed-block` 只有 Rust + JS），逐条情况见下表与
+> [§5.2.2](/book/ch05-contract) 的审计表；跨实现共享的文档请以
 > **`@is` 这类五端都认的写法**为准，别依赖 `@feature`。
+
+### 实现面总表（2026-09-19 真机实测）
+
+判据是**跑出来的行为**（Rust `smltools`、C dumper、C++ 自编 runner、`luajit`、JS `parseSafe`），
+不是读源码猜的。`?` = 本轮未实测（**不代表没有**）。
+
+| 特性 | Rust | JS | C | C++ | Lua |
+|---|---|---|---|---|---|
+| `@feature` 门控机制 | ✅ | ✅ | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` |
+| `bareword-string` 裸词即串 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `include`（单文件） | ✅ | ✅ ※ | ✅ | ✅ | ✅ |
+| `env`（`$env.X`） | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `contract`（`@contract` / `@is`） | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `fragment`（`@base {}` + `&base`） | ✅ 展开 | ✅ | ⚠️ **不展开**（留下 `&base` 键） | ❌ `E-PARSE-005` | ❌ `E-PARSE-001` |
+| `top-level-array` | ✅ | ❌ `E-PARSE-003` | ✅ | ❌ `E-PARSE-006` | ❌ `E-PARSE-006` |
+| `namespace`（`include … as ns`） | ✅ | ✅ | ✅ | ✅ | ❌ `E-FEATURE-001` |
+| `implicit-ns` | ✅ | ✅ | ? | ? | ? |
+| `multi-include`（`include "a", "b"`） | ✅ | ✅ | ✅ | ✅ | ❌ `E-FEATURE-001` |
+| `glob-include`（`"inc/*.sml"`） | ⚠️ 未展开 ⚑ | ❌ `E-INCLUDE-001` | ❌ `E-INCLUDE-001` | ? | ❌ `E-FEATURE-001` |
+| `regex-include`（`re:"…"`） | ✅ | ❌ `E-LEX-004` | ? | ❌ | ❌ |
+| `ext-rewrite` | ✅ | ? | ? | ? | ? |
+| `when`（`@when`） | ✅ | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` |
+| `for`（`@for`） | ✅ | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` | ⚠️ 待复核 |
+| `typed-block` | ✅ | ✅ | ❌ **静默**（仅 `__type` 元数据） | ❌ 同 C | ❌ 连元数据都丢 |
+
+※ **JS 的 `include` 由宿主提供文件表**：`parse(text, { files })` —— JS 侧自己**不读盘**，
+这是为编辑器 / 服务端内嵌设计的（`files` 是 `{ "相对路径": "内容" }`）。不传 `files` 会得 `E-INCLUDE-001`。
+⚑ **Rust 的 `glob-include` 本轮实测未展开**（把 `inc/*.sml` 当字面路径 open ⇒ `os error 123`），
+而源码里明明有 glob 分支（`rust/sml-include/src/parse.rs:367-377`）⇒ **疑所用 release 二进制与当前源码不一致**（待重编复测）。
+⚠️ **Lua 的 `for` 待复核**：它在无 `@feature` 时"接受"了 `@for`，但同时**拒绝 `@feature`** —— 需确认是真展开还是当普通键吞掉了。
+
+**三条给写文档的人的结论**：
+
+1. **`@when` / `@for` 目前只有 Rust 有**（其余四端一律 `E-PARSE-005`）—— 别把它们写进"跨端通用"的示例。
+2. **`top-level-array` 只有 Rust + C 有**；`namespace` / `multi-include` 只有 Lua 缺（且它是**明确报码拒绝**，不是静默）。
+3. **C / C++ / Lua 没有 `@feature`**（`E-PARSE-005`），所以"用 `@feature` 裁剪能力"对它们无从谈起；
+   它们对 `namespace` / `multi-include` 等是**无条件支持**的（想关也关不掉）。
 
 ## 10.1 怎么开/关 feature
 

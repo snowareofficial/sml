@@ -13,9 +13,53 @@ This chapter is an authoritative reference for each feature: opening methods, sy
 > **C / C++ / Lua treat `@feature …` as an illegal directive** (`E-PARSE-005`, measured; their legal
 > directives are only `contract` / `is` / `version`), so their capability set is **fixed**.
 > Individual features are also unevenly implemented (e.g. `typed-block` is Rust + JS only); see the
-> "implementations" row in each section and the audit table in [§5.2.2](/en/book/ch05-contract).
+> table below and the audit table in [§5.2.2](/en/book/ch05-contract).
 > In documents shared across implementations, use forms all five understand (such as `@is`) and do
 > not rely on `@feature`.
+
+### Implementation coverage (measured on real binaries, 2026-09-19)
+
+Every cell is a **behaviour** obtained by running real binaries (Rust `smltools`, the C dumper, a
+purpose-built C++ runner, `luajit`, JS `parseSafe`) — not a guess from reading source. `?` means
+*not measured this round* (it does **not** mean "unsupported").
+
+| Feature | Rust | JS | C | C++ | Lua |
+|---|---|---|---|---|---|
+| `@feature` gating mechanism | ✅ | ✅ | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` |
+| `bareword-string` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `include` (single file) | ✅ | ✅ ※ | ✅ | ✅ | ✅ |
+| `env` (`$env.X`) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `contract` (`@contract` / `@is`) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `fragment` (`@base {}` + `&base`) | ✅ spliced | ✅ | ⚠️ **not spliced** (keeps an `&base` key) | ❌ `E-PARSE-005` | ❌ `E-PARSE-001` |
+| `top-level-array` | ✅ | ❌ `E-PARSE-003` | ✅ | ❌ `E-PARSE-006` | ❌ `E-PARSE-006` |
+| `namespace` (`include … as ns`) | ✅ | ✅ | ✅ | ✅ | ❌ `E-FEATURE-001` |
+| `implicit-ns` | ✅ | ✅ | ? | ? | ? |
+| `multi-include` (`include "a", "b"`) | ✅ | ✅ | ✅ | ✅ | ❌ `E-FEATURE-001` |
+| `glob-include` (`"inc/*.sml"`) | ⚠️ not expanded ⚑ | ❌ `E-INCLUDE-001` | ❌ `E-INCLUDE-001` | ? | ❌ `E-FEATURE-001` |
+| `regex-include` (`re:"…"`) | ✅ | ❌ `E-LEX-004` | ? | ❌ | ❌ |
+| `ext-rewrite` | ✅ | ? | ? | ? | ? |
+| `when` (`@when`) | ✅ | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` |
+| `for` (`@for`) | ✅ | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` | ⚠️ to be re-checked |
+| `typed-block` | ✅ | ✅ | ❌ **silent** (`__type` metadata only) | ❌ same as C | ❌ even the metadata is lost |
+
+※ **JS resolves `include` from a host-supplied file map**: `parse(text, { files })` — JS itself never
+touches the filesystem (designed for editors / servers; `files` is `{ "relative/path": "content" }`).
+Without `files` you get `E-INCLUDE-001`.
+⚑ **Rust's `glob-include` did not expand this round** (the literal path `inc/*.sml` was opened ⇒
+`os error 123`), although the source does contain a glob branch
+(`rust/sml-include/src/parse.rs:367-377`) ⇒ **the release binary in use is suspected to be out of
+sync with the sources** (needs a rebuild + re-measure).
+⚠️ **Lua's `for` needs re-checking**: it "accepted" `@for` without the feature while **rejecting
+`@feature`** — confirm whether it really expands or just swallows the token as an ordinary key.
+
+**Three conclusions for anyone writing docs:**
+
+1. **`@when` / `@for` exist only in Rust today** (the other four all return `E-PARSE-005`) — do not put
+   them in examples that claim to be cross-implementation.
+2. **`top-level-array` is Rust + C only**; `namespace` / `multi-include` are missing only in Lua
+   (and Lua **fails loudly with a code**, not silently).
+3. **C / C++ / Lua have no `@feature`** (`E-PARSE-005`), so "trim capabilities with `@feature`" simply
+   does not apply to them; they support `namespace` / `multi-include` etc. **unconditionally**.
 
 ## 10.1 How to turn on/off features
 
