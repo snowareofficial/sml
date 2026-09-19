@@ -103,6 +103,12 @@ The namespace is **exclusive scope** and will never silently overwrite:
 -A malformed **path** (missing quotes / unterminated quote / trailing junk) → `E-INCLUDE-012`.
 It used to be filed as `E-INCLUDE-001` (file missing), sending you to hunt for a file that
 "does not exist" when the real problem is a missing pair of quotes.
+  ⚠️ **Update (2026-09-19)**: today **only Lua raises this code**. On the Rust side (including
+  `smltools`) an unquoted path is treated as a path ⇒ a missing file yields `E-INCLUDE-001`.
+  `smltools` used to have its own "quotes are mandatory" check; it was removed together with the
+  switch to the library's include expansion (that private implementation also **silently dropped**
+  the tail of `include "a", "b" as sec`). Whether "unquoted is illegal" should become a
+  **language-level** rule is **undecided** — see `TODO.md`.
 
 Every error has a stable **code**, identical across the five implementations — search by code
 rather than by message text (see the [error code reference](/en/errors/)).
