@@ -69,6 +69,19 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 修复
 
+- **`include` 路径「未加引号 / 引号未闭合」升为**语言级**规则 ⇒ `E-INCLUDE-012`**（`rust/sml-include`）：
+  用户裁决「好的」。此前该规则**只有 Lua 有**（W20 第二阶段）；Rust 侧把未加引号当普通路径解析 ⇒
+  `include nope.sml` 报 `E-INCLUDE-001`（"文件不存在"），用户被引去查**一个根本不该存在的文件**，
+  而真正的问题是少了一对引号；「引号未闭合」更糟 —— 静默把已读内容当完整路径。
+  现由 `parse_include_line` 统一判定（新增 `next_token_meta`，报告"是否以引号开头 / 引号是否闭合"），
+  **只作用于 `include`**，两处豁免：`import a.b`（点分模块名的裸词是**语法**的一部分）与
+  `re:"…"`（受限正则）。码表 `impls` 改为 `[ rust lua smltools ]`、`status: done`。
+  ⚠️ **仍未做**：闭合引号后的"多余字符"；**JS / C / C++ 未对齐** —— JS 走裸词回退、C++ 的引号串与
+  裸词同型（都接受未加引号）、C 只认 `T_STR` 因而**静默**当普通内容（连错都不报，最值得先补）。
+  测试：`rust/tests/error_codes.rs::include_unquoted_path_is_include_012`（4 条负例 + 3 条正向，
+  含两处豁免）；`smltools` 用例回到 `E-INCLUDE-012`（规则升到语言层后 CLI 经库拿到同一个码）。
+  验证：四 crate 测试全绿；码表重生成 141 条；全仓 41 语料复扫「只有 Rust 失败」仍为 **0**。
+
 - **`smltools`：include 展开统一到库 —— 修掉「多目标 include 静默丢数据」等三处 CLI/库分叉**
   （`rust/smltools/src/main.rs`）：CLI 原来自带一份**行级** include 展开（只认"行首单个引号路径"），
   与库的 `sml-include` 是两份实现，实测三处分叉，**第一处是静默数据丢失**：

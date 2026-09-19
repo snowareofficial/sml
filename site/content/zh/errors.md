@@ -29,8 +29,8 @@ SML 的每类错误都有**稳定的机器可读码**，形如 `E-CONTRACT-002`�
 非法 `\u` `E-LEX-005`、数组里多余的 `}` `E-PARSE-003`、闭合符错配 `E-PARSE-002`、
 未注册指令 `E-PARSE-005`、未定义片段引用 `E-INCLUDE-006`、顶层标量 `E-PARSE-008`。
 本轮新增的码里有 `E-INCLUDE-012`（include 路径写法非法）与 `E-CLI-008`（`smltools` 命令行用法错误）。
-（⚠️ 2026-09-19：`E-INCLUDE-012` 的 `smltools` 那一半已随「include 展开统一到库」退场，
-现在**只有 Lua 抛** —— 下表的 `impls` 即以码表为准。）
+（⚠️ 2026-09-19：`E-INCLUDE-012` 已**升为语言级规则** —— 判据在 `sml-include`，因此
+**Rust（含 `smltools`）与 Lua 都抛**；下表的 `impls` 即以码表为准。）
 
 <div id="errors-app">
   <p>正在加载错误码表……（若长时间无内容，说明 <code>errors.json</code> 未生成：
