@@ -286,6 +286,27 @@ hosts: @for h in web api db {
 >
 > **注 2**：`include "re:^.*\\.sml$"` 已经覆盖所有 .sml，没必要再 `include "*.sml"`。同时用可能被解释为"glob 优先"或"regex 优先"，跨实现行为可能不同——SML 规定**显式前缀优先**：`re:` 走 regex；`*.sml` 走 glob。
 
+### `typed-block`（**默认关**；⚠️ **目前只有 JS 实现**）
+
+块级类型标注：把契约名写在块名前面（`Metrics metrics { }`），等价于在块内首行写 `@is Metrics`。
+零新 token —— 与既有裸块写法 `type [name] { }` **完全同形**，只有首词是**已定义契约名**时才生效。
+详见 [§5.2.2](/book/ch05-contract#522-块级类型标注契约名-块名--)。开关：
+
+```sml
+@feature enable typed-block
+```
+
+| 项 | 值 |
+|---|---|
+| 默认 | **关**（不开时该写法退化为普通裸块，契约**不生效**、也不报错 —— 静默差异） |
+| 依赖 | `contract`（契约层本身也得开，默认开） |
+| 实现面（2026-09-19 审计） | **仅 JS**：`js/sml.mjs` 里由 `feats.has("typed-block") && feats.has("contract")` 门控；Rust / C / C++ / Lua 的源码里**没有这个特性名**（`rust/src` 只在 C-ABI 的特性名表里登记了 bit 14） |
+
+⚠️ **`@feature enable typed-block` 在未实现的端上是 `E-FEATURE-003`（未知特性名）**，
+所以**跨实现共享的文档（如 `showcase_contract.sml`）里不要用它**，写 `@is 契约名` 才可移植。
+（错误码见 `errors/codes.sml`；`typed-block` 在 C-ABI 的特性名表里已有 bit 14，但那只说明"名字被登记了"，
+不代表各端都实现了。）
+
 ## 10.4 feature 的实现层（架构小贴士）
 
 SML 解析器按"feature bitmask"运行：
@@ -294,7 +315,7 @@ SML 解析器按"feature bitmask"运行：
 FeatureSet = (include | namespace | implicit-ns | contract | env | escape
               | fragment | top-array | bareword-str
               | multi | glob | regex | ext-rewrite
-              | when | for)
+              | when | for | typed-block)
 ```
 
 - 核心层（默认开）9 个 bit 默认 = 1（含 `when`、`for` 之外的全部基础能力）。

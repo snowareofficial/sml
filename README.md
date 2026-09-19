@@ -246,7 +246,7 @@ let v = parse_file("app.sml")?;
 
 | 编辑器 | 目录 | 能力 |
 |---|---|---|
-| VSCode | `editors/vscode/` | 高亮、错误提示、补全、格式化、跳转到定义（`@is X`→`@contract X`、`&base`→`@base`）；**悬浮**给契约声明 + **解析器填充默认值后的结构**（停在块名上还给路径与应用契约）；**特殊颜色**（右键写入工作区 `HL-cfg.sml`，只对语法单元生效）；**特别高亮**（一个词点亮整个工作区）；**自检**（把「为什么没反应」逐条写进输出面板） |
+| VSCode | `editors/vscode/` | 高亮、错误提示、补全、格式化、跳转到定义（`@is X`→`@contract X`、`&base`→`@base`、数据键→契约字段）；**悬浮**给契约声明 + **解析器填充默认值后的结构**（停在块名上还给路径与应用契约；也认块级类型标注 `X 块名 { }`，该写法**仅 JS 实现**）；**特殊颜色**（右键写入工作区 `HL-cfg.sml`，只对语法单元生效）；**特别高亮**（一个词点亮整个工作区）；**自检**（把「为什么没反应」逐条写进输出面板） |
 | LSP | `editors/lsp/` | 语言服务：诊断、补全、跳到契约定义、悬浮 |
 | Zed | `editors/zed/` | 语法高亮、括号匹配、注释切换（Tree-sitter grammar，已通过 `tree-sitter generate` + `parse` 验证） |
 | 任意 TextMate 编辑器 | `smltools --to tmlanguage` | 用 SML 自己定制高亮，产出 tmLanguage |
