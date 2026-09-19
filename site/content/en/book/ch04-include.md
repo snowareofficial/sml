@@ -100,15 +100,18 @@ The namespace is **exclusive scope** and will never silently overwrite:
 
 -Missing file/circular reference/nested beyond 32 layers → error.
 
--A malformed **path** (missing quotes / unterminated quote / trailing junk) → `E-INCLUDE-012`.
+-A malformed **path** (missing quotes / unterminated quote) → `E-INCLUDE-012`.
 It used to be filed as `E-INCLUDE-001` (file missing), sending you to hunt for a file that
 "does not exist" when the real problem is a missing pair of quotes.
-  ⚠️ **Update (2026-09-19)**: today **only Lua raises this code**. On the Rust side (including
-  `smltools`) an unquoted path is treated as a path ⇒ a missing file yields `E-INCLUDE-001`.
-  `smltools` used to have its own "quotes are mandatory" check; it was removed together with the
-  switch to the library's include expansion (that private implementation also **silently dropped**
-  the tail of `include "a", "b" as sec`). Whether "unquoted is illegal" should become a
-  **language-level** rule is **undecided** — see `TODO.md`.
+  ⚠️ **Since 2026-09-19 this is a language-level rule**: the check lives in
+  `sml-include::parse_include_line` (an `include` path **must** be quoted; an unterminated quote
+  counts too), so **Rust (including `smltools`) and Lua both raise this code** — same code, same
+  semantics. Two **exemptions** to remember: `import a.b` (a dotted module name — the bare word is
+  part of the *syntax*) and `re:"…"` (restricted regex).
+  Not done yet: detecting "trailing junk" after the closing quote; **JS / C / C++ are not aligned**
+  — JS falls back to a bare word, C++ stores quoted strings and bare words alike (both accept
+  unquoted paths), and C only recognises `T_STR`, so an unquoted include is **silently** treated as
+  ordinary content. See the code registry's `impls`.
 
 Every error has a stable **code**, identical across the five implementations — search by code
 rather than by message text (see the [error code reference](/en/errors/)).

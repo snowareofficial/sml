@@ -149,6 +149,48 @@ fn include_key_list_codes() {
     }
 }
 
+/// `E-INCLUDE-012`（include 路径**写法**非法：未加引号 / 引号未闭合）——**语言级**规则（2026-09-19）。
+///
+/// 为什么值得单钉一条：这条规则原先**只有 Lua 有**（`lua/lib/sml.soup` 的 `include_line_path`）。
+/// Rust 侧把「未加引号」当普通路径解析 ⇒ `include nope.sml` 报 `E-INCLUDE-001`（"文件不存在"），
+/// 用户于是去查一个**根本不该存在的文件**，而真正的问题是少了一对引号；「引号未闭合」更糟：
+/// 静默把已读内容当完整路径。现已升到语言层（`parse_include_line`），与 Lua 同码同语义。
+///
+/// ⚠️ 本用例同时钉住**两处豁免**，否则规则会误伤合法写法：
+///   ① `import ui.buttons` —— 点分模块名，**裸词是语法的一部分**（走 `via_import` 分支）；
+///   ② `include re:"…"` —— 受限正则模式，首字符本来就是 `r` 而不是引号。
+#[test]
+fn include_unquoted_path_is_include_012() {
+    use sml_feature::FeatureSet;
+    let f = FeatureSet::all();
+    for bad in [
+        "include nope.sml",       // 未加引号
+        "@include nope.sml",      // `@` 前缀同样要管
+        "include \"nope.sml",     // 引号未闭合
+        "include inc/*.sml",      // 通配也不能裸写（这是"写法"错，优先于特性门控报出）
+    ] {
+        match sml_include::parse_include_line(bad, f) {
+            Ok(v) => panic!("{bad:?} 应报 E-INCLUDE-012，却解析成功：{v:?}"),
+            Err(e) => assert_eq!(e.code(), "E-INCLUDE-012", "输入 {bad:?}"),
+        }
+    }
+    // 豁免 ①：点分模块名的裸词合法
+    assert!(
+        sml_include::parse_include_line("import ui.buttons", f).is_ok(),
+        "`import ui.buttons` 是点分模块名的合法写法，不得被 012 拦下"
+    );
+    // 豁免 ②：`re:` 正则模式
+    assert!(
+        sml_include::parse_include_line("include re:\"widget_.*\\.sml\"", f).is_ok(),
+        "`re:…` 正则模式首字符不是引号，不得被 012 拦下"
+    );
+    // 正向：加引号的路径照旧合法（文件在不在由**展开阶段**判 `E-INCLUDE-001`）
+    assert!(
+        sml_include::parse_include_line("include \"nope.sml\"", f).is_ok(),
+        "加引号是合法写法，缺失文件的判定属于展开阶段"
+    );
+}
+
 /// 特性与版本：`E-FEATURE-*`。
 #[test]
 fn feature_codes() {

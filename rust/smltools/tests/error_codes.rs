@@ -310,18 +310,18 @@ fn include_self_reference_is_include_002() {
 }
 
 #[test]
-fn include_unquoted_path_follows_library_semantics() {
-    // ⚠️ 行为变更（2026-09-19）：CLI 不再自己展开 include，也就**不再有它私有的
-    // "路径必须加引号"校验**（原 `E-INCLUDE-012`）。`include nope.sml` 现在按**库的**
-    // 语义走：未加引号视为路径 ⇒ 文件不存在 ⇒ `E-INCLUDE-001`。
+fn include_unquoted_path_is_include_012() {
+    // 「未加引号 ⇒ `E-INCLUDE-012`」现已是**语言级**规则（实现在 `sml-include::parse_include_line`），
+    // 所以 CLI 经库原样拿到这个码 —— 单一事实来源，CLI 不再有自己的判据。
     //
-    // 为什么可以接受：CLI 与库对同一份文档给出**不同结论**才是更大的问题
-    // （`include "a.sml", "b.sml" as sec` 在 CLI 下会**静默丢掉**后半行）。
-    // `E-INCLUDE-012` 在 CLI 上退场，码表 `impls` 已同步为 `[lua]`；
-    // 若将来要把"未加引号即非法"定成语言级规则，必须实现在**库**里（单一事实来源）。
+    // 演进史（免得被后人当成"绕了一圈回到原点"）：
+    //   ① 原先 CLI 自带一份展开，有自己的"必须加引号"校验 ⇒ `E-INCLUDE-012`（但它会把
+    //      `include "a", "b" as sec` 的**后半行静默丢掉**，是更严重的问题）；
+    //   ② 统一到库时，该码在 CLI 退场（`include nope.sml` 落到 `E-INCLUDE-001`）；
+    //   ③ 本轮按用户裁决把规则**升到语言层** ⇒ 码回到 CLI，且与 Lua 同码（码表 impls 含 rust）。
     let dir = tmpdir("incunquoted");
     let main = write_file(&dir, "main.sml", "include nope.sml\n");
-    let o = assert_code(&["-i", &s(&main)], None, "E-INCLUDE-001");
+    let o = assert_code(&["-i", &s(&main)], None, "E-INCLUDE-012");
     assert_eq!(o.code, Some(1), "语言层/展开失败应以退出码 1 结束");
 }
 

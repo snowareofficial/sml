@@ -352,6 +352,13 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
    `include "common.sml"` + 主文件里一段跨行块注释）。正解是改成
    "**整篇词法一次 + 按行插入被包含文件的 token**"（token 带位置信息，parse 报错能给行号即证），
    或把 include 指令的识别前移到词法阶段。**这是本轮唯一还欠的实现债。**
+5. ✅ **「未加引号即非法」已升为语言级规则**（用户裁决「好的」）：实现在
+   `rust/sml-include/src/parse.rs`（`next_token_meta` 报告"是否加引号 / 引号是否闭合"，
+   `parse_include_line` 只对 `include` 生效）⇒ `E-INCLUDE-012` 现在 **Rust（含 CLI）与 Lua 同码**，
+   码表 `impls` 改为 `[ rust lua smltools ]` / `status: done`。
+   两处豁免已钉进 `rust/tests/error_codes.rs::include_unquoted_path_is_include_012`：
+   `import a.b`（点分模块名）与 `re:"…"`。**仍未做**：① 闭合引号后的"多余字符"；
+   ② JS / C / C++ 三端对齐（JS 走裸词回退、C++ 引号串与裸词同型、C 只认 `T_STR` 故**静默**）。
 
 ### 复核方法（可重跑）
 

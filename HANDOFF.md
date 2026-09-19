@@ -1767,6 +1767,29 @@ typed-block` 去掉（为让五端都能解析），但 `rust/tests/contract_sho
 **验证**：`cargo test -p sml-include -p sml-parse -p swsml -p smltools` **全绿**（76/45/59/22/9/34/43/… 各套件 0 failed）；
 `errors/gen_codes.py` + `gen_json.py` 重生成（141 码）。
 
+### 22.14 「未加引号即非法」升到语言层（`E-INCLUDE-012` 回到 CLI）
+
+用户对上一轮列的第 5 条拍板「好的」。
+
+- **为什么升到语言层**：该规则原先**只有 Lua 有**（`lua/lib/sml.soup` 的 `include_line_path`，W20 二阶段）。
+  Rust 侧把未加引号当普通路径 ⇒ `include nope.sml` 报 `E-INCLUDE-001`（"文件不存在"），用户被引去查
+  **一个根本不该存在的文件**；「引号未闭合」更糟 —— 静默把已读内容当完整路径。
+- **实现**（`rust/sml-include/src/parse.rs`）：新增 `next_token_meta`（在 `next_token` 之上多报
+  「是否以引号开头 / 引号是否闭合」）；`parse_include_line` 只对 `include` 判
+  `!via_import && !raw.starts_with("re:") && (!quoted || !closed)` ⇒ `E-INCLUDE-012`。
+  **两处豁免必须记住**：`import a.b` 的点分裸词是**语法**的一部分（`via_import` 分支）；
+  `re:"…"` 的首字符本来就是 `r` 而不是引号。判据写在**指令解析层**，所以五端里谁实现 include
+  谁就得跟上（现状见码表 `impls`）。
+- **测试**：`rust/tests/error_codes.rs::include_unquoted_path_is_include_012` 钉 4 条负例
+  （未加引号 / `@include` 同管 / 引号未闭合 / 通配裸写）+ 3 条正向（两处豁免 + 带引号路径）；
+  `smltools` 用例改回 `E-INCLUDE-012`（注释里写了①→②→③的演进史，免得后人以为"绕回原点"）。
+- **验证**：四 crate 全绿；码表重生成（141 码）；**全仓 41 语料复扫「只有 Rust 失败」仍为 0**。
+- **遗留**（TODO §三·十 第 5 条）：闭合引号后的「多余字符」未判；**JS / C / C++ 未对齐** ——
+  JS 走裸词回退、C++ 引号串与裸词同型（都接受未加引号）、C 只认 `T_STR`
+  （未加引号的行**静默当普通内容**，连错都不报）。**C 那条最值得先补**。
+- **方法**：本轮用两个 code-explorer subagent 并行摸「`Tok` 结构 + include 展开的逐行依赖」与
+  「五端未加引号规则 + 测试覆盖」，主上下文只花在实现与决策上。
+
 ### 22.15 块级类型标注：文档缺一半 + **showcase 里是个假示例**（2026-09-19，用户点的）
 
 用户指着 `showcase_contract.sml:83` 的 `Metrics metrics { }` 问「这种语法文档化了吗？优点、潜力

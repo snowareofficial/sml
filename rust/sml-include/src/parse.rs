@@ -8,8 +8,8 @@
 use std::path::{Path, PathBuf};
 
 use sml_codes::{
-    E_FEATURE_001, E_INCLUDE_001, E_INCLUDE_005, E_INCLUDE_008, E_INCLUDE_009, E_LIMIT_002,
-    E_LIMIT_007, E_PARSE_025, SmlError,
+    E_FEATURE_001, E_INCLUDE_001, E_INCLUDE_005, E_INCLUDE_008, E_INCLUDE_009, E_INCLUDE_012,
+    E_LIMIT_002, E_LIMIT_007, E_PARSE_025, SmlError,
 };
 use sml_feature::{Feature, FeatureSet};
 use sml_regex::{compile_regex_checked, regex_matches_checked, RegexError};
@@ -109,7 +109,7 @@ pub fn parse_include_line(line: &str, features: FeatureSet) -> Result<Option<Vec
         //   ①  import "x.sml" [as w] { a, b }
         //   ②  import { a, b } [as w] in "x.sml"
         // 先探测是否以 `{` 开头（语法②）
-        let (raw, ns, keys, tail) = if rest.trim_start().starts_with('{') {
+        let (raw, ns, keys, tail, quoted, closed) = if rest.trim_start().starts_with('{') {
             // 语法②：键列表在前
             let (keys, after) = parse_key_list(rest.trim_start())?;
             let after = after.trim_start();
@@ -134,15 +134,15 @@ pub fn parse_include_line(line: &str, features: FeatureSet) -> Result<Option<Vec
                     ))
                 }
             };
-            let (path, t) = match next_token(after) {
-                Some((p, t)) => (p, t),
+            let (path, t, q, c) = match next_token_meta(after) {
+                Some((p, t, q, c)) => (p, t, q, c),
                 None => return Ok(None),
             };
-            (path, ns, Some(keys), t)
+            (path, ns, Some(keys), t, q, c)
         } else {
             // 语法①：路径在前
-            let (path, tail0) = match next_token(rest) {
-                Some((p, t)) => (p, t),
+            let (path, tail0, q, c) = match next_token_meta(rest) {
+                Some((p, t, q, c)) => (p, t, q, c),
                 None => {
                     if targets.is_empty() && rest.trim().is_empty() {
                         return Ok(None);
@@ -170,8 +170,27 @@ pub fn parse_include_line(line: &str, features: FeatureSet) -> Result<Option<Vec
             } else {
                 None
             };
-            (path, ns, keys, r)
+            (path, ns, keys, r, q, c)
         };
+        // 语言级规则（2026-09-19 起）：`include` 的路径**必须加引号**，否则 `E-INCLUDE-012`。
+        //
+        // 为什么升到语言层：「未加引号」在 Rust 侧原先被当普通路径解析 ⇒ `include nope.sml`
+        // 报的是 `E-INCLUDE-001`（"文件不存在"），用户被引去查一个**根本不该存在的文件**，
+        // 而真正的问题是少了一对引号；「引号未闭合」更糟 —— 静默把已读内容当完整路径。
+        // Lua 早在 W20 第二阶段就按此码拒绝（`lua/lib/sml.soup` 的 `include_line_path`），
+        // 现在 Rust 对齐 ⇒ 跨端同码同语义（`errors/codes.sml` 的 impls 已加 rust）。
+        //
+        // ⚠️ 两处豁免：① `import a.b`（点分模块名，裸词是**语法**的一部分）⇒ 由 `via_import` 排除；
+        //             ② `re:"…"`（受限正则模式，首字符本来就是 `r`，不是引号）。
+        if !via_import && !raw.starts_with("re:") && (!quoted || !closed) {
+            return Err(SmlError::new(
+                E_INCLUDE_012,
+                format!(
+                    "sml: include 路径写法非法（{}）：{raw}",
+                    if quoted { "引号未闭合" } else { "未加引号" }
+                ),
+            ));
+        }
         targets.push(finalize_target(
             raw,
             ns,
@@ -233,6 +252,18 @@ pub fn parse_include_line(line: &str, features: FeatureSet) -> Result<Option<Vec
 /// 从字符串开头提取下一个 token：引号串（支持 `\"` 与 `\\`）或直到空白/逗号/`as` 的裸词。
 /// 返回 (token 文本, 剩余字符串)。
 pub fn next_token(s: &str) -> Option<(String, &str)> {
+    next_token_meta(s).map(|(t, rest, _, _)| (t, rest))
+}
+
+/// 同 [`next_token`]，但**额外报告写法**：`quoted` = 以 `"` 开头；`closed` = 引号串正常闭合
+/// （非引号 token 恒为 `true`）。
+///
+/// 为什么需要它：`include` 的路径**必须加引号**（`E-INCLUDE-012`），而「未加引号」与
+/// 「引号未闭合」在旧实现里都**看不出来** —— 前者被当路径解析（于是用户拿到的报错是
+/// "文件不存在"，被引去查一个不存在的文件）、后者静默把已读内容当完整路径。
+/// ⚠️ `import a.b`（点分模块名）的裸词是**语法**的一部分，故判据只在 `include` 上用
+/// （见 `parse_include_line` 里的用法）。
+pub fn next_token_meta(s: &str) -> Option<(String, &str, bool, bool)> {
     let s = s.trim_start();
     if s.is_empty() {
         return None;
@@ -242,9 +273,11 @@ pub fn next_token(s: &str) -> Option<(String, &str)> {
         let bytes = s.as_bytes();
         let mut i = 1;
         let mut out = String::new();
+        let mut closed = false;
         while i < bytes.len() {
             if bytes[i] == b'"' {
                 i += 1;
+                closed = true;
                 break;
             }
             if bytes[i] == b'\\' && i + 1 < bytes.len() {
@@ -257,14 +290,14 @@ pub fn next_token(s: &str) -> Option<(String, &str)> {
                 i += 1;
             }
         }
-        Some((out, &s[i..]))
+        Some((out, &s[i..], true, closed))
     } else {
         // 裸词：取到空白或逗号
         let end = s
             .find(|c: char| c.is_whitespace() || c == ',')
             .unwrap_or(s.len());
         let (tok, tail) = s.split_at(end);
-        Some((tok.trim().to_string(), tail))
+        Some((tok.trim().to_string(), tail, false, true))
     }
 }
 

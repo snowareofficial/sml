@@ -854,10 +854,12 @@
       "title": "include 路径写法非法",
       "msg": "include 路径写法非法（未加引号或含非法字符）",
       "impls": [
-        "lua"
+        "lua",
+        "rust",
+        "smltools"
       ],
-      "status": "partial",
-      "note": "⚠️ **2026-09-19 起 CLI（smltools）不再抛此码**：CLI 原先自带一份行级 include 展开（要求路径加引号，且把 `include \"a.sml\", \"b.sml\" as sec` 的后半行**静默丢弃**），现已删除、统一走库的 `sml::parse_file`；于是 `include nope.sml` 按库的语义走 ⇒ 报 `E-INCLUDE-001`（当路径解析后文件不存在）。若将来要把「未加引号即非法」定成**语言级**规则，必须在 `sml-include` 里实现（单一事实来源），那时再把 rust 加进 impls。**Lua 仍抛此码**（W20 第二阶段：未加引号 / 引号未闭合 / 多余字符，`include` 与 `@include` 一致）"
+      "status": "done",
+      "note": "**2026-09-19 升为语言级规则**（用户裁决「好的」）：实现在 `sml-include::parse_include_line`，判据来自 `next_token_meta` 报告的「是否以引号开头 / 引号是否闭合」——未加引号、引号未闭合、通配裸写都报此码。**两处豁免**：① `import a.b`（点分模块名的裸词是**语法**的一部分）② `re:…`（受限正则模式首字符本来就是 r）。CLI（smltools）经库原样拿到此码。此前 Rust 侧把「未加引号」当普通路径解析 ⇒ `include nope.sml` 报 `E-INCLUDE-001`（文件不存在），用户被引去查一个**根本不该存在的文件**，而真正的问题是少了一对引号；「引号未闭合」更糟：静默把已读内容当完整路径。Lua 自 W20 第二阶段即如此（`include_line_path`：未加引号 / 引号未闭合 / 多余字符，`include` 与 `@include` 一致）。⚠️ **尚未做**：多余字符（闭合引号后面还跟着别的东西）；以及 JS / C / C++ 三端的对齐 —— JS 走裸词回退、C++ 的引号串与裸词同型（都接受未加引号）、C 只认 T_STR（未加引号的行**静默当普通内容**，连错都不报）"
     },
     {
       "id": "E-INTERNAL-001",
