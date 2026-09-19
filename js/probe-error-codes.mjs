@@ -18,8 +18,8 @@ import { parse, parseSafe } from "./sml.mjs";
 const CASES = [
   // [源码, 期望码或 null（null = 应当解析成功）, 可选 parse 选项]
   ["@version v9\nk: 1\n", "E-FEATURE-004"],
-  // JS 侧未知特性被静默加入集合（Rust 报 E-FEATURE-003）—— 跨端差异，待 W16 判定
-  ["@feature enable nosuch\nk: 1\n", null],
+  // 未知名特性：此前 JS 静默加入集合（只有 Rust 报 E-FEATURE-003）—— 跨端差异，现已对齐
+  ["@feature enable nosuch\nk: 1\n", "E-FEATURE-003"],
   ["server { @is Nope }\n", "E-CONTRACT-001"],
   ["@contract S { port: int }\nserver { @is S }\n", "E-CONTRACT-003"],
   ["@contract S { port: int }\nserver {\n  @is S\n  port: oops\n}\n", "E-CONTRACT-002"],
@@ -41,6 +41,12 @@ const CASES = [
   ["a { ] }\n", "E-PARSE-002"],          // 闭合符错配（原先静默得 {"a":{}}）
   ["a: 1\n}\n", "E-PARSE-003"],          // 顶层多余的 }（原先静默忽略）
   ["a: [1, 2\n", "E-PARSE-001"],         // 未闭合数组
+  // 未闭合**块**：此前 `parseBlock` 循环因 EOF 退出后直接 return（数组路径早有检查）⇒
+  // `basic { a: 1`（缺 `}`）被**静默接受**，而 Rust / C / C++ / Lua 全报 E-PARSE-001。
+  // 后果最重的是**编辑器诊断**（走 parseSafe）看不见这类错误。现补齐。
+  ["basic { a: 1\n", "E-PARSE-001"],
+  ["x { y { \n", "E-PARSE-001"],         // 嵌套块未闭合
+  ["a { b: 1 }\n", null],                // 正对照：正常闭合的块（`}` 恰为末 token）不许误判
   ["42\n", "E-PARSE-008"],               // 顶层标量（原先造键 {"42":42}）
   // —— W16 正对照：合法形态**不许被误伤**（null = 应当解析成功） ——
   ["k: \"a\\nb\\t\\\"c\\\\d\"\n", null],
@@ -51,6 +57,11 @@ const CASES = [
   ["42: x\n", null],
   // `@feature` 整行在词法前剥掉：此前靠「遇到 } 就停」猜边界，会把整份文档吞成 {}
   ["@feature enable for\nsvg {\n  w: 1\n}\n", null],
+  // 特性名白名单的正对照：JS 别名（top-array / bareword-str / escape）与 Rust 的
+  // 15 个注册名**并集**才算合法 —— 否则会把既有合法文档误报成"未知特性"
+  ["@feature enable top-array\nk: 1\n", null],
+  ["@feature enable bareword-str, escape\nk: 1\n", null],   // 逗号分隔也要认
+  ["@feature disable env, contract\nk: 1\n", null],
   // —— W16 余额②：未注册指令（位置参数 / 无片段体）⇒ E-PARSE-005 ——
   ["@foo bar { x: 1 }\n", "E-PARSE-005"],
   ["@foo bar\n", "E-PARSE-005"],

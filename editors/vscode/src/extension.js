@@ -74,7 +74,7 @@ const explained = new Set();
 // 本仓库当前 `src/vendor/sml.mjs` 的指纹（每次重打 VSIX 后同步这里；
 // 与 sync-parser.py 打印的值同源）。自检会拿它对**已安装的包**做一次核对 ——
 // 「包是不是新的」这件事以前只靠人肉解包比对（见 HANDOFF §22.2 第 1 条）。
-const EXPECT_VENDOR = { size: 69404, shaPrefix: "70f1ee47" };
+const EXPECT_VENDOR = { size: 71924, shaPrefix: "4cd6a128" };
 
 // ---------------------------------------------------------------------------
 // 补全候选
