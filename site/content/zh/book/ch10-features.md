@@ -286,7 +286,7 @@ hosts: @for h in web api db {
 >
 > **注 2**：`include "re:^.*\\.sml$"` 已经覆盖所有 .sml，没必要再 `include "*.sml"`。同时用可能被解释为"glob 优先"或"regex 优先"，跨实现行为可能不同——SML 规定**显式前缀优先**：`re:` 走 regex；`*.sml` 走 glob。
 
-### `typed-block`（**默认关**；⚠️ **目前只有 JS 实现**）
+### `typed-block`（**默认关**；Rust ✅ + JS ✅，C / C++ / Lua ❌）
 
 块级类型标注：把契约名写在块名前面（`Metrics metrics { }`），等价于在块内首行写 `@is Metrics`。
 零新 token —— 与既有裸块写法 `type [name] { }` **完全同形**，只有首词是**已定义契约名**时才生效。
@@ -300,12 +300,16 @@ hosts: @for h in web api db {
 |---|---|
 | 默认 | **关**（不开时该写法退化为普通裸块，契约**不生效**、也不报错 —— 静默差异） |
 | 依赖 | `contract`（契约层本身也得开，默认开） |
-| 实现面（2026-09-19 审计） | **仅 JS**：`js/sml.mjs` 里由 `feats.has("typed-block") && feats.has("contract")` 门控；Rust / C / C++ / Lua 的源码里**没有这个特性名**（`rust/src` 只在 C-ABI 的特性名表里登记了 bit 14） |
+| 实现面（2026-09-19 审计） | **Rust ✅**（`rust/sml-feature` 的 `Feature::TypedBlock` + `rust/sml-parse/src/parser.rs` 门控）· **JS ✅**（`js/sml.mjs`）· ❌ C / C++ / Lua（源码里没有该特性名） |
 
-⚠️ **`@feature enable typed-block` 在未实现的端上是 `E-FEATURE-003`（未知特性名）**，
-所以**跨实现共享的文档（如 `showcase_contract.sml`）里不要用它**，写 `@is 契约名` 才可移植。
-（错误码见 `errors/codes.sml`；`typed-block` 在 C-ABI 的特性名表里已有 bit 14，但那只说明"名字被登记了"，
-不代表各端都实现了。）
+⚠️ 在 **C / C++ / Lua** 上，这个写法会**退化成普通裸块**（多出 `__type`/`__name` 元数据）⇒
+**契约不校验、不填默认值、也不报错** —— 静默差异（C 端 dumper 实测）。
+
+⚠️⚠️ **更要注意**：`@feature` 这套门控机制**本身目前也只有 Rust + JS 有** ——
+C / C++ / Lua 会把 `@feature …` 当**非法指令**报 **`E-PARSE-005`**
+（"合法指令：contract / is / version"；C 实测，C++ / Lua 同代码路径）。
+所以本章"用 `@feature` 裁剪能力"的叙述，**对那三端不适用**（它们的能力集是固定的）。
+⇒ **跨实现共享的文档（如 `showcase_contract.sml`）建议写 `@is 契约名`**，别依赖 `@feature`。
 
 ## 10.4 feature 的实现层（架构小贴士）
 

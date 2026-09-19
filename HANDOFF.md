@@ -1706,6 +1706,28 @@ hover 到底返回什么、命令有没有接线，全是盲区。于是本轮�
 3. **`ch10-features.md`（feature 完整参考！）里根本没有 `typed-block`** ⇒ 补 `FeatureSet` 位表 + 小节。
    另外 `ch05 §5.2.2` 原来只有"怎么用"、没有"能不能用/好在哪"，现补「实现状态、优点与潜力」（中英）。
 
+> ⚠️ **本节的实现面结论曾是错的，已更正**：第一版写「`typed-block` 仅 JS 实现」。
+> 真相是 **Rust ✅ + JS ✅；C / C++ / Lua ❌** —— `rust/sml-feature/src/lib.rs` 有 `Feature::TypedBlock`、
+> `rust/sml-parse/src/parser.rs` 有门控（`self.features.has(Feature::TypedBlock) && ...`）、
+> `rust/tests/error_codes.rs` 有断言。**错因：只 grep 了 `rust/src`**（那是 C-ABI crate），
+> **解析器在 `rust/sml-parse/`** —— 我按目录名猜了"Rust 实现只在 rust/src"。
+> 顺带查准「未知特性名」：**Rust 报 `E-FEATURE-003`；JS / C / C++ / Lua 静默接受**
+> （JS 实测 `ok=true`；`js/probe-error-codes.mjs` 自己就记着"跨端差异，待 W16 判定"；
+> C 定义了码但 `c/sml.c` 从未引用）。结论（跨实现共享写 `@is`）仍成立，但理由换成了正确的那一个。
+> **铁律补一条：核对"某端有没有实现某特性"，必须 grep 该端整棵源码树**，尤其注意
+> `rust/src`（C-ABI）≠ `rust/sml-parse`（解析器）≠ `rust/sml-value`（值模型）。
+>
+> 🔬 **再补一次运行期实测（C 端，编 `tools/dump_c.c` + `c/sml.c` 真跑）**，因为上面那句
+> "C/C++/Lua 静默接受未知名"**也是错的**：
+> ① 含 `@feature enable typed-block` ⇒ **`E-PARSE-005`**（"合法指令：contract / is / version"）
+> ⇒ **C / C++ / Lua 连 `@feature` 指令都没有**；② 去掉那行 ⇒ dump 里多出 `__type`/`__name`
+> ⇒ 裸块、契约静默不生效（"静默差异"的现场）。C++ / Lua 是同一代码路径与同一句文案（未单独跑）。
+> ⚠️ **由此浮出一个更大的口径问题**：**`@feature` 门控机制本身目前也只有 Rust + JS 有**
+> —— 教科书第 10 章"用 `@feature` 裁剪能力"对 C / C++ / Lua **不适用**（能力集固定）。
+> 已写进 ch05 §5.2.2 / ch10 / `llms.txt`（劝阻 AI 给这三端生成 `@feature` 行）。
+> 教训升级版：**"某端支持某特性"要用两把尺子 —— ① grep 整棵树 ② 真跑一次该端的二进制**；
+> 只做第 ① 步就会像本文档一样连错两版。
+
 **方法论**：这次没改一行实现代码，但结论比改代码值钱 ——
 **"文档写了"要按 `grep 实现` 交叉验**（`git grep -c typed-block -- rust/src c cpp lua` 一跑就露），
 **"示例文件"要按 `实际解析结果` 交叉验**（把 showcase 丢进解析器看 `metrics` 块里有没有 `__type`）。

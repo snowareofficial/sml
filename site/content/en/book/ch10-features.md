@@ -299,7 +299,7 @@ A complete runnable example is in
 
 >**Note 2**: `include "re:^.*\\.sml$"` has already covered all. sml, there is no need to use `include "*.sml"` again. Simultaneously using what may be interpreted as "glob priority" or "regex priority" may result in different cross implementation behaviors - SML specifies **explicit prefix priority**: `re:` follows regex; `*.sml` takes the globe.
 
-### `typed-block` (**default off**; ⚠️ **currently JavaScript only**)
+### `typed-block` (**default off**; Rust ✅ + JS ✅, C / C++ / Lua ❌)
 
 Block-level type annotation: put the contract name in front of the block name (`Metrics metrics { }`),
 equivalent to writing `@is Metrics` on the block's first line. No new tokens — it is **exactly the same
@@ -314,12 +314,18 @@ shape** as the existing bare-block form `type [name] { }` and only takes effect 
 |---|---|
 | Default | **off** — without it the form degrades to a plain bare block: the contract is **not applied and no error is raised** (a silent divergence) |
 | Depends on | `contract` (the contract layer itself, default on) |
-| Implementations (audited 2026-09-19) | **JS only**: gated in `js/sml.mjs` by `feats.has("typed-block") && feats.has("contract")`. The Rust / C / C++ / Lua sources contain **no such feature name** (in `rust/src` it only appears in the C-ABI feature-name table as bit 14) |
+| Implementations (audited 2026-09-19) | **Rust ✅** (`Feature::TypedBlock` in `rust/sml-feature`, gated in `rust/sml-parse/src/parser.rs`) · **JS ✅** (`js/sml.mjs`) · ❌ C / C++ / Lua (no such feature name in their sources) |
 
-⚠️ On implementations that do not know it, `@feature enable typed-block` is **`E-FEATURE-003`
-(unknown feature name)** — so **do not use it in documents shared across implementations**
-(e.g. `showcase_contract.sml`); write `@is ContractName` instead, which is portable.
-(Error codes live in `errors/codes.sml`.)
+⚠️ On **C / C++ / Lua** the form **degrades to a plain bare block** (extra `__type`/`__name` metadata) —
+the contract is **neither validated nor default-filled, and no error is raised**: a silent divergence
+(measured with C's dumper).
+
+⚠️⚠️ **Even more important**: the **`@feature` gating mechanism itself currently exists only on
+Rust + JS** — C / C++ / Lua treat `@feature …` as an **illegal directive** and report **`E-PARSE-005`**
+("legal directives: contract / is / version"; measured on C, same code path in C++ / Lua).
+So this chapter's "trim capabilities with `@feature`" narrative **does not apply to those three**
+(their feature set is fixed). ⇒ **In documents shared across implementations prefer `@is ContractName`**
+and do not rely on `@feature`.
 
 ## 10.4 Implementation Layer of Features (Architecture Tips)
 

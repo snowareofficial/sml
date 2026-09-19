@@ -272,7 +272,7 @@ The two items below are **intentional** divergences, documented so that you depe
 
 | Editor | Directory | Capabilities |
 |---|---|---|
-| VSCode | `editors/vscode/` | highlighting, diagnostics, completion, formatting, go-to-definition (`@is X`→`@contract X`, `&base`→`@base`, data key→contract field); **hover** shows the contract declaration plus the structure the parser produced after filling defaults (and path + applied contract for block names, including the block-level type annotation `X block { }` — that form is **JS-only**); **special colors** (right-click writes into the workspace `HL-cfg.sml`, applied only to syntax units); **spotlight** (one word lit across the workspace); **self-check** (dumps *why nothing happens* into the output panel) |
+| VSCode | `editors/vscode/` | highlighting, diagnostics, completion, formatting, go-to-definition (`@is X`→`@contract X`, `&base`→`@base`, data key→contract field); **hover** shows the contract declaration plus the structure the parser produced after filling defaults (and path + applied contract for block names, including the block-level type annotation `X block { }` — that form is **implemented in Rust + JS only**, C / C++ / Lua lack it); **special colors** (right-click writes into the workspace `HL-cfg.sml`, applied only to syntax units); **spotlight** (one word lit across the workspace); **self-check** (dumps *why nothing happens* into the output panel) |
 | LSP | `editors/lsp/` | language server: diagnostics, completion, go-to-contract, hover |
 | Zed | `editors/zed/` | highlighting, bracket matching, comment toggling (Tree-sitter grammar, verified with `tree-sitter generate` + `parse`) |
 | Any TextMate editor | `smltools --to tmlanguage` | describe highlighting in SML itself |

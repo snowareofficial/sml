@@ -120,17 +120,32 @@ This is **exactly the same shape** as the existing bare-block form `type [name..
 
 #### Implementation status, advantages and potential (audited 2026-09-19)
 
-**⚠️ Implementation status**: this form is **currently implemented in JavaScript only**
-(gated in `js/sml.mjs` by `feats.has("typed-block") && feats.has("contract")`). The Rust / C / C++ / Lua
-sources contain no such feature name — and the consequences come in two flavours, both worth remembering:
+**⚠️ Implementation status (audited 2026-09-19; corrected once)**:
 
-| Situation | What actually happens |
-|---|---|
-| Not implemented **and** you write `@feature enable typed-block` | **`E-FEATURE-003` (unknown feature name)** — the document is simply unusable on that implementation |
-| Not implemented **and** you omit that `@feature` line | The form **degrades to a plain bare block** (two metadata keys: `__type: ContractName`, `__name: blockname`) — the contract is **neither validated nor default-filled, and no error is raised** (a silent divergence) |
+| Implementation | Supports `typed-block` | On `@feature enable …` |
+|---|---|---|
+| **Rust (reference implementation)** | ✅ **implemented** (`Feature::TypedBlock` in `rust/sml-feature/src/lib.rs`, gated in `rust/sml-parse/src/parser.rs`) | known names accepted; **unknown names report `E-FEATURE-003`** (asserted in `rust/tests/error_codes.rs`) |
+| **JS** | ✅ implemented (`js/sml.mjs`: `feats.has("typed-block") && feats.has("contract")`) | accepts everything (**even unknown names, silently** — measured `ok = true`; `js/probe-error-codes.mjs` itself records this as "a cross-implementation difference, pending W16") |
+| **C / C++ / Lua** | ❌ not implemented (no such feature name in their sources) | **`E-PARSE-005`** ("`@feature` is not a legal directive … legal directives: contract / is / version") — these three **do not have the `@feature` directive at all** (measured on C; C++ / Lua share the same code path and wording) |
 
-So: **do not use it in documents shared across implementations** — write `@is ContractName`, which is
-portable (`showcase_contract.sml` was changed for exactly this reason).
+⚠️ On **C / C++ / Lua** the form **degrades to a plain bare block** — measured with C's dumper:
+`Metrics metrics { latency: 12.5 customCounter: 7 }` dumps with extra `__type: Metrics` and
+`__name: metrics` keys ⇒ the contract is **neither validated nor default-filled, and no error is raised**
+(a **silent divergence**, the most dangerous kind).
+
+So: **in documents shared across implementations prefer `@is ContractName`** (all five parse it and agree
+on semantics); if you use the annotation form, be aware it is currently a **Rust + JS** capability.
+
+> ⚠️ **A larger finding that came with this audit**: the **`@feature enable/disable …` gating mechanism
+> itself** currently exists only on **Rust + JS** — C / C++ / Lua treat `@feature …` as an **illegal
+> directive** (`E-PARSE-005`). In other words, chapter 10's "trim capabilities with `@feature`" narrative
+> does **not** apply to those three (their feature set is fixed). This is registered as an item to verify
+> under `TODO.md` → "cross-implementation consistency suite".
+
+> 📌 **This section was wrong once**: the first version said "JavaScript only". The mistake was
+> **grepping only `rust/src`** (that is the C-ABI crate) while the **parser lives in `rust/sml-parse/`**.
+> Lesson: to check "does implementation X support this", **grep X's whole source tree** — never infer
+> from a directory name (`rust/src` ≠ all of Rust).
 
 **Advantages** (why this design is worth keeping):
 1. **Zero new syntax**: identical in shape to the existing bare block `type [name] { }` — no new tokens,
@@ -157,9 +172,10 @@ portable (`showcase_contract.sml` was changed for exactly this reason).
   "which field is this block missing" and "which contract does this field come from" incrementally
   (the extension currently provides hover and navigation, not field-level diagnostics).
 
-**Prerequisite for that potential**: it has to land in **Rust (the reference implementation)** first.
-Until then, treat it as a **dialect capability**, not general syntax — which is exactly why this section
-opens with "currently JavaScript only".
+**Prerequisite for that potential**: **Rust and JS already have it** (and Rust is the reference
+implementation, so the semantic baseline exists); what actually blocks the potential is that
+**C / C++ / Lua do not** — so as long as your documents must flow across all five, this form cannot yet
+be treated as general syntax (the cross-implementation consistency list lives in `TODO.md`).
 
 ### Parentheses are ordinary characters
 

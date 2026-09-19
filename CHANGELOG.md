@@ -41,6 +41,32 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   - 复核：`showcase_contract.sml` 仍解析干净；`tools/check_dump_parity.py` 的「行数与 Rust 一致」
     仍是 **19/19**（改展示文件没动摇 C↔Rust 的对齐基线）。
 
+  > ⚠️ **更正（同一天，用户一句「？为什么」逼出来的）**：上面这批文档的第一版把实现面写成了
+  > 「**仅 JS 实现**」—— **错的**。真实是 **Rust ✅ + JS ✅ 已实现，C / C++ / Lua ❌ 未实现**：
+  > `rust/sml-feature/src/lib.rs` 有 `Feature::TypedBlock`、`rust/sml-parse/src/parser.rs` 有门控、
+  > `rust/tests/error_codes.rs` 还有断言。
+  > **错因**：我只 grep 了 `rust/src`（那是 **C-ABI 那个 crate**），而**解析器在 `rust/sml-parse/`**
+  > —— 按目录名猜了"Rust 实现只有 rust/src"。
+  > 顺带把"未知特性名"的行为也查准了：**Rust 报 `E-FEATURE-003`**，而 **JS / C / C++ / Lua 静默接受**
+  > （JS 实测 `ok = true`；`js/probe-error-codes.mjs` 自己就记着这是"跨端差异，待 W16 判定"；
+  > C 的 `sml_codes.h` 定义了该码但 `c/sml.c` 从未引用）。
+  > 已更正：`ch05 §5.2.2`、`ch10`、`llms.txt`（+站点两份副本）、`showcase_contract.sml` 头部注释、
+  > 扩展 README（中英）、根 `README.md` / `README.en.md`。
+  > **结论仍成立**（跨实现共享的文档建议写 `@is`，因为 C / C++ / Lua 会让它**静默退化**），
+  > 但**理由换成了正确的那一个**。
+  > 教训：**核对"某端是否实现"必须 grep 该端整棵源码树**，别按目录名推断。
+  >
+  > 🔬 **又补了一次实测（C 端真跑）**，因为我原来还写错了一句"C/C++/Lua 静默接受未知名"：
+  > 用 `tools/dump_c.c` + `c/sml.c` 编出 C 探针喂给它 →
+  > ① 含 `@feature enable typed-block` ⇒ **`E-PARSE-005`**（"`@feature` 不是合法指令…合法指令：
+  > contract / is / version"）；② 去掉那行 ⇒ dump 里出现 `__type: Metrics` / `__name: metrics`
+  > ⇒ **裸块、契约静默不生效**（这就是"静默差异"的现场）。
+  > C++ / Lua 的源码里有**同一套 E-PARSE-005 路径与同一句文案**（未单独运行，已标注为"同代码路径"）。
+  > ⚠️ **由此发现一个更大的口径问题**：**`@feature` 门控机制本身目前也只有 Rust + JS 有**
+  > —— C / C++ / Lua 把 `@feature …` 当**非法指令**。教科书第 10 章"用 `@feature` 裁剪能力"的
+  > 叙述**对那三端不适用**（能力集是固定的）。已写进 ch05 §5.2.2、ch10、`llms.txt`
+  > （明确劝阻 AI 给这三端生成 `@feature` 行），并登记为 TODO 的跨实现一致性待核对项。
+
 ### 修复
 
 - 🔴 **VSCode 扩展：按「启用」会把用户其他文件的图标全弄没（提示语与行为不一致）**

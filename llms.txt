@@ -38,12 +38,17 @@ them** when output is meant to be read, written, or maintained by humans.
     - `import { widget_login, widget_search } as ns in "a.sml"`
 - Optional schema: `@contract` / `@is` for type, default, enum, range, combinators.
   Supported by Rust (reference implementation), JS, C, C++ and Lua.
-  - ⚠️ **Do not emit the block-level type annotation form** (`ContractName block { }`, equivalent to
-    `@is ContractName` inside the block) unless the user is on JS: it is gated behind
-    `@feature enable typed-block`, and that feature name is **currently implemented in JS only**.
-    On Rust / C / C++ / Lua it is `E-FEATURE-003` (unknown feature name); without the directive those
-    implementations silently treat the block as a plain bare block (contract **not** applied, no error).
-    Portable equivalent: write `@is ContractName` as the block's first line.
+  - ⚠️ **Block-level type annotation** (`ContractName block { }`, equivalent to `@is ContractName`
+    inside the block) is gated behind `@feature enable typed-block` and is **implemented in Rust and JS
+    only**. On C / C++ / Lua it **degrades to a plain bare block** (extra `__type` / `__name` keys):
+    the contract is **not** applied, defaults are **not** filled and **no error is raised** (a silent
+    divergence).
+  - ⚠️⚠️ **The `@feature enable/disable …` gating mechanism itself is Rust + JS only**: C / C++ / Lua
+    treat `@feature …` as an **illegal directive** and report **`E-PARSE-005`** ("legal directives:
+    contract / is / version"). Do not emit `@feature` lines for those implementations, and do not assume
+    their capability set is configurable.
+  - **Portable equivalent for both of the above: write `@is ContractName` as the block's first line.**
+    Prefer that in anything shared across implementations.
 - Error handling: every error class has a stable machine-readable code
   `E-<DOMAIN>-<NNN>` (e.g. `E-CONTRACT-002`). **All five implementations emit the same
   code for the same condition**; the code is the stable contract, the message wording is

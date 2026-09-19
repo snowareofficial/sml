@@ -8,9 +8,10 @@
 #
 #  ⚠ 语言支持状态（2026-09-19 复核，见教科书 §5 与 §10.3）：
 #      契约层（@contract / @is）：Rust ✅（参考实现）· JS ✅ · C ✅ · C++ ✅ · Lua ✅
-#      块级类型标注 `契约名 块名 { }`（需 `@feature enable typed-block`）：**目前仅 JS**
-#        —— 本文件是跨实现共享示例，故**一律写 @is**（可移植；未实现的端遇到该特性名会报
-#        E-FEATURE-003「未知特性名」）。详见教科书 §5.2.2 的「实现状态、优点与潜力」。
+#      块级类型标注 `契约名 块名 { }`（需 `@feature enable typed-block`）：
+#        Rust ✅ + JS ✅ 已实现；C / C++ / Lua ❌ 未实现（会把该写法当普通裸块 ⇒ 契约静默不生效）。
+#        —— 本文件是跨实现共享示例，故**一律写 @is**（五端语义一致）。
+#        详见教科书 §5.2.2 的「实现状态、优点与潜力」。
 #
 #  不使用契约时解析行为完全不变，因此**向后兼容**。
 #
@@ -80,12 +81,15 @@ database {
     latency: num min 0
 }
 
-# 注：这里也可以写成块级类型标注 `Metrics metrics { }`（等价于块内首行 `@is Metrics`），
-#     但它需 `@feature enable typed-block`，而该特性**目前仅 JS 实现**（教科书 §5.2.2）。
-#     本文件跨实现共享，故用可移植写法 —— 注意 `loose` 已在上面 @contract 那行声明，
-#     块内**不需要**再写（要改严格性请改契约声明）。
-metrics {
-    @is Metrics
+# 注：这里写的是**块级类型标注**形式 `Metrics metrics { }` —— 等价于在块内首行写 `@is Metrics`。
+#     该写法需 `@feature enable typed-block`：**Rust + JS 已实现；C / C++ / Lua 未实现**
+#     （而且在 C / C++ / Lua 上连 `@feature` 指令都没有 ⇒ 报 E-PARSE-005），
+#     所以本文件**故意不加**那条 `@feature` —— 让五端都能解析。
+#     ⚠️ 代价：未开特性时这个块会被当作**普通裸块**（契约不校验、不填默认值，也不报错）。
+#     要在 Rust / JS 上让它真正校验，请在本文件开头加一行「@feature enable typed-block」；
+#     要让五端语义一致，请把它改写成块内 `@is Metrics`（教科书 §5.2.2）。
+#     另注：`loose` 已在上面 @contract 那行声明，块内**不需要**再写（要改严格性请改契约声明）。
+Metrics metrics {
     latency: 12.5
     customCounter: 7        # loose 下允许；严格模式会报错
 }
