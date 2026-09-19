@@ -29,6 +29,9 @@ for (const fn of [
   "collectContractNames", "collectFragmentNames", "collectKeys",
   "findDefinition", "contractDeclaration", "contractInstance", "contractHoverMarkdown",
   "findOccurrences", "diagnose", "parseSafe", "stringify",
+  // include / import 的编辑器导航（跳转 / 悬停 / 补全）依赖它取路径与**行内列区间**
+  // ——行为验证在 `_verify_nav.mjs`，这里只钉"确实导出了"。
+  "parseIncludeTargets",
 ]) {
   check(typeof m[fn] === "function", `${fn} 可导出`);
 }

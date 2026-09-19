@@ -21,6 +21,10 @@ const steps = [
   // ⚠️ 这一步是 2026-09-19 补的：此前从没有人**真跑过 activate()**，于是「顶层读了宿主里
   // 已不存在的 API ⇒ 整个模块加载失败」这类致命错误一路漏到用户机器上（HANDOFF §22.12）。
   ["扩展激活（mock 对齐 VS Code 1.138）", "scripts/_verify_activate.mjs"],
+  // ⚠️ 这一步是 2026-09-19 补的：include / import 的**编辑器导航**（跳转 / 悬停 / 补全）
+  // 此前**没有任何测试**——只断言"源码里有这段字符串"拦不住"跳错文件 / 悬停说反了"。
+  // 这里真 activate + 真调 provider + 用真文件断言（见该脚本头部说明）。
+  ["include/import 导航（真调 provider）", "scripts/_verify_nav.mjs"],
 ];
 
 // showcase.sml 必须在扩展诊断所用的 JS 引擎上零错误解析

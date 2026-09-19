@@ -18,6 +18,77 @@ import { parseSafe, parse, stringify, offsetToPosition } from "./vendor/sml.mjs"
 
 export { parseSafe, parse, stringify, offsetToPosition };
 
+/// 从**一行**里取出 `include` / `import` 的目标路径，以及它在**行内的列区间**（0 起）。
+///
+/// 为什么需要它（而不是 `document.getWordRangeAtPosition`）：那个 API 的字符类不含 `/`、
+/// 也不认引号边界 —— `include "conf.d/db.sml"` 只会拿到 `db.sml` 片段，无法定位整条路径，
+/// 于是"悬停看目标 / 跳转到被包含文件"都做不准。
+///
+/// 规则与 JS 解析器内部的 `parseIncludeTargets`（`js/sml.mjs`，**未导出**）保持一致：
+///   · 关键字 `include` / `import`，可带 `@` 前缀（`@include`）；
+///   · 多目标按**引号外、`{}` 深度 0** 的逗号分隔（挑键 `{ a, b }` 里的逗号不算分隔）；
+///   · 路径取引号内（`"a.sml"`）或裸词（`import ui.buttons`、`re:"…"`）；
+///   · `import { k } as w in "x.sml"` 的路径在 `in` 之后，同样能取到。
+///
+/// 返回 `[{ path, col, end, viaImport, regex }]`：
+///   · `col` / `end` 是该行内的列区间（指向路径本体，**不含**引号）；
+///   · `regex` 为 true 表示 `re:"…"` 形态（正则匹配，不是文件路径，调用方别当文件解析）。
+export function parseIncludeTargets(line) {
+  const head = /^[\t ]*@?(include|import)[\t ]+([\s\S]*)$/.exec(line);
+  if (!head) return [];
+  const viaImport = head[1] === "import";
+  const rest = head[2];
+  const baseCol = line.length - rest.length; // `rest` 在整行里的起始列
+  // 按「引号外 && `{}` 深度 0」的逗号切目标
+  const parts = [];
+  let buf = "", inStr = false, depth = 0, start = 0;
+  for (let i = 0; i < rest.length; i++) {
+    const ch = rest[i];
+    if (ch === '"') inStr = !inStr;
+    else if (!inStr && ch === "{") depth++;
+    else if (!inStr && ch === "}") depth = Math.max(0, depth - 1);
+    else if (!inStr && depth === 0 && ch === ",") {
+      parts.push([buf, start]);
+      buf = "";
+      start = i + 1;
+      continue;
+    }
+    buf += ch;
+  }
+  parts.push([buf, start]);
+
+  const out = [];
+  for (const [seg, off] of parts) {
+    const q = /"([^"]*)"/.exec(seg);
+    const before = q ? seg.slice(0, q.index) : seg;
+    const isRe = /re:\s*$/.test(before);
+    if (q && q[1]) {
+      // 引号串：列区间指向引号**内部**
+      const col = baseCol + off + q.index + 1;
+      out.push({
+        path: (isRe ? "re:" : "") + q[1],
+        col,
+        end: col + q[1].length,
+        viaImport,
+        regex: isRe,
+      });
+      continue;
+    }
+    // 裸词（`import ui.buttons` / `re:xxx`）：取到空白/花括号为止
+    const w = /([A-Za-z0-9_./\\:\-]+)/.exec(seg);
+    if (!w) continue;
+    const col = baseCol + off + w.index;
+    out.push({
+      path: w[1],
+      col,
+      end: col + w[1].length,
+      viaImport,
+      regex: /^re:/.test(w[1]),
+    });
+  }
+  return out;
+}
+
 /// 解析文本，产出编辑器可用的诊断列表。
 /// 返回 [{ line, col, message, severity }]，line/col 从 0 起。
 ///

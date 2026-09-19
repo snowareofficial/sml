@@ -1917,6 +1917,39 @@ security / ext / number / type-pattern）全过。
 **顺带**：`HL-cfg.sml`（扩展生成的**用户**自定义高亮配置）被 `git add -A` 误提交一次，
 已 `git rm --cached` 并加入 `.gitignore` —— **提交前先看 `git status`，别用 `git add -A` 兜底**。
 
+### 22.19 include / import 的编辑器导航：**带真断言的闸门**（不用字符串断言糊过去）
+
+用户要"插件支持 import 等语法"。此前编辑器对模块化语法**只有诊断**：光标在
+`include "conf.d/db.sml"` 上按 F12 什么都不发生（`provideDefinition` 只认契约 / 片段 / 字段）。
+
+**实现**（`src/extension.js` + `src/sml-parse.mjs`）：
+- 桥接层新增 `parseIncludeTargets(line)` ⇒ `[{ path, col, end, viaImport, regex }]`。
+  **为什么必须新写一份**：`js/sml.mjs` 里那份 `parseIncludeTargets` **未导出**（grep 全文件导出
+  只有 `offsetToPosition` / `parse` / `parseSafe` / `stringify` / `dump`），所以照它规则重写；
+  列区间（`col`/`end`）是新东西 —— `getWordRangeAtPosition` 的字符类不含 `/`，
+  `include "conf.d/db.sml"` 只会拿到 `db.sml` 尾段，做不了精确导航。
+  规则要点：引号外且 `{}` 深度 0 的逗号才分隔目标（挑键的逗号不算）；`import { k } as w in "x"`
+  的路径在 `in` 之后；`re:"…"` 标记 `regex:true`（不是文件路径）。
+- 扩展新增 `resolveIncludeTargets(doc, line)`：把路径解析成 **Uri**（按 `include` 语义
+  **先相对当前文档目录**，再退到工作区相对路径 / 裸文件名 —— 与 `buildFilesMap` 的键策略一致）。
+- 三个 provider 各加一个分支：**跳转**（跨文件 `Location`）、**悬停**（路径 ✓/✗ + 目标顶层键）、
+  **补全**（工作区 `.sml`，按相对当前文档的写法插入，未开引号时自动补一对引号）。
+
+**验证（这一步的做法本身值得学）**：新增 `scripts/_verify_nav.mjs` 并接进 `_prepublish.mjs`
+的 `steps`（现 6 步）。它**真 activate 扩展 + 真调三个 provider + 用真文件断言**：
+① 跳转返回的 `Location.uri.fsPath` 恰好是 `conf.d/db.sml`；② 悬停 markdown 含目标文件与
+它的顶层键 `host`；③ 目标不存在时悬停要明说"未找到"；④ 补全列出 `a.sml` 与 `conf.d/db.sml`
+且不列当前文档自身。
+**刻意不用字符串断言**（`src.includes("provideDefinition")`）—— 那种"绿"拦不住"跳错文件 /
+悬停说反了"，正是 §22.10 那句"判据落在哪儿，决定你能不能看见问题"。
+为跑它，mock 需要补：抓取 provider 对象（原来只计数）、`document`
+（`getText` / `lineAt` / `offsetAt` / `getWordRangeAtPosition` / `positionAt` / `uri.path`）、
+`Uri.path`、`findFiles` 返回真 Uri、`fs.readFile` 返回真文本、`asRelativePath` 返回工作区相对路径。
+`_verify_ext.mjs` 的"桥接函数必须可导出"清单也加了 `parseIncludeTargets`（只钉导出，行为交给上面那个）。
+
+**结果**：`NAV VERIFY ALL PASS`（10 条）→ `PREPUBLISH ALL PASS`（6 步）→ VSIX **156.78 KB**、
+站点 **160546 B**；README（中英）功能表各加一行。
+
 ### 22.15 块级类型标注：文档缺一半 + **showcase 里是个假示例**（2026-09-19，用户点的）
 
 用户指着 `showcase_contract.sml:83` 的 `Metrics metrics { }` 问「这种语法文档化了吗？优点、潜力
