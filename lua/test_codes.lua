@@ -632,6 +632,19 @@ local function test_w16_codes()
   expect_ok("带指令的顶层标量", "@version v1\n42\n")
   expect_ok("空输入", "")
   expect_ok("只有注释", "# c\n")
+
+  -- 文件级规范化：开头的 UTF-8 BOM（U+FEFF = \239\187\191）必须被忽略。
+  -- ⚠️ 不能只 `expect_ok`：不去 BOM 也会"解析成功"，只是第一个键名**静默**变成
+  --    "\239\187\191x" —— 那正是这条要钉住的行为。
+  do
+    local v = Sml.load("\239\187\191x: 1\n")
+    if v == nil or v.x ~= 1 then
+      failures = failures + 1
+      io.write("FAIL: BOM 开头未被忽略（键名静默变化）\n")
+    else
+      passed = passed + 1
+    end
+  end
 end
 
 io.write("lua/test_codes.lua — 触发条件 → 期望码（W10，Lua 侧）\n")

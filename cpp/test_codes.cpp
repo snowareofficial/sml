@@ -731,6 +731,16 @@ static void test_positive_controls() {
     expect_ok("int field after inf literal",
               "@contract C loose { n: int }\n"
               "x {\n  @is C\n  big: 1e400\n  n: 123\n}\n");
+
+    // 文件级规范化：开头的 UTF-8 BOM（EF BB BF）必须被忽略。
+    // ⚠️ 不能只 `expect_ok`：不去 BOM 也会"解析成功"，只是第一个键名**静默**变成
+    //    "\xEF\xBB\xBFx" —— 所以这里必须断言键名就是 x（expect_int 取不到会记失败）。
+    //    (\xBF 后接字符串拼接，避免 `\xBFx` 被当成一个十六进制转义。)
+    {
+        std::string bom_err;
+        sml::ValuePtr v = sml::Parser::parse("\xEF\xBB\xBF" "x: 1\n", &bom_err);
+        expect_int("BOM 开头（记事本另存为 UTF-8）", v, "x", 1);
+    }
 }
 
 // err 允许为 nullptr：只断言**不崩**。

@@ -1336,6 +1336,18 @@ static bool expand_includes(std::vector<Token>& toks,
             return false;
         }
         std::stringstream ss; ss << f.rdbuf();
+        /* 被 include 的子文件也可能带 BOM：它在拼接后的中间位置，`Parser::parse` 那处的
+           开头检查救不了它，而且不去掉的话子文件第一行 `@include "x"` 都认不出来。 */
+        {
+            std::string child = ss.str();
+            if (child.size() >= 3 && static_cast<unsigned char>(child[0]) == 0xEF
+                && static_cast<unsigned char>(child[1]) == 0xBB
+                && static_cast<unsigned char>(child[2]) == 0xBF) {
+                child.erase(0, 3);
+            }
+            ss.str(child);
+            ss.clear();
+        }
         std::string e2;
         std::vector<Token> sub = tokenize(ss.str(), &e2);
         if (!e2.empty()) {
@@ -1409,7 +1421,15 @@ static ValuePtr parse_impl(const std::string& text, std::string* err, const std:
 // std::bad_alloc，本实现只有 err 一条通道，故在此统一转码后按失败返回。
 ValuePtr Parser::parse(const std::string& text, std::string* err, const std::string& include_dir) {
     try {
-        return parse_impl(text, err, include_dir);
+        /* 文件级规范化：跳过开头的 UTF-8 BOM（EF BB BF）。BOM **不是空白** ⇒ 会被词法器吞进
+           第一个单词 ⇒ 第一个键名变成 "\xEF\xBB\xBFx"（**静默**改键名）。来源很常见：
+           Windows 记事本「另存为 UTF-8」。与 Rust / JS / C / Lua 对齐。 */
+        const bool has_bom = text.size() >= 3
+            && static_cast<unsigned char>(text[0]) == 0xEF
+            && static_cast<unsigned char>(text[1]) == 0xBB
+            && static_cast<unsigned char>(text[2]) == 0xBF;
+        const std::string body = has_bom ? text.substr(3) : text;
+        return parse_impl(body, err, include_dir);
     } catch (const std::bad_alloc&) {
         if (err) *err = code_prefix(SML_E_LIMIT_010, "sml: 内存分配失败");
         return nullptr;

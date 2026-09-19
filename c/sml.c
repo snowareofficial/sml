@@ -1461,6 +1461,15 @@ sml_value *sml_parse(const char *text, char *err, size_t errsz) {
         return NULL;
     }
     if (err && errsz) err[0] = '\0';   /* 成功时保持为空，避免误判 */
+    /* 文件级规范化：跳过开头的 UTF-8 BOM（EF BB BF）。
+       BOM **不是空白** ⇒ 会被词法器吞进第一个单词 ⇒ 第一个键名变成 "\xEF\xBB\xBFx"
+       （最坏是**静默**改掉键名）。来源很常见：Windows 记事本「另存为 UTF-8」。
+       与 Rust（sml-parse::scan::strip_version）、JS（parse）、C++/Lua 对齐 ——
+       仓库里 smltools 的 YAML/XML 导入器早就各自去过 BOM，只有 native SML 漏了。 */
+    if (text && strlen(text) >= 3 && (unsigned char)text[0] == 0xEF
+        && (unsigned char)text[1] == 0xBB && (unsigned char)text[2] == 0xBF) {
+        text += 3;
+    }
     lexer lx;
     memset(&lx, 0, sizeof(lx));
     lx.errbuf = err;
@@ -2117,6 +2126,13 @@ static int resolve_includes(const char *text, const char *base,
             if (!content) { fclose(f); set_err(err, errsz, SML_E_LIMIT_010 " 内存分配失败（include 文件内容）"); free(line); free(inc); return -1; }
             fread(content, 1, (size_t)sz, f);
             content[sz] = '\0';
+            /* 子文件同样可能带 BOM：它在**拼接后的文本中间**，`sml_parse` 那处的开头检查救不了，
+               而且不去掉的话连它的第一行 `include "x"` 都认不出来（BOM 会粘在首词上）。
+               就地把 BOM 移掉（含结尾 NUL 一起搬）。 */
+            if ((size_t)sz >= 3 && (unsigned char)content[0] == 0xEF
+                && (unsigned char)content[1] == 0xBB && (unsigned char)content[2] == 0xBF) {
+                memmove(content, content + 3, (size_t)sz - 2);
+            }
             fclose(f);
 
             /* 规范化为绝对路径。改用**动态分配**：固定 1024 缓冲在长路径下

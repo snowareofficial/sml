@@ -329,6 +329,11 @@ pub fn expand_file_tokens(
     features: FeatureSet,
     expansions: &mut u64,
 ) -> Result<Vec<Tok>, SmlError> {
+    // 子文件也可能带 **UTF-8 BOM**（记事本「另存为 UTF-8」）：不去掉的话，
+    // 它的第一个键名会变成 `\u{feff}x`。
+    // 主文件那条路由 `sml-parse::scan::strip_version` 收口（文本入口的唯一漏斗），
+    // 被 include 进来的**子文件**只能在这里去 —— 否则同一项目里主/子文件两套待遇。
+    let content = content.strip_prefix('\u{feff}').unwrap_or(content);
     // 剥离子文件内的版本/特性指令行，避免污染 token 流。
     // 多行字符串内部的行不算指令，须跳过（否则会破坏字符串数据，如 "line\n@version\n..."）。
     let spans = compute_string_spans(content);

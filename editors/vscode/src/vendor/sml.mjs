@@ -614,6 +614,15 @@ function parseIncludeTargets(line, feats) {
 // ---------------------------------------------------------------------------
 
 export function parse(text, opts) {
+  // —— 文件级规范化：去掉开头的 **UTF-8 BOM**（U+FEFF）——
+  //
+  // 为什么必须去：本词法器按显式分隔符切词（不是用 `\s`），所以 BOM **不会**被当空白，
+  // 而是被吞进第一个单词 ⇒ `\ufeffx: 1` 的键名会变成 `\ufeffx`（实测：`{"\ufeffx":1}`）。
+  // 来源极常见：Windows 记事本「另存为 UTF-8」、Excel 导出的文本。
+  // 对齐实现：Rust 侧在 `sml-parse::scan::strip_version` 收口（文本入口唯一漏斗），
+  // 子文件在 `sml-include::expand_file_tokens` 收口；这里覆盖文本入口 + 每个被 include 的子文件
+  // （子文件也是走本函数递归解析的）。
+  if (typeof text === "string" && text.charCodeAt(0) === 0xfeff) text = text.slice(1);
   opts = opts || {};
   const files = opts.files || {};
   const baseFeatures = opts.features || null;

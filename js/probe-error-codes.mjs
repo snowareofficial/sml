@@ -135,5 +135,20 @@ if (r.ok || r.code !== "E-CONTRACT-001") {
   console.log("ok    parseSafe 交出了 code");
 }
 
+// —— 文件级规范化：开头的 UTF-8 BOM（U+FEFF）必须被忽略 ——
+// 为什么值得一条断言：BOM **不是**本词法器的分隔符，不去掉会被吞进第一个单词 ⇒
+// 键名**静默**变成 "\uFEFFx"（**解析照样"成功"** —— 所以只测"能不能解析"抓不到它）。
+// 来源很常见：Windows 记事本「另存为 UTF-8」。Rust / C / C++ / Lua 同轮对齐。
+{
+  const bomDoc = parse("\uFEFFx: 1\n");
+  const keys = bomDoc && typeof bomDoc === "object" ? Object.keys(bomDoc) : [];
+  if (keys.length === 1 && keys[0] === "x" && bomDoc.x === 1) {
+    console.log("ok    BOM 开头被忽略（键名仍是 x）");
+  } else {
+    bad++;
+    console.log(`FAIL  BOM 开头未被忽略：keys=${JSON.stringify(keys)}`);
+  }
+}
+
 console.log(bad === 0 ? "ALL OK" : `${bad} FAILED`);
 process.exit(bad === 0 ? 0 : 1);

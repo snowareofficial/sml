@@ -12,6 +12,40 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ## [未发布]
 
+### 修复 · 五端一致：文件开头的 **BOM**（U+FEFF）统一跳过
+
+用户问"还有被遗漏的语法吗？" —— 于是把**词法单元**也按"真机实测"扫了一遍
+（20 个用例 × 5 端；判据是"**用例里的键 `x` 是否幸存**" —— 因为 BOM 这类问题
+**解析照样成功**，只测"能不能解析"完全抓不到）。
+
+- **症状**：五端**原先都**把 BOM 吃进第一个键名（Rust 输出 `"\uFEFFx": 1`、JS 输出
+  `{"\uFEFFx":1}`）⇒ 记事本「另存为 UTF-8」/ Excel 导出的 `.sml`，第一个键名被**静默**改掉。
+- **修法（五端各一处，均按"文件级规范化"）**：Rust `sml-parse::scan::strip_version`
+  （文本入口的唯一漏斗）+ `sml-include::expand_file_tokens`（子文件）；JS `parse()`；
+  C `sml_parse` + `resolve_includes` 的子文件读取；C++ `Parser::parse` + include 子文件读取；
+  Lua `Sml.load` + include 子文件读取。
+- **测试（每端都断言"键名仍是 `x`"）**：`rust/src/lib.rs::bom_is_stripped_on_all_entries`
+  （覆盖文本入口 / 文件入口 / **被 include 的子文件**）、C `expect_json("BOM 开头", …)`、
+  C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联断言、JS `probe-error-codes.mjs`。
+  ⚠️ 只断言"能解析"是抓不到的 —— 不去 BOM 也照样"解析成功"，这正是它静默的原因。
+- **顺带发现**：同一仓库里 `smltools` 的 **YAML / XML 导入器早就各自去过 BOM**
+  （`yaml.rs:93`、`xml.rs:63`），只有 native SML 这条路径漏了 —— "同一件事两套待遇"。
+- **文档**：`ch01 §1.2` 加"文件开头的 BOM 会被忽略"（中英）；`ch10` 加「词法层面的实现差异」
+  小节（中英），含本轮 20 用例的对照表。
+
+### 已知缺口（本轮只登记，未修）
+
+- **Lua**：① 三引号多行字符串**丢键**；② `@feature … # 行尾注释`**吞掉下一行**。
+  复现命令与用例见 `TODO.md` §三·十一。
+
+### 交付
+
+- **重打 VSIX**：`editors/vscode/sml-lang-0.4.2.vsix` = **161304 B**（vendor 解析器更新；
+  `editors/vscode/src/extension.js` 的 `EXPECT_VENDOR` 同步为 `73683` / `0ea28eec0253a864`）；
+  `tools/check_js_copies.py` 复核四份副本逐字节一致；`_prepublish.mjs` 七项闸门 ALL PASS。
+- 站点两份下载目录（`site/static/dl/`、`site/public/dl/`）都只剩 0.4.2；
+  `site/public/dl/sml-lang-0.4.1.vsix`（陈旧坏包，**未被 git 跟踪**）已从磁盘删除。
+
 ### 文档 / 工具链
 
 - **块级类型标注（`契约名 块名 { }`）的文档化补全 + 优点/潜力重估 + 一个"假示例"被修掉**：
