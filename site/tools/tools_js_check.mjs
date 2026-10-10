@@ -71,9 +71,17 @@ function makeSandbox() {
     location,
     addEventListener: (t, fn) => { winListeners[t] = fn; },
   };
+  // localStorage 桩：每个 sandbox 一份独立存储，便于「已看过 / 没看过」两种前置状态
+  const store = {};
+  const localStorage = {
+    getItem: (k) => (Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null),
+    setItem: (k, v) => { store[k] = String(v); },
+    removeItem: (k) => { delete store[k]; },
+    _dump: () => Object.assign({}, store),
+  };
   const sandbox = {
     document, window, location, console,
-    setTimeout, clearTimeout,
+    setTimeout, clearTimeout, localStorage,
     fetch: (url) => {
       const key = String(url).replace(/^.*\//, "");
       const data = key === "errors.json" ? ERRORS : INDEX;
@@ -199,6 +207,94 @@ const setInput = (app, v) => {
   check("⑧ 教科书搜索按码检索并深链回 /errors",
     codeHits.length > 0 && codeHits.length === ERRORS.codes.filter((c) => c.id.startsWith("E-CONTRACT-")).length,
     `codeHits=${codeHits.length}`);
+}
+
+// ───────────────── 场景三：「本版更新」弹窗（按版本只弹一次）─────────────────
+// 弹窗的**标记与文案**由 Hugo 在构建期渲染（主题 baseof.html + site/data/whatsnew*.json），
+// 这里只验 site-tools.js 的行为：弹不弹、三个关闭入口、以及「看过的版本号」怎么记。
+{
+  const KEY = "sml-whatsnew-seen";
+  // 造一个「已渲染好的弹窗」环境（对齐 baseof 的标记：外层带 data-version，关闭按钮有 id）
+  const seed = (ver) => {
+    for (const k of Object.keys(REG)) delete REG[k];
+    const box = makeEl("div");
+    box.id = "whatsnew"; box.dataset.version = ver; box.hidden = true;
+    REG["whatsnew"] = box;
+    const btn = makeEl("button"); btn.id = "whatsnew-close";
+    REG["whatsnew-close"] = btn;
+    return { box, btn };
+  };
+  const fireEv = (el, type, ev) => { if (el && el._l[type]) el._l[type](ev); };
+  const run = (sb) => { vm.runInNewContext(SRC, sb, { filename: "site-tools.js" }); };
+
+  // ① 没看过 ⇒ 弹出
+  {
+    const { box } = seed("0.6.2");
+    const sb = makeSandbox();
+    run(sb);
+    check("⑨ 首次访问弹出（hidden=false）", box.hidden === false, `hidden=${box.hidden}`);
+  }
+
+  // ② 点关闭按钮 ⇒ 关闭 + 记下版本号
+  {
+    const { box, btn } = seed("0.6.2");
+    const sb = makeSandbox();
+    run(sb);
+    fireEv(btn, "click");
+    check("⑩ 点关闭按钮：关闭并写入版本号",
+      box.hidden === true && sb.localStorage.getItem(KEY) === "0.6.2",
+      `hidden=${box.hidden} key=${sb.localStorage.getItem(KEY)}`);
+  }
+
+  // ③ 同一版本再看 ⇒ 不再弹
+  {
+    const { box } = seed("0.6.2");
+    const sb = makeSandbox();
+    sb.localStorage.setItem(KEY, "0.6.2");
+    run(sb);
+    check("⑪ 同一版本第二次访问不再弹", box.hidden === true, `hidden=${box.hidden}`);
+  }
+
+  // ④ 版本号变了 ⇒ 再弹一次（升级提示不该被旧记录吃掉）
+  {
+    const { box } = seed("0.6.3");
+    const sb = makeSandbox();
+    sb.localStorage.setItem(KEY, "0.6.2");
+    run(sb);
+    check("⑫ 版本号变化后重新弹", box.hidden === false, `hidden=${box.hidden}`);
+  }
+
+  // ⑤ Esc 关闭；⑥ 点遮罩关闭、点内容区不关
+  {
+    const { box } = seed("0.6.2");
+    const sb = makeSandbox();
+    run(sb);
+    fireEv({ _l: docListeners }, "keydown", { key: "Escape" });
+    check("⑬ Esc 关闭并写入版本号",
+      box.hidden === true && sb.localStorage.getItem(KEY) === "0.6.2",
+      `hidden=${box.hidden} key=${sb.localStorage.getItem(KEY)}`);
+  }
+  {
+    const { box } = seed("0.6.2");
+    const sb = makeSandbox();
+    run(sb);
+    const inner = makeEl("div");            // 内容区里的元素
+    fireEv(box, "click", { target: inner });
+    check("⑭ 点内容区**不**关闭（否则选段文字就把弹窗关了）", box.hidden === false, `hidden=${box.hidden}`);
+    fireEv(box, "click", { target: box });
+    check("⑭ 点遮罩关闭", box.hidden === true, `hidden=${box.hidden}`);
+  }
+
+  // ⑦ 页面上没有弹窗 ⇒ 不抛异常、也不写 localStorage（其它页面照常）
+  {
+    for (const k of Object.keys(REG)) delete REG[k];
+    const sb = makeSandbox();
+    let threw = null;
+    try { run(sb); } catch (e) { threw = e; }
+    check("⑮ 没有弹窗的页面：不抛异常、不写 localStorage",
+      threw === null && sb.localStorage.getItem(KEY) === null,
+      threw ? String(threw) : `key=${sb.localStorage.getItem(KEY)}`);
+  }
 }
 
 console.log(failed === 0 ? "\nALL PASS" : `\n${failed} FAILED`);

@@ -379,10 +379,38 @@
     document.head.appendChild(st);
   }
 
+  // ── 「本版更新」弹窗：按**版本号**只弹一次 ──────────────────────────
+  // 标记与文案由 Hugo 在构建期渲染（主题 baseof.html + site/data/whatsnew[_en].json），
+  // 所以中英站各自就是对的；这里只管三件事：弹不弹、怎么关、把看过的版本号记下来。
+  // 三个关闭入口（按钮 / Esc / 点遮罩）都算「看过」；点遮罩**必须**判断 e.target，
+  // 否则想选段文字就把弹窗关了。
+  function initWhatsNew() {
+    var box = document.getElementById("whatsnew");
+    if (!box) return;
+    var ver = (box.dataset && box.dataset.version) || "";
+    var KEY = "sml-whatsnew-seen";
+    var seen = null;
+    try { seen = localStorage.getItem(KEY); } catch (e) { seen = null; }
+    if (ver && seen === ver) return;              // 这一版已经看过
+    function close() {
+      box.hidden = true;
+      try { localStorage.setItem(KEY, ver); } catch (e) {}
+    }
+    box.hidden = false;                            // 打开
+    var btn = document.getElementById("whatsnew-close");
+    if (btn) {
+      btn.addEventListener("click", close);
+      if (typeof btn.focus === "function") btn.focus();
+    }
+    box.addEventListener("click", function (e) { if (e.target === box) close(); });
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
+  }
+
   function boot() {
     injectCSS();
     initErrorLookup();
     initTextbookSearch();
+    initWhatsNew();
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", boot);

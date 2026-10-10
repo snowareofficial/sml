@@ -1,0 +1,19 @@
+{
+  "version": "0.6.2",
+  "date": "2026-10-10",
+  "title": "SML 0.6.2 已发布",
+  "intro": "库 swsml 0.6.2、命令行工具 smltools 0.2.1（首次以新名字发布）已同步上线；VS Code 扩展为 0.4.2。",
+  "items": [
+    "错误码体系全量落地：137 条码，五端实现 + 命令行工具都带码；本站新增「错误码」查询（支持 E-CONTRACT-* 这类通配与 #E-PARSE-008 深链）。",
+    "include / import 五端对齐：import \"x.sml\" 的语义修正（不再误挂命名空间）；JS 端补齐 glob-include、点分模块名 import ui.buttons 与 re: 受限正则。",
+    "五端「静默通过」改为带码报错（未闭合字符串、未知转义、顶层标量等），其中多条此前会给出错误的树；文件开头的 BOM 现在统一跳过。",
+    "安全修复：块注释里伪造的 include 不再读盘（此前可任意读文件）；C 在 err=NULL 时的越界写；C / C++ 的嵌套深度守卫不再可被绕过。",
+    "smltools 新增 --from xml（CMSIS-SVD 这类芯片描述文件可直接读入）与 --to html。",
+    "VS Code 扩展 0.4.2：修掉「在 VS Code 1.13x 上扩展根本无法激活」与「命令面板里搜不到任何 SML 命令」，并新增 as ns 命名空间导航。"
+  ],
+  "links": [
+    { "label": "下载与版本说明", "href": "downloads/" },
+    { "label": "完整变更日志", "href": "https://gitee.com/snoware/sml/blob/main/CHANGELOG.md" }
+  ],
+  "dismiss": "知道了"
+}

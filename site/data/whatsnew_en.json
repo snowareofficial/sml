@@ -1,0 +1,19 @@
+{
+  "version": "0.6.2",
+  "date": "2026-10-10",
+  "title": "SML 0.6.2 is out",
+  "intro": "The library (swsml 0.6.2) and the CLI (smltools 0.2.1, its first release under the new name) are live; the VS Code extension is 0.4.2.",
+  "items": [
+    "A full error-code system: 137 codes, carried by all five implementations and the CLI. This site now has an error-code lookup with wildcards (E-CONTRACT-*) and deep links (#E-PARSE-008).",
+    "include / import aligned across all five implementations: import \"x.sml\" semantics fixed (no longer wrapped in a namespace); JS gained glob-include, dotted module names (import ui.buttons) and re: restricted regex.",
+    "Silent passes now fail with a code in all five implementations (unterminated strings, unknown escapes, top-level scalars, ...). Several of them used to return a wrong tree; a leading BOM is now skipped everywhere.",
+    "Security fixes: a forged include inside a block comment no longer reads files; C out-of-bounds writes when err=NULL; the nesting-depth guard can no longer be bypassed in C / C++.",
+    "smltools gained --from xml (CMSIS-SVD files can be read directly) and --to html.",
+    "VS Code extension 0.4.2: fixes \"the extension never activated on VS Code 1.13x\" and \"no SML command showed up in the command palette\", and adds as ns namespace navigation."
+  ],
+  "links": [
+    { "label": "Downloads & versions", "href": "downloads/" },
+    { "label": "Full changelog", "href": "https://gitee.com/snoware/sml/blob/main/CHANGELOG.md" }
+  ],
+  "dismiss": "Got it"
+}
