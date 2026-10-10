@@ -61,7 +61,7 @@ node scripts\_verify_activate.mjs   # 期望："ACTIVATE SMOKE ALL PASS"
 | VSIX | `editors/vscode/sml-lang-0.4.2.vsix`，**20 项 / 157.5 KB（161304 B）** |
 | 站点托管副本 | `site/static/dl/sml-lang-0.4.2.vsix`（与上面同哈希） |
 | 版本号 | **保持 0.4.2**（未上架市场；升版本要同步 4 处，漏一处就制造漂移） |
-| 包内解析器指纹 | `src/vendor/sml.mjs` = **73683 B**，sha256 前缀 **0ea28eec** |
+| 包内解析器指纹 | `src/vendor/sml.mjs` = **96110 B**，sha256 前缀 **c7a5054d** |
 
 > ⚠️ **这三个数字（VSIX 大小 / 解析器大小 / sha 前缀）随解析器一起变。**
 > 本轮（BOM 五端对齐）改了 `js/sml.mjs` ⇒ 四份副本、`EXPECT_VENDOR`、VSIX 全都跟着更新，
@@ -100,7 +100,7 @@ for rel in ["src/extension.js", "src/sml-parse.mjs", "src/vendor/sml.mjs"]:
     print(("一致 ✓ " if ha==hb else "**不一致** ✗ "), rel, os.path.getsize(a), ha)
 PY
 ```
-期望：三行都是 `一致 ✓`，且 `src/vendor/sml.mjs` 是 **73683**、前缀 `0ea28eec`。
+期望：三行都是 `一致 ✓`，且 `src/vendor/sml.mjs` 是 **96110**、前缀 `c7a5054d`。
 
 **不符怎么办**：先确认装的是不是 `editors/vscode/sml-lang-0.4.2.vsix`（别装成 `site/static/dl/` 里的旧副本）；
 仍不一致 ⇒ 停下贴证据。
@@ -119,7 +119,7 @@ PY
 解析器加载成功 ✓（补全 / 悬浮 / 跳转 / 诊断可用）
 SML 语言已注册：✓
 桥接层 sml-parse.mjs：已加载 ✓
-包内解析器 vendor/sml.mjs：73683 B / sha256 0ea28eec0253a864
+包内解析器 vendor/sml.mjs：96110 B / sha256 c7a5054ddbd2f499
 命令注册：sml.specialHighlight ✓  sml.clearSpecialHighlight ✓  sml.selfCheck ✓
 语言模式：languageId = sml ✓
 ```
@@ -251,7 +251,7 @@ python site\tools\gen_search_index.py     # 期望：输出 "44 页 / 约 230 KB
 - [ ] `_prepublish.mjs` → `PREPUBLISH ALL PASS`（6 步）
 - [ ] `_verify_ext.mjs` → `EXT VERIFY ALL PASS`
 - [ ] `_verify_activate.mjs` → `ACTIVATE SMOKE ALL PASS`
-- [ ] VSIX 装好 + 包内三文件与工作区一致（`vendor/sml.mjs` = 73683 B / `0ea28eec`）
+- [ ] VSIX 装好 + 包内三文件与工作区一致（`vendor/sml.mjs` = 96110 B / `c7a5054d`）
 - [ ] 「SML: 自检」面板里 `SML 语言已注册：✓`、`桥接层 … 已加载 ✓`、`语言模式：languageId = sml ✓`
 - [ ] W19.3 的 6 件事逐项符合
 - [ ] 非 SML 文件（.md/.json）**仍有图标**（图标主题回归点）
