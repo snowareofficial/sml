@@ -179,6 +179,29 @@ function tokenize(text) {
     }
   }
   flush();
+  // 用 `pos` 反推每个 token 的行号（0 起）。
+  //
+  // 为什么需要：`include` / `import` 的参数收集必须知道「这条指令到哪结束」，
+  // 而 tokenize **丢掉了换行** —— 只靠 token 类型猜边界是不行的（实测：`import "a.sml" as wa`
+  // 之后每一行的裸词都被吞进同一条指令，直到撞上下一个 `:`；后果是 `regions` 这类键名
+  // 凭空消失、命名空间被拼成 `waimportcommon`，而且**不报错**）。
+  //
+  // 为什么不边扫描边 ++line：跨行字符串 / 跨行块注释 / \r\n 等分支太多，漏一处就会让
+  // 行边界判断错位 —— 而它正是本次要修的东西。这里一次性建「每行起始偏移」表再二分，
+  // 与扫描逻辑完全解耦。
+  if (toks.length) {
+    const starts = [0];
+    for (let k = 0; k < n; k++) if (text[k] === "\n") starts.push(k + 1);
+    for (const tk of toks) {
+      let lo = 0, hi = starts.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (starts[mid] <= tk.pos) lo = mid;
+        else hi = mid - 1;
+      }
+      tk.line = lo;
+    }
+  }
   return toks;
 }
 
@@ -486,7 +509,13 @@ function collectFeatures(text, base) {
 // 跟着下一个块（`@feature enable for` + `svg { … }`），于是它把 `svg { …` 一起吞掉，
 // **整份文档静默变成 `{}`**。实测 `_probe2.sml`：旧实现得 `{}`，Rust 得完整树（W16 修）。
 function stripFeatureLines(text) {
-  return String(text).replace(/^[ \t]*@feature[^\n]*\n?/gm, "");
+  // ⚠️ 把整行替换成**等长空格**，而不是删掉整行（含它的换行）。
+  //
+  // 为什么：token 的 `pos` 是「剥掉指令之后那份文本」里的偏移，而 `parseSafe` 把它
+  // 交给 `offsetToPosition(原文, pos)` 换算行列 —— 删行会让其后所有偏移比原文少
+  // N 个字符（N = 被剥掉的指令行数），于是**每多一条 `@feature` 行，错误位置就往前
+  // 漂一行**。换成等长空格后行列与原文一一对应，指令行也照样不会被词法看到。
+  return String(text).replace(/^[ \t]*@feature[^\n]*/gm, (m) => " ".repeat(m.length));
 }
 
 // —— 模式 / 正则的三处上限，集中定义 ——
@@ -516,7 +545,16 @@ function ensureNsPath(obj, path) {
     if (DANGEROUS_KEYS.has(part)) {
       throw throwCode("E-PARSE-009", "sml: 命名空间段不可使用 `" + part + "`");
     }
-    if (cur[part] === undefined || typeof cur[part] !== "object" || Array.isArray(cur[part])) {
+    if (Array.isArray(cur[part])) {
+      // 同一命名空间被引了多次：SML 的重复键规则是**聚合为数组**（Rust 侧
+      // `ns { … } ns { … }` 就是两个块），所以这里追加一个新对象而不是覆盖，
+      // 否则先前那份会被静默丢掉。
+      const next = {};
+      cur[part].push(next);
+      cur = next;
+      continue;
+    }
+    if (cur[part] === undefined || typeof cur[part] !== "object") {
       cur[part] = {};
     }
     cur = cur[part];
@@ -524,19 +562,241 @@ function ensureNsPath(obj, path) {
   return cur;
 }
 
-// 把 src 合并进 target（对象合并；同键：src 覆盖，若都为对象则深合并）
+// 把 src 合并进 target。
+//
+// ⚠️ 同键规则必须与**文档内的键**完全一致：SML 的重复键一律**聚合为数组**，
+// 不是「后者覆盖」也不是「对象深合并」。
+//
+// 为什么：Rust 侧的 include 是**文本内联**（子文件 token 直接拼进 token 流），
+// 于是子文件与主文件的同名键到了解析器眼里就是「重复键」，按聚合处理；JS 侧若在这里
+// 覆盖 / 深合并，同一份文档两端就会得到不同的树。实测 `examples/advanced.sml`：
+// `widget_login` 在 Rust 是 2 元素数组，在 JS 只有 1 个对象（挑键引入的那份被
+// 后面 glob 引入的那份深合并掉了）—— 而**不报错**，只是树不一样。
+//
+// 唯一不参与聚合的是内部标记键 `__type` / `__name`（脚手架，不是数据）。
 function mergeInto(target, src) {
   for (const k of Object.keys(src)) {
     if (k === "__type" || k === "__name") continue;
     // 同上：JSON.parse 之来源可能产生 own 的 `__proto__` 键，合并前必须拦掉
     if (DANGEROUS_KEYS.has(k)) continue;
-    if (src[k] && typeof src[k] === "object" && !Array.isArray(src[k]) &&
-        target[k] && typeof target[k] === "object" && !Array.isArray(target[k])) {
-      mergeInto(target[k], src[k]);
-    } else {
-      target[k] = src[k];
+    const v = src[k];
+    if (target[k] === undefined) target[k] = v;
+    else if (Array.isArray(target[k])) target[k].push(v);
+    else target[k] = [target[k], v];
+  }
+}
+
+/// 最小 glob 匹配（只支持 `*`，匹配整个文件名）。
+/// 与 Rust 的 `sml-include::parse::glob_matches` 逐条对齐：首/末段是字面段时
+/// 必须前缀 / 后缀整体匹配，中段用 `indexOf` 顺序推进。
+function globMatchName(pattern, text) {
+  const segs = pattern.split("*");
+  if (segs.length === 1) return pattern === text;
+  let pos = 0;
+  if (!pattern.startsWith("*")) {
+    if (!text.startsWith(segs[0])) return false;
+    pos = segs[0].length;
+  }
+  for (const seg of segs.slice(pattern.startsWith("*") ? 0 : 1)) {
+    if (seg === "") continue;
+    const idx = text.indexOf(seg, pos);
+    if (idx < 0) return false;
+    pos = idx + seg.length;
+  }
+  return pattern.endsWith("*") ? true : pos === text.length;
+}
+
+/// 受限正则的模式长度上限（与 Rust `sml-regex::MAX_REGEX_LEN` 同一个数）。
+const MAX_RESTRICTED_RE_LEN = 256;
+
+/// SML 字符串里的**合法转义**（与 `sml-lex` 的集合一致）：`\n \t \r \0 \" \\ \uXXXX`。
+const LEGAL_ESCAPES = new Set(["n", "t", "r", "0", '"', "\\"]);
+
+/// 预扫 include / import 行里的 `re:"…"` 目标，返回 `{ text, patterns }`：
+///   · `patterns`：**开引号的偏移 → 模式的原文**（不经字符串转义）；
+///   · `text`：把模式里**非法转义**的反斜杠换成空格后的副本（等长 ⇒ 偏移不变）。
+///
+/// 为什么必须有这一手：正则模式里写 `\.` 是常态（转义点号），而 SML 的字符串转义集里
+/// 没有 `\.` ⇒ 经 token 走的实现会先撞上 `E-LEX-004 未知转义符`。
+/// **Rust 侧没这个问题**，因为 `include re:"…"` 是在**词法之前**按行取原文交给正则引擎的
+/// （`sml-include::parse_include_line`）。这里等价地把原文记下来：解析时用 `patterns`
+/// 里的原文去匹配，token 只负责提供位置。于是**照文档写 `re:"widget_.*\.sml"` 即可**
+/// （不必像别的 JS 实现那样被迫写 `\\.`），两端同一份拼写、同一条模式。
+///
+/// ⚠️ 只扫 include / import 行：别处的 `"…\.…"` 仍应按 SML 规则报 `E-LEX-004`，
+/// 不能因为这里而变成静默的"空格替换"（那才是真的改数据）。
+function prescanRegexPatterns(text) {
+  const patterns = new Map();
+  if (!/^[ \t]*@?(include|import)[ \t]/m.test(text)) return { text, patterns };
+  const edits = [];
+  const LINE = /^[ \t]*@?(?:include|import)[ \t][^\n]*/gm;
+  const RE = /re[ \t]*:[ \t]*"((?:[^"\\]|\\.)*)"/g;
+  let lm;
+  while ((lm = LINE.exec(text)) !== null) {
+    RE.lastIndex = 0;
+    let m;
+    while ((m = RE.exec(lm[0])) !== null) {
+      const raw = m[1];
+      // 开引号的偏移：`m[0]` 的末位是闭引号 ⇒ 闭引号 - (模式长度 + 1) = 开引号。
+      // ⚠️ 这里必须 `- 2`（不是 `- 1`）：曾写错一位，于是"被换成空格的"是模式里
+      // 某一个正常字符，反斜杠原样留给词法 ⇒ 仍然 `E-LEX-004`。
+      const quote = lm.index + m.index + m[0].length - 2 - raw.length;
+      patterns.set(quote, raw);
+      for (let k = 0; k < raw.length; k++) {
+        if (raw[k] !== "\\") continue;
+        const nx = raw[k + 1];
+        const ok =
+          nx !== undefined &&
+          (LEGAL_ESCAPES.has(nx) || (nx === "u" && /^[0-9a-fA-F]{4}/.test(raw.slice(k + 2))));
+        if (!ok) edits.push(quote + 1 + k);
+        if (nx !== undefined) k++;
+      }
     }
   }
+  if (edits.length === 0) return { text, patterns };
+  const chars = text.split(""); // 按 UTF-16 码元切，`pos` 也是码元偏移 ⇒ 一一对应
+  for (const at of edits) chars[at] = " ";
+  return { text: chars.join(""), patterns };
+}
+
+/// 把 **受限正则**（Rust `sml-regex` 的子集）编译成等价的 JS `RegExp`。
+///
+/// 为什么不能直接 `new RegExp(pat)` —— 两端的**元字符集合不同**，而这里匹配的是文件名，
+/// 一旦不同就直接表现为「同一份文档在一端命中、另一端不命中」，且**不报错**：
+///   · Rust 子集里**没有**分组 `()`、交替 `|`、`{n,m}`、`\d`/`\w` 这类转义类 ——
+///     它们在那边的语义是**字面字符**；抛给 JS 却会变成元字符；
+///   · `^` / `$` 只有**首尾**才是锚，中间是字面字符（JS 里中间的 `^` 是「行首断言」，
+///     会让模式永远不匹配）。
+/// 所以这里**逐原子转写**：只保留 `.` / `[...]` / `* + ?` / 首 `^` / 尾 `$`，
+/// 其余一律转义成字面量。语法非法（量词前无原子、字符类未闭合、以 `\` 结尾）与
+/// 超长都**报码**（`E-PARSE-025` / `E-LIMIT-007`），不静默给一个「永不匹配」的正则。
+///
+/// ⚠️ 与 Rust 的已知差异：那边有回溯**步数预算**（`MAX_REGEX_STEPS`，超限报 `E-LIMIT-002`）；
+/// JS 是原生 RegExp，运行时插不进计数器。缓解手段沿用本文件对 `@type` 正则的既有口径：
+/// 模式长度上限 + 文件名本身很短（匹配对象是单个文件名，不是整份文档）。
+function compileRestrictedRegex(pat) {
+  const src = String(pat);
+  const inner = src.replace(/^\^/, "").replace(/\$$/, "");
+  if ([...inner].length > MAX_RESTRICTED_RE_LEN) {
+    throw throwCode("E-LIMIT-007", "sml: include 的受限正则过长（上限 " + MAX_RESTRICTED_RE_LEN + " 字符）");
+  }
+  const esc = (c) => (/[.*+?^${}()|[\]\\]/.test(c) ? "\\" + c : c);
+  const escInClass = (c) => (/[\]\\^-]/.test(c) ? "\\" + c : c);
+  let out = "";
+  let i = 0;
+  while (i < inner.length) {
+    const c = inner[i];
+    let atom;
+    if (c === "\\") {
+      if (i + 1 >= inner.length) {
+        throw throwCode("E-PARSE-025", "sml: include 的受限正则以反斜杠结尾");
+      }
+      atom = esc(inner[i + 1]); // Rust 侧 `\x` 一律是字面 x，这里转义成同一个字面
+      i += 2;
+    } else if (c === ".") {
+      atom = ".";
+      i += 1;
+    } else if (c === "[") {
+      let j = i + 1;
+      let neg = false;
+      if (inner[j] === "^") { neg = true; j += 1; }
+      const items = [];
+      while (j < inner.length && inner[j] !== "]") {
+        if (inner[j + 1] === "-" && inner[j + 2] !== undefined && inner[j + 2] !== "]") {
+          items.push(escInClass(inner[j]) + "-" + escInClass(inner[j + 2]));
+          j += 3;
+        } else {
+          items.push(escInClass(inner[j]));
+          j += 1;
+        }
+      }
+      if (j >= inner.length) {
+        throw throwCode("E-PARSE-025", "sml: include 的受限正则字符类未闭合（缺少 ]）");
+      }
+      atom = "[" + (neg ? "^" : "") + items.join("") + "]";
+      i = j + 1;
+    } else if (c === "*" || c === "+" || c === "?") {
+      throw throwCode("E-PARSE-025", "sml: include 的受限正则在量词 " + c + " 之前没有可重复的原子");
+    } else {
+      atom = esc(c);
+      i += 1;
+    }
+    const q = inner[i];
+    if (q === "*" || q === "+" || q === "?") { out += atom + q; i += 1; }
+    else out += atom;
+  }
+  // 锚只可能来自原模式的首/尾（中间的 `^`/`$` 已被上面按字面转义）
+  return new RegExp((src.startsWith("^") ? "^" : "") + out + (src.endsWith("$") ? "$" : ""));
+}
+
+/// 把 `dir/模式` 拆成 (目录, 文件名模式)，再在**宿主给的 files 表**里「列目录」。
+///
+/// JS 没有文件系统（浏览器 playground 与扩展宿主都只给一张扁平的「路径 → 内容」表），
+/// 所以列目录只能在这张表上做。判据与 Rust 的 `glob_or_regex_dir` 一致：
+///   · 只匹配**同一目录**下的条目（不递归，模式也不跨 `/`）；
+///   · 结果按文件名排序（跨端顺序稳定，聚合出的数组顺序才不会飘）；
+///   · 同一文件可能有多把键（工作区相对 / 相对文档目录 / 裸名），按文件名去重。
+function expandDirKeys(fileTable, rawPath, matchName) {
+  // ⚠️ 模式只按 **`/`** 切，绝不能先 `replace(/\\/g, "/")`：正则模式里的 `\` 是**转义符**
+  // （`re:"widget_.*\.sml"` 的 `\.`），一旦被当成分隔符就变成 `widget_.*/sml` ⇒ 永不命中，
+  // 而两端这时都"成功解析出空树"，静默不一致。这与 Rust 侧 Windows 上
+  // `split_dir`（按平台分隔符切）的缺陷同源，那里也已改成按 `/` 切。
+  // 文件**键**那一侧仍然把 `\` 归一到 `/`（宿主可能给 Windows 风格路径）。
+  const raw = String(rawPath);
+  const slash = raw.lastIndexOf("/");
+  const dir = slash < 0 ? "" : raw.slice(0, slash);
+  const pat = slash < 0 ? raw : raw.slice(slash + 1);
+  const hit = new Map();
+  for (const k of Object.keys(fileTable)) {
+    const kk = String(k).replace(/\\/g, "/");
+    const s = kk.lastIndexOf("/");
+    const kdir = s < 0 ? "" : kk.slice(0, s);
+    const kbase = s < 0 ? kk : kk.slice(s + 1);
+    if (!(kdir === dir || (dir !== "" && kdir.endsWith("/" + dir)))) continue;
+    if (!matchName(pat, kbase)) continue;
+    if (!hit.has(kbase)) hit.set(kbase, k);
+  }
+  return [...hit.keys()].sort().map((b) => hit.get(b));
+}
+
+/// glob 目标（`dir/*.sml`）⇒ 实际文件键。
+function expandGlobKeys(fileTable, rawPath) {
+  return expandDirKeys(fileTable, rawPath, globMatchName);
+}
+
+/// `re:"…"` 正则目标 ⇒ 实际文件键（模式匹配的是**文件名**，与 Rust 同口径）。
+function expandRegexKeys(fileTable, rawPath) {
+  const pat = String(rawPath).replace(/^re:/, "");
+  // ⚠️ 先切出**目录部分**，只把「文件名模式」交给正则引擎：整串（含 `sub/`）拿去编译的话，
+  // 正则就会要求文件名里含 `sub/`，永不命中；而 `sub` 已在 `expandDirKeys` 里当目录用掉了。
+  // （与 Rust 的 `split_dir_slash` + `glob_or_regex_dir(base.join(dir), pat)` 同构。）
+  const slash = pat.lastIndexOf("/");
+  const patOnly = slash < 0 ? pat : pat.slice(slash + 1);
+  const re = compileRestrictedRegex(patOnly); // 过长 / 非法在这里报码（E-LIMIT-007 / E-PARSE-025）
+  return expandDirKeys(fileTable, pat, (_p, name) => re.test(name));
+}
+
+/// 把一个**通配 / 正则目标**在 `files` 表里展开成命中的文件键；普通路径返回 `null`。
+///
+/// 给编辑器用：`include "dir/*.sml"` / `include re:"…"` 的路径不是一个真实文件，
+/// 悬停没法像普通路径那样"找到/未找到"。而**命中 0 个时解析器是静默的**
+/// （与 Rust 的 `glob_or_regex_dir` 同语义），所以「命中了几个」只能由编辑器说清楚。
+export function expandIncludePaths(fileTable, rawPath) {
+  const p = String(rawPath);
+  if (p.startsWith("re:")) return expandRegexKeys(fileTable, p);
+  if (p.includes("*")) return expandGlobKeys(fileTable, p);
+  return null;
+}
+
+/// `import` 的**点分模块名**（`ui.buttons` / `admin.panel`）。
+///
+/// 与 Rust 的 `sml-include::parse::is_dotted_module_name` **同一条判据**：经 `import` 引入、
+/// 既无路径分隔符、又不显式带 `.sml` 扩展名。这种写法里点号是**目录层级**
+/// （`ui.buttons` ⇒ `ui/buttons.sml`），且默认挂成命名空间 `ui.buttons`；
+/// 带引号显式写了 `.sml` 的则一律按字面路径内联（`import "common.sml"` ≡ `include "common.sml"`）。
+function isDottedModuleName(raw, viaImport) {
+  const p = String(raw);
+  return !!viaImport && !p.includes("/") && !p.includes("\\") && !p.endsWith(".sml");
 }
 
 // 解析 include 目标列表文本（如 `"a.sml" as x, "b" import y` 或 `import a.b.c, d`）
@@ -589,22 +849,43 @@ function parseIncludeTargets(line, feats) {
 
     // 取路径：in "file" 优先，否则引号内，否则裸词（import 形式）
     let path = inPath;
+    let isRe = false;
     if (!path) {
       const qM = raw.match(/"([^"]+)"/);
-      const wM = raw.match(/([A-Za-z0-9_.\-]+)/);
-      path = qM ? qM[1] : (wM ? wM[1] : null);
+      if (qM) {
+        // `re:"…"`：受限正则目标。`re:` 前缀要**留在 path 里** —— 下游靠它区分
+        // 「正则目标」与「字面路径」（与 Rust 的 `raw.starts_with("re:")` 同口径）。
+        isRe = /re\s*:\s*$/.test(raw.slice(0, qM.index));
+        path = qM[1];
+      } else {
+        // 裸词形式：`include re:pattern`（Rust 同样接受，且豁免「路径必须加引号」）
+        const bare = raw.trim();
+        if (/^re\s*:\s*\S/.test(bare)) {
+          isRe = true;
+          path = bare.replace(/^re\s*:\s*/, "").trim();
+        } else {
+          const wM = raw.match(/([A-Za-z0-9_.\-]+)/);
+          path = wM ? wM[1] : null;
+        }
+      }
+      if (path && isRe) path = "re:" + path;
     }
     if (!path) continue;
 
     // 部分引用不触发 implicit-ns 自动命名空间（否则挑出的键会被塞进文件名命名空间）
     if (keys && !ns) {
       // 平铺到当前作用域，ns 保持 null
-    } else if (feats.has("implicit-ns") && !path.includes(".") && !ns) {
+    } else if (
+      feats.has("implicit-ns") && !ns && !isRe &&
+      !path.includes("*") && !path.includes(".")
+    ) {
+      // ⚠️ 通配 / 正则目标**不参与** implicit-ns：`re:"conf"` 的 raw 里没有点，
+      // 老判据会给它挂一个名叫 `re:"conf"` 的命名空间（Rust 侧同样有这个坑，已一并修）。
       ns = path;
     }
-    // 补 .sml（点分模块名 implicit-ns 已由 ns 处理，这里仅补裸扩展名）
-    if (!path.includes(".") && !path.includes("/")) path += ".sml";
-    targets.push({ path, ns, viaImport, keys });
+    // 补 .sml（点分模块名 / 通配 / 正则目标都不补：它们不是字面文件名）
+    if (!isRe && !path.includes("*") && !path.includes(".") && !path.includes("/")) path += ".sml";
+    targets.push({ path, ns, viaImport, keys, regex: isRe });
   }
   return targets;
 }
@@ -637,7 +918,12 @@ export function parse(text, opts) {
 
   // `@feature` 整行在**词法之前**剥掉（见 stripFeatureLines 的说明）——
   // 特性集仍由下面的 collectFeatures 从**原文**读，两者互不影响。
-  const toks = tokenize(stripFeatureLines(text));
+  //
+  // `re:"…"` 的**模式原文**也在词法之前扫出来（见 prescanRegexPatterns）：正则里的 `\.`
+  // 不是合法的 SML 转义，只有先取出原文才能像 Rust 那样按原文匹配。两次预处理都是
+  // **等长替换**，所以 token 的 `pos` 始终与原文对应（诊断行列才不会漂）。
+  const pre = prescanRegexPatterns(text);
+  const toks = tokenize(stripFeatureLines(pre.text));
   // 嵌套深度闸门：在入口对 token 流做一次 O(n) 线性扫描。
   // 比在每个递归点插桩更简单，也更难绕过（词法已定，括号/方括号即成对出现）。
   {
@@ -1004,38 +1290,112 @@ export function parse(text, opts) {
   }
 
   // 解析 include：返回若干 { text, ns } 目标并递归 parse
-  function resolveIncludes(line) {
-    if (!feats.has("include")) fail("E-FEATURE-001", "sml: include 未启用（需要 feature 'include'）");
-    const targets = parseIncludeTargets(line, feats);
+  //
+  // `dirPos` = **这条指令本身**在文档里的偏移。凡是「这条指令出问题」的失败
+  // （目标找不到 / 特性未开 / 子文件解析失败）都归位到它，否则位置会落成
+  // 「收集参数时循环停在哪个 token」—— 实测能飘到几十行外的注释上，
+  // 编辑器就在那行画红线，看起来完全是另一个错误。
+  function resolveIncludes(line, dirPos, viaImport) {
+    if (!feats.has("include")) fail("E-FEATURE-001", "sml: include 未启用（需要 feature 'include'）", dirPos);
+    let targets;
+    try {
+      targets = parseIncludeTargets(line, feats);
+    } catch (e) {
+      // `parseIncludeTargets` 在 parse() 作用域之外，只能用模块级 throwCode 抛码，
+      // 因此没有位置（会落成第 1 行）。这里补上指令位置。
+      if (e && typeof e.pos !== "number") e.pos = dirPos;
+      throw e;
+    }
     const results = [];
     for (const tg of targets) {
-      let text = files[tg.path];
-      if (text === undefined) {
-        // 也允许直接用 key（不带扩展名）
-        text = files[tg.path.replace(/\.sml$/, "")];
-      }
-      if (text === undefined) fail("E-INCLUDE-001", "sml: include 目标未找到: " + tg.path);
-      const childPrefix = tg.ns ? nsPrefix + tg.ns + "." : nsPrefix;
-      // 外置扩展随 include 递归传递：被包含的文件里同样可以用方言指令与外置类型
-      const v = parse(text, {
-        files,
-        features: feats,
-        nsPrefix: childPrefix,
-        directives: extDirs || undefined,
-        types: extTypes || undefined,
-        warnings: opts.warnings,
-      });
-      // 部分引用：仅保留指定顶层键（命名空间挂在 ns 下时同样只挑这些）
-      let filtered = v;
-      if (tg.keys && Array.isArray(tg.keys)) {
-        filtered = {};
-        for (const k of tg.keys) {
-          // 键名来自 include 行文本（用户可控），同样要挡危险键
-          if (DANGEROUS_KEYS.has(k)) continue;
-          if (k in v) filtered[k] = v[k];
+      // 点分模块名（`import ui.buttons`）：路径按目录层级展开，并**默认挂命名空间**。
+      // 与 Rust 的 `finalize_target` 同口径（那里也是「只有点分模块名才自动挂 ns」）——
+      // 两边都改过之后，`import` 与 `include` 的差异只剩这一条，且判据同一份。
+      const dotted = isDottedModuleName(tg.path, viaImport);
+      const ns = tg.ns || (dotted && !(tg.keys && tg.keys.length) ? tg.path : null);
+      // —— 通配 / 受限正则目标（需 `glob-include` / `regex-include`）——
+      // 展开成 0..N 个实际文件，逐个按同一条指令的 ns / keys 处理（与 Rust 同构）。
+      //
+      // ⚠️ **先判 `re:` 再判 `*`**：正则模式里常常也带 `*`（`re:"widget_.*\.sml"`），
+      //    顺序反了会被当成 glob 模式，匹配语义完全不同。
+      const isRegex = !!tg.regex || String(tg.path).startsWith("re:");
+      let paths = [tg.path];
+      if (isRegex) {
+        if (!feats.has("regex-include")) {
+          fail("E-FEATURE-001", "sml: 正则 include 需要特性 `regex-include`（请 @feature enable regex-include）", dirPos);
         }
+        // 与 Rust 同码：部分引用只作用于单文件目标
+        if (tg.keys && Array.isArray(tg.keys)) {
+          fail("E-INCLUDE-009", "sml: 部分引用 `{ keys }` 不能配合 glob/regex 通配（请指定单个文件）", dirPos);
+        }
+        try {
+          paths = expandRegexKeys(files, tg.path);
+        } catch (e) {
+          // 模式过长 / 非法：`compileRestrictedRegex` 只能抛模块级带码错误（无位置），
+          // 这里补上指令位置，别让它落成第 1 行。
+          if (e && typeof e.pos !== "number") e.pos = dirPos;
+          throw e;
+        }
+        // ⚠️ 「命中 0 个」与 Rust 一致：**静默展开为空**（`glob_or_regex_dir` 返回空表，
+        // 外层 for 自然什么都不做）。不在这里报错 —— 两端同码同语义优先，
+        // 而"模式写错导致什么都没引入"这件事由**编辑器**负责说清楚（悬停会显示命中数）。
+      } else if (String(tg.path).includes("*")) {
+        if (!feats.has("glob-include")) {
+          fail("E-FEATURE-001", "sml: 通配 include 需要特性 `glob-include`（请 @feature enable glob-include）", dirPos);
+        }
+        if (tg.keys && Array.isArray(tg.keys)) {
+          fail("E-INCLUDE-009", "sml: 部分引用 `{ keys }` 不能配合 glob/regex 通配（请指定单个文件）", dirPos);
+        }
+        // 同上：命中 0 个 = 静默展开为空（与 Rust 一致）
+        paths = expandGlobKeys(files, tg.path);
       }
-      results.push({ value: filtered, ns: tg.ns });
+      for (const onePath of paths) {
+        let text = files[onePath];
+        if (text === undefined) {
+          // 也允许直接用 key（不带扩展名）
+          text = files[String(onePath).replace(/\.sml$/, "")];
+        }
+        if (text === undefined && dotted) {
+          // 点分模块名 ⇒ 点当目录层级：`ui.buttons` → `ui/buttons.sml`
+          // （与 Rust 的 `resolve_target_paths` 同口径；此前 JS 根本没走到这一步，
+          //   整条指令被上面那个吞词 bug 吃掉了）
+          text = files[String(onePath).split(".").join("/") + ".sml"];
+        }
+        if (text === undefined) fail("E-INCLUDE-001", "sml: include 目标未找到: " + onePath, dirPos);
+        const childPrefix = tg.ns ? nsPrefix + tg.ns + "." : nsPrefix;
+        // 外置扩展随 include 递归传递：被包含的文件里同样可以用方言指令与外置类型
+        let v;
+        try {
+          v = parse(text, {
+            files,
+            features: feats,
+            nsPrefix: childPrefix,
+            directives: extDirs || undefined,
+            types: extTypes || undefined,
+            warnings: opts.warnings,
+          });
+        } catch (e) {
+          // 子文件里的失败：`e.pos` 属于**子文件**，直接抛出去会被画在主文件的同名行上
+          // （实测：子文件第 2 行报错 → 主文件第 2 行标红，毫无关联）。
+          // 归位到 include 指令本身，并把目标文件名写进文案（否则看不出错在哪个文件）。
+          throwCode(
+            (e && e.code) || "E-INCLUDE-001",
+            "include " + onePath + ": " + ((e && e.message) || e),
+            dirPos
+          );
+        }
+        // 部分引用：仅保留指定顶层键（命名空间挂在 ns 下时同样只挑这些）
+        let filtered = v;
+        if (tg.keys && Array.isArray(tg.keys)) {
+          filtered = {};
+          for (const k of tg.keys) {
+            // 键名来自 include 行文本（用户可控），同样要挡危险键
+            if (DANGEROUS_KEYS.has(k)) continue;
+            if (k in v) filtered[k] = v[k];
+          }
+        }
+        results.push({ value: filtered, ns });
+      }
     }
     return results;
   }
@@ -1240,29 +1600,67 @@ export function parse(text, opts) {
       // include 处理：键为 include / import
       const key = (peek() && peek().v);
       if (key === "include" || key === "import") {
+        // 指令自身的**位置与行号**：位置用于报错归位（见 resolveIncludes），
+        // 行号用于「只在同一条源行内收集参数」。
+        const dirPos = peek().pos;
+        const dirLine = peek().line;
         i++;
         if (peek() && peek().t === ":") i++;
-        // 收集 include 参数：引号路径 / as / 命名空间词 / 逗号；遇到 `:`（下个键）
-        // 或 @ / } / ] 即停止。tokenize 已去换行，故用这些边界切分语句。
+        // 收集 include 参数：引号路径 / as / 命名空间词 / 逗号。
+        //
+        // ⚠️ **必须在同一条源行内收集**（`tk.line === dirLine`）。曾经只靠
+        // `:` / `@` / `}` / `]` 猜边界，而 tokenize 丢了换行 ⇒ `import "a.sml" as wa`
+        // 后面**每一行**的裸词都被吞进同一条指令，直到撞上下一个 `:`（下一次出现
+        // `${…}:` 的位置）。实测后果（examples/advanced.sml）：
+        //   · 中间的 8 条 include/import 全部失效；
+        //   · `regions` 这个键名被当成参数吞掉 ⇒ 顶层少一个键；
+        //   · 命名空间被拼成 `waimportcommon`（`as wa` + 下一行的 `import "common`）；
+        //   · 而且 **`ok = true`、零诊断** —— 静默给出错误的树。
+        // 行级收集与 Rust 的 `sml-include::parse_include_line`（逐行解析）同口径。
         const importMode = (key === "import");
         let line = "";
         let lastWasAs = false;
-        while (peek()) {
+        while (peek() && peek().line === dirLine) {
           const tk = peek();
-          if (tk.t === "str") { line += tk.v + " "; i++; lastWasAs = false; continue; }
+          // 路径带引号回填：`parseIncludeTargets` 的引号分支会按引号切分，
+          // 含空白 / `#` / 逗号的路径不会被误拆（此前丢引号会让它们被裸词正则截断）。
+          if (tk.t === "str") { line += '"' + tk.v + '" '; i++; lastWasAs = false; continue; }
           if (tk.t === "word" && tk.v === "as") { line += " as "; i++; lastWasAs = true; continue; }
           if (tk.t === "word" && tk.v === "in") { line += " in "; i++; lastWasAs = false; continue; }
           if (tk.t === ",") { line += ","; i++; lastWasAs = false; continue; }
           if (tk.t === "{") { line += "{"; i++; lastWasAs = false; continue; }
           if (tk.t === "}") { line += "} "; i++; lastWasAs = false; continue; }
-          if (tk.t === ":") break;                       // 下一行键开始
+          // `re:"…"` 受限正则目标：tokenize 把 `re` 与 `:` 拆成两个 token（`:` 是分隔符），
+          // 所以这里要**成组**吃掉三个 token —— 否则 `:` 会先命中下面的 break 分支，
+          // 这条指令变成空集合，而 `re` / `:` / 路径三个 token 会被当**数据**解析出垃圾键。
+          if (
+            tk.t === "word" && tk.v === "re" &&
+            toks[i + 1] && toks[i + 1].t === ":" &&
+            toks[i + 2] && (toks[i + 2].t === "str" || toks[i + 2].t === "word") &&
+            toks[i + 2].line === dirLine
+          ) {
+            const tk2 = toks[i + 2];
+            if (tk2.t === "str") {
+              // 用预扫记下的**原文模式**（Rust 同样是按原文取模式）；取不到才退回 token 值
+              // ——例如用户自己写了 `\\.`，那 token 值本身就是对的。
+              const rawPat = pre.patterns.has(tk2.pos) ? pre.patterns.get(tk2.pos) : tk2.v;
+              line += 're:"' + rawPat + '" ';
+            } else {
+              // 裸词形式 `re:pattern`（Rust 接受；`re:` 豁免「路径必须加引号」）
+              line += "re:" + tk2.v + " ";
+            }
+            i += 3;
+            lastWasAs = false;
+            continue;
+          }
+          if (tk.t === ":") break;                       // 同一行里的下一个键（块内 include）
           if (tk.t === "@" || tk.t === "}" || tk.t === "]") break;
           if (tk.t === "word" && lastWasAs) { line += tk.v; i++; lastWasAs = false; continue; }
           if (tk.t === "word" && importMode) { line += tk.v; i++; lastWasAs = false; continue; }
-          if (tk.t === "word" && !lastWasAs) break;       // 其它裸词（下一行的键）停下
+          if (tk.t === "word" && !lastWasAs) break;       // 其它裸词（键名）停下
           break;
         }
-        const resolved = resolveIncludes(line);
+        const resolved = resolveIncludes(line, dirPos, importMode);
         for (const r of resolved) {
           if (r.ns) {
             const target = ensureNsPath(node, r.ns);

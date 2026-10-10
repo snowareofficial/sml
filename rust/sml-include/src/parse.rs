@@ -55,7 +55,11 @@ pub struct IncludeTarget {
     /// 相对路径或裸名（无扩展名时按 `implicit-ns` 推导 `as`）。
     pub raw: String,
     /// 命名空间（点分路径 `a.b.c`）。`None` 表示普通内联。
-    /// 若 `raw` 无扩展名且开启 `implicit-ns`，则自动填充为文件名。
+    ///
+    /// 只有两种情况会自动填充：`import` 的**点分模块名**（`import ui.buttons`）与
+    /// `implicit-ns` 下的无扩展名 `include "foo"`。**带扩展名的路径一律内联** ——
+    /// 显式写了 `.sml` 就是「这是一个文件」，不该再当成命名空间路径（见
+    /// [`is_dotted_module_name`]）。
     pub namespace: Option<String>,
     /// 是否经 `import` 关键字（语义等同 `include`）。
     pub via_import: bool,
@@ -71,7 +75,7 @@ pub struct IncludeTarget {
 /// - `include "foo"`                  无扩展名 ⇒ 默认 `as foo`（implicit-ns）
 /// - `include "x.sml" as ui.form`     命名空间内联（点分路径）
 /// - `include "a", "b" as y, "c"`     多目标（multi-include）
-/// - `import ui.buttons, admin.panel`  import 别名
+/// - `import ui.buttons, admin.panel`  import 别名（点分模块名 ⇒ 自动 `as ui.buttons`）
 /// - `include "*.sml"`                glob 通配（需 `glob-include`）
 /// - `include re:"widget_.*\.sml"`    正则匹配（需 `regex-include`）
 ///
@@ -338,6 +342,25 @@ pub fn parse_key_list(s: &str) -> Result<(Vec<String>, &str), SmlError> {
     Ok((keys, &body[close + 1..]))
 }
 
+/// 判断一个 `import` 目标是不是**点分模块名**（`ui.buttons` / `admin.panel`）。
+///
+/// 判据：经 `import` 引入，且既无路径分隔符、又**不显式带 `.sml` 扩展名**。
+/// 与 [`resolve_target_paths`] 判「点当目录层级」的判据同源 —— 两处必须一致，
+/// 否则会出现「按字面路径读文件、却按点分模块名挂命名空间」这种自相矛盾的目标。
+///
+/// 为什么单独抽出来（2026-09-19）：原判据写的是 `via_import || …`，于是
+/// `import "common.sml"`（带扩展名、无 `as`）也被自动挂成命名空间 `common.sml`
+/// ⇒ 展开成 `common { sml { … } }`。这与三处公开约定冲突：
+///   ① 本文件 [`parse_include_line`] 的形态表（`include "x.sml"` = 普通内联）；
+///   ② [`IncludeTarget::namespace`] 的文档（「**若 raw 无扩展名**才自动填充」）；
+///   ③ 教科书 §4.2「带扩展名 = 内联；不带扩展名 = 命名空间」与 §4.5「`import` 是
+///      `include` 的等价写法」。
+/// 实测后果（`examples/advanced.sml`）：同一份文档 Rust 与 JS 得到**不同的树**
+/// （Rust 多一个 `common { sml { … } }`），而 `import` 号称是 `include` 的别名。
+pub fn is_dotted_module_name(raw: &str, via_import: bool) -> bool {
+    via_import && !raw.contains(std::path::MAIN_SEPARATOR) && !raw.ends_with(".sml")
+}
+
 /// 根据原始路径与可选命名空间，套用 implicit-ns 规则，产出最终目标。
 pub fn finalize_target(
     raw: String,
@@ -353,9 +376,18 @@ pub fn finalize_target(
             // 不触发 implicit-ns 自动命名空间（否则挑出的键会被塞进文件名命名空间）。
             if keys.is_some() {
                 None
-            } else if via_import || (features.has(Feature::ImplicitNs) && !raw.contains('.')) {
-                // `import a.b.c`：点分一律视为命名空间路径，自动 `as a.b.c`
+            } else if is_dotted_module_name(&raw, via_import)
+                || (features.has(Feature::ImplicitNs)
+                    // ⚠️ 通配 / 正则目标的 `raw` **不是文件名**（`re:"conf"` 里没有点、
+                    // `*.sml` 也不是路径）⇒ 不能让 implicit-ns 给它们编命名空间：
+                    // 老判据会给 `include re:"conf"` 挂一个名叫 `re:"conf"` 的命名空间。
+                    && !raw.contains('.')
+                    && !raw.contains('*')
+                    && !raw.starts_with("re:"))
+            {
+                // `import a.b.c`：点分模块名（无扩展名、无路径分隔）⇒ 自动 `as a.b.c`
                 // `include "foo"`（无点）：implicit-ns 默认以文件名为命名空间
+                // ⚠️ `import "x.sml"` **不在此列**：带扩展名 = 普通内联（与 include 等价）
                 Some(raw.clone())
             } else {
                 None
@@ -391,10 +423,21 @@ pub fn resolve_target_paths(
             ));
         }
         let pat = pat.trim_matches('"');
-        // 模式可含目录前缀（如 re:"lib/widget_.*"）：拆出目录并入 base（归一化分隔符）
-        let pat = pat.replace('/', std::path::MAIN_SEPARATOR_STR);
-        let (dir, pat) = split_dir(&pat);
-        return glob_or_regex_dir(&base.join(dir), pat, Some(pat), features);
+        // 模式可含目录前缀（如 re:"lib/widget_.*"）：按 **SML 层的 `/`** 拆出目录，
+        // 只把**目录部分**归一到平台分隔符。
+        //
+        // ⚠️ 不能"先把整个模式里的 `/` 换成平台分隔符、再按平台分隔符 `split_dir`"（原写法）：
+        // Windows 的 `MAIN_SEPARATOR` 就是 `\`，而正则里 `\.`（转义点号）的 `\` 会被当成
+        // 目录分隔符 ⇒ `re:"widget_.*\.sml"` 被切成 dir=`widget_.*` / pat=`.sml`，
+        // 报「include 目录读取失败 …\widget_.*」。文档里的那个例子在 Windows 上因此
+        // 一直是坏的，Linux（sep=`/`）碰不到 —— 属平台相关缺陷。
+        let (dir, pat) = split_dir_slash(&pat);
+        return glob_or_regex_dir(
+            &base.join(dir.replace('/', std::path::MAIN_SEPARATOR_STR)),
+            pat,
+            Some(pat),
+            features,
+        );
     }
     // glob 模式：含 `*`
     if t.raw.contains('*') {
@@ -439,6 +482,18 @@ pub fn resolve_target_paths(
 /// 把 `a/b/pattern` 拆成 (`a/b`, `pattern`)，便于把目录部分并入 base。
 pub fn split_dir(pat: &str) -> (&str, &str) {
     match pat.rfind(std::path::MAIN_SEPARATOR) {
+        Some(idx) => (&pat[..idx], &pat[idx + 1..]),
+        None => ("", pat),
+    }
+}
+
+/// 按 **SML 层的路径分隔符 `/`** 切「目录 / 模式」。
+///
+/// 通配与正则目标必须用它，而不是 [`split_dir`]（后者按平台分隔符切）：
+/// SML 文档里的路径一律写 `/`，而 Windows 的 `MAIN_SEPARATOR` 是 `\` ——
+/// 正则里 `\.` 的 `\` 会被误当成目录分隔符（见 `resolve_target_paths` 的说明）。
+pub fn split_dir_slash(pat: &str) -> (&str, &str) {
+    match pat.rfind('/') {
         Some(idx) => (&pat[..idx], &pat[idx + 1..]),
         None => ("", pat),
     }

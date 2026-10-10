@@ -1,4 +1,8 @@
 use std::collections::BTreeMap;
+// `fmt` 只在 `sml` 特性下用到（`impl fmt::Display`）⇒ 关掉该特性时必须一起 cfg 掉，
+// 否则每个依赖 sml-value 且未开 `sml` 的 crate 都会背一条 `unused import` 警告
+// （实测：sml-include / sml-parse / swsml / smltools 全会各报一条 —— 噪音掩盖真警告）。
+#[cfg(feature = "sml")]
 use std::fmt;
 #[cfg(feature = "sml")]
 use crate::dump::to_sml;

@@ -1,8 +1,11 @@
 [package]
 name = "sml-include"
-# 0.1.0-alpha.2：**含不兼容改动** —— 指令解析与 include 展开的错误类型由
-# `String` 改为 `sml_codes::SmlError`（带错误码）。
-version = "0.1.0-alpha.2"
+# 0.1.0-alpha.3：**含不兼容改动（语义）** —— `import "x.sml"`（带扩展名、无 `as`）
+# 不再被自动挂成命名空间，与 `include "x.sml"` 等价（普通内联）。原判据
+# `via_import || …` 会让同一份文档在 Rust 与 JS 得到不同的树，且违反本 crate
+# 自己的文档与教科书 §4.2/§4.5。改了 `finalize_target` 的语义 ⇒ 按纪律 bump。
+# （0.1.0-alpha.2：错误类型由 `String` 改为 `sml_codes::SmlError`。）
+version = "0.1.0-alpha.3"
 edition = "2021"
 description = "SML 模块化：include/import 指令解析、glob 与正则匹配、跨文件展开。"
 license = "MulanPSL-2.0"

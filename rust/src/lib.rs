@@ -532,6 +532,36 @@ mod tests {
             parse_include_line("import ui.buttons", f),
             Ok(Some(vec![IncludeTarget { raw: "ui.buttons".into(), namespace: Some("ui.buttons".into()), via_import: true, keys: None }]))
         );
+        // `import "x.sml"`（带扩展名、无 as）与 `include "x.sml"` **等价** ⇒ 普通内联。
+        // 2026-09-19 修：原先 `via_import` 无条件自动挂命名空间 ⇒ 展成 `x { sml { … } }`，
+        // 与「import 是 include 的别名」「带扩展名 = 内联」两条公开约定都冲突，
+        // 且让 Rust 与 JS 对 examples/advanced.sml 得到不同的树。
+        assert_eq!(
+            parse_include_line("import \"a.sml\"", f),
+            Ok(Some(vec![IncludeTarget { raw: "a.sml".into(), namespace: None, via_import: true, keys: None }]))
+        );
+        // 正对照：`import "a"`（无扩展名、无点）仍走 implicit-ns
+        assert_eq!(
+            parse_include_line("import \"a\"", f),
+            Ok(Some(vec![IncludeTarget { raw: "a".into(), namespace: Some("a".into()), via_import: true, keys: None }]))
+        );
+        // 通配 / 正则目标**不参与** implicit-ns：`re:"conf"` 的 raw 里没有点、`*.sml`
+        // 也不是路径 —— 老判据会给它们编出名叫 `re:"conf"` / `*.sml` 的命名空间。
+        let fa = FeatureSet::all();
+        assert_eq!(
+            parse_include_line(r#"include re:"conf""#, fa),
+            Ok(Some(vec![IncludeTarget { raw: r#"re:"conf""#.into(), namespace: None, via_import: false, keys: None }]))
+        );
+        // 正则模式里的 `\.` 必须原样保留（按行取原文，不经字符串转义）——
+        // 这是「照文档写 `re:"widget_.*\.sml"` 就能用」的前提。
+        assert_eq!(
+            parse_include_line(r#"include re:"widget_.*\.sml""#, fa),
+            Ok(Some(vec![IncludeTarget { raw: r#"re:"widget_.*\.sml""#.into(), namespace: None, via_import: false, keys: None }]))
+        );
+        assert_eq!(
+            parse_include_line("include \"*.sml\"", fa),
+            Ok(Some(vec![IncludeTarget { raw: "*.sml".into(), namespace: None, via_import: false, keys: None }]))
+        );
         // 多目标（需 multi-include）
         let fm = FeatureSet::all();
         assert_eq!(
@@ -543,6 +573,25 @@ mod tests {
         );
         // 注释行不生效
         assert_eq!(parse_include_line("# include \"a.sml\"", f), Ok(None));
+    }
+
+    #[test]
+    fn regex_pattern_backslash_is_not_a_path_separator() {
+        // 通配 / 正则模式必须按 **SML 层的 `/`** 切「目录 / 模式」（`split_dir_slash`），
+        // 不能按平台分隔符（`split_dir`）：Windows 上 `MAIN_SEPARATOR` 就是 `\`，
+        // 而正则里 `\.`（转义点号）的 `\` 会被当成目录分隔符 ⇒
+        // `re:"widget_.*\.sml"` 被切成 dir=`widget_.*` / pat=`.sml`，
+        // 报「include 目录读取失败 …\widget_.*」。文档里的例子在 Windows 上因此一直是坏的。
+        assert_eq!(
+            sml_include::parse::split_dir_slash(r"widget_.*\.sml"),
+            ("", r"widget_.*\.sml")
+        );
+        assert_eq!(
+            sml_include::parse::split_dir_slash(r"conf.d/widget_.*\.sml"),
+            ("conf.d", r"widget_.*\.sml")
+        );
+        // 正对照：带目录的通配模式仍能正确拆开
+        assert_eq!(sml_include::parse::split_dir_slash("conf.d/*.sml"), ("conf.d", "*.sml"));
     }
 
     #[test]
