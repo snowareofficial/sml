@@ -1,6 +1,6 @@
 {{ $lesson := .Get 0 | default "contract" }}
 {{ $isEn := in .Page.RelPermalink "/en/" }}
-{{ $data := index site.Data (cond $isEn "sml-lessons_en" "sml-lessons") }}
+{{ $data := index hugo.Data (cond $isEn "sml-lessons_en" "sml-lessons") }}{{/* hugo.Data：site.Data 自 Hugo 0.156 起弃用（要求 Hugo ≥ 0.156） */}}
 {{ $cfg := index $data $lesson | default (index $data "contract") }}
 {{ $hasTask := and $cfg.task (ne $cfg.task "") }}
 <div class="sml-pg" data-lesson="{{ $lesson }}"

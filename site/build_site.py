@@ -49,18 +49,29 @@ def gen_site_data():
     必须在 hugo 之前生成 —— 它们在 static/ 下，Hugo 构建时会把 static 复制进 public。
     失败时只告警不阻断（与 EPUB 一致）：页面会显示「加载失败」而不是整站构建挂掉，
     这样定位问题比「构建直接失败但不说哪里错」容易。
+
+    ⚠️ 但**提示要说准**：生成器失败时**不会**动已有产物（写文件是最后一步），
+    所以这时真正的后果是「沿用上一份、本次没更新」，不是「页面显示加载失败」——
+    后者只在产物**压根不存在**时成立。这两句话混着说会把人引向错误的排查方向。
     """
     tools = [
-        (os.path.join(os.path.dirname(SITE), "errors", "gen_json.py"), "错误码表"),
-        (os.path.join(SITE, "tools", "gen_search_index.py"), "搜索索引"),
+        (os.path.join(os.path.dirname(SITE), "errors", "gen_json.py"), "错误码表",
+         os.path.join(SITE, "static", "errors.json")),
+        (os.path.join(SITE, "tools", "gen_search_index.py"), "搜索索引",
+         os.path.join(SITE, "static", "search-index.json")),
     ]
-    for script, label in tools:
+    for script, label, out in tools:
         if not os.path.exists(script):
             print("!! %s 生成脚本缺失，跳过：%s" % (label, script))
             continue
         r = subprocess.call([sys.executable, script])
         if r != 0:
-            print("!! %s 生成失败（退出码 %d），页面将显示加载失败" % (label, r))
+            if os.path.exists(out):
+                print("!! %s 生成失败（退出码 %d）—— **沿用上一份 %s，本次未更新**"
+                      % (label, r, os.path.relpath(out, SITE)))
+            else:
+                print("!! %s 生成失败（退出码 %d）且产物不存在 —— 页面将显示加载失败"
+                      % (label, r))
 
 
 def main():

@@ -1,6 +1,6 @@
 {{ $ch := .Get 0 | default "caddyfile" }}
 {{ $isEn := in .Page.RelPermalink "/en/" }}
-{{ $data := index site.Data (cond $isEn "sml-challenges_en" "sml-challenges") }}
+{{ $data := index hugo.Data (cond $isEn "sml-challenges_en" "sml-challenges") }}{{/* hugo.Data：site.Data 自 Hugo 0.156 起弃用（要求 Hugo ≥ 0.156） */}}
 {{ $cfg := index $data $ch | default (index $data "caddyfile") }}
 <div class="sml-ch" data-ch="{{ $ch }}"
      data-t-parse-fail="{{ i18n "ch_parse_fail" }}"

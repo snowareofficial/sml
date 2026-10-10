@@ -3,7 +3,7 @@
       Hugo 的语言后缀机制 *.en.json 的 key 冲突导致取到中文版） */}}
 {{/* shortcode 里的 . 是 shortcode 对象，需经 .Page 才能取页面属性 */}}
 {{ $isEn := in .Page.RelPermalink "/en/" }}
-{{ $data := index site.Data (cond $isEn "sml-quizzes_en" "sml-quizzes") }}
+{{ $data := index hugo.Data (cond $isEn "sml-quizzes_en" "sml-quizzes") }}{{/* hugo.Data：site.Data 自 Hugo 0.156 起弃用（要求 Hugo ≥ 0.156） */}}
 {{ $cfg := index $data $quiz | default (index $data "intro") }}
 <div class="sml-qz" data-quiz="{{ $quiz }}"
      data-t-correct="{{ i18n "quiz_correct" }}"

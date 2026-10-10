@@ -11,21 +11,11 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CANDIDATES = [
-    os.environ.get("SMLCONV", ""),
-    r"<target-dir>/debug/smltools.exe",   # CARGO_TARGET_DIR 指向 E 盘时
-    r"<target-dir>/release/smltools.exe",
-    r"<target-dir>/debug/smltools.exe",
-    os.path.join(HERE, "..", "..", "rust", "target", "debug", "smltools.exe"),
-    os.path.join(HERE, "..", "..", "rust", "target", "release", "smltools.exe"),
-]
-
-
-def find_smltools() -> str:
-    for p in CANDIDATES:
-        if p and os.path.isfile(p):
-            return os.path.normpath(p)
-    raise SystemExit("找不到 smltools，请先构建：cd rust && cargo build -p smltools")
+ROOT = os.path.dirname(os.path.dirname(HERE))
+# smltools 的定位统一走 tools/smltools_bin.py（**不写死本机盘符**：这里原先把
+# <target-dir>、<target-dir> 这类本机路径写进了候选表，换机器就失效）
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+from smltools_bin import find_smltools  # noqa: E402
 
 
 def main() -> int:
@@ -33,8 +23,12 @@ def main() -> int:
     src_path = os.path.join(HERE, src)
     out_path = os.path.splitext(src_path)[0] + ".svg"
 
+    binary = find_smltools()
+    if not binary:
+        raise SystemExit("找不到 smltools，请先构建：cd rust && cargo build -p smltools")
+
     proc = subprocess.run(
-        [find_smltools(), "-i", src_path, "--to", "svg", "-o", out_path],
+        [binary, "-i", src_path, "--to", "svg", "-o", out_path],
         capture_output=True,
         text=True,
         errors="replace",

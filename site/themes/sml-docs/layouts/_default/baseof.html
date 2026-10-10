@@ -240,10 +240,9 @@
        所以中英站各自渲染自己那份（i18n 不需要运行时字典）；
        「按版本号只弹一次」的行为在 site-tools.js 里（localStorage）。
        ⚠️ 加新版本时只改 data 文件里的 version/title/items —— 版本号变了它就会再弹一次。
-       ⚠️ `.Site.Data` 自 Hugo 0.156 起被弃用（建议改 `hugo.Data`）。这里沿用旧写法是为了
-          同时兼容更老的 Hugo —— 与同一文件里 `.Site.Languages` 的取舍一致；
-          将来确定最低 Hugo 版本后，这两处一起换。 */}}
-  {{ $wn := cond $isEn .Site.Data.whatsnew_en .Site.Data.whatsnew }}
+       ⚠️ 用 `hugo.Data`（要求 Hugo ≥ 0.156）：`.Site.Data` 自 0.156 起被弃用、将来会移除。
+          本机构建用的是 0.164，故直接走新写法，不留弃用警告。 */}}
+  {{ $wn := cond $isEn hugo.Data.whatsnew_en hugo.Data.whatsnew }}
   {{ with $wn }}
   {{ if .version }}
   <div class="modal-backdrop" id="whatsnew" data-version="{{ .version }}" hidden>

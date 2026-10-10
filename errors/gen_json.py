@@ -25,30 +25,11 @@ OUT = os.path.join(ROOT, "site", "static", "errors.json")
 ID_RE = re.compile(r"^(E|W|I)-([A-Z]+)-(\d{3})$")
 SEVERITY_OF = {"E": "error", "W": "warning", "I": "info"}
 
-
-def find_smltools():
-    """按「显式指定 > 环境变量 > 常见产物路径」的顺序找二进制。"""
-    cands = []
-    env = os.environ.get("SMLTOOLS_BIN")
-    if env:
-        cands.append(env)
-    for d in (os.environ.get("CARGO_TARGET_DIR"), "<target-dir>", "<target-dir>"):
-        if d:
-            cands.append(os.path.join(d, "release", "smltools.exe"))
-            cands.append(os.path.join(d, "debug", "smltools.exe"))
-    cands += [
-        os.path.join(ROOT, "rust", "target", "release", "smltools.exe"),
-        os.path.join(ROOT, "rust", "target", "debug", "smltools.exe"),
-        "smltools",
-    ]
-    for c in cands:
-        if os.path.sep not in c or os.path.exists(c):
-            try:
-                subprocess.run([c, "--help"], capture_output=True, timeout=30)
-                return c
-            except (OSError, subprocess.SubprocessError):
-                continue
-    return None
+# smltools 的定位统一走 tools/smltools_bin.py —— 那里**不写死本机盘符**
+# （此前这里写死 <target-dir>、<target-dir>：换机器或清一次缓存就找不到，
+#  而站点构建只是打印一行 `!!` 继续跑，结果是官网错误码表静默变成「加载失败」）。
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+from smltools_bin import find_smltools  # noqa: E402
 
 
 def load_registry(binary):
