@@ -14,11 +14,37 @@
 | **悬浮（块名）** | 光标停在块名上（`primary {`，或**块级类型标注** `Server primary {`）：显示**路径**（`database.primary`）、它应用的契约、以及**契约填充后的实际结构**；没有契约的块也给结构。⚠️ 块级类型标注写法需 `@feature enable typed-block`，目前 **Rust + JS 已实现，C / C++ / Lua 未实现**（后者会把该写法当普通裸块 ⇒ 契约静默不生效）—— 跨实现共享的文件请写 `@is 契约名` |
 | **悬浮（字段）** | 停在契约声明里的字段名上（`port: int default 5432 min 1 max 65535`），**或**停在数据区里属于某契约的键上 → 给类型 / 枚举 / 默认值 / 区间 / 必填可选 + **行尾 `#` 说明** + 当前值（并指出这个值是显式写的还是契约填的默认值） |
 | **跳转到定义** | `@is Server` → `@contract Server`；`&base` → `@base { }`；`契约名 块名 {` → `@contract 契约名`；**数据区的键 → 契约里的字段声明**（F12 / Ctrl+点击） |
-| **include / import 导航** | 光标停在 `include "conf.d/db.sml"` / `import "a.sml"` 的**路径**上：**F12 跳到被包含文件**；**悬停**显示解析到的路径（✓ 找到 / ✗ 未找到）+ 该文件的**顶层键**；在路径位置**补全**会列出工作区里的 `.sml`（按**相对当前文档**的写法插入）。相对路径按 `include` 的语义（相对被包含文件所在目录）解析 —— 与解析器同一条规则 |
-| **特殊颜色** | 选中一个词 → 右键「应用特殊颜色」：选颜色后写进工作区的 **`HL-cfg.sml`**（随仓库走、可直接手写编辑）。默认**只对语法单元生效**（契约 / 片段 / 类型 / 键 / 指令）—— 这样不会把注释、字符串里的同名文字一起染掉；要整篇同词都染，可选「按普通词着色」（`unit: text`） |
+| **include / import 导航** | 光标停在 `include "conf.d/db.sml"` / `import "a.sml"` 的**路径**上：**F12 跳到被包含文件**；**悬停**显示解析到的路径（✓ 找到 / ✗ 未找到）+ 该文件的**顶层键**；在路径位置**补全**会列出工作区里的 `.sml`（按**相对当前文档**的写法插入）。相对路径按 `include` 的语义（相对被包含文件所在目录）解析 —— 与解析器同一条规则。**命名空间**（`as db`）：停在**别名**上，悬停给「该命名空间里**实际有哪些键**」（真跑一遍解析，不是抄一遍被包含文件的顶层键），F12 跳到被包含文件；停在 `db.host` 这类**引用**上，悬停告诉你它来自哪个文件的**什么定义**（片段 / 契约 / 键），F12 直接跳过去 |
+| **特殊颜色** | 选中一个词 → 右键「应用特殊颜色」：选颜色后写进工作区的 **`HL-cfg.sml`**（随仓库走、可直接手写编辑）。默认**只对语法单元生效**（契约 / 片段 / 类型 / 键 / 指令）—— 这样不会把注释、字符串里的同名文字一起染掉；要整篇同词都染，可选「按普通词着色」（`unit: text`）。**也认命名空间前缀**：`@is ui.base.Service`、`ui.base.net.region:`、`&ui.base.base` 这些**引用处**照样着色（此前只在被包含文件里的定义处有颜色） |
 | **特别高亮** | 选中一个词 → 右键「特别高亮选中词（当前工作区）」：把该词在**整个工作区**里点亮（状态栏显示 N 处 / M 文件；点状态栏或对同一个词再触发一次即清除） |
 | **自检** | 悬浮 / 跳转 / 高亮「没反应」时，右键「SML: 自检」：把扩展版本、**包内解析器指纹**、命令注册、语言模式、文档校验结果、光标下的词能不能跳转 —— 逐条写进「输出 → SML」 |
 | **格式化** | 按 SML 规范重排（解析 → 序列化），解析失败时不改动文件 |
+
+## 颜色标记能干什么（写 DSL / 做分析时）
+
+「特殊颜色」不是"换个颜色好看"，它是**把语法角色变成可见的视觉约定**。`HL-cfg.sml` 的每组
+可以限定 `unit`，于是着色按**语法位置**判，而不是按字面匹配：
+
+```sml
+契约色 { words: [ Service Endpoint ]  color: "#4ec9b0"  unit: contract }
+片段色 { words: [ net timeout_policy ] color: "#c586c0"  unit: fragment }
+键名色 { words: [ host port ratio ]   color: "#9cdcfe"  unit: key }
+密级词 { words: [ 公开 内部 秘密 机密 绝密 ] color: "#ff9f43" bold: true }  # 不限 unit ⇒ 按普通词
+```
+
+为什么这比「关键词高亮」有用：TextMate 语法只能按**词法**分色 —— `Service` 在
+`@contract Service {` 和 `value: Service` 里长得一模一样；`unit` 是按**语法单元**判的，所以
+
+- 写 **DSL**（拿 SML 当自己的规则 / 配置语言）时，一眼分清**定义**（`@contract` / `@frag`）、
+  **引用**（`@is X` / `&x`）与**数据**（`键: 值`）：读一份别人的方言文件不必先跑一遍解析；
+- 做**分析 / 评审**时，把"要盯的词"配色就等于生成检查视图：给契约字段名上色 ⇒ 扫一眼就知道
+  哪块数据受哪份契约约束；给片段名上色 ⇒ 依赖从哪来一目了然；给密级 / 风险词上色 ⇒
+  与「特别高亮」交叉核对（一个静态、一个临时跟词走）；
+- **命名空间也认**：`@is ui.base.Service`、`ui.base.net.region:`、`&ui.base.base` 这些经
+  `as ns` 引入的**引用处**同样着色 —— 否则"分色"在文档一模块化之后就整片失效。
+
+`HL-cfg.sml` 就在工作区里、可以入库 ⇒ **视觉约定跟着仓库走**，同事与 CI 看到同一套颜色
+（扩展只负责把它读出来）。
 
 ## 安装（从源码）
 
@@ -165,11 +191,42 @@ Provides editing support for [SML](../README.md) (SNOWARE Markup Language).
 | **Go to definition** | `@is Server` → `@contract Server`; `&base` → `@base { }` (F12 / Ctrl+click / right-click "Go to Definition" — all three use the same provider) |
 | **Hover on block names** | put the cursor on a block name (`primary {` / `Server primary {`): shows the **path** (`database.primary`), the contract it applies, and the **structure after the contract filled in defaults**; blocks without a contract still show their structure |
 | **Go to definition** | `@is Server` → `@contract Server`; `&base` → `@base { }`; `Contract block {` → `@contract Contract` (F12 / Ctrl+click) |
-| **include / import navigation** | put the cursor on the **path** in `include "conf.d/db.sml"` / `import "a.sml"`: **F12 jumps to the included file**; **hover** shows the resolved path (✓ found / ✗ not found) plus that file's **top-level keys**; **completion** at a path position lists the workspace `.sml` files (inserted as paths **relative to the current document**). Relative paths resolve exactly the way `include` does (relative to the including file) |
-| **Special colors** | select a word → right-click "应用特殊颜色" (apply special color): pick a color and it is written into the workspace **`HL-cfg.sml`** (travels with the repo, hand-editable). By default it applies **only to syntax units** (contract / fragment / type / key / directive) so comments and strings with the same text are not recolored; choose "按普通词着色" (`unit: text`) to color every occurrence |
+| **include / import navigation** | put the cursor on the **path** in `include "conf.d/db.sml"` / `import "a.sml"`: **F12 jumps to the included file**; **hover** shows the resolved path (✓ found / ✗ not found) plus that file's **top-level keys**; **completion** at a path position lists the workspace `.sml` files (inserted as paths **relative to the current document**). Relative paths resolve exactly the way `include` does (relative to the including file). **Namespaces** (`as db`): hover the **alias** to see **which keys that namespace actually holds** (a real parse, not a copy of the included file's top-level keys) and F12 to jump to the included file; hover a **reference** such as `db.host` to learn which file it comes from and **what kind of definition** it is (fragment / contract / key) — F12 jumps straight there |
+| **Special colors** | select a word → right-click "应用特殊颜色" (apply special color): pick a color and it is written into the workspace **`HL-cfg.sml`** (travels with the repo, hand-editable). By default it applies **only to syntax units** (contract / fragment / type / key / directive) so comments and strings with the same text are not recolored; choose "按普通词着色" (`unit: text`) to color every occurrence. **Namespace prefixes are recognised too**: references like `@is ui.base.Service`, `ui.base.net.region:` and `&ui.base.base` are coloured as well (previously only definitions inside the included file were) |
 | **Spotlight highlight** | select a word → right-click "SML: 特别高亮选中词（当前工作区）": lights up **every occurrence in the workspace** (status bar shows N matches / M files; click it or re-run on the same word to clear) |
 | **Self-check** | hover / go-to-definition / highlight "not working"? right-click "SML: 自检": reports extension version, **bundled parser fingerprint**, registered commands, language mode, document validation and whether the word under the cursor is navigable — all into the "Output → SML" panel |
 | **Formatting** | reformat per SML spec (parse → serialize); no change if parse fails |
+
+## What the colour marking is for (writing DSLs / doing analysis)
+
+"Special colors" is not cosmetic — it turns **syntactic roles into a visible convention**.
+Groups in `HL-cfg.sml` can be scoped with `unit`, so colouring is decided by **syntactic position**
+rather than by literal text match:
+
+```sml
+contracts { words: [ Service Endpoint ]  color: "#4ec9b0"  unit: contract }
+fragments { words: [ net timeout_policy ] color: "#c586c0"  unit: fragment }
+keys      { words: [ host port ratio ]   color: "#9cdcfe"  unit: key }
+sensitive { words: [ public internal secret ] color: "#ff9f43" bold: true }  # no unit ⇒ plain word match
+```
+
+Why this beats keyword highlighting: a TextMate grammar can only colour by **lexical** shape —
+`Service` looks identical in `@contract Service {` and in `value: Service`. `unit` keys off the
+**syntactic slot**, so:
+
+- when you write a **DSL** (using SML as your own rules/config language) you can tell
+  **definitions** (`@contract` / `@frag`), **references** (`@is X` / `&x`) and **data**
+  (`key: value`) apart at a glance — no need to parse someone else's dialect file first;
+- for **analysis / review** it turns "the words you care about" into a review view: colour contract
+  field names to see which contract governs a block, colour fragment names to see where
+  dependencies come from, colour sensitive/risk terms and cross-check them with the spotlight
+  highlight (one is static, the other is temporary and follows the word you select);
+- **namespace prefixes count**: references introduced through `as ns`
+  (`@is ui.base.Service`, `ui.base.net.region:`, `&ui.base.base`) are coloured too — otherwise the
+  marking would silently stop working as soon as a document is split into modules.
+
+`HL-cfg.sml` lives in the workspace and can be committed, so the **visual convention travels with
+the repository** — colleagues and CI see the same colours (the extension only reads the file).
 
 ## Install (from source)
 

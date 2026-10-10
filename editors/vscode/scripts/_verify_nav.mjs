@@ -30,6 +30,12 @@ const MAIN_TEXT = [
   'include "conf.d/db.sml"',
   'import "a.sml"',
   'include "nope.sml"',
+  // 命名空间别名（`as db`）+ 一处 `ns.键` 引用：这两行的悬停与跳转见下面 ⑤–⑧。
+  'include "conf.d/db.sml" as db',
+  "use: db.host",
+  // 通配 / 正则目标：悬停要给出**命中数**（0 命中时解析器静默，这句话是唯一线索）→ ⑪⑫
+  'include "conf.d/*.sml"',
+  'include "conf.d/nope_*.sml"',
   "x: 1",
   "",
 ].join("\n");
@@ -122,7 +128,14 @@ const vscode = {
 const lines = MAIN_TEXT.split("\n");
 const doc = {
   uri: Uri.file(MAIN), fileName: MAIN, languageId: "sml", version: 1,
-  getText: () => MAIN_TEXT,
+  // ⚠️ `getText()` 必须支持**带 range** 的调用：`provideHover` 用
+  // `document.getText(range)` 取光标下的词。此前这个 mock 忽略 range 直接返回全文，
+  // 于是「悬停 `ns.键`」这类按词分流的逻辑在测试里永远拿不到词（真实 VSCode 里正常）——
+  // 这种 mock 与宿主的偏差会把「功能没生效」误判成「代码写错」。
+  getText: (r) =>
+    r
+      ? MAIN_TEXT.slice(doc.offsetAt(r.start), doc.offsetAt(r.end))
+      : MAIN_TEXT,
   lineAt: (pos) => ({ text: lines[pos.line] ?? "" }),
   offsetAt: (pos) => lines.slice(0, pos.line).reduce((n, l) => n + l.length + 1, 0) + pos.character,
   positionAt: (offset) => {
@@ -205,6 +218,85 @@ if (completion) {
   check(labels.includes("a.sml"), "④ 补全：列出 a.sml", JSON.stringify(labels.slice(0, 6)));
   check(labels.includes("conf.d/db.sml"), "④ 补全：列出 conf.d/db.sml（相对文档目录）", JSON.stringify(labels.slice(0, 6)));
   check(!labels.includes("main.sml"), "④ 补全：不列当前文档自身");
+}
+
+// —— ⑤ 悬停 `as db` 别名 ⇒ 说清「这个命名空间里有什么键」——
+// 此前别名上什么都不显示（路径分支的区间只覆盖引号里的路径），而「ns 里有什么」
+// 正是写完 `include … as ns` 之后最常问的问题。
+const aliasLine = lines.findIndex((l) => l.includes(" as db"));
+const aliasCol = lines[aliasLine].indexOf(" as ") + 4;
+if (hover) {
+  const h = await hover.provideHover(doc, new Position(aliasLine, aliasCol));
+  const md = h && String(h.contents && h.contents.value);
+  check(!!md && md.includes("命名空间"), "⑤ 悬停别名：说明这是命名空间", md && md.slice(0, 80));
+  check(!!md && md.includes("host"), "⑤ 悬停别名：列出该命名空间下的键（host）", md && md.slice(0, 140));
+}
+
+// —— ⑥ 悬停 `db.host` 引用 ⇒ 指出它来自哪个被包含文件的什么定义 ——
+const refLine = lines.findIndex((l) => l.includes("db.host"));
+const refCol = lines[refLine].indexOf("db.host") + 1;
+if (hover) {
+  const h = await hover.provideHover(doc, new Position(refLine, refCol));
+  const md = h && String(h.contents && h.contents.value);
+  check(!!md && md.includes("命名空间引用"), "⑥ 悬停 ns.键：标注为命名空间引用", md && md.slice(0, 80));
+  check(!!md && md.includes("db.sml"), "⑥ 悬停 ns.键：给出源文件", md && md.slice(0, 120));
+  check(!!md && md.includes("第 1 行"), "⑥ 悬停 ns.键：给出定义所在行（host 在 db.sml 第 1 行）", md && md.slice(0, 160));
+}
+
+// —— ⑦ 跳转 `db.host` ⇒ 落到被包含文件里的 `host` 定义 ——
+if (definition) {
+  const loc = await definition.provideDefinition(doc, new Position(refLine, refCol));
+  check(!!loc, "⑦ 跳转 ns.键：返回了 Location");
+  check(!!loc && norm(loc.uri.fsPath) === norm(DB), "⑦ 跳转 ns.键：落点是 conf.d/db.sml", loc && norm(loc.uri.fsPath));
+  check(!!loc && loc.range.start.line === 0, "⑦ 跳转 ns.键：落在 host 的定义行",
+    loc && JSON.stringify(loc.range.start));
+}
+
+// —— ⑧ 跳转 `as db` 别名 ⇒ 跳到被包含文件 ——
+if (definition) {
+  const loc = await definition.provideDefinition(doc, new Position(aliasLine, aliasCol));
+  check(!!loc && norm(loc.uri.fsPath) === norm(DB), "⑧ 跳转别名：落点是 conf.d/db.sml",
+    loc && norm(loc.uri.fsPath));
+}
+
+// —— ⑪⑫ 通配 / 正则目标的悬停：给出命中数；0 命中要明确告警 ——
+{
+  const globLine = lines.findIndex((l) => l.includes('conf.d/*.sml'));
+  const globCol = lines[globLine].indexOf("conf.d/") + 2;
+  const h = await hover.provideHover(doc, new Position(globLine, globCol));
+  const md = h && String(h.contents && h.contents.value);
+  check(!!md && md.includes("命中") && md.includes("db.sml"), "⑪ 通配悬停：给出命中数与被命中的文件", md && md.slice(0, 140));
+  const noneLine = lines.findIndex((l) => l.includes("nope_*.sml"));
+  const noneCol = lines[noneLine].indexOf("conf.d/") + 2;
+  const h2 = await hover.provideHover(doc, new Position(noneLine, noneCol));
+  const md2 = h2 && String(h2.contents && h2.contents.value);
+  check(!!md2 && md2.includes("一个都没命中"), "⑫ 通配 0 命中：明确告警（解析器会静默展开为空）", md2 && md2.slice(0, 140));
+}
+
+// —— ⑨ 单元着色（HL-cfg 的 unit）要认命名空间前缀 ——
+{
+  const mod = await import(pathToFileURL(path.join(ROOT, "src", "sml-parse.mjs")).href);
+  const text = ['include "x.sml" as ui', "@is ui.base.Service", "ui.base.net.region: 1", "&ui.base.base"].join("\n");
+  const c = mod.findUnitOccurrences(text, "Service", "contract");
+  check(c.length === 1, "⑨ unit=contract 认 `@is ui.base.Service`（带前缀的引用也着色）", JSON.stringify(c));
+  const k = mod.findUnitOccurrences(text, "region", "key");
+  check(k.length === 1, "⑨ unit=key 认 `ui.base.net.region:`", JSON.stringify(k));
+  const f = mod.findUnitOccurrences(text, "base", "fragment");
+  check(f.length === 1, "⑨ unit=fragment 认 `&ui.base.base`", JSON.stringify(f));
+  // 负对照：不带前缀的老写法必须照旧命中，别把行首锚定改坏
+  const c2 = mod.findUnitOccurrences("@is Service\n", "Service", "contract");
+  check(c2.length === 1, "⑨ 负对照：`@is Service` 仍命中", JSON.stringify(c2));
+
+  // —— ⑩ 命名空间悬停的两条路径：能解析 ⇒ 真实键；解析失败 ⇒ 标明是近似 ——
+  const okText = 'include "n.sml" as n\n';
+  const md1 = mod.namespaceHoverMarkdown(okText, "n", { "n.sml": "alpha: 1\nbeta: 2\n" });
+  check(md1.includes("alpha") && md1.includes("beta"),
+    "⑩ 文档能解析：列出**真实**的命名空间键", md1.slice(0, 120));
+  check(!md1.includes("近似"), "⑩ 文档能解析：不该出现「近似」字样", md1.slice(0, 120));
+  const md2 = mod.namespaceHoverMarkdown(
+    'include "missing.sml" as n\n', "n", {}, ["host", "port"]);
+  check(md2.includes("取不到") && md2.includes("近似") && md2.includes("host"),
+    "⑩ 解析失败：标明是近似键而不是只说「取不到」", md2.slice(0, 160));
 }
 
 rmSync(DIR, { recursive: true, force: true });

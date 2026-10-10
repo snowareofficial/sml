@@ -14,9 +14,9 @@
 // `js/sml.mjs` 复制而来），**不是** `../../../js/sml.mjs`：
 // VSIX 只包含扩展目录内的文件，跨目录 import 的模块不会被打进包，
 // 装到别的机器上会找不到模块。打包前请运行 sync-parser.py。
-import { parseSafe, parse, stringify, offsetToPosition } from "./vendor/sml.mjs";
+import { parseSafe, parse, stringify, offsetToPosition, expandIncludePaths } from "./vendor/sml.mjs";
 
-export { parseSafe, parse, stringify, offsetToPosition };
+export { parseSafe, parse, stringify, offsetToPosition, expandIncludePaths };
 
 /// 从**一行**里取出 `include` / `import` 的目标路径，以及它在**行内的列区间**（0 起）。
 ///
@@ -59,6 +59,17 @@ export function parseIncludeTargets(line) {
 
   const out = [];
   for (const [seg, off] of parts) {
+    // `as ns`（命名空间别名）与它的**列区间**：`include "x.sml" as ui.form`、
+    // `import { k } as w in "y.sml"`。悬停 / 跳转都要按「光标落在路径上还是别名上」分流，
+    // 所以别名也要有自己的区间（此前只报路径，停在 `as ui.base` 上什么都不会出）。
+    //
+    // ⚠️ 先在**抹掉引号内容**的副本上找 `as`：路径里含 " as " 时（`include "docs/as is.sml"`）
+    // 不能把路径内部当成别名。掩码用等长空格，`asM.index` 才能直接当列用。
+    const mask = seg.replace(/"[^"]*"/g, (m) => '"' + " ".repeat(Math.max(0, m.length - 2)) + '"');
+    const asM = /\bas\s+([A-Za-z0-9_.\-]+)/.exec(mask);
+    const ns = asM ? asM[1] : null;
+    const nsCol = asM ? baseCol + off + asM.index + (asM[0].length - asM[1].length) : -1;
+    const nsEnd = asM ? nsCol + asM[1].length : -1;
     const q = /"([^"]*)"/.exec(seg);
     const before = q ? seg.slice(0, q.index) : seg;
     const isRe = /re:\s*$/.test(before);
@@ -71,6 +82,9 @@ export function parseIncludeTargets(line) {
         end: col + q[1].length,
         viaImport,
         regex: isRe,
+        ns,
+        nsCol,
+        nsEnd,
       });
       continue;
     }
@@ -84,9 +98,109 @@ export function parseIncludeTargets(line) {
       end: col + w[1].length,
       viaImport,
       regex: /^re:/.test(w[1]),
+      ns,
+      nsCol,
+      nsEnd,
     });
   }
   return out;
+}
+
+/// 找出 `ns.rest` 这类**命名空间引用**里的 `ns`（取最长匹配）。
+///
+/// 判据只有一条硬要求：`ns` 必须是**本文档里 `as ns` 声明过的**命名空间 ——
+/// 不做「猜前缀」，否则 `a.b` 这种普通点分键会被误当成跨文件引用。
+///
+/// 返回 `{ ns, rest }`；不是命名空间引用时返回 `null`。
+/// `rest` 可能还有多级（`ui.base.net.region` ⇒ rest = `net.region`），调用方自己决定定位到哪一级。
+export function splitNamespacedRef(text, word) {
+  if (!word || !String(word).includes(".")) return null;
+  const names = new Set();
+  for (const line of String(text).split("\n")) {
+    for (const t of parseIncludeTargets(line)) if (t.ns) names.add(t.ns);
+  }
+  if (names.size === 0) return null;
+  let best = null;
+  for (const ns of names) {
+    if (!String(word).startsWith(ns + ".")) continue;
+    if (!best || ns.length > best.length) best = ns; // 最长前缀优先
+  }
+  if (!best) return null;
+  return { ns: best, rest: String(word).slice(best.length + 1) };
+}
+
+/// 在一份文档里找 `name` 的**定义位置**（片段 / 契约 / 键块 / 键）。
+///
+/// 用途：光标停在 `ui.base.net` 上时，要知道 `net` 在**被包含的那个文件里**定义在哪。
+/// 顺序刻意是「片段 → 契约 → 键块 → 键」：同名时片段/契约更可能是用户想看的那个
+/// （它们是「有语义的定义」，键只是数据）。
+///
+/// 返回 `{ line, col, length, kind }`（行列从 0 起）或 `null`。
+export function definitionInText(text, name) {
+  if (!name) return null;
+  const esc = String(name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const B = "(?![\\p{L}\\p{N}_.\\-])";
+  const u = (p) => new RegExp(p, "u");
+  const pats = [
+    ["fragment", u("^\\s*@" + esc + B)],
+    ["contract", u("^\\s*@contract\\s+" + esc + B)],
+    ["block", u("^\\s*" + esc + B + "\\s*\\{")],
+    ["key", u("^\\s*" + esc + B + "\\s*:")],
+  ];
+  const lines = String(text).split("\n");
+  for (const [kind, re] of pats) {
+    for (let i = 0; i < lines.length; i++) {
+      if (!re.test(lines[i])) continue;
+      const col = lines[i].indexOf(name);
+      return { line: i, col: col < 0 ? 0 : col, length: name.length, kind };
+    }
+  }
+  return null;
+}
+
+/// 命名空间别名的悬浮内容：这个 `ns` 下面**实际有哪些键**。
+///
+/// 为什么要真解析一遍：`as ns` 的价值就是「里面的键都收在 ns 下」，而用户最想知道的
+/// 是「到底有几个、叫什么」。抄一遍被包含文件的顶层键是不准的（子文件自己的 include、
+/// 部分引用 `{ k }`、以及 ns 里可能本来就有的本地键都会影响结果）。
+export function namespaceHoverMarkdown(text, nsPath, files, fallbackKeys) {
+  const out = ["**命名空间 `" + nsPath + "`**　（由 `as` 引入）", ""];
+  let r = null;
+  try {
+    r = parseSafe(text, files ? { files } : undefined);
+  } catch {
+    r = null;
+  }
+  let cur = r && r.ok ? r.value : undefined;
+  for (const p of String(nsPath).split(".").filter(Boolean)) {
+    if (cur && typeof cur === "object" && !Array.isArray(cur)) cur = cur[p];
+    else { cur = undefined; break; }
+  }
+  if (cur !== undefined && cur !== null && typeof cur === "object" && !Array.isArray(cur)) {
+    const keys = Object.keys(cur);
+    out.push(
+      keys.length
+        ? "**该命名空间下的键**（" + keys.length + "）：" + keys.slice(0, 15).join("、") +
+          (keys.length > 15 ? " …" : "")
+        : "_该命名空间下没有数据键_（被包含的文件只定义了契约 / 片段）"
+    );
+  } else if (cur !== undefined && cur !== null) {
+    out.push("该路径的值不是对象：" + JSON.stringify(cur).slice(0, 120));
+  } else {
+    // 解析出不来值（文档本身有错，如某个 include 目标缺失）时**不许只说「取不到」**：
+    // 退回「被包含文件里出现的键」这个近似值，并标明它是近似 —— 写文档时这仍然有用。
+    out.push("_取不到该命名空间的值_：文档当前没通过校验（或这个 `as` 没生效）—— 先修好上面的错误。");
+    if (fallbackKeys && fallbackKeys.length) {
+      out.push(
+        "",
+        "**被包含文件的键**（解析失败时的近似，按行首 `键:` 扫得）：" +
+          fallbackKeys.slice(0, 15).join("、") +
+          (fallbackKeys.length > 15 ? " …" : "")
+      );
+    }
+  }
+  out.push("", "F12 可跳到被包含文件的**定义**；`" + nsPath + ".某键` 上也可 F12。");
+  return out.join("\n");
 }
 
 /// 解析文本，产出编辑器可用的诊断列表。
@@ -264,21 +378,27 @@ export function findUnitOccurrences(text, name, unit = "text", max = 20000) {
   if (!unit || unit === "text") return findOccurrences(text, name, { wholeWord: true, max });
   const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const B = "(?![\\p{L}\\p{N}_.\\-])";
+  // 可选的**命名空间前缀**（`ui.base.`）—— 上面的单元正则一律行首锚定，
+  // 因此 `@is ui.base.Service`、`ui.base.net.region:` 这类引用一个都匹配不上：
+  // 用户给 `Service` 配的特殊颜色，在**通过 `as ns` 引用它的地方**就整片不生效
+  // （只有被包含文件里的定义处有颜色）。前缀写成非捕获组，光标的着色区间仍由
+  // 「与 name 等长的那一组」决定，不受影响。
+  const NSP = "(?:[\\p{L}\\p{N}_\\-]+\\.)*";
   const pats = {
     contract: [
-      "^\\s*@contract\\s+(" + esc + ")" + B,     // 定义处
-      "^\\s*@is\\s+(" + esc + ")" + B,           // 用法
-      "^\\s*(" + esc + ")\\s+[^\\s{}]+\\s*\\{",  // 块级类型标注 `<契约名> 块名 {`
+      "^\\s*@contract\\s+" + NSP + "(" + esc + ")" + B,     // 定义处（带前缀=引用别名）
+      "^\\s*@is\\s+" + NSP + "(" + esc + ")" + B,           // 用法
+      "^\\s*" + NSP + "(" + esc + ")\\s+[^\\s{}]+\\s*\\{",  // 块级类型标注 `<契约名> 块名 {`
     ],
     fragment: [
-      "^\\s*@(" + esc + ")\\s*\\{",              // 定义处 `@base {`
-      "&(" + esc + ")" + B,                      // 引用 `&base`
+      "^\\s*@(" + esc + ")\\s*\\{",                         // 定义处 `@base {`（定义处不带前缀）
+      "&" + NSP + "(" + esc + ")" + B,                      // 引用 `&base` / `&ui.base.base`
     ],
     type: [
-      "^\\s*@type\\s+name:\\s*(" + esc + ")" + B,  // 定义处
-      "^\\s*[^\\s:{}]+\\s*:\\s*(" + esc + ")" + B, // 契约字段的类型位
+      "^\\s*@type\\s+name:\\s*(" + esc + ")" + B,           // 定义处
+      "^\\s*[^\\s:{}]+\\s*:\\s*" + NSP + "(" + esc + ")" + B, // 契约字段的类型位
     ],
-    key: ["^(\\s*)(" + esc + ")\\s*:"],          // 数据区键名
+    key: ["^(\\s*)" + NSP + "(" + esc + ")\\s*:"],          // 数据区键名（`ui.base.net.region:` 也能命中）
     directive: ["^\\s*@(" + esc + ")" + B],
   }[unit];
   if (!pats) return findOccurrences(text, name, { wholeWord: true, max });

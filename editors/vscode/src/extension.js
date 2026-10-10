@@ -74,7 +74,7 @@ const explained = new Set();
 // 本仓库当前 `src/vendor/sml.mjs` 的指纹（每次重打 VSIX 后同步这里；
 // 与 sync-parser.py 打印的值同源）。自检会拿它对**已安装的包**做一次核对 ——
 // 「包是不是新的」这件事以前只靠人肉解包比对（见 HANDOFF §22.2 第 1 条）。
-const EXPECT_VENDOR = { size: 73683, shaPrefix: "0ea28eec0253a864" };
+const EXPECT_VENDOR = { size: 96110, shaPrefix: "c7a5054ddbd2f499" };
 
 // ---------------------------------------------------------------------------
 // 补全候选
@@ -323,13 +323,64 @@ async function resolveIncludeTargets(doc, line) {
   return targets;
 }
 
+/// 定义种类的中文说法（悬停里用）。
+const KIND_ZH = { fragment: "片段定义", contract: "契约定义", block: "块", key: "键" };
+
+/// 文件表缓存：键为文档 Uri，值为 `{ version, map }`。
+///
+/// 为什么需要：`buildFilesMap` 要 `findFiles` + 逐个 `readFile` 整个工作区的 `.sml`。
+/// 诊断在每次改动后都要用（已有），悬停/跳转现在也要用 —— 而悬停是**高频**的
+/// （鼠标每停一下都会问一次），不缓存就等于每次悬停把全仓读一遍。
+/// 以**文档版本号**为键：内容一变（version++）自动重算，不会读到旧表。
+const filesCache = new Map();
+async function filesMapFor(doc) {
+  const key = doc.uri.toString();
+  const hit = filesCache.get(key);
+  if (hit && hit.version === doc.version) return hit.map;
+  const map = await buildFilesMap(doc);
+  if (filesCache.size > 20) filesCache.clear(); // 有界，别把长会话堆成内存泄漏
+  filesCache.set(key, { version: doc.version, map });
+  return map;
+}
+
+/// 找出**声明了命名空间 `ns`** 的 include 行，并把它解析成目标文件 Uri。
+///
+/// 用于 `ns.键` 形式的引用：要跳到定义，先得知道 `ns` 是哪个 `as` 声明的、
+/// 那个 `as` 指向哪个文件。判据是「本文档里真的写了 `as ns`」——不做猜测。
+async function namespaceTarget(document, ns) {
+  const { parseIncludeTargets } = await ensureSml();
+  if (!parseIncludeTargets || !ns) return null;
+  const lines = document.getText().split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const ts = parseIncludeTargets(lines[i]);
+    if (!ts.some((t) => t.ns === ns)) continue;
+    const tgs = await resolveIncludeTargets(document, lines[i]);
+    const hit = tgs.find((t) => t.ns === ns);
+    if (hit) return { ...hit, line: i };
+  }
+  return null;
+}
+
+/// 在目标文件里找 `name` 的定义位置（片段 / 契约 / 键块 / 键）。
+/// 读不到文件时返回 `null`（悬停/跳转都当作「没找到」，不弹错误）。
+async function definitionInFile(uri, name) {
+  try {
+    const mod = await ensureSml();
+    if (!mod || !mod.definitionInText || !uri || !name) return null;
+    const txt = Buffer.from(await vscode.workspace.fs.readFile(uri)).toString("utf8");
+    return mod.definitionInText(txt, name);
+  } catch {
+    return null;
+  }
+}
+
 async function updateDiagnostics(doc, collection) {
   if (doc.languageId !== "sml") {
     collection.delete(doc.uri);
     return;
   }
   const { diagnose } = await ensureSml();
-  const files = await buildFilesMap(doc); // ← 没有它，每个 include/import 行都会被标红
+  const files = await filesMapFor(doc); // ← 没有它，每个 include/import 行都会被标红
   const items = diagnose(doc.getText(), { files });
   const diags = items.map((it) => {
     const range = new vscode.Range(
@@ -687,7 +738,12 @@ function activate(context) {
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument((doc) => updateDiagnostics(doc, collection)),
     vscode.workspace.onDidChangeTextDocument((e) => schedule(e.document)),
-    vscode.workspace.onDidSaveTextDocument((doc) => updateDiagnostics(doc, collection)),
+    vscode.workspace.onDidSaveTextDocument((doc) => {
+      // 存盘的可能正是**被包含的那个文件**：文件表缓存必须整体失效 ——
+      // 它的键是「当前文档的 version」，别的文件存盘时当前文档并没变，会一直读到旧内容。
+      filesCache.clear();
+      return updateDiagnostics(doc, collection);
+    }),
     vscode.workspace.onDidCloseTextDocument((doc) => collection.delete(doc.uri))
   );
 
@@ -878,8 +934,30 @@ function activate(context) {
           const hit = tgs.find((t) => position.character >= t.col - 1 && position.character <= t.end + 1);
           if (hit) {
             let md;
-            if (hit.regex) {
-              md = "**正则 include**：`" + hit.path + "`\n\n受限正则匹配由 Rust 侧的 `regex-include` 支持（需 `@feature enable regex-include`）。";
+            if (hit.regex || String(hit.path).includes("*")) {
+              // 通配 / 正则目标不是一个真实文件 ⇒ 不能走下面的"找到/未找到"。这里改为给出
+              // **命中几个**：命中 0 个时解析器是**静默**的（与 Rust 同语义），所以这句话
+              // 是用户唯一的线索 —— 编辑器必须说清楚，别让它埋没。
+              const kind = hit.regex ? "正则" : "通配";
+              md = "**" + kind + " include**：`" + hit.path + "`";
+              const hits =
+                mod && mod.expandIncludePaths
+                  ? mod.expandIncludePaths(await filesMapFor(document), hit.path)
+                  : null;
+              if (hits) {
+                const names = hits.map((h) => String(h).split("/").pop());
+                md += hits.length
+                  ? "\n\n在**被包含文件所在目录**里命中 **" + hits.length + "** 个：" +
+                    names.slice(0, 10).join("、") + (names.length > 10 ? " …" : "")
+                  : "\n\n⚠️ **一个都没命中**：解析器会**静默**展开为空（与 Rust 一致）" +
+                    "—— 检查模式、以及「模式里的目录部分决定在哪个目录里找」（不递归子目录）。";
+              }
+              if (hit.regex) {
+                md += "\n\n受限正则（与 Rust 的 `sml-regex` 同一子集）：无分组 / 交替 / `{n,m}` / `\\d`；" +
+                  "那些写法里的字符按**字面**处理。模式长度 ≤ 256，需 `@feature enable regex-include`。";
+              } else {
+                md += "\n\n通配（`*`）需 `@feature enable glob-include`。";
+              }
             } else if (hit.uri) {
               md = "**被包含文件**：`" + String(hit.uri.fsPath || hit.uri.path) + "` ✓\n\nF12 / Ctrl+Click 可跳过去。";
               try {
@@ -895,6 +973,32 @@ function activate(context) {
               md = "**未找到目标**：`" + hit.path + "`\n\n相对路径按**被包含文件所在目录**解析；检查文件名与是否在工作区内。";
             }
             return new vscode.Hover(new vscode.MarkdownString(md));
+          }
+          // `as ns` 别名上：**这个命名空间里到底有什么**。
+          // 为什么单独做：别名是「一整个作用域的入口」，而此前停在 `as ui.base` 上
+          // 什么都不显示（路径分支的区间只覆盖引号里的路径）。
+          const alias = tgs.find(
+            (t) => t.ns && position.character >= t.nsCol - 1 && position.character <= t.nsEnd + 1
+          );
+          if (alias && mod && mod.namespaceHoverMarkdown) {
+            // 文档解析失败时（例如某个 include 目标缺失）退化为「被包含文件里出现的键」：
+            // 悬停里只说「取不到」对写文档毫无帮助，而目标文件是能读到的。
+            let fb = [];
+            if (alias.uri) {
+              try {
+                const t = Buffer.from(await vscode.workspace.fs.readFile(alias.uri)).toString("utf8");
+                fb = mod.collectKeys ? mod.collectKeys(t) : [];
+              } catch {
+                /* 读不到就没有近似值 */
+              }
+            }
+            const md = mod.namespaceHoverMarkdown(
+              document.getText(),
+              alias.ns,
+              await filesMapFor(document),
+              fb
+            );
+            if (md) return new vscode.Hover(new vscode.MarkdownString(md), range);
           }
         }
       }
@@ -950,6 +1054,28 @@ function activate(context) {
         if (mod.fieldHoverMarkdown) {
           const md = mod.fieldHoverMarkdown(text, word, position.line);
           if (md) return new vscode.Hover(new vscode.MarkdownString(md), range);
+        }
+      }
+
+      // `ns.键`（命名空间引用）：说清它是**哪个被包含文件**里的什么定义。
+      // 这是写完 `include … as ns` 后最常问的问题：「`ui.base.net` 到底是哪儿来的」。
+      //
+      // 位置刻意排在**本地定义之后**：本文件里若真有同名契约 / 片段，本地那条才是答案
+      // （与跳转的优先级一致），别被跨文件引用抢答。
+      if (mod && mod.splitNamespacedRef) {
+        const split = mod.splitNamespacedRef(document.getText(), word);
+        if (split) {
+          const t = await namespaceTarget(document, split.ns);
+          if (t && t.uri) {
+            const seg = split.rest.split(".")[0];
+            const def = await definitionInFile(t.uri, seg);
+            let md = "**命名空间引用**：`" + split.ns + "` ← `" + t.path + "`";
+            md += def
+              ? "\n\n`" + seg + "` 在该文件里是 **" + (KIND_ZH[def.kind] || def.kind) +
+                "（第 " + (def.line + 1) + " 行）**。F12 / Ctrl+Click 可跳过去。"
+              : "\n\n该文件里没找到 `" + seg + "` 的定义。";
+            return new vscode.Hover(new vscode.MarkdownString(md), range);
+          }
         }
       }
 
@@ -1032,6 +1158,33 @@ function activate(context) {
               );
               if (hit && hit.uri) {
                 return new vscode.Location(hit.uri, new vscode.Range(0, 0, 0, 0));
+              }
+              // `as ns` 别名上：同样跳到被包含文件（别名就是这个作用域的入口）
+              const alias = tgs.find(
+                (t) => t.ns && position.character >= t.nsCol - 1 && position.character <= t.nsEnd + 1
+              );
+              if (alias && alias.uri) {
+                return new vscode.Location(alias.uri, new vscode.Range(0, 0, 0, 0));
+              }
+            }
+          }
+          // `ns.键…`（命名空间引用）⇒ 跳到**被包含文件里**的那个定义。
+          // 只定位到第一段（`ui.base.net.region` 找 `net`）：后续段可能是子块 / 数组元素，
+          // 在目标文件里未必有对应的「定义」，硬猜会把光标丢到无关位置。
+          if (mod.splitNamespacedRef) {
+            const split = mod.splitNamespacedRef(text, name);
+            if (split) {
+              const t = await namespaceTarget(document, split.ns);
+              if (t && t.uri) {
+                const seg = split.rest.split(".")[0];
+                const def = await definitionInFile(t.uri, seg);
+                if (def) {
+                  const start = new vscode.Position(def.line, def.col);
+                  return new vscode.Location(
+                    t.uri,
+                    new vscode.Range(start, start.translate({ characterDelta: def.length }))
+                  );
+                }
               }
             }
           }
