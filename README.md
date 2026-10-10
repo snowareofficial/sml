@@ -317,7 +317,7 @@ println!("{}", to_sml(&v));
 ### serde 支持（可选 feature）
 
 ```toml
-sml-rs = { version = "0.2", features = ["serde"] }
+swsml = { version = "0.6", features = ["serde"] }
 ```
 
 `Value` 实现 `Serialize`/`Deserialize`，可与任意 serde 后端互操作：
@@ -340,6 +340,19 @@ import { parse, stringify } from "./js/sml.mjs";
 const v = parse("name: John");
 console.log(stringify(v));
 ```
+
+## 升级注意（0.6.2）
+
+> ⚠️ 本版含**一处公开 API 的破坏性变更**（emit 后端返回类型）：按本仓
+> 「0.x 阶段 MINOR 视为不兼容」的纪律本应走 MINOR，本次按 **PATCH** 发布是**有意的例外**，
+> 故在此显式标注。逐条细节见 [CHANGELOG](CHANGELOG.md) 的 `[0.6.2]` 段。
+
+- `emit` 后端返回 `Result<_, SmlError>`（原 `Result<_, String>`）：加一行
+  `.map_err(|e| e.to_string())` 即可过渡。
+- 错误文案**带码**（`… [E-CONTRACT-002]`）：判断种类请用 `e.code()`，别匹配文案。
+- C-ABI 的 `sml_error` 新增 `code_str[16]`：按新头文件重新编译。
+- 解析行为有变（BOM 跳过、`import "x.sml"` 不再挂命名空间、一批「静默通过」改为带码报错）——
+  逐字节 golden 需同步。
 
 ## 落地应用
 

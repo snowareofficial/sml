@@ -372,6 +372,21 @@ natural**: `Value::Int(27)` serialises as `27`, not the `{"Int":27}` a derive wo
 
 With the feature disabled the crate stays **dependency-free**.
 
+## Upgrading (0.6.2)
+
+> ⚠️ This release contains **one breaking public-API change** (emit backend return type).
+> Under this repo's rule — "a MINOR bump in 0.x means incompatible" — strict SemVer would
+> call for MINOR; shipping it as a **PATCH** is a deliberate exception, hence this note.
+> Details are in the `[0.6.2]` section of the [CHANGELOG](CHANGELOG.md).
+
+- `emit` backends return `Result<_, SmlError>` (was `Result<_, String>`); add
+  `.map_err(|e| e.to_string())` to migrate.
+- Error messages carry **codes** (`… [E-CONTRACT-002]`): match on `e.code()`, not on the text.
+- The C-ABI `sml_error` struct gained `code_str[16]`: recompile against the new header.
+- Parsing behaviour changed (a leading BOM is skipped, `import "x.sml"` no longer wraps the
+  file in a namespace, several silent passes are now coded errors) — byte-exact golden files
+  need updating.
+
 ## Used in the wild
 
 - **BamZap**: `HetuFile.sml`, a declarative deployment file

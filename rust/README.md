@@ -45,6 +45,24 @@ swsml = "0.6"
 # swsml = { version = "0.6", default-features = false }
 ```
 
+## 升级注意（0.6.2）
+
+> ⚠️ 本版含**一处公开 API 的破坏性变更**。按本仓「0.x 阶段 MINOR 视为不兼容」的纪律，
+> 严格语义化版本下它应走 MINOR；本次按 **PATCH** 发布是**有意的例外**，故在此显式标注。
+
+- **emit 后端返回类型**：`Result<_, String>` → `Result<_, SmlError>`
+  （`CustomOptions::from_generator` 的签名同步变化）。
+  下游若逐字依赖 `String` 错误，加一行即可：`.map_err(|e| e.to_string())`。
+- **错误文案现在带码**：`Display` 会在文案后缀 `[E-XXX-NNN]`（如 `… [E-CONTRACT-002]`）。
+  **判断错误种类请用 `e.code()`，不要匹配文案**；逐字比对错误文案的 golden 需同步。
+- **C-ABI**：`sml_error` 新增 `code_str[16]`（结构体布局变了）—— 按新头文件重新编译即可。
+- **解析行为变化**（会改变既有文档的结果，逐条见 CHANGELOG 的 `[0.6.2]` 段）：
+  - `import "x.sml"`（带扩展名、无 `as`）**不再**自动挂命名空间；
+  - 文件开头的 BOM 统一跳过（此前会被吃进第一个键名）；
+  - 一批「静默通过」改为**带码报错**（未闭合字符串 / 块注释、未知转义、顶层标量……），
+    其中多条此前会给出**错误的树**；
+  - `to_sml` 的排版与 C / C++ 的 dumper 对齐（逐字节 golden 需同步）。
+
 ## 快速开始
 
 ```rust
@@ -496,6 +514,27 @@ swsml = "0.6"
 # With serde interop:
 # swsml = { version = "0.6", features = ["serde"] }
 ```
+
+## Upgrading (0.6.2)
+
+> ⚠️ This release contains **one breaking public-API change**. Under this repo's rule
+> ("a MINOR bump in 0.x means incompatible"), strict SemVer would call for MINOR;
+> shipping it as a **PATCH** is a deliberate exception, hence this explicit note.
+
+- **emit backends** now return `Result<_, SmlError>` instead of `Result<_, String>`
+  (`CustomOptions::from_generator` changed accordingly). If you matched on `String`,
+  add `.map_err(|e| e.to_string())`.
+- **Error messages now carry codes**: `Display` appends `[E-XXX-NNN]`
+  (e.g. `… [E-CONTRACT-002]`). Match on `e.code()`, never on the text; byte-exact
+  golden files need updating.
+- **C-ABI**: `sml_error` gained `code_str[16]` (layout change) — recompile against the new header.
+- **Parsing behaviour changes** (they can change existing documents; see the `[0.6.2]`
+  section of the CHANGELOG):
+  - `import "x.sml"` (with an extension, without `as`) no longer wraps the file in a namespace;
+  - a leading BOM is now skipped everywhere (it used to be swallowed into the first key);
+  - several "silent passes" are now coded errors (unterminated strings / block comments,
+    unknown escapes, top-level scalars, ...); many of them used to return a **wrong tree**;
+  - `to_sml` output now matches the C / C++ dumpers byte for byte (golden files need updating).
 
 ## Quick start
 
