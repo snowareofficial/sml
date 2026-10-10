@@ -47,4 +47,18 @@ title: "下载"
 - **诊断位置修正**：include 目标缺失时，红线不再画到几十行外的注释上；被包含文件里的错误
   归位到那条 include 指令，并在文案里带上目标文件名。
 
+## 库与命令行工具（`swsml` 0.6.2 · `smltools` 0.2.1）
+
+- **Rust 库**：[`swsml` 0.6.2](https://crates.io/crates/swsml) —— `cargo add swsml`
+- **命令行工具**：[`smltools` 0.2.1](https://crates.io/crates/smltools) —— `cargo install smltools`
+  （`smltools` 是 `smlconv` 改名后的**首次发布**；旧的 `smlconv` 不再更新）
+- **其他语言**：C（C-ABI 头文件 `c/sml.h`）、JavaScript（零依赖 ESM，可直接 `import`）、
+  C++ 与 Lua 的实现随仓库源码提供
+
+> **0.6.2 的要点**：错误码体系全量落地（137 条码，五端实现 + 命令行工具都带码，
+> 本站可查：[错误码](/errors/)）；include / import 五端对齐；五端「静默通过」改为带码报错；
+> 安全修复（块注释里伪造的 include 不再读盘、C 的 `err=NULL` 越界写、深度守卫绕过）；
+> `smltools` 新增 `--from xml`（CMSIS-SVD 可直接读入）与 `--to html`。
+> 完整清单见 [CHANGELOG.md](https://gitee.com/snoware/sml/blob/main/CHANGELOG.md)。
+
 各语言参考实现（Rust `swsml` 等）随仓库源码提供，见 [首页](/)。

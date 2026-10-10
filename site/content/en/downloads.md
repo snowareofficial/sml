@@ -69,5 +69,21 @@ formatting to VSCode — plus a few things that only make sense for SML:
   attributed to the `include` line that pulled it in, with the target file named in the
   message.
 
+## Library and CLI (`swsml` 0.6.2 · `smltools` 0.2.1)
+
+- **Rust library**: [`swsml` 0.6.2](https://crates.io/crates/swsml) — `cargo add swsml`
+- **CLI**: [`smltools` 0.2.1](https://crates.io/crates/smltools) — `cargo install smltools`
+  (`smltools` is the **first release under its new name**; the old `smlconv` is no longer updated)
+- **Other languages**: C (C-ABI header `c/sml.h`), JavaScript (zero-dependency ESM, import it
+  directly), C++ and Lua all ship with the source repository
+
+> **Highlights of 0.6.2**: the full error-code system (137 codes, carried by all five
+> implementations and the CLI — look them up [here](/en/errors/)); include / import aligned
+> across implementations; silent passes turned into coded errors; security fixes (a forged
+> include inside a block comment no longer reads files, C out-of-bounds writes when
+> `err = NULL`, depth-guard bypass); `smltools` gained `--from xml` (CMSIS-SVD files can be
+> read directly) and `--to html`.
+> The full list is in [CHANGELOG.md](https://gitee.com/snoware/sml/blob/main/CHANGELOG.md).
+
 Reference implementations for each language (Rust `swsml`, etc.) ship with the
 source repository — see the [home page](/en/).
