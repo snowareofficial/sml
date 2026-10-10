@@ -36,13 +36,13 @@ Logo：黑花括号 `{}` 表示语法骨架（块的边界），蓝色雪花 `�
 
 ```toml
 [dependencies]
-swsml = "0.5"
+swsml = "0.6"
 
 # 需要 serde 互操作时：
-# swsml = { version = "0.5", features = ["serde"] }
+# swsml = { version = "0.6", features = ["serde"] }
 
 # 不需要 derive 宏时可关闭默认 feature，回到完全零依赖：
-# swsml = { version = "0.1", default-features = false }
+# swsml = { version = "0.6", default-features = false }
 ```
 
 ## 快速开始
@@ -491,10 +491,10 @@ data/configuration format, an alternative to JSON and YAML.
 
 ```toml
 [dependencies]
-swsml = "0.5"
+swsml = "0.6"
 
 # With serde interop:
-# swsml = { version = "0.5", features = ["serde"] }
+# swsml = { version = "0.6", features = ["serde"] }
 ```
 
 ## Quick start
@@ -899,8 +899,8 @@ C / C++ bridge headers and examples live in `../c/sml_rs.h` and `../cpp/sml_rs.h
 
 ## `smltools` — Command-line converter
 
-> ⚠️ **EXPERIMENTAL**: `smltools` is a **standalone crate** (package `smltools`, version `0.2.0`),
-> released independently from the library crate `swsml` (version `0.6.1`). The CLI surface and emit-backend
+> ⚠️ **EXPERIMENTAL**: `smltools` is a **standalone crate** (package `smltools`, version `0.2.1`),
+> released independently from the library crate `swsml` (version `0.6.2`). The CLI surface and emit-backend
 > combinations may still change as users give feedback; no SemVer stability is guaranteed yet. Do not rely on
 > its exact behavior in production-critical paths; watch the changelog.
 >

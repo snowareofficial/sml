@@ -242,7 +242,7 @@ dependencies = [
 
 [[package]]
 name = "sml-include"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "sml-codes",
  "sml-feature",
@@ -287,14 +287,14 @@ version = "0.1.0-alpha.3"
 
 [[package]]
 name = "sml-value"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "smltools"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clap",
  "sml-codes",
@@ -309,7 +309,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "swsml"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "serde",
  "serde_json",

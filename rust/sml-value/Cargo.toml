@@ -1,6 +1,10 @@
 [package]
 name = "sml-value"
-version = "0.1.0-alpha.2"
+# 0.1.0-alpha.3：源码有改动（`use std::fmt` 加 `#[cfg(feature = "sml")]`，消掉
+#   未开该特性时每个下游各背一条 `unused import` 警告）。**API 与语义都没变** ——
+#   故下游的版本要求**不必**跟着抬（惯例是只声明实际需要的最小版本），
+#   但本 crate 的版本必须动：否则「同一个版本号、两份不同内容」。
+version = "0.1.0-alpha.3"
 edition = "2021"
 description = "SML 值模型：Value 类型、SML 文本表示（to_sml）与 serde 桥接。零依赖，可单独用于嵌入式场景。"
 license = "MulanPSL-2.0"

@@ -18,8 +18,8 @@
 //! （过程宏、C-ABI 导出、六个转译后端）。独立后：
 //!
 //! ```toml
-//! sml-value = "0.5"                                   # 只要值模型（嵌入式）
-//! sml-value = { version = "0.5", features = ["sml"] } # + 序列化回 SML
+//! sml-value = "0.1.0-alpha.3"                                   # 只要值模型（嵌入式）
+//! sml-value = { version = "0.1.0-alpha.3", features = ["sml"] } # + 序列化回 SML
 //! ```
 
 mod value;
