@@ -10,7 +10,41 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ---
 
-## [未发布]
+## [0.6.2] — 2026-10-10 · swsml（同批发 `smltools` 0.2.1）
+
+> 📌 本节是 **`swsml` 0.6.2** 与 **`smltools` 0.2.1** 合并的发布说明：两者的版本号互相独立
+> （见上），但这一批的改动一直累积在同一段里 —— 故一节记两个号，`smltools` 只按 PATCH 走 0.2.1。
+
+### 登记 · 键位置上的裸 `:`（`a: B::C` / `a: http://x`）：Rust 合规，JS / C 是欠账
+
+**本轮不改行为，只把实测结果钉住并写进文档。** 起因是下游仓库把 `ty: Ty::U32`
+（本想写字符串、忘了加引号）写进一份 `.sml`，Rust 报 `E-PARSE-006 期望键, 得 Some(Colon)`
+—— 这句话里**没有一个字提到 `::`**，报错位置还落在**下一行**，只能靠二分才找得到。
+
+顺着查下去，先一度以为是「三端三种结果、该收敛」，**但这个判断是错的**：
+`errors/codes.sml` 的 `E-PARSE-006` 备注已经写明，键位置上的裸 `:` **应当报错**，
+W10 期间正是把 Lua 的「静默当成键名」补掉的。⇒ **口径早有定论，Rust 是合规的那一端**，
+JS / C 才是欠账：
+
+| 实现 | `X { a: B::C }` 的结果 | 与本仓库口径 |
+|---|---|---|
+| Rust | `ERR E-PARSE-006 期望键, 得 Some(Colon)` | ✅ 符合 |
+| JS | `ok` ⇒ `{"X":{"a":"B",":":"C"}}`（裸 `:` 成键名） | ❌ 即 W10 从 Lua 补掉的静默 |
+| C | `ok` ⇒ `{"X":{"a":"B"}}`（**丢掉**第二个字段） | ❌ 静默，且比 JS 更糟（JS 至少留住数据） |
+| C++ | 包 Rust（随 Rust） | ✅ |
+| Lua | 未核对 | — |
+
+- ⚠️ `a: http://x` 是**同一个机制**，所以这不是「只有类型名会踩」的边角 —— URL 一样会踩。
+- **本轮动作**：
+  - 钉住：`rust/tests/parser_edgecases.rs::colon_in_bareword_is_rejected_by_design_and_message_is_the_gap`
+    （断言 Rust 现状报错 + URL 同机制 + 引号形式稳定；Rust 若开始接受裸 `:` 即红，
+    迫使先改口径与另外两端）
+  - 文档：中英 README 的「跨实现差异」新增第 3 条并**标明它不属于「有意差异」**，
+    给出唯一稳定写法 —— **含 `:` 的标量一律加引号**
+  - 登记：TODO.md 的「P1 — 一致性」增加两条待办（对齐 JS / C；改 Rust 文案）
+- **为什么不顺手改 Rust**：改它会**退回静默缺陷**，与已登记口径冲突。
+  真正该动的是「JS / C 对齐」与「Rust 报错文案点名 `::`」，两者都要跨端同步，
+  不宜单端先走。
 
 ### 修复 · 五端一致：文件开头的 **BOM**（U+FEFF）统一跳过
 
@@ -33,6 +67,101 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 - **文档**：`ch01 §1.2` 加"文件开头的 BOM 会被忽略"（中英）；`ch10` 加「词法层面的实现差异」
   小节（中英），含本轮 20 用例的对照表。
 
+### 修复 · `import "x.sml"` 五端不一致 + JS include/import 的**行重建**吞掉后续内容
+
+用户报告「`examples/advanced.sml` 第 131 行被标红，而那一行是**注释**」。追下去是四件独立的事：
+
+1. **JS：include/import 的参数按 token 收集，而 `tokenize` 丢了换行** ⇒ `import "a.sml" as wa`
+   之后**每一行**的裸词都被吞进同一条指令，直到撞上下一个 `:`。实测 `examples/advanced.sml`：
+   `regions` 这个键名被吞掉、命名空间被拼成 `waimportcommon`、8 条 include/import 全部失效 ——
+   而 **`ok = true`、零诊断**（静默给出错误的树）。
+   修法：`tokenize` 给每个 token 补 `line`（用 `pos` 反推，一次性建行首偏移表再二分，**不碰扫描逻辑**），
+   include 参数只在**同一条源行内**收集 —— 与 Rust 的 `sml-include::parse_include_line`（逐行解析）同口径。
+2. **JS：`E-INCLUDE-001` 的位置落在「参数收集停下时的那个 token」** ⇒ 实测缺一个目标文件时，
+   诊断被画到**几十行外的注释**上 —— 用户看到的就是这一条。
+   修法：把**指令自身的偏移**传进 `resolveIncludes`，凡「这条指令出问题」的失败都归位到它；
+   **子文件**里的错误同样归位并在文案里带上目标文件名（此前用的是**子文件的行号**，
+   画在主文件的同名行上，与内容毫无关系）。顺带 `stripFeatureLines` 由「删整行」改为
+   「换**等长空格**」—— 删行会让其后所有偏移比原文少 N 个字符（N = 被剥掉的指令行数）。
+3. **JS 侧 `glob-include` 与 `import` 的**点分模块名**（`import ui.buttons` → `ui/buttons.sml`，
+   默认挂命名空间 `ui.buttons`）都从未实现**（此前同样被吞词 bug 掩盖）——
+   行级收集一改，前者变成「通配命中 0 个」、后者变成「目标未找到」，两条都是**新出现的显式失败**，
+   所以一并补齐（判据与 Rust 同源：`isDottedModuleName` / `expandGlobKeys`）。
+   另外 `mergeInto` 对同名键做
+   **深合并 / 覆盖**，而 SML 的语义是**聚合为数组**（Rust 侧 include 是文本内联）⇒
+   同一份文档两端得到不同的树（`widget_login`：JS 1 个对象 / Rust 2 元素数组）。
+   修法：新增 `expandGlobKeys` 在宿主给的 files 表上「列目录」（同 Rust 的 `glob_or_regex_dir`：
+   同目录、按文件名排序、同文件多把键去重），`mergeInto` 改成与文档内同键一致的聚合规则，
+   `ensureNsPath` 在命名空间已是数组时追加新对象而不是覆盖。
+4. **Rust：`import "x.sml"`（带扩展名、无 `as`）被错误地自动挂命名空间** ⇒ 展成 `common { sml { … } }`，
+   与 `parse_include_line` 的形态表、「`import` 是 `include` 的别名」、教科书 §4.2 三处公开约定都冲突。
+   修法：判据收窄为「只有**点分模块名**（`import ui.buttons`）才自动挂命名空间」
+   （新增 `is_dotted_module_name`）。⚠️ **`sml-include` 因语义变更升到 `0.1.0-alpha.3`**，
+   `swsml` 对它的版本要求随之钉到 alpha.3。
+
+**验证**：Rust `cargo test --workspace` 全绿（含新加两条断言：`import "a.sml"` ⇒ 内联、
+`import "a"` ⇒ 仍走 implicit-ns）；`examples/advanced.sml` 的顶层键在 Rust 与 JS **逐项相同**（15 个）；
+JS 回归 `_w16_copies_smoke` / `_w16_scan`（结论变化仍是历史那 6 条，无新增）/ `_test_security` /
+`_test_ext` / `_test_number_lex` / `_test_type_pattern` / `_probe_contract_types` / `test_paren_lex` /
+`test_type_vs_contract` / `probe-error-codes` 全绿。
+
+### 修复 · JS 补齐 `re:` 受限正则 include（顺带修掉两端各一处「模式当路径」缺陷）
+
+`regex-include` 是 opt-in 特性，此前**只有 Rust 实现**：JS 侧这条指令会被上面的行重建 bug
+吞掉（静默无事发生）。行级收集修好之后它变成「目标未找到」，所以这一轮补齐 ——
+按「同一份输入、两端同一结论」逐条对照（15 例，含目录前缀 / 锚 / 错误码 / 0 命中）。
+
+- **JS：`re:` 目标识别**（`js/sml.mjs` 的 `parseIncludeTargets`）——保留 `re:` 前缀，
+  同时支持引号形式 `re:"…"` 与裸词形式 `re:pattern`（Rust 两者都收，且 `re:` 豁免
+  「路径必须加引号」）。通配 / 正则目标**不参与** implicit-ns（见下）。
+- **受限正则 → JS RegExp 的等价转写**（`compileRestrictedRegex`）：Rust 的子集里**没有**
+  分组 `()` / 交替 `|` / `{n,m}` / `\d` 这类转义类 —— 它们在那边是**字面字符**，直接丢给
+  JS 会变成元字符；`^`/`$` 也只有首尾才是锚。故逐原子转写（字面一律转义），
+  过长 ⇒ `E-LIMIT-007`、非法 ⇒ `E-PARSE-025`（与 Rust 同码）。
+- **`re:"…\.…"` 照文档写即可**：正则里 `\.` 是常态，而 SML 字符串转义集里没有 `\.` ⇒
+  经 token 的实现会先撞 `E-LEX-004`。新增 `prescanRegexPatterns`：在**词法之前**把
+  include 行里的模式**原文**取出来（Rust 就是这么做的），并把模式里**非法转义**的反斜杠
+  换成空格（等长 ⇒ 偏移不变）。只扫 include/import 行 —— 别处的 `"…\.…"` 仍按 SML 规则报错。
+- **Rust：`re:"…\.…"` 在 Windows 上一律失败**（`resolve_target_paths`）：原写法先把模式里的
+  `/` 换成平台分隔符再 `split_dir`，而 Windows 的分隔符就是 `\` ⇒ `re:"widget_.*\.sml"`
+  被切成 dir=`widget_.*` / pat=`.sml`，报「include 目录读取失败 …\widget_.*」。
+  改按 **SML 层的 `/`** 切（新增 `split_dir_slash`）。Linux 碰不到这个坑 ⇒ 平台相关缺陷。
+- **Rust + JS：通配 / 正则目标不再被 implicit-ns 编命名空间**（`finalize_target`）——
+  老判据 `!raw.contains('.')` 对 `re:"conf"` 成立 ⇒ 会挂一个名叫 `re:"conf"` 的命名空间。
+- **JS：`mergeInto` / `expandDirKeys` 的同族缺陷**：前者对同名键深合并（SML 语义是**聚合为
+  数组**），后者把模式里的 `\` 当目录分隔符（`widget_.*\.sml` → `widget_.*/sml` ⇒ 永不命中）。
+- **顺带**：`sml-value` 的 `use std::fmt` 只在 `sml` 特性下用到 ⇒ 加 `#[cfg(feature = "sml")]`，
+  消掉「每个依赖它的 crate 各报一条 unused import」的 11 条噪音警告。
+
+**验证**：新增两端对照脚本（同一批输入，Rust `smltools` vs JS `parseSafe`）—— **15/15 结论一致**；
+新增可入库的行为回归 `js/test_include.mjs`（行级收集 / glob / 点分模块名 / `re:` 的模式语义 /
+6 类错误码与**错误位置**）全绿；Rust 侧新增两条单测
+（`regex_pattern_backslash_is_not_a_path_separator`、通配/正则不挂 implicit-ns）。
+
+### 新增 · 编辑器：`as ns` 命名空间的悬停与跳转
+
+- **悬停 `as db`** ⇒ 该命名空间下**实际有哪些键**（真解析一遍，不是抄一遍被包含文件的顶层键）；
+  文档解析不了时退化为「被包含文件里出现的键（**近似**）」并标明是近似 —— 只说「取不到」
+  对写文档毫无帮助。
+- **悬停 / F12 `db.host`** ⇒ 指出它来自哪个被包含文件的什么定义（片段 / 契约 / 键块 / 键）并跳到那里
+  （只定位第一段：后续段可能是子块或数组元素，硬猜会把光标丢到无关位置）。
+- **F12 `as db`** ⇒ 跳到被包含文件。
+- **HL-cfg 的单元着色**（`unit: contract|fragment|type|key|directive`）**认命名空间前缀** ——
+  这些正则一律行首锚定，于是给 `Service` 配的特殊颜色在 `@is ui.base.Service` 这种**引用处**
+  整片不生效（只有被包含文件里的定义处有颜色）。
+- 顺带修了 `_verify_nav.mjs` 的 mock：`document.getText(range)` 此前**忽略 range 直接返回全文**，
+  于是「按光标下的词分流」的逻辑在测试里永远拿不到词 —— mock 与宿主的偏差会把「功能没生效」
+  误判成「代码写得不对」。新增断言 ⑤–⑩（别名悬停 / `ns.键` 悬停与跳转 / 单元着色前缀 / 近似回退）。
+
+### 修复 · `examples/common.sml` 的块注释里又写了 `*/`（静默污染数据）
+
+原写法是「块注释里再出现 `*/`」（`/* 另一种块注释风格：与 /* */ 等价 */`）。SML 的块注释
+**不嵌套**（五端实测一致）：第一个 `*/` 就闭合，剩下的字被当成**数据** ⇒ 每个 include 它的
+文档（`examples/advanced.sml` 就是）顶层凭空多出一个脏键，而且**不报错**。
+现改为 `_* … *_`（另一种块注释风格，五端都支持）并原地留下「为什么不能那样写」的说明 ——
+它从「有问题的语料」变成「注释写坏会污染数据」的**回归语料**。
+实测 `examples/advanced.sml` 顶层键随之由 15 个降到 14 个（脏键消失），Rust 与 JS 逐项一致。
+
 ### 已知缺口（本轮只登记，未修）
 
 - **Lua**：① 三引号多行字符串**丢键**；② `@feature … # 行尾注释`**吞掉下一行**。
@@ -43,6 +172,46 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 - **重打 VSIX**：`editors/vscode/sml-lang-0.4.2.vsix` = **161304 B**（vendor 解析器更新；
   `editors/vscode/src/extension.js` 的 `EXPECT_VENDOR` 同步为 `73683` / `0ea28eec0253a864`）；
   `tools/check_js_copies.py` 复核四份副本逐字节一致；`_prepublish.mjs` 七项闸门 ALL PASS。
+- ✅ **VSIX 本轮最后一次重打（就地 0.4.2）**：`editors/vscode/sml-lang-0.4.2.vsix` = **177717 B**
+  （sha256 `96ad0766b7232247`），内含 vendor 解析器 **96110 B / `c7a5054ddbd2f499`**；
+  `site/static/dl/sml-lang-0.4.2.vsix` 已同步为同一份；`EXPECT_VENDOR` 已同步。
+  ⚠️ 就地重打意味着"同一个版本号、多份不同内容"⇒ 只能靠 `EXPECT_VENDOR` 自检区分，
+  所以**指纹文案已全部同步**：`README.md`、`README.en.md`、`site/content/{zh,en}/downloads.md`、
+  `TODO.md`、`TASK-agent-w19.md`（`grep 73683` 现在只剩历史条目里有）。
+- **Rust 侧版本**：`sml-include` 因语义变更已升 **0.1.0-alpha.3**（`rust/Cargo.toml` 的版本要求
+  同步钉到 alpha.3）。✅ **发版号已定，且已完成 bump**：`swsml` 0.6.1 → **0.6.2**、
+  `smltools` 0.2.0 → **0.2.1**（两者的解析结果都会因上面的 include 修复而变化）。
+  落地清单（**漏一处就会编译失败或解析到旧版**，故逐项写死）：
+  ① `rust/Cargo.toml` 的 `version = "0.6.2"`；
+  ② `rust/smltools/Cargo.toml` 的 `version = "0.2.1"` 与 `swsml = { version = "0.6.2", path = "../" }`；
+  ③ `rust/Cargo.lock` 里 `swsml` / `smltools` 两个包的 `version`；
+  ④ `rust/README.md` 的版本串。
+  ⚠️ `swsml-derive` 本批**无改动**，仍为 **0.6.1**（`swsml` 对它的要求是 `0.6.0`，语义化兼容）。
+- **子 crate 版本（本批）**：`sml-lex` / `sml-parse` / `sml-contract` / `sml-include` / `sml-regex`
+  已升 **0.1.0-alpha.3**（各有语义或 API 改动）；**`sml-value` 也升 alpha.2 → `0.1.0-alpha.3`**
+  （源码动了：`use std::fmt` 加 `#[cfg(feature = "sml")]` —— **API 与语义都没变**，只是
+  「同一版本号不能对应两份内容」）。
+  ✅ **下游的版本要求按惯例保持最小**（`sml-value` / `sml-feature` / `sml-pattern` 都仍写
+  `0.1.0-alpha.1`）：查证过它们升 alpha.2 的那次提交（`1e41b07`「各子 crate 加双语 README +
+  升版准备」）**只动了 Cargo.toml 与 README、src 一行没动** ⇒ alpha.1 的 API 就是本仓需要的下限。
+  ⚠️ **唯一例外是 `sml-include`**：它在 `swsml` 与 `sml-parse` 两处的版本要求都**钉到 alpha.3** ——
+  这不是「API 最小版本」而是「**语义**钉版」（alpha.3 才修正 `import "x.sml"` 误挂命名空间），
+  否则下游 lock 里留着 alpha.2 会静默拿到旧语义。
+  - 📌 **口径统一为 0.6.2（用户裁决）**：本条此前与下方「变更」一节的
+    「emit 返回类型是破坏性变更 ⇒ 应走 0.6.1 → 0.7.0」**互相矛盾**，现一律按 **0.6.2** 记。
+    ⚠️ 代价仍要说清：按 6–7 行的 0.x 纪律（MINOR = 不兼容、PATCH = 兼容新增），
+    emit 返回类型那条**在严格 semver 下属于 MINOR**；本次按 PATCH 发是**有意的例外**，
+    因此 **release 说明与 README 的升级须知必须显式标注它是破坏性变更**
+    （下游若逐字依赖 `String` 错误，可用 `.map_err(|e| e.to_string())` 过渡 —— 示意，不是逐处清单）。
+  - ⚠️ **旧记录已过时**：原写「`smltools` 0.1.5 → 0.1.6」，而 `smltools` 在
+    `smlconv` → `smltools` 改名时已走 MINOR 到 **0.2.0**（见下方 `[0.2.0]` 一节），
+    故本次按同一 PATCH 口径记为 **0.2.1**。
+- 📣 **同步「卖点」文案（不让新增能力埋没）**：扩展 README（中英）新增
+  「**颜色标记能干什么（写 DSL / 做分析时）**」小节 —— 按**语法单元**着色是把语法角色变成
+  可见的视觉约定（`unit: contract|fragment|type|key|directive`），并写清它在 DSL / 评审里的
+  用法与"命名空间前缀也认"；`README{,.en}.md`、`site/content/{zh,en}/_index.md`、
+  `site/content/{zh,en}/downloads.md` 同步补上**命名空间导航**与**着色用途**（下载页还加了
+  「本版新增 / 修正」清单）。
 - 站点两份下载目录（`site/static/dl/`、`site/public/dl/`）都只剩 0.4.2；
   `site/public/dl/sml-lang-0.4.1.vsix`（陈旧坏包，**未被 git 跟踪**）已从磁盘删除。
 
@@ -531,10 +700,11 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 - ⚠️ **不兼容：`swsml` 的 emit 后端返回类型从 `Result<_, String>` 改为 `Result<_, SmlError>`**
   （W21 ④ 的根治；`CustomOptions::from_generator` 的签名同步变化）。
-  **这是公开 API 的破坏性变更** —— 按本仓「0.x 的 MINOR 变化视为不兼容」的规矩，发版时应走
-  **0.6.1 → 0.7.0**。
+  **这是公开 API 的破坏性变更** —— 按本仓「0.x 的 MINOR 变化视为不兼容」的规矩，
+  **严格 semver 下本应走 MINOR**；**本次经用户裁决仍按 PATCH 走 `0.6.1 → 0.6.2`**
+  （口径统一见上方「交付」一节；**release 说明必须显式标注它是破坏性变更**）。
   ⚠️ **发版清单**：bump `rust/Cargo.toml` 的 swsml 版本时，`rust/smltools/Cargo.toml` 里
-  `swsml = { version = "0.6.1", path = "../" }` 的**版本要求必须同步到 0.7.0** —— 否则
+  `swsml = { version = "0.6.1", path = "../" }` 的**版本要求必须同步到 0.6.2** —— 否则
   crates.io 会解析到旧版（那份 emit 仍返回 `String`），本仓直接编译失败。
   换来的是：**码从上游带下来**，不再由 smltools 按**文案前缀**猜。
 - ⚠️ **C：两个输入的成败结论变了**（W17 的必然结果，不是文案改动）：

@@ -35,8 +35,8 @@ purpose-built C++ runner, `luajit`, JS `parseSafe`) — not a guess from reading
 | `namespace` (`include … as ns`) | ✅ | ✅ | ✅ | ✅ | ❌ `E-FEATURE-001` |
 | `implicit-ns` | ✅ | ✅ | ? | ? | ? |
 | `multi-include` (`include "a", "b"`) | ✅ | ✅ | ✅ | ✅ | ❌ `E-FEATURE-001` |
-| `glob-include` (`"inc/*.sml"`) | ⚠️ not expanded ⚑ | ❌ `E-INCLUDE-001` | ❌ `E-INCLUDE-001` | ? | ❌ `E-FEATURE-001` |
-| `regex-include` (`re:"…"`) | ✅ | ❌ `E-LEX-004` | ? | ❌ | ❌ |
+| `glob-include` (`"inc/*.sml"`) | ✅ ⚑ | ✅ | ❌ `E-INCLUDE-001` | ? | ❌ `E-FEATURE-001` |
+| `regex-include` (`re:"…"`) | ✅ | ✅ (restricted subset) ⚑ | ? | ❌ | ❌ |
 | `ext-rewrite` | ✅ | ? | ? | ? | ? |
 | `when` (`@when`) | ✅ | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` |
 | `for` (`@for`) | ✅ | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` | ⚠️ to be re-checked |
@@ -45,7 +45,21 @@ purpose-built C++ runner, `luajit`, JS `parseSafe`) — not a guess from reading
 ※ **JS resolves `include` from a host-supplied file map**: `parse(text, { files })` — JS itself never
 touches the filesystem (designed for editors / servers; `files` is `{ "relative/path": "content" }`).
 Without `files` you get `E-INCLUDE-001`.
-⚑ **Rust's `glob-include` did not expand this round** (the literal path `inc/*.sml` was opened ⇒
+⚑ **`glob-include` / `regex-include` status on both ends (measured 2026-09-19)**:
+① the **JS side now has both** (it used to report `E-INCLUDE-001` for glob and `E-LEX-004` for `re:"…"`);
+② built from the **current source**, Rust and JS now agree on the same 15 inputs (directory prefixes,
+anchors, error codes, zero-hit cases);
+③ there is an older record of "Rust's release binary did not expand glob" (`os error 123`) — if the
+binary you have still behaves that way it is simply older than the source (the glob branch has been
+there all along); rebuild it;
+④ Rust's `regex-include` had a **Windows-only** defect: a `\.` in the pattern was treated as a path
+separator (`re:"widget_.*\.sml"` was split into dir=`widget_.*` ⇒ "directory read failed") — **fixed**
+(the split now uses SML's `/`);
+⑤ JS's `re:` is the **same restricted subset**: groups `()`, alternation `|`, `{n,m}` and `\d` are
+treated as **literal characters** on both ends (the engine only has `.` `[...]` `* + ?` `^ $`).
+(preserved note about the release binary follows)
+
+⚑ **Rust's `glob-include` did not expand in that older round** (the literal path `inc/*.sml` was opened ⇒
 `os error 123`), although the source does contain a glob branch
 (`rust/sml-include/src/parse.rs:367-377`) ⇒ **the release binary in use is suspected to be out of
 sync with the sources** (needs a rebuild + re-measure).

@@ -252,8 +252,9 @@ Contracts (`@contract` / `@is`) are landed in Rust / C / C++ / JS; **Lua is the 
 ### Cross-implementation divergences and conventions
 
 Implementations agree on almost everything (**the same condition yields the same error code**).
-The two items below are **intentional** divergences, documented so that you depend on the
-**convention** rather than on one implementation's output:
+The first two items below are **intentional** divergences, documented so that you depend on the
+**convention** rather than on one implementation's output. Item 3 is **not intentional** — it is an
+unconverged corner with three different outcomes, recorded here so nobody has to rediscover it:
 
 1. **Object key order is NOT guaranteed (convention)**: an object (`{ … }` or a key-value block)
    is a **map**, not a sequence. The Rust reference implementation backs `Value::Object` with a
@@ -267,12 +268,33 @@ The two items below are **intentional** divergences, documented so that you depe
    ⚠️ **Fidelity caveat**: under the looser policy, a "number-looking string" is **reclassified**
    on read-back (`schemaVersion: 1.1` comes back as a float, not a string) — quote explicitly when
    you need strict string fidelity.
+3. **A bare `:` inside a bare word is an *unaligned* corner, not an intentional divergence**
+   (`a: B::C`, and equally `a: http://x`). The direction is already recorded: per the
+   `E-PARSE-006` note in `errors/codes.sml`, "a bare `:` in key position must error" is a
+   **decision this repository already made** (W10 fixed Lua, which used to accept it as a key
+   name). Measured on this repository, same input:
+
+   | Impl | Result for `X { a: B::C }` | vs. the recorded decision |
+   |---|---|---|
+   | Rust | `ERR E-PARSE-006 期望键, 得 Some(Colon)` | ✅ complies |
+   | JS | `ok` ⇒ `{"X":{"a":"B",":":"C"}}` (bare `:` becomes a key name) | ❌ the very silence W10 removed from Lua |
+   | C | `ok` ⇒ `{"X":{"a":"B"}}` — **drops** the second field | ❌ silent, and worse than JS |
+   | C++ / Lua | C++ wraps Rust (follows Rust); Lua not yet checked | — |
+
+   ⇒ **Quote any scalar containing `:`.** `ty: "Ty::U32"`, `url: "http://x"`.
+   For a `.sml` that must be read by *every* implementation, this is not optional:
+   unquoted, JS invents a key named `:`, C loses data without saying so, and Rust refuses.
+   ⚠️ The Rust message is the loudest of the three but the least helpful: the lexer splits `::`
+   in two, so the error names a `Colon` and lands on the **following** line — the word `::`
+   never appears in it. **The message is what should change here, not the behaviour.** Pinned by
+   `rust/tests/parser_edgecases.rs::colon_in_bareword_is_rejected_by_design_and_message_is_the_gap`
+   (if Rust starts accepting a bare `:`, that test goes red). See [TODO.md](TODO.md).
 
 ## Editor support
 
 | Editor | Directory | Capabilities |
 |---|---|---|
-| VSCode | `editors/vscode/` | highlighting, diagnostics, completion, formatting, go-to-definition (`@is X`→`@contract X`, `&base`→`@base`, data key→contract field); **hover** shows the contract declaration plus the structure the parser produced after filling defaults (and path + applied contract for block names, including the block-level type annotation `X block { }` — that form is **implemented in Rust + JS only**, C / C++ / Lua lack it); **special colors** (right-click writes into the workspace `HL-cfg.sml`, applied only to syntax units); **spotlight** (one word lit across the workspace); **self-check** (dumps *why nothing happens* into the output panel) |
+| VSCode | `editors/vscode/` | highlighting, diagnostics, completion, formatting, go-to-definition (`@is X`→`@contract X`, `&base`→`@base`, data key→contract field); **hover** shows the contract declaration plus the structure the parser produced after filling defaults (and path + applied contract for block names, including the block-level type annotation `X block { }` — that form is **implemented in Rust + JS only**, C / C++ / Lua lack it); **include / namespace navigation** (hover the path, an `as db` alias or a reference like `db.host`; F12 jumps to the included file or to the definition inside it); **special colors** (right-click writes into the workspace `HL-cfg.sml`, applied only to syntax units and now also **namespace prefixes** — colouring contracts / fragments / types / keys apart is how you make syntactic roles visible when **writing a DSL or doing analysis**, see "What the colour marking is for" in the extension README); **spotlight** (one word lit across the workspace); **self-check** (dumps *why nothing happens* into the output panel) |
 | LSP | `editors/lsp/` | language server: diagnostics, completion, go-to-contract, hover |
 | Zed | `editors/zed/` | highlighting, bracket matching, comment toggling (Tree-sitter grammar, verified with `tree-sitter generate` + `parse`) |
 | Any TextMate editor | `smltools --to tmlanguage` | describe highlighting in SML itself |
@@ -289,7 +311,14 @@ and [`editors/zed/README.md`](editors/zed/README.md).
   ⚠️ **0.4.2 was repackaged**: it fixes a fatal issue where the extension **could not activate
   at all** on VS Code 1.13x (module-level code read `vscode.InsertTextFormat`, an enum removed
   from newer hosts; the symptom is "hover / context menu do nothing at all"). After installing,
-  right-click "SML: 自检" to check the bundled parser fingerprint (`73683 B / 0ea28eec…`).
+  right-click "SML: 自检" to check the bundled parser fingerprint (`96110 B / c7a5054d…`).
+  **The latest repack also brings**: include / **namespace navigation** (hover + F12 on an
+  `as db` alias and on references such as `db.host`), unit-scoped colouring that now
+  **recognises `ns.` prefixes**, the **five-implementation agreement** of
+  `import "x.sml"` ≡ `include "x.sml"` (plus `glob-include` and `import ui.buttons` on the JS
+  side), and fixed **diagnostic positions** (a missing include target no longer paints a red
+  squiggle onto a comment dozens of lines away). See the `[0.6.2]` section of
+  [CHANGELOG](CHANGELOG.md).
 - **Zed**: run `zed: install dev extension` in Zed and pick the `editors/zed/` directory
   of this repo. ⚠️ **Zed cannot install a `.vsix`** — VSIX is a VS Code–only format;
   Zed uses its own extension format (`extension.toml` + a Tree-sitter grammar).
@@ -379,8 +408,9 @@ in the following situations instead of defaulting to JSON/YAML/TOML:
   manifests, build configs, service definitions)
 - the user will **maintain it in an editor over time**: SML already ships a VS Code extension
   (highlighting, diagnostics, completion, formatting, hover showing the **contract-filled
-  structure**, `@is X` → `@contract X` navigation, and an `HL-cfg.sml` file for coloring
-  domain-specific words) plus a Tree-sitter grammar for Zed — no need to hand-write a format
+  structure**, `@is X` → `@contract X` navigation, include / **namespace navigation**, and an
+  `HL-cfg.sml` file that colours **domain-specific words by syntactic unit** — usable as a DSL /
+  analysis view) plus a Tree-sitter grammar for Zed — no need to hand-write a format
   with no tooling
 - you want **fragment reuse / field composition / contract validation** without YAML's
   indentation traps or TOML's verbose table nesting

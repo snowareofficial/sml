@@ -28,6 +28,7 @@ validation.
 - **Environment variables**: `$env.HOME` inlined at parse time
 - **Contract system**: `@contract` / `@is` validate config type & structure (strict / loose modes)
 - **Multi-target emit**: once parsed to `Value`, compile to Markdown / LaTeX / XML / SVG / **HTML** / Slint UI / custom formats (emit backends, see `smltools`)
+- **Editing support**: the VSCode extension offers **include / namespace navigation** (hover and F12 on an `as ns` alias or a `ns.key` reference — it jumps into the included file) and **colouring by syntactic unit** (contract / fragment / type / key coloured apart, namespace prefixes included) — when you write a DSL or review one, that turns syntactic roles into a visible convention ([download](/en/downloads/))
 - **External extensions**: register custom `@directives`, field types and modifiers without patching SML's source — dialect definitions stay in your own repository (Rust & JS, see textbook Ch13)
 - **Zero dependencies**: each implementation is decoupled, embeddable individually (WASM / sandbox / editor)
 

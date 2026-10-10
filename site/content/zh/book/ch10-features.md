@@ -33,8 +33,8 @@ SML 的设计原则是"**从极简到丰富，功能可裁剪**"——基础九�
 | `namespace`（`include … as ns`） | ✅ | ✅ | ✅ | ✅ | ❌ `E-FEATURE-001` |
 | `implicit-ns` | ✅ | ✅ | ? | ? | ? |
 | `multi-include`（`include "a", "b"`） | ✅ | ✅ | ✅ | ✅ | ❌ `E-FEATURE-001` |
-| `glob-include`（`"inc/*.sml"`） | ⚠️ 未展开 ⚑ | ❌ `E-INCLUDE-001` | ❌ `E-INCLUDE-001` | ? | ❌ `E-FEATURE-001` |
-| `regex-include`（`re:"…"`） | ✅ | ❌ `E-LEX-004` | ? | ❌ | ❌ |
+| `glob-include`（`"inc/*.sml"`） | ✅ ⚑ | ✅ | ❌ `E-INCLUDE-001` | ? | ❌ `E-FEATURE-001` |
+| `regex-include`（`re:"…"`） | ✅ | ✅（受限子集）⚑ | ? | ❌ | ❌ |
 | `ext-rewrite` | ✅ | ? | ? | ? | ? |
 | `when`（`@when`） | ✅ | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` |
 | `for`（`@for`） | ✅ | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` | ❌ `E-PARSE-005` | ⚠️ 待复核 |
@@ -42,8 +42,15 @@ SML 的设计原则是"**从极简到丰富，功能可裁剪**"——基础九�
 
 ※ **JS 的 `include` 由宿主提供文件表**：`parse(text, { files })` —— JS 侧自己**不读盘**，
 这是为编辑器 / 服务端内嵌设计的（`files` 是 `{ "相对路径": "内容" }`）。不传 `files` 会得 `E-INCLUDE-001`。
-⚑ **Rust 的 `glob-include` 本轮实测未展开**（把 `inc/*.sml` 当字面路径 open ⇒ `os error 123`），
-而源码里明明有 glob 分支（`rust/sml-include/src/parse.rs:367-377`）⇒ **疑所用 release 二进制与当前源码不一致**（待重编复测）。
+⚑ **`glob-include` / `regex-include` 的两端现状（2026-09-19 实测）**：
+① JS 侧**补上了这两项**（此前 `glob` 报 `E-INCLUDE-001`、`re:"…"` 报 `E-LEX-004`）；
+② 用**当前源码的构建**实测 Rust 与 JS 对同一份输入结论一致（15 例：目录前缀 / 锚 / 错误码 / 0 命中）；
+③ 曾有「Rust 的 release 二进制不展开 glob（`os error 123`）」的记录 —— 若你手上那份仍如此，
+那说明 binaries 比源码旧（源码里 glob 分支一直在），重编即可；
+④ Rust 的 `regex-include` 在 **Windows** 上有过一个平台缺陷：模式里的 `\.` 被当成目录分隔符
+（`re:"widget_.*\.sml"` 被切成 dir=`widget_.*` ⇒「目录读取失败」），**已修**（改按 SML 层的 `/` 切）。
+⑤ JS 的 `re:` 是**受限子集**：分组 `()` / 交替 `|` / `{n,m}` / `\d` 这类写法在两端都按**字面字符**处理
+（不是"JS 不支持"，是这套正则本来就只有 `.` `[...]` `* + ?` `^ $`）。
 ⚠️ **Lua 的 `for` 待复核**：它在无 `@feature` 时"接受"了 `@for`，但同时**拒绝 `@feature`** —— 需确认是真展开还是当普通键吞掉了。
 
 **三条给写文档的人的结论**：

@@ -32,7 +32,7 @@
       解析器）；0.4.1 已被 `.obsolete` 标 `true`、`extensions.json` 记的是 0.4.2 ⇒ 编辑器加载的就是新版。
       用**已安装的那份**代码实测：定义跳转 / 契约展开 / 诊断 / 补全全部正常（证据见 HANDOFF §22.4）
       ⚠️ **后来又重打过两次**（W16 后续修复 + 本轮的 BOM 五端对齐）⇒ 包内解析器现在是
-      **73683 B / sha256 `0ea28eec…`**。重装后按 `TASK-agent-w19.md §3` 再核对一次指纹
+      **96110 B / sha256 `c7a5054d…`**。重装后按 `TASK-agent-w19.md §3` 再核对一次指纹
       （该表与 `README{,.en}.md`、`site/content/{zh,en}/downloads.md` 已同步改成新值）。
 
 ## 新特性：契约（Contract）
@@ -46,7 +46,7 @@
 | C | ✅ **已实现** | `c/sml.c` 有 `ccontract` / `apply_contract_rec` / `parse_contract_body`（此前误标为"待实现"，2026-09-18 更正） |
 | C++ | ✅ **已实现** | `cpp/sml.cpp` 封装同一套能力 |
 | JS | ✅ **已实现** | `js/sml.mjs` 有契约表、`@is` 处理与默认值填充（此前误标为"待实现"，2026-09-18 更正） |
-| Lua | ⏳ 待实现 | **唯一未落地的一侧**。2026-09-18 用户决定：**允许引入 native** —— 即允许 Lua 侧走 C-ABI 绑定 Rust 的契约实现，而不要求在纯 Lua 里再重写一遍。选型时优先走绑定（`lua/` 侧已有链接 C 的现成先例），移植只在绑定不可行时才考虑 |
+| Lua | ✅ **已实现（W20 一阶段，纯 Lua）** | `lua/lib/sml.soup` 的 `parse_contract_body` / `apply_contract`：`@contract` / `@is` 校验 + 默认值回填、块结束处应用，13 条码与 Rust **逐条实跑**核实（见 CHANGELOG 的 Lua 契约一节；全仓 41 个 `.sml` 扫描「原先 OK、现在 FAIL」= 0）。⚠️ 本行原写「⏳ 待实现」，属**过时记录**。<br>**仍挂起的是**走 native（C-ABI 绑定 Rust）那条路 —— 2026-09-18 用户已决定「允许引入 native、可先不做」，它属**性能/一致性收益**，不是能力缺口 |
 
 **已在 resender 中落地使用**：`AppConfig` 的 SML 持久化应用了契约
 （`src/config.rs` 的 `CONFIG_CONTRACT`），读取时校验字段类型并补齐缺失默认值。
@@ -72,6 +72,40 @@
 - [ ] 契约级「至少一个字段」/互斥字段（`oneOf`）等高级约束是否需要
 - [ ] 数组长度约束（如 `min_items` / `max_items`）是否需要
 - [ ] 契约是否支持跨文件（配合 `include` 复用契约库）
+
+**新增议题：多契约叠加（叠加 / mixin）** —— 命名已由用户裁决：叫「**叠加 / mixin**」
+
+- **与上面那条「用组合，不用继承」区分开**（术语不要混）：
+  - **组合** = 字段的**类型**是另一个契约（`main: Endpoint`）⇒ 改变**数据形状**、多一层嵌套；
+  - **叠加 / mixin** = **同一个块**挂多份约束 ⇒ **不改变数据形状**。
+  二者**不可互相替代**，这也正是叠加存在的价值（"接口式"契约）。
+- **候选语法**（`rust/examples/probe_capability.rs` 早已探过同一想法的 H / H3 / M 三格）：
+  - ✅ **推荐 `@is a, b, c`**：逗号本就是独立 token（`rust/sml-lex/src/lib.rs:28`、
+    `c/sml.c:294`、`cpp/sml.cpp:138`），且**已是 include 多目标的分隔符**
+    （`rust/sml-include/src/parse.rs:73,205`）⇒ 零新 token、与既有列表约定一致
+  - ⚠️ `@is <a,b,c>`：`<` `>` 是**普通词字符**（五端词法表只有 `{ } [ ] , : @`），
+    `<a` / `c>` 会被粘进词 ⇒ 必须写剥壳特例，没有普适性
+  - ⚠️ 同一块两条 `@is`：**当前是"后一条覆盖前一条"**
+- **现状实测（JS 探针，本次会话真跑，非推断）**：`@is tls, retry` 得到**错树**
+  （逗号被静默跳过、`retry` 掉进**键位置**、报成 `E-CONTRACT-003 契约未声明字段：retry / :`）；
+  `@is <tls, retry>` ⇒ `E-CONTRACT-001 应用未定义契约 <tls`；同块两条 `@is` ⇒ 后者覆盖前者
+  （`cert_ref` 被丢掉，报的却是"未声明字段"，用户看不出是覆盖）。五端都把本块契约存成**单值**
+  （`rust/sml-parse/src/parser.rs:846`、`js/sml.mjs:1552`、`c/sml.c:1277`、
+  `cpp/sml.cpp:1053`、`lua/lib/sml.soup:669`）⇒ 叠加是**五端"单值 → 列表 + 合并语义"**改造
+- **待拍板（先定规范、再动实现）**：① 结果须与书写顺序无关（字段并集 + 冲突报错？）
+  ② `loose` 与 `strict` 混用时谁优先（建议严格优先，否则 loose 成为后门）
+  ③ 新增冲突码（建议 `E-CONTRACT-016 契约叠加冲突`）
+- ⚠️ **不能 opt-in**：C / C++ / Lua **没有 `@feature` 门控**（`@feature …` 在那三端是
+  `E-PARSE-005`）⇒ 要么**五端一起做**，要么重演 `typed-block`「只有 Rust + JS 实现、
+  其余端静默退化」的坑（教科书 §5.2.2 / ch10 已就此写过教训）
+- **节奏**：不塞进 0.6.2（那一版已有 13 类行为变更 + 一条 API 破坏），作为**下一个 minor 的
+  headline**；先补 `ch05` 的「叠加（提案）」页，再在 Rust 落参考实现
+- **落地时要一并改的编辑器侧**：`editors/vscode/src/sml-parse.mjs` 的契约识别是单名正则
+  `/^\s*@is\s+(?:type\(\s*)?([^\s{)]+)/`（:602、:862、:901）—— 一旦支持 `@is a, b`，它会把
+  `a,`（**带逗号**）当契约名 ⇒ 悬浮 / 跳转 / 实例展开**全部失效**；需「剥尾逗号 + 多名」
+  （悬浮列出全部、F12 支持多个目标），并补 `_verify_ext.mjs` 断言
+- **文档用词**：新特性一律写 **叠加 / mixin**；`ch05 §5.4` 的「**组合**」保持原义
+  （字段类型是另一个契约），两节要互相交叉说明「为什么不能互相替代」
 
 背景：在 resender 中大规模使用 SML 时，发现 Rust 实现有两个阻断性缺陷
 （顶层数组无法解析、词中 `@` 导致邮箱被截断），修复过程中同步暴露出
@@ -119,6 +153,28 @@
   - 其余实现：行为未定义，可能静默产生异常结果
   - 待办：统一为「显式报错」并写入文档
 
+- [ ] **键位置上的裸 `:`：Rust 已合规，JS / C 是欠账；Rust 的报错文案不可定位**（2026-10-10 实测登记）
+  - **口径已经定了**，见 `errors/codes.sml` 的 `E-PARSE-006` 备注：
+    「键位置上的裸 `:` 应报错」是本仓库**已登记的取舍**，W10 已把 Lua 的
+    「静默当成键名」补掉（探针实测 `: 1` 曾解析出键名为 `:` 的树）。
+    ⇒ 所以**不要**把 Rust 改成「接受」——那是退回已补过的静默缺陷。
+  - 实测现状（同一份输入 `X { a: B::C }`）：
+    - Rust `ERR E-PARSE-006` ✅ 符合口径
+    - **JS `ok` ⇒ `{"X":{"a":"B",":":"C"}}`**（裸 `:` 成键名）❌ 就是 W10 从 Lua 补掉的那类静默
+    - **C `ok` ⇒ `{"X":{"a":"B"}}`（静默丢掉第二个字段）** ❌ 比 JS 更糟
+    - C++ 包 Rust（随 Rust）；**Lua 未核对**
+  - 两条待办，互不依赖：
+    1. **对齐 JS / C**：让这两端也按口径报错（或明确写入「本端不实现」并给同一码）。
+       建议同时补一句「含 `:` 的标量请加引号」到两端的错误文案里。
+    2. **改 Rust 的报错文案**（本轮的原始痛点）：现在是
+       `期望键, 得 Some(Colon)` —— **没有 `::` 二字**，且词法已把 `::` 切成两半，
+       报错点落在**后一行**，用户只能靠二分定位。建议给专码，或在这条 `E-PARSE-006`
+       的文案里点名 `::` 与「加引号」。⚠️ 动文案/码表要五端同步。
+  - 另注：`a: http://x` 是**同一个机制**，所以这不是「只有类型名会踩」的边角 ——
+    URL 一样会踩，而它看起来完全无害。
+  - 已钉住：`rust/tests/parser_edgecases.rs::colon_in_bareword_is_rejected_by_design_and_message_is_the_gap`
+    （Rust 若开始接受裸 `:`，测试即红，迫使先改口径与另外两端）
+
 ### P2 — 健壮性
 
 - [ ] **错误边界行为不一致**，需逐一核对齐：同名键冲突（Rust 提升为数组）、
@@ -140,6 +196,30 @@ node _verify_showcase.mjs
 
 # Lua（需 luajit 或 soupx）
 luajit _verify_showcase.lua
+```
+
+### ⚠️ `cargo test --workspace` 在**全新 target 目录**下会随机失败（2026-10-10 实测）
+
+**症状**：`error: linking with link.exe failed: exit code: 1104`，末行是
+`LINK : fatal error LNK1104: 无法打开文件 …\debug\deps\sml.dll`。看着像代码坏了，**不是**。
+
+**实测定位**（同一台机、同一个全新 target 目录，逐条二分）：
+
+| 命令 | 结果 |
+|---|---|
+| `cargo build -p swsml` | ✅ |
+| `cargo test -p swsml --lib` | ✅ 63 passed |
+| `cargo test --workspace` | ❌ LNK1104 on `sml.dll` |
+| `cargo test --workspace -j 1` | ✅ **549 passed / 0 failed**（46 个 test target） |
+
+⇒ 是**并行链接竞争**：`--workspace` 下有两个 target 同时往同一个 `debug\deps\sml.dll`
+写（`crate-type = ["rlib", "cdylib"]` 的 cdylib 输出），后到的那个拿不到文件。
+**加 `-j 1` 即稳定通过**；已有 target 目录（增量）通常也不触发，所以这个坑只在
+「新克隆 + 全新 target 目录」时出现 —— 也就是最容易被误判成「仓库是坏的」的场景。
+
+**验证纪律**：`swsml` 是 cdylib，跑全量测试请用
+```bash
+CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 ```
 
 上述 `_probe_*` / `_verify_showcase.*` / `_t*.c` / `_t*.lua` / `_t*.mjs`
