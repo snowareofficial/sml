@@ -415,6 +415,25 @@ git stash pop
 
 ## 8. 任务 F / G：编辑器改造、教科书（**后置，本轮只登记依赖**）
 
+> **✅ 已完成（2026-10-12，用户已放行 `editors/**` 与 `site/**`）**，证据：
+> - **F（编辑器接映射 API）**：`js/sml.mjs` 新增 `opts.traceContracts` + `contractMap`
+>   （对齐 `rust/sml-parse/src/contract_map.rs`：opt-in、`{ key }`/`{ index }` 段、按路径排序、
+>   无时间戳、`contractMapToSml` 与 Rust `to_sml` 逐字节一致；**不开时返回值与旧版逐字一致**）；
+>   JS 仍「响亮拒绝」多契约 `E-CONTRACT-017`（一行未动）。编辑器
+>   `editors/vscode/src/sml-parse.mjs` 改读映射：新增 `contractNamesAtBlock`（映射主源 +
+>   原正则兜底、支持多名），`contractOfBlock` 委托它，`contractInstance` 前置映射路径回源定位，
+>   `blockHoverMarkdown` 列全部契约名与声明；旧正则逻辑逐字保留。`js/probe-contract-map.mjs`
+>   17 条全绿；`_prepublish.mjs` ALL PASS（含 `_verify_ext.mjs` 新增 4 条 F 断言）；
+>   `npm run package` 重打 VSIX；`check_js_copies.py` 四副本一致。提交 `10e36c8`。
+> - **G（教科书）**：`ch05` 增「§5.4.1 叠加（mixin）」（与 §5.4 组合交叉说明、strict 优先、
+>   顺序无关、冲突 `E-CONTRACT-016`、明确 JS/C/C++/Lua 暂报 `E-CONTRACT-017`）；`ch10` 块级
+>   标注补多契约写法、§10.6 roadmap 逐条标状态/替代；新增 `ch14-capability-map`（中英，
+>   数据源 = ch10 实现面总表 + 契约叠加，不编五端数据）；`_index` 挂目录。`build_site.py`
+>   构建 25/25 页、无新告警、ch14 中英 HTML 均渲染。提交 `048ce2f`。
+>
+> 另：本轮开头先修了 **E-INCLUDE-010**（`rust/sml-parse/src/api.rs` 三处 base 加
+> `.filter`，裸文件名 `parent()` 为空回落 `"."`），提交 `1a357bc`；各端核对结果登记进 TODO P2。
+
 - **F（编辑器接 API）**：`editors/vscode/src/sml-parse.mjs` 的
   `contractOfBlock` / `contractInstance` / `blockHoverMarkdown`（`:602`、`:862`、`:901`）
   现在是**按行扫文本的单名正则**，多契约一落地就把 `a,` 当契约名 ⇒ 悬浮 / 跳转 / 实例展开全失效。
