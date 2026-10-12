@@ -1,0 +1,26 @@
+# 自成 workspace：fuzz 需 nightly/libFuzzer，绝不能进父 workspace 的 members
+# （否则 `cargo test --workspace` 会尝试编它而失败）。路径依赖 swsml 可跨 workspace。
+[workspace]
+
+[package]
+name = "swsml-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.sml_parse]
+package = "sml-parse"
+path = "../sml-parse"
+
+[[bin]]
+name = "parse"
+path = "fuzz_targets/parse.rs"
+test = false
+doc = false
+bench = false
