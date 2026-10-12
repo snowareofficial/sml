@@ -102,6 +102,11 @@ pub enum Pat {
 /// 默认步数预算：无回溯已保证多项式时间，此上限仅用于拦住极端病态输入。
 const DEFAULT_BUDGET: u64 = 10_000_000;
 
+/// 单量词上限（与 JS 端 `QUANT_MAX` 对齐）：`次` / `最小` / `最大` / 正则 `{n}` 超过它
+/// 即拒绝编译。仅挡「单个量词写成天文数字」；**嵌套**量词的相乘膨胀由 `nfa` 的
+/// `MAX_PROG`（编译指令总数上限）兜底。
+pub const QUANT_MAX: usize = 1000;
+
 /// 把一条规则编译为模式 IR，关键字表取默认 [`BILINGUAL`]。
 pub fn compile_rule(rule: &Value, rules: &BTreeMap<String, Value>) -> Result<Pat, String> {
     compile_rule_with(rule, rules, &BILINGUAL)
@@ -260,6 +265,11 @@ fn compile_elem(
                 return Err(format!("sml: 量词最大({mxv})不能小于最小({mn})"));
             }
         }
+        if mn > QUANT_MAX as i64 || mx.map_or(false, |x| x > QUANT_MAX as i64) {
+            return Err(format!(
+                "sml: 量词过大（> {QUANT_MAX}），拒绝编译（防病态规则；嵌套膨胀另有程序规模上限）"
+            ));
+        }
         Pat::Repeat {
             pat: Box::new(base),
             min: mn as usize,
@@ -366,6 +376,11 @@ fn parse_times(v: &Value, table: &dyn KeywordTable) -> Result<(usize, Option<usi
             return Err(format!("sml: 量词最大({mx})不能小于最小({min})"));
         }
     }
+    if min > QUANT_MAX as i64 || max.map_or(false, |m| m > QUANT_MAX as i64) {
+        return Err(format!(
+            "sml: 量词过大（> {QUANT_MAX}），拒绝编译（防病态规则；嵌套膨胀另有程序规模上限）"
+        ));
+    }
     Ok((min as usize, max.map(|x| x as usize)))
 }
 
@@ -375,7 +390,7 @@ fn parse_times(v: &Value, table: &dyn KeywordTable) -> Result<(usize, Option<usi
 
 /// 用已编译的模式匹配整段文本（全文匹配，非搜索）。
 pub fn is_match(pat: &Pat, text: &str) -> Result<bool, String> {
-    let prog = nfa::compile(pat);
+    let prog = nfa::compile(pat)?;
     nfa::run(&prog, text, DEFAULT_BUDGET)
 }
 

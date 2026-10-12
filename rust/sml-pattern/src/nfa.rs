@@ -23,14 +23,27 @@ pub(crate) enum Inst {
 /// - 有上界 → 展开为固定份数的可选副本（不产生回边）
 /// - 无上界（`+` / `*`）→ 一条回边 Split，**不复制模式本体**，
 ///   因此不会出现 regex 里 `a+a+` 那样的指数路径。
-pub(crate) fn compile(pat: &Pat) -> Vec<Inst> {
+/// 编译期指令总数上限：每个量词已各有 `QUANT_MAX`（见 lib.rs），但**嵌套**量词
+/// （如 `组{次:1000}` 再套 `次:1000`）会相乘膨胀；此上限在物化途中闸住，
+/// 防病态规则把内存/时间吃穿（DoS）。与 JS 侧编译期代价预算同一意图。
+///
+/// 放在递归入口 `emit`：`Repeat` 物化 n 份会反复进入这里，超限即 fail-closed 中止，
+/// 绝不物化到 OOM。合法规则（日期 / semver / 证件号）指令数远低于此。
+const MAX_PROG: usize = 100_000;
+
+pub(crate) fn compile(pat: &Pat) -> Result<Vec<Inst>, String> {
     let mut prog = Vec::new();
-    emit(pat, &mut prog);
+    emit(pat, &mut prog)?;
     prog.push(Inst::Match);
-    prog
+    Ok(prog)
 }
 
-fn emit(pat: &Pat, prog: &mut Vec<Inst>) {
+fn emit(pat: &Pat, prog: &mut Vec<Inst>) -> Result<(), String> {
+    if prog.len() > MAX_PROG {
+        return Err(format!(
+            "sml: 模式程序过大（超过 {MAX_PROG} 条指令，疑似嵌套量词的病态膨胀）"
+        ));
+    }
     match pat {
         Pat::Class(c) => prog.push(Inst::Char(c.clone())),
         Pat::Lit(s) => {
@@ -40,13 +53,13 @@ fn emit(pat: &Pat, prog: &mut Vec<Inst>) {
         }
         Pat::Seq(items) => {
             for it in items {
-                emit(it, prog);
+                emit(it, prog)?;
             }
         }
-        Pat::Named { pat, .. } => emit(pat, prog),
+        Pat::Named { pat, .. } => emit(pat, prog)?,
         Pat::Alt(alts) => {
             if alts.is_empty() {
-                return;
+                return Ok(());
             }
             // 依次：Split(本支, 下一支起点)
             let mut jmps = Vec::new();
@@ -56,7 +69,7 @@ fn emit(pat: &Pat, prog: &mut Vec<Inst>) {
                     prog.push(Inst::Split(0, 0)); // 占位，稍后回填
                 }
                 let start = prog.len();
-                emit(alt, prog);
+                emit(alt, prog)?;
                 if i + 1 < alts.len() {
                     let jmp_pc = prog.len();
                     prog.push(Inst::Jmp(0));
@@ -74,14 +87,14 @@ fn emit(pat: &Pat, prog: &mut Vec<Inst>) {
             match max {
                 Some(mx) if *mx >= *min => {
                     for _ in 0..*min {
-                        emit(pat, prog);
+                        emit(pat, prog)?;
                     }
                     // 余下 (mx-min) 份：每份用 Split 跳过
                     for _ in 0..(mx - min) {
                         let split_pc = prog.len();
                         prog.push(Inst::Split(0, 0));
                         let start = prog.len();
-                        emit(pat, prog);
+                        emit(pat, prog)?;
                         let end = prog.len();
                         prog[split_pc] = Inst::Split(start, end);
                     }
@@ -89,18 +102,18 @@ fn emit(pat: &Pat, prog: &mut Vec<Inst>) {
                 Some(_) => {
                     // max < min：不可能匹配，退化为「至少 min 次」以给出可诊断行为
                     for _ in 0..*min {
-                        emit(pat, prog);
+                        emit(pat, prog)?;
                     }
                 }
                 None => {
                     // 无上界：min 份 + 一个循环（单条回边，不复制本体）
                     for _ in 0..*min {
-                        emit(pat, prog);
+                        emit(pat, prog)?;
                     }
                     let split_pc = prog.len();
                     prog.push(Inst::Split(0, 0));
                     let start = prog.len();
-                    emit(pat, prog);
+                    emit(pat, prog)?;
                     prog.push(Inst::Jmp(split_pc));
                     let end = prog.len();
                     prog[split_pc] = Inst::Split(start, end);
@@ -116,7 +129,7 @@ fn emit(pat: &Pat, prog: &mut Vec<Inst>) {
             let split_pc = prog.len();
             prog.push(Inst::Split(0, 0)); // 回填：Split(try_end, consume)
             let try_end = prog.len();
-            emit(pat, prog);
+            emit(pat, prog)?;
             prog.push(Inst::Jmp(0)); // 回填为 end
             let jmp_pc = prog.len() - 1;
             let consume = prog.len();
@@ -127,6 +140,7 @@ fn emit(pat: &Pat, prog: &mut Vec<Inst>) {
             prog[jmp_pc] = Inst::Jmp(end);
         }
     }
+    Ok(())
 }
 
 /// 模拟：并行推进所有线程。返回是否匹配（全文）。
