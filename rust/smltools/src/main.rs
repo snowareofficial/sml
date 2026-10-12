@@ -928,6 +928,27 @@ fn hugo_date() -> String {
 }
 
 fn main() -> ExitCode {
+    // 解析器是递归下降，承诺到 128 层（`MAX_VALUE_DEPTH`）；而 Windows 主线程栈
+    // 默认只有 1 MB —— 深文档会在 parse 里直接爆栈（进程 abort，错误码都来不及打，
+    // `--lint` 的 W-LINT-005 也到不了）。挪到**显式大栈线程**跑：递归深度由
+    // 我们的限制决定，不由宿主线程的默认栈决定。
+    // （实测：70 层嵌套在主线程即溢出 —— smltools/tests/error_codes.rs 的
+    // `lint_deep_nesting_is_wlint_005` 钉着这条。）
+    let handle = match std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(real_main)
+    {
+        Ok(h) => h,
+        Err(_) => return ExitCode::from(1),
+    };
+    match handle.join() {
+        Ok(code) => code,
+        // 子线程 panic（含爆栈）：与原先主线程 panic 的退出码对齐
+        Err(_) => std::process::exit(101),
+    }
+}
+
+fn real_main() -> ExitCode {
     // E-CLI-008：命令行用法错误（未知参数 / 缺取值 / 非法枚举）。
     //
     // clap 自身的用法错误原先由 clap **直接打印并 exit 2、不带码**。这里用
