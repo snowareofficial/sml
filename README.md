@@ -10,6 +10,38 @@
 
 **独立仓库**（snoware/sml）：soup 主仓内保留本目录作为副本/镜像源。
 
+## 30 秒看懂
+
+同一份配置，三种写法：
+
+```json
+{
+  "name": "web",
+  "image": "nginx:1.25",
+  "ports": [80, 443],
+  "deploy": { "region": "cn-north-1", "replicas": 2 }
+}
+```
+
+```yaml
+name: web
+image: "nginx:1.25"   # 值里带冒号，必须加引号；缩进定结构
+ports: [80, 443]
+deploy:
+  region: cn-north-1
+  replicas: 2
+```
+
+```sml
+@base { region: cn-north-1 replicas: 2 }   # 片段：一处定义，多处复用
+name: web
+image: "nginx:1.25"      # 值里带冒号才需要引号
+ports: [ 80 443 ]        # 逗号可省
+deploy: &base            # 块冒号可省；&base 展开为片段内容
+```
+
+同样的信息：SML 少了引号、逗号与缩进规则，多了注释、片段复用，以及可选的 `@contract` 契约校验。
+
 ## 特性
 
 - **引号可选**：裸词即字符串（`state: NY`）

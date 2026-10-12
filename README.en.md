@@ -12,6 +12,39 @@ the blue snowflake `❄` for the exact point where a value is taken.
 
 **Standalone repository** (`snoware/sml`).
 
+## 30 seconds
+
+The same configuration, three ways:
+
+```json
+{
+  "name": "web",
+  "image": "nginx:1.25",
+  "ports": [80, 443],
+  "deploy": { "region": "cn-north-1", "replicas": 2 }
+}
+```
+
+```yaml
+name: web
+image: "nginx:1.25"   # a colon inside the value forces quotes; indentation defines structure
+ports: [80, 443]
+deploy:
+  region: cn-north-1
+  replicas: 2
+```
+
+```sml
+@base { region: cn-north-1 replicas: 2 }   # fragment: define once, reuse anywhere
+name: web
+image: "nginx:1.25"      # quotes only needed because of the colon
+ports: [ 80 443 ]        # commas optional
+deploy: &base            # block colon optional; &base expands the fragment
+```
+
+Same information: SML drops the quotes, commas and indentation rules, and adds
+comments, fragment reuse, and optional `@contract` validation.
+
 ## Features
 
 - **Optional quotes**: a bare word is a string (`state: NY`)
