@@ -451,12 +451,17 @@ pub fn apply_contracts(
             }
         }
     }
-    // 合并视图：字段并集（同字段必一致 —— 预检已保证，后写不覆盖）；
-    // strict 优先 = 全部 loose 才 loose。
-    let mut fields = BTreeMap::new();
+    // 合并视图：字段并集。同字段的 ty/default/min/max 预检已保证一致，取任一即可；
+    // 但 `required` **不在**预检内，必须显式合并 —— 取**或**（任一致约要求即必填）。
+    // 这才满足 D3「顺序无关 / strict 优先」：`@is A B` 与 `@is B A` 结果相同。
+    // （早先此处用 `insert` 后者覆盖，required 于是随书写顺序变，是 D3 违返，已修。）
+    let mut fields: BTreeMap<String, FieldSpec> = BTreeMap::new();
     for c in &list {
         for (k, v) in &c.fields {
-            fields.insert(k.clone(), v.clone());
+            fields
+                .entry(k.clone())
+                .and_modify(|e| e.required = e.required || v.required)
+                .or_insert_with(|| v.clone());
         }
     }
     let allow_extra = list.iter().all(|c| c.allow_extra);

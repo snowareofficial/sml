@@ -57,6 +57,23 @@ fn order_independent() {
     assert_eq!(ab, ba);
 }
 
+/// #3b required 顺序无关（D3 违返修复）：同字段 `x`，A 必填 / B 可选。
+/// 缺 `x` 时 `@is A B` 与 `@is B A` 必须**同样报「必填缺失」**（合并 required 取**或**），
+/// 而非旧版 `insert` 后者覆盖导致的「前者放过、后者报错」（required 随书写顺序变）。
+#[test]
+fn order_independent_when_required_differs() {
+    let head = "@contract A loose { x: str }\n@contract B loose { x: str optional }\n";
+    let ab = err(&format!("{head}d {{ @is A B }}"));
+    let ba = err(&format!("{head}d {{ @is B A }}"));
+    assert!(ab.contains("E-CONTRACT-003"), "@is A B 缺 x 应报必填缺失: {ab}");
+    assert!(ba.contains("E-CONTRACT-003"), "@is B A 缺 x 应报必填缺失: {ba}");
+    // 提供 x：两种顺序都通过且同树
+    assert_eq!(
+        ok(&format!("{head}d {{ @is A B x: v }}")),
+        ok(&format!("{head}d {{ @is B A x: v }}"))
+    );
+}
+
 /// #4 多条 `@is` 全部生效（**行为变更**：旧版后一条覆盖前一条）。
 #[test]
 fn multiple_is_lines_all_apply() {
