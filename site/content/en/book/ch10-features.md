@@ -397,6 +397,12 @@ equivalent to writing `@is Metrics` on the block's first line. No new tokens —
 shape** as the existing bare-block form `type [name] { }` and only takes effect when the first word is an
 **already-defined contract name**. See [§5.2.2](/en/book/ch05-contract).
 
+Block-level annotation also supports **multi-contract mixin**: put several contract names in front of the
+block name (`HasHost HasPort api { }` — from the first word, every consecutive word that hits the contract
+table is a contract; the first miss is the block name), equivalent to `@is HasHost, HasPort` inside the block.
+The **single-contract** form (`Metrics metrics { }`) is **byte-for-byte unchanged**; only ≥ 2 contract words
+trigger the mixin, and a same-field conflict reports `E-CONTRACT-016`. See [§5.4.1 Mixin](/en/book/ch05-contract).
+
 ```sml
 @feature enable typed-block
 ```
@@ -456,15 +462,15 @@ This is the implementation foundation of 'customizable functionality, don't fall
 
 ## 10.6 Future Features (Roadmap)
 
-The following **has not yet been implemented** and is only a roadmap preview to avoid readers' misuse:
+The following items are **all unimplemented**, roadmap previews only; each is annotated with its current
+substitute / mitigation so readers neither misuse them nor reinvent the wheel:
 
--`@import once` (remove duplicate include to avoid the same file being included multiple times)
-
--`feature from "another.sml"` (Inherit feature settings from another file)
-
--`with contract=loose` (block level relaxation, override file level settings)
-
--`?` ternary abbreviation (semantics of `a ? b : c` at value position) - Currently, `?` is an optional tag
+| Idea | Status | Today / superseded by |
+|---|---|---|
+| `@import once` (dedupe include so a file is not pulled in twice) | Unimplemented | **Diamond includes are already legal** (the chain-stack cycle check only blocks true cycles, `E-INCLUDE-002`), and total expansions are capped by `E-LIMIT-003` — dedupe is not required |
+| `feature from "another.sml"` (inherit feature settings from another file) | Unimplemented | No direct substitute; each file declares its own `@feature` at the top |
+| `with contract=loose` (block-level relaxation overriding file-level) | Unimplemented | Substitute — write `loose` / `strict` on the `@contract` itself (contract-level, not block-level override) |
+| `?` ternary shorthand (`a ? b : c` at value position) | Unimplemented | `?` is currently the **optional field marker**; there is no ternary at value position |
 
 ## 10.7 Give it a try with your hands
 

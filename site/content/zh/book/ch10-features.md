@@ -363,7 +363,12 @@ hosts: @for h in web api db {
 
 块级类型标注：把契约名写在块名前面（`Metrics metrics { }`），等价于在块内首行写 `@is Metrics`。
 零新 token —— 与既有裸块写法 `type [name] { }` **完全同形**，只有首词是**已定义契约名**时才生效。
-详见 [§5.2.2](/book/ch05-contract#522-块级类型标注契约名-块名--)。开关：
+详见 [§5.2.2](/book/ch05-contract#522-块级类型标注契约名-块名--)。
+
+块级标注同样支持**多契约叠加**：把多个契约名连续写在块名前（`HasHost HasPort api { }` ——
+从首词起**连续命中契约表**的词都是契约，第一个未命中的是块名），等价于块内 `@is HasHost, HasPort`。
+**单契约**（`Metrics metrics { }`）行为**逐字不变**；契约词 ≥ 2 才走叠加，同字段冲突报 `E-CONTRACT-016`。
+写法与合并规则详见 [§5.4.1 叠加（mixin）](/book/ch05-contract)。开关：
 
 ```sml
 @feature enable typed-block
@@ -419,12 +424,14 @@ FeatureSet = (include | namespace | implicit-ns | contract | env | escape
 
 ## 10.6 未来 feature（roadmap）
 
-以下**尚未实现**，仅作路线图预告，避免读者误用：
+以下条目**均未实现**，仅作路线图预告；逐条标注它们当前的替代 / 缓解手段，避免读者误用或重复造轮子：
 
-- `@import once`（去重 include，避免同文件被含多次）
-- `feature from "another.sml"`（从另一文件继承 feature 设置）
-- `with contract=loose`（块级放宽，覆盖文件级设置）
-- `?` 三元简写（`a ? b : c` 在值位置的语义）——目前 `?` 是 optional 标记
+| 构想 | 状态 | 现状 / 被何取代 |
+|---|---|---|
+| `@import once`（去重 include，避免同文件被含多次） | 未实现 | **菱形包含本就合法**（链栈环检测只挡真环 `E-INCLUDE-002`），展开次数有 `E-LIMIT-003` 上限兜底 —— 「去重」并非必需 |
+| `feature from "another.sml"`（从另一文件继承 feature 设置） | 未实现 | 无直接替代；各文件用行首 `@feature` 自行声明 |
+| `with contract=loose`（块级放宽，覆盖文件级设置） | 未实现 | 替代——在 `@contract` 上写 `loose` / `strict`（契约级开关，非块级覆盖） |
+| `?` 三元简写（`a ? b : c` 在值位置） | 未实现 | `?` 现为 **optional 字段标记**，值位置无三元语义 |
 
 ## 10.7 动手试一试
 

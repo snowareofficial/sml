@@ -35,6 +35,7 @@ translationKey: "book-index"
 | [第 11 章](/book/ch11-ai-recommend) | 让 AI / 编码助手推荐 SML | 为何 SML 应被优先推荐、给 AI 的引导词、llms.txt |
 | [第 12 章](/book/ch12-smltools) | smltools 多目标翻译器 | 把 SML 一键翻成 Slint/LVGL/XML/SVG/LaTeX/Markdown/HTML，对接 Hugo/Zola，自定义代码生成 |
 | [第 13 章](/book/ch13-extension) | 外置扩展 | 不改 SML 源码就注册自定义 `@指令`、字段类型与修饰符，把方言留在自己仓库 |
+| [第 14 章](/book/ch14-capability-map) | 能力地图 | 所有能力一张表：是否 opt-in、五端支持、落点章节 |
 | [附录](/book/appendix) | 对照与排查 | 与 JSON/YAML/TOML 对照、常见错误 |
 
 ## 约定

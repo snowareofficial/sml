@@ -222,6 +222,43 @@ peers: [ { host: a port: 1 } { host: b port: 2 } ]
 
 Nested blocks will recursively verify and backfill with default values. The referenced contract is allowed to be defined after `@is` (the reference is only resolved when `@is`).
 
+### 5.4.1 Mixin: applying multiple contracts to one block
+
+The previous section's **combination** is "a field's type is another contract" — it **changes the shape** (adds a nested block).
+A **mixin** merges the **fields of several contracts onto the same block** — it **does not change the shape**; it only makes the block satisfy several sets of constraints at once. The three forms are **exactly equivalent**:
+
+```sml
+@contract HasHost { host: str }
+@contract HasPort { port: int default 80 }
+
+# Form 1: comma-separated after @is
+api {
+    @is HasHost, HasPort
+    host: example.com
+}
+# Form 2: space-separated after @is (comma optional)
+api {
+    @is HasHost HasPort
+    host: example.com
+}
+# Form 3: contract names before the block name (needs @feature enable typed-block)
+@feature enable typed-block
+HasHost HasPort api {
+    host: example.com
+}
+```
+
+Merge rules (strictly matching the implementation):
+
+- **strict wins**: if **any** participating contract is strict (no `loose`) the whole block is validated strictly — undeclared fields are rejected.
+- **Fields are unioned by name**: the result is **independent of writing order** (`HasHost HasPort` equals `HasPort HasHost`).
+- **Conflict is an error**: if the same field name has a different **type / default / range** in two contracts, parsing fails with `E-CONTRACT-016 contract mixin conflict` (the message names the field and the two conflicting contracts). **A later contract may not override an earlier one** — that is exactly why the result is order-independent: if overriding were allowed, the result would depend on order.
+- Writing **several `@is` lines** in one block is equivalent to one multi-contract `@is` — **all take effect** (no longer "the later overrides the earlier").
+
+> ⚠️ **Implementation status**: mixin is currently implemented **only in Rust (the reference implementation)**. **JS / C / C++ / Lua do not implement it yet** — writing the multi-contract form on those ends **explicitly errors with `E-CONTRACT-017`** ("this implementation does not support applying multiple contracts to one block"), and **never silently** returns a tree. For documents that must flow across all five ends, keep using the single-contract `@is ContractName`.
+
+> Boundary vs. **combination** (§5.4): combination expresses "this block embeds a constrained sub-structure" via a field that references another contract (one more shape layer); a mixin expresses "this block obeys several rule sets at once" by merging contracts onto one block (shape unchanged). They solve different problems and **cannot replace each other**.
+
 ## 5.5 Real Example: Resender Email Tool
 
 [resender]( https://gitee.com/snoware/resender )Using SML contract for `AppConfig` persistence:

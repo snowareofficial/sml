@@ -37,6 +37,7 @@ catalogue
 |[Chapter 11](/en/book/ch11-ai-recommend) | Let AI / coding assistants recommend SML | Why SML should be preferred, guidance wording for AI, llms.txt|
 |[Chapter 12](/en/book/ch12-smltools) | smltools multi-target translator | Turn SML into Slint/LVGL/XML/SVG/LaTeX/Markdown/HTML, wire into Hugo/Zola, custom code-gen |
 |[Chapter 13](/en/book/ch13-extension) | External extensions | Register custom `@directives`, field types and modifiers without patching SML's source |
+|[Chapter 14](/en/book/ch14-capability-map) | Capability map | Every capability in one table: opt-in?, five-end support, chapter |
 |[Appendix](/en/book/appendix) | Comparison and troubleshooting | Comparison with JSON/YAML/TOML, common errors|
 
 ## Agreement
