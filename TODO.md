@@ -184,12 +184,24 @@
       未闭合括号、空文档、只有注释的文档、重复片段名
 - [ ] **Lua/JS 缺少单元测试**（Rust 有 32 个测试；Lua 与 JS 目前只有临时探针）
 - [ ] **C 实现的 `sml_dump` 输出风格**与 Rust `to_sml` 是否逐字节对齐，待比对
-- [ ] **`smltools -i 裸文件名` 报 `E-INCLUDE-010`**（2026-10-12 实测登记）：
+- [x] **`smltools -i 裸文件名` 报 `E-INCLUDE-010`**（2026-10-12 实测登记）：
       `parse_file` 用 `path.parent()` 作 include 基准目录，裸文件名（如
       `smltools -i codes.sml`，cwd 下）的 `parent()` 是**空串** ⇒
       canonicalize 失败 ⇒ 报「include 基准目录不可解析」。必须写
       `./codes.sml` 或绝对路径。修法一行（`parent()` 为空回落 `"."`），
       但按纪律要走判别实验 + 全仓扫描；另需核对 C/C++/Lua 的文件入口是否有同样问题
+      **2026-10-12 已修（仅 Rust 端）**：`rust/sml-parse/src/api.rs` 的
+      `parse_file` / `parse_file_versioned` / `parse_file_features` 三处 base 构造加
+      `.filter(|p| !p.as_os_str().is_empty())`，空 parent 回落 `"."`；`_rust_test.bat`
+      49/594/0 不变，判别实验 `git stash` 后回 E-INCLUDE-010、`pop` 后恢复。
+      **各端文件入口核对（只登记、不修）**：
+      - **Rust**：同病，**已修**（本轮）；
+      - **C**：`path_dir` 对裸文件名回落 `"."`（`c/sml.c:2101`），include 按 cwd 解析，
+        不报 010（**没事**）；
+      - **C++**：`include_dir` 为空时直接关闭 include（`cpp/sml.cpp:1451`），裸文件名
+        `parent_path()` 为空 ⇒ 不展开、不报 010（**没事**）；
+      - **Lua**：`dir = match "^(.+)[/\\]" or "."`（`lua/main.lua:33`），裸文件名回落 `"."`；
+        实测 `luajit lua/main.lua codes.sml`（cwd=errors）RC=0 成功解析（**没事**）。
 
 ## 三、如何验证（当前可用的临时命令）
 

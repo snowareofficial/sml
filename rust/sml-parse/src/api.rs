@@ -42,6 +42,7 @@ pub fn parse_file_versioned(path: impl AsRef<Path>) -> Result<(Value, Version), 
     let base = path
         .parent()
         .map(|p| p.to_path_buf())
+        .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| PathBuf::from("."));
     let (rest, declared) = strip_version(&text)?;
     let (rest, feats, base_ver, had) = strip_features(&rest)?;
@@ -380,6 +381,7 @@ pub fn parse_file(path: impl AsRef<Path>) -> Result<Value, SmlError> {
     let base = path
         .parent()
         .map(|p| p.to_path_buf())
+        .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| PathBuf::from("."));
     // 主文件先剥离版本/特性指令。
     // 便捷入口 `parse_file` 的「调用方允许集」为全开（文档自身声明决定启用哪些特性，
@@ -412,6 +414,7 @@ pub fn parse_file_features(
     let base = path
         .parent()
         .map(|p| p.to_path_buf())
+        .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| PathBuf::from("."));
     let (rest, declared) = strip_version(&text)?;
     let (rest, feats, base_ver, had) = strip_features(&rest)?;
