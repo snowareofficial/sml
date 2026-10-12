@@ -203,6 +203,26 @@ git stash pop
 
 ## 4. 任务 B：契约映射 API（不开启时逐字一致）
 
+> **✅ 已完成（2026-10-12）**，证据：
+> - 全量 `EXIT=0 / SUITES=48 / PASSED=574 / FAILED=0`（B 前 47 套 564 条 ⇒ +10，零回归）；
+> - 判别实验：HEAD 版 `--test contract_map` **编译失败即红**（无 `trace_contracts` / `contract_map`）。
+>
+> 执行中的三处设计与文档差异（均已按实情落地）：
+> 1. **`path_stack` 是与 `ns_stack` 平行的栈，不是「升级替换」**：`ns_prefix()` / `qualify()`
+>    的字符串语义被十几个调用点依赖（行为必须逐字不变）；且裸块的 `Key(类型名)` 是
+>    **命名空间**产物、不是结果树位置（数组里的裸块即反例）——两者本就不该同栈。
+>    压栈点共 5 处：`parse_value` 的对象块 / 数组 / 裸块三分支（`Key(key)`），
+>    `parse_array_inner` 的对象元素 / 嵌套数组 / 裸块元素（`Index(arr.len())`）。
+>    `parse_bare_block` 内部**不自压**，由调用方压。
+> 2. **顺带修了 CLI 爆栈（`smltools/src/main.rs`）**：解析器承诺 128 层（`MAX_VALUE_DEPTH`），
+>    但 Windows 主线程栈默认 1 MB，70 层即溢出（`lint_deep_nesting_is_wlint_005` 实测）——
+>    HEAD 版只是贴边侥幸。main 已挪到 64 MB 大栈线程（子线程 panic ⇒ `exit(101)` 对齐原语义）。
+>    ⚠️ **登记未改**：库入口（`parse` / `parse_with`）在 1 MB 栈线程上同样可能爆 ——
+>    文档要写「深文档请在自带大栈的线程上调库」。
+> 3. **排序细则**（to_sml golden 钉住）：路径逐段比较，同位置 `Key` 在 `Index` 前
+>    （枚举声明序）；`Key` 段按字典序（`"123" < database < items`）；
+>    裸词安全判据见 `contract_map.rs::word_or_quoted`（数字键 / 保留字自动加引号）。
+
 1. **新文件** `rust/sml-parse/src/contract_map.rs`：
    `PathSeg` / `AppliedContract` / `ContractMap` / `names_at()` / `to_sml()`（按 D5）。
 2. **`rust/sml-parse/src/ext.rs:201`**：`ParseOutput` 加 `pub contract_map: Option<ContractMap>`；
@@ -228,6 +248,24 @@ git stash pop
 ---
 
 ## 5. 任务 C：契约叠加（本轮主体）
+
+> **✅ 已完成（2026-10-12）**，证据：
+> - 全量 `EXIT=0 / SUITES=49 / PASSED=585 / FAILED=0`（C 前 48 套 574 条 ⇒ +11，零回归；
+>   **既有全部契约测试原样通过** —— 单契约路径逐字未变）；
+> - `contract_mixin` 11 条全绿；判别实验 HEAD 版编译红（C 的 api 接线在 HEAD 不存在）；
+> - 全仓扫描：30 个跟踪 .sml，改前/改后 **rc 全一致**，内容唯一差异 = `errors/codes.sml`
+>   自身的 JSON（新增两码，预期内）⇒ **无误伤、零静默变树**。
+>
+> 执行中的四处设计与文档差异（均已按实情落地）：
+> 1. **停机判据补了一条**：裸词后跟 `:` 的是**键**（`@is A host: h1` 的 host 是键值，
+>    不是契约名）—— 没有它，同行的键值永远写不了。判据全序：换行即停 > 键值判停
+    > > 命中契约则收 > 否则 `E-CONTRACT-001`（带位置）。
+> 2. **行号未知（文件入口 / `@for` 体）⇒ 只收一个词**（旧行为）：`Parser.lines`
+>    空表时多词收集直接关闸 —— 宁可少收，不可把下一行的键吞进契约名。已登记。
+> 3. **`E-CONTRACT-001` 的报错时机前移**：从「块结束时、无位置」改为「收集时、
+>    带位置」（码不变、文案同形、位置新增）。
+> 4. **单契约路径逐字不变**的实现方式：`names.len() == 1` 时走**原来的**
+>    `apply_contract` 路径（含原错误文案），≥2 才进 `apply_contracts`（合并视图）。
 
 ### C1. 新增码 `E-CONTRACT-016`
 
