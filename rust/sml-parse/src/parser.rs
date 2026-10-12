@@ -17,6 +17,7 @@ use sml_lex::{Span, Tok, coerce_word, lookup_env};
 use sml_value::{MAX_VALUE_DEPTH, Value};
 
 use crate::contract_bridge::apply_contract;
+use crate::contract_map::{ContractMap, PathSeg};
 use crate::ext::{Diagnostic, DiagnosticKind, DirectiveTable, Outcome};
 
 /// 解析器。`pub` 仅为让 `cond` 等子模块复用游标，不对外暴露。
@@ -43,6 +44,16 @@ pub struct Parser {
     /// 宏/契约注册与引用时，按栈路径加前缀（如 `ui.form.Button`），
     /// 使命名空间真正隔离宏，而非仅隔离数据键值。
     pub(crate) ns_stack: Vec<String>,
+    /// 结果树路径栈（与 `ns_stack` **平行**、不替代）：`Key` = 对象键，`Index` = 数组下标。
+    ///
+    /// 只供契约映射记录用。为什么不动 `ns_stack`：它的字符串拼接语义
+    /// （`ns_prefix()` / `qualify()` / 错误前缀）被十几个调用点依赖，
+    /// 且裸块的 `Key(类型名)` 是**命名空间**产物、不是结果树位置 ——
+    /// 两者本来就不该是同一个栈（数组里的裸块即是反例）。
+    pub(crate) path_stack: Vec<PathSeg>,
+    /// 契约映射（`ParseOptions::trace_contracts` 开启时才 `Some`；未开启恒 `None`，
+    /// 解析行为与旧版逐字一致）。
+    pub(crate) contract_map: Option<ContractMap>,
     /// 本次解析的环境变量覆盖表。`$env.X` 先在此查表，未命中才读进程环境。
     /// 用于 FFI 等「不修改进程环境」的注入场景（见 [`Self::env_var`]）。
     pub(crate) env: BTreeMap<String, String>,
@@ -262,6 +273,10 @@ impl Parser {
             features: self.features,
             depth: self.depth + 1,
             ns_stack: self.ns_stack.clone(),
+            path_stack: self.path_stack.clone(),
+            // 子解析器的映射记录暂不回传父级（同 diags：回传要跨 &mut 借用，
+            // 而 `@for` 体内应用契约的场景极少）。克隆只为路径上下文正确。
+            contract_map: self.contract_map.clone(),
             env: self.env.clone(),
             loop_vars,
             directives: Arc::clone(&self.directives),
@@ -1109,6 +1124,11 @@ impl Parser {
                 })?;
             // 用命名空间栈拼出当前块路径（如 `api`、`ns.api`），作为错误定位前缀
             apply_contract(&c, &mut node, &self.contracts, &self.ns_prefix())?;
+            // 契约映射：本块（路径 = path_stack，调用方已把键/下标压好）应用了 `cname`。
+            // 仅在应用**成功**后记 —— 失败即整篇报错，不存在半张映射。
+            if let Some(map) = &mut self.contract_map {
+                map.record(self.path_stack.clone(), cname);
+            }
         }
         Ok(Value::Object(node))
     }
@@ -1195,6 +1215,11 @@ impl Parser {
                     SmlError::new(E_CONTRACT_001, format!("sml: 未定义的契约 `{}`", cname))
                 })?;
                     apply_contract(&c, m, &self.contracts, &self.ns_prefix())?;
+                    // 契约映射：path_stack 此刻仍含本块的键/下标（调用方在
+                    // `parse_bare_block` 返回后才 pop），正是本块在结果树里的位置。
+                    if let Some(map) = &mut self.contract_map {
+                        map.record(self.path_stack.clone(), cname);
+                    }
                 }
             }
             m.insert("__type".into(), Value::Str(key.to_string()));
@@ -1223,16 +1248,28 @@ impl Parser {
         }
         // 无冒号且后继是裸词: 可能是裸块 `type [name] { }`
         if !colon && self.bare_block_ahead() {
-            return self.parse_bare_block(key);
+            // 路径压 Key(key)：裸块在结果树里的位置就是「键 key 的值」。
+            // （`parse_bare_block` 内部不自压 —— 数组里的裸块由调用方压 Index。）
+            self.path_stack.push(PathSeg::Key(key.to_string()));
+            let v = self.parse_bare_block(key);
+            self.path_stack.pop();
+            return v;
         }
         match self.peek().cloned() {
             Some(Tok::LBrace) => {
                 self.next();
-                self.parse_block(Some(Tok::RBrace))
+                // 进入子对象 = 路径多一段 Key（契约映射用；ns_stack 语义不变）
+                self.path_stack.push(PathSeg::Key(key.to_string()));
+                let v = self.parse_block(Some(Tok::RBrace));
+                self.path_stack.pop();
+                v
             }
             Some(Tok::LBrack) => {
                 self.next();
-                self.parse_array()
+                self.path_stack.push(PathSeg::Key(key.to_string()));
+                let v = self.parse_array();
+                self.path_stack.pop();
+                v
             }
             Some(tok @ (Tok::Word(_) | Tok::Str(_))) => {
                 let v = match tok {
@@ -1349,12 +1386,18 @@ impl Parser {
                 }
                 Some(Tok::LBrace) => {
                     self.next();
-                    arr.push(self.parse_block(Some(Tok::RBrace))?);
+                    self.path_stack.push(PathSeg::Index(arr.len()));
+                    let v = self.parse_block(Some(Tok::RBrace));
+                    self.path_stack.pop();
+                    arr.push(v?);
                 }
                 Some(Tok::LBrack) => {
                     self.next();
                     // 走 wrapper 以复用 depth 守卫（否则嵌套数组会绕过 128 层限制导致栈溢出 DoS）
-                    arr.push(self.parse_array()?);
+                    self.path_stack.push(PathSeg::Index(arr.len()));
+                    let v = self.parse_array();
+                    self.path_stack.pop();
+                    arr.push(v?);
                 }
                 Some(Tok::Word(w)) => {
                     // 数组内的裸块 `Type [name] { ... }`：表达**有序**元素序列。
@@ -1362,7 +1405,10 @@ impl Parser {
                     // 需要保序的子元素（UI 布局、文档章节）需写作数组。
                     if self.bare_block_ahead() {
                         self.next(); // 消费类型名
-                        arr.push(self.parse_bare_block(&w)?);
+                        self.path_stack.push(PathSeg::Index(arr.len()));
+                        let v = self.parse_bare_block(&w);
+                        self.path_stack.pop();
+                        arr.push(v?);
                     } else {
                         arr.push(coerce_word(
                             &w,

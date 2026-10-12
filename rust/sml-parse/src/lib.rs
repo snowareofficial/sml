@@ -8,6 +8,8 @@ mod api;
 mod error;
 /// 契约桥接：把 sml-contract 的校验接到解析流程上。
 mod contract_bridge;
+/// 契约映射：解析期记录「哪个实体应用了哪些契约」（opt-in，见 `ParseOptions::trace_contracts`）。
+pub mod contract_map;
 /// 解析期条件/循环原语（`@when` / `@for`）。
 #[cfg(feature = "when")]
 mod cond;
@@ -18,6 +20,7 @@ pub use api::{
     loads, parse, parse_allowed, parse_file, parse_file_features, parse_file_versioned,
     parse_versioned, parse_with, parse_with_features, parse_with_features_env,
 };
+pub use contract_map::{AppliedContract, ContractMap, PathSeg};
 pub use ext::{ParseOptions, ParseOutput};
 pub use error::ParseError;
 

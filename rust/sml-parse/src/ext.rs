@@ -162,11 +162,28 @@ pub struct ParseOptions {
     /// 外置契约类型表（`image` / `link` / `time` 这类领域类型）。
     /// 见 [`sml_contract::ext`]。
     pub contract_ext: ContractExt,
+    /// 是否记录**契约映射**（哪个实体应用了哪些契约）。
+    ///
+    /// ⚠️ 默认 `false`：不开启时 `ParseOutput` 与旧版**逐字一致**
+    /// （`contract_map` 恒为 `None`，解析路径零额外开销）。
+    /// 开启后见 [`crate::contract_map::ContractMap`]。
+    pub(crate) trace_contracts: bool,
 }
 
 impl ParseOptions {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// 开启契约映射记录（链式）。
+    ///
+    /// ```ignore
+    /// let out = sml_parse::parse_with(text, ParseOptions::new().trace_contracts(true))?;
+    /// out.contract_map.unwrap().names_at(&[PathSeg::Key("db".into())]);
+    /// ```
+    pub fn trace_contracts(mut self, on: bool) -> Self {
+        self.trace_contracts = on;
+        self
     }
 
     /// 链式注册一条外置指令（注册失败返回 Err，便于 `?` 展开）。
@@ -197,11 +214,20 @@ impl ParseOptions {
 }
 
 /// 带扩展的解析输出：值 + 非致命诊断。
+///
+/// ⚠️ 这是**公开结构体加字段**（`contract_map`）：对只读取的代码无破坏，
+/// 只有结构体字面量构造会缺字段 —— 已记入 CHANGELOG「升级注意」。
 #[derive(Debug, Clone)]
 pub struct ParseOutput {
     pub value: Value,
     /// 弃用提示等。为空表示文档未触发任何警告。
     pub diagnostics: Vec<Diagnostic>,
+    /// 契约映射（哪个实体应用了哪些契约）。
+    ///
+    /// **仅当 [`ParseOptions::trace_contracts`] 开启时为 `Some`**；
+    /// 否则恒为 `None` —— 这是「不开启时逐字一致」的钉子
+    /// （`rust/tests/contract_map.rs` 有显式断言）。
+    pub contract_map: Option<crate::contract_map::ContractMap>,
 }
 
 #[cfg(test)]

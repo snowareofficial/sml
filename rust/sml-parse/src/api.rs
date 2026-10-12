@@ -14,6 +14,7 @@ use sml_include::resolve_includes;
 use sml_lex::{Span, Tok, tokenize_spans};
 use sml_value::Value;
 
+use crate::contract_map::ContractMap;
 use crate::error::ParseError;
 use crate::ext::{ParseOptions, ParseOutput};
 use crate::parser::Parser;
@@ -257,11 +258,18 @@ fn parse_impl_tokens_ext(
         features,
         depth: 0,
         ns_stack: Vec::new(),
+        path_stack: Vec::new(),
         env,
         loop_vars: BTreeMap::new(),
         directives: Arc::new(opts.directives),
         diags: Vec::new(),
         contract_ext: Arc::new(opts.contract_ext),
+        // 契约映射：opt-in。未开启时 None（零开销、结果逐字一致）。
+        contract_map: if opts.trace_contracts {
+            Some(ContractMap::new())
+        } else {
+            None
+        },
     };
     // 顶层标量不可往返 ⇒ `E-PARSE-008`（W16 接线）。
     //
@@ -306,9 +314,14 @@ fn parse_impl_tokens_ext(
         }
         _ => p.parse_block(None),
     };
+    // 契约映射出口：排序后随输出返回（此后只读）。未开启时为 None。
+    if let Some(m) = &mut p.contract_map {
+        m.freeze();
+    }
     Ok(ParseOutput {
         value: value?,
         diagnostics: p.diags,
+        contract_map: p.contract_map,
     })
 }
 
