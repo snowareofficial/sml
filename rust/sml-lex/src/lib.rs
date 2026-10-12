@@ -38,17 +38,89 @@ pub enum Tok {
     Word(String),  // 裸词
 }
 
-pub fn tokenize(text: &str) -> Result<Vec<Tok>, SmlError> {
+/// 词法单元在原文中的区间（**字节**偏移，左闭右开）。
+///
+/// 为什么单独存、而不塞进 `Tok`：`Tok` 是解析器与 `cond` 共用的形状定义，
+/// 给它加字段会把改动扩散到每一处 match。旁路表让「要不要位置」成为调用方的
+/// 选择 —— 不关心位置的路径（[`tokenize`]）零成本、行为逐字不变。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Span {
+    pub start: usize,
+    pub end: usize,
+}
+
+/// 带位置记录的字符游标：每消费一个字符就累加它的 UTF-8 字节数。
+///
+/// 这样扫描逻辑里的 `next()` / `peek()` / `by_ref()` **一处都不用改**，
+/// 位置自动跟着走 —— 手写「每个消费点都 +len」迟早漏一处，漏了就是静默错位。
+struct PosChars<'a> {
+    it: std::str::Chars<'a>,
+    pos: usize,
+    peeked: Option<char>,
+}
+
+impl<'a> PosChars<'a> {
+    fn new(s: &'a str) -> Self {
+        Self {
+            it: s.chars(),
+            pos: 0,
+            peeked: None,
+        }
+    }
+    fn bump(&mut self) -> Option<char> {
+        let c = match self.peeked.take() {
+            Some(c) => c,
+            None => self.it.next()?,
+        };
+        self.pos += c.len_utf8();
+        Some(c)
+    }
+    fn peek(&mut self) -> Option<&char> {
+        if self.peeked.is_none() {
+            self.peeked = self.it.next();
+        }
+        self.peeked.as_ref()
+    }
+    /// 已消费的字节数（即下一个字符的起始偏移）。
+    fn pos(&self) -> usize {
+        self.pos
+    }
+    fn next(&mut self) -> Option<char> {
+        self.bump()
+    }
+}
+
+impl<'a> Iterator for PosChars<'a> {
+    type Item = char;
+    fn next(&mut self) -> Option<char> {
+        self.bump()
+    }
+}
+
+/// 切词，**并**返回每个 token 在原文中的字节区间。
+///
+/// 与 [`tokenize`] 是同一个扫描器、同一套判据，只是多记一份旁路区间；
+/// 需要错误定位的入口（解析器 / CLI / 编辑器）用它。
+pub fn tokenize_spans(text: &str) -> Result<(Vec<Tok>, Vec<Span>), SmlError> {
     let mut toks = Vec::new();
-    let mut chars = text.chars().peekable();
+    let mut spans = Vec::new();
+    let mut chars = PosChars::new(text);
     let mut buf = String::new();
-    // 闭包只按参数操作，不捕获可变状态，故无需 mut
-    let flush = |buf: &mut String, toks: &mut Vec<Tok>| {
+    // 闭包只按参数操作，不捕获可变状态，故无需 mut。
+    //
+    // `end` 由调用方给：裸词的字符是**连续**消费的（注释/定界符都会先把 buf 冲掉），
+    // 故起点 = `end - buf 的字节长度`，不必额外维护「词起始」状态。
+    let flush = |buf: &mut String, toks: &mut Vec<Tok>, spans: &mut Vec<Span>, end: usize| {
         if !buf.is_empty() {
+            let len: usize = buf.chars().map(|c| c.len_utf8()).sum();
+            let start = end.saturating_sub(len);
             toks.push(Tok::Word(std::mem::take(buf)));
+            spans.push(Span { start, end });
         }
     };
     while let Some(c) = chars.next() {
+        // 本字符的起始偏移：`next()` 之后 pos 已越过它，故回退它的字节长度
+        let c_start = chars.pos() - c.len_utf8();
         match c {
             '#' => {
                 // 单行注释到行尾
@@ -133,7 +205,7 @@ pub fn tokenize(text: &str) -> Result<Vec<Tok>, SmlError> {
                 }
             }
             '"' => {
-                flush(&mut buf, &mut toks);
+                flush(&mut buf, &mut toks, &mut spans, c_start);
                 let mut s = String::new();
                 loop {
                     match chars.next() {
@@ -232,31 +304,39 @@ pub fn tokenize(text: &str) -> Result<Vec<Tok>, SmlError> {
                         }
                     }
                 }
+                // 字符串区间含首尾引号（左闭右开）
+                spans.push(Span { start: c_start, end: chars.pos() });
                 toks.push(Tok::Str(s));
             }
             '{' => {
-                flush(&mut buf, &mut toks);
+                flush(&mut buf, &mut toks, &mut spans, c_start);
                 toks.push(Tok::LBrace);
+                spans.push(Span { start: c_start, end: chars.pos() });
             }
             '}' => {
-                flush(&mut buf, &mut toks);
+                flush(&mut buf, &mut toks, &mut spans, c_start);
                 toks.push(Tok::RBrace);
+                spans.push(Span { start: c_start, end: chars.pos() });
             }
             '[' => {
-                flush(&mut buf, &mut toks);
+                flush(&mut buf, &mut toks, &mut spans, c_start);
                 toks.push(Tok::LBrack);
+                spans.push(Span { start: c_start, end: chars.pos() });
             }
             ']' => {
-                flush(&mut buf, &mut toks);
+                flush(&mut buf, &mut toks, &mut spans, c_start);
                 toks.push(Tok::RBrack);
+                spans.push(Span { start: c_start, end: chars.pos() });
             }
             ',' => {
-                flush(&mut buf, &mut toks);
+                flush(&mut buf, &mut toks, &mut spans, c_start);
                 toks.push(Tok::Comma);
+                spans.push(Span { start: c_start, end: chars.pos() });
             }
             ':' => {
-                flush(&mut buf, &mut toks);
+                flush(&mut buf, &mut toks, &mut spans, c_start);
                 toks.push(Tok::Colon);
+                spans.push(Span { start: c_start, end: chars.pos() });
             }
             '@' => {
                 // `@` 仅当位于**词首**时才是片段定义标记（`@base { ... }`）。
@@ -272,20 +352,30 @@ pub fn tokenize(text: &str) -> Result<Vec<Tok>, SmlError> {
                         Some(c) => !c.is_whitespace(),
                     };
                     toks.push(if adjacent { Tok::At } else { Tok::BareAt });
+                    spans.push(Span { start: c_start, end: chars.pos() });
                 } else {
                     buf.push(c);
                 }
             }
             ' ' | '\t' | '\n' | '\r' => {
-                flush(&mut buf, &mut toks);
+                // 空白本身不是 token：词在此处结束，故 end 取空白的起始偏移
+                flush(&mut buf, &mut toks, &mut spans, c_start);
             }
             _ => {
                 buf.push(c);
             }
         }
     }
-    flush(&mut buf, &mut toks);
-    Ok(toks)
+    flush(&mut buf, &mut toks, &mut spans, chars.pos());
+    Ok((toks, spans))
+}
+
+/// 切词（不带位置）。
+///
+/// 行为与加入 spans 之前**逐字一致**：内部就是 [`tokenize_spans`] 丢掉区间。
+/// 需要错误定位的入口改用 [`tokenize_spans`]。
+pub fn tokenize(text: &str) -> Result<Vec<Tok>, SmlError> {
+    tokenize_spans(text).map(|(t, _)| t)
 }
 
 /// 查环境变量：优先查本次解析的**覆盖表**（`env_overrides`），未命中才回落
@@ -550,4 +640,87 @@ pub fn advance_line(mut start: usize, line: &str, text: &str) -> usize {
         }
     }
     start
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `tokenize` 与 `tokenize_spans` 必须**逐字一致** —— 这是「加位置不改行为」的钉子：
+    /// 任一端漂移，这里就红。
+    #[test]
+    fn tokenize_matches_tokenize_spans() {
+        let cases = [
+            "a: 1",
+            "k: 中",
+            r#"s: "ab""#,
+            "# 注释\na: 1\n",
+            "m: [ 1, 2 ]\n",
+            "@base { x: 1 }\ny: &base\n",
+            "a@b.c: 1\n",
+            "/* c */ k: 1\n",
+            "",
+            "42\n",
+        ];
+        for src in cases {
+            let a = tokenize(src).unwrap();
+            let (b, spans) = tokenize_spans(src).unwrap();
+            assert_eq!(a, b, "输入 {src:?}：两个入口的结果不一致");
+            assert_eq!(
+                b.len(),
+                spans.len(),
+                "输入 {src:?}：spans 与 toks 数量不相等"
+            );
+        }
+    }
+
+    /// 区间是**字节**偏移，且指向原文中该 token 的真实位置。
+    #[test]
+    fn spans_point_at_source_bytes() {
+        let (toks, spans) = tokenize_spans("a: 1").unwrap();
+        assert_eq!(
+            toks,
+            vec![
+                Tok::Word("a".into()),
+                Tok::Colon,
+                Tok::Word("1".into())
+            ]
+        );
+        assert_eq!(
+            spans,
+            vec![
+                Span { start: 0, end: 1 },
+                Span { start: 1, end: 2 },
+                Span { start: 3, end: 4 },
+            ]
+        );
+    }
+
+    /// 多字节字符按 UTF-8 字节计（`中` 占 3 字节）—— 位置一旦按 char 计就会错位。
+    #[test]
+    fn spans_are_byte_offsets_not_char_offsets() {
+        let src = "k: 中";
+        let (toks, spans) = tokenize_spans(src).unwrap();
+        assert_eq!(toks.len(), 3);
+        assert_eq!(spans[2], Span { start: 3, end: 6 });
+        assert_eq!(&src[spans[2].start..spans[2].end], "中");
+    }
+
+    /// 字符串区间含首尾引号。
+    #[test]
+    fn string_span_includes_quotes() {
+        let src = r#"s: "ab""#;
+        let (toks, spans) = tokenize_spans(src).unwrap();
+        assert_eq!(toks[2], Tok::Str("ab".into()));
+        assert_eq!(spans[2], Span { start: 3, end: 7 });
+    }
+
+    /// 注释不产生 token，其后的键位置仍要正确。
+    #[test]
+    fn key_after_comment_is_located() {
+        let src = "# 注释\na: 1\n";
+        let (toks, spans) = tokenize_spans(src).unwrap();
+        assert_eq!(toks[0], Tok::Word("a".into()));
+        assert_eq!(&src[spans[0].start..spans[0].end], "a");
+    }
 }

@@ -45,6 +45,12 @@ use std::fmt;
 pub struct SmlError {
     code: &'static str,
     message: String,
+    /// 出错位置：原文中的**字节**偏移。**可选** —— 早期构造点不传就是 `None`。
+    ///
+    /// ⚠️ `Display` / `render` **不输出**它：码与文案才是稳定契约，位置属于
+    /// 「给人看的附加信息」，不同端的呈现方式可以不同。需要行列时由调用方
+    /// 拿 [`SmlError::pos`] 配合原文换算（见 `sml-parse` 的出口）。
+    pos: Option<usize>,
 }
 
 impl SmlError {
@@ -54,12 +60,24 @@ impl SmlError {
         SmlError {
             code,
             message: message.into(),
+            pos: None,
         }
+    }
+
+    /// 记下出错位置（原文字节偏移），链式：`SmlError::new(C, "…").at(pos)`。
+    pub fn at(mut self, pos: usize) -> Self {
+        self.pos = Some(pos);
+        self
     }
 
     /// 机器可判的错误码，如 `E-PARSE-008`。
     pub fn code(&self) -> &'static str {
         self.code
+    }
+
+    /// 出错位置（原文字节偏移）；未记录时为 `None`。
+    pub fn pos(&self) -> Option<usize> {
+        self.pos
     }
 
     /// 人读的文案（**不含**码）。
@@ -77,12 +95,20 @@ impl SmlError {
         SmlError {
             code,
             message: self.message,
+            pos: self.pos,
         }
     }
 
     /// 给文案加上前缀，保留码。用于补上下文（如「include 展开失败：」）。
     pub fn context(mut self, prefix: &str) -> Self {
         self.message = format!("{prefix}{}", self.message);
+        self
+    }
+
+    /// 给文案加上后缀，保留码。用于补**尾巴**（如「（第 3 行第 8 列）」）——
+    /// `Display` 的码始终在最后，故后缀落在「文案之后、码之前」。
+    pub fn suffix(mut self, suffix: &str) -> Self {
+        self.message = format!("{}{}", self.message, suffix);
         self
     }
 }
@@ -120,6 +146,13 @@ mod tests {
     }
 
     #[test]
+    fn suffix_appends_after_message_and_before_code() {
+        let e = SmlError::new(E_PARSE_006, "sml: 期望键").suffix("（第 3 行第 8 列）");
+        assert_eq!(e.to_string(), "sml: 期望键（第 3 行第 8 列） [E-PARSE-006]");
+        assert_eq!(e.pos(), None, "后缀不带位置，不该凭空造出 pos");
+    }
+
+    #[test]
     fn string_conversion_drops_code() {
         let e = SmlError::new(E_PARSE_008, "顶层须为容器");
         let s: String = e.into();
@@ -133,6 +166,31 @@ mod tests {
             .context("include 展开：");
         assert_eq!(e.code(), "E-INCLUDE-001");
         assert_eq!(e.message(), "include 展开：词法失败");
+    }
+
+    #[test]
+    fn pos_is_optional_and_survives_code_and_context() {
+        let e = SmlError::new(E_LEX_001, "字符串未闭合");
+        assert_eq!(e.pos(), None, "未记位置时必须是 None（旧构造点行为不变）");
+
+        let e = SmlError::new(E_LEX_001, "字符串未闭合").at(12);
+        assert_eq!(e.pos(), Some(12));
+
+        // 换码 / 加前缀都不该把位置弄丢
+        let e = e.with_code(E_PARSE_012).context("外层：");
+        assert_eq!(e.pos(), Some(12));
+    }
+
+    /// 位置**不属于**稳定契约：同一个错误带不带位置，`Display` / `render` /
+    /// `From<SmlError> for String` 必须逐字相同（位置由出口按需附加）。
+    #[test]
+    fn pos_does_not_change_display_or_render() {
+        let plain = SmlError::new(E_LEX_001, "字符串未闭合");
+        let with_pos = SmlError::new(E_LEX_001, "字符串未闭合").at(12);
+        assert_eq!(plain.to_string(), with_pos.to_string());
+        assert_eq!(plain.render(), with_pos.render());
+        let s: String = with_pos.into();
+        assert_eq!(s, "字符串未闭合");
     }
 
     #[test]

@@ -13,7 +13,7 @@ use sml_codes::{
 };
 use sml_contract::{Contract, ContractExt, FieldSpec, Modifier, TypeCheck, TypeSpec};
 use sml_feature::{Feature, FeatureSet};
-use sml_lex::{Tok, coerce_word, lookup_env};
+use sml_lex::{Span, Tok, coerce_word, lookup_env};
 use sml_value::{MAX_VALUE_DEPTH, Value};
 
 use crate::contract_bridge::apply_contract;
@@ -22,6 +22,11 @@ use crate::ext::{Diagnostic, DiagnosticKind, DirectiveTable, Outcome};
 /// 解析器。`pub` 仅为让 `cond` 等子模块复用游标，不对外暴露。
 pub struct Parser {
     pub(crate) toks: Vec<Tok>,
+    /// 与 `toks` **一一对应**的原文区间（字节偏移），供错误定位。
+    ///
+    /// 可能为空：文件入口经 `resolve_includes` 拿到的是**跨文件合并**后的 token 流，
+    /// 没有可映射的单一原文（此时 [`Self::err_at`] 会退回「不带位置」，宁缺勿错）。
+    pub(crate) spans: Vec<Span>,
     pub(crate) i: usize,
     pub(crate) fragments: BTreeMap<String, Value>,
     /// 自定义类型表：名 -> 模式（SML 值）。由 `@type name: X { ... }` 填充。
@@ -58,6 +63,34 @@ impl Parser {
     /// 查 `$env.X`：先查本次解析的覆盖表，再回落进程环境。
     pub fn env_var(&self, name: &str) -> String {
         lookup_env(Some(&self.env), name)
+    }
+
+    /// token 序号 `idx` 的起始字节偏移；**定位不到时返回 `None`**。
+    ///
+    /// 越界（读到文件结尾仍没等到某 token）时退化为最后一个 token 的结束偏移：
+    /// 指向文末比指向第 1 行有用。
+    pub(crate) fn tok_start(&self, idx: usize) -> Option<usize> {
+        if self.spans.is_empty() {
+            return None;
+        }
+        Some(match self.spans.get(idx) {
+            Some(s) => s.start,
+            None => self.spans[self.spans.len() - 1].end,
+        })
+    }
+
+    /// 造一个**带位置**的错误：`idx` 处能定位就带上，定位不了就退回不带位置
+    /// （宁可不给，也不给错的 —— 错误的位置比没有位置更糟）。
+    pub(crate) fn err_at(
+        &self,
+        code: &'static str,
+        msg: impl Into<String>,
+        idx: usize,
+    ) -> SmlError {
+        match self.tok_start(idx) {
+            Some(pos) => SmlError::new(code, msg).at(pos),
+            None => SmlError::new(code, msg),
+        }
     }
 
     /// 查 `@for` 循环变量 `${var}`（只读绑定）。未绑定返回 None。
@@ -219,6 +252,9 @@ impl Parser {
         loop_vars.insert(var.to_string(), item.to_string());
         Parser {
             toks: inner,
+            // 循环体是父 token 流的**切片**，其 spans 无法按子序号对齐 ⇒ 不带位置。
+            // 宁可不给（err_at 会退回无位置），也不要给出错位的位置。
+            spans: Vec::new(),
             i: 0,
             fragments: self.fragments.clone(),
             contracts: self.contracts.clone(),
@@ -973,7 +1009,16 @@ impl Parser {
                     // key
                     let key = match self.next() {
                         Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
-                        other => return Err(SmlError::new(E_PARSE_006, format!("sml: 期望键, 得 {:?}", other))),
+                        other => {
+                            // 位置指向**刚消费掉的那个 token**（游标已越过它）：
+                            // `a: B::C` 报的是「期望键, 得 Some(Colon)」，此前没有任何位置。
+                            let pos = self.i.saturating_sub(1);
+                            return Err(self.err_at(
+                                E_PARSE_006,
+                                format!("sml: 期望键, 得 {:?}", other),
+                                pos,
+                            ));
+                        }
                     };
                     // 防御：键名位置出现 `${var}` 插值语法时**显式报错**，而非静默生成
                     // 错误结构。`${var}` 中的 `{`/`}` 会被 tokenize 当成块边界，导致键被拆成

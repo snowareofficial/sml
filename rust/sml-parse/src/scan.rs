@@ -9,7 +9,7 @@ use sml_codes::{
     E_FEATURE_003, E_FEATURE_004, E_FEATURE_006, E_FEATURE_007, E_FEATURE_008, SmlError,
 };
 use sml_feature::{FEATURES, Feature, FeatureMode, FeatureSet, Version};
-use sml_lex::{Tok, advance_line, compute_string_spans, line_starts_in_string, tokenize};
+use sml_lex::{Tok, compute_string_spans, line_starts_in_string, tokenize};
 use sml_include::strip_line_comment;
 
 /// 取出 token 的字符串内容（Word / Str 都取其文本；其余返回空串）。
@@ -192,6 +192,37 @@ pub fn apply_feature_directive(
 /// 返回值三元组：(剩余文本, 特性集, @feature base 声明的版本, 是否出现过 @feature 指令)。
 /// 若文档从未声明 `@feature`，则 `had_feature=false`，调用方应改以版本基线派生特性集
 /// （例如 v3 默认关闭裸词字符串）。
+/// 按「行 + 行尾」切分，返回每行的**字节区间**（含行终止符）。
+///
+/// 为什么不用 `str::lines()`：它会吃掉 `\r`、也丢掉「末行有没有换行」的信息 ——
+/// 两者都会让剥离后的文本与原文**不等长**。而错误定位要求偏移与原文 1:1 对得上
+/// （删一个指令行 ⇒ 其后所有偏移少 N 字节 ⇒ 行号整体前移，红线画到别的行上）。
+/// JS 侧 `stripFeatureLines` 早已为此改成「换等长空格」，这里补上 Rust 那一半。
+fn line_spans(text: &str) -> Vec<(usize, usize)> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    while start < bytes.len() {
+        let end = match bytes[start..].iter().position(|&b| b == b'\n') {
+            Some(off) => start + off + 1, // 含 '\n'
+            None => bytes.len(),          // 末行无换行
+        };
+        out.push((start, end));
+        start = end;
+    }
+    out
+}
+
+/// 去掉行尾的换行符（`\n` / `\r\n`），只留行内容 —— 与 `str::lines()` 的取法一致。
+fn trim_line_end(raw: &str) -> &str {
+    raw.trim_end_matches(|c| c == '\n' || c == '\r')
+}
+
+/// 与 `s` **等长**（按字节）的空格串：用于「剥离指令行但不改变偏移」。
+fn blank_of(s: &str) -> String {
+    " ".repeat(s.len())
+}
+
 pub fn strip_features(text: &str) -> Result<(String, FeatureSet, Option<Version>, bool), SmlError> {
     let mut out = String::new();
     let spans = compute_string_spans(text);
@@ -200,23 +231,31 @@ pub fn strip_features(text: &str) -> Result<(String, FeatureSet, Option<Version>
     let mut base: Option<Version> = None;
     let mut had_feature = false;
 
-    let mut line_start = 0usize;
-    for line in text.lines() {
+    for (line_start, line_end) in line_spans(text) {
+        let raw = &text[line_start..line_end];
+        let line = trim_line_end(raw);
         // 多行字符串内的行（如 `note: "..."` 跨行）里的 `@feature` 不是指令，跳过以免破坏数据
         if !line_starts_in_string(text, line_start, &spans) {
             match apply_feature_directive(line, &mut feats, &mut mode, &mut base) {
                 Ok(true) => {
                     had_feature = true;
-                    line_start = advance_line(line_start, line, text);
-                    continue; // 指令行被消费，不进入剩余文本
+                    // ⚠️ **等长替换**：指令行换成同长度空格，行尾原样保留。
+                    // 直接 `continue`（删行）会让其后所有偏移比原文少 N 字节。
+                    out.push_str(&blank_of(line));
+                    out.push_str(&raw[line.len()..]);
+                    continue;
                 }
                 Ok(false) => {}
                 Err(e) => return Err(e), // 指令非法（如未知特性名）必须上浮，不能静默吞掉
             }
         }
-        out.push_str(line);
-        out.push('\n');
-        line_start = advance_line(line_start, line, text);
+        out.push_str(raw);
+        // 末行没有换行时补一个 —— **历史行为**（`tests/error_codes.rs` 的
+        // `lex_escape_at_eof_needs_the_lexer` 钉着它的可观察后果）。
+        // 补在**文末**不影响任何既有偏移，故与「等长」不冲突。
+        if !raw.ends_with('\n') {
+            out.push('\n');
+        }
     }
     Ok((out, feats, base, had_feature))
 }
@@ -263,12 +302,23 @@ pub fn strip_version(text: &str) -> Result<(String, Option<Version>), SmlError> 
     //
     // ⚠️ 仓库里 `smltools` 的 **YAML / XML 导入器早就各自去了 BOM**（`yaml.rs:93`、`xml.rs:63`），
     // 只有 native SML 这条路径漏了 —— 属于"同一件事两套待遇"，本轮补齐。
-    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    // ⚠️ BOM 换成**等长的 3 个空格**（U+FEFF 在 UTF-8 里占 3 字节）而不是删掉：
+    // 删掉会让它之后的所有偏移少 3 字节，首行/首列定位就不准了。
+    // 空格对词法无影响（`\u{feff}` 才是那个会被吞进键名的字符）。
+    let owned;
+    let text = match text.strip_prefix('\u{feff}') {
+        Some(rest) => {
+            owned = format!("   {rest}");
+            owned.as_str()
+        }
+        None => text,
+    };
     let spans = compute_string_spans(text);
     let mut declared: Option<Version> = None;
     let mut rest = String::new();
-    let mut line_start = 0usize;
-    for line in text.lines() {
+    for (line_start, line_end) in line_spans(text) {
+        let raw = &text[line_start..line_end];
+        let line = trim_line_end(raw);
         // 多行字符串内的行（如 `note: "..."` 跨行）里的 @version 不是指令，原样保留
         let is_directive = if line_starts_in_string(text, line_start, &spans) {
             false
@@ -296,12 +346,16 @@ pub fn strip_version(text: &str) -> Result<(String, Option<Version>), SmlError> 
                 }
                 Some(_) => {}
             }
-            line_start = advance_line(line_start, line, text);
+            // 同 `strip_features`：等长替换，保住后续所有偏移
+            rest.push_str(&blank_of(line));
+            rest.push_str(&raw[line.len()..]);
             continue;
         }
-        rest.push_str(line);
-        rest.push('\n');
-        line_start = advance_line(line_start, line, text);
+        rest.push_str(raw);
+        // 同上：末行无换行时补一个（历史行为，文末追加不影响既有偏移）
+        if !raw.ends_with('\n') {
+            rest.push('\n');
+        }
     }
     Ok((rest, declared))
 }
@@ -318,5 +372,93 @@ pub fn features_for(v: Version, feats: FeatureSet, had_feature: bool) -> Feature
         feats
     } else {
         FeatureSet::for_version(v)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sml_lex::tokenize_spans;
+
+    /// 走一遍完整入口：`strip_version` → `strip_features`。
+    fn strip_all(text: &str) -> String {
+        let (rest, _) = strip_version(text).unwrap();
+        let (rest, _, _, _) = strip_features(&rest).unwrap();
+        rest
+    }
+
+    /// **核心不变量**：剥离后与原文**等长** —— 否则后面所有偏移/行号都会漂。
+    #[test]
+    fn stripping_is_length_preserving() {
+        let cases = [
+            "x: 1\n",
+            "x: 1",                                   // 末行无换行
+            "@version v1\nx: 1\n",
+            "@feature enable top-level-array\nx: 1\n",
+            "@version v1\r\nx: 1\r\n",                // CRLF
+            "@version v1\r\nx: 1",                    // CRLF + 末行无换行
+            "\u{feff}x: 1\n",                         // BOM
+            "\u{feff}@version v1\nx: 1\n",            // BOM + 指令
+            "note: \"a\nb\"\nx: 1\n",                 // 跨行字符串（其内的行不能被剥）
+        ];
+        for src in cases {
+            let rest = strip_all(src);
+            // 末行无换行时会在**文末**补一个 '\n'（历史行为）⇒ 允许 +1；
+            // 在那之前的所有偏移必须与原文 1:1 对得上。
+            let expected = if src.ends_with('\n') {
+                src.len()
+            } else {
+                src.len() + 1
+            };
+            assert_eq!(
+                rest.len(),
+                expected,
+                "输入 {src:?}：剥离后长度变了（{:?}）",
+                rest
+            );
+        }
+    }
+
+    /// 指令行被换成**等长空格**而不是删掉 ⇒ 行数不变、行尾形态不变。
+    #[test]
+    fn directive_lines_are_blanked_not_deleted() {
+        let src = "@version v1\r\nx: 1\r\n";
+        let rest = strip_all(src);
+        assert_eq!(rest.lines().count(), 2, "行数必须保持 2");
+        let blank = " ".repeat("@version v1".len());
+        assert!(
+            rest.starts_with(&format!("{blank}\r\n")),
+            "首行应是等长空格：{rest:?}"
+        );
+        assert_eq!(&rest[blank.len() + 2..], "x: 1\r\n", "CRLF 必须原样保留");
+    }
+
+    /// 这条才是目的：**指令行之后的 token 位置要对得上原文**。
+    #[test]
+    fn token_after_directives_is_located_at_original_offset() {
+        let src = "@feature enable top-level-array\n@version v1\nab: 1\n";
+        let rest = strip_all(src);
+        let (toks, spans) = tokenize_spans(&rest).unwrap();
+        let idx = toks
+            .iter()
+            .position(|t| matches!(t, Tok::Word(w) if w == "ab"))
+            .expect("应能找到键 ab");
+        // ⚠️ 不能写 `src.find("ab")`：enable 里就含 "ab"，会命中错的那处
+        let expected = src.find("\nab:").unwrap() + 1;
+        assert_eq!(
+            spans[idx].start, expected,
+            "键 ab 的偏移必须指向**原文**里的 ab"
+        );
+        assert_eq!(&src[spans[idx].start..spans[idx].end], "ab");
+    }
+
+    /// BOM 换成 3 个空格：键名不再被吞（这是 0.6.2 修过的那条），且长度不变。
+    #[test]
+    fn bom_becomes_three_spaces_and_key_survives() {
+        let src = "\u{feff}x: 1\n";
+        let rest = strip_all(src);
+        assert_eq!(rest.len(), src.len());
+        let (toks, _) = tokenize_spans(&rest).unwrap();
+        assert_eq!(toks[0], Tok::Word("x".into()), "BOM 不得混进键名");
     }
 }

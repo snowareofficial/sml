@@ -11,7 +11,7 @@ use std::sync::Arc;
 use sml_codes::{E_FEATURE_001, E_FEATURE_004, E_FEATURE_009, E_IO_001, E_PARSE_008, SmlError};
 use sml_feature::{Feature, FeatureSet, Version};
 use sml_include::resolve_includes;
-use sml_lex::{Tok, tokenize};
+use sml_lex::{Span, Tok, tokenize_spans};
 use sml_value::Value;
 
 use crate::error::ParseError;
@@ -48,7 +48,9 @@ pub fn parse_file_versioned(path: impl AsRef<Path>) -> Result<(Value, Version), 
     let v = declared.or(base_ver).unwrap_or(Version::V1);
     let feats = features_for(v, allowed, had);
     let toks = resolve_includes(&rest, &base, allowed)?;
-    let val = parse_impl_tokens(toks, feats, BTreeMap::new())?;
+    // 文件入口的 token 流经 include 展开、跨文件合并，**没有可映射的单一原文**
+    // ⇒ 传空 spans，解析器退回「不带位置」（宁缺勿错）。
+    let val = parse_impl_tokens(toks, Vec::new(), feats, BTreeMap::new())?;
     Ok((val, v))
 }
 
@@ -98,8 +100,9 @@ pub fn parse_with(text: &str, opts: ParseOptions) -> Result<ParseOutput, SmlErro
     let (rest, feats, base, had) = strip_features(&rest)?;
     let v = declared.or(base).unwrap_or(Version::V1);
     let feats = features_for(v, feats, had);
-    let toks = tokenize(&rest)?;
-    parse_impl_tokens_ext(toks, feats, BTreeMap::new(), opts)
+    let (toks, spans) = tokenize_spans(&rest)?;
+    parse_impl_tokens_ext(toks, spans, feats, BTreeMap::new(), opts)
+        .map_err(|e| with_position(&rest, e))
 }
 
 /// 解析 SML 文本，并限制文档声明的版本必须在 `allowed` 范围内。
@@ -189,14 +192,32 @@ pub fn parse_with_features_env(
     Ok((val, effective))
 }
 
+/// 把错误的字节偏移换算成「第 N 行第 M 列」缀到文案末尾。
+///
+/// 只在**出口**做这一步：位置属于呈现层，各端措辞可以不同；码与文案才是
+/// 稳定契约（见 `SmlError` 的文档）。`text` 必须是 token 所来自的那份文本 ——
+/// 剥离 `@version`/`@feature` 后的 `rest` 与原文**等长**（见 `scan.rs`），
+/// 因此这里的行列对原文同样成立。
+fn with_position(text: &str, e: SmlError) -> SmlError {
+    let Some(pos) = e.pos() else {
+        return e;
+    };
+    let pos = pos.min(text.len());
+    let before = &text[..pos];
+    let line = before.matches('\n').count() + 1;
+    let col = pos - before.rfind('\n').map(|i| i + 1).unwrap_or(0) + 1;
+    e.suffix(&format!("（第 {line} 行第 {col} 列）"))
+}
+
 /// 不含版本处理的底层解析（文本入口）
 fn parse_impl(
     text: &str,
     features: FeatureSet,
     env: BTreeMap<String, String>,
 ) -> Result<Value, SmlError> {
-    let toks = tokenize(text)?;
-    parse_impl_tokens(toks, features, env)
+    let (toks, spans) = tokenize_spans(text)?;
+    parse_impl_tokens(toks, spans, features, env)
+        .map_err(|e| with_position(text, e))
 }
 
 /// 不含版本处理的底层解析（token 流入口，供 include 展开后零拷贝复用）
@@ -205,24 +226,30 @@ fn parse_impl(
 /// （见 `features_for(v, …)`），`Parser` 只认特性集、不认版本号。
 /// 原先保留这个参数是为"对称"，实际从没被读过 —— 与其挂着等一个 `unused` 警告，
 /// 不如删掉：调用方少一个需要正确传递、却完全不产生效果的值。
+///
+/// `spans` 与 `toks` 一一对应；**拿不到就传空**（如文件入口的 include 展开
+/// 是跨文件合并的 token 流，没有可映射的单一原文）—— 解析器会退回「不带位置」。
 fn parse_impl_tokens(
     toks: Vec<Tok>,
+    spans: Vec<Span>,
     features: FeatureSet,
     env: BTreeMap<String, String>,
 ) -> Result<Value, SmlError> {
     // 无扩展路径：直接丢掉 diagnostics，与既有签名保持一致。
-    Ok(parse_impl_tokens_ext(toks, features, env, ParseOptions::new())?.value)
+    Ok(parse_impl_tokens_ext(toks, spans, features, env, ParseOptions::new())?.value)
 }
 
 /// 同 [`parse_impl_tokens`]，但携带外置扩展（见 [`crate::ext`]）。
 fn parse_impl_tokens_ext(
     toks: Vec<Tok>,
+    spans: Vec<Span>,
     features: FeatureSet,
     env: BTreeMap<String, String>,
     opts: ParseOptions,
 ) -> Result<ParseOutput, SmlError> {
     let mut p = Parser {
         toks,
+        spans,
         i: 0,
         fragments: BTreeMap::new(),
         contracts: BTreeMap::new(),
@@ -323,7 +350,8 @@ pub fn parse_file(path: impl AsRef<Path>) -> Result<Value, SmlError> {
     let feats = features_for(v, feats, had);
     let allowed = FeatureSet::all().intersection(feats);
     let toks = resolve_includes(&rest, &base, allowed)?;
-    parse_impl_tokens(toks, allowed, BTreeMap::new())
+    // include 展开是跨文件 token 流 ⇒ 无单一原文，不带位置（见 `parse_impl_tokens` 注释）
+    parse_impl_tokens(toks, Vec::new(), allowed, BTreeMap::new())
 }
 
 /// 同 [`parse_file`]，但额外接受一个「调用方允许特性集」`caller_allowed`，
@@ -357,7 +385,8 @@ pub fn parse_file_features(
         ));
     }
     let toks = resolve_includes(&rest, &base, allowed)?;
-    parse_impl_tokens(toks, allowed, BTreeMap::new())
+    // include 展开是跨文件 token 流 ⇒ 无单一原文，不带位置（见 `parse_impl_tokens` 注释）
+    parse_impl_tokens(toks, Vec::new(), allowed, BTreeMap::new())
 }
 
 /// 解析到对象 (失败抛 `ParseError`，它带**错误码**，见 [`sml_codes::SmlError`])
