@@ -379,6 +379,26 @@ git stash pop
 
 ## 7. 任务 E：契约推断（**数据量大，独立验收，排在 C/D 之后**）
 
+> **✅ 已完成（2026-10-12）**，证据：
+> - 新增 `rust/sml-contract/src/infer.rs`（`infer_from_value`）＋ 主 crate re-export `sml::infer`；
+>   `smltools` 新增 `--infer-contract`（默认输出 SML `@contract`，配 `--json` 切 JSON）。
+> - 映射表严格按 §7：`Int→int` / `Float→num` / `Bool→bool` / `Str→str` / `Null→any` /
+>   `Object→子契约`（按字段名大驼峰，如 `address`→`Address`，同名字段复用同一子契约）/
+>   `Array→[T]`（全 int⇒`[int]`、全对象同形⇒`[Sub]`、混合⇒`[any]` 并告警）。
+> - `optional` 仅在多实例合并时判定（字段在部分实例缺失才标 optional）；单实例一律 `required`
+>   并 stderr 提示「单实例无法判定 optional」。**绝不猜** `default`/`min`/`max`/`enum`/`@type`。
+>   生成的契约默认 `loose`（允许额外字段），避免用户下次新增字段被严格模式拒绝。
+> - 确定性：字段按名排序（`BTreeMap`）、无时间戳、同输入逐字节相同；`infer.rs` 内 **9 条 golden
+>   单测**精确断言 SML / JSON 输出。
+> - 全量 `cargo test --workspace`：`SUITES=49`（不变）`PASSED=585→594`（+9，仅新增）
+>   `FAILED=0`，零回归。
+> - 输入约定（用户裁决）：根为**对象数组**每元素一条实例；根为单对象则按单实例处理；
+>   子契约按字段名大驼峰；默认 SML、加 `--json` 切 JSON。
+>
+> ⚠️ 已知产品既有行为（与 E 无关，未动）：`smltools -i` 走 `parse_file`，相对文件名
+> （`parent()` 为空）会因 include 基准目录 canonicalize 失败报 `E-INCLUDE-010`，需用
+> `./` 前缀或绝对路径。
+
 - **落点**：`rust/sml-contract` 新增 infer 模块 + `rust/smltools` 新子命令 `--infer-contract`
   （或 `--to contract`，二选一待定；先按 `--infer-contract` 做）。
 - **映射表**：`Int→int`、`Float→num`、`Bool→bool`、`Str→str`、`Null→any`、

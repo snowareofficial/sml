@@ -10,6 +10,23 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ---
 
+## [未发布] · swsml（同批发 `smltools`）
+
+> 📌 本轮累积：契约推断（`smltools --infer-contract`）。其余任务（错误定位 / 映射 API /
+> 契约叠加 / 其它端响亮拒绝）的条目待补。
+
+### 新增 · 契约推断：`smltools --infer-contract`
+
+- 新增 `rust/sml-contract/src/infer.rs`（`infer_from_value`）＋ 主 crate re-export `sml::infer`；
+  `smltools` 新增 `--infer-contract`（默认输出 SML `@contract`，配 `--json` 切 JSON 字段表）。
+- 类型映射（TASK-agent-w24 §7）：`Int→int` / `Float→num` / `Bool→bool` / `Str→str` / `Null→any` /
+  `Object→子契约`（按字段名大驼峰，如 `address`→`Address`，同名字段复用同一子契约）/
+  `Array→[T]`（全 int⇒`[int]`、全对象同形⇒`[Sub]`、混合⇒`[any]` 并告警）。
+- `optional` 仅在多实例合并时判定（字段在部分实例缺失才标 optional）；单实例一律 `required`
+  并提示「单实例无法判定 optional」。**绝不猜** `default` / `min` / `max` / `enum` / 自定义 `@type`。
+- 生成的契约默认 `loose`（允许额外字段），避免用户下次新增字段被严格模式拒绝。
+- 确定性：字段按名排序、无时间戳、同输入逐字节相同；`infer.rs` 内 9 条 golden 单测精确断言。
+
 ## [0.6.2] — 2026-10-10 · swsml（同批发 `smltools` 0.2.1）
 
 > 📌 本节是 **`swsml` 0.6.2** 与 **`smltools` 0.2.1** 合并的发布说明：两者的版本号互相独立

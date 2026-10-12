@@ -324,6 +324,19 @@ struct Cli {
     /// 转义后的纯文本。仅在**信任输入源**时开启。
     #[arg(long = "math")]
     math: bool,
+
+    /// 契约推断（任务 E）：从数据实例反推 `@contract`。
+    ///
+    /// 输入为一份 SML/JSON 文档：根是**对象数组**（每个元素是一条实例），
+    /// 或单个对象（按单实例处理）。输出默认是 SML `@contract` 文本；配合
+    /// `--json` 切到 JSON 字段类型表。推断严格不猜 default/min/max/enum/@type，
+    /// 多实例时字段在部分实例缺失才标记 optional，生成的契约默认 loose。
+    #[arg(long = "infer-contract")]
+    infer_contract: bool,
+
+    /// 与 `--infer-contract` 配合：输出 JSON 形式的字段类型表（默认 SML）。
+    #[arg(long = "json")]
+    json: bool,
 }
 
 /// 按输入格式把文本转成 `Value`。
@@ -443,6 +456,8 @@ struct Args {
     title: Option<String>,
     custom_rules: Option<PathBuf>,
     math: bool,
+    infer_contract: bool,
+    json: bool,
 }
 
 fn parse_args(cli: Cli) -> Result<Args, SmlError> {
@@ -490,6 +505,8 @@ fn parse_args(cli: Cli) -> Result<Args, SmlError> {
         title: cli.title,
         custom_rules: cli.custom_rules,
         math: cli.math,
+        infer_contract: cli.infer_contract,
+        json: cli.json,
     })
 }
 
@@ -1045,6 +1062,44 @@ fn real_main() -> ExitCode {
         }
     };
     let value = if args.strip { strip_value(&value) } else { value };
+
+    // 契约推断（任务 E）：从数据实例反推 `@contract` / JSON 字段表。
+    // 与常规 emit 互斥 —— 命中即走此分支，不再进入下面的 emit/Hugo/Zola 逻辑。
+    if args.infer_contract {
+        let result = match sml::infer::infer_from_value("Inferred", &value) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("smltools: {e}");
+                return ExitCode::from(2);
+            }
+        };
+        for w in &result.warnings {
+            eprintln!("smltools: note: {w}");
+        }
+        let rendered = if args.json {
+            result.to_json()
+        } else {
+            result.to_sml()
+        };
+        return match &args.output {
+            Some(p) => match std::fs::write(p, &rendered) {
+                Ok(()) => {
+                    eprintln!("wrote {}", p.display());
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("smltools: write {}: {e} [{}]", p.display(), E_IO_003);
+                    ExitCode::from(2)
+                }
+            },
+            None => {
+                let mut o = std::io::stdout().lock();
+                let _ = o.write_all(rendered.as_bytes());
+                let _ = o.write_all(b"\n");
+                ExitCode::SUCCESS
+            }
+        };
+    }
 
     // 编辑器定制包：一份输入 → 多份产物，按相对路径写到 -o 目录下（缺省当前目录）
     if args.format == Format::Highlight {

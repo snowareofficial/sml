@@ -124,6 +124,8 @@ pub fn to_sml_checked(v: &Value) -> Result<String, sml_codes::SmlError> {
 
 pub use sml_feature::{feature_names, Feature, FeatureSet, Version, FEATURES};
 pub use sml_contract::{Contract, FieldSpec, TypeSpec};
+/// 契约推断（任务 E）：从数据实例反推契约。落地为 `smltools --infer-contract`。
+pub use sml_contract::infer;
 /// 外置扩展点：注册自定义契约类型（`image` / `link` / `time` 等），
 /// 无需改动本 crate 源码，也不必把领域类型写进 SML 规范层。
 pub use sml_contract::ext as contract_ext;

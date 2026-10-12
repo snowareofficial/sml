@@ -17,6 +17,9 @@ use sml_value::Value;
 /// 外置扩展点：下游注册自己的字段类型，无需改动本 crate 源码。
 pub mod ext;
 
+// 契约推断（任务 E）：从数据实例反推契约。落地仅此模块 + smltools 子命令。
+pub mod infer;
+
 pub use ext::{ContractExt, Modifier, TypeCheck};
 
 // ---------------------------------------------------------------------------
