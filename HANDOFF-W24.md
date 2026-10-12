@@ -19,7 +19,7 @@
 | **C 契约叠加** | ✅ 完成（Rust 侧） | 全量 `EXIT=0 / SUITES=49 / PASSED=585 / FAILED=0`；`contract_mixin` 11 条全绿；全仓扫描 30 个 .sml **零误伤**（唯一差异 = codes.sml 自身 JSON）。判据全序与四处执行差异见 TASK-agent-w24 §5 |
 | **D 其它端响亮拒绝** | ✅ 完成（已提交 `16f807a`） | 四端「响亮拒绝」多契约写法，绝不静默给树；`_rust_test.bat` `EXIT=0/SUITES=49/PASSED=585/FAILED=0`（零回归）；JS 副本已 `check_js_copies.py --fix` 同步且四份一致；C `build_check` 全绿、C++ `build_verify`（RS-BRIDGE 跳过）contract/comments/limits/codes 全 rc=0、Lua `run_check` 151/0；单契约路径逐字未变 |
 | **D 其它端响亮拒绝** | ✅ 同上 | 新码 `E-CONTRACT-017` 已入码表（143 条）；js / c / cpp / lua 只加拒绝，绝不静默；改 js 后已跑 `tools/check_js_copies.py --fix` 且一致 |
-| **E 契约推断** | ✅ 完成（已提交） | `smltools --infer-contract`：新增 `rust/sml-contract/src/infer.rs`＋主 crate re-export `sml::infer`；默认 SML、`--json` 切 JSON；映射表/optional/不猜 default·min·max·enum 严格按 §7；9 条 golden 单测；全量 `PASSED=585→594` 零回归 |
+| **E 契约推断** | ✅ 完成（已提交 `3164261`） | `smltools --infer-contract`：新增 `rust/sml-contract/src/infer.rs`＋主 crate re-export `sml::infer`；默认 SML、`--json` 切 JSON；映射表/optional/不猜 default·min·max·enum 严格按 §7；9 条 golden 单测；全量 `PASSED=585→594` 零回归 |
 | **F 编辑器 / G 教科书** | ⬜ 后置 | 需用户放行 `editors/**` / `site/**` |
 | **H README 对照示例** | ⬜ 随时可做 | 纯新增；JSON/YAML/SML 三栏；不许夸大 |
 
