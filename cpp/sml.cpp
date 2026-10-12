@@ -724,9 +724,20 @@ static ValuePtr parse_bare_block(PState& st) {
     std::string type_word = st.toks[st.i].s;
     st.i++;                                   // 先消费类型名（Rust: self.next()）
     std::vector<ValuePtr> args;
+    bool key_is_contract = (st.contracts.find(type_word) != st.contracts.end());
+    bool arg_has_contract = false;
     while (st.i < st.toks.size() && st.toks[st.i].t == Token::T::Word) {
+        if (key_is_contract && st.contracts.find(st.toks[st.i].s) != st.contracts.end())
+            arg_has_contract = true;
         args.push_back(coerce(st.toks[st.i], st.fragments, st.err));
         st.i++;
+    }
+    // 任务 D：数组位置的块级多契约同样「响亮拒绝」（head 命中契约表且参数里出现第 2 个契约词）。
+    if (key_is_contract && arg_has_contract) {
+        if (st.err && st.err->empty())
+            *st.err = code_prefix(SML_E_CONTRACT_017, "sml: 该实现暂不支持一个块应用多份契约（块级多契约写法）");
+        st.aborted = true;
+        return Value::null();
     }
     if (st.i >= st.toks.size() || st.toks[st.i].t != Token::T::LBrace) return Value::null();
     st.i++;                                   // `{`
@@ -1048,9 +1059,30 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
             st.i += 2;
             // @is ContractName  -> applied after this block (Rust applies to current block)
             if (st.i < st.toks.size()) {
-                std::string cname = st.toks[st.i].s; st.i++;
-                // store pending; applied after block completes
-                pending_is = cname;
+                std::string cname = st.toks[st.i].s;
+                size_t cname_line = st.toks[st.i].line;
+                st.i++;
+                // 任务 D：多契约「响亮拒绝」—— `@is` 后出现第 2 个裸词（同一行、
+                //   且该词不是「后跟 : 的键」）即报 E-CONTRACT-017，绝不静默给树。
+                //   与 Rust D1 同口径：遇 : / { / ] / 换行 / 逗号（可省）即停。
+                {
+                    size_t j = st.i;
+                    if (j < st.toks.size() && st.toks[j].t == Token::T::Comma) j++;
+                    if (j < st.toks.size() && st.toks[j].t == Token::T::Word) {
+                        const Token& nx = st.toks[j];
+                        if (nx.line != cname_line) {
+                            // 换行即停：下一行的键/值不是契约名
+                        } else if (j+1 < st.toks.size() && st.toks[j+1].t == Token::T::Colon) {
+                            // 后跟 : 是键，非契约名
+                        } else {
+                            if (st.err && st.err->empty())
+                                *st.err = code_prefix(SML_E_CONTRACT_017,
+                                    "sml: 该实现暂不支持一个块应用多份契约（@is 多契约写法）");
+                            st.aborted = true;
+                        }
+                    }
+                }
+                if (!st.aborted) pending_is = cname;  // store pending; applied after block completes
             }
             continue;
         }
@@ -1095,15 +1127,35 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
             // key @is Contract { ... }   -> set key = block, apply contract
             st.i += 2; // consume @ is
             if (st.i < st.toks.size()) {
-                std::string cname = st.toks[st.i].s; st.i++;
-                if (st.i < st.toks.size() && st.toks[st.i].t == Token::T::LBrace) {
+                std::string cname = st.toks[st.i].s;
+                size_t cname_line = st.toks[st.i].line;
+                st.i++;
+                // 任务 D：字段级 @is 同样「响亮拒绝」第 2 个裸词（同一行、非键）。
+                {
+                    size_t j = st.i;
+                    if (j < st.toks.size() && st.toks[j].t == Token::T::Comma) j++;
+                    if (j < st.toks.size() && st.toks[j].t == Token::T::Word) {
+                        const Token& nx = st.toks[j];
+                        if (nx.line != cname_line) {
+                            // 换行即停
+                        } else if (j+1 < st.toks.size() && st.toks[j+1].t == Token::T::Colon) {
+                            // 后跟 : 是键，非契约名
+                        } else {
+                            if (st.err && st.err->empty())
+                                *st.err = code_prefix(SML_E_CONTRACT_017,
+                                    "sml: 该实现暂不支持一个块应用多份契约（@is 多契约写法）");
+                            st.aborted = true;
+                        }
+                    }
+                }
+                if (!st.aborted && st.i < st.toks.size() && st.toks[st.i].t == Token::T::LBrace) {
                     st.i++;
                     auto sub = parse_block_nested(st);
                     std::string e;
                     Parser::apply_contract(sub, st.contracts, cname, &e);
                     if (!e.empty() && st.err) *st.err = e;
                     set_field_local(node, key, sub);
-                } else {
+                } else if (!st.aborted) {
                     set_field_local(node, key, Value::null());
                 }
             }
@@ -1135,9 +1187,21 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                参数**不再静默丢弃**：首个 ⇒ `__name`、其余 ⇒ `__args`；
                参数经 coerce（与 Rust `parse_bare_block`、C 侧一致）。 */
             std::vector<ValuePtr> args;
+            bool key_is_contract = (st.contracts.find(key) != st.contracts.end());
+            bool arg_has_contract = false;
             while (st.i < st.toks.size() && st.toks[st.i].t == Token::T::Word) {
+                if (key_is_contract && st.contracts.find(st.toks[st.i].s) != st.contracts.end())
+                    arg_has_contract = true;
                 args.push_back(coerce(st.toks[st.i], st.fragments, st.err));
                 st.i++;
+            }
+            // 任务 D：块级多契约「响亮拒绝」—— head 词命中契约表且 args 里出现第 2 个
+            //   已注册契约词 ⇒ E-CONTRACT-017（单契约 `server web prod` 的 web/prod 不是契约，不受影响）。
+            if (key_is_contract && arg_has_contract) {
+                if (st.err && st.err->empty())
+                    *st.err = code_prefix(SML_E_CONTRACT_017,
+                        "sml: 该实现暂不支持一个块应用多份契约（块级多契约写法）");
+                st.aborted = true; break;
             }
             if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::LBrace) {
                 st.i++;

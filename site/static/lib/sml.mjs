@@ -1539,7 +1539,24 @@ export function parse(text, opts) {
           i++;
           const raw = peek() && peek().v;
           if (!raw) fail("E-PARSE-019", "sml: @is 后须契约名");
+          const firstLine = peek().line;  // 首个契约名所在源行（D 同 line 判据）
           i++;
+          // D（任务 D）：多契约「响亮拒绝」—— `@is` 后出现第 2 个裸词（同一行、
+          // 且该词不是「后跟 `:` 的键」）即报 E-CONTRACT-017，绝不静默给树。
+          // 与 Rust D1 同口径：遇 `:` / `{` / `]` / 换行 / 逗号（可省）即停。
+          {
+            let j = i;
+            while (j < toks.length) {
+              const tk = toks[j];
+              if (tk.line !== firstLine) break;            // 换行即停
+              if (tk.t === ",") { j++; continue; }          // 逗号可省，跳过
+              if (tk.t === "word" || tk.t === "str") {
+                if (toks[j + 1] && toks[j + 1].t === ":") break;  // 后跟 `:` 是键，非契约名
+                fail("E-CONTRACT-017", "sml: 该实现暂不支持一个块应用多份契约（@is 多契约写法）");
+              }
+              break;  // `{` / `]` / 其它 token → 停
+            }
+          }
           // `@is type(契约名)` 与 `@is 契约名` 等价 —— 括号形式让「类型标注」
           // 的意图更显眼，且与块级标注 `type(契约名) 块名 { .. }` 同形。
           // 括号在词法中不是分隔符，故 `type(办事人)` 整体是一个 word，
@@ -1719,6 +1736,12 @@ export function parse(text, opts) {
             if (feats.has("typed-block") && feats.has("contract")) {
               const cname = key in contracts ? key : nsPrefix + key in contracts ? nsPrefix + key : null;
               if (cname) {
+                // D（任务 D）：块级多契约「响亮拒绝」—— args 里出现第 2 个已注册契约词
+                // 即报 E-CONTRACT-017（单契约 `server web prod` 的 web/prod 不是契约，不受影响）。
+                for (const a of args) {
+                  const an = a in contracts ? a : nsPrefix + a in contracts ? nsPrefix + a : null;
+                  if (an) fail("E-CONTRACT-017", "sml: 该实现暂不支持一个块应用多份契约（块级多契约写法）");
+                }
                 const c = contracts[cname];
                 applyDefaults(c, sub);
                 const errs = checkContract(contracts, c, sub, "");

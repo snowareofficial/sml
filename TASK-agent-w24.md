@@ -339,6 +339,25 @@ git stash pop
 
 ## 6. 任务 D：其它端「响亮拒绝」（与 C 同期，每端改动极小）
 
+> **✅ 已完成（2026-10-12）**，证据：
+> - 四端全部「响亮拒绝」多契约写法，绝不静默给树；Rust 基线原样不变：
+>   `_rust_test.bat` ⇒ `EXIT=0 / SUITES=49 / PASSED=585 / FAILED=0`（零回归）。
+> - JS（`js/sml.mjs`，已 `--fix` 同步 site 三份 + `editors/vscode/src/vendor/sml.mjs`；
+>   `python tools/check_js_copies.py` 四份一致）：探针 (a)`@is A A`→`E-CONTRACT-017`、
+>   (b)`@is A` 单契约→成功、(c)`@is A, B`→`017`、(d)块级 `A B item`→`017`、(e)`server web prod`→成功。
+> - C（`c/sml.c`，含新增 lexer 行号跟踪）：同上 (a)(c)(d)→`E-CONTRACT-017`、`(b)(e)`→成功；
+>   `cd c && python build_check.py --run` 全绿。
+> - C++（`cpp/sml.cpp`）：同上 (a)(c)(d)→`017`、`(b)(e)`→成功；
+>   `python cpp/build_verify.py --allow-skip-rs-bridge` 的 contract/comments/limits/codes 全 rc=0
+>   （RS-BRIDGE 缺库 rc=1 属已知，已用 `--allow-skip-rs-bridge` 跳过）。
+> - Lua（`lua/lib/sml.soup`，含新增 tokenizer 行号跟踪）：同上 (a)(c)(d)→`017`、`(b)(e)`→成功；
+>   `python lua/run_check.py` ⇒ `151 通过, 0 失败`（ALL LUA CHECKS PASSED）。
+> - 单契约路径四端逐字未变（`@is A` / `server web prod` 均成功）；码 `E-CONTRACT-017` 未改语义
+>   （本轮只接位置，码表冻结）。
+>
+> 执行中与文档一致、无需偏离的点：C / C++ / Lua 均无 `@feature`（无 typed-block），
+> 块级拒绝按「head 命中契约表且 args 出现第 2 个契约词」拦截，与 D1/D2 同口径。
+
 **为什么必须做**：叠加**不能 opt-in**（C / C++ / Lua 没有 `@feature`），
 只做 Rust 会重演 `typed-block`「其余端静默退化」的坑（教科书 §5.2.2 / ch10 已写过这个教训）。
 

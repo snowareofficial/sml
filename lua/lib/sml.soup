@@ -37,6 +37,11 @@
 local Sml = {}
 Sml.__index = Sml
 
+-- 任务 D：tokenize 给出的「每个 token 起始行」表（与 toks 同下标）。
+-- 由 load() 每次解析时填上，parse_block 读取用于 `@is` 同行判据。
+-- 单线程、一次 load 内用 pcall 解析，无重入，安全。
+local _LINES = nil
+
 function Sml.new()
   return setmetatable({}, Sml)
 end
@@ -120,11 +125,14 @@ end
 ------------------------------------------------------------------------------
 local function tokenize(text)
   local toks = {}
+  local lines = {}   -- 与 toks 同下标：每个 token 的起始行（1 起；任务 D 的 @is 同行判据用）
   local i, n = 1, #text
   local buf = {}
+  local cur_line = 1
   local function flush()
     if #buf > 0 then
       toks[#toks+1] = table.concat(buf)
+      lines[#toks] = cur_line
       buf = {}
     end
   end
@@ -147,6 +155,7 @@ local function tokenize(text)
       while i <= n do
         local a = string.sub(text, i, i)
         local b = (i < n) and string.sub(text, i + 1, i + 1) or ""
+        if a == "\n" then cur_line = cur_line + 1 end
         if a == "*" and b == "/" then i = i + 2; closed = true; break end
         i = i + 1
       end
@@ -158,6 +167,7 @@ local function tokenize(text)
       while i <= n do
         local a = string.sub(text, i, i)
         local b = (i < n) and string.sub(text, i + 1, i + 1) or ""
+        if a == "\n" then cur_line = cur_line + 1 end
         if a == "*" and b == "_" then i = i + 2; closed = true; break end
         i = i + 1
       end
@@ -219,10 +229,12 @@ local function tokenize(text)
       end
       if not closed then fail("E-LEX-001", "字符串未闭合（缺少结束引号）") end
       toks[#toks+1] = '"' .. table.concat(qb) .. '"'  -- 保留引号标记便于 coerce 识别
+      lines[#toks] = cur_line
       i = j + 1
     elseif c == "{" or c == "}" or c == "[" or c == "]" or c == "," then
       flush()
       toks[#toks+1] = c
+      lines[#toks] = cur_line
       i = i + 1
     elseif c == "@" then
       -- `@` 仅当位于**词首**时才是片段定义标记（`@base { ... }`）。
@@ -232,6 +244,7 @@ local function tokenize(text)
       if #buf == 0 then
         flush()
         toks[#toks+1] = "@"
+        lines[#toks] = cur_line
       else
         buf[#buf+1] = c
       end
@@ -239,9 +252,11 @@ local function tokenize(text)
     elseif c == ":" then
       flush()
       toks[#toks+1] = ":"
+      lines[#toks] = cur_line
       i = i + 1
     elseif c == " " or c == "\t" or c == "\n" or c == "\r" then
       flush()
+      if c == "\n" then cur_line = cur_line + 1 end
       i = i + 1
     else
       buf[#buf+1] = c
@@ -249,7 +264,7 @@ local function tokenize(text)
     end
   end
   flush()
-  return toks
+  return toks, lines
 end
 
 ------------------------------------------------------------------------------
@@ -755,8 +770,24 @@ local function parse_block(tokens, i, closing, fragments, contracts, depth)
         -- `@is type(契约名)` 与 `@is 契约名` 等价（对齐 Rust 的 unwrap_type_call）
         local inner = string.match(cname, "^type%((.+)%)$")
         if inner and contracts[cname] == nil then cname = inner end
+        i = i + 1  -- 越过 cname（现在 tokens[i-1] 是 cname）
+        -- 任务 D：多契约「响亮拒绝」—— `@is` 后出现第 2 个裸词（同一行、
+        --   且该词不是「后跟 : 的键」）即报 E-CONTRACT-017，绝不静默给树。
+        --   与 Rust D1 同口径：遇 : / { / ] / 换行 / 逗号（可省）即停。
+        local cname_line = _LINES[i - 1]
+        local j = i
+        if tokens[j] == "," then j = j + 1 end
+        local nx = tokens[j]
+        if nx ~= nil and is_word_tok(nx) then
+          if _LINES[j] ~= cname_line then
+            -- 换行即停：下一行的键/值不是契约名
+          elseif tokens[j + 1] == ":" then
+            -- 后跟 : 是键，非契约名
+          else
+            fail("E-CONTRACT-017", "sml: 该实现暂不支持一个块应用多份契约（@is 多契约写法）")
+          end
+        end
         pending_is = cname
-        i = i + 1
       else
         -- 未注册指令（`@foo ...`）：按 C 的 is_param 口径处理（W16）。
         --   只认**紧跟冒号**的 `type:` / `name:` 作为显式参数；出现位置参数
@@ -827,9 +858,17 @@ local function parse_block(tokens, i, closing, fragments, contracts, depth)
              and not words_then_directive(tokens, i) then
         -- 裸块：key 为类型，后续 token 直到 { 为参数
         local args = {}
+        local key_is_contract = (contracts[key] ~= nil)
+        local arg_has_contract = false
         while tokens[i] and tokens[i] ~= "{" and tokens[i] ~= "}" and tokens[i] ~= "]" and tokens[i] ~= "," do
+          if key_is_contract and contracts[tokens[i]] ~= nil then arg_has_contract = true end
           args[#args+1] = coerce(tokens[i], fragments)
           i = i + 1
+        end
+        -- 任务 D：块级多契约「响亮拒绝」—— head 词命中契约表且 args 里出现第 2 个
+        --   已注册契约词 ⇒ E-CONTRACT-017（单契约 `server web prod` 的 web/prod 不是契约，不受影响）。
+        if key_is_contract and arg_has_contract then
+          fail("E-CONTRACT-017", "sml: 该实现暂不支持一个块应用多份契约（块级多契约写法）")
         end
         if tokens[i] == "{" then
           local sub
@@ -1240,7 +1279,8 @@ function Sml.load(text, base)
     end
     src = expanded
   end
-  local ok, toks = pcall(tokenize, src)
+  local ok, toks, lines = pcall(tokenize, src)
+  _LINES = lines
   if not ok then
     -- 词法层 `fail()` 抛出的错**带码**，必须原样透出（与下面解析阶段同一个规矩）；
     -- 不带码的才是「没能给出更具体原因」→ E-PARSE-012 兜底。

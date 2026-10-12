@@ -301,11 +301,13 @@ typedef enum {
 typedef struct {
     tok_type t;
     char *v;   /* T_STR / T_WORD 的内容 */
+    int line;  /* 该 token 起始行（1 起）；任务 D 的 @is 同行判据用 */
 } token;
 
 typedef struct {
     token *toks;
     size_t n, cap, pos;
+    int cur_line;    /* 当前行（lex_run 维护；token.line 的来源） */
     char *errbuf;
     size_t errsz;
     int failed;      /* 词法错误已记（只记第一条）；sml_parse 见到它立即返回 NULL */
@@ -337,6 +339,7 @@ static void lex_push(lexer *lx, tok_type t, char *v) {
     }
     lx->toks[lx->n].t = t;
     lx->toks[lx->n].v = v;
+    lx->toks[lx->n].line = lx->cur_line;
     lx->n++;
 }
 
@@ -352,6 +355,7 @@ static void lex_run(lexer *lx, const char *text) {
     const char *p = text;
     char buf[1024];
     size_t blen = 0;
+    lx->cur_line = 1;
 #define FLUSH() do { if (blen) { buf[blen] = '\0'; lex_push(lx, T_WORD, strdup(buf)); blen = 0; } } while (0)
     while (*p) {
         char c = *p;
@@ -370,6 +374,7 @@ static void lex_run(lexer *lx, const char *text) {
             p += 2;
             int closed = 0;
             while (*p) {
+                if (*p == '\n') lx->cur_line++;
                 if (*p == '*' && p[1] == '/') { p += 2; closed = 1; break; }
                 p++;
             }
@@ -380,6 +385,7 @@ static void lex_run(lexer *lx, const char *text) {
             p += 2;
             int closed = 0;
             while (*p) {
+                if (*p == '\n') lx->cur_line++;
                 if (*p == '*' && p[1] == '_') { p += 2; closed = 1; break; }
                 p++;
             }
@@ -476,7 +482,7 @@ static void lex_run(lexer *lx, const char *text) {
             else { if (blen < sizeof(buf) - 1) buf[blen++] = c; }
             p++;
         }
-        else if (c == ' ' || c == '\t' || c == '\n' || c == '\r') { FLUSH(); p++; }
+        else if (c == ' ' || c == '\t' || c == '\n' || c == '\r') { FLUSH(); if (c == '\n') lx->cur_line++; p++; }
         else {
             if (blen < sizeof(buf) - 1) buf[blen++] = c;
             p++;
@@ -1092,9 +1098,21 @@ static sml_value *try_parse_array_bare_block(parser *ps) {
     token *first = next(ps);
     const char *type_word = first->v;   /* 原词（token 存活到 lex_free） */
     sml_value *args = sml_new_array();
+    /* 任务 D：数组位置的块级多契约同样「响亮拒绝」（head 命中契约表且参数里出现
+       第 2 个已注册契约词 ⇒ E-CONTRACT-017）。 */
+    int key_is_contract = (contract_find(ps, type_word) != NULL);
+    int arg_has_contract = 0;
     while (peek(ps)->t == T_WORD || peek(ps)->t == T_STR) {
         token *at = next(ps);
+        if (key_is_contract && contract_find(ps, at->v)) arg_has_contract = 1;
         sml_arr_push(args, at->t == T_STR ? sml_new_str(at->v) : coerce_word(at->v, ps));
+    }
+    if (key_is_contract && arg_has_contract) {
+        set_err(ps->lx->errbuf, ps->lx->errsz,
+                SML_E_CONTRACT_017 " 该实现暂不支持一个块应用多份契约（块级多契约写法）");
+        ps->failed = 1;
+        sml_free(args);
+        return NULL;
     }
     next(ps);   /* `{`（预扫描已保证在此） */
     sml_value *sub = parse_block(ps, T_RBRACE);
@@ -1263,6 +1281,25 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                 token *cn = next(ps);
                 if (cn && (cn->t == T_WORD || cn->t == T_STR)) {
                     char *cname_is = cn->v;
+                    /* 任务 D：多契约「响亮拒绝」—— `@is` 后出现第 2 个裸词（同一行、
+                       且该词不是「后跟 : 的键」）即报 E-CONTRACT-017，绝不静默给树。
+                       与 Rust D1 同口径：遇 : / { / ] / 换行 / 逗号（可省）即停。 */
+                    {
+                        token *nx = peek(ps);
+                        if (nx && nx->t == T_COMMA) nx = peek_at(ps, 1);  /* 跳过可省逗号 */
+                        if (nx && (nx->t == T_WORD || nx->t == T_STR)) {
+                            if (nx->line != cn->line) {
+                                /* 换行即停：下一行的键/值不是契约名 */
+                            } else if (peek_at(ps, (nx == peek(ps)) ? 1 : 2)
+                                       && peek_at(ps, (nx == peek(ps)) ? 1 : 2)->t == T_COLON) {
+                                /* 后跟 : 是键，非契约名 */
+                            } else {
+                                set_err(ps->lx->errbuf, ps->lx->errsz,
+                                        SML_E_CONTRACT_017 " 该实现暂不支持一个块应用多份契约（@is 多契约写法）");
+                                ps->failed = 1;
+                            }
+                        }
+                    }
                     if (peek(ps)->t == T_LBRACE) {
                         /* `@is Name { ... }` 匿名块/当前块应用契约:
                         ** 解析块体、应用契约、合并字段回当前对象 */
@@ -1357,7 +1394,26 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
             if (nn && nn->t == T_WORD && strcmp(nn->v, "is") == 0) {
                 next(ps); next(ps); /* @ is */
                 token *cn = next(ps);
-                if (cn && (cn->t == T_WORD || cn->t == T_STR)) field_is = cn->v;
+                if (cn && (cn->t == T_WORD || cn->t == T_STR)) {
+                    field_is = cn->v;
+                    /* 任务 D：字段级 @is 同样「响亮拒绝」第 2 个裸词（同一行、非键）。 */
+                    {
+                        token *nx = peek(ps);
+                        if (nx && nx->t == T_COMMA) nx = peek_at(ps, 1);
+                        if (nx && (nx->t == T_WORD || nx->t == T_STR)) {
+                            if (nx->line != cn->line) {
+                                /* 换行即停 */
+                            } else if (peek_at(ps, (nx == peek(ps)) ? 1 : 2)
+                                       && peek_at(ps, (nx == peek(ps)) ? 1 : 2)->t == T_COLON) {
+                                /* 后跟 : 是键，非契约名 */
+                            } else {
+                                set_err(ps->lx->errbuf, ps->lx->errsz,
+                                        SML_E_CONTRACT_017 " 该实现暂不支持一个块应用多份契约（@is 多契约写法）");
+                                ps->failed = 1;
+                            }
+                        }
+                    }
+                }
             }
         }
         int colon = 0;
@@ -1375,10 +1431,23 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
             }
             if (found) {
                 sml_value *args = sml_new_array();
+                /* 任务 D：块级多契约「响亮拒绝」—— head 词命中契约表且 args 里出现第 2 个
+                   已注册契约词 ⇒ E-CONTRACT-017（单契约 `server web prod` 的 web/prod 不是
+                   契约，不受影响）。与 Rust D2 同口径：从首词起连续命中契约表的词才计数。 */
+                int key_is_contract = (contract_find(ps, key) != NULL);
+                int arg_has_contract = 0;
                 while (peek(ps)->t == T_WORD || peek(ps)->t == T_STR) {
                     token *at = next(ps);
+                    if (key_is_contract && contract_find(ps, at->v)) arg_has_contract = 1;
                     sml_arr_push(args, at->t == T_STR ? sml_new_str(at->v)
                                                       : coerce_word(at->v, ps));
+                }
+                if (key_is_contract && arg_has_contract) {
+                    set_err(ps->lx->errbuf, ps->lx->errsz,
+                            SML_E_CONTRACT_017 " 该实现暂不支持一个块应用多份契约（块级多契约写法）");
+                    ps->failed = 1;
+                    sml_free(args);
+                    continue;
                 }
                 if (peek(ps)->t == T_LBRACE) {
                     next(ps);
