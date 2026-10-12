@@ -891,6 +891,97 @@ function parseIncludeTargets(line, feats) {
 }
 
 // ---------------------------------------------------------------------------
+// —— 契约映射（D5 / 任务 F，JS 侧对齐 rust/sml-parse/src/contract_map.rs）——
+//
+// 三条铁规矩照 Rust：① opt-in（不开 traceContracts 时 parse 返回值与旧版逐字一致）；
+// ② 交换表示是一份 SML（contractMapToSml，与 Rust ContractMap::to_sml 逐字节一致）；
+// ③ 输出确定（按路径排序、无时间戳，同输入逐字节相同）。
+//
+// 路径段用 { key } / { index } 两种对象（**不造点分字符串**）：靠 SML 类型自识别区分
+// （0 是下标、"0" 是键），键名含 `.` / `[` 时点分写法有歧义。
+function pathEq(a, b) {
+  if (a.length !== b.length) return false;
+  for (let k = 0; k < a.length; k++) {
+    const x = a[k], y = b[k];
+    const xi = x.index !== undefined, yi = y.index !== undefined;
+    if (xi !== yi) return false;
+    if (xi) { if (x.index !== y.index) return false; }
+    else { if (x.key !== y.key) return false; }
+  }
+  return true;
+}
+
+// 按码位逐字比较（Rust String/char Ord 语义；JS 默认按 UTF-16 码元，对辅助平面
+// 字符会与 Rust 不一致，故显式展开为码点）。
+function cmpCodePoints(a, b) {
+  const A = Array.from(a), B = Array.from(b);
+  const n = Math.min(A.length, B.length);
+  for (let k = 0; k < n; k++) {
+    if (A[k] !== B[k]) return A[k] < B[k] ? -1 : 1;
+  }
+  if (A.length === B.length) return 0;
+  return A.length < B.length ? -1 : 1;
+}
+
+// 按路径排序的比较器：逐段比；同位置 Key 在 Index 前（对应 Rust PathSeg 枚举声明序）；
+// Key 段按码位字典序；Index 段按数值；前缀更短者更小。
+function cmpPath(a, b) {
+  const n = Math.min(a.length, b.length);
+  for (let k = 0; k < n; k++) {
+    const x = a[k], y = b[k];
+    const xi = x.index !== undefined, yi = y.index !== undefined;
+    if (xi !== yi) return xi ? 1 : -1;   // Key(x) < Index(y) ⇒ Key 在前
+    if (xi) { if (x.index !== y.index) return x.index < y.index ? -1 : 1; }
+    else { const c = cmpCodePoints(x.key, y.key); if (c !== 0) return c; }
+  }
+  return a.length === b.length ? 0 : (a.length < b.length ? -1 : 1);
+}
+
+// 裸词安全判据：照 Rust contract_map::word_or_quoted —— 全由词字符（字母/数字/
+// `_` `@` `.` `-`，含 CJK）组成、不以 ASCII 数字开头、且非三个保留字 ⇒ 裸写，
+// 否则加引号并转义（\ " 换行 回车 制表）。
+function wordOrQuoted(s) {
+  const safe = s.length > 0
+    && !/^[0-9]/.test(s)
+    && s !== "true" && s !== "false" && s !== "null"
+    && /^[\p{L}\p{N}_@.\-]+$/u.test(s);
+  if (safe) return s;
+  let out = '"';
+  for (const ch of s) {
+    if (ch === "\\") out += "\\\\";
+    else if (ch === '"') out += '\\"';
+    else if (ch === "\n") out += "\\n";
+    else if (ch === "\r") out += "\\r";
+    else if (ch === "\t") out += "\\t";
+    else out += ch;
+  }
+  return out + '"';
+}
+
+// 契约映射 → 一份 SML 文档（顶层数组）。与 Rust ContractMap::to_sml 逐字节一致：
+// 空表输出 "[]\n"；每条 `  { path: [ … ] contracts: [ … ] }`；顶层实体 path: []；
+// 无时间戳。本函数对入参按路径稳定排序（幂等），故调用方是否预先 freeze 均可。
+export function contractMapToSml(contractMap) {
+  const entries = (contractMap || []).slice().sort((a, b) => cmpPath(a.path, b.path));
+  if (entries.length === 0) return "[]\n";
+  let out = "[\n";
+  for (const e of entries) {
+    out += "  { path: ";
+    if (e.path.length === 0) {
+      out += "[]";
+    } else {
+      out += "[ ";
+      out += e.path.map((s) => (s.index !== undefined ? String(s.index) : wordOrQuoted(s.key))).join(" ");
+      out += " ]";
+    }
+    out += " contracts: [ ";
+    out += e.names.map(wordOrQuoted).join(" ");
+    out += " ] }\n";
+  }
+  out += "]\n";
+  return out;
+}
+
 // 解析（递归下降）
 // ---------------------------------------------------------------------------
 
@@ -915,6 +1006,26 @@ export function parse(text, opts) {
   // 不带这些选项时，行为与未扩展时**完全一致**。
   const extDirs = opts.directives || null;
   const extTypes = opts.types || null;
+
+  // —— 契约映射（D5 / 任务 F）：opt-in，不开时零开销、返回值与旧版逐字一致 ——
+  //
+  // 压栈点照 Rust 的 5 处（对象值块 / 裸块 / 值数组 / 数组对象元素 / 嵌套数组元素），
+  // 记录点 2 处（`@is` 应用、块级 typed-block 应用）。`@contract` / `@type` / 片段体
+  // 是**定义**、不进结果树，故不压栈、不记录。
+  const traceContracts = !!opts.traceContracts;
+  const pathStack = [];
+  const contractMapEntries = [];
+  const pushKey = (k) => { if (traceContracts) pathStack.push({ key: k }); };
+  const pushIndex = (n) => { if (traceContracts) pathStack.push({ index: n }); };
+  const popPath = () => { if (traceContracts) pathStack.pop(); };
+  const recordContract = (name) => {
+    if (!traceContracts) return;
+    const path = pathStack.map((s) => (s.index !== undefined ? { index: s.index } : { key: s.key }));
+    let e = null;
+    for (const en of contractMapEntries) { if (pathEq(en.path, path)) { e = en; break; } }
+    if (e) { if (!e.names.includes(name)) e.names.push(name); }
+    else contractMapEntries.push({ path: path, names: [name] });
+  };
 
   // `@feature` 整行在**词法之前**剥掉（见 stripFeatureLines 的说明）——
   // 特性集仍由下面的 collectFeatures 从**原文**读，两者互不影响。
@@ -1725,6 +1836,7 @@ export function parse(text, opts) {
           }
           if (peek() && peek().t === "{") {
             i++;
+            pushKey(key);
             const sub = parseBlock("}");
             sub.__type = key;
             if (args.length === 1) sub.__name = args[0];
@@ -1746,8 +1858,10 @@ export function parse(text, opts) {
                 applyDefaults(c, sub);
                 const errs = checkContract(contracts, c, sub, "");
                 if (errs) fail(errs[0].code, "contract: " + cname + " — " + errs.map((x) => x.msg).join("; "));
+                recordContract(cname);
               }
             }
+            popPath();
             setField(key, sub);
             continue;
           }
@@ -1756,10 +1870,16 @@ export function parse(text, opts) {
       const nxt = peek();
       if (nxt && nxt.t === "{") {
         i++;
-        setField(key, parseBlock("}"));
+        pushKey(key);
+        const subObj = parseBlock("}");
+        popPath();
+        setField(key, subObj);
       } else if (nxt && nxt.t === "[") {
         i++;
-        setField(key, parseArray());
+        pushKey(key);
+        const subArr = parseArray();
+        popPath();
+        setField(key, subArr);
       } else if (nxt && (nxt.t === "word" || nxt.t === "str")) {
         setField(key, nxt.t === "str" ? coerceStr(nxt.v, fragments, feats) : coerceWord(nxt.v, fragments, nsMap, feats));
         i++;
@@ -1787,6 +1907,7 @@ export function parse(text, opts) {
       applyDefaults(c, node);
       const errs = checkContract(contracts, c, node, "");
       if (errs) fail(errs[0].code, "contract: " + appliedContract + " — " + errs.map((x) => x.msg).join("; "));
+      recordContract(appliedContract);
     }
     return node;
   }
@@ -1800,7 +1921,10 @@ export function parse(text, opts) {
       if (tok.t === ",") { i++; continue; }
       if (tok.t === "{") {
         i++;
-        arr.push(parseBlock("}"));
+        pushIndex(arr.length);
+        const elemObj = parseBlock("}");
+        popPath();
+        arr.push(elemObj);
       } else if (tok.t === "[") {
         // 嵌套数组（`m: [ [ a ] [ b ] ]`）必须递归。
         //
@@ -1809,7 +1933,10 @@ export function parse(text, opts) {
         // 不报错，但数据是错的。Rust 侧同一输入得到 `{"m":[["a"]]}`。
         // 嵌套深度由入口处的 MAX_PARSE_DEPTH 闸门统一封顶。
         i++;
-        arr.push(parseArray());
+        pushIndex(arr.length);
+        const elemArr = parseArray();
+        popPath();
+        arr.push(elemArr);
       } else if (tok.t === "word" || tok.t === "str") {
         arr.push(tok.t === "str" ? coerceStr(tok.v, fragments, feats) : coerceWord(tok.v, fragments, nsMap, feats));
         i++;
@@ -1835,9 +1962,17 @@ export function parse(text, opts) {
   if (toks.length === 1 && (toks[0].t === "word" || toks[0].t === "str")) {
     fail("E-PARSE-008", "sml: 顶层须为容器（键值块、对象块或数组），单独的标量无法往返");
   }
-  if (first && first.t === "[") { i++; return parseArray(); }
-  if (first && first.t === "{") { i++; return parseBlock("}"); }
-  return parseBlock(null);
+  let __result;
+  if (first && first.t === "[") { i++; __result = parseArray(); }
+  else if (first && first.t === "{") { i++; __result = parseBlock("}"); }
+  else { __result = parseBlock(null); }
+  // opt-in：开启 traceContracts 时返回 { value, contractMap }（contractMap 已按路径
+  // 排序、无时间戳）；关闭时**逐字返回旧值**（向后兼容的钉子）。
+  if (traceContracts) {
+    contractMapEntries.sort((a, b) => cmpPath(a.path, b.path));
+    return { value: __result, contractMap: contractMapEntries };
+  }
+  return __result;
 }
 
 /// 安全解析，不抛异常。

@@ -589,20 +589,44 @@ export function enclosingBlock(text, line) {
   return best;
 }
 
-/// 找某个块**应用的契约名**：块内首个 `@is X` / `@is type(X)`，或 `契约名 块名 {` 形式。
-export function contractOfBlock(text, line, contractNames) {
+/// 找某个块**应用的契约名列表**（任务 F：主源改读契约映射，支持多名）。
+///
+/// 主源：解析时带 `traceContracts`，从 `contractMap` 按块路径查名字（`{ key }` 段）；
+/// 兜底：映射取不到（文档解析失败 / 该块无记录）时走**原正则**（逐字保留旧逻辑）——
+/// 块声明行 `契约名 块名 {`，或块内首个 `@is X` / `@is type(X)`。
+export function contractNamesAtBlock(text, line, contractNames) {
   const info = blockPath(text, line);
-  if (!info) return null;
-  if (info.contractFromHead && (contractNames || []).includes(info.contractFromHead)) {
-    return info.contractFromHead;
+  if (info) {
+    const r = parseSafe(text, { traceContracts: true });
+    if (r.ok && r.value && Array.isArray(r.value.contractMap)) {
+      const segs = info.path.map((k) => ({ key: k }));
+      for (const e of r.value.contractMap) {
+        if (e.path.length === segs.length
+            && e.path.every((s, idx) => s.index === undefined && s.key === segs[idx].key)
+            && e.names.length) {
+          return e.names.slice();
+        }
+      }
+    }
+    // 兜底：原正则（旧逻辑逐字保留）
+    if (info.contractFromHead && (contractNames || []).includes(info.contractFromHead)) {
+      return [info.contractFromHead];
+    }
+    const lines = text.split("\n");
+    const end = info.closeLine >= 0 ? info.closeLine : line + 1;
+    for (let i = line + 1; i < end; i++) {
+      const m = /^\s*@is\s+(?:type\(\s*)?([^\s{)]+)/.exec(lines[i]);
+      if (m) return [m[1]];
+    }
   }
-  const lines = text.split("\n");
-  const end = info.closeLine >= 0 ? info.closeLine : line + 1;
-  for (let i = line + 1; i < end; i++) {
-    const m = /^\s*@is\s+(?:type\(\s*)?([^\s{)]+)/.exec(lines[i]);
-    if (m) return m[1];
-  }
-  return null;
+  return [];
+}
+
+/// 找某个块**应用的契约名**（单个，向后兼容入口）：主源走契约映射，取不到走正则兜底。
+/// 多契约时返回列表首个（JS 当前拒绝多契约，故实际恒为单个；数组入口供悬浮列全部）。
+export function contractOfBlock(text, line, contractNames) {
+  const names = contractNamesAtBlock(text, line, contractNames);
+  return names.length ? names[0] : null;
 }
 
 /// 把字段规格渲染成悬浮文本。`usage` 是「用在哪 / 当前值」这一段的补充说明。
@@ -854,6 +878,25 @@ export function blockPath(text, line) {
 /// 返回 `{ key, path, line, value, contract }` 或 `null`。
 export function contractInstance(text, name) {
   if (!name) return null;
+  // 主源（任务 F）：从契约映射找应用了 `name` 的实体，再回源定位其块声明行
+  //（映射只记路径、不带行号，故用 blockPath 逐声明行回配）。
+  const r0 = parseSafe(text, { traceContracts: true });
+  if (r0.ok && r0.value && Array.isArray(r0.value.contractMap)) {
+    const hit = r0.value.contractMap.find((e) => e.names.includes(name));
+    if (hit) {
+      const lines = text.split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        if (!blockDeclOf(lines[i])) continue;
+        const info = blockPath(text, i);
+        if (info && info.value !== undefined
+            && info.path.length === hit.path.length
+            && info.path.every((s, idx) => hit.path[idx].index === undefined && hit.path[idx].key === s)) {
+          return { key: info.key, path: info.path, line: i, value: info.value, contract: name };
+        }
+      }
+    }
+  }
+  // 兜底：原正则逐行扫描（逐字保留旧逻辑）
   const r = parseSafe(text);
   if (!r.ok) return null;
   const lines = text.split("\n");
@@ -889,22 +932,14 @@ export function contractInstance(text, name) {
 export function blockHoverMarkdown(text, line, contractNames) {
   const info = blockPath(text, line);
   if (!info) return null;
-  const lines = text.split("\n");
   const out = [];
   out.push("**块 `" + info.key + "`**" + (info.path.length > 1 ? "　（路径 `" + info.path.join(".") + "`）" : ""));
-  // 契约：块内首个 `@is X`；或块声明行是 `契约名 块名 {`
-  let contract = null;
-  if (info.contractFromHead && (contractNames || []).includes(info.contractFromHead)) {
-    contract = info.contractFromHead;
-  } else if (info.closeLine > 0) {
-    for (let i = line + 1; i < info.closeLine; i++) {
-      const m = /^\s*@is\s+([^\s{]+)/.exec(lines[i]);
-      if (m) { contract = m[1]; break; }
-    }
-  }
-  if (contract) {
+  // 契约（任务 F：主源读契约映射，支持多名；取不到走正则兜底）
+  const names = contractNamesAtBlock(text, line, contractNames);
+  if (names.length) {
     out.push("");
-    out.push("应用契约 **`" + contract + "`** —— 下面结构是**解析器应用契约后**的结果（缺失字段已按默认值填充）。");
+    out.push("应用契约 " + names.map((n) => "**`" + n + "`**").join("、")
+      + " —— 下面结构是**解析器应用契约后**的结果（缺失字段已按默认值填充）。");
   }
   if (info.value !== undefined) {
     out.push("");
@@ -915,11 +950,11 @@ export function blockHoverMarkdown(text, line, contractNames) {
     out.push("");
     out.push("_当前文档无法解析，取不到这个块的结构_（先修掉校验错误，这里就会显示结果）。");
   }
-  if (contract) {
-    const decl = contractDeclaration(text, contract);
+  for (const cn of names) {
+    const decl = contractDeclaration(text, cn);
     if (decl) {
       out.push("");
-      out.push("**契约 `" + contract + "` 的声明**");
+      out.push("**契约 `" + cn + "` 的声明**");
       out.push("");
       out.push("```sml");
       for (const l of decl.body) out.push(l);

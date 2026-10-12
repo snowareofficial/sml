@@ -199,6 +199,41 @@ try {
   check(false, "块名悬停 / 特殊颜色桥接函数", String(e && e.message));
 }
 
+// —— 任务 F：契约映射驱动悬浮 / 跳转；多契约仍「响亮拒绝」E-CONTRACT-017 ——
+// 映射只记录**已成功应用的单契约**；JS 对多契约写法绝不静默给树（与任务 D 一致）。
+try {
+  // ① 单契约 `@is A`：块悬浮含契约名 A（主源已改读契约映射）
+  const one = [
+    "@contract A loose { host: str }",
+    "server {",
+    "  @is A",
+    "  host: h1",
+    "}",
+  ].join("\n");
+  const md1 = m.blockHoverMarkdown(one, 1, m.collectContractNames(one));
+  check(!!md1 && md1.includes("A"), "任务F @is 单契约：块悬浮含契约名 A", md1 ? "" : "返回 null");
+  // ② 映射主源：contractNamesAtBlock 返回 [A]（数组形态，供悬浮列全部）
+  const names1 = m.contractNamesAtBlock(one, 1, m.collectContractNames(one));
+  check(Array.isArray(names1) && names1.length === 1 && names1[0] === "A",
+    "任务F contractNamesAtBlock 单契约返回 [A]", JSON.stringify(names1));
+  // ③ 多契约 `@is A B`：解析层仍响亮拒绝 E-CONTRACT-017，诊断层出红波浪线
+  const multi = [
+    "@contract A loose { x: int }",
+    "@contract B loose { y: int }",
+    "s {",
+    "  @is A B",
+    "  x: 1",
+    "  y: 2",
+    "}",
+  ].join("\n");
+  const rs = m.parseSafe(multi);
+  check(!rs.ok && rs.code === "E-CONTRACT-017", "任务F @is 多契约 ⇒ E-CONTRACT-017（解析层）", rs.ok ? "竟解析成功" : String(rs.code));
+  const diags = m.diagnose(multi);
+  check(Array.isArray(diags) && diags.length >= 1, "任务F 多契约诊断出红波浪线（不静默）", `诊断 ${(diags || []).length} 条`);
+} catch (e) {
+  check(false, "任务 F：契约映射悬浮 / 多契约 017", String(e && e.message));
+}
+
 // —— 「已被新版 VS Code 移除的 API」闸门 ——
 // 为什么必须有：顶层读一个**已不存在**的枚举成员，会让**整个扩展模块加载失败** ——
 // `activate` 从不执行、provider / 命令 / 输出面板全都不注册，而报错只落在「扩展主机」日志里。
