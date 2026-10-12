@@ -345,6 +345,14 @@ codes: [
       msg: "量词的取值非法：不是整数、为负数，或上界小于下界"
       impls: [ js ] status: partial
       note: "数值过大属预算问题，见 E-LIMIT-009" }
+    { id: E-CONTRACT-016 domain: CONTRACT severity: E title: "契约叠加冲突"
+      msg: "同一字段在参与叠加的两份契约里类型、默认值或区间不一致"
+      impls: [ rust ] status: partial
+      note: "一个块应用多份契约（`@is a, b` / `@is a b` / 块级 `conta contb item { }`，TASK-agent-w24 任务 C）时做**并集预检**：同字段名但 ty / default / min / max 不同即报此码 —— 冲突即报错才能保证结果与书写顺序无关。strict 优先（任一严格 ⇒ 整体严格），裁决见 TODO.md §契约叠加" }
+    { id: E-CONTRACT-017 domain: CONTRACT severity: E title: "契约叠加未实现"
+      msg: "该实现暂不支持一个块应用多份契约；请拆分成单契约或等待"
+      impls: [ js c cpp lua ] status: partial
+      note: "TASK-agent-w24 任务 D 的「响亮拒绝」：叠加不能 opt-in（C / C++ / Lua 没有 @feature 门控），Rust 先行期间其余端**绝不静默** —— 见到 `@is` 后第 2 个裸词或块级第 2 个已注册契约即报此码；某端实现叠加后从 impls 移除并更新 status。JS 此前对 `@is tls, retry` 给的是错树 + E-CONTRACT-003（误导），本码落地后改为响亮拒绝" }
 
     # ================= 片段与 include（语言层） =================
     { id: E-INCLUDE-001 domain: INCLUDE severity: E title: "include 文件缺失或读取失败"

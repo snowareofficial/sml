@@ -54,6 +54,10 @@ pub const E_CONTRACT_013: &str = "E-CONTRACT-013";
 pub const E_CONTRACT_014: &str = "E-CONTRACT-014";
 /// [E-CONTRACT-015] 量词取值非法：量词的取值非法：不是整数、为负数，或上界小于下界
 pub const E_CONTRACT_015: &str = "E-CONTRACT-015";
+/// [E-CONTRACT-016] 契约叠加冲突：同一字段在参与叠加的两份契约里类型、默认值或区间不一致
+pub const E_CONTRACT_016: &str = "E-CONTRACT-016";
+/// [E-CONTRACT-017] 契约叠加未实现：该实现暂不支持一个块应用多份契约；请拆分成单契约或等待
+pub const E_CONTRACT_017: &str = "E-CONTRACT-017";
 /// [E-DERIVE-001] 值与目标类型不符：SML 值的类型与目标宿主类型不符
 pub const E_DERIVE_001: &str = "E-DERIVE-001";
 /// [E-DERIVE-002] 数值超出目标类型范围：数值超出目标宿主类型的取值范围
@@ -316,6 +320,8 @@ pub const ALL: &[&str] = &[
     E_CONTRACT_013,
     E_CONTRACT_014,
     E_CONTRACT_015,
+    E_CONTRACT_016,
+    E_CONTRACT_017,
     E_DERIVE_001,
     E_DERIVE_002,
     E_DERIVE_003,
@@ -437,4 +443,4 @@ pub const ALL: &[&str] = &[
 ];
 
 /// 码总数（与 `errors/codes.sml` 的 `count` 对齐）。
-pub const COUNT: usize = 141;
+pub const COUNT: usize = 143;

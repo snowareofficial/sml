@@ -13,7 +13,7 @@ use sml_contract::Contract;
 use sml_value::Value;
 
 /// 契约校验入口（转出 `sml-contract` 的同名函数，供 `parser` 使用）。
-pub(crate) use sml_contract::apply_contract;
+pub(crate) use sml_contract::{apply_contract, apply_contracts};
 
 /// 契约表：解析器持有的 `名 → 契约` 表。
 pub(crate) type ContractMap = BTreeMap<String, Contract>;

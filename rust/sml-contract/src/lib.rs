@@ -9,7 +9,8 @@ use std::collections::BTreeMap;
 
 use sml_codes::{
     E_CONTRACT_001, E_CONTRACT_002, E_CONTRACT_003, E_CONTRACT_004, E_CONTRACT_005, E_CONTRACT_006,
-    E_CONTRACT_007, E_CONTRACT_008, E_CONTRACT_009, E_CONTRACT_010, E_CONTRACT_011, SmlError,
+    E_CONTRACT_007, E_CONTRACT_008, E_CONTRACT_009, E_CONTRACT_010, E_CONTRACT_011, E_CONTRACT_016,
+    SmlError,
 };
 use sml_value::Value;
 
@@ -395,6 +396,77 @@ fn value_kind(v: &Value) -> &'static str {
         Value::Array(_) => "array",
         Value::Object(_) => "object",
     }
+}
+
+/// 契约叠加：一个块应用**多份**契约（`@is a, b` / `@is a b` /
+/// 块级 `conta contb item { }`，TASK-agent-w24 任务 C）。
+///
+/// 语义（D3，用户裁决）：
+/// - **strict 优先**：任一契约严格 ⇒ 整体按严格校验；
+/// - **顺序无关**：字段按名取并集（`BTreeMap` 天然有序）；
+/// - **冲突即报错**：同字段名但类型 / 默认值 / 区间不一致 ⇒ `E-CONTRACT-016`
+///   （不允许「后者覆盖」—— 那会让结果依赖书写顺序）。
+///
+/// 实现走**合并视图**：构造一个临时 `Contract`，复用既有 [`apply_contract`] 的
+/// 默认值回填 / 类型校验 / 组合递归 —— 不另写一条校验路径，行为与单契约同源。
+pub fn apply_contracts(
+    names: &[String],
+    node: &mut BTreeMap<String, Value>,
+    contracts: &BTreeMap<String, Contract>,
+    path: &str,
+) -> Result<(), SmlError> {
+    let mut list: Vec<&Contract> = Vec::with_capacity(names.len());
+    for n in names {
+        let c = contracts.get(n).ok_or_else(|| {
+            SmlError::new(E_CONTRACT_001, format!("sml: 未定义的契约 `{}`", n))
+        })?;
+        list.push(c);
+    }
+    // 两两冲突预检：同字段名但类型 / 默认值 / 区间不同即冲突。
+    // ⚠️ 按**字段名**遍历（BTreeMap 有序），与书写顺序无关。
+    // 类型比较用 `TypeSpec::name()` 的规范串（ext 类型即注册名，同名即同校验器）。
+    for i in 0..list.len() {
+        for j in (i + 1)..list.len() {
+            for (fname, fa) in &list[i].fields {
+                if let Some(fb) = list[j].fields.get(fname) {
+                    let clash = fa.ty.name() != fb.ty.name()
+                        || fa.default != fb.default
+                        || fa.min != fb.min
+                        || fa.max != fb.max;
+                    if clash {
+                        return Err(SmlError::new(
+                            E_CONTRACT_016,
+                            format!(
+                                "sml: 契约叠加冲突：字段 `{}` 在 `{}` 与 `{}` 里类型 / 默认值 / 区间不一致",
+                                join_path(path, fname),
+                                list[i].name,
+                                list[j].name
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    // 合并视图：字段并集（同字段必一致 —— 预检已保证，后写不覆盖）；
+    // strict 优先 = 全部 loose 才 loose。
+    let mut fields = BTreeMap::new();
+    for c in &list {
+        for (k, v) in &c.fields {
+            fields.insert(k.clone(), v.clone());
+        }
+    }
+    let allow_extra = list.iter().all(|c| c.allow_extra);
+    let merged = Contract {
+        name: list
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect::<Vec<_>>()
+            .join("+"),
+        fields,
+        allow_extra,
+    };
+    apply_contract(&merged, node, contracts, path)
 }
 
 /// 对块应用契约：填充默认值 + 校验 + 严格性检查。

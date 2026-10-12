@@ -51,7 +51,7 @@ pub fn parse_file_versioned(path: impl AsRef<Path>) -> Result<(Value, Version), 
     let toks = resolve_includes(&rest, &base, allowed)?;
     // 文件入口的 token 流经 include 展开、跨文件合并，**没有可映射的单一原文**
     // ⇒ 传空 spans，解析器退回「不带位置」（宁缺勿错）。
-    let val = parse_impl_tokens(toks, Vec::new(), feats, BTreeMap::new())?;
+    let val = parse_impl_tokens(toks, Vec::new(), Vec::new(), feats, BTreeMap::new())?;
     Ok((val, v))
 }
 
@@ -102,7 +102,8 @@ pub fn parse_with(text: &str, opts: ParseOptions) -> Result<ParseOutput, SmlErro
     let v = declared.or(base).unwrap_or(Version::V1);
     let feats = features_for(v, feats, had);
     let (toks, spans) = tokenize_spans(&rest)?;
-    parse_impl_tokens_ext(toks, spans, feats, BTreeMap::new(), opts)
+    let lines = token_lines(&rest, &spans);
+    parse_impl_tokens_ext(toks, spans, lines, feats, BTreeMap::new(), opts)
         .map_err(|e| with_position(&rest, e))
 }
 
@@ -210,6 +211,28 @@ fn with_position(text: &str, e: SmlError) -> SmlError {
     e.suffix(&format!("（第 {line} 行第 {col} 列）"))
 }
 
+/// 每个 token 所在的**行号**（0 起，与 `spans` 一一对应）。
+///
+/// 单趟扫描：游标只前进，逐 token 数到它起点为止的换行数。
+/// 供 `@is` 多词的「遇换行即停」（D1）—— 没有它，`@is X` 的下一行键会被吞进契约名。
+fn token_lines(text: &str, spans: &[Span]) -> Vec<usize> {
+    let b = text.as_bytes();
+    let mut out = Vec::with_capacity(spans.len());
+    let mut pos = 0usize;
+    let mut line = 0usize;
+    for s in spans {
+        let start = s.start.min(b.len());
+        while pos < start {
+            if b[pos] == b'\n' {
+                line += 1;
+            }
+            pos += 1;
+        }
+        out.push(line);
+    }
+    out
+}
+
 /// 不含版本处理的底层解析（文本入口）
 fn parse_impl(
     text: &str,
@@ -217,7 +240,8 @@ fn parse_impl(
     env: BTreeMap<String, String>,
 ) -> Result<Value, SmlError> {
     let (toks, spans) = tokenize_spans(text)?;
-    parse_impl_tokens(toks, spans, features, env)
+    let lines = token_lines(text, &spans);
+    parse_impl_tokens(toks, spans, lines, features, env)
         .map_err(|e| with_position(text, e))
 }
 
@@ -233,17 +257,19 @@ fn parse_impl(
 fn parse_impl_tokens(
     toks: Vec<Tok>,
     spans: Vec<Span>,
+    lines: Vec<usize>,
     features: FeatureSet,
     env: BTreeMap<String, String>,
 ) -> Result<Value, SmlError> {
     // 无扩展路径：直接丢掉 diagnostics，与既有签名保持一致。
-    Ok(parse_impl_tokens_ext(toks, spans, features, env, ParseOptions::new())?.value)
+    Ok(parse_impl_tokens_ext(toks, spans, lines, features, env, ParseOptions::new())?.value)
 }
 
 /// 同 [`parse_impl_tokens`]，但携带外置扩展（见 [`crate::ext`]）。
 fn parse_impl_tokens_ext(
     toks: Vec<Tok>,
     spans: Vec<Span>,
+    lines: Vec<usize>,
     features: FeatureSet,
     env: BTreeMap<String, String>,
     opts: ParseOptions,
@@ -251,6 +277,7 @@ fn parse_impl_tokens_ext(
     let mut p = Parser {
         toks,
         spans,
+        lines,
         i: 0,
         fragments: BTreeMap::new(),
         contracts: BTreeMap::new(),
@@ -364,7 +391,7 @@ pub fn parse_file(path: impl AsRef<Path>) -> Result<Value, SmlError> {
     let allowed = FeatureSet::all().intersection(feats);
     let toks = resolve_includes(&rest, &base, allowed)?;
     // include 展开是跨文件 token 流 ⇒ 无单一原文，不带位置（见 `parse_impl_tokens` 注释）
-    parse_impl_tokens(toks, Vec::new(), allowed, BTreeMap::new())
+    parse_impl_tokens(toks, Vec::new(), Vec::new(), allowed, BTreeMap::new())
 }
 
 /// 同 [`parse_file`]，但额外接受一个「调用方允许特性集」`caller_allowed`，
@@ -399,7 +426,7 @@ pub fn parse_file_features(
     }
     let toks = resolve_includes(&rest, &base, allowed)?;
     // include 展开是跨文件 token 流 ⇒ 无单一原文，不带位置（见 `parse_impl_tokens` 注释）
-    parse_impl_tokens(toks, Vec::new(), allowed, BTreeMap::new())
+    parse_impl_tokens(toks, Vec::new(), Vec::new(), allowed, BTreeMap::new())
 }
 
 /// 解析到对象 (失败抛 `ParseError`，它带**错误码**，见 [`sml_codes::SmlError`])

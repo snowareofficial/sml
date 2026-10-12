@@ -16,7 +16,7 @@ use sml_feature::{Feature, FeatureSet};
 use sml_lex::{Span, Tok, coerce_word, lookup_env};
 use sml_value::{MAX_VALUE_DEPTH, Value};
 
-use crate::contract_bridge::apply_contract;
+use crate::contract_bridge::{apply_contract, apply_contracts};
 use crate::contract_map::{ContractMap, PathSeg};
 use crate::ext::{Diagnostic, DiagnosticKind, DirectiveTable, Outcome};
 
@@ -28,6 +28,11 @@ pub struct Parser {
     /// 可能为空：文件入口经 `resolve_includes` 拿到的是**跨文件合并**后的 token 流，
     /// 没有可映射的单一原文（此时 [`Self::err_at`] 会退回「不带位置」，宁缺勿错）。
     pub(crate) spans: Vec<Span>,
+    /// 与 `toks` 一一对应的**行号**（0 起），供「`@is` 多词遇到换行即停」（D1）。
+    ///
+    /// 空表 = 行号未知（文件入口的 include 展开 / `@for` 体）⇒ 调用方必须退回
+    /// **只收一个词**的旧行为 —— 宁可少收，不可把下一行的键吞进契约名。
+    pub(crate) lines: Vec<usize>,
     pub(crate) i: usize,
     pub(crate) fragments: BTreeMap<String, Value>,
     /// 自定义类型表：名 -> 模式（SML 值）。由 `@type name: X { ... }` 填充。
@@ -74,6 +79,41 @@ impl Parser {
     /// 查 `$env.X`：先查本次解析的覆盖表，再回落进程环境。
     pub fn env_var(&self, name: &str) -> String {
         lookup_env(Some(&self.env), name)
+    }
+
+    /// 解析 `@is` / 块级标注的一个契约词。
+    ///
+    /// `@is type(契约名)` 与 `@is 契约名` 等价 —— 括号形式让「类型标注」的意图
+    /// 更显眼，且与块级标注写法 `type(契约名) 块名 { .. }` 保持同一形态。
+    /// 括号在词法中不是分隔符，故 `type(办事人)` 整体是一个 Word；仅当契约表里
+    /// **确实存在**名为 `type(办事人)` 的契约时（极端但合法的老文档），才按
+    /// 原名解析 —— 向后兼容优先。
+    ///
+    /// 命名空间隔离：先按裸名查，再按当前 ns 前缀 qualify。
+    /// 命中 ⇒ `Ok(resolve 后的名字)`；未命中 ⇒ `Err(给错误文案显示的名字)`。
+    fn resolve_contract_word(&self, raw: &str) -> Result<String, String> {
+        let cname = match Self::unwrap_type_call(raw) {
+            Some(inner) if !self.contracts.contains_key(raw) => inner,
+            _ => raw.to_string(),
+        };
+        if self.contracts.contains_key(&cname) {
+            Ok(cname)
+        } else {
+            let q = self.qualify(&cname);
+            if self.contracts.contains_key(&q) {
+                Ok(q)
+            } else {
+                Err(q)
+            }
+        }
+    }
+
+    /// 两个 token 是否在同一行（任一行号未知 ⇒ `false`，调用方按「不同行」保守处理）。
+    pub(crate) fn same_line(&self, a: usize, b: usize) -> bool {
+        match (self.lines.get(a), self.lines.get(b)) {
+            (Some(x), Some(y)) => x == y,
+            _ => false,
+        }
     }
 
     /// token 序号 `idx` 的起始字节偏移；**定位不到时返回 `None`**。
@@ -266,6 +306,8 @@ impl Parser {
             // 循环体是父 token 流的**切片**，其 spans 无法按子序号对齐 ⇒ 不带位置。
             // 宁可不给（err_at 会退回无位置），也不要给出错位的位置。
             spans: Vec::new(),
+            // 同上：行号未知 ⇒ `@is` 多词退回单词旧行为（见 `lines` 字段注释）
+            lines: Vec::new(),
             i: 0,
             fragments: self.fragments.clone(),
             contracts: self.contracts.clone(),
@@ -659,8 +701,8 @@ impl Parser {
 
     pub(crate) fn parse_block_inner(&mut self, closing: Option<Tok>) -> Result<Value, SmlError> {
         let mut node: BTreeMap<String, Value> = BTreeMap::new();
-        // 块内若声明了 `@is Name`，在块解析完成后应用契约
-        let mut applied_contract: Option<String> = None;
+        // 块内若声明了 `@is Name`（可多条、可一名多词），在块解析完成后应用契约
+        let mut applied_contracts: Vec<String> = Vec::new();
         // `@when <条件>` 的求值结果，作用于**紧邻的下一个**键/块（消费后清空）。
         // None = 无待应用的条件；Some(true/false) = 下一个字段应保留/丢弃。
         let mut pending_when: Option<bool> = None;
@@ -866,7 +908,7 @@ impl Parser {
                         // 非指令形式：下落到片段定义逻辑（片段名 = "type"）
                     }
 
-                    // —— 契约应用：`@is Name`（在当前块内）——
+                    // —— 契约应用：`@is Name` 或 `@is a, b, c`（叠加）——
                     if fname == "is" {
                         if !self.features.has(Feature::Contract) {
                             return Err(SmlError::new(E_FEATURE_001, "@is 需要特性 `contract`，但当前特性集已禁用"));
@@ -877,24 +919,71 @@ impl Parser {
                                 return Err(SmlError::new(E_PARSE_019, format!("sml: @is 后须契约名, 得 {:?}", other)))
                             }
                         };
-                        // `@is type(契约名)` 与 `@is 契约名` 等价 —— 括号形式让
-                        // 「类型标注」的意图更显眼，且与块级标注写法
-                        // `type(契约名) 块名 { .. }` 保持同一形态。
-                        //
-                        // 括号在词法中不是分隔符，故 `type(办事人)` 整体是一个
-                        // Word。仅当契约表里**确实存在**名为 `type(办事人)` 的
-                        // 契约时（极端但合法的老文档），才按原名解析 —— 向后兼容优先。
-                        let cname = match Self::unwrap_type_call(&raw) {
-                            Some(inner) if !self.contracts.contains_key(&raw) => inner,
-                            _ => raw,
-                        };
-                        // 命名空间隔离：先按裸名查，再按当前 ns 前缀查
-                        let resolved = if self.contracts.contains_key(&cname) {
-                            cname.clone()
-                        } else {
-                            self.qualify(&cname)
-                        };
-                        applied_contract = Some(resolved);
+                        // —— 多契约收集（D1，TASK-agent-w24 §2）——
+                        // `@is` 后**连续取裸词**：遇 `:` / `{` / `]` / **换行**即停；
+                        // 逗号作分隔（**可省**：`@is a, b` ≡ `@is a b`）。
+                        // ⚠️ 两条停机判据缺一不可：
+                        // - 「换行即停」：SML 一行可以只有 `@is X` 而把字段写在下一行，
+                        //   无脑收词会把下一行的键吞进契约名；
+                        // - 「裸词后跟 `:` 的是键」：`@is A host: h1` 的 host 是键值，
+                        //   不是契约名 —— 否则同行的键值永远写不了。
+                        // 行号未知（文件入口 / `@for` 体）⇒ **只收一个词**（旧行为），
+                        // 宁可少收，不可收错。
+                        let mut queue: Vec<(String, usize)> = vec![(raw, self.i - 1)];
+                        let mut prev = self.i - 1;
+                        if !self.lines.is_empty() {
+                            loop {
+                                let idx = self.i;
+                                match self.peek().cloned() {
+                                    Some(Tok::Comma) => {
+                                        if !self.same_line(prev, idx) {
+                                            break;
+                                        }
+                                        self.next();
+                                        prev = idx;
+                                    }
+                                    Some(tok @ (Tok::Word(_) | Tok::Str(_))) => {
+                                        if !self.same_line(prev, idx) {
+                                            break;
+                                        }
+                                        let w = match tok {
+                                            Tok::Word(s) | Tok::Str(s) => s,
+                                            _ => unreachable!(),
+                                        };
+                                        // 后跟 `:` 且又不是契约名 ⇒ 它是键，停
+                                        if matches!(self.peek_at(1), Some(Tok::Colon))
+                                            && self.resolve_contract_word(&w).is_err()
+                                        {
+                                            break;
+                                        }
+                                        self.next();
+                                        prev = idx;
+                                        queue.push((w, idx));
+                                    }
+                                    _ => break,
+                                }
+                            }
+                        }
+                        // 逐词 resolve：`@is type(契约名)` 与 `@is 契约名` 等价（见
+                        // `resolve_contract_word` 的兼容说明）；每个词都必须命中契约表
+                        //（先裸名、再按当前 ns 前缀 qualify），否则 `E-CONTRACT-001`
+                        //（**带位置**，指向违规的那个词）。
+                        for (r, idx) in &queue {
+                            match self.resolve_contract_word(r) {
+                                Ok(n) => {
+                                    if !applied_contracts.contains(&n) {
+                                        applied_contracts.push(n);
+                                    }
+                                }
+                                Err(display) => {
+                                    return Err(self.err_at(
+                                        E_CONTRACT_001,
+                                        format!("sml: 未定义的契约 `{}`", display),
+                                        *idx,
+                                    ));
+                                }
+                            }
+                        }
                         continue;
                     }
                     // —— 条件裁剪：`@when <条件>`（作用于紧邻的下一个字段/块）——
@@ -1114,20 +1203,32 @@ impl Parser {
             return Err(SmlError::new(E_PARSE_017, "sml: `@when` 后未跟随任何字段/块；它只作用于紧邻的下一个字段/块"));
         }
         // 块结束：若声明了 `@is`，应用契约（填默认值 + 校验 + 严格性检查）
-        if let Some(cname) = applied_contract {
+        if applied_contracts.len() == 1 {
+            // 单契约：**逐字走原路径**（错误文案 / 行为与旧版完全一致）
+            let cname = &applied_contracts[0];
             let c = self
                 .contracts
-                .get(&cname)
+                .get(cname)
                 .cloned()
                 .ok_or_else(|| {
                     SmlError::new(E_CONTRACT_001, format!("sml: 未定义的契约 `{}`", cname))
                 })?;
             // 用命名空间栈拼出当前块路径（如 `api`、`ns.api`），作为错误定位前缀
             apply_contract(&c, &mut node, &self.contracts, &self.ns_prefix())?;
-            // 契约映射：本块（路径 = path_stack，调用方已把键/下标压好）应用了 `cname`。
-            // 仅在应用**成功**后记 —— 失败即整篇报错，不存在半张映射。
-            if let Some(map) = &mut self.contract_map {
-                map.record(self.path_stack.clone(), cname);
+        } else if applied_contracts.len() > 1 {
+            // 多契约：叠加（D3：strict 优先 / 字段并集 / 冲突 ⇒ E-CONTRACT-016）
+            apply_contracts(
+                &applied_contracts,
+                &mut node,
+                &self.contracts,
+                &self.ns_prefix(),
+            )?;
+        }
+        // 契约映射：本块（路径 = path_stack，调用方已把键/下标压好）应用了哪些契约。
+        // 仅在应用**成功**后记 —— 失败即整篇报错，不存在半张映射。
+        if let Some(map) = &mut self.contract_map {
+            for n in &applied_contracts {
+                map.record(self.path_stack.clone(), n.clone());
             }
         }
         Ok(Value::Object(node))
@@ -1184,51 +1285,90 @@ impl Parser {
         let mut sub = self.parse_block(Some(Tok::RBrace))?;
         self.ns_stack.pop();
         if let Value::Object(m) = &mut sub {
-            // —— 块级类型标注：`<契约名> <块名> { .. }` ——
+            // —— 块级类型标注：`<契约名>… <块名> { .. }`（D2，TASK-agent-w24 §2）——
             //
             // 裸块首词若命中契约表，自动把该契约应用到本块，等价于块内首行
             // `@is 契约名`。与既有裸块 `type [name...] { }` 完全同形，故**零新语法**：
             // 未命中契约表时行为与旧版一致（首词仅作 `__type` 元数据）。
             // 由 opt-in 特性 `typed-block` 门控，未开启时既有文档不受任何影响。
             //
+            // **多契约**：从首词起，**连续命中契约表**的词都是契约；第一个未命中
+            // 的词是块名。仅当**契约词 ≥ 2** 才走叠加；只有 1 个契约词时逐字保持
+            // 旧行为（回归红线：`server web prod { }` ⇒ `__type: server` +
+            // `__name: web` + `__args: [prod]`）。
+            //
             // 刻意**先于** `__type` / `__name` 的写入：这两个键是语法元数据，
             // 不应作为数据字段参与 strict 契约的「未声明字段」检查
             // （JS 侧以跳过这两个键达到同样效果）。
+            let mut names: Vec<String> = Vec::new();
+            let mut consumed_args = 0usize; // args 里被算作契约词的数量
             if self.features.has(Feature::TypedBlock) && self.features.has(Feature::Contract) {
                 // 命名空间隔离：先按裸名查，再按当前 ns 前缀查（与 `@is` 一致）
-                let resolved = if self.contracts.contains_key(key) {
-                    Some(key.to_string())
-                } else {
-                    let q = self.qualify(key);
-                    if self.contracts.contains_key(&q) {
-                        Some(q)
+                let resolve = |w: &str| -> Option<String> {
+                    if self.contracts.contains_key(w) {
+                        Some(w.to_string())
                     } else {
-                        None
+                        let q = self.qualify(w);
+                        if self.contracts.contains_key(&q) {
+                            Some(q)
+                        } else {
+                            None
+                        }
                     }
                 };
-                if let Some(cname) = resolved {
-                    let c = self
-                        .contracts
-                        .get(&cname)
-                        .cloned()
-                        .ok_or_else(|| {
-                    SmlError::new(E_CONTRACT_001, format!("sml: 未定义的契约 `{}`", cname))
-                })?;
+                if let Some(r) = resolve(key) {
+                    names.push(r);
+                    for a in &args {
+                        match a {
+                            Value::Str(s) => match resolve(s) {
+                                Some(x) => {
+                                    names.push(x);
+                                    consumed_args += 1;
+                                }
+                                None => break, // 首个非契约词 = 块名，其后照旧进 args
+                            },
+                            _ => break,
+                        }
+                    }
+                }
+                let mut applied = false;
+                if names.len() == 1 {
+                    // 单契约：**逐字走原路径**（错误文案 / 行为与旧版完全一致）
+                    let cname = &names[0];
+                    let c = self.contracts.get(cname).cloned().ok_or_else(|| {
+                        SmlError::new(E_CONTRACT_001, format!("sml: 未定义的契约 `{}`", cname))
+                    })?;
                     apply_contract(&c, m, &self.contracts, &self.ns_prefix())?;
+                    applied = true;
+                } else if names.len() > 1 {
+                    // 多契约：叠加（D3：strict 优先 / 字段并集 / 冲突 ⇒ E-CONTRACT-016）
+                    apply_contracts(&names, m, &self.contracts, &self.ns_prefix())?;
+                    applied = true;
+                }
+                if applied {
                     // 契约映射：path_stack 此刻仍含本块的键/下标（调用方在
                     // `parse_bare_block` 返回后才 pop），正是本块在结果树里的位置。
                     if let Some(map) = &mut self.contract_map {
-                        map.record(self.path_stack.clone(), cname);
+                        for n in &names {
+                            map.record(self.path_stack.clone(), n.clone());
+                        }
                     }
                 }
             }
+            // __name 的起点：多契约时跳过被算作契约词的 args（首个非契约词是块名）；
+            // 单契约 / 无契约与旧版完全一致（args[0]）
+            let name_args: &[Value] = if names.len() > 1 {
+                &args[consumed_args..]
+            } else {
+                &args[..]
+            };
             m.insert("__type".into(), Value::Str(key.to_string()));
             // 裸块参数全部保留：首个作 __name，其余放入 __args 数组，
             // 不再静默丢弃（P1-3：`server web prod {}` 的 web/prod 都应可见）。
-            if !args.is_empty() {
-                m.insert("__name".into(), args[0].clone());
-                if args.len() > 1 {
-                    m.insert("__args".into(), Value::Array(args[1..].to_vec()));
+            if !name_args.is_empty() {
+                m.insert("__name".into(), name_args[0].clone());
+                if name_args.len() > 1 {
+                    m.insert("__args".into(), Value::Array(name_args[1..].to_vec()));
                 }
             }
         }

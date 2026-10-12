@@ -54,6 +54,10 @@
 #define SML_E_CONTRACT_014 "E-CONTRACT-014"
 /* [E-CONTRACT-015] 量词取值非法：量词的取值非法：不是整数、为负数，或上界小于下界 */
 #define SML_E_CONTRACT_015 "E-CONTRACT-015"
+/* [E-CONTRACT-016] 契约叠加冲突：同一字段在参与叠加的两份契约里类型、默认值或区间不一致 */
+#define SML_E_CONTRACT_016 "E-CONTRACT-016"
+/* [E-CONTRACT-017] 契约叠加未实现：该实现暂不支持一个块应用多份契约；请拆分成单契约或等待 */
+#define SML_E_CONTRACT_017 "E-CONTRACT-017"
 /* [E-DERIVE-001] 值与目标类型不符：SML 值的类型与目标宿主类型不符 */
 #define SML_E_DERIVE_001 "E-DERIVE-001"
 /* [E-DERIVE-002] 数值超出目标类型范围：数值超出目标宿主类型的取值范围 */
@@ -291,6 +295,6 @@
 /* [W-LINT-005] 嵌套超过建议阈值：嵌套深度已超过建议阈值 */
 #define SML_W_LINT_005 "W-LINT-005"
 
-#define SML_CODES_COUNT 141
+#define SML_CODES_COUNT 143
 
 #endif /* SML_CODES_H */
