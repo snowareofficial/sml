@@ -37,6 +37,17 @@
 local Sml = {}
 Sml.__index = Sml
 
+-- 错误码本地化信息查找（W25，由 errors/gen_js_errors.py 生成 lua/sml_errors.lua）。
+-- 与 js/sml-errors.mjs 等五端逐字对齐：中文是默认/源语言，英文缺失回退中文，永不空。
+-- 该文件与 lib/sml.soup 同目录，由本模块在加载时 require 一次。
+package.path = "./?.lua;" .. package.path
+local _sml_errors = require("sml_errors")
+--- 取一条错误码的完整本地化信息；未知码返回 nil。
+---   code   错误码字符串（空/非字符串按未知码处理）
+---   locale 可选；缺省/空 = "zh"；以 "en" 开头 = 英文；其它回落中文
+---   缺英文：该字段回退中文，永不返回空串
+function Sml.error_info(code, locale) return _sml_errors.error_info(code, locale) end
+
 -- 任务 D：tokenize 给出的「每个 token 起始行」表（与 toks 同下标）。
 -- 由 load() 每次解析时填上，parse_block 读取用于 `@is` 同行判据。
 -- 单线程、一次 load 内用 pcall 解析，无重入，安全。

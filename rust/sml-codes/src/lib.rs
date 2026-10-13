@@ -35,6 +35,16 @@ pub mod codes;
 
 pub use codes::*;
 
+/// 错误码本地化信息查找（i18n）：由 `errors/gen_js_errors.py` 从唯一事实来源
+/// `site/static/errors.json`（中文/源语言）+ `errors/msg.en.json`（英文层）生成，
+/// 与 `js/sml-errors.mjs` 逐字对齐（五端同向量同结果）。
+///
+/// 中文是默认/源语言；英文缺失时回退中文，永不返回空。错误码本身是稳定契约，
+/// 不翻译。`error_info` 归一 locale 并返回 `Option<ErrorInfo>`。
+pub mod msgs;
+
+pub use msgs::{error_info, ErrorInfo};
+
 use std::fmt;
 
 /// 带**错误码**的错误。

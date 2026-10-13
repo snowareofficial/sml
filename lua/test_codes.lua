@@ -670,6 +670,93 @@ local function test_w16_codes()
   end
 end
 
+-- ------------------------------------------------------------------
+-- W25：错误码本地化信息查找（i18n，与 JS / Rust / C / C++ 同向量同结果）
+--
+-- 中文是默认/源语言；英文来自 msg.en.json；缺英文回退中文，永不空。
+-- 期望值从 js/sml-errors.mjs 的契约逐字来（见 errors/gen_js_errors.py）。
+-- ------------------------------------------------------------------
+local function test_error_info()
+  io.write("[W25 错误码本地化信息]\n")
+  local EM = require("sml_errors")
+
+  local function ok(tag)
+    passed = passed + 1
+    io.write("  ok: " .. tag .. "\n")
+  end
+  local function bad(tag, got)
+    failures = failures + 1
+    io.write(string.format("FAIL: %s got %s\n", tag, tostring(got)))
+  end
+
+  -- 命中：返回 { title=..., msg=... }（中文默认）
+  local zh = Sml.error_info("E-PARSE-006")
+  if zh and zh.title == "期望键或标识符" and zh.msg == "期望键或标识符，得其它记号" then
+    ok("zh 默认 title/msg")
+  else
+    bad("zh 默认 期望 期望键或标识符", zh and (zh.title .. " / " .. zh.msg))
+  end
+
+  -- 英文
+  local en = Sml.error_info("E-PARSE-006", "en")
+  if en and en.title == "Expected key or identifier" then
+    ok("en title")
+  else
+    bad("en title 期望 Expected key or identifier", en and en.title)
+  end
+
+  -- locale 归一：en-US -> en
+  local enus = Sml.error_info("E-LEX-001", "en-US")
+  if enus and enus.title == "Unterminated string" then
+    ok("en-US 归一 title")
+  else
+    bad("en-US 归一 期望 Unterminated string", enus and enus.title)
+  end
+
+  -- 中文归一类 locale：zh-CN -> zh；未知语言 -> zh（回退源语言）
+  local zhcn = Sml.error_info("E-LEX-001", "zh-CN")
+  if zhcn and zhcn.title == "字符串未闭合" then
+    ok("zh-CN 归一")
+  else
+    bad("zh-CN 归一 期望 字符串未闭合", zhcn and zhcn.title)
+  end
+
+  local fr = Sml.error_info("E-LEX-001", "fr")
+  if fr and fr.title == "字符串未闭合" then
+    ok("未知语言回退 zh")
+  else
+    bad("未知语言回退 期望 字符串未闭合", fr and fr.title)
+  end
+
+  -- 未知码 -> nil（无论 locale）
+  if Sml.error_info("E-NOPE-999") == nil and Sml.error_info("E-NOPE-999", "") == nil
+     and Sml.error_info("E-NOPE-999", "en") == nil then
+    ok("未知码 -> nil")
+  else
+    bad("未知码 期望 nil", "非 nil")
+  end
+
+  -- 空/非字符串入参 -> nil
+  if Sml.error_info(nil) == nil and Sml.error_info("") == nil then
+    ok("空/非字符串入参 -> nil")
+  else
+    bad("空/非字符串入参 期望 nil", "非 nil")
+  end
+
+  -- 全量性质（跨端契约）：所有码 title/msg 非空；PARSE 领域恰好 25 条
+  local parse, empty, count = 0, 0, 0
+  for _, z in pairs(EM.ZH) do
+    count = count + 1
+    if not z.title or z.title == "" or not z.msg or z.msg == "" then empty = empty + 1 end
+    if z.domain == "PARSE" then parse = parse + 1 end
+  end
+  if empty == 0 then ok("全量非空 -> 所有码 title/msg 非空")
+  else bad("全量非空 有 " .. empty .. " 条码 title/msg 为空", empty) end
+  if parse == 25 then ok("PARSE 领域 -> 25 条")
+  else bad("PARSE 领域期望 25", parse) end
+  io.write(string.format("  .. 共 %d 条码\n", count))
+end
+
 io.write("lua/test_codes.lua — 触发条件 → 期望码（W10，Lua 侧）\n")
 test_parse_codes()
 test_w16_codes()
@@ -680,6 +767,7 @@ test_contract_codes()
 test_contract_positive()
 test_include_codes()
 test_positive_controls()
+test_error_info()
 
 io.write(string.format("\n%d 通过, %d 失败\n", passed, failures))
 if failures == 0 then

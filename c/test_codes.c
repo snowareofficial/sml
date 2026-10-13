@@ -42,6 +42,7 @@
 
 #include "sml.h"
 #include "sml_codes.h"
+#include "sml_codes_msg.h"   /* W25：错误码本地化信息查找（由 gen_js_errors.py 生成） */
 
 static int failures = 0;
 
@@ -677,6 +678,77 @@ static void test_frag_splice(void) {
     expect_json("展开后继续解析后续键", "@base { a: 1 }\nw { &base\nx: 2 }\n", "{\"w\":{\"a\":1,\"x\":2}}");
 }
 
+/* ------------------------------------------------------------------ */
+/* W25：错误码本地化信息查找（i18n，与 JS / Rust / Lua 同向量同结果）  */
+/* ------------------------------------------------------------------ */
+/* 中文是默认/源语言；英文来自 msg.en.json；缺英文回退中文，永不空。
+   期望值从 js/sml-errors.mjs 的契约逐字来（见 errors/gen_js_errors.py）。 */
+static void expect_msg_eq(const char *tag, const char *want, const char *got) {
+    if (got && strcmp(got, want) == 0) {
+        printf("  ok: %-32s -> %s\n", tag, want);
+    } else {
+        printf("FAIL: %s 期望 \"%s\", 实得 \"%s\"\n", tag, want,
+               got ? got : "(NULL)");
+        failures++;
+    }
+}
+
+static void expect_msg_null(const char *tag, const char *got) {
+    if (got == NULL) {
+        printf("  ok: %-32s -> NULL\n", tag);
+    } else {
+        printf("FAIL: %s 期望 NULL, 实得 \"%s\"\n", tag, got);
+        failures++;
+    }
+}
+
+static void test_error_msgs(void) {
+    printf("[W25 错误码本地化信息]\n");
+
+    /* 中文默认（locale 为 NULL / "" 均回落中文） */
+    expect_msg_eq("zh title 默认", "期望键或标识符", sml_error_title("E-PARSE-006", NULL));
+    expect_msg_eq("zh title 空 locale", "期望键或标识符", sml_error_title("E-PARSE-006", ""));
+    expect_msg_eq("zh msg 默认", "期望键或标识符，得其它记号", sml_error_msg("E-PARSE-006", NULL));
+
+    /* 英文 */
+    expect_msg_eq("en title", "Expected key or identifier", sml_error_title("E-PARSE-006", "en"));
+    expect_msg_eq("en msg", "Expected a key or identifier, but got another token",
+                  sml_error_msg("E-PARSE-006", "en"));
+
+    /* locale 归一：en-US -> en */
+    expect_msg_eq("en-US 归一 title", "Unterminated string", sml_error_title("E-LEX-001", "en-US"));
+    expect_msg_eq("en-US 归一 msg", "Unterminated string (missing closing quote)",
+                  sml_error_msg("E-LEX-001", "en-US"));
+
+    /* 中文归一类 locale：zh-CN -> zh；未知语言 -> zh（回退源语言） */
+    expect_msg_eq("zh-CN 归一", "字符串未闭合", sml_error_title("E-LEX-001", "zh-CN"));
+    expect_msg_eq("未知语言回退 zh", "字符串未闭合", sml_error_title("E-LEX-001", "fr"));
+
+    /* 未知码 -> NULL（无论 locale） */
+    expect_msg_null("未知码 title", sml_error_title("E-NOPE-999", "zh"));
+    expect_msg_null("未知码 title 空", sml_error_title("E-NOPE-999", ""));
+    expect_msg_null("未知码 msg", sml_error_msg("E-NOPE-999", "en"));
+}
+
+/* 全量性质（跨端契约）：所有码 title/msg 非空；PARSE 领域恰好 25 条。 */
+static void test_error_msgs_all(void) {
+    int parse = 0, empty = 0, count = 0, i;
+    printf("[W25 全量]\n");
+    for (i = 0; SML_ERROR_MSGS[i].code != NULL; i++) {
+        const struct SmlErrorMsg *e = &SML_ERROR_MSGS[i];
+        count++;
+        if (!e->zh_title || !e->zh_msg || !e->en_title || !e->en_msg) empty++;
+        if (e->domain && strcmp(e->domain, "PARSE") == 0) parse++;
+    }
+    if (empty == 0) printf("  ok: %-32s -> 所有码 title/msg 非空\n", "全量非空");
+    else { printf("FAIL: 全量非空 有 %d 条码 title/msg 为空\n", empty); failures++; }
+
+    if (parse == 25) printf("  ok: %-32s -> PARSE 25 条\n", "PARSE 领域");
+    else { printf("FAIL: PARSE 领域期望 25, 实得 %d\n", parse); failures++; }
+
+    printf("  .. 共 %d 条码\n", count);
+}
+
 int main(void) {
     test_contract_codes();
     test_parse_and_limit();
@@ -691,6 +763,8 @@ int main(void) {
     test_include_codes();
     test_io_and_internal();
     test_err_null_safe();
+    test_error_msgs();
+    test_error_msgs_all();
 
     if (failures == 0) {
         printf("ALL CODE TESTS PASSED\n");
