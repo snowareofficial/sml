@@ -1398,6 +1398,25 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
         }
         if (kt->t != T_WORD && kt->t != T_STR) break;
         char *key = kt->v;
+        /* 行级 &frag 展开（splice），与 Rust / JS 对齐：块内独立一行、其后不是 `:` 的
+           `&name` 若命中已定义片段，则把该片段的字段**合并进当前块**，而不是造一个
+           `"&name"` 键。改前 C 让 `&name` 落到下面的 else 分支走 coerce_word，展开成
+           片段值后存到字面键 `"&name"` 下 ⇒ `w { c: 3\n&base }` 得
+           {"w":{"c":3,"&base":{...}}}，严格契约据此**误报** E-CONTRACT-004。
+           语义与 JS 片段分支一致：按出现顺序合并、同名后者覆盖（sml_obj_set 覆盖）、
+           **深拷贝**（片段在解析末尾单独释放，不能借指针）。C 无原型链，故无危险键概念；
+           未命中的 `&name` 继续下落到 coerce_word，按 E-INCLUDE-006 报未定义片段引用。 */
+        if (key[0] == '&' && !(peek(ps) && peek(ps)->t == T_COLON)) {
+            struct frag *fr = NULL;
+            for (struct frag *g = ps->frags; g; g = g->next)
+                if (strcmp(g->name, key + 1) == 0) { fr = g; break; }
+            if (fr && fr->val && fr->val->type == SML_OBJECT) {
+                sml_field *ff;
+                for (ff = fr->val->u.obj.head; ff; ff = ff->next)
+                    sml_obj_set(obj, ff->key, sml_clone(ff->value));
+                continue;   /* &name 已作为展开消费，不落入下面的键值处理 */
+            }
+        }
         /* 字段级 @is: key 后紧跟 @is Name */
         char *field_is = NULL;
         if (peek(ps)->t == T_AT) {

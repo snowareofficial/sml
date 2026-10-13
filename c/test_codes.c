@@ -630,6 +630,26 @@ static void test_nested_arrays(void) {
     expect_json("BOM 开头", "\xEF\xBB\xBF" "x: 1\n", "{\"x\":1}");
 }
 
+/* 行级 &frag 展开（splice）：块内独立一行、不带冒号的 `&name` 命中已定义片段时，把该
+   片段的字段**合并进当前块**（与 Rust / JS 对齐）。改前 C 让 `&name` 走 coerce_word
+   展开成片段值、存到字面键 `"&name"` 下 ⇒ `w { c: 3\n&base }` 得
+   {"w":{"c":3,"&base":{...}}}，严格契约据此**误报** E-CONTRACT-004（false positive）。
+   期望值全部与 JS 参照逐条一致（含同名后者覆盖、展开后继续解析后续键）。 */
+static void test_frag_splice(void) {
+    printf("[行级 &frag 展开（splice）]\n");
+    expect_json("行级 &base 展开", "@base { a: 1 b: 2 }\nw { c: 3\n&base }\n",
+                "{\"w\":{\"c\":3,\"a\":1,\"b\":2}}");
+    expect_json("展开后严格契约不误报",
+                "@contract S { a: int b: int c: int }\n@base { a: 1 b: 2 }\nw { @is S\nc: 3\n&base }\n",
+                "{\"w\":{\"c\":3,\"a\":1,\"b\":2}}");
+    /* 正对照：值位片段引用（`w: &base`）不是展开，是普通键值 */
+    expect_json("值位片段引用（非展开）", "@base { a: 1 }\nw: &base\n", "{\"w\":{\"a\":1}}");
+    /* 同名覆盖：&base 出现在 a: 9 之后 ⇒ 片段的 a 覆盖块的 a（sml_obj_set 覆盖，与 JS 一致） */
+    expect_json("展开同名后者覆盖", "@base { a: 1 }\nw { a: 9\n&base }\n", "{\"w\":{\"a\":1}}");
+    /* 展开后继续解析后续键 */
+    expect_json("展开后继续解析后续键", "@base { a: 1 }\nw { &base\nx: 2 }\n", "{\"w\":{\"a\":1,\"x\":2}}");
+}
+
 int main(void) {
     test_contract_codes();
     test_parse_and_limit();
@@ -639,6 +659,7 @@ int main(void) {
     test_bound_codes();
     test_numeric_fidelity();
     test_nested_arrays();
+    test_frag_splice();
     test_feature_codes();
     test_include_codes();
     test_io_and_internal();
