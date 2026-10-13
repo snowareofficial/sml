@@ -1385,6 +1385,17 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
         }
         /* key */
         token *kt = next(ps);
+        /* 键位置上的裸 `:`（P1 欠账，与 Rust / JS 对齐）：`::` 被词法切成两个 `:`，
+           第二个 `:` 落到键位置。改前这里对「非 WORD/STR 的键」直接 break ⇒
+           `X { a: B::C }` 静默得 {"X":{"a":"B"}}（第二个字段被丢、**还不报错**）。
+           Rust / JS 均对同一输入报 E-PARSE-006，此处补齐同码；文案点明 `::` 与「加引号」。 */
+        if (kt->t == T_COLON) {
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_PARSE_006 " 键位置出现裸冒号 `:`（`::` 会被切成两个 `:`）；"
+                    "含 `:` 的标量请加引号，如 a: \"B::C\"");
+            ps->failed = 1;
+            break;
+        }
         if (kt->t != T_WORD && kt->t != T_STR) break;
         char *key = kt->v;
         /* 字段级 @is: key 后紧跟 @is Name */

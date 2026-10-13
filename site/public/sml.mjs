@@ -1817,6 +1817,13 @@ export function parse(text, opts) {
         }
       }
       if (key === undefined) fail("E-PARSE-006", "sml: 期望键");
+      // 键位置上的裸 `:`（P1 欠账，与 Rust / C 对齐）：`::` 被词法切成两个 `:`，
+      // 第二个 `:` 落到**键位置**。此前把它当键名 ⇒ `X { a: B::C }` 静默得到
+      // {"a":"B",":":"C"}（键被改、值被拆、**还不报错** —— 典型静默数据损坏）。
+      // Rust 对同一输入报 E-PARSE-006，此处补齐同码；文案点明 `::` 与「加引号」。
+      if (peek() && peek().t === ":") {
+        fail("E-PARSE-006", "sml: 键位置出现裸冒号 `:`（`::` 会被切成两个 `:`）；含 `:` 的标量请加引号，如 a: \"B::C\"");
+      }
       i++;
       let colon = false;
       if (peek() && peek().t === ":") { colon = true; i++; }

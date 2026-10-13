@@ -195,6 +195,16 @@ static void test_parse_and_limit(void) {
     char *src;
     printf("[PARSE / LIMIT]\n");
 
+    /* 键位置上的裸 `:`（与 Rust / JS 对齐 E-PARSE-006）：`::` 被切成两个 `:`，
+       第二个 `:` 落到键位置。改前 C 在此直接结束本层 ⇒ `X { a: B::C }` 静默得
+       {"X":{"a":"B"}}（第二个字段被丢、还不报错）。每条严格性都配正对照。 */
+    expect_code("键位置裸冒号（块内）", "X { a: B::C }\n", SML_E_PARSE_006);
+    expect_code("键位置裸冒号（顶层）", "a: B::C\n", SML_E_PARSE_006);
+    /* 正对照：含 `:` 的标量加引号后合法；quoted key 含 `:` 合法；普通键值不受影响 */
+    expect_ok("引号值含 ::", "a: \"B::C\"\n");
+    expect_ok("引号键含 :", "\"x:y\": 1\n");
+    expect_ok("普通键值", "a: b\n");
+
     /* E-PARSE-012 见文件头注释：兜底分支不可达，故不写用例。 */
 
     src = nest_blocks(200);
