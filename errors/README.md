@@ -99,6 +99,41 @@ E - CONTRACT - 002
    **只加码不加用例等于没落地** —— 没人能证明它真的会被抛出来。
 4. 提交。官网下次构建即自动更新（`site/build_site.py` 会先跑生成脚本）。
 
+## 按码取错误信息（i18n）
+
+给一个错误码，拿它**本地化**的 `title` / `msg` —— 模块 `js/sml-errors.mjs`（生成物，勿手改）：
+
+```js
+import { errorInfo, errorMessage, errorTitle, listErrorCodes } from "./sml-errors.mjs";
+
+errorInfo("E-PARSE-006");
+// => { id, severity:"error", domain:"PARSE", domainName:"语法",
+//      title:"期望键或标识符", msg:"期望键或标识符，得其它记号" }
+errorInfo("E-PARSE-006", { locale: "en" });
+// => { ..., domainName:"Syntax", title:"Expected key or identifier",
+//      msg:"Expected a key or identifier, but got another token" }
+errorMessage("E-CONTRACT-004", { locale: "en" });   // 只要 msg
+errorTitle("E-LEX-001", { locale: "zh-CN" });       // 只要 title（locale 会归一化）
+listErrorCodes({ domain: "PARSE" });                // 列出某领域的码 [{id,severity,domain}]
+```
+
+**i18n 约定（与仓库一致）**：**中文是源语言**（`locale` 默认 `zh`），英文是翻译层；某条码 /
+字段缺英文时**回退中文**，永不返回空。`locale` 归一化：`zh*`→`zh`、`en*`→`en`、其它→`zh`。
+未知码返回 `null`。
+
+数据与生成：
+
+- 中文（唯一事实来源）：`errors/codes.sml` →（`gen_json.py`）→ `site/static/errors.json`。
+- 英文：`errors/msg.en.json`（手维护，键 = 错误码，值 `{title, msg}`）。
+- 生成：`python errors/gen_js_errors.py` → `js/sml-errors.mjs`；带 `--check` 只校验（给 CI）。
+  改完 `codes.sml` 或 `msg.en.json` 都要重跑（`site/build_site.py` 会先跑 `gen_json.py`，
+  `gen_js_errors.py` 需单独跑）。
+
+加一种新语言：仿照 `msg.en.json` 加一份 `msg.<lang>.json`，并在 `gen_js_errors.py` 里加载它、
+按归一化后的 locale 选层（当前内置 `zh` + `en`）。
+
+自测：`node js/test-sml-errors.mjs`（查找逻辑：默认 / 翻译 / 回退 / 归一化 / 未知码）。
+
 ## 书写注意（本文件本身是 SML）
 
 **所有文本值一律加引号。** 因为 `{`、`[`、`"`、`:`、`/`（连写成 `//`、`/*`）在 SML 里都是
