@@ -131,6 +131,12 @@ const sml_value *sml_get_path(const sml_value *v, const char *dotted);
 const sml_value *sml_at      (const sml_value *v, size_t idx);
 size_t       sml_size    (const sml_value *v);
 
+/* 对象第 idx 个键（NUL 结尾的堆副本，调用方 sml_free_str 释放；非对象 / 越界返回 NULL）。
+ * 内部键为 Rust String（非 NUL 结尾），无法安全「借用」为 C 串，故返回堆副本——语义同 sml_str_dup。
+ * 顺序与 sml_get 一致（对象为 BTreeMap，键按字典序稳定排列）。
+ * 这是 v2 宿主绑定（TASK-agent-w28 §2.3-A）为「不经 JSON 完整物化对象」补的极小键迭代符号。 */
+char *sml_key_at(const sml_value *v, size_t idx);
+
 /* ==================================================================== *
  * 标量取值
  *

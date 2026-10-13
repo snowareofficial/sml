@@ -67,6 +67,7 @@ extern "C" {
     fn sml_get_path(v: *const CSmlValue, path: *const c_char) -> *const CSmlValue;
     fn sml_at(v: *const CSmlValue, idx: usize) -> *const CSmlValue;
     fn sml_size(v: *const CSmlValue) -> usize;
+    fn sml_key_at(v: *const CSmlValue, idx: usize) -> *mut c_char;
     fn sml_str_copy(v: *const CSmlValue, buf: *mut c_char, buflen: usize) -> usize;
     fn sml_str_dup(v: *const CSmlValue) -> *mut c_char;
     fn sml_int_value(v: *const CSmlValue) -> i64;
@@ -189,6 +190,52 @@ fn loads_and_traverse() {
     let v = unsafe { sml_int_in(root, path.as_ptr(), &mut ok) };
     assert_eq!(v, 0);
     assert_eq!(ok, 0, "取不到时 ok 应为 0");
+
+    unsafe { sml_free(root) };
+}
+
+/// W28 §2.3-A：sml_key_at 让宿主不经 JSON 即可完整物化对象（拿到键名）。
+/// 注：返回的键是堆副本，必须 sml_free_str，而非按「借用」长期持有。
+#[test]
+fn key_at_enumerates_object() {
+    let text = CString::new("name: John\nage: 27\nactive: true\nserver { host: a.b.c }\n").unwrap();
+    let mut err = CSmlError::default();
+    let root = unsafe { sml_loads(text.as_ptr(), 0, &mut err) };
+    assert!(!root.is_null(), "解析应成功: err.code={}", err.code);
+    assert_eq!(unsafe { sml_size(root) }, 4);
+
+    // 按索引取出所有键，并与 sml_get 取到的值一一对应
+    let mut seen = std::collections::BTreeSet::new();
+    for i in 0..unsafe { sml_size(root) } {
+        let kp = unsafe { sml_key_at(root, i) };
+        assert!(!kp.is_null(), "idx {i} 的键不应为 NULL");
+        let key = unsafe { CStr::from_ptr(kp) }.to_str().unwrap().to_string();
+        unsafe { sml_free_str(kp) }; // 键是堆副本，必须释放
+        assert!(seen.insert(key.clone()), "键重复: {key}");
+
+        let ck = CString::new(key.clone()).unwrap();
+        let node = unsafe { sml_get(root, ck.as_ptr()) };
+        assert!(!node.is_null(), "按名取 {key} 应成功");
+        // 键顺序与 BTreeMap 一致（字典序）
+    }
+    assert_eq!(
+        seen,
+        ["active", "age", "name", "server"]
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect(),
+        "键应为字典序"
+    );
+
+    // 越界返回 NULL
+    let over = unsafe { sml_key_at(root, 999) };
+    assert!(over.is_null(), "越界应返回 NULL");
+
+    // 非对象返回 NULL
+    let key = CString::new("name").unwrap();
+    let str_node = unsafe { sml_get(root, key.as_ptr()) };
+    let not_obj = unsafe { sml_key_at(str_node, 0) };
+    assert!(not_obj.is_null(), "字符串值不应有键");
 
     unsafe { sml_free(root) };
 }

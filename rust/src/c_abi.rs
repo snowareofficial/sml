@@ -710,6 +710,30 @@ pub unsafe extern "C" fn sml_size(v: *const CSmlValue) -> usize {
     }
 }
 
+/// 对象第 `idx` 个键（NUL 结尾的**堆副本**，调用方 `sml_free_str` 释放）；非对象 / 越界返回 NULL。
+///
+/// 注：内部键为 Rust `String`（非 NUL 结尾），无法安全「借用」为 C 串，
+/// 故返回堆副本——语义同 [`sml_str_dup`]。调用方读后务必 `sml_free_str`，
+/// 切勿当借用指针跨 `sml_free(v)` 长期使用。
+///
+/// 顺序与 [`sml_get`] 一致：对象为 `BTreeMap`，键按字典序稳定排列。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_key_at(v: *const CSmlValue, idx: usize) -> *mut c_char {
+    if v.is_null() {
+        return ptr::null_mut();
+    }
+    let inner = &(*(v as *const Value));
+    match inner {
+        Value::Object(m) => m
+            .keys()
+            .nth(idx)
+            .and_then(|k| cstr(k))
+            .unwrap_or(ptr::null_mut()),
+        _ => ptr::null_mut(),
+    }
+}
+
 /// 把字符串值拷进调用方缓冲区，返回不含 NUL 的长度；缓冲区不足时返回所需长度。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]

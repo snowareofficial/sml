@@ -1,0 +1,7 @@
+# 构建产物（不纳入版本控制）
+java/out/
+python/__pycache__/
+csharp/bin/
+csharp/obj/
+*.class
+*.pyc
