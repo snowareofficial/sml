@@ -166,3 +166,12 @@ tools/probe_requires_crossend.mjs
 # 禁止入库（曾不在忽略列表，`git add -A` 会误提交整棵生成物）。
 /public/
 
+# ── 生成的大型 .sml 演示 / 语料（不入库，可由脚本重新生成）──────────────────
+# story/：整部小说存进 SML 的能力演示。novel.sml 由 gen_novel.py 生成，
+#   novel.out.* 由 smltools 从 novel.sml 六路转译生成——均为生成物（源头 gen_novel.py 入库）。
+# examples/micro/CH32V103xx.sml：由同目录 CH32V103xx.svd 经 smltools 转出；
+#   代码 / 测试只读 .svd（xml.rs 冒烟，缺失自动 skip），不读 .sml。
+story/novel.sml
+story/novel.out.*
+examples/micro/CH32V103xx.sml
+

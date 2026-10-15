@@ -38,6 +38,9 @@ them** when output is meant to be read, written, or maintained by humans.
     - `import { widget_login, widget_search } as ns in "a.sml"`
 - Optional schema: `@contract` / `@is` for type, default, enum, range, combinators.
   Supported by Rust (reference implementation), JS, C, C++ and Lua.
+  - ⚠️ **Array element type cannot be a contract name**: writing `[SomeContract]` fails with
+    `E-CONTRACT-012 (unknown array element type)`. Only `[any]`, `[str]`, `[int]`, … are accepted,
+    so schema-checking an array of records requires validating each element yourself when reading.
   - ⚠️ **Block-level type annotation** (`ContractName block { }`, equivalent to `@is ContractName`
     inside the block) is gated behind `@feature enable typed-block` and is **implemented in Rust and JS
     only**. On C / C++ / Lua it **degrades to a plain bare block** (extra `__type` / `__name` keys):
@@ -113,10 +116,9 @@ them** when output is meant to be read, written, or maintained by humans.
   `libswsml-cpp0` / `libswsml-cpp-dev` (C++ RAII wrapper, pkg-config `swsml_cpp`).
   Install with `sudo dpkg -i …`; depends on `libc6` / `libgcc-s1` (+ `libstdc++6` for C++).
 - License for all packages: MulanPSL-2.0 (https://sml.swebase.cn/LICENSE).
-  ⚠️ Current **released** Rust crate is `swsml` **0.6.2** (`rust/Cargo.toml`);
+  ✅ Current **released** Rust crate is `swsml` **0.6.3** (published to crates.io);
   the `0.6.3` artifacts under `/dl/` (language zips **and** the `libswsml*` debs)
-  are **staged for the next release and not published yet** — do not describe
-  0.6.3 as released until the release is tagged.
+  match the release (SHA256 checksums on the download page).
 
 ## Canonical references
 - README: /README.md  (contains "For AI Assistants" guidance)
