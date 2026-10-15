@@ -10,6 +10,28 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ---
 
+## [0.6.4] · swsml — 2026-10-15
+
+> 📌 紧随 0.6.3 的**文档/打包修订**：解析器与 API **零改动**，二进制与 0.6.3 一致。
+> 单独发一版，是为让 crates.io 的 readme 门面覆盖中英读者。
+
+### Docs · 文档
+- crate README（`rust/README.md`）改为**中英双语**（逐段 EN→ZH 交替）。crates.io 只渲染
+  Cargo.toml `readme` 指向的单一文件、且版本不可覆盖，故双语门面须靠新版本生效。
+
+### Chore · 杂项
+- 仓库瘦身：`git rm --cached` + `.gitignore` 掉约 9MB 的**生成物** `.sml`
+  （`story/novel.sml` + 7×`story/novel.out.*`、`examples/micro/CH32V103xx.sml`）；
+  源头（`story/gen_novel.py`、`CH32V103xx.svd`）保留、可重新生成，不影响 crate 打包。
+- `llms.txt`（含 `site/static/` 副本）发布状态更新为 0.6.4。
+
+### 依赖子 crate
+- 无变化：仍用已发布的 `sml-parse` / `sml-codes` / `sml-feature` / `sml-contract` /
+  `sml-lex` 各 alpha 新版（0.6.3 时已随发）。
+
+### Debian 包
+- 不变：cdylib 二进制与 0.6.3 逐字节一致，`libswsml*_0.6.3` 继续有效，不为一版 docs 重打标签。
+
 ## [0.6.3] · swsml（同批发 `smltools`） — 2026-10-15
 
 > 📌 本轮累积（TASK-agent-w24）：**契约从「一个块一份」变成「一个块多份」**，程序终于能问

@@ -21,6 +21,32 @@ Conventions carried over from `CHANGELOG.md`:
 
 ---
 
+## [0.6.4] · swsml — 2026-10-15
+
+> 📌 A **docs / packaging revision** right after 0.6.3: parser and API **unchanged**,
+> binary identical to 0.6.3. Shipped as its own version so the crates.io README facade
+> covers both English and Chinese readers.
+
+### Docs
+- The crate README (`rust/README.md`) is now **bilingual** (each passage in English then
+  Chinese). crates.io renders only the single file named by Cargo.toml `readme`, and
+  versions are immutable — so a bilingual facade requires a new publish.
+
+### Chore
+- Repo trim: `git rm --cached` + `.gitignore` about 9 MB of **generated** `.sml`
+  (`story/novel.sml` + 7×`story/novel.out.*`, `examples/micro/CH32V103xx.sml`); the
+  sources (`story/gen_novel.py`, `CH32V103xx.svd`) stay and can regenerate them — no
+  effect on the crate package.
+- `llms.txt` (and its `site/static/` copy) release status updated to 0.6.4.
+
+### Dependency sub-crates
+- Unchanged: still the already-published alpha versions of `sml-parse` / `sml-codes` /
+  `sml-feature` / `sml-contract` / `sml-lex` (shipped alongside 0.6.3).
+
+### Debian packages
+- Unchanged: the cdylib binary is byte-identical to 0.6.3, so `libswsml*_0.6.3` stays
+  valid; not relabeled for a docs-only bump.
+
 ## [0.6.3] · swsml (shipped together with `smltools`) — 2026-10-15
 
 > 📌 This round (TASK-agent-w24): **contracts move from "one contract per block" to

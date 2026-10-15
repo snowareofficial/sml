@@ -116,9 +116,9 @@ them** when output is meant to be read, written, or maintained by humans.
   `libswsml-cpp0` / `libswsml-cpp-dev` (C++ RAII wrapper, pkg-config `swsml_cpp`).
   Install with `sudo dpkg -i …`; depends on `libc6` / `libgcc-s1` (+ `libstdc++6` for C++).
 - License for all packages: MulanPSL-2.0 (https://sml.swebase.cn/LICENSE).
-  ✅ Current **released** Rust crate is `swsml` **0.6.3** (published to crates.io);
-  the `0.6.3` artifacts under `/dl/` (language zips **and** the `libswsml*` debs)
-  match the release (SHA256 checksums on the download page).
+  ✅ Current **released** Rust crate is `swsml` **0.6.4** (a docs-only patch over 0.6.3:
+  same code, bilingual README). The `/dl/` artifacts (language zips + `libswsml*` debs)
+  remain **0.6.3** — byte-identical binary, not relabeled (SHA256 on the download page).
 
 ## Canonical references
 - README: /README.md  (contains "For AI Assistants" guidance)
