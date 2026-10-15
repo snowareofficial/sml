@@ -11,4 +11,4 @@ swsml (0.6.3) unstable; urgency=medium
   or verified on the author's machine; the working, validated path is
   packaging/build_deb.sh (dpkg-deb --build).
 
- -- SNOWARE <dev@mail.swebase.cn>  Wed, 14 Oct 2026 00:00:00 +0000
+ -- Sal <sal@mail.swebase.cn>  Wed, 14 Oct 2026 00:00:00 +0000

@@ -88,7 +88,7 @@ state: "NY"
 
 ```sml
 email: alice@example.com     # 裸词，@ 在中间，安全
-from: "SML Team <dev@mail.swebase.cn>"   # 含空格 -> 引号
+from: "SML Team <sal@mail.swebase.cn>"   # 含空格 -> 引号
 ```
 
 ## 1.5 动手试一试

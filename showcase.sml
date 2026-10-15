@@ -65,7 +65,7 @@ contact {
     to: a@b.c
     cc: ops@example.com
     # 含空格（显示名）才需要引号
-    from: "SML Team <dev@mail.swebase.cn>"
+    from: "SML Team <sal@mail.swebase.cn>"
 }
 
 # -----------------------------------------------------------------------------

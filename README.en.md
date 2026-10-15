@@ -100,7 +100,7 @@ Anywhere else it is an ordinary character, so e-mail addresses work unquoted:
 
 ```sml
 to: a@b.c
-from: "SML Team <dev@mail.swebase.cn>"   # quotes needed only because of the space
+from: "SML Team <sal@mail.swebase.cn>"   # quotes needed only because of the space
 ```
 
 ## Contracts
@@ -486,7 +486,7 @@ provide complete runnable examples.
 
 - **Chinese-community QQ group: `589281320`** — usage questions, dialect requests and war stories
   are all welcome (this group is Chinese-speaking)
-- E-mail: [`dev@mail.swebase.cn`](mailto:dev@mail.swebase.cn)
+- E-mail: [`sal@mail.swebase.cn`](mailto:sal@mail.swebase.cn)
 - Repositories: [Gitee](https://gitee.com/snoware/sml) ｜ [GitHub](https://github.com/snoware/sml)
 - Want to add a language implementation, an editor plugin or an emit backend? Start with
   [TODO.md](TODO.md) and [HANDOFF.md](HANDOFF.md) and open an issue to claim it

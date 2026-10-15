@@ -44,8 +44,8 @@ REPLACEMENTS = {
          "firstName: \"John Doe\"     # Contains spaces -> must be quoted"),
         ("state: NY                 # Single word ->Naked word is sufficient",
          "state: NY                 # Single word -> a bare word is enough"),
-        ("from: \"SML Team <dev@mail.swebase.cn>\"   # Containing spaces ->quotation marks",
-         "from: \"SML Team <dev@mail.swebase.cn>\"   # Contains spaces -> needs quotes"),
+        ("from: \"SML Team <sal@mail.swebase.cn>\"   # Containing spaces ->quotation marks",
+         "from: \"SML Team <sal@mail.swebase.cn>\"   # Contains spaces -> needs quotes"),
     ],
     "ch03-fragments.md": [
         ("    &base            # ❌  This way of writing,&base is treated as a 'key name' and will not expand fields",

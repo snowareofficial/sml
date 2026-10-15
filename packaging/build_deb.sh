@@ -75,7 +75,7 @@ STAGE_ROOT="${SML_DEB_STAGE_ROOT:-$WORK}"
 rm -rf "$WORK"; mkdir -p "$WORK"
 rm -rf "$STAGE_ROOT"; mkdir -p "$STAGE_ROOT"
 
-MAINT="SNOWARE <dev@mail.swebase.cn>"
+MAINT="Sal <sal@mail.swebase.cn>"
 HOMEPAGE="https://sml.swebase.cn"
 
 log(){ echo "[build_deb] $*"; }

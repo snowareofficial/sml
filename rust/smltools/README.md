@@ -8,7 +8,7 @@
 >
 > 此彩蛋仅作文档纪念，未在代码中实现（无隐藏命令/触发逻辑），特此注明。
 
-> 开发者 / Contact: **dev@mail.swebase.cn**
+> 开发者 / Contact: **sal@mail.swebase.cn**
 
 **SML (SNOWARE Markup Language) 命令行转换器 / 多目标翻译器。**
 

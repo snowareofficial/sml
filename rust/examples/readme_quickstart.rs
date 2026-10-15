@@ -27,7 +27,7 @@ phoneNumbers: [ { type: home } { type: office } ]
 region: &base
 contact {
     to: a@b.c
-    from: "SML Team <dev@mail.swebase.cn>"
+    from: "SML Team <sal@mail.swebase.cn>"
 }
 "#;
     let v = sml::parse(text)?;

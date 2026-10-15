@@ -88,7 +88,7 @@ But emails with `@` can also be written directly naked (because `@` is just a re
 
 ```sml
 email: alice@example.com     # Naked word, @ in the middle, safe
-from: "SML Team <dev@mail.swebase.cn>"   # Contains spaces -> needs quotes
+from: "SML Team <sal@mail.swebase.cn>"   # Contains spaces -> needs quotes
 ```
 
 ## 1.5 Give it a try with your hands

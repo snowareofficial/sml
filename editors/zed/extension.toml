@@ -20,7 +20,7 @@ name = "SML"
 version = "0.1.0"
 schema_version = 1
 description = "SML (SNOWARE Markup Language) 语言支持：语法高亮、括号匹配、注释切换"
-authors = ["SNOWARE <dev@mail.swebase.cn>"]
+authors = ["Sal <sal@mail.swebase.cn>"]
 repository = "https://gitee.com/snoware/sml"
 
 [grammars.sml]

@@ -19,7 +19,7 @@ name = "sml_parse"
 sml-codes = { path = "../sml-codes", version = "0.1.0-alpha.2", default-features = false }
 sml-value = { path = "../sml-value", version = "0.1.0-alpha.1", default-features = false }
 # 必须钉 alpha.3：带码错误类型（`SmlError`）是 alpha.3 才有的返回类型。
-sml-lex = { path = "../sml-lex", version = "0.1.0-alpha.3", default-features = false }
+sml-lex = { path = "../sml-lex", version = "0.1.0-alpha.4", default-features = false }
 sml-feature = { path = "../sml-feature", version = "0.1.0-alpha.3", default-features = false }
 # API 最小版本是 alpha.2（带码错误类型），但**语义上必须钉 alpha.3**：
 # alpha.3 才修正了 `import "x.sml"` 被误挂命名空间的语义 —— 若仍写 alpha.2，

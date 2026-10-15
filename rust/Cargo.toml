@@ -49,7 +49,7 @@ license = "MulanPSL-2.0"
 repository = "https://gitee.com/snoware/sml"
 homepage = "https://sml.swebase.cn"
 readme = "README.md"
-authors = ["SNOWARE <dev@mail.swebase.cn>"]
+authors = ["Sal <sal@mail.swebase.cn>"]
 # crates.io 硬性上限：最多 5 个 keywords，每个 ≤20 字符（超出将 publish 失败）。
 # 取舍：保留 sml（核心标识）/ markup-language（同类流量入口）/ config（主场景）/
 #       config-schema（契约能力）/ codegen（多目标翻译卖点）；品牌词 snoware 让位。
@@ -169,8 +169,8 @@ lto = false
 # ---------------------------------------------------------------------------
 [package.metadata.deb]
 name = "libswsml0"
-maintainer = "SNOWARE <dev@mail.swebase.cn>"
-copyright = "2026, SNOWARE <dev@mail.swebase.cn>"
+maintainer = "Sal <sal@mail.swebase.cn>"
+copyright = "2026, Sal <sal@mail.swebase.cn>"
 license-file = ["LICENSE*"]
 section = "libs"
 priority = "optional"

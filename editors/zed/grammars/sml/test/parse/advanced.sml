@@ -26,7 +26,7 @@ db {
 
 # 词中的 @ 是普通字符，邮箱无需引号
 to: a@b.c
-from: "SML Team <dev@mail.swebase.cn>"
+from: "SML Team <sal@mail.swebase.cn>"
 path: a/b/c
 "ns:tag": value
 read-write: 1

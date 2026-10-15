@@ -18,7 +18,7 @@ license = "MulanPSL-2.0"
 repository = "https://gitee.com/snoware/sml"
 homepage = "https://sml.swebase.cn"
 readme = "README.md"
-authors = ["SNOWARE <dev@mail.swebase.cn>"]
+authors = ["Sal <sal@mail.swebase.cn>"]
 keywords = ["sml", "converter", "codegen", "parser", "slint"]
 categories = [
     "command-line-utilities",

@@ -1,7 +1,7 @@
 Source: swsml
 Section: libs
 Priority: optional
-Maintainer: SNOWARE <dev@mail.swebase.cn>
+Maintainer: Sal <sal@mail.swebase.cn>
 Homepage: https://sml.swebase.cn
 Build-Depends: debhelper-compat (= 13),
                cargo,

@@ -94,7 +94,7 @@ region: &base
 
 ```sml
 to: a@b.c
-from: "SML Team <dev@mail.swebase.cn>"   # 含空格才需引号
+from: "SML Team <sal@mail.swebase.cn>"   # 含空格才需引号
 ```
 
 ## 契约（Contract）
@@ -429,7 +429,7 @@ SML 是**纯数据格式**（与 JSON/YAML 同层），可零成本替代它们�
 ## 参与 / 联系
 
 - **中文社区 QQ 群：`589281320`** —— 用法提问、方言需求、踩坑反馈都欢迎
-- 邮箱：[`dev@mail.swebase.cn`](mailto:dev@mail.swebase.cn)
+- 邮箱：[`sal@mail.swebase.cn`](mailto:sal@mail.swebase.cn)
 - 代码仓库：[Gitee](https://gitee.com/snoware/sml) ｜ [GitHub](https://github.com/snoware/sml)
 - 想加一种语言实现 / 一个编辑器插件 / 一个 emit 后端？先看 [TODO.md](TODO.md) 与
   [HANDOFF.md](HANDOFF.md)，欢迎开 issue 认领
