@@ -61,7 +61,12 @@ if [ -z "$ALLOW_DIRTY" ]; then
   fi
 fi
 
-local_version()    { sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$1/Cargo.toml" | head -n1; }
+local_version() {
+  local d="$1"
+  # swsml 就是 workspace 根（它的 Cargo.toml 在 ./ ，不是 ./swsml/）；子 crate 才在子目录。
+  if [ "$d" = "swsml" ]; then d="."; fi
+  sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$d/Cargo.toml" | head -n1
+}
 published_version(){ cargo search "$1" --limit 1 2>/dev/null | sed -nE "s/^$1 = \"([^\"]+)\".*/\1/p"; }
 
 # 发布顺序 = 依赖序（叶子优先）
