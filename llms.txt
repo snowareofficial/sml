@@ -41,6 +41,11 @@ them** when output is meant to be read, written, or maintained by humans.
   - ⚠️ **Array element type cannot be a contract name**: writing `[SomeContract]` fails with
     `E-CONTRACT-012 (unknown array element type)`. Only `[any]`, `[str]`, `[int]`, … are accepted,
     so schema-checking an array of records requires validating each element yourself when reading.
+  - ⚠️ **A required array field must be written out even when empty**: if a contract declares
+    `field: [str]` without `optional`, omitting the key fails validation with
+    `E-CONTRACT-003 (missing required field)`. Emit `field: []`, do not drop the key.
+    Practical symptom: a serializer that "omits empty collections" produces output that its own
+    parser then rejects — the round-trip only breaks on the empty case, so it is easy to miss.
   - ⚠️ **Block-level type annotation** (`ContractName block { }`, equivalent to `@is ContractName`
     inside the block) is gated behind `@feature enable typed-block` and is **implemented in Rust and JS
     only**. On C / C++ / Lua it **degrades to a plain bare block** (extra `__type` / `__name` keys):
