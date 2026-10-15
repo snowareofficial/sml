@@ -258,13 +258,13 @@ codes: [
       impls: [ rust js ] status: done
       note: "规范文案会附带可用特性列表。**JS 原先把未知特性静默加入集合**（`feats.add(w)` 不校验）⇒ 用户以为开了某项能力、实际什么都没开且无提示；已对齐本码（`js/sml.mjs` 的 `KNOWN_FEATURES`，合法名 = Rust 注册表 15 个 **并集** JS 别名 `top-array`/`bareword-str`/`escape`，并支持逗号分隔）。⚠️ C / C++ / Lua 没有特性集（`@feature` 本身非法 ⇒ 落 `E-PARSE-005`），故不在 impls" }
     { id: E-FEATURE-004 domain: FEATURE severity: E title: "版本声明非法"
-      msg: "不支持的版本声明，或版本声明互相冲突"
+      msg: "不支持的版本声明，或版本声明互相冲突；当前支持 v1..v4"
       impls: [ rust c cpp js lua smltools ] status: partial
-      note: "各端支持的版本范围不同（Lua 仅 v1、C 到 v3）—— **码相同、支持的版本不同**，差异用字段表达，不再靠文案。C 的「超出接受范围」分支目前是死代码；`@version` 用作片段名、`@feature base` 参数非 v1..v4、命令行传入非法版本名都归此码" }
+      note: "各端支持的版本范围不同（Lua 仅 v1、C 到 v3、JS 现已支持 v1..v4）—— **码相同、支持的版本不同**，差异用字段表达，不再靠文案。C 的「超出接受范围」分支目前是死代码；`@version` 用作片段名、`@feature base` 参数非 v1..v4、命令行传入非法版本名都归此码。JS 的版本只切换**裸词字符串**这一特性（v1 开、v2/v3/v4 关，关闭即裸词报 E-FEATURE-005），v4 与 v3 特性基集相同" }
     { id: E-FEATURE-005 domain: FEATURE severity: E title: "裸词必须加引号"
       msg: "字符串必须加引号：当前特性集禁用了裸词字符串"
-      impls: [ rust c ] status: partial
-      note: "JS 无该检查" }
+      impls: [ rust c js ] status: partial
+      note: "JS 已实现：v2/v3/v4（严格模式）关闭 bareword-string，裸词字符串报此码；v1 默认开（裸词即字符串），与 Rust 同码。仅约束**值位置**裸词，键名 / 指令参数 / 片段名不受影响" }
     { id: E-FEATURE-006 domain: FEATURE severity: E title: "feature 子命令未知"
       msg: "未知的 `@feature` 子命令"
       impls: [ rust ] status: done
@@ -277,8 +277,8 @@ codes: [
       impls: [ rust ] status: done }
     { id: E-FEATURE-009 domain: FEATURE severity: E title: "请求特性与允许集无交集"
       msg: "文档请求的特性与调用方允许的特性没有交集"
-      impls: [ rust ] status: done
-      note: "宿主（如 C-ABI 调用方）用 allow 集收窄能力时的拒绝：不静默降级，直接失败" }
+      impls: [ rust js ] status: partial
+      note: "宿主（如 C-ABI 调用方）用 allow 集收窄能力时的拒绝：不静默降级，直接失败。JS 现支持调用方 `opts.features`（Set / Array）作为**允许集上限**：文档内部 `@feature enable` 只能在其上收窄，越权开启即报此码；允许集与文档所需特性无交集同样报此码" }
     { id: W-FEATURE-001 domain: FEATURE severity: W title: "位置参数写法已废弃"
       msg: "位置参数写法已废弃，推荐带参数名的写法"
       impls: [ rust js ] status: partial
@@ -353,6 +353,10 @@ codes: [
       msg: "该实现暂不支持一个块应用多份契约；请拆分成单契约或等待"
       impls: [ js c cpp lua ] status: partial
       note: "TASK-agent-w24 任务 D 的「响亮拒绝」：叠加不能 opt-in（C / C++ / Lua 没有 @feature 门控），Rust 先行期间其余端**绝不静默** —— 见到 `@is` 后第 2 个裸词或块级第 2 个已注册契约即报此码；某端实现叠加后从 impls 移除并更新 status。JS 此前对 `@is tls, retry` 给的是错树 + E-CONTRACT-003（误导），本码落地后改为响亮拒绝" }
+    { id: E-CONTRACT-018 domain: CONTRACT severity: E title: "契约 @requires 无法满足"
+      msg: "契约声明的 @requires 特性无法满足，契约无法定义或应用"
+      impls: [ rust js c cpp lua ] status: partial
+      note: "TASK：契约级 `@requires` 的定义时校验与跨端拒绝。Rust 在**契约定义时**（而非应用时）校验：契约体里 `@requires feat1, feat2` 声明的任一特性未开启即报此码，文案含契约名与缺失特性名；未知特性名落 `E-FEATURE-003`。跨端（JS / C / C++ / Lua）**明确拒绝**契约里的 `@requires`（不是「暂未实现」—— 是与 E-CONTRACT-017 契约叠加未实现同类的响亮拒绝）。只增不改：本码继承 CONTRACT 既有序号，未改动任何既有码含义" }
 
     # ================= 片段与 include（语言层） =================
     { id: E-INCLUDE-001 domain: INCLUDE severity: E title: "include 文件缺失或读取失败"
@@ -361,8 +365,8 @@ codes: [
       note: "C 侧「路径无法规范化解析」同报此码。⚠️ 本条曾把 lua 从 impls **移除**（当时 Lua 根本没有 include 语法，`include \"x\"` 与 `@include \"x\"` 都被静默当普通键）；**W20 第二阶段补上 include 后 lua 已回到 impls**；此前写的「Lua 的宿主入口报文件不存在」是**归类错误** —— 宿主入口读的是文档本身，归 E-IO-001（与 C 的 sml_parse_file 同格）" }
     { id: E-INCLUDE-002 domain: INCLUDE severity: E title: "include 循环引用"
       msg: "include 循环引用"
-      impls: [ rust c cpp lua ] status: partial
-      note: "JS 无环检测，自包含会耗尽调用栈（抛宿主 RangeError），不是此码；C++ 原先声明了此端却**不可能触发**（环检测的栈 push 完立刻 pop、永远为空），W18 已修好并给出反向用例（菱形包含必须合法）；Lua 由 W20 第二阶段实现，同用**链栈**（只判「根→当前」），故菱形包含同样合法、自包含/互包含报此码" }
+      impls: [ rust c cpp lua js ] status: partial
+      note: "JS 现已补齐环检测（链栈：只判「根→当前」展开链，菱形包含合法、自包含/互包含报此码），不再耗尽调用栈抛宿主 RangeError；C++ 原先声明了此端却**不可能触发**（环检测的栈 push 完立刻 pop、永远为空），W18 已修好并给出反向用例（菱形包含必须合法）；Lua 由 W20 第二阶段实现，同用**链栈**（只判「根→当前」），故菱形包含同样合法、自包含/互包含报此码" }
     { id: E-INCLUDE-003 domain: INCLUDE severity: E title: "include 越界拒绝"
       msg: "include 目标不在基准目录内，已拒绝"
       impls: [ rust c cpp lua ] status: partial

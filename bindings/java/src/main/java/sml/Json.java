@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MulanPSL-2.0
+// SML Java 绑定极简 JSON 序列化器（仅 dumps 桥用）。
+// 仓库：https://gitee.com/snoware/sml
+// @version 0.1.0 (swsml 0.6.3)
+
 package sml;
 
 import java.nio.charset.StandardCharsets;

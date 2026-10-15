@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MulanPSL-2.0
+// SML C# 绑定自测。
+// 仓库：https://gitee.com/snoware/sml
+// @version 0.1.0 (swsml 0.6.3)
+
 using System;
 using System.Collections.Generic;
 using System.IO;

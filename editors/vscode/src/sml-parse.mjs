@@ -273,9 +273,11 @@ export function collectFragmentNames(text) {
 ///
 /// - `kind === "contract"`：找 `@contract Name`（对应 `@is Name` 的跳转）
 /// - `kind === "fragment"`：找 `@Name { }`（对应 `&Name` 的跳转）
+/// - `kind === "type"`：找 `@type name: Name`（对应契约字段类型位的跳转，
+///   如 `编号: 规则编号` 里的 `规则编号`）
 ///
 /// 返回 `{ line, col, length }`（行列从 0 起，`length` 为名字长度）或 `null`。
-/// 名字用 `\p{L}` 系列匹配，**中文契约名/片段名同样可跳**（与收集函数保持一致）。
+/// 名字用 `\p{L}` 系列匹配，**中文契约名/片段名/类型名同样可跳**（与收集函数保持一致）。
 export function findDefinition(text, name, kind = "contract") {
   if (!name) return null;
   if (kind === "fragment" && RESERVED_DIRECTIVES.has(name)) return null;
@@ -283,10 +285,15 @@ export function findDefinition(text, name, kind = "contract") {
   // `@` 只在**词首**才是标记：词中的 `@` 是普通字符（如邮箱 `a@b.c`），
   // 故用后顾断言排除「前面还是词字符」的情况，避免把邮箱当指令。
   const NOT_WORD = "(?<![\\p{L}\\p{N}_.\\-])";
+  const TAIL = "(?![\\p{L}\\p{N}_.\\-])";
+  // ⚠️ `@type name: X` 只有带 `name:` 的形式才是指令（`@type { }` 是名为 type 的片段，
+  // 与 Rust 实现同一边界），故 type 分支把 `name:` 写进正则，不靠 `@` 单独判断。
   const re =
     kind === "fragment"
-      ? new RegExp(`${NOT_WORD}@${esc}(?![\\p{L}\\p{N}_.\\-])`, "u")
-      : new RegExp(`${NOT_WORD}@contract\\s+(${esc})(?![\\p{L}\\p{N}_.\\-])`, "u");
+      ? new RegExp(`${NOT_WORD}@${esc}${TAIL}`, "u")
+      : kind === "type"
+      ? new RegExp(`@type\\s+name:\\s*(${esc})${TAIL}`, "u")
+      : new RegExp(`${NOT_WORD}@contract\\s+(${esc})${TAIL}`, "u");
   const lines = text.split("\n");
   for (let i = 0; i < lines.length; i++) {
     const m = re.exec(lines[i]);
@@ -446,6 +453,134 @@ export function collectTypeNames(text) {
     if (n && n !== "name") names.add(n);
   }
   return [...names];
+}
+
+/// 定位 `@type name: X { ... }` 的**声明体**（纯文本括号配对，与 `contractDeclaration` 同法）。
+///
+/// 返回 `{ line, col, length, body: string[] }` 或 `null`：
+/// `line/col/length` 指向类型名（供 hover 定位），`body` 是花括号内的原始行（已 trim）。
+///
+/// 只认 `name:` 形式 —— `@type { }` 是名为 type 的片段，与 Rust 实现同一边界。
+export function typeDeclaration(text, name) {
+  if (!name) return null;
+  const lines = text.split("\n");
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const head = new RegExp(`^\\s*@type\\s+name:\\s*(${esc})(?![\\p{L}\\p{N}_.\\-])`, "u");
+  for (let i = 0; i < lines.length; i++) {
+    const m = head.exec(lines[i]);
+    if (!m) continue;
+    const col = m[0].length - m[1].length;
+    const body = [];
+    let depth = 0;
+    let started = false;
+    for (let j = i; j < lines.length; j++) {
+      const line = lines[j];
+      for (const ch of line) {
+        if (ch === "{") { depth++; started = true; }
+        else if (ch === "}") depth--;
+      }
+      if (j > i || started) {
+        // 首行只取 `{` 之后的部分；末行去掉收尾的 `}`
+        const t2 = j === i ? line.slice(line.indexOf("{") + 1) : line;
+        const piece = depth === 0 ? t2.slice(0, t2.lastIndexOf("}")) : t2;
+        if (piece.trim() !== "") body.push(piece.trim());
+      }
+      if (started && depth <= 0) break;
+    }
+    return { line: i, col, length: m[1].length, body };
+  }
+  return null;
+}
+
+/// 把 `@type` 的模式体渲染成一行**可读签名**（尽力而为）。
+///
+/// 例如（见 `examples/deep-security.sml` 的 `规则编号`）：
+///   序列: [ { 字面: "DS-" } { 名: 层, 任一: [ NET IDC APP DAT EGR ] } … ]
+///   ⇒ `DS- <层: NET|IDC|APP|DAT|EGR> - <序号: 数字×4>`
+///
+/// 渲染不出来（写法太花 / 有嵌套分组）时**返回 null**，由调用方退回显示原文 ——
+/// 宁可不显示签名，也不显示一条错的签名。
+function patternSignature(body) {
+  if (!body || !body.length) return null;
+  // 行尾注释：`#` 前须有空白，避免吃掉 `{ 字面: "#" }` 里的井号
+  const src = body.join(" ").replace(/\s+#[^\n]*/g, "").replace(/\s+/g, " ").trim();
+  const groups = [...src.matchAll(/\{([^{}]*)\}/g)].map((m) => m[1].trim());
+  if (!groups.length) return null;
+  // ⚠️ 嵌套括号 ⇒ 结构不是扁平的，**绝不**按扁平渲染。
+  // 反例：序列: [ { 组: [ { 类: 数字 } ] } ] —— 扁平提取只会拿到最内层 `{ 类: 数字 }`，
+  // 于是签名渲染成 `<数字>`，**把一条嵌套规则说成了一条简单规则**（错得比不显示更糟）。
+  // 判据：正文里的 `{` 总数必须等于抽出的扁平组数，不等即说明有嵌套 ⇒ 退回原文。
+  if ((src.match(/\{/g) || []).length !== groups.length) return null;
+
+  const unq = (s) => (s == null ? null : String(s).replace(/^"(.*)"$/, "$1"));
+  const parts = [];
+  for (const grp of groups) {
+    const kv = {};
+    // 键: 值 —— 值可能是引号串 / 内联数组 / 裸词
+    const KV = /([\p{L}\p{N}_.\-]+)\s*:\s*("(?:[^"\\]|\\.)*"|\[[^\]]*\]|[^\s,]+)/gu;
+    let m;
+    while ((m = KV.exec(grp)) !== null) kv[m[1]] = m[2];
+    const pick = (...names) => {
+      for (const n of names) if (kv[n] !== undefined) return kv[n];
+      return null;
+    };
+    const nm = unq(pick("名", "name"));
+    const times = unq(pick("次", "times", "repeat"));
+    const lo = unq(pick("最小", "min"));
+    const hi = unq(pick("最大", "max"));
+    const head = nm ? nm + ": " : "";
+    let suffix = "";
+    if (times) suffix = "×" + times;
+    else if (lo != null || hi != null) suffix = "×" + (lo != null ? lo : "0") + ".." + (hi != null ? hi : "∞");
+
+    const lit = unq(pick("字面", "lit", "literal"));
+    if (lit != null) { parts.push(lit); continue; }
+    const use = unq(pick("用", "use"));
+    if (use != null) { parts.push(nm ? `<${head}${use}>` : use); continue; }
+    const cls = unq(pick("类", "class"));
+    if (cls != null) { parts.push(`<${head}${cls}${suffix}>`); continue; }
+    const alt = unq(pick("任一", "alt", "any-of"));
+    if (alt != null) {
+      const alts = alt.replace(/[[\]]/g, " ").trim().split(/\s+/).filter(Boolean).join("|");
+      parts.push(`<${head}${alts}>`);
+      continue;
+    }
+    const until = unq(pick("直到", "until"));
+    if (until != null) { parts.push(`…直到 ${until}`); continue; }
+    const rx = unq(pick("正则", "regex", "re"));
+    if (rx != null) { parts.push(nm ? `<${head}/${rx}/>` : `/${rx}/`); continue; }
+    if (pick("可选", "optional") != null) { parts.push(nm ? `<${nm}?>` : "?"); continue; }
+    return null; // 组 / 序列（嵌套结构）渲染不了：整条退回原文
+  }
+  return parts.length ? parts.join(" ") : null;
+}
+
+/// `@type` 类型的悬浮：签名 + 原文 + 一句「在哪校验」。
+export function typeHoverMarkdown(text, name) {
+  const decl = typeDeclaration(text, name);
+  if (!decl) return null;
+  const out = ["**自定义类型 `" + name + "`**　（`@type` 模式，第 " + (decl.line + 1) + " 行）", ""];
+  const sig = patternSignature(decl.body);
+  if (sig) {
+    out.push("**匹配签名**：`" + sig + "`");
+    out.push("");
+  }
+  out.push("```sml");
+  out.push("@type name: " + name + " {");
+  for (const b of decl.body) out.push("    " + b);
+  out.push("}");
+  out.push("```");
+  out.push("");
+  out.push("值在**解析期**按该模式全文匹配：不符即报 `E-CONTRACT-009`（编辑器里会出红字）。F12 可跳到声明处。");
+  return out.join("\n");
+}
+
+/// 契约字段的类型若是一个 `@type` 声明的类型，返回它的签名；否则 `null`。
+function typeSignatureOf(text, typeName) {
+  if (!typeName) return null;
+  if (!collectTypeNames(text).includes(typeName)) return null;
+  const d = typeDeclaration(text, typeName);
+  return d ? patternSignature(d.body) : null;
 }
 
 /// 定位块级类型标注 `<契约名> <块名> { .. }` 中契约名的位置（供语义高亮）。
@@ -630,16 +765,23 @@ export function contractOfBlock(text, line, contractNames) {
 }
 
 /// 把字段规格渲染成悬浮文本。`usage` 是「用在哪 / 当前值」这一段的补充说明。
-function renderField(f, contractName, usage) {
+/// `typeSig`：字段类型若是 `@type` 声明的自定义模式，这里给出它的一行签名。
+function renderField(f, contractName, usage, typeSig) {
   const out = ["**字段 `" + f.name + "`**" + (contractName ? "　（契约 `" + contractName + "`）" : "")];
   const meta = [];
-  if (f.type) meta.push("类型 `" + f.type + "`");
+  if (f.type) meta.push("类型 `" + f.type + "`" + (typeSig ? "（自定义模式）" : ""));
   if (f.enum) meta.push("枚举 " + f.enum.map((v) => "`" + v + "`").join(" / "));
   if (f.default !== null) meta.push("默认 `" + f.default + "`");
   if (f.min !== null || f.max !== null) meta.push("范围 " + (f.min !== null ? f.min : "−∞") + " – " + (f.max !== null ? f.max : "+∞"));
   meta.push(f.required ? "必填" : f.optional ? "可选" : "必填（默认）");
   out.push("");
   out.push(meta.join("　·　"));
+  // 类型是 @type 自定义模式时，把它的匹配签名一并给出来 —— 否则用户看到「类型 `规则编号`」
+  // 还得自己翻到文件开头去找这条规则长什么样。
+  if (typeSig) {
+    out.push("");
+    out.push("**匹配签名**：`" + typeSig + "`　（`@type " + f.type + "`，F12 可跳到声明）");
+  }
   if (f.comment) {
     // 行尾 `# ...` 就是 SML 里的字段文档 —— 直接展示，别让作者的解释只活在源码里
     out.push("");
@@ -667,7 +809,7 @@ export function fieldHoverMarkdown(text, word, line) {
     let uses = 0;
     for (const l of lines) if (new RegExp("^\\s*" + word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*:").test(l)) uses++;
     uses = Math.max(0, uses - 1); // 减去声明处这一次
-    return renderField(f, at.name, uses ? `数据区有 ${uses} 处同名键（契约会给缺失的字段填默认值）` : "数据区暂无同名键");
+    return renderField(f, at.name, uses ? `数据区有 ${uses} 处同名键（契约会给缺失的字段填默认值）` : "数据区暂无同名键", typeSignatureOf(text, f.type));
   }
   // 数据区：光标可能在块内任意一行（键行），先定位到**最内层包含它的块**
   const blk = enclosingBlock(text, line);
@@ -689,7 +831,7 @@ export function fieldHoverMarkdown(text, word, line) {
       "这个块里**没有**写这个字段" +
       (f.default !== null ? "（契约会填默认值 `" + f.default + "`）" : f.optional ? "（可选，没有默认值）" : "（**必填**，缺了会报错）");
   }
-  return renderField(f, side, usage);
+  return renderField(f, side, usage, typeSignatureOf(text, f.type));
 }
 
 /// 字段级跳转：数据区的键 → 契约里的字段声明；契约里的字段 → 数据区第一处同名键。

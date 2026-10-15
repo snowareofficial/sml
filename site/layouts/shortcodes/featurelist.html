@@ -1,0 +1,25 @@
+{{ $en := eq .Site.Language.Lang "en" }}
+{{ if $en }}
+<ul>
+  <li>Text / file loading (with include expansion)</li>
+  <li>Value-tree traversal (type-preserving: int / float / bool / str / array / object)</li>
+  <li>Rich errors (code_str / line / column / position / source / text)</li>
+  <li>Serialization dumps (object &rarr; SML text)</li>
+  <li>Feature gating flags (sandbox)</li>
+  <li>Version / feature query (Version / Features)</li>
+  <li>Path lookup (get_in)</li>
+  <li>Memory discipline (correct free)</li>
+</ul>
+{{ else }}
+<ul>
+  <li>文本 / 文件加载（含 include 展开）</li>
+  <li>值树遍历（类型保真：int / float / bool / str / array / object）</li>
+  <li>富错误（code_str / line / column / position / source / text）</li>
+  <li>序列化 dumps（对象 &rarr; SML 文本）</li>
+  <li>特性门禁 flags（沙箱）</li>
+  <li>版本 / 特性查询（Version / Features）</li>
+  <li>路径取值（get_in）</li>
+  <li>内存纪律（free 正确释放）</li>
+</ul>
+{{ end }}
+{{ with .Get "note" }}<p class="feature-note">&#9888;&#65039; {{ . }}</p>{{ end }}

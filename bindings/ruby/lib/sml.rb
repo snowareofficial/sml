@@ -1,3 +1,8 @@
+# SPDX-License-Identifier: MulanPSL-2.0
+# SML 多语言宿主绑定（Ruby / fiddle）。
+# 仓库：https://gitee.com/snoware/sml
+# @version 0.1.0 (swsml 0.6.3)
+
 # frozen_string_literal: true
 # SML 宿主绑定（Ruby / fiddle）—— 经 C-ABI 调 Rust cdylib（sml / libsml）。
 #

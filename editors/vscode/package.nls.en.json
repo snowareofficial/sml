@@ -1,0 +1,19 @@
+{
+  "sml.description": "SML language support: syntax highlighting, diagnostics, completion, hover docs and formatting",
+  "sml.reloadHighlight.title": "SML: Reload custom highlight config",
+  "sml.setHighlightMode.title": "SML: Set highlight intensity (full / minimal / off)",
+  "sml.createHighlightConfig.title": "SML: Create HL-cfg.sml highlight config",
+  "sml.specialHighlight.title": "SML: Spotlight selected word (current workspace)",
+  "sml.clearSpecialHighlight.title": "SML: Clear spotlight",
+  "sml.applySpecialColor.title": "SML: Apply special color (writes to HL-cfg.sml, only for syntax units)",
+  "sml.selectIconTheme.title": "SML: File icon theme (SML+Seti / .sml only / other theme)",
+  "sml.selfCheck.title": "SML: Self-check (run this when hover / navigation / highlight stop responding)",
+  "sml.iconThemes.smlIcons": "SML Icons (.sml only)",
+  "sml.iconThemes.smlIconsSeti": "SML Icons + Seti (other files keep Seti icons)",
+  "sml.diagnostics.enabled.description": "Show parse errors live while editing .sml files",
+  "sml.highlight.mode.description": "Highlight intensity: full=everything; minimal=only comments/strings/numbers; off=disabled",
+  "sml.highlight.configFile.description": "Path to the custom highlight config file (relative to workspace root); silently skipped if missing",
+  "sml.specialHighlight.include.description": "Search scope for the spotlight (glob; defaults to .sml only, respects files.exclude)",
+  "sml.specialHighlight.caseSensitive.description": "Whether the spotlight is case-sensitive",
+  "sml.specialHighlight.wholeWord.description": "Whether the spotlight matches whole words only (boundary by SML identifier char class)"
+}

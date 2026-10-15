@@ -147,6 +147,36 @@ pub enum Feature {
     ///
     /// 追加在 `For` 之后以保位序稳定（C-ABI 位序绑定，见 `feature_names` 守护用例）。
     TypedBlock,
+    /// 契约名查找**首字母大小写不敏感**（opt-in）。
+    ///
+    /// 默认（未开启）时契约名严格区分大小写：契约声明为 `Rule`，而块级标注写成
+    /// `rule ssh { .. }`，首词不会命中契约表 ⇒ 契约**静默不生效**（不校验、不填
+    /// 默认值、**也不报错**）。这是当前最容易踩的坑 —— 配置里写错首字母大小写，
+    /// 等于校验形同虚设且不报错。
+    ///
+    /// 开启后：精确匹配失败时，再按「首字母小写后相等」做一次兜底查找，于是
+    /// `rule` 能命中 `Rule`（反向同样成立）。**只影响查找**：契约的声明名、
+    /// `__type` / `__name` 元数据、错误信息里的契约名，一律保持书写原样。
+    ///
+    /// **opt-in**：不在 `baseline()` 中，需文档显式 `@feature enable case-insensitive`。
+    ///
+    /// 追加在 `TypedBlock` 之后以保位序稳定（C-ABI 位序绑定，见 `feature_names` 守护用例）。
+    CaseInsensitive,
+    /// 块级标注（typed-block）里「首个未命中契约表的词」可否当作**块名**（opt-in）。
+    ///
+    /// 默认（未开启）时，typed-block 模式下前缀里的每个词都必须是契约名。这拆掉了一颗雷：
+    /// `Rule Securty ssh { .. }` 里拼错的 `Securty` 原先会**静默变成块名**、真正的块名
+    /// `ssh` 被挤进 `__args`，全程不报错 —— 契约写错等于静默失效。
+    /// 开启本特性后恢复「首个非契约词 = 块名，其余进 `__args`」的行为。
+    ///
+    /// ⚠️ **只作用于 typed-block 模式**（首词命中了契约表）。普通裸块
+    /// `server web prod { }` 的既有行为不受影响（`__type`/`__name`/`__args` 回归红线）。
+    ///
+    /// **opt-in**：不在 `baseline()` 中，需文档显式 `@feature enable block-name`；
+    /// 与 typed-block 合用需两个特性都开。
+    ///
+    /// 追加在 `CaseInsensitive` 之后以保位序稳定（C-ABI 位序绑定）。
+    BlockName,
 }
 
 /// 返回全部已注册特性的名字，顺序与 [`FEATURES`]（即特性位序）一致。
@@ -173,6 +203,8 @@ pub static FEATURES: &[(&str, Feature)] = &[
     ("when", Feature::When),
     ("for", Feature::For),
     ("typed-block", Feature::TypedBlock),
+    ("case-insensitive", Feature::CaseInsensitive),
+    ("block-name", Feature::BlockName),
 ];
 
 impl Feature {

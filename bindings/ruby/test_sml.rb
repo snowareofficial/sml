@@ -1,3 +1,8 @@
+# SPDX-License-Identifier: MulanPSL-2.0
+# SML Ruby 绑定自测。
+# 仓库：https://gitee.com/snoware/sml
+# @version 0.1.0 (swsml 0.6.3)
+
 # frozen_string_literal: true
 # SML Ruby 绑定测试（§4 黄金向量 + 内存稳定）。
 # 运行：ruby bindings/ruby/test_sml.rb  （需 SML_LIB 或 PATH 能找到 libsml）

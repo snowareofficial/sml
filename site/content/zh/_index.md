@@ -1,6 +1,6 @@
 ---
 title: "SML { ❄ } — SNOWARE Markup Language"
-translationKey: "zh-home"
+translationKey: "home"
 ---
 
 # SML { ❄ }
@@ -13,7 +13,7 @@ translationKey: "zh-home"
 **SML（SNOWARE Markup Language）** 是一种声明式数据 / 配置格式，定位为 JSON / YAML / TOML 的轻量替代品。它强调**可读性**与**少仪式感**：引号可选、块冒号可省、逗号可选、支持片段继承与契约校验。
 
 > 仓库：[snoware/sml](https://gitee.com/snoware/sml) ｜ **参考实现：Rust (`swsml`)** ｜ 其它实现：C (`sml.c`) · C++ (`sml.cpp`) · JavaScript (`sml.mjs`) · Lua (`lib/sml.soup`) · Python
-> **五端同码**：同一类错误在 Rust / C / C++ / JS / Lua 上报**同一个错误码**（[码表 141 条](/errors)，2026-09 起静默点全部改为显式报错）
+> **五端同码**：同一类错误在 Rust / C / C++ / JS / Lua 上报**同一个错误码**（[码表 143 条](/errors)，2026-09 起静默点全部改为显式报错）
 
 ## 特性一览
 
@@ -441,17 +441,18 @@ features: [ logging metrics tracing ]
 
 ## 下载
 
-- **VS Code 扩展 0.4.2**：[下载 sml-lang-0.4.2.vsix](/dl/sml-lang-0.4.2.vsix)（手动安装，见 [下载页](/downloads/)）
+- **VS Code 扩展 0.4.3**：见 [下载页](/downloads/)（VSIX 手动安装，未上架 Marketplace）
+- 多语言可嵌入源码包（Python / Ruby / Java / Go / C# / C / C++ / JavaScript / Lua）同样在 [下载页](/downloads/)
 
-> ⚠️ 本版是**重新打包**：修掉了「在 VS Code 1.13x 上扩展根本无法激活」的致命问题
-> （模块顶层读了新版宿主已移除的 `vscode.InsertTextFormat`）。装过更早 0.4.2 请**重新下载安装**。
+> ⚠️ 0.4.3 为**重新打包**：修掉了「在 VS Code 1.13x 上扩展根本无法激活」的致命问题
+> （模块顶层读了新版宿主已移除的 `vscode.InsertTextFormat`）。装过更早版本请**重新下载安装**。
 
 
 ## 编辑器支持
 
 | 编辑器 | 获取方式 | 能力 |
 |---|---|---|
-| **VS Code** | 下载 [sml-lang-0.4.2.vsix](/dl/sml-lang-0.4.2.vsix) 后「从 VSIX 安装」；也可从本仓库 `editors/vscode/` 本地打包：`npm run package`。**未上架市场**（上架流程繁琐，刻意暂缓） | 语法高亮、诊断、补全、格式化和**跳转到定义**（`@is X` → `@contract X`、`&base` → `@base`）；**悬浮**给出契约声明 + **解析器填充默认值后的结构**，停在块名上还给路径与应用契约；**特殊颜色**（右键写入工作区 `HL-cfg.sml`，只对语法单元生效）；**特别高亮**（一个词点亮整个工作区）；**自检**（右键把「为什么没反应」逐条写进输出面板）。实现方式是**进程内直接调解析器，不启 LSP** |
+| **VS Code** | 从 [下载页](/downloads/) 获取 VSIX 后「从 VSIX 安装」；也可从本仓库 `editors/vscode/` 本地打包：`npm run package`。**未上架市场**（上架流程繁琐，刻意暂缓） | 语法高亮、诊断、补全、格式化和**跳转到定义**（`@is X` → `@contract X`、`&base` → `@base`）；**悬浮**给出契约声明 + **解析器填充默认值后的结构**，停在块名上还给路径与应用契约；**特殊颜色**（右键写入工作区 `HL-cfg.sml`，只对语法单元生效）；**特别高亮**（一个词点亮整个工作区）；**自检**（右键把「为什么没反应」逐条写进输出面板）。实现方式是**进程内直接调解析器，不启 LSP** |
 | **Zed** | 在 Zed 里执行 `zed: install dev extension`，选择本仓库的 `editors/zed/` 目录。详见 `editors/zed/README.md` | 语法高亮、括号匹配、注释切换（Tree-sitter） |
 
 > ⚠️ **Zed 装不了 `.vsix`**：VSIX 是 VS Code 专用的包格式；Zed 用的是自己的扩展格式

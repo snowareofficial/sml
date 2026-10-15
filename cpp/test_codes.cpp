@@ -258,6 +258,33 @@ static void test_contract_codes() {
                 "@contract O { inner: I }\n"
                 "server {\n  @is O\n  inner: 5\n}\n",
                 SML_E_CONTRACT_008);
+
+    // 契约体 `@requires`：本端暂未实现 ⇒ 响亮拒绝（跨端口径，见 E-CONTRACT-018）。
+    // ⚠️ 改前 At 会被拼进 fieldbuf，`parse_field` 拿 "@" 当字段名、其余当类型串交给
+    //    `parse_type`，而后者对任何未知串都返回 ContractRef ⇒ 契约里多出一个垃圾字段
+    //    且**全程无错**（静默给树）。每条都配正对照以防误伤。
+    expect_code("contract @requires (single)",
+                "@contract S { @requires typed-block }\n",
+                SML_E_CONTRACT_018);
+    expect_code("contract @requires (comma batch)",
+                "@contract S {\n  @requires typed-block, contract\n  a: int\n}\n",
+                SML_E_CONTRACT_018);
+    expect_code("contract @requires (space batch)",
+                "@contract S {\n  @requires typed-block contract\n  a: int\n}\n",
+                SML_E_CONTRACT_018);
+    // 契约体里不认识的 `@xxx` 同样必须报错，不得静默退化成字段
+    expect_code("unknown directive in contract body",
+                "@contract S {\n  @bogus x\n  a: int\n}\n",
+                SML_E_PARSE_005);
+
+    // 正对照：`requires` 当**字段名**（`requires: [...]`）是既有合法写法，
+    // 与 `@requires` 指令的区别判据是 `@` 符号 —— 不得被抢占。
+    expect_ok("field named requires",
+              "@contract S { requires: [str] }\n"
+              "x {\n  @is S\n  requires: [\"tls\"]\n}\n");
+    expect_ok("plain contract body unaffected",
+              "@contract S { a: int\n b: str }\n"
+              "x {\n  @is S\n  a: 1\n  b: hi\n}\n");
 }
 
 // ------------------------------------------------------------------

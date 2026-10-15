@@ -18,6 +18,14 @@ const vscode = require("vscode");
 const path = require("path");
 const fs = require("fs");
 
+// 运行时 i18n：中文为源语言（默认），英文翻译见 l10n/bundle.l10n.en.json。
+const L = vscode.l10n && typeof vscode.l10n.t === "function"
+  ? vscode.l10n.t.bind(vscode.l10n)
+  : (message, ...args) =>
+      args.length
+        ? String(message).replace(/\{(\d+)\}/g, (_, i) => (args[Number(i)] ?? "").toString())
+        : message;
+
 // 官方关键字：自定义组不得覆盖（否则会让语言结构失去辨识度）
 const RESERVED = new Set([
   "@contract", "@is", "@version", "@feature", "@when", "@for",
@@ -229,18 +237,18 @@ async function reload(notify = false) {
     if (skipped.length && !state.warned.has(skipped.join())) {
       state.warned.add(skipped.join());
       vscode.window.showWarningMessage(
-        `HL-cfg：${skipped.length} 个词与官方关键字冲突已忽略（${skipped.slice(0, 3).join("、")}${skipped.length > 3 ? "…" : ""}）`
+        L("HL-cfg：{0} 个词与官方关键字冲突已忽略（{1}{2}）", skipped.length, skipped.slice(0, 3).join("、"), skipped.length > 3 ? "…" : "")
       );
     }
     if (notify) {
       vscode.window.showInformationMessage(
         groups.length
-          ? `HL-cfg 已载入 ${groups.length} 组：${groups.map((g) => g.name).join("、")}`
-          : "HL-cfg 未找到或没有有效分组（需顶层块含 words 数组）"
+          ? L("HL-cfg 已载入 {0} 组：{1}", groups.length, groups.map((g) => g.name).join("、"))
+          : L("HL-cfg 未找到或没有有效分组（需顶层块含 words 数组）")
       );
     }
   } catch (e) {
-    vscode.window.showErrorMessage(`SML 高亮配置加载失败：${e.message}`);
+    vscode.window.showErrorMessage(L("SML 高亮配置加载失败：{0}", e.message));
   }
   const ed = vscode.window.activeTextEditor;
   if (ed) await applyTo(ed);
@@ -261,11 +269,11 @@ function initHighlight(context) {
     vscode.commands.registerCommand("sml.setHighlightMode", async () => {
       const pick = await vscode.window.showQuickPick(
         [
-          { label: "full", description: "全部高亮（默认）" },
-          { label: "minimal", description: "只保留注释 / 字符串 / 数字" },
-          { label: "off", description: "全部关闭" },
+          { label: "full", description: L("全部高亮（默认）") },
+          { label: "minimal", description: L("只保留注释 / 字符串 / 数字") },
+          { label: "off", description: L("全部关闭") },
         ],
-        { placeHolder: "选择 SML 高亮强度" }
+        { placeHolder: L("选择 SML 高亮强度") }
       );
       if (!pick) return;
       await vscode.workspace
@@ -275,8 +283,8 @@ function initHighlight(context) {
     }),
     vscode.commands.registerCommand("sml.createHighlightConfig", async () => {
       const p = configPath();
-      if (!p) return vscode.window.showErrorMessage("请先打开一个工作区文件夹");
-      if (fs.existsSync(p)) return vscode.window.showInformationMessage(`已存在：${p}`);
+      if (!p) return vscode.window.showErrorMessage(L("请先打开一个工作区文件夹"));
+      if (fs.existsSync(p)) return vscode.window.showInformationMessage(L("已存在：{0}", p));
       const tpl = `# SML 自定义高亮配置（本文件自身也是 SML）
 #
 # 每个顶层块 = 一组。可用字段：

@@ -338,8 +338,8 @@ and [`editors/zed/README.md`](editors/zed/README.md).
 **How to get it**:
 
 - **VSCode**: run `npm run package` in `editors/vscode/`, then
-  `code --install-extension sml-lang-0.4.2.vsix` (or install from the VSIX manually). The site
-  also hosts the package: <https://sml.swebase.cn/dl/sml-lang-0.4.2.vsix>.
+  `code --install-extension sml-lang-0.4.3.vsix` (or install from the VSIX manually). The site
+  also hosts the package: <https://sml.swebase.cn/dl/sml-lang-0.4.3.vsix>.
   The extension is **not published to the marketplace** (publishing is deliberately on hold).
   ⚠️ **0.4.2 was repackaged**: it fixes a fatal issue where the extension **could not activate
   at all** on VS Code 1.13x (module-level code read `vscode.InsertTextFormat`, an enum removed
@@ -351,7 +351,8 @@ and [`editors/zed/README.md`](editors/zed/README.md).
   `import "x.sml"` ≡ `include "x.sml"` (plus `glob-include` and `import ui.buttons` on the JS
   side), and fixed **diagnostic positions** (a missing include target no longer paints a red
   squiggle onto a comment dozens of lines away). See the `[0.6.2]` section of
-  [CHANGELOG](CHANGELOG.md).
+  [CHANGELOG](CHANGELOG.md) (English entries start at 0.6.3 — see
+  [CHANGELOG.en.md](CHANGELOG.en.md)).
 - **Zed**: run `zed: install dev extension` in Zed and pick the `editors/zed/` directory
   of this repo. ⚠️ **Zed cannot install a `.vsix`** — VSIX is a VS Code–only format;
   Zed uses its own extension format (`extension.toml` + a Tree-sitter grammar).
@@ -410,7 +411,8 @@ With the feature disabled the crate stays **dependency-free**.
 > ⚠️ This release contains **one breaking public-API change** (emit backend return type).
 > Under this repo's rule — "a MINOR bump in 0.x means incompatible" — strict SemVer would
 > call for MINOR; shipping it as a **PATCH** is a deliberate exception, hence this note.
-> Details are in the `[0.6.2]` section of the [CHANGELOG](CHANGELOG.md).
+> Details are in the `[0.6.2]` section of the [CHANGELOG](CHANGELOG.md)
+> ([English changelog](CHANGELOG.en.md), maintained from 0.6.3 onward).
 
 - `emit` backends return `Result<_, SmlError>` (was `Result<_, String>`); add
   `.map_err(|e| e.to_string())` to migrate.

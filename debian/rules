@@ -1,0 +1,54 @@
+#!/usr/bin/make -f
+# ============================================================================
+# debian/rules — 原型：供将来走正式 debhelper 构建。
+# ⚠️ 未在本机验证（见 debian/README.Debian）。
+# 经验证、默认使用的轻量路径是 packaging/build_deb.sh（dpkg-deb --build）。
+# 版本号读 rust/Cargo.toml（唯一来源）；不改 [lib] name，SONAME 只在链接层注入。
+# ============================================================================
+
+VER := $(shell sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' rust/Cargo.toml | head -n1)
+TRIPLET := $(shell gcc -dumpmachine)
+LIBDIR := usr/lib/$(TRIPLET)
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	# 1) cdylib 注入 SONAME（Rust 默认不设；不改 [lib] name ⇒ use sml::{...} 不受影响）
+	RUSTFLAGS="-C link-arg=-Wl,-soname,libswsml.so.0" \
+		cargo build --release --manifest-path=rust/Cargo.toml
+	# 2) 暂存符号链，供 C++ 封装 -lswsml 链接
+	install -d build/symlink/$(LIBDIR)
+	cp rust/target/release/libsml.so build/symlink/$(LIBDIR)/libswsml.so.0.$(VER)
+	ln -sf libswsml.so.0.$(VER) build/symlink/$(LIBDIR)/libswsml.so.0
+	ln -sf libswsml.so.0       build/symlink/$(LIBDIR)/libswsml.so
+	# 3) C++ 封装（链 libswsml，注入自身 SONAME）
+	g++ -std=c++17 -O2 -fPIC -shared -Icpp -Ic cpp/sml_rs.cpp \
+		-Lbuild/symlink/$(LIBDIR) -lswsml \
+		-Wl,-soname,libswsml_cpp.so.0 \
+		-o build/symlink/$(LIBDIR)/libswsml_cpp.so.0.$(VER)
+
+override_dh_auto_install:
+	# —— libswsml0（运行时）——
+	install -d debian/libswsml0/$(LIBDIR)
+	install -m 644 build/symlink/$(LIBDIR)/libswsml.so.0.$(VER) debian/libswsml0/$(LIBDIR)/
+	ln -sf libswsml.so.0.$(VER) debian/libswsml0/$(LIBDIR)/libswsml.so.0
+	# —— libswsml-cpp0（C++ 运行时）——
+	install -d debian/libswsml-cpp0/$(LIBDIR)
+	install -m 644 build/symlink/$(LIBDIR)/libswsml_cpp.so.0.$(VER) debian/libswsml-cpp0/$(LIBDIR)/
+	ln -sf libswsml_cpp.so.0.$(VER) debian/libswsml-cpp0/$(LIBDIR)/libswsml_cpp.so.0
+	# —— libswsml-dev（头 + dev 符号链 + pkg-config；只装 sml_rs.h，不装 sml.h）——
+	install -d debian/libswsml-dev/usr/include/sml debian/libswsml-dev/$(LIBDIR)/pkgconfig
+	install -m 644 c/sml_rs.h debian/libswsml-dev/usr/include/sml/sml_rs.h
+	ln -sf libswsml.so.0 debian/libswsml-dev/$(LIBDIR)/libswsml.so
+	printf 'prefix=/usr\nlibdir=$${prefix}/lib/%s\nincludedir=$${prefix}/include\n\nName: swsml\nDescription: SML C-ABI, Rust cdylib backend\nVersion: %s\nCflags: -I$${includedir}\nLibs: -L$${libdir} -lswsml\n' \
+		'$(TRIPLET)' '$(VER)' > debian/libswsml-dev/$(LIBDIR)/pkgconfig/swsml.pc
+	# —— libswsml-cpp-dev（sml_rs.hpp + dev 符号链 + pkg-config）——
+	install -d debian/libswsml-cpp-dev/usr/include/sml debian/libswsml-cpp-dev/$(LIBDIR)/pkgconfig
+	install -m 644 cpp/sml_rs.hpp debian/libswsml-cpp-dev/usr/include/sml/sml_rs.hpp
+	ln -sf libswsml_cpp.so.0 debian/libswsml-cpp-dev/$(LIBDIR)/libswsml_cpp.so
+	printf 'prefix=/usr\nlibdir=$${prefix}/lib/%s\nincludedir=$${prefix}/include\n\nName: swsml_cpp\nDescription: SML C++ RAII wrapper\nVersion: %s\nRequires: swsml\nCflags: -I$${includedir}\nLibs: -L$${libdir} -lswsml_cpp\n' \
+		'$(TRIPLET)' '$(VER)' > debian/libswsml-cpp-dev/$(LIBDIR)/pkgconfig/swsml_cpp.pc
+
+override_dh_missing:
+	dh_missing --fail-missing

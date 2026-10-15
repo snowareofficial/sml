@@ -63,7 +63,7 @@ npm run package          # sync parser + package (recommended; equivalent to the
 #   python scripts/sync-parser.py
 #   npx --yes @vscode/vsce package
 
-code --install-extension sml-lang-0.4.2.vsix
+code --install-extension sml-lang-0.4.3.vsix
 ```
 
 One command to package and install (overwrites the old version):
@@ -162,3 +162,38 @@ editors/vscode/
 The bridge layer reuses the repo's JS implementation so the **extension and the
 language implementation behave identically**: the position where the extension
 reports an error is exactly where the parser really reports it.
+
+## Internationalisation (i18n)
+
+Runtime UI strings use VS Code's built-in localisation:
+
+- **Chinese is the source language.** Every user-facing string is wrapped in `L(...)`:
+
+  ```javascript
+  const L = vscode.l10n && typeof vscode.l10n.t === "function"
+    ? vscode.l10n.t.bind(vscode.l10n)
+    : (message, ...args) => /* fallback: interpolate {0}/{1}… placeholders */;
+  ```
+
+  `vscode.l10n.t` auto-loads `./l10n/bundle.l10n.<locale>.json` for the active
+  locale; when unavailable it falls back to the Chinese source text (so Chinese is
+  always shown).
+
+- **English translations** live in `l10n/bundle.l10n.en.json`: the key is the
+  **runtime** Chinese string (with **real newlines**, not the `\n` literal in the
+  source), the value is the English translation. Positional placeholders `{0}/{1}`
+  match those in the source.
+
+- **`vendor/sml.mjs` (the bundled generated parser) is out of translation scope** —
+  its internal error messages stay as-is.
+
+To add a language or change a string:
+
+1. Wrap any user-visible string in source with `L("中文")`; interpolate with
+   `L("已切换为「{0}」", name)`.
+2. Add a `key = translation` entry in the matching `l10n/bundle.l10n.<locale>.json`.
+3. The key must **match the runtime string character-for-character** (a `\n` literal
+   in the source becomes a real newline at runtime, so copying the source text as the
+   key will not match — the #1 cause of missing translations). Verify with
+   `node scripts/_check_l10n.mjs`; it should print `MISSING in bundle: 0` and
+   `bundle keys not in source (unused): 0`.

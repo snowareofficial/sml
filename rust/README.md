@@ -7,802 +7,172 @@
 > 谨以此编号纪念 1999 年 5 月 7 日（贝尔格莱德时间）北约轰炸中国驻南斯拉夫联盟
 > 大使馆中遇难的三位中国记者：邵云环、许杏虎、朱颖。
 
-**SML — SNOWARE Markup Language** for Rust: a declarative data/configuration format, an alternative to JSON and YAML.
+**SML — SNOWARE Markup Language** for Rust：声明式数据 / 配置格式，JSON 与 YAML 的
+替代方案。零依赖（serde 可选）。
 
-**Why SML / 为何选择 SML**
-JSON 与 YAML 在真实工程里各有痛点：JSON 引号冗余、无注释、结构噪声大；YAML 缩进敏感、隐式类型易踩坑、大文件难维护。SML 取两者之长——可读的块式语法、可选引号、原生注释、片段复用（`@fragment`）、契约层（`contract`：枚举/默认值/组合校验）、`include` 指令与环境变量内联——同时保持**零依赖**（serde 可选）。它既适合人类手写的配置文件，也适合机器生成的数据交换。
+> crate 名为 `swsml`（`sml-rs` 已被一个无关项目占用），但 **lib 名仍是 `sml`**，
+> 所以 `use sml::{...}` 不受影响。
 
-> JSON and YAML each have rough edges in real projects: JSON is quote-heavy, comment-less and noisy; YAML is indentation-sensitive, has surprising implicit typing and scales poorly. SML takes the best of both — readable block syntax, optional quotes, native comments, fragment reuse (`@fragment`), a contract layer (`contract`: enums / defaults / composition), `include` and env-var inlining — while staying **dependency-free** (serde optional). It serves equally well as a hand-written config and as a machine-exchanged data format.
+## One example
 
-**English below** ｜ 中文在上方，English 在下方
+```sml
+# firewall.sml — contracts, typed blocks, fragment reuse, env inlining
+@feature enable typed-block      # 块级类型标注（Rust / JS 支持，opt-in）
 
-> 包名是 `swsml` 而非 `sml-rs`——后者已被无关项目占用
-> （Smart Message Language 智能电表协议解析器）。
-> lib 名仍为 `sml`，因此 `use sml::{...}` 不受影响。
+@contract Rule {
+    action:  enum [ allow deny ]
+    proto:   enum [ tcp udp icmp ]
+    port:    int min 1 max 65535 optional
+    source:  str
+    log:     bool optional
+}
+
+@base { log: true }              # 共享字段，按值引用
+
+Rule ssh {                       # typed block：首词命中契约 ⇒ 自动套用，无需 @is
+    &base                        # 拼接 log: true
+    action: allow  proto: tcp  port: 22   source: 10.0.0.0/8
+}
+
+Rule web {
+    &base
+    action: allow  proto: tcp  port: 443  source: 0.0.0.0/0
+}
+
+Rule drop {
+    action: deny   proto: udp             source: 0.0.0.0/0
+}
+
+alert_webhook: $env.SLACK_WEBHOOK        # 环境变量在解析期内联
+```
+
+```rust
+use sml::{parse_file, Value};
+
+let fw = parse_file("firewall.sml")?;
+// 同型的 `Rule` 块按**类型**收拢到 `Rule` 键（数组），实例名在 `__name`
+if let Value::Array(rules) = fw.get("Rule").unwrap() {
+    assert_eq!(rules[0].get("__name").and_then(|v| v.as_str()), Some("ssh"));
+    assert_eq!(rules[0].get("action").and_then(|v| v.as_str()), Some("allow"));
+    assert_eq!(rules[0].get("log"), Some(&Value::Bool(true)));   // &base 拼接
+}
+```
+
+无引号、无逗号、无缩进陷阱，schema 层还是**可选**的——删掉 `@contract` 它就是普通数据。
+
+> **⚠️ 类型名必须与契约名完全一致（大小写敏感，且会静默失效）**
+> 契约声明为 `Rule` 时，**必须**写 `Rule ssh { }`。若写成 `rule ssh { }`，首词不会命中
+> 契约表，契约**静默不生效**——不校验、不填默认值、**也不报错**。实测：
+> - `Rule ssh { action: bogus }` → `E-CONTRACT-006`（enum 违规，被拦下）
+> - `rule ssh { action: bogus }` → **通过**（契约没生效）
 >
-> The crate is named `swsml` because `sml-rs` was taken by an unrelated project
-> (a smart-meter protocol parser). The **lib name is still `sml`**,
-> so `use sml::{...}` is unaffected.
+> 这是当前最容易踩的坑。「首字母大小写不敏感」的开关正在讨论中（属项目决策）。
+
+> **typed block 的适用范围**：`ContractName block { }` 由 opt-in 特性 `typed-block`
+> 门控，目前**仅 Rust 与 JS** 支持；C / C++ / Lua 会降级为普通裸块（多出 `__type`
+> / `__name` 两个键，契约不生效、不报错）。**跨端共享的文档请改用块内首行
+> `@is Rule`** —— 那是五端等价的可移植写法。
+
+> **版本（`Version`）**：`@version v1..v4` 声明语法版本，缺省即 v1。v2 / v3 / v4 要求
+> 字符串显式引号（`name: "John"`），v1 允许裸词；`Version::CURRENT` 为 v4。上面示例
+> 未声明 `@version`，走默认 v1 基线。
 
 ---
 
-# 中文
+## 为什么是 SML · Why SML
 
-SML（SNOWARE Markup Language）的 Rust 实现：声明式数据/配置格式，JSON/YAML 的替代品。
+JSON 引号噪音大、不能写注释；YAML 依赖缩进、隐式类型容易踩坑。SML 保留两者的可读
+块结构，去掉各自的粗糙边：引号 / 逗号可选、块冒号可选、原生注释、片段复用、
+`include`、环境变量内联，再加一层**可选的契约（schema）**在解析期校验。
 
-Logo：黑花括号 `{}` 表示语法骨架（块的边界），蓝色雪花 `❄` 表示精确的取值点。
-
-## 安装
+## 安装 · Installation
 
 ```toml
 [dependencies]
 swsml = "0.6"
 
-# 需要 serde 互操作时：
+# serde 互操作：
 # swsml = { version = "0.6", features = ["serde"] }
-
-# 不需要 derive 宏时可关闭默认 feature，回到完全零依赖：
+# 彻底零依赖（无 derive、无 serde）：
 # swsml = { version = "0.6", default-features = false }
 ```
 
-## 升级注意（0.6.2）
+兼容 Rust 2021 与 2024 edition（`build.rs` 已处理差异）。
 
-> ⚠️ 本版含**一处公开 API 的破坏性变更**。按本仓「0.x 阶段 MINOR 视为不兼容」的纪律，
-> 严格语义化版本下它应走 MINOR；本次按 **PATCH** 发布是**有意的例外**，故在此显式标注。
-
-- **emit 后端返回类型**：`Result<_, String>` → `Result<_, SmlError>`
-  （`CustomOptions::from_generator` 的签名同步变化）。
-  下游若逐字依赖 `String` 错误，加一行即可：`.map_err(|e| e.to_string())`。
-- **错误文案现在带码**：`Display` 会在文案后缀 `[E-XXX-NNN]`（如 `… [E-CONTRACT-002]`）。
-  **判断错误种类请用 `e.code()`，不要匹配文案**；逐字比对错误文案的 golden 需同步。
-- **C-ABI**：`sml_error` 新增 `code_str[16]`（结构体布局变了）—— 按新头文件重新编译即可。
-- **解析行为变化**（会改变既有文档的结果，逐条见 CHANGELOG 的 `[0.6.2]` 段）：
-  - `import "x.sml"`（带扩展名、无 `as`）**不再**自动挂命名空间；
-  - 文件开头的 BOM 统一跳过（此前会被吃进第一个键名）；
-  - 一批「静默通过」改为**带码报错**（未闭合字符串 / 块注释、未知转义、顶层标量……），
-    其中多条此前会给出**错误的树**；
-  - `to_sml` 的排版与 C / C++ 的 dumper 对齐（逐字节 golden 需同步）。
-
-## 快速开始
-
-```rust
-use sml::{parse, to_sml};
-
-let v = parse("name: John\nage: 27")?;
-assert_eq!(v.get("name").and_then(|x| x.as_str()), Some("John"));
-assert_eq!(v.get("age"), Some(&sml::Value::Int(27)));
-
-// 序列化回 SML（可 round-trip）
-println!("{}", to_sml(&v));
-```
-
-## 语法一览
-
-```sml
-@version v1
-
-# 引号可选：裸词即字符串
-firstName: John
-age: 27
-
-# 块冒号可省：address { } 等价于 address: { }
-address {
-    streetAddress: "21 2nd Street"   # 含空格才需要引号
-    state: NY                         # 裸词
-}
-
-# 数组：逗号可选
-phoneNumbers: [ { type: home } { type: office } ]
-
-# 片段：定义 + 以「值」形式引用
-@base { region: cn-north-1 }
-region: &base
-
-# 环境变量内联
-apiKey: $env.RESEND_API_KEY
-
-# 词中 @ 无需转义（仅词首的 @ 才是片段标记）
-contact {
-    to: a@b.c
-    from: "SML Team <dev@mail.swebase.cn>"
-}
-```
-
-注释（任选其一；`#`/`--`/`//` 为单行，`/* */`/`_* *_` 为多行）：
-
-```sml
-# 单行注释（到行尾）
--- 另一种单行注释（到行尾）
-// C 风格单行注释（到行尾）
-
-server {
-    port: 8080 -- 行内注释
-    /* 多行注释也能出现在块或数组里 */
-    hosts: [ a -- 主 b # 备 ]
-}
-
-/*
-  多行注释，可跨行
-*/
-_* 另一种多行注释，以 *_ 结束 *_
-```
-
-> 注意：`--`、`//`、`/*`、`_* ` 仅在组合出现时才是注释；单个 `-`、`/`、`_` 仍按普通字符处理（如 `a/b/c`、`my-word`、`foo_bar`）。
-
-## 片段（Fragments）
-
-片段是 SML 的「值级模板」机制：`@name { }` 定义，`&name` 以**值**形式引用并展开（与 `include` 的文本内联不同，片段是值级别的复用）：
-
-```sml
-@base { region: cn-north-1, zone: a }
-server web {
-    &base                      # 展开为 region / zone 两个字段
-    port: 8080
-}
-```
-
-- 片段定义**不进解析结果**，仅在引用处展开
-- `&name` 出现在块内时，等价于把片段的键值对注入当前块
-- 词中 `@`（如 `a@b.c` 邮箱）不是片段标记，仅**词首**的 `@` 才是
-
-## 特性
+## 特性速览 · Features
 
 | 特性 | 说明 |
 |---|---|
-| 引号可选 | 裸词即字符串（`state: NY`） |
-| 块冒号可省 | `address { }` ≡ `address: { }` |
-| 数组分隔灵活 | `[ a b c ]`、每行一个、逗号可选 |
-| 片段 | `@name { }` 定义，`&name` 以**值**形式引用并展开 |
-| **契约** | 可选 schema 层：字段类型、枚举、默认值、区间、组合 |
-| include 指令 | 拆分配置，可嵌套、可在块内注入字段 |
-| 版本声明 | `@version v1`，便于将来演进不破坏旧文档 |
-| 环境变量内联 | `$env.VAR` |
-| 类型自识别 | `true/false/null` / 数字 / 字符串 |
-| 注释 | 单行 `#`、`--` 与 `//`；多行 `/* */` 与 `_* *_` |
+| 引号可选 | 裸词即字符串：`state: NY` |
+| 块冒号可选 | `address { }` ≡ `address: { }` |
+| 数组灵活 | `[ a b c ]` ≡ `[ a, b, c ]`，可逐行 |
+| 片段 | `@name { }` 定义，`&name` 按值引用 |
+| **契约** | 可选 schema：类型、枚举、默认值、范围、组合 |
+| **typed block** | `Rule ssh { }` —— 首词即契约，自动套用（需 `@feature enable typed-block`） |
+| `include` | 拆分文件；文本内联，块内也可用 |
+| 环境变量 | `$env.VAR` 解析期内联 |
+| 版本化 | `@version v1..v4` |
+| 特性开关 | `@feature enable/disable <name>`（Rust / JS 支持） |
+| 注释 | `#` `--` `//` 单行；`/* */` `_* *_` 多行 |
 
-### Rust edition 兼容
+## 值模型 · Value model
 
-本 crate 的源码**同时兼容 Rust 2021 与 2024**：`Cargo.toml` 的 `edition` 字段可在二者间自由切换，无需改动任何 Rust 代码。
-
-- 切换方法：编辑 `rust/Cargo.toml`，将 `edition = "2021"` 改为 `"2024"`（或反之）。
-- 原理：`build.rs` 会读取该 `edition` 字段，在 2024 时输出 `cfg(edge2024)`；`lib.rs` 据此选用 `#[unsafe(no_mangle)]`（2024 要求）或 `#[no_mangle]`（2021 语法）。`std::env::set_var` 自 Rust 1.85 起为 `unsafe`，与 edition 无关，两版均保留 `unsafe { }`。
-
-## 数据类型
-
-SML 是**纯数据格式**，值模型与 JSON 同构，共 7 种：
+与 JSON 同构，7 种变体：
 
 ```rust
-pub enum Value {
-    Null,
-    Bool(bool),
-    Int(i64),
-    Float(f64),
-    Str(String),
-    Array(Vec<Value>),
-    Object(BTreeMap<String, Value>),
-}
+pub enum Value { Null, Bool(bool), Int(i64), Float(f64),
+                 Str(String), Array(Vec<Value>), Object(BTreeMap<String, Value>) }
 ```
-
-顶层支持三种形态（与 `to_sml` 输出对称）：键值块、`{ ... }` 对象块、`[ ... ]` 数组。
-
-```rust
-// 对象数组（如「历史记录」这类列表数据）
-let v = parse("[ { ts: \"2026-01-01\" to: \"a@b.c\" } ]")?;
-```
-
-> 顶层**标量**（如单独的 `42`）不可往返——SML 顶层需为容器。
-
-## 契约（Contract）
-
-SML 本身无类型系统。契约是**可选**的 schema 层，为块提供结构体约束、枚举、默认值、取值区间。
-
-```rust
-use sml::parse;
-
-let text = r#"
-@contract Server {
-    host: str                              # 必填（默认 required）
-    port: int default 5432                 # 缺失时填充
-    tls: bool default false
-    tags: [str] optional                   # 可选，元素须为字符串
-    status: enum [ active standby retired ]
-    weight: num min 0 max 100
-}
-db {
-    @is Server
-    host: db1.internal
-    status: active
-    weight: 80
-}
-"#;
-let v = parse(text)?;
-// port / tls 由 default 填充
-assert_eq!(v.get("db.port"), Some(&sml::Value::Int(5432)));
-```
-
-- `@contract Name { }` 定义契约（**不进解析结果**）；`@is Name` 在块内应用
-- 应用时**填充 default**，并校验必填、类型、枚举、数值区间、数组元素类型
-- 校验发生在**解析期**，违反即返回错误（而非留到应用侧）
-- 契约须在 `@is` 之前定义（顺序依赖）
-- 不使用契约时行为完全不变 —— **向后兼容**
-
-类型：`str` / `int` / `num` / `bool` / `any` / `[T]` / `enum [ ... ]`
-修饰符：`required`（默认）/ `optional` / `default <值>` / `min <数>` / `max <数>`
-
-### 组合（而非继承）
-
-契约之间不共享字段定义，而是「字段的类型是另一个契约」——直接写契约名，可多层嵌套：
-
-```sml
-@contract Address {
-    city: str
-    country: str default CN
-}
-@contract Server {
-    host: str
-    address: Address        # 组合：该字段的值须符合 Address 契约
-}
-db {
-    @is Server
-    host: db1.internal
-    address { city: Beijing }   # country 缺 -> 自动填 CN
-}
-```
-
-嵌套块会递归校验并回填默认值；被引用契约可在之后定义。
-
-### 严格模式（默认严格）
-
-未声明字段**默认被拒绝**（能立即发现 `prot` 这类拼写错误）。确需放宽须显式写 `loose`：
-
-```sml
-@contract Metrics loose {   # 允许额外字段
-    latency: num min 0
-}
-```
-
-`loose` 只放宽「未声明字段」，已声明字段照样校验。
-
-## include 指令
-
-```sml
-# app.sml
-app: resender
-database {
-    include "conf.d/db.sml"   # 在块内注入一组字段
-    pool: 16
-}
-```
-
-```rust
-let v = sml::parse_file("app.sml")?;
-```
-
-- 相对路径按**被包含文件自身所在目录**解析（同 C 预处理器）
-- 语义是**文本内联**而非对象合并，因此可出现在块内部
-- 循环引用、文件缺失均返回错误，不静默跳过；嵌套上限 32 层
-
-> `parse()` 是纯函数（不做 IO），include 由 `parse_file()` / `resolve_includes()` 处理，
-> 因此在无文件系统的环境（WASM / 沙箱）中仍可安全嵌入 `parse()`。
-
-## 版本声明
-
-```rust
-use sml::{parse_versioned, Version};
-
-let (v, ver) = parse_versioned("@version v1\nname: John")?;
-assert_eq!(ver, Version::V1);
-```
-
-- 未声明时默认按当前版本处理，**既有文档不受影响**
-- 声明了不支持的版本会报错，而非静默按错误语法解析
-- `version` 是保留字，不可作为片段名
-
-## serde 支持（可选）
-
-启用 `serde` feature 后，`Value` 实现 `Serialize`/`Deserialize`，可与任意 serde 后端互操作：
-
-```rust
-let v = parse("name: John\nage: 27")?;
-let json = serde_json::to_string(&v)?;          // {"name":"John","age":27}
-let back: sml::Value = serde_json::from_str(&json)?;
-```
-
-采用**手写实现**而非 `#[derive]`，以保证数据形状自然：
-`Value::Int(27)` 序列化为 `27`，而非 derive 会产生的 `{"Int":27}`。
-
-### serde 桥：任意 serde 类型一键反序列化
-
-`serde` feature 还提供 `sml::serde::{from_str, from_value, to_value, to_string}`，
-任何 `#[derive(serde::Deserialize / Serialize)]` 类型都能像 toml-rs 一样直接与 SML 互转
-（枚举沿用 `__type` 约定，也兼容 `{ VariantName: ... }` 外部标签）：
-
-```rust
-use serde::Deserialize;
-
-#[derive(Deserialize)]
-struct Server { host: String, port: u16 }
-
-let s: Server = sml::serde::from_str("host: web.example\nport: 8080\n").unwrap();
-let text = sml::serde::to_string(&s).unwrap();
-```
-
-`Value` 也因此可与 toml/serde_json 双向互通：
-
-```rust
-let v: sml::Value = sml::parse("host: web.example\nport: 8080\n").unwrap();
-let toml_text = toml::to_string(&v).unwrap();            // SML -> TOML
-let back: sml::Value = toml::from_str(&toml_text).unwrap(); // TOML -> SML
-```
-
-不启用该 feature 时，本 crate 为**零依赖**。
-
-## 自然序列化宏（derive，默认开启）
-
-`derive` feature（默认开启）提供 `#[derive(SmlSerialize, SmlDeserialize)]`，
-把自定义结构体/枚举「自然地」映射为 SML，无需引入 serde：
-
-```rust
-use sml::{SmlDeserialize, SmlSerialize};
-
-#[derive(SmlSerialize, SmlDeserialize, Debug)]
-struct Server {
-    host: String,
-    #[sml(default)]
-    port: i32,
-    #[sml(rename = "tls-enabled")]
-    tls_enabled: bool,
-    #[sml(skip)]
-    secret: String,
-}
-
-#[derive(SmlSerialize, SmlDeserialize, Debug)]
-enum Status {
-    Active,
-    #[sml(rename = "stand-by")]
-    StandBy,
-}
-
-let s = Server {
-    host: "web.example".into(),
-    port: 8080,
-    tls_enabled: true,
-    secret: "hunter2".into(),
-};
-let text = s.to_sml();   // host: web.example / port: 8080 / tls-enabled: true
-let back = Server::from_sml(&text)?;   // secret 由 skip 重置为 Default
-
-// 也支持 toml-rs 风格的顶层函数（derive 默认开启时可用）：
-let text = sml::to_string(&s);
-let back: Server = sml::from_str(&text)?;
-```
-
-映射规则（形状与 `to_sml` 输出对称）：
-- **结构体 → 块**：字段名即键；`Option` 字段为 `None` 时省略
-- **枚举单元变体 → 裸词**（`status: Active`）
-- **枚举带数据变体 → 带 `__type` 的块**（`{ __type: Circle _value: 3 }`）
-- **单元结构体 → 裸词**；**newtype → 透明**；**tuple 结构体 → 数组**
-
-属性：
-`#[sml(rename = "...")]` 改名、`#[sml(skip)]` 跳过（反序列化时重置为 `Default`）、
-`#[sml(default)]` 缺失时用 `Default`、`#[sml(flatten)]` 并入子块，
-容器级 `#[sml(rename_all = "kebab-case")]` 批量改名。
-泛型结构体/枚举也支持（自动补充 `T: SmlSerialize` 等约束）。
-
-## 运行示例
-
-```bash
-cargo run --example include_demo
-cargo run --example include_demo --features serde   # 额外打印 JSON
-cargo run --example derive_demo                     # derive 宏「自然」序列化
-```
-
-## C-ABI（供 C / C++ / 其他语言调用）
-
-`crate-type` 含 `cdylib`，编译后可直接链接。有两套 API，**推荐用值树版**：
-
-- **值树 API**（`sml_loads` / `sml_load_file` / `sml_get` …）：直接遍历结果，**C
-  侧不需要任何 JSON 库**。错误通过 `sml_error` 给出行号、列号、来源文件。
-- **JSON 字符串 API**（`sml_parse` / `sml_parse_file` / `sml_parse_ex`）：直接产出
-  JSON 文本，适合宿主已有 JSON 处理流程的场景。
-
-### 值树 API
-
-| 函数 | 说明 |
-|---|---|
-| `sml_loads(text, flags, err)` | 解析文本 → 值树；失败返回 `NULL` 并填充 `err` |
-| `sml_load_file(path, flags, err)` | 解析文件 → 值树，展开 `include`（相对路径以文件所在目录为基准） |
-| `sml_get` / `sml_get_path` / `sml_at` | 取子节点（**借用**，不可释放，随根节点失效） |
-| `sml_typeof` / `sml_size` | 类型判别、元素个数 |
-| `sml_str_dup` / `sml_str_copy` / `sml_int_value` / `sml_real_value` / `sml_bool_value` | 标量取值 |
-| `sml_str_in` / `sml_int_in` / `sml_bool_in` | 按 `a.b.c` 路径单行取值（tomlc99 风格） |
-| `sml_dumps(v, flags)` | 值树 → SML 文本 |
-| `sml_free(v)` | 释放值树根节点（NULL 安全） |
-| `sml_free_str(p)` | 释放返回的字符串（NULL 安全） |
-| `sml_version()` / `sml_features_mask()` / `sml_feature_name(bit)` | 元数据 |
-
-生命周期三条规则：根节点用 `sml_free`；借用指针**不可**释放且随根节点失效；
-所有 `char*` 输出用 `sml_free_str`。
-
-```c
-#include "sml_rs.h"
-
-sml_error err;
-sml_value *root = sml_load_file("app.sml", 0, &err);
-if (!root) {
-    fprintf(stderr, "%s:%d: %s\n", err.source, err.line, err.text);
-    return 1;
-}
-
-char  *host = sml_str_in(root, "server.host");   /* "a.b.c" 一行取到 */
-int    ok   = 0;
-long long port = sml_int_in(root, "server.port", &ok);
-
-sml_free_str(host);
-sml_free(root);                                  /* 借用指针随之失效 */
-```
-
-`flags` 是位标志（`SML_F_INCLUDE` / `SML_F_ENV` / `SML_F_CONTRACT` /
-`SML_F_GLOB_INCLUDE` …，见 `sml_rs.h`）。`flags == 0` 表示默认基线；
-非 0 时按位精确构造，可用于收紧文档允许使用的特性（沙箱场景）。
-
-### JSON 字符串 API
-
-| 函数 | 说明 |
-|---|---|
-| `sml_parse(text)` / `sml_parse_file(path)` | → JSON 字符串 |
-| `sml_parse_ex(text, opts_json)` | 增强版，见下 |
-| `sml_dump(json)` | JSON → SML |
-| `sml_features()` | 特性名 JSON 数组 |
-
-`sml_parse_ex` 的 `opts_json` 三个可选字段：
-
-```json
-{
-  "features": ["glob-include", "contract"],
-  "env":      { "APP_ENV": "prod" },
-  "allow":    ["v1", "v3"]
-}
-```
-
-- `features` — 调用方额外启用的特性（与文档 `@feature` 取交集）
-- `env` — 调用期间临时注入进程环境，供 `$env.X` 内联解析，返回前自动恢复原值
-- `allow` — 限定文档 `@version` 必须在此范围内；空数组表示不限制
-
-任一环节失败（语法错误 / 版本不符 / 特性越权 / 文件缺失）均返回 `NULL`。
-
-### 与原生 C 实现的取舍
-
-`sml_rs.h`（桥接本 crate）与 `sml.h`（纯 C99 自包含实现）是**两个互斥后端**，
-二选一链接，**不可同时 include**——两者的值模型不同。
-
-- `sml.h`：零依赖，基础特性集，适合嵌入式 / 不想引入 Rust 运行时的场景
-- `sml_rs.h`：v3 全集（`$env` 内联、glob-include、`@feature`、`@contract`）
-
-两者刻意保持命名与语义对齐（`sml_free` 释放值树、`sml_free_str` 释放字符串），
-切换后端时改动很小。
-
-> 注意：`sml_parse_ex` 的 `env` 注入会临时改进程环境，**非并发安全**，
-> 请在 FFI 同步调用的前提下使用。
-
-## 多语言实现
-
-| 语言 | 位置 |
-|---|---|
-| Soup / Lua | `../lua/`（`lib/sml.soup`） |
-| Rust | 本目录 |
-| C | `../c/sml.h` |
-| JavaScript | `../js/sml.mjs` |
-
-## License
-
-MulanPSL-2.0
-
----
-
-# English
-
-Rust implementation of **SML — SNOWARE Markup Language**: a declarative
-data/configuration format, an alternative to JSON and YAML.
-
-## Installation
-
-```toml
-[dependencies]
-swsml = "0.6"
-
-# With serde interop:
-# swsml = { version = "0.6", features = ["serde"] }
-```
-
-## Upgrading (0.6.2)
-
-> ⚠️ This release contains **one breaking public-API change**. Under this repo's rule
-> ("a MINOR bump in 0.x means incompatible"), strict SemVer would call for MINOR;
-> shipping it as a **PATCH** is a deliberate exception, hence this explicit note.
-
-- **emit backends** now return `Result<_, SmlError>` instead of `Result<_, String>`
-  (`CustomOptions::from_generator` changed accordingly). If you matched on `String`,
-  add `.map_err(|e| e.to_string())`.
-- **Error messages now carry codes**: `Display` appends `[E-XXX-NNN]`
-  (e.g. `… [E-CONTRACT-002]`). Match on `e.code()`, never on the text; byte-exact
-  golden files need updating.
-- **C-ABI**: `sml_error` gained `code_str[16]` (layout change) — recompile against the new header.
-- **Parsing behaviour changes** (they can change existing documents; see the `[0.6.2]`
-  section of the CHANGELOG):
-  - `import "x.sml"` (with an extension, without `as`) no longer wraps the file in a namespace;
-  - a leading BOM is now skipped everywhere (it used to be swallowed into the first key);
-  - several "silent passes" are now coded errors (unterminated strings / block comments,
-    unknown escapes, top-level scalars, ...); many of them used to return a **wrong tree**;
-  - `to_sml` output now matches the C / C++ dumpers byte for byte (golden files need updating).
-
-## Quick start
 
 ```rust
 use sml::{parse, to_sml};
-
 let v = parse("name: John\nage: 27")?;
 assert_eq!(v.get("name").and_then(|x| x.as_str()), Some("John"));
-assert_eq!(v.get("age"), Some(&sml::Value::Int(27)));
-
-// Serialize back to SML (round-trip safe)
-println!("{}", to_sml(&v));
+println!("{}", to_sml(&v));        // 往返回 SML
 ```
 
-## Syntax at a glance
+> `get()` 支持点路径（`db.port`）。整型 / 数组等需直接 `match` 枚举——当前公开方法
+> 只有 `get` / `as_str` / `as_float`。
 
-```sml
-@version v1
+## 契约 · Contracts
 
-# Quotes optional: bare words are strings
-firstName: John
-age: 27
+`@contract Name { }` 定义；应用方式**两种等价**：
 
-# Block colon optional
-address {
-    streetAddress: "21 2nd Street"
-    state: NY
-}
+1. 块内首行 `@is Name`（**可移植，五端一致**，推荐跨端共享的文档使用）
+2. 块外首词 `Name block { }`（typed block，需 `@feature enable typed-block`，仅 Rust / JS）
 
-# Arrays: commas optional
-phoneNumbers: [ { type: home } { type: office } ]
+校验发生在**解析期**：必填、类型、枚举、数值范围、数组元素类型；`default` 会填充。
+默认拒绝契约外的字段（契约名后写 `loose` 放行）。字段类型可以是另一个契约（组合，
+递归校验）。不使用契约时行为完全不变。
 
-# Fragment: defined then referenced as a *value*
-@base { region: cn-north-1 }
-region: &base
+类型：`str` / `int` / `num` / `bool` / `any` / `[T]` / `enum [ ... ]`
+修饰符：`required`（默认）/ `optional` / `default <v>` / `min <n>` / `max <n>`
 
-# Environment variable inlining
-apiKey: $env.RESEND_API_KEY
+**多契约叠加**：`@is A, B`（或 `A B block { }`）可叠加，规则是 **strict 优先 /
+字段并集 / 冲突 ⇒ `E-CONTRACT-016`**；同一契约重复声明只生效一次。
 
-# `@` inside a word needs no escaping (only a leading `@` is a fragment marker)
-contact {
-    to: a@b.c
-    from: "SML Team <dev@mail.swebase.cn>"
-}
-```
+**typed block 的结构**：`Rule ssh { }` 产出
+`Rule: { __name: "ssh", __type: "Rule", ... }`；**同类型的多个块收拢成数组**（见开头
+`firewall.sml` 的 `Rule: [ ... ]`），实例名靠 `__name` 区分。`__type` / `__name` 是
+语法元数据，不参与 strict 契约的「未声明字段」检查。
 
-Comments (any of these; `#`/`--`/`//` are single-line, `/* */`/`_* *_` are multi-line):
-
-```sml
-# single-line comment (to end of line)
--- another single-line comment (to end of line)
-// C-style single-line comment (to end of line)
-
-server {
-    port: 8080 -- inline comment
-    /* multi-line comments also work inside blocks / arrays */
-    hosts: [ a -- primary b # backup ]
-}
-
-/*
-  multi-line comment, spanning lines
-*/
-_* another multi-line comment, ended by *_ *_
-```
-
-> Note: `--`, `//`, `/*`, `_*` are only comments as combinations; a lone `-`, `/`, or `_`
-> is still an ordinary character (e.g. `a/b/c`, `my-word`, `foo_bar`).
-
-## Fragments
-
-Fragments are SML's *value-level template* mechanism: `@name { }` defines, and
-`&name` references it as a **value** that is expanded (unlike `include`, which
-inlines text — fragments reuse at the value level):
-
-```sml
-@base { region: cn-north-1, zone: a }
-server web {
-    &base                      # expands to region / zone fields
-    port: 8080
-}
-```
-
-- A fragment definition is **not part of the parse result**; it only expands at the reference site
-- `&name` inside a block is equivalent to injecting the fragment's key-value pairs into the current block
-- `@` inside a word (e.g. `a@b.c`) is not a fragment marker — only a **leading** `@` is
-
-## Features
-
-| Feature | Description |
-|---|---|
-| Optional quotes | Bare words are strings (`state: NY`) |
-| Optional block colon | `address { }` ≡ `address: { }` |
-| Flexible array separators | `[ a b c ]`, one per line, commas optional |
-| Fragments | `@name { }` defines, `&name` references as a **value** |
-| **Contracts** | Optional schema layer: types, enums, defaults, ranges, composition |
-| `include` directive | Split config files; nestable, injectable inside blocks |
-| Version declaration | `@version v1` for forward-compatible evolution |
-| Env var inlining | `$env.VAR` |
-| Type inference | `true/false/null` / numbers / strings |
-| Comments | single-line `#`, `--` and `//`; multi-line `/* */` and `_* *_` |
-
-### Rust edition compatibility
-
-This crate's source is **compatible with both Rust 2021 and 2024**: you may switch the `edition` field in `Cargo.toml` between the two without touching any Rust code.
-
-- To switch: edit `rust/Cargo.toml` and change `edition = "2021"` to `"2024"` (or vice versa).
-- How it works: `build.rs` reads that `edition` field and emits `cfg(edge2024)` when it is `2024`; `lib.rs` then picks `#[unsafe(no_mangle)]` (required by 2024) or `#[no_mangle]` (2021 syntax). `std::env::set_var` has been `unsafe` since Rust 1.85 regardless of edition, so the `unsafe { }` wrapper is kept in both.
-
-## Data types
-
-SML is a **pure data format**; its value model is isomorphic to JSON with 7 variants:
-
-```rust
-pub enum Value {
-    Null,
-    Bool(bool),
-    Int(i64),
-    Float(f64),
-    Str(String),
-    Array(Vec<Value>),
-    Object(BTreeMap<String, Value>),
-}
-```
-
-Three top-level forms are supported (symmetric with `to_sml` output):
-key-value blocks, `{ ... }` object blocks, and `[ ... ]` arrays.
-
-```rust
-let v = parse("[ { ts: \"2026-01-01\" to: \"a@b.c\" } ]")?;
-```
-
-> A top-level **scalar** (e.g. a lone `42`) cannot round-trip —
-> the top level must be a container.
-
-## Contracts
-
-SML has no type system of its own. Contracts are an **optional** schema layer
-providing struct-like constraints, enums, defaults and numeric ranges.
-
-```rust
-use sml::parse;
-
-let text = r#"
-@contract Server {
-    host: str                              # required (default)
-    port: int default 5432                 # filled when missing
-    tls: bool default false
-    tags: [str] optional                   # optional, items must be strings
-    status: enum [ active standby retired ]
-    weight: num min 0 max 100
-}
-db {
-    @is Server
-    host: db1.internal
-    status: active
-    weight: 80
-}
-"#;
-let v = parse(text)?;
-// port / tls come from `default`
-assert_eq!(v.get("db.port"), Some(&sml::Value::Int(5432)));
-```
-
-- `@contract Name { }` defines a contract (**not included in the parse result**);
-  `@is Name` applies it inside a block
-- Applying one **fills defaults** and validates required fields, types, enums,
-  numeric ranges and array item types
-- Validation happens at **parse time** — violations return errors immediately
-- A contract must be defined **before** the `@is` that uses it
-- Without contracts, behaviour is unchanged — **fully backward compatible**
-
-Types: `str` / `int` / `num` / `bool` / `any` / `[T]` / `enum [ ... ]`
-Modifiers: `required` (default) / `optional` / `default <value>` / `min <n>` / `max <n>`
-
-### Composition (not inheritance)
-
-Contracts do not share field definitions; instead, *a field's type can be another
-contract*. Just write the contract name — nesting works to any depth:
-
-```sml
-@contract Address {
-    city: str
-    country: str default CN
-}
-@contract Server {
-    host: str
-    address: Address        # the value must satisfy the Address contract
-}
-db {
-    @is Server
-    host: db1.internal
-    address { city: Beijing }   # country missing -> filled with CN
-}
-```
-
-Nested blocks are validated recursively and defaults are filled.
-A referenced contract may be defined later.
-
-### Strict mode (strict by default)
-
-Fields not declared in the contract are **rejected by default** (this catches
-typos like `prot`). To allow extras, write `loose` explicitly:
-
-```sml
-@contract Metrics loose {   # allow undeclared fields
-    latency: num min 0
-}
-```
-
-`loose` only relaxes *undeclared* fields; declared ones are still validated.
-
-## The `include` directive
+## 片段与 include · Fragments & include
 
 ```sml
 # app.sml
 app: resender
 database {
-    include "conf.d/db.sml"   # injects a set of fields into this block
+    include "conf.d/db.sml"   # 文本内联；相对"包含者"所在目录
     pool: 16
 }
 ```
 
-```rust
-let v = sml::parse_file("app.sml")?;
-```
+- `parse()` 是纯函数（无 I/O）；`include` 由 `parse_file()` 处理——可安全嵌入
+  WASM / 沙箱。循环包含、文件缺失会报错；深度上限 32。
+- 片段是**值级复用**：`@base { region: cn-north-1 }` 后用 `region: &base`，或在块内
+  裸写 `&base` 把其字段**拼接**进当前块（拼接进来的字段同样受契约约束）。
 
-- Relative paths resolve against **the including file's own directory**
-  (like the C preprocessor)
-- Semantics are **text inlining**, not object merging, so it works inside blocks
-- Cycles and missing files return errors (never silently skipped); depth limit 32
-
-> `parse()` is a pure function (no I/O); `include` is handled by `parse_file()` /
-> `resolve_includes()`. This makes `parse()` safe to embed in environments
-> without a filesystem (WASM / sandboxes).
-
-## Version declaration
-
-```rust
-use sml::{parse_versioned, Version};
-
-let (v, ver) = parse_versioned("@version v1\nname: John")?;
-assert_eq!(ver, Version::V1);
-```
-
-- Undeclared documents use the current version — **existing documents are unaffected**
-- An unsupported declared version errors instead of parsing with wrong grammar
-- `version` is a reserved word and cannot be a fragment name
-
-## Serde support (optional)
-
-With the `serde` feature, `Value` implements `Serialize`/`Deserialize` and
-interoperates with any serde backend:
-
-```rust
-let v = parse("name: John\nage: 27")?;
-let json = serde_json::to_string(&v)?;          // {"name":"John","age":27}
-let back: sml::Value = serde_json::from_str(&json)?;
-```
-
-This uses a **hand-written** implementation rather than `#[derive]` to keep the
-data shape natural: `Value::Int(27)` serializes to `27`, not `{"Int":27}`.
-
-### Serde bridge: one-shot deserialization for any serde type
-
-The `serde` feature also provides `sml::serde::{from_str, from_value, to_value,
-to_string}`. Any `#[derive(serde::Deserialize / Serialize)]` type can go back and
-forth with SML just like toml-rs (enums use the `__type` convention and also
-accept `{ VariantName: ... }` external tags):
+## serde 与 derive · Serde & derive
 
 ```rust
 use serde::Deserialize;
@@ -810,263 +180,55 @@ use serde::Deserialize;
 #[derive(Deserialize)]
 struct Server { host: String, port: u16 }
 
-let s: Server = sml::serde::from_str("host: web.example\nport: 8080\n").unwrap();
-let text = sml::serde::to_string(&s).unwrap();
+let s: Server = sml::serde::from_str("host: web.example\nport: 8080\n")?;
+let text = sml::serde::to_string(&s)?;
 ```
 
-`Value` interoperates bidirectionally with toml / serde_json as well:
+默认 `derive` feature 另提供 `#[derive(SmlSerialize, SmlDeserialize)]`，无需 serde 即可
+自然映射（属性：`rename` / `skip` / `default` / `flatten` / `rename_all`）。开启
+`serde` feature 后 `Value` 与 serde_json / toml 双向互通。
 
-```rust
-let v: sml::Value = sml::parse("host: web.example\nport: 8080\n").unwrap();
-let toml_text = toml::to_string(&v).unwrap();              // SML -> TOML
-let back: sml::Value = toml::from_str(&toml_text).unwrap(); // TOML -> SML
-```
+## 多目标导出 · Emit backends
 
-Without this feature the crate is **dependency-free**.
+开启 `emit-*` feature 后，解析成 `Value` 即可编译到 Markdown / LaTeX / XML / SVG /
+HTML / Slint UI / 自定义格式（`sml::emit::*`，如 `to_markdown`、`to_slint`）。命令行走
+[`smltools/README.md`](smltools/README.md)——它还能把 JSON / YAML / TOML / XML
+**反向迁移**成 SML，并接进 Hugo / Zola。
 
-## Natural derive macros (default on)
+## C-ABI（供 C / C++ 及其它语言）
 
-The `derive` feature (enabled by default) provides
-`#[derive(SmlSerialize, SmlDeserialize)]` to map your own structs/enums to SML
-"naturally", without pulling in serde:
+`crate-type` 含 `cdylib`，提供两套 API：
 
-```rust
-use sml::{SmlDeserialize, SmlSerialize};
+- **值树 API**（`sml_loads` / `sml_load_file` / `sml_get_in` / `sml_dumps` …）：直接遍历
+  结果，C 侧无需 JSON 库；错误带文件 / 行列与稳定错误码。
+- **JSON 字符串 API**（`sml_parse` / `sml_parse_ex` / `sml_dump`）：直接产出 JSON 文本。
 
-#[derive(SmlSerialize, SmlDeserialize, Debug)]
-struct Server {
-    host: String,
-    #[sml(default)]
-    port: i32,
-    #[sml(rename = "tls-enabled")]
-    tls_enabled: bool,
-    #[sml(skip)]
-    secret: String,
-}
+桥接头文件：[`../c/sml_rs.h`](../c/sml_rs.h)、[`../cpp/sml_rs.hpp`](../cpp/sml_rs.hpp)。
+零依赖的原生 C99 / C++ 实现（`sml.h` / `sml.hpp`）是**另一套后端**，与 Rust 版二选一。
 
-#[derive(SmlSerialize, SmlDeserialize, Debug)]
-enum Status {
-    Active,
-    #[sml(rename = "stand-by")]
-    StandBy,
-}
+## 其它语言实现 · Other implementations
 
-let s = Server { host: "web.example".into(), port: 8080, tls_enabled: true, secret: "x".into() };
-let text = s.to_sml();             // host: web.example / port: 8080 / tls-enabled: true
-let back = Server::from_sml(&text)?;   // `secret` is reset to Default (skip)
+| 语言 | 位置 |
+|---|---|
+| Rust | 本目录（参考实现） |
+| C | `../c/sml.h` |
+| C++ | `../cpp/` |
+| JavaScript | `../js/sml.mjs`（零依赖 ESM） |
+| Lua / Soup | `../lua/`（`lib/sml.soup`） |
 
-// toml-rs style top-level functions are also provided (with the default `derive` feature):
-let text = sml::to_string(&s);
-let back: Server = sml::from_str(&text)?;
-```
+Rust 是唯一保证持续维护的实现，其余为实验性。五端共用同一套稳定错误码
+（`E-<DOMAIN>-<NNN>`，共 144 条，唯一事实来源 `../errors/codes.sml`）。
 
-Mapping rules (symmetric with `to_sml` output):
-- **struct → block**: field names are the keys; `Option` fields are omitted when `None`
-- **enum unit variants → bare words** (`status: Active`)
-- **enum variants with data → `__type` block** (`{ __type: Circle _value: 3 }`)
-- **unit struct → bare word**; **newtype → transparent**; **tuple struct → array**
+> 能力并非五端齐平：**`@feature` 开关与 typed block 仅 Rust / JS 支持**；C / C++ / Lua
+> 遇到 `@feature` 会报 `E-PARSE-005`。跨端文档请用 `@is`。
 
-Attributes: `#[sml(rename = "...")]`, `#[sml(skip)]`, `#[sml(default)]`,
-`#[sml(flatten)]`, and container-level `#[sml(rename_all = "kebab-case")]`.
-Generic types are supported (bounds such as `T: SmlSerialize` are added automatically).
-
-## Examples
+## 示例 · Examples
 
 ```bash
 cargo run --example include_demo
-cargo run --example include_demo --features serde   # also prints JSON
-cargo run --example derive_demo                     # derive macros
-```
-
-## C-ABI (for C / C++ / other languages)
-
-`crate-type` includes `cdylib`, so the artifact can be linked directly. Every returned
-`*mut c_char` must be released with `sml_free`; failures return `NULL`.
-
-| Function | Description |
-|---|---|
-| `sml_parse(text)` | Parse text → JSON string |
-| `sml_parse_file(path)` | Parse a file → JSON string, with file context; handles `include` / glob / `@contract` |
-| `sml_parse_ex(text, opts_json)` | Extended: enable features, inject env vars, restrict version (see below) |
-| `sml_dump(json)` | JSON string → SML |
-| `sml_features()` | Supported feature names as a JSON array, e.g. `["include","env","contract","glob-include",...]` |
-| `sml_version()` | Version string |
-| `sml_free(p)` | Release strings returned by the functions above |
-
-`sml_parse_ex` accepts three optional `opts_json` fields:
-
-```json
-{
-  "features": ["glob-include", "contract"],
-  "env":      { "APP_ENV": "prod" },
-  "allow":    ["v1", "v3"]
-}
-```
-
-- `features` — extra features the caller enables (intersected with the document's `@feature`)
-- `env` — temporarily injected into the process env during the call for `$env.X` inlining;
-  the previous values are restored before returning
-- `allow` — the document's `@version` must fall in this set; an empty array means no restriction
-
-Any failure (syntax error / version mismatch / unauthorized feature / missing file)
-returns `NULL`.
-
-```c
-#include "sml_rs.h"
-
-char *json = sml_parse_file("app.sml");
-if (json) { puts(json); sml_free(json); }
-
-char *opts = "{\"env\":{\"APP_ENV\":\"prod\"}}";
-char *out  = sml_parse_ex(text, opts);
-```
-
-C / C++ bridge headers and examples live in `../c/sml_rs.h` and `../cpp/sml_rs.hpp`
-(they coexist with the native `sml.h` / `sml.hpp` without interfering).
-
-> Note: the `env` injection of `sml_parse_ex` mutates the process environment and is
-> **not concurrency-safe** — only use it under synchronous FFI calls.
-
-## Other language implementations
-
-| Language | Location |
-|---|---|
-| Soup / Lua | `../lua/` (`lib/sml.soup`) |
-| Rust | this directory |
-| C | `../c/sml.h` |
-| JavaScript | `../js/sml.mjs` |
-
-## `smltools` — Command-line converter
-
-> ⚠️ **EXPERIMENTAL**: `smltools` is a **standalone crate** (package `smltools`, version `0.2.1`),
-> released independently from the library crate `swsml` (version `0.6.2`). The CLI surface and emit-backend
-> combinations may still change as users give feedback; no SemVer stability is guaranteed yet. Do not rely on
-> its exact behavior in production-critical paths; watch the changelog.
->
-> Full CLI reference (中文 / English): [`smltools/README.md`](smltools/README.md).
-
-`smltools` is a binary built on the Rust core (the `sml::emit::*` backends of `swsml`). It converts an SML
-source file/stream into multiple formats, **migrates JSON/YAML/TOML/XML into SML**, and can plug directly
-into static-site generators (Hugo / Zola) for documentation workflows.
-
-```text
-smltools -i in.sml [-o out] [--to FMT] [--from FMT] [--strip] [--lint] \
-         [--hugo DIR --hugo-section KEY --hugo-lang zh|en] [--zola DIR] ...
-```
-
-- `-i/--input` defaults to stdin; `-o/--output` defaults to stdout (Hugo/Zola modes ignore `-o` and write files directly).
-  When `-i` points at a **directory**, every matching file is converted flat into the `-o` directory.
-- `--to FMT` (alias `--format`): `markdown`/`md` (default) / `json` / `toml` / `xml` / `svg` / `latex` / `slint` /
-  `lvgl` / `html` / `custom` / `sml` / `tmlanguage` / `highlight`.
-- `--from FMT` (alias `--input-format`): `sml` (default) / `json` / `toml` / `yaml` / `xml`; inferred from the
-  file extension when omitted (`.json`, `.toml`, `.yaml`/`.yml`, `.xml`/`.svd`).
-- `--strip`: drop SML-only traces (`__name`/`__type`, float raw literals) so the output is plain data.
-- `--lint`: static checks only (parses, unused fragments/contracts, tab indentation, …); exit 1 on errors.
-  **SML input only.**
-- `--feature vN`: declare the parse version (v1–v4); defaults to the document declaration or V4.
-- `--to custom` requires `--custom-rules <file.sml>`: an SML document holding a `rules` array that describes template rules (see below).
-
-### Custom generators (`custom`)
-
-```bash
-# render data to arbitrary text with a rule document
-smltools data.sml --to custom --custom-rules rules.sml
-```
-
-Example `rules.sml` (each rule `match`es a target type; `template` uses `{value}` / `{key}` / `{nested}` / `{items:TPL}` placeholders):
-
-```sml
-@version v4
-rules: [
-  { match: "h1"   template: "# {value}\n" }
-  { match: "p"    template: "{value}\n\n" }
-  { match: "*"    template: "{key}: {value}\n" }
-]
-```
-
-> Note: `custom` renders top-level fields in **the order of the rules in the `rules` array** (deterministic
-> output — e.g. a Dockerfile requires `FROM` first), and `select_rule` matches `match` against the **field
-> name** — so `match: "base"` both hits the field `base` and fixes its order. Array fields expand with
-> `{items:TPL}`; `TPL` may itself contain `{value}` / `{item}`.
-
-**Generate a Dockerfile** (see `examples/docker_data.sml` + `examples/docker_rules.sml`):
-
-```bash
-smltools examples/docker_data.sml --to custom --custom-rules examples/docker_rules.sml
-```
-
-`docker_rules.sml`:
-```sml
-@version v4
-rules: [
-  { match: "base"      template: "FROM {value}\n" }
-  { match: "maintainer" template: "MAINTAINER {value}\n" }
-  { match: "workdir"   template: "WORKDIR {value}\n" }
-  { match: "ports"     template: "{items:EXPOSE {value}\n}" }
-  { match: "deps"      template: "{items:RUN apt-get update && apt-get install -y {value}\n}" }
-  { match: "cmd"       template: "CMD {value}\n" }
-]
-```
-`docker_data.sml`:
-```sml
-@version v4
-base: "ubuntu:22.04"
-maintainer: "dev"
-workdir: "/app"
-ports: [ "8080" "9090" ]
-deps: [ "curl" "git" "build-essential" ]
-cmd: "[\"python3\", \"app.py\"]"
-```
-Output:
-```dockerfile
-FROM ubuntu:22.04
-MAINTAINER dev
-WORKDIR /app
-EXPOSE 8080
-EXPOSE 9090
-RUN apt-get update && apt-get install -y curl
-RUN apt-get update && apt-get install -y git
-RUN apt-get update && apt-get install -y build-essential
-CMD ["python3", "app.py"]
-```
-
-### LVGL conversion (`lvgl`)
-
-```bash
-smltools ui.sml --to lvgl        # outputs LVGL UI XML (<screen>/<label>/<button>...)
-```
-
-Source conventions: `__type` selects the widget (`lv_label` → `<label>`, the prefix is stripped
-automatically), `__name` → the `name` attribute, `children` arrays hold child widgets, and `on_<event>`
-fields become `<event name="..." handler="..."/>`. See `examples/lvgl_demo.sml`.
-
-### Hugo integration
-
-```bash
-smltools docs/app.sml --hugo ./site/content --hugo-lang zh --hugo-section docs
-# writes ./site/content/zh/docs/app.md (YAML front matter)
-```
-
-### Zola integration
-
-```bash
-# content files only (TOML front matter, +++ delimiters)
-smltools docs/app.sml --zola ./site/content --zola-section docs
-
-# also run the local `zola` to render the site afterwards
-smltools docs/app.sml --zola ./site/content --zola-build
-```
-
-> `--zola-build` requires `zola` installed locally (resolvable via PATH or in a common install directory).
-> If it is missing, smltools prints a clear message instead of failing silently.
-> `--hugo` and `--zola` are mutually exclusive — pick one.
-
-Build:
-
-```bash
-cargo build --release -p smltools        # artifact: target/release/smltools(.exe)
-# or install from source
-cargo install --path smltools
+cargo run --example include_demo --features serde   # 同时打印 JSON
+cargo run --example derive_demo                     # derive 宏
+cargo run --example emit_ddl                        # 原型演示：SML schema → SQL DDL
 ```
 
 ## License

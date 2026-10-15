@@ -17,7 +17,7 @@
     "MIGRATE": "迁入格式（JSON / TOML / YAML / XML）",
     "PARSE": "语法"
   },
-  "count": 143,
+  "count": 144,
   "codes": [
     {
       "id": "E-CLI-001",
@@ -357,6 +357,22 @@
       ],
       "status": "partial",
       "note": "TASK-agent-w24 任务 D 的「响亮拒绝」：叠加不能 opt-in（C / C++ / Lua 没有 @feature 门控），Rust 先行期间其余端**绝不静默** —— 见到 `@is` 后第 2 个裸词或块级第 2 个已注册契约即报此码；某端实现叠加后从 impls 移除并更新 status。JS 此前对 `@is tls, retry` 给的是错树 + E-CONTRACT-003（误导），本码落地后改为响亮拒绝"
+    },
+    {
+      "id": "E-CONTRACT-018",
+      "severity": "error",
+      "domain": "CONTRACT",
+      "title": "契约 @requires 无法满足",
+      "msg": "契约声明的 @requires 特性无法满足，契约无法定义或应用",
+      "impls": [
+        "c",
+        "cpp",
+        "js",
+        "lua",
+        "rust"
+      ],
+      "status": "partial",
+      "note": "TASK：契约级 `@requires` 的定义时校验与跨端拒绝。Rust 在**契约定义时**（而非应用时）校验：契约体里 `@requires feat1, feat2` 声明的任一特性未开启即报此码，文案含契约名与缺失特性名；未知特性名落 `E-FEATURE-003`。跨端（JS / C / C++ / Lua）暂未实现 `@requires` 的解析，见到契约里的 `@requires` 一律响亮拒绝（参照 E-CONTRACT-017 契约叠加未实现的先例）：绝不静默忽略、绝不静默给树。只增不改：本码继承 CONTRACT 既有序号，未改动任何既有码含义"
     },
     {
       "id": "E-DERIVE-001",

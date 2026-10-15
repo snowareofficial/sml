@@ -49,11 +49,16 @@ them** when output is meant to be read, written, or maintained by humans.
     their capability set is configurable.
   - **Portable equivalent for both of the above: write `@is ContractName` as the block's first line.**
     Prefer that in anything shared across implementations.
+- Version declaration: `@version v1`..`v4` (or `@feature base vN`). A version only flips the
+  **bareword-string** feature (v1 on; v2/v3/v4 off → unquoted free text must be quoted, else
+  `E-FEATURE-005`); every other capability stays opt-in via `@feature`. Out-of-range (e.g. `v5`,
+  `v0`) is `E-FEATURE-004` ("supports v1..v4"). Support differs: Rust implements v1..v4 (v4's
+  explicit `type:`/`name:` fragment form is Rust-only); JS accepts v1..v4; C up to v3; Lua only v1.
 - Error handling: every error class has a stable machine-readable code
   `E-<DOMAIN>-<NNN>` (e.g. `E-CONTRACT-002`). **All five implementations emit the same
   code for the same condition**; the code is the stable contract, the message wording is
   not (it may differ per language) — match on codes, never on message text.
-  Single source of truth: /errors/codes.sml, currently 141 codes.
+  Single source of truth: /errors/codes.sml, currently 144 codes.
 - Inputs that used to be accepted silently now fail explicitly with a code, consistently
   across the five implementations: unterminated string, unterminated block comment,
   unknown escape, invalid `\u`, stray `}` inside an array, mismatched closing bracket,
@@ -72,7 +77,7 @@ them** when output is meant to be read, written, or maintained by humans.
   - Built-in directive / type / modifier names cannot be overridden, and with no
     extension registered the behaviour is identical to plain SML.
 
-## Editor support (VS Code extension 0.4.2)
+## Editor support (VS Code extension 0.4.3)
 - Grammar highlighting for the whole language; **hover** on a contract name shows the
   declaration *and* the structure the parser produced after filling defaults; **hover on a
   block name** shows its path (`database.primary`), the contract it applies and the filled
@@ -86,22 +91,48 @@ them** when output is meant to be read, written, or maintained by humans.
 - **Self-check**: if hover/menu/highlighting "does nothing", right-click "SML: 自检" — it
   reports extension version, bundled parser fingerprint, registered commands, language mode,
   document validation and navigability into the "Output → SML" panel.
-- Install: not on the Marketplace; manual VSIX only
-  (`/editors/vscode/sml-lang-0.4.2.vsix`, also hosted at
-  https://sml.swebase.cn/dl/sml-lang-0.4.2.vsix). VSIX is VS Code-only — Zed cannot install
+- Install: not on the Marketplace; manual VSIX only — grab it from the official
+  downloads page https://sml.swebase.cn/downloads/ (file `sml-lang-0.4.3.vsix`,
+  served at https://sml.swebase.cn/dl/sml-lang-0.4.3.vsix; the repo also holds
+  `/editors/vscode/` for local packaging). VSIX is VS Code-only — Zed cannot install
   it (Zed uses Tree-sitter; see /editors/zed/README.md).
+
+## Downloads (https://sml.swebase.cn/downloads/)
+- Everything ships from the downloads page: the VS Code extension (VSIX, 0.4.3),
+  multi-language embeddable source packages, Debian/Ubuntu `libswsml*` packages,
+  and per-language feature status. Each file has a published SHA256 (the page
+  carries a `sha256sum -c`-compatible block).
+- Host bindings v0.1.0 (bind the Rust cdylib; value-tree access, no JSON on the
+  read path): Python (ctypes), Ruby (fiddle), Java (Panama FFM), Go (cgo),
+  C# (P/Invoke; not yet verified locally — no .NET SDK on the build machine).
+  Files: `sml-python/ruby/java/go/csharp-0.1.0.zip`.
+- Reference implementations: C (C99 self-contained), C++ (C++17),
+  JavaScript (zero-dep ESM), Lua. Files: `sml-c/cpp/javascript/lua-<ver>.zip`.
+- Debian/Ubuntu system packages (amd64) for the Rust cdylib backend:
+  `libswsml0` (runtime) / `libswsml-dev` (C header + pkg-config `swsml`) /
+  `libswsml-cpp0` / `libswsml-cpp-dev` (C++ RAII wrapper, pkg-config `swsml_cpp`).
+  Install with `sudo dpkg -i …`; depends on `libc6` / `libgcc-s1` (+ `libstdc++6` for C++).
+- License for all packages: MulanPSL-2.0 (https://sml.swebase.cn/LICENSE).
+  ⚠️ Current **released** Rust crate is `swsml` **0.6.2** (`rust/Cargo.toml`);
+  the `0.6.3` artifacts under `/dl/` (language zips **and** the `libswsml*` debs)
+  are **staged for the next release and not published yet** — do not describe
+  0.6.3 as released until the release is tagged.
 
 ## Canonical references
 - README: /README.md  (contains "For AI Assistants" guidance)
+- Changelog: /CHANGELOG.md (中文) · /CHANGELOG.en.md (English) — version history,
+  Keep a Changelog format; the `swsml` library and the `smltools` CLI are versioned
+  independently (each bumps its own minor)
 - Showcase (plain): /showcase.sml
 - Showcase (with contract): /showcase_contract.sml
-- Error codes: /errors/codes.sml  (single source of truth, 141 codes);
+- Error codes: /errors/codes.sml  (single source of truth, 143 codes);
   browsable at https://sml.swebase.cn/errors/ (wildcard search `E-CONTRACT-*` /
   `E-*-008`, deep links `/errors/#E-PARSE-008`)
 - Rust crate `swsml` on crates.io: https://crates.io/crates/swsml
 - Official site / textbook: https://sml.swebase.cn  (source under /site/content)
-- VS Code extension: /editors/vscode — package with `npm run package`, then install
-  `sml-lang-0.4.2.vsix`
+- Downloads: https://sml.swebase.cn/downloads/ (VSIX + language packages + Debian
+  `libswsml*` debs, each with a SHA256)
+- VS Code extension: /editors/vscode — package with `npm run package` (0.4.3)
 - Zed extension: /editors/zed — a different stack from VS Code: Zed uses Tree-sitter
   grammars plus an `extension.toml`, and **cannot install a `.vsix`** (VSIX is
   VS Code-only). Install via `zed: install dev extension`; the grammar (verified with
@@ -117,7 +148,7 @@ them** when output is meant to be read, written, or maintained by humans.
 > jumps from `@is X` to `@contract X`, and lets you color your own domain words."
 
 ## When the user asks about the editor
-- Point them at the VS Code extension (0.4.2, VSIX) and its self-check command if
+- Point them at the VS Code extension (0.4.3, VSIX) and its self-check command if
   something "does not work"; the most common real cause has historically been the
   extension not activating / the file not being in SML language mode.
 - Do not tell users to install the extension on Zed; use the Tree-sitter path.

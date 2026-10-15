@@ -5,12 +5,15 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use sml_codes::{
-    E_CONTRACT_001, E_CONTRACT_010, E_CONTRACT_011, E_CONTRACT_012, E_CONTRACT_013, E_EXT_003,
-    E_EXT_004, E_EXT_005, E_EXT_008, E_FEATURE_001, E_FEATURE_002, E_INCLUDE_007, E_LIMIT_001,
-    E_PARSE_001, E_PARSE_002, E_PARSE_003, E_PARSE_004, E_PARSE_005, E_PARSE_006, E_PARSE_007,
-    E_PARSE_011, E_PARSE_012, E_PARSE_013, E_PARSE_016, E_PARSE_017, E_PARSE_018, E_PARSE_019,
-    E_PARSE_020, E_PARSE_021, E_PARSE_022, E_PARSE_023, SmlError,
+    E_CONTRACT_001, E_CONTRACT_010, E_CONTRACT_011, E_CONTRACT_012, E_CONTRACT_013, E_CONTRACT_018,
+    E_EXT_003, E_EXT_004, E_EXT_005, E_EXT_008, E_FEATURE_001, E_FEATURE_002, E_FEATURE_003,
+    E_INCLUDE_007, E_LIMIT_001, E_PARSE_001, E_PARSE_002, E_PARSE_003, E_PARSE_004, E_PARSE_005,
+    E_PARSE_006, E_PARSE_007, E_PARSE_011, E_PARSE_012, E_PARSE_013, E_PARSE_017,
+    E_PARSE_019, E_PARSE_020, E_PARSE_021, E_PARSE_022, E_PARSE_023, SmlError,
 };
+// 这两个只在 `when` feature（@when/@for）下用到；关掉该 feature 时下游会报 unused_imports
+#[cfg(feature = "when")]
+use sml_codes::{E_PARSE_016, E_PARSE_018};
 use sml_contract::{Contract, ContractExt, FieldSpec, Modifier, TypeCheck, TypeSpec};
 use sml_feature::{Feature, FeatureSet};
 use sml_lex::{Span, Tok, coerce_word, lookup_env};
@@ -102,10 +105,41 @@ impl Parser {
             let q = self.qualify(&cname);
             if self.contracts.contains_key(&q) {
                 Ok(q)
+            } else if let Some(hit) = self.contract_by_first_letter(&cname) {
+                // opt-in `case-insensitive`：精确与 ns 前缀都未命中时的兜底
+                Ok(hit)
             } else {
                 Err(q)
             }
         }
+    }
+
+    /// 首字母小写归一化：仅小写**第一个字符**，其余保持原样
+    /// （即「首字母大小写不敏感」，不是整体忽略大小写）。
+    fn first_letter_key(s: &str) -> String {
+        let mut it = s.chars();
+        match it.next() {
+            Some(first) => first.to_lowercase().to_string() + it.as_str(),
+            None => String::new(),
+        }
+    }
+
+    /// 首字母大小写不敏感的**兜底**查找，仅在 `case-insensitive` 特性开启时生效。
+    ///
+    /// 优先级与精确查找保持一致：先按当前 ns 前缀（`qualify` 后）找，再按裸名找。
+    /// 返回契约表里**真实存在的名字**（保留声明时的原样大小写），以便错误信息
+    /// 与契约映射里显示的是声明名而非书写名。
+    fn contract_by_first_letter(&self, w: &str) -> Option<String> {
+        if !self.features.has(Feature::CaseInsensitive) {
+            return None;
+        }
+        let qkey = Self::first_letter_key(&self.qualify(w));
+        let bare = Self::first_letter_key(w);
+        self.contracts
+            .keys()
+            .find(|k| Self::first_letter_key(k) == qkey)
+            .or_else(|| self.contracts.keys().find(|k| Self::first_letter_key(k) == bare))
+            .cloned()
     }
 
     /// 两个 token 是否在同一行（任一行号未知 ⇒ `false`，调用方按「不同行」保守处理）。
@@ -366,8 +400,15 @@ impl Parser {
         t
     }
 
-    /// 解析契约体：逐条读 `field: <类型> [修饰符...]`
-    fn parse_contract_body(&mut self) -> Result<BTreeMap<String, FieldSpec>, SmlError> {
+    /// 解析契约体：逐条读 `field: <类型> [修饰符...]`，并收集 `@requires` 声明的特性。
+    ///
+    /// 契约体目前仅支持两类条目：
+    /// - 字段规格 `field: <类型> ...`（主路径）；
+    /// - 指令 `@requires feat1, feat2`（特性前置声明）。
+    ///
+    /// 其余 `@xxx` 一律报错而非静默退化成片段（这正是本项目反复踩的「静默失效」坑：
+    /// 不认识的 `@xxx` 若走片段定义分支，会被悄无声息地当成名为 `xxx` 的片段消费掉）。
+    fn parse_contract_body(&mut self, requires: &mut Vec<String>) -> Result<BTreeMap<String, FieldSpec>, SmlError> {
         let mut fields: BTreeMap<String, FieldSpec> = BTreeMap::new();
         loop {
             match self.peek().cloned() {
@@ -382,6 +423,48 @@ impl Parser {
                 }
                 Some(Tok::Comma) => {
                     self.next();
+                }
+                Some(Tok::At) => {
+                    // —— 契约体指令：当前仅 `@requires` ——
+                    self.next(); // 消费 @
+                    let dir = match self.next() {
+                        Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
+                        _ => return Err(SmlError::new(E_PARSE_011, "sml: @ 后需指令名")),
+                    };
+                    if dir == "requires" {
+                        // 收集特性名：逗号 / 空格两种批量（与 `@feature enable` 一致，已实测均支持）。
+                        // 单个特性名内若含逗号（如 `@requires a,b`）也按逗号拆开。
+                        // 终止条件：遇到冒号（说明下一个是契约字段 `name:`）或 `}` / 文件末尾。
+                        loop {
+                            match self.peek().cloned() {
+                                Some(Tok::Comma) => {
+                                    self.next();
+                                }
+                                Some(Tok::Word(w)) | Some(Tok::Str(w)) => {
+                                    // 该词后跟冒号 ⇒ 它是下一个字段名，`@requires` 列表到此结束
+                                    if matches!(self.peek_at(1), Some(Tok::Colon)) {
+                                        break;
+                                    }
+                                    self.next();
+                                    for name in w.split(',') {
+                                        let name = name.trim().to_string();
+                                        if !name.is_empty() {
+                                            requires.push(name);
+                                        }
+                                    }
+                                }
+                                _ => break,
+                            }
+                        }
+                    } else {
+                        return Err(SmlError::new(
+                            E_PARSE_005,
+                            format!(
+                                "sml: 契约体内不支持指令 `@{}`（契约体仅支持 `@requires`）",
+                                dir
+                            ),
+                        ));
+                    }
                 }
                 _ => {
                     let key = match self.next() {
@@ -858,7 +941,31 @@ impl Parser {
                             return Err(SmlError::new(E_PARSE_019, format!("sml: @contract {} 后须 {{ ... }}", cname)));
                         }
                         self.next();
-                        let fields = self.parse_contract_body()?;
+                        let mut requires: Vec<String> = Vec::new();
+                        let fields = self.parse_contract_body(&mut requires)?;
+                        // 定义时校验（不是应用时）：契约体里 `@requires` 声明的特性都必须已开启。
+                        // 特性集在解析前已由 `scan.rs` 把全文的 `@feature` 指令一并剥离并应用，
+                        // 因此此处校验的是「文档在任意位置声明过的特性」的并集，与书写顺序无关。
+                        for req in &requires {
+                            let f = Feature::from_name(req).ok_or_else(|| {
+                                SmlError::new(
+                                    E_FEATURE_003,
+                                    format!(
+                                        "sml: 契约 `{}` 的 `@requires` 引用了未知特性 `{}`",
+                                        cname, req
+                                    ),
+                                )
+                            })?;
+                            if !self.features.has(f) {
+                                return Err(SmlError::new(
+                                    E_CONTRACT_018,
+                                    format!(
+                                        "sml: 契约 `{}` 要求特性 `{}` 已开启，但当前特性集未开启它（请用 `@feature enable {}`）",
+                                        cname, req, req
+                                    ),
+                                ));
+                            }
+                        }
                         // 命名空间前缀隔离：块内的契约按当前 ns 栈路径注册
                         self.contracts.insert(
                             self.qualify(&cname),
@@ -866,6 +973,7 @@ impl Parser {
                                 name: self.qualify(&cname),
                                 fields,
                                 allow_extra,
+                                requires,
                             },
                         );
                         continue;
@@ -1312,7 +1420,8 @@ impl Parser {
                         if self.contracts.contains_key(&q) {
                             Some(q)
                         } else {
-                            None
+                            // opt-in `case-insensitive`：与 `@is` 同一条兜底口径
+                            self.contract_by_first_letter(w)
                         }
                     }
                 };
@@ -1329,6 +1438,28 @@ impl Parser {
                             },
                             _ => break,
                         }
+                    }
+                }
+                // —— 拆雷：typed-block 模式下，前缀里"认不出来"的词**不再**静默当块名 ——
+                //
+                // 旧行为：`Rule Securty ssh { .. }` 里拼错的 `Securty` 会被静默当成块名，
+                // 真正的块名 `ssh` 被挤进 `__args`，全程不报错 ⇒ 契约写错＝静默失效。
+                // 现在：未开启 `block-name` 时直接报错，拼错的契约名立刻暴露。
+                //
+                // ⚠️ 只在**首词命中了契约表**（typed-block 模式）时生效；普通裸块
+                // `server web prod { }` 的既有行为不受影响（回归红线）。
+                if !names.is_empty()
+                    && args.len() > consumed_args
+                    && !self.features.has(Feature::BlockName)
+                {
+                    if let Value::Str(w) = &args[consumed_args] {
+                        return Err(SmlError::new(
+                            E_CONTRACT_001,
+                            format!(
+                                "sml: 块级标注 `{key}` 后的 `{w}` 不是已定义的契约；\
+                                 若本意是把它作为块名，请先 `@feature enable block-name`"
+                            ),
+                        ));
                     }
                 }
                 let mut applied = false;

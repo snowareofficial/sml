@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MulanPSL-2.0
+// SML 多语言宿主绑定（Go / cgo）。
+// 仓库：https://gitee.com/snoware/sml
+// @version 0.1.0 (swsml 0.6.3)
+
 // Package sml 提供 SML 的 Go 宿主绑定（经 cgo 调用 Rust cdylib sml / libsml）。
 //
 // 读路径（Loads / LoadFile / 取值）直接遍历 v3 值树，不经 JSON：类型保真、富错误直接到手。

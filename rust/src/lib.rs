@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! SML — SNOWARE Markup Language (Rust 实现, crate 名 `sml`)
+//! SML — SNOWARE Markup Language (Rust 实现, crate 名 `swsml`, lib 名 `sml`)
 //!
 //! 声明式数据/配置格式, JSON/YAML 的替代品。语法与 Soup 生态的
 //! `lib/sml.soup` (Lua) 对齐:
@@ -27,6 +27,7 @@
 //! - `$env.VAR` 环境变量内联
 //! - `#` 行注释
 //! - 类型自识别: true/false -> bool, null -> None, 数字 -> i64/f64, 其余 -> String
+//! - `@version v1..v4` 版本化（v2+ 要求字符串显式引号）；`@feature enable/disable` 特性开关
 //!
 //! 值模型: `Value` 枚举 (与 JSON 同构, 另加 `__type`/`__name` 裸块元数据)。
 //!
@@ -49,15 +50,15 @@
 //! - `sml`（默认开启）：启用 `to_sml` 序列化器（把 [`Value`] 渲染回 SML 文本）。
 //!   纯解析场景可 `default-features = false` 关闭它，获得完全零依赖。
 //! - `emit-markdown` / `emit-latex` / `emit-xml` / `emit-svg` / `emit-slint` /
-//!   `emit-custom`（默认全部开启）：把 [`Value`] 转译为 Markdown、LaTeX、
-//!   XML（含 LVGL UI）、SVG、Slint DSL，或用户自定义生成器。详见 [`emit`]。
+//!   `emit-html` / `emit-custom`（默认全部开启）：把 [`Value`] 转译为 Markdown、LaTeX、
+//!   XML（含 LVGL UI）、SVG、Slint DSL、HTML5，或用户自定义生成器。详见 [`emit`]。
 //!
 //! ```toml
-//! sml-rs = { version = "0.2", features = ["serde"] }
+//! swsml = { version = "0.6", features = ["serde"] }
 //! # 不需要宏时可关闭默认 feature，回到完全零依赖：
-//! sml-rs = { version = "0.2", default-features = false }
+//! swsml = { version = "0.6", default-features = false }
 //! # 只解析 + 转 Markdown：
-//! sml-rs = { version = "0.2", default-features = false, features = ["emit-markdown"] }
+//! swsml = { version = "0.6", default-features = false, features = ["emit-markdown"] }
 //! ```
 //!
 //! ## 多目标转译示例
@@ -75,6 +76,11 @@
 //! // LVGL UI:  <screen><label .../>...</screen>
 //! let lvgl = to_lvgl(&v, &XmlOptions::new()).unwrap();
 //! ```
+//!
+//! # C-ABI
+//!
+//! 本 crate 亦编为 `cdylib`，经 `c_abi` 暴露 `sml_*` C 函数（值树 API + JSON 字符串 API
+//! 两套），供 C / C++ / 其它语言桥接；桥接头文件见仓库 `c/sml_rs.h`、`cpp/sml_rs.hpp`。
 
 // ---------------------------------------------------------------------------
 // 模块拆分 (见各子模块文件)
@@ -83,6 +89,9 @@
 // ---------------------------------------------------------------------------
 
 mod c_abi;
+// 仅在 `derive` feature 下编译：否则整个模块都是死代码，下游 `default-features = false`
+// 使用时会刷一整屏 dead_code 警告（下游工程因此无法做到零警告）。
+#[cfg(feature = "derive")]
 mod derive_macro;
 #[cfg(any(
     feature = "emit-markdown",
@@ -138,8 +147,8 @@ pub use sml_include::{
 pub use sml_lex::Tok;
 pub use sml_parse::{
     loads, parse, parse_allowed, parse_file, parse_file_features, parse_file_versioned,
-    parse_versioned, parse_with, parse_with_features, parse_with_features_env, ParseError,
-    ParseOptions, ParseOutput,
+    parse_versioned, parse_with, parse_with_features, parse_with_features_env, AppliedContract,
+    ContractMap, ParseError, ParseOptions, ParseOutput, PathSeg,
 };
 /// 外置扩展点：注册自定义 `@指令`（如 `@form` / `@policy` / `@flow`），
 /// 无需改动本 crate 源码 —— 方言定义留在下游仓库。

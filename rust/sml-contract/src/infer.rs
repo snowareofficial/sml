@@ -183,6 +183,7 @@ fn build_object_contract(
         name: name.to_string(),
         fields: BTreeMap::new(),
         allow_extra: true,
+        requires: Vec::new(),
     });
     for (k, _vals) in &field_vals {
         let ty = field_ty.get(k).unwrap().clone();

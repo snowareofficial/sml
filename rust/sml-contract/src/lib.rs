@@ -137,6 +137,13 @@ pub struct Contract {
     /// **默认 false（严格）**：额外字段一律报错，可及早发现拼写错误
     /// （如 `prot` 误写为 `port`）。确需放宽时须**显式**写 `loose`。
     pub allow_extra: bool,
+    /// 应用本契约前必须已开启的特性（由契约体里的 `@requires` 声明）。
+    ///
+    /// 仅用于文档化与跨端拒绝：Rust 在**契约定义时**已逐条校验这些特性都已开启
+    /// （见 `sml-parse` 的契约解析分支），未开启即 `E-CONTRACT-018`；应用期不再重复校验。
+    /// 跨端（JS / C / C++ / Lua）暂未实现 `@requires` 的解析，见到即按 `E-CONTRACT-018`
+    /// 响亮拒绝（参照 `E-CONTRACT-017` 契约叠加未实现的先例），绝不静默忽略或静默给树。
+    pub requires: Vec<String>,
 }
 
 /// 拼接字段路径：`("api", "port")` -> `"api.port"`。
@@ -465,6 +472,14 @@ pub fn apply_contracts(
         }
     }
     let allow_extra = list.iter().all(|c| c.allow_extra);
+    let mut merged_requires: Vec<String> = Vec::new();
+    for c in &list {
+        for r in &c.requires {
+            if !merged_requires.contains(r) {
+                merged_requires.push(r.clone());
+            }
+        }
+    }
     let merged = Contract {
         name: list
             .iter()
@@ -473,6 +488,7 @@ pub fn apply_contracts(
             .join("+"),
         fields,
         allow_extra,
+        requires: merged_requires,
     };
     apply_contract(&merged, node, contracts, path)
 }

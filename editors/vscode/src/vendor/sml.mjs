@@ -311,6 +311,11 @@ function coerceWord(w, fragments, nsMap, feats) {
     if (INT_LITERAL.test(w) && !Number.isSafeInteger(Number(w))) return w;
     return Number(w);
   }
+  // 严格模式（v2/v3/v4）裸词字符串被禁用：与 Rust 同码 E-FEATURE-005（此前 JS 无该检查）。
+  // 仅**值位置**的裸词受此约束 —— 键名、指令参数、片段名等裸词不受影响。
+  if (!feats || (!feats.has("bareword-str") && !feats.has("bareword-string"))) {
+    throwCode("E-FEATURE-005", "sml: 字符串必须加引号：当前特性集禁用了裸词字符串");
+  }
   return w;
 }
 
@@ -471,8 +476,67 @@ const KNOWN_FEATURES = new Set([
   "top-array", "bareword-str", "escape",
 ]);
 
+// 特性名别名映射：JS 的写法（`bareword-str` / `top-array`）与 Rust 注册表
+// （`bareword-string` / `top-level-array`）同义。判定「某特性是否开启 / 是否被允许」时
+// 必须按**规范名**统一，否则 `enable bareword-string` 与 `bareword-str` 会被当成两回事。
+const FEAT_ALIAS = {
+  "bareword-str": "bareword-string", "bareword-string": "bareword-str",
+  "top-array": "top-level-array", "top-level-array": "top-array",
+};
+// 集合里是否包含某特性（含别名）
+function featAllowed(set, f) {
+  return set.has(f) || set.has(FEAT_ALIAS[f] || f);
+}
+
+// 调用方允许集归一化：接受 Set 或 Array（探针与既有调用方用数组），null = 不限制（全开）。
+function normalizeAllowed(x) {
+  if (x instanceof Set) return x;
+  if (Array.isArray(x)) return new Set(x);
+  return null;
+}
+
+// —— 版本检测：从**原文**扫出 `@version vN` 或 `@feature base vN` ——
+//
+// 必须在词法之前、在 `collectFeatures` 之前跑：版本决定特性基集（见 scanVersionBase）。
+// 与 Rust 的 `Version::from_word` 同口径：接受 `v1`/`1`…`v4`/`4`；其余一律 E-FEATURE-004。
+// 优先级：`@version` 显式声明 > `@feature base` > 默认 V1（与 Rust 的
+// `declared.or(base).unwrap_or(V1)` 一致）。
+function detectVersion(text) {
+  // ⚠️ 必须**行首**（允许缩进）才算指令；注释里的 `@version` 不是声明。
+  const re = /^[ \t]*@(version|feature\s+base)[ \t]+([^\s#/]+)/gm;
+  let m;
+  let declared = null, base = null;
+  while ((m = re.exec(text)) !== null) {
+    if (m[1] === "version") declared = m[2];
+    else base = m[2];
+  }
+  const lit = declared !== null ? declared : base;
+  if (lit === null) return { v: null, declaredLit: null };
+  // 非法版本（含 v0 / v5 / 字母）⇒ E-FEATURE-004，文案点名「当前支持 v1..v4」
+  if (!/^v?[1-4]$/.test(lit)) {
+    throwCode("E-FEATURE-004",
+      "sml: 版本声明非法，当前支持 v1..v4（@version vN / @feature base vN，N=1..4）");
+  }
+  return { v: lit, declaredLit: lit };
+}
+
+// 版本 → 特性基集（与 Rust 的 `FeatureSet::for_version` 同构）：
+// 基集 = `DEFAULT_FEATURES`，仅**裸词字符串**这一项按版本切换 —— v1 开、v2/v3/v4 关
+// （严格模式：自由文本必须引号，数字 / bool / null / 片段引用 / `$env.X` 仍为裸词）。
+// v4 与 v3 在特性基集上**完全相同**；v4 额外把片段定义改为显式 `type:`/`name:` 关键字
+// 形式（位置参数自 v4 废弃），那一层属解析器语义、不在此基集内。
+function scanVersionBase(vLit) {
+  const base = new Set(DEFAULT_FEATURES);
+  const n = vLit ? parseInt(vLit.replace(/^v/, ""), 10) : 1;
+  if (n >= 2) { base.delete("bareword-str"); base.delete("bareword-string"); }
+  return base;
+}
+
 // 从文本里扫出 @feature enable/disable 声明，返回生效的 feature Set
-function collectFeatures(text, base) {
+//
+// `allowed` 是调用方给出的**允许集上限**（Set；null = 不限制）。文档内部 @feature 只能在这
+// 之上**收窄**（disable），不得**越权开启**（enable 一个不在 allowed 里的特性 ⇒ E-FEATURE-009）。
+function collectFeatures(text, base, allowed) {
   const feats = new Set(base || DEFAULT_FEATURES);
   // ⚠️ 必须**行首**（允许缩进）才算指令：`#   · @feature enable 显式开启…` 这种
   // **注释里提到**的写法不是指令。旧写法 `/@feature…/g` 连注释里的也收 —— 以前
@@ -495,8 +559,16 @@ function collectFeatures(text, base) {
           "sml: 未知特性 `" + w + "`，可用：" + [...KNOWN_FEATURES].join(", "),
           m.index);   // 带位置 ⇒ 诊断落在**该行**而不是第 1 行
       }
-      if (mode === "enable") feats.add(w);
-      else feats.delete(w);
+      if (mode === "enable") {
+        // 调用方允许集是**上限**：文档不得越权开启一个不在允许集里的特性（见 E-FEATURE-009）。
+        // allowed 未提供（null）表示不限制，任何 enable 都放行（与"全开"语义一致）。
+        if (allowed && !featAllowed(allowed, w)) {
+          throwCode("E-FEATURE-009",
+            "sml: 文档请求启用特性 `" + w + "`，不在调用方允许集内（不得越权开启）",
+            m.index);
+        }
+        feats.add(w);
+      } else feats.delete(w);
     }
   }
   return feats;
@@ -985,7 +1057,7 @@ export function contractMapToSml(contractMap) {
 // 解析（递归下降）
 // ---------------------------------------------------------------------------
 
-export function parse(text, opts) {
+export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllowedArg) {
   // —— 文件级规范化：去掉开头的 **UTF-8 BOM**（U+FEFF）——
   //
   // 为什么必须去：本词法器按显式分隔符切词（不是用 `\s`），所以 BOM **不会**被当空白，
@@ -997,8 +1069,14 @@ export function parse(text, opts) {
   if (typeof text === "string" && text.charCodeAt(0) === 0xfeff) text = text.slice(1);
   opts = opts || {};
   const files = opts.files || {};
-  const baseFeatures = opts.features || null;
   const nsPrefix = opts.nsPrefix || "";
+  // 正在展开的文件链（含根文档），用于 include 环检测（见 resolveIncludes）。
+  const includeStack = (includeStackArg instanceof Array) ? includeStackArg : [];
+  // 调用方允许集（**上限**）：顶层由 opts.features 给出（兼容 Set / Array）；
+  // 递归子文件沿用父层的 callerAllowedArg，保证"调用方控制"贯穿整棵 include 树。
+  const callerAllowed = (effectiveFeatsArg === undefined || effectiveFeatsArg === null)
+    ? normalizeAllowed(opts.features)
+    : callerAllowedArg;
   // —— 外置扩展（与 Rust 侧 `sml::ext` / `sml::contract_ext` 对齐）——
   //   opts.directives: { "form": { positional?: bool, call(arg, body) -> {discard:true} | {emit: 对象} } }
   //   opts.types:      { "image": (v) => true | false | "错误信息" }
@@ -1068,7 +1146,27 @@ export function parse(text, opts) {
     throw e;
   };
 
-  const feats = collectFeatures(text, baseFeatures);
+  // —— 特性基集与调用方允许集 ——
+  // 顶层：先按版本推导基集（DEFAULT_FEATURES 仅切换 bareword-string），再与调用方允许集取交；
+  // 递归子文件：直接继承父层已生效的特性集（effectiveFeatsArg），不重算版本（与"暂缓的
+  // 每文件独立解析-合并"保持距离：当前仍是根文档版本贯穿整棵 include 树）。
+  let feats;
+  if (effectiveFeatsArg !== undefined && effectiveFeatsArg !== null) {
+    feats = collectFeatures(text, effectiveFeatsArg, callerAllowed);
+  } else {
+    const vinfo = detectVersion(text);            // 非法版本 ⇒ E-FEATURE-004
+    const versionBase = scanVersionBase(vinfo.v);
+    const base = callerAllowed
+      ? new Set([...versionBase].filter((f) => featAllowed(callerAllowed, f)))
+      : versionBase;
+    feats = collectFeatures(text, base, callerAllowed);
+    // 调用方允许集与文档所需特性**无交集** ⇒ 直接失败（不静默降级），与 Rust 同码 E-FEATURE-009。
+    // （effectiveFeatsArg !== null 的子文件路径不跑此判定：子文件继承父层已生效集，空集只可能
+    //  由顶层无交集导致，那里已经报过。）
+    if (callerAllowed && feats.size === 0) {
+      throwCode("E-FEATURE-009", "sml: 文档请求的特性与调用方允许的特性无交集");
+    }
+  }
 
   function literal() {
     const t = peek();
@@ -1389,6 +1487,21 @@ export function parse(text, opts) {
     if (peek() && peek().t === "{") i++; else fail("E-PARSE-019", "sml: @contract 后须契约体 { }");
     while (peek() && peek().t !== "}") {
       if (peek().t === "," || peek().t === ";") { i++; continue; }
+      // —— 契约体里的 `@requires`：本端暂未实现，必须**响亮拒绝** ——
+      // 参照 E-CONTRACT-017（契约叠加未实现）的既有先例：绝不静默忽略、
+      // 绝不静默产出一棵树。此前 `@` 只会被 1392 行的「期望字段名」顺带
+      // 撞成 E-PARSE-006（码不对、也没说清真实原因），现改为明确的本码。
+      if (peek().t === "@") {
+        i++; /* 消费 @ */
+        const dt = peek();
+        const dname = dt && (dt.t === "word" || dt.t === "str") ? dt.v : "";
+        if (dname === "requires") {
+          fail("E-CONTRACT-018",
+            "sml: 本实现暂不支持契约的 `@requires` 指令（它要求先开启所列特性）；" +
+            "请移除该指令，或改用已实现它的 Rust 端");
+        }
+        fail("E-PARSE-005", "sml: 契约体内不支持指令 `@" + dname + "`（契约体仅支持 `@requires`）");
+      }
       if (peek().t !== "word") fail("E-PARSE-006", "sml: 契约字段期望名称, 得 " + peek().t);
       const fkey = peek().v; i++;
       if (peek() && peek().t === ":") i++;
@@ -1473,18 +1586,23 @@ export function parse(text, opts) {
           text = files[String(onePath).split(".").join("/") + ".sml"];
         }
         if (text === undefined) fail("E-INCLUDE-001", "sml: include 目标未找到: " + onePath, dirPos);
+        // include 环检测（与 Rust sml-include / c/sml.c / lua/lib/sml.soup 同码）：
+        // 栈 = 当前**正在展开**的文件链；命中即环 —— 菱形包含（b、c 各被引用一次）不算环。
+        // 此前 JS 无环检测，互相 include 会一路递归到宿主 RangeError；现在改成响亮的 E-INCLUDE-002。
+        if (includeStack.includes(onePath)) {
+          fail("E-INCLUDE-002", "sml: include 循环引用: " + onePath, dirPos);
+        }
         const childPrefix = tg.ns ? nsPrefix + tg.ns + "." : nsPrefix;
         // 外置扩展随 include 递归传递：被包含的文件里同样可以用方言指令与外置类型
         let v;
         try {
           v = parse(text, {
             files,
-            features: feats,
             nsPrefix: childPrefix,
             directives: extDirs || undefined,
             types: extTypes || undefined,
             warnings: opts.warnings,
-          });
+          }, includeStack.concat(onePath), feats, callerAllowed);
         } catch (e) {
           // 子文件里的失败：`e.pos` 属于**子文件**，直接抛出去会被画在主文件的同名行上
           // （实测：子文件第 2 行报错 → 主文件第 2 行标红，毫无关联）。
@@ -1544,12 +1662,11 @@ export function parse(text, opts) {
         if (!peek()) fail("E-PARSE-011", "sml: @ 后需名称");
         const fname = peek().v;
         if (fname === "version") {
+          // `@version` 的合法性（v1..v4 / 1..4）已在解析入口的 detectVersion 校验；
+          // 非法版本会在 collectFeatures 之前就抛 E-FEATURE-004。这里只负责消费指令，
+          // 让 `@version` 不被误当成片段名（`version` 不可作为片段名）。
           i++;
-          const lit = (peek() && peek().v) ?? "";
-          if (lit !== "v1" && lit !== "1") {
-            fail("E-FEATURE-004", "sml: @version 须写作 `@version v1`；`version` 不可作为片段名");
-          }
-          i++;
+          if (peek()) i++;
           continue;
         }
         if (fname === "feature") {
@@ -1817,6 +1934,13 @@ export function parse(text, opts) {
         }
       }
       if (key === undefined) fail("E-PARSE-006", "sml: 期望键");
+      // 键位置上的裸 `:`（P1 欠账，与 Rust / C 对齐）：`::` 被词法切成两个 `:`，
+      // 第二个 `:` 落到**键位置**。此前把它当键名 ⇒ `X { a: B::C }` 静默得到
+      // {"a":"B",":":"C"}（键被改、值被拆、**还不报错** —— 典型静默数据损坏）。
+      // Rust 对同一输入报 E-PARSE-006，此处补齐同码；文案点明 `::` 与「加引号」。
+      if (peek() && peek().t === ":") {
+        fail("E-PARSE-006", "sml: 键位置出现裸冒号 `:`（`::` 会被切成两个 `:`）；含 `:` 的标量请加引号，如 a: \"B::C\"");
+      }
       i++;
       let colon = false;
       if (peek() && peek().t === ":") { colon = true; i++; }

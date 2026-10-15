@@ -285,6 +285,29 @@ local function test_contract_codes()
   -- E-PARSE-006 契约体里字段名 / 冒号位置非法
   expect_code("contract field without colon", "@contract S { a str }\nx: 1\n", "E-PARSE-006")
   expect_code("contract field key is structural", "@contract S { : str }\nx: 1\n", "E-PARSE-006")
+
+  -- E-CONTRACT-018 契约体里的 `@requires`：本端**暂未实现 ⇒ 响亮拒绝**（跨端口径，见
+  --   errors/codes.sml 的 E-CONTRACT-018；与 E-CONTRACT-017 契约叠加未实现的先例一致）。
+  --   ⚠️ 改前 `@` 落到 parse_contract_body 的 STRUCT_CHARS 分支抛 E-PARSE-006（码不对、
+  --     也没点出「本端不支持」这个真实原因）；更早之前 `@` 会被当成片段定义起点、
+  --     把 `requires` 反当片段名、`typed-block` 被吞成参数 ⇒ 静默给错树，比报错更坏。
+  --   每条「变严格」的分支都配正对照（下面『字段名为 requires』）防误伤：区别判据是
+  --   有没有 `@` 符号，字段名路径永远走不到 `@` 分支。
+  --   用法 `luajit lua/test_codes.lua` 会走这里；也已用 `lua/_probe_requires.lua` 单独钉过。
+  expect_code("契约 @requires（单项）",
+    "@contract S { @requires typed-block }\n", "E-CONTRACT-018")
+  expect_code("契约 @requires（逗号批量）",
+    "@contract S {\n  @requires typed-block, contract\n  a: int\n}\n", "E-CONTRACT-018")
+  expect_code("契约 @requires（空格批量）",
+    "@contract S {\n  @requires typed-block contract\n  a: int\n}\n", "E-CONTRACT-018")
+  -- 契约体里不认识的 `@xxx` 同样必须报错，不得静默退化成片段或字段（与 JS / C / C++ 同码）
+  expect_code("契约体未知指令",
+    "@contract S { @bogus foo }\n", "E-PARSE-005")
+  -- 正对照：`requires` 当**字段名**（`requires: [...]`）是既有合法写法，与 `@requires`
+  --   指令的区别判据是 `@` 符号 —— 不得被抢占。任务要求的对照写法（单/多行等价）：
+  expect_ok("字段名为 requires（正对照）",
+    "@contract S { requires: [str] }\n" ..
+    "x {\n  @is S\n  requires: [\"tls\"]\n}\n")
 end
 
 -- ------------------------------------------------------------------

@@ -1,0 +1,24 @@
+Debian packaging prototype for swsml (libswsml)
+==============================================
+
+STATUS: PROTOTYPE — NOT BUILT OR VERIFIED ON THE AUTHOR'S MACHINE.
+
+The working, validated packaging path is `packaging/build_deb.sh`
+(dpkg-deb --build, no debhelper). That script produced and smoke-tested
+four .deb files on WSL/Ubuntu. This debian/ tree is a starting point for a
+future formal debhelper (dh) build; it has not been exercised here.
+
+Package split (by backend, headers not mixed):
+  libswsml0        runtime  : libswsml.so.0 (Rust cdylib C-ABI)
+  libswsml-dev     C dev    : sml_rs.h + libswsml.so + swsml.pc
+  libswsml-cpp0    C++ rt   : libswsml_cpp.so.0 (RAII wrapper)
+  libswsml-cpp-dev C++ dev  : sml_rs.hpp + libswsml_cpp.so + swsml_cpp.pc
+
+Conventions:
+  * Names avoid the Debian libSML / libsml-dev (smart-meter) collision.
+  * Runtime package trailing digit == SONAME major (SONAME_MAJOR=0).
+  * pkg-config modules are `swsml` / `swsml_cpp` (not `sml`).
+  * libswsml-dev installs ONLY sml_rs.h (never sml.h / sml_codes.h).
+
+To try (on a Debian/Ubuntu host with the Build-Depends installed):
+  dpkg-buildpackage -us -uc -b

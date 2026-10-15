@@ -18,6 +18,10 @@ Cargo.lock
 out_verify/
 out/
 
+# Debian 打包（libswsml）：产物与中间构建一律不进 git；
+# 脚本 packaging/build_deb.sh 与 packaging/debian/ 入库，dist/ 忽略。
+packaging/dist/
+
 # Python
 __pycache__/
 
@@ -149,4 +153,16 @@ node_modules/
 # 内容是**用户自己的**词 → 颜色映射（个人偏好，不是项目资产）。2026-09-19 曾被
 # `git add -A` 误提交一次（随即 `git rm --cached`），故在此挡掉。
 HL-cfg.sml
+
+# ── 内部任务笔记与本地探针（不进版本库）────────────────────────────────────
+# TASK-agent-* 是本会话内部任务笔记；probe_requires_crossend.mjs 是一次性跨端探针。
+# 用户裁决（2026-10-14 发版前）：这三类留本地，不提交。
+TASK-agent-*.md
+tools/probe_requires_crossend.mjs
+
+# ── 根级 public/（游离 Hugo 产物，非部署目标）──────────────────────────────
+# 部署输出是 site/public（见 site/wrangler.toml 的 pages_build_output_dir）；
+# 仓库根的 public/ 是从别处生成的静态站副本（约 2MB：sml.wasm / dl/*.zip / HTML），
+# 禁止入库（曾不在忽略列表，`git add -A` 会误提交整棵生成物）。
+/public/
 

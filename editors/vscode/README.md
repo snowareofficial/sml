@@ -59,7 +59,7 @@ npm run package          # 同步解析器 + 打包（推荐，等价于下面�
 #   python scripts/sync-parser.py
 #   npx --yes @vscode/vsce package
 
-code --install-extension sml-lang-0.4.2.vsix
+code --install-extension sml-lang-0.4.3.vsix
 ```
 
 一条命令打包并安装（覆盖旧版）：
@@ -169,6 +169,36 @@ editors/vscode/
 桥接层直接复用仓库的 JS 实现，保证**插件与语言实现行为一致**：
 同一份文本，插件报错的位置就是解析器真正报错的位置。
 
+## 国际化（i18n）
+
+运行时 UI 文案走 VS Code 自带的多语言机制：
+
+- **源语言是中文**。所有面向用户的字符串都用 `L(...)` 包一层：
+
+  ```javascript
+  const L = vscode.l10n && typeof vscode.l10n.t === "function"
+    ? vscode.l10n.t.bind(vscode.l10n)
+    : (message, ...args) => /* 回退：用 {0}/{1}… 占位符做插值 */;
+  ```
+
+  `vscode.l10n.t` 会按当前 locale 自动加载 `./l10n/bundle.l10n.<locale>.json`；
+  拿不到时回退到中文源码文本（保证中文永远有显示）。
+
+- **英文翻译**放在 `l10n/bundle.l10n.en.json`：键 = 运行时的中文字符串
+  （**含真实换行**，不是源码里的 `\n` 字面量），值 = 英文译文。带 `{0}`/`{1}` 的
+  位置占位符与源码保持一致。
+
+- **`vendor/sml.mjs`（打包生成的解析器）不在翻译范围内** —— 它内部的报错文案保持原样。
+
+加新语言 / 改文案时：
+
+1. 源码里用 `L("中文")` 包住用户可见字符串；需要插值时写 `L("已切换为「{0}」", name)`。
+2. 在对应 `l10n/bundle.l10n.<locale>.json` 里加一条 `键 = 译文`。
+3. 键必须**逐字符等于运行时的字符串**（源码字面量里的 `\n` 在运行时会变成真实换行，
+   直接复制源码文本当键会匹配不上 —— 这也是漏翻的头号原因）。校验方法：跑
+   `node scripts/_check_l10n.mjs`，应输出 `MISSING in bundle: 0` 与
+   `bundle keys not in source (unused): 0`。
+
 ---
 
 ## English
@@ -236,7 +266,7 @@ to call `vsce` without a global install:
 ```bash
 cd editors/vscode
 npm run package          # sync parser + package (recommended)
-code --install-extension sml-lang-0.4.2.vsix
+code --install-extension sml-lang-0.4.3.vsix
 ```
 
 One command to package and install (overwrites the old version): `npm run install-local`.

@@ -24,8 +24,19 @@ pub fn tok_word(t: &Tok) -> String {
 ///
 /// 支持语法（均不区分大小写，参数以空格分隔）：
 /// - `@feature base v3`              设定基线版本（等价于 `@version`，仅用于特性派生）
-/// - `@feature mode whitelist`       后续 enable 仅保留所列（基集先清空）
-/// - `@feature mode blacklist`       后续 disable 仅移除所列（基集保持全开）
+/// - `@feature mode whitelist`       后续 enable 仅保留所列（基集先**清空**）
+/// - `@feature mode blacklist`       后续 disable 仅移除所列（基集**全开**）
+///
+/// 不写 `@feature mode` 时基集 = **按版本派生**（`FeatureSet::for_version(v)`，即
+/// 版本基线并按 v2+ 关掉「裸词字符串」），`enable` / `disable` 在其上增减 ——
+/// 即「版本基集 + 我显式改的那几个」，**显式声明优先于版本规则**。
+/// 版本在 `features_for` 里才可知（`@version` 先被剥掉），故基集的版本部分在那里补。
+///
+/// ⚠️ 这里改过一次语义：旧实现不写 mode 时基集起算是 `FeatureSet::all()`，于是文档里
+/// 出现**任何**一行 `@feature`（哪怕只写 `@feature enable typed-block`）都会让**全部
+/// 16 个特性生效** —— `when` / `for` / `glob-include` 以及 opt-in 的
+/// `case-insensitive` 被顺手打开，与「enable X = 只开 X」的直觉相反。需要旧行为请显式
+/// 声明 `@feature mode blacklist`（保留为逃生舱，未删除）。
 /// - `@feature enable <name>[,...]`  开启特性（可逗号批量）
 /// - `@feature disable <name>[,...]` 关闭特性
 /// - `@feature whitelist <a,b>`      紧凑白名单
@@ -37,6 +48,7 @@ pub fn apply_feature_directive(
     feats: &mut FeatureSet,
     mode: &mut FeatureMode,
     base: &mut Option<Version>,
+    touched: &mut FeatureSet,
 ) -> Result<bool, SmlError> {
     let content = strip_line_comment(line).trim();
     let toks = match tokenize(content) {
@@ -101,9 +113,13 @@ pub fn apply_feature_directive(
                     ))
                 }
             };
-            if *mode == FeatureMode::Whitelist {
+            match *mode {
                 // 白名单：基集先清空，后续 enable 显式置位
-                *feats = FeatureSet::none();
+                FeatureMode::Whitelist => *feats = FeatureSet::none(),
+                // 黑名单：基集**全开**，后续 disable 才移除 —— 即旧的默认行为，
+                // 现在需要文档显式声明才会走到这里（保持向后可得）。
+                FeatureMode::Blacklist => *feats = FeatureSet::all(),
+                FeatureMode::Default => {}
             }
             Ok(true)
         }
@@ -123,6 +139,7 @@ pub fn apply_feature_directive(
                     )
                 })?;
                 *feats = feats.with(f);
+                *touched = touched.with(f);
             }
             Ok(true)
         }
@@ -138,6 +155,7 @@ pub fn apply_feature_directive(
                     )
                 })?;
                 *feats = feats.without(f);
+                *touched = touched.with(f);
             }
             Ok(true)
         }
@@ -160,6 +178,11 @@ pub fn apply_feature_directive(
             Ok(true)
         }
         "blacklist" => {
+            // 紧凑黑名单：语义上就是 blacklist 模式（基集全开、移除所列）。
+            // ⚠️ 必须显式置 mode：否则 `features_for` 会走 Default 分支、用版本规则
+            // 补回「裸词字符串」等项，把这里的 `without` 抵消掉（既有用例
+            // `feature::feature_blacklist_removes` 即钉这条）。
+            *mode = FeatureMode::Blacklist;
             let mut s = FeatureSet::all();
             for n in names(2) {
                 let f = Feature::from_name(&n).ok_or_else(|| {
@@ -223,20 +246,32 @@ fn blank_of(s: &str) -> String {
     " ".repeat(s.len())
 }
 
-pub fn strip_features(text: &str) -> Result<(String, FeatureSet, Option<Version>, bool), SmlError> {
+pub fn strip_features(
+    text: &str,
+) -> Result<(String, FeatureSet, FeatureSet, FeatureMode, Option<Version>, bool), SmlError> {
     let mut out = String::new();
     let spans = compute_string_spans(text);
-    let mut feats = FeatureSet::all();
+    // ⚠️ 基集 = **版本基线**（8 个核心特性），而不是「全开」。
+    // 旧实现这里起算是 `FeatureSet::all()`：于是文档里出现**任何**一行 `@feature`
+    // （哪怕只写 `@feature enable typed-block`），最终特性集都会变成「全部 16 个特性
+    // 全开」—— 连 `when` / `for` / `glob-include` 以及 opt-in 的 `case-insensitive`
+    // 都被顺手打开。这与「enable X = 只开 X」的直觉相反（`@feature` 是**开关**，
+    // 不是「顺便把其余都打开」的开关）。
+    // 需要旧行为（基集全开）时，文档可显式声明 `@feature mode blacklist`。
+    let mut feats = FeatureSet::baseline();
     let mut mode = FeatureMode::Default;
     let mut base: Option<Version> = None;
     let mut had_feature = false;
+    // 文档**显式**声明过（enable/disable 点过名）的特性。用于在 `features_for` 里把
+    // 「基集（按版本派生）」与「文档显式增减」区分开 —— 显式声明优先于版本规则。
+    let mut touched = FeatureSet::none();
 
     for (line_start, line_end) in line_spans(text) {
         let raw = &text[line_start..line_end];
         let line = trim_line_end(raw);
         // 多行字符串内的行（如 `note: "..."` 跨行）里的 `@feature` 不是指令，跳过以免破坏数据
         if !line_starts_in_string(text, line_start, &spans) {
-            match apply_feature_directive(line, &mut feats, &mut mode, &mut base) {
+            match apply_feature_directive(line, &mut feats, &mut mode, &mut base, &mut touched) {
                 Ok(true) => {
                     had_feature = true;
                     // ⚠️ **等长替换**：指令行换成同长度空格，行尾原样保留。
@@ -257,7 +292,7 @@ pub fn strip_features(text: &str) -> Result<(String, FeatureSet, Option<Version>
             out.push('\n');
         }
     }
-    Ok((out, feats, base, had_feature))
+    Ok((out, feats, touched, mode, base, had_feature))
 }
 
 
@@ -367,11 +402,33 @@ pub fn strip_version(text: &str) -> Result<(String, Option<Version>), SmlError> 
 /// - 否则（仅靠 `@version` 声明或默认），从版本基线派生（如 v3 关闭裸词字符串）。
 /// 这样 v3 文档即使不写任何 `@feature` 也默认严格；调用方的 `allowed` 在
 /// 入口处再与结果取交集，文档无法扩宽。
-pub fn features_for(v: Version, feats: FeatureSet, had_feature: bool) -> FeatureSet {
-    if had_feature {
-        feats
-    } else {
-        FeatureSet::for_version(v)
+pub fn features_for(
+    v: Version,
+    feats: FeatureSet,
+    touched: FeatureSet,
+    mode: FeatureMode,
+    had_feature: bool,
+) -> FeatureSet {
+    if !had_feature {
+        return FeatureSet::for_version(v);
+    }
+    match mode {
+        // 默认：**基集按版本派生**（`for_version(v)`）。`feats` 起算是 `baseline()`，
+        // 与版本基线的差异只有「裸词字符串」这一项，这里补上；文档显式声明过该项时
+        // 以文档为准（显式优先于版本规则）。
+        FeatureMode::Default => {
+            if touched.has(Feature::BarewordStr) {
+                return feats;
+            }
+            if v.strict_strings() {
+                feats.without(Feature::BarewordStr)
+            } else {
+                feats.with(Feature::BarewordStr)
+            }
+        }
+        // whitelist / blacklist：基集已在 `strip_features` 里按模式定好（清空 / 全开），
+        // 版本规则不参与 —— 保持这两个模式的既有语义不被改动。
+        FeatureMode::Whitelist | FeatureMode::Blacklist => feats,
     }
 }
 
@@ -383,7 +440,7 @@ mod tests {
     /// 走一遍完整入口：`strip_version` → `strip_features`。
     fn strip_all(text: &str) -> String {
         let (rest, _) = strip_version(text).unwrap();
-        let (rest, _, _, _) = strip_features(&rest).unwrap();
+        let (rest, _, _, _, _, _) = strip_features(&rest).unwrap();
         rest
     }
 

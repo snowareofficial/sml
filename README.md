@@ -310,10 +310,10 @@ let v = parse_file("app.sml")?;
 **怎么拿到**：
 
 - **VSCode**：在 `editors/vscode/` 里 `npm run package`，然后
-  `code --install-extension sml-lang-0.4.2.vsix`（或从 VSIX 手动安装）。
-  官网也托管了这个包：<https://sml.swebase.cn/dl/sml-lang-0.4.2.vsix>。
+  `code --install-extension sml-lang-0.4.3.vsix`（或从 VSIX 手动安装）。
+  官网也托管了这个包：<https://sml.swebase.cn/dl/sml-lang-0.4.3.vsix>。
   扩展**未上架市场**（上架流程繁琐，刻意暂缓）。
-  ⚠️ **0.4.2 是重新打包的**：修掉了「在 VS Code 1.13x 上扩展根本无法激活」的致命问题
+  ⚠️ **0.4.2 曾重新打包**：修掉了「在 VS Code 1.13x 上扩展根本无法激活」的致命问题
   （模块顶层读了新版宿主已移除的 `vscode.InsertTextFormat`，表现为悬浮 / 右键菜单全都没反应）。
   装完可用右键「SML: 自检」核对包内解析器指纹（`96110 B / c7a5054d…`）。
   **最近一次重打包还带上了**：include / **命名空间导航**（`as db` 别名与 `db.host` 引用的悬停与 F12）、

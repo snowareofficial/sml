@@ -1,0 +1,14 @@
+swsml (0.6.3) unstable; urgency=medium
+
+  * Initial Debian packaging, split by backend:
+    - libswsml0 / libswsml-dev      (Rust cdylib C-ABI)
+    - libswsml-cpp0 / libswsml-cpp-dev (C++17 RAII wrapper)
+  * SONAME libswsml.so.0 and libswsml_cpp.so.0 (single SONAME_MAJOR variable).
+  * pkg-config modules: swsml / swsml_cpp (deliberately not "sml", which
+    collides with the Debian SML smart-meter ecosystem).
+  .
+  NOTE: prototype for a future formal debhelper build. It has NOT been built
+  or verified on the author's machine; the working, validated path is
+  packaging/build_deb.sh (dpkg-deb --build).
+
+ -- SNOWARE <dev@mail.swebase.cn>  Wed, 14 Oct 2026 00:00:00 +0000

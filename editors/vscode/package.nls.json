@@ -1,0 +1,19 @@
+{
+  "sml.description": "SML 语言支持：语法高亮、错误提示、补全、悬浮说明与格式化",
+  "sml.reloadHighlight.title": "SML: 重载自定义高亮配置",
+  "sml.setHighlightMode.title": "SML: 设置高亮强度（全部 / 极简 / 关闭）",
+  "sml.createHighlightConfig.title": "SML: 创建 HL-cfg.sml 高亮配置",
+  "sml.specialHighlight.title": "SML: 特别高亮选中词（当前工作区）",
+  "sml.clearSpecialHighlight.title": "SML: 清除特别高亮",
+  "sml.applySpecialColor.title": "SML: 应用特殊颜色（写进 HL-cfg.sml，仅对语法单元生效）",
+  "sml.selectIconTheme.title": "SML: 文件图标主题（SML+Seti / 仅 .sml / 换回其他主题）",
+  "sml.selfCheck.title": "SML: 自检（悬浮 / 跳转 / 高亮没反应时先跑这个）",
+  "sml.iconThemes.smlIcons": "SML Icons（仅 .sml）",
+  "sml.iconThemes.smlIconsSeti": "SML Icons + Seti（其他文件沿用 Seti 图标）",
+  "sml.diagnostics.enabled.description": "编辑 .sml 文件时实时显示解析错误",
+  "sml.highlight.mode.description": "高亮强度：full=全部；minimal=只保留注释/字符串/数字；off=全部关闭",
+  "sml.highlight.configFile.description": "自定义高亮配置文件路径（相对工作区根目录），不存在时静默跳过",
+  "sml.specialHighlight.include.description": "「特别高亮」的搜索范围（glob；默认只搜 .sml，遵循 files.exclude）",
+  "sml.specialHighlight.caseSensitive.description": "「特别高亮」是否区分大小写",
+  "sml.specialHighlight.wholeWord.description": "「特别高亮」是否只匹配完整词（按 SML 标识符字符类判边界）"
+}

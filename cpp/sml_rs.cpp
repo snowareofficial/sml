@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MulanPSL-2.0
+// SML v3 桥接实现（Rust cdylib 后端，C++ 封装）。
+// 仓库：https://gitee.com/snoware/sml
+// @version 0.1.0 (swsml 0.6.3)
+
 /*
  * sml_rs.cpp — implementation of the sml_rs.hpp wrapper.
  *
@@ -8,36 +13,10 @@
 #include <cstring>
 #include <sstream>
 
-// Symbols exported by the Rust cdylib.
-extern "C" {
-    sml_value *sml_loads(const char *text, unsigned flags, sml_error *err);
-    sml_value *sml_load_file(const char *path, unsigned flags, sml_error *err);
-    void sml_free(sml_value *v);
-    int sml_typeof(const sml_value *v);
-    const sml_value *sml_get(const sml_value *v, const char *key);
-    const sml_value *sml_get_path(const sml_value *v, const char *dotted);
-    const sml_value *sml_at(const sml_value *v, std::size_t idx);
-    std::size_t sml_size(const sml_value *v);
-    std::size_t sml_str_copy(const sml_value *v, char *buf, std::size_t buflen);
-    char *sml_str_dup(const sml_value *v);
-    std::int64_t sml_int_value(const sml_value *v);
-    double sml_real_value(const sml_value *v);
-    int sml_bool_value(const sml_value *v);
-    char *sml_str_in(const sml_value *v, const char *path);
-    std::int64_t sml_int_in(const sml_value *v, const char *path, int *ok);
-    int sml_bool_in(const sml_value *v, const char *path, int *ok);
-    char *sml_dumps(const sml_value *v, unsigned flags);
-    void sml_free_str(char *p);
-    const char *sml_version(void);
-    unsigned sml_features_mask(void);
-    const char *sml_feature_name(unsigned bit);
-
-    // legacy JSON-string API
-    char *sml_parse(const char *text);
-    char *sml_parse_file(const char *path);
-    char *sml_parse_ex(const char *text, const char *opts_json);
-    char *sml_dump(const char *json);
-}
+// 这些 C-ABI 符号由 sml_rs.hpp → sml_rs.h 声明（extern "C" 包裹，类型以头文件为准），
+// 此处**不再重复声明**。曾在本文件用 std::int64_t 重复声明 sml_int_value / sml_int_in，
+// 在 LP64 平台（Linux：int64_t == long）与 sml_rs.h 的 long long 冲突 ⇒ 编译失败
+// （Windows/mingw：int64_t == long long 才未暴露）。删除冗余块，统一以头文件为准。
 
 namespace sml {
 namespace {

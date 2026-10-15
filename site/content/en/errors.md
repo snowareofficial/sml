@@ -17,6 +17,12 @@ Every class of SML error has a **stable, machine-readable code** such as `E-CONT
 differently (even in a different language) — the same code means the same condition. Match on
 codes, document on codes, report bugs with codes.
 
+> **Note on language:** the searchable table below is **maintained in Chinese** — its source of
+> truth, `errors/codes.sml`, is Chinese-authored. The **codes** themselves are the stable,
+> language-neutral contract: `E-CONTRACT-002` means the same thing in every implementation and
+> every language; only the human wording differs. So an English page showing Chinese titles /
+> notes here is expected — rely on the code, not the wording.
+
 > The authoritative source is [`errors/codes.sml`](https://gitee.com/snoware/sml/blob/master/errors/codes.sml)
 > in the repository; this table is generated from it by `python errors/gen_json.py`, so the page and
 > the code cite the same facts — there is no "documented here but missing in the code". There are

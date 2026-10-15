@@ -1,0 +1,46 @@
+Source: swsml
+Section: libs
+Priority: optional
+Maintainer: SNOWARE <dev@mail.swebase.cn>
+Homepage: https://sml.swebase.cn
+Build-Depends: debhelper-compat (= 13),
+               cargo,
+               rustc,
+               g++ (>= 9),
+               pkg-config
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+# 运行时分包：尾数字 = SONAME 主版本（0）。ABI 换代升为 libswsml1 可共存。
+Package: libswsml0
+Architecture: any
+Depends: ${misc:Depends}, ${shlibs:Depends}, libc6, libgcc-s1
+Multi-Arch: same
+Description: SML runtime library (Rust cdylib backend)
+ Shared library exposing the SML C-ABI (sml_* symbols) backed by the Rust crate
+ swsml. Provides the full v1..v4 feature set. SONAME libswsml.so.0.
+
+# C 开发包：只装 sml_rs.h（不装 sml.h / sml_codes.h —— 属纯 C 后端，另包）。
+Package: libswsml-dev
+Architecture: any
+Depends: libswsml0 (= ${binary:Version}), ${misc:Depends}
+Multi-Arch: same
+Description: SML C-ABI development files (Rust cdylib backend)
+ Headers and pkg-config for linking against libswsml. Installs only sml_rs.h;
+ the pure-C backend header sml.h is a separate package.
+
+Package: libswsml-cpp0
+Architecture: any
+Depends: libswsml0 (= ${binary:Version}), ${misc:Depends}, ${shlibs:Depends}, libstdc++6
+Multi-Arch: same
+Description: SML C++ wrapper runtime (RAII Value/Ref over the C-ABI)
+ C++17 shared library wrapping the SML C-ABI (libswsml) with RAII Value /
+ non-owning Ref. SONAME libswsml_cpp.so.0.
+
+Package: libswsml-cpp-dev
+Architecture: any
+Depends: libswsml-cpp0 (= ${binary:Version}), libswsml-dev (= ${binary:Version}), ${misc:Depends}
+Multi-Arch: same
+Description: SML C++ RAII wrapper development files
+ Header and pkg-config for the C++ wrapper (libswsml_cpp). Installs sml_rs.hpp;
+ compile your own translation unit, link with -lswsml_cpp.

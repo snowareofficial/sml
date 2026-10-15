@@ -1,6 +1,8 @@
 [package]
 name = "sml-feature"
-version = "0.1.0-alpha.2"
+# 0.1.0-alpha.3：Version / FeatureSet::for_version 支持 v1..v4 版本基线
+# （v2+ 关闭 bareword-string；v4 与 v3 基集相同）。
+version = "0.1.0-alpha.3"
 edition = "2021"
 description = "SML 版本与特性系统（纯数据层）：Version、Feature/FeatureSet 及名字注册表。"
 license = "MulanPSL-2.0"

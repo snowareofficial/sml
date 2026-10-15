@@ -1,12 +1,21 @@
+// SPDX-License-Identifier: MulanPSL-2.0
+// SML v1..v4 桥接头文件（Rust cdylib 后端，C++ 封装）。
+// 仓库：https://gitee.com/snoware/sml
+// @file sml_rs.hpp
+// @brief SML v1..v4 C++ 桥接封装：经 Rust cdylib 获得 v1..v4 全集能力。
+// @version 0.1.0 (swsml 0.6.3)
+
 /*
- * sml_rs.hpp — C++17 wrapper around the SML v3 Rust cdylib backend (sml_rs.h).
+ * sml_rs.hpp — C++17 wrapper around the SML v1..v4 Rust cdylib backend (sml_rs.h).
  *
  * Complements sml.hpp (the pure C++ native implementation): this header does
  * NOT implement a parser, it bridges the `swsml` Rust crate's cdylib to gain
- * the full v3 feature set ($env inlining / glob-include / @feature / @contract).
+ * the full v1..v4 feature set ($env inlining / glob-include / @feature / @contract).
  *
- * Build (Windows / msys64 ucrt64):
- *   g++ -std=c++17 example_rs.cpp sml_rs.cpp -L<<target-dir>>/release -lsml -o example_rs
+ * Build (installed, via pkg-config — library names follow the Debian packages):
+ *   g++ -std=c++17 example_rs.cpp sml_rs.cpp $(pkg-config --cflags --libs sml) -o example_rs
+ * Build (in-repo, before installing):
+ *   g++ -std=c++17 example_rs.cpp sml_rs.cpp -I../c -L../../target/release -lsml -o example_rs
  *
  * Ownership model (mirrors the C API):
  *   Value   owns a root node; freed automatically on destruction.
@@ -23,7 +32,12 @@
 #include <vector>
 
 // Pull in the C declarations (sml_value, sml_error, SML_F_* flags, ...).
-#include "../c/sml_rs.h"
+// 双轨 include：安装布局（deb）走 <sml/sml_rs.h>，仓库内构建退回相对路径。
+#if __has_include(<sml/sml_rs.h>)
+#include <sml/sml_rs.h>      /* 安装布局（deb） */
+#else
+#include "../c/sml_rs.h"     /* 仓库内构建 */
+#endif
 
 namespace sml {
 

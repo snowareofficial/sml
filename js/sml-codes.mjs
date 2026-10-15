@@ -52,6 +52,8 @@ export const E_CONTRACT_015 = "E-CONTRACT-015";
 export const E_CONTRACT_016 = "E-CONTRACT-016";
 /// [E-CONTRACT-017] 契约叠加未实现：该实现暂不支持一个块应用多份契约；请拆分成单契约或等待
 export const E_CONTRACT_017 = "E-CONTRACT-017";
+/// [E-CONTRACT-018] 契约 @requires 无法满足：契约声明的 @requires 特性无法满足，契约无法定义或应用
+export const E_CONTRACT_018 = "E-CONTRACT-018";
 /// [E-DERIVE-001] 值与目标类型不符：SML 值的类型与目标宿主类型不符
 export const E_DERIVE_001 = "E-DERIVE-001";
 /// [E-DERIVE-002] 数值超出目标类型范围：数值超出目标宿主类型的取值范围
@@ -98,7 +100,7 @@ export const E_FEATURE_001 = "E-FEATURE-001";
 export const E_FEATURE_002 = "E-FEATURE-002";
 /// [E-FEATURE-003] 未知特性名：未知特性名
 export const E_FEATURE_003 = "E-FEATURE-003";
-/// [E-FEATURE-004] 版本声明非法：不支持的版本声明，或版本声明互相冲突
+/// [E-FEATURE-004] 版本声明非法：不支持的版本声明，或版本声明互相冲突；当前支持 v1..v4
 export const E_FEATURE_004 = "E-FEATURE-004";
 /// [E-FEATURE-005] 裸词必须加引号：字符串必须加引号：当前特性集禁用了裸词字符串
 export const E_FEATURE_005 = "E-FEATURE-005";
@@ -316,6 +318,7 @@ export const ALL = Object.freeze([
   E_CONTRACT_015,
   E_CONTRACT_016,
   E_CONTRACT_017,
+  E_CONTRACT_018,
   E_DERIVE_001,
   E_DERIVE_002,
   E_DERIVE_003,
@@ -436,4 +439,4 @@ export const ALL = Object.freeze([
   W_LINT_005,
 ]);
 
-export const COUNT = 143;
+export const COUNT = 144;

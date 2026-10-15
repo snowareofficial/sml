@@ -11,7 +11,7 @@ name = "smltools"
 # 不再静默丢第二个文件）、错误码不再按文案猜、clap 用法错误带 `E-CLI-008`。
 # ⚠️ 凡改动 `swsml = { version = ... }` 的**版本要求**，必须与 `rust/Cargo.toml` 的
 #    swsml 版本同步，否则 crates.io 会解析到旧版（那份 emit 仍返回 `String`），本仓编译失败。
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "(EXPERIMENTAL) SML command-line toolbox: migrate JSON/YAML into SML (--from), strip SML-only features for lossless interchange (--strip), lint documents, and translate SML into slint/lvgl/json/xml/svg/latex/markdown/html/hugo."
 license = "MulanPSL-2.0"
@@ -38,7 +38,7 @@ path = "src/main.rs"
 # 都引用这里的**常量**而不是手写字面量，避免打错一位数字。见 errors/README.md。
 sml-codes = { version = "0.1.0-alpha.1", path = "../sml-codes" }
 # 复用 swsml 的解析器与 sml::emit::* 翻译后端，自身不重复实现。
-swsml = { version = "0.6.2", path = "../", features = [
+swsml = { version = "0.6.3", path = "../", features = [
     "sml",
     "emit-markdown",
     "emit-slint",

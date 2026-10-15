@@ -511,6 +511,17 @@ local function parse_contract_body(tokens, i, fragments)
       i = i + 1
       break
     end
+    -- —— 契约体里的 `@requires`：本端暂未实现，必须**响亮拒绝** ——
+    -- 参照 E-CONTRACT-017（契约叠加未实现）的既有先例：绝不静默忽略、绝不静默给树。
+    -- 改前 `@` 落到下面的 STRUCT_CHARS 分支，抛的是 E-PARSE-006「契约字段期望键」——
+    -- 响亮是响亮了，但码不对、也没说清「这条指令本端不支持」这个真实原因。
+    if tok == "@" then
+      local dn = tokens[i + 1]
+      if dn == "requires" then
+        fail("E-CONTRACT-018", "sml: 本实现暂不支持契约的 `@requires` 指令（它要求先开启所列特性）")
+      end
+      fail("E-PARSE-005", "sml: 契约体内不支持指令 `@" .. (dn or "") .. "`（契约体仅支持 `@requires`）")
+    end
     if tok == "," then
       i = i + 1
     elseif STRUCT_CHARS[tok] then

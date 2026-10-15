@@ -155,7 +155,7 @@ fn same_line_key_value_not_swallowed() {
 #[test]
 fn block_level_multi_contract() {
     let v = ok(
-        "@feature enable typed-block\n\
+        "@feature enable typed-block\n@feature enable block-name\n\
          @contract Conta { a: int default 1 }\n\
          @contract Contb { b: int default 2 }\n\
          Conta Contb item { }",
@@ -170,7 +170,7 @@ fn block_level_multi_contract() {
 #[test]
 fn block_level_single_contract_unchanged() {
     let v = ok(
-        "@feature enable typed-block\n\
+        "@feature enable typed-block\n@feature enable block-name\n\
          @contract Server { host: str }\n\
          Server web prod { host: h }",
     );
@@ -181,6 +181,7 @@ fn block_level_single_contract_unchanged() {
     );
     assert_eq!(v.get("Server.host"), Some(&sml::Value::Str("h".into())));
     // 首词根本不是契约 ⇒ 纯裸块元数据，更不变
+    // `server web prod { }` 首词未命中契约表 ⇒ 普通裸块，无需 block-name（回归红线）
     let v = ok("@feature enable typed-block\nserver web prod { a: 1 }");
     assert_eq!(v.get("server.__name"), Some(&sml::Value::Str("web".into())));
     assert_eq!(v.get("server.a"), Some(&sml::Value::Int(1)));
@@ -201,7 +202,7 @@ fn contract_map_lists_all_names() {
 
     // 块级形式同样记录
     let out = parse_with(
-        "@feature enable typed-block\n\
+        "@feature enable typed-block\n@feature enable block-name\n\
          @contract Conta { a: int default 1 }\n\
          @contract Contb { b: int default 2 }\n\
          Conta Contb item { }",

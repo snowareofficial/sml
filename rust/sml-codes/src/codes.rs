@@ -58,6 +58,8 @@ pub const E_CONTRACT_015: &str = "E-CONTRACT-015";
 pub const E_CONTRACT_016: &str = "E-CONTRACT-016";
 /// [E-CONTRACT-017] 契约叠加未实现：该实现暂不支持一个块应用多份契约；请拆分成单契约或等待
 pub const E_CONTRACT_017: &str = "E-CONTRACT-017";
+/// [E-CONTRACT-018] 契约 @requires 无法满足：契约声明的 @requires 特性无法满足，契约无法定义或应用
+pub const E_CONTRACT_018: &str = "E-CONTRACT-018";
 /// [E-DERIVE-001] 值与目标类型不符：SML 值的类型与目标宿主类型不符
 pub const E_DERIVE_001: &str = "E-DERIVE-001";
 /// [E-DERIVE-002] 数值超出目标类型范围：数值超出目标宿主类型的取值范围
@@ -104,7 +106,7 @@ pub const E_FEATURE_001: &str = "E-FEATURE-001";
 pub const E_FEATURE_002: &str = "E-FEATURE-002";
 /// [E-FEATURE-003] 未知特性名：未知特性名
 pub const E_FEATURE_003: &str = "E-FEATURE-003";
-/// [E-FEATURE-004] 版本声明非法：不支持的版本声明，或版本声明互相冲突
+/// [E-FEATURE-004] 版本声明非法：不支持的版本声明，或版本声明互相冲突；当前支持 v1..v4
 pub const E_FEATURE_004: &str = "E-FEATURE-004";
 /// [E-FEATURE-005] 裸词必须加引号：字符串必须加引号：当前特性集禁用了裸词字符串
 pub const E_FEATURE_005: &str = "E-FEATURE-005";
@@ -322,6 +324,7 @@ pub const ALL: &[&str] = &[
     E_CONTRACT_015,
     E_CONTRACT_016,
     E_CONTRACT_017,
+    E_CONTRACT_018,
     E_DERIVE_001,
     E_DERIVE_002,
     E_DERIVE_003,
@@ -443,4 +446,4 @@ pub const ALL: &[&str] = &[
 ];
 
 /// 码总数（与 `errors/codes.sml` 的 `count` 对齐）。
-pub const COUNT: usize = 143;
+pub const COUNT: usize = 144;

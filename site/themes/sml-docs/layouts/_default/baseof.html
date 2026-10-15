@@ -81,6 +81,16 @@
     nav a { color: var(--accent); text-decoration: none; font-size: 14px; }
     nav a:hover { text-decoration: underline; }
     nav .home { color: var(--fg); font-weight: 600; }
+    /* 顶栏 / 导航里的内联 SVG 图标：跟随文字颜色 */
+    .pill svg, .nav-search svg { vertical-align: -2px; flex: none; }
+    /* 导航里的下拉（本页目录 / 章节）：复用 .menu 面板，向左对齐 */
+    nav .menu-trigger { background: none; border: none; padding: 0; color: var(--accent); font-size: 14px; font-family: inherit; cursor: pointer; }
+    nav .menu-trigger:hover { text-decoration: underline; }
+    nav .menu-panel { right: auto; left: 0; min-width: 160px; max-height: 70vh; overflow: auto; }
+    /* 导航搜索框：Enter 跳到搜索页并带出结果（?q=） */
+    nav .nav-search { margin-left: auto; display: flex; align-items: center; gap: 6px; color: var(--fg-dim); }
+    nav .nav-search input { width: 170px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 13px; font-family: inherit; }
+    nav .nav-search input:focus { outline: none; border-color: var(--accent); }
     main { max-width: 880px; margin: 24px auto; padding: 0 24px; }
     h2 { scroll-margin-top: 56px; }
     article { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 10px; padding: 24px 32px; box-shadow: var(--shadow); }
@@ -130,12 +140,12 @@
     <img src="{{ "sml.svg" | relURL }}" alt="sml" style="width:34px;height:34px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))">
     <h1><a href="{{ .Site.Home.RelPermalink }}">SML { ❄ }</a></h1>
     <span class="actions">
-      {{/* VSIX 下载：放在语言切换左边，便于编辑器用户一步取用 */}}
-      {{/* 同 logo：dl/ 在站点根，不属于任何语言，故用 relURL 而非 Home.RelPermalink */}}
-      <a class="pill" href="{{ "dl/sml-lang-0.4.2.vsix" | relURL }}" title="{{ if $isEn }}Download the VS Code extension (.vsix){{ else }}下载 VS Code 扩展（.vsix）{{ end }}">⬇ VSIX</a>
+      {{/* 顶栏「下载页」：指向下载页（VSIX 与多语言源码包都在那里），便于一步到达 */}}
+      {{/* 同 logo：站内语言页用 Home.RelPermalink 拼，避免英文站落到中文页 */}}
+      <a class="pill" href="{{ .Site.Home.RelPermalink }}downloads/" title="{{ if $isEn }}Go to the downloads page{{ else }}前往下载页{{ end }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> {{ if $isEn }}Downloads{{ else }}下载页{{ end }}</a>
       {{/* 联系我们：两个渠道（QQ 群 / 邮箱） */}}
       <span class="menu" id="contact-menu">
-        <button class="pill" id="contact-btn" aria-haspopup="true" aria-expanded="false">{{ if $isEn }}Contact{{ else }}联系我们{{ end }}</button>
+        <button class="pill" id="contact-btn" aria-haspopup="true" aria-expanded="false"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="22,6 12,13 2,6"/></svg> {{ if $isEn }}Contact{{ else }}联系我们{{ end }}</button>
         <span class="menu-panel">
           {{ if $isEn }}
             <span class="hint">Questions, bug reports, or just to say hi:</span>
@@ -146,53 +156,72 @@
           <a href="mailto:dev@mail.swebase.cn">dev@mail.swebase.cn</a>
         </span>
       </span>
+      {{/* 语言切换：优先跳到**当前页**的对应语言版本（Hugo 按 translationKey /
+           同路径配对 .AllTranslations）；当前页没有对应译文时退回该语言首页 */}}
+      {{ $cur := . }}
       {{ range .Site.Languages }}
-        <a class="pill {{ if eq .Lang (cond $isEn "en" "zh") }}active{{ end }}" href="{{ if eq .Lang "zh" }}/{{ else }}/{{ .Lang }}/{{ end }}">{{ .Label }}</a>
+        {{ $lang := .Lang }}
+        {{ $url := "" }}
+        {{ range $cur.AllTranslations }}{{ if eq .Language.Lang $lang }}{{ $url = .RelPermalink }}{{ end }}{{ end }}
+        {{ if eq $url "" }}{{ range $cur.Site.Home.AllTranslations }}{{ if eq .Language.Lang $lang }}{{ $url = .RelPermalink }}{{ end }}{{ end }}{{ end }}
+        <a class="pill {{ if eq .Lang (cond $isEn "en" "zh") }}active{{ end }}" href="{{ $url }}">{{ .Label }}</a>
       {{ end }}
       <button class="pill icon-btn" id="theme-toggle" title="{{ if $isEn }}Toggle theme{{ else }}切换亮/暗主题{{ end }}">🌙</button>
     </span>
   </header>
+  {{/* 导航保持一行放得下：章节/本页小节收进下拉；搜索做成输入框（Enter 带 ?q= 跳搜索页） */}}
+  {{ $home := .Site.Home }}
   <nav>
-    <a class="home" href="{{ .Site.Home.RelPermalink }}">SML</a>
+    <a class="home" href="{{ $home.RelPermalink }}">SML</a>
+    <a href="{{ $home.RelPermalink }}book/">{{ if $isEn }}Textbook{{ else }}教科书{{ end }}</a>
     {{ if $isEn }}
-      <a href="{{ .Site.Home.RelPermalink }}book/">Textbook</a>
-      <a href="{{ .Site.Home.RelPermalink }}playground/">Playground</a>
-      <a href="{{ .Site.Home.RelPermalink }}gitee/">Gitee</a>
+      <a href="{{ $home.RelPermalink }}playground/">Playground</a>
+      <a href="{{ $home.RelPermalink }}gitee/">Gitee</a>
     {{ else if eq .Section "book" }}
-      <a href="{{ .Site.Home.RelPermalink }}book/">教科书</a>
-      <a href="{{ .Site.Home.RelPermalink }}book/intro">序章</a>
-      <a href="{{ .Site.Home.RelPermalink }}book/ch01-basics">1.基础</a>
-      <a href="{{ .Site.Home.RelPermalink }}book/ch02-blocks">2.块</a>
-      <a href="{{ .Site.Home.RelPermalink }}book/ch03-fragments">3.片段</a>
-      <a href="{{ .Site.Home.RelPermalink }}book/ch04-include">4.include</a>
-      <a href="{{ .Site.Home.RelPermalink }}book/ch05-contract">5.契约</a>
-      <a href="{{ .Site.Home.RelPermalink }}book/ch06-env-escape">6.环境</a>
-      <a href="{{ .Site.Home.RelPermalink }}book/ch07-languages">7.语言</a>
-      <a href="{{ .Site.Home.RelPermalink }}book/ch08-project">8.实战</a>
-      <a href="{{ .Site.Home.RelPermalink }}book/ch09-advanced">9.组合</a>
-      <a href="{{ .Site.Home.RelPermalink }}book/ch10-features">10.feature</a>
-      <a href="{{ .Site.Home.RelPermalink }}book/ch11-challenges">11.挑战</a>
-      <a href="{{ .Site.Home.RelPermalink }}book/ch12-smltools">12.smltools</a>
-      <a href="{{ .Site.Home.RelPermalink }}book/ch13-extension">13.扩展</a>
-      <a href="{{ .Site.Home.RelPermalink }}book/appendix">附录</a>
+      <span class="menu">
+        <button class="menu-trigger" aria-haspopup="true" aria-expanded="false">章节目录 ▾</button>
+        <span class="menu-panel">
+          <a href="{{ $home.RelPermalink }}book/intro">序章 · 为什么是 SML</a>
+          <a href="{{ $home.RelPermalink }}book/ch01-basics">第 1 章 · 第一个 SML 文件</a>
+          <a href="{{ $home.RelPermalink }}book/ch02-blocks">第 2 章 · 块与嵌套</a>
+          <a href="{{ $home.RelPermalink }}book/ch03-fragments">第 3 章 · 片段继承</a>
+          <a href="{{ $home.RelPermalink }}book/ch04-include">第 4 章 · include 与命名空间</a>
+          <a href="{{ $home.RelPermalink }}book/ch05-contract">第 5 章 · 契约系统</a>
+          <a href="{{ $home.RelPermalink }}book/ch06-env-escape">第 6 章 · 环境变量与转义</a>
+          <a href="{{ $home.RelPermalink }}book/ch07-languages">第 7 章 · 多语言使用</a>
+          <a href="{{ $home.RelPermalink }}book/ch08-project">第 8 章 · 实战项目</a>
+          <a href="{{ $home.RelPermalink }}book/ch09-advanced">第 9 章 · 功能组合与设计模式</a>
+          <a href="{{ $home.RelPermalink }}book/ch10-features">第 10 章 · feature 完整参考</a>
+          <a href="{{ $home.RelPermalink }}book/ch11-challenges">第 11 章 · 实战翻译挑战</a>
+          <a href="{{ $home.RelPermalink }}book/ch12-smltools">第 12 章 · smltools</a>
+          <a href="{{ $home.RelPermalink }}book/ch13-extension">第 13 章 · 外置扩展</a>
+          <a href="{{ $home.RelPermalink }}book/appendix">附录 · 对照与排查</a>
+        </span>
+      </span>
     {{ else }}
-      <a href="{{ .Site.Home.RelPermalink }}book/">教科书</a>
-      {{ with .Site.GetPage "/" }}
-      <a href="#特性一览">特性一览</a>
-      <a href="#多语言实现对照">多语言实现对照</a>
-      <a href="#快速使用">快速使用</a>
-      <a href="#契约系统contract">契约系统</a>
-      <a href="#进阶特性">进阶特性</a>
-      <a href="#落地应用">落地应用</a>
-      <a href="#完整示例">完整示例</a>
-      <a href="#本地-playground">Playground</a>
-      <a href="{{ .Site.Home.RelPermalink }}gitee/">Gitee 动态</a>
-      {{ end }}
+      <a href="{{ $home.RelPermalink }}playground/">Playground</a>
+      <span class="menu">
+        <button class="menu-trigger" aria-haspopup="true" aria-expanded="false">本页目录 ▾</button>
+        <span class="menu-panel">
+          {{/* 锚点拼首页绝对路径：本下拉在所有 zh 非教科书页可见，裸 # 锚点只在首页生效 */}}
+          <a href="{{ $home.RelPermalink }}#特性一览">特性一览</a>
+          <a href="{{ $home.RelPermalink }}#多语言实现对照">多语言实现对照</a>
+          <a href="{{ $home.RelPermalink }}#快速使用">快速使用</a>
+          <a href="{{ $home.RelPermalink }}#契约系统contract">契约系统</a>
+          <a href="{{ $home.RelPermalink }}#进阶特性">进阶特性</a>
+          <a href="{{ $home.RelPermalink }}#落地应用">落地应用</a>
+          <a href="{{ $home.RelPermalink }}#完整示例">完整示例</a>
+        </span>
+      </span>
+      <a href="{{ $home.RelPermalink }}gitee/">Gitee 动态</a>
     {{ end }}
-    {{/* 搜索与错误码对**所有**页面都可见，故放在 if/else 之外；
-         用 .Site.Home.RelPermalink 拼路径，中英文各自落在 /search/ 与 /en/search/。 */}}
-    <a href="{{ .Site.Home.RelPermalink }}search/">{{ if $isEn }}Search{{ else }}搜索{{ end }}</a>
-    <a href="{{ .Site.Home.RelPermalink }}errors/">{{ if $isEn }}Error codes{{ else }}错误码{{ end }}</a>
+    {{/* 搜索框对**所有**页面可见：Enter 以 ?q= 跳到 /search/（或 /en/search/），
+         搜索页读取查询串直接出结果（见 site-tools.js initTextbookSearch）。 */}}
+    <form class="nav-search" action="{{ $home.RelPermalink }}search/" method="get" role="search">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="search" name="q" maxlength="80" placeholder="{{ if $isEn }}Search…{{ else }}搜索…{{ end }}" aria-label="{{ if $isEn }}Search the textbook{{ else }}搜索教科书{{ end }}">
+    </form>
+    <a href="{{ $home.RelPermalink }}errors/">{{ if $isEn }}Error codes{{ else }}错误码{{ end }}</a>
   </nav>
   <main>
     {{ block "main" . }}{{ end }}
@@ -219,18 +248,24 @@
         sync();
       });
     })();
-    // 「联系我们」下拉：点击开合，点空白处或按 Esc 关闭
+    // 下拉菜单（联系我们 / 本页目录 / 章节目录）：点击开合，点空白处或按 Esc 关闭。
+    // 泛化为 .menu > button：新增下拉无需再接线。
     (function () {
-      var menu = document.getElementById("contact-menu");
-      var btn = document.getElementById("contact-btn");
-      function close() { menu.classList.remove("open"); btn.setAttribute("aria-expanded", "false"); }
-      btn.addEventListener("click", function (e) {
-        e.stopPropagation();
-        var open = menu.classList.toggle("open");
-        btn.setAttribute("aria-expanded", open ? "true" : "false");
+      function closeAll() {
+        document.querySelectorAll(".menu.open").forEach(function (m) { m.classList.remove("open"); });
+        document.querySelectorAll(".menu > button[aria-expanded]").forEach(function (b) { b.setAttribute("aria-expanded", "false"); });
+      }
+      document.querySelectorAll(".menu > button").forEach(function (btn) {
+        btn.addEventListener("click", function (e) {
+          e.stopPropagation();
+          var menu = btn.parentElement;
+          var wasOpen = menu.classList.contains("open");
+          closeAll();
+          if (!wasOpen) { menu.classList.add("open"); btn.setAttribute("aria-expanded", "true"); }
+        });
       });
-      document.addEventListener("click", close);
-      document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
+      document.addEventListener("click", closeAll);
+      document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeAll(); });
     })();
   </script>
   {{/* 搜索与错误码查询：零依赖，按「容器是否存在」自启用。

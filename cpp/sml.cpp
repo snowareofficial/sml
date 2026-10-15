@@ -1012,7 +1012,10 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
             if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::LBrace) {
                 st.i++; // consume {
                 bool closed = false;
-                while (st.i < st.toks.size() && st.toks[st.i].t != Token::T::RBrace) {
+                /* 加 `&& !st.aborted`：下面遇到 `@requires` 等不支持的指令时会就地把光标
+                   停在 `@` 上并中止（不再前进），外层若无此判据就会原地打转 —— 同一份输入
+                   挂死而不是报错，比改前的「静默吞掉」更糟。 */
+                while (st.i < st.toks.size() && st.toks[st.i].t != Token::T::RBrace && !st.aborted) {
                     // each field is "name: Type mods..." until next field (newline not tokenized)
                     // We collect tokens until we see a Word followed by Colon that starts a new field,
                     // OR until RBrace. Simpler: accumulate raw token strings until next 'name:' pattern.
@@ -1020,6 +1023,33 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                     while (st.i < st.toks.size()) {
                         auto& ft = st.toks[st.i];
                         if (ft.t == Token::T::RBrace) break;
+                        /* —— 契约体里的 `@requires`：本端暂未实现，必须**响亮拒绝** ——
+                           参照 E-CONTRACT-017（契约叠加未实现）的既有先例。
+                           ⚠️ 改前 At 会被拼进 fieldbuf，`parse_field` 拿 "@" 当字段名、
+                           其余当类型串交给 `parse_type`，而后者的兜底分支对**任何**未知串
+                           都返回 ContractRef —— 于是契约里多出一个垃圾字段且**全程无错**。
+                           故必须在此拦截，并同时写 err 与 aborted（只写 err 仍会继续建树）。 */
+                        if (ft.t == Token::T::At) {
+                            /* 本词法器没有独立的 Str token：引号串以 **Word（含两侧引号）**
+                               的形态出现（见 tokenize 的 `Token::T::Word, "\"" + buf + "\""`），
+                               故比较前要把两侧引号剥掉，免得 `@"requires"` 漏判。 */
+                            std::string dname;
+                            if (st.i + 1 < st.toks.size() && st.toks[st.i + 1].t == Token::T::Word) {
+                                dname = st.toks[st.i + 1].s;
+                                if (dname.size() >= 2 && dname.front() == '"' && dname.back() == '"')
+                                    dname = dname.substr(1, dname.size() - 2);
+                            }
+                            if (st.err && st.err->empty()) {
+                                if (dname == "requires")
+                                    *st.err = code_prefix(SML_E_CONTRACT_018,
+                                        "sml: 本实现暂不支持契约的 `@requires` 指令（它要求先开启所列特性）");
+                                else
+                                    *st.err = code_prefix(SML_E_PARSE_005,
+                                        "sml: 契约体内不支持指令 `@" + dname + "`（契约体仅支持 `@requires`）");
+                            }
+                            st.aborted = true;
+                            break;
+                        }
                         // new field detection: Word ':' where previous was not part of type
                         // Use heuristic: a Word immediately followed by Colon and not inside [ ]
                         if (ft.t == Token::T::Word && st.i+1 < st.toks.size() &&

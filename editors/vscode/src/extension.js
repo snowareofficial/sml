@@ -15,6 +15,18 @@ const path = require("path");
 const fs = require("fs");
 
 // ---------------------------------------------------------------------------
+// 运行时 i18n：用 vscode.l10n.t 把面向用户的字符串本地化。
+// 约定：中文为源语言（默认），英文翻译见 l10n/bundle.l10n.en.json。
+// vscode.l10n 自 1.80 起内置；旧版本或 bundle 未加载时回退为原文（并支持 {0} 参数替换），
+// 因此即使没有英文包，中文用户看到的也和以前完全一致。
+const L = vscode.l10n && typeof vscode.l10n.t === "function"
+  ? vscode.l10n.t.bind(vscode.l10n)
+  : (message, ...args) =>
+      args.length
+        ? String(message).replace(/\{(\d+)\}/g, (_, i) => (args[Number(i)] ?? "").toString())
+        : message;
+
+// ---------------------------------------------------------------------------
 // ⚠️ 顶层访问 vscode API 的安全护栏 —— 别删这段注释，它标的是一个致命坑
 // ---------------------------------------------------------------------------
 // **顶层绝不能直接读枚举成员。** VS Code 会**移除**枚举：本机 VS Code **1.138.0** 的扩展宿主里
@@ -84,18 +96,16 @@ const DIRECTIVES = [
   {
     label: "@version v1",
     kind: CK("Keyword", 0),
-    detail: "版本声明",
-    documentation: "声明文档遵循的 SML 语法版本，须写在文档开头。",
+    detail: L("版本声明"),
+    documentation: L("声明文档遵循的 SML 语法版本，须写在文档开头。"),
     insertText: "@version v1",
   },
   {
     label: "@contract",
     kind: CK("Keyword", 0),
-    detail: "契约定义",
+    detail: L("契约定义"),
     documentation: new vscode.MarkdownString(
-      "定义契约（schema），为块提供字段类型、枚举、默认值、区间约束。\n\n" +
-        "```sml\n@contract Server {\n    host: str\n    port: int default 5432\n}\n```\n\n" +
-        "契约定义本身不进解析结果。需要 `loose` 才允许未声明字段。"
+      L("定义契约（schema），为块提供字段类型、枚举、默认值、区间约束。\n\n```sml\n@contract Server {\n    host: str\n    port: int default 5432\n}\n```\n\n契约定义本身不进解析结果。需要 `loose` 才允许未声明字段。")
     ),
     insertText: "@contract ${1:Name} {\n\t$0\n}",
     insertTextFormat: INSERT_SNIPPET,
@@ -103,10 +113,9 @@ const DIRECTIVES = [
   {
     label: "@is",
     kind: CK("Keyword", 0),
-    detail: "应用契约",
+    detail: L("应用契约"),
     documentation: new vscode.MarkdownString(
-      "在当前块应用契约：校验字段类型/枚举/区间，并填充缺失字段的默认值。\n\n" +
-        "契约须在 `@is` 之前定义。\n\n```sml\ndb {\n    @is Server\n    host: db1.internal\n}\n```"
+      L("在当前块应用契约：校验字段类型/枚举/区间，并填充缺失字段的默认值。\n\n契约须在 `@is` 之前定义。\n\n```sml\ndb {\n    @is Server\n    host: db1.internal\n}\n```")
     ),
     insertText: "@is ${1:Name}",
     insertTextFormat: INSERT_SNIPPET,
@@ -114,20 +123,17 @@ const DIRECTIVES = [
   {
     label: "include",
     kind: CK("Keyword", 0),
-    detail: "引入外部文件",
-    documentation: "把外部 .sml 文件内联进来。相对路径按**被包含文件自身所在目录**解析。",
+    detail: L("引入外部文件"),
+    documentation: L("把外部 .sml 文件内联进来。相对路径按**被包含文件自身所在目录**解析。"),
     insertText: 'include "${1:path}"',
     insertTextFormat: INSERT_SNIPPET,
   },
   {
     label: "import (部分引用)",
     kind: CK("Keyword", 0),
-    detail: "只挑指定顶层键并入，避免整文件 copy",
+    detail: L("只挑指定顶层键并入，避免整文件 copy"),
     documentation: new vscode.MarkdownString(
-      "部分引用：只从目标文件挑出指定顶层键并入当前作用域（不引入其余键）。\n\n" +
-        "```sml\nimport \"widgets.sml\" { login, search }\n```\n" +
-        "配合 `as ns` 挂到命名空间隔离：\n" +
-        "```sml\nimport { login } as w in \"widgets.sml\"\n```"
+      L("部分引用：只从目标文件挑出指定顶层键并入当前作用域（不引入其余键）。\n\n```sml\nimport \"widgets.sml\" { login, search }\n```\n配合 `as ns` 挂到命名空间隔离：\n```sml\nimport { login } as w in \"widgets.sml\"\n```")
     ),
     insertText: 'import "${1:path}" { ${2:key1}, ${3:key2} }',
     insertTextFormat: INSERT_SNIPPET,
@@ -135,69 +141,69 @@ const DIRECTIVES = [
 ];
 
 const CONTRACT_TYPES = [
-  { label: "str", detail: "字符串" },
-  { label: "int", detail: "整数" },
-  { label: "num", detail: "数值（整数或浮点）" },
-  { label: "bool", detail: "布尔（true / false）" },
-  { label: "any", detail: "任意类型" },
-  { label: "[str]", detail: "字符串数组" },
-  { label: "[int]", detail: "整数数组" },
-  { label: "enum [ ]", detail: "枚举：取值须来自给定列表" },
-].map((t) => ({
-  label: t.label,
+  { label: "str", detail: L("字符串") },
+  { label: "int", detail: L("整数") },
+  { label: "num", detail: L("数值（整数或浮点）") },
+  { label: "bool", detail: L("布尔（true / false）") },
+  { label: "any", detail: L("任意类型") },
+  { label: "[str]", detail: L("字符串数组") },
+  { label: "[int]", detail: L("整数数组") },
+  { label: "enum [ ]", detail: L("枚举：取值须来自给定列表") },
+].map((ty) => ({
+  label: ty.label,
   kind: CK("TypeParameter", 0),
-  detail: `类型：${t.detail}`,
-  insertText: t.label === "enum [ ]" ? "enum [ ${1:a} ${2:b} ]" : t.label,
+  detail: L("类型：{0}", ty.detail),
+  insertText: ty.label === "enum [ ]" ? "enum [ ${1:a} ${2:b} ]" : ty.label,
   insertTextFormat:
-    t.label === "enum [ ]" ? INSERT_SNIPPET : INSERT_PLAIN,
+    ty.label === "enum [ ]" ? INSERT_SNIPPET : INSERT_PLAIN,
 }));
 
 const MODIFIERS = [
-  { label: "required", detail: "必填（默认行为，可省略）" },
-  { label: "optional", detail: "可选：缺失时不报错" },
-  { label: "default", detail: "默认值：字段缺失时填充" },
-  { label: "min", detail: "数值下界（含）" },
-  { label: "max", detail: "数值上界（含）" },
-  { label: "loose", detail: "允许契约未声明的字段（写在契约名后）" },
+  { label: "required", detail: L("必填（默认行为，可省略）") },
+  { label: "optional", detail: L("可选：缺失时不报错") },
+  { label: "default", detail: L("默认值：字段缺失时填充") },
+  { label: "min", detail: L("数值下界（含）") },
+  { label: "max", detail: L("数值上界（含）") },
+  { label: "loose", detail: L("允许契约未声明的字段（写在契约名后）") },
 ].map((m) => ({
   label: m.label,
   kind: CK("Keyword", 0),
-  detail: `修饰符：${m.detail}`,
+  detail: L("修饰符：{0}", m.detail),
 }));
 
 const CONSTANTS = ["true", "false", "null"].map((c) => ({
   label: c,
   kind: CK("Constant", 0),
-  detail: "字面量",
+  detail: L("字面量"),
 }));
 
 // 模式（@type）关键字：中英等价，二者可混写（sml-pattern 的 BILINGUAL 表）
 const PATTERN_KEYWORDS = [
-  { zh: "序列", en: "seq", detail: "顺序匹配其后各项（值为数组）" },
-  { zh: "类", en: "class", detail: "字符类：数字/字母/空白/字/任意" },
-  { zh: "次", en: "times", detail: "量词：4 或 \"+\" / \"*\"；也可写 次: { 最小, 最大 }" },
-  { zh: "最小", en: "min", detail: "量词下界：与 次 / 最大 配合，或直接平铺在元素上" },
-  { zh: "最大", en: "max", detail: "量词上界：省略则无上界（min..*）" },
-  { zh: "名", en: "name", detail: "命名捕获" },
-  { zh: "字面", en: "lit", detail: "字面量（精确匹配）" },
-  { zh: "任一", en: "alt", detail: "多选一（分支）" },
-  { zh: "组", en: "group", detail: "内联分组（值为数组）" },
-  { zh: "用", en: "use", detail: "引用另一条规则" },
-  { zh: "可选", en: "optional", detail: "该项可省略" },
-  { zh: "直到", en: "until", detail: "推进直到其后条件成立（JS 引擎暂不支持，请用 Rust 引擎）" },
-  { zh: "正则", en: "regex", detail: "regex 逃生舱：直接写正则表达式" },
+  { zh: "序列", en: "seq", detail: L("顺序匹配其后各项（值为数组）") },
+  { zh: "类", en: "class", detail: L("字符类：数字/字母/空白/字/任意") },
+  { zh: "次", en: "times", detail: L("量词：4 或 \"+\" / \"*\"；也可写 次: { 最小, 最大 }") },
+  { zh: "最小", en: "min", detail: L("量词下界：与 次 / 最大 配合，或直接平铺在元素上") },
+  { zh: "最大", en: "max", detail: L("量词上界：省略则无上界（min..*）") },
+  { zh: "名", en: "name", detail: L("命名捕获") },
+  { zh: "字面", en: "lit", detail: L("字面量（精确匹配）") },
+  { zh: "任一", en: "alt", detail: L("多选一（分支）") },
+  { zh: "组", en: "group", detail: L("内联分组（值为数组）") },
+  { zh: "用", en: "use", detail: L("引用另一条规则") },
+  { zh: "可选", en: "optional", detail: L("该项可省略") },
+  { zh: "直到", en: "until", detail: L("推进直到其后条件成立（JS 引擎暂不支持，请用 Rust 引擎）") },
+  { zh: "正则", en: "regex", detail: L("regex 逃生舱：直接写正则表达式") },
 ].flatMap((k) => [
   {
     label: k.zh,
     kind: CK("Keyword", 0),
-    detail: `模式关键字：${k.detail}`,
+    detail: L("模式关键字：{0}", k.detail),
     insertText: `${k.zh}: `,
   },
   {
     label: k.en,
     kind: CK("Keyword", 0),
-    detail: `模式关键字（英文）：${k.detail}`,
-    documentation: `等价于中文关键字「${k.zh}」`,
+    detail: L("模式关键字（英文）：{0}", k.detail),
+    documentation: L("等价于中文关键字「{0}」", k.zh),
     insertText: `${k.en}: `,
   },
 ]);
@@ -213,29 +219,29 @@ const PATTERN_CLASSES = [
   {
     label: c.zh,
     kind: CK("TypeParameter", 0),
-    detail: `字符类：${c.zh}`,
+    detail: L("字符类：{0}", c.zh),
   },
   {
     label: c.en,
     kind: CK("TypeParameter", 0),
-    detail: `字符类（英文）：${c.zh}`,
+    detail: L("字符类（英文）：{0}", c.zh),
   },
 ]);
 
 // 特性名（供 @feature enable/disable 补全）。带说明区分默认开启与 opt-in。
 const FEATURE_NAMES = [
-  { n: "contract", d: "契约系统 @contract / @is（默认开启）" },
-  { n: "fragment", d: "片段复用 @name / &name（默认开启）" },
-  { n: "include", d: "文件包含 include（默认开启）" },
-  { n: "env", d: "$env.VAR 环境变量内插（默认开启）" },
-  { n: "namespace", d: "include ... as ns 命名空间（默认开启）" },
-  { n: "typed-block", d: "块级类型标注 `<契约名> <块名> { }`（opt-in）" },
-  { n: "when", d: "@when 条件裁剪（opt-in）" },
-  { n: "for", d: "@for 有界循环展开（opt-in）" },
+  { n: "contract", d: L("契约系统 @contract / @is（默认开启）") },
+  { n: "fragment", d: L("片段复用 @name / &name（默认开启）") },
+  { n: "include", d: L("文件包含 include（默认开启）") },
+  { n: "env", d: L("$env.VAR 环境变量内插（默认开启）") },
+  { n: "namespace", d: L("include ... as ns 命名空间（默认开启）") },
+  { n: "typed-block", d: L("块级类型标注 `<契约名> <块名> { }`（opt-in）") },
+  { n: "when", d: L("@when 条件裁剪（opt-in）") },
+  { n: "for", d: L("@for 有界循环展开（opt-in）") },
 ].map((f) => ({
   label: f.n,
   kind: CK("Property", 0),
-  detail: `特性：${f.d}`,
+  detail: L("特性：{0}", f.d),
 }));
 
 // ---------------------------------------------------------------------------
@@ -456,15 +462,15 @@ function reportVendor() {
     const crypto = require("crypto");
     const b = fs.readFileSync(path.join(__dirname, "vendor", "sml.mjs"));
     const sha = crypto.createHash("sha256").update(b).digest("hex").slice(0, 16);
-    log(`包内解析器 vendor/sml.mjs：${b.length} B / sha256 ${sha}`);
+    log(L("包内解析器 vendor/sml.mjs：{0} B / sha256 {1}", b.length, sha));
     if (b.length === EXPECT_VENDOR.size && sha.startsWith(EXPECT_VENDOR.shaPrefix)) {
-      log("  ⇒ 与仓库当前版本一致 ✓（含 W16 之后的解析器）");
+      log(L("  ⇒ 与仓库当前版本一致 ✓（含 W16 之后的解析器）"));
     } else {
-      log(`  ⚠️ 与仓库当前版本**不一致**（期望 ${EXPECT_VENDOR.size} B / ${EXPECT_VENDOR.shaPrefix}…）`);
-      log("  ⇒ 装的是旧包：重打并重装 VSIX（见 editors/vscode/README 的安装一节）");
+      log(L("  ⚠️ 与仓库当前版本**不一致**（期望 {0} B / {1}…）", EXPECT_VENDOR.size, EXPECT_VENDOR.shaPrefix));
+      log(L("  ⇒ 装的是旧包：重打并重装 VSIX（见 editors/vscode/README 的安装一节）"));
     }
   } catch (e) {
-    log("包内解析器读取失败：" + (e && e.message));
+    log(L("包内解析器读取失败：{0}", e && e.message));
   }
 }
 
@@ -484,24 +490,26 @@ function initLanguageGuard(context) {
     const key = doc.uri.toString() + "@" + doc.languageId;
     if (warned.has(key)) return;
     warned.add(key);
-    log(`⚠️ ${doc.fileName} 当前语言模式是「${doc.languageId}」—— SML 的悬浮 / 诊断 / 补全 / 右键菜单都不会生效`);
+    log(L("⚠️ {0} 当前语言模式是「{1}」—— SML 的悬浮 / 诊断 / 补全 / 右键菜单都不会生效", doc.fileName, doc.languageId));
+    const setSmlLabel = L("设为 SML");
+    const openSelfcheckLabel = L("打开自检");
     const pick = await vscode.window.showWarningMessage(
-      `SML：这个 .sml 文件的语言模式是「${doc.languageId}」，所以悬浮 / 诊断 / 右键菜单都没有反应。`,
-      "设为 SML",
-      "打开自检"
+      L("SML：这个 .sml 文件的语言模式是「{0}」，所以悬浮 / 诊断 / 右键菜单都没有反应。", doc.languageId),
+      setSmlLabel,
+      openSelfcheckLabel
     );
-    if (pick === "设为 SML") {
+    if (pick === setSmlLabel) {
       try {
         await vscode.languages.setTextDocumentLanguage(doc, "sml");
-        log("已把该文件语言模式改为 sml ✓");
+        log(L("已把该文件语言模式改为 sml ✓"));
       } catch (e) {
-        log("改语言模式失败：" + (e && e.message));
-        log("  ⇒ 本窗口没有注册 `sml` 语言 ⇒ 扩展**没有被加载**（被禁用 / 受限模式 / 未安装），此时连右键菜单都不会出现。");
+        log(L("改语言模式失败：{0}", e && e.message));
+        log(L("  ⇒ 本窗口没有注册 `sml` 语言 ⇒ 扩展**没有被加载**（被禁用 / 受限模式 / 未安装），此时连右键菜单都不会出现。"));
         vscode.window.showErrorMessage(
-          "改不成功：本窗口没有注册 SML 语言 —— 扩展没被加载（检查是否被禁用、是否处于受限模式）。"
+          L("改不成功：本窗口没有注册 SML 语言 —— 扩展没被加载（检查是否被禁用、是否处于受限模式）。")
         );
       }
-    } else if (pick === "打开自检") {
+    } else if (pick === openSelfcheckLabel) {
       vscode.commands.executeCommand("sml.selfCheck");
     }
   };
@@ -512,8 +520,8 @@ function initLanguageGuard(context) {
     vscode.languages.getLanguages().then(
       (langs) => {
         const has = langs.includes("sml");
-        log("SML 语言已注册：" + (has ? "✓" : "✗ —— 扩展没被加载（被禁用 / 受限模式 / 未安装），此时连右键菜单都不会出现"));
-        if (!has) log("  ⇒ 修复：扩展面板里确认 snoware.sml-lang 已启用、未被「限制模式」拦下，然后重启窗口。");
+        log(L("SML 语言已注册：{0}", has ? L("✓") : L("✗ —— 扩展没被加载（被禁用 / 受限模式 / 未安装），此时连右键菜单都不会出现")));
+        if (!has) log(L("  ⇒ 修复：扩展面板里确认 snoware.sml-lang 已启用、未被「限制模式」拦下，然后重启窗口。"));
       },
       () => {}
     );
@@ -531,23 +539,23 @@ function initLanguageGuard(context) {
 /// 都能拿到同样的颜色，也能直接手写编辑（这正是「可以编写或选择」里的后半句）。
 function initApplyColor(context) {
   const PRESETS = [
-    { label: "$(circle-filled) 琥珀 #ff9f43", color: "#ff9f43" },
-    { label: "$(circle-filled) 天青 #4ec9b0", color: "#4ec9b0" },
-    { label: "$(circle-filled) 品红 #d16d9e", color: "#d16d9e" },
-    { label: "$(circle-filled) 蓝紫 #9a7fd1", color: "#9a7fd1" },
-    { label: "$(circle-filled) 橙红 #e06c75", color: "#e06c75" },
-    { label: "$(circle-filled) 草绿 #98c379", color: "#98c379" },
-    { label: "$(circle-filled) 金黄 #e5c07b", color: "#e5c07b" },
-    { label: "$(circle-filled) 灰蓝 #7f8c9b", color: "#7f8c9b" },
-    { label: "$(symbol-color) 自定义…（#RRGGBB 或主题色 id）", color: null },
+    { label: L("$(circle-filled) 琥珀 #ff9f43"), color: "#ff9f43" },
+    { label: L("$(circle-filled) 天青 #4ec9b0"), color: "#4ec9b0" },
+    { label: L("$(circle-filled) 品红 #d16d9e"), color: "#d16d9e" },
+    { label: L("$(circle-filled) 蓝紫 #9a7fd1"), color: "#9a7fd1" },
+    { label: L("$(circle-filled) 橙红 #e06c75"), color: "#e06c75" },
+    { label: L("$(circle-filled) 草绿 #98c379"), color: "#98c379" },
+    { label: L("$(circle-filled) 金黄 #e5c07b"), color: "#e5c07b" },
+    { label: L("$(circle-filled) 灰蓝 #7f8c9b"), color: "#7f8c9b" },
+    { label: L("$(symbol-color) 自定义…（#RRGGBB 或主题色 id）"), color: null },
   ];
   context.subscriptions.push(
     vscode.commands.registerCommand("sml.applySpecialColor", async () => {
       const ed = vscode.window.activeTextEditor;
-      if (!ed) return vscode.window.showInformationMessage("先在 .sml 文件里选中一个词（或把光标放在词上）");
+      if (!ed) return vscode.window.showInformationMessage(L("先在 .sml 文件里选中一个词（或把光标放在词上）"));
       const mod = await ensureSml();
       if (!mod || !mod.detectUnitKind || !mod.stringify) {
-        return vscode.window.showErrorMessage("解析器不可用（详见「输出 → SML」）");
+        return vscode.window.showErrorMessage(L("解析器不可用（详见「输出 → SML」）"));
       }
       const sel = ed.selection;
       let word = "";
@@ -559,35 +567,37 @@ function initApplyColor(context) {
       }
       word = word.trim().replace(/^[@&]/, "");
       if (!word || /\s/.test(word)) {
-        return vscode.window.showInformationMessage("请选中**一个词**（不含空白）再应用特殊颜色");
+        return vscode.window.showInformationMessage(L("请选中**一个词**（不含空白）再应用特殊颜色"));
       }
 
       const text = ed.document.getText();
       let kind = mod.detectUnitKind(text, word);
       if (!kind) {
+        const colorAsTextLabel = L("按普通词着色");
+        const cancelLabel = L("取消");
         const pick = await vscode.window.showWarningMessage(
-          `「${word}」在本文档里不是可识别的语法单元（契约 / 片段 / 类型 / 键 / 指令）。` +
-            "特殊颜色默认只对语法单元生效 —— 这样它不会染到注释和字符串里的同名文字。",
-          "按普通词着色",
-          "取消"
+          L("「{0}」在本文档里不是可识别的语法单元（契约 / 片段 / 类型 / 键 / 指令）。", word) +
+            L("特殊颜色默认只对语法单元生效 —— 这样它不会染到注释和字符串里的同名文字。"),
+          colorAsTextLabel,
+          cancelLabel
         );
-        if (pick !== "按普通词着色") return;
+        if (pick !== colorAsTextLabel) return;
         kind = "text";
       }
 
       const COLOR = await vscode.window.showQuickPick(PRESETS, {
-        placeHolder: `给「${word}」（识别为 ${kind}${kind === "text" ? "：普通词" : ""}）选一个颜色`,
+        placeHolder: L("给「{0}」（识别为 {1}{2}）选一个颜色", word, kind, kind === "text" ? L("：普通词") : ""),
       });
       if (!COLOR) return;
       let color = COLOR.color;
       if (!color) {
         color = await vscode.window.showInputBox({
-          prompt: "颜色：十六进制（#ff9f43）或主题色 id（editorError.foreground / charts.yellow）",
+          prompt: L("颜色：十六进制（#ff9f43）或主题色 id（editorError.foreground / charts.yellow）"),
           value: "#ff9f43",
           validateInput: (v) =>
             /^#[0-9a-fA-F]{6}$/.test(v) || /^[a-zA-Z][\w.]*$/.test(v)
               ? null
-              : "形如 #ff9f43 或 editorError.foreground",
+              : L("形如 #ff9f43 或 editorError.foreground"),
         });
         if (!color) return;
       }
@@ -595,7 +605,7 @@ function initApplyColor(context) {
       const hl = require("./highlight.js");
       const p = hl.configPath ? hl.configPath() : null;
       if (!p) {
-        return vscode.window.showErrorMessage("请先打开一个工作区文件夹 —— HL-cfg.sml 写在工作区根目录");
+        return vscode.window.showErrorMessage(L("请先打开一个工作区文件夹 —— HL-cfg.sml 写在工作区根目录"));
       }
       // 组名要能当 SML 键（不含空白；`-` 与 `.` 合法）
       const groupName = `${kind}_${word}`.replace(/[^\p{L}\p{N}_.\-]/gu, "-");
@@ -610,12 +620,12 @@ function initApplyColor(context) {
       try {
         fs.appendFileSync(p, header + (header ? "\n" : "\n") + block + "\n", "utf-8");
       } catch (e) {
-        return vscode.window.showErrorMessage("写入 HL-cfg.sml 失败：" + (e && e.message));
+        return vscode.window.showErrorMessage(L("写入 HL-cfg.sml 失败：{0}", e && e.message));
       }
       await hl.reload(false);
-      log(`应用特殊颜色：${word}（${kind}）→ ${color}，已写入 ${p}`);
+      log(L("应用特殊颜色：{0}（{1}）→ {2}，已写入 {3}", word, kind, color, p));
       vscode.window.showInformationMessage(
-        `已写入 ${path.basename(p)}：${groupName} → ${color}（立即生效；该文件可直接手写编辑）`
+        L("已写入 {0}：{1} → {2}（立即生效；该文件可直接手写编辑）", path.basename(p), groupName, color)
       );
     })
   );
@@ -628,20 +638,19 @@ function initSelfCheck(context) {
     vscode.commands.registerCommand("sml.selfCheck", async () => {
       channel().show(true);
       log("");
-      log("========== SML 扩展自检 ==========");
-      log("时间：" + new Date().toLocaleString());
+      log(L("========== SML 扩展自检 =========="));
+      log(L("时间：{0}", new Date().toLocaleString()));
       try {
         const pkg = (context.extension && context.extension.packageJSON) || {};
-        log(`扩展：snoware.sml-lang ${pkg.version || "?"}（目录 ${context.extensionPath}）`);
+        log(L("扩展：snoware.sml-lang {0}（目录 {1}）", pkg.version || "?", context.extensionPath));
       } catch { /* 拿不到版本不影响自检 */ }
 
       const mod = await ensureSml();
-      log("桥接层 sml-parse.mjs：" +
-        (mod ? "已加载 ✓" : "**未加载 ✗**" + (smlLoadError ? " —— " + (smlLoadError.message || smlLoadError) : "")));
+      log(L("桥接层 sml-parse.mjs：{0}", mod ? L("已加载 ✓") : L("**未加载 ✗**") + (smlLoadError ? L(" —— {0}", smlLoadError.message || smlLoadError) : "")));
       reportVendor();
       if (!mod) {
-        log("⇒ 解析器不可用：补全 / 悬浮 / 诊断 / 跳转**全部失效**。先修上面那条报错，或重装扩展。");
-        log("========== 自检结束 ==========");
+        log(L("⇒ 解析器不可用：补全 / 悬浮 / 诊断 / 跳转**全部失效**。先修上面那条报错，或重装扩展。"));
+        log(L("========== 自检结束 =========="));
         return;
       }
 
@@ -649,63 +658,62 @@ function initSelfCheck(context) {
       let cmds = [];
       try { cmds = await vscode.commands.getCommands(true); } catch { /* 忽略 */ }
       const need = ["sml.specialHighlight", "sml.clearSpecialHighlight", "sml.selfCheck"];
-      log("命令注册：" + need.map((c) => c + (cmds.includes(c) ? " ✓" : " ✗")).join("  "));
-      if (!cmds.includes("sml.specialHighlight")) log("  ⇒ 缺 `sml.specialHighlight` ⇒ **装的是旧包**，重装 VSIX 即可");
+      log(L("命令注册：{0}", need.map((c) => c + (cmds.includes(c) ? " ✓" : " ✗")).join("  ")));
+      if (!cmds.includes("sml.specialHighlight")) log(L("  ⇒ 缺 `sml.specialHighlight` ⇒ **装的是旧包**，重装 VSIX 即可"));
 
       // `sml` 语言是否已注册：判「扩展到底加载了没有」。没注册时，语言模式改不回 SML，
       // 右键菜单也不会出现 —— 这是「看起来像扩展坏了」的另一种真身。
       try {
         const langs = await vscode.languages.getLanguages();
-        log("SML 语言已注册：" + (langs.includes("sml") ? "✓" : "✗ —— 扩展没被加载（被禁用 / 受限模式 / 未安装）"));
+        log(L("SML 语言已注册：{0}", langs.includes("sml") ? "✓" : L("✗ —— 扩展没被加载（被禁用 / 受限模式 / 未安装）")));
       } catch { /* 拿不到不影响后续 */ }
 
       const ed = vscode.window.activeTextEditor;
       if (!ed) {
-        log("当前没有打开的编辑器（provider 只对已打开的 .sml 生效）。");
-        log("========== 自检结束 ==========");
+        log(L("当前没有打开的编辑器（provider 只对已打开的 .sml 生效）。"));
+        log(L("========== 自检结束 =========="));
         return;
       }
       const doc = ed.document;
-      log("当前文件：" + doc.uri.fsPath);
-      log("语言模式：languageId = " + doc.languageId +
-        (doc.languageId === "sml" ? " ✓" : " ⚠️ **不是 sml** ⇒ 所有 provider 都不生效（右下角点语言模式改成 SML）"));
-      if (doc.languageId !== "sml") { log("========== 自检结束 =========="); return; }
+      log(L("当前文件：{0}", doc.uri.fsPath));
+      log(L("语言模式：languageId = {0}{1}", doc.languageId, doc.languageId === "sml" ? " ✓" : L(" ⚠️ **不是 sml** ⇒ 所有 provider 都不生效（右下角点语言模式改成 SML）")));
+      if (doc.languageId !== "sml") { log(L("========== 自检结束 ==========")); return; }
 
       const text = doc.getText();
       // 自检也要带文件表：否则凡含 include 的文档都会被判"校验失败"（同诊断那条根因）
       const files = await buildFilesMap(doc);
       const r = mod.parseSafe ? mod.parseSafe(text, { files }) : { ok: true };
-      log("文档校验：" + (r.ok ? "通过 ✓" : "**失败 ✗** → " + r.error));
-      if (!r.ok) log("  ⇒ 两点后果：① 诊断面板有红字；② 悬浮的「展开」那半段不会出现（它还要求整份文档全绿）");
+      log(L("文档校验：{0}", r.ok ? L("通过 ✓") : L("**失败 ✗** → {0}", r.error)));
+      if (!r.ok) log(L("  ⇒ 两点后果：① 诊断面板有红字；② 悬浮的「展开」那半段不会出现（它还要求整份文档全绿）"));
 
       const names = mod.collectContractNames ? mod.collectContractNames(text) : [];
       const frags = mod.collectFragmentNames ? mod.collectFragmentNames(text) : [];
-      log("本文档声明的契约：" + (names.length ? names.join("、") : "（无）"));
-      log("本文档声明的片段：" + (frags.length ? frags.join("、") : "（无）"));
+      log(L("本文档声明的契约：{0}", names.length ? names.join("、") : L("（无）")));
+      log(L("本文档声明的片段：{0}", frags.length ? frags.join("、") : L("（无）")));
 
       const sel = ed.selection;
       const wr = doc.getWordRangeAtPosition(sel.active, /[@&]?[A-Za-z0-9_\u4e00-\u9fa5.\-]+/);
       const word = wr ? doc.getText(wr) : "";
       const name = word.startsWith("&") ? word.slice(1) : word;
-      log("光标下的词：" + JSON.stringify(word) + (wr ? `（第 ${wr.start.line + 1} 行第 ${wr.start.character + 1} 列）` : "（此处没有词）"));
+      log(L("光标下的词：{0}{1}", JSON.stringify(word), wr ? L("（第 {0} 行第 {1} 列）", wr.start.line + 1, wr.start.character + 1) : L("（此处没有词）")));
 
       if (names.includes(name)) {
         let inst = null;
         try { inst = mod.contractInstance ? mod.contractInstance(text, name) : null; } catch { /* 忽略 */ }
-        log(`契约 \`${name}\`：声明 ✓；实例 ` +
-          (inst ? `✓（块 \`${inst.key}\`，第 ${inst.line + 1} 行）⇒ 悬浮会显示「填入默认值后的结构」`
-                : "✗ ⇒ 悬浮**只显示声明**"));
-        if (!inst) log(`  取不到实例的常见原因：文档没通过校验 / 没有**顶层** \`@is ${name}\` 块`);
+        log(L("契约 `{0}`：声明 ✓；实例 {1}", name,
+          inst ? L("✓（块 `{0}`，第 {1} 行）⇒ 悬浮会显示「填入默认值后的结构」", inst.key, inst.line + 1)
+               : L("✗ ⇒ 悬浮**只显示声明**")));
+        if (!inst) log(L("  取不到实例的常见原因：文档没通过校验 / 没有**顶层** `@is {0}` 块", name));
       } else {
-        log("⇒ 光标不在契约名上：悬浮的契约展开只对**契约名**生效（`@is X` / `@contract X` 里的 X）");
+        log(L("⇒ 光标不在契约名上：悬浮的契约展开只对**契约名**生效（`@is X` / `@contract X` 里的 X）"));
       }
 
       const def = mod.findDefinition
         ? mod.findDefinition(text, name, word.startsWith("&") ? "fragment" : "contract")
         : null;
-      log("跳转到定义：" + (def ? `✓ 会跳到第 ${def.line + 1} 行第 ${def.col + 1} 列` : "✗ 找不到同名定义（只做文档级同名匹配）"));
-      log("========== 自检结束 ==========");
-      vscode.window.showInformationMessage("SML 自检完成：结果在「输出 → SML」面板");
+      log(L("跳转到定义：{0}", def ? L("✓ 会跳到第 {0} 行第 {1} 列", def.line + 1, def.col + 1) : L("✗ 找不到同名定义（只做文档级同名匹配）")));
+      log(L("========== 自检结束 =========="));
+      vscode.window.showInformationMessage(L("SML 自检完成：结果在「输出 → SML」面板"));
     })
   );
 }
@@ -713,16 +721,16 @@ function initSelfCheck(context) {
 function activate(context) {
   const collection = vscode.languages.createDiagnosticCollection("sml");
   context.subscriptions.push(collection, channel());
-  log("扩展激活（" + new Date().toLocaleString() + "）—— 有「没反应」的地方，执行命令 `SML: 自检`");
+  log(L("扩展激活（{0}）—— 有「没反应」的地方，执行命令 `SML: 自检`", new Date().toLocaleString()));
 
   // 启动自检：解析器不可用时明确告知，避免「补全静默失效」无从排查
   ensureSml().then((m) => {
     if (m) {
-      log("解析器加载成功 ✓（补全 / 悬浮 / 跳转 / 诊断可用）");
+      log(L("解析器加载成功 ✓（补全 / 悬浮 / 跳转 / 诊断可用）"));
     } else {
-      log("解析器加载失败 ✗" + (smlLoadError ? "：" + (smlLoadError.message || smlLoadError) : ""));
+      log(L("解析器加载失败 ✗{0}", smlLoadError ? L("：{0}", smlLoadError.message || smlLoadError) : ""));
       vscode.window.showWarningMessage(
-        "SML 扩展：解析器加载失败，补全与错误提示不可用（详见「输出 → SML」）。"
+        L("SML 扩展：解析器加载失败，补全与错误提示不可用（详见「输出 → SML」）。")
       );
     }
   });
@@ -781,13 +789,9 @@ function activate(context) {
           items.push({
             label: n,
             kind: CK("Struct", 0),
-            detail: "契约名 · 块级类型标注 `<契约名> <块名> { }`",
+            detail: L("契约名 · 块级类型标注 `<契约名> <块名> { }`"),
             documentation: new vscode.MarkdownString(
-              "以契约名作为块前缀，声明该块即校验：\n\n```sml\n" +
-                `${n} 实例名 {\n  ...\n}\n` +
-                "```\n\n等价于在块内首行写 `@is " +
-                n +
-                "`。需 `@feature enable typed-block`。"
+              L("以契约名作为块前缀，声明该块即校验：\n\n```sml\n{0} 实例名 {\n  ...\n}\n```\n\n等价于在块内首行写 `@is {1}`。需 `@feature enable typed-block`。", n, n)
             ),
           });
         }
@@ -806,7 +810,7 @@ function activate(context) {
           ...typeNames.map((n) => ({
             label: n,
             kind: CK("TypeParameter", 0),
-            detail: "自定义类型（@type 声明的模式）",
+            detail: L("自定义类型（@type 声明的模式）"),
           })),
         ];
         if (new RegExp(`:\\s*[${ID}]*$`).test(linePrefix)) items.push(...typeItems);
@@ -827,14 +831,14 @@ function activate(context) {
           items.push({
             label: n,
             kind: CK("Struct", 0),
-            detail: "契约（组合：字段值须符合该契约）",
+            detail: L("契约（组合：字段值须符合该契约）"),
           });
         }
         for (const n of collectFragmentNames(fullText)) {
           items.push({
             label: "&" + n,
             kind: CK("Reference", 0),
-            detail: "片段引用（展开为片段内容）",
+            detail: L("片段引用（展开为片段内容）"),
             insertText: "&" + n,
           });
         }
@@ -846,7 +850,7 @@ function activate(context) {
           items.push({
             label: n,
             kind: CK("Struct", 0),
-            detail: "契约名（类型标注形式 @is type(契约名)）",
+            detail: L("契约名（类型标注形式 @is type(契约名)）"),
             insertText: n + ")",
           });
         }
@@ -855,7 +859,7 @@ function activate(context) {
           items.push({
             label: n,
             kind: CK("Struct", 0),
-            detail: "契约名",
+            detail: L("契约名"),
           });
         }
       }
@@ -866,7 +870,7 @@ function activate(context) {
           items.push({
             label: k,
             kind: CK("Property", 0),
-            detail: "本文档中出现过的键",
+            detail: L("本文档中出现过的键"),
             insertText: `${k}: `,
           });
         }
@@ -894,7 +898,7 @@ function activate(context) {
           items.push({
             label,
             kind: CK("File", 0),
-            detail: "被包含文件（工作区内）",
+            detail: L("被包含文件（工作区内）"),
             insertText: opened ? label : '"' + label + '"',
           });
         }
@@ -938,8 +942,8 @@ function activate(context) {
               // 通配 / 正则目标不是一个真实文件 ⇒ 不能走下面的"找到/未找到"。这里改为给出
               // **命中几个**：命中 0 个时解析器是**静默**的（与 Rust 同语义），所以这句话
               // 是用户唯一的线索 —— 编辑器必须说清楚，别让它埋没。
-              const kind = hit.regex ? "正则" : "通配";
-              md = "**" + kind + " include**：`" + hit.path + "`";
+              const kind = hit.regex ? L("正则") : L("通配");
+              md = L("**{0} include**：`{1}`", kind, hit.path);
               const hits =
                 mod && mod.expandIncludePaths
                   ? mod.expandIncludePaths(await filesMapFor(document), hit.path)
@@ -947,30 +951,27 @@ function activate(context) {
               if (hits) {
                 const names = hits.map((h) => String(h).split("/").pop());
                 md += hits.length
-                  ? "\n\n在**被包含文件所在目录**里命中 **" + hits.length + "** 个：" +
-                    names.slice(0, 10).join("、") + (names.length > 10 ? " …" : "")
-                  : "\n\n⚠️ **一个都没命中**：解析器会**静默**展开为空（与 Rust 一致）" +
-                    "—— 检查模式、以及「模式里的目录部分决定在哪个目录里找」（不递归子目录）。";
+                  ? L("\n\n在**被包含文件所在目录**里命中 **{0}** 个：{1}", hits.length, names.slice(0, 10).join("、") + (names.length > 10 ? " …" : ""))
+                  : L("\n\n⚠️ **一个都没命中**：解析器会**静默**展开为空（与 Rust 一致）—— 检查模式、以及「模式里的目录部分决定在哪个目录里找」（不递归子目录）。");
               }
               if (hit.regex) {
-                md += "\n\n受限正则（与 Rust 的 `sml-regex` 同一子集）：无分组 / 交替 / `{n,m}` / `\\d`；" +
-                  "那些写法里的字符按**字面**处理。模式长度 ≤ 256，需 `@feature enable regex-include`。";
+                md += L("\n\n受限正则（与 Rust 的 `sml-regex` 同一子集）：无分组 / 交替 / `{n,m}` / `\\d`；那些写法里的字符按**字面**处理。模式长度 ≤ 256，需 `@feature enable regex-include`。");
               } else {
-                md += "\n\n通配（`*`）需 `@feature enable glob-include`。";
+                md += L("\n\n通配（`*`）需 `@feature enable glob-include`。");
               }
             } else if (hit.uri) {
-              md = "**被包含文件**：`" + String(hit.uri.fsPath || hit.uri.path) + "` ✓\n\nF12 / Ctrl+Click 可跳过去。";
+              md = L("**被包含文件**：`{0}` ✓\n\nF12 / Ctrl+Click 可跳过去。", String(hit.uri.fsPath || hit.uri.path));
               try {
                 const t = Buffer.from(await vscode.workspace.fs.readFile(hit.uri)).toString("utf8");
                 const keys = mod && mod.collectKeys ? mod.collectKeys(t) : [];
                 if (keys.length) {
-                  md += "\n\n**该文件顶层键**：" + keys.slice(0, 12).join("、") + (keys.length > 12 ? " …" : "");
+                  md += L("\n\n**该文件顶层键**：{0}", keys.slice(0, 12).join("、") + (keys.length > 12 ? " …" : ""));
                 }
               } catch {
                 /* 读不到内容就只显示路径 */
               }
             } else {
-              md = "**未找到目标**：`" + hit.path + "`\n\n相对路径按**被包含文件所在目录**解析；检查文件名与是否在工作区内。";
+              md = L("**未找到目标**：`{0}`\n\n相对路径按**被包含文件所在目录**解析；检查文件名与是否在工作区内。", hit.path);
             }
             return new vscode.Hover(new vscode.MarkdownString(md));
           }
@@ -1019,13 +1020,24 @@ function activate(context) {
               try { inst = mod.contractInstance ? mod.contractInstance(text, word) : null; } catch { /* 忽略 */ }
               if (!inst) {
                 const r = mod.parseSafe ? mod.parseSafe(text) : { ok: true };
-                log(`悬停「${word}」：只显示契约声明（取不到实例）`);
+                log(L("悬停「{0}」：只显示契约声明（取不到实例）", word));
                 log(!r.ok
-                  ? `  原因：文档未通过校验 —— ${r.error}`
-                  : `  原因：文档能解析，但没有用 \`@is ${word}\` 或 \`${word} 块名 {\` 标注的块`);
+                  ? L("  原因：文档未通过校验 —— {0}", r.error)
+                  : L("  原因：文档能解析，但没有用 `@is {0}` 或 `{1} 块名 {` 标注的块", word, word));
               }
             }
             return new vscode.Hover(new vscode.MarkdownString(md), range);
+          }
+        }
+
+        // 自定义类型（`@type`）：停在类型名上 → 匹配签名 + 模式原文。
+        // 两个位置都会命中：`@type name: 规则编号 {` 的定义处，以及契约字段的
+        // 类型位（`编号: 规则编号`）。排在块名之前 —— 类型名与块名同名时类型才是答案。
+        if (mod && mod.typeHoverMarkdown && mod.collectTypeNames) {
+          const typeNames = mod.collectTypeNames(text);
+          if (typeNames.includes(word)) {
+            const md = mod.typeHoverMarkdown(text, word);
+            if (md) return new vscode.Hover(new vscode.MarkdownString(md), range);
           }
         }
 
@@ -1069,27 +1081,27 @@ function activate(context) {
           if (t && t.uri) {
             const seg = split.rest.split(".")[0];
             const def = await definitionInFile(t.uri, seg);
-            let md = "**命名空间引用**：`" + split.ns + "` ← `" + t.path + "`";
+            let md = L("**命名空间引用**：`{0}` ← `{1}`", split.ns, t.path);
             md += def
-              ? "\n\n`" + seg + "` 在该文件里是 **" + (KIND_ZH[def.kind] || def.kind) +
-                "（第 " + (def.line + 1) + " 行）**。F12 / Ctrl+Click 可跳过去。"
-              : "\n\n该文件里没找到 `" + seg + "` 的定义。";
+              ? L("\n\n`{0}` 在该文件里是 **{1}（第 {2} 行）**。F12 / Ctrl+Click 可跳过去。", seg, (KIND_ZH[def.kind] || def.kind), def.line + 1)
+              : L("\n\n该文件里没找到 `{0}` 的定义。", seg);
             return new vscode.Hover(new vscode.MarkdownString(md), range);
           }
         }
       }
 
       const map = {
-        "@contract": "**契约定义**：为块定义字段类型、枚举、默认值与区间约束。定义本身不进解析结果。",
-        "@is": "**应用契约**：校验当前块并填充缺失字段的默认值。契约须在 `@is` 之前定义。",
-        "loose": "**放宽严格性**：允许契约未声明的字段。默认严格（未声明字段会报错）。",
-        "@version": "**版本声明**：声明文档遵循的 SML 语法版本，须写在文档开头。",
-        "include": "**文件引入**：把外部 .sml 内联进来（文本内联，可出现在块内）。相对路径按被包含文件所在目录解析。",
-        "optional": "字段可选：缺失时不报错。",
-        "required": "字段必填（默认行为）。",
-        "default": "字段缺失时填充的默认值。",
-        "min": "数值下界（含）。",
-        "max": "数值上界（含）。",
+        "@contract": L("**契约定义**：为块定义字段类型、枚举、默认值与区间约束。定义本身不进解析结果。"),
+        "@is": L("**应用契约**：校验当前块并填充缺失字段的默认值。契约须在 `@is` 之前定义。"),
+        "@type": L("**自定义类型（模式）**：`@type name: X { 序列: [...] }` 给值定义字面格式（编号 / 网段 / 时间窗…），契约字段可直接拿它当类型用。解析期全文匹配，不符报 `E-CONTRACT-009`。仅 Rust / JS 实现（C / C++ / Lua 会明确报错）。"),
+        "loose": L("**放宽严格性**：允许契约未声明的字段。默认严格（未声明字段会报错）。"),
+        "@version": L("**版本声明**：声明文档遵循的 SML 语法版本，须写在文档开头。"),
+        "include": L("**文件引入**：把外部 .sml 内联进来（文本内联，可出现在块内）。相对路径按被包含文件所在目录解析。"),
+        "optional": L("字段可选：缺失时不报错。"),
+        "required": L("字段必填（默认行为）。"),
+        "default": L("字段缺失时填充的默认值。"),
+        "min": L("数值下界（含）。"),
+        "max": L("数值上界（含）。"),
       };
       const doc = map[word];
       if (!doc) return null;
@@ -1100,7 +1112,8 @@ function activate(context) {
     vscode.languages.registerHoverProvider({ language: "sml", scheme: "file" }, hoverProvider)
   );
 
-  // —— 跳转到定义：`@is Server` -> `@contract Server`；`&base` -> `@base { }` ——
+  // —— 跳转到定义：`@is Server` -> `@contract Server`；`&base` -> `@base { }`；
+  //    契约字段的类型位 `编号: 规则编号` -> `@type name: 规则编号 { … }` ——
   //
   // 只做「同名定义」的跳转，不做作用域分析（SML 的片段/契约是文档级名字）。
   // 找不到定义时返回 null，交给 VSCode 显示「未找到定义」——不要自己弹窗报错，
@@ -1136,8 +1149,11 @@ function activate(context) {
               );
             }
           }
-          // `&frag` 只可能是片段；裸名（含 `@is Server` 的 Server）先按契约找，再退回片段
-          for (const kind of isRef ? ["fragment"] : ["contract", "fragment"]) {
+          // `&frag` 只可能是片段；裸名（含 `@is Server` 的 Server、以及契约字段类型位
+          // 的 `规则编号`）依次按 **契约 → 自定义类型（@type）→ 片段** 找。
+          // 类型夹在中间的原因：契约与类型同名时契约优先（与补全的候选顺序一致）；
+          // 而 `@type` 声明的名字不会是片段 —— `type` 在保留指令名单里，片段分支会排除它。
+          for (const kind of isRef ? ["fragment"] : ["contract", "type", "fragment"]) {
             const loc = mod.findDefinition(text, name, kind);
             if (!loc) continue;
             const start = new vscode.Position(loc.line, loc.col);
@@ -1205,7 +1221,7 @@ function activate(context) {
           // 带文件表：否则含 include 的文档会"无法格式化：include 目标未找到"
           const r = parseSafe(text, { files: await buildFilesMap(document) });
           if (!r.ok) {
-            vscode.window.showErrorMessage(`无法格式化：${r.error}`);
+            vscode.window.showErrorMessage(L("无法格式化：{0}", r.error));
             return [];
           }
           const out = stringify(r.value);
@@ -1271,15 +1287,17 @@ async function suggestIconTheme(context) {
   //    给一次「换成 SML + Seti」的机会（不强制，也不重复烦他）。
   if (current === ICON_THEMES.smlOnly && !context.globalState.get(repairedKey)) {
     await context.globalState.update(repairedKey, true);
+    const switchLabel = L("换成 SML + Seti");
+    const keepLabel = L("保持现状");
     const fix = await vscode.window.showInformationMessage(
-      "SML：当前文件图标主题是「SML Icons（仅 .sml）」，其他文件会没有图标。" +
-        "换成「SML Icons + Seti」可以保留其他文件的图标。",
-      "换成 SML + Seti",
-      "保持现状"
+      L("SML：当前文件图标主题是「SML Icons（仅 .sml）」，其他文件会没有图标。") +
+        L("换成「SML Icons + Seti」可以保留其他文件的图标。"),
+      switchLabel,
+      keepLabel
     );
-    if (fix === "换成 SML + Seti") {
+    if (fix === switchLabel) {
       await cfg.update("iconTheme", ICON_THEMES.combined, vscode.ConfigurationTarget.Global);
-      vscode.window.showInformationMessage("已切换为「SML Icons + Seti」✓");
+      vscode.window.showInformationMessage(L("已切换为「SML Icons + Seti」✓"));
     }
     return;
   }
@@ -1287,29 +1305,33 @@ async function suggestIconTheme(context) {
   if (context.globalState.get(promptedKey)) return;
   if (ICON_THEMES.ours.includes(current)) return;
 
+  const enableLabel = L("启用");
+  const noMoreLabel = L("不再提示");
   const pick = await vscode.window.showInformationMessage(
-    "SML：是否为 .sml 文件启用青色图标？（用「SML Icons + Seti」——其他文件沿用你原来的 Seti 图标）",
-    "启用",
-    "不再提示"
+    L("SML：是否为 .sml 文件启用青色图标？（用「SML Icons + Seti」——其他文件沿用你原来的 Seti 图标）"),
+    enableLabel,
+    noMoreLabel
   );
-  if (pick === "启用") {
+  if (pick === enableLabel) {
     // 用户已有**第三方**图标主题时不硬换（那会把他整套图标换掉，就是本次的教训）——
     // 改为把他送到「文件图标主题」选择器，由他自己挑。
     if (current && !ICON_THEMES.ours.includes(current)) {
+      const openSelectorLabel = L("打开图标主题选择器");
+      const stillSwitchLabel = L("仍然切换");
       const go = await vscode.window.showInformationMessage(
-        `你现在用的是「${current}」图标主题，直接切换会把它换掉。` +
-          "建议在图标主题选择器里手动选「SML Icons + Seti」（它自带 Seti 兜底）。",
-        "打开图标主题选择器",
-        "仍然切换"
+        L("你现在用的是「{0}」图标主题，直接切换会把它换掉。", current) +
+          L("建议在图标主题选择器里手动选「SML Icons + Seti」（它自带 Seti 兜底）。"),
+        openSelectorLabel,
+        stillSwitchLabel
       );
-      if (go === "打开图标主题选择器") {
+      if (go === openSelectorLabel) {
         await vscode.commands.executeCommand("workbench.action.selectIconTheme");
         return;
       }
-      if (go !== "仍然切换") return;
+      if (go !== stillSwitchLabel) return;
     }
     await cfg.update("iconTheme", ICON_THEMES.combined, vscode.ConfigurationTarget.Global);
-  } else if (pick === "不再提示") {
+  } else if (pick === noMoreLabel) {
     await context.globalState.update(promptedKey, true);
   }
 }
@@ -1325,11 +1347,11 @@ function initIconThemeCommand(context) {
       const cur = cfg.get("iconTheme", "");
       const pick = await vscode.window.showQuickPick(
         [
-          { label: "SML Icons + Seti", description: "推荐：.sml 用 SML 图标，其他文件沿用 Seti", id: ICON_THEMES.combined },
-          { label: "SML Icons（仅 .sml）", description: "⚠️ 其他文件**不会**有图标（只在你只想看 .sml 时选）", id: ICON_THEMES.smlOnly },
-          { label: "打开 VS Code 的图标主题选择器…", description: `当前：${cur || "（未设置）"} —— 选回 Seti / Material 等你原来的主题`, id: "" },
+          { label: L("SML Icons + Seti"), description: L("推荐：.sml 用 SML 图标，其他文件沿用 Seti"), id: ICON_THEMES.combined },
+          { label: L("SML Icons（仅 .sml）"), description: L("⚠️ 其他文件**不会**有图标（只在你只想看 .sml 时选）"), id: ICON_THEMES.smlOnly },
+          { label: L("打开 VS Code 的图标主题选择器…"), description: L("当前：{0} —— 选回 Seti / Material 等你原来的主题", cur || L("（未设置）")), id: "" },
         ],
-        { placeHolder: "选择 .sml 文件图标方案" }
+        { placeHolder: L("选择 .sml 文件图标方案") }
       );
       if (!pick) return;
       if (!pick.id) {
@@ -1337,7 +1359,7 @@ function initIconThemeCommand(context) {
         return;
       }
       await cfg.update("iconTheme", pick.id, vscode.ConfigurationTarget.Global);
-      vscode.window.showInformationMessage(`文件图标主题已切换为「${pick.label}」`);
+      vscode.window.showInformationMessage(L("文件图标主题已切换为「{0}」", pick.label));
     })
   );
 }

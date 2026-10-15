@@ -62,7 +62,9 @@ fn array_element_path() {
 /// 裸块以首词为键、`__name` 为块名），路径 = `[Key("Server")]`。
 #[test]
 fn typed_block_path() {
+    // 实例名 `db` 需 `block-name` 特性（未开启时非契约词会直接报错，见 contract_tag.rs）
     let src = "@feature enable typed-block\n\
+               @feature enable block-name\n\
                @contract Server { host: str }\n\
                Server db { host: h1 }\n";
     let out = parse_with(src, ParseOptions::new().trace_contracts(true)).unwrap();

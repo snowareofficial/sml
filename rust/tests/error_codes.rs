@@ -120,6 +120,10 @@ fn contract_codes() {
         "@contract S { st: enum [ a b ] }\nserver {\n  @is S\n  st: c\n}\n",
         "E-CONTRACT-006",
     );
+    // 契约体 `@requires` 声明的特性未开启 ⇒ 定义时即报错（详见 tests/contract_requires.rs）
+    assert_code("@contract S { @requires typed-block }\n", "E-CONTRACT-018");
+    // `@requires` 里的未知特性名 ⇒ 与 `@feature enable 未知` 同码
+    assert_code("@contract S { @requires nosuch }\n", "E-FEATURE-003");
 }
 
 /// 片段与 include：`E-INCLUDE-*`。

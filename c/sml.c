@@ -960,6 +960,25 @@ static void parse_contract_body(parser *ps, ccontract *c) {
     while (1) {
         token *ft = peek(ps);
         if (ps->failed) break;   /* 出错后立刻收手：否则会继续吞 token 并可能覆盖已写的错误码 */
+        /* —— 契约体里的 `@requires`：本端暂未实现，必须**响亮拒绝** ——
+           参照 E-CONTRACT-017（契约叠加未实现）的既有先例。
+           ⚠️ 改前 T_AT 落进下面「非 WORD/STR 就 next 丢弃」的兜底分支被**静默吞掉**，
+           随后的 `requires` 反被当成字段名、`typed-block` 变成 CT_CONTRACTREF，
+           最终 rc=0、契约里多出一个垃圾字段 —— 这正是要消灭的「静默给树」。 */
+        if (ft->t == T_AT) {
+            next(ps); /* 消费 '@' */
+            token *dt = peek(ps);
+            const char *dname = (dt->t == T_WORD || dt->t == T_STR) ? dt->v : "";
+            if (strcmp(dname, "requires") == 0) {
+                set_err(ps->lx->errbuf, ps->lx->errsz,
+                        SML_E_CONTRACT_018 " 本实现暂不支持契约的 `@requires` 指令（它要求先开启所列特性）");
+            } else {
+                set_err(ps->lx->errbuf, ps->lx->errsz,
+                        SML_E_PARSE_005 " 契约体内不支持指令 `@%s`（契约体仅支持 `@requires`）", dname);
+            }
+            ps->failed = 1;
+            break;
+        }
         if (ft->t == T_RBRACE) { next(ps); break; }
         if (ft->t == T_EOF) { err_unclosed(ps, "契约体"); break; }
         if (ft->t != T_WORD && ft->t != T_STR) { next(ps); continue; }

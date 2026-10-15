@@ -105,6 +105,46 @@ const CASES = [
   ["@type name: T { 序列: [ { 类: 数字, 次: 3 } ] }\n@contract C { x: T }\n", null],
   ["@type name: T { 序列: [ { 正则: \"^a+$\", 次: 2 } ] }\n@contract C { x: T }\n", null],
   ["@type name: T { 序列: [ { 名: 段, 类: 数字, 次: 4 } { 类: 空白, 次: \"+\" } ] }\n@contract C { x: T }\n", null],
+
+  // —— 版本矩阵（一）：JS 现支持 v1..v4（含无 v 前缀写法）——
+  // 严格模式（v2/v3/v4）关闭 bareword-string：裸词字符串 ⇒ E-FEATURE-005。
+  ["@version v1\nname: John\n", null],
+  ["@version 1\nname: John\n", null],                       // 无 v 前缀与 v1 同义
+  ["@version v2\nname: John\n", "E-FEATURE-005"],
+  ["@version v3\nname: John\n", "E-FEATURE-005"],
+  ["@version v4\nname: John\n", "E-FEATURE-005"],
+  ["@version v2\nname: \"John\"\n", null],                   // 引号串不受严格模式影响
+  ["@version v3\nk: 42\n", null],                           // 数字（非裸词字符串）不受影响
+  ["@version v3\nflag: true\n", null],                      // 布尔同理
+  ["@version v3\narr: [ \"a\" \"b\" ]\n", null],            // 引号串数组元素 OK
+  ["@version v3\narr: [ a b c ]\n", "E-FEATURE-005"],       // 裸词数组元素同样被拒
+  ["@version v0\nk: 1\n", "E-FEATURE-004"],                 // 非法版本（低于 v1）
+  ["@version v5\nk: 1\n", "E-FEATURE-004"],                 // 超出 v4
+  ["@version v9\nk: 1\n", "E-FEATURE-004"],                 // 既有非法版本用例（保持）
+  // —— 版本矩阵（二）：`@feature base vN` 同 `@version vN` 设基集 ——
+  ["@feature base v3\nname: John\n", "E-FEATURE-005"],
+  ["@feature base v2\nk: 1\n", null],
+  ["@feature base v9\nk: 1\n", "E-FEATURE-004"],            // 非法 base 参数
+  // —— 调用方逐项控制 feature（opts.features = 允许集上限，Set / Array 皆可）——
+  // 关：调用方不给 contract ⇒ 文档的契约语法被禁（E-FEATURE-001）
+  ["@contract C { }\na { @is C }\n", "E-FEATURE-001",
+    { features: ["include", "fragment", "env", "bareword-str", "namespace", "implicit-ns"] }],
+  // 开：调用方给了 contract ⇒ 契约语法可用
+  ["@contract C { }\na { @is C }\n", null,
+    { features: ["contract", "include", "fragment", "env", "bareword-str", "namespace", "implicit-ns"] }],
+  // 越权开启被拒：调用方允许集不含 typed-block，文档却 @feature enable typed-block ⇒ E-FEATURE-009
+  ["@feature enable typed-block\nk: 1\n", "E-FEATURE-009",
+    { features: ["include", "contract", "env", "fragment", "bareword-str", "namespace", "implicit-ns"] }],
+  // 与文档内部 @feature 组合：文档 disable env（在调用方允许集内）⇒ 仍能解析
+  ["@feature disable env\n@contract C { }\na { @is C }\n", null,
+    { features: ["contract", "include", "fragment", "env", "bareword-str", "namespace", "implicit-ns"] }],
+  // —— include 环检测（三）：互相 include ⇒ E-INCLUDE-002；菱形包含正对照 ——
+  ["include \"a.sml\"\n", "E-INCLUDE-002",
+    { files: { "a.sml": "include \"b.sml\"\n", "b.sml": "include \"a.sml\"\n" } }],
+  ["include \"a.sml\"\n", null,
+    { files: { "a.sml": "include \"b.sml\"\ninclude \"c.sml\"\n",
+               "b.sml": "include \"d.sml\"\n", "c.sml": "include \"d.sml\"\n",
+               "d.sml": "x: 1\n" } }],
 ];
 
 let bad = 0;

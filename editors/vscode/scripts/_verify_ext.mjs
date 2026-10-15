@@ -28,6 +28,8 @@ console.log("导出:", Object.keys(m).join(", "));
 for (const fn of [
   "collectContractNames", "collectFragmentNames", "collectKeys",
   "findDefinition", "contractDeclaration", "contractInstance", "contractHoverMarkdown",
+  // @type 自定义类型（模式）：补全 / 跳转 / 悬浮依赖它
+  "collectTypeNames", "typeDeclaration", "typeHoverMarkdown",
   "findOccurrences", "diagnose", "parseSafe", "stringify",
   // include / import 的编辑器导航（跳转 / 悬停 / 补全）依赖它取路径与**行内列区间**
   // ——行为验证在 `_verify_nav.mjs`，这里只钉"确实导出了"。
@@ -232,6 +234,75 @@ try {
   check(Array.isArray(diags) && diags.length >= 1, "任务F 多契约诊断出红波浪线（不静默）", `诊断 ${(diags || []).length} 条`);
 } catch (e) {
   check(false, "任务 F：契约映射悬浮 / 多契约 017", String(e && e.message));
+}
+
+// —— @type 自定义类型：跳转（契约字段类型位 → @type 声明）与悬浮（匹配签名）——
+//
+// 为什么补这一段：补全与语法高亮早就支持 @type（`collectTypeNames` / `type-block` 规则，
+// `_verify_grammar.mjs` / `_verify_tokenize.mjs` 已断言），但**跳转与悬浮一直缺** ——
+// 停在 `编号: 规则编号` 上按 F12 没反应、悬浮只有「类型 `规则编号`」。
+// 只断言「源码里有这个函数」拦不住「跳错行 / 签名渲染错」，故这里用真文档上真断言。
+try {
+  const doc = [
+    "@type name: 时刻 {",
+    "    序列: [",
+    "        { 名: 时, 类: 数字, 次: 2 }",
+    "        { 字面: \":\" }",
+    "        { 名: 分, 类: 数字, 次: 2 }",
+    "    ]",
+    "}",
+    "@type name: 时间窗 {",
+    "    序列: [",
+    "        { 名: 起, 用: 时刻 }",
+    "        { 字面: \"~\" }",
+    "        { 名: 止, 用: 时刻 }",
+    "    ]",
+    "}",
+    "@contract 值班 strict {",
+    "    时段: 时间窗",
+    "    起: 时刻",
+    "}",
+  ].join("\n");
+  const lines = doc.split("\n");
+  // ① 收集：两个类型都要收进来，且**不能**把 `name` 关键字当类型名
+  const names = m.collectTypeNames(doc);
+  check(names.length === 2 && names.includes("时刻") && names.includes("时间窗"),
+    "@type collectTypeNames 收全", JSON.stringify(names));
+  // ② 跳转：类型名 → `@type name: X` 的声明行（契约字段类型位就是靠这一跳）
+  const d1 = m.findDefinition(doc, "时刻", "type");
+  const d2 = m.findDefinition(doc, "时间窗", "type");
+  check(!!d1 && lines[d1.line].includes("@type name: 时刻"), "@type 跳转到定义：时刻",
+    d1 ? `第 ${d1.line + 1} 行` : "null");
+  check(!!d2 && lines[d2.line].includes("@type name: 时间窗"), "@type 跳转到定义：时间窗",
+    d2 ? `第 ${d2.line + 1} 行` : "null");
+  // 跳转列位：col 应正好落在类型名上（此前 fragment 分支用 name.length，type 分支须用捕获组长度）
+  check(!!d1 && lines[d1.line].slice(d1.col, d1.col + d1.length) === "时刻",
+    "@type 跳转列位落在类型名上", d1 ? JSON.stringify(lines[d1.line].slice(d1.col, d1.col + d1.length)) : "null");
+  // ③ 类型名**不该**被当片段 / 契约跳走（`type` 在保留指令名单里）
+  check(m.findDefinition(doc, "时刻", "fragment") === null, "@type 类型名不会误跳到片段");
+  check(m.findDefinition(doc, "时刻", "contract") === null, "@type 类型名不会误跳到契约");
+  // ④ 悬浮签名：`用` 引用另一条规则时显示被引用的类型名
+  const md = m.typeHoverMarkdown(doc, "时间窗");
+  const sig = (md || "").split("\n").find((l) => l.startsWith("**匹配签名**")) || "";
+  check(sig.includes("时刻") && sig.includes("~"), "@type 悬浮给出匹配签名（含 用: 引用）", sig);
+  check(!!md && md.includes("@type name: 时间窗 {"), "@type 悬浮含模式原文");
+  check(m.typeHoverMarkdown(doc, "不存在的类型") === null, "@type 悬浮：不存在的类型返回 null");
+  // ⑤ 契约字段悬浮带出类型签名（用户停在字段上就能看到这条规则长什么样）
+  const fLine = lines.findIndex((l) => /^\s*时段:\s*时间窗/.test(l));
+  const fmd = m.fieldHoverMarkdown(doc, "时段", fLine);
+  check(!!fmd && fmd.includes("匹配签名") && fmd.includes("自定义模式"),
+    "契约字段悬浮带出 @type 签名", fmd ? (fmd.split("\n").find((l) => l.includes("匹配签名")) || "") : "null");
+  // ⑥ 签名渲染不出来时**退回原文**而不是给一条错签名（组 / 序列 嵌套即走这条）
+  const nested = [
+    "@type name: 嵌套 {",
+    "    序列: [ { 组: [ { 类: 数字 } ] } ]",
+    "}",
+  ].join("\n");
+  const nmd = m.typeHoverMarkdown(nested, "嵌套");
+  check(!!nmd && !nmd.includes("匹配签名") && nmd.includes("组"),
+    "@type 嵌套结构：不给签名，退回原文", nmd ? "" : "null");
+} catch (e) {
+  check(false, "@type 跳转 / 悬浮", String(e && e.message));
 }
 
 // —— 「已被新版 VS Code 移除的 API」闸门 ——

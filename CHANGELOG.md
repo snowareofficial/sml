@@ -10,10 +10,47 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ---
 
-## [未发布] · swsml（同批发 `smltools`）
+## [0.6.3] · swsml（同批发 `smltools`） — 2026-10-15
 
-> 📌 本轮累积：契约推断（`smltools --infer-contract`）。其余任务（错误定位 / 映射 API /
-> 契约叠加 / 其它端响亮拒绝）的条目待补。
+> 📌 本轮累积（TASK-agent-w24）：**契约从「一个块一份」变成「一个块多份」**，程序终于能问
+> 「这个实体应用了哪些契约」，外加契约推断与错误定位。Rust 先行，其余端按「响亮拒绝」
+> 守同一条口径（见下方各条）。
+
+### 新增 · 契约叠加（mixin）：一个块应用多份契约
+
+三写法**完全等价**（`rust/tests/contract_mixin.rs` 11 条逐一钉住）：
+
+```sml
+api {
+    @is HasHost, HasPort        # 写法一：逗号分隔
+    host: example.com
+}
+api { @is HasHost HasPort … }   # 写法二：省逗号（与上等价）
+HasHost HasPort api { … }       # 写法三：块级（需 @feature enable typed-block）
+```
+
+- **合并语义（D3）**：`strict` 优先（任一份参与契约严格 ⇒ 整体严格）、**顺序无关**（字段按名取并集）、
+  **冲突即报错** —— 同字段名在两份契约里 `ty` / `default` / `min` / `max` 不一致 ⇒
+  `E-CONTRACT-016 契约叠加冲突`（文案列出字段名与冲突的两份契约名）。
+- **单契约路径逐字不变**：只收集到 1 个契约名时仍走原来的 `apply_contract`（含原错误文案）；
+  P1-3 红线 `server web prod { }` 与改动前逐字相同。
+- ⚠️ **实现状态**：目前只有 Rust 落地；JS / C / C++ / Lua 见下条「响亮拒绝」。
+
+### 变更 · 同一块写多条 `@is`：由「后者覆盖」改为「全部生效」
+
+**行为变更**（D4）。此前一个块里写两条 `@is`，结果是后一条覆盖前一条；现在与 `@is A B`
+同义，两份契约的字段取并集一起校验。回填 / 类型 / 组合递归都走老路，只是入参从单个变列表。
+
+### 新增 · 契约映射 API：程序能问「这个实体应用了哪些契约」
+
+- `ParseOptions::trace_contracts(true)` 开启；**不开启时 `ParseOutput` 与旧版逐字一致**
+  （`contract_map: None`，有测试显式钉住这条向后兼容）。
+- `ContractMap::names_at(&[PathSeg]) -> &[String]`；`PathSeg::Key(String) | Index(usize)`
+  （Int 段 = 数组索引、Str 段 = 键，借 SML 自己的类型自识别区分，不另造 DSL）。
+- **交换表示就是一份 SML**（`ContractMap::to_sml()`）：`{ path: [ database primary ] contracts: [ Server ] }`；
+  顶层实体 `path: []`；没应用契约的实体不出现；按 path 排序；**不含时间戳**（同输入逐字节相同）。
+- `include` 进来的块按**结果树里的位置**记；片段 `&base` 展开进来的字段不单独记。
+- ⚠️ 公开结构体 `ParseOutput` **加了字段** `contract_map` —— 见文末「升级注意」。
 
 ### 新增 · 契约推断：`smltools --infer-contract`
 
@@ -26,6 +63,116 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   并提示「单实例无法判定 optional」。**绝不猜** `default` / `min` / `max` / `enum` / 自定义 `@type`。
 - 生成的契约默认 `loose`（允许额外字段），避免用户下次新增字段被严格模式拒绝。
 - 确定性：字段按名排序、无时间戳、同输入逐字节相同；`infer.rs` 内 9 条 golden 单测精确断言。
+
+### 新增 · 错误带位置：`[第 N 行第 M 列]`
+
+- `Tok` **不动**（把改动面压到最小）：词法新增 `tokenize_spans` 旁路（byte offset），
+  `SmlError` 加 `pos: Option<usize>`；由 `sml-parse` 的出口统一把 offset 换算成行列
+  **追加**到文案尾部。`Display` 保持纯文案，旧构造点不传 pos ⇒ 文案与改动前逐字一致。
+- 已知边界：**文件入口（`parse_file` 等）不带位置** —— include 是跨文件合并的 token 流，
+  没有可映射的单一原文，宁缺勿错；`E-LEX-*` 词法错误**尚无位置**（本轮只接了解析层）。
+- 顺带修掉一处会让位置漂移的旧行为：`scan.rs` 的 `strip_version` / `strip_features` 原是
+  「删行」，比原文短 ⇒ 行列必然漂；改为**等长替换**（指令行换同长度空格、CRLF 与 BOM 换成
+  等长空格），偏移与原文 1:1 —— 与 JS 侧 `stripFeatureLines` 的既有修法对齐。
+
+### 新增 · 其它端「响亮拒绝」多契约：`E-CONTRACT-017`
+
+- JS / C / C++ / Lua：见到 `@is` 后第 2 个裸词、或块级 args 里出现第 2 个已注册契约 ⇒
+  报 **`E-CONTRACT-017 契约叠加未实现`**，**绝不静默给树**；单契约路径四端逐字未变。
+- **为什么必须做**：叠加**不能 opt-in**（这四端里有的连 `@feature` 指令都没有），
+  只做 Rust 就会重演 `typed-block`「其余端静默退化」的坑（教科书 §5.2.2 已写过这个教训）。
+- JS 顺带修掉一个**误导性报错**：`@is tls, retry` 原先给的是**错树 + `E-CONTRACT-003`**
+  （用户看不出问题出在契约名），现在正确报 `017`。
+
+### 新增 · JS 契约映射 API + 编辑器接映射（悬浮 / 跳转）
+
+- `js/sml.mjs` 新增 `opts.traceContracts` 与 `contractMap`，与 Rust 同口径：opt-in、
+  `{ key }` / `{ index }` 段、按路径排序、无时间戳、`contractMapToSml` 与 Rust `to_sml`
+  **逐字节一致**；**不开时返回值与旧版逐字一致**。JS 对多契约仍「响亮拒绝」（一行未动）。
+- VS Code 扩展改读映射：悬浮列出**全部**契约名与声明、跳转支持多目标，原正则逻辑保留兜底。
+
+### 修复（五处，按影响面排序）
+
+1. **模式量词加上限 + 编译规模闸门**（`sml-pattern`，堵病态规则的 OOM / 卡死）：
+   单量词 `QUANT_MAX = 1000`、编译指令总数 `MAX_PROG = 100_000`、运行步数预算 `10_000_000`；
+   JS 侧对齐（编译期估算 `PATTERN_STEP_BUDGET = 100000`）。`次: 999999999` 这类规则
+   现在**编译期就被拒绝**，不再展开到内存里。
+2. **契约叠加合并时 `required` 取或**：此前 `required` 没进合并视图 ⇒ 结果与书写顺序相关
+   （违反 D3 的「顺序无关」）。现取**或**：任一份契约要求必填即必填。
+3. **`smltools` 主流程挪到 64 MB 大栈线程**：解析器承诺 128 层，但 Windows 主线程栈默认
+   1 MB —— **70 层即溢出**（`lint_deep_nesting_is_wlint_005` 实测；HEAD 版只是贴边侥幸）。
+4. **include 基准目录为空时回落当前目录**：`-i 裸文件名`（`parent()` 为空）不再报
+   `E-INCLUDE-010`（`rust/sml-parse/src/api.rs` 三处 base 加 `.filter`）。
+5. **（未修，仅登记）** 库入口 `parse` / `parse_with` 在 1 MB 栈线程上同样可能爆栈 ——
+   深文档请在自带大栈的线程上调库。
+
+### 文档 / 工具链
+
+- README 中英各加一节「30 秒看懂 / 30 seconds」：JSON / YAML / SML 三栏对照
+  （**纯新增**，既有段落零改动；三份示例都实测解析过）。
+- 教科书：`ch05` 新增 §5.4.1「叠加（mixin）」（与 §5.4「组合」交叉说明**为什么不能互相替代**）、
+  `ch10` 块级标注补多契约写法与 roadmap 状态；新增 `ch14 能力地图`（中英）。
+- `rust/fuzz/`：加 `cargo-fuzz` 脚手架与 `parse` target（覆盖制导模糊；ASan 运行时待环境就绪）。
+- **VS Code 扩展 0.4.3**：补上 `@type` 的**跳转与悬浮**（语法高亮与补全此前已有）。
+  现在停在契约字段的类型位（`编号: 规则编号`）按 F12 能跳到 `@type name: 规则编号`；
+  悬浮给出**匹配签名**（如 `DS- <层: NET|IDC|APP|DAT|EGR> - <序号: 数字×4>`）与模式原文；
+  停在 `@type` 类型名或契约字段上都会显示。嵌套结构（`组` / `序列` 内嵌）渲染不出签名时
+  **退回显示原文**，不给错的签名。断言补在 `scripts/_verify_ext.mjs`。
+
+### 新增 · `@feature enable case-insensitive`：契约名查找首字母大小写不敏感（opt-in）
+
+- 契约声明为 `Rule`、块级标注写成 `rule ssh { .. }` 时，首词原先不会命中契约表 ⇒
+  契约**静默不生效**（不校验、不填默认值、**也不报错**）。开启本特性后，精确匹配失败
+  时再按「首字母小写后相等」做一次兜底查找，`rule` 即能命中 `Rule`。
+- **只影响查找**：契约声明名、`__type` / `__name` 元数据、错误信息里的契约名一律保持
+  书写原样；且只归一化**首字母**（`RUle` 仍不命中 `Rule`）。
+- `@is` 与块级标注（typed block）两条路径同一口径；测试见
+  `rust/tests/case_insensitive.rs`（10 条，含位序守护）。
+- ⚠️ 注意：`@feature` 默认 **blacklist 模式（基集全开）**，文档里出现**任何**
+  `@feature` 指令都会把本特性一并打开。要严格 opt-in 请用 `@feature mode whitelist`，
+  或由调用方用 `parse_with_features` 收窄（测试 `feature_directive_implies_all_features_on`
+  钉住了这一行为）。
+
+### 修复（本轮续）
+
+6. **`ContractMap` / `PathSeg` / `AppliedContract` 未从 `sml` 门面导出** —— 本轮 CHANGELOG
+   承诺的 `ContractMap::names_at(...)` 用户够不到（`sml::ContractMap` 根本不存在）。
+   已补进 `rust/src/lib.rs` 的 re-export 列表。
+7. **C-ABI `sml_feature_name(15)` 返回 NULL** —— 新增特性后未同步 C-ABI 那份硬编码表
+   （与 `typed-block` bit 14 当年踩的是同一个坑，见 `c_abi.rs` 注释）。已补 bit 15，
+   并顺带补齐 `c/sml_rs.h` 缺失的 bit 12–15 常量。
+
+### 变更 · `@feature` 默认基集：由「全开」改为「版本基线」
+
+**行为变更**。旧实现里基集起算是 `FeatureSet::all()`，导致文档中出现**任何**一行
+`@feature`（哪怕只写 `@feature enable typed-block`）都会让**全部 16 个特性生效** ——
+`when` / `for` / `glob-include` / `regex-include` 以及 opt-in 的 `case-insensitive`
+被一并打开，与「enable X = 只开 X」的直觉相反。
+
+改为：不写 `@feature mode` 时基集 = **按版本派生**（`for_version(v)`），`enable` /
+`disable` 在其上增减，**显式声明优先于版本规则**。`@feature mode whitelist`（清空基集）
+与 `@feature mode blacklist`（基集全开）语义不变 —— 依赖旧「全开」行为的文档，显式加
+一行 `@feature mode blacklist` 即可恢复。
+
+实现上：`strip_features` 起算 `baseline()`，并额外返回文档**显式 touch 过**的特性集与
+`mode`；`features_for` 再按 mode 合成（Default 模式补上版本差异、显式声明优先）。
+顺带修掉一处长久存在的偏差：此前含 `@feature` 指令的文档**不吃版本规则**，v2/v3/v4 的
+「字符串必须引号」会失效（`features::feature_blacklist_removes` 等用例当时是靠
+`all()` 基集侥幸对的）。紧凑写法 `@feature blacklist <a,b>` 原先漏置 `mode`，一并补上。
+
+> 未新增 `fromzero` / `absolute` 等关键字：它们与既有 `whitelist` 语义重叠且属破坏性
+> 替代，维持关键字面不变，只调整**默认基集**。
+
+### 升级注意（本轮）
+
+- **行为变更**：含 `@feature` 指令的文档，生效特性集由「全部特性」变为「版本基线 +
+  显式增减」（见上）。依赖旧行为的请显式声明 `@feature mode blacklist`。
+
+- **行为变更**：同一块内多条 `@is` 由「后者覆盖」改为「全部生效」（见上）。
+- **公开结构体加字段**：`ParseOutput` 新增 `contract_map: Option<ContractMap>`。
+  对**只读取**结果的代码无破坏；**只有用结构体字面量构造 `ParseOutput` 的代码**会受影响
+  （照 0.6.2 的口径：加字段属 API 变更，故在此显式标注）。
+- 其余（叠加 / 映射 API / 推断 / 错误定位）均为**纯新增**，既有路径逐字不变。
 
 ## [0.6.2] — 2026-10-10 · swsml（同批发 `smltools` 0.2.1）
 

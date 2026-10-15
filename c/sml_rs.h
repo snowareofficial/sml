@@ -1,13 +1,22 @@
 /*
- * sml_rs.h — SML v3 桥接头文件 (Rust cdylib 后端)
+ * SPDX-License-Identifier: MulanPSL-2.0
+ * SML v1..v4 桥接头文件（Rust cdylib 后端）。
+ * 仓库：https://gitee.com/snoware/sml
+ * @file sml_rs.h
+ * @brief SML v1..v4 C-ABI 桥接：经 Rust cdylib 获得 v1..v4 全集能力（$env / glob-include / @feature / @contract）。
+ * @version 0.1.0 (swsml 0.6.3)
+ */
+
+/*
+ * sml_rs.h — SML v1..v4 桥接头文件 (Rust cdylib 后端)
  *
  * 本文件不实现解析器，而是桥接 Rust crate `swsml` 编译出的 cdylib
- * (sml.dll / libsml.so / libsml.dylib)，从而获得 v3 完整能力：
+ * (sml.dll / libsml.so / libsml.dylib)，从而获得 v1..v4 完整能力：
  * $env 内联 / glob-include / @feature / @contract。
  *
  * 与 sml.h 的关系 —— 两个后端，二选一链接，不可同时 include：
  *   sml.h    纯 C99 自包含实现，零依赖，功能为基础集。
- *   sml_rs.h 本文件，桥接 Rust cdylib，功能为 v3 全集。
+ *   sml_rs.h 本文件，桥接 Rust cdylib，功能为 v1..v4 全集。
  * 两者刻意保持命名与语义对齐（sml_free 释放值树、sml_free_str 释放字符串），
  * 便于切换后端时少改代码 —— 但值模型不同，不可混用。
  *
@@ -105,6 +114,11 @@ typedef struct sml_value sml_value;
 #define SML_F_GLOB_INCLUDE  (1u << 9)  /* glob include: wildcard path matching */
 #define SML_F_REGEX_INCLUDE (1u << 10) /* regex include: path matched by pattern */
 #define SML_F_EXT_REWRITE   (1u << 11) /* include "x.conf" -> "x.sml" */
+#define SML_F_WHEN          (1u << 12) /* @when 条件裁剪 */
+#define SML_F_FOR           (1u << 13) /* @for 有界循环 */
+#define SML_F_TYPED_BLOCK   (1u << 14) /* 块级类型标注：`<契约名> <块名> { .. }` */
+#define SML_F_CASE_INSENSITIVE (1u << 15) /* 契约名查找首字母大小写不敏感 */
+#define SML_F_BLOCK_NAME    (1u << 16) /* 块级标注里"非契约词"可作块名 */
 
 /* 常用组合 */
 #define SML_F_BASIC  (SML_F_BAREWORD_STR | SML_F_INCLUDE | SML_F_FRAGMENT)

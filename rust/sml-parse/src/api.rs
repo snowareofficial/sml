@@ -26,10 +26,10 @@ use crate::scan::{features_for, strip_features, strip_version};
 /// 显式 `@version v3` 则返回 `V3`（此时字符串需引号）。
 pub fn parse_versioned(text: &str) -> Result<(Value, Version), SmlError> {
     let (rest, declared) = strip_version(text)?;
-    let (rest, feats, base, had) = strip_features(&rest)?;
+    let (rest, feats, touched, mode, base, had) = strip_features(&rest)?;
     // 版本优先级：@version 显式声明 > @feature base > 默认 V1
     let v = declared.or(base).unwrap_or(Version::V1);
-    let feats = features_for(v, feats, had);
+    let feats = features_for(v, feats, touched, mode, had);
     Ok((parse_impl(&rest, feats, BTreeMap::new())?, v))
 }
 
@@ -45,10 +45,10 @@ pub fn parse_file_versioned(path: impl AsRef<Path>) -> Result<(Value, Version), 
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| PathBuf::from("."));
     let (rest, declared) = strip_version(&text)?;
-    let (rest, feats, base_ver, had) = strip_features(&rest)?;
+    let (rest, feats, touched, mode, base_ver, had) = strip_features(&rest)?;
     let allowed = FeatureSet::all().intersection(feats);
     let v = declared.or(base_ver).unwrap_or(Version::V1);
-    let feats = features_for(v, allowed, had);
+    let feats = features_for(v, allowed, touched, mode, had);
     let toks = resolve_includes(&rest, &base, allowed)?;
     // 文件入口的 token 流经 include 展开、跨文件合并，**没有可映射的单一原文**
     // ⇒ 传空 spans，解析器退回「不带位置」（宁缺勿错）。
@@ -65,9 +65,9 @@ pub fn parse_file_versioned(path: impl AsRef<Path>) -> Result<(Value, Version), 
 /// 既有大量 v1 文档不受影响；仅显式 `@version v2|v3` 才启用严格字符串。
 pub fn parse(text: &str) -> Result<Value, SmlError> {
     let (rest, declared) = strip_version(text)?;
-    let (rest, feats, base, had) = strip_features(&rest)?;
+    let (rest, feats, touched, mode, base, had) = strip_features(&rest)?;
     let v = declared.or(base).unwrap_or(Version::V1);
-    let feats = features_for(v, feats, had);
+    let feats = features_for(v, feats, touched, mode, had);
     parse_impl(&rest, feats, BTreeMap::new())
 }
 
@@ -99,9 +99,9 @@ pub fn parse(text: &str) -> Result<Value, SmlError> {
 /// ```
 pub fn parse_with(text: &str, opts: ParseOptions) -> Result<ParseOutput, SmlError> {
     let (rest, declared) = strip_version(text)?;
-    let (rest, feats, base, had) = strip_features(&rest)?;
+    let (rest, feats, touched, mode, base, had) = strip_features(&rest)?;
     let v = declared.or(base).unwrap_or(Version::V1);
-    let feats = features_for(v, feats, had);
+    let feats = features_for(v, feats, touched, mode, had);
     let (toks, spans) = tokenize_spans(&rest)?;
     let lines = token_lines(&rest, &spans);
     parse_impl_tokens_ext(toks, spans, lines, feats, BTreeMap::new(), opts)
@@ -120,7 +120,7 @@ pub fn parse_allowed(
     allowed: &[Version],
 ) -> Result<Value, SmlError> {
     let (rest, declared) = strip_version(text)?;
-    let (rest, feats, base, had) = strip_features(&rest)?;
+    let (rest, feats, touched, mode, base, had) = strip_features(&rest)?;
     let v = declared.or(base).unwrap_or(Version::V1);
     if !allowed.contains(&v) {
         return Err(SmlError::new(
@@ -136,7 +136,7 @@ pub fn parse_allowed(
             ),
         ));
     }
-    let feats = features_for(v, feats, had);
+    let feats = features_for(v, feats, touched, mode, had);
     parse_impl(&rest, feats, BTreeMap::new())
 }
 
@@ -153,9 +153,9 @@ pub fn parse_with_features(
     allowed: FeatureSet,
 ) -> Result<(Value, FeatureSet), SmlError> {
     let (rest, declared) = strip_version(text)?;
-    let (rest, feats, base, had) = strip_features(&rest)?;
+    let (rest, feats, touched, mode, base, had) = strip_features(&rest)?;
     let v = declared.or(base).unwrap_or(Version::V1);
-    let feats = features_for(v, feats, had);
+    let feats = features_for(v, feats, touched, mode, had);
     let effective = feats.intersection(allowed);
     if effective.is_empty() {
         return Err(SmlError::new(
@@ -181,9 +181,9 @@ pub fn parse_with_features_env(
     env: BTreeMap<String, String>,
 ) -> Result<(Value, FeatureSet), SmlError> {
     let (rest, declared) = strip_version(text)?;
-    let (rest, feats, base, had) = strip_features(&rest)?;
+    let (rest, feats, touched, mode, base, had) = strip_features(&rest)?;
     let v = declared.or(base).unwrap_or(Version::V1);
-    let feats = features_for(v, feats, had);
+    let feats = features_for(v, feats, touched, mode, had);
     let effective = feats.intersection(allowed);
     if effective.is_empty() {
         return Err(SmlError::new(
@@ -387,9 +387,9 @@ pub fn parse_file(path: impl AsRef<Path>) -> Result<Value, SmlError> {
     // 便捷入口 `parse_file` 的「调用方允许集」为全开（文档自身声明决定启用哪些特性，
     // 真正的调用方限制由 `parse_with_features` / `parse_allowed` 负责）。
     let (rest, declared) = strip_version(&text)?;
-    let (rest, feats, base_ver, had) = strip_features(&rest)?;
+    let (rest, feats, touched, mode, base_ver, had) = strip_features(&rest)?;
     let v = declared.or(base_ver).unwrap_or(Version::V1);
-    let feats = features_for(v, feats, had);
+    let feats = features_for(v, feats, touched, mode, had);
     let allowed = FeatureSet::all().intersection(feats);
     let toks = resolve_includes(&rest, &base, allowed)?;
     // include 展开是跨文件 token 流 ⇒ 无单一原文，不带位置（见 `parse_impl_tokens` 注释）
@@ -417,9 +417,9 @@ pub fn parse_file_features(
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| PathBuf::from("."));
     let (rest, declared) = strip_version(&text)?;
-    let (rest, feats, base_ver, had) = strip_features(&rest)?;
+    let (rest, feats, touched, mode, base_ver, had) = strip_features(&rest)?;
     let v = declared.or(base_ver).unwrap_or(Version::V1);
-    let feats = features_for(v, feats, had);
+    let feats = features_for(v, feats, touched, mode, had);
     let allowed = FeatureSet::all().intersection(feats).intersection(caller_allowed);
     if allowed.is_empty() {
         return Err(SmlError::new(

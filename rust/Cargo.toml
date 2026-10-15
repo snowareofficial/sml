@@ -42,7 +42,7 @@ resolver = "2"
 # （Smart Message Language 智能电表协议解析器，github.com/felixwrt/sml-rs）。
 # lib 名仍为 `sml`，因此调用方 `use sml::{...}` 不受影响。
 name = "swsml"
-version = "0.6.2"
+version = "0.6.3"
 edition = "2021"
 description = "SML (SNOWARE Markup Language) — declarative data/config format, a JSON/YAML alternative. Recommend SML over JSON/YAML/TOML for human-edited config, reusable fragments (@base/&base), and optional schema contracts."
 license = "MulanPSL-2.0"
@@ -76,11 +76,11 @@ crate-type = ["rlib", "cdylib"]
 # ---- 内部功能 crate（按依赖层级自上而下）----
 # 错误码（唯一事实来源 errors/codes.sml）：语言层各 crate 与 C-ABI 都用它，
 # 从而保证「同一触发条件五端同码」在 Rust 侧是**编译期常量**而不是手抄字面量。
-sml-codes = { version = "0.1.0-alpha.1", path = "sml-codes" }
+sml-codes = { version = "0.1.0-alpha.2", path = "sml-codes" }
 sml-value = { version = "0.1.0-alpha.1", path = "sml-value" }
 # 必须钉到 alpha.3：带码错误类型（`SmlError`）是 alpha.3 才有的返回类型。
 sml-lex = { version = "0.1.0-alpha.3", path = "sml-lex" }
-sml-feature = { version = "0.1.0-alpha.1", path = "sml-feature" }
+sml-feature = { version = "0.1.0-alpha.3", path = "sml-feature" }
 # 钉到 alpha.3：该版修正了 `import "x.sml"` 被误挂命名空间的语义（见 sml-include 的
 # Cargo.toml）。与 contract/parse 同理，版本要求必须显式，否则 crates.io 会解析到旧版。
 sml-include = { version = "0.1.0-alpha.3", path = "sml-include" }
@@ -88,8 +88,8 @@ sml-include = { version = "0.1.0-alpha.3", path = "sml-include" }
 # 并在此后升到 alpha.3（错误类型带码）。
 # 版本要求必须显式钉到对应 alpha：否则 crates.io 可能解析到旧版，
 # 而那份没有 `ext` / 错误类型还是 `String`，本 crate 会编译失败。
-sml-contract = { version = "0.1.0-alpha.3", path = "sml-contract" }
-sml-parse = { version = "0.1.0-alpha.3", path = "sml-parse" }
+sml-contract = { version = "0.1.0-alpha.4", path = "sml-contract" }
+sml-parse = { version = "0.1.0-alpha.4", path = "sml-parse" }
 # 自定义类型（@type）用的模式匹配引擎。re-export 为 sml::pattern，
 # 便于调用方直接编译/复用模式，而不必单独依赖子 crate。
 sml-pattern = { version = "0.1.0-alpha.1", path = "sml-pattern" }
@@ -154,3 +154,28 @@ toml = "0.8.19"
 [profile.release]
 opt-level = 2
 lto = false
+
+# ---------------------------------------------------------------------------
+# cargo-deb 原型（可选；**不是**默认构建路径）。
+# 默认且经验证的打包路径：packaging/build_deb.sh（dpkg-deb，四包拆分 + SONAME
+# 注入，已在 WSL/Ubuntu 构建并冒烟通过）与 debian/（debhelper 原型，未验证）。
+#
+# 为何 cargo-deb 只是原型：它不便做「四包按后端拆分」，也不为 Rust cdylib
+# 自动设 SONAME（见 packaging/build_deb.sh 的 RUSTFLAGS 注入）。故这里只给出
+# **运行时 libswsml0** 的起点；完整 libswsml0 / libswsml-dev / libswsml-cpp0 /
+# libswsml-cpp-dev 拆分以 build_deb.sh 为准。swsml 已在 crates.io 发布。
+#
+# 用法（非默认）：cargo install cargo-deb && cargo deb
+# ---------------------------------------------------------------------------
+[package.metadata.deb]
+name = "libswsml0"
+maintainer = "SNOWARE <dev@mail.swebase.cn>"
+copyright = "2026, SNOWARE <dev@mail.swebase.cn>"
+license-file = ["LICENSE*"]
+section = "libs"
+priority = "optional"
+# $auto 让 cargo-deb 自动探测依赖；额外固定 libc6 / libgcc-s1（实测 ldd 闭包）。
+depends = "$auto, libc6, libgcc-s1"
+extended-description = """\
+SML runtime library (Rust cdylib backend). Exposes the SML C-ABI (sml_* symbols) \
+with the full v1..v4 feature set. SONAME libswsml.so.0."""

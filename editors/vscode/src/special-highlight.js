@@ -14,6 +14,14 @@
 //  · 规模有上限，超了**明说截断**，不假装搜全了。
 const vscode = require("vscode");
 
+// 运行时 i18n：中文为源语言（默认），英文翻译见 l10n/bundle.l10n.en.json。
+const L = vscode.l10n && typeof vscode.l10n.t === "function"
+  ? vscode.l10n.t.bind(vscode.l10n)
+  : (message, ...args) =>
+      args.length
+        ? String(message).replace(/\{(\d+)\}/g, (_, i) => (args[Number(i)] ?? "").toString())
+        : message;
+
 const MAX_FILES = 500;                    // 参与搜索的文件数上限
 const MAX_MATCHES = 20000;                // 命中处数上限
 const MAX_FILE_BYTES = 4 * 1024 * 1024;   // 单文件超过就跳过（不把大文件读进内存）
@@ -78,9 +86,8 @@ function updateStatus() {
     return;
   }
   state.status.text =
-    `$(search) 特别高亮: ${state.term} · ${state.total} 处 / ${state.files} 文件` +
-    (state.truncated ? "（已截断）" : "");
-  state.status.tooltip = "点击清除特别高亮（或对同一个词再触发一次命令）";
+    L("$(search) 特别高亮: {0} · {1} 处 / {2} 文件{3}", state.term, state.total, state.files, state.truncated ? L("（已截断）") : "");
+  state.status.tooltip = L("点击清除特别高亮（或对同一个词再触发一次命令）");
   state.status.command = "sml.clearSpecialHighlight";
   state.status.show();
 }
@@ -105,7 +112,7 @@ async function clearAll(notify) {
   state.truncated = false;
   updateStatus();
   await setActiveFlag(false);
-  if (notify && had) vscode.window.showInformationMessage(`已清除特别高亮（${had}）`);
+  if (notify && had) vscode.window.showInformationMessage(L("已清除特别高亮（{0}）", had));
 }
 
 /// 扫整个工作区，落进 state 并上色。返回是否命中（0 命中时调用方给提示）。
@@ -114,7 +121,7 @@ async function scan(term) {
   const { caseSensitive, wholeWord } = opts();
   const mod = await getSml();
   if (typeof mod.findOccurrences !== "function") {
-    vscode.window.showErrorMessage("SML: 解析器版本过旧（缺 findOccurrences），请重装扩展");
+    vscode.window.showErrorMessage(L("SML: 解析器版本过旧（缺 findOccurrences），请重装扩展"));
     return 0;
   }
 
@@ -177,7 +184,7 @@ async function scan(term) {
 async function highlightSelection() {
   const ed = vscode.window.activeTextEditor;
   if (!ed) {
-    vscode.window.showInformationMessage("SML: 请先打开文件并选中要特别高亮的词");
+    vscode.window.showInformationMessage(L("SML: 请先打开文件并选中要特别高亮的词"));
     return;
   }
   let term = "";
@@ -189,11 +196,11 @@ async function highlightSelection() {
   }
   term = (term || "").trim();
   if (!term) {
-    vscode.window.showInformationMessage("SML: 没有可高亮的内容 —— 请选中一段文字，或把光标放到词上");
+    vscode.window.showInformationMessage(L("SML: 没有可高亮的内容 —— 请选中一段文字，或把光标放到词上"));
     return;
   }
   if (term.includes("\n") || term.includes("\r")) {
-    vscode.window.showWarningMessage("SML: 只支持同一行内的文本（跨行选中无法用单一词表示）");
+    vscode.window.showWarningMessage(L("SML: 只支持同一行内的文本（跨行选中无法用单一词表示）"));
     return;
   }
   if (term === state.term) {
@@ -202,7 +209,7 @@ async function highlightSelection() {
   }
   await scan(term);
   if (state.total === 0) {
-    vscode.window.showInformationMessage(`SML: 工作区内没有找到「${term}」`);
+    vscode.window.showInformationMessage(L("SML: 工作区内没有找到「{0}」", term));
   }
 }
 

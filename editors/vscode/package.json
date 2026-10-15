@@ -1,8 +1,8 @@
 {
   "name": "sml-lang",
   "displayName": "SML (SNOWARE Markup Language)",
-  "description": "SML 语言支持：语法高亮、错误提示、补全、悬浮说明与格式化",
-  "version": "0.4.2",
+  "description": "%sml.description%",
+  "version": "0.4.3",
   "publisher": "snoware",
   "icon": "images/icon.png",
   "license": "MulanPSL-2.0",
@@ -32,35 +32,35 @@
     "commands": [
       {
         "command": "sml.reloadHighlight",
-        "title": "SML: 重载自定义高亮配置"
+        "title": "%sml.reloadHighlight.title%"
       },
       {
         "command": "sml.setHighlightMode",
-        "title": "SML: 设置高亮强度（全部 / 极简 / 关闭）"
+        "title": "%sml.setHighlightMode.title%"
       },
       {
         "command": "sml.createHighlightConfig",
-        "title": "SML: 创建 HL-cfg.sml 高亮配置"
+        "title": "%sml.createHighlightConfig.title%"
       },
       {
         "command": "sml.specialHighlight",
-        "title": "SML: 特别高亮选中词（当前工作区）"
+        "title": "%sml.specialHighlight.title%"
       },
       {
         "command": "sml.clearSpecialHighlight",
-        "title": "SML: 清除特别高亮"
+        "title": "%sml.clearSpecialHighlight.title%"
       },
       {
         "command": "sml.applySpecialColor",
-        "title": "SML: 应用特殊颜色（写进 HL-cfg.sml，仅对语法单元生效）"
+        "title": "%sml.applySpecialColor.title%"
       },
       {
         "command": "sml.selectIconTheme",
-        "title": "SML: 文件图标主题（SML+Seti / 仅 .sml / 换回其他主题）"
+        "title": "%sml.selectIconTheme.title%"
       },
       {
         "command": "sml.selfCheck",
-        "title": "SML: 自检（悬浮 / 跳转 / 高亮没反应时先跑这个）"
+        "title": "%sml.selfCheck.title%"
       }
     ],
     "languages": [
@@ -86,12 +86,12 @@
     "iconThemes": [
       {
         "id": "sml-icons",
-        "label": "SML Icons（仅 .sml）",
+        "label": "%sml.iconThemes.smlIcons%",
         "path": "./fileicons/sml-icon-theme.json"
       },
       {
         "id": "sml-icons-seti",
-        "label": "SML Icons + Seti（其他文件沿用 Seti 图标）",
+        "label": "%sml.iconThemes.smlIconsSeti%",
         "path": "./fileicons/seti/sml-seti-icon-theme.json"
       }
     ],
@@ -135,7 +135,7 @@
         "sml.diagnostics.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "编辑 .sml 文件时实时显示解析错误"
+          "description": "%sml.diagnostics.enabled.description%"
         },
         "sml.highlight.mode": {
           "type": "string",
@@ -145,27 +145,27 @@
             "off"
           ],
           "default": "full",
-          "description": "高亮强度：full=全部；minimal=只保留注释/字符串/数字；off=全部关闭"
+          "description": "%sml.highlight.mode.description%"
         },
         "sml.highlight.configFile": {
           "type": "string",
           "default": "HL-cfg.sml",
-          "description": "自定义高亮配置文件路径（相对工作区根目录），不存在时静默跳过"
+          "description": "%sml.highlight.configFile.description%"
         },
         "sml.specialHighlight.include": {
           "type": "string",
           "default": "**/*.sml",
-          "description": "「特别高亮」的搜索范围（glob；默认只搜 .sml，遵循 files.exclude）"
+          "description": "%sml.specialHighlight.include.description%"
         },
         "sml.specialHighlight.caseSensitive": {
           "type": "boolean",
           "default": true,
-          "description": "「特别高亮」是否区分大小写"
+          "description": "%sml.specialHighlight.caseSensitive.description%"
         },
         "sml.specialHighlight.wholeWord": {
           "type": "boolean",
           "default": false,
-          "description": "「特别高亮」是否只匹配完整词（按 SML 标识符字符类判边界）"
+          "description": "%sml.specialHighlight.wholeWord.description%"
         }
       }
     }
@@ -173,7 +173,7 @@
   "scripts": {
     "sync-parser": "python scripts/sync-parser.py",
     "package": "npm run sync-parser && npx --yes @vscode/vsce package",
-    "install-local": "npm run package && code --install-extension sml-lang-0.4.2.vsix --force"
+    "install-local": "npm run package && code --install-extension sml-lang-0.4.3.vsix --force"
   },
   "devDependencies": {
     "@types/vscode": "^1.80.0",

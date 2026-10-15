@@ -221,8 +221,8 @@
     if (!app) return;
     var lang = document.documentElement.lang === "en" ? "en" : "zh";
     var T = lang === "en"
-      ? { ph: "Search the textbook (e.g. contract, include, smltools)", hint: "Matches titles, headings and body text. Chinese queries match by substring. Error codes are looked up too (E-CONTRACT-*, E-PARSE-008).", none: "Nothing found.", n: function (n) { return n + " hit(s)"; }, codeHits: function (n) { return "Matching error codes: " + n; } }
-      : { ph: "搜索教科书（如 契约、include、smltools）", hint: "标题、小标题与正文都会匹配；中文按子串匹配。错误码也一并检索（E-CONTRACT-*、E-PARSE-008）。", none: "没有找到。", n: function (n) { return n + " 条结果"; }, codeHits: function (n) { return "错误码命中：" + n + " 条"; } };
+      ? { ph: "Search the textbook (e.g. contract, include, smltools)", hint: "Matches titles, headings and body text. Chinese queries match by substring. Error codes are looked up too (E-CONTRACT-*, E-PARSE-008).", none: "Nothing found.", n: function (n) { return n + " hit(s)"; }, codeHits: function (n) { return "Matching error codes: " + n; }, other: "Include the other language" }
+      : { ph: "搜索教科书（如 契约、include、smltools）", hint: "标题、小标题与正文都会匹配；中文按子串匹配。错误码也一并检索（E-CONTRACT-*、E-PARSE-008）。", none: "没有找到。", n: function (n) { return n + " 条结果"; }, codeHits: function (n) { return "错误码命中：" + n + " 条"; }, other: "显示另一语言结果" };
 
     getJSON(body.dataset.searchUrl || root + "search-index.json")
       .then(function (data) {
@@ -236,6 +236,16 @@
         bar.appendChild(input);
         bar.appendChild(count);
         app.appendChild(bar);
+        // 默认只搜当前语言；勾选后并入另一语言（默认折叠非目标语言结果）
+        var includeOther = false;
+        var otherBox = el("input");
+        otherBox.type = "checkbox";
+        var otherLabel = el("label");
+        otherLabel.style.cssText = "display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--fg-dim);cursor:pointer;margin:2px 0 8px;";
+        otherLabel.appendChild(otherBox);
+        otherLabel.appendChild(document.createTextNode(T.other));
+        otherBox.addEventListener("change", function () { includeOther = otherBox.checked; paint(); });
+        app.appendChild(otherLabel);
         app.appendChild(el("p", "tool-note", T.hint));
         var host = el("div");
         app.appendChild(host);
@@ -247,6 +257,9 @@
           var out = [];
           for (var i = 0; i < entries.length; i++) {
             var e = entries[i];
+            // 默认折叠非目标语言：仅搜当前语言；勾选「显示另一语言」后才并入
+            var eLang = e.lang || (String(e.url || "").indexOf("en/") === 0 ? "en" : "zh");
+            if (!includeOther && eLang !== lang) continue;
             var title = (e.title || "").toLowerCase();
             var heads = (e.headings || []).join(" \u0001 ").toLowerCase();
             var bodyText = (e.text || "").toLowerCase();
@@ -322,7 +335,8 @@
           hits.slice(0, 30).forEach(function (h) {
             var a = el("a", "hit");
             a.href = root + h.e.url;
-            a.appendChild(el("div", "hit-title", h.e.title + (h.e.lang === "en" ? "" : "") + " · " + h.e.url));
+            var hLang = h.e.lang || (String(h.e.url || "").indexOf("en/") === 0 ? "en" : "zh");
+            a.appendChild(el("div", "hit-title", h.e.title + (hLang !== lang ? " [" + hLang.toUpperCase() + "]" : "") + " · " + h.e.url));
             a.appendChild(el("div", "hit-body", snippet(h.e, q)));
             host.appendChild(a);
           });
@@ -332,7 +346,11 @@
           if (timer) clearTimeout(timer);
           timer = setTimeout(paint, 120);
         });
-        if (location.hash) { input.value = decodeURIComponent(location.hash.slice(1)); paint(); }
+        // 深链支持：?q=（导航搜索框 GET 提交）与 #查询（错误码页风格）都认
+        var q0 = "";
+        try { q0 = new URLSearchParams(location.search).get("q") || ""; } catch (e) {}
+        if (!q0 && location.hash) q0 = decodeURIComponent(location.hash.slice(1));
+        if (q0) { input.value = q0; paint(); }
       })
       .catch(function (e) {
         app.appendChild(el("p", "tool-error", (lang === "en" ? "Failed to load the search index: " : "搜索索引加载失败：") + e.message));

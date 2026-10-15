@@ -546,7 +546,7 @@ fn typed_block_is_opt_in() {
 
 #[test]
 fn typed_block_applies_contract_and_defaults() {
-    let src = "@feature enable typed-block\n@contract 受理人 strict {\n姓名: str\n手机: str\n角色: enum(窗口, 审批) default 窗口\n}\n受理人 窗口一 {\n姓名: 张三\n手机: \"13800138000\"\n}\n";
+    let src = "@feature enable typed-block\n@feature enable block-name\n@contract 受理人 strict {\n姓名: str\n手机: str\n角色: enum(窗口, 审批) default 窗口\n}\n受理人 窗口一 {\n姓名: 张三\n手机: \"13800138000\"\n}\n";
     let v = parse(src).unwrap();
     let blk = v.get("受理人").unwrap();
     // 默认值应被填充（证明契约真的生效了）
@@ -557,7 +557,7 @@ fn typed_block_applies_contract_and_defaults() {
 
 #[test]
 fn typed_block_still_validates() {
-    let src = "@feature enable typed-block\n@contract 受理人 strict {\n姓名: str\n手机: str\n}\n受理人 窗口一 {\n姓名: 张三\n}\n";
+    let src = "@feature enable typed-block\n@feature enable block-name\n@contract 受理人 strict {\n姓名: str\n手机: str\n}\n受理人 窗口一 {\n姓名: 张三\n}\n";
     let e = parse(src).unwrap_err();
     assert!(e.message().contains("手机"), "应报缺失字段 手机，实际: {e}");
 }
@@ -575,7 +575,7 @@ fn typed_block_leaves_ordinary_bare_block_untouched() {
 #[test]
 fn typed_block_composes_with_type() {
     // type（值格式）+ contract（块结构）+ 块级标注 三层组合
-    let src = "@feature enable typed-block\n@type name: 手机号 {\n序列: [\n{ 字面: \"1\" }\n{ 名: 后续, 类: 数字, 次: 10 }\n]\n}\n@contract 受理人 strict {\n姓名: str\n手机: 手机号\n}\n受理人 窗口一 {\n姓名: 张三\n手机: \"13800138000\"\n}\n";
+    let src = "@feature enable typed-block\n@feature enable block-name\n@type name: 手机号 {\n序列: [\n{ 字面: \"1\" }\n{ 名: 后续, 类: 数字, 次: 10 }\n]\n}\n@contract 受理人 strict {\n姓名: str\n手机: 手机号\n}\n受理人 窗口一 {\n姓名: 张三\n手机: \"13800138000\"\n}\n";
     assert!(parse(src).is_ok(), "合法组合应通过");
     // 值格式错误应由 type 层拦下
     let bad = src.replace("13800138000", "23800138000");

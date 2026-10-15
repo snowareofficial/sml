@@ -1,3 +1,8 @@
+# SPDX-License-Identifier: MulanPSL-2.0
+# SML 多语言宿主绑定（Python / ctypes）。
+# 仓库：https://gitee.com/snoware/sml
+# @version 0.1.0 (swsml 0.6.3)
+
 """SML 宿主绑定（Python / ctypes）—— 经 C-ABI 调 Rust cdylib（sml / libsml）。
 
 读路径（loads / load_file / 取值）**直接遍历 v3 值树**，不经 JSON：类型保真
