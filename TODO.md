@@ -729,6 +729,97 @@ W3/W4/W5 共享同一批文件（`c/`、`js/`、`lua/`），**必须串行**；�
   是**有意为之**，不是待补的短板。
 - 相关：Zed 扩展的 grammar 要拆独立仓库才能正式发布（见 `editors/zed/README.md`），
   该拆分同属「发布」动作，同样先告知用户再动。
+
+### 六·一 补充纪律（2026-10-25 用户定）
+
+- **git 身份不乱改**：**不许** `git config` 动 `user.name` / `user.email`（含 `--global`）；
+  提交前用 `git log -1 --format='%an %ae'` 核对作者；做过历史清理（`filter-repo`）后
+  必须告知用户并复核 remote / 镜像，避免"身份被改过却没人知道"。
+- **publish 前先确定顺序**：子 crate 依赖单向，顺序必须照依赖图发 ——
+  `sml-codes` / `sml-value` / `sml-lex` / `sml-feature` / `sml-pattern` / `sml-regex`
+  → `sml-include` / `sml-contract` → `sml-parse` → `swsml-derive` → `swsml` → `smltools`。
+  ⚠️ 依赖里的版本要求必须**显式钉到对应 alpha/版本**，否则 crates.io 会解析到旧版
+  （历史上已因"钉不够"编译失败）；每步先 `--dry-run`，再真发。
+- **考虑限流**：crates.io 对发布频率有限制（同一 crate 短时间不能连发），
+  发布脚本必须**串行 + 退避重试**、失败可断点续发，不能并发轰；对外部 API
+  （advisory DB / 站点接口）同理，别把限流当故障重试风暴。
+- **发布前做完善的安全 + 功能测试**（不是只跑一个 `cargo test`）：
+  `cargo test --workspace -j 1`（新 target 目录，见 §三 的链接竞争坑）、非 Rust 四端自检、
+  `cargo audit`、`miri_check.py`、`osv_check.py`、`tools/check_js_copies.py`；
+  结果与日期必须贴进 `CHANGELOG.md` / HANDOFF，否则下次没人知道跑没跑。
+- **记录本轮 `cargo audit`（2026-10-25 实测）**：`cargo audit`（0.22.2，advisory DB 1352 条）
+  扫 `rust/Cargo.lock` 的 **50** 个依赖 ⇒ **漏洞 0 / 告警 0**，退出码 `0`。
+
+---
+
+## 七、项目维护账（2026-10-25 用户点名记录）
+
+### 七·一 清理工作（有量、低风险，但一直没做）
+
+实测（`git status --ignored --short`，2026-10-25）：
+
+- 根目录 `_*` 临时脚本 **130 个**（合计约 0.22 MB）：`_audit_*` / `_bench_*` / `_check_*` /
+  `_chk_*` / `_commit_*.txt` / `_dump_ascii.py` …… 全部被 `.gitignore` 挡住，**未入库**，
+  但糊在根目录，`ls` 一眼看不出哪个是正式脚本。
+- 被忽略条目共 **337** 条（含 **33** 个目录）；`TASK-*` 任务书 **7** 份散在根目录。
+- `.wrangler/` **既未跟踪也未忽略** ⇒ 会一直挂在 `git status` 里（本轮实测）。
+- 其他已知遗留：根 `build/settings`、`rust/qsm` 与 `rust/flow`（内部 workspace，
+  已 `publish = false`）、`errors/` 与 `tools/` 目录里的 `*.pyc`（未入库）。
+- **完成判据**（不是"看起来干净"）：`git status --short` 只剩真实改动、
+  `git status --ignored` 里没有可复现的中间产物。
+
+- [ ] 临时脚本：归档到 `tools/_scratch/`（保持 ignore）或删；有长期价值的**升级为正式脚本**
+      并登记到 HANDOFF §5 的验证命令表
+- [ ] `TASK-*` 七份：已完成的移入 `archive/` 或结论合并进 `CHANGELOG.md`
+- [ ] `.wrangler/`：补进 `.gitignore`（或删）
+- [ ] 复核「仓库瘦身」是否还有漏网大文件（story / CH32V103xx 曾移除过一次）
+
+### 七·二 文档不全与混乱（AI 每次都得翻代码的根因）
+
+现象：问「X 现在支持吗」时，README / TODO / HANDOFF / 教科书 / `llms.txt` 互相矛盾或过期，
+只能回源码 + 实测。按危害排序：
+
+1. **同一事实多处维护**：五端实现 × JS 四份副本 × README 中英 × 站点中英 × `llms.txt`。
+   漏改一处就出现「文档说支持、代码不支持」—— 已发生过（`typed-block` 只有 Rust+JS）。
+2. **状态靠手写**：`TODO.md` 里大量「已实现 / 待实现」是按当时实测手写的，没有机器可校验
+   的来源；后续回退或改动，正文不会跟着变。
+3. **实测结论只活在会话里**：探针脚本在 `%TEMP%`、结论写在叙述里，下次不能一键复跑
+   ⇒ 只能重新翻代码、重做判别实验。
+4. **术语混用**：「组合 / 叠加（mixin）/ strict / loose / typed-block / block-name」命名相近，
+   文档与注释用词不一致（`TODO.md` §新特性那几段已花大段纠偏）。
+
+- [ ] **事实来源索引**（一页）：每条能力 → 唯一代码位置（`file:line`）+ 判定命令；
+      文档只引用索引，不重复描述行为
+- [ ] **状态自动化**：能机器判定的就生成（错误码表已有 `errors/gen_json.py`；
+      能力矩阵同理），不能判定的必须标「最后实测日期 + 复跑命令」
+- [ ] **术语表（glossary）**：每个术语一句话，文档与代码注释统一引用
+- [ ] 给每份文档标**权威域**：README = 对外承诺、`errors/codes.sml` = 错误码唯一来源、
+      `TODO.md` = 内部待办、教科书 = 教学叙述；冲突时按域裁决
+
+**难度说明**：文档**不能漏** —— 漏一处就是「文档说支持、代码不支持」，比不写更糟；
+但全量重写必然引入新错，所以只做**增量 + 校验**，一次只改一类。
+
+### 七·三 多端同步工作（改一处要跟几处）
+
+| 同步面 | 涉及文件 | 现有闸门 |
+|---|---|---|
+| 词法表 | `rust/sml-lex`、`c/sml.c`、`cpp/sml.cpp`、`js/sml.mjs`、`lua/lib/sml.soup` | **无**（靠各端 `test_codes` 覆盖） |
+| 错误码与文案 | `errors/codes.sml` → `errors.json` → 五端 | `errors/gen_json.py` + 各端码用例 |
+| 契约语义 | Rust 为参考实现，其余四端跟随 | `rust/tests/contract*.rs` 等 |
+| JS 四份副本 | `site/static/`、`site/static/lib/`、`site/public/`、`editors/vscode/src/vendor/` | `tools/check_js_copies.py`（有闸门，漏同步过一次才加的） |
+| 编辑器 | VSCode 扩展 / LSP / Zed grammar | `editors/vscode/scripts/_verify_*.mjs` |
+
+**已实测的口径差**（别再当"已支持"）：`@feature` 门控只有 Rust + JS；`@when` / `@for` 只有 Rust；
+`typed-block` 只有 Rust + JS（C / C++ 静默退化，Lua 连元数据都丢）。
+
+- [ ] 建**跨实现一致性套件**（`tests/conformance/`）：一份用例 → 五端 runner（W5，一直没做）
+- [ ] 每加一条能力，**先补 conformance 用例再写实现**，否则必然又出一个「只有 Rust+JS」
+- [ ] 给"无闸门"的那两面（词法 / 契约语义）各加一条最简单的观测手段，先能发现不一致
+
+---
+
+## 八、仓库治理（2026-10-26 用户点名）
+
 ### 八·一 分支化
 
 **模型（2026-10-26 用户定）**：`main` = 发布/稳定，**`dev` = 集成**，`feat/*` → **PR 到 `dev`**。

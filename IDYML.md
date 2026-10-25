@@ -52,6 +52,9 @@ swsml = "0.6"                     # crates.io 稳定版（勿用 path）
 name = "idyml"
 path = "src/lib.rs"
 ```
+
+> ⚠️ 上面这份骨架有两处**发布时会被卡**：`keywords` 写了 **7** 个（crates.io 上限 **5**，每个 ≤20 字符）；
+> `categories` 里的 `no-std` **不成立**（`swsml` 依赖 std）。定名前一并改掉，否则 `cargo publish` 直接失败。
 ```rust
 //! src/lib.rs
 //! idyml — SNOWARE Markup Language (English-first international alias of `swsml`).
@@ -72,8 +75,26 @@ path = "src/lib.rs"
 pub use swsml::*;
 ```
 
+## 命名风险（2026-10-25 实测，用户提出）
+> ⚠️ **`idyml` 与已存在的 `yml` 近似** —— 用户提出的顾虑，已核实。
+
+| 名字 | crates.io 状态 | 说明 |
+|---|---|---|
+| `yml` | **已被占用** | v0.1.0，下载 **265**，描述 `"A yml or yaml"`，无 repository ⇒ 小体量 / 疑似占位 |
+| `idyml` | **未占用**（HTTP 404） | 可注册，但与 `yml` 只差一个 `id` 前缀，视觉与读音都容易混 |
+
+- **风险**：① `cargo add` 时容易手误成 `yml`；② 搜索 "yml" 时被 `yml` / `yaml` 稀释，
+  新名字的曝光要绕开这个词根；③ `yml` 本身体量小、无仓库，被它的印象带偏反而扣分。
+- **缓解（按成本排序）**：
+  1. README/docs.rs 首段显式写 "**not `yml`, not YAML**"，把区别说在人眼前；
+  2. 放弃 `*yml` 词根，另起不含 `yml` 的名字（候选待定，如 `smlx` / `snosml` 这类；
+     ⚠️ 任何候选都须先查 crates.io 再定）；
+  3. 抢注若干近邻名做重定向 crate（`idyml` 只 `pub use` 一次）—— 成本是**每个名字各占一个 crate**。
+- **Note**：crates.io 不校验名字相似度，所以"能注册"≠"不会混"；这条要按**可发现性**判断，不是按规则判断。
+
 ## 开工前 checklist
-- [ ] `cargo search idyml` 确认 crates.io 名字未被占用。
+- [x] crates.io 名字核查（2026-10-25）：`idyml` **未被占用**；但 `yml` 已存在 ⇒ 见上「命名风险」。
+- [ ] 决定是否保留 `idyml`（保留则按缓解 1 + 3 处理；否则换名后重跑本 checklist）。
 - [ ] 定版本对齐策略：idyml 版本 = swsml 版本，还是独立 0.x 起、依赖写 `swsml = "0.6"`。
 - [ ] 再导出写法：`pub use swsml::*`（最简）vs 对关键项（`parse`/`parse_file`/`Value`/`to_sml`/`serde`…）加英文 `#[doc]` 再导出（docs.rs 更全英文）。
 - [ ] swsml 的 `[lib] name = "sml"`：确认 idyml 内引用路径（`swsml::*` 是否可用，还是要 `sml = { package = "swsml" }` 重命名依赖）。
