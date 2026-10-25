@@ -458,16 +458,46 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 
 实现过程中挖出、但**不在本轮范围内**的问题，先记账再排期。
 
-### 雷 1：`deep_nesting_exceeding_limit_is_rejected` 栈溢出（既有，非本轮引入）
+### 雷 1：深嵌套测试栈溢出（既有；2026-10-26 已定位并修测试，**根因仍挂账**）
 
-- **位置**：`rust/src/lib.rs:847`
-- **现象**：`cargo test --lib` 跑该测试时 **栈溢出**（`0xc00000fd` / STATUS_STACK_OVERFLOW），
-  整个 lib 测试二进制异常退出 ⇒ **后面所有 lib 测试都跑不到**。
-- **已验证**：把 `rust/derive/src/lib.rs` 换成 HEAD 版本重跑，同样溢出 ⇒ 与 I-1 的改动无关。
+- **现象**：两条测试**自己先栈溢出**（`0xc00000fd`），把所在测试二进制带崩 ⇒
+  排在其后的测试**一条都跑不到**；而 `cargo test` 默认 fail-fast，第一处还会
+  挡住后续测试二进制（所以修掉第一处，第二处才浮出来）：
+  - `rust/src/lib.rs::deep_nesting_exceeding_limit_is_rejected`
+  - `rust/tests/error_codes.rs::limit_codes`
 - **为什么危险**：测试本意是「超深嵌套必须返回 `Err`，绝不能栈溢出」，实际**自己先溢出了** ——
-  这条测试从来没真正验证过它想验证的东西。
-- **待查**：`MAX_VALUE_DEPTH` 的守卫在 `sml-parse` / `sml-value` 两侧是否都落到了解析路径上
-  （`dump.rs` 的注释里提过 5 万层数组会爆栈，说明递归路径仍有守卫缺口）。
+  它们从来没真正验证过自己想验证的东西。
+- **根因（实测）**：深度守卫**是生效的** —— `smltools -i`（主线程 8 MiB）在 N=130 起
+  稳定报 `E-LIMIT-001`。问题在 **libtest 的线程栈只有 Rust 默认的 2 MiB**，而 debug
+  构建下 `parse_block` 递归到 `MAX_VALUE_DEPTH`(128) 层就足以撑爆它。
+  即：**限制是 128 层，而 128 层本身就打穿默认栈**。
+- **已修（2026-10-26）**：两条测试改为在显式开大栈（32 MiB）的线程里跑，断言才真正执行。
+  修完 `--lib` 63 项、`error_codes` 12 项全绿。
+- **⚠️ 仍挂账的真问题**：任何**默认栈的线程**（服务端 / Rayon worker / `std::thread::spawn`）
+  解析 128 层文档都会 abort 整个进程 —— 栈溢出不可捕获。可选方向（**均未做**）：
+  ① 降低 `MAX_VALUE_DEPTH`（但 128 是**五端实测钉住**的边界，改动要五端同步）；
+  ② 削薄 `parse_block_inner` 的栈帧；③ 改迭代式解析。
+
+### 雷 2：`examples/slint/login.sml` 解析不过（示例是坏的）
+
+- **现象**：`smltools -i examples/slint/login.sml --to sml` 报 `E-PARSE-006`
+  （期望键, 得 Some(Colon)）；而 `examples/slint/build.py` 正是靠这条命令生成 `.slint`
+  ⇒ 这个示例**从生成链路起就是断的**。同目录 `calculator.sml` 解析正常（exit 0）。
+- **定位（逐行排除）**：删掉第 102 行即解析成功 ——
+  `` text: `root.busy ? "登录中…" : "登录"` ``
+- **根因（最小用例实测）**：反引号串里**不能嵌带内容的双引号**。
+
+  | 写法 | 结果 |
+  |---|---|
+  | ``k: `360px` ``（纯反引号） | ✅ |
+  | ``k: `a != ""` ``（内嵌**空**双引号） | ✅ |
+  | `k: "`a ? x : y`"`（双引号在外、反引号在内） | ✅（`calculator.sml` 用的就是这个） |
+  | ``k: `a ? "x" : "y"` ``（反引号在外、内嵌带内容双引号） | ❌ |
+
+- **工作区那 1 字符改动**（第 84 行 `}` → `},`）：是修这个问题的**半途尝试**，没修好 ——
+  加了逗号只是把错误码从 `E-PARSE-006` 换成 `E-PARSE-007`（非预期的逗号），两版都失败。
+- **待定**：按 `"\`…\`"` 重写第 102 行（但表达式内含 Slint 字符串字面量，需另找写法），
+  或回退那 1 字符并把该示例标记为已知不可用。
    回归：`js/probe-error-codes.mjs` 52 条全绿；4 份副本已同步、`EXPECT_VENDOR` 与 VSIX 已更新。
 4. ✅ **已修（同日）：`sml-include` 的"逐行 tokenize"架构缺陷**：`expand_includes` 原先逐行
    `tokenize(line)` ⇒ 任何**跨行词法单元**（多行块注释、多行字符串）都在第 1 行报"未闭合"，
