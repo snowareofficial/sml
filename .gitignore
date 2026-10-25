@@ -39,6 +39,9 @@ inc_tmp/
 site-dioxus/
 
 # Wrangler 运行时缓存与本机日志
+# 根目录那份也要忽略：在仓库根跑 `wrangler` 会把缓存落到这里，
+# 之前只忽略了 site/.wrangler/，于是它一直挂在 git status 里（TODO.md 八·一 记过）。
+/.wrangler/
 site/.wrangler/
 site/dev.log
 site/build_site.log
