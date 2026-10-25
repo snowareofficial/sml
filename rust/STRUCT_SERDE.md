@@ -35,7 +35,8 @@ fn main() {
     };
 
     // 1) serialize：Rust struct -> SML 文本
-    let text = sml::to_string(&original);
+    // `to_string` 返回 Result（如 `#[sml(flatten)]` 字段产出的不是块时失败）
+    let text = sml::to_string(&original).unwrap();
     println!("{}", text);
 
     // 2) parse：SML 文本 -> Value

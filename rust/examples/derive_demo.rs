@@ -45,8 +45,8 @@ fn main() {
     // secret 是 #[sml(skip)] 字段，不参与序列化（下方文本中没有 secret 键）
     let _ = &server.secret;
 
-    // 序列化为 SML 文本
-    let text = server.to_sml();
+    // 序列化为 SML 文本（可失败：如 `flatten` 字段产出的不是块）
+    let text = server.to_sml().expect("序列化失败");
     println!("== 序列化 ==");
     println!("{text}");
 
@@ -56,12 +56,12 @@ fn main() {
     println!("{back:?}");
 
     // 枚举
-    println!("\nstatus: {}", Status::Active.to_sml());
-    println!("shape:  {}", Shape::Circle(3.0).to_sml());
-    println!("rect:   {}", Shape::Rect { w: 4.0, h: 5.0 }.to_sml());
+    println!("\nstatus: {}", Status::Active.to_sml().unwrap());
+    println!("shape:  {}", Shape::Circle(3.0).to_sml().unwrap());
+    println!("rect:   {}", Shape::Rect { w: 4.0, h: 5.0 }.to_sml().unwrap());
 
     // 直接操作 Value
-    let v = server.to_sml_value();
+    let v = server.to_sml_value().unwrap();
     println!("\n== Value ==");
     println!("{v:?}");
 }

@@ -27,6 +27,9 @@ mod value;
 mod dump;
 #[cfg(feature = "serde")]
 mod serde_bridge;
+// 直出文本的 serde Serializer：需要 serde（写）与 sml（排版原语）两个 feature。
+#[cfg(all(feature = "serde", feature = "sml"))]
+mod ser_text;
 
 pub use value::{describe_value, MAX_VALUE_DEPTH, Value};
 
@@ -37,4 +40,8 @@ pub use dump::{to_sml, to_sml_checked};
 #[cfg(feature = "serde")]
 pub mod serde {
     pub use crate::serde_bridge::{from_value, to_string, to_value};
+
+    /// 直出 SML 文本（不经 `Value` 中转，保留声明顺序、支持 i128 / u128）。
+    #[cfg(feature = "sml")]
+    pub use crate::ser_text::to_string_direct;
 }
