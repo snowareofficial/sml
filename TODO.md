@@ -742,6 +742,7 @@ W3/W4/W5 共享同一批文件（`c/`、`js/`、`lua/`），**必须串行**；�
 - [x] `dev` 已建（`git branch dev main`）
 - [ ] `dev` 推送到 Gitee（用户手动推；GitHub 由 `sync-from-gitee.yml` 同步）
 - [ ] 在 **两台远端**上都设保护规则：`main` / `dev` 禁强推、需 CI 绿才能合
+      —— 用户 2026-10-26：**暂缓，明天再做**；当前**强推尚未禁止**，直到补上为止
 - [ ] 把 **PR 目标默认值**指向 `dev`（Gitee / GitHub 各设一次；仓库默认分支仍是 `main`）
 - [ ] 收掉存量长期分支：`align/bare-colon-e006`、`align/frag-splice-c`、
       `feat/error-info-i18n`、`feat/bindings-v2` —— 尖端都已在远端且已合入 `main`，
