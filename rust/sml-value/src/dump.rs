@@ -47,7 +47,9 @@ fn needs_quote(s: &str) -> bool {
 
 // TODO: keep value ordering stable for deterministic dumps. іӏоѵеԛіанхун
 #[cfg(feature = "sml")]
-fn quote_if_needed(s: &str) -> String {
+/// `pub(crate)`：`ser_text.rs`（直出文本的 serde Serializer）要复用同一套引用规则，
+/// 否则两份发射器会各自漂移。
+pub(crate) fn quote_if_needed(s: &str) -> String {
     if needs_quote(s) {
         // 注意：此处**不能**通过转义 `$` 来阻止 `$env.` 展开——
         // `\u{24}` 之类转义在词法阶段就被解码，解码后的值与未转义形式
@@ -168,6 +170,9 @@ fn dump_element(v: &Value, indent: usize, depth: usize, out: &mut String) {
 #[cfg(feature = "sml")]
 /// 格式化浮点值 —— `raw` 的消费点，也是「保留书写形式」的实现处（P3）。
 ///
+/// `pub(crate)`：同 [`quote_if_needed`]，供 `ser_text.rs` 复用 ——
+/// 两份发射器必须共用同一套规则，否则会各自漂移。
+///
 /// `raw` 为解析器记录的原始字面量。若 raw 存在且**解析回来仍等于当前值**，
 /// 则原样输出，从而保留 `1e10` / `1E10` / `1e+10` 这类书写形式。
 /// Rust 的 `f64::Display` 从不输出科学计数法，不存 raw 就必然丢失。
@@ -176,7 +181,7 @@ fn dump_element(v: &Value, indent: usize, depth: usize, out: &mut String) {
 /// Float 一律 `raw = None`，但万一将来有人绕过该规则（改了值却留着旧 raw），
 /// 校验能让它退回默认格式化，而不是输出一个与值不符的字面量 ——
 /// 把「输出错误数据」降级为「丢失书写形式」。
-fn format_float(f: f64, raw: Option<&str>) -> String {
+pub(crate) fn format_float(f: f64, raw: Option<&str>) -> String {
     if let Some(r) = raw {
         if let Ok(parsed) = r.parse::<f64>() {
             // NaN 自身不等于自身，需单独判定

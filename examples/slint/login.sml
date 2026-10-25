@@ -99,7 +99,7 @@ component Login inherits Window {
 
         # ---- 登录按钮 ----
         Button {
-            text: `root.busy ? "登录中…" : "登录"`
+            text: "`root.busy ? \"登录中…\" : \"登录\"`"
             enabled: `!root.busy`
             background: `#4f7cff`
             on_clicked: `root.login()`

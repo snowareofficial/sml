@@ -10,13 +10,20 @@ use sml_value::Value;
 ///
 /// 通常用 `#[derive(SmlSerialize)]` 自动实现（`derive` feature 默认开启），
 /// 也可手动实现。支持的 `#[sml(...)]` 属性见 `swsml-derive` 的文档。
+///
+/// # 为什么是可失败的
+///
+/// 绝大多数类型的序列化不会失败，但 `#[sml(flatten)]` 要求目标字段产出**块**，
+/// 而这一点在编译期无法判定（字段类型可能来自别处）。此前这种情况直接 `panic!`，
+/// 属于不可恢复崩溃；改为返回 `Err` 后调用方可以自行决定如何处理。
 pub trait SmlSerialize {
-    fn to_sml_value(&self) -> Value;
+    /// 序列化为 SML 值；失败时返回错误说明（如 `flatten` 字段产出的不是块）。
+    fn to_sml_value(&self) -> Result<Value, String>;
 
     /// 序列化为 SML 文本（等价于 [`to_sml`] 作用于本类型生成的值）。
     #[cfg(feature = "sml")]
-    fn to_sml(&self) -> String {
-        crate::to_sml(&self.to_sml_value())
+    fn to_sml(&self) -> Result<String, String> {
+        Ok(crate::to_sml(&self.to_sml_value()?))
     }
 }
 
@@ -33,7 +40,7 @@ pub trait SmlDeserialize: Sized {
 
 /// 序列化为 SML 文本 —— toml-rs 风格的顶层函数（等价于 [`SmlSerialize::to_sml`]）。
 ///
-/// 用法与 `toml::to_string` 一致（序列化不会失败，故直接返回 `String`）：
+/// 与 `toml::to_string` 一致：返回 `Result`（例如 `#[sml(flatten)]` 字段产出的不是块时失败）。
 ///
 /// ```rust
 /// # #[cfg(feature = "derive")] {
@@ -41,13 +48,13 @@ pub trait SmlDeserialize: Sized {
 /// # #[derive(SmlSerialize, SmlDeserialize, Debug, PartialEq)]
 /// # struct Server { host: String, port: i32 }
 /// # let cfg = Server { host: "web.example".into(), port: 8080 };
-/// let text = sml::to_string(&cfg);
+/// let text = sml::to_string(&cfg).unwrap();
 /// assert_eq!(text, "host: web.example\nport: 8080\n");
 /// # }
 /// ```
 #[cfg(feature = "sml")]
-pub fn to_string<T: SmlSerialize + ?Sized>(value: &T) -> String {
-    crate::to_sml(&value.to_sml_value())
+pub fn to_string<T: SmlSerialize + ?Sized>(value: &T) -> Result<String, String> {
+    Ok(crate::to_sml(&value.to_sml_value()?))
 }
 
 /// 解析 SML 文本并反序列化 —— toml-rs 风格的顶层函数（等价于 [`SmlDeserialize::from_sml`]）。
@@ -111,8 +118,8 @@ pub mod __private {
 
     impl SmlSerialize for bool {
         #[inline]
-        fn to_sml_value(&self) -> Value {
-            Value::Bool(*self)
+        fn to_sml_value(&self) -> Result<Value, String> {
+            Ok(Value::Bool(*self))
         }
     }
     impl SmlDeserialize for bool {
@@ -129,7 +136,7 @@ pub mod __private {
         ($($t:ty),* $(,)?) => {$(
             impl SmlSerialize for $t {
                 #[inline]
-                fn to_sml_value(&self) -> Value { Value::Int(*self as i64) }
+                fn to_sml_value(&self) -> Result<Value, String> { Ok(Value::Int(*self as i64)) }
             }
             impl SmlDeserialize for $t {
                 #[inline]
@@ -164,8 +171,8 @@ pub mod __private {
 
     impl SmlSerialize for u64 {
         #[inline]
-        fn to_sml_value(&self) -> Value {
-            i64::try_from(*self).map(Value::Int).unwrap_or_else(|_| Value::float(*self as f64))
+        fn to_sml_value(&self) -> Result<Value, String> {
+            Ok(i64::try_from(*self).map(Value::Int).unwrap_or_else(|_| Value::float(*self as f64)))
         }
     }
     impl SmlDeserialize for u64 {
@@ -190,12 +197,12 @@ pub mod __private {
 
     impl SmlSerialize for usize {
         #[inline]
-        fn to_sml_value(&self) -> Value {
+        fn to_sml_value(&self) -> Result<Value, String> {
             // 此前 `*self as i64` 在 u64::MAX 等情况下回绕为 -1（静默变负数）。
             // 改用 u64 的饱和逻辑：能放进 i64 就用 Int，否则退化为 Float。
-            u64::try_from(*self)
+            Ok(u64::try_from(*self)
                 .map(|u| Value::Int(u as i64))
-                .unwrap_or_else(|_| Value::float(*self as f64))
+                .unwrap_or_else(|_| Value::float(*self as f64)))
         }
     }
     impl SmlDeserialize for usize {
@@ -223,8 +230,8 @@ pub mod __private {
         ($($t:ty),* $(,)?) => {$(
             impl SmlSerialize for $t {
                 #[inline]
-                fn to_sml_value(&self) -> Value {
-                    i64::try_from(*self).map(Value::Int).unwrap_or_else(|_| Value::float(*self as f64))
+                fn to_sml_value(&self) -> Result<Value, String> {
+                    Ok(i64::try_from(*self).map(Value::Int).unwrap_or_else(|_| Value::float(*self as f64)))
                 }
             }
             impl SmlDeserialize for $t {
@@ -258,7 +265,7 @@ pub mod __private {
         ($($t:ty),* $(,)?) => {$(
             impl SmlSerialize for $t {
                 #[inline]
-                fn to_sml_value(&self) -> Value { Value::float(*self as f64) }
+                fn to_sml_value(&self) -> Result<Value, String> { Ok(Value::float(*self as f64)) }
             }
             impl SmlDeserialize for $t {
                 #[inline]
@@ -276,8 +283,8 @@ pub mod __private {
 
     impl SmlSerialize for char {
         #[inline]
-        fn to_sml_value(&self) -> Value {
-            Value::Str(self.to_string())
+        fn to_sml_value(&self) -> Result<Value, String> {
+            Ok(Value::Str(self.to_string()))
         }
     }
     impl SmlDeserialize for char {
@@ -298,8 +305,8 @@ pub mod __private {
 
     impl SmlSerialize for String {
         #[inline]
-        fn to_sml_value(&self) -> Value {
-            Value::Str(self.clone())
+        fn to_sml_value(&self) -> Result<Value, String> {
+            Ok(Value::Str(self.clone()))
         }
     }
     impl SmlDeserialize for String {
@@ -314,22 +321,22 @@ pub mod __private {
 
     impl SmlSerialize for str {
         #[inline]
-        fn to_sml_value(&self) -> Value {
-            Value::Str(self.to_string())
+        fn to_sml_value(&self) -> Result<Value, String> {
+            Ok(Value::Str(self.to_string()))
         }
     }
 
     impl SmlSerialize for &str {
         #[inline]
-        fn to_sml_value(&self) -> Value {
-            Value::Str(self.to_string())
+        fn to_sml_value(&self) -> Result<Value, String> {
+            Ok(Value::Str(self.to_string()))
         }
     }
 
     impl SmlSerialize for () {
         #[inline]
-        fn to_sml_value(&self) -> Value {
-            Value::Null
+        fn to_sml_value(&self) -> Result<Value, String> {
+            Ok(Value::Null)
         }
     }
     impl SmlDeserialize for () {
@@ -344,8 +351,8 @@ pub mod __private {
 
     impl SmlSerialize for Value {
         #[inline]
-        fn to_sml_value(&self) -> Value {
-            self.clone()
+        fn to_sml_value(&self) -> Result<Value, String> {
+            Ok(self.clone())
         }
     }
     impl SmlDeserialize for Value {
@@ -357,10 +364,10 @@ pub mod __private {
 
     impl<T: SmlSerialize> SmlSerialize for Option<T> {
         #[inline]
-        fn to_sml_value(&self) -> Value {
+        fn to_sml_value(&self) -> Result<Value, String> {
             match self {
                 Some(v) => v.to_sml_value(),
-                None => Value::Null,
+                None => Ok(Value::Null),
             }
         }
     }
@@ -376,8 +383,12 @@ pub mod __private {
 
     impl<T: SmlSerialize> SmlSerialize for Vec<T> {
         #[inline]
-        fn to_sml_value(&self) -> Value {
-            Value::Array(self.iter().map(SmlSerialize::to_sml_value).collect())
+        fn to_sml_value(&self) -> Result<Value, String> {
+            let mut out = Vec::with_capacity(self.len());
+            for x in self {
+                out.push(x.to_sml_value()?);
+            }
+            Ok(Value::Array(out))
         }
     }
     impl<T: SmlDeserialize> SmlDeserialize for Vec<T> {
@@ -392,7 +403,7 @@ pub mod __private {
 
     impl<T: SmlSerialize> SmlSerialize for Box<T> {
         #[inline]
-        fn to_sml_value(&self) -> Value {
+        fn to_sml_value(&self) -> Result<Value, String> {
             (**self).to_sml_value()
         }
     }
@@ -405,12 +416,12 @@ pub mod __private {
 
     impl<V: SmlSerialize> SmlSerialize for BTreeMap<String, V> {
         #[inline]
-        fn to_sml_value(&self) -> Value {
-            Value::Object(
-                self.iter()
-                    .map(|(k, v)| (k.clone(), v.to_sml_value()))
-                    .collect(),
-            )
+        fn to_sml_value(&self) -> Result<Value, String> {
+            let mut out = BTreeMap::new();
+            for (k, v) in self {
+                out.insert(k.clone(), v.to_sml_value()?);
+            }
+            Ok(Value::Object(out))
         }
     }
     impl<V: SmlDeserialize> SmlDeserialize for BTreeMap<String, V> {
@@ -431,12 +442,14 @@ pub mod __private {
 
     impl<V: SmlSerialize> SmlSerialize for HashMap<String, V> {
         #[inline]
-        fn to_sml_value(&self) -> Value {
-            Value::Object(
-                self.iter()
-                    .map(|(k, v)| (k.clone(), v.to_sml_value()))
-                    .collect(),
-            )
+        fn to_sml_value(&self) -> Result<Value, String> {
+            // `Value::Object` 内部是 BTreeMap（键序确定），故这里必须转成 BTreeMap
+            // 收集 —— 与 `Option`/`Vec` 一样不能靠 `collect()` 的类型推断走捷径。
+            let mut out = BTreeMap::new();
+            for (k, v) in self {
+                out.insert(k.clone(), v.to_sml_value()?);
+            }
+            Ok(Value::Object(out))
         }
     }
     impl<V: SmlDeserialize> SmlDeserialize for HashMap<String, V> {

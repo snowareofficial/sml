@@ -44,6 +44,8 @@
 //!   [`serde::from_str`] / [`serde::from_value`] / [`serde::to_value`] /
 //!   [`serde::to_string`] 桥接函数，任何 `#[derive(serde::Deserialize)]`
 //!   类型都能像 toml-rs 一样一键从 SML 反序列化（无需 `SmlDeserialize`）。
+//!   另有 [`serde::to_string_direct`]（需同时开 `sml`）：**不经 `Value` 中转**，
+//!   保留字段声明顺序并支持 i128 / u128 —— 详见该函数文档里的「已知差异」。
 //! - `derive`（默认开启）：提供 [`SmlSerialize`] / [`SmlDeserialize`]
 //!   两个 derive 宏，把自定义结构体/枚举「自然地」序列化为 SML，
 //!   无需引入 serde。
@@ -170,6 +172,10 @@ pub use swsml_derive::{SmlDeserialize, SmlSerialize};
 #[cfg(feature = "serde")]
 pub mod serde {
     pub use sml_value::serde::{from_value, to_string, to_value};
+
+    /// 直出 SML 文本（不经 `Value` 中转）—— 需要 `sml` feature。
+    #[cfg(feature = "sml")]
+    pub use sml_value::serde::to_string_direct;
 
     /// 从 SML 文本直接反序列化到任意 `Deserialize` 类型（等价于 `toml::from_str`）。
     pub fn from_str<T: serde::de::DeserializeOwned>(text: &str) -> Result<T, String> {

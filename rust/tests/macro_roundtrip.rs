@@ -28,7 +28,7 @@ fn struct_roundtrip() {
         secret: "hunter2".into(),
         upstream: Some("b.example".into()),
     };
-    let v = s.to_sml_value();
+    let v = s.to_sml_value().unwrap();
     match &v {
         sml::Value::Object(m) => {
             assert_eq!(m.get("host"), Some(&sml::Value::Str("a.example".into())));
@@ -60,7 +60,7 @@ fn option_none_is_omitted() {
         secret: "x".into(),
         upstream: None,
     };
-    let v = s.to_sml_value();
+    let v = s.to_sml_value().unwrap();
     match &v {
         sml::Value::Object(m) => assert!(!m.contains_key("upstream")),
         other => panic!("期望块，实际为 {other:?}"),
@@ -91,9 +91,9 @@ enum Status {
 
 #[test]
 fn enum_word_roundtrip() {
-    assert_eq!(Status::Active.to_sml_value(), sml::Value::Str("Active".into()));
+    assert_eq!(Status::Active.to_sml_value().unwrap(), sml::Value::Str("Active".into()));
     assert_eq!(
-        Status::StandBy.to_sml_value(),
+        Status::StandBy.to_sml_value().unwrap(),
         sml::Value::Str("stand-by".into())
     );
     assert_eq!(
@@ -118,17 +118,17 @@ enum Shape {
 #[test]
 fn enum_data_roundtrip() {
     let c = Shape::Circle(3.0);
-    match &c.to_sml_value() {
+    match &c.to_sml_value().unwrap() {
         sml::Value::Object(m) => {
             assert_eq!(m.get("__type"), Some(&sml::Value::Str("Circle".into())));
             assert_eq!(m.get("_value"), Some(&sml::Value::float(3.0)));
         }
         other => panic!("期望块，实际为 {other:?}"),
     }
-    assert_eq!(Shape::from_sml_value(&c.to_sml_value()).unwrap(), c);
+    assert_eq!(Shape::from_sml_value(&c.to_sml_value().unwrap()).unwrap(), c);
 
     let p = Shape::Point(1.0, 2.0);
-    match &p.to_sml_value() {
+    match &p.to_sml_value().unwrap() {
         sml::Value::Object(m) => {
             assert_eq!(m.get("__type"), Some(&sml::Value::Str("Point".into())));
             assert_eq!(
@@ -141,10 +141,10 @@ fn enum_data_roundtrip() {
         }
         other => panic!("期望块，实际为 {other:?}"),
     }
-    assert_eq!(Shape::from_sml_value(&p.to_sml_value()).unwrap(), p);
+    assert_eq!(Shape::from_sml_value(&p.to_sml_value().unwrap()).unwrap(), p);
 
     let r = Shape::Rect { w: 4.0, h: 5.0 };
-    match &r.to_sml_value() {
+    match &r.to_sml_value().unwrap() {
         sml::Value::Object(m) => {
             assert_eq!(m.get("__type"), Some(&sml::Value::Str("Rect".into())));
             assert_eq!(m.get("w"), Some(&sml::Value::float(4.0)));
@@ -152,10 +152,10 @@ fn enum_data_roundtrip() {
         }
         other => panic!("期望块，实际为 {other:?}"),
     }
-    assert_eq!(Shape::from_sml_value(&r.to_sml_value()).unwrap(), r);
+    assert_eq!(Shape::from_sml_value(&r.to_sml_value().unwrap()).unwrap(), r);
 
     // 单元变体既可以是裸词，也可以是带 __type 的块
-    assert_eq!(Shape::Unit.to_sml_value(), sml::Value::Str("Unit".into()));
+    assert_eq!(Shape::Unit.to_sml_value().unwrap(), sml::Value::Str("Unit".into()));
     assert_eq!(
         Shape::from_sml_value(&sml::Value::Str("Unit".into())).unwrap(),
         Shape::Unit
@@ -172,12 +172,12 @@ fn enum_data_roundtrip() {
 fn enum_data_text_roundtrip() {
     // 带数据变体序列化为文本后，__type 元数据应保留，可完整反序列化
     let c = Shape::Circle(3.0);
-    let text = c.to_sml();
+    let text = c.to_sml().unwrap();
     assert!(text.contains("__type: Circle"), "应保留 __type: {text}");
     assert_eq!(Shape::from_sml(&text).unwrap(), c);
 
     let r = Shape::Rect { w: 4.0, h: 5.0 };
-    let text = r.to_sml();
+    let text = r.to_sml().unwrap();
     assert!(text.contains("__type: Rect"), "应保留 __type: {text}");
     assert!(text.contains("w: 4"), "字段应输出: {text}");
     assert_eq!(Shape::from_sml(&text).unwrap(), r);
@@ -199,19 +199,19 @@ struct Marker;
 #[test]
 fn struct_shapes_roundtrip() {
     let id = Id(42);
-    assert_eq!(id.to_sml_value(), sml::Value::Int(42));
-    assert_eq!(Id::from_sml_value(&id.to_sml_value()).unwrap(), id);
+    assert_eq!(id.to_sml_value().unwrap(), sml::Value::Int(42));
+    assert_eq!(Id::from_sml_value(&id.to_sml_value().unwrap()).unwrap(), id);
 
     let pair = Pair(7, "sml".into());
     assert_eq!(
-        pair.to_sml_value(),
+        pair.to_sml_value().unwrap(),
         sml::Value::Array(vec![sml::Value::Int(7), sml::Value::Str("sml".into())])
     );
-    assert_eq!(Pair::from_sml_value(&pair.to_sml_value()).unwrap(), pair);
+    assert_eq!(Pair::from_sml_value(&pair.to_sml_value().unwrap()).unwrap(), pair);
 
     let m = Marker;
-    assert_eq!(m.to_sml_value(), sml::Value::Str("Marker".into()));
-    assert_eq!(Marker::from_sml_value(&m.to_sml_value()).unwrap(), m);
+    assert_eq!(m.to_sml_value().unwrap(), sml::Value::Str("Marker".into()));
+    assert_eq!(Marker::from_sml_value(&m.to_sml_value().unwrap()).unwrap(), m);
 }
 
 // ---------------------------------------------------------------------------
@@ -231,7 +231,7 @@ fn rename_all_kebab() {
         first_name: "张三".into(),
         is_ready: true,
     };
-    let text = k.to_sml();
+    let text = k.to_sml().unwrap();
     assert!(text.contains("first-name:"), "应输出 kebab-case 键: {text}");
     assert!(text.contains("is-ready:"), "应输出 kebab-case 键: {text}");
     assert_eq!(Kebab::from_sml(&text).unwrap(), k);
@@ -249,7 +249,7 @@ fn generic_roundtrip() {
         inner: 42i32,
         extra: Some(7),
     };
-    let v = w.to_sml_value();
+    let v = w.to_sml_value().unwrap();
     assert_eq!(Wrap::<i32>::from_sml_value(&v).unwrap(), w);
 }
 
@@ -279,7 +279,7 @@ fn flatten_roundtrip() {
             zone: "a".into(),
         },
     };
-    let v = a.to_sml_value();
+    let v = a.to_sml_value().unwrap();
     match &v {
         sml::Value::Object(m) => {
             assert_eq!(m.get("name"), Some(&sml::Value::Str("web".into())));
@@ -289,6 +289,22 @@ fn flatten_roundtrip() {
         other => panic!("期望块，实际为 {other:?}"),
     }
     assert_eq!(App::from_sml_value(&v).unwrap(), a);
+}
+
+/// `flatten` 要求目标字段产出**块**；产不出时必须返回 `Err`，不能 panic。
+#[derive(SmlSerialize, Debug)]
+struct BadFlatten {
+    #[sml(flatten)]
+    n: i32,
+}
+
+#[test]
+fn flatten_non_object_is_error_not_panic() {
+    let err = BadFlatten { n: 1 }
+        .to_sml_value()
+        .expect_err("flatten 目标不是块时必须返回 Err（此前是 panic）");
+    assert!(err.contains("flatten"), "错误应点名 flatten: {err}");
+    assert!(err.contains("块"), "错误应说明期望块: {err}");
 }
 
 // ---------------------------------------------------------------------------
@@ -315,7 +331,7 @@ fn text_roundtrip_and_nesting() {
         nodes: vec!["n1".into(), "n2".into()],
         status: Status::Active,
     };
-    let text = svc.to_sml();
+    let text = svc.to_sml().unwrap();
     assert!(text.contains("replicas: 3"), "数字应保持为 SML 整数: {text}");
     assert!(text.contains("status: Active"), "枚举应输出裸词: {text}");
     let back = Service::from_sml(&text).unwrap();
@@ -382,7 +398,7 @@ fn i64_float_boundary_no_saturation() {
 #[test]
 fn usize_serialize_no_wrap() {
     // usize(u64::MAX) 序列化此前 as i64 回绕成 -1
-    let v = u64::MAX.to_sml_value();
+    let v = u64::MAX.to_sml_value().unwrap();
     match v {
         sml::Value::Int(i) => assert!(i >= 0, "u64::MAX 不应回绕为负数，实际 {i}"),
         sml::Value::Float(_, _) => {} // 退化为 Float 也可接受（u64::MAX 无法放进 i64）
@@ -417,7 +433,7 @@ fn toml_rs_style_top_level_functions() {
         upstream: Some("b.example".into()),
     };
     // 与 toml-rs 相同的心智模型：to_string / from_str
-    let text = sml::to_string(&s);
+    let text = sml::to_string(&s).unwrap();
     assert!(text.contains("host: web.example"), "{text}");
     assert!(text.contains("tls-enabled: true"), "{text}");
     let back: Server = sml::from_str(&text).unwrap();
@@ -429,8 +445,8 @@ fn toml_rs_style_top_level_functions() {
         upstream: Some("b.example".into()),
     });
     // 顶层函数与 trait 方法输出一致
-    assert_eq!(sml::to_string(&s), s.to_sml());
+    assert_eq!(sml::to_string(&s).unwrap(), s.to_sml().unwrap());
     // 泛型 &str（内置实现）与 trait 方法一致
-    assert_eq!(sml::to_string("hello"), "hello");
-    assert_eq!(sml::to_string("hello"), "hello".to_sml());
+    assert_eq!(sml::to_string("hello").unwrap(), "hello");
+    assert_eq!(sml::to_string("hello").unwrap(), "hello".to_sml().unwrap());
 }
