@@ -451,6 +451,23 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
    编辑器诊断走 `parseSafe`，所以这类错误**在编辑器里根本不报红**。现照 `parseArray` 的
    `closed` 判据补齐（**不能**用 `i >= toks.length` —— 正常闭合后 `i` 也等于长度）。
    同批对齐 `E-FEATURE-003`（未知名特性；合法名 = Rust 15 个 ∪ JS 别名 3 个，支持逗号分隔）。
+
+---
+
+## 排雷区 / landmines（2026-10-26 记）
+
+实现过程中挖出、但**不在本轮范围内**的问题，先记账再排期。
+
+### 雷 1：`deep_nesting_exceeding_limit_is_rejected` 栈溢出（既有，非本轮引入）
+
+- **位置**：`rust/src/lib.rs:847`
+- **现象**：`cargo test --lib` 跑该测试时 **栈溢出**（`0xc00000fd` / STATUS_STACK_OVERFLOW），
+  整个 lib 测试二进制异常退出 ⇒ **后面所有 lib 测试都跑不到**。
+- **已验证**：把 `rust/derive/src/lib.rs` 换成 HEAD 版本重跑，同样溢出 ⇒ 与 I-1 的改动无关。
+- **为什么危险**：测试本意是「超深嵌套必须返回 `Err`，绝不能栈溢出」，实际**自己先溢出了** ——
+  这条测试从来没真正验证过它想验证的东西。
+- **待查**：`MAX_VALUE_DEPTH` 的守卫在 `sml-parse` / `sml-value` 两侧是否都落到了解析路径上
+  （`dump.rs` 的注释里提过 5 万层数组会爆栈，说明递归路径仍有守卫缺口）。
    回归：`js/probe-error-codes.mjs` 52 条全绿；4 份副本已同步、`EXPECT_VENDOR` 与 VSIX 已更新。
 4. ✅ **已修（同日）：`sml-include` 的"逐行 tokenize"架构缺陷**：`expand_includes` 原先逐行
    `tokenize(line)` ⇒ 任何**跨行词法单元**（多行块注释、多行字符串）都在第 1 行报"未闭合"，
