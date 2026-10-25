@@ -130,12 +130,18 @@ jobs:
           #
           # 故只镜像「分支」与「标签」两个命名空间：
           # - 放弃 refs/pull/*（GitHub 会按自己的 PR 在 refs/pull/* 下自行生成，不该被覆盖）；
-          # - `--prune` 保持 `--mirror` 原本「Gitee 删了分支，这里也删」的语义，
-          #   且只作用于上面两个命名空间，不会误删 GitHub 侧其它引用。
-          git push --prune github \
+          #
+          # ⚠️ 且**不加 `--prune`**（`--mirror` 隐含 prune）。
+          # 实测 2026-10-26：GitHub 上有一条只在 GitHub 存在、Gitee 没有的分支
+          # `feat/bindings-java-python-ruby`（领先 origin/main 1 笔）、
+          # `feat/w25-error-msg-lookup`（同样领先 1 笔）。prune 会把它们连同提交一起删掉，
+          # 与该工作流开头写的「防误覆盖…避免静默丢失代码」自相矛盾。
+          # 代价：Gitee 上删掉的分支会在 GitHub 上残留 —— 这是**刻意**的取舍，
+          # 要删就显式 `git push github --delete <branch>`，别让它被一次同步悄悄带走。
+          git push github \
             '+refs/heads/*:refs/heads/*' \
             '+refs/tags/*:refs/tags/*'
-          echo "同步完成（已排除 refs/pull/*）"
+          echo "同步完成（仅分支 + 标签，不含 refs/pull/*，不 prune）"
 
       - name: 校验同步结果
         if: steps.guard.outputs.github_only == '0' || inputs.force == true
