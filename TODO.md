@@ -476,15 +476,21 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 - **⚠️ 仍挂账的真问题**：任何**默认栈的线程**（服务端 / Rayon worker / `std::thread::spawn`）
   解析 128 层文档都会 abort 整个进程 —— 栈溢出不可捕获。
 - **栈帧为什么肥（已定位）**：`parse_block_inner`（`sml-parse/src/parser.rs:785` 起）
-  是一个 **≈835 行的巨函数**（一直到 `parse_array` 之前），debug 构建下局部量大量
-  溢出到栈 ⇒ 单帧约十几 KB。
+  是一个 **≈558 行的巨函数**，其中 `Tok::At` 分支独占 **~350 行**
+  （870–1219，所有 `@` 指令与片段定义都内联在那一个 arm 里）⇒ debug 构建下
+  局部量大量溢出到栈，单帧十几 KB。
 - **方向（用户 2026-10-26 定）**：
-  - ✅ **选 ② 削薄 `parse_block_inner`** —— 拆成小函数，把大分支的局部量移出热帧。
-    Rust-only，**不动跨端口径**。
+  - ✅ **② 削薄 `parse_block_inner` —— 已做（2026-10-26）**：把 `Tok::At` 分支整体
+    抽成新方法 `Parser::parse_at_directive()`（`&mut self` + 三个 `&mut` 状态参数），
+    `continue;` 机械等价换成 `return Ok(())`。
+    ⇒ `parse_block_inner` 约 558 行 → **约 210 行**，肥帧主因消除。
   - ⏳ **③ 改迭代式解析 → 放待办**（根治方案，重写量大，择机做）。
   - ❌ ① 降低 `MAX_VALUE_DEPTH` —— **不做**：128 是五端实测钉住的边界，改要五端同步。
-- **验收判据**：`MAX_VALUE_DEPTH`(128) 层嵌套能在 **2 MiB 默认线程栈**上正常解析，
-  且两条深嵌套测试**不再需要**开大栈线程（届时把 `parse_on_big_stack` 那层去掉）。
+- **验收（已达成）**：`MAX_VALUE_DEPTH`(128) 层嵌套现在能在 **2 MiB 默认线程栈**上
+  正常解析；两条深嵌套测试已**去掉** 32 MiB 大栈包装，在默认栈上直接通过
+  （`deep_nesting_exceeding_limit_is_rejected`、`limit_codes`）。
+- **遗留**：`parse_array_inner` 路径未做同样的削薄检查；若将来再加肥分支，
+  需重跑「默认栈 128 层」这条判据。
 
 ### 雷 3：`smltools` 待清理（用户点名，2026-10-26）
 

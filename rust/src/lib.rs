@@ -849,31 +849,13 @@ mod tests {
         assert!(v.is_ok(), "120 层嵌套应解析成功，实际 {v:?}");
     }
 
-    /// 在**显式开大的栈**上跑解析。
-    ///
-    /// libtest 的线程栈是 Rust 默认大小（2 MiB），而 debug 构建下
-    /// `parse_block` 递归到 `MAX_VALUE_DEPTH`(128) 层就足以把它撑爆 ——
-    /// 栈溢出是 abort，接不住，会把**整个测试二进制**带崩。
-    /// 详见 `TODO.md` 排雷区「雷 1」。
-    fn parse_on_big_stack(text: &str) -> Result<Value, sml_codes::SmlError> {
-        std::thread::Builder::new()
-            .stack_size(32 * 1024 * 1024)
-            .spawn({
-                let text = text.to_string();
-                move || parse(&text)
-            })
-            .expect("开大栈线程失败")
-            .join()
-            .expect("解析线程 panic")
-    }
-
     #[test]
     fn deep_nesting_exceeding_limit_is_rejected() {
         // `a: { a: { ... }}` 超过 128 层必须返回 Err，绝不能栈溢出(abort/segfault)
         let open = "a: {".repeat(1000);
         let close = "}".repeat(1000);
         let text = format!("{open} leaf: 1{close}");
-        let v = parse_on_big_stack(&text);
+        let v = parse(&text);
         assert!(
             v.is_err(),
             "超深嵌套必须被拒绝（返回 Err），而不是栈溢出崩溃；实际 {v:?}"
