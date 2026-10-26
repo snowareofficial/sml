@@ -14,7 +14,7 @@ use sml_codes::{
 // 这两个只在 `when` feature（@when/@for）下用到；关掉该 feature 时下游会报 unused_imports
 #[cfg(feature = "when")]
 use sml_codes::{E_PARSE_016, E_PARSE_018};
-use sml_contract::{Contract, ContractExt, FieldSpec, Modifier, TypeCheck, TypeSpec};
+use sml_contract::{suggest_contract_name, Contract, ContractExt, FieldSpec, Modifier, TypeCheck, TypeSpec};
 use sml_feature::{Feature, FeatureSet};
 use sml_lex::{Span, Tok, coerce_word, lookup_env};
 use sml_value::{MAX_VALUE_DEPTH, Value};
@@ -1013,9 +1013,12 @@ impl Parser {
                         }
                     }
                     Err(display) => {
+                        let hint = suggest_contract_name(&display, &self.contracts)
+                            .map(|c| format!("（你是不是想写 `{c}`？）"))
+                            .unwrap_or_default();
                         return Err(self.err_at(
                             E_CONTRACT_001,
-                            format!("sml: 未定义的契约 `{}`", display),
+                            format!("sml: 未定义的契约 `{}`{}", display, hint),
                             *idx,
                         ));
                     }
@@ -1332,12 +1335,15 @@ impl Parser {
         if applied_contracts.len() == 1 {
             // 单契约：**逐字走原路径**（错误文案 / 行为与旧版完全一致）
             let cname = &applied_contracts[0];
+            let hint = suggest_contract_name(cname, &self.contracts)
+                .map(|c| format!("（你是不是想写 `{c}`？）"))
+                .unwrap_or_default();
             let c = self
                 .contracts
                 .get(cname)
                 .cloned()
                 .ok_or_else(|| {
-                    SmlError::new(E_CONTRACT_001, format!("sml: 未定义的契约 `{}`", cname))
+                    SmlError::new(E_CONTRACT_001, format!("sml: 未定义的契约 `{}`{}", cname, hint))
                 })?;
             // 用命名空间栈拼出当前块路径（如 `api`、`ns.api`），作为错误定位前缀
             apply_contract(&c, &mut node, &self.contracts, &self.ns_prefix())?;
@@ -1471,11 +1477,15 @@ impl Parser {
                     && !self.features.has(Feature::BlockName)
                 {
                     if let Value::Str(w) = &args[consumed_args] {
+                        let hint = suggest_contract_name(w, &self.contracts)
+                            .map(|c| format!("（你是不是想写 `{c}`？）"))
+                            .unwrap_or_default();
                         return Err(SmlError::new(
                             E_CONTRACT_001,
                             format!(
                                 "sml: 块级标注 `{key}` 后的 `{w}` 不是已定义的契约；\
-                                 若本意是把它作为块名，请先 `@feature enable block-name`"
+                                 若本意是把它作为块名，请先 `@feature enable block-name`{}",
+                                hint
                             ),
                         ));
                     }
@@ -1484,8 +1494,11 @@ impl Parser {
                 if names.len() == 1 {
                     // 单契约：**逐字走原路径**（错误文案 / 行为与旧版完全一致）
                     let cname = &names[0];
+                    let hint = suggest_contract_name(cname, &self.contracts)
+                        .map(|c| format!("（你是不是想写 `{c}`？）"))
+                        .unwrap_or_default();
                     let c = self.contracts.get(cname).cloned().ok_or_else(|| {
-                        SmlError::new(E_CONTRACT_001, format!("sml: 未定义的契约 `{}`", cname))
+                        SmlError::new(E_CONTRACT_001, format!("sml: 未定义的契约 `{}`{}", cname, hint))
                     })?;
                     apply_contract(&c, m, &self.contracts, &self.ns_prefix())?;
                     applied = true;

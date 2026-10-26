@@ -22,6 +22,63 @@ pub mod infer;
 
 pub use ext::{ContractExt, Modifier, TypeCheck};
 
+/// 在已注册契约名里找一个与 `bad` 最相近的名字，用于「未定义的契约」报错时
+/// 追加「你是不是想写 X」提示（I-9）。
+///
+/// 相似度门槛：**编辑距离 ≤ 2**（覆盖少/多/错一个字符、大小写差异这类典型笔误）。
+/// 没有候选（全部相距 > 2）时返回 `None`，调用方据此**不追加**任何提示、保持原文案，
+/// 因此不会误报。空契约表直接返回 `None`（不 panic）。
+///
+/// 命中多个同距候选时，取名字较短者（更少多余字符更可能是笔误目标），再取字典序最小者，
+/// 保证结果确定、可测试。
+pub fn suggest_contract_name(bad: &str, contracts: &BTreeMap<String, Contract>) -> Option<String> {
+    if contracts.is_empty() {
+        return None;
+    }
+    let mut best: Option<(usize, &str)> = None; // (距离, 名字)
+    for name in contracts.keys() {
+        if name == bad {
+            continue;
+        }
+        let d = levenshtein(bad, name);
+        match best {
+            None => best = Some((d, name)),
+            Some((bd, _)) if d < bd => best = Some((d, name)),
+            // 同距取较短（更少多余字符更可能是笔误目标）
+            Some((bd, bn)) if d == bd && name.len() < bn.len() => best = Some((d, name)),
+            _ => {}
+        }
+    }
+    match best {
+        Some((d, name)) if d <= 2 => Some(name.to_string()),
+        _ => None,
+    }
+}
+
+/// 经典 Levenshtein 编辑距离（按 `char` 计，非字节），用于近似契约名判定。
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (n, m) = (a.len(), b.len());
+    if n == 0 {
+        return m;
+    }
+    if m == 0 {
+        return n;
+    }
+    let mut prev: Vec<usize> = (0..=m).collect();
+    let mut cur = vec![0usize; m + 1];
+    for i in 1..=n {
+        cur[0] = i;
+        for j in 1..=m {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            cur[j] = (prev[j] + 1).min(cur[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut cur);
+    }
+    prev[m]
+}
+
 // ---------------------------------------------------------------------------
 // 契约（Contract）—— 可选的 schema 层
 //
@@ -179,12 +236,15 @@ fn check_type(
                     Value::Object(m) => m.clone(),
                     _ => unreachable!(),
                 };
+                let hint = suggest_contract_name(ref_name, contracts)
+                    .map(|c| format!("（你是不是想写 `{c}`？）"))
+                    .unwrap_or_default();
                 let target = contracts.get(ref_name).ok_or_else(|| {
                     SmlError::new(
                         E_CONTRACT_001,
                         format!(
-                            "sml: 字段 `{}` 引用了未定义的契约 `{}`（契约 `{}`）",
-                            path, ref_name, contract
+                            "sml: 字段 `{}` 引用了未定义的契约 `{}`（契约 `{}`）{}",
+                            path, ref_name, contract, hint
                         ),
                     )
                 })?;
@@ -427,8 +487,11 @@ pub fn apply_contracts(
 ) -> Result<(), SmlError> {
     let mut list: Vec<&Contract> = Vec::with_capacity(names.len());
     for n in names {
+        let hint = suggest_contract_name(n, contracts)
+            .map(|c| format!("（你是不是想写 `{c}`？）"))
+            .unwrap_or_default();
         let c = contracts.get(n).ok_or_else(|| {
-            SmlError::new(E_CONTRACT_001, format!("sml: 未定义的契约 `{}`", n))
+            SmlError::new(E_CONTRACT_001, format!("sml: 未定义的契约 `{}`{}", n, hint))
         })?;
         list.push(c);
     }
@@ -568,12 +631,15 @@ fn check_type_contract_ref(
         TypeSpec::ContractRef(n) => n.clone(),
         _ => return Ok(()),
     };
+    let hint = suggest_contract_name(&ref_name, contracts)
+        .map(|c| format!("（你是不是想写 `{c}`？）"))
+        .unwrap_or_default();
     let target = contracts.get(&ref_name).ok_or_else(|| {
         SmlError::new(
             E_CONTRACT_001,
             format!(
-                "sml: 字段 `{}` 引用了未定义的契约 `{}`（契约 `{}`）",
-                path, ref_name, contract
+                "sml: 字段 `{}` 引用了未定义的契约 `{}`（契约 `{}`）{}",
+                path, ref_name, contract, hint
             ),
         )
     })?;
