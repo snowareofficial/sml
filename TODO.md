@@ -513,17 +513,77 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
 
 **结论**：核心库这轮**无需修改**。但要记住 I-14 的规矩 —— 这份清单是"当时扫过"，以后每加一个 unwrap 都要能说清守护不变量是什么（可直接写进注释或参考本表）。
 
-### 雷 3：`smltools` 待清理（用户点名，2026-10-26）
+### 雷 3：`smltools` 扫描清单（2026-10-27 扫完 —— **只出清单，未改任何 Rust 源码**）
 
 - **现状**：`rust/smltools/src/` 共 6 个文件、约 **4900 行** ——
   `main.rs` 1265 / `yaml.rs` 956 / `xml.rs` 943 / `highlight.rs` 712 / `toml.rs` 695 / `lint.rs` 362。
-- **历史债**：CLI 曾自带一份**行级 include 展开**，与库 `sml-include` 分叉（已删除，
-  统一走 `sml::parse_file`）—— 说明这种「CLI 与库各实现一份」的模式发生过。
-- **待扫（先出清单再动）**：
-  - [ ] 是否还有其它与库重复/分叉的逻辑（解析、发射、错误码）
-  - [ ] `main.rs` 1265 行是否该按子命令拆分
-  - [ ] 死代码 / 未使用的子命令 / 过时参数
-  - [ ] 与库的行为一致性有没有测试兜底（若没有，先补一条）
+  （任务描述写「5 个文件」，实际含 `lint.rs`，一并扫了）
+- **历史债（已确认修复）**：CLI 曾自带一份**行级 include 展开**，与库 `sml-include` 分叉
+  （多目标只展开第一个且静默丢半行、glob 当字面路径、`import {k} as w in "f"` 被判非法），
+  已于 W21 前后整体删除，统一走 `sml::parse_file`（`main.rs:585`、`main.rs:591-595` 注释为证）。
+- **扫描结论速览**：
+  - **会不会崩用户**：真实 CLI 代码路径（读文件 / `--from json|toml|yaml|xml` / `--lint` /
+    各 `--to` 发射）里**没有**可触发的 `panic!`/`.unwrap()`/`.expect()`；W21 已把 `toml.rs`
+    的 `unreachable!()`（畸形 TOML 直接 abort 进程）改成带码错误。
+    残留的 `panic!`/`.unwrap()` 全部位于 `#[cfg(test)]` 测试模块，**不进发行行为**。
+  - **会不会与库分叉**：发射（md/json/xml/svg/latex/slint/lvgl/html/custom/sml）与
+    错误码（`sml_codes`）**全部复用库**，无重复实现；唯一分叉风险在 `lint.rs` 的自写文本扫描。
+  - **只是冗余**：`--feature` 形同虚设、`@feature base` 文档与实现不符、`DEPTH_WARN` 硬编码 64。
+
+---
+
+#### 一、会不会崩用户（不可恢复崩溃）
+
+> 范围：`panic!` / `.unwrap()` / `.expect()` / `unreachable!()` / `todo!()` / `unimplemented!()`。
+> 结论：**用户可见路径零崩溃**；W21 已根治最危险的一处（畸形 TOML 的 `unreachable!()`）。
+
+| 文件:行号 | 形式 | 说明 |
+|---|---|---|
+| `toml.rs:463` | `keys.split_last().unwrap()` | **唯一**落在真实代码里的 `.unwrap()`；但 `keys` 来自 `parse_key_path`（`toml.rs:251`）已保证非空（空键会先返回 `Err`），故**不会**崩。属防御性写法，可保留或改成 `let Some((last, parents)) = … else { … }` 更显式 |
+| `xml.rs:647` 起 `mod tests` | `panic!`×4 / `.unwrap()`×25 | 全部在 `#[cfg(test)]`，不进发行二进制，**不影响用户** |
+| `yaml.rs:774` 起 `mod tests` | `panic!`×2 / `.unwrap()`×18 | 同上为测试助手与用例，**不影响用户** |
+| `toml.rs:600` 起 `mod tests` | `panic!`×3 / `.unwrap()`×9 | 测试模块，**不影响用户** |
+| `highlight.rs:534` 起 `mod tests` | `.unwrap()`×6 / `panic!`×1 | 测试模块，**不影响用户** |
+| `main.rs:1186` 起 `mod tests` | `.expect()`×6 | 测试模块，**不影响用户** |
+
+**已修复（历史对照，本轮未动）**：`toml.rs` 原 `descend` 里的 `unreachable!()` 会让畸形 TOML
+直接 abort 整个进程（W21 改为带 `E-MIGRATE-*` 的 `Err`）。`main.rs` 主线程已挪到 64 MiB 大栈线程
+跑（`main.rs:954`），深文档不再爆栈 abort。
+
+---
+
+#### 二、会不会与库分叉（重复 / 各实现一份）
+
+| 文件:行号 | 说明 |
+|---|---|
+| `lint.rs:52-55` `BUILTIN_DIRECTIVES` | `lint` 自写一份「SML 内置指令」名单（`contract/is/type/version/feature/when/for/include`）。若库新增/调整内置指令或片段语法，这里**静默分叉**——lint 会把新指令误判成片段定义。应与库的指令表**单一来源**（或至少注释钉死同步点） |
+| `lint.rs:254-271` `strip_comment` | 重做行尾 `#` 注释剥离，**复制了库词法里的注释规则**。库的注释判定（含引号/字符串内 `#` 不算注释）一旦收紧，lint 不会跟着变 |
+| `lint.rs:287-309` `split_kv` | 重做 `键: 值` 切分，**复制了库解析器的 kv 判定**（冒号须后跟空白/行尾）。库改 kv 语义，lint 不同步 |
+| `lint.rs:274-285` `first_word_after` + `lint.rs:108-123` 片段&契约识别 | 用自写文本扫描识别 `@contract`/`@is`/`&name`，与库解析器的指令/片段/契约识别**两套实现**。新增指令种类或改引用语法会分叉 |
+| `lint.rs:312-318` `depth_of` | 重做值嵌套深度计算；库已有等价逻辑，两处易漂 |
+| `lint.rs:58` `DEPTH_WARN = 64` | **硬编码** `MAX_VALUE_DEPTH(128)` 的一半。若五端同步改 `MAX_VALUE_DEPTH`，此处不会自动跟着变（虽不崩，却是隐性分叉点） |
+
+**未分叉（正面确认，无需动）**：
+- 发射后端全走库：`sml::to_sml_checked` / `to_markdown` / `to_xml` / `to_svg` / `to_latex` /
+  `to_slint` / `to_lvgl` / `to_html` / `to_custom` / `sml::jsonify`（`main.rs:609-695`），
+  且 `to_lvgl`/`to_html` 已从 `sml::emit` 导入（`main.rs:33`），**非 smltools 自带**。
+- 错误码统一用 `sml_codes` 库（`main.rs:40-44`），无 CLI 私有码表。
+- SML 解析走库 `sml::parse` / `sml::parse_file`（`main.rs:585/587`），无 CLI 私有解析器。
+- TOML/YAML/XML 的**迁入**解析（foreign→Value）库不提供，属 smltools 独有职责，**不算分叉**。
+
+---
+
+#### 三、只是冗余（死代码 / 过时参数 / 可清理）
+
+| 文件:行号 | 说明 |
+|---|---|
+| `main.rs:286-287` + `main.rs:562-571` `--feature` | 声明「显式声明解析版本（v1..v4）」，但 `parse_with` 里只要不是 v4 就只 `eprintln!` 一条 note，**完全不改变解析行为**（解析器恒以 v4 工作）。属**形同虚设的过时参数**——要么接进真正的版本门控，要么从 `--help` 与文档里移除 |
+| `main.rs:23` 模块文档 | 文档仍写「`@feature base` 指定的名称」作为 Hugo 落盘名来源；代码注释（`main.rs:849-853`）已自承这是**旧注释与实现各说各话**、`infer_title` 根本不读 `@feature base`。文档与实现不符，需同步 |
+| `main.rs:1265` 单文件行数 | 按 TODO 原始疑问「是否该按子命令拆分」——目前是**单二进制 + 标志驱动**（无子命令概念），`--to`/`--from` 都是枚举而非子命令，故「未使用的子命令」一项**不适用**（无子命令可废） |
+| 编译期死代码 | 当前 workspace 警告已清零（HANDOFF 三·八），故**无编译器标出的 `unused`**；上面的冗余均为「逻辑/语义层面」而非 `dead_code` 警告 |
+
+**一致性测试兜底（TODO 原项）**：`rust/smltools/tests/error_codes.rs` 已有 45 条端到端用例
+（含「CLI 输出无重复工具前缀」不变式），CLI 与库的发射/错误码行为**已有测试兜底**，无需额外补。
 
 ### 雷 2：`examples/slint/login.sml` 解析不过（示例是坏的）
 
