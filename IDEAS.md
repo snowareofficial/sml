@@ -184,10 +184,15 @@ rectangle            size 2    rect1   tls                      { … }
 
 ## I-9 近似契约名扫描与标注 / near-miss contract name hints
 
-- **Status / 状态**：`Todo` —— 完全没有。
+- **Status / 状态**：`Done`（2026-10-27）—— 运行时已落地；**编辑器侧仍未做**。
 - **Idea / 想法**：扫描「可能和 contract 名相似」的写法（如 `Securty` vs `Security`），
   当作**可能的错误**标出来，而不是只报一句「未定义的契约」。
-- **Now / 现状**：只有 `contract_by_first_letter` 的首字母兜底（`case-insensitive` 特性，
+- **Done / 已落地（2026-10-27）**：`e16c54e` —— 未命中契约时在错误文案里追加
+  「你是不是想写 `X`？」（`X` 为候选契约名）。改 `sml-contract/src/lib.rs` +
+  `sml-parse/src/parser.rs`，新增 `rust/tests/contract_typo.rs`（4 条测试）。
+  **码不变**（仍是 `E-CONTRACT-001`）⇒ 五端可分批跟进。**仍未做**：编辑器侧标黄
+  （`editors/lsp`、VSCode）、外置契约类型与外置指令名进候选池。
+- **Now / 现状（此为落地前的情况，留作对照）**：只有 `contract_by_first_letter` 的首字母兜底（`case-insensitive` 特性，
   `rust/sml-parse/src/parser.rs`）；未命中即 `E-CONTRACT-001`，文案不含候选；
   全仓无编辑距离 / did-you-mean 实现（`levenshtein` / `edit_distance` 零命中）。
   `typed-block` 已把「拼错的契约名被静默当块名」修掉（未开 `block-name` 直接报错），
@@ -283,7 +288,7 @@ rectangle            size 2    rect1   tls                      { … }
 
 ## I-14 仓库排雷行动 / repo-wide landmine sweep
 
-- **Status / 状态**：`Todo` —— 本轮只记下，未开工。
+- **Status / 状态**：`Partial`（2026-10-27）—— 清单已出三类（雷 3/4/5），**改代码仍未动**。
 - **Idea / 想法**：做一次**系统性**扫描，把「看起来在测、实际没测」「静默改数据」
   「panic / 栈溢出」这类**隐性雷**一次性挖出来，而不是等实现时偶然踩到。
 - **Why / 由来**：I-1 施工时顺手撞上 `deep_nesting_exceeding_limit_is_rejected`

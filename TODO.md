@@ -451,12 +451,39 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
    编辑器诊断走 `parseSafe`，所以这类错误**在编辑器里根本不报红**。现照 `parseArray` 的
    `closed` 判据补齐（**不能**用 `i >= toks.length` —— 正常闭合后 `i` 也等于长度）。
    同批对齐 `E-FEATURE-003`（未知名特性；合法名 = Rust 15 个 ∪ JS 别名 3 个，支持逗号分隔）。
+   回归：`js/probe-error-codes.mjs` 52 条全绿；4 份副本已同步、`EXPECT_VENDOR` 与 VSIX 已更新。
+4. ✅ **已修（同日）：`sml-include` 的"逐行 tokenize"架构缺陷**：`expand_includes` 原先逐行
+   `tokenize(line)` ⇒ 任何**跨行词法单元**（多行块注释、多行字符串）都在第 1 行报"未闭合"，
+   **文件入口**（`parse_file` / C-ABI `sml_load_file` / 编辑器）读不了这类文档。修法**不是**
+   "给 token 加位置"，而是**按段词法**：把文本切成"跨行单元与它覆盖的行粘成一段"（新增
+   `sml-lex::compute_block_comment_spans` + `expand::segments`），段内是自洽的词法单元。
+   ⚠️ **顺带堵了一条安全漏洞**：原先只有"字符串里伪造 include"被防护（`compute_string_spans`），
+   **块注释里写一行 `include "secret.sml"` 会被真的读盘并内联** —— 现在注释所在段的开头不是
+   `include`，自然不成指令。回归测试：`include_with_multiline_block_comment_and_string`
+   与 `include_inside_block_comment_is_not_expanded`（`rust/src/lib.rs`，后者此前**无任何覆盖**）。
+5. ✅ **「未加引号即非法」已升为语言级规则**（用户裁决「好的」）：实现在
+   `rust/sml-include/src/parse.rs`（`next_token_meta` 报告"是否加引号 / 引号是否闭合"，
+   `parse_include_line` 只对 `include` 生效）⇒ `E-INCLUDE-012` 现在 **Rust（含 CLI）与 Lua 同码**，
+   码表 `impls` 改为 `[ rust lua smltools ]` / `status: done`。
+   两处豁免已钉进 `rust/tests/error_codes.rs::include_unquoted_path_is_include_012`：
+   `import a.b`（点分模块名）与 `re:"…"`。**仍未做**：① 闭合引号后的"多余字符"；
+   ② JS / C / C++ 三端对齐（JS 走裸词回退、C++ 引号串与裸词同型、C 只认 `T_STR` 故**静默**）。
 
 ---
 
 ## 排雷区 / landmines（2026-10-26 记）
 
 实现过程中挖出、但**不在本轮范围内**的问题，先记账再排期。
+
+**雷区索引（2026-10-27 整理；小节按加入顺序排，故 3/4/5 夹在中间）**
+
+| 雷 | 内容 | 状态 |
+|---|---|---|
+| 雷 1 | 深嵌套测试栈溢出 | ✅ 测试已能真跑（默认栈 128 层通过）；⚠️ **根因挂账**：任何默认栈线程解析 128 层仍 abort，迭代式解析待做 |
+| 雷 2 | `examples/slint/login.sml` 示例是坏的 | ⏳ 待定：按 `"\`…\`"` 重写第 102 行 或 标记为已知不可用（当初那处半途改动**已回退**，工作区当前干净） |
+| 雷 3 | `smltools` 的 unwrap / 与库分叉 / 冗余 | 📋 清单已出（`rust/smltools/src/` 6 文件 ~4900 行），**未改一行 Rust** |
+| 雷 4 | 核心库「不可恢复崩溃」 | ✅ 结论：**干净** —— 9 处 unwrap/expect 全部有不变量守护 |
+| 雷 5 | 静默改数据 | 📋 清单已出（A/B/C 三组），**未改一行 Rust**；A 组优先级最高 |
 
 ### 雷 1：深嵌套测试栈溢出（既有；2026-10-26 已定位并修测试，**根因仍挂账**）
 
@@ -640,23 +667,6 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
   加了逗号只是把错误码从 `E-PARSE-006` 换成 `E-PARSE-007`（非预期的逗号），两版都失败。
 - **待定**：按 `"\`…\`"` 重写第 102 行（但表达式内含 Slint 字符串字面量，需另找写法），
   或回退那 1 字符并把该示例标记为已知不可用。
-   回归：`js/probe-error-codes.mjs` 52 条全绿；4 份副本已同步、`EXPECT_VENDOR` 与 VSIX 已更新。
-4. ✅ **已修（同日）：`sml-include` 的"逐行 tokenize"架构缺陷**：`expand_includes` 原先逐行
-   `tokenize(line)` ⇒ 任何**跨行词法单元**（多行块注释、多行字符串）都在第 1 行报"未闭合"，
-   **文件入口**（`parse_file` / C-ABI `sml_load_file` / 编辑器）读不了这类文档。修法**不是**
-   "给 token 加位置"，而是**按段词法**：把文本切成"跨行单元与它覆盖的行粘成一段"（新增
-   `sml-lex::compute_block_comment_spans` + `expand::segments`），段内是自洽的词法单元。
-   ⚠️ **顺带堵了一条安全漏洞**：原先只有"字符串里伪造 include"被防护（`compute_string_spans`），
-   **块注释里写一行 `include "secret.sml"` 会被真的读盘并内联** —— 现在注释所在段的开头不是
-   `include`，自然不成指令。回归测试：`include_with_multiline_block_comment_and_string`
-   与 `include_inside_block_comment_is_not_expanded`（`rust/src/lib.rs`，后者此前**无任何覆盖**）。
-5. ✅ **「未加引号即非法」已升为语言级规则**（用户裁决「好的」）：实现在
-   `rust/sml-include/src/parse.rs`（`next_token_meta` 报告"是否加引号 / 引号是否闭合"，
-   `parse_include_line` 只对 `include` 生效）⇒ `E-INCLUDE-012` 现在 **Rust（含 CLI）与 Lua 同码**，
-   码表 `impls` 改为 `[ rust lua smltools ]` / `status: done`。
-   两处豁免已钉进 `rust/tests/error_codes.rs::include_unquoted_path_is_include_012`：
-   `import a.b`（点分模块名）与 `re:"…"`。**仍未做**：① 闭合引号后的"多余字符"；
-   ② JS / C / C++ 三端对齐（JS 走裸词回退、C++ 引号串与裸词同型、C 只认 `T_STR` 故**静默**）。
 
 ### 复核方法（可重跑）
 
