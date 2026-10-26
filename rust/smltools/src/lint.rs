@@ -20,7 +20,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use sml::{parse, Value};
+use sml::{parse, split_kv, strip_line_comment, BUILTIN_DIRECTIVES, MAX_VALUE_DEPTH, Value};
 use sml_codes::{E_LINT_001, W_LINT_001, W_LINT_002, W_LINT_003, W_LINT_004, W_LINT_005};
 
 /// 检查结果。
@@ -49,13 +49,11 @@ impl Report {
     }
 }
 
-/// SML 内置指令：这些 `@xxx` 不是片段定义。
-const BUILTIN_DIRECTIVES: &[&str] = &[
-    "contract", "is", "type", "version", "feature", "when", "for", "include",
-];
-
-/// `MAX_VALUE_DEPTH` 的一半，作为「嵌套过深」的提醒阈值。
-const DEPTH_WARN: usize = 64;
+/// `@xxx` 是否为片段定义（而非内置指令）。单一来源用库的 `BUILTIN_DIRECTIVES`
+/// （smltools 直接复用，库的指令集变动时 lint 自动跟随）。
+fn is_fragment_directive(word: &str) -> bool {
+    !word.is_empty() && !BUILTIN_DIRECTIVES.contains(&word)
+}
 
 /// 对文本做检查。`path` 仅用于消息前缀。
 pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
@@ -100,7 +98,7 @@ pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
                 "缩进里出现 tab；SML 缩进敏感，请统一用空格",
             );
         }
-        let body = strip_comment(raw).trim();
+        let body = strip_line_comment(raw).trim();
         if body.is_empty() {
             continue;
         }
@@ -118,7 +116,7 @@ pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
                 if let Some(nm) = first_word_after(d, "is") {
                     used_contracts.insert(nm, *no);
                 }
-            } else if !word.is_empty() && !BUILTIN_DIRECTIVES.contains(&word) {
+            } else if is_fragment_directive(word) {
                 fragment_defs.push((word.to_string(), *no));
             }
         }
@@ -166,7 +164,7 @@ pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
     for idx in 0..lines.len() {
         let (no, raw, indent) = &lines[idx];
-        let body = strip_comment(raw).trim().to_string();
+        let body = strip_line_comment(raw).trim().to_string();
         if body.is_empty() {
             continue;
         }
@@ -198,7 +196,7 @@ pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
         if v.is_empty() {
             let next_indent = lines[idx + 1..]
                 .iter()
-                .find(|(_, r, _)| !strip_comment(r).trim().is_empty())
+                .find(|(_, r, _)| !strip_line_comment(r).trim().is_empty())
                 .map(|(_, _, i)| *i);
             let empty = match next_indent {
                 Some(ni) => ni <= *indent,
@@ -221,15 +219,18 @@ pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
     // ---- 4. 结构检查（仅解析成功时）----
     if let Ok(v) = &parsed {
         let d = depth_of(v);
-        if d > DEPTH_WARN {
+        if d > MAX_VALUE_DEPTH / 2 {
             // W-LINT-005：嵌套超过建议阈值（只提醒可读性，不是拒绝 —— 解析上限见 E-LIMIT-001）。
+            // 阈值 = MAX_VALUE_DEPTH / 2，库改 MAX_VALUE_DEPTH 时自动跟随。
             report.push(
                 &name,
                 0,
                 "warning",
                 W_LINT_005,
                 &format!(
-                    "嵌套深度 {d} 已超过建议阈值 {DEPTH_WARN}（解析上限为 MAX_VALUE_DEPTH）"
+                    "嵌套深度 {d} 已超过建议阈值 {}（解析上限为 {}）",
+                    MAX_VALUE_DEPTH / 2,
+                    MAX_VALUE_DEPTH
                 ),
             );
         }
@@ -251,25 +252,6 @@ fn indent_of(line: &str) -> usize {
     w
 }
 
-/// 去掉行尾注释（`#` 前须为空白或行首）。
-fn strip_comment(s: &str) -> &str {
-    let b = s.as_bytes();
-    let (mut in_s, mut in_d) = (false, false);
-    for i in 0..b.len() {
-        match b[i] {
-            b'\'' if !in_d => in_s = !in_s,
-            b'"' if !in_s => in_d = !in_d,
-            b'#' if !in_s && !in_d => {
-                if i == 0 || b[i - 1] == b' ' || b[i - 1] == b'\t' {
-                    return &s[..i];
-                }
-            }
-            _ => {}
-        }
-    }
-    s
-}
-
 /// 取 `指令` 之后的第一个词（如 `contract Server {` → `Server`）。
 fn first_word_after(s: &str, kw: &str) -> Option<String> {
     let rest = s.trim_start().strip_prefix(kw)?.trim_start_matches([':', ' ']);
@@ -282,30 +264,6 @@ fn first_word_after(s: &str, kw: &str) -> Option<String> {
     } else {
         Some(w)
     }
-}
-
-/// 切分 `键: 值`（冒号须后跟空白或行尾）。
-fn split_kv(s: &str) -> Option<(String, String)> {
-    let b = s.as_bytes();
-    let (mut in_s, mut in_d) = (false, false);
-    for i in 0..b.len() {
-        match b[i] {
-            b'\'' if !in_d => in_s = !in_s,
-            b'"' if !in_s => in_d = !in_d,
-            b':' if !in_s && !in_d => {
-                let next_ok = i + 1 >= b.len() || b[i + 1] == b' ' || b[i + 1] == b'\t';
-                if next_ok {
-                    let k = s[..i].trim().trim_matches(['"', '\'']).to_string();
-                    if k.is_empty() {
-                        return None;
-                    }
-                    return Some((k, s[i + 1..].trim().to_string()));
-                }
-            }
-            _ => {}
-        }
-    }
-    None
 }
 
 /// 值的嵌套深度。
@@ -358,5 +316,77 @@ mod tests {
     fn parse_error_keeps_language_layer_code() {
         let out = messages("a {\n");
         assert!(out.contains("[E-PARSE-001]"), "应透传 E-PARSE-001：\n{out}");
+    }
+
+    /// 单一来源：lint 的内置指令判定直接复用 `sml::BUILTIN_DIRECTIVES`
+    /// （含 `include`），库的指令集变动时自动跟随，不会静默误判新指令为片段。
+    #[test]
+    fn builtin_directives_is_single_source() {
+        assert!(sml::BUILTIN_DIRECTIVES.contains(&"include"));
+        assert_eq!(sml::BUILTIN_DIRECTIVES.len(), 8);
+        // 名单里的都不是片段定义；名单外的才算。
+        assert!(!is_fragment_directive("contract"));
+        assert!(!is_fragment_directive("include"));
+        assert!(is_fragment_directive("frag"));
+    }
+
+    /// `strip_comment` 现在复用 `sml::strip_line_comment`（库的单一来源）：
+    /// 行尾 `#` 之后被剥掉，引号内的 `#` 不剥，且不要求 `#` 前有空白。
+    #[test]
+    fn strip_comment_matches_library() {
+        assert_eq!(sml::strip_line_comment("a: 1 # 注释"), "a: 1 ");
+        assert_eq!(sml::strip_line_comment("s: \"a#b\""), "s: \"a#b\"");
+        // 库不要求 `#` 前有空白。
+        assert_eq!(sml::strip_line_comment("a#b"), "a");
+        // 片段定义后跟注释，仍应被识别为片段定义（W-LINT-001）。
+        let out = messages("@frag { a: 1 } # 注释\n");
+        assert!(out.contains("W-LINT-001"), "注释后的片段定义应被识别：\n{out}");
+    }
+
+    /// `split_kv` 现在复用 `sml::split_kv`（与解析器同口径：冒号即分隔符），
+    /// 因此无空格的 `k:1` 也会被识别为字段——重复键由 W-LINT-003 捕获。
+    #[test]
+    fn split_kv_matches_parser() {
+        assert_eq!(sml::split_kv("k: 1"), Some(("k".to_string(), "1".to_string())));
+        assert_eq!(sml::split_kv("k:1"), Some(("k".to_string(), "1".to_string())));
+        assert_eq!(
+            sml::split_kv("k: 'a:b'"),
+            Some(("k".to_string(), "'a:b'".to_string()))
+        );
+        assert_eq!(sml::split_kv("notakv"), None);
+        // 行为变更点：此前因要求冒号后空白而漏报的无空格重复键，现在能捕获。
+        let out = messages("k:1\nk:2\n");
+        assert!(out.contains("W-LINT-003"), "无空格重复键应被捕获：\n{out}");
+    }
+
+    /// 嵌套阈值 = `MAX_VALUE_DEPTH / 2`，库改 `MAX_VALUE_DEPTH` 时自动跟随。
+    /// 注意 `depth_of` 把根对象也算一层：N 个 `{` 嵌套实际深度为 N+1，
+    /// 故边界是 63 个 `{`（深度 64，不触发）vs 64 个 `{`（深度 65，触发）。
+    #[test]
+    fn depth_warn_threshold_tracks_max() {
+        assert_eq!(sml::MAX_VALUE_DEPTH / 2, 64);
+        let mut deep = String::new();
+        for i in 0..64 {
+            deep.push_str(&"  ".repeat(i));
+            deep.push_str(&format!("k{i} {{\n"));
+        }
+        for i in (0..64).rev() {
+            deep.push_str(&"  ".repeat(i));
+            deep.push_str("}\n");
+        }
+        assert!(messages(&deep).contains("W-LINT-005"), "深度 65（64 层嵌套）应触发");
+        let mut shallow = String::new();
+        for i in 0..63 {
+            shallow.push_str(&"  ".repeat(i));
+            shallow.push_str(&format!("k{i} {{\n"));
+        }
+        for i in (0..63).rev() {
+            shallow.push_str(&"  ".repeat(i));
+            shallow.push_str("}\n");
+        }
+        assert!(
+            !messages(&shallow).contains("W-LINT-005"),
+            "深度 64（63 层嵌套）不应触发"
+        );
     }
 }

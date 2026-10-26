@@ -32,7 +32,10 @@ use sml_codes::{SmlError, E_CLI_007, E_LIMIT_004};
 /// 可被不可信输入（如 C-ABI `json_to_value` 无深度限制）构造为任意深嵌套，
 /// 任一 emit 后端若不设深度上限会在递归序列化时栈溢出（abort 宿主）。
 /// 超过此深度时后端返回 `Err` 而非崩溃。
-pub(crate) const MAX_VALUE_DEPTH: usize = 128;
+///
+/// 提升为 `pub`：供 `smltools --lint` 以 `MAX_VALUE_DEPTH / 2` 作「嵌套过深」阈值，
+/// 库改此处时 lint 自动跟随，不再硬编码 64 而静默分叉。
+pub const MAX_VALUE_DEPTH: usize = 128;
 
 // ---------------------------------------------------------------------------
 // 带码错误辅助（各后端共用）
