@@ -19,8 +19,13 @@
 //!
 //! `--from` 取值：`sml`（默认）/`json`/`toml`/`yaml`/`xml`，缺省按扩展名推断。
 //! `--to` 取值：`md`/`markdown`/`xml`/`svg`/`latex`/`slint`/`lvgl`/`custom`/`sml`。
-//! `--hugo <dir>` 会让 markdown 输出裹上最小 Hugo front matter，并以输入文件名
-//! （或 `@feature base` 指定的名称）落盘为 `.md`，可直接被 `hugo` 收录。
+//! `--hugo <dir>` 会让 markdown 输出裹上最小 Hugo front matter，并以 `<name>.md`
+//! 落盘（`<name>` 取 `--title` > 文档顶层 `title` 字段 > 输入文件名 stem > `"doc"`），
+//! 可直接被 `hugo` 收录。
+//!
+//! 注：这里曾写「以 `@feature base` 指定的名称落盘」，与实现不符 ——
+//! `@feature base` 只声明基准版本（v1..v4），承载不了名字；落盘名实际来自
+//! 上面的推断链（见 `infer_title`）。
 //!
 //! 退出码：0 成功；1 解析/翻译失败；2 参数/IO 错误。
 
