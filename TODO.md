@@ -492,6 +492,27 @@ PVACIS 想要的是「**给文档挂带类型的元数据块，且不进主数�
 - **遗留**：`parse_array_inner` 路径未做同样的削薄检查；若将来再加肥分支，
   需重跑「默认栈 128 层」这条判据。
 
+### 雷 4：排雷 ③「不可恢复崩溃」清单（2026-10-27 扫描完毕 —— **核心库是干净的**）
+
+扫 `panic!` / `.unwrap()` / `.expect(`，**只统计库代码，测试与示例不算**。结论：核心库**没有**能在用户输入下触发的 panic 路径 —— 所有 unwrap/expect 都被前一行（或同分支）的不变量守着。
+
+| 位置 | 形式 | 守护不变量 | 判定 |
+|---|---|---|---|
+| `sml-parse/src/parser.rs:1297` | `node.remove(&key).unwrap()` | 上一行 `node.get_mut(&key)` 已返回 `Some` | 安全 |
+| `sml-parse/src/contract_map.rs:143` | `s.chars().next().unwrap()` | `!s.is_empty()` 已判 | 安全 |
+| `sml-value/src/serde_bridge.rs:669` | `s.chars().next().unwrap()` | `s.chars().count() == 1` 已判 | 安全 |
+| `sml-value/src/serde_bridge.rs:843` | `m.pop_first().expect("len==1 必有键")` | `m.len() == 1` 已判 | 安全 |
+| `sml-contract/src/infer.rs:189-190` | `field_ty.get(k).unwrap()` ×2 | `k` 来自同一批键的预填充 map | 安全（但属于"靠约定"的不变量，改动时易破） |
+| `sml-pattern/src/regex.rs:55 / 241` | `alts.pop().unwrap()` / `items.pop().unwrap()` | `len() == 1` 已判 | 安全 |
+| `emit/latex.rs:182`、`emit/html.rs:262`、`emit/markdown.rs:313` | `ty.unwrap()` | `Some("h1"\|…\|"h6")` 模式已匹配 | 安全（但本可直接用绑定值，属冗余 unwrap） |
+| `emit/html.rs:196 / 230` | `v.get("cover").unwrap()` | 上一行 `if let Some(Value::Object(_)) = v.get(...)` | 安全 |
+| `emit/custom.rs:306` | `template[i..].chars().next().unwrap()` | `while i < bytes.len()` | 安全 |
+
+- `sml-lex/src/lib.rs`：5 处**全在 `#[cfg(test)]`** ⇒ 不计。
+- **未扫**：`smltools/src`（`yaml` 24 / `xml` 29 / `toml` 14 / `highlight` 14 / `main` 6，共 87 处）—— 它是 CLI，unwrap 直接等于用户可见崩溃，**且它本身是雷 3**，待与清理一并处理。
+
+**结论**：核心库这轮**无需修改**。但要记住 I-14 的规矩 —— 这份清单是"当时扫过"，以后每加一个 unwrap 都要能说清守护不变量是什么（可直接写进注释或参考本表）。
+
 ### 雷 3：`smltools` 待清理（用户点名，2026-10-26）
 
 - **现状**：`rust/smltools/src/` 共 6 个文件、约 **4900 行** ——
