@@ -481,9 +481,9 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 |---|---|---|
 | 雷 1 | 深嵌套测试栈溢出 | ✅ 测试已能真跑（默认栈 128 层通过）；⚠️ **根因挂账**：任何默认栈线程解析 128 层仍 abort，迭代式解析待做 |
 | 雷 2 | `examples/slint/login.sml` 示例是坏的 | ⏳ 待定：按 `"\`…\`"` 重写第 102 行 或 标记为已知不可用（当初那处半途改动**已回退**，工作区当前干净） |
-| 雷 3 | `smltools` 的 unwrap / 与库分叉 / 冗余 | 📋 清单已出（`rust/smltools/src/` 6 文件 ~4900 行），**未改一行 Rust** |
+| 雷 3 | `smltools` 的 unwrap / 与库分叉 / 冗余 | 🛠 **分叉类已处理（`3bff9b0`）**：六条消 4 条；`depth_of` 与文本扫描识别未动。崩用户类与冗余类**仍未动** |
 | 雷 4 | 核心库「不可恢复崩溃」 | ✅ 结论：**干净** —— 9 处 unwrap/expect 全部有不变量守护 |
-| 雷 5 | 静默改数据 | 📋 清单已出（A/B/C 三组），**未改一行 Rust**；A 组优先级最高 |
+| 雷 5 | 静默改数据 | 🛠 **A 组 1-3 已修（`c4077a0`）**：derive 大整数超 i64 一律报错，与 serde 桥同码。A 组 4-6（静默合并/覆盖）与 B 组往返不对称**仍未动** |
 
 ### 雷 1：深嵌套测试栈溢出（既有；2026-10-26 已定位并修测试，**根因仍挂账**）
 
@@ -581,14 +581,19 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 
 #### 二、会不会与库分叉（重复 / 各实现一份）
 
-| 文件:行号 | 说明 |
-|---|---|
-| `lint.rs:52-55` `BUILTIN_DIRECTIVES` | `lint` 自写一份「SML 内置指令」名单（`contract/is/type/version/feature/when/for/include`）。若库新增/调整内置指令或片段语法，这里**静默分叉**——lint 会把新指令误判成片段定义。应与库的指令表**单一来源**（或至少注释钉死同步点） |
-| `lint.rs:254-271` `strip_comment` | 重做行尾 `#` 注释剥离，**复制了库词法里的注释规则**。库的注释判定（含引号/字符串内 `#` 不算注释）一旦收紧，lint 不会跟着变 |
-| `lint.rs:287-309` `split_kv` | 重做 `键: 值` 切分，**复制了库解析器的 kv 判定**（冒号须后跟空白/行尾）。库改 kv 语义，lint 不同步 |
-| `lint.rs:274-285` `first_word_after` + `lint.rs:108-123` 片段&契约识别 | 用自写文本扫描识别 `@contract`/`@is`/`&name`，与库解析器的指令/片段/契约识别**两套实现**。新增指令种类或改引用语法会分叉 |
-| `lint.rs:312-318` `depth_of` | 重做值嵌套深度计算；库已有等价逻辑，两处易漂 |
-| `lint.rs:58` `DEPTH_WARN = 64` | **硬编码** `MAX_VALUE_DEPTH(128)` 的一半。若五端同步改 `MAX_VALUE_DEPTH`，此处不会自动跟着变（虽不崩，却是隐性分叉点） |
+> **进展（2026-10-27，`3bff9b0`）**：六条里 **4 条已消**（①②③⑥）、**1 条半**（④）、**1 条未动**（⑤）。
+> 落法是**库侧开接口、lint 侧改为调用**（在 `rust/src/lib.rs` 新增 `BUILTIN_DIRECTIVES` / `split_kv`，
+> 并把 `emit::MAX_VALUE_DEPTH` 由 `pub(crate)` 提升为 `pub`），故这四处现在是**编译期**就绑在一起。
+> ⚠️ 副作用：`MAX_VALUE_DEPTH` 与两个 lint 用的函数从此成了**公开 API** —— 以后改签名算破坏性变更。
+
+| 文件:行号（改前位置） | 说明 | 处置 |
+|---|---|---|
+| `lint.rs:52-55` `BUILTIN_DIRECTIVES` | 自写一份「SML 内置指令」名单，库增改指令时 lint 会把新指令误判成片段定义 | ✅ **已消**：改用 `sml::BUILTIN_DIRECTIVES` |
+| `lint.rs:254-271` `strip_comment` | 重做行尾 `#` 注释剥离，复制了库词法的注释规则 | ✅ **已消**：改用 `sml::strip_line_comment` |
+| `lint.rs:287-309` `split_kv` | 重做 `键: 值` 切分，复制了解析器的 kv 判定 | ✅ **已消**：改用新增的 `sml::split_kv`（同口径：冒号即分隔符） |
+| `lint.rs:274-285` `first_word_after` + `lint.rs:108-123` | 自写文本扫描识别 `@contract`/`@is`/`&name`，与解析器两套实现 | ⚠️ **半**：`@xxx` 是否内置指令已走 `BUILTIN_DIRECTIVES`，但**整段文本扫描**这套仍是自写 |
+| `lint.rs:312-318` `depth_of` | 重做嵌套深度计算，与库等价逻辑两处易漂 | ⚠️ **未动**：仍自写；仅其阈值来源改为 `MAX_VALUE_DEPTH / 2` |
+| `lint.rs:58` `DEPTH_WARN = 64` | 硬编码 `MAX_VALUE_DEPTH(128)` 的一半，五端调整时不会跟随 | ✅ **已消**：改为 `MAX_VALUE_DEPTH / 2` |
 
 **未分叉（正面确认，无需动）**：
 - 发射后端全走库：`sml::to_sml_checked` / `to_markdown` / `to_xml` / `to_svg` / `to_latex` /
@@ -621,9 +626,9 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 
 | 文件:行号 | 说明 | 属类 |
 |---|---|---|
-| `rust/src/derive_macro.rs:175` | `u64::SmlSerialize` 超 i64 时 `unwrap_or_else(Value::float)` 静默降级为 Float；`u64::MAX`(=2^64-1) 入 f64 舍入为 2^64，**值偏移 1，静默丢精度**（溢出饱和） | ① |
-| `rust/src/derive_macro.rs:203-205` | `usize::SmlSerialize` 同一逻辑静默降级 Float | ① |
-| `rust/src/derive_macro.rs:234` | `impl_big!(i128,u128)` 的 `SmlSerialize` 超 i64 静默降级 Float；注意其 `from_sml_value`(反序列化) 已正确 `try_from` 报错，**同一条 trait 两侧口径不一致** | ① |
+| `rust/src/derive_macro.rs:175` | ✅ **已修（`c4077a0`）**：`u64::SmlSerialize` 超 i64 时曾 `unwrap_or_else(Value::float)` 静默降级为 Float（`u64::MAX` 入 f64 舍入为 2^64，**值偏移 1**）；现一律**报错**，与 serde 桥同码 `[E-DERIVE-002]` | ① |
+| `rust/src/derive_macro.rs:203-205` | ✅ **已修（`c4077a0`）**：`usize::SmlSerialize` 同一逻辑，同上 | ① |
+| `rust/src/derive_macro.rs:234` | ✅ **已修（`c4077a0`）**：`impl_big!(i128,u128)` 的 `SmlSerialize` 同改 ⇒ **同一 trait 两侧的口径现已一致**（写 = 报错，读 = `try_from` 报错） | ① |
 | `rust/sml-parse/src/parser.rs:1313-1324` | 同一键第二次出现**静默提升为数组**（`node.insert(key, Value::Array(vec![old, val]))`），对象结构被静默改写（SML 既定语义，但属静默结构变更） | ③ |
 | `rust/sml-parse/src/parser.rs:1294-1296` | 片段/`@include` 展开 `for (fk,fv) in m { node.insert(...) }` 直接覆盖同名键，**不走**上面的数组提升，父块已有键被片段值静默覆盖 | ③ |
 | `rust/derive/src/lib.rs:86`（陷阱 2；合并调用 `:699`） | `#[sml(flatten)]` 键冲突按字段声明顺序**静默覆盖（后者胜），不报错**，被覆盖的值静默丢失（已写进 derive 文档，但仍属静默数据丢失） | ③ |
@@ -644,8 +649,16 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 | `rust/sml-value/src/serde_bridge.rs:221-229` | **已修**：`serialize_u64` 曾静默降级 Float（53 位精度），W16 改为超出 i64 即 `E-DERIVE-002` 报错（与 derive_macro 的 `SmlSerialize` 路径仍降级形成对照，见 A 组 1-3） |
 | `rust/sml-value/src/value.rs:14-26` + `dump.rs:171-215` + `sml-lex/src/lib.rs:497-500` | **已修（部分）**：引入 `raw` 原始字面量，`parse→to_sml` 路径保留 `1e10` 书写形式；但 serde 发射路径不填 raw（见 B 组 2），故仅 half 修复 |
 
-**下一轮动作（仅登记，本轮不动）**：A 组 1-3 的 derive `SmlSerialize` 与 serde 路径口径应统一
-（要么都报错、要么都保真为字符串）；A 组 4-6 的静默合并/覆盖建议补「重复键/冲突键」warning 而非静默。
+**已修（2026-10-27，`c4077a0`）**：A 组 1-3 已统一 —— derive `SmlSerialize` 的 `u64` / `usize` /
+`i128` / `u128` 超 i64 **一律报错**，与 serde 桥同口径，沿用 `E-DERIVE-002`
+（以 `[E-DERIVE-002]` 后缀落在文案里 —— 本 crate 刻意零依赖、不引 `sml-codes`，
+与 `serde_bridge.rs:101` 的写法逐字一致，见该条码的 note）。
+⇒ 现在**凡经 `Value` 的写入路径口径统一**；唯一的例外是 `to_string_direct`（直出），
+它按 I-1 的既定设计**保真写出**（超 i64 写成裸词），回读按 B10 变 `Str` ⇒ 往返不对称仍挂在 **B 组**。
+
+**仍挂账（下一轮）**：
+- A 组 4-6 的静默合并/覆盖 —— 建议补「重复键/冲突键」warning 而非静默；
+- `to_string_direct` ↔ `Value` 两条路对超 i64 整数的**口径差异**：是再统一一层，还是维持现状——未定。
 
 ### 雷 2：`examples/slint/login.sml` 解析不过（示例是坏的）
 
