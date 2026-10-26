@@ -61,7 +61,11 @@ _du.py
 
 # AI 协作工具的本地状态（团队/会话数据），不进版本库
 .codebuddy/
-c/build_check.py
+# ⚠️ 不要在这里加 c/build_check.py：它是**跨平台**的 C 端检查脚本，
+# 且 CI 的 non-rust job 会 `python3 build_check.py --run`（ci.yml）。
+# 曾被误列在此处 ⇒ 文件只在本地、远端没有 ⇒ CI 一直报
+#   python3: can't open file '.../c/build_check.py': No such file or directory
+# （2026-10-26 修回）。它只用相对路径，无本机硬编码，可以入库。
 
 # Hugo 生成的站点产物（由 site/content 与 site/static 重新生成，勿提交）
 site/public/
