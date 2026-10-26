@@ -112,8 +112,36 @@ jobs:
           set -euo pipefail
           git remote set-url --push github \
             "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git push --mirror github
-          echo "同步完成"
+
+          # ⚠️ 这里不能用 `git push --mirror`。
+          #
+          # `git clone --mirror` 会把 Gitee 的 PR 引用一并拉下来
+          # （`refs/pull/<n>/head`、`refs/pull/<n>/MERGE`），而 GitHub 的
+          # `refs/pull/*` 是**隐藏的只读引用**，推送一律被拒：
+          #
+          #   ! [remote rejected] refs/pull/1/head -> refs/pull/1/head
+          #     (deny updating a hidden ref)
+          #   ! [remote rejected] refs/pull/1/MERGE -> refs/pull/1/MERGE
+          #     (deny updating a hidden ref)
+          #
+          # 配合 `set -euo pipefail`，只要 Gitee 上有一个 PR，整条同步就失败
+          # （2026-10-26 实测：sync run 40223653468）。注意此时**分支其实已经推成功了**，
+          # 只有 refs/pull/* 被拒，但退出码仍是 1，看起来像全挂。
+          #
+          # 故只镜像「分支」与「标签」两个命名空间：
+          # - 放弃 refs/pull/*（GitHub 会按自己的 PR 在 refs/pull/* 下自行生成，不该被覆盖）；
+          #
+          # ⚠️ 且**不加 `--prune`**（`--mirror` 隐含 prune）。
+          # 实测 2026-10-26：GitHub 上有一条只在 GitHub 存在、Gitee 没有的分支
+          # `feat/bindings-java-python-ruby`（领先 origin/main 1 笔）、
+          # `feat/w25-error-msg-lookup`（同样领先 1 笔）。prune 会把它们连同提交一起删掉，
+          # 与该工作流开头写的「防误覆盖…避免静默丢失代码」自相矛盾。
+          # 代价：Gitee 上删掉的分支会在 GitHub 上残留 —— 这是**刻意**的取舍，
+          # 要删就显式 `git push github --delete <branch>`，别让它被一次同步悄悄带走。
+          git push github \
+            '+refs/heads/*:refs/heads/*' \
+            '+refs/tags/*:refs/tags/*'
+          echo "同步完成（仅分支 + 标签，不含 refs/pull/*，不 prune）"
 
       - name: 校验同步结果
         if: steps.guard.outputs.github_only == '0' || inputs.force == true
