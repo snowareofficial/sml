@@ -34,13 +34,13 @@ use sml::emit::{
 };
 use clap::Parser;
 // `to_sml` 不再直接调用：SML 输出走带检查的 `sml::to_sml_checked`（W16，见 emit()）
-use sml::{parse, Value, Version};
+use sml::{parse, Feature, FeatureSet, Value, Version};
 // ⚠️ `E_INCLUDE_001/004/012` **不再由本 crate 抛出**：include 展开已统一交给库的
 // `sml::parse_file`（原先那份 CLI 自有的行级预处理已删除），这些码由 `sml-include` 带出。
 use sml_codes::{
     SmlError, E_CLI_001, E_CLI_002, E_CLI_003, E_CLI_004, E_CLI_005, E_CLI_006, E_CLI_008,
     E_FEATURE_004, E_INTERNAL_001, E_IO_001, E_IO_003, E_IO_004, E_IO_005, E_IO_006, E_IO_007,
-    E_MIGRATE_017, I_FEATURE_001,
+    E_MIGRATE_017,
 };
 use std::path::Path;
 
@@ -547,8 +547,24 @@ fn read_input(input: &Option<PathBuf>) -> Result<String, SmlError> {
     }
 }
 
-/// 按指定版本解析。当前 crate 的 `parse` 统一使用 CURRENT(V4) 解析器，
-/// `--feature` 用于显式声明文档意图版本；V4 之前文件一般也能被兼容解析。
+/// 把 CLI 声明的特性版本折算成「调用方允许特性集」，用于真正的版本门控。
+///
+/// 各版本间**唯一的语义差别**是字符串是否必须加引号（`Version::strict_strings`：
+/// v1 裸词即字符串，v2 及以上要求显式引号）。故门控只动 `BarewordStr` 一位；
+/// 其余能力（glob / regex / multi-include …）仍沿用全集、由文档 `@feature enable`
+/// 自行决定，避免 `--feature` 顺手砍掉与版本无关的高级能力。
+fn allowed_for_version(v: Version) -> FeatureSet {
+    if v.strict_strings() {
+        FeatureSet::all().without(Feature::BarewordStr)
+    } else {
+        FeatureSet::all()
+    }
+}
+
+/// 按指定版本解析。**显式给了 `--feature vN` 时才真正按版本裁剪**：走库的特性
+/// 门控入口（`parse_file_features` / `parse_with_features`），把上面折算出的允许集
+/// 交进去 ⇒ 严格模式下再写裸词字符串会由解析器带 `E-FEATURE-005` 报出，
+/// 而不再是原先那条「仅作提示」的 note。未声明 `--feature` 时维持原入口。
 ///
 /// 指定了输入文件时，先按**输入文件所在目录**递归展开 `include`/`@include`
 /// 指令（把按章节拆分的「结构文件 + 数据文件」拼成完整文档），再交给 `parse`
@@ -559,19 +575,11 @@ fn parse_with(
     input_path: &Option<PathBuf>,
     feature: Option<Version>,
 ) -> Result<Value, SmlError> {
-    if let Some(v) = feature {
-        if v != Version::V4 {
-            // I-FEATURE-001：解析器按其固定版本模式工作，命令行声明的特性版本仅作提示。
-            eprintln!(
-                "smltools: note: 解析器以 v4 模式工作；声明 `--feature {}` 仅作提示 [{}]",
-                v.name(),
-                I_FEATURE_001
-            );
-        }
-    }
-    match input_path {
-        // 有输入文件 ⇒ **交给库的 `parse_file`**：与 C-ABI `sml_load_file`、编辑器后端、
-        // 以及 `examples/advanced.sml` 头部写明的推荐用法（`sml::parse_file`）走**同一条**路径。
+    match (feature, input_path) {
+        // 有输入文件 ⇒ **交给库的 `parse_file`**（给了 `--feature` 时为
+        // `parse_file_features`，同一层入口、同样自带 include 展开）：与 C-ABI
+        // `sml_load_file`、编辑器后端、以及 `examples/advanced.sml` 头部写明的
+        // 推荐用法走**同一条**路径。
         //
         // 为什么不再自己展开：CLI 原有一份"行级 include 展开"（只认行首单个引号路径），
         // 与库的 `sml-include` 分叉，实测三处后果，其中第一处是**静默数据丢失**：
@@ -582,9 +590,14 @@ fn parse_with(
         //     **等价写法**（`rust/sml-include/src/parse.rs:80`）⇒ `examples/advanced.sml` 自己跑不过。
         // 交给库之后，`multi-include` / `as ns` / 挑键 `{ k }` / `glob` / `regex` / `@feature`
         // 全由库负责 —— 两处实现**只可能一致**。
-        Some(p) => sml::parse_file(p).map_err(|e| e.context("parse error: ")),
+        (Some(v), Some(p)) => sml::parse_file_features(p, allowed_for_version(v))
+            .map_err(|e| e.context("parse error: ")),
+        (Some(v), None) => sml::parse_with_features(text, allowed_for_version(v))
+            .map(|(val, _)| val)
+            .map_err(|e| e.context("parse error: ")),
+        (None, Some(p)) => sml::parse_file(p).map_err(|e| e.context("parse error: ")),
         // stdin 没有基准目录，include 的相对路径无从解析（建议改用 `-i <file>`）。
-        None => parse(text).map_err(|e| e.context("parse error: ")),
+        (None, None) => parse(text).map_err(|e| e.context("parse error: ")),
     }
 }
 

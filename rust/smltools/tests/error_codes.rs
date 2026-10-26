@@ -357,8 +357,19 @@ fn unknown_feature_version_is_feature_004() {
 }
 
 #[test]
-fn feature_note_is_i_feature_001() {
-    assert_code(&["--feature", "v1"], Some("k: 1\n"), "I-FEATURE-001");
+fn feature_version_gates_strict_strings() {
+    // 真正的版本门控：各版本唯一的语义差别是「裸词是否算字符串」。
+    // v1 放行裸词；v4 为严格模式 ⇒ 裸词必须加引号（E-FEATURE-005）。
+    let v1 = drive(&["--feature", "v1"], Some("k: hello\n"));
+    assert!(
+        v1.code == Some(0),
+        "--feature v1 应接受裸词字符串\n--- stdout ---\n{}\n--- stderr ---\n{}",
+        v1.stdout,
+        v1.stderr
+    );
+
+    let o = assert_code(&["--feature", "v4"], Some("k: hello\n"), "E-FEATURE-005");
+    assert_eq!(o.code, Some(1), "版本门控拒绝应按解析失败退出");
 }
 
 // ================= 扩展点（EXT） =================
