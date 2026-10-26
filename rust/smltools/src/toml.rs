@@ -460,7 +460,11 @@ fn parse_value(s: &str, no: usize) -> Result<Value, SmlError> {
             let keys = parse_key_path(k.trim())?;
             let val = parse_value(v, no)?;
             let mut node = &mut m;
-            let (last, parents) = keys.split_last().unwrap();
+            let (last, parents) = match keys.split_last() {
+                Some(pair) => pair,
+                // parse_key_path 正常不会给空键，但显式兜底，避免依赖上游不变量成立。
+                None => return Err(syntax(format!("第 {no} 行：键路径为空"))),
+            };
             for kk in parents {
                 if !node.contains_key(kk) {
                     node.insert(kk.clone(), Value::Object(BTreeMap::new()));
