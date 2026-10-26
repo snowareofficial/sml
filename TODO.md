@@ -585,6 +585,41 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 **一致性测试兜底（TODO 原项）**：`rust/smltools/tests/error_codes.rs` 已有 45 条端到端用例
 （含「CLI 输出无重复工具前缀」不变式），CLI 与库的发射/错误码行为**已有测试兜底**，无需额外补。
 
+### 雷 5：静默改数据清单（2026-10-27 扫完 —— 仅出清单，未改任何 Rust 源码）
+
+> 原则（I-14）：先扫清单，改代码是下一轮的事。四类：① 溢出饱和 ② 精度丢失
+> ③ 键被覆盖/静默合并 ④ 往返不对称。下面按危险度分 A/B/C 三组。
+
+#### A 会改数据（最危险，优先修）
+
+| 文件:行号 | 说明 | 属类 |
+|---|---|---|
+| `rust/src/derive_macro.rs:175` | `u64::SmlSerialize` 超 i64 时 `unwrap_or_else(Value::float)` 静默降级为 Float；`u64::MAX`(=2^64-1) 入 f64 舍入为 2^64，**值偏移 1，静默丢精度**（溢出饱和） | ① |
+| `rust/src/derive_macro.rs:203-205` | `usize::SmlSerialize` 同一逻辑静默降级 Float | ① |
+| `rust/src/derive_macro.rs:234` | `impl_big!(i128,u128)` 的 `SmlSerialize` 超 i64 静默降级 Float；注意其 `from_sml_value`(反序列化) 已正确 `try_from` 报错，**同一条 trait 两侧口径不一致** | ① |
+| `rust/sml-parse/src/parser.rs:1313-1324` | 同一键第二次出现**静默提升为数组**（`node.insert(key, Value::Array(vec![old, val]))`），对象结构被静默改写（SML 既定语义，但属静默结构变更） | ③ |
+| `rust/sml-parse/src/parser.rs:1294-1296` | 片段/`@include` 展开 `for (fk,fv) in m { node.insert(...) }` 直接覆盖同名键，**不走**上面的数组提升，父块已有键被片段值静默覆盖 | ③ |
+| `rust/derive/src/lib.rs:86`（陷阱 2；合并调用 `:699`） | `#[sml(flatten)]` 键冲突按字段声明顺序**静默覆盖（后者胜），不报错**，被覆盖的值静默丢失（已写进 derive 文档，但仍属静默数据丢失） | ③ |
+
+#### B 只是往返不对称（可接受，但要写进文档）
+
+| 文件:行号 | 说明 | 属类 |
+|---|---|---|
+| `rust/sml-lex/src/lib.rs:477` | 大整数经 `coerce_word` 的 B10 规则直出可写，回读按 `looks_int` 分支得到 `Value::Str`（不是 Int/Float）；**类型不对称但 round-trip 安全、零精度损失**。需写进文档：大整数经 SML 文本往返会变成字符串类型 | ④ |
+| `rust/sml-value/src/ser_text.rs:82` + `serde_bridge.rs` 的 float 构造（raw=None） | serde 发射路径 `format_float(*f, None)` **不保留 raw**，`1e10` 这类书写形式保不住（写成 `10000000000`）；parser→`to_sml`(dump) 路径因 raw 能保留，两条发射器对浮点输出不一致 | ② |
+| `rust/sml-value/src/ser_text.rs:82` vs `rust/sml-value/src/dump.rs:215` | 同一 `Value::Float` 经 `to_string_direct` 与 `to_sml` 两种发射器输出文本不同（前者丢 raw），属发射器间往返不对称（HANDOFF 2.2 已记） | ④ |
+
+#### C 已修（仅登记 —— W16 / B10 修过一批同类型）
+
+| 文件:行号 | 说明 |
+|---|---|
+| `rust/sml-lex/src/lib.rs:469-478` | **已修**：大整数曾静默降级 Float 丢精度，W16/B10 改为 `looks_int` 时保留 `Value::Str`（零精度损失）；现仅残留 B 组「类型变 Str」的往返不对称 |
+| `rust/sml-value/src/serde_bridge.rs:221-229` | **已修**：`serialize_u64` 曾静默降级 Float（53 位精度），W16 改为超出 i64 即 `E-DERIVE-002` 报错（与 derive_macro 的 `SmlSerialize` 路径仍降级形成对照，见 A 组 1-3） |
+| `rust/sml-value/src/value.rs:14-26` + `dump.rs:171-215` + `sml-lex/src/lib.rs:497-500` | **已修（部分）**：引入 `raw` 原始字面量，`parse→to_sml` 路径保留 `1e10` 书写形式；但 serde 发射路径不填 raw（见 B 组 2），故仅 half 修复 |
+
+**下一轮动作（仅登记，本轮不动）**：A 组 1-3 的 derive `SmlSerialize` 与 serde 路径口径应统一
+（要么都报错、要么都保真为字符串）；A 组 4-6 的静默合并/覆盖建议补「重复键/冲突键」warning 而非静默。
+
 ### 雷 2：`examples/slint/login.sml` 解析不过（示例是坏的）
 
 - **现象**：`smltools -i examples/slint/login.sml --to sml` 报 `E-PARSE-006`
