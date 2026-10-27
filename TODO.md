@@ -491,6 +491,7 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 | 雷 4 | 核心库「不可恢复崩溃」 | ✅ 结论：**干净** —— 9 处 unwrap/expect 全部有不变量守护 |
 | 雷 5 | 静默改数据 | 🛠 **A 组全修**：1-3（`c4077a0`，derive 大整数超 i64 一律报错，与 serde 桥同码）；**4-6（2026-10-28 本轮）**：重复键提升为数组 / 片段展开覆盖父块键 ⇒ 改为**告警**（语义不变，`Value` 逐字一致），`#[sml(flatten)]` 键冲突 ⇒ 改为**报错**。B 组往返不对称**仍未动** |
 | 雷 6 | 跨实现缺陷（能力矩阵挖出） | 📋 **三条全未动**：Lua 大整数丢精度 / C++ 无 include / JS `\uXXXX` 少跳一位 —— 都是静默类 |
+| 雷 7 | **假绿测试**：`rust/tests/ser_de_direct.rs` 整个文件从未在 CI 执行 | ✅ **已修（2026-10-28）** —— 该文件顶部 `#![cfg(all(feature = "serde", feature = "sml"))]`，默认 `cargo test --workspace` 下编译成空（实测 0 passed）；而 CI 的 `rust-serde` job 只跑 `serde_bridge` 与 `sml-value`，漏了它 ⇒ I-1 的「两条发射器逐字节一致」与雷 5 B 组的三条钉子**一直没被验证**。已给 `rust-serde` job 补一步 `cargo test --features serde --test ser_de_direct`（13 条） |
 
 ### 雷 1：深嵌套测试栈溢出（既有；2026-10-26 已定位并修测试，**根因仍挂账**）
 
@@ -747,6 +748,19 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 
 **宣传语门禁**（I-10 的顺序要求：先有能力矩阵，再有宣传语）：上面三条修完之前，
 `docs/capability-matrix.md` §5 列出的差异项**不得**写成「SML 支持」。
+
+### 雷 7：假绿测试 —— `ser_de_direct.rs` 从未在 CI 执行（2026-10-28 发现并修）
+
+- **现象**：`rust/tests/ser_de_direct.rs` 顶部有 `#![cfg(all(feature = "serde", feature = "sml"))]`
+  ⇒ 默认 `cargo test --workspace -j 1` 下**整个文件编译成空、0 条用例**（2026-10-28 在两个分支上
+  分别实测：`cargo test --test ser_de_direct` → `0 passed`）。
+- **CI 也没跑它**：`rust-serde` job 原本只有 `--test serde_bridge` 与 `-p sml-value --features sml,serde`。
+- **漏掉了什么**：I-1 的「`to_string_direct` 与 `to_sml` 逐字节一致」锁、雷 5 B 组的三条钉子
+  （serde 只交出 `f64` / 走字符串通道会改类型 / `raw` 只在 `to_sml` 保住）、以及 10 条直出往返用例。
+  ⇒ 属 I-14 ①「假绿测试」的极端形态：**测试代码存在、从未执行**。
+- **已修**：`rust-serde` job 增加 `cargo test --features serde --test ser_de_direct`（实测 13 条全绿）。
+- **同类风险**：任何带 `#![cfg(feature = ...)]` 的测试文件都可能是空的。判据：
+  `cargo test --test <name>` 报 `0 passed` 而不是「找不到 target」⇒ 它被门控掉了。
 
 ### 复核方法（可重跑）
 

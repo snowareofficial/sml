@@ -44,6 +44,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: serde 桥
         run: cargo test --features serde --test serde_bridge
+      # ⚠️ 必须单列：`tests/ser_de_direct.rs` 顶部是 `#![cfg(all(feature = "serde", feature = "sml"))]`
+      # ⇒ 默认 `cargo test --workspace` 下**整个文件编译成空、0 条用例**（实测两个分支都是 0 passed）。
+      # 而它锁着 I-1 的「两条发射器逐字节一致」与雷 5 B 组的浮点 raw 钉子，漏跑等于没锁。
+      - name: 直出发射器（ser_de_direct，含字节一致性锁）
+        run: cargo test --features serde --test ser_de_direct
       - name: sml-value serde
         run: cargo test -p sml-value --features sml,serde
 
