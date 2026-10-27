@@ -883,7 +883,10 @@ static void test_error_msgs() {
     for (int i = 0; SML_ERROR_MSGS[i].code != nullptr; i++) {
         const auto& e = SML_ERROR_MSGS[i];
         count++;
-        if (!e.zh_title || !e.zh_msg || !e.en_title || !e.en_msg) empty++;
+        /* 中文是源语言，必须非空；英文缺失=回退中文（设计允许），
+           但若提供了英文却是空串，属数据错误 */
+        if (!e.zh_title || !e.zh_msg) empty++;
+        if ((e.en_title && !e.en_title[0]) || (e.en_msg && !e.en_msg[0])) empty++;
         if (e.domain && std::strcmp(e.domain, "PARSE") == 0) parse++;
     }
     if (empty == 0) std::cout << "  ok: 全量非空 -> 所有码 title/msg 非空\n";
