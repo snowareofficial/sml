@@ -45,7 +45,7 @@ use sml::{parse, Feature, FeatureSet, Value, Version};
 use sml_codes::{
     SmlError, E_CLI_001, E_CLI_002, E_CLI_003, E_CLI_004, E_CLI_005, E_CLI_006, E_CLI_008,
     E_FEATURE_004, E_INTERNAL_001, E_IO_001, E_IO_003, E_IO_004, E_IO_005, E_IO_006, E_IO_007,
-    E_MIGRATE_017,
+    E_MIGRATE_017, I_FEATURE_001,
 };
 use std::path::Path;
 
@@ -554,10 +554,22 @@ fn read_input(input: &Option<PathBuf>) -> Result<String, SmlError> {
 
 /// 把 CLI 声明的特性版本折算成「调用方允许特性集」，用于真正的版本门控。
 ///
-/// 各版本间**唯一的语义差别**是字符串是否必须加引号（`Version::strict_strings`：
-/// v1 裸词即字符串，v2 及以上要求显式引号）。故门控只动 `BarewordStr` 一位；
-/// 其余能力（glob / regex / multi-include …）仍沿用全集、由文档 `@feature enable`
-/// 自行决定，避免 `--feature` 顺手砍掉与版本无关的高级能力。
+/// 门控只动 `BarewordStr` 一位：`Version::strict_strings` 为真（v2 及以上）时关闭裸词
+/// 字符串，要求显式引号；v1 则允许裸词即字符串。其余能力（glob / regex / multi-include …）
+/// 仍沿用全集、由文档 `@feature enable` 自行决定，避免 `--feature` 顺手砍掉与版本无关的高级能力。
+///
+/// ⚠️ **已知缺口（两条，登记在 TODO.md 排雷区）**：
+/// 1. **这里只折算了一处版本差异，而 `Version` 的文档里有两处** —— 第二处是
+///    v3/v4 的片段定义参数形式（v4 起废弃 `@f Server prod { }` 的位置参数，
+///    改显式 `type:` / `name:`）。解析器的实际实现（`sml-parse/src/parser.rs:289-324`）
+///    是「两种写法都收 + 位置参数给弃用诊断」，**没有做版本门控**
+///    ⇒ 声明 `--feature v3` 时这一处仍按 v4 处理，故 `parse_with` 会就此给出
+///    `I-FEATURE-001` 信息提示（见下方）。
+/// 2. **与库存在重复实现**：库里已有 `FeatureSet::for_version(v)`（`sml-feature/src/lib.rs:268`）。
+///    但它的基线是 `FeatureSet::baseline()`，本函数用的是 `FeatureSet::all()` ——
+///    直接换过去会改变「文档 `@feature enable` 能开启哪些能力」的口径（all ∩ 文档
+///    允许集 ≠ baseline ∩ 文档允许集），属**行为变更**，故本轮**不擅自替换**，
+///    只在此钉住同步点：库改版本语义时，这里必须跟着改。
 fn allowed_for_version(v: Version) -> FeatureSet {
     if v.strict_strings() {
         FeatureSet::all().without(Feature::BarewordStr)
@@ -580,6 +592,20 @@ fn parse_with(
     input_path: &Option<PathBuf>,
     feature: Option<Version>,
 ) -> Result<Value, SmlError> {
+    // `I-FEATURE-001`：声明的版本**有一部分差异未做门控**时提示，不要静默。
+    // 当前唯一的一处是 v3 —— 字符串引号规则已按 v3 生效，但片段定义的位置参数
+    // 形式仍按 v4 处理（两种写法都收 + 位置参数给弃用诊断），v3 该有的「位置参数合法、
+    // 不告警」没有实现。v1 / v2 / v4 暂无此类缺口，故不提示。
+    if let Some(v) = feature {
+        if v == Version::V3 {
+            eprintln!(
+                "smltools: note: 声明 `--feature {}`：字符串引号规则已按该版本生效；\
+                 但片段定义的位置参数形式仍按 v4 处理（会产出弃用诊断），这一步尚未做版本门控 [{}]",
+                v.name(),
+                I_FEATURE_001
+            );
+        }
+    }
     match (feature, input_path) {
         // 有输入文件 ⇒ **交给库的 `parse_file`**（给了 `--feature` 时为
         // `parse_file_features`，同一层入口、同样自带 include 展开）：与 C-ABI
