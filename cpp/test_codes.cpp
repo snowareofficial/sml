@@ -59,6 +59,7 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 #include "sml.hpp"
 #include "../c/sml_codes.h"
+#include "../c/sml_codes_msg.h"   // W25：错误码本地化信息查找（由 gen_js_errors.py 生成，header-only）
 
 #include <cmath>
 #include <cstring>
@@ -827,6 +828,74 @@ static void test_w16_codes() {
     expect_ok("W16 comment only", "# c\n");
 }
 
+// ------------------------------------------------------------------
+// W25：错误码本地化信息查找（i18n，与 JS / Rust / C / Lua 同向量同结果）
+//
+// 中文是默认/源语言；英文来自 msg.en.json；缺英文回退中文，永不空。
+// 期望值从 js/sml-errors.mjs 的契约逐字来（见 errors/gen_js_errors.py）。
+// ------------------------------------------------------------------
+static void test_error_msgs() {
+    std::cout << "[W25 错误码本地化信息]\n";
+    auto eq = [&](const std::string& tag, const char* want, const char* got) {
+        if (got && std::strcmp(got, want) == 0) {
+            std::cout << "  ok: " << tag << " -> " << want << "\n";
+        } else {
+            std::cout << "FAIL: " << tag << " want \"" << want
+                      << "\", got \"" << (got ? got : "(NULL)") << "\"\n";
+            failures++;
+        }
+    };
+    auto null = [&](const std::string& tag, const char* got) {
+        if (got == nullptr) {
+            std::cout << "  ok: " << tag << " -> NULL\n";
+        } else {
+            std::cout << "FAIL: " << tag << " want NULL, got \"" << got << "\"\n";
+            failures++;
+        }
+    };
+
+    // 中文默认（locale 为 nullptr / "" 均回落中文）
+    eq("zh title 默认", "期望键或标识符", sml_error_title("E-PARSE-006", nullptr));
+    eq("zh title 空 locale", "期望键或标识符", sml_error_title("E-PARSE-006", ""));
+    eq("zh msg 默认", "期望键或标识符，得其它记号", sml_error_msg("E-PARSE-006", nullptr));
+
+    // 英文
+    eq("en title", "Expected key or identifier", sml_error_title("E-PARSE-006", "en"));
+    eq("en msg", "Expected a key or identifier, but got another token",
+       sml_error_msg("E-PARSE-006", "en"));
+
+    // locale 归一：en-US -> en
+    eq("en-US 归一 title", "Unterminated string", sml_error_title("E-LEX-001", "en-US"));
+    eq("en-US 归一 msg", "Unterminated string (missing closing quote)",
+       sml_error_msg("E-LEX-001", "en-US"));
+
+    // 中文归一类 locale：zh-CN -> zh；未知语言 -> zh（回退源语言）
+    eq("zh-CN 归一", "字符串未闭合", sml_error_title("E-LEX-001", "zh-CN"));
+    eq("未知语言回退 zh", "字符串未闭合", sml_error_title("E-LEX-001", "fr"));
+
+    // 未知码 -> NULL（无论 locale）
+    null("未知码 title", sml_error_title("E-NOPE-999", "zh"));
+    null("未知码 title 空", sml_error_title("E-NOPE-999", ""));
+    null("未知码 msg", sml_error_msg("E-NOPE-999", "en"));
+
+    // 全量性质（跨端契约）：所有码 title/msg 非空；PARSE 领域恰好 25 条。
+    int parse = 0, empty = 0, count = 0;
+    for (int i = 0; SML_ERROR_MSGS[i].code != nullptr; i++) {
+        const auto& e = SML_ERROR_MSGS[i];
+        count++;
+        /* 中文是源语言，必须非空；英文缺失=回退中文（设计允许），
+           但若提供了英文却是空串，属数据错误 */
+        if (!e.zh_title || !e.zh_msg) empty++;
+        if ((e.en_title && !e.en_title[0]) || (e.en_msg && !e.en_msg[0])) empty++;
+        if (e.domain && std::strcmp(e.domain, "PARSE") == 0) parse++;
+    }
+    if (empty == 0) std::cout << "  ok: 全量非空 -> 所有码 title/msg 非空\n";
+    else { std::cout << "FAIL: 全量非空 有 " << empty << " 条码 title/msg 为空\n"; failures++; }
+    if (parse == 25) std::cout << "  ok: PARSE 领域 -> 25 条\n";
+    else { std::cout << "FAIL: PARSE 领域期望 25, 实得 " << parse << "\n"; failures++; }
+    std::cout << "  .. 共 " << count << " 条码\n";
+}
+
 int main() {
     test_lex_codes();
     test_parse_codes();
@@ -839,6 +908,7 @@ int main() {
     test_positive_controls();
     test_w16_codes();
     test_err_null_safe();
+    test_error_msgs();
 
     if (failures == 0) {
         std::cout << "ALL CODE TESTS PASSED\n";

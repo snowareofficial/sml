@@ -6,3 +6,5 @@
 *.h text eol=lf
 *.cpp text eol=lf
 *.hpp text eol=lf
+*.json text eol=lf
+*.mjs text eol=lf

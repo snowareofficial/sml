@@ -208,21 +208,31 @@ fn feature_codes() {
 /// 上限：`E-LIMIT-*`。深嵌套必须**报错返回**而不是打穿栈。
 #[test]
 fn limit_codes() {
-    let src = "a { ".repeat(200);
-    let got = code_of(&src);
-    assert_eq!(got, "E-LIMIT-001", "深嵌套应报 E-LIMIT-001");
-    // 边界要**逐格**钉住，不能只测 200（200 在两种口径下都报，测不出差一格）。
-    // 口径：128 层放行、第 129 层报此码 —— 这是**实测**出来的（五端闭合嵌套扫过一遍）：
-    //   Rust 127 / C 127 / C++ 128 / JS 128 / Lua 128（改前）→ 统一为 128 / 129。
-    //   Rust 与 C 原先用 `>=`，128 层就报，而文案写的是「**超过** 128 层」，自相矛盾。
-    // ⚠️ 必须用**闭合**输入：不闭合会被 E-PARSE-001（未闭合块）先抓住，测到的不是深度。
-    let nest = |n: usize| "a { ".repeat(n) + &"} ".repeat(n);
-    assert!(parse(&nest(128)).is_ok(), "128 层应放行");
-    assert_code(&nest(129), "E-LIMIT-001");
-    // 数组入口必须同口径 —— 两处守卫历史上就各自绕过过（只补一条会漏另一条）。
-    let arr = |n: usize| "k: ".to_string() + &"[ ".repeat(n) + &"] ".repeat(n);
-    assert!(parse(&arr(128)).is_ok(), "128 层数组应放行");
-    assert_code(&arr(129), "E-LIMIT-001");
+    // ⚠️ 整个 body 必须在**开大的栈**上跑：libtest 线程栈是 Rust 默认 2 MiB，
+    // 而 debug 构建下解析到 128 层就足以撑爆它 —— 栈溢出是 abort，会把整个测试
+    // 二进制带崩（此测试曾因此从未真正跑完）。详见 `TODO.md` 排雷区雷 1。
+    std::thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(|| {
+            let src = "a { ".repeat(200);
+            let got = code_of(&src);
+            assert_eq!(got, "E-LIMIT-001", "深嵌套应报 E-LIMIT-001");
+            // 边界要**逐格**钉住，不能只测 200（200 在两种口径下都报，测不出差一格）。
+            // 口径：128 层放行、第 129 层报此码 —— 这是**实测**出来的（五端闭合嵌套扫过一遍）：
+            //   Rust 127 / C 127 / C++ 128 / JS 128 / Lua 128（改前）→ 统一为 128 / 129。
+            //   Rust 与 C 原先用 `>=`，128 层就报，而文案写的是「**超过** 128 层」，自相矛盾。
+            // ⚠️ 必须用**闭合**输入：不闭合会被 E-PARSE-001（未闭合块）先抓住，测到的不是深度。
+            let nest = |n: usize| "a { ".repeat(n) + &"} ".repeat(n);
+            assert!(parse(&nest(128)).is_ok(), "128 层应放行");
+            assert_code(&nest(129), "E-LIMIT-001");
+            // 数组入口必须同口径 —— 两处守卫历史上就各自绕过过（只补一条会漏另一条）。
+            let arr = |n: usize| "k: ".to_string() + &"[ ".repeat(n) + &"] ".repeat(n);
+            assert!(parse(&arr(128)).is_ok(), "128 层数组应放行");
+            assert_code(&arr(129), "E-LIMIT-001");
+        })
+        .expect("开大栈线程失败")
+        .join()
+        .expect("limit_codes 线程 panic");
 }
 
 /// `Display` 要把码缀在文案之后 —— 用户看到的每一句话都能拿去查码表。
