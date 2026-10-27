@@ -31,9 +31,9 @@
 ### 0.3 各端统一入口（复现用）
 - **Rust**：`cd rust && echo '<sml>' | cargo run -q -j 1 -p smltools -- --to sml 2>&1`（错误走 stderr，退出码 1）。
 - **C**：`gcc c/sml.c _probe_c.c -o _probe_c.exe -Ic` 后 `echo '<sml>' | .\_probe_c.exe`（入口 `sml_parse`；`file` 模式走 `sml_parse_file` 以展开 include）。
-- **C++**：`g++ -std=c++17 cpp/sml.cpp _probe_cpp.cpp -o _probe_cpp.exe -Icpp`（需 `PATH` 含 `C:\msys64\ucrt64\bin`）后 `echo '<sml>' | .\_probe_cpp.exe`（入口 `Parser::parse`）。
+- **C++**：`g++ -std=c++17 cpp/sml.cpp _probe_cpp.cpp -o _probe_cpp.exe -Icpp`（需 `PATH` 含 `<msys64>\ucrt64\bin`）后 `echo '<sml>' | .\_probe_cpp.exe`（入口 `Parser::parse`）。
 - **JS**：`echo '<sml>' | node _probe.mjs`（`node` = `<node-dir>\node.exe`，入口 `parseSafe`）。
-- **Lua**：`echo '<sml>' | C:\msys64\ucrt64\bin\luajit.EXE _probe.lua`（入口 `Sml.load`；`file` 模式以文件所在目录为 include 沙箱）。
+- **Lua**：`echo '<sml>' | <msys64>\ucrt64\bin\luajit.EXE _probe.lua`（入口 `Sml.load`；`file` 模式以文件所在目录为 include 沙箱）。
 
 > 备注：`c/build_check.py` 在 `fix/derive-int-overflow` 基底里**不存在**（仅落在 `main` 的 `a1d0786`，非本分支祖先）。因此「开工前检查」中的该步按脚本无法执行；C 端改用直接编译 `c/sml.c` 验证（即上文 C 入口），行为等价。其余三项（check_private_assets / lua/run_check.py / cpp/build_verify.py 五个原生 target）均通过；cpp 的 RS-BRIDGE 因 worktree 未构建 Rust cdylib 而跳过（属已知不可跑项，非本任务范围）。
 

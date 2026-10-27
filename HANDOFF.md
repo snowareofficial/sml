@@ -609,7 +609,7 @@ C++ 从 22 个码涨到 **27 个**），两个生成器已重跑（`errors.json`
 **这个前提是错的**：`.soup` 只是 Soup 的**打包扩展名**，内容是**没编译过的纯 Lua 源码**
 （489 行：`local Sml = {}` / `tokenize` / `parse_block` / `Sml.load` / `Sml.dump`，
 开头还带着人的注释）。实测 `luajit lua/main.lua` 当场跑通（本机
-`C:\msys64\ucrt64\bin\luajit.EXE`），自检输出 `self-test: a=1 b.c='hi'`。
+`<msys64>\ucrt64\bin\luajit.EXE`），自检输出 `self-test: a=1 b.c='hi'`。
 
 **「编译产物」是按扩展名猜的，没跑过就写进了移交文档** —— 这个仓库已经因为"按声明反推"
 吃过一次亏（W10 的 `impls` 声明与实现不符），这是第二次。教训已写进 TODO 的 W10 更正条里。
@@ -1208,7 +1208,7 @@ YAML 用**改动前的 release 二进制**跑同一份探针：旧 `rc=0` 静默
 `443` / `8443` / `80` / `2222` 全部关闭。所以：
 
 1. **首选 SSH**：把 `~/.ssh/id_*.pub` 加到 Gitea「设置 → SSH 密钥」，
-   `git remote set-url origin <private-repo-url>`，
+   `git remote set-url origin ssh://git@<gitea-host>/<private-org>/<private-repo>.git`，
    再 `git push -u origin main`（Gitea 的 SSH 若不在 22 端口，按它的文档换）；
 2. **次选 Token**：Gitea「设置 → 应用 → 生成令牌」，push 时密码填令牌；
 3. 最省事：`cd Desktop\<private-repo> && git push -u origin main` 直接输账号口令
@@ -1706,7 +1706,7 @@ hover 到底返回什么、命令有没有接线，全是盲区。于是本轮�
   `top-level-array` / `bareword-string`），另有 Rust 没有的 `escape` ⇒ **grep 名字判不了 JS**；
 - **C 无名字表，但实测支持** `top-level-array` / `namespace` / `multi-include` ⇒ "零命中"≠"没实现"；
 - **C++ 仓库里没有"跑文件"的入口**（`example.exe` 忽略 argv、`scan.exe` 崩、`test_codes.exe` 自跑套件；
-  且缺 DLL 时一律 `0xC0000135`，`PATH` 加 `C:\msys64\ucrt64\bin` 才能启动）
+  且缺 DLL 时一律 `0xC0000135`，`PATH` 加 `<msys64>\ucrt64\bin` 才能启动）
   ⇒ 本轮自编 15 行 runner（`sml::Parser::parse` + `Parser::to_sml`）才拿到 C++ 列。
 
 **实测结论**（判据=真机行为；`?` = 未实测）：`@feature` 门控**只有 Rust + JS**（C/C++/Lua 一律

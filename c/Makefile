@@ -7,7 +7,7 @@
 CC ?= gcc
 CFLAGS ?= -O2 -std=c99 -Wall -Wextra
 # Rust cdylib 产物目录 (cargo target-dir); 按需改成你的实际路径
-RUST_LIB ?= <target-dir>/release
+RUST_LIB ?= ../rust/target/release
 
 all: sml_demo
 

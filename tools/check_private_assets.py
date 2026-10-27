@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """守卫：私有资产（报送件 / 内部报告）**不许**出现在公开主库里。
 
-背景：这些文件的正主是内网私库 `<private-org>/<private-repo>`
-（`<private-repo-url>`，工作副本在仓库**之外**）。
+背景：这些文件的正主是**仓库之外**的私有库；地址与库名只写在本地
+`.git/info/exclude` 与私有库里，**不写进公开仓库**（2026-10-28 脱敏）。
 主库 `.gitignore` 里有对应规则挡着，但「`git add -f` 手滑」「改名后不再匹配」
 这类事故 gitignore 挡不住 —— 所以再加一道**可执行的**检查。
 
@@ -68,8 +68,8 @@ if fails:
     print("FAIL: 私有资产守卫未通过")
     for f in fails:
         print("  -", f)
-    print("\n这些文件的正主是内网私库 <private-repo>；见 HANDOFF §18。")
+    print("\n这些文件的正主是仓库之外的私有库；见 HANDOFF §18。")
     sys.exit(1)
 
 print("OK: 私有资产未进入主库（历史 / 索引），.gitignore 规则在位")
-print("    正主：<private-repo-url>")
+print("    正主在仓库之外的私有库（地址见本地 .git/info/exclude）")

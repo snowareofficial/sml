@@ -42,7 +42,7 @@ python cpp/build_verify.py                       # 期望六个 target 全 rc=0
 
 工具路径（这台机器）：
 
-- Lua 解释器：`C:\msys64\ucrt64\bin\luajit.EXE`
+- Lua 解释器：`<msys64>\ucrt64\bin\luajit.EXE`
 - Rust 构建**必须**指定目标目录（C 盘只剩 ~1.6 GB，会写满）：
   `set CARGO_TARGET_DIR=<target-dir>`（PowerShell：`$env:CARGO_TARGET_DIR="<target-dir>"`）
 
@@ -128,7 +128,7 @@ print(string.format("\nPASS %d / FAIL %d（共 %d 条）", pass, fail, #cases))
 
 ```bash
 cd c:\Users\<user>\Desktop\sml
-C:\msys64\ucrt64\bin\luajit.EXE lua\_w16_probe.lua > %TEMP%\lua_before.txt
+<msys64>\ucrt64\bin\luajit.EXE lua\_w16_probe.lua > %TEMP%\lua_before.txt
 ```
 
 **改动前的实测基线（2026-09-18 用上面这份探针**真跑过**，不是估的）**：
@@ -290,7 +290,7 @@ Lua 端可以用一个小助手把码点转 UTF-8（`string.char` + 位运算，
 
 ```bash
 cd c:\Users\<user>\Desktop\sml
-C:\msys64\ucrt64\bin\luajit.EXE lua\_w16_probe.lua > %TEMP%\lua_after.txt
+<msys64>\ucrt64\bin\luajit.EXE lua\_w16_probe.lua > %TEMP%\lua_after.txt
 type %TEMP%\lua_after.txt
 ```
 
@@ -349,7 +349,7 @@ python -c "import hashlib;print(hashlib.sha256(open('lua/lib/sml.soup','rb').rea
 git show HEAD:lua/lib/sml.soup > lua/_sml_head.soup
 copy lua/lib/sml.soup lua/_sml_new.soup
 copy lua/_sml_head.soup lua/lib/sml.soup
-C:\msys64\ucrt64\bin\luajit.EXE lua\_w16_probe.lua > %TEMP%\lua_head_probe.txt   # 期望：FAIL 很多（≈14+）
+<msys64>\ucrt64\bin\luajit.EXE lua\_w16_probe.lua > %TEMP%\lua_head_probe.txt   # 期望：FAIL 很多（≈14+）
 copy lua\_sml_new.soup lua\lib\sml.soup                                          # ★ 必须还原
 ```
 

@@ -13,7 +13,11 @@ import sys
 
 sys.stdout.reconfigure(encoding="utf-8")
 
-SETI = r"<vscode-dir>\a44adf7f53\resources\app\extensions\theme-seti"
+SETI = os.environ.get("VSCODE_SETI_DIR")
+if not SETI:
+    raise SystemExit(
+        "请设置 VSCODE_SETI_DIR=<VSCode 安装目录>/resources/app/extensions/theme-seti"
+    )
 ICONS = os.path.join(SETI, "icons")
 DST = os.path.join("fileicons", "seti")
 

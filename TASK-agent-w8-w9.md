@@ -39,8 +39,8 @@ python tools/check_private_assets.py    # 必须 OK
 |---|---|---|
 | node / npx / npm | `<node-dir>\`（node v24.13.1） | tree-sitter CLI 走 `npx` |
 | cargo / rustc | `C:\Users\<user>\.cargo\bin`（1.98.1 stable） | Miri 需要 **nightly** |
-| gcc / g++ | msys64（gcc 16.1.0） | 跑 C/C++ 用；PATH 里要先加 `C:\msys64\ucrt64\bin` |
-| luajit | `C:\msys64\ucrt64\bin\luajit.EXE` | Lua 用例 |
+| gcc / g++ | msys64（gcc 16.1.0） | 跑 C/C++ 用；PATH 里要先加 `<msys64>\ucrt64\bin` |
+| luajit | `<msys64>\ucrt64\bin\luajit.EXE` | Lua 用例 |
 | **tree-sitter CLI** | **没装**（PATH 里没有） | W8-1 解决 |
 
 ⚠️ **C 盘只剩约 1.6 GB**：Rust 构建必须 `set CARGO_TARGET_DIR=<target-dir>`；
@@ -178,7 +178,7 @@ npx --yes tree-sitter-cli@0.22.6 parse test/parse/advanced.sml
 | 权威源 / CI 在哪跑 | 注释写明：**Gitee 是权威源，GitHub 是镜像 + CI** ⇒ CI 文件放在 GitHub 侧（就是本目录） |
 | `rust/miri_check.py` | 存在（147 行）。**逐用例**跑 `cargo +nightly miri test --test <目标> -- --exact <名字>`，带超时，写 `miri_result.txt`，**FAIL/TIMEOUT 时 `return 1`** ✓ |
 | `rust/osv_check.py` | 存在（51 行）。查 `Cargo.lock` 依赖的 OSV 漏洞，**⚠️ 只打印 `OK` / `WARN`，永远 `rc=0`** —— 作为门禁它现在**挡不住任何东西** |
-| 非 Rust 实现的自检脚本 | `c/build_check.py`（`CC="gcc"`，跨平台 ✓，**但必须在 `c/` 里跑**）、`cpp/build_verify.py`（第 6 行把 `C:\msys64\ucrt64\bin` 塞进 PATH，Linux 上无害；**⚠️ 但会假绿**：RS-BRIDGE 失败仍 `sys.exit(0)`、且默认 `SML_RUST_LIB` 写死 `<target-dir>/release` —— 见 **W9.1b**，实测过）、`js/probe-error-codes.mjs`、`tools/check_js_copies.py`、`lua/run_check.py`（按 `luajit→lua5.4→lua54→lua` 找解释器 ✓） |
+| 非 Rust 实现的自检脚本 | `c/build_check.py`（`CC="gcc"`，跨平台 ✓，**但必须在 `c/` 里跑**）、`cpp/build_verify.py`（第 6 行把 `<msys64>\ucrt64\bin` 塞进 PATH，Linux 上无害；**⚠️ 但会假绿**：RS-BRIDGE 失败仍 `sys.exit(0)`、且默认 `SML_RUST_LIB` 写死 `<target-dir>/release` —— 见 **W9.1b**，实测过）、`js/probe-error-codes.mjs`、`tools/check_js_copies.py`、`lua/run_check.py`（按 `luajit→lua5.4→lua54→lua` 找解释器 ✓） |
 | 私有资产守卫 | `tools/check_private_assets.py` ✓（依赖 **git 全历史**） |
 
 **验收标准（来自 `TODO.md` 的 W9 行，原文）**：

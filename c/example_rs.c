@@ -2,7 +2,7 @@
  * example_rs.c — SML v3 via the Rust cdylib backend (sml_rs.h value-tree API).
  *
  * Build (Windows / mingw, with sml.dll on PATH or next to the exe):
- *   gcc -std=c99 example_rs.c -L<<target-dir>>/release -lsml -o example_rs
+ *   gcc -std=c99 example_rs.c -L<target-dir>/release -lsml -o example_rs
  *   (import library: libsml.dll.a; with MSVC link against sml.lib instead)
  *
  * This example walks through the lifecycle rules that matter most:

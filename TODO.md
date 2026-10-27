@@ -428,7 +428,7 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
   —— 所以"名字零命中"≠"没实现"。
 - **C++ 仓库里没有"跑文件"的入口**（`example.exe` 忽略参数、`scan.exe` 崩溃、`test_codes.exe` 跑自带套件，
   且三者缺 DLL 时一律 `0xC0000135`）。本轮自编了 15 行 runner（`sml::Parser::parse` + `to_sml`，
-  `PATH` 加 `C:\msys64\ucrt64\bin`）才拿到 C++ 那一列。
+  `PATH` 加 `<msys64>\ucrt64\bin`）才拿到 C++ 那一列。
 
 **产物**：完整矩阵已写进教科书 **`site/content/{zh,en}/book/ch10-features.md`（「实现面总表」）**，
 一并给出"三条给写文档的人的结论"。摘要（判据 = 真机行为）：
@@ -842,7 +842,7 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
 **怎么推（三选一，建议按序）**：
 
 1. **SSH（最稳，已探明 22 端口开放）**：把本机 `~/.ssh/id_*.pub` 加到 Gitea「设置 → SSH 密钥」，
-   然后 `git remote set-url origin <private-repo-url>`
+   然后 `git remote set-url origin ssh://git@<gitea-host>/<private-org>/<private-repo>.git`
    （若 Gitea 的 SSH 端口不是 22，用 `ssh://git@<gitea-host>:<端口>/...`）。
 2. **Token + 凭据管理器**：在 Gitea「设置 → 应用 → 生成令牌」，`git push` 时用户名填账号、
    密码填**令牌**；或 `git config --global credential.helper manager`（装上 GCM）后只输一次。
@@ -909,7 +909,7 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
 > `lua/lib/sml.soup` 就是**纯 Lua 源码**（一个 489 行的文本文件，`local Sml = {}` /
 > `tokenize` / `parse_block` / `Sml.load` / `Sml.dump`，开头还带着人的注释），
 > `.soup` 只是 Soup 的**打包扩展名**，内容并没有被编译。实测
-> `luajit lua/main.lua`（本机 `C:\msys64\ucrt64\bin\luajit.EXE`）**直接就能跑**，
+> `luajit lua/main.lua`（本机 `<msys64>\ucrt64\bin\luajit.EXE`）**直接就能跑**，
 > 自检输出 `self-test: a=1 b.c='hi'` —— 不需要 `soupx`、不需要 Soup 工程。
 > 教训：**「编译产物」是按扩展名猜的，没有实测**；这个仓库已经因为"按声明反推"吃过一次亏
 > （W10 的 `impls` 声明与实现不符）。遇到"这东西改不了"的结论，先去跑一次再说。

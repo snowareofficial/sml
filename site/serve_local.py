@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-import subprocess, os, time, re, urllib.request, ctypes
+import subprocess, os, time, re, urllib.request, shutil
 
-SITE = r"c:\Users\<user>\Desktop\sml\site"
+SITE = os.path.dirname(os.path.abspath(__file__))
 PUB = os.path.join(SITE, "public")
 DEVLOG = os.path.join(SITE, "dev.log")
-WRANGLER = r"C:\Users\<user>\AppData\Roaming\npm\wrangler.cmd"
+WRANGLER = shutil.which("wrangler") or shutil.which("wrangler.cmd")
+if not WRANGLER:
+    raise SystemExit("wrangler not found in PATH (npm install -g wrangler)")
 
 # 清空日志
 open(DEVLOG, "wb").close()
