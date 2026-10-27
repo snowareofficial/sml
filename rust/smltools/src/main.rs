@@ -19,8 +19,13 @@
 //!
 //! `--from` 取值：`sml`（默认）/`json`/`toml`/`yaml`/`xml`，缺省按扩展名推断。
 //! `--to` 取值：`md`/`markdown`/`xml`/`svg`/`latex`/`slint`/`lvgl`/`custom`/`sml`。
-//! `--hugo <dir>` 会让 markdown 输出裹上最小 Hugo front matter，并以输入文件名
-//! （或 `@feature base` 指定的名称）落盘为 `.md`，可直接被 `hugo` 收录。
+//! `--hugo <dir>` 会让 markdown 输出裹上最小 Hugo front matter，并以 `<name>.md`
+//! 落盘（`<name>` 取 `--title` > 文档顶层 `title` 字段 > 输入文件名 stem > `"doc"`），
+//! 可直接被 `hugo` 收录。
+//!
+//! 注：这里曾写「以 `@feature base` 指定的名称落盘」，与实现不符 ——
+//! `@feature base` 只声明基准版本（v1..v4），承载不了名字；落盘名实际来自
+//! 上面的推断链（见 `infer_title`）。
 //!
 //! 退出码：0 成功；1 解析/翻译失败；2 参数/IO 错误。
 
@@ -34,7 +39,7 @@ use sml::emit::{
 };
 use clap::Parser;
 // `to_sml` 不再直接调用：SML 输出走带检查的 `sml::to_sml_checked`（W16，见 emit()）
-use sml::{parse, Value, Version};
+use sml::{parse, Feature, FeatureSet, Value, Version};
 // ⚠️ `E_INCLUDE_001/004/012` **不再由本 crate 抛出**：include 展开已统一交给库的
 // `sml::parse_file`（原先那份 CLI 自有的行级预处理已删除），这些码由 `sml-include` 带出。
 use sml_codes::{
@@ -547,8 +552,36 @@ fn read_input(input: &Option<PathBuf>) -> Result<String, SmlError> {
     }
 }
 
-/// 按指定版本解析。当前 crate 的 `parse` 统一使用 CURRENT(V4) 解析器，
-/// `--feature` 用于显式声明文档意图版本；V4 之前文件一般也能被兼容解析。
+/// 把 CLI 声明的特性版本折算成「调用方允许特性集」，用于真正的版本门控。
+///
+/// 门控只动 `BarewordStr` 一位：`Version::strict_strings` 为真（v2 及以上）时关闭裸词
+/// 字符串，要求显式引号；v1 则允许裸词即字符串。其余能力（glob / regex / multi-include …）
+/// 仍沿用全集、由文档 `@feature enable` 自行决定，避免 `--feature` 顺手砍掉与版本无关的高级能力。
+///
+/// ⚠️ **已知缺口（两条，登记在 TODO.md 排雷区）**：
+/// 1. **这里只折算了一处版本差异，而 `Version` 的文档里有两处** —— 第二处是
+///    v3/v4 的片段定义参数形式（v4 起废弃 `@f Server prod { }` 的位置参数，
+///    改显式 `type:` / `name:`）。解析器的实际实现（`sml-parse/src/parser.rs:289-324`）
+///    是「两种写法都收 + 位置参数给弃用诊断」，**没有做版本门控**
+///    ⇒ 声明 `--feature v3` 时这一处仍按 v4 处理，故 `parse_with` 会就此给出
+///    `I-FEATURE-001` 信息提示（见下方）。
+/// 2. **与库存在重复实现**：库里已有 `FeatureSet::for_version(v)`（`sml-feature/src/lib.rs:268`）。
+///    但它的基线是 `FeatureSet::baseline()`，本函数用的是 `FeatureSet::all()` ——
+///    直接换过去会改变「文档 `@feature enable` 能开启哪些能力」的口径（all ∩ 文档
+///    允许集 ≠ baseline ∩ 文档允许集），属**行为变更**，故本轮**不擅自替换**，
+///    只在此钉住同步点：库改版本语义时，这里必须跟着改。
+fn allowed_for_version(v: Version) -> FeatureSet {
+    if v.strict_strings() {
+        FeatureSet::all().without(Feature::BarewordStr)
+    } else {
+        FeatureSet::all()
+    }
+}
+
+/// 按指定版本解析。**显式给了 `--feature vN` 时才真正按版本裁剪**：走库的特性
+/// 门控入口（`parse_file_features` / `parse_with_features`），把上面折算出的允许集
+/// 交进去 ⇒ 严格模式下再写裸词字符串会由解析器带 `E-FEATURE-005` 报出，
+/// 而不再是原先那条「仅作提示」的 note。未声明 `--feature` 时维持原入口。
 ///
 /// 指定了输入文件时，先按**输入文件所在目录**递归展开 `include`/`@include`
 /// 指令（把按章节拆分的「结构文件 + 数据文件」拼成完整文档），再交给 `parse`
@@ -559,19 +592,25 @@ fn parse_with(
     input_path: &Option<PathBuf>,
     feature: Option<Version>,
 ) -> Result<Value, SmlError> {
+    // `I-FEATURE-001`：声明的版本**有一部分差异未做门控**时提示，不要静默。
+    // 当前唯一的一处是 v3 —— 字符串引号规则已按 v3 生效，但片段定义的位置参数
+    // 形式仍按 v4 处理（两种写法都收 + 位置参数给弃用诊断），v3 该有的「位置参数合法、
+    // 不告警」没有实现。v1 / v2 / v4 暂无此类缺口，故不提示。
     if let Some(v) = feature {
-        if v != Version::V4 {
-            // I-FEATURE-001：解析器按其固定版本模式工作，命令行声明的特性版本仅作提示。
+        if v == Version::V3 {
             eprintln!(
-                "smltools: note: 解析器以 v4 模式工作；声明 `--feature {}` 仅作提示 [{}]",
+                "smltools: note: 声明 `--feature {}`：字符串引号规则已按该版本生效；\
+                 但片段定义的位置参数形式仍按 v4 处理（会产出弃用诊断），这一步尚未做版本门控 [{}]",
                 v.name(),
                 I_FEATURE_001
             );
         }
     }
-    match input_path {
-        // 有输入文件 ⇒ **交给库的 `parse_file`**：与 C-ABI `sml_load_file`、编辑器后端、
-        // 以及 `examples/advanced.sml` 头部写明的推荐用法（`sml::parse_file`）走**同一条**路径。
+    match (feature, input_path) {
+        // 有输入文件 ⇒ **交给库的 `parse_file`**（给了 `--feature` 时为
+        // `parse_file_features`，同一层入口、同样自带 include 展开）：与 C-ABI
+        // `sml_load_file`、编辑器后端、以及 `examples/advanced.sml` 头部写明的
+        // 推荐用法走**同一条**路径。
         //
         // 为什么不再自己展开：CLI 原有一份"行级 include 展开"（只认行首单个引号路径），
         // 与库的 `sml-include` 分叉，实测三处后果，其中第一处是**静默数据丢失**：
@@ -582,9 +621,14 @@ fn parse_with(
         //     **等价写法**（`rust/sml-include/src/parse.rs:80`）⇒ `examples/advanced.sml` 自己跑不过。
         // 交给库之后，`multi-include` / `as ns` / 挑键 `{ k }` / `glob` / `regex` / `@feature`
         // 全由库负责 —— 两处实现**只可能一致**。
-        Some(p) => sml::parse_file(p).map_err(|e| e.context("parse error: ")),
+        (Some(v), Some(p)) => sml::parse_file_features(p, allowed_for_version(v))
+            .map_err(|e| e.context("parse error: ")),
+        (Some(v), None) => sml::parse_with_features(text, allowed_for_version(v))
+            .map(|(val, _)| val)
+            .map_err(|e| e.context("parse error: ")),
+        (None, Some(p)) => sml::parse_file(p).map_err(|e| e.context("parse error: ")),
         // stdin 没有基准目录，include 的相对路径无从解析（建议改用 `-i <file>`）。
-        None => parse(text).map_err(|e| e.context("parse error: ")),
+        (None, None) => parse(text).map_err(|e| e.context("parse error: ")),
     }
 }
 
