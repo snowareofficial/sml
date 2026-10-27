@@ -83,7 +83,10 @@
 //! 1. **读方向拿到的是整个父块**，不是 serde 那种「未被消费的剩余键」。
 //!    ⇒ flatten 的目标类型会看到兄弟字段的键，因此**不要**给目标类型开
 //!    `deny_unknown_fields`。
-//! 2. **键冲突按字段声明顺序静默覆盖**（后者胜），不报错。
+//! 2. **键冲突一律报错**（此前是按字段声明顺序**静默覆盖**、后者胜）。
+//!    flatten 提升上来的键若与父块已有字段同名 —— 无论 flatten 声明在前还是在后 ——
+//!    `to_sml_value()` 返回 `Err`（不是覆盖）。理由与整数溢出一致：
+//!    **宁可报错，不静默丢数据**。确实需要「后者胜」时，请改名或去掉 flatten。
 //!
 //! 序列化时 flatten 字段必须产出块，否则 `to_sml_value()` 返回 `Err`（不是 panic）。
 
@@ -428,6 +431,15 @@ fn gen_struct_serialize(
     let rename_all = cont.rename_all.as_deref();
     match &s.fields {
         Fields::Named(named) => {
+            // 是否含 flatten 字段 —— 决定了「普通字段写入前要不要查重」。
+            // 没有 flatten 时各字段键互不相同（同名只能来自手写 rename，属另一码事），
+            // 故只有含 flatten 才插入查重分支，零 flatten 的结构体生成代码与旧版一致。
+            let mut has_flatten = false;
+            for f in &named.named {
+                if parse_field_attrs(&f.attrs)?.flatten {
+                    has_flatten = true;
+                }
+            }
             let mut stmts = Vec::new();
             for f in &named.named {
                 let attrs = parse_field_attrs(&f.attrs)?;
@@ -440,11 +452,23 @@ fn gen_struct_serialize(
                 if attrs.flatten {
                     // flatten 要求目标字段产出**块**；这一点编译期判定不了
                     // （字段类型可能来自别处），故运行时返回 Err —— 不 panic。
+                    //
+                    // 键冲突（雷 5 · A 组第 6 项）：此前这里的 `insert` 会**静默覆盖**
+                    // 父块已有的同名键（按字段声明顺序后者胜），被覆盖的值无声丢失。
+                    // 与 A 组 1-3（整数溢出）同一口径 —— 宁可报错，不静默丢数据。
                     stmts.push(quote! {
                         let __val = ::sml::SmlSerialize::to_sml_value(&self.#fid)?;
                         match &__val {
                             ::sml::Value::Object(__inner) => {
                                 for (__k, __v) in __inner {
+                                    if __m.contains_key(__k) {
+                                        return ::core::result::Result::Err(::std::format!(
+                                            "字段 `{}` (flatten) 的键 `{}` 与父块已有的同名字段冲突；\
+                                             此前按声明顺序静默覆盖（后者胜），现已改为报错\
+                                             （宁可报错，不静默丢数据）",
+                                            #key_lit, __k
+                                        ));
+                                    }
                                     __m.insert(__k.clone(), __v.clone());
                                 }
                             }
@@ -459,14 +483,29 @@ fn gen_struct_serialize(
                     });
                     continue;
                 }
+                // 反向的静默覆盖：flatten 字段**先**声明、普通字段后声明时，
+                // 这里的 `insert` 会盖掉 flatten 刚提升上来的同名键（同样是「后者胜」）。
+                // 只在含 flatten 时查重（否则各字段键互不相同，查重是白跑）。
+                let clash_guard = quote! {
+                    if __has_flatten && __m.contains_key(#key_lit) {
+                        return ::core::result::Result::Err(::std::format!(
+                            "字段 `{}` 与 #[sml(flatten)] 已提升的同名键冲突；\
+                             此前按声明顺序静默覆盖（后者胜），现已改为报错\
+                             （宁可报错，不静默丢数据）",
+                            #key_lit
+                        ));
+                    }
+                };
                 if is_option(&f.ty) {
                     stmts.push(quote! {
                         if let ::core::option::Option::Some(__v) = &self.#fid {
+                            #clash_guard
                             __m.insert(#key_lit.into(), ::sml::SmlSerialize::to_sml_value(__v)?);
                         }
                     });
                 } else {
                     stmts.push(quote! {
+                        #clash_guard
                         __m.insert(
                             #key_lit.into(),
                             ::sml::SmlSerialize::to_sml_value(&self.#fid)?,
@@ -476,6 +515,7 @@ fn gen_struct_serialize(
             }
             Ok(quote! {
                 let mut __m = ::std::collections::BTreeMap::new();
+                let __has_flatten = #has_flatten;
                 #(#stmts)*
                 ::core::result::Result::Ok(::sml::Value::Object(__m))
             })

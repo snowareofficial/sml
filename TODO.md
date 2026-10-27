@@ -489,7 +489,7 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 | 雷 2 | `examples/slint/login.sml` 示例是坏的 | ⏳ 待定：按 `"\`…\`"` 重写第 102 行 或 标记为已知不可用（当初那处半途改动**已回退**，工作区当前干净） |
 | 雷 3 | `smltools` 的 unwrap / 与库分叉 / 冗余 | 🛠 **分叉类已处理（`3bff9b0`）**：六条消 4 条；`depth_of` 与文本扫描识别未动。崩用户类与冗余类**仍未动** |
 | 雷 4 | 核心库「不可恢复崩溃」 | ✅ 结论：**干净** —— 9 处 unwrap/expect 全部有不变量守护 |
-| 雷 5 | 静默改数据 | 🛠 **A 组 1-3 已修（`c4077a0`）**：derive 大整数超 i64 一律报错，与 serde 桥同码。A 组 4-6（静默合并/覆盖）与 B 组往返不对称**仍未动** |
+| 雷 5 | 静默改数据 | 🛠 **A 组全修**：1-3（`c4077a0`，derive 大整数超 i64 一律报错，与 serde 桥同码）；**4-6（2026-10-28 本轮）**：重复键提升为数组 / 片段展开覆盖父块键 ⇒ 改为**告警**（语义不变，`Value` 逐字一致），`#[sml(flatten)]` 键冲突 ⇒ 改为**报错**。B 组往返不对称**仍未动** |
 | 雷 6 | 跨实现缺陷（能力矩阵挖出） | 📋 **三条全未动**：Lua 大整数丢精度 / C++ 无 include / JS `\uXXXX` 少跳一位 —— 都是静默类 |
 
 ### 雷 1：深嵌套测试栈溢出（既有；2026-10-26 已定位并修测试，**根因仍挂账**）
@@ -624,6 +624,31 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 **一致性测试兜底（TODO 原项）**：`rust/smltools/tests/error_codes.rs` 已有 45 条端到端用例
 （含「CLI 输出无重复工具前缀」不变式），CLI 与库的发射/错误码行为**已有测试兜底**，无需额外补。
 
+#### 四、与库语义不符（2026-10-28 实跑登记 —— **只登记，未改任何代码**）
+
+> 来源：雷 5 A 组 4-6 施工时顺带查出来的（用户点名「先查不改」）。
+> ⚠️ 属 `smltools/src/lint.rs`（**工具层**）：上一轮刚为「单一来源」动过它，
+> 本轮禁区包含 `errors/codes.sml`，故只登记、不修。
+
+**结论：`W-LINT-003` 的文案与解析器实际语义不符，且它漏掉了真正会丢值的那条路径。**
+
+实跑（无 BOM 文件，`cargo run -p smltools`）：
+
+| 场景 | 输入 | 解析器实际结果 | `smltools --lint` 报告 |
+|---|---|---|---|
+| 键名重复 | `k: 1` / `k: 2` | `{"k":[1,2]}` ⇒ **提升为数组，值一个都没丢** | `…warning: 键 `k` 在同一块内重复（第 1 行已出现），**后者会覆盖前者** [W-LINT-003]` ← **描述与事实相反** |
+| 片段覆盖 | `@base { x: 1 }` + `w { x: 9` / `&base }` | `{"w":{"x":1}}` ⇒ 父块的 `x: 9` **真的丢了** | **未发现问题** ← 唯一会丢值的那条，lint 抓不到 |
+
+根因：lint 的重复键检测只扫 `k: v` 形式的行（走 `sml::split_kv`），而 `&base` 不是 kv 行 ⇒
+进不了 `seen`；反过来它扫到的 `k: v` 重复，在解析器里恰恰**不丢值**（提升为数组）。
+
+⇒ 该码现在是**双重错位**：告警文案说「覆盖」（实为数组提升、不丢值），
+而真正覆盖（片段展开）的场景它一声不响。修的时候两处要一起定：
+① 文案改为「已提升为数组」（或按 `&name` 场景另开一条）；② 要不要补扫片段展开路径。
+
+**登记位置说明**：归**雷 3**（smltools 与库分叉），不归雷 6 —— 雷 6 是五端跨实现缺陷，
+本条是**工具层文案/口径**与 Rust 库不一致，与雷 3「会不会与库分叉」同族。
+
 ### 雷 5：静默改数据清单（2026-10-27 扫完 —— 仅出清单，未改任何 Rust 源码）
 
 > 原则（I-14）：先扫清单，改代码是下一轮的事。四类：① 溢出饱和 ② 精度丢失
@@ -636,17 +661,18 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 | `rust/src/derive_macro.rs:175` | ✅ **已修（`c4077a0`）**：`u64::SmlSerialize` 超 i64 时曾 `unwrap_or_else(Value::float)` 静默降级为 Float（`u64::MAX` 入 f64 舍入为 2^64，**值偏移 1**）；现一律**报错**，与 serde 桥同码 `[E-DERIVE-002]` | ① |
 | `rust/src/derive_macro.rs:203-205` | ✅ **已修（`c4077a0`）**：`usize::SmlSerialize` 同一逻辑，同上 | ① |
 | `rust/src/derive_macro.rs:234` | ✅ **已修（`c4077a0`）**：`impl_big!(i128,u128)` 的 `SmlSerialize` 同改 ⇒ **同一 trait 两侧的口径现已一致**（写 = 报错，读 = `try_from` 报错） | ① |
-| `rust/sml-parse/src/parser.rs:1313-1324` | 同一键第二次出现**静默提升为数组**（`node.insert(key, Value::Array(vec![old, val]))`），对象结构被静默改写（SML 既定语义，但属静默结构变更） | ③ |
-| `rust/sml-parse/src/parser.rs:1294-1296` | 片段/`@include` 展开 `for (fk,fv) in m { node.insert(...) }` 直接覆盖同名键，**不走**上面的数组提升，父块已有键被片段值静默覆盖 | ③ |
-| `rust/derive/src/lib.rs:86`（陷阱 2；合并调用 `:699`） | `#[sml(flatten)]` 键冲突按字段声明顺序**静默覆盖（后者胜），不报错**，被覆盖的值静默丢失（已写进 derive 文档，但仍属静默数据丢失） | ③ |
+| `rust/sml-parse/src/parser.rs:1313-1324` | ✅ **已修（2026-10-28）**：同一键第二次出现**静默提升为数组**，对象结构被静默改写。语义保留（SML 既定），改为**告警** `DiagnosticKind::DuplicateKey`（含行号），经新增入口 `parse_with_warnings` / `parse_file_with_warnings` 交出；`ParseOptions::warn_key_conflict` 可关（默认开） | ③ |
+| `rust/sml-parse/src/parser.rs:1294-1296` | ✅ **已修（2026-10-28）**：片段展开 `for (fk,fv) in m { node.insert(...) }` 直接覆盖同名键、**不走**数组提升 ⇒ 父块值真的丢了。语义保留（ch03/ch08 既定），改为**告警** `DiagnosticKind::KeyOverwritten`（文案点名被覆盖的键与片段名）。⚠️ 实测澄清：`@include` 是**文本级展开**，撞键走的是**上一行**的数组提升路径，**不走**这里的覆盖 | ③ |
+| `rust/derive/src/lib.rs:86`（陷阱 2；真实覆盖点 **`derive/src/lib.rs:447-449`**，:699 是读方向的 `flatten_from`） | ✅ **已修（2026-10-28）**：`#[sml(flatten)]` 键冲突按字段声明顺序**静默覆盖（后者胜）**。改为 **`to_sml_value()` 返回 `Err`**（两个方向都拦），与 A 组 1-3 同口径；`:86` 文档与 CHANGELOG「行为变更」已同步 | ③ |
 
 #### B 只是往返不对称（可接受，但要写进文档）
 
 | 文件:行号 | 说明 | 属类 |
 |---|---|---|
 | `rust/sml-lex/src/lib.rs:477` | 大整数经 `coerce_word` 的 B10 规则直出可写，回读按 `looks_int` 分支得到 `Value::Str`（不是 Int/Float）；**类型不对称但 round-trip 安全、零精度损失**。需写进文档：大整数经 SML 文本往返会变成字符串类型 | ④ |
-| `rust/sml-value/src/ser_text.rs:82` + `serde_bridge.rs` 的 float 构造（raw=None） | serde 发射路径 `format_float(*f, None)` **不保留 raw**，`1e10` 这类书写形式保不住（写成 `10000000000`）；parser→`to_sml`(dump) 路径因 raw 能保留，两条发射器对浮点输出不一致 | ② |
-| `rust/sml-value/src/ser_text.rs:82` vs `rust/sml-value/src/dump.rs:215` | 同一 `Value::Float` 经 `to_string_direct` 与 `to_sml` 两种发射器输出文本不同（前者丢 raw），属发射器间往返不对称（HANDOFF 2.2 已记） | ④ |
+| `rust/sml-value/src/ser_text.rs:82` + `serde_bridge.rs` 的 float 构造（raw=None） | ✅ **已定性（2026-10-28；不是修复，是收口）**：实测证实 serde **没有任何钩子**能让序列化侧拿到浮点原始文本 —— `Serializer` 对浮点只有 `serialize_f64(v: f64)` 一个入口（`serde_core-1.0.229/src/ser/mod.rs:681`），`f64` **按值**传入，数据模型里没有「数值 + 书写文本」的位置；唯一能带文本的是 `collect_str`，而它落到 `serialize_str`，会让浮点在 JSON 等**其它格式**里变成字符串（真改数据，比丢写法糟）。⇒ 维持「不保 raw」，写进 `ser_text.rs` 模块文档 | ② |
+| `rust/sml-value/src/ser_text.rs:82` vs `rust/sml-value/src/dump.rs:215` | ✅ **已定性（同上）**：两条发射器对浮点的输出不对称**不可消除**（serde 侧无 raw 槽位）。文档就近补在三处 —— `ser_text.rs` 模块文档 / `serde_bridge.rs` 的 `impl Serialize for Value` / `dump.rs` 的 `format_float`；并由两条**能跑**的测试钉住：`rust/tests/ser_de_direct.rs::float_raw_only_survives_to_sml`（行为）与 `::serde_hands_the_emitter_only_an_f64`（探针 Serializer 实测「只给了 f64」） | ④ |
+| `rust/sml-value/src/dump.rs:193-202`（`format_float`） | 🆕 **只登记、本轮不碰（2026-10-28）**：同一族问题的另一半 —— `1.0` 的**保真**（用户登记：只有 Rust 保留 `1.0` 为浮点）。B 组 2-3 是「写法保不住」，这条是「浮点身份保不住」；动它要五端同步，故挂账 | ④ |
 
 #### C 已修（仅登记 —— W16 / B10 修过一批同类型）
 
@@ -654,7 +680,7 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 |---|---|
 | `rust/sml-lex/src/lib.rs:469-478` | **已修**：大整数曾静默降级 Float 丢精度，W16/B10 改为 `looks_int` 时保留 `Value::Str`（零精度损失）；现仅残留 B 组「类型变 Str」的往返不对称 |
 | `rust/sml-value/src/serde_bridge.rs:221-229` | **已修**：`serialize_u64` 曾静默降级 Float（53 位精度），W16 改为超出 i64 即 `E-DERIVE-002` 报错（与 derive_macro 的 `SmlSerialize` 路径仍降级形成对照，见 A 组 1-3） |
-| `rust/sml-value/src/value.rs:14-26` + `dump.rs:171-215` + `sml-lex/src/lib.rs:497-500` | **已修（部分）**：引入 `raw` 原始字面量，`parse→to_sml` 路径保留 `1e10` 书写形式；但 serde 发射路径不填 raw（见 B 组 2），故仅 half 修复 |
+| `rust/sml-value/src/value.rs:14-26` + `dump.rs:171-215` + `sml-lex/src/lib.rs:497-500` | **已修（部分）**：引入 `raw` 原始字面量，`parse→to_sml` 路径保留 `1e10` 书写形式；serde 发射路径不填 raw（见 B 组 2）—— 2026-10-28 已定性为**serde 数据模型做不到**，非本仓库疏漏，故「half 修复」即终态 |
 
 **已修（2026-10-27，`c4077a0`）**：A 组 1-3 已统一 —— derive `SmlSerialize` 的 `u64` / `usize` /
 `i128` / `u128` 超 i64 **一律报错**，与 serde 桥同口径，沿用 `E-DERIVE-002`
@@ -663,9 +689,25 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 ⇒ 现在**凡经 `Value` 的写入路径口径统一**；唯一的例外是 `to_string_direct`（直出），
 它按 I-1 的既定设计**保真写出**（超 i64 写成裸词），回读按 B10 变 `Str` ⇒ 往返不对称仍挂在 **B 组**。
 
+**已收口（2026-10-28）**：B 组 2-3（浮点 raw / 两条发射器不对称）—— **先证伪，再收口**。
+结论是「serde 侧确实拿不到浮点原始文本」（证据见 B 组行内），故终点由「修它」改为
+「承认不对称 + 就近写进模块文档（三处）+ 补两条能跑的测试钉住」，**不再作为待修项**。
+（教训：这类条目的第一步应是**证实或证伪可行性**，而不是动手改代码 —— 本条若直接改，
+只有放弃 raw、或把浮点降级为字符串两条路，后者是更糟的「静默改数据」。）
+
+**A 组 4-6 的落地口径（2026-10-28，用户拍板）**
+
+| 项 | 裁决 |
+|---|---|
+| 出口 | 新增 `parse_with_warnings` / `parse_file_with_warnings`（**必须**两个入口：片段常定义在子文件里，只有文本入口会漏掉最典型的一类）；`parse()` 一动不动 |
+| 门控 | **不**用 `@feature`（会跨出文件范围、且 C/C++/Lua 没有 `@feature` ⇒ 重演 typed-block「只有 Rust+JS」的分叉）；改为「**入口即门控**」：`*_with_warnings` 默认收，`ParseOptions.warn_key_conflict` 可关 |
+| 语义 | 第 1/2 处**只加告警、语义不变**（`Value` 逐字一致）；第 3 处是**丢值**，故改为报错、不留 opt-out |
+| 错误码 | 本轮**不带码**：码是对外契约、发布后含义不可改，且要解释与既有 `W-LINT-003` 的分域关系 ⇒ 收益不抵成本。下一轮再议 `W-PARSE-001/002` |
+
 **仍挂账（下一轮）**：
-- A 组 4-6 的静默合并/覆盖 —— 建议补「重复键/冲突键」warning 而非静默；
 - `to_string_direct` ↔ `Value` 两条路对超 i64 整数的**口径差异**：是再统一一层，还是维持现状——未定。
+- 告警**带码**：新增 `W-PARSE-*` 并解释与 `W-LINT-003` 的分域（须动 `errors/codes.sml` + 重跑三个生成器）。
+- 编辑器 / LSP 侧同步：扩展诊断走 `js/sml.mjs` 的 `parseSafe`，**不经过 Rust 库**，本轮的告警它看不见。
 
 ### 雷 2：`examples/slint/login.sml` 解析不过（示例是坏的）
 

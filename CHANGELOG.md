@@ -10,6 +10,47 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ---
 
+## [未发布]
+
+> 本轮对应 TODO「排雷区 → 雷 5」A 组 4-6：消灭「数据被静默改写 / 覆盖、用户毫不知情」。
+> 只改 Rust 库（未动 `errors/`、`site/`、`editors/`、`js/`、`c/`、`cpp/`、`lua/`）。
+
+### ⚠️ 行为变更
+
+- **`#[sml(flatten)]` 的键冲突：从「静默覆盖」改为报错**（`rust/derive/src/lib.rs`）。
+  此前 flatten 提升上来的键若与父块已有字段同名，按**字段声明顺序**静默覆盖（后者胜），
+  被覆盖的值无声丢失；现 `to_sml_value()` 返回 `Err`（两个方向都拦：flatten 在后它盖父块、
+  flatten 在前父块盖它）。口径与 A 组 1-3 的整数溢出一致 —— **宁可报错，不静默丢数据**。
+  ⚠️ 依赖旧行为的代码会开始收到 `Err`；需要「后者胜」请改名或去掉 `flatten`。
+
+### 新增
+
+- 解析入口 **`parse_with_warnings(text)`** / **`parse_file_with_warnings(path)`**
+  （`sml-parse` 新增，`sml` 门面同步 re-export），返回
+  `Result<(Value, Vec<Diagnostic>), SmlError>`，产出两类**此前完全静默**的告警：
+  - `DiagnosticKind::DuplicateKey` —— 同一块内键名重复 ⇒ 已**提升为数组**
+    （SML 既定语义：值不丢，但对象结构被改写）；
+  - `DiagnosticKind::KeyOverwritten` —— 片段展开（`&name`）覆盖了父块已有的同名键 ⇒
+    **父块原值已丢失**（片段合并不走数组提升，见 ch03/ch08）。
+- `ParseOptions::warn_key_conflict`（默认 `true`，`.warn_key_conflict(false)` 可关）：
+  只影响 `diagnostics` 的内容，**不影响 `Value`**。
+- `Diagnostic` 新增 `line: Option<usize>`（1 起；文件入口的 token 流跨文件合并 ⇒ 恒 `None`）。
+
+> **本轮只加告警、不改语义**：两类告警对应的 `Value` 与旧版**逐字一致**
+> （`rust/tests/key_conflict.rs` 每条正例都同时断言值与告警）。
+
+### ⚠️ 升级注意
+
+- `Diagnostic` 是公开结构体，**新增 `line` 字段**：只读取诊断的代码不受影响；
+  在本 crate 之外用**结构体字面量**构造 `Diagnostic` 会缺字段（需补 `line`）。
+- `parse()` / `parse_file()` 等原有入口**恒不返回诊断**（在 `api.rs` 里就丢掉了），
+  签名与行为逐字不变 —— 想要告警请改用 `*_with_warnings`。
+- ⚠️ **编辑器（VSCode / LSP）不会跟着标黄**：扩展的诊断走 `js/sml.mjs` 的 `parseSafe`，
+  **不是 Rust 库**。本轮只改库，编辑器侧要同步须另开一轮（并需同步 `js/` 的四份副本）。
+  当前需要**带行号**的重复键诊断，请用 `smltools --lint`（`W-LINT-003`，见 TODO 雷 3 的核查备注）。
+- 本轮告警**不带错误码**：码是对外契约，`errors/codes.sml` 未动（`git diff --exit-code` = 0）。
+  语言层告警码（`W-PARSE-*`）留待下一轮（需同时解释与 `W-LINT-003` 的分域关系）。
+
 ## [0.6.4] · swsml — 2026-10-15
 
 > 📌 紧随 0.6.3 的**文档/打包修订**：解析器与 API **零改动**，二进制与 0.6.3 一致。

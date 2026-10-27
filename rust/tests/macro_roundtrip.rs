@@ -308,6 +308,91 @@ fn flatten_non_object_is_error_not_panic() {
 }
 
 // ---------------------------------------------------------------------------
+// flatten 键冲突（雷 5 · A 组第 6 项）
+//
+// 此前按字段声明顺序**静默覆盖**（后者胜）、被覆盖的值无声丢失；
+// 现改为 Err —— 与整数溢出同一口径：宁可报错，不静默丢数据。
+// 两个方向都要拦：flatten 在后（它盖父块）与 flatten 在前（父块盖它）。
+// ---------------------------------------------------------------------------
+
+#[derive(SmlSerialize, Debug)]
+struct FlatName {
+    name: String,
+}
+
+/// flatten 声明在后：它去盖父块已有的 `name`。
+#[derive(SmlSerialize, Debug)]
+struct ClashFlattenLast {
+    name: String,
+    #[sml(flatten)]
+    extra: FlatName,
+}
+
+/// flatten 声明在前：后面的普通字段 `name` 去盖 flatten 刚提升的 `name`。
+#[derive(SmlSerialize, Debug)]
+struct ClashFlattenFirst {
+    #[sml(flatten)]
+    extra: FlatName,
+    name: String,
+}
+
+#[test]
+fn flatten_key_clash_is_error_not_silent_overwrite() {
+    let v = ClashFlattenLast {
+        name: "outer".into(),
+        extra: FlatName { name: "inner".into() },
+    };
+    let err = v
+        .to_sml_value()
+        .expect_err("flatten 撞父块已有的键时必须报错（此前是静默覆盖）");
+    assert!(err.contains("flatten"), "错误应点名 flatten：{err}");
+    assert!(err.contains("name"), "错误应点名冲突的键：{err}");
+}
+
+#[test]
+fn flatten_key_clash_reverse_order_is_error_too() {
+    let v = ClashFlattenFirst {
+        extra: FlatName { name: "inner".into() },
+        name: "outer".into(),
+    };
+    let err = v
+        .to_sml_value()
+        .expect_err("反向（flatten 在前、普通字段在后）同样必须报错");
+    assert!(err.contains("name"), "错误应点名冲突的键：{err}");
+}
+
+#[derive(SmlSerialize, Debug)]
+struct NoClashInner {
+    region: String,
+}
+
+/// 反例：不撞键时 flatten 照旧工作。
+///
+/// 没有这条，「查重写成永真」也能让上面两条正例通过 —— 正例必须配反例。
+#[derive(SmlSerialize, Debug)]
+struct NoClashOuter {
+    name: String,
+    #[sml(flatten)]
+    inner: NoClashInner,
+}
+
+#[test]
+fn flatten_without_clash_still_works() {
+    let v = NoClashOuter {
+        name: "web".into(),
+        inner: NoClashInner { region: "cn".into() },
+    }
+    .to_sml_value()
+    .expect("无冲突的 flatten 不该报错");
+    let m = match &v {
+        sml::Value::Object(m) => m,
+        other => panic!("期望块，实际 {other:?}"),
+    };
+    assert_eq!(m.get("name").and_then(|x| x.as_str()), Some("web"));
+    assert_eq!(m.get("region").and_then(|x| x.as_str()), Some("cn"));
+}
+
+// ---------------------------------------------------------------------------
 // 文本往返（to_sml / from_sml）+ 嵌套
 // ---------------------------------------------------------------------------
 
