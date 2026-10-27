@@ -904,16 +904,28 @@ W3/W4/W5 共享同一批文件（`c/`、`js/`、`lua/`），**必须串行**；�
 | `feat/*` / `fix/*` | 短期特性分支 | 合入后即删；**不许长期存在** |
 
 - [x] `dev` 已建（`git branch dev main`）
-- [ ] `dev` 推送到 Gitee（用户手动推；GitHub 由 `sync-from-gitee.yml` 同步）
+- [x] `dev` 推送到 Gitee（2026-10-27，随四条 PR 的合入落在远端；GitHub 由 `sync-from-gitee.yml` 同步，
+      ⚠️ 但 GitHub 仍连不上，同步欠着）
+- [x] **四条工作分支已合入 `dev` 并删除**（2026-10-27，Gitee PR ！4–!7 + 早期 ！1/!2）：
+      `fix/derive-int-overflow`（含 feat/i9 全部）、`feat/capability-matrix`、
+      `fix/smltools-landmines`、`feat/value-accessors`；本地已清理（worktree 与分支），主工作区在 `dev`
 - [ ] 在 **两台远端**上都设保护规则：`main` / `dev` 禁强推、需 CI 绿才能合
       —— 用户 2026-10-26：**暂缓，明天再做**；当前**强推尚未禁止**，直到补上为止
 - [ ] 把 **PR 目标默认值**指向 `dev`（Gitee / GitHub 各设一次；仓库默认分支仍是 `main`）
 - [ ] 收掉存量长期分支：`align/bare-colon-e006`、`align/frag-splice-c`、
       `feat/error-info-i18n`、`feat/bindings-v2` —— 尖端都已在远端且已合入 `main`，
-      按顺序 PR → `dev` → 合入后删除
-- [ ] `master`（与 `main` 重复的历史遗留名）是否废弃：删远端前先确认无人还在用
+      按顺序 PR → `dev` → 合入后删除。⚠️ 这几条**只在 GitHub**（Gitee 侧没有），GitHub 通了才能删
+- [x] ~~`feat/bindings-v2`~~ **已删**（本地 2026-10-27；`git cherry` 确认其 5 笔补丁全部等价存在于 `dev`）
+- [ ] `origin/feat/i9-contract-typo-hint` 远端删除（内容已全在 `dev`，本地已删）—— **用户手动**：
+      `git push origin --delete feat/i9-contract-typo-hint`
+- [ ] `origin/master` 远端删除（0 笔领先、落后 `main` 223 笔，实测完全包含）—— **用户手动**：
+      `git push origin --delete master`
+- [ ] **两条考古分支待决策**（各压一笔 2026-10-13 的大特性，**未合入，删了就是丢工作**）：
+      `feat/bindings-java-python-ruby`（Java/Python/Ruby 宿主绑定，159 文件）、
+      `feat/w25-error-msg-lookup`（错误码本地化查找扩展到四端，与 I-11 同方向）。
+      合入前须剔除 `story/novel.out.*` 生成物（各 4863 行）
 - [ ] 双远端同步口径：`--delete` 推给 Gitee **不会**同步删 GitHub 上的分支，
-      清理时要两边分别确认
+      清理时要两边分别确认；且同步工作流**不带 `--prune`**（有意，防误删 GitHub 独有分支）
 
 ### 八·二 隐私处理（**需要**，用户点名）
 
