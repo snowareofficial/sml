@@ -976,16 +976,47 @@ W3/W4/W5 共享同一批文件（`c/`、`js/`、`lua/`），**必须串行**；�
       `git push origin --delete feat/i9-contract-typo-hint`
 - [ ] `origin/master` 远端删除（0 笔领先、落后 `main` 223 笔，实测完全包含）—— **用户手动**：
       `git push origin --delete master`
-- [ ] **两条考古分支待合并**（各压一笔 2026-10-13 的工作，**未合入，删了就是丢工作**）：
-      | 分支 | 那一笔 | 规模 | 备注 |
+- [x] ~~**两条考古分支待合并**~~ **（2026-10-28 判定：两条都已作废 —— 不合入、不 cherry-pick）**
+      原文留档在下面「历史记录（已作废）」里，不直接删除。
+
+      **判定证据（2026-10-28，SHA 均为重写后的值）**：
+
+      | 分支 | 重写后尖端 | `git cherry -v dev <尖端>` | 结论 |
       |---|---|---|---|
-      | `feat/w25-error-msg-lookup` | `ef0ecf0` 错误码本地化查找扩展到 Rust/C/C++/Lua | **9 文件 / +1562 -26**（纯新增为主，`rust/sml-codes/src/msgs.rs` +402） | 与 **I-11**（先数据化）同方向；四端各带一份查找实现 |
-      | `feat/bindings-java-python-ruby` | `f63769b` Java/Python/Ruby 宿主绑定（经 C-ABI） | **10 文件 / +1130**（全部在 `bindings/{java,python,ruby}`，含各自测试） | 生态扩张，与 I-12 的生态/改名线相关 |
-      两条都从 `a1f9af7`（2026-10-13）分叉，**各落后 dev 53 笔、各领先 1 笔** ⇒ 做法是 cherry-pick 到新分支，不是直接合。
-      ⚠️ 更正：早先写的「须剔除 `story/novel.out.*` 生成物」是**看错了** —— 那是 dev↔分支的树差异，
-      混进了 dev 侧的改动；这两笔本身都是纯新增，没有夹带生成物。
-      ⚠️ w25 改了 `errors/gen_js_errors.py`（CI guards 依赖的生成脚本）与 `lua/lib/sml.soup` ——
-      合入时若动前者，**必须重跑 `gen_codes.py` / `gen_json.py` / `gen_js_errors.py`**，否则 guards job 红。
+      | `feat/w25-error-msg-lookup` | `8307115` | 输出 `- 8307115` ⇒ **内容已在 dev** | 无需 cherry-pick |
+      | `feat/bindings-java-python-ruby` | `f05a72e` | 输出 `+` ⇒ 未合入 | **已被取代，不合** |
+
+      - **w25 作废理由**：`git cherry -v dev 8307115` 输出 `- 8307115`，说明那一笔内容**已在 dev**；
+        且 dev 上还有后续修复早已**超越**分支那一笔 ——
+        `60f5629`（生成物对齐当前 `errors.json`，补 E-CONTRACT-018 / E-FEATURE-004）、
+        `c8df6cd`（全量非空断言允许英文缺失，对齐 Q2 与 Rust/JS 端）、
+        `bad4523`（C++ 端同样处理）、
+        `d759872`（进度表补「本地化查找已扩展到四端」）、
+        `c4f9559`（PR !8 merge）。
+        ⇒ cherry-pick 只会引入回退，**不合**。
+      - **bindings 作废理由**：`git cherry -v dev f05a72e` 输出 `+`（确实未合入），但 dev 的
+        `b2ebbbe`「feat(bindings): SML v3 五语言宿主绑定（ctypes/fiddle/FFM/cgo/P-Invoke）」已完整覆盖该方向，
+        dev 的 `bindings/` 下已存在 `csharp` / `go` / `java` / `python` / `ruby`
+        ⇒ 判定为**已被取代，不合**。与 TODO 上 `6594218`（2026-10-28 01:47）的既有更正一致。
+      - ⚠️ **远端这两条分支仍然别删**（理由变了）：不再是「待合入」，而是「**重写后的备份**」——
+        强推完成前它们是没有别的副本的那份；见下面八·二强推命令里推这两条的两句。
+
+      **历史记录（原文，已作废，留档）**：
+
+      > ~~两条考古分支待合并（各压一笔 2026-10-13 的工作，**未合入，删了就是丢工作**）~~：
+      >
+      > | 分支 | 那一笔 | 规模 | 备注 |
+      > |---|---|---|---|
+      > | `feat/w25-error-msg-lookup` | `ef0ecf0` 错误码本地化查找扩展到 Rust/C/C++/Lua | **9 文件 / +1562 -26**（纯新增为主，`rust/sml-codes/src/msgs.rs` +402） | 与 **I-11**（先数据化）同方向；四端各带一份查找实现 |
+      > | `feat/bindings-java-python-ruby` | `f63769b` Java/Python/Ruby 宿主绑定（经 C-ABI） | **10 文件 / +1130**（全部在 `bindings/{java,python,ruby}`，含各自测试） | 生态扩张，与 I-12 的生态/改名线相关 |
+      >
+      > ~~两条都从 `a1f9af7`（2026-10-13）分叉，**各落后 dev 53 笔、各领先 1 笔** ⇒ 做法是 cherry-pick 到新分支，不是直接合。~~
+      > ⚠️ 更正：早先写的「须剔除 `story/novel.out.*` 生成物」是**看错了** —— 那是 dev↔分支的树差异，
+      > 混进了 dev 侧的改动；这两笔本身都是纯新增，没有夹带生成物。
+      > ⚠️ w25 改了 `errors/gen_js_errors.py`（CI guards 依赖的生成脚本）与 `lua/lib/sml.soup` ——
+      > 合入时若动前者，**必须重跑 `gen_codes.py` / `gen_json.py` / `gen_js_errors.py`**，否则 guards job 红。
+      > ⇒ 以上「落后/领先」的数与 SHA 都是**重写前**的口径，`git cherry` 复核后两条均已作废，见上方。
+
 - [ ] 双远端同步口径：`--delete` 推给 Gitee **不会**同步删 GitHub 上的分支，
       清理时要两边分别确认；且同步工作流**不带 `--prune`**（有意，防误删 GitHub 独有分支）
 
@@ -1008,6 +1039,18 @@ W3/W4/W5 共享同一批文件（`c/`、`js/`、`lua/`），**必须串行**；�
       内网真值那几条**只在本地**生效。
 - [ ] 两台远端强推（**用户手动**，命令见下）
 
+**强推前结论（2026-10-28 复核）**：`dev` 相对 `origin/dev` 为 **ahead 9 / behind 0**
+⇒ **本地完全包含远端全部内容，强推不丢提交**；远端 `dev` 尖端 `a0b51ba` 与本地重写后的 `c4f9559`
+是**同一笔**（PR !8 merge），只是 SHA 因重写而变了。
+
+🚨 **铁律（2026-10-28 新增）**：本仓库在**强推完成之前禁跑 `git fetch` / `git pull` / `git fetch --prune`**。
+远端仍是旧历史，fetch 会把已重写的 `refs/remotes/*` **拉回旧值**
+（`origin/dev` `c4f9559`→`a0b51ba`、`origin/feat/w25-error-msg-lookup` `8307115`→`ef0ecf0`、
+`origin/feat/bindings-java-python-ruby` `f05a72e`→`f63769b`），
+导致旧敏感对象重新可达、**体检必然 FAIL**，且照 `origin/feat/*` 做 cherry-pick 会把**旧历史内容引进新历史**。
+本轮已发生一次：修复方式为对 `refs/remotes/origin/*` 逐条 `git update-ref` 回重写后的值，
+并删除 fetch 新建的 `refs/remotes/origin/HEAD`。**需要看远端时用 `git ls-remote`（只读，不写 refs）。**
+
 **强推命令（2026-10-28 重写后；旧 SHA 已作废，务必带 lease 防误推）**
 
 ```bash
@@ -1019,7 +1062,7 @@ git push --force-with-lease=refs/heads/dev:a0b51ba94a42cdde1d5f1e4f0764627443e23
 # 注解 tag 也被重写了（指向新提交），单独强推：
 git push --force origin refs/tags/v0.6.2 refs/tags/v0.6.3 refs/tags/v0.6.4
 
-# 远端还留着两条「考古分支」（内容按 TODO 八·一 待 cherry-pick，**别删**）：
+# 远端还留着两条「考古分支」（2026-10-28 判定已作废，但它是**重写后的备份**，强推前**别删**）：
 git push --force origin \
   refs/remotes/origin/feat/w25-error-msg-lookup:refs/heads/feat/w25-error-msg-lookup \
   refs/remotes/origin/feat/bindings-java-python-ruby:refs/heads/feat/bindings-java-python-ruby
