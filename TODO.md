@@ -920,10 +920,16 @@ W3/W4/W5 共享同一批文件（`c/`、`js/`、`lua/`），**必须串行**；�
       `git push origin --delete feat/i9-contract-typo-hint`
 - [ ] `origin/master` 远端删除（0 笔领先、落后 `main` 223 笔，实测完全包含）—— **用户手动**：
       `git push origin --delete master`
-- [ ] **两条考古分支待决策**（各压一笔 2026-10-13 的大特性，**未合入，删了就是丢工作**）：
-      `feat/bindings-java-python-ruby`（Java/Python/Ruby 宿主绑定，159 文件）、
-      `feat/w25-error-msg-lookup`（错误码本地化查找扩展到四端，与 I-11 同方向）。
-      合入前须剔除 `story/novel.out.*` 生成物（各 4863 行）
+- [ ] **两条考古分支待合并**（各压一笔 2026-10-13 的工作，**未合入，删了就是丢工作**）：
+      | 分支 | 那一笔 | 规模 | 备注 |
+      |---|---|---|---|
+      | `feat/w25-error-msg-lookup` | `ef0ecf0` 错误码本地化查找扩展到 Rust/C/C++/Lua | **9 文件 / +1562 -26**（纯新增为主，`rust/sml-codes/src/msgs.rs` +402） | 与 **I-11**（先数据化）同方向；四端各带一份查找实现 |
+      | `feat/bindings-java-python-ruby` | `f63769b` Java/Python/Ruby 宿主绑定（经 C-ABI） | **10 文件 / +1130**（全部在 `bindings/{java,python,ruby}`，含各自测试） | 生态扩张，与 I-12 的生态/改名线相关 |
+      两条都从 `a1f9af7`（2026-10-13）分叉，**各落后 dev 53 笔、各领先 1 笔** ⇒ 做法是 cherry-pick 到新分支，不是直接合。
+      ⚠️ 更正：早先写的「须剔除 `story/novel.out.*` 生成物」是**看错了** —— 那是 dev↔分支的树差异，
+      混进了 dev 侧的改动；这两笔本身都是纯新增，没有夹带生成物。
+      ⚠️ w25 改了 `errors/gen_js_errors.py`（CI guards 依赖的生成脚本）与 `lua/lib/sml.soup` ——
+      合入时若动前者，**必须重跑 `gen_codes.py` / `gen_json.py` / `gen_js_errors.py`**，否则 guards job 红。
 - [ ] 双远端同步口径：`--delete` 推给 Gitee **不会**同步删 GitHub 上的分支，
       清理时要两边分别确认；且同步工作流**不带 `--prune`**（有意，防误删 GitHub 独有分支）
 
