@@ -397,13 +397,35 @@ fn i64_float_boundary_no_saturation() {
 
 #[test]
 fn usize_serialize_no_wrap() {
-    // usize(u64::MAX) 序列化此前 as i64 回绕成 -1
-    let v = u64::MAX.to_sml_value().unwrap();
-    match v {
-        sml::Value::Int(i) => assert!(i >= 0, "u64::MAX 不应回绕为负数，实际 {i}"),
-        sml::Value::Float(_, _) => {} // 退化为 Float 也可接受（u64::MAX 无法放进 i64）
-        other => panic!("意外类型 {other:?}"),
+    // usize / u64 超 i64 一律报错（对齐 serde 桥 W16 的 E-DERIVE-002 口径），
+    // 不再静默降级为 f64（u64::MAX 会偏移成 2^64，丢精度）。
+    let err = u64::MAX.to_sml_value().expect_err("u64::MAX 超 i64 应报错");
+    assert!(err.contains("E-DERIVE-002"), "实得：{err}");
+    // 边界内仍落 Int（含 i64::MAX 与 0），证明不是无条件报错
+    assert_eq!(u64::MIN.to_sml_value().unwrap(), sml::Value::Int(0));
+    assert_eq!(i64::MAX.to_sml_value().unwrap(), sml::Value::Int(i64::MAX));
+}
+
+#[test]
+fn big_int_serialize_overflow_is_rejected() {
+    // u64 / usize / i128 / u128 超 i64 一律报错，且复用 E-DERIVE-002；
+    // 写侧与同 trait 的 from_sml_value（try_from 报错）口径一致，不再静默丢精度。
+    for (name, v) in [
+        ("u64::MAX", u64::MAX.to_sml_value()),
+        ("usize::MAX", usize::MAX.to_sml_value()),
+        ("i128::MAX", i128::MAX.to_sml_value()),
+        ("u128::MAX", u128::MAX.to_sml_value()),
+        ("i128::MIN", i128::MIN.to_sml_value()),
+    ] {
+        let err = v.expect_err(&format!("{name} 超 i64 应报错"));
+        assert!(err.contains("E-DERIVE-002"), "[{name}] 实得：{err}");
     }
+    // 反例：落在 i64 内的值仍保真写回 Int（非恒真断言）
+    assert_eq!(u128::MIN.to_sml_value().unwrap(), sml::Value::Int(0));
+    assert_eq!(
+        i128::from(i64::MAX).to_sml_value().unwrap(),
+        sml::Value::Int(i64::MAX)
+    );
 }
 
 #[test]

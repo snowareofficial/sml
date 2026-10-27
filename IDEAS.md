@@ -13,7 +13,11 @@ Confirm the reading with the user before writing any code.
 
 ## I-1 自定义结构体的序列化 trait / trait-based serializer
 
-- **Status / 状态**：`Partial` —— trait 与 derive 都在，serde 那种 `Serializer` 驱动层没有。
+- **Status / 状态**：`Done`（2026-10-27）—— 两半都落地：
+  - 读：容器级 `#[sml(...)]`（`path` / `file` / `default` / `deny_unknown_fields` / `rename`）；
+  - 写：`sml::serde::to_string_direct`（直出 SML 文本，**不经 `Value` 中转**，保留声明顺序、支持 i128/u128）。
+  附带破坏性变更：`to_sml_value` 改返回 `Result`，`flatten` 非块由 `panic!` 改 `Err`。
+  详见下方「决策（2026-10-26）」与「Progress」。
 - **Idea / 想法**：给自定义结构体实现一个 trait，做到类似 serde-serializer 的效果。
 - **Done / 已完成**：`SmlSerialize` / `SmlDeserialize`
   （`rust/src/derive_macro.rs`）；`#[derive(SmlSerialize, SmlDeserialize)]`
@@ -70,14 +74,21 @@ Confirm the reading with the user before writing any code.
 
 ## I-3 `get_object` 之类的方法？ / object accessors?
 
-- **Status / 状态**：`Partial` —— 有 `get` / `as_str` / `as_float`，没有 `as_object`。
+- **Status / 状态**：`Done`（2026-10-27，**待合入 `dev`**）—— 访问器层已补齐。
 - **Answer / 答案**：**没有**。`Value` 只有 `get(path)`（点路径）、`as_str`、`as_float`
   （`rust/sml-value/src/value.rs`）。
-- **Done / 已完成**：C-ABI 侧接口不缺 —— `sml_get` / `sml_get_path` / `sml_key_at` /
+- **Done / 已落地（2026-10-27，分支 `feat/value-accessors`）**：新增
+  `as_object` / `as_array` / `as_i64` / `as_bool` / `as_object_mut` / `as_array_mut`
+  与 `iter` / `len` / `is_empty`；`get()` 另支持 `[idx]` 下标（可链式、可后再接点路径）。
+  ⚠️ 副作用与处置：`get()` 属**既有行为变更** —— 已加「字面键名优先」兜底
+  （键名本身含 `[` 的文档不从 `Some` 变 `None`），并由回归测试
+  `bracket_in_key_name_is_not_rewritten` 钉住。
+- **Done / 已完成（更早）**：C-ABI 侧接口不缺 —— `sml_get` / `sml_get_path` / `sml_key_at` /
   `sml_str_dup` / `sml_int_value` / `sml_bool_value`（`rust/src/c_abi.rs`）。
 - **Gap / 缺口**：Rust 原生侧反而更薄，缺 `as_object` / `as_array` / `as_i64` / `as_bool`
   （＋ `as_object_mut`）；补这一层零风险。
-- **Note / 备注**：`get` 只走 `Object`，遇数组下标即 `None`；路径语法先钉清楚再加方法。
+- **Note / 备注**：~~`get` 只走 `Object`，遇数组下标即 `None`~~ —— 2026-10-27 起下标可用
+  （`a.b[0].c`），但**字面键名优先**于下标语法，故路径里带 `[` 的既有键不受影响。
 
 ## I-4 注释双语化，英文在前 / bilingual comments, English first
 
@@ -180,10 +191,15 @@ rectangle            size 2    rect1   tls                      { … }
 
 ## I-9 近似契约名扫描与标注 / near-miss contract name hints
 
-- **Status / 状态**：`Todo` —— 完全没有。
+- **Status / 状态**：`Done`（2026-10-27）—— 运行时已落地；**编辑器侧仍未做**。
 - **Idea / 想法**：扫描「可能和 contract 名相似」的写法（如 `Securty` vs `Security`），
   当作**可能的错误**标出来，而不是只报一句「未定义的契约」。
-- **Now / 现状**：只有 `contract_by_first_letter` 的首字母兜底（`case-insensitive` 特性，
+- **Done / 已落地（2026-10-27）**：`e16c54e` —— 未命中契约时在错误文案里追加
+  「你是不是想写 `X`？」（`X` 为候选契约名）。改 `sml-contract/src/lib.rs` +
+  `sml-parse/src/parser.rs`，新增 `rust/tests/contract_typo.rs`（4 条测试）。
+  **码不变**（仍是 `E-CONTRACT-001`）⇒ 五端可分批跟进。**仍未做**：编辑器侧标黄
+  （`editors/lsp`、VSCode）、外置契约类型与外置指令名进候选池。
+- **Now / 现状（此为落地前的情况，留作对照）**：只有 `contract_by_first_letter` 的首字母兜底（`case-insensitive` 特性，
   `rust/sml-parse/src/parser.rs`）；未命中即 `E-CONTRACT-001`，文案不含候选；
   全仓无编辑距离 / did-you-mean 实现（`levenshtein` / `edit_distance` 零命中）。
   `typed-block` 已把「拼错的契约名被静默当块名」修掉（未开 `block-name` 直接报错），
@@ -193,10 +209,24 @@ rectangle            size 2    rect1   tls                      { … }
   注意：**码不变**（仍 `E-CONTRACT-001`），只加候选文案 ⇒ 五端可分批跟进，不必同日。
 - **Note / 备注**：外置契约类型（`image` / `link` / `time`）与外置指令名也应纳入候选池，
   否则只提内置名会误导。
+- **决策（2026-10-27，用户定）：运行时只加中文，选 C**
+  备选：A 运行时内联双语 / B 同步 `codes.sml` + `msg.en.json` / C 仅运行时中文 / D C + 静态描述同步。
+  定 C 的三条理由：
+  1. **候选文案是动态的**（含具体契约名），静态目录装不下 ——
+     `codes.sml` / `msg.en.json` 只能承载「本码会给出候选」这种静态描述，
+     承载不了「你是不是想写 `Security`？」这条文本本身 ⇒ B 的字面做法不可行。
+  2. **Rust 运行时目前没有英文层**：`msg.en.json` 不进二进制，它是给网站/JS 用的，
+     且是 `gen_js_errors.py` 的输入。要在运行时出英文 = 新建一层 i18n ⇒ 那是
+     **I-11「先数据化，再谈剥离」** 的范围，价值表写明「分两步，别一步到位」。
+  3. **契约名本身是 Latin**，中英文读者都看得懂；且全仓运行时（含 C 端先例）
+     都是中文硬编码 —— A 会插入一条既不属于中文层也不属于英文层的混合串，
+     等于给 I-11 预支技术债。
+  ⇒ 英文侧的覆盖留给 I-11。若要让英文目录也知道此功能，另起一笔只改**静态描述**，
+  并跑 `gen_codes.py` + `gen_json.py` + `gen_js_errors.py`（别和功能改动混在一笔）。
 
 ## I-10 团队搭建与宣传 / team & outreach
 
-- **Status / 状态**：`Todo`。
+- **Status / 状态**：`Partial`（2026-10-27）—— **前置（能力矩阵）已产出，入口文档仍未做**。
 - **Idea / 想法**：项目要从「单人 + AI」长成有团队的样子，需要一套**倡议**（怎么参与、从哪下手）
   与**宣传**（怎么让人知道、为什么值得看）。
 - **Now / 现状**：`.github/` 只有两个 workflow（`ci.yml`、`sync-from-gitee.yml`）——
@@ -208,6 +238,11 @@ rectangle            size 2    rect1   tls                      { … }
 - **Risk / 风险**：宣传口径必须与五端能力矩阵对齐 —— **不得**宣传只有 Rust 有的
   `@feature` / `@when` / `typed-block`（见 `TODO.md` §7.3 的实测差异）。
 - **Order / 顺序**：先有能力矩阵 → 再有宣传语；反过来就是长期负债。
+- **Progress / 进展（2026-10-27，分支 `feat/capability-matrix`）**：矩阵已产出 ——
+  `docs/capability-matrix.md`（每格附实跑命令与输出）。**它同时挖出三条此前不在任何清单上的
+  静默缺陷**（Lua 大整数丢精度 / C++ 无 include / JS `\uXXXX` 少跳一位），已登记为 `TODO.md` 雷 6。
+  ⚠️ 该文档 §5 列明的差异项在修完之前**不得**写成「SML 支持」。
+  **仍未做**：`.github/` 的 CONTRIBUTING / issue 模板 / PR 模板（本轮那条任务没起）。
 
 ## I-11 中文支持完善，且可剥离 / zh support, detachable
 
@@ -265,7 +300,11 @@ rectangle            size 2    rect1   tls                      { … }
 
 ## I-14 仓库排雷行动 / repo-wide landmine sweep
 
-- **Status / 状态**：`Todo` —— 本轮只记下，未开工。
+- **Status / 状态**：`Partial`（2026-10-27 二轮）—— 清单已出四类（雷 3/4/5/6），**改代码做了两批**。
+  - ✅ 雷 5 A 组（`c4077a0`）：derive 大整数超 i64 一律报错，与 serde 桥同码 `E-DERIVE-002`；
+  - ✅ 雷 3「与库分叉」类（`3bff9b0`）：六条消四条，`depth_of` 与文本扫描识别未动；
+  - 🆕 新增**雷 6**（`docs/capability-matrix.md` 挖出，三条跨实现静默缺陷，**未动**）；
+  - ⏳ 雷 1 根因（迭代式解析）、雷 2（坏样例）、雷 3 的崩用户类与冗余类、雷 5 A4-6 与 B 组 —— 仍未动。
 - **Idea / 想法**：做一次**系统性**扫描，把「看起来在测、实际没测」「静默改数据」
   「panic / 栈溢出」这类**隐性雷**一次性挖出来，而不是等实现时偶然踩到。
 - **Why / 由来**：I-1 施工时顺手撞上 `deep_nesting_exceeding_limit_is_rejected`

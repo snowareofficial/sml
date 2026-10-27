@@ -172,7 +172,11 @@ pub mod __private {
     impl SmlSerialize for u64 {
         #[inline]
         fn to_sml_value(&self) -> Result<Value, String> {
-            Ok(i64::try_from(*self).map(Value::Int).unwrap_or_else(|_| Value::float(*self as f64)))
+            // 超 i64 一律报错（对齐 serde 桥 W16 的 E-DERIVE-002 口径），
+            // 不再静默降级为精度仅 53 位的 f64（u64::MAX 会偏移成 2^64，丢精度）。
+            i64::try_from(*self).map(Value::Int).map_err(|_| {
+                format!("无符号整数 {self} 超出 SML 整数范围（i64），拒绝静默降级为浮点 [E-DERIVE-002]")
+            })
         }
     }
     impl SmlDeserialize for u64 {
@@ -198,11 +202,11 @@ pub mod __private {
     impl SmlSerialize for usize {
         #[inline]
         fn to_sml_value(&self) -> Result<Value, String> {
-            // 此前 `*self as i64` 在 u64::MAX 等情况下回绕为 -1（静默变负数）。
-            // 改用 u64 的饱和逻辑：能放进 i64 就用 Int，否则退化为 Float。
-            Ok(u64::try_from(*self)
-                .map(|u| Value::Int(u as i64))
-                .unwrap_or_else(|_| Value::float(*self as f64)))
+            // 超 i64 一律报错（与 u64 同口径，对齐 serde 桥 W16 的 E-DERIVE-002），
+            // 不再静默降级为精度仅 53 位的 f64（usize::MAX 会偏移成 2^64，丢精度）。
+            i64::try_from(*self).map(Value::Int).map_err(|_| {
+                format!("无符号整数 {self} 超出 SML 整数范围（i64），拒绝静默降级为浮点 [E-DERIVE-002]")
+            })
         }
     }
     impl SmlDeserialize for usize {
@@ -231,7 +235,11 @@ pub mod __private {
             impl SmlSerialize for $t {
                 #[inline]
                 fn to_sml_value(&self) -> Result<Value, String> {
-                    Ok(i64::try_from(*self).map(Value::Int).unwrap_or_else(|_| Value::float(*self as f64)))
+                    // 超 i64 一律报错（对齐同 trait 的 from_sml_value 严格口径，复用 E-DERIVE-002），
+                    // 不再静默降级为 f64 丢精度（如 i128/u128 大值写回会偏移）。
+                    i64::try_from(*self).map(Value::Int).map_err(|_| {
+                        format!("整数 {} 超出 SML 整数范围（i64），拒绝静默降级为浮点 [E-DERIVE-002]", self)
+                    })
                 }
             }
             impl SmlDeserialize for $t {

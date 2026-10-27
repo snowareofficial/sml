@@ -144,19 +144,25 @@
   - 目标：一份共享的用例集（SML 文本 → 期望值），四实现各自跑一遍并比对
   - 建议位置：`tests/conformance.{sml,json}` + 各语言一个 runner
 
-- [ ] **系统性核对各实现的特性支持矩阵**，至少覆盖：
-  - `include "path"` 指令（Rust 有 `parse_file`/`resolve_includes`；C/JS/Lua 支持情况待确认）
-  - 转义集（Rust 与 C 支持 `\0 \n \t \r \" \\ \uXXXX`；Lua 额外支持 `\a \b \f \v \'`）
-  - 数字格式（整数/浮点/科学计数法的识别是否一致）
-  - `$env.VAR` 内联（已验证 JS 正常；其余实现待测）
-  - 错误信息文本与失败行为是否一致
+- [x] **系统性核对各实现的特性支持矩阵**（2026-10-27 **已完成**）
+  - 产出：`docs/capability-matrix.md`（在 `feat/capability-matrix` 分支），每格附实跑命令与输出
+  - `include "path"`：**C++ 不支持** —— 静默当键值，不报错也不展开（另三端正常） ⇒ 见排雷区「雷 6」
+  - 转义集：基础六个五端一致；`\uXXXX` **JS 有 bug**；「Lua 额外支持 `\a \b \f \v \'`」经实测**是假的**
+    （五端全部 `E-LEX-004`，`lua/lib/sml.soup:187` 已收窄注释）⇒ 本行是**陈旧记录，勿再引用**
+  - 数字格式：整数/浮点/科学计数法五端都认识；**大整数 >2^53 分裂**（Rust/C/C++ 精确 int、
+    JS 升字符串、Lua 转 float **丢精度**）；`1.0` 只有 Rust 保留为浮点
+  - `$env.VAR`：裸词五端一致；引号内**三档行为**（Rust 真插值 / C 不替换 / C++·JS·Lua 仅整串锚定）
+  - 错误**码**五端一致（W10 成果）；**文案**强弱不一（Rust 最弱）
 
 - [ ] **顶层标量的行为未统一**
   - Rust：顶层标量不可往返（SML 顶层需为容器），已在代码注释与 README 说明
   - 其余实现：行为未定义，可能静默产生异常结果
   - 待办：统一为「显式报错」并写入文档
 
-- [ ] **键位置上的裸 `:`：Rust 已合规，JS / C 是欠账；Rust 的报错文案不可定位**（2026-10-10 实测登记）
+- [ ] **键位置上的裸 `:`：JS / C 已补上（2026-10-27 复核），只剩 Rust 的报错文案不可定位**（2026-10-10 实测登记）
+  - **2026-10-27 复核**：JS 现在正确地报 `E-PARSE-006`，且文案已带「含 `:` 的标量请加引号，
+    如 `a: "B::C"`」（实跑确认）；C 按能力矩阵同样报同码。**JS / C 这两端的欠账已清**，
+    待办只剩下面第 2 条（Rust 文案）。
   - **口径已经定了**，见 `errors/codes.sml` 的 `E-PARSE-006` 备注：
     「键位置上的裸 `:` 应报错」是本仓库**已登记的取舍**，W10 已把 Lua 的
     「静默当成键名」补掉（探针实测 `: 1` 曾解析出键名为 `:` 的树）。
@@ -451,12 +457,40 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
    编辑器诊断走 `parseSafe`，所以这类错误**在编辑器里根本不报红**。现照 `parseArray` 的
    `closed` 判据补齐（**不能**用 `i >= toks.length` —— 正常闭合后 `i` 也等于长度）。
    同批对齐 `E-FEATURE-003`（未知名特性；合法名 = Rust 15 个 ∪ JS 别名 3 个，支持逗号分隔）。
+   回归：`js/probe-error-codes.mjs` 52 条全绿；4 份副本已同步、`EXPECT_VENDOR` 与 VSIX 已更新。
+4. ✅ **已修（同日）：`sml-include` 的"逐行 tokenize"架构缺陷**：`expand_includes` 原先逐行
+   `tokenize(line)` ⇒ 任何**跨行词法单元**（多行块注释、多行字符串）都在第 1 行报"未闭合"，
+   **文件入口**（`parse_file` / C-ABI `sml_load_file` / 编辑器）读不了这类文档。修法**不是**
+   "给 token 加位置"，而是**按段词法**：把文本切成"跨行单元与它覆盖的行粘成一段"（新增
+   `sml-lex::compute_block_comment_spans` + `expand::segments`），段内是自洽的词法单元。
+   ⚠️ **顺带堵了一条安全漏洞**：原先只有"字符串里伪造 include"被防护（`compute_string_spans`），
+   **块注释里写一行 `include "secret.sml"` 会被真的读盘并内联** —— 现在注释所在段的开头不是
+   `include`，自然不成指令。回归测试：`include_with_multiline_block_comment_and_string`
+   与 `include_inside_block_comment_is_not_expanded`（`rust/src/lib.rs`，后者此前**无任何覆盖**）。
+5. ✅ **「未加引号即非法」已升为语言级规则**（用户裁决「好的」）：实现在
+   `rust/sml-include/src/parse.rs`（`next_token_meta` 报告"是否加引号 / 引号是否闭合"，
+   `parse_include_line` 只对 `include` 生效）⇒ `E-INCLUDE-012` 现在 **Rust（含 CLI）与 Lua 同码**，
+   码表 `impls` 改为 `[ rust lua smltools ]` / `status: done`。
+   两处豁免已钉进 `rust/tests/error_codes.rs::include_unquoted_path_is_include_012`：
+   `import a.b`（点分模块名）与 `re:"…"`。**仍未做**：① 闭合引号后的"多余字符"；
+   ② JS / C / C++ 三端对齐（JS 走裸词回退、C++ 引号串与裸词同型、C 只认 `T_STR` 故**静默**）。
 
 ---
 
 ## 排雷区 / landmines（2026-10-26 记）
 
 实现过程中挖出、但**不在本轮范围内**的问题，先记账再排期。
+
+**雷区索引（2026-10-27 整理；小节按加入顺序排，故 3/4/5 夹在中间）**
+
+| 雷 | 内容 | 状态 |
+|---|---|---|
+| 雷 1 | 深嵌套测试栈溢出 | ✅ 测试已能真跑（默认栈 128 层通过）；⚠️ **根因挂账**：任何默认栈线程解析 128 层仍 abort，迭代式解析待做 |
+| 雷 2 | `examples/slint/login.sml` 示例是坏的 | ⏳ 待定：按 `"\`…\`"` 重写第 102 行 或 标记为已知不可用（当初那处半途改动**已回退**，工作区当前干净） |
+| 雷 3 | `smltools` 的 unwrap / 与库分叉 / 冗余 | 🛠 **分叉类已处理（`3bff9b0`）**：六条消 4 条；`depth_of` 与文本扫描识别未动。崩用户类与冗余类**仍未动** |
+| 雷 4 | 核心库「不可恢复崩溃」 | ✅ 结论：**干净** —— 9 处 unwrap/expect 全部有不变量守护 |
+| 雷 5 | 静默改数据 | 🛠 **A 组 1-3 已修（`c4077a0`）**：derive 大整数超 i64 一律报错，与 serde 桥同码。A 组 4-6（静默合并/覆盖）与 B 组往返不对称**仍未动** |
+| 雷 6 | 跨实现缺陷（能力矩阵挖出） | 📋 **三条全未动**：Lua 大整数丢精度 / C++ 无 include / JS `\uXXXX` 少跳一位 —— 都是静默类 |
 
 ### 雷 1：深嵌套测试栈溢出（既有；2026-10-26 已定位并修测试，**根因仍挂账**）
 
@@ -492,17 +526,146 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 - **遗留**：`parse_array_inner` 路径未做同样的削薄检查；若将来再加肥分支，
   需重跑「默认栈 128 层」这条判据。
 
-### 雷 3：`smltools` 待清理（用户点名，2026-10-26）
+### 雷 4：排雷 ③「不可恢复崩溃」清单（2026-10-27 扫描完毕 —— **核心库是干净的**）
+
+扫 `panic!` / `.unwrap()` / `.expect(`，**只统计库代码，测试与示例不算**。结论：核心库**没有**能在用户输入下触发的 panic 路径 —— 所有 unwrap/expect 都被前一行（或同分支）的不变量守着。
+
+| 位置 | 形式 | 守护不变量 | 判定 |
+|---|---|---|---|
+| `sml-parse/src/parser.rs:1297` | `node.remove(&key).unwrap()` | 上一行 `node.get_mut(&key)` 已返回 `Some` | 安全 |
+| `sml-parse/src/contract_map.rs:143` | `s.chars().next().unwrap()` | `!s.is_empty()` 已判 | 安全 |
+| `sml-value/src/serde_bridge.rs:669` | `s.chars().next().unwrap()` | `s.chars().count() == 1` 已判 | 安全 |
+| `sml-value/src/serde_bridge.rs:843` | `m.pop_first().expect("len==1 必有键")` | `m.len() == 1` 已判 | 安全 |
+| `sml-contract/src/infer.rs:189-190` | `field_ty.get(k).unwrap()` ×2 | `k` 来自同一批键的预填充 map | 安全（但属于"靠约定"的不变量，改动时易破） |
+| `sml-pattern/src/regex.rs:55 / 241` | `alts.pop().unwrap()` / `items.pop().unwrap()` | `len() == 1` 已判 | 安全 |
+| `emit/latex.rs:182`、`emit/html.rs:262`、`emit/markdown.rs:313` | `ty.unwrap()` | `Some("h1"\|…\|"h6")` 模式已匹配 | 安全（但本可直接用绑定值，属冗余 unwrap） |
+| `emit/html.rs:196 / 230` | `v.get("cover").unwrap()` | 上一行 `if let Some(Value::Object(_)) = v.get(...)` | 安全 |
+| `emit/custom.rs:306` | `template[i..].chars().next().unwrap()` | `while i < bytes.len()` | 安全 |
+
+- `sml-lex/src/lib.rs`：5 处**全在 `#[cfg(test)]`** ⇒ 不计。
+- **未扫**：`smltools/src`（`yaml` 24 / `xml` 29 / `toml` 14 / `highlight` 14 / `main` 6，共 87 处）—— 它是 CLI，unwrap 直接等于用户可见崩溃，**且它本身是雷 3**，待与清理一并处理。
+
+**结论**：核心库这轮**无需修改**。但要记住 I-14 的规矩 —— 这份清单是"当时扫过"，以后每加一个 unwrap 都要能说清守护不变量是什么（可直接写进注释或参考本表）。
+
+### 雷 3：`smltools` 扫描清单（2026-10-27 扫完 —— **只出清单，未改任何 Rust 源码**）
 
 - **现状**：`rust/smltools/src/` 共 6 个文件、约 **4900 行** ——
   `main.rs` 1265 / `yaml.rs` 956 / `xml.rs` 943 / `highlight.rs` 712 / `toml.rs` 695 / `lint.rs` 362。
-- **历史债**：CLI 曾自带一份**行级 include 展开**，与库 `sml-include` 分叉（已删除，
-  统一走 `sml::parse_file`）—— 说明这种「CLI 与库各实现一份」的模式发生过。
-- **待扫（先出清单再动）**：
-  - [ ] 是否还有其它与库重复/分叉的逻辑（解析、发射、错误码）
-  - [ ] `main.rs` 1265 行是否该按子命令拆分
-  - [ ] 死代码 / 未使用的子命令 / 过时参数
-  - [ ] 与库的行为一致性有没有测试兜底（若没有，先补一条）
+  （任务描述写「5 个文件」，实际含 `lint.rs`，一并扫了）
+- **历史债（已确认修复）**：CLI 曾自带一份**行级 include 展开**，与库 `sml-include` 分叉
+  （多目标只展开第一个且静默丢半行、glob 当字面路径、`import {k} as w in "f"` 被判非法），
+  已于 W21 前后整体删除，统一走 `sml::parse_file`（`main.rs:585`、`main.rs:591-595` 注释为证）。
+- **扫描结论速览**：
+  - **会不会崩用户**：真实 CLI 代码路径（读文件 / `--from json|toml|yaml|xml` / `--lint` /
+    各 `--to` 发射）里**没有**可触发的 `panic!`/`.unwrap()`/`.expect()`；W21 已把 `toml.rs`
+    的 `unreachable!()`（畸形 TOML 直接 abort 进程）改成带码错误。
+    残留的 `panic!`/`.unwrap()` 全部位于 `#[cfg(test)]` 测试模块，**不进发行行为**。
+  - **会不会与库分叉**：发射（md/json/xml/svg/latex/slint/lvgl/html/custom/sml）与
+    错误码（`sml_codes`）**全部复用库**，无重复实现；唯一分叉风险在 `lint.rs` 的自写文本扫描。
+  - **只是冗余**：`--feature` 形同虚设、`@feature base` 文档与实现不符、`DEPTH_WARN` 硬编码 64。
+
+---
+
+#### 一、会不会崩用户（不可恢复崩溃）
+
+> 范围：`panic!` / `.unwrap()` / `.expect()` / `unreachable!()` / `todo!()` / `unimplemented!()`。
+> 结论：**用户可见路径零崩溃**；W21 已根治最危险的一处（畸形 TOML 的 `unreachable!()`）。
+
+| 文件:行号 | 形式 | 说明 |
+|---|---|---|
+| `toml.rs:463` | `keys.split_last().unwrap()` | **唯一**落在真实代码里的 `.unwrap()`；但 `keys` 来自 `parse_key_path`（`toml.rs:251`）已保证非空（空键会先返回 `Err`），故**不会**崩。属防御性写法，可保留或改成 `let Some((last, parents)) = … else { … }` 更显式 |
+| `xml.rs:647` 起 `mod tests` | `panic!`×4 / `.unwrap()`×25 | 全部在 `#[cfg(test)]`，不进发行二进制，**不影响用户** |
+| `yaml.rs:774` 起 `mod tests` | `panic!`×2 / `.unwrap()`×18 | 同上为测试助手与用例，**不影响用户** |
+| `toml.rs:600` 起 `mod tests` | `panic!`×3 / `.unwrap()`×9 | 测试模块，**不影响用户** |
+| `highlight.rs:534` 起 `mod tests` | `.unwrap()`×6 / `panic!`×1 | 测试模块，**不影响用户** |
+| `main.rs:1186` 起 `mod tests` | `.expect()`×6 | 测试模块，**不影响用户** |
+
+**已修复（历史对照，本轮未动）**：`toml.rs` 原 `descend` 里的 `unreachable!()` 会让畸形 TOML
+直接 abort 整个进程（W21 改为带 `E-MIGRATE-*` 的 `Err`）。`main.rs` 主线程已挪到 64 MiB 大栈线程
+跑（`main.rs:954`），深文档不再爆栈 abort。
+
+---
+
+#### 二、会不会与库分叉（重复 / 各实现一份）
+
+> **进展（2026-10-27，`3bff9b0`）**：六条里 **4 条已消**（①②③⑥）、**1 条半**（④）、**1 条未动**（⑤）。
+> 落法是**库侧开接口、lint 侧改为调用**（在 `rust/src/lib.rs` 新增 `BUILTIN_DIRECTIVES` / `split_kv`，
+> 并把 `emit::MAX_VALUE_DEPTH` 由 `pub(crate)` 提升为 `pub`），故这四处现在是**编译期**就绑在一起。
+> ⚠️ 副作用：`MAX_VALUE_DEPTH` 与两个 lint 用的函数从此成了**公开 API** —— 以后改签名算破坏性变更。
+
+| 文件:行号（改前位置） | 说明 | 处置 |
+|---|---|---|
+| `lint.rs:52-55` `BUILTIN_DIRECTIVES` | 自写一份「SML 内置指令」名单，库增改指令时 lint 会把新指令误判成片段定义 | ✅ **已消**：改用 `sml::BUILTIN_DIRECTIVES` |
+| `lint.rs:254-271` `strip_comment` | 重做行尾 `#` 注释剥离，复制了库词法的注释规则 | ✅ **已消**：改用 `sml::strip_line_comment` |
+| `lint.rs:287-309` `split_kv` | 重做 `键: 值` 切分，复制了解析器的 kv 判定 | ✅ **已消**：改用新增的 `sml::split_kv`（同口径：冒号即分隔符） |
+| `lint.rs:274-285` `first_word_after` + `lint.rs:108-123` | 自写文本扫描识别 `@contract`/`@is`/`&name`，与解析器两套实现 | ⚠️ **半**：`@xxx` 是否内置指令已走 `BUILTIN_DIRECTIVES`，但**整段文本扫描**这套仍是自写 |
+| `lint.rs:312-318` `depth_of` | 重做嵌套深度计算，与库等价逻辑两处易漂 | ⚠️ **未动**：仍自写；仅其阈值来源改为 `MAX_VALUE_DEPTH / 2` |
+| `lint.rs:58` `DEPTH_WARN = 64` | 硬编码 `MAX_VALUE_DEPTH(128)` 的一半，五端调整时不会跟随 | ✅ **已消**：改为 `MAX_VALUE_DEPTH / 2` |
+
+**未分叉（正面确认，无需动）**：
+- 发射后端全走库：`sml::to_sml_checked` / `to_markdown` / `to_xml` / `to_svg` / `to_latex` /
+  `to_slint` / `to_lvgl` / `to_html` / `to_custom` / `sml::jsonify`（`main.rs:609-695`），
+  且 `to_lvgl`/`to_html` 已从 `sml::emit` 导入（`main.rs:33`），**非 smltools 自带**。
+- 错误码统一用 `sml_codes` 库（`main.rs:40-44`），无 CLI 私有码表。
+- SML 解析走库 `sml::parse` / `sml::parse_file`（`main.rs:585/587`），无 CLI 私有解析器。
+- TOML/YAML/XML 的**迁入**解析（foreign→Value）库不提供，属 smltools 独有职责，**不算分叉**。
+
+---
+
+#### 三、只是冗余（死代码 / 过时参数 / 可清理）
+
+| 文件:行号 | 说明 |
+|---|---|
+| `main.rs:286-287` + `main.rs:562-571` `--feature` | 声明「显式声明解析版本（v1..v4）」，但 `parse_with` 里只要不是 v4 就只 `eprintln!` 一条 note，**完全不改变解析行为**（解析器恒以 v4 工作）。属**形同虚设的过时参数**——要么接进真正的版本门控，要么从 `--help` 与文档里移除 |
+| `main.rs:23` 模块文档 | 文档仍写「`@feature base` 指定的名称」作为 Hugo 落盘名来源；代码注释（`main.rs:849-853`）已自承这是**旧注释与实现各说各话**、`infer_title` 根本不读 `@feature base`。文档与实现不符，需同步 |
+| `main.rs:1265` 单文件行数 | 按 TODO 原始疑问「是否该按子命令拆分」——目前是**单二进制 + 标志驱动**（无子命令概念），`--to`/`--from` 都是枚举而非子命令，故「未使用的子命令」一项**不适用**（无子命令可废） |
+| 编译期死代码 | 当前 workspace 警告已清零（HANDOFF 三·八），故**无编译器标出的 `unused`**；上面的冗余均为「逻辑/语义层面」而非 `dead_code` 警告 |
+
+**一致性测试兜底（TODO 原项）**：`rust/smltools/tests/error_codes.rs` 已有 45 条端到端用例
+（含「CLI 输出无重复工具前缀」不变式），CLI 与库的发射/错误码行为**已有测试兜底**，无需额外补。
+
+### 雷 5：静默改数据清单（2026-10-27 扫完 —— 仅出清单，未改任何 Rust 源码）
+
+> 原则（I-14）：先扫清单，改代码是下一轮的事。四类：① 溢出饱和 ② 精度丢失
+> ③ 键被覆盖/静默合并 ④ 往返不对称。下面按危险度分 A/B/C 三组。
+
+#### A 会改数据（最危险，优先修）
+
+| 文件:行号 | 说明 | 属类 |
+|---|---|---|
+| `rust/src/derive_macro.rs:175` | ✅ **已修（`c4077a0`）**：`u64::SmlSerialize` 超 i64 时曾 `unwrap_or_else(Value::float)` 静默降级为 Float（`u64::MAX` 入 f64 舍入为 2^64，**值偏移 1**）；现一律**报错**，与 serde 桥同码 `[E-DERIVE-002]` | ① |
+| `rust/src/derive_macro.rs:203-205` | ✅ **已修（`c4077a0`）**：`usize::SmlSerialize` 同一逻辑，同上 | ① |
+| `rust/src/derive_macro.rs:234` | ✅ **已修（`c4077a0`）**：`impl_big!(i128,u128)` 的 `SmlSerialize` 同改 ⇒ **同一 trait 两侧的口径现已一致**（写 = 报错，读 = `try_from` 报错） | ① |
+| `rust/sml-parse/src/parser.rs:1313-1324` | 同一键第二次出现**静默提升为数组**（`node.insert(key, Value::Array(vec![old, val]))`），对象结构被静默改写（SML 既定语义，但属静默结构变更） | ③ |
+| `rust/sml-parse/src/parser.rs:1294-1296` | 片段/`@include` 展开 `for (fk,fv) in m { node.insert(...) }` 直接覆盖同名键，**不走**上面的数组提升，父块已有键被片段值静默覆盖 | ③ |
+| `rust/derive/src/lib.rs:86`（陷阱 2；合并调用 `:699`） | `#[sml(flatten)]` 键冲突按字段声明顺序**静默覆盖（后者胜），不报错**，被覆盖的值静默丢失（已写进 derive 文档，但仍属静默数据丢失） | ③ |
+
+#### B 只是往返不对称（可接受，但要写进文档）
+
+| 文件:行号 | 说明 | 属类 |
+|---|---|---|
+| `rust/sml-lex/src/lib.rs:477` | 大整数经 `coerce_word` 的 B10 规则直出可写，回读按 `looks_int` 分支得到 `Value::Str`（不是 Int/Float）；**类型不对称但 round-trip 安全、零精度损失**。需写进文档：大整数经 SML 文本往返会变成字符串类型 | ④ |
+| `rust/sml-value/src/ser_text.rs:82` + `serde_bridge.rs` 的 float 构造（raw=None） | serde 发射路径 `format_float(*f, None)` **不保留 raw**，`1e10` 这类书写形式保不住（写成 `10000000000`）；parser→`to_sml`(dump) 路径因 raw 能保留，两条发射器对浮点输出不一致 | ② |
+| `rust/sml-value/src/ser_text.rs:82` vs `rust/sml-value/src/dump.rs:215` | 同一 `Value::Float` 经 `to_string_direct` 与 `to_sml` 两种发射器输出文本不同（前者丢 raw），属发射器间往返不对称（HANDOFF 2.2 已记） | ④ |
+
+#### C 已修（仅登记 —— W16 / B10 修过一批同类型）
+
+| 文件:行号 | 说明 |
+|---|---|
+| `rust/sml-lex/src/lib.rs:469-478` | **已修**：大整数曾静默降级 Float 丢精度，W16/B10 改为 `looks_int` 时保留 `Value::Str`（零精度损失）；现仅残留 B 组「类型变 Str」的往返不对称 |
+| `rust/sml-value/src/serde_bridge.rs:221-229` | **已修**：`serialize_u64` 曾静默降级 Float（53 位精度），W16 改为超出 i64 即 `E-DERIVE-002` 报错（与 derive_macro 的 `SmlSerialize` 路径仍降级形成对照，见 A 组 1-3） |
+| `rust/sml-value/src/value.rs:14-26` + `dump.rs:171-215` + `sml-lex/src/lib.rs:497-500` | **已修（部分）**：引入 `raw` 原始字面量，`parse→to_sml` 路径保留 `1e10` 书写形式；但 serde 发射路径不填 raw（见 B 组 2），故仅 half 修复 |
+
+**已修（2026-10-27，`c4077a0`）**：A 组 1-3 已统一 —— derive `SmlSerialize` 的 `u64` / `usize` /
+`i128` / `u128` 超 i64 **一律报错**，与 serde 桥同口径，沿用 `E-DERIVE-002`
+（以 `[E-DERIVE-002]` 后缀落在文案里 —— 本 crate 刻意零依赖、不引 `sml-codes`，
+与 `serde_bridge.rs:101` 的写法逐字一致，见该条码的 note）。
+⇒ 现在**凡经 `Value` 的写入路径口径统一**；唯一的例外是 `to_string_direct`（直出），
+它按 I-1 的既定设计**保真写出**（超 i64 写成裸词），回读按 B10 变 `Str` ⇒ 往返不对称仍挂在 **B 组**。
+
+**仍挂账（下一轮）**：
+- A 组 4-6 的静默合并/覆盖 —— 建议补「重复键/冲突键」warning 而非静默；
+- `to_string_direct` ↔ `Value` 两条路对超 i64 整数的**口径差异**：是再统一一层，还是维持现状——未定。
 
 ### 雷 2：`examples/slint/login.sml` 解析不过（示例是坏的）
 
@@ -524,23 +687,24 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
   加了逗号只是把错误码从 `E-PARSE-006` 换成 `E-PARSE-007`（非预期的逗号），两版都失败。
 - **待定**：按 `"\`…\`"` 重写第 102 行（但表达式内含 Slint 字符串字面量，需另找写法），
   或回退那 1 字符并把该示例标记为已知不可用。
-   回归：`js/probe-error-codes.mjs` 52 条全绿；4 份副本已同步、`EXPECT_VENDOR` 与 VSIX 已更新。
-4. ✅ **已修（同日）：`sml-include` 的"逐行 tokenize"架构缺陷**：`expand_includes` 原先逐行
-   `tokenize(line)` ⇒ 任何**跨行词法单元**（多行块注释、多行字符串）都在第 1 行报"未闭合"，
-   **文件入口**（`parse_file` / C-ABI `sml_load_file` / 编辑器）读不了这类文档。修法**不是**
-   "给 token 加位置"，而是**按段词法**：把文本切成"跨行单元与它覆盖的行粘成一段"（新增
-   `sml-lex::compute_block_comment_spans` + `expand::segments`），段内是自洽的词法单元。
-   ⚠️ **顺带堵了一条安全漏洞**：原先只有"字符串里伪造 include"被防护（`compute_string_spans`），
-   **块注释里写一行 `include "secret.sml"` 会被真的读盘并内联** —— 现在注释所在段的开头不是
-   `include`，自然不成指令。回归测试：`include_with_multiline_block_comment_and_string`
-   与 `include_inside_block_comment_is_not_expanded`（`rust/src/lib.rs`，后者此前**无任何覆盖**）。
-5. ✅ **「未加引号即非法」已升为语言级规则**（用户裁决「好的」）：实现在
-   `rust/sml-include/src/parse.rs`（`next_token_meta` 报告"是否加引号 / 引号是否闭合"，
-   `parse_include_line` 只对 `include` 生效）⇒ `E-INCLUDE-012` 现在 **Rust（含 CLI）与 Lua 同码**，
-   码表 `impls` 改为 `[ rust lua smltools ]` / `status: done`。
-   两处豁免已钉进 `rust/tests/error_codes.rs::include_unquoted_path_is_include_012`：
-   `import a.b`（点分模块名）与 `re:"…"`。**仍未做**：① 闭合引号后的"多余字符"；
-   ② JS / C / C++ 三端对齐（JS 走裸词回退、C++ 引号串与裸词同型、C 只认 `T_STR` 故**静默**）。
+
+### 雷 6：五端能力矩阵挖出的跨实现缺陷（2026-10-27 agent 产出）
+
+来源：`docs/capability-matrix.md`（`feat/capability-matrix` 分支；每格附实跑命令与输出，可逐格复现）。
+**这三条此前不在任何清单上** —— 都是「静默」类，即不报错、但数据是错的。按危险度排：
+
+| # | 问题 | 位置 | 属类 |
+|---|---|---|---|
+| 1 | **Lua 大整数（>2^53）转 float 丢精度**：`330106201503071234` ⇒ `3.3010620150307e+17`，回读不相等 | `lua/lib/sml.soup` | **静默改数据**（最危险） |
+| 2 | **C++ 不支持 include**：`include "sub.sml"` 被静默当成键 `include: sub.sml`，不报错也不展开；而 Rust / C / JS / Lua 均正常 | `cpp/sml.cpp` | **静默错树** |
+| 3 | **JS `\uXXXX`（固定四位）少跳一位**：`i += 4` 应为 `i += 5`（`js/sml.mjs:131`）⇒ `\u0041\u0042` 解出 `aA1b`（正确 `aAb`） | `js/sml.mjs:131` | **静默产生错误数据** |
+
+**同批推翻的两条陈旧记录**（手册已就地更正，勿再引用）：
+- 「Lua 额外支持 `\a \b \f \v \'`」—— 实测五端全部 `E-LEX-004`，不成立；
+- 「JS / C 键位裸冒号静默」—— **已修**（JS 我实跑复核过，报 `E-PARSE-006` 且文案带示例）。
+
+**宣传语门禁**（I-10 的顺序要求：先有能力矩阵，再有宣传语）：上面三条修完之前，
+`docs/capability-matrix.md` §5 列出的差异项**不得**写成「SML 支持」。
 
 ### 复核方法（可重跑）
 

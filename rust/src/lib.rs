@@ -140,6 +140,48 @@ pub use sml_contract::infer;
 /// 外置扩展点：注册自定义契约类型（`image` / `link` / `time` 等），
 /// 无需改动本 crate 源码，也不必把领域类型写进 SML 规范层。
 pub use sml_contract::ext as contract_ext;
+
+// ---------------------------------------------------------------------------
+// 单一来源：内置指令名单与「键: 值」切分。
+// smltools `--lint` 直接复用，避免与解析器/词法器各实现一份而静默分叉
+// （库增/改指令或 kv 语义时，lint 自动跟随）。
+// ---------------------------------------------------------------------------
+
+/// SML 顶层内置指令名单：这些 `@xxx` 不是片段定义。
+///
+/// 与解析层在注册阶段就拒绝的 7 个内建名（contract/is/type/version/feature/when/for）
+/// 一致，并额外包含由 `sml-include` 层处理的 `include`——lint 据此把 `@xxx` 区分为
+/// 「片段定义」还是「内置指令」，库新增/调整指令时这里自动跟随。
+pub const BUILTIN_DIRECTIVES: &[&str] = &[
+    "contract", "is", "type", "version", "feature", "when", "for", "include",
+];
+
+/// 切分 `键: 值`：与解析器同口径——冒号即字段分隔符（不要求后跟空白），
+/// 字符串/引号内的冒号不算。供 `smltools --lint` 复用，避免与解析器双份实现。
+pub fn split_kv(s: &str) -> Option<(String, String)> {
+    let b = s.as_bytes();
+    let (mut in_s, mut in_d) = (false, false);
+    for i in 0..b.len() {
+        match b[i] {
+            b'\'' if !in_d => in_s = !in_s,
+            b'"' if !in_s => in_d = !in_d,
+            b':' if !in_s && !in_d => {
+                let k = s[..i].trim().trim_matches(['"', '\'']).to_string();
+                if k.is_empty() {
+                    return None;
+                }
+                return Some((k, s[i + 1..].trim().to_string()));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// 递归深度上限（解析/发射共用）。lint 的「嵌套过深」阈值取它的一半，
+/// 库改此处时 lint 自动跟随（同 `BUILTIN_DIRECTIVES` 的单一来源思路）。
+pub use crate::emit::MAX_VALUE_DEPTH;
+
 pub use sml_include::{
     IncludeTarget, MiniRegex, RegexError, compile_regex, compile_regex_checked,
     parse_include_line, regex_matches, regex_matches_checked, strip_line_comment,
