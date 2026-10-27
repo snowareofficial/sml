@@ -17,6 +17,12 @@
 //! - 位置参数形式（`@xxx Name { }`）自 v4 起废弃：外置指令须显式开启
 //!   [`Directive::positional`]，且命中时产出一条 [`DiagnosticKind::Deprecated`]。
 //!   之所以保留，是为了让既有方言文档能先跑起来再迁移。
+//! - **键冲突告警**（雷 5 · A 组 4-5）：同一块内键名重复 ⇒ 提升为数组；片段展开
+//!   （`&name`）覆盖父块已有的同名键 ⇒ 父块原值丢失。二者此前**完全静默**，现产出
+//!   [`DiagnosticKind::DuplicateKey`] / [`DiagnosticKind::KeyOverwritten`]。
+//!   ⚠️ **语义一律不变** —— 告警只说明「数据被改写 / 覆盖过」，`Value` 与旧版
+//!   逐字一致。告警只经 `*_with_warnings` 入口交出（[`crate::parse_with_warnings`]），
+//!   `parse()` 恒不返回；开关见 [`ParseOptions::warn_key_conflict`]。
 //! - 扩展只影响**解析期**；它不改变词法，也不能引入新的 token。
 
 use std::collections::BTreeMap;
@@ -45,16 +51,34 @@ pub enum Outcome {
 }
 
 /// 非致命诊断。致命问题仍然走 `Err(String)`，避免把警告当错误打断解析。
+///
+/// ⚠️ `line` 是后加的字段：对**只读取**诊断的代码无破坏，只有在本 crate 之外
+/// 用结构体字面量构造 `Diagnostic` 才会缺字段（与 `ParseOutput` 加
+/// `contract_map` 时同一判据，已记入 CHANGELOG「升级注意」）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     pub kind: DiagnosticKind,
     pub message: String,
+    /// 触发位置的行号（**1 起**）。拿不到时为 `None`
+    /// —— 文件入口的 token 流经 include 展开、跨文件合并，**没有可映射的单一原文**
+    /// （宁缺勿错，与 [`crate::api`] 的错误定位同一取舍）。
+    pub line: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagnosticKind {
     /// 仍被接受，但已不推荐的写法（如位置参数形式）。
     Deprecated,
+    /// 同一块内键名重复 ⇒ **提升为数组**（SML 既定语义：`k: 1` + `k: 2` ⇒ `k: [1, 2]`）。
+    ///
+    /// 值没丢，但**结构被改写**：下游按 `k` 是标量写的代码会拿到数组。
+    /// 这是本仓库「静默改数据」清单 A 组第 4 项 —— 语义保留、改为告警。
+    DuplicateKey,
+    /// 片段展开（`&name`）覆盖了**父块已有的同名键** ⇒ 父块那个值**真的丢了**。
+    ///
+    /// 与 [`Self::DuplicateKey`] 的关键差别：片段合并走直接赋值，**不走**数组提升
+    /// （ch03/ch08 写明的既定语义），所以这是丢值而不是改结构，危险度更高。
+    KeyOverwritten,
 }
 
 /// 外置 `@` 指令。
@@ -155,7 +179,10 @@ impl DirectiveTable {
 }
 
 /// 解析期可选项。**全部为空时与既有解析行为完全一致。**
-#[derive(Clone, Default)]
+///
+/// ⚠️ [`Self::warn_key_conflict`] 默认 `true`，且它是**唯一**一个默认非假的开关：
+/// 它只影响 `diagnostics` 的内容，不影响 `Value`，故不算「改变既有行为」。
+#[derive(Clone)]
 pub struct ParseOptions {
     /// 外置 `@` 指令表
     pub directives: DirectiveTable,
@@ -168,11 +195,38 @@ pub struct ParseOptions {
     /// （`contract_map` 恒为 `None`，解析路径零额外开销）。
     /// 开启后见 [`crate::contract_map::ContractMap`]。
     pub(crate) trace_contracts: bool,
+    /// 是否收集**键冲突**告警（[`DiagnosticKind::DuplicateKey`] /
+    /// [`DiagnosticKind::KeyOverwritten`]）。
+    ///
+    /// 默认 `true`：调用方既然选了 `*_with_warnings` 入口，本意就是要看见告警。
+    /// 置 `false` 可关掉（如文档刻意用重复键构造数组）。
+    ///
+    /// ⚠️ 本开关**只影响 `diagnostics` 的内容**，不改变 `Value`；且
+    /// `parse()` / `parse_file()` 这些不带 warnings 的入口恒不返回诊断
+    /// （它们在 `api.rs` 里就丢掉了）⇒ 对既有调用方零影响。
+    pub warn_key_conflict: bool,
+}
+
+impl Default for ParseOptions {
+    fn default() -> Self {
+        Self {
+            directives: DirectiveTable::new(),
+            contract_ext: ContractExt::new(),
+            trace_contracts: false,
+            warn_key_conflict: true,
+        }
+    }
 }
 
 impl ParseOptions {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// 是否收集键冲突告警（链式）。默认 `true`。
+    pub fn warn_key_conflict(mut self, on: bool) -> Self {
+        self.warn_key_conflict = on;
+        self
     }
 
     /// 开启契约映射记录（链式）。

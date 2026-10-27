@@ -18,10 +18,11 @@ pub mod ext;
 
 pub use api::{
     loads, parse, parse_allowed, parse_file, parse_file_features, parse_file_versioned,
-    parse_versioned, parse_with, parse_with_features, parse_with_features_env,
+    parse_file_with_warnings, parse_versioned, parse_with, parse_with_features,
+    parse_with_features_env, parse_with_warnings,
 };
 pub use contract_map::{AppliedContract, ContractMap, PathSeg};
-pub use ext::{ParseOptions, ParseOutput};
+pub use ext::{Diagnostic, DiagnosticKind, ParseOptions, ParseOutput};
 pub use error::ParseError;
 
 // 解析器游标需对外可见：`sml_parse::Parser` 被 cond 与测试复用。

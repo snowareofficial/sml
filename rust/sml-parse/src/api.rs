@@ -16,7 +16,7 @@ use sml_value::Value;
 
 use crate::contract_map::ContractMap;
 use crate::error::ParseError;
-use crate::ext::{ParseOptions, ParseOutput};
+use crate::ext::{Diagnostic, ParseOptions, ParseOutput};
 use crate::parser::Parser;
 use crate::scan::{features_for, strip_features, strip_version};
 
@@ -56,6 +56,43 @@ pub fn parse_file_versioned(path: impl AsRef<Path>) -> Result<(Value, Version), 
     Ok((val, v))
 }
 
+/// 解析 SML 文件（展开 include），并把**非致命诊断**（键冲突告警）一并交出来。
+///
+/// 为什么除了 [`parse_with_warnings`] 还要单给一个文件入口：`KeyOverwritten`
+/// 那类告警（片段展开覆盖父块已有的键）几乎只发生在真实文档里，而片段又常常
+/// 定义在被 include 的子文件中 —— 只有文本入口会漏掉最典型的那一类。
+///
+/// ⚠️ 文件入口的 token 流经 include 展开、跨文件合并，**没有可映射的单一原文**
+/// ⇒ 诊断的 `line` **恒为 `None`**（文案末尾会指引改用 `smltools --lint` 拿行号）。
+pub fn parse_file_with_warnings(
+    path: impl AsRef<Path>,
+) -> Result<(Value, Vec<Diagnostic>), SmlError> {
+    let path = path.as_ref();
+    let text = std::fs::read_to_string(path).map_err(|e| {
+        SmlError::new(E_IO_001, format!("读取失败 {}: {e}", path.display()))
+    })?;
+    let base = path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| PathBuf::from("."));
+    let (rest, declared) = strip_version(&text)?;
+    let (rest, feats, touched, mode, base_ver, had) = strip_features(&rest)?;
+    let allowed = FeatureSet::all().intersection(feats);
+    let v = declared.or(base_ver).unwrap_or(Version::V1);
+    let feats = features_for(v, allowed, touched, mode, had);
+    let toks = resolve_includes(&rest, &base, allowed)?;
+    let out = parse_impl_tokens_ext(
+        toks,
+        Vec::new(),
+        Vec::new(),
+        feats,
+        BTreeMap::new(),
+        ParseOptions::new(),
+    )?;
+    Ok((out.value, out.diagnostics))
+}
+
 /// 解析 SML 文本
 ///
 /// 会自动识别并剥离 `@version` / `@feature` 声明（需要版本信息时用
@@ -75,7 +112,9 @@ pub fn parse(text: &str) -> Result<Value, SmlError> {
 ///
 /// 与 [`parse`] 的唯一差别：可传入 [`ParseOptions`]，让下游注册的自定义 `@指令` 生效，
 /// 并额外返回非致命诊断（如「位置参数形式已废弃」）。
-/// 传入空选项（[`ParseOptions::new`]）时，行为与 [`parse`] **完全一致**。
+/// 传入空选项（[`ParseOptions::new`]）时，**解析结果与 [`parse`] 完全一致** ——
+/// 差别只在本入口额外返回 `diagnostics`（含键冲突告警，见
+/// [`parse_with_warnings`]）；`parse` 那条路把诊断丢掉了。
 ///
 /// 用途：下游要挂「带类型的元数据块，且不进主数据树」（表单描述 / 处理流 / 文章块等）
 /// 时，**不必 fork 解析器、也不必把方言名字写进 SML 规范层** —— 方言留在下游仓库。
@@ -106,6 +145,45 @@ pub fn parse_with(text: &str, opts: ParseOptions) -> Result<ParseOutput, SmlErro
     let lines = token_lines(&rest, &spans);
     parse_impl_tokens_ext(toks, spans, lines, feats, BTreeMap::new(), opts)
         .map_err(|e| with_position(&rest, e))
+}
+
+/// 解析 SML 文本，并把**非致命诊断**（键冲突告警）一并交出来。
+///
+/// 与 [`parse`] 的差别**只在返回值**：`parse` 的签名是 `Result<Value, _>`，承载不了
+/// 诊断，只能丢掉；本入口把它们交给调用方。**解析结果与 `parse` 逐字一致** ——
+/// 诊断只说明「数据被改写 / 覆盖过」，不改变 `Value`。
+///
+/// 目前产出两类告警（见 [`crate::ext::DiagnosticKind`]）：
+///
+/// | kind | 触发 | 后果 |
+/// |---|---|---|
+/// | `DuplicateKey` | 同一块内键名重复 | 已**提升为数组**（SML 既定语义，但结构被改写） |
+/// | `KeyOverwritten` | 片段展开撞上父块已有的同名键 | 父块原值**已丢失**（片段合并不走数组提升） |
+///
+/// 两者此前都是**静默**的（雷 5 · A 组 4/5）。语义一律保留 —— 只是不再闷声改数据。
+///
+/// ```ignore
+/// let (v, warns) = sml_parse::parse_with_warnings("k: 1\nk: 2\n")?;
+/// assert_eq!(warns.len(), 1);          // DuplicateKey
+/// assert!(matches!(v.get("k"), Some(Value::Array(_)))); // 值仍是数组（语义未变）
+/// ```
+pub fn parse_with_warnings(text: &str) -> Result<(Value, Vec<Diagnostic>), SmlError> {
+    let (rest, declared) = strip_version(text)?;
+    let (rest, feats, touched, mode, base, had) = strip_features(&rest)?;
+    let v = declared.or(base).unwrap_or(Version::V1);
+    let feats = features_for(v, feats, touched, mode, had);
+    let (toks, spans) = tokenize_spans(&rest)?;
+    let lines = token_lines(&rest, &spans);
+    let out = parse_impl_tokens_ext(
+        toks,
+        spans,
+        lines,
+        feats,
+        BTreeMap::new(),
+        ParseOptions::new(),
+    )
+    .map_err(|e| with_position(&rest, e))?;
+    Ok((out.value, out.diagnostics))
 }
 
 /// 解析 SML 文本，并限制文档声明的版本必须在 `allowed` 范围内。
@@ -291,6 +369,8 @@ fn parse_impl_tokens_ext(
         loop_vars: BTreeMap::new(),
         directives: Arc::new(opts.directives),
         diags: Vec::new(),
+        // 键冲突告警的开关：只影响 `diags`，不影响 `value`。
+        warn_key_conflict: opts.warn_key_conflict,
         contract_ext: Arc::new(opts.contract_ext),
         // 契约映射：opt-in。未开启时 None（零开销、结果逐字一致）。
         contract_map: if opts.trace_contracts {

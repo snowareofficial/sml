@@ -74,6 +74,10 @@ pub struct Parser {
     pub(crate) directives: Arc<DirectiveTable>,
     /// 非致命诊断（弃用提示等），随结果一并返回，不打断解析。
     pub(crate) diags: Vec<Diagnostic>,
+    /// 是否收集**键冲突**告警（见 [`crate::ext::ParseOptions::warn_key_conflict`]）。
+    ///
+    /// 只影响 [`Self::diags`] 的内容，**不影响解析结果**（`Value` 与旧版逐字一致）。
+    pub(crate) warn_key_conflict: bool,
     /// 外置契约类型表（由下游注册，见 [`crate::ext`]）。
     pub(crate) contract_ext: Arc<ContractExt>,
 }
@@ -176,6 +180,32 @@ impl Parser {
             Some(pos) => SmlError::new(code, msg).at(pos),
             None => SmlError::new(code, msg),
         }
+    }
+
+    /// token 序号 `idx` 所在行号（**1 起**）；行号未知（`lines` 为空）时返回 `None`。
+    ///
+    /// 与 [`Self::err_at`] 同一取舍：宁可不给，也不给错的。
+    pub(crate) fn line_of(&self, idx: usize) -> Option<usize> {
+        self.lines.get(idx).map(|l| l + 1)
+    }
+
+    /// 记一条**键冲突**告警（[`DiagnosticKind::DuplicateKey`] /
+    /// [`DiagnosticKind::KeyOverwritten`]）。
+    ///
+    /// 收不收由 [`Self::warn_key_conflict`] 决定；行号拿不到时在文案末尾补一句
+    /// 指引（文件入口的 token 流是跨文件合并的，没有可映射的单一原文）。
+    fn push_key_diag(&mut self, kind: DiagnosticKind, idx: usize, msg: String) {
+        if !self.warn_key_conflict {
+            return;
+        }
+        let line = self.line_of(idx);
+        let message = match line {
+            Some(_) => msg,
+            None => format!(
+                "{msg}（本入口无行号信息；需要带行号的诊断请用 `smltools --lint`）"
+            ),
+        };
+        self.diags.push(Diagnostic { kind, message, line });
     }
 
     /// 查 `@for` 循环变量 `${var}`（只读绑定）。未绑定返回 None。
@@ -324,6 +354,7 @@ impl Parser {
                     "sml: 扩展指令 `@{fname} {w} {{ .. }}` 使用了位置参数形式；\
                      自 v4 起推荐显式写作 `@{fname} name: {w} {{ .. }}`"
                 ),
+                line: self.line_of(self.i.saturating_sub(1)),
             });
             return Ok(Some(w));
         }
@@ -359,6 +390,7 @@ impl Parser {
             // 子解析器独立收集：`@for` 体内触发的诊断暂不回传父级
             // （回传需要跨 &mut 借用，收益不抵复杂度；循环体通常不含弃用写法）。
             diags: Vec::new(),
+            warn_key_conflict: self.warn_key_conflict,
             contract_ext: Arc::clone(&self.contract_ext),
         }
     }
@@ -1260,6 +1292,8 @@ impl Parser {
                     //   - key 文本直接含 `${`：未触发块边界的其它情形。
                     // 当前 `@for` 的 `${var}` 仅允许出现在**值位置**（`"${h}"`）；需要动态键名
                     // 时请用数组表达（`hosts: @for h in a b { name: "${h}" }`）。
+                    // 键 token 的序号（游标已越过它）：供键冲突告警定位行号。
+                    let key_idx = self.i.saturating_sub(1);
                     let looks_like_key_interp =
                         key.contains("${") || (key == "$" && self.peek() == Some(&Tok::LBrace));
                     if looks_like_key_interp {
@@ -1292,6 +1326,21 @@ impl Parser {
                         match &resolved {
                             Value::Object(m) => {
                                 for (fk, fv) in m {
+                                    // 静默改数据（雷 5 · A 组第 5 项）：片段合并是**直接赋值**，
+                                    // 不走下方「同名提升为数组」的统一规则 ⇒ 父块已有的同名键
+                                    // 会被**整个丢掉**，且不报错。语义保留（ch03/ch08 既定），
+                                    // 但必须让调用方看见 —— 故记一条 KeyOverwritten。
+                                    if node.contains_key(fk) {
+                                        self.push_key_diag(
+                                            DiagnosticKind::KeyOverwritten,
+                                            key_idx,
+                                            format!(
+                                                "sml: 父块原有的键 `{fk}` 被片段 `{}` 的展开值覆盖\
+                                                 （父块原值已丢失；片段合并不走重复键的数组提升）",
+                                                key
+                                            ),
+                                        );
+                                    }
                                     node.insert(fk.clone(), fv.clone());
                                 }
                             }
@@ -1311,7 +1360,23 @@ impl Parser {
                         continue;
                     }
                     // 同名冲突 -> 提升为数组
+                    //
+                    // 静默改数据（雷 5 · A 组第 4 项）：这是 SML **既定语义**（`k: 1` + `k: 2`
+                    // ⇒ `k: [1, 2]`），值没丢，但对象结构被改写 —— 下游按标量读 `k` 的代码
+                    // 会拿到数组。语义保留，改为告警（不静默）。
                     if let Some(existing) = node.get_mut(&key) {
+                        let msg = match existing {
+                            Value::Array(a) => format!(
+                                "sml: 键 `{key}` 在同一块内再次出现，已追加进既有数组\
+                                 （追加后 {} 项）",
+                                a.len() + 1
+                            ),
+                            _ => format!(
+                                "sml: 键 `{key}` 在同一块内重复出现，已**提升为数组**\
+                                 （`{key}` 现在是 [原值, 新值]）"
+                            ),
+                        };
+                        self.push_key_diag(DiagnosticKind::DuplicateKey, key_idx, msg);
                         match existing {
                             Value::Array(a) => a.push(val),
                             _ => {

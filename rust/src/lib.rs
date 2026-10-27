@@ -191,8 +191,9 @@ pub use sml_include::{
 pub use sml_lex::Tok;
 pub use sml_parse::{
     loads, parse, parse_allowed, parse_file, parse_file_features, parse_file_versioned,
-    parse_versioned, parse_with, parse_with_features, parse_with_features_env, AppliedContract,
-    ContractMap, ParseError, ParseOptions, ParseOutput, PathSeg,
+    parse_file_with_warnings, parse_versioned, parse_with, parse_with_features,
+    parse_with_features_env, parse_with_warnings, AppliedContract, ContractMap, Diagnostic,
+    DiagnosticKind, ParseError, ParseOptions, ParseOutput, PathSeg,
 };
 /// 外置扩展点：注册自定义 `@指令`（如 `@form` / `@policy` / `@flow`），
 /// 无需改动本 crate 源码 —— 方言定义留在下游仓库。
