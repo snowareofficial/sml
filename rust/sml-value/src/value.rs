@@ -190,6 +190,10 @@ impl Value {
     /// 例如 `"a.b[0].c"`：先取对象 `a` 的字段 `b`，再取下标 0 的数组元素，最后取其字段 `c`。
     /// 下标越界、下标非数字、或下标作用于非数组，均返回 None；点路径语义与旧版一致。
     ///
+    /// ⚠️ **字面键名优先**：先按整段原文查一遍键，命中就用它。故键名本身含 `[` 的文档
+    /// （如键就叫 `a[0]`）**不受**下标语法影响 —— 新增的下标能力只在「无精确键匹配」时生效，
+    /// 不会把既有文档从 `Some` 变成 `None`（回归测试：`bracket_in_key_name_is_not_rewritten`）。
+    ///
     /// # 示例
     /// ```
     /// use sml_value::Value;
@@ -210,6 +214,14 @@ impl Value {
             if raw.is_empty() {
                 // 形如 "a." 的尾随点 / 起始点：旧版对空键查不到，返回 None
                 return None;
+            }
+            // 兼容优先：字面键名命中就直接用它 —— 键名本身含 `[` 的文档
+            // （如键就叫 `a[0]`）不会因新增的下标语法而从 Some 变 None。
+            if let Value::Object(m) = cur {
+                if let Some(v) = m.get(raw) {
+                    cur = v;
+                    continue;
+                }
             }
             // 拆出键名与可能的下标序列（键名可能为空，紧跟 "." 后的 "[" 时）
             let (key, idxs) = match raw.split_once('[') {

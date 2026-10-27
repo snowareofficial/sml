@@ -149,3 +149,24 @@ fn get_supports_array_index() {
     assert!(doc.get("a.b[-1]").is_none());
     assert!(doc.get("a.b[0].z").is_none());
 }
+
+/// 回归钉子：`get()` 新增 `[idx]` 下标后，键名**本身含方括号**的文档
+/// 不得从 `Some` 变 `None` —— 字面键名优先于下标语法。
+#[test]
+fn bracket_in_key_name_is_not_rewritten() {
+    use std::collections::BTreeMap;
+    let doc = Value::Object(BTreeMap::from([
+        ("a[0]".into(), Value::Int(1)),
+        ("x[".into(), Value::Int(2)),
+        ("plain".into(), Value::Str("ok".into())),
+    ]));
+    // 键名就叫 a[0]：按字面取，不能当成"键 a 的下标 0"
+    assert_eq!(doc.get("a[0]").and_then(|x| x.as_i64()), Some(1));
+    // 未闭合方括号同理，按字面键名取
+    assert_eq!(doc.get("x[").and_then(|x| x.as_i64()), Some(2));
+    // 普通键不受影响
+    assert_eq!(doc.get("plain").and_then(|x| x.as_str()), Some("ok"));
+    // 没有字面匹配的仍走下标语法（见 get_supports_array_index）
+    let arr = Value::Object(BTreeMap::from([("b".into(), Value::Array(vec![Value::Int(5)]))]));
+    assert_eq!(arr.get("b[0]").and_then(|x| x.as_i64()), Some(5));
+}
