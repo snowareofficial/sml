@@ -181,6 +181,14 @@ fn dump_element(v: &Value, indent: usize, depth: usize, out: &mut String) {
 /// Float 一律 `raw = None`，但万一将来有人绕过该规则（改了值却留着旧 raw），
 /// 校验能让它退回默认格式化，而不是输出一个与值不符的字面量 ——
 /// 把「输出错误数据」降级为「丢失书写形式」。
+///
+/// ⚠️ **本函数是 raw 的唯一消费点，但也只有 `to_sml` 喂得到它**：经 serde 的
+/// 两条发射器（`serde_bridge::to_string` / `ser_text::to_string_direct`）传来的
+/// `raw` 恒为 `None` —— serde 的浮点通道只给 `f64`，拿不到书写形式。故同一
+/// `Value::Float` 走 `to_sml` 与走 serde 会写出不同文本（`1e10` vs `10000000000.0`）。
+/// 该不对称已定性为「serde 数据模型做不到」，**不是待修项**；详见 `ser_text.rs`
+/// 模块文档，并由 `rust/tests/ser_de_direct.rs::float_raw_only_survives_to_sml`
+/// 钉住当前行为。
 pub(crate) fn format_float(f: f64, raw: Option<&str>) -> String {
     if let Some(r) = raw {
         if let Ok(parsed) = r.parse::<f64>() {
@@ -282,8 +290,12 @@ fn dump_inline(v: &Value, depth: usize) -> String {
 /// 解码后的值与未转义形式不可区分。
 ///
 /// **因此**：解析任何**不可信**的 SML 文档时，应显式禁用 `env` 特性
-/// （[`parse_with_features`] + `FeatureSet::without(Feature::Env)`），
+/// （`sml_parse::parse_with_features` 配 `FeatureSet::without(Feature::Env)`），
 /// 这样 `$env.X` 一律解析失败，既杜绝环境变量读取，也消除 round-trip 歧义。
+///
+/// 这两个符号刻意**不写成 intra-doc 链接**：它们分别在 `sml-parse` 与
+/// `sml-feature` 里，而依赖方向是**它们依赖本 crate**（本 crate 零依赖），
+/// 反向引不到 —— 写成链接只会产出 `unresolved link` 警告。
 #[cfg(feature = "sml")]
 pub fn to_sml(v: &Value) -> String {
     let mut out = String::new();

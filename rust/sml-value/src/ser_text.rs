@@ -10,8 +10,19 @@
 //!
 //! - **大整数往返不对称**：超 i64 的整数写出去是裸词，SML 回读按 `coerce_word` 的 B10
 //!   规则得到 **`Str`**（不丢精度，但类型变了）。`Value` 那条路是直接**拒收**（`E-DERIVE-002`）。
-//! - **浮点没有 `raw`**：serde 只给 `f64`，故不保留 `1e10` 这类书写形式
-//!   （`Value::Float` 带 `raw`，走 `to_sml` 能保留）。
+//! - **浮点 `raw` 拿不到 —— 已定性为「做不到」，不是本仓库的疏漏**：serde 的
+//!   `Serializer` 对浮点只有 `serialize_f64(v: f64)` 一个入口，`f64` **按值**传入，
+//!   数据模型里**没有**「数值 + 原始书写文本」这个位置。故这条发射器拿不到 `1e10`
+//!   的写法，只能按 `format_float(f, None)` 的默认规则写成 `10000000000.0`。
+//!   唯一能携带文本的是字符串通道（`serialize_str` / `collect_str`），但走它等于
+//!   在 JSON 等**其它任何 serde 格式**里把浮点变成字符串 —— 那是真改数据，比丢
+//!   书写形式糟得多（反证见 `rust/tests/ser_de_direct.rs` 的探针测试）。
+//!   ⇒ 同一 `Value::Float` 两条发射器输出不同，是**既定不对称**（TODO.md 雷 5 B 组）：
+//!     - 保写法：`to_sml` / `Display`（`dump.rs` 直接吃 `Value` 上的 raw）；
+//!     - 不保写法：`serde::to_string` 与 `to_string_direct`（raw 在
+//!       `impl Serialize for Value`（`serde_bridge.rs`）处即已丢弃）。
+//!   由 `rust/tests/ser_de_direct.rs::float_raw_only_survives_to_sml` 钉住 ——
+//!   **那条测试红了**就说明 serde 侧已能保住写法，回来改本段。
 //! - **排版与 `to_sml` 逐字节一致**，靠测试锁定 —— 两份发射器必须共用
 //!   [`quote_if_needed`] / [`format_float`]，否则会各自漂移。
 //! - **非字符串键仍报错**（与 `Value` 那条路一致）：SML 的键是裸词 / 引号串。

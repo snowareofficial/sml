@@ -7,6 +7,7 @@
 
 use serde::Serialize;
 use sml::Value;
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 // ---- 字节一致性：与 `to_sml` 逐字节相同（两份发射器不许漂移）----
@@ -227,4 +228,187 @@ fn option_and_empty_containers() {
     let direct = sml::serde::to_string_direct(&empty).unwrap();
     assert_eq!(direct, "[  ]");
     assert_eq!(sml::to_sml(&Value::Array(vec![])), direct);
+}
+
+// ---- 浮点 raw：两条发射器的不对称（TODO.md 雷 5 B 组 2-3 行）----
+//
+// 先说结论：**做不到让 serde 侧也保留 `1e10`**。
+// serde 的 `Serializer` 对浮点只有一个入口 `serialize_f64(v: f64)`
+// （`serde_core-1.0.229/src/ser/mod.rs:681`），`f64` **按值**传入 ——
+// 数据模型里没有「数值 + 原始书写文本」这个位置，序列化器拿不到 raw。
+// 下面的 `probe` 把这个事实**实测**出来（不靠印象）。
+
+/// 什么都不做，只把 serde 调过来的方法名与参数记下来的探针 `Serializer`。
+mod probe {
+    use serde::de::value::Error;
+    use serde::ser::{Impossible, Serializer};
+    use std::cell::RefCell;
+
+    pub struct Probe<'a>(pub &'a RefCell<Vec<String>>);
+
+    /// 标量通道：记下 `方法名(参数)` 后正常返回。
+    macro_rules! record {
+        ($(fn $m:ident($($a:ident: $t:ty),*) { $e:expr })*) => {
+            $(
+                fn $m(self, $($a: $t),*) -> Result<Self::Ok, Self::Error> {
+                    self.0.borrow_mut().push(format!("{}({})", stringify!($m), $e));
+                    Ok(())
+                }
+            )*
+        };
+    }
+
+    /// 容器通道：本探针只观测标量，一律拒收。
+    macro_rules! reject {
+        ($(fn $m:ident($($a:ident: $t:ty),*);)*) => {
+            $(
+                fn $m(self, $($a: $t),*) -> Result<Impossible<(), Error>, Error> {
+                    Err(<Error as serde::de::Error>::custom("probe: 容器不在观测范围"))
+                }
+            )*
+        };
+    }
+
+    impl<'a> Serializer for Probe<'a> {
+        type Ok = ();
+        type Error = Error;
+        type SerializeSeq = Impossible<(), Error>;
+        type SerializeTuple = Impossible<(), Error>;
+        type SerializeTupleStruct = Impossible<(), Error>;
+        type SerializeTupleVariant = Impossible<(), Error>;
+        type SerializeMap = Impossible<(), Error>;
+        type SerializeStruct = Impossible<(), Error>;
+        type SerializeStructVariant = Impossible<(), Error>;
+
+        record! {
+            fn serialize_bool(v: bool) { v }
+            fn serialize_i8(v: i8) { v }
+            fn serialize_i16(v: i16) { v }
+            fn serialize_i32(v: i32) { v }
+            fn serialize_i64(v: i64) { v }
+            fn serialize_u8(v: u8) { v }
+            fn serialize_u16(v: u16) { v }
+            fn serialize_u32(v: u32) { v }
+            fn serialize_u64(v: u64) { v }
+            fn serialize_f32(v: f32) { v }
+            fn serialize_f64(v: f64) { v }
+            fn serialize_char(v: char) { v }
+            fn serialize_str(v: &str) { v }
+            fn serialize_bytes(v: &[u8]) { format!("{v:?}") }
+            fn serialize_none() { "" }
+            fn serialize_unit() { "" }
+            fn serialize_unit_struct(_n: &'static str) { "" }
+            fn serialize_unit_variant(_n: &'static str, _i: u32, v: &'static str) { v }
+        }
+
+        fn serialize_some<T: ?Sized + serde::Serialize>(self, v: &T) -> Result<(), Error> {
+            v.serialize(self)
+        }
+        fn serialize_newtype_struct<T: ?Sized + serde::Serialize>(
+            self,
+            _n: &'static str,
+            v: &T,
+        ) -> Result<(), Error> {
+            v.serialize(self)
+        }
+        fn serialize_newtype_variant<T: ?Sized + serde::Serialize>(
+            self,
+            _n: &'static str,
+            _i: u32,
+            v: &'static str,
+            x: &T,
+        ) -> Result<(), Error> {
+            self.0
+                .borrow_mut()
+                .push(format!("serialize_newtype_variant({v})"));
+            x.serialize(self)
+        }
+
+        reject! {
+            fn serialize_seq(_l: Option<usize>);
+            fn serialize_tuple(_l: usize);
+            fn serialize_tuple_struct(_n: &'static str, _l: usize);
+            fn serialize_tuple_variant(_n: &'static str, _i: u32, _v: &'static str, _l: usize);
+            fn serialize_map(_l: Option<usize>);
+            fn serialize_struct(_n: &'static str, _l: usize);
+            fn serialize_struct_variant(_n: &'static str, _i: u32, _v: &'static str, _l: usize);
+        }
+    }
+}
+
+/// 想把 `1e10` 的**写法**带过去的唯一通道：走字符串（`collect_str`）。
+///
+/// 代价见下一个用例 —— 在别的 serde 格式里这个浮点就不再是数字了。
+struct RawFloat(f64, &'static str);
+
+impl Serialize for RawFloat {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let _ = self.0; // 数值根本传不进这个通道
+        s.collect_str(&format_args!("{}", self.1))
+    }
+}
+
+/// Q1 的实测答案：**没有钩子**。serde 递给序列化器的就只是一个 `f64`。
+#[test]
+fn serde_hands_the_emitter_only_an_f64() {
+    let log = RefCell::new(Vec::new());
+
+    // ① 裸 f64：只有一个入口
+    1e10f64.serialize(probe::Probe(&log)).unwrap();
+
+    // ② 带 raw 的 `Value::Float`：走的**还是** `serialize_f64(f64)` ——
+    //    raw 在 `impl Serialize for Value` 处就被丢掉了，任何序列化器都见不到它
+    Value::float_with_raw(1e10, "1e10")
+        .serialize(probe::Probe(&log))
+        .unwrap();
+
+    // ③ 唯一能携带文本的通道是 `collect_str`，而它落在 `serialize_str` 上
+    RawFloat(1e10, "1e10").serialize(probe::Probe(&log)).unwrap();
+
+    assert_eq!(
+        log.into_inner(),
+        vec![
+            "serialize_f64(10000000000)".to_string(),
+            "serialize_f64(10000000000)".to_string(),
+            "serialize_str(1e10)".to_string(),
+        ],
+        "serde 侧拿到的只有 f64：raw 无槽位可放"
+    );
+}
+
+/// 反证：真要走字符串通道来「保住写法」，浮点在别的格式里会变成**字符串** ——
+/// 那是改数据（比丢书写形式糟），所以这条路不能采用。
+#[test]
+fn carrying_raw_via_the_str_channel_would_change_the_type() {
+    assert_eq!(
+        serde_json::to_string(&RawFloat(1e10, "1e10")).unwrap(),
+        "\"1e10\"",
+        "走字符串通道后，JSON 里是带引号的字符串，不再是数字"
+    );
+    // 对照：正常的 f64 在 JSON 里是数字（不带引号）
+    let plain = serde_json::to_string(&1e10f64).unwrap();
+    assert!(!plain.starts_with('"'), "正常 f64 应是数字：{plain}");
+}
+
+/// 雷 5 B 组 2-3 行：浮点 `raw` **只活在 `to_sml` 这一条发射器上**。
+///
+/// 这是「承认不对称」之后钉住现状的测试。将来谁让 serde 侧也保住了 `1e10`，
+/// 这条会红 —— 那时请回来改这里，并改 `ser_text.rs` 模块文档里「做不到」的定性。
+#[test]
+fn float_raw_only_survives_to_sml() {
+    let v = sml::parse("x: 1e10\n").unwrap();
+    // parser 确实把书写形式记下来了（raw 的唯一生产点：`sml-lex` 的 `coerce_word`）
+    assert_eq!(v.get("x").and_then(Value::float_raw), Some("1e10"));
+
+    // ① 直接写 `Value`：raw 在 ⇒ 保留 `1e10`
+    assert_eq!(sml::to_sml(&v), "x: 1e10\n");
+
+    // ② 经 serde 的两条发射器：raw 在 `impl Serialize for Value` 处即已丢弃
+    let lost = "x: 10000000000.0\n";
+    assert_eq!(sml::serde::to_string(&v).unwrap(), lost);
+    assert_eq!(sml::serde::to_string_direct(&v).unwrap(), lost);
+
+    // 正对照：丢的只是**书写形式**，值没变（回读仍是同一个 f64）
+    let back = sml::parse(lost).unwrap();
+    assert_eq!(back.get("x").and_then(Value::as_float), Some(1e10));
 }

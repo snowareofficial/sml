@@ -30,6 +30,13 @@ impl Serialize for Value {
             Value::Null => serializer.serialize_unit(),
             Value::Bool(b) => serializer.serialize_bool(*b),
             Value::Int(i) => serializer.serialize_i64(*i),
+            // ⚠️ **`raw` 在这里就丢了，而且只能丢**：serde 的 `Serializer` 对浮点
+            // 只有一个 `serialize_f64(v: f64)` 入口，`f64` 按值传入，没有携带原始
+            // 字面量的槽位（实测见 `rust/tests/ser_de_direct.rs::
+            // serde_hands_the_emitter_only_an_f64`；定性见 `ser_text.rs` 模块文档）。
+            // ⇒ 经本桥的两条发射器（`to_string` / `to_string_direct`）写出的浮点
+            // 一律失去书写形式（`1e10` → `10000000000.0`），与 `to_sml` 直接写
+            // `Value` 的输出不对称 —— 这是 TODO.md 雷 5 B 组的既定结论，非待修项。
             Value::Float(f, _) => serializer.serialize_f64(*f),
             Value::Str(s) => serializer.serialize_str(s),
             // Vec<Value> / 逐项委托，递归依赖 Value 自身的 impl
