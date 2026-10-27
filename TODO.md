@@ -995,7 +995,7 @@ W3/W4/W5 共享同一批文件（`c/`、`js/`、`lua/`），**必须串行**；�
 `sso.<域名>` 那条**不存在**；`resender` 不算。⇒ 白名单三条全清。
 官方联系邮箱 `@mail.<域名>` 属**有意公开**（README / Cargo.toml / debian / 站点都在用），保留不动。
 
-- [x] 工作树脱敏（2026-10-28，`e5dd981` + `651119a`）：49 个文件，
+- [x] 工作树脱敏（2026-10-28，`ae0b400` + `e63b86b`）：49 个文件，
       另补两个漏网的示例产物（`login_*.xml` / `cards_*.svg`）
 - [x] 历史重写（2026-10-28）：blob 内容、提交信息、历史路径三处同时换，覆盖全部 refs
 - [x] 闸门：`tools/check_private_assets.py` 扩成两道 ——
@@ -1003,8 +1003,41 @@ W3/W4/W5 共享同一批文件（`c/`、`js/`、`lua/`），**必须串行**；�
       ② 隐私串（本机绝对路径 / 真实邮箱 / 令牌形状 / 内网网段），
       具体内网主机名放在**未入库**的 `tools/.private_patterns`（守卫自己不能写秘密）。
       用法：`python tools/check_private_assets.py [--history]`（`--history` 慢，只做人工体检）
-- [ ] 把守卫挂进 CI 的 `guards` job（只跑快模，不带 `--history`）
-- [ ] 两台远端强推（**用户手动**，命令见 HANDOFF 的「隐私重写后续」一节）
+- [x] 守卫已挂进 CI 的 `guards` job（`python3 tools/check_private_assets.py`，快模）。
+      ⚠️ CI 上没有 `tools/.private_patterns` ⇒ 只跑通用规则（本机路径 / 邮箱 / 令牌 / 网段），
+      内网真值那几条**只在本地**生效。
+- [ ] 两台远端强推（**用户手动**，命令见下）
+
+**强推命令（2026-10-28 重写后；旧 SHA 已作废，务必带 lease 防误推）**
+
+```bash
+# Gitee（权威源）。lease 里的旧值取自重写前的远端尖端：
+git push --force-with-lease=refs/heads/dev:a0b51ba94a42cdde1d5f1e4f0764627443e23c19 \
+         --force-with-lease=refs/heads/main:a1d07860db74bbeb453d7901fda8f0ada1b246b8 \
+         origin dev main
+
+# 注解 tag 也被重写了（指向新提交），单独强推：
+git push --force origin refs/tags/v0.6.2 refs/tags/v0.6.3 refs/tags/v0.6.4
+
+# 远端还留着两条「考古分支」（内容按 TODO 八·一 待 cherry-pick，**别删**）：
+git push --force origin \
+  refs/remotes/origin/feat/w25-error-msg-lookup:refs/heads/feat/w25-error-msg-lookup \
+  refs/remotes/origin/feat/bindings-java-python-ruby:refs/heads/feat/bindings-java-python-ruby
+```
+
+GitHub 侧（网络通了再推；镜像同步工作流会被这次重写打乱，推之前先确认）：
+
+```bash
+for b in main dev master align/bare-colon-e006 align/frag-splice-c \
+         feat/error-info-i18n feat/bindings-v2 \
+         feat/w25-error-msg-lookup feat/bindings-java-python-ruby; do
+  git push --force github "refs/remotes/github/$b:refs/heads/$b"
+done
+git push --force github refs/tags/v0.6.2 refs/tags/v0.6.3 refs/tags/v0.6.4
+```
+
+⚠️ 旧 clone 全部作废（SHA 变了）：别的机器/CI 缓存都要重新克隆。备份：
+`Desktop/sml-privacy-backup-20261028.bundle`（含重写前的全部分支 / tag / stash）。
 
 脱敏词表（改写后统一用这些占位符；写文档时照抄，别再写回真值）：
 
