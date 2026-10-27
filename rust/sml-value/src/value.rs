@@ -185,13 +185,64 @@ pub fn describe_value(v: &Value) -> String {
 }
 
 impl Value {
-    /// 对象字段按需取 (支持 "." 点路径)
+    /// 对象字段按需取（支持 "." 点路径；键后可跟 `[idx]` 数组下标，可链式）。
+    ///
+    /// 例如 `"a.b[0].c"`：先取对象 `a` 的字段 `b`，再取下标 0 的数组元素，最后取其字段 `c`。
+    /// 下标越界、下标非数字、或下标作用于非数组，均返回 None；点路径语义与旧版一致。
+    ///
+    /// ⚠️ **字面键名优先**：先按整段原文查一遍键，命中就用它。故键名本身含 `[` 的文档
+    /// （如键就叫 `a[0]`）**不受**下标语法影响 —— 新增的下标能力只在「无精确键匹配」时生效，
+    /// 不会把既有文档从 `Some` 变成 `None`（回归测试：`bracket_in_key_name_is_not_rewritten`）。
+    ///
+    /// # 示例
+    /// ```
+    /// use sml_value::Value;
+    /// use std::collections::BTreeMap;
+    /// let doc = Value::Object(BTreeMap::from([
+    ///     ("a".into(), Value::Object(BTreeMap::from([
+    ///         ("b".into(), Value::Array(vec![Value::Int(10), Value::Int(20)])),
+    ///     ]))),
+    /// ]));
+    /// assert_eq!(doc.get("a.b[0]").and_then(|x| x.as_i64()), Some(10));
+    /// assert_eq!(doc.get("a.b[1]").and_then(|x| x.as_i64()), Some(20));
+    /// // 越界 / 类型不符返回 None，不 panic
+    /// assert!(doc.get("a.b[9]").is_none());
+    /// ```
     pub fn get(&self, path: &str) -> Option<&Value> {
         let mut cur = self;
-        for seg in path.split('.') {
-            match cur {
-                Value::Object(m) => cur = m.get(seg)?,
-                _ => return None,
+        for raw in path.split('.') {
+            if raw.is_empty() {
+                // 形如 "a." 的尾随点 / 起始点：旧版对空键查不到，返回 None
+                return None;
+            }
+            // 兼容优先：字面键名命中就直接用它 —— 键名本身含 `[` 的文档
+            // （如键就叫 `a[0]`）不会因新增的下标语法而从 Some 变 None。
+            if let Value::Object(m) = cur {
+                if let Some(v) = m.get(raw) {
+                    cur = v;
+                    continue;
+                }
+            }
+            // 拆出键名与可能的下标序列（键名可能为空，紧跟 "." 后的 "[" 时）
+            let (key, idxs) = match raw.split_once('[') {
+                None => (raw, None),
+                Some((k, r)) => (k, Some(r)),
+            };
+            if !key.is_empty() {
+                cur = match cur {
+                    Value::Object(m) => m.get(key)?,
+                    _ => return None,
+                };
+            }
+            if let Some(idxs) = idxs {
+                for part in idxs.split('[') {
+                    let n = part.strip_suffix(']')?;
+                    let n: usize = n.parse().ok()?;
+                    cur = match cur {
+                        Value::Array(a) => a.get(n)?,
+                        _ => return None,
+                    };
+                }
             }
         }
         Some(cur)
@@ -200,6 +251,196 @@ impl Value {
     pub fn as_str(&self) -> Option<&str> {
         match self {
             Value::Str(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// 取对象引用；非 Object 返回 None。
+    ///
+    /// 返回的是对象内部 `BTreeMap` 的引用，可直接使用其 `iter` / `len` /
+    /// `is_empty` 等能力，无需额外封装。
+    ///
+    /// # 示例
+    /// ```
+    /// use sml_value::Value;
+    /// let v = Value::Object(Default::default());
+    /// assert!(v.as_object().is_some());
+    /// // 非对象一律返回 None，不会 panic
+    /// let s = Value::Str("x".into());
+    /// assert!(s.as_object().is_none());
+    /// ```
+    #[inline]
+    pub fn as_object(&self) -> Option<&BTreeMap<String, Value>> {
+        match self {
+            Value::Object(m) => Some(m),
+            _ => None,
+        }
+    }
+
+    /// 取数组引用；非 Array 返回 None。
+    ///
+    /// # 示例
+    /// ```
+    /// use sml_value::Value;
+    /// let v = Value::Array(vec![]);
+    /// assert_eq!(v.as_array().map(|a| a.len()), Some(0));
+    /// let s = Value::Str("x".into());
+    /// assert!(s.as_array().is_none());
+    /// ```
+    #[inline]
+    pub fn as_array(&self) -> Option<&Vec<Value>> {
+        match self {
+            Value::Array(a) => Some(a),
+            _ => None,
+        }
+    }
+
+    /// 取整数值；非 Int 返回 None。Float 不会被当作整数（不静默降级）。
+    ///
+    /// # 示例
+    /// ```
+    /// use sml_value::Value;
+    /// let v = Value::Int(7);
+    /// assert_eq!(v.as_i64(), Some(7));
+    /// // 浮点即使为整数值也不降级为 i64
+    /// let f = Value::float(7.0);
+    /// assert_eq!(f.as_i64(), None);
+    /// ```
+    #[inline]
+    pub fn as_i64(&self) -> Option<i64> {
+        match self {
+            Value::Int(i) => Some(*i),
+            _ => None,
+        }
+    }
+
+    /// 取布尔值；非 Bool 返回 None。
+    ///
+    /// # 示例
+    /// ```
+    /// use sml_value::Value;
+    /// let v = Value::Bool(true);
+    /// assert_eq!(v.as_bool(), Some(true));
+    /// let s = Value::Str("x".into());
+    /// assert_eq!(s.as_bool(), None);
+    /// ```
+    #[inline]
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Value::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    /// 取对象可变引用；非 Object 返回 None。
+    ///
+    /// 暴露内部 `BTreeMap` 的可变引用，调用方据此直接增删改键。
+    ///
+    /// # 示例
+    /// ```
+    /// use sml_value::Value;
+    /// use std::collections::BTreeMap;
+    /// let mut v = Value::Object(BTreeMap::new());
+    /// if let Some(m) = v.as_object_mut() {
+    ///     m.insert("k".into(), Value::Int(1));
+    /// }
+    /// assert_eq!(v.get("k").and_then(|x| x.as_i64()), Some(1));
+    /// // 非对象返回 None，不会 panic
+    /// let mut s = Value::Str("x".into());
+    /// assert!(s.as_object_mut().is_none());
+    /// ```
+    #[inline]
+    pub fn as_object_mut(&mut self) -> Option<&mut BTreeMap<String, Value>> {
+        match self {
+            Value::Object(m) => Some(m),
+            _ => None,
+        }
+    }
+
+    /// 取数组可变引用；非 Array 返回 None。
+    ///
+    /// # 示例
+    /// ```
+    /// use sml_value::Value;
+    /// let mut v = Value::Array(vec![]);
+    /// if let Some(a) = v.as_array_mut() {
+    ///     a.push(Value::Int(2));
+    /// }
+    /// assert_eq!(v.as_array().map(|a| a.len()), Some(1));
+    /// let mut s = Value::Str("x".into());
+    /// assert!(s.as_array_mut().is_none());
+    /// ```
+    #[inline]
+    pub fn as_array_mut(&mut self) -> Option<&mut Vec<Value>> {
+        match self {
+            Value::Array(a) => Some(a),
+            _ => None,
+        }
+    }
+
+    /// 遍历直接子节点，返回子值（`&Value`）的迭代器。
+    ///
+    /// 对象按值遍历（忽略键名），数组按元素遍历；既非对象也非数组返回 None。
+    /// 需要键名时请用 `as_object()` 取 `BTreeMap` 后 `.iter()`。
+    ///
+    /// # 示例
+    /// ```
+    /// use sml_value::Value;
+    /// let arr = Value::Array(vec![Value::Int(1), Value::Int(2)]);
+    /// if let Some(it) = arr.iter() {
+    ///     let collected: Vec<_> = it.cloned().collect();
+    ///     assert_eq!(collected, vec![Value::Int(1), Value::Int(2)]);
+    /// }
+    /// let s = Value::Str("x".into());
+    /// assert!(s.iter().is_none());
+    /// ```
+    #[inline]
+    pub fn iter(&self) -> Option<Box<dyn Iterator<Item = &Value> + '_>> {
+        match self {
+            Value::Object(m) => Some(Box::new(m.values())),
+            Value::Array(a) => Some(Box::new(a.iter())),
+            _ => None,
+        }
+    }
+
+    /// 取元素个数；仅 Object / Array 返回 Some，其余返回 None。
+    ///
+    /// # 示例
+    /// ```
+    /// use sml_value::Value;
+    /// let arr = Value::Array(vec![Value::Int(1)]);
+    /// assert_eq!(arr.len(), Some(1));
+    /// let obj = Value::Object(Default::default());
+    /// assert_eq!(obj.len(), Some(0));
+    /// let s = Value::Str("x".into());
+    /// assert_eq!(s.len(), None);
+    /// ```
+    #[inline]
+    pub fn len(&self) -> Option<usize> {
+        match self {
+            Value::Object(m) => Some(m.len()),
+            Value::Array(a) => Some(a.len()),
+            _ => None,
+        }
+    }
+
+    /// 是否为空（无键 / 无元素）；仅 Object / Array 返回 Some，其余返回 None。
+    ///
+    /// # 示例
+    /// ```
+    /// use sml_value::Value;
+    /// let arr = Value::Array(vec![]);
+    /// assert_eq!(arr.is_empty(), Some(true));
+    /// let arr2 = Value::Array(vec![Value::Int(1)]);
+    /// assert_eq!(arr2.is_empty(), Some(false));
+    /// let s = Value::Str("x".into());
+    /// assert_eq!(s.is_empty(), None);
+    /// ```
+    #[inline]
+    pub fn is_empty(&self) -> Option<bool> {
+        match self {
+            Value::Object(m) => Some(m.is_empty()),
+            Value::Array(a) => Some(a.is_empty()),
             _ => None,
         }
     }
