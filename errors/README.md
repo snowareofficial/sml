@@ -51,6 +51,7 @@ E - CONTRACT - 002
 | **Lua** | ✅ 已带（适用本实现的 **28 个码**；口径 = `sml.soup` **非注释行**里出现的码字面量，另有宿主入口 `lua/main.lua` 的 `E-IO-001`） | 用 `lua/lib/sml.soup`；**码作消息前缀**写进返回的 `err` 字符串（`Sml.load(text[, base]) -> value, err`，W20 起第二参数 = include 沙箱根，**不给 = include 关闭**），取码 `err:match("^(%S+)")`。⚠️ 抛错必须写 `error(msg, 0)` —— Lua 默认会往消息前插位置信息，把码挤到中间。⚠️ `E-INCLUDE-001` **现在适用**（W20 第二阶段给 Lua 补上了 include；此前「不适用、已从 `impls` 移除」的注记已作废），include 那一族码（`002/003/004/010/012` + `E-LIMIT-003` + `E-FEATURE-001`）也已回填 `lua` |
 | **C-ABI** | ✅ 已带 | `sml_error.code`（粗粒度枚举，9 档，供 C 侧 `switch`）+ `sml_error.code_str[16]`（真实码）；`classify()` 改成**读码**而不是猜中文关键词 |
 | **smltools** | ✅ 已带（工具层全量） | 引用 `sml-codes` 的**常量**；CLI / 迁入格式 / lint / highlight 定制的每条诊断都带码。⚠️ 口径与其它 Rust 侧一致是**码后缀**（`文案 [E-XXX-NNN]`，见 `sml-codes` 的 `Display`），而 C/C++/Lua 是**码前缀** —— 两者都满足「取码」需求，但格式不同，属 W3/W16 的话题。lint 的解析类问题**透传语言层码**（不包成 E-LINT） |
+| **本地化查找（按码取 title/msg）** | ✅ 四端（Rust `rust/sml-codes/src/msgs.rs` / C·C++ `c/sml_codes_msg.h` / Lua `lua/sml_errors.lua`；JS `js/sml-errors.mjs` 既有，w25 补全其余三端） | `errorTitle(code, locale)` / `errorMessage(code, locale)` 按码取本地化文案；中文源语言，英文缺则回退中文。四端产物由 `errors/gen_js_errors.py` 生成、逐字对齐，勿手改（见下方 i18n 一节） |
 
 两条最容易搞混的：
 
