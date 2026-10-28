@@ -29,9 +29,10 @@ SMLTOOLS = os.environ.get("SMLTOOLS", os.path.join(ROOT, "rust", "target", "rele
 def find_smltools():
     if os.path.isfile(SMLTOOLS):
         return SMLTOOLS
+    # 原先这里还有两个候选是「本机盘符路径」被脱敏成占位符后留下的字面量
+    # （`<target-dir>\release\...` 之类）。它们是死候选：永远匹配不到真实文件，
+    # 只会让读代码的人以为「这里支持别的盘」（2026-10-28 删除）。
     for cand in [os.path.join(ROOT, "rust", "target", "debug", "smltools.exe"),
-                 r"<target-dir>\release\smltools.exe",
-                 r"<target-dir>\debug\smltools.exe",
                  os.path.join(ROOT, "rust", "target", "release", "smltools.exe")]:
         if os.path.isfile(cand):
             return cand
