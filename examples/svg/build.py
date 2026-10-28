@@ -13,7 +13,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 # smltools 的定位统一走 tools/smltools_bin.py（**不写死本机盘符**：这里原先把
-# <target-dir>、<target-dir> 这类本机路径写进了候选表，换机器就失效）
+# 本机绝对路径写进了候选表，换机器就失效）
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 from smltools_bin import find_smltools  # noqa: E402
 
