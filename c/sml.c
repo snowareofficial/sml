@@ -1046,6 +1046,16 @@ static void parse_contract_body(parser *ps, ccontract *c) {
                                                   : coerce_word(dv->v, ps);
                 continue;
             }
+            if (mt->t == T_WORD && strcmp(mt->v, "optional") == 0) {
+                next(ps); cf->required = 0; continue;
+            }
+            if (mt->t == T_WORD && strcmp(mt->v, "default") == 0) {
+                next(ps);
+                token *dv = next(ps);
+                if (dv) cf->def = (dv->t == T_STR) ? sml_new_str(dv->v)
+                                                  : coerce_word(dv->v, ps);
+                continue;
+            }
             if (mt->t != T_WORD) break;
             if (strcmp(mt->v, "min") == 0) {
                 next(ps);
@@ -1600,19 +1610,37 @@ sml_value *sml_parse(const char *text, char *err, size_t errsz) {
         lex_free(&lx);
         return NULL;
     }
-    /* 顶层标量不可往返 ⇒ E-PARSE-008（与 Rust 同判据：**顶层恰好一个标量 token**）。
+    /* 顶层标量不可往返 ⇒ E-PARSE-008（与 Rust 同判据：**顶层第一个结构是裸标量、且其后
+       紧跟块/数组/键值**，T9 收紧）。
        改前这里是**静默造键**：`42` 走 parse_block(T_EOF) 的「键即值」分支，被解析成
        `{"42": 42}`，重新序列化得到 `"42": 42` ≠ `42` —— 数据形状被悄悄改掉
        （与 W17 的 C 嵌套数组同族：不报错，但数据错）。
-       判据与 Rust 逐字一致：`hello world`（两 token，得 `{"hello":"world"}`，值可往返）
-       **不算**；带指令的顶层标量（token 数 > 1）**不报** —— 有意保守，宁漏不误伤。
-       注：C 的 token 流末尾固定有一个 T_EOF，故「恰好一个标量」= n == 2。 */
-    if (lx.n == 2 && (lx.toks[0].t == T_WORD || lx.toks[0].t == T_STR)) {
-        if (err && errsz)
-            set_err(err, errsz,
-                    SML_E_PARSE_008 " 顶层须为容器（键值块、对象块或数组），单独的标量无法往返");
-        lex_free(&lx);
-        return NULL;
+       判据与 Rust 逐字一致：
+         - `42`                → 仅一个顶层结构（n == 2，含末尾 T_EOF）⇒ 报；
+         - `42\na { b: 1 }`    → 裸标量 `42` 后跟块 `a` ⇒ 报（T9：42 被重解释成块类型名）；
+         - `42\nb: 1` / `42\n[1,2]` → 后跟键值/数组 ⇒ 报；
+         - `hello world`       → 两 token 裸键对，值可往返 ⇒ 不报；
+         - `@version v1` + `42` → 首结构是 @ 指令（非裸标量）⇒ 不报（保留正对照）；
+         - `42 { a: 1 }`       → 名为 42 的块（紧跟 `{`）⇒ 不报。
+       注：C 的 token 流末尾固定有一个 T_EOF，故「仅一个标量」= n == 2。 */
+    {
+        int scalar0 = (lx.toks[0].t == T_WORD || lx.toks[0].t == T_STR);
+        int bare0 = scalar0 && lx.n >= 2
+                    && lx.toks[1].t != T_LBRACE && lx.toks[1].t != T_COLON;
+        if (bare0) {
+            int only = (lx.n == 2);
+            int followed = (lx.n >= 3 && lx.toks[1].t == T_LBRACK)
+                || (lx.n >= 3
+                    && (lx.toks[1].t == T_WORD || lx.toks[1].t == T_STR)
+                    && (lx.toks[2].t == T_LBRACE || lx.toks[2].t == T_COLON));
+            if (only || followed) {
+                if (err && errsz)
+                    set_err(err, errsz,
+                            SML_E_PARSE_008 " 顶层须为容器（键值块、对象块或数组），单独的标量无法往返");
+                lex_free(&lx);
+                return NULL;
+            }
+        }
     }
     parser ps;
     memset(&ps, 0, sizeof(ps));

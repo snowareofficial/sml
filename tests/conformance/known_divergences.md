@@ -42,12 +42,13 @@ Rust `to_sml` ／ C `sml_dump` ／ C++ `to_sml` ／ JS `stringify` ／ Lua `Sml.
 | 端 | AGREE | DIVERGE | PARSE_FAIL | SKIP |
 |---|---|---|---|---|
 | rust（参考实现） | 32 | 0 | 1 | 0 |
-| c | 25 | 4 | 4 | 0 |
+| c | 28 | 4 | 1 | 0 |
 | cpp | 24 | 5 | 4 | 0 |
 | js | 26 | 5 | 2 | 0 |
 | lua | 23 | 4 | 6 | 0 |
 
-合计：**AGREE 15 / DIVERGE 18**。
+合计：**AGREE 17 / DIVERGE 16**（W24 修 C 单词修饰符前为 AGREE 15 / DIVERGE 18：
+`c` 的 AGREE 25→28、PARSE_FAIL 4→1；`13/14` 整体转 AGREE、`16` 的 C 格转 A、`33` 仍 DIVERGE 属预期）。
 
 口径三条（照这个读表，否则会读错）：
 
@@ -72,9 +73,9 @@ Rust `to_sml` ／ C `sml_dump` ／ C++ `to_sml` ／ JS `stringify` ／ Lua `Sml.
 | 4 | `08_include_basic` | C++ 把 `include "..."` 当键值，不展开 | 已知取舍 | 即 TODO 排雷区「雷 6」；`docs/capability-matrix.md` 已登记 |
 | 5 | `09_include_chain` | 同 #4（链式 include 的 `lib` / `chain` 全部缺失） | 已知取舍 | 同 #4 |
 | 6 | `11_fragment_splice` | C++ 行级 `&frag` 未展开（多出 `&base` 键）；Lua 解析失败 `E-PARSE-001` | 已知取舍 + **缺陷** | C++ 那半是 TODO §五「W4-片段行级展开」（✋ 待裁决），**实测只剩 C++ 一格**（C 已实现，该行措辞需更新）；Lua 那半是新缺陷 |
-| 7 | `13_contract_default` | C 报 `E-CONTRACT-003 字段 optional 必填但缺失` | **缺陷** | 见下方「#7–#9 + #18 是同一件事」 |
-| 8 | `14_contract_enum_range` | C 报 `字段 default 必填但缺失` | **缺陷** | 同 #7 |
-| 9 | `16_contract_compose` | C 报 `字段 default 必填但缺失`；JS 丢 `o.inner.tag` | **缺陷** | C 那半同 #7；JS 那半见下方「#9 的 JS 半」 |
+| 7 | `13_contract_default` | ~~C 报 `E-CONTRACT-003`~~ **C 半 W24 已修**：C 现认 `optional`/`default`，该格转 A，用例整体 AGREE | **已修复（W24）** | 见下方「#7–#9 + #18 是同一件事」 |
+| 8 | `14_contract_enum_range` | ~~C 报 `字段 default 必填但缺失`~~ **C 半 W24 已修**：转 A，用例整体 AGREE | **已修复（W24）** | 同 #7 |
+| 9 | `16_contract_compose` | **C 半 W24 已修（转 A）**；JS 仍丢 `o.inner.tag` | **缺陷（JS 半）** | C 那半同 #7；JS 那半见下方「#9 的 JS 半」 |
 | 10 | `19_num_one_dot_zero` | Rust 保 `1.0` 为 float，其余四端当 int | 已知取舍 | `docs/capability-matrix.md` 已登记「`1.0` 只有 Rust 保留为浮点」；雷 5 B 组 `format_float` |
 | 11 | `20_num_bigint` | Lua 丢精度：`330106201503071234` → `...070000`，`i64::MAX` → `...8000000` | 已知取舍 | 能力矩阵已登记「大整数 >2^53 分裂；Lua 转 float 丢精度」；雷 6 #1。⚠️ 属**数据保真**级，但 LuaJIT 值模型只有 double，改不了。**JS 那格的 AGREE 是载体盲区**，见 §载体盲区 B-01 |
 | 12 | `22_escape_basic` | C++ 的 dump 不能被 Rust 回读 | **缺陷** | 已定性：C++ 对**含换行的字符串不加引号**（输出 `s_nl: a<换行>b`），于是 `b` 被读成新键 ⇒ `E-PARSE-006`。Rust / C / JS / Lua 四端都能回读 |
@@ -89,21 +90,27 @@ Rust `to_sml` ／ C `sml_dump` ／ C++ `to_sml` ／ JS `stringify` ／ Lua `Sml.
 
 | 修饰符 | Rust | C++ | JS | Lua | **C** |
 |---|---|---|---|---|---|
-| 可选 | 单词 `optional` | 同 | 同 | 同 | **`?`** |
-| 默认值 | 单词 `default <v>` | 同 | 同 | 同 | **`= <v>`** |
+| 可选 | 单词 `optional` | 同 | 同 | 同 | **`?` / `optional`**（W24 起 `optional` 也认） |
+| 默认值 | 单词 `default <v>` | 同 | 同 | 同 | **`= <v>` / `default <v>`**（W24 起 `default <v>` 也认） |
 | 区间 | `min` / `max` | 同 | 同 | 同 | 同 ✅ |
 | 放宽 | `loose` | 同 | 同 | 同 | 同 ✅ |
 
-- **实跑证据**：`zip: str optional` 在 C 里被读成「字段 `zip`」+「字段 `optional`」⇒
+- **实跑证据（修复前）**：`zip: str optional` 在 C 里被读成「字段 `zip`」+「字段 `optional`」⇒
   `E-CONTRACT-003 字段 'optional' 必填但缺失`；`port: int default 5432` 同理。
   反方向：`country: str = CN` 在 Rust 里 ⇒ `E-PARSE-006 契约字段 '=' 后须有冒号`。
-- **根因**：`c/sml.c` 的 `parse_contract_body` 只认 `?`（`T_QMARK`）/ `=`（`T_EQ`）/ `min` / `max` / `loose`；
+- **根因（修复前）**：`c/sml.c` 的 `parse_contract_body` 只认 `?`（`T_QMARK`）/ `=`（`T_EQ`）/ `min` / `max` / `loose`；
   `optional` / `default` 这两个单词那里**没有分支**（全文零命中）。
   而 README / `showcase_contract.sml`、教科书里的契约示例写的都是**单词形式** ⇒
   **照文档写的契约在 C 上必然失败**。
+- **W24 修复（C 半）**：`c/sml.c` 的 `parse_contract_body` 已补 `optional`（置 `required=0`）/
+  `default <v>`（复用 `coerce_word`/`sml_new_str` 回填，与 `=` 同路径）两个分支。纯增量：
+  C 原不认这两个词，新增分支不让任何原本成功解析的文档变失败；`?`/`=` 符号形式**保留未动**。
+  修复后 `13/14` 整体 AGREE、`16` 的 C 格转 A（余 JS 半仍 DIVERGE，见 #9 的 JS 半）。
 - ⚠️ 别和 IDEAS I-8 混起来：I-8 说的是**数据行**的 TOML 风格 `x = 1`（`=` 还不是 token，需要 opt-in）。
   这里是**契约体内**的 `=`，C 有独立的 `T_EQ` token —— 两件事。
-- **先定哪一套是规范**，再决定改 C 还是改另外四端 + 全部文档。这是 ✋ 级判断，故本轮只登记。
+- **先定哪一套是规范**，再决定改 C 还是改另外四端 + 全部文档。这是 ✋ 级判断。
+  W24 **只补 C 的单词形式、不动符号形式**；`?` / `=` 是否废弃 / 推广到另外四端属产品裁决
+  （`33_contract_modifier_alt` 因此仍 DIVERGE，属预期）。
 
 ### #9 的 JS 半：组合契约的**子契约默认值不回填**
 
