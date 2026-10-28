@@ -164,9 +164,13 @@ rectangle            size 2    rect1   tls                      { … }
   - 字段缺失：`required` / `optional` / `default` 三态（`FieldSpec`）；
   - 数值最小 / 最大：类型区间（`TypeSpec` 的 min/max），数组**逐元素**校验；
   - 数组元素**个数**上限：外置修饰符 `items_max`（`sml_contract::ext` 的 Modifier）；
+  - **互斥字段组**（2026-10-28 落地）：外置修饰符 `one_of [ a b c ]`（至多一个）与
+    `exactly_one [ a b c ]`（恰好一个），实现为 `sml_contract::OneOf` / `sml_contract::ExactlyOne`，
+    经 `ParseOptions::with_modifier` 注册即用；判据看**用户显式写出的键**（`default` 回填不算），
+    组成员名写错会响亮报错；报码复用 `E-CONTRACT-011`。新增钩子 `Modifier::check_group(&GroupView)`；
   - 枚举取值、嵌套契约组合、叠加 / mixin（strict 优先）。
 - **Gap / 缺口**：
-  ① **互斥**（`oneOf` / 至多一个 / 互斥字段组）—— `TODO.md` 里仍是「待确认」；
+  ① ~~**互斥**（`oneOf` / 至多一个 / 互斥字段组）~~ **已完成 2026-10-28**（`one_of` / `exactly_one`，见上 Done）；
   ② 数组**长度下限**（`items_min`）与「至少一个字段」；
   ③ 跨字段依赖（`a` 存在则 `b` 必须存在）—— 现有 `@requires` 是**特性**门控，不是字段依赖；
   ④ 严格性只有二值：无 warn / silent 三态，无按块覆盖（`@is X loose`），

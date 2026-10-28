@@ -24,6 +24,18 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 - 新增仓库守卫 `tools/check_private_assets.py`：私有报送件 + 隐私串（本机路径 /
   邮箱 / 令牌 / 内网网段）两道检查，已挂 CI `guards` job。
 
+### 新增（契约扩展点：互斥字段组，I-7 缺口①）
+
+- **`one_of [ a b c ]`（至多一个）/ `exactly_one [ a b c ]`（恰好一个）** —— 契约的**跨字段**约束，
+  实现在 `rust/sml-contract/src/ext.rs`（`OneOf` / `ExactlyOne`），经 `ParseOptions::with_modifier`
+  注册即用（外置修饰符形态，**不动 C/C++/JS/Lua**）。
+  - 判据看「用户**显式写出**的键」：`default` 回填的值**不算**出现 —— 否则「组内成员都写 `default`」
+    的契约会恒失败，而 `default` 只是作者给的兜底策略，不是「两种支付方式同时塞进来」的意图表达。
+  - 组成员名写错（未在契约里声明）⇒ **响亮报错**，而不是留一条永远命中不了的约束（数据安全错觉）。
+  - `one_of` 一个都不写 ⇒ 放行（「必须有一个」请用 `exactly_one` 或 `required`）。
+  - 报码复用 **`E-CONTRACT-011`**（外置修饰符校验失败），**不新增码**。
+  - 新增扩展点钩子 `Modifier::check_group(&GroupView)`，默认放行 —— 既有修饰符实现一字未改。
+
 ### ⚠️ 行为变更
 
 - **`#[sml(flatten)]` 的键冲突：从「静默覆盖」改为报错**（`rust/derive/src/lib.rs`）。
