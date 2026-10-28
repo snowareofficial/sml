@@ -814,6 +814,14 @@ static void test_w16_codes() {
     expect_code("W16 undefined fragment ref", "x: &nosuchfrag\n", SML_E_INCLUDE_006);
     expect_code("W16 top-level scalar (bareword)", "42\n", SML_E_PARSE_008);
     expect_code("W16 top-level scalar (quoted)", "\"42\"\n", SML_E_PARSE_008);
+    // 收紧（T9）：裸标量后跟块/数组/键值 ⇒ 报（原本静默重解释成块类型名，序列化 ≠ 原文）
+    expect_code("T9 top-level scalar then block", "42\na { b: 1 }\n", SML_E_PARSE_008);
+    expect_code("T9 top-level scalar then keyvalue", "42\nb: 1\n", SML_E_PARSE_008);
+    expect_code("T9 top-level scalar then array", "42\n[1, 2]\n", SML_E_PARSE_008);
+
+    /* T9 正对照：裸词标识符作块类型名/块名**不算**值型标量，`server web { }`
+       是合法带类型块，不得被误判为 E-PARSE-008。 */
+    expect_ok("T9 typed block legal (value-type distinction)", "server web { a: 1 }\n");
 
     expect_ok("W16 fragment explicit params", "@foo type: Server name: p { x: 1 }\n");
     expect_ok("W16 fragment no params", "@foo { x: 1 }\n");
