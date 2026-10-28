@@ -579,6 +579,15 @@ def main():
     if not files:
         print("[!] 没找到用例（%s）。用 --case 过滤时确认子串对得上。" % CASES)
         return 1
+    # 空用例是**假绿**：五端都产出空树，于是全员 AGREE。
+    # （本目录真的被并发写入清空过一次 ⇒ 加这道闸，别让「用例坏了」表现成「五端一致」。）
+    empty = [os.path.basename(p) for p in files if os.path.getsize(p) == 0]
+    if empty:
+        print("[!] 以下用例是 **0 字节**（空文档会让五端一起 AGREE，属假绿）：")
+        for n in empty:
+            print("      " + n)
+        print("    先补回内容再跑；确实要测空文档，请显式写成注释用例并在文件名上标明。")
+        return 1
 
     tmp = tempfile.mkdtemp(prefix="sml_conformance_")
     try:
@@ -640,7 +649,7 @@ def main():
                     elif r["kind"] == "crash":
                         cells[e.name] = "!"
                     else:
-                        cells[e.name] = "成功"
+                        cells[e.name] = "ok"       # 该端**没有**报错 —— 与其余端相反
                 bad = [n for n in cells if cells[n] not in ("skip", "e")]
                 verdict = "AGREE" if not bad else "DIVERGE"
                 detail = ("期望全部以 %s 失败；不符合的端：%s"
@@ -654,11 +663,11 @@ def main():
                     if r["kind"] == "skip":
                         cells[e.name] = "skip"
                     elif r["kind"] == "err":
-                        cells[e.name] = "解析失败: " + first_line(r["msg"])
+                        cells[e.name] = "ERR"      # 该端解析失败（原因见下面的明细）
                     elif r["kind"] == "crash":
-                        cells[e.name] = "适配器异常"
+                        cells[e.name] = "!"        # 适配器自己崩了，与「实现差异」区分开
                     elif r.get("canon") is None:
-                        cells[e.name] = "归一化失败"
+                        cells[e.name] = "NC"       # 解析成功，但 dump 不能被 Rust 回读
                     else:
                         k = sig_key(r["canon"])
                         if k not in classes:
@@ -677,10 +686,14 @@ def main():
                     detail = "分组：" + " | ".join(
                         "%s = %s" % (letter, ",".join(names)) for letter, names in groups)
                     for n in cells:
-                        if cells[n] not in ("A", "skip") and cells[n] not in "ABCDEFGH":
-                            detail += "；%s: %s" % (n, cells[n])
-                            if cells[n] == "归一化失败":
-                                detail += "（%s）" % first_line(results[n].get("canon_err") or "", 120)
+                        c = cells[n]
+                        if c in ("skip",) or (len(c) == 1 and c.isalpha() and c.isupper()):
+                            continue
+                        detail += "；%s=%s" % (n, c)
+                        if c == "NC":
+                            detail += "（%s）" % first_line(results[n].get("canon_err") or "", 130)
+                        elif c in ("ERR", "!"):
+                            detail += "（%s）" % first_line(results[n].get("msg") or "", 130)
 
             rows.append((stem, cells, verdict, detail, results))
             if verdict == "DIVERGE":
@@ -697,11 +710,12 @@ def main():
                     bucket["AGREE"] += 1
                 elif verdict == "PARSE_FAIL":
                     bucket["PARSE_FAIL"] += 1
+                elif c in ("ERR", "NC", "!") or (expect_err and c == "ok"):
+                    # 「两端都失败」不算一致 —— 必须先判「有没有产出值树」，
+                    # 否则 ref 也是 ERR 时会被算成 AGREE（本轮实测踩过）。
+                    bucket["PARSE_FAIL"] += 1
                 elif c == ref_cell:
                     bucket["AGREE"] += 1
-                elif c in ("解析失败", "归一化失败", "适配器异常") or \
-                        c.startswith("解析失败") or (expect_err and c == "成功"):
-                    bucket["PARSE_FAIL"] += 1
                 else:
                     bucket["DIVERGE"] += 1
 
@@ -712,9 +726,10 @@ def main():
         for stem, cells, verdict, detail, _ in rows:
             line = pad(stem, name_w + 2) + "".join(pad(str(cells.get(e.name, "-")), 6) for e in eps)
             print(line + verdict)
-        # 只有 skip / 单字母的格子才进表；失败原因见下面逐条详情
+        # 表格只放短记号，原因见下面的逐条明细
         print("\n图例：A/B/C = 值树分组（同字母即完全一致）；e = 按期望码失败；"
-              "skip = 该端缺工具链")
+              "ERR = 该端解析失败；NC = 该端 dump 不能被 Rust 回读；"
+              "! = 适配器异常（不是实现差异）；skip = 该端缺工具链")
 
         print("\n== 分类统计（按端；参考实现 = Rust）==")
         print(pad("端", 8) + pad("AGREE", 8) + pad("DIVERGE", 10) + pad("PARSE_FAIL", 12) + "SKIP")
