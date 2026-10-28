@@ -5,7 +5,7 @@
 //! **不具备**结构体定义、枚举、字段约束等类型系统能力。
 //! 契约是在此之上的**可选校验层**，用于给块加上结构与取值约束。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sml_codes::{
     E_CONTRACT_001, E_CONTRACT_002, E_CONTRACT_003, E_CONTRACT_004, E_CONTRACT_005, E_CONTRACT_006,
@@ -20,7 +20,7 @@ pub mod ext;
 // 契约推断（任务 E）：从数据实例反推契约。落地仅此模块 + smltools 子命令。
 pub mod infer;
 
-pub use ext::{ContractExt, Modifier, TypeCheck};
+pub use ext::{ContractExt, ExactlyOne, GroupView, Modifier, OneOf, TypeCheck};
 
 /// 在已注册契约名里找一个与 `bad` 最相近的名字，用于「未定义的契约」报错时
 /// 追加「你是不是想写 X」提示（I-9）。
@@ -581,6 +581,20 @@ pub fn apply_contract(
             }
         }
     }
+    // 快照「用户显式写出的键」：跨字段约束（互斥组等）以它为准，`default` 回填的值
+    // **不参与计数**（理由见 `ext::GroupView::present`）。
+    //
+    // 只存**键名**：下一步要给缺字段回填 `default`，那会 `insert` 到 `node` 里；
+    // 若这里借了 `node` 的元素，就会和那次可变借用打架（E0502）。
+    // 真正需要「键 → 值」时，等第 2 步改完 `node` 之后再按这份键名筛出来。
+    //
+    // 只有真的挂了外置修饰符才做这次快照 —— 零扩展时连这一次遍历都省掉。
+    let authored_keys: Option<BTreeSet<String>> =
+        if c.fields.values().any(|f| !f.mods.is_empty()) {
+            Some(node.keys().cloned().collect())
+        } else {
+            None
+        };
     // 2) 逐字段：填默认值 + 类型/枚举/区间/组合校验
     for (k, spec) in &c.fields {
         match node.get(k) {
@@ -614,6 +628,66 @@ pub fn apply_contract(
                     check_type(&c.name, &field_path, spec, v, contracts)?;
                 }
             }
+        }
+    }
+    // 3) 跨字段约束（互斥组等）：前置的严格性与单字段校验全部通过后才轮到它 ——
+    //    报错要有层次，先说「类型不对 / 必填缺失」，再说「这几个字段不许同时出现」。
+    if let Some(keys) = &authored_keys {
+        // 现在才借 `node` 的值（第 2 步的 `insert` 已结束，借用不再冲突）。
+        // 只留用户**显式写出**的键 —— 第 2 步回填的 `default` 值不在 `keys` 里。
+        let present: BTreeMap<&str, &Value> = node
+            .iter()
+            .filter(|(k, _)| keys.contains(k.as_str()))
+            .map(|(k, v)| (k.as_str(), v))
+            .collect();
+        check_ext_groups(c, path, &present)?;
+    }
+    Ok(())
+}
+
+/// 依次回调字段上的**跨字段**钩子（[`crate::ext::Modifier::check_group`]）。
+///
+/// `authored` 是用户在文档里显式写出的键（不含 `default` 回填），语义见
+/// [`crate::ext::GroupView::present`]。
+///
+/// 遍历顺序：字段按**名字**（`BTreeMap` 字典序），同一字段上的多个修饰符按注册顺序
+/// —— 结果与书写顺序无关，同一输入恒报同一个错。
+fn check_ext_groups(
+    c: &Contract,
+    path: &str,
+    authored: &BTreeMap<&str, &Value>,
+) -> Result<(), SmlError> {
+    for (fname, spec) in &c.fields {
+        for m in &spec.mods {
+            let view = crate::ext::GroupView {
+                contract: &c.name,
+                path,
+                owner: fname,
+                spec,
+                declared: &c.fields,
+                present: authored,
+            };
+            m.check_group(&view).map_err(|e| {
+                SmlError::new(
+                    E_CONTRACT_011,
+                    if path.is_empty() {
+                        format!(
+                            "sml: 契约 `{}` 的跨字段约束 `{}` 未满足：{}",
+                            c.name,
+                            m.name(),
+                            e
+                        )
+                    } else {
+                        format!(
+                            "sml: 块 `{}` 的跨字段约束 `{}` 未满足：{}（契约 `{}`）",
+                            path,
+                            m.name(),
+                            e,
+                            c.name
+                        )
+                    },
+                )
+            })?;
         }
     }
     Ok(())
