@@ -499,4 +499,77 @@ mod tests {
             );
         }
     }
+
+    // ---- I-7 缺口①：互斥字段组 `one_of` / `exactly_one` ----
+
+    const PAY_CONTRACT: &str = "@contract Pay {\n  card: str optional one_of [ card alipay wechat ]\n  alipay: str optional\n  wechat: str optional\n}\n";
+
+    fn one_of_opts() -> ParseOptions {
+        ParseOptions::new().with_modifier(sml_contract::OneOf).unwrap()
+    }
+
+    fn exactly_one_opts() -> ParseOptions {
+        ParseOptions::new()
+            .with_modifier(sml_contract::ExactlyOne)
+            .unwrap()
+    }
+
+    /// `one_of`（至多一个）：一个都不写 ⇒ 放行；只写一个 ⇒ 放行；写两个 ⇒ 报错。
+    #[test]
+    fn one_of_allows_at_most_one() {
+        let none = format!("{PAY_CONTRACT}doc {{\n @is Pay\n}}\n");
+        crate::parse_with(&none, one_of_opts()).expect("一个都不写应放行");
+
+        let one = format!("{PAY_CONTRACT}doc {{\n @is Pay\n card: \"x\"\n}}\n");
+        crate::parse_with(&one, one_of_opts()).expect("只写一个应放行");
+
+        let two = format!("{PAY_CONTRACT}doc {{\n @is Pay\n card: \"x\"\n alipay: \"y\"\n}}\n");
+        let e = crate::parse_with(&two, one_of_opts()).expect_err("两个同时出现应报错");
+        assert!(
+            e.message().contains("one_of") && e.message().contains("同时出现"),
+            "{e}"
+        );
+    }
+
+    const EXACTLY_ONE_CONTRACT: &str = "@contract Pay {\n  card: str optional exactly_one [ card alipay wechat ]\n  alipay: str optional\n  wechat: str optional\n}\n";
+
+    /// `exactly_one`（恰好一个）：一个都不写 ⇒ 报错；写一个 ⇒ 放行。
+    #[test]
+    fn exactly_one_requires_one() {
+        let none = format!("{EXACTLY_ONE_CONTRACT}doc {{\n @is Pay\n}}\n");
+        let e = crate::parse_with(&none, exactly_one_opts()).expect_err("一个都没写应报错");
+        assert!(e.message().contains("exactly_one"), "{e}");
+
+        let one = format!("{EXACTLY_ONE_CONTRACT}doc {{\n @is Pay\n wechat: \"z\"\n}}\n");
+        crate::parse_with(&one, exactly_one_opts()).expect("恰好一个应放行");
+    }
+
+    /// 与 `loose` 叠加：`loose` 只放宽「未声明字段」，**不**放宽互斥。
+    #[test]
+    fn one_of_still_applies_under_loose() {
+        let two = format!(
+            "{PAY_CONTRACT}doc {{\n @is Pay loose\n card: \"x\"\n alipay: \"y\"\n}}\n"
+        );
+        assert!(
+            crate::parse_with(&two, one_of_opts()).is_err(),
+            "loose 不应放过互斥冲突"
+        );
+    }
+
+    /// `default` 回填**不算**用户写出 —— 否则「组内成员都写 default」的契约会恒失败。
+    #[test]
+    fn default_backfill_does_not_count_as_present() {
+        const DEF: &str = "@contract Pay {\n  card: str optional one_of [ card alipay ]\n  alipay: str optional default \"a\"\n}\n";
+        let src = format!("{DEF}doc {{\n @is Pay\n card: \"x\"\n}}\n");
+        crate::parse_with(&src, one_of_opts()).expect("alipay 的 default 不应被算成同时出现");
+    }
+
+    /// 组成员名写错（未在契约里声明）⇒ 响亮报错，而不是留下一条永远命中不了的约束。
+    #[test]
+    fn one_of_typoed_member_is_loud() {
+        const BAD: &str = "@contract Pay {\n  card: str optional one_of [ card alipay cardd ]\n  alipay: str optional\n}\n";
+        let src = format!("{BAD}doc {{\n @is Pay\n card: \"x\"\n}}\n");
+        let e = crate::parse_with(&src, one_of_opts()).expect_err("成员名写错应报错");
+        assert!(e.message().contains("cardd"), "{e}");
+    }
 }

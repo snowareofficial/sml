@@ -61,6 +61,63 @@ pub trait Modifier: Send + Sync + std::fmt::Debug {
     fn check(&self, _spec: &FieldSpec, _v: &Value) -> Result<(), String> {
         Ok(())
     }
+
+    /// **校验期（跨字段）**：整块的单字段校验全部通过后才被调用。
+    ///
+    /// 与 [`Self::check`] 的分工：`check` 只见**这一个字段的值**，够用于
+    /// `items_max`（个数上限）这类约束；而**互斥 / 计数 / 依赖**必须看到
+    /// 「兄弟字段有哪些出现了」—— 那是 [`GroupView`] 的活。
+    ///
+    /// 默认放行，故既有的修饰符实现一个字都不用改。
+    /// 回调顺序：字段按**名字**（字典序）遍历，同一字段上的多个修饰符按注册顺序。
+    fn check_group(&self, _view: &GroupView<'_>) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// **跨字段**约束的入参（互斥 / 计数这类写在某个字段上、却要看整个块的约束）。
+///
+/// 语法上修饰符只能挂在某个字段上（`card: str optional one_of [ card alipay ]`），
+/// 但它表达的是**整个块**的性质 —— 所以 [`Modifier::check_group`] 拿到的不是
+/// 单个字段的值，而是下面这一组上下文。
+#[derive(Debug, Clone, Copy)]
+pub struct GroupView<'a> {
+    /// 契约名（叠加时是 `A+B` 这种合并视图的名字，见 [`crate::apply_contracts`]）。
+    pub contract: &'a str,
+    /// 当前块的路径（顶层块为空串）。用于把错误定位到 `pay.card` 而非只报 `card`。
+    pub path: &'a str,
+    /// 声明本修饰符的**那个字段名**。它不要求自己是组成员之一 ——
+    /// 组 who 写在哪里是排版问题，成员清单才是语义。
+    pub owner: &'a str,
+    /// `owner` 的字段规格：组成员清单就在 `spec.ext_data[修饰符名]` 里。
+    pub spec: &'a FieldSpec,
+    /// 契约声明的**全部**字段。组成员有没有被声明过，靠它判定
+    /// （写错成员名必须响亮报错，而不是「组里少了一个没人要的成员」静默通过）。
+    pub declared: &'a BTreeMap<String, FieldSpec>,
+    /// 用户在文档里**显式写出**的键 → 值。
+    ///
+    /// ⚠️ **不含 `default` 回填的值**。理由是可用性：若把默认值算进互斥计数，
+    /// 「组内两个成员都写了 `default`」的契约会**恒失败** —— 而那只是作者给的
+    /// 兜底策略，不是「用户同时塞进两种支付方式」的意图表达。
+    /// 「一个都不写算不算错」另由 `required` / [`ExactlyOne`] 表达。
+    /// ⚠️ 键存在即算出现，**含显式写 `null`** —— 写了这个键就是意图表达。
+    pub present: &'a BTreeMap<&'a str, &'a Value>,
+}
+
+impl<'a> GroupView<'a> {
+    /// 把字段名拼成**本块**的完整路径（顶层字段没有前缀）。
+    pub fn field_path(&self, name: &str) -> String {
+        if self.path.is_empty() {
+            name.to_string()
+        } else {
+            format!("{}.{}", self.path, name)
+        }
+    }
+
+    /// 该字段是否被用户**显式**写出（不看 `default`）。
+    pub fn is_present(&self, name: &str) -> bool {
+        self.present.contains_key(name)
+    }
 }
 
 /// 内置修饰符名。禁止外置扩展占用，避免改写核心语义。
@@ -155,6 +212,142 @@ impl ContractExt {
     /// 已注册的类型名（按字典序）。
     pub fn type_names(&self) -> impl Iterator<Item = &str> {
         self.types.keys().map(|s| s.as_str())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 互斥（I-7 缺口①）：一组字段「至多一个」/「恰好一个」出现
+//
+// 为什么是 Modifier 而不是内置语法：互斥没有专属 token，靠外置修饰符只需动本
+// crate 一处；五端不必同日跟进（I-7 Design 的定调：「先做成 Modifier，再考虑
+// 升为内置语法」）。等它被写进多家契约、确证明值得一套专用语法时，再升级不迟。
+// ---------------------------------------------------------------------------
+
+/// 取出并校验**组成员清单**：须是字段名的数组（`[ a b ]`），至少两个且互不相同。
+///
+/// 三重检查都是「早失败」：继承自 fugue 项目一贯的取向 —— 写坏的约束应当**立刻**
+/// 报错，而不是让用户拿着一份语义不明的契约去猜为什么数据通不过。
+fn group_members(name: &str, v: &Value) -> Result<Vec<String>, String> {
+    let Value::Array(items) = v else {
+        return Err(format!(
+            "`{name}` 的取值须是字段名数组（如 `[ a b ]`），实为 {}",
+            crate::value_kind(v)
+        ));
+    };
+    let mut out = Vec::with_capacity(items.len());
+    for it in items {
+        match it {
+            Value::Str(s) => {
+                if s.is_empty() {
+                    return Err(format!("`{name}` 的组成员不可为空字段名的占位"));
+                }
+                if out.iter().any(|x| x == s) {
+                    return Err(format!(
+                        "`{name}` 的组成员 `{s}` 重复；重复多半是笔误，且会让计数含义含混"
+                    ));
+                }
+                out.push(s.clone());
+            }
+            other => {
+                return Err(format!(
+                    "`{name}` 的组成员须是字段名（裸词或引号串），实为 {}",
+                    crate::value_kind(other)
+                ))
+            }
+        }
+    }
+    if out.len() < 2 {
+        return Err(format!(
+            "`{name}` 的组至少要有两个成员，实得 {} 个",
+            out.len()
+        ));
+    }
+    Ok(out)
+}
+
+/// 互斥组的判定本体：`one_of` / `exactly_one` 共用。
+///
+/// `require_one`：true = 恰好一个（缺了也报错），false = 至多一个（缺了放行）。
+fn check_mutual_exclusion(name: &str, view: &GroupView<'_>, require_one: bool) -> Result<(), String> {
+    let v = view
+        .spec
+        .ext_data
+        .get(name)
+        .ok_or_else(|| format!("字段 `{}` 上登记的 `{name}` 取值丢失", view.owner))?;
+    let members = group_members(name, v)?;
+    // 成员必须在**同一份契约**里声明过：写错成员名就等同配了一条永远命中不了的
+    // 约束（数据安全错觉），必须响亮报错。
+    for m in &members {
+        if !view.declared.contains_key(m) {
+            return Err(format!(
+                "组成员 `{}` 未在契约 `{}` 里声明（是否拼错了字段名？）",
+                view.field_path(m),
+                view.contract
+            ));
+        }
+    }
+    let hit: Vec<String> = members
+        .iter()
+        .filter(|m| view.is_present(m))
+        .map(|m| view.field_path(m))
+        .collect();
+    let list = members.join(" ");
+    let rule = if require_one { "须恰好一个" } else { "至多一个" };
+    match hit.len() {
+        // 0 个：`one_of`（至多一个）放行，`exactly_one` 报错
+        0 if !require_one => Ok(()),
+        0 => Err(format!(
+            "互斥组 [ {list} ] 里一个字段都没出现（组内{rule}）"
+        )),
+        1 => Ok(()),
+        n => Err(format!(
+            "互斥组 [ {list} ] 里同时出现了 {n} 个字段：{}（组内{rule}）",
+            hit.join("、")
+        )),
+    }
+}
+
+/// 互斥修饰符 **`one_of [ a b c ]`**：组内**至多一个**字段可出现。
+///
+/// - 出现 ≥2 个 ⇒ 报错（码 `E-CONTRACT-011`，与其余外置修饰符同一码）；
+/// - 恰好 1 个 ⇒ 通过；
+/// - **一个都不出现 ⇒ 通过** —— 「必须填一个」请另用 `required` 或 [`ExactlyOne`]。
+///   理由：缺失与否已经由 `required` / `optional` / `default` 三态负责，
+///   再让 `one_of` 兼管「必须有一个」会让两个语义互相打架
+///   （组里写两个 `required` 就是必然冲突）。各管一段，判据才好背。
+#[derive(Debug)]
+pub struct OneOf;
+
+impl Modifier for OneOf {
+    fn name(&self) -> &str {
+        "one_of"
+    }
+    fn apply(&self, _spec: &mut FieldSpec, v: &Value) -> Result<(), String> {
+        group_members(self.name(), v).map(|_| ())
+    }
+    fn check_group(&self, view: &GroupView<'_>) -> Result<(), String> {
+        check_mutual_exclusion(self.name(), view, false)
+    }
+}
+
+/// 互斥修饰符 **`exactly_one [ a b c ]`**：组内**恰好一个**字段须出现
+/// （0 个或 ≥2 个都报错）。它是 [`OneOf`] 的「必填版」。
+///
+/// ⚠️ 陷阱：因为「出现」= **用户显式写出**、`default` 回填不算，
+/// 给组内每个成员都写 `default` 会让本修饰符**恒失败**。想要「不写也给个兜底值」，
+/// 请只给其中一个成员写 `default`，其余留作可选。
+#[derive(Debug)]
+pub struct ExactlyOne;
+
+impl Modifier for ExactlyOne {
+    fn name(&self) -> &str {
+        "exactly_one"
+    }
+    fn apply(&self, _spec: &mut FieldSpec, v: &Value) -> Result<(), String> {
+        group_members(self.name(), v).map(|_| ())
+    }
+    fn check_group(&self, view: &GroupView<'_>) -> Result<(), String> {
+        check_mutual_exclusion(self.name(), view, true)
     }
 }
 
