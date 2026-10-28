@@ -1331,7 +1331,34 @@ function Sml.load(text, base)
     -- A10（W16）：顶层只能是容器（键值块 / 对象块 / 数组），单个标量无法往返 ⇒ E-PARSE-008。
     --   判定：只有一个 token 且它不是 { 或 [（即裸词 / 引号串 / 数字）⇒ 报错。
     --   `hello world`（2 token）、`@version v1` + `42`（4 token）、空输入（0 token）均不触发。
-    if #toks == 1 and first ~= "{" and first ~= "[" then
+    -- T9 收紧：判据 = 顶层第一个结构是「值型标量」（数字/引号串/bool/null；裸词标识符
+    --   `server`/`a` 作块类型名/块名**不算**值型）、且其后紧跟块/数组/键值（与 Rust 同判据）。
+    --   裸标量 = 单个词/串/数字（不是 { 或 [），且其后的 token 不是 { 或 :（否则 `42 { }`
+    --   是名为 42 的块、`42: x` 是键值）。`server web { }`（标识符作类型名）、`hello world`
+    --   （2 token）、`@version v1` + `42`（首结构是 @ 指令）、`42 { a: 1 }`（名为 42 的块）均不报。
+    -- T9：判断 token 是否为「值型标量」（数字 / 引号串 / bool / null）。
+    --   裸词标识符（如 `server`、`a`，作块类型名 / 块名）不算值型 —— 与 Rust/C++ 同判据。
+    local function is_scalar_value(tok)
+      if not tok then return false end
+      if tok:sub(1, 1) == '"' then return true end  -- 引号串
+      if tok == "true" or tok == "false" or tok == "null" then return true end
+      if string.match(tok, "^%-?%d+%.?%d*$")
+         or string.match(tok, "^%-?%.%d+$")
+         or string.match(tok, "^%-?%d+%.?%d*[eE][+-]?%d+$") then
+        return true
+      end
+      return false
+    end
+    local first_is_bare_scalar = (first and first ~= "{" and first ~= "[" and not first:match("^@"))
+        and (toks[2] ~= "{" and toks[2] ~= ":")
+    local only = (#toks == 1)
+    local followed_by_container = (toks[2] == "[")
+        or ((toks[2] ~= "{" and toks[2] ~= "}" and toks[2] ~= "[" and toks[2] ~= "]" and toks[2] ~= ":")
+            and (toks[3] == "{" or toks[3] == ":"))
+    -- T9：仅当首个结构是「值型标量」时，其后跟块/数组/键值才报；
+    -- 裸词标识符（块类型名/块名）不算值型，`server web { }` 合法。
+    local first_val = is_scalar_value(first)
+    if first_is_bare_scalar and (only or (first_val and followed_by_container)) then
       fail("E-PARSE-008", "顶层只能是容器（键值块 / 对象块 / 数组），单个标量无法往返：" .. tostring(first))
     end
     return (select(1, parse_block(toks, 1, nil, fragments, contracts, 0)))

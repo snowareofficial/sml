@@ -68,6 +68,11 @@ fn top_level_scalar_needs_a_container() {
     assert_code("\"hi\"\n", "E-PARSE-008");
     assert_code("true\n", "E-PARSE-008");
 
+    // 收紧（T9）：裸标量后跟块/数组/键值 ⇒ 报（原本静默重解释成块类型名，序列化 ≠ 原文）
+    assert_code("42\na { b: 1 }\n", "E-PARSE-008");
+    assert_code("42\nb: 1\n", "E-PARSE-008");
+    assert_code("42\n[1, 2]\n", "E-PARSE-008");
+
     // 正对照：合法顶层形态一律不受影响（这些值都能往返）
     for ok in [
         "a: 1\n",
@@ -76,6 +81,7 @@ fn top_level_scalar_needs_a_container() {
         "{ a: 1 }\n",
         "42: x\n",
         "hello world\n",
+        "server web { a: 1 }\n", // T9 正对照：裸词标识符作块类型名/块名不算值型标量
     ] {
         assert!(parse(ok).is_ok(), "应当仍然解析成功：{ok:?}");
     }

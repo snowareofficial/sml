@@ -344,6 +344,19 @@ fn parse_impl_tokens(
     Ok(parse_impl_tokens_ext(toks, spans, lines, features, env, ParseOptions::new())?.value)
 }
 
+/// 顶层首个 token 是否为「值型标量」：数字 / 引号串 / bool / null。
+/// 裸词标识符（如 `server`、`a`，作为块类型名/块名）**不算**值型 —— 这是区分
+/// T9 误报（`42 a { }`）与合法带类型块（`server web { }`）的关键。
+fn is_scalar_value(tok: Option<&Tok>) -> bool {
+    match tok {
+        Some(Tok::Str(_)) => true,
+        Some(Tok::Word(w)) => {
+            matches!(w.as_str(), "true" | "false" | "null") || w.as_str().parse::<f64>().is_ok()
+        }
+        _ => false,
+    }
+}
+
 /// 同 [`parse_impl_tokens`]，但携带外置扩展（见 [`crate::ext`]）。
 fn parse_impl_tokens_ext(
     toks: Vec<Tok>,
@@ -387,17 +400,34 @@ fn parse_impl_tokens_ext(
     // 「顶层标量不可往返」，却**从未被接线**：全仓只有常量定义与 doctest 引用，
     // 没有一处 `SmlError::new(E_PARSE_008, …)`。W16 起改为此处显式报错。
     //
-    // 【判据（已实测定死）】顶层**恰好一个标量 token**：
-    //   - `a: 1` / `42: x` / `[1,2]` / `{ a: 1 }` 不是单 token 或走容器分支 ⇒ 不受影响；
-    //   - `hello world`（两 token）得到 `{"hello":"world"}`，重写为 `hello: world`，
-    //     **值能往返** ⇒ 不算标量。
-    // 【已知边界】带指令的顶层标量（如 `@version v1` + `42`）token 数 > 1，按本判据
-    //   **不报** —— 有意保守（宁漏不误伤）：指令与标量的组合另有语义，不在此处一刀切。
-    if matches!(p.toks.as_slice(), [Tok::Word(_)] | [Tok::Str(_)]) {
+    // 【判据（T9 收紧后，五端逐字同，Rust 是唯一事实来源）】
+    //   ① 仅一个顶层 token 且是标量（裸词/引号串/数字都记 Word/Str）⇒ 报
+    //      —— 保持原「恰好一个标量」语义（`42`/`hello`/`"hi"`/`true` 单标量都报）。
+    //   ② T9 收紧：首个顶层 token 是**值型标量**（数字/引号串/bool/null；注意裸词标识符
+    //      如 `server`/`a` 是块的类型名/块名，**不算**值型），且其后紧跟块/数组/键值
+    //      （即被当成「块的类型名」吞掉）⇒ 报。
+    //      - `42\na { b: 1 }` → `42` 是值、`a` 后跟 `{` ⇒ 报（T9：42 被重解释成块类型名）
+    //      - `server web { }` → `server` 是标识符（块类型名）⇒ 不报（合法块）
+    //      - `42\nb: 1` / `42\n[1,2]` → 后跟键值/数组 ⇒ 报
+    //   排除：`hello world`（两 token 裸键对，值可往返）、`@version v1`+`42`（首结构是
+    //    @ 指令，非标量）、`42 { a: 1 }`（名为 42 的块，紧跟 `{`）、`42: x`（键值）。
+    let lone_scalar = matches!(p.toks.as_slice(), [Tok::Word(_)] | [Tok::Str(_)]);
+    if lone_scalar {
         return Err(SmlError::new(
             E_PARSE_008,
             "sml: 顶层须为容器（键值块、对象块或数组），单独的标量无法往返",
         ));
+    }
+    if is_scalar_value(p.toks.first()) {
+        let followed_by_container = matches!(p.toks.get(1), Some(Tok::LBrack))
+            || matches!(p.toks.get(1), Some(Tok::Word(_)) | Some(Tok::Str(_)))
+                && matches!(p.toks.get(2), Some(Tok::LBrace) | Some(Tok::Colon));
+        if followed_by_container {
+            return Err(SmlError::new(
+                E_PARSE_008,
+                "sml: 顶层须为容器（键值块、对象块或数组），单独的标量无法往返",
+            ));
+        }
     }
     // 顶层支持三种形态，与 `to_sml` 的输出对称：
     //   - `[ ... ]` 数组：to_sml 对非对象走 dump_inline，会输出顶层数组
