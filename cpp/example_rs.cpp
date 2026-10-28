@@ -2,7 +2,7 @@
  * example_rs.cpp — SML v3 through the Rust cdylib backend (C++17 wrapper).
  *
  * Build:
- *   g++ -std=c++17 example_rs.cpp sml_rs.cpp -L<<target-dir>>/release -lsml -o example_rs
+ *   g++ -std=c++17 example_rs.cpp sml_rs.cpp -L<target-dir>/release -lsml -o example_rs
  */
 #include "sml_rs.hpp"
 
