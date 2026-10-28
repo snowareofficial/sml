@@ -642,6 +642,14 @@ local function test_w16_codes()
   expect_code("未定义片段引用", "x: &nosuchfrag\n", "E-INCLUDE-006")
   expect_code("顶层标量（裸词）", "42\n", "E-PARSE-008")
   expect_code("顶层标量（引号串）", "\"42\"\n", "E-PARSE-008")
+  -- 收紧（T9）：裸标量后跟块/数组/键值 ⇒ 报（原本静默重解释成块类型名，序列化 ≠ 原文）
+  expect_code("T9 顶层标量后跟块", "42\na { b: 1 }\n", "E-PARSE-008")
+  expect_code("T9 顶层标量后跟键值", "42\nb: 1\n", "E-PARSE-008")
+  expect_code("T9 顶层标量后跟数组", "42\n[1, 2]\n", "E-PARSE-008")
+
+  -- T9 正对照：裸词标识符作块类型名/块名**不算**值型标量，`server web { }`
+  --   是合法带类型块，不得被误判为 E-PARSE-008（与 Rust/C++ 同判据）。
+  expect_ok("T9 值型标量区分：带类型块合法", "server web { a: 1 }\n")
 
   -- 正对照：合法顶层形态与合法片段定义；挡住「把 @ 开头一律判 005」那种一刀切修法
   expect_ok("片段显式参数(应成功)", "@foo type: Server name: p { x: 1 }\n")

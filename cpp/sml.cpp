@@ -1488,7 +1488,48 @@ static ValuePtr parse_impl(const std::string& text, std::string* err, const std:
     auto& first = st.toks[0];
     // W16 B0：顶层只能是容器（键值块/对象块/数组），单个标量无法往返 ⇒ E-PARSE-008。
     //   判定：只有一个 token 且它不是 [ 或 {（即裸词 / 引号串 / 数字，tokenizer 都记为 Word）。
-    if (st.toks.size() == 1 && first.t == Token::T::Word) {
+    // T9 收紧：判据 = 顶层第一个结构是裸标量、且其后紧跟块/数组/键值（与 Rust 同判据）。
+    //   裸标量 = 单个 Word 叶子（裸词/引号串/数字都记为 Word），且其后的 token 不是 `{` / `:`。
+    //   `hello world`（2 token 裸键对）、`@version v1` + `42`（首结构是 @ 指令）、
+    //   `42 { a: 1 }`（名为 42 的块）均不报。
+    // T9 收紧：判据 = 值型标量（数字/引号串/bool/null）后跟块/数组/键值 ⇒ 报；
+    //   裸词标识符（server/a 作块类型名/块名）不算值型，故 `server web { }` 合法、`42 a { }` 报错。
+    auto is_scalar_value = [&](const Token& t) -> bool {
+        if (t.t != Token::T::Word) return false;
+        const std::string& s = t.s;
+        if (!s.empty() && s[0] == '"') return true;
+        if (s == "true" || s == "false" || s == "null") return true;
+        try { size_t idx; std::stod(s, &idx); if (idx == s.size() && !s.empty()) return true; } catch (...) {}
+        return false;
+    };
+    bool lone_scalar = (st.toks.size() == 1 && first.t == Token::T::Word);
+    if (lone_scalar) {
+        if (err && err->empty())
+            *err = code_prefix(SML_E_PARSE_008, "sml: 顶层只能是容器（键值块/对象块或数组），单个标量无法往返");
+        return nullptr;
+    }
+    if (is_scalar_value(first)) {
+        bool followed = (st.toks.size() >= 2 && st.toks[1].t == Token::T::LBracket)
+            || (st.toks.size() >= 2 && st.toks[1].t == Token::T::Word
+                && st.toks.size() >= 3
+                && (st.toks[2].t == Token::T::LBrace || st.toks[2].t == Token::T::Colon));
+        if (followed) {
+            if (err && err->empty())
+                *err = code_prefix(SML_E_PARSE_008, "sml: 顶层只能是容器（键值块/对象块或数组），单个标量无法往返");
+            return nullptr;
+        }
+    }
+    bool scalar0 = (first.t == Token::T::Word);
+    bool bare0 = scalar0 && (st.toks.size() == 1
+                 || (st.toks.size() >= 2
+                     && st.toks[1].t != Token::T::LBrace
+                     && st.toks[1].t != Token::T::Colon));
+    bool only = (st.toks.size() == 1);
+    bool followed = (st.toks.size() >= 2 && st.toks[1].t == Token::T::LBracket)
+        || (st.toks.size() >= 2 && st.toks[1].t == Token::T::Word
+            && st.toks.size() >= 3
+            && (st.toks[2].t == Token::T::LBrace || st.toks[2].t == Token::T::Colon));
+    if (false) {  // T9：旧裸词判据已废弃，改用上方「值型标量后跟容器」判定
         if (err && err->empty())
             *err = code_prefix(SML_E_PARSE_008,
                 "sml: 顶层只能是容器（键值块/对象块/数组），单个标量无法往返");
