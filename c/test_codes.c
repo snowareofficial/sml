@@ -577,6 +577,10 @@ static void test_syntax_w16_codes(void) {
     expect_code("T9 裸标量后跟键值", "42\nb: 1\n", SML_E_PARSE_008);
     expect_code("T9 裸标量后跟数组", "42\n[1, 2]\n", SML_E_PARSE_008);
 
+    /* T9 正对照：裸词标识符作块类型名/块名**不算**值型标量，`server web { }`
+       是合法带类型块，不得被误判为 E-PARSE-008（与 Rust/C++ 同判据）。 */
+    expect_ok("T9 值型标量区分：带类型块合法", "server web { a: 1 }\n");
+
     /* 正对照：合法顶层形态与合法片段定义
        ⚠️ `@foo { x: 1 }` 是片段定义（无位置参数），不是「未注册指令」——
        这条正对照就是用来挡住「把 @ 开头一律判 005」那种一刀切修法的。 */

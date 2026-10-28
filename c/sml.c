@@ -708,6 +708,25 @@ static sml_value *coerce_word(const char *w, parser *ps) {
     return sml_new_str(w);
 }
 
+/* T9：判断 token 是否为「值型标量」（数字 / 引号串 / bool / null）。
+ * 裸词标识符（如 `server`、`a`，作块类型名 / 块名）**不算**值型 —— 这是区分
+ * T9 误报（`42 a { }`）与合法带类型块（`server web { }`）的关键。与 Rust/C++ 同判据。 */
+static int tok_is_scalar_value(const token *t) {
+    if (!t) return 0;
+    if (t->t == T_STR) return 1;                       /* 引号串 */
+    if (t->t != T_WORD) return 0;                     /* @ 指令 / 结构记号 */
+    const char *w = t->v;
+    if (w[0] == '\0') return 0;
+    if (strcmp(w, "true") == 0 || strcmp(w, "false") == 0
+        || strcmp(w, "null") == 0)
+        return 1;
+    /* 数字：整串可解析为浮点（与 Rust 的 parse::<f64>() 同口径） */
+    char *end = NULL;
+    errno = 0;
+    strtod(w, &end);
+    return (end != w && *end == '\0');
+}
+
 static void frag_put(parser *ps, const char *name, sml_value *v) {
     struct frag *f = (struct frag *)calloc(1, sizeof(struct frag));
     if (!f) return;
@@ -1610,15 +1629,16 @@ sml_value *sml_parse(const char *text, char *err, size_t errsz) {
         lex_free(&lx);
         return NULL;
     }
-    /* 顶层标量不可往返 ⇒ E-PARSE-008（与 Rust 同判据：**顶层第一个结构是裸标量、且其后
+    /* 顶层标量不可往返 ⇒ E-PARSE-008（与 Rust 同判据：**顶层第一个结构是值型标量、且其后
        紧跟块/数组/键值**，T9 收紧）。
        改前这里是**静默造键**：`42` 走 parse_block(T_EOF) 的「键即值」分支，被解析成
        `{"42": 42}`，重新序列化得到 `"42": 42` ≠ `42` —— 数据形状被悄悄改掉
        （与 W17 的 C 嵌套数组同族：不报错，但数据错）。
        判据与 Rust 逐字一致：
          - `42`                → 仅一个顶层结构（n == 2，含末尾 T_EOF）⇒ 报；
-         - `42\na { b: 1 }`    → 裸标量 `42` 后跟块 `a` ⇒ 报（T9：42 被重解释成块类型名）；
+         - `42\na { b: 1 }`    → 值型标量 `42` 后跟块 `a` ⇒ 报（T9：42 被重解释成块类型名）；
          - `42\nb: 1` / `42\n[1,2]` → 后跟键值/数组 ⇒ 报；
+         - `server web { }`    → `server` 是裸词标识符（块类型名）**非值型** ⇒ 不报（合法块）；
          - `hello world`       → 两 token 裸键对，值可往返 ⇒ 不报；
          - `@version v1` + `42` → 首结构是 @ 指令（非裸标量）⇒ 不报（保留正对照）；
          - `42 { a: 1 }`       → 名为 42 的块（紧跟 `{`）⇒ 不报。
@@ -1633,7 +1653,10 @@ sml_value *sml_parse(const char *text, char *err, size_t errsz) {
                 || (lx.n >= 3
                     && (lx.toks[1].t == T_WORD || lx.toks[1].t == T_STR)
                     && (lx.toks[2].t == T_LBRACE || lx.toks[2].t == T_COLON));
-            if (only || followed) {
+            /* T9：仅当首个 token 是「值型标量」时，其后跟块/数组/键值才报；
+               裸词标识符（块类型名/块名）不算值型，`server web { }` 合法。 */
+            int first_is_val = tok_is_scalar_value(&lx.toks[0]);
+            if (only || (first_is_val && followed)) {
                 if (err && errsz)
                     set_err(err, errsz,
                             SML_E_PARSE_008 " 顶层须为容器（键值块、对象块或数组），单独的标量无法往返");
