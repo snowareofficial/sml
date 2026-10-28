@@ -217,6 +217,94 @@ static void test_contract_codes(void) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 契约修饰符单词形式：optional / default <v>（W24，对齐另外四端）        */
+/* ------------------------------------------------------------------ */
+/* 纯增量：C 此前只认符号形式 `?` / `=`，单词形式 `optional` / `default` 在
+   全文零命中、会被当成新字段名而失败。补齐后两者并存，原本成功解析的文档
+   不受影响（符号形式继续可用，见 ④ 回归）。值的回填走与 `=` 完全相同的
+   coerce_word / sml_new_str 路径，不另写一套。 */
+static void test_contract_modifier_words(void) {
+    char err[256];
+    sml_value *v, *f;
+    printf("[CONTRACT：修饰符单词 optional/default]\n");
+
+    /* ① optional：字段可缺，不报 E-CONTRACT-003（必填但缺失） */
+    memset(err, 0, sizeof(err));
+    v = sml_parse("@contract S { x: str optional }\nserver { @is S }\n", err, sizeof(err));
+    if (!v) { printf("FAIL: ① optional 缺字段应成功，实得 \"%s\"\n", err); failures++; }
+    else { printf("  ok: %-30s -> 成功（optional 字段可缺）\n", "x: str optional"); sml_free(v); }
+
+    /* ② default：缺字段时回填给定值（int） */
+    memset(err, 0, sizeof(err));
+    v = sml_parse("@contract S { p: int default 5432 }\nserver { @is S }\n", err, sizeof(err));
+    if (!v) { printf("FAIL: ② default 缺字段应成功，实得 \"%s\"\n", err); failures++; }
+    else {
+        f = sml_get_path(v, "server.p");
+        if (!f || f->type != SML_INT || f->u.i != 5432)
+            { printf("FAIL: ② default 应回填 INT 5432，实得 %s\n",
+                     !f ? "无字段" : (f->type == SML_INT ? "别的整数" : "非整数")); failures++; }
+        else { printf("  ok: %-30s -> 回填 INT 5432\n", "p: int default 5432"); }
+        sml_free(v);
+    }
+
+    /* ② 续：default 字符串值回填 */
+    memset(err, 0, sizeof(err));
+    v = sml_parse("@contract S { c: str default CN }\nserver { @is S }\n", err, sizeof(err));
+    if (!v) { printf("FAIL: ② default 字符串应成功，实得 \"%s\"\n", err); failures++; }
+    else {
+        f = sml_get_path(v, "server.c");
+        if (!f || f->type != SML_STR || strcmp(f->u.s, "CN") != 0)
+            { printf("FAIL: ② default 应回填 STR \"CN\"，实得 %s\n",
+                     !f ? "无字段" : (f->type == SML_STR ? f->u.s : "非字符串")); failures++; }
+        else { printf("  ok: %-30s -> 回填 STR \"CN\"\n", "c: str default CN"); }
+        sml_free(v);
+    }
+
+    /* ③ optional + default 同时：缺字段时回填默认值（不报缺失） */
+    memset(err, 0, sizeof(err));
+    v = sml_parse("@contract S { x: int optional default 7 }\nserver { @is S }\n", err, sizeof(err));
+    if (!v) { printf("FAIL: ③ optional+default 应成功，实得 \"%s\"\n", err); failures++; }
+    else {
+        f = sml_get_path(v, "server.x");
+        if (!f || f->type != SML_INT || f->u.i != 7)
+            { printf("FAIL: ③ optional+default 应回填 INT 7，实得 %s\n",
+                     !f ? "无字段" : (f->type == SML_INT ? "别的整数" : "非整数")); failures++; }
+        else { printf("  ok: %-30s -> 回填 INT 7\n", "x: int optional default 7"); }
+        sml_free(v);
+    }
+    /* ③ 续：同时出现且字段给出值时，用给出值而非默认值 */
+    memset(err, 0, sizeof(err));
+    v = sml_parse("@contract S { x: int optional default 7 }\nserver { @is S\n x: 9\n}\n", err, sizeof(err));
+    if (!v) { printf("FAIL: ③ optional+default 给值时失败，实得 \"%s\"\n", err); failures++; }
+    else {
+        f = sml_get_path(v, "server.x");
+        if (!f || f->type != SML_INT || f->u.i != 9)
+            { printf("FAIL: ③ optional+default 给值应取 INT 9，实得 %s\n",
+                     !f ? "无字段" : (f->type == SML_INT ? "别的整数" : "非整数")); failures++; }
+        else { printf("  ok: %-30s -> 取值 INT 9\n", "x: int optional default 7 (给值)"); }
+        sml_free(v);
+    }
+
+    /* ④ 回归：既有符号形式 ? / = 仍通过，且 = 仍回填 */
+    memset(err, 0, sizeof(err));
+    v = sml_parse("@contract S { x: str? }\nserver { @is S }\n", err, sizeof(err));
+    if (!v) { printf("FAIL: ④ 回归 ? 应成功，实得 \"%s\"\n", err); failures++; }
+    else { printf("  ok: %-30s -> 成功（? 仍可用）\n", "x: str?"); sml_free(v); }
+
+    memset(err, 0, sizeof(err));
+    v = sml_parse("@contract S { p: int = 5432 }\nserver { @is S }\n", err, sizeof(err));
+    if (!v) { printf("FAIL: ④ 回归 = 应成功，实得 \"%s\"\n", err); failures++; }
+    else {
+        f = sml_get_path(v, "server.p");
+        if (!f || f->type != SML_INT || f->u.i != 5432)
+            { printf("FAIL: ④ 回归 = 应回填 INT 5432，实得 %s\n",
+                     !f ? "无字段" : (f->type == SML_INT ? "别的整数" : "非整数")); failures++; }
+        else { printf("  ok: %-30s -> 回填 INT 5432（= 仍可用）\n", "p: int = 5432"); }
+        sml_free(v);
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* 语法与上限：E-PARSE-012（不可达，只声明）、E-LIMIT-001              */
 /* ------------------------------------------------------------------ */
 static void test_parse_and_limit(void) {
@@ -483,6 +571,11 @@ static void test_syntax_w16_codes(void) {
     expect_code("顶层标量（单词）", "hello\n", SML_E_PARSE_008);
     expect_code("顶层标量（引号串）", "\"hi\"\n", SML_E_PARSE_008);
     expect_code("顶层标量（布尔）", "true\n", SML_E_PARSE_008);
+
+    /* 收紧（T9）：裸标量后跟块/数组/键值 ⇒ 报（原本静默重解释成块类型名，序列化 ≠ 原文） */
+    expect_code("T9 裸标量后跟块", "42\na { b: 1 }\n", SML_E_PARSE_008);
+    expect_code("T9 裸标量后跟键值", "42\nb: 1\n", SML_E_PARSE_008);
+    expect_code("T9 裸标量后跟数组", "42\n[1, 2]\n", SML_E_PARSE_008);
 
     /* 正对照：合法顶层形态与合法片段定义
        ⚠️ `@foo { x: 1 }` 是片段定义（无位置参数），不是「未注册指令」——
@@ -754,6 +847,7 @@ static void test_error_msgs_all(void) {
 
 int main(void) {
     test_contract_codes();
+    test_contract_modifier_words();
     test_parse_and_limit();
     test_unclosed_codes();
     test_lex_codes();

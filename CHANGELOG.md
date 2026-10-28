@@ -36,6 +36,16 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   - 报码复用 **`E-CONTRACT-011`**（外置修饰符校验失败），**不新增码**。
   - 新增扩展点钩子 `Modifier::check_group(&GroupView)`，默认放行 —— 既有修饰符实现一字未改。
 
+### C 端契约修饰符单词形式（W24）
+
+- **`optional` / `default <v>`** 现在 C 端也认（与 Rust / C++ / JS / Lua 及全部文档、教科书逐字一致）。
+  此前 C 只认 `?` / `=` 符号形式，照 README / `showcase_contract.sml` 写的单词契约在 C 上必然
+  `E-CONTRACT-003`（可选字段被当成新字段名）。纯增量：C 原来不认这两个词，新增分支不会让任何
+  原本成功解析的文档变失败。值回填复用既有 `coerce_word` / `sml_new_str` 路径，不另写一套。
+  `c/build_check.py --run` 与 `tests/conformance` 13/14/16 三格的 c 列由 ERR 变 A，AGREE 15→17。
+- ⚠️ **`?` / `=` 符号形式保留未动**：是否废弃 / 推广到另外四端属产品裁决
+  （`33_contract_modifier_alt` 仍 DIVERGE，属预期），本轮不动手。
+
 ### ⚠️ 行为变更
 
 - **`#[sml(flatten)]` 的键冲突：从「静默覆盖」改为报错**（`rust/derive/src/lib.rs`）。
