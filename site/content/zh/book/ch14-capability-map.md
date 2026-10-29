@@ -18,10 +18,10 @@ translationKey: "book-ch14"
 | `include`（单文件） | 开 | ✅ | ✅ ※ | ✅ | ✅ | ✅ | [第 4 章](/book/ch04-include) |
 | `env`（`$env.X`） | 开 | ✅ | ✅ | ✅ | ✅ | ✅ | [第 6 章](/book/ch06-env-escape) |
 | 契约（`@contract` / `@is`，单契约） | 开 | ✅ | ✅ | ✅ | ✅ | ✅ | [第 5 章](/book/ch05-contract) |
-| 片段（`@base {}` + `&base`） | 开 | ✅ 展开 | ✅ | ⚠️ 不展开 | ❌ | ❌ | [第 3 章](/book/ch03-fragments) |
+| 片段（`@base {}` + `&base`） | 开 | ✅ 展开 | ✅ | ✅ 展开 | ⚠️ 不展开 | ❌ | [第 3 章](/book/ch03-fragments) |
 | `namespace`（`include … as ns`） | 开 | ✅ | ✅ | ✅ | ✅ | ❌ | [第 4 章](/book/ch04-include) |
 | `implicit-ns` | 开 | ✅ | ✅ | ? | ? | ? | [第 4 章](/book/ch04-include) |
-| `top-level-array`（文档根是数组） | 开 | ✅ | ❌ | ✅ | ❌ | ❌ | [第 10 章](/book/ch10-features) |
+| `top-level-array`（文档根是数组） | 开 | ✅ | ✅ | ✅ | ✅ | ✅ | [第 10 章](/book/ch10-features) |
 | **契约叠加（mixin，一个块多约）** | 开※ | ✅ | ❌ `017` | ❌ `017` | ❌ `017` | ❌ `017` | [§5.4.1](/book/ch05-contract) |
 | `typed-block`（`契约名 块名 { }`） | **关** | ✅ | ✅ | ❌ 静默降级 | ❌ | ❌ | [§5.2.2](/book/ch05-contract) |
 | `@type` 模式（Loom-in-SML） | 开 | ✅ | ✅ | ❌ 明确拒绝 | ❌ 明确拒绝 | ❌ 明确拒绝 | [§5.2.2](/book/ch05-contract) |
@@ -40,6 +40,19 @@ translationKey: "book-ch14"
 
 1. **五端都稳的**（优先用于跨端文档）：键值 / 块 / 数组、注释、裸词串、`include`、`$env`、单契约 `@contract`/`@is`、`namespace`。
 2. ** Rust（±JS）的进阶**：`@when` / `@for` 仅 Rust；`typed-block` / `@type` / `glob`·`regex-include` 为 Rust + JS。
-3. **会静默或降级的，跨端要当心**：C 的 `fragment` 不展开、C / C++ / Lua 的 `typed-block` 退化成普通裸块、Lua 的 `for` 待复核 —— 这些端要么明确报码、要么留下与预期不同的树。
+3. **会静默或降级的，跨端要当心**：`&base` 行级展开**只剩 C++ 未实现**（C 已与 Rust 同组）、C / C++ / Lua 的 `typed-block` 退化成普通裸块、Lua 的 `for` 待复核 —— 这些端要么明确报码、要么留下与预期不同的树。
+
+## 跨实现一致性套件（五端一致性）
+
+SML 有一份**共享用例 × 五端**的一致性套件：Rust / C / C++ / JS / Lua 各跑一遍，比较的是 **值树** 而非字节。
+「五端都通过」怎么定义、分歧台账怎么分级、哪些「AGREE」其实是载体盲区，权威来源是
+`tests/conformance/known_divergences.md`（**当前台账**，条数与各端 AGREE/DIVERGE 计数随合入进展变化，本页不另记一份）。
+
+要点：
+
+- **比的是值树，不是字节**：先把各端 dump 出的文本喂回 `smltools` 归一化，得到 JSON 值树再比较——因此「C 保源序、Rust 排序」这类纯渲染差异不会误报。
+- **分歧台账分两档**：**缺陷**（实现与既定行为不符，应修）与**已知取舍**（已有定论、不接受修改）。具体条数见当前台账。
+- **「两端都失败」不算一致**：判分先判「有没有值树」（解析失败 / dump 回读失败就没有树），再比分组；都没树只是「一起错」，不是「对齐」。
+- **载体盲区（B-01 / B-02）**：套件用文本载体还原值树，有两处表达不了——`B-01`：「数字样子的字符串」回读变数字（某些端 AGREE 其实没对齐）；`B-02`：`\0` 这一格无法承载。这几格 AGREE **不能当成「已对齐」**。
 
 → 回[教科书目录](/book/)
