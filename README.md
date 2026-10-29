@@ -74,7 +74,7 @@ region: &base
 > **块内独立一行的 `&base`（不加键名）在参照实现 Rust 里是「字段展开」**：它把片段的字段
 > **并入当前块**（实测 `@base { a: 1 b: 2 }` 配 `w { c: 3` + `&base }` ⇒ `{ w: { a: 1, b: 2, c: 3 } }`），
 > 因此**严格契约下这些字段同样要在契约里声明**。
-> ⚠️ **C / C++ 尚未实现这种字段展开**（它们把裸词当键名，于是多出一个 `&base` 键 ——
+> ⚠️ **C++ 尚未实现这种字段展开**（它把裸词当键名，于是多出一个 `&base` 键 ——
 > 严格契约会因此报「未声明字段」）⇒ 属已知跨实现差异，登记在 [TODO.md](TODO.md)。
 
 **顶层形态**：顶层支持键值块、`{ ... }` 对象块、`[ ... ]` 数组三种形态。
@@ -82,8 +82,8 @@ region: &base
 
 ```sml
 [
-  { ts: 2026-08-30T10:00:00Z to: a@b.c status: ok }
-  { ts: 2026-08-30T11:00:00Z to: x@y.z status: fail }
+  { ts: "2026-08-30T10:00:00Z" to: a@b.c status: ok }
+  { ts: "2026-08-30T11:00:00Z" to: x@y.z status: fail }
 ]
 ```
 
@@ -129,7 +129,14 @@ database {
 - 不使用契约时解析行为完全不变 —— **向后兼容**
 
 支持的类型：`str` / `int` / `num`（int 或 float）/ `bool` / `any` / `[T]`（数组）/ `enum [ ... ]`
-修饰符：`required`（默认）/ `optional` / `default <值>` / `min <数>` / `max <数>`
+修饰符：`required`（默认）/ `optional` / `default <值>` / `min <数>` / `max <数>` / `one_of [ a b c ]`（至多一个）/ `exactly_one [ a b c ]`（恰好一个）
+
+> **互斥字段组**（`one_of` / `exactly_one`）：契约的**跨字段**约束，实现在 Rust 外置扩展点
+> （`rust/sml-contract/src/ext.rs`，经 `ParseOptions::with_modifier` 注册，**不动 C/C++/JS/Lua**）。
+> - 判据只看**显式写出的键**——`default` 回填的值不算出现（否则「组内成员都写 `default`」的契约会恒失败）。
+> - 组成员名写错（未在契约里声明）⇒ **响亮报错**，而非留一条永远命中不了的约束。
+> - `one_of` 一个都不写 ⇒ 放行；`exactly_one` 一个都不写 ⇒ 报错（`required` 的跨字段版）。
+> - 报码复用 **`E-CONTRACT-011`**，**不新增码**；**仅 Rust 外置扩展点可用**。
 
 ### 组合（Composition），而非继承
 
@@ -175,7 +182,7 @@ db {
 
 完整示例见 [`showcase_contract.sml`](showcase_contract.sml)。
 
-**契约支持**：Rust ✅ ｜ C / C++ ✅ ｜ JS ✅ ｜ Lua ⏳ **唯一未落地的一侧**（见 [TODO.md](TODO.md)；
+**契约支持**：Rust ✅ ｜ C / C++ ✅ ｜ JS ✅ ｜ Lua ✅ **已落地（W20 补 `@contract` / `@is` + 默认值回填）**（见 [TODO.md](TODO.md)；
 该侧已定：允许引入 native，走 C-ABI 绑定而非重写一遍）。
 
 ## 扩展机制（外置扩展点）
@@ -256,7 +263,7 @@ let v = parse_file("app.sml")?;
 | C++ | `cpp/`（封装同一套能力） | ✅ 孵化 |
 | JavaScript | `js/sml.mjs`（ESM，零依赖） | ✅ 孵化 |
 
-契约（`@contract` / `@is`）已在 Rust / C / C++ / JS 落地，**Lua 是唯一未落地的一侧**
+契约（`@contract` / `@is`）已在五端落地（Rust / C / C++ / JS / Lua；Lua 由 W20 补齐 `@contract` / `@is` + 默认值回填）
 （见 [TODO.md](TODO.md) 的「契约」一节）。
 
 ### 跨实现差异与约定

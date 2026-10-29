@@ -53,6 +53,7 @@ let back = Server::from_sml(&text).unwrap();
 - `#[sml(default)]` 缺失时用 `Default`
 - `#[sml(skip)]` 跳过字段
 - `#[sml(flatten)]` 并入子块
+  - ⚠️ **键冲突现在报错**：提升上来的键若与父块已有字段同名，两方向都拦（flatten 盖父块 / 父块盖 flatten），`to_sml_value()` 返回 `Err`。依赖旧「后者胜」静默覆盖的代码会开始收到 `Err`；需要保留旧行为请改名或去掉 `flatten`。
 - 容器级 `#[sml(rename_all = "kebab-case")]` 批量改名
 
 ## 许可
@@ -108,6 +109,10 @@ let back = Server::from_sml(&text).unwrap();
 - `#[sml(default)]` use `Default` when missing
 - `#[sml(skip)]` skip a field
 - `#[sml(flatten)]` flatten into a sub-block
+  - ⚠️ **Key conflicts now error**: if a key lifted by `#[sml(flatten)]` collides with a field
+    already present in the parent block, both directions are rejected (`to_sml_value()` returns
+    `Err`). Code relying on the old silent "last wins" overwrite will now receive `Err`; to keep
+    the old behaviour, rename or drop `flatten`.
 - Container-level `#[sml(rename_all = "kebab-case")]` batch rename
 
 ## License
