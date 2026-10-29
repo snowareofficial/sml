@@ -78,7 +78,7 @@ region: &base
 > implementation**: the fragment's fields are merged into the enclosing block (measured:
 > `@base { a: 1 b: 2 }` plus `w { c: 3` + `&base }` ⇒ `{ w: { a: 1, b: 2, c: 3 } }`), so those
 > fields must still be declared in any strict contract.
-> ⚠️ **C / C++ do not implement this splice yet** (they treat the bare word as a key name, which
+> ⚠️ **C++ does not implement this splice yet** (it treats the bare word as a key name, which
 > leaves an extra `&base` key — a strict contract then reports an undeclared field). Known
 > cross-implementation divergence, tracked in [TODO.md](TODO.md).
 
@@ -87,8 +87,8 @@ region: &base
 
 ```sml
 [
-  { ts: 2026-08-30T10:00:00Z to: a@b.c status: ok }
-  { ts: 2026-08-30T11:00:00Z to: x@y.z status: fail }
+  { ts: "2026-08-30T10:00:00Z" to: a@b.c status: ok }
+  { ts: "2026-08-30T11:00:00Z" to: x@y.z status: fail }
 ]
 ```
 
@@ -139,7 +139,18 @@ Key points:
 - With no contracts in play, parsing behaviour is completely unchanged — **backward compatible**
 
 Types: `str` / `int` / `num` (int or float) / `bool` / `any` / `[T]` (array) / `enum [ ... ]`.
-Modifiers: `required` (default) / `optional` / `default <value>` / `min <n>` / `max <n>`.
+Modifiers: `required` (default) / `optional` / `default <value>` / `min <n>` / `max <n>` /
+`one_of [ a b c ]` (at most one present) / `exactly_one [ a b c ]` (exactly one).
+
+> **Mutually-exclusive field groups** (`one_of` / `exactly_one`): a **cross-field** contract
+> constraint, implemented as a Rust **external extension point** (`rust/sml-contract/src/ext.rs`,
+> registered via `ParseOptions::with_modifier`; **C / C++ / JS / Lua are untouched**).
+> - The check counts only **explicitly written keys** — a `default`-back-filled value does not
+>   count as present (otherwise a contract whose members all have `default` would always fail).
+> - A mistyped group member name (not declared in the contract) is a **loud error**.
+> - `one_of` with zero members ⇒ pass; `exactly_one` with zero members ⇒ error (the cross-field
+>   form of `required`).
+> - Both reuse code **`E-CONTRACT-011`** — **no new code**; **Rust external extension point only**.
 
 ### Composition, not inheritance
 
@@ -188,7 +199,7 @@ contract name:
 
 A complete example lives in [`showcase_contract.sml`](showcase_contract.sml).
 
-**Contract support**: Rust ✅ ｜ C / C++ ✅ ｜ JS ✅ ｜ Lua ⏳ **the only side not landed yet**
+**Contract support**: Rust ✅ ｜ C / C++ ✅ ｜ JS ✅ ｜ Lua ✅ **landed in W20 (`@contract` / `@is` + default back-fill)**
 (see [TODO.md](TODO.md); that side may bind the native implementation over C-ABI rather than
 being rewritten by hand).
 
@@ -279,8 +290,8 @@ let v = parse_file("app.sml")?;
 | C++ | `cpp/` (wraps the same capabilities) | ✅ incubating |
 | JavaScript | `js/sml.mjs` (ESM, zero dependencies) | ✅ incubating |
 
-Contracts (`@contract` / `@is`) are landed in Rust / C / C++ / JS; **Lua is the only side left**
-(see the "Contracts" section of [TODO.md](TODO.md)).
+Contracts (`@contract` / `@is`) are landed on all five implementations (Rust / C / C++ / JS / Lua; Lua was
+completed in W20 with `@contract` / `@is` + default back-fill) — see the "Contracts" section of [TODO.md](TODO.md).
 
 ### Cross-implementation divergences and conventions
 
