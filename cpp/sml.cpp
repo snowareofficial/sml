@@ -517,6 +517,13 @@ static bool parse_field(const std::string& line, FieldSpec& out, std::string* er
     for (size_t k=1; k<parts.size(); ) {
         std::string w = parts[k];
         if (w==":") { k++; continue; }   // skip the colon separator token
+        // 符号形式 `?` / `=` 已废弃（2026-10-30）：统一到单词形式 optional / default，
+        // 报 E-PARSE-006 与 Rust / Lua / C 同码。
+        if (w=="?" || w=="=") {
+            if (err) *err = code_prefix(SML_E_PARSE_006,
+                std::string("sml: contract modifier `")+w+"` removed (use `optional` / `default`)");
+            return false;
+        }
         if (w=="optional") { mods.optional=true; k++; continue; }
         if (w=="loose")   { mods.loose=true; k++; continue; }
         if (w=="default") {
@@ -540,7 +547,7 @@ static bool parse_field(const std::string& line, FieldSpec& out, std::string* er
         std::string rest;
         while (k < parts.size()) {
             std::string m = parts[k];
-            if (m=="optional"||m=="loose"||m=="default"||m=="min"||m=="max") break;
+            if (m=="optional"||m=="loose"||m=="default"||m=="min"||m=="max"||m=="?"||m=="=") break;
             if (!rest.empty()) rest += " ";
             rest += m;
             k++;
@@ -1063,8 +1070,11 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                     if (!fieldbuf.empty()) {
                         FieldSpec fs;
                         std::string e;
-                        if (parse_field(fieldbuf, fs, &e)) c.fields.push_back(fs);
-                        else if (st.err) *st.err = e;
+                        if (!parse_field(fieldbuf, fs, &e)) {
+                            if (st.err) *st.err = e;
+                            return nullptr;
+                        }
+                        c.fields.push_back(fs);
                     }
                 }
                 if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::RBrace) { st.i++; closed = true; }

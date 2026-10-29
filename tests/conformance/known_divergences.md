@@ -84,7 +84,7 @@ Rust `to_sml` ／ C `sml_dump` ／ C++ `to_sml` ／ JS `stringify` ／ Lua `Sml.
 | 15 | `26_env_quoted_embed` | 只有 Rust 做真插值，其余四端原样保留 `$env.SML_CONF_TOKEN` | 已知取舍 | 同 #14（三档口径的中段）。三档要不要收敛、收敛到哪一档，属 ✋ |
 | 16 | `30_typed_block_meta` | JS / Lua 缺 `__type` / `__name` 元数据 | 已知取舍（Lua）／ **缺陷**（JS） | Lua 已登记（能力矩阵 三·十「Lua 连元数据都丢」）；**JS 这半未登记**：能力矩阵只说「typed-block 只有 Rust + JS 实现」，没说「未开特性时 JS 也不给元数据」 |
 | 17 | `32_escape_quote` | 除 Rust 外四端 dump 都无法被回读（`E-LEX-001` 字符串未闭合） | **已修复（fix/needs-quote-escaping）** | 根因：四端的 `needs_quote` / `quoteIfNeeded` 只判空白与 `:#{}`，**不判 `"` 与 `\`** ⇒ `quote"in` 原样写出、非法 SML。本任务（fix/needs-quote-escaping）四端同修：`c/sml.c` `needs_quote`、`cpp/sml.cpp` `dump_needs_quote`、`js/sml.mjs` `quoteIfNeeded`（正则加 `"\\`）、`lua/lib/sml.soup` `sml_needs_quote` 均纳入 `"`/`\`；**转义两端也一并补**：C 与 Lua 此前加引号却漏转义串内 `"`/`\`（已补 `escape`/`sml_escape_str`），JS 原已有转义。现状：该用例五端全 AGREE |
-| 18 | `33_contract_modifier_alt` | 只有 C 接受 `?` / `=` 记号，Rust/C++/JS/Lua 全拒 | **缺陷** | 同 #7–#9 的另一面，见下 |
+| 18 | `33_contract_modifier_legacy_rejected` | ~~只有 C 接受 `?` / `=` 记号~~ **已废弃（2026-10-30）**：原 C 与 JS 支持符号式，现五端统一按 `E-PARSE-006` 拒绝 | **已修复** | 裁决：废弃符号形式、统一到单词式 `optional` / `default`。C 删 T_QMARK/T_EQ 分支；JS 删 `?` 分支；C++/JS 对 `?`/`=` 的报错从 `E-CONTRACT-003` 对齐到 `E-PARSE-006`（C++ 还修了「`parse_field` 失败被 `st.err` 吞掉」——现在失败即中断解析）。用例已改名并改判为 `expect-error E-PARSE-006`，五端全 AGREE |
 
 ### #7–#9 + #18 是同一件事：契约修饰符有**两套不兼容的记号**
 
@@ -108,9 +108,11 @@ Rust `to_sml` ／ C `sml_dump` ／ C++ `to_sml` ／ JS `stringify` ／ Lua `Sml.
   修复后 `13/14` 整体 AGREE、`16` 的 C 格转 A（余 JS 半仍 DIVERGE，见 #9 的 JS 半）。
 - ⚠️ 别和 IDEAS I-8 混起来：I-8 说的是**数据行**的 TOML 风格 `x = 1`（`=` 还不是 token，需要 opt-in）。
   这里是**契约体内**的 `=`，C 有独立的 `T_EQ` token —— 两件事。
-- **先定哪一套是规范**，再决定改 C 还是改另外四端 + 全部文档。这是 ✋ 级判断。
-  W24 **只补 C 的单词形式、不动符号形式**；`?` / `=` 是否废弃 / 推广到另外四端属产品裁决
-  （`33_contract_modifier_alt` 因此仍 DIVERGE，属预期）。
+- **✅ 已裁决并落地（2026-10-30）**：废弃符号形式，统一到单词式 `optional` / `default`。
+  W24 先补了 C 的单词形式（零风险的一半）；随后本棒废弃了符号形式：
+  C 删 `?`/`=`、JS 删 `?`，C++/JS 报错码对齐到 `E-PARSE-006`，`33` 转 AGREE。
+  ⚠️ 这是**破坏性变更**（下游若用 `?` / `=` 写过契约会报错）；迁移：`x: str?` → `x: str optional`、
+  `p: int = v` → `p: int default v`。
 
 ### #9 的 JS 半：组合契约的**子契约默认值不回填**
 
