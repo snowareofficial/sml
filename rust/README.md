@@ -213,6 +213,40 @@ in the strict contract's "undeclared field" check.
 `firewall.sml` 的 `Rule: [ ... ]`），实例名靠 `__name` 区分。`__type` / `__name` 是
 语法元数据，不参与 strict 契约的「未声明字段」检查。
 
+## Warnings & diagnostics · 告警与诊断
+
+Parse entry points `parse_with_warnings(text)` / `parse_file_with_warnings(path)` return
+`Result<(Value, Vec<Diagnostic>), SmlError>` and surface two classes of warnings that used to be
+**completely silent**:
+
+- `DiagnosticKind::DuplicateKey` — a key repeated within the same block ⇒ already **promoted to an
+  array** (no value lost, but the structure is rewritten).
+- `DiagnosticKind::KeyOverwritten` — a fragment expansion (`&name`) overwrote a same-named key
+  already present in the parent block ⇒ the parent's original value is **lost**.
+
+`ParseOptions::warn_key_conflict` (default `true`; `.warn_key_conflict(false)` disables it) only
+affects the `diagnostics` content — it does **not** affect the `Value`. This round only adds
+warnings, it does not change semantics: the `Value` under both warnings is **byte-for-byte
+identical** to the old version. The original `parse()` / `parse_file()` entry points never return
+diagnostics (their signatures and behaviour are unchanged).
+
+A `Diagnostic` carries `line: Option<usize>` (1-based; for file entries where the token stream is
+merged across files it is always `None`). Code that constructs `Diagnostic` with a struct literal
+must supply `line` (code that only reads diagnostics is unaffected).
+
+解析入口 `parse_with_warnings(text)` / `parse_file_with_warnings(path)` 返回
+`Result<(Value, Vec<Diagnostic>), SmlError>`，产出两类**此前完全静默**的告警：
+
+- `DiagnosticKind::DuplicateKey` —— 同一块内键名重复 ⇒ 已**提升为数组**（值不丢，但结构被改写）。
+- `DiagnosticKind::KeyOverwritten` —— 片段展开（`&name`）覆盖了父块已有的同名键 ⇒ **父块原值已丢失**。
+
+`ParseOptions::warn_key_conflict`（默认 `true`，`.warn_key_conflict(false)` 可关）只影响
+`diagnostics` 内容，**不影响 `Value`**。本轮只加告警、不改语义——两类告警对应的 `Value`
+与旧版**逐字一致**。原 `parse()` / `parse_file()` 入口恒不返回诊断（签名与行为逐字不变）。
+
+诊断 `Diagnostic` 含 `line: Option<usize>`（1 起；文件入口跨文件合并 token 流 ⇒ 恒 `None`）。
+用结构体字面量构造 `Diagnostic` 的代码需补 `line` 字段（只读取诊断的代码不受影响）。
+
 ## Fragments & include · 片段与 include
 
 ```sml
