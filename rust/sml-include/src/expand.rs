@@ -210,18 +210,28 @@ pub fn expand_includes(
 /// `None` —— **注释里伪造的 include 不会被读文件**（与字符串内伪造 include 同等防护）。
 fn segments<'a>(text: &'a str, string_spans: &[(usize, usize)]) -> Vec<&'a str> {
     let comment_spans = compute_block_comment_spans(text);
-    let multi: Vec<(usize, usize)> = string_spans
+    let mut multi: Vec<(usize, usize)> = string_spans
         .iter()
         .chain(comment_spans.iter())
         .copied()
         .filter(|(s, e)| text[*s..*e].contains('\n'))
         .collect();
-    let inside_multi = |i: usize| multi.iter().any(|(s, e)| i >= *s && i < *e);
+    // ⚠️ 原来 `multi.iter().any(...)` 对文本的**每一个字节**全扫一遍跨行单元区间
+    // ⇒ O(字节数 × 区间数) 的二次复杂度（与 sml-lex 那两处同源）。
+    // 两个来源各自有序，但 `chain` 之后整体**未必**有序 ⇒ 先排序（O(m log m)），
+    // 再用只前进的游标：`i` 单调递增，摊还 O(1)，总复杂度回到 O(n log n)。
+    // 区间互不重叠（块注释区间本身就跳过了字符串内部），游标判据与原来逐字相同。
+    multi.sort_unstable();
+    let mut mi = 0usize;
     let mut segs = Vec::new();
     let mut start = 0usize;
     for (i, b) in text.as_bytes().iter().enumerate() {
+        while mi < multi.len() && multi[mi].1 <= i {
+            mi += 1;
+        }
+        let inside_multi = mi < multi.len() && multi[mi].0 <= i;
         // 只在"不在跨行单元内部"的换行处切段
-        if *b == b'\n' && !inside_multi(i) {
+        if *b == b'\n' && !inside_multi {
             segs.push(&text[start..i]);
             start = i + 1;
         }
@@ -355,5 +365,67 @@ pub fn expand_file_tokens(
     let mut toks = Vec::new();
     expand_includes(&cleaned, base, stack, features, &mut toks, expansions)?;
     Ok(toks)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::segments;
+    use sml_lex::{compute_block_comment_spans, compute_string_spans};
+
+    /// 朴素参照：对每个字节全扫跨行单元区间（本次优化**前**的写法）。
+    ///
+    /// 保留它是为了把「排序 + 单调游标」的新实现钉成逐字等价 —— 这类替换最容易在
+    /// 区间首尾、相邻区间、区间末尾正好是行尾这些边界上漂移一格。
+    fn naive_segments<'a>(text: &'a str, string_spans: &[(usize, usize)]) -> Vec<&'a str> {
+        let comment_spans = compute_block_comment_spans(text);
+        let multi: Vec<(usize, usize)> = string_spans
+            .iter()
+            .chain(comment_spans.iter())
+            .copied()
+            .filter(|(s, e)| text[*s..*e].contains('\n'))
+            .collect();
+        let inside_multi = |i: usize| multi.iter().any(|(s, e)| i >= *s && i < *e);
+        let mut segs = Vec::new();
+        let mut start = 0usize;
+        for (i, b) in text.as_bytes().iter().enumerate() {
+            if *b == b'\n' && !inside_multi(i) {
+                segs.push(&text[start..i]);
+                start = i + 1;
+            }
+        }
+        if start <= text.len() {
+            segs.push(&text[start..]);
+        }
+        segs
+    }
+
+    /// 覆盖跨行单元的两类来源（多行字符串 / 跨行块注释）与它们的边界：
+    /// 单元末尾正好在行尾、注释里伪造 include、CRLF、空输入、字符串内嵌注释起始符。
+    fn cases() -> Vec<&'static str> {
+        vec![
+            "",
+            "a: 1\n",
+            "a: 1\nb: 2\n",
+            "k: \"line1\nline2\"\nb: 2\n",
+            "k: \"line1\nline2\"",
+            "/* c1\nc2 */\nk: 1\n",
+            "/* include \"evil.sml\" */\nk: 1\n",
+            "k: \"/* not a comment\nstill string */\"\nb: 2\n",
+            "a: 1\r\nb: 2\r\n",
+            "k: \"a\"\n/* x\ny */\nk2: \"b\nc\"\n",
+        ]
+    }
+
+    #[test]
+    fn segments_matches_naive() {
+        for c in cases() {
+            let sp = compute_string_spans(c);
+            assert_eq!(
+                segments(c, &sp),
+                naive_segments(c, &sp),
+                "切段结果与朴素实现不一致，输入：{c:?}"
+            );
+        }
+    }
 }
 
