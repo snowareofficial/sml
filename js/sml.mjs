@@ -1391,7 +1391,11 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
     while (true) {
       const m = peek();
       if (!m) break;
-      if (m.t === "?") { sp.required = false; i++; continue; }
+      // 符号形式 `?` / `=` 已废弃（2026-10-30）：统一到单词形式 optional / default，
+      // 报 E-PARSE-006 与 Rust / Lua / C / C++ 同码。
+      if (m.t === "?" || m.t === "=") {
+        throw new SyntaxError("E-PARSE-006 sml: contract modifier `" + m.t + "` removed (use `optional` / `default`)");
+      }
       if (m.t === "word") {
         if (m.v === "optional") { sp.required = false; i++; continue; }
         if (m.v === "required") { sp.required = true; i++; continue; }
