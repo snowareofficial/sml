@@ -1275,7 +1275,11 @@ impl Parser {
         // None = 无待应用的条件；Some(true/false) = 下一个字段应保留/丢弃。
         let mut pending_when: Option<bool> = None;
         loop {
-            let tok = match self.peek().cloned() {
+            // ⚠️ 这里**只借用** `peek()` 的结果，不 `.cloned()`：
+            // `Tok::Word` / `Tok::Str` 含 `String`，克隆一次就是一次堆分配，
+            // 而这是解析的最内层热循环（每个 token 都要过一遍）。
+            // 只有真正要拿走所有权的分支（key 位置）才用 `self.next()` 直接 move 出来。
+            match self.peek() {
                 None => {
                     // 文件结尾：若本块期望闭合符号（嵌套块/数组），则未闭合，必须报错；
                     // 否则为顶层正常结束。
@@ -1292,23 +1296,23 @@ impl Parser {
                     }
                     break;
                 }
-                Some(t) => t,
-            };
-            match tok {
-                Tok::RBrace | Tok::RBrack => {
+                // 右符号：变体是单元变体，用 `&Tok::…` 模式即可借着匹配，无需克隆
+                Some(&Tok::RBrace) | Some(&Tok::RBrack) => {
+                    let got = match self.peek() {
+                        Some(&Tok::RBrace) => "}",
+                        _ => "]",
+                    };
                     if let Some(cl) = &closing {
-                        if *cl == tok {
+                        // 原判据是 `*cl == tok`（同符号即匹配）；不克隆 ⇒ 比判别式
+                        let same = std::mem::discriminant(cl)
+                            == std::mem::discriminant(self.peek().unwrap());
+                        if same {
                             self.next();
                             break;
                         }
                         // 嵌套块内遇到类型不匹配的右符号（如 `}` 与 `]` 混用）：
                         // 必须报错，而非静默吞掉，否则后续内容会被错误吞并。
                         let want = match cl {
-                            Tok::RBrace => "}",
-                            Tok::RBrack => "]",
-                            _ => unreachable!(),
-                        };
-                        let got = match tok {
                             Tok::RBrace => "}",
                             Tok::RBrack => "]",
                             _ => unreachable!(),
@@ -1320,14 +1324,9 @@ impl Parser {
                     }
                     // 顶层遇到多余的右括号 `}` / `]`：必须报错（之前静默忽略，
                     // 会掩盖作者漏写的 `key:`、错配括号等问题）。
-                    let got = match tok {
-                        Tok::RBrace => "}",
-                        Tok::RBrack => "]",
-                        _ => unreachable!(),
-                    };
                     return Err(SmlError::new(E_PARSE_003, format!("sml: 多余的结束符号 {}", got)));
                 }
-                Tok::Comma => {
+                Some(&Tok::Comma) => {
                     // 逗号在 SML 中只用于对象字段分隔（`k: v, k2: v2`）与数组元素分隔
                     // （由 `parse_array_inner` 处理，不会到此处）。
                     // 此处遇到的逗号若属于「对象字段分隔」，其后应是 `key:` 形式；
@@ -1347,12 +1346,12 @@ impl Parser {
                 }
                 // 孤立 `@`：其后没有片段名/指令名。必须报错——否则其后紧跟的
                 // 块会被当作片段体消费，导致内容被静默丢弃（不报错）。
-                Tok::BareAt => {
+                Some(&Tok::BareAt) => {
                     return Err(SmlError::new(E_PARSE_004, 
                         "sml: 孤立的 `@` 不是合法指令；片段定义须写作 `@name { ... }`（`@` 与名字之间不可有空白），或删除该 `@`",
                     ));
                 }
-                Tok::At => {
+                Some(&Tok::At) => {
                     self.parse_at_directive(&mut node, &mut applied_contracts, &mut pending_when)?;
                 }
                 _ => {
