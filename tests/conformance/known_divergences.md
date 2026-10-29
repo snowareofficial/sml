@@ -78,12 +78,12 @@ Rust `to_sml` ／ C `sml_dump` ／ C++ `to_sml` ／ JS `stringify` ／ Lua `Sml.
 | 9 | `16_contract_compose` | **C 半 W24 已修（转 A）**；JS 仍丢 `o.inner.tag` | **缺陷（JS 半）** | C 那半同 #7；JS 那半见下方「#9 的 JS 半」 |
 | 10 | `19_num_one_dot_zero` | Rust 保 `1.0` 为 float，其余四端当 int | 已知取舍 | `docs/capability-matrix.md` 已登记「`1.0` 只有 Rust 保留为浮点」；雷 5 B 组 `format_float` |
 | 11 | `20_num_bigint` | Lua 丢精度：`330106201503071234` → `...070000`，`i64::MAX` → `...8000000` | 已知取舍 | 能力矩阵已登记「大整数 >2^53 分裂；Lua 转 float 丢精度」；雷 6 #1。⚠️ 属**数据保真**级，但 LuaJIT 值模型只有 double，改不了。**JS 那格的 AGREE 是载体盲区**，见 §载体盲区 B-01 |
-| 12 | `22_escape_basic` | C++ 的 dump 不能被 Rust 回读 | **缺陷** | 已定性：C++ 对**含换行的字符串不加引号**（输出 `s_nl: a<换行>b`），于是 `b` 被读成新键 ⇒ `E-PARSE-006`。Rust / C / JS / Lua 四端都能回读 |
+| 12 | `22_escape_basic` | C++ 的 dump 不能被 Rust 回读 | **已修复（fix/needs-quote-escaping）** | 根因：C++ 的 dump 只对「含空格」加引号（`v->s.find(' ')`），**含换行/制表/回车的串原样写出**，`b` 被读成新键 ⇒ `E-PARSE-006`。本任务（fix/needs-quote-escaping）在 `cpp/sml.cpp` 新增 `dump_needs_quote`（空白/`#{}`/`"`/`\` 均判为需引号，**换行一并纳入**）+ `dump_escape_str`（转义串内 `"`/`\`），`dump_value`/`dump_inline` 的 Str 分支改用之。现状：该用例五端全 AGREE |
 | 13 | `23_escape_unicode` | JS 的 `\uXXXX` 多出数字：`aAb` → `aA1b`、`xéy` → `xé9y`；C++ 报 `E-LEX-005` 位数不足 | **缺陷** | 能力矩阵已登记「`\uXXXX` JS 有 bug」（根因 `js/sml.mjs` 的 `i += 4` 应为 `i += 5`）；C++ 只认 `\u{...}`。本用例是两者的可复现实证 |
 | 14 | `25_env_quoted_exact` | C 在引号内不替换 `$env`（得到空串） | 已知取舍 | 能力矩阵「引号内三档行为：Rust 真插值 / C 不替换 / C++·JS·Lua 仅整串锚定」 |
 | 15 | `26_env_quoted_embed` | 只有 Rust 做真插值，其余四端原样保留 `$env.SML_CONF_TOKEN` | 已知取舍 | 同 #14（三档口径的中段）。三档要不要收敛、收敛到哪一档，属 ✋ |
 | 16 | `30_typed_block_meta` | JS / Lua 缺 `__type` / `__name` 元数据 | 已知取舍（Lua）／ **缺陷**（JS） | Lua 已登记（能力矩阵 三·十「Lua 连元数据都丢」）；**JS 这半未登记**：能力矩阵只说「typed-block 只有 Rust + JS 实现」，没说「未开特性时 JS 也不给元数据」 |
-| 17 | `32_escape_quote` | 除 Rust 外四端 dump 都无法被回读（`E-LEX-001` 字符串未闭合） | **缺陷** | 已定性：四端的 `needs_quote` / `quoteIfNeeded` 只判空白与 `:#{}`，**不判 `"` 与 `\`** ⇒ `quote"in` 原样写出。属 W4「引号策略」遗留项，但那行是**按渲染差异**记的，实际有功能面后果：这类 dump 是**非法 SML**，别的实现（含自己）都读不回来 ⇒ 建议升级为正确性缺陷 |
+| 17 | `32_escape_quote` | 除 Rust 外四端 dump 都无法被回读（`E-LEX-001` 字符串未闭合） | **已修复（fix/needs-quote-escaping）** | 根因：四端的 `needs_quote` / `quoteIfNeeded` 只判空白与 `:#{}`，**不判 `"` 与 `\`** ⇒ `quote"in` 原样写出、非法 SML。本任务（fix/needs-quote-escaping）四端同修：`c/sml.c` `needs_quote`、`cpp/sml.cpp` `dump_needs_quote`、`js/sml.mjs` `quoteIfNeeded`（正则加 `"\\`）、`lua/lib/sml.soup` `sml_needs_quote` 均纳入 `"`/`\`；**转义两端也一并补**：C 与 Lua 此前加引号却漏转义串内 `"`/`\`（已补 `escape`/`sml_escape_str`），JS 原已有转义。现状：该用例五端全 AGREE |
 | 18 | `33_contract_modifier_alt` | 只有 C 接受 `?` / `=` 记号，Rust/C++/JS/Lua 全拒 | **缺陷** | 同 #7–#9 的另一面，见下 |
 
 ### #7–#9 + #18 是同一件事：契约修饰符有**两套不兼容的记号**
@@ -171,8 +171,8 @@ Rust `to_sml` ／ C `sml_dump` ／ C++ `to_sml` ／ JS `stringify` ／ Lua `Sml.
 
 1. **修 #1–#3**（Lua 嵌套数组）：与 W17 的 C 修复同族，可照抄做法（加 `[` 递归分支 + 与块共用深度闸）。
 2. **定契约修饰符的规范**（#7–#9 + #18）：先裁决记号，再改一侧 + 同步全部文档。这是 ✋ 级。
-3. **修 #12 / #17**（dump 的引号策略）：判据是「自己 dump 出来的东西必须能自己读回去」，
-   最小修法是让 `needs_quote` / `quoteIfNeeded` 把 `"`、`\` 与换行也算作「需要引号」。
+3. ~~**修 #12 / #17**（dump 的引号策略）~~ **已修（fix/needs-quote-escaping）**：判据是「自己 dump 出来的东西必须能自己读回去」，
+   四端已让 `needs_quote` / `quoteIfNeeded` 把 `"`、`\` 与换行也算作「需要引号」，并补上串内 `"`/`\` 转义。
 4. **修 #13 的 JS 半**（`i += 4` → `i += 5`）。
 5. **修 #9 的 JS 半**（组合契约递归回填默认值）。
 6. #4/#5/#6 的 C++ 半属 ✋ 待裁决（雷 6 / W4-片段行级展开），不在自动化范围。

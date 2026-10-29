@@ -2167,7 +2167,9 @@ export function parseSafe(text, opts) {
 // ---------------------------------------------------------------------------
 
 function quoteIfNeeded(s) {
-  if (s === "" || /[ \t\n\r:#{}]/.test(s)) {
+  // #17：把 `"` 与 `\` 也纳入「必须加引号」判据——否则含引号的值原样写出是非法 SML，
+  // 连自己都读不回来（转义已在 replace 里做好）。
+  if (s === "" || /[ \t\n\r:#{}"\\]/.test(s)) {
     return '"' + String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
   }
   return String(s);
