@@ -259,7 +259,48 @@ Merge rules (strictly matching the implementation):
 
 > Boundary vs. **combination** (§5.4): combination expresses "this block embeds a constrained sub-structure" via a field that references another contract (one more shape layer); a mixin expresses "this block obeys several rule sets at once" by merging contracts onto one block (shape unchanged). They solve different problems and **cannot replace each other**.
 
-## 5.5 Real Example: Resender Email Tool
+## 5.5 Cross-field constraints: mutually exclusive groups (one_of / exactly_one)
+
+Sometimes the constraint is not "inside one field" but "between a group of fields". Take a payment
+method: you may fill in `card` or `alipay`, but not both — this "pick one of many" is expressed with a
+**mutually exclusive group**, a **custom modifier (Modifier)** attached to one of the fields:
+
+```sml
+@contract Pay {
+    pay_method: str
+    card:   str one_of [ card alipay ]
+    alipay: str one_of [ card alipay ]
+}
+```
+
+The two modifiers mean:
+
+| Modifier | Meaning |
+|----------|---------|
+| `one_of [ a b c ]` | **at most one** of the group's fields may appear (2 or more ⇒ error) |
+| `exactly_one [ a b c ]` (I-7 gap ①) | **exactly one** must appear (0 or ≥2 ⇒ error) |
+
+Three points to remember:
+
+1. **The check counts only keys the user wrote explicitly.** A value supplied by `default` **does not
+   count as present.** This is deliberate: if defaults counted toward the exclusive tally, a contract
+   where "both group members wrote `default`" would *always* fail, even though `default` is just the
+   author's fallback, not the user's intent to use two methods at once. Hence `one_of` with nothing
+   written ⇒ passes; "exactly one required" uses `exactly_one` or `required`.
+2. **A misspelled member name fails loudly.** Every member name must be a field declared in the same
+   contract; a typo (or a name that was never declared) errors immediately instead of leaving a
+   constraint that can never match — that would create a false sense of safety.
+3. **It reuses `E-CONTRACT-011`**, adding no new code: the error raised is the generic
+   "external modifier validation failed" code.
+
+> ⚠️ **Availability (important)**: mutually exclusive groups are an **external extension point of the
+> Rust contract crate**, registered via `ParseOptions::with_modifier`, and are **Rust (reference
+> implementation) only**. **C / C++ / JS / Lua do not support them** — on those ends `one_of` /
+> `exactly_one` are treated as "unrecognized modifiers" (they do not silently pretend to pass, but
+> they also do not perform the exclusivity check). Do not rely on them in contracts that must flow
+> across all five ends.
+
+## 5.6 Real Example: Resender Email Tool
 
 [resender]( https://gitee.com/snoware/resender )Using SML contract for `AppConfig` persistence:
 
@@ -284,7 +325,7 @@ tls: true
 
 The Rust version maintains the `CONFIG_CONTRACT` constant, serializes the configuration back to SML and automatically attaches `@is ResenderConfig` when saving, and verifies it when reading - a typical usage of "contract is schema".
 
-## 5.6 Give it a try with your hands
+## 5.7 Give it a try with your hands
 
 Add a contract to your game server cluster (Chapter 3):
 
