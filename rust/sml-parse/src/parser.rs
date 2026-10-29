@@ -535,12 +535,40 @@ impl Parser {
         }
     }
 
+    /// 遗留符号修饰符 `?` / `=` 的**定点**拦截：契约字段的**类型位置**不许出现。
+    ///
+    /// 为什么不在词法层把它们切成分隔符：`?` 在 `@pattern` 里是量词（`sml-pattern`），
+    /// 全局切分会把 `a?` 这类合法模式拆坏。故只在类型位置拦 —— 类型名本不该含
+    /// 这两个字符，命中即说明作者写的是**遗留符号修饰符**（粘连式，如 `str?` / `int=5`）。
+    ///
+    /// 带空格的形式（`x: str ?`）在词法上已是独立 Word，由类型表的「未知类型」分支
+    /// 与 `parse_contract_body` 的冒号检查拦住（同码） —— 两条路都要给 `E-PARSE-006`。
+    fn reject_legacy_modifier_in_type(w: &str) -> Result<(), SmlError> {
+        if let Some(sym) = w.chars().find(|c| *c == '?' || *c == '=') {
+            return Err(SmlError::new(
+                E_PARSE_006,
+                format!("sml: 契约修饰符 `{}` 已废弃（用 `optional` / `default`）", sym),
+            ));
+        }
+        Ok(())
+    }
+
     /// 解析单个字段的类型与修饰符
     fn parse_field_spec(&mut self) -> Result<FieldSpec, SmlError> {
         // 命中外置类型时，把校验器带出去（塞进 `FieldSpec::ext`，校验期无需再查表）。
         let mut ext_ty: Option<Arc<dyn TypeCheck>> = None;
         let ty = match self.next() {
-            Some(Tok::Word(w)) => match w.as_str() {
+            Some(Tok::Word(w)) => {
+                // 遗留符号修饰符 `?` / `=` 已废弃（2026-10-30），五端一律 E-PARSE-006。
+                //
+                // ⚠️ 为什么**不在词法层**把它们切成分隔符：`?` 在 `@pattern` 里是量词
+                // （`sml-pattern`），全局切开会把 `a?` 这类合法模式拆坏。
+                // 故在**契约字段的类型位置**定点拦截 —— 类型名本不该含这两个字符，
+                // 命中即说明作者写的是遗留符号修饰符（粘连式，如 `str?` / `int=5`）。
+                // 带空格的形式（`x: str ?`）在词法上已是独立 Word，由下面的
+                // 「未知类型」分支与 `parse_contract_body` 的冒号检查拦住（同码）。
+                Self::reject_legacy_modifier_in_type(&w)?;
+                match w.as_str() {
                 "str" => TypeSpec::Str,
                 "int" => TypeSpec::Int,
                 "num" => TypeSpec::Num,
@@ -630,8 +658,13 @@ impl Parser {
                         TypeSpec::ContractRef(other.to_string())
                     }
                 }
+                }
             },
             Some(Tok::LBrack) => {
+                // 数组元素类型位置同样不许出现遗留符号修饰符（`[ str? ]`）。
+                if let Some(Tok::Word(w)) = self.peek() {
+                    Self::reject_legacy_modifier_in_type(w)?;
+                }
                 let inner = match self.next() {
                     Some(Tok::Word(w)) => match w.as_str() {
                         "str" => TypeSpec::Str,
