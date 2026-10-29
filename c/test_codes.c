@@ -219,10 +219,8 @@ static void test_contract_codes(void) {
 /* ------------------------------------------------------------------ */
 /* 契约修饰符单词形式：optional / default <v>（W24，对齐另外四端）        */
 /* ------------------------------------------------------------------ */
-/* 纯增量：C 此前只认符号形式 `?` / `=`，单词形式 `optional` / `default` 在
-   全文零命中、会被当成新字段名而失败。补齐后两者并存，原本成功解析的文档
-   不受影响（符号形式继续可用，见 ④ 回归）。值的回填走与 `=` 完全相同的
-   coerce_word / sml_new_str 路径，不另写一套。 */
+/* C 只认单词形式 `optional` / `default`；遗留符号形式 `?` / `=` 必须
+   响亮拒绝为 E-PARSE-006，避免静默吞掉符号或把后续 token 造为新字段。 */
 static void test_contract_modifier_words(void) {
     char err[256];
     sml_value *v, *f;
@@ -285,23 +283,11 @@ static void test_contract_modifier_words(void) {
         sml_free(v);
     }
 
-    /* ④ 回归：既有符号形式 ? / = 仍通过，且 = 仍回填 */
-    memset(err, 0, sizeof(err));
-    v = sml_parse("@contract S { x: str? }\nserver { @is S }\n", err, sizeof(err));
-    if (!v) { printf("FAIL: ④ 回归 ? 应成功，实得 \"%s\"\n", err); failures++; }
-    else { printf("  ok: %-30s -> 成功（? 仍可用）\n", "x: str?"); sml_free(v); }
-
-    memset(err, 0, sizeof(err));
-    v = sml_parse("@contract S { p: int = 5432 }\nserver { @is S }\n", err, sizeof(err));
-    if (!v) { printf("FAIL: ④ 回归 = 应成功，实得 \"%s\"\n", err); failures++; }
-    else {
-        f = sml_get_path(v, "server.p");
-        if (!f || f->type != SML_INT || f->u.i != 5432)
-            { printf("FAIL: ④ 回归 = 应回填 INT 5432，实得 %s\n",
-                     !f ? "无字段" : (f->type == SML_INT ? "别的整数" : "非整数")); failures++; }
-        else { printf("  ok: %-30s -> 回填 INT 5432（= 仍可用）\n", "p: int = 5432"); }
-        sml_free(v);
-    }
+    /* ④ 破坏性变更：遗留符号形式 ? / = 统一响亮拒绝 */
+    expect_code("契约遗留 ? 修饰符", "@contract S { x: str? }\nserver { @is S }\n",
+                SML_E_PARSE_006);
+    expect_code("契约遗留 = 修饰符", "@contract S { p: int = 5432 }\nserver { @is S }\n",
+                SML_E_PARSE_006);
 }
 
 /* ------------------------------------------------------------------ */
