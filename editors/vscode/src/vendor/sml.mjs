@@ -128,7 +128,9 @@ function tokenize(text) {
               if (!/^[0-9a-fA-F]{4}$/.test(hex)) {
                 throwCode("E-LEX-005", "sml: Unicode 转义非法（\\u 后须 4 位十六进制）");
               }
-              i += 4;
+              // `\uXXXX` 共 6 个字符（`\` `u` + 4 位 hex）。上面 `i` 已指向 `u`，
+              // 处理完 4 位 hex 后应停在最后一个 hex 之后的位置，故跳过 5（配合外层 i++）。
+              i += 5;
               const cp = parseInt(hex, 16);
               if (cp >= 0xd800 && cp <= 0xdfff) {
                 throwCode("E-LEX-005", "sml: Unicode 转义非法（代理区码点）");
@@ -319,6 +321,23 @@ function coerceWord(w, fragments, nsMap, feats) {
   return w;
 }
 
+// T9：「值型标量」判定（数字 / 引号串 / bool / null）。
+// 裸词标识符（如 `server`、`a`，作块类型名 / 块名）不算值型 ——
+// 区分 T9 误报（42 a { }）与合法带类型块（server web { }）。与 Rust/C++ 同判据。
+function isScalarValue(tok) {
+  if (!tok) return false;
+  if (tok.t === "str") return true;            // 引号串
+  if (tok.t !== "word") return false;          // @ 指令 / 结构记号
+  const w = tok.v;
+  if (w === "true" || w === "false" || w === "null") return true;
+  // 数字：与 coerceWord 同一道闸门（numericHead + NUMERIC_LITERAL），
+  // 保证「算值」与「算值型标量」口径一致。
+  const digits = w.replace(/^[+-]/, "");
+  const head = digits.charAt(0);
+  const numericHead = head === "." || (head >= "0" && head <= "9");
+  return numericHead && NUMERIC_LITERAL.test(w);
+}
+
 function coerceStr(s, fragments, feats) {
   const ev = s.match(/^\$env\.(.+)$/);
   if (ev) {
@@ -370,11 +389,22 @@ function valueMatchesType(v, sp) {
   }
 }
 
-function applyDefaults(contract, obj) {
+function applyDefaults(contract, obj, contracts) {
   for (const [k, sp] of Object.entries(contract.fields)) {
     // 契约字段名来自文档，同样不可为危险键（纵深防御；
     // `in` 判定已挡住 __proto__ 之类，这里兜住 prototype 这类非原型链键）
     if (DANGEROUS_KEYS.has(k)) continue;
+    if (sp.type === "contract") {
+      // 组合契约：字段类型指向另一个契约时，把子契约的默认值回填进子对象。
+      // 只在这一层递归（父契约自己的标量/枚举字段仍走下面的常规回填），
+      // 不波及无关字段，避免「所有层都乱补」。
+      if (obj[k] && typeof obj[k] === "object" && !Array.isArray(obj[k])) {
+        const sub = contracts && contracts[sp.refName];
+        if (sub) applyDefaults(sub, obj[k], contracts);
+      }
+      if (!(k in obj) && sp.def !== undefined) obj[k] = sp.def;
+      continue;
+    }
     if (!(k in obj) && sp.def !== undefined) obj[k] = sp.def;
   }
 }
@@ -1979,7 +2009,7 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
                   if (an) fail("E-CONTRACT-017", "sml: 该实现暂不支持一个块应用多份契约（块级多契约写法）");
                 }
                 const c = contracts[cname];
-                applyDefaults(c, sub);
+                applyDefaults(c, sub, contracts);
                 const errs = checkContract(contracts, c, sub, "");
                 if (errs) fail(errs[0].code, "contract: " + cname + " — " + errs.map((x) => x.msg).join("; "));
                 recordContract(cname);
@@ -2028,7 +2058,7 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
     if (appliedContract) {
       const c = contracts[appliedContract];
       if (!c) fail("E-CONTRACT-001", "sml: 应用未定义契约 " + appliedContract);
-      applyDefaults(c, node);
+      applyDefaults(c, node, contracts);
       const errs = checkContract(contracts, c, node, "");
       if (errs) fail(errs[0].code, "contract: " + appliedContract + " — " + errs.map((x) => x.msg).join("; "));
       recordContract(appliedContract);
@@ -2083,7 +2113,21 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
   // —— **凭空造键**，重新序列化得到 `"42": 42` ≠ `42`（与 Rust/C 实测同病，四端一致）。
   // 判据边界：`hello world`（两 token）得到 `{"hello":"world"}`、值能往返 ⇒ 不算；
   // 带指令的顶层标量（token 数 > 1）**不报** —— 有意保守，宁漏不误伤。
-  if (toks.length === 1 && (toks[0].t === "word" || toks[0].t === "str")) {
+  // T9 收紧：判据 = 顶层第一个结构是「值型标量」（数字/引号串/bool/null；裸词标识符
+  //   `server`/`a` 作块类型名/块名**不算**值型）、且其后紧跟块/数组/键值（与 Rust 同判据）。
+  //   裸标量 = 单个 word/str 叶子，且其后的 token 不是 `{` / `:`（否则 `42 { }` 是名为 42 的块、
+  //   `42: x` 是键值）。`server web { }`（标识符作类型名）、`hello world`（2 token 裸键对）、
+  //   `@version v1` + `42`（首结构是 @ 指令）、`42 { a: 1 }`（名为 42 的块）均不报。
+  const t0 = toks[0];
+  const firstIsBareScalar = (t0.t === "word" || t0.t === "str")
+      && !(toks[1] && (toks[1].t === "{" || toks[1].t === ":"));
+  const followedByContainer = (toks[1] && toks[1].t === "[")
+      || (toks[1] && (toks[1].t === "word" || toks[1].t === "str")
+          && toks[2] && (toks[2].t === "{" || toks[2].t === ":"));
+  // T9：仅当首个结构是「值型标量」时，其后跟块/数组/键值才报；
+  // 裸词标识符（块类型名/块名）不算值型，`server web { }` 合法。
+  const firstIsValue = isScalarValue(t0);
+  if (firstIsBareScalar && (toks.length === 1 || (firstIsValue && followedByContainer))) {
     fail("E-PARSE-008", "sml: 顶层须为容器（键值块、对象块或数组），单独的标量无法往返");
   }
   let __result;
