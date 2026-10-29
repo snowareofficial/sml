@@ -117,6 +117,7 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   - 结果：`35` 由 DIVERGE 转 AGREE，**AGREE 26/DIVERGE 10 → 27/9**；台账分歧 #19 标记为已修复。
 - **性能**：`sml-lex`（`compute_block_comment_spans`、`line_starts_in_string`）与 `sml-include`（`segments`）此前对**每个字节**全扫一遍字符串/跨行单元区间 ⇒ 二次复杂度。改为二分与单调游标（判据逐字不变）：32k 行文档上 `block_comment_spans` **6.11s → 1.93ms**，规模 ×4 时耗时不再 ×16。新增 `tests/perf_smoke.rs`（复杂度护栏）与 `tests/spans_equivalence.rs`（与朴素实现逐条比对）。
 - **文档**：硬编码的错误码条数（曾同时存在 141 / 144 / 143 / 139 四个数字）统一改为「以 `site/static/errors.json` 的 `count` 字段为准」。
+- **深度口径统一（雷 9）**：`max_value_depth()` 曾把根算作 1，而解析器 `Parser::depth` 与各 emit 后端的 `depth` 形参都从 0 起 ⇒ 恰好 `MAX_VALUE_DEPTH`(128) 层的文档**能解析、`--to json` 能输出，`to_sml` 却报 `E-LIMIT-004`**（说 129 > 128）—— 文档"能读进来却写不回去"。现三处以「根 = 0」同口径。实测：126 / 127 / 128 层 `--to sml` 与 `--to json` 均正常；129 层仍在解析阶段报 `E-LIMIT-001`。用例见 `rust/tests/depth_boundary.rs`。
 
 ### ⚠️ 行为变更
 
