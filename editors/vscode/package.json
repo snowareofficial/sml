@@ -2,7 +2,7 @@
   "name": "sml-lang",
   "displayName": "SML (SNOWARE Markup Language)",
   "description": "%sml.description%",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "publisher": "snoware",
   "icon": "images/icon.png",
   "license": "MulanPSL-2.0",
