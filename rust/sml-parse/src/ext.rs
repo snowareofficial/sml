@@ -572,4 +572,264 @@ mod tests {
         let e = crate::parse_with(&src, one_of_opts()).expect_err("成员名写错应报错");
         assert!(e.message().contains("cardd"), "{e}");
     }
+
+    // ---- I-7 缺口②上半：数组元素**个数下限** `items_min` ----
+
+    const MIN_CONTRACT: &str = "@contract R { tags: [str] items_min 2 }\n";
+
+    fn items_min_opts() -> ParseOptions {
+        ParseOptions::new()
+            .with_modifier(sml_contract::ItemsMin)
+            .unwrap()
+    }
+
+    /// 边界：恰好 n 项 ⇒ 通过；多于 n 项 ⇒ 通过；少于 n 项 ⇒ 报错。
+    #[test]
+    fn items_min_boundary_is_inclusive() {
+        let exact = format!("{MIN_CONTRACT}doc {{\n @is R\n tags: [ a b ]\n}}\n");
+        crate::parse_with(&exact, items_min_opts()).expect("恰好 2 项应放行");
+
+        let more = format!("{MIN_CONTRACT}doc {{\n @is R\n tags: [ a b c ]\n}}\n");
+        crate::parse_with(&more, items_min_opts()).expect("3 项应放行");
+
+        let few = format!("{MIN_CONTRACT}doc {{\n @is R\n tags: [ a ]\n}}\n");
+        let e = crate::parse_with(&few, items_min_opts()).expect_err("不足 2 项应报错");
+        assert!(
+            e.message().contains("items_min") && e.message().contains("至少 2 项"),
+            "{e}"
+        );
+        assert_eq!(e.code(), "E-CONTRACT-011", "{e}");
+    }
+
+    /// 下限边界 0：`items_min 0` 放行空数组；`items_min 1` 拦住空数组。
+    #[test]
+    fn items_min_zero_boundary() {
+        const ZERO: &str = "@contract R { tags: [str] items_min 0 }\n";
+        let empty = format!("{ZERO}doc {{\n @is R\n tags: [ ]\n}}\n");
+        crate::parse_with(&empty, items_min_opts()).expect("items_min 0 应放行空数组");
+
+        const ONE: &str = "@contract R { tags: [str] items_min 1 }\n";
+        let empty = format!("{ONE}doc {{\n @is R\n tags: [ ]\n}}\n");
+        let e =
+            crate::parse_with(&empty, items_min_opts()).expect_err("空数组应被 items_min 1 拦下");
+        assert!(e.message().contains("至少 1 项"), "{e}");
+
+        let one = format!("{ONE}doc {{\n @is R\n tags: [ a ]\n}}\n");
+        crate::parse_with(&one, items_min_opts()).expect("1 项应放行");
+    }
+
+    /// 取值须为非负整数 —— `apply` 在**契约定义期**就拦下写坏的约束。
+    #[test]
+    fn items_min_rejects_bad_limit() {
+        for bad in ["true", "-1", "nope"] {
+            let src = format!(
+                "@contract R {{ tags: [str] items_min {bad} }}\ndoc {{\n @is R\n tags: [ a b ]\n}}\n"
+            );
+            let e = crate::parse_with(&src, items_min_opts()).unwrap_err();
+            assert!(
+                e.message().contains("非负整数"),
+                "取值 `{bad}` 应被拒绝：{e}"
+            );
+        }
+    }
+
+    /// 与 `default` 回填的交互：`items_min` 判定的是字段的**生效值**，
+    /// 但当前契约语法里 `default` 只接受裸词 / 引号串 ⇒ 数组字段**写不出**
+    /// `default [ ... ]`。把这条钉住，将来支持数组默认值时须回来重订语义。
+    #[test]
+    fn items_min_cannot_be_triggered_by_default_yet() {
+        const DEF: &str = "@contract R { tags: [str] optional default [ a ] items_min 2 }\n";
+        let src = format!("{DEF}doc {{\n @is R\n}}\n");
+        let e = crate::parse_with(&src, items_min_opts())
+            .expect_err("数组默认值当前不可表达，应在契约定义期就报错");
+        assert!(
+            e.message().contains("default"),
+            "期望卡在 `default` 的取值上：{e}"
+        );
+    }
+
+    /// 未注册 `items_min` 时它仍是非法写法 —— 零扩展 = 零影响。
+    #[test]
+    fn unregistered_items_min_still_errors() {
+        let src = format!("{MIN_CONTRACT}doc {{\n @is R\n tags: [ a b ]\n}}\n");
+        assert!(crate::parse_with(&src, ParseOptions::new()).is_err());
+    }
+
+    // ---- I-7 缺口②下半：`any_of`（组内**至少一个**）----
+
+    const ANY_CONTRACT: &str = "@contract Contact {\n  email: str optional any_of [ email phone ]\n  phone: str optional\n}\n";
+
+    fn any_of_opts() -> ParseOptions {
+        ParseOptions::new().with_modifier(sml_contract::AnyOf).unwrap()
+    }
+
+    /// 0 个 ⇒ 报错；1 个 ⇒ 通过；多个 ⇒ 通过（这是它与 `one_of` 的分水岭）。
+    #[test]
+    fn any_of_requires_at_least_one() {
+        let none = format!("{ANY_CONTRACT}doc {{\n @is Contact\n}}\n");
+        let e = crate::parse_with(&none, any_of_opts()).expect_err("一个都没写应报错");
+        assert!(
+            e.message().contains("any_of") && e.message().contains("至少要出现一个"),
+            "{e}"
+        );
+        // 三个新能力全部**复用既有码**，不新增错误码
+        assert_eq!(e.code(), "E-CONTRACT-011", "{e}");
+
+        for only in ["email: \"a@b\"", "phone: \"138\""] {
+            let src = format!("{ANY_CONTRACT}doc {{\n @is Contact\n {only}\n}}\n");
+            crate::parse_with(&src, any_of_opts())
+                .unwrap_or_else(|e| panic!("只写一个应放行（{only}）：{e}"));
+        }
+
+        let both = format!(
+            "{ANY_CONTRACT}doc {{\n @is Contact\n email: \"a@b\"\n phone: \"138\"\n}}\n"
+        );
+        crate::parse_with(&both, any_of_opts()).expect("多个同时出现应放行");
+    }
+
+    /// `default` 回填**不算**用户写出 ⇒ 组内成员全靠 `default` 时仍算「一个都没有」。
+    #[test]
+    fn any_of_counts_default_as_none() {
+        const DEF: &str = "@contract Contact {\n  email: str optional any_of [ email phone ]\n  phone: str optional default \"0\"\n}\n";
+        let none = format!("{DEF}doc {{\n @is Contact\n}}\n");
+        let e = crate::parse_with(&none, any_of_opts())
+            .expect_err("phone 的 default 回填不应让必选组通过");
+        assert!(e.message().contains("phone"), "{e}");
+
+        // 显式写出任一个 ⇒ 通过（另一个的 default 照旧回填，但不参与计数）
+        let one = format!("{DEF}doc {{\n @is Contact\n email: \"a@b\"\n}}\n");
+        crate::parse_with(&one, any_of_opts()).expect("显式写出 email 应放行");
+    }
+
+    /// 组成员名写错（未在契约里声明）⇒ 响亮报错。
+    #[test]
+    fn any_of_typoed_member_is_loud() {
+        const BAD: &str = "@contract Contact {\n  email: str optional any_of [ email phonne ]\n  phone: str optional\n}\n";
+        let src = format!("{BAD}doc {{\n @is Contact\n email: \"a@b\"\n}}\n");
+        let e = crate::parse_with(&src, any_of_opts()).expect_err("成员名写错应报错");
+        assert!(e.message().contains("phonne"), "{e}");
+    }
+
+    /// 退化的组（取值不是数组 / 只有一个成员）⇒ `apply` 在契约定义期就报错。
+    #[test]
+    fn any_of_rejects_degenerate_group() {
+        for bad in ["email", "[ email ]", "[ email email ]"] {
+            let src = format!(
+                "@contract Contact {{\n  email: str optional any_of {bad}\n  phone: str optional\n}}\ndoc {{\n @is Contact\n email: \"a@b\"\n}}\n"
+            );
+            let e = crate::parse_with(&src, any_of_opts()).unwrap_err();
+            assert!(
+                e.message().contains("any_of"),
+                "退化的组取值 `{bad}` 应被拒绝：{e}"
+            );
+        }
+    }
+
+    // ---- I-7 缺口③：跨字段依赖 `depends_on`（与块级 `@requires` 无关）----
+
+    const DEP_CONTRACT: &str = "@contract Deploy {\n  replicas: int optional depends_on autoscaling\n  autoscaling: bool optional\n}\n";
+
+    fn dep_opts() -> ParseOptions {
+        ParseOptions::new()
+            .with_modifier(sml_contract::DependsOn)
+            .unwrap()
+    }
+
+    /// 语义表（`replicas` = 依赖方，`autoscaling` = 依赖目标）：
+    /// 依赖方未出现 ⇒ 恒通过；出现了而目标缺失 ⇒ 报错。
+    #[test]
+    fn depends_on_semantics_table() {
+        // ─ 依赖方未出现 + 目标未出现 ⇒ 通过
+        let src = format!("{DEP_CONTRACT}doc {{\n @is Deploy\n}}\n");
+        crate::parse_with(&src, dep_opts()).expect("依赖方未出现应放行");
+
+        // ─ 依赖方未出现 + 目标出现 ⇒ 通过（本条不管「目标怎么单独出现」）
+        let src = format!("{DEP_CONTRACT}doc {{\n @is Deploy\n autoscaling: true\n}}\n");
+        crate::parse_with(&src, dep_opts()).expect("依赖方未出现时不约束目标");
+
+        // ─ 两者都出现 ⇒ 通过
+        let src = format!(
+            "{DEP_CONTRACT}doc {{\n @is Deploy\n replicas: 3\n autoscaling: true\n}}\n"
+        );
+        crate::parse_with(&src, dep_opts()).expect("两者都出现应放行");
+
+        // ─ 依赖方出现 + 目标缺失 ⇒ 报错
+        let src = format!("{DEP_CONTRACT}doc {{\n @is Deploy\n replicas: 3\n}}\n");
+        let e = crate::parse_with(&src, dep_opts()).expect_err("依赖目标缺失应报错");
+        assert!(
+            e.message().contains("depends_on") && e.message().contains("autoscaling"),
+            "{e}"
+        );
+        assert_eq!(e.code(), "E-CONTRACT-011", "{e}");
+    }
+
+    /// 依赖目标的 `default` 回填不算出现 ⇒ 依赖方写了也照样报错。
+    #[test]
+    fn depends_on_default_backfill_does_not_count() {
+        const DEF: &str = "@contract Deploy {\n  replicas: int optional depends_on autoscaling\n  autoscaling: bool optional default true\n}\n";
+        let src = format!("{DEF}doc {{\n @is Deploy\n replicas: 3\n}}\n");
+        let e = crate::parse_with(&src, dep_opts())
+            .expect_err("被依赖字段只靠 default 回填不算出现");
+        assert!(e.message().contains("autoscaling"), "{e}");
+    }
+
+    /// 依赖目标可以是一份清单（全部都要出现）。
+    #[test]
+    fn depends_on_multi_targets() {
+        const JOB: &str = "@contract Job {\n  cron: str optional depends_on [ timezone retries ]\n  timezone: str optional\n  retries: int optional\n}\n";
+        let all = format!(
+            "{JOB}doc {{\n @is Job\n cron: \"0 0 * * *\"\n timezone: UTC\n retries: 3\n}}\n"
+        );
+        crate::parse_with(&all, dep_opts()).expect("依赖目标都在应放行");
+
+        let partial = format!("{JOB}doc {{\n @is Job\n cron: \"0 0 * * *\"\n timezone: UTC\n}}\n");
+        let e = crate::parse_with(&partial, dep_opts()).expect_err("少一个依赖目标应报错");
+        assert!(e.message().contains("retries"), "{e}");
+    }
+
+    /// 依赖目标名写错（未在契约里声明）⇒ 响亮报错。
+    #[test]
+    fn depends_on_typoed_target_is_loud() {
+        const BAD: &str = "@contract Deploy {\n  replicas: int optional depends_on autoscalng\n  autoscaling: bool optional\n}\n";
+        let src = format!("{BAD}doc {{\n @is Deploy\n replicas: 3\n}}\n");
+        let e = crate::parse_with(&src, dep_opts()).expect_err("依赖目标拼错应报错");
+        assert!(
+            e.message().contains("autoscalng"),
+            "{e}"
+        );
+    }
+
+    /// 自依赖恒为真 ⇒ 写了多半是笔误，必须报错而不是放行。
+    #[test]
+    fn depends_on_self_is_loud() {
+        const SELF: &str = "@contract Deploy {\n  replicas: int optional depends_on replicas\n}\n";
+        let src = format!("{SELF}doc {{\n @is Deploy\n replicas: 3\n}}\n");
+        let e = crate::parse_with(&src, dep_opts()).expect_err("自依赖应报错");
+        assert!(
+            e.message().contains("不可是本字段自身"),
+            "{e}"
+        );
+    }
+
+    /// 空依赖清单（写了跟没写一样）⇒ 契约定义期就报错。
+    #[test]
+    fn depends_on_rejects_empty_targets() {
+        const EMPTY: &str =
+            "@contract Deploy {\n  replicas: int optional depends_on [ ]\n  autoscaling: bool optional\n}\n";
+        let src = format!("{EMPTY}doc {{\n @is Deploy\n replicas: 3\n}}\n");
+        let e = crate::parse_with(&src, dep_opts()).expect_err("空依赖清单应报错");
+        assert!(
+            e.message().contains("至少要有 1 个"),
+            "{e}"
+        );
+    }
+
+    /// 未注册 `depends_on` 时它仍是非法写法 —— 零扩展 = 零影响。
+    #[test]
+    fn unregistered_depends_on_still_errors() {
+        let src = format!(
+            "{DEP_CONTRACT}doc {{\n @is Deploy\n replicas: 3\n autoscaling: true\n}}\n"
+        );
+        assert!(crate::parse_with(&src, ParseOptions::new()).is_err());
+    }
 }
