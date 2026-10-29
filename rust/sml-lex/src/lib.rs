@@ -102,6 +102,10 @@ impl<'a> Iterator for PosChars<'a> {
 /// 与 [`tokenize`] 是同一个扫描器、同一套判据，只是多记一份旁路区间；
 /// 需要错误定位的入口（解析器 / CLI / 编辑器）用它。
 pub fn tokenize_spans(text: &str) -> Result<(Vec<Tok>, Vec<Span>), SmlError> {
+    // 试过按 `text.len()/4` 预估容量（`with_capacity`）—— 实测**无收益**
+    // （32k 行 5.16ms → 5.39ms，噪声内；各规模有增有减）。真正的大头是**每个词
+    // 一次 `String` 分配**，不是 Vec 扩容搬移，故此处保持 `Vec::new()`，
+    // 不为一个没测出来的收益增加代码。（记录在此，免得后来者重复试一次）
     let mut toks = Vec::new();
     let mut spans = Vec::new();
     let mut chars = PosChars::new(text);
