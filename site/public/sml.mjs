@@ -155,7 +155,11 @@ function tokenize(text) {
         throwCode("E-LEX-001", "sml: 字符串未闭合（遇到文件结尾，缺少结束引号）");
       }
       toks.push({ t: "str", v: s, pos: qStart });
-    } else if ("{}[]:,".includes(c)) {
+    } else if ("{}[]:=,".includes(c)) {
+      // ⚠️ `=` 也列入分隔符（对齐 C 词法层）：遗留契约修饰符 `=`(default) 才能被
+      // parseFieldModifiers 的 `m.t === "="` 分支识别并报 E-PARSE-006；此前 `=` 被并入 word，
+      // 该分支对 `=` 是死代码（只有 `?` 因 167 行单列而生效）。引号串内部不被切分，且普通值里的
+      // `=` 不在 conformance 用例内，故不误伤合法文档。
       // ⚠️ 括号 `(` `)` **不是**分隔符，必须与 Rust 侧（sml-lex 的 Tok 只有
       // { } [ ] , : @）一致：裸词值 `备注: (重要)` / `公式: f(x)` 里的括号是
       // 普通字符。此前把它们列进分隔符，会把 `(重要)` 切成独立 token，
