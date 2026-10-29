@@ -127,6 +127,38 @@ local function enter_depth(depth)
   end
 end
 
+-------------------------------------------------------------------------------
+-- 数组标记（修 Lua 不支持嵌套数组 · 同 W17 给 C 修的缺陷同族）：parse_array 产出的
+-- 表统一打上 ARRAY_MT 元表，让序列化能区分「空数组 `[]`」与「空对象 `{}`」——
+-- 否则两者都是空表 `{}`，`b: []` 会被 dump 成 `b: {}`、与 Rust 的 `b: []` 值树不一致
+-- （见 conformance 07）。块由 parse_block 产出、不带此元表；deep_copy 会原样保留元表
+-- （见 deep_copy 的 setmetatable），故片段 / 契约默认值里的数组经拷贝后仍被识别为数组。
+-- 块与数组共用同一深度计数器（见 MAX_VALUE_DEPTH 注释），故 128 层放行 / 第 129 层
+-- 报 E-LIMIT-001 对嵌套数组与嵌套块同口径。
+-------------------------------------------------------------------------------
+local ARRAY_MT = {}
+
+-- 是否为「数组」：带 ARRAY_MT 标记者优先；否则回退到旧的「有整数键 1..n 且无非数字键」
+-- 判定（兼容直接喂给 Sml.dump 的普通表、以及 set_field 由重复键合成的数组）。
+local function is_array(v)
+  if type(v) ~= "table" or v.__type ~= nil then return false end
+  if getmetatable(v) == ARRAY_MT then return true end
+  if #v == 0 or v[1] == nil then return false end
+  for k in pairs(v) do
+    if type(k) ~= "number" then return false end
+  end
+  return true
+end
+
+-- 数组元素里的 `null` 哨兵（嵌套数组用例 06 需要）。
+-- Lua 的表数组无法保存 nil（会出现空洞、ipairs 在第一个 nil 处就截断），
+-- 而 SML 数组允许元素为 null，故把「数组元素位置」的 `null` 存成唯一哨兵而非 nil。
+-- ⚠️ 仅在 parse_array 的数组元素位置使用；键位置的 `k: null` 仍按既有语义
+--    （nil = 缺失，在 Lua 模型里与「null 即缺字段」同义）保持不变，不去动它。
+-- dump 时输出 `null`；deep_copy 返回同一引用（否则拷贝出的哨兵与 NULL 不是同一对象，
+--    `==` 比较会失配）。
+local NULL = {}
+
 ------------------------------------------------------------------------------
 -- 词法：逐字符扫描，产出 token 流
 --   独立 token：{ } [ ] ,
@@ -316,13 +348,16 @@ local function coerce(tok, fragments)
 end
 
 deep_copy = function(v)
+  if v == NULL then return NULL end   -- 保留 null 哨兵同一引用
   if type(v) ~= "table" then return v end
   local t = {}
   for k, val in pairs(v) do
     -- 保留 __type / __name 元数据（片段引用裸块时不丢类型）
     t[k] = deep_copy(val)
   end
-  return t
+  -- 保留数组标记（ARRAY_MT）：片段 / 契约默认值里的数组经拷贝后仍需被识别为数组，
+  -- 否则空数组会在 dump 时退化成 {}。
+  return setmetatable(t, getmetatable(v))
 end
 
 ------------------------------------------------------------------------------
@@ -923,6 +958,7 @@ end
 parse_array = function(tokens, i, fragments, contracts, depth)
   enter_depth(depth)
   local arr = {}
+  setmetatable(arr, ARRAY_MT)   -- 标记数组：让 dump 能区分空数组 [] 与空对象 {}
   local n = #tokens
   while i <= n do
     local tok = tokens[i]
@@ -934,11 +970,29 @@ parse_array = function(tokens, i, fragments, contracts, depth)
       local sub
       sub, i = parse_block(tokens, i + 1, "}", fragments, contracts, depth + 1)
       arr[#arr+1] = sub
+    elseif tok == "[" then
+      -- 嵌套数组（W17 同族缺陷，Lua 侧补）：数组元素位置的 `[` 之前落到最后的 else
+      -- 被 coerce 成裸词字符串，于是 `m: [ [a] b ]` 解成 `{"m":["[","a","b"]}`、
+      -- `m: [ 1, [2, 3], 4 ]` 内层 `]` 被当外层结束符、剩下的 `4` 变成键 ——
+      -- 与 C 当年「parse_array 没有 `[` 分支」同根。这里照 C 的解法加递归分支。
+      -- ⚠️ **必须走 wrapper `parse_array`**（不是再包一层 inner）：深度守卫只在
+      --    本 wrapper 的 `enter_depth(depth)` 里，直接递归 inner 会绕过 128 层上限
+      --    ⇒ 深数组把 Lua 调用栈打穿（pcall 兜底出 E-PARSE-012，或真栈溢出），
+      --    正是 C 那一侧「只加递归不给闸」会踩的坑。块与数组共用同一 `depth` 计数
+      --    （见文件头 MAX_VALUE_DEPTH 一节），故 128 层放行 / 129 层报 E-LIMIT-001
+      --    对数组嵌套与块嵌套是同一口径。
+      local sub
+      sub, i = parse_array(tokens, i + 1, fragments, contracts, depth + 1)
+      arr[#arr+1] = sub
     elseif tok == "}" then
       -- 数组里多余的 `}`（没有与之匹配的开始符号）⇒ E-PARSE-003（W16）
       fail("E-PARSE-003", "数组里出现多余的 '}'（没有与之匹配的开始符号）at token " .. i)
     else
-      arr[#arr+1] = coerce(tok, fragments)
+      local v = coerce(tok, fragments)
+      -- 数组元素里的 `null`：Lua 表数组不能存 nil（会成空洞、ipairs 截断），
+      -- 故用 NULL 哨兵占位（见 NULL 注释）。键位置的 null 仍是 nil，不在此处理。
+      if v == nil then v = NULL end
+      arr[#arr+1] = v
       i = i + 1
     end
   end
@@ -1382,25 +1436,25 @@ local function dump_value(v, indent, out)
   local pad = string.rep("  ", indent)
   local t = type(v)
   if t == "table" then
-    if v.__type or #v > 0 and v[1] ~= nil then
-      -- 数组（有整数键）或块
-      local is_arr = true
-      for k in pairs(v) do if type(k) ~= "number" then is_arr = false; break end end
-      if is_arr and v.__type == nil then
-        out[#out+1] = "["
-        for _, e in ipairs(v) do
-          out[#out+1] = string.rep("  ", indent+1)
-          if type(e) == "table" then
-            out[#out+1] = "{ "
-            dump_inline(e, out)
-            out[#out+1] = " }\n"
-          else
-            out[#out+1] = tostring(e) .. "\n"
-          end
+    if is_array(v) then
+      -- 数组（含空数组：靠 ARRAY_MT 标记与空对象区分；见 is_array）。
+      -- 嵌套数组的元素若也是表，必须**递归**走 dump_value：元素本身是数组 → 输出 `[ … ]`，
+      -- 是对象 → 输出 `{ … }`；绝不再用 dump_inline 把它当对象 `{ … }` 塞进去
+      -- （原先那一格正是「嵌套数组被压成对象」的根因，导致 `m: [ [1,2] ]` 解成
+      -- `{"m":[{"1":1,"2":2}]}` 这类错树）。
+      out[#out+1] = "["
+      for _, e in ipairs(v) do
+        out[#out+1] = string.rep("  ", indent+1)
+        if e == NULL then
+          out[#out+1] = "null\n"
+        elseif type(e) == "table" then
+          dump_value(e, indent+1, out)
+        else
+          out[#out+1] = tostring(e) .. "\n"
         end
-        out[#out+1] = pad .. "]"
-        return
       end
+      out[#out+1] = pad .. "]"
+      return
     end
     -- 块/对象
     local has_body = false
@@ -1450,9 +1504,11 @@ function dump_inline(e, out)
   out[#out+1] = table.concat(parts, ", ")
 end
 
--- 判定是否为「纯数组表」：键全为连续整数 1..n 且无 __type
+-- 判定是否为「纯数组表」：键全为连续整数 1..n 且无 __type。
+-- 空数组靠 ARRAY_MT 标记识别（见 is_array），否则空表会被当成空对象。
 local function is_array_table(v)
   if type(v) ~= "table" or v.__type ~= nil then return false end
+  if getmetatable(v) == ARRAY_MT then return true end
   local n = 0
   for k in pairs(v) do
     if type(k) ~= "number" or k ~= math.floor(k) or k < 1 then return false end
@@ -1469,13 +1525,12 @@ function Sml.dump(v)
     local out = { "[\n" }
     for _, e in ipairs(v) do
       out[#out+1] = "  "
-      if type(e) == "table" then
-        out[#out+1] = "{ "
-        dump_inline(e, out)
-        out[#out+1] = " }\n"
+      -- 顶层数组的元素若是表，必须递归：嵌套数组 → `[ … ]`、对象 → `{ … }`
+      -- （不再用 dump_inline 把数组元素当对象压成 `{ … }`）。
+      if e == NULL then
+        out[#out+1] = "null\n"
       else
         dump_value(e, 1, out)
-        out[#out+1] = "\n"
       end
     end
     out[#out+1] = "]\n"
