@@ -497,12 +497,59 @@ static bool parse_bound(const std::string& lit, std::optional<double>& out,
     return true;
 }
 
+// 契约字段词法切分（仅供 parse_field 使用；不影响顶层键值行）。
+//
+// 背景：遗留符号修饰符 `?`(optional) 与 `=`(default) 已废弃，五端一律报
+// E-PARSE-006。但原实现用 `while (iss >> p)` 只按空白切词，于是 `str?` 这类
+// **粘连**写法被整体当成一个 token，下面的 `if (w=="?" || w=="=")` 永远匹配不上，
+// 只有带空格的 `str ?` 才拦得住 —— 导致粘连形式静默通过、被当普通类型串
+// （实测 C++ 端 `@contract S { x: str? }` 反而报 E-CONTRACT-003 missing field）。
+//
+// 修法（对齐 C 侧词法层切独立 token 的做法）：在空白切分之外，额外把 `?` 与 `=`
+// 切成独立 token，同时把双引号串当原子整体（含内部空白 / `?` / `=`）—— 既修掉粘连
+// 缺陷，又不误伤下列合法情形：
+//   · 类型串 / 枚举：`enum [ a b ]`、`[int]`、`ContractRef`（本就不含 ?/=）；
+//   · `default` 取值里的引号串：`default "a=b"`、`default "str?"` 不会被拆出 ?/=；
+//   · 粘连边界：
+//       str?x    ->  str, ?, x        （? 命中）
+//       a=b      ->  a, =, b          （= 命中）
+//       int=5432 ->  int, =, 5432     （= 命中）
+//   引号串内部出现的 ?/= 一律保留，绝不外溢到类型/修饰符判定。
+static void tokenize_field(const std::string& line, std::vector<std::string>& parts) {
+    const size_t n = line.size();
+    size_t i = 0;
+    std::string cur;
+    auto flush = [&]() { if (!cur.empty()) { parts.push_back(cur); cur.clear(); } };
+    while (i < n) {
+        char c = line[i];
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') { flush(); i++; continue; }
+        if (c == '"') {
+            // 引号串当原子：内部空白 / ? / = 全部保留，不再切分（含 \" 转义）。
+            cur += c; i++;
+            while (i < n) {
+                if (line[i] == '\\' && i + 1 < n) { cur += line[i]; cur += line[i+1]; i += 2; continue; }
+                char d = line[i];
+                cur += d; i++;
+                if (d == '"') break;   // 含闭合引号，停止
+            }
+            flush();
+            continue;
+        }
+        if (c == '?' || c == '=') {     // 粘连的遗留修饰符：切成独立 token
+            flush();
+            parts.push_back(std::string(1, c));
+            i++;
+            continue;
+        }
+        cur += c; i++;
+    }
+    flush();
+}
+
 static bool parse_field(const std::string& line, FieldSpec& out, std::string* err) {
     // line like:  name: Type optional default "x" min 0 max 10 loose
-    std::istringstream iss(line);
     std::vector<std::string> parts;
-    std::string p;
-    while (iss >> p) parts.push_back(p);
+    tokenize_field(line, parts);
     if (parts.empty()){ if(err)*err=code_prefix(SML_E_PARSE_024, "sml: empty field"); return false; }
 
     // name (strip trailing colon if present)

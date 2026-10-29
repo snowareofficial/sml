@@ -60,7 +60,7 @@ Rust `to_sml` ／ C `sml_dump` ／ C++ `to_sml` ／ JS `stringify` ／ Lua `Sml.
   driver 现在把 0 字节用例当**硬错误**拦下（`[!] 以下用例是 0 字节`），本目录也确实被并发写入清空过一次
   （`03` / `31`），已补回内容。
 
-## 分歧清单（18 条，逐条登记，不许静默忽略）
+## 分歧清单（19 条，逐条登记，不许静默忽略）
 
 「类别」三档：**缺陷** = 实现与既定口径不符，应修；**已知取舍** = 仓库已有定论、不接受修改或用例本身在钉既有口径；
 **待定性** = 还没查到根因，先不判。**本轮已无「待定性」条目**（#12 / #17 / #18 都已查到根因）。
@@ -84,6 +84,7 @@ Rust `to_sml` ／ C `sml_dump` ／ C++ `to_sml` ／ JS `stringify` ／ Lua `Sml.
 | 15 | `26_env_quoted_embed` | 只有 Rust 做真插值，其余四端原样保留 `$env.SML_CONF_TOKEN` | 已知取舍 | 同 #14（三档口径的中段）。三档要不要收敛、收敛到哪一档，属 ✋ |
 | 16 | `30_typed_block_meta` | JS / Lua 缺 `__type` / `__name` 元数据 | 已知取舍（Lua）／ **缺陷**（JS） | Lua 已登记（能力矩阵 三·十「Lua 连元数据都丢」）；**JS 这半未登记**：能力矩阵只说「typed-block 只有 Rust + JS 实现」，没说「未开特性时 JS 也不给元数据」 |
 | 17 | `32_escape_quote` | 除 Rust 外四端 dump 都无法被回读（`E-LEX-001` 字符串未闭合） | **已修复（fix/needs-quote-escaping）** | 根因：四端的 `needs_quote` / `quoteIfNeeded` 只判空白与 `:#{}`，**不判 `"` 与 `\`** ⇒ `quote"in` 原样写出、非法 SML。本任务（fix/needs-quote-escaping）四端同修：`c/sml.c` `needs_quote`、`cpp/sml.cpp` `dump_needs_quote`、`js/sml.mjs` `quoteIfNeeded`（正则加 `"\\`）、`lua/lib/sml.soup` `sml_needs_quote` 均纳入 `"`/`\`；**转义两端也一并补**：C 与 Lua 此前加引号却漏转义串内 `"`/`\`（已补 `escape`/`sml_escape_str`），JS 原已有转义。现状：该用例五端全 AGREE |
+| 19 | `35_contract_modifier_question_only` | **Rust / Lua** 对**粘连式** `x: str?`（`?` 前无空格）仍报 `E-CONTRACT-003` —— 说明它们**并未拒绝**符号修饰符，只是把 `str?` 当类型名吞掉；C / C++ / JS 报 `E-PARSE-006` | **缺陷（Rust / Lua 半）** | 本棒（`fix/legacy-modifier-reject`）只修 C++ 与 JS 两半：`cpp/sml.cpp` 新增 `tokenize_field`（在空白之外额外把 `?` / `=` 切成独立 token，引号串当原子），`js/sml.mjs` 词法把 `=` 列入分隔符（此前 `=` 并入 word ⇒ 拒绝分支是死代码）。**Rust / Lua 不在本棒授权范围（`rust/` / `lua/` 不许改）**，故该格仍 DIVERGE。⚠️ `zip: str?` 在 `33` 里之所以五端都 AGREE，是因为 `33` 同时写了 `country: str = CN`：Rust/Lua 先撞上 `=` 就已报 `E-PARSE-006`，根本没走到 `str?` —— 与 #18 描述的是**同一类「用例掩盖」**，本用例专为撕开它而设（只含 `?` 一种形式） |
 | 18 | `33_contract_modifier_legacy_rejected` | ~~只有 C 接受 `?` / `=` 记号~~ **已废弃（2026-10-30）**：原 C 与 JS 支持符号式，现五端统一按 `E-PARSE-006` 拒绝 | **已修复** | 裁决：废弃符号形式、统一到单词式 `optional` / `default`。C 删 T_QMARK/T_EQ 分支；JS 删 `?` 分支；C++/JS 对 `?`/`=` 的报错从 `E-CONTRACT-003` 对齐到 `E-PARSE-006`（C++ 还修了「`parse_field` 失败被 `st.err` 吞掉」——现在失败即中断解析）。用例已改名并改判为 `expect-error E-PARSE-006`，五端全 AGREE |
 
 ### #7–#9 + #18 是同一件事：契约修饰符有**两套不兼容的记号**
