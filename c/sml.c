@@ -1729,7 +1729,8 @@ static int needs_quote(const char *s) {
     if (!*s) return 1;
     for (; *s; s++) {
         if (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r' ||
-            *s == ':' || *s == '#' || *s == '{' || *s == '}')
+            *s == ':' || *s == '#' || *s == '{' || *s == '}' ||
+            *s == '"' || *s == '\\')
             return 1;
     }
     return 0;
