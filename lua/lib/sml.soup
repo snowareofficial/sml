@@ -1431,6 +1431,20 @@ end
 ------------------------------------------------------------------------------
 -- 序列化：dump（round-trip 友好）
 ------------------------------------------------------------------------------
+-- 字符串是否需要加引号：空白（%s 含空格/制表/换行/回车）、" 与 \ 都会破坏裸词语法。
+-- #12（换行）、#17（引号）的根因：原只看空白，含 `"`/`\` 原样写出是非法 SML。
+local function sml_needs_quote(s)
+  if s == "" then return true end
+  if string.match(s, '[%s"\\]') then return true end
+  return false
+end
+-- 加引号**同时**要转义串内的 \ 与 "，否则仍是非法 SML（Lua 此前两处都没转义）。
+local function sml_escape_str(s)
+  s = string.gsub(s, "\\", "\\\\")
+  s = string.gsub(s, '"', '\\"')
+  return s
+end
+
 local function dump_value(v, indent, out)
   indent = indent or 0
   local pad = string.rep("  ", indent)
@@ -1474,9 +1488,9 @@ local function dump_value(v, indent, out)
     end
     out[#out+1] = "\n" .. pad .. "}"
   elseif t == "string" then
-    -- 含空格或特殊字符加引号
-    if string.match(v, "%s") or v == "" then
-      out[#out+1] = '"' .. v .. '"'
+    -- 含空白、" 或 \ 必须加引号；加引号后还要转义串内 " 与 \（#12 / #17）
+    if sml_needs_quote(v) then
+      out[#out+1] = '"' .. sml_escape_str(v) .. '"'
     else
       out[#out+1] = v
     end
@@ -1494,8 +1508,8 @@ function dump_inline(e, out)
   for k, val in pairs(e) do
     if k ~= "__type" and k ~= "__name" then
       local s
-      if type(val) == "string" and not string.match(val, "%s") then s = tostring(k) .. ": " .. val
-      elseif type(val) == "string" then s = tostring(k) .. ': "' .. val .. '"'
+      if type(val) == "string" and not sml_needs_quote(val) then s = tostring(k) .. ": " .. val
+      elseif type(val) == "string" then s = tostring(k) .. ': "' .. sml_escape_str(val) .. '"'
       elseif type(val) == "table" then s = tostring(k) .. ": {..}"  -- 不嵌套内联
       else s = tostring(k) .. ": " .. tostring(val) end
       parts[#parts+1] = s
