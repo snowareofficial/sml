@@ -163,7 +163,7 @@ listErrorCodes({ domain: "PARSE" });                // 列出某领域的码 [{i
 
 结果：**135 条 / 14 个领域**（127 错误 + 7 告警 + 1 提示；按 `status` 分 67 条 done / 68 条 partial）。
 （此后落地 W10 时又补了两条：`E-EXT-008` 外置指令执行失败、`E-LIMIT-010` 内存分配失败 ——
-所以**当前是 139 条 / 131 错误 + 7 告警 + 1 提示 / 70 done + 69 partial**
+所以**当前码的总数以 `site/static/errors.json` 的 `count` 字段为准** / 131 错误 + 7 告警 + 1 提示 / 70 done + 69 partial
 （W20/W21 各加了一个码：`E-INCLUDE-012`、`E-CLI-008`）。
 条数的权威出处是 `site/static/errors.json` 的 `count` 字段，别在正文里另记一份；
 按领域：`PARSE` 24、`MIGRATE` 17、`CONTRACT` 15、`INCLUDE` 12、`FEATURE` 11、`LIMIT` 10、

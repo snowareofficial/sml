@@ -97,8 +97,9 @@ soupx lua/sml.sar config.sml     # Parse and print
 The same class of error raises **the same code** (of the form `E-CONTRACT-002`) in
 **Rust / C / C++ / JS / Lua**, so there is no need to remember each implementation's
 wording — remember the code: the [error code reference](/en/errors/) is the single
-entry point. The single source of truth is `errors/codes.sml` in the repository
-(**141 codes** today), distributed to per-implementation constants by a generator.
+entry point. The single source of truth for the codes is `errors/codes.sml` in the repository;
+the total count is taken from the `count` field of `site/static/errors.json` and is
+distributed to per-implementation constants by a generator.
 How you **extract** the code differs: Rust appends it (`message [E-XXX-NNN]`), C / C++ /
 Lua put it at the **front** of the message, and JS exposes it as the `e.code` field.
 
