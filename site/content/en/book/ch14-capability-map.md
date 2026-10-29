@@ -17,10 +17,10 @@ translationKey: "book-ch14"
 | `include` (single file) | on | ✅ | ✅ ※ | ✅ | ✅ | ✅ | [Ch 4](/en/book/ch04-include) |
 | `env` (`$env.X`) | on | ✅ | ✅ | ✅ | ✅ | ✅ | [Ch 6](/en/book/ch06-env-escape) |
 | Contract (`@contract` / `@is`, single) | on | ✅ | ✅ | ✅ | ✅ | ✅ | [Ch 5](/en/book/ch05-contract) |
-| Fragment (`@base {}` + `&base`) | on | ✅ expanded | ✅ | ⚠️ not expanded | ❌ | ❌ | [Ch 3](/en/book/ch03-fragments) |
+| Fragment (`@base {}` + `&base`) | on | ✅ expanded | ✅ | ✅ expanded | ⚠️ not expanded | ❌ | [Ch 3](/en/book/ch03-fragments) |
 | `namespace` (`include … as ns`) | on | ✅ | ✅ | ✅ | ✅ | ❌ | [Ch 4](/en/book/ch04-include) |
 | `implicit-ns` | on | ✅ | ✅ | ? | ? | ? | [Ch 4](/en/book/ch04-include) |
-| `top-level-array` (array as document root) | on | ✅ | ❌ | ✅ | ❌ | ❌ | [Ch 10](/en/book/ch10-features) |
+| `top-level-array` (array as document root) | on | ✅ | ✅ | ✅ | ✅ | ✅ | [Ch 10](/en/book/ch10-features) |
 | **Contract mixin (multiple contracts per block)** | on※ | ✅ | ❌ `017` | ❌ `017` | ❌ `017` | ❌ `017` | [§5.4.1](/en/book/ch05-contract) |
 | `typed-block` (`Contract block { }`) | **off** | ✅ | ✅ | ❌ silent degrade | ❌ | ❌ | [§5.2.2](/en/book/ch05-contract) |
 | `@type` patterns (Loom-in-SML) | on | ✅ | ✅ | ❌ explicit reject | ❌ explicit reject | ❌ explicit reject | [§5.2.2](/en/book/ch05-contract) |
@@ -39,6 +39,30 @@ translationKey: "book-ch14"
 
 1. **Stable on all five ends** (prefer for cross-end documents): key-value / blocks / arrays, comments, bareword strings, `include`, `$env`, single-contract `@contract`/`@is`, `namespace`.
 2. **Advanced, Rust (±JS) only**: `@when` / `@for` are Rust-only; `typed-block` / `@type` / `glob`·`regex-include` are Rust + JS.
-3. **Silent or degrading — be careful across ends**: C does not expand `fragment`; C / C++ / Lua degrade `typed-block` to a plain bare block; Lua's `for` is pending re-check — these ends either report a code explicitly or leave a tree different from what you expect.
+3. **Silent or degrading — be careful across ends**: line-level `&base` expansion is **implemented everywhere except C++** (C now matches Rust); C / C++ / Lua degrade `typed-block` to a plain bare block; Lua's `for` is pending re-check — these ends either report a code explicitly or leave a tree different from what you expect.
+
+## Cross-implementation consistency suite (five-end consistency)
+
+SML ships a **shared test cases × five ends** consistency suite: Rust / C / C++ / JS / Lua each run the
+same cases, and what is compared is the **value tree**, not bytes. How "all five pass" is defined, how
+the divergence ledger is graded, and which "AGREE" results are actually carrier blind spots — the
+authoritative source is `tests/conformance/known_divergences.md` (**the current ledger**; its count and
+each end's AGREE/DIVERGE tally change as merges land, so this page does not keep a copy).
+
+Key points:
+
+- **It compares value trees, not bytes**: each end's dumped text is fed back to `smltools` for
+  normalization into a JSON value tree before comparison — so purely cosmetic differences like
+  "C keeps source order, Rust sorts" never cause a false divergence.
+- **The divergence ledger has two tiers**: **defect** (implementation disagrees with settled behavior,
+  should be fixed) and **known trade-off** (a settled decision, not to be changed). See the current
+  ledger for the exact count.
+- **"Both ends fail" is not consistency**: scoring first checks "is there a value tree" (a parse
+  failure or a dump that won't round-trip has no tree), then compares groups; having no tree on both
+  sides is just "wrong together", not "aligned".
+- **Carrier blind spots (B-01 / B-02)**: the suite reconstructs the value tree through a text carrier,
+  which cannot express two things — `B-01`: a "number-looking string" reads back as a number (an AGREE
+  on some ends that is actually not aligned); `B-02`: the `\0` cell cannot be carried. An AGREE on
+  these cells **must not be read as "aligned"**.
 
 → Back to the [textbook index](/en/book/)

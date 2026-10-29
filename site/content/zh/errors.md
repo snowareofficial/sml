@@ -17,7 +17,7 @@ SML 的每类错误都有**稳定的机器可读码**，形如 `E-CONTRACT-002`�
 
 > 权威数据源是仓库里的 [`errors/codes.sml`](https://gitee.com/snoware/sml/blob/master/errors/codes.sml)，
 > 本页的表格由 `python errors/gen_json.py` 从它生成 —— 也就是说**这一页与代码引用的是同一份事实**，
-> 不会出现「文档里有的码代码里没有」。当前共 **141 条**码。
+> 不会出现「文档里有的码代码里没有」。**码的总数以 `site/static/errors.json` 的 `count` 字段为准**，本页不另记一份。
 
 码表回答的是「有哪些码」；**实现是否真的会报出这个码**是另一件事，进度见仓库
 [`errors/README.md`](https://gitee.com/snoware/sml/blob/master/errors/README.md) 的

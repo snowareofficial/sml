@@ -156,7 +156,51 @@ impl Modifier for ItemsMax {
 > participate in min/max checks. Using `max` as a length cap makes the same syntax mean two
 > different things. Give your extension **a new name**.
 
-## 13.6 JavaScript
+## 13.6 Modifiers the crate already ships (no need to write your own)
+
+The previous section shows writing a `Modifier` **yourself**. In fact `sml-contract` already **ships**
+a batch of ready-made ones covering the most common constraint shapes — just register them via
+`ParseOptions::with_modifier(...)` (the public registration entry; underneath it calls
+`ContractExt::register_modifier`, see `rust/sml-contract/src/ext.rs`).
+
+### Built-in modifiers (baked into the core, not overridable)
+
+`BUILTIN_MODIFIERS` (`ext.rs:124`) lists the names the core has taken; an external extension may
+not reuse them:
+
+`optional` / `required` / `default` / `min` / `max`
+
+### External Modifier structs (shipped by the crate, register to use)
+
+| Struct | `name()` | Meaning | `ext.rs` location |
+|--------|----------|---------|-------------------|
+| `OneOf` | `one_of` | **at most one** of the group's fields may appear (≥2 ⇒ error) | `ext.rs:377`, check in `check_group` at `ext.rs:386` |
+| `ExactlyOne` | `exactly_one` | **exactly one** of the group's fields must appear (0 / ≥2 ⇒ error) | `ext.rs:398`, check at `ext.rs:407` |
+| `AnyOf` | `any_of` | **at least one** of the group's fields must appear (0 ⇒ error) | `ext.rs:429`, check at `ext.rs:438` |
+| `DependsOn` | `depends_on` | this field present ⇒ the listed fields must be present | `ext.rs:474`, check at `ext.rs:483` |
+| `ItemsMin` | `items_min` | array **element-count lower bound** (< n ⇒ error) | `ext.rs:237`, check in `check` at `ext.rs:249` |
+
+> ⚠️ `one_of` / `exactly_one` / `any_of` / `depends_on` are all **cross-field** constraints: attached
+> to one field but observing the **whole block** — they go through the `Modifier::check_group(&GroupView)`
+> hook (`ext.rs:73`, no-op by default). By contrast `check(&FieldSpec, &Value)` (`ext.rs:61`) sees
+> **only this field's value**, which suits constraints like `items_min` that look at just the effective
+> value.
+>
+> `GroupView::present` (struct at `ext.rs:84`, field at `ext.rs:104`) counts **only keys the user wrote
+> explicitly** — a value supplied by `default` does **not** count as present. That is the basis for the
+> mutually-exclusive / count / dependency cross-field checks. A member name not declared in the same
+> contract (a misspelled field name) **fails loudly** (see `resolve_members`, `ext.rs:316`).
+>
+> All these external modifiers **reuse `E-CONTRACT-011`**, adding no new code.
+
+### Built-in types (for reference)
+
+`BUILTIN_TYPES` (`ext.rs:30` onward) lists the type names the core has taken; an external type may
+not reuse them:
+
+`str` / `int` / `num` / `bool` / `any` / `enum` (6 in total, see `ext.rs:30`–`ext.rs:32`).
+
+## 13.7 JavaScript
 
 The same three capabilities, passed as options:
 
@@ -179,7 +223,7 @@ const value = parse(text, {
 });
 ```
 
-## 13.7 Boundaries and current status (important)
+## 13.8 Boundaries and current status (important)
 
 - **Zero extensions = zero impact**: passing no `directives` / `types` yields byte-for-byte the
   same behaviour as before.
@@ -191,7 +235,7 @@ const value = parse(text, {
   directive is not registered (Rust reports an explicit error). This is an **inherent trade-off** —
   the more convenient dialects get, the weaker interoperability becomes.
 
-## 13.8 When not to use it
+## 13.9 When not to use it
 
 - You just want to express data → plain blocks and arrays suffice; do not invent directives.
 - You want **everyone** to read your document → stay on core syntax.
