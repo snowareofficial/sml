@@ -90,7 +90,7 @@ soupx lua/sml.sar config.sml     # 解析并打印
 
 同一类错误在 **Rust / C / C++ / JS / Lua** 里报**同一个码**（形如 `E-CONTRACT-002`）。
 所以不必记各端的措辞：记码就够了 —— [错误码总表](/errors/) 是唯一入口。
-码的唯一事实来源是仓库里的 `errors/codes.sml`（当前 **141 条**），由生成脚本分发到各端常量；
+码的唯一事实来源是仓库里的 `errors/codes.sml`（码的总数以 `site/static/errors.json` 的 `count` 字段为准），由生成脚本分发到各端常量；
 **取**码的方式则各不相同：Rust 是 `Display` 后缀（`文案 [E-XXX-NNN]`），C / C++ / Lua 把码
 写在消息**前缀**，JS 是错误对象的 `e.code` 字段。
 
