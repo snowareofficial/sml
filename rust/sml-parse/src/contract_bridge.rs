@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 
 use sml_codes::SmlError;
-use sml_contract::Contract;
+use sml_contract::{Contract, ContractWarning};
 use sml_value::Value;
 
 /// 契约校验入口（转出 `sml-contract` 的同名函数，供 `parser` 使用）。
@@ -26,5 +26,7 @@ pub(crate) fn check(
     contracts: &ContractMap,
     path: &str,
 ) -> Result<(), SmlError> {
-    apply_contract(c, node, contracts, path)
+    // 桥接层不消费告警（告警由 parser 在应用契约时统一收口），这里丢弃即可。
+    let mut warnings: Vec<ContractWarning> = Vec::new();
+    apply_contract(c, node, contracts, path, &mut warnings)
 }
