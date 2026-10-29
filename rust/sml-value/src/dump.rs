@@ -313,10 +313,14 @@ pub fn to_sml(v: &Value) -> String {
 /// 为什么不能递归：这个函数的用途正是「在递归写之前判断会不会太深」——
 /// 5 万层的值用递归实现会**自己**先把栈写爆（Rust 栈溢出是 abort，接不住），
 /// 与 `dump_element` 注释里记的那次 `0xC00000FD` 是同一类。
+///
+/// ⚠️ **口径：根 = 0**（与解析器 `Parser::depth`、各 emit 后端的 `depth` 形参一致）。
+/// 改前这里把根算作 1，于是「解析允许 128 层、序列化却说 129 超限」——
+/// 恰好 128 层的文档变成「能解析、`--to json` 能出、`to_sml` 却拒」（TODO 雷 9）。
 #[cfg(feature = "sml")]
 fn max_value_depth(v: &Value) -> usize {
-    let mut stack: Vec<(&Value, usize)> = vec![(v, 1)];
-    let mut max = 1usize;
+    let mut stack: Vec<(&Value, usize)> = vec![(v, 0)];
+    let mut max = 0usize;
     while let Some((cur, d)) = stack.pop() {
         if d > max {
             max = d;
