@@ -216,6 +216,53 @@ impl ContractExt {
 }
 
 // ---------------------------------------------------------------------------
+// 数组元素**个数**下界（I-7 缺口②上半）
+// ---------------------------------------------------------------------------
+
+/// 修饰符 **`items_min <n>`**：数组元素的**个数下限**（至少有 `n` 项）。
+///
+/// 它与 `items_max`（个数上限，见教科书扩展点的示例）成对，同样**刻意不姓 min/max**：
+/// `min` / `max` 在 SML 契约里是**数值区间**语义，而数组根本不参与数值校验，
+/// 借过来会让同一写法在两处含义不同。
+///
+/// ⚠️ 判定对象是字段的**生效值**（`check` 只见这一个值），与互斥组用
+/// [`GroupView::present`] 的口径**不同**：`check` 无从得知这个值是用户写的还是
+/// `default` 回填的，且回填后的值就是要往下流的数据 —— 它不满足约束必须报。
+/// 契约作者给出的兜底值自己违反 `items_min` 属于契约自相矛盾，早失败好过把坏数据放过去。
+///
+/// > 注：当前契约语法里 `default` 只接受裸词 / 引号串，数组字段**写不出**
+/// > `default [ ... ]`，故上述交互暂不可触发；口径先钉在这份文档里，
+/// > 将来支持数组默认值时照此办理。
+#[derive(Debug)]
+pub struct ItemsMin;
+
+impl Modifier for ItemsMin {
+    fn name(&self) -> &str {
+        "items_min"
+    }
+    fn apply(&self, _spec: &mut FieldSpec, v: &Value) -> Result<(), String> {
+        match v {
+            Value::Int(n) if *n >= 0 => Ok(()),
+            _ => Err("须为非负整数（元素个数下限）".into()),
+        }
+    }
+    fn check(&self, spec: &FieldSpec, v: &Value) -> Result<(), String> {
+        let limit = match spec.ext_data.get("items_min") {
+            Some(Value::Int(n)) => *n,
+            // 值没带过来（多半是外部直接构造的 FieldSpec）⇒ 放行而不是假警报
+            _ => return Ok(()),
+        };
+        match v {
+            Value::Array(items) if (items.len() as i64) < limit => {
+                Err(format!("至少 {limit} 项，实得 {} 项", items.len()))
+            }
+            // 非数组由前面 `check_type` 的类型校验负责；这里不重复报错
+            _ => Ok(()),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 互斥（I-7 缺口①）：一组字段「至多一个」/「恰好一个」出现
 //
 // 为什么是 Modifier 而不是内置语法：互斥没有专属 token，靠外置修饰符只需动本
@@ -265,10 +312,8 @@ fn group_members(name: &str, v: &Value) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
-/// 互斥组的判定本体：`one_of` / `exactly_one` 共用。
-///
-/// `require_one`：true = 恰好一个（缺了也报错），false = 至多一个（缺了放行）。
-fn check_mutual_exclusion(name: &str, view: &GroupView<'_>, require_one: bool) -> Result<(), String> {
+/// 取出**组成员清单**（已校验成员都在本契约里声明过），供三个计数类约束共用。
+fn resolve_members(name: &str, view: &GroupView<'_>) -> Result<Vec<String>, String> {
     let v = view
         .spec
         .ext_data
@@ -286,11 +331,24 @@ fn check_mutual_exclusion(name: &str, view: &GroupView<'_>, require_one: bool) -
             ));
         }
     }
-    let hit: Vec<String> = members
+    Ok(members)
+}
+
+/// 组里被用户**显式写出**的成员（完整路径形式）。
+fn present_members(view: &GroupView<'_>, members: &[String]) -> Vec<String> {
+    members
         .iter()
         .filter(|m| view.is_present(m))
         .map(|m| view.field_path(m))
-        .collect();
+        .collect()
+}
+
+/// 互斥组的判定本体：`one_of` / `exactly_one` 共用。
+///
+/// `require_one`：true = 恰好一个（缺了也报错），false = 至多一个（缺了放行）。
+fn check_mutual_exclusion(name: &str, view: &GroupView<'_>, require_one: bool) -> Result<(), String> {
+    let members = resolve_members(name, view)?;
+    let hit = present_members(view, &members);
     let list = members.join(" ");
     let rule = if require_one { "须恰好一个" } else { "至多一个" };
     match hit.len() {
@@ -348,6 +406,167 @@ impl Modifier for ExactlyOne {
     }
     fn check_group(&self, view: &GroupView<'_>) -> Result<(), String> {
         check_mutual_exclusion(self.name(), view, true)
+    }
+}
+
+/// 计数修饰符 **`any_of [ a b c ]`**：组内**至少一个**字段须出现（同时出现多个 ⇒ 放行）。
+///
+/// 它与 [`OneOf`]（至多一个）、[`ExactlyOne`]（恰好一个）凑成完整三件套 ——
+/// **至多一 / 恰好一 / 至少一**，三条各自独立、不互相包含：
+///
+/// | 修饰符 | 0 个 | 1 个 | ≥2 个 |
+/// |---|---|---|---|
+/// | `one_of` | 通过 | 通过 | 报错 |
+/// | `exactly_one` | 报错 | 通过 | 报错 |
+/// | `any_of` | 报错 | 通过 | 通过 |
+///
+/// ⚠️ 与 `default` 的交互：判定看用户**显式写出**的键，`default` 回填不算
+/// （理由见 [`GroupView::present`]）⇒ 组内成员**全都只靠 `default`** 时，
+/// 本修饰符仍算「一个都没有」并报错。这是**刻意**的 —— 作者给的兜底策略不是
+/// 「用户确实填了一种联系方式」的意图表达；若只为了给通过后的数据兜底，
+/// 照旧写 `default` 即可（它不影响本约束的判定结果）。
+#[derive(Debug)]
+pub struct AnyOf;
+
+impl Modifier for AnyOf {
+    fn name(&self) -> &str {
+        "any_of"
+    }
+    fn apply(&self, _spec: &mut FieldSpec, v: &Value) -> Result<(), String> {
+        group_members(self.name(), v).map(|_| ())
+    }
+    fn check_group(&self, view: &GroupView<'_>) -> Result<(), String> {
+        check_at_least_one(self.name(), view)
+    }
+}
+
+/// 必选组的判定本体：组内一个都没被显式写出就算失败。
+fn check_at_least_one(name: &str, view: &GroupView<'_>) -> Result<(), String> {
+    let members = resolve_members(name, view)?;
+    let hit = present_members(view, &members);
+    if hit.is_empty() {
+        return Err(format!(
+            "必选组 [ {} ] 里至少要出现一个字段，实际一个都没写（注意：`default` 回填不算用户写出）",
+            members.join(" ")
+        ));
+    }
+    Ok(())
+}
+
+/// 依赖修饰符 **`depends_on b`**（或 `depends_on [ b c ]`）：**本字段出现 ⇒ 所列字段必须出现**。
+///
+/// 写法上挂在**依赖方**字段上，语义表（`a` = 挂本修饰符的字段，`b` = 依赖目标）：
+///
+/// | `a` | `b` | 结果 |
+/// |---|---|---|
+/// | 未出现 | 任意 | **通过** —— 本条不管「依赖目标怎么单独出现」 |
+/// | 出现 | 出现 | 通过 |
+/// | 出现 | 未出现 | **报错** |
+///
+/// ⚠️ **与块级指令 `@requires` 毫无关系**，两者刻意不共用名字：
+/// `@requires` 是**特性门控**（应用契约前必须已开启某个 `@feature`，契约体里的声明），
+/// 而 `depends_on` 是**字段与字段之间的陪伴要求**（契约**字段**的修饰符）。
+/// 用同一个词会让读者分不清 `X` 到底是特性名还是字段名，故另起一名。
+///
+/// ⚠️ 依赖目标必须是**同一份契约**里声明过的字段名，且不可是字段自身
+/// （自依赖恒成立，多半是把字段名抄到了自己身上）—— 两种情形都响亮报错。
+#[derive(Debug)]
+pub struct DependsOn;
+
+impl Modifier for DependsOn {
+    fn name(&self) -> &str {
+        "depends_on"
+    }
+    fn apply(&self, _spec: &mut FieldSpec, v: &Value) -> Result<(), String> {
+        dependency_targets(self.name(), v).map(|_| ())
+    }
+    fn check_group(&self, view: &GroupView<'_>) -> Result<(), String> {
+        check_dependency(self.name(), view)
+    }
+}
+
+/// 取出并校验**依赖目标清单**：单个字段名（`[b]` 的便捷写法就写作 `b`）或字段名数组。
+///
+/// 与 [`group_members`] 同族的三重检查秉承同一条取向 —— 写坏的约束应当**立刻**报错。
+fn dependency_targets(name: &str, v: &Value) -> Result<Vec<String>, String> {
+    let raw: Vec<&Value> = match v {
+        Value::Str(_) => vec![v],
+        Value::Array(items) if !items.is_empty() => items.iter().collect(),
+        Value::Array(_) => return Err(format!("`{name}` 的依赖目标至少要有 1 个，实得 0 个")),
+        other => {
+            return Err(format!(
+                "`{name}` 的依赖目标须是字段名（裸词或引号串）或其数组（如 `[ b c ]`），实为 {}",
+                crate::value_kind(other)
+            ))
+        }
+    };
+    let mut out = Vec::with_capacity(raw.len());
+    for it in raw {
+        match it {
+            Value::Str(s) => {
+                if s.is_empty() {
+                    return Err(format!("`{name}` 的依赖目标不可为空字段名的占位"));
+                }
+                if out.iter().any(|x| x == s) {
+                    return Err(format!(
+                        "`{name}` 的依赖目标 `{s}` 重复；重复多半是笔误"
+                    ));
+                }
+                out.push(s.clone());
+            }
+            other => {
+                return Err(format!(
+                    "`{name}` 的依赖目标须是字段名（裸词或引号串），实为 {}",
+                    crate::value_kind(other)
+                ))
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// 跨字段依赖的判定本体。
+fn check_dependency(name: &str, view: &GroupView<'_>) -> Result<(), String> {
+    let v = view
+        .spec
+        .ext_data
+        .get(name)
+        .ok_or_else(|| format!("字段 `{}` 上登记的 `{name}` 取值丢失", view.owner))?;
+    let targets = dependency_targets(name, v)?;
+    // 自依赖恒成立 —— 写了多半是笔误，留着它只会让人误以为约束生效了。
+    if targets.iter().any(|t| t.as_str() == view.owner) {
+        return Err(format!(
+            "`{name}` 的依赖目标不可是本字段自身 `{}`",
+            view.field_path(view.owner)
+        ));
+    }
+    for t in &targets {
+        if !view.declared.contains_key(t) {
+            return Err(format!(
+                "依赖目标 `{}` 未在契约 `{}` 里声明（是否拼错了字段名？）",
+                view.field_path(t),
+                view.contract
+            ));
+        }
+    }
+    // 依赖方（挂本修饰符的字段）没出现 ⇒ 本条不管：它缺席与否由
+    // `required` / `optional` / `default` 三态负责，两个语义不互相代劳。
+    if !view.is_present(view.owner) {
+        return Ok(());
+    }
+    let missing: Vec<String> = targets
+        .iter()
+        .filter(|t| !view.is_present(t.as_str()))
+        .map(|t| view.field_path(t))
+        .collect();
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "字段 `{}` 出现了，但它依赖的 {} 未出现",
+            view.field_path(view.owner),
+            missing.join("、")
+        ))
     }
 }
 
