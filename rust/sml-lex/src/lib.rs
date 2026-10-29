@@ -571,7 +571,17 @@ pub fn compute_string_spans(text: &str) -> Vec<(usize, usize)> {
 /// 判断 `line` 起始字节 `start` 是否落在任一字符串区间内（字符串内的行不算指令）。
 pub fn line_starts_in_string(_text: &str, start: usize, spans: &[(usize, usize)]) -> bool {
     // 指令通常位于行首（可有缩进）。检测起始位置是否在字符串内即可。
-    spans.iter().any(|(s, e)| start >= *s && start < *e)
+    //
+    // ⚠️ 原来是 `spans.iter().any(...)`：调用点是**逐行**的，于是每个行首都全扫一遍
+    // 区间表 ⇒ O(行数 × 区间数) 的二次复杂度。`spans` 由 [`compute_string_spans`]
+    // 产出，按起点升序且互不重叠，故可二分 ⇒ O(log m)。
+    // 全部调用点（`sml-parse/src/scan.rs`、`sml-include/src/expand.rs`）传的都是
+    // `compute_string_spans` 的结果；这里只换查找方式，判据逐字不变。
+    let idx = spans.partition_point(|(s, _)| *s <= start);
+    match idx.checked_sub(1).and_then(|k| spans.get(k)) {
+        Some((_, e)) => start < *e,
+        None => false,
+    }
 }
 
 /// 计算文本中所有**块注释**（`/* … */` 与 `_* … *_`）的字节区间。
@@ -586,11 +596,22 @@ pub fn line_starts_in_string(_text: &str, start: usize, spans: &[(usize, usize)]
 pub fn compute_block_comment_spans(text: &str) -> Vec<(usize, usize)> {
     let bytes = text.as_bytes();
     let strings = compute_string_spans(text);
-    let in_string = |i: usize| strings.iter().any(|(s, e)| i >= *s && i < *e);
+    // ⚠️ 原写法 `strings.iter().any(...)` 是**二次复杂度**：它对文本的**每一个字节**
+    // 扫一遍全部字符串区间 ⇒ O(字节数 × 区间数)。实测 32k 行文档耗时 6.1s，
+    // 规模 ×4 时耗时 ×16（量级特征明确，见 `tests/perf_smoke.rs`）。
+    // `compute_string_spans` 的区间按起点升序、互不重叠，而这里的 `i` 单调递增
+    // ⇒ 改用只前进的游标 `si`：摊还 O(1)，总复杂度回到 O(n + m)。
+    // 判据与原来逐字相同（存在某区间 s <= i < e ⇒ 该字节在字符串内）。
+    let mut si = 0usize;
     let mut spans = Vec::new();
     let mut i = 0usize;
     while i < bytes.len() {
-        if in_string(i) {
+        // 跳过已走完的区间（end <= i）；剩下的首个区间若起点已过 i，则 i 落在其中
+        // （其 end 必 > i，否则会被上一行跳过）。
+        while si < strings.len() && strings[si].1 <= i {
+            si += 1;
+        }
+        if si < strings.len() && strings[si].0 <= i {
             i += 1;
             continue;
         }
