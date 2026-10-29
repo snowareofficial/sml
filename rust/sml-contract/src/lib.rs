@@ -187,15 +187,53 @@ pub struct FieldSpec {
     pub mods: Vec<std::sync::Arc<dyn crate::ext::Modifier>>,
 }
 
+/// 契约严格性（三态）。
+///
+/// 只管「未声明字段」这一类**形状宽容违约**；类型不符 / 必填缺失 / 数值越界 /
+/// 枚举越界 / 互斥组违约等**恒为 `Err`**，即使处在 `Warn` 态也不放行 ——
+/// 错类型的数据放行出去是灾难，形状宽容与数据正确性不是一回事。
+///
+/// 优先级（D4）：`Strict > Warn > Loose`。变体按此顺序声明，故 [`Ord`] 取
+/// `min` 即得「最严一档」，多契约叠加（`[`apply_contracts`]`）据此实现
+/// strict 优先且顺序无关。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Strictness {
+    /// 未声明字段 ⇒ `Err(E-CONTRACT-004)`（保持现状，契约级默认档）。
+    Strict,
+    /// 未声明字段 ⇒ **放行**并产出一条 `DiagnosticKind::Warning`（由 sml-parse 转译）。
+    Warn,
+    /// 未声明字段 ⇒ 静默放行，无诊断（即旧 `loose` 档）。
+    Loose,
+}
+
+/// 契约 warn 态放行「未声明字段」时产出的非致命告警。
+///
+/// 定义在 `sml-contract` 而非 `sml-parse`，以避免 `sml-contract → sml-parse`
+/// 的反向依赖（`sml-parse` 已依赖 `sml-contract`）。调用方（sml-parse）把它
+/// 转译为 `Diagnostic { kind: DiagnosticKind::Warning, .. }`，只经 `*_with_warnings`
+/// 入口交出；`parse()` 恒不返回（见 `sml-parse` 的 `api`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContractWarning {
+    /// 告警文案（含字段路径与契约名）。
+    pub message: String,
+}
+
 /// 契约（schema）：一组字段规格
 #[derive(Debug, Clone)]
 pub struct Contract {
     pub name: String,
     pub fields: BTreeMap<String, FieldSpec>,
-    /// 是否允许契约未声明的字段。
-    /// **默认 false（严格）**：额外字段一律报错，可及早发现拼写错误
-    /// （如 `prot` 误写为 `port`）。确需放宽时须**显式**写 `loose`。
-    pub allow_extra: bool,
+    /// 严格性（三态，仅管「未声明字段」这一类形状宽容违约；类型不符 / 必填缺失 /
+    /// 数值越界 / 枚举越界 / 互斥组违约等**恒为 Err**，warn 态也不放行）。
+    ///
+    /// - `Strict`（默认）：未声明字段 ⇒ `Err(E-CONTRACT-004)`；
+    /// - `Warn`：未声明字段 ⇒ **放行** + 一条 `DiagnosticKind::Warning`；
+    /// - `Loose`：未声明字段 ⇒ 静默放行，无诊断（旧 `loose` 档）。
+    ///
+    /// 优先级：`strict > warn > loose`；多契约叠加取最严一档（见
+    /// [`apply_contracts`](crate::apply_contracts)）。块级 `@is X warn|loose`
+    /// 可把本块显式降到 `Warn`/`Loose`（D4①）。
+    pub strictness: Strictness,
     /// 应用本契约前必须已开启的特性（由契约体里的 `@requires` 声明）。
     ///
     /// 仅用于文档化与跨端拒绝：Rust 在**契约定义时**已逐条校验这些特性都已开启
@@ -223,12 +261,15 @@ fn join_path(parent: &str, child: &str) -> String {
 ///
 /// `path` 是该字段的**完整路径**（如 `api.port`、`items[2].name`），
 /// 由调用方在递归时用 [`join_path`] 拼接后传入，仅用于错误信息定位。
+///
+/// `warnings` 透传至 [`apply_contract`]（组合契约自身的 warn 态告警也要收集）。
 fn check_type(
     contract: &str,
     path: &str,
     spec: &FieldSpec,
     v: &Value,
     contracts: &BTreeMap<String, Contract>,
+    warnings: &mut Vec<ContractWarning>,
 ) -> Result<(), SmlError> {
     // 组合：字段值是块，递归按被引用的契约校验（含填默认值）
     if let TypeSpec::ContractRef(ref_name) = &spec.ty {
@@ -250,7 +291,7 @@ fn check_type(
                         ),
                     )
                 })?;
-                apply_contract(target, &mut sub, contracts, path)?;
+                apply_contract(target, &mut sub, contracts, path, warnings)?;
                 Ok(())
             }
             _ => Err(SmlError::new(
@@ -334,7 +375,7 @@ fn check_type(
             mods: Vec::new(),
         };
         for (i, it) in items.iter().enumerate() {
-            check_type(contract, &format!("{}[{}]", path, i), &elem, it, contracts)?;
+            check_type(contract, &format!("{}[{}]", path, i), &elem, it, contracts, warnings)?;
         }
         // 元素全部通过。数组本身不参与 min/max 区间校验（那是数值语义）。
         // 但**外置修饰符仍要跑**（`items_max` 这类约束正是作用在数组整体上），
@@ -482,13 +523,18 @@ fn value_kind(v: &Value) -> &'static str {
 /// 实现走**合并视图**：构造一个临时 `Contract`，复用既有 [`apply_contract`] 的
 /// 默认值回填 / 类型校验 / 组合递归 —— 不另写一条校验路径，行为与单契约同源。
 pub fn apply_contracts(
-    names: &[String],
+    entries: &[(String, Option<Strictness>)],
     node: &mut BTreeMap<String, Value>,
     contracts: &BTreeMap<String, Contract>,
     path: &str,
+    warnings: &mut Vec<ContractWarning>,
 ) -> Result<(), SmlError> {
-    let mut list: Vec<&Contract> = Vec::with_capacity(names.len());
-    for n in names {
+    // 每条契约的**有效**严格度 = 块级显式覆盖（D4①）.unwrap_or(契约级声明)；
+    // 多契约叠加按 D4②「strict 优先、顺序无关」⇒ 取最严一档
+    // （`Strict < Warn < Loose`，`Ord` 取 `min` 即得）。
+    let mut list: Vec<&Contract> = Vec::with_capacity(entries.len());
+    let mut effs: Vec<Strictness> = Vec::with_capacity(entries.len());
+    for (n, ov) in entries {
         let hint = suggest_contract_name(n, contracts)
             .map(|c| format!("（你是不是想写 `{c}`？）"))
             .unwrap_or_default();
@@ -496,6 +542,7 @@ pub fn apply_contracts(
             SmlError::new(E_CONTRACT_001, format!("sml: 未定义的契约 `{}`{}", n, hint))
         })?;
         list.push(c);
+        effs.push(ov.unwrap_or(c.strictness));
     }
     // 两两冲突预检：同字段名但类型 / 默认值 / 区间不同即冲突。
     // ⚠️ 按**字段名**遍历（BTreeMap 有序），与书写顺序无关。
@@ -536,7 +583,9 @@ pub fn apply_contracts(
                 .or_insert_with(|| v.clone());
         }
     }
-    let allow_extra = list.iter().all(|c| c.allow_extra);
+    // 多契约叠加的严格度：取各契约**有效**严格度的最严一档（D4②）。空表不可能
+    // 走到这里（调用方至少传一个契约），`unwrap_or(Strict)` 仅为让类型闭合。
+    let strictness = effs.into_iter().min().unwrap_or(Strictness::Strict);
     let mut merged_requires: Vec<String> = Vec::new();
     for c in &list {
         for r in &c.requires {
@@ -552,36 +601,59 @@ pub fn apply_contracts(
             .collect::<Vec<_>>()
             .join("+"),
         fields,
-        allow_extra,
+        strictness,
         requires: merged_requires,
     };
-    apply_contract(&merged, node, contracts, path)
+    apply_contract(&merged, node, contracts, path, warnings)
 }
 
 /// 对块应用契约：填充默认值 + 校验 + 严格性检查。
 ///
-/// **严格为默认**：契约未声明的字段会被拒绝，除非契约显式标记 `loose`。
-/// 这样拼错的字段名（如 `prot`）会立即报错，而不是被静默忽略。
+/// **严格（`Strict`）为默认**：契约未声明的字段会被拒绝，除非契约显式标记
+/// `loose` / `warn`。这样拼错的字段名（如 `prot`）会立即报错，而不是被静默忽略。
+///
+/// `warnings` 收集 **warn 态**放行的形状宽容违约（未声明字段）；调用方（sml-parse）
+/// 转译为 `DiagnosticKind::Warning`，只经 `*_with_warnings` 可见。`parse()` 恒不返回。
 pub fn apply_contract(
     c: &Contract,
     node: &mut BTreeMap<String, Value>,
     contracts: &BTreeMap<String, Contract>,
     path: &str,
+    warnings: &mut Vec<ContractWarning>,
 ) -> Result<(), SmlError> {
-    // 1) 严格性：未声明字段一律拒绝（组合字段本身已在 fields 声明，其
-    //    内部字段由被引用契约在自己的 apply_contract 中负责校验）
-    if !c.allow_extra {
-        for k in node.keys() {
-            if !c.fields.contains_key(k) {
-                return Err(SmlError::new(
-                    E_CONTRACT_004,
-                    format!(
-                        "sml: 字段 `{}` 未在契约 `{}` 中声明（严格模式；如需允许额外字段请在契约名后写 `loose`）",
-                        join_path(path, k), c.name
-                    ),
-                ));
+    // 1) 严格性（三态，仅管「未声明字段」这一类形状宽容违约；类型不符 / 必填缺失 /
+    //    数值越界 / 枚举越界 / 互斥组违约等**恒为 Err**，warn 态也不放行 ——
+    //    错类型的数据放行出去是灾难，形状宽容与数据正确性不是一回事）。
+    //    优先级：strict > warn > loose。多契约叠加时由 `apply_contracts` 取最严一档。
+    //    ⚠️ 违约放行时值树与 strict 下的**成功**分支逐字一致（不改数据形状）。
+    match c.strictness {
+        Strictness::Strict => {
+            for k in node.keys() {
+                if !c.fields.contains_key(k) {
+                    return Err(SmlError::new(
+                        E_CONTRACT_004,
+                        format!(
+                            "sml: 字段 `{}` 未在契约 `{}` 中声明（严格模式；如需允许额外字段请在契约名后写 `loose`/`warn`）",
+                            join_path(path, k), c.name
+                        ),
+                    ));
+                }
             }
         }
+        Strictness::Warn => {
+            for k in node.keys() {
+                if !c.fields.contains_key(k) {
+                    // 放行：值树与 strict 成功分支逐字一致，仅追加一条告警。
+                    warnings.push(ContractWarning {
+                        message: format!(
+                            "sml: 字段 `{}` 未在契约 `{}` 中声明，但在 warn 态下被放行（形状宽容违约；如需严格请移除 `warn`）",
+                            join_path(path, k), c.name
+                        ),
+                    });
+                }
+            }
+        }
+        Strictness::Loose => { /* 静默放行，无诊断（旧 loose 档） */ }
     }
     // 快照「用户显式写出的键」：跨字段约束（互斥组等）以它为准，`default` 回填的值
     // **不参与计数**（理由见 `ext::GroupView::present`）。
@@ -619,15 +691,15 @@ pub fn apply_contract(
                 if matches!(spec.ty, TypeSpec::ContractRef(_)) {
                     // 先按**原值**校验必须是块，否则会退化成
                     // 「子字段缺失」这类误导性错误
-                    check_type(&c.name, &field_path, spec, v, contracts)?;
+                    check_type(&c.name, &field_path, spec, v, contracts, warnings)?;
                     let mut sub = match v {
                         Value::Object(m) => m.clone(),
                         _ => unreachable!("check_type 已保证为块"),
                     };
-                    check_type_contract_ref(&c.name, &field_path, spec, &mut sub, contracts)?;
+                    check_type_contract_ref(&c.name, &field_path, spec, &mut sub, contracts, warnings)?;
                     node.insert(k.clone(), Value::Object(sub));
                 } else {
-                    check_type(&c.name, &field_path, spec, v, contracts)?;
+                    check_type(&c.name, &field_path, spec, v, contracts, warnings)?;
                 }
             }
         }
@@ -702,6 +774,7 @@ fn check_type_contract_ref(
     spec: &FieldSpec,
     sub: &mut BTreeMap<String, Value>,
     contracts: &BTreeMap<String, Contract>,
+    warnings: &mut Vec<ContractWarning>,
 ) -> Result<(), SmlError> {
     let ref_name = match &spec.ty {
         TypeSpec::ContractRef(n) => n.clone(),
@@ -720,7 +793,7 @@ fn check_type_contract_ref(
         )
     })?;
     // 先做基础类型校验（值须为块），再递归应用
-    check_type(contract, path, spec, &Value::Object(sub.clone()), contracts)?;
+    check_type(contract, path, spec, &Value::Object(sub.clone()), contracts, warnings)?;
     // 把完整路径传下去，子块的错误才能定位到 `parent.child` 而非只报字段名
-    apply_contract(target, sub, contracts, path)
+    apply_contract(target, sub, contracts, path, warnings)
 }

@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use sml_value::Value;
 
-use crate::{Contract, FieldSpec, TypeSpec};
+use crate::{Contract, FieldSpec, Strictness, TypeSpec};
 
 /// 推断结果：一组命名契约（含根与若干子契约）+ 告警。
 pub struct InferResult {
@@ -182,7 +182,7 @@ fn build_object_contract(
     let contract = contracts.entry(name.to_string()).or_insert_with(|| Contract {
         name: name.to_string(),
         fields: BTreeMap::new(),
-        allow_extra: true,
+        strictness: Strictness::Loose,
         requires: Vec::new(),
     });
     for (k, _vals) in &field_vals {
@@ -381,7 +381,12 @@ impl InferResult {
         for (i, name) in names.iter().enumerate() {
             let c = &self.contracts[*name];
             out.push_str(&format!("    {}: {{\n", json_str(name)));
-            out.push_str(&format!("      \"loose\": {},\n", c.allow_extra));
+            let strictness_str = match c.strictness {
+                Strictness::Strict => "strict",
+                Strictness::Warn => "warn",
+                Strictness::Loose => "loose",
+            };
+            out.push_str(&format!("      \"strictness\": \"{}\",\n", strictness_str));
             out.push_str("      \"fields\": {\n");
             let fcount = c.fields.len();
             for (j, (fname, spec)) in c.fields.iter().enumerate() {
@@ -418,11 +423,13 @@ impl InferResult {
     }
 }
 
-/// 单个契约 → SML `@contract Name loose { ... }` 片段。
+/// 单个契约 → SML `@contract Name [loose|warn|strict] { ... }` 片段。
 fn contract_to_sml(name: &str, c: &Contract) -> String {
     let mut s = format!("@contract {} ", name);
-    if c.allow_extra {
-        s.push_str("loose ");
+    match c.strictness {
+        Strictness::Loose => s.push_str("loose "),
+        Strictness::Warn => s.push_str("warn "),
+        Strictness::Strict => {}
     }
     s.push_str("{\n");
     for (fname, spec) in &c.fields {
@@ -579,7 +586,7 @@ mod tests {
         let r = infer_from_value("Inferred", &v).unwrap();
         assert_eq!(
             r.to_json(),
-            "{\n  \"contracts\": {\n    \"Inferred\": {\n      \"loose\": true,\n      \"fields\": {\n        \"name\": {\"type\": \"str\", \"optional\": false},\n        \"port\": {\"type\": \"int\", \"optional\": false}\n      }\n    }\n  },\n  \"warnings\": [\n    \"单实例无法判定 optional：所有字段按 required 推断\"\n  ]\n}\n"
+            "{\n  \"contracts\": {\n    \"Inferred\": {\n      \"strictness\": \"loose\",\n      \"fields\": {\n        \"name\": {\"type\": \"str\", \"optional\": false},\n        \"port\": {\"type\": \"int\", \"optional\": false}\n      }\n    }\n  },\n  \"warnings\": [\n    \"单实例无法判定 optional：所有字段按 required 推断\"\n  ]\n}\n"
         );
     }
 
