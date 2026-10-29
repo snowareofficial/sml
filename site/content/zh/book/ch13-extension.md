@@ -148,7 +148,44 @@ impl Modifier for ItemsMax {
 > ⚠️ **刻意不复用 `max`**：`max` 在 SML 契约里是**数值上界**语义，且数组不参与 min/max 校验。
 > 把 `max` 当"个数上限"用会让同一写法在两端含义不同。扩展点请**新起名字**。
 
-## 13.6 JS 侧
+## 13.6 crate 现成提供哪些 Modifier（无需自己写）
+
+上节是你**自己写**一个 `Modifier`。其实 `sml-contract` crate 已经**随包提供**一批现成的，覆盖最常见的几类约束——直接 `ParseOptions::with_modifier(...)` 注册即可（公共注册入口；底层走 `ContractExt::register_modifier`，见 `rust/sml-contract/src/ext.rs`）。
+
+### 内建修饰符（固化在核心，不能由外置占用）
+
+`BUILTIN_MODIFIERS`（`ext.rs:124`）列出了核心已占用的名字，**外置扩展不可与之重名**：
+
+`optional` / `required` / `default` / `min` / `max`
+
+### 外置 Modifier 结构体（crate 已提供，注册即用）
+
+| 结构体 | `name()` | 语义 | `ext.rs` 出处 |
+|--------|----------|------|---------------|
+| `OneOf` | `one_of` | 组内**至多一个**字段出现（≥2 报错） | `ext.rs:377`，判定 `check_group` 在 `ext.rs:386` |
+| `ExactlyOne` | `exactly_one` | 组内**恰好一个**字段出现（0 / ≥2 报错） | `ext.rs:398`，判定 `ext.rs:407` |
+| `AnyOf` | `any_of` | 组内**至少一个**字段出现（0 报错） | `ext.rs:429`，判定 `ext.rs:438` |
+| `DependsOn` | `depends_on` | 本字段出现 ⇒ 所列字段必须出现 | `ext.rs:474`，判定 `ext.rs:483` |
+| `ItemsMin` | `items_min` | 数组**元素个数下限**（< n 报错） | `ext.rs:237`，判定 `check` 在 `ext.rs:249` |
+
+> ⚠️ `one_of` / `exactly_one` / `any_of` / `depends_on` 都是**跨字段**约束，挂在某个字段上、却要看**整个块**——
+> 它们走的是 `Modifier::check_group(&GroupView)` 钩子（`ext.rs:73`，默认放行）。
+> 与之相对，`check(&FieldSpec, &Value)`（`ext.rs:61`）**只见这一个字段的值**，
+> 适合 `items_min` 这种「只看本字段生效值」的约束。
+>
+> `GroupView::present`（`ext.rs:84` 结构体，字段在 `ext.rs:104`）**只算用户显式写出的键**，
+> `default` 回填的值**不算出现**——这是互斥 / 计数 / 依赖这类跨字段判据的口径。
+> 成员名未在同一份契约里声明过（拼错字段名）会**响亮报错**（见 `resolve_members`，`ext.rs:316`）。
+>
+> 这些外置修饰符**全部复用 `E-CONTRACT-011`**，不新增码。
+
+### 内建类型表（参考）
+
+`BUILTIN_TYPES`（`ext.rs:30` 起）列出了核心已占用的类型名，**外置类型不可与之重名**：
+
+`str` / `int` / `num` / `bool` / `any` / `enum`（共 6 个，见 `ext.rs:30`–`ext.rs:32`）。
+
+## 13.7 JS 侧
 
 同样的三个能力，JS 侧用选项传入：
 
@@ -171,7 +208,7 @@ const value = parse(text, {
 });
 ```
 
-## 13.7 边界与现状（重要）
+## 13.8 边界与现状（重要）
 
 - **零扩展 = 零影响**：不传任何 `directives` / `types` 时，行为与未扩展时逐字一致。
 - **C-ABI 不支持**：扩展是 trait 对象，跨不了 C 边界。C / C++ 调用方只能用无扩展路径，
@@ -180,7 +217,7 @@ const value = parse(text, {
 - **文档可移植性会下降**：一份带 `@form` 的 `.sml`，在没有注册该指令的环境里读不了
   （Rust 侧会明确报错）。这是扩展机制**固有的权衡**——方言越方便，通用性越弱。
 
-## 13.8 什么时候不该用它
+## 13.9 什么时候不该用它
 
 - 只是想表达数据 → 用普通块和数组就够了，不要造指令。
 - 想让**所有人**都能读你的文档 → 别用扩展，用核心语法。

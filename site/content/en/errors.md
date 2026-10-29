@@ -25,8 +25,9 @@ codes, document on codes, report bugs with codes.
 
 > The authoritative source is [`errors/codes.sml`](https://gitee.com/snoware/sml/blob/master/errors/codes.sml)
 > in the repository; this table is generated from it by `python errors/gen_json.py`, so the page and
-> the code cite the same facts — there is no "documented here but missing in the code". There are
-> **141 codes** today.
+> the code cite the same facts — there is no "documented here but missing in the code". The
+> **total count of codes is taken from the `count` field of `site/static/errors.json`**; this page
+> does not keep a separate copy.
 
 The table answers "which codes exist"; whether an implementation **actually raises** a given code is
 a separate matter — see the "code landing status" section of
