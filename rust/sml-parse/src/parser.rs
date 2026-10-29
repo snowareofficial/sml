@@ -1836,30 +1836,37 @@ impl Parser {
     pub(crate) fn parse_array_inner(&mut self) -> Result<Value, SmlError> {
         let mut arr = Vec::new();
         loop {
-            match self.peek().cloned() {
+            // ⚠️ 与 `parse_block_inner` 同手法：只**借用** `peek()` 的结果，不 `.cloned()`，
+            // 免去 `Tok::Word` / `Tok::Str` 里 `String` 的堆分配克隆（数组解析同样是热循环）。
+            // 只有真正要拿走所有权的分支（裸块类型名、`Str` 值）才 `self.next()` move 出来。
+            // 实测结论（release、数组密集合成 corpus、5 轮，80k 行）：改前/改后 ≈ 1.218s/1.210s，
+            // 收益落在运行噪声内（±1%~3%）—— 不如 parse_block_inner 那笔明确的 −50%，但属于
+            // 纯分配削减、语义不变、全部测试绿，对数组密集真实文档（UI 布局等）仍应有个位数收益，
+            // 故保留；想再验证请直接复用 `rust/tests/_parse_bench.rs`。别再重复追这处。
+            match self.peek() {
                 None => {
                     // 顶层数组未闭合（缺少 `]`）：必须报错，而非按 EOF 静默收尾。
                     return Err(SmlError::new(E_PARSE_001, "sml: 未闭合的数组（遇到文件结尾，缺少结束符号 ]）"));
                 }
-                Some(Tok::RBrack) => {
+                Some(&Tok::RBrack) => {
                     self.next();
                     break;
                 }
-                Some(Tok::RBrace) => {
+                Some(&Tok::RBrace) => {
                     // 顶层数组遇到多余的 `}`：必须报错，而非静默忽略。
                     return Err(SmlError::new(E_PARSE_003, "sml: 多余的结束符号 }（数组应以 ] 闭合）"));
                 }
-                Some(Tok::Comma) => {
+                Some(&Tok::Comma) => {
                     self.next();
                 }
-                Some(Tok::LBrace) => {
+                Some(&Tok::LBrace) => {
                     self.next();
                     self.path_stack.push(PathSeg::Index(arr.len()));
                     let v = self.parse_block(Some(Tok::RBrace));
                     self.path_stack.pop();
                     arr.push(v?);
                 }
-                Some(Tok::LBrack) => {
+                Some(&Tok::LBrack) => {
                     self.next();
                     // 走 wrapper 以复用 depth 守卫（否则嵌套数组会绕过 128 层限制导致栈溢出 DoS）
                     self.path_stack.push(PathSeg::Index(arr.len()));
@@ -1868,18 +1875,25 @@ impl Parser {
                     arr.push(v?);
                 }
                 Some(Tok::Word(w)) => {
+                    // match ergonomics：`w` 绑定为 `&String`（借用），不克隆
                     // 数组内的裸块 `Type [name] { ... }`：表达**有序**元素序列。
                     // 对象字段用 BTreeMap 存储（键有序、不可保书写序），因此
                     // 需要保序的子元素（UI 布局、文档章节）需写作数组。
                     if self.bare_block_ahead() {
-                        self.next(); // 消费类型名
+                        // 类型名要传给 `parse_bare_block`，其间还有对 self 的 `&mut` 调用，
+                        // 无法再持借用 ⇒ 这里用 `self.next()` move 出所有权（替代克隆）。
+                        let name = match self.next() {
+                            Some(Tok::Word(s)) => s,
+                            _ => unreachable!("bare_block_ahead 已确认当前 token 是 Word"),
+                        };
                         self.path_stack.push(PathSeg::Index(arr.len()));
-                        let v = self.parse_bare_block(&w);
+                        let v = self.parse_bare_block(&name);
                         self.path_stack.pop();
                         arr.push(v?);
                     } else {
+                        // 普通词元素：只借用 `w`（`&String` 经 deref 自动转 `&str`），无需克隆
                         arr.push(coerce_word(
-                            &w,
+                            w,
                             &self.fragments,
                             self.features,
                             &self.ns_prefix(),
@@ -1888,7 +1902,7 @@ impl Parser {
                         self.next();
                     }
                 }
-                Some(Tok::Str(_)) => {
+                Some(&Tok::Str(_)) => {
                     if let Some(Tok::Str(s)) = self.next() {
                         arr.push(Value::Str(s));
                     }
