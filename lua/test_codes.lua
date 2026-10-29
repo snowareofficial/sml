@@ -17,10 +17,10 @@
 --   * E-PARSE-012（解析阶段兜底）：Lua 侧它是 pcall 的兜底出口，**构造不出来** ——
 --     与 C++ 的 E-LIMIT-010 同类，属「有实现、无可用例」，显式登记在此，
 --     免得后来者以为它没做。
---   * 「纯数组嵌套」`a: [[[ … ]]]`：Lua 的 parse_array **不递归处理 `[`**（数组元素位置的
---     `[` 被当裸词 coerce），所以它既不递归、也无从触发深度上限 —— 属**数据正确性**
---     问题（与 C 已登记的「嵌套数组被静默丢弃」同类），不在本组范围。数组入口的
---     深度上限改用「块 / 数组交替」形式测（`a { x: [ … ] }`，见 test_limit_codes）。
+--   * 「纯数组嵌套」`a: [[[ … ]]]`：已在**任务 L** 修复（同 W17 给 C 修的缺陷；Lua 侧
+--     parse_array 现递归处理 `[` 并复用既有深度守卫，128 层放行 / 129 层报 E-LIMIT-001，
+--     与块嵌套共用同一 `depth` 计数器）。数组元素位置的 `null` 用哨兵占位（Lua 表数组
+--     不能存 nil）。形状 & 深度用例见 test_nest_array_codes（期望值抄自 Rust `smltools --to sml`）。
 --   * E-CONTRACT-007 / 009 / 011（外置类型、模式类型、外置修饰符）：Lua 没有 `@type`
 --     与扩展注册点，属另一件事（W20 报告已登记），故不测；E-PARSE-024 是 C++ 把契约
 --     解析与取值校验并入同一层后自有的码，本端不可达。E-CONTRACT-012 只有
@@ -765,9 +765,91 @@ local function test_error_info()
   io.write(string.format("  .. 共 %d 条码\n", count))
 end
 
+-- ------------------------------------------------------------------
+-- 嵌套数组（任务 L，同 W17 给 C 修的缺陷）：形状 + 深度上限
+--
+-- 期望值（want_sml）逐字抄自 Rust `smltools --to sml` 的规范输出（见上方 _shapes、
+-- 05~07 用例），与四端同口径。比较时做**空白 + 逗号归一**（SML 数组逗号是可选分隔符，
+-- Rust 规范写 `[ 2, 3 ]`、Lua dump 写 `[ 2 3 ]`，二者值树一致、仅标点差异；
+-- 归一后同形 —— 与 conformance 的 token 层判据同口径）。
+-- 纯数组嵌套的深度守卫：128 层放行 / 第 129 层报 E-LIMIT-001（与块嵌套同口径，
+-- 共用同一 depth 计数器，见 lib/sml.soup 的 MAX_VALUE_DEPTH 注释）。
+-- ------------------------------------------------------------------
+local function norm_sml(s)
+  -- 括号前后加空格、去掉数组逗号、折叠空白 —— 把 Lua dump 与 Rust 规范 SML 之间
+  -- 的**纯排版**差异（Lua 把 `]` 贴在最末元素后、Rust 让 `]` 独占一行）归一掉，
+  -- 剩下的是同一值树的 token 序列（与 conformance 的 token 层判据同口径）。
+  s = string.gsub(s, "([%[%]{}])", " %1 ")
+  s = string.gsub(s, ",", " ")
+  s = string.gsub(s, "%s+", " ")
+  return string.match(s, "^%s*(.-)%s*$")
+end
+
+-- 形状：加载 → dump → 与 Rust 规范 SML（归一后）逐字比对
+local function expect_shape(tag, src, want_sml)
+  local v, err = Sml.load(src)
+  if v == nil then
+    failures = failures + 1
+    io.write(string.format("FAIL: %s 解析失败（应为合法嵌套数组），err=%s\n", tag, tostring(err)))
+    return
+  end
+  local got = Sml.dump(v)
+  if norm_sml(got) == norm_sml(want_sml) then
+    passed = passed + 1
+    io.write(string.format("  ok: %s -> 与 Rust 规范 SML 逐字一致\n", tag))
+  else
+    failures = failures + 1
+    io.write(string.format("FAIL: %s dump 与 Rust 规范不一致\n  got : %s\n  want: %s\n",
+                           tag, norm_sml(got), norm_sml(want_sml)))
+  end
+end
+
+-- 纯数组嵌套 n 层：`m: [ [ [ … 1 … ] ] ]`（最内层是标量 1，避免 `:` 落到数组里）
+local function nest_arrays(n)
+  return "m: " .. string.rep("[ ", n) .. "1" .. string.rep("] ", n)
+end
+
+local function test_nest_array_codes()
+  io.write("[NESTED ARRAY / 任务 L]\n")
+  -- —— 形状：期望值从 Rust `smltools --to sml` 实跑抄来（归一后比较）——
+  expect_shape("m: [ 1, [2, 3], 4 ]", "m: [ 1, [2, 3], 4 ]\n",
+    "m: [\n  1\n  [ 2, 3 ]\n  4\n]")
+  expect_shape("m: [ [ a ] ]", "m: [ [ a ] ]\n",
+    "m: [\n  [ a ]\n]")
+  expect_shape("m: [ [a], [b] ]", "m: [ [a], [b] ]\n",
+    "m: [\n  [ a ]\n  [ b ]\n]")
+  -- 05_nest_array
+  expect_shape("05 m: [ [ 1 2 ] [ 3 ] ]", "m: [ [ 1 2 ] [ 3 ] ]\n",
+    "m: [\n  [ 1, 2 ]\n  [ 3 ]\n]")
+  expect_shape("05 n: [ [ a ] ]", "n: [ [ a ] ]\n",
+    "n: [\n  [ a ]\n]")
+  -- 06_nest_array_mixed
+  expect_shape("06 rows: [ { id } ]", "rows: [ { id: 1 } { id: 2 } ]\n",
+    "rows: [\n  { id: 1 }\n  { id: 2 }\n]")
+  expect_shape("06 mixed (含 null/嵌套/对象)", "mixed: [ 1 alpha true null [ 2 ] { k: v } ]\n",
+    "mixed: [\n  1\n  alpha\n  true\n  null\n  [ 2 ]\n  { k: v }\n]")
+  -- 07_nest_array_deep
+  expect_shape("07 a: [ [ [ 1 ] ] ]", "a: [ [ [ 1 ] ] ]\n",
+    "a: [\n  [\n    [ 1 ]\n  ]\n]")
+  expect_shape("07 b: [ ] (空数组)", "b: [ ]\n", "b: []")
+  expect_shape("07 c: { } (空对象)", "c: { }\n", "c: {}")
+  expect_shape("07 d: [ [ ] [ [ ] ] ]", "d: [ [ ] [ [ ] ] ]\n",
+    "d: [\n  [  ]\n  [\n    [  ]\n  ]\n]")
+
+  -- —— 深度上限：纯数组嵌套（与块嵌套共用 depth 计数器）——
+  -- 128 层放行（含正好 128 层这一格 —— 别把上限算错一格）
+  expect_ok("纯数组嵌套 128 层 (at the limit)", nest_arrays(128))
+  -- 100 层（在 128 上限内）必须正常解析、不崩也不静默损坏
+  expect_ok("纯数组嵌套 100 层 (不崩)", nest_arrays(100))
+  -- 第 129 层报 E-LIMIT-001（深度闸门生效，不靠宿主栈溢出偶然报错）
+  expect_code("纯数组嵌套 129 层", nest_arrays(129), "E-LIMIT-001")
+  expect_code("纯数组嵌套 200 层", nest_arrays(200), "E-LIMIT-001")
+end
+
 io.write("lua/test_codes.lua — 触发条件 → 期望码（W10，Lua 侧）\n")
 test_parse_codes()
 test_w16_codes()
+test_nest_array_codes()
 test_limit_codes()
 test_feature_codes()
 test_host_codes()
