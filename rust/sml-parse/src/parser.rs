@@ -14,7 +14,10 @@ use sml_codes::{
 // 这两个只在 `when` feature（@when/@for）下用到；关掉该 feature 时下游会报 unused_imports
 #[cfg(feature = "when")]
 use sml_codes::{E_PARSE_016, E_PARSE_018};
-use sml_contract::{suggest_contract_name, Contract, ContractExt, FieldSpec, Modifier, TypeCheck, TypeSpec};
+use sml_contract::{
+    suggest_contract_name, Contract, ContractExt, ContractWarning, FieldSpec, Modifier, Strictness,
+    TypeCheck, TypeSpec,
+};
 use sml_feature::{Feature, FeatureSet};
 use sml_lex::{Span, Tok, coerce_word, lookup_env};
 use sml_value::{MAX_VALUE_DEPTH, Value};
@@ -826,7 +829,7 @@ impl Parser {
     fn parse_at_directive(
         &mut self,
         node: &mut BTreeMap<String, Value>,
-        applied_contracts: &mut Vec<String>,
+        applied_contracts: &mut Vec<(String, Option<Strictness>)>,
         pending_when: &mut Option<bool>,
     ) -> Result<(), SmlError> {
         // @name { ... } 片段定义 (不进主树)
@@ -884,18 +887,27 @@ impl Parser {
                     return Err(SmlError::new(E_PARSE_019, format!("sml: @contract 后须契约名, 得 {:?}", other)))
                 }
             };
-            // 可选修饰符 `loose` / `strict`：显式声明严格度。
-            // - loose  → 允许契约未声明的字段（放宽必须写出来）
+            // 可选修饰符 `loose` / `warn` / `strict`：显式声明三态严格度（D1）。
+            // - loose  → 允许契约未声明的字段，且**静默**放行（旧档）
+            // - warn   → 允许契约未声明的字段，但**产出一条 Warning 诊断**
             // - strict → 显式严格（与默认等价，写出仅为可读性/团队规范）
-            // 均复用裸词，不引入新 token。对齐 JS 实现：js/sml.mjs
-            // 同样接受这两个词。
-            let mut allow_extra = false;
+            // 均复用裸词，不引入新 token。对齐 JS 实现：js/sml.mjs 同样接受这三个词。
+            let mut strictness = Strictness::Strict;
             if let Some(Tok::Word(w)) = self.peek().cloned() {
-                if w == "loose" {
-                    allow_extra = true;
-                    self.next();
-                } else if w == "strict" {
-                    self.next();
+                match w.as_str() {
+                    "loose" => {
+                        strictness = Strictness::Loose;
+                        self.next();
+                    }
+                    "warn" => {
+                        strictness = Strictness::Warn;
+                        self.next();
+                    }
+                    "strict" => {
+                        strictness = Strictness::Strict;
+                        self.next();
+                    }
+                    _ => {}
                 }
             }
             if self.peek() != Some(&Tok::LBrace) {
@@ -933,7 +945,7 @@ impl Parser {
                 Contract {
                     name: self.qualify(&cname),
                     fields,
-                    allow_extra,
+                    strictness,
                     requires,
                 },
             );
@@ -998,7 +1010,12 @@ impl Parser {
             //   不是契约名 —— 否则同行的键值永远写不了。
             // 行号未知（文件入口 / `@for` 体）⇒ **只收一个词**（旧行为），
             // 宁可少收，不可收错。
-            let mut queue: Vec<(String, usize)> = vec![(raw, self.i - 1)];
+            let mut queue: Vec<(String, usize)> = vec![(raw.clone(), self.i - 1)];
+            // 块级严格度覆盖：契约原始名 → 覆盖档。严格度关键字紧跟在某个契约名之后，
+            // 即绑定到那个契约（D3）：`@is X loose` / `@is X warn` / `@is X strict`。
+            // 例：`@is A warn B` ⇒ A=Warn、B=契约级默认；`@is A B warn` ⇒ A=默认、B=Warn。
+            let mut overrides: BTreeMap<String, Strictness> = BTreeMap::new();
+            let mut last_name: Option<String> = Some(raw.clone());
             let mut prev = self.i - 1;
             if !self.lines.is_empty() {
                 loop {
@@ -1019,6 +1036,20 @@ impl Parser {
                                 Tok::Word(s) | Tok::Str(s) => s,
                                 _ => unreachable!(),
                             };
+                            // 紧跟契约名之后的严格度关键字 ⇒ 绑定到上一个契约（块级覆盖）
+                            if matches!(w.as_str(), "loose" | "warn" | "strict") {
+                                if let Some(n) = last_name.take() {
+                                    let s = match w.as_str() {
+                                        "loose" => Strictness::Loose,
+                                        "warn" => Strictness::Warn,
+                                        _ => Strictness::Strict,
+                                    };
+                                    overrides.insert(n, s);
+                                    self.next();
+                                    prev = idx;
+                                    continue;
+                                }
+                            }
                             // 后跟 `:` 且又不是契约名 ⇒ 它是键，停
                             if matches!(self.peek_at(1), Some(Tok::Colon))
                                 && self.resolve_contract_word(&w).is_err()
@@ -1027,7 +1058,8 @@ impl Parser {
                             }
                             self.next();
                             prev = idx;
-                            queue.push((w, idx));
+                            queue.push((w.clone(), idx));
+                            last_name = Some(w);
                         }
                         _ => break,
                     }
@@ -1040,8 +1072,10 @@ impl Parser {
             for (r, idx) in &queue {
                 match self.resolve_contract_word(r) {
                     Ok(n) => {
-                        if !applied_contracts.contains(&n) {
-                            applied_contracts.push(n);
+                        let ov = overrides.get(r).copied();
+                        let entry = (n.clone(), ov);
+                        if !applied_contracts.iter().any(|(en, _)| en == &n) {
+                            applied_contracts.push(entry);
                         }
                     }
                     Err(display) => {
@@ -1182,10 +1216,28 @@ impl Parser {
         }
         Ok(())
     }
+    /// 把 `sml-contract` 产出的契约告警转译为 `Diagnostic::Warning` 并收进 `diags`。
+    ///
+    /// `sml-contract` 不能依赖 `sml-parse`（否则循环依赖），故内部用独立的
+    /// [`ContractWarning`](sml_contract::ContractWarning)；此处转译。
+    /// warn 态告警只在 `*_with_warnings` 入口可见：`parse()` / `parse_file()`
+    /// 在 `api.rs` 里直接丢掉 `diags`，故对既有调用方零影响。
+    fn record_contract_warnings(&mut self, ws: Vec<ContractWarning>) {
+        for w in ws {
+            self.diags.push(Diagnostic {
+                kind: DiagnosticKind::Warning,
+                message: w.message,
+                line: None,
+            });
+        }
+    }
+
     pub(crate) fn parse_block_inner(&mut self, closing: Option<Tok>) -> Result<Value, SmlError> {
         let mut node: BTreeMap<String, Value> = BTreeMap::new();
-        // 块内若声明了 `@is Name`（可多条、可一名多词），在块解析完成后应用契约
-        let mut applied_contracts: Vec<String> = Vec::new();
+        // 块内若声明了 `@is Name`（可多条、可一名多词），在块解析完成后应用契约。
+        // 元组第二项是**块级严格度覆盖**（D4①）：`Some(s)` 时本块显式降到 `s`，
+        // 覆盖契约级声明；`None` 时沿用契约级默认。
+        let mut applied_contracts: Vec<(String, Option<Strictness>)> = Vec::new();
         // `@when <条件>` 的求值结果，作用于**紧邻的下一个**键/块（消费后清空）。
         // None = 无待应用的条件；Some(true/false) = 下一个字段应保留/丢弃。
         let mut pending_when: Option<bool> = None;
@@ -1399,32 +1451,41 @@ impl Parser {
         // 块结束：若声明了 `@is`，应用契约（填默认值 + 校验 + 严格性检查）
         if applied_contracts.len() == 1 {
             // 单契约：**逐字走原路径**（错误文案 / 行为与旧版完全一致）
-            let cname = &applied_contracts[0];
+            let (cname, ov) = &applied_contracts[0];
             let hint = suggest_contract_name(cname, &self.contracts)
                 .map(|c| format!("（你是不是想写 `{c}`？）"))
                 .unwrap_or_default();
-            let c = self
+            let mut c = self
                 .contracts
                 .get(cname)
                 .cloned()
                 .ok_or_else(|| {
                     SmlError::new(E_CONTRACT_001, format!("sml: 未定义的契约 `{}`{}", cname, hint))
                 })?;
+            // D4①：块级显式覆盖 > 契约级声明（本块把有效严格度降到 `ov`）
+            if let Some(s) = ov {
+                c.strictness = *s;
+            }
             // 用命名空间栈拼出当前块路径（如 `api`、`ns.api`），作为错误定位前缀
-            apply_contract(&c, &mut node, &self.contracts, &self.ns_prefix())?;
+            let mut ws = Vec::new();
+            apply_contract(&c, &mut node, &self.contracts, &self.ns_prefix(), &mut ws)?;
+            self.record_contract_warnings(ws);
         } else if applied_contracts.len() > 1 {
-            // 多契约：叠加（D3：strict 优先 / 字段并集 / 冲突 ⇒ E-CONTRACT-016）
+            // 多契约：叠加（D3/D4②：strict 优先、顺序无关、字段并集、冲突 ⇒ E-CONTRACT-016）
+            let mut ws = Vec::new();
             apply_contracts(
                 &applied_contracts,
                 &mut node,
                 &self.contracts,
                 &self.ns_prefix(),
+                &mut ws,
             )?;
+            self.record_contract_warnings(ws);
         }
         // 契约映射：本块（路径 = path_stack，调用方已把键/下标压好）应用了哪些契约。
         // 仅在应用**成功**后记 —— 失败即整篇报错，不存在半张映射。
         if let Some(map) = &mut self.contract_map {
-            for n in &applied_contracts {
+            for (n, _) in &applied_contracts {
                 map.record(self.path_stack.clone(), n.clone());
             }
         }
@@ -1557,7 +1618,9 @@ impl Parser {
                 }
                 let mut applied = false;
                 if names.len() == 1 {
-                    // 单契约：**逐字走原路径**（错误文案 / 行为与旧版完全一致）
+                    // 单契约：**逐字走原路径**（错误文案 / 行为与旧版完全一致）。
+                    // typed-block 不支持块级覆盖（D3 仅 `@is X warn|loose` 支持），
+                    // 故有效严格度 = 契约级默认。
                     let cname = &names[0];
                     let hint = suggest_contract_name(cname, &self.contracts)
                         .map(|c| format!("（你是不是想写 `{c}`？）"))
@@ -1565,11 +1628,17 @@ impl Parser {
                     let c = self.contracts.get(cname).cloned().ok_or_else(|| {
                         SmlError::new(E_CONTRACT_001, format!("sml: 未定义的契约 `{}`{}", cname, hint))
                     })?;
-                    apply_contract(&c, m, &self.contracts, &self.ns_prefix())?;
+                    let mut ws = Vec::new();
+                    apply_contract(&c, m, &self.contracts, &self.ns_prefix(), &mut ws)?;
+                    self.record_contract_warnings(ws);
                     applied = true;
                 } else if names.len() > 1 {
-                    // 多契约：叠加（D3：strict 优先 / 字段并集 / 冲突 ⇒ E-CONTRACT-016）
-                    apply_contracts(&names, m, &self.contracts, &self.ns_prefix())?;
+                    // 多契约：叠加（D3/D4②：strict 优先 / 字段并集 / 冲突 ⇒ E-CONTRACT-016）
+                    let entries: Vec<(String, Option<Strictness>)> =
+                        names.iter().cloned().map(|n| (n, None)).collect();
+                    let mut ws = Vec::new();
+                    apply_contracts(&entries, m, &self.contracts, &self.ns_prefix(), &mut ws)?;
+                    self.record_contract_warnings(ws);
                     applied = true;
                 }
                 if applied {
