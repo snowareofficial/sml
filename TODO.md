@@ -490,7 +490,9 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 | 雷 3 | `smltools` 的 unwrap / 与库分叉 / 冗余 | 🛠 **分叉类已处理（`3bff9b0`）**：六条消 4 条；`depth_of` 与文本扫描识别未动。崩用户类与冗余类**仍未动** |
 | 雷 4 | 核心库「不可恢复崩溃」 | ✅ 结论：**干净** —— 9 处 unwrap/expect 全部有不变量守护 |
 | 雷 5 | 静默改数据 | 🛠 **A 组全修**：1-3（`c4077a0`，derive 大整数超 i64 一律报错，与 serde 桥同码）；**4-6（2026-10-28 本轮）**：重复键提升为数组 / 片段展开覆盖父块键 ⇒ 改为**告警**（语义不变，`Value` 逐字一致），`#[sml(flatten)]` 键冲突 ⇒ 改为**报错**。B 组往返不对称**仍未动** |
-| 雷 6 | 跨实现缺陷（能力矩阵挖出） | 📋 **三条全未动**：Lua 大整数丢精度 / C++ 无 include / JS `\uXXXX` 少跳一位 —— 都是静默类 |
+| 雷 6 | 跨实现缺陷（能力矩阵挖出） | 🛠 **三条剩两条**：Lua 大整数丢精度 / C++ 无 include（= 一致性 `08` `09`，✋ 待裁决）；~~JS `\uXXXX` 少跳一位~~ **已由 !16 修（2026-10-30）**（跳转步长 `i+=4`→`i+=5`）—— 本行曾长期过期未更新 |
+| 雷 8 | **一致性用例掩盖缺陷** | ✅ **已修（2026-10-30）**：`33_contract_modifier_legacy_rejected` 同时写了 `?` 与 `=` 两种形式，**各端各撞一个** ⇒ 五端都报 `E-PARSE-006` ⇒ 那一格 AGREE 是**假**的（掩盖了 C++ 不认粘连 `str?`、JS 不认 `=`、Rust/Lua 不认 `?` 三处真缺陷）。已新增 `35`（只含 `?`）与 `36`（只含 `=`）撕开。**教训已进移交文档铁律**：一致性用例不得同时含两种触发形式 |
+| 雷 9 | **`to_sml` 与解析 / `to_json` 的深度口径差一格** | 📋 **未动（2026-10-30 实测）**：128 层文档**能解析**、`--to json` **能输出**，但 `to_sml` 报 `E-LIMIT-004`（序列化深度 129 超过上限 128 —— 它把根也算一层）；`126` / `127` 层三条路径都正常。属静默类的边界不一致，需裁决统一到哪一档 |
 | 雷 7 | **假绿测试**：`rust/tests/ser_de_direct.rs` 整个文件从未在 CI 执行 | ✅ **已修（2026-10-28）** —— 该文件顶部 `#![cfg(all(feature = "serde", feature = "sml"))]`，默认 `cargo test --workspace` 下编译成空（实测 0 passed）；而 CI 的 `rust-serde` job 只跑 `serde_bridge` 与 `sml-value`，漏了它 ⇒ I-1 的「两条发射器逐字节一致」与雷 5 B 组的三条钉子**一直没被验证**。已给 `rust-serde` job 补一步 `cargo test --features serde --test ser_de_direct`（13 条） |
 
 ### 雷 1：深嵌套测试栈溢出（既有；2026-10-26 已定位并修测试，**根因仍挂账**）
@@ -521,9 +523,12 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
     ⇒ `parse_block_inner` 约 558 行 → **约 210 行**，肥帧主因消除。
   - ⏳ **③ 改迭代式解析 → 放待办**（根治方案，重写量大，择机做）。
   - ❌ ① 降低 `MAX_VALUE_DEPTH` —— **不做**：128 是五端实测钉住的边界，改要五端同步。
-- **验收（已达成）**：`MAX_VALUE_DEPTH`(128) 层嵌套现在能在 **2 MiB 默认线程栈**上
-  正常解析；两条深嵌套测试已**去掉** 32 MiB 大栈包装，在默认栈上直接通过
-  （`deep_nesting_exceeding_limit_is_rejected`、`limit_codes`）。
+- **验收（⚠️ 2026-10-30 复核：此条不成立，勿信）**：原文称两条深嵌套测试「已**去掉**
+  32 MiB 大栈包装，在默认栈上直接通过」。**实测 dev 上仍是 32 MiB 包装** ——
+  `rust/tests/error_codes.rs:220-222` 现在就开着 `stack_size(32 * 1024 * 1024)`，
+  注释还写着「debug 构建下解析到 128 层就足以撑爆 2 MiB」；`rust/tests/emit.rs:462-469`
+  那条更开到 256 MiB。而 `main` 上那笔 `363041b` 恰恰是**加**包装的提交。
+  ⇒ 真实状态以本条「现象 / 根因 / 已修」三行与**根因仍挂账**为准。
 - **遗留**：`parse_array_inner` 路径未做同样的削薄检查；若将来再加肥分支，
   需重跑「默认栈 128 层」这条判据。
 
@@ -926,7 +931,7 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
 | **W21** ✅ **已完成（2026-09-18）** | W10 尾巴（`smltools` 带码）落地时登记的三处「没有家」的东西 + 两处根因，**全部已裁决并落地**：① 新增候选码 **`E-INCLUDE-012`**（include 路径写法非法，如未加引号）—— 原先误归 `E-INCLUDE-001`，用户拿它去查会看到「文件缺失或读取失败」，属**已知错码**；② 新增候选码 **`E-CLI-008`**（clap 未知参数/缺取值/非法枚举）—— 原先**完全无码**、clap 直印 + exit 2；③ `rust/smltools/src/toml.rs` 的 `descend` 里那个 `unreachable!()` —— **panic 是对用户不可接受的失败方式**（一份畸形 TOML 就能让工具崩）；④ **根因**：`rust/src/emit/*` 原返回**无码 `String`**，smltools 只好按**文案前缀猜码**把 `E-LIMIT-004/005/006` / `E-EXT-006` 映射出来 ——上游一改文案，码会**静默**退化成 `E-CLI-007`（仍是合法码、只是粒度变粗），**没有任何告警** | `errors/codes.sml`、`rust/smltools/src/{main,toml}.rs`、`rust/src/emit/*` | 交付：① 两个新码都已加进码表并回填 `impls`（`E-CLI-007` 加 `rust`、status 取 done）；② `Cli::try_parse()` 接管那层输出 —— **保留** clap 的 Usage 与退出码 2，只在其后追加码，`--help` / `--version` **不受影响**（实测 rc=0、输出不含码）；③ 改为带码 `Err`，走真实路径**不可达**（`ensure_table` 已保证前置条件）故按防御性处理，另加一条**故意违反前置条件**的用例证明「万一走到也只给带码错误、不 panic」；④ emit 后端**自己带码**，删掉两个映射函数，补 6 个**喂真实上游错误**的单元测试（旧做法失效的原因正是喂自己的字面量）。**额外**：删掉 6 处**重复工具前缀**（`smltools: smltools: `）并加**不变式断言**（`drive()` 内 ⇒ 每次 CLI 调用都过一遍 + 具名用例），判别实验：前缀加回去 ⇒ 两条用例同时变红。`cargo test -p smltools` rc=0 / **119 passed**；`cargo test --workspace` rc=0 / 537 passed | W10 尾巴（已完成） | ✅ |
 | **W22** | **文档与扩展对账**（用户 2026-09-18 点名）：把 W17–W21 新增的东西补进各处 —— 顶层 `README.md` / `README.en.md` / `llms.txt`、官网教科书（`site/`）、`editors/vscode`（含 `syntaxes/` 与要重打的 `.vsix`）、`editors/zed`（`extension.toml` + grammar，与 W8 同一处）、`editors/lsp`。⚠️ **先出一份「新增项 → 该出现在哪个文件」的对账清单再动手**，否则会漏（本轮新增的东西横跨五端实现 / 两个新码 / include 语义 / 嵌套数组行为变更） | `README*.md`、`llms.txt`、`site/**`、`editors/**` | 待办：① 对账清单（新增项清单来源：`CHANGELOG.md` 本轮条目 + `errors/README.md` 的落地进度表）；② 逐处更新；③ `site/build_site.py` 重跑并核对 `/errors` 页（`errors.json` 已是 139 条）；④ `editors/vscode` 重打 `.vsix` 并在包内确认版本号；⑤ `editors/zed` 的 grammar 编译验证（`tree-sitter generate && tree-sitter parse`，无 `ERROR`）。用户还提到一句「vsix 提供的也加」—— **动手前先问清**：是指把 VSIX 已有的能力补进 Zed 扩展，还是补进文档 | 与 W8（Zed grammar）重叠，一起做 | ✋ |
 | **W23** | ⚠️ **JS 的 include 架构与其它三端不同**（既有缺口，W16 落地时暴露）：它把子文件「**单独 parse 再合并数据**」，**不携带子文件的片段表 / 契约表 / 类型表**；而 Rust / C++ / Lua 都是**解析前文本展开**（W20 的 Lua 就是这个架构）。后果：`include` 之后的 `&name`、以及「契约写在被包含文件里」的 `@is`，在 JS 下必然失败（`examples/app.sml` 正是这一格）。W16 已把「静默给错串」改成「响亮报 `E-INCLUDE-006`」，但**能力本身没补** | `js/sml.mjs`（`resolveIncludes` + `parseBlock` 的 include 分支）、`js/probe-error-codes.mjs` | 二选一：① 与 Rust 同架构（解析前文本展开）；② 保留子 parse 但把 `fragments` / `contracts` / `types` **合并回调用方**。验收：`examples/app.sml` 与「契约在被包含文件里」两个用例在 JS 下**解析成功且值与 Rust 一致**，且既有 `E-INCLUDE-*` 用例不回归 | 无 | ✋ |
-| **W24** 🚨 **W5 实测新发现（2026-10-28）** | **契约修饰符存在两套不兼容的记号**：C 只认 `?` / `= <v>`，Rust / C++ / JS / Lua 只认单词 `optional` / `default <v>`。⇒ **照 README、`showcase_contract.sml`、教科书写的契约在 C 上必然失败**（`E-CONTRACT-003 字段 optional 必填但缺失`）。证据：`c/sml.c` 的 `parse_contract_body` 只认 `T_QMARK` / `T_EQ` / `min` / `max` / `loose`，`optional` / `default` 两词**全文零命中**；反方向 `country: str = CN` 在 Rust 报 `E-PARSE-006`。⚠️ 别与 IDEAS I-8 混：那是**数据行**的 TOML `=`，这里是**契约体内**的 `=`（C 有独立 token） | `c/sml.c`（`parse_contract_body`）或另四端 + 全部文档 | **先裁决哪一套是规范**：① 四端兼容 `?` / `=`（并存，成本低但两套语法永久存在）；② C 补 `optional` / `default` 单词（与文档一致，推荐；需决定是否保留 `?` / `=`）；③ 统一到 `?` / `=`（要改四端 + 全部文档 + 教科书，成本最高）。验收：`tests/conformance` 的 `13/14/16/33` 四格转 AGREE | 无 | ✋ |
+| ~~**W24**~~ ✅ **已修（2026-10-30）** 🚨（原 W5 实测新发现 2026-10-28） | ~~**契约修饰符存在两套不兼容的记号**~~ **已统一**（破坏性）：符号式 `?` / `=` 于 2026-10-30 **废弃**，五端一律报 `E-PARSE-006`，只保留单词式 `optional` / `default`；版本处置：C 库 `0.1.0→0.2.0`、VS Code 扩展 `0.4.3→0.5.0`，`swsml` 不动（Rust 侧行为本就未变）。⚠️ 收尾时发现三端各有半边没真拒绝（见雷 8），已一并修完（`35` 转 AGREE）。原记录：C 只认 `?` / `= <v>`，Rust / C++ / JS / Lua 只认单词 `optional` / `default <v>`。⇒ **照 README、`showcase_contract.sml`、教科书写的契约在 C 上必然失败**（`E-CONTRACT-003 字段 optional 必填但缺失`）。证据：`c/sml.c` 的 `parse_contract_body` 只认 `T_QMARK` / `T_EQ` / `min` / `max` / `loose`，`optional` / `default` 两词**全文零命中**；反方向 `country: str = CN` 在 Rust 报 `E-PARSE-006`。⚠️ 别与 IDEAS I-8 混：那是**数据行**的 TOML `=`，这里是**契约体内**的 `=`（C 有独立 token） | `c/sml.c`（`parse_contract_body`）或另四端 + 全部文档 | **先裁决哪一套是规范**：① 四端兼容 `?` / `=`（并存，成本低但两套语法永久存在）；② C 补 `optional` / `default` 单词（与文档一致，推荐；需决定是否保留 `?` / `=`）；③ 统一到 `?` / `=`（要改四端 + 全部文档 + 教科书，成本最高）。验收：`tests/conformance` 的 `13/14/16/33` 四格转 AGREE | 无 | ✋ |
 
 **建议顺序**：W13（安全，最优先）→ W16（静默清单判定，是 W3 的前置）→ W3 → W4 → W5 → W6 → W7 → W9。
 W14 / W15 范围封闭，但与 W3 改同一批文件（`js/sml.mjs`、`lua/`），**必须与 W3 串行**；
