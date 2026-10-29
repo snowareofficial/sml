@@ -289,6 +289,54 @@ static void test_contract_codes() {
 }
 
 // ------------------------------------------------------------------
+// 破坏性变更（fix/drop-symbolic-contract-modifiers，df6e396）：契约字段规格里
+// 遗留的符号修饰符 ?(optional) 与 =(default) 必须**响亮**拒绝（E-PARSE-006，
+// 与 Rust / Lua / C 同码）。迁移映射：
+//   x: str?      → x: str optional
+//   p: int = v   → p: int default v
+// 每条负向都配正对照，防「把码改成一报到底」误伤合法文档。
+// ------------------------------------------------------------------
+static void test_contract_modifier_legacy() {
+    std::cout << "[CONTRACT modifier legacy]\n";
+
+    // ① 负向：遗留符号形式 ? 与 = 统一报 E-PARSE-006
+    expect_code("契约遗留 ? 修饰符（应为 optional）",
+                "@contract S { x: str? }\nserver { @is S }\n",
+                SML_E_PARSE_006);
+    expect_code("契约遗留 = 修饰符（应为 default）",
+                "@contract S { p: int = 5432 }\nserver { @is S }\n",
+                SML_E_PARSE_006);
+
+    // ② 正对照：迁移后的单词写法必须解析成功
+    expect_ok("契约 optional 等价写法",
+              "@contract S { x: str optional }\nserver { @is S }\n");
+
+    // ② 续：default 等价写法必须解析成功，且缺字段时回填默认值到 server.p
+    {
+        std::string err;
+        sml::ValuePtr v = sml::Parser::parse(
+            "@contract S { p: int default 5432 }\nserver { @is S }\n", &err);
+        if (!v) {
+            std::cout << "FAIL: 契约 default 等价写法应解析成功，实得 \"" << err << "\"\n";
+            failures++;
+        } else {
+            sml::ValuePtr server = v->get("server");
+            sml::ValuePtr p = server ? server->get("p") : nullptr;
+            if (p && p->tag == sml::Value::Tag::Int && p->i == 5432) {
+                std::cout << "  ok: 契约 default 等价写法 -> server.p 回填 5432\n";
+            } else {
+                std::string what = !server ? "无 server 块"
+                    : (!p ? "无 p 字段"
+                          : (p->tag == sml::Value::Tag::Int ? "别的整数" : "非整数"));
+                std::cout << "FAIL: 契约 default 等价写法 server.p 应回填 INT 5432，实得 "
+                          << what << "\n";
+                failures++;
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------------
 // min/max 边界字面量：E-PARSE-022 / E-CONTRACT-010 / E-CONTRACT-005
 //
 // 这一组直接钉住「边界必须按 f64 生效」：修复前 C++ 用 std::stoll，会把
@@ -908,6 +956,7 @@ int main() {
     test_lex_codes();
     test_parse_codes();
     test_contract_codes();
+    test_contract_modifier_legacy();
     test_bound_literals();
     test_eof_and_key_position();
     test_value_model();
