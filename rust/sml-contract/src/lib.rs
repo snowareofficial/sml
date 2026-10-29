@@ -20,7 +20,9 @@ pub mod ext;
 // 契约推断（任务 E）：从数据实例反推契约。落地仅此模块 + smltools 子命令。
 pub mod infer;
 
-pub use ext::{ContractExt, ExactlyOne, GroupView, Modifier, OneOf, TypeCheck};
+pub use ext::{
+    AnyOf, ContractExt, DependsOn, ExactlyOne, GroupView, ItemsMin, Modifier, OneOf, TypeCheck,
+};
 
 /// 在已注册契约名里找一个与 `bad` 最相近的名字，用于「未定义的契约」报错时
 /// 追加「你是不是想写 X」提示（I-9）。
