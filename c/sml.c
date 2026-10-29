@@ -1052,18 +1052,14 @@ static void parse_contract_body(parser *ps, ccontract *c) {
         } else {
             cf->ty = CT_ANY;
         }
-        /* 修饰符: ?  = min max loose */
+        /* 修饰符：只保留单词形式 optional / default / min / max / loose。 */
         for (;;) {
             token *mt = peek(ps);
-            if (mt->t == T_QMARK) {
-                next(ps); cf->required = 0; continue;
-            }
-            if (mt->t == T_EQ) {
-                next(ps);
-                token *dv = next(ps);
-                if (dv) cf->def = (dv->t == T_STR) ? sml_new_str(dv->v)
-                                                  : coerce_word(dv->v, ps);
-                continue;
+            if (mt->t == T_QMARK || mt->t == T_EQ) {
+                set_err(ps->lx->errbuf, ps->lx->errsz,
+                        SML_E_PARSE_006 " 契约字段修饰符只支持单词形式 `optional` / `default`");
+                ps->failed = 1;
+                break;
             }
             if (mt->t == T_WORD && strcmp(mt->v, "optional") == 0) {
                 next(ps); cf->required = 0; continue;
