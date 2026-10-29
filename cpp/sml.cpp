@@ -1695,6 +1695,32 @@ static void dump_array_body(const ValuePtr& v, int indent, std::string& out) {
     out += "]";
 }
 
+/* 字符串是否需要加引号：空白（含空格/制表/换行/回车）、结构字符与 `"`/`\`
+   都会破坏裸词语法 ⇒ 必须加引号。与 Rust `needs_quote` 同族（W4「引号策略」）。
+   ⚠️ 与 C / JS / Lua 对齐：含 `"` 或 `\` 的值原样写出会是非法 SML（#17），
+   含换行的串（#12）同理；判据里必须纳入这些字符。 */
+static bool dump_needs_quote(const std::string& s) {
+    if (s.empty()) return true;
+    for (char c : s) {
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r' ||
+            c == ':' || c == '#' || c == '{' || c == '}' ||
+            c == '"' || c == '\\')
+            return true;
+    }
+    return false;
+}
+/* 加引号**同时**要转义串内的 `"` 与 `\`，否则加了引号仍是非法 SML（#17）。 */
+static std::string dump_escape_str(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 2);
+    for (char c : s) {
+        if (c == '\\') out += "\\\\";
+        else if (c == '"') out += "\\\"";
+        else out += c;
+    }
+    return out;
+}
+
 /* 把值压成**一行**写。契约：只对「扁平」值调用（见 is_flat）——
    因此它内部的递归永远不会撞上容器，压出来的行里不会再有换行。
    ⚠️ **不筛键**（含 __type / __name），与 Rust `dump_inline` 的 `m.iter()` 一致。 */
@@ -1710,8 +1736,8 @@ static void dump_inline(const ValuePtr& v, std::string& out) {
             break;
         }
         case Value::Tag::Str:
-            if (v->s.find(' ') != std::string::npos || v->s.empty())
-                out += "\"" + v->s + "\"";
+            if (dump_needs_quote(v->s))
+                out += "\"" + dump_escape_str(v->s) + "\"";
             else out += v->s;
             break;
         case Value::Tag::Arr: {
@@ -1751,8 +1777,8 @@ static void dump_value(const ValuePtr& v, int indent, std::string& out) {
             break;
         }
         case Value::Tag::Str:
-            if (v->s.find(' ') != std::string::npos || v->s.empty())
-                out += "\"" + v->s + "\"";
+            if (dump_needs_quote(v->s))
+                out += "\"" + dump_escape_str(v->s) + "\"";
             else out += v->s;
             break;
         case Value::Tag::Arr: {
