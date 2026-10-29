@@ -253,7 +253,7 @@ void sml_free_str(char *s) { free(s); }
 void sml_free_cstr(char *p) { free(p); }
 
 const char *sml_version(void) {
-    return "sml 0.1.0 (SNOWARE Markup Language, pure C)";
+    return "sml 0.2.0 (SNOWARE Markup Language, pure C)";
 }
 
 /* =====================================================================

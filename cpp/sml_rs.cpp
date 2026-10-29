@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 // SML v3 桥接实现（Rust cdylib 后端，C++ 封装）。
 // 仓库：https://gitee.com/snoware/sml
-// @version 0.1.0 (swsml 0.6.3)
+// @version 0.2.0 (swsml 0.6.4)
 
 /*
  * sml_rs.cpp — implementation of the sml_rs.hpp wrapper.

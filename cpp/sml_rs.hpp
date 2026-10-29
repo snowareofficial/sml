@@ -3,7 +3,7 @@
 // 仓库：https://gitee.com/snoware/sml
 // @file sml_rs.hpp
 // @brief SML v1..v4 C++ 桥接封装：经 Rust cdylib 获得 v1..v4 全集能力。
-// @version 0.1.0 (swsml 0.6.3)
+// @version 0.2.0 (swsml 0.6.4)
 
 /*
  * sml_rs.hpp — C++17 wrapper around the SML v1..v4 Rust cdylib backend (sml_rs.h).
