@@ -128,7 +128,9 @@ function tokenize(text) {
               if (!/^[0-9a-fA-F]{4}$/.test(hex)) {
                 throwCode("E-LEX-005", "sml: Unicode 转义非法（\\u 后须 4 位十六进制）");
               }
-              i += 4;
+              // `\uXXXX` 共 6 个字符（`\` `u` + 4 位 hex）。上面 `i` 已指向 `u`，
+              // 处理完 4 位 hex 后应停在最后一个 hex 之后的位置，故跳过 5（配合外层 i++）。
+              i += 5;
               const cp = parseInt(hex, 16);
               if (cp >= 0xd800 && cp <= 0xdfff) {
                 throwCode("E-LEX-005", "sml: Unicode 转义非法（代理区码点）");
@@ -387,11 +389,22 @@ function valueMatchesType(v, sp) {
   }
 }
 
-function applyDefaults(contract, obj) {
+function applyDefaults(contract, obj, contracts) {
   for (const [k, sp] of Object.entries(contract.fields)) {
     // 契约字段名来自文档，同样不可为危险键（纵深防御；
     // `in` 判定已挡住 __proto__ 之类，这里兜住 prototype 这类非原型链键）
     if (DANGEROUS_KEYS.has(k)) continue;
+    if (sp.type === "contract") {
+      // 组合契约：字段类型指向另一个契约时，把子契约的默认值回填进子对象。
+      // 只在这一层递归（父契约自己的标量/枚举字段仍走下面的常规回填），
+      // 不波及无关字段，避免「所有层都乱补」。
+      if (obj[k] && typeof obj[k] === "object" && !Array.isArray(obj[k])) {
+        const sub = contracts && contracts[sp.refName];
+        if (sub) applyDefaults(sub, obj[k], contracts);
+      }
+      if (!(k in obj) && sp.def !== undefined) obj[k] = sp.def;
+      continue;
+    }
     if (!(k in obj) && sp.def !== undefined) obj[k] = sp.def;
   }
 }
@@ -1996,7 +2009,7 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
                   if (an) fail("E-CONTRACT-017", "sml: 该实现暂不支持一个块应用多份契约（块级多契约写法）");
                 }
                 const c = contracts[cname];
-                applyDefaults(c, sub);
+                applyDefaults(c, sub, contracts);
                 const errs = checkContract(contracts, c, sub, "");
                 if (errs) fail(errs[0].code, "contract: " + cname + " — " + errs.map((x) => x.msg).join("; "));
                 recordContract(cname);
@@ -2045,7 +2058,7 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
     if (appliedContract) {
       const c = contracts[appliedContract];
       if (!c) fail("E-CONTRACT-001", "sml: 应用未定义契约 " + appliedContract);
-      applyDefaults(c, node);
+      applyDefaults(c, node, contracts);
       const errs = checkContract(contracts, c, node, "");
       if (errs) fail(errs[0].code, "contract: " + appliedContract + " — " + errs.map((x) => x.msg).join("; "));
       recordContract(appliedContract);
