@@ -85,6 +85,24 @@ pub struct Parser {
     pub(crate) contract_ext: Arc<ContractExt>,
 }
 
+/// 单个块在迭代式解析中的可变状态（迭代式改造第一步：从 `parse_block_inner`
+/// 原封不动搬出的局部量）。`node` 是正在收集的字段表；`applied_contracts` 记录
+/// 块内声明的 `@is`（第二项为块级严格度覆盖）；`pending_when` 是作用于下一个
+/// 键/块的 `@when`；`closing` 是本块期望的闭合符号（`None` = 顶层）。
+struct BlockFrame {
+    node: BTreeMap<String, Value>,
+    applied_contracts: Vec<(String, Option<Strictness>)>,
+    pending_when: Option<bool>,
+    closing: Option<Tok>,
+}
+
+/// [`Parser::block_step`] 单步推进的返回：`Continue` 表示本块未结束、继续消费
+/// 下一个 token；`Finish` 表示本块已完成（等价于原循环体的 `break`）。
+enum BlockStep {
+    Continue,
+    Finish,
+}
+
 impl Parser {
     /// 查 `$env.X`：先查本次解析的覆盖表，再回落进程环境。
     pub fn env_var(&self, name: &str) -> String {
@@ -1265,225 +1283,239 @@ impl Parser {
         }
     }
 
-    pub(crate) fn parse_block_inner(&mut self, closing: Option<Tok>) -> Result<Value, SmlError> {
-        let mut node: BTreeMap<String, Value> = BTreeMap::new();
-        // 块内若声明了 `@is Name`（可多条、可一名多词），在块解析完成后应用契约。
-        // 元组第二项是**块级严格度覆盖**（D4①）：`Some(s)` 时本块显式降到 `s`，
-        // 覆盖契约级声明；`None` 时沿用契约级默认。
-        let mut applied_contracts: Vec<(String, Option<Strictness>)> = Vec::new();
-        // `@when <条件>` 的求值结果，作用于**紧邻的下一个**键/块（消费后清空）。
-        // None = 无待应用的条件；Some(true/false) = 下一个字段应保留/丢弃。
-        let mut pending_when: Option<bool> = None;
-        loop {
-            // ⚠️ 这里**只借用** `peek()` 的结果，不 `.cloned()`：
-            // `Tok::Word` / `Tok::Str` 含 `String`，克隆一次就是一次堆分配，
-            // 而这是解析的最内层热循环（每个 token 都要过一遍）。
-            // 只有真正要拿走所有权的分支（key 位置）才用 `self.next()` 直接 move 出来。
-            match self.peek() {
-                None => {
-                    // 文件结尾：若本块期望闭合符号（嵌套块/数组），则未闭合，必须报错；
-                    // 否则为顶层正常结束。
-                    if closing.is_some() {
-                        let want = match closing {
-                            Some(Tok::RBrace) => "}",
-                            Some(Tok::RBrack) => "]",
-                            _ => unreachable!(),
-                        };
-                        return Err(SmlError::new(E_PARSE_001, format!(
-                            "sml: 未闭合的块/数组（遇到文件结尾，缺少结束符号 {}）",
-                            want
-                        )));
-                    }
-                    break;
-                }
-                // 右符号：变体是单元变体，用 `&Tok::…` 模式即可借着匹配，无需克隆
-                Some(&Tok::RBrace) | Some(&Tok::RBrack) => {
-                    let got = match self.peek() {
-                        Some(&Tok::RBrace) => "}",
-                        _ => "]",
+    /// 单步推进块解析：消费一个 token 并更新 `frame`，返回当前应否结束本块。
+    ///
+    /// 迭代式改造第一步（纯重构、行为零变化）：原 `parse_block_inner` 的主循环体
+    /// 原封不动搬到这里，`node`/`applied_contracts`/`pending_when`/`closing` 收进
+    /// `frame`。`Ok(Finish)` 等价于原循环里的 `break`（本块完成），`Ok(Continue)`
+    /// 等价于 `continue`（继续消费下一个 token），`Err` 原样冒泡。
+    fn block_step(&mut self, frame: &mut BlockFrame) -> Result<BlockStep, SmlError> {
+        match self.peek() {
+            None => {
+                // 文件结尾：若本块期望闭合符号（嵌套块/数组），则未闭合，必须报错；
+                // 否则为顶层正常结束。
+                if frame.closing.is_some() {
+                    let want = match frame.closing {
+                        Some(Tok::RBrace) => "}",
+                        Some(Tok::RBrack) => "]",
+                        _ => unreachable!(),
                     };
-                    if let Some(cl) = &closing {
-                        // 原判据是 `*cl == tok`（同符号即匹配）；不克隆 ⇒ 比判别式
-                        let same = std::mem::discriminant(cl)
-                            == std::mem::discriminant(self.peek().unwrap());
-                        if same {
-                            self.next();
-                            break;
-                        }
-                        // 嵌套块内遇到类型不匹配的右符号（如 `}` 与 `]` 混用）：
-                        // 必须报错，而非静默吞掉，否则后续内容会被错误吞并。
-                        let want = match cl {
-                            Tok::RBrace => "}",
-                            Tok::RBrack => "]",
-                            _ => unreachable!(),
-                        };
-                        return Err(SmlError::new(E_PARSE_002, format!(
-                            "sml: 块/数组未正确闭合：期望 {}，却遇到 {}",
-                            want, got
-                        )));
-                    }
-                    // 顶层遇到多余的右括号 `}` / `]`：必须报错（之前静默忽略，
-                    // 会掩盖作者漏写的 `key:`、错配括号等问题）。
-                    return Err(SmlError::new(E_PARSE_003, format!("sml: 多余的结束符号 {}", got)));
+                    return Err(SmlError::new(E_PARSE_001, format!(
+                        "sml: 未闭合的块/数组（遇到文件结尾，缺少结束符号 {}）",
+                        want
+                    )));
                 }
-                Some(&Tok::Comma) => {
-                    // 逗号在 SML 中只用于对象字段分隔（`k: v, k2: v2`）与数组元素分隔
-                    // （由 `parse_array_inner` 处理，不会到此处）。
-                    // 此处遇到的逗号若属于「对象字段分隔」，其后应是 `key:` 形式；
-                    // 否则是裸词拆分（如 `a: x,y`）或非法孤立逗号，必须报错而非静默吞掉
-                    // （P2-7：裸词逗号会凭空拆出第二个键）。
-                    let looks_like_field_sep = matches!(
-                        self.toks.get(self.i + 1),
-                        Some(Tok::Word(_)) | Some(Tok::Str(_))
-                    ) && matches!(self.toks.get(self.i + 2), Some(Tok::Colon));
-                    if looks_like_field_sep {
+                return Ok(BlockStep::Finish);
+            }
+            // 右符号：变体是单元变体，用 `&Tok::…` 模式即可借着匹配，无需克隆
+            Some(&Tok::RBrace) | Some(&Tok::RBrack) => {
+                let got = match self.peek() {
+                    Some(&Tok::RBrace) => "}",
+                    _ => "]",
+                };
+                if let Some(cl) = &frame.closing {
+                    // 原判据是 `*cl == tok`（同符号即匹配）；不克隆 ⇒ 比判别式
+                    let same = std::mem::discriminant(cl)
+                        == std::mem::discriminant(self.peek().unwrap());
+                    if same {
                         self.next();
-                    } else {
-                        return Err(SmlError::new(E_PARSE_007, 
-                            "sml: 非预期的逗号（裸词中不可含逗号，请用 [..] 数组或 \"...\" 引号）",
+                        return Ok(BlockStep::Finish);
+                    }
+                    // 嵌套块内遇到类型不匹配的右符号（如 `}` 与 `]` 混用）：
+                    // 必须报错，而非静默吞掉，否则后续内容会被错误吞并。
+                    let want = match cl {
+                        Tok::RBrace => "}",
+                        Tok::RBrack => "]",
+                        _ => unreachable!(),
+                    };
+                    return Err(SmlError::new(E_PARSE_002, format!(
+                        "sml: 块/数组未正确闭合：期望 {}，却遇到 {}",
+                        want, got
+                    )));
+                }
+                // 顶层遇到多余的右括号 `}` / `]`：必须报错（之前静默忽略，
+                // 会掩盖作者漏写的 `key:`、错配括号等问题）。
+                return Err(SmlError::new(E_PARSE_003, format!("sml: 多余的结束符号 {}", got)));
+            }
+            Some(&Tok::Comma) => {
+                // 逗号在 SML 中只用于对象字段分隔（`k: v, k2: v2`）与数组元素分隔
+                // （由 `parse_array_inner` 处理，不会到此处）。
+                // 此处遇到的逗号若属于「对象字段分隔」，其后应是 `key:` 形式；
+                // 否则是裸词拆分（如 `a: x,y`）或非法孤立逗号，必须报错而非静默吞掉
+                // （P2-7：裸词逗号会凭空拆出第二个键）。
+                let looks_like_field_sep = matches!(
+                    self.toks.get(self.i + 1),
+                    Some(Tok::Word(_)) | Some(Tok::Str(_))
+                ) && matches!(self.toks.get(self.i + 2), Some(Tok::Colon));
+                if looks_like_field_sep {
+                    self.next();
+                    return Ok(BlockStep::Continue);
+                }
+                return Err(SmlError::new(E_PARSE_007,
+                    "sml: 非预期的逗号（裸词中不可含逗号，请用 [..] 数组或 \"...\" 引号）",
+                ));
+            }
+            // 孤立 `@`：其后没有片段名/指令名。必须报错——否则其后紧跟的
+            // 块会被当作片段体消费，导致内容被静默丢弃（不报错）。
+            Some(&Tok::BareAt) => {
+                return Err(SmlError::new(E_PARSE_004,
+                    "sml: 孤立的 `@` 不是合法指令；片段定义须写作 `@name { ... }`（`@` 与名字之间不可有空白），或删除该 `@`",
+                ));
+            }
+            Some(&Tok::At) => {
+                self.parse_at_directive(&mut frame.node, &mut frame.applied_contracts, &mut frame.pending_when)?;
+                return Ok(BlockStep::Continue);
+            }
+            _ => {
+                // key
+                let key = match self.next() {
+                    Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
+                    other => {
+                        // 位置指向**刚消费掉的那个 token**（游标已越过它）：
+                        // `a: B::C` 报的是「期望键, 得 Some(Colon)」，此前没有任何位置。
+                        let pos = self.i.saturating_sub(1);
+                        return Err(self.err_at(
+                            E_PARSE_006,
+                            format!("sml: 期望键, 得 {:?}", other),
+                            pos,
                         ));
                     }
-                }
-                // 孤立 `@`：其后没有片段名/指令名。必须报错——否则其后紧跟的
-                // 块会被当作片段体消费，导致内容被静默丢弃（不报错）。
-                Some(&Tok::BareAt) => {
-                    return Err(SmlError::new(E_PARSE_004, 
-                        "sml: 孤立的 `@` 不是合法指令；片段定义须写作 `@name { ... }`（`@` 与名字之间不可有空白），或删除该 `@`",
+                };
+                // 防御：键名位置出现 `${var}` 插值语法时**显式报错**，而非静默生成
+                // 错误结构。`${var}` 中的 `{`/`}` 会被 tokenize 当成块边界，导致键被拆成
+                // `$` + 裸块，最终解析成垃圾对象。两种残留形态都要拦：
+                //   - key == "$" 且下一个 token 是 `{`：原样 `${...}` 被拆开的残骸；
+                //   - key 文本直接含 `${`：未触发块边界的其它情形。
+                // 当前 `@for` 的 `${var}` 仅允许出现在**值位置**（`"${h}"`）；需要动态键名
+                // 时请用数组表达（`hosts: @for h in a b { name: "${h}" }`）。
+                // 键 token 的序号（游标已越过它）：供键冲突告警定位行号。
+                let key_idx = self.i.saturating_sub(1);
+                let looks_like_key_interp =
+                    key.contains("${") || (key == "$" && self.peek() == Some(&Tok::LBrace));
+                if looks_like_key_interp {
+                    return Err(SmlError::new(E_PARSE_013,
+                        "sml: 键名位置不支持 `${var}` 插值（@for 的循环变量仅用于值位置）。\
+                         若需动态键，请改用数组表达，例如 `hosts: @for h in a b { name: \"${h}\" }`",
                     ));
                 }
-                Some(&Tok::At) => {
-                    self.parse_at_directive(&mut node, &mut applied_contracts, &mut pending_when)?;
+                let colon = self.peek() == Some(&Tok::Colon);
+                if colon {
+                    self.next();
                 }
-                _ => {
-                    // key
-                    let key = match self.next() {
-                        Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
-                        other => {
-                            // 位置指向**刚消费掉的那个 token**（游标已越过它）：
-                            // `a: B::C` 报的是「期望键, 得 Some(Colon)」，此前没有任何位置。
-                            let pos = self.i.saturating_sub(1);
-                            return Err(self.err_at(
-                                E_PARSE_006,
-                                format!("sml: 期望键, 得 {:?}", other),
-                                pos,
-                            ));
-                        }
-                    };
-                    // 防御：键名位置出现 `${var}` 插值语法时**显式报错**，而非静默生成
-                    // 错误结构。`${var}` 中的 `{`/`}` 会被 tokenize 当成块边界，导致键被拆成
-                    // `$` + 裸块，最终解析成垃圾对象。两种残留形态都要拦：
-                    //   - key == "$" 且下一个 token 是 `{`：原样 `${...}` 被拆开的残骸；
-                    //   - key 文本直接含 `${`：未触发块边界的其它情形。
-                    // 当前 `@for` 的 `${var}` 仅允许出现在**值位置**（`"${h}"`）；需要动态键名
-                    // 时请用数组表达（`hosts: @for h in a b { name: "${h}" }`）。
-                    // 键 token 的序号（游标已越过它）：供键冲突告警定位行号。
-                    let key_idx = self.i.saturating_sub(1);
-                    let looks_like_key_interp =
-                        key.contains("${") || (key == "$" && self.peek() == Some(&Tok::LBrace));
-                    if looks_like_key_interp {
-                        return Err(SmlError::new(E_PARSE_013, 
-                            "sml: 键名位置不支持 `${var}` 插值（@for 的循环变量仅用于值位置）。\
-                             若需动态键，请改用数组表达，例如 `hosts: @for h in a b { name: \"${h}\" }`",
-                        ));
+                // 裸片段合并：块内 `&name`（键位置、无冒号）把片段字段合并进当前块。
+                // 对齐教程（ch03/ch08）与 JS 引擎的实际行为：
+                // - 片段字段插入 = 直接赋值（同名时以片段为准）
+                // - 显式字段撞已有键 = 提升数组（走下方统一同名规则）
+                // `key: &name`（带冒号）仍是值引用，互不影响。
+                if !colon && key.starts_with('&') {
+                    let resolved = coerce_word(
+                        &key,
+                        &self.fragments,
+                        self.features,
+                        &self.ns_prefix(),
+                        Some(&self.env),
+                    )?;
+                    // `@when` 条件为假：片段已解析（token 已消费）但不写入
+                    if let Some(false) = frame.pending_when.take() {
+                        return Ok(BlockStep::Continue);
                     }
-                    let colon = self.peek() == Some(&Tok::Colon);
-                    if colon {
-                        self.next();
-                    }
-                    // 裸片段合并：块内 `&name`（键位置、无冒号）把片段字段合并进当前块。
-                    // 对齐教程（ch03/ch08）与 JS 引擎的实际行为：
-                    // - 片段字段插入 = 直接赋值（同名时以片段为准）
-                    // - 显式字段撞已有键 = 提升数组（走下方统一同名规则）
-                    // `key: &name`（带冒号）仍是值引用，互不影响。
-                    if !colon && key.starts_with('&') {
-                        let resolved = coerce_word(
-                            &key,
-                            &self.fragments,
-                            self.features,
-                            &self.ns_prefix(),
-                            Some(&self.env),
-                        )?;
-                        // `@when` 条件为假：片段已解析（token 已消费）但不写入
-                        if let Some(false) = pending_when.take() {
-                            continue;
-                        }
-                        match &resolved {
-                            Value::Object(m) => {
-                                for (fk, fv) in m {
-                                    // 静默改数据（雷 5 · A 组第 5 项）：片段合并是**直接赋值**，
-                                    // 不走下方「同名提升为数组」的统一规则 ⇒ 父块已有的同名键
-                                    // 会被**整个丢掉**，且不报错。语义保留（ch03/ch08 既定），
-                                    // 但必须让调用方看见 —— 故记一条 KeyOverwritten。
-                                    if node.contains_key(fk) {
-                                        self.push_key_diag(
-                                            DiagnosticKind::KeyOverwritten,
-                                            key_idx,
-                                            format!(
-                                                "sml: 父块原有的键 `{fk}` 被片段 `{}` 的展开值覆盖\
-                                                 （父块原值已丢失；片段合并不走重复键的数组提升）",
-                                                key
-                                            ),
-                                        );
-                                    }
-                                    node.insert(fk.clone(), fv.clone());
+                    match &resolved {
+                        Value::Object(m) => {
+                            for (fk, fv) in m {
+                                // 静默改数据（雷 5 · A 组第 5 项）：片段合并是**直接赋值**，
+                                // 不走下方「同名提升为数组」的统一规则 ⇒ 父块已有的同名键
+                                // 会被**整个丢掉**，且不报错。语义保留（ch03/ch08 既定），
+                                // 但必须让调用方看见 —— 故记一条 KeyOverwritten。
+                                if frame.node.contains_key(fk) {
+                                    self.push_key_diag(
+                                        DiagnosticKind::KeyOverwritten,
+                                        key_idx,
+                                        format!(
+                                            "sml: 父块原有的键 `{fk}` 被片段 `{}` 的展开值覆盖\
+                                             （父块原值已丢失；片段合并不走重复键的数组提升）",
+                                            key
+                                        ),
+                                    );
                                 }
-                            }
-                            other => {
-                                return Err(SmlError::new(E_INCLUDE_007, format!(
-                                    "sml: 片段 `{}` 展开结果不是对象，无法合并: {:?}",
-                                    key, other
-                                )));
+                                frame.node.insert(fk.clone(), fv.clone());
                             }
                         }
-                        continue;
-                    }
-                    let val = self.parse_value(&key, colon)?;
-                    // `@when` 条件为假：值已解析（token 已消费），但不写入父节点。
-                    // 必须先解析再丢弃，否则其 token 会被当成下一个键，导致误报。
-                    if let Some(false) = pending_when.take() {
-                        continue;
-                    }
-                    // 同名冲突 -> 提升为数组
-                    //
-                    // 静默改数据（雷 5 · A 组第 4 项）：这是 SML **既定语义**（`k: 1` + `k: 2`
-                    // ⇒ `k: [1, 2]`），值没丢，但对象结构被改写 —— 下游按标量读 `k` 的代码
-                    // 会拿到数组。语义保留，改为告警（不静默）。
-                    if let Some(existing) = node.get_mut(&key) {
-                        let msg = match existing {
-                            Value::Array(a) => format!(
-                                "sml: 键 `{key}` 在同一块内再次出现，已追加进既有数组\
-                                 （追加后 {} 项）",
-                                a.len() + 1
-                            ),
-                            _ => format!(
-                                "sml: 键 `{key}` 在同一块内重复出现，已**提升为数组**\
-                                 （`{key}` 现在是 [原值, 新值]）"
-                            ),
-                        };
-                        self.push_key_diag(DiagnosticKind::DuplicateKey, key_idx, msg);
-                        match existing {
-                            Value::Array(a) => a.push(val),
-                            _ => {
-                                let old = node.remove(&key).unwrap();
-                                node.insert(key, Value::Array(vec![old, val]));
-                            }
+                        other => {
+                            return Err(SmlError::new(E_INCLUDE_007, format!(
+                                "sml: 片段 `{}` 展开结果不是对象，无法合并: {:?}",
+                                key, other
+                            )));
                         }
-                    } else {
-                        node.insert(key, val);
                     }
+                    return Ok(BlockStep::Continue);
                 }
+                let val = self.parse_value(&key, colon)?;
+                // `@when` 条件为假：值已解析（token 已消费），但不写入父节点。
+                // 必须先解析再丢弃，否则其 token 会被当成下一个键，导致误报。
+                if let Some(false) = frame.pending_when.take() {
+                    return Ok(BlockStep::Continue);
+                }
+                // 同名冲突 -> 提升为数组
+                //
+                // 静默改数据（雷 5 · A 组第 4 项）：这是 SML **既定语义**（`k: 1` + `k: 2`
+                // ⇒ `k: [1, 2]`），值没丢，但对象结构被改写 —— 下游按标量读 `k` 的代码
+                // 会拿到数组。语义保留，改为告警（不静默）。
+                if let Some(existing) = frame.node.get_mut(&key) {
+                    let msg = match existing {
+                        Value::Array(a) => format!(
+                            "sml: 键 `{key}` 在同一块内再次出现，已追加进既有数组\
+                             （追加后 {} 项）",
+                            a.len() + 1
+                        ),
+                        _ => format!(
+                            "sml: 键 `{key}` 在同一块内重复出现，已**提升为数组**\
+                             （`{key}` 现在是 [原值, 新值]）"
+                        ),
+                    };
+                    self.push_key_diag(DiagnosticKind::DuplicateKey, key_idx, msg);
+                    match existing {
+                        Value::Array(a) => a.push(val),
+                        _ => {
+                            let old = frame.node.remove(&key).unwrap();
+                            frame.node.insert(key, Value::Array(vec![old, val]));
+                        }
+                    }
+                } else {
+                    frame.node.insert(key, val);
+                }
+                return Ok(BlockStep::Continue);
+            }
+        }
+    }
+
+    pub(crate) fn parse_block_inner(&mut self, closing: Option<Tok>) -> Result<Value, SmlError> {
+        // 块状态收进 `BlockFrame`，由 [`Parser::block_step`] 单步推进（迭代式改造第一步）。
+        let mut frame = BlockFrame {
+            node: BTreeMap::new(),
+            // 块内若声明了 `@is Name`（可多条、可一名多词），在块解析完成后应用契约。
+            // 元组第二项是**块级严格度覆盖**（D4①）：`Some(s)` 时本块显式降到 `s`，
+            // 覆盖契约级声明；`None` 时沿用契约级默认。
+            applied_contracts: Vec::new(),
+            // `@when <条件>` 的求值结果，作用于**紧邻的下一个**键/块（消费后清空）。
+            // None = 无待应用的条件；Some(true/false) = 下一个字段应保留/丢弃。
+            pending_when: None,
+            closing,
+        };
+        loop {
+            if matches!(self.block_step(&mut frame)?, BlockStep::Finish) {
+                break;
             }
         }
         // 悬空的 `@when`：条件后没有跟随任何字段/块，几乎可以肯定是笔误
         //（例如把 `@when` 写在了块末尾，或条件本想作用于块内却被写到了块外）。
         // 静默忽略会让作者以为条件生效了，故显式报错。
-        if pending_when.is_some() {
+        if frame.pending_when.is_some() {
             return Err(SmlError::new(E_PARSE_017, "sml: `@when` 后未跟随任何字段/块；它只作用于紧邻的下一个字段/块"));
         }
         // 块结束：若声明了 `@is`，应用契约（填默认值 + 校验 + 严格性检查）
-        if applied_contracts.len() == 1 {
+        if frame.applied_contracts.len() == 1 {
             // 单契约：**逐字走原路径**（错误文案 / 行为与旧版完全一致）
-            let (cname, ov) = &applied_contracts[0];
+            let (cname, ov) = &frame.applied_contracts[0];
             let hint = suggest_contract_name(cname, &self.contracts)
                 .map(|c| format!("（你是不是想写 `{c}`？）"))
                 .unwrap_or_default();
@@ -1500,14 +1532,14 @@ impl Parser {
             }
             // 用命名空间栈拼出当前块路径（如 `api`、`ns.api`），作为错误定位前缀
             let mut ws = Vec::new();
-            apply_contract(&c, &mut node, &self.contracts, &self.ns_prefix(), &mut ws)?;
+            apply_contract(&c, &mut frame.node, &self.contracts, &self.ns_prefix(), &mut ws)?;
             self.record_contract_warnings(ws);
-        } else if applied_contracts.len() > 1 {
+        } else if frame.applied_contracts.len() > 1 {
             // 多契约：叠加（D3/D4②：strict 优先、顺序无关、字段并集、冲突 ⇒ E-CONTRACT-016）
             let mut ws = Vec::new();
             apply_contracts(
-                &applied_contracts,
-                &mut node,
+                &frame.applied_contracts,
+                &mut frame.node,
                 &self.contracts,
                 &self.ns_prefix(),
                 &mut ws,
@@ -1517,11 +1549,11 @@ impl Parser {
         // 契约映射：本块（路径 = path_stack，调用方已把键/下标压好）应用了哪些契约。
         // 仅在应用**成功**后记 —— 失败即整篇报错，不存在半张映射。
         if let Some(map) = &mut self.contract_map {
-            for (n, _) in &applied_contracts {
+            for (n, _) in &frame.applied_contracts {
                 map.record(self.path_stack.clone(), n.clone());
             }
         }
-        Ok(Value::Object(node))
+        Ok(Value::Object(frame.node))
     }
 
     /// 解析一个值 (在 key 之后)
