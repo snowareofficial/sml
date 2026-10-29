@@ -331,10 +331,11 @@ The zero-dependency native C99 / C++ implementations (`sml.h` / `sml.hpp`) are a
 | Lua / Soup | `../lua/` (`lib/sml.soup`) |
 
 Rust is the only implementation guaranteed continuous maintenance; the rest are
-experimental. All five share one set of stable error codes (`E-<DOMAIN>-<NNN>`, 144 in
-total, single source of truth `../errors/codes.sml`).
+experimental. All five share one set of stable error codes (`E-<DOMAIN>-<NNN>`); the
+total count is taken from the `count` field of `site/static/errors.json`, and
+`../errors/codes.sml` is the single source of truth for the codes themselves.
 Rust 是唯一保证持续维护的实现，其余为实验性。五端共用同一套稳定错误码
-（`E-<DOMAIN>-<NNN>`，共 144 条，唯一事实来源 `../errors/codes.sml`）。
+（`E-<DOMAIN>-<NNN>`；码的总数以 `site/static/errors.json` 的 `count` 字段为准，唯一事实来源 `../errors/codes.sml`）。
 
 > Capabilities are not even across the five: **`@feature` switches and typed blocks are
 > Rust / JS only**; C / C++ / Lua report `E-PARSE-005` on `@feature`. For
