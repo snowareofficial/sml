@@ -157,7 +157,7 @@ rectangle            size 2    rect1   tls                      { … }
 
 ## I-7 契约约束的精确控制 / 让数据是我们想要的样子 · precise shape control
 
-- **Status / 状态**：`Partial` —— **计数三件套与跨字段依赖已齐（①②③）**，剩 ④⑤
+- **Status / 状态**：`Done` —— **计数三件套与跨字段依赖已齐（①②③）**；**④ 三态 + 块级覆盖已做**，仅剩 `x-*` 按前缀放行额外键留待下一棒；**⑤ `Warning` 档已加**。
   （严格性的 warn/silent 三态、诊断缺 `Warning` 档）。
 - **Idea / 想法**：不止「拼错字段」这一件事，还要能表达**字段缺失 / 最小 / 最多 / 互斥**等约束，
   目标是让数据长成我们想要的样子，而不是只有 `loose` ↔ `strict` 两个极端。
@@ -203,12 +203,29 @@ rectangle            size 2    rect1   tls                      { … }
   ① ~~**互斥**（`oneOf` / 至多一个 / 互斥字段组）~~ **已完成 2026-10-28**（`one_of` / `exactly_one`，见上 Done）；
   ② ~~数组**长度下限**（`items_min`）与「至少一个字段」~~ **已完成 2026-10-30**（`items_min` / `any_of`，见上 Done）；
   ③ ~~跨字段依赖（`a` 存在则 `b` 必须存在）~~ **已完成 2026-10-30**（`depends_on`，见上 Done）；
-  ④ 严格性只有二值：无 warn / silent 三态，无按块覆盖（`@is X loose`），
-  无「按前缀放行额外键」（如 `x-*`）；
-  ⑤ 诊断只有 `DiagnosticKind::Deprecated`，缺 `Warning`。
+  ④ 严格性三态（strict / warn / loose）与块级覆盖（`@is X warn|loose`）**已完成**；
+  ⏳ 仍缺「按前缀放行额外键」（如 `x-*`）—— 属新语法、需五端同步，留待下一棒。
+  ⑤ 诊断已新增 `DiagnosticKind::Warning`（与 `Deprecated` / `DuplicateKey` / `KeyOverwritten` 分工明确）—— 已完成。
 - **Design / 思路**：三态最划算 —— 复用 `Diagnostic` 加 `Warning` 档，`loose` 保留为静默放行，
   新增 `warn`；顺序与叠加的 strict 优先级规则要一并写清。互斥/计数这类先做成
   Modifier（外置），再考虑升为内置语法 —— 这样不必五端同时改。
+- **下一棒 / 待确认（2026-10-30 ④⑤ 落地时补记）**：本棒按「Rust 先行」交付，下面 6 条
+  **尚未定论或未做**，别当成已完成：
+  1. **推断 JSON 字段名变了**：`allow_extra: bool` ⇒ `Strictness` 后，`to_json` 由 `"loose": true`
+     变为 `"strictness": "loose"`（`rust/sml-contract/src/infer.rs` 的 `to_json`），影响
+     `smltools infer-contract --json`。若 C / JS / Lua 侧有对应黄金用例需同步 —— **待拍板：
+     这个格式变更是否接受**。
+  2. **`ContractWarning` 是新建中间类型**：`sml-contract` 若依赖 `sml-parse` 会成环（现状是
+     `sml-parse → sml-contract`），故无法真正复用 `Diagnostic`，改为在 `sml-contract` 定义
+     `ContractWarning`，由 parser 转译成 `Diagnostic{kind: Warning}`。这属于「不新建就会成环」，
+     不是「不改就表达不了」—— **待拍板：是否把 `Diagnostic` 下沉到 `sml-codes` 或新共享 crate**。
+  3. **告警 `line` 目前是 `None`**：`apply_contract` 在 `sml-contract` 里拿不到 token 行号。
+     要定位到具体行须把行号信息透传进 `sml-contract` —— 下一棒（本棒测试未断言 `line`）。
+  4. **块级覆盖的绑定规则是本棒自定的**：覆盖绑定在**紧邻其前**的那个契约名上 ——
+     `@is A warn B` ⇒ A=warn、B 默认；`@is A B warn` ⇒ A 默认、B=warn。**待确认**是否要
+     改成「整条 `@is` 统一下降一档」（语法不变、语义不同）。
+  5. 契约级 `strict` 关键字保留（`@contract C strict`，与默认等价），沿用既有显式写法。
+  6. **`x-*` 按前缀放行额外键本棒未做**（D5）：属新语法、需五端同步，留待下一棒 —— 见上面 ④。
 
 ## I-8 simple TOML-style support / 简易 TOML 风格
 
