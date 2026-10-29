@@ -439,18 +439,36 @@ local function parse_bound(tok, what)
   return num
 end
 
+-- 遗留符号修饰符 ? / = 已废弃（2026-10-30）：五端一律 E-PARSE-006。
+--
+-- 与 Rust 同口径：**不在词法层**把这两个字符切成独立记号 —— ? 在 @pattern 里是量词，
+-- 切开会把 `a?` 这类合法模式拆坏。故只在**类型位置**定点拦截：类型名本不该含
+-- 这两个字符，命中即说明作者写的是粘连式遗留修饰符（`str?` / `int=5`）。
+-- 带空格的形式在词法上已是独立记号，由「类型期望标识符」的分支拦住（同码）。
+local function reject_legacy_modifier_sym(tok)
+  if type(tok) == "string" then
+    local sym = string.match(tok, "[?=]")
+    if sym then
+      fail("E-PARSE-006", "契约修饰符 `" .. sym .. "` 已废弃（用 `optional` / `default`）")
+    end
+  end
+end
+
 -- 解析一个类型规格 -> spec, next_i
 local function parse_type(tokens, i)
   local tok = tokens[i]
   if not is_word_tok(tok) and tok ~= "[" then
     fail("E-PARSE-006", "契约字段的类型期望标识符，得 '" .. tostring(tok) .. "'")
   end
+  reject_legacy_modifier_sym(tok)
   if tok == "[" then
     i = i + 1
     local el = tokens[i]
     if not is_word_tok(el) then
       fail("E-PARSE-006", "数组元素类型期望标识符，得 '" .. tostring(el) .. "'")
     end
+    -- 数组元素类型位置同样不许出现遗留符号修饰符（`[ str? ]`）
+    reject_legacy_modifier_sym(el)
     local elem
     if el == "str" or el == "int" or el == "num" or el == "bool" or el == "any" then
       elem = { kind = el }
