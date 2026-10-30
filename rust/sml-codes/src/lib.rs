@@ -100,6 +100,26 @@ impl SmlError {
         format!("{} [{}]", self.message, self.code)
     }
 
+    /// 按 locale 渲染完整形态：`文案 [码]`，与 [`render`] 同构。
+    ///
+    /// - `locale` 空 / 非英文（含 `zh`）：与 [`render`] / [`Display`] **逐字一致**，
+    ///   默认中文文案，现有行为一字不变。
+    /// - `locale` 以 `en` 开头：取该码的**英文规范文案**（见 [`error_info`]，缺英文回退中文），
+    ///   仍以 `文案 [码]` 收尾。
+    ///
+    /// 说明：i18n 文案来自生成表（`errors/msg.en.json`），是「码」的**规范文案**；
+    /// 运行时拼进 `message` 的中文**上下文细节**不在模板内，仍保留在 [`SmlError::message`]，
+    /// 需要时由调用方另行拼接——句级整句翻译属后续结构化演进，不在本方法内假装翻。
+    pub fn render_locale(&self, locale: &str) -> String {
+        if !locale.is_empty() && locale.to_lowercase().starts_with("en") {
+            if let Some(info) = error_info(self.code, "en") {
+                // msgs::error_info 保证 msg 永不空（缺英文回退中文）。
+                return format!("{} [{}]", info.msg, self.code);
+            }
+        }
+        self.render()
+    }
+
     /// 换一个码，保留文案。用于「内层错误被外层包装」时补上外层的码。
     pub fn with_code(self, code: &'static str) -> Self {
         SmlError {
@@ -153,6 +173,29 @@ mod tests {
         assert_eq!(e.to_string(), "字符串未闭合 [E-LEX-001]");
         assert_eq!(e.message(), "字符串未闭合");
         assert_eq!(e.code(), "E-LEX-001");
+    }
+
+    #[test]
+    fn render_locale_en_uses_english_table_msg() {
+        let e = SmlError::new(E_LEX_001, "字符串未闭合");
+        assert_eq!(e.render_locale("en"), "Unterminated string (missing closing quote) [E-LEX-001]");
+        assert_eq!(e.render_locale("en-US"), "Unterminated string (missing closing quote) [E-LEX-001]");
+    }
+
+    #[test]
+    fn render_locale_non_en_keeps_default_chinese() {
+        let e = SmlError::new(E_LEX_001, "字符串未闭合");
+        assert_eq!(e.render_locale(""), "字符串未闭合 [E-LEX-001]");
+        assert_eq!(e.render_locale("zh"), "字符串未闭合 [E-LEX-001]");
+        assert_eq!(e.render_locale("zh-CN"), "字符串未闭合 [E-LEX-001]");
+        assert_eq!(e.render_locale("fr"), "字符串未闭合 [E-LEX-001]");
+        assert_eq!(e.render(), "字符串未闭合 [E-LEX-001]");
+    }
+
+    #[test]
+    fn render_locale_unknown_code_falls_back_to_render() {
+        let e = SmlError::new("E-NOPE-999", "字符串未闭合");
+        assert_eq!(e.render_locale("en"), "字符串未闭合 [E-NOPE-999]");
     }
 
     #[test]
