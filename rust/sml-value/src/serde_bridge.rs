@@ -129,7 +129,7 @@ impl<'de> Visitor<'de> for ValueVisitor {
         while let Some((k, v)) = map.next_entry::<String, Value>()? {
             m.insert(k, v);
         }
-        Ok(Value::Object(m))
+        Ok(Value::Object(m.into()))
     }
 }
 
@@ -279,7 +279,7 @@ impl Serializer for ValueSerializer {
         Ok(Value::Object(BTreeMap::from([
             ("__type".into(), Value::Str(variant.to_string())),
             ("_value".into(), value.serialize(ValueSerializer)?),
-        ])))
+        ]).into()))
     }
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Error> {
         Ok(SeqSerializer(Vec::new()))
@@ -384,7 +384,7 @@ impl SerializeMap for MapSerializer {
         Ok(())
     }
     fn end(self) -> Result<Value, Error> {
-        Ok(Value::Object(self.map))
+        Ok(Value::Object(self.map.into()))
     }
 }
 
@@ -401,7 +401,7 @@ impl SerializeStruct for MapSerializer {
         Ok(())
     }
     fn end(self) -> Result<Value, Error> {
-        Ok(Value::Object(self.map))
+        Ok(Value::Object(self.map.into()))
     }
 }
 
@@ -528,7 +528,7 @@ impl SerializeTupleVariant for TupleVariantSerializer {
         Ok(Value::Object(BTreeMap::from([
             ("__type".into(), Value::Str(self.variant)),
             ("_value".into(), Value::Array(self.values)),
-        ])))
+        ]).into()))
     }
 }
 
@@ -553,7 +553,7 @@ impl SerializeStructVariant for StructVariantSerializer {
         let mut m = BTreeMap::new();
         m.insert("__type".into(), Value::Str(self.variant));
         m.extend(self.map);
-        Ok(Value::Object(m))
+        Ok(Value::Object(m.into()))
     }
 }
 
@@ -840,7 +840,10 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
                 //    {"in-maintenance": "in-maintenance"} -> 单元变体
                 //    {"Circle": 3}                        -> 单值变体
                 if m.len() == 1 {
-                    let (k, v) = m.pop_first().expect("len==1 必有键");
+                    // 唯一键：取键后 `remove` 弹走值。`Object` 没有 `pop_first`
+                    // （那是 `BTreeMap` 专属），两档通用的写法是「取首键 + 移除」。
+                    let k = m.keys().next().expect("len==1 必有键").to_string();
+                    let v = m.remove(&k).expect("len==1 必有值");
                     let kind = match &v {
                         Value::Str(s) if *s == k => EnumKind::Unit,
                         _ => EnumKind::Newtype(v),
@@ -890,7 +893,7 @@ impl<'de> SeqAccess<'de> for SeqDeserializer {
 }
 
 struct MapDeserializer {
-    map: BTreeMap<String, Value>,
+    map: Map,
     pending: Option<Value>,
 }
 
@@ -900,9 +903,15 @@ impl<'de> MapAccess<'de> for MapDeserializer {
         &mut self,
         seed: K,
     ) -> Result<Option<K::Value>, Error> {
-        let Some((k, v)) = self.map.pop_first() else {
+        if self.map.is_empty() {
             return Ok(None);
-        };
+        }
+        // `Map` 两档都是 `IntoIterator`：默认档（`BTreeMap`）按键字母序，
+        // `preserve_order` 档（`Object`）按源序 —— 语义自然对齐，不必分档写。
+        // 借用自身上的迭代逐个弹：先取下键，值留到 `next_value_seed` 再交。
+        let mut it = std::mem::take(&mut self.map).into_iter();
+        let (k, v) = it.next().expect("非空必有首项");
+        self.map = it.collect();
         self.pending = Some(v);
         seed.deserialize(KeyDeserializer(&k)).map(Some)
     }
@@ -1048,7 +1057,7 @@ enum EnumKind {
     Unit,
     Newtype(Value),
     Tuple(Vec<Value>),
-    Struct(BTreeMap<String, Value>),
+    Struct(Map),
 }
 
 struct EnumDeserializer {
