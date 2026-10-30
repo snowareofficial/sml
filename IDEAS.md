@@ -92,9 +92,33 @@ Confirm the reading with the user before writing any code.
 
 ## I-4 注释双语化，英文在前 / bilingual comments, English first
 
-- **Status / 状态**：`Todo` —— 本轮只记录，未改任何源码注释。
+- **Status / 状态**：`Partial`（2026-10-31 开工）—— 本仓库注释**大体已是**「English ｜ 中文」，
+  这一条是把**未达标的**（纯中文或格式不整）补成统一约定，**单独一笔**收尾。
 - **Convention / 约定**：`English ｜ 中文`，一行说完，不写第二段。
 - **Scope / 范围**：先公开 API 注释，再按文件推进；一次只改一类，便于 review。
+- **纪律 / 2026-10-31**：此笔**只动注释、不动逻辑**；改动与任何逻辑 diff 拆开独立提交。
+- **进展（2026-10-31 第一批，核心公开面）**：✅ `sml-value/src/lib.rs` 模块 doc + 公开项注解
+  已由纯中文改为「English ｜ 中文」双语（中文照留，符合「还是支持中文」）；
+  🔍 `value.rs`/`object.rs` 内部注释核对后已是双语；待后续批次：`sml-parse/api.rs`、`src/lib.rs`
+  及其余文件。⚠️ 复核中发现既有 feature 组合裂口：`preserve_order` + `serde` 下
+  `serde_bridge.rs` 用 `pop_first`/`Into<BTreeMap>` 与 `Map=Object` 冲突（非本轮引入）。
+  - **✅ 已排雷（2026-10-31）**：修 `serde_bridge.rs` —— `MapDeserializer.map` 字段类型
+    `BTreeMap`→`Map`、`pop_first`→`IntoIterator`（`mem::take`+`collect` 逐弹）、enum 单键
+    解构 `pop_first`→`keys().next()+remove`、各处 `Value::Object(btree)`→`.into()`。
+    语义：默认档维持字母序（与旧 `pop_first` 一致，无回归）；`preserve_order` 档反序列化
+    改按**源序**喂 visitor（更对齐）。⚙️ 性能：`MapDeserializer` 由 O(log n) 逐弹变为
+    O(n) take+collect，serde 反序列化非热路径，暂未跑基准。
+    ✅ 验证：`preserve_order+serde` 下 `preserve_order` 14/14、`serde_bridge` 10/10 全绿；
+    默认档 `serde_bridge` 10/10 全绿。
+- **异步与多线程（2026-10-31，用户「先记着」，待二次确认方向）**：
+  - 现状：`Value`/`Map`/`Object` 均为 **`Send + Sync`**（自动推断）；索引用 `std::sync::OnceLock`
+    而非自身持锁 ⇒ 只读并发（多线程 `get`/`to_sml`）**无互斥、天然并行**，async 下是普通 `Send`
+    数据、无阻塞点。
+  - 缺口：并发**写**需 `&mut self`，`Object` 不内建锁（对标 std `BTreeMap`，锁归调用方）；
+    无内部异步协调（这层也无必要 —— 无 IO 无锁）。
+  - 可优化方向（未动手，等用户定）：A) 索引预热 / 并发建索引（收益在噪声带，需基准）；
+    B) `Arc<Value>` 共享读（调用方 DIY，非 Value 强制）；C) 内建分片锁（破坏零依赖，不建议）。
+  - **用户尚未裁决要不要动**，仅存档。
 
 ---
 
@@ -109,16 +133,31 @@ Confirm the reading with the user before writing any code.
   且 `@is` 前必须有已定义契约（否则 `E-CONTRACT-001`）。
 - **Design / 思路**：`weakport` 落在**外置指令**侧最省事 —— 宿主注册一条指令，
   返回 `Discard`，库只当元数据；不必改契约层，也不必改词法。
+- **用户修订（2026-10-31，影响 Status）**：这个名字更该叫 **`weakimport`** ——
+  **应用层自己设契约**、由应用层注册/解释，控制权在**应用层**，
+  不是给普通数据用的旁路。weakport 对插件来说**看起来就是普通数据**（库侧忽略，
+  插件侧按应用层给的契约解释）。
+  - ⚠️ **可内置 ≠ 不优化**：即使落成「内置/外置指令 + 库忽略」，语义上仍要保证
+    **弱绑定不受编译期丢弃** —— 之后 `smlb` 编译时**不会忽略 `weakport`/`weakimport`**
+    （即它是真数据通道，不是被 `cfg`/feature 裁掉的可丢弃物）。措辞与实现都别把它
+    写成「随手 Discard」——那只适合「纯元数据」，不适合「插件要真读」的通道。
+  - ⚠️ 因此与 I-15 `weakdata` 的边界需重画：两者都是「库忽略、交宿主」，
+    但 **`weakimport` 带契约**（应用层设契约来解释数据）、**`weakdata` 纯数据**；
+    且 weakimport 强调「不被编译期忽略」的保真，weakdata 强调「不进主树」。
+    落地前先划清，别造近义术语。
 
 ## I-6 featag：带参的块头标签 / param'd header tags
 
 > ⛔ **Before implementing: confirm the reading below with the user first.**
 > **实现前必须先逐条确认下方「理解待确认」，不得自行开工。**
 >
-> Status / 状态：`Blocked` —— 等确认；未确认不开工。
+> Status / 状态：`Blocked` —— 等确认；未确认不开工。**用户补描述中（2026-10-31）**。
 
 - **Idea / 想法**：类似函数，形如 `rectangle size 2`；在块内**填空**（`{}` 内级），
   「不止填充」；前提是目标 contract 已声明、`typed-block` 已开启、featag 事先声明。
+- **用户补充（2026-10-31，见下「用户修订」）**：featag 可以**应用层内置**
+  （不经核心词法/内置换），并**选择不参与语料处理** —— 即它不是 SML 语法层全局之物，
+  是应用层声明、应用层解释的标签形态。**全量描述由用户补写中，未定稿，勿开工**。
 
 ### Understanding to confirm / 理解待确认（我的读法，待你点头或纠正）
 
@@ -297,21 +336,29 @@ rectangle            size 2    rect1   tls                      { … }
 
 ## I-11 中文支持完善，且可剥离 / zh support, detachable
 
-- **Status / 状态**：`Partial`（中文能用）；**剥离** `Todo`。
+- **Status / 状态**：`Partial`（中文能用）；查表层 `Done`（2026-10-31 复核）；**剥离** `Todo`。
 - **Idea / 想法**：中文支持再补完善；同时把中文这一层做成**可剥离**的
   （英文用户 / 嵌入式场景可以不带，只留语言中立的错误码）。
 - **Now / 现状**：
   - 中文是**源语言**：错误文案硬编码在 Rust 各 crate 的 `format!` 里，没有语言层；
   - 英文层**只有 JS**：`errors/msg.en.json` →（`errors/gen_js_errors.py`）→
-    `js/sml-errors.mjs`；Rust 侧完全不读 `msg.en.json`；
+    `js/sml-errors.mjs`；Rust 侧此前**完全不读** `msg.en.json`，但 **2026-10-31 复核已变**：
+    `sml-codes` 已有 `msgs::error_info` 查表（`zh_title/zh_msg` + `en_title/en_msg` 双列、
+    `errors/gen_js_errors.py` 从 `site/static/errors.json` + `errors/msg.en.json` 生成），
+    `SmlError::render_locale("en")` 已能取英文规范文案、缺英文回退中文 ⇒ **查表层具备**；
   - 中文标识符 / 键名可用（编辑器与路径处理按 `\p{L}`），BOM 五端已统一跳过；
   - 术语表、全角标点 / 数字排版没有约定。
 - **Gap / 缺口**：① 想把「码 → 文案」数据化（`errors/codes.sml` 已是中文唯一来源，
-  但它同时被当作文档与码表用，职责混着）；② Rust 无 `zh` / `en` 切换；
-  ③ 无法「不带中文」构建。
+  但它同时被当作文档与码表用，职责混着）—— **查表层已数据化（`msgs.rs`）**，
+  真正剩的是**调用侧逐步接上 `render_locale` 语义**与「句级上下文细节」的整句翻译；
+  ② Rust 无 `zh` / `en` 切换 —— **`render_locale(locale)` 已提供按 locale 出口**，
+  但**硬编码 `format!` 里直拼中文的调用点**仍是「仅中文」，未逐一改走模板，属待办；
+  ③ 无法「不带中文」构建 —— **未做**，属剥离层。
 - **Design / 思路**：先数据化再剥离 —— 把中英文案都做成表（`msg.zh.json` / `msg.en.json`），
   代码只按码取串；然后 `sml-codes` 按 feature 分层（`zh` 默认 / `en`），
-  `idyml` 只开 `en`。剥离是**第二步**，别一步到位。
+  `idyml` 只开 `en`。**查表层已数据化**（`msgs.rs` 两列齐备），下一步是把
+  «各 crate 直拼中文的 `SmlError` / `String` 文案调用点» 逐处确认：能走码的走码，
+  需保留动态上下文的在码模板外拼接 —— **剥离是最后一步，别一步到位**。
 - **Risk / 风险**：文案一致性（五端 + JS 生成物）与「两处手维护」（`codes.sml` 中文、
   `msg.en.json` 英文）会放大漂移风险；改前先补 `--check` 闸门。
 
