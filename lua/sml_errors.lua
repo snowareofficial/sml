@@ -178,6 +178,7 @@ M.EN = {
   ["E-CONTRACT-015"] = { title = "Invalid quantifier value", msg = "Invalid quantifier value: not an integer, negative, or the upper bound is less than the lower bound" },
   ["E-CONTRACT-016"] = { title = "Contract mixin conflict", msg = "The same field has inconsistent type, default, or range across the two mixed-in contracts" },
   ["E-CONTRACT-017"] = { title = "Contract mixin not implemented", msg = "This implementation does not support applying several contracts to one block; split into single contracts or wait" },
+  ["E-CONTRACT-018"] = { title = "Contract @requires unsatisfiable", msg = "The @requires features declared by the contract cannot be satisfied; the contract cannot be defined or applied" },
   ["E-DERIVE-001"] = { title = "Value/target type mismatch", msg = "The SML value's type does not match the target host type" },
   ["E-DERIVE-002"] = { title = "Number out of target type range", msg = "The number is out of the target host type's range" },
   ["E-DERIVE-003"] = { title = "Unknown enum value or variant", msg = "Unknown enum value or enum variant" },
