@@ -64,7 +64,6 @@ extern "C" {
     fn sml_free(v: *mut CSmlValue);
     fn sml_typeof(v: *const CSmlValue) -> c_int;
     fn sml_get(v: *const CSmlValue, key: *const c_char) -> *const CSmlValue;
-    fn sml_get_path(v: *const CSmlValue, path: *const c_char) -> *const CSmlValue;
     fn sml_at(v: *const CSmlValue, idx: usize) -> *const CSmlValue;
     fn sml_size(v: *const CSmlValue) -> usize;
     fn sml_key_at(v: *const CSmlValue, idx: usize) -> *mut c_char;
@@ -75,7 +74,6 @@ extern "C" {
     fn sml_bool_value(v: *const CSmlValue) -> c_int;
     fn sml_str_in(v: *const CSmlValue, path: *const c_char) -> *mut c_char;
     fn sml_int_in(v: *const CSmlValue, path: *const c_char, ok: *mut c_int) -> i64;
-    fn sml_bool_in(v: *const CSmlValue, path: *const c_char, ok: *mut c_int) -> c_int;
     fn sml_dumps(v: *const CSmlValue, flags: c_uint) -> *mut c_char;
     fn sml_dump_err(json: *const c_char, err: *mut CSmlError) -> *mut c_char;
     fn sml_free_str(p: *mut c_char);
@@ -88,19 +86,11 @@ extern "C" {
 const SML_TYPE_OBJECT: c_int = 6;
 const SML_TYPE_ARRAY: c_int = 5;
 const SML_TYPE_STR: c_int = 4;
-const SML_TYPE_INT: c_int = 2;
 const SML_TYPE_BOOL: c_int = 1;
 
 // sml_errc 错误码（与 sml_rs.h 对齐）
 const SML_OK: c_int = 0;
-const SML_ERR_SYNTAX: c_int = 1;
-const SML_ERR_FEATURE_DISABLED: c_int = 2;
-const SML_ERR_VERSION_MISMATCH: c_int = 3;
 const SML_ERR_CONTRACT: c_int = 4;
-const SML_ERR_INCLUDE_LOOP: c_int = 5;
-const SML_ERR_IO: c_int = 6;
-const SML_ERR_UTF8: c_int = 7;
-const SML_ERR_INTERNAL: c_int = 8;
 
 /// 守护点 1：`sml_feature_name` 的每个位必须等于 `FEATURES` 表同名项。
 #[test]
@@ -242,7 +232,6 @@ fn key_at_enumerates_object() {
 
 extern "C" {
     fn sml_parse(text: *const c_char) -> *mut c_char;
-    fn sml_dump(v: *mut CSmlValue) -> *mut c_char;
 }
 
 /// C-ABI 审计 #1：jsonify 必须转义控制字符，否则产出非法 JSON。
@@ -337,7 +326,6 @@ fn nul_in_string_not_silent_empty() {
 /// C-ABI 审计 #5：sml_load_file 的 flags 必须生效（禁用 include 时不应展开）。
 #[test]
 fn load_file_flags_disable_include() {
-    use std::io::Write;
     let dir = std::env::temp_dir().join("sml_cabi_flags_test");
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::create_dir_all(&dir);
@@ -491,7 +479,6 @@ fn load_file_expands_include() {
 /// 解析注入垃圾键（此前与 include/glob/regex 行为不一致，是唯一会静默损坏的）。
 #[test]
 fn multi_include_feature_off_is_error() {
-    use std::io::Write;
     let dir = std::env::temp_dir().join("sml_multi_inc_off");
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::create_dir_all(&dir);
@@ -515,7 +502,6 @@ fn multi_include_feature_off_is_error() {
 /// 证明特性门控本身已生效而非恒报错）。
 #[test]
 fn multi_include_feature_on_not_feature_error() {
-    use std::io::Write;
     let dir = std::env::temp_dir().join("sml_multi_inc_on");
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::create_dir_all(&dir);

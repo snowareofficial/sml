@@ -6,7 +6,7 @@ name = "sml-contract"
 #   - `FieldSpec` 新增 `ext` 字段（外置类型的校验器）
 # 0.1.0-alpha.4：新增 `infer` 契约推断模块（AppliedContract / ContractMap /
 #   PathSeg 等公开类型），供 sml-parse 与 swsml 使用。
-version = "0.1.0-alpha.4"
+version.workspace = true
 edition = "2021"
 description = "SML 契约系统：@contract 定义与 @is 应用、类型校验、默认值填充、min/max 与枚举约束。"
 license = "MulanPSL-2.0"
@@ -17,11 +17,11 @@ readme = "README.md"
 name = "sml_contract"
 
 [dependencies]
-sml-codes = { path = "../sml-codes", version = "0.1.0-alpha.2", default-features = false }
+sml-codes = { path = "../sml-codes", version = "0.6.9-dev.0", default-features = false }
 # 自定义类型（@type）的模式匹配引擎：无回溯，免疫 ReDoS。
 # 与 sml-value 同层，不引入更重的依赖。
-sml-pattern = { version = "0.1.0-alpha.1", path = "../sml-pattern" }
-sml-value = { path = "../sml-value", version = "0.1.0-alpha.1", default-features = false }
+sml-pattern = { version = "0.6.9-dev.0", path = "../sml-pattern" }
+sml-value = { path = "../sml-value", version = "0.6.9-dev.0", default-features = false }
 
 [features]
 default = []

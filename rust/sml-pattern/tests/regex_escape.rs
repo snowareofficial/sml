@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use sml_pattern::{matches, regex::parse_regex, Pat};
+use sml_pattern::{matches, regex::parse_regex};
 
 fn m(pat: &str, text: &str) -> bool {
     let p = parse_regex(pat).unwrap_or_else(|e| panic!("编译 `{pat}` 失败: {e}"));

@@ -10,7 +10,7 @@
 // 4. **组合陷阱**：外层 `@when` 作用于整个 `hosts: @for ...`（条件为假则整段数组
 //    不出现），即「`@when` 过滤的是字段，不是某一轮迭代」。
 
-use sml::{Feature, Value, parse, parse_with_features_env};
+use sml::{Feature, Value, parse_with_features_env};
 use std::collections::BTreeMap;
 
 /// 需要显式 enable，故统一加 `@feature enable for` 头（组合测试还会用到 `when`）。
@@ -67,7 +67,7 @@ hosts: @for h in alpha beta gamma {
 #[test]
 fn for_requires_feature_enable() {
     let doc = "hosts: @for h in a b { name: \"${h}\" }\n";
-    let mut feats = sml::FeatureSet::baseline().with(Feature::Env);
+    let feats = sml::FeatureSet::baseline().with(Feature::Env);
     let v = parse_with_features_env(doc, feats, BTreeMap::new())
         .expect_err("未 enable for 应报错");
     assert!(
