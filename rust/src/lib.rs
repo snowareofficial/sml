@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! SML — SNOWARE Markup Language (Rust 实现, crate 名 `swsml`, lib 名 `sml`)
+//! SML — SNOWARE Markup Language (Rust implementation, crate `swsml`, lib name `sml`) ｜ SML 解析与序列化库
 //!
 //! 声明式数据/配置格式, JSON/YAML 的替代品。语法与 Soup 生态的
 //! `lib/sml.soup` (Lua) 对齐:
@@ -110,13 +110,13 @@ pub mod emit;
 // re-export：把各功能 crate 的公共 API 聚合到 `sml::` 单一命名空间，
 // 使既有调用方 `use sml::{parse, Value, Feature, …}` 完全不受拆分影响。
 // ---------------------------------------------------------------------------
-pub use sml_value::{describe_value, Value};
-/// 自定义类型（`@type`）使用的模式匹配引擎：无回溯、免疫 ReDoS。
+pub use sml_value::{describe_value, Map, Value};
+/// Custom-type pattern matching engine: backtracking-free, ReDoS-immune ｜ 自定义类型（`@type`）使用的模式匹配引擎：无回溯、免疫 ReDoS。
 pub use sml_pattern as pattern;
 #[cfg(feature = "sml")]
-pub use sml_value::to_sml;
+pub use sml_value::{to_sml, to_sml_canonical, to_sml_with, DumpOptions};
 
-/// 与 [`to_sml`] 相同，但**深度超限返回 `E-LIMIT-004`**（W16）而不是静默写占位文本。
+/// Like [`to_sml`], but returns `E-LIMIT-004` on depth overflow ｜ 与 [`to_sml`] 相同，但**深度超限返回 `E-LIMIT-004`**（W16）而不是静默写占位文本。
 ///
 /// `sml-value` 是零依赖 crate，它的 `to_sml_checked` 只能带消息（码写作 `文案 [码]`）；
 /// 门面这一层把码**提出来变成结构化字段**，与 Rust 侧其它错误的口径一致
@@ -135,10 +135,9 @@ pub fn to_sml_checked(v: &Value) -> Result<String, sml_codes::SmlError> {
 
 pub use sml_feature::{feature_names, Feature, FeatureSet, Version, FEATURES};
 pub use sml_contract::{Contract, FieldSpec, TypeSpec};
-/// 契约推断（任务 E）：从数据实例反推契约。落地为 `smltools --infer-contract`。
+/// Contract inference: derive a contract from data instances ｜ 契约推断（任务 E）：从数据实例反推契约。落地为 `smltools --infer-contract`。
 pub use sml_contract::infer;
-/// 外置扩展点：注册自定义契约类型（`image` / `link` / `time` 等），
-/// 无需改动本 crate 源码，也不必把领域类型写进 SML 规范层。
+/// External extension point: register custom contract types without editing crate source ｜ 外置扩展点：注册自定义契约类型（`image` / `link` / `time` 等），无需改动本 crate 源码。
 pub use sml_contract::ext as contract_ext;
 
 // ---------------------------------------------------------------------------
@@ -147,7 +146,7 @@ pub use sml_contract::ext as contract_ext;
 // （库增/改指令或 kv 语义时，lint 自动跟随）。
 // ---------------------------------------------------------------------------
 
-/// SML 顶层内置指令名单：这些 `@xxx` 不是片段定义。
+/// Top-level builtin directive names: these `@xxx` are not fragment definitions ｜ SML 顶层内置指令名单：这些 `@xxx` 不是片段定义。
 ///
 /// 与解析层在注册阶段就拒绝的 7 个内建名（contract/is/type/version/feature/when/for）
 /// 一致，并额外包含由 `sml-include` 层处理的 `include`——lint 据此把 `@xxx` 区分为
@@ -156,8 +155,7 @@ pub const BUILTIN_DIRECTIVES: &[&str] = &[
     "contract", "is", "type", "version", "feature", "when", "for", "include",
 ];
 
-/// 切分 `键: 值`：与解析器同口径——冒号即字段分隔符（不要求后跟空白），
-/// 字符串/引号内的冒号不算。供 `smltools --lint` 复用，避免与解析器双份实现。
+/// Split `key: value` with the same rule as the parser ｜ 切分 `键: 值`：与解析器同口径——冒号即字段分隔符（不要求后跟空白），字符串/引号内的冒号不算。供 `smltools --lint` 复用。
 pub fn split_kv(s: &str) -> Option<(String, String)> {
     let b = s.as_bytes();
     let (mut in_s, mut in_d) = (false, false);
@@ -178,7 +176,7 @@ pub fn split_kv(s: &str) -> Option<(String, String)> {
     None
 }
 
-/// 递归深度上限（解析/发射共用）。lint 的「嵌套过深」阈值取它的一半，
+/// Recursion-depth cap, shared by parse and emit ｜ 递归深度上限（解析/发射共用）。lint 的「嵌套过深」阈值取它的一半，
 /// 库改此处时 lint 自动跟随（同 `BUILTIN_DIRECTIVES` 的单一来源思路）。
 pub use crate::emit::MAX_VALUE_DEPTH;
 
@@ -195,7 +193,7 @@ pub use sml_parse::{
     parse_with_features_env, parse_with_warnings, AppliedContract, ContractMap, Diagnostic,
     DiagnosticKind, ParseError, ParseOptions, ParseOutput, PathSeg,
 };
-/// 外置扩展点：注册自定义 `@指令`（如 `@form` / `@policy` / `@flow`），
+/// External extension point: register custom `@directives` (e.g. `@form` / `@policy` / `@flow`) ｜ 外置扩展点：注册自定义 `@指令`（如 `@form` / `@policy` / `@flow`），
 /// 无需改动本 crate 源码 —— 方言定义留在下游仓库。
 pub use sml_parse::ext;
 pub use c_abi::*;
@@ -216,11 +214,11 @@ pub use swsml_derive::{SmlDeserialize, SmlSerialize};
 pub mod serde {
     pub use sml_value::serde::{from_value, to_string, to_value};
 
-    /// 直出 SML 文本（不经 `Value` 中转）—— 需要 `sml` feature。
+    /// Emit SML directly without going through `Value` — needs `sml` feature ｜ 直出 SML 文本（不经 `Value` 中转）—— 需要 `sml` feature。
     #[cfg(feature = "sml")]
     pub use sml_value::serde::to_string_direct;
 
-    /// 从 SML 文本直接反序列化到任意 `Deserialize` 类型（等价于 `toml::from_str`）。
+    /// Deserialize directly from SML text into any `Deserialize` type (like `toml::from_str`) ｜ 从 SML 文本直接反序列化到任意 `Deserialize` 类型（等价于 `toml::from_str`）。
     pub fn from_str<T: serde::de::DeserializeOwned>(text: &str) -> Result<T, String> {
         let value = crate::parse(text)?;
         from_value(value)
@@ -231,7 +229,6 @@ pub mod serde {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
     
 
     // ---------------- version ----------------
@@ -723,7 +720,7 @@ mod tests {
     #[cfg(feature = "sml")]
     #[test]
     fn email_roundtrips_through_to_sml() {
-        let v = Value::Object(BTreeMap::from([(
+        let v = Value::Object(Map::from([(
             "to".to_string(),
             Value::Str("sal@mail.swebase.cn".into()),
         )]));
@@ -751,11 +748,11 @@ mod tests {
         // 回归：to_sml 能输出顶层数组，但 parse 曾只认键值块，
         // 导致「能写不能读」（"期望键, 得 LBrack"）。
         let v = Value::Array(vec![
-            Value::Object(BTreeMap::from([
+            Value::Object(Map::from([
                 ("ts".to_string(), Value::Str("2026-01-01".into())),
                 ("to".to_string(), Value::Str("a@b.c".into())),
             ])),
-            Value::Object(BTreeMap::from([
+            Value::Object(Map::from([
                 ("ts".to_string(), Value::Str("2026-01-02".into())),
                 ("to".to_string(), Value::Str("x@y.z".into())),
             ])),
@@ -778,7 +775,7 @@ mod tests {
 
     #[test]
     fn toplevel_object_block_roundtrips() {
-        let mut m = BTreeMap::new();
+        let mut m = Map::new();
         m.insert("k".to_string(), Value::Int(1));
         let v = Value::Object(m);
         let back = parse(&to_sml(&v)).unwrap();
@@ -825,7 +822,7 @@ mod tests {
     fn nested_array_inside_object_inside_array_survives_roundtrip() {
         // 回归测试：数组元素是对象、对象里又有数组（如配置的条目列表）。
         // dump_inline 曾把嵌套数组缩略成 [..]，导致 chunks 丢成 [".."]。
-        let mut item = BTreeMap::new();
+        let mut item = Map::new();
         item.insert("path".to_string(), Value::Str("a.txt".into()));
         item.insert(
             "chunks".to_string(),
@@ -834,7 +831,7 @@ mod tests {
                 Value::Str("c2".into()),
             ]),
         );
-        let mut root = BTreeMap::new();
+        let mut root = Map::new();
         root.insert(
             "entries".to_string(),
             Value::Array(vec![Value::Object(item)]),
@@ -939,7 +936,7 @@ mod tests {
             ("inf", "\"inf\""),
         ] {
             let v = Value::Object({
-                let mut m = BTreeMap::new();
+                let mut m = Map::new();
                 m.insert("k".into(), Value::Str(raw.into()));
                 m
             });
@@ -1097,7 +1094,7 @@ mod tests {
         // B2: 以注释符开头的字符串必须引号，否则再解析被吞成 Null
         for raw in ["--flag", "//path", "/*x*/", "_*x*_"] {
             let v = Value::Object({
-                let mut m = BTreeMap::new();
+                let mut m = Map::new();
                 m.insert("k".into(), Value::Str(raw.into()));
                 m
             });
@@ -1113,7 +1110,7 @@ mod tests {
         // B3/B4: 含逗号/方括号的字符串必须引号，否则裂键或截断
         for raw in ["a,b", "a[b", "a]b", "[", "]"] {
             let v = Value::Object({
-                let mut m = BTreeMap::new();
+                let mut m = Map::new();
                 m.insert("k".into(), Value::Str(raw.into()));
                 m
             });
@@ -1128,7 +1125,7 @@ mod tests {
     fn serialize_keys_are_quoted_when_needed() {
         // B5: 含特殊字符的键必须引号，否则文档结构损坏
         for key in ["a b", "a#b", "a,b", "http://x"] {
-            let mut m = BTreeMap::new();
+            let mut m = Map::new();
             m.insert(key.to_string(), Value::Int(1));
             let out = to_sml(&Value::Object(m));
             let back = parse(&out).unwrap();
@@ -1144,7 +1141,7 @@ mod tests {
     fn serialize_float_keeps_decimal_point() {
         // B6: Float(1.0) 必须序列化为 "1.0"，round-trip 回来仍是 Float
         let v = Value::Object({
-            let mut m = BTreeMap::new();
+            let mut m = Map::new();
             m.insert("f".into(), Value::float(1.0));
             m
         });
