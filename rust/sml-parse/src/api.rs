@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! SML 解析的**公开 API**（`parse` / `parse_file` / `loads` 等）。
+//! Public parsing API for SML (`parse` / `parse_file` / `loads` etc.) ｜ SML 解析的**公开 API**。
 //!
 //! 与 [`crate::parser`] 分开：后者是内部实现，这里只做入口组装
 //! （特性求取 → 指令剥离 → tokenize → 解析 → include 展开）。
@@ -20,7 +20,7 @@ use crate::ext::{Diagnostic, ParseOptions, ParseOutput};
 use crate::parser::Parser;
 use crate::scan::{features_for, strip_features, strip_version};
 
-/// 解析 SML 文本，并返回其声明的语法版本。
+/// Parse SML text and return its declared syntax version ｜ 解析 SML 文本，并返回其声明的语法版本。
 ///
 /// 未声明版本时按 `V1` 处理（裸词即字符串），**既有文档不受影响**；
 /// 显式 `@version v3` 则返回 `V3`（此时字符串需引号）。
@@ -33,7 +33,7 @@ pub fn parse_versioned(text: &str) -> Result<(Value, Version), SmlError> {
     Ok((parse_impl(&rest, feats, BTreeMap::new())?, v))
 }
 
-/// 解析 SML 文件：展开 include，并返回其声明的语法版本
+/// Parse an SML file (expand includes) and return its declared version ｜ 解析 SML 文件：展开 include，并返回其声明的语法版本
 pub fn parse_file_versioned(path: impl AsRef<Path>) -> Result<(Value, Version), SmlError> {
     let path = path.as_ref();
     let text = std::fs::read_to_string(path).map_err(|e| {
@@ -56,7 +56,7 @@ pub fn parse_file_versioned(path: impl AsRef<Path>) -> Result<(Value, Version), 
     Ok((val, v))
 }
 
-/// 解析 SML 文件（展开 include），并把**非致命诊断**（键冲突告警）一并交出来。
+/// Parse an SML file (expand includes) and collect the non-fatal diagnostics ｜ 解析 SML 文件（展开 include），并把**非致命诊断**（键冲突告警）一并交出来。
 ///
 /// 为什么除了 [`parse_with_warnings`] 还要单给一个文件入口：`KeyOverwritten`
 /// 那类告警（片段展开覆盖父块已有的键）几乎只发生在真实文档里，而片段又常常
@@ -93,7 +93,7 @@ pub fn parse_file_with_warnings(
     Ok((out.value, out.diagnostics))
 }
 
-/// 解析 SML 文本
+/// Parse SML text ｜ 解析 SML 文本
 ///
 /// 会自动识别并剥离 `@version` / `@feature` 声明（需要版本信息时用
 /// [`parse_versioned`]，需要特性裁剪信息时用 [`parse_with_features`]）。
@@ -108,7 +108,7 @@ pub fn parse(text: &str) -> Result<Value, SmlError> {
     parse_impl(&rest, feats, BTreeMap::new())
 }
 
-/// 带**外置扩展**的解析入口（扩展点见 [`crate::ext`]）。
+/// Parse SML text with external directive extensions ｜ 带**外置扩展**的解析入口（扩展点见 [`crate::ext`]）。
 ///
 /// 与 [`parse`] 的唯一差别：可传入 [`ParseOptions`]，让下游注册的自定义 `@指令` 生效，
 /// 并额外返回非致命诊断（如「位置参数形式已废弃」）。
@@ -147,7 +147,7 @@ pub fn parse_with(text: &str, opts: ParseOptions) -> Result<ParseOutput, SmlErro
         .map_err(|e| with_position(&rest, e))
 }
 
-/// 解析 SML 文本，并把**非致命诊断**（键冲突告警）一并交出来。
+/// Parse SML text and return the non-fatal diagnostics ｜ 解析 SML 文本，并把**非致命诊断**（键冲突告警）一并交出来。
 ///
 /// 与 [`parse`] 的差别**只在返回值**：`parse` 的签名是 `Result<Value, _>`，承载不了
 /// 诊断，只能丢掉；本入口把它们交给调用方。**解析结果与 `parse` 逐字一致** ——
@@ -186,7 +186,7 @@ pub fn parse_with_warnings(text: &str) -> Result<(Value, Vec<Diagnostic>), SmlEr
     Ok((out.value, out.diagnostics))
 }
 
-/// 解析 SML 文本，并限制文档声明的版本必须在 `allowed` 范围内。
+/// Parse SML text, restricting the declared version to `allowed` ｜ 解析 SML 文本，并限制文档声明的版本必须在 `allowed` 范围内。
 ///
 /// 用于「库固定依赖某个 SML 语法版本」的场景：若文档声明了 `allowed`
 /// 之外的版本（例如库只接受 v1..v3，却遇到 `@version v4`），立即报错，
@@ -218,7 +218,7 @@ pub fn parse_allowed(
     parse_impl(&rest, feats, BTreeMap::new())
 }
 
-/// 解析 SML 文本，同时限制文档使用的**特性子集**必须在 `allowed` 内。
+/// Parse SML text, restricting the feature subset to `allowed` ｜ 解析 SML 文本，同时限制文档使用的**特性子集**必须在 `allowed` 内。
 ///
 /// 与 [`parse_allowed`]（版本范围）配套：`allowed` 是调用方（库作者）给出的
 /// 白名单，文档内部的 `@feature enable/disable` 只能**收窄**这个集合，
@@ -245,7 +245,7 @@ pub fn parse_with_features(
     Ok((val, effective))
 }
 
-/// 与 [`parse_with_features`] 相同，但额外提供**环境变量覆盖表**。
+/// Like [`parse_with_features`], plus an env override table ｜ 与 [`parse_with_features`] 相同，但额外提供**环境变量覆盖表**。
 ///
 /// `$env.X` 会先在此表中查找，未命中才回落到进程环境。表内的值**只作用于
 /// 本次解析**，不会写入进程环境——因此该函数是线程安全的，也不会影响
@@ -542,8 +542,7 @@ pub fn parse_file_features(
     parse_impl_tokens(toks, Vec::new(), Vec::new(), allowed, BTreeMap::new())
 }
 
-/// 解析到对象 (失败抛 `ParseError`，它带**错误码**，见 [`sml_codes::SmlError`])
+/// Parse into an object (throws `ParseError`, which carries an error code) ｜ 解析到对象 (失败抛 `ParseError`，它带**错误码**，见 [`sml_codes::SmlError`])
 pub fn loads(text: &str) -> Result<Value, ParseError> {
     parse(text)
 }
-
