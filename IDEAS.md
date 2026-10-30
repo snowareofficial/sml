@@ -99,8 +99,10 @@ Confirm the reading with the user before writing any code.
 - **纪律 / 2026-10-31**：此笔**只动注释、不动逻辑**；改动与任何逻辑 diff 拆开独立提交。
 - **进展（2026-10-31 第一批，核心公开面）**：✅ `sml-value/src/lib.rs` 模块 doc + 公开项注解
   已由纯中文改为「English ｜ 中文」双语（中文照留，符合「还是支持中文」）；
-  🔍 `value.rs`/`object.rs` 内部注释核对后已是双语；待后续批次：`sml-parse/api.rs`、`src/lib.rs`
-  及其余文件。⚠️ 复核中发现既有 feature 组合裂口：`preserve_order` + `serde` 下
+  ✅ **第二批（2026-10-31）**：`sml-parse/src/api.rs` 全部公开函数摘要 + `rust/src/lib.rs`
+  的模块头 / re-export / serde 公开项 已双语化；编译通过、无诊断。
+  🔍 `value.rs`/`object.rs` 内部注释核对后已是双语；待后续批次：其余 crate（`sml-value/value.rs`
+  的公开方法摘要等）、`smltools` 公开面。⚠️ 复核中发现既有 feature 组合裂口：`preserve_order` + `serde` 下
   `serde_bridge.rs` 用 `pop_first`/`Into<BTreeMap>` 与 `Map=Object` 冲突（非本轮引入）。
   - **✅ 已排雷（2026-10-31）**：修 `serde_bridge.rs` —— `MapDeserializer.map` 字段类型
     `BTreeMap`→`Map`、`pop_first`→`IntoIterator`（`mem::take`+`collect` 逐弹）、enum 单键
@@ -383,7 +385,11 @@ rectangle            size 2    rect1   tls                      { … }
 
 ## I-13 实现即文档，闪光点要看得见 / docs while implementing, make the highlights visible
 
-- **Status / 状态**：`Todo` —— 本轮只记下，未开工。
+- **Status / 状态**：`Partial`（2026-10-31 开工）—— 落地第一个「语义 + 例子 + 陷阱」示范；
+  流程承诺随后续每次交付逐步兑现。
+- **示范 / 2026-10-31**：为 `sml-value::Value::eq_ordered` 补了**可跑 doctest**（顺序敏感相等：
+  声明 `PartialEq` 不含顺序的「陷阱」，配例子，两个 feature 档 `--doc` 均通过）；
+  后续每落一个能力按此收尾。
 - **Idea / 想法**：实现过程中产出的那些解释（语义对比表、反例、边界）本身就是**很好的教程素材**，
   应在实现时就顺手沉淀，而不是等做完再补 —— 人们要先看到**闪光点**才会点进来。
 - **Now / 现状**：文档是**事后补**的（`STRUCT_SERDE.md` / `IDEAS.md` 都是补记）；

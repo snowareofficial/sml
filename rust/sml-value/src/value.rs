@@ -1,4 +1,13 @@
-use std::collections::BTreeMap;
+ok// —— `Value::Object` 的载体：默认 `BTreeMap`（保现状），开 `preserve_order` 才换保序实现 ——
+//
+// 做成**类型别名**而不是新类型，是为了让下游（sml-contract / sml-parse / swsml /
+// smltools）的写法在两种档位下**同一份源码**都能编译：只要它用到的 `Map` 方法
+// 两档都提供，切换就是换个别名，不是全仓改写（对标 toml-rs 的 `preserve_order`）。
+#[cfg(not(feature = "preserve_order"))]
+pub type Map = std::collections::BTreeMap<String, Value>;
+#[cfg(feature = "preserve_order")]
+pub type Map = crate::object::Object;
+
 // `fmt` 只在 `sml` 特性下用到（`impl fmt::Display`）⇒ 关掉该特性时必须一起 cfg 掉，
 // 否则每个依赖 sml-value 且未开 `sml` 的 crate 都会背一条 `unused import` 警告
 // （实测：sml-include / sml-parse / swsml / smltools 全会各报一条 —— 噪音掩盖真警告）。
@@ -27,8 +36,18 @@ pub enum Value {
     Str(String),
     Array(Vec<Value>),
     /// 对象/块; `__type` / `__name` 裸块元数据以保留字键存放
-    Object(BTreeMap<String, Value>),
+    ///
+    /// 载体是 [`Map`]：默认 `BTreeMap`（键按字节序），开 `preserve_order` 后是
+    /// 保源序的 `Object`。**相等性两种档位下都按集合**（见下方 `PartialEq`）。
+    Object(Map),
 }
+
+/// §12 验收：`Value` 不得因换载体而膨胀。
+///
+/// 保序档下 `Object` = `Vec<Entry>`(24) + `OnceLock<Box<Index>>`(16) = 40 B，
+/// 加判别式后 `Value` = 48 B。**超过 48 就说明索引又被塞回了 `Object` 里**
+/// （见 `object.rs` 里 `Index` 套 `Box` 的注释）——那条注释与本断言是一对。
+const _: () = assert!(std::mem::size_of::<Value>() <= 48);
 
 impl Value {
     /// 构造无 raw 的浮点值 —— **程序构造路径统一用这个**。
@@ -84,6 +103,110 @@ impl PartialEq for Value {
     }
 }
 
+/// 把一条字段写入对象 —— 合并规则（§6.3）的**唯一**入口，两档同签名。
+///
+/// - 键不存在 ⇒ 追加到尾部，**不**调用 `merge`；
+/// - 键已存在 ⇒ **不动位置**，把旧值与 `value` 一起交给 `merge`。
+///
+/// 存在理由：写字段要「先查重名、再写入」，写成 `get_mut` + `insert` 是两次查找，
+/// 而 `BTreeMap::insert` 只查一次 —— 保序档必须也能一次查完才谈得上「不比现状慢」
+/// （实测两次查找会让 5k 键解析慢约 30%，见 `object::Object::insert_or_merge`）。
+#[cfg(not(feature = "preserve_order"))]
+pub fn insert_or_merge<F>(m: &mut Map, key: &str, value: Value, merge: F)
+where
+    F: FnOnce(&mut Value, Value),
+{
+    if let Some(existing) = m.get_mut(key) {
+        merge(existing, value);
+    } else {
+        m.insert(key.to_string(), value);
+    }
+}
+
+/// 见 [`insert_or_merge`]：保序档直接转发到 [`Object::insert_or_merge`]。
+#[cfg(feature = "preserve_order")]
+#[inline]
+pub fn insert_or_merge<F>(m: &mut Map, key: &str, value: Value, merge: F)
+where
+    F: FnOnce(&mut Value, Value),
+{
+    m.insert_or_merge(key, value, merge)
+}
+
+impl Value {
+    /// Order-sensitive equality: objects must also have the same key order ｜ 顺序敏感相等（§6.1）：逐层比较，对象要求**键序也相同**。
+    ///
+    /// `PartialEq` 刻意不含顺序（改语义会一次性炸掉一大片既有断言）；
+    /// 需要「保序往返后逐字节一致」这类判据时用本方法。
+    ///
+    /// ```
+    /// use sml_value::Value;
+    ///
+    /// let a = Value::Object([("x".to_string(), Value::Int(1))].into());
+    /// let b = Value::Object([("y".to_string(), Value::Int(1))].into());
+    /// // 值不同: 集合相等与顺序相等都判为不等
+    /// assert_ne!(a, b);
+    /// assert!(!a.eq_ordered(&b));
+    /// ```
+    pub fn eq_ordered(&self, other: &Value) -> bool {
+        match (self, other) {
+            (Value::Null, Value::Null) => true,
+            (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::Int(a), Value::Int(b)) => a == b,
+            (Value::Float(a, _), Value::Float(b, _)) => a == b,
+            (Value::Str(a), Value::Str(b)) => a == b,
+            (Value::Array(a), Value::Array(b)) => {
+                a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.eq_ordered(y))
+            }
+            (Value::Object(a), Value::Object(b)) => Self::objects_eq_ordered(a, b),
+            _ => false,
+        }
+    }
+
+    /// 对象层「同序且相等」：两种档位下语义一致
+    /// （`BTreeMap` 的迭代序即键序，保序 `Object` 的迭代序即源序）。
+    #[cfg(not(feature = "preserve_order"))]
+    fn objects_eq_ordered(a: &Map, b: &Map) -> bool {
+        a.len() == b.len()
+            && a.iter().zip(b.iter()).all(|((k1, v1), (k2, v2))| k1 == k2 && v1.eq_ordered(v2))
+    }
+
+    #[cfg(feature = "preserve_order")]
+    fn objects_eq_ordered(a: &Map, b: &Map) -> bool {
+        a.eq_ordered(b)
+    }
+
+    /// 递归按键的 UTF-8 字节序重排（canonical 输出用，§6.2）。
+    ///
+    /// 与保序**解耦**：保序回答「作者怎么写」，canonical 回答「同值同字节」。
+    /// 未开 `preserve_order` 时对象是 `BTreeMap`，本方法等价于深拷贝（本来就有序）。
+    pub fn sort_keys_deep(&mut self) {
+        match self {
+            Value::Object(m) => {
+                #[cfg(feature = "preserve_order")]
+                m.sort_keys();
+                for v in m.values_mut() {
+                    v.sort_keys_deep();
+                }
+            }
+            Value::Array(a) => {
+                for v in a.iter_mut() {
+                    v.sort_keys_deep();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// `sort_keys_deep` 的**不改原值**版本：返回一份键已排序的深拷贝。
+    #[must_use]
+    pub fn sorted_by_key(&self) -> Value {
+        let mut v = self.clone();
+        v.sort_keys_deep();
+        v
+    }
+}
+
 impl Drop for Value {
     /// 迭代式析构，避免深层嵌套 Value 触发递归 Drop 的栈溢出。
     ///
@@ -93,8 +216,8 @@ impl Drop for Value {
     /// 这里用显式工作栈（堆上 `Vec`）逐层展开，全程原生栈深度为常数：
     /// 1. `mem::replace(self, Null)` 把 `*self` 改为空壳并取回原值 `owned`（安全 move-out，
     ///    不受 Drop 限制）；实现 `Drop` 后编译器不再对 `*self` 生成自动 drop glue，无重复释放。
-    /// 2. 用 `mem::take` 把 `owned`/各待展开节点的复合字段（Vec/BTreeMap）整体移出到局部
-    ///    （`Vec`/`BTreeMap` 本身无 Drop 约束，可安全迭代 move 出子节点推入工作栈），
+    /// 2. 用 `mem::take` 把 `owned`/各待展开节点的复合字段（Vec/Map）整体移出到局部
+    ///    （`Vec`/`Map` 本身无 Drop 约束，可安全迭代 move 出子节点推入工作栈），
     ///    标量节点直接 `drop`。绝不递归调用 `Value::drop`，工作栈在函数末尾已空，drop 为常数开销。
     fn drop(&mut self) {
         // 把 *self 替换为 Null 并取回原值；此后 *self 为 Null，不会二次释放。
@@ -108,8 +231,10 @@ impl Drop for Value {
                 stack.push(e);
             }
         } else if let Value::Object(ref mut m) = owned {
+            // 只取**值**：键是 `Box<str>`，若走 `into_iter()` 会为每个键再造一份
+            // `String`，白花一次分配 —— `into_values()` 两档都有，零额外分配。
             let taken = std::mem::take(m);
-            for (_k, v) in taken {
+            for v in taken.into_values() {
                 stack.push(v);
             }
         } else {
@@ -142,7 +267,7 @@ impl Drop for Value {
                 }
             } else if let Value::Object(ref mut m) = cur {
                 let taken = std::mem::take(m);
-                for (_k, v) in taken {
+                for v in taken.into_values() {
                     stack.push(v);
                 }
             } else if let Value::Str(ref mut s) = cur {
@@ -196,11 +321,10 @@ impl Value {
     ///
     /// # 示例
     /// ```
-    /// use sml_value::Value;
-    /// use std::collections::BTreeMap;
-    /// let doc = Value::Object(BTreeMap::from([
-    ///     ("a".into(), Value::Object(BTreeMap::from([
-    ///         ("b".into(), Value::Array(vec![Value::Int(10), Value::Int(20)])),
+    /// use sml_value::{Map, Value};
+    /// let doc = Value::Object(Map::from([
+    ///     ("a".to_string(), Value::Object(Map::from([
+    ///         ("b".to_string(), Value::Array(vec![Value::Int(10), Value::Int(20)])),
     ///     ]))),
     /// ]));
     /// assert_eq!(doc.get("a.b[0]").and_then(|x| x.as_i64()), Some(10));
@@ -257,7 +381,8 @@ impl Value {
 
     /// 取对象引用；非 Object 返回 None。
     ///
-    /// 返回的是对象内部 `BTreeMap` 的引用，可直接使用其 `iter` / `len` /
+    /// 返回的是对象内部 [`Map`] 的引用（默认 `BTreeMap`；`preserve_order` 下是
+    /// 保序 `Object`，其 `iter()` 按**源序**），可直接使用其 `iter` / `len` /
     /// `is_empty` 等能力，无需额外封装。
     ///
     /// # 示例
@@ -270,7 +395,7 @@ impl Value {
     /// assert!(s.as_object().is_none());
     /// ```
     #[inline]
-    pub fn as_object(&self) -> Option<&BTreeMap<String, Value>> {
+    pub fn as_object(&self) -> Option<&Map> {
         match self {
             Value::Object(m) => Some(m),
             _ => None,
@@ -334,15 +459,14 @@ impl Value {
 
     /// 取对象可变引用；非 Object 返回 None。
     ///
-    /// 暴露内部 `BTreeMap` 的可变引用，调用方据此直接增删改键。
+    /// 暴露内部 [`Map`] 的可变引用，调用方据此直接增删改键。
     ///
     /// # 示例
     /// ```
-    /// use sml_value::Value;
-    /// use std::collections::BTreeMap;
-    /// let mut v = Value::Object(BTreeMap::new());
+    /// use sml_value::{Map, Value};
+    /// let mut v = Value::Object(Map::new());
     /// if let Some(m) = v.as_object_mut() {
-    ///     m.insert("k".into(), Value::Int(1));
+    ///     m.insert("k".to_string(), Value::Int(1));
     /// }
     /// assert_eq!(v.get("k").and_then(|x| x.as_i64()), Some(1));
     /// // 非对象返回 None，不会 panic
@@ -350,7 +474,7 @@ impl Value {
     /// assert!(s.as_object_mut().is_none());
     /// ```
     #[inline]
-    pub fn as_object_mut(&mut self) -> Option<&mut BTreeMap<String, Value>> {
+    pub fn as_object_mut(&mut self) -> Option<&mut Map> {
         match self {
             Value::Object(m) => Some(m),
             _ => None,
@@ -381,7 +505,7 @@ impl Value {
     /// 遍历直接子节点，返回子值（`&Value`）的迭代器。
     ///
     /// 对象按值遍历（忽略键名），数组按元素遍历；既非对象也非数组返回 None。
-    /// 需要键名时请用 `as_object()` 取 `BTreeMap` 后 `.iter()`。
+    /// 需要键名时请用 `as_object()` 取 [`Map`] 后 `.iter()`。
     ///
     /// # 示例
     /// ```
