@@ -1,6 +1,6 @@
 [package]
 name = "sml-pattern"
-version = "0.1.0-alpha.2"
+version.workspace = true
 edition = "2021"
 license = "MulanPSL-2.0"
 repository = "https://gitee.com/snoware/sml"
@@ -8,7 +8,7 @@ readme = "README.md"
 description = "SML 模式语言（Loom 融入 SML）：L1 无回溯匹配引擎，免疫 ReDoS"
 
 [dependencies]
-sml-value = { version = "0.1.0-alpha.1", path = "../sml-value" }
+sml-value = { version = "0.6.9-dev.0", path = "../sml-value" }
 
 [dev-dependencies]
 # 仅测试需要：用 SML 解析器把规则源码变成 Value。

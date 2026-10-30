@@ -222,11 +222,11 @@ dependencies = [
 
 [[package]]
 name = "sml-codes"
-version = "0.1.0-alpha.2"
+version = "0.6.9-dev.0"
 
 [[package]]
 name = "sml-contract"
-version = "0.1.0-alpha.4"
+version = "0.6.9-dev.0"
 dependencies = [
  "sml-codes",
  "sml-pattern",
@@ -235,14 +235,14 @@ dependencies = [
 
 [[package]]
 name = "sml-feature"
-version = "0.1.0-alpha.3"
+version = "0.6.9-dev.0"
 dependencies = [
  "sml-value",
 ]
 
 [[package]]
 name = "sml-include"
-version = "0.1.0-alpha.3"
+version = "0.6.9-dev.0"
 dependencies = [
  "sml-codes",
  "sml-feature",
@@ -253,7 +253,7 @@ dependencies = [
 
 [[package]]
 name = "sml-lex"
-version = "0.1.0-alpha.4"
+version = "0.6.9-dev.0"
 dependencies = [
  "sml-codes",
  "sml-feature",
@@ -262,7 +262,7 @@ dependencies = [
 
 [[package]]
 name = "sml-parse"
-version = "0.1.0-alpha.4"
+version = "0.6.9-dev.0"
 dependencies = [
  "sml-codes",
  "sml-contract",
@@ -275,7 +275,7 @@ dependencies = [
 
 [[package]]
 name = "sml-pattern"
-version = "0.1.0-alpha.2"
+version = "0.6.9-dev.0"
 dependencies = [
  "sml-value",
  "swsml",
@@ -283,18 +283,18 @@ dependencies = [
 
 [[package]]
 name = "sml-regex"
-version = "0.1.0-alpha.3"
+version = "0.6.9-dev.0"
 
 [[package]]
 name = "sml-value"
-version = "0.1.0-alpha.3"
+version = "0.6.9-dev.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "smltools"
-version = "0.2.2"
+version = "0.6.9-dev.0"
 dependencies = [
  "clap",
  "sml-codes",
@@ -309,7 +309,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "swsml"
-version = "0.6.4"
+version = "0.6.9-dev.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -327,7 +327,7 @@ dependencies = [
 
 [[package]]
 name = "swsml-derive"
-version = "0.6.1"
+version = "0.6.9-dev.0"
 dependencies = [
  "proc-macro2",
  "quote",
