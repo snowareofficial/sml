@@ -1,4 +1,4 @@
-ok// —— `Value::Object` 的载体：默认 `BTreeMap`（保现状），开 `preserve_order` 才换保序实现 ——
+// —— `Value::Object` 的载体：默认 `BTreeMap`（保现状），开 `preserve_order` 才换保序实现 ——
 //
 // 做成**类型别名**而不是新类型，是为了让下游（sml-contract / sml-parse / swsml /
 // smltools）的写法在两种档位下**同一份源码**都能编译：只要它用到的 `Map` 方法
