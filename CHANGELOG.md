@@ -188,6 +188,14 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   诊断的 `line` 同理：无 include 带行号、有 include 为 `None`。
   要做成 `文件:行` 需给 `SmlError` 加文件限定位置，属后续。
 
+### 修复（`smltools` 雷3：`depth_of` 去重）
+
+- **库新增 `sml::depth_of(&Value)`**（根容器与标量各计 1），`smltools --lint` 的 `W-LINT-005`
+  改为调用它 —— 去掉 CLI 自写一份、与库等价逻辑两处易漂的分叉（TODO 雷 3 分叉类 5/6）。
+- 复核（2026-11-02）：`smltools/src` 真实代码 **0 处** `unwrap/expect/panic/unreachable`
+  （全在 `#[cfg(test)]`）；`--feature` 已接版本门控；`main.rs` 模块文档已更正。
+  仍剩 `lint.rs` 自写文本扫描待并库（未做）。
+
 ### ⚠️ 升级注意
 
 - `Diagnostic` 是公开结构体，**新增 `line` 字段**：只读取诊断的代码不受影响；
