@@ -20,7 +20,7 @@ pub trait SmlSerialize {
     /// 序列化为 SML 值；失败时返回错误说明（如 `flatten` 字段产出的不是块）。
     fn to_sml_value(&self) -> Result<Value, String>;
 
-    /// 序列化为 SML 文本（等价于 [`to_sml`] 作用于本类型生成的值）。
+    /// 序列化为 SML 文本（等价于 [`crate::to_sml`] 作用于本类型生成的值）。
     #[cfg(feature = "sml")]
     fn to_sml(&self) -> Result<String, String> {
         Ok(crate::to_sml(&self.to_sml_value()?))

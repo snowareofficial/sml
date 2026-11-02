@@ -22,6 +22,7 @@ use crate::emit::{
 };
 use sml_codes::SmlError;
 
+/// Slint backend options; the shared half lives in `base` ｜ Slint 后端选项；公共部分在 `base` 里（转义 / 完整文档 / 缩进）。
 #[derive(Debug, Clone)]
 pub struct SlintOptions {
     pub base: EmitOptions,
@@ -39,11 +40,20 @@ impl Default for SlintOptions {
 }
 
 impl SlintOptions {
+    /// All defaults: components without `inherits` fall back to `Window` ｜ 全默认值：没有 `inherits` 的组件基类回落到 `Window`。
     pub fn new() -> Self {
         Self::default()
     }
 }
 
+/// SML value → Slint markup ｜ SML 值 → Slint 标记文本。
+///
+/// 语义（元素名/属性/`on_<ev>` 回调的映射）见本文件顶部模块文档。
+/// 想让某个字段变成 **raw 表达式**（而不是数据字符串），SML 侧把值写成反引号包裹的串
+/// （即 `` `...` ``）—— SML 的裸词与引号串一律按数据处理，表达不了 Slint 表达式。
+///
+/// 错误：嵌套超过 [`MAX_VALUE_DEPTH`] ⇒ `E-LIMIT-004`；属性类型非法
+/// （Slint 不接受该类型的值）⇒ `E-CLI-007`。
 pub fn to_slint(v: &Value, opt: &SlintOptions) -> Result<String, SmlError> {
     let mut out = String::new();
     if let Value::Object(m) = v {

@@ -86,6 +86,7 @@ pub struct CustomOptions {
 }
 
 impl CustomOptions {
+    /// No rules, nothing excluded; fields with no matching rule are still rendered in source order ｜ 无规则、不排除任何字段；没有规则命中的字段仍按源序照常渲染。
     pub fn new() -> Self {
         CustomOptions {
             base: EmitOptions::default(),

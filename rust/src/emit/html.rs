@@ -55,6 +55,7 @@ impl Default for HtmlOptions {
 }
 
 impl HtmlOptions {
+    /// All defaults: standalone document, `lang="zh-CN"`, built-in CSS ｜ 全默认值：完整文档、`lang="zh-CN"`、内置排版 CSS。
     pub fn new() -> Self {
         Self::default()
     }

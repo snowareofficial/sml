@@ -992,6 +992,16 @@ type _CUnsignedLongLong = c_ulonglong;
 // 内部: JSON <-> Value (供 C-ABI 便捷桥)
 // ---------------------------------------------------------------------------
 
+/// Hand-rolled JSON writer behind the C-ABI JSON bridge (`sml_dump` & friends); never fails ｜ C-ABI JSON 桥（`sml_dump` 一族）背后的手写 JSON 写出器；不会失败。
+///
+/// 改这个函数前先读三条已踩过的坑（都是审计里红过的）：
+///
+/// - 控制字符（`0x00`–`0x1F`）必须转义成 `\u00XX`。早先只转义 `\` 与 `"`，
+///   含换行的字符串会被吐成**非法 JSON**，下游解析器必拒（C-ABI 审计 #1）。
+/// - `NaN` / `±inf` 不是合法 JSON 字面量，退化成 `null`（连 `Value::Float` 的
+///   raw 一起丢掉），既不破坏输出合法性，也明确标记「该值非有限数」（审计 #6）。
+/// - 键序沿用 `Value::Object` 的载体：默认 `BTreeMap` 已排序，开 `preserve_order`
+///   则是源序 —— 所以本函数的输出**不是**规范化的跨档稳定文本。
 pub fn jsonify(v: &Value) -> String {
     fn esc(s: &str) -> String {
         let mut out = String::with_capacity(s.len() + 2);
@@ -1042,6 +1052,19 @@ pub fn jsonify(v: &Value) -> String {
     }
 }
 
+/// Parse JSON text back into a [`Value`]; `None` on any error, with **no diagnostics** ｜ 把 JSON 文本解析回 [`Value`]；任何错误都只给 `None`，**没有诊断信息**。
+///
+/// 与 [`jsonify`] 是一对（`sml_dump` 收、`sml_dump_err` 等回）。四条实现约束：
+///
+/// - 只要 **UTF-8**：字符串先按字节收进 `buf`、收完整体解码，非法 UTF-8 直接 `None`
+///   —— 早先逐字节 `as char` 会把多字节字符二次编码成乱码（审计 #3）。
+/// - `\uXXXX` 解不出来（越界 / 非十六进制 / 非码点）**不报错**，写 `U+FFFD` 占位。
+/// - 数字先试 `i64`、失败再试 `f64` ⇒ 超出 `i64` 的整数会被 `f64` 接住、**精度不保证**。
+/// - 递归深度上限 128：不可信 JSON 能构造极深嵌套把宿主栈打爆（abort，不可 catch），
+///   超限返回 `None`（审计 #4）。
+///
+/// ⚠️ 解析完**不检查尾随内容**：`{"a":1} 垃圾` 仍返回 `Ok`-等价的 `Some`。
+/// 当作严格校验用会漏，需要严格性请走 `parse_*` 那一套（带码的 `SmlError`）。
 pub fn json_to_value(s: &str) -> Option<Value> {
     let bytes = s.as_bytes();
     let mut i = 0;
