@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! `swsml-derive` — SML (SNOWARE Markup Language) 的 derive 宏。
+//! `swsml-derive` — derive macros for SML (SNOWARE Markup Language). ｜ SML（SNOWARE Markup Language）的 derive 宏。
 //!
-//! 提供 [`SmlSerialize`] / [`SmlDeserialize`] 两个过程宏，把自定义结构体 /
-//! 枚举「自然地」映射为 SML 值：
+//! Provides two procedural macros, [`SmlSerialize`] / [`SmlDeserialize`], mapping your own structs / enums to SML values "naturally": ｜ 提供 [`SmlSerialize`] / [`SmlDeserialize`] 两个过程宏，把自定义结构体 / 枚举「自然地」映射为 SML 值：
 //!
 //! ```rust
 //! use sml::{SmlDeserialize, SmlSerialize};
@@ -34,7 +33,7 @@
 //! - 枚举单元变体 → 裸词（如 `status: active`）；
 //! - 枚举带数据变体 → 带 `__type` 的块（如 `shape { __type: Circle _value: 3.0 }`）。
 //!
-//! # 容器级属性（打在类型上）
+//! # Container-level attributes (applied to the type) ｜ 容器级属性（打在类型上）
 //!
 //! | 属性 | 作用 |
 //! |---|---|
@@ -60,7 +59,7 @@
 //! // let cfg = Server::from_file()?;
 //! ```
 //!
-//! # `flatten` 的语义与两个陷阱
+//! # `flatten` semantics and its two pitfalls ｜ `flatten` 的语义与两个陷阱
 //!
 //! `flatten` 让**字段自己的键消失**，把该字段子块的键**提升进父块**，省掉一层嵌套：
 //!

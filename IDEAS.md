@@ -100,6 +100,18 @@ Confirm the reading with the user before writing any code.
   这一条是把**未达标的**（纯中文或格式不整）补成统一约定，**单独一笔**收尾。
 - **Convention / 约定**：`English ｜ 中文`，一行说完，不写第二段。
 - **Scope / 范围**：先公开 API 注释，再按文件推进；一次只改一类，便于 review。
+- **口径已定（2026-11-02，用户拍板）**：只算 **docs.rs 可见面**（crate 根 `//!` + `pub` 项摘要，
+  即「会出现在文档站上的那部分」），**并扩到全部在发布的公开 crate** —— `swsml` / `swsml-derive` /
+  `sml-*` 全系 / `smltools`。私有模块的 `//!`（如 `sml-value::object`）与内部普通 `//` **不做**。
+- **第四批（2026-11-02）**：crate 根 `//!` 全线收口 —— 双语化 `sml-contract` / `sml-lex` /
+  `sml-pattern` / `smltools` / `sml-feature` / `sml-regex` / `sml-codes` / `swsml-derive`，
+  并**补写** `sml-include` 与 `sml-parse` 原本**缺失**的 crate 级 `//!`（这两处 docs.rs 首页此前是空的）；
+  另落若干高频 `pub` 项摘要（`suggest_contract_name` / `ext::TypeCheck` / `Tok` / `Class` /
+  `Object` / `Object::insert_or_merge` / `include::{parse,expand}` / `ext` 模块头）。
+  🔬 判别实验：改动前后各跑一次 `cargo doc --no-deps`，警告集合**完全一致**
+  （`sml-codes` 3 条 / `sml-parse` 5 条 / `swsml-derive` 1 条，均为既有坏链接）⇒ 本批**未引入**新警告。
+- **剩余**：各 crate 的 `pub` 项摘要仍有百级（`sml-value`、`sml-parse` 之外的 crate 基本没动），
+  建议**按 crate 分批**，每批一个提交。
 - **纪律 / 2026-10-31**：此笔**只动注释、不动逻辑**；改动与任何逻辑 diff 拆开独立提交。
 - **进展（2026-10-31 第一批，核心公开面）**：✅ `sml-value/src/lib.rs` 模块 doc + 公开项注解
   已由纯中文改为「English ｜ 中文」双语（中文照留，符合「还是支持中文」）；

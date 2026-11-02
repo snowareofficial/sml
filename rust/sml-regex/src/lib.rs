@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! SML 的**受限正则引擎**，零依赖。
+//! SML's **restricted regex engine**, zero dependencies. ｜ SML 的**受限正则引擎**，零依赖。
 //!
-//! 只服务于 `include /re/` 这一处：匹配文件名，不追求完整正则语义。
-//! 刻意不引入 `regex` crate —— 后者体积大且为 SML 的唯一功能点引入
-//! 一个重量级依赖并不划算；同时自研实现便于实施下面两道硬限制。
+//! Serves exactly one place — `include /re/` — to match file names; it does not aim for full regex semantics. It deliberately does not pull in the `regex` crate: that crate is large and a heavyweight dependency is not worth it for SML's single use case, while an in-house implementation makes the two hard limits below enforceable. ｜ 只服务于 `include /re/` 这一处：匹配文件名，不追求完整正则语义。刻意不引入 `regex` crate —— 后者体积大且为 SML 的唯一功能点引入一个重量级依赖并不划算；同时自研实现便于实施下面两道硬限制。
 //!
-//! 安全约束（审计 #3）：
-//! - `MAX_REGEX_LEN`：模式长度上限，杜绝超长模式；
-//! - `MAX_REGEX_STEPS`：回溯步数上限。无记忆化回溯在恶意模式
-//!   （如 `a*a*a*…*b`）下会指数级爆炸，超限即判为不匹配，而非挂死解析。
+//! Safety constraints (audit #3): ｜ 安全约束（审计 #3）：
+//! - `MAX_REGEX_LEN` — cap on pattern length, ruling out oversized patterns; ｜ 模式长度上限，杜绝超长模式；
+//! - `MAX_REGEX_STEPS` — cap on backtracking steps. Without memoisation, backtracking explodes exponentially on malicious patterns (e.g. `a*a*a*…*b`); exceeding the cap counts as "no match" instead of hanging the parse. ｜ 回溯步数上限。无记忆化回溯在恶意模式（如 `a*a*a*…*b`）下会指数级爆炸，超限即判为不匹配，而非挂死解析。
 
 /// 编译后的受限正则（只有模式串，匹配由 [`regex_matches`] 解释执行）。
 ///
