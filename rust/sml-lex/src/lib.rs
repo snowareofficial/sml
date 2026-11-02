@@ -36,7 +36,7 @@ pub enum Tok {
     Word(String),  // 裸词
 }
 
-/// 词法单元在原文中的区间（**字节**偏移，左闭右开）。
+/// A token's range in the source (**byte** offsets, half-open) ｜ 词法单元在原文中的区间（**字节**偏移，左闭右开）。
 ///
 /// 为什么单独存、而不塞进 `Tok`：`Tok` 是解析器与 `cond` 共用的形状定义，
 /// 给它加字段会把改动扩散到每一处 match。旁路表让「要不要位置」成为调用方的
@@ -95,7 +95,7 @@ impl<'a> Iterator for PosChars<'a> {
     }
 }
 
-/// 切词，**并**返回每个 token 在原文中的字节区间。
+/// Tokenize **and** return each token's byte range in the source ｜ 切词，**并**返回每个 token 在原文中的字节区间。
 ///
 /// 与 [`tokenize`] 是同一个扫描器、同一套判据，只是多记一份旁路区间；
 /// 需要错误定位的入口（解析器 / CLI / 编辑器）用它。
@@ -346,7 +346,7 @@ pub fn tokenize_spans(text: &str) -> Result<(Vec<Tok>, Vec<Span>), SmlError> {
     Ok((toks, spans))
 }
 
-/// 切词（不带位置）。
+/// Tokenize **without** positions ｜ 切词（不带位置）。
 ///
 /// 行为与加入 spans 之前**逐字一致**：内部就是 [`tokenize_spans`] 丢掉区间。
 /// 需要错误定位的入口改用 [`tokenize_spans`]。
@@ -354,9 +354,10 @@ pub fn tokenize(text: &str) -> Result<Vec<Tok>, SmlError> {
     tokenize_spans(text).map(|(t, _)| t)
 }
 
-/// 查环境变量：优先查本次解析的**覆盖表**（`env_overrides`），未命中才回落
-/// 到真实进程环境。覆盖表仅作用于本次解析，不修改进程环境（避免线程不安全的
-/// `std::env::set_var` 与跨解析污染）。
+/// Look an env var up: the parse-local **override table** wins, the real process env is the fallback ｜ 查环境变量：优先查本次解析的**覆盖表**。
+///
+/// 覆盖表仅作用于本次解析，不修改进程环境（避免线程不安全的
+/// `std::env::set_var` 与跨解析污染）。查不到时返回空串，**不报错**。
 pub fn lookup_env(overrides: Option<&BTreeMap<String, String>>, name: &str) -> String {
     if let Some(m) = overrides {
         if let Some(v) = m.get(name) {
@@ -366,7 +367,7 @@ pub fn lookup_env(overrides: Option<&BTreeMap<String, String>>, name: &str) -> S
     std::env::var(name).unwrap_or_default()
 }
 
-/// 把裸词 `w` 转为 Value。
+/// Coerce a bareword `w` into a `Value` ｜ 把裸词 `w` 转为 Value。
 ///
 /// 受 `features` 控制：关闭 `BarewordStr` 后纯字符串裸词（如 `John`）被拒绝，
 /// 必须写作 `"John"`；仍允许的非字符串裸词：bool / null / 数字 /
@@ -482,7 +483,7 @@ pub fn coerce_word(
 // 下沉自 `sml-parse::scan`：include 展开需要判断某位置是否在字符串内，
 // 而 sml-parse 已依赖 sml-include，留在 scan 会成环。
 
-/// 计算文本中所有字符串字面量的字节区间（含单引号/双引号、单行与多行三引号）。
+/// Byte ranges of every string literal (single / double quote, single- and multi-line triple quotes) ｜ 计算文本中所有字符串字面量的字节区间。
 /// 用于让「按行剥离指令」在字符串内部时跳过，避免破坏多行字符串数据
 /// （如 `note: "line1\n@version v1\nline2"` 中的 @version 被误当指令）。
 pub fn compute_string_spans(text: &str) -> Vec<(usize, usize)> {
@@ -533,7 +534,7 @@ pub fn compute_string_spans(text: &str) -> Vec<(usize, usize)> {
     spans
 }
 
-/// 判断 `line` 起始字节 `start` 是否落在任一字符串区间内（字符串内的行不算指令）。
+/// Whether byte offset `start` falls inside any string span (a line inside a string is not a directive) ｜ 判断 `line` 起始字节 `start` 是否落在任一字符串区间内。
 pub fn line_starts_in_string(_text: &str, start: usize, spans: &[(usize, usize)]) -> bool {
     // 指令通常位于行首（可有缩进）。检测起始位置是否在字符串内即可。
     //
@@ -549,7 +550,7 @@ pub fn line_starts_in_string(_text: &str, start: usize, spans: &[(usize, usize)]
     }
 }
 
-/// 计算文本中所有**块注释**（`/* … */` 与 `_* … *_`）的字节区间。
+/// Byte ranges of every **block comment** (`/* … */` and `_* … *_`) ｜ 计算文本中所有**块注释**的字节区间。
 ///
 /// 与 [`compute_string_spans`] 并列存在，理由也一样：**跨行**的块注释会让"逐行"处理失明。
 /// `sml-include` 现在按"跨行单元合并后的段"来词法（见 `expand.rs` 的 `segments`），
@@ -611,7 +612,7 @@ pub fn compute_block_comment_spans(text: &str) -> Vec<(usize, usize)> {
     spans
 }
 
-/// 推进到下一行的起始字节偏移（处理 \n；CRLF 也兼容）。
+/// Advance to the next line's starting byte offset (handles `\n`, `\r\n` and lone `\r`) ｜ 推进到下一行的起始字节偏移。
 pub fn advance_line(mut start: usize, line: &str, text: &str) -> usize {
     start += line.len();
     if text[start..].starts_with('\n') {

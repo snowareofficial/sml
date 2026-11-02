@@ -55,7 +55,7 @@ use sml_codes::{
 /// `swsml`，为一个整数把 `sml-value` 拉成直接依赖并不划算；上游两处也是这么做的。
 const MAX_DEPTH: usize = 128;
 
-/// 从 XML 文本解析出 `Value`。顶层是「根元素名 → 元素对象」的单键对象。
+/// Parse XML text into a `Value`; the top level is a single-key object `root-element → element object` ｜ 从 XML 文本解析出 `Value`。
 ///
 /// 空文档（只有空白 / 注释 / 声明）返回空对象 —— SML 顶层须为容器。
 /// 一切错误都是带码的 [`SmlError`]（`第 N 行（字符偏移 M）：说明 [码]`），本模块不 panic。

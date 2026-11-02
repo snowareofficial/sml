@@ -72,7 +72,7 @@ struct Line {
     no: usize,
 }
 
-/// 从文本解析 YAML 子集。空文档按空对象返回（SML 顶层须为容器）。
+/// Parse the YAML subset; an empty document becomes an empty object (SML requires a container at top level) ｜ 从文本解析 YAML 子集。
 pub fn parse(text: &str) -> Result<Value, SmlError> {
     let mut p = Parser {
         lines: preprocess(text),

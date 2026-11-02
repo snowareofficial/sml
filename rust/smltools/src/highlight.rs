@@ -62,7 +62,7 @@ fn broken_asset(msg: impl Into<String>) -> SmlError {
 /// `rust/smltools/assets/baseline.tmLanguage.json`（见该目录 README）。
 const BASELINE: &str = include_str!("../assets/baseline.tmLanguage.json");
 
-/// 一份生成产物：**相对路径** + 内容。调用方负责落盘。
+/// One generated artifact: **relative path** + content; the caller writes it to disk ｜ 一份生成产物：**相对路径** + 内容。
 ///
 /// 路径是相对的（如 `syntaxes/sml.tmLanguage.json`、`zed/themes/sml.json`），
 /// 因为一个定制包会展开成多个文件、分布在 VSIX 与 Zed 两种目录结构下。
@@ -80,7 +80,7 @@ struct Rule {
     anchor: Option<(String, bool)>,
 }
 
-/// 在基线上增补，返回完整的 tmLanguage JSON 文本。
+/// Extend the built-in baseline and return the complete tmLanguage JSON text ｜ 在基线上增补，返回完整的 tmLanguage JSON 文本。
 ///
 /// 入参是**已解析**的定制数据（`--to tmlanguage` 走的是与其它后端同样的解析路径）。
 pub fn generate(custom: &Value) -> Result<String, SmlError> {
@@ -487,7 +487,7 @@ fn zed_highlights(custom: &Value) -> Result<String, SmlError> {
     Ok(s)
 }
 
-/// 生成**编辑器定制包**：一份或多份产物。
+/// Generate the **editor customisation bundle**: one or more artifacts ｜ 生成**编辑器定制包**：一份或多份产物。
 ///
 /// 两种消费方式对应两类产物：
 /// - **就地生效**：`vscode/settings.fragment.json` 粘进项目的 `.vscode/settings.json`
