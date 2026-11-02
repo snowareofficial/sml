@@ -135,7 +135,7 @@ fn resolve_input_format(
     match explicit {
         // `E-CLI-001`：显式指定时取值校验；按扩展名推断不会走到这里。
         Some(s) => InputFormat::parse(s).ok_or_else(|| {
-            SmlError::new(E_CLI_001, format!("unknown input format `{s}` (sml|json|toml|yaml|xml)"))
+            SmlError::from_code_msg(E_CLI_001).with_detail(format!("`{s}`（sml|json|toml|yaml|xml）"))
         }),
         None => Ok(InputFormat::detect(input)),
     }
@@ -372,19 +372,17 @@ fn load_input(text: &str, args: &Args) -> Result<Value, SmlError> {
 fn convert_dir(dir: &Path, args: &Args) -> Result<usize, SmlError> {
     // E-CLI-005：缺省输出会污染源目录，故直接拒绝而不是猜。
     let out_dir = args.output.as_ref().ok_or_else(|| {
-        SmlError::new(
-            E_CLI_005,
-            "目录模式下必须用 -o/--output 指定输出目录（避免污染源目录）",
-        )
+        SmlError::from_code_msg(E_CLI_005)
+            .with_detail("目录模式下必须用 -o/--output 指定输出目录（避免污染源目录）")
     })?;
     // E-IO-003：写入文件或创建目录失败。
     std::fs::create_dir_all(out_dir)
-        .map_err(|e| SmlError::new(E_IO_003, format!("mkdir {}: {e}", out_dir.display())))?;
+        .map_err(|e| SmlError::from_code_msg(E_IO_003).with_detail(format!("{}: {e}", out_dir.display())))?;
 
     let want = args.input_format;
     // E-IO-004：目录批量模式的入口，与单文件读取失败（E-IO-001）分开。
     let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)
-        .map_err(|e| SmlError::new(E_IO_004, format!("read_dir {}: {e}", dir.display())))?
+        .map_err(|e| SmlError::from_code_msg(E_IO_004).with_detail(format!("{}: {e}", dir.display())))?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| {
             p.is_file()
@@ -400,7 +398,7 @@ fn convert_dir(dir: &Path, args: &Args) -> Result<usize, SmlError> {
     for p in entries {
         // E-IO-001：读取失败（文档入口）。
         let text = std::fs::read_to_string(&p)
-            .map_err(|e| SmlError::new(E_IO_001, format!("read {}: {e}", p.display())))?;
+            .map_err(|e| SmlError::from_code_msg(E_IO_001).with_detail(format!("{}: {e}", p.display())))?;
         // 用 context 补上文件名前缀而**保留内层码**（不能 format 成 String 否则码会丢）。
         let value = load_input(&text, args).map_err(|e| e.context(&format!("{}: ", p.display())))?;
         let value = if args.strip { strip_value(&value) } else { value };
@@ -410,7 +408,7 @@ fn convert_dir(dir: &Path, args: &Args) -> Result<usize, SmlError> {
         let out_path = out_dir.join(format!("{stem}.{}", args.format.name()));
         // E-IO-003：写入失败。
         std::fs::write(&out_path, out)
-            .map_err(|e| SmlError::new(E_IO_003, format!("write {}: {e}", out_path.display())))?;
+            .map_err(|e| SmlError::from_code_msg(E_IO_003).with_detail(format!("{}: {e}", out_path.display())))?;
         eprintln!("{} -> {}", p.display(), out_path.display());
         n += 1;
     }
@@ -468,10 +466,8 @@ struct Args {
 fn parse_args(cli: Cli) -> Result<Args, SmlError> {
     // E-CLI-002：输出格式取值未知（文案附带全部可用取值）。
     let format = Format::parse(&cli.format).ok_or_else(|| {
-        SmlError::new(
-            E_CLI_002,
-            format!("unknown format `{}` (可选：{})", cli.format, Format::names()),
-        )
+        SmlError::from_code_msg(E_CLI_002)
+            .with_detail(format!("`{}`（可选：{}）", cli.format, Format::names()))
     })?;
     let input_format = resolve_input_format(cli.from.as_deref(), cli.input.as_deref())?;
     let feature = match cli.feature.as_deref() {
@@ -484,10 +480,8 @@ fn parse_args(cli: Cli) -> Result<Args, SmlError> {
                 "v4" | "4" => Version::V4,
                 // E-FEATURE-004：命令行传入非法版本名归此码（不是新的语言错误）。
                 _ => {
-                    return Err(SmlError::new(
-                        E_FEATURE_004,
-                        format!("unknown feature version `{v}` (v1..v4)"),
-                    ))
+                    return Err(SmlError::from_code_title(E_FEATURE_004)
+                        .with_detail(format!("`{v}`（v1..v4）")))
                 }
             };
             Some(ver)
@@ -520,7 +514,7 @@ fn read_input(input: &Option<PathBuf>) -> Result<String, SmlError> {
     match input {
         // E-IO-001：读取文件失败（文档入口；include 展开那条读取路径同码）。
         Some(p) => std::fs::read_to_string(p)
-            .map_err(|e| SmlError::new(E_IO_001, format!("read {}: {e}", p.display()))),
+            .map_err(|e| SmlError::from_code_msg(E_IO_001).with_detail(format!("{}: {e}", p.display()))),
         None => {
             // 没有 -i 时从 stdin 读。但 stdin 若是交互式终端（无管道/重定向），
             // read_to_string 会无限等待用户输入，表现为“卡死”。
@@ -536,13 +530,14 @@ fn read_input(input: &Option<PathBuf>) -> Result<String, SmlError> {
             match rx.recv_timeout(std::time::Duration::from_millis(500)) {
                 Ok(Ok(s)) => Ok(s),
                 // E-IO-006：读取标准输入失败。
-                Ok(Err(e)) => Err(SmlError::new(E_IO_006, format!("read stdin: {e}"))),
+                Ok(Err(e)) => Err(SmlError::from_code_msg(E_IO_006).with_detail(format!("{e}"))),
                 // E-IO-005：用法提示而非读文件失败 —— 标准输入是终端且未给输入文件时给出。
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(SmlError::new(
-                    E_IO_005,
-                    "未检测到输入：请用 `-i <file.sml>` 指定文件，或用管道 `cat x.sml | smltools`。\n\
-                     运行 `smltools --help` 查看完整用法。",
-                )),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(
+                    SmlError::from_code_msg(E_IO_005).with_detail(
+                        "请用 `-i <file.sml>` 指定文件，或用管道 `cat x.sml | smltools`。\n\
+                         运行 `smltools --help` 查看完整用法。",
+                    ),
+                ),
                 // E-IO-006：通道中断（码表把它与「读取失败」合为一条）。
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     Err(SmlError::from_code_msg(E_IO_006))
@@ -667,10 +662,8 @@ fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, SmlError> {
         // 定制包是一对多的（多文件、多目录），无法用「返回一个字符串」的 emit 表达，
         // 由 main 单独处理（见那里的 generate_package 分支）。
         // E-INTERNAL-001：走到了不应到达的分支（main 本应先拦截）。
-        Format::Highlight => Err(SmlError::new(
-            E_INTERNAL_001,
-            "internal: 编辑器定制包由 main 单独处理（多文件输出）",
-        )),
+        Format::Highlight => Err(SmlError::from_code_msg(E_INTERNAL_001)
+            .with_detail("编辑器定制包由 main 单独处理（多文件输出）")),
         Format::Xml => {
             let opt = XmlOptions {
                 base: EmitOptions {
@@ -718,14 +711,12 @@ fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, SmlError> {
             // 自定义生成器需要规则文件：读取 → 解析 → 构建 CustomOptions
             // E-CLI-003：依赖项缺失（`--to custom` 必须配 `--custom-rules`）。
             let rules_path = args.custom_rules.as_ref().ok_or_else(|| {
-                SmlError::new(
-                    E_CLI_003,
-                    "`--to custom` 需要配合 `--custom-rules <file.sml>` 指定规则文档",
-                )
+                SmlError::from_code_title(E_CLI_003)
+                    .with_detail("`--to custom` 需要配合 `--custom-rules <file.sml>` 指定规则文档")
             })?;
             // E-IO-001：规则文件读取失败（与文档入口同格）。
             let rules_text = std::fs::read_to_string(rules_path).map_err(|e| {
-                SmlError::new(E_IO_001, format!("read {}: {e}", rules_path.display()))
+                SmlError::from_code_msg(E_IO_001).with_detail(format!("{}: {e}", rules_path.display()))
             })?;
             // E-CLI-006：规则文档本身是 SML，解析失败的内层原因是 E-LEX-* / E-PARSE-*
             // （内层文案随消息一并保留，外层码换成「规则文档解析失败」）。
@@ -750,7 +741,7 @@ fn write_hugo(
 ) -> Result<(), SmlError> {
     // E-INTERNAL-001：走到了不应到达的分支（调用点应已保证 --hugo 存在）。
     let hugo_dir = args.hugo.as_ref().ok_or_else(|| {
-        SmlError::new(E_INTERNAL_001, "internal: write_hugo called without --hugo")
+        SmlError::from_code_msg(E_INTERNAL_001).with_detail("write_hugo called without --hugo")
     })?;
 
     // 计算文件名/标题：--title > 文档顶层 title 字段 > 输入文件名 stem > "doc"
@@ -767,7 +758,7 @@ fn write_hugo(
     }
     // E-IO-003：写入文件或创建目录失败。
     std::fs::create_dir_all(&dest)
-        .map_err(|e| SmlError::new(E_IO_003, format!("mkdir {}: {e}", dest.display())))?;
+        .map_err(|e| SmlError::from_code_msg(E_IO_003).with_detail(format!("{}: {e}", dest.display())))?;
     let out_path = dest.join(format!("{stem}.md"));
 
     let title = args
@@ -781,7 +772,7 @@ fn write_hugo(
     );
     let content = format!("{fm}{body}");
     std::fs::write(&out_path, content)
-        .map_err(|e| SmlError::new(E_IO_003, format!("write {}: {e}", out_path.display())))?;
+        .map_err(|e| SmlError::from_code_msg(E_IO_003).with_detail(format!("{}: {e}", out_path.display())))?;
     eprintln!("wrote {}", out_path.display());
     Ok(())
 }
@@ -800,7 +791,7 @@ fn write_zola(
 ) -> Result<(), SmlError> {
     // E-INTERNAL-001：走到了不应到达的分支（调用点应已保证 --zola 存在）。
     let zola_dir = args.zola.as_ref().ok_or_else(|| {
-        SmlError::new(E_INTERNAL_001, "internal: write_zola called without --zola")
+        SmlError::from_code_msg(E_INTERNAL_001).with_detail("write_zola called without --zola")
     })?;
 
     let inferred = infer_title(value, input_path, &args.title);
@@ -812,7 +803,7 @@ fn write_zola(
     }
     // E-IO-003：写入文件或创建目录失败。
     std::fs::create_dir_all(&dest)
-        .map_err(|e| SmlError::new(E_IO_003, format!("mkdir {}: {e}", dest.display())))?;
+        .map_err(|e| SmlError::from_code_msg(E_IO_003).with_detail(format!("{}: {e}", dest.display())))?;
     let out_path = dest.join(format!("{stem}.md"));
 
     let title = args
@@ -826,7 +817,7 @@ fn write_zola(
     );
     let content = format!("{fm}{body}");
     std::fs::write(&out_path, content)
-        .map_err(|e| SmlError::new(E_IO_003, format!("write {}: {e}", out_path.display())))?;
+        .map_err(|e| SmlError::from_code_msg(E_IO_003).with_detail(format!("{}: {e}", out_path.display())))?;
     eprintln!("wrote {}", out_path.display());
 
     // 可选：生成后调用 `zola build` 渲染静态站点。
@@ -835,9 +826,8 @@ fn write_zola(
         let zola = match which_zola() {
             Some(p) => p,
             None => {
-                return Err(SmlError::new(
-                    E_IO_007,
-                    "--zola-build 需要本机安装 `zola`（未找到，请先安装或将 zola 加入 PATH）",
+                return Err(SmlError::from_code_msg(E_IO_007).with_detail(
+                    "`--zola-build` 需要本机安装 `zola`（请先安装或加入 PATH）",
                 ))
             }
         };
@@ -846,12 +836,10 @@ fn write_zola(
             .arg("build")
             .current_dir(zola_dir)
             .status()
-            .map_err(|e| SmlError::new(E_IO_007, format!("无法启动 zola: {e}")))?;
+            .map_err(|e| SmlError::from_code_msg(E_IO_007).with_detail(format!("{e}")))?;
         if !status.success() {
-            return Err(SmlError::new(
-                E_IO_007,
-                format!("zola build 失败 (exit {:?})", status.code()),
-            ));
+            return Err(SmlError::from_code_msg(E_IO_007)
+                .with_detail(format!("zola build 失败（exit {:?}）", status.code())));
         }
         eprintln!("zola build 完成");
     }
@@ -1024,7 +1012,7 @@ fn real_main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
         Err(e) => {
-            let err = SmlError::new(E_CLI_008, e.render().to_string());
+            let err = SmlError::from_code_msg(E_CLI_008).with_detail(e.render().to_string());
             eprintln!("smltools: {err}");
             return ExitCode::from(2);
         }
@@ -1160,13 +1148,13 @@ fn real_main() -> ExitCode {
             let p = out_dir.join(&it.path);
             if let Some(parent) = p.parent() {
                 if let Err(e) = std::fs::create_dir_all(parent) {
-                    let e = SmlError::new(E_IO_003, format!("mkdir {}: {e}", parent.display()));
+                    let e = SmlError::from_code_msg(E_IO_003).with_detail(format!("{}: {e}", parent.display()));
                     eprintln!("smltools: {e}");
                     return ExitCode::from(2);
                 }
             }
             if let Err(e) = std::fs::write(&p, &it.content) {
-                let e = SmlError::new(E_IO_003, format!("write {}: {e}", p.display()));
+                let e = SmlError::from_code_msg(E_IO_003).with_detail(format!("{}: {e}", p.display()));
                 eprintln!("smltools: {e}");
                 return ExitCode::from(2);
             }

@@ -42,14 +42,16 @@ use sml_codes::{SmlError, E_EXT_007, E_INTERNAL_002};
 
 /// E-EXT-007：编辑器定制文档非法（作用域名、规则锚点、颜色取值不符规范）。
 fn bad_doc(msg: impl Into<String>) -> SmlError {
-    SmlError::new(E_EXT_007, msg)
+    let m: String = msg.into();
+    SmlError::from_code_msg(E_EXT_007).with_detail(m)
 }
 
 /// E-INTERNAL-002：内置资源损坏（内置高亮基线不是合法 JSON、缺少必需字段）。
 ///
 /// 这类错误用户无解，只能升级或重装；出现即打包或构建事故。
 fn broken_asset(msg: impl Into<String>) -> SmlError {
-    SmlError::new(E_INTERNAL_002, msg)
+    let m: String = msg.into();
+    SmlError::from_code_msg(E_INTERNAL_002).with_detail(m)
 }
 
 /// 原版高亮基线。

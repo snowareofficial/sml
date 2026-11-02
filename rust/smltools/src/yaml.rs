@@ -27,17 +27,20 @@ use sml_codes::{SmlError, E_MIGRATE_013, E_MIGRATE_014, E_MIGRATE_015, E_MIGRATE
 
 /// E-MIGRATE-013：YAML 结构非法（意外内容、不是键值形式、缩进过深、流式结构后有多余字符）。
 fn structure(msg: impl Into<String>) -> SmlError {
-    SmlError::new(E_MIGRATE_013, msg)
+    let m: String = msg.into();
+    SmlError::from_code_msg(E_MIGRATE_013).with_detail(m)
 }
 
 /// E-MIGRATE-014：YAML 流式结构未闭合。
 fn unclosed_flow(msg: impl Into<String>) -> SmlError {
-    SmlError::new(E_MIGRATE_014, msg)
+    let m: String = msg.into();
+    SmlError::from_code_msg(E_MIGRATE_014).with_detail(m)
 }
 
 /// E-MIGRATE-015：别名引用了未定义的锚点。
 fn undefined_alias(msg: impl Into<String>) -> SmlError {
-    SmlError::new(E_MIGRATE_015, msg)
+    let m: String = msg.into();
+    SmlError::from_code_msg(E_MIGRATE_015).with_detail(m)
 }
 
 /// E-MIGRATE-016：流式结构里出现非法 UTF-8。
@@ -47,11 +50,13 @@ fn undefined_alias(msg: impl Into<String>) -> SmlError {
 /// （SML 自己的转义严格性走 `E-LEX-004`）。刻意**不复用** `E-MIGRATE-013` ——
 /// 那条码的标题与文案是「YAML 结构非法」，把转义塞进去等于改一条已发布码的含义。
 fn bad_escape(msg: impl Into<String>) -> SmlError {
-    SmlError::new(E_MIGRATE_018, msg)
+    let m: String = msg.into();
+    SmlError::from_code_msg(E_MIGRATE_018).with_detail(m)
 }
 
 fn bad_utf8(msg: impl Into<String>) -> SmlError {
-    SmlError::new(E_MIGRATE_016, msg)
+    let m: String = msg.into();
+    SmlError::from_code_msg(E_MIGRATE_016).with_detail(m)
 }
 
 /// 预处理后的一行。
