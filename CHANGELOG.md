@@ -203,6 +203,10 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   `smltools` 的 4 处静态中文报错已改为走表（`E-MIGRATE-017` / `E-IO-006` / `E-CLI-003` ×2）。
   其余调用点仍直拼中文（I-11 ② 待续；`sml-include` 等 crate 用 `default-features = false` 依赖
   `sml-codes`，其 `zh` 关时表为英文，转换前需先定该 crate 的默认语言）。
+- **第二批（`sml-include` 全量）**：`expand.rs` / `parse.rs` 共 **24 处**报错改为
+  `from_code_msg` / `from_code_title` + `with_detail`。按决策 **B（各 crate 默认英文，中文只在
+  `swsml` / `smltools` 顶层）**，`sml-include` 单独构建时文案取自英文表；动态上下文（路径、上限、
+  行号）仍经 `with_detail` 保留。全量回归绿（仅本地 `_stack_probe` 探针红）。
 
 ### ⚠️ 升级注意
 

@@ -345,7 +345,7 @@ rectangle            size 2    rect1   tls                      { … }
 
 ## I-11 中文支持完善，且可剥离 / zh support, detachable
 
-- **Status / 状态**：`Partial`（中文能用）；查表层 `Done`（2026-10-31 复核）；**剥离（表层）= Done**（2026-11-02，`sml-codes` 的 `zh` feature）；**调用侧硬编码中文 → 改走文案表**：**第一批已落地**（2026-11-02，`SmlError::from_code_title`/`from_code_msg`/`with_detail` + `smltools` 4 处静态文案），其余调用点仍 `Todo`（第 ② 项）。
+- **Status / 状态**：`Partial`（中文能用）；查表层 `Done`（2026-10-31 复核）；**剥离（表层）= Done**（2026-11-02，`sml-codes` 的 `zh` feature）；**调用侧硬编码中文 → 改走文案表**：**两批已落地**（2026-11-02）——第一批 `SmlError::from_code_title`/`from_code_msg`/`with_detail` + `smltools` 4 处静态文案；第二批 `sml-include` **全量 24 处**（按决策 **B**：该 crate 默认英文，动态细节仍经 `with_detail` 保留）。其余 crate（`sml-lex`/`sml-parse`/`sml-contract`）仍 `Todo`（第 ② 项）。
 - **Idea / 想法**：中文支持再补完善；同时把中文这一层做成**可剥离**的
   （英文用户 / 嵌入式场景可以不带，只留语言中立的错误码）。
 - **Now / 现状**：
