@@ -43,7 +43,7 @@ pub trait TypeCheck: Send + Sync + std::fmt::Debug {
     fn check(&self, v: &Value) -> Result<(), String>;
 }
 
-/// 外置**字段修饰符**：如 `items_max 20`（数组元素个数上限）。
+/// An external **field modifier**, e.g. `items_max 20` (array element cap) ｜ 外置**字段修饰符**：如 `items_max 20`（数组元素个数上限）。
 ///
 /// 为什么需要它：`max` 在 SML 契约里是**数值上界**，且数组不参与 min/max 校验；
 /// 下游想把 `max` 当"个数上限"用就会与核心语义撞车。扩展点让这类需求
@@ -117,7 +117,7 @@ impl<'a> GroupView<'a> {
         }
     }
 
-    /// 该字段是否被用户**显式**写出（不看 `default`）。
+    /// Whether the user **explicitly wrote** this field (`default`-filled values don't count) ｜ 该字段是否被用户**显式**写出（不看 `default`）。
     pub fn is_present(&self, name: &str) -> bool {
         self.present.contains_key(name)
     }
@@ -126,7 +126,8 @@ impl<'a> GroupView<'a> {
 /// Built-in modifier names — reserved so an extension can't rewrite core semantics ｜ 内置修饰符名。禁止外置扩展占用，避免改写核心语义。
 pub const BUILTIN_MODIFIERS: &[&str] = &["optional", "required", "default", "min", "max"];
 
-/// 前缀放行修饰符 **`x_only "<prefix>"`**：`loose` / `warn` 下允许额外键，
+/// Prefix allow-list modifier **`x_only "<prefix>"`**: under `loose` / `warn`, extra keys are allowed ｜ 前缀放行修饰符 **`x_only "<prefix>"`**。
+///
 /// 但**只允许以该前缀开头**的那些；其余额外键仍报错（复用 `E-CONTRACT-011`）。
 ///
 /// 与 `strict` **互斥**：`strict` 下额外键先被 `E-CONTRACT-004` 拦下，本修饰符的
@@ -218,12 +219,12 @@ impl ContractExt {
         Ok(())
     }
 
-    /// 按名取出一份 **Arc 克隆**（供塞进 `FieldSpec`）。
+    /// Get an **`Arc` clone** of a registered type by name (to store inside a `FieldSpec`) ｜ 按名取出一份 **Arc 克隆**（供塞进 `FieldSpec`）。
     pub fn type_arc(&self, name: &str) -> Option<Arc<dyn TypeCheck + 'static>> {
         self.types.get(name).cloned()
     }
 
-    /// 按名取出一份 **Arc 克隆**（供塞进 `FieldSpec`）。
+    /// Get an **`Arc` clone** of a registered modifier by name (to store inside a `FieldSpec`) ｜ 按名取出一份 **Arc 克隆**（供塞进 `FieldSpec`）。
     pub fn modifier_arc(&self, name: &str) -> Option<Arc<dyn Modifier + 'static>> {
         self.modifiers.get(name).cloned()
     }
@@ -248,7 +249,7 @@ impl ContractExt {
 // 数组元素**个数**下界（I-7 缺口②上半）
 // ---------------------------------------------------------------------------
 
-/// 修饰符 **`items_min <n>`**：数组元素的**个数下限**（至少有 `n` 项）。
+/// Modifier **`items_min <n>`**: lower bound on **element count** (at least `n` items) ｜ 修饰符 **`items_min <n>`**：数组元素的**个数下限**（至少有 `n` 项）。
 ///
 /// 它与 `items_max`（个数上限，见教科书扩展点的示例）成对，同样**刻意不姓 min/max**：
 /// `min` / `max` 在 SML 契约里是**数值区间**语义，而数组根本不参与数值校验，
@@ -394,7 +395,7 @@ fn check_mutual_exclusion(name: &str, view: &GroupView<'_>, require_one: bool) -
     }
 }
 
-/// 互斥修饰符 **`one_of [ a b c ]`**：组内**至多一个**字段可出现。
+/// Mutual-exclusion modifier **`one_of [ a b c ]`**: at most one field of the group may appear ｜ 互斥修饰符 **`one_of [ a b c ]`**：组内**至多一个**字段可出现。
 ///
 /// - 出现 ≥2 个 ⇒ 报错（码 `E-CONTRACT-011`，与其余外置修饰符同一码）；
 /// - 恰好 1 个 ⇒ 通过；
@@ -417,8 +418,9 @@ impl Modifier for OneOf {
     }
 }
 
-/// 互斥修饰符 **`exactly_one [ a b c ]`**：组内**恰好一个**字段须出现
-/// （0 个或 ≥2 个都报错）。它是 [`OneOf`] 的「必填版」。
+/// Mutual-exclusion modifier **`exactly_one [ a b c ]`**: exactly one field of the group must appear ｜ 互斥修饰符 **`exactly_one [ a b c ]`**：组内**恰好一个**字段须出现。
+///
+/// 0 个或 ≥2 个都报错。它是 [`OneOf`] 的「必填版」。
 ///
 /// ⚠️ 陷阱：因为「出现」= **用户显式写出**、`default` 回填不算，
 /// 给组内每个成员都写 `default` 会让本修饰符**恒失败**。想要「不写也给个兜底值」，
@@ -438,7 +440,7 @@ impl Modifier for ExactlyOne {
     }
 }
 
-/// 计数修饰符 **`any_of [ a b c ]`**：组内**至少一个**字段须出现（同时出现多个 ⇒ 放行）。
+/// Count modifier **`any_of [ a b c ]`**: at least one field of the group must appear (several is fine) ｜ 计数修饰符 **`any_of [ a b c ]`**：组内**至少一个**字段须出现（同时出现多个 ⇒ 放行）。
 ///
 /// 它与 [`OneOf`]（至多一个）、[`ExactlyOne`]（恰好一个）凑成完整三件套 ——
 /// **至多一 / 恰好一 / 至少一**，三条各自独立、不互相包含：
@@ -482,7 +484,7 @@ fn check_at_least_one(name: &str, view: &GroupView<'_>) -> Result<(), String> {
     Ok(())
 }
 
-/// 依赖修饰符 **`depends_on b`**（或 `depends_on [ b c ]`）：**本字段出现 ⇒ 所列字段必须出现**。
+/// Dependency modifier **`depends_on b`** (or `depends_on [ b c ]`): **this field appears ⇒ the listed ones must too** ｜ 依赖修饰符 **`depends_on b`**（或 `depends_on [ b c ]`）：**本字段出现 ⇒ 所列字段必须出现**。
 ///
 /// 写法上挂在**依赖方**字段上，语义表（`a` = 挂本修饰符的字段，`b` = 依赖目标）：
 ///

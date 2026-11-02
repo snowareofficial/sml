@@ -12,7 +12,7 @@
 
 use std::fmt;
 
-/// SML 语法版本
+/// SML syntax version ｜ SML 语法版本。
 ///
 /// SML 源于 eclog，演进中通过 `@version` 声明文档遵循的语法版本，
 /// 使解析器能在将来引入 v2 不兼容语法时仍正确读取旧文档。
@@ -37,15 +37,15 @@ pub enum Version {
 }
 
 impl Version {
-    /// 当前实现支持的最新版本
+    /// Newest version this implementation supports ｜ 当前实现支持的最新版本。
     pub const CURRENT: Version = Version::V4;
 
-    /// 是否要求字符串显式引号（v2 / v3 为严格模式）
+    /// Whether strings must be explicitly quoted (`v2` onward; `v1` is the relaxed one) ｜ 是否要求字符串显式引号（v2 起为严格模式）。
     pub fn strict_strings(self) -> bool {
         self >= Version::V2
     }
 
-    /// 解析版本字面量（`v1`/`1`、`v2`/`2`、`v3`/`3`、`v4`/`4`）
+    /// Parse a version literal: `v1`/`1` … `v4`/`4`; anything else is `None` ｜ 解析版本字面量（`v1`/`1`、`v2`/`2`、`v3`/`3`、`v4`/`4`）。
     pub fn from_word(w: &str) -> Option<Version> {
         match w {
             "v1" | "1" => Some(Version::V1),
@@ -56,7 +56,7 @@ impl Version {
         }
     }
 
-    /// 版本名（用于错误信息与序列化回显）
+    /// Version name, i.e. `"v1"`…`"v4"` (for error messages / round-trip echo) ｜ 版本名（用于错误信息与序列化回显）。
     pub fn name(self) -> &'static str {
         match self {
             Version::V1 => "v1",
@@ -85,7 +85,7 @@ impl fmt::Display for Version {
 // 用 `ps.features.has(Feature::Xxx)` 判定即可，无需散落大量 if。
 // ===========================================================================
 
-/// 单个特性标识。与 [`FEATURES`] 表一一对应；改表即改全端。
+/// One feature flag, mirrored 1:1 by [`FEATURES`] — change the table and every binding follows ｜ 单个特性标识。与 [`FEATURES`] 表一一对应；改表即改全端。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Feature {
     /// 裸词即字符串（v1 行为）。v2/v3 关闭后字符串必须加引号。
@@ -179,14 +179,14 @@ pub enum Feature {
     BlockName,
 }
 
-/// 返回全部已注册特性的名字，顺序与 [`FEATURES`]（即特性位序）一致。
+/// All registered feature names, in [`FEATURES`] order (i.e. bit order) ｜ 返回全部已注册特性的名字，顺序与 [`FEATURES`]（即特性位序）一致。
 ///
 /// C-ABI 的 `sml_feature_name(bit)` 依赖此顺序，测试中有对应守护用例。
 pub fn feature_names() -> Vec<&'static str> {
     FEATURES.iter().map(|(n, _)| *n).collect()
 }
 
-/// 特性名 → 枚举 的注册表。所有端共用同一组名字，保证跨语言一致。
+/// Name → enum registry. All bindings share one set of names, so the wire form matches ｜ 特性名 → 枚举 的注册表。所有端共用同一组名字，保证跨语言一致。
 pub static FEATURES: &[(&str, Feature)] = &[
     ("bareword-string", Feature::BarewordStr),
     ("include", Feature::Include),
@@ -208,12 +208,12 @@ pub static FEATURES: &[(&str, Feature)] = &[
 ];
 
 impl Feature {
-    /// 按名字查特性；未知名字返回 None（调用方据此报错，杜绝静默 typo）。
+    /// Look a feature up by name; `None` for unknown names so callers can error instead of silently accepting a typo ｜ 按名字查特性；未知名字返回 None（调用方据此报错，杜绝静默 typo）。
     pub fn from_name(name: &str) -> Option<Feature> {
         FEATURES.iter().find(|(n, _)| *n == name).map(|(_, f)| *f)
     }
 
-    /// 特性名（用于报错 / 序列化回显）
+    /// Feature name as written in documents (for errors / round-trip echo) ｜ 特性名（用于报错 / 序列化回显）。
     pub fn name(self) -> &'static str {
         FEATURES
             .iter()
@@ -223,17 +223,20 @@ impl Feature {
     }
 }
 
-/// 位掩码形式的特性集合。
+/// A set of features as a bitmask ｜ 位掩码形式的特性集合。
 ///
-/// 设计哲学：从极简到丰富、功能可裁剪。默认基线（`baseline()`）只开极简三件套
-/// （`include` + `namespace` + `implicit-ns`），复杂能力（多目标 / glob / 正则 /
+/// 设计哲学：从极简到丰富、功能可裁剪。默认基线（`baseline()`）只开核心八项
+/// （`bareword-string` / `include` / `env` / `contract` / `fragment` / `top-level-array` /
+/// `namespace` / `implicit-ns`），复杂能力（多目标 / glob / 正则 /
 /// 扩展名重写）必须显式 `@feature enable` 才生效，避免重蹈 YAML 过度复杂的覆辙。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FeatureSet(u64);
 
 impl FeatureSet {
-    /// 全部特性位（含所有 opt-in 能力）。用于「调用方允许全集」与版本基线，
-    /// 实际默认并不开启这些——见 [`FeatureSet::baseline`]。
+    /// Every feature bit, including all opt-in abilities. This is the **whole** universe
+    /// (`caller-allows-everything`); it is not the default — see [`FeatureSet::baseline`]. ｜ 全部特性位（含所有 opt-in 能力）。
+    ///
+    /// 用途是「调用方允许全集」，真正的默认集是 [`FeatureSet::baseline`]。
     pub fn all() -> FeatureSet {
         let mut m = 0u64;
         for (_, f) in FEATURES {
@@ -242,9 +245,13 @@ impl FeatureSet {
         FeatureSet(m)
     }
 
-    /// 极简默认集（SML 核心可用能力）。这是 `parse_file` 的默认允许集；
-    /// 仅「多目标 / glob / 正则 / 扩展名重写」等高级能力需文档内
-    /// `@feature enable` 显式开启（避免重蹈 YAML 覆辙）。
+    /// The minimal default set (core SML) — **eight** bits, see below. This is `parse_file`'s default allow-set ｜ 极简默认集（SML 核心可用能力）。
+    ///
+    /// 具体八项：`bareword-string` / `include` / `env` / `contract` / `fragment` /
+    /// `top-level-array` / `namespace` / `implicit-ns`。
+    /// 仅「多目标 / glob / 正则 / 扩展名重写 / when / for / typed-block / case-insensitive /
+    /// block-name」等高级能力需文档内 `@feature enable` 显式开启（避免重蹈 YAML 覆辙）。
+    /// ⚠️ 早先的文档写「极简三件套」，与实现不符（`baseline` 实际有 8 位），2026-11-02 更正。
     pub fn baseline() -> FeatureSet {
         FeatureSet::none()
             .with(Feature::BarewordStr)
@@ -257,14 +264,15 @@ impl FeatureSet {
             .with(Feature::ImplicitNs)
     }
 
-    /// 空集合
+    /// The empty set — every feature off ｜ 空集合（所有特性都关）。
     pub fn none() -> FeatureSet {
         FeatureSet(0)
     }
 
-    /// 按版本基线构造默认特性集：v1 极简默认（baseline）+ 裸词字符串；
-    /// v2/v3 关闭裸词字符串（须引号）。复杂能力（glob/regex/multi...）仍默认关闭，
-    /// 需文档 `@feature enable` 显式开启。
+    /// Build the default feature set for a version: [`FeatureSet::baseline`] plus/minus bareword strings ｜ 按版本基线构造默认特性集。
+    ///
+    /// 具体：`v1` = baseline + 裸词字符串；`v2` 起关闭裸词字符串（须引号）。
+    /// 复杂能力（glob / regex / multi…）仍默认关闭，需文档 `@feature enable` 显式开启。
     pub fn for_version(v: Version) -> FeatureSet {
         let mut s = FeatureSet::baseline();
         // 严格模式（v2/v3）关闭裸词字符串；非严格（v1）开启。
@@ -277,27 +285,27 @@ impl FeatureSet {
         s
     }
 
-    /// 是否包含某特性
+    /// Whether feature `f` is enabled ｜ 是否包含某特性。
     pub fn has(self, f: Feature) -> bool {
         (self.0 & (1 << (f as u8))) != 0
     }
 
-    /// 返回开启 `f` 后的副本
+    /// Copy with `f` turned **on** (takes self by value; `FeatureSet` is `Copy`) ｜ 返回开启 `f` 后的副本。
     pub fn with(self, f: Feature) -> FeatureSet {
         FeatureSet(self.0 | (1 << (f as u8)))
     }
 
-    /// 返回关闭 `f` 后的副本
+    /// Copy with `f` turned **off** ｜ 返回关闭 `f` 后的副本。
     pub fn without(self, f: Feature) -> FeatureSet {
         FeatureSet(self.0 & !(1 << (f as u8)))
     }
 
-    /// 与另一集合取交集（用于「文档裁剪 ∩ 调用方允许」）
+    /// Intersect with another set — `document-declared ∩ caller-allowed` ｜ 与另一集合取交集（用于「文档裁剪 ∩ 调用方允许」）。
     pub fn intersection(self, other: FeatureSet) -> FeatureSet {
         FeatureSet(self.0 & other.0)
     }
 
-    /// 是否无任何特性
+    /// Whether nothing is enabled ｜ 是否无任何特性。
     pub fn is_empty(self) -> bool {
         self.0 == 0
     }
@@ -322,7 +330,7 @@ impl fmt::Display for FeatureSet {
     }
 }
 
-/// `@feature` 解析模式：白名单（仅启用列出的）/ 黑名单（禁用列出的）。
+/// `@feature` parse mode: whitelist (only the listed ones on) / blacklist (the listed ones off) ｜ `@feature` 解析模式：白名单（仅启用列出的）/ 黑名单（禁用列出的）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FeatureMode {
     Default,
