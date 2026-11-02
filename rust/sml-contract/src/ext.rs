@@ -31,7 +31,7 @@ pub const BUILTIN_TYPES: &[&str] = &[
     "str", "int", "num", "bool", "any", "enum",
 ];
 
-/// 外置契约类型：只回答两件事 —— 叫什么、值合不合法。
+/// Out-of-tree contract type: it answers only two things — what it is called, and whether a value is valid. ｜ 外置契约类型：只回答两件事 —— 叫什么、值合不合法。
 ///
 /// 要求 `Debug`：`FieldSpec` 派生了 `Debug`，而校验器会被克隆进字段规格，
 /// 二者必须一起可打印（否则调试时只能看到 `<dyn TypeCheck>`）。

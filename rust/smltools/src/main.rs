@@ -1,6 +1,6 @@
 // Copyright (C) SNOWARE
 // SPDX-License-Identifier: MulanPSL-2.0
-//! `smltools` — SML 命令行转译器（部分 emit / 文档站集成）。
+//! `smltools` — the SML command-line transpiler (partial emit backends / doc-site integration). ｜ `smltools` — SML 命令行转译器（部分 emit / 文档站集成）。
 //!
 //! ⚠️ **实验性 (EXPERIMENTAL)**：本 crate 已从 `swsml` 主 crate 拆分为独立发布
 //! （版本 `0.1.5`），CLI 接口与 emit 后端组合仍可能随用户反馈调整，暂不做语义化

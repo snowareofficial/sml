@@ -152,7 +152,7 @@ fn hash_key(s: &str) -> u64 {
     h
 }
 
-/// 保序对象：插入序 == 源序，查找靠惰性索引。
+/// Order-preserving object: insertion order == source order; lookups go through a lazy index. ｜ 保序对象：插入序 == 源序，查找靠惰性索引。
 pub struct Object {
     entries: Vec<Entry>,
     /// 惰性：首次 `get` 才建；键集合或键位置一变就整体作废（不变式 2）。
@@ -292,7 +292,7 @@ impl Object {
         None
     }
 
-    /// 一次查找完成「追加 or 合并」—— 解析器的字段写入专用法。
+    /// "Append or merge" in a single lookup — the parser's dedicated field-write path. ｜ 一次查找完成「追加 or 合并」—— 解析器的字段写入专用法。
     ///
     /// - 键不存在 ⇒ 追加到尾部，**不**调用 `merge`；
     /// - 键已存在 ⇒ **不动位置**，把旧值与 `value` 一起交给 `merge` 处理。

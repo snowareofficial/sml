@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! SML 契约（Contract）—— 可选的 schema 层，只依赖值模型。
+//! SML contracts — an optional schema layer that depends only on the value model. ｜ SML 契约（Contract）—— 可选的 schema 层，只依赖值模型。
 //!
-//! SML 本身是纯数据格式（与 JSON/YAML 同层），值模型只有 7 种类型，
-//! **不具备**结构体定义、枚举、字段约束等类型系统能力。
-//! 契约是在此之上的**可选校验层**，用于给块加上结构与取值约束。
+//! SML itself is a plain data format (same layer as JSON/YAML) and its value model has only 7 types, so it has no struct definitions, enums or field constraints. ｜ SML 本身是纯数据格式（与 JSON/YAML 同层），值模型只有 7 种类型，**不具备**结构体定义、枚举、字段约束等类型系统能力。
+//! Contracts are the optional validation layer on top of it, adding shape and value constraints to blocks. ｜ 契约是在此之上的**可选校验层**，用于给块加上结构与取值约束。
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -30,8 +29,7 @@ pub use ext::{
     XOnly,
 };
 
-/// 在已注册契约名里找一个与 `bad` 最相近的名字，用于「未定义的契约」报错时
-/// 追加「你是不是想写 X」提示（I-9）。
+/// Finds the registered contract name closest to `bad`, used to append a "did you mean X?" hint to the undefined-contract error (I-9). ｜ 在已注册契约名里找一个与 `bad` 最相近的名字，用于「未定义的契约」报错时追加「你是不是想写 X」提示（I-9）。
 ///
 /// 相似度门槛：**编辑距离 ≤ 2**（覆盖少/多/错一个字符、大小写差异这类典型笔误）。
 /// 没有候选（全部相距 > 2）时返回 `None`，调用方据此**不追加**任何提示、保持原文案，

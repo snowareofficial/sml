@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! SML 词法分析：把文本切成 [`Tok`] 序列，并提供裸词 → 值的强制转换。
+//! SML lexer: turns text into a [`Tok`] sequence and provides bareword-to-value coercion. ｜ SML 词法分析：把文本切成 [`Tok`] 序列，并提供裸词 → 值的强制转换。
 //!
-//! 只依赖值模型与特性集（裸词是否可当字符串由 `Feature::BarewordStr` 决定），
-//! 不涉及语法结构，便于单独测试与复用。
+//! Depends only on the value model and the feature set (whether a bareword may act as a string is decided by `Feature::BarewordStr`); it knows nothing about syntax structure, so it is easy to test and reuse on its own. ｜ 只依赖值模型与特性集（裸词是否可当字符串由 `Feature::BarewordStr` 决定），不涉及语法结构，便于单独测试与复用。
 
 use std::collections::BTreeMap;
 
@@ -17,8 +16,7 @@ use sml_value::Value;
 // 解析: 词法 + 递归下降
 // ---------------------------------------------------------------------------
 
-/// 词法单元。`pub` 仅为让 `cond` 等子模块复用解析器游标，
-/// 不对外暴露（核心模块本身是私有的）。
+/// Token. `pub` only so submodules such as `cond` can reuse the parser cursor; it is not part of the outward API (the core module itself is private). ｜ 词法单元。`pub` 仅为让 `cond` 等子模块复用解析器游标，不对外暴露（核心模块本身是私有的）。
 #[derive(Debug, Clone, PartialEq)]
 pub enum Tok {
     LBrace,  // {
