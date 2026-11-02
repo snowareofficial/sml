@@ -345,7 +345,7 @@ rectangle            size 2    rect1   tls                      { … }
 
 ## I-11 中文支持完善，且可剥离 / zh support, detachable
 
-- **Status / 状态**：`Partial`（中文能用）；查表层 `Done`（2026-10-31 复核）；**剥离（表层）= Done**（2026-11-02，`sml-codes` 的 `zh` feature）；**调用侧硬编码中文 → 改走文案表** 仍 `Todo`（第 ② 项）。
+- **Status / 状态**：`Partial`（中文能用）；查表层 `Done`（2026-10-31 复核）；**剥离（表层）= Done**（2026-11-02，`sml-codes` 的 `zh` feature）；**调用侧硬编码中文 → 改走文案表**：**第一批已落地**（2026-11-02，`SmlError::from_code_title`/`from_code_msg`/`with_detail` + `smltools` 4 处静态文案），其余调用点仍 `Todo`（第 ② 项）。
 - **Idea / 想法**：中文支持再补完善；同时把中文这一层做成**可剥离**的
   （英文用户 / 嵌入式场景可以不带，只留语言中立的错误码）。
 - **Now / 现状**：
@@ -361,7 +361,9 @@ rectangle            size 2    rect1   tls                      { … }
   但它同时被当作文档与码表用，职责混着）—— **查表层已数据化（`msgs.rs`）**，
   真正剩的是**调用侧逐步接上 `render_locale` 语义**与「句级上下文细节」的整句翻译；
   ② Rust 无 `zh` / `en` 切换 —— **`render_locale(locale)` 已提供按 locale 出口**，
-  但**硬编码 `format!` 里直拼中文的调用点**仍是「仅中文」，未逐一改走模板，属待办；
+  但**硬编码 `format!` 里直拼中文的调用点**仍是「仅中文」，未逐一改走模板，属待办
+  （2026-11-02 第一批：新增 `from_code_title` / `from_code_msg` / `with_detail`，先把
+  `smltools` 的 4 处静态文案改走表；其余调用点按同一模式渐进）；
   ③ 无法「不带中文」构建 —— ✅ **表层已做**（2026-11-02）：`sml-codes` 增 `[features] default = ["zh"]`，
   `--no-default-features` 时 `msgs.rs` 的中文列整列不编译、`error_info` 一律走英文
   （缺英文退回码本身），`render_locale` 剥离后对任何 locale 都取英文；子 crate 本就用

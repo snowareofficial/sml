@@ -354,7 +354,7 @@ fn load_input(text: &str, args: &Args) -> Result<Value, SmlError> {
         // 复用 crate 内既有实现（与 C-ABI 同款：零依赖、带深度限制与 UTF-8 修正）
         // E-MIGRATE-017：「非法 JSON」与「嵌套过深」在底层共用一个空值，故合为一码。
         InputFormat::Json => sml::json_to_value(text).ok_or_else(|| {
-            SmlError::new(E_MIGRATE_017, "JSON 解析失败：不是合法 JSON，或嵌套过深")
+            SmlError::from_code_msg(E_MIGRATE_017)
         }),
         InputFormat::Toml => toml::parse(text).map_err(|e| e.context("TOML 解析失败：")),
         InputFormat::Yaml => yaml::parse(text).map_err(|e| e.context("YAML 解析失败：")),
@@ -545,7 +545,7 @@ fn read_input(input: &Option<PathBuf>) -> Result<String, SmlError> {
                 )),
                 // E-IO-006：通道中断（码表把它与「读取失败」合为一条）。
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    Err(SmlError::new(E_IO_006, "读取 stdin 时通道中断（内部错误）"))
+                    Err(SmlError::from_code_msg(E_IO_006))
                 }
             }
         }
@@ -1040,12 +1040,13 @@ fn real_main() -> ExitCode {
 
     // 互斥 / 依赖校验（E-CLI-003：互斥项同时给出，或依赖项缺失）
     if args.zola_build && args.zola.is_none() {
-        let e = SmlError::new(E_CLI_003, "--zola-build 必须与 --zola <dir> 一起使用");
+        let e = SmlError::from_code_title(E_CLI_003)
+            .with_detail("--zola-build 必须与 --zola <dir> 一起使用");
         eprintln!("smltools: {e}");
         return ExitCode::from(2);
     }
     if args.hugo.is_some() && args.zola.is_some() {
-        let e = SmlError::new(E_CLI_003, "--hugo 与 --zola 互斥，请只选其一");
+        let e = SmlError::from_code_title(E_CLI_003).with_detail("--hugo 与 --zola 互斥，请只选其一");
         eprintln!("smltools: {e}");
         return ExitCode::from(2);
     }
