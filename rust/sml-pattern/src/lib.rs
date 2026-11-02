@@ -1,6 +1,6 @@
-//! SML 模式语言（Loom 融入 SML 的产物）：L1 层的无回溯匹配引擎。
+//! The SML pattern language (Loom folded into SML): a backtracking-free L1 matching engine. ｜ SML 模式语言（Loom 融入 SML 的产物）：L1 层的无回溯匹配引擎。
 //!
-//! # 为什么不是正则
+//! # Why not regex ｜ 为什么不是正则
 //!
 //! 规则就是**普通 SML 数据**（片段），不引入新 token，因此能被 SML 自身的
 //! include / 契约 / 中文关键字复用。匹配侧用 Thompson NFA 并行推进，
@@ -37,9 +37,8 @@ use i18n::Concept::*;
 // 里取出来的那张要用 `Map` —— 两者不可混写，否则保序档编译不过。
 use sml_value::{Map, Value};
 
-/// 字符类。默认 Unicode 语义：`Alpha` 匹配汉字，`Digit` 匹配全角数字。
-/// （regex 的 `\d` 在 JS 是 ASCII、Python 是 Unicode，这类跨语言不一致是 bug 温床，
-/// 这里明确选定 Unicode 一侧。）
+/// Character class. Unicode semantics by default: `Alpha` matches CJK, `Digit` matches full-width digits. ｜ 字符类。默认 Unicode 语义：`Alpha` 匹配汉字，`Digit` 匹配全角数字。
+/// (regex `\d` is ASCII in JS but Unicode in Python; that kind of cross-language mismatch breeds bugs, so this side picks Unicode explicitly.) ｜ （regex 的 `\d` 在 JS 是 ASCII、Python 是 Unicode，这类跨语言不一致是 bug 温床，这里明确选定 Unicode 一侧。）
 #[derive(Debug, Clone, PartialEq)]
 pub enum Class {
     Digit,

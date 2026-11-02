@@ -1,7 +1,7 @@
-/// 指令解析：`include` / `import` 行的识别与路径解析。
+/// Directive parsing: recognizing `include` / `import` lines and resolving paths. ｜ 指令解析：`include` / `import` 行的识别与路径解析。
 pub mod parse;
 
-/// 跨文件展开：把 include 指令替换为被包含文件的内容。
+/// Cross-file expansion: replaces include directives with the contents of the included file. ｜ 跨文件展开：把 include 指令替换为被包含文件的内容。
 pub mod expand;
 
 pub use expand::{expand_includes, resolve_includes, resolve_includes_spans, expand_file_tokens};

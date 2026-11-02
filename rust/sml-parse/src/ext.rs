@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! 外置扩展点：让下游注册自定义 `@指令`，**无需修改本 crate 源码**。
+//! Out-of-tree extension point: lets downstream register custom `@directives` **without touching this crate's source**. ｜ 外置扩展点：让下游注册自定义 `@指令`，**无需修改本 crate 源码**。
 //!
-//! ## 动机
+//! ## Motivation ｜ 动机
 //!
 //! SML 是通用数据格式，但下游常有「给文档挂带类型的元数据块，且**不进主数据树**」
 //! 的需求（表单描述 / 处理流状态机 / 文章块等）。缺少扩展点时，下游只能 fork 出
