@@ -51,7 +51,7 @@ pub enum Outcome {
     Emit(Value),
 }
 
-/// 非致命诊断。致命问题仍然走 `Err(String)`，避免把警告当错误打断解析。
+/// A non-fatal diagnostic. Fatal problems still surface as `Err` (a coded [`sml_codes::SmlError`]), so a warning never aborts parsing. ｜ 非致命诊断。致命问题仍然走 `Err`（带码的 `SmlError`），避免把警告当错误打断解析。
 ///
 /// ⚠️ `line` 是后加的字段：对**只读取**诊断的代码无破坏，只有在本 crate 之外
 /// 用结构体字面量构造 `Diagnostic` 才会缺字段（与 `ParseOutput` 加
@@ -208,7 +208,7 @@ impl DirectiveTable {
     }
 }
 
-/// 解析期可选项。**全部为空时与既有解析行为完全一致。**
+/// Parse-time options. **With every option left empty, behaviour is byte-identical to the existing parser.** ｜ 解析期可选项。**全部为空时与既有解析行为完全一致。**
 ///
 /// ⚠️ [`Self::warn_key_conflict`] 默认 `true`，且它是**唯一**一个默认非假的开关：
 /// 它只影响 `diagnostics` 的内容，不影响 `Value`，故不算「改变既有行为」。
@@ -329,7 +329,7 @@ impl ParseOptions {
     }
 }
 
-/// 带扩展的解析输出：值 + 非致命诊断。
+/// Parse output with extensions: the value plus non-fatal diagnostics. ｜ 带扩展的解析输出：值 + 非致命诊断。
 ///
 /// ⚠️ 这是**公开结构体加字段**（`contract_map`）：对只读取的代码无破坏，
 /// 只有结构体字面量构造会缺字段 —— 已记入 CHANGELOG「升级注意」。
