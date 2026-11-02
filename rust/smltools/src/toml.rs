@@ -40,7 +40,7 @@ fn internal(msg: impl Into<String>) -> SmlError {
     SmlError::from_code_msg(E_INTERNAL_001).with_detail(m)
 }
 
-/// 解析 TOML 文本。
+/// Parse TOML text into a `Value` ｜ 解析 TOML 文本。
 pub fn parse(text: &str) -> Result<Value, SmlError> {
     let mut root: Map = Map::new();
     let mut cur: Vec<String> = Vec::new();
@@ -84,7 +84,7 @@ pub fn parse(text: &str) -> Result<Value, SmlError> {
     Ok(Value::Object(root))
 }
 
-/// 把 `Value` 序列化为 TOML 文本。顶层须为对象。
+/// Serialize a `Value` to TOML text; the top level must be an object ｜ 把 `Value` 序列化为 TOML 文本（顶层须为对象）。
 pub fn to_toml(v: &Value) -> String {
     let Value::Object(m) = v else {
         // TOML 顶层只能是表；非对象时给出空文档而不是编造语法

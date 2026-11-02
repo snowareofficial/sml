@@ -27,7 +27,7 @@ use std::path::PathBuf;
 use sml::{split_kv, strip_line_comment, MAX_VALUE_DEPTH};
 use sml_codes::{E_LINT_001, W_LINT_001, W_LINT_002, W_LINT_004, W_LINT_005};
 
-/// 检查结果。
+/// Result of one lint run ｜ 检查结果。
 pub struct Report {
     /// 每条一行，已带路径与行号
     pub messages: Vec<String>,
@@ -53,7 +53,7 @@ impl Report {
     }
 }
 
-/// 对文本做检查。`path` 仅用于消息前缀。
+/// Lint a text; `path` is only used as a message prefix ｜ 对文本做检查（`path` 仅用于消息前缀）。
 pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
     let name = path
         .as_ref()

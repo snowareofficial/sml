@@ -16,13 +16,16 @@ pub struct MiniRegex {
     pattern: String,
 }
 
-/// 受限正则的模式长度上限：防止超长模式构造的灾难性回溯（ReDoS）。
+/// Maximum pattern length — guards against catastrophic backtracking (ReDoS) from huge patterns ｜ 受限正则的模式长度上限。
 pub const MAX_REGEX_LEN: usize = 256;
-/// 单次匹配的最大回溯步数：无记忆化回溯在恶意模式（如 `a*a*a*...*b`）下会指数级
-/// 爆炸，故设步数上限——超出即视为不匹配，避免挂死整个解析（审计 #3）。
+/// Max backtracking steps per match ｜ 单次匹配的最大回溯步数。
+///
+/// 无记忆化回溯在恶意模式（如 `a*a*a*...*b`）下会指数级爆炸，故设步数上限 ——
+/// 超出即视为不匹配，避免挂死整个解析（审计 #3）。要区分「不匹配」与「超预算」
+/// 请用 [`regex_matches_checked`]。
 pub const MAX_REGEX_STEPS: u64 = 2_000_000;
 
-/// 编译/匹配失败的原因（W16）。
+/// Why compiling / matching failed (W16) ｜ 编译/匹配失败的原因。
 ///
 /// **本 crate 是零依赖的引擎层，故不带码** —— 只报「为什么失败」，由调用方
 /// （`sml-include`）按 `errors/codes.sml` 映射成码：
@@ -87,8 +90,10 @@ pub fn compile_regex(pat: &str) -> MiniRegex {
     }
 }
 
-/// [`compile_regex`] 的**显式失败**版本（W16）：模式过长或语法非法都返回原因，
-/// 而不是悄悄给一个「永不匹配」的正则。生产路径（regex-include）应走这个入口。
+/// Explicit-failure sibling of [`compile_regex`] (W16) ｜ [`compile_regex`] 的**显式失败**版本。
+///
+/// 模式过长或语法非法都返回原因，而不是悄悄给一个「永不匹配」的正则。
+/// 生产路径（regex-include）应走这个入口。
 pub fn compile_regex_checked(pat: &str) -> Result<MiniRegex, RegexError> {
     let inner = strip_anchors(pat);
     let len = inner.chars().count();
@@ -142,7 +147,7 @@ fn validate_pattern(inner: &str) -> Result<(), RegexError> {
     Ok(())
 }
 
-/// 用受限正则匹配整个 `text`（默认全匹配，支持 `^`/`$` 锚点）。
+/// Match **the whole** `text` with a mini-regex (`^` / `$` anchors are honoured) ｜ 用受限正则匹配整个 `text`。
 ///
 /// ⚠️ 步数预算耗尽时它**静默判「不匹配」**（既有行为，被 40+ 处断言依赖）。
 /// 需要「预算耗尽要报错」的调用方走 [`regex_matches_checked`]。
@@ -150,8 +155,9 @@ pub fn regex_matches(re: &MiniRegex, text: &str) -> bool {
     matches_inner(re, text).0
 }
 
-/// [`regex_matches`] 的**显式失败**版本（W16）：步数预算耗尽时返回
-/// `RegexError::Budget`（⇒ `E-LIMIT-002`），而不是静默算作「不匹配」。
+/// Explicit-failure sibling of [`regex_matches`] (W16) ｜ [`regex_matches`] 的**显式失败**版本。
+///
+/// 步数预算耗尽时返回 `RegexError::Budget`（⇒ `E-LIMIT-002`），而不是静默算作「不匹配」。
 pub fn regex_matches_checked(re: &MiniRegex, text: &str) -> Result<bool, RegexError> {
     let (matched, steps) = matches_inner(re, text);
     if steps > MAX_REGEX_STEPS {
