@@ -80,6 +80,15 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   见下方「🚨 破坏性变更」。`tests/conformance` 的 `33` 用例随之由 `33_contract_modifier_alt`
   换成 `33_contract_modifier_legacy_rejected`，五端一致 ⇒ 该格由 DIVERGE 转 AGREE。
 
+### 🚨 破坏性变更：`Value::Float` 增加原文拼写保留字段
+
+- **`Value::Float(f64)` → `Value::Float(f64, Option<String>)`**：第二项 nullable 原文，
+  用于保留 `1e10` 这类字面量的原始写法（否则 round-trip 会降级成 `10000000000.0` 或 `1e10` 的
+  `{:?}` 形式）。配对函数 `Value::float(f64)` / `Value::float_raw(f64, impl Into<String>)` 不变；
+  README 值模型一节的 `Float(f64)` 签名已同步为 `Float(f64, Option<String>)`。
+- 匹配时须带第二字段：`Value::Float(f, raw)`；依赖 `Float(f64)` 单字段的老代码需补 `, _`。
+- 破坏性属于 0.x 的 MINOR 范畴，但当前版本仍处预发布（`0.6.9-dev.x`），随下一正式版一并生效。
+
 ### 🚨 破坏性变更：废弃契约符号修饰符 `?` 与 `=`
 
 - **C 与 JS 支持过的符号形式 `?`（可选）/ `=`（默认值）已废弃**，统一到单词式 `optional` / `default`。

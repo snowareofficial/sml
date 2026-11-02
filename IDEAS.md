@@ -101,8 +101,12 @@ Confirm the reading with the user before writing any code.
   已由纯中文改为「English ｜ 中文」双语（中文照留，符合「还是支持中文」）；
   ✅ **第二批（2026-10-31）**：`sml-parse/src/api.rs` 全部公开函数摘要 + `rust/src/lib.rs`
   的模块头 / re-export / serde 公开项 已双语化；编译通过、无诊断。
-  🔍 `value.rs`/`object.rs` 内部注释核对后已是双语；待后续批次：其余 crate（`sml-value/value.rs`
-  的公开方法摘要等）、`smltools` 公开面。⚠️ 复核中发现既有 feature 组合裂口：`preserve_order` + `serde` 下
+  🔍 ✅ **第三批（2026-10-31）**：`sml-value/src/value.rs` 全部公开项摘要
+  （`Value` 变体 `Object`、`float`/`float_with_raw`/`as_float`/`float_raw`/`as_str`/
+  `as_object*`/`as_array*`/`as_i64`/`as_bool`/`iter`/`len`/`is_empty`/`get`/
+  `sort_keys_deep`/`sorted_by_key`/`Drop::iterative`）首行改为「English ｜ 中文」双语；
+  示例/详解中文照留。无源级诊断。待后续批次：`object.rs`、`smltools` 公开面。
+  ⚠️ 复核中发现既有 feature 组合裂口：`preserve_order` + `serde` 下
   `serde_bridge.rs` 用 `pop_first`/`Into<BTreeMap>` 与 `Map=Object` 冲突（非本轮引入）。
   - **✅ 已排雷（2026-10-31）**：修 `serde_bridge.rs` —— `MapDeserializer.map` 字段类型
     `BTreeMap`→`Map`、`pop_first`→`IntoIterator`（`mem::take`+`collect` 逐弹）、enum 单键
@@ -389,7 +393,8 @@ rectangle            size 2    rect1   tls                      { … }
   流程承诺随后续每次交付逐步兑现。
 - **示范 / 2026-10-31**：为 `sml-value::Value::eq_ordered` 补了**可跑 doctest**（顺序敏感相等：
   声明 `PartialEq` 不含顺序的「陷阱」，配例子，两个 feature 档 `--doc` 均通过）；
-  后续每落一个能力按此收尾。
+  **再补 `insert_or_merge`**（合并规则入口：键存在不动位置调 merge / 键不存在追加尾部不调 merge，
+  配可跑例子）。后续每落一个能力按此收尾。
 - **Idea / 想法**：实现过程中产出的那些解释（语义对比表、反例、边界）本身就是**很好的教程素材**，
   应在实现时就顺手沉淀，而不是等做完再补 —— 人们要先看到**闪光点**才会点进来。
 - **Now / 现状**：文档是**事后补**的（`STRUCT_SERDE.md` / `IDEAS.md` 都是补记）；

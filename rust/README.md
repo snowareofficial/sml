@@ -22,6 +22,7 @@ an alternative to JSON and YAML. Zero dependencies (serde optional).
 ```sml
 # firewall.sml — contracts, typed blocks, fragment reuse, env inlining
 @feature enable typed-block      # 块级类型标注（Rust / JS 支持，opt-in）
+@feature enable block-name       # 块级标注后首词未命中契约的块名（与本例的 Rule ssh 同用）
 
 @contract Rule {
     action:  enum [ allow deny ]
@@ -154,7 +155,7 @@ Compatible with Rust 2021 and 2024 editions (`build.rs` handles the difference).
 Isomorphic to JSON, 7 variants / 与 JSON 同构，7 种变体：
 
 ```rust
-pub enum Value { Null, Bool(bool), Int(i64), Float(f64),
+pub enum Value { Null, Bool(bool), Int(i64), Float(f64, Option<String>),
                  Str(String), Array(Vec<Value>), Object(BTreeMap<String, Value>) }
 ```
 
@@ -165,11 +166,22 @@ assert_eq!(v.get("name").and_then(|x| x.as_str()), Some("John"));
 println!("{}", to_sml(&v));        // 往返回 SML
 ```
 
-> `get()` supports dotted paths (`db.port`). Integers / arrays etc. must be matched on
-> the enum directly — the only public accessors today are `get` / `as_str` / `as_float`.
+> **Key order:** `to_sml` / `Value::Object` store keys lexicographically (`BTreeMap`),
+> so `to_sml` re-sorts keys. If you need **declaration order** (e.g. emitting a document),
+> use `sml::serde::to_string_direct` (derive only) — it preserves field order.
+> **键序：** `to_sml` 与 `Value::Object` 按键的字典序（`BTreeMap`）存储，会重排键。
+> 需要**保留声明顺序**（如按写作顺序 emit 文档）时，用 `sml::serde::to_string_direct`
+> （仅 derive 路径）——它保留字段声明顺序。
 
-> `get()` 支持点路径（`db.port`）。整型 / 数组等需直接 `match` 枚举——当前公开方法
-> 只有 `get` / `as_str` / `as_float`。
+> `get()` supports dotted paths (`db.port`) **and array indices** (`rules[0]`).
+> Literal keys that contain a `.` (e.g. `a.b: 1`) are **not reachable** via `get`, because
+> the path is split on `.` first — reach those by walking `as_object` / `as_array` directly.
+> Accessors beyond `get`: `as_str` / `as_i64` / `as_float` / `as_bool` / `as_array` / `as_object`.
+
+> `get()` 支持点路径（`db.port`）**与数组下标**（`rules[0]`）。
+> **含 `.` 的字面键（如 `a.b: 1`）无法用 `get` 取到**——路径会先按 `.` 切分；请直接
+> 用 `as_object` / `as_array` 逐层取。取整型/浮点/布尔/数组/对象可用 `as_i64` /
+> `as_float` / `as_bool` / `as_array` / `as_object`。
 
 ## Contracts · 契约
 
