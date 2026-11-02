@@ -454,6 +454,15 @@ mod tests {
         assert!(out.lines().all(|l| l.len() < 40), "不该出现换行展开：{out}");
     }
 
+    /// 雷5 B 组（Rust 侧）：整数值浮点必须保留 `.0`，否则回读会退化成 Int。
+    #[test]
+    fn integral_float_keeps_dot_zero() {
+        assert_eq!(format_float(1.0, None), "1.0");
+        assert_eq!(format_float(1.0, Some("1.0")), "1.0");
+        assert_eq!(format_float(1e10, None), "10000000000.0");
+        assert_eq!(format_float(-2.0, None), "-2.0");
+    }
+
     #[test]
     fn structured_element_expands_across_lines() {
         let reg = obj(vec![
