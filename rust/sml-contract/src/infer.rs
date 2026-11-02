@@ -21,7 +21,7 @@ use sml_value::Value;
 
 use crate::{Contract, FieldSpec, Strictness, TypeSpec};
 
-/// 推断结果：一组命名契约（含根与若干子契约）+ 告警。
+/// Inference result: a set of named contracts (root + sub-contracts) plus warnings ｜ 推断结果：一组命名契约（含根与若干子契约）+ 告警。
 pub struct InferResult {
     /// 根契约名（调用方传入，默认 `Inferred`）。
     pub root_name: String,

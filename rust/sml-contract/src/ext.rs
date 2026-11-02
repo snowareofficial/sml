@@ -26,7 +26,7 @@ use sml_value::Value;
 
 use crate::FieldSpec;
 
-/// 内置类型名。供错误消息列出，并**禁止外置扩展占用**。
+/// Built-in type names — listed in error messages and **reserved** against external extensions ｜ 内置类型名。供错误消息列出，并**禁止外置扩展占用**。
 pub const BUILTIN_TYPES: &[&str] = &[
     "str", "int", "num", "bool", "any", "enum",
 ];
@@ -75,7 +75,7 @@ pub trait Modifier: Send + Sync + std::fmt::Debug {
     }
 }
 
-/// **跨字段**约束的入参（互斥 / 计数这类写在某个字段上、却要看整个块的约束）。
+/// Arguments for **cross-field** constraints (mutex / count — declared on one field but needs the whole block) ｜ **跨字段**约束的入参（互斥 / 计数这类写在某个字段上、却要看整个块的约束）。
 ///
 /// 语法上修饰符只能挂在某个字段上（`card: str optional one_of [ card alipay ]`），
 /// 但它表达的是**整个块**的性质 —— 所以 [`Modifier::check_group`] 拿到的不是
@@ -108,7 +108,7 @@ pub struct GroupView<'a> {
 }
 
 impl<'a> GroupView<'a> {
-    /// 把字段名拼成**本块**的完整路径（顶层字段没有前缀）。
+    /// Join a field name into **this block's** full path (a top-level field has no prefix) ｜ 把字段名拼成**本块**的完整路径（顶层字段没有前缀）。
     pub fn field_path(&self, name: &str) -> String {
         if self.path.is_empty() {
             name.to_string()
@@ -123,7 +123,7 @@ impl<'a> GroupView<'a> {
     }
 }
 
-/// 内置修饰符名。禁止外置扩展占用，避免改写核心语义。
+/// Built-in modifier names — reserved so an extension can't rewrite core semantics ｜ 内置修饰符名。禁止外置扩展占用，避免改写核心语义。
 pub const BUILTIN_MODIFIERS: &[&str] = &["optional", "required", "default", "min", "max"];
 
 /// 前缀放行修饰符 **`x_only "<prefix>"`**：`loose` / `warn` 下允许额外键，
@@ -159,7 +159,7 @@ impl Modifier for XOnly {
     // **出现**时才被调用，作者漏写 owner 字段就会漏检。
 }
 
-/// 外置类型注册表。
+/// Registry of external types **and** external modifiers ｜ 外置类型注册表。
 ///
 /// 用 [`Arc`] 包 trait 对象，使校验器能被克隆进每一条 [`crate::FieldSpec`]
 /// （契约会被跨块复用，而 trait 对象本身不可克隆）。
@@ -184,7 +184,7 @@ impl ContractExt {
         Self::default()
     }
 
-    /// 注册一个外置类型。与内置类型同名、或重复注册，一律报错（不静默覆盖）。
+    /// Register an external type; a built-in name or a duplicate is an **error**, never a silent replace ｜ 注册一个外置类型。与内置类型同名、或重复注册，一律报错（不静默覆盖）。
     pub fn register_type(&mut self, t: impl TypeCheck + 'static) -> Result<(), SmlError> {
         let name = t.name().to_string();
         if BUILTIN_TYPES.contains(&name.as_str()) {
@@ -201,7 +201,7 @@ impl ContractExt {
         Ok(())
     }
 
-    /// 注册一个外置修饰符。与内置修饰符同名、或重复注册，一律报错。
+    /// Register an external modifier; a built-in name or a duplicate is an error ｜ 注册一个外置修饰符。与内置修饰符同名、或重复注册，一律报错。
     pub fn register_modifier(&mut self, m: impl Modifier + 'static) -> Result<(), SmlError> {
         let name = m.name().to_string();
         if BUILTIN_MODIFIERS.contains(&name.as_str()) {
@@ -238,7 +238,7 @@ impl ContractExt {
         self.types.len() + self.modifiers.len()
     }
 
-    /// 已注册的类型名（按字典序）。
+    /// Names of registered **types** only, sorted (modifiers are not included) ｜ 已注册的类型名（按字典序；不含修饰符）。
     pub fn type_names(&self) -> impl Iterator<Item = &str> {
         self.types.keys().map(|s| s.as_str())
     }

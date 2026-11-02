@@ -117,7 +117,7 @@ fn levenshtein(a: &str, b: &str) -> usize {
 // - 不使用契约时行为完全不变，因此**向后兼容**
 // ---------------------------------------------------------------------------
 
-/// 契约中的字段类型
+/// A field type inside a contract ｜ 契约中的字段类型。
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeSpec {
     /// 任意类型
@@ -167,7 +167,7 @@ impl TypeSpec {
     }
 }
 
-/// 契约中的字段规格
+/// A field spec inside a contract ｜ 契约中的字段规格。
 #[derive(Debug, Clone)]
 pub struct FieldSpec {
     pub ty: TypeSpec,
@@ -191,7 +191,7 @@ pub struct FieldSpec {
     pub mods: Vec<std::sync::Arc<dyn crate::ext::Modifier>>,
 }
 
-/// 契约严格性（三态）。
+/// How strict a contract is — three levels ｜ 契约严格性（三态）。
 ///
 /// 只管「未声明字段」这一类**形状宽容违约**；类型不符 / 必填缺失 / 数值越界 /
 /// 枚举越界 / 互斥组违约等**恒为 `Err`**，即使处在 `Warn` 态也不放行 ——
@@ -463,8 +463,9 @@ fn value_kind(v: &Value) -> &'static str {
     }
 }
 
-/// 契约叠加：一个块应用**多份**契约（`@is a, b` / `@is a b` /
-/// 块级 `conta contb item { }`，TASK-agent-w24 任务 C）。
+/// Contract stacking: one block applies **several** contracts, merged into a single view ｜ 契约叠加：一个块应用**多份**契约。
+///
+/// 写法：`@is a, b` / `@is a b` / 块级 `conta contb item { }`（TASK-agent-w24 任务 C）。
 ///
 /// 语义（D3，用户裁决）：
 /// - **strict 优先**：任一契约严格 ⇒ 整体按严格校验；
@@ -558,7 +559,7 @@ pub fn apply_contracts(
     apply_contract(&merged, node, contracts, path, warnings)
 }
 
-/// 对块应用契约：填充默认值 + 校验 + 严格性检查。
+/// Apply one contract to a block: fill defaults, validate, enforce strictness ｜ 对块应用契约：填充默认值 + 校验 + 严格性检查。
 ///
 /// **严格（`Strict`）为默认**：契约未声明的字段会被拒绝，除非契约显式标记
 /// `loose` / `warn`。这样拼错的字段名（如 `prot`）会立即报错，而不是被静默忽略。
