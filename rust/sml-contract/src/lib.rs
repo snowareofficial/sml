@@ -288,27 +288,17 @@ fn check_type(
                     .map(|c| format!("（你是不是想写 `{c}`？）"))
                     .unwrap_or_default();
                 let target = contracts.get(ref_name).ok_or_else(|| {
-                    SmlError::new(
-                        E_CONTRACT_001,
-                        format!(
-                            "sml: 字段 `{}` 引用了未定义的契约 `{}`（契约 `{}`）{}",
-                            path, ref_name, contract, hint
-                        ),
-                    )
+                    SmlError::from_code_title(E_CONTRACT_001).with_detail(format!(
+                        "字段 `{path}` 引用了未定义的契约 `{ref_name}`（契约 `{contract}`）{hint}"
+                    ))
                 })?;
                 apply_contract(target, &mut sub, contracts, path, warnings)?;
                 Ok(())
             }
-            _ => Err(SmlError::new(
-                E_CONTRACT_008,
-                format!(
-                    "sml: 字段 `{}` 应为块并按契约 `{}` 校验，实际为 {}（契约 `{}`）",
-                    path,
-                    ref_name,
-                    value_kind(v),
-                    contract
-                ),
-            )),
+            _ => Err(SmlError::from_code_title(E_CONTRACT_008).with_detail(format!(
+                "字段 `{path}` 应为块并按契约 `{ref_name}` 校验，实际为 {}（契约 `{contract}`）",
+                value_kind(v)
+            ))),
         };
     }
 
@@ -321,25 +311,16 @@ fn check_type(
         return match v {
             Value::Str(s) => match sml_pattern::is_match(pat, s) {
                 Ok(true) => Ok(()),
-                Ok(false) => Err(SmlError::new(
-                    E_CONTRACT_009,
-                    format!(
-                        "sml: 字段 `{}` 的值 `{}` 不符合类型 `{}` 的格式要求（契约 `{}`）",
-                        path, s, name, contract
-                    ),
+                Ok(false) => Err(SmlError::from_code_title(E_CONTRACT_009).with_detail(
+                    format!("字段 `{path}` 的值 `{s}` 不符合类型 `{name}` 的格式要求（契约 `{contract}`）"),
                 )),
-                Err(e) => Err(SmlError::new(
-                    E_CONTRACT_009,
-                    format!("sml: 类型 `{}` 匹配时出错：{}", name, e),
-                )),
+                Err(e) => Err(SmlError::from_code_title(E_CONTRACT_009)
+                    .with_detail(format!("类型 `{name}` 匹配时出错：{e}"))),
             },
-            other => Err(SmlError::new(
-                E_CONTRACT_009,
-                format!(
-                    "sml: 字段 `{}` 类型 `{}` 要求字符串（号码 / 编号 / 身份证请用引号包裹），实际为 {}（契约 `{}`）",
-                    path, name, value_kind(other), contract
-                ),
-            )),
+            other => Err(SmlError::from_code_title(E_CONTRACT_009).with_detail(format!(
+                "字段 `{path}` 类型 `{name}` 要求字符串（号码 / 编号 / 身份证请用引号包裹），实际为 {}（契约 `{contract}`）",
+                value_kind(other)
+            ))),
         };
     }
 
@@ -348,13 +329,9 @@ fn check_type(
     if let TypeSpec::Ext(name) = &spec.ty {
         return match &spec.ext {
             Some(t) => t.check(v).map_err(|e| {
-                SmlError::new(
-                    E_CONTRACT_007,
-                    format!(
-                        "sml: 字段 `{}` 不符合扩展类型 `{}`：{}（契约 `{}`）",
-                        path, name, e, contract
-                    ),
-                )
+                SmlError::from_code_title(E_CONTRACT_007).with_detail(format!(
+                    "字段 `{path}` 不符合扩展类型 `{name}`：{e}（契约 `{contract}`）"
+                ))
             }),
             // 有类型名但没有校验器：契约多半是从别处直接构造的（如序列化产物），
             // 此时**放行**而不是误报 —— 没有校验器就无从判定，报错才是假警报。
@@ -410,27 +387,16 @@ fn check_type(
                 Value::Float(f, _) => f.to_string(),
                 other => value_kind(other).to_string(),
             };
-            return Err(SmlError::new(
-                E_CONTRACT_006,
-                format!(
-                    "sml: 字段 `{}` 类型应为 enum [{}]，实际取值 `{}` 不在列表内（契约 `{}`）",
-                    path,
-                    vals.join(" "),
-                    got,
-                    contract
-                ),
-            ));
+            return Err(SmlError::from_code_title(E_CONTRACT_006).with_detail(format!(
+                "字段 `{path}` 类型应为 enum [{}]，实际取值 `{got}` 不在列表内（契约 `{contract}`）",
+                vals.join(" ")
+            )));
         }
-        return Err(SmlError::new(
-            E_CONTRACT_002,
-            format!(
-                "sml: 字段 `{}` 类型应为 {}，实际为 {}（契约 `{}`）",
-                path,
-                spec.ty.name(),
-                value_kind(v),
-                contract
-            ),
-        ));
+        return Err(SmlError::from_code_title(E_CONTRACT_002).with_detail(format!(
+            "字段 `{path}` 类型应为 {}，实际为 {}（契约 `{contract}`）",
+            spec.ty.name(),
+            value_kind(v)
+        )));
     }
     // 数值区间
     if spec.min.is_some() || spec.max.is_some() {
@@ -443,33 +409,21 @@ fn check_type(
             // 显式拒绝非有限值（NaN/inf）：NaN 的所有比较都为 false，会令 min/max
             // 校验被静默穿透；inf 同理不是合法数值（审计 #2）。
             if !n.is_finite() {
-                return Err(SmlError::new(
-                    E_CONTRACT_010,
-                    format!(
-                        "sml: 字段 `{}` 的值为非有限数（NaN/inf），不可作为数值约束的取值（契约 `{}`）",
-                        path, contract
-                    ),
-                ));
+                return Err(SmlError::from_code_title(E_CONTRACT_010).with_detail(format!(
+                    "字段 `{path}` 的值为非有限数（NaN/inf），不可作为数值约束的取值（契约 `{contract}`）"
+                )));
             }
             if let Some(lo) = spec.min {
                 if n < lo {
-                    return Err(SmlError::new(
-                        E_CONTRACT_005,
-                        format!(
-                            "sml: 字段 `{}` 值 {} 小于下界 {}（契约 `{}`）",
-                            path, n, lo, contract
-                        ),
+                    return Err(SmlError::from_code_title(E_CONTRACT_005).with_detail(
+                        format!("字段 `{path}` 值 {n} 小于下界 {lo}（契约 `{contract}`）"),
                     ));
                 }
             }
             if let Some(hi) = spec.max {
                 if n > hi {
-                    return Err(SmlError::new(
-                        E_CONTRACT_005,
-                        format!(
-                            "sml: 字段 `{}` 值 {} 大于上界 {}（契约 `{}`）",
-                            path, n, hi, contract
-                        ),
+                    return Err(SmlError::from_code_title(E_CONTRACT_005).with_detail(
+                        format!("字段 `{path}` 值 {n} 大于上界 {hi}（契约 `{contract}`）"),
                     ));
                 }
             }
@@ -489,16 +443,10 @@ fn check_ext_mods(
 ) -> Result<(), SmlError> {
     for m in &spec.mods {
         m.check(spec, v).map_err(|e| {
-            SmlError::new(
-                E_CONTRACT_011,
-                format!(
-                    "sml: 字段 `{}` 不符合修饰符 `{}`：{}（契约 `{}`）",
-                    path,
-                    m.name(),
-                    e,
-                    contract
-                ),
-            )
+            SmlError::from_code_title(E_CONTRACT_011).with_detail(format!(
+                "字段 `{path}` 不符合修饰符 `{}`：{e}（契约 `{contract}`）",
+                m.name()
+            ))
         })?;
     }
     Ok(())
@@ -544,7 +492,7 @@ pub fn apply_contracts(
             .map(|c| format!("（你是不是想写 `{c}`？）"))
             .unwrap_or_default();
         let c = contracts.get(n).ok_or_else(|| {
-            SmlError::new(E_CONTRACT_001, format!("sml: 未定义的契约 `{}`{}", n, hint))
+            SmlError::from_code_title(E_CONTRACT_001).with_detail(format!("`{n}`{hint}"))
         })?;
         list.push(c);
         effs.push(ov.unwrap_or(c.strictness));
@@ -561,10 +509,9 @@ pub fn apply_contracts(
                         || fa.min != fb.min
                         || fa.max != fb.max;
                     if clash {
-                        return Err(SmlError::new(
-                            E_CONTRACT_016,
+                        return Err(SmlError::from_code_title(E_CONTRACT_016).with_detail(
                             format!(
-                                "sml: 契约叠加冲突：字段 `{}` 在 `{}` 与 `{}` 里类型 / 默认值 / 区间不一致",
+                                "字段 `{}` 在 `{}` 与 `{}` 里类型 / 默认值 / 区间不一致",
                                 join_path(path, fname),
                                 list[i].name,
                                 list[j].name
@@ -635,10 +582,9 @@ pub fn apply_contract(
         Strictness::Strict => {
             for k in node.keys() {
                 if !c.fields.contains_key(k) {
-                    return Err(SmlError::new(
-                        E_CONTRACT_004,
+                    return Err(SmlError::from_code_title(E_CONTRACT_004).with_detail(
                         format!(
-                            "sml: 字段 `{}` 未在契约 `{}` 中声明（严格模式；如需允许额外字段请在契约名后写 `loose`/`warn`）",
+                            "字段 `{}` 未在契约 `{}` 中声明（严格模式；如需允许额外字段请在契约名后写 `loose`/`warn`）",
                             join_path(path, k), c.name
                         ),
                     ));
@@ -683,12 +629,8 @@ pub fn apply_contract(
                 if let Some(d) = &spec.default {
                     node.insert(k.clone(), d.clone());
                 } else if spec.required {
-                    return Err(SmlError::new(
-                        E_CONTRACT_003,
-                        format!(
-                            "sml: 字段 `{}` 必填但缺失（契约 `{}`）",
-                            join_path(path, k), c.name
-                        ),
+                    return Err(SmlError::from_code_title(E_CONTRACT_003).with_detail(
+                        format!("字段 `{}` 必填但缺失（契约 `{}`）", join_path(path, k), c.name),
                     ));
                 }
             }
@@ -749,25 +691,12 @@ fn check_ext_groups(
                 present: authored,
             };
             m.check_group(&view).map_err(|e| {
-                SmlError::new(
-                    E_CONTRACT_011,
-                    if path.is_empty() {
-                        format!(
-                            "sml: 契约 `{}` 的跨字段约束 `{}` 未满足：{}",
-                            c.name,
-                            m.name(),
-                            e
-                        )
-                    } else {
-                        format!(
-                            "sml: 块 `{}` 的跨字段约束 `{}` 未满足：{}（契约 `{}`）",
-                            path,
-                            m.name(),
-                            e,
-                            c.name
-                        )
-                    },
-                )
+                let detail = if path.is_empty() {
+                    format!("契约 `{}` 的跨字段约束 `{}` 未满足：{}", c.name, m.name(), e)
+                } else {
+                    format!("块 `{path}` 的跨字段约束 `{}` 未满足：{e}（契约 `{}`）", m.name(), c.name)
+                };
+                SmlError::from_code_title(E_CONTRACT_011).with_detail(detail)
             })?;
         }
     }
@@ -791,13 +720,9 @@ fn check_type_contract_ref(
         .map(|c| format!("（你是不是想写 `{c}`？）"))
         .unwrap_or_default();
     let target = contracts.get(&ref_name).ok_or_else(|| {
-        SmlError::new(
-            E_CONTRACT_001,
-            format!(
-                "sml: 字段 `{}` 引用了未定义的契约 `{}`（契约 `{}`）{}",
-                path, ref_name, contract, hint
-            ),
-        )
+        SmlError::from_code_title(E_CONTRACT_001).with_detail(format!(
+            "字段 `{path}` 引用了未定义的契约 `{ref_name}`（契约 `{contract}`）{hint}"
+        ))
     })?;
     // 先做基础类型校验（值须为块），再递归应用
     check_type(contract, path, spec, &Value::Object(sub.clone()), contracts, warnings)?;
