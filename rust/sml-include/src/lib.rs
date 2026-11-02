@@ -4,7 +4,7 @@ pub mod parse;
 /// 跨文件展开：把 include 指令替换为被包含文件的内容。
 pub mod expand;
 
-pub use expand::{expand_includes, resolve_includes, expand_file_tokens};
+pub use expand::{expand_includes, resolve_includes, resolve_includes_spans, expand_file_tokens};
 pub use parse::{
     IncludeTarget, parse_include_line, resolve_target_paths, strip_line_comment,
     MAX_INCLUDE_DEPTH, MAX_INCLUDE_EXPANSIONS,

@@ -12,8 +12,8 @@ use sml_codes::{
 };
 use sml_feature::{Feature, FeatureSet};
 use sml_lex::{
-    Tok, advance_line, compute_block_comment_spans, compute_string_spans, line_starts_in_string,
-    tokenize,
+    Span, Tok, advance_line, compute_block_comment_spans, compute_string_spans,
+    line_starts_in_string, tokenize, tokenize_spans,
 };
 
 use crate::{
@@ -31,6 +31,35 @@ pub fn resolve_includes(
     let mut expansions: u64 = 0;
     expand_includes(text, base, &mut stack, features, &mut toks, &mut expansions)?;
     Ok(toks)
+}
+
+/// 同 [`resolve_includes`]，但**整篇没有 include 指令**时额外交出 `spans`
+/// （与 token 流一一对应）——供文件入口把错误定位到「第 N 行第 M 列」。
+///
+/// 有 include 时 token 来自多个文件、**没有可映射的单一原文**，返回 `None`
+/// （调用方应按「不带位置」处理，**不凭空造位置**）。
+///
+/// 判据与 [`expand_includes`] 的快速路径一致：无 include ⇒ 展开是恒等操作，
+/// 直接整篇 `tokenize_spans`，避免「展开 + 再补位置」重复词法。
+pub fn resolve_includes_spans(
+    text: &str,
+    base: &Path,
+    features: FeatureSet,
+) -> Result<(Vec<Tok>, Option<Vec<Span>>), SmlError> {
+    let string_spans = compute_string_spans(text);
+    let mut has_include = false;
+    for seg in segments(text, &string_spans) {
+        if matches!(parse_include_line(seg, features)?, Some(_)) {
+            has_include = true;
+            break;
+        }
+    }
+    if !has_include {
+        let (toks, spans) = tokenize_spans(text)?;
+        return Ok((toks, Some(spans)));
+    }
+    let toks = resolve_includes(text, base, features)?;
+    Ok((toks, None))
 }
 
 /// 递归展开 include 到 `out` token 流。

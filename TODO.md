@@ -325,7 +325,7 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 
 | 能力 | Go 侧 | 处置 |
 |---|---|---|
-| token 携带行号 | `smlform.go:63-67` | **高价值**，待办：给 `Tok` 加 `line`（注意 include 跨文件行号归属） |
+| token 携带行号 | `smlform.go:63-67` | ✅ **部分已做（2026-11-02）**：走旁路 `Span`/`lines`（刻意**不塞进 `Tok`**，避免扩散到每处 match）——**无 include 的文件入口**现在也带「第 N 行第 M 列」（新增 `resolve_includes_spans`，`parse_file*` 走 `with_position`）。⚠️ **有 include 时** token 跨文件合并、无单一原文，仍「不带位置」；要做成 `文件:行` 需给 `SmlError` 加文件限定位置（未做） |
 | 标量/列表双形态归一 | `toStrSlice` :829-849 | 下沉到 `sml-value`，零风险 |
 | 未知指令跳过整行 | :583-588 | 仅作 **opt-in**，默认保持严格（防静默丢内容） |
 | 未知 `{}` 块整块跳过 | :591-608 | 同上 |
