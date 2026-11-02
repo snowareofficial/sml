@@ -31,7 +31,7 @@ pub struct InferResult {
     pub warnings: Vec<String>,
 }
 
-/// 从一份解析后的 `Value` 推断契约。
+/// Infer a contract from a parsed `Value` ｜ 从一份解析后的 `Value` 推断契约。
 ///
 /// - 根为对象数组：每个元素是一条实例；
 /// - 根为单个对象：按单实例处理（字段全 `required` 并告警）；
@@ -354,7 +354,8 @@ fn unify_array_elems(
 }
 
 impl InferResult {
-    /// 渲染为 SML `@contract` 文本（确定性：根优先，其余按名排序；字段按名排序；无时间戳）。
+    /// Render as SML `@contract` text — deterministic: root first, the rest by name, fields by name, no timestamps ｜ 渲染为 SML `@contract` 文本。
+    ///
     /// 契约之间以空行分隔，整体以单个换行结尾（便于作为文件/管道内容逐字节稳定）。
     pub fn to_sml(&self) -> String {
         let mut names: Vec<&String> = self.contracts.keys().collect();
@@ -375,7 +376,7 @@ impl InferResult {
         out
     }
 
-    /// 渲染为 JSON 字段类型表（确定性，同 [`to_sml`](Self::to_sml)）。
+    /// Render as a JSON field-type table (deterministic, same ordering as [`Self::to_sml`]) ｜ 渲染为 JSON 字段类型表（确定性，同 [`to_sml`](Self::to_sml)）。
     pub fn to_json(&self) -> String {
         let mut names: Vec<&String> = self.contracts.keys().collect();
         names.sort();

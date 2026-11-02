@@ -210,7 +210,7 @@ pub enum Strictness {
     Loose,
 }
 
-/// 契约 warn 态放行「未声明字段」时产出的非致命告警。
+/// Non-fatal warning produced when a `warn`-mode contract lets an undeclared field pass ｜ 契约 warn 态放行「未声明字段」时产出的非致命告警。
 ///
 /// 定义在 `sml-contract` 而非 `sml-parse`，以避免 `sml-contract → sml-parse`
 /// 的反向依赖（`sml-parse` 已依赖 `sml-contract`）。调用方（sml-parse）把它
@@ -222,7 +222,7 @@ pub struct ContractWarning {
     pub message: String,
 }
 
-/// 契约（schema）：一组字段规格
+/// A contract (schema): a set of field specs ｜ 契约（schema）：一组字段规格。
 #[derive(Debug, Clone)]
 pub struct Contract {
     pub name: String,
