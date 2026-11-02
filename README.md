@@ -129,14 +129,22 @@ database {
 - 不使用契约时解析行为完全不变 —— **向后兼容**
 
 支持的类型：`str` / `int` / `num`（int 或 float）/ `bool` / `any` / `[T]`（数组）/ `enum [ ... ]`
-修饰符：`required`（默认）/ `optional` / `default <值>` / `min <数>` / `max <数>` / `one_of [ a b c ]`（至多一个）/ `exactly_one [ a b c ]`（恰好一个）
+修饰符：`required`（默认）/ `optional` / `default <值>` / `min <数>` / `max <数>` /
+`one_of [ a b c ]`（至多一个）/ `exactly_one [ a b c ]`（恰好一个）/ `any_of [ a b c ]`（至少一个）/
+`items_min <n>` / `items_max <n>`（数组元素个数下限 / 上限）/ `depends_on b`（本字段出现 ⇒ 所列字段必须出现）
 
-> **互斥字段组**（`one_of` / `exactly_one`）：契约的**跨字段**约束，实现在 Rust 外置扩展点
-> （`rust/sml-contract/src/ext.rs`，经 `ParseOptions::with_modifier` 注册，**不动 C/C++/JS/Lua**）。
+> **跨字段与计数约束**（`one_of` / `exactly_one` / `any_of` / `depends_on` / `items_min` / `items_max`）：
+> 实现在 Rust 外置扩展点（`rust/sml-contract/src/ext.rs`，经 `ParseOptions::with_modifier` 注册，
+> **不动 C/C++/JS/Lua**）。
 > - 判据只看**显式写出的键**——`default` 回填的值不算出现（否则「组内成员都写 `default`」的契约会恒失败）。
 > - 组成员名写错（未在契约里声明）⇒ **响亮报错**，而非留一条永远命中不了的约束。
-> - `one_of` 一个都不写 ⇒ 放行；`exactly_one` 一个都不写 ⇒ 报错（`required` 的跨字段版）。
-> - 报码复用 **`E-CONTRACT-011`**，**不新增码**；**仅 Rust 外置扩展点可用**。
+> - `one_of` 一个都不写 ⇒ 放行；`exactly_one` / `any_of` 一个都不写 ⇒ 报错。
+> - `depends_on`：**依赖方自己缺失 ⇒ 恒通过**（是否必填由 `required` / `optional` 表达，两个语义不互相代劳）。
+> - `items_min` / `items_max` 看字段的**生效值**（`default` 回填后的值也算）。
+> - 报码复用 **`E-CONTRACT-011`**（`items_min`/`items_max` 同码），**不新增码**；**仅 Rust 外置扩展点可用**。
+>
+> 另有 **`x_only "<前缀>"`**：`loose` / `warn` 下只放行以该前缀开头的额外键、其余仍报错
+> （`x-*` 的非破坏实现）。**与 `strict` 互斥**；需注册 `sml_contract::XOnly`，**不注册等同禁用**。
 
 ### 组合（Composition），而非继承
 
