@@ -11,7 +11,9 @@
 //! 注意「机翻等价」的界定：**只替换关键字本身，不动结构标记**
 //! （`@` `:` `{}` `[]` `&` 原样保留），因此语法结构在所有语言下一致。
 
-/// 与语言无关的**内部语义**。任何书写形式都先映射到它，再由它驱动编译。
+/// Language-independent **internal meaning** ｜ 与语言无关的**内部语义**。
+///
+/// 任何书写形式都先映射到它，再由它驱动编译。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Concept {
     // —— 模式元素 ——
@@ -61,14 +63,14 @@ pub enum Concept {
     Eol,
 }
 
-/// 关键字表：书写形式 → 内部语义。
+/// Keyword table: written form → internal meaning ｜ 关键字表：书写形式 → 内部语义。
 ///
 /// 实现此 trait 即可接入任意语言，无需改动编译逻辑。
 pub trait KeywordTable {
     fn lookup(&self, word: &str) -> Option<Concept>;
 }
 
-/// 静态表：由「书写形式 → 语义」的常量切片构造。
+/// Static table built from a constant slice of `written form → meaning` pairs ｜ 静态表：由「书写形式 → 语义」的常量切片构造。
 pub struct StaticTable {
     entries: &'static [(&'static str, Concept)],
 }
@@ -93,7 +95,7 @@ impl KeywordTable for StaticTable {
 
 use Concept::*;
 
-/// 中文表
+/// Chinese table ｜ 中文表。
 pub const CHINESE: StaticTable = StaticTable::new(&[
     ("字面", Lit),
     ("类", Class),
@@ -117,7 +119,7 @@ pub const CHINESE: StaticTable = StaticTable::new(&[
     ("末尾", Eol),
 ]);
 
-/// 英文表
+/// English table ｜ 英文表。
 pub const ENGLISH: StaticTable = StaticTable::new(&[
     ("lit", Lit),
     ("literal", Lit),
@@ -145,7 +147,7 @@ pub const ENGLISH: StaticTable = StaticTable::new(&[
     ("end", Eol),
 ]);
 
-/// 双语表（默认）：同一份文档里中英写法等价，可混用。
+/// Bilingual table (the default): Chinese and English spellings are equivalent and mixable in one document ｜ 双语表（默认）：同一份文档里中英写法等价，可混用。
 ///
 /// 这是 SML「中文关键字 = 机翻等价」的直接体现：不发明新语法，
 /// 只是同一个语义有两种书写形式。

@@ -7,7 +7,7 @@
 //! - `MAX_REGEX_LEN` — cap on pattern length, ruling out oversized patterns; ｜ 模式长度上限，杜绝超长模式；
 //! - `MAX_REGEX_STEPS` — cap on backtracking steps. Without memoisation, backtracking explodes exponentially on malicious patterns (e.g. `a*a*a*…*b`); exceeding the cap counts as "no match" instead of hanging the parse. ｜ 回溯步数上限。无记忆化回溯在恶意模式（如 `a*a*a*…*b`）下会指数级爆炸，超限即判为不匹配，而非挂死解析。
 
-/// 编译后的受限正则（只有模式串，匹配由 [`regex_matches`] 解释执行）。
+/// A compiled mini-regex — just the pattern string; matching is interpreted by [`regex_matches`] ｜ 编译后的受限正则。
 ///
 /// `W16` 顺带给它加上 `Debug` / `Clone`：`compile_regex_checked` 返回
 /// `Result<MiniRegex, RegexError>`，没有 `Debug` 时调用方连 `unwrap_err()` 都用不了。
