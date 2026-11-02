@@ -10,7 +10,8 @@ use std::collections::BTreeMap;
 
 use sml_codes::SmlError;
 use sml_contract::{Contract, ContractWarning};
-use sml_value::Value;
+// `Map` = `Value::Object` 的载体；契约校验的就是那张表，故签名必须跟着它走。
+use sml_value::Map;
 
 /// 契约校验入口（转出 `sml-contract` 的同名函数，供 `parser` 使用）。
 pub(crate) use sml_contract::{apply_contract, apply_contracts};
@@ -22,7 +23,7 @@ pub(crate) type ContractMap = BTreeMap<String, Contract>;
 #[allow(dead_code)]
 pub(crate) fn check(
     c: &Contract,
-    node: &mut BTreeMap<String, Value>,
+    node: &mut Map,
     contracts: &ContractMap,
     path: &str,
 ) -> Result<(), SmlError> {

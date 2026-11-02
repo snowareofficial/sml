@@ -7,6 +7,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+// `Map` = `Value::Object` 的载体（默认 `BTreeMap`；`preserve_order` 档是保序 `Object`）。
+// 本 crate 里凡是**来自/进入 `Value::Object`** 的表都必须用它，
+// 其余（`contracts` 契约表、`fields` 字段表、`ext_data`）是普通表，仍是 `BTreeMap`。
+use sml_value::Map;
+
 use sml_codes::{
     E_CONTRACT_001, E_CONTRACT_002, E_CONTRACT_003, E_CONTRACT_004, E_CONTRACT_005, E_CONTRACT_006,
     E_CONTRACT_007, E_CONTRACT_008, E_CONTRACT_009, E_CONTRACT_010, E_CONTRACT_011, E_CONTRACT_016,
@@ -524,7 +529,7 @@ fn value_kind(v: &Value) -> &'static str {
 /// 默认值回填 / 类型校验 / 组合递归 —— 不另写一条校验路径，行为与单契约同源。
 pub fn apply_contracts(
     entries: &[(String, Option<Strictness>)],
-    node: &mut BTreeMap<String, Value>,
+    node: &mut Map,
     contracts: &BTreeMap<String, Contract>,
     path: &str,
     warnings: &mut Vec<ContractWarning>,
@@ -616,7 +621,7 @@ pub fn apply_contracts(
 /// 转译为 `DiagnosticKind::Warning`，只经 `*_with_warnings` 可见。`parse()` 恒不返回。
 pub fn apply_contract(
     c: &Contract,
-    node: &mut BTreeMap<String, Value>,
+    node: &mut Map,
     contracts: &BTreeMap<String, Contract>,
     path: &str,
     warnings: &mut Vec<ContractWarning>,
@@ -665,7 +670,9 @@ pub fn apply_contract(
     // 只有真的挂了外置修饰符才做这次快照 —— 零扩展时连这一次遍历都省掉。
     let authored_keys: Option<BTreeSet<String>> =
         if c.fields.values().any(|f| !f.mods.is_empty()) {
-            Some(node.keys().cloned().collect())
+            // `.map(to_string)` 而非 `.cloned()`：保序档的 `keys()` 产出 `&str`，
+            // `str: Clone` 不成立 —— 收成 `String` 两档同形。
+            Some(node.keys().map(|k| k.to_string()).collect())
         } else {
             None
         };
@@ -709,10 +716,10 @@ pub fn apply_contract(
     if let Some(keys) = &authored_keys {
         // 现在才借 `node` 的值（第 2 步的 `insert` 已结束，借用不再冲突）。
         // 只留用户**显式写出**的键 —— 第 2 步回填的 `default` 值不在 `keys` 里。
-        let present: BTreeMap<&str, &Value> = node
+        let present: BTreeMap<String, &Value> = node
             .iter()
-            .filter(|(k, _)| keys.contains(k.as_str()))
-            .map(|(k, v)| (k.as_str(), v))
+            .map(|(k, v)| (k.to_string(), v))
+            .filter(|(k, _)| keys.contains(k))
             .collect();
         check_ext_groups(c, path, &present)?;
     }
@@ -729,7 +736,7 @@ pub fn apply_contract(
 fn check_ext_groups(
     c: &Contract,
     path: &str,
-    authored: &BTreeMap<&str, &Value>,
+    authored: &BTreeMap<String, &Value>,
 ) -> Result<(), SmlError> {
     for (fname, spec) in &c.fields {
         for m in &spec.mods {
@@ -772,7 +779,7 @@ fn check_type_contract_ref(
     contract: &str,
     path: &str,
     spec: &FieldSpec,
-    sub: &mut BTreeMap<String, Value>,
+    sub: &mut Map,
     contracts: &BTreeMap<String, Contract>,
     warnings: &mut Vec<ContractWarning>,
 ) -> Result<(), SmlError> {
