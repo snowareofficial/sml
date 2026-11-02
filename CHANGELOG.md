@@ -256,6 +256,14 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   验证：`luajit lua/test_codes.lua` **184/184** 通过（含「below min → E-CONTRACT-005」回归）。
   雷 6 仅剩 **C++ 无 include**（待裁决：需定是否补齐 include 语义）。
 
+### 修复（include：路径后多余字符不再静默忽略）
+
+- `parse_include_line` 在路径（及 `as` / `{keys}`）之后若还有内容且不是逗号分隔，报
+  **`E-INCLUDE-012`**（"路径后有多余字符"），不再静默丢弃。`include "a.sml" junk` /
+  `include "a.sml"junk` 均被拦下；行尾 `#` 注释与 `include "a","b"` 多目标豁免。
+  用例补在 `rust/tests/error_codes.rs::include_unquoted_path_is_include_012`。全量回归绿
+  （仅本地 `_stack_probe`）。
+
 ### ⚠️ 升级注意
 
 - `Diagnostic` 是公开结构体，**新增 `line` 字段**：只读取诊断的代码不受影响；

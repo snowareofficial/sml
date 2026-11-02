@@ -192,6 +192,17 @@ pub fn parse_include_line(line: &str, features: FeatureSet) -> Result<Option<Vec
             features,
             keys,
         ));
+        // 路径（及 `as` / `{keys}`）之后**不允许再有多余字符**：`include "a.sml" junk`
+        // 此前被静默忽略（脏行不报错，展开结果与作者意图不符，TODO L486 ①）。
+        // 多目标只认逗号分隔；行尾 `#` 注释豁免（`segments` 未剥注释）。
+        let leftover = tail.trim_start();
+        if !leftover.is_empty()
+            && !leftover.starts_with(',')
+            && !leftover.starts_with('#')
+        {
+            return Err(SmlError::from_code_msg(E_INCLUDE_012)
+                .with_detail(format!("路径后有多余字符：{leftover}")));
+        }
         // 逗号分隔多目标（用已修剪的 tail 判断是否还有下一个目标）
         if let Some(stripped) = tail.strip_prefix(',') {
             if !features.has(Feature::MultiInclude) {

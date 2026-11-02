@@ -178,6 +178,8 @@ fn include_unquoted_path_is_include_012() {
         "@include nope.sml",      // `@` 前缀同样要管
         "include \"nope.sml",     // 引号未闭合
         "include inc/*.sml",      // 通配也不能裸写（这是"写法"错，优先于特性门控报出）
+        "include \"nope.sml\" junk", // 闭合引号后有多余字符（曾静默忽略，TODO L486①）
+        "@include \"nope.sml\"junk", // 无空格粘连同样拦
     ] {
         match sml_include::parse_include_line(bad, f) {
             Ok(v) => panic!("{bad:?} 应报 E-INCLUDE-012，却解析成功：{v:?}"),
@@ -198,6 +200,15 @@ fn include_unquoted_path_is_include_012() {
     assert!(
         sml_include::parse_include_line("include \"nope.sml\"", f).is_ok(),
         "加引号是合法写法，缺失文件的判定属于展开阶段"
+    );
+    // 正向：行尾注释 / 逗号分隔多目标不算「多余字符」
+    assert!(
+        sml_include::parse_include_line("include \"a.sml\" # 注释", f).is_ok(),
+        "行尾注释不得被当成多余字符"
+    );
+    assert!(
+        sml_include::parse_include_line("include \"a.sml\", \"b.sml\"", f).is_ok(),
+        "逗号分隔多目标是合法写法"
     );
 }
 

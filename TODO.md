@@ -483,7 +483,8 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
    `parse_include_line` 只对 `include` 生效）⇒ `E-INCLUDE-012` 现在 **Rust（含 CLI）与 Lua 同码**，
    码表 `impls` 改为 `[ rust lua smltools ]` / `status: done`。
    两处豁免已钉进 `rust/tests/error_codes.rs::include_unquoted_path_is_include_012`：
-   `import a.b`（点分模块名）与 `re:"…"`。**仍未做**：① 闭合引号后的"多余字符"；
+   `import a.b`（点分模块名）与 `re:"…"`。① 闭合引号后的"多余字符" ✅ **已修（2026-11-02）**：
+   `include "a.sml" junk` / `"a.sml"junk` 现报 `E-INCLUDE-012`（行尾 `#` 注释与逗号多目标豁免，已加用例）；
    ② JS / C / C++ 三端对齐（JS 走裸词回退、C++ 引号串与裸词同型、C 只认 `T_STR` 故**静默**）。
 
 ---
