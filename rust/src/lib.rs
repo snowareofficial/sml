@@ -180,6 +180,18 @@ pub fn split_kv(s: &str) -> Option<(String, String)> {
 /// 库改此处时 lint 自动跟随（同 `BUILTIN_DIRECTIVES` 的单一来源思路）。
 pub use crate::emit::MAX_VALUE_DEPTH;
 
+/// 值（不含解析器内部状态）的**嵌套深度**：根容器计 1，标量 = 1。
+///
+/// 与 `smltools --lint` 的 `W-LINT-005`（建议阈值 `MAX_VALUE_DEPTH / 2`）共用同一实现，
+/// 避免 CLI 与库各写一份、改一处漏一处（TODO 雷 3 的分叉项）。
+pub fn depth_of(value: &Value) -> usize {
+    match value {
+        Value::Array(a) => 1 + a.iter().map(depth_of).max().unwrap_or(0),
+        Value::Object(m) => 1 + m.values().map(depth_of).max().unwrap_or(0),
+        _ => 1,
+    }
+}
+
 pub use sml_include::{
     IncludeTarget, MiniRegex, RegexError, compile_regex, compile_regex_checked,
     parse_include_line, regex_matches, regex_matches_checked, strip_line_comment,

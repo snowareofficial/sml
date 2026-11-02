@@ -218,7 +218,7 @@ pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
 
     // ---- 4. 结构检查（仅解析成功时）----
     if let Ok(v) = &parsed {
-        let d = depth_of(v);
+        let d = sml::depth_of(v);
         if d > MAX_VALUE_DEPTH / 2 {
             // W-LINT-005：嵌套超过建议阈值（只提醒可读性，不是拒绝 —— 解析上限见 E-LIMIT-001）。
             // 阈值 = MAX_VALUE_DEPTH / 2，库改 MAX_VALUE_DEPTH 时自动跟随。
@@ -266,14 +266,7 @@ fn first_word_after(s: &str, kw: &str) -> Option<String> {
     }
 }
 
-/// 值的嵌套深度。
-fn depth_of(v: &Value) -> usize {
-    match v {
-        Value::Array(a) => 1 + a.iter().map(depth_of).max().unwrap_or(0),
-        Value::Object(m) => 1 + m.values().map(depth_of).max().unwrap_or(0),
-        _ => 1,
-    }
-}
+/// 值的嵌套深度（**单一来源**：直接复用 `sml::depth_of`，见该函数文档）。
 
 #[cfg(test)]
 mod tests {
@@ -294,6 +287,15 @@ mod tests {
         for want in ["[W-LINT-001]", "[W-LINT-002]", "[W-LINT-003]", "[W-LINT-004]"] {
             assert!(out.contains(want), "期望含 {want}：\n{out}");
         }
+    }
+
+    /// `depth_of` 是库的单一来源：根容器与标量各计 1。
+    #[test]
+    fn depth_of_is_library_single_source() {
+        let v = sml::parse("a { b { c: 1 } }").unwrap();
+        // 根(1) -> a 的对象(2) -> b 的对象(3) -> 标量 c:1(4)
+        assert_eq!(sml::depth_of(&v), 4, "根(1)+a(2)+b(3)+标量(4)");
+        assert_eq!(sml::depth_of(&Value::Int(1)), 1, "标量 = 1");
     }
 
     /// W-LINT-005：嵌套超过建议阈值（阈值 64，解析上限 128）。
