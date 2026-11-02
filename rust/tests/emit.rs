@@ -451,6 +451,17 @@ fn deeply_nested(depth: usize) -> sml::Value {
     v
 }
 
+/// 对象链：`{a:{a:…}}`——与数组链是**两种递归形状**，都要防栈溢出。
+fn deeply_nested_objects(depth: usize) -> sml::Value {
+    let mut v = sml::Value::Int(0);
+    for _ in 0..depth {
+        let mut m = sml::Map::new();
+        m.insert("a".to_string(), v);
+        v = sml::Value::Object(m);
+    }
+    v
+}
+
 // 深度保护现已覆盖各 emit 后端（xml.rs / svg.rs / slint.rs / latex.rs / markdown.rs
 // 均在递归处检查 MAX_VALUE_DEPTH），故本测试不再忽略 —— 它正是防止"某个后端
 // 漏加保护又被悄悄放过"的回归网。
@@ -490,6 +501,20 @@ fn emit_depth_limit_does_not_overflow() {
         // P0-2：deeply_nested(50_000) 的超深 Value 在 drop 时应由迭代式 Drop 安全释放，
         // 不再因递归析构栈溢出 abort（让 deep 在测试结束时自然 drop 即验证此点）。
     }
+}
+
+/// 对象链（`{a:{a:…}}`）是**另一种递归形状**：数组链曾把 `svg`/`slint` 打穿过，
+/// 这里把对象链也钉住 —— 5 万层在默认 2 MiB 栈上不得 abort。
+#[test]
+fn emit_depth_limit_object_chain_does_not_overflow() {
+    let deep = deeply_nested_objects(50_000);
+    let _ = to_markdown(&deep, &MarkdownOptions::new());
+    let _ = to_latex(&deep, &LatexOptions::new());
+    let _ = to_xml(&deep, &XmlOptions::new());
+    let _ = to_lvgl(&deep, &XmlOptions::new());
+    let _ = to_svg(&deep, &SvgOptions::new());
+    let _ = to_slint(&deep, &SlintOptions::new());
+    std::mem::forget(deep);
 }
 
 #[test]
