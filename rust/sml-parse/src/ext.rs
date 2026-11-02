@@ -81,26 +81,26 @@ impl Diagnostic {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The kind of a non-fatal diagnostic. ｜ 非致命诊断的类别。
 pub enum DiagnosticKind {
-    /// 仍被接受，但已不推荐的写法（如位置参数形式）。
+    /// Still accepted but no longer recommended, e.g. the positional-argument form. ｜ 仍被接受，但已不推荐的写法（如位置参数形式）。
     ///
     /// 与 [`Self::Warning`] 的分工：**Deprecated 说的是「这写法该换了」**
     /// （语法层面过时），而 **Warning 说的是「这份文档按契约策略被放行了某类违约」**
     /// （语义层面：形状宽容违约，如 warn 态下出现了契约未声明的字段）。
     /// 二者不重叠 —— 一个讲「写法」，一个讲「放行」，别混成一个。
     Deprecated,
-    /// 同一块内键名重复 ⇒ **提升为数组**（SML 既定语义：`k: 1` + `k: 2` ⇒ `k: [1, 2]`）。
+    /// Duplicate key inside one block ⇒ **promoted to an array** (established SML semantics: `k: 1` + `k: 2` ⇒ `k: [1, 2]`). ｜ 同一块内键名重复 ⇒ **提升为数组**（SML 既定语义：`k: 1` + `k: 2` ⇒ `k: [1, 2]`）。
     ///
     /// 值没丢，但**结构被改写**：下游按 `k` 是标量写的代码会拿到数组。
     /// 这是本仓库「静默改数据」清单 A 组第 4 项 —— 语义保留、改为告警。
     DuplicateKey,
-    /// 片段展开（`&name`）覆盖了**父块已有的同名键** ⇒ 父块那个值**真的丢了**。
+    /// Fragment expansion (`&name`) overwrote **a key that already existed in the parent block** ⇒ that value is **really gone**. ｜ 片段展开（`&name`）覆盖了**父块已有的同名键** ⇒ 父块那个值**真的丢了**。
     ///
     /// 与 [`Self::DuplicateKey`] 的关键差别：片段合并走直接赋值，**不走**数组提升
     /// （ch03/ch08 写明的既定语义），所以这是丢值而不是改结构，危险度更高。
     KeyOverwritten,
-    /// 按契约策略**放行**的违约告警。当前用于契约 `warn` 态：块里出现了契约未声明的
-    /// 字段（形状宽容违约），被放行且**产出本条告警**。
+    /// A contract violation **waived** by contract policy. Currently used for `warn` strictness: the block carries fields the contract did not declare (a shape-tolerant violation), which are let through **and reported as this warning**. ｜ 按契约策略**放行**的违约告警。当前用于契约 `warn` 态：块里出现了契约未声明的字段（形状宽容违约），被放行且**产出本条告警**。
     ///
     /// 与 [`Self::Deprecated`] 的分工见其文档注释：**Deprecated 讲「写法过时」，
     /// Warning 讲「违约被放行」**。它与 DuplicateKey / KeyOverwritten 也不同 ——
@@ -268,13 +268,13 @@ impl ParseOptions {
         Self::default()
     }
 
-    /// 是否收集键冲突告警（链式）。默认 `true`。
+    /// Whether to collect key-conflict warnings (builder). Defaults to `true`. ｜ 是否收集键冲突告警（链式）。默认 `true`。
     pub fn warn_key_conflict(mut self, on: bool) -> Self {
         self.warn_key_conflict = on;
         self
     }
 
-    /// 是否在解析期应用文件内契约（链式）。默认 `true`。
+    /// Whether to apply in-file contracts at parse time (builder). Defaults to `true`. ｜ 是否在解析期应用文件内契约（链式）。默认 `true`。
     ///
     /// `false` ⇒ 跳过 `@is` / typed-block 的契约应用与校验（不填默认值、
     /// 未知契约不报错）；`@contract` 定义仍收集且不进入结果树。
@@ -284,14 +284,13 @@ impl ParseOptions {
         self
     }
 
-    /// 是否收集多条错误（链式）。默认 `false`；开启后错误进
-    /// [`ParseOutput::errors`]，`value` 为尽力而为的部分结果（TODO L16）。
+    /// Collect multiple errors instead of stopping at the first (builder). Defaults to `false`; collected errors land in [`ParseOutput::errors`] and `value` is a best-effort partial result (TODO L16). ｜ 是否收集多条错误（链式）。默认 `false`；开启后错误进 [`ParseOutput::errors`]，`value` 为尽力而为的部分结果（TODO L16）。
     pub fn collect_errors(mut self, on: bool) -> Self {
         self.collect_errors = on;
         self
     }
 
-    /// 开启契约映射记录（链式）。
+    /// Enables contract-map recording (builder). ｜ 开启契约映射记录（链式）。
     ///
     /// ```ignore
     /// let out = sml_parse::parse_with(text, ParseOptions::new().trace_contracts(true))?;
@@ -302,19 +301,19 @@ impl ParseOptions {
         self
     }
 
-    /// 链式注册一条外置指令（注册失败返回 Err，便于 `?` 展开）。
+    /// Register an out-of-tree directive (builder; returns Err on failure so `?` unwraps it). ｜ 链式注册一条外置指令（注册失败返回 Err，便于 `?` 展开）。
     pub fn directive(mut self, d: impl Directive + 'static) -> Result<Self, String> {
         self.directives.register(d)?;
         Ok(self)
     }
 
-    /// 链式注册一个外置契约类型。
+    /// Register an out-of-tree contract type (builder). ｜ 链式注册一个外置契约类型。
     pub fn with_type(mut self, t: impl sml_contract::TypeCheck + 'static) -> Result<Self, String> {
         self.contract_ext.register_type(t)?;
         Ok(self)
     }
 
-    /// 链式注册一个外置字段修饰符（如 `items_max`）。
+    /// Register an out-of-tree field modifier such as `items_max` (builder). ｜ 链式注册一个外置字段修饰符（如 `items_max`）。
     pub fn with_modifier(
         mut self,
         m: impl sml_contract::Modifier + 'static,
@@ -323,7 +322,7 @@ impl ParseOptions {
         Ok(self)
     }
 
-    /// 是否携带任何扩展（用于快速跳过扩展分支，保证零扩展零开销）。
+    /// Whether any extension is present (lets the parser skip the extension branches, keeping zero-extension runs zero-cost). ｜ 是否携带任何扩展（用于快速跳过扩展分支，保证零扩展零开销）。
     pub fn has_ext(&self) -> bool {
         !self.directives.is_empty() || !self.contract_ext.is_empty()
     }
@@ -338,7 +337,7 @@ pub struct ParseOutput {
     pub value: Value,
     /// 弃用提示等。为空表示文档未触发任何警告。
     pub diagnostics: Vec<Diagnostic>,
-    /// 契约映射（哪个实体应用了哪些契约）。
+    /// Contract map: which contracts were applied to which entity. ｜ 契约映射（哪个实体应用了哪些契约）。
     ///
     /// **仅当 [`ParseOptions::trace_contracts`] 开启时为 `Some`**；
     /// 否则恒为 `None` —— 这是「不开启时逐字一致」的钉子

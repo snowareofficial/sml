@@ -120,9 +120,9 @@ Confirm the reading with the user before writing any code.
   `pub mod` 标题 / `ParseOptions` / `ParseOutput` / `Diagnostic`。🚨 顺带发现并修掉一个真 bug：
   `parse_file` 的文档是**错挂**的（讲的是「值嵌套深度上限」，而 `api.rs` 早没那个常量），
   还带悬空 intra-doc 链接 ⇒ 修后 `cargo doc` 警告 5 → 4。另修正 `Diagnostic` 里过期的 `Err(String)`。
-  **本 crate 剩余**：`ParseOptions` 的 4 个 builder + 4 个注册方法、`ParseOutput::contract_map`、
-  `DiagnosticKind`（枚举本身无 doc）+ 4 个变体、`Directive` 及其方法、`contract_map.rs` 的
-  `AppliedContract` / `ContractMap` / `PathSeg`。
+  **第四批（同日）**：`ParseOptions` 的 4 个 builder + 4 个注册方法、`ParseOutput::contract_map`、
+  `DiagnosticKind`（枚举本身原本无 doc，已补写）+ 4 个变体 ⇒ `ext.rs` 可见面收口。
+  **本 crate 剩余**：`Directive` 及其方法、`contract_map.rs` 的 `AppliedContract` / `ContractMap` / `PathSeg`。
 - **剩余**：其它 crate 的 `pub` 项摘要仍有百级（`sml-contract`、`sml-include`、`smltools`、
   门面 `swsml` 基本没动），建议**按 crate 分批**，每批一个提交。
 - **另一笔（不是双语化，是补写）**：`Object` 的 14 个方法与 `serde_bridge` 的
