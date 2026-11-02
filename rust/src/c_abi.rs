@@ -544,8 +544,30 @@ fn feature_set_from_flags(flags: c_uint) -> FeatureSet {
 
 /// 解析 SML 文本为值树。
 ///
+/// 返回**值树**（根节点，用 [`sml_free`] 释放），不是 JSON / SML 文本 —— 要文本请走
+/// `sml_parse` / [`sml_dumps`]（前者只写代码字体：它与 crate 名 `sml-parse` 同名，
+/// 挂链接会触发 rustdoc 的歧义警告）。`flags` 是**允许的特性位掩码**：`0` 表示
+/// [`FeatureSet::baseline`] 那八项核心能力，不是「全开」也不是「全关」；
+/// 要放开全部传 `sml_features_mask()`。第 i 位对应哪个特性可用 [`sml_feature_name`] 反查。
+///
+/// **不展开 `include`**：本函数只解析传入的这一段文本；需要按文件展开 include 请用
+/// [`sml_load_file`]。
+///
 /// # Safety
 /// `text` 必须是合法 NUL 结尾字符串或 NULL；`err` 可为 NULL。
+///
+/// # 陷阱
+///
+/// ⚠️ **`flags = 0` 不等于「不限制」**：它是 baseline（八项核心），
+/// 于是文档里 `@feature enable when` 这类 opt-in 能力会被**静默削掉**（见
+/// `parse_with_features` 的说明：越权不是报错，而是取交集）。
+///
+/// ⚠️ **位序是 `FEATURES` 数组的下标**，且**只认前 32 个**（`i >= 32` 直接丢弃）。
+/// C 侧别硬编码数字：用 `SML_F_*` 宏，或用 [`sml_feature_name`] / [`sml_features_mask`]
+/// 现查，否则 Rust 侧调一次表顺序，C 侧就全错位了。
+///
+/// ⚠️ **非 UTF-8 输入被静默替换**：`text` 走 `to_string_lossy()`，
+/// 非法字节变成 U+FFFD 且**不报错**。对字节流不放心的调用方请先自行校验编码。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_loads(
@@ -778,6 +800,18 @@ pub unsafe extern "C" fn sml_key_at(v: *const CSmlValue, idx: usize) -> *mut c_c
 }
 
 /// 把字符串值拷进调用方缓冲区，返回不含 NUL 的长度；缓冲区不足时返回所需长度。
+///
+/// 两趟用法：`buf` 为 NULL（或 `buflen == 0`）时**只回报所需字节数、一个字节都不写**；
+/// `buf` 非空时最多写 `buflen - 1` 字节再补 NUL，而返回值**始终是完整所需长度** ——
+/// 所以 `ret >= buflen` 就是「被截断了，请按 `ret` 重新分配」。
+///
+/// # 陷阱
+///
+/// ⚠️ **长度是字节，不是字符**：截断按字节切，`buflen - 1` 正好落在某个 UTF-8 多字节字符
+/// 中间时，缓冲区里留下的是**非法 UTF-8 半字符**，且不报任何错。中文/emoji 字段尤其容易中招。
+///
+/// ⚠️ **`0` 有三种含义**：空串、非字符串、`v` 为 NULL —— 返回值无法区分。
+/// 要区分就先 [`sml_typeof`]（`4` = Str），再用 [`sml_str_dup`] 或本函数两趟取。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_str_copy(
@@ -885,6 +919,18 @@ pub unsafe extern "C" fn sml_str_in(
 }
 
 /// `sml_get_path` + [`sml_int_value`]，经 `ok` 回传是否取到（可为 NULL）。
+///
+/// `ok` 写 `1` 的条件是**节点类型是 `Int`**（不是「值是数字」）；取不到、类型不对、`v` 为 NULL
+/// 一律写 `0`。
+///
+/// # 陷阱
+///
+/// ⚠️ **必须看 `ok`，不能看返回值**：`ok = 0` 时返回值**仍可能非 0** ——
+/// 字段是 `Float` 时 [`sml_int_value`] 会把它**截断**成 `i64` 返回（`1.9` ⇒ `1`），
+/// 而 `ok` 同时是 `0`。所以「返回 1」既不等于「成功」，也不等于「原值就是 1」。
+///
+/// ⚠️ **`ok` 传 NULL 就没救**：失败与「值就是 0」返回的是同一个 `0`。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_int_in(
@@ -907,6 +953,14 @@ pub unsafe extern "C" fn sml_int_in(
 }
 
 /// `sml_get_path` + [`sml_bool_value`]，经 `ok` 回传是否取到（可为 NULL）。
+///
+/// 与 [`sml_int_in`] 同形：`ok` 写 `1` 的条件是节点类型**确实是 `Bool`**。
+///
+/// # 陷阱
+///
+/// ⚠️ **同样是「看 `ok`」而不是「看返回 0/1」**：`false` 与非布尔字段都返回 `0`，
+/// 只有 `ok` 能区分「读到了 false」和「压根没读到」。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_bool_in(
@@ -929,6 +983,18 @@ pub unsafe extern "C" fn sml_bool_in(
 }
 
 /// 把值树序列化为 SML 文本（调用方 `sml_free_str` 释放）。
+///
+/// 与 Rust 侧 `to_sml` 同源，但走的是 `crate::to_sml_checked` 那条**会失败**的路
+/// （该入口被 `sml` feature 门控，故这里只写代码字体不挂链接）：
+/// 深度超限返回 NULL，而不是吐 `/* …深度超限… */ null` 占位文本（那样回读会变成空值）。
+///
+/// # 陷阱
+///
+/// ⚠️ **`_flags` 目前被完全忽略**（形参名带下划线不是笔误）—— 传任何值都不改变输出。
+/// 别以为它能选「canonical / 保序」：想按键字节序请用 Rust 的 `to_sml_canonical`。
+///
+/// ⚠️ **NULL 有两种来源**：`v` 为 NULL、或超过 [`crate::MAX_VALUE_DEPTH`]（128 层，根算第 0 层）。
+/// 本函数没有 `err` 出参，**区分不了**，也不告诉你差多少层。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_dumps(v: *const CSmlValue, _flags: c_uint) -> *mut c_char {
