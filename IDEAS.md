@@ -96,8 +96,12 @@ Confirm the reading with the user before writing any code.
 
 ## I-4 注释双语化，英文在前 / bilingual comments, English first
 
-- **Status / 状态**：`Partial`（2026-10-31 开工）—— 本仓库注释**大体已是**「English ｜ 中文」，
+- **Status / 状态**：`Done`（2026-11-02 归零）—— 本仓库注释**大体已是**「English ｜ 中文」，
   这一条是把**未达标的**（纯中文或格式不整）补成统一约定，**单独一笔**收尾。
+  ✅ **已收口**：按下面「口径」那一节（docs.rs 可见面）扫全仓，**摘要行全部含 `｜`**；
+  与之配套的「无 doc 的 `pub` 项」也同批归零（记在 HANDOFF R5 + R11）。
+  ⚠️ **不计入的两类**：`sml-codes/src/{codes,msgs}.rs` 的 151 处码表 doc 是**生成物**
+  （要双语须改 `errors/gen_*.py` 模板并重生成 4 份产物，属独立决定）；私有模块 `//!` 与内部 `//` 不做。
 - **Convention / 约定**：`English ｜ 中文`，一行说完，不写第二段。
 - **Scope / 范围**：先公开 API 注释，再按文件推进；一次只改一类，便于 review。
 - **口径已定（2026-11-02，用户拍板）**：只算 **docs.rs 可见面**（crate 根 `//!` + `pub` 项摘要，

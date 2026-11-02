@@ -733,7 +733,7 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 
 | 文件:行号 | 说明 | 属类 |
 |---|---|---|
-| `rust/sml-lex/src/lib.rs:477` | 大整数经 `coerce_word` 的 B10 规则直出可写，回读按 `looks_int` 分支得到 `Value::Str`（不是 Int/Float）；**类型不对称但 round-trip 安全、零精度损失**。需写进文档：大整数经 SML 文本往返会变成字符串类型 | ④ |
+| `rust/sml-lex/src/lib.rs:477` | 大整数经 `coerce_word` 的 B10 规则直出可写，回读按 `looks_int` 分支得到 `Value::Str`（不是 Int/Float）；**类型不对称但 round-trip 安全、零精度损失**。✅ **已写进文档（2026-11-03）**：`sml-lex::coerce_word` 的 docs.rs 文档加了「数字词的三条落点」表（`42`⇒Int / `0755`⇒**Str** / `9223372036854775808`⇒**Str** / `1.5`⇒Float）与陷阱段，点明「判类型别假设数字就是 `Int`」 | ④ |
 | `rust/sml-value/src/ser_text.rs:82` + `serde_bridge.rs` 的 float 构造（raw=None） | ✅ **已定性（2026-10-28；不是修复，是收口）**：实测证实 serde **没有任何钩子**能让序列化侧拿到浮点原始文本 —— `Serializer` 对浮点只有 `serialize_f64(v: f64)` 一个入口（`serde_core-1.0.229/src/ser/mod.rs:681`），`f64` **按值**传入，数据模型里没有「数值 + 书写文本」的位置；唯一能带文本的是 `collect_str`，而它落到 `serialize_str`，会让浮点在 JSON 等**其它格式**里变成字符串（真改数据，比丢写法糟）。⇒ 维持「不保 raw」，写进 `ser_text.rs` 模块文档 | ② |
 | `rust/sml-value/src/ser_text.rs:82` vs `rust/sml-value/src/dump.rs:215` | ✅ **已定性（同上）**：两条发射器对浮点的输出不对称**不可消除**（serde 侧无 raw 槽位）。文档就近补在三处 —— `ser_text.rs` 模块文档 / `serde_bridge.rs` 的 `impl Serialize for Value` / `dump.rs` 的 `format_float`；并由两条**能跑**的测试钉住：`rust/tests/ser_de_direct.rs::float_raw_only_survives_to_sml`（行为）与 `::serde_hands_the_emitter_only_an_f64`（探针 Serializer 实测「只给了 f64」） | ④ |
 | `rust/sml-value/src/dump.rs:193-202`（`format_float`） | ✅ **Rust 侧已保真（2026-11-02 复核 + 钉测试）**：`format_float` 对整数值浮点强制 `{:.1}`（`dump.rs:197-198`），`1.0` / `1e10` / `-2.0` 都不会退化成整数；新增 `integral_float_keeps_dot_zero` 钉住。**残的是五端不一致**（其他端把 `1.0` 写成 `1`），归跨端同步，**不是 Rust 缺陷** | ④ |
@@ -811,7 +811,7 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 |---|---|---|---|
 | 1 | ~~**Lua 大整数（>2^53）转 float 丢精度**~~ ✅ **已修（2026-11-02）**：整数形态若 `%.0f` 回写与原文不一致 ⇒ 保留**字符串**（round-trip 安全），`330106201503071234` 原样保留；顺带覆盖 `007` 前导零（与 Rust 同口径），负整数按原符号比较不误判。`lua/test_codes.lua` **184/184** 通过 | `lua/lib/sml.soup` | ~~静默改数据~~ |
 | 2 | **C++ 不支持 include**：`include "sub.sml"` 被静默当成键 `include: sub.sml`，不报错也不展开；而 Rust / C / JS / Lua 均正常 | `cpp/sml.cpp` | **静默错树** |
-| 3 | **JS `\uXXXX`（固定四位）少跳一位**：`i += 4` 应为 `i += 5`（`js/sml.mjs:131`）⇒ `\u0041\u0042` 解出 `aA1b`（正确 `aAb`） | `js/sml.mjs:131` | **静默产生错误数据** |
+| 3 | ~~**JS `\uXXXX`（固定四位）少跳一位**~~ ✅ **已修（2026-10-30，!16）**：`i += 4` 改为 `i += 5`（现 `js/sml.mjs:133`）⇒ `\u0041\u0042` 现在正确解出 `aAb`（原为 `aA1b`）。2026-11-03 复核源码确认 | `js/sml.mjs` | ~~静默产生错误数据~~ |
 
 **同批推翻的两条陈旧记录**（手册已就地更正，勿再引用）：
 - 「Lua 额外支持 `\a \b \f \v \'`」—— 实测五端全部 `E-LEX-004`，不成立；
