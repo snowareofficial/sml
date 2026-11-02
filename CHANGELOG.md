@@ -160,6 +160,16 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   子解析器（`@for` 体）继承该开关。用例 `rust/tests/contract_optout.rs`（4 条）。
   ⚠️ 文件入口 `parse_file` 暂不接收 `ParseOptions`，opt-out 目前只能走文本入口 `parse_with`。
 
+### 新增（`sml-codes`：中文可剥离，I-11）
+
+- **`sml-codes` 增 `[features] default = ["zh"]`**：`--no-default-features` 即「剥离中文」——
+  `msgs.rs` 的中文列整列不编译，`error_info` 一律走英文（缺英文退回码本身），
+  `render_locale` 在剥离后对任何 locale 都取英文规范文案。默认构建行为与此前**逐字一致**。
+  子 crate（`sml-parse` / `sml-lex` / `sml-contract` / `sml-include`）本就用
+  `default-features = false` 依赖 `sml-codes`，故它们天然不带中文。
+  ⚠️ 各 crate 里 `format!` 直拼的中文**尚未**改走文案表（IDEAS I-11 第 ② 项），
+  「零中文二进制」还需再走一步。生成器 `errors/gen_js_errors.py` 已同步（`--check` 幂等）。
+
 ### ⚠️ 升级注意
 
 - `Diagnostic` 是公开结构体，**新增 `line` 字段**：只读取诊断的代码不受影响；
