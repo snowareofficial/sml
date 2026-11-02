@@ -211,6 +211,9 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   `E-INCLUDE-006`）改为 `from_code_msg` / `from_code_title` + `with_detail`。语言随 `sml-codes` 的
   `zh` feature；`tests/error_codes.rs` 的精确中文全串断言改为语言无关断言（文案 + 片段名）。
   全量回归绿（仅本地 `_stack_probe`）。
+- **第四批（`sml-parse/src/scan.rs`）**：`@feature` / `@version` 相关 **11 处**改为
+  `from_code_msg` / `from_code_title` + `with_detail`（`E-FEATURE-003/004/006/007/008`）。
+  `sml-parse` 其余文件（`parser.rs` 61 / `cond.rs` 13 / `api.rs` 12）与 `sml-contract` 仍待续。
 
 ### ⚠️ 升级注意
 
