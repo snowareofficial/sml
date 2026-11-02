@@ -498,7 +498,7 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 |---|---|---|
 | 雷 1 | 深嵌套测试栈溢出 | ✅ 测试已能真跑（默认栈 128 层通过）；⚠️ **根因挂账**：任何默认栈线程解析 128 层仍 abort，迭代式解析待做 —— **完整改造方案见 `docs/iter-parse-plan.md`**（递归漏斗三入口、必须覆盖裸块的原因、Frame/Cont 设计、迁移清单、256 KB 验收判据） |
 | 雷 2 | `examples/slint/login.sml` 示例是坏的 | ✅ 已修（2026-11-02）：按 calculator 写法重写示例（`"\`…\`"` + 事件普通串 + `inherits` 字段），`--to slint` 输出干净 |
-| 雷 3 | `smltools` 的 unwrap / 与库分叉 / 冗余 | ✅ **崩用户类清零**（2026-11-02 脚本复核：`src/` 真实代码 0 处 `unwrap/expect/panic/unreachable`，全在 `#[cfg(test)]`）；✅ 冗余类已修（`--feature` 已接版本门控、模块文档已更正）；分叉类 5/6（2026-11-02 新增 `sml::depth_of` 单一来源）；仅剩 `lint.rs` 自写文本扫描待并库 |
+| 雷 3 | `smltools` 的 unwrap / 与库分叉 / 冗余 | ✅ **崩用户类清零**（2026-11-02 脚本复核：`src/` 真实代码 0 处 `unwrap/expect/panic/unreachable`，全在 `#[cfg(test)]`）；✅ 冗余类已修（`--feature` 已接版本门控、模块文档已更正）；分叉类 **6/6**（2026-11-02：`sml::depth_of` + 新增 `sml::scan_source_refs`，`lint.rs` 改为消费）—— 雷 3 **全部关闭** |
 | 雷 4 | 核心库「不可恢复崩溃」 | ✅ 结论：**干净** —— 9 处 unwrap/expect 全部有不变量守护 |
 | 雷 5 | 静默改数据 | 🛠 **A 组全修**：1-3（`c4077a0`，derive 大整数超 i64 一律报错，与 serde 桥同码）；**4-6（2026-10-28 本轮）**：重复键提升为数组 / 片段展开覆盖父块键 ⇒ 改为**告警**（语义不变，`Value` 逐字一致），`#[sml(flatten)]` 键冲突 ⇒ 改为**报错**。B 组往返不对称**仍未动** |
 | 雷 6 | 跨实现缺陷（能力矩阵挖出） | 🛠 **三条剩两条**：Lua 大整数丢精度 / C++ 无 include（= 一致性 `08` `09`，✋ 待裁决）；~~JS `\uXXXX` 少跳一位~~ **已由 !16 修（2026-10-30）**（跳转步长 `i+=4`→`i+=5`）—— 本行曾长期过期未更新 |
@@ -571,7 +571,7 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 
 **结论**：核心库这轮**无需修改**。但要记住 I-14 的规矩 —— 这份清单是"当时扫过"，以后每加一个 unwrap 都要能说清守护不变量是什么（可直接写进注释或参考本表）。
 
-### 雷 3：`smltools` 扫描清单（2026-10-27 扫完；**2026-11-02 复核：崩用户类 0 处、冗余类已修、分叉 5/6**）
+### 雷 3：`smltools` 扫描清单（2026-10-27 扫完；**2026-11-02 复核：崩用户类 0 处、冗余类已修、分叉 6/6 关闭**）
 
 - **现状**：`rust/smltools/src/` 共 6 个文件、约 **4900 行** ——
   `main.rs` 1265 / `yaml.rs` 956 / `xml.rs` 943 / `highlight.rs` 712 / `toml.rs` 695 / `lint.rs` 362。
@@ -585,7 +585,7 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
     的 `unreachable!()`（畸形 TOML 直接 abort 进程）改成带码错误。
     残留的 `panic!`/`.unwrap()` 全部位于 `#[cfg(test)]` 测试模块，**不进发行行为**。
   - **会不会与库分叉**：发射（md/json/xml/svg/latex/slint/lvgl/html/custom/sml）与
-    错误码（`sml_codes`）**全部复用库**，无重复实现；唯一分叉风险在 `lint.rs` 的自写文本扫描。
+    错误码（`sml_codes`）**全部复用库**，无重复实现；原唯一分叉（`lint.rs` 自写文本扫描）已于 2026-11-02 收敛到 `sml::scan_source_refs`。
   - **只是冗余**：`--feature` 形同虚设、`@feature base` 文档与实现不符、`DEPTH_WARN` 硬编码 64。
 
 ---
@@ -622,7 +622,7 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 | `lint.rs:52-55` `BUILTIN_DIRECTIVES` | 自写一份「SML 内置指令」名单，库增改指令时 lint 会把新指令误判成片段定义 | ✅ **已消**：改用 `sml::BUILTIN_DIRECTIVES` |
 | `lint.rs:254-271` `strip_comment` | 重做行尾 `#` 注释剥离，复制了库词法的注释规则 | ✅ **已消**：改用 `sml::strip_line_comment` |
 | `lint.rs:287-309` `split_kv` | 重做 `键: 值` 切分，复制了解析器的 kv 判定 | ✅ **已消**：改用新增的 `sml::split_kv`（同口径：冒号即分隔符） |
-| `lint.rs:274-285` `first_word_after` + `lint.rs:108-123` | 自写文本扫描识别 `@contract`/`@is`/`&name`，与解析器两套实现 | ⚠️ **半**：`@xxx` 是否内置指令已走 `BUILTIN_DIRECTIVES`，但**整段文本扫描**这套仍是自写 |
+| `lint.rs:274-285` `first_word_after` + `lint.rs:108-123` | 自写文本扫描识别 `@contract`/`@is`/`&name`，与解析器两套实现 | ✅ **已消（2026-11-02）**：搜索逻辑移入库 `sml::scan_source_refs`（`SourceRefs`），lint 改为消费；CLI 不再自写 |
 | `lint.rs:312-318` `depth_of` | 重做嵌套深度计算，与库等价逻辑两处易漂 | ✅ **已消（2026-11-02）**：库新增 `sml::depth_of`，lint 改为调用（单一来源） |
 | `lint.rs:58` `DEPTH_WARN = 64` | 硬编码 `MAX_VALUE_DEPTH(128)` 的一半，五端调整时不会跟随 | ✅ **已消**：改为 `MAX_VALUE_DEPTH / 2` |
 

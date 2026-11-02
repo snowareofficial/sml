@@ -192,6 +192,68 @@ pub fn depth_of(value: &Value) -> usize {
     }
 }
 
+/// 源码扫描结果：契约/片段的**定义**与**引用**（行号 1 起）。
+#[derive(Debug, Default, Clone)]
+pub struct SourceRefs {
+    pub contract_defs: Vec<(String, usize)>,
+    pub contract_uses: Vec<(String, usize)>,
+    pub fragment_defs: Vec<(String, usize)>,
+    pub fragment_uses: Vec<(String, usize)>,
+}
+
+/// 扫描源码里的契约/片段定义与引用（供 `smltools --lint` 的未使用检查）。
+///
+/// 这是**行级文本扫描**，不是解析器；但它与解析器共用 `strip_line_comment` /
+/// `BUILTIN_DIRECTIVES` 的语义，故收在库里当单一来源（TODO 雷 3 的分叉项）。
+pub fn scan_source_refs(text: &str) -> SourceRefs {
+    let mut out = SourceRefs::default();
+    for (i, raw) in text.lines().enumerate() {
+        let no = i + 1;
+        let body = strip_line_comment(raw).trim();
+        if body.is_empty() {
+            continue;
+        }
+        if let Some(d) = body.strip_prefix('@') {
+            let word = d
+                .split(|c: char| c.is_whitespace() || c == ':' || c == '{')
+                .next()
+                .unwrap_or("");
+            if word == "contract" {
+                if let Some(nm) = first_word_after(d, "contract") {
+                    out.contract_defs.push((nm, no));
+                }
+            } else if word == "is" {
+                if let Some(nm) = first_word_after(d, "is") {
+                    out.contract_uses.push((nm, no));
+                }
+            } else if !word.is_empty() && !BUILTIN_DIRECTIVES.contains(&word) {
+                out.fragment_defs.push((word.to_string(), no));
+            }
+        }
+        for (idx, _) in body.match_indices('&') {
+            let rest = &body[idx + 1..];
+            let nm: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                .collect();
+            if !nm.is_empty() {
+                out.fragment_uses.push((nm, no));
+            }
+        }
+    }
+    out
+}
+
+/// 取 `指令` 之后的第一个词（如 `contract Server {` → `Server`）。
+fn first_word_after(s: &str, kw: &str) -> Option<String> {
+    let rest = s.trim_start().strip_prefix(kw)?.trim_start_matches([':', ' ']);
+    let w: String = rest
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    if w.is_empty() { None } else { Some(w) }
+}
+
 pub use sml_include::{
     IncludeTarget, MiniRegex, RegexError, compile_regex, compile_regex_checked,
     parse_include_line, regex_matches, regex_matches_checked, strip_line_comment,

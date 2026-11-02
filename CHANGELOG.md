@@ -242,6 +242,12 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   `sml-contract` / `sml-include` / `swsml` emit / `smltools` 的报错文案全部走码表**（I-11 ② Rust 侧清零，
   共 12 批 / 203 处）。剩余仅非 Rust 端（JS/C/Lua 的硬编码文案），如需「零中文」需另开一轮。
 
+### 修复（雷3 收尾：`lint` 文本扫描并库）
+
+- 新增 **`sml::scan_source_refs(text) -> SourceRefs`**（契约/片段的定义与引用 + 1 起行号），
+  `smltools --lint` 改为消费它；删除 CLI 自写的扫描与 `first_word_after` / `is_fragment_directive`。
+  **雷 3 分叉类 6/6 关闭**（`sml::depth_of` + 本次 `scan_source_refs`）。全量回归绿（仅本地 `_stack_probe`）。
+
 ### ⚠️ 升级注意
 
 - `Diagnostic` 是公开结构体，**新增 `line` 字段**：只读取诊断的代码不受影响；

@@ -20,7 +20,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use sml::{parse, split_kv, strip_line_comment, BUILTIN_DIRECTIVES, MAX_VALUE_DEPTH, Value};
+use sml::{parse, split_kv, strip_line_comment, MAX_VALUE_DEPTH, Value};
 use sml_codes::{E_LINT_001, W_LINT_001, W_LINT_002, W_LINT_003, W_LINT_004, W_LINT_005};
 
 /// 检查结果。
@@ -49,12 +49,6 @@ impl Report {
     }
 }
 
-/// `@xxx` 是否为片段定义（而非内置指令）。单一来源用库的 `BUILTIN_DIRECTIVES`
-/// （smltools 直接复用，库的指令集变动时 lint 自动跟随）。
-fn is_fragment_directive(word: &str) -> bool {
-    !word.is_empty() && !BUILTIN_DIRECTIVES.contains(&word)
-}
-
 /// 对文本做检查。`path` 仅用于消息前缀。
 pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
     let name = path
@@ -81,12 +75,10 @@ pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
         .map(|(i, l)| (i + 1, l.to_string(), indent_of(l)))
         .collect();
 
-    let mut fragment_defs: Vec<(String, usize)> = Vec::new();
-    let mut contract_defs: Vec<(String, usize)> = Vec::new();
-    let mut used_frags: BTreeMap<String, usize> = BTreeMap::new();
-    let mut used_contracts: BTreeMap<String, usize> = BTreeMap::new();
+    // 契约/片段的定义与引用：**单一来源**（库的 `sml::scan_source_refs`，TODO 雷 3）。
+    let refs = sml::scan_source_refs(text);
 
-    for (no, raw, indent) in &lines {
+    for (no, raw, _indent) in &lines {
         // tab 缩进
         if raw.starts_with('\t') || raw.starts_with(" \t") {
             // E-LINT-001：缩进里出现制表符（按错误处理 —— 制表符宽度因编辑器而异）。
@@ -98,44 +90,10 @@ pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
                 "缩进里出现 tab；SML 缩进敏感，请统一用空格",
             );
         }
-        let body = strip_line_comment(raw).trim();
-        if body.is_empty() {
-            continue;
-        }
-        // 片段定义 / 契约定义 / 应用
-        if let Some(d) = body.strip_prefix('@') {
-            let word = d
-                .split(|c: char| c.is_whitespace() || c == ':' || c == '{')
-                .next()
-                .unwrap_or("");
-            if word == "contract" {
-                if let Some(nm) = first_word_after(d, "contract") {
-                    contract_defs.push((nm, *no));
-                }
-            } else if word == "is" {
-                if let Some(nm) = first_word_after(d, "is") {
-                    used_contracts.insert(nm, *no);
-                }
-            } else if is_fragment_directive(word) {
-                fragment_defs.push((word.to_string(), *no));
-            }
-        }
-        // 片段/契约引用（`&name`、`@is name` 已在上面处理）
-        for (idx, _) in body.match_indices('&') {
-            let rest = &body[idx + 1..];
-            let nm: String = rest
-                .chars()
-                .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
-                .collect();
-            if !nm.is_empty() {
-                used_frags.insert(nm, *no);
-            }
-        }
-        let _ = indent;
     }
 
-    for (nm, no) in &fragment_defs {
-        if !used_frags.contains_key(nm) {
+    for (nm, no) in &refs.fragment_defs {
+        if !refs.fragment_uses.iter().any(|(n, _)| n == nm) {
             // W-LINT-001：片段定义后从未被引用。
             report.push(
                 &name,
@@ -146,8 +104,8 @@ pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
             );
         }
     }
-    for (nm, no) in &contract_defs {
-        if !used_contracts.contains_key(nm) {
+    for (nm, no) in &refs.contract_defs {
+        if !refs.contract_uses.iter().any(|(n, _)| n == nm) {
             // W-LINT-002：契约定义后从未被应用。
             report.push(
                 &name,
@@ -252,19 +210,7 @@ fn indent_of(line: &str) -> usize {
     w
 }
 
-/// 取 `指令` 之后的第一个词（如 `contract Server {` → `Server`）。
-fn first_word_after(s: &str, kw: &str) -> Option<String> {
-    let rest = s.trim_start().strip_prefix(kw)?.trim_start_matches([':', ' ']);
-    let w: String = rest
-        .chars()
-        .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
-        .collect();
-    if w.is_empty() {
-        None
-    } else {
-        Some(w)
-    }
-}
+
 
 /// 值的嵌套深度（**单一来源**：直接复用 `sml::depth_of`，见该函数文档）。
 
@@ -320,16 +266,20 @@ mod tests {
         assert!(out.contains("[E-PARSE-001]"), "应透传 E-PARSE-001：\n{out}");
     }
 
-    /// 单一来源：lint 的内置指令判定直接复用 `sml::BUILTIN_DIRECTIVES`
-    /// （含 `include`），库的指令集变动时自动跟随，不会静默误判新指令为片段。
+    /// 单一来源：`scan_source_refs` 复用库的 `BUILTIN_DIRECTIVES`（含 `include`），
+    /// 库的指令集变动时自动跟随，不会静默误判新指令为片段。
     #[test]
     fn builtin_directives_is_single_source() {
         assert!(sml::BUILTIN_DIRECTIVES.contains(&"include"));
         assert_eq!(sml::BUILTIN_DIRECTIVES.len(), 8);
+        let r = sml::scan_source_refs("@contract C { }\n@include \"x.sml\"\n@frag { }\n");
         // 名单里的都不是片段定义；名单外的才算。
-        assert!(!is_fragment_directive("contract"));
-        assert!(!is_fragment_directive("include"));
-        assert!(is_fragment_directive("frag"));
+        assert!(!r
+            .fragment_defs
+            .iter()
+            .any(|(n, _)| n == "contract" || n == "include"));
+        assert!(r.fragment_defs.iter().any(|(n, _)| n == "frag"));
+        assert!(r.contract_defs.iter().any(|(n, _)| n == "C"));
     }
 
     /// `strip_comment` 现在复用 `sml::strip_line_comment`（库的单一来源）：
