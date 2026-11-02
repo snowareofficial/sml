@@ -47,7 +47,7 @@ pub use msgs::{error_info, ErrorInfo};
 
 use std::fmt;
 
-/// 带**错误码**的错误。
+/// An error carrying an **error code** ｜ 带**错误码**的错误。
 ///
 /// 码是编译期常量（见 [`codes`]），文案是运行时拼的 —— 这个分工让
 /// 「同因同码」可以被测试钉住，而文案随便改。
@@ -64,7 +64,9 @@ pub struct SmlError {
 }
 
 impl SmlError {
-    /// 用码与文案构造。码应当是 [`codes`] 里的常量而不是手写字面量 ——
+    /// Build from a code and a message ｜ 用码与文案构造。
+    ///
+    /// 码应当是 [`codes`] 里的常量而不是手写字面量 ——
     /// 写字面量能过编译，但打错一个数字就悄悄变成了另一个码。
     pub fn new(code: &'static str, message: impl Into<String>) -> Self {
         SmlError {
@@ -74,7 +76,7 @@ impl SmlError {
         }
     }
 
-    /// 用文案表里的**规范 msg** 构造错误（`error_info(code, DEFAULT_LOCALE).msg`）。
+    /// Build with the **canonical msg** from the message table (`error_info(code, DEFAULT_LOCALE).msg`) ｜ 用文案表里的**规范 msg** 构造错误。
     ///
     /// 供调用侧把「码 → 文案」的基线交给表（IDEAS I-11 第 ② 项）；查不到该码时
     /// 退回码本身，保证文案非空。需要动态上下文时用 [`Self::with_detail`] 追加。
@@ -86,7 +88,7 @@ impl SmlError {
         Self::new(code, msg)
     }
 
-    /// 用文案表里的**标题**构造错误（`error_info(code, DEFAULT_LOCALE).title`）。
+    /// Build with the **title** from the message table (`error_info(code, DEFAULT_LOCALE).title`) ｜ 用文案表里的**标题**构造错误。
     ///
     /// 与 [`Self::from_code_msg`] 的区别：标题更短，适合再拼具体细节。
     pub fn from_code_title(code: &'static str) -> Self {
@@ -97,7 +99,7 @@ impl SmlError {
         Self::new(code, title)
     }
 
-    /// 追加细节：`<现有文案>：<detail>`（`detail` 为空时原样返回）。
+    /// Append a detail: `<existing>：<detail>`; an empty detail returns `self` unchanged ｜ 追加细节（`detail` 为空时原样返回）。
     pub fn with_detail(self, detail: impl AsRef<str>) -> Self {
         let d = detail.as_ref();
         if d.is_empty() {
@@ -109,33 +111,33 @@ impl SmlError {
         }
     }
 
-    /// 记下出错位置（原文字节偏移），链式：`SmlError::new(C, "…").at(pos)`。
+    /// Record the failure position (byte offset), chainable: `SmlError::new(C, "…").at(pos)` ｜ 记下出错位置（原文字节偏移）。
     pub fn at(mut self, pos: usize) -> Self {
         self.pos = Some(pos);
         self
     }
 
-    /// 机器可判的错误码，如 `E-PARSE-008`。
+    /// The machine-checkable code, e.g. `E-PARSE-008` ｜ 机器可判的错误码，如 `E-PARSE-008`。
     pub fn code(&self) -> &'static str {
         self.code
     }
 
-    /// 出错位置（原文字节偏移）；未记录时为 `None`。
+    /// Failure position (byte offset); `None` when never recorded ｜ 出错位置（原文字节偏移）；未记录时为 `None`。
     pub fn pos(&self) -> Option<usize> {
         self.pos
     }
 
-    /// 人读的文案（**不含**码）。
+    /// The human-readable message, **without** the code ｜ 人读的文案（**不含**码）。
     pub fn message(&self) -> &str {
         &self.message
     }
 
-    /// 规范完整形态：`文案 [码]`，与 `Display` 一致。
+    /// Canonical full form `message [code]`, identical to `Display` ｜ 规范完整形态：`文案 [码]`，与 `Display` 一致。
     pub fn render(&self) -> String {
         format!("{} [{}]", self.message, self.code)
     }
 
-    /// 按 locale 渲染完整形态：`文案 [码]`，与 [`render`] 同构。
+    /// Render in a locale: `message [code]`, same shape as [`render`] ｜ 按 locale 渲染完整形态：`文案 [码]`。
     ///
     /// - `locale` 空 / 非英文（含 `zh`）：与 [`render`] / [`Display`] **逐字一致**，
     ///   默认中文文案，现有行为一字不变。
@@ -162,7 +164,7 @@ impl SmlError {
         self.render()
     }
 
-    /// 换一个码，保留文案。用于「内层错误被外层包装」时补上外层的码。
+    /// Swap the code, keep the message — for adding an outer code when wrapping an inner error ｜ 换一个码，保留文案。用于「内层错误被外层包装」时补上外层的码。
     pub fn with_code(self, code: &'static str) -> Self {
         SmlError {
             code,
@@ -171,13 +173,14 @@ impl SmlError {
         }
     }
 
-    /// 给文案加上前缀，保留码。用于补上下文（如「include 展开失败：」）。
+    /// Prefix the message, keep the code — for adding context (e.g. `include 展开失败：`) ｜ 给文案加上前缀，保留码。
     pub fn context(mut self, prefix: &str) -> Self {
         self.message = format!("{prefix}{}", self.message);
         self
     }
 
-    /// 给文案加上后缀，保留码。用于补**尾巴**（如「（第 3 行第 8 列）」）——
+    /// Suffix the message, keep the code — for adding a **tail** (e.g. `（第 3 行第 8 列）`) ｜ 给文案加上后缀，保留码。
+    ///
     /// `Display` 的码始终在最后，故后缀落在「文案之后、码之前」。
     pub fn suffix(mut self, suffix: &str) -> Self {
         self.message = format!("{}{}", self.message, suffix);
