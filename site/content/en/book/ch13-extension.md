@@ -172,24 +172,29 @@ not reuse them:
 
 ### External Modifier structs (shipped by the crate, register to use)
 
-| Struct | `name()` | Meaning | `ext.rs` location |
-|--------|----------|---------|-------------------|
-| `OneOf` | `one_of` | **at most one** of the group's fields may appear (≥2 ⇒ error) | `ext.rs:380`, check in `check_group` at `ext.rs:389` |
-| `ExactlyOne` | `exactly_one` | **exactly one** of the group's fields must appear (0 / ≥2 ⇒ error) | `ext.rs:401`, check at `ext.rs:410` |
-| `AnyOf` | `any_of` | **at least one** of the group's fields must appear (0 ⇒ error) | `ext.rs:432`, check at `ext.rs:441` |
-| `DependsOn` | `depends_on` | this field present ⇒ the listed fields must be present | `ext.rs:477`, check at `ext.rs:486` |
-| `ItemsMin` | `items_min` | array **element-count lower bound** (< n ⇒ error) | `ext.rs:240`, check in `check` at `ext.rs:252` |
+| Struct | `name()` | Meaning |
+|--------|----------|---------|
+| `OneOf` | `one_of` | **at most one** of the group's fields may appear (≥2 ⇒ error); checked in `Modifier::check_group` |
+| `ExactlyOne` | `exactly_one` | **exactly one** of the group's fields must appear (0 / ≥2 ⇒ error); same hook |
+| `AnyOf` | `any_of` | **at least one** of the group's fields must appear (0 ⇒ error); same hook |
+| `DependsOn` | `depends_on` | this field present ⇒ the listed fields must be present; same hook |
+| `ItemsMin` | `items_min` | array **element-count lower bound** (< n ⇒ error); checked in `Modifier::check` |
+| `XOnly` | `x_only "<prefix>"` | under `loose`/`warn`, only extra keys with that prefix are allowed (others still error); **mutually exclusive with `strict`**; checked in `apply_contract` (not `check_group` — the latter is skipped when the owner field is absent) |
+
+> Find implementations by **type name** in `rust/sml-contract/src/ext.rs` (e.g. `pub struct OneOf`) —
+> this chapter deliberately avoids line numbers: they rot, and nobody maintains them (adding `XOnly`
+> on 2026-11-02 shifted every one of them).
 
 > ⚠️ `one_of` / `exactly_one` / `any_of` / `depends_on` are all **cross-field** constraints: attached
 > to one field but observing the **whole block** — they go through the `Modifier::check_group(&GroupView)`
-> hook (`ext.rs:73`, no-op by default). By contrast `check(&FieldSpec, &Value)` (`ext.rs:61`) sees
+> hook (no-op by default). By contrast `check(&FieldSpec, &Value)` sees
 > **only this field's value**, which suits constraints like `items_min` that look at just the effective
 > value.
 >
-> `GroupView::present` (struct at `ext.rs:84`, field at `ext.rs:107`) counts **only keys the user wrote
+> `GroupView::present` counts **only keys the user wrote
 > explicitly** — a value supplied by `default` does **not** count as present. That is the basis for the
 > mutually-exclusive / count / dependency cross-field checks. A member name not declared in the same
-> contract (a misspelled field name) **fails loudly** (see `resolve_members`, `ext.rs:319`).
+> contract (a misspelled field name) **fails loudly** (see `resolve_members`).
 >
 > All these external modifiers **reuse `E-CONTRACT-011`**, adding no new code.
 

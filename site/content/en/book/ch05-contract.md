@@ -299,12 +299,16 @@ method: you may fill in `card` or `alipay`, but not both — this "pick one of m
 }
 ```
 
-The two modifiers mean:
+Cross-field / count modifiers mean:
 
 | Modifier | Meaning |
 |----------|---------|
 | `one_of [ a b c ]` | **at most one** of the group's fields may appear (2 or more ⇒ error) |
-| `exactly_one [ a b c ]` (I-7 gap ①) | **exactly one** must appear (0 or ≥2 ⇒ error) |
+| `exactly_one [ a b c ]` | **exactly one** must appear (0 or ≥2 ⇒ error) |
+| `any_of [ a b c ]` | **at least one** must appear (0 ⇒ error) |
+| `depends_on b` | this field present ⇒ the listed fields must be present (absent self ⇒ always passes) |
+| `items_min n` / `items_max n` | array element-count **lower / upper bound** (effective value, incl. `default` backfill) |
+| `x_only "x-"` | under `loose` / `warn`, only extra keys with that prefix are allowed (non-breaking `x-*`); **mutually exclusive with `strict`**, requires registering `sml_contract::XOnly` |
 
 Three points to remember:
 
@@ -321,8 +325,8 @@ Three points to remember:
 
 > ⚠️ **Availability (important)**: mutually exclusive groups are an **external extension point of the
 > Rust contract crate**, registered via `ParseOptions::with_modifier`, and are **Rust (reference
-> implementation) only**. **C / C++ / JS / Lua do not support them** — on those ends `one_of` /
-> `exactly_one` are treated as "unrecognized modifiers" (they do not silently pretend to pass, but
+> implementation) only**. **C / C++ / JS / Lua do not support them** — on those ends the modifiers
+> above are treated as "unrecognized modifiers" (they do not silently pretend to pass, but
 > they also do not perform the exclusivity check). Do not rely on them in contracts that must flow
 > across all five ends.
 
