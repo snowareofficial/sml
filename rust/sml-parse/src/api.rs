@@ -181,6 +181,39 @@ pub fn parse(text: &str) -> Result<Value, SmlError> {
 /// assert_eq!(out.value.get("name"), Some(&Value::Str("x".into())));
 /// # Ok::<(), String>(())
 /// ```
+/// # 语义：只做「文本 → 值」，**不碰文件系统**
+///
+/// 本函数**不展开 `include`** —— 只有 `parse_file*` 一族会调 `resolve_includes_spans`，
+/// 本函数走的是 `tokenize_spans`。所以把
+/// `std::fs::read_to_string(p)?` 的结果直接喂进来，等于**悄悄关掉了模块化**。
+///
+/// 四个入口的分界（最容易搞错的一处）：
+///
+/// | 入口 | 收 `ParseOptions` | 展开 `include` |
+/// |---|---|---|
+/// | [`parse`] / [`parse_with_warnings`] | 否 / 否 | 否 |
+/// | 本函数 | **是** | 否 |
+/// | [`parse_file`] / [`parse_file_with_warnings`] | 否 | 是 |
+/// | [`parse_file_with`] | **是** | 是 |
+///
+/// 选型一句话：**手上是字符串用 `parse_with`，手上是路径用 `parse_file_with`**；
+/// 「要选项」和「要 include」必须同时要时，只有 [`parse_file_with`] 一条路。
+///
+/// # 例子
+///
+/// ```
+/// use sml_parse::{parse_with, ParseOptions};
+///
+/// let out = parse_with("db { host: db.internal }\n", ParseOptions::new()).unwrap();
+/// assert_eq!(out.value.get("db.host").and_then(|v| v.as_str()), Some("db.internal"));
+/// ```
+///
+/// # 陷阱
+///
+/// ⚠️ **你以为「传空选项就等于 `parse`，随便用哪个都行」—— 其实 [`parse`] 把诊断丢了**。
+/// 键冲突（`DuplicateKey`：重复键已**提升为数组**）与片段覆盖（`KeyOverwritten`：父块原值
+/// **已丢失**）都会改写数据，而 `parse` 的签名 `Result<Value, _>` 承载不了这些告警
+/// （见 [`crate::ext::Diagnostic`]）。生产路径请走本函数或 [`parse_with_warnings`]。
 pub fn parse_with(text: &str, opts: ParseOptions) -> Result<ParseOutput, SmlError> {
     let (rest, declared) = strip_version(text)?;
     let (rest, feats, touched, mode, base, had) = strip_features(&rest)?;

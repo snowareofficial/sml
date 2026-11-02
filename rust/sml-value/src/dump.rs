@@ -293,6 +293,44 @@ fn dump_inline(v: &Value, depth: usize) -> String {
 /// （[`parse_with_features`] + `FeatureSet::without(Feature::Env)`），
 /// 这样 `$env.X` 一律解析失败，既杜绝环境变量读取，也消除 round-trip 歧义。
 #[cfg(feature = "sml")]
+/// # 语义：**总能给你一份文本**，但超深节点会被换成占位内容
+///
+/// 与同族三个入口的差别（都在本模块）：
+///
+/// | 函数 | 深度超限时 |
+/// |---|---|
+/// | 本函数 / `Display for Value` | **不失败**，把超限位置写成 `/* …深度超限… */ null`（块是 `… {}`） |
+/// | [`to_sml_checked`] | 返回错误（`E-LIMIT-004`） |
+/// | [`to_sml_canonical`] / [`to_sml_with`] | 同本函数（静默写占位） |
+///
+/// 「保序」（`preserve_order` feature）与「确定性字节」（`to_sml_canonical`）是**两个独立开关**。
+///
+/// # 例子
+///
+/// ```
+/// use sml_value::{to_sml, to_sml_checked, Value, MAX_VALUE_DEPTH};
+///
+/// assert_eq!(to_sml(&Value::Int(1)), "1");
+///
+/// // 深度超限：本函数不报错，而是写下「看着合法」的占位内容
+/// let mut v = Value::Int(1);
+/// for _ in 0..=MAX_VALUE_DEPTH {
+///     v = Value::Array(vec![v]);
+/// }
+/// assert!(to_sml(&v).contains("深度超限"));
+/// assert!(to_sml_checked(&v).is_err());
+/// ```
+///
+/// # 陷阱
+///
+/// ⚠️ **你以为「返回 `String` 就说明拿到了全文」—— 其实超限节点被替换成
+/// `/* …深度超限… */ null`，文本回读得到 `null`，且不报任何错**。守卫在
+/// `dump_value` / `dump_element` / `dump_block` / `dump_inline` 四处各写一遍；
+/// 上限是 [`crate::MAX_VALUE_DEPTH`]（128，**根算第 0 层**，见 `max_value_depth`）。
+///
+/// ⚠️ **你以为 `println!("{v}")` 是安全的调试手段 —— 其实 `impl fmt::Display for Value`
+/// 就是本函数**，所以日志里同样可能冒出一段占位文本。要错误语义请用 [`to_sml_checked`]
+/// （CLI 与 C-ABI 的 `sml_dump` 正走它）。
 pub fn to_sml(v: &Value) -> String {
     let mut out = String::new();
     if let Value::Object(m) = v {
