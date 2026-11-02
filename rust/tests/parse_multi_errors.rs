@@ -69,3 +69,25 @@ fn recovers_inside_nested_block() {
         "恢复后父块后续字段应继续解析"
     );
 }
+
+/// L16 最后一块：`@for` 子解析器的错误也应并入 `errors`，而不是整体中断。
+#[test]
+fn collects_errors_from_for_body() {
+    // `@for` 体内 `k: B::C` 触发「键位置裸 `:`」⇒ E-PARSE-006。
+    let text = "@feature enable for\nlist: @for x in a b {\n  k: B::C\n}\n";
+    let out = collect(text);
+    let codes: Vec<&str> = out.errors.iter().map(|e| e.code()).collect();
+    assert!(
+        codes.iter().any(|c| *c == "E-PARSE-006"),
+        "for 体内的解析错误应被收集：{codes:?}"
+    );
+    // 两个枚举项都跑完（失败的以 Null 占位，不中断整个数组）。
+    assert_eq!(
+        out.value
+            .get("list")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len()),
+        Some(2),
+        "应继续跑完其余枚举项"
+    );
+}

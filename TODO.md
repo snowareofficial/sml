@@ -18,7 +18,7 @@
   `value` 为尽力而为的部分结果；块/数组内按**同步点**恢复继续（块：同层新字段 / `@` / `}` / EOF；
   数组：同层 `,` / `]` / EOF），无进展即停防死循环。默认 `false` ⇒ 遇错即停，既有行为逐字不变。
   用例 `rust/tests/parse_multi_errors.rs`（5 条：多错 / 默认不变 / 合法零错 / 嵌套恢复 / 契约收尾）。
-  残余：仅 `@for` 子解析器的错误仍**按致命处理**（`finish_block` 的契约应用 / 悬空 `@when` 错误已并入 `errors`）。
+  **L16 全部完成（2026-11-02）**：`@for` 子解析器的错误也已并入 `errors`（失败迭代以 `Null` 占位、其余枚举项继续），不再有「仍按致命处理」的残余。
 - [x] **LSP server**：`editors/lsp/server.mjs` 已实现 diagnostics / completion /
       definition / hover —— 2026-09-18 更正勾选状态（此前未勾但实际已做）
 - [x] **跳转到契约定义（VSCode 侧已补齐，2026-09-18）**：`editors/vscode/src/sml-parse.mjs`
