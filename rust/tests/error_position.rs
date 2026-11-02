@@ -45,3 +45,40 @@ fn no_position_means_no_position_text() {
         e.message()
     );
 }
+
+/// 文件入口**无 include**：token 与原文一一对应 ⇒ 也应有行列（2026-11-02 接线）。
+#[test]
+fn file_entry_without_include_carries_line_col() {
+    let d = std::env::temp_dir().join(format!("sml_pos_noinc_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    let p = d.join("m.sml");
+    std::fs::write(&p, "@version v1\nX {\n  a: B::C\n}\n").unwrap();
+
+    let e = sml::parse_file(&p).unwrap_err();
+    assert_eq!(e.code(), "E-PARSE-006");
+    assert!(e.message().contains("第 3 行"), "文件入口应带行号：{}", e.message());
+
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// 文件入口**有 include**：token 来自多文件，暂不提供位置（不凭空造）。
+#[test]
+fn file_entry_with_include_does_not_fabricate_position() {
+    let d = std::env::temp_dir().join(format!("sml_pos_inc_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    std::fs::write(d.join("base.sml"), "b: 1\n").unwrap();
+    let p = d.join("m.sml");
+    std::fs::write(&p, "@version v1\ninclude \"base.sml\"\nX { a: B::C }\n").unwrap();
+
+    let e = sml::parse_file(&p).unwrap_err();
+    assert_eq!(e.code(), "E-PARSE-006");
+    assert!(
+        !e.message().contains("第 "),
+        "有 include 时不应凭空造位置：{}",
+        e.message()
+    );
+
+    let _ = std::fs::remove_dir_all(&d);
+}

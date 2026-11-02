@@ -143,7 +143,7 @@ fn plain_parse_is_untouched() {
 // ---------- 5. 文件入口（片段常定义在子文件里，文本入口会漏） ----------
 
 #[test]
-fn file_entry_warns_without_line_numbers() {
+fn file_entry_without_include_has_line_numbers() {
     let d = tmp_dir("file");
     let p = d.join("dup.sml");
     std::fs::write(&p, "k: 1\nk: 2\n").unwrap();
@@ -151,14 +151,11 @@ fn file_entry_warns_without_line_numbers() {
     let (v, warns) = parse_file_with_warnings(&p).unwrap();
     assert_eq!(warns.len(), 1, "文件入口也应告警，实际 {warns:?}");
     assert_eq!(warns[0].kind, DiagnosticKind::DuplicateKey);
-    assert_eq!(
-        warns[0].line,
-        None,
-        "文件入口的 token 流跨文件合并，拿不到行号：{warns:?}"
-    );
+    // 2026-11-02：无 include 的文件入口现在也能定位行号（token 与原文一一对应）。
+    assert_eq!(warns[0].line, Some(2), "无 include 时应带行号：{warns:?}");
     assert!(
-        warns[0].message.contains("smltools --lint"),
-        "无行号时文案应指引拿行号的方式：{}",
+        !warns[0].message.contains("smltools --lint"),
+        "有行号时不该再给「拿行号」的兜底指引：{}",
         warns[0].message
     );
     assert!(matches!(v.get("k"), Some(Value::Array(_))));
@@ -177,6 +174,8 @@ fn file_entry_catches_fragment_overwrite_across_include() {
     let (v, warns) = parse_file_with_warnings(&main).unwrap();
     assert_eq!(warns.len(), 1, "跨 include 的片段覆盖应被抓到，实际 {warns:?}");
     assert_eq!(warns[0].kind, DiagnosticKind::KeyOverwritten);
+    // 有 include 时 token 跨文件合并，无单一原文 ⇒ 暂不给行号（不凭空造）。
+    assert_eq!(warns[0].line, None, "有 include 时暂不给行号：{warns:?}");
     assert!(
         warns[0].message.contains("x"),
         "文案须点名被覆盖的键：{}",

@@ -179,6 +179,15 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   ⚠️ `ParseOutput` 是公开结构体**加字段**：只读取的代码不受影响，结构体字面量构造需补 `errors`。
   残余：契约收尾（`finish_block`）与 `@for` 子解析器的错误仍按致命处理。
 
+### 修复（错误定位：文件入口带行列）
+
+- **无 include 的 `parse_file` / `parse_file_versioned` / `parse_file_features` / `parse_file_with_warnings`
+  现在也带「第 N 行第 M 列」**：新增 `sml_include::resolve_includes_spans`，在**整篇无 include** 时
+  交出与 token 一一对应的 `spans`（此时展开是恒等操作），`parse_file*` 据此算行号并走 `with_position`。
+  ⚠️ **有 include 时** token 来自多文件、无单一原文 ⇒ 仍**不带位置**（不凭空造）；
+  诊断的 `line` 同理：无 include 带行号、有 include 为 `None`。
+  要做成 `文件:行` 需给 `SmlError` 加文件限定位置，属后续。
+
 ### ⚠️ 升级注意
 
 - `Diagnostic` 是公开结构体，**新增 `line` 字段**：只读取诊断的代码不受影响；

@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use sml_codes::{E_FEATURE_001, E_FEATURE_004, E_FEATURE_009, E_IO_001, E_PARSE_008, SmlError};
 use sml_feature::{Feature, FeatureSet, Version};
-use sml_include::resolve_includes;
+use sml_include::resolve_includes_spans;
 use sml_lex::{Span, Tok, tokenize_spans};
 use sml_value::Value;
 
@@ -49,10 +49,13 @@ pub fn parse_file_versioned(path: impl AsRef<Path>) -> Result<(Value, Version), 
     let allowed = FeatureSet::all().intersection(feats);
     let v = declared.or(base_ver).unwrap_or(Version::V1);
     let feats = features_for(v, allowed, touched, mode, had);
-    let toks = resolve_includes(&rest, &base, allowed)?;
-    // 文件入口的 token 流经 include 展开、跨文件合并，**没有可映射的单一原文**
-    // ⇒ 传空 spans，解析器退回「不带位置」（宁缺勿错）。
-    let val = parse_impl_tokens(toks, Vec::new(), Vec::new(), feats, BTreeMap::new())?;
+    let (toks, spans) = resolve_includes_spans(&rest, &base, allowed)?;
+    let spans = spans.unwrap_or_default();
+    // 无 include ⇒ token 与 `rest` 一一对应，可定位行列；有 include ⇒ 跨文件合并、
+    // 无单一原文，`spans` 为空 ⇒ 解析器退回「不带位置」（宁缺勿错）。
+    let lines = if spans.is_empty() { Vec::new() } else { token_lines(&rest, &spans) };
+    let val = parse_impl_tokens(toks, spans, lines, feats, BTreeMap::new())
+        .map_err(|e| with_position(&rest, e))?;
     Ok((val, v))
 }
 
@@ -62,8 +65,9 @@ pub fn parse_file_versioned(path: impl AsRef<Path>) -> Result<(Value, Version), 
 /// 那类告警（片段展开覆盖父块已有的键）几乎只发生在真实文档里，而片段又常常
 /// 定义在被 include 的子文件中 —— 只有文本入口会漏掉最典型的那一类。
 ///
-/// ⚠️ 文件入口的 token 流经 include 展开、跨文件合并，**没有可映射的单一原文**
-/// ⇒ 诊断的 `line` **恒为 `None`**（文案末尾会指引改用 `smltools --lint` 拿行号）。
+/// ⚠️ 文件入口**无 include** 时 token 与原文一一对应 ⇒ 诊断带行号；**有 include** 时
+/// token 跨文件合并、没有可映射的单一原文 ⇒ `line` 为 `None`（文案末尾会指引改用
+/// `smltools --lint` 拿行号）。
 pub fn parse_file_with_warnings(
     path: impl AsRef<Path>,
 ) -> Result<(Value, Vec<Diagnostic>), SmlError> {
@@ -81,15 +85,18 @@ pub fn parse_file_with_warnings(
     let allowed = FeatureSet::all().intersection(feats);
     let v = declared.or(base_ver).unwrap_or(Version::V1);
     let feats = features_for(v, allowed, touched, mode, had);
-    let toks = resolve_includes(&rest, &base, allowed)?;
+    let (toks, spans) = resolve_includes_spans(&rest, &base, allowed)?;
+    let spans = spans.unwrap_or_default();
+    let lines = if spans.is_empty() { Vec::new() } else { token_lines(&rest, &spans) };
     let out = parse_impl_tokens_ext(
         toks,
-        Vec::new(),
-        Vec::new(),
+        spans,
+        lines,
         feats,
         BTreeMap::new(),
         ParseOptions::new(),
-    )?;
+    )
+    .map_err(|e| with_position(&rest, e))?;
     Ok((out.value, out.diagnostics))
 }
 
@@ -507,9 +514,12 @@ pub fn parse_file(path: impl AsRef<Path>) -> Result<Value, SmlError> {
     let v = declared.or(base_ver).unwrap_or(Version::V1);
     let feats = features_for(v, feats, touched, mode, had);
     let allowed = FeatureSet::all().intersection(feats);
-    let toks = resolve_includes(&rest, &base, allowed)?;
-    // include 展开是跨文件 token 流 ⇒ 无单一原文，不带位置（见 `parse_impl_tokens` 注释）
-    parse_impl_tokens(toks, Vec::new(), Vec::new(), allowed, BTreeMap::new())
+    let (toks, spans) = resolve_includes_spans(&rest, &base, allowed)?;
+    let spans = spans.unwrap_or_default();
+    // 无 include ⇒ 可定位行列；有 include ⇒ 跨文件无单一原文，不造位置。
+    let lines = if spans.is_empty() { Vec::new() } else { token_lines(&rest, &spans) };
+    parse_impl_tokens(toks, spans, lines, allowed, BTreeMap::new())
+        .map_err(|e| with_position(&rest, e))
 }
 
 /// 同 [`parse_file`]，但额外接受一个「调用方允许特性集」`caller_allowed`，
@@ -543,9 +553,12 @@ pub fn parse_file_features(
             "sml: 调用方 flags 与文档特性交集为空，不允许任何解析能力",
         ));
     }
-    let toks = resolve_includes(&rest, &base, allowed)?;
-    // include 展开是跨文件 token 流 ⇒ 无单一原文，不带位置（见 `parse_impl_tokens` 注释）
-    parse_impl_tokens(toks, Vec::new(), Vec::new(), allowed, BTreeMap::new())
+    let (toks, spans) = resolve_includes_spans(&rest, &base, allowed)?;
+    let spans = spans.unwrap_or_default();
+    // 无 include ⇒ 可定位行列；有 include ⇒ 跨文件无单一原文，不造位置。
+    let lines = if spans.is_empty() { Vec::new() } else { token_lines(&rest, &spans) };
+    parse_impl_tokens(toks, spans, lines, allowed, BTreeMap::new())
+        .map_err(|e| with_position(&rest, e))
 }
 
 /// Parse into an object (throws `ParseError`, which carries an error code) ｜ 解析到对象 (失败抛 `ParseError`，它带**错误码**，见 [`sml_codes::SmlError`])
