@@ -2170,7 +2170,23 @@ impl Parser {
         for item in &items {
             let mut child = self.spawn_for_child(body.clone(), &var, item);
             // 子解析器从块内部 token 起始，已无外层 `}`，故以 EOF 为结束（closing=None）。
-            let val = child.parse_block(None)?;
+            let val = match child.parse_block(None) {
+                Ok(v) => v,
+                // `collect_errors`：子解析器的错误并入父级，本轮迭代以 `Null` 占位，
+                // 继续跑完其余枚举项（L16 的最后一块残余）。
+                Err(e) if self.collect_errors => {
+                    for ce in child.errors.drain(..) {
+                        self.push_error(ce);
+                    }
+                    self.push_error(e);
+                    Value::Null
+                }
+                Err(e) => return Err(e),
+            };
+            // 成功路径下子解析器也可能已收集到（非致命的）错误，同样并入父级。
+            for ce in child.errors.drain(..) {
+                self.push_error(ce);
+            }
             arr.push(val);
         }
         Ok(Value::Array(arr))
