@@ -13,7 +13,12 @@
 - [x] **契约校验接入编辑器**：JS 侧契约**已实现**（`js/sml.mjs` 有契约表 / `@is` 处理 /
       默认值填充），故语义诊断的**前置条件已具备** —— 此处原写「契约仅 Rust 支持」，
       2026-09-18 更正。**仍未验证**：编辑器是否已把语义错误呈现出来（属 VSCode 侧接线）
-- [ ] **一次报出多条错误**：当前解析器遇错即停，编辑器只显示第一条
+- [x] **一次报出多条错误** —— ✅ 增量已落地（2026-11-02）：`ParseOptions::collect_errors(true)` 开启后
+  `parse_with` 返回 `Ok(ParseOutput)`，`errors: Vec<SmlError>` 收集解析期全部错误（上限 64），
+  `value` 为尽力而为的部分结果；块/数组内按**同步点**恢复继续（块：同层新字段 / `@` / `}` / EOF；
+  数组：同层 `,` / `]` / EOF），无进展即停防死循环。默认 `false` ⇒ 遇错即停，既有行为逐字不变。
+  用例 `rust/tests/parse_multi_errors.rs`（4 条：多错 / 默认不变 / 合法零错 / 嵌套恢复）。
+  残余：`finish_block`（契约应用 / 悬空 `@when`）与 `@for` 子解析器的错误仍**按致命处理**（不并入 `errors`）。
 - [x] **LSP server**：`editors/lsp/server.mjs` 已实现 diagnostics / completion /
       definition / hover —— 2026-09-18 更正勾选状态（此前未勾但实际已做）
 - [x] **跳转到契约定义（VSCode 侧已补齐，2026-09-18）**：`editors/vscode/src/sml-parse.mjs`

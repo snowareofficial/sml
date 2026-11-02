@@ -89,6 +89,10 @@ pub struct Parser {
     pub(crate) apply_contracts: bool,
     /// 外置契约类型表（由下游注册，见 [`crate::ext`]）。
     pub(crate) contract_ext: Arc<ContractExt>,
+    /// 是否收集多条错误（[`crate::ext::ParseOptions::collect_errors`]）。
+    pub(crate) collect_errors: bool,
+    /// 收集到的错误（仅 `collect_errors` 时非空）。
+    pub(crate) errors: Vec<SmlError>,
 }
 
 /// 单个块在迭代式解析中的可变状态（迭代式改造第一步：从 `parse_block_inner`
@@ -456,6 +460,9 @@ impl Parser {
             diags: Vec::new(),
             warn_key_conflict: self.warn_key_conflict,
             apply_contracts: self.apply_contracts,
+            collect_errors: self.collect_errors,
+            // 子解析器（`@for` 体）独立收集；暂不回传父级（与 diags 同）。
+            errors: Vec::new(),
             contract_ext: Arc::clone(&self.contract_ext),
         }
     }
@@ -1555,9 +1562,36 @@ impl Parser {
         let mut stack = vec![root];
         loop {
             let n = stack.len() - 1;
+            let i_before = self.i;
             let step = match &mut stack[n] {
-                Frame::Block { state, .. } => self.block_step(state)?,
-                Frame::Array { arr, .. } => self.array_step(arr)?,
+                Frame::Block { state, .. } => match self.block_step(state) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        if !self.collect_errors {
+                            return Err(e);
+                        }
+                        self.push_error(e);
+                        Self::recover_block(&self.toks, &mut self.i);
+                        if self.i == i_before {
+                            break; // 同步点没前移 ⇒ 停在此帧，避免死循环
+                        }
+                        Step::Continue
+                    }
+                },
+                Frame::Array { arr, .. } => match self.array_step(arr) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        if !self.collect_errors {
+                            return Err(e);
+                        }
+                        self.push_error(e);
+                        Self::recover_array(&self.toks, &mut self.i);
+                        if self.i == i_before {
+                            break;
+                        }
+                        Step::Continue
+                    }
+                },
             };
             match step {
                 Step::Continue => {}
@@ -1579,6 +1613,83 @@ impl Parser {
                 }
             }
         }
+        // 仅在 `collect_errors` 模式会走到这里（无进展保护触发）：
+        // 返回根帧当前的**部分结果**，错误已收进 `self.errors`。
+        let root = stack.into_iter().next();
+        Ok(match root {
+            Some(Frame::Block { state, .. }) => Value::Object(state.node),
+            Some(Frame::Array { arr, .. }) => Value::Array(arr),
+            None => Value::Null,
+        })
+    }
+
+    /// 记录一条错误（`collect_errors` 模式），设上限防跑飞。
+    fn push_error(&mut self, e: SmlError) {
+        const MAX_ERRORS: usize = 64;
+        if self.errors.len() < MAX_ERRORS {
+            self.errors.push(e);
+        }
+    }
+
+    /// 块内错误恢复：跳到「同层的新字段（`Word/Str` 紧跟 `:`）」/ `@` 指令 /
+    /// 本帧闭合 `}` / EOF；同步点本身**不消费**，交给下一轮正常处理。
+    fn recover_block(toks: &[Tok], i: &mut usize) {
+        let mut depth: i32 = 0;
+        let mut k = *i;
+        while let Some(tok) = toks.get(k) {
+            match tok {
+                Tok::LBrace | Tok::LBrack => {
+                    depth += 1;
+                    k += 1;
+                }
+                Tok::RBrace | Tok::RBrack => {
+                    if depth == 0 {
+                        break;
+                    }
+                    depth -= 1;
+                    k += 1;
+                }
+                Tok::Word(_) | Tok::Str(_) if depth == 0 => {
+                    if matches!(toks.get(k + 1), Some(Tok::Colon)) {
+                        break; // 新字段的起点
+                    }
+                    k += 1;
+                }
+                Tok::At if depth == 0 => {
+                    k += 1;
+                    break; // 指令起点
+                }
+                _ => k += 1,
+            }
+        }
+        *i = k;
+    }
+
+    /// 数组内错误恢复：跳到本帧闭合 `]` 或同层 `,`（消费逗号，作为下一元素起点）。
+    fn recover_array(toks: &[Tok], i: &mut usize) {
+        let mut depth: i32 = 0;
+        let mut k = *i;
+        while let Some(tok) = toks.get(k) {
+            match tok {
+                Tok::LBrace | Tok::LBrack => {
+                    depth += 1;
+                    k += 1;
+                }
+                Tok::RBrace | Tok::RBrack => {
+                    if depth == 0 {
+                        break;
+                    }
+                    depth -= 1;
+                    k += 1;
+                }
+                Tok::Comma if depth == 0 => {
+                    k += 1;
+                    break;
+                }
+                _ => k += 1,
+            }
+        }
+        *i = k;
     }
 
     /// 弹出一帧并应用收尾（块：悬空 `@when` + `@is` 契约 + 契约映射 + 裸块元数据/类型

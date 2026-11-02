@@ -386,6 +386,9 @@ fn parse_impl_tokens_ext(
         warn_key_conflict: opts.warn_key_conflict,
         // 解析期是否应用文件内契约（`@is` / typed-block）；默认 `true`。
         apply_contracts: opts.apply_contracts,
+        // 是否收集多条错误（TODO L16）；默认 `false`（遇错即停，行为不变）。
+        collect_errors: opts.collect_errors,
+        errors: Vec::new(),
         contract_ext: Arc::new(opts.contract_ext),
         // 契约映射：opt-in。未开启时 None（零开销、结果逐字一致）。
         contract_map: if opts.trace_contracts {
@@ -462,6 +465,7 @@ fn parse_impl_tokens_ext(
         value: value?,
         diagnostics: p.diags,
         contract_map: p.contract_map,
+        errors: p.errors,
     })
 }
 

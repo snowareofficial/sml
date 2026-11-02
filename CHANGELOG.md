@@ -170,6 +170,15 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   ⚠️ 各 crate 里 `format!` 直拼的中文**尚未**改走文案表（IDEAS I-11 第 ② 项），
   「零中文二进制」还需再走一步。生成器 `errors/gen_js_errors.py` 已同步（`--check` 幂等）。
 
+### 新增（API：一次报多条错误，L16）
+
+- **`ParseOptions::collect_errors(true)`**（默认 `false`）：开启后 `parse_with` 返回
+  `Ok(ParseOutput)`，新增的 `ParseOutput::errors: Vec<SmlError>` 收集**解析期全部错误**（上限 64），
+  `value` 为**尽力而为的部分结果**。恢复策略：块内跳到「同层新字段 / `@` 指令 / `}` / EOF」，
+  数组内跳到「同层 `,` / `]` / EOF」；无进展即停防死循环。默认关闭 ⇒ 遇错即停，行为逐字不变。
+  ⚠️ `ParseOutput` 是公开结构体**加字段**：只读取的代码不受影响，结构体字面量构造需补 `errors`。
+  残余：契约收尾（`finish_block`）与 `@for` 子解析器的错误仍按致命处理。
+
 ### ⚠️ 升级注意
 
 - `Diagnostic` 是公开结构体，**新增 `line` 字段**：只读取诊断的代码不受影响；
