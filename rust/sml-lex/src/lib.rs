@@ -171,10 +171,7 @@ pub fn tokenize_spans(text: &str) -> Result<(Vec<Tok>, Vec<Span>), SmlError> {
                                 }
                                 Some(_) => {}
                                 None => {
-                                    return Err(SmlError::new(
-                                        E_LEX_002,
-                                        "sml: 未闭合的块注释 /* ... */（遇到文件结尾）",
-                                    ))
+                                    return Err(SmlError::from_code_msg(E_LEX_002))
                                 }
                             }
                         }
@@ -197,10 +194,7 @@ pub fn tokenize_spans(text: &str) -> Result<(Vec<Tok>, Vec<Span>), SmlError> {
                             }
                             Some(_) => {}
                             None => {
-                                return Err(SmlError::new(
-                                    E_LEX_003,
-                                    "sml: 未闭合的块注释 _* ... *_（遇到文件结尾）",
-                                ))
+                                return Err(SmlError::from_code_msg(E_LEX_003))
                             }
                         }
                     }
@@ -243,36 +237,24 @@ pub fn tokenize_spans(text: &str) -> Result<(Vec<Tok>, Vec<Span>), SmlError> {
                                                 // 不足 4 位说明输入截断/非法，
                                                 // 必须把已读的 hex 当作失败处理
                                                 // 而非静默丢弃（否则会吃掉后续引号）。
-                                                return Err(SmlError::new(
-                                                    E_LEX_005,
-                                                    format!(
-                                                        "sml: 字符串转义 \\u 缺少足够的十六进制数字（期望 4 位，得 {hex:?}）"
-                                                    ),
-                                                ));
+                                                return Err(SmlError::from_code_title(E_LEX_005)
+                                                    .with_detail(format!("期望 4 位，得 {hex:?}")));
                                             }
                                         }
                                     }
                                     // B8：非法码点（如代理区 \uD800、空 hex、非 hex）
                                     // 必须报错，不能静默丢弃并吞掉闭合引号。
                                     if hex.is_empty() {
-                                        return Err(SmlError::new(
-                                            E_LEX_005,
-                                            "sml: 字符串转义 \\u 后缺少十六进制数字",
-                                        ));
+                                        return Err(SmlError::from_code_title(E_LEX_005)
+                                            .with_detail("缺少十六进制数字"));
                                     }
                                     let cp = u32::from_str_radix(&hex, 16).map_err(|_| {
-                                        SmlError::new(
-                                            E_LEX_005,
-                                            format!("sml: 字符串转义 \\u 含非十六进制数字：{hex:?}"),
-                                        )
+                                        SmlError::from_code_title(E_LEX_005)
+                                            .with_detail(format!("含非十六进制数字：{hex:?}"))
                                     })?;
                                     let ch = char::from_u32(cp).ok_or_else(|| {
-                                        SmlError::new(
-                                            E_LEX_005,
-                                            format!(
-                                                "sml: 字符串转义 \\u 得到非法 Unicode 码点：U+{cp:04X}"
-                                            ),
-                                        )
+                                        SmlError::from_code_title(E_LEX_005)
+                                            .with_detail(format!("非法 Unicode 码点：U+{cp:04X}"))
                                     })?;
                                     s.push(ch);
                                 }
@@ -280,20 +262,15 @@ pub fn tokenize_spans(text: &str) -> Result<(Vec<Tok>, Vec<Span>), SmlError> {
                                     // 未知转义（非 n/t/r/0/"/\/u）：必须报错，而非静默丢弃
                                     // 反斜杠（P1-5：\U \d \z 等会让路径/正则静默损坏）。
                                     // 与 \u 系列一致的严格策略：非法转义即失败。
-                                    return Err(SmlError::new(
-                                        E_LEX_004,
+                                    return Err(SmlError::from_code_title(E_LEX_004).with_detail(
                                         format!(
-                                            "sml: 字符串含未知转义符 \\{}（仅支持 \\n \\t \\r \\0 \\\" \\\\ \\uXXXX）",
-                                            other
+                                            "\\{other}（仅支持 \\n \\t \\r \\0 \\\" \\\\ \\uXXXX）"
                                         ),
                                     ));
                                 }
                                 // B9：转义符后遇 EOF，未闭合的反斜杠报错
                                 None => {
-                                    return Err(SmlError::new(
-                                        E_LEX_006,
-                                        "sml: 字符串中的转义符 \\ 后遇到文件结束",
-                                    ))
+                                    return Err(SmlError::from_code_msg(E_LEX_006))
                                 }
                             }
                         }
@@ -301,10 +278,7 @@ pub fn tokenize_spans(text: &str) -> Result<(Vec<Tok>, Vec<Span>), SmlError> {
                         // B9：未闭合字符串（EOF 前没有闭合引号）必须报错，
                         // 否则后续整行/整个文件会被静默吞并。
                         None => {
-                            return Err(SmlError::new(
-                                E_LEX_001,
-                                "sml: 字符串未闭合（缺少结束引号 \"）",
-                            ))
+                            return Err(SmlError::from_code_msg(E_LEX_001))
                         }
                     }
                 }
@@ -417,20 +391,16 @@ pub fn coerce_word(
     // $env.VAR 内联（需 env 特性）
     if let Some(ev) = w.strip_prefix("$env.") {
         if !features.has(Feature::Env) {
-            return Err(SmlError::new(
-                E_FEATURE_002,
-                format!("sml: 当前特性集禁用了 `$env`（env），裸词 `{}` 无法解析", w),
-            ));
+            return Err(SmlError::from_code_msg(E_FEATURE_002)
+                .with_detail(format!("`{w}` 无法解析")));
         }
         return Ok(Value::Str(lookup_env(env, ev)));
     }
     // 片段引用 &name（需 fragment 特性）。命名空间隔离：先查裸名，再逐级查 ns 前缀。
     if let Some(name) = w.strip_prefix('&') {
         if !features.has(Feature::Fragment) {
-            return Err(SmlError::new(
-                E_FEATURE_001,
-                format!("sml: 当前特性集禁用了片段引用（fragment），`{}` 无法解析", w),
-            ));
+            return Err(SmlError::from_code_msg(E_FEATURE_001)
+                .with_detail(format!("片段引用（fragment），`{w}` 无法解析")));
         }
         if let Some(v) = fragments.get(name) {
             return Ok(v.clone());
@@ -451,10 +421,7 @@ pub fn coerce_word(
         }
         // 片段特性已开启但名字未定义：必须报错，不能静默降级为字符串
         // （否则拼错的片段名会得到 Str("&name")，下游 .get 取到 None，难以排查）。
-        return Err(SmlError::new(
-            E_INCLUDE_006,
-            format!("sml: 未定义的片段引用 `{}`", w),
-        ));
+        return Err(SmlError::from_code_msg(E_INCLUDE_006).with_detail(format!("`{w}`")));
     }
     // 数字: int / float / 科学计数
     if let Ok(i) = w.parse::<i64>() {
@@ -505,13 +472,9 @@ pub fn coerce_word(
         }
     }
     if !features.has(Feature::BarewordStr) {
-        return Err(SmlError::new(
-            E_FEATURE_005,
-            format!(
-                "sml: 字符串必须加引号，裸词 `{}` 应写作 `\"{}\"`（特性 bareword-string 已禁用）",
-                w, w
-            ),
-        ));
+        return Err(SmlError::from_code_msg(E_FEATURE_005).with_detail(format!(
+            "裸词 `{w}` 应写作 `\"{w}\"`（bareword-string 已禁用）"
+        )));
     }
     Ok(Value::Str(w.to_string()))
 }
