@@ -558,7 +558,11 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
   ⇒ 真实状态以本条「现象 / 根因 / 已修」三行与**根因仍挂账**为准。
 - **2026-11-02 新发现并修复**：`svg` / `slint` 后端的**嵌套数组**递归把 `depth` 原样传下去（未 +1），
   深度守卫永不触发 ⇒ 5 万层 `[[[…]]]` 在默认栈 `0xC00000FD`。已改为「合并出的兄弟数组不加深、
-  嵌套数组 +1」；`rust/tests/emit.rs` 的 **256 MB 大栈包装随之删除**（默认 2 MiB 下 43/43 全过）。
+  嵌套数组 +1」；`rust/tests/emit.rs` 的 **256 MB 大栈包装随之删除**（默认 2 MiB 下 44/44 全过）。
+- **2026-11-02 emit 深度审计（六后端 × 两种形状）**：50k **数组链**下 `svg`/`slint` 曾崩（已修），
+  `lvgl` 返回 `Ok`（LVGL 只认对象、忽略数组，属设计）、`markdown`/`latex`/`xml` 返回 `Err`；
+  50k **对象链**下全部不崩（已加 `emit_depth_limit_object_chain_does_not_overflow` 钉住）。
+  残留语义差异（非崩溃）：`markdown` 对超深**对象链**返回 `Ok` —— 其守卫只覆盖数组路径，待后续统一。
 - ~~**遗留**：`parse_array_inner` 未做削薄检查~~ —— **该函数在主干已不存在**（迭代式改造后数组也走
   `array_step`），此条过期；「默认栈 128 层」判据由 `rust/tests/stack_default.rs` 持续钉住。
 
