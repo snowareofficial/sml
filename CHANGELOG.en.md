@@ -3,9 +3,9 @@
 > **This file starts at 0.6.3.** Entries for **0.6.2 and earlier** live in the Chinese
 > [`CHANGELOG.md`](CHANGELOG.md), which was the only source of truth up to that point.
 > From **0.6.3** onward the two files are written together: the same sections, in the
-> same order, carrying the same evidence. If they ever disagree, the Chinese file is
-> the one to trust (it is the one the release notes are cut from) — and the English
-> file should be corrected to match.
+> same order, carrying the same evidence (the English side may **condense** long notes to
+> one line per change). If they ever disagree, the Chinese file is the one to trust (it is
+> the one the release notes are cut from) — and the English file should be corrected to match.
 
 Conventions carried over from `CHANGELOG.md`:
 
@@ -20,6 +20,49 @@ Conventions carried over from `CHANGELOG.md`:
   and every behavioural change says so explicitly instead of hiding in a feature note.
 
 ---
+
+## [Unreleased]
+
+> Condensed mirror of the Chinese `[未发布]` section: same categories, one line per change.
+> The Chinese file remains authoritative for detail and evidence.
+
+### 🚨 Breaking
+
+- `Value::Float` gains a raw-spelling field (`Float(f64, Option<String>)`): pattern matches and
+  struct literals need updating. `parse → to_sml` now preserves `1e10` exactly as written.
+- Contract symbolic modifiers `?` / `=` are deprecated (use `optional` / `default`); they now raise
+  `E-PARSE-006` on every implementation.
+- `sml::serde::to_string_direct` **rejects integers beyond `i64`** (`[E-DERIVE-002]`) instead of
+  writing bare words that read back as `Str`.
+
+### Added
+
+- Contract strictness three-state: `strict` (default) / `warn` (allow + warn) / `loose` (silent),
+  with block-level override (`@is X warn|loose`) and "strictest wins" when mixing contracts.
+- External modifiers `one_of` / `exactly_one` / `any_of` / `items_min` / `items_max` / `depends_on`
+  (Rust extension point; register via `ParseOptions::with_modifier`).
+- `x_only "<prefix>"` (`sml_contract::XOnly`): under `loose` / `warn`, only extra keys with that
+  prefix are allowed; mutually exclusive with `strict`; unregistered means disabled.
+- `W-PARSE-001` (duplicate key promoted to array) / `W-PARSE-002` (fragment expands over a parent
+  key), exposed via `Diagnostic::code()`.
+- `ParseOptions::collect_errors(true)` + `*_with_warnings`: several errors per document, including
+  `finish_block` and the `@for` sub-parser.
+- File entry points **without** `include` now carry line / column in errors.
+
+### Fixed
+
+- Iterative (explicit-stack) parser is on trunk: default-stack threads parse 128 levels and reject
+  129+ with `E-LIMIT-001` instead of aborting.
+- `svg` / `slint`: nested arrays no longer recurse without increasing depth (was `0xC00000FD`);
+  every emit backend now returns `E-LIMIT-004` on over-deep input.
+- Lua: integers beyond f64 precision stay strings (no more `3.3010620150307e+17`).
+- `include "a.sml" junk` now errors (`E-INCLUDE-012`) instead of silently dropping the tail.
+- `smltools`: no hardcoded Chinese error text remains in Rust; messages come from the code table.
+
+### Docs
+
+- Top-level `README.md` / `README.en.md` / `llms.txt` (+ the `site/static/` copy) and book chapters
+  5 & 13 synced with the contract modifiers; chapter 13 no longer cites `ext.rs` line numbers.
 
 ## [0.6.4] · swsml — 2026-10-15
 
