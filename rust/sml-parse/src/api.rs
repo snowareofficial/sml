@@ -384,6 +384,8 @@ fn parse_impl_tokens_ext(
         diags: Vec::new(),
         // 键冲突告警的开关：只影响 `diags`，不影响 `value`。
         warn_key_conflict: opts.warn_key_conflict,
+        // 解析期是否应用文件内契约（`@is` / typed-block）；默认 `true`。
+        apply_contracts: opts.apply_contracts,
         contract_ext: Arc::new(opts.contract_ext),
         // 契约映射：opt-in。未开启时 None（零开销、结果逐字一致）。
         contract_map: if opts.trace_contracts {

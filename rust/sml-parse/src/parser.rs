@@ -84,6 +84,9 @@ pub struct Parser {
     ///
     /// 只影响 [`Self::diags`] 的内容，**不影响解析结果**（`Value` 与旧版逐字一致）。
     pub(crate) warn_key_conflict: bool,
+    /// 是否在解析期应用文件内契约（`@is` / typed-block）。
+    /// 默认 `true`；`false` 时跳过应用与校验（IDEAS I-2 的 opt-out）。
+    pub(crate) apply_contracts: bool,
     /// 外置契约类型表（由下游注册，见 [`crate::ext`]）。
     pub(crate) contract_ext: Arc<ContractExt>,
 }
@@ -452,6 +455,7 @@ impl Parser {
             // （回传需要跨 &mut 借用，收益不抵复杂度；循环体通常不含弃用写法）。
             diags: Vec::new(),
             warn_key_conflict: self.warn_key_conflict,
+            apply_contracts: self.apply_contracts,
             contract_ext: Arc::clone(&self.contract_ext),
         }
     }
@@ -1163,6 +1167,15 @@ impl Parser {
             //（先裸名、再按当前 ns 前缀 qualify），否则 `E-CONTRACT-001`
             //（**带位置**，指向违规的那个词）。
             for (r, idx) in &queue {
+                // opt-out（IDEAS I-2）：不校验契约是否存在，按原样记录 ——
+                // 应用阶段已由 `self.apply_contracts` 整体跳过，故不会报错。
+                if !self.apply_contracts {
+                    let ov = overrides.get(r).copied();
+                    if !applied_contracts.iter().any(|(en, _)| en == r) {
+                        applied_contracts.push((r.clone(), ov));
+                    }
+                    continue;
+                }
                 match self.resolve_contract_word(r) {
                     Ok(n) => {
                         let ov = overrides.get(r).copied();
@@ -1611,28 +1624,31 @@ impl Parser {
             return Err(SmlError::new(E_PARSE_017, "sml: `@when` 后未跟随任何字段/块；它只作用于紧邻的下一个字段/块"));
         }
         let BlockFrame { mut node, applied_contracts, bare, .. } = state;
-        // 块结束：若声明了 `@is`，应用契约（填默认值 + 校验 + 严格性检查）
-        if applied_contracts.len() == 1 {
-            // 单契约：**逐字走原路径**（错误文案 / 行为与旧版完全一致）
-            let (cname, ov) = &applied_contracts[0];
-            let hint = suggest_contract_name(cname, &self.contracts)
-                .map(|c| format!("（你是不是想写 `{c}`？）"))
-                .unwrap_or_default();
-            let mut c = self.contracts.get(cname).cloned().ok_or_else(|| {
-                SmlError::new(E_CONTRACT_001, format!("sml: 未定义的契约 `{}`{}", cname, hint))
-            })?;
-            // D4①：块级显式覆盖 > 契约级声明（本块把有效严格度降到 `ov`）
-            if let Some(s) = ov {
-                c.strictness = *s;
+        // 块结束：若声明了 `@is`，应用契约（填默认值 + 校验 + 严格性检查）。
+        // `apply_contracts(false)` 时整段跳过（IDEAS I-2 的 opt-out）。
+        if self.apply_contracts {
+            if applied_contracts.len() == 1 {
+                // 单契约：**逐字走原路径**（错误文案 / 行为与旧版完全一致）
+                let (cname, ov) = &applied_contracts[0];
+                let hint = suggest_contract_name(cname, &self.contracts)
+                    .map(|c| format!("（你是不是想写 `{c}`？）"))
+                    .unwrap_or_default();
+                let mut c = self.contracts.get(cname).cloned().ok_or_else(|| {
+                    SmlError::new(E_CONTRACT_001, format!("sml: 未定义的契约 `{}`{}", cname, hint))
+                })?;
+                // D4①：块级显式覆盖 > 契约级声明（本块把有效严格度降到 `ov`）
+                if let Some(s) = ov {
+                    c.strictness = *s;
+                }
+                let mut ws = Vec::new();
+                apply_contract(&c, &mut node, &self.contracts, &self.ns_prefix(), &mut ws)?;
+                self.record_contract_warnings(ws);
+            } else if applied_contracts.len() > 1 {
+                // 多契约：叠加（D3/D4②：strict 优先、顺序无关、字段并集、冲突 ⇒ E-CONTRACT-016）
+                let mut ws = Vec::new();
+                apply_contracts(&applied_contracts, &mut node, &self.contracts, &self.ns_prefix(), &mut ws)?;
+                self.record_contract_warnings(ws);
             }
-            let mut ws = Vec::new();
-            apply_contract(&c, &mut node, &self.contracts, &self.ns_prefix(), &mut ws)?;
-            self.record_contract_warnings(ws);
-        } else if applied_contracts.len() > 1 {
-            // 多契约：叠加（D3/D4②：strict 优先、顺序无关、字段并集、冲突 ⇒ E-CONTRACT-016）
-            let mut ws = Vec::new();
-            apply_contracts(&applied_contracts, &mut node, &self.contracts, &self.ns_prefix(), &mut ws)?;
-            self.record_contract_warnings(ws);
         }
         // 契约映射：本块（路径 = path_stack，开帧时已把键/下标压好）应用了哪些契约。
         if let Some(map) = &mut self.contract_map {
@@ -1676,7 +1692,7 @@ impl Parser {
         // （JS 侧以跳过这两个键达到同样效果）。
         let mut names: Vec<String> = Vec::new();
         let mut consumed_args = 0usize; // args 里被算作契约词的数量
-        if self.features.has(Feature::TypedBlock) && self.features.has(Feature::Contract) {
+        if self.apply_contracts && self.features.has(Feature::TypedBlock) && self.features.has(Feature::Contract) {
             // 命名空间隔离：先按裸名查，再按当前 ns 前缀查（与 `@is` 一致）
             let resolve = |w: &str| -> Option<String> {
                 if self.contracts.contains_key(w) {

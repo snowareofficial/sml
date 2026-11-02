@@ -220,6 +220,13 @@ pub struct ParseOptions {
     /// `parse()` / `parse_file()` 这些不带 warnings 的入口恒不返回诊断
     /// （它们在 `api.rs` 里就丢掉了）⇒ 对既有调用方零影响。
     pub warn_key_conflict: bool,
+    /// 是否在**解析期应用**文件内契约（`@is` / typed-block 标注）。
+    ///
+    /// 默认 `true`（向后兼容）：解析期填默认值 + 校验 + 严格性检查。
+    /// 置 `false` 时**跳过应用**（不校验、不填默认值、未知契约也不报错），
+    /// 但 `@contract` 定义仍照常收集、**不进入结果树** —— 供 Rust 侧用
+    /// native struct/enum「无视文件内契约」的场景（IDEAS I-2 的 opt-out）。
+    pub apply_contracts: bool,
 }
 
 impl Default for ParseOptions {
@@ -229,6 +236,7 @@ impl Default for ParseOptions {
             contract_ext: ContractExt::new(),
             trace_contracts: false,
             warn_key_conflict: true,
+            apply_contracts: true,
         }
     }
 }
@@ -241,6 +249,16 @@ impl ParseOptions {
     /// 是否收集键冲突告警（链式）。默认 `true`。
     pub fn warn_key_conflict(mut self, on: bool) -> Self {
         self.warn_key_conflict = on;
+        self
+    }
+
+    /// 是否在解析期应用文件内契约（链式）。默认 `true`。
+    ///
+    /// `false` ⇒ 跳过 `@is` / typed-block 的契约应用与校验（不填默认值、
+    /// 未知契约不报错）；`@contract` 定义仍收集且不进入结果树。
+    /// 供「Rust 原生 struct/enum 当契约来源、无视文件内契约」的场景（IDEAS I-2）。
+    pub fn apply_contracts(mut self, on: bool) -> Self {
+        self.apply_contracts = on;
         self
     }
 
