@@ -455,22 +455,12 @@ fn deeply_nested(depth: usize) -> sml::Value {
 // 均在递归处检查 MAX_VALUE_DEPTH），故本测试不再忽略 —— 它正是防止"某个后端
 // 漏加保护又被悄悄放过"的回归网。
 //
-// ⚠️ 但必须在**显式大栈**的线程里跑：Rust 测试线程栈默认仅 2MB，而本用例要构造
-// 5 万层嵌套的 Value —— 栈不够时"测试自身"先溢出，反而掩盖了真正要验证的后端行为
-// （这两条用例此前被 `#[ignore]` 掩着，放开后才暴露出这一点）。
-// 用 256MB 栈是为了**区分两种失败**：测试资源不足（不该失败）与实现漏了深度保护（该失败）。
-fn with_big_stack<F: FnOnce() + Send + 'static>(f: F) {
-    std::thread::Builder::new()
-        .stack_size(256 * 1024 * 1024)
-        .spawn(f)
-        .expect("spawn big-stack thread")
-        .join()
-        .expect("test body panicked");
-}
+// ✅ 2026-11-02：不再包 256 MB 大栈——`deeply_nested` 是循环构造、`Drop` 是迭代式、
+// `to_sml` 与各 emit 后端都有 `MAX_VALUE_DEPTH` 守卫，5 万层在默认 2 MiB 栈上安全。
 
 #[test]
 fn emit_depth_limit_does_not_overflow() {
-    with_big_stack(|| {
+    {
         // 50000 层嵌套：修复前各 to_* 递归栈溢出（exit -1073740791/-1073741571 等）。
         // 修复后应在深度上限处返回 Err（或安全截断），绝不 abort 宿主。
         let deep = deeply_nested(50_000);
@@ -499,19 +489,19 @@ fn emit_depth_limit_does_not_overflow() {
 
         // P0-2：deeply_nested(50_000) 的超深 Value 在 drop 时应由迭代式 Drop 安全释放，
         // 不再因递归析构栈溢出 abort（让 deep 在测试结束时自然 drop 即验证此点）。
-    });
+    }
 }
 
 #[test]
 fn value_deep_drop_does_not_overflow() {
     // P0-2：深层嵌套 Value 的析构必须通过迭代式 Drop 完成，不能递归调用导致栈溢出。
     // 若实现退化，此测试会栈溢出 abort。
-    with_big_stack(|| {
+    {
         let deep = deeply_nested(50_000);
         // 经过 emit 调用后（证明其可被访问），drop 也不应溢出
         let _ = sml::to_sml(&deep);
         // deep 离开作用域时触发迭代式 Drop
-    });
+    }
 }
 
 #[test]
