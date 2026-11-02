@@ -123,8 +123,10 @@ Confirm the reading with the user before writing any code.
   **第四批（同日）**：`ParseOptions` 的 4 个 builder + 4 个注册方法、`ParseOutput::contract_map`、
   `DiagnosticKind`（枚举本身原本无 doc，已补写）+ 4 个变体 ⇒ `ext.rs` 可见面收口。
   **本 crate 剩余**：`Directive` 及其方法、`contract_map.rs` 的 `AppliedContract` / `ContractMap` / `PathSeg`。
-- **剩余**：其它 crate 的 `pub` 项摘要仍有百级（`sml-contract`、`sml-include`、`smltools`、
-  门面 `swsml` 基本没动），建议**按 crate 分批**，每批一个提交。
+- **剩余（2026-11-02 收盘实测，`9582c25`）**：**88 处纯中文摘要**，按 crate：
+  `sml-contract` 14 / `sml-feature` 13 / `sml-codes` 13 / `sml-pattern` 11 / `sml-parse` 10 /
+  门面 `swsml` 9 / `sml-value` 6 / `sml-lex` 4 / `sml-include` 3 / `smltools` 3 / `sml-regex` 2。
+  **按 crate 分批**，每批一个提交；详细数字与扫描脚本的三个坑见 `HANDOFF` §2 R5 / §6。
 - **另一笔（不是双语化，是补写）**：`Object` 的 14 个方法与 `serde_bridge` 的
   `#[cfg(not(feature = "sml"))]` 版 `to_string` **完全没有 doc** —— 见 `HANDOFF` 的 **R11**。
   ✅ **2026-11-02 已补（`c661f5a`）**：连 `Value` 枚举**本身**、`Map` 两个 cfg 别名、
@@ -134,7 +136,11 @@ Confirm the reading with the user before writing any code.
   ✅ **第二批（`d71b824`）**：门面 `swsml` 15 处（7 个 `Options::new`、`SvgOptions` /
   `SlintOptions` 两个结构体、`to_svg` / `to_slint` / `to_latex`、`c_abi::{jsonify,json_to_value}`、
   `sml::serde` 模块 `//!`），并修 `[`to_sml`]` 坏链接 ⇒ `cargo doc --all-features` 警告 1 → 0。
-  **`sml-value` 与 `rust/src` 均已清零**，全仓只剩 17 处（见 HANDOFF R11）。
+  **`sml-value` 与 `rust/src` 均已清零**。
+  ✅ **第三批（`9582c25`）**：其余 crate 17 处一次收完 ⇒ **全仓 `pub` 项都有 doc，R11 归零**
+  （`sml-contract` / `sml-pattern` 的 doc 警告各 1 → 0）。两条经验写进 HANDOFF §2/§6：
+  生成物（`sml-codes/src/msgs.rs`）要改**生成器模板**，不能手改产物；写 doc 必须读实现，
+  三批共抓到 4 处「想当然」。
 - **纪律 / 2026-10-31**：此笔**只动注释、不动逻辑**；改动与任何逻辑 diff 拆开独立提交。
 - **进展（2026-10-31 第一批，核心公开面）**：✅ `sml-value/src/lib.rs` 模块 doc + 公开项注解
   已由纯中文改为「English ｜ 中文」双语（中文照留，符合「还是支持中文」）；
