@@ -598,8 +598,29 @@ pub unsafe extern "C" fn sml_loads(
 
 /// 解析 SML 文件为值树（展开 `include`，相对路径以文件所在目录为基准）。
 ///
+/// 与 [`sml_loads`] 的唯一差别是**会展开 `include`**（`flags` 语义、返回值所有权、
+/// `err` 的用法全部相同）。include 的解析基准是**文件所在目录**；`path` 没有父目录时
+/// 退回 `.`，也就是**进程当前工作目录** —— 同一份文档换个 cwd 跑，include 可能就找不到了。
+///
+/// 返回**值树**，用 [`sml_free`] 释放。
+///
 /// # Safety
 /// `path` 必须是合法 NUL 结尾字符串或 NULL；`err` 可为 NULL。
+///
+/// # 陷阱
+///
+/// ⚠️ **`flags = 0` 是 baseline 八项，不是「不限制」**（同 [`sml_loads`]）：
+/// 文档里的 `@when` / `@for` / `typed-block` 等 opt-in 语法会直接报 **`E-FEATURE-001`**
+/// （不是静默忽略），要全放开传 `sml_features_mask()`。
+///
+/// ⚠️ **只要真展开了 `include`，错误就没有行列**：跨文件没有单一原文可映射，
+/// 位置信息不再生成 —— 同一份内容「手拼成单文件」时能报「第 N 行第 M 列」，
+/// 「文件 + include」时只有码和文案。
+///
+/// ⚠️ **一条告警都拿不到**：本入口返回 `Value`，键冲突（`W-PARSE-001`）与片段覆盖
+/// （`W-PARSE-002`）这两类诊断在这里被**丢弃** —— C-ABI 目前没有交出诊断的入口，
+/// 需要就回 Rust 侧用 `parse_file_with_warnings`。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_load_file(
