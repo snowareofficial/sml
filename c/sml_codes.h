@@ -290,7 +290,7 @@
 #define SML_W_LINT_001 "W-LINT-001"
 /* [W-LINT-002] 契约定义从未被应用：契约定义后从未被应用 */
 #define SML_W_LINT_002 "W-LINT-002"
-/* [W-LINT-003] 同一块内键名重复：键在同一块内重复，后者会覆盖前者 */
+/* [W-LINT-003] 同一块内键名重复：键在同一块内重复（已提升为数组，值不丢） */
 #define SML_W_LINT_003 "W-LINT-003"
 /* [W-LINT-004] 字段是空值：字段是空值 */
 #define SML_W_LINT_004 "W-LINT-004"
