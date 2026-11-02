@@ -129,7 +129,7 @@ pub fn to_sml_checked(v: &Value) -> Result<String, sml_codes::SmlError> {
             Some((head, _)) => head.to_string(),
             None => m,
         };
-        sml_codes::SmlError::new(sml_codes::E_LIMIT_004, msg)
+        sml_codes::SmlError::from_code_msg(sml_codes::E_LIMIT_004).with_detail(msg)
     })
 }
 

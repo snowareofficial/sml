@@ -233,6 +233,9 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 - **第十批（`sml-contract` 全量）**：`lib.rs` 18 + `ext.rs` 4 共 **22 处**改为 `from_code_*` + `with_detail`
   （`E-CONTRACT-001~011/016`、`E-EXT-002`）。`sml-contract` 已无直拼中文。剩余 `smltools`（37）、
   `swsml` emit（8）与 `sml-parse/api.rs`（1）待续。
+- **第十一批（`swsml` emit 层）**：`emit/mod.rs` 2 + `emit/custom.rs` 5 + `lib.rs` 1 共 **8 处**
+  改为 `from_code_msg` + `with_detail`（`E-LIMIT-004/005/006`、`E-CLI-007`、`E-EXT-006`）。
+  剩余 `smltools` **37 处**待续。
 
 ### ⚠️ 升级注意
 
