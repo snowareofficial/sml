@@ -23,10 +23,24 @@
 - C6：`README.md` 顶层示例的时间戳已加引号。
 - 附带：`site/content/*/book/ch13` 已删掉 `ext.rs:行号`（行号必烂）。
 
+**✅ 2026-11-02 已收口（A6 / C1–C3 / C4）**
+
+- A6：`editors/vscode/README.md`（「已知限制」末条）与 `README.en.md`（「Known limitations」末条）
+  各补一条：编辑器诊断走 `js/sml.mjs` 的 `parseSafe`，本轮回不同步 `W-PARSE-001` / `W-PARSE-002`；
+  需带行号提示请用 `smltools --lint`。
+  ⚠️ 原清单一此处让引用 `W-LINT-003`，该码已于 2026-11-02 废弃（不再产出），文案改引 `W-PARSE-001/002`。
+- C1–C3：复核发现 `docs/capability-matrix.md` 的 §1.6（嵌套数组 / Lua ❌）、§1.7（组合契约子契约
+  默认值 / JS ❌）、§1.8（载体盲区 B-01）**早已写过**，清单里标的「缺失」是 2026-10-28 的旧状态。
+  本轮只补 C2 的第二落点：`site/content/{zh,en}/book/ch05-contract.md` 里「嵌套块会递归校验并回填
+  默认值」一句对 JS 是**错的**，已在两版各补一条「JS 子契约默认值不递归回填」的提示。
+- C4：复核发现 `site/content/{zh,en}/book/ch14-capability-map.md` **已有**整节「跨实现一致性套件」
+  （值树比对而非字节 / 分歧台账两档 / 「两端都失败」不算一致 / 载体盲区 B-01·B-02），无需重写；
+  该节既定口径是「不另记一份计数」，故**不硬编码**数字。
+
+> ⚠️ 本清单表里的计数类事实已漂移，**勿再引用旧值**：分歧台账现为 **19 条**（原写 18）；
+> 基线 **AGREE 17 / DIVERGE 16**（原写 15/18，W24 修 C 单词修饰符后变化）；用例 **36 个**（原写 33）。
+
 **⏳ 仍未做**
-- A6：`editors/vscode/README*.md` 补一句「本轮回不同步 key_conflict 告警」。
-- C1–C3：`docs/capability-matrix.md` 补 Lua 嵌套数组、JS 组合契约默认值不回填、JS dump 数字样字符串。
-- C4：教科书提「跨实现一致性套件 + 18 条分歧台账 + 载体盲区」。
 - D1：W22 原话「vsix 提供的也加」待用户澄清（Zed 扩展 vs 文档）。
 
 ## 素材来源（已读）
