@@ -227,6 +227,23 @@ fn blank_of(s: &str) -> String {
     " ".repeat(s.len())
 }
 
+/// Strip `@version` / `@feature` lines and report what they said ｜ 剥离 `@version` / `@feature` 指令行，并汇报它们说了什么。
+///
+/// 返回六元组（顺序即为契约，改顺序会静默打乱所有调用方）：
+///
+/// 1. 剥掉指令行后的正文 —— 每条指令行被替换成**等长空格**，故偏移量与原文**一一对应**
+///    （诊断的行列号因此还能对上原文，别改成「删行」）；
+/// 2. `feats`：文档声明的特性集，**基集是 [`FeatureSet::baseline`]（按版本）而非全开**；
+/// 3. `touched`：文档**显式点名**增减过的特性 —— 用来把「按版本派生的基集」与
+///    「作者明确要求」分开，后者优先（喂给 `features_for`）；
+/// 4. `mode`：enable/disable 的语义模式（`Default` / `Whitelist` / `Blacklist` 三档，
+///    只有 `@feature mode …` 能改）；
+/// 5. `base`：**仅**由 `@feature base v1..v4` 给出的基线版本（`@version` 不在这里，
+///    由调用方另行解析并在优先级上压过它），`None` ⇒ 调用方回落到 `V1`；
+/// 6. `had`：是否**出现过**任何 `@feature` 行。
+///
+/// 多行字符串内部形如 `@feature` 的文本不算指令（靠 `compute_string_spans` 判定），
+/// 否则 `note: "..."` 里写一行 `@feature enable x` 就能改掉整份文档的语义。
 pub fn strip_features(
     text: &str,
 ) -> Result<(String, FeatureSet, FeatureSet, FeatureMode, Option<Version>, bool), SmlError> {

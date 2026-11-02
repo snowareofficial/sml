@@ -4,7 +4,8 @@
 //!
 //! 规则就是**普通 SML 数据**（片段），不引入新 token，因此能被 SML 自身的
 //! include / 契约 / 中文关键字复用。匹配侧用 Thompson NFA 并行推进，
-//! **结构上不存在回溯**，故免疫 ReDoS（见 [`nfa`] 模块说明）。
+//! **结构上不存在回溯**，故免疫 ReDoS（见 `nfa` 模块说明 —— 该模块是私有的，
+//! 链接不到 docs.rs，故只写代码字体）。
 //!
 //! # 关键字与语言无关
 //!
@@ -57,6 +58,10 @@ pub enum Class {
 }
 
 impl Class {
+    /// Test one `char` — **Unicode-aware** semantics, see [`Class`] ｜ 单个字符判定；语义是按 Unicode 的，见 [`Class`]。
+    ///
+    /// 几个容易想当然的点：`Digit` 用 `is_numeric`（不止 `0-9`，全角与罗马数字也算）；
+    /// `Word` = 字母数字 **+ 下划线**（不含 `-`）；`Range` 是闭区间比较 `char` 的码位。
     pub fn matches(&self, ch: char) -> bool {
         match self {
             Class::Digit => ch.is_numeric(),

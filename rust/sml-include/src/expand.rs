@@ -21,6 +21,29 @@ use crate::{
     resolve_target_paths, strip_line_comment,
 };
 
+/// Expand every `include` and return one **flat** token stream ｜ 展开所有 `include`，返回**单层扁平**的 token 流。
+///
+/// `base` 是**被包含文件自身所在目录**的起点（与 C 预处理器一致，不是进程工作目录），
+/// 因此嵌套 include 的路径行为是可预期的。
+///
+/// # 沙箱：`base` 之外一律拒绝
+///
+/// 所有命中的文件规范化后**必须仍在 `base` 之内**，否则拒绝（`E-INCLUDE-003`）——
+/// 这是防 `../` 与 glob/regex 模式越界读任意文件。`base` 自身规范化失败时也**拒绝**，
+/// 而不是回落到未规范化的路径（否则 `starts_with` 比较会静默失效，`E-INCLUDE-010`）。
+/// 所以「include 到上级目录的同级工程」是**设计上不支持**的，不是 bug。
+///
+/// # 限制与错误码（都是**硬顶**，不是建议值）
+///
+/// - 嵌套层数 ≥ `MAX_INCLUDE_DEPTH` ⇒ `E-INCLUDE-004`；
+/// - 全局展开次数 > `MAX_INCLUDE_EXPANSIONS` ⇒ `E-LIMIT-003`（同一文件被多处包含**也计数**，
+///   防指数膨胀 DoS）；
+/// - 命中正在展开的文件链 ⇒ 成环 ⇒ `E-INCLUDE-002`；
+/// - 目标无法规范化（不存在 / 权限）⇒ `E-INCLUDE-001`；读到但读不出文本 ⇒ `E-IO-001`；
+/// - 文档未开 `include` 特性却写了 include ⇒ `E-FEATURE-001`。
+///
+/// ⚠️ 本函数**丢掉 span**：展开后的 token 来自多个文件，没有可映射的单一原文。
+/// 需要错误定位请用 [`resolve_includes_spans`]（它在「整篇无 include」时才给 span）。
 pub fn resolve_includes(
     text: &str,
     base: &Path,
@@ -340,6 +363,16 @@ pub fn filter_top_level_keys(toks: Vec<Tok>, keys: &[String]) -> Vec<Tok> {
     out
 }
 
+/// Tokenize an included **child file** and expand its own includes ｜ 对**被包含的子文件**做词法并递归展开它自己的 include。
+///
+/// 与主文件走的是同一条路，唯独多了两步「子文件专属」的清洗，都在这里收口：
+///
+/// - **去 BOM**：记事本「另存为 UTF-8」会带 `\u{feff}`，不去掉的话第一个键名会变成
+///   `\u{feff}x`。主文件那条路由 `sml-parse::scan` 处理，子文件只能在这里去（否则同项目两套待遇）。
+/// - **剥 `@version` / `@feature` 行**：子文件里的这两类指令不该污染 token 流；
+///   但**多行字符串内部**的行要保留（否则字符串数据被破坏）。
+///
+/// `stack` 是被包含文件链（用于成环检测），`expansions` 是全局计数（跨文件累加，不在本层清零）。
 pub fn expand_file_tokens(
     content: &str,
     base: &Path,

@@ -20,6 +20,13 @@
 
 use crate::{Class, Pat};
 
+/// Compile a **regex subset** into the shared [`Pat`] IR (no second engine) ｜ 把 **regex 子集**编译进统一的 [`Pat`] IR（不引入第二个引擎）。
+///
+/// 支持的子集与「为什么不做」的清单见本文件顶部模块文档。两条行为约定：
+///
+/// - 不支持的特性（反向引用、lookaround）**报错**，不静默降级；
+/// - 解析完还有剩余字符（如 `a)`）也报错，并在消息里给**字符位置**与那个字符 ——
+///   位置是 `char` 下标，不是字节偏移。
 pub fn parse_regex(src: &str) -> Result<Pat, String> {
     let mut p = Parser {
         chars: src.chars().collect(),
