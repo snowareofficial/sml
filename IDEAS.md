@@ -206,7 +206,8 @@ rectangle            size 2    rect1   tls                      { … }
 
 ## I-7 契约约束的精确控制 / 让数据是我们想要的样子 · precise shape control
 
-- **Status / 状态**：`Done` —— **计数三件套与跨字段依赖已齐（①②③）**；**④ 三态 + 块级覆盖已做**，仅剩 `x-*` 按前缀放行额外键留待下一棒；**⑤ `Warning` 档已加**。
+- **Status / 状态**：`Done` —— **计数三件套与跨字段依赖已齐（①②③）**；**④ 三态 + 块级覆盖已做**；
+  **⑤ `Warning` 档已加**；**`x-*`（按前缀放行额外键）已以修饰符 `x_only "<prefix>"` 非破坏实现（2026-11-02，未新增语言语法）**。
   （严格性的 warn/silent 三态、诊断缺 `Warning` 档）。
 - **Idea / 想法**：不止「拼错字段」这一件事，还要能表达**字段缺失 / 最小 / 最多 / 互斥**等约束，
   目标是让数据长成我们想要的样子，而不是只有 `loose` ↔ `strict` 两个极端。
@@ -253,7 +254,8 @@ rectangle            size 2    rect1   tls                      { … }
   ② ~~数组**长度下限**（`items_min`）与「至少一个字段」~~ **已完成 2026-10-30**（`items_min` / `any_of`，见上 Done）；
   ③ ~~跨字段依赖（`a` 存在则 `b` 必须存在）~~ **已完成 2026-10-30**（`depends_on`，见上 Done）；
   ④ 严格性三态（strict / warn / loose）与块级覆盖（`@is X warn|loose`）**已完成**；
-  ⏳ 仍缺「按前缀放行额外键」（如 `x-*`）—— 属新语法、需五端同步，留待下一棒。
+  ✅ 「按前缀放行额外键」已实现（2026-11-02）：外置修饰符 `x_only "<prefix>"`（`sml_contract::XOnly`），
+  按契约开启、与 `strict` 互斥、未注册即禁用；**未新增语言语法**，故无需五端同步。
   ⑤ 诊断已新增 `DiagnosticKind::Warning`（与 `Deprecated` / `DuplicateKey` / `KeyOverwritten` 分工明确）—— 已完成。
 - **Design / 思路**：三态最划算 —— 复用 `Diagnostic` 加 `Warning` 档，`loose` 保留为静默放行，
   新增 `warn`；顺序与叠加的 strict 优先级规则要一并写清。互斥/计数这类先做成
@@ -271,7 +273,8 @@ rectangle            size 2    rect1   tls                      { … }
      `@is A B warn` ⇒ 只降 B。已写进 `sml-contract` 文档（「整条 `@is` 统降」不采纳：
      多契约时无法表达「只放宽其中一个」）。
   5. ✅ **已拍板（2026-11-02）：保留** `@contract C strict`（与默认等价，兼容既有写法，不删）。
-  6. ⏳ **待定（2026-11-02 复核后建议否决）**：`x-*` 按前缀放行额外键。评估见本节末「x-* 评估」。
+  6. ✅ **已落地（2026-11-02）**：`x-*` **不作为语言语法**加入；改为外置修饰符 `x_only "<prefix>"`。
+     语义与取舍见本节末「x-* 评估」。
 
 ### x-* 评估（2026-11-02）
 
@@ -282,7 +285,7 @@ rectangle            size 2    rect1   tls                      { … }
 svc { @is Svc  name: gateway  x-owner: infra }
 ```
 
-**必要性：建议否决**，三条理由：
+**结论（2026-11-02）：否决「新增语言语法」，改用外置修饰符 `x_only "<prefix>"`（已实现）。** 理由：
 
 1. **它放走的正是契约存在的意义**：`strict` 唯一能抓的错就是「键写错/多写」；`x-*` 把「扩展键」与
    「拼错的键」混在一起 —— `x-naem`、`x-nmae` 会被静默放行，strict 就名存实亡。
@@ -295,6 +298,23 @@ svc { @is Svc  name: gateway  x-owner: infra }
 
 **与人写多次的关系**：重复手写同类文档的痛点，应由 **`default` + 片段 `&frag` + `@for` + 契约复用**
 解决，而不是 `x-*` —— 后者只让「每份文档各塞各的私货」更容易，反而让重复场景更难保持一致。
+
+**落地方式（2026-11-02）**：`sml_contract::XOnly` —— 修饰符 `x_only "<prefix>"`：
+
+```sml
+@contract Svc loose {
+  name: str
+  _x: str optional x_only "x-"     # 只有本契约按 x- 前缀放行
+}
+```
+
+- **只在写了它的契约里生效**（别的契约完全不受影响）；
+- **与 `strict` 互斥**：strict 下直接报 `E-CONTRACT-011`（不静默无效）；块级 `@is C warn`
+  把有效严格度降档后合法；
+- **可整体禁用**：不调 `ParseOptions::with_modifier(XOnly)` 时它就是未知修饰符（零扩展 = 零影响）；
+- 校验点在 `apply_contract`，**不放** `Modifier::check_group` —— 后者只在该字段出现时才被调用，
+  作者漏写 owner 字段就会漏检。
+  用例：`sml-parse/src/ext.rs` 的 5 条 `x_only_*`（放行 / 拦非前缀 / strict 互斥 / 块级 warn / 未注册）。
 
 ## I-8 simple TOML-style support / 简易 TOML 风格
 

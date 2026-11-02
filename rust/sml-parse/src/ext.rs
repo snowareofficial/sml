@@ -898,4 +898,59 @@ mod tests {
         );
         assert!(crate::parse_with(&src, ParseOptions::new()).is_err());
     }
+
+    // ---- I-7：`x_only` 前缀放行（`x-*` 的非破坏实现） ----
+
+    fn x_only_opts() -> ParseOptions {
+        ParseOptions::new()
+            .with_modifier(sml_contract::XOnly)
+            .unwrap()
+    }
+
+    const X_CONTRACT: &str =
+        "@contract Svc loose {\n  name: str\n  _x: str optional x_only \"x-\"\n}\n";
+
+    /// `loose` + `x_only "x-"`：`x-` 前缀的额外键放行。
+    #[test]
+    fn x_only_allows_prefixed_extras() {
+        let src = format!("{X_CONTRACT}doc {{\n @is Svc\n name: ok\n x-owner: infra\n}}\n");
+        crate::parse_with(&src, x_only_opts()).expect("x- 前缀应放行");
+    }
+
+    /// 非前缀的额外键仍报错 —— 这就是"只放一部分"。
+    #[test]
+    fn x_only_rejects_other_extras() {
+        let src = format!("{X_CONTRACT}doc {{\n @is Svc\n name: ok\n owner: infra\n}}\n");
+        let e = crate::parse_with(&src, x_only_opts()).expect_err("非 x- 前缀应报错");
+        assert!(e.message().contains("owner"), "应点名键：{}", e.message());
+        assert!(e.message().contains("x-"), "应说明前缀：{}", e.message());
+    }
+
+    /// 与 `strict` 互斥：strict 下写 `x_only` 直接报错，不静默无效。
+    #[test]
+    fn x_only_is_rejected_under_strict() {
+        let src = "@contract Svc {\n  name: str\n  _x: str optional x_only \"x-\"\n}\ndoc {\n @is Svc\n name: ok\n}\n";
+        let e = crate::parse_with(src, x_only_opts()).expect_err("strict + x_only 应报错");
+        assert!(e.message().contains("x_only"), "{}", e.message());
+        assert!(
+            e.message().contains("loose") || e.message().contains("warn"),
+            "应提示改用 loose/warn：{}",
+            e.message()
+        );
+    }
+
+    /// 块级 `@is Svc warn` 把 strict 降档后合法 —— 互斥的是**有效**严格度。
+    #[test]
+    fn x_only_ok_when_block_downgrades_to_warn() {
+        let src = "@contract Svc {\n  name: str\n  _x: str optional x_only \"x-\"\n}\ndoc {\n @is Svc warn\n name: ok\n x-a: 1\n}\n";
+        crate::parse_with(src, x_only_opts()).expect("块级 warn 下 x_only 应生效");
+    }
+
+    /// 不注册 = 未知修饰符 ⇒ 全局禁用（零扩展 = 零影响）。
+    #[test]
+    fn unregistered_x_only_is_unknown() {
+        let src = format!("{X_CONTRACT}doc {{\n @is Svc\n name: ok\n}}\n");
+        let e = crate::parse_with(&src, ParseOptions::new()).expect_err("未注册应报错");
+        assert!(e.message().contains("x_only"), "{}", e.message());
+    }
 }

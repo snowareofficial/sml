@@ -126,6 +126,39 @@ impl<'a> GroupView<'a> {
 /// 内置修饰符名。禁止外置扩展占用，避免改写核心语义。
 pub const BUILTIN_MODIFIERS: &[&str] = &["optional", "required", "default", "min", "max"];
 
+/// 前缀放行修饰符 **`x_only "<prefix>"`**：`loose` / `warn` 下允许额外键，
+/// 但**只允许以该前缀开头**的那些；其余额外键仍报错（复用 `E-CONTRACT-011`）。
+///
+/// 与 `strict` **互斥**：`strict` 下额外键先被 `E-CONTRACT-004` 拦下，本修饰符的
+/// `check_group` 永不执行 ⇒ `apply_contract` 会显式报错，避免「写了却不起作用」。
+///
+/// 这是 I-7「`x-*` 按前缀放行额外键」的**非破坏实现**：不改语法、按需注册才生效
+/// （`ParseOptions::with_modifier`）；**不注册 = 未知修饰符 ⇒ 等于全局禁用**，
+/// 且只对写了本修饰符的那个契约生效（别的契约不受影响）。
+#[derive(Debug, Clone, Copy)]
+pub struct XOnly;
+
+impl Modifier for XOnly {
+    fn name(&self) -> &str {
+        "x_only"
+    }
+
+    fn apply(&self, spec: &mut FieldSpec, v: &Value) -> Result<(), String> {
+        let p = v
+            .as_str()
+            .ok_or_else(|| "`x_only` 期望前缀字符串，如 `x_only \"x-\"`".to_string())?;
+        if p.is_empty() {
+            return Err("`x_only` 的前缀不能为空".to_string());
+        }
+        spec.ext_data
+            .insert("x_only".to_string(), Value::Str(p.to_string()));
+        Ok(())
+    }
+
+    // 校验放在 `apply_contract` 里做（不放 `check_group`）：`check_group` 只在该字段
+    // **出现**时才被调用，作者漏写 owner 字段就会漏检。
+}
+
 /// 外置类型注册表。
 ///
 /// 用 [`Arc`] 包 trait 对象，使校验器能被克隆进每一条 [`crate::FieldSpec`]
