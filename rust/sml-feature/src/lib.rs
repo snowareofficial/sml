@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! SML 版本与特性系统 —— **纯数据层**，不依赖词法。
+//! SML version & feature system — a **pure data layer**, no dependency on lexing. ｜ SML 版本与特性系统 —— **纯数据层**，不依赖词法。
 //!
-//! 只定义三件事：
-//! - [`Version`]：语法版本（`v1`..`v4`）；
-//! - [`Feature`] / [`FeatureSet`]：能力位与位掩码集合；
-//! - `FEATURES` / `feature_names`：名字 ↔ 位的注册表。
+//! Defines exactly three things: ｜ 只定义三件事：
+//! - [`Version`] — grammar version (`v1`..`v4`); ｜ 语法版本；
+//! - [`Feature`] / [`FeatureSet`] — capability bits and bitmask sets; ｜ 能力位与位掩码集合；
+//! - `FEATURES` / `feature_names` — the name ↔ bit registry. ｜ 名字 ↔ 位的注册表。
 //!
 //! 刻意**不**包含 `@version`/`@feature` 的**扫描**：那部分需要 `Tok`
 //! （在 `sml-lex`），若放进来会形成 feature → lex → feature 的循环依赖，
