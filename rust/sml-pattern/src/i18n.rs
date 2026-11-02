@@ -74,6 +74,9 @@ pub struct StaticTable {
 }
 
 impl StaticTable {
+    /// `const`-constructible from a static slice, so tables can be `pub const` ｜ 可由静态切片在 `const` 上下文中构造，故各语言表能写成 `pub const`。
+    ///
+    /// 查找是**线性扫描**（`entries` 只有十几条）；同一个词重复出现时**先到先得**。
     pub const fn new(entries: &'static [(&'static str, Concept)]) -> Self {
         Self { entries }
     }

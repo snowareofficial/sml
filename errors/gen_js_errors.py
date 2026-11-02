@@ -256,9 +256,10 @@ def rust_src(zh, en_all):
     lines += [
         "];",
         "",
-        "/// 默认 locale：带 `zh` 为中文（源语言）；剥离后为英文。",
+        "/// Default locale with the `zh` feature on: `zh`, the source language ｜ 带 `zh` 特性时的默认 locale：`zh`（源语言）。",
         "#[cfg(feature = \"zh\")]",
         'pub const DEFAULT_LOCALE: &str = "zh";',
+        "/// Default locale with the `zh` feature off: `en`; Chinese strings are not compiled in at all ｜ 关掉 `zh` 特性时的默认 locale：`en`（中文文案整个不进产物）。",
         "#[cfg(not(feature = \"zh\"))]",
         'pub const DEFAULT_LOCALE: &str = "en";',
         "",

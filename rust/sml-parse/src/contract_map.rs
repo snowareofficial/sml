@@ -83,10 +83,12 @@ impl ContractMap {
         &self.entries
     }
 
+    /// Whether no contract was applied anywhere ｜ 是否一处契约都没应用过。
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
+    /// Number of recorded **paths** (a path with two contracts counts once) ｜ 记录的**路径**条数（同一路径挂两个契约只算一条）。
     pub fn len(&self) -> usize {
         self.entries.len()
     }

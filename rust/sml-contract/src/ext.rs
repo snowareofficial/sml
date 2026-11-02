@@ -179,6 +179,7 @@ impl Clone for ContractExt {
 }
 
 impl ContractExt {
+    /// Empty registry: no external types, no external modifiers ｜ 空注册表：没有外置类型，也没有外置修饰符。
     pub fn new() -> Self {
         Self::default()
     }
@@ -227,10 +228,12 @@ impl ContractExt {
         self.modifiers.get(name).cloned()
     }
 
+    /// Whether nothing is registered at all (types **and** modifiers) ｜ 是否什么都没注册（类型与修饰符一起看）。
     pub fn is_empty(&self) -> bool {
         self.types.is_empty() && self.modifiers.is_empty()
     }
 
+    /// Total registrations: **types + modifiers** (not just types) ｜ 注册总数：**类型数 + 修饰符数**，不是只数类型。
     pub fn len(&self) -> usize {
         self.types.len() + self.modifiers.len()
     }

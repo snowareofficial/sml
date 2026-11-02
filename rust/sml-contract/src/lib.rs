@@ -235,7 +235,7 @@ pub struct Contract {
     /// - `Loose`：未声明字段 ⇒ 静默放行，无诊断（旧 `loose` 档）。
     ///
     /// 优先级：`strict > warn > loose`；多契约叠加取最严一档（见
-    /// [`apply_contracts`](crate::apply_contracts)）。块级 `@is X warn|loose`
+    /// [`apply_contracts`]）。块级 `@is X warn|loose`
     /// 可把本块显式降到 `Warn`/`Loose`（D4①）。
     pub strictness: Strictness,
     /// 应用本契约前必须已开启的特性（由契约体里的 `@requires` 声明）。

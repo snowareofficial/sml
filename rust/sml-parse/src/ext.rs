@@ -158,6 +158,7 @@ impl Clone for DirectiveTable {
 }
 
 impl DirectiveTable {
+    /// Empty table — same as `default()`; built-in directives are **not** in here ｜ 空表（与 `default()` 等价）—— 内置指令**不在**这张表里。
     pub fn new() -> Self {
         Self {
             items: BTreeMap::new(),
@@ -194,10 +195,12 @@ impl DirectiveTable {
         self.items.get(name).cloned()
     }
 
+    /// Whether **no external** directive is registered (built-ins don't count) ｜ 是否**没有注册任何外置**指令（内置的不计入）。
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
 
+    /// Number of **external** directives registered, built-ins excluded ｜ 已注册的**外置**指令条数，不含内置。
     pub fn len(&self) -> usize {
         self.items.len()
     }
@@ -264,6 +267,9 @@ impl Default for ParseOptions {
 }
 
 impl ParseOptions {
+    /// All defaults; only `warn_key_conflict` is on, everything else is off / empty ｜ 全默认值：仅 `warn_key_conflict` 为真，其余全关或为空。
+    ///
+    /// 这个组合与「不给选项」的行为**逐字一致**，所以可以放心用它再链式改一项。
     pub fn new() -> Self {
         Self::default()
     }

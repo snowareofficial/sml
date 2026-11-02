@@ -65,6 +65,14 @@ fn strip_anchors(pat: &str) -> &str {
     s.strip_suffix('$').unwrap_or(s)
 }
 
+/// Infallible compile: **over-long patterns silently become "never matches"** ｜ 不会失败的编译：**超长模式静默变成「永不匹配」**。
+///
+/// 首尾的 `^` / `$` 锚会被去掉后再量长度（锚由 matcher 解释，不占配额）；
+/// 超长的处理是塞一个 `\u{0}` 占位模式 ⇒ 调用方拿到的是「合法但不匹配」，
+/// **不 panic、也不报错**。
+///
+/// ⚠️ 因此这个入口只适合「可选模式」场景；需要知道失败原因的走
+/// [`compile_regex_checked`]（生产路径 regex-include 用的就是它）。
 pub fn compile_regex(pat: &str) -> MiniRegex {
     // 去掉可能的首尾 `^`/`$` 锚（由 matcher 解释）后做长度上限检查
     let inner = strip_anchors(pat);
