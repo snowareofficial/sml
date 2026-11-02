@@ -42,6 +42,21 @@ fn valid_document_has_no_errors() {
     assert_eq!(out.value.get("doc.a").and_then(|v| v.as_i64()), Some(1));
 }
 
+/// 契约**应用**失败发生在块收尾（`finish_block`）——`collect_errors` 下也应被收集，
+/// 而不是半路中断。
+#[test]
+fn collects_contract_application_error_at_block_finish() {
+    let text = "@version v1\n@contract P { n: int }\ndoc {\n  @is P\n  n: \"str\"\n}\n";
+    let out = collect(text);
+    let codes: Vec<&str> = out.errors.iter().map(|e| e.code()).collect();
+    assert!(
+        codes.iter().any(|c| c.starts_with("E-CONTRACT")),
+        "契约应用错误应在 finish 阶段被收集：{codes:?}"
+    );
+    // 尽力而为的部分结果：未通过校验也不丢原文数据。
+    assert_eq!(out.value.get("doc.n").and_then(|v| v.as_str()), Some("str"));
+}
+
 #[test]
 fn recovers_inside_nested_block() {
     // 错误在 child 内；恢复应回到 child 的 `}`，父块的 `ok` 仍能解析。
