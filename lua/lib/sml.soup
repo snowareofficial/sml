@@ -342,6 +342,18 @@ local function coerce(tok, fragments)
   if string.match(tok, "^%-?%d+%.?%d*$") or
      string.match(tok, "^%-?%.%d+$") or
      string.match(tok, "^%-?%d+%.?%d*[eE][+-]?%d+$") then
+    -- 雷6：整数超出 f64 精确范围时**保留字符串**（round-trip 安全）。
+    -- 否则 `330106201503071234` 会变成 3.3010620150307e+17（静默改数据）。
+    -- 判据：整数形态且 `%.0f` 回写与原文不一致 ⇒ 有精度损失（顺带覆盖 `007` 前导零）。
+    if not string.find(tok, "[%.eE]") then
+      local n = tonumber(tok)
+      -- 保留负号比较（`-1` 的 %.0f 是 "-1"，剥号后会误判成精度损失）。
+      local signed = string.gsub(tok, "^%+", "")
+      if n and string.match(signed, "^%-?%d+$")
+         and string.format("%.0f", n) ~= signed then
+        return tok
+      end
+    end
     return tonumber(tok)
   end
   return tok
