@@ -63,7 +63,7 @@ fn push_capped(out: &mut String, s: &str) -> Result<(), SmlError> {
     Ok(())
 }
 
-/// 单条规则。
+/// One custom rule ｜ 单条规则。
 #[derive(Debug, Clone)]
 pub struct CustomRule {
     /// 要匹配的块类型；`None` 表示匹配任意类型（但优先级最低）。
@@ -74,7 +74,7 @@ pub struct CustomRule {
     pub template: String,
 }
 
-/// 自定义生成器选项。
+/// Options for the custom generator ｜ 自定义生成器选项。
 #[derive(Debug, Clone)]
 pub struct CustomOptions {
     pub base: EmitOptions,
@@ -95,17 +95,17 @@ impl CustomOptions {
             include_only: None,
         }
     }
-    /// 设置需排除的字段名（如 `password`, `token`, `secret`）。
+    /// Set the field names to exclude (e.g. `password`, `token`, `secret`) ｜ 设置需排除的字段名。
     pub fn exclude_fields(mut self, names: &[&str]) -> Self {
         self.exclude = names.iter().map(|s| s.to_string()).collect();
         self
     }
-    /// 设置仅包含的字段名白名单。
+    /// Set a whitelist of field names to keep; it **wins over** [`Self::exclude_fields`] ｜ 设置仅包含的字段名白名单。
     pub fn include_fields(mut self, names: &[&str]) -> Self {
         self.include_only = Some(names.iter().map(|s| s.to_string()).collect());
         self
     }
-    /// 从生成器文档（SML 解析出的 Value）构建规则表。
+    /// Build the rule set from a generator document (a parsed SML `Value`) ｜ 从生成器文档构建规则表。
     ///
     /// 失败原因（缺 `rules` / `rules` 为空 / 某条规则缺 `template`）统一带
     /// `E-EXT-006`（custom 规则文档非法）。
@@ -142,7 +142,7 @@ fn field_allowed(k: &str, opt: &CustomOptions) -> bool {
     !opt.exclude.contains(k)
 }
 
-/// 应用自定义规则把 SML 值转译为文本。
+/// Transpile an SML value to text using the custom rules ｜ 应用自定义规则把 SML 值转译为文本。
 pub fn to_custom(v: &Value, opt: &CustomOptions) -> Result<String, SmlError> {
     let mut out = String::new();
     if let Value::Object(m) = v {

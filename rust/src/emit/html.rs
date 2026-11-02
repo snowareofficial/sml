@@ -28,7 +28,7 @@ use crate::emit::{
 };
 use sml_codes::SmlError;
 
-/// HTML 专属选项。
+/// HTML-specific options ｜ HTML 专属选项。
 #[derive(Debug, Clone)]
 pub struct HtmlOptions {
     pub base: EmitOptions,
@@ -61,7 +61,7 @@ impl HtmlOptions {
     }
 }
 
-/// SML 值 → HTML 文本。
+/// SML value → HTML text ｜ SML 值 → HTML 文本。
 pub fn to_html(v: &Value, opt: &HtmlOptions) -> Result<String, SmlError> {
     let mut body = String::new();
     if let Value::Object(_) = v {

@@ -4,8 +4,9 @@
 
 use sml_value::Value;
 
-/// 把一个类型「自然地」序列化为 SML 值：
-/// 结构体 → 块、newtype → 透明、单元结构体 → 裸词、
+/// Serialize a type into an SML value "naturally" ｜ 把一个类型「自然地」序列化为 SML 值。
+///
+/// 映射：结构体 → 块、newtype → 透明、单元结构体 → 裸词、
 /// 枚举单元变体 → 裸词、带数据变体 → `__type` 块。
 ///
 /// 通常用 `#[derive(SmlSerialize)]` 自动实现（`derive` feature 默认开启），
@@ -27,7 +28,7 @@ pub trait SmlSerialize {
     }
 }
 
-/// 从 SML 值反序列化（`#[derive(SmlDeserialize)]` 自动实现）。
+/// Deserialize from an SML value (`#[derive(SmlDeserialize)]` implements it) ｜ 从 SML 值反序列化。
 pub trait SmlDeserialize: Sized {
     fn from_sml_value(v: &Value) -> Result<Self, String>;
 
@@ -38,7 +39,7 @@ pub trait SmlDeserialize: Sized {
     }
 }
 
-/// 序列化为 SML 文本 —— toml-rs 风格的顶层函数（等价于 [`SmlSerialize::to_sml`]）。
+/// Serialize to SML text — a toml-rs style free function (equivalent to [`SmlSerialize::to_sml`]) ｜ 序列化为 SML 文本。
 ///
 /// 与 `toml::to_string` 一致：返回 `Result`（例如 `#[sml(flatten)]` 字段产出的不是块时失败）。
 ///
@@ -57,7 +58,7 @@ pub fn to_string<T: SmlSerialize + ?Sized>(value: &T) -> Result<String, String> 
     Ok(crate::to_sml(&value.to_sml_value()?))
 }
 
-/// 解析 SML 文本并反序列化 —— toml-rs 风格的顶层函数（等价于 [`SmlDeserialize::from_sml`]）。
+/// Parse SML text and deserialize it — a toml-rs style free function (equivalent to [`SmlDeserialize::from_sml`]) ｜ 解析 SML 文本并反序列化。
 ///
 /// ```rust
 /// # #[cfg(feature = "derive")] {
@@ -80,7 +81,7 @@ pub mod __private {
     use super::{SmlDeserialize, SmlSerialize};
     use std::collections::{BTreeMap, HashMap};
 
-    /// 描述值的类型，用于错误信息。
+    /// Describe a value's type, for error messages ｜ 描述值的类型，用于错误信息。
     pub fn describe_value(v: &Value) -> String {
         match v {
             Value::Null => "null".to_string(),
@@ -93,14 +94,14 @@ pub mod __private {
         }
     }
 
-    /// 取出 `_value` 键（枚举单值变体）。
+    /// Take the `_value` key (single-payload enum variant) ｜ 取出 `_value` 键。
     pub fn take_value(m: &Map) -> Result<Value, String> {
         m.get("_value")
             .cloned()
             .ok_or_else(|| "缺少 _value 键".to_string())
     }
 
-    /// 取出 `_value` 键并断言为数组（枚举 tuple 变体）。
+    /// Take the `_value` key and assert it is an array (tuple enum variant) ｜ 取出 `_value` 键并断言为数组。
     pub fn take_array(m: &Map) -> Result<Vec<Value>, String> {
         match m.get("_value") {
             Some(Value::Array(a)) => Ok(a.clone()),
@@ -109,7 +110,7 @@ pub mod __private {
         }
     }
 
-    /// `#[sml(flatten)]` 反序列化：把整个块交给子类型。
+    /// `#[sml(flatten)]` deserialization: hand the whole block to the inner type ｜ `#[sml(flatten)]` 反序列化：把整个块交给子类型。
     pub fn flatten_from<T: SmlDeserialize>(m: &Map) -> Result<T, String> {
         T::from_sml_value(&Value::Object(m.clone()))
     }
