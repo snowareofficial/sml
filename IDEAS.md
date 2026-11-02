@@ -116,8 +116,15 @@ Confirm the reading with the user before writing any code.
   判别实验：改动前后 `cargo doc -p sml-value --features sml,serde` 警告集合一致。
   ⚠️ 本 crate 的 7 个迭代器类型（`Iter` / `Keys` / `Values` …）**没有在 `lib.rs` 具名再导出**，
   按已定口径（docs.rs 可见面）不计入；若哪天把它们导出，会立刻变成新欠账。
-- **剩余**：其它 crate 的 `pub` 项摘要仍有百级（`sml-parse`、`sml-contract`、`sml-include`、`smltools`
-  基本没动），建议**按 crate 分批**，每批一个提交。
+- **第七批（2026-11-02，`sml-parse` 开头）**：`parse_file` / `parse_file_features` / `lib.rs` 两个
+  `pub mod` 标题 / `ParseOptions` / `ParseOutput` / `Diagnostic`。🚨 顺带发现并修掉一个真 bug：
+  `parse_file` 的文档是**错挂**的（讲的是「值嵌套深度上限」，而 `api.rs` 早没那个常量），
+  还带悬空 intra-doc 链接 ⇒ 修后 `cargo doc` 警告 5 → 4。另修正 `Diagnostic` 里过期的 `Err(String)`。
+  **本 crate 剩余**：`ParseOptions` 的 4 个 builder + 4 个注册方法、`ParseOutput::contract_map`、
+  `DiagnosticKind`（枚举本身无 doc）+ 4 个变体、`Directive` 及其方法、`contract_map.rs` 的
+  `AppliedContract` / `ContractMap` / `PathSeg`。
+- **剩余**：其它 crate 的 `pub` 项摘要仍有百级（`sml-contract`、`sml-include`、`smltools`、
+  门面 `swsml` 基本没动），建议**按 crate 分批**，每批一个提交。
 - **另一笔（不是双语化，是补写）**：`Object` 的 14 个方法与 `serde_bridge` 的
   `#[cfg(not(feature = "sml"))]` 版 `to_string` **完全没有 doc** —— 见 `HANDOFF` 的 **R11**。
 - **纪律 / 2026-10-31**：此笔**只动注释、不动逻辑**；改动与任何逻辑 diff 拆开独立提交。

@@ -545,12 +545,14 @@ fn parse_impl_tokens_ext(
 // 而非进程工作目录，因此嵌套 include 时路径行为可预期。
 // ---------------------------------------------------------------------------
 
-/// 值嵌套深度上限：防止 `a{a{a{ ... }}}` 这类深度嵌套触发递归下降的栈溢出。
+/// Parse an SML file (expanding `include`) into a `Value`. ｜ 解析 SML 文件（展开 `include`）到 `Value`。
 ///
-/// 与 [`MAX_INCLUDE_DEPTH`] 互补 —— 后者只保护 include 的文件嵌套，不保护
-/// 单个文档内部块/数组的嵌套。栈溢出在 Rust 中是 abort，
-/// **无法被 catch_unwind 捕获**，因此必须在递归入口主动限深，
-/// 而不是依赖上层错误处理。
+/// 相对路径按**该文件自身所在目录**解析；版本/特性声明从主文件剥离，
+/// 最终允许集 = `FeatureSet::all() ∩ 文档声明`。本入口不接受 [`ParseOptions`]
+/// —— 要传选项（如关掉文档内契约）请用 `parse_file_with`。
+///
+/// （原先挂在这里的「值嵌套深度上限」说明属于别的条目：`api.rs` 早已没有那个常量，
+/// 它带来的 `MAX_INCLUDE_DEPTH` intra-doc 链接也是悬空的 —— 2026-11-02 删除。）
 ///
 
 pub fn parse_file(path: impl AsRef<Path>) -> Result<Value, SmlError> {
@@ -578,9 +580,7 @@ pub fn parse_file(path: impl AsRef<Path>) -> Result<Value, SmlError> {
         .map_err(|e| with_position(&rest, e))
 }
 
-/// 同 [`parse_file`]，但额外接受一个「调用方允许特性集」`caller_allowed`，
-/// 与文档 `@feature` 声明取交集。用于 FFI（`sml_load_file(flags)`）让调用方
-/// 通过 `flags` 限制文件入口能力（如禁用 `include`/`env`）。
+/// Same as [`parse_file`], plus a caller-supplied allowed feature set `caller_allowed` intersected with the document's `@feature` declarations; lets FFI (`sml_load_file(flags)`) restrict file-entry capabilities via `flags` (e.g. disable `include` / `env`). ｜ 同 [`parse_file`]，但额外接受一个「调用方允许特性集」`caller_allowed`，与文档 `@feature` 声明取交集。用于 FFI（`sml_load_file(flags)`）让调用方通过 `flags` 限制文件入口能力（如禁用 `include`/`env`）。
 ///
 /// 行为：
 /// - 最终允许集 = `FeatureSet::all() ∩ 文档声明特性 ∩ caller_allowed`。
