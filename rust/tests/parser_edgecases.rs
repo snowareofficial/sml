@@ -165,11 +165,17 @@ fn colon_in_bareword_is_rejected_by_design_and_message_is_the_gap() {
     //    应当先改 errors/codes.sml 的口径，并同步 JS / C。
     let r = parse("X {\n  a: B::C\n}\n");
     match r {
-        Err(e) => assert_eq!(
-            e.code(),
-            "E-PARSE-006",
-            "口径若真要变，改这里之前先改 errors/codes.sml 与 JS/C"
-        ),
+        Err(e) => {
+            assert_eq!(
+                e.code(),
+                "E-PARSE-006",
+                "口径若真要变，改这里之前先改 errors/codes.sml 与 JS/C"
+            );
+            // L162：文案必须点名 `::` 与「加引号」，否则用户只能靠二分定位。
+            let m = e.to_string();
+            assert!(m.contains("::"), "报错文案应点名 `::`：{m}");
+            assert!(m.contains("引号"), "报错文案应提示「加引号」：{m}");
+        }
         Ok(v) => panic!(
             "Rust 开始接受键位置上的裸 `:` 了（形状：{v:?}）—— \
              这正是 E-PARSE-006 备注里说的、W10 已经从 Lua 补掉的静默行为"

@@ -1413,14 +1413,19 @@ impl Parser {
                 let key = match self.next() {
                     Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
                     other => {
-                        // 位置指向**刚消费掉的那个 token**（游标已越过它）：
-                        // `a: B::C` 报的是「期望键, 得 Some(Colon)」，此前没有任何位置。
+                        // 位置指向**刚消费掉的那个 token**（游标已越过它）。
                         let pos = self.i.saturating_sub(1);
-                        return Err(self.err_at(
-                            E_PARSE_006,
-                            format!("sml: 期望键, 得 {:?}", other),
-                            pos,
-                        ));
+                        // 裸 `:` 绝大多数来自 `::`（如 `a: B::C`）或 URL（`a: http://x`）：
+                        // 词法把 `::` 切成两个冒号，后一个落到键位置 ⇒「期望键」。
+                        // 直接点名成因与修法（含 `:` 的标量请加引号），免得用户只能二分定位（TODO L162）。
+                        let msg = if matches!(other, Some(Tok::Colon)) {
+                            "sml: 键位置出现裸 `:`（常见于 `::` 或 `http://` 这类含冒号的未加引号标量）。\
+                             含 `:` 的标量请加引号，例如 `a: \"B::C\"`"
+                                .to_string()
+                        } else {
+                            format!("sml: 期望键, 得 {:?}", other)
+                        };
+                        return Err(self.err_at(E_PARSE_006, msg, pos));
                     }
                 };
                 // 防御：键名位置出现 `${var}` 插值语法时**显式报错**，而非静默生成
