@@ -229,7 +229,8 @@ in the strict contract's "undeclared field" check.
 
 Parse entry points `parse_with_warnings(text)` / `parse_file_with_warnings(path)` return
 `Result<(Value, Vec<Diagnostic>), SmlError>` and surface two classes of warnings that used to be
-**completely silent**:
+**completely silent** (for "file + caller options" use `parse_file_with(path, ParseOptions)`,
+which returns the full `ParseOutput`):
 
 - `DiagnosticKind::DuplicateKey` — a key repeated within the same block ⇒ already **promoted to an
   array** (no value lost, but the structure is rewritten).
@@ -275,6 +276,11 @@ database {
   cap is 32.
   `parse()` 是纯函数（无 I/O）；`include` 由 `parse_file()` 处理——可安全嵌入
   WASM / 沙箱。循环包含、文件缺失会报错；深度上限 32。
+- Need **both** includes and caller options? Use `parse_file_with(path, ParseOptions)`: it
+  expands includes (unlike `parse_with`) *and* honours your options such as
+  `apply_contracts(false)` (unlike `parse_file`). Returns `ParseOutput`, same shape as `parse_with`.
+  「既要 include 又要传选项」用 `parse_file_with(path, ParseOptions)`：它展开 include（`parse_with` 不展开），
+  **同时**认你的选项（如 `apply_contracts(false)`，`parse_file` 无法传）；返回 `ParseOutput`，与 `parse_with` 同形。
 - Fragments are **value-level reuse**: after `@base { region: cn-north-1 }`, write
   `region: &base`, or bare `&base` inside a block to **splice** its fields into the
   current block (spliced fields are equally subject to contracts).

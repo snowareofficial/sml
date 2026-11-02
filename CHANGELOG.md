@@ -17,6 +17,25 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 > 因此 `c/` `cpp/` `js/` `lua/`（含 `editors/vscode` 与 `site/` 的四份 vendored 副本）也有改动 ——
 > 见下方「🚨 破坏性变更」与「新增（契约扩展点：严格性三态）」两节。
 
+### 新增（解析入口：文件 + 选项）
+
+- **`parse_file_with(path, ParseOptions)`**（`sml_parse` 与门面 `sml` 同名导出）：第一个同时做到
+  「展开 include」与「接受调用方选项」的文件入口。此前 `parse_file*` 家族内部把
+  `ParseOptions::new()` 写死、关不掉文档内契约；而 `parse_with` 虽收选项却只走 `tokenize_spans`、
+  **不展开 include** ⇒「读文件（含 include）+ 关掉文档内契约」这种组合**无路可走**。
+  返回 `ParseOutput`（`value` / `diagnostics` / `contract_map` / `errors`），与 `parse_with` 同形；
+  传 `ParseOptions::new()` 时 `value` 与 `parse_file` 逐字一致、错误码也相同。
+  既有入口的签名与行为**未变**（纯加法）。
+
+### 修复（`--no-default-features` 编译失败）
+
+- `sml::MAX_VALUE_DEPTH` 原先从 `crate::emit` 再导出，而 `pub mod emit` 被 7 个 `emit-*` feature
+  门控 ⇒ `cargo check -p swsml --no-default-features` 直接报
+  `error[E0432]: unresolved import crate::emit`，与 README 里「`default-features = false` 回到
+  完全零依赖」的承诺**自相矛盾**。现改从 `sml_value`（**无条件编译**）再导出；
+  `emit::MAX_VALUE_DEPTH` 也改成直接取 `sml_value::MAX_VALUE_DEPTH`，两侧不再各写一个字面量。
+  取值与路径都不变（仍为 128），变的是零 feature 档终于能编译。
+
 ### 仓库治理（不影响代码行为，影响所有拿旧 clone 的人）
 
 - **历史已重写（隐私脱敏）**：内网私库地址、开发机绝对路径与用户名、三个内部代号，

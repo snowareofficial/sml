@@ -100,6 +100,44 @@ pub fn parse_file_with_warnings(
     Ok((out.value, out.diagnostics))
 }
 
+/// 文件入口 + 调用方选项（**展开 include**，与 [`parse_with`] 的文件版对应）｜ file entry with [`ParseOptions`]
+///
+/// 存在的理由：此前「**文件**」与「**选项**」互斥 —— [`parse_file`] 一族内部把
+/// [`ParseOptions::new`] 写死、不接受调用方选项；而 [`parse_with`] 虽收选项却只走
+/// `tokenize_spans`、**不展开 include**。于是「读文件（含 include）+ 关掉文档内契约」
+/// 这种组合在旧入口下**无路可走**。本入口把两者接上：
+///
+/// - 相对路径与 include 展开基准 = 该文件自身所在目录（与 [`parse_file`] 同）；
+/// - 版本/特性声明照旧从主文件剥离，最终允许集 = `FeatureSet::all() ∩ 文档声明`；
+/// - 传入 [`ParseOptions::new`] 时，`value` 与 [`parse_file`] 逐字一致，差别只在
+///   额外返回 `diagnostics` / `contract_map` / `errors`（与 [`parse_with`] 同一返回类型）；
+/// - 诊断的 `line` 规则同 [`parse_file_with_warnings`]：无 include 时带行号，有 include
+///   时为 `None`（跨文件无单一原文，宁缺勿错）。
+pub fn parse_file_with(
+    path: impl AsRef<Path>,
+    opts: ParseOptions,
+) -> Result<ParseOutput, SmlError> {
+    let path = path.as_ref();
+    let text = std::fs::read_to_string(path).map_err(|e| {
+        SmlError::from_code_msg(E_IO_001).with_detail(format!("{}: {e}", path.display()))
+    })?;
+    let base = path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| PathBuf::from("."));
+    let (rest, declared) = strip_version(&text)?;
+    let (rest, feats, touched, mode, base_ver, had) = strip_features(&rest)?;
+    let allowed = FeatureSet::all().intersection(feats);
+    let v = declared.or(base_ver).unwrap_or(Version::V1);
+    let feats = features_for(v, allowed, touched, mode, had);
+    let (toks, spans) = resolve_includes_spans(&rest, &base, allowed)?;
+    let spans = spans.unwrap_or_default();
+    let lines = if spans.is_empty() { Vec::new() } else { token_lines(&rest, &spans) };
+    parse_impl_tokens_ext(toks, spans, lines, feats, BTreeMap::new(), opts)
+        .map_err(|e| with_position(&rest, e))
+}
+
 /// Parse SML text ｜ 解析 SML 文本
 ///
 /// 会自动识别并剥离 `@version` / `@feature` 声明（需要版本信息时用

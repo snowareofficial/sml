@@ -35,7 +35,11 @@ use sml_codes::{SmlError, E_CLI_007, E_LIMIT_004};
 ///
 /// 提升为 `pub`：供 `smltools --lint` 以 `MAX_VALUE_DEPTH / 2` 作「嵌套过深」阈值，
 /// 库改此处时 lint 自动跟随，不再硬编码 64 而静默分叉。
-pub const MAX_VALUE_DEPTH: usize = 128;
+///
+/// **取值直接取自 `sml_value`**（不再写死字面量）：两边本就承诺一致，写死两份迟早漂。
+/// 且 `sml_value` 无条件编译，而本模块被 7 个 `emit-*` feature 门控 —— 门面在
+/// `--no-default-features` 下只剩从 `sml_value` 取这一条路（HANDOFF R9）。
+pub const MAX_VALUE_DEPTH: usize = sml_value::MAX_VALUE_DEPTH;
 
 /// 取对象键的 `&str`（**两个档位通用**）。
 ///
