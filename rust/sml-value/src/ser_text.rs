@@ -233,7 +233,7 @@ fn max_depth(root: &Node) -> usize {
     max
 }
 
-/// 任意 serde 类型序列化为 SML 文本，**不经 `Value` 中转**。
+/// Serialize any serde type straight to SML text, **without going through `Value`**. ｜ 任意 serde 类型序列化为 SML 文本，**不经 `Value` 中转**。
 ///
 /// 与 [`crate::serde::to_string`] 的差别见模块文档（顺序 / 大整数 / 浮点 raw）。
 ///

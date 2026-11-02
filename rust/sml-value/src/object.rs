@@ -278,7 +278,7 @@ impl Object {
         self.position_of(key).is_some()
     }
 
-    /// 写入：键已存在 ⇒ **原位替换值、位置不动**（§6.3）；不存在 ⇒ 追加到尾部。
+    /// Write: existing key ⇒ **value replaced in place, position unchanged** (§6.3); new key ⇒ appended to the tail. ｜ 写入：键已存在 ⇒ **原位替换值、位置不动**（§6.3）；不存在 ⇒ 追加到尾部。
     ///
     /// 覆盖路径**不**作废索引（键集合与位置都没变），这是刻意的设计：
     /// 「改一个已有字段」是配置场景的高频操作，不该让整张索引重建。
@@ -324,7 +324,7 @@ impl Object {
         Some(e.value)
     }
 
-    /// 按**源序**迭代（`to_sml` / C-ABI 迭代序都以此为准，§8）。
+    /// Iterate in **source order** (the reference order for `to_sml` and the C-ABI iteration order, §8). ｜ 按**源序**迭代（`to_sml` / C-ABI 迭代序都以此为准，§8）。
     #[inline]
     pub fn iter(&self) -> Iter<'_> {
         Iter { inner: self.entries.iter() }
@@ -350,20 +350,20 @@ impl Object {
         ValuesMut { inner: self.entries.iter_mut() }
     }
 
-    /// 仅取值的**消费**迭代器：给 `Value::drop` 用，避免为键再造一份 `String`。
+    /// **Consuming** iterator over values only: used by `Value::drop` to avoid rebuilding a `String` per key. ｜ 仅取值的**消费**迭代器：给 `Value::drop` 用，避免为键再造一份 `String`。
     #[inline]
     pub fn into_values(self) -> IntoValues {
         IntoValues { inner: self.entries.into_iter() }
     }
 
-    /// 原地按键的 UTF-8 字节序重排（canonical 输出用，§6.2）。
+    /// Reorder in place by key UTF-8 byte order (for canonical output, §6.2). ｜ 原地按键的 UTF-8 字节序重排（canonical 输出用，§6.2）。
     /// 重排会改变位置 ⇒ 索引作废。
     pub fn sort_keys(&mut self) {
         self.entries.sort_by(|a, b| a.key.as_bytes().cmp(b.key.as_bytes()));
         self.index = OnceLock::new();
     }
 
-    /// 顺序敏感相等（§6.1）：`PartialEq` 是集合相等，这个是「同序且相等」。
+    /// Order-sensitive equality (§6.1): `PartialEq` compares as a set, this one requires same order **and** equal values. ｜ 顺序敏感相等（§6.1）：`PartialEq` 是集合相等，这个是「同序且相等」。
     pub fn eq_ordered(&self, other: &Object) -> bool {
         self.entries.len() == other.entries.len()
             && self
