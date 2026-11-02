@@ -32,6 +32,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: 测试 workspace
         run: cargo test --workspace
+      # 零依赖承诺的钉子：README / rust/Cargo.toml 都写「default-features = false 回到完全零依赖」。
+      # 2026-11-02 实测发现该承诺是假的（`pub use crate::emit::MAX_VALUE_DEPTH` 没 cfg，
+      # 而 `pub mod emit` 被 7 个 emit-* 门控 ⇒ E0432）。已修，并在此加门禁防复发：
+      # 任何新增「无 cfg 却引用 emit」的代码都会让这一步红。
+      - name: 零 feature 档必须能编译（零依赖承诺）
+        run: cargo check -p swsml --no-default-features
 
   # serde 套件不在 --workspace 里（tests/serde_bridge.rs 是 cfg(feature = "serde")），必须单列
   rust-serde:

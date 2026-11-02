@@ -118,11 +118,12 @@ pub fn read_file_with(path: impl AsRef<std::path::Path>, contracts: Contracts)
 pub fn read_with(text: &str, contracts: Contracts) -> Result<Doc, Error>;
 ```
 
-⚠️ 现状硬事实（设计必须绕开）：**「文件」与「契约开关」今天无法同时使用** —— `parse_file*` 家族内部把
-`ParseOptions::new()` 写死（`rust/sml-parse/src/api.rs:parse_file_with_warnings` 里
-`parse_impl_tokens_ext(…, ParseOptions::new())`），不接受调用方选项；而 `parse_with(text, opts)` 只做
-`tokenize_spans`、**不展开 include**（对比同文件 `parse_file` 用 `resolve_includes_spans`）。因此 L1 的
-`read_file_with` 若只做转发，**当前无法实现** —— 这是本次草案最需要拍板的技术前提（Q5）。
+~~⚠️ 现状硬事实（设计必须绕开）：**「文件」与「契约开关」今天无法同时使用**~~ ——
+**2026-11-02 已解决**：Q5 由用户授权，新增入口 `parse_file_with(path, ParseOptions)`
+（`rust/sml-parse/src/api.rs:parse_file_with`，门面同名导出）同时做到「展开 include」与「接受调用方选项」，
+返回 `ParseOutput`。原缺口记录如下（留作背景）：`parse_file*` 家族内部把 `ParseOptions::new()` 写死，
+不接受调用方选项；而 `parse_with(text, opts)` 只做 `tokenize_spans`、不展开 include。
+⇒ L1 的 `read_file_with` 现可直接转发到 `parse_file_with`，**不再需要新增库能力**。
 
 契约相关的另一处缺口：门面只导出契约的**类型**（`Contract` / `FieldSpec` / `TypeSpec`），**没有**导出
 `sml_contract::apply_contract` / `apply_contracts`（`rust/sml-contract/src/lib.rs` 有这两个 `pub fn`，
@@ -189,9 +190,11 @@ pub mod out {
 2. **feature 传播**：`preserve_order` 的转发清单是 7 项（`rust/Cargo.toml`），任何新增「吃 `sml-value`
    的 crate」都会多一个漏点；`when` 只门控实现、枚举项常驻（同文件注释），封装层不得据 `when` 做条件编译假设。
 3. **零依赖承诺**：文档承诺 `default-features = false` 可回到完全零依赖（`rust/src/lib.rs` 模块文档、
-   `rust/Cargo.toml`）。但根级 `pub use crate::emit::MAX_VALUE_DEPTH`（`rust/src/lib.rs`）**没有 cfg**，
-   而 `pub mod emit` 有 7 个 feature 的 cfg 门控 —— 零 feature 档能否编译需实测确认，
-   **在确认前不要在草案里承诺任何零依赖行为**；L0 / L2 代码一律不得无条件引用 `emit::*`。
+   `rust/Cargo.toml`）。⚠️ 这条承诺**曾经是假的**：根级 `pub use crate::emit::MAX_VALUE_DEPTH` 没有 cfg，
+   而 `pub mod emit` 被 7 个 `emit-*` 门控 ⇒ `cargo check -p swsml --no-default-features` 报
+   `E0432`。**2026-11-02 已修**（改从 `sml_value` 再导出，`emit` 侧也直接取同一个常量），
+   实测零 feature 档编译通过。L0 / L2 代码仍不得无条件引用 `emit::*`（`pub mod emit` 的门控没变），
+   但「零依赖档能不能编译」不再是未知数。
 4. **性能**：`Doc` 必须持有 `parse` 已返回的 owned `Value`，`str/int/bool` 返回借用；**不得**引入第二次遍历、
    中间 `Value`、或 `to_string()` 文本中转。已知代价点：`to_sml_with(sort_keys=true)` 会先
    `sorted_by_key()`（深拷贝）再 `to_sml`（`rust/sml-value/src/dump.rs:to_sml_with`）—— L2 若暴露
@@ -199,8 +202,9 @@ pub mod out {
 5. **错误类型不统一**：`SmlError`（parse / emit / `to_sml_checked`）vs `String`（derive 的 `to_string` /
    `from_str`、serde 桥、`to_sml_checked` 的 sml-value 版）。L0 若包装成自己的 `Error`，会丢掉
    `SmlError::code()` 这个跨端稳定契约；不包则新手要面对带码文案（`文案 [E-XXX-NNN]`）。
-6. **契约能力受限**：门面只导出契约类型，不导出 `apply_contract` / `apply_contracts`；且「文件 + 契约」
-   组合在当前入口形状下不可达（§4.2）。L1-B 若无新入口，只能做「关掉契约」而不能做「按名字应用契约」。
+6. **契约能力受限**：门面只导出契约类型，不导出 `apply_contract` / `apply_contracts`。
+   「文件 + 契约开关」已由 `parse_file_with` 打通（§4.2），但 L1 仍只能做「开 / 关文档内 `@is`」，
+   做不到「按名字把某份契约应用到某棵已有的树」—— 那是 Q6 里另一件事。
 
 ## 6. 待用户拍板的问题清单
 
@@ -209,8 +213,9 @@ pub mod out {
 3. L0 是否保留 `raw() -> &Value` 逃生口，还是要求进阶者自己去用 `sml::parse`？
 4. 承载形态取 ① `swsml` 内 `easy` 模块，还是 ② 新 crate（若 ②，命名必须在 `swsml-*` / `sml-*` 内
    且需新增一处 `preserve_order` 转发）？
-5. 是否授权为「文件 + 契约开关」新增一个真正的 file+options 入口（等于往 `sml-parse` / 门面加 API），
-   还是 L1 只做纯转发、接受这两个能力暂时不能同时用？
+5. ~~是否授权为「文件 + 契约开关」新增一个真正的 file+options 入口？~~ ✅ **2026-11-02 已定：
+   授权，且已落地** —— 新增 `parse_file_with(path, ParseOptions)`（`sml-parse` + 门面同名导出），
+   include 与选项同时可用。L1 的 `read_file_with` 现在只是薄转发，不再是新能力。
 6. L1 的契约闸门只做「开 / 关文档内 `@is`」（`apply_contracts`），还是要把 `sml_contract::apply_contract`
    提到门面（后者需先决定 `Contract` 表由谁持有）？
 7. L2 的诊断输出是复用既有 `ParseOutput`，还是新造 `Report { doc, diagnostics }`
@@ -228,11 +233,12 @@ pub mod out {
   11 个 `parse*`、C-ABI 的 `sml_*`、derive 的 `to_string` / `from_str` 与 emit 常量。
 - 三个命名雷区：`parse` / `parse_*` / `loads` 一族、`Value::get` 的点路径语义、
   `to_string` / `to_sml*` / `to_string_direct` 六种同义入口。
-- 关键硬事实：`parse_file*` 不接受 `ParseOptions`（内部写死 `ParseOptions::new()`），`parse_with` 不展开
-  include ⇒ **「文件 + 契约」今天无法同时用**；门面只导出契约类型、未导出 `apply_contract`。
+- 关键硬事实（**其中第一条已于 2026-11-02 解决**）：昔日 `parse_file*` 不接受 `ParseOptions`、`parse_with`
+  不展开 include ⇒「文件 + 契约」无法同时用；现由 `parse_file_with(path, ParseOptions)` 打通。
+  仍存的一条：门面只导出契约类型、未导出 `apply_contract`（按名字应用契约仍做不到）。
 - 分层：L0 `Doc` + `read`；L1 `read_file`（文件 / include）与 `read_with` / `read_file_with`（契约开关，
   两个独立闸门）；L2 `Report` + `*_with_report` 与 `out::*`（emit，按 feature 门控）。
 - 形态建议先用 ① `swsml` 内 `easy` 模块（不新增 `preserve_order` 转发点、不新增发布物），② 独立 crate 留作后续。
-- 待拍板问题共 **10 条**，核心四问：L0 入口名与是否引入 `Doc`（Q1–Q3）、形态 ①/②（Q4）、
-  是否授权新增 file+options 入口以打通「文件+契约」（Q5）、L2 输出复用 `ParseOutput` 还是新造 `Report`（Q7）；
+- 待拍板问题共 **10 条，其中 Q5 已定（授权并落地）**，仍需答：L0 入口名与是否引入 `Doc`（Q1–Q3）、
+  形态 ①/②（Q4）、L2 输出复用 `ParseOutput` 还是新造 `Report`（Q7）；
   其余问错误类型（Q8）、写回入口命名（Q9）、`preserve_order` 是否进 L0 推荐（Q10）。

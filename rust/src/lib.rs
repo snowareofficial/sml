@@ -111,7 +111,11 @@ pub mod emit;
 // re-export：把各功能 crate 的公共 API 聚合到 `sml::` 单一命名空间，
 // 使既有调用方 `use sml::{parse, Value, Feature, …}` 完全不受拆分影响。
 // ---------------------------------------------------------------------------
-pub use sml_value::{describe_value, Map, Value};
+/// `MAX_VALUE_DEPTH` 与 `Value` 一起从 `sml_value` 出（该 crate **无条件编译**）。
+/// 曾从 `crate::emit` 再导出 —— 而 `pub mod emit` 被 7 个 `emit-*` feature 门控，
+/// 于是 `--no-default-features` 下整库报 `error[E0432]: unresolved import crate::emit`，
+/// 与「`default-features = false` 回到零依赖」的承诺矛盾（HANDOFF R9）。
+pub use sml_value::{describe_value, Map, Value, MAX_VALUE_DEPTH};
 /// Custom-type pattern matching engine: backtracking-free, ReDoS-immune ｜ 自定义类型（`@type`）使用的模式匹配引擎：无回溯、免疫 ReDoS。
 pub use sml_pattern as pattern;
 #[cfg(feature = "sml")]
@@ -177,9 +181,9 @@ pub fn split_kv(s: &str) -> Option<(String, String)> {
     None
 }
 
-/// Recursion-depth cap, shared by parse and emit ｜ 递归深度上限（解析/发射共用）。lint 的「嵌套过深」阈值取它的一半，
-/// 库改此处时 lint 自动跟随（同 `BUILTIN_DIRECTIVES` 的单一来源思路）。
-pub use crate::emit::MAX_VALUE_DEPTH;
+// 递归深度上限 `MAX_VALUE_DEPTH` 的再导出在上方 `pub use sml_value::{…}` 处
+// （不再从 `crate::emit` 取，原因见那里的注释 / HANDOFF R9）。
+// lint 的「嵌套过深」阈值仍取它的一半，库改一处、lint 自动跟随。
 
 /// 值（不含解析器内部状态）的**嵌套深度**：根容器计 1，标量 = 1。
 ///
@@ -264,7 +268,7 @@ pub use sml_include::{
 pub use sml_lex::Tok;
 pub use sml_parse::{
     loads, parse, parse_allowed, parse_file, parse_file_features, parse_file_versioned,
-    parse_file_with_warnings, parse_versioned, parse_with, parse_with_features,
+    parse_file_with, parse_file_with_warnings, parse_versioned, parse_with, parse_with_features,
     parse_with_features_env, parse_with_warnings, AppliedContract, ContractMap, Diagnostic,
     DiagnosticKind, ParseError, ParseOptions, ParseOutput, PathSeg,
 };

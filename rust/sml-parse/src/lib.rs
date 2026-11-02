@@ -18,7 +18,7 @@ pub mod ext;
 
 pub use api::{
     loads, parse, parse_allowed, parse_file, parse_file_features, parse_file_versioned,
-    parse_file_with_warnings, parse_versioned, parse_with, parse_with_features,
+    parse_file_with, parse_file_with_warnings, parse_versioned, parse_with, parse_with_features,
     parse_with_features_env, parse_with_warnings,
 };
 pub use contract_map::{AppliedContract, ContractMap, PathSeg};

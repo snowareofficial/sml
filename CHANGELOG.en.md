@@ -26,6 +26,27 @@ Conventions carried over from `CHANGELOG.md`:
 > Condensed mirror of the Chinese `[未发布]` section: same categories, one line per change.
 > The Chinese file remains authoritative for detail and evidence.
 
+### Added — parse entry: file + options
+
+- **`parse_file_with(path, ParseOptions)`** (exported from both `sml_parse` and the `sml` facade):
+  the first file entry that both **expands includes** and **accepts caller options**. Previously the
+  `parse_file*` family hard-coded `ParseOptions::new()` (contract opt-out unreachable from a file),
+  while `parse_with` accepts options but only runs `tokenize_spans` and **does not expand includes** —
+  so "read a file (with includes) and disable in-document contracts" was **impossible**.
+  Returns `ParseOutput` (`value` / `diagnostics` / `contract_map` / `errors`), same shape as
+  `parse_with`; with `ParseOptions::new()` the `value` and the error code match `parse_file`
+  exactly. Existing entry points are unchanged (pure addition).
+
+### Fixed — `--no-default-features` failed to compile
+
+- `sml::MAX_VALUE_DEPTH` used to be re-exported from `crate::emit`, but `pub mod emit` is gated by
+  the seven `emit-*` features ⇒ `cargo check -p swsml --no-default-features` died with
+  `error[E0432]: unresolved import crate::emit`, contradicting the documented promise that
+  `default-features = false` returns to a fully dependency-free build. It now comes from
+  `sml_value` (compiled unconditionally), and `emit::MAX_VALUE_DEPTH` itself is defined as
+  `sml_value::MAX_VALUE_DEPTH` so the two can no longer drift. Behaviour and value are unchanged
+  (still 128); what changed is that the zero-feature build finally compiles.
+
 ### 🚨 Breaking
 
 - `Value::Float` gains a raw-spelling field (`Float(f64, Option<String>)`): pattern matches and
