@@ -10,6 +10,12 @@ description = "SML 模式语言（Loom 融入 SML）：L1 无回溯匹配引擎�
 [dependencies]
 sml-value = { version = "0.6.9-dev.0", path = "../sml-value" }
 
+[features]
+default = []
+# 对象保序：转发到 sml-value，以及 dev 依赖的 swsml —— 后者不带就会把整条
+# 依赖链编出第二份（理由见 sml-parse/Cargo.toml 的同名注释）。
+preserve_order = ["sml-value/preserve_order", "swsml/preserve_order"]
+
 [dev-dependencies]
 # 仅测试需要：用 SML 解析器把规则源码变成 Value。
 # 运行时本 crate 只依赖 sml-value（值模型），保持依赖单向。

@@ -49,3 +49,8 @@ swsml = { version = "0.6.9-dev.0", path = "../", features = [
     "emit-custom",
 ] }
 clap = { version = "4.5", features = ["derive"] }
+
+[features]
+# 对象保序：转发到 swsml（理由见 ../sml-parse/Cargo.toml 的同名注释 ——
+# 本 crate 不吃 sml-value，但它是 swsml 的一个下游，少了这一条同样会分裂出两份）。
+preserve_order = ["swsml/preserve_order"]

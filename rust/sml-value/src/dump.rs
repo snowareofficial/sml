@@ -3,9 +3,7 @@
 //! 与 `Value` 同 crate 的原因见 [`crate`] 文档：`Display` impl 需要它。
 //! 本模块整体由 feature `sml` 门控，只需解析的场景不参与编译。
 
-use std::collections::BTreeMap;
-
-use crate::{MAX_VALUE_DEPTH, Value};
+use crate::{Map, MAX_VALUE_DEPTH, Value};
 
 #[cfg(feature = "sml")]
 fn needs_quote(s: &str) -> bool {
@@ -45,7 +43,8 @@ fn needs_quote(s: &str) -> bool {
     !s.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
 }
 
-// TODO: keep value ordering stable for deterministic dumps. іӏоѵеԛіанхун
+// 注：确定性字节**不**靠 `to_sml` 保序实现 —— 那是 `to_sml_canonical`（sort_keys）
+// 的职责，两者是独立开关（§6.2）。保序买到的是「键序 == 源序」，不是同值同字节。
 #[cfg(feature = "sml")]
 /// `pub(crate)`：`ser_text.rs`（直出文本的 serde Serializer）要复用同一套引用规则，
 /// 否则两份发射器会各自漂移。
@@ -98,7 +97,7 @@ fn starts_inline(v: &Value) -> bool {
 /// 抽出来是为了让「块里的对象」（缩进后跟 `\n{`，见 [`dump_block`]）与
 /// 「数组元素里的对象」（`{` 跟在同一行）共用同一套键渲染。
 #[cfg(feature = "sml")]
-fn dump_object_body(m: &BTreeMap<String, Value>, indent: usize, depth: usize, out: &mut String) {
+fn dump_object_body(m: &Map, indent: usize, depth: usize, out: &mut String) {
     for (k, val) in m {
         out.push_str(&format!(
             "\n{}{}:",
@@ -117,7 +116,7 @@ fn dump_object_body(m: &BTreeMap<String, Value>, indent: usize, depth: usize, ou
 /// 保证元数据（枚举带数据变体的 `__type` 标记等）可完整往返。
 /// SML 的裸块 `type [name] { ... }` 解析后正是 `__type` / `__name` 键。
 #[cfg(feature = "sml")]
-fn dump_block(m: &BTreeMap<String, Value>, indent: usize, depth: usize, out: &mut String) {
+fn dump_block(m: &Map, indent: usize, depth: usize, out: &mut String) {
     if depth > MAX_VALUE_DEPTH {
         out.push_str("/* …深度超限… */ {}");
         return;
@@ -271,6 +270,15 @@ fn dump_inline(v: &Value, depth: usize) -> String {
 /// 含 `__type` / `__name` 的块（如枚举带数据变体序列化的结果）
 /// 会原样输出所有键，保证元数据可完整往返。
 ///
+/// # 键的输出顺序（§6.2）
+///
+/// 按对象的**迭代序**输出：
+/// - 默认档（`BTreeMap`）：键的 UTF-8 字节序 —— 与历史版本逐字节一致；
+/// - `preserve_order` 档：**源序**（解析时键出现的先后）。
+///
+/// 需要「同值同字节」（哈希 / 签名 / 去重 / 二进制）请走 [`to_sml_canonical`]，
+/// 它与保序是两个独立开关，不会互相影响。
+///
 /// # 已知限制（`$env` 与 round-trip）
 ///
 /// 以 `$env.` 开头的字符串值**无法**无损往返：即使序列化时加了引号，
@@ -306,6 +314,50 @@ pub fn to_sml(v: &Value) -> String {
         dump_element(v, 0, 0, &mut out);
     }
     out
+}
+
+/// 序列化选项（§6.2）。
+///
+/// 只放**与顺序有关**的开关：保序（`to_sml`）与确定性（canonical）是两件事，
+/// 必须能各自独立选择 —— 否则「我想保序」就会被迫连「字节稳定」一起买下。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DumpOptions {
+    /// 按 key 的 UTF-8 字节序输出（**递归**到所有嵌套对象）。
+    ///
+    /// 默认 `false` = 保对象自身的迭代序（默认档即键序，`preserve_order` 档即源序）。
+    /// `true` 时同一份值无论来源顺序如何，输出**逐字节相同**。
+    pub sort_keys: bool,
+}
+
+/// 按 [`DumpOptions`] 序列化。`sort_keys=false` 时与 [`to_sml`] 逐字节一致。
+pub fn to_sml_with(v: &Value, opts: &DumpOptions) -> String {
+    if opts.sort_keys {
+        to_sml(&v.sorted_by_key())
+    } else {
+        to_sml(v)
+    }
+}
+
+/// canonical 序列化：**递归**按键字节序输出，同值必同字节。
+///
+/// 与保序解耦（§6.2）：`preserve_order` 决定「存的时候留不留源序」，
+/// 本函数决定「写的时候按不按字节序」。两者可任意组合：
+/// - 默认档 + 本函数 == 默认档 `to_sml`（`BTreeMap` 本来就有序）；
+/// - `preserve_order` 档 + 本函数 == 同值同字节（即使源序不同）。
+///
+/// # 示例
+/// ```
+/// use sml_value::{Map, Value, to_sml_canonical};
+/// let mut a = Map::new();
+/// a.insert("z".to_string(), Value::Int(1));
+/// a.insert("a".to_string(), Value::Int(2));
+/// let mut b = Map::new();
+/// b.insert("a".to_string(), Value::Int(2));
+/// b.insert("z".to_string(), Value::Int(1));
+/// assert_eq!(to_sml_canonical(&Value::Object(a)), to_sml_canonical(&Value::Object(b)));
+/// ```
+pub fn to_sml_canonical(v: &Value) -> String {
+    to_sml(&v.sorted_by_key())
 }
 
 /// 值树的最大嵌套深度。**迭代实现（显式栈）**，故意不递归。
@@ -376,7 +428,7 @@ mod tests {
     use super::*;
 
     fn obj(pairs: Vec<(&str, Value)>) -> Value {
-        let mut m = BTreeMap::new();
+        let mut m = Map::new();
         for (k, v) in pairs {
             m.insert(k.to_string(), v);
         }

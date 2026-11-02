@@ -21,6 +21,7 @@
 //! ```
 
 use crate::Value;
+use crate::emit::key_of;
 use crate::emit::{
     depth_error, EmitOptions, escape_xml_attr, escape_xml_text, scalar_text, block_type,
     sanitize_xml_name, sanitize_xml_attr_name, sanitize_xml_uri, is_uri_attr, MAX_VALUE_DEPTH,
@@ -164,14 +165,14 @@ fn emit_svg_node(
         let mut text_content: Option<String> = None;
 
         for (k, val) in m {
-            match k.as_str() {
+            match key_of(k) {
                 "__type" => {}
                 "__name" => attrs.push_str(&format!(" id=\"{}\"", escape_xml_attr(&scalar_text(val)))),
                 "text" => {
                     // 仅当 text 字段为标量时作为元素文本内容；
                     // 若 text 字段是对象/数组，则它是一个 <text> 子元素。
                     match val {
-                        Value::Object(_) | Value::Array(_) => children.push((Some(k.clone()), val)),
+                        Value::Object(_) | Value::Array(_) => children.push((Some(k.to_string()), val)),
                         _ => text_content = Some(scalar_text(val)),
                     }
                 }
@@ -183,7 +184,7 @@ fn emit_svg_node(
                     }
                 }
                 _ => match val {
-                    Value::Object(_) | Value::Array(_) => children.push((Some(k.clone()), val)),
+                    Value::Object(_) | Value::Array(_) => children.push((Some(k.to_string()), val)),
                     _ => {
                         // 事件处理器属性（onload/onclick/…）是执行点，直接丢弃：
                         // 值转义对它们无效。

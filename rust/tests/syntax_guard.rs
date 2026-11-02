@@ -50,7 +50,7 @@ fn collect(v: &Value, out: &mut HashSet<String>) {
     match v {
         Value::Object(m) => {
             for (k, val) in m {
-                out.insert(k.clone());
+                out.insert(k.to_string());
                 collect(val, out);
             }
         }

@@ -13,10 +13,10 @@ use sml::emit::{
     to_custom, to_latex, to_markdown, to_slint, to_svg, to_xml, CustomOptions, CustomRule,
     LatexOptions, MarkdownOptions, SlintOptions, SvgOptions, XmlOptions,
 };
-use sml::{compile_regex, parse_with_features, regex_matches, Feature, FeatureSet, Value};
+use sml::{compile_regex, parse_with_features, regex_matches, Feature, FeatureSet, Map, Value};
 
 fn obj(pairs: &[(&str, Value)]) -> Value {
-    let mut m = BTreeMap::new();
+    let mut m = Map::new();
     for (k, v) in pairs {
         m.insert(k.to_string(), v.clone());
     }

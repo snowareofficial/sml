@@ -37,6 +37,18 @@ use sml_codes::{SmlError, E_CLI_007, E_LIMIT_004};
 /// 库改此处时 lint 自动跟随，不再硬编码 64 而静默分叉。
 pub const MAX_VALUE_DEPTH: usize = 128;
 
+/// 取对象键的 `&str`（**两个档位通用**）。
+///
+/// `Value::Object` 的键在默认档是 `String`、在 `preserve_order` 档是 `Box<str>`，
+/// 迭代产出的分别是 `&String` / `&str`。两者都能 `AsRef<str>`，但**没有**共同的
+/// `.as_str()`（`str::as_str` 至今仍是 unstable）—— 所以各后端一律走这个入口，
+/// 别再直接写 `k.as_str()` / `k.clone()`（后者在 `&str` 上克隆出的是 `&str`，
+/// 不是 `String`，会在保序档编译失败）。
+#[inline]
+pub(crate) fn key_of(k: &(impl AsRef<str> + ?Sized)) -> &str {
+    k.as_ref()
+}
+
 // ---------------------------------------------------------------------------
 // 带码错误辅助（各后端共用）
 //

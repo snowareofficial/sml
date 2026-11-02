@@ -24,3 +24,9 @@ sml-regex = { path = "../sml-regex", version = "0.6.9-dev.0", default-features =
 
 [features]
 default = []
+# 对象保序：转发到所有也吃 `sml-value` 的依赖（理由见 sml-parse/Cargo.toml 的同名注释）。
+preserve_order = [
+    "sml-value/preserve_order",
+    "sml-lex/preserve_order",
+    "sml-feature/preserve_order",
+]

@@ -20,7 +20,10 @@ use sml_contract::{
 };
 use sml_feature::{Feature, FeatureSet};
 use sml_lex::{Span, Tok, coerce_word, lookup_env};
-use sml_value::{MAX_VALUE_DEPTH, Value};
+// `Map` = `Value::Object` 的载体（默认 `BTreeMap`；`preserve_order` 档是保序 `Object`，
+// 迭代序 == 源序）。解析器里凡是「正在收集的块字段表」都必须是 `Map` —— 它是
+// 保序的**唯一真相源**；`fragments` / `types` / `contracts` 是普通表，仍是 `BTreeMap`。
+use sml_value::{insert_or_merge, Map, MAX_VALUE_DEPTH, Value};
 
 use crate::contract_bridge::{apply_contract, apply_contracts};
 use crate::contract_map::{ContractMap, PathSeg};
@@ -91,7 +94,7 @@ pub struct Parser {
 /// 键/块的 `@when`；`closing` 是本块期望的闭合符号（`None` = 顶层）；
 /// `bare` 是裸块上下文（迭代式改造第二步 `Frame::Block` 拓展），`None` 表普通块。
 struct BlockFrame {
-    node: BTreeMap<String, Value>,
+    node: Map,
     applied_contracts: Vec<(String, Option<Strictness>)>,
     pending_when: Option<bool>,
     closing: Option<Tok>,
@@ -890,7 +893,7 @@ impl Parser {
     pub(crate) fn parse_block(&mut self, closing: Option<Tok>) -> Result<Value, SmlError> {
         let root = Frame::Block {
             state: BlockFrame {
-                node: BTreeMap::new(),
+                node: Map::new(),
                 applied_contracts: Vec::new(),
                 pending_when: None,
                 closing,
@@ -914,10 +917,14 @@ impl Parser {
     /// 返回 `Ok(())` 表示本条已处理完毕，等价于原地的 `continue`。
     fn parse_at_directive(
         &mut self,
-        node: &mut BTreeMap<String, Value>,
+        node: &mut Map,
         applied_contracts: &mut Vec<(String, Option<Strictness>)>,
         pending_when: &mut Option<bool>,
     ) -> Result<(), SmlError> {
+        // `when` feature 关闭时，`pending_when` 只被上面 `#[cfg(feature = "when")]`
+        // 块使用；此处显式消费一次，消除 `unused_variables` 警告（TODO L289）。
+        #[cfg(not(feature = "when"))]
+        let _ = &*pending_when;
         // @name { ... } 片段定义 (不进主树)
         self.next();
         let fname = match self.next() {
@@ -1273,7 +1280,7 @@ impl Parser {
             let mut sub = match &blk {
                 Value::Object(m) => m.clone(),
                 other => {
-                    let mut m = BTreeMap::new();
+                    let mut m = Map::new();
                     m.insert("_value".into(), other.clone());
                     m
                 }
@@ -1472,7 +1479,9 @@ impl Parser {
                                         ),
                                     );
                                 }
-                                frame.node.insert(fk.clone(), fv.clone());
+                                // §6.3：已存在的键**原位替换**（`Object::insert` 保证），
+                                // 不存在的追加到尾部 —— 正是 `&frag` 拼接要的语义。
+                                frame.node.insert(fk.to_string(), fv.clone());
                             }
                         }
                         other => {
@@ -1642,7 +1651,7 @@ impl Parser {
 
     /// 裸块元数据补全 + typed-block 类型契约（从原 `parse_bare_block` 逐字搬出；
     /// 此刻 `bare` 帧已闭合、其命名空间已弹，故契约解析用外层 ns）。
-    fn finish_bare_block(&mut self, m: &mut BTreeMap<String, Value>, bare: &BareCtx) -> Result<(), SmlError> {
+    fn finish_bare_block(&mut self, m: &mut Map, bare: &BareCtx) -> Result<(), SmlError> {
         let key = &bare.key;
         let args = &bare.args;
         // —— 块级类型标注：`<契约名>… <块名> { .. }`（D2，TASK-agent-w24 §2）——
@@ -1766,8 +1775,13 @@ impl Parser {
 
     /// 把一条字段值写入父块节点，含「同名冲突 → 提升为数组」的既定语义
     /// （静默改数据：SML 既定语义，改为告警）。
-    fn insert_field_val(&mut self, node: &mut BTreeMap<String, Value>, key: String, key_idx: usize, val: Value) {
-        if let Some(existing) = node.get_mut(&key) {
+    ///
+    /// ⚠️ 走 `Map::insert_or_merge` 而**不是** `get_mut` + `insert`：后者是两次查找
+    /// （`BTreeMap::insert` 只查一次），保序档下实测多花约 30% 解析时间。
+    /// 冲突分支里也**原地**改写（`remove` + `insert` 会把键挪到尾部，
+    /// 那是把实现细节泄漏成了行为差异）。
+    fn insert_field_val(&mut self, node: &mut Map, key: String, key_idx: usize, val: Value) {
+        insert_or_merge(node, &key, val, |existing, val| {
             let msg = match existing {
                 Value::Array(a) => format!(
                     "sml: 键 `{key}` 在同一块内再次出现，已追加进既有数组\
@@ -1783,13 +1797,11 @@ impl Parser {
             match existing {
                 Value::Array(a) => a.push(val),
                 _ => {
-                    let old = node.remove(&key).unwrap();
-                    node.insert(key, Value::Array(vec![old, val]));
+                    let old = std::mem::replace(existing, Value::Null);
+                    *existing = Value::Array(vec![old, val]);
                 }
             }
-        } else {
-            node.insert(key, val);
-        }
+        });
     }
 
     /// 子容器闭合后，按 `cont` 把结果交回父帧：`Index` 追加进父数组，`Field` 写入父块
@@ -1838,7 +1850,7 @@ impl Parser {
                 self.path_stack.push(PathSeg::Key(key.to_string()));
                 Ok(ValueStep::Open(Frame::Block {
                     state: BlockFrame {
-                        node: BTreeMap::new(),
+                        node: Map::new(),
                         applied_contracts: Vec::new(),
                         pending_when: None,
                         closing: Some(Tok::RBrace),
@@ -1924,7 +1936,7 @@ impl Parser {
         self.ns_stack.push(type_name.to_string());
         Ok(Frame::Block {
             state: BlockFrame {
-                node: BTreeMap::new(),
+                node: Map::new(),
                 applied_contracts: Vec::new(),
                 pending_when: None,
                 closing: Some(Tok::RBrace),
@@ -1952,7 +1964,7 @@ impl Parser {
                 self.path_stack.push(PathSeg::Index(arr.len()));
                 Ok(Step::Open(Frame::Block {
                     state: BlockFrame {
-                        node: BTreeMap::new(),
+                        node: Map::new(),
                         applied_contracts: Vec::new(),
                         pending_when: None,
                         closing: Some(Tok::RBrace),

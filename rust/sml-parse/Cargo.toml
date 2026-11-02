@@ -39,3 +39,17 @@ default = []
 # 只门控**实现**；运行时 `Feature::When` 枚举项始终存在（在 sml-feature 中），
 # 以保证 C-ABI `sml_feature_name(bit)` 的位序稳定。
 when = []
+# 对象保序（`Value::Object` 换保源序载体）。
+#
+# ⚠️ 必须**向下转发到每一个也吃 `sml-value` 的依赖**：cargo 只为「特性集合
+# 完全相同」的依赖复用同一个 rlib；只要本图里有一份 `sml-value` 带
+# `preserve_order`、另一份不带，就会被编成**两个不同的 crate 实例**，
+# 于是 `Value` 变成两个互不兼容的类型（`expected sml_value::Value, found Value`）。
+preserve_order = [
+    "sml-value/preserve_order",
+    "sml-lex/preserve_order",
+    "sml-feature/preserve_order",
+    "sml-include/preserve_order",
+    "sml-contract/preserve_order",
+    "sml-pattern/preserve_order",
+]

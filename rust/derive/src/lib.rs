@@ -373,7 +373,10 @@ fn gen_deny_step(
     quote! {
         let __known: &[&::core::primitive::str] = &[#(#known),*];
         for __k in __m.keys() {
-            if !__known.contains(&__k.as_str()) {
+            // `&__k[..]` 而非 `__k.as_str()`：`Value::Object` 的键在 `preserve_order`
+            // 档下是 `&str`，`str::as_str` 至今 unstable —— 切片对 `&String`/`&str`
+            // 两档都成立。
+            if !__known.contains(&&__k[..]) {
                 return ::core::result::Result::Err(::std::format!(
                     "字段 `{}` 未知（deny_unknown_fields）", __k));
             }
@@ -469,7 +472,7 @@ fn gen_struct_serialize(
                                             #key_lit, __k
                                         ));
                                     }
-                                    __m.insert(__k.clone(), __v.clone());
+                                    __m.insert(__k.to_string(), __v.clone());
                                 }
                             }
                             __other => {
@@ -514,7 +517,7 @@ fn gen_struct_serialize(
                 }
             }
             Ok(quote! {
-                let mut __m = ::std::collections::BTreeMap::new();
+                let mut __m = ::sml::Map::new();
                 let __has_flatten = #has_flatten;
                 #(#stmts)*
                 ::core::result::Result::Ok(::sml::Value::Object(__m))
@@ -565,7 +568,7 @@ fn gen_enum_serialize(
             Fields::Unnamed(unnamed) if unnamed.unnamed.len() == 1 => {
                 arms.push(quote! {
                     Self::#ident(__f0) => {
-                        let mut __m = ::std::collections::BTreeMap::new();
+                        let mut __m = ::sml::Map::new();
                         __m.insert("__type".into(), ::sml::Value::Str(#vname_lit.into()));
                         __m.insert(
                             "_value".into(),
@@ -584,7 +587,7 @@ fn gen_enum_serialize(
                     .map(|p| quote! { ::sml::SmlSerialize::to_sml_value(#p)? });
                 arms.push(quote! {
                     Self::#ident(#(#pats),*) => {
-                        let mut __m = ::std::collections::BTreeMap::new();
+                        let mut __m = ::sml::Map::new();
                         __m.insert("__type".into(), ::sml::Value::Str(#vname_lit.into()));
                         __m.insert("_value".into(), ::sml::Value::Array(::std::vec![#(#vals),*]));
                         ::core::result::Result::Ok(::sml::Value::Object(__m))
@@ -623,7 +626,7 @@ fn gen_enum_serialize(
                 }
                 arms.push(quote! {
                     Self::#ident { #(#fnames),* } => {
-                        let mut __m = ::std::collections::BTreeMap::new();
+                        let mut __m = ::sml::Map::new();
                         __m.insert("__type".into(), ::sml::Value::Str(#vname_lit.into()));
                         #(#stmts)*
                         ::core::result::Result::Ok(::sml::Value::Object(__m))

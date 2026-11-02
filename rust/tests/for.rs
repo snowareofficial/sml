@@ -207,6 +207,12 @@ fn key_position_interp_is_rejected() {
 #[test]
 fn example_for_when_sml_parses() {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/for_when.sml");
+    // 该示例位于仓库根（rust/ 之外），`cargo package` 不打入 → 发布件里没有，
+    // 此时跳过，避免 `cargo test` 开箱即红（仓库内正常校验）。
+    if !std::path::Path::new(path).exists() {
+        eprintln!("跳过：未找到 {path}（crate 中未包含 examples/for_when.sml）");
+        return;
+    }
     let src = std::fs::read_to_string(path).expect("应能读取示例文件");
     let v = ok_env(&src, &[("ENV", "prod"), ("DEBUG", "1")]);
 
@@ -238,6 +244,11 @@ fn example_for_when_sml_parses() {
 #[test]
 fn example_for_when_env_off_drops_log_level() {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/for_when.sml");
+    // 同上：发布件不含仓库根示例，缺文件则跳过。
+    if !std::path::Path::new(path).exists() {
+        eprintln!("跳过：未找到 {path}（crate 中未包含 examples/for_when.sml）");
+        return;
+    }
     let src = std::fs::read_to_string(path).expect("应能读取示例文件");
     let v = ok_env(&src, &[("ENV", "dev"), ("DEBUG", "0")]);
     assert!(

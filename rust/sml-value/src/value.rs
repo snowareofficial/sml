@@ -35,7 +35,7 @@ pub enum Value {
     Float(f64, Option<String>),
     Str(String),
     Array(Vec<Value>),
-    /// 对象/块; `__type` / `__name` 裸块元数据以保留字键存放
+    /// Object/block value; `__type` / `__name` raw metadata as reserved keys ｜ 对象/块; `__type` / `__name` 裸块元数据以保留字键存放。
     ///
     /// 载体是 [`Map`]：默认 `BTreeMap`（键按字节序），开 `preserve_order` 后是
     /// 保源序的 `Object`。**相等性两种档位下都按集合**（见下方 `PartialEq`）。
@@ -50,19 +50,19 @@ pub enum Value {
 const _: () = assert!(std::mem::size_of::<Value>() <= 48);
 
 impl Value {
-    /// 构造无 raw 的浮点值 —— **程序构造路径统一用这个**。
+    /// Build a float with no raw literal ｜ 构造无 raw 的浮点值 —— **程序构造路径统一用这个**。
     #[inline]
     pub fn float(f: f64) -> Self {
         Value::Float(f, None)
     }
 
-    /// 构造带原始字面量的浮点值 —— **仅解析器使用**。
+    /// Build a float carrying its original literal text（parser only） ｜ 构造带原始字面量的浮点值 —— **仅解析器使用**。
     #[inline]
     pub fn float_with_raw(f: f64, raw: impl Into<String>) -> Self {
         Value::Float(f, Some(raw.into()))
     }
 
-    /// 取浮点数值；非 Float 返回 None。
+    /// View as float; `None` if not a Float ｜ 取浮点数值；非 Float 返回 None。
     #[inline]
     pub fn as_float(&self) -> Option<f64> {
         match self {
@@ -71,7 +71,7 @@ impl Value {
         }
     }
 
-    /// 取原始字面量文本 —— 仅当值自解析后未被改动时有值。
+    /// Original literal text —— only if untouched since parsing ｜ 取原始字面量文本 —— 仅当值自解析后未被改动时有值。
     #[inline]
     pub fn float_raw(&self) -> Option<&str> {
         match self {
@@ -111,6 +111,23 @@ impl PartialEq for Value {
 /// 存在理由：写字段要「先查重名、再写入」，写成 `get_mut` + `insert` 是两次查找，
 /// 而 `BTreeMap::insert` 只查一次 —— 保序档必须也能一次查完才谈得上「不比现状慢」
 /// （实测两次查找会让 5k 键解析慢约 30%，见 `object::Object::insert_or_merge`）。
+///
+/// ```
+/// use sml_value::{Map, Value, insert_or_merge};
+///
+/// let mut m = Map::from([("k".to_string(), Value::Int(1))]);
+/// // 键已存在：交给 merge（这里取较大值；仍是原位，不换位）
+/// insert_or_merge(&mut m, "k", Value::Int(5), |old, new| {
+///     if new.as_i64() > old.as_i64() { *old = new; }
+/// });
+/// assert_eq!(m.get("k").and_then(|v| v.as_i64()), Some(5));
+///
+/// // 键不存在：追加到尾部，不调 merge
+/// let mut calls = 0;
+/// insert_or_merge(&mut m, "n", Value::Int(7), |_, _| calls += 1);
+/// assert_eq!(calls, 0);
+/// assert_eq!(m.get("n").and_then(|v| v.as_i64()), Some(7));
+/// ```
 #[cfg(not(feature = "preserve_order"))]
 pub fn insert_or_merge<F>(m: &mut Map, key: &str, value: Value, merge: F)
 where
@@ -176,7 +193,7 @@ impl Value {
         a.eq_ordered(b)
     }
 
-    /// 递归按键的 UTF-8 字节序重排（canonical 输出用，§6.2）。
+    /// Recursive canonical sort by key UTF-8 byte order（for canonical output，§6.2） ｜ 递归按键的 UTF-8 字节序重排（canonical 输出用，§6.2）。
     ///
     /// 与保序**解耦**：保序回答「作者怎么写」，canonical 回答「同值同字节」。
     /// 未开 `preserve_order` 时对象是 `BTreeMap`，本方法等价于深拷贝（本来就有序）。
@@ -198,7 +215,7 @@ impl Value {
         }
     }
 
-    /// `sort_keys_deep` 的**不改原值**版本：返回一份键已排序的深拷贝。
+    /// Non-mutating variant of `sort_keys_deep`: returns a key-sorted deep copy ｜ `sort_keys_deep` 的**不改原值**版本：返回一份键已排序的深拷贝。
     #[must_use]
     pub fn sorted_by_key(&self) -> Value {
         let mut v = self.clone();
@@ -208,7 +225,7 @@ impl Value {
 }
 
 impl Drop for Value {
-    /// 迭代式析构，避免深层嵌套 Value 触发递归 Drop 的栈溢出。
+    /// Iterative destructor — avoids stack overflow on deeply nested Values ｜ 迭代式析构，避免深层嵌套 Value 触发递归 Drop 的栈溢出。
     ///
     /// 编译器为递归枚举自动生成的 Drop 会沿嵌套深度递归调用（N 层嵌套 = N 层栈帧），
     /// 50000 层嵌套即 50000 层栈帧，直接栈溢出（STATUS_STACK_OVERFLOW）abort 宿主进程。
@@ -310,7 +327,7 @@ pub fn describe_value(v: &Value) -> String {
 }
 
 impl Value {
-    /// 对象字段按需取（支持 "." 点路径；键后可跟 `[idx]` 数组下标，可链式）。
+    /// Path lookup（"." dotted path; `[idx]` array subscript，chainable） ｜ 对象字段按需取（支持 "." 点路径；键后可跟 `[idx]` 数组下标，可链式）。
     ///
     /// 例如 `"a.b[0].c"`：先取对象 `a` 的字段 `b`，再取下标 0 的数组元素，最后取其字段 `c`。
     /// 下标越界、下标非数字、或下标作用于非数组，均返回 None；点路径语义与旧版一致。
@@ -371,7 +388,7 @@ impl Value {
         }
         Some(cur)
     }
-    /// 字符串视图 (字符串直接返回; 其它返回 None)
+    /// String view; `None` otherwise ｜ 字符串视图 (字符串直接返回; 其它返回 None)
     pub fn as_str(&self) -> Option<&str> {
         match self {
             Value::Str(s) => Some(s),
@@ -379,7 +396,7 @@ impl Value {
         }
     }
 
-    /// 取对象引用；非 Object 返回 None。
+    /// Object reference; `None` if not an Object ｜ 取对象引用；非 Object 返回 None。
     ///
     /// 返回的是对象内部 [`Map`] 的引用（默认 `BTreeMap`；`preserve_order` 下是
     /// 保序 `Object`，其 `iter()` 按**源序**），可直接使用其 `iter` / `len` /
@@ -402,7 +419,7 @@ impl Value {
         }
     }
 
-    /// 取数组引用；非 Array 返回 None。
+    /// Array reference; `None` if not an Array ｜ 取数组引用；非 Array 返回 None。
     ///
     /// # 示例
     /// ```
@@ -420,7 +437,7 @@ impl Value {
         }
     }
 
-    /// 取整数值；非 Int 返回 None。Float 不会被当作整数（不静默降级）。
+    /// Int value; `None` otherwise（no silent downgrade from Float） ｜ 取整数值；非 Int 返回 None。Float 不会被当作整数（不静默降级）。
     ///
     /// # 示例
     /// ```
@@ -439,7 +456,7 @@ impl Value {
         }
     }
 
-    /// 取布尔值；非 Bool 返回 None。
+    /// Bool value; `None` otherwise ｜ 取布尔值；非 Bool 返回 None。
     ///
     /// # 示例
     /// ```
@@ -457,7 +474,7 @@ impl Value {
         }
     }
 
-    /// 取对象可变引用；非 Object 返回 None。
+    /// Mutable object reference; `None` if not an Object ｜ 取对象可变引用；非 Object 返回 None。
     ///
     /// 暴露内部 [`Map`] 的可变引用，调用方据此直接增删改键。
     ///
@@ -481,7 +498,7 @@ impl Value {
         }
     }
 
-    /// 取数组可变引用；非 Array 返回 None。
+    /// Mutable array reference; `None` if not an Array ｜ 取数组可变引用；非 Array 返回 None。
     ///
     /// # 示例
     /// ```
@@ -502,7 +519,7 @@ impl Value {
         }
     }
 
-    /// 遍历直接子节点，返回子值（`&Value`）的迭代器。
+    /// Iterate direct children as values ｜ 遍历直接子节点，返回子值（`&Value`）的迭代器。
     ///
     /// 对象按值遍历（忽略键名），数组按元素遍历；既非对象也非数组返回 None。
     /// 需要键名时请用 `as_object()` 取 [`Map`] 后 `.iter()`。
@@ -527,7 +544,7 @@ impl Value {
         }
     }
 
-    /// 取元素个数；仅 Object / Array 返回 Some，其余返回 None。
+    /// Element count; `Some` only for Object/Array ｜ 取元素个数；仅 Object / Array 返回 Some，其余返回 None。
     ///
     /// # 示例
     /// ```
@@ -548,7 +565,7 @@ impl Value {
         }
     }
 
-    /// 是否为空（无键 / 无元素）；仅 Object / Array 返回 Some，其余返回 None。
+    /// Empty check; `Some` only for Object/Array ｜ 是否为空（无键 / 无元素）；仅 Object / Array 返回 Some，其余返回 None。
     ///
     /// # 示例
     /// ```

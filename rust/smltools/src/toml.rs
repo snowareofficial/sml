@@ -13,9 +13,8 @@
 //! 序列化的形态选择：标量键写在表头之前（TOML 要求），子表用 `[path]`，
 //! 对象数组用 `[[path]]` —— 这是 TOML 表达嵌套的唯一正解。
 
-use std::collections::BTreeMap;
 
-use sml::Value;
+use sml::{Map, Value};
 use sml_codes::{SmlError, E_INTERNAL_001, E_MIGRATE_011, E_MIGRATE_012};
 
 /// E-MIGRATE-011：TOML 语法非法（不是键值形式、键名为空、缺少取值、内联表缺等号）。
@@ -40,7 +39,7 @@ fn internal(msg: impl Into<String>) -> SmlError {
 
 /// 解析 TOML 文本。
 pub fn parse(text: &str) -> Result<Value, SmlError> {
-    let mut root: BTreeMap<String, Value> = BTreeMap::new();
+    let mut root: Map = Map::new();
     let mut cur: Vec<String> = Vec::new();
     let lines: Vec<&str> = text.lines().collect();
     let mut i = 0usize;
@@ -97,11 +96,12 @@ pub fn to_toml(v: &Value) -> String {
     out
 }
 
-fn write_table(out: &mut String, m: &BTreeMap<String, Value>, path: &[String]) {
+fn write_table(out: &mut String, m: &Map, path: &[String]) {
     // TOML 要求：先写标量键，再写子表/表数组
-    let mut scalars: Vec<(&String, &Value)> = Vec::new();
-    let mut tables: Vec<(&String, &BTreeMap<String, Value>)> = Vec::new();
-    let mut arrays: Vec<(&String, &Vec<Value>)> = Vec::new();
+    // 键一律收 `&str`：对象的键在默认档是 `&String`、保序档是 `&str`。
+    let mut scalars: Vec<(&str, &Value)> = Vec::new();
+    let mut tables: Vec<(&str, &Map)> = Vec::new();
+    let mut arrays: Vec<(&str, &Vec<Value>)> = Vec::new();
     for (k, v) in m {
         match v {
             Value::Object(sub) => tables.push((k, sub)),
@@ -116,7 +116,7 @@ fn write_table(out: &mut String, m: &BTreeMap<String, Value>, path: &[String]) {
     }
     for (k, sub) in &tables {
         let mut p = path.to_vec();
-        p.push((*k).clone());
+        p.push((*k).to_string());
         if !out.is_empty() && !out.ends_with("\n\n") {
             out.push('\n');
         }
@@ -125,7 +125,7 @@ fn write_table(out: &mut String, m: &BTreeMap<String, Value>, path: &[String]) {
     }
     for (k, a) in &arrays {
         let mut p = path.to_vec();
-        p.push((*k).clone());
+        p.push((*k).to_string());
         for item in a.iter() {
             if let Value::Object(sub) = item {
                 if !out.is_empty() && !out.ends_with("\n\n") {
@@ -288,14 +288,14 @@ fn parse_key_path(s: &str) -> Result<Vec<String>, SmlError> {
 
 /// 导航到 `path` 指向的表（不存在则创建）；`[[a]]` 时落在最后一个元素上。
 fn ensure_table<'a>(
-    root: &'a mut BTreeMap<String, Value>,
+    root: &'a mut Map,
     path: &[String],
     no: usize,
 ) -> Result<(), SmlError> {
     let mut cur = root;
     for k in path.iter() {
         if !cur.contains_key(k) {
-            cur.insert(k.clone(), Value::Object(BTreeMap::new()));
+            cur.insert(k.clone(), Value::Object(Map::new()));
         }
         // 关键：`get_mut` 的结果必须**一次性移动**给 `cur`。
         // 若在同一个 match 的分支里再去 `cur.insert`，会对 `cur` 产生第二次
@@ -314,7 +314,7 @@ fn ensure_table<'a>(
 
 /// `[[path]]`：在父表下追加一个新的表元素。
 fn push_array_table(
-    root: &mut BTreeMap<String, Value>,
+    root: &mut Map,
     path: &[String],
     no: usize,
 ) -> Result<(), SmlError> {
@@ -325,7 +325,7 @@ fn push_array_table(
     let mut cur = root;
     for k in parents {
         if !cur.contains_key(k) {
-            cur.insert(k.clone(), Value::Object(BTreeMap::new()));
+            cur.insert(k.clone(), Value::Object(Map::new()));
         }
         match cur.get_mut(k) {
             Some(Value::Object(sub)) => cur = sub,
@@ -339,9 +339,9 @@ fn push_array_table(
         }
     }
     match cur.get_mut(last) {
-        Some(Value::Array(a)) => a.push(Value::Object(BTreeMap::new())),
+        Some(Value::Array(a)) => a.push(Value::Object(Map::new())),
         None => {
-            cur.insert(last.clone(), Value::Array(vec![Value::Object(BTreeMap::new())]));
+            cur.insert(last.clone(), Value::Array(vec![Value::Object(Map::new())]));
         }
         Some(_) => return Err(conflict(format!("第 {no} 行：`{last}` 已存在且不是表数组"))),
     }
@@ -350,7 +350,7 @@ fn push_array_table(
 
 /// 在当前表下插入（支持点号键逐级建表）。
 fn insert_keys(
-    root: &mut BTreeMap<String, Value>,
+    root: &mut Map,
     cur: &[String],
     keys: &[String],
     val: Value,
@@ -360,7 +360,7 @@ fn insert_keys(
     let mut tmp_root = std::mem::take(root);
     ensure_table(&mut tmp_root, cur, no)?;
     // 再按 keys 逐级深入
-    let mut node: &mut BTreeMap<String, Value> = &mut tmp_root;
+    let mut node: &mut Map = &mut tmp_root;
     if !cur.is_empty() {
         node = descend(&mut tmp_root, cur, no)?;
     }
@@ -369,7 +369,7 @@ fn insert_keys(
         .ok_or_else(|| syntax(format!("第 {no} 行：空键")))?;
     for k in parents {
         if !node.contains_key(k) {
-            node.insert(k.clone(), Value::Object(BTreeMap::new()));
+            node.insert(k.clone(), Value::Object(Map::new()));
         }
         match node.get_mut(k) {
             Some(Value::Object(sub)) => node = sub,
@@ -395,10 +395,10 @@ fn insert_keys(
 /// 另外：这里能 `Ok(cur)` 安全返回、也能在循环内 `return Err`，都不会与 `cur`
 /// 的可变借用冲突（`Err` 分支不携带借用，借用在此结束）。
 fn descend<'a>(
-    root: &'a mut BTreeMap<String, Value>,
+    root: &'a mut Map,
     path: &[String],
     no: usize,
-) -> Result<&'a mut BTreeMap<String, Value>, SmlError> {
+) -> Result<&'a mut Map, SmlError> {
     let mut cur = root;
     for k in path {
         cur = match cur.get_mut(k) {
@@ -448,7 +448,7 @@ fn parse_value(s: &str, no: usize) -> Result<Value, SmlError> {
     }
     if t.starts_with('{') {
         let inner = t.trim_start_matches('{').trim_end_matches('}');
-        let mut m = BTreeMap::new();
+        let mut m = Map::new();
         for part in split_top(inner, ',') {
             let p = part.trim();
             if p.is_empty() {
@@ -467,7 +467,7 @@ fn parse_value(s: &str, no: usize) -> Result<Value, SmlError> {
             };
             for kk in parents {
                 if !node.contains_key(kk) {
-                    node.insert(kk.clone(), Value::Object(BTreeMap::new()));
+                    node.insert(kk.clone(), Value::Object(Map::new()));
                 }
                 match node.get_mut(kk) {
                     Some(Value::Object(sub)) => node = sub,
@@ -678,9 +678,9 @@ mod tests {
 
     #[test]
     fn to_toml_emits_array_of_tables() {
-        let mut item = BTreeMap::new();
+        let mut item = Map::new();
         item.insert("name".to_string(), Value::Str("a".into()));
-        let mut root = BTreeMap::new();
+        let mut root = Map::new();
         root.insert("srv".to_string(), Value::Array(vec![Value::Object(item)]));
         let out = to_toml(&Value::Object(root));
         assert!(out.contains("[[srv]]"), "应输出表数组头：{out}");
@@ -691,7 +691,7 @@ mod tests {
     /// —— 改动前该分支是 `unreachable!()`，会让整个测试进程崩掉。
     #[test]
     fn descend_returns_coded_err_instead_of_panicking() {
-        let mut root = BTreeMap::new();
+        let mut root = Map::new();
         root.insert("a".to_string(), Value::Int(1));
         let err = descend(&mut root, &["a".to_string()], 7).unwrap_err();
         assert_eq!(err.code(), E_INTERNAL_001);

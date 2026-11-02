@@ -22,6 +22,7 @@
 //! 以及把未知 HTML 标签作为透传 raw。
 
 use crate::Value;
+use crate::emit::key_of;
 use crate::emit::{
     backend_error, depth_error, EmitOptions, escape_text, escape_xml_attr, is_uri_attr, scalar_text,
     block_type, block_name, sanitize_xml_name, sanitize_xml_attr_name, sanitize_xml_uri,
@@ -643,7 +644,7 @@ fn object_attrs(v: &Value, skip: &[&str]) -> String {
     let mut s = String::new();
     if let Value::Object(m) = v {
         for (k, val) in m {
-            if skip.contains(&k.as_str()) {
+            if skip.contains(&key_of(k)) {
                 continue;
             }
             // 事件属性（onclick/onload/…）丢弃：值转义对执行点无效
@@ -790,7 +791,7 @@ fn emit_children(
     }
     if let Value::Object(m) = v {
         for (k, val) in m {
-            if DOC_META.contains(&k.as_str()) {
+            if DOC_META.contains(&key_of(k)) {
                 continue;
             }
             match val {

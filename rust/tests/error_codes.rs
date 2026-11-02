@@ -263,6 +263,12 @@ fn display_carries_the_code() {
 #[test]
 fn generated_codes_match_registry() {
     let registry_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../errors/codes.sml");
+    // 打包发布后 `../errors/codes.sml` 不在包内：该测试只在本仓校验「生成的常量表 == 唯一
+    // 事实来源」，发布件里没有 registry 属正常，跳过而不让 `cargo test` 开箱即红。
+    if !std::path::Path::new(registry_path).exists() {
+        eprintln!("skip: {registry_path} 不在发布包内（仅仓库内校验生成物一致）");
+        return;
+    }
     let registry = std::fs::read_to_string(registry_path)
         .unwrap_or_else(|e| panic!("读不到 {registry_path}：{e}"));
     let mut missing = Vec::new();
