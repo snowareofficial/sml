@@ -541,7 +541,9 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
     `continue;` 机械等价换成 `return Ok(())`。
     ⇒ `parse_block_inner` 约 558 行 → **约 210 行**，肥帧主因消除。
   - ✅ **③ 改迭代式解析 —— 已落主干（`9f7d528`）**：递归漏斗整体翻成显式栈（`Frame`/`Step`/`run_stack`），
-    原生栈深度恒定。`.wtw/iter-parse` 是并行旧工作树，内容已被主干覆盖。
+    原生栈深度恒定。`.wtw/iter-parse` 是并行旧工作树，内容已被主干覆盖；
+    2026-11-02 以 `git merge -s ours` 记录合并（`9e4a9b4`，双亲 `25da74a` + `de3dcb5`），分支关系已闭合
+    （此前 `merge-base --is-ancestor` 判 NOT_MERGED 只因 `9f7d528` 是 squash 落地，非 merge 提交）。
   - ❌ ① 降低 `MAX_VALUE_DEPTH` —— **不做**：128 是五端实测钉住的边界，改要五端同步。
 - **验收（2026-11-02 已闭）**：新增 `rust/tests/stack_default.rs`（显式 2 MiB，非 32 MiB）实测通过。
   以下为历史复核记录（旧的 32 MiB 包装仍在 `error_codes.rs` / `emit.rs`，属冗余包装，可择机去掉）：
@@ -554,8 +556,8 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 - **2026-11-02 新发现并修复**：`svg` / `slint` 后端的**嵌套数组**递归把 `depth` 原样传下去（未 +1），
   深度守卫永不触发 ⇒ 5 万层 `[[[…]]]` 在默认栈 `0xC00000FD`。已改为「合并出的兄弟数组不加深、
   嵌套数组 +1」；`rust/tests/emit.rs` 的 **256 MB 大栈包装随之删除**（默认 2 MiB 下 43/43 全过）。
-- **遗留**：`parse_array_inner` 路径未做同样的削薄检查；若将来再加肥分支，
-  需重跑「默认栈 128 层」这条判据。
+- ~~**遗留**：`parse_array_inner` 未做削薄检查~~ —— **该函数在主干已不存在**（迭代式改造后数组也走
+  `array_step`），此条过期；「默认栈 128 层」判据由 `rust/tests/stack_default.rs` 持续钉住。
 
 ### 雷 4：排雷 ③「不可恢复崩溃」清单（2026-10-27 扫描完毕 —— **核心库是干净的**）
 
