@@ -123,13 +123,10 @@ Confirm the reading with the user before writing any code.
   **第四批（同日）**：`ParseOptions` 的 4 个 builder + 4 个注册方法、`ParseOutput::contract_map`、
   `DiagnosticKind`（枚举本身原本无 doc，已补写）+ 4 个变体 ⇒ `ext.rs` 可见面收口。
   **本 crate 剩余**：`Directive` 及其方法、`contract_map.rs` 的 `AppliedContract` / `ContractMap` / `PathSeg`。
-- **剩余（2026-11-02 实测，`a0f073d`）**：**69 处**，口径 = 「摘要行里没有 `｜`」。
-  ⚠️ 旧口径「摘要里有没有英文字母」会把『`min`/`max` 在 SML 契约里是数值区间』这类**中文句**
-  算成已双语，数字偏乐观（旧记 88），**已废弃**。
-  已清零 10 个 crate：`sml-contract` / `sml-feature` / `sml-codes`（生成物除外）/ `sml-lex` /
-  `sml-regex` / `smltools` / `sml-value` / `sml-pattern` / `sml-include` / `swsml-derive`。
-  剩：门面 `swsml` 42 / `sml-parse` 27。
-  **按 crate 分批**，每批一个提交；扫描脚本的五个坑见 `HANDOFF` §6。
+- ✅ **2026-11-02 已清零（`836cf15`）**：12 个 crate 全部归零，摘要行一律 `English ｜ 中文`。
+  口径 = 「摘要行里有没有 `｜`」（旧判据「有没有英文字母」会把提到标识符的中文句算成已双语，已废弃）。
+  ⚠️ **未做**：`sml-codes/src/{codes,msgs}.rs` 的 151 处码表 doc（生成物，须改
+  `errors/gen_*.py` 模板并重生成 4 份产物，属独立决定）；扫描脚本的五个坑见 `HANDOFF` §6。
 - **另一笔（不是双语化，是补写）**：`Object` 的 14 个方法与 `serde_bridge` 的
   `#[cfg(not(feature = "sml"))]` 版 `to_string` **完全没有 doc** —— 见 `HANDOFF` 的 **R11**。
   ✅ **2026-11-02 已补（`c661f5a`）**：连 `Value` 枚举**本身**、`Map` 两个 cfg 别名、
