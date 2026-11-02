@@ -402,8 +402,8 @@ impl Parser {
             self.next(); // `:`
             return match self.next() {
                 Some(Tok::Word(s)) | Some(Tok::Str(s)) => Ok(Some(s)),
-                other => Err(SmlError::new(E_EXT_003, format!(
-                    "sml: 扩展指令 `@{fname}` 的 `name:` 后须值，得 {other:?}"
+                other => Err(SmlError::from_code_title(E_EXT_003).with_detail(format!(
+                    "扩展指令 `@{fname}` 的 `name:` 后须值，得 {other:?}"
                 ))),
             };
         }
@@ -961,15 +961,15 @@ impl Parser {
             // 因此不能按值 match 出内部字段（E0509），这里借引用再克隆。
             let outcome = d
                 .call(arg.as_deref(), body)
-                .map_err(|e| SmlError::new(E_EXT_008, e))?;
+                .map_err(|e| SmlError::from_code_title(E_EXT_008).with_detail(e))?;
             match &outcome {
                 // 元数据块：文档里写了，解析结果里不出现
                 Outcome::Discard => {}
                 // 展开进主树：值必须是对象，其字段合并进指令所在的块
                 Outcome::Emit(Value::Object(m)) => node.extend(m.clone()),
                 Outcome::Emit(other) => {
-                    return Err(SmlError::new(E_EXT_004, format!(
-                        "sml: 扩展指令 `@{fname}` 的 Emit 须返回对象（用于合并进所在块），得 {other:?}"
+                    return Err(SmlError::from_code_title(E_EXT_004).with_detail(format!(
+                        "`@{fname}` 的 Emit 须返回对象（用于合并进所在块），得 {other:?}"
                     )))
                 }
             }
@@ -978,12 +978,13 @@ impl Parser {
         // —— 契约定义：`@contract Name { ... }` ——
         if fname == "contract" {
             if !self.features.has(Feature::Contract) {
-                return Err(SmlError::new(E_FEATURE_001, "@contract 需要特性 `contract`，但当前特性集已禁用"));
+                return Err(SmlError::from_code_msg(E_FEATURE_001).with_detail("`contract`"));
             }
             let cname = match self.next() {
                 Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
                 other => {
-                    return Err(SmlError::new(E_PARSE_019, format!("sml: @contract 后须契约名, 得 {:?}", other)))
+                    return Err(SmlError::from_code_title(E_PARSE_019)
+                        .with_detail(format!("@contract 后须契约名，得 {other:?}")))
                 }
             };
             // 可选修饰符 `loose` / `warn` / `strict`：显式声明三态严格度（D1）。
@@ -1212,12 +1213,11 @@ impl Parser {
             };
             if fname == "when" && !is_fragment_form {
                 if !self.features.has(Feature::When) {
-                    return Err(SmlError::new(E_FEATURE_001, 
-                        "@when 需要特性 `when`，请先写 `@feature enable when`（该特性默认关闭）",
-                    ));
+                    return Err(SmlError::from_code_msg(E_FEATURE_001)
+                        .with_detail("`when`（请先写 `@feature enable when`）"));
                 }
                 if pending_when.is_some() {
-                    return Err(SmlError::new(E_PARSE_016, "sml: `@when` 连续出现两次；它只作用于紧邻的下一个字段/块"));
+                    return Err(SmlError::from_code_msg(E_PARSE_016));
                 }
                 let cond = crate::cond::eval_when_cond(self)?;
                 *pending_when = Some(cond);
@@ -1249,24 +1249,21 @@ impl Parser {
             let val = match self.next() {
                 Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
                 other => {
-                    return Err(SmlError::new(E_PARSE_020, format!(
-                        "sml: 片段 `@{fname}` 的参数 `{kw}:` 后须值, 得 {:?}",
-                        other
+                    return Err(SmlError::from_code_title(E_PARSE_020).with_detail(format!(
+                        "片段 `@{fname}` 的参数 `{kw}:` 后须值，得 {other:?}"
                     )))
                 }
             };
             if kw == "type" {
                 if ftype.is_some() {
-                    return Err(SmlError::new(E_PARSE_020, format!(
-                        "sml: 片段 `@{fname}` 的 `type:` 参数重复"
-                    )));
+                    return Err(SmlError::from_code_title(E_PARSE_020)
+                        .with_detail(format!("片段 `@{fname}` 的 `type:` 参数重复")));
                 }
                 ftype = Some(val);
             } else {
                 if farg.is_some() {
-                    return Err(SmlError::new(E_PARSE_020, format!(
-                        "sml: 片段 `@{fname}` 的 `name:` 参数重复"
-                    )));
+                    return Err(SmlError::from_code_title(E_PARSE_020)
+                        .with_detail(format!("片段 `@{fname}` 的 `name:` 参数重复")));
                 }
                 farg = Some(val);
             }
@@ -1274,13 +1271,9 @@ impl Parser {
         // 既非 `{` 也非流末尾：既可能是拼错的指令，也可能是旧的位置参数形式。
         // 两种意图无法区分，故错误信息同时给出两条排查指引。
         if !matches!(self.peek(), Some(Tok::LBrace) | None) {
-            return Err(SmlError::new(E_PARSE_005, format!(
-                "sml: `@{fname}` 不是合法指令且缺少片段体 {{ ... }}；\
-                 若本意是「片段定义」，其参数须显式写作 `type: X` 与 `name: Y`\
-                 （如 `@{fname} type: Server name: prod {{ .. }}`），\
-                 位置参数形式（`@{fname} X [Y] {{ .. }}`）自 v4 起已废弃，\
-                 不带参数时写作 `@{fname} {{ .. }}`；\
-                 若本意是「指令」，请检查拼写（合法指令：contract / is / version / feature）"
+            return Err(SmlError::from_code_title(E_PARSE_005).with_detail(format!(
+                "`@{fname}` 缺少片段体 `{{ ... }}`；参数须显式写作 `type: X` 与 `name: Y`；\
+                 位置参数形式自 v4 起已废弃；若是指令请检查拼写"
             )));
         }
         if self.peek() == Some(&Tok::LBrace) {
@@ -1301,19 +1294,16 @@ impl Parser {
                 sub.insert("__name".into(), Value::Str(a));
             }
             if !self.features.has(Feature::Fragment) {
-                return Err(SmlError::new(E_FEATURE_001, format!(
-                    "sml: 片段定义 `@{}` 需要特性 `fragment`，但当前特性集已禁用",
-                    fname
-                )));
+                return Err(SmlError::from_code_msg(E_FEATURE_001)
+                    .with_detail("`fragment`"));
             }
             // 命名空间前缀隔离：片段定义按当前 ns 栈路径注册
             self.fragments.insert(self.qualify(&fname), Value::Object(sub));
         } else {
             // `@name` 既不是已知指令（contract/is）也不是片段定义（后无 `{`）：
             // 必须报错，而非静默吞掉后续行/块（P0-2：单独 `@` 会清空整个文档）。
-            return Err(SmlError::new(E_PARSE_005, format!(
-                "sml: `@{}` 不是合法指令且缺少片段体 {{ ... }}，无法解析",
-                fname
+            return Err(SmlError::from_code_title(E_PARSE_005).with_detail(format!(
+                "`@{fname}` 不是合法指令且缺少片段体，无法解析"
             )));
         }
         Ok(())
