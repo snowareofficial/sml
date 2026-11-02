@@ -44,7 +44,7 @@ fn push_attr(attrs: &mut String, name: &str, value: &str) -> bool {
     true
 }
 
-/// XML 专属选项。
+/// XML-specific options ｜ XML 专属选项。
 #[derive(Debug, Clone)]
 pub struct XmlOptions {
     pub base: EmitOptions,
@@ -68,7 +68,7 @@ impl XmlOptions {
     }
 }
 
-/// SML → 通用 XML。
+/// SML → generic XML ｜ SML → 通用 XML。
 pub fn to_xml(v: &Value, opt: &XmlOptions) -> Result<String, SmlError> {
     let mut out = String::new();
     if opt.base.standalone {

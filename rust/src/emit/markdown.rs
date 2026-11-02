@@ -186,7 +186,7 @@ fn md_cell_text(v: &Value, opt: &EmitOptions) -> String {
     escape_text(&t, opt)
 }
 
-/// Markdown 专属选项。
+/// Markdown-specific options ｜ Markdown 专属选项。
 #[derive(Debug, Clone)]
 pub struct MarkdownOptions {
     pub base: EmitOptions,
@@ -216,7 +216,7 @@ impl MarkdownOptions {
     }
 }
 
-/// SML 值 → Markdown 文本。
+/// SML value → Markdown text ｜ SML 值 → Markdown 文本。
 pub fn to_markdown(v: &Value, opt: &MarkdownOptions) -> Result<String, SmlError> {
     let mut out = String::new();
     // 顶层若是对象（文档），遍历其字段，字段名即 SML 风格块类型

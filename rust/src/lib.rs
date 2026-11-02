@@ -185,7 +185,7 @@ pub fn split_kv(s: &str) -> Option<(String, String)> {
 // （不再从 `crate::emit` 取，原因见那里的注释 / HANDOFF R9）。
 // lint 的「嵌套过深」阈值仍取它的一半，库改一处、lint 自动跟随。
 
-/// 值（不含解析器内部状态）的**嵌套深度**：根容器计 1，标量 = 1。
+/// **Nesting depth** of a value (parser-internal state excluded): a root container counts 1, a scalar counts 1 ｜ 值的**嵌套深度**。
 ///
 /// 与 `smltools --lint` 的 `W-LINT-005`（建议阈值 `MAX_VALUE_DEPTH / 2`）共用同一实现，
 /// 避免 CLI 与库各写一份、改一处漏一处（TODO 雷 3 的分叉项）。
@@ -197,7 +197,7 @@ pub fn depth_of(value: &Value) -> usize {
     }
 }
 
-/// 源码扫描结果：契约/片段的**定义**与**引用**（行号 1 起）。
+/// Source-scan result: contract / fragment **definitions** and **uses** (line numbers start at 1) ｜ 源码扫描结果。
 #[derive(Debug, Default, Clone)]
 pub struct SourceRefs {
     pub contract_defs: Vec<(String, usize)>,
@@ -206,7 +206,7 @@ pub struct SourceRefs {
     pub fragment_uses: Vec<(String, usize)>,
 }
 
-/// 扫描源码里的契约/片段定义与引用（供 `smltools --lint` 的未使用检查）。
+/// Scan source text for contract / fragment definitions and uses (feeds `smltools --lint`'s unused checks) ｜ 扫描源码里的契约/片段定义与引用。
 ///
 /// 这是**行级文本扫描**，不是解析器；但它与解析器共用 `strip_line_comment` /
 /// `BUILTIN_DIRECTIVES` 的语义，故收在库里当单一来源（TODO 雷 3 的分叉项）。

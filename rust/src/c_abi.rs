@@ -396,7 +396,7 @@ pub extern "C" fn sml_features() -> *mut c_char {
 
 use std::os::raw::{c_uint, c_ulonglong};
 
-/// 与 `sml_rs.h` 的 `sml_errc` 一一对应。
+/// Mirrors `sml_errc` in `sml_rs.h` one-to-one ｜ 与 `sml_rs.h` 的 `sml_errc` 一一对应。
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub enum CSmlErrc {
@@ -411,7 +411,7 @@ pub enum CSmlErrc {
     Internal = 8,
 }
 
-/// 与 `sml_rs.h` 的 `sml_error` 一一对应。
+/// Mirrors `sml_error` in `sml_rs.h` one-to-one ｜ 与 `sml_rs.h` 的 `sml_error` 一一对应。
 ///
 /// 字段顺序、类型、数组长度必须与头文件完全一致，否则跨语言内存布局错位。
 #[repr(C)]
@@ -493,8 +493,10 @@ fn extract_line(msg: &str) -> Option<c_int> {
     None
 }
 
-/// 值树句柄。`repr(transparent)` 使其与内部 [`Value`] 布局一致，
-/// 从而可以把子值的 `&Value` 安全地重解释为此类型的借用指针。
+/// Handle to a value tree ｜ 值树句柄。
+///
+/// `repr(transparent)` 使其与内部 [`Value`] 布局一致，从而可以把子值的 `&Value`
+/// 安全地重解释为此类型的借用指针。
 #[repr(transparent)]
 pub struct CSmlValue(Value);
 

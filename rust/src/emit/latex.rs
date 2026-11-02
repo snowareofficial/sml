@@ -25,7 +25,7 @@ use crate::emit::{
 };
 use sml_codes::SmlError;
 
-/// LaTeX 专属选项。
+/// LaTeX-specific options ｜ LaTeX 专属选项。
 #[derive(Debug, Clone)]
 pub struct LatexOptions {
     pub base: EmitOptions,
