@@ -146,6 +146,11 @@ towards the totals and get painted from the cache when opened.
   Writing `web @is Server { }` is **not valid SML** (Rust: `E-PARSE-012`; JS: "stray closing brace").
 - "Go to definition" also only resolves **same-name definitions** (document-level names) — no scope
   analysis.
+- ⚠️ **The parser warnings added this round do not show up in the editor**: editor diagnostics go
+  through `parseSafe` in `js/sml.mjs`, not the Rust library, so `W-PARSE-001` (duplicate key promoted
+  to an array — no value lost) and `W-PARSE-002` (fragment expansion overwrites a parent key — the
+  parent value is lost) from the Rust `parse_with_warnings` API are **not surfaced here this round**.
+  For line-numbered results use `smltools --lint` (prints `path:line: level: message [code]`).
 
 ## File structure
 

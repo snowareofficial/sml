@@ -78,7 +78,7 @@ Confirm the reading with the user before writing any code.
 
 ## I-3 `get_object` 之类的方法？ / object accessors?
 
-- **Status / 状态**：`Done`（2026-10-27，**待合入 `dev`**）—— 访问器层已补齐。
+- **Status / 状态**：`Done`（2026-10-27；**已合入 `dev`**，`feat/value-accessors` 分支已删）—— 访问器层已补齐。
 - **Answer / 答案**：**没有**。`Value` 只有 `get(path)`（点路径）、`as_str`、`as_float`
   （`rust/sml-value/src/value.rs`）。
 - **Done / 已落地（2026-10-27，分支 `feat/value-accessors`）**：新增
@@ -89,8 +89,8 @@ Confirm the reading with the user before writing any code.
   `bracket_in_key_name_is_not_rewritten` 钉住。
 - **Done / 已完成（更早）**：C-ABI 侧接口不缺 —— `sml_get` / `sml_get_path` / `sml_key_at` /
   `sml_str_dup` / `sml_int_value` / `sml_bool_value`（`rust/src/c_abi.rs`）。
-- **Gap / 缺口**：Rust 原生侧反而更薄，缺 `as_object` / `as_array` / `as_i64` / `as_bool`
-  （＋ `as_object_mut`）；补这一层零风险。
+- **Gap / 缺口**：~~Rust 原生侧反而更薄，缺 `as_object` / `as_array` / `as_i64` /
+  `as_bool`（＋ `as_object_mut`）~~ —— 2026-10-27 已补齐（见上「已落地」），现无缺口。
 - **Note / 备注**：~~`get` 只走 `Object`，遇数组下标即 `None`~~ —— 2026-10-27 起下标可用
   （`a.b[0].c`），但**字面键名优先**于下标语法，故路径里带 `[` 的既有键不受影响。
 
