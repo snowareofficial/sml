@@ -101,10 +101,8 @@ pub fn parse_include_line(line: &str, features: FeatureSet) -> Result<Option<Vec
         return Ok(None);
     };
     if !features.has(Feature::Include) {
-        return Err(SmlError::new(
-            E_FEATURE_001,
-            "sml: 当前特性集禁用了 include/import（include 特性未启用）",
-        ));
+        return Err(SmlError::from_code_msg(E_FEATURE_001)
+            .with_detail("include/import 特性未启用"));
     }
     let mut targets: Vec<IncludeTarget> = Vec::new();
     let mut rest = rest;
@@ -131,12 +129,7 @@ pub fn parse_include_line(line: &str, features: FeatureSet) -> Result<Option<Vec
             let after = after.trim_start();
             let after = match after.strip_prefix("in ") {
                 Some(a) => a.trim_start(),
-                None => {
-                    return Err(SmlError::new(
-                        E_INCLUDE_008,
-                        "sml: `import { keys } ...` 必须接 `in \"file\"` 指定目标文件",
-                    ))
-                }
+                None => return Err(SmlError::from_code_msg(E_INCLUDE_008)),
             };
             let (path, t, q, c) = match next_token_meta(after) {
                 Some((p, t, q, c)) => (p, t, q, c),
@@ -187,13 +180,10 @@ pub fn parse_include_line(line: &str, features: FeatureSet) -> Result<Option<Vec
         // ⚠️ 两处豁免：① `import a.b`（点分模块名，裸词是**语法**的一部分）⇒ 由 `via_import` 排除；
         //             ② `re:"…"`（受限正则模式，首字符本来就是 `r`，不是引号）。
         if !via_import && !raw.starts_with("re:") && (!quoted || !closed) {
-            return Err(SmlError::new(
-                E_INCLUDE_012,
-                format!(
-                    "sml: include 路径写法非法（{}）：{raw}",
-                    if quoted { "引号未闭合" } else { "未加引号" }
-                ),
-            ));
+            return Err(SmlError::from_code_msg(E_INCLUDE_012).with_detail(format!(
+                "{}：{raw}",
+                if quoted { "引号未闭合" } else { "未加引号" }
+            )));
         }
         targets.push(finalize_target(
             raw,
@@ -208,10 +198,8 @@ pub fn parse_include_line(line: &str, features: FeatureSet) -> Result<Option<Vec
                 // 与其余三类（include/glob/regex）保持一致：特性未启用时返回 Err，
                 // 而非静默 `Ok(None)` 把整行当普通内容解析导致数据污染
                 // （此前会注入垃圾键且零报错）。
-                return Err(SmlError::new(
-                    E_FEATURE_001,
-                    "sml: 多目标 include 需要特性 `multi-include`（请 @feature enable multi-include）",
-                ));
+                return Err(SmlError::from_code_msg(E_FEATURE_001)
+                    .with_detail("multi-include（请 @feature enable multi-include）"));
             }
             rest = stripped.trim_start();
             continue;
@@ -228,26 +216,19 @@ pub fn parse_include_line(line: &str, features: FeatureSet) -> Result<Option<Vec
     for t in &targets {
         // 部分引用只作用于单文件目标，不能与 glob/regex 通配组合
         if t.keys.is_some() && (t.raw.contains('*') || t.raw.starts_with("re:")) {
-            return Err(SmlError::new(
-                E_INCLUDE_009,
-                "sml: 部分引用 `{ keys }` 不能配合 glob/regex 通配（请指定单个文件）",
-            ));
+            return Err(SmlError::from_code_msg(E_INCLUDE_009));
         }
         // 先查 re: 前缀（正则模式里的 `*` 是元字符，不是 glob 通配）
         if t.raw.starts_with("re:") {
             if !features.has(Feature::RegexInclude) {
-                return Err(SmlError::new(
-                    E_FEATURE_001,
-                    "sml: 正则 include 需要特性 `regex-include`（请 @feature enable regex-include）",
-                ));
+                return Err(SmlError::from_code_msg(E_FEATURE_001)
+                    .with_detail("regex-include（请 @feature enable regex-include）"));
             }
             continue;
         }
         if t.raw.contains('*') && !features.has(Feature::GlobInclude) {
-            return Err(SmlError::new(
-                E_FEATURE_001,
-                "sml: 通配 include 需要特性 `glob-include`（请 @feature enable glob-include）",
-            ));
+            return Err(SmlError::from_code_msg(E_FEATURE_001)
+                .with_detail("glob-include（请 @feature enable glob-include）"));
         }
     }
     Ok(Some(targets))
@@ -310,13 +291,11 @@ pub fn next_token_meta(s: &str) -> Option<(String, &str, bool, bool)> {
 pub fn parse_key_list(s: &str) -> Result<(Vec<String>, &str), SmlError> {
     let s = s.trim_start();
     let Some(body) = s.strip_prefix('{') else {
-        return Err(SmlError::new(
-            E_INCLUDE_005,
-            "sml: 期望 `{ key1, key2, ... }` 键列表",
-        ));
+        return Err(SmlError::from_code_title(E_INCLUDE_005)
+            .with_detail("期望 `{ key1, key2, ... }` 键列表"));
     };
     let close = body.find('}').ok_or_else(|| {
-        SmlError::new(E_INCLUDE_005, "sml: 键列表缺少闭合 `}`")
+        SmlError::from_code_title(E_INCLUDE_005).with_detail("缺少闭合 `}`")
     })?;
     let inner = &body[..close];
     let mut keys: Vec<String> = Vec::new();
@@ -334,10 +313,7 @@ pub fn parse_key_list(s: &str) -> Result<(Vec<String>, &str), SmlError> {
         }
     }
     if keys.is_empty() {
-        return Err(SmlError::new(
-            E_INCLUDE_005,
-            "sml: 键列表不能为空（至少指定一个键）",
-        ));
+        return Err(SmlError::from_code_title(E_INCLUDE_005).with_detail("至少指定一个键"));
     }
     Ok((keys, &body[close + 1..]))
 }
@@ -417,10 +393,8 @@ pub fn resolve_target_paths(
     // 正则模式：re:"<pattern>"
     if let Some(pat) = t.raw.strip_prefix("re:") {
         if !features.has(Feature::RegexInclude) {
-            return Err(SmlError::new(
-                E_FEATURE_001,
-                "sml: 正则 include 需要特性 `regex-include`（请 @feature enable regex-include）",
-            ));
+            return Err(SmlError::from_code_msg(E_FEATURE_001)
+                .with_detail("regex-include（请 @feature enable regex-include）"));
         }
         let pat = pat.trim_matches('"');
         // 模式可含目录前缀（如 re:"lib/widget_.*"）：按 **SML 层的 `/`** 拆出目录，
@@ -442,10 +416,8 @@ pub fn resolve_target_paths(
     // glob 模式：含 `*`
     if t.raw.contains('*') {
         if !features.has(Feature::GlobInclude) {
-            return Err(SmlError::new(
-                E_FEATURE_001,
-                "sml: 通配 include 需要特性 `glob-include`（请 @feature enable glob-include）",
-            ));
+            return Err(SmlError::from_code_msg(E_FEATURE_001)
+                .with_detail("glob-include（请 @feature enable glob-include）"));
         }
         let normalized = t.raw.replace('/', std::path::MAIN_SEPARATOR_STR);
         let (dir, pat) = split_dir(&normalized);
@@ -510,7 +482,7 @@ fn map_regex_err(e: RegexError) -> SmlError {
         RegexError::Illegal { .. } => E_PARSE_025,
         RegexError::Budget { .. } => E_LIMIT_002,
     };
-    SmlError::new(code, format!("include 的受限正则：{e}"))
+    SmlError::from_code_title(code).with_detail(format!("{e}"))
 }
 
 /// 返回命中的完整路径。目录本身不作为命中（仅文件）。
@@ -522,10 +494,8 @@ pub fn glob_or_regex_dir(
 ) -> Result<Vec<PathBuf>, SmlError> {
     let mut hits: Vec<PathBuf> = Vec::new();
     let entries = std::fs::read_dir(base).map_err(|e| {
-        SmlError::new(
-            E_INCLUDE_001,
-            format!("include 目录读取失败 {}: {e}", base.display()),
-        )
+        SmlError::from_code_msg(E_INCLUDE_001)
+            .with_detail(format!("{}: {e}", base.display()))
     })?;
     // 用于正则匹配的模式字符串（不含 re: 前缀与引号）。
     // W16：走**显式失败**的入口 —— 模式过长 / 非法都在这里就报码，
@@ -536,7 +506,7 @@ pub fn glob_or_regex_dir(
     };
     for ent in entries {
         let ent = ent.map_err(|e| {
-            SmlError::new(E_INCLUDE_001, format!("include 目录遍历失败: {e}"))
+            SmlError::from_code_msg(E_INCLUDE_001).with_detail(e.to_string())
         })?;
         let p = ent.path();
         if p.is_dir() {

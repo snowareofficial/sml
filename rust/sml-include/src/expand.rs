@@ -73,10 +73,8 @@ pub fn expand_includes(
     expansions: &mut u64,
 ) -> Result<(), SmlError> {
     if stack.len() >= MAX_INCLUDE_DEPTH {
-        return Err(SmlError::new(
-            E_INCLUDE_004,
-            format!("include 嵌套超过 {MAX_INCLUDE_DEPTH} 层"),
-        ));
+        return Err(SmlError::from_code_msg(E_INCLUDE_004)
+            .with_detail(format!("超过 {MAX_INCLUDE_DEPTH} 层")));
     }
     // 沙箱根：所有 include 命中的文件必须位于 base（规范化为绝对路径）之内，
     // 否则拒绝，防止 `../` 或 glob/regex 模式越界读取任意文件（路径遍历漏洞）。
@@ -85,13 +83,8 @@ pub fn expand_includes(
     // `starts_with` 比较的对象就变成一个可能含 `..` 的路径，越界校验会静默失效
     // （安全默认、无法校验即不放行）。
     let base_canon = base.canonicalize().map_err(|e| {
-        SmlError::new(
-            E_INCLUDE_010,
-            format!(
-                "include 基准目录不可解析，无法做越界校验，已拒绝继续：{}（{e}）",
-                base.display()
-            ),
-        )
+        SmlError::from_code_msg(E_INCLUDE_010)
+            .with_detail(format!("{}（{e}）", base.display()))
     })?;
     let spans = compute_string_spans(text);
 
@@ -123,33 +116,26 @@ pub fn expand_includes(
         match parse_include_line(line, features)? {
             Some(targets) => {
                 if !features.has(Feature::Include) {
-                    return Err(SmlError::new(
-                        E_FEATURE_001,
-                        "sml: 当前特性集禁用了 include（include 特性）",
-                    ));
+                    return Err(SmlError::from_code_msg(E_FEATURE_001)
+                        .with_detail("include 特性"));
                 }
                 for t in targets {
                     if t.namespace.is_some() && !features.has(Feature::Namespace) {
-                        return Err(SmlError::new(
-                            E_FEATURE_001,
-                            "sml: 当前特性集禁用了命名空间包含（namespace 特性）",
-                        ));
+                        return Err(SmlError::from_code_msg(E_FEATURE_001)
+                            .with_detail("namespace 特性"));
                     }
                     // 把一个 target 解析为 0..N 个实际文件路径（支持 glob/regex/ext-rewrite）
                     let paths = resolve_target_paths(&t, base, features)?;
                     for path in paths {
                         let canon = path.canonicalize().map_err(|e| {
-                            SmlError::new(
-                                E_INCLUDE_001,
-                                format!("include 无法定位 {}: {e}", path.display()),
-                            )
+                            SmlError::from_code_msg(E_INCLUDE_001)
+                                .with_detail(format!("{}: {e}", path.display()))
                         })?;
                         // 路径遍历防护：规范化后必须仍位于沙箱根 base 之内
                         if !canon.starts_with(&base_canon) {
-                            return Err(SmlError::new(
-                                E_INCLUDE_003,
+                            return Err(SmlError::from_code_msg(E_INCLUDE_003).with_detail(
                                 format!(
-                                    "include 越界拒绝：{} 不在基准目录 {} 内",
+                                    "{} 不在基准目录 {} 内",
                                     canon.display(),
                                     base_canon.display()
                                 ),
@@ -157,23 +143,18 @@ pub fn expand_includes(
                         }
                         // stack 是「当前正在展开的文件链」，命中即成环
                         if stack.iter().any(|p| p == &canon) {
-                            return Err(SmlError::new(
-                                E_INCLUDE_002,
-                                format!("include 循环引用: {}", canon.display()),
-                            ));
+                            return Err(SmlError::from_code_msg(E_INCLUDE_002)
+                                .with_detail(canon.display().to_string()));
                         }
                         let content = std::fs::read_to_string(&canon).map_err(|e| {
-                            SmlError::new(
-                                E_IO_001,
-                                format!("include 读取失败 {}: {e}", canon.display()),
-                            )
+                            SmlError::from_code_msg(E_IO_001)
+                                .with_detail(format!("{}: {e}", canon.display()))
                         })?;
                         *expansions += 1;
                         if *expansions > MAX_INCLUDE_EXPANSIONS {
-                            return Err(SmlError::new(
-                                E_LIMIT_003,
+                            return Err(SmlError::from_code_msg(E_LIMIT_003).with_detail(
                                 format!(
-                                    "include 展开次数超过上限 {}（疑似指数膨胀 DoS）",
+                                    "上限 {}（疑似指数膨胀 DoS）",
                                     MAX_INCLUDE_EXPANSIONS
                                 ),
                             ));
@@ -215,10 +196,8 @@ pub fn expand_includes(
             None => {
                 // 非 include 行：直接 tokenize 该行并追加（保持行级语义，零拷贝）
                 let line_toks = tokenize(line).map_err(|e| {
-                    SmlError::new(
-                        E_INCLUDE_011,
-                        format!("include 预处理词法错误：{e}（于行：{line}）"),
-                    )
+                    SmlError::from_code_msg(E_INCLUDE_011)
+                        .with_detail(format!("{e}（于行：{line}）"))
                 })?;
                 out.extend(line_toks);
             }
