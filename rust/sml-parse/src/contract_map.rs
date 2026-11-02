@@ -17,7 +17,7 @@
 
 use std::fmt::Write as _;
 
-/// 实体在**结果树**里的位置段。
+/// One position segment of an entity inside the **result tree** ｜ 实体在**结果树**里的位置段。
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PathSeg {
     /// 对象键（如 `database`）。
@@ -26,8 +26,10 @@ pub enum PathSeg {
     Index(usize),
 }
 
-/// 一条记录：某实体（路径）应用了的契约名（**resolve 后**的名字，与
-/// `contracts` 表的键一致，下游可直接反查；多个契约按应用顺序排列）。
+/// One record: the contract names applied to an entity (path) ｜ 一条记录：某实体（路径）应用了的契约名。
+///
+/// 名字是 **resolve 之后**的（与 `contracts` 表的键一致，下游可直接反查）；
+/// 多个契约按**应用顺序**排列。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppliedContract {
     /// 实体路径；顶层实体为 `[]`。
@@ -36,7 +38,7 @@ pub struct AppliedContract {
     pub names: Vec<String>,
 }
 
-/// 契约映射：`路径 → 契约名列表` 的旁路表。
+/// Contract map: a side table of `path → contract names` ｜ 契约映射：`路径 → 契约名列表` 的旁路表。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ContractMap {
     entries: Vec<AppliedContract>,
@@ -68,8 +70,10 @@ impl ContractMap {
         self.entries.sort_by(|a, b| a.path.cmp(&b.path));
     }
 
-    /// 某实体的契约名列表；**没有应用任何契约 ⇒ 空切片**
-    /// （而不是「不存在」与「空」两种状态 —— 未记录的实体不该出现在映射里）。
+    /// Contract names applied to one entity; **no contract applied ⇒ empty slice**
+    /// ｜ 某实体的契约名列表；**没有应用任何契约 ⇒ 空切片**。
+    ///
+    /// 不区分「不存在」与「空」两种状态 —— 未记录的实体本就不该出现在映射里。
     pub fn names_at(&self, path: &[PathSeg]) -> &[String] {
         self.entries
             .iter()
@@ -78,7 +82,7 @@ impl ContractMap {
             .unwrap_or(&[])
     }
 
-    /// 全部记录（已按路径排序，前提是出口处调过 [`Self::freeze`]）。
+    /// All records — sorted by path **only if** `freeze` ran at the parser's exit (it is `pub(crate)`, so no link) ｜ 全部记录（排序前提是出口处调过 `freeze`）。
     pub fn entries(&self) -> &[AppliedContract] {
         &self.entries
     }
@@ -93,10 +97,11 @@ impl ContractMap {
         self.entries.len()
     }
 
-    /// 交换表示：一份 SML 文档 —— 顶层数组，每条
-    /// `{ path: [ … ] contracts: [ … ] }`；顶层实体 `path: []`。
+    /// Interchange form: one SML document — a top-level array of `{ path: [ … ] contracts: [ … ] }` ｜ 交换表示：一份 SML 文档。
     ///
-    /// 裸词 vs 引号的判据见 [`word_or_quoted`]：`path` 段与契约名共用同一判据，
+    /// 每条记录形如 `{ path: [ … ] contracts: [ … ] }`；顶层实体的 `path` 是 `[]`。
+    ///
+    /// 裸词 vs 引号的判据见 `word_or_quoted`（私有，故不作链接）：`path` 段与契约名共用同一判据，
     /// `database` / `Server` 保持裸词（可读），`"123"` / `"true"` 这类键自动加引号
     /// （否则读回来会变成数组下标或布尔 —— 那正是「类型自识别」的另一面）。
     pub fn to_sml(&self) -> String {

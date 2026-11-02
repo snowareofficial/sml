@@ -14,7 +14,7 @@ use sml_lex::Tok;
 
 use crate::parser::Parser;
 
-/// `@when` 支持的条件形式（**闭集**）：
+/// The condition forms `@when` accepts (**a closed set**, not an expression language) ｜ `@when` 支持的条件形式（**闭集**）：
 ///
 /// ```text
 /// @when $env.NAME              # 真值：值非空且不等于 "0" / "false"
@@ -100,7 +100,7 @@ pub fn eval_when_cond(p: &mut Parser) -> Result<bool, SmlError> {
     }
 }
 
-/// 解析 `@for` 的「头部」：`var in a b c`（不含循环体）。
+/// Parse the `@for` **header**: `var in a b c` (the body is not consumed) ｜ 解析 `@for` 的「头部」。
 ///
 /// 调用前游标应停在 `@`（即 `parse_value` 已 peek 到 `@` + `for` 但**未消费**）。
 /// 消费顺序：`@` → `for` → `<var>` → `in` → 各枚举项，最后游标停在 `{`（循环体左花括号），

@@ -29,7 +29,7 @@ use crate::contract_bridge::{apply_contract, apply_contracts};
 use crate::contract_map::{ContractMap, PathSeg};
 use crate::ext::{Diagnostic, DiagnosticKind, DirectiveTable, Outcome};
 
-/// 解析器。`pub` 仅为让 `cond` 等子模块复用游标，不对外暴露。
+/// The parser. `pub` only so submodules like `cond` can reuse the cursor — **not** part of the public API ｜ 解析器（`pub` 仅为让 `cond` 等子模块复用游标）。
 pub struct Parser {
     pub(crate) toks: Vec<Tok>,
     /// 与 `toks` **一一对应**的原文区间（字节偏移），供错误定位。
@@ -151,7 +151,7 @@ enum ValueStep {
 }
 
 impl Parser {
-    /// 查 `$env.X`：先查本次解析的覆盖表，再回落进程环境。
+    /// Look up `$env.X`: the parse-local override table first, then the process environment ｜ 查 `$env.X`。
     pub fn env_var(&self, name: &str) -> String {
         lookup_env(Some(&self.env), name)
     }
@@ -276,7 +276,7 @@ impl Parser {
         self.diags.push(Diagnostic { kind, message, line });
     }
 
-    /// 查 `@for` 循环变量 `${var}`（只读绑定）。未绑定返回 None。
+    /// Look up an `@for` loop variable `${var}` (read-only binding); `None` when unbound ｜ 查 `@for` 循环变量。
     pub fn loop_var(&self, name: &str) -> Option<&String> {
         self.loop_vars.get(name)
     }
@@ -485,7 +485,7 @@ impl Parser {
         }
     }
 
-    /// 前看当前 token。`pub` 仅为让 `cond` 等子模块复用游标，不对外暴露。
+    /// Peek at the current token (`pub` only for sibling submodules, not public API) ｜ 前看当前 token。
     pub fn peek(&self) -> Option<&Tok> {
         self.toks.get(self.i)
     }
@@ -494,7 +494,7 @@ impl Parser {
     fn peek_at(&self, n: usize) -> Option<&Tok> {
         self.toks.get(self.i + n)
     }
-    /// 消费并返回当前 token。`pub` 仅为让 `cond` 等子模块复用游标，不对外暴露。
+    /// Consume and return the current token (`pub` only for sibling submodules, not public API) ｜ 消费并返回当前 token。
     pub fn next(&mut self) -> Option<Tok> {
         let t = self.toks.get(self.i).cloned();
         if t.is_some() {

@@ -15,7 +15,8 @@
 //! - **未注册任何扩展时，行为与既有解析完全一致**（零扩展 = 零影响，向后兼容）。
 //! - **内置指令名不可被覆盖**（注册时报错），避免方言改写核心语义。
 //! - 位置参数形式（`@xxx Name { }`）自 v4 起废弃：外置指令须显式开启
-//!   [`Directive::positional`]，且命中时产出一条 [`DiagnosticKind::Deprecated`]。
+//!   `Directive::positional`（trait 方法，模块文档里不作链接），且命中时产出一条
+//!   [`DiagnosticKind::Deprecated`]。
 //!   之所以保留，是为了让既有方言文档能先跑起来再迁移。
 //! - **键冲突告警**（雷 5 · A 组 4-5）：同一块内键名重复 ⇒ 提升为数组；片段展开
 //!   （`&name`）覆盖父块已有的同名键 ⇒ 父块原值丢失。二者此前**完全静默**，现产出
@@ -32,14 +33,14 @@ use sml_codes::SmlError;
 use sml_contract::ContractExt;
 use sml_value::Value;
 
-/// 内置指令名。供错误消息列出，并**禁止外置扩展占用**。
+/// Built-in directive names — listed in error messages and **reserved** against extensions ｜ 内置指令名。供错误消息列出，并**禁止外置扩展占用**。
 ///
 /// 新增内置指令时必须同步此表，否则同名外置指令会拦截掉内置语义。
 pub const BUILTIN_DIRECTIVES: &[&str] = &[
     "contract", "is", "type", "version", "feature", "when", "for",
 ];
 
-/// 外置指令的处理结果去向。
+/// Where the output of an external directive goes ｜ 外置指令的处理结果去向。
 #[derive(Debug, Clone, PartialEq)]
 pub enum Outcome {
     /// **元数据块**：不进主数据树。
@@ -62,12 +63,12 @@ pub struct Diagnostic {
     pub message: String,
     /// 触发位置的行号（**1 起**）。拿不到时为 `None`
     /// —— 文件入口的 token 流经 include 展开、跨文件合并，**没有可映射的单一原文**
-    /// （宁缺勿错，与 [`crate::api`] 的错误定位同一取舍）。
+    /// （宁缺勿错，与 `crate::api` 的错误定位同一取舍；`api` 是私有模块，故不作链接）。
     pub line: Option<usize>,
 }
 
 impl Diagnostic {
-    /// 该诊断对应的**稳定码**（`W-PARSE-*`，见 `errors/codes.sml`）。
+    /// The diagnostic's **stable code** (`W-PARSE-*`, see `errors/codes.sml`) ｜ 该诊断对应的**稳定码**。
     ///
     /// `DuplicateKey` ⇒ `W-PARSE-001`、`KeyOverwritten` ⇒ `W-PARSE-002`；
     /// 其余档（`Deprecated` / 契约 `warn` 放行的 `Warning`）暂无码，返回 `None`。
@@ -111,7 +112,7 @@ pub enum DiagnosticKind {
     Warning,
 }
 
-/// 外置 `@` 指令。
+/// An external `@` directive ｜ 外置 `@` 指令。
 ///
 /// 实现者只需回答三件事：叫什么、要不要位置参数名、拿到块之后怎么办。
 /// 解析器负责「找到指令 → 取参数 → 读块 → 收集诊断」，hook 只处理语义。
@@ -135,7 +136,7 @@ pub trait Directive: Send + Sync {
     fn call(&self, arg: Option<&str>, body: Value) -> Result<Outcome, String>;
 }
 
-/// 外置指令注册表。
+/// Registry of external directives ｜ 外置指令注册表。
 ///
 /// 用 [`Arc`] 包 trait 对象，使 `Parser` 的 `@for` 子解析器能低成本共享同一张表
 /// （`spawn_for_child` 会克隆各字段，trait 对象本身不可克隆）。
@@ -165,7 +166,9 @@ impl DirectiveTable {
         }
     }
 
-    /// 注册一条外置指令。**重名一律报错**，不静默覆盖：
+    /// Register one external directive; **a duplicate name is always an error**, never a silent overwrite
+    /// ｜ 注册一条外置指令。**重名一律报错**，不静默覆盖：
+    ///
     /// 与内置同名会改写核心语义，与已注册同名多半是重复注册的手误。
     pub fn register(&mut self, d: impl Directive + 'static) -> Result<(), String> {
         let name = d.name().to_string();
@@ -182,12 +185,12 @@ impl DirectiveTable {
         Ok(())
     }
 
-    /// 按名查找（不含 `@`）。
+    /// Look up by name (without the `@`) ｜ 按名查找（不含 `@`）。
     pub fn get(&self, name: &str) -> Option<&(dyn Directive + 'static)> {
         self.items.get(name).map(|d| d.as_ref())
     }
 
-    /// 按名取出一份 **Arc 克隆**（不含 `@`）。
+    /// Get an **`Arc` clone** by name (without the `@`) ｜ 按名取出一份 **Arc 克隆**（不含 `@`）。
     ///
     /// 解析器需要先释放对 `self.directives` 的借用、再可变借用 `self` 去读指令体，
     /// 故这里返回拥有所有权的 `Arc` 而非引用；`Arc` 克隆是引用计数，成本可忽略。
@@ -205,7 +208,7 @@ impl DirectiveTable {
         self.items.len()
     }
 
-    /// 已注册的名字（按字典序）。
+    /// Registered names, in lexicographic order ｜ 已注册的名字（按字典序）。
     pub fn names(&self) -> impl Iterator<Item = &str> {
         self.items.keys().map(|s| s.as_str())
     }
