@@ -56,7 +56,7 @@ pub fn resolve_includes(
     Ok(toks)
 }
 
-/// 同 [`resolve_includes`]，但**整篇没有 include 指令**时额外交出 `spans`
+/// Same as [`resolve_includes`], but hands back `spans` **when the document has no include at all** ｜ 同 [`resolve_includes`]，但整篇无 include 时额外交出 `spans`
 /// （与 token 流一一对应）——供文件入口把错误定位到「第 N 行第 M 列」。
 ///
 /// 有 include 时 token 来自多个文件、**没有可映射的单一原文**，返回 `None`
@@ -85,7 +85,7 @@ pub fn resolve_includes_spans(
     Ok((toks, None))
 }
 
-/// 递归展开 include 到 `out` token 流。
+/// Recursively expand includes into the `out` token stream (the worker behind [`resolve_includes`]) ｜ 递归展开 include 到 `out` token 流。
 /// `expansions` 为「全局已展开文件计数」，用于防御指数膨胀 DoS（同一文件被多处包含仍计数）。
 pub fn expand_includes(
     text: &str,
@@ -273,11 +273,12 @@ fn segments<'a>(text: &'a str, string_spans: &[(usize, usize)]) -> Vec<&'a str> 
     segs
 }
 
-/// 读取单个文件内容，剥离其自身的 `@version`/`@feature` 行后 tokenize。
-/// 子文件不引入新特性维度，由主文件/调用方统一控制。
-/// 仅保留 `toks` 中顶层键名属于 `keys` 的条目；其余顶层条目被丢弃。
-/// 嵌套层级（块 `{}` / 数组 `[]`）内的键不受影响——只有 depth==0 的顶层键被过滤。
+/// Keep only the top-level entries whose key is in `keys`; other top-level entries are dropped ｜ 仅保留 `toks` 中顶层键名属于 `keys` 的条目。
+///
+/// 嵌套层级（块 `{}` / 数组 `[]`）内的键**不受影响** —— 只有 depth == 0 的顶层键被过滤。
 /// 用于 `import "x" { a, b }` 部分引用：避免整文件内联。
+///
+/// （原文档前两行讲的是「读文件 + 剥 `@version`」，属另一个函数，早已错挂在此 —— 2026-11-02 删除。）
 pub fn filter_top_level_keys(toks: Vec<Tok>, keys: &[String]) -> Vec<Tok> {
     let key_set: std::collections::HashSet<&str> = keys.iter().map(|s| s.as_str()).collect();
     let mut out: Vec<Tok> = Vec::with_capacity(toks.len());
