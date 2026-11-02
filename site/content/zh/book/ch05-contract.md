@@ -264,6 +264,32 @@ HasHost HasPort api {
 > 与**组合**（§5.4）的分界：组合用"字段引用另一契约"表达"这个块里嵌了一个受约束的子结构"（形状多一层）；
 > 叠加用"多份契约并到一块"表达"这个块同时遵守多套规则"（形状不变）。两者解决不同问题，**不能互相替代**。
 
+### 5.4.2 契约跨文件：用 `include` 复用契约库
+
+契约不必和 `@is` 写在同一份文件里。文件入口（`parse_file`）会先做 `include` 展开（**token 层拼接**），所以被 include 文件里定义的 `@contract` 与主文件里的 `@is` 落在**同一张契约表**上——只要 include 出现在使用之前，就能把契约集中放进一份「契约库」复用：
+
+```sml
+# contracts.sml —— 契约库
+@contract User {
+    name: str
+    role: str default guest
+}
+```
+```sml
+# main.sml
+@version v1
+include "contracts.sml"
+
+doc {
+    @is User
+    name: ada
+}
+```
+
+⚠️ **顺序敏感**：`@is` 是在**块闭合时**才去查契约表，所以契约必须在使用它的块闭合**之前**被解析到。把 `include "contracts.sml"` 放到 `doc { }` **之后**，会报 `E-CONTRACT-001 应用未定义契约`。
+
+> 现状（2026-11-02）：这是「靠 token 合并天然成立」的行为，**非专门语法**；已由 `rust/tests/contract_cross_file.rs` 钉住（跨文件可见 / 顺序敏感 / 负数对照 三条）。**C / C++ / JS / Lua 四端的 include+contract 跨文件行为尚未对齐、未测试**——需要跨端流通时请先确认目标端。
+
 ## 5.5 跨字段约束：互斥字段组（one_of / exactly_one）
 
 有时约束的不是「一个字段内部」，而是「一组字段之间」。例如支付方式：要么填 `card`、要么填 `alipay`，不能同时填——这种「多选一」用**互斥字段组**表达，它是一条挂在某个字段上的**外置修饰符（Modifier）**：

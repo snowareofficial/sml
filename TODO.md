@@ -71,8 +71,10 @@
 **待确认的剩余设计项**：
 - [x] 契约级「至少一个字段」/互斥字段（`oneOf`）等高级约束 —— ✅ 已落地：`one_of` / `exactly_one`（工作区已实现、未提交；见 CHANGELOG「未发布」互斥字段组，2026-11-02 记）
 - [x] 数组长度约束（`min_items` / `max_items`）—— ✅ 已落地（2026-11-02 复核，42 条库内测试全绿）：`items_min <n>` 为库内置 `sml_contract::ItemsMin`（走 `Modifier::check`，看字段**生效值**含 `default` 回填；`items_max` 刻意留作教科书 13 章外置扩展示例，未内置）。用法 `field: [T] items_min 2`，需 `ParseOptions::with_modifier(ItemsMin)` —— 默认**不自动注册**（零扩展=零影响），这是既定设计。
-- [ ] 契约是否支持跨文件（配合 `include` 复用契约库）
-  - 现状（2026-11-02 汇报）：Rust 侧 `include` 在解析前合并 token 流（`sml-include/src/expand.rs`），被 include 文件里的 `@contract` 会落入同一张 `contracts` 表 ⇒ 契约库只要在使用前被 include 即可跨文件复用（无专门语法/约定、无测试；须先于使用解析）。C/C++/JS/Lua 四端各自的 include+contract 跨文件行为未对齐、未经测试。
+- [x] 契约是否支持跨文件（配合 `include` 复用契约库）—— ✅ Rust 侧已确认并钉住（2026-11-02）
+  - 结论：**支持，且是"靠 token 合并天然成立"，非专门语法**。`include` 在解析前把被包含文件的 token 拼进主流（`sml-include/src/expand.rs`），被 include 的 `@contract` 与主流 `@is` 落在同一张 `contracts` 表；`@is` 在**块闭合时**应用 ⇒ **顺序敏感**（契约须在使用它的块闭合前被解析）。
+  - 已补：`rust/tests/contract_cross_file.rs`（3 条：跨文件可见 / include 在使用之后报 `E-CONTRACT-001` / 未 include 的负数对照）+ 教科书 `ch05` §5.4.2。
+  - 残余（另开一轮）：C / C++ / JS / Lua 四端的 include+contract 跨文件行为**未对齐、未测试**；若要成"契约库"官方约定还需跨端同步。
 
 **新增议题：多契约叠加（叠加 / mixin）** —— 命名已由用户裁决：叫「**叠加 / mixin**」
 
