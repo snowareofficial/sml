@@ -40,7 +40,8 @@ for (const c of listErrorCodes()) {
   if (!i || !i.title || !i.msg) empty++;
 }
 eq("所有码 title/msg 非空", empty, 0);
-eq("PARSE 领域码数", listErrorCodes({ domain: "PARSE" }).length, 25);
+// 25 → 27：R1 新增 W-PARSE-001/002 后码表变了，本断言当时漏改（与 lua/test_codes.lua 同一处口径）
+eq("PARSE 领域码数", listErrorCodes({ domain: "PARSE" }).length, 27);
 
 console.log(bad === 0 ? "ALL OK" : `${bad} FAILED`);
 process.exit(bad === 0 ? 0 : 1);

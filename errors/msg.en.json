@@ -143,5 +143,7 @@
   "W-LINT-002": { "title": "Contract never applied", "msg": "A contract is defined but never applied" },
   "W-LINT-003": { "title": "Duplicate key in the same block", "msg": "A key is duplicated within the same block; the later one overrides the former" },
   "W-LINT-004": { "title": "Field is null", "msg": "The field is null" },
-  "W-LINT-005": { "title": "Nesting exceeds suggested threshold", "msg": "Nesting depth has exceeded the suggested threshold" }
+  "W-LINT-005": { "title": "Nesting exceeds suggested threshold", "msg": "Nesting depth has exceeded the suggested threshold" },
+  "W-PARSE-001": { "title": "Duplicate key promoted to array", "msg": "The key is duplicated within the same block: later values have been promoted to an array (the structure was rewritten)" },
+  "W-PARSE-002": { "title": "Fragment expansion overwrites a parent block key", "msg": "Fragment expansion overwrote a key already present in the parent block: the parent's original value is lost" }
 }
