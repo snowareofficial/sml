@@ -507,7 +507,7 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 | 雷 9 | **`to_sml` 与解析 / `to_json` 的深度口径差一格** | ✅ **已修（2026-10-30）** —— `max_value_depth()` 改以「根 = 0」计数（与 `Parser::depth`、各 emit 后端的 `depth` 形参一致）。修前 128 层文档**能解析、`--to json` 能出、`to_sml` 却报 `E-LIMIT-004`**（说 129 > 128）⇒ 文档"能读进来却写不回去"。实测四格已由 `rust/tests/depth_boundary.rs` 钉住（原记录：**未动**）：128 层文档**能解析**、`--to json` **能输出**，但 `to_sml` 报 `E-LIMIT-004`（序列化深度 129 超过上限 128 —— 它把根也算一层）；`126` / `127` 层三条路径都正常。属静默类的边界不一致，需裁决统一到哪一档 |
 | 雷 7 | **假绿测试**：`rust/tests/ser_de_direct.rs` 整个文件从未在 CI 执行 | ✅ **已修（2026-10-28）** —— 该文件顶部 `#![cfg(all(feature = "serde", feature = "sml"))]`，默认 `cargo test --workspace` 下编译成空（实测 0 passed）；而 CI 的 `rust-serde` job 只跑 `serde_bridge` 与 `sml-value`，漏了它 ⇒ I-1 的「两条发射器逐字节一致」与雷 5 B 组的三条钉子**一直没被验证**。已给 `rust-serde` job 补一步 `cargo test --features serde --test ser_de_direct`（13 条） |
 
-### 雷 1：深嵌套测试栈溢出（既有；2026-10-26 已定位并修测试，**根因仍挂账**）
+### 雷 1：深嵌套测试栈溢出（既有；2026-10-26 定位并修测试；**根因 2026-11-02 已闭**）
 
 - **现象**：两条测试**自己先栈溢出**（`0xc00000fd`），把所在测试二进制带崩 ⇒
   排在其后的测试**一条都跑不到**；而 `cargo test` 默认 fail-fast，第一处还会
@@ -555,7 +555,8 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
   `rust/tests/error_codes.rs:220-222` 现在就开着 `stack_size(32 * 1024 * 1024)`，
   注释还写着「debug 构建下解析到 128 层就足以撑爆 2 MiB」；`rust/tests/emit.rs:462-469`
   那条更开到 256 MiB。而 `main` 上那笔 `363041b` 恰恰是**加**包装的提交。
-  ⇒ 真实状态以本条「现象 / 根因 / 已修」三行与**根因仍挂账**为准。
+  ⇒ 真实状态以本条「现象 / 根因 / 已修」三行为准；**根因已于 2026-11-02 关闭**（见上「已闭」条与
+`rust/tests/stack_default.rs`）。
 - **2026-11-02 新发现并修复**：`svg` / `slint` 后端的**嵌套数组**递归把 `depth` 原样传下去（未 +1），
   深度守卫永不触发 ⇒ 5 万层 `[[[…]]]` 在默认栈 `0xC00000FD`。已改为「合并出的兄弟数组不加深、
   嵌套数组 +1」；`rust/tests/emit.rs` 的 **256 MB 大栈包装随之删除**（默认 2 MiB 下 44/44 全过）。
@@ -746,7 +747,7 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 | 语义 | 第 1/2 处**只加告警、语义不变**（`Value` 逐字一致）；第 3 处是**丢值**，故改为报错、不留 opt-out |
 | 错误码 | 本轮**不带码**：码是对外契约、发布后含义不可改，且要解释与既有 `W-LINT-003` 的分域关系 ⇒ 收益不抵成本。下一轮再议 `W-PARSE-001/002` |
 
-**仍挂账（下一轮）**：
+**B 组收口（2026-11-02）**：
 - ✅ **已定并落地（2026-11-02）**：`to_string_direct` 与 `Value` 统一为**超 i64 拒收**
   （`[E-DERIVE-002]`），不再写裸词；`ser_de_direct` 用例改为 `big_ints_are_rejected_not_written`。
 - ✅ **告警带码（2026-11-02）**：新增 `W-PARSE-001`（同一块内键名重复）/ `W-PARSE-002`（片段展开覆盖父块键），
@@ -947,7 +948,7 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
 | **W4-坏样例** | **`examples/slint/login.sml` 所有实现都拒**（含 Rust）：`` text: `root.busy ? "登录中…" : "登录"` `` 的**三目冒号**落在键位置 ⇒ `E-PARSE-006`。根因是**反引号不是字符串定界符**（三种实现都只当普通裸词字符），而该文件头注释却宣称支持三目 `` `a ? b : c` ``（`rust/src/emit/slint.rs` 的约定）⇒ **样例与实现不符**。两条路：改样例（引号串 / 拆键）或给语言补「反引号原始串」。见 HANDOFF §22.7 | `examples/slint/`、可能的 `rust/src/emit/slint.rs` | 该样例能被 Rust 与 C/C++ 解析（或明确降级为不支持并同步文档） | 无 | ✅ 已修（2026-11-02，重写示例 `5f6c7e7`，`--to slint` 输出干净） |
 | ~~**W5**~~ ✅ **已完成（2026-10-28）** | ~~跨实现一致性套件（conformance）~~ | 新 `tests/conformance/`（用例集 + 各语言 runner） | ✅ 五端 × 33 用例跑通：`python tests/conformance/run_conformance.py`。比对**值树**而非字节（逐字节只对 C↔Rust 成立）；缺工具链标 SKIP 不冒充通过。**AGREE 15 / DIVERGE 18**，18 条**全部逐条登记**在 `tests/conformance/known_divergences.md`，分「缺陷 / 已知取舍」两档（**已无待定性**，每条都有根因）。判分修正：「**两端都失败不算一致**」 ⇒ 参考实现 rust 自身也有 1 个 PARSE_FAIL（`33_contract_modifier_alt`）。台账另设「**载体盲区**」章节 —— 文本载体表达不了的两格（JS 大整数实际是字符串、NUL 无法承载），**那几格的 AGREE 不能当成已对齐**。⚠️ 临时探针（`_probe_*` / `_w16_*` / `_w4_dump.c` 等）本轮**刻意未删**，清单在台账末尾，等套件收敛后单独一棒清理 | W3/W4 已满足 | 🤖 |
 | **W6** 📌 **能力已由 W20 一阶段实现（纯 Lua）；本条只剩「走 native 绑定」这条路 —— 用户已定「native 可先不做」，故挂起** | Lua 侧契约**走 native 绑定**（即复用 C-ABI / Rust 的实现，而不是在 `lua/lib/sml.soup` 里再写一遍） | `lua/`、`c/` 的导出面 | ⚠️ **别重复实现**：`@contract` / `@is` 校验 + 默认值回填**已经做完了**（W20 一阶段，纯 Lua，13 条码逐条用 `smltools` **实跑**核实过）。本条若将来要做，只有「让 Lua 绑定调 C-ABI 的契约校验」这一种形态，属**性能/一致性收益**，不是能力缺口 | 原定复用 W5 的用例集（W5 仍未做） | ✋ |
-| **W7** | 解析器一次报多条错误 | `rust/sml-parse/src`（错误收集）、`js/sml.mjs`、`editors/vscode/src` | 同一文档的多个错误一次全部返回；旧 `parse()` 行为不变（只加新 API） | 无 | ✋ |
+| **W7** | 解析器一次报多条错误 | `rust/sml-parse/src`（错误收集）、`js/sml.mjs`、`editors/vscode/src` | 同一文档的多个错误一次全部返回；旧 `parse()` 行为不变（只加新 API） | 无 | ✅ **Rust 侧已做（2026-11-02）**：`ParseOptions::collect_errors(true)` + `*_with_warnings`；`@for` 子解析器也已并入（L16 全清）。**JS / 编辑器侧仍未做** |
 | ~~**W8**~~ ✅ **已完成（2026-09-19）** | ~~Zed：填 `extension.toml` + 编译验证 grammar~~ **已完成**：`grammar.js` 用 `tree-sitter-cli@0.22.6` 跑 `generate` + `parse test/parse/{basic,advanced}.sml`，两份语料**均 0 ERROR / 0 MISSING**；生成的 `src/parser.c` 等已随 `editors/zed/grammars/sml/` 提交进 monorepo。`extension.toml` 的 `[grammars.sml]` 已按「独立发布镜像仓库 `snoware/tree-sitter-sml`」填 `repository`（`rev` 待该仓库首次 push 后填真实 sha）。⚠️ 该发布仓库**尚未创建/push**，故 Zed 扩展此刻仍不能开箱加载——属预期 | `editors/zed/`、`editors/zed/grammars/sml/` | ✅ `parse` 两份语料 0 ERROR / 0 MISSING；`parser.c` ≈ 53 KB 已入库 | 需 tree-sitter CLI（已联网下载 0.22.6） | ✅ |
 | ~~**W9**~~ ✅ **已完成（2026-09-19）** | ~~残余风险：Miri / 安全门禁 / 非 Rust 实现扫描进 CI~~ **已完成**：新增 `.github/workflows/ci.yml`（六 job：`rust`/`rust-serde`/`non-rust`/`guards`/`miri`/`osv`），Gitee 权威源 + GitHub 镜像；修 `rust/osv_check.py`（有洞即失败 + 网络失败 fail-closed）与 `cpp/build_verify.py`（RS-BRIDGE 缺库即失败、去写死盘符路径）去「假绿」。⚠️ **分支保护由用户在 GitHub 设置开启，不入库**（W9.4） | CI 配置、两个 `*_check.py`、`rust/miri_check.py` | 详见 CHANGELOG「工程 / CI」段与 HANDOFF §0；门禁失败严格传导、本地非 Rust 各端自检全 rc=0 | 无 | ✅ |
 | **W9-分支保护** | 分支保护（required checks / 禁止直推 / 权限）由用户在仓库设置里开、**不入库**。⚠️ 前提：Gitee 是**权威源**、GitHub 只是镜像 ⇒ GitHub 侧的保护**拦不到直推 Gitee**。**三条路（推荐 1）**：① **自建 Gitea `<gitea-host>`（1.27.3，支持 Actions）跑 CI + 在那开保护**（工作流放 `.gitea/workflows/*.yaml`，语法基本同 GitHub Actions；需管理员开 Actions + 注册 act_runner）——门禁作用在权威源上、不依赖会员；② 把开发主战场挪到 GitHub 用 PR（保护才有效）；③ 不开保护，CI 只当事后告警。required checks **先只列** `rust`/`rust-serde`/`non-rust`/`guards`，`miri`（最长 60 分钟）与 `osv`（依赖外网、偶发抖动）先当报警、观察稳定后再提 osv。Gitee Go 需会员 ⇒ 不在候选。详见 HANDOFF §20 | GitHub / Gitea 仓库设置 | 门禁真正生效（现在 CI 会跑，但没人拦着你把红的 commit 直推 main） | 无 | ✋ |

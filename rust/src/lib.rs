@@ -45,7 +45,8 @@
 //!   [`serde::to_string`] 桥接函数，任何 `#[derive(serde::Deserialize)]`
 //!   类型都能像 toml-rs 一样一键从 SML 反序列化（无需 `SmlDeserialize`）。
 //!   另有 [`serde::to_string_direct`]（需同时开 `sml`）：**不经 `Value` 中转**，
-//!   保留字段声明顺序并支持 i128 / u128 —— 详见该函数文档里的「已知差异」。
+//!   保留字段声明顺序；**超 i64 的整数与 `Value` 同口径拒收**（`[E-DERIVE-002]`）——
+//!   详见该函数文档里的「已知差异」。
 //! - `derive`（默认开启）：提供 [`SmlSerialize`] / [`SmlDeserialize`]
 //!   两个 derive 宏，把自定义结构体/枚举「自然地」序列化为 SML，
 //!   无需引入 serde。
