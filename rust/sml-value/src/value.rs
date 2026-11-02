@@ -123,7 +123,7 @@ impl PartialEq for Value {
     }
 }
 
-/// 把一条字段写入对象 —— 合并规则（§6.3）的**唯一**入口，两档同签名。
+/// Write one field into an object — the **single** entry point for merge rules (§6.3), same signature in both map flavours ｜ 把一条字段写入对象。
 ///
 /// - 键不存在 ⇒ 追加到尾部，**不**调用 `merge`；
 /// - 键已存在 ⇒ **不动位置**，把旧值与 `value` 一起交给 `merge`。
@@ -160,7 +160,7 @@ where
     }
 }
 
-/// 见 [`insert_or_merge`]：保序档直接转发到 [`Object::insert_or_merge`]。
+/// Ordered-build sibling: forwards straight to [`crate::Object::insert_or_merge`] ｜ 保序档版本，见 [`insert_or_merge`]。
 #[cfg(feature = "preserve_order")]
 #[inline]
 pub fn insert_or_merge<F>(m: &mut Map, key: &str, value: Value, merge: F)
@@ -324,13 +324,13 @@ impl Drop for Value {
     }
 }
 
-/// 值嵌套深度上限（块 / 数组的递归层数）。
+/// Max value nesting depth (recursive block / array levels) ｜ 值嵌套深度上限（块 / 数组的递归层数）。
 ///
 /// 不可信输入可构造任意深嵌套，不设上限会在递归解析/求值时栈溢出
 /// （abort 宿主进程，无法被 `catch_unwind` 捕获）。故所有递归入口都以此为界。
 pub const MAX_VALUE_DEPTH: usize = 128;
 
-/// 描述值的类型，用于错误信息。
+/// Describe a value's type, for error messages ｜ 描述值的类型，用于错误信息。
 ///
 /// 放在本 crate 而非 derive 层：`sml-value` 的 serde 桥接需要在类型不匹配时
 /// 生成同样的描述文案，若从 derive crate 取会造成 value → derive 的反向依赖。

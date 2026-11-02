@@ -453,7 +453,7 @@ impl PartialEq for Object {
 // 写成具名结构体而非 `impl Iterator`：要给 `&Object` 实现 `IntoIterator`
 // （`for (k, v) in &map` 是既有代码最普遍的写法），那需要一个可命名的类型。
 
-/// `(&str, &Value)` 迭代器（源序）。
+/// `(&str, &Value)` iterator in source order ｜ `(&str, &Value)` 迭代器（源序）。
 pub struct Iter<'a> {
     inner: std::slice::Iter<'a, Entry>,
 }
@@ -472,7 +472,7 @@ impl<'a> Iterator for Iter<'a> {
 
 impl<'a> ExactSizeIterator for Iter<'a> {}
 
-/// `(&str, &mut Value)` 迭代器（源序）。
+/// `(&str, &mut Value)` iterator in source order ｜ `(&str, &mut Value)` 迭代器（源序）。
 pub struct IterMut<'a> {
     inner: std::slice::IterMut<'a, Entry>,
 }
@@ -485,7 +485,7 @@ impl<'a> Iterator for IterMut<'a> {
     }
 }
 
-/// 键迭代器（源序）。
+/// Key iterator in source order ｜ 键迭代器（源序）。
 pub struct Keys<'a> {
     inner: std::slice::Iter<'a, Entry>,
 }
@@ -498,7 +498,7 @@ impl<'a> Iterator for Keys<'a> {
     }
 }
 
-/// 值迭代器（源序）。
+/// Value iterator in source order ｜ 值迭代器（源序）。
 pub struct Values<'a> {
     inner: std::slice::Iter<'a, Entry>,
 }
@@ -511,7 +511,7 @@ impl<'a> Iterator for Values<'a> {
     }
 }
 
-/// 值可变迭代器（源序）。
+/// Mutable value iterator in source order ｜ 值可变迭代器（源序）。
 pub struct ValuesMut<'a> {
     inner: std::slice::IterMut<'a, Entry>,
 }
@@ -524,7 +524,7 @@ impl<'a> Iterator for ValuesMut<'a> {
     }
 }
 
-/// 只产值的**消费**迭代器：不重建键的 `String`，供 `Value::drop` 走。
+/// Consuming iterator that yields **values only** — avoids rebuilding key `String`s; used by `Value::drop` ｜ 只产值的**消费**迭代器。
 pub struct IntoValues {
     inner: std::vec::IntoIter<Entry>,
 }
@@ -546,7 +546,7 @@ impl<'a> IntoIterator for &'a Object {
     }
 }
 
-/// 消费迭代产出 `(String, Value)` —— 与 `BTreeMap` 同形，便于既有代码平移。
+/// Consuming iterator yielding `(String, Value)` — same shape as `BTreeMap`, so existing code ports over unchanged ｜ 消费迭代产出 `(String, Value)`。
 pub struct IntoIter {
     inner: std::vec::IntoIter<Entry>,
 }

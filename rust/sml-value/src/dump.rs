@@ -265,7 +265,7 @@ fn dump_inline(v: &Value, depth: usize) -> String {
     }
 }
 
-/// 序列化回 SML 文本 (round-trip)
+/// Serialize back to SML text (round-trip) ｜ 序列化回 SML 文本 (round-trip)。
 ///
 /// 含 `__type` / `__name` 的块（如枚举带数据变体序列化的结果）
 /// 会原样输出所有键，保证元数据可完整往返。
@@ -290,7 +290,8 @@ fn dump_inline(v: &Value, depth: usize) -> String {
 /// 解码后的值与未转义形式不可区分。
 ///
 /// **因此**：解析任何**不可信**的 SML 文档时，应显式禁用 `env` 特性
-/// （[`parse_with_features`] + `FeatureSet::without(Feature::Env)`），
+/// （`sml_parse::parse_with_features` + `FeatureSet::without(Feature::Env)`；
+/// 这里是**代码字体不是链接** —— `sml-value` 不能依赖 `sml-parse`，否则成环），
 /// 这样 `$env.X` 一律解析失败，既杜绝环境变量读取，也消除 round-trip 歧义。
 #[cfg(feature = "sml")]
 /// # 语义：**总能给你一份文本**，但超深节点会被换成占位内容
