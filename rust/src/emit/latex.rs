@@ -19,6 +19,7 @@
 //! v2：`math` 选项开启时，`math`/`equation` 块原样透传 `$...$`/`$$...$$`。
 
 use crate::Value;
+use crate::emit::key_of;
 use crate::emit::{
     backend_error, depth_error, EmitOptions, escape_latex, scalar_text, block_type, MAX_VALUE_DEPTH,
 };
@@ -431,7 +432,7 @@ fn block_text(v: &Value, opt: &LatexOptions, depth: usize) -> Result<String, Sml
     }
     // 3. 其余字段（含 `text` 的对象/数组形式，如 `text { em { ... } }`）
     for (k, val) in m {
-        match k.as_str() {
+        match key_of(k) {
             "__type" | "__name" | "__args" | "children" => {}
             "text" if !matches!(val, Value::Object(_) | Value::Array(_)) => {}
             _ => match val {

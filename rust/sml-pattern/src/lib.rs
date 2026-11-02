@@ -32,7 +32,10 @@ use std::collections::BTreeMap;
 pub use i18n::{BILINGUAL, CHINESE, Concept, ENGLISH, KeywordTable, StaticTable};
 use i18n::Concept::*;
 
-use sml_value::Value;
+// `Map` = `Value::Object` 的载体（默认 `BTreeMap`，开 `preserve_order` 是保序 `Object`）。
+// 本 crate 里 `rules`（规则表）是**普通表**，仍是 `BTreeMap`；只有从 `Value::Object`
+// 里取出来的那张要用 `Map` —— 两者不可混写，否则保序档编译不过。
+use sml_value::{Map, Value};
 
 /// 字符类。默认 Unicode 语义：`Alpha` 匹配汉字，`Digit` 匹配全角数字。
 /// （regex 的 `\d` 在 JS 是 ASCII、Python 是 Unicode，这类跨语言不一致是 bug 温床，
@@ -145,7 +148,7 @@ fn compile_value(
 }
 
 fn compile_elem(
-    map: &BTreeMap<String, Value>,
+    map: &Map,
     rules: &BTreeMap<String, Value>,
     stack: &mut Vec<String>,
     table: &dyn KeywordTable,

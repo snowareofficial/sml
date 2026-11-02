@@ -111,6 +111,24 @@ derive = ["dep:swsml-derive"]
 # SML 文本发射器（to_sml 及其依赖的 dump_* 辅助）。
 # 只需「解析」的嵌入式场景可关闭，省掉序列化代码。
 sml = ["sml-value/sml"]
+# 对象保序：`Value::Object` 换用保源序的载体，`to_sml` 键序 == 源序
+# （docs/value-layout.md §3/§5/§6）。**默认关闭**，与 toml-rs 的 `preserve_order` 同定位：
+# 默认档（BTreeMap）的行为与历史版本逐字节一致，开这个才切到保序实现。
+# 注意它**不是**「确定性字节」开关：那个是 `to_sml_canonical`（§6.2），互不影响。
+#
+# ⚠️ 转发到**每一个也吃 `sml-value` 的依赖**（含间接的）：cargo 只复用
+# 「特性集合完全相同」的 rlib，本图里只要有一份 `sml-value` 带 `preserve_order`、
+# 另一份不带，就会被编成两个不同的 crate 实例，`Value` 随即裂成两个互不兼容的
+# 类型（`expected sml_value::Value, found Value`）。各子 crate 的同名 feature 同理。
+preserve_order = [
+    "sml-value/preserve_order",
+    "sml-lex/preserve_order",
+    "sml-feature/preserve_order",
+    "sml-include/preserve_order",
+    "sml-contract/preserve_order",
+    "sml-parse/preserve_order",
+    "sml-pattern/preserve_order",
+]
 # ---- 多目标翻译（Value -> 目标文本），默认全开，均在 sml::emit::* 下 ----
 emit-markdown = []
 emit-slint = []

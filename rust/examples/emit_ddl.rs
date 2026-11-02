@@ -14,8 +14,7 @@
 //           · enum <v...>（类型位，其余 token 全为枚举值）· min <n> · max <n>
 //
 // 运行：cargo run --example emit_ddl
-use sml::{parse, Value};
-use std::collections::BTreeMap;
+use sml::{parse, Map, Value};
 
 fn sql_type(t: &str) -> &'static str {
     match t {
@@ -118,7 +117,7 @@ orders {
         Ok(v) => v,
         Err(e) => { eprintln!("parse failed [{}]: {}", e.code(), e.message()); return; }
     };
-    let tables: &BTreeMap<String, Value> = match &doc {
+    let tables: &Map = match &doc {
         Value::Object(m) => m,
         _ => { eprintln!("schema 顶层必须是对象（每块一表）"); return; }
     };

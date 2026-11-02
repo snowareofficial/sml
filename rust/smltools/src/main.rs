@@ -39,7 +39,7 @@ use sml::emit::{
 };
 use clap::Parser;
 // `to_sml` 不再直接调用：SML 输出走带检查的 `sml::to_sml_checked`（W16，见 emit()）
-use sml::{parse, Feature, FeatureSet, Value, Version};
+use sml::{Map, parse, Feature, FeatureSet, Value, Version};
 // ⚠️ `E_INCLUDE_001/004/012` **不再由本 crate 抛出**：include 展开已统一交给库的
 // `sml::parse_file`（原先那份 CLI 自有的行级预处理已删除），这些码由 `sml-include` 带出。
 use sml_codes::{
@@ -428,12 +428,12 @@ fn convert_dir(dir: &Path, args: &Args) -> Result<usize, SmlError> {
 fn strip_value(v: &Value) -> Value {
     match v {
         Value::Object(m) => {
-            let mut out = std::collections::BTreeMap::new();
+            let mut out = Map::new();
             for (k, val) in m {
                 if k == "__name" || k == "__type" {
                     continue;
                 }
-                out.insert(k.clone(), strip_value(val));
+                out.insert(k.to_string(), strip_value(val));
             }
             Value::Object(out)
         }
@@ -1235,7 +1235,7 @@ mod tests {
     fn deep_value(levels: usize) -> Value {
         let mut v = Value::Str("x".to_string());
         for _ in 0..levels {
-            let mut m = std::collections::BTreeMap::new();
+            let mut m = Map::new();
             m.insert("child".to_string(), v);
             v = Value::Object(m);
         }
@@ -1260,7 +1260,7 @@ mod tests {
         let rules = sml::parse("rules: [ { match: \"big\" template: \"{items:{item}\\n}\" } ]\n")
             .expect("规则文档应可解析");
         let opt = CustomOptions::from_generator(&rules).expect("规则文档应合法");
-        let mut m = std::collections::BTreeMap::new();
+        let mut m = Map::new();
         m.insert("big".to_string(), Value::Array(vec![Value::Int(1); 100_001]));
         let e = sml::emit::to_custom(&Value::Object(m), &opt).unwrap_err();
         assert_eq!(e.code(), sml_codes::E_LIMIT_006);
@@ -1276,7 +1276,7 @@ mod tests {
         let opt = CustomOptions::from_generator(&rules).expect("规则文档应合法");
         let mut v = Value::Str("leaf".to_string());
         for _ in 0..40 {
-            let mut m = std::collections::BTreeMap::new();
+            let mut m = Map::new();
             m.insert("__type".to_string(), Value::Str("node".to_string()));
             m.insert("child".to_string(), v);
             v = Value::Object(m);

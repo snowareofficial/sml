@@ -36,9 +36,8 @@
 //! 绝不「悄悄追加到末尾」：末尾恰恰就是上面那个「永不生效」的位置，静默降级会把一个
 //! 拼写错误伪装成「高亮莫名不工作」的玄学问题。
 
-use std::collections::BTreeMap;
 
-use sml::{jsonify, Value};
+use sml::{jsonify, Map, Value};
 use sml_codes::{SmlError, E_EXT_007, E_INTERNAL_002};
 
 /// E-EXT-007：编辑器定制文档非法（作用域名、规则锚点、颜色取值不符规范）。
@@ -263,7 +262,7 @@ fn collect_rules(root: &Value) -> Result<Vec<Rule>, SmlError> {
 
 /// 构造一条 TextMate pattern。
 fn pattern(name: &str, m: &str) -> Value {
-    let mut o = BTreeMap::new();
+    let mut o = Map::new();
     o.insert("name".to_string(), Value::Str(name.to_string()));
     o.insert("match".to_string(), Value::Str(m.to_string()));
     Value::Object(o)
@@ -317,7 +316,7 @@ fn collect_colors(root: &Value) -> Result<Vec<(String, String)>, SmlError> {
                         "colors.{scope} = `{c}` 不是合法颜色（支持 #RGB / #RGBA / #RRGGBB / #RRGGBBAA）"
                     )));
                 }
-                out.push((scope.clone(), c.to_string()));
+                out.push((scope.to_string(), c.to_string()));
             }
             Ok(out)
         }
@@ -337,9 +336,9 @@ fn textmate_rules(colors: &[(String, String)]) -> Vec<Value> {
     colors
         .iter()
         .map(|(scope, color)| {
-            let mut st = BTreeMap::new();
+            let mut st = Map::new();
             st.insert("foreground".to_string(), Value::Str(color.clone()));
-            let mut r = BTreeMap::new();
+            let mut r = Map::new();
             r.insert("scope".to_string(), Value::Str(scope.clone()));
             r.insert("settings".to_string(), Value::Object(st));
             Value::Object(r)
@@ -349,7 +348,7 @@ fn textmate_rules(colors: &[(String, String)]) -> Vec<Value> {
 
 /// VSCode 颜色主题（打进 VSIX 用）。
 fn vscode_theme(name: &str, colors: &[(String, String)]) -> Value {
-    let mut root = BTreeMap::new();
+    let mut root = Map::new();
     root.insert(
         "$schema".to_string(),
         Value::Str("vscode://schemas/color-theme".to_string()),
@@ -366,9 +365,9 @@ fn vscode_theme(name: &str, colors: &[(String, String)]) -> Value {
 /// 这是「不改核心、就地扩展」最轻的一档：一个项目想给自家方言上色，
 /// 放一个文件、复制一段配置即可；要分发给别人时再把同一份 SML 编译成 VSIX。
 fn vscode_settings_fragment(colors: &[(String, String)]) -> Value {
-    let mut tcc = BTreeMap::new();
+    let mut tcc = Map::new();
     tcc.insert("textMateRules".to_string(), Value::Array(textmate_rules(colors)));
-    let mut root = BTreeMap::new();
+    let mut root = Map::new();
     root.insert(
         "editor.tokenColorCustomizations".to_string(),
         Value::Object(tcc),
@@ -413,22 +412,22 @@ fn zed_syntax_key(scope: &str) -> Option<&'static str> {
 
 /// Zed 主题文件。
 fn zed_theme(name: &str, colors: &[(String, String)]) -> Value {
-    let mut syntax = BTreeMap::new();
+    let mut syntax = Map::new();
     for (scope, color) in colors {
         if let Some(key) = zed_syntax_key(scope) {
-            let mut c = BTreeMap::new();
+            let mut c = Map::new();
             c.insert("color".to_string(), Value::Str(color.clone()));
             syntax.insert(key.to_string(), Value::Object(c));
         }
     }
-    let mut style = BTreeMap::new();
+    let mut style = Map::new();
     style.insert("syntax".to_string(), Value::Object(syntax));
-    let mut theme = BTreeMap::new();
+    let mut theme = Map::new();
     theme.insert("name".to_string(), Value::Str(format!("{name} (SML custom)")));
     theme.insert("appearance".to_string(), Value::Str("dark".to_string()));
     theme.insert("style".to_string(), Value::Object(style));
 
-    let mut root = BTreeMap::new();
+    let mut root = Map::new();
     root.insert(
         "$schema".to_string(),
         Value::Str("https://zed.dev/schema/themes/v0.2.0.json".to_string()),

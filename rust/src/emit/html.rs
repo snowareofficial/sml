@@ -21,6 +21,7 @@
 //! （仅 `<article>` 内容片段，便于嵌入既有页面）。
 
 use crate::Value;
+use crate::emit::key_of;
 use crate::emit::{
     depth_error, EmitOptions, MAX_VALUE_DEPTH, block_name, block_type, escape_xml_attr,
     escape_xml_text, sanitize_xml_uri, scalar_text,
@@ -316,7 +317,7 @@ fn block_text_content(v: &Value, _opt: &HtmlOptions) -> String {
     let mut parts: Vec<String> = Vec::new();
     if let Value::Object(m) = v {
         for (k, val) in m {
-            if DOC_META.contains(&k.as_str()) {
+            if DOC_META.contains(&key_of(k)) {
                 continue;
             }
             match val {
@@ -371,7 +372,7 @@ fn emit_children(
     }
     if let Value::Object(m) = v {
         for (k, val) in m {
-            if DOC_META.contains(&k.as_str()) {
+            if DOC_META.contains(&key_of(k)) {
                 continue;
             }
             match val {
@@ -410,7 +411,7 @@ fn emit_generic_object(
             out.push_str(&format!("{pad}<h3 class=\"group\">{}</h3>\n", escape_xml_text(n)));
         }
         for (k, val) in m {
-            if DOC_META.contains(&k.as_str()) {
+            if DOC_META.contains(&key_of(k)) {
                 continue;
             }
             let key = escape_xml_text(k);

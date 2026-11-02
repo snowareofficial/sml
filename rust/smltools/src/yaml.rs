@@ -20,9 +20,9 @@
 //! `yes/no/on/off` 一律当**字符串** —— 避免著名的「挪威问题」
 //! （国家代码 `NO` 被 YAML 1.1 解析成 `false`）。
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
-use sml::Value;
+use sml::{Map, Value};
 use sml_codes::{SmlError, E_MIGRATE_013, E_MIGRATE_014, E_MIGRATE_015, E_MIGRATE_016, E_MIGRATE_018};
 
 /// E-MIGRATE-013：YAML 结构非法（意外内容、不是键值形式、缩进过深、流式结构后有多余字符）。
@@ -76,7 +76,7 @@ pub fn parse(text: &str) -> Result<Value, SmlError> {
     };
     p.skip_blank();
     if p.i >= p.lines.len() {
-        return Ok(Value::Object(BTreeMap::new()));
+        return Ok(Value::Object(Map::new()));
     }
     let indent = p.lines[p.i].indent;
     let v = p.parse_node(indent)?;
@@ -380,7 +380,7 @@ impl<'a> FlowParser<'a> {
             }
             b'{' => {
                 self.i += 1;
-                let mut m = BTreeMap::new();
+                let mut m = Map::new();
                 loop {
                     self.skip_ws();
                     if self.i >= self.s.len() {
@@ -515,7 +515,7 @@ impl Parser {
 
     /// 块映射。
     fn parse_map(&mut self, indent: usize) -> Result<Value, SmlError> {
-        let mut m = BTreeMap::new();
+        let mut m = Map::new();
         loop {
             self.skip_blank();
             if self.i >= self.lines.len() {
@@ -950,7 +950,7 @@ spec:
 
     #[test]
     fn empty_document_is_empty_object() {
-        assert_eq!(parse("").unwrap(), Value::Object(BTreeMap::new()));
-        assert_eq!(parse("# 只有注释\n").unwrap(), Value::Object(BTreeMap::new()));
+        assert_eq!(parse("").unwrap(), Value::Object(Map::new()));
+        assert_eq!(parse("# 只有注释\n").unwrap(), Value::Object(Map::new()));
     }
 }

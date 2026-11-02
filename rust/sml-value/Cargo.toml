@@ -23,4 +23,15 @@ sml = []
 # Value 的 Serialize/Deserialize 实现 + to_value/from_value 桥接。
 # 注：吃 SML 文本的 `from_str` 在门面 crate（需要解析器）。
 serde = ["dep:serde"]
+# 对象保序：`Value::Object` 由 `BTreeMap<String, Value>` 换成保源序的
+# `Vec<Entry>` + 惰性三档索引（docs/value-layout.md §3/§5）。
+#
+# **默认关闭**（对标 toml-rs 的 `preserve_order`）：
+# - 默认档输出键按 UTF-8 字节序，与历史版本逐字节一致；
+# - 开启档输出键 == 源序，`parse → 改 → to_sml` 键序稳定。
+#
+# 两档的 `PartialEq` **都是集合相等**（§6.1），顺序敏感另走 `Value::eq_ordered`；
+# 确定性字节另走 `to_sml_canonical`（§6.2）—— 四个开关互不牵连。
+# 零依赖铁律不变：保序实现是本 crate 自实现的，不引 indexmap 等第三方。
+preserve_order = []
 default = []

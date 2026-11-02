@@ -73,7 +73,7 @@ fn option_none_is_omitted() {
 
 #[test]
 fn missing_required_field_is_error() {
-    let v = sml::Value::Object(std::collections::BTreeMap::new());
+    let v = sml::Value::Object(sml::Map::new());
     let err = Server::from_sml_value(&v).unwrap_err();
     assert!(err.contains("host"), "错误应指出缺失字段: {err}");
 }

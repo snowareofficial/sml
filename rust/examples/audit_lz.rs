@@ -42,7 +42,9 @@ fn main() {
         for (k, val) in map {
             // 判据：剥掉符号后，长度 > 1 且首字符为 '0' —— 这才是真前导零。
             // 只看「解析成了数字」会把 0 / -0 / 0.5 / -0.5 误报成丢失。
-            let lit = literal_of.get(k.as_str()).copied().unwrap_or("");
+            // `&k[..]` 而非 `k.as_str()`：块的键在 `preserve_order` 档下是 `&str`，
+            // `str::as_str` 至今 unstable；切片对 `&String` / `&str` 两档都成立。
+            let lit = literal_of.get(&k[..]).copied().unwrap_or("");
             let digits = lit.trim_start_matches(['+', '-']);
             let has_leading_zero =
                 digits.starts_with('0') && digits.len() > 1 && !digits.contains('.');

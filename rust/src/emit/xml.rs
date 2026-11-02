@@ -22,6 +22,7 @@
 //!   或嵌入 raw 函数名，符合 Slint/LVGL「handler 留空」约定）。
 
 use crate::Value;
+use crate::emit::key_of;
 use crate::emit::{
     depth_error, EmitOptions, escape_xml_attr, escape_xml_text, scalar_text, block_type, block_name,
     sanitize_xml_name, sanitize_xml_attr_name, sanitize_xml_uri, is_uri_attr, MAX_VALUE_DEPTH,
@@ -107,14 +108,14 @@ fn emit_node(
 
             if let Value::Object(m) = v {
                 for (k, val) in m {
-                    match k.as_str() {
+                    match key_of(k) {
                         "__type" => {}
                         "__name" => {
                             push_attr(&mut attrs, "name", &scalar_text(val));
                         }
                         _ => match val {
                             Value::Object(_) | Value::Array(_) => {
-                                child_nodes.push((k.clone(), val));
+                                child_nodes.push((k.to_string(), val));
                             }
                             _ => {
                                 // 标量默认作为属性；但若字段名为 text，则作为文本内容
@@ -221,7 +222,7 @@ fn emit_lvgl_node(v: &Value, tag: &str, opt: &XmlOptions, depth: usize, out: &mu
         let mut events: Vec<(String, String)> = Vec::new();
 
         for (k, val) in m {
-            match k.as_str() {
+            match key_of(k) {
                 "__type" | "__name" | "id" | "children" => {
                     if k == "children" {
                         if let Value::Array(a) = val {
@@ -238,7 +239,7 @@ fn emit_lvgl_node(v: &Value, tag: &str, opt: &XmlOptions, depth: usize, out: &mu
                 }
                 _ => {
                     if let Value::Object(_) = val {
-                        children.push((Some(k.clone()), val));
+                        children.push((Some(k.to_string()), val));
                     } else if let Value::Array(_) = val {
                         // 数组字段也视为子部件集合（标签取元素 __type，无字段名）
                         if let Value::Array(a) = val {

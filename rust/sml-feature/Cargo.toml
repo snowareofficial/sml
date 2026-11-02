@@ -17,3 +17,5 @@ sml-value = { path = "../sml-value", version = "0.6.9-dev.0", default-features =
 
 [features]
 default = []
+# 对象保序：转发到 sml-value（理由见 sml-parse/Cargo.toml 的同名注释）。
+preserve_order = ["sml-value/preserve_order"]

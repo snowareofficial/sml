@@ -6,7 +6,7 @@
 #![cfg(all(feature = "serde", feature = "sml"))]
 
 use serde::Serialize;
-use sml::Value;
+use sml::{Map, Value};
 use std::collections::BTreeMap;
 
 // ---- 字节一致性：与 `to_sml` 逐字节相同（两份发射器不许漂移）----
@@ -41,7 +41,7 @@ fn cases() -> Vec<Value> {
             Value::Array(vec![obj(&[("k", Value::Str("v".into()))])]),
         )]),
         // 空块
-        obj(&[("e", Value::Object(BTreeMap::new()))]),
+        obj(&[("e", Value::Object(Map::new()))]),
         // 标量各型
         obj(&[
             ("n", Value::Null),

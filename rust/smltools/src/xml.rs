@@ -40,10 +40,9 @@
 //! - 源文件里若真有名为 `_attrs` / `_text` 的子元素，会与保留键同名并按「同名兄弟
 //!   合并」规则并成数组 —— 可预测，且不静默覆盖。
 
-use std::collections::btree_map::Entry;
-use std::collections::BTreeMap;
 
-use sml::Value;
+
+use sml::{Map, Value};
 use sml_codes::{
     SmlError, E_LIMIT_001, E_MIGRATE_001, E_MIGRATE_002, E_MIGRATE_003, E_MIGRATE_004,
     E_MIGRATE_005, E_MIGRATE_006, E_MIGRATE_007, E_MIGRATE_008, E_MIGRATE_009, E_MIGRATE_010,
@@ -391,7 +390,7 @@ impl<'a> Parser<'a> {
         // `_attrs` 放在最前：它逻辑上属于「本元素的元信息」，与子元素排序无关
         // （最终落在 `BTreeMap` 里按键名排序，此处只影响同名冲突时的数组顺序）。
         if has_attrs {
-            let mut m = BTreeMap::new();
+            let mut m = Map::new();
             for (k, v) in attrs {
                 m.insert(k, Value::Str(v));
             }
@@ -507,7 +506,7 @@ impl<'a> Parser<'a> {
             return Ok((
                 name,
                 if t.is_empty() {
-                    Value::Object(BTreeMap::new())
+                    Value::Object(Map::new())
                 } else {
                     Value::Str(t.to_string())
                 },
@@ -617,17 +616,19 @@ fn is_name_end(c: u8) -> bool {
 
 /// 把 `(键, 值)` 序列折叠成对象：**同名兄弟合并为数组**（保持文档顺序）。
 ///
-/// 用 `Entry` + `mem::replace` 而非按值 `match` 拿出 `Vec`：`Value` 实现了 `Drop`，
+/// 用 `mem::replace` 而非按值 `match` 拿出 `Vec`：`Value` 实现了 `Drop`，
 /// 从它里面按值移出字段会触发 E0509（见 HANDOFF §4-1）。
+///
+/// 不用 `BTreeMap::entry()`：保序 `Object` 没有 entry API（它的插入语义本来就是
+/// 「已存在则原位替换」，正好是这里要的），改用 `get_mut` 判定即可，两档同形。
 fn merge_siblings(entries: Vec<(String, Value)>) -> Value {
-    let mut map: BTreeMap<String, Value> = BTreeMap::new();
+    let mut map: Map = Map::new();
     for (k, v) in entries {
-        match map.entry(k) {
-            Entry::Vacant(e) => {
-                e.insert(v);
+        match map.get_mut(&k) {
+            None => {
+                map.insert(k, v);
             }
-            Entry::Occupied(mut e) => {
-                let cur = e.get_mut();
+            Some(cur) => {
                 // 注意这里必须 reborrow（`&mut *cur`）而不是直接 match `cur`：
                 // `&mut Value` 不是 `Copy`，按值绑定会把引用移走，之后无法再写回。
                 let mut arr = match &mut *cur {
@@ -648,7 +649,7 @@ fn merge_siblings(entries: Vec<(String, Value)>) -> Value {
 mod tests {
     use super::*;
 
-    fn obj(v: &Value) -> &BTreeMap<String, Value> {
+    fn obj(v: &Value) -> &Map {
         match v {
             Value::Object(m) => m,
             other => panic!("期望对象，得 {other:?}"),
@@ -833,10 +834,10 @@ mod tests {
 
     #[test]
     fn empty_document_is_empty_object() {
-        assert_eq!(parse("").unwrap(), Value::Object(BTreeMap::new()));
+        assert_eq!(parse("").unwrap(), Value::Object(Map::new()));
         assert_eq!(
             parse("<?xml version=\"1.0\"?>\n<!-- only -->\n").unwrap(),
-            Value::Object(BTreeMap::new())
+            Value::Object(Map::new())
         );
     }
 

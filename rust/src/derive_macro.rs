@@ -76,7 +76,7 @@ pub fn from_str<T: SmlDeserialize>(text: &str) -> Result<T, String> {
 /// 宏生成代码引用的内部辅助（请勿直接使用）。
 #[doc(hidden)]
 pub mod __private {
-    use sml_value::Value;
+    use sml_value::{Map, Value};
     use super::{SmlDeserialize, SmlSerialize};
     use std::collections::{BTreeMap, HashMap};
 
@@ -94,14 +94,14 @@ pub mod __private {
     }
 
     /// 取出 `_value` 键（枚举单值变体）。
-    pub fn take_value(m: &BTreeMap<String, Value>) -> Result<Value, String> {
+    pub fn take_value(m: &Map) -> Result<Value, String> {
         m.get("_value")
             .cloned()
             .ok_or_else(|| "缺少 _value 键".to_string())
     }
 
     /// 取出 `_value` 键并断言为数组（枚举 tuple 变体）。
-    pub fn take_array(m: &BTreeMap<String, Value>) -> Result<Vec<Value>, String> {
+    pub fn take_array(m: &Map) -> Result<Vec<Value>, String> {
         match m.get("_value") {
             Some(Value::Array(a)) => Ok(a.clone()),
             Some(other) => Err(format!("_value 期望数组，实际为 {}", describe_value(other))),
@@ -110,7 +110,7 @@ pub mod __private {
     }
 
     /// `#[sml(flatten)]` 反序列化：把整个块交给子类型。
-    pub fn flatten_from<T: SmlDeserialize>(m: &BTreeMap<String, Value>) -> Result<T, String> {
+    pub fn flatten_from<T: SmlDeserialize>(m: &Map) -> Result<T, String> {
         T::from_sml_value(&Value::Object(m.clone()))
     }
 
@@ -422,10 +422,13 @@ pub mod __private {
         }
     }
 
+    // 注：`out` 必须是 `Map`（`Value::Object` 的载体），不能图省事写 `BTreeMap::new()`
+    // —— 那在保序档下类型不匹配。`for (k, val) in m` 的 `k` 在两档下分别是
+    // `&String` / `&str`，故一律 `to_string()`（而非 `clone()`）收键。
     impl<V: SmlSerialize> SmlSerialize for BTreeMap<String, V> {
         #[inline]
         fn to_sml_value(&self) -> Result<Value, String> {
-            let mut out = BTreeMap::new();
+            let mut out = Map::new();
             for (k, v) in self {
                 out.insert(k.clone(), v.to_sml_value()?);
             }
@@ -439,7 +442,7 @@ pub mod __private {
                 Value::Object(m) => {
                     let mut out = BTreeMap::new();
                     for (k, val) in m {
-                        out.insert(k.clone(), V::from_sml_value(val)?);
+                        out.insert(k.to_string(), V::from_sml_value(val)?);
                     }
                     Ok(out)
                 }
@@ -451,9 +454,9 @@ pub mod __private {
     impl<V: SmlSerialize> SmlSerialize for HashMap<String, V> {
         #[inline]
         fn to_sml_value(&self) -> Result<Value, String> {
-            // `Value::Object` 内部是 BTreeMap（键序确定），故这里必须转成 BTreeMap
-            // 收集 —— 与 `Option`/`Vec` 一样不能靠 `collect()` 的类型推断走捷径。
-            let mut out = BTreeMap::new();
+            // 与 `Option`/`Vec` 一样不能靠 `collect()` 的类型推断走捷径：
+            // `Value::Object` 的载体是 `Map`，保序档下它**不是** `BTreeMap`。
+            let mut out = Map::new();
             for (k, v) in self {
                 out.insert(k.clone(), v.to_sml_value()?);
             }
@@ -467,7 +470,7 @@ pub mod __private {
                 Value::Object(m) => {
                     let mut out = HashMap::new();
                     for (k, val) in m {
-                        out.insert(k.clone(), V::from_sml_value(val)?);
+                        out.insert(k.to_string(), V::from_sml_value(val)?);
                     }
                     Ok(out)
                 }

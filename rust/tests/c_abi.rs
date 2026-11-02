@@ -206,7 +206,7 @@ fn key_at_enumerates_object() {
         let ck = CString::new(key.clone()).unwrap();
         let node = unsafe { sml_get(root, ck.as_ptr()) };
         assert!(!node.is_null(), "按名取 {key} 应成功");
-        // 键顺序与 BTreeMap 一致（字典序）
+        // 键顺序与对象的迭代序一致（默认档 = 字典序）
     }
     assert_eq!(
         seen,
@@ -308,7 +308,7 @@ fn nul_in_string_not_silent_empty() {
     // 直接用含 NUL 字节的字符串值走 jsonify（此前 esc 仅转义 \\ 与 "，
     // 0x00 会原样进入输出，CString::new 失败后回退空串）。
     let v = Value::Object({
-        let mut m = std::collections::BTreeMap::new();
+        let mut m = sml::Map::new();
         m.insert("k".into(), Value::Str("a\u{0}b".into()));
         m
     });

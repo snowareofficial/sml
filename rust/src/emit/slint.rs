@@ -15,6 +15,7 @@
 //!   - 无值/空 → 留空：`clicked => { }`。
 
 use crate::Value;
+use crate::emit::key_of;
 use crate::emit::{
     backend_error, depth_error, EmitOptions, scalar_text, block_type, block_name,
     sanitize_slint_ident, slint_handler_safe, slint_expr_safe, MAX_VALUE_DEPTH,
@@ -280,7 +281,7 @@ fn emit_slint_body(v: &Value, opt: &SlintOptions, depth: usize, out: &mut String
         let mut children: Vec<(Option<String>, &Value)> = Vec::new();
         // 第一遍：属性 + 回调 + 收集子元素
         for (k, val) in m {
-            match k.as_str() {
+            match key_of(k) {
                 // `name` 是 component 的元数据（组件名），不能当作属性输出
                 // （Slint 组件/元素都没有 `name` 属性，输出会导致编译失败）。
                 "__type" | "__name" | "__type_meta" | "inherits" | "name" | "children" => {
@@ -300,12 +301,12 @@ fn emit_slint_body(v: &Value, opt: &SlintOptions, depth: usize, out: &mut String
                     emit_callback(k, val, opt, depth, out)?;
                 }
                 _ => match val {
-                    Value::Object(_) => children.push((Some(k.clone()), val)),
+                    Value::Object(_) => children.push((Some(k.to_string()), val)),
                     Value::Array(a) => {
                         if a.iter().all(|x| matches!(x, Value::Object(_))) {
                             // 同名重复元素：逐个展开为同级元素
                             for item in a {
-                                children.push((Some(k.clone()), item));
+                                children.push((Some(k.to_string()), item));
                             }
                         } else {
                             // 标量数组：渲染为 Slint 数组字面量属性（如 model 数据源）

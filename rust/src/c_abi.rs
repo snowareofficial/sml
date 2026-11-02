@@ -2,6 +2,7 @@ use sml_parse::*;
 use sml_parse::strip_version;
 use sml_feature::FEATURES;
 use std::collections::BTreeMap;
+use sml_value::Map;
 // ---------------------------------------------------------------------------
 // C-ABI (cdylib, 供 C / 其它语言调用)
 // ---------------------------------------------------------------------------
@@ -716,7 +717,9 @@ pub unsafe extern "C" fn sml_size(v: *const CSmlValue) -> usize {
 /// 故返回堆副本——语义同 [`sml_str_dup`]。调用方读后务必 `sml_free_str`，
 /// 切勿当借用指针跨 `sml_free(v)` 长期使用。
 ///
-/// 顺序与 [`sml_get`] 一致：对象为 `BTreeMap`，键按字典序稳定排列。
+/// 顺序与 [`sml_get`] 一致：对象的迭代序 —— 默认档是键的字典序
+/// （`BTreeMap`），`preserve_order` 档是**源序**（见 §8：迭代序是行为契约，
+/// C 侧不得假设按键排序）。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_key_at(v: *const CSmlValue, idx: usize) -> *mut c_char {
@@ -1108,7 +1111,9 @@ pub fn json_to_value(s: &str) -> Option<Value> {
         match b[*i] {
             b'{' => {
                 *i += 1;
-                let mut m = BTreeMap::new();
+                // 用 `Map`（= `Value::Object` 的载体）：保序档下这里建出来的对象
+                // 保的是**文本里的出现序**，正是 C-ABI 要承诺的迭代序（§8）。
+                let mut m = Map::new();
                 skip_ws(b, i);
                 if *i < b.len() && b[*i] == b'}' {
                     *i += 1;
