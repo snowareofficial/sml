@@ -19,14 +19,16 @@ use sml_codes::{SmlError, E_INTERNAL_001, E_MIGRATE_011, E_MIGRATE_012};
 
 /// E-MIGRATE-011：TOML 语法非法（不是键值形式、键名为空、缺少取值、内联表缺等号）。
 fn syntax(msg: impl Into<String>) -> SmlError {
-    SmlError::new(E_MIGRATE_011, msg)
+    let m: String = msg.into();
+    SmlError::from_code_msg(E_MIGRATE_011).with_detail(m)
 }
 
 /// E-MIGRATE-012：TOML 表定义冲突（同名已存在且不是表，或不是表数组）。
 ///
 /// 与语法错误分开：这类是「语法没问题，但语义上不能这样重复定义」。
 fn conflict(msg: impl Into<String>) -> SmlError {
-    SmlError::new(E_MIGRATE_012, msg)
+    let m: String = msg.into();
+    SmlError::from_code_msg(E_MIGRATE_012).with_detail(m)
 }
 
 /// E-INTERNAL-001：内部错误（走到了不应到达的分支）。
@@ -34,7 +36,8 @@ fn conflict(msg: impl Into<String>) -> SmlError {
 /// 出现即 bug，但**绝不能用 panic 表达**：用户拿一份畸形 TOML 不该让工具崩，
 /// 而应拿到一个带码的普通错误。故所有「本应不可能」的分支一律返回此码。
 fn internal(msg: impl Into<String>) -> SmlError {
-    SmlError::new(E_INTERNAL_001, msg)
+    let m: String = msg.into();
+    SmlError::from_code_msg(E_INTERNAL_001).with_detail(m)
 }
 
 /// 解析 TOML 文本。

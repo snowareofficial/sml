@@ -236,6 +236,11 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 - **第十一批（`swsml` emit 层）**：`emit/mod.rs` 2 + `emit/custom.rs` 5 + `lib.rs` 1 共 **8 处**
   改为 `from_code_msg` + `with_detail`（`E-LIMIT-004/005/006`、`E-CLI-007`、`E-EXT-006`）。
   剩余 `smltools` **37 处**待续。
+- **第十二批（`smltools` 全量）**：`main.rs` 26 + `yaml.rs` 5 + `toml.rs` 3 + `highlight.rs` 2 + `xml.rs` 1
+  共 **37 处**改为 `from_code_msg` / `from_code_title` + `with_detail`（`E-CLI-*` / `E-IO-*` /
+  `E-MIGRATE-*` / `E-EXT-007` / `E-INTERNAL-*` / `E-FEATURE-004`）。至此 **`sml-lex` / `sml-parse` /
+  `sml-contract` / `sml-include` / `swsml` emit / `smltools` 的报错文案全部走码表**（I-11 ② Rust 侧清零，
+  共 12 批 / 203 处）。剩余仅非 Rust 端（JS/C/Lua 的硬编码文案），如需「零中文」需另开一轮。
 
 ### ⚠️ 升级注意
 

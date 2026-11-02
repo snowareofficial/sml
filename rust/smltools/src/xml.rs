@@ -135,10 +135,8 @@ impl<'a> Parser<'a> {
     /// 构造一条带码错误：`第 N 行（字符偏移 M）：说明 [码]`。
     fn err(&self, code: &'static str, at: usize, msg: impl AsRef<str>) -> SmlError {
         let (line, chars) = self.locate(at);
-        SmlError::new(
-            code,
-            format!("第 {line} 行（字符偏移 {chars}）：{}", msg.as_ref()),
-        )
+        SmlError::from_code_title(code)
+            .with_detail(format!("第 {line} 行（字符偏移 {chars}）：{}", msg.as_ref()))
     }
 
     // ---- 基础扫描 ------------------------------------------------------------
