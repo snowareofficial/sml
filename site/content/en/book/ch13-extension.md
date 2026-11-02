@@ -165,7 +165,7 @@ a batch of ready-made ones covering the most common constraint shapes — just r
 
 ### Built-in modifiers (baked into the core, not overridable)
 
-`BUILTIN_MODIFIERS` (`ext.rs:124`) lists the names the core has taken; an external extension may
+`BUILTIN_MODIFIERS` (`ext.rs:127`) lists the names the core has taken; an external extension may
 not reuse them:
 
 `optional` / `required` / `default` / `min` / `max`
@@ -174,11 +174,11 @@ not reuse them:
 
 | Struct | `name()` | Meaning | `ext.rs` location |
 |--------|----------|---------|-------------------|
-| `OneOf` | `one_of` | **at most one** of the group's fields may appear (≥2 ⇒ error) | `ext.rs:377`, check in `check_group` at `ext.rs:386` |
-| `ExactlyOne` | `exactly_one` | **exactly one** of the group's fields must appear (0 / ≥2 ⇒ error) | `ext.rs:398`, check at `ext.rs:407` |
-| `AnyOf` | `any_of` | **at least one** of the group's fields must appear (0 ⇒ error) | `ext.rs:429`, check at `ext.rs:438` |
-| `DependsOn` | `depends_on` | this field present ⇒ the listed fields must be present | `ext.rs:474`, check at `ext.rs:483` |
-| `ItemsMin` | `items_min` | array **element-count lower bound** (< n ⇒ error) | `ext.rs:237`, check in `check` at `ext.rs:249` |
+| `OneOf` | `one_of` | **at most one** of the group's fields may appear (≥2 ⇒ error) | `ext.rs:380`, check in `check_group` at `ext.rs:389` |
+| `ExactlyOne` | `exactly_one` | **exactly one** of the group's fields must appear (0 / ≥2 ⇒ error) | `ext.rs:401`, check at `ext.rs:410` |
+| `AnyOf` | `any_of` | **at least one** of the group's fields must appear (0 ⇒ error) | `ext.rs:432`, check at `ext.rs:441` |
+| `DependsOn` | `depends_on` | this field present ⇒ the listed fields must be present | `ext.rs:477`, check at `ext.rs:486` |
+| `ItemsMin` | `items_min` | array **element-count lower bound** (< n ⇒ error) | `ext.rs:240`, check in `check` at `ext.rs:252` |
 
 > ⚠️ `one_of` / `exactly_one` / `any_of` / `depends_on` are all **cross-field** constraints: attached
 > to one field but observing the **whole block** — they go through the `Modifier::check_group(&GroupView)`
@@ -186,10 +186,10 @@ not reuse them:
 > **only this field's value**, which suits constraints like `items_min` that look at just the effective
 > value.
 >
-> `GroupView::present` (struct at `ext.rs:84`, field at `ext.rs:104`) counts **only keys the user wrote
+> `GroupView::present` (struct at `ext.rs:84`, field at `ext.rs:107`) counts **only keys the user wrote
 > explicitly** — a value supplied by `default` does **not** count as present. That is the basis for the
 > mutually-exclusive / count / dependency cross-field checks. A member name not declared in the same
-> contract (a misspelled field name) **fails loudly** (see `resolve_members`, `ext.rs:316`).
+> contract (a misspelled field name) **fails loudly** (see `resolve_members`, `ext.rs:319`).
 >
 > All these external modifiers **reuse `E-CONTRACT-011`**, adding no new code.
 

@@ -290,8 +290,8 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
   故 `[str]` 会报"字段类型期望标识符"，只认 `array [ str ]`。
 - **数组元素的逐元素校验**：Rust 侧对 `[image]` 逐元素调外置校验器；
   JS 侧 `valueMatchesType` 的 array 分支未逐元素校验外置类型。
-- [ ] 清理 `sml-parse` 的 8 个既有 unused import 与 `when` 关闭时的 2 个 dead_code
-- [ ] 教科书补一节「外置扩展」+ `CHANGELOG.md`
+- [x] 清理 `sml-parse` 的既有 unused import / dead_code —— ✅ 2026-11-02 复核：默认 / 无默认 / `--all-targets` / `--features when` 四种配置 `cargo check -p sml-parse` 均 **0 警告**（`pending_when` 一处已在 feat(value) 提交里用 `#[cfg(not(feature = "when"))]` 消费）。
+- [x] 教科书「外置扩展」+ `CHANGELOG.md` —— ✅ 已存在：`site/content/zh/book/ch13-extension.md`（13.1–13.9，含 `items_max` 自写示例与 `OneOf/ExactlyOne/AnyOf/DependsOn/ItemsMin` 现成表）、`CHANGELOG.md` 第 31–66 行；2026-11-02 修正章节里 `ext.rs:行号` 引用整体漂移 +3（zh/en 各 13 处）。
 
 ### 方言为什么会诞生（根因，勿忘）
 
