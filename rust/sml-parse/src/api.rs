@@ -37,7 +37,7 @@ pub fn parse_versioned(text: &str) -> Result<(Value, Version), SmlError> {
 pub fn parse_file_versioned(path: impl AsRef<Path>) -> Result<(Value, Version), SmlError> {
     let path = path.as_ref();
     let text = std::fs::read_to_string(path).map_err(|e| {
-        SmlError::new(E_IO_001, format!("读取失败 {}: {e}", path.display()))
+        SmlError::from_code_msg(E_IO_001).with_detail(format!("{}: {e}", path.display()))
     })?;
     let base = path
         .parent()
@@ -73,7 +73,7 @@ pub fn parse_file_with_warnings(
 ) -> Result<(Value, Vec<Diagnostic>), SmlError> {
     let path = path.as_ref();
     let text = std::fs::read_to_string(path).map_err(|e| {
-        SmlError::new(E_IO_001, format!("读取失败 {}: {e}", path.display()))
+        SmlError::from_code_msg(E_IO_001).with_detail(format!("{}: {e}", path.display()))
     })?;
     let base = path
         .parent()
@@ -208,18 +208,15 @@ pub fn parse_allowed(
     let (rest, feats, touched, mode, base, had) = strip_features(&rest)?;
     let v = declared.or(base).unwrap_or(Version::V1);
     if !allowed.contains(&v) {
-        return Err(SmlError::new(
-            E_FEATURE_004,
-            format!(
-                "sml: 文档声明版本 {} 不在本库接受的版本范围 {{{}}} 内",
-                v.name(),
-                allowed
-                    .iter()
-                    .map(|x| x.name())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-        ));
+        return Err(SmlError::from_code_title(E_FEATURE_004).with_detail(format!(
+            "文档声明版本 {} 不在本库接受的版本范围 {{{}}} 内",
+            v.name(),
+            allowed
+                .iter()
+                .map(|x| x.name())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )));
     }
     let feats = features_for(v, feats, touched, mode, had);
     parse_impl(&rest, feats, BTreeMap::new())
@@ -243,10 +240,8 @@ pub fn parse_with_features(
     let feats = features_for(v, feats, touched, mode, had);
     let effective = feats.intersection(allowed);
     if effective.is_empty() {
-        return Err(SmlError::new(
-            E_FEATURE_009,
-            format!("sml: 文档请求的特性 {feats} 与调用方允许的特性 {allowed} 无交集"),
-        ));
+        return Err(SmlError::from_code_msg(E_FEATURE_009)
+            .with_detail(format!("{feats} 与 {allowed} 无交集")));
     }
     let val = parse_impl(&rest, effective, BTreeMap::new())?;
     Ok((val, effective))
@@ -271,10 +266,8 @@ pub fn parse_with_features_env(
     let feats = features_for(v, feats, touched, mode, had);
     let effective = feats.intersection(allowed);
     if effective.is_empty() {
-        return Err(SmlError::new(
-            E_FEATURE_009,
-            format!("sml: 文档请求的特性 {feats} 与调用方允许的特性 {allowed} 无交集"),
-        ));
+        return Err(SmlError::from_code_msg(E_FEATURE_009)
+            .with_detail(format!("{feats} 与 {allowed} 无交集")));
     }
     let val = parse_impl(&rest, effective, env)?;
     Ok((val, effective))
@@ -425,20 +418,14 @@ fn parse_impl_tokens_ext(
     //    @ 指令，非标量）、`42 { a: 1 }`（名为 42 的块，紧跟 `{`）、`42: x`（键值）。
     let lone_scalar = matches!(p.toks.as_slice(), [Tok::Word(_)] | [Tok::Str(_)]);
     if lone_scalar {
-        return Err(SmlError::new(
-            E_PARSE_008,
-            "sml: 顶层须为容器（键值块、对象块或数组），单独的标量无法往返",
-        ));
+        return Err(SmlError::from_code_msg(E_PARSE_008));
     }
     if is_scalar_value(p.toks.first()) {
         let followed_by_container = matches!(p.toks.get(1), Some(Tok::LBrack))
             || matches!(p.toks.get(1), Some(Tok::Word(_)) | Some(Tok::Str(_)))
                 && matches!(p.toks.get(2), Some(Tok::LBrace) | Some(Tok::Colon));
         if followed_by_container {
-            return Err(SmlError::new(
-                E_PARSE_008,
-                "sml: 顶层须为容器（键值块、对象块或数组），单独的标量无法往返",
-            ));
+            return Err(SmlError::from_code_msg(E_PARSE_008));
         }
     }
     // 顶层支持三种形态，与 `to_sml` 的输出对称：
@@ -450,10 +437,8 @@ fn parse_impl_tokens_ext(
     let value = match p.peek() {
         Some(Tok::LBrack) => {
             if !p.features.has(Feature::TopArray) {
-                return Err(SmlError::new(
-                    E_FEATURE_001,
-                    "sml: 顶层数组需要特性 `top-level-array`，但当前特性集已禁用",
-                ));
+                return Err(SmlError::from_code_msg(E_FEATURE_001)
+                    .with_detail("top-level-array"));
             }
             p.next();
             p.parse_array()
@@ -500,7 +485,7 @@ fn parse_impl_tokens_ext(
 pub fn parse_file(path: impl AsRef<Path>) -> Result<Value, SmlError> {
     let path = path.as_ref();
     let text = std::fs::read_to_string(path)
-        .map_err(|e| SmlError::new(E_IO_001, format!("读取失败 {}: {e}", path.display())))?;
+        .map_err(|e| SmlError::from_code_msg(E_IO_001).with_detail(format!("{}: {e}", path.display())))?;
     let base = path
         .parent()
         .map(|p| p.to_path_buf())
@@ -536,7 +521,7 @@ pub fn parse_file_features(
 ) -> Result<Value, SmlError> {
     let path = path.as_ref();
     let text = std::fs::read_to_string(path)
-        .map_err(|e| SmlError::new(E_IO_001, format!("读取失败 {}: {e}", path.display())))?;
+        .map_err(|e| SmlError::from_code_msg(E_IO_001).with_detail(format!("{}: {e}", path.display())))?;
     let base = path
         .parent()
         .map(|p| p.to_path_buf())
@@ -548,10 +533,7 @@ pub fn parse_file_features(
     let feats = features_for(v, feats, touched, mode, had);
     let allowed = FeatureSet::all().intersection(feats).intersection(caller_allowed);
     if allowed.is_empty() {
-        return Err(SmlError::new(
-            E_FEATURE_009,
-            "sml: 调用方 flags 与文档特性交集为空，不允许任何解析能力",
-        ));
+        return Err(SmlError::from_code_msg(E_FEATURE_009));
     }
     let (toks, spans) = resolve_includes_spans(&rest, &base, allowed)?;
     let spans = spans.unwrap_or_default();

@@ -39,35 +39,25 @@ pub fn eval_when_cond(p: &mut Parser) -> Result<bool, SmlError> {
     let lhs = match p.next() {
         Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
         other => {
-            return Err(SmlError::new(
-                E_PARSE_014,
-                format!(
-                    "sml: `@when` 后须条件（如 `$env.ENV == \"prod\"`），得 {:?}",
-                    other
-                ),
-            ))
+            return Err(SmlError::from_code_title(E_PARSE_014).with_detail(format!(
+                "`@when` 后须条件（如 `$env.ENV == \"prod\"`），得 {:?}",
+                other
+            )))
         }
     };
     let var = lhs.strip_prefix("$env.").ok_or_else(|| {
-        SmlError::new(
-            E_PARSE_014,
-            format!(
-                "sml: `@when` 的条件左侧只支持 `$env.NAME`，得 `{lhs}`\
+        SmlError::from_code_title(E_PARSE_014).with_detail(format!(
+            "`@when` 的条件左侧只支持 `$env.NAME`，得 `{lhs}`\
             （暂不支持文档内字段引用）"
-            ),
-        )
+        ))
     })?;
     if var.is_empty() {
-        return Err(SmlError::new(
-            E_PARSE_014,
-            "sml: `@when` 的 `$env.` 后须变量名",
-        ));
+        return Err(SmlError::from_code_title(E_PARSE_014)
+            .with_detail("`@when` 的 `$env.` 后须变量名"));
     }
     if !p.features.has(Feature::Env) {
-        return Err(SmlError::new(
-            E_FEATURE_002,
-            format!("sml: `@when $env.{var}` 需要特性 `env`，但当前特性集已禁用"),
-        ));
+        return Err(SmlError::from_code_msg(E_FEATURE_002)
+            .with_detail(format!("`@when $env.{var}` 需要特性 `env`")));
     }
     let actual = p.env_var(var);
 
@@ -90,23 +80,18 @@ pub fn eval_when_cond(p: &mut Parser) -> Result<bool, SmlError> {
             let rhs = match p.next() {
                 Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
                 other => {
-                    return Err(SmlError::new(
-                        E_PARSE_015,
-                        format!("sml: `@when` 的 `{op}` 后须比较值，得 {:?}", other),
-                    ))
+                    return Err(SmlError::from_code_title(E_PARSE_015)
+                        .with_detail(format!("`@when` 的 `{op}` 后须比较值，得 {:?}", other)))
                 }
             };
             // 漏写比较值时（`@when $env.X ==` 后直接换行写下一个字段），
             // 下一个字段名会被当成比较值吃掉，只在更后面才报出莫名的
             // 「期望键」错误。这里提前识别并给出准确提示。
             if p.peek() == Some(&Tok::Colon) {
-                return Err(SmlError::new(
-                    E_PARSE_015,
-                    format!(
-                        "sml: `@when` 的 `{op}` 后缺少比较值（写成了 `{op}` 后直接换行）；\
+                return Err(SmlError::from_code_title(E_PARSE_015).with_detail(format!(
+                    "`@when` 的 `{op}` 后缺少比较值（写成了 `{op}` 后直接换行）；\
                      正确形式如 `@when $env.ENV == \"prod\"`"
-                    ),
-                ));
+                )));
             }
             // 单 `=` 按 `==` 处理（与多数配置语言一致），但要求显式写出
             let eq = actual == rhs;
@@ -130,40 +115,32 @@ pub fn eval_for_header(p: &mut Parser) -> Result<(String, Vec<String>), SmlError
     match p.next() {
         Some(Tok::At) => {}
         other => {
-            return Err(SmlError::new(
-                E_INTERNAL_001,
-                format!("sml: 内部错误：eval_for_header 期望 `@`，得 {:?}", other),
-            ))
+            return Err(SmlError::from_code_msg(E_INTERNAL_001)
+                .with_detail(format!("eval_for_header 期望 `@`，得 {:?}", other)))
         }
     }
     // 消费 `for`
     match p.next() {
         Some(Tok::Word(w)) if w == "for" => {}
         other => {
-            return Err(SmlError::new(
-                E_INTERNAL_001,
-                format!("sml: 内部错误：eval_for_header 期望 `for`，得 {:?}", other),
-            ))
+            return Err(SmlError::from_code_msg(E_INTERNAL_001)
+                .with_detail(format!("eval_for_header 期望 `for`，得 {:?}", other)))
         }
     }
     // 循环变量名
     let var = match p.next() {
         Some(Tok::Word(w)) => w,
         other => {
-            return Err(SmlError::new(
-                E_PARSE_018,
-                format!("sml: `@for` 后须为循环变量名（裸词），得 {:?}", other),
-            ))
+            return Err(SmlError::from_code_title(E_PARSE_018)
+                .with_detail(format!("`@for` 后须为循环变量名（裸词），得 {:?}", other)))
         }
     };
     // 关键字 `in`
     match p.next() {
         Some(Tok::Word(w)) if w == "in" => {}
         other => {
-            return Err(SmlError::new(
-                E_PARSE_018,
-                format!("sml: `@for` 变量 `{var}` 后须为关键字 `in`，得 {:?}", other),
-            ))
+            return Err(SmlError::from_code_title(E_PARSE_018)
+                .with_detail(format!("`@for` 变量 `{var}` 后须为关键字 `in`，得 {:?}", other)))
         }
     }
     // 收集枚举项，直到 `{`（循环体）
@@ -182,24 +159,18 @@ pub fn eval_for_header(p: &mut Parser) -> Result<(String, Vec<String>), SmlError
                 items.push(s);
             }
             Some(other) => {
-                return Err(SmlError::new(
-                    E_PARSE_018,
-                    format!("sml: `@for ... in` 后须枚举项或 `{{`，得 {:?}", other),
-                ))
+                return Err(SmlError::from_code_title(E_PARSE_018)
+                    .with_detail(format!("`@for ... in` 后须枚举项或 `{{`，得 {:?}", other)))
             }
             None => {
-                return Err(SmlError::new(
-                    E_PARSE_018,
-                    "sml: `@for` 缺少循环体 `{ ... }`",
-                ))
+                return Err(SmlError::from_code_title(E_PARSE_018)
+                    .with_detail("`@for` 缺少循环体 `{ ... }`"))
             }
         }
     }
     if items.is_empty() {
-        return Err(SmlError::new(
-            E_PARSE_018,
-            "sml: `@for` 的 `in` 后至少须有一个枚举项",
-        ));
+        return Err(SmlError::from_code_title(E_PARSE_018)
+            .with_detail("`@for` 的 `in` 后至少须有一个枚举项"));
     }
     Ok((var, items))
 }
