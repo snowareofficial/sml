@@ -14,6 +14,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+// 见 `lib.rs` 的同名注释：来自 `Value::Object` 的表用 `Map`，普通表仍是 `BTreeMap`。
+use sml_value::Map;
+
 use sml_value::Value;
 
 use crate::{Contract, FieldSpec, Strictness, TypeSpec};
@@ -34,7 +37,7 @@ pub struct InferResult {
 /// - 根为单个对象：按单实例处理（字段全 `required` 并告警）；
 /// - 其它根类型 / 空数组：返回错误。
 pub fn infer_from_value(root_name: &str, value: &Value) -> Result<InferResult, String> {
-    let instances: Vec<&BTreeMap<String, Value>> = match value {
+    let instances: Vec<&Map> = match value {
         Value::Array(items) => {
             let mut v = Vec::with_capacity(items.len());
             for it in items {
@@ -157,16 +160,19 @@ fn scalar_to_ty(field: &str, kinds: &BTreeSet<&str>, warnings: &mut Vec<String>)
 /// 故走「字段并集 + 取最宽松」的合并语义（与契约叠加的「顺序无关」同思路）。
 fn build_object_contract(
     name: &str,
-    instances: &[&BTreeMap<String, Value>],
+    instances: &[&Map],
     contracts: &mut BTreeMap<String, Contract>,
     warnings: &mut Vec<String>,
     single: bool,
 ) {
     // 1) 收集字段 → 各实例中的取值（不持 map 的可变借用）
+    //
+    // 收进 `BTreeMap<String, _>` 是**刻意的**：推断结果必须「字段按名排序、与源序无关」
+    // （同输入逐字节相同的 golden），故不能沿用对象自身的迭代序。
     let mut field_vals: BTreeMap<String, Vec<&Value>> = BTreeMap::new();
     for inst in instances {
         for (k, v) in *inst {
-            field_vals.entry(k.clone()).or_default().push(v);
+            field_vals.entry(k.to_string()).or_default().push(v);
         }
     }
     // 2) 逐字段合一类型（可能向 contracts 写入子契约；此时不持任何借用，安全）
@@ -240,7 +246,7 @@ fn unify(
 
     // 情况 1：全是对象 → 子契约（组合）
     if n_obj == n {
-        let objs: Vec<&BTreeMap<String, Value>> = vals
+        let objs: Vec<&Map> = vals
             .iter()
             .map(|v| match *v {
                 Value::Object(m) => m,
@@ -295,15 +301,17 @@ fn unify_array_elems(
     // 全是对象：要求「同形」才生成 `[Sub]`，否则退化为 `[any]`。
     if n_obj == n {
         let shape0: BTreeSet<String> = match elems[0] {
-            Value::Object(m) => m.keys().cloned().collect(),
+            Value::Object(m) => m.keys().map(|k| k.to_string()).collect(),
             _ => unreachable!(),
         };
         let same_shape = elems.iter().all(|v| match v {
-            Value::Object(m) => m.keys().cloned().collect::<BTreeSet<String>>() == shape0,
+            Value::Object(m) => {
+                m.keys().map(|k| k.to_string()).collect::<BTreeSet<String>>() == shape0
+            }
             _ => false,
         });
         if same_shape {
-            let objs: Vec<&BTreeMap<String, Value>> = elems
+            let objs: Vec<&Map> = elems
                 .iter()
                 .map(|v| match *v {
                     Value::Object(m) => m,
@@ -470,7 +478,7 @@ mod tests {
     use super::*;
 
     fn obj(pairs: &[(&str, Value)]) -> Value {
-        let mut m = BTreeMap::new();
+        let mut m = Map::new();
         for (k, v) in pairs {
             m.insert(k.to_string(), v.clone());
         }
@@ -509,9 +517,9 @@ mod tests {
 
     #[test]
     fn nested_object_becomes_sub_contract() {
-        let mut addr = BTreeMap::new();
+        let mut addr = Map::new();
         addr.insert("city".into(), Value::Str("bj".into()));
-        let mut m = BTreeMap::new();
+        let mut m = Map::new();
         m.insert("name".into(), Value::Str("web".into()));
         m.insert("address".into(), Value::Object(addr));
         let r = infer_from_value("Inferred", &Value::Object(m)).unwrap();
@@ -523,7 +531,7 @@ mod tests {
 
     #[test]
     fn array_of_ints_unifies_to_int() {
-        let mut m = BTreeMap::new();
+        let mut m = Map::new();
         m.insert(
             "tags".into(),
             Value::Array(vec![Value::Int(1), Value::Int(2), Value::Int(3)]),
@@ -537,7 +545,7 @@ mod tests {
 
     #[test]
     fn array_of_mixed_degrades_to_any_with_warning() {
-        let mut m = BTreeMap::new();
+        let mut m = Map::new();
         m.insert(
             "tags".into(),
             Value::Array(vec![Value::Int(1), Value::Str("x".into())]),
@@ -554,7 +562,7 @@ mod tests {
     fn array_of_objects_same_shape_becomes_sub() {
         let item1 = obj(&[("id", Value::Int(1))]);
         let item2 = obj(&[("id", Value::Int(2))]);
-        let mut m = BTreeMap::new();
+        let mut m = Map::new();
         m.insert("items".into(), Value::Array(vec![item1, item2]));
         let r = infer_from_value("Inferred", &Value::Object(m)).unwrap();
         assert_eq!(
@@ -567,7 +575,7 @@ mod tests {
     fn array_of_objects_diff_shape_degrades_to_any() {
         let item1 = obj(&[("id", Value::Int(1))]);
         let item2 = obj(&[("name", Value::Str("x".into()))]);
-        let mut m = BTreeMap::new();
+        let mut m = Map::new();
         m.insert("items".into(), Value::Array(vec![item1, item2]));
         let r = infer_from_value("Inferred", &Value::Object(m)).unwrap();
         assert!(r.warnings.iter().any(|w| w.contains("items")));
@@ -592,7 +600,7 @@ mod tests {
 
     #[test]
     fn float_unifies_to_num() {
-        let mut m = BTreeMap::new();
+        let mut m = Map::new();
         m.insert("ratio".into(), Value::float(0.5));
         let r = infer_from_value("Inferred", &Value::Object(m)).unwrap();
         assert_eq!(

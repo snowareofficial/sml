@@ -23,7 +23,7 @@ fn empty_contract_works_as_a_tag_without_polluting_data() {
     let block = v.get("Rule").expect("typed block 以首词为键");
     assert_eq!(block.get("__name").and_then(|x| x.as_str()), Some("ssh"));
     let keys: Vec<_> = match block {
-        sml::Value::Object(m) => m.keys().cloned().collect(),
+        sml::Value::Object(m) => m.keys().map(|k| k.to_string()).collect(),
         _ => panic!("应为对象"),
     };
     assert!(
