@@ -128,7 +128,14 @@ fn emit_slint(
     // 展开为同级元素序列，保持书写顺序。
     if let Value::Array(a) = v {
         for item in a {
-            emit_slint(item, inferred, opt, depth, _is_root, out)?;
+            // 同级兄弟（`[obj, obj]`）不加深；**嵌套数组**（`[[…]]`）是一层容器，必须 +1
+            // —— 否则守卫永远不触发，深嵌套会把默认栈打穿（2026-11-02 实测 svg/slint 同病）。
+            let d = if matches!(item, Value::Array(_)) {
+                depth + 1
+            } else {
+                depth
+            };
+            emit_slint(item, inferred, opt, d, _is_root, out)?;
         }
         return Ok(());
     }

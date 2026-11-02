@@ -285,6 +285,14 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   note：**解析器真的发生改写/覆盖时**产出且带行号；`W-LINT-003` 是 `smltools --lint` 的纯文本扫描。
   `errors/codes.sml` + 三个生成器已同步（146 条码，`--check` 幂等）；`key_conflict` 断言带码。
 
+### 修复（emit：`svg` / `slint` 嵌套数组深度守卫失效）
+
+- `svg` 与 `slint` 后端处理数组时把 `depth` **原样**传给元素，守卫 `depth > MAX_VALUE_DEPTH`
+  永不触发 ⇒ 5 万层嵌套数组（`[[[…]]]`）在默认 2 MiB 栈上 `0xC00000FD` 直接 abort。
+  现改为「合并出的**同级兄弟**数组不加深、**嵌套数组** `+1`」，两后端在超深输入下返回
+  `E-LIMIT-004` 而非崩溃。`rust/tests/emit.rs` 的 **256 MB 大栈包装随之删除**
+  （默认栈 43/43 全过；`to_sml` / `Drop` 本就有守卫/迭代式实现）。
+
 ### ⚠️ 升级注意
 
 - `Diagnostic` 是公开结构体，**新增 `line` 字段**：只读取诊断的代码不受影响；

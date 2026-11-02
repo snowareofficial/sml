@@ -137,7 +137,15 @@ fn emit_svg_node(
     // scalar branch and the elements are lost (see slint's emit_slint).
     if let Value::Array(a) = v {
         for item in a {
-            emit_svg_node(item, inferred, fallback_tag, opt, depth, is_root, out)?;
+            // 合并出来的「同级兄弟」数组（`[obj, obj]`）不加深；但**嵌套数组**（`[[…]]`）
+            // 本身是一层容器，必须 +1 —— 否则守卫永远不触发，5 万层 `[[[…]]]` 会把默认栈
+            // 打穿（实测 0xC00000FD，2026-11-02）。
+            let d = if matches!(item, Value::Array(_)) {
+                depth + 1
+            } else {
+                depth
+            };
+            emit_svg_node(item, inferred, fallback_tag, opt, d, is_root, out)?;
         }
         return Ok(());
     }
