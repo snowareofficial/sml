@@ -217,6 +217,9 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 - **第五批（`sml-parse/src/cond.rs` + `api.rs`）**：`@when` / `@for` / 入口与特性错误共 **25 处**
   改为 `from_code_msg` / `from_code_title` + `with_detail`。`sml-parse/src/parser.rs`（61 处）与
   `sml-contract` 仍待续。
+- **第六批（`sml-parse/src/parser.rs` 结构族）**：`E-PARSE-001/002/003/004/007/013` 共 **6 处**
+  改为 `from_code_msg` / `from_code_title` + `with_detail`；`syntax_guard.rs` 的「孤立的 `@`」
+  精确子串断言改为「码 + 关键词」。`parser.rs` 剩余约 **55 处**与 `sml-contract` 仍待续。
 
 ### ⚠️ 升级注意
 

@@ -340,8 +340,8 @@ fn lone_at_anywhere_must_error() {
     ] {
         let e = parse(src).unwrap_err();
         assert!(
-            e.to_string().contains("孤立的 `@`"),
-            "源码 {src:?} 应报「孤立的 @」，实际: {e}"
+            e.code() == "E-PARSE-004" && e.to_string().contains("孤立的"),
+            "源码 {src:?} 应报「孤立的 @」(E-PARSE-004)，实际: {e}"
         );
     }
 }
@@ -353,7 +353,7 @@ fn lone_at_in_middle_must_error_not_partially_drop() {
     let src = "a: 1\n@\nb { x: 2 }\nc: 3\n";
     let e = parse(src).unwrap_err();
     assert!(
-        e.to_string().contains("孤立的 `@`"),
+        e.code() == "E-PARSE-004" && e.to_string().contains("孤立的"),
         "孤立 @ 不应静默吞掉紧随的块，实际: {e}"
     );
 }
