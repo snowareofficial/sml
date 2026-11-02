@@ -12,6 +12,13 @@ readme = "README.md"
 [lib]
 name = "sml_codes"
 
+[features]
+default = ["zh"]
+# 中文列（源语言）。`--no-default-features` 即「剥离中文」：
+# `msgs` 的中文列整列不编译，`error_info` 一律走英文（缺英文退回码本身）。
+# 子 crate 已用 `default-features = false` 依赖本 crate，故它们天然不带中文。
+zh = []
+
 [dependencies]
 # 刻意零依赖：错误码是**语言层契约**，要被 sml-lex / sml-parse / sml-contract /
 # sml-include 各方共用，不能反过来拖入它们中的任何一个（否则成环）。

@@ -107,13 +107,20 @@ impl SmlError {
     /// - `locale` 以 `en` 开头：取该码的**英文规范文案**（见 [`error_info`]，缺英文回退中文），
     ///   仍以 `文案 [码]` 收尾。
     ///
+    /// - **剥离 `zh`（`--no-default-features`）**：中文列不存在，上述「非英文保持中文」
+    ///   不再适用 —— 一律取英文规范文案（缺英文退回码本身）。
+    ///
     /// 说明：i18n 文案来自生成表（`errors/msg.en.json`），是「码」的**规范文案**；
     /// 运行时拼进 `message` 的中文**上下文细节**不在模板内，仍保留在 [`SmlError::message`]，
     /// 需要时由调用方另行拼接——句级整句翻译属后续结构化演进，不在本方法内假装翻。
     pub fn render_locale(&self, locale: &str) -> String {
-        if !locale.is_empty() && locale.to_lowercase().starts_with("en") {
+        // 默认（带 `zh` feature）：仅 `en*` 走英文表，其余保持既有中文行为。
+        // 剥离 `zh`（`--no-default-features`）：中文列不存在 ⇒ 一律走英文表
+        // （缺英文时 `error_info` 退回码本身），故 `en*` 之外也输出英文。
+        let want_en = (!locale.is_empty() && locale.to_lowercase().starts_with("en"))
+            || !cfg!(feature = "zh");
+        if want_en {
             if let Some(info) = error_info(self.code, "en") {
-                // msgs::error_info 保证 msg 永不空（缺英文回退中文）。
                 return format!("{} [{}]", info.msg, self.code);
             }
         }
@@ -182,6 +189,7 @@ mod tests {
         assert_eq!(e.render_locale("en-US"), "Unterminated string (missing closing quote) [E-LEX-001]");
     }
 
+    #[cfg(feature = "zh")]
     #[test]
     fn render_locale_non_en_keeps_default_chinese() {
         let e = SmlError::new(E_LEX_001, "字符串未闭合");
@@ -190,6 +198,21 @@ mod tests {
         assert_eq!(e.render_locale("zh-CN"), "字符串未闭合 [E-LEX-001]");
         assert_eq!(e.render_locale("fr"), "字符串未闭合 [E-LEX-001]");
         assert_eq!(e.render(), "字符串未闭合 [E-LEX-001]");
+    }
+
+    #[cfg(not(feature = "zh"))]
+    #[test]
+    fn render_locale_without_zh_always_uses_english() {
+        let e = SmlError::new(E_LEX_001, "字符串未闭合");
+        // 剥离 zh 后：非 en 的 locale 也走英文表。
+        assert_eq!(
+            e.render_locale("zh"),
+            "Unterminated string (missing closing quote) [E-LEX-001]"
+        );
+        assert_eq!(
+            e.render_locale(""),
+            "Unterminated string (missing closing quote) [E-LEX-001]"
+        );
     }
 
     #[test]
