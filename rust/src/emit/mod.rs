@@ -61,10 +61,7 @@ pub(crate) fn key_of(k: &(impl AsRef<str> + ?Sized)) -> &str {
 
 /// 各后端共用的递归深度错误：`E-LIMIT-004`（递归深度超过上限，翻译后端共用）。
 pub(crate) fn depth_error(backend: &str) -> SmlError {
-    SmlError::new(
-        E_LIMIT_004,
-        format!("{backend}: 递归深度超过上限 {}", MAX_VALUE_DEPTH),
-    )
+    SmlError::from_code_msg(E_LIMIT_004).with_detail(format!("{backend}: 超过上限 {}", MAX_VALUE_DEPTH))
 }
 
 /// 未归类到更具体码的输出后端错误：`E-CLI-007`（输出后端报错，内层原因见原始错误）。
@@ -73,7 +70,8 @@ pub(crate) fn depth_error(backend: &str) -> SmlError {
 /// Markdown 拒绝 HTML 透传标签等）都归此码；预算类/规则类错误已在各自位置
 /// 直接带 `E-LIMIT-*` / `E-EXT-*`，不经这里。
 pub(crate) fn backend_error(msg: impl Into<String>) -> SmlError {
-    SmlError::new(E_CLI_007, msg)
+    let msg: String = msg.into();
+    SmlError::from_code_msg(E_CLI_007).with_detail(msg)
 }
 
 /// 转译选项。各后端可解释其关心的字段，未识别字段忽略。

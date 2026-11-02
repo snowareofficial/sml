@@ -55,13 +55,9 @@ const MAX_OUTPUT: usize = 8 * 1024 * 1024;
 /// 调用方不再靠文案前缀猜。
 fn push_capped(out: &mut String, s: &str) -> Result<(), SmlError> {
     if out.len().saturating_add(s.len()) > MAX_OUTPUT {
-        return Err(SmlError::new(
-            E_LIMIT_005,
-            format!(
-                "custom: 输出超过长度上限 {} 字节（模板存在放大，请检查 `{{nested}}` 是否重复出现）",
-                MAX_OUTPUT
-            ),
-        ));
+        return Err(SmlError::from_code_msg(E_LIMIT_005).with_detail(format!(
+            "custom: 输出超过长度上限 {MAX_OUTPUT} 字节（模板存在放大，请检查 `{{nested}}` 是否重复出现）"
+        )));
     }
     out.push_str(s);
     Ok(())
@@ -117,11 +113,11 @@ impl CustomOptions {
         let rules = gen.get("rules").and_then(|x| match x {
             Value::Array(a) => Some(a.clone()),
             _ => None,
-        }).ok_or_else(|| SmlError::new(E_EXT_006, "custom 生成器缺少 rules 数组"))?;
+        }).ok_or_else(|| SmlError::from_code_msg(E_EXT_006).with_detail("custom 生成器缺少 rules 数组"))?;
 
         for (i, r) in rules.iter().enumerate() {
             let template = r.get("template").and_then(|x| x.as_str())
-                .ok_or_else(|| SmlError::new(E_EXT_006, format!("规则 #{} 缺少 template 字符串", i)))?;
+                .ok_or_else(|| SmlError::from_code_msg(E_EXT_006).with_detail(format!("规则 #{i} 缺少 template 字符串")))?;
             let match_type = r.get("match").and_then(|x| x.as_str()).map(|s| s.to_string());
             let match_key = r.get("match-key").and_then(|x| x.as_str()).map(|s| s.to_string());
             opt.rules.push(CustomRule {
@@ -131,7 +127,7 @@ impl CustomOptions {
             });
         }
         if opt.rules.is_empty() {
-            return Err(SmlError::new(E_EXT_006, "custom 生成器 rules 为空"));
+            return Err(SmlError::from_code_msg(E_EXT_006).with_detail("custom 生成器 rules 为空"));
         }
         Ok(opt)
     }
@@ -224,10 +220,8 @@ fn render(
         }
         Value::Array(a) => {
             if a.len() > MAX_LOOP {
-                return Err(SmlError::new(
-                    E_LIMIT_006,
-                    format!("custom: 数组超过循环上限 {}", MAX_LOOP),
-                ));
+                return Err(SmlError::from_code_msg(E_LIMIT_006)
+                    .with_detail(format!("custom: 数组超过循环上限 {MAX_LOOP}")));
             }
             // 数组本身若被规则模板用 {items:TPL} 描述，则按循环渲染
             for tpl_key in collect_item_templates(&rule.template) {
