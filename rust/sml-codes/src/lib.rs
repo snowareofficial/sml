@@ -137,9 +137,9 @@ impl SmlError {
         format!("{} [{}]", self.message, self.code)
     }
 
-    /// Render in a locale: `message [code]`, same shape as [`render`] ｜ 按 locale 渲染完整形态：`文案 [码]`。
+    /// Render in a locale: `message [code]`, same shape as [`Self::render`] ｜ 按 locale 渲染完整形态：`文案 [码]`。
     ///
-    /// - `locale` 空 / 非英文（含 `zh`）：与 [`render`] / [`Display`] **逐字一致**，
+    /// - `locale` 空 / 非英文（含 `zh`）：与 [`Self::render`] / [`std::fmt::Display`] **逐字一致**，
     ///   默认中文文案，现有行为一字不变。
     /// - `locale` 以 `en` 开头：取该码的**英文规范文案**（见 [`error_info`]，缺英文回退中文），
     ///   仍以 `文案 [码]` 收尾。
