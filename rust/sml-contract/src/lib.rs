@@ -27,6 +27,7 @@ pub mod infer;
 
 pub use ext::{
     AnyOf, ContractExt, DependsOn, ExactlyOne, GroupView, ItemsMin, Modifier, OneOf, TypeCheck,
+    XOnly,
 };
 
 /// 在已注册契约名里找一个与 `bad` 最相近的名字，用于「未定义的契约」报错时
@@ -573,6 +574,18 @@ pub fn apply_contract(
     path: &str,
     warnings: &mut Vec<ContractWarning>,
 ) -> Result<(), SmlError> {
+    // 0) `x_only` 与 `strict` **互斥**：strict 下额外键先被 `E-CONTRACT-004` 拦下，
+    //    修饰符的 `check_group` 永不执行 ⇒ 写了也不起作用。这里显式报错，
+    //    避免「静默无效」（与 `loose` / `warn` 才搭配）。
+    if c.strictness == Strictness::Strict
+        && c.fields
+            .values()
+            .any(|f| f.mods.iter().any(|m| m.name() == "x_only"))
+    {
+        return Err(SmlError::from_code_title(E_CONTRACT_011).with_detail(
+            "`x_only` 需要契约或块级 `loose`/`warn`（与 `strict` 互斥）",
+        ));
+    }
     // 1) 严格性（三态，仅管「未声明字段」这一类形状宽容违约；类型不符 / 必填缺失 /
     //    数值越界 / 枚举越界 / 互斥组违约等**恒为 Err**，warn 态也不放行 ——
     //    错类型的数据放行出去是灾难，形状宽容与数据正确性不是一回事）。
@@ -605,6 +618,29 @@ pub fn apply_contract(
             }
         }
         Strictness::Loose => { /* 静默放行，无诊断（旧 loose 档） */ }
+    }
+    // 2) `x_only "<prefix>"`：在 `loose` / `warn`（已放行）之上再**收窄**——
+    //    只有以该前缀开头的额外键允许，其余仍报错。
+    //    放在这里而非 `Modifier::check_group`：后者只在该字段出现时才跑，会漏检。
+    if let Some(prefix) = c
+        .fields
+        .values()
+        .filter(|f| f.mods.iter().any(|m| m.name() == "x_only"))
+        .find_map(|f| f.ext_data.get("x_only").and_then(|v| v.as_str()))
+    {
+        let mut bad: Vec<String> = node
+            .keys()
+            .map(|k| k.to_string())
+            .filter(|k| !c.fields.contains_key(k.as_str()))
+            .filter(|k| !k.starts_with(prefix))
+            .collect();
+        if !bad.is_empty() {
+            bad.sort();
+            return Err(SmlError::from_code_title(E_CONTRACT_011).with_detail(format!(
+                "额外键 {} 不以 `{prefix}` 开头（`x_only` 只放行该前缀）",
+                bad.join(", ")
+            )));
+        }
     }
     // 快照「用户显式写出的键」：跨字段约束（互斥组等）以它为准，`default` 回填的值
     // **不参与计数**（理由见 `ext::GroupView::present`）。
