@@ -140,17 +140,26 @@ Key points:
 
 Types: `str` / `int` / `num` (int or float) / `bool` / `any` / `[T]` (array) / `enum [ ... ]`.
 Modifiers: `required` (default) / `optional` / `default <value>` / `min <n>` / `max <n>` /
-`one_of [ a b c ]` (at most one present) / `exactly_one [ a b c ]` (exactly one).
+`one_of [ a b c ]` (at most one present) / `exactly_one [ a b c ]` (exactly one) /
+`any_of [ a b c ]` (at least one) / `items_min <n>` / `items_max <n>` (array length lower/upper bound) /
+`depends_on b` (if this field is present, the listed fields must be present too).
 
-> **Mutually-exclusive field groups** (`one_of` / `exactly_one`): a **cross-field** contract
-> constraint, implemented as a Rust **external extension point** (`rust/sml-contract/src/ext.rs`,
-> registered via `ParseOptions::with_modifier`; **C / C++ / JS / Lua are untouched**).
+> **Cross-field and count constraints** (`one_of` / `exactly_one` / `any_of` / `depends_on` /
+> `items_min` / `items_max`): implemented as a Rust **external extension point**
+> (`rust/sml-contract/src/ext.rs`, registered via `ParseOptions::with_modifier`;
+> **C / C++ / JS / Lua are untouched**).
 > - The check counts only **explicitly written keys** — a `default`-back-filled value does not
 >   count as present (otherwise a contract whose members all have `default` would always fail).
 > - A mistyped group member name (not declared in the contract) is a **loud error**.
-> - `one_of` with zero members ⇒ pass; `exactly_one` with zero members ⇒ error (the cross-field
->   form of `required`).
-> - Both reuse code **`E-CONTRACT-011`** — **no new code**; **Rust external extension point only**.
+> - `one_of` with zero members ⇒ pass; `exactly_one` / `any_of` with zero members ⇒ error.
+> - `depends_on`: **when the depending field itself is absent, the constraint always passes**
+>   (requiredness is expressed by `required` / `optional`; the two never stand in for each other).
+> - `items_min` / `items_max` look at the field's **effective value** (including `default` backfill).
+> - All reuse code **`E-CONTRACT-011`** — **no new code**; **Rust external extension point only**.
+>
+> Also **`x_only "<prefix>"`**: under `loose` / `warn`, only extra keys starting with that prefix
+> are allowed (others still error) — the non-breaking form of `x-*`. **Mutually exclusive with
+> `strict`**; requires registering `sml_contract::XOnly` — **unregistered means disabled**.
 
 ### Composition, not inheritance
 
