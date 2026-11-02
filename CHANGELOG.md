@@ -196,6 +196,14 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   （全在 `#[cfg(test)]`）；`--feature` 已接版本门控；`main.rs` 模块文档已更正。
   仍剩 `lint.rs` 自写文本扫描待并库（未做）。
 
+### 新增（I-11 ②：调用侧走文案表 · 第一批）
+
+- **`SmlError::from_code_title(code)` / `from_code_msg(code)` / `with_detail(detail)`**：调用侧按码从
+  文案表取规范标题/文案（未知码退回码本身、保证非空），动态细节用 `with_detail` 追加 `：detail`。
+  `smltools` 的 4 处静态中文报错已改为走表（`E-MIGRATE-017` / `E-IO-006` / `E-CLI-003` ×2）。
+  其余调用点仍直拼中文（I-11 ② 待续；`sml-include` 等 crate 用 `default-features = false` 依赖
+  `sml-codes`，其 `zh` 关时表为英文，转换前需先定该 crate 的默认语言）。
+
 ### ⚠️ 升级注意
 
 - `Diagnostic` 是公开结构体，**新增 `line` 字段**：只读取诊断的代码不受影响；

@@ -74,6 +74,41 @@ impl SmlError {
         }
     }
 
+    /// 用文案表里的**规范 msg** 构造错误（`error_info(code, DEFAULT_LOCALE).msg`）。
+    ///
+    /// 供调用侧把「码 → 文案」的基线交给表（IDEAS I-11 第 ② 项）；查不到该码时
+    /// 退回码本身，保证文案非空。需要动态上下文时用 [`Self::with_detail`] 追加。
+    pub fn from_code_msg(code: &'static str) -> Self {
+        let msg = crate::msgs::error_info(code, "")
+            .map(|i| i.msg)
+            .filter(|m| !m.is_empty())
+            .unwrap_or_else(|| code.to_string());
+        Self::new(code, msg)
+    }
+
+    /// 用文案表里的**标题**构造错误（`error_info(code, DEFAULT_LOCALE).title`）。
+    ///
+    /// 与 [`Self::from_code_msg`] 的区别：标题更短，适合再拼具体细节。
+    pub fn from_code_title(code: &'static str) -> Self {
+        let title = crate::msgs::error_info(code, "")
+            .map(|i| i.title)
+            .filter(|t| !t.is_empty())
+            .unwrap_or_else(|| code.to_string());
+        Self::new(code, title)
+    }
+
+    /// 追加细节：`<现有文案>：<detail>`（`detail` 为空时原样返回）。
+    pub fn with_detail(self, detail: impl AsRef<str>) -> Self {
+        let d = detail.as_ref();
+        if d.is_empty() {
+            return self;
+        }
+        SmlError {
+            message: format!("{}：{}", self.message, d),
+            ..self
+        }
+    }
+
     /// 记下出错位置（原文字节偏移），链式：`SmlError::new(C, "…").at(pos)`。
     pub fn at(mut self, pos: usize) -> Self {
         self.pos = Some(pos);
@@ -180,6 +215,19 @@ mod tests {
         assert_eq!(e.to_string(), "字符串未闭合 [E-LEX-001]");
         assert_eq!(e.message(), "字符串未闭合");
         assert_eq!(e.code(), "E-LEX-001");
+    }
+
+    #[cfg(feature = "zh")]
+    #[test]
+    fn from_code_title_and_detail_use_table() {
+        assert_eq!(SmlError::from_code_title(E_CLI_003).message(), "参数组合非法");
+        assert_eq!(
+            SmlError::from_code_title(E_CLI_003).with_detail("细节").message(),
+            "参数组合非法：细节"
+        );
+        assert!(!SmlError::from_code_msg(E_PARSE_006).message().is_empty());
+        // 未知码退回码本身，保证非空。
+        assert_eq!(SmlError::from_code_msg("E-NOPE-999").message(), "E-NOPE-999");
     }
 
     #[test]
