@@ -123,10 +123,13 @@ Confirm the reading with the user before writing any code.
   **第四批（同日）**：`ParseOptions` 的 4 个 builder + 4 个注册方法、`ParseOutput::contract_map`、
   `DiagnosticKind`（枚举本身原本无 doc，已补写）+ 4 个变体 ⇒ `ext.rs` 可见面收口。
   **本 crate 剩余**：`Directive` 及其方法、`contract_map.rs` 的 `AppliedContract` / `ContractMap` / `PathSeg`。
-- **剩余（2026-11-02 收盘实测，`9582c25`）**：**88 处纯中文摘要**，按 crate：
-  `sml-contract` 14 / `sml-feature` 13 / `sml-codes` 13 / `sml-pattern` 11 / `sml-parse` 10 /
-  门面 `swsml` 9 / `sml-value` 6 / `sml-lex` 4 / `sml-include` 3 / `smltools` 3 / `sml-regex` 2。
-  **按 crate 分批**，每批一个提交；详细数字与扫描脚本的三个坑见 `HANDOFF` §2 R5 / §6。
+- **剩余（2026-11-02 实测，`fc91085`）**：**112 处**，口径 = 「摘要行里没有 `｜`」。
+  ⚠️ 旧口径「摘要里有没有英文字母」会把『`min`/`max` 在 SML 契约里是数值区间』这类**中文句**
+  算成已双语，数字偏乐观（旧记 88），**已废弃**。
+  已清零：`sml-contract` / `sml-feature` / `sml-codes`（生成物除外）/ `sml-lex` /
+  `sml-regex` / `smltools`。剩：门面 `swsml` 42 / `sml-parse` 27 / `sml-include` 18 /
+  `sml-pattern` 13 / `sml-value` 12。
+  **按 crate 分批**，每批一个提交；扫描脚本的四个坑见 `HANDOFF` §6。
 - **另一笔（不是双语化，是补写）**：`Object` 的 14 个方法与 `serde_bridge` 的
   `#[cfg(not(feature = "sml"))]` 版 `to_string` **完全没有 doc** —— 见 `HANDOFF` 的 **R11**。
   ✅ **2026-11-02 已补（`c661f5a`）**：连 `Value` 枚举**本身**、`Map` 两个 cfg 别名、
