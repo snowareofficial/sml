@@ -260,21 +260,41 @@ rectangle            size 2    rect1   tls                      { … }
   Modifier（外置），再考虑升为内置语法 —— 这样不必五端同时改。
 - **下一棒 / 待确认（2026-10-30 ④⑤ 落地时补记）**：本棒按「Rust 先行」交付，下面 6 条
   **尚未定论或未做**，别当成已完成：
-  1. **推断 JSON 字段名变了**：`allow_extra: bool` ⇒ `Strictness` 后，`to_json` 由 `"loose": true`
-     变为 `"strictness": "loose"`（`rust/sml-contract/src/infer.rs` 的 `to_json`），影响
-     `smltools infer-contract --json`。若 C / JS / Lua 侧有对应黄金用例需同步 —— **待拍板：
-     这个格式变更是否接受**。
-  2. **`ContractWarning` 是新建中间类型**：`sml-contract` 若依赖 `sml-parse` 会成环（现状是
-     `sml-parse → sml-contract`），故无法真正复用 `Diagnostic`，改为在 `sml-contract` 定义
-     `ContractWarning`，由 parser 转译成 `Diagnostic{kind: Warning}`。这属于「不新建就会成环」，
-     不是「不改就表达不了」—— **待拍板：是否把 `Diagnostic` 下沉到 `sml-codes` 或新共享 crate**。
-  3. **告警 `line` 目前是 `None`**：`apply_contract` 在 `sml-contract` 里拿不到 token 行号。
-     要定位到具体行须把行号信息透传进 `sml-contract` —— 下一棒（本棒测试未断言 `line`）。
-  4. **块级覆盖的绑定规则是本棒自定的**：覆盖绑定在**紧邻其前**的那个契约名上 ——
-     `@is A warn B` ⇒ A=warn、B 默认；`@is A B warn` ⇒ A 默认、B=warn。**待确认**是否要
-     改成「整条 `@is` 统一下降一档」（语法不变、语义不同）。
-  5. 契约级 `strict` 关键字保留（`@contract C strict`，与默认等价），沿用既有显式写法。
-  6. **`x-*` 按前缀放行额外键本棒未做**（D5）：属新语法、需五端同步，留待下一棒 —— 见上面 ④。
+  1. ✅ **已拍板（2026-11-02）：接受** `strictness` 字段（取值 `strict`/`warn`/`loose`），
+     `infer-contract --json` 输出随之变更；C / JS / Lua 侧若有黄金用例按此同步（未同步前不得
+     反向把 Rust 改回 `allow_extra`）。
+  2. ✅ **已拍板（2026-11-02）：暂不下沉 `Diagnostic`**。保留 `ContractWarning` + parser 转译，
+     但字段名/语义与 `Diagnostic` 对齐，将来若要合并只动类型、不动行为。
+  3. ✅ **已拍板（2026-11-02）：本轮不追行号**（契约告警 `line` 仍 `None`，测试不断言）；
+     将来把 token 行号透传进 `sml-contract` 时再补。
+  4. ✅ **已拍板（2026-11-02）：保持「绑定紧邻其前的契约名」**——`@is A warn B` ⇒ 只降 A；
+     `@is A B warn` ⇒ 只降 B。已写进 `sml-contract` 文档（「整条 `@is` 统降」不采纳：
+     多契约时无法表达「只放宽其中一个」）。
+  5. ✅ **已拍板（2026-11-02）：保留** `@contract C strict`（与默认等价，兼容既有写法，不删）。
+  6. ⏳ **待定（2026-11-02 复核后建议否决）**：`x-*` 按前缀放行额外键。评估见本节末「x-* 评估」。
+
+### x-* 评估（2026-11-02）
+
+**它是什么**：`strict` 契约下，把「未声明但以 `x-` 开头」的键放行，其余未声明键仍报 `E-CONTRACT-004`：
+
+```sml
+@contract Svc x-* { name: str }
+svc { @is Svc  name: gateway  x-owner: infra }
+```
+
+**必要性：建议否决**，三条理由：
+
+1. **它放走的正是契约存在的意义**：`strict` 唯一能抓的错就是「键写错/多写」；`x-*` 把「扩展键」与
+   「拼错的键」混在一起 —— `x-naem`、`x-nmae` 会被静默放行，strict 就名存实亡。
+2. **已有更便宜的替代**：① 注释 `#`（不产出数据）；② 要整块放宽就用 `loose` + lint 告警；
+   ③ 真需要元数据就**在契约里显式声明** `meta: { ... }` 子块 —— 一次声明、处处校验。
+3. **代价不成比例**：新语法 + 五端同步（JS/C++/Lua 各一套契约校验），换来一个「绕过契约」的逃生口。
+
+**何时值得重做**：出现「第三方插件必须往文档塞标记、且无法改契约」的真实需求时（类似 OpenAPI 的
+`x-` 生态），再按 **A 方案**（契约级 `x-*`、放行即告警、不向下传递、字面前缀）落地。
+
+**与人写多次的关系**：重复手写同类文档的痛点，应由 **`default` + 片段 `&frag` + `@for` + 契约复用**
+解决，而不是 `x-*` —— 后者只让「每份文档各塞各的私货」更容易，反而让重复场景更难保持一致。
 
 ## I-8 simple TOML-style support / 简易 TOML 风格
 
