@@ -176,8 +176,8 @@ static ENTRIES: &[Entry] = &[
     Entry { id: "W-LINT-003", severity: "warning", domain: "LINT", #[cfg(feature = "zh")] zh_title: "同一块内键名重复", #[cfg(feature = "zh")] zh_msg: "键在同一块内重复（已提升为数组，值不丢）", en_title: "Duplicate key in the same block", en_msg: "A key is duplicated within the same block; the later one overrides the former" },
     Entry { id: "W-LINT-004", severity: "warning", domain: "LINT", #[cfg(feature = "zh")] zh_title: "字段是空值", #[cfg(feature = "zh")] zh_msg: "字段是空值", en_title: "Field is null", en_msg: "The field is null" },
     Entry { id: "W-LINT-005", severity: "warning", domain: "LINT", #[cfg(feature = "zh")] zh_title: "嵌套超过建议阈值", #[cfg(feature = "zh")] zh_msg: "嵌套深度已超过建议阈值", en_title: "Nesting exceeds suggested threshold", en_msg: "Nesting depth has exceeded the suggested threshold" },
-    Entry { id: "W-PARSE-001", severity: "warning", domain: "PARSE", #[cfg(feature = "zh")] zh_title: "同一块内键名重复", #[cfg(feature = "zh")] zh_msg: "同一块内键名重复：后者已提升为数组（结构被改写）", en_title: "", en_msg: "" },
-    Entry { id: "W-PARSE-002", severity: "warning", domain: "PARSE", #[cfg(feature = "zh")] zh_title: "片段展开覆盖父块键", #[cfg(feature = "zh")] zh_msg: "片段展开覆盖了父块已有的同名键：父块原值丢失", en_title: "", en_msg: "" },
+    Entry { id: "W-PARSE-001", severity: "warning", domain: "PARSE", #[cfg(feature = "zh")] zh_title: "同一块内键名重复", #[cfg(feature = "zh")] zh_msg: "同一块内键名重复：后者已提升为数组（结构被改写）", en_title: "Duplicate key promoted to array", en_msg: "The key is duplicated within the same block: later values have been promoted to an array (the structure was rewritten)" },
+    Entry { id: "W-PARSE-002", severity: "warning", domain: "PARSE", #[cfg(feature = "zh")] zh_title: "片段展开覆盖父块键", #[cfg(feature = "zh")] zh_msg: "片段展开覆盖了父块已有的同名键：父块原值丢失", en_title: "Fragment expansion overwrites a parent block key", en_msg: "Fragment expansion overwrote a key already present in the parent block: the parent's original value is lost" },
 ];
 
 /// 全部错误码 id（按升序）。

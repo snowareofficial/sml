@@ -445,8 +445,10 @@ pub const W_LINT_004: &str = "W-LINT-004";
 /// EN: Nesting exceeds suggested threshold —— Nesting depth has exceeded the suggested threshold
 pub const W_LINT_005: &str = "W-LINT-005";
 /// [W-PARSE-001] 同一块内键名重复：同一块内键名重复：后者已提升为数组（结构被改写）
+/// EN: Duplicate key promoted to array —— The key is duplicated within the same block: later values have been promoted to an array (the structure was rewritten)
 pub const W_PARSE_001: &str = "W-PARSE-001";
 /// [W-PARSE-002] 片段展开覆盖父块键：片段展开覆盖了父块已有的同名键：父块原值丢失
+/// EN: Fragment expansion overwrites a parent block key —— Fragment expansion overwrote a key already present in the parent block: the parent's original value is lost
 pub const W_PARSE_002: &str = "W-PARSE-002";
 
 /// 全部错误码，按 id 升序（码表里就是按 id 排序的）。
