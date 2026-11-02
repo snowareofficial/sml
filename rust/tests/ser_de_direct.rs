@@ -7,7 +7,6 @@
 
 use serde::Serialize;
 use sml::{Map, Value};
-use std::collections::BTreeMap;
 
 // ---- 字节一致性：与 `to_sml` 逐字节相同（两份发射器不许漂移）----
 
@@ -93,7 +92,7 @@ fn declaration_order_preserved() {
     assert_eq!(via_value, "alpha: 2\nmiddle: 3\nzebra: 1\n");
 }
 
-// ---- 大整数：直出能写，`Value` 那条路是拒收 ----
+// ---- 大整数：直出与 `Value` 同口径，超 i64 一律拒收 ----
 
 #[derive(Serialize)]
 struct Big {
@@ -103,27 +102,40 @@ struct Big {
 }
 
 #[test]
-fn big_ints_are_written_not_rejected() {
+fn big_ints_are_rejected_not_written() {
     let v = Big {
         i: i128::MAX,
         u: u128::MAX,
         big: u64::MAX,
     };
-    let direct = sml::serde::to_string_direct(&v).unwrap();
-    assert!(direct.contains("170141183460469231731687303715884105727"), "{direct}");
-    assert!(direct.contains("340282366920938463463374607431768211455"), "{direct}");
-    assert!(direct.contains("18446744073709551615"), "{direct}");
+    // 2026-11-02 用户拍板：直出不再写裸词（回读会退化成 Str），与 `Value` 同口径拒收。
+    let err = sml::serde::to_string_direct(&v).expect_err("超 i64 应拒收");
+    assert!(err.contains("E-DERIVE-002"), "错误应带码：{err}");
 
-    // 对照组：走 `Value` 会直接报错（E-DERIVE-002 口径）
+    // 对照：`Value` 那条路同样是拒收。
     assert!(
         sml::serde::to_string(&v).is_err(),
         "Value 那条路应拒收超 i64 的整数"
     );
+
+    // 边界内仍正常（i64::MIN / MAX 不误伤）。
+    #[derive(Serialize)]
+    struct Edge {
+        max: i64,
+        min: i64,
+    }
+    let ok = sml::serde::to_string_direct(&Edge {
+        max: i64::MAX,
+        min: i64::MIN,
+    })
+    .unwrap();
+    assert!(ok.contains(&i64::MAX.to_string()), "{ok}");
+    assert!(ok.contains(&i64::MIN.to_string()), "{ok}");
 }
 
 #[test]
 fn big_int_reads_back_as_str() {
-    // 直出保真，但 SML 回读按 coerce_word B10 规则得到 Str —— 往返不对称，文档已写明
+    // 这里写的是**字符串**（不是大整数）：SML 回读按 coerce_word B10 规则得到 Str。
     let text = sml::serde::to_string_direct(&u64::MAX.to_string()).unwrap();
     let _ = text;
     let v = sml::parse("x: 18446744073709551615\n").unwrap();

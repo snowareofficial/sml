@@ -728,8 +728,8 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 `i128` / `u128` 超 i64 **一律报错**，与 serde 桥同口径，沿用 `E-DERIVE-002`
 （以 `[E-DERIVE-002]` 后缀落在文案里 —— 本 crate 刻意零依赖、不引 `sml-codes`，
 与 `serde_bridge.rs:101` 的写法逐字一致，见该条码的 note）。
-⇒ 现在**凡经 `Value` 的写入路径口径统一**；唯一的例外是 `to_string_direct`（直出），
-它按 I-1 的既定设计**保真写出**（超 i64 写成裸词），回读按 B10 变 `Str` ⇒ 往返不对称仍挂在 **B 组**。
+⇒ 现在**凡经 `Value` 的写入路径口径统一**；`to_string_direct`（直出）也于 2026-11-02 统一为
+**超 i64 拒收**（原写裸词、回读按 B10 变 `Str`，属类型静默改变）—— B 组这条往返不对称已消。
 
 **已收口（2026-10-28）**：B 组 2-3（浮点 raw / 两条发射器不对称）—— **先证伪，再收口**。
 结论是「serde 侧确实拿不到浮点原始文本」（证据见 B 组行内），故终点由「修它」改为
@@ -747,7 +747,8 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 | 错误码 | 本轮**不带码**：码是对外契约、发布后含义不可改，且要解释与既有 `W-LINT-003` 的分域关系 ⇒ 收益不抵成本。下一轮再议 `W-PARSE-001/002` |
 
 **仍挂账（下一轮）**：
-- `to_string_direct` ↔ `Value` 两条路对超 i64 整数的**口径差异**：是再统一一层，还是维持现状——未定。
+- ✅ **已定并落地（2026-11-02）**：`to_string_direct` 与 `Value` 统一为**超 i64 拒收**
+  （`[E-DERIVE-002]`），不再写裸词；`ser_de_direct` 用例改为 `big_ints_are_rejected_not_written`。
 - ✅ **告警带码（2026-11-02）**：新增 `W-PARSE-001`（同一块内键名重复）/ `W-PARSE-002`（片段展开覆盖父块键），
   由 `Diagnostic::code()` 映射；与 `W-LINT-003` 的分域已写进码表 note（**解析期真的发生时**产出 vs lint 纯文本扫描）。
   `errors/codes.sml` + 三个生成器已同步（146 条码），`key_conflict` 断言带码。

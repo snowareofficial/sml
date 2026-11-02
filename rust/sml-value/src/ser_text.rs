@@ -1,15 +1,15 @@
 //! 直出 SML 文本的 serde `Serializer`（可选 feature：`serde` **且** `sml`）。
 //!
 //! 与 `serde::to_value` + `to_sml` 那条路（[`crate::serde`]）的区别：
-//! 这里**不经过 `Value` 中转**，因此拿到两条 `Value` 给不了的能力：
+//! 这里**不经过 `Value` 中转**，因此拿到一条 `Value` 给不了的能力：
 //!
-//! 1. **保留字段声明顺序** —— `Value::Object` 是 `BTreeMap`，走它会按字典序重排；
-//! 2. **支持 i128 / u128 与超出 i64 的 `u64`** —— 直接写数字字符，不受 `Value::Int(i64)` 限制。
+//! 1. **保留字段声明顺序** —— `Value::Object` 是 `BTreeMap`，走它会按字典序重排。
 //!
 //! # 已知差异（务必读）
 //!
-//! - **大整数往返不对称**：超 i64 的整数写出去是裸词，SML 回读按 `coerce_word` 的 B10
-//!   规则得到 **`Str`**（不丢精度，但类型变了）。`Value` 那条路是直接**拒收**（`E-DERIVE-002`）。
+//! - **超 i64 的整数一律拒收**（`E-DERIVE-002`）：与 `Value` 写入路径、serde 桥同口径。
+//!   旧版曾把它**保真写成裸词**，但 SML 回读按 `coerce_word` 的 B10 规则得到 `Str` ——
+//!   不丢精度、**类型却静默变了**，故改为显式报错（2026-11-02 用户拍板）。
 //! - **浮点没有 `raw`**：serde 只给 `f64`，故不保留 `1e10` 这类书写形式
 //!   （`Value::Float` 带 `raw`，走 `to_sml` 能保留）。
 //! - **排版与 `to_sml` 逐字节一致**，靠测试锁定 —— 两份发射器必须共用
@@ -24,23 +24,31 @@ use ::serde::ser::{
     SerializeMap, SerializeSeq, SerializeStruct, SerializeStructVariant, SerializeTuple,
     SerializeTupleStruct, SerializeTupleVariant,
 };
+use ::serde::ser::Error as _;
 use ::serde::{Serialize, Serializer};
 
 type Error = ::serde::de::value::Error;
+
+/// 超 i64 的整数一律**拒收**（与 `Value` 写入路径、serde 桥同口径）。
+///
+/// 直出若把它写成裸词，SML 回读会按 B10 退化成 `Str` —— 类型静默改变，
+/// 比显式报错更糟。码按本 crate 的零依赖约定落在文案后缀。
+fn int_out_of_range(v: impl std::fmt::Display) -> Error {
+    Error::custom(format!(
+        "整数 {v} 超出 SML 整数范围（i64），拒绝直出（回读会退化为字符串） [E-DERIVE-002]"
+    ))
+}
 
 // ---------------------------------------------------------------------------
 // Node：保持声明顺序的中间树
 // ---------------------------------------------------------------------------
 
-/// 直出用的中间节点。与 [`crate::Value`] 的两点差异：
-/// - `Object` 是 `Vec<(String, Node)>`（**声明顺序**），不是 `BTreeMap`；
-/// - 多一个 [`Node::BigInt`]，承载放不进 `i64` 的整数。
+/// 直出用的中间节点。与 [`crate::Value`] 的唯一差异：
+/// `Object` 是 `Vec<(String, Node)>`（**声明顺序**），不是 `BTreeMap`。
 enum Node {
     Null,
     Bool(bool),
     Int(i64),
-    /// 放不进 `i64` 的整数（i128 / u128 / 超 i64 的 u64）：原样写数字字符。
-    BigInt(String),
     Float(f64),
     Str(String),
     Array(Vec<Node>),
@@ -78,7 +86,6 @@ fn render_scalar(n: &Node) -> String {
         Node::Null => "null".to_string(),
         Node::Bool(b) => b.to_string(),
         Node::Int(i) => i.to_string(),
-        Node::BigInt(s) => s.clone(),
         Node::Float(f) => format_float(*f, None),
         Node::Str(s) => quote_if_needed(s),
         // `dump_scalar` 的兜底：容器不会走到这里
@@ -280,13 +287,9 @@ impl Serializer for NodeSerializer {
     fn serialize_i64(self, v: i64) -> Result<Node, Error> {
         Ok(Node::Int(v))
     }
-    // `Value` 那条路对超范围的整数是**拒收**；这里直出文本，可以保真写出。
-    // 代价是 SML 回读得到 Str（见模块文档）。
+    // 与 `Value` 写入路径同口径：超 i64 **拒收**，不保真写裸词（回读会变 `Str`）。
     fn serialize_i128(self, v: i128) -> Result<Node, Error> {
-        Ok(match i64::try_from(v) {
-            Ok(i) => Node::Int(i),
-            Err(_) => Node::BigInt(v.to_string()),
-        })
+        i64::try_from(v).map(Node::Int).map_err(|_| int_out_of_range(v))
     }
     fn serialize_u8(self, v: u8) -> Result<Node, Error> {
         Ok(Node::Int(v as i64))
@@ -298,16 +301,10 @@ impl Serializer for NodeSerializer {
         Ok(Node::Int(v as i64))
     }
     fn serialize_u64(self, v: u64) -> Result<Node, Error> {
-        Ok(match i64::try_from(v) {
-            Ok(i) => Node::Int(i),
-            Err(_) => Node::BigInt(v.to_string()),
-        })
+        i64::try_from(v).map(Node::Int).map_err(|_| int_out_of_range(v))
     }
     fn serialize_u128(self, v: u128) -> Result<Node, Error> {
-        Ok(match i64::try_from(v) {
-            Ok(i) => Node::Int(i),
-            Err(_) => Node::BigInt(v.to_string()),
-        })
+        i64::try_from(v).map(Node::Int).map_err(|_| int_out_of_range(v))
     }
     fn serialize_f32(self, v: f32) -> Result<Node, Error> {
         Ok(Node::Float(v as f64))
