@@ -127,6 +127,10 @@ Confirm the reading with the user before writing any code.
   门面 `swsml` 基本没动），建议**按 crate 分批**，每批一个提交。
 - **另一笔（不是双语化，是补写）**：`Object` 的 14 个方法与 `serde_bridge` 的
   `#[cfg(not(feature = "sml"))]` 版 `to_string` **完全没有 doc** —— 见 `HANDOFF` 的 **R11**。
+  ✅ **2026-11-02 已补（`c661f5a`）**：连 `Value` 枚举**本身**、`Map` 两个 cfg 别名、
+  `Null`/`Bool`/`Int`/`Str`/`Array` 五个变体一并从零写（共 18 处）。
+  ⚠️ 刻意**不加 doctest**：桩函数在默认档下不编译，只在 `cfg(not(sml))` 里成立的例子
+  会重演 W16「名义存在、从不运行」。剩余同类欠账见 HANDOFF R11 的「还没动」清单。
 - **纪律 / 2026-10-31**：此笔**只动注释、不动逻辑**；改动与任何逻辑 diff 拆开独立提交。
 - **进展（2026-10-31 第一批，核心公开面）**：✅ `sml-value/src/lib.rs` 模块 doc + 公开项注解
   已由纯中文改为「English ｜ 中文」双语（中文照留，符合「还是支持中文」）；
