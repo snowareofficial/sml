@@ -17,8 +17,8 @@
   `parse_with` 返回 `Ok(ParseOutput)`，`errors: Vec<SmlError>` 收集解析期全部错误（上限 64），
   `value` 为尽力而为的部分结果；块/数组内按**同步点**恢复继续（块：同层新字段 / `@` / `}` / EOF；
   数组：同层 `,` / `]` / EOF），无进展即停防死循环。默认 `false` ⇒ 遇错即停，既有行为逐字不变。
-  用例 `rust/tests/parse_multi_errors.rs`（4 条：多错 / 默认不变 / 合法零错 / 嵌套恢复）。
-  残余：`finish_block`（契约应用 / 悬空 `@when`）与 `@for` 子解析器的错误仍**按致命处理**（不并入 `errors`）。
+  用例 `rust/tests/parse_multi_errors.rs`（5 条：多错 / 默认不变 / 合法零错 / 嵌套恢复 / 契约收尾）。
+  残余：仅 `@for` 子解析器的错误仍**按致命处理**（`finish_block` 的契约应用 / 悬空 `@when` 错误已并入 `errors`）。
 - [x] **LSP server**：`editors/lsp/server.mjs` 已实现 diagnostics / completion /
       definition / hover —— 2026-09-18 更正勾选状态（此前未勾但实际已做）
 - [x] **跳转到契约定义（VSCode 侧已补齐，2026-09-18）**：`editors/vscode/src/sml-parse.mjs`

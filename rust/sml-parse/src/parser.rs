@@ -1732,7 +1732,12 @@ impl Parser {
         //（例如把 `@when` 写在了块末尾，或条件本想作用于块内却被写到了块外）。
         // 静默忽略会让作者以为条件生效了，故显式报错。
         if state.pending_when.is_some() {
-            return Err(SmlError::new(E_PARSE_017, "sml: `@when` 后未跟随任何字段/块；它只作用于紧邻的下一个字段/块"));
+            let e = SmlError::new(E_PARSE_017, "sml: `@when` 后未跟随任何字段/块；它只作用于紧邻的下一个字段/块");
+            if self.collect_errors {
+                self.push_error(e);
+            } else {
+                return Err(e);
+            }
         }
         let BlockFrame { mut node, applied_contracts, bare, .. } = state;
         // 块结束：若声明了 `@is`，应用契约（填默认值 + 校验 + 严格性检查）。
@@ -1744,21 +1749,39 @@ impl Parser {
                 let hint = suggest_contract_name(cname, &self.contracts)
                     .map(|c| format!("（你是不是想写 `{c}`？）"))
                     .unwrap_or_default();
-                let mut c = self.contracts.get(cname).cloned().ok_or_else(|| {
-                    SmlError::new(E_CONTRACT_001, format!("sml: 未定义的契约 `{}`{}", cname, hint))
-                })?;
-                // D4①：块级显式覆盖 > 契约级声明（本块把有效严格度降到 `ov`）
-                if let Some(s) = ov {
-                    c.strictness = *s;
+                match self.contracts.get(cname).cloned() {
+                    Some(mut c) => {
+                        // D4①：块级显式覆盖 > 契约级声明（本块把有效严格度降到 `ov`）
+                        if let Some(s) = ov {
+                            c.strictness = *s;
+                        }
+                        let mut ws = Vec::new();
+                        match apply_contract(&c, &mut node, &self.contracts, &self.ns_prefix(), &mut ws) {
+                            Ok(()) => self.record_contract_warnings(ws),
+                            Err(e) if self.collect_errors => self.push_error(e),
+                            Err(e) => return Err(e),
+                        }
+                    }
+                    None => {
+                        let e = SmlError::new(
+                            E_CONTRACT_001,
+                            format!("sml: 未定义的契约 `{}`{}", cname, hint),
+                        );
+                        if self.collect_errors {
+                            self.push_error(e);
+                        } else {
+                            return Err(e);
+                        }
+                    }
                 }
-                let mut ws = Vec::new();
-                apply_contract(&c, &mut node, &self.contracts, &self.ns_prefix(), &mut ws)?;
-                self.record_contract_warnings(ws);
             } else if applied_contracts.len() > 1 {
                 // 多契约：叠加（D3/D4②：strict 优先、顺序无关、字段并集、冲突 ⇒ E-CONTRACT-016）
                 let mut ws = Vec::new();
-                apply_contracts(&applied_contracts, &mut node, &self.contracts, &self.ns_prefix(), &mut ws)?;
-                self.record_contract_warnings(ws);
+                match apply_contracts(&applied_contracts, &mut node, &self.contracts, &self.ns_prefix(), &mut ws) {
+                    Ok(()) => self.record_contract_warnings(ws),
+                    Err(e) if self.collect_errors => self.push_error(e),
+                    Err(e) => return Err(e),
+                }
             }
         }
         // 契约映射：本块（路径 = path_stack，开帧时已把键/下标压好）应用了哪些契约。
@@ -1773,7 +1796,11 @@ impl Parser {
             if !is_root {
                 self.ns_stack.pop();
             }
-            self.finish_bare_block(&mut node, bare)?;
+            match self.finish_bare_block(&mut node, bare) {
+                Ok(()) => {}
+                Err(e) if self.collect_errors => self.push_error(e),
+                Err(e) => return Err(e),
+            }
         }
         if !is_root {
             self.path_stack.pop();
