@@ -296,6 +296,10 @@ pub const W_LINT_003: &str = "W-LINT-003";
 pub const W_LINT_004: &str = "W-LINT-004";
 /// [W-LINT-005] 嵌套超过建议阈值：嵌套深度已超过建议阈值
 pub const W_LINT_005: &str = "W-LINT-005";
+/// [W-PARSE-001] 同一块内键名重复：同一块内键名重复：后者已提升为数组（结构被改写）
+pub const W_PARSE_001: &str = "W-PARSE-001";
+/// [W-PARSE-002] 片段展开覆盖父块键：片段展开覆盖了父块已有的同名键：父块原值丢失
+pub const W_PARSE_002: &str = "W-PARSE-002";
 
 /// 全部错误码，按 id 升序（码表里就是按 id 排序的）。
 pub const ALL: &[&str] = &[
@@ -443,7 +447,9 @@ pub const ALL: &[&str] = &[
     W_LINT_003,
     W_LINT_004,
     W_LINT_005,
+    W_PARSE_001,
+    W_PARSE_002,
 ];
 
 /// 码总数（与 `errors/codes.sml` 的 `count` 对齐）。
-pub const COUNT: usize = 144;
+pub const COUNT: usize = 146;

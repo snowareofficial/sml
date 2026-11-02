@@ -171,6 +171,8 @@ static const struct SmlErrorMsg SML_ERROR_MSGS[] = {
     { "W-LINT-003", "warning", "LINT", "同一块内键名重复", "键在同一块内重复，后者会覆盖前者", "Duplicate key in the same block", "A key is duplicated within the same block; the later one overrides the former" },
     { "W-LINT-004", "warning", "LINT", "字段是空值", "字段是空值", "Field is null", "The field is null" },
     { "W-LINT-005", "warning", "LINT", "嵌套超过建议阈值", "嵌套深度已超过建议阈值", "Nesting exceeds suggested threshold", "Nesting depth has exceeded the suggested threshold" },
+    { "W-PARSE-001", "warning", "PARSE", "同一块内键名重复", "同一块内键名重复：后者已提升为数组（结构被改写）", NULL, NULL },
+    { "W-PARSE-002", "warning", "PARSE", "片段展开覆盖父块键", "片段展开覆盖了父块已有的同名键：父块原值丢失", NULL, NULL },
     { NULL, NULL, NULL, NULL, NULL, NULL, NULL } /* 哨兵 */
 };
 

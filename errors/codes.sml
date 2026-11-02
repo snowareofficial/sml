@@ -203,6 +203,15 @@ codes: [
       impls: [ rust ] status: done
       note: "W16 新增（用户已授权自动新增码）。报告方是 `sml-include` 的 regex-include（`include /re/`）：此前 `sml-regex` 对非法模式一律**静默判「不匹配」** —— 于是「模式写错了」表现成「目录里没有匹配的文件」，用户查不出原因（与 E-LIMIT-002 / E-LIMIT-007 是同一族：引擎层静默、上层无从判断）。引擎层是零依赖的 `sml-regex`，它只报**原因**（`RegexError`），码由 `sml-include` 映射成 —— 与各端「引擎给原因、上层给码」的分层一致。其余四端没有这个受限正则引擎（C++/Lua 的 regex-include 走 E-FEATURE-001 明确拒绝）" }
 
+    { id: W-PARSE-001 domain: PARSE severity: W title: "同一块内键名重复"
+      msg: "同一块内键名重复：后者已提升为数组（结构被改写）"
+      impls: [ rust ] status: partial
+      note: "解析期诊断，经 `parse_with_warnings` / `parse_file_with_warnings` 交出、带行号；语义不变（SML 既定：`k: 1` + `k: 2` ⇒ `k: [1, 2]`）。与工具层 W-LINT-003 的分域：本条是**解析器**在文档里真的发生了提升时产出；W-LINT-003 是 `smltools --lint` 的纯文本扫描（不解析）。其余四端解析器无诊断通道，故 status: partial" }
+    { id: W-PARSE-002 domain: PARSE severity: W title: "片段展开覆盖父块键"
+      msg: "片段展开覆盖了父块已有的同名键：父块原值丢失"
+      impls: [ rust ] status: partial
+      note: "`&name` 合并走直接赋值、**不走**数组提升 ⇒ 丢值（危险度高于 W-PARSE-001）。同样经 `*_with_warnings` 交出、带行号；其余四端无诊断通道" }
+
     # ================= 深度与预算上限（语言层） =================
     { id: E-LIMIT-001 domain: LIMIT severity: E title: "嵌套过深"
       msg: "嵌套过深，超过本实现的上限层数，疑似递归或恶意输入"

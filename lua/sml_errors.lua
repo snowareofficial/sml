@@ -150,6 +150,8 @@ M.ZH = {
   ["W-LINT-003"] = { severity = "warning", domain = "LINT", title = "同一块内键名重复", msg = "键在同一块内重复，后者会覆盖前者" },
   ["W-LINT-004"] = { severity = "warning", domain = "LINT", title = "字段是空值", msg = "字段是空值" },
   ["W-LINT-005"] = { severity = "warning", domain = "LINT", title = "嵌套超过建议阈值", msg = "嵌套深度已超过建议阈值" },
+  ["W-PARSE-001"] = { severity = "warning", domain = "PARSE", title = "同一块内键名重复", msg = "同一块内键名重复：后者已提升为数组（结构被改写）" },
+  ["W-PARSE-002"] = { severity = "warning", domain = "PARSE", title = "片段展开覆盖父块键", msg = "片段展开覆盖了父块已有的同名键：父块原值丢失" },
 }
 
 M.EN = {

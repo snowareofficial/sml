@@ -17,7 +17,7 @@
     "MIGRATE": "迁入格式（JSON / TOML / YAML / XML）",
     "PARSE": "语法"
   },
-  "count": 144,
+  "count": 146,
   "codes": [
     {
       "id": "E-CLI-001",
@@ -1912,6 +1912,30 @@
       ],
       "status": "done",
       "note": "建议阈值低于解析上限（E-LIMIT-001）：这条只提醒可读性，不是拒绝"
+    },
+    {
+      "id": "W-PARSE-001",
+      "severity": "warning",
+      "domain": "PARSE",
+      "title": "同一块内键名重复",
+      "msg": "同一块内键名重复：后者已提升为数组（结构被改写）",
+      "impls": [
+        "rust"
+      ],
+      "status": "partial",
+      "note": "解析期诊断，经 `parse_with_warnings` / `parse_file_with_warnings` 交出、带行号；语义不变（SML 既定：`k: 1` + `k: 2` ⇒ `k: [1, 2]`）。与工具层 W-LINT-003 的分域：本条是**解析器**在文档里真的发生了提升时产出；W-LINT-003 是 `smltools --lint` 的纯文本扫描（不解析）。其余四端解析器无诊断通道，故 status: partial"
+    },
+    {
+      "id": "W-PARSE-002",
+      "severity": "warning",
+      "domain": "PARSE",
+      "title": "片段展开覆盖父块键",
+      "msg": "片段展开覆盖了父块已有的同名键：父块原值丢失",
+      "impls": [
+        "rust"
+      ],
+      "status": "partial",
+      "note": "`&name` 合并走直接赋值、**不走**数组提升 ⇒ 丢值（危险度高于 W-PARSE-001）。同样经 `*_with_warnings` 交出、带行号；其余四端无诊断通道"
     }
   ]
 }
