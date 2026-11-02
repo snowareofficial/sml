@@ -62,6 +62,7 @@ impl Default for XmlOptions {
 }
 
 impl XmlOptions {
+    /// All defaults: root tag `root`; the same options drive both [`to_xml`] and [`to_lvgl`] ｜ 全默认值：根标签 `root`；[`to_xml`] 与 [`to_lvgl`] 共用这一份选项。
     pub fn new() -> Self {
         Self::default()
     }

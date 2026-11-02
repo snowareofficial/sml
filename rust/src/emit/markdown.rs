@@ -210,6 +210,7 @@ impl Default for MarkdownOptions {
 }
 
 impl MarkdownOptions {
+    /// All defaults: task lists **on**, math / HTML passthrough **off** ｜ 全默认值：任务列表**开**，数学块与 HTML 透传**关**。
     pub fn new() -> Self {
         Self::default()
     }

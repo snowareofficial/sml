@@ -100,6 +100,7 @@ impl Default for EmitOptions {
 }
 
 impl EmitOptions {
+    /// Defaults: escaping on, full document, indent 2 ｜ 默认值：转义开、生成完整文档、缩进 2。
     pub fn new() -> Self {
         Self::default()
     }

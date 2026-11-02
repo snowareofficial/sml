@@ -74,6 +74,7 @@ fn is_numeric_svg_attr(k: &str) -> bool {
     )
 }
 
+/// SVG backend options; the shared half lives in `base` ｜ SVG 后端选项；公共部分在 `base` 里（转义 / 完整文档 / 缩进）。
 #[derive(Debug, Clone)]
 pub struct SvgOptions {
     pub base: EmitOptions,
@@ -94,11 +95,20 @@ impl Default for SvgOptions {
 }
 
 impl SvgOptions {
+    /// All defaults: auto `xmlns`, default `viewBox` `0 0 100 100` ｜ 全默认值：自动注入 `xmlns`、默认 `viewBox` 为 `0 0 100 100`。
     pub fn new() -> Self {
         Self::default()
     }
 }
 
+/// SML value → SVG text ｜ SML 值 → SVG 文本。
+///
+/// 顶层逐键输出；键名是 `svg`、或顶层对象**只有一个键**时，该键被视为根节点
+/// （后者是为了让 `<svg>` 之外的单根写法也能出全图）。
+///
+/// **唯一的错误出口**是嵌套超过 [`MAX_VALUE_DEPTH`] ⇒ `E-LIMIT-004`（emit 侧逐层自查，
+/// 不靠栈溢出兜底）。非法标签名/属性名只做清洗后照写，**不**报错 —— 想要严格校验，
+/// 那是契约层（`sml-contract`）的事。
 pub fn to_svg(v: &Value, opt: &SvgOptions) -> Result<String, SmlError> {
     let mut out = String::new();
     if opt.base.standalone {

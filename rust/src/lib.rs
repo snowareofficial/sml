@@ -291,6 +291,18 @@ pub use swsml_derive::{SmlDeserialize, SmlSerialize};
 // `from_str` 需要解析器，故在本 crate 实现（sml-value 不能反向依赖 sml-parse）。
 #[cfg(feature = "serde")]
 pub mod serde {
+    //! serde bridge: convert between [`crate::Value`] and any `Serialize` / `Deserialize` type ｜ serde 桥接：在 [`crate::Value`] 与任意 `Serialize` / `Deserialize` 类型之间互转。
+    //!
+    //! 与 derive 体系的 `sml::to_string` / `sml::from_str`（基于 `SmlSerialize` trait）
+    //! 是**两套**互不相干的东西：这套走 `serde`，需要 `serde` feature。
+    //!
+    //! 入口分界：
+    //!
+    //! - [`from_value`] / [`to_value`]：`Value` ↔ 宿主类型，**不需要**任何文本；
+    //! - [`to_string`]：`Serialize` → SML 文本（内部经 `Value`，还需 `sml` feature）；
+    //! - [`to_string_direct`]：`Serialize` → SML 文本，**不经** `Value` 中转（需 `sml` feature）；
+    //! - [`from_str`]：SML 文本 → `Deserialize` 类型（在本 crate 实现，因为解析器在 `sml-parse`，
+    //!   而 `sml-value` 不能反向依赖它）。
     pub use sml_value::serde::{from_value, to_string, to_value};
 
     /// Emit SML directly without going through `Value` — needs `sml` feature ｜ 直出 SML 文本（不经 `Value` 中转）—— 需要 `sml` feature。

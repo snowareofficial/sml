@@ -49,6 +49,7 @@ impl Default for LatexOptions {
 }
 
 impl LatexOptions {
+    /// All defaults: `article`, full document, math passthrough **off** ｜ 全默认值：`article`、完整文档、数学透传**关**。
     pub fn new() -> Self {
         Self::default()
     }
@@ -145,6 +146,14 @@ fn sanitize_documentclass(s: &str) -> String {
     }
 }
 
+/// SML value → LaTeX text ｜ SML 值 → LaTeX 文本。
+///
+/// 要拿到**完整文档**（`\documentclass` + `\begin{document}` 包裹）必须
+/// `full_document` **与** `base.standalone` **同时**为真 —— 只设一个得到的是片段。
+/// 这条曾被当成「flag 失效」排查过，两个开关是**与**关系，不是或。
+///
+/// 错误：嵌套超过 [`MAX_VALUE_DEPTH`] ⇒ `E-LIMIT-004`；危险原语
+/// （`\write18` / `\input` 等，见 `latex.rs` 顶部清单）⇒ `E-CLI-007`。
 pub fn to_latex(v: &Value, opt: &LatexOptions) -> Result<String, SmlError> {
     let mut out = String::new();
     if opt.full_document && opt.base.standalone {
