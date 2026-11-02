@@ -544,6 +544,9 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
     原生栈深度恒定。`.wtw/iter-parse` 是并行旧工作树，内容已被主干覆盖；
     2026-11-02 以 `git merge -s ours` 记录合并（`9e4a9b4`，双亲 `25da74a` + `de3dcb5`），分支关系已闭合
     （此前 `merge-base --is-ancestor` 判 NOT_MERGED 只因 `9f7d528` 是 squash 落地，非 merge 提交）。
+    工作树 `.wtw/iter-parse` 与分支已于同日删除；删除前把其中**未提交的 I-16 四级版本门槛方案**
+    搬入 `IDEAS.md` I-16 与本节 §六·〇（其余脏改动——`workspace.package.version` 统一、unused 清理——
+    主干早已具备）。
   - ❌ ① 降低 `MAX_VALUE_DEPTH` —— **不做**：128 是五端实测钉住的边界，改要五端同步。
 - **验收（2026-11-02 已闭）**：新增 `rust/tests/stack_default.rs`（显式 2 MiB，非 32 MiB）实测通过。
   以下为历史复核记录（旧的 32 MiB 包装仍在 `error_codes.rs` / `emit.rs`，属冗余包装，可择机去掉）：
