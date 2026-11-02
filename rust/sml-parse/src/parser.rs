@@ -350,7 +350,7 @@ impl Parser {
     #[cfg(feature = "when")]
     fn slice_block_tokens(&mut self) -> Result<Vec<Tok>, SmlError> {
         if self.peek() != Some(&Tok::LBrace) {
-            return Err(SmlError::new(E_PARSE_018, "sml: `@for` 后须 `{ ... }` 循环体"));
+            return Err(SmlError::from_code_title(E_PARSE_018).with_detail("`@for` 后须 `{ ... }` 循环体"));
         }
         self.next(); // 消费 '{'
         let mut depth = 1usize;
@@ -358,9 +358,8 @@ impl Parser {
         loop {
             match self.next() {
                 None => {
-                    return Err(SmlError::new(E_PARSE_001, 
-                        "sml: `@for` 循环体未闭合（遇到文件结尾，缺少结束符号 }）",
-                    ))
+                    return Err(SmlError::from_code_msg(E_PARSE_001)
+                        .with_detail("`@for` 循环体未闭合（缺少结束符号 }）"))
                 }
                 Some(Tok::LBrace) => {
                     depth += 1;
@@ -523,7 +522,7 @@ impl Parser {
                 None => {
                     // 契约体未闭合（缺 `}` 即遇到文件结尾）：必须报错，否则后续顶层
                     // key 会被错位吞进契约体，最终主文档静默清空（P0-1）。
-                    return Err(SmlError::new(E_PARSE_001, "sml: 契约体未闭合（缺少结束符号 }）"));
+                    return Err(SmlError::from_code_msg(E_PARSE_001).with_detail("契约体未闭合（缺少结束符号 }）"));
                 }
                 Some(Tok::Comma) => {
                     self.next();
@@ -533,7 +532,7 @@ impl Parser {
                     self.next(); // 消费 @
                     let dir = match self.next() {
                         Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
-                        _ => return Err(SmlError::new(E_PARSE_011, "sml: @ 后需指令名")),
+                        _ => return Err(SmlError::from_code_msg(E_PARSE_011)),
                     };
                     if dir == "requires" {
                         // 收集特性名：逗号 / 空格两种批量（与 `@feature enable` 一致，已实测均支持）。
@@ -640,7 +639,7 @@ impl Parser {
                 "any" => TypeSpec::Any,
                 "enum" => {
                     if self.peek() != Some(&Tok::LBrack) {
-                        return Err(SmlError::new(E_PARSE_023, "sml: `enum` 后须为 [ ... ]"));
+                        return Err(SmlError::from_code_msg(E_PARSE_023).with_detail("`enum` 后须为 [ ... ]"));
                     }
                     self.next();
                     let mut vals = Vec::new();
@@ -706,10 +705,8 @@ impl Parser {
                     if let Some(pat) = self.types.get(other) {
                         let compiled = sml_pattern::compile_rule(pat, &self.types)
                             .map_err(|e| {
-                                SmlError::new(
-                                    E_CONTRACT_013,
-                                    format!("sml: 类型 `{other}` 的模式编译失败：{e}"),
-                                )
+                                SmlError::from_code_title(E_CONTRACT_013)
+                                    .with_detail(format!("类型 `{other}` 的模式编译失败：{e}"))
                             })?;
                         TypeSpec::Pattern {
                             name: other.to_string(),
@@ -744,13 +741,13 @@ impl Parser {
                                     TypeSpec::Ext(other.to_string())
                                 }
                                 None => {
-                                    return Err(SmlError::new(E_CONTRACT_012, format!("sml: 未知数组元素类型 `{}`", other)))
+                                    return Err(SmlError::from_code_title(E_CONTRACT_012).with_detail(format!("`{other}`")))
                                 }
                             }
                         }
                     },
                     other => {
-                        return Err(SmlError::new(E_PARSE_006, format!("sml: 数组元素类型期望标识符, 得 {:?}", other)))
+                        return Err(SmlError::from_code_title(E_PARSE_006).with_detail(format!("数组元素类型期望标识符，得 {other:?}")))
                     }
                 };
                 if self.peek() == Some(&Tok::RBrack) {
@@ -758,7 +755,7 @@ impl Parser {
                 }
                 TypeSpec::Array(Box::new(inner))
             }
-            other => return Err(SmlError::new(E_PARSE_006, format!("sml: 字段类型期望标识符, 得 {:?}", other))),
+            other => return Err(SmlError::from_code_title(E_PARSE_006).with_detail(format!("字段类型期望标识符，得 {other:?}"))),
         };
 
         // 修饰符：required / optional / default <值> / min <数> / max <数>
@@ -797,7 +794,7 @@ impl Parser {
                             )?,
                             Some(Tok::Str(s)) => Value::Str(s),
                             other => {
-                                return Err(SmlError::new(E_PARSE_021, format!("sml: default 期望值, 得 {:?}", other)))
+                                return Err(SmlError::from_code_title(E_PARSE_021).with_detail(format!("default 期望值，得 {other:?}")))
                             }
                         });
                     }
@@ -837,7 +834,7 @@ impl Parser {
         for (m, v) in pending_mods {
             // 外置修饰符的解析期钩子：失败原因由注册方给出，这里补上码。
             m.apply(&mut spec, &v)
-                .map_err(|e| SmlError::new(E_CONTRACT_011, e))?;
+                .map_err(|e| SmlError::from_code_title(E_CONTRACT_011).with_detail(e))?;
             spec.ext_data.insert(m.name().to_string(), v);
             spec.mods.push(m);
         }
@@ -869,7 +866,7 @@ impl Parser {
                 self.next();
                 self.parse_array()
             }
-            other => Err(SmlError::new(E_EXT_005, format!("sml: 修饰符期望取值，得 {other:?}"))),
+            other => Err(SmlError::from_code_title(E_EXT_005).with_detail(format!("修饰符期望取值，得 {other:?}"))),
         }
     }
 
@@ -878,16 +875,16 @@ impl Parser {
             Some(Tok::Word(w)) => {
                 let f = w
                     .parse::<f64>()
-                    .map_err(|_| SmlError::new(E_PARSE_022, format!("sml: 期望数字, 得 `{}`", w)))?;
+                    .map_err(|_| SmlError::from_code_title(E_PARSE_022).with_detail(format!("期望数字，得 `{w}`")))?;
                 // 拒绝 NaN/inf 作为边界：Rust 的 "nan".parse::<f64>() == Ok(NaN)，
                 // 而 NaN 的所有比较均为 false，会让 min/max 校验被静默绕过
                 // （审计 #2）。
                 if !f.is_finite() {
-                    return Err(SmlError::new(E_CONTRACT_010, format!("sml: 数字边界必须为有限值, 得 `{}`", w)));
+                    return Err(SmlError::from_code_title(E_CONTRACT_010).with_detail(format!("数字边界必须为有限值，得 `{w}`")));
                 }
                 Ok(f)
             }
-            other => Err(SmlError::new(E_PARSE_022, format!("sml: 期望数字, 得 {:?}", other))),
+            other => Err(SmlError::from_code_title(E_PARSE_022).with_detail(format!("期望数字，得 {other:?}"))),
         }
     }
 
@@ -935,7 +932,7 @@ impl Parser {
         self.next();
         let fname = match self.next() {
             Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
-            _ => return Err(SmlError::new(E_PARSE_011, "sml: @ 后需片段名")),
+            _ => return Err(SmlError::from_code_msg(E_PARSE_011)),
         };
         if self.peek() == Some(&Tok::Colon) {
             self.next();
@@ -1086,12 +1083,12 @@ impl Parser {
         // —— 契约应用：`@is Name` 或 `@is a, b, c`（叠加）——
         if fname == "is" {
             if !self.features.has(Feature::Contract) {
-                return Err(SmlError::new(E_FEATURE_001, "@is 需要特性 `contract`，但当前特性集已禁用"));
+                return Err(SmlError::from_code_msg(E_FEATURE_001).with_detail("`contract`"));
             }
             let raw = match self.next() {
                 Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
                 other => {
-                    return Err(SmlError::new(E_PARSE_019, format!("sml: @is 后须契约名, 得 {:?}", other)))
+                    return Err(SmlError::from_code_title(E_PARSE_019).with_detail(format!("@is 后须契约名，得 {other:?}")))
                 }
             };
             // —— 多契约收集（D1，TASK-agent-w24 §2）——
@@ -1478,10 +1475,9 @@ impl Parser {
                             }
                         }
                         other => {
-                            return Err(SmlError::new(E_INCLUDE_007, format!(
-                                "sml: 片段 `{}` 展开结果不是对象，无法合并: {:?}",
-                                key, other
-                            )));
+                            return Err(SmlError::from_code_title(E_INCLUDE_007).with_detail(
+                                format!("片段 `{key}` 展开结果不是对象，无法合并: {other:?}"),
+                            ));
                         }
                     }
                     return Ok(Step::Continue);
@@ -1521,10 +1517,8 @@ impl Parser {
         // 口径（各端一致，**已实测钉住**）：`depth` 是「进入首帧**前**已进入的层数」
         // （根为 0），故允许 `depth == MAX_VALUE_DEPTH` —— 第 128 层放行、第 129 层报此码。
         if self.depth > MAX_VALUE_DEPTH {
-            return Err(SmlError::new(E_LIMIT_001, format!(
-                "sml: 嵌套过深（超过 {} 层），疑似递归或恶意输入",
-                MAX_VALUE_DEPTH
-            )));
+            return Err(SmlError::from_code_msg(E_LIMIT_001)
+                .with_detail(format!("超过 {MAX_VALUE_DEPTH} 层")));
         }
         self.depth += 1;
         let mut stack = vec![root];
@@ -1571,10 +1565,8 @@ impl Parser {
                 }
                 Step::Open(child) => {
                     if self.depth > MAX_VALUE_DEPTH {
-                        return Err(SmlError::new(E_LIMIT_001, format!(
-                            "sml: 嵌套过深（超过 {} 层），疑似递归或恶意输入",
-                            MAX_VALUE_DEPTH
-                        )));
+                        return Err(SmlError::from_code_msg(E_LIMIT_001)
+                            .with_detail(format!("超过 {MAX_VALUE_DEPTH} 层")));
                     }
                     self.depth += 1;
                     stack.push(child);
@@ -1700,7 +1692,7 @@ impl Parser {
         //（例如把 `@when` 写在了块末尾，或条件本想作用于块内却被写到了块外）。
         // 静默忽略会让作者以为条件生效了，故显式报错。
         if state.pending_when.is_some() {
-            let e = SmlError::new(E_PARSE_017, "sml: `@when` 后未跟随任何字段/块；它只作用于紧邻的下一个字段/块");
+            let e = SmlError::from_code_msg(E_PARSE_017);
             if self.collect_errors {
                 self.push_error(e);
             } else {
@@ -1731,10 +1723,8 @@ impl Parser {
                         }
                     }
                     None => {
-                        let e = SmlError::new(
-                            E_CONTRACT_001,
-                            format!("sml: 未定义的契约 `{}`{}", cname, hint),
-                        );
+                        let e = SmlError::from_code_title(E_CONTRACT_001)
+                            .with_detail(format!("`{cname}`{hint}"));
                         if self.collect_errors {
                             self.push_error(e);
                         } else {
@@ -1840,12 +1830,10 @@ impl Parser {
                     let hint = suggest_contract_name(w, &self.contracts)
                         .map(|c| format!("（你是不是想写 `{c}`？）"))
                         .unwrap_or_default();
-                    return Err(SmlError::new(
-                        E_CONTRACT_001,
+                    return Err(SmlError::from_code_title(E_CONTRACT_001).with_detail(
                         format!(
-                            "sml: 块级标注 `{key}` 后的 `{w}` 不是已定义的契约；\
-                             若本意是把它作为块名，请先 `@feature enable block-name`{}",
-                            hint
+                            "块级标注 `{key}` 后的 `{w}` 不是已定义的契约；\
+                             若本意是把它作为块名，请先 `@feature enable block-name`{hint}"
                         ),
                     ));
                 }
@@ -1860,7 +1848,7 @@ impl Parser {
                     .map(|c| format!("（你是不是想写 `{c}`？）"))
                     .unwrap_or_default();
                 let c = self.contracts.get(cname).cloned().ok_or_else(|| {
-                    SmlError::new(E_CONTRACT_001, format!("sml: 未定义的契约 `{}`{}", cname, hint))
+                    SmlError::from_code_title(E_CONTRACT_001).with_detail(format!("`{cname}`{hint}"))
                 })?;
                 let mut ws = Vec::new();
                 apply_contract(&c, m, &self.contracts, &self.ns_prefix(), &mut ws)?;
@@ -2001,10 +1989,8 @@ impl Parser {
                         // 引号串承认 `${var}`（@for 循环变量）与 `$env.NAME` 内联插值。受
                         // `Feature::Env` 约束（与裸词路径一致，否则盗用引号串绕过限制）。
                         if s.contains("$env.") && !self.features.has(Feature::Env) {
-                            return Err(SmlError::new(E_FEATURE_002, format!(
-                                "sml: 当前特性集禁用了 `$env`（env），字符串 `\"{}\"` 无法解析",
-                                s
-                            )));
+                            return Err(SmlError::from_code_msg(E_FEATURE_002)
+                                .with_detail(format!("字符串 `\"{s}\"` 无法解析")));
                         }
                         Value::Str(self.interp_str(&s))
                     }
@@ -2027,7 +2013,7 @@ impl Parser {
                     )?))
                 }
             }
-            _ => Err(SmlError::new(E_PARSE_012, "sml: 语法错误")),
+            _ => Err(SmlError::from_code_msg(E_PARSE_012)),
         }
     }
 
@@ -2056,7 +2042,7 @@ impl Parser {
             }
         }
         if self.peek() != Some(&Tok::LBrace) {
-            return Err(SmlError::new(E_PARSE_012, "sml: 语法错误"));
+            return Err(SmlError::from_code_msg(E_PARSE_012));
         }
         self.next();
         // 进入子块 = 进入该 block 名字的命名空间
@@ -2076,12 +2062,12 @@ impl Parser {
     /// 数组帧单步推进（等价旧 `parse_array_inner` 的循环体分成立）。
     fn array_step(&mut self, arr: &mut Vec<Value>) -> Result<Step, SmlError> {
         match self.peek() {
-            None => Err(SmlError::new(E_PARSE_001, "sml: 未闭合的数组（遇到文件结尾，缺少结束符号 ]）")),
+            None => Err(SmlError::from_code_msg(E_PARSE_001).with_detail("缺少结束符号 ]")),
             Some(&Tok::RBrack) => {
                 self.next();
                 Ok(Step::Finish)
             }
-            Some(&Tok::RBrace) => Err(SmlError::new(E_PARSE_003, "sml: 多余的结束符号 }（数组应以 ] 闭合）")),
+            Some(&Tok::RBrace) => Err(SmlError::from_code_title(E_PARSE_003).with_detail("}（数组应以 ] 闭合）")),
             Some(&Tok::Comma) => {
                 self.next();
                 Ok(Step::Continue)
@@ -2172,9 +2158,8 @@ impl Parser {
     #[cfg(feature = "when")]
     fn parse_for_value(&mut self) -> Result<Value, SmlError> {
         if !self.features.has(Feature::For) {
-            return Err(SmlError::new(E_FEATURE_001, 
-                "sml: `@for` 未启用，需在文档中 `@feature enable for`（或在契约中声明）",
-            ));
+            return Err(SmlError::from_code_msg(E_FEATURE_001)
+                .with_detail("`for`（请 `@feature enable for`）"));
         }
         // 解析 `var in a b c`，游标停在 `{` 处。
         let (var, items) = crate::cond::eval_for_header(self)?;
