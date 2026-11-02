@@ -3,8 +3,10 @@
 // 做成**类型别名**而不是新类型，是为了让下游（sml-contract / sml-parse / swsml /
 // smltools）的写法在两种档位下**同一份源码**都能编译：只要它用到的 `Map` 方法
 // 两档都提供，切换就是换个别名，不是全仓改写（对标 toml-rs 的 `preserve_order`）。
+/// Backing map of `Value::Object`, default build: `BTreeMap`, keys in UTF-8 byte order ｜ `Value::Object` 的载体，默认档：`BTreeMap`，键按 UTF-8 字节序。
 #[cfg(not(feature = "preserve_order"))]
 pub type Map = std::collections::BTreeMap<String, Value>;
+/// Backing map of `Value::Object`, `preserve_order` build: source-order `Object` with a lazy index ｜ `Value::Object` 的载体，`preserve_order` 档：保留源序的 `Object`，查找走惰性索引。
 #[cfg(feature = "preserve_order")]
 pub type Map = crate::object::Object;
 
@@ -15,12 +17,28 @@ pub type Map = crate::object::Object;
 use std::fmt;
 #[cfg(feature = "sml")]
 use crate::dump::to_sml;
+/// A dynamically typed SML value: null / bool / int / float / string / array / object ｜ 动态类型的 SML 值：null / bool / int / float / string / array / object。
+///
+/// 这是全仓的公共值类型：`sml-parse` 产出它，`sml-value::dump` 写回它，
+/// `sml-contract` 按它校验，`swsml::emit` 与 `c_abi` 的值树也以它为节点。
+///
+/// 三个容易踩的点：
+///
+/// - **Float 带原始字面量**：`Float(f64, Option<String>)` 的第二字段只由解析器填，
+///   程序构造一律走 [`Value::float`]，它给 `None`。
+/// - **对象键序**：`Object` 变体的载体是 [`Map`]，默认按键排序，开 `preserve_order`
+///   才保留源序；但**相等性两档都按集合**（见下方 `PartialEq`）。
+/// - **体积有硬上限**：本文件末尾有 `size_of::<Value>() <= 48` 的编译期断言，
+///   往枚举里加字段前先看那条断言与 `object.rs` 里 `Index` 套 `Box` 的注释。
 #[derive(Debug, Clone)]
 pub enum Value {
+    /// No value (the `null` keyword) ｜ 空值（`null` 关键字）。
     Null,
+    /// Boolean ｜ 布尔值。
     Bool(bool),
+    /// 64-bit signed integer; SML has no unsigned integer type ｜ 64 位有符号整数；SML 没有无符号整数类型。
     Int(i64),
-    /// (数值, 原始字面量文本)。
+    /// IEEE-754 double, optionally carrying the literal text it was parsed from ｜ 双精度浮点，可携带解析时的原始字面量文本。
     ///
     /// 第二个字段**仅由解析器**在解析时填充（如 `1e10` → `Some("1e10")`），
     /// 用于让 dump 还原书写形式 —— f64 无法表达「作者写的是科学计数法」，
@@ -33,7 +51,9 @@ pub enum Value {
     /// raw **不参与相等比较**（见下方 PartialEq）：相等性属「值」层面，
     /// 写法只是附加信息。
     Float(f64, Option<String>),
+    /// UTF-8 string ｜ 字符串（UTF-8）。
     Str(String),
+    /// Ordered sequence of values ｜ 值序列（数组，按写入序）。
     Array(Vec<Value>),
     /// Object/block value; `__type` / `__name` raw metadata as reserved keys ｜ 对象/块; `__type` / `__name` 裸块元数据以保留字键存放。
     ///
