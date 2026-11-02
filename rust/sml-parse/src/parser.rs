@@ -1362,10 +1362,8 @@ impl Parser {
                         Some(Tok::RBrack) => "]",
                         _ => unreachable!(),
                     };
-                    return Err(SmlError::new(E_PARSE_001, format!(
-                        "sml: 未闭合的块/数组（遇到文件结尾，缺少结束符号 {}）",
-                        want
-                    )));
+                    return Err(SmlError::from_code_msg(E_PARSE_001)
+                        .with_detail(format!("缺少结束符号 {want}")));
                 }
                 return Ok(Step::Finish);
             }
@@ -1390,14 +1388,12 @@ impl Parser {
                         Tok::RBrack => "]",
                         _ => unreachable!(),
                     };
-                    return Err(SmlError::new(E_PARSE_002, format!(
-                        "sml: 块/数组未正确闭合：期望 {}，却遇到 {}",
-                        want, got
-                    )));
+                    return Err(SmlError::from_code_title(E_PARSE_002)
+                        .with_detail(format!("期望 {want}，却遇到 {got}")));
                 }
                 // 顶层遇到多余的右括号 `}` / `]`：必须报错（之前静默忽略，
                 // 会掩盖作者漏写的 `key:`、错配括号等问题）。
-                return Err(SmlError::new(E_PARSE_003, format!("sml: 多余的结束符号 {}", got)));
+                return Err(SmlError::from_code_title(E_PARSE_003).with_detail(format!("{got}")));
             }
             Some(&Tok::Comma) => {
                 // 逗号在 SML 中只用于对象字段分隔（`k: v, k2: v2`）与数组元素分隔
@@ -1413,16 +1409,12 @@ impl Parser {
                     self.next();
                     return Ok(Step::Continue);
                 }
-                return Err(SmlError::new(E_PARSE_007,
-                    "sml: 非预期的逗号（裸词中不可含逗号，请用 [..] 数组或 \"...\" 引号）",
-                ));
+                return Err(SmlError::from_code_msg(E_PARSE_007));
             }
             // 孤立 `@`：其后没有片段名/指令名。必须报错——否则其后紧跟的
             // 块会被当作片段体消费，导致内容被静默丢弃（不报错）。
             Some(&Tok::BareAt) => {
-                return Err(SmlError::new(E_PARSE_004,
-                    "sml: 孤立的 `@` 不是合法指令；片段定义须写作 `@name { ... }`（`@` 与名字之间不可有空白），或删除该 `@`",
-                ));
+                return Err(SmlError::from_code_msg(E_PARSE_004));
             }
             Some(&Tok::At) => {
                 self.parse_at_directive(&mut frame.node, &mut frame.applied_contracts, &mut frame.pending_when)?;
@@ -1460,10 +1452,7 @@ impl Parser {
                 let looks_like_key_interp =
                     key.contains("${") || (key == "$" && self.peek() == Some(&Tok::LBrace));
                 if looks_like_key_interp {
-                    return Err(SmlError::new(E_PARSE_013,
-                        "sml: 键名位置不支持 `${var}` 插值（@for 的循环变量仅用于值位置）。\
-                         若需动态键，请改用数组表达，例如 `hosts: @for h in a b { name: \"${h}\" }`",
-                    ));
+                    return Err(SmlError::from_code_msg(E_PARSE_013));
                 }
                 let colon = self.peek() == Some(&Tok::Colon);
                 if colon {
