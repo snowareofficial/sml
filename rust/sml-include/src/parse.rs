@@ -14,24 +14,18 @@ use sml_codes::{
 use sml_feature::{Feature, FeatureSet};
 use sml_regex::{compile_regex_checked, regex_matches_checked, RegexError};
 
-/// 值嵌套深度上限：防止 `a{a{a{ ... }}}` 这类深度嵌套触发递归下降的栈溢出。
+/// Max include nesting depth — bounds the recursion and makes absurdly deep chains fail early ｜ 嵌套深度上限。
 ///
-/// 与 [`MAX_INCLUDE_DEPTH`] 互补 —— 后者只保护 include 的文件嵌套，不保护
-/// 单个文档内部块/数组的嵌套。栈溢出在 Rust 中是 abort，
-/// **无法被 catch_unwind 捕获**，因此必须在递归入口主动限深，
-/// 而不是依赖上层错误处理。
-///
-/// 128 层与 serde_json 的 RECURSION_LIMIT 对齐，远超任何真实配置所需。
-
-
-/// 嵌套深度上限：既防栈溢出，也让异常深层的引用尽早失败
+/// 只保护 **include 的文件嵌套**。单个文档内部块 / 数组的嵌套由 `sml_value::MAX_VALUE_DEPTH`
+/// 负责（那条文档此前误挂在这里，2026-11-02 移走）；两者互补，缺一个就会让另一半的
+/// 深度不受限。栈溢出在 Rust 里是 abort、`catch_unwind` 捕获不到，故必须在递归入口主动限深。
 pub const MAX_INCLUDE_DEPTH: usize = 32;
 
-/// 单次 include 展开的总文件读取次数上限（防指数膨胀 DoS）。
+/// Total file-read cap per expansion run (anti exponential-blowup DoS) ｜ 单次 include 展开的总文件读取次数上限。
 /// 仅按「被实际展开的文件个数」计数（非深度），覆盖菱形重复包含导致的 2^N 爆炸。
 pub const MAX_INCLUDE_EXPANSIONS: u64 = 10_000;
 
-/// 剥离行尾注释，正确跳过引号内的 `#`（如 `key: "a#b"` 中的 # 不是注释起点）
+/// Strip a trailing `#` comment, correctly skipping `#` inside quotes (e.g. `key: "a#b"`) ｜ 剥离行尾注释。
 pub fn strip_line_comment(line: &str) -> &str {
     let bytes = line.as_bytes();
     let mut i = 0;
@@ -49,7 +43,7 @@ pub fn strip_line_comment(line: &str) -> &str {
     line
 }
 
-/// 单个 include 目标的解析结果。
+/// Parsed form of a single include target ｜ 单个 include 目标的解析结果。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IncludeTarget {
     /// 相对路径或裸名（无扩展名时按 `implicit-ns` 推导 `as`）。
@@ -68,7 +62,7 @@ pub struct IncludeTarget {
     pub keys: Option<Vec<String>>,
 }
 
-/// 解析一行 include / import 指令，返回 0..N 个目标。
+/// Parse one `include` / `import` directive line; yields 0..N targets ｜ 解析一行 include / import 指令，返回 0..N 个目标。
 ///
 /// 支持形态（逗号分隔多目标，`import` 为 `include` 别名）：
 /// - `include "x.sml"`                普通内联（带扩展名、无 as）
@@ -245,13 +239,15 @@ pub fn parse_include_line(line: &str, features: FeatureSet) -> Result<Option<Vec
     Ok(Some(targets))
 }
 
-/// 从字符串开头提取下一个 token：引号串（支持 `\"` 与 `\\`）或直到空白/逗号/`as` 的裸词。
+/// Pull the next token off the front of `s`: a quoted string (handles `\"` and `\\`) or a bareword up to whitespace / comma / `as` ｜ 从字符串开头提取下一个 token。
 /// 返回 (token 文本, 剩余字符串)。
 pub fn next_token(s: &str) -> Option<(String, &str)> {
     next_token_meta(s).map(|(t, rest, _, _)| (t, rest))
 }
 
-/// 同 [`next_token`]，但**额外报告写法**：`quoted` = 以 `"` 开头；`closed` = 引号串正常闭合
+/// Same as [`next_token`], but also reports **how it was written** ｜ 同 [`next_token`]，但**额外报告写法**。
+///
+/// 两个额外布尔量：`quoted` = token 以 `"` 开头；`closed` = 引号串正常闭合
 /// （非引号 token 恒为 `true`）。
 ///
 /// 为什么需要它：`include` 的路径**必须加引号**（`E-INCLUDE-012`），而「未加引号」与
@@ -297,7 +293,7 @@ pub fn next_token_meta(s: &str) -> Option<(String, &str, bool, bool)> {
     }
 }
 
-/// 解析 `{ a, b, c }` 形式的键列表，返回 (键名集合, 剩余字符串)。
+/// Parse a `{ a, b, c }` key list into (keys, remaining input) ｜ 解析 `{ a, b, c }` 形式的键列表。
 /// 键名可为裸词或引号串。遇到非 `{` 开头时返回错误。
 pub fn parse_key_list(s: &str) -> Result<(Vec<String>, &str), SmlError> {
     let s = s.trim_start();
@@ -329,7 +325,7 @@ pub fn parse_key_list(s: &str) -> Result<(Vec<String>, &str), SmlError> {
     Ok((keys, &body[close + 1..]))
 }
 
-/// 判断一个 `import` 目标是不是**点分模块名**（`ui.buttons` / `admin.panel`）。
+/// Whether an `import` target is a **dotted module name** (`ui.buttons` / `admin.panel`) ｜ 判断一个 `import` 目标是不是**点分模块名**。
 ///
 /// 判据：经 `import` 引入，且既无路径分隔符、又**不显式带 `.sml` 扩展名**。
 /// 与 [`resolve_target_paths`] 判「点当目录层级」的判据同源 —— 两处必须一致，
@@ -348,7 +344,7 @@ pub fn is_dotted_module_name(raw: &str, via_import: bool) -> bool {
     via_import && !raw.contains(std::path::MAIN_SEPARATOR) && !raw.ends_with(".sml")
 }
 
-/// 根据原始路径与可选命名空间，套用 implicit-ns 规则，产出最终目标。
+/// Apply the implicit-ns rules to a raw path plus optional namespace, producing the final target ｜ 根据原始路径与可选命名空间，套用 implicit-ns 规则，产出最终目标。
 pub fn finalize_target(
     raw: String,
     ns: Option<String>,
@@ -389,7 +385,7 @@ pub fn finalize_target(
     }
 }
 
-/// 把一个 include 目标解析为 0..N 个实际文件路径（已相对 `base` 解析、未 canonicalize）。
+/// Resolve one include target into 0..N real file paths (joined with `base`, **not** canonicalised) ｜ 把一个 include 目标解析为 0..N 个实际文件路径。
 ///
 /// 支持：
 /// - glob：`raw` 含 `*` 且开启 `glob-include` → 遍历 `base` 下直接条目做 `*` 通配匹配
@@ -461,8 +457,12 @@ pub fn resolve_target_paths(
     Ok(vec![path])
 }
 
-/// 遍历 `base` 目录的直接条目，按 glob（`pattern` 含 `*`）或正则（`regex` 为 Some）匹配，
-/// 把 `a/b/pattern` 拆成 (`a/b`, `pattern`)，便于把目录部分并入 base。
+/// Split `a/b/pattern` into (`a/b`, `pattern`) on the **platform** separator ｜ 按**平台**分隔符切「目录 / 模式」。
+///
+/// ⚠️ 通配 / 正则目标**不要**用它，用 [`split_dir_slash`]：SML 文档里的路径一律写 `/`，
+/// 而 Windows 的 `MAIN_SEPARATOR` 是 `\`，会把正则里的 `\.` 误当成目录分隔符。
+///
+/// （原文档讲的是「遍历 `base` 目录条目」，那是 [`glob_or_regex_dir`] 的活，早已错挂在此 —— 2026-11-02 移回。）
 pub fn split_dir(pat: &str) -> (&str, &str) {
     match pat.rfind(std::path::MAIN_SEPARATOR) {
         Some(idx) => (&pat[..idx], &pat[idx + 1..]),
@@ -470,7 +470,7 @@ pub fn split_dir(pat: &str) -> (&str, &str) {
     }
 }
 
-/// 按 **SML 层的路径分隔符 `/`** 切「目录 / 模式」。
+/// Split "dir / pattern" on the **SML-level separator `/`** ｜ 按 SML 层的路径分隔符 `/` 切「目录 / 模式」。
 ///
 /// 通配与正则目标必须用它，而不是 [`split_dir`]（后者按平台分隔符切）：
 /// SML 文档里的路径一律写 `/`，而 Windows 的 `MAIN_SEPARATOR` 是 `\` ——
@@ -496,7 +496,11 @@ fn map_regex_err(e: RegexError) -> SmlError {
     SmlError::from_code_title(code).with_detail(format!("{e}"))
 }
 
-/// 返回命中的完整路径。目录本身不作为命中（仅文件）。
+/// List `base`'s direct entries and match them by glob (`pattern` with `*`) or regex (`regex` is `Some`) ｜ 遍历 `base` 目录的直接条目并按 glob / 正则匹配。
+///
+/// 返回命中项的完整路径；**目录本身不算命中**（只看文件）。
+/// 正则过长 / 语法非法 / 步数超预算都经 `map_regex_err`（私有，故不作链接）显式报码，不降级成「永不匹配」
+/// （那会让用户误以为「目录里没有匹配的文件」）。
 pub fn glob_or_regex_dir(
     base: &Path,
     pattern: &str,
@@ -544,7 +548,7 @@ pub fn glob_or_regex_dir(
     Ok(hits)
 }
 
-/// 手写最小 glob 匹配（仅支持 `*` 通配，匹配整个文件名）。
+/// Minimal hand-written glob match (only `*`, matches the whole file name) ｜ 手写最小 glob 匹配（仅支持 `*` 通配）。
 pub fn glob_matches(pattern: &str, text: &str) -> bool {
     // 将 `a*b*c` 拆分为字面段，段间用 `*` 连接
     let segs: Vec<&str> = pattern.split('*').collect();
