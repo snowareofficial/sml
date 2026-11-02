@@ -226,6 +226,10 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 - **第八批（`sml-parse/src/parser.rs` 片段/扩展指令族）**：`E-EXT-003/004/008`、
   `E-PARSE-005/016/019/020`、`E-FEATURE-001`（`contract` / `when` / `fragment`）共 **13 处**
   改为 `from_code_*` + `with_detail`。`parser.rs` 剩余约 **33 处**与 `sml-contract` 仍待续。
+- **第九批（`sml-parse/src/parser.rs` 收尾）**：剩余 **31 处**（`E-PARSE-001/003/006/011/012/018/019/021/022/023`、
+  `E-CONTRACT-001/010/011/012/013`、`E-LIMIT-001`、`E-INCLUDE-007`、`E-EXT-005`、`E-FEATURE-001/002`）
+  改为 `from_code_*` + `with_detail`。`parser.rs` 除 `err_at` 通用构造外**已无硬编码中文文案**。
+  剩余 `sml-contract`（22 处）待续。
 
 ### ⚠️ 升级注意
 
