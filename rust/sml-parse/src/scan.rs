@@ -12,7 +12,7 @@ use sml_feature::{FEATURES, Feature, FeatureMode, FeatureSet, Version};
 use sml_lex::{Tok, compute_string_spans, line_starts_in_string, tokenize};
 use sml_include::strip_line_comment;
 
-/// 取出 token 的字符串内容（Word / Str 都取其文本；其余返回空串）。
+/// The token's string content (`Word` / `Str` yield their text; anything else yields `""`) ｜ 取出 token 的字符串内容。
 pub fn tok_word(t: &Tok) -> String {
     match t {
         Tok::Word(s) | Tok::Str(s) => s.clone(),
@@ -20,7 +20,7 @@ pub fn tok_word(t: &Tok) -> String {
     }
 }
 
-/// 若该行是 `@feature` 声明，则根据 `mode` / 操作更新 `feats`，并返回 true。
+/// If the line is a `@feature` directive, update `feats` per its `mode` / operation and return `true` ｜ 若该行是 `@feature` 声明，则更新 `feats` 并返回 true。
 ///
 /// 支持语法（均不区分大小写，参数以空格分隔）：
 /// - `@feature base v3`              设定基线版本（等价于 `@version`，仅用于特性派生）
@@ -296,7 +296,7 @@ pub fn strip_features(
 
 
 
-/// 若该行是 `@version` 声明，返回版本字面量；否则返回 None。
+/// If the line is a `@version` directive, return the version literal; otherwise `None` ｜ 若该行是 `@version` 声明，返回版本字面量；否则返回 None。
 ///
 /// `version` 是保留字：不允许作为片段名（`@version { }`）使用。
 pub fn version_directive(line: &str) -> Result<Option<String>, SmlError> {
@@ -318,7 +318,7 @@ pub fn version_directive(line: &str) -> Result<Option<String>, SmlError> {
     }
 }
 
-/// 剥离 `@version` 声明行，返回剩余文本与声明的版本（未声明则为 None）。
+/// Strip `@version` lines, returning the remaining text and the declared version (`None` if none) ｜ 剥离 `@version` 声明行。
 ///
 /// 允许多次声明（include 进来的文件可各自声明），但必须一致；
 /// 声明了实现不支持的版本时报错，避免静默按错误语法解析。
@@ -389,7 +389,7 @@ pub fn strip_version(text: &str) -> Result<(String, Option<Version>), SmlError> 
     Ok((rest, declared))
 }
 
-/// 把 版本 + 文档 @feature 指令 合并为最终生效的特性集。
+/// Merge the declared version with the document's `@feature` directives into the effective feature set ｜ 把版本与文档 `@feature` 指令合并为最终生效的特性集。
 ///
 /// 规则：
 /// - 若文档显式声明过 `@feature`（had_feature=true），则完全采用其推导的 `feats`；
