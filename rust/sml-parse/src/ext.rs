@@ -28,6 +28,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use sml_codes::SmlError;
 use sml_contract::ContractExt;
 use sml_value::Value;
 
@@ -227,6 +228,12 @@ pub struct ParseOptions {
     /// 但 `@contract` 定义仍照常收集、**不进入结果树** —— 供 Rust 侧用
     /// native struct/enum「无视文件内契约」的场景（IDEAS I-2 的 opt-out）。
     pub apply_contracts: bool,
+    /// 是否**收集多条错误**而非遇错即停（默认 `false`，保持既有 `Result` 语义）。
+    ///
+    /// 开启后 [`ParseOutput::errors`] 会带上解析期收集到的全部错误（块/数组内
+    /// 按同步点恢复继续），`value` 为**尽力而为的部分结果**。供编辑器一次展示多条
+    /// 错误（TODO L16）。**默认关闭 ⇒ 行为与旧版逐字一致**。
+    pub collect_errors: bool,
 }
 
 impl Default for ParseOptions {
@@ -237,6 +244,7 @@ impl Default for ParseOptions {
             trace_contracts: false,
             warn_key_conflict: true,
             apply_contracts: true,
+            collect_errors: false,
         }
     }
 }
@@ -259,6 +267,13 @@ impl ParseOptions {
     /// 供「Rust 原生 struct/enum 当契约来源、无视文件内契约」的场景（IDEAS I-2）。
     pub fn apply_contracts(mut self, on: bool) -> Self {
         self.apply_contracts = on;
+        self
+    }
+
+    /// 是否收集多条错误（链式）。默认 `false`；开启后错误进
+    /// [`ParseOutput::errors`]，`value` 为尽力而为的部分结果（TODO L16）。
+    pub fn collect_errors(mut self, on: bool) -> Self {
+        self.collect_errors = on;
         self
     }
 
@@ -315,6 +330,10 @@ pub struct ParseOutput {
     /// 否则恒为 `None` —— 这是「不开启时逐字一致」的钉子
     /// （`rust/tests/contract_map.rs` 有显式断言）。
     pub contract_map: Option<crate::contract_map::ContractMap>,
+    /// 解析期**收集到的多条错误**（仅 [`ParseOptions::collect_errors`] 开启时非空）。
+    ///
+    /// 未开启该开关时恒为空 —— 此时遇错即 `Err`，本字段为空是「逐字一致」的一部分。
+    pub errors: Vec<SmlError>,
 }
 
 #[cfg(test)]
