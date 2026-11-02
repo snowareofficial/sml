@@ -130,7 +130,11 @@ Confirm the reading with the user before writing any code.
   ✅ **2026-11-02 已补（`c661f5a`）**：连 `Value` 枚举**本身**、`Map` 两个 cfg 别名、
   `Null`/`Bool`/`Int`/`Str`/`Array` 五个变体一并从零写（共 18 处）。
   ⚠️ 刻意**不加 doctest**：桩函数在默认档下不编译，只在 `cfg(not(sml))` 里成立的例子
-  会重演 W16「名义存在、从不运行」。剩余同类欠账见 HANDOFF R11 的「还没动」清单。
+  会重演 W16「名义存在、从不运行」。
+  ✅ **第二批（`d71b824`）**：门面 `swsml` 15 处（7 个 `Options::new`、`SvgOptions` /
+  `SlintOptions` 两个结构体、`to_svg` / `to_slint` / `to_latex`、`c_abi::{jsonify,json_to_value}`、
+  `sml::serde` 模块 `//!`），并修 `[`to_sml`]` 坏链接 ⇒ `cargo doc --all-features` 警告 1 → 0。
+  **`sml-value` 与 `rust/src` 均已清零**，全仓只剩 17 处（见 HANDOFF R11）。
 - **纪律 / 2026-10-31**：此笔**只动注释、不动逻辑**；改动与任何逻辑 diff 拆开独立提交。
 - **进展（2026-10-31 第一批，核心公开面）**：✅ `sml-value/src/lib.rs` 模块 doc + 公开项注解
   已由纯中文改为「English ｜ 中文」双语（中文照留，符合「还是支持中文」）；
