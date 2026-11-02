@@ -16,6 +16,7 @@
 产物**不含时间戳**：同样的码表必须产出逐字节相同的文件，否则每次构建都脏一个文件。
 """
 
+import json
 import os
 import re
 import sys
@@ -29,8 +30,26 @@ RUST_OUT = os.path.join(ROOT, "rust", "sml-codes", "src", "codes.rs")
 JS_OUT = os.path.join(ROOT, "js", "sml-codes.mjs")
 C_OUT = os.path.join(ROOT, "c", "sml_codes.h")
 
+# 英文 title/msg（i18n 英文层）。中文来自 codes.sml，英文只存在这里 ——
+# **Rust 侧把英文也写进 doc 注释**（见 rust_src），C / JS 产物保持不变：
+# 那两份是给人 `#define` / `import` 用的常量表，多一行注释只是噪音。
+EN_PATH = os.path.join(ROOT, "errors", "msg.en.json")
+
 # 生成物统一带这一行「勿手改」抬头，--check 时也靠它自我说明
 GEN_NOTE = "本文件由 errors/gen_codes.py 从 errors/codes.sml 生成，请勿手改"
+
+
+def load_en():
+    """读 `errors/msg.en.json`，返回 {码: {title, msg}}；缺失的码不写英文行。"""
+    if not os.path.exists(EN_PATH):
+        return {}
+    with open(EN_PATH, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return {
+        k: v
+        for k, v in data.items()
+        if not k.startswith("_") and v.get("title") and v.get("msg")
+    }
 
 
 def ident(code):
@@ -64,7 +83,7 @@ def check_literals(known):
     return bad
 
 
-def rust_src(codes):
+def rust_src(codes, en):
     lines = [
         "// SPDX-License-Identifier: MulanPSL-2.0",
         "//! SML 错误码常量。",
@@ -73,12 +92,19 @@ def rust_src(codes):
         "//! 唯一事实来源是 `errors/codes.sml`（见 `errors/README.md`）。",
         "//!",
         "//! 三条纪律：**码是稳定契约，文案不是**；同一触发条件各端必须同码；序号只增不回收。",
+        "//!",
+        "//! 每个常量的 doc 两行：首行是 `[码] 中文标题：中文文案`，次行以 `EN:` 开头给出",
+        "//! `errors/msg.en.json` 里的英文 title / msg（该文件缺某条码时就不写次行）。",
+        "//! 两行都只是**注释**；运行期取文案请走 `sml_codes::error_info()`。",
         "",
         "#![allow(dead_code)]",
         "",
     ]
     for c in codes:
         lines.append("/// [%s] %s：%s" % (c["id"], c["title"], c["msg"]))
+        e = en.get(c["id"])
+        if e:
+            lines.append("/// EN: %s —— %s" % (e["title"], e["msg"]))
         lines.append('pub const %s: &str = "%s";' % (ident(c["id"]), c["id"]))
     lines += [
         "",
@@ -177,11 +203,19 @@ def main():
         print("   （码表是唯一事实来源；要么改源码，要么在 codes.sml 里补一条）")
         return 1
 
+    en = load_en()
     targets = [
-        (RUST_OUT, rust_src(codes)),
+        (RUST_OUT, rust_src(codes, en)),
         (JS_OUT, js_src(codes)),
         (C_OUT, c_src(codes)),
     ]
+
+    # 缺英文的码只是「少一行 EN 注释」，不该让生成失败；但也不能让人以为英文齐了 ——
+    # 每次跑都把缺口打出来（`W-PARSE-00x` 就是这么被发现一直缺的）。
+    miss = [c["id"] for c in codes if c["id"] not in en]
+    if miss:
+        print("注意：%d 条码在 errors/msg.en.json 里没有英文，doc 只有中文首行：%s"
+              % (len(miss), " / ".join(miss)))
 
     if check_only:
         bad = []
