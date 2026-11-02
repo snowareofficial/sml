@@ -152,6 +152,14 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 > **本轮只加告警、不改语义**：两类告警对应的 `Value` 与旧版**逐字一致**
 > （`rust/tests/key_conflict.rs` 每条正例都同时断言值与告警）。
 
+### 新增（API：契约 opt-out，I-2）
+
+- **`ParseOptions::apply_contracts(false)`**（默认 `true`，向后兼容）：解析期**跳过** `@is` / typed-block 的
+  契约应用与校验（不填默认值、未知契约不报错），`@contract` 定义仍照常收集且**不进结果树**。
+  供「Rust 原生 struct/enum 当契约来源、无视文件内契约」的场景（IDEAS I-2）；
+  子解析器（`@for` 体）继承该开关。用例 `rust/tests/contract_optout.rs`（4 条）。
+  ⚠️ 文件入口 `parse_file` 暂不接收 `ParseOptions`，opt-out 目前只能走文本入口 `parse_with`。
+
 ### ⚠️ 升级注意
 
 - `Diagnostic` 是公开结构体，**新增 `line` 字段**：只读取诊断的代码不受影响；

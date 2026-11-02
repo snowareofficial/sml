@@ -58,7 +58,7 @@ Confirm the reading with the user before writing any code.
 
 ## I-2 Rust 原生 contract，可选无视文件内契约 / native contracts with opt-out
 
-- **Status / 状态**：`Todo`（opt-out 开关）；周边能力 `Done`。
+- **Status / 状态**：`Done`（opt-out 开关，2026-11-02）；周边能力 `Done`。
 - **Idea / 想法**：Rust 侧直接声明契约（struct / enum 映射出 SML 值），并**可选**忽略
   `.sml` 文件里写的 `@contract` / `@is`。
 - **Done / 已完成**：`@contract` / `@is` 五端校验 + 默认值回填（Rust 为参考实现）；
@@ -66,9 +66,12 @@ Confirm the reading with the user before writing any code.
   外置扩展点 `sml_contract::ext`（`TypeCheck` / `ContractExt` / `TypeSpec::Ext`）；
   `sml_contract::infer` 从数据反推契约（`smltools --infer-contract`）；
   `ParseOptions`（`rust/sml-parse/src/ext.rs`）已承载外置指令/类型表与契约映射记录。
-- **Gap / 缺口**：文件内契约在解析期**无条件生效**（`rust/sml-parse/src/parser.rs` 的
-  `apply_contract` 调用点），`ParseOptions` 没有关闭开关 ⇒ 需加
-  `apply_contracts(false)`（默认 `true`，向后兼容）：解析期跳过校验，契约定义仍不进主树。
+- **Done / 已完成（2026-11-02）**：`ParseOptions::apply_contracts(false)`（默认 `true`，向后兼容）
+  —— 解析期跳过 `@is` / typed-block 的契约应用与校验（不填默认值、未知契约不报错），
+  `@contract` 定义仍收集且**不进结果树**；子解析器（`@for` 体）继承该开关。
+  覆盖点：块闭合 `apply_contract(s)`、`@is` 逐词 resolve、typed-block 前缀（`finish_bare_block`）。
+  用例 `rust/tests/contract_optout.rs`（4 条）。
+  残余：文件入口 `parse_file` 暂不接收 `ParseOptions`，opt-out 目前只能走文本入口 `parse_with`。
 - **Note / 备注**：「用 struct / enum 当契约来源」＝**由图派生契约**，
   与 `infer`（从数据反推）是两件事，别混。
 
