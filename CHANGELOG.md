@@ -207,6 +207,10 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   `from_code_msg` / `from_code_title` + `with_detail`。按决策 **B（各 crate 默认英文，中文只在
   `swsml` / `smltools` 顶层）**，`sml-include` 单独构建时文案取自英文表；动态上下文（路径、上限、
   行号）仍经 `with_detail` 保留。全量回归绿（仅本地 `_stack_probe` 探针红）。
+- **第三批（`sml-lex` 全量）**：`lib.rs` 共 **13 处**（`E-LEX-001`~`006`、`E-FEATURE-001/002/005`、
+  `E-INCLUDE-006`）改为 `from_code_msg` / `from_code_title` + `with_detail`。语言随 `sml-codes` 的
+  `zh` feature；`tests/error_codes.rs` 的精确中文全串断言改为语言无关断言（文案 + 片段名）。
+  全量回归绿（仅本地 `_stack_probe`）。
 
 ### ⚠️ 升级注意
 

@@ -251,9 +251,15 @@ fn display_carries_the_code() {
         "Display 应以 `[码]` 结尾，实际：{shown}"
     );
     assert!(!e.message().contains('['), "message() 不应含码：{}", e.message());
-    // 兼容通道：转成 String 时只取文案（既有 `Result<_, String>` 接口行为不变）
+    // 兼容通道：转成 String 时只取文案（既有 `Result<_, String>` 接口行为不变）。
+    // 文案改由码表提供（I-11 ②，policy B），语言随 `sml-codes` 的 `zh` feature ⇒
+    // 不钉死中文全串，只钉「有可读文案 + 带片段名」。
     let s: String = e.into();
-    assert_eq!(s, "sml: 未定义的片段引用 `&nope`");
+    assert!(
+        s.contains("未定义的片段引用") || s.contains("Undefined fragment reference"),
+        "文案应说明片段未定义：{s}"
+    );
+    assert!(s.contains("&nope"), "文案应带片段名：{s}");
 }
 
 /// 生成的常量表与唯一事实来源 `errors/codes.sml` 必须一致。
