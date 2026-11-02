@@ -497,7 +497,7 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 
 | 雷 | 内容 | 状态 |
 |---|---|---|
-| 雷 1 | 深嵌套测试栈溢出 | ✅ 测试已能真跑（默认栈 128 层通过）；⚠️ **根因挂账**：任何默认栈线程解析 128 层仍 abort，迭代式解析待做 —— **完整改造方案见 `docs/iter-parse-plan.md`**（递归漏斗三入口、必须覆盖裸块的原因、Frame/Cont 设计、迁移清单、256 KB 验收判据） |
+| 雷 1 | 深嵌套测试栈溢出 | ✅ **根因已闭（2026-11-02 实测）**：迭代式显式栈已落主干（`9f7d528`）；`rust/tests/stack_default.rs` 实测默认栈线程 128 层成功、200 层报 `E-LIMIT-001` 不 abort。残：`parse_array_inner` 未做削薄（性能项，非崩溃） |
 | 雷 2 | `examples/slint/login.sml` 示例是坏的 | ✅ 已修（2026-11-02）：按 calculator 写法重写示例（`"\`…\`"` + 事件普通串 + `inherits` 字段），`--to slint` 输出干净 |
 | 雷 3 | `smltools` 的 unwrap / 与库分叉 / 冗余 | ✅ **崩用户类清零**（2026-11-02 脚本复核：`src/` 真实代码 0 处 `unwrap/expect/panic/unreachable`，全在 `#[cfg(test)]`）；✅ 冗余类已修（`--feature` 已接版本门控、模块文档已更正）；分叉类 **6/6**（2026-11-02：`sml::depth_of` + 新增 `sml::scan_source_refs`，`lint.rs` 改为消费）—— 雷 3 **全部关闭** |
 | 雷 4 | 核心库「不可恢复崩溃」 | ✅ 结论：**干净** —— 9 处 unwrap/expect 全部有不变量守护 |
@@ -522,8 +522,9 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
   即：**限制是 128 层，而 128 层本身就打穿默认栈**。
 - **已修（2026-10-26）**：两条测试改为在显式开大栈（32 MiB）的线程里跑，断言才真正执行。
   修完 `--lib` 63 项、`error_codes` 12 项全绿。
-- **⚠️ 仍挂账的真问题**：任何**默认栈的线程**（服务端 / Rayon worker / `std::thread::spawn`）
-  解析 128 层文档都会 abort 整个进程 —— 栈溢出不可捕获。
+- ✅ **已闭（2026-11-02 实测）**：迭代式显式栈落主干后，**默认栈线程**（`stack_size(2 MiB)`）
+  解析 128 层**成功**、200 层报 `E-LIMIT-001`（不 abort）—— 见 `rust/tests/stack_default.rs`。
+  不再依赖测试里 32 MiB 的大栈包装。
 - **栈帧实测（2026-10-30，供迭代式改造定目标）**：debug 构建下**每层嵌套约 8 KB 栈**
   （128 层 ≈ 1.05 MB；线程栈 **2 MiB 通过、1 MiB 崩 `0xC00000FD`**；64 层需 ~0.6 MB）
   ⇒ 默认 2 MiB 线程栈**刚好卡边、没有余量**，任何新增局部量都可能把它推过界，
@@ -539,11 +540,13 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
     抽成新方法 `Parser::parse_at_directive()`（`&mut self` + 三个 `&mut` 状态参数），
     `continue;` 机械等价换成 `return Ok(())`。
     ⇒ `parse_block_inner` 约 558 行 → **约 210 行**，肥帧主因消除。
-  - ⏳ **③ 改迭代式解析 → 放待办**（根治方案，重写量大，择机做）。
-  - 2026-11-02：迭代式解析在 `.wtw/iter-parse/` 工作树推进，但**尚未覆盖上级目录**（未替换主干 `sml-parse`），根因仍挂账。
+  - ✅ **③ 改迭代式解析 —— 已落主干（`9f7d528`）**：递归漏斗整体翻成显式栈（`Frame`/`Step`/`run_stack`），
+    原生栈深度恒定。`.wtw/iter-parse` 是并行旧工作树，内容已被主干覆盖。
   - ❌ ① 降低 `MAX_VALUE_DEPTH` —— **不做**：128 是五端实测钉住的边界，改要五端同步。
-- **验收（⚠️ 2026-10-30 复核：此条不成立，勿信）**：原文称两条深嵌套测试「已**去掉**
-  32 MiB 大栈包装，在默认栈上直接通过」。**实测 dev 上仍是 32 MiB 包装** ——
+- **验收（2026-11-02 已闭）**：新增 `rust/tests/stack_default.rs`（显式 2 MiB，非 32 MiB）实测通过。
+  以下为历史复核记录（旧的 32 MiB 包装仍在 `error_codes.rs` / `emit.rs`，属冗余包装，可择机去掉）：
+- 历史记录（2026-10-30）：原文称两条深嵌套测试「已**去掉**
+  32 MiB 大栈包装，在默认栈上直接通过」。**当时 dev 上仍是 32 MiB 包装** ——
   `rust/tests/error_codes.rs:220-222` 现在就开着 `stack_size(32 * 1024 * 1024)`，
   注释还写着「debug 构建下解析到 128 层就足以撑爆 2 MiB」；`rust/tests/emit.rs:462-469`
   那条更开到 256 MiB。而 `main` 上那笔 `363041b` 恰恰是**加**包装的提交。
