@@ -248,6 +248,14 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   `smltools --lint` 改为消费它；删除 CLI 自写的扫描与 `first_word_after` / `is_fragment_directive`。
   **雷 3 分叉类 6/6 关闭**（`sml::depth_of` + 本次 `scan_source_refs`）。全量回归绿（仅本地 `_stack_probe`）。
 
+### 修复（雷6：Lua 大整数精度）
+
+- `lua/lib/sml.soup` 数字解析：整数形态若 `string.format("%.0f", n)` 回写与原文不一致 ⇒ 保留**字符串**
+  （round-trip 安全），不再把 `330106201503071234` 变成 `3.3010620150307e+17`；顺带覆盖前导零
+  （`007` 保字符串，与 Rust 同口径）。负整数按原符号比较，不误伤 `-1` 这类正常整数。
+  验证：`luajit lua/test_codes.lua` **184/184** 通过（含「below min → E-CONTRACT-005」回归）。
+  雷 6 仅剩 **C++ 无 include**（待裁决：需定是否补齐 include 语义）。
+
 ### ⚠️ 升级注意
 
 - `Diagnostic` 是公开结构体，**新增 `line` 字段**：只读取诊断的代码不受影响；
