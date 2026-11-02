@@ -1,4 +1,4 @@
-> 来源：`c:\Users\sakeen\Documents\deepseek-harness\default-workspace\swsml-tasting\docs\value-layout.md`
+> 来源：外部参考草案（原文件在另一工作区，**路径已脱敏**；2026-10-31 按用户指示归档进本项目 `docs/`）
 > 状态：【想法 · 未定 · ⚠️需二次蒸馏】——外部参考草案（草案 v0.1，2026-10-31），已按用户指示归档进当前项目 docs/，供日后拍板参考，非既定决定。
 >
 > **外部候选 crate 核实记录（2026-10-31，均用 `cargo search` / `cargo info` 直接查 crates.io registry 实证）：**

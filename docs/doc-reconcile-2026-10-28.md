@@ -6,6 +6,29 @@
 - **本棒范围**：**只产出本清单**，不修改任何既有文档、不重打 `.vsix`、不跑 site 构建、不动 `editors/`、不改代码、不 push。
 - **铁律遵守**：本文件不出现内网地址 / 私库名 / 本机绝对路径 / 真实用户名 / 内部代号；涉及对外仓库一律用占位符（`<SML 公网仓库>`、`<发布镜像仓库>`）。
 
+## 复核（2026-11-02，逐条对过源码/文档）
+
+> 本清单写于 2026-10-28，之后已陆续落地多项。**引用前先看这一段**，别把下面的表格当现状。
+
+**✅ 已做**
+- A1 隐私脱敏：`docs/value-layout.md` 第 1 行的本机绝对路径已脱敏；`tools/check_private_assets.py` 现报 **OK**
+  （⚠️ 历史提交里可能仍有旧路径，清理需重写历史——用户手动）。
+- A2 契约修饰符：`README.md` / `README.en.md` / `llms.txt`（含 `site/static/` 副本）/ 教科书 ch05 已补
+  `one_of` / `exactly_one` / `any_of` / `items_min` / `items_max` / `depends_on` / `x_only`。
+- A3 `#[sml(flatten)]` 键冲突报错：`rust/derive/README.md`、`rust/STRUCT_SERDE.md` 已写。
+- A4 / A5：`rust/README.md` 已写 `*_with_warnings` 与 `Diagnostic.line`。
+- B1 / B2：`ch14` 已改为五端 ✅、C 已与 Rust 同组（只剩 C++ 未做行级 `&base`）。
+- B4：`README.md` 已写「Lua 契约已落地（W20）」。
+- C5：错误码数量已统一（现为 146 / 以 `site/static/errors.json` 为准）。
+- C6：`README.md` 顶层示例的时间戳已加引号。
+- 附带：`site/content/*/book/ch13` 已删掉 `ext.rs:行号`（行号必烂）。
+
+**⏳ 仍未做**
+- A6：`editors/vscode/README*.md` 补一句「本轮回不同步 key_conflict 告警」。
+- C1–C3：`docs/capability-matrix.md` 补 Lua 嵌套数组、JS 组合契约默认值不回填、JS dump 数字样字符串。
+- C4：教科书提「跨实现一致性套件 + 18 条分歧台账 + 载体盲区」。
+- D1：W22 原话「vsix 提供的也加」待用户澄清（Zed 扩展 vs 文档）。
+
 ## 素材来源（已读）
 
 | 素材 | 用途 |
