@@ -278,6 +278,13 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   原生栈深度恒定，雷 1 的「默认栈线程解析 128 层会 abort」根因关闭。
   （`error_codes.rs` / `emit.rs` 里旧的 32 MiB / 256 MiB 大栈包装已成冗余，可择机去掉。）
 
+### 新增（雷5：键冲突告警带码 `W-PARSE-001/002`）
+
+- 新增 **`W-PARSE-001`**（同一块内键名重复、已提升为数组）与 **`W-PARSE-002`**（片段展开覆盖父块键、原值丢失），
+  `sml_parse::Diagnostic::code()` 按 `DiagnosticKind` 映射。与工具层 `W-LINT-003` 的分域写进码表
+  note：**解析器真的发生改写/覆盖时**产出且带行号；`W-LINT-003` 是 `smltools --lint` 的纯文本扫描。
+  `errors/codes.sml` + 三个生成器已同步（146 条码，`--check` 幂等）；`key_conflict` 断言带码。
+
 ### ⚠️ 升级注意
 
 - `Diagnostic` 是公开结构体，**新增 `line` 字段**：只读取诊断的代码不受影响；

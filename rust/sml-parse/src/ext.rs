@@ -66,6 +66,20 @@ pub struct Diagnostic {
     pub line: Option<usize>,
 }
 
+impl Diagnostic {
+    /// 该诊断对应的**稳定码**（`W-PARSE-*`，见 `errors/codes.sml`）。
+    ///
+    /// `DuplicateKey` ⇒ `W-PARSE-001`、`KeyOverwritten` ⇒ `W-PARSE-002`；
+    /// 其余档（`Deprecated` / 契约 `warn` 放行的 `Warning`）暂无码，返回 `None`。
+    pub fn code(&self) -> Option<&'static str> {
+        match self.kind {
+            DiagnosticKind::DuplicateKey => Some(sml_codes::W_PARSE_001),
+            DiagnosticKind::KeyOverwritten => Some(sml_codes::W_PARSE_002),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagnosticKind {
     /// 仍被接受，但已不推荐的写法（如位置参数形式）。

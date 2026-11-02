@@ -734,7 +734,9 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 
 **仍挂账（下一轮）**：
 - `to_string_direct` ↔ `Value` 两条路对超 i64 整数的**口径差异**：是再统一一层，还是维持现状——未定。
-- 告警**带码**：新增 `W-PARSE-*` 并解释与 `W-LINT-003` 的分域（须动 `errors/codes.sml` + 重跑三个生成器）。
+- ✅ **告警带码（2026-11-02）**：新增 `W-PARSE-001`（同一块内键名重复）/ `W-PARSE-002`（片段展开覆盖父块键），
+  由 `Diagnostic::code()` 映射；与 `W-LINT-003` 的分域已写进码表 note（**解析期真的发生时**产出 vs lint 纯文本扫描）。
+  `errors/codes.sml` + 三个生成器已同步（146 条码），`key_conflict` 断言带码。
 - 编辑器 / LSP 侧同步：扩展诊断走 `js/sml.mjs` 的 `parseSafe`，**不经过 Rust 库**，本轮的告警它看不见。
 
 ### 雷 2：`examples/slint/login.sml` 解析不过（示例是坏的）—— ✅ 2026-11-02 已修（重写示例）

@@ -33,6 +33,7 @@ fn duplicate_key_warns_and_still_promotes_to_array() {
 
     assert_eq!(warns.len(), 1, "重复键应产生 1 条告警，实际 {warns:?}");
     assert_eq!(warns[0].kind, DiagnosticKind::DuplicateKey);
+    assert_eq!(warns[0].code(), Some("W-PARSE-001"), "重复键应带稳定码");
     assert!(warns[0].message.contains("k"), "文案须点名键：{}", warns[0].message);
     assert!(warns[0].message.contains("数组"), "文案须说明改成了什么：{}", warns[0].message);
     assert_eq!(warns[0].line, Some(2), "第二次出现应在第 2 行：{warns:?}");
@@ -75,6 +76,7 @@ fn fragment_splice_overwrite_warns_and_names_the_key() {
 
     assert_eq!(warns.len(), 1, "片段覆盖应产生 1 条告警，实际 {warns:?}");
     assert_eq!(warns[0].kind, DiagnosticKind::KeyOverwritten);
+    assert_eq!(warns[0].code(), Some("W-PARSE-002"), "片段覆盖应带稳定码");
     assert!(
         warns[0].message.contains("x"),
         "文案须点名被覆盖的键：{}",
@@ -151,6 +153,7 @@ fn file_entry_without_include_has_line_numbers() {
     let (v, warns) = parse_file_with_warnings(&p).unwrap();
     assert_eq!(warns.len(), 1, "文件入口也应告警，实际 {warns:?}");
     assert_eq!(warns[0].kind, DiagnosticKind::DuplicateKey);
+    assert_eq!(warns[0].code(), Some("W-PARSE-001"), "重复键应带稳定码");
     // 2026-11-02：无 include 的文件入口现在也能定位行号（token 与原文一一对应）。
     assert_eq!(warns[0].line, Some(2), "无 include 时应带行号：{warns:?}");
     assert!(
@@ -174,6 +177,7 @@ fn file_entry_catches_fragment_overwrite_across_include() {
     let (v, warns) = parse_file_with_warnings(&main).unwrap();
     assert_eq!(warns.len(), 1, "跨 include 的片段覆盖应被抓到，实际 {warns:?}");
     assert_eq!(warns[0].kind, DiagnosticKind::KeyOverwritten);
+    assert_eq!(warns[0].code(), Some("W-PARSE-002"), "片段覆盖应带稳定码");
     // 有 include 时 token 跨文件合并，无单一原文 ⇒ 暂不给行号（不凭空造）。
     assert_eq!(warns[0].line, None, "有 include 时暂不给行号：{warns:?}");
     assert!(

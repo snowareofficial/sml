@@ -290,6 +290,10 @@ export const W_LINT_003 = "W-LINT-003";
 export const W_LINT_004 = "W-LINT-004";
 /// [W-LINT-005] 嵌套超过建议阈值：嵌套深度已超过建议阈值
 export const W_LINT_005 = "W-LINT-005";
+/// [W-PARSE-001] 同一块内键名重复：同一块内键名重复：后者已提升为数组（结构被改写）
+export const W_PARSE_001 = "W-PARSE-001";
+/// [W-PARSE-002] 片段展开覆盖父块键：片段展开覆盖了父块已有的同名键：父块原值丢失
+export const W_PARSE_002 = "W-PARSE-002";
 
 /// 全部错误码，按 id 升序。
 export const ALL = Object.freeze([
@@ -437,6 +441,8 @@ export const ALL = Object.freeze([
   W_LINT_003,
   W_LINT_004,
   W_LINT_005,
+  W_PARSE_001,
+  W_PARSE_002,
 ]);
 
-export const COUNT = 144;
+export const COUNT = 146;
