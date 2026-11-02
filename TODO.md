@@ -532,15 +532,20 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
   这正是历史上"测试自己先崩"的机理。判别方法：开 `stack_size(N)` 的线程解析闭合嵌套，
   用**独立运行的退出码**观测（栈溢出是 abort，进程内接不住）。
   ⇒ 迭代式的目标不是"提高上限"，而是把每层成本降到**常数**。
-- **栈帧为什么肥（已定位）**：`parse_block_inner`（`sml-parse/src/parser.rs:785` 起）
-  是一个 **≈558 行的巨函数**，其中 `Tok::At` 分支独占 **~350 行**
-  （870–1219，所有 `@` 指令与片段定义都内联在那一个 arm 里）⇒ debug 构建下
+- **栈帧为什么肥（历史定位，已随迭代式改造消解）**：当年的 `parse_block_inner`
+  （旧 `sml-parse/src/parser.rs`，递归版）是一个 **≈558 行的巨函数**，其中 `Tok::At` 分支
+  独占 ~350 行（所有 `@` 指令与片段定义都内联在那一个 arm 里）⇒ debug 构建下
   局部量大量溢出到栈，单帧十几 KB。
+  ⚠️ **该函数与 `parse_block` / `parse_value` / `parse_bare_block` / `parse_array(_inner)`
+  在主干上都已不存在**（`9f7d528` 迭代式改造整体替换）；现在对应的是
+  `block_step` / `value_step` / `bare_child_frame` / `array_step` + `run_stack`。
+  本节保留只为解释「当年为什么肥」，**不要照着去主干里找这些符号**。
 - **方向（用户 2026-10-26 定）**：
-  - ✅ **② 削薄 `parse_block_inner` —— 已做（2026-10-26）**：把 `Tok::At` 分支整体
-    抽成新方法 `Parser::parse_at_directive()`（`&mut self` + 三个 `&mut` 状态参数），
-    `continue;` 机械等价换成 `return Ok(())`。
-    ⇒ `parse_block_inner` 约 558 行 → **约 210 行**，肥帧主因消除。
+  - ✅ **② 削薄巨函数 —— 已做（2026-10-26）**：当年把 `Tok::At` 分支整体抽成
+    `Parser::parse_at_directive()`（`&mut self` + 三个 `&mut` 状态参数），
+    `continue;` 机械等价换成 `return Ok(())`；该函数**至今仍在**
+    （`rust/sml-parse/src/parser.rs:921`），由 `block_step` 在 `Tok::At` 处调用。
+    ⇒ 当时 `parse_block_inner` 约 558 行 → 约 210 行，肥帧主因消除。
   - ✅ **③ 改迭代式解析 —— 已落主干（`9f7d528`）**：递归漏斗整体翻成显式栈（`Frame`/`Step`/`run_stack`），
     原生栈深度恒定。`.wtw/iter-parse` 是并行旧工作树，内容已被主干覆盖；
     2026-11-02 以 `git merge -s ours` 记录合并（`9e4a9b4`，双亲 `25da74a` + `de3dcb5`），分支关系已闭合
@@ -550,14 +555,15 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
     主干早已具备）。
   - ❌ ① 降低 `MAX_VALUE_DEPTH` —— **不做**：128 是五端实测钉住的边界，改要五端同步。
 - **验收（2026-11-02 已闭）**：新增 `rust/tests/stack_default.rs`（显式 2 MiB，非 32 MiB）实测通过。
-  以下为历史复核记录（旧的 32 MiB 包装仍在 `error_codes.rs` / `emit.rs`，属冗余包装，可择机去掉）：
-- 历史记录（2026-10-30）：原文称两条深嵌套测试「已**去掉**
-  32 MiB 大栈包装，在默认栈上直接通过」。**当时 dev 上仍是 32 MiB 包装** ——
-  `rust/tests/error_codes.rs:220-222` 现在就开着 `stack_size(32 * 1024 * 1024)`，
-  注释还写着「debug 构建下解析到 128 层就足以撑爆 2 MiB」；`rust/tests/emit.rs:462-469`
-  那条更开到 256 MiB。而 `main` 上那笔 `363041b` 恰恰是**加**包装的提交。
+- 历史记录（2026-10-30）：当时原文称两条深嵌套测试「已**去掉** 32 MiB 大栈包装」，
+  实际 dev 上仍开着 —— `rust/tests/error_codes.rs` 的 `stack_size(32 * 1024 * 1024)`、
+  `rust/tests/emit.rs` 的 256 MiB。**这两处包装现已全部删除**（`b0d8931` / `06d4ed3` 去 32 MiB、
+  `25da74a` 随嵌套数组深度修复删 256 MiB），两文件今天都不含 `stack_size`。
   ⇒ 真实状态以本条「现象 / 根因 / 已修」三行为准；**根因已于 2026-11-02 关闭**（见上「已闭」条与
-`rust/tests/stack_default.rs`）。
+  `rust/tests/stack_default.rs`）。
+- ⚠️ **唯一残留的大栈包装**：`rust/src/lib.rs:989` 的测试助手 `parse_on_big_stack`
+  仍开 `stack_size(32 * 1024 * 1024)`，注释还写着「debug 构建下递归到 128 层就足以撑爆」——
+  迭代式改造后这是**冗余**，可择机删掉（需连 `deep_nesting_exceeding_limit_is_rejected` 一起改走默认栈）。
 - **2026-11-02 新发现并修复**：`svg` / `slint` 后端的**嵌套数组**递归把 `depth` 原样传下去（未 +1），
   深度守卫永不触发 ⇒ 5 万层 `[[[…]]]` 在默认栈 `0xC00000FD`。已改为「合并出的兄弟数组不加深、
   嵌套数组 +1」；`rust/tests/emit.rs` 的 **256 MB 大栈包装随之删除**（默认 2 MiB 下 44/44 全过）。
@@ -574,9 +580,14 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 
 扫 `panic!` / `.unwrap()` / `.expect(`，**只统计库代码，测试与示例不算**。结论：核心库**没有**能在用户输入下触发的 panic 路径 —— 所有 unwrap/expect 都被前一行（或同分支）的不变量守着。
 
+> ⚠️ **行号已漂，别按行号找**：下表是 2026-10-27 的基线，其后迭代式改造（`9f7d528`）把
+> `parser.rs` 大幅搬动，原列的两处 `parser.rs` 位置**都已失效**（`node.remove(&key).unwrap()`
+> 在主干已不存在）。检索请按**「形式 + 守护不变量」**，`parser.rs` 现存的 unwrap/expect 已在下面两行重列。
+
 | 位置 | 形式 | 守护不变量 | 判定 |
 |---|---|---|---|
-| `sml-parse/src/parser.rs:1297` | `node.remove(&key).unwrap()` | 上一行 `node.get_mut(&key)` 已返回 `Some` | 安全 |
+| `sml-parse/src/parser.rs:1355`（`block_step`） | `self.peek().unwrap()` | 同 arm 的 `Some(&Tok::RBrace) \| Some(&Tok::RBrack)` 匹配已证明是 `Some` | 安全 |
+| `sml-parse/src/parser.rs:1658`（`pop_frame`） | `stack.pop().expect("run_stack: Finish 时栈不应为空")` | `Step::Finish` 由 `push_frame` 配对产生，栈非空 | 安全 |
 | `sml-parse/src/contract_map.rs:143` | `s.chars().next().unwrap()` | `!s.is_empty()` 已判 | 安全 |
 | `sml-value/src/serde_bridge.rs:669` | `s.chars().next().unwrap()` | `s.chars().count() == 1` 已判 | 安全 |
 | `sml-value/src/serde_bridge.rs:843` | `m.pop_first().expect("len==1 必有键")` | `m.len() == 1` 已判 | 安全 |
