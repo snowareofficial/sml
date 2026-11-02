@@ -15,7 +15,8 @@ Confirm the reading with the user before writing any code.
 
 - **Status / 状态**：`Done`（2026-10-27）—— 两半都落地：
   - 读：容器级 `#[sml(...)]`（`path` / `file` / `default` / `deny_unknown_fields` / `rename`）；
-  - 写：`sml::serde::to_string_direct`（直出 SML 文本，**不经 `Value` 中转**，保留声明顺序、支持 i128/u128）。
+  - 写：`sml::serde::to_string_direct`（直出 SML 文本，**不经 `Value` 中转**，保留声明顺序；
+    超 i64 的整数与 `Value` 同口径**拒收**，2026-11-02 起）。
   附带破坏性变更：`to_sml_value` 改返回 `Result`，`flatten` 非块由 `panic!` 改 `Err`。
   详见下方「决策（2026-10-26）」与「Progress」。
 - **Idea / 想法**：给自定义结构体实现一个 trait，做到类似 serde-serializer 的效果。
