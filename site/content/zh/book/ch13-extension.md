@@ -160,22 +160,26 @@ impl Modifier for ItemsMax {
 
 ### 外置 Modifier 结构体（crate 已提供，注册即用）
 
-| 结构体 | `name()` | 语义 | `ext.rs` 出处 |
-|--------|----------|------|---------------|
-| `OneOf` | `one_of` | 组内**至多一个**字段出现（≥2 报错） | `ext.rs:380`，判定 `check_group` 在 `ext.rs:389` |
-| `ExactlyOne` | `exactly_one` | 组内**恰好一个**字段出现（0 / ≥2 报错） | `ext.rs:401`，判定 `ext.rs:410` |
-| `AnyOf` | `any_of` | 组内**至少一个**字段出现（0 报错） | `ext.rs:432`，判定 `ext.rs:441` |
-| `DependsOn` | `depends_on` | 本字段出现 ⇒ 所列字段必须出现 | `ext.rs:477`，判定 `ext.rs:486` |
-| `ItemsMin` | `items_min` | 数组**元素个数下限**（< n 报错） | `ext.rs:240`，判定 `check` 在 `ext.rs:252` |
+| 结构体 | `name()` | 语义 |
+|--------|----------|------|
+| `OneOf` | `one_of` | 组内**至多一个**字段出现（≥2 报错）；判定在 `Modifier::check_group` |
+| `ExactlyOne` | `exactly_one` | 组内**恰好一个**字段出现（0 / ≥2 报错）；同上 |
+| `AnyOf` | `any_of` | 组内**至少一个**字段出现（0 报错）；同上 |
+| `DependsOn` | `depends_on` | 本字段出现 ⇒ 所列字段必须出现；同上 |
+| `ItemsMin` | `items_min` | 数组**元素个数下限**（< n 报错）；判定在 `Modifier::check` |
+| `XOnly` | `x_only "<前缀>"` | `loose`/`warn` 下只放行该前缀的额外键，其余仍报错；**与 `strict` 互斥**；校验在 `apply_contract`（不在 `check_group`，否则 owner 字段缺失会漏检） |
+
+> 查实现请按**类型名**检索 `rust/sml-contract/src/ext.rs`（如 `pub struct OneOf`）——本文刻意不写行号：
+> 行号必烂，且没人会维护（2026-11-02 就因新增 `XOnly` 让全部行号偏移过一次）。
 
 > ⚠️ `one_of` / `exactly_one` / `any_of` / `depends_on` 都是**跨字段**约束，挂在某个字段上、却要看**整个块**——
-> 它们走的是 `Modifier::check_group(&GroupView)` 钩子（`ext.rs:73`，默认放行）。
-> 与之相对，`check(&FieldSpec, &Value)`（`ext.rs:61`）**只见这一个字段的值**，
+> 它们走的是 `Modifier::check_group(&GroupView)` 钩子（默认放行）。
+> 与之相对，`check(&FieldSpec, &Value)` **只见这一个字段的值**，
 > 适合 `items_min` 这种「只看本字段生效值」的约束。
 >
-> `GroupView::present`（`ext.rs:84` 结构体，字段在 `ext.rs:107`）**只算用户显式写出的键**，
+> `GroupView::present` **只算用户显式写出的键**，
 > `default` 回填的值**不算出现**——这是互斥 / 计数 / 依赖这类跨字段判据的口径。
-> 成员名未在同一份契约里声明过（拼错字段名）会**响亮报错**（见 `resolve_members`，`ext.rs:319`）。
+> 成员名未在同一份契约里声明过（拼错字段名）会**响亮报错**（见 `resolve_members`）。
 >
 > 这些外置修饰符**全部复用 `E-CONTRACT-011`**，不新增码。
 
