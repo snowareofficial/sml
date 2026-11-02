@@ -726,7 +726,7 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 - 告警**带码**：新增 `W-PARSE-*` 并解释与 `W-LINT-003` 的分域（须动 `errors/codes.sml` + 重跑三个生成器）。
 - 编辑器 / LSP 侧同步：扩展诊断走 `js/sml.mjs` 的 `parseSafe`，**不经过 Rust 库**，本轮的告警它看不见。
 
-### 雷 2：`examples/slint/login.sml` 解析不过（示例是坏的）
+### 雷 2：`examples/slint/login.sml` 解析不过（示例是坏的）—— ✅ 2026-11-02 已修（重写示例）
 
 - **现象**：`smltools -i examples/slint/login.sml --to sml` 报 `E-PARSE-006`
   （期望键, 得 Some(Colon)）；而 `examples/slint/build.py` 正是靠这条命令生成 `.slint`
@@ -744,8 +744,13 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 
 - **工作区那 1 字符改动**（第 84 行 `}` → `},`）：是修这个问题的**半途尝试**，没修好 ——
   加了逗号只是把错误码从 `E-PARSE-006` 换成 `E-PARSE-007`（非预期的逗号），两版都失败。
-- **待定**：按 `"\`…\`"` 重写第 102 行（但表达式内含 Slint 字符串字面量，需另找写法），
-  或回退那 1 字符并把该示例标记为已知不可用。
+- **✅ 已修（2026-11-02，修示例、不动解析器）**：整体按 calculator.sml 的写法重写 `login.sml` ——
+  所有 Slint 表达式/颜色/长度/枚举改成 `"\`…\`"`（双引号包反引号），事件值用普通字符串。
+  根因不止第 102 行：**裸反引号里的 `#`（如 `` `#0f1117` ``）会被 `#` 行注释吞掉**，
+  静默产出 `background: "`"` 这类垃圾；`echo-mode: password` / `horizontal-alignment: center`
+  也会被当字符串加引号。重写后 `smltools -i login.sml --to slint` 输出干净
+  （`export component root inherits Window`、`background: #0f1117;`、枚举不加引号、事件体正确）。
+  另：`inherits` 由位置参数改为字段，避免生成 `__args: ["inherits","Window"]` 垃圾。
 
 ### 雷 6：五端能力矩阵挖出的跨实现缺陷（2026-10-27 agent 产出）
 
