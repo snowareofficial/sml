@@ -454,11 +454,12 @@ fn lint_warnings_carry_codes() {
     let dir = tmpdir("lintwarn");
     // 未引用片段 / 未应用契约 / 重复键 / 空值字段，四类告警各一。
     // 片段用无参数写法 `@frag { .. }`：位置参数形式自 v4 起已废弃（会先报 E-PARSE-005）。
+    // 重复键自 2026-11-02 起透传解析器的 `W-PARSE-001`（不再用 `W-LINT-003`，见雷3 登记）。
     let src = "@frag { a: 1 }\n@contract Unused { a: int }\nk: 1\nk: 2\nempty:\n";
     let f = write_file(&dir, "warn.sml", src);
     let o = drive(&["--lint", "-i", &s(&f)], None);
     let all = o.all();
-    for want in ["W-LINT-001", "W-LINT-002", "W-LINT-003", "W-LINT-004"] {
+    for want in ["W-LINT-001", "W-LINT-002", "W-PARSE-001", "W-LINT-004"] {
         assert!(all.contains(want), "期望含 {want}，实际：\n{all}");
     }
 }

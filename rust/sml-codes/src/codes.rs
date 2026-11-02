@@ -290,7 +290,7 @@ pub const W_FEATURE_001: &str = "W-FEATURE-001";
 pub const W_LINT_001: &str = "W-LINT-001";
 /// [W-LINT-002] 契约定义从未被应用：契约定义后从未被应用
 pub const W_LINT_002: &str = "W-LINT-002";
-/// [W-LINT-003] 同一块内键名重复：键在同一块内重复，后者会覆盖前者
+/// [W-LINT-003] 同一块内键名重复：键在同一块内重复（已提升为数组，值不丢）
 pub const W_LINT_003: &str = "W-LINT-003";
 /// [W-LINT-004] 字段是空值：字段是空值
 pub const W_LINT_004: &str = "W-LINT-004";

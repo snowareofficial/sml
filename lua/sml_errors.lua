@@ -147,7 +147,7 @@ M.ZH = {
   ["W-FEATURE-001"] = { severity = "warning", domain = "FEATURE", title = "位置参数写法已废弃", msg = "位置参数写法已废弃，推荐带参数名的写法" },
   ["W-LINT-001"] = { severity = "warning", domain = "LINT", title = "片段定义从未被引用", msg = "片段定义后从未被引用" },
   ["W-LINT-002"] = { severity = "warning", domain = "LINT", title = "契约定义从未被应用", msg = "契约定义后从未被应用" },
-  ["W-LINT-003"] = { severity = "warning", domain = "LINT", title = "同一块内键名重复", msg = "键在同一块内重复，后者会覆盖前者" },
+  ["W-LINT-003"] = { severity = "warning", domain = "LINT", title = "同一块内键名重复", msg = "键在同一块内重复（已提升为数组，值不丢）" },
   ["W-LINT-004"] = { severity = "warning", domain = "LINT", title = "字段是空值", msg = "字段是空值" },
   ["W-LINT-005"] = { severity = "warning", domain = "LINT", title = "嵌套超过建议阈值", msg = "嵌套深度已超过建议阈值" },
   ["W-PARSE-001"] = { severity = "warning", domain = "PARSE", title = "同一块内键名重复", msg = "同一块内键名重复：后者已提升为数组（结构被改写）" },

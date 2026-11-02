@@ -168,7 +168,7 @@ static const struct SmlErrorMsg SML_ERROR_MSGS[] = {
     { "W-FEATURE-001", "warning", "FEATURE", "位置参数写法已废弃", "位置参数写法已废弃，推荐带参数名的写法", "Positional-argument form deprecated", "The positional-argument form is deprecated; prefer the named-parameter form" },
     { "W-LINT-001", "warning", "LINT", "片段定义从未被引用", "片段定义后从未被引用", "Fragment never referenced", "A fragment is defined but never referenced" },
     { "W-LINT-002", "warning", "LINT", "契约定义从未被应用", "契约定义后从未被应用", "Contract never applied", "A contract is defined but never applied" },
-    { "W-LINT-003", "warning", "LINT", "同一块内键名重复", "键在同一块内重复，后者会覆盖前者", "Duplicate key in the same block", "A key is duplicated within the same block; the later one overrides the former" },
+    { "W-LINT-003", "warning", "LINT", "同一块内键名重复", "键在同一块内重复（已提升为数组，值不丢）", "Duplicate key in the same block", "A key is duplicated within the same block; the later one overrides the former" },
     { "W-LINT-004", "warning", "LINT", "字段是空值", "字段是空值", "Field is null", "The field is null" },
     { "W-LINT-005", "warning", "LINT", "嵌套超过建议阈值", "嵌套深度已超过建议阈值", "Nesting exceeds suggested threshold", "Nesting depth has exceeded the suggested threshold" },
     { "W-PARSE-001", "warning", "PARSE", "同一块内键名重复", "同一块内键名重复：后者已提升为数组（结构被改写）", NULL, NULL },
