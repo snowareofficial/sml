@@ -77,7 +77,7 @@ impl Class {
     }
 }
 
-/// 模式 IR（L1：无递归、无守卫）
+/// Pattern IR (L1: no recursion, no guards) ｜ 模式 IR（L1：无递归、无守卫）。
 // PartialEq 供 sml-contract 的 TypeSpec 派生比较（契约类型需要可比较）
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pat {
@@ -109,17 +109,18 @@ pub enum Pat {
 /// 默认步数预算：无回溯已保证多项式时间，此上限仅用于拦住极端病态输入。
 const DEFAULT_BUDGET: u64 = 10_000_000;
 
-/// 单量词上限（与 JS 端 `QUANT_MAX` 对齐）：`次` / `最小` / `最大` / 正则 `{n}` 超过它
-/// 即拒绝编译。仅挡「单个量词写成天文数字」；**嵌套**量词的相乘膨胀由 `nfa` 的
-/// `MAX_PROG`（编译指令总数上限）兜底。
+/// Per-quantifier cap (aligned with JS `QUANT_MAX`) ｜ 单量词上限（与 JS 端 `QUANT_MAX` 对齐）。
+///
+/// `次` / `最小` / `最大` / 正则 `{n}` 超过它即拒绝编译。仅挡「单个量词写成天文数字」；
+/// **嵌套**量词的相乘膨胀由 `nfa` 的 `MAX_PROG`（编译指令总数上限）兜底。
 pub const QUANT_MAX: usize = 1000;
 
-/// 把一条规则编译为模式 IR，关键字表取默认 [`BILINGUAL`]。
+/// Compile one rule into the pattern IR, using the default [`BILINGUAL`] keyword table ｜ 把一条规则编译为模式 IR。
 pub fn compile_rule(rule: &Value, rules: &BTreeMap<String, Value>) -> Result<Pat, String> {
     compile_rule_with(rule, rules, &BILINGUAL)
 }
 
-/// 用指定的关键字表编译（供非中英语言或项目自有方言使用）。
+/// Compile with an explicit keyword table (for other languages or a project's own dialect) ｜ 用指定的关键字表编译。
 pub fn compile_rule_with(
     rule: &Value,
     rules: &BTreeMap<String, Value>,
@@ -395,18 +396,18 @@ fn parse_times(v: &Value, table: &dyn KeywordTable) -> Result<(usize, Option<usi
 // 公开匹配 API
 // ---------------------------------------------------------------------------
 
-/// 用已编译的模式匹配整段文本（全文匹配，非搜索）。
+/// Match a whole text against a compiled pattern (**full match**, not a search) ｜ 用已编译的模式匹配整段文本。
 pub fn is_match(pat: &Pat, text: &str) -> Result<bool, String> {
     let prog = nfa::compile(pat)?;
     nfa::run(&prog, text, DEFAULT_BUDGET)
 }
 
-/// 便捷入口：直接用「规则表 + 规则名」匹配文本（默认双语关键字）。
+/// Convenience entry: match text by `rule table + rule name` (bilingual keywords by default) ｜ 便捷入口：直接用「规则表 + 规则名」匹配文本。
 pub fn matches(rules: &BTreeMap<String, Value>, name: &str, text: &str) -> Result<bool, String> {
     matches_with(rules, name, text, &BILINGUAL)
 }
 
-/// 指定关键字表的匹配入口。
+/// Matching entry with an explicit keyword table ｜ 指定关键字表的匹配入口。
 pub fn matches_with(
     rules: &BTreeMap<String, Value>,
     name: &str,
