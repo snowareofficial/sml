@@ -160,31 +160,37 @@ pub struct Object {
 }
 
 impl Object {
+    /// Empty object; no entry buffer and no index are allocated yet ｜ 新建空对象：不预分配条目、不建索引。
     #[inline]
     pub fn new() -> Self {
         Object { entries: Vec::new(), index: OnceLock::new() }
     }
 
+    /// Empty object whose entry buffer is pre-allocated for `n` keys ｜ 新建空对象，条目缓冲区按 `n` 个键预分配。
     #[inline]
     pub fn with_capacity(n: usize) -> Self {
         Object { entries: Vec::with_capacity(n), index: OnceLock::new() }
     }
 
+    /// Number of entries; duplicate keys are already merged, so this equals the visible key count ｜ 条目数；重名键早已合并，故等于可见键数。
     #[inline]
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
+    /// Whether there is no entry at all ｜ 是否一个条目都没有。
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
+    /// Allocated capacity of the entry buffer (≥ [`len`](Self::len)) ｜ 条目缓冲区已分配容量（≥ [`len`](Self::len)）。
     #[inline]
     pub fn capacity(&self) -> usize {
         self.entries.capacity()
     }
 
+    /// Drop all entries **and** the lazily built index ｜ 清空全部条目，并丢弃惰性索引。
     pub fn clear(&mut self) {
         self.entries.clear();
         self.index = OnceLock::new();
@@ -262,17 +268,20 @@ impl Object {
         }
     }
 
+    /// Look up a key; the index is built lazily on the first lookup that needs it (§5) ｜ 按键取值；需要时才在首次查找中惰性建索引（§5）。
     #[inline]
     pub fn get(&self, key: &str) -> Option<&Value> {
         self.position_of(key).map(|i| &self.entries[i].value)
     }
 
+    /// Look up a key for in-place mutation; position is resolved **before** the `&mut` is taken ｜ 按键取可变引用；先解析出下标再取 `&mut`，两次借用不重叠。
     pub fn get_mut(&mut self, key: &str) -> Option<&mut Value> {
         // 先算下标再取 `&mut`：不能让 `position_of` 的 `&self` 借用到赋值之后。
         let i = self.position_of(key)?;
         Some(&mut self.entries[i].value)
     }
 
+    /// Whether the key exists (same lookup path as [`get`](Self::get)) ｜ 键是否存在（与 [`get`](Self::get) 同一条查找路径）。
     #[inline]
     pub fn contains_key(&self, key: &str) -> bool {
         self.position_of(key).is_some()
@@ -317,6 +326,7 @@ impl Object {
         self.index_insert(slot);
     }
 
+    /// Remove a key and return its value; later keys shift left, so the whole index is discarded ｜ 删键并返回其值；其后的键位置前移，故整张索引作废。
     pub fn remove(&mut self, key: &str) -> Option<Value> {
         let i = self.position_of(key)?;
         let e = self.entries.remove(i);
@@ -330,21 +340,25 @@ impl Object {
         Iter { inner: self.entries.iter() }
     }
 
+    /// Iterate `(key, &mut value)` in **source order**; keys themselves are immutable ｜ 按**源序**迭代 `(键, &mut 值)`；键本身不可改。
     #[inline]
     pub fn iter_mut(&mut self) -> IterMut<'_> {
         IterMut { inner: self.entries.iter_mut() }
     }
 
+    /// Iterate keys in **source order** ｜ 按**源序**迭代键。
     #[inline]
     pub fn keys(&self) -> Keys<'_> {
         Keys { inner: self.entries.iter() }
     }
 
+    /// Iterate values in **source order** ｜ 按**源序**迭代值。
     #[inline]
     pub fn values(&self) -> Values<'_> {
         Values { inner: self.entries.iter() }
     }
 
+    /// Iterate values mutably in **source order** ｜ 按**源序**迭代可变值。
     #[inline]
     pub fn values_mut(&mut self) -> ValuesMut<'_> {
         ValuesMut { inner: self.entries.iter_mut() }

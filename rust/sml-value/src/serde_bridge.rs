@@ -173,6 +173,13 @@ pub fn to_string<T: Serialize + ?Sized>(value: &T) -> Result<String, String> {
     Ok(crate::to_sml(&to_value(value)?))
 }
 
+/// Serialize any serde type into SML text —— **stub** in this build: without the `sml` feature ｜ 任意 serde 类型序列化为 SML 文本 —— 本档下是**桩**：未开 `sml` 特性。
+///
+/// 签名在所有档位保持一致，但写 SML 文本的 `to_sml` 与 `Display` 都由 `sml` feature
+/// 门控（见 `dump` 模块），关掉它就没有实现可调。故这里不做事，**一定**返回
+/// `Err("sml feature not enabled")`，入参被丢弃。
+///
+/// 想在本档下也要文本 ⇒ 先 `serde::to_value` 拿到 [`Value`]，再自己决定怎么序列化。
 #[cfg(not(feature = "sml"))]
 pub fn to_string<T: Serialize + ?Sized>(value: &T) -> Result<String, String> {
     let _ = value;
