@@ -561,9 +561,11 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
   `25da74a` 随嵌套数组深度修复删 256 MiB），两文件今天都不含 `stack_size`。
   ⇒ 真实状态以本条「现象 / 根因 / 已修」三行为准；**根因已于 2026-11-02 关闭**（见上「已闭」条与
   `rust/tests/stack_default.rs`）。
-- ⚠️ **唯一残留的大栈包装**：`rust/src/lib.rs:989` 的测试助手 `parse_on_big_stack`
-  仍开 `stack_size(32 * 1024 * 1024)`，注释还写着「debug 构建下递归到 128 层就足以撑爆」——
-  迭代式改造后这是**冗余**，可择机删掉（需连 `deep_nesting_exceeding_limit_is_rejected` 一起改走默认栈）。
+- ✅ **最后一处大栈包装也已删（2026-11-02）**：`rust/src/lib.rs` 里测试助手 `parse_on_big_stack`
+  （`stack_size(32 MiB)`）已移除，`deep_nesting_exceeding_limit_is_rejected` 改在 libtest
+  默认栈（2 MiB）上直接 `parse`，1000 层实测仍正常返回 `E-LIMIT-001`。
+  ⇒ 全仓 `stack_size(` 只剩两处：`rust/tests/stack_default.rs`（显式 2 MiB，它本身就是那条用例
+  的被测条件）与 gitignore 的 `_stack_probe.rs` —— **再没有「为了让测试不崩而开大栈」的包装**。
 - **2026-11-02 新发现并修复**：`svg` / `slint` 后端的**嵌套数组**递归把 `depth` 原样传下去（未 +1），
   深度守卫永不触发 ⇒ 5 万层 `[[[…]]]` 在默认栈 `0xC00000FD`。已改为「合并出的兄弟数组不加深、
   嵌套数组 +1」；`rust/tests/emit.rs` 的 **256 MB 大栈包装随之删除**（默认 2 MiB 下 44/44 全过）。
