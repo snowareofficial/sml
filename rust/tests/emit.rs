@@ -451,12 +451,15 @@ fn deeply_nested(depth: usize) -> sml::Value {
     v
 }
 
-/// 对象链：`{a:{a:…}}`——与数组链是**两种递归形状**，都要防栈溢出。
+/// 对象链：`{node:{node:…}}`——与数组链是**两种递归形状**，都要防栈溢出。
+///
+/// ⚠️ 键名**不要用 `a`**：markdown 后端把 `Some("a")` 当链接块（`[text](href)`），
+/// 用 `a` 做键会让整棵树被渲染成一个空链接，测不到深度路径（2026-11-02 踩过）。
 fn deeply_nested_objects(depth: usize) -> sml::Value {
     let mut v = sml::Value::Int(0);
     for _ in 0..depth {
         let mut m = sml::Map::new();
-        m.insert("a".to_string(), v);
+        m.insert("node".to_string(), v);
         v = sml::Value::Object(m);
     }
     v

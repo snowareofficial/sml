@@ -562,7 +562,9 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 - **2026-11-02 emit 深度审计（六后端 × 两种形状）**：50k **数组链**下 `svg`/`slint` 曾崩（已修），
   `lvgl` 返回 `Ok`（LVGL 只认对象、忽略数组，属设计）、`markdown`/`latex`/`xml` 返回 `Err`；
   50k **对象链**下全部不崩（已加 `emit_depth_limit_object_chain_does_not_overflow` 钉住）。
-  残留语义差异（非崩溃）：`markdown` 对超深**对象链**返回 `Ok` —— 其守卫只覆盖数组路径，待后续统一。
+  ✅ **`markdown` 实为正常**：128 层放行、129 层报 `E-LIMIT-004`。此前"它对对象链返回 `Ok`"
+  是**我探针的误判**（键名用了 `a`，撞上 markdown 的**链接块** `Some("a")`，整棵树被渲染成
+  空链接 `[]()`）—— 该结论作废，勿再引用；回归用例已改用中性键名 `node`。
 - ~~**遗留**：`parse_array_inner` 未做削薄检查~~ —— **该函数在主干已不存在**（迭代式改造后数组也走
   `array_step`），此条过期；「默认栈 128 层」判据由 `rust/tests/stack_default.rs` 持续钉住。
 
