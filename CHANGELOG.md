@@ -214,6 +214,9 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 - **第四批（`sml-parse/src/scan.rs`）**：`@feature` / `@version` 相关 **11 处**改为
   `from_code_msg` / `from_code_title` + `with_detail`（`E-FEATURE-003/004/006/007/008`）。
   `sml-parse` 其余文件（`parser.rs` 61 / `cond.rs` 13 / `api.rs` 12）与 `sml-contract` 仍待续。
+- **第五批（`sml-parse/src/cond.rs` + `api.rs`）**：`@when` / `@for` / 入口与特性错误共 **25 处**
+  改为 `from_code_msg` / `from_code_title` + `with_detail`。`sml-parse/src/parser.rs`（61 处）与
+  `sml-contract` 仍待续。
 
 ### ⚠️ 升级注意
 
