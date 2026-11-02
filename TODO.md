@@ -697,7 +697,7 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 | `rust/sml-lex/src/lib.rs:477` | 大整数经 `coerce_word` 的 B10 规则直出可写，回读按 `looks_int` 分支得到 `Value::Str`（不是 Int/Float）；**类型不对称但 round-trip 安全、零精度损失**。需写进文档：大整数经 SML 文本往返会变成字符串类型 | ④ |
 | `rust/sml-value/src/ser_text.rs:82` + `serde_bridge.rs` 的 float 构造（raw=None） | ✅ **已定性（2026-10-28；不是修复，是收口）**：实测证实 serde **没有任何钩子**能让序列化侧拿到浮点原始文本 —— `Serializer` 对浮点只有 `serialize_f64(v: f64)` 一个入口（`serde_core-1.0.229/src/ser/mod.rs:681`），`f64` **按值**传入，数据模型里没有「数值 + 书写文本」的位置；唯一能带文本的是 `collect_str`，而它落到 `serialize_str`，会让浮点在 JSON 等**其它格式**里变成字符串（真改数据，比丢写法糟）。⇒ 维持「不保 raw」，写进 `ser_text.rs` 模块文档 | ② |
 | `rust/sml-value/src/ser_text.rs:82` vs `rust/sml-value/src/dump.rs:215` | ✅ **已定性（同上）**：两条发射器对浮点的输出不对称**不可消除**（serde 侧无 raw 槽位）。文档就近补在三处 —— `ser_text.rs` 模块文档 / `serde_bridge.rs` 的 `impl Serialize for Value` / `dump.rs` 的 `format_float`；并由两条**能跑**的测试钉住：`rust/tests/ser_de_direct.rs::float_raw_only_survives_to_sml`（行为）与 `::serde_hands_the_emitter_only_an_f64`（探针 Serializer 实测「只给了 f64」） | ④ |
-| `rust/sml-value/src/dump.rs:193-202`（`format_float`） | 🆕 **只登记、本轮不碰（2026-10-28）**：同一族问题的另一半 —— `1.0` 的**保真**（用户登记：只有 Rust 保留 `1.0` 为浮点）。B 组 2-3 是「写法保不住」，这条是「浮点身份保不住」；动它要五端同步，故挂账 | ④ |
+| `rust/sml-value/src/dump.rs:193-202`（`format_float`） | ✅ **Rust 侧已保真（2026-11-02 复核 + 钉测试）**：`format_float` 对整数值浮点强制 `{:.1}`（`dump.rs:197-198`），`1.0` / `1e10` / `-2.0` 都不会退化成整数；新增 `integral_float_keeps_dot_zero` 钉住。**残的是五端不一致**（其他端把 `1.0` 写成 `1`），归跨端同步，**不是 Rust 缺陷** | ④ |
 
 #### C 已修（仅登记 —— W16 / B10 修过一批同类型）
 

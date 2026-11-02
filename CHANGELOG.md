@@ -265,6 +265,12 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   用例补在 `rust/tests/error_codes.rs::include_unquoted_path_is_include_012`。全量回归绿
   （仅本地 `_stack_probe`）。
 
+### 测试（雷5 B 组：整数值浮点保真）
+
+- 复核确认 `format_float` 对整数值浮点强制 `{:.1}`（`1.0` / `1e10` / `-2.0` 不会退化成整数），
+  新增 `integral_float_keeps_dot_zero` 钉住。**Rust 侧无缺陷**；雷5 B 组剩余的是
+  **五端不一致**（其他端把 `1.0` 写成 `1`），属跨端同步。
+
 ### ⚠️ 升级注意
 
 - `Diagnostic` 是公开结构体，**新增 `line` 字段**：只读取诊断的代码不受影响；
