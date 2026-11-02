@@ -259,6 +259,32 @@ Merge rules (strictly matching the implementation):
 
 > Boundary vs. **combination** (§5.4): combination expresses "this block embeds a constrained sub-structure" via a field that references another contract (one more shape layer); a mixin expresses "this block obeys several rule sets at once" by merging contracts onto one block (shape unchanged). They solve different problems and **cannot replace each other**.
 
+### 5.4.2 Cross-file contracts: reuse a contract library via `include`
+
+A contract does not have to live in the same file as `@is`. The file entry point (`parse_file`) expands `include` first (a **token-level splice**), so a `@contract` defined in an included file and an `@is` in the main file end up in **the same contract table** — as long as the include appears before the use, you can keep contracts in a shared "contract library":
+
+```sml
+# contracts.sml — the contract library
+@contract User {
+    name: str
+    role: str default guest
+}
+```
+```sml
+# main.sml
+@version v1
+include "contracts.sml"
+
+doc {
+    @is User
+    name: ada
+}
+```
+
+⚠️ **Order matters**: `@is` looks up the contract table only **when the block closes**, so the contract must be parsed *before* that block closes. Putting `include "contracts.sml"` **after** `doc { }` raises `E-CONTRACT-001` (unknown contract).
+
+> Current status (2026-11-02): this behavior is emergent from token splicing, **not a dedicated syntax**; it is pinned by `rust/tests/contract_cross_file.rs` (three cases: visible across files / order sensitivity / negative control). The C / C++ / JS / Lua implementations' include+contract behavior is **not aligned or tested** — confirm the target backend before relying on it across languages.
+
 ## 5.5 Cross-field constraints: mutually exclusive groups (one_of / exactly_one)
 
 Sometimes the constraint is not "inside one field" but "between a group of fields". Take a payment
