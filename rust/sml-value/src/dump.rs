@@ -354,20 +354,20 @@ pub fn to_sml(v: &Value) -> String {
     out
 }
 
-/// 序列化选项（§6.2）。
+/// Serialization options (§6.2). ｜ 序列化选项（§6.2）。
 ///
 /// 只放**与顺序有关**的开关：保序（`to_sml`）与确定性（canonical）是两件事，
 /// 必须能各自独立选择 —— 否则「我想保序」就会被迫连「字节稳定」一起买下。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DumpOptions {
-    /// 按 key 的 UTF-8 字节序输出（**递归**到所有嵌套对象）。
+    /// Emit in key UTF-8 byte order (**recursively** into all nested objects). ｜ 按 key 的 UTF-8 字节序输出（**递归**到所有嵌套对象）。
     ///
     /// 默认 `false` = 保对象自身的迭代序（默认档即键序，`preserve_order` 档即源序）。
     /// `true` 时同一份值无论来源顺序如何，输出**逐字节相同**。
     pub sort_keys: bool,
 }
 
-/// 按 [`DumpOptions`] 序列化。`sort_keys=false` 时与 [`to_sml`] 逐字节一致。
+/// Serialize per [`DumpOptions`]; byte-identical to [`to_sml`] when `sort_keys=false`. ｜ 按 [`DumpOptions`] 序列化；`sort_keys=false` 时与 [`to_sml`] 逐字节一致。
 pub fn to_sml_with(v: &Value, opts: &DumpOptions) -> String {
     if opts.sort_keys {
         to_sml(&v.sorted_by_key())
@@ -376,7 +376,7 @@ pub fn to_sml_with(v: &Value, opts: &DumpOptions) -> String {
     }
 }
 
-/// canonical 序列化：**递归**按键字节序输出，同值必同字节。
+/// Canonical serialization: **recursive** key byte-order output, equal values ⇒ identical bytes. ｜ canonical 序列化：**递归**按键字节序输出，同值必同字节。
 ///
 /// 与保序解耦（§6.2）：`preserve_order` 决定「存的时候留不留源序」，
 /// 本函数决定「写的时候按不按字节序」。两者可任意组合：
@@ -432,7 +432,7 @@ fn max_value_depth(v: &Value) -> usize {
     max
 }
 
-/// 与 [`to_sml`] 相同，但**深度超限返回错误**而不是静默写占位文本（W16）。
+/// Same as [`to_sml`], but **returns an error when the depth limit is exceeded** instead of silently writing placeholder text (W16). ｜ 与 [`to_sml`] 相同，但**深度超限返回错误**而不是静默写占位文本（W16）。
 ///
 /// 改前：超过 [`crate::MAX_VALUE_DEPTH`] 时各处守卫会写下
 /// `/* …深度超限… */ null` 之类的占位内容 —— 产物看着像合法 SML、回读却是 `null`，

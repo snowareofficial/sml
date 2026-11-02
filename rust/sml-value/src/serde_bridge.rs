@@ -137,7 +137,7 @@ impl<'de> Visitor<'de> for ValueVisitor {
 // serde 桥：任意 `serde::Serialize / Deserialize` 类型 <-> SML
 // -----------------------------------------------------------------------
 
-/// 从任意 [`Value`] 反序列化到任意 serde 类型。
+/// Deserialize from a [`Value`] into any serde type. ｜ 从任意 [`Value`] 反序列化到任意 serde 类型。
 ///
 /// ```rust
 /// use sml_value::Value;
@@ -162,12 +162,12 @@ pub fn from_value<T: de::DeserializeOwned>(value: Value) -> Result<T, String> {
     T::deserialize(ValueDeserializer(value)).map_err(|e| e.to_string())
 }
 
-/// 任意 serde 类型序列化为 [`Value`]（等价于 `serde_json::to_value`）。
+/// Serialize any serde type into a [`Value`] (equivalent to `serde_json::to_value`). ｜ 任意 serde 类型序列化为 [`Value`]（等价于 `serde_json::to_value`）。
 pub fn to_value<T: Serialize + ?Sized>(value: &T) -> Result<Value, String> {
     value.serialize(ValueSerializer).map_err(|e| e.to_string())
 }
 
-/// 任意 serde 类型序列化为 SML 文本（等价于 `toml::to_string`）。
+/// Serialize any serde type into SML text (equivalent to `toml::to_string`). ｜ 任意 serde 类型序列化为 SML 文本（等价于 `toml::to_string`）。
 #[cfg(feature = "sml")]
 pub fn to_string<T: Serialize + ?Sized>(value: &T) -> Result<String, String> {
     Ok(crate::to_sml(&to_value(value)?))

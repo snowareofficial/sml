@@ -110,8 +110,16 @@ Confirm the reading with the user before writing any code.
   `Object` / `Object::insert_or_merge` / `include::{parse,expand}` / `ext` 模块头）。
   🔬 判别实验：改动前后各跑一次 `cargo doc --no-deps`，警告集合**完全一致**
   （`sml-codes` 3 条 / `sml-parse` 5 条 / `swsml-derive` 1 条，均为既有坏链接）⇒ 本批**未引入**新警告。
-- **剩余**：各 crate 的 `pub` 项摘要仍有百级（`sml-value`、`sml-parse` 之外的 crate 基本没动），
-  建议**按 crate 分批**，每批一个提交。
+- **第六批（2026-11-02）**：`sml-value` 收口 —— 14 处公开项摘要双语化（`serde::{from_value,to_value,to_string}`、
+  `dump::{to_sml_with,to_sml_canonical,to_sml_checked,DumpOptions,DumpOptions::sort_keys}`、
+  `ser_text::to_string_direct`、`Object::{insert,iter,sort_keys,eq_ordered,into_values}`）。
+  判别实验：改动前后 `cargo doc -p sml-value --features sml,serde` 警告集合一致。
+  ⚠️ 本 crate 的 7 个迭代器类型（`Iter` / `Keys` / `Values` …）**没有在 `lib.rs` 具名再导出**，
+  按已定口径（docs.rs 可见面）不计入；若哪天把它们导出，会立刻变成新欠账。
+- **剩余**：其它 crate 的 `pub` 项摘要仍有百级（`sml-parse`、`sml-contract`、`sml-include`、`smltools`
+  基本没动），建议**按 crate 分批**，每批一个提交。
+- **另一笔（不是双语化，是补写）**：`Object` 的 14 个方法与 `serde_bridge` 的
+  `#[cfg(not(feature = "sml"))]` 版 `to_string` **完全没有 doc** —— 见 `HANDOFF` 的 **R11**。
 - **纪律 / 2026-10-31**：此笔**只动注释、不动逻辑**；改动与任何逻辑 diff 拆开独立提交。
 - **进展（2026-10-31 第一批，核心公开面）**：✅ `sml-value/src/lib.rs` 模块 doc + 公开项注解
   已由纯中文改为「English ｜ 中文」双语（中文照留，符合「还是支持中文」）；
