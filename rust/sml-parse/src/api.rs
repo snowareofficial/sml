@@ -361,6 +361,13 @@ pub fn parse_with_features(
 ///
 /// 供 FFI（`sml_parse_ex` 的 `env` 选项）等需要注入变量、又不便改进程环境的
 /// 场景使用。
+///
+/// # 与 [`parse_with_features`] 的差别
+///
+/// **只有 `$env.X` 的取值来源**不同：先查这张表，未命中才回落进程环境。
+/// 特性侧的语义与陷阱**完全一致** —— 返回值同样是**交集**（不是 `allowed`）、
+/// 单个特性越权同样是**静默剔除**、同样别把返回值当新的 `allowed` 往下传。
+/// 那三条的展开说明见 [`parse_with_features`] 的「陷阱」一节，此处不重复。
 pub fn parse_with_features_env(
     text: &str,
     allowed: FeatureSet,
