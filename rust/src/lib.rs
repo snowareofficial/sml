@@ -127,6 +127,30 @@ pub use sml_value::{to_sml, to_sml_canonical, to_sml_with, DumpOptions};
 /// 门面这一层把码**提出来变成结构化字段**，与 Rust 侧其它错误的口径一致
 /// （`SmlError::code()` 可取到码，`Display` 仍把码缀在文案后）。故这里先剥掉
 /// sml-value 已经在文案里附上的那个 `[码]` 后缀，免得显示两次。
+///
+/// # 例子
+///
+/// ```
+/// use sml::{parse, to_sml, to_sml_checked};
+///
+/// let v = parse("a: 1\n").unwrap();
+/// // 未超深时与 `to_sml` 逐字一致 —— 本函数只多一道深度检查，不改排版
+/// assert_eq!(to_sml_checked(&v).unwrap(), to_sml(&v));
+/// ```
+///
+/// # 陷阱
+///
+/// ⚠️ **`to_sml` 本身永不失败**。它被 40 余处按「总能给你一份文本」的契约使用
+/// （含 `Value` 的 `Display`），超深时写的是 `/* …深度超限… */ null` 这类**占位文本**：
+/// 看着像合法 SML、回读却是 `null`。所以只要链路上还有 `to_sml` / `to_sml_with` /
+/// `format!("{v}")`，静默降级就还在；要失败语义只能走本函数（CLI 与 C-ABI 已改走这里）。
+///
+/// ⚠️ **判据只有深度**。本函数不校验类型、不做语义修正 —— `Ok` 只代表「没超深」，
+/// 不代表内容正确。
+///
+/// ⚠️ **边界口径是「根 = 0」的 [`MAX_VALUE_DEPTH`] 层**（与解析器、各 emit 后端一致；
+/// 雷 9 修的就是这里曾把根算作 1）：恰好 128 层的文档**能解析、也能写出**，
+/// **129 层**才报 `E-LIMIT-004`。
 #[cfg(feature = "sml")]
 pub fn to_sml_checked(v: &Value) -> Result<String, sml_codes::SmlError> {
     sml_value::to_sml_checked(v).map_err(|m| {

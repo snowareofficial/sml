@@ -301,6 +301,41 @@ pub fn parse_allowed(
 ///
 /// 未声明任何 `@feature` 的文档若仅靠版本基线（如 v3），则基线特性与
 /// `allowed` 交集；只要交集非空即放行。
+///
+/// 返回 `(Value, FeatureSet)`，第二个是**实际生效**的集合（= 文档所求 ∩ `allowed`），
+/// 不是调用方传进来的 `allowed` 本身。
+///
+/// 与 [`parse_with`] 的关系：本函数是它的**特性受限版**，代价是同样**不展开 include**，
+/// 且同样**不返回诊断**（`DuplicateKey` / `KeyOverwritten` 会被丢掉）。
+/// 要「限制特性 + 拿诊断」，今天没有单入口，需 `parse_with` 拿到 `ParseOutput` 后自行裁剪。
+///
+/// # 例子
+///
+/// ```
+/// use sml_feature::{Feature, FeatureSet, Version};
+/// use sml_parse::parse_with_features;
+///
+/// // 调用方白名单：v3 基线 + 显式允许 `when`
+/// let allowed = FeatureSet::for_version(Version::V3).with(Feature::When);
+/// let (v, effective) = parse_with_features("a: 1\n", allowed).unwrap();
+/// assert_eq!(v.get("a").and_then(|x| x.as_i64()), Some(1));
+/// // 第二个返回值是**交集**，不是 `allowed` 本身
+/// assert_eq!(effective.intersection(allowed), effective);
+/// ```
+///
+/// # 陷阱
+///
+/// ⚠️ **「文档开了但被悄悄削掉」不会报错**。实现只检查**整个交集**是否为空
+/// （空 ⇒ `E-FEATURE-009`）；单个特性落在 `allowed` 之外时是**静默剔除**。
+/// 于是文档作者写了 `@feature enable glob-include`、解析成功、那项能力却根本没开——
+/// 与 [`parse`] 的行为正好相反（`parse` 用文档自己的特性，不设上限）。
+/// 需要「越权即失败」时必须自己比对：`feats` 与 `effective` 的差集非空就报错。
+///
+/// ⚠️ **别把返回值当新的 `allowed` 往下传**：它是交集，再交集一次只会**越传越窄**，
+/// 子文档（如被外层包含的片段）会看不到外层已启用的能力，且失败现场远离真正的肇事处。
+///
+/// ⚠️ **空交集与版本不符是两个码**：本函数报 `E-FEATURE-009`，
+/// 版本不在范围内由 [`parse_allowed`] 报 `E-FEATURE-004`，别混着断言。
 pub fn parse_with_features(
     text: &str,
     allowed: FeatureSet,
