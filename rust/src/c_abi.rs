@@ -28,7 +28,24 @@ fn cstr_or_null(s: &str) -> *mut c_char {
     cstr(s).unwrap_or(ptr::null_mut())
 }
 
-/// sml_parse(text) -> 返回 JSON 字符串 (调用方 sml_free 释放); 失败返回 NULL
+/// `sml_parse(text)` -> **JSON** string (free with `sml_free_str`); NULL on failure. ｜ 返回 **JSON** 字符串（用 `sml_free_str` 释放）；失败返回 NULL。
+///
+/// # 语义：名字不描述数据方向
+///
+/// 它做的是 **SML → JSON**（解析后经内部 `jsonify` 转成 JSON 文本）。反方向的
+/// **JSON → SML** 是 `sml_dump`。两个名字都不说方向，**不要按名字猜参数含义**。
+///
+/// # 陷阱
+///
+/// ⚠️ **你以为失败时能问出原因 —— 其实本函数一律只给 NULL**：没有码、没有位置、
+/// 也不区分「语法错」与「特性被禁」。要错误语义请用 `sml_dump_err` 或值树 API。
+///
+/// ⚠️ **你以为按旧文案调 `sml_free(p)` 释放就行 —— 字符串要用 `sml_free_str`**。
+/// `sml_free` 释放的是**值树**（与 `sml.h` 纯 C 后端一致），两者语义不同，
+/// 改名原因见 `sml_free_str` 的说明。本函数此前的「调用方 sml_free 释放」是过期文案。
+///
+/// ⚠️ **你以为它能读带 `include` 的配置 —— 它内部走的是 `parse`，不展开 `include`**
+/// （文本入口不做 IO）。要模块化请用 `sml_parse_file`。
 ///
 /// # Safety
 /// `text` 必须是合法 NUL 结尾的 C 字符串，或 NULL（NULL 直接返回 NULL）。
@@ -46,7 +63,7 @@ pub unsafe extern "C" fn sml_parse(text: *const c_char) -> *mut c_char {
     }
 }
 
-/// sml_dump(json) -> 接受 JSON 字符串, 序列化为 SML; 调用方 sml_free
+/// `sml_dump(json)` -> SML text (free with `sml_free_str`). ｜ 接受 JSON 字符串，序列化为 SML；用 `sml_free_str` 释放。
 ///
 /// # Safety
 /// `json` 必须是合法 NUL 结尾的 C 字符串，或 NULL（NULL 直接返回 NULL）。
@@ -269,7 +286,7 @@ fn parse_opts_json(opts: &str) -> Result<(Vec<Feature>, Vec<(String, String)>, V
     Ok((features, env, allow))
 }
 
-/// sml_parse_ex(text, opts_json) -> JSON 字符串 (调用方 sml_free) 或 NULL。
+/// `sml_parse_ex(text, opts_json)` -> JSON string (free with `sml_free_str`) or NULL. ｜ 返回 JSON 字符串（用 `sml_free_str` 释放）或 NULL。
 ///
 /// opts_json 示例:
 ///   {"features":["glob-include","contract"],"env":{"APP_ENV":"prod"},"allow":["v1","v3"]}
