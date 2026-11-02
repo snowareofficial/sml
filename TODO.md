@@ -70,7 +70,7 @@
 
 **待确认的剩余设计项**：
 - [x] 契约级「至少一个字段」/互斥字段（`oneOf`）等高级约束 —— ✅ 已落地：`one_of` / `exactly_one`（工作区已实现、未提交；见 CHANGELOG「未发布」互斥字段组，2026-11-02 记）
-- [ ] 数组长度约束（如 `min_items` / `max_items`）是否需要
+- [x] 数组长度约束（`min_items` / `max_items`）—— ✅ 已落地（2026-11-02 复核，42 条库内测试全绿）：`items_min <n>` 为库内置 `sml_contract::ItemsMin`（走 `Modifier::check`，看字段**生效值**含 `default` 回填；`items_max` 刻意留作教科书 13 章外置扩展示例，未内置）。用法 `field: [T] items_min 2`，需 `ParseOptions::with_modifier(ItemsMin)` —— 默认**不自动注册**（零扩展=零影响），这是既定设计。
 - [ ] 契约是否支持跨文件（配合 `include` 复用契约库）
   - 现状（2026-11-02 汇报）：Rust 侧 `include` 在解析前合并 token 流（`sml-include/src/expand.rs`），被 include 文件里的 `@contract` 会落入同一张 `contracts` 表 ⇒ 契约库只要在使用前被 include 即可跨文件复用（无专门语法/约定、无测试；须先于使用解析）。C/C++/JS/Lua 四端各自的 include+contract 跨文件行为未对齐、未经测试。
 
