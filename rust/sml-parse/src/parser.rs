@@ -561,26 +561,23 @@ impl Parser {
                             }
                         }
                     } else {
-                        return Err(SmlError::new(
-                            E_PARSE_005,
-                            format!(
-                                "sml: 契约体内不支持指令 `@{}`（契约体仅支持 `@requires`）",
-                                dir
-                            ),
-                        ));
+                        return Err(SmlError::from_code_title(E_PARSE_005)
+                            .with_detail(format!("契约体内不支持指令 `@{dir}`（仅 `@requires`）")));
                     }
                 }
                 _ => {
                     let key = match self.next() {
                         Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
                         other => {
-                            return Err(SmlError::new(E_PARSE_006, format!("sml: 契约字段期望键, 得 {:?}", other)))
+                            return Err(SmlError::from_code_title(E_PARSE_006)
+                                .with_detail(format!("契约字段期望键，得 {other:?}")))
                         }
                     };
                     if self.peek() == Some(&Tok::Colon) {
                         self.next();
                     } else {
-                        return Err(SmlError::new(E_PARSE_006, format!("sml: 契约字段 `{}` 后须有冒号", key)));
+                        return Err(SmlError::from_code_title(E_PARSE_006)
+                            .with_detail(format!("契约字段 `{key}` 后须有冒号")));
                     }
                     let spec = self.parse_field_spec()?;
                     fields.insert(key, spec);
@@ -614,10 +611,8 @@ impl Parser {
     /// 与 `parse_contract_body` 的冒号检查拦住（同码） —— 两条路都要给 `E-PARSE-006`。
     fn reject_legacy_modifier_in_type(w: &str) -> Result<(), SmlError> {
         if let Some(sym) = w.chars().find(|c| *c == '?' || *c == '=') {
-            return Err(SmlError::new(
-                E_PARSE_006,
-                format!("sml: 契约修饰符 `{}` 已废弃（用 `optional` / `default`）", sym),
-            ));
+            return Err(SmlError::from_code_title(E_PARSE_006)
+                .with_detail(format!("契约修饰符 `{sym}` 已废弃（用 `optional` / `default`）")));
         }
         Ok(())
     }
@@ -1015,7 +1010,8 @@ impl Parser {
                 }
             }
             if self.peek() != Some(&Tok::LBrace) {
-                return Err(SmlError::new(E_PARSE_019, format!("sml: @contract {} 后须 {{ ... }}", cname)));
+                return Err(SmlError::from_code_title(E_PARSE_019)
+                    .with_detail(format!("@contract {cname} 后须 {{ ... }}")));
             }
             self.next();
             let mut requires: Vec<String> = Vec::new();
@@ -1025,20 +1021,14 @@ impl Parser {
             // 因此此处校验的是「文档在任意位置声明过的特性」的并集，与书写顺序无关。
             for req in &requires {
                 let f = Feature::from_name(req).ok_or_else(|| {
-                    SmlError::new(
-                        E_FEATURE_003,
-                        format!(
-                            "sml: 契约 `{}` 的 `@requires` 引用了未知特性 `{}`",
-                            cname, req
-                        ),
-                    )
+                    SmlError::from_code_title(E_FEATURE_003).with_detail(format!(
+                        "契约 `{cname}` 的 `@requires` 引用了未知特性 `{req}`"
+                    ))
                 })?;
                 if !self.features.has(f) {
-                    return Err(SmlError::new(
-                        E_CONTRACT_018,
+                    return Err(SmlError::from_code_title(E_CONTRACT_018).with_detail(
                         format!(
-                            "sml: 契约 `{}` 要求特性 `{}` 已开启，但当前特性集未开启它（请用 `@feature enable {}`）",
-                            cname, req, req
+                            "契约 `{cname}` 要求特性 `{req}` 已开启（请用 `@feature enable {req}`）"
                         ),
                     ));
                 }
@@ -1075,14 +1065,13 @@ impl Parser {
                 let tname = match self.next() {
                     Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
                     other => {
-                        return Err(SmlError::new(E_PARSE_019, format!(
-                            "sml: @type name: 后须类型名, 得 {:?}",
-                            other
-                        )))
+                        return Err(SmlError::from_code_title(E_PARSE_019)
+                            .with_detail(format!("@type name: 后须类型名，得 {other:?}")))
                     }
                 };
                 if self.peek() != Some(&Tok::LBrace) {
-                    return Err(SmlError::new(E_PARSE_019, format!("sml: @type {} 后须 {{ ... }} 模式体", tname)));
+                    return Err(SmlError::from_code_title(E_PARSE_019)
+                        .with_detail(format!("@type {tname} 后须 {{ ... }} 模式体")));
                 }
                 self.next();
                 let body = self.parse_block(Some(Tok::RBrace))?;
