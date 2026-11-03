@@ -705,6 +705,11 @@ svc { @is Svc  name: gateway  x-owner: infra }
   （小字符串内联 / interning / inline 小 map）⇒ 转 `docs/value-layout.md` 与 I-18。
 - **推广**：快路径已覆盖 7 个入口（`parse` / `parse_versioned` / `parse_allowed` /
   `parse_with_features(_env)` / `parse_with` / `parse_with_warnings`）。
+- **分配归因（2026-11-03）**：基准里加了零依赖 `GlobalAlloc` 计数器 —— 边际成本
+  **每键 6.9 次分配**（词法 ≈2.8 + 解析 ≈4）。⇒ 每键 ≈400 ns 就是「7 次 malloc +
+  一次 BTreeMap 插入」的钱。**再往下只能动表示**：`Tok::Word(String)` → 借用切片 /
+  键 interning / inline 小 map —— 三条都是 lexer→parser→value 的跨 crate 变更，
+  与 `docs/value-layout.md` 和 I-18 的字符串表设计绑在一起，**不在性能任务里做**。
 - **⚠️ 硬约束（想清楚再动手）**：**文档里的 `@feature enable/disable` 是运行期、文档级开关**，
   所以**不能**把 SML 特性位编译掉 —— 能被编译掉的只有「调用方在编译期就决定」的那部分
   （`preserve_order`、`emit-*`）。而仓库里 **cargo feature 与 SML 特性同名**（`when` / `for` /

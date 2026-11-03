@@ -1008,7 +1008,14 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
 - [x] **推广已做**：快路径覆盖 `parse` / `parse_versioned` / `parse_allowed` /
       `parse_with_features` / `parse_with_features_env` / `parse_with` / `parse_with_warnings`
       （共用一个 `no_directives` 判据与三个共用的错误/尾段构造函数，避免抄五份）。
-- [ ] **下一个杠杆**：每键 ≈400 ns 的「键表示」问题（见上），或编译期切分。
+- [x] **归因完成（2026-11-03）**：基准挂了零依赖 `GlobalAlloc` 计数器。边际成本
+      **每键 6.9 次分配**（词法 ≈2.8 + 解析 ≈4），B/op 也有账 ⇒ 「每键 400 ns」就是
+      「7 次 malloc + 一次 BTreeMap 插入」的钱。数据见 `docs/perf-baseline.md` 的「分配账」。
+- [ ] **下一个杠杆（需要设计决策，别在性能任务里顺手做）**：动**表示**而非常数 ——
+      ① `Tok::Word(String)` → 借用切片（token 不再自持分配）；
+      ② 键 interning（全局串表，与 `.smlb` 字符串表同一思路）；
+      ③ inline 小 map（单键对象不单独 malloc）。
+      三条都是 lexer → parser → value 的跨 crate 变更，且与 `docs/value-layout.md` / I-18 绑定。
 - [ ] ⚠️ **先想清「哪一层能编译掉」**：文档里的 `@feature enable/disable` 是**运行期、文档级**开关，
       **不能**编译掉；能编译掉的只有调用方在**编译期**决定的那部分（`preserve_order`、`emit-*`）。
       仓库里 cargo feature 与 SML 特性**同名**（`when` / `for` / `contract`），动手前逐项确认。
