@@ -86,7 +86,12 @@ const explained = new Set();
 // 本仓库当前 `src/vendor/sml.mjs` 的指纹（每次重打 VSIX 后同步这里；
 // 与 sync-parser.py 打印的值同源）。自检会拿它对**已安装的包**做一次核对 ——
 // 「包是不是新的」这件事以前只靠人肉解包比对（见 HANDOFF §22.2 第 1 条）。
-const EXPECT_VENDOR = { size: 96110, shaPrefix: "c7a5054ddbd2f499" };
+// 期望的 `src/vendor/sml.mjs` 指纹。**改它必须同时做两件事**：
+//   ① 跑 `python tools/check_js_copies.py` 确认四份副本与 `js/sml.mjs` 逐字节一致；
+//   ② 重打 `.vsix`（否则库里那份二进制仍带着旧解析器 —— 见 TODO §三·十二 F 组）。
+// 2026-11-03：旧值 96110 B / c7a5054… 早已漂移（JS 侧修了空文档 TypeError 等），
+// 现按 `js/sml.mjs` 的实际大小与 sha 前 16 位更新。
+const EXPECT_VENDOR = { size: 115667, shaPrefix: "a077a614e3e13bde" };
 
 // ---------------------------------------------------------------------------
 // 补全候选
@@ -158,17 +163,98 @@ const CONTRACT_TYPES = [
     ty.label === "enum [ ]" ? INSERT_SNIPPET : INSERT_PLAIN,
 }));
 
-const MODIFIERS = [
+// 修饰符分两组：
+//  ① **内置**（解析器固有，默认入口就认）；
+//  ② **外置**（`sml-contract/src/ext.rs` 实现，必须由调用方 `ParseOptions::with_modifier` 注册，
+//     `parse` / `smltools` 的默认入口**不认**）。第 ② 组若只给词不给说明，等于教用户写
+//     一条「补全里有、一保存就报 E-PARSE-006」的语法 —— 所以 detail 里必须写清要注册。
+//  ⚠️ 别把外置组并进内置组：README 明确写了它们「不动 C/C++/JS/Lua」。
+const MODIFIERS_BUILTIN = [
   { label: "required", detail: L("必填（默认行为，可省略）") },
   { label: "optional", detail: L("可选：缺失时不报错") },
   { label: "default", detail: L("默认值：字段缺失时填充") },
   { label: "min", detail: L("数值下界（含）") },
   { label: "max", detail: L("数值上界（含）") },
   { label: "loose", detail: L("允许契约未声明的字段（写在契约名后）") },
-].map((m) => ({
-  label: m.label,
+];
+
+const MODIFIERS_EXT = [
+  {
+    label: "one_of",
+    detail: L("组内至多一个出现（外置：需注册 one_of）"),
+    insertText: "one_of [ ${1:a} ${2:b} ]",
+    insertTextFormat: INSERT_SNIPPET,
+  },
+  {
+    label: "exactly_one",
+    detail: L("组内恰好一个出现（外置：需注册 exactly_one）"),
+    insertText: "exactly_one [ ${1:a} ${2:b} ]",
+    insertTextFormat: INSERT_SNIPPET,
+  },
+  {
+    label: "any_of",
+    detail: L("组内至少一个出现（外置：需注册 any_of）"),
+    insertText: "any_of [ ${1:a} ${2:b} ]",
+    insertTextFormat: INSERT_SNIPPET,
+  },
+  {
+    label: "items_min",
+    detail: L("数组元素个数下限（外置：需注册 items_min）"),
+    insertText: "items_min ${1:1}",
+    insertTextFormat: INSERT_SNIPPET,
+  },
+  {
+    label: "items_max",
+    detail: L("数组元素个数上限（外置：需注册 items_max）"),
+    insertText: "items_max ${1:10}",
+    insertTextFormat: INSERT_SNIPPET,
+  },
+  {
+    label: "depends_on",
+    detail: L("本字段出现 ⇒ 所列字段必须出现（外置：需注册 depends_on）"),
+    insertText: "depends_on [ ${1:a} ]",
+    insertTextFormat: INSERT_SNIPPET,
+  },
+  {
+    label: "x_only",
+    detail: L("按前缀放行未声明键，仅本契约生效（外置：需注册 x_only）"),
+    insertText: 'x_only "${1:x-}"',
+    insertTextFormat: INSERT_SNIPPET,
+  },
+];
+
+// 外置修饰符的共同说明：必须点出「默认入口不认」，否则用户以为写完就能跑。
+const EXT_MODIFIER_DOC = L(
+  "**外置修饰符**：实现在 Rust 扩展点（`sml-contract/src/ext.rs`），必须由调用方用 `ParseOptions::with_modifier` 注册；`parse` / `smltools` 默认入口**不认**，写进文档会报 `E-PARSE-006`。这组能力不动 C/C++/JS/Lua。"
+);
+
+const MODIFIERS = [
+  ...MODIFIERS_BUILTIN.map((m) => ({
+    label: m.label,
+    kind: CK("Keyword", 0),
+    detail: L("修饰符：{0}", m.detail),
+  })),
+  ...MODIFIERS_EXT.map((m) => ({
+    label: m.label,
+    kind: CK("Keyword", 0),
+    detail: L("修饰符：{0}", m.detail),
+    insertText: m.insertText,
+    insertTextFormat: m.insertTextFormat,
+    documentation: new vscode.MarkdownString(EXT_MODIFIER_DOC),
+  })),
+];
+
+// `@is <契约名>` **之后**可写的严格度档位（`Strictness::{Strict,Warn,Loose}`）：
+// `strict` 是默认档，`warn` 放行未声明字段但产出告警（经 `*_with_warnings` 交出），
+// `loose` 静默放行。此前这三档没有任何补全，用户只能靠记忆。
+const STRICTNESS = [
+  { label: "strict", detail: L("未声明字段报错（默认档，可省略）") },
+  { label: "warn", detail: L("未声明字段放行 + 产出一条告警（经 *_with_warnings 交出）") },
+  { label: "loose", detail: L("未声明字段静默放行") },
+].map((s) => ({
+  label: s.label,
   kind: CK("Keyword", 0),
-  detail: L("修饰符：{0}", m.detail),
+  detail: L("契约严格度：{0}", s.detail),
 }));
 
 const CONSTANTS = ["true", "false", "null"].map((c) => ({
@@ -862,6 +948,12 @@ function activate(context) {
             detail: L("契约名"),
           });
         }
+      }
+
+      // 4b) `@is <契约名> ` 之后：严格度档位。注意顺序 —— 必须排在 4) 的
+      //     `@is\s+[ID]*$` 之后，否则 `@is C`（只有一个词）会被这一条先吃掉。
+      if (new RegExp(`@is\\s+[${ID}]+\\s+[${ID}]*$`).test(linePrefix)) {
+        items.push(...STRICTNESS);
       }
 
       // 5) 行首键名补全（同文档出现过的键）
