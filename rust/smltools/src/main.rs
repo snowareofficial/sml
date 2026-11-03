@@ -51,6 +51,7 @@ use std::path::Path;
 
 mod highlight;
 mod lint;
+mod toc;
 mod toml;
 mod xml;
 mod yaml;
@@ -330,6 +331,14 @@ struct Cli {
     #[arg(long = "math")]
     math: bool,
 
+    /// 在输出前插入目录（仅 `--to md` / `--to html`）。
+    ///
+    /// 标题取自 `h1..h6` / `topic` / `section`；**有 `label` 的条目才是链接**，
+    /// 没给 `label` 的只列标题（锚点得先有个名字，不能瞎造）。
+    /// ⚠️ 标题顺序：块用 `children` 数组时才保源序，否则按字段名排序（BTreeMap 语义）。
+    #[arg(long = "toc")]
+    toc: bool,
+
     /// 契约推断（任务 E）：从数据实例反推 `@contract`。
     ///
     /// 输入为一份 SML/JSON 文档：根是**对象数组**（每个元素是一条实例），
@@ -459,6 +468,7 @@ struct Args {
     title: Option<String>,
     custom_rules: Option<PathBuf>,
     math: bool,
+    toc: bool,
     infer_contract: bool,
     json: bool,
 }
@@ -504,6 +514,7 @@ fn parse_args(cli: Cli) -> Result<Args, SmlError> {
         title: cli.title,
         custom_rules: cli.custom_rules,
         math: cli.math,
+        toc: cli.toc,
         infer_contract: cli.infer_contract,
         json: cli.json,
     })
@@ -641,6 +652,56 @@ fn parse_with(
 /// 本函数只做**原样透传**，不再按文案前缀猜码。
 /// 本模块自带的两个编辑器后端（tmlanguage / highlight）同样直接返回带码错误。
 fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, SmlError> {
+    let rendered = emit_plain(value, fmt, args)?;
+    Ok(insert_toc(rendered, value, fmt, args.toc))
+}
+
+/// `--toc`：只在 Markdown / HTML 上落（其余后端没有「目录」这个概念的落点）。
+///
+/// 条目从**值树**抽（见 `toc` 模块），所以不受输出文本里代码块/围栏的干扰。
+fn insert_toc(rendered: String, value: &Value, fmt: Format, toc: bool) -> String {
+    if !toc {
+        return rendered;
+    }
+    let entries = toc::collect(value);
+    match fmt {
+        Format::Markdown => {
+            let block = toc::render_markdown(&entries);
+            if block.is_empty() {
+                return rendered;
+            }
+            let mut out = block;
+            out.push_str(&rendered);
+            out
+        }
+        Format::Html => {
+            let block = toc::render_html(&entries);
+            if block.is_empty() {
+                return rendered;
+            }
+            // 完整文档要插在 `<body>` 之后；片段（无 body）就直接前置。
+            match rendered.find("<body") {
+                Some(pos) => match rendered[pos..].find('>') {
+                    Some(gt) => {
+                        let cut = pos + gt + 1;
+                        let mut out = String::with_capacity(rendered.len() + block.len() + 1);
+                        out.push_str(&rendered[..cut]);
+                        out.push('\n');
+                        out.push_str(&block);
+                        out.push_str(&rendered[cut..]);
+                        out
+                    }
+                    None => format!("{block}{rendered}"),
+                },
+                None => format!("{block}{rendered}"),
+            }
+        }
+        _ => rendered,
+    }
+}
+
+/// 真正干活的那一层（原 `emit`）。`--toc` 的后处理在 [`emit`] 里，不混进来。
+fn emit_plain(value: &Value, fmt: Format, args: &Args) -> Result<String, SmlError> {
     match fmt {
         // W16：走**带检查**的序列化 —— 深度超限要报 `E-LIMIT-004`，
         // 不能让 `to_sml` 静默写 `/* …深度超限… */ null` 占位文本（用户拿到的是
