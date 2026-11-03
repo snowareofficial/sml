@@ -99,6 +99,23 @@
 | `v3` / `3` | `3.0` |
 | `v4` / `4` | `4.0` |
 
+### 1.5 开发版本出现在**发布版**实现里：**warning**，不是硬错
+
+用户 2026-11-04：「release 不建议使用 dev 版本，warning ok」。
+
+| 实现 channel | 文档声明 | 结果 |
+|---|---|---|
+| **Dev**（包版本带预发布后缀：`-dev` / `-alpha` / `-beta` / `-rc`） | `@version 50 "camelia" dev` | **正常**，无提示 |
+| **Release**（如 `0.7.0`） | `@version 50 "camelia" dev`，且该代号仍在支持表里 | **warning**：「不建议在发布版使用开发版本集 `camelia`」——**不拒绝** |
+| **Release** | 该代号已从表里移除（`Removed`） | **`E-FEATURE-0xx`「版本集已移除」**（§1.3 / V7） |
+
+- **channel 由包版本推导**（`CARGO_PKG_VERSION` 是否含预发布后缀），不需要新配置项
+  —— 现在的 `0.6.9-dev.0` 自动就是 Dev channel；
+- ⚠️ **warning 的可见性**：仓库既有语义是「`parse()` 恒不返回诊断」，诊断只有
+  `parse_with_warnings` / `parse_file_with_warnings` 能看到 ⇒ **`smltools` 必须走带 warning 的入口
+  并把诊断打到 stderr**，否则这条 warning 会静默消失（等于没做）；
+- 不提供「把 warning 升级成硬错」的开关：用户要严格就自己开 `!strict` 类策略，不必再造一个总闸。
+
 ## 2. 数据模型
 
 现在是「平坦枚举 + `Ord` 比较」（`Version::V1..V4`，`strict_strings()` 里用 `self >= Version::V2`）。
@@ -191,7 +208,7 @@ smltools -i a.sml --migrate apply --rule v50-version,b2-symbol-modifier   # 只�
 | V7 | `Removed` 用哪个码 | **新增 `E-FEATURE-0xx`「版本集已移除」**（不复用 004；`impls` 起步 `rust`；note 带代号与规则 id；**不提供 `--allow-removed` 开关**） |
 | V8 | 迁移工具范围 | **连语法一起迁移**（逐条规则、可单跑，§4.5 已按此设计） |
 | V9 | `dev` 标记是否必须 | **必须**：`Dev` 状态不写 `dev` 就报错，文案给出口。子规则：代号可省、`dev` 不可省、`dev` 只能在**末尾**；定稿后必须改文档去掉 `dev` ⇒ 行为变化**可见** |
-| V10 | 兼容模块在哪层 | **所有 `parse*` 共用 `resolve_edition()`** + cargo feature `compat-check`（默认开）。单一判据点；检查在「读到 `@version` 之后、求特性集之前」；关掉时必须明文声明「无兼容检查」（防静默降级） |
+| V10 | 兼容模块在哪层 | **所有 `parse*` 共用 `resolve_edition()`** + cargo feature `compat-check`（默认开）。单一判据点；检查在「读到 `@version` 之后、求特性集之前」；关掉时必须明文声明「无兼容检查」（防静默降级）。<br>**增补（2026-11-04）**：发布版实现遇 `dev` 版本集 ⇒ **warning 而非硬错**（§1.5）；channel 由包版本后缀推导 |
 | V11 | CLI 形态 | **`--migrate <scan\|apply\|rules>`**（贴合现有扁平 flag，不引入子命令） |
 | V12 | apply 是否备份 | **默认不备份**（靠 VCS），另给可选 `--backup` |
 | V13 | scan 输出机器可读 | **文本 + `--json`**（CI 要判「有几处待迁移」） |
