@@ -986,10 +986,11 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
 
 ### G. 性能（2026-11-03 用户点题 IDEAS I-23：更激进的性能优化）
 
-- [ ] **先建基准**（不做这步，后面全是空话）：`criterion` 三组 —— 小文档（约 10 键）、
-      大文档（约 35 万字，可直接用 `story/` 的压测稿）、深嵌套（120 层）。产出
-      `docs/perf-baseline.md` 存数字与机器口径。⚠️ **仓库目前零 benchmark**
-      （无 `benches/`、无 `criterion`、无 `#[bench]`）。
+- [x] **基准已建（2026-11-03）**：`rust/benches/perf.rs`（**零依赖**手写计时器，不引 criterion）
+      + `docs/perf-baseline.md`（口径 / 三组负载 / 数字 / 三条可读结论）。
+      基线（release、5 轮取最小）：`small` parse 15.2 µs（12.8 MB/s）、`large` parse 10.9 ms
+      （81.4 MB/s）、`deep` parse 81.6 µs（8.5 MB/s）、`to_sml` 是同输入 parse 的 1/4 耗时。
+      ⇒ **小文档的单位成本是大文档的 6 倍**（固定开销主导），这是最值得也最常见的优化场景。
 - [ ] **一处 A/B**：挑「`preserve_order` 关闭时的对象构建」或「无指令文档走纯键值快路径」之一，
       前后对比 + 全量回归；有效再谈推广。
 - [ ] ⚠️ **先想清「哪一层能编译掉」**：文档里的 `@feature enable/disable` 是**运行期、文档级**开关，

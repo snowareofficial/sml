@@ -681,12 +681,17 @@ svc { @is Svc  name: gateway  x-owner: infra }
      或**按指令分派**（`@when` 分支在集合不含 `when` 时直接短路到错误，不再进入实现）。
   3. **专门快路径**：最常见的一类文档是「纯键值、无指令、无 include」。可以让入口先做一次
      廉价扫描，命中就走**不含指令/包含/契约**的解析循环（物理上不存在那些判断与分支）。
-- **Gap / 缺口**：**全仓没有 benchmark**（无 `benches/`、无 `criterion`、无 `#[bench]`），
-  所以任何「提速」都无法证明。`IDEAS.md` I-16 的门槛里写着「性能基线达标
-  （`docs/iter-parse-plan.md` §1.4）」—— 而**该文件里没有 §1.4、也没有「性能基线」字样**，
-  那条是悬空引用。
-- **前置条件（按序）**：① 建最小基准（`criterion` 三组：小文档 / 大文档 / 深嵌套）并把数字写进
-  `docs/perf-baseline.md`；② 只挑**一处**做，A/B 对比；③ 有效再推广。
+- **Gap / 缺口**：~~全仓没有 benchmark~~ ✅ **2026-11-03 已补**：`rust/benches/perf.rs`
+  （零依赖手写计时器，不引 criterion）+ `docs/perf-baseline.md`。
+  基线（release、5 轮取最小）：`small` parse **15.2 µs / 12.8 MB/s**、`large`（909 KiB）
+  parse **10.9 ms / 81.4 MB/s**、`deep`（120 层）parse **81.6 µs / 8.5 MB/s**；
+  `to_sml` 约为同输入 parse 的 **1/4** 耗时。
+  ⇒ 最刺眼的一条：**小文档的单位成本是大文档的 6 倍**，即固定开销主导（入口的版本/特性剥离、
+  `FeatureSet` 求交、`ParseOptions` 组装、词法初始分配）。
+  （另：I-16 门槛里「性能基线达标（`docs/iter-parse-plan.md` §1.4）」仍是**悬空引用** ——
+  该节不存在，现已在 I-16 就地标注并指向本条。）
+- **前置条件（按序）**：~~① 建基准~~ ✅ 已完成；② 只挑**一处**做，A/B 对比 —— 按基线结论优先
+  「小文档固定开销」（无 `@version` / `@feature` 时把求交短路）；③ 有效再推广。
 - **⚠️ 硬约束（想清楚再动手）**：**文档里的 `@feature enable/disable` 是运行期、文档级开关**，
   所以**不能**把 SML 特性位编译掉 —— 能被编译掉的只有「调用方在编译期就决定」的那部分
   （`preserve_order`、`emit-*`）。而仓库里 **cargo feature 与 SML 特性同名**（`when` / `for` /
