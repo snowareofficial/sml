@@ -2126,15 +2126,19 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
   //   裸标量 = 单个 word/str 叶子，且其后的 token 不是 `{` / `:`（否则 `42 { }` 是名为 42 的块、
   //   `42: x` 是键值）。`server web { }`（标识符作类型名）、`hello world`（2 token 裸键对）、
   //   `@version v1` + `42`（首结构是 @ 指令）、`42 { a: 1 }`（名为 42 的块）均不报。
+  // 空文档 / 只有注释 ⇒ `toks` 为空。此前下面直接读 `t0.t`，抛的是**未带错误码的**
+  // TypeError（`Cannot read properties of undefined (reading 't')`），而 Rust/C/C++/Lua
+  // 都把这类输入解析成空对象 ⇒ 同一份输入五端里只有 JS 崩。
+  // 2026-11-03 由 conformance 用例 39 / 40 抓出，改为与其余四端一致（空对象）。
   const t0 = toks[0];
-  const firstIsBareScalar = (t0.t === "word" || t0.t === "str")
+  const firstIsBareScalar = !!t0 && (t0.t === "word" || t0.t === "str")
       && !(toks[1] && (toks[1].t === "{" || toks[1].t === ":"));
   const followedByContainer = (toks[1] && toks[1].t === "[")
       || (toks[1] && (toks[1].t === "word" || toks[1].t === "str")
           && toks[2] && (toks[2].t === "{" || toks[2].t === ":"));
   // T9：仅当首个结构是「值型标量」时，其后跟块/数组/键值才报；
   // 裸词标识符（块类型名/块名）不算值型，`server web { }` 合法。
-  const firstIsValue = isScalarValue(t0);
+  const firstIsValue = t0 ? isScalarValue(t0) : false;
   if (firstIsBareScalar && (toks.length === 1 || (firstIsValue && followedByContainer))) {
     fail("E-PARSE-008", "sml: 顶层须为容器（键值块、对象块或数组），单独的标量无法往返");
   }

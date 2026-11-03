@@ -973,15 +973,26 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
 
 > 用户原话：「拓展那边，比如 `one_of warn` 这种可能会对自动补全提出更高要求，weak 那一些也会改动 vsix」。
 
-- [ ] **自动补全要跟上新修饰符**：`one_of` / `exactly_one` / `x_only` / `items_min` / `items_max` /
-      `depends_on` 目前**只在 Rust 解析器实现**，扩展侧（`editors/vscode/`）没有对应词表 ⇒ 用户无提示。
-      `one_of [a b] warn` 这类形态对补全要求更高：要区分**组名列表位置**与**严格度档位位置**两个上下文。
-- [ ] **weak\* 三兄弟落地必然改 vsix**：I-5 `weakport`（插件认契约）/ I-15 `weakdata` /
-      I-17 `weakdoc`（`.smlex` profile）任一落地，都会新增内置指令或新的文件类型/文件关联 ⇒
-      扩展侧需同步（语法文件 + 补全 + `package.json` 的 `languages` 关联）。
-- [ ] **重打 vsix 的固定流程**：改 `editors/vscode/syntaxes/` 后必须重打 `.vsix`，并同步
-      `EXPECT_VENDOR`（大小 + sha 前缀，见 `三·十一` 的「顺带清掉」）；`tools/check_js_copies.py`
-      与 `_prepublish.mjs` 两道闸门都要过。
+- [x] **自动补全跟上新修饰符（2026-11-03 已做）**：`editors/vscode/src/extension.js` 的 `MODIFIERS`
+      拆成「内置组」与「外置组」两组 —— 外置组补 `one_of` / `exactly_one` / `any_of` / `items_min` /
+      `items_max` / `depends_on` / `x_only`（带 snippet），并且每条都挂 `MarkdownString` 说明
+      **「必须由调用方 `ParseOptions::with_modifier` 注册，默认入口不认，写进文档会报 `E-PARSE-006`」**。
+      ⚠️ 这条说明不是客套：实测 `smltools`（默认入口）在 `one_of` 上直接报 `E-PARSE-006`，
+      只给词不给说明等于教用户写一条「补全里有、一保存就报错」的语法。
+      **顺带补了之前完全缺失的严格度档位**：`@is <契约名> ` 之后补 `strict` / `warn` / `loose`
+      （`Strictness::{Strict,Warn,Loose}`）。l10n 补 12 条英文，`_check_l10n.mjs` 0 missing / 0 unused。
+- [x] **vendor 副本同步 + `EXPECT_VENDOR` 修正（2026-11-03）**：四份 `sml.mjs` 副本此前与
+      `js/sml.mjs` **DRIFT**（JS 侧修空文档 TypeError 后没同步），已用
+      `python tools/check_js_copies.py --fix` 拉齐（115251 → 115667 B）。
+      `extension.js` 的 `EXPECT_VENDOR` 还停在 **96110 B / c7a5054…**（漂了两轮），已更新为实际值。
+      `node scripts/_prepublish.mjs` → **PREPUBLISH ALL PASS**（8 项）。
+- [ ] **重打 `.vsix`（未做：需网络 + 需你定版本号）**：`package.json` 已是 **0.5.0**，而入库的
+      `.vsix` 最新只到 **0.4.3** ⇒ 源码早就领先产物。打包用 `npm run package`（内部走
+      `npx --yes @vscode/vsce`，本机缺 vsce 且无网）。打完还要复制到 `site/static/dl/` 并同步下载页。
+      ⚠️ bump 版本号属发版动作，按铁律不擅自做。
+- [ ] **weak\* 三兄弟落地必然改 vsix**：I-5 `weakport` / I-15 `weakdata` / I-17 `weakdoc`（`.smlex`）
+      任一落地都会新增内置指令或文件类型 ⇒ 扩展侧需同步（语法文件 + 补全 + `package.json` 的
+      `languages` 关联），届时按上面的打包流程走。
 - ✅ **W22 D1 结案（2026-11-03）**：原话「vsix 提供的也加」指**补进文档**，不是补进 Zed 扩展 ——
   Zed 用 Tree-sitter grammar + `extension.toml`，**装不了 `.vsix`**，且本轮新契约能力是解析层、
   **无新语法 token**。`one_of`/`exactly_one` 的文档已在 W22 A2 补齐；剩下的是**高亮/补全**，
