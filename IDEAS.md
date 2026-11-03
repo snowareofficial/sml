@@ -588,6 +588,87 @@ svc { @is Svc  name: gateway  x-owner: infra }
 
 ---
 
+## I-18 持久化：`.smlb` 二进制格式 + `smldb`（规范已写、**零实现**）
+
+- **Status / 状态**：`Todo`（规范已定、零实现；**细节未定，用户 2026-11-03 明说「smlb 等的一些细节我还没定好」⇒ 只登记，不动手**）。
+- **出处**：`docs/smlb-smldb-spec.md`（881 行，2026-11-02 入库；文件头挂「内容可能再议」横幅）+ `docs/value-layout.md`（324 行）。
+  这两份**长期不在 `TODO.md` / `IDEAS.md` 里**，只躺在 HANDOFF §4.5，2026-11-03 被打扫出来才登记。
+- **已写清的部分**（`【已定】` 仅代表写作时的判断，不代表批准）：
+  - 内存布局：标签 interning + 实体解码 + 契约定长槽位（`value-layout.md`）
+  - `.smlb` 格式：magic `SWSB` + 全局字符串表 + 前序排列 + `subtree_sz`；
+    实测 2 MB / 52,000 节点：**5032 K 文本 → 867 K 裸 → 540 K + zstd -3**
+  - 场景分野：冷数据 mmap、传输走 zstd；`smldb` = SQLite BLOB **存原文、绝不拆行**；fsync 是真正的悬崖
+  - 后端选型：SQLite（决定性理由 = Turso 没有 FTS5）；SIMD 暂缓
+  - 落地顺序：`.smlb` + 零拷贝 + 选择器 → ser/de → `smldb` + rusqlite →（才）碰数据库，**`sml` 保持零依赖**
+- **执行前必须先定的**（`spec` §10 五条 + 三个前提）：
+  1. FTS 要 / 不要（要 → 锁死 SQLite）
+  2. `:has()` 进不进 v1（建议暂缓）
+  3. `.content` 是否等价 `[class~=content]`
+  4. `id` 是否强制唯一
+  5. 规模信封（单文档典型/最大、文档数量级、写入频率、持久性）—— 未知则按 §5.9 的 8 MB 自适应
+  - ⚠️ **模型前提最要紧**：`.smlb` 现在描述的是 **HTML 式节点**（`tag_id` / `nattrs` / `text_id` / `nchildren`），
+    与 `Value`（对象 / 数组 / 标量）**不对应** ⇒ 「编 `Value` 还是另建 AST」不定，前两步无法开工
+  - ⚠️ `value-layout.md` 的 9 条验收**一条未打勾**、6 个未决问题，且与 `.smlb` 的 canonical 排序**尚未对齐**
+- **关联**：`I-20`（长文档）、`preserve_order`（是它能否「源序进源序出」的前提）。
+
+## I-19 `idyml`：swsml 的瘦别名 / 国际稳定发布线（**计划书 · 待建**）
+
+- **Status / 状态**：`Todo`（计划已成文，**未开工**）。
+- **出处**：`IDYML.md`（61 行，任务书；同样长期未登记）。
+- **想法**：`cargo add idyml` 后 `use idyml::{…}` 与 `use sml::{…}` **完全一致**，但它是**全英文门面**、
+  面向国际用户、作为比 `swsml` **更保守的发布线**（只跟 swsml 稳定 minor）。
+- **明确不做**：不 fork 实现、不翻内部注释、**不进 sml 的 workspace**（依赖必须走 crates.io）；独立仓库 `snowareofficial/idyml`。
+- **开工前 checklist**（已写在 `IDYML.md` §开工前）：`cargo search idyml` 占位检查、版本对齐策略、再导出写法
+  （`pub use swsml::*` vs 逐项英文 `#[doc]`）、`[lib] name = "sml"` 下的引用路径、英文 README / CI / LICENSE / badge。
+- **与 I-12 的关系**：I-12 是「**改名**」（`swsml` 自己换名 + 新 crate）；这条是「**另开一个瘦别名**」。
+  名字候选 `idyml` 同时出现在 I-12 的评估里（已知风险：`idyml` 与 `yml` 词根近似）⇒ **两条要一起定，别分开拍**。
+
+## I-20 长文档产出链：EPUB / 独立 HTML / 分章 / TOC / 增量 emit（**未做**）
+
+- **Status / 状态**：`Todo`（全部未做；来源是一份真实压测报告，不是设想）。
+- **出处**：`story/ISSUE_smltools_缺失功能.md`（110 行，2026-09；同样长期未登记）。
+- **场景**：35 万字 SML 长篇小说，7 个后端（sml/md/svg/slint/lvgl/latex/xml）**全部成功 emit** ⇒
+  解析与基本转译是健康的；缺的是「写长文」这条工作流。
+- **缺的四件**，按源文件优先级：
+  1. **P0 `--to epub` / `--to html`**：现取值只有 `md|xml|svg|latex|slint|lvgl|custom|sml`；写小说只能先转 md 再靠 pandoc，链路断、还丢 `label` 锚点
+  2. **P1 `--split-by section` / `--toc`**：35 万字只产出**单个大文件**；`emit/markdown.rs` 的 `topic`/`section` 已能出 `h1..h6` + `id` 锚点，**基础设施具备、CLI 层没暴露**
+  3. **P2 增量 emit**：每次整篇重转，改一处要重算 35 万字
+  4. **P3 emit 失败缺源定位**：深度超限只给通用文案，没有「第几行 / 哪个块」——长文档排错极难
+- **另一条遗留约定**：`@feature base` **只认版本号**，所以「在文档里声明书名」没有承载位；
+  CLI 现在按顶层 `title:` 字段推断（**已是事实约定**），要正式化需单独立个约定。
+- **关联**：`I-21`（部件目录）、`I-18`（长文档的持久化）。
+
+## I-21 语义部件目录：figure / admonition / footnote / deflist / sub·sup / toc + **跨后端一致**
+
+- **Status / 状态**：`Todo`（清单已列全，一项未做）。
+- **出处**：同 `story/ISSUE_smltools_缺失功能.md` §四 / §五。
+- **markdown 后端已有**：`h1-6 / p / ul / ol / li / table / code / blockquote / hr / a / img / em / strong / del /
+  topic / section / para / quote / math / theorem / proof` + 内联角色 `{ref:}{term:}{math:}{em:}`。
+- **缺的六类部件**：`figure`/`figcaption`（带编号图注 + 交叉引用）、`admonition`/`callout`、
+  `footnote`（`MarkdownOptions` 注释里列为 v2 规划、**代码没有分支**）、`definition list`、`sub`/`sup`、`toc` 生成。
+- **跨后端语义漂移（比缺部件更该先修）**：
+  - `theorem` / `proof` 只在 markdown 走 raw-HTML（还依赖 Hugo `unsafe=true`），**latex 无定理环境**、退化成列表
+  - `math` 块在 markdown 里硬编码 `<div class="math">`，**不响应 `--math`**（该开关只对 latex 生效）
+  - 内联角色 `apply_roles` **只在 markdown 实现**，latex / svg / slint / html_passthrough 一律不处理 ⇒ 同一份 SML 跨格式不一致
+- **UI 侧的「部件库」**：slint / lvgl / svg 是**纯透传**（`__type` 直接当元素名），没有 `card`/`dialog`/`tab`/`chart`/`navbar`
+  这类复合部件映射 ⇒ SML 在 UI 场景停留在「另一种 XML」。建议做成 `emit-*` 的可选扩展，不改纯透传默认。
+- ⚠️ **既有约束（用户已定不修）**：svg/slint/xml/lvgl 把中文键名 sanitize 成下划线 ⇒ 中文部件名在这些后端无效。
+
+## I-22 PVACIS 方言反馈的六条语言设计问题（**待明确 · 未登记过**）
+
+- **Status / 状态**：`Todo`（问题清单，非方案；来源是下游真实用法）。
+- **出处**：`PVACIS-SML-EXTENSIONS.md`（122 行，2026-09-12；文件头标「需明确指令才公开」，**未对外提出过**）。
+  该下游用 Go 自实现了「表单子集」与「文章方言」，**没有改动 SML 核心语法**，但这六处想要上游给个说法：
+  1. **多选枚举语法** `[enum [ a b c ]]` —— 能否上升为 SML 核心写法？（现在是在数组类型里特判 `inner.text == "enum"`）
+  2. **布局项的正式化** —— 「只排版、不收集数据」的项现在只能挂在 `@form` 里当无契约键；是否该有 `@layout` / `@ui` 块？
+  3. **条件必填 `required_if <expr>`** —— 现在 `visible_if` 只影响展示，服务端照旧按必填校验。**与 I-7 同族**（约束精确控制）
+  4. **源码顺序语义** —— 解析器是否保证保留源序？若保证，下游可去掉 `pos` 补丁式的顺序控制。**与 `preserve_order` / R8 的 Q10 相关**
+  5. **`@embed` 是否该成为一级概念** —— 跨宿主引用（表单 / 文章 / 视频 / 图片）现在是方言；若上游视作一等能力，下游愿对齐命名
+  6. **与 `sml-contract::Pattern` 对齐** —— 下游的 `pattern` 是 Go RE2 方言，上游是受限正则子集；同一份文档两处行为不同怎么收敛
+- **⚠️ 纪律**：源文件明写「未经明确指示不要对外发布 / 不要提交给上游」。登记进 IDEA **不等于**对外提出。
+
+---
+
 ## 价值评估 / Value check（用户判断优先，成本是我估的）
 
 | 条目 | 有用吗 | 成本 | 建议 |
@@ -605,6 +686,11 @@ svc { @is Svc  name: gateway  x-owner: infra }
 | I-15 `weakdata` | 用户点名记住；拓展侧真需要（高亮配置 / 自定义提示） | 概念阶段，设计后才知 | 先定形态与边界，与 `weakport` 划清；落地要进文档 |
 | I-17 `weakdoc` | **用户已定：要做** —— 一类文档一份特化 profile，比逐份文档重复声明干净 | 中 —— 引入 `.smlex` + install 机制 | 死守「不能注入」：解析结果对有无 `.smlex` 必须一致，且可测 |
 | I-16 版本号规则 | **方案已定（2026-10-30）** —— 四级门槛 + semver `-beta`/`-rc` 后缀；平时不 bump、发版才统一 | 低 —— 判据已写进 I-16 与 `TODO.md` §六·〇 | 落地后给 §六·〇 补 bump 纪律；`--check-version` 门禁随发版一并做 |
+| I-18 `.smlb` / `smldb` | **用户 2026-11-03 点名登记，但明说「细节还没定好」** ⇒ 现在要的不是实现，是**把 §10 五条 + 模型前提拍掉** | 高 —— 新二进制格式 + 新 crate + SQLite 后端 | **先拍「编 `Value` 还是另建 AST」**，这条不定，前两步（`.smlb` 与 ser/de）无从开工 |
+| I-19 `idyml` 瘦别名 | 有用：给国际用户一条**保守发布线**，成本比改名低得多 | 低到中 —— 一个只剩 `pub use` 的 crate + 独立仓库 + CI | 与 I-12 **一起定**（名字、谁先发）；先做 `cargo search idyml` 占位避免被抢 |
+| I-20 长文档产出链 | **有用且缺口硬**：EPUB / HTML 是「用 SML 写小说」的终点；分章 + TOC 基础设施已具备、只差 CLI 层 | 中 —— `--to epub`/`--to html` 各一个后端；分章 / TOC 轻 | 先做 `--to html`（`--split-by section` + `--toc` 顺带就有），EPUB 次之；增量 emit 与 emit 定位往后放 |
+| I-21 语义部件目录 | 有用，但**先修跨后端一致**比加新部件更值（`theorem`/`math`/内联角色只在 markdown 生效，属语义漂移） | 中 —— 每个部件 × 各后端 | 顺序：① 内联角色补齐到 latex/svg ② `math` 响应 `--math` ③ 再谈 figure/admonition/footnote；UI 部件库最后 |
+| I-22 PVACIS 六问 | **只对上游有参考价值**：3（`required_if`）与 4（源码顺序）与 I-7 / `preserve_order` 直接相关，值得吸收；1/5 属方言口味，2 属「布局 DSL」倾向 | 低 —— 现在只是问题清单 | 先把 3、4 两条并入 I-7 与 `preserve_order` 讨论；其余**未经用户明确指令不得对外提出** |
 
 > 一句话 / One line：**I-7 + I-9 是同一件事的两半**（约束能表达 / 写错能看见），性价比最高；
 > I-6 按用户判断推进（DSL 可读性），但先定 Q1–Q8；I-5 便宜缺需求；I-8 别碰 `[name]`；
