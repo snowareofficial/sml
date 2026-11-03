@@ -146,6 +146,29 @@ pub fn parse_file_with(
 /// **向后兼容**：未声明 `@version` 的文档按 `V1` 解析（裸词即字符串），
 /// 既有大量 v1 文档不受影响；仅显式 `@version v2|v3` 才启用严格字符串。
 pub fn parse(text: &str) -> Result<Value, SmlError> {
+    // 快路径（IDEAS I-23「更激进的性能优化」的第一处 A/B）：
+    // **没有 `@` 的文档不可能含 `@version` / `@feature`**，于是「去 BOM → 两趟剥离 → 特性求交」
+    // 整段都可以跳过，直接用 v1 基线 —— 与走完整链路的结果**逐字节相同**：
+    // - `strip_version` 除 `@version` 外只做 BOM 归一化 ⇒ 下面单独把 BOM 排除在快路径外；
+    // - `strip_features` 的产物在 `had_feature == false` 时被 `features_for` 直接丢弃，
+    //   返回 `FeatureSet::for_version(v1)`（见 `scan::features_for` 首个分支）；
+    // - `rest` 与原文等长且无指令时内容相同，故位置信息不受影响。
+    //
+    // 判据刻意取**字节级保守扫描**：`@` 出现在引号串或注释里也会退回慢路径 —— 代价只是
+    // 多一次 memchr，换来「宁慢不误」，不必去猜字符串边界。
+    //
+    // ⚠️ 那个 `ends_with('\\')` 不是优化，是**保行为**：以转义符结尾的文本走慢路径时，
+    // 按行重建会在文件尾补一个换行，于是 `parse("k: \"abc\\")` 报 `E-LEX-004`（未知转义）
+    // 而不是词法层的 `E-LEX-006`（转义符后遇 EOF）。这个「同因不同码」已写进
+    // `errors/codes.sml` 的 E-LEX-006 note（C 那端报 E-LEX-001，三端未合并）。
+    // 改行为属跨端契约变更，不随性能优化一起做 —— 所以这里把这类输入留给慢路径，
+    // 代价是一次 `last()` 比较。真要收口，见 `TODO.md` §三·十二 H 组。
+    if !text.starts_with('\u{feff}')
+        && !text.ends_with('\\')
+        && !text.as_bytes().contains(&b'@')
+    {
+        return parse_impl(text, FeatureSet::for_version(Version::V1), BTreeMap::new());
+    }
     let (rest, declared) = strip_version(text)?;
     let (rest, feats, touched, mode, base, had) = strip_features(&rest)?;
     let v = declared.or(base).unwrap_or(Version::V1);
