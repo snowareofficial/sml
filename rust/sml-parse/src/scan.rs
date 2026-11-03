@@ -248,7 +248,10 @@ pub fn strip_features(
     text: &str,
 ) -> Result<(String, FeatureSet, FeatureSet, FeatureMode, Option<Version>, bool), SmlError> {
     let mut out = String::new();
-    let spans = compute_string_spans(text);
+    // ⚡ **惰性求值**（IDEAS I-23 第二处）：`compute_string_spans` 是 O(n) 全文扫描，
+    // 存在的唯一目的是回答「这个 `@` 是不是落在多行字符串里」。而**首字符不是 `@` 的行
+    // 根本不可能是指令** ⇒ 真遇到候选行时才扫，别为一份没有指令的文档白扫全文。
+    let mut spans: Option<Vec<(usize, usize)>> = None;
     // ⚠️ 基集 = **版本基线**（8 个核心特性），而不是「全开」。
     // 旧实现这里起算是 `FeatureSet::all()`：于是文档里出现**任何**一行 `@feature`
     // （哪怕只写 `@feature enable typed-block`），最终特性集都会变成「全部 16 个特性
@@ -267,19 +270,23 @@ pub fn strip_features(
     for (line_start, line_end) in line_spans(text) {
         let raw = &text[line_start..line_end];
         let line = trim_line_end(raw);
-        // 多行字符串内的行（如 `note: "..."` 跨行）里的 `@feature` 不是指令，跳过以免破坏数据
-        if !line_starts_in_string(text, line_start, &spans) {
-            match apply_feature_directive(line, &mut feats, &mut mode, &mut base, &mut touched) {
-                Ok(true) => {
-                    had_feature = true;
-                    // ⚠️ **等长替换**：指令行换成同长度空格，行尾原样保留。
-                    // 直接 `continue`（删行）会让其后所有偏移比原文少 N 字节。
-                    out.push_str(&blank_of(line));
-                    out.push_str(&raw[line.len()..]);
-                    continue;
+        // 多行字符串内的行（如 `note: "..."` 跨行）里的 `@feature` 不是指令，跳过以免破坏数据。
+        // 先做一次**零成本**的候选判断（首字符是 `@`），命中才需要字符串区间表。
+        if line.trim_start().starts_with('@') {
+            let spans = spans.get_or_insert_with(|| compute_string_spans(text));
+            if !line_starts_in_string(text, line_start, spans) {
+                match apply_feature_directive(line, &mut feats, &mut mode, &mut base, &mut touched) {
+                    Ok(true) => {
+                        had_feature = true;
+                        // ⚠️ **等长替换**：指令行换成同长度空格，行尾原样保留。
+                        // 直接 `continue`（删行）会让其后所有偏移比原文少 N 字节。
+                        out.push_str(&blank_of(line));
+                        out.push_str(&raw[line.len()..]);
+                        continue;
+                    }
+                    Ok(false) => {}
+                    Err(e) => return Err(e), // 指令非法（如未知特性名）必须上浮，不能静默吞掉
                 }
-                Ok(false) => {}
-                Err(e) => return Err(e), // 指令非法（如未知特性名）必须上浮，不能静默吞掉
             }
         }
         out.push_str(raw);
@@ -347,17 +354,20 @@ pub fn strip_version(text: &str) -> Result<(String, Option<Version>), SmlError> 
         }
         None => text,
     };
-    let spans = compute_string_spans(text);
+    // ⚡ 惰性求值（同 `strip_features`）：只有首字符是 `@` 的行才可能是指令
+    let mut spans: Option<Vec<(usize, usize)>> = None;
     let mut declared: Option<Version> = None;
     let mut rest = String::new();
     for (line_start, line_end) in line_spans(text) {
         let raw = &text[line_start..line_end];
         let line = trim_line_end(raw);
         // 多行字符串内的行（如 `note: "..."` 跨行）里的 @version 不是指令，原样保留
-        let is_directive = if line_starts_in_string(text, line_start, &spans) {
-            false
+        let is_directive = if line.trim_start().starts_with('@') {
+            let spans = spans.get_or_insert_with(|| compute_string_spans(text));
+            !line_starts_in_string(text, line_start, spans)
+                && matches!(version_directive(line)?, Some(_))
         } else {
-            matches!(version_directive(line)?, Some(_))
+            false
         };
         if is_directive {
             let lit = version_directive(line)?.unwrap();

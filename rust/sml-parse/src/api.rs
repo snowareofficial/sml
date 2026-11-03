@@ -20,11 +20,71 @@ use crate::ext::{Diagnostic, ParseOptions, ParseOutput};
 use crate::parser::Parser;
 use crate::scan::{features_for, strip_features, strip_version};
 
+/// 「正文里不可能有任何 `@` 指令」的**保守**判据（IDEAS I-23 的快路径闸门）。
+///
+/// 三条缺一不可：
+/// - 不以 BOM 开头 —— `strip_version` 除 `@version` 外**只做 BOM 归一化**，跳过它会把
+///   BOM 喂进词法器，首个键名被静默改掉；
+/// - 不以 `\` 结尾 —— 慢路径「按行重建」会在文件尾补换行，使 `k: "abc\` 报 `E-LEX-004`
+///   而不是词法层的 `E-LEX-006`；那是**已登记的跨端「同因不同码」**（见 `TODO.md` §三·十二 H 组），
+///   不随性能优化一起改；
+/// - 不含 `@` 字节 —— 有 `@` 才可能含 `@version` / `@feature` / `@指令`。
+///   `@` 出现在引号串或注释里也会退回慢路径：只多一次 memchr，换「宁慢不误」。
+#[inline]
+fn no_directives(text: &str) -> bool {
+    !text.starts_with('\u{feff}') && !text.ends_with('\\') && !text.as_bytes().contains(&b'@')
+}
+
+/// `E-FEATURE-004`：文档声明的版本不在调用方给出的白名单里。
+///
+/// 抽成函数是为了让 [`parse_allowed`] 的**快路径与慢路径文案逐字一致** ——
+/// 两处各写一份 format!，改文案时必漏一处。
+fn version_not_allowed(v: Version, allowed: &[Version]) -> SmlError {
+    SmlError::from_code_title(E_FEATURE_004).with_detail(format!(
+        "文档声明版本 {} 不在本库接受的版本范围 {{{}}} 内",
+        v.name(),
+        allowed
+            .iter()
+            .map(|x| x.name())
+            .collect::<Vec<_>>()
+            .join(", ")
+    ))
+}
+
+/// `E-FEATURE-009`：文档所求的特性集与调用方白名单**无交集**。
+fn feature_set_empty(feats: &FeatureSet, allowed: &FeatureSet) -> SmlError {
+    SmlError::from_code_msg(E_FEATURE_009).with_detail(format!("{feats} 与 {allowed} 无交集"))
+}
+
+/// 两个「特性受限」入口的快路径尾段：求交集 → 空则报错 → 解析。
+///
+/// 抽出来是为了让 [`parse_with_features`] 与 [`parse_with_features_env`] 的快路径
+/// **不会各写一份**（它们的差别只有 `env` 表）。
+fn with_effective(
+    text: &str,
+    feats: FeatureSet,
+    allowed: FeatureSet,
+    env: BTreeMap<String, String>,
+) -> Result<(Value, FeatureSet), SmlError> {
+    let effective = feats.intersection(allowed);
+    if effective.is_empty() {
+        return Err(feature_set_empty(&feats, &allowed));
+    }
+    Ok((parse_impl(text, effective, env)?, effective))
+}
+
 /// Parse SML text and return its declared syntax version ｜ 解析 SML 文本，并返回其声明的语法版本。
 ///
 /// 未声明版本时按 `V1` 处理（裸词即字符串），**既有文档不受影响**；
 /// 显式 `@version v3` 则返回 `V3`（此时字符串需引号）。
 pub fn parse_versioned(text: &str) -> Result<(Value, Version), SmlError> {
+    // 快路径同上（`no_directives` 已排除 BOM 与以 `\` 结尾的输入）
+    if no_directives(text) {
+        return Ok((
+            parse_impl(text, FeatureSet::for_version(Version::V1), BTreeMap::new())?,
+            Version::V1,
+        ));
+    }
     let (rest, declared) = strip_version(text)?;
     let (rest, feats, touched, mode, base, had) = strip_features(&rest)?;
     // 版本优先级：@version 显式声明 > @feature base > 默认 V1
@@ -154,19 +214,9 @@ pub fn parse(text: &str) -> Result<Value, SmlError> {
     //   返回 `FeatureSet::for_version(v1)`（见 `scan::features_for` 首个分支）；
     // - `rest` 与原文等长且无指令时内容相同，故位置信息不受影响。
     //
-    // 判据刻意取**字节级保守扫描**：`@` 出现在引号串或注释里也会退回慢路径 —— 代价只是
-    // 多一次 memchr，换来「宁慢不误」，不必去猜字符串边界。
-    //
-    // ⚠️ 那个 `ends_with('\\')` 不是优化，是**保行为**：以转义符结尾的文本走慢路径时，
-    // 按行重建会在文件尾补一个换行，于是 `parse("k: \"abc\\")` 报 `E-LEX-004`（未知转义）
-    // 而不是词法层的 `E-LEX-006`（转义符后遇 EOF）。这个「同因不同码」已写进
-    // `errors/codes.sml` 的 E-LEX-006 note（C 那端报 E-LEX-001，三端未合并）。
-    // 改行为属跨端契约变更，不随性能优化一起做 —— 所以这里把这类输入留给慢路径，
-    // 代价是一次 `last()` 比较。真要收口，见 `TODO.md` §三·十二 H 组。
-    if !text.starts_with('\u{feff}')
-        && !text.ends_with('\\')
-        && !text.as_bytes().contains(&b'@')
-    {
+    // 判据见 [`no_directives`]（保守三条件）。命中时**连 `rest` 的全文拷贝一起省掉** ——
+    // 慢路径的 `strip_version` / `strip_features` 各自产出一个新的 `String`。
+    if no_directives(text) {
         return parse_impl(text, FeatureSet::for_version(Version::V1), BTreeMap::new());
     }
     let (rest, declared) = strip_version(text)?;
@@ -238,6 +288,10 @@ pub fn parse(text: &str) -> Result<Value, SmlError> {
 /// **已丢失**）都会改写数据，而 `parse` 的签名 `Result<Value, _>` 承载不了这些告警
 /// （见 [`crate::ext::Diagnostic`]）。生产路径请走本函数或 [`parse_with_warnings`]。
 pub fn parse_with(text: &str, opts: ParseOptions) -> Result<ParseOutput, SmlError> {
+    // 快路径（见 [`no_directives`]）：省掉两趟全文剥离与 `rest` 的整串拷贝。
+    if no_directives(text) {
+        return parse_ext(text, FeatureSet::for_version(Version::V1), opts);
+    }
     let (rest, declared) = strip_version(text)?;
     let (rest, feats, touched, mode, base, had) = strip_features(&rest)?;
     let v = declared.or(base).unwrap_or(Version::V1);
@@ -246,6 +300,14 @@ pub fn parse_with(text: &str, opts: ParseOptions) -> Result<ParseOutput, SmlErro
     let lines = token_lines(&rest, &spans);
     parse_impl_tokens_ext(toks, spans, lines, feats, BTreeMap::new(), opts)
         .map_err(|e| with_position(&rest, e))
+}
+
+/// 「词法 → 行号 → 带扩展选项解析」这条固定链（三个入口共用，避免抄三份）。
+fn parse_ext(text: &str, feats: FeatureSet, opts: ParseOptions) -> Result<ParseOutput, SmlError> {
+    let (toks, spans) = tokenize_spans(text)?;
+    let lines = token_lines(text, &spans);
+    parse_impl_tokens_ext(toks, spans, lines, feats, BTreeMap::new(), opts)
+        .map_err(|e| with_position(text, e))
 }
 
 /// Parse SML text and return the non-fatal diagnostics ｜ 解析 SML 文本，并把**非致命诊断**（键冲突告警）一并交出来。
@@ -269,6 +331,11 @@ pub fn parse_with(text: &str, opts: ParseOptions) -> Result<ParseOutput, SmlErro
 /// assert!(matches!(v.get("k"), Some(Value::Array(_)))); // 值仍是数组（语义未变）
 /// ```
 pub fn parse_with_warnings(text: &str) -> Result<(Value, Vec<Diagnostic>), SmlError> {
+    // 快路径（见 [`no_directives`]）：与 [`parse_with`] 共用同一条链
+    if no_directives(text) {
+        let out = parse_ext(text, FeatureSet::for_version(Version::V1), ParseOptions::new())?;
+        return Ok((out.value, out.diagnostics));
+    }
     let (rest, declared) = strip_version(text)?;
     let (rest, feats, touched, mode, base, had) = strip_features(&rest)?;
     let v = declared.or(base).unwrap_or(Version::V1);
@@ -298,19 +365,19 @@ pub fn parse_allowed(
     text: &str,
     allowed: &[Version],
 ) -> Result<Value, SmlError> {
+    // 快路径：无指令 ⇒ 版本必为 V1 ⇒ 只可能因 `allowed` 不含 V1 而失败。
+    // 判据与报错文案必须与慢路径**逐字一致**，否则错误码虽同、文案会漂。
+    if no_directives(text) {
+        if !allowed.contains(&Version::V1) {
+            return Err(version_not_allowed(Version::V1, allowed));
+        }
+        return parse_impl(text, FeatureSet::for_version(Version::V1), BTreeMap::new());
+    }
     let (rest, declared) = strip_version(text)?;
     let (rest, feats, touched, mode, base, had) = strip_features(&rest)?;
     let v = declared.or(base).unwrap_or(Version::V1);
     if !allowed.contains(&v) {
-        return Err(SmlError::from_code_title(E_FEATURE_004).with_detail(format!(
-            "文档声明版本 {} 不在本库接受的版本范围 {{{}}} 内",
-            v.name(),
-            allowed
-                .iter()
-                .map(|x| x.name())
-                .collect::<Vec<_>>()
-                .join(", ")
-        )));
+        return Err(version_not_allowed(v, allowed));
     }
     let feats = features_for(v, feats, touched, mode, had);
     parse_impl(&rest, feats, BTreeMap::new())
@@ -363,14 +430,17 @@ pub fn parse_with_features(
     text: &str,
     allowed: FeatureSet,
 ) -> Result<(Value, FeatureSet), SmlError> {
+    // 快路径（见 [`no_directives`]）：无指令 ⇒ 文档所求即 v1 基线，交集照算
+    if no_directives(text) {
+        return with_effective(text, FeatureSet::for_version(Version::V1), allowed, BTreeMap::new());
+    }
     let (rest, declared) = strip_version(text)?;
     let (rest, feats, touched, mode, base, had) = strip_features(&rest)?;
     let v = declared.or(base).unwrap_or(Version::V1);
     let feats = features_for(v, feats, touched, mode, had);
     let effective = feats.intersection(allowed);
     if effective.is_empty() {
-        return Err(SmlError::from_code_msg(E_FEATURE_009)
-            .with_detail(format!("{feats} 与 {allowed} 无交集")));
+        return Err(feature_set_empty(&feats, &allowed));
     }
     let val = parse_impl(&rest, effective, BTreeMap::new())?;
     Ok((val, effective))
@@ -396,14 +466,17 @@ pub fn parse_with_features_env(
     allowed: FeatureSet,
     env: BTreeMap<String, String>,
 ) -> Result<(Value, FeatureSet), SmlError> {
+    // 快路径（见 [`no_directives`]）
+    if no_directives(text) {
+        return with_effective(text, FeatureSet::for_version(Version::V1), allowed, env);
+    }
     let (rest, declared) = strip_version(text)?;
     let (rest, feats, touched, mode, base, had) = strip_features(&rest)?;
     let v = declared.or(base).unwrap_or(Version::V1);
     let feats = features_for(v, feats, touched, mode, had);
     let effective = feats.intersection(allowed);
     if effective.is_empty() {
-        return Err(SmlError::from_code_msg(E_FEATURE_009)
-            .with_detail(format!("{feats} 与 {allowed} 无交集")));
+        return Err(feature_set_empty(&feats, &allowed));
     }
     let val = parse_impl(&rest, effective, env)?;
     Ok((val, effective))

@@ -696,7 +696,15 @@ svc { @is Svc  name: gateway  x-owner: infra }
   一致性套件 AGREE 32 / DIVERGE 8 **未变**。详见 `docs/perf-baseline.md`。
   **根因**：不是「入口组装」，而是 `scan::strip_features` 的 `compute_string_spans` ——
   它为判断 `@` 是否落在引号串内**无差别扫全文**，扫描常数 × 极短正文 = 固定开销。
-  ⇒ 第二处应做它的**惰性求值**：先字节找 `@` 的位置，只从那里起确认引号上下文。
+- **第二处 A/B 结果**（`compute_string_spans` 惰性求值，只扫 `@` 候选行）：
+  含 `@` 的大文档 **10.31 → 6.59 ms（−36%）**。⚠️ 这条只影响**有 `@`** 的文档，
+  所以基准里必须有 `large@directive` 这个负载，否则改动量不出来。
+- **第三处（深嵌套）结论：不该在这里改**。实测 `deep` 377 ns/层、`deep@60` 373 ns/层
+  （每层恒定），而 `flat@120`（120 个键挤在一个 map）**433 ns/键、比嵌套更慢**
+  ⇒ 瓶颈是「每个键的 `String` + map 节点分配」，与嵌套无关。真要动是**键的表示**
+  （小字符串内联 / interning / inline 小 map）⇒ 转 `docs/value-layout.md` 与 I-18。
+- **推广**：快路径已覆盖 7 个入口（`parse` / `parse_versioned` / `parse_allowed` /
+  `parse_with_features(_env)` / `parse_with` / `parse_with_warnings`）。
 - **⚠️ 硬约束（想清楚再动手）**：**文档里的 `@feature enable/disable` 是运行期、文档级开关**，
   所以**不能**把 SML 特性位编译掉 —— 能被编译掉的只有「调用方在编译期就决定」的那部分
   （`preserve_order`、`emit-*`）。而仓库里 **cargo feature 与 SML 特性同名**（`when` / `for` /

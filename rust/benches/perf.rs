@@ -93,6 +93,35 @@ fn main() {
     });
     row("deep", &deep, "parse", t, n_deep);
 
+    // —— 深嵌套 60 层：与 120 层对照，用来判断「每层成本是否恒定」——
+    // （若 60 层的耗时约为 120 层的一半，说明每层成本是常数、没有随深度恶化）
+    let shallow = build_deep_n(60);
+    let t = bench(n_deep, || {
+        let v = sml::parse(&shallow);
+        debug_assert!(v.is_ok());
+    });
+    row("deep@60", &shallow, "parse", t, n_deep);
+
+    // —— 扁平 120 键：与 `deep`（120 个单键块）对照，用来分辨「每层成本」到底花在哪 ——
+    // 同样的「键 : 小整数」总量，唯一区别是 deep 每层要多建一个 map + 一个帧。
+    let flat = build_flat(120);
+    let t = bench(n_deep, || {
+        let v = sml::parse(&flat);
+        debug_assert!(v.is_ok());
+    });
+    row("flat@120", &flat, "parse", t, n_deep);
+
+    // —— 带指令的大文档：parse ——
+    // 存在的意义：`no_directives` 快路径**不**适用（有 `@`），于是走「两趟全文剥离」，
+    // 这条负载量的就是 `scan::strip_*` 的代价（含 `compute_string_spans`）。
+    let dir = build_large_with_directive();
+    let n_dir = iters(10, quick);
+    let t = bench(n_dir, || {
+        let v = sml::parse(&dir);
+        debug_assert!(v.is_ok());
+    });
+    row("large@directive", &dir, "parse", t, n_dir);
+
     println!();
     println!("> `MB/s` 按**输入字节数**算（`to_sml` 行同样是输入侧字节），便于横向比较。");
 }
@@ -190,9 +219,33 @@ fn build_large() -> String {
     s
 }
 
+/// 120 个**扁平**键（同一个 map 里），与 `deep` 的「120 个单键块」做对照。
+/// 同样的键/值总量，差别只在 `deep` 每层多一个 map 与一个帧 —— 用来判断
+/// 「每层 ≈380 ns」是花在**帧/map 的分配**上，还是花在键值本身。
+fn build_flat(n: usize) -> String {
+    let mut s = String::with_capacity(n * 12);
+    for i in 0..n {
+        s.push_str(&format!("k{i}: 1\n"));
+    }
+    s
+}
+
+/// 同一份长文档 + 一行 `@version v1`。
+///
+/// 目的不是测 `@version` 本身，而是把输入逼进**慢路径**（有 `@` ⇒ 走完整剥离链），
+/// 用来量 `scan::strip_*` 与 `compute_string_spans` 的代价。
+fn build_large_with_directive() -> String {
+    let mut s = String::from("@version v1\n");
+    s.push_str(&build_large());
+    s
+}
+
 /// 120 层嵌套块（`MAX_VALUE_DEPTH` = 128，留 8 层余量）。
 fn build_deep() -> String {
-    let depth = 120;
+    build_deep_n(120)
+}
+
+fn build_deep_n(depth: usize) -> String {
     let mut s = String::with_capacity(depth * 8);
     for _ in 0..depth {
         s.push_str("a { ");

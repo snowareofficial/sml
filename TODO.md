@@ -996,10 +996,19 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
       （15.2 → 7.1 µs）、large **−48%**（10.9 → 5.6 ms）、deep **−35%**（81.6 → 52.9 µs）。
       根因不是「入口组装」而是 `scan::strip_features` 的 `compute_string_spans` ——
       它为了判断 `@` 是否在引号串内**无差别扫全文**。数字与验证见 `docs/perf-baseline.md`。
-- [ ] **第二处**：`compute_string_spans` 惰性求值 —— 现在只要正文出现**任何** `@`
-      （邮箱、`@font-face` 等字符串内容也算）就退回全文扫描。
-- [ ] **第三处（深嵌套）**：`deep` 仍只 13.1 MB/s；先 profile 分清是分配主导还是分派主导。
-- [ ] 推广：`parse_with` / `parse_versioned` / `parse_allowed` 等入口是否同样适用（当前只改 `parse`）。
+- [x] **第二处已落地**：`compute_string_spans` 惰性求值 —— 原来无条件全文扫一遍找引号区间，
+      现在只在遇到**以 `@` 开头**的候选行时才扫（首字符不是 `@` 的行不可能是指令）。
+      含 `@` 的大文档 **−36%**（10.31 → 6.59 ms）。为此专门加了 `large@directive` 负载，
+      否则这条改动在基准上看不出来。
+- [x] **第三处（深嵌套）已量清 —— 结论是「不该在解析器里改」**：
+      `deep` 377 ns/层、`deep@60` 373 ns/层（每层恒定）；而 `flat@120`（同样键值总量、
+      120 个键挤在一个 map 里）**433 ns/键，比嵌套更慢**。⇒ 瓶颈不是「嵌套」，是
+      **每个键的 `String` 分配 + map 节点分配**这一笔固定账。真要动是「键的表示」
+      （小字符串内联 / interning / inline 小 map），属 `docs/value-layout.md` 与 `.smlb`（I-18）。
+- [x] **推广已做**：快路径覆盖 `parse` / `parse_versioned` / `parse_allowed` /
+      `parse_with_features` / `parse_with_features_env` / `parse_with` / `parse_with_warnings`
+      （共用一个 `no_directives` 判据与三个共用的错误/尾段构造函数，避免抄五份）。
+- [ ] **下一个杠杆**：每键 ≈400 ns 的「键表示」问题（见上），或编译期切分。
 - [ ] ⚠️ **先想清「哪一层能编译掉」**：文档里的 `@feature enable/disable` 是**运行期、文档级**开关，
       **不能**编译掉；能编译掉的只有调用方在**编译期**决定的那部分（`preserve_order`、`emit-*`）。
       仓库里 cargo feature 与 SML 特性**同名**（`when` / `for` / `contract`），动手前逐项确认。
