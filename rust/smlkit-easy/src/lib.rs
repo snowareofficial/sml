@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 //! # smlkit-easy
 //!
-//! 读一份 SML 只需要 **4 个概念**：文档 → 字段 → 值 → 错误。这个 crate 只暴露这 4 个。
+//! 读一份 SML 只需要 **4 个概念**：文档 → 字段 → 值 → 错误。入门（L0 / L1）只暴露这 4 个；
+//! 要诊断和逐后端输出再多两个：诊断（[`Doc::diagnostics`]）与输出（[`out`]）。
 //!
 //! ```no_run
 //! // ⚠️ 本 crate 尚未发布，下面是发布后的用法；现在试跑请看本仓库的 `tests/quickstart.rs`。
@@ -35,13 +36,19 @@
 //!
 //! | 不做 | 想要就去用 |
 //! |---|---|
-//! | 契约**内容**（定义、类型校验实现、诊断、`ParseOutput`） | [`sml`]（`parse_with_warnings` / `ParseOutput`） |
-//! | 逐后端输出（md / html / svg / latex / slint…） | [`sml`] 的 `emit-*` |
+//! | 契约**内容**（定义、类型校验实现、`contract_map` / `errors` 专家字段） | [`sml`]（`parse_with` / `ParseOutput`） |
+//! | 逐后端输出的**旋钮**（`math` / `standalone` / 自定义模板…） | [`sml::emit`] 的 Options |
 //! | 特性开关、版本范围限制 | [`sml`] 的 `parse_with_features` / `parse_allowed` |
 //! | 二进制持久化、查询 | 待 I-18（`.smlb` / `smldb`）落地 |
 //!
-//! 只给了**一个**契约闸门：文档里写 `@is <契约名>` 时认不认（[`Contracts`]）。
-//! 「照名字把某份契约应用到树上」「拿到诊断」都仍是 [`sml`] 的事。
+//! 本层给的三个「进阶」能力，每个都只有一个概念：
+//!
+//! - [`Contracts`]：文档里写 `@is <契约名>` 时认不认；
+//! - [`Doc::read_with_report`] + [`Doc::diagnostics`]：把非致命诊断挂到文档上；
+//! - [`out`]：一个后端一枚函数（`out::markdown` / `out::html` / `out::latex` …），
+//!   各由同名 `emit-*` feature 门控 —— 关掉就**整个不存在**，不是运行时错误。
+//!
+//! 再往下（按名字应用契约、`contract_map`、增量 emit）就回 [`sml`]。
 //!
 //! ## 字段路径
 //!
@@ -108,11 +115,13 @@ impl Contracts {
 
 /// 一份已解析的 SML 文档。
 ///
-/// 只持有值树，不持有原文 —— 需要「原样写回去」时用 [`Doc::to_sml`]（会重新排版，
-/// 不保证与原文逐字节相同）。
+/// 只持有值树（外加诊断，见 [`Doc::diagnostics`]），不持有原文 —— 需要「原样写回去」时
+/// 用 [`Doc::to_sml`]（会重新排版，不保证与原文逐字节相同）。
 #[derive(Debug, Clone)]
 pub struct Doc {
     value: Value,
+    /// 非致命诊断。只有 `*_with_report` 入口会填；其余入口恒为空。
+    diagnostics: Vec<sml::Diagnostic>,
 }
 
 impl Doc {
@@ -131,7 +140,10 @@ impl Doc {
     /// assert_eq!(err.code(), "E-PARSE-008"); // 顶层须为容器，单个标量无法往返
     /// ```
     pub fn read(text: &str) -> Result<Self, Error> {
-        sml::parse(text).map(|value| Self { value })
+        sml::parse(text).map(|value| Self {
+            value,
+            diagnostics: Vec::new(),
+        })
     }
 
     /// 解析一个文件，**并展开 `include`**（基准目录 = 该文件所在目录）。
@@ -139,7 +151,10 @@ impl Doc {
     /// 与 [`Doc::read`] 的差别只有这一点：`read` 只解析你给的这段文本，
     /// 里面的 `include "x.sml"` 会原样留在值树里；`read_file` 会真的把 `x.sml` 并进来。
     pub fn read_file(path: impl AsRef<Path>) -> Result<Self, Error> {
-        sml::parse_file(path).map(|value| Self { value })
+        sml::parse_file(path).map(|value| Self {
+            value,
+            diagnostics: Vec::new(),
+        })
     }
 
     /// 解析文本，并显式指定文档内 `@is` 契约是否生效。
@@ -159,7 +174,10 @@ impl Doc {
     /// assert!(!doc.has("doc.role"));
     /// ```
     pub fn read_with(text: &str, contracts: Contracts) -> Result<Self, Error> {
-        sml::parse_with(text, contracts.options()).map(|out| Self { value: out.value })
+        sml::parse_with(text, contracts.options()).map(|out| Self {
+            value: out.value,
+            diagnostics: out.diagnostics,
+        })
     }
 
     /// 解析文件（**会展开 `include`**），并显式指定文档内 `@is` 契约是否生效。
@@ -167,7 +185,52 @@ impl Doc {
     /// 这是本层唯一同时做到「展开 include」与「关掉文档内契约」的入口 ——
     /// [`Doc::read_file`] 关不掉，[`Doc::read_with`] 不展开 include。
     pub fn read_file_with(path: impl AsRef<Path>, contracts: Contracts) -> Result<Self, Error> {
-        sml::parse_file_with(path, contracts.options()).map(|out| Self { value: out.value })
+        sml::parse_file_with(path, contracts.options()).map(|out| Self {
+            value: out.value,
+            diagnostics: out.diagnostics,
+        })
+    }
+
+    /// 解析文本，**并保留诊断**（重复键、片段覆盖等非致命问题）。
+    ///
+    /// 结果仍是 [`Doc`] —— 诊断挂在文档上，用 [`Doc::diagnostics`] 取；
+    /// 没有另造 `Report` 类型，复用的就是 [`sml::ParseOutput`] 的 `diagnostics` 字段。
+    ///
+    /// ```
+    /// let doc = smlkit_easy::Doc::read_with_report("a: 1\na: 2").unwrap();
+    /// assert_eq!(doc.diagnostics().len(), 1);        // 重复键被提升为数组，但不是错误
+    /// assert!(doc.has("a"));
+    /// ```
+    ///
+    /// ⚠️ 这一档用的是**默认契约开关**（等价 [`Contracts::On`]）。要「关掉文档内 `@is`」
+    /// 又「拿诊断」，请回 [`sml::parse_with`]（专家层，`ParseOutput` 三个字段都在）。
+    pub fn read_with_report(text: &str) -> Result<Self, Error> {
+        sml::parse_with_warnings(text).map(|(value, diagnostics)| Self {
+            value,
+            diagnostics,
+        })
+    }
+
+    /// 解析文件（**会展开 `include`**），并保留诊断。语义同 [`Doc::read_with_report`]。
+    pub fn read_file_with_report(path: impl AsRef<Path>) -> Result<Self, Error> {
+        sml::parse_file_with_warnings(path).map(|(value, diagnostics)| Self {
+            value,
+            diagnostics,
+        })
+    }
+
+    /// 解析期产生的**非致命诊断**（空切片表示没有任何警告）。
+    ///
+    /// 只有 [`Doc::read_with_report`] / [`Doc::read_file_with_report`] / [`Doc::read_with`] /
+    /// [`Doc::read_file_with`] 会填；[`Doc::read`] / [`Doc::read_file`] 恒为空
+    /// （它们走的是丢掉诊断的既有入口）。
+    pub fn diagnostics(&self) -> &[sml::Diagnostic] {
+        &self.diagnostics
+    }
+
+    /// 是否有任何诊断（等价 `!diagnostics().is_empty()`）。
+    pub fn has_diagnostics(&self) -> bool {
+        !self.diagnostics.is_empty()
     }
 
     /// 逃生口：拿到底层的 [`sml::Value`]。
@@ -252,5 +315,70 @@ impl std::fmt::Display for Doc {
     /// 与 [`Doc::to_sml`] 同一个输出。
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.to_sml())
+    }
+}
+
+/// 逐后端输出（L2）：一个后端一枚函数，各由**同名 feature** 门控。
+///
+/// 关掉某个 `emit-*` feature ⇒ 对应函数**整个不存在**（编译期就不在），
+/// 而不是运行时返回错误 —— 这样关闭后端也不必为它付出构建成本。
+///
+/// 每枚函数都是薄转发，用的都是该后端的 `Default` 选项；要调 `math` / `standalone`
+/// 这类旋钮，请直接去 [`sml::emit`]（专家层）。
+pub mod out {
+    // 关掉全部 emit 后端时本模块为空（连 import 都不需要），故这两个 use 也按同一批 feature 门控。
+    #[cfg(any(
+        feature = "emit-markdown",
+        feature = "emit-html",
+        feature = "emit-latex",
+        feature = "emit-xml",
+        feature = "emit-svg",
+        feature = "emit-slint"
+    ))]
+    use crate::Error;
+    #[cfg(any(
+        feature = "emit-markdown",
+        feature = "emit-html",
+        feature = "emit-latex",
+        feature = "emit-xml",
+        feature = "emit-svg",
+        feature = "emit-slint"
+    ))]
+    use super::Doc;
+
+    /// Markdown 文本（`emit-markdown`）。
+    #[cfg(feature = "emit-markdown")]
+    pub fn markdown(doc: &Doc) -> Result<String, Error> {
+        sml::emit::to_markdown(doc.raw(), &Default::default())
+    }
+
+    /// 独立 HTML 文档（`emit-html`）。
+    #[cfg(feature = "emit-html")]
+    pub fn html(doc: &Doc) -> Result<String, Error> {
+        sml::emit::to_html(doc.raw(), &Default::default())
+    }
+
+    /// LaTeX 文档（`emit-latex`）。
+    #[cfg(feature = "emit-latex")]
+    pub fn latex(doc: &Doc) -> Result<String, Error> {
+        sml::emit::to_latex(doc.raw(), &Default::default())
+    }
+
+    /// XML（`emit-xml`）。
+    #[cfg(feature = "emit-xml")]
+    pub fn xml(doc: &Doc) -> Result<String, Error> {
+        sml::emit::to_xml(doc.raw(), &Default::default())
+    }
+
+    /// SVG（`emit-svg`）。
+    #[cfg(feature = "emit-svg")]
+    pub fn svg(doc: &Doc) -> Result<String, Error> {
+        sml::emit::to_svg(doc.raw(), &Default::default())
+    }
+
+    /// Slint 界面代码（`emit-slint`）。
+    #[cfg(feature = "emit-slint")]
+    pub fn slint(doc: &Doc) -> Result<String, Error> {
+        sml::emit::to_slint(doc.raw(), &Default::default())
     }
 }

@@ -260,7 +260,7 @@ pub mod out {
 | Q3 `raw() -> &Value` | 保留（逃生口） | ✅ 已实现 |
 | **Q4 承载形态** | **② 独立 crate** —— 用户裁决。理由不是「少一处 `preserve_order` 转发」那套成本账，而是**模块治不了撞名**：模块仍挤在 `swsml` 根命名空间里，而 `use sml::*` 会把 31 个 C 函数一起拉进来 | ✅ 已建 `rust/smlkit-easy/`（**名字 2026-11-03 定为 `smlkit` 品牌族**，见 I-19） |
 | Q6 L1 契约闸门 | 只做「开/关文档内 `@is`」 | ✅ 已实现（`Contracts` + `Doc::read_with` / `read_file_with`） |
-| Q7 L2 诊断 | 复用 `ParseOutput` | ⏳ 未做 |
+| Q7 L2 诊断 | 复用 `ParseOutput` | ✅ 已实现（`Doc` 持有 `diagnostics` + `read_with_report`，不新造 `Report` 类型） |
 | Q8 错误类型 | `SmlError`（保住 `code()`），本 crate 里换名 `Error` | ✅ 已实现（并给 swsml 根补了 `SmlError` 再导出） |
 | Q9 写回文本 | 不要；给一个 `to_sml()` 方法就够 | ✅ 已实现 |
 | Q10 `preserve_order` | 不进 L0 推荐 | ✅ 文档已按此写 |
