@@ -323,10 +323,10 @@ struct Cli {
     #[arg(long = "custom-rules")]
     custom_rules: Option<PathBuf>,
 
-    /// LaTeX：放行数学块原样透传（`math`/`equation` → `$..$` / `equation` 环境）。
+    /// 数学块原样透传：Markdown（`$$…$$`）与 LaTeX（`$..$` / `equation` 环境）都认这个开关。
     ///
     /// 默认关闭：数学内容无法转义（转义会破坏公式语义），关闭时公式退化为
-    /// 转义后的纯文本。仅在**信任输入源**时开启。
+    /// 转义后的纯文本 / `<div class="math">\[…\]</div>`。仅在**信任输入源**时开启。
     #[arg(long = "math")]
     math: bool,
 
@@ -649,6 +649,7 @@ fn emit(value: &Value, fmt: Format, args: &Args) -> Result<String, SmlError> {
         Format::Markdown => {
             let opt = MarkdownOptions {
                 base: EmitOptions::default(),
+                math: args.math,
                 ..Default::default()
             };
             sml::emit::to_markdown(value, &opt)

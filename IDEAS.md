@@ -667,16 +667,24 @@ svc { @is Svc  name: gateway  x-owner: infra }
 
 ## I-21 语义部件目录：figure / admonition / footnote / deflist / sub·sup / toc + **跨后端一致**
 
-- **Status / 状态**：`Todo`（清单已列全，一项未做）。
+- **Status / 状态**：`Partial`（2026-11-03）—— **跨后端漂移三修已落地**，六类部件仍未做。
 - **出处**：同 `story/ISSUE_smltools_缺失功能.md` §四 / §五。
 - **markdown 后端已有**：`h1-6 / p / ul / ol / li / table / code / blockquote / hr / a / img / em / strong / del /
-  topic / section / para / quote / math / theorem / proof` + 内联角色 `{ref:}{term:}{math:}{em:}`。
+  topic / section / para / quote / math / theorem / proof` + 内联角色 `{ref:}{term:}{math:}{em:}{strong:}`。
 - **缺的六类部件**：`figure`/`figcaption`（带编号图注 + 交叉引用）、`admonition`/`callout`、
   `footnote`（`MarkdownOptions` 注释里列为 v2 规划、**代码没有分支**）、`definition list`、`sub`/`sup`、`toc` 生成。
-- **跨后端语义漂移（比缺部件更该先修）**：
-  - `theorem` / `proof` 只在 markdown 走 raw-HTML（还依赖 Hugo `unsafe=true`），**latex 无定理环境**、退化成列表
-  - `math` 块在 markdown 里硬编码 `<div class="math">`，**不响应 `--math`**（该开关只对 latex 生效）
-  - 内联角色 `apply_roles` **只在 markdown 实现**，latex / svg / slint / html_passthrough 一律不处理 ⇒ 同一份 SML 跨格式不一致
+- **跨后端语义漂移**（2026-11-03 已修完三项，见下节；`html` 后端更早已有自己的 `apply_roles`，本条旧说法「只在 markdown」已不成立）：
+  - ~~`theorem` / `proof` 只在 markdown 走 raw-HTML，latex 退化成 `description` 列表~~ ✅
+    已改为 `theorem` / `proof` 环境（标题进 `[...]`），导言区自动补 `\usepackage{amsthm}`
+  - ~~`math` 块在 markdown 里硬编码 `<div class="math">`，不响应 `--math`~~ ✅
+    现在 `--math` 同时管 markdown（`$$…$$` 原样透传、不转义）与 latex；
+    CLI 的 `--math` 也已接进 `MarkdownOptions`（此前只有 latex 收到）
+  - ~~内联角色只在 markdown 实现~~ ✅ 抽了共享切分器 `emit::expand_roles`：
+    latex 翻成 `\hyperref[]{}` / `\emph{}` / `\textbf{}` / `$…$`（`{math:}` 受 `--math` 控制且共用危险原语检查）；
+    svg / slint 折叠成**显示文本**（`flatten_roles`，这两个后端只能放纯文本）。
+    **xml / lvgl 刻意不动**：它们是**结构透传**（SML 键 → 元素名），改文本内容等于篡改数据。
+- **验证（2026-11-03）**：`rust/tests/emit.rs` 新增 10 条（markdown math 三态 / latex 定理与证明环境 /
+  latex 角色翻译 / 行内公式的危险原语守卫 / svg+slint 折叠），全量 `cargo test` 唯一红仍是本地探针。
 - **UI 侧的「部件库」**：slint / lvgl / svg 是**纯透传**（`__type` 直接当元素名），没有 `card`/`dialog`/`tab`/`chart`/`navbar`
   这类复合部件映射 ⇒ SML 在 UI 场景停留在「另一种 XML」。建议做成 `emit-*` 的可选扩展，不改纯透传默认。
 - ⚠️ **既有约束（用户已定不修）**：svg/slint/xml/lvgl 把中文键名 sanitize 成下划线 ⇒ 中文部件名在这些后端无效。
@@ -768,7 +776,7 @@ svc { @is Svc  name: gateway  x-owner: infra }
 | I-18 `.smlb` / `smldb` | **用户 2026-11-03 点名登记，但明说「细节还没定好」** ⇒ 现在要的不是实现，是**把 §10 五条 + 模型前提拍掉** | 高 —— 新二进制格式 + 新 crate + SQLite 后端 | **先拍「编 `Value` 还是另建 AST」**，这条不定，前两步（`.smlb` 与 ser/de）无从开工 |
 | I-19 `smlkit` 品牌门面 | 有用：给国际用户一条**保守发布线**，成本比给 `swsml` 改名低得多。**名字已定 `smlkit`**（2026-11-03；三生态实测全空；`idyml` 因误导 YAML 被否） | 低到中 —— 一个只剩 `pub use` 的 crate + 独立仓库 + CI | 先做 `smlkit-easy` 的 L1/L2（那才是解药），**0.7.0 与 `.smlb`/`smldb` 一起发**；发布前把 GitHub org / 域名 / docs 子域一起占 |
 | I-20 长文档产出链 | **有用且缺口硬**：EPUB / HTML 是「用 SML 写小说」的终点；分章 + TOC 基础设施已具备、只差 CLI 层 | 中 —— `--to epub`/`--to html` 各一个后端；分章 / TOC 轻 | 先做 `--to html`（`--split-by section` + `--toc` 顺带就有），EPUB 次之；增量 emit 与 emit 定位往后放 |
-| I-21 语义部件目录 | 有用，但**先修跨后端一致**比加新部件更值（`theorem`/`math`/内联角色只在 markdown 生效，属语义漂移） | 中 —— 每个部件 × 各后端 | 顺序：① 内联角色补齐到 latex/svg ② `math` 响应 `--math` ③ 再谈 figure/admonition/footnote；UI 部件库最后 |
+| I-21 语义部件目录 | 有用，但**先修跨后端一致**比加新部件更值（`theorem`/`math`/内联角色只在 markdown 生效，属语义漂移） | 中 —— 每个部件 × 各后端 | ①②③ 已于 **2026-11-03 全部落地**（内联角色补齐到 latex/svg/slint、`math` 响应 `--math`、latex 定理/证明环境）；下一步才是 figure/admonition/footnote/toc，UI 部件库最后 |
 | I-23 更激进的性能优化 | **有用但目前不可测**：仓库里**一个 benchmark 都没有**，谈提速全是空话 | 低（先建基准）→ 中（改热路径）→ 高（编译期切分） | 只做第一步：`criterion` 三组基准 + `docs/perf-baseline.md`。没有数字之前**不要**动双份实现 —— 那会把维护成本永久翻倍 |
 | I-22 下游方言六问 | **只对上游有参考价值**：3（`required_if`）与 4（源码顺序）与 I-7 / `preserve_order` 直接相关，值得吸收；1/5 属方言口味，2 属「布局 DSL」倾向 | 低 —— 现在只是问题清单 | 先把 3、4 两条并入 I-7 与 `preserve_order` 讨论；其余**未经用户明确指令不得对外提出** |
 

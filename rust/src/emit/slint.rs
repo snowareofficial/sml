@@ -17,7 +17,7 @@
 use crate::Value;
 use crate::emit::key_of;
 use crate::emit::{
-    backend_error, depth_error, EmitOptions, scalar_text, block_type, block_name,
+    backend_error, depth_error, flatten_roles, EmitOptions, scalar_text, block_type, block_name,
     sanitize_slint_ident, slint_handler_safe, slint_expr_safe, MAX_VALUE_DEPTH,
 };
 use sml_codes::SmlError;
@@ -114,12 +114,14 @@ fn slint_value_str(v: &Value, _opt: &SlintOptions) -> String {
         }
     }
     match v {
-        Value::Str(s) => format!("\"{}\"", slint_escape_str(s)),
+        // 内联语义角色在 UI 后端只能落到**纯文本**（Slint 字符串里放不了 `<dfn>`/`\emph`）：
+        // 折叠成显示文本，至少不会把 `{ref: a|b}` 原样画到界面上。
+        Value::Str(s) => format!("\"{}\"", slint_escape_str(&flatten_roles(s))),
         Value::Bool(b) => b.to_string(),
         Value::Int(i) => i.to_string(),
         Value::Float(_, _) => scalar_text(v),
         Value::Null => "null".to_string(),
-        other => format!("\"{}\"", slint_escape_str(&scalar_text(other))),
+        other => format!("\"{}\"", slint_escape_str(&flatten_roles(&scalar_text(other)))),
     }
 }
 

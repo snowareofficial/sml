@@ -14,14 +14,24 @@
 //! | `blockquote` | `quote` 环境                          |
 //! | `em`       | `\emph{...}`                            |
 //! | `strong`   | `\textbf{...}`                          |
+//! | `theorem`  | `theorem` 环境（标题进 `[...]`）        |
+//! | `proof`    | `proof` 环境                            |
 //! | 无类型对象 | `description` 环境（字段列表）          |
 //!
-//! v2：`math` 选项开启时，`math`/`equation` 块原样透传 `$...$`/`$$...$$`。
+//! v2：`math` 选项开启时，`math`/`equation` 块原样透传 `$...$`/`equation` 环境。
+//!
+//! 内联语义角色（`{ref: 标签|显示}` / `{term: x}` / `{math: f}` / `{em: x}` / `{strong: x}`）
+//! 会翻译成 `\hyperref[...]{...}` / `\emph{}` / `$...$` / `\emph{}` / `\textbf{}`；
+//! `{math:}` 受 `math` 选项控制，且与块级公式共用危险原语检查。
+//!
+//! ⚠️ `theorem` / `proof` 需要 `amsthm`，`{ref:}` 需要 `hyperref`。完整文档模式
+//! （`full_document` 与 `base.standalone` 均为真）会自动写进导言区；只取片段时要自己加。
 
 use crate::Value;
 use crate::emit::key_of;
 use crate::emit::{
-    backend_error, depth_error, EmitOptions, escape_latex, scalar_text, block_type, MAX_VALUE_DEPTH,
+    backend_error, depth_error, expand_roles, strip_role_quotes, EmitOptions, escape_latex,
+    scalar_text, block_type, MAX_VALUE_DEPTH,
 };
 use sml_codes::SmlError;
 
@@ -158,7 +168,14 @@ pub fn to_latex(v: &Value, opt: &LatexOptions) -> Result<String, SmlError> {
     let mut out = String::new();
     if opt.full_document && opt.base.standalone {
         let class = sanitize_documentclass(&opt.documentclass);
-        out.push_str(&format!("\\documentclass{{{}}}\n\\begin{{document}}\n", class));
+        // 前导区：`amsthm` 提供 `theorem` / `proof` 环境（本模块现在会产出它们），
+        // `hyperref` 供内联角色 `{ref: label}` 翻译成 `\hyperref[...]{...}`。
+        // ⚠️ 拿片段（`full_document: false` 或 `base.standalone: false`）时这两行不在，
+        // 调用方需自行在导言区 `\usepackage{amsthm,hyperref}`。
+        out.push_str(&format!(
+            "\\documentclass{{{}}}\n\\usepackage{{amsthm}}\n\\usepackage{{hyperref}}\n\\begin{{document}}\n",
+            class
+        ));
     }
     if let Value::Object(m) = v {
         for (k, val) in m {
@@ -229,7 +246,7 @@ fn emit_object(v: &Value, inferred: Option<&str>, opt: &LatexOptions, depth: usi
             Some("h1") | Some("h2") | Some("h3") | Some("h4") | Some("h5") | Some("h6")
                 | Some("p") | Some("ul") | Some("ol") | Some("table") | Some("code")
                 | Some("blockquote") | Some("em") | Some("strong") | Some("math")
-                | Some("equation")
+                | Some("equation") | Some("theorem") | Some("proof")
         )
     {
         return emit_container(v, opt, depth, out);
@@ -251,7 +268,7 @@ fn emit_object(v: &Value, inferred: Option<&str>, opt: &LatexOptions, depth: usi
             let items = list_items(v);
             for item in &items {
                 let body = match item {
-                    Value::Str(s) => escape_latex(s),
+                    Value::Str(s) => latex_inline(s, opt)?,
                     Value::Object(_) => {
                         if let Some(Value::Bool(b)) = item.get("done") {
                             let mark = if *b { "[x]" } else { "[ ]" };
@@ -306,6 +323,8 @@ fn emit_object(v: &Value, inferred: Option<&str>, opt: &LatexOptions, depth: usi
             out.push_str(&format!("\\textbf{{{}}}", block_text(v, opt, depth)?));
         }
         Some("math") | Some("equation") => emit_math(v, ty == Some("equation"), opt, out)?,
+        Some("theorem") => emit_theorem(v, opt, depth, out)?,
+        Some("proof") => emit_proof(v, opt, depth, out)?,
         _ => emit_description(v, opt, depth + 1, out)?,
     }
     Ok(())
@@ -330,6 +349,134 @@ fn emit_math(v: &Value, is_equation: bool, opt: &LatexOptions, out: &mut String)
         out.push_str(&format!("${}$", body));
     }
     Ok(())
+}
+
+/// 定理块 → `theorem` 环境（需要 `amsthm`）。
+///
+/// 之前 `theorem` 落进 `emit_description`，被渲染成 `description` 列表 —— 数学文档里
+/// 「定理」变成 `\item[text]`，与 markdown 后端的 `<article class="theorem">` 语义漂移。
+///
+/// 标题取 `title`，否则取裸块名（`theorem 鸽巢原理 { … }` 的名字）。
+fn emit_theorem(v: &Value, opt: &LatexOptions, depth: usize, out: &mut String) -> Result<(), SmlError> {
+    if depth > MAX_VALUE_DEPTH {
+        return Err(depth_error("latex"));
+    }
+    let title = theorem_title(v);
+    out.push_str("\\begin{theorem}");
+    if !title.is_empty() {
+        out.push_str(&format!("[{}]", escape_latex(&title)));
+    }
+    out.push('\n');
+    emit_named_body(v, opt, depth, out)?;
+    out.push_str("\\end{theorem}\n\n");
+    Ok(())
+}
+
+/// 证明块 → `proof` 环境（`amsthm` 提供；无环境名参数，标题不输出）。
+fn emit_proof(v: &Value, opt: &LatexOptions, depth: usize, out: &mut String) -> Result<(), SmlError> {
+    if depth > MAX_VALUE_DEPTH {
+        return Err(depth_error("latex"));
+    }
+    out.push_str("\\begin{proof}\n");
+    emit_named_body(v, opt, depth, out)?;
+    out.push_str("\\end{proof}\n\n");
+    Ok(())
+}
+
+/// 定理/证明的标题：`title` → 裸块名 → 空。
+fn theorem_title(v: &Value) -> String {
+    if let Some(t) = v.get("title").and_then(|x| x.as_str()) {
+        return t.to_string();
+    }
+    v.get("__name").and_then(|x| x.as_str()).unwrap_or("").to_string()
+}
+
+/// 定理/证明的正文：有 `children` 就按数组顺序逐块 emit，否则当一段文本。
+fn emit_named_body(
+    v: &Value,
+    opt: &LatexOptions,
+    depth: usize,
+    out: &mut String,
+) -> Result<(), SmlError> {
+    if block_children(v).is_some() {
+        emit_container(v, opt, depth, out)?;
+        return Ok(());
+    }
+    let body = block_text(v, opt, depth + 1)?;
+    out.push_str(&body);
+    if !body.ends_with('\n') {
+        out.push('\n');
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// 内联语义角色（I-21）：过去只有 markdown 处理 `{ref:}`/`{term:}`/`{math:}`/`{em:}`，
+// LaTeX 原样吐出花括号（还会被 `escape_latex` 转成 `\{`），同一份 SML 跨格式不一致。
+// ---------------------------------------------------------------------------
+
+/// 行内文本 → LaTeX：**先切角色再转义**。
+///
+/// 顺序不可颠倒：`escape_latex` 会把 `{` `}` 转成 `\{` `\}`，角色语法就没了。
+fn latex_inline(s: &str, opt: &LatexOptions) -> Result<String, SmlError> {
+    let mut failure: Option<SmlError> = None;
+    let out = expand_roles(s, escape_latex, |role, arg| {
+        match role_to_latex(role, arg, opt) {
+            Ok(v) => v,
+            Err(e) => {
+                failure = Some(e);
+                None
+            }
+        }
+    });
+    match failure {
+        Some(e) => Err(e),
+        None => Ok(out),
+    }
+}
+
+/// 单个角色 → LaTeX。`None` = 不认这个角色（原样保留）。
+fn role_to_latex(
+    role: &str,
+    arg: &str,
+    opt: &LatexOptions,
+) -> Result<Option<String>, SmlError> {
+    let rendered = match role {
+        "ref" => {
+            let (target, label) = match arg.split_once('|') {
+                Some((t, l)) => (t.trim(), l.trim()),
+                None => (arg, arg),
+            };
+            format!(
+                "\\hyperref[{}]{{{}}}",
+                sanitize_label(target),
+                escape_latex(strip_role_quotes(label))
+            )
+        }
+        "term" => format!("\\emph{{{}}}", escape_latex(strip_role_quotes(arg))),
+        "math" => {
+            let body = strip_role_quotes(arg);
+            if opt.math {
+                // 同块级 `math`：透传前必须拒绝 `\input` / `\write18` 这类原语，
+                // 否则一行行内公式就能读本地文件（或开 shell-escape 时执行命令）。
+                check_latex_raw(body)?;
+                format!("${body}$")
+            } else {
+                escape_latex(body)
+            }
+        }
+        "em" => format!("\\emph{{{}}}", escape_latex(arg)),
+        "strong" => format!("\\textbf{{{}}}", escape_latex(arg)),
+        _ => return Ok(None),
+    };
+    Ok(Some(rendered))
+}
+
+/// `\hyperref[label]` 的标签名：只留标识符字符 —— `]` 或换行会提前闭合可选参数。
+fn sanitize_label(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | ':' | '_' | '-'))
+        .collect()
 }
 
 /// 取块的原始文本（`text` 优先，其次 `body`），不做任何转义。
@@ -381,7 +528,7 @@ fn inline_text(v: &Value, inferred: Option<&str>, opt: &LatexOptions, depth: usi
         return Err(depth_error("latex"));
     }
     let Value::Object(_) = v else {
-        return Ok(escape_latex(&scalar_text(v)));
+        return latex_inline(&scalar_text(v), opt);
     };
     let ty = block_type(v).or(inferred);
     if !is_inline_ty(ty) {
@@ -422,13 +569,13 @@ fn block_text(v: &Value, opt: &LatexOptions, depth: usize) -> Result<String, Sml
         return Err(depth_error("latex"));
     }
     let Value::Object(m) = v else {
-        return Ok(escape_latex(&scalar_text(v)));
+        return latex_inline(&scalar_text(v), opt);
     };
     let mut parts: Vec<String> = Vec::new();
     // 1. 主文本
     if let Some(t) = m.get("text") {
         if !matches!(t, Value::Object(_) | Value::Array(_)) {
-            parts.push(escape_latex(&scalar_text(t)));
+            parts.push(latex_inline(&scalar_text(t), opt)?);
         }
     }
     // 2. children 数组：唯一保序载体
@@ -449,7 +596,7 @@ fn block_text(v: &Value, opt: &LatexOptions, depth: usize) -> Result<String, Sml
                 Value::Object(_) | Value::Array(_) => {
                     parts.push(inline_text(val, Some(k), opt, depth + 1)?);
                 }
-                other => parts.push(escape_latex(&scalar_text(other))),
+                other => parts.push(latex_inline(&scalar_text(other), opt)?),
             },
         }
     }

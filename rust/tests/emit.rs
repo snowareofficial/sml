@@ -595,3 +595,129 @@ fn nan_inf_serialization_is_roundtrip_safe() {
     let md = to_markdown(&v, &MarkdownOptions::new()).unwrap();
     assert!(md.contains("nan"), "markdown 应渲染 nan: {md}");
 }
+
+// ---------------------------------------------------------------------------
+// I-21：markdown 的 `math` 块过去硬编码 `<div class="math">`，完全不认 `--math`
+// （该开关当时只对 latex 生效）⇒ 同一份 SML 的公式在不同后端行为不一致。
+// ---------------------------------------------------------------------------
+
+#[test]
+fn markdown_math_off_keeps_div_wrapper() {
+    let val = v("math { text: \"E = mc^2\" }");
+    let out = to_markdown(&val, &MarkdownOptions::new()).unwrap();
+    assert!(
+        out.contains("<div class=\"math\">\\[E = mc^2\\]</div>"),
+        "默认档应保持原有 div 包裹: {out}"
+    );
+    assert!(!out.contains("$$"), "默认档不该产出 $$ 围栏: {out}");
+}
+
+#[test]
+fn markdown_math_on_is_raw_dollar_fence() {
+    // `&` 与 `^` 都是公式语义字符：--math 下必须原样透传，
+    // 不能走 block_text_content（那会先做 XML 转义 ⇒ `&amp;`）。
+    let val = v("math { text: \"a & b^2\" }");
+    let mut opt = MarkdownOptions::new();
+    opt.math = true;
+    let out = to_markdown(&val, &opt).unwrap();
+    assert!(out.contains("$$\na & b^2\n$$"), "公式未原样透传: {out}");
+    assert!(!out.contains("&amp;"), "公式内容被转义了: {out}");
+    assert!(!out.contains("<div class=\"math\">"), "开启后不该再套 div: {out}");
+}
+
+#[test]
+fn markdown_math_on_also_applies_inside_theorem() {
+    // 定理内部的公式走 child_to_html，同一开关必须同样生效。
+    let val = v("theorem { title: \"T\" children: [ math { text: \"x^2\" } ] }");
+    let mut opt = MarkdownOptions::new();
+    opt.math = true;
+    let out = to_markdown(&val, &opt).unwrap();
+    assert!(out.contains("$$\nx^2\n$$"), "定理内公式未透传: {out}");
+}
+
+// ---------------------------------------------------------------------------
+// I-21：latex 的 `theorem` / `proof` 过去落进 `description` 环境（退化成列表项），
+// 与 markdown 的 <article class="theorem"> 语义漂移。
+// ---------------------------------------------------------------------------
+
+#[test]
+fn latex_theorem_uses_theorem_environment() {
+    let val = v("theorem { title: \"鸽巢原理\" text: \"n+1 只鸽子进 n 个笼\" }");
+    let out = to_latex(&val, &LatexOptions::new()).unwrap();
+    assert!(
+        out.contains("\\begin{theorem}[鸽巢原理]"),
+        "缺少 theorem 环境或标题: {out}"
+    );
+    assert!(out.contains("\\end{theorem}"), "缺少收尾环境: {out}");
+    assert!(
+        !out.contains("\\begin{description}"),
+        "不该再退化成 description: {out}"
+    );
+}
+
+#[test]
+fn latex_proof_uses_proof_environment_with_children() {
+    // 带 children 时不能被 emit_container 提前吞掉（否则只剩裸内容、丢了环境）
+    let val = v("proof { children: [ p { text: \"显然\" } ] }");
+    let out = to_latex(&val, &LatexOptions::new()).unwrap();
+    assert!(out.contains("\\begin{proof}"), "缺少 proof 环境: {out}");
+    assert!(out.contains("显然"), "正文被丢弃: {out}");
+    assert!(out.contains("\\end{proof}"), "缺少收尾环境: {out}");
+}
+
+#[test]
+fn latex_theorem_without_title_has_no_optional_arg() {
+    let val = v("theorem { text: \"x\" }");
+    let out = to_latex(&val, &LatexOptions::new()).unwrap();
+    assert!(out.contains("\\begin{theorem}\n"), "无标题时不该产出 []: {out}");
+}
+
+// ---------------------------------------------------------------------------
+// I-21：内联语义角色过去只在 markdown 实现，LaTeX 会把它连花括号一起转义
+// （`{em: x}` ⇒ `\{em: x\}`），svg / slint 则原样画到界面/画布上。
+// ---------------------------------------------------------------------------
+
+#[test]
+fn latex_inline_roles_are_translated() {
+    let val = v("p { text: \"{em: 斜} {strong: 粗} {ref: sec1|见 1 节} {term: 同态}\" }");
+    let out = to_latex(&val, &LatexOptions::new()).unwrap();
+    assert!(out.contains("\\emph{斜}"), "em 未翻译: {out}");
+    assert!(out.contains("\\textbf{粗}"), "strong 未翻译: {out}");
+    assert!(out.contains("\\hyperref[sec1]{见 1 节}"), "ref 未翻译: {out}");
+    assert!(out.contains("\\emph{同态}"), "term 未翻译: {out}");
+    assert!(!out.contains("\\{em:"), "花括号原样漏出: {out}");
+}
+
+#[test]
+fn latex_inline_math_role_respects_math_flag() {
+    let val = v("p { text: \"{math: x^2}\" }");
+    // 默认（公式透传关）：退化为转义纯文本，不输出 `$`
+    let off = to_latex(&val, &LatexOptions::new()).unwrap();
+    assert!(!off.contains("$x^2$"), "关闭时不该透传: {off}");
+    // 开启：行内公式
+    let mut opt = LatexOptions::new();
+    opt.math = true;
+    let on = to_latex(&val, &opt).unwrap();
+    assert!(on.contains("$x^2$"), "开启时未透传: {on}");
+}
+
+#[test]
+fn latex_inline_math_role_still_blocks_dangerous_primitives() {
+    // 行内角色同样是「不可信文本进入公式」的入口，必须与块级 math 同一条守卫。
+    let val = v("p { text: \"{math: \\\\input{/etc/passwd}}\" }");
+    let mut opt = LatexOptions::new();
+    opt.math = true;
+    assert!(to_latex(&val, &opt).is_err(), "行内公式绕过了危险原语检查");
+}
+
+#[test]
+fn svg_and_slint_flatten_roles_to_plain_text() {
+    // 这两个后端只能放纯文本：至少别把 `{ref: a|b}` 原样画出去。
+    let svg = to_svg(&v("text { text: \"见 {ref: sec2|第 2 节}\" }"), &SvgOptions::default()).unwrap();
+    assert!(svg.contains("第 2 节"), "svg 未折叠角色: {svg}");
+    assert!(!svg.contains("{ref:"), "svg 漏出角色语法: {svg}");
+
+    let slint = to_slint(&v("Text { text: \"见 {ref: sec2|第 2 节}\" }"), &SlintOptions::default()).unwrap();
+    assert!(slint.contains("第 2 节"), "slint 未折叠角色: {slint}");
+    assert!(!slint.contains("{ref:"), "slint 漏出角色语法: {slint}");
+}
