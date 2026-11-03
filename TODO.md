@@ -941,7 +941,7 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
 | **I-19** | `idyml` 瘦别名 / 国际稳定发布线（计划书 · 待建） | `IDYML.md` |
 | **I-20** | 长文档产出链：EPUB / HTML / 分章 / TOC / 增量 emit / emit 定位 | `story/ISSUE_smltools_缺失功能.md` |
 | **I-21** | 语义部件目录 + 跨后端语义一致（figure/admonition/footnote…） | 同上 §四 §五 |
-| **I-22** | PVACIS 方言反馈的六条语言设计问题 | `PVACIS-SML-EXTENSIONS.md` |
+| **I-22** | 下游方言反馈的六条语言设计问题 | 仓库根下那份**未入库**的下游方言说明（122 行；被 `.gitignore` 的 `*-SML-EXTENSIONS.md` 排除，文件名含内部项目名，本文不引用） |
 
 ⚠️ **I-22 有对外发布禁令**：源文件明写「未经明确指示不要对外发布、不要提交给上游」。
 
