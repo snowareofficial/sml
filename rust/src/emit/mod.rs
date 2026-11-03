@@ -172,6 +172,125 @@ pub fn escape_text(s: &str, opt: &EmitOptions) -> String {
     }
 }
 
+// ---------------------------------------------------------------------------
+// 内联语义角色 `{role: arg}`（各后端共享）
+// ---------------------------------------------------------------------------
+//
+// 过去只有 markdown 处理内联角色，latex / svg / slint 一律原样吐出花括号，
+// 同一份 SML 跨格式不一致（IDEAS I-21）。现由 `expand_roles` 统一切分，
+// 各后端只决定「这一角色翻译成什么」，转义仍由各后端自己做。
+
+/// 内联语义角色的通用切分器 ｜ shared `{role: arg}` splitter.
+///
+/// 语法：`{role: arg}`，内置角色有 `ref` / `term` / `math` / `em` / `strong`。
+///
+/// - 普通文本交给 `plain`（各后端在此做自己的转义）；
+/// - 能识别的角色交给 `role`；返回 `None` 表示「不认这个角色」⇒ 原样保留（含花括号）；
+/// - 未闭合的 `{` 原样输出，绝不吞字符。
+#[cfg(any(feature = "emit-latex", feature = "emit-svg", feature = "emit-slint"))]
+pub(crate) fn expand_roles(
+    s: &str,
+    mut plain: impl FnMut(&str) -> String,
+    mut role: impl FnMut(&str, &str) -> Option<String>,
+) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut buf = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '{' {
+            buf.push(c);
+            continue;
+        }
+        // 收集花括号段（允许嵌套，与 markdown 既有实现一致：内层不解析）
+        let mut inner = String::new();
+        let mut depth = 1usize;
+        let mut closed = false;
+        for d in chars.by_ref() {
+            match d {
+                '{' => {
+                    depth += 1;
+                    inner.push(d);
+                }
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        closed = true;
+                        break;
+                    }
+                    inner.push(d);
+                }
+                _ => inner.push(d),
+            }
+        }
+        let rendered = if closed {
+            split_role(&inner).and_then(|(r, a)| role(r, a))
+        } else {
+            None
+        };
+        match rendered {
+            Some(text) => {
+                if !buf.is_empty() {
+                    out.push_str(&plain(&buf));
+                    buf.clear();
+                }
+                out.push_str(&text);
+            }
+            None => {
+                buf.push('{');
+                buf.push_str(&inner);
+                if closed {
+                    buf.push('}');
+                }
+            }
+        }
+    }
+    if !buf.is_empty() {
+        out.push_str(&plain(&buf));
+    }
+    out
+}
+
+/// `role: arg` 切分；没有冒号或 `arg` 为空时返回 `None`。
+#[cfg(any(feature = "emit-latex", feature = "emit-svg", feature = "emit-slint"))]
+fn split_role(inner: &str) -> Option<(&str, &str)> {
+    let (r, a) = inner.trim().split_once(':')?;
+    let (r, a) = (r.trim(), a.trim());
+    if r.is_empty() || a.is_empty() {
+        return None;
+    }
+    Some((r, a))
+}
+
+/// 角色的**显示文本**：`ref` 取 `目标|标签` 的标签，其余取实参本身。
+///
+/// 给「只能放纯文本」的后端用（svg 的 `<text>`、slint 的字符串字面量）——
+/// 这些后端无法承载 `<dfn>` / `\emph` 这类标记，但至少不该把 `{ref: a|b}` 原样画到画布上。
+#[cfg(any(feature = "emit-svg", feature = "emit-slint"))]
+pub(crate) fn flatten_roles(s: &str) -> String {
+    expand_roles(s, |t| t.to_string(), |role, arg| {
+        let text = match role {
+            "ref" => arg.split_once('|').map(|(_, l)| l.trim()).unwrap_or(arg),
+            "term" | "math" | "em" | "strong" => arg,
+            _ => return None,
+        };
+        Some(strip_role_quotes(text).to_string())
+    })
+}
+
+/// 去掉角色实参两端成对的引号（`{term: "x"}`）。
+#[cfg(any(feature = "emit-svg", feature = "emit-slint", feature = "emit-latex"))]
+pub(crate) fn strip_role_quotes(s: &str) -> &str {
+    let s = s.trim();
+    let b = s.as_bytes();
+    if b.len() >= 2
+        && ((b[0] == b'"' && b[b.len() - 1] == b'"') || (b[0] == b'\'' && b[b.len() - 1] == b'\''))
+    {
+        &s[1..s.len() - 1]
+    } else {
+        s
+    }
+}
+
 /// XML tag / attribute name whitelist: only letters, digits, `:`, `-`, `.`, `_` survive ｜ XML 标签名 / 属性名白名单。
 /// 任何其它字符（空白、`"`、`=`、`<`、`>` 等）替换为 `_`，从根本上杜绝标签/属性名注入。
 pub fn sanitize_xml_name(name: &str) -> String {

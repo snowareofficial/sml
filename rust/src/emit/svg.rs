@@ -23,8 +23,9 @@
 use crate::Value;
 use crate::emit::key_of;
 use crate::emit::{
-    depth_error, EmitOptions, escape_xml_attr, escape_xml_text, scalar_text, block_type,
-    sanitize_xml_name, sanitize_xml_attr_name, sanitize_xml_uri, is_uri_attr, MAX_VALUE_DEPTH,
+    depth_error, flatten_roles, EmitOptions, escape_xml_attr, escape_xml_text, scalar_text,
+    block_type, sanitize_xml_name, sanitize_xml_attr_name, sanitize_xml_uri, is_uri_attr,
+    MAX_VALUE_DEPTH,
 };
 use sml_codes::SmlError;
 
@@ -249,13 +250,17 @@ fn emit_svg_node(
                 pad,
                 tag,
                 attrs,
-                escape_xml_text(text_content.as_deref().unwrap_or("")),
+                escape_xml_text(&flatten_roles(text_content.as_deref().unwrap_or(""))),
                 tag
             ));
         }
         Ok(())
     } else {
-        out.push_str(&format!("{}{}\n", pad, escape_xml_text(&scalar_text(v))));
+        out.push_str(&format!(
+            "{}{}\n",
+            pad,
+            escape_xml_text(&flatten_roles(&scalar_text(v)))
+        ));
         Ok(())
     }
 }

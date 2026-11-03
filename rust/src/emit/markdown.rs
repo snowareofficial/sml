@@ -190,7 +190,11 @@ fn md_cell_text(v: &Value, opt: &EmitOptions) -> String {
 #[derive(Debug, Clone)]
 pub struct MarkdownOptions {
     pub base: EmitOptions,
-    /// v2: 允许 `$...$` / `$$...$$` 数学块透传（不转义 `$`）。默认 false。
+    /// `math` 块是否原样透传成 `$$…$$`（交给 KaTeX/MathJax）。默认 `false`。
+    ///
+    /// 关闭时输出 `<div class="math">\[…\]</div>`（原行为）；开启时输出
+    /// `$$\n…\n$$`，且公式内容**不做 XML 转义**（`&` `^` `_` 都是公式语义字符）。
+    /// 与 `LatexOptions::math` 是同一个开关语义（CLI 的 `--math`）。
     pub math: bool,
     /// v2: 允许未知块类型作为 HTML 原始标签透传。默认 false。
     pub html_passthrough: bool,
@@ -436,8 +440,13 @@ fn emit_object(
             out.push('\n');
         }
         Some("math") => {
-            let content = block_text_content(v, opt);
-            out.push_str(&format!("<div class=\"math\">\\[{}\\]</div>\n\n", content));
+            if opt.math {
+                // `--math` 开启：按 Markdown 数学块惯例原样透传（交给 KaTeX/MathJax）。
+                out.push_str(&format!("$$\n{}\n$$\n\n", math_source(v)));
+            } else {
+                let content = block_text_content(v, opt);
+                out.push_str(&format!("<div class=\"math\">\\[{}\\]</div>\n\n", content));
+            }
         }
         Some("theorem") => {
             out.push_str(&render_theorem(v, opt));
@@ -475,6 +484,31 @@ fn block_text_content(v: &Value, opt: &MarkdownOptions) -> String {
         }
     }
     apply_roles(&parts.join(" "))
+}
+
+/// 数学块的**原文**（`text` → `body` → 首个标量），**不做任何转义**。
+///
+/// 只有 `--math` 开启时才用它：公式里的 `_` `^` `\` `&` 都是语义字符，
+/// 走 [`block_text_content`] 会先做 XML 转义（`&` ⇒ `&amp;`），公式就废了。
+fn math_source(v: &Value) -> String {
+    if let Some(t) = v.get("text").or_else(|| v.get("body")) {
+        return scalar_text(t);
+    }
+    let mut parts: Vec<String> = Vec::new();
+    if let Value::Object(m) = v {
+        for (k, val) in m {
+            if k == "__type" || k == "__name" {
+                continue;
+            }
+            match val {
+                Value::Str(_) | Value::Int(_) | Value::Float(_, _) | Value::Bool(_) => {
+                    parts.push(scalar_text(val))
+                }
+                _ => {}
+            }
+        }
+    }
+    parts.join(" ")
 }
 
 /// 列表项提取：优先 `items` 数组，否则对象自身为数组，否则单行文本。
@@ -867,6 +901,7 @@ fn render_proof(v: &Value, opt: &MarkdownOptions) -> String {
 /// 用 raw-HTML 包裹，避免依赖 Goldmark 不支持的 `markdown="1"` 内联解析。
 fn child_to_html(v: &Value, opt: &MarkdownOptions) -> String {
     match block_type(v) {
+        Some("math") if opt.math => format!("$$\n{}\n$$\n", math_source(v)),
         Some("math") => format!("<div class=\"math\">\\[{}\\]</div>\n", block_text_content(v, opt)),
         Some("quote") => format!("<blockquote>{}</blockquote>\n", block_text_content(v, opt)),
         Some("theorem") => render_theorem(v, opt),
