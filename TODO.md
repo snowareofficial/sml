@@ -292,10 +292,16 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 
 ### 同步时暴露的既有跨实现差异（记下，不在扩展点里擅自改）
 
-- **未注册指令**：Rust 侧**报错**；JS 侧落进「片段定义」分支**静默收下**（`@form F { }`
-  变成名为 `form` 的片段，不进主树也不报错）。两端行为不同 —— 收敛前先决定以哪侧为准。
-- **数组类型写法**：Rust 侧 `[str]`；JS 侧 `parseFieldSpec` 要求首 token 是 word，
-  故 `[str]` 会报"字段类型期望标识符"，只认 `array [ str ]`。
+- ~~**未注册指令**：Rust 侧报错；JS 侧落进「片段定义」分支静默收下~~ —— ✅ **2026-11-03 实测已收敛**
+  （W16 就改掉了，本条记录过期）。判据：`@form F { x: 1 }` 这种「位置参数形式」五端一律
+  `E-PARSE-005`；`@form { x: 1 }`（无参带体）在 Rust 与 JS 里都仍是**合法片段定义**。
+  已加 conformance 用例 `37_unregistered_directive_error` 钉住（现五端 AGREE）。
+- ⚠️ **数组类型写法（2026-11-03 实测反转，待裁决）**：**Rust 与 Lua 只认 `[str]`**，
+  写 `array[str]` 直接报 `E-PARSE-006`（「契约字段期望键，得 `[`」）；**JS 两种都认**；
+  C/C++ 未测。而**教科书与站点首页共 30 处示例写的是 `array[T]`**（zh/en 的 ch05 / ch08 /
+  ch09 / ch10 / `_index`），README 那一处写 `[str]`。⇒ 要么**改文档 30 处为 `[T]`**，
+  要么**给四端补上 `array[T]` 别名**。这条不是「挑一个当标准」那么轻 —— 实测结果是
+  **文档教的写法参考实现跑不通**。
 - **数组元素的逐元素校验**：Rust 侧对 `[image]` 逐元素调外置校验器；
   JS 侧 `valueMatchesType` 的 array 分支未逐元素校验外置类型。
 - [x] 清理 `sml-parse` 的既有 unused import / dead_code —— ✅ 2026-11-02 复核：默认 / 无默认 / `--all-targets` / `--features when` 四种配置 `cargo check -p sml-parse` 均 **0 警告**（`pending_when` 一处已在 feat(value) 提交里用 `#[cfg(not(feature = "when"))]` 消费）。
@@ -810,7 +816,7 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 | # | 问题 | 位置 | 属类 |
 |---|---|---|---|
 | 1 | ~~**Lua 大整数（>2^53）转 float 丢精度**~~ ✅ **已修（2026-11-02）**：整数形态若 `%.0f` 回写与原文不一致 ⇒ 保留**字符串**（round-trip 安全），`330106201503071234` 原样保留；顺带覆盖 `007` 前导零（与 Rust 同口径），负整数按原符号比较不误判。`lua/test_codes.lua` **184/184** 通过 | `lua/lib/sml.soup` | ~~静默改数据~~ |
-| 2 | **C++ 不支持 include**：`include "sub.sml"` 被静默当成键 `include: sub.sml`，不报错也不展开；而 Rust / C / JS / Lua 均正常 | `cpp/sml.cpp` | **静默错树** |
+| 2 | ~~**C++ 不支持 include**：`include "sub.sml"` 被静默当成键 `include: sub.sml`~~ ✅ **已改为明确拒绝（2026-11-03，用户裁决「先明确拒绝」）**：`parse_impl` 里当 `include_dir` 为空且出现**裸** `include`/`import` + 引号串时，直接报 `E-FEATURE-001`（判据刻意收窄：`include: "x"` 带冒号仍是合法字段；`@include "x"` 不受影响，它本来就由 `expand_includes` 展开）。静默错树 → 响亮失败。**补齐**（让 C++ 认裸形式，与另四端同形）记进 IDEAS I-16 正式版门槛 | `cpp/sml.cpp` | ~~静默错树~~ 响亮失败 |
 | 3 | ~~**JS `\uXXXX`（固定四位）少跳一位**~~ ✅ **已修（2026-10-30，!16）**：`i += 4` 改为 `i += 5`（现 `js/sml.mjs:133`）⇒ `\u0041\u0042` 现在正确解出 `aAb`（原为 `aA1b`）。2026-11-03 复核源码确认 | `js/sml.mjs` | ~~静默产生错误数据~~ |
 
 **同批推翻的两条陈旧记录**（手册已就地更正，勿再引用）：
@@ -944,6 +950,24 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
 | **I-22** | 下游方言反馈的六条语言设计问题 | 仓库根下那份**未入库**的下游方言说明（122 行；被 `.gitignore` 的 `*-SML-EXTENSIONS.md` 排除，文件名含内部项目名，本文不引用） |
 
 ⚠️ **I-22 有对外发布禁令**：源文件明写「未经明确指示不要对外发布、不要提交给上游」。
+
+### F. 编辑器扩展侧（2026-11-03 用户点名，**新增工作流**）
+
+> 用户原话：「拓展那边，比如 `one_of warn` 这种可能会对自动补全提出更高要求，weak 那一些也会改动 vsix」。
+
+- [ ] **自动补全要跟上新修饰符**：`one_of` / `exactly_one` / `x_only` / `items_min` / `items_max` /
+      `depends_on` 目前**只在 Rust 解析器实现**，扩展侧（`editors/vscode/`）没有对应词表 ⇒ 用户无提示。
+      `one_of [a b] warn` 这类形态对补全要求更高：要区分**组名列表位置**与**严格度档位位置**两个上下文。
+- [ ] **weak\* 三兄弟落地必然改 vsix**：I-5 `weakport`（插件认契约）/ I-15 `weakdata` /
+      I-17 `weakdoc`（`.smlex` profile）任一落地，都会新增内置指令或新的文件类型/文件关联 ⇒
+      扩展侧需同步（语法文件 + 补全 + `package.json` 的 `languages` 关联）。
+- [ ] **重打 vsix 的固定流程**：改 `editors/vscode/syntaxes/` 后必须重打 `.vsix`，并同步
+      `EXPECT_VENDOR`（大小 + sha 前缀，见 `三·十一` 的「顺带清掉」）；`tools/check_js_copies.py`
+      与 `_prepublish.mjs` 两道闸门都要过。
+- ✅ **W22 D1 结案（2026-11-03）**：原话「vsix 提供的也加」指**补进文档**，不是补进 Zed 扩展 ——
+  Zed 用 Tree-sitter grammar + `extension.toml`，**装不了 `.vsix`**，且本轮新契约能力是解析层、
+  **无新语法 token**。`one_of`/`exactly_one` 的文档已在 W22 A2 补齐；剩下的是**高亮/补全**，
+  即上面第一条，属独立一笔。
 
 ---
 
