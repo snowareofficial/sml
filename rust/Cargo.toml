@@ -34,8 +34,8 @@ members = [
     "sml-contract",
     "sml-parse",
     "sml-pattern",
-    # 渐进式入门门面（独立发布线，见 swsml-easy/README.md；`publish = false` 直到一起发）
-    "swsml-easy",
+    # 渐进式入门门面（独立发布线，见 smlkit-easy/README.md；`publish = false` 直到一起发）
+    "smlkit-easy",
 ]
 resolver = "2"
 

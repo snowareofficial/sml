@@ -1,4 +1,4 @@
-# swsml-easy
+# smlkit-easy
 
 读一份 SML 只需要 **4 个概念**：文档 → 字段 → 值 → 错误。这个 crate 只暴露这 4 个。
 
@@ -7,26 +7,26 @@
 ## 30 秒
 
 ```rust
-use swsml_easy::Doc;
+use smlkit_easy::Doc;
 
 let doc = Doc::read("server { host: localhost port: 8080 }")?;
 assert_eq!(doc.str("server.host"), Some("localhost"));
 assert_eq!(doc.int("server.port"), Some(8080));
-# Ok::<(), swsml_easy::Error>(())
+# Ok::<(), smlkit_easy::Error>(())
 ```
 
 文件（**会展开 `include`**）：
 
 ```rust
-# use swsml_easy::Doc;
+# use smlkit_easy::Doc;
 let doc = Doc::read_file("config.sml")?;
-# Ok::<(), swsml_easy::Error>(())
+# Ok::<(), smlkit_easy::Error>(())
 ```
 
 错误带**跨端稳定的错误码**，可直接分支：
 
 ```rust
-# use swsml_easy::Doc;
+# use smlkit_easy::Doc;
 let err = Doc::read("42").unwrap_err();
 assert_eq!(err.code(), "E-PARSE-008"); // 顶层须为容器
 ```

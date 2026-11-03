@@ -165,7 +165,7 @@ pub mod out {
 | 发布范围硬约束 | 不变：仍只是 `swsml` 一个发布物 | 需新增发布物。允许范围是「swsml / swsml-derive / sml-* / smltools」（`rust/Cargo.toml` 注释「发布范围」），`qsm` / `flow` 一律 `publish = false`，所以新 crate **必须**落在 `swsml-*` / `sml-*` 命名族里 |
 | 版本节奏 | 与主 crate 绑定，封装层一次破坏性改动就推 `swsml` 大版本 | 可独立发版；但要处理「依赖尚未发布的 dev 版本」的发布顺序问题（当前 workspace 版本是 `0.6.9-dev.0`） |
 | L0 体积 / 依赖 | 与根 crate 同编译单元，L2 部分必须 `#[cfg]` 到 emit feature 后 | 可让新 crate 只依赖 `sml-parse`，物理上拿不到 emit 与 C-ABI |
-| L0 用户仍会看到的东西 | 根命名空间照旧平铺 11 个 `parse*` + C-ABI + derive（只是不再推荐） | 用户只 `use swsml_easy::*`，看不到根命名空间 |
+| L0 用户仍会看到的东西 | 根命名空间照旧平铺 11 个 `parse*` + C-ABI + derive（只是不再推荐） | 用户只 `use smlkit_easy::*`，看不到根命名空间 |
 
 取舍建议：**① 起步**（少一处 `preserve_order` 转发点、少一个发布物、少一次发布顺序协调），
 把 ② 作为「封装层长大到需要独立版本节奏时」的后续动作。
@@ -258,16 +258,16 @@ pub mod out {
 | Q1 L0 入口名 | `read` | ✅ 已实现 |
 | Q2 是否引入 `Doc` | 是 | ✅ 已实现 |
 | Q3 `raw() -> &Value` | 保留（逃生口） | ✅ 已实现 |
-| **Q4 承载形态** | **② 独立 crate** —— 用户裁决。理由不是「少一处 `preserve_order` 转发」那套成本账，而是**模块治不了撞名**：模块仍挤在 `swsml` 根命名空间里，而 `use sml::*` 会把 31 个 C 函数一起拉进来 | ✅ 已建 `rust/swsml-easy/` |
+| **Q4 承载形态** | **② 独立 crate** —— 用户裁决。理由不是「少一处 `preserve_order` 转发」那套成本账，而是**模块治不了撞名**：模块仍挤在 `swsml` 根命名空间里，而 `use sml::*` 会把 31 个 C 函数一起拉进来 | ✅ 已建 `rust/smlkit-easy/`（**名字 2026-11-03 定为 `smlkit` 品牌族**，见 I-19） |
 | Q6 L1 契约闸门 | 只做「开/关文档内 `@is`」 | ⏳ 未做 |
 | Q7 L2 诊断 | 复用 `ParseOutput` | ⏳ 未做 |
 | Q8 错误类型 | `SmlError`（保住 `code()`），本 crate 里换名 `Error` | ✅ 已实现（并给 swsml 根补了 `SmlError` 再导出） |
 | Q9 写回文本 | 不要；给一个 `to_sml()` 方法就够 | ✅ 已实现 |
 | Q10 `preserve_order` | 不进 L0 推荐 | ✅ 文档已按此写 |
 
-**发布节奏（用户定的）**：不单独发 —— 等 `.smlb` / `smldb`（I-18）与 `idyml`（I-19）一起发；
+**发布节奏（用户定的）**：不单独发 —— 等 `.smlb` / `smldb`（I-18）与 `smlkit`（I-19）一起发；
 「稳定化 + 优化」完成后 **0.7.0 一次性给出成批好用能力**。故 `Cargo.toml` 里 `publish = false`。
 
-**与 I-19 `idyml` 的分工**（别混）：
-- `idyml` = **同一套能力的换名瘦别名**（`pub use` 转发，零新 API），解决「找不到」；
-- `swsml-easy` = **能力子集 + 新 API 层**（`Doc`），解决「装了不会用」。两者可并存。
+**与 I-19 `smlkit` 的分工**（别混）：
+- `smlkit` = **同一套能力的换名瘦别名**（`pub use` 转发，零新 API），解决「找不到」；
+- `smlkit-easy` = **能力子集 + 新 API 层**（`Doc`），解决「装了不会用」。两者可并存。

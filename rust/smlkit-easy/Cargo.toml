@@ -1,5 +1,5 @@
 [package]
-name = "swsml-easy"
+name = "smlkit-easy"
 version = "0.1.0-dev.0"
 edition = "2021"
 description = "Progressive, on-demand facade over swsml: read a document, get a field. Standalone docs, four concepts only."
@@ -11,8 +11,8 @@ readme = "README.md"
 publish = false
 
 [lib]
-# 调用方写 `use swsml_easy::{...}`；不叫 `sml`，避免与 swsml 的 lib 名 `sml` 撞。
-name = "swsml_easy"
+# 调用方写 `use smlkit_easy::{...}`；不叫 `sml`，避免与 swsml 的 lib 名 `sml` 撞。
+name = "smlkit_easy"
 
 [dependencies]
 # ⚠️ 依赖键写成 `sml` 而不是 `swsml`：swsml 的 `[lib] name = "sml"`，

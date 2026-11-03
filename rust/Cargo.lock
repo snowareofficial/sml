@@ -293,6 +293,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "smlkit-easy"
+version = "0.1.0-dev.0"
+dependencies = [
+ "swsml",
+]
+
+[[package]]
 name = "smltools"
 version = "0.6.9-dev.0"
 dependencies = [

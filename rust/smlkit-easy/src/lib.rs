@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! # swsml-easy
+//! # smlkit-easy
 //!
 //! 读一份 SML 只需要 **4 个概念**：文档 → 字段 → 值 → 错误。这个 crate 只暴露这 4 个。
 //!
 //! ```no_run
 //! // ⚠️ 本 crate 尚未发布，下面是发布后的用法；现在试跑请看本仓库的 `tests/quickstart.rs`。
-//! use swsml_easy::Doc;
+//! use smlkit_easy::Doc;
 //!
 //! let doc = Doc::read("server { host: localhost port: 8080 }")?;
 //! assert_eq!(doc.str("server.host"), Some("localhost"));
 //! assert_eq!(doc.int("server.port"), Some(8080));
-//! # Ok::<(), swsml_easy::Error>(())
+//! # Ok::<(), smlkit_easy::Error>(())
 //! ```
 //!
 //! ## 为什么单独一个 crate
@@ -77,7 +77,7 @@ impl Doc {
     /// 解析一段 SML 文本。
     ///
     /// ```
-    /// let doc = swsml_easy::Doc::read("name: demo tags: [ a b ]").unwrap();
+    /// let doc = smlkit_easy::Doc::read("name: demo tags: [ a b ]").unwrap();
     /// assert_eq!(doc.str("name"), Some("demo"));
     /// assert!(doc.has("tags"));
     /// ```
@@ -85,7 +85,7 @@ impl Doc {
     /// 失败时拿到的是**带码**的错误（码是跨端契约，可直接用于判断分支）：
     ///
     /// ```
-    /// let err = swsml_easy::Doc::read("42").unwrap_err();
+    /// let err = smlkit_easy::Doc::read("42").unwrap_err();
     /// assert_eq!(err.code(), "E-PARSE-008"); // 顶层须为容器，单个标量无法往返
     /// ```
     pub fn read(text: &str) -> Result<Self, Error> {
@@ -116,7 +116,7 @@ impl Doc {
     /// 取字符串。值不是字符串时返回 `None`。
     ///
     /// ```
-    /// let doc = swsml_easy::Doc::read("a: hi b: 1").unwrap();
+    /// let doc = smlkit_easy::Doc::read("a: hi b: 1").unwrap();
     /// assert_eq!(doc.str("a"), Some("hi"));
     /// assert_eq!(doc.str("b"), None); // 是数字，不是字符串
     /// ```
@@ -127,7 +127,7 @@ impl Doc {
     /// 取整数。**只认整数类型的值**，不做字符串到数字的转换。
     ///
     /// ```
-    /// let doc = swsml_easy::Doc::read("port: 8080 mode: 0755").unwrap();
+    /// let doc = smlkit_easy::Doc::read("port: 8080 mode: 0755").unwrap();
     /// assert_eq!(doc.int("port"), Some(8080));
     /// // ⚠️ 前导零是**字符串**（保住权限位语义），所以这里取不到：
     /// assert_eq!(doc.int("mode"), None);
@@ -152,7 +152,7 @@ impl Doc {
     /// 取数组（**只读切片**）。想要下标访问就从这里拿：
     ///
     /// ```
-    /// let doc = swsml_easy::Doc::read("tags: [ a b ]").unwrap();
+    /// let doc = smlkit_easy::Doc::read("tags: [ a b ]").unwrap();
     /// let tags = doc.list("tags").unwrap();
     /// assert_eq!(tags.len(), 2);
     /// assert_eq!(tags[1].as_str(), Some("b"));
