@@ -54,7 +54,31 @@ pub(crate) fn quote_if_needed(s: &str) -> String {
         // `\u{24}` 之类转义在词法阶段就被解码，解码后的值与未转义形式
         // 不可区分，`Tok::Str` 也无从判断是否发生过转义。
         // 该 round-trip 限制已在 `to_sml` 文档中说明（禁用 env 特性即可规避）。
-        format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+        //
+        // ⚠️ **控制字符必须转义**（2026-11-03 修）：此前只处理 `\` 与 `"`，
+        // 于是 `\n` / `\t` / `\0` 会以**真实字节**写进引号串里 ——
+        // `s: "u\0v"` dump 出来是 `"u` + 0x00 + `v"`：Rust 自己再读回时文本里带 NUL，
+        // C 的 `sml_dump` 更是在 NUL 处**直接截断**（台账 B-02 记的就是这条）。
+        // 词法层的转义集是 `\n \t \r \0 \" \\ \uXXXX`，故这四个走短形式，
+        // 其余控制字符（0x01–0x1F、0x7F）走 `\u00XX`。
+        let mut out = String::with_capacity(s.len() + 2);
+        out.push('"');
+        for c in s.chars() {
+            match c {
+                '\\' => out.push_str("\\\\"),
+                '"' => out.push_str("\\\""),
+                '\n' => out.push_str("\\n"),
+                '\t' => out.push_str("\\t"),
+                '\r' => out.push_str("\\r"),
+                '\0' => out.push_str("\\0"),
+                c if (c as u32) < 0x20 || c as u32 == 0x7f => {
+                    out.push_str(&format!("\\u{:04X}", c as u32));
+                }
+                c => out.push(c),
+            }
+        }
+        out.push('"');
+        out
     } else {
         s.to_string()
     }

@@ -226,7 +226,9 @@ peers: [ { host: a port: 1 } { host: b port: 2 } ]
 
 Nested blocks will recursively verify and backfill with default values. The referenced contract is allowed to be defined after `@is` (the reference is only resolved when `@is`).
 
-> ⚠️ **Known defect (JS)**: under a combination contract, JS **only backfills the parent contract's own fields** — `default` values of the sub-contract (the referenced contract) are **not backfilled recursively** (`applyDefaults` in `js/sml.mjs` only handles the current level). The other four implementations behave correctly; see `docs/capability-matrix.md` §1.7.
+> ✅ **Cross-end status (re-checked 2026-11-03)**: recursive back-filling of sub-contract defaults is **consistent across all five ends**.
+> JS used to back-fill only the parent's own fields (`applyDefaults` handled the current level only); that defect is fixed —
+> case `16_contract_compose` now yields `inner: { x: 1, tag: t }` from JS as well.
 
 ### 5.4.1 Mixin: applying multiple contracts to one block
 
