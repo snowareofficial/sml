@@ -22,7 +22,7 @@ The previous paragraph was about 'value reuse'. **A contract is a "shape constra
     port:        int  default 8080 min 1 max 65535
     debug:       bool default false
     mode:        enum(active, disabled) default active
-    tags:        array[str] ?       # Optional string array
+    tags:        [str] optional       # Optional string array
 }
 ```
 
@@ -32,11 +32,15 @@ List of field modifiers:
 |--------|------|
 |`str`/`int`/`num`/`bool` | Field Type|
 |`enum(a, b, c)` | enumeration, the value must be in one of them|
-|`array[T]` | Array, element type `T` (such as `array[int]`, `array[str]`)|
-|`?` or `optional` | Optional fields|
+|`[T]` | Array, element type `T` (such as `[int]`, `[str]`)|
+|`optional` | Optional fields (the old `?` symbol form was **removed** on 2026-10-30 and now reports `E-PARSE-006`)|
 |`required` | Explicitly required (default is required, optional)|
 |`Default<value>` | Fill in default value when missing (also automatically considered optional)|
 |`Min<number>`/`Max<number>` | Numerical value range (including endpoints)|
+
+> ⚠️ **`[T]` is the only accepted array syntax** (`[int]`, `[str]`). `array[T]` is the form you see
+> echoed in **error messages**, not an input syntax: Rust and Lua reject `array[str]` with
+> `E-PARSE-006` ("expected a key, got `[`"); only JS happens to accept both. Use `[T]` for portability.
 
 ### 5.1.1 Field descriptions and i18n
 
@@ -211,7 +215,7 @@ Contracts do not share fields, but rather 'the type of field is another contract
 @contract Service {
     name:  str
     main:  Endpoint          # Quoting another contract
-    peers: array[Endpoint]   # Contract array
+    peers: [Endpoint]   # Contract array
 }
 
 @is Service
@@ -340,7 +344,7 @@ Three points to remember:
 @contract ResenderConfig loose {
     api_key:    str
     from:       str
-    to:         array[str]
+    to:         [str]
     subject:    str default "Hello"
     port:       int default 465  min 1 max 65535
     tls:        bool default true

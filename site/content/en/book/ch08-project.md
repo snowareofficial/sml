@@ -15,7 +15,7 @@ Put everything you have learned together: a deployment configuration that is clo
     name:    str
     port:    int  default 8080 min 1 max 65535
     debug:   bool default false
-    peers:   array[str] ?
+    peers:   [str] optional
 }
 
 @base {

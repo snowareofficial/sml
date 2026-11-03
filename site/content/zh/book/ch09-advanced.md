@@ -92,7 +92,7 @@ admin {
     host:     str
     port:     int  default 5432 min 1 max 65535
     user:     str  default app
-    password: str  ?               # 可选：本地/测试用空
+    password: str  optional               # 可选：本地/测试用空
     sslmode:  enum(disable, allow, require) default require
 }
 ```
@@ -177,7 +177,7 @@ SML 契约是**纯声明**，不绑语言。同一份契约可同时约束：
     id:    str
     email: str
     role:  enum(user, admin, owner) default user
-    age:   int  min 0 max 150 ?
+    age:   int  min 0 max 150 optional
 }
 ```
 
@@ -200,15 +200,20 @@ type User = { id: string; email: string; role: 'user'|'admin'|'owner'; age?: num
 
 ## 9.7 模式 6：契约组合 + 递归
 
-用 `array[契约名]` 表达"契约数组"——适合列表型数据：
+用 `[契约名]` 表达"契约数组"——适合列表型数据：
+
+> ⚠️ **跨端现状（2026-11-03 实测）**：**契约数组 `[契约名]` 目前只有 JS 实现**。
+> Rust 与 Lua 报 `E-CONTRACT-012`（未知数组元素类型：`Endpoint`）；C/C++ 未测。
+> 需要跨端可移植时请避免此写法（可用 `[object]` + 逐条校验，或把列表换成"字段子块"）。
+> 注意区别：**单个**契约引用（`main: Endpoint`，不带 `[]`）四端都支持，实测通过。
 
 ```sml
 @contract Endpoint { host: str port: int }
 @contract Service {
     name:  str
     main:  Endpoint                # 单个
-    peers: array[Endpoint]         # 列表
-    back:  Endpoint?               # 可选
+    peers: [Endpoint]         # 列表
+    back:  Endpoint optional               # 可选
 }
 
 @is Service
@@ -229,7 +234,7 @@ peers: [ { host: b port: 2 } { host: c port: 3 } ]
 @contract Module {
     name:  str
     entry: str
-    deps:  array[str] ?
+    deps:  [str] optional
 }
 
 # 把 modules/ 下所有 .sml 文件作为子模块加载，并各自校验

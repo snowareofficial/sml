@@ -21,7 +21,7 @@ translationKey: "book-ch05"
     port:        int  default 8080 min 1 max 65535
     debug:       bool default false
     mode:        enum(active, disabled) default active
-    tags:        array[str] ?       # 可选字符串数组
+    tags:        [str] optional       # 可选字符串数组
 }
 ```
 
@@ -31,11 +31,15 @@ translationKey: "book-ch05"
 |--------|------|
 | `str` / `int` / `num` / `bool` | 字段类型 |
 | `enum(a, b, c)` | 枚举，取值须在其中之一 |
-| `array[T]` | 数组，元素类型为 `T`（如 `array[int]`、`array[str]`） |
-| `?` 或 `optional` | 可选字段 |
+| `[T]` | 数组，元素类型为 `T`（如 `[int]`、`[str]`） |
+| `optional` | 可选字段（旧的 `?` 符号形式已于 2026-10-30 **移除**，现在会报 `E-PARSE-006`） |
 | `required` | 显式必填（默认即必填，可不写） |
 | `default <值>` | 缺失时填入默认值（同时自动视为可选） |
 | `min <数>` / `max <数>` | 数值取值范围（含端点） |
+
+> ⚠️ **数组只有 `[T]` 一种合法写法**（`[int]`、`[str]`）。`array[T]` 是**报错文案里的回显形式**，
+> 不是输入写法 —— Rust 与 Lua 见到 `array[str]` 会直接报 `E-PARSE-006`（"契约字段期望键，得 `[`"），
+> 只有 JS 恰好两种都认。跨端请统一写 `[T]`。
 
 ### 5.1.1 字段说明与多语言（i18n）
 
@@ -213,7 +217,7 @@ server prod {
 @contract Service {
     name:  str
     main:  Endpoint          # 引用另一个契约
-    peers: array[Endpoint]   # 契约数组
+    peers: [Endpoint]   # 契约数组
 }
 
 @is Service
@@ -340,7 +344,7 @@ doc {
 @contract ResenderConfig loose {
     api_key:    str
     from:       str
-    to:         array[str]
+    to:         [str]
     subject:    str default "Hello"
     port:       int default 465  min 1 max 65535
     tls:        bool default true

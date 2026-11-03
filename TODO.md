@@ -302,6 +302,21 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
   ch09 / ch10 / `_index`），README 那一处写 `[str]`。⇒ 要么**改文档 30 处为 `[T]`**，
   要么**给四端补上 `array[T]` 别名**。这条不是「挑一个当标准」那么轻 —— 实测结果是
   **文档教的写法参考实现跑不通**。
+  ✅ **2026-11-03 用户裁决 C（两条都做）**：
+  - **文档已止血**：zh/en 教科书与首页共 **33 处** `array[T]` → `[T]`；顺带把同族残留的
+    **16 处**符号式可选修饰符 `?` → `optional`（`Endpoint?` 含在内）—— 那批自 2026-10-30
+    起五端一律 `E-PARSE-006`，教科书第一个契约示例本来就有这俩坏点。
+    两处修完后 `ch05` 的 `ResenderConfig` 示例实测能解析（`{api_key, debug, mode, port}`）。
+  - **别名排期**（未做）：`[ ]` 让 Rust/Lua（及 C/C++）也接受 `array[T]` 作为 `[T]` 的同义写法。
+    参考实现侧只需在 `parse_field_spec` 的 `Tok::Word` 分支加一个 `"array"` 识别：紧跟 `[` ⇒
+    按数组解析（Rust 无歧义风险，`array` 目前不是任何类型名）。
+- ⚠️ **另一条同类缺口（本轮新发现）**：**契约数组 `[契约名]` 只有 JS 实现**。
+  实测 `peers: [Endpoint]` 在 Rust 报 `E-CONTRACT-012`（未知数组元素类型），Lua 同码，
+  C/C++ 未测；而**单个**契约引用 `main: Endpoint` 四端都通过。
+  教科书 §9.7 整节讲的就是契约数组 ⇒ 已在 zh/en ch09 该节加**跨端现状警告**。
+  - [ ] **Rust 补契约数组**（数组元素类型允许指向已定义契约），或明确拒绝并写进规范。
+    注意 `E-CONTRACT-012` 的 `impls` 现为 `[ rust lua ]`，语义是「元素类型名不是已注册扩展类型」，
+    若补实现要重定这条码的边界。
 - **数组元素的逐元素校验**：Rust 侧对 `[image]` 逐元素调外置校验器；
   JS 侧 `valueMatchesType` 的 array 分支未逐元素校验外置类型。
 - [x] 清理 `sml-parse` 的既有 unused import / dead_code —— ✅ 2026-11-02 复核：默认 / 无默认 / `--all-targets` / `--features when` 四种配置 `cargo check -p sml-parse` 均 **0 警告**（`pending_when` 一处已在 feat(value) 提交里用 `#[cfg(not(feature = "when"))]` 消费）。

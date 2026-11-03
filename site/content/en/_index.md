@@ -179,7 +179,7 @@ defaults and ranges, validated at every `@is` application. Ideal for
     port:        int  default 8080 min 1 max 65535
     debug:       bool default false
     mode:        enum(active, disabled) default active
-    tags:        array[str] ?
+    tags:        [str] optional
 }
 ```
 
@@ -189,7 +189,7 @@ Field modifiers:
 |----------|---------|
 | `str` / `int` / `num` / `bool` | field type |
 | `enum(a, b, c)` | enum, value must be one of them |
-| `array[T]` | array of element type `T` |
+| `[T]` | array of element type `T` |
 | `?` or `optional` | optional field |
 | `required` | explicit required (default) |
 | `default <val>` | fill default when missing (also implicit optional) |
@@ -216,7 +216,7 @@ port: 8080
 @contract Service {
     name:  str
     main:  Endpoint
-    peers: array[Endpoint]
+    peers: [Endpoint]
 }
 @is Service
 name: gateway
@@ -384,7 +384,7 @@ SML is adopted by several real projects:
     name:    str
     port:    int  default 8080 min 1 max 65535
     debug:   bool default false
-    peers:   array[str] ?
+    peers:   [str] optional
 }
 
 @base {
