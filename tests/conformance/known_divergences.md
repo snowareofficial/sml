@@ -98,14 +98,14 @@ Rust `to_sml` ／ C `sml_dump` ／ C++ `to_sml` ／ JS `stringify` ／ Lua `Sml.
 | 6 | `11_fragment_splice` | C++ 行级 `&frag` 未展开（多出 `&base` 键）；Lua 解析失败 `E-PARSE-001` | 已知取舍 + **缺陷** | C++ 那半是 TODO §五「W4-片段行级展开」（✋ 待裁决），**实测只剩 C++ 一格**（C 已实现，该行措辞需更新）；Lua 那半是新缺陷 |
 | 7 | `13_contract_default` | ~~C 报 `E-CONTRACT-003`~~ **C 半 W24 已修**：C 现认 `optional`/`default`，该格转 A，用例整体 AGREE | **已修复（W24）** | 见下方「#7–#9 + #18 是同一件事」 |
 | 8 | `14_contract_enum_range` | ~~C 报 `字段 default 必填但缺失`~~ **C 半 W24 已修**：转 A，用例整体 AGREE | **已修复（W24）** | 同 #7 |
-| 9 | `16_contract_compose` | **C 半 W24 已修（转 A）**；JS 仍丢 `o.inner.tag` | **缺陷（JS 半）** | C 那半同 #7；JS 那半见下方「#9 的 JS 半」 |
+| 9 | `16_contract_compose` | ~~C 半报必填缺失~~ **C 半 W24 已修**；~~JS 丢 `o.inner.tag`~~ **JS 半已修（2026-11-03 复核）**：`applyDefaults` 现在对 `sp.type === "contract"` 的字段递归调用自身，实测 JS 输出 `inner: { x: 1, tag: t }`。本用例现已 **AGREE** | **已修复** | 下方「#9 的 JS 半」一节保留作历史；`site/content/*/book/ch05-contract.md` 的「JS 不递归回填」提示已同步改为「五端一致」 |
 | 10 | `19_num_one_dot_zero` | Rust 保 `1.0` 为 float，其余四端当 int | 已知取舍 | `docs/capability-matrix.md` 已登记「`1.0` 只有 Rust 保留为浮点」；雷 5 B 组 `format_float` |
 | 11 | `20_num_bigint` | Lua 丢精度：`330106201503071234` → `...070000`，`i64::MAX` → `...8000000` | 已知取舍 | 能力矩阵已登记「大整数 >2^53 分裂；Lua 转 float 丢精度」；雷 6 #1。⚠️ 属**数据保真**级，但 LuaJIT 值模型只有 double，改不了。**JS 那格的 AGREE 是载体盲区**，见 §载体盲区 B-01 |
 | 12 | `22_escape_basic` | C++ 的 dump 不能被 Rust 回读 | **已修复（fix/needs-quote-escaping）** | 根因：C++ 的 dump 只对「含空格」加引号（`v->s.find(' ')`），**含换行/制表/回车的串原样写出**，`b` 被读成新键 ⇒ `E-PARSE-006`。本任务（fix/needs-quote-escaping）在 `cpp/sml.cpp` 新增 `dump_needs_quote`（空白/`#{}`/`"`/`\` 均判为需引号，**换行一并纳入**）+ `dump_escape_str`（转义串内 `"`/`\`），`dump_value`/`dump_inline` 的 Str 分支改用之。现状：该用例五端全 AGREE |
-| 13 | `23_escape_unicode` | JS 的 `\uXXXX` 多出数字：`aAb` → `aA1b`、`xéy` → `xé9y`；C++ 报 `E-LEX-005` 位数不足 | **缺陷** | 能力矩阵已登记「`\uXXXX` JS 有 bug」（根因 `js/sml.mjs` 的 `i += 4` 应为 `i += 5`）；C++ 只认 `\u{...}`。本用例是两者的可复现实证 |
+| 13 | `23_escape_unicode` | ~~JS 的 `\uXXXX` 多出数字~~ **JS 半已修（2026-10-30，`!16`）**：`i += 4` → `i += 5`，2026-11-03 复核源码确认（行号 131→133）。**C++ 半仍未修**：只认 `\u{...}`，四位形式报 `E-LEX-005` | **已修复（JS）／ 缺陷（C++）** | 能力矩阵已登记「`\uXXXX` JS 有 bug」；C++ 需补四位形式 |
 | 14 | `25_env_quoted_exact` | C 在引号内不替换 `$env`（得到空串） | 已知取舍 | 能力矩阵「引号内三档行为：Rust 真插值 / C 不替换 / C++·JS·Lua 仅整串锚定」 |
 | 15 | `26_env_quoted_embed` | 只有 Rust 做真插值，其余四端原样保留 `$env.SML_CONF_TOKEN` | 已知取舍 | 同 #14（三档口径的中段）。三档要不要收敛、收敛到哪一档，属 ✋ |
-| 16 | `30_typed_block_meta` | JS / Lua 缺 `__type` / `__name` 元数据 | 已知取舍（Lua）／ **缺陷**（JS） | Lua 已登记（能力矩阵 三·十「Lua 连元数据都丢」）；**JS 这半未登记**：能力矩阵只说「typed-block 只有 Rust + JS 实现」，没说「未开特性时 JS 也不给元数据」 |
+| 16 | `30_typed_block_meta` | ~~JS / Lua 缺 `__type` / `__name` 元数据~~ **JS 半已修（2026-11-03 复核）**：实测 JS 输出带 `__type: "User"` / `__name: "u1"` | 已知取舍（Lua）／ **已修复（JS）** | Lua 已登记（能力矩阵 三·十「Lua 连元数据都丢」）；JS 那半此前**未登记**，现已闭合 |
 | 17 | `32_escape_quote` | 除 Rust 外四端 dump 都无法被回读（`E-LEX-001` 字符串未闭合） | **已修复（fix/needs-quote-escaping）** | 根因：四端的 `needs_quote` / `quoteIfNeeded` 只判空白与 `:#{}`，**不判 `"` 与 `\`** ⇒ `quote"in` 原样写出、非法 SML。本任务（fix/needs-quote-escaping）四端同修：`c/sml.c` `needs_quote`、`cpp/sml.cpp` `dump_needs_quote`、`js/sml.mjs` `quoteIfNeeded`（正则加 `"\\`）、`lua/lib/sml.soup` `sml_needs_quote` 均纳入 `"`/`\`；**转义两端也一并补**：C 与 Lua 此前加引号却漏转义串内 `"`/`\`（已补 `escape`/`sml_escape_str`），JS 原已有转义。现状：该用例五端全 AGREE |
 | 19 | `35_contract_modifier_question_only` | ~~Rust / Lua 对**粘连式** `x: str?` 仍报 `E-CONTRACT-003`（把 `str?` 当类型名吞掉）~~ **已修复（2026-10-30）**：五端一律 `E-PARSE-006` | **已修复** | 先修 C++ 与 JS 两半（`fix/legacy-modifier-reject`：`cpp/sml.cpp` 新增 `tokenize_field`，在空白之外额外把 `?` / `=` 切成独立 token、引号串当原子；`js/sml.mjs` 词法把 `=` 列入分隔符 —— 此前 `=` 并入 word ⇒ 拒绝分支是死代码）。再按「Rust 先行、五端统一同步」补齐 Rust（`592a0a0`）与 Lua（`b23a81a`）：**两端都不在词法层切开 `?`**（它是 `@pattern` 的量词，切开会拆坏 `a?` 这类合法模式），改在契约字段的**类型位置**定点拦截（含数组元素类型位置）。⚠️ 用例本身的价值：撕开 `33` 的「用例掩盖」—— `33` 同时写了 `country: str = CN`，Rust/Lua 先撞上 `=` 就已报 `E-PARSE-006`，根本没走到 `str?`，于是五端 AGREE 是**假**的；本例只含 `?` 一种形式，专测这一格。修完 `35` 转 AGREE（AGREE 26/10 → **27/9**） |
 | 18 | `33_contract_modifier_legacy_rejected` | ~~只有 C 接受 `?` / `=` 记号~~ **已废弃（2026-10-30）**：原 C 与 JS 支持符号式，现五端统一按 `E-PARSE-006` 拒绝 | **已修复** | 裁决：废弃符号形式、统一到单词式 `optional` / `default`。C 删 T_QMARK/T_EQ 分支；JS 删 `?` 分支；C++/JS 对 `?`/`=` 的报错从 `E-CONTRACT-003` 对齐到 `E-PARSE-006`（C++ 还修了「`parse_field` 失败被 `st.err` 吞掉」——现在失败即中断解析）。用例已改名并改判为 `expect-error E-PARSE-006`，五端全 AGREE |
@@ -170,6 +170,11 @@ Rust `to_sml` ／ C `sml_dump` ／ C++ `to_sml` ／ JS `stringify` ／ Lua `Sml.
   - **C** 的 `sml_dump` 走 C 字符串 ⇒ 在 NUL 处**截断**。
 - ⇒ 该格**未覆盖**，已从 `22_escape_basic.sml` 移出并在用例注释里写明原因。
 - 顺带结论（该单独修，不属「两端不一致」）：**Rust 的 dump 不转义 NUL**、**C 的 dump 在 NUL 处截断**。
+- ✅ **Rust 半已修（2026-11-03）**：问题比记录里更宽 —— `quote_if_needed` 只转义 `\` 与 `"`，
+  于是 `\n` / `\t` / `\0` **全部**以真实字节落进引号串（`"u` + 0x00 + `v"`）。
+  现按词法转义集输出 `\n` / `\t` / `\r` / `\0`，其余控制字符走 `\u00XX`；
+  回归用例 `rust/tests/dump_escapes.rs`（三条：不出现真实控制字节 / 往返一致 / C0 走 `\u00XX`）。
+  **C 半未动**（`sml_dump` 仍走 C 字符串，在 NUL 处截断）。
 
 ## 顺带发现（不是两端分歧，但该记账）
 
