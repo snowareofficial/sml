@@ -1034,12 +1034,16 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
       **不能**编译掉；能编译掉的只有调用方在**编译期**决定的那部分（`preserve_order`、`emit-*`）。
       仓库里 cargo feature 与 SML 特性**同名**（`when` / `for` / `contract`），动手前逐项确认。
 
-### I. `swsml-easy`：渐进式入门 crate（2026-11-03 建，独立发布线）
+### I. `smlkit-easy`：渐进式入门 crate（2026-11-03 建，独立发布线）
+
+> **命名已定（2026-11-03 用户裁决）**：品牌 `smlkit`，入门层 `smlkit-easy`，底层 `swsml`（不改名）。
+> 原候选 `idyml` 被否 —— 不是被占用（三生态实测全空），而是 `-yml` 会**误导成 YAML**。
+> 由此立的排除规则与完整占用实测表见 `IDEAS.md` I-19。
 
 > 裁决与理由见 `docs/api-progressive-draft.md` §7。与 I-19 `idyml` 分工：
 > `idyml` 是**换名瘦别名**（解决「找不到」），本 crate 是**能力子集 + 新 API 层**（解决「装了不会用」）。
 
-- [x] **L0 已落地**：`rust/swsml-easy/` —— `Doc` + `read` / `read_file`（展开 include）/
+- [x] **L0 已落地**：`rust/smlkit-easy/` —— `Doc` + `read` / `read_file`（展开 include）/
       `raw` / `has` / `str` / `int` / `float` / `bool` / `list` / `to_sml`；根上只有
       `Doc` / `Value` / `Error` 三个名字。7 条集成用例 + 6 条 doctest 全绿，`cargo doc` 零警告。
 - [x] **Q8 的配套**：给 `swsml` 根补了 `pub use sml_codes::SmlError;` —— 以前调用方签名里只能
@@ -1049,9 +1053,9 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
 - [ ] **L2**：`read_with_report` 复用 `ParseOutput`；逐后端输出按 `emit-*` feature 门控暴露。
 - [ ] **发布准备**（用户定的节奏）：**不单独发**，等 I-18（`.smlb`/`smldb`）+ I-19（`idyml`）
       一起发，稳定化与优化完成后 **0.7.0** 一次性给成批能力。当前 `publish = false`。
-- [ ] **发布前必须做**：`cargo search swsml-easy` 查名是否被占（**本机离线查不了**）；
-      若要换成独立品牌名，改名落点是三处（`Cargo.toml` 的 `name`/`[lib] name`、目录名、
-      文档里的引用），代码里靠 `use swsml_easy::` 的地方一并改。
+- [x] **发布前查名** ✅ 2026-11-03 实测：`smlkit-easy` / `smlkit` 在 **crates.io / PyPI / npm 三处全空**
+      （`Invoke-WebRequest https://crates.io/api/v1/crates/<name>`，404 = 空）。网络可用，不必再猜。
+- [ ] **发布前还要占三处**：GitHub org / 域名 / docs 子域 —— 否则「名字不撞」只解决一半。
 - [ ] **⚠️ 命名陷阱要一直记着**：包名 `swsml` / 库名 `sml` ⇒ `Cargo.toml` 写 `swsml`，
       Rust 代码写 `use sml::…`。本 crate 用 `sml = { package = "swsml", … }` 显式化了这件事，
       写成 `swsml = { path = ".." }` 会直接报 cannot find crate。

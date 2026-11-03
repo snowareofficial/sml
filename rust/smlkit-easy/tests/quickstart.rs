@@ -2,7 +2,7 @@
 //! 这一层只承诺 4 个概念能跑通。**每条用例都对应 README 里的一句话**，
 //! 所以 README 与行为不会各说各话。
 
-use swsml_easy::Doc;
+use smlkit_easy::Doc;
 
 #[test]
 fn read_a_field_by_dotted_path() {
@@ -52,7 +52,7 @@ fn list_has_no_index_path() {
 
 #[test]
 fn read_file_expands_include() {
-    let dir = std::env::temp_dir().join(format!("swsml_easy_inc_{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("smlkit_easy_inc_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("sub.sml"), "sub: 2\n").unwrap();
     std::fs::write(dir.join("main.sml"), "include \"sub.sml\"\nroot: 1\n").unwrap();
@@ -66,7 +66,7 @@ fn read_file_expands_include() {
 
 #[test]
 fn escape_hatch_and_conversions() {
-    use swsml_easy::Error;
+    use smlkit_easy::Error;
 
     let doc = Doc::read("a: 1").unwrap();
     // raw() 给到底层 Value
@@ -74,7 +74,7 @@ fn escape_hatch_and_conversions() {
     // Display 与 to_sml 同源
     assert_eq!(doc.to_string(), doc.to_sml());
     // 能整体转成 Value
-    let value: swsml_easy::Value = doc.clone().into();
+    let value: smlkit_easy::Value = doc.clone().into();
     assert_eq!(value.get("a").and_then(|v| v.as_i64()), Some(1));
 
     // Error 就是 SmlError 的别名（同一类型，不是包装）

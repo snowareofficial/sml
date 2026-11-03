@@ -611,17 +611,36 @@ svc { @is Svc  name: gateway  x-owner: infra }
   - ⚠️ `value-layout.md` 的 9 条验收**一条未打勾**、6 个未决问题，且与 `.smlb` 的 canonical 排序**尚未对齐**
 - **关联**：`I-20`（长文档）、`preserve_order`（是它能否「源序进源序出」的前提）。
 
-## I-19 `idyml`：swsml 的瘦别名 / 国际稳定发布线（**计划书 · 待建**）
+## I-19 `smlkit`：品牌门面（瘦别名）/ 国际稳定发布线
 
-- **Status / 状态**：`Todo`（计划已成文，**未开工**）。
-- **出处**：`IDYML.md`（61 行，任务书；同样长期未登记）。
-- **想法**：`cargo add idyml` 后 `use idyml::{…}` 与 `use sml::{…}` **完全一致**，但它是**全英文门面**、
-  面向国际用户、作为比 `swsml` **更保守的发布线**（只跟 swsml 稳定 minor）。
-- **明确不做**：不 fork 实现、不翻内部注释、**不进 sml 的 workspace**（依赖必须走 crates.io）；独立仓库 `snowareofficial/idyml`。
-- **开工前 checklist**（已写在 `IDYML.md` §开工前）：`cargo search idyml` 占位检查、版本对齐策略、再导出写法
-  （`pub use swsml::*` vs 逐项英文 `#[doc]`）、`[lib] name = "sml"` 下的引用路径、英文 README / CI / LICENSE / badge。
-- **与 I-12 的关系**：I-12 是「**改名**」（`swsml` 自己换名 + 新 crate）；这条是「**另开一个瘦别名**」。
-  名字候选 `idyml` 同时出现在 I-12 的评估里（已知风险：`idyml` 与 `yml` 词根近似）⇒ **两条要一起定，别分开拍**。
+- **Status / 状态**：`命名已定（2026-11-03 用户裁决 `smlkit`）`；**crate 未建**（
+  `<待定>` 见下「落地顺序」）。~~原候选 `idyml` 已否决~~。
+- **为什么否掉 `idyml`**：它**不是**被占用（实测 crates.io / PyPI / npm 三处全空），问题是**误导** ——
+  `-yml` 会让名字主动说错话，让人以为「又一个 YAML」。⇒ 由此立下一条**排除规则**：
+  **名字里不许出现 `yml` / `yaml` / `ml` / `json` / `toml` / `ini` 词根。**
+- **实测占用（2026-11-03，逐个数查过）**：
+
+  | 名字 | crates.io | PyPI | npm |
+  |---|---|---|---|
+  | `sml` / `sml-rs` / `idml` | **已被无关项目占用**（Standard ML / 智能电表协议） | — | — |
+  | `swsml` | 本仓（已发布） | 空 | 空 |
+  | ~~`idyml`~~ | 空 | 空 | 空 |
+  | **`smlkit`** | **空** | **空** | **空** |
+  | `sml-easy` / `smlbase` / `smlcore` / `smldoc` / `smlx` | 空 | 空 | 空/未知 |
+
+- **想法**：`smlkit` 作为**品牌门面**（瘦别名，`pub use swsml::*` 级别，零新 API），
+  面向国际用户、作为比 `swsml` 更保守的发布线（只跟 swsml 稳定 minor）。
+  它与 `smlkit-easy`（渐进式 API 层，见 `TODO.md` §三·十二 I 组）构成一族：
+  **`smlkit` = 门面，`smlkit-easy` = 入门层，`swsml` = 底层实现（不改名）**。
+- **明确不做**：不 fork 实现、不翻内部注释；`smlkit` 这个门面**不进本仓 workspace**
+  （依赖走 crates.io，独立仓库），而 `smlkit-easy` 现在先在本仓里开发（`publish = false`）。
+- **落地顺序（建议）**：① `smlkit-easy` 的 L1/L2 先做完（它才是「装了不会用」的解药）；
+  ② 等 `.smlb` / `smldb`（I-18）就位；③ **0.7.0 一次性发** `smlkit`（门面）+ `smlkit-easy` + `smlkit-smlb`/`db`（若做）。
+- **发布前必须做**：GitHub org / 域名 / docs 子域三处一起占（否则「名字不撞」只解决一半）；
+  再跑一遍三生态占用检查（crates.io / PyPI / npm，命令见下）。
+  查占用用：`Invoke-WebRequest https://crates.io/api/v1/crates/<name>`（404 = 空）。
+- **与 I-12 的关系**：I-12 是「**把 `swsml` 自己改名**」—— 成本最高（已发布、11 个 crate、SONAME、文档）；
+  本条是「**另开一个门面**」，成本低得多。**现状：不动 `swsml`，只加 `smlkit` 一族。**
 
 ## I-20 长文档产出链：EPUB / 独立 HTML / 分章 / TOC / 增量 emit（**未做**）
 
@@ -739,7 +758,7 @@ svc { @is Svc  name: gateway  x-owner: infra }
 | I-17 `weakdoc` | **用户已定：要做** —— 一类文档一份特化 profile，比逐份文档重复声明干净 | 中 —— 引入 `.smlex` + install 机制 | 死守「不能注入」：解析结果对有无 `.smlex` 必须一致，且可测 |
 | I-16 版本号规则 | **方案已定（2026-10-30）** —— 四级门槛 + semver `-beta`/`-rc` 后缀；平时不 bump、发版才统一 | 低 —— 判据已写进 I-16 与 `TODO.md` §六·〇 | 落地后给 §六·〇 补 bump 纪律；`--check-version` 门禁随发版一并做 |
 | I-18 `.smlb` / `smldb` | **用户 2026-11-03 点名登记，但明说「细节还没定好」** ⇒ 现在要的不是实现，是**把 §10 五条 + 模型前提拍掉** | 高 —— 新二进制格式 + 新 crate + SQLite 后端 | **先拍「编 `Value` 还是另建 AST」**，这条不定，前两步（`.smlb` 与 ser/de）无从开工 |
-| I-19 `idyml` 瘦别名 | 有用：给国际用户一条**保守发布线**，成本比改名低得多 | 低到中 —— 一个只剩 `pub use` 的 crate + 独立仓库 + CI | 与 I-12 **一起定**（名字、谁先发）；先做 `cargo search idyml` 占位避免被抢 |
+| I-19 `smlkit` 品牌门面 | 有用：给国际用户一条**保守发布线**，成本比给 `swsml` 改名低得多。**名字已定 `smlkit`**（2026-11-03；三生态实测全空；`idyml` 因误导 YAML 被否） | 低到中 —— 一个只剩 `pub use` 的 crate + 独立仓库 + CI | 先做 `smlkit-easy` 的 L1/L2（那才是解药），**0.7.0 与 `.smlb`/`smldb` 一起发**；发布前把 GitHub org / 域名 / docs 子域一起占 |
 | I-20 长文档产出链 | **有用且缺口硬**：EPUB / HTML 是「用 SML 写小说」的终点；分章 + TOC 基础设施已具备、只差 CLI 层 | 中 —— `--to epub`/`--to html` 各一个后端；分章 / TOC 轻 | 先做 `--to html`（`--split-by section` + `--toc` 顺带就有），EPUB 次之；增量 emit 与 emit 定位往后放 |
 | I-21 语义部件目录 | 有用，但**先修跨后端一致**比加新部件更值（`theorem`/`math`/内联角色只在 markdown 生效，属语义漂移） | 中 —— 每个部件 × 各后端 | 顺序：① 内联角色补齐到 latex/svg ② `math` 响应 `--math` ③ 再谈 figure/admonition/footnote；UI 部件库最后 |
 | I-23 更激进的性能优化 | **有用但目前不可测**：仓库里**一个 benchmark 都没有**，谈提速全是空话 | 低（先建基准）→ 中（改热路径）→ 高（编译期切分） | 只做第一步：`criterion` 三组基准 + `docs/perf-baseline.md`。没有数字之前**不要**动双份实现 —— 那会把维护成本永久翻倍 |
