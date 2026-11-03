@@ -1054,7 +1054,15 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
       （有用例钉住「On 与 `read` 同码」，不是「近似」）。根命名空间 3 → **4 个名字**（`Doc` / `Value` /
       `Error` / `Contracts`）。测试 `rust/smlkit-easy/tests/contracts.rs`（4 条）+ 2 条新 doctest，
       `cargo doc` 仍零警告。
-- [ ] **L2**：`read_with_report` 复用 `ParseOutput`；逐后端输出按 `emit-*` feature 门控暴露。
+- [x] **L2 已落地（2026-11-03）**：`Doc` 内部持有 `diagnostics`（Q7 选 B：**复用 `ParseOutput` 的字段**，
+      零拷贝、不新造 `Report` 类型），入口 `read_with_report` / `read_file_with_report` + 访问器
+      `diagnostics()` / `has_diagnostics()`；`read_with` / `read_file_with` 也顺带带上诊断（它们走 `parse_with`）。
+      逐后端输出落在 `out::` —— `markdown` / `html` / `latex` / `xml` / `svg` / `slint` 六枚，
+      **各由同名 `emit-*` feature 门控**（关掉即整个函数不存在）；`Cargo.toml` 为每个后端加了一处转发，
+      并把 `preserve_order` 也转发到 `sml/preserve_order`（漏了会让 `Value` 裂成两个实例）。
+      验证：`tests/report.rs` 6 条 + doctest 9 条全绿；`--no-default-features` 与
+      `--features preserve_order` 均零警告编译；`cargo doc` 仍零警告。
+      ⚠️ 未做：`contract_map` / `errors` 两个专家字段不进本层（要就回 `sml::parse_with`），这是 Q7 选 B 的既定代价。
 - [ ] **发布准备**（用户定的节奏）：**不单独发**，等 I-18（`.smlb`/`smldb`）+ I-19（`idyml`）
       一起发，稳定化与优化完成后 **0.7.0** 一次性给成批能力。当前 `publish = false`。
 - [x] **发布前查名** ✅ 2026-11-03 实测：`smlkit-easy` / `smlkit` 在 **crates.io / PyPI / npm 三处全空**

@@ -18,4 +18,29 @@ name = "smlkit_easy"
 # ⚠️ 依赖键写成 `sml` 而不是 `swsml`：swsml 的 `[lib] name = "sml"`，
 # 而 Rust 代码里 `use` 的是**库名**。写成 `swsml = { path = ".." }` 会直接报
 # 「cannot find crate swsml」—— 这是本仓最容易踩的一处命名陷阱，故在此显式改名。
-sml = { package = "swsml", path = "..", version = "0.6.9-dev.0" }
+#
+# 默认档跟 swsml 保持一致（全后端开启）：本 crate 的门槛在 API，不在依赖体积。
+# 只关掉 swsml 默认档里本层用不到的 derive / emit-custom / when，其余按需转发。
+# `sml`（文本发射器）是 `Doc::to_sml` 的前提，**无条件打开**。
+sml = { package = "swsml", path = "..", version = "0.6.9-dev.0", default-features = false, features = ["sml"] }
+
+[features]
+default = [
+    "emit-markdown",
+    "emit-html",
+    "emit-latex",
+    "emit-xml",
+    "emit-svg",
+    "emit-slint",
+]
+# 每个 `emit-*` 只是转发 —— 关掉即 `out::<backend>()` 整个不存在（不是运行时错误）。
+emit-markdown = ["sml/emit-markdown"]
+emit-html = ["sml/emit-html"]
+emit-latex = ["sml/emit-latex"]
+emit-xml = ["sml/emit-xml"]
+emit-svg = ["sml/emit-svg"]
+emit-slint = ["sml/emit-slint"]
+# 对象保序：**必须**转发到 swsml（它会再转发到 7 个子 crate）。
+# 漏了这处，`Value` 会被编成两个互不兼容的实例（`expected sml_value::Value, found Value`）。
+# 按 Q10 的裁决：**不进 default**，要用自己开。
+preserve_order = ["sml/preserve_order"]

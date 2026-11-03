@@ -1,6 +1,7 @@
 # smlkit-easy
 
-读一份 SML 只需要 **4 个概念**：文档 → 字段 → 值 → 错误。这个 crate 只暴露这 4 个。
+读一份 SML 只需要 **4 个概念**：文档 → 字段 → 值 → 错误。入门（L0 / L1）只暴露这 4 个；
+要诊断与逐后端输出，再加两个。
 
 > 状态：**未发布**（`publish = false`）。计划与 `.smlb` / `smldb` 一起发。API 仍可能变。
 
@@ -50,6 +51,30 @@ assert_eq!(doc.int("doc.x"), Some(1));
 文件入口同理：`Doc::read_file_with(path, Contracts::Off)` 是本层**唯一**同时做到
 「展开 `include`」与「关掉文档内契约」的入口（`read_file` 关不掉，`read_with` 不展开 include）。
 
+## 再进阶：诊断与输出
+
+诊断（重复键、片段覆盖这类**非致命**问题 —— 值不变，只是提醒）：
+
+```rust
+# use smlkit_easy::Doc;
+let doc = Doc::read_with_report("a: 1\na: 2")?;
+assert_eq!(doc.diagnostics().len(), 1); // 同名键被提升为数组
+# Ok::<(), smlkit_easy::Error>(())
+```
+
+逐后端输出（一枚函数一个后端，各由同名 `emit-*` feature 门控；关掉即**整个不存在**）：
+
+```rust
+# use smlkit_easy::Doc;
+let doc = Doc::read("p { text: \"正文\" }")?;
+let md = smlkit_easy::out::markdown(&doc)?;
+let html = smlkit_easy::out::html(&doc)?;
+let _ = (md, html);
+# Ok::<(), smlkit_easy::Error>(())
+```
+
+要调 `math` / `standalone` 这类旋钮，直接去 `sml::emit`。
+
 ## 为什么单独一个 crate
 
 `swsml` 的根命名空间有 90 多个名字（13 个 `parse_*`、31 个 C-ABI 函数、include 内部件、
@@ -65,8 +90,8 @@ assert_eq!(doc.int("doc.x"), Some(1));
 
 | 不做 | 想要就去用 |
 |---|---|
-| 契约**内容**（定义、校验实现、诊断、`ParseOutput`） | `swsml`（`parse_with_warnings` / `ParseOutput`） |
-| 逐后端输出（md / html / svg / latex / slint…） | `swsml` 的 `emit-*` |
+| 契约**内容**（定义、校验实现、`contract_map` / `errors` 专家字段） | `swsml`（`parse_with` / `ParseOutput`） |
+| 逐后端输出的**旋钮**（`math` / `standalone` / 自定义模板…） | `swsml` 的 `emit::*` Options |
 | 特性开关、版本范围限制 | `swsml` 的 `parse_with_features` / `parse_allowed` |
 | 二进制持久化与查询 | 待 `.smlb` / `smldb`（尚未实现） |
 
