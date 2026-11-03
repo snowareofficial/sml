@@ -310,13 +310,14 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
   - **别名排期**（未做）：`[ ]` 让 Rust/Lua（及 C/C++）也接受 `array[T]` 作为 `[T]` 的同义写法。
     参考实现侧只需在 `parse_field_spec` 的 `Tok::Word` 分支加一个 `"array"` 识别：紧跟 `[` ⇒
     按数组解析（Rust 无歧义风险，`array` 目前不是任何类型名）。
-- ⚠️ **另一条同类缺口（本轮新发现）**：**契约数组 `[契约名]` 只有 JS 实现**。
-  实测 `peers: [Endpoint]` 在 Rust 报 `E-CONTRACT-012`（未知数组元素类型），Lua 同码，
-  C/C++ 未测；而**单个**契约引用 `main: Endpoint` 四端都通过。
-  教科书 §9.7 整节讲的就是契约数组 ⇒ 已在 zh/en ch09 该节加**跨端现状警告**。
-  - [ ] **Rust 补契约数组**（数组元素类型允许指向已定义契约），或明确拒绝并写进规范。
-    注意 `E-CONTRACT-012` 的 `impls` 现为 `[ rust lua ]`，语义是「元素类型名不是已注册扩展类型」，
-    若补实现要重定这条码的边界。
+- ✅ **契约数组 `[契约名]` —— Rust 侧已补（2026-11-03）**：解析器的数组元素分支原先把
+  所有非内置名一律判成 `E-CONTRACT-012`（误杀合法的 `peers: [Endpoint]`），现改为与单值位置
+  同一套次序：`@type` 模式 → 外置类型 → **契约引用**。校验器本来就能逐元素递归校验，只改解析。
+  `[enum ...]` 仍显式拒绝（JS 支持该写法，属已知差异）。
+  实测：**Rust / C / C++ / JS 四端一致，只剩 Lua**（用例 `41_contract_array`）。
+  - [ ] **Lua 补契约数组**：照 Rust 同族改法（非内置名回落到契约引用）。⚠️ 用户已定「先不动 Lua」。
+  - 📌 **顺带确认的语义**：数组元素**不回填 `default`**（元素规格刻意不带 default，修饰符作用于
+    字段整体）⇒ 已写进 ch09 中英两版的警告块，别再当缺陷重复报。
 - **数组元素的逐元素校验**：Rust 侧对 `[image]` 逐元素调外置校验器；
   JS 侧 `valueMatchesType` 的 array 分支未逐元素校验外置类型。
 - [x] 清理 `sml-parse` 的既有 unused import / dead_code —— ✅ 2026-11-02 复核：默认 / 无默认 / `--all-targets` / `--features when` 四种配置 `cargo check -p sml-parse` 均 **0 警告**（`pending_when` 一处已在 feat(value) 提交里用 `#[cfg(not(feature = "when"))]` 消费）。

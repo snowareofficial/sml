@@ -341,7 +341,8 @@ codes: [
       note: "与 E-CONTRACT-007（外置**类型**）区分：修饰符与类型是两套注册点" }
     { id: E-CONTRACT-012 domain: CONTRACT severity: E title: "未知数组元素类型"
       msg: "数组元素类型名未知，且不是已注册的扩展类型"
-      impls: [ rust lua ] status: partial }
+      impls: [ rust lua ] status: partial
+      note: "**2026-11-03 收窄**：Rust 侧此前把**所有**非内置的数组元素名都判成此码 —— 于是合法的契约数组 `peers: [Endpoint]` 被误杀（JS 因递归 parseFieldSpec 一直支持）。现在 Rust 的非内置名**先按 `@type` / 外置类型 / 契约引用**依次判定，只有 `enum` 出现在数组元素位置仍报本码（JS 支持该写法，属已知差异）。⇒ 本码现仅剩两类触发：Rust 的 `[enum ...]`、Lua 的**任意**非内置元素类型（契约数组未实现，一致性用例 41 里 Lua 是唯一失败端）" }
     { id: E-CONTRACT-013 domain: CONTRACT severity: E title: "模式定义非法"
       msg: "模式定义非法：未知字符类、未知量词、不支持的元素，或无法识别的元素"
       impls: [ rust js ] status: partial

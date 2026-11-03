@@ -212,11 +212,14 @@ type User = { id: string; email: string; role: 'user'|'admin'|'owner'; age?: num
 
 ## 9.7 Mode 6: Contract combination+recursion
 
-> ⚠️ **Cross-implementation status (measured 2026-11-03)**: **contract arrays `[ContractName]` are
-> implemented in JS only**. Rust and Lua report `E-CONTRACT-012` (unknown array element type:
-> `Endpoint`); C/C++ untested. Avoid this form when you need portability (use `[object]` plus
-> per-element checks, or model the list as a sub-block). Note the difference: a **single** contract
-> reference (`main: Endpoint`, no `[]`) works on all four implementations tested.
+> ⚠️ **Cross-implementation status (measured 2026-11-03, conformance case `41_contract_array`)**:
+> `[ContractName]` **agrees on Rust / C / C++ / JS**; **only Lua** reports `E-CONTRACT-012`
+> (unknown array element type). Two exceptions to note: `[enum ...]` (enum in element position) is
+> explicitly rejected by Rust, and Lua rejects any non-builtin element type.
+>
+> ⚠️ **`default` is not back-filled inside array elements**: `port: int default 80` will **not** be
+> filled for elements of `[Endpoint]` — the element spec deliberately carries no `default`
+> (modifiers apply to the field as a whole). Write the fields out, or put the default at each call site.
 
 Using `[ContractName]` to express a "contract array" — suitable for list data:
 
