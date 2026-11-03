@@ -813,7 +813,8 @@ static void test_error_msgs(void) {
     expect_msg_null("未知码 msg", sml_error_msg("E-NOPE-999", "en"));
 }
 
-/* 全量性质（跨端契约）：所有码 title/msg 非空；PARSE 领域恰好 25 条。 */
+/* 全量性质（跨端契约）：所有码 title/msg 非空；PARSE 领域恰好 27 条。
+   （R1 新增 W-PARSE-001/002 后从 25 变 27；JS / Lua / C++ 三端早已同步，C 侧漏了。） */
 static void test_error_msgs_all(void) {
     int parse = 0, empty = 0, count = 0, i;
     printf("[W25 全量]\n");
@@ -829,8 +830,8 @@ static void test_error_msgs_all(void) {
     if (empty == 0) printf("  ok: %-32s -> 所有码 title/msg 非空\n", "全量非空");
     else { printf("FAIL: 全量非空 有 %d 条码 title/msg 为空\n", empty); failures++; }
 
-    if (parse == 25) printf("  ok: %-32s -> PARSE 25 条\n", "PARSE 领域");
-    else { printf("FAIL: PARSE 领域期望 25, 实得 %d\n", parse); failures++; }
+    if (parse == 27) printf("  ok: %-32s -> PARSE 27 条\n", "PARSE 领域");
+    else { printf("FAIL: PARSE 领域期望 27, 实得 %d\n", parse); failures++; }
 
     printf("  .. 共 %d 条码\n", count);
 }

@@ -1421,26 +1421,43 @@ static bool expand_includes(std::vector<Token>& toks,
     out.reserve(toks.size());
     for (size_t k = 0; k < toks.size(); ) {
         const Token& t = toks[k];
-        const bool is_inc = (t.t == Token::T::At && k + 2 < toks.size() &&
-                             toks[k+1].t == Token::T::Word &&
-                             (toks[k+1].s == "include" || toks[k+1].s == "include!") &&
-                             toks[k+2].t == Token::T::Word);
-        if (!is_inc) { out.push_back(t); k++; continue; }
+        /* 两种形态：
+           ① `@include "path"` —— `@` + Word(include/include!) + 带引号 Word；
+           ② **裸** `include "path"` / `import "path"` —— 2026-11-03 补齐（雷 6-2 / I-16）：
+              判据对齐其余四端的「**行首**指令」，因为 C 侧是逐行判定、Rust 侧是
+              `parse_include_line` 只看行首。这里用 `Token::line` 还原同一语义：
+              **该 Word 是本行第一个 token**，且路径串也在同一行。
+              没有这条约束的话 `k: include "x.sml"` 这种**普通字段**会被吞掉。 */
+        const bool at_form = (t.t == Token::T::At && k + 2 < toks.size() &&
+                              toks[k+1].t == Token::T::Word &&
+                              (toks[k+1].s == "include" || toks[k+1].s == "include!") &&
+                              toks[k+2].t == Token::T::Word);
+        const bool line_start = (k == 0 || toks[k-1].line != t.line);
+        const bool bare_form = (t.t == Token::T::Word && line_start &&
+                                (t.s == "include" || t.s == "import") &&
+                                k + 1 < toks.size() &&
+                                toks[k+1].t == Token::T::Word &&
+                                toks[k+1].line == t.line &&
+                                !toks[k+1].s.empty() && toks[k+1].s[0] == '"');
+        if (!at_form && !bare_form) { out.push_back(t); k++; continue; }
+        /* 路径 token 的下标随形态变化（`@include` 是 2，裸形式是 1）。 */
+        const size_t pidx = at_form ? k + 2 : k + 1;
 
         /* 路径**写法**非法（未加引号）⇒ `E-INCLUDE-012`。
            为什么需要这条：词法器把引号串与裸词**都存成 `Word`**（引号串只是内容两侧补了 `"`），
            于是旧实现无法区分 `@include b.sml` 与 `@include "b.sml"` —— 目标存在就照常展开、
            不存在则报 `E-INCLUDE-001`（"读取失败"），把**写法**错误导成"文件不存在"。
            与 Rust / Lua / C 对齐：明确报此码。
-           注：本实现只认 `@include`（裸 `include` 是普通键），故判据天然只作用于该形式；
+           注：本实现同时认 `@include` 与**行首裸** `include`（2026-11-03 补齐），
+           两种形态在此共用同一条判据；
            而「引号未闭合」在**词法层**就已按 `E-LEX-001` 拦下（子文件里是 `E-INCLUDE-011`），
            走不到这里 —— 这条端间差异记在 `errors/codes.sml` 的 E-INCLUDE-012 note 里。 */
-        if (toks[k+2].s.empty() || toks[k+2].s[0] != '"') {
+        if (toks[pidx].s.empty() || toks[pidx].s[0] != '"') {
             if (err) *err = code_prefix(SML_E_INCLUDE_012, "sml: include 路径写法非法（未加引号）");
             return false;
         }
 
-        std::string path = toks[k+2].s;
+        std::string path = toks[pidx].s;
         if (!path.empty() && path[0] == '"' && path.back() == '"')
             path = path.substr(1, path.size() - 2);
 
@@ -1515,7 +1532,7 @@ static bool expand_includes(std::vector<Token>& toks,
         chain.pop_back();
         if (!ok) return false;
         out.insert(out.end(), sub.begin(), sub.end());
-        k += 3;
+        k = pidx + 1;
     }
     toks.swap(out);
     return true;
@@ -1801,6 +1818,19 @@ static std::string dump_escape_str(const std::string& s) {
     return out;
 }
 
+/* 浮点输出：整数值**必须保留小数点** —— `1.0` 若写成 `1`，回读就变成 Int，
+   类型被静默改掉（与 Rust `format_float`、C 的 add_float 同口径，见 TODO 雷 5 B）。 */
+static std::string fmt_float(double f) {
+    std::ostringstream os;
+    os << std::setprecision(17) << f;
+    std::string s = os.str();
+    if (std::isfinite(f) && std::floor(f) == f &&
+        s.find_first_of("eE") == std::string::npos) {
+        s += ".0";
+    }
+    return s;
+}
+
 /* 把值压成**一行**写。契约：只对「扁平」值调用（见 is_flat）——
    因此它内部的递归永远不会撞上容器，压出来的行里不会再有换行。
    ⚠️ **不筛键**（含 __type / __name），与 Rust `dump_inline` 的 `m.iter()` 一致。 */
@@ -1811,8 +1841,7 @@ static void dump_inline(const ValuePtr& v, std::string& out) {
         case Value::Tag::Bool: out += v->b ? "true" : "false"; break;
         case Value::Tag::Int:  out += std::to_string(v->i); break;
         case Value::Tag::Float: {
-            std::ostringstream os; os << std::setprecision(17) << v->f;
-            out += os.str();
+            out += fmt_float(v->f);
             break;
         }
         case Value::Tag::Str:
@@ -1851,9 +1880,7 @@ static void dump_value(const ValuePtr& v, int indent, std::string& out) {
         case Value::Tag::Bool: out += v->b ? "true" : "false"; break;
         case Value::Tag::Int:  out += std::to_string(v->i); break;
         case Value::Tag::Float: {
-            // shortest representation
-            std::ostringstream os; os << std::setprecision(17) << v->f;
-            out += os.str();
+            out += fmt_float(v->f);
             break;
         }
         case Value::Tag::Str:

@@ -109,8 +109,11 @@ struct Contract {
 class Parser {
 public:
     // 解析 SML 文本。失败返回 nullptr，并把以码开头的消息写进 err（见上）。
-    // include_dir 非空时启用 `@include "file"` 的文本内联与越界校验。
-    // ⚠️ 只认 `@include`：裸 `include "file"` 会被当成普通键（不展开、不报错）。
+    // include_dir 非空时启用 include 的文本内联与越界校验。
+    // 两种写法都认（2026-11-03 起与其余四端对齐）：`@include "file"` 与**行首**
+    // `include "file"` / `import "file"`。`k: include "x"` 这类带冒号的是普通字段。
+    // include_dir 为空 = 关闭 include：此时**行首裸**形式会明确报 `E-FEATURE-001`，
+    // 而不是静默产出 `include: "x.sml"` 这条错树（`@` 形式仍留给解析器当指令吃掉）。
     static ValuePtr parse(const std::string& text,
                           std::string* err = nullptr,
                           const std::string& include_dir = "");
