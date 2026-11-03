@@ -577,7 +577,7 @@ svc { @is Svc  name: gateway  x-owner: infra }
   | 1 | 现状 / `-dev` | 功能自由迭代 | 无 |
   | 2 | `-beta.N` | 特性冻结，只修不增 | feature 收口；五端四主要语法对齐 |
   | 3 | `-rc.N` | 候选发布 | 排雷 1/2/3/4/5 开口清零 |
-  | 4 | 正式（无后缀） | 稳定 | ① 安全：`cargo audit` + `miri_check.py` + `osv_check.py` + fuzz 全绿（结果贴 `CHANGELOG.md`）；② conformance **27/9→0**；③ 性能基线达标（`docs/iter-parse-plan.md` §1.4） |
+  | 4 | 正式（无后缀） | 稳定 | ① 安全：`cargo audit` + `miri_check.py` + `osv_check.py` + fuzz 全绿（结果贴 `CHANGELOG.md`）；② conformance **27/9→0**；③ 性能基线达标（⚠️ 原写「`docs/iter-parse-plan.md` §1.4」，**该节不存在、文件里也没有「性能基线」字样** —— 悬空引用。基线本身要先建，见 I-23） |
 
   **bump 纪律**：平时不 bump，发版才重排 —— `dev` 积量期间版本号保持不变；正式发版时用
   `workspace.version` 一次性统一主 crate 与子 crate（当前 8 个 crates 版本各自漂移，属历史包袱）。
@@ -668,6 +668,34 @@ svc { @is Svc  name: gateway  x-owner: infra }
   6. **与 `sml-contract::Pattern` 对齐** —— 下游的 `pattern` 是 Go RE2 方言，上游是受限正则子集；同一份文档两处行为不同怎么收敛
 - **⚠️ 纪律**：源文件明写「未经明确指示不要对外发布 / 不要提交给上游」。登记进 IDEA **不等于**对外提出。
 
+## I-23 更激进的性能优化：把「没开的 feature」从运行期判断变成不走的路径
+
+- **Status / 状态**：`Todo`（2026-11-03 用户点题：「记下更激进的性能优化这一项，比如特定 feature 没开时提速」）。
+  **方向明确、零实测数据** ⇒ 第一步是**建基准**，不是改代码。
+- **Idea / 想法**：现在「特性没开」只是**判断结果为 false**，判断本身照做、代码照编、分支预测照赌。
+  更激进的做法是让「没开」的能力在**热路径上根本不存在**：
+  1. **编译期能省的（cargo feature 层）**：`emit-*` 后端（已这么做）、`preserve_order`
+     （关掉时对象是 `BTreeMap`，省去有序插入与克隆）、`contract` / `pattern` 整段不编译。
+  2. **运行期可省的**：`FeatureSet` 是**位掩码**，热路径每次 `features.has(Feature::X)` 都要探位；
+     可改为**入口一次性求值**（把判定结果折算成函数指针 / 策略枚举，热路径只做一次间接调用），
+     或**按指令分派**（`@when` 分支在集合不含 `when` 时直接短路到错误，不再进入实现）。
+  3. **专门快路径**：最常见的一类文档是「纯键值、无指令、无 include」。可以让入口先做一次
+     廉价扫描，命中就走**不含指令/包含/契约**的解析循环（物理上不存在那些判断与分支）。
+- **Gap / 缺口**：**全仓没有 benchmark**（无 `benches/`、无 `criterion`、无 `#[bench]`），
+  所以任何「提速」都无法证明。`IDEAS.md` I-16 的门槛里写着「性能基线达标
+  （`docs/iter-parse-plan.md` §1.4）」—— 而**该文件里没有 §1.4、也没有「性能基线」字样**，
+  那条是悬空引用。
+- **前置条件（按序）**：① 建最小基准（`criterion` 三组：小文档 / 大文档 / 深嵌套）并把数字写进
+  `docs/perf-baseline.md`；② 只挑**一处**做，A/B 对比；③ 有效再推广。
+- **⚠️ 硬约束（想清楚再动手）**：**文档里的 `@feature enable/disable` 是运行期、文档级开关**，
+  所以**不能**把 SML 特性位编译掉 —— 能被编译掉的只有「调用方在编译期就决定」的那部分
+  （`preserve_order`、`emit-*`）。而仓库里 **cargo feature 与 SML 特性同名**（`when` / `for` /
+  `contract` 两边都有），这是最容易踩混的地方：改之前必须逐项确认「这个名字在每一层指的是谁」。
+- **Risk / 风险**：编译期 cfg 与 17 个 SML 特性**组合爆炸**（CI 编译时间 + 测试矩阵翻倍）；
+  为一个未证明收益的优化引入双份实现，等于把维护成本永久翻倍。
+- **关联**：I-16（正式版门槛要看性能，但它的引用是悬空的）、`preserve_order` 的 7 处转发
+  （`rust/Cargo.toml`，任何新增「吃 `sml-value`」的 crate 都会多一个漏点）。
+
 ---
 
 ## 价值评估 / Value check（用户判断优先，成本是我估的）
@@ -691,6 +719,7 @@ svc { @is Svc  name: gateway  x-owner: infra }
 | I-19 `idyml` 瘦别名 | 有用：给国际用户一条**保守发布线**，成本比改名低得多 | 低到中 —— 一个只剩 `pub use` 的 crate + 独立仓库 + CI | 与 I-12 **一起定**（名字、谁先发）；先做 `cargo search idyml` 占位避免被抢 |
 | I-20 长文档产出链 | **有用且缺口硬**：EPUB / HTML 是「用 SML 写小说」的终点；分章 + TOC 基础设施已具备、只差 CLI 层 | 中 —— `--to epub`/`--to html` 各一个后端；分章 / TOC 轻 | 先做 `--to html`（`--split-by section` + `--toc` 顺带就有），EPUB 次之；增量 emit 与 emit 定位往后放 |
 | I-21 语义部件目录 | 有用，但**先修跨后端一致**比加新部件更值（`theorem`/`math`/内联角色只在 markdown 生效，属语义漂移） | 中 —— 每个部件 × 各后端 | 顺序：① 内联角色补齐到 latex/svg ② `math` 响应 `--math` ③ 再谈 figure/admonition/footnote；UI 部件库最后 |
+| I-23 更激进的性能优化 | **有用但目前不可测**：仓库里**一个 benchmark 都没有**，谈提速全是空话 | 低（先建基准）→ 中（改热路径）→ 高（编译期切分） | 只做第一步：`criterion` 三组基准 + `docs/perf-baseline.md`。没有数字之前**不要**动双份实现 —— 那会把维护成本永久翻倍 |
 | I-22 下游方言六问 | **只对上游有参考价值**：3（`required_if`）与 4（源码顺序）与 I-7 / `preserve_order` 直接相关，值得吸收；1/5 属方言口味，2 属「布局 DSL」倾向 | 低 —— 现在只是问题清单 | 先把 3、4 两条并入 I-7 与 `preserve_order` 讨论；其余**未经用户明确指令不得对外提出** |
 
 > 一句话 / One line：**I-7 + I-9 是同一件事的两半**（约束能表达 / 写错能看见），性价比最高；
