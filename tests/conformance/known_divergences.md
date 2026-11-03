@@ -2,6 +2,23 @@
 
 本目录是 W5 的产出：**一份共享用例，五端（Rust / C / C++ / JS / Lua）各跑一遍，比较值树**。
 
+## 2026-11-03 复核（**引用前先看这段**，下文的计数与分类已多处过期）
+
+- **用例 40 个**（新增 `37`~`40`：未注册指令 / 未闭合块 / 空文档 / 只有注释），基线
+  **AGREE 32 / DIVERGE 8**。各端：rust 40A·0D·0PF ／ c 37A·3D ／ cpp 34A·3D·3PF ／
+  js 37A·3D ／ lua 36A·3D·1PF。（旧记录 36 用例 / 17–16。）
+- **新增用例一次抓到两个真缺陷**：
+  1. **JS 空文档 / 只有注释直接抛 `TypeError`**（`toks[0].t` 在空 token 流上崩，且**不带错误码**），
+     其余四端都返回空对象 ⇒ 已修（`js/sml.mjs` 的顶层标量判据加空守卫），`39`/`40` 现五端 AGREE。
+  2. **C++ 把裸 `include` 静默当键**（台账 #4/#5）⇒ 2026-11-03 改为**明确拒绝**
+     （`E-FEATURE-001`），失败模式由「静默错树」变为「响亮报错」；该格仍算 PARSE_FAIL
+     ⇒ 用例仍判 DIVERGE（按本台账口径 PARSE_FAIL 与 DIVERGE 都算不一致）。
+- **已不再成立的两条旧结论**：`37` 证明「未注册指令 Rust 报错 / JS 静默」**早已收敛**
+  （五端一律 `E-PARSE-005`）；`05`~`07` 的 Lua 嵌套数组现在也 **AGREE**。
+- ⚠️ 剩下 8 条 DIVERGE 类：`08`/`09`（C++ include 形式）、`10`/`11`（C++ 行级 `&frag`）、
+  `19`（`1.0` 只有 Rust 保浮点）、`20`（大整数分端漂移）、`23`（`\uXXXX` C++ 位数）、
+  `25`/`26`（引号内 `$env` 三档）、`30`（JS/Lua 缺 `__type`/`__name`）。逐条见下。
+
 ## 用法
 
 ```bat
@@ -35,7 +52,7 @@ Rust `to_sml` ／ C `sml_dump` ／ C++ `to_sml` ／ JS `stringify` ／ Lua `Sml.
   不同写法（`docs/capability-matrix.md` §3 #7/#8 已定性为渲染差异）。
   逐字节比对只对 C↔Rust 成立，那是 W4 `tools/check_dump_parity.py` 的职责，两者分工不同。
 
-## 基线（2026-10-28 全量跑）
+## 基线（2026-10-28 全量跑 —— ⚠️ **已过期**，新基线见文首 2026-11-03 复核）
 
 工具链五端全可用（rust / c / cpp / js / lua）。用例 33 个：
 
@@ -70,8 +87,8 @@ Rust `to_sml` ／ C `sml_dump` ／ C++ `to_sml` ／ JS `stringify` ／ Lua `Sml.
 | 1 | `05_nest_array` | Lua 解析失败 `E-PARSE-006`（键位置遇到 `[`） | **缺陷** | Lua 侧嵌套数组不支持。C 侧同类问题已由 W17 修（`c/sml.c` 的 `parse_array` 加 `[` 递归 + 深度守卫），Lua 未同步 |
 | 2 | `06_nest_array_mixed` | 同上（键位置遇到 `{`） | **缺陷** | 同 #1 |
 | 3 | `07_nest_array_deep` | Lua 解析失败 `E-PARSE-003`（未匹配的 `]`） | **缺陷** | 同 #1 |
-| 4 | `08_include_basic` | C++ 把 `include "..."` 当键值，不展开 | 已知取舍 | 即 TODO 排雷区「雷 6」；`docs/capability-matrix.md` 已登记 |
-| 5 | `09_include_chain` | 同 #4（链式 include 的 `lib` / `chain` 全部缺失） | 已知取舍 | 同 #4 |
+| 4 | `08_include_basic` | C++ 把裸 `include "..."` 当键值，不展开 | **已改为明确拒绝（2026-11-03）** | 决策：先**拒绝**（`E-FEATURE-001`），不再静默错树；补齐（让 C++ 认裸 `include`，与另四端同形式）记进 IDEAS I-16 的正式版门槛。注：C++ 的 `@include "x"` 形式**本来就支持**（有 `expand_includes`），缺的只是裸形式识别 |
+| 5 | `09_include_chain` | 同 #4（链式 include 的 `lib` / `chain` 全部缺失） | **已改为明确拒绝（2026-11-03）** | 同 #4 |
 | 6 | `11_fragment_splice` | C++ 行级 `&frag` 未展开（多出 `&base` 键）；Lua 解析失败 `E-PARSE-001` | 已知取舍 + **缺陷** | C++ 那半是 TODO §五「W4-片段行级展开」（✋ 待裁决），**实测只剩 C++ 一格**（C 已实现，该行措辞需更新）；Lua 那半是新缺陷 |
 | 7 | `13_contract_default` | ~~C 报 `E-CONTRACT-003`~~ **C 半 W24 已修**：C 现认 `optional`/`default`，该格转 A，用例整体 AGREE | **已修复（W24）** | 见下方「#7–#9 + #18 是同一件事」 |
 | 8 | `14_contract_enum_range` | ~~C 报 `字段 default 必填但缺失`~~ **C 半 W24 已修**：转 A，用例整体 AGREE | **已修复（W24）** | 同 #7 |
