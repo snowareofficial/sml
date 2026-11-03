@@ -176,6 +176,12 @@ toml = "0.8.19"
 opt-level = 2
 lto = false
 
+# 性能基准（IDEAS I-23）。**harness = false**：自己实现计时器，不引 criterion ——
+# 理由见 benches/perf.rs 的文件头（dev 依赖要锁版本下限，且当前问题是「没有基准」）。
+[[bench]]
+name = "perf"
+harness = false
+
 # ---------------------------------------------------------------------------
 # cargo-deb 原型（可选；**不是**默认构建路径）。
 # 默认且经验证的打包路径：packaging/build_deb.sh（dpkg-deb，四包拆分 + SONAME
