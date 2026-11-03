@@ -1539,6 +1539,29 @@ static ValuePtr parse_impl(const std::string& text, std::string* err, const std:
         std::vector<std::string> chain;
         long long expansions = 0;
         if (!expand_includes(st.toks, include_dir, chain, expansions, err)) return nullptr;
+    } else {
+        /* 明确拒绝裸 `include` / `import`（TODO 排雷区 雷 6-2、台账 #4/#5）。
+           本实现的 include 只认 `@include "path"`（见 expand_includes 里那条注释），
+           而**其余四端都把裸 `include "x.sml"` 当指令**展开。
+           旧行为：裸形式落进普通键 ⇒ 静默产出 `include: "x.sml"` 这个**错树**
+           （不报错、也不展开，用户以为子文件已经并进来了）。
+           与其静默错树，不如响亮失败 —— 判据刻意收窄，只看「Word `include`
+           紧跟一个引号串」：`include: "x"`（带冒号）是**名为 include 的字段**，合法。 */
+        for (size_t k = 0; k + 1 < st.toks.size(); ++k) {
+            const Token& t = st.toks[k];
+            if (t.t != Token::T::Word) continue;
+            if (t.s != "include" && t.s != "import") continue;
+            /* `@include` 里的 `include` 同样是 Word（`@` 是独立 token）——
+               `@` 形式走 expand_includes，不在此拒绝。 */
+            if (k > 0 && st.toks[k - 1].t == Token::T::At) continue;
+            const Token& nx = st.toks[k + 1];
+            if (nx.t == Token::T::Word && !nx.s.empty() && nx.s[0] == '"') {
+                if (err) *err = code_prefix(SML_E_FEATURE_001,
+                    "sml: 裸 `" + t.s + "` 不支持：本实现的 include 只认 `@"
+                    + t.s + " \"path\"` 形式（裸形式没有展开，会产出错树）");
+                return nullptr;
+            }
+        }
     }
     if (st.toks.empty()) return Value::object();
 
