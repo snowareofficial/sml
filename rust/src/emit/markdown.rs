@@ -318,11 +318,25 @@ fn emit_object(
         Some("h1") | Some("h2") | Some("h3") | Some("h4") | Some("h5") | Some("h6") => {
             let level: usize = ty.unwrap()[1..].parse().unwrap_or(1);
             let content = block_text_content(v, opt);
-            out.push_str(&format!("{} {}\n\n", "#".repeat(level), content));
+            // 与 `topic` / `section` 同口径：有 `label` 就给标题加 `id` 锚点，
+            // 这样 `--toc` 与 `{ref: label}` 才有落脚点（没有 label 就没法锚，不强加）。
+            let id = v.get("label").and_then(|x| x.as_str()).unwrap_or("");
+            if id.is_empty() {
+                out.push_str(&format!("{} {}\n\n", "#".repeat(level), content));
+            } else {
+                out.push_str(&format!(
+                    "<h{level} id=\"{id}\">{content}</h{level}>\n\n",
+                    level = level,
+                    id = escape_xml_attr(id),
+                    content = content
+                ));
+            }
         }
         Some("p") => {
+            // 段落**不能缩进**：Markdown 里行首 4 个空格就是代码块，
+            // 一旦 `p` 跟着 `depth` 加缩进，整篇正文会变成代码块（写长文时最刺眼的那处）。
             let content = block_text_content(v, opt);
-            out.push_str(&format!("{}{}\n\n", pad, content));
+            out.push_str(&format!("{content}\n\n"));
         }
         Some("hr") => {
             out.push_str(&format!("{}---\n\n", pad));

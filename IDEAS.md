@@ -658,7 +658,9 @@ svc { @is Svc  name: gateway  x-owner: infra }
 
 ## I-20 长文档产出链：EPUB / 独立 HTML / 分章 / TOC / 增量 emit（**未做**）
 
-- **Status / 状态**：`Todo`（全部未做；来源是一份真实压测报告，不是设想）。
+- **Status / 状态**：`Partial`（2026-11-03）—— **P1 的目录 / 锚点已落地**，P0 的 `--to html` 早已存在
+  （本条旧记录说「取值只有 md|xml|svg|latex|slint|lvgl|custom|sml」是**过期**的），
+  仍缺 `--to epub`、`--split-by section`、增量 emit、emit 源定位。
 - **出处**：`story/ISSUE_smltools_缺失功能.md`（110 行，2026-09；同样长期未登记）。
 - **场景**：35 万字 SML 长篇小说，7 个后端（sml/md/svg/slint/lvgl/latex/xml）**全部成功 emit** ⇒
   解析与基本转译是健康的；缺的是「写长文」这条工作流。
@@ -667,6 +669,15 @@ svc { @is Svc  name: gateway  x-owner: infra }
   2. **P1 `--split-by section` / `--toc`**：35 万字只产出**单个大文件**；`emit/markdown.rs` 的 `topic`/`section` 已能出 `h1..h6` + `id` 锚点，**基础设施具备、CLI 层没暴露**
   3. **P2 增量 emit**：每次整篇重转，改一处要重算 35 万字
   4. **P3 emit 失败缺源定位**：深度超限只给通用文案，没有「第几行 / 哪个块」——长文档排错极难
+- **✅ 已落地（2026-11-03）**：
+  - CLI 新增 `--toc`（`md` / `html`）：条目从**值树**抽（`h1..h6` / `topic` / `section`），
+    **有 `label` 的才是链接**（没锚点不瞎造），markdown 生成列表、html 生成 `<nav class="toc">`
+    并插在 `<body>` 之后；实现见 `rust/smltools/src/toc.rs`（4 条单测）。
+  - 为让链接有着落：markdown 与 html 的 `h1..h6` **有 `label` 时**输出 `id` 锚点
+    （`topic` / `section` 本来就有）。
+  - 🚨 顺带修一处**破坏长文档**的既有缺陷：markdown 的 `p` 段原先跟着 `depth` 加缩进，
+    行首 4 空格在 Markdown 里就是**代码块** ⇒ 整篇正文被渲染成代码块。现固定不缩进。
+  - 仍未做：`--to epub`、`--split-by section`（按章节拆文件）、增量 emit、emit 失败源定位。
 - **另一条遗留约定**：`@feature base` **只认版本号**，所以「在文档里声明书名」没有承载位；
   CLI 现在按顶层 `title:` 字段推断（**已是事实约定**），要正式化需单独立个约定。
 - **关联**：`I-21`（部件目录）、`I-18`（长文档的持久化）。
@@ -781,7 +792,7 @@ svc { @is Svc  name: gateway  x-owner: infra }
 | I-16 版本号规则 | **方案已定（2026-10-30）** —— 四级门槛 + semver `-beta`/`-rc` 后缀；平时不 bump、发版才统一 | 低 —— 判据已写进 I-16 与 `TODO.md` §六·〇 | 落地后给 §六·〇 补 bump 纪律；`--check-version` 门禁随发版一并做 |
 | I-18 `.smlb` / `smldb` | **用户 2026-11-03 点名登记，但明说「细节还没定好」** ⇒ 现在要的不是实现，是**把 §10 五条 + 模型前提拍掉** | 高 —— 新二进制格式 + 新 crate + SQLite 后端 | **先拍「编 `Value` 还是另建 AST」**，这条不定，前两步（`.smlb` 与 ser/de）无从开工 |
 | I-19 `smlkit` 品牌门面 | 有用：给国际用户一条**保守发布线**，成本比给 `swsml` 改名低得多。**名字已定 `smlkit`**（2026-11-03；三生态实测全空；`idyml` 因误导 YAML 被否） | 低到中 —— 一个只剩 `pub use` 的 crate + 独立仓库 + CI | 先做 `smlkit-easy` 的 L1/L2（那才是解药），**0.7.0 与 `.smlb`/`smldb` 一起发**；发布前把 GitHub org / 域名 / docs 子域一起占 |
-| I-20 长文档产出链 | **有用且缺口硬**：EPUB / HTML 是「用 SML 写小说」的终点；分章 + TOC 基础设施已具备、只差 CLI 层 | 中 —— `--to epub`/`--to html` 各一个后端；分章 / TOC 轻 | 先做 `--to html`（`--split-by section` + `--toc` 顺带就有），EPUB 次之；增量 emit 与 emit 定位往后放 |
+| I-20 长文档产出链 | **有用且缺口硬**：EPUB / HTML 是「用 SML 写小说」的终点；分章 + TOC 基础设施已具备、只差 CLI 层 | 中 —— `--to epub`/`--to html` 各一个后端；分章 / TOC 轻 | `--to html` 本就有；`--toc` 与标题锚点 **2026-11-03 已落地**（顺带修了「段落被缩进成代码块」）；下一步 `--split-by section`，再 EPUB，增量 emit 与 emit 定位往后放 |
 | I-21 语义部件目录 | 有用，但**先修跨后端一致**比加新部件更值（`theorem`/`math`/内联角色只在 markdown 生效，属语义漂移） | 中 —— 每个部件 × 各后端 | ①②③ 已于 **2026-11-03 全部落地**（内联角色补齐到 latex/svg/slint、`math` 响应 `--math`、latex 定理/证明环境）；下一步才是 figure/admonition/footnote/toc，UI 部件库最后 |
 | I-23 更激进的性能优化 | **有用但目前不可测**：仓库里**一个 benchmark 都没有**，谈提速全是空话 | 低（先建基准）→ 中（改热路径）→ 高（编译期切分） | 只做第一步：`criterion` 三组基准 + `docs/perf-baseline.md`。没有数字之前**不要**动双份实现 —— 那会把维护成本永久翻倍 |
 | I-22 下游方言六问 | **只对上游有参考价值**：3（`required_if`）与 4（源码顺序）与 I-7 / `preserve_order` 直接相关，值得吸收；1/5 属方言口味，2 属「布局 DSL」倾向 | 低 —— 现在只是问题清单 | 先把 3、4 两条并入 I-7 与 `preserve_order` 讨论；其余**未经用户明确指令不得对外提出** |

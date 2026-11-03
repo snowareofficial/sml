@@ -263,9 +263,12 @@ fn emit_object(
         Some("h1" | "h2" | "h3" | "h4" | "h5" | "h6") => {
             let level: usize = ty.unwrap()[1..].parse().unwrap_or(2);
             let content = block_text_content(v, opt);
+            // 与 `topic` / `section` 同口径：有 `label` 才加锚点（`--toc` 的链接目标）。
+            let id = anchor(v);
             out.push_str(&format!(
-                "{pad}<h{level} class=\"heading\">{content}</h{level}>\n",
+                "{pad}<h{level} class=\"heading\"{id}>{content}</h{level}>\n",
                 level = level,
+                id = id,
                 content = content
             ));
         }
