@@ -20,7 +20,49 @@
 //!
 //! 每项都按 `ROUNDS` 轮跑、取**最小值**（最小值受调度抖动影响最小；这里不追求置信区间）。
 
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
+
+// ---------------------------------------------------------------------------
+// 分配计数（零依赖）：把「每键 400 ns」拆成「几次分配、多少字节」。
+// 只用在本基准进程内，不影响库本身。
+// ---------------------------------------------------------------------------
+
+static ALLOCS: AtomicUsize = AtomicUsize::new(0);
+static BYTES: AtomicUsize = AtomicUsize::new(0);
+
+struct Counting;
+
+unsafe impl GlobalAlloc for Counting {
+    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
+        ALLOCS.fetch_add(1, Ordering::Relaxed);
+        BYTES.fetch_add(l.size(), Ordering::Relaxed);
+        System.alloc(l)
+    }
+    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
+        System.dealloc(p, l)
+    }
+    unsafe fn realloc(&self, p: *mut u8, l: Layout, new_size: usize) -> *mut u8 {
+        ALLOCS.fetch_add(1, Ordering::Relaxed);
+        BYTES.fetch_add(new_size, Ordering::Relaxed);
+        System.realloc(p, l, new_size)
+    }
+}
+
+#[global_allocator]
+static GLOBAL: Counting = Counting;
+
+/// 跑一次 `f` 记下分配次数与字节数（含 `f` 内部全部临时分配）。
+fn count_allocs<F: FnOnce()>(f: F) -> (usize, usize) {
+    let a0 = ALLOCS.load(Ordering::Relaxed);
+    let b0 = BYTES.load(Ordering::Relaxed);
+    f();
+    (
+        ALLOCS.load(Ordering::Relaxed) - a0,
+        BYTES.load(Ordering::Relaxed) - b0,
+    )
+}
 
 /// 每项测量的轮数与每轮迭代数。`--quick` 减半，用于冒烟。
 const ROUNDS: u32 = 5;
@@ -124,6 +166,27 @@ fn main() {
 
     println!();
     println!("> `MB/s` 按**输入字节数**算（`to_sml` 行同样是输入侧字节），便于横向比较。");
+
+    // —— 分配统计：拆解「每键 ≈400 ns」到底花在几次分配上 ——
+    println!();
+    println!("## 分配统计（一次 parse，含全部临时分配）");
+    println!();
+    println!("| 负载 | 元素数 | allocs/op | B/op | allocs/元素 |");
+    println!("|---|---|---|---|---|");
+    // `one` / `ten` 用来抠**边际**成本：两者只差 9 个键，
+    // (allocs(ten) - allocs(one)) / 9 就是「多一个键」真正要付的分配次数（固定开销被减掉）。
+    alloc_row("one", Some(1), "k: 1\n");
+    alloc_row("ten", Some(10), &build_flat(10));
+    alloc_row("small", Some(10), &small);
+    alloc_row("large", None, &large);
+    alloc_row("deep", Some(120), &deep);
+    alloc_row("flat@120", Some(120), &flat);
+    // 分层归因：只跑词法，看到底有多少分配是「每个 token 一个 String」造成的
+    let flat10 = build_flat(10);
+    alloc_row_with("tokenize-only(10 键)", Some(10), || {
+        let t = sml_lex::tokenize(&flat10);
+        debug_assert!(t.is_ok());
+    });
 }
 
 fn iters(base: u64, quick: bool) -> u64 {
@@ -168,6 +231,28 @@ fn row(label: &str, input: &str, op: &str, per_sec: f64, _iters: u64) {
         ns,
         mbps
     );
+}
+
+/// 打印一行分配统计。`elems` 已知时额外给「每元素几次分配」。
+fn alloc_row(label: &str, elems: Option<usize>, text: &str) {
+    alloc_row_with(label, elems, || {
+        let v = sml::parse(text);
+        debug_assert!(v.is_ok());
+    });
+}
+
+/// 同上，但由调用方给出要测的动作（用来分层归因，比如「只跑词法」）。
+fn alloc_row_with<F: FnOnce()>(label: &str, elems: Option<usize>, f: F) {
+    let (n, b) = count_allocs(f);
+    let per = match elems {
+        Some(e) if e > 0 => format!("{:.1}", n as f64 / e as f64),
+        _ => "—".to_string(),
+    };
+    let e = match elems {
+        Some(e) => e.to_string(),
+        None => "—".to_string(),
+    };
+    println!("| `{label}` | {e} | {n} | {b} | {per} |");
 }
 
 fn human_bytes(b: f64) -> String {
