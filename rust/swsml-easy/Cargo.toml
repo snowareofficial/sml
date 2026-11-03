@@ -1,0 +1,21 @@
+[package]
+name = "swsml-easy"
+version = "0.1.0-dev.0"
+edition = "2021"
+description = "Progressive, on-demand facade over swsml: read a document, get a field. Standalone docs, four concepts only."
+license = "MulanPSL-2.0"
+repository = "https://gitee.com/snoware/sml"
+homepage = "https://sml.swebase.cn"
+readme = "README.md"
+# 尚未发布：等 I-18（.smlb / smldb）与 I-19 一起发，见仓库 TODO./IDEAS。
+publish = false
+
+[lib]
+# 调用方写 `use swsml_easy::{...}`；不叫 `sml`，避免与 swsml 的 lib 名 `sml` 撞。
+name = "swsml_easy"
+
+[dependencies]
+# ⚠️ 依赖键写成 `sml` 而不是 `swsml`：swsml 的 `[lib] name = "sml"`，
+# 而 Rust 代码里 `use` 的是**库名**。写成 `swsml = { path = ".." }` 会直接报
+# 「cannot find crate swsml」—— 这是本仓最容易踩的一处命名陷阱，故在此显式改名。
+sml = { package = "swsml", path = "..", version = "0.6.9-dev.0" }

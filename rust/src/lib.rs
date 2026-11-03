@@ -116,6 +116,11 @@ pub mod emit;
 /// 于是 `--no-default-features` 下整库报 `error[E0432]: unresolved import crate::emit`，
 /// 与「`default-features = false` 回到零依赖」的承诺矛盾（HANDOFF R9）。
 pub use sml_value::{describe_value, Map, Value, MAX_VALUE_DEPTH};
+/// 统一错误类型（`code()` 是跨端稳定契约）。
+///
+/// 以前调用方只能写 `Result<Value, sml_codes::SmlError>` —— 签名词里带出内部 crate，
+/// 于是「想用 swsml」的人被迫再加一个依赖。这里补上再导出，**签名里不再出现内部 crate**。
+pub use sml_codes::SmlError;
 /// Custom-type pattern matching engine: backtracking-free, ReDoS-immune ｜ 自定义类型（`@type`）使用的模式匹配引擎：无回溯、免疫 ReDoS。
 pub use sml_pattern as pattern;
 #[cfg(feature = "sml")]
