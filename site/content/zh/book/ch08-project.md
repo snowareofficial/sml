@@ -16,7 +16,7 @@ translationKey: "book-ch08"
     name:    str
     port:    int  default 8080 min 1 max 65535
     debug:   bool default false
-    peers:   array[str] ?
+    peers:   [str] optional
 }
 
 @base {

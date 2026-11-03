@@ -208,7 +208,7 @@ Lua 在 `Sml.load` + include 的子文件读取。每端都加了**断言"键名
 |----|----|
 | 状态 | 默认开 |
 | 语法 | `@contract Name [loose\|strict] { field: type [default v] [min n] [max n] [enum(a,b)] [?] [required] }` |
-| 引用类型 | `str` `int` `num` `bool` `array[T]` `enum(...)` 或另一个契约名 |
+| 引用类型 | `str` `int` `num` `bool` `[T]` `enum(...)` 或另一个契约名 |
 | 严格度 | 默认严格；`loose` 允许未声明字段；`strict` 显式声明严格（与默认等价，仅为可读性） |
 | 嵌套 | 无限；递归契约在被引用时检测环 |
 | 错误位置 | 精确到行列 |

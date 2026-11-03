@@ -95,7 +95,7 @@ Contract fields can also be trimmed as needed - using `optional`/`default` allow
     host:     str
     port:     int  default 5432 min 1 max 65535
     user:     str  default app
-    password: str  ?               # Optional: may be empty for local/test
+    password: str  optional               # Optional: may be empty for local/test
     sslmode:  enum(disable, allow, require) default require
 }
 ```
@@ -189,7 +189,7 @@ The SML contract is a pure declaration without language binding. The same contra
     id:    str
     email: str
     role:  enum(user, admin, owner) default user
-    age:   int  min 0 max 150 ?
+    age:   int  min 0 max 150 optional
 }
 ```
 
@@ -212,15 +212,21 @@ type User = { id: string; email: string; role: 'user'|'admin'|'owner'; age?: num
 
 ## 9.7 Mode 6: Contract combination+recursion
 
-Using `array[ContractName]` to express a "contract array" — suitable for list data:
+> ⚠️ **Cross-implementation status (measured 2026-11-03)**: **contract arrays `[ContractName]` are
+> implemented in JS only**. Rust and Lua report `E-CONTRACT-012` (unknown array element type:
+> `Endpoint`); C/C++ untested. Avoid this form when you need portability (use `[object]` plus
+> per-element checks, or model the list as a sub-block). Note the difference: a **single** contract
+> reference (`main: Endpoint`, no `[]`) works on all four implementations tested.
+
+Using `[ContractName]` to express a "contract array" — suitable for list data:
 
 ```sml
 @contract Endpoint { host: str port: int }
 @contract Service {
     name:  str
     main:  Endpoint                # Single
-    peers: array[Endpoint]         # List
-    back:  Endpoint?               # Optional
+    peers: [Endpoint]         # List
+    back:  Endpoint optional               # Optional
 }
 
 @is Service
@@ -241,7 +247,7 @@ Unrestricted number of recursion layers (parsing period detects loop references;
 @contract Module {
     name:  str
     entry: str
-    deps:  array[str] ?
+    deps:  [str] optional
 }
 
 # Load all. sml files under modules/as submodules and verify them separately

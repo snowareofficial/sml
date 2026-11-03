@@ -228,7 +228,7 @@ Parse files with any suffix as `.sml`.
 |----|----|
 |Status | Default On|
 |Grammar | `@contract Name [loose\|strict] { field: type [default v] [min n] [max n] [enum(a,b)] [?] [required] }`|
-|Reference type | `str` `int` `num` `bool` `array[T]` `enum(...)` or another contract name|
+|Reference type | `str` `int` `num` `bool` `[T]` `enum(...)` or another contract name|
 |Strictness | default strictness; `loose` allows undeclared fields; `strict` makes strictness explicit (same as default, for readability)|
 |Nested | Infinite; Recursive contract detects loops when referenced|
 |Wrong position | Accurate to rows and columns|

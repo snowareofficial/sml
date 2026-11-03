@@ -156,7 +156,7 @@ ref: &frag               # 片段引用仍是裸词
     port:        int  default 8080 min 1 max 65535
     debug:       bool default false
     mode:        enum(active, disabled) default active
-    tags:        array[str] ?      # 可选字符串数组
+    tags:        [str] optional      # 可选字符串数组
 }
 ```
 
@@ -166,7 +166,7 @@ ref: &frag               # 片段引用仍是裸词
 |--------|------|
 | `str` / `int` / `num` / `bool` | 字段类型 |
 | `enum(a, b, c)` | 枚举，取值须在其中 |
-| `array[T]` | 数组，元素类型 `T`（如 `array[int]`、`array[str]`） |
+| `[T]` | 数组，元素类型 `T`（如 `[int]`、`[str]`） |
 | `?` 或 `optional` | 可选字段 |
 | `required` | 显式必填（默认即必填） |
 | `default <值>` | 缺失时填入该默认值（并自动视为可选） |
@@ -205,7 +205,7 @@ server prod {
 @contract Service {
     name:  str
     main:  Endpoint          # 引用另一个契约
-    peers: array[Endpoint]   # 契约数组
+    peers: [Endpoint]   # 契约数组
 }
 @is Service
 name: gateway
@@ -378,7 +378,7 @@ SML 已被多个真实项目采用：
 @contract ResenderConfig loose {
     api_key:    str
     from:       str
-    to:         array[str]
+    to:         [str]
     subject:    str default "Hello"
     port:       int default 465  min 1 max 65535
     tls:        bool default true
@@ -406,7 +406,7 @@ tls: true
     name:    str
     port:    int  default 8080 min 1 max 65535
     debug:   bool default false
-    peers:   array[str] ?
+    peers:   [str] optional
 }
 
 @base {
