@@ -10,10 +10,13 @@
  *   "DUMP <路径>\n" + dump 原文       解析成功
  *   "ERR  <路径> <错误信息>\n"         解析失败（信息以错误码开头）
  *
- * 注：C++ 侧**没有**裸 `include` 展开（只认 `@include`，见 cpp/sml.hpp 的注释），
- *     故这里是**有意**不传 include_dir —— 套件要钉的正是这个现状，而不是绕过它。
+ * 注：C++ 侧 2026-11-03 起**支持裸 `include`**（行首形式，与另四端同判据），
+ *     故这里传文件所在目录当 include_dir —— 与 Rust / C / JS / Lua 的入口一致。
+ *     此前是**有意**不传（当时只有 `@include` 能展开），套件钉的就是那个现状；
+ *     现在两侧都对齐了，08/09 两条 include 用例才能真的 AGREE。
  */
 #include <cstdio>
+#include <filesystem>
 #include <string>
 
 #include "sml.hpp"
@@ -46,7 +49,10 @@ int main(int argc, char **argv) {
             continue;
         }
         std::string err;
-        sml::ValuePtr v = sml::Parser::parse(text, &err);
+        /* include 基准目录 = 该文件所在目录（与另四端入口一致）：
+           裸 `include "inc/lib.sml"` 与 `@include` 都会相对这里解析。 */
+        std::string dir = std::filesystem::path(argv[i]).parent_path().string();
+        sml::ValuePtr v = sml::Parser::parse(text, &err, dir);
         if (!v) {
             if (err.empty()) err = "E-INTERNAL-001 sml: 解析失败但没有给出原因";
             std::printf("ERR %s %s\n", argv[i], err.c_str());

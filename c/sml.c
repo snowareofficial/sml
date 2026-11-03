@@ -1825,6 +1825,23 @@ static void dump_array_body(sbuf *b, const sml_value *v, int indent) {
     sb_addc(b, ']');
 }
 
+/* 浮点输出：整数值**必须保留小数点** —— `1.0` 若写成 `1`，回读就变成 Int，
+   类型被静默改掉（Rust 侧 `format_float` 自 2026-10-28 起同一口径，见 TODO 雷 5 B）。
+   NaN / inf 没有合法的 SML 字面量，写成**引号字符串**（与 Rust 一致），
+   否则裸 `nan` 回读会变成 Str `nan`（看起来成功、其实类型变了）。 */
+static void add_float(sbuf *b, double f) {
+    char num[64];
+    if (isnan(f) || isinf(f)) {
+        snprintf(num, sizeof(num), "\"%g\"", f);
+        sb_add(b, num);
+        return;
+    }
+    snprintf(num, sizeof(num), "%g", f);
+    sb_add(b, num);
+    /* `%g` 对整数值吞掉小数点 ⇒ 补 `.0`；科学计数形式（含 e/E）本来就是浮点形态，不动。 */
+    if (floor(f) == f && !strpbrk(num, "eE")) sb_add(b, ".0");
+}
+
 static void dump_value(sbuf *b, const sml_value *v, int indent) {
     char num[64];
     if (!v) { sb_add(b, "null"); return; }
@@ -1832,7 +1849,7 @@ static void dump_value(sbuf *b, const sml_value *v, int indent) {
         case SML_NULL: sb_add(b, "null"); break;
         case SML_BOOL: sb_add(b, v->u.boolean ? "true" : "false"); break;
         case SML_INT: snprintf(num, sizeof(num), "%lld", v->u.i); sb_add(b, num); break;
-        case SML_FLOAT: snprintf(num, sizeof(num), "%g", v->u.f); sb_add(b, num); break;
+        case SML_FLOAT: add_float(b, v->u.f); break;
         case SML_STR:
             if (needs_quote(v->u.s)) {
                 sb_addc(b, '"');
@@ -1878,7 +1895,7 @@ static void dump_inline(sbuf *b, const sml_value *v) {
         case SML_NULL: sb_add(b, "null"); break;
         case SML_BOOL: sb_add(b, v->u.boolean ? "true" : "false"); break;
         case SML_INT: snprintf(num, sizeof(num), "%lld", v->u.i); sb_add(b, num); break;
-        case SML_FLOAT: snprintf(num, sizeof(num), "%g", v->u.f); sb_add(b, num); break;
+        case SML_FLOAT: add_float(b, v->u.f); break;
         case SML_STR:
             if (needs_quote(v->u.s)) {
                 sb_addc(b, '"');
@@ -2120,7 +2137,7 @@ static void value_to_json(sbuf *b, const sml_value *v) {
         case SML_NULL: sb_add(b, "null"); break;
         case SML_BOOL: sb_add(b, v->u.boolean ? "true" : "false"); break;
         case SML_INT: snprintf(num, sizeof(num), "%lld", v->u.i); sb_add(b, num); break;
-        case SML_FLOAT: snprintf(num, sizeof(num), "%g", v->u.f); sb_add(b, num); break;
+        case SML_FLOAT: add_float(b, v->u.f); break;
         case SML_STR:
             sb_addc(b, '"');
             for (const char *p = v->u.s; *p; p++) {
