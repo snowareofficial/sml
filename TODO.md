@@ -1034,6 +1034,28 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
       **不能**编译掉；能编译掉的只有调用方在**编译期**决定的那部分（`preserve_order`、`emit-*`）。
       仓库里 cargo feature 与 SML 特性**同名**（`when` / `for` / `contract`），动手前逐项确认。
 
+### I. `swsml-easy`：渐进式入门 crate（2026-11-03 建，独立发布线）
+
+> 裁决与理由见 `docs/api-progressive-draft.md` §7。与 I-19 `idyml` 分工：
+> `idyml` 是**换名瘦别名**（解决「找不到」），本 crate 是**能力子集 + 新 API 层**（解决「装了不会用」）。
+
+- [x] **L0 已落地**：`rust/swsml-easy/` —— `Doc` + `read` / `read_file`（展开 include）/
+      `raw` / `has` / `str` / `int` / `float` / `bool` / `list` / `to_sml`；根上只有
+      `Doc` / `Value` / `Error` 三个名字。7 条集成用例 + 6 条 doctest 全绿，`cargo doc` 零警告。
+- [x] **Q8 的配套**：给 `swsml` 根补了 `pub use sml_codes::SmlError;` —— 以前调用方签名里只能
+      写 `sml_codes::SmlError`，等于「想用 swsml 还得再加一个依赖」。
+- [ ] **L1**：`read_with(path, opts)` / `read_file_with(path, opts)`（薄转发 `parse_with` /
+      `parse_file_with`），只做「开/关文档内 `@is`」这一个闸门。
+- [ ] **L2**：`read_with_report` 复用 `ParseOutput`；逐后端输出按 `emit-*` feature 门控暴露。
+- [ ] **发布准备**（用户定的节奏）：**不单独发**，等 I-18（`.smlb`/`smldb`）+ I-19（`idyml`）
+      一起发，稳定化与优化完成后 **0.7.0** 一次性给成批能力。当前 `publish = false`。
+- [ ] **发布前必须做**：`cargo search swsml-easy` 查名是否被占（**本机离线查不了**）；
+      若要换成独立品牌名，改名落点是三处（`Cargo.toml` 的 `name`/`[lib] name`、目录名、
+      文档里的引用），代码里靠 `use swsml_easy::` 的地方一并改。
+- [ ] **⚠️ 命名陷阱要一直记着**：包名 `swsml` / 库名 `sml` ⇒ `Cargo.toml` 写 `swsml`，
+      Rust 代码写 `use sml::…`。本 crate 用 `sml = { package = "swsml", … }` 显式化了这件事，
+      写成 `swsml = { path = ".." }` 会直接报 cannot find crate。
+
 ### H. 跨端错误码收口（2026-11-03 做性能 A/B 时撞见 —— 不是新缺陷，是**从来没人裁决**）
 
 - [ ] **`k: "abc\`（转义符后遇 EOF）三端三个码**（全部实测）：
