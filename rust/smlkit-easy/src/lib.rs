@@ -21,7 +21,7 @@
 //!
 //! 所以这一层**不在 `swsml` 里做成模块**：模块解决不了「`use sml::*` 时把 31 个 C 函数
 //! 一起拉进命名空间」这种事，而且会继续挤占根命名空间。独立 crate 才能做到 ——
-//! **这里的根只有 3 个名字：`Doc`、`Value`、`Error`。**
+//! **这里的根只有 4 个名字：`Doc`、`Value`、`Error`、`Contracts`。**
 //!
 //! > 顺带记下本仓最容易踩的命名陷阱：**包名是 `swsml`、库名是 `sml`**
 //! > （crates.io 上 `sml-rs` 被无关项目占了，只能换包名）。
@@ -35,10 +35,13 @@
 //!
 //! | 不做 | 想要就去用 |
 //! |---|---|
-//! | 契约校验、诊断、`@is` | [`sml`]（`parse_with_warnings` / `ParseOutput`） |
+//! | 契约**内容**（定义、类型校验实现、诊断、`ParseOutput`） | [`sml`]（`parse_with_warnings` / `ParseOutput`） |
 //! | 逐后端输出（md / html / svg / latex / slint…） | [`sml`] 的 `emit-*` |
 //! | 特性开关、版本范围限制 | [`sml`] 的 `parse_with_features` / `parse_allowed` |
 //! | 二进制持久化、查询 | 待 I-18（`.smlb` / `smldb`）落地 |
+//!
+//! 只给了**一个**契约闸门：文档里写 `@is <契约名>` 时认不认（[`Contracts`]）。
+//! 「照名字把某份契约应用到树上」「拿到诊断」都仍是 [`sml`] 的事。
 //!
 //! ## 字段路径
 //!
@@ -63,6 +66,45 @@ pub use sml::SmlError as Error;
 /// 之所以要再导出： [`Doc::list`] 返回 `&[Value]`、[`Doc::raw`] 返回 `&Value`，
 /// 调用方得能写出这个类型名。
 pub use sml::Value;
+
+/// 文档内 `@is` 契约的开关 —— 本 crate 唯一的解析开关。
+///
+/// 默认 [`Contracts::On`]，与 [`Doc::read`] / [`Doc::read_file`] 一致；
+/// 只有想「用自己的结构体当契约来源」时才需要 [`Contracts::Off`]。
+///
+/// ```
+/// use smlkit_easy::{Contracts, Doc};
+///
+/// // 文档里引用了不存在的契约：默认直接报错
+/// let err = Doc::read("@version v1\ndoc {\n  @is NoSuch\n  x: 1\n}\n").unwrap_err();
+/// assert_eq!(err.code(), "E-CONTRACT-001");
+///
+/// // 关掉后放行，且不回填契约里的默认值
+/// let doc = Doc::read_with("@version v1\ndoc {\n  @is NoSuch\n  x: 1\n}\n", Contracts::Off).unwrap();
+/// assert_eq!(doc.int("doc.x"), Some(1));
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Contracts {
+    /// 生效（默认）：校验类型、回填默认值，未知契约报 `E-CONTRACT-001`。
+    #[default]
+    On,
+    /// 忽略：不校验、不填默认值、未知契约也不报错。
+    ///
+    /// `@contract` 定义本身仍照常收集 —— 它**两种模式都不进结果树**。
+    Off,
+}
+
+impl Contracts {
+    /// 折成 `ParseOptions::apply_contracts` 的布尔值。
+    fn enabled(self) -> bool {
+        matches!(self, Contracts::On)
+    }
+
+    /// 本层唯一会设置的选项。
+    fn options(self) -> sml::ParseOptions {
+        sml::ParseOptions::new().apply_contracts(self.enabled())
+    }
+}
 
 /// 一份已解析的 SML 文档。
 ///
@@ -98,6 +140,34 @@ impl Doc {
     /// 里面的 `include "x.sml"` 会原样留在值树里；`read_file` 会真的把 `x.sml` 并进来。
     pub fn read_file(path: impl AsRef<Path>) -> Result<Self, Error> {
         sml::parse_file(path).map(|value| Self { value })
+    }
+
+    /// 解析文本，并显式指定文档内 `@is` 契约是否生效。
+    ///
+    /// [`Doc::read`] 等价于 `read_with(text, Contracts::On)`；这里只为把开关
+    /// 摆到明面上（典型场景：契约由调用方自己的结构体提供，文件里的 `@is` 应当忽略）。
+    ///
+    /// ```
+    /// use smlkit_easy::{Contracts, Doc};
+    ///
+    /// let text = "@version v1\n@contract P { n: str role: str default guest }\ndoc {\n  @is P\n  n: 42\n}\n";
+    /// // 契约开启：类型不符直接报错
+    /// assert!(Doc::read(text).is_err());
+    /// // 契约关闭：放行，且**不回填** `role` 的默认值
+    /// let doc = Doc::read_with(text, Contracts::Off).unwrap();
+    /// assert_eq!(doc.int("doc.n"), Some(42));
+    /// assert!(!doc.has("doc.role"));
+    /// ```
+    pub fn read_with(text: &str, contracts: Contracts) -> Result<Self, Error> {
+        sml::parse_with(text, contracts.options()).map(|out| Self { value: out.value })
+    }
+
+    /// 解析文件（**会展开 `include`**），并显式指定文档内 `@is` 契约是否生效。
+    ///
+    /// 这是本层唯一同时做到「展开 include」与「关掉文档内契约」的入口 ——
+    /// [`Doc::read_file`] 关不掉，[`Doc::read_with`] 不展开 include。
+    pub fn read_file_with(path: impl AsRef<Path>, contracts: Contracts) -> Result<Self, Error> {
+        sml::parse_file_with(path, contracts.options()).map(|out| Self { value: out.value })
     }
 
     /// 逃生口：拿到底层的 [`sml::Value`]。

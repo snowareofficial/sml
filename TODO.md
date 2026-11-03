@@ -1048,8 +1048,12 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
       `Doc` / `Value` / `Error` 三个名字。7 条集成用例 + 6 条 doctest 全绿，`cargo doc` 零警告。
 - [x] **Q8 的配套**：给 `swsml` 根补了 `pub use sml_codes::SmlError;` —— 以前调用方签名里只能
       写 `sml_codes::SmlError`，等于「想用 swsml 还得再加一个依赖」。
-- [ ] **L1**：`read_with(path, opts)` / `read_file_with(path, opts)`（薄转发 `parse_with` /
-      `parse_file_with`），只做「开/关文档内 `@is`」这一个闸门。
+- [x] **L1 已落地**：`Contracts { On, Off }` + `Doc::read_with(text, contracts)` /
+      `Doc::read_file_with(path, contracts)`（薄转发 `parse_with` / `parse_file_with`），
+      只做「开/关文档内 `@is`」这一个闸门。`Contracts::default()` = `On`，与 `read` / `read_file` 同码同行为
+      （有用例钉住「On 与 `read` 同码」，不是「近似」）。根命名空间 3 → **4 个名字**（`Doc` / `Value` /
+      `Error` / `Contracts`）。测试 `rust/smlkit-easy/tests/contracts.rs`（4 条）+ 2 条新 doctest，
+      `cargo doc` 仍零警告。
 - [ ] **L2**：`read_with_report` 复用 `ParseOutput`；逐后端输出按 `emit-*` feature 门控暴露。
 - [ ] **发布准备**（用户定的节奏）：**不单独发**，等 I-18（`.smlb`/`smldb`）+ I-19（`idyml`）
       一起发，稳定化与优化完成后 **0.7.0** 一次性给成批能力。当前 `publish = false`。

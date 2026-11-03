@@ -31,13 +31,32 @@ let err = Doc::read("42").unwrap_err();
 assert_eq!(err.code(), "E-PARSE-008"); // 顶层须为容器
 ```
 
+## 进阶：只有一个开关
+
+文档里写了 `@is <契约名>` 时认不认 —— 就这一件事，用 `Contracts` 说清：
+
+```rust
+# use smlkit_easy::{Contracts, Doc};
+let text = "@version v1\ndoc {\n  @is NoSuch\n  x: 1\n}\n";
+
+// 默认（= Doc::read）契约生效：未知契约直接报 E-CONTRACT-001
+assert!(Doc::read(text).is_err());
+// 显式关闭：放行，且不校验类型、不回填默认值
+let doc = Doc::read_with(text, Contracts::Off)?;
+assert_eq!(doc.int("doc.x"), Some(1));
+# Ok::<(), smlkit_easy::Error>(())
+```
+
+文件入口同理：`Doc::read_file_with(path, Contracts::Off)` 是本层**唯一**同时做到
+「展开 `include`」与「关掉文档内契约」的入口（`read_file` 关不掉，`read_with` 不展开 include）。
+
 ## 为什么单独一个 crate
 
 `swsml` 的根命名空间有 90 多个名字（13 个 `parse_*`、31 个 C-ABI 函数、include 内部件、
 三个 `MAX_*`…）。那是给「要把 SML 嵌进产品、需要控制每个旋钮」的人准备的。
 
 这一层**不做成 `swsml` 里的模块**：模块解决不了 `use swsml::*` 把 C 函数也拉进命名空间的问题，
-而且会继续挤占它。独立 crate 才能做到 —— **这里根上只有 3 个名字：`Doc`、`Value`、`Error`。**
+而且会继续挤占它。独立 crate 才能做到 —— **这里根上只有 4 个名字：`Doc`、`Value`、`Error`、`Contracts`。**
 
 （`Value` 出现是因为 `list()` / `raw()` 的返回类型就是它；它就是 swsml 的值类型本身，
 不是这里另造的一层包装。）
@@ -46,7 +65,7 @@ assert_eq!(err.code(), "E-PARSE-008"); // 顶层须为容器
 
 | 不做 | 想要就去用 |
 |---|---|
-| 契约校验、诊断、`@is` | `swsml`（`parse_with_warnings` / `ParseOutput`） |
+| 契约**内容**（定义、校验实现、诊断、`ParseOutput`） | `swsml`（`parse_with_warnings` / `ParseOutput`） |
 | 逐后端输出（md / html / svg / latex / slint…） | `swsml` 的 `emit-*` |
 | 特性开关、版本范围限制 | `swsml` 的 `parse_with_features` / `parse_allowed` |
 | 二进制持久化与查询 | 待 `.smlb` / `smldb`（尚未实现） |
