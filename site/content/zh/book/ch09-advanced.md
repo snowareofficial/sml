@@ -202,10 +202,14 @@ type User = { id: string; email: string; role: 'user'|'admin'|'owner'; age?: num
 
 用 `[契约名]` 表达"契约数组"——适合列表型数据：
 
-> ⚠️ **跨端现状（2026-11-03 实测）**：**契约数组 `[契约名]` 目前只有 JS 实现**。
-> Rust 与 Lua 报 `E-CONTRACT-012`（未知数组元素类型：`Endpoint`）；C/C++ 未测。
-> 需要跨端可移植时请避免此写法（可用 `[object]` + 逐条校验，或把列表换成"字段子块"）。
-> 注意区别：**单个**契约引用（`main: Endpoint`，不带 `[]`）四端都支持，实测通过。
+> ⚠️ **跨端现状（2026-11-03 实测，一致性用例 `41_contract_array`）**：
+> `[契约名]` 在 **Rust / C / C++ / JS 四端一致通过**，**只有 Lua 报 `E-CONTRACT-012`**
+> （数组元素类型名未知）。例外只有一处：`[enum ...]`（数组元素位置写 enum）Rust 显式拒绝，
+> Lua 对任何非内置元素类型都拒绝。
+>
+> ⚠️ **数组元素不回填 `default`**：`port: int default 80` 在 `[Endpoint]` 的元素里**不会**被填上 ——
+> 元素规格刻意不带 default（修饰符作用于字段整体）。元素里要写全，或把默认值写在该契约的
+> 每次调用处。
 
 ```sml
 @contract Endpoint { host: str port: int }

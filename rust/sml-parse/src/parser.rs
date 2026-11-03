@@ -733,16 +733,32 @@ impl Parser {
                         "num" => TypeSpec::Num,
                         "bool" => TypeSpec::Bool,
                         "any" => TypeSpec::Any,
-                        // 数组元素也接受外置类型（如 `[image]`）
+                        // `enum` 在**数组元素位置**仍不支持：JS 那边靠递归 `parseFieldSpec` 能认，
+                        // 本实现只吃单个词，硬塞会把它当成名为 `enum` 的契约（静默错树）。
+                        // 故显式拒绝并给准话（与 JS 的差异记在 E-CONTRACT-012 的 note 里）。
+                        "enum" => {
+                            return Err(SmlError::from_code_title(E_CONTRACT_012)
+                                .with_detail("数组元素位置不支持 `enum`；请改写成 `[str]` 并在契约层约束".to_string()))
+                        }
+                        // 非内置名按单值位置的同一套次序判定（见上面 `other =>` 分支）：
+                        //   1. `@type` 声明的模式类型
+                        //   2. 外置注册的类型（如 `[image]`）
+                        //   3. 回落为**契约引用** —— 即 `[契约名]`，数组元素逐项按该契约校验
                         other => {
-                            match self.contract_ext.type_arc(other) {
-                                Some(t) => {
-                                    ext_ty = Some(t);
-                                    TypeSpec::Ext(other.to_string())
+                            if let Some(pat) = self.types.get(other) {
+                                let compiled = sml_pattern::compile_rule(pat, &self.types).map_err(|e| {
+                                    SmlError::from_code_title(E_CONTRACT_013)
+                                        .with_detail(format!("类型 `{other}` 的模式编译失败：{e}"))
+                                })?;
+                                TypeSpec::Pattern {
+                                    name: other.to_string(),
+                                    pat: compiled,
                                 }
-                                None => {
-                                    return Err(SmlError::from_code_title(E_CONTRACT_012).with_detail(format!("`{other}`")))
-                                }
+                            } else if let Some(t) = self.contract_ext.type_arc(other) {
+                                ext_ty = Some(t);
+                                TypeSpec::Ext(other.to_string())
+                            } else {
+                                TypeSpec::ContractRef(other.to_string())
                             }
                         }
                     },

@@ -289,6 +289,52 @@ fn composition_nested_contract_checked() {
 }
 
 #[test]
+fn composition_array_of_contracts_validated_per_element() {
+    // `[契约名]`：数组元素**逐个**按被引用契约校验。
+    //
+    // 2026-11-03 起 Rust 侧支持：此前解析器在数组元素位置只认内置类型与外置类型，
+    // 非内置名一律报 `E-CONTRACT-012`（而 JS 因为递归 parseFieldSpec，天然支持）。
+    // 校验器一侧本来就是通用的（逐元素构造 FieldSpec 再递归），所以只改了解析。
+    // ⚠️ `port` 写成 optional：**数组元素不回溯填 default**（元素规格刻意不带 default，
+    // 见 `check_type` 里构造 elem 那段），所以必填字段必须逐元素写出来。
+    let v = ok(
+        "@contract Endpoint { host: str  port: int optional }
+         @contract Cluster { name: str  peers: [Endpoint] }
+         c { @is Cluster
+             name: edge
+             peers: [
+                 { host: a }
+                 { host: b  port: 8080 }
+             ]
+         }",
+    );
+    let peers = v
+        .get("c.peers")
+        .and_then(|x| x.as_array())
+        .expect("peers 应是数组");
+    assert_eq!(peers.len(), 2);
+    assert_eq!(peers[0].get("host").and_then(|x| x.as_str()), Some("a"));
+    assert_eq!(peers[1].get("port").and_then(|x| x.as_i64()), Some(8080));
+}
+
+#[test]
+fn composition_array_element_is_still_validated() {
+    // 元素不符合被引用契约时必须报错（不能因为「能解析」就跳过校验）
+    let e = err(
+        "@contract Endpoint { host: str }
+         @contract Cluster { peers: [Endpoint] }
+         c { @is Cluster
+             peers: [ { host: a } { } ]
+         }",
+    );
+    assert!(e.contains("peers"), "错误应指出字段路径，got: {e}");
+    assert!(
+        e.contains("E-CONTRACT-003") || e.contains("必填"),
+        "第二个元素缺 host，应报必填缺失，got: {e}"
+    );
+}
+
+#[test]
 fn composition_fills_nested_defaults() {
     let v = ok(
         "@contract Address { city: str  country: str default CN }
