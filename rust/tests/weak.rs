@@ -203,6 +203,110 @@ fn main_tree_is_byte_identical_with_or_without_weak_directives() {
 }
 
 // ---------------------------------------------------------------------------
+// 弱声明的**路径**：写在嵌套块里时，旁路表要记住它在树里的位置
+// ---------------------------------------------------------------------------
+
+#[test]
+fn weak_declarations_record_their_path() {
+    let out = parse_with(
+        &format!(
+            "{ON}outer {{\n  @weakdoc tls\n  @weakdata ui {{ theme: dark }}\n  @weakbind api\n  inner {{ a: 1 }}\n}}\n"
+        ),
+        ParseOptions::new(),
+    )
+    .unwrap();
+
+    for (label, path) in [
+        ("@weakdoc", format!("{:?}", out.weak_docs[0].path)),
+        ("@weakdata", format!("{:?}", out.weak_data[0].path)),
+        ("@weakbind", format!("{:?}", out.weak_binds[0].path)),
+    ] {
+        assert!(
+            path.contains("outer"),
+            "`{label}` 应记录所在块路径（含 outer），实际 {path}"
+        );
+    }
+    // weakbind 指向的是**下一个块**（inner），不是外层
+    assert!(
+        format!("{:?}", out.weak_binds[0].path).contains("inner"),
+        "目标应是紧邻的 inner 块：{:?}",
+        out.weak_binds[0].path
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 软校验的若干档（八档靠消息前缀区分，见 codes.sml E-PARSE-… 的 note）
+// ---------------------------------------------------------------------------
+
+/// 读回一份内置契约表：`tls { host: str; port: int optional }`。
+fn builtin_tls() -> std::collections::BTreeMap<String, sml::Contract> {
+    parse_with(
+        "@contract tls { host: str port: int optional }\n",
+        ParseOptions::new().capture_contracts(true),
+    )
+    .unwrap()
+    .contracts
+    .expect("应捕获到契约表")
+}
+
+#[test]
+fn soft_check_reports_missing_required_in_block() {
+    let out = parse_with(
+        &format!("{ON}@weakbind tls\nweb {{ port: 8080 }}\n"),
+        ParseOptions::new().builtin_contracts(builtin_tls()),
+    )
+    .unwrap();
+    let txt = format!("{:?}", out.diagnostics);
+    assert!(
+        txt.contains("block.missing_required"),
+        "缺必填字段应命中 block.missing_required：{txt}"
+    );
+}
+
+#[test]
+fn soft_check_reports_unknown_field_in_declaration() {
+    let out = parse_with(
+        &format!("{ON}@weakbind tls {{ nope: str }}\nweb {{ host: h }}\n"),
+        ParseOptions::new().builtin_contracts(builtin_tls()),
+    )
+    .unwrap();
+    let txt = format!("{:?}", out.diagnostics);
+    assert!(
+        txt.contains("decl.unknown_field"),
+        "声明里写契约没有的字段应命中 decl.unknown_field：{txt}"
+    );
+}
+
+#[test]
+fn soft_check_reports_unknown_contract() {
+    let out = parse_with(
+        &format!("{ON}@weakbind nosuch\nweb {{ host: h }}\n"),
+        ParseOptions::new().builtin_contracts(builtin_tls()),
+    )
+    .unwrap();
+    let txt = format!("{:?}", out.diagnostics);
+    assert!(
+        txt.contains("decl.unknown_contract"),
+        "内置表里没有的契约应命中 decl.unknown_contract：{txt}"
+    );
+}
+
+#[test]
+fn soft_check_is_skipped_when_builtin_table_is_empty() {
+    // 内置表为空时整段跳过 —— 否则弱绑定一落地，所有声明都会报 unknown_contract
+    let out = parse_with(
+        &format!("{ON}@weakbind nosuch\nweb {{ host: h }}\n"),
+        ParseOptions::new(),
+    )
+    .unwrap();
+    assert!(
+        out.diagnostics.is_empty(),
+        "没有内置表时不该产生弱绑定诊断：{:?}",
+        out.diagnostics
+    );
+}
+
+// ---------------------------------------------------------------------------
 // 门控：默认关
 // ---------------------------------------------------------------------------
 
