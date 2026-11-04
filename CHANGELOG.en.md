@@ -56,6 +56,26 @@ Editions are **not ordered**, so `Ord` is gone and the criterion is always "is t
 - ⚠️ The registry has no `Removed` row yet, so the branch is **not reachable** today (code and wiring
   are in place; adding a row activates it). `smltools --migrate` (V11) is not implemented yet.
 
+### Added — feature namespaces + the `type.featag` placeholder bit
+
+- `@feature enable <domain>.<name>` now works (`docs/feature-namespace-plan.md` N4):
+  `Feature::parse_name` validates the shape before the lookup — **split at the first dot only**,
+  three segments (`a.b.c`) are rejected outright; domains are a **closed whitelist**
+  `FEATURE_DOMAINS = ["lex","mod","type","flow"]` (N1), and an unknown domain is reported with it.
+- **Old names stay flat and get no aliases** (N2): `typed-block` still works, `type.typed-block`
+  does **not** (reported as "not registered") — two names for one feature would show up as two
+  spellings in diagnostics, `disable`, and the C-ABI echo.
+- All three failures share `E-FEATURE-003` and are told apart **by the detail text**
+  (three segments / unknown domain / not registered + the available list).
+- The rule now lives in **one place**: `@feature enable/disable/whitelist/blacklist`, the contract
+  `@requires`, and the C-ABI `opts.features` all go through it (was five copies).
+- **`type.featag` is reserved** (bit 18, opt-in, not in `baseline()`, not in any `Edition`'s feature
+  set): the bit and name are claimed now so S2 has a stable switch to attach to (bit order only grows).
+  ⚠️ **Enabling it changes nothing yet** — the featag grammar (S2) and `__featags` (S3) are unwritten.
+  This is "switch first, grammar next", not an omission.
+- ⚠️ Cross-end: `type.featag` is **Rust-only**; JS / Lua still report `E-FEATURE-003`
+  (the code's note says so).
+
 ### Added — value model: shared path syntax (featag S1a)
 
 - New module `sml_value::path`: `Path::parse` / `Seg` / `PathError` plus **`Value::get_path`**.
