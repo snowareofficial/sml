@@ -56,6 +56,23 @@ Editions are **not ordered**, so `Ord` is gone and the criterion is always "is t
 - ⚠️ The registry has no `Removed` row yet, so the branch is **not reachable** today (code and wiring
   are in place; adding a row activates it). `smltools --migrate` (V11) is not implemented yet.
 
+### Added — featag S3: `__featags` as an ordered array
+
+- With `@feature enable type.featag` the block head's `!` region now **becomes data**:
+  `wea !critical obey[1, 2], name { a: 1 }` →
+  `{ wea: { __featags: [ { name: "critical" }, { name: "obey", args: [1, 2] } ], __name: "name", __type: "wea", a: 1 } }`
+  - an **ordered array**, not a map: duplicates are allowed (`!a !a !b` ⇒ three items in order);
+  - a no-arg item carries only `name`; an explicit `[]` keeps an empty `args`
+    (`obey[]` and "no argument slot" are different things);
+  - arguments are real values (reusing the existing `parse_array` path) — no second, hand-written
+    token→Value mini-parser.
+- **`__args` is not reused**: that key means "barewords after the block name" (spec §3).
+- `__featags` is written **after** contract application, like `__type` / `__name` — it is syntax
+  metadata and must not be rejected by a strict contract as an undeclared field
+  (pinned by `featags_survive_a_strict_contract`).
+- ⚠️ **No declaration checking yet** (undeclared featags and wrong argument types pass) — that is S4/S5.
+- ⚠️ **Hand-written `__*` keys are still accepted**: rejecting them is a separate v5 item (§4.5 #3).
+
 ### Added — featag S2: block-head `!` region recognition
 
 - With `@feature enable type.featag`, the `!` region after the block head's first word is recognized:
@@ -66,8 +83,9 @@ Editions are **not ordered**, so `Ord` is gone and the criterion is always "is t
   - `E-PARSE-027` **`!` bareword in a value position** (`a: !b`) — **`bareword-string` does not exempt it**;
     quote it if you meant a string;
   - `E-PARSE-028` **`!`-prefixed name in a block head** (block-name position after `,`, or the type word).
-- **S2 recognizes only, it emits no data**: `__featags` is S3, so the resulting tree gains **no key**
-  (a test pins this so S2/S3 cannot silently merge).
+- **S2 recognizes only, it emits no data**: `__featags` is S3, so the tree after that round gained
+  **no key** (a test pins this so S2/S3 cannot silently merge). **S3 now emits the data — see the
+  section above.**
 - Look-ahead updated: with featag on, `bare_block_ahead` steps over `!name` / `name[…]` and the
   terminating comma — otherwise `wea !critical, name { }` reads as "key `wea` + value `!critical`"
   and misfires on B2 (first attempt did exactly that).
