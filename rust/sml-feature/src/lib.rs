@@ -119,6 +119,18 @@ pub enum Feature {
     ///
     /// 追加在 `CaseInsensitive` 之后以保位序稳定（C-ABI 位序绑定）。
     BlockName,
+    /// `!featag` 语法（`wea !critical obey[1,2] { }`）—— **第一个带域名**的特性。
+    ///
+    /// 文档里写作 `@feature enable type.featag`（`<域>.<名>`，最多两段，见
+    /// `docs/feature-namespace-plan.md` §3 / N4）。老特性一律保持平铺，**不给** `type.xxx` 别名（N2）。
+    ///
+    /// ⚠️ **当前状态：只有位，没有行为**。位已注册（默认关、不在 `baseline()`、不进任何
+    /// [`Edition`] 的功能集），解析器尚未实现 featag 语法 ⇒ 开启它**暂时不改变任何解析结果**
+    /// （S2 接块头语法、S3 落 `__featags`）。先占名字与位序，是为了让 S2 一落地就有稳定的开关可挂，
+    /// 且位序**只增不改**（C-ABI 位序绑定）。
+    ///
+    /// 追加在 `BlockName` 之后以保位序稳定（C-ABI 位序绑定，见 `feature_names` 守护用例）。
+    Featag,
 }
 
 /// All registered feature names, in [`FEATURES`] order (i.e. bit order) ｜ 返回全部已注册特性的名字，顺序与 [`FEATURES`]（即特性位序）一致。
@@ -147,12 +159,88 @@ pub static FEATURES: &[(&str, Feature)] = &[
     ("typed-block", Feature::TypedBlock),
     ("case-insensitive", Feature::CaseInsensitive),
     ("block-name", Feature::BlockName),
+    // ⚠️ 第一个**带域**的名字：`type.featag`。老名一律保持平铺（见 FEATURE_DOMAINS）。
+    ("type.featag", Feature::Featag),
 ];
+
+/// 特性名的**封闭域白名单**（`docs/feature-namespace-plan.md` §3，用户 2026-11-03 定死四个域）。
+///
+/// 规则（N1 / N2 / N4，都是定稿）：
+/// - **只有新增特性带域**，写作 `<域>.<名>`；老名保持平铺 —— 故判据很便宜：**名字里有点 = 新特性**；
+/// - **只在第一个点切一次**，三段及以上直接拒（用户要求「层数不能过多」）；
+/// - **不做别名**：不给 `type.contract` 这种第二名字（一个特性两个名字会让诊断、`disable`、
+///   C-ABI 回显出现「同一件事两种写法」）；
+/// - 新增域必须改这张表，不许随手分层。
+pub const FEATURE_DOMAINS: &[&str] = &["lex", "mod", "type", "flow"];
+
+/// 为什么一个特性名不被接受 ｜ why `@feature enable <name>` was rejected.
+///
+/// 与「特性未启用（`E-FEATURE-001`）」无关：这里全是**名字本身**的问题，报 `E-FEATURE-003`。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FeatureNameError {
+    /// 三段及以上（`a.b.c`）｜ more than two segments.
+    TooManySegments,
+    /// 域不在 [`FEATURE_DOMAINS`] 里（`foo.bar`）｜ unknown domain.
+    BadDomain { domain: String },
+    /// 形态合法，但注册表里没有（平名拼错，或对老特性用了 `type.xxx` 别名）｜ not registered.
+    Unknown,
+}
+
+impl fmt::Display for FeatureNameError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FeatureNameError::TooManySegments => {
+                write!(f, "特性名最多两段（`<域>.<名>`），不许三段")
+            }
+            FeatureNameError::BadDomain { domain } => write!(
+                f,
+                "未知域 `{domain}`（只允许 {}）",
+                FEATURE_DOMAINS.join(" / ")
+            ),
+            FeatureNameError::Unknown => write!(f, "未注册"),
+        }
+    }
+}
 
 impl Feature {
     /// Look a feature up by name; `None` for unknown names so callers can error instead of silently accepting a typo ｜ 按名字查特性；未知名字返回 None（调用方据此报错，杜绝静默 typo）。
     pub fn from_name(name: &str) -> Option<Feature> {
         FEATURES.iter().find(|(n, _)| *n == name).map(|(_, f)| *f)
+    }
+
+    /// Parse a feature name **with the namespace rule applied** ｜ 按命名空间规则解析特性名。
+    ///
+    /// 与 [`Feature::from_name`] 的分工：`from_name` 是**纯查表**（老调用方用它）；本函数先验形态
+    /// 再查表，把「三段名」「未知域」「拼错」三类失败分得开 —— 否则用户只会看到一句
+    /// 「未知特性」，改半天才发现是自己多写了一个点。
+    ///
+    /// ```
+    /// use sml_feature::{Feature, FeatureNameError};
+    /// assert_eq!(Feature::parse_name("typed-block"), Ok(Feature::TypedBlock));
+    /// assert_eq!(Feature::parse_name("type.featag"), Ok(Feature::Featag));
+    /// assert_eq!(Feature::parse_name("a.b.c"), Err(FeatureNameError::TooManySegments));
+    /// assert!(matches!(
+    ///     Feature::parse_name("foo.bar"),
+    ///     Err(FeatureNameError::BadDomain { .. })
+    /// ));
+    /// // 老特性**不补**带域别名（N2）：域合法，但名字没注册
+    /// assert_eq!(
+    ///     Feature::parse_name("type.typed-block"),
+    ///     Err(FeatureNameError::Unknown)
+    /// );
+    /// ```
+    pub fn parse_name(name: &str) -> Result<Feature, FeatureNameError> {
+        if let Some((domain, rest)) = name.split_once('.') {
+            if rest.contains('.') {
+                return Err(FeatureNameError::TooManySegments);
+            }
+            if !FEATURE_DOMAINS.contains(&domain) {
+                return Err(FeatureNameError::BadDomain {
+                    domain: domain.to_string(),
+                });
+            }
+        }
+        Feature::from_name(name).ok_or(FeatureNameError::Unknown)
     }
 
     /// Feature name as written in documents (for errors / round-trip echo) ｜ 特性名（用于报错 / 序列化回显）。
@@ -192,7 +280,7 @@ impl FeatureSet {
     /// 具体八项：`bareword-string` / `include` / `env` / `contract` / `fragment` /
     /// `top-level-array` / `namespace` / `implicit-ns`。
     /// 仅「多目标 / glob / 正则 / 扩展名重写 / when / for / typed-block / case-insensitive /
-    /// block-name」等高级能力需文档内 `@feature enable` 显式开启（避免重蹈 YAML 覆辙）。
+    /// block-name / type.featag」等高级能力需文档内 `@feature enable` 显式开启（避免重蹈 YAML 覆辙）。
     /// ⚠️ 早先的文档写「极简三件套」，与实现不符（`baseline` 实际有 8 位），2026-11-02 更正。
     ///
     /// `const` 是因为版本登记表 [`EDITIONS`] 要在静态初始化里为每一代**写死**它的功能集

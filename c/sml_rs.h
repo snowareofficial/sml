@@ -119,6 +119,10 @@ typedef struct sml_value sml_value;
 #define SML_F_TYPED_BLOCK   (1u << 14) /* 块级类型标注：`<契约名> <块名> { .. }` */
 #define SML_F_CASE_INSENSITIVE (1u << 15) /* 契约名查找首字母大小写不敏感 */
 #define SML_F_BLOCK_NAME    (1u << 16) /* 块级标注里"非契约词"可作块名 */
+/* 18th bit. 文档里写作 `type.featag`（第一个带域名，见 docs/feature-namespace-plan.md）。
+ * Only the Rust parser knows this name so far; C/C++/Lua reject it (E-FEATURE-003 / E-PARSE-005).
+ * Rust: bit is registered, grammar arrives in S2 -> enabling it changes nothing yet. */
+#define SML_F_FEATAG        (1u << 17)
 
 /* 常用组合 */
 #define SML_F_BASIC  (SML_F_BAREWORD_STR | SML_F_INCLUDE | SML_F_FRAGMENT)
