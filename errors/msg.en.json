@@ -55,6 +55,7 @@
   "E-FEATURE-007": { "title": "feature directive missing argument", "msg": "The `@feature` directive is missing an argument" },
   "E-FEATURE-008": { "title": "Invalid feature mode argument", "msg": "The `@feature mode` argument must be either whitelist or blacklist" },
   "E-FEATURE-009": { "title": "No overlap with allowed feature set", "msg": "The document's requested features have no overlap with the caller's allowed set" },
+  "E-FEATURE-010": { "title": "Edition has been removed", "msg": "This edition has been removed; upgrade the version declaration with the migration tool" },
   "E-INCLUDE-001": { "title": "include file missing or read failed", "msg": "include cannot locate or read the target file" },
   "E-INCLUDE-002": { "title": "include circular reference", "msg": "include circular reference" },
   "E-INCLUDE-003": { "title": "include out-of-bounds rejected", "msg": "The include target is outside the base directory; rejected" },

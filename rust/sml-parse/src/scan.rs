@@ -6,10 +6,11 @@
 //! 放进 `sml-feature` 会形成循环依赖。
 
 use sml_codes::{
-    E_FEATURE_003, E_FEATURE_004, E_FEATURE_006, E_FEATURE_007, E_FEATURE_008, SmlError,
+    E_FEATURE_003, E_FEATURE_004, E_FEATURE_006, E_FEATURE_007, E_FEATURE_008, E_FEATURE_010,
+    SmlError,
 };
 use sml_feature::{
-    edition_by_codename, Edition, EditionStatus, FEATURES, Feature, FeatureMode, FeatureSet, Version,
+    edition_by_codename, Edition, EditionStatus, FEATURES, Feature, FeatureMode, FeatureSet,
 };
 use sml_lex::{Tok, compute_string_spans, line_starts_in_string, tokenize};
 use sml_include::strip_line_comment;
@@ -25,14 +26,14 @@ pub fn tok_word(t: &Tok) -> String {
 /// If the line is a `@feature` directive, update `feats` per its `mode` / operation and return `true` ｜ 若该行是 `@feature` 声明，则更新 `feats` 并返回 true。
 ///
 /// 支持语法（均不区分大小写，参数以空格分隔）：
-/// - `@feature base v3`              设定基线版本（等价于 `@version`，仅用于特性派生）
+/// - `@feature base v3`              设定基线版本集（等价于 `@version`，仅用于特性派生）
 /// - `@feature mode whitelist`       后续 enable 仅保留所列（基集先**清空**）
 /// - `@feature mode blacklist`       后续 disable 仅移除所列（基集**全开**）
 ///
-/// 不写 `@feature mode` 时基集 = **按版本派生**（`FeatureSet::for_version(v)`，即
-/// 版本基线并按 v2+ 关掉「裸词字符串」），`enable` / `disable` 在其上增减 ——
-/// 即「版本基集 + 我显式改的那几个」，**显式声明优先于版本规则**。
-/// 版本在 `features_for` 里才可知（`@version` 先被剥掉），故基集的版本部分在那里补。
+/// 不写 `@feature mode` 时基集 = **按版本集查表**（`FeatureSet::for_edition(e)`，即
+/// `2.0` 起关掉「裸词字符串」），`enable` / `disable` 在其上增减 ——
+/// 即「该代的默认位 + 我显式改的那几个」，**显式声明优先于版本规则**。
+/// 版本集在 `features_for` 里才可知（`@version` 先被剥掉），故基集的版本部分在那里补。
 ///
 /// ⚠️ 这里改过一次语义：旧实现不写 mode 时基集起算是 `FeatureSet::all()`，于是文档里
 /// 出现**任何**一行 `@feature`（哪怕只写 `@feature enable typed-block`）都会让**全部
@@ -49,7 +50,7 @@ pub fn apply_feature_directive(
     line: &str,
     feats: &mut FeatureSet,
     mode: &mut FeatureMode,
-    base: &mut Option<Version>,
+    base: &mut Option<Edition>,
     touched: &mut FeatureSet,
 ) -> Result<bool, SmlError> {
     let content = strip_line_comment(line).trim();
@@ -89,14 +90,14 @@ pub fn apply_feature_directive(
     };
     match arg {
         "base" => {
-            let v = Version::from_word(words.get(2).map(|s| s.as_str()).unwrap_or(""))
-                .ok_or_else(|| {
-                    SmlError::from_code_title(E_FEATURE_004).with_detail(format!(
-                        "@feature base 需要 v1/v2/v3/v4，收到 `{}`",
-                        words.get(2).cloned().unwrap_or_default()
-                    ))
-                })?;
-            *feats = FeatureSet::for_version(v);
+            let word = words.get(2).map(|s| s.as_str()).unwrap_or("");
+            // 与 `@version` 共用同一个判据（`resolve_edition`）：字面量 / 代号 → 一代，
+            // 并检查状态。`@feature base` 没有 `dev` 槽位，故 Dev 代在这里必然报「须写 dev」。
+            let v = resolve_edition(Some(word), None, false, word).map_err(|e| {
+                // 起点是 `@feature base`，不是 `@version` —— 报错文案要指对地方。
+                e.suffix("（来自 `@feature base`）")
+            })?;
+            *feats = FeatureSet::for_edition(v);
             *base = Some(v);
             Ok(true)
         }
@@ -240,15 +241,15 @@ fn blank_of(s: &str) -> String {
 ///    「作者明确要求」分开，后者优先（喂给 `features_for`）；
 /// 4. `mode`：enable/disable 的语义模式（`Default` / `Whitelist` / `Blacklist` 三档，
 ///    只有 `@feature mode …` 能改）；
-/// 5. `base`：**仅**由 `@feature base v1..v4` 给出的基线版本（`@version` 不在这里，
-///    由调用方另行解析并在优先级上压过它），`None` ⇒ 调用方回落到 `V1`；
+/// 5. `base`：**仅**由 `@feature base` 给出的基线版本集（`@version` 不在这里，
+///    由调用方另行解析并在优先级上压过它），`None` ⇒ 调用方回落到 `1.0`；
 /// 6. `had`：是否**出现过**任何 `@feature` 行。
 ///
 /// 多行字符串内部形如 `@feature` 的文本不算指令（靠 `compute_string_spans` 判定），
 /// 否则 `note: "..."` 里写一行 `@feature enable x` 就能改掉整份文档的语义。
 pub fn strip_features(
     text: &str,
-) -> Result<(String, FeatureSet, FeatureSet, FeatureMode, Option<Version>, bool), SmlError> {
+) -> Result<(String, FeatureSet, FeatureSet, FeatureMode, Option<Edition>, bool), SmlError> {
     let mut out = String::new();
     // ⚡ **惰性求值**（IDEAS I-23 第二处）：`compute_string_spans` 是 O(n) 全文扫描，
     // 存在的唯一目的是回答「这个 `@` 是不是落在多行字符串里」。而**首字符不是 `@` 的行
@@ -263,7 +264,7 @@ pub fn strip_features(
     // 需要旧行为（基集全开）时，文档可显式声明 `@feature mode blacklist`。
     let mut feats = FeatureSet::baseline();
     let mut mode = FeatureMode::Default;
-    let mut base: Option<Version> = None;
+    let mut base: Option<Edition> = None;
     let mut had_feature = false;
     // 文档**显式**声明过（enable/disable 点过名）的特性。用于在 `features_for` 里把
     // 「基集（按版本派生）」与「文档显式增减」区分开 —— 显式声明优先于版本规则。
@@ -346,32 +347,52 @@ fn supported_edition_names() -> String {
         .join(", ")
 }
 
-/// 已发布版本集 → 旧 [`Version`] 枚举（迁移期桥接）｜ bridge to the legacy enum.
-fn legacy_version_of(e: Edition) -> Option<Version> {
-    match (e.major, e.minor) {
-        (1, 0) => Some(Version::V1),
-        (2, 0) => Some(Version::V2),
-        (3, 0) => Some(Version::V3),
-        (4, 0) => Some(Version::V4),
-        _ => None,
-    }
+/// 迁移规则的 id（`5.0` → `v50-version`）｜ migration rule id for one edition.
+///
+/// 与 `docs/version-naming.md` §4.5 的规则命名一致：`--rule v50-version` 就是「改 `@version` 行」那条。
+/// 规则登记处将来只有一处（V8 / §4.5 第 4 条），此处不另存表 —— 由代号的数字形式拼出来即可。
+pub fn migration_rule_id(e: Edition) -> String {
+    format!("v{}{}-version", e.major, e.minor)
 }
 
-/// 把三个槽位解析成一代版本，并检查 `dev` 标记是否合规 ｜ resolve slots to one edition, checking `dev`.
-fn resolve_version_decl(decl: &VersionDecl) -> Result<Edition, SmlError> {
+/// `E-FEATURE-010`：版本集**已被移除**（与「未知版本集」`E-FEATURE-004` 分开）｜ edition removed.
+///
+/// 为什么必须两个码：用户要能分清「我写错了」（004）和「我该迁移了」（010）。
+/// 文案固定带三样东西 —— 代号（人记得住）、规则 id（能直接 `--rule` 跑）、迁移命令。
+fn edition_removed(e: Edition) -> SmlError {
+    SmlError::from_code_title(E_FEATURE_010).with_detail(format!(
+        "版本集 `{}`（代号 `{}`）已被移除，不再接受；请运行 `smltools --migrate scan` 按规则 `{}` 升级文档",
+        e.name(),
+        e.codename().unwrap_or("-"),
+        migration_rule_id(e)
+    ))
+}
+
+/// 把「字面量 / 代号 + `dev` 标记」解析成一代版本集，并检查它的生命周期状态 ｜ resolve an edition.
+///
+/// **单一判据点**（`docs/version-naming.md` V10）：`@version` 与 `@feature base` 都走这里，
+/// 于是「哪些标识能认」「Dev 要不要写 `dev`」「Removed 报哪个码」只有一份实现。
+///
+/// 三态处理：
+/// - `Supported`：可用（写了 `dev` ⇒ 报错，因为发布版没有开发期）；
+/// - `Dev`：必须写 `dev`；定稿前**还没有功能集** ⇒ 明确报「尚未启用」；
+/// - `Removed`：**专用码** [`E_FEATURE_010`] + 迁移工具指引；
+/// - 未登记：`E-FEATURE-004`（「从未存在或写法不合法」）。
+fn resolve_edition(
+    literal: Option<&str>,
+    codename: Option<&str>,
+    dev: bool,
+    written: &str,
+) -> Result<Edition, SmlError> {
     // 1) 字面量 / 代号 → 一代
-    let by_literal = decl.literal.as_deref().and_then(Edition::parse);
-    let by_codename = decl
-        .codename
-        .as_deref()
-        .and_then(edition_by_codename)
-        .map(|r| r.edition);
+    let by_literal = literal.and_then(Edition::parse);
+    let by_codename = codename.and_then(edition_by_codename).map(|r| r.edition);
 
     let ed = match (by_literal, by_codename) {
         (Some(a), Some(b)) if a != b => {
             return Err(SmlError::from_code_title(E_FEATURE_004).with_detail(format!(
-                "`@version` 的代号与数字不指向同一代：`{}` vs `{}`",
-                decl.codename.clone().unwrap_or_default(),
+                "版本声明里的代号与数字不指向同一代：`{}` vs `{}`",
+                codename.unwrap_or_default(),
                 a.name()
             )))
         }
@@ -379,8 +400,8 @@ fn resolve_version_decl(decl: &VersionDecl) -> Result<Edition, SmlError> {
         (Some(a), Some(_)) => a,
         (None, None) => {
             return Err(SmlError::from_code_title(E_FEATURE_004).with_detail(format!(
-                "不支持的 SML 版本 `{}`（本实现支持 {}）",
-                decl.written(),
+                "不支持的 SML 版本集 `{}`（本实现支持 {}）",
+                written,
                 supported_edition_names()
             )))
         }
@@ -389,7 +410,7 @@ fn resolve_version_decl(decl: &VersionDecl) -> Result<Edition, SmlError> {
     // 2) 状态与 `dev` 标记
     match ed.status() {
         Some(EditionStatus::Supported) => {
-            if decl.dev {
+            if dev {
                 return Err(SmlError::from_code_title(E_FEATURE_004).with_detail(format!(
                     "`{}` 已是发布版本，不需要 `dev` 标记（去掉末尾的 `dev`）",
                     ed.name()
@@ -398,7 +419,7 @@ fn resolve_version_decl(decl: &VersionDecl) -> Result<Edition, SmlError> {
             Ok(ed)
         }
         Some(EditionStatus::Dev) => {
-            if !decl.dev {
+            if !dev {
                 return Err(SmlError::from_code_title(E_FEATURE_004).with_detail(format!(
                     "`{}` 尚未定稿，须显式写 `dev` 标记：`@version {} \"{}\" dev`",
                     ed.name(),
@@ -414,20 +435,23 @@ fn resolve_version_decl(decl: &VersionDecl) -> Result<Edition, SmlError> {
                 supported_edition_names()
             )))
         }
-        // ⚠️ TODO(S0c)：`Removed` 应有**独立错误码**（`docs/version-naming.md` V7），
-        // 并与「未知版本」区分开，文案直接指向 `smltools --migrate scan`。
-        // 当前登记表里还没有 Removed 行，此分支暂不可达。
-        Some(EditionStatus::Removed) => Err(SmlError::from_code_title(E_FEATURE_004)
-            .with_detail(format!(
-                "版本集 `{}` 已被移除，请运行 `smltools --migrate scan` 升级文档",
-                ed.name()
-            ))),
+        Some(EditionStatus::Removed) => Err(edition_removed(ed)),
         None => Err(SmlError::from_code_title(E_FEATURE_004).with_detail(format!(
-            "不支持的 SML 版本 `{}`（本实现支持 {}）",
-            decl.written(),
+            "不支持的 SML 版本集 `{}`（本实现支持 {}）",
+            written,
             supported_edition_names()
         ))),
     }
+}
+
+/// 三个槽位 → 一代版本集（`@version` 的入口，转发到 [`resolve_edition`]）｜ resolve `@version` slots.
+fn resolve_version_decl(decl: &VersionDecl) -> Result<Edition, SmlError> {
+    resolve_edition(
+        decl.literal.as_deref(),
+        decl.codename.as_deref(),
+        decl.dev,
+        &decl.written(),
+    )
 }
 
 /// If the line is a `@version` directive, return its slots; otherwise `None` ｜ 若该行是 `@version` 声明，返回三个槽位；否则 None。
@@ -499,7 +523,7 @@ pub fn version_directive(line: &str) -> Result<Option<VersionDecl>, SmlError> {
 ///
 /// 允许多次声明（include 进来的文件可各自声明），但必须一致；
 /// 声明了实现不支持的版本时报错，避免静默按错误语法解析。
-pub fn strip_version(text: &str) -> Result<(String, Option<Version>), SmlError> {
+pub fn strip_version(text: &str) -> Result<(String, Option<Edition>), SmlError> {
     // —— 文件级规范化：去掉开头的 **UTF-8 BOM**（U+FEFF）——
     //
     // 为什么放这里：本函数是**所有文本入口**（`parse` / `parse_with` / `parse_versioned` /
@@ -526,7 +550,7 @@ pub fn strip_version(text: &str) -> Result<(String, Option<Version>), SmlError> 
     };
     // ⚡ 惰性求值（同 `strip_features`）：只有首字符是 `@` 的行才可能是指令
     let mut spans: Option<Vec<(usize, usize)>> = None;
-    let mut declared: Option<Version> = None;
+    let mut declared: Option<Edition> = None;
     let mut rest = String::new();
     for (line_start, line_end) in line_spans(text) {
         let raw = &text[line_start..line_end];
@@ -542,17 +566,11 @@ pub fn strip_version(text: &str) -> Result<(String, Option<Version>), SmlError> 
         if is_directive {
             let decl = version_directive(line)?.unwrap();
             let ed = resolve_version_decl(&decl)?;
-            // 迁移期桥接：已发布版本集都还在旧枚举里有对应值；
-            // Dev / Removed 走不到这里（`resolve_version_decl` 已先行报错）。
-            let v = legacy_version_of(ed).ok_or_else(|| {
-                SmlError::from_code_title(E_FEATURE_004)
-                    .with_detail(format!("版本集 `{}` 尚无对应的旧版本枚举", ed.name()))
-            })?;
             match declared {
-                None => declared = Some(v),
-                Some(prev) if prev != v => {
+                None => declared = Some(ed),
+                Some(prev) if prev != ed => {
                     return Err(SmlError::from_code_title(E_FEATURE_004)
-                        .with_detail(format!("@version 冲突：{} 与 {}", prev.name(), v.name())))
+                        .with_detail(format!("@version 冲突：{} 与 {}", prev.name(), ed.name())))
                 }
                 Some(_) => {}
             }
@@ -570,32 +588,33 @@ pub fn strip_version(text: &str) -> Result<(String, Option<Version>), SmlError> 
     Ok((rest, declared))
 }
 
-/// Merge the declared version with the document's `@feature` directives into the effective feature set ｜ 把版本与文档 `@feature` 指令合并为最终生效的特性集。
+/// Merge the declared edition with the document's `@feature` directives into the effective feature set ｜ 把版本集与文档 `@feature` 指令合并为最终生效的特性集。
 ///
 /// 规则：
 /// - 若文档显式声明过 `@feature`（had_feature=true），则完全采用其推导的 `feats`；
-/// - 否则（仅靠 `@version` 声明或默认），从版本基线派生（如 v3 关闭裸词字符串）。
+/// - 否则（仅靠 `@version` 声明或默认），取该代版本的**默认功能集**
+///   （[`FeatureSet::for_edition`] 查表：`2.0` 起不含 `bareword-string`）。
 /// 这样 v3 文档即使不写任何 `@feature` 也默认严格；调用方的 `allowed` 在
 /// 入口处再与结果取交集，文档无法扩宽。
 pub fn features_for(
-    v: Version,
+    e: Edition,
     feats: FeatureSet,
     touched: FeatureSet,
     mode: FeatureMode,
     had_feature: bool,
 ) -> FeatureSet {
     if !had_feature {
-        return FeatureSet::for_version(v);
+        return FeatureSet::for_edition(e);
     }
     match mode {
-        // 默认：**基集按版本派生**（`for_version(v)`）。`feats` 起算是 `baseline()`，
+        // 默认：**基集按版本集查表**（`for_edition(e)`）。`feats` 起算是 `baseline()`，
         // 与版本基线的差异只有「裸词字符串」这一项，这里补上；文档显式声明过该项时
         // 以文档为准（显式优先于版本规则）。
         FeatureMode::Default => {
             if touched.has(Feature::BarewordStr) {
                 return feats;
             }
-            if v.strict_strings() {
+            if e.strict_strings() {
                 feats.without(Feature::BarewordStr)
             } else {
                 feats.with(Feature::BarewordStr)
@@ -692,5 +711,53 @@ mod tests {
         assert_eq!(rest.len(), src.len());
         let (toks, _) = tokenize_spans(&rest).unwrap();
         assert_eq!(toks[0], Tok::Word("x".into()), "BOM 不得混进键名");
+    }
+
+    // =======================================================================
+    // S0c：`Removed` 专用码 + 「单一判据点」`resolve_edition`
+    // =======================================================================
+
+    /// `Removed` 必须用**专用码**（`E-FEATURE-010`），文案带代号 + 迁移规则 id。
+    ///
+    /// ⚠️ 登记表里现在还没有 `Removed` 行 ⇒ 只能直接测构造函数。加一行即接上，
+    /// 这条用例同时钉住「码与文案长什么样」，防止将来接分支时又复用 004。
+    #[test]
+    fn removed_edition_has_its_own_code() {
+        let e = edition_removed(Edition::new(5, 0));
+        assert_eq!(e.code(), E_FEATURE_010, "Removed 不能复用 E-FEATURE-004");
+        let msg = format!("{e}");
+        assert!(msg.contains("camelia"), "文案应带代号：{msg}");
+        assert!(msg.contains("v50-version"), "文案应带迁移规则 id：{msg}");
+        assert!(msg.contains("--migrate scan"), "文案应给迁移命令：{msg}");
+    }
+
+    /// 「从未存在」与「已被移除」是**两个码** —— 这是本轮最核心的一条区分。
+    #[test]
+    fn unknown_edition_stays_on_004() {
+        let e = resolve_edition(Some("99"), None, false, "99").unwrap_err();
+        assert_eq!(e.code(), E_FEATURE_004);
+        assert!(format!("{e}").contains("不支持"), "{e}");
+    }
+
+    /// `@feature base` 与 `@version` 共用一个判据点 ⇒ Dev 代在这里同样要求 `dev`。
+    #[test]
+    fn feature_base_uses_the_same_edition_gate() {
+        // 已发布代：正常
+        let (_, _, _, _, base, _) = strip_features("@feature base 30\nx: 1\n").unwrap();
+        assert_eq!(base, Some(Edition::new(3, 0)));
+        // Dev 代：没有 `dev` 槽位可选 ⇒ 必须报「须显式写 dev」
+        let e = strip_features("@feature base 50\nx: 1\n").unwrap_err();
+        assert_eq!(e.code(), E_FEATURE_004);
+        assert!(format!("{e}").contains("dev"), "{e}");
+    }
+
+    /// 3.0/4.0 的默认功能集照旧关掉裸词字符串（查表路径不能比旧 `>=` 判据更松）。
+    #[test]
+    fn edition_table_drives_strictness() {
+        let (_, _, _, _, base, _) = strip_features("x: 1\n").unwrap();
+        assert_eq!(base, None);
+        assert!(!Edition::V1.strict_strings());
+        assert!(Edition::V3.strict_strings());
+        assert!(Edition::new(5, 0).strict_strings(), "5.0 也已是引号严格");
     }
 }

@@ -1,77 +1,19 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! SML version & feature system — a **pure data layer**, no dependency on lexing. ｜ SML 版本与特性系统 —— **纯数据层**，不依赖词法。
+//! SML edition & feature system — a **pure data layer**, no dependency on lexing. ｜ SML 版本集与特性系统 —— **纯数据层**，不依赖词法。
 //!
 //! Defines exactly three things: ｜ 只定义三件事：
-//! - [`Version`] — grammar version (`v1`..`v4`); ｜ 语法版本；
+//! - [`Edition`] — 版本集（`1.0`..`4.0` 已发布、`5.0` 开发中）；旧名 [`Version`] 保留为**类型别名**；
 //! - [`Feature`] / [`FeatureSet`] — capability bits and bitmask sets; ｜ 能力位与位掩码集合；
-//! - `FEATURES` / `feature_names` — the name ↔ bit registry. ｜ 名字 ↔ 位的注册表。
+//! - [`FEATURES`] / [`EDITIONS`] — 特性表与版本登记表（一行同时承载数字 / 代号 / 状态 / **功能集**）。
+//!
+//! ⚠️ **版本之间没有大小关系**（`docs/version-naming.md` v1.0）：版本号只是「一整套默认特性位」的名字，
+//! 判据永远是「这个特性在不在这套功能集里」，所以本类型**不实现 `Ord`**。
 //!
 //! 刻意**不**包含 `@version`/`@feature` 的**扫描**：那部分需要 `Tok`
 //! （在 `sml-lex`），若放进来会形成 feature → lex → feature 的循环依赖，
 //! 故置于 `sml-parse::scan`。
 
 use std::fmt;
-
-/// SML syntax version ｜ SML 语法版本。
-///
-/// SML 源于 eclog，演进中通过 `@version` 声明文档遵循的语法版本，
-/// 使解析器能在将来引入 v2 不兼容语法时仍正确读取旧文档。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Version {
-    /// v1：初始公开版本。字符串可裸写（`name: John`），自动识别类型。
-    V1,
-    /// v2：草案版，引入「字符串必须显式引号」的不兼容语法（与 v3 同语义）。
-    V2,
-    /// v3：正式版。取消自动字符串无引号，自由文本必须写作 `"..."`；
-    ///     数字 / bool / null / 片段引用 `&x` / 环境变量 `$env.X` 仍为裸词。
-    V3,
-    /// v4：片段定义的 `type` / `name` 参数改为**显式**关键字形式：
-    ///     `@f type: Server name: prod { .. }`；
-    ///     废弃 v3 的位置参数形式（`@f Server prod { .. }`）。
-    ///
-    /// 动机：位置参数使「拼错的指令 `@nosuch Word { .. }`」与
-    /// 「片段定义 + type 参数」在 token 流上完全同形，无法判别，
-    /// 导致块被当作片段体消费、内容静默丢失且不报错。
-    /// 语法与 v3 其余部分完全兼容（字符串引号、标量裸词等规则不变）。
-    V4,
-}
-
-impl Version {
-    /// Newest version this implementation supports ｜ 当前实现支持的最新版本。
-    pub const CURRENT: Version = Version::V4;
-
-    /// Whether strings must be explicitly quoted (`v2` onward; `v1` is the relaxed one) ｜ 是否要求字符串显式引号（v2 起为严格模式）。
-    pub fn strict_strings(self) -> bool {
-        self >= Version::V2
-    }
-
-    /// Parse a version literal: `v1`/`1` … `v4`/`4`; anything else is `None` ｜ 解析版本字面量（`v1`/`1`、`v2`/`2`、`v3`/`3`、`v4`/`4`）。
-    pub fn from_word(w: &str) -> Option<Version> {
-        match w {
-            "v1" | "1" => Some(Version::V1),
-            "v2" | "2" => Some(Version::V2),
-            "v3" | "3" => Some(Version::V3),
-            "v4" | "4" => Some(Version::V4),
-            _ => None,
-        }
-    }
-
-    /// Version name, i.e. `"v1"`…`"v4"` (for error messages / round-trip echo) ｜ 版本名（用于错误信息与序列化回显）。
-    pub fn name(self) -> &'static str {
-        match self {
-            Version::V1 => "v1",
-            Version::V2 => "v2",
-            Version::V3 => "v3",
-            Version::V4 => "v4",
-        }
-    }
-}
-
-impl fmt::Display for Version {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.name())
-    }
-}
 
 // ===========================================================================
 // 特性集 (FeatureSet)
@@ -252,7 +194,10 @@ impl FeatureSet {
     /// 仅「多目标 / glob / 正则 / 扩展名重写 / when / for / typed-block / case-insensitive /
     /// block-name」等高级能力需文档内 `@feature enable` 显式开启（避免重蹈 YAML 覆辙）。
     /// ⚠️ 早先的文档写「极简三件套」，与实现不符（`baseline` 实际有 8 位），2026-11-02 更正。
-    pub fn baseline() -> FeatureSet {
+    ///
+    /// `const` 是因为版本登记表 [`EDITIONS`] 要在静态初始化里为每一代**写死**它的功能集
+    /// （「版本 = 功能集」，见 `docs/version-naming.md` §2）。
+    pub const fn baseline() -> FeatureSet {
         FeatureSet::none()
             .with(Feature::BarewordStr)
             .with(Feature::Include)
@@ -265,38 +210,37 @@ impl FeatureSet {
     }
 
     /// The empty set — every feature off ｜ 空集合（所有特性都关）。
-    pub fn none() -> FeatureSet {
+    pub const fn none() -> FeatureSet {
         FeatureSet(0)
     }
 
-    /// Build the default feature set for a version: [`FeatureSet::baseline`] plus/minus bareword strings ｜ 按版本基线构造默认特性集。
+    /// The default feature set of one edition — **a table lookup**, not a comparison ｜ 某一代版本的默认特性集（**查表**，不做大小比较）。
     ///
-    /// 具体：`v1` = baseline + 裸词字符串；`v2` 起关闭裸词字符串（须引号）。
-    /// 复杂能力（glob / regex / multi…）仍默认关闭，需文档 `@feature enable` 显式开启。
-    pub fn for_version(v: Version) -> FeatureSet {
-        let mut s = FeatureSet::baseline();
-        // 严格模式（v2/v3）关闭裸词字符串；非严格（v1）开启。
-        // 显式设置该位，确保与 baseline 默认值无关。
-        if v.strict_strings() {
-            s = s.without(Feature::BarewordStr);
-        } else {
-            s = s.with(Feature::BarewordStr);
-        }
-        s
+    /// 数据来源是 [`EDITIONS`] 每一行的 `features` 字段（「版本 = 功能集」，单一事实来源）。
+    /// 未登记的标识回落到 [`FeatureSet::baseline`] —— 调用方通常会在更早的地方
+    /// （`sml-parse::scan` 的 `resolve_edition`）先报「未知版本集」，走不到这里。
+    ///
+    /// ```ignore
+    /// // 1.0 允许裸词字符串；2.0 起要求显式引号
+    /// assert!(FeatureSet::for_edition(Edition::new(1, 0)).has(Feature::BarewordStr));
+    /// assert!(!FeatureSet::for_edition(Edition::new(3, 0)).has(Feature::BarewordStr));
+    /// ```
+    pub fn for_edition(e: Edition) -> FeatureSet {
+        e.row().map(|r| r.features).unwrap_or_else(FeatureSet::baseline)
     }
 
     /// Whether feature `f` is enabled ｜ 是否包含某特性。
-    pub fn has(self, f: Feature) -> bool {
+    pub const fn has(self, f: Feature) -> bool {
         (self.0 & (1 << (f as u8))) != 0
     }
 
     /// Copy with `f` turned **on** (takes self by value; `FeatureSet` is `Copy`) ｜ 返回开启 `f` 后的副本。
-    pub fn with(self, f: Feature) -> FeatureSet {
+    pub const fn with(self, f: Feature) -> FeatureSet {
         FeatureSet(self.0 | (1 << (f as u8)))
     }
 
     /// Copy with `f` turned **off** ｜ 返回关闭 `f` 后的副本。
-    pub fn without(self, f: Feature) -> FeatureSet {
+    pub const fn without(self, f: Feature) -> FeatureSet {
         FeatureSet(self.0 & !(1 << (f as u8)))
     }
 
@@ -344,8 +288,8 @@ pub enum FeatureMode {
 // 设计：版本之间**没有大小关系**，判据是「这个特性在不在这套集合里」。
 // 见 `docs/version-naming.md`（v1.0 定稿）。
 //
-// ⚠️ 本段是**纯加法**：既有的 [`Version`] 枚举与 `for_version` 一律不动，
-// 供解析层逐步切换（切片 S0a）。等解析层切完再删 `Version`。
+// 一行 = { 数字, 代号, 状态, **功能集** }（单一事实来源）：
+// 代号映射与默认特性位同处登记，不可能漂。
 // ===========================================================================
 
 /// 一代版本集的状态 ｜ lifecycle status of one edition.
@@ -362,30 +306,64 @@ pub enum EditionStatus {
 
 /// 一代版本：[大版本].[小版本] ｜ one edition, identified by `major.minor`.
 ///
-/// 数字只是**名字**的一部分，不表示大小关系（不做 `>=` 比较）。
+/// 数字只是**名字**的一部分，不表示大小关系（不实现 `Ord`、不做 `>=` 比较）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Edition {
     pub major: u16,
     pub minor: u16,
 }
 
-/// 版本登记表的一行：数字 + 代号 + 状态 ｜ one row of the edition registry.
+/// 版本登记表的一行：数字 + 代号 + 状态 + **功能集** ｜ one row of the edition registry.
 pub struct EditionRow {
     pub edition: Edition,
     /// 开发代号（如 `camelia`）；与数字**永久双向映射**。
     pub codename: Option<&'static str>,
     pub status: EditionStatus,
+    /// 这一代的**默认特性集**（「版本 = 功能集」）。`Removed` 行留空即可 ——
+    /// 该代根本走不到求特性集那一步（先在 `resolve_edition` 里报错）。
+    pub features: FeatureSet,
 }
 
 /// 已登记的全部版本集（顺序即「代」的顺序，不参与比较）｜ the edition registry.
 ///
-/// ⚠️ 新增一行即可；**不许改既有行的数字或代号**（已发布版本永久兼容）。
+/// ⚠️ 新增一行即可；**不许改既有行的数字、代号或功能集**（已发布版本永久兼容）。
+///
+/// | 代 | 别名 | 默认差异 |
+/// |---|---|---|
+/// | `1.0` | `v1` / `1` / `10` | 允许裸词字符串 |
+/// | `2.0` / `3.0` / `4.0` | `vN` / `N` / `N0` | 关掉裸词字符串（须引号）；三者特性位相同，差异在语法层 |
+/// | `5.0`（`camelia`，Dev） | `v5` / `50` / `5.0` | 同上；开发期新能力一律 opt-in，定稿才固化进来 |
 pub static EDITIONS: &[EditionRow] = &[
-    EditionRow { edition: Edition { major: 1, minor: 0 }, codename: None, status: EditionStatus::Supported },
-    EditionRow { edition: Edition { major: 2, minor: 0 }, codename: None, status: EditionStatus::Supported },
-    EditionRow { edition: Edition { major: 3, minor: 0 }, codename: None, status: EditionStatus::Supported },
-    EditionRow { edition: Edition { major: 4, minor: 0 }, codename: None, status: EditionStatus::Supported },
-    EditionRow { edition: Edition { major: 5, minor: 0 }, codename: Some("camelia"), status: EditionStatus::Dev },
+    EditionRow {
+        edition: Edition::V1,
+        codename: None,
+        status: EditionStatus::Supported,
+        features: FeatureSet::baseline(),
+    },
+    EditionRow {
+        edition: Edition::V2,
+        codename: None,
+        status: EditionStatus::Supported,
+        features: FeatureSet::baseline().without(Feature::BarewordStr),
+    },
+    EditionRow {
+        edition: Edition::V3,
+        codename: None,
+        status: EditionStatus::Supported,
+        features: FeatureSet::baseline().without(Feature::BarewordStr),
+    },
+    EditionRow {
+        edition: Edition::V4,
+        codename: None,
+        status: EditionStatus::Supported,
+        features: FeatureSet::baseline().without(Feature::BarewordStr),
+    },
+    EditionRow {
+        edition: Edition::new(5, 0),
+        codename: Some("camelia"),
+        status: EditionStatus::Dev,
+        features: FeatureSet::baseline().without(Feature::BarewordStr),
+    },
 ];
 
 impl Edition {
@@ -393,6 +371,23 @@ impl Edition {
     pub const fn new(major: u16, minor: u16) -> Self {
         Self { major, minor }
     }
+
+    /// 旧枚举项保留为**常量**：`Version::V1` ⇔ `Edition::V1` ⇔ `1.0` ｜ legacy names as constants.
+    ///
+    /// 只做命名（便于旧代码与教程继续写 `Version::V1`），**不带任何序关系** ——
+    /// 版本之间不可比较，判据永远查 [`FeatureSet::for_edition`]。
+    pub const V1: Edition = Edition::new(1, 0);
+    /// 见 [`Edition::V1`]；`2.0` 起要求字符串显式引号。
+    pub const V2: Edition = Edition::new(2, 0);
+    /// 见 [`Edition::V1`]；与 `2.0` 特性位相同，差异在语法层。
+    pub const V3: Edition = Edition::new(3, 0);
+    /// 见 [`Edition::V1`]；片段定义改显式 `type:` / `name:` 参数。
+    pub const V4: Edition = Edition::new(4, 0);
+
+    /// 最新**已发布**的代（`4.0`）—— 注意**不是**表里最新的那行：`5.0` 还在 Dev。
+    ///
+    /// 保留这个常量只为不打断既有调用方；新代码请直接写 [`Edition::V4`] 或具体数字。
+    pub const CURRENT: Edition = Edition::V4;
 
     /// 解析版本字面量 ｜ parse a version literal.
     ///
@@ -463,16 +458,19 @@ impl Edition {
         self.status() == Some(EditionStatus::Supported)
     }
 
-    /// 从 [`Version`] 旧枚举转过来（迁移期用）｜ conversion from the legacy enum.
-    pub fn from_version(v: Version) -> Edition {
-        match v {
-            Version::V1 => Edition::new(1, 0),
-            Version::V2 => Edition::new(2, 0),
-            Version::V3 => Edition::new(3, 0),
-            Version::V4 => Edition::new(4, 0),
-        }
+    /// 是否要求字符串显式引号 ｜ whether strings must be quoted.
+    ///
+    /// **查表判据**：`true` ⇔ 该代默认功能集里**不含** `bareword-string`。
+    /// 旧实现是 `self >= Version::V2` —— 版本之间没有大小关系，那种比较必须消失。
+    pub fn strict_strings(&self) -> bool {
+        !FeatureSet::for_edition(*self).has(Feature::BarewordStr)
     }
 }
+
+/// 旧名字：`Version` 是 [`Edition`] 的**类型别名**（改名零破坏，见 `docs/version-naming.md` V1）。
+///
+/// 保留它是因为「语法版本」这个词已经写进大量教程与文档；代码侧两者完全同一类型。
+pub use Edition as Version;
 
 /// 按代号查登记行（`"camelia"` → 5.0）｜ look an edition up by codename.
 pub fn edition_by_codename(name: &str) -> Option<&'static EditionRow> {
@@ -542,9 +540,30 @@ mod edition_tests {
     }
 
     #[test]
-    fn legacy_version_converts() {
-        assert_eq!(Edition::from_version(Version::V4), Edition::new(4, 0));
-        assert_eq!(Edition::from_version(Version::V1), Edition::new(1, 0));
+    fn legacy_name_is_the_same_type() {
+        // `Version` 只是别名 ⇒ 两边可以互相赋值、常量同名同值
+        let v: Version = Edition::V4;
+        assert_eq!(v, Edition::new(4, 0));
+        assert_eq!(Version::V1, Edition::new(1, 0));
+        assert_eq!(Version::CURRENT, Edition::V4);
+    }
+
+    #[test]
+    fn feature_set_comes_from_the_registry_row() {
+        // 1.0 允许裸词；2.0 起要求引号；5.0（Dev）与 2.0–4.0 同特性位
+        assert!(FeatureSet::for_edition(Edition::V1).has(Feature::BarewordStr));
+        for e in [Edition::V2, Edition::V3, Edition::V4, Edition::new(5, 0)] {
+            assert!(
+                !FeatureSet::for_edition(e).has(Feature::BarewordStr),
+                "{} 应关闭裸词字符串",
+                e
+            );
+        }
+        // 未登记 ⇒ 回落 baseline（调用方通常更早报「未知版本集」）
+        assert_eq!(FeatureSet::for_edition(Edition::new(9, 9)), FeatureSet::baseline());
+        // 严格性判据改成查表，不再是 `>=`
+        assert!(!Edition::V1.strict_strings());
+        assert!(Edition::V3.strict_strings());
     }
 
     #[test]

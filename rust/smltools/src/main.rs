@@ -24,7 +24,7 @@
 //! 可直接被 `hugo` 收录。
 //!
 //! 注：这里曾写「以 `@feature base` 指定的名称落盘」，与实现不符 ——
-//! `@feature base` 只声明基准版本（v1..v4），承载不了名字；落盘名实际来自
+//! `@feature base` 只声明基准版本集（`10` / `1.0` / `v1` …），承载不了名字；落盘名实际来自
 //! 上面的推断链（见 `infer_title`）。
 //!
 //! 退出码：0 成功；1 解析/翻译失败；2 参数/IO 错误。
@@ -39,7 +39,7 @@ use sml::emit::{
 };
 use clap::Parser;
 // `to_sml` 不再直接调用：SML 输出走带检查的 `sml::to_sml_checked`（W16，见 emit()）
-use sml::{Map, parse, Feature, FeatureSet, Value, Version};
+use sml::{Edition, Map, parse, Feature, FeatureSet, Value};
 // ⚠️ `E_INCLUDE_001/004/012` **不再由本 crate 抛出**：include 展开已统一交给库的
 // `sml::parse_file`（原先那份 CLI 自有的行级预处理已删除），这些码由 `sml-include` 带出。
 use sml_codes::{
@@ -288,7 +288,7 @@ struct Cli {
     #[arg(long = "lint")]
     lint: bool,
 
-    /// 显式声明解析版本（v1..v4）；缺省按文档声明或 V4
+    /// 显式声明解析版本集（1.0..4.0，即 v1..v4）；缺省按文档自身的 `@version`
     #[arg(long = "feature")]
     feature: Option<String>,
 
@@ -458,7 +458,7 @@ struct Args {
     input_format: InputFormat,
     strip: bool,
     lint: bool,
-    feature: Option<Version>,
+    feature: Option<Edition>,
     hugo: Option<PathBuf>,
     hugo_lang: Option<String>,
     hugo_section: String,
@@ -483,18 +483,15 @@ fn parse_args(cli: Cli) -> Result<Args, SmlError> {
     let feature = match cli.feature.as_deref() {
         None => None,
         Some(v) => {
-            let ver = match v {
-                "v1" | "1" => Version::V1,
-                "v2" | "2" => Version::V2,
-                "v3" | "3" => Version::V3,
-                "v4" | "4" => Version::V4,
+            // 与语言层**同一套字面量**（`10` / `1.0` / `v1` …）：解析器认什么，CLI 就认什么。
+            // 只接受**已发布**的版本集 —— Dev 代（`50 "camelia" dev`）在命令行没有 `dev` 槽位，
+            // 收下它等于悄悄拿一套未定稿的功能集去门控文档。
+            let ed = Edition::parse(v).filter(|e| e.is_supported()).ok_or_else(|| {
                 // E-FEATURE-004：命令行传入非法版本名归此码（不是新的语言错误）。
-                _ => {
-                    return Err(SmlError::from_code_title(E_FEATURE_004)
-                        .with_detail(format!("`{v}`（v1..v4）")))
-                }
-            };
-            Some(ver)
+                SmlError::from_code_title(E_FEATURE_004)
+                    .with_detail(format!("`{v}`（1.0..4.0，即 v1..v4）"))
+            })?;
+            Some(ed)
         }
     };
     Ok(Args {
@@ -558,29 +555,28 @@ fn read_input(input: &Option<PathBuf>) -> Result<String, SmlError> {
     }
 }
 
-/// 把 CLI 声明的特性版本折算成「调用方允许特性集」，用于真正的版本门控。
+/// 把 CLI 声明的版本集折算成「调用方允许特性集」，用于真正的版本门控。
 ///
-/// 门控只动 `BarewordStr` 一位：`Version::strict_strings` 为真（v2 及以上）时关闭裸词
-/// 字符串，要求显式引号；v1 则允许裸词即字符串。其余能力（glob / regex / multi-include …）
-/// 仍沿用全集、由文档 `@feature enable` 自行决定，避免 `--feature` 顺手砍掉与版本无关的高级能力。
+/// 门控只动 `BarewordStr` 一位，且**判据是查表**（`FeatureSet::for_edition(e)` 里有没有
+/// `bareword-string`）：有 ⇒ 允许裸词即字符串；没有（`2.0` 起）⇒ 要求显式引号。
+/// 其余能力（glob / regex / multi-include …）仍沿用全集、由文档 `@feature enable` 自行决定，
+/// 避免 `--feature` 顺手砍掉与版本无关的高级能力。
 ///
 /// ⚠️ **已知缺口（两条，登记在 TODO.md 排雷区）**：
-/// 1. **这里只折算了一处版本差异，而 `Version` 的文档里有两处** —— 第二处是
-///    v3/v4 的片段定义参数形式（v4 起废弃 `@f Server prod { }` 的位置参数，
-///    改显式 `type:` / `name:`）。解析器的实际实现（`sml-parse/src/parser.rs:289-324`）
-///    是「两种写法都收 + 位置参数给弃用诊断」，**没有做版本门控**
-///    ⇒ 声明 `--feature v3` 时这一处仍按 v4 处理，故 `parse_with` 会就此给出
+/// 1. **这里只折算了一处版本差异** —— 另一处是 `3.0`/`4.0` 的片段定义参数形式
+///    （`4.0` 起废弃 `@f Server prod { }` 的位置参数，改显式 `type:` / `name:`）。
+///    解析器实际是「两种写法都收 + 位置参数给弃用诊断」，**没有做版本门控**
+///    ⇒ 声明 `--feature v3` 时这一处仍按 `4.0` 处理，故 `parse_with` 会就此给出
 ///    `I-FEATURE-001` 信息提示（见下方）。
-/// 2. **与库存在重复实现**：库里已有 `FeatureSet::for_version(v)`（`sml-feature/src/lib.rs:268`）。
-///    但它的基线是 `FeatureSet::baseline()`，本函数用的是 `FeatureSet::all()` ——
-///    直接换过去会改变「文档 `@feature enable` 能开启哪些能力」的口径（all ∩ 文档
-///    允许集 ≠ baseline ∩ 文档允许集），属**行为变更**，故本轮**不擅自替换**，
-///    只在此钉住同步点：库改版本语义时，这里必须跟着改。
-fn allowed_for_version(v: Version) -> FeatureSet {
-    if v.strict_strings() {
-        FeatureSet::all().without(Feature::BarewordStr)
-    } else {
+/// 2. **为什么不用 `for_edition` 作为允许集**：它的基线是 `FeatureSet::baseline()`，
+///    而 CLI 的允许集必须是 `FeatureSet::all()` —— 直接换过去会把「文档 `@feature enable`
+///    能开启哪些能力」的口径从 all 收窄到 baseline，属**行为变更**。
+///    故这里只取「裸词那一位」的结论，其余位仍给全集。
+fn allowed_for_edition(e: Edition) -> FeatureSet {
+    if FeatureSet::for_edition(e).has(Feature::BarewordStr) {
         FeatureSet::all()
+    } else {
+        FeatureSet::all().without(Feature::BarewordStr)
     }
 }
 
@@ -596,14 +592,14 @@ fn allowed_for_version(v: Version) -> FeatureSet {
 fn parse_with(
     text: &str,
     input_path: &Option<PathBuf>,
-    feature: Option<Version>,
+    feature: Option<Edition>,
 ) -> Result<Value, SmlError> {
     // `I-FEATURE-001`：声明的版本**有一部分差异未做门控**时提示，不要静默。
-    // 当前唯一的一处是 v3 —— 字符串引号规则已按 v3 生效，但片段定义的位置参数
-    // 形式仍按 v4 处理（两种写法都收 + 位置参数给弃用诊断），v3 该有的「位置参数合法、
-    // 不告警」没有实现。v1 / v2 / v4 暂无此类缺口，故不提示。
+    // 当前唯一的一处是 `3.0`（旧写法 v3）—— 字符串引号规则已按该代生效，但片段定义的
+    // 位置参数形式仍按 `4.0` 处理（两种写法都收 + 位置参数给弃用诊断），`3.0` 该有的
+    // 「位置参数合法、不告警」没有实现。`1.0` / `2.0` / `4.0` 暂无此类缺口，故不提示。
     if let Some(v) = feature {
-        if v == Version::V3 {
+        if v == Edition::V3 {
             eprintln!(
                 "smltools: note: 声明 `--feature {}`：字符串引号规则已按该版本生效；\
                  但片段定义的位置参数形式仍按 v4 处理（会产出弃用诊断），这一步尚未做版本门控 [{}]",
@@ -627,9 +623,9 @@ fn parse_with(
         //     **等价写法**（`rust/sml-include/src/parse.rs:80`）⇒ `examples/advanced.sml` 自己跑不过。
         // 交给库之后，`multi-include` / `as ns` / 挑键 `{ k }` / `glob` / `regex` / `@feature`
         // 全由库负责 —— 两处实现**只可能一致**。
-        (Some(v), Some(p)) => sml::parse_file_features(p, allowed_for_version(v))
+        (Some(v), Some(p)) => sml::parse_file_features(p, allowed_for_edition(v))
             .map_err(|e| e.context("parse error: ")),
-        (Some(v), None) => sml::parse_with_features(text, allowed_for_version(v))
+        (Some(v), None) => sml::parse_with_features(text, allowed_for_edition(v))
             .map(|(val, _)| val)
             .map_err(|e| e.context("parse error: ")),
         (None, Some(p)) => sml::parse_file(p).map_err(|e| e.context("parse error: ")),
@@ -941,7 +937,8 @@ fn which_zola() -> Option<std::path::PathBuf> {
 ///
 /// 两处历史问题在此一并纠正：
 /// 1. 旧注释声称「从 SML 文本提取 `@feature base <name>`」，但实现里从来没有这段逻辑；
-///    而 `@feature base` 只接受版本号（v1/v2/v3/v4），本来也承载不了名字 —— 注释与实现各说各话。
+///    而 `@feature base` 只接受**版本集**（`10` / `1.0` / `v1` …，见 `docs/version-naming.md`），
+///    本来也承载不了名字 —— 注释与实现各说各话。
 ///    这里换成真正可用的推源头：文档顶层的 `title:` 字段。
 /// 2. 旧实现会读顶层 `__name`，但两个调用点都传 `&Value::Null`，该分支**从未被触发过**；
 ///    顶层也基本不会出现 `__name`（它来自片段/块级标注的字段值，不是顶层键），属死代码，已移除。
