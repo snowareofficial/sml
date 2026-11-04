@@ -894,6 +894,8 @@ impl Parser {
         let mut default = None;
         let mut min = None;
         let mut max = None;
+        // `from-featag`（S7）：该键只能由 featag 落点写入
+        let mut from_featag = false;
         // 命中的**外置修饰符**：留到 FieldSpec 构造之后再 apply（它需要 &mut FieldSpec）。
         let mut pending_mods: Vec<(Arc<dyn Modifier>, Value)> = Vec::new();
         loop {
@@ -937,6 +939,11 @@ impl Parser {
                         self.next();
                         max = Some(self.parse_spec_number()?);
                     }
+                    // 来源修饰符（S7）：该键只能由 featag 落点写入，文档直接赋值 ⇒ E-CONTRACT-024
+                    "from-featag" => {
+                        from_featag = true;
+                        self.next();
+                    }
                     // 未知词：先查**外置修饰符**表，未命中才按"下一个字段的开始"退出。
                     // 内置修饰符名在注册期就被拒绝，故不会与上面各分支抢。
                     other => match self.contract_ext.modifier_arc(other) {
@@ -960,6 +967,7 @@ impl Parser {
             ext: ext_ty,
             ext_data: BTreeMap::new(),
             mods: Vec::new(),
+            from_featag,
         };
         // 外置修饰符：解析期改写规格，并把值带进校验期（供 `Modifier::check` 使用）。
         for (m, v) in pending_mods {
@@ -1982,6 +1990,18 @@ impl Parser {
                     ));
                 }
             }
+            // —— featag S7：`from-featag` 的键不许文档手写 ——
+            //
+            // ⚠️ **必须在填充之前**：填充之后 featag 自己写的键与文档手写的键长得一样，
+            // 就分不出「来源合法」还是「伪造」了 —— 而来源正是这条规则的**全部意义**。
+            if self.features.has(Feature::Featag) {
+                for n in &names {
+                    if let Some(c) = self.contracts.get(n) {
+                        sml_contract::check_from_featag(c, m, &self.contracts, "")?;
+                    }
+                }
+            }
+
             // —— featag S5（校验）+ S6（按落点写值）——
             //
             // ⚠️ **必须都在契约应用之前**：`from-featag` 那类「只能由 featag 提供」的必填字段，

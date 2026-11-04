@@ -223,6 +223,10 @@ codes: [
       msg: "同一契约里重复声明了同名的 featag"
       impls: [ rust ] status: done
       note: "featag S4（`docs/featag-spec-draft.md` §2.3 B4）。**只在声明处**查重：使用处允许同名多次出现（`!a !a` 会原样保留在 `__featags` 数组里，应用层自行决定是否合并）。诊断写全 `<契约>.<featag>` —— 作用域契约私有，只写名字会分不清是哪个契约的" }
+    { id: E-CONTRACT-024 domain: CONTRACT severity: E title: "该键只能由 featag 写入"
+      msg: "字段声明为 from-featag：只能由 featag 落点写入，文档里不能直接赋值"
+      impls: [ rust ] status: done
+      note: "featag S7（`docs/featag-spec-draft.md` §6.2）。两档来源：默认（谁都能写）/ `from-featag`（只能 featag 写）—— **刻意没有 `none` / `readonly` 第三档**（用户 2026-11-03：v5 尽量少引入 null / none 思维；「谁都写不了」用「必填但无人提供」或 `optional` 表达）。这条同时是「外来数据不可伪造」的语言级抓手：`from-featag` 的键文档无法自行赋值。检查在 **featag 填充之前**跑，否则 featag 自己写进去的键会被当成「文档手写」误报" }
     { id: E-CONTRACT-022 domain: CONTRACT severity: E title: "featag 落点已存在（禁止覆盖）"
       msg: "featag 要写入的落点已经存在；featag 不能用于覆盖已有值"
       impls: [ rust ] status: done

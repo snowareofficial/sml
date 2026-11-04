@@ -17,7 +17,7 @@
     "MIGRATE": "迁入格式（JSON / TOML / YAML / XML）",
     "PARSE": "语法"
   },
-  "count": 156,
+  "count": 157,
   "codes": [
     {
       "id": "E-CLI-001",
@@ -433,6 +433,18 @@
       ],
       "status": "done",
       "note": "featag S6（§6.1 规则 3）。默认（未开 `!strict-paths`）父对象会**自动创建** —— 那是「插入」不是「覆盖」；契约级开关 `!strict-paths` 打开后要求父对象已存在，缺了就报本码。路径上某键已是标量 / 数组时也报本码（没法往里放键）。与 E-CONTRACT-022 分开：「已存在」是要覆盖、「父不存在」是路走不通，用户的改法完全不同"
+    },
+    {
+      "id": "E-CONTRACT-024",
+      "severity": "error",
+      "domain": "CONTRACT",
+      "title": "该键只能由 featag 写入",
+      "msg": "字段声明为 from-featag：只能由 featag 落点写入，文档里不能直接赋值",
+      "impls": [
+        "rust"
+      ],
+      "status": "done",
+      "note": "featag S7（`docs/featag-spec-draft.md` §6.2）。两档来源：默认（谁都能写）/ `from-featag`（只能 featag 写）—— **刻意没有 `none` / `readonly` 第三档**（用户 2026-11-03：v5 尽量少引入 null / none 思维；「谁都写不了」用「必填但无人提供」或 `optional` 表达）。这条同时是「外来数据不可伪造」的语言级抓手：`from-featag` 的键文档无法自行赋值。检查在 **featag 填充之前**跑，否则 featag 自己写进去的键会被当成「文档手写」误报"
     },
     {
       "id": "E-DERIVE-001",

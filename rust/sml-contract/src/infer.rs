@@ -205,6 +205,8 @@ fn build_object_contract(
             ext: None,
             ext_data: BTreeMap::new(),
             mods: Vec::new(),
+            // 推断出来的契约没有来源约束（数据里看不出「谁写的」）
+            from_featag: false,
         };
         // 合并：已存在则取「最宽松」（required 取与；类型不同退化 any）
         if let Some(existing) = contract.fields.get(k) {

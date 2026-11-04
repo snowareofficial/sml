@@ -9,14 +9,12 @@ use std::collections::{BTreeMap, BTreeSet};
 // `Map` = `Value::Object` 的载体（默认 `BTreeMap`；`preserve_order` 档是保序 `Object`）。
 // 本 crate 里凡是**来自/进入 `Value::Object`** 的表都必须用它，
 // 其余（`contracts` 契约表、`fields` 字段表、`ext_data`）是普通表，仍是 `BTreeMap`。
-use sml_value::Map;
-
 use sml_codes::{
     E_CONTRACT_001, E_CONTRACT_002, E_CONTRACT_003, E_CONTRACT_004, E_CONTRACT_005, E_CONTRACT_006,
     E_CONTRACT_007, E_CONTRACT_008, E_CONTRACT_009, E_CONTRACT_010, E_CONTRACT_011, E_CONTRACT_016,
-    SmlError,
+    E_CONTRACT_024, SmlError,
 };
-use sml_value::Value;
+use sml_value::{Map, Value};
 
 /// 外置扩展点：下游注册自己的字段类型，无需改动本 crate 源码。
 pub mod ext;
@@ -189,6 +187,11 @@ pub struct FieldSpec {
     pub ext_data: BTreeMap<String, Value>,
     /// 本字段上生效的**外置修饰符**，校验期依次回调 [`crate::ext::Modifier::check`]。
     pub mods: Vec<std::sync::Arc<dyn crate::ext::Modifier>>,
+    /// **`from-featag`**：该键只能由 featag 落点写入，文档里直接赋值即 `E-CONTRACT-024`（§6.2）。
+    ///
+    /// 只有两档：默认（谁都能写）与 `from-featag`。**刻意没有 `none` / `readonly` 第三档** ——
+    /// 「谁都写不了」用「必填但无人提供」或 `optional` 表达（用户 2026-11-03 定的方向）。
+    pub from_featag: bool,
 }
 
 /// How strict a contract is — three levels ｜ 契约严格性（三态）。
@@ -322,6 +325,37 @@ pub fn check_value(
     check_type(contract, path, spec, v, contracts, &mut warnings)
 }
 
+/// 检查「`from-featag` 的键没有被文档手写」（featag S7，§6.2）。
+///
+/// ⚠️ **必须在 featag 落点填充之前调用**：填充之后，featag 自己写进去的键与文档手写的键
+/// 长得一模一样，就分不出「来源合法」还是「伪造」了 —— 而来源正是这条规则的**全部意义**。
+///
+/// 递归：遇到 `ContractRef` 字段且值确实是块时，按被引用契约继续查（嵌套的 `from-featag`）。
+/// 数组里的契约引用**暂不检查**（`[T]` 的逐项归属需要数组下标信息，等有真实需求再加）。
+pub fn check_from_featag(
+    contract: &Contract,
+    map: &Map,
+    contracts: &BTreeMap<String, Contract>,
+    path: &str,
+) -> Result<(), SmlError> {
+    for (fname, spec) in &contract.fields {
+        let full = join_path(path, fname);
+        if spec.from_featag && map.contains_key(fname) {
+            return Err(SmlError::from_code_title(E_CONTRACT_024).with_detail(format!(
+                "字段 `{full}` 声明为 `from-featag`：只能由 featag 落点写入，文档里不能直接赋值"
+            )));
+        }
+        if let TypeSpec::ContractRef(ref_name) = &spec.ty {
+            if let Some(Value::Object(child)) = map.get(fname) {
+                if let Some(inner) = contracts.get(ref_name) {
+                    check_from_featag(inner, child, contracts, &full)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// 校验值是否符合类型规格。
 /// `contracts` 供 `ContractRef`（组合）递归查找被引用契约。
 ///
@@ -416,6 +450,8 @@ fn check_type(
             // 修饰符作用于**字段整体**，不逐元素重复；故元素规格不带这两项
             ext_data: BTreeMap::new(),
             mods: Vec::new(),
+            // 来源规则同样作用于字段整体，不逐元素重复
+            from_featag: false,
         };
         for (i, it) in items.iter().enumerate() {
             check_type(contract, &format!("{}[{}]", path, i), &elem, it, contracts, warnings)?;
