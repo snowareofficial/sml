@@ -8,7 +8,9 @@
 use sml_codes::{
     E_FEATURE_003, E_FEATURE_004, E_FEATURE_006, E_FEATURE_007, E_FEATURE_008, SmlError,
 };
-use sml_feature::{FEATURES, Feature, FeatureMode, FeatureSet, Version};
+use sml_feature::{
+    edition_by_codename, Edition, EditionStatus, FEATURES, Feature, FeatureMode, FeatureSet, Version,
+};
 use sml_lex::{Tok, compute_string_spans, line_starts_in_string, tokenize};
 use sml_include::strip_line_comment;
 
@@ -303,26 +305,194 @@ pub fn strip_features(
 
 
 
-/// If the line is a `@version` directive, return the version literal; otherwise `None` ｜ 若该行是 `@version` 声明，返回版本字面量；否则返回 None。
+/// `@version` 声明里的三个槽位 ｜ the three slots of an `@version` declaration.
+///
+/// 目标语法（edition 模型，见 `docs/version-naming.md`）：
+///
+/// ```text
+/// @version 50 "camelia" dev
+///          ↑  ↑          ↑
+///        数字 代号      dev 标记（Dev 状态的版本必写）
+/// ```
+///
+/// 旧写法 `@version v1` / `@version 4` / `@version "4"` 一律仍然接受（都是别名）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct VersionDecl {
+    /// 数字字面量（裸词或引号串皆可），如 `50` / `5.0` / `v4` / `4`。
+    pub literal: Option<String>,
+    /// 开发代号（**只**接受引号串），如 `camelia`。
+    pub codename: Option<String>,
+    /// 末尾的 `dev` 标记。
+    pub dev: bool,
+}
+
+impl VersionDecl {
+    /// 用于错误文案的原始写法 ｜ the raw text for diagnostics.
+    fn written(&self) -> String {
+        self.literal
+            .clone()
+            .or_else(|| self.codename.clone())
+            .unwrap_or_else(|| "<空>".to_string())
+    }
+}
+
+/// 本实现**已发布**的版本集名字（用 `, ` 连接，用于错误文案）｜ supported edition names.
+fn supported_edition_names() -> String {
+    sml_feature::EDITIONS
+        .iter()
+        .filter(|r| r.status == EditionStatus::Supported)
+        .map(|r| r.edition.name())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// 已发布版本集 → 旧 [`Version`] 枚举（迁移期桥接）｜ bridge to the legacy enum.
+fn legacy_version_of(e: Edition) -> Option<Version> {
+    match (e.major, e.minor) {
+        (1, 0) => Some(Version::V1),
+        (2, 0) => Some(Version::V2),
+        (3, 0) => Some(Version::V3),
+        (4, 0) => Some(Version::V4),
+        _ => None,
+    }
+}
+
+/// 把三个槽位解析成一代版本，并检查 `dev` 标记是否合规 ｜ resolve slots to one edition, checking `dev`.
+fn resolve_version_decl(decl: &VersionDecl) -> Result<Edition, SmlError> {
+    // 1) 字面量 / 代号 → 一代
+    let by_literal = decl.literal.as_deref().and_then(Edition::parse);
+    let by_codename = decl
+        .codename
+        .as_deref()
+        .and_then(edition_by_codename)
+        .map(|r| r.edition);
+
+    let ed = match (by_literal, by_codename) {
+        (Some(a), Some(b)) if a != b => {
+            return Err(SmlError::from_code_title(E_FEATURE_004).with_detail(format!(
+                "`@version` 的代号与数字不指向同一代：`{}` vs `{}`",
+                decl.codename.clone().unwrap_or_default(),
+                a.name()
+            )))
+        }
+        (Some(a), None) | (None, Some(a)) => a,
+        (Some(a), Some(_)) => a,
+        (None, None) => {
+            return Err(SmlError::from_code_title(E_FEATURE_004).with_detail(format!(
+                "不支持的 SML 版本 `{}`（本实现支持 {}）",
+                decl.written(),
+                supported_edition_names()
+            )))
+        }
+    };
+
+    // 2) 状态与 `dev` 标记
+    match ed.status() {
+        Some(EditionStatus::Supported) => {
+            if decl.dev {
+                return Err(SmlError::from_code_title(E_FEATURE_004).with_detail(format!(
+                    "`{}` 已是发布版本，不需要 `dev` 标记（去掉末尾的 `dev`）",
+                    ed.name()
+                )));
+            }
+            Ok(ed)
+        }
+        Some(EditionStatus::Dev) => {
+            if !decl.dev {
+                return Err(SmlError::from_code_title(E_FEATURE_004).with_detail(format!(
+                    "`{}` 尚未定稿，须显式写 `dev` 标记：`@version {} \"{}\" dev`",
+                    ed.name(),
+                    format!("{}{}", ed.major, ed.minor),
+                    ed.codename().unwrap_or("代号")
+                )));
+            }
+            // 定稿前，本实现**还没有**该代的功能集 ⇒ 明确报「未启用」而不是「不支持」。
+            Err(SmlError::from_code_title(E_FEATURE_004).with_detail(format!(
+                "版本集 `{}`（代号 `{}`）仍在开发中，本实现尚未启用；请继续用已发布版本（{}）",
+                ed.name(),
+                ed.codename().unwrap_or("-"),
+                supported_edition_names()
+            )))
+        }
+        // ⚠️ TODO(S0c)：`Removed` 应有**独立错误码**（`docs/version-naming.md` V7），
+        // 并与「未知版本」区分开，文案直接指向 `smltools --migrate scan`。
+        // 当前登记表里还没有 Removed 行，此分支暂不可达。
+        Some(EditionStatus::Removed) => Err(SmlError::from_code_title(E_FEATURE_004)
+            .with_detail(format!(
+                "版本集 `{}` 已被移除，请运行 `smltools --migrate scan` 升级文档",
+                ed.name()
+            ))),
+        None => Err(SmlError::from_code_title(E_FEATURE_004).with_detail(format!(
+            "不支持的 SML 版本 `{}`（本实现支持 {}）",
+            decl.written(),
+            supported_edition_names()
+        ))),
+    }
+}
+
+/// If the line is a `@version` directive, return its slots; otherwise `None` ｜ 若该行是 `@version` 声明，返回三个槽位；否则 None。
 ///
 /// `version` 是保留字：不允许作为片段名（`@version { }`）使用。
-pub fn version_directive(line: &str) -> Result<Option<String>, SmlError> {
+pub fn version_directive(line: &str) -> Result<Option<VersionDecl>, SmlError> {
     let content = strip_line_comment(line).trim();
     // 词法失败的行（如未闭合引号）不是版本声明，交由主解析器报更准确的错
     let toks = match tokenize(content) {
         Ok(t) => t,
         Err(_) => return Ok(None),
     };
-    match toks.as_slice() {
-        [Tok::At, Tok::Word(w), Tok::Word(v)] if w == "version" => Ok(Some(v.clone())),
-        [Tok::At, Tok::Word(w), Tok::Str(v)] if w == "version" => Ok(Some(v.clone())),
-        [Tok::At, Tok::Word(w), ..] if w == "version" => Err(
-            SmlError::from_code_title(E_FEATURE_004).with_detail(
-                "`@version` 是版本声明指令，须写作 `@version v1`；`version` 不可作为片段名",
-            ),
-        ),
-        _ => Ok(None),
+    let mut it = toks.iter();
+    match (it.next(), it.next()) {
+        (Some(Tok::At), Some(Tok::Word(w))) if w == "version" => {}
+        _ => return Ok(None),
     }
+    let rest: Vec<&Tok> = it.collect();
+    if rest.is_empty() {
+        return Err(SmlError::from_code_title(E_FEATURE_004).with_detail(
+            "`@version` 须带版本字面量或代号（如 `@version 4` / `@version 50 \"camelia\" dev`）；`version` 不可作为片段名",
+        ));
+    }
+    if rest.len() > 3 {
+        return Err(SmlError::from_code_title(E_FEATURE_004).with_detail(format!(
+            "`@version` 最多三个槽位（数字 代号 dev），实际给了 {} 个",
+            rest.len()
+        )));
+    }
+    let mut decl = VersionDecl::default();
+    for (idx, t) in rest.iter().enumerate() {
+        match t {
+            Tok::Str(s) => {
+                // 引号串既可能是数字（`@version "4"`，历史写法），也可能是代号
+                if Edition::parse(s).is_some() {
+                    if decl.literal.replace(s.clone()).is_some() {
+                        return Err(SmlError::from_code_title(E_FEATURE_004)
+                            .with_detail("`@version` 出现了两个数字字面量"));
+                    }
+                } else if decl.codename.replace(s.clone()).is_some() {
+                    return Err(SmlError::from_code_title(E_FEATURE_004)
+                        .with_detail("`@version` 出现了两个代号"));
+                }
+            }
+            Tok::Word(w) if w == "dev" => {
+                if idx + 1 != rest.len() {
+                    return Err(SmlError::from_code_title(E_FEATURE_004).with_detail(
+                        "`dev` 只能出现在 `@version` 的**最后**（`@version 50 \"camelia\" dev`）",
+                    ));
+                }
+                decl.dev = true;
+            }
+            Tok::Word(w) => {
+                if decl.literal.replace(w.clone()).is_some() {
+                    return Err(SmlError::from_code_title(E_FEATURE_004)
+                        .with_detail("`@version` 出现了两个数字字面量"));
+                }
+            }
+            _ => {
+                return Err(SmlError::from_code_title(E_FEATURE_004)
+                    .with_detail("`@version` 后面只能是版本字面量、代号（引号串）或 `dev`"))
+            }
+        }
+    }
+    Ok(Some(decl))
 }
 
 /// Strip `@version` lines, returning the remaining text and the declared version (`None` if none) ｜ 剥离 `@version` 声明行。
@@ -370,12 +540,13 @@ pub fn strip_version(text: &str) -> Result<(String, Option<Version>), SmlError> 
             false
         };
         if is_directive {
-            let lit = version_directive(line)?.unwrap();
-            let v = Version::from_word(&lit).ok_or_else(|| {
-                SmlError::from_code_title(E_FEATURE_004).with_detail(format!(
-                    "不支持的 SML 版本 `{lit}`（本实现支持 {}）",
-                    Version::CURRENT.name()
-                ))
+            let decl = version_directive(line)?.unwrap();
+            let ed = resolve_version_decl(&decl)?;
+            // 迁移期桥接：已发布版本集都还在旧枚举里有对应值；
+            // Dev / Removed 走不到这里（`resolve_version_decl` 已先行报错）。
+            let v = legacy_version_of(ed).ok_or_else(|| {
+                SmlError::from_code_title(E_FEATURE_004)
+                    .with_detail(format!("版本集 `{}` 尚无对应的旧版本枚举", ed.name()))
             })?;
             match declared {
                 None => declared = Some(v),
