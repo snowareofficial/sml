@@ -55,6 +55,7 @@ static const struct SmlErrorMsg SML_ERROR_MSGS[] = {
     { "E-CONTRACT-018", "error", "CONTRACT", "契约 @requires 无法满足", "契约声明的 @requires 特性无法满足，契约无法定义或应用", "Contract @requires unsatisfiable", "The @requires features declared by the contract cannot be satisfied; the contract cannot be defined or applied" },
     { "E-CONTRACT-019", "error", "CONTRACT", "featag 重复声明", "同一契约里重复声明了同名的 featag", "Duplicate featag declaration", "The same featag is declared twice inside one contract" },
     { "E-CONTRACT-020", "error", "CONTRACT", "featag 落点非法", "featag 的落点必须是点路径（对象键），不能穿数组", "Illegal featag target", "A featag target must be a dotted path of object keys; it cannot index into arrays" },
+    { "E-CONTRACT-021", "error", "CONTRACT", "featag 未声明或用法与声明不符", "使用的 featag 没有在该契约里声明，或参数个数 / 类型与声明不符", "Undeclared featag / usage does not match declaration", "The featag is not declared in this contract, or the argument count / type differs from the declaration" },
     { "E-DERIVE-001", "error", "DERIVE", "值与目标类型不符", "SML 值的类型与目标宿主类型不符", "Value/target type mismatch", "The SML value's type does not match the target host type" },
     { "E-DERIVE-002", "error", "DERIVE", "数值超出目标类型范围", "数值超出目标宿主类型的取值范围", "Number out of target type range", "The number is out of the target host type's range" },
     { "E-DERIVE-003", "error", "DERIVE", "未知的枚举值或变体", "未知的枚举值或枚举变体", "Unknown enum value or variant", "Unknown enum value or enum variant" },

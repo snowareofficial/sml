@@ -64,6 +64,8 @@
 #define SML_E_CONTRACT_019 "E-CONTRACT-019"
 /* [E-CONTRACT-020] featag 落点非法：featag 的落点必须是点路径（对象键），不能穿数组 */
 #define SML_E_CONTRACT_020 "E-CONTRACT-020"
+/* [E-CONTRACT-021] featag 未声明或用法与声明不符：使用的 featag 没有在该契约里声明，或参数个数 / 类型与声明不符 */
+#define SML_E_CONTRACT_021 "E-CONTRACT-021"
 /* [E-DERIVE-001] 值与目标类型不符：SML 值的类型与目标宿主类型不符 */
 #define SML_E_DERIVE_001 "E-DERIVE-001"
 /* [E-DERIVE-002] 数值超出目标类型范围：数值超出目标宿主类型的取值范围 */
@@ -315,6 +317,6 @@
 /* [W-PARSE-002] 片段展开覆盖父块键：片段展开覆盖了父块已有的同名键：父块原值丢失 */
 #define SML_W_PARSE_002 "W-PARSE-002"
 
-#define SML_CODES_COUNT 153
+#define SML_CODES_COUNT 154
 
 #endif /* SML_CODES_H */

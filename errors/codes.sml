@@ -223,6 +223,10 @@ codes: [
       msg: "同一契约里重复声明了同名的 featag"
       impls: [ rust ] status: done
       note: "featag S4（`docs/featag-spec-draft.md` §2.3 B4）。**只在声明处**查重：使用处允许同名多次出现（`!a !a` 会原样保留在 `__featags` 数组里，应用层自行决定是否合并）。诊断写全 `<契约>.<featag>` —— 作用域契约私有，只写名字会分不清是哪个契约的" }
+    { id: E-CONTRACT-021 domain: CONTRACT severity: E title: "featag 未声明或用法与声明不符"
+      msg: "使用的 featag 没有在该契约里声明，或参数个数 / 类型与声明不符"
+      impls: [ rust ] status: done
+      note: "featag S5 开闸（`docs/featag-spec-draft.md` §10 Q3：**新码**，不复用 E-CONTRACT-012）。三种都用本码、靠 detail 区分：① 未声明（附该契约可用清单）；② 声明为无参（纯标签）却带了参数；③ 声明为带参却没写 `[...]`，或非数组类型的声明给了不止一个参数。**参数类型不符**则走既有类型错误码（`check_type` 那条链），因为那与字段类型错误的因完全相同。库侧可放宽：`ParseOptions::apply_contracts(false)` 时整段校验跳过（与契约校验同一个开关）" }
     { id: E-CONTRACT-020 domain: CONTRACT severity: E title: "featag 落点非法"
       msg: "featag 的落点必须是点路径（对象键），不能穿数组"
       impls: [ rust ] status: done

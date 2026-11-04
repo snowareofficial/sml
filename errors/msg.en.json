@@ -138,6 +138,7 @@
   "E-PARSE-024": { "title": "Invalid field spec in contract", "msg": "Invalid field spec inside a contract definition: empty type, unclosed array or enum, or empty field name" },
   "E-PARSE-025": { "title": "Invalid restricted regex", "msg": "Invalid restricted-regex syntax: a quantifier with no repeatable atom before it, an unclosed character class, or a trailing backslash" },
   "E-CONTRACT-019": { "title": "Duplicate featag declaration", "msg": "The same featag is declared twice inside one contract" },
+  "E-CONTRACT-021": { "title": "Undeclared featag / usage does not match declaration", "msg": "The featag is not declared in this contract, or the argument count / type differs from the declaration" },
   "E-CONTRACT-020": { "title": "Illegal featag target", "msg": "A featag target must be a dotted path of object keys; it cannot index into arrays" },
   "E-LEX-007": { "title": "Illegal character in identifier", "msg": "The key (identifier) contains an illegal character: only letters, digits, `_`, `-`, Han / Kana / Hangul are allowed" },
   "E-PARSE-026": { "title": "Empty featag region", "msg": "At least one featag name must follow `!` (e.g. `!critical` or `obey[1, 2]`)" },

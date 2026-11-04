@@ -298,6 +298,24 @@ fn join_path(parent: &str, child: &str) -> String {
     }
 }
 
+/// 按单条字段规格校验一个值 —— **对外**入口，供 featag 参数复用（S5）。
+///
+/// 与契约内部的 [`check_type`] 完全同一条链：数组类型、契约引用、枚举、区间、外置类型、
+/// 修饰符回调都会生效。`contract` / `path` 只用于**错误文案**定位
+/// （featag 传 `契约名.featag名`，如 `wea.obey`）。
+///
+/// `contracts` 供 `ContractRef`（组合）递归查找被引用契约 —— 与字段校验同一张表。
+pub fn check_value(
+    contract: &str,
+    path: &str,
+    spec: &FieldSpec,
+    v: &Value,
+    contracts: &BTreeMap<String, Contract>,
+) -> Result<(), SmlError> {
+    let mut warnings: Vec<ContractWarning> = Vec::new();
+    check_type(contract, path, spec, v, contracts, &mut warnings)
+}
+
 /// 校验值是否符合类型规格。
 /// `contracts` 供 `ContractRef`（组合）递归查找被引用契约。
 ///
