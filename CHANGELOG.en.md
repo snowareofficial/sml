@@ -56,6 +56,22 @@ Editions are **not ordered**, so `Ord` is gone and the criterion is always "is t
 - ⚠️ The registry has no `Removed` row yet, so the branch is **not reachable** today (code and wiring
   are in place; adding a row activates it). `smltools --migrate` (V11) is not implemented yet.
 
+### Added — featag S7: `from-featag` source rule
+
+- Field modifier **`from-featag`** (`FieldSpec.from_featag`): the key **may only be written by a
+  featag target**; assigning it in the document is `E-CONTRACT-024`, reported with the **full field
+  path** (e.g. `mid.inner.secret`).
+- **The check runs before the featag fill**: afterwards, featag-written and document-written keys
+  look identical, so "legal source" and "forged" could no longer be told apart — and the source is
+  the whole point of the rule.
+- **Nested contracts are checked** (recursing through `ContractRef`); ⚠️ **contract references
+  inside arrays are not** (`[T]` needs per-element ownership info — deferred until there is a real need).
+- **Two source tiers only**: default (anyone) / `from-featag` (featag only). There is deliberately
+  **no `none` / `readonly` tier** — "nobody may write it" is expressed as "required but nobody
+  provides it" or `optional` (§6.2 decision).
+- Gated by `type.featag`: with the feature off the check does not run and documents may write such
+  fields (v4 behaviour unchanged).
+
 ### Added — featag S6: target filling
 
 - Arguments are written into the block along the declared `-> target` (§6.1 rules 1–5):
