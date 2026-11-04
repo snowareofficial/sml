@@ -56,6 +56,31 @@ Editions are **not ordered**, so `Ord` is gone and the criterion is always "is t
 - ⚠️ The registry has no `Removed` row yet, so the branch is **not reachable** today (code and wiring
   are in place; adding a row activates it). `smltools --migrate` (V11) is not implemented yet.
 
+### Added — S1b: identifier whitelist, gated by `lex.ident`
+
+- New module `sml_lex::identifiers`: `check_ident` / `IdentError`; entry point
+  `@feature enable lex.ident` (**off by default**).
+- **Allowed**: ASCII letters/digits, `_` `-`, CJK Han (U+4E00–U+9FFF), Kana (U+3040–U+30FF),
+  Hangul syllables (U+AC00–U+D7AF).
+- **Rejected** (six classes, all sharing `E-LEX-007`, told apart by the detail text):
+  `.` `[` `]` (reserved by path syntax), whitespace / control chars (Cc), zero-width and
+  bidi controls (Cf), **combining marks (Mn/Mc)**, Cyrillic / Greek / Armenian homoglyphs,
+  fullwidth and compatibility characters.
+- **NFC for free, zero dependencies**: only **precomposed** code points are accepted and all
+  combining marks are rejected (`é` = U+00E9 is fine, `e`+U+0301 is not) — no normalisation
+  library, no Unicode tables.
+- Positions are reported in **characters**, not bytes (`端口.x` reports the dot at char 3).
+- `lex.ident` is a **new bit (19th, second dotted feature)**; off ⇒ v4 behaviour, `a.b: 1` is
+  still one key. Fragment-merge keys (`&base`) are not identifiers and are not validated.
+- ⚠️ **Deliberate deviation** from the cross-slice rule "every slice lives behind `type.featag`":
+  identifier rules have nothing to do with the `!` marker, and sharing the bit would mean
+  "enabling featag silently changes every key name" with coarser rollback. Logged in the plan.
+- ⚠️ **Per-contract single-script rule is not here**: it compares several identifiers of one
+  contract, so it ships with S4.
+- ⚠️ The "generate both range tables to five ends" item **only covers Rust this round**
+  (other ends have no identifier validation yet; `impls: [ rust ]`). The generator waits until
+  cross-end consistency is actually needed — five tables nobody reads are pure overhead.
+
 ### Added — featag S3: `__featags` as an ordered array
 
 - With `@feature enable type.featag` the block head's `!` region now **becomes data**:
