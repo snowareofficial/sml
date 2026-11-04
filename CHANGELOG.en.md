@@ -26,6 +26,36 @@ Conventions carried over from `CHANGELOG.md`:
 > Condensed mirror of the Chinese `[未发布]` section: same categories, one line per change.
 > The Chinese file remains authoritative for detail and evidence.
 
+### 🚨 Breaking — version naming: `Version` enum → `Edition` lookup
+
+An edition is just a **name for a set of default feature bits** (`docs/version-naming.md` v1.0).
+Editions are **not ordered**, so `Ord` is gone and the criterion is always "is this feature in that set".
+
+- `enum Version { V1..V4 }` is **deleted**; new `struct Edition { major, minor }` plus
+  `pub use Edition as Version` (same type under the old name). `Version::V1..V4` survive as
+  **associated constants**, so existing literals still compile — but comparisons (`v3 < v4`) no longer do.
+- `FeatureSet::for_version(Version)` → **`FeatureSet::for_edition(Edition)`**, answering from the
+  per-row `features` field of the `EDITIONS` registry instead of computing from a version number.
+- `Edition::name()` / `Display` echo the canonical `1.0`..`4.0` (was `v1`..`v4`), so error text changes.
+  `Edition::from_word` is gone — use `Edition::parse` (accepts `10` / `1.0` / `v1` / `50` / `5.0` / `v5`).
+- `parse_versioned` / `parse_file_versioned` return `(Value, Edition)`; `parse_allowed(text, &[Edition])`
+  (`&[Version::V1]` still compiles — same type).
+- `smltools --feature` accepts the same literals but **only published editions**; the invalid-value
+  hint is now `(1.0..4.0, i.e. v1..v4)`.
+- The C-ABI `sml_loads` `opts.allow` version strings also go through `Edition::parse` (legacy forms still accepted).
+
+### Added — error code `E-FEATURE-010` (edition removed)
+
+- A **removed development codename** now has its own code, kept distinct from
+  `E-FEATURE-004` ("invalid version declaration") so users can tell "I typed it wrong" from
+  "I should migrate". The message always carries the codename, a migration rule id (`v50-version`)
+  and `smltools --migrate scan`.
+- The decision lives in a **single entry point** `scan::resolve_edition` shared by `@version` and
+  `@feature base` (which identifiers are accepted, whether `dev` is required, which code `Removed` uses).
+  Side effect: `@feature base 50` now demands the `dev` marker, exactly like `@version 50`.
+- ⚠️ The registry has no `Removed` row yet, so the branch is **not reachable** today (code and wiring
+  are in place; adding a row activates it). `smltools --migrate` (V11) is not implemented yet.
+
 ### Added — parse entry: file + options
 
 - **`parse_file_with(path, ParseOptions)`** (exported from both `sml_parse` and the `sml` facade):
