@@ -990,7 +990,7 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
       `.vsix` 最新只到 **0.4.3** ⇒ 源码早就领先产物。打包用 `npm run package`（内部走
       `npx --yes @vscode/vsce`，本机缺 vsce 且无网）。打完还要复制到 `site/static/dl/` 并同步下载页。
       ⚠️ bump 版本号属发版动作，按铁律不擅自做。
-- [ ] **weak\* 三兄弟落地必然改 vsix**：I-5 `weakport` / I-15 `weakdata` / I-17 `weakdoc`（`.smlex`）
+- [ ] **weak\* 三兄弟落地必然改 vsix**：I-5 `weakbind` / I-15 `weakdata` / I-17 `weakdoc`（`.smlex`）
       任一落地都会新增内置指令或文件类型 ⇒ 扩展侧需同步（语法文件 + 补全 + `package.json` 的
       `languages` 关联），届时按上面的打包流程走。
 - ✅ **W22 D1 结案（2026-11-03）**：原话「vsix 提供的也加」指**补进文档**，不是补进 Zed 扩展 ——
@@ -1065,6 +1065,8 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
       ⚠️ 未做：`contract_map` / `errors` 两个专家字段不进本层（要就回 `sml::parse_with`），这是 Q7 选 B 的既定代价。
 - [ ] **发布准备**（用户定的节奏）：**不单独发**，等 I-18（`.smlb`/`smldb`）+ I-19（`idyml`）
       一起发，稳定化与优化完成后 **0.7.0** 一次性给成批能力。当前 `publish = false`。
+      ⚠️ **2026-11-04 裁决后前提有变**：I-18 / I-19（现名 `smlkit`）均标「**还需商榷**」、不排期，
+      本条的「等它们一起发」不再成立 ⇒ 节奏需重定；`weak*`（I-5 / I-15 / I-17）已定为先做的一批。
 - [x] **发布前查名** ✅ 2026-11-03 实测：`smlkit-easy` / `smlkit` 在 **crates.io / PyPI / npm 三处全空**
       （`Invoke-WebRequest https://crates.io/api/v1/crates/<name>`，404 = 空）。网络可用，不必再猜。
 - [ ] **发布前还要占三处**：GitHub org / 域名 / docs 子域 —— 否则「名字不撞」只解决一半。
