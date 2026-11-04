@@ -39,9 +39,12 @@
 `Value::get_path`（失败带原因与 1 起段号）；旧 `Value::get` 一字未改（仍 `Option` + 字面键优先）。
 验收可演示：`get_path("a.b[0].c")` 取值、`a[9]` 报 `OutOfRange`。**写**留到 S6 复用同一份 `Path`。
 
-**S2 已落地（2026-11-04）**：`Feature::Featag`（第 18 位，名 `type.featag`，opt-in）门控下的
-**块头 `!` 区语法识别** —— 区被认出来、三条歧义各一码（`E-PARSE-026` 空区 / `027` 值位置 `!` 裸词 /
-`028` 块头 `!` 名），但 **`__featags` 不产出**（那是 S3）。
+**S2 + S3 已落地（2026-11-04）**：`Feature::Featag`（第 18 位，名 `type.featag`，opt-in）门控下的
+**块头 `!` 区语法识别**（三条歧义各一码：`E-PARSE-026` 空区 / `027` 值位置 `!` 裸词 / `028` 块头 `!` 名）
+与 **`__featags` 保序数组落盘**（参数复用 `parse_array`，不另写迷你解析器；`__args` 不复用）。
+验收已可演示：`wea !critical obey[1, 2], name { a: 1 }` → json 里出现
+`__featags: [{name:"critical"},{name:"obey",args:[1,2]}]`（保序、可重复）。
+⚠️ **声明校验仍未做**（S4/S5）；正文手写 `__*` 也仍放行（v5 独立一条）。
 带域名规则（N4）同轮落地：`<域>.<名>`、只在第一个点切一次、域封闭白名单 `lex/mod/type/flow`、
 老名不给别名（N2）—— `@feature *` / `@requires` / C-ABI 共用一份判据（`Feature::parse_name`）。
 
