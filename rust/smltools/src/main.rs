@@ -288,7 +288,7 @@ struct Cli {
     #[arg(long = "lint")]
     lint: bool,
 
-    /// 显式声明解析版本集（1.0..4.0，即 v1..v4）；缺省按文档自身的 `@version`
+    /// 显式声明解析版本集（1.0..4.0 即 v1..v4；开发中的 5.0 / 代号 camelia 也收）；缺省按文档自身的 `@version`
     #[arg(long = "feature")]
     feature: Option<String>,
 
@@ -473,6 +473,22 @@ struct Args {
     json: bool,
 }
 
+/// `--feature` 的取值解析：与语言层**同一套字面量**（`10` / `1.0` / `v1` / `50` / `camelia`）。
+///
+/// **Dev 代也收**（用户 2026-11-04 定）：命令行没有 `dev` 槽位，但「用开发中的功能集门控一下看看」
+/// 是真实需求（例如在 v4 文档上预演 5.0 的默认位）。代价是必须**说清**——
+/// 收下后由 `parse_with` 打一条 note，避免「以为自己在用已发布版本集」。
+///
+/// 失败一律 `E-FEATURE-004`（命令行传入非法版本名归此码，不是新的语言错误）。
+fn edition_arg(v: &str) -> Result<Edition, SmlError> {
+    Edition::parse(v)
+        .or_else(|| sml::edition_by_codename(v).map(|r| r.edition))
+        .ok_or_else(|| {
+            SmlError::from_code_title(E_FEATURE_004)
+                .with_detail(format!("`{v}`（1.0..4.0，即 v1..v4；开发中还有 5.0 / camelia）"))
+        })
+}
+
 fn parse_args(cli: Cli) -> Result<Args, SmlError> {
     // E-CLI-002：输出格式取值未知（文案附带全部可用取值）。
     let format = Format::parse(&cli.format).ok_or_else(|| {
@@ -482,17 +498,7 @@ fn parse_args(cli: Cli) -> Result<Args, SmlError> {
     let input_format = resolve_input_format(cli.from.as_deref(), cli.input.as_deref())?;
     let feature = match cli.feature.as_deref() {
         None => None,
-        Some(v) => {
-            // 与语言层**同一套字面量**（`10` / `1.0` / `v1` …）：解析器认什么，CLI 就认什么。
-            // 只接受**已发布**的版本集 —— Dev 代（`50 "camelia" dev`）在命令行没有 `dev` 槽位，
-            // 收下它等于悄悄拿一套未定稿的功能集去门控文档。
-            let ed = Edition::parse(v).filter(|e| e.is_supported()).ok_or_else(|| {
-                // E-FEATURE-004：命令行传入非法版本名归此码（不是新的语言错误）。
-                SmlError::from_code_title(E_FEATURE_004)
-                    .with_detail(format!("`{v}`（1.0..4.0，即 v1..v4）"))
-            })?;
-            Some(ed)
-        }
+        Some(v) => Some(edition_arg(v)?),
     };
     Ok(Args {
         input: cli.input,
@@ -603,6 +609,22 @@ fn parse_with(
             eprintln!(
                 "smltools: note: 声明 `--feature {}`：字符串引号规则已按该版本生效；\
                  但片段定义的位置参数形式仍按 v4 处理（会产出弃用诊断），这一步尚未做版本门控 [{}]",
+                v.name(),
+                I_FEATURE_001
+            );
+        }
+        // Dev 代（目前只有 `5.0` / `camelia`）：功能集**未定稿**，门控结果只代表「此刻」。
+        // 收下它是给「预演一下 5.0 的默认位」用的，但必须说清 —— 否则用户会以为这是承诺过的口径。
+        if !v.is_supported() {
+            let codename = sml::EDITIONS
+                .iter()
+                .find(|r| r.edition == v)
+                .and_then(|r| r.codename)
+                .map(|c| format!(" / 代号 `{c}`"))
+                .unwrap_or_default();
+            eprintln!(
+                "smltools: note: `--feature {}`{codename} 是**开发中**的版本集，其默认功能集尚未定稿；\
+                 本次门控只代表当前实现，不要写进对外文档 [{}]",
                 v.name(),
                 I_FEATURE_001
             );
@@ -1288,6 +1310,27 @@ mod tests {
             v = Value::Object(m);
         }
         v
+    }
+
+    /// `--feature` 的字面量口径：数字 / 点号 / `vN` / **代号**都收，Dev 代也收。
+    #[test]
+    fn feature_arg_accepts_published_and_dev_spellings() {
+        for s in ["4", "40", "4.0", "v4"] {
+            assert_eq!(edition_arg(s).map(|e| e.name()).unwrap(), "4.0", "`{s}`");
+        }
+        // Dev 代：数字 / 点号 / `vN` / 代号 四种写法同一个版本集
+        for s in ["50", "5.0", "v5", "camelia"] {
+            assert_eq!(edition_arg(s).map(|e| e.name()).unwrap(), "5.0", "`{s}`");
+        }
+        // 最小可用集合仍在
+        assert_eq!(edition_arg("v1").map(|e| e.name()).unwrap(), "1.0");
+    }
+
+    #[test]
+    fn feature_arg_rejects_nonsense_with_004() {
+        let e = edition_arg("nope").unwrap_err();
+        assert_eq!(e.code(), sml_codes::E_FEATURE_004);
+        assert!(format!("{e}").contains("camelia"), "文案应提示开发中的版本集：{e}");
     }
 
     /// ⚠️ 这组用例喂的是**真实的上游错误**（直接调用 `sml::emit::*` 让它自己报错），
