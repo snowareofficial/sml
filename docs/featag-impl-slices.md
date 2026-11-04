@@ -39,6 +39,15 @@
 `Value::get_path`（失败带原因与 1 起段号）；旧 `Value::get` 一字未改（仍 `Option` + 字面键优先）。
 验收可演示：`get_path("a.b[0].c")` 取值、`a[9]` 报 `OutOfRange`。**写**留到 S6 复用同一份 `Path`。
 
+**S2 的前置开关已备好（2026-11-04）**：`Feature::Featag`（第 18 位，名 `type.featag`）已注册，
+**opt-in、不在 `baseline()`、不进任何 `Edition` 功能集**；`@feature enable type.featag` 可开，
+但**尚不改变任何解析结果**（语法在 S2）。
+带域名规则（N4）同时落地：`<域>.<名>`、只在第一个点切一次、域封闭白名单 `lex/mod/type/flow`、
+老名不给别名（N2）—— `@feature *` / `@requires` / C-ABI 共用一份判据（`Feature::parse_name`）。
+
+⚠️ 这解决了「S2 挂在哪」：按 `feature-namespace-plan.md` 的**开发期例外**，可以先在 **v4 文档**里
+`@feature enable type.featag` 试跑，**不必**先把 `50` 从 Dev 启用。
+
 **建议顺序**：`S0 → S1a → S2 → S3`（**到这里就能给你看真实数据**）`→ S4 → S5 → S6 → S7 / S8 → S9`。
 **S1b（标识符校验）可并行**：S1a / S2 / S3 都不依赖它，它只在 S4（声明收集）之后才真正卡住。
 

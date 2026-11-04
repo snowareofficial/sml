@@ -46,6 +46,24 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 - ⚠️ 登记表里还没有 `Removed` 行 ⇒ 该分支**暂不可达**（码与接线已就绪，加一行即生效）；
   `smltools --migrate`（V11）尚未实现，文案里的规则 id 是承诺。
 
+### 新增（特性命名空间：带域名 + `type.featag` 占位位）
+
+- `@feature enable <域>.<名>` 生效（`docs/feature-namespace-plan.md` N4）：`Feature::parse_name`
+  先验形态再查表 —— **只在第一个点切一次**，三段（`a.b.c`）直接拒；域是**封闭白名单**
+  `FEATURE_DOMAINS = ["lex","mod","type","flow"]`（N1），未知域报「未知域 + 白名单」。
+- **老名保持平铺，且不给别名**（N2）：`typed-block` 照旧可用，`type.typed-block` **不认**
+  （落「未注册」）—— 一个特性两个名字会让诊断、`disable`、C-ABI 回显出现两种写法。
+- 三类失败同码 `E-FEATURE-003`、**靠 detail 区分**（三段 / 未知域 / 未注册并附可用清单）：
+  用户一眼能看出是「多点了个点」还是「拼错」还是「这门语言没这特性」。
+- 判据**单点化**：`@feature enable/disable/whitelist/blacklist` 与契约里的 `@requires`、
+  C-ABI 的 `opts.features` 全部走同一套（此前 5 处各写一份）。
+- **新特性 `type.featag` 占位**（第 18 位，opt-in、不在 `baseline()`、不进任何 `Edition` 的功能集）：
+  位与名字先占住，S2 一落地就有稳定开关可挂（位序只增不改）。
+  ⚠️ **现在开启它不改变任何解析结果** —— featag 语法（S2）与 `__featags`（S3）都还没写；
+  这是「先备开关、再接语法」的次序，不是漏做。
+- ⚠️ 跨端差异：`type.featag` **只在 Rust** 认识，JS / Lua 侧仍报 `E-FEATURE-003`
+  （`E-FEATURE-003` 的 note 已写明）。
+
 ### 新增（值模型：读/写共用的 Path 语法，featag S1a）
 
 - 新模块 `sml_value::path`：`Path::parse` / `Seg` / `PathError` + **`Value::get_path`**。
