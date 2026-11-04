@@ -74,7 +74,7 @@
 | 契约数组 `[契约名]` 五端对齐（Lua 不支持） | 📌 只登记，跨端同步单独做 |
 | `array[T]` 别名（`TODO.md` §三·五 排期） | 📌 排期中 |
 | I-8 TOML `=`（opt-in） | 📌 IDEA 未启动 |
-| `weakport` / `weakdata` / `weakdoc`（`.smlex`） | 📌 概念阶段 |
+| `weakbind` / `weakdata` / `weakdoc`（`.smlex`） | 📌 概念阶段 |
 | **明确否决**：`( )` 参数括号 / 模板表达式档 / 全局 `_` 保留 | ❌ |
 
 ---

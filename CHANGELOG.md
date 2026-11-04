@@ -17,6 +17,65 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 > 因此 `c/` `cpp/` `js/` `lua/`（含 `editors/vscode` 与 `site/` 的四份 vendored 副本）也有改动 ——
 > 见下方「🚨 破坏性变更」与「新增（契约扩展点：严格性三态）」两节。
 
+### 新增（`weakbind` 第一刀：`@weakbind` + `ParseOutput::weak_binds`）
+
+- 新特性位 **`type.weak`**（`Feature::Weak`，bit 19）：**opt-in**，不在 `baseline()`、不进任何 `Edition`。
+  文档里写 `@feature enable type.weak`；裸 `weak` 会被 `E-FEATURE-003` 拒掉
+  （`docs/feature-namespace-plan.md` §3 规则 1：新增特性一律 `<域>.<名>`）。
+- 新内置指令 **`@weakbind <契约名> [<字段体>]`**：照 `@when` 的先例**只作用于紧邻的下一个块**；
+  库**不校验、不填默认值、不改树**，只把声明记进旁路表（`docs/weakbind-spec-draft.md`）。
+- 新错误码 **`E-PARSE-029`**「弱绑定声明的作用域非法」（`impls: [rust]`、`status: partial`）：
+  悬空 / 连续出现 / 目标不是块，三档靠 `detail` 区分。
+- 新增 `ParseOptions::capture_contracts(bool)` + `ParseOutput::contracts`：
+  把本次解析收集到的 `@contract` 表交回（`Option<BTreeMap<String, Contract>>`）。
+  用途是「内置契约表用 SML 定义、再注入回去」—— `Contract` 含 `Arc<dyn TypeCheck>`，
+  没法从 JSON 反序列化，所以只能走这条路（`docs/weakbind-spec-draft.md` §6.1）。
+  **默认关**，不开时恒为 `None`。
+- ⚠️ **升级注意**：`ParseOutput` 一次加了**两个**字段：`weak_binds: Vec<WeakBind>`
+  （**恒存在**，未使用该指令时为空 vec）与 `contracts: Option<...>`（默认 `None`）。
+  只读取的代码无影响；用**结构体字面量**构造 `ParseOutput` 会缺字段。
+  定位口径与 `contract_map` 相同（`Vec<PathSeg>`）。
+- ⚠️ C-ABI 同步：`sml_feature_name(19)` = `"type.weak"`，`c/sml_rs.h` 增 `SML_F_WEAK`。
+- 新增 CLI **`smltools --dump-builtins`**：把输入文档里的 `@contract` 定义导出成 JSON
+  （`docs/weakbind-spec-draft.md` §6.2 的 schema），供编辑器/插件读内置契约形状。
+  与 `--to` 无关；输出确定（契约名与字段名按 `BTreeMap` 序），可作 golden 基线。
+- 新增 `ParseOptions::builtin_contracts(table)`：注入**内置契约表**，`@weakbind` 的软校验拿它比对。
+  **空表（默认）⇒ 软校验整段跳过**。典型用法：
+  `parse_with(builtin_sml, ParseOptions::new().capture_contracts(true))?.contracts` → 注入。
+- 新告警码 **`W-CONTRACT-001`**「弱声明与内置契约不匹配」（`impls: [rust]`、`status: partial`）：
+  八档差异写在**消息前缀**（`decl.*` 3 档 + `block.*` 5 档），因为 `Diagnostic` 没有 `detail` 字段。
+  **只读**：不填默认值、不改主树 ⇒「有无 `@weakbind` 主树逐字节相同」仍成立；
+  `block.undeclared_field` 仅当契约 `strictness = strict` 时报。
+- 新内置指令 **`@weakdata <名> { … }`**（I-15）：载荷**不进主树**，只按名收进
+  `ParseOutput.weak_data`（`Vec<WeakData>`：`path` / `name` / `value` / `line`）。
+  与 `@weakbind` 共用 `type.weak` 开关；**同一 `(path, name)` 后者覆盖**；
+  缺名字 / 缺载荷块 ⇒ `E-PARSE-019`（不为它单开码）。
+  规范：`docs/weakdata-spec-draft.md`。
+- 新内置指令 **`@weakdoc <名>`**（I-17）：只登记 profile 引用，**库不读文件系统**，
+  记录进 `ParseOutput.weak_docs`（`Vec<WeakDoc>`：`path` / `name` / `line`）。
+  同一 profile 重复引用 ⇒ 新码 **`E-PARSE-030`**（文档级判重）；写载荷块 ⇒ `E-PARSE-019`
+  （并提示改用 `@weakdata`）。三命名空间发现属工具侧，见 `docs/weakdoc-spec-draft.md` §3。
+- 新增 CLI **`smltools --resolve-profiles`**：把 `@weakdoc` 引用按
+  「显式 `--profile-dir` → 项目（向上找 `.smlex/profiles/`）→ 用户全局 → 系统」解析成文件路径；
+  TAB 三列输出，未命中记 `-` 且退出码 1。配套 `--no-profiles` 关闭发现。
+  **发现规则只在工具侧**：库不读文件系统，所以「有无 profile，解析结果完全一致」由构造保证。
+- **`.smlex` 的 `applies_to` 已能建议**：`--lint` 时对**未被引用**的 profile 判断
+  「`requires` 契约都齐 + `glob` 命中」⇒ `I-LINT-001` 提示（I 级，不影响退出码）。
+  **只提示、绝不自动挂**：挂不挂在文档的 `@weakdoc` 里。
+- **`.smlex` 的 `checks` 已在 `--lint` 里执行**（`smltools/src/profile.rs`）：
+  `require_top_level` / `forbid_contracts` / `forbid_keys` 三项，命中即 error；
+  新增 `E-LINT-002/003/004`（三项检查）与 `E-LINT-005`（profile 不可用：找不到 = warning，
+  读不出/解析失败/`name` 不符 = error）。**仍然只在工具侧**：库不认识 profile。
+- **`.smlex` 内容格式 v1.0 定稿**（`docs/smlex-format-draft.md`）：文件就是一份普通 SML，
+  顶层 `name` / `version` / `description` / `applies_to` / `checks` / `hints` / `emit`；
+  不变量三条（不注入 / 未知字段 warning 忽略 / name 必须等于文件名）。
+  形状契约放在 `rust/smltools/profile.sml`（`loose`），可用 `--dump-builtins` 导出给编辑器。
+  ⚠️ **只是格式**：`checks` 的执行、`hints` 接编辑器、`emit` 接生成器都还没做。
+- ⚠️ **升级注意（补充）**：`ParseOutput` 这轮共加**三个**字段 —— `weak_binds` / `weak_data` /
+  `weak_docs`（后两者恒存在、未使用时为空 vec）。
+- **未做（明确登记，别当成已支持）**：编辑器提示（vscode / lsp / zed）、其余四端与绑定层 ——
+  清单见两份草案。`weak*` 的「内置表」本身已可用，但**库里不含任何业务契约**（由宿主注入）。
+
 ### 🚨 破坏性变更（版本命名：`Version` 枚举 → `Edition` 查表）
 
 **版本号 = 功能集**（Rust edition 模型，见 `docs/version-naming.md` v1.0）。版本之间**没有大小关系**，
