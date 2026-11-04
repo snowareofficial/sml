@@ -423,6 +423,15 @@ pub const E_PARSE_024: &str = "E-PARSE-024";
 /// [E-PARSE-025] 受限正则模式非法：受限正则模式语法非法：量词之前没有可重复的原子、字符类未闭合，或以反斜杠结尾
 /// EN: Invalid restricted regex —— Invalid restricted-regex syntax: a quantifier with no repeatable atom before it, an unclosed character class, or a trailing backslash
 pub const E_PARSE_025: &str = "E-PARSE-025";
+/// [E-PARSE-026] featag 区为空：`!` 后必须至少写一个 featag 名（形如 `!critical` 或 `obey[1, 2]`）
+/// EN: Empty featag region —— At least one featag name must follow `!` (e.g. `!critical` or `obey[1, 2]`)
+pub const E_PARSE_026: &str = "E-PARSE-026";
+/// [E-PARSE-027] 值位置的 `!` 裸词（疑似 featag）：值位置不能写以 `!` 开头的裸词；若本意是字符串，请用引号包起来
+/// EN: `!` bareword in a value position (looks like a featag) —— A value position cannot hold a bareword starting with `!`; quote it if you meant a string
+pub const E_PARSE_027: &str = "E-PARSE-027";
+/// [E-PARSE-028] 块头里以 `!` 开头的名字：块头里除 featag 区之外的词不得以 `!` 开头
+/// EN: `!`-prefixed name in a block head —— Words in a block head other than the featag region must not start with `!`
+pub const E_PARSE_028: &str = "E-PARSE-028";
 /// [I-FEATURE-001] 命令行特性与解析器版本不一致：解析器按其固定版本模式工作，命令行声明的特性版本仅作提示
 /// EN: CLI feature/parser version mismatch —— The parser works in its fixed version mode; the CLI's declared feature version is advisory only
 pub const I_FEATURE_001: &str = "I-FEATURE-001";
@@ -593,6 +602,9 @@ pub const ALL: &[&str] = &[
     E_PARSE_023,
     E_PARSE_024,
     E_PARSE_025,
+    E_PARSE_026,
+    E_PARSE_027,
+    E_PARSE_028,
     I_FEATURE_001,
     W_EDITOR_001,
     W_FEATURE_001,
@@ -606,4 +618,4 @@ pub const ALL: &[&str] = &[
 ];
 
 /// 码总数（与 `errors/codes.sml` 的 `count` 对齐）。
-pub const COUNT: usize = 147;
+pub const COUNT: usize = 150;

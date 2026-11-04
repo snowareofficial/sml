@@ -751,8 +751,9 @@ local function test_error_info()
     bad("空/非字符串入参 期望 nil", "非 nil")
   end
 
-  -- 全量性质（跨端契约）：所有码 title/msg 非空；PARSE 领域恰好 27 条
-  -- （25 → 27 是 R1 新增 W-PARSE-001/002 之后补的；这两条当时只改了码表，没同步本断言）
+  -- 全量性质（跨端契约）：所有码 title/msg 非空；PARSE 领域恰好 30 条
+  -- 快照守卫：25 → 27（R1 新增 W-PARSE-001/002）→ 30（featag S2 新增 E-PARSE-026/027/028）。
+  -- ⚠️ 改码表要同步本断言与 js/test-sml-errors.mjs 的同名断言，否则「码表被无意改动」就没人拦。
   local parse, empty, count = 0, 0, 0
   for _, z in pairs(EM.ZH) do
     count = count + 1
@@ -761,8 +762,8 @@ local function test_error_info()
   end
   if empty == 0 then ok("全量非空 -> 所有码 title/msg 非空")
   else bad("全量非空 有 " .. empty .. " 条码 title/msg 为空", empty) end
-  if parse == 27 then ok("PARSE 领域 -> 27 条")
-  else bad("PARSE 领域期望 27", parse) end
+  if parse == 30 then ok("PARSE 领域 -> 30 条")
+  else bad("PARSE 领域期望 30", parse) end
   io.write(string.format("  .. 共 %d 条码\n", count))
 end
 

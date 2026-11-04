@@ -276,6 +276,12 @@ export const E_PARSE_023 = "E-PARSE-023";
 export const E_PARSE_024 = "E-PARSE-024";
 /// [E-PARSE-025] 受限正则模式非法：受限正则模式语法非法：量词之前没有可重复的原子、字符类未闭合，或以反斜杠结尾
 export const E_PARSE_025 = "E-PARSE-025";
+/// [E-PARSE-026] featag 区为空：`!` 后必须至少写一个 featag 名（形如 `!critical` 或 `obey[1, 2]`）
+export const E_PARSE_026 = "E-PARSE-026";
+/// [E-PARSE-027] 值位置的 `!` 裸词（疑似 featag）：值位置不能写以 `!` 开头的裸词；若本意是字符串，请用引号包起来
+export const E_PARSE_027 = "E-PARSE-027";
+/// [E-PARSE-028] 块头里以 `!` 开头的名字：块头里除 featag 区之外的词不得以 `!` 开头
+export const E_PARSE_028 = "E-PARSE-028";
 /// [I-FEATURE-001] 命令行特性与解析器版本不一致：解析器按其固定版本模式工作，命令行声明的特性版本仅作提示
 export const I_FEATURE_001 = "I-FEATURE-001";
 /// [W-EDITOR-001] 自定义词与官方关键字冲突：自定义词与官方关键字冲突，已忽略
@@ -436,6 +442,9 @@ export const ALL = Object.freeze([
   E_PARSE_023,
   E_PARSE_024,
   E_PARSE_025,
+  E_PARSE_026,
+  E_PARSE_027,
+  E_PARSE_028,
   I_FEATURE_001,
   W_EDITOR_001,
   W_FEATURE_001,
@@ -448,4 +457,4 @@ export const ALL = Object.freeze([
   W_PARSE_002,
 ]);
 
-export const COUNT = 147;
+export const COUNT = 150;
