@@ -1,0 +1,39 @@
+[package]
+name = "smlb"
+# `.smlb` = SML 的二进制形式（`docs/smlb-smldb-spec.md`，D2：编 `Value`）。
+#
+# 为什么独立成 crate（D3）：**只依赖值模型** —— 「读一个文件不必拖进解析器」。
+# 本 crate 目前连 `sml-value` 的 `sml`（文本发射器）特性都不需要：
+# canonical 文本只用 `sml-value` 里那份共享的「文本原子规则」。
+#
+# ⚠️ 发布节奏（D1）：`.smlb` / `smldb` 与 v5 一起开放，故 `publish = false`。
+version.workspace = true
+edition = "2021"
+description = "SML 的二进制形式 .smlb：canonical 字节 + 跨端测试向量（T0）。"
+license = "MulanPSL-2.0"
+repository = "https://gitee.com/snoware/sml"
+authors = ["Sal <sal@mail.swebase.cn>"]
+publish = false
+
+[lib]
+name = "smlb"
+path = "src/lib.rs"
+
+[[bin]]
+name = "smlb"
+path = "src/main.rs"
+
+[dependencies]
+sml-value = { version = "0.6.9-dev.0", path = "../sml-value" }
+
+[features]
+# 对象保序（转发到 sml-value）：**canonical 的前提**（spec §18 C2）。
+#
+# 为什么默认关、而不是让本 crate 硬开：cargo 的特性是**按构建图取并集**的，
+# 本 crate 若硬开，`cargo test --workspace`（CI 的命令）会把整个 workspace 的
+# `sml-value` 一起切到保序档 —— 那等于顺手改掉 swsml / smltools 的既有行为，
+# 而它们是「默认档 = BTreeMap 字节序」的成百条 golden 用例。
+# 故：本 crate 自己跑时显式带 `--features preserve_order`
+# （不带的后果是**明确报错**而不是悄悄排序，见 `CanonicalError::KeyOrderUnavailable`）。
+preserve_order = ["sml-value/preserve_order"]
+default = []

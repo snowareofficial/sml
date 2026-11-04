@@ -34,6 +34,9 @@ members = [
     "sml-contract",
     "sml-parse",
     "sml-pattern",
+    # `.smlb`（SML 的二进制形式）：只依赖值模型，**不依赖 sml-parse**（docs/smlb-smldb-spec.md D3）。
+    # `publish = false` —— 与 v5 一起开放（D1）。
+    "smlb",
     # 渐进式入门门面（独立发布线，见 smlkit-easy/README.md；`publish = false` 直到一起发）
     "smlkit-easy",
 ]

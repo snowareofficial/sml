@@ -1,0 +1,1104 @@
+// SPDX-License-Identifier: MulanPSL-2.0
+//! **Canonical form**: the same data must yield the same text and the same bytes, no matter
+//! whether it came from `.sml` text, from program construction, or from another `.smlb`.
+//! **canonical 形态**：让「同一份数据」无论来自 `.sml` 文本、程序构造，还是另一个
+//! `.smlb`，都产出**同一串文本**与**同一串字节**。
+//!
+//! Rules live in `docs/smlb-smldb-spec.md` §18 (C1–C13) and §19 (`VALUE` segment layout).
+//! 依据 `docs/smlb-smldb-spec.md` §18（C1–C13）与 §19（`VALUE` 段布局）。两张面孔：
+//!
+//! | Form / 形态 | Entry / 入口 | Use / 用途 | Affected by `fmt` / 受 `fmt` 影响 |
+//! |---|---|---|---|
+//! | Text / 文本 | [`Value::canonical_text`] | **signing target**, cross-end vectors, human diff ｜ **签名对象**、跨端向量、人类比对 | No (decoupled from bytes) ｜ 不受 |
+//! | Bytes / 字节 | [`Value::canonical_bytes`] | what `dump()` writes, for `load()` ｜ `dump()` 的输出，供 `load()` 往返 | Yes ｜ 受 |
+//!
+//! Sign the text, never the bytes (§18.5 P5-a): otherwise one `fmt` bump invalidates every
+//! historical signature. ｜ 签名签文本不签字节：否则 `fmt` 一升级，历史签名全部失效。
+//!
+//! # Three hard rules / 三条硬规矩
+//!
+//! 1. **Objects must keep source order** (C2). Without the `preserve_order` feature `Map` is
+//!    a `BTreeMap` and “source order” **does not exist in the type at all**; this module then
+//!    returns [`CanonicalError::KeyOrderUnavailable`] instead of degrading to “write sorted”.
+//!    Silent sorting would make “the same document signs differently on two machines” a fact.
+//! 2. **Non-finite floats are an error** (C13). NaN / ±Inf have no SML literal — canonical is
+//!    static text, so it refuses rather than faking `"nan"` (which would change the type).
+//! 3. **No opportunistic pretty-printing** (C12). Every layout rule is a fixed value
+//!    (indent, when to stay on one line, separator) — never a function of line width.
+//!
+//! 1. **对象必须保序**（C2）：未开 `preserve_order` 时 `Map` 是 `BTreeMap`，「源序」在类型里
+//!    根本不存在 ⇒ 一律 [`CanonicalError::KeyOrderUnavailable`]，绝不退化成「按排序写」。
+//! 2. **非有限浮点报错**（C13）：NaN / ±Inf 没有字面量，不许伪造成 `"nan"` 字符串（会改类型）。
+//! 3. **不许顺手美化**（C12）：排版规则全部是定值，不按行宽、不按「看起来更好」调整。
+//!
+//! # How it differs from `to_sml` (they are **not** interchangeable) / 与 `to_sml` 的差别
+//!
+//! | Item / 项 | `to_sml` | `canonical_text` |
+//! |---|---|---|
+//! | Empty object / array ｜ 空容器 | `{}` / `[]` | `{ }` / `[ ]`（C9） |
+//! | Metadata key position ｜ 元数据键位置 | as-is ｜ 原样 | `__type`→`__name`→`__args`→`__featags` first ｜ 固定最前（C10） |
+//! | `Float` raw | kept if valid ｜ 有就原样 | **ignored** ｜ **忽略**（C5/C12） |
+//! | Non-finite float ｜ 非有限浮点 | silently `"nan"` ｜ 静默写成字符串 | error ｜ 报错（C13） |
+//! | Depth overflow ｜ 深度超限 | placeholder text ｜ 静默写占位 | error ｜ 报错（`E-LIMIT-004`） |
+//! | Missing key order ｜ 键序缺失 | unknown concept ｜ 无此概念 | error ｜ 报错（C2） |
+//!
+//! # Example / 例子
+//!
+//! ```
+//! # #[cfg(feature = "preserve_order")] {
+//! use sml_value::{Map, Value};
+//!
+//! let v = Value::Object(Map::from_iter([
+//!     ("z".to_string(), Value::Int(1)),
+//!     ("a".to_string(), Value::Int(2)),
+//! ]));
+//! // source order in, source order out (**not** `a` first) ｜ 源序进、源序出
+//! assert_eq!(v.canonical_text().unwrap(), "z: 1\na: 2\n");
+//! # }
+//! ```
+
+use std::collections::HashMap;
+
+use crate::text_rules::{format_float, quote_if_needed};
+use crate::{Map, Value, MAX_VALUE_DEPTH};
+
+/// Fixed output order of metadata keys (C10 / P5-c) — **the order is the definition**.
+/// 元数据键的固定输出序（C10 / P5-c）。**顺序即定义**，不跟源序走。
+const META_KEYS: [&str; 4] = ["__type", "__name", "__args", "__featags"];
+
+/// Node type tags (§19.2). Once published, a value is never reassigned.
+/// 节点类型标签（§19.2）。数值一经发布不再改。
+const TAG_NULL: u8 = 0;
+const TAG_FALSE: u8 = 1;
+const TAG_TRUE: u8 = 2;
+const TAG_INT: u8 = 3;
+const TAG_FLOAT: u8 = 4;
+const TAG_STR: u8 = 5;
+const TAG_ARR: u8 = 6;
+const TAG_OBJ: u8 = 7;
+
+/// `flags` bit 0: this object contains `__type` (saves one lookup, §19.2).
+/// `flags` 位 0：本对象含 `__type`（省一次查表）。
+const FLAG_HAS_TYPE: u8 = 0b0000_0001;
+
+/// `subtree_len` is 4 B, so one node's payload tops out at 4 GiB (§19.2).
+/// 单节点 `subtree_len` 是 4 B ⇒ 子树载荷上限 4 GiB。
+const MAX_SUBTREE_LEN: usize = u32::MAX as usize;
+
+/// Why canonical failed / canonical 失败原因。
+///
+/// Why an enum and not a `String` / 为什么是**独立的枚举**：the three failure families are of
+/// different nature — “built wrong” (C2), “data inexpressible” (C13), “bytes are corrupt”
+/// (decode) — and callers must handle them differently (e.g. `--check` maps them to distinct
+/// exit codes). The code table has no `E-SMLB-*` yet (that surface is fixed in T2), so this
+/// exposes a **stable `kind()` name** plus descriptive text; depth keeps `E-LIMIT-004`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CanonicalError {
+    /// This build lacks `preserve_order`, so object key order is not source order (C2).
+    /// 当前构建没有 `preserve_order`，对象键序不是源序（C2）。
+    ///
+    /// It is a **build-time** fact, not a data problem: the same program passes with the feature.
+    /// 这是**构建期**事实，不是数据问题：同一份程序换个 feature 就能过。
+    KeyOrderUnavailable,
+    /// A `Float` is NaN / ±Inf, which has no SML literal (C13).
+    /// `Float` 是 NaN / ±Inf，没有 SML 字面量（C13）。
+    NonFiniteFloat,
+    /// Nesting deeper than [`MAX_VALUE_DEPTH`] (`E-LIMIT-004`).
+    /// 嵌套深度超过 [`MAX_VALUE_DEPTH`]（`E-LIMIT-004`）。
+    DepthExceeded {
+        /// Depth at the offending node (root = 0) ｜ 触发处所在深度（根 = 0）。
+        depth: usize,
+    },
+    /// One node's payload exceeds 4 GiB, which `subtree_len:u32` cannot hold (§19.2).
+    /// 单节点载荷超过 4 GiB，`subtree_len` 放不下（§19.2）。
+    SubtreeTooLarge {
+        /// Actual payload size in bytes ｜ 实际载荷字节数。
+        len: usize,
+    },
+
+    /// Decode: the byte string ended early.
+    /// 解码：字节在某个偏移处提前结束。
+    Truncated {
+        /// Offset where data was expected ｜ 期望读到数据处的偏移。
+        at: usize,
+    },
+    /// Decode: a LEB128 integer ran past 10 bytes.
+    /// 解码：LEB128 变长整数超过 10 字节。
+    VarintTooLong {
+        /// Start offset ｜ 起始偏移。
+        at: usize,
+    },
+    /// Decode: unknown node tag.
+    /// 解码：未知节点 tag。
+    UnknownTag {
+        /// The unknown tag value ｜ 未知 tag 值。
+        tag: u8,
+        /// Offset ｜ 偏移。
+        at: usize,
+    },
+    /// Decode: a `STRTAB` entry is not valid UTF-8.
+    /// 解码：`STRTAB` 里的字节不是合法 UTF-8。
+    BadStrTable {
+        /// Index of the offending entry ｜ 该表项的序号。
+        index: usize,
+    },
+    /// Decode: a node points at a `STRTAB` entry that does not exist.
+    /// 解码：节点引用了不存在的 `STRTAB` 项。
+    StrIdOutOfRange {
+        /// The out-of-range id ｜ 越界的 id。
+        id: u64,
+    },
+    /// Decode: duplicate key inside one object (`D15`: no implicit last-wins).
+    /// 解码：同一个对象里出现重复键（`D15`：不做隐式 last-wins）。
+    DuplicateKey {
+        /// The duplicated key ｜ 重复的键。
+        key: String,
+    },
+    /// Decode: the node header's `subtree_len` disagrees with the bytes actually consumed.
+    /// 解码：节点头声明 `subtree_len` 与实际消费字节数不一致。
+    SubtreeLenMismatch {
+        /// Payload start offset ｜ 节点载荷起始偏移。
+        at: usize,
+        /// Length declared in the header ｜ 头里声明的长度。
+        declared: usize,
+        /// Length actually consumed ｜ 实际消费的长度。
+        actual: usize,
+    },
+    /// Decode: `subtree_len` exceeds the remaining bytes.
+    /// 解码：`subtree_len` 超出剩余字节。
+    SubtreeLenOverflow {
+        /// Payload start offset ｜ 节点载荷起始偏移。
+        at: usize,
+        /// Length declared in the header ｜ 头里声明的长度。
+        declared: usize,
+    },
+    /// Decode: bytes are left over after the whole tree was read.
+    /// 解码：整棵树读完后还有剩余字节（多余尾巴）。
+    TrailingBytes {
+        /// Start offset of the leftovers ｜ 剩余字节起始偏移。
+        at: usize,
+    },
+}
+
+impl CanonicalError {
+    /// Stable machine-readable class name — a temporary anchor until the code table is fixed in T2
+    /// (then these become `E-SMLB-*`). ｜ 稳定的机器可读分类名（T2 定稿后换成 `E-SMLB-*`）。
+    pub fn kind(&self) -> &'static str {
+        match self {
+            CanonicalError::KeyOrderUnavailable => "key-order-unavailable",
+            CanonicalError::NonFiniteFloat => "non-finite-float",
+            CanonicalError::DepthExceeded { .. } => "depth-exceeded",
+            CanonicalError::SubtreeTooLarge { .. } => "subtree-too-large",
+            CanonicalError::Truncated { .. } => "truncated",
+            CanonicalError::VarintTooLong { .. } => "varint-too-long",
+            CanonicalError::UnknownTag { .. } => "unknown-tag",
+            CanonicalError::BadStrTable { .. } => "bad-strtab",
+            CanonicalError::StrIdOutOfRange { .. } => "str-id-out-of-range",
+            CanonicalError::DuplicateKey { .. } => "duplicate-key",
+            CanonicalError::SubtreeLenMismatch { .. } => "subtree-len-mismatch",
+            CanonicalError::SubtreeLenOverflow { .. } => "subtree-len-overflow",
+            CanonicalError::TrailingBytes { .. } => "trailing-bytes",
+        }
+    }
+}
+
+impl std::fmt::Display for CanonicalError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CanonicalError::KeyOrderUnavailable => write!(
+                f,
+                "canonical 需要对象保序（spec §18 C2）：当前构建未开 `preserve_order`，\
+                 键序不是源序，拒绝退化成「按排序写」。启用该 feature 后重试"
+            ),
+            CanonicalError::NonFiniteFloat => write!(
+                f,
+                "非有限浮点（NaN / ±Inf）没有 SML 字面量，canonical 拒绝伪造（spec §18 C13）；\
+                 确需保存请显式转成字符串（\"nan\" / \"inf\"）"
+            ),
+            CanonicalError::DepthExceeded { depth } => write!(
+                f,
+                "canonical 深度 {depth} 超过上限 {MAX_VALUE_DEPTH}，拒绝输出 [E-LIMIT-004]"
+            ),
+            CanonicalError::SubtreeTooLarge { len } => write!(
+                f,
+                "单节点载荷 {len} 字节超过 4 GiB，subtree_len:u32 放不下（spec §19.2）"
+            ),
+            CanonicalError::Truncated { at } => {
+                write!(f, "canonical 字节在偏移 {at} 处提前结束（截断）")
+            }
+            CanonicalError::VarintTooLong { at } => {
+                write!(f, "canonical 字节在偏移 {at} 处的 LEB128 超过 10 字节")
+            }
+            CanonicalError::UnknownTag { tag, at } => {
+                write!(f, "canonical 字节在偏移 {at} 处的节点 tag {tag} 未定义")
+            }
+            CanonicalError::BadStrTable { index } => {
+                write!(f, "STRTAB 第 {index} 项不是合法 UTF-8")
+            }
+            CanonicalError::StrIdOutOfRange { id } => {
+                write!(f, "节点引用了不存在的 STRTAB id {id}")
+            }
+            CanonicalError::DuplicateKey { key } => {
+                write!(f, "对象里出现重复键 {key:?}（D15：不做隐式 last-wins）")
+            }
+            CanonicalError::SubtreeLenMismatch {
+                at,
+                declared,
+                actual,
+            } => write!(
+                f,
+                "偏移 {at} 处 subtree_len 声明 {declared}，实际消费 {actual}"
+            ),
+            CanonicalError::SubtreeLenOverflow { at, declared } => write!(
+                f,
+                "偏移 {at} 处 subtree_len 声明 {declared}，超出剩余字节"
+            ),
+            CanonicalError::TrailingBytes { at } => {
+                write!(f, "树读完后在偏移 {at} 处还有多余字节")
+            }
+        }
+    }
+}
+
+impl std::error::Error for CanonicalError {}
+
+// ---------------------------------------------------------------------------
+// 文本 canonical（C1–C13）
+// ---------------------------------------------------------------------------
+
+/// Does this build's `Map` keep source order (`preserve_order`)?
+/// 当前构建的 `Map` 是否保源序（`preserve_order`）。
+///
+/// `cfg!` rather than `#[cfg]` splitting the module: both branches must compile, so that
+/// “forgot the feature” shows up as an **explicit runtime error** on every platform.
+/// 用 `cfg!` 而不是 `#[cfg]` 分两份代码：两条分支都要能编译，
+/// 这样「忘了开 feature」表现成**运行期明确报错**而不是某个平台编不过。
+#[inline]
+const fn key_order_is_source_order() -> bool {
+    cfg!(feature = "preserve_order")
+}
+
+impl Value {
+    /// Canonical text — the **signed** object (§18.2 C1–C13). ｜ canonical 文本 —— **签名对象**（§18.2 C1–C13）。
+    ///
+    /// Always ends with exactly **one** `\n` (C3), never contains comments (C11), and always
+    /// is legal SML text (P5-d) — otherwise `diff` / code review would have no foothold and
+    /// canonical would become a third syntax of its own.
+    /// 输出一定以**单个** `\n` 结尾（C3）、一定不含注释（C11）、一定是合法 SML 文本（P5-d）。
+    ///
+    /// ⚠️ “Legal SML” stops at a **container root**: a bare top-level scalar is rejected by the
+    /// parser (`E-PARSE-008`), so `canonical_text` still emits it (the signing bytes are unique)
+    /// but it cannot be read back as a document. Recorded in §18.2 as an implementation note.
+    /// ⚠️ 「合法 SML」的前提是**顶层为容器**：裸的顶层标量会被 parser 拒（`E-PARSE-008`），
+    /// 故标量仍产出文本（签名字节唯一）但不可作为文档回读。已回写进 §18.2。
+    ///
+    /// # Errors / 错误
+    ///
+    /// - [`CanonicalError::KeyOrderUnavailable`] — no `preserve_order` in this build (C2);
+    /// - [`CanonicalError::NonFiniteFloat`] — NaN / ±Inf (C13);
+    /// - [`CanonicalError::DepthExceeded`] — deeper than [`MAX_VALUE_DEPTH`] (`E-LIMIT-004`).
+    ///
+    /// # Example / 例子
+    ///
+    /// ```
+    /// # #[cfg(feature = "preserve_order")] {
+    /// use sml_value::Value;
+    ///
+    /// assert_eq!(Value::Int(1).canonical_text().unwrap(), "1\n");
+    /// // 1 and 1.0 must differ, else load turns the float back into an Int
+    /// // 1 与 1.0 必须是两串不同文本，否则 load 回来会变成 Int
+    /// assert_eq!(Value::float(1.0).canonical_text().unwrap(), "1.0\n");
+    /// assert_eq!(Value::Null.canonical_text().unwrap(), "null\n");
+    /// # }
+    /// ```
+    pub fn canonical_text(&self) -> Result<String, CanonicalError> {
+        if !key_order_is_source_order() {
+            return Err(CanonicalError::KeyOrderUnavailable);
+        }
+        let mut out = String::new();
+        match self {
+            // 顶层对象写「字段列表」（文档形态，不套 `{ }`）；空对象仍按 C9 写 `{ }`。
+            Value::Object(m) if !m.is_empty() => write_fields(m, 0, 0, &mut out)?,
+            other => write_value(other, 0, 0, &mut out)?,
+        }
+        // C3：文件以单个 `\n` 结尾（上面的分支都不留尾随换行）
+        out.push('\n');
+        Ok(out)
+    }
+}
+
+/// Object body (caller writes `{`/`}` when nested): one `key: value` per line, `\n` between
+/// lines, never trailing whitespace. ｜ 对象体：每条 `键: 值`，行间 `\n`，行尾不留空白。
+fn write_fields(
+    m: &Map,
+    indent: usize,
+    depth: usize,
+    out: &mut String,
+) -> Result<(), CanonicalError> {
+    let mut first = true;
+    let mut err = None;
+    for_each_ordered(m, |k, v| {
+        if err.is_some() {
+            return;
+        }
+        if !first {
+            out.push('\n');
+        }
+        first = false;
+        push_indent(out, indent);
+        out.push_str(&quote_if_needed(k));
+        out.push(':');
+        // 标量与单行容器写在同一行；多行容器的 `{` / `[` 也留在同一行（`键: {`），
+        // 让「键与它的值永远相邻」，这是本节唯一的排版自由度，必须是定值。
+        out.push(' ');
+        if let Err(e) = write_value(v, indent, depth + 1, out) {
+            err = Some(e);
+        }
+    });
+    match err {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
+}
+
+/// Write one value (scalar or container); a multi-line container's closing bracket lands on
+/// column `indent`. ｜ 写一个值（标量 / 容器），多行容器的收尾括号落在 `indent` 列。
+fn write_value(
+    v: &Value,
+    indent: usize,
+    depth: usize,
+    out: &mut String,
+) -> Result<(), CanonicalError> {
+    if depth > MAX_VALUE_DEPTH {
+        return Err(CanonicalError::DepthExceeded { depth });
+    }
+    match v {
+        Value::Null => out.push_str("null"),
+        Value::Bool(true) => out.push_str("true"),
+        Value::Bool(false) => out.push_str("false"),
+        Value::Int(i) => {
+            // C4：十进制 ASCII，无前导零、无 `+`；i64 里没有 -0，故无需归一。
+            out.push_str(&i.to_string());
+        }
+        Value::Float(f, _raw) => {
+            // C5 + C12：**忽略 raw**。raw 是解析期的书写痕迹（`1e10` vs `10000000000.0`），
+            // 不参与相等比较，若让它进 canonical，「同一逻辑数据同字节」立刻不成立 ——
+            // 同一份数据从文本读入与从 `.smlb` 读入会得到两串不同文本，签名随之分裂。
+            if !f.is_finite() {
+                return Err(CanonicalError::NonFiniteFloat);
+            }
+            out.push_str(&format_float(*f, None));
+        }
+        Value::Str(s) => out.push_str(&quote_if_needed(s)),
+        Value::Array(a) if a.is_empty() => out.push_str("[ ]"),
+        Value::Object(m) if m.is_empty() => out.push_str("{ }"),
+        Value::Array(a) if is_flat(a.iter()) => {
+            out.push('[');
+            for e in a.iter() {
+                // C8：元素之间用**空格**分隔（不用逗号），首尾各留一个空格
+                out.push(' ');
+                write_value(e, indent, depth + 1, out)?;
+            }
+            out.push_str(" ]");
+        }
+        Value::Object(m) if is_flat(m.values()) => {
+            out.push('{');
+            let mut first = true;
+            let mut err = None;
+            for_each_ordered(m, |k, val| {
+                if err.is_some() {
+                    return;
+                }
+                if !first {
+                    out.push(',');
+                }
+                first = false;
+                out.push(' ');
+                out.push_str(&quote_if_needed(k));
+                out.push_str(": ");
+                if let Err(e) = write_value(val, indent, depth + 1, out) {
+                    err = Some(e);
+                }
+            });
+            if let Some(e) = err {
+                return Err(e);
+            }
+            out.push_str(" }");
+        }
+        Value::Array(a) => {
+            out.push('[');
+            for e in a.iter() {
+                out.push('\n');
+                push_indent(out, indent + 1);
+                write_value(e, indent + 1, depth + 1, out)?;
+            }
+            out.push('\n');
+            push_indent(out, indent);
+            out.push(']');
+        }
+        Value::Object(m) => {
+            out.push('{');
+            out.push('\n');
+            // 字段行的缩进由 `write_fields` 负责（它写 indent + 1 列）
+            write_fields(m, indent + 1, depth, out)?;
+            out.push('\n');
+            push_indent(out, indent);
+            out.push('}');
+        }
+    }
+    Ok(())
+}
+
+/// Are all direct children scalars? Decides one-line vs multi-line.
+/// 直接子项是否全为标量（决定「单行」还是「分行」）。
+///
+/// One level only, no recursion: a recursive version is vacuously true (any container's
+/// descendants eventually reach scalars), i.e. it decides nothing — that exact trap was
+/// hit in `dump.rs`. ｜ 只看一层、不递归（递归版判据恒真，等于没判）。
+fn is_flat<'a, I>(mut it: I) -> bool
+where
+    I: Iterator<Item = &'a Value>,
+{
+    it.all(|v| !matches!(v, Value::Object(_) | Value::Array(_)))
+}
+
+/// Push `n` levels of 2-space indentation (C3: indentation is fixed at 2 spaces).
+/// 压入 `n` 层 2 空格缩进（C3：缩进固定 2 空格）。
+fn push_indent(out: &mut String, n: usize) {
+    for _ in 0..n {
+        out.push_str("  ");
+    }
+}
+
+/// Is this one of the metadata keys C10 hoists to the front?
+/// 键是否属于 C10 的固定前置元数据键。
+fn is_meta_key(k: &str) -> bool {
+    META_KEYS.contains(&k)
+}
+
+/// Walk an object in C10 order: the four metadata keys first (in `META_KEYS` order), then
+/// the rest in source order. ｜ 按 C10 的次序遍历对象：四个元数据键固定最前，其余按源序。
+///
+/// The explicit `&'a str / &'a Value` lifetimes are **required**: the byte encoder borrows
+/// keys and string values into the STRTAB, and the elided version would tie them to
+/// “lives only for the callback”, which cannot be lent out.
+/// 生命周期写成 `&'a` 是**必须**的：编码器要把键与字符串值的 `&str` 借进 STRTAB，
+/// 省略版会变成「只在回调内存活」的匿名生命周期，借不出去。
+fn for_each_ordered<'a, F>(m: &'a Map, mut f: F)
+where
+    F: FnMut(&'a str, &'a Value),
+{
+    for k in META_KEYS {
+        if let Some(v) = m.get(k) {
+            f(k, v);
+        }
+    }
+    for (k, v) in m.iter() {
+        // 注意：`&String` / `&str` 两种载体都在这里走到 —— 交给参数位置的
+        // deref 强制转换（`f(k, v)` / `is_meta_key(k)`），别写 `k.as_str()`。
+        if !is_meta_key(k) {
+            f(k, v);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Byte canonical (§19) / 字节 canonical
+// ---------------------------------------------------------------------------
+//
+// `canonical_bytes` is a **self-contained** “L0 encoding”: two blocks concatenated in a
+// fixed order — `STRTAB` first, node tree second. §19.1 has them as two segments; T0 has no
+// container yet, so they are concatenated in §19.2's in-segment format, with a `count:varint`
+// added in front of the STRTAB to make the boundary locatable. (A standalone segment is
+// delimited by its segment header's `len`; the count becomes unnecessary once containerised.)
+// `canonical_bytes` 是**自包含**的「L0 编码」：`STRTAB` 在前、节点树在后（§19.1 里它们是
+// 两个段；T0 没有容器，故按 §19.2 的段内格式原样串联，并在 STRTAB 前补一个 `count:varint`
+// 以便定位边界：段独立成型时由段头 `len` 界定，容器化后可省）。
+//
+// ```text
+// canonical_bytes = strtab ‖ node_tree
+// strtab          = count:varint ‖ (len:varint ‖ utf8)*     // dedup, id = first-seen order
+// node            = tag:u8 ‖ flags:u8 ‖ subtree_len:u32le ‖ payload
+// payload(Null/False/True) = empty
+// payload(Int)             = zigzag:varint
+// payload(Float)           = f64 little-endian, 8 B
+// payload(Str)             = str_id:varint
+// payload(Arr)             = count:varint ‖ node*
+// payload(Obj)             = count:varint ‖ (key_id:varint ‖ node)*   // source order
+// ```
+//
+// `subtree_len` is the **payload** length (excluding the 6 B node header) ⇒ skipping a
+// subtree is `pos + 4 + subtree_len` (§19.2). ｜ `subtree_len` = **载荷**字节数（不含 6 B
+// 节点头）⇒ 跳过子树是 `pos + 4 + subtree_len`。
+
+impl Value {
+    /// Canonical bytes — the `VALUE` segment payload of `.smlb` (§19). ｜ canonical 字节 —— `.smlb` 的 `VALUE` 段载荷（§19）。
+    ///
+    /// Same logical data ⇒ same bytes (C12), whatever the origin. `Int(1)` and `Float(1.0)`
+    /// are told apart by `tag` (not by spelling), and `subtree_len` lets a whole subtree be
+    /// skipped in O(1). ｜ 同一逻辑数据 ⇒ 同一串字节（C12）：`Int(1)` 与 `Float(1.0)` 靠
+    /// `tag` 区分（不靠字面量），`subtree_len` 让整棵子树 O(1) 跳过。
+    ///
+    /// # Errors / 错误
+    ///
+    /// Same as [`Value::canonical_text`] (C2 key order / C13 non-finite float / depth), plus
+    /// [`CanonicalError::SubtreeTooLarge`] (one node over 4 GiB).
+    ///
+    /// # Example / 例子
+    ///
+    /// ```
+    /// # #[cfg(feature = "preserve_order")] {
+    /// use sml_value::Value;
+    ///
+    /// let a = Value::Int(1).canonical_bytes().unwrap();
+    /// let b = Value::float(1.0).canonical_bytes().unwrap();
+    /// assert_ne!(a, b); // tag 3 vs tag 4
+    ///
+    /// // 往返：字节 → 值 → 字节，逐字节相同
+    /// let v = Value::from_canonical_bytes(&a).unwrap();
+    /// assert_eq!(v.canonical_bytes().unwrap(), a);
+    /// # }
+    /// ```
+    pub fn canonical_bytes(&self) -> Result<Vec<u8>, CanonicalError> {
+        if !key_order_is_source_order() {
+            return Err(CanonicalError::KeyOrderUnavailable);
+        }
+        let mut tab = StrTab::default();
+        let mut nodes = Vec::with_capacity(64);
+        encode_node(self, &mut nodes, &mut tab, 0)?;
+
+        let mut out = Vec::with_capacity(nodes.len() + 32);
+        write_uvarint(&mut out, tab.table.len() as u64);
+        for s in &tab.table {
+            write_uvarint(&mut out, s.len() as u64);
+            out.extend_from_slice(s.as_bytes());
+        }
+        out.extend_from_slice(&nodes);
+        Ok(out)
+    }
+
+    /// Inverse of [`Value::canonical_bytes`] — the T0 “L0” decoder. ｜ canonical 字节 → 值。
+    ///
+    /// T1's `load()` will add the container (segment table / manifest / layer chain) on top;
+    /// this function only accepts a **bare** `canonical_bytes` string and reports
+    /// [`CanonicalError::TrailingBytes`] for a single extra byte — otherwise “appending never
+    /// rewrites old bytes” could be broken silently.
+    /// T1 的 `load()` 会在它之上加容器；本函数只认裸字节串，多一个字节都报错。
+    pub fn from_canonical_bytes(bytes: &[u8]) -> Result<Value, CanonicalError> {
+        let mut r = Reader::new(bytes);
+        let count = r.uvarint()?;
+        // 防御：每个表项至少 1 B（`len` 变长整数），不可能超过总字节数。
+        if count > bytes.len() as u64 {
+            return Err(CanonicalError::Truncated { at: r.pos });
+        }
+        let mut table: Vec<&str> = Vec::with_capacity(count as usize);
+        for index in 0..count as usize {
+            let len = r.uvarint()?;
+            let raw = r.take(len)?;
+            let s = std::str::from_utf8(raw).map_err(|_| CanonicalError::BadStrTable { index })?;
+            table.push(s);
+        }
+        let v = decode_node(&mut r, &table, 0)?;
+        if r.pos != bytes.len() {
+            return Err(CanonicalError::TrailingBytes { at: r.pos });
+        }
+        Ok(v)
+    }
+}
+
+/// Global string table: content → id, id = first-seen order (preorder + source order) ⇒ deterministic.
+/// 全局字符串表：内容 → id，id = 首次出现序（前序 + 源序遍历）⇒ 确定性。
+///
+/// Keys and string values **share one table** (§19.2: keys go through `STRTAB` too), so
+/// `"rule"` as a key and as a value costs one slot. Borrows `&'a str` instead of `String`:
+/// the whole encoding is copy-free.
+/// 键与字符串值**共用一张表**，故 `"rule"` 作为键和作为值只占一份；借用 `&'a str` 而非
+/// `String`：编码全程零拷贝。
+#[derive(Default)]
+struct StrTab<'a> {
+    ids: HashMap<&'a str, u32>,
+    table: Vec<&'a str>,
+}
+
+impl<'a> StrTab<'a> {
+    fn id_of(&mut self, s: &'a str) -> u32 {
+        if let Some(&id) = self.ids.get(s) {
+            return id;
+        }
+        let id = self.table.len() as u32;
+        self.table.push(s);
+        self.ids.insert(s, id);
+        id
+    }
+}
+
+/// Write one node: reserve `subtree_len`, backfill it after the children are written (§19.2).
+/// 写一个节点：先占位 `subtree_len`，子节点写完后回填。
+fn encode_node<'a>(
+    v: &'a Value,
+    out: &mut Vec<u8>,
+    tab: &mut StrTab<'a>,
+    depth: usize,
+) -> Result<(), CanonicalError> {
+    if depth > MAX_VALUE_DEPTH {
+        return Err(CanonicalError::DepthExceeded { depth });
+    }
+    let (tag, flags) = match v {
+        Value::Null => (TAG_NULL, 0),
+        Value::Bool(false) => (TAG_FALSE, 0),
+        Value::Bool(true) => (TAG_TRUE, 0),
+        Value::Int(_) => (TAG_INT, 0),
+        Value::Float(..) => (TAG_FLOAT, 0),
+        Value::Str(_) => (TAG_STR, 0),
+        Value::Array(_) => (TAG_ARR, 0),
+        Value::Object(m) => (
+            TAG_OBJ,
+            if m.contains_key("__type") {
+                FLAG_HAS_TYPE
+            } else {
+                0
+            },
+        ),
+    };
+    out.push(tag);
+    out.push(flags);
+    let len_at = out.len();
+    out.extend_from_slice(&[0, 0, 0, 0]);
+    let payload_at = out.len();
+
+    match v {
+        Value::Null | Value::Bool(_) => {}
+        Value::Int(i) => {
+            // zigzag：小值（|v| < 64）占 1 B
+            write_uvarint(out, zigzag(*i));
+        }
+        Value::Float(f, _raw) => {
+            // C13：NaN / ±Inf 在 canonical 里一律报错（文本与字节同一口径）。
+            if !f.is_finite() {
+                return Err(CanonicalError::NonFiniteFloat);
+            }
+            out.extend_from_slice(&f.to_le_bytes());
+        }
+        Value::Str(s) => {
+            let id = tab.id_of(s);
+            write_uvarint(out, id as u64);
+        }
+        Value::Array(a) => {
+            write_uvarint(out, a.len() as u64);
+            for e in a {
+                encode_node(e, out, tab, depth + 1)?;
+            }
+        }
+        Value::Object(m) => {
+            // §19.2：元数据键**不特化**（就是普通键），按源序写 ——
+            // 与 C10 的「文本里固定最前」是两件事，差异已在 §18.2/§19.2 登记。
+            write_uvarint(out, m.len() as u64);
+            let mut err = None;
+            for_each_source_order(m, |k, val| {
+                if err.is_some() {
+                    return;
+                }
+                let id = tab.id_of(k);
+                write_uvarint(out, id as u64);
+                if let Err(e) = encode_node(val, out, tab, depth + 1) {
+                    err = Some(e);
+                }
+            });
+            if let Some(e) = err {
+                return Err(e);
+            }
+        }
+    }
+
+    let payload_len = out.len() - payload_at;
+    if payload_len > MAX_SUBTREE_LEN {
+        return Err(CanonicalError::SubtreeTooLarge { len: payload_len });
+    }
+    out[len_at..len_at + 4].copy_from_slice(&(payload_len as u32).to_le_bytes());
+    Ok(())
+}
+
+/// Pure source-order walk — the byte side does **not** hoist metadata keys (§19.2).
+/// 纯源序遍历（字节侧不重排元数据键）。
+fn for_each_source_order<'a, F>(m: &'a Map, mut f: F)
+where
+    F: FnMut(&'a str, &'a Value),
+{
+    for (k, v) in m.iter() {
+        f(k, v);
+    }
+}
+
+#[inline]
+fn zigzag(i: i64) -> u64 {
+    ((i << 1) ^ (i >> 63)) as u64
+}
+
+#[inline]
+fn unzigzag(z: u64) -> i64 {
+    ((z >> 1) as i64) ^ -((z & 1) as i64)
+}
+
+fn write_uvarint(out: &mut Vec<u8>, mut v: u64) {
+    loop {
+        let byte = (v & 0x7f) as u8;
+        v >>= 7;
+        if v == 0 {
+            out.push(byte);
+            break;
+        }
+        out.push(byte | 0x80);
+    }
+}
+
+struct Reader<'a> {
+    buf: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> Reader<'a> {
+    fn new(buf: &'a [u8]) -> Self {
+        Reader { buf, pos: 0 }
+    }
+
+    fn remaining(&self) -> usize {
+        self.buf.len() - self.pos
+    }
+
+    fn take(&mut self, n: u64) -> Result<&'a [u8], CanonicalError> {
+        // 先按 u64 比，再转 usize：32 位目标上 `n as usize` 会截断，
+        // 「要 4 GiB 却只给了 0」会变成「读到 0 字节还成功」。
+        if n > self.remaining() as u64 {
+            return Err(CanonicalError::Truncated { at: self.pos });
+        }
+        let n = n as usize;
+        let s = &self.buf[self.pos..self.pos + n];
+        self.pos += n;
+        Ok(s)
+    }
+
+    fn u8(&mut self) -> Result<u8, CanonicalError> {
+        let s = self.take(1)?;
+        Ok(s[0])
+    }
+
+    fn u32le(&mut self) -> Result<u32, CanonicalError> {
+        let s = self.take(4)?;
+        Ok(u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
+    }
+
+    fn f64le(&mut self) -> Result<f64, CanonicalError> {
+        let s = self.take(8)?;
+        Ok(f64::from_le_bytes([
+            s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7],
+        ]))
+    }
+
+    fn uvarint(&mut self) -> Result<u64, CanonicalError> {
+        let start = self.pos;
+        let mut result: u64 = 0;
+        let mut shift = 0;
+        loop {
+            if shift > 63 {
+                return Err(CanonicalError::VarintTooLong { at: start });
+            }
+            let byte = self.u8()?;
+            result |= ((byte & 0x7f) as u64) << shift;
+            if byte & 0x80 == 0 {
+                return Ok(result);
+            }
+            shift += 7;
+        }
+    }
+}
+
+fn decode_node(
+    r: &mut Reader<'_>,
+    table: &[&str],
+    depth: usize,
+) -> Result<Value, CanonicalError> {
+    if depth > MAX_VALUE_DEPTH {
+        return Err(CanonicalError::DepthExceeded { depth });
+    }
+    let tag_at = r.pos;
+    let tag = r.u8()?;
+    let _flags = r.u8()?;
+    let subtree_len = r.u32le()? as usize;
+    let payload_at = r.pos;
+    if subtree_len > r.remaining() {
+        return Err(CanonicalError::SubtreeLenOverflow {
+            at: payload_at,
+            declared: subtree_len,
+        });
+    }
+    let value = match tag {
+        TAG_NULL => Value::Null,
+        TAG_FALSE => Value::Bool(false),
+        TAG_TRUE => Value::Bool(true),
+        TAG_INT => Value::Int(unzigzag(r.uvarint()?)),
+        TAG_FLOAT => {
+            let f = r.f64le()?;
+            if !f.is_finite() {
+                return Err(CanonicalError::NonFiniteFloat);
+            }
+            Value::Float(f, None)
+        }
+        TAG_STR => {
+            let id = r.uvarint()?;
+            let s = table
+                .get(id as usize)
+                .ok_or(CanonicalError::StrIdOutOfRange { id })?;
+            Value::Str((*s).to_string())
+        }
+        TAG_ARR => {
+            let n = r.uvarint()?;
+            // 防御：每节点至少 6 B（tag+flags+subtree_len），据此卡死伪造的巨大 count。
+            if n > (r.remaining() / 6) as u64 {
+                return Err(CanonicalError::Truncated { at: r.pos });
+            }
+            let mut a = Vec::with_capacity(n as usize);
+            for _ in 0..n {
+                a.push(decode_node(r, table, depth + 1)?);
+            }
+            Value::Array(a)
+        }
+        TAG_OBJ => {
+            let n = r.uvarint()?;
+            // 每条至少 7 B（key_id:varint + 6 B 节点头）
+            if n > (r.remaining() / 7) as u64 {
+                return Err(CanonicalError::Truncated { at: r.pos });
+            }
+            let mut m = Map::new();
+            for _ in 0..n {
+                let id = r.uvarint()?;
+                let k = table
+                    .get(id as usize)
+                    .ok_or(CanonicalError::StrIdOutOfRange { id })?;
+                if m.contains_key(*k) {
+                    return Err(CanonicalError::DuplicateKey {
+                        key: (*k).to_string(),
+                    });
+                }
+                let v = decode_node(r, table, depth + 1)?;
+                m.insert((*k).to_string(), v);
+            }
+            Value::Object(m)
+        }
+        other => {
+            return Err(CanonicalError::UnknownTag {
+                tag: other,
+                at: tag_at,
+            })
+        }
+    };
+    let actual = r.pos - payload_at;
+    if actual != subtree_len {
+        return Err(CanonicalError::SubtreeLenMismatch {
+            at: payload_at,
+            declared: subtree_len,
+            actual,
+        });
+    }
+    Ok(value)
+}
+
+#[cfg(all(test, feature = "preserve_order"))]
+mod tests {
+    use super::*;
+
+    fn obj(pairs: &[(&str, Value)]) -> Value {
+        let mut m = Map::new();
+        for (k, v) in pairs {
+            m.insert((*k).to_string(), v.clone());
+        }
+        Value::Object(m)
+    }
+
+    fn text(v: &Value) -> String {
+        v.canonical_text().expect("canonical_text")
+    }
+
+    #[test]
+    fn scalars_follow_c4_to_c6() {
+        assert_eq!(text(&Value::Int(0)), "0\n");
+        assert_eq!(text(&Value::Int(-7)), "-7\n");
+        assert_eq!(text(&Value::float(1.0)), "1.0\n");
+        assert_eq!(text(&Value::float(-0.0)), "-0.0\n");
+        assert_eq!(text(&Value::Bool(true)), "true\n");
+        assert_eq!(text(&Value::Null), "null\n");
+    }
+
+    #[test]
+    fn empty_containers_use_the_spaced_form_c9() {
+        assert_eq!(text(&Value::Array(vec![])), "[ ]\n");
+        assert_eq!(text(&obj(&[])), "{ }\n");
+        assert_eq!(text(&obj(&[("a", Value::Array(vec![]))])), "a: [ ]\n");
+    }
+
+    #[test]
+    fn key_order_is_source_order_c2() {
+        let v = obj(&[("z", Value::Int(1)), ("a", Value::Int(2))]);
+        assert_eq!(text(&v), "z: 1\na: 2\n");
+    }
+
+    #[test]
+    fn metadata_keys_go_first_c10() {
+        let v = obj(&[
+            ("name", Value::Str("wea".into())),
+            ("__featags", Value::Array(vec![])),
+            ("__type", Value::Str("Rule".into())),
+            ("__name", Value::Str("ssh".into())),
+        ]);
+        assert_eq!(
+            text(&v),
+            "__type: Rule\n__name: ssh\n__featags: [ ]\nname: wea\n"
+        );
+    }
+
+    #[test]
+    fn float_raw_is_ignored_c5_c12() {
+        // 同一个值、两种书写痕迹 ⇒ 同一串 canonical 文本（否则签名会分裂）
+        let with_raw = Value::float_with_raw(1e10, "1e10");
+        let without = Value::float(1e10);
+        assert_eq!(text(&with_raw), text(&without));
+        assert_eq!(text(&without), "10000000000.0\n");
+        assert_eq!(
+            with_raw.canonical_bytes().unwrap(),
+            without.canonical_bytes().unwrap()
+        );
+    }
+
+    #[test]
+    fn non_finite_floats_error_c13() {
+        for f in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let v = Value::float(f);
+            assert_eq!(v.canonical_text(), Err(CanonicalError::NonFiniteFloat));
+            assert_eq!(v.canonical_bytes(), Err(CanonicalError::NonFiniteFloat));
+        }
+    }
+
+    #[test]
+    fn int_and_float_are_distinguishable() {
+        assert_ne!(
+            Value::Int(1).canonical_bytes().unwrap(),
+            Value::float(1.0).canonical_bytes().unwrap()
+        );
+        assert_ne!(text(&Value::Int(1)), text(&Value::float(1.0)));
+    }
+
+    #[test]
+    fn bytes_differ_when_key_order_differs() {
+        let a = obj(&[("a", Value::Int(1)), ("b", Value::Int(2))]);
+        let b = obj(&[("b", Value::Int(2)), ("a", Value::Int(1))]);
+        assert_ne!(a.canonical_bytes().unwrap(), b.canonical_bytes().unwrap());
+    }
+
+    #[test]
+    fn same_value_same_bytes_regardless_of_build_path() {
+        let a = obj(&[
+            ("s", Value::Str("dup".into())),
+            ("arr", Value::Array(vec![Value::Str("dup".into()), Value::Int(-3)])),
+        ]);
+        let mut m = Map::new();
+        m.insert("s".to_string(), Value::Str("dup".into()));
+        m.insert(
+            "arr".to_string(),
+            Value::Array(vec![Value::Str("dup".into()), Value::Int(-3)]),
+        );
+        assert_eq!(
+            Value::Object(m).canonical_bytes().unwrap(),
+            a.canonical_bytes().unwrap()
+        );
+    }
+
+    #[test]
+    fn strtab_dedups_strings_and_keys() {
+        let v = obj(&[("k", Value::Str("k".into()))]);
+        let bytes = v.canonical_bytes().unwrap();
+        // count = 1（键与值同为 "k" ⇒ 只占一格）
+        assert_eq!(bytes[0], 1);
+        // 解码后仍是同一个键值对
+        assert_eq!(Value::from_canonical_bytes(&bytes).unwrap(), v);
+    }
+
+    #[test]
+    fn bytes_roundtrip_is_byte_identical() {
+        let v = obj(&[
+            ("a", Value::Int(-1)),
+            ("b", Value::Array(vec![Value::Int(1), Value::float(2.5)])),
+            ("c", obj(&[("d", Value::Null), ("e", Value::Bool(false))])),
+            ("__type", Value::Str("T".into())),
+            ("f", Value::Str("带引号\"的文字".into())),
+        ]);
+        let b1 = v.canonical_bytes().unwrap();
+        let loaded = Value::from_canonical_bytes(&b1).unwrap();
+        assert_eq!(loaded, v);
+        assert!(loaded.eq_ordered(&v), "源序必须原样回来");
+        assert_eq!(loaded.canonical_bytes().unwrap(), b1);
+        assert_eq!(text(&loaded), text(&v));
+    }
+
+    #[test]
+    fn depth_limit_is_explicit() {
+        let mut v = Value::Int(1);
+        for _ in 0..=MAX_VALUE_DEPTH {
+            v = Value::Array(vec![v]);
+        }
+        assert!(matches!(
+            v.canonical_text(),
+            Err(CanonicalError::DepthExceeded { .. })
+        ));
+        assert!(matches!(
+            v.canonical_bytes(),
+            Err(CanonicalError::DepthExceeded { .. })
+        ));
+    }
+
+    #[test]
+    fn decoder_rejects_trailing_bytes() {
+        let mut b = Value::Int(1).canonical_bytes().unwrap();
+        b.push(0);
+        assert!(matches!(
+            Value::from_canonical_bytes(&b),
+            Err(CanonicalError::TrailingBytes { .. })
+        ));
+    }
+
+    #[test]
+    fn decoder_rejects_unknown_tag() {
+        // strtab count = 0，随后一个 tag=9 的节点
+        let mut b = vec![0u8];
+        b.extend_from_slice(&[9, 0, 0, 0, 0, 0]);
+        assert!(matches!(
+            Value::from_canonical_bytes(&b),
+            Err(CanonicalError::UnknownTag { tag: 9, .. })
+        ));
+    }
+
+    #[test]
+    fn decoder_rejects_truncated_input() {
+        let b = Value::Int(1).canonical_bytes().unwrap();
+        for cut in 0..b.len() {
+            assert!(Value::from_canonical_bytes(&b[..cut]).is_err(), "cut={cut}");
+        }
+    }
+
+    #[test]
+    fn flat_containers_stay_on_one_line_c8() {
+        assert_eq!(text(&Value::Array(vec![Value::Int(1), Value::Int(2)])), "[ 1 2 ]\n");
+        assert_eq!(
+            text(&obj(&[("a", Value::Int(1)), ("b", Value::Int(2))])),
+            "a: 1\nb: 2\n"
+        );
+        assert_eq!(
+            text(&obj(&[("arr", Value::Array(vec![Value::Int(1), Value::Int(2)]))])),
+            "arr: [ 1 2 ]\n"
+        );
+        // 元素里含容器 ⇒ 分行
+        assert_eq!(
+            text(&Value::Array(vec![Value::Array(vec![Value::Int(1)])])),
+            "[\n  [ 1 ]\n]\n"
+        );
+    }
+}

@@ -116,6 +116,13 @@ pub mod emit;
 /// 于是 `--no-default-features` 下整库报 `error[E0432]: unresolved import crate::emit`，
 /// 与「`default-features = false` 回到零依赖」的承诺矛盾（HANDOFF R9）。
 pub use sml_value::{describe_value, Map, Value, MAX_VALUE_DEPTH};
+/// Why canonical failed (`.smlb` T0, `docs/smlb-smldb-spec.md` §18).
+/// canonical 的失败原因。
+///
+/// Without `preserve_order`, `Value::canonical_text` / `canonical_bytes` always return
+/// [`sml_value::CanonicalError::KeyOrderUnavailable`] (C2: never sort silently).
+/// 未开 `preserve_order` 时两个入口一律返回该错误 —— 绝不悄悄排序。
+pub use sml_value::CanonicalError;
 /// 路径语法（S1a）：读用 `Value::get_path`，写落点（S6）共用同一份 `Path`。
 pub use sml_value::path::{Path, PathError, Seg};
 /// 统一错误类型（`code()` 是跨端稳定契约）。
