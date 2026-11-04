@@ -966,7 +966,7 @@ key 更少一份、零依赖，`ser_text` 已趟过路；O(n) 对真实负载够
 
 | 阶段 | 做什么 | 验收判据 |
 |---|---|---|
-| **T0 前置** | `Value::canonical_bytes()` 的规则定稿（保序、数字格式、`__*` 位置、转义）+ **跨端测试向量**（文本 ↔ 二进制各 N 组，期望字节写死） | 无 `preserve_order` 时**显式报错**；向量在 Rust/JS 上产出同一字节 |
+| **T0 前置** ✅ 已落地（2026-11-04，见 §18.6） | `Value::canonical_bytes()` 的规则定稿（保序、数字格式、`__*` 位置、转义）+ **跨端测试向量**（文本 ↔ 二进制各 N 组，期望字节写死） | 无 `preserve_order` 时**显式报错**；向量在 Rust/JS 上产出同一字节（**JS 侧待 T7**，见 §18.6 待确认 ②） |
 | **T1 编码（L0）** | 新 crate `smlb` 骨架 + `dump` / `load` / `canonical` | `dump→load→dump` 字节相同；`Int(1)` 与 `Float(1.0)` 可区分；`__type`/`__featags` 原样往返 |
 | **T2 容器（L1）** | 二进制 manifest + 段表 + 段 checksum + 外来载荷 + `primary` + `Capabilities`/`check_caps` | 只读 manifest 能列出全部段；未知 `optional` 可跳过、缺 `required` 明确拒；改一个字节可被检出 |
 | **T3 读（L2）** | `Mmap::open` / `open_parts` / `get` / `text` / `text_of` / `segments` / `payload` / `history` / `provenance` | 打开 100 MB 文件 RSS 增量 < 1 MB；取单个子树不遍历全树 |
@@ -1012,6 +1012,24 @@ key 更少一份、零依赖，`ser_text` 已趟过路；O(n) 对真实负载够
 | **C12** | 同一逻辑数据必须产出同一串字节 —— **任何实现不得「顺手美化」**（如把 `[a b]` 拆行） |
 | **C13** | **非有限浮点（NaN / ±Inf）没有字面量**：语言里只能「由算式得到」（如 `1/0`），而 canonical 是静态文本 ⇒ **遇到非有限浮点直接报错**（`E-SMLB-非有限浮点`）。确实要存时，由调用者显式转成字符串（`"nan"` / `"inf"`），库不代劳 |
 
+### 18.2b 实现澄清（T0 落地时补，2026-11-04）
+
+> 下面各条是**把 C1–C13 写实**时必须回答、而规则表本身没写死的问题。写进这里，是为了让
+> JS / Lua / C / C++ 的移植不用去猜 Rust 的实现（判据以 `tests/vectors/smlb-canonical.v1.json`
+> 为准，见 §18.6）。
+
+| # | 澄清 | 理由 |
+|---|---|---|
+| **C5-a** | **canonical 一律忽略 `Float` 的 raw** | raw 是解析期的书写痕迹、不参与相等比较；若让它进 canonical，同一份数据「从文本读入」与「从 `.smlb` 读入」会得到两串不同文本 ⇒ C12 当场失效，签名随之分裂。`raw` 仍由 `to_sml` 保留（那是给人看的输出） |
+| **C5-b** | 浮点写法 = **十进制展开 + 整数值补 `.0`**（`Display` 最短往返数字，不用科学计数法：`1e10` → `10000000000.0`；`-0.0` → `-0.0`） | 与 `to_sml` 的浮点写法共用同一份实现（`text_rules::format_float`），避免两套发射器漂移。⚠️ 跨端需照此展开 JS 的 `1e+21` 形式（见 §18.6 待确认 ②） |
+| **C7-a** | 转义集 = `\n` `\t` `\r` `\0` `\\` `\"` + 其余 C0/0x7F 走 **`\uXXXX`**（4 位十六进制，**不是** Rust 的 `\u{...}`） | 跟随现词法层的转义集；canonical 必须是**能解析回去**的文本（P5-d） |
+| **C8-a** | 「单行 / 分行」判据 = **直接子项是否全为标量**（不含容器）。全标量 ⇒ `[ a b ]` / `{ k: v, k2: v2 }` 单行；否则逐项分行 | 判据只看一层、只看值的形状，与行宽无关 ⇒ 确定性（C12）。**数组元素间用空格**（C8 原文），扁平对象字段间用 `, `（与 `to_sml` 的行内形式一致，且已能往返） |
+| **C8-b** | 多行容器的收尾括号**回到键的缩进**；`键: {` 与 `键: [` 的括号留在**同一行** | 「键与它的值永远相邻」，减少一条排版自由度 |
+| **C9-a** | 顶层对象写**字段列表**（不套 `{ }`）；空对象仍写 `{ }` | 顶层是「文档」而不是「值」；空文档没有字段可写，只能退到 C9 的空对象形式 |
+| **P5-d-a** | 「输出是合法 SML」的边界 = **顶层为容器**。顶层标量照常产出文本（签名字节唯一），但**不可作为文档回读** | parser 明确要求顶层为容器（`E-PARSE-008`「顶层须为容器，单独的标量无法往返」）。这是 parser 的既有约束，不是 canonical 的取舍 —— 若要改，改 parser 的顶层规则，而 canonical 跟着走 |
+| **C2-a** | 未开 `preserve_order` 时**整份文档一律报错**（连标量也报） | 放行「恰好没有键的值」会让入口变成「有时能用、有时不能用」，比一律报错更难排查 |
+
+
 ### 18.3 元数据（manifest）canonical
 
 manifest 本身也要被签，所以它也要 canonical 形式：
@@ -1050,6 +1068,50 @@ signed_bytes = "smlb/sig/v1\n"
 3. 否则 canonical 会变成**第三种语法**（`.sml` 一种、canonical 一种），与「不造轮子」相悖。
 
 ⇒ 判据写法：**不把「解析回等价 `Value`」写成规范要求**（避免绑定 parser 的实现细节），而是把它当 **T0 的测试向量判据**。
+
+### 18.6 T0 落地状态（2026-11-04）
+
+> 本节是**实现即文档**：写的是代码现在长什么样、怎么验、还剩什么没定。
+
+**落点**（D3 的边界：`.smlb` 只依赖值模型）
+
+| 东西 | 在哪 | 说明 |
+|---|---|---|
+| `Value::canonical_text()` / `canonical_bytes()` / `from_canonical_bytes()` | `rust/sml-value/src/canonical.rs` | 规格把 API 写作 `Value::canonical_*`（§18.1），孤儿规则决定它必须住在定义 `Value` 的 crate；**容器层（段表/manifest/层链/签名/加密）一概不进 `sml-value`** |
+| `CanonicalError`（13 个变体 + `kind()`） | 同上 | 码表还没有 `E-SMLB-*`（面在 T2 定），故先给稳定 `kind()`；深度沿用 `E-LIMIT-004` |
+| 「文本原子」规则（裸词/引号/转义、浮点写法） | `rust/sml-value/src/text_rules.rs` | 从 `dump.rs` 搬出来，**三个发射器共用一份**（`to_sml` / `ser_text` / `canonical`） |
+| crate `smlb` + `smlb vectors` CLI | `rust/smlb/` | T0 只有门面 + 向量；编码器骨架归 T1。`publish = false`（D1） |
+| 跨端向量 | `tests/vectors/smlb-canonical.v1.json` | 21 例，`canonical_text` + `bytes_hex` 双期望值 |
+
+**四条硬判据都已写进测试**（不是口头）
+
+| 判据 | 钉在哪 |
+|---|---|
+| 无 `preserve_order` ⇒ **显式报错**（C2，绝不排序） | `rust/tests/canonical.rs`（默认档）+ `rust/smlb/tests/vectors.rs`（默认档） |
+| 非有限浮点 ⇒ **报错**（C13，不伪造字面量） | `canonical.rs` 单测 + `tests/canonical.rs` |
+| 同一逻辑数据 ⇒ 同一串字节（C12） | `tests/canonical.rs::c12_*`、`smlb vectors` 自检 |
+| `dump→load→dump` 逐字节相同 / `Int(1)`≠`Float(1.0)` / `__type`·`__featags` 原样往返 | `tests/canonical.rs` |
+
+**怎么跑**
+
+```
+cargo test --test canonical                                  # 默认档：验 C2
+cargo test --features preserve_order --test canonical        # 保序档：验内容
+cargo test -p smlb --features preserve_order                 # 向量文件与代码一致
+cargo run -p smlb --features preserve_order -- vectors --check
+```
+
+⚠️ `smlb` 的 `preserve_order` 是**opt-in**，不让它硬开：cargo 的特性按构建图取并集，
+硬开会让 `cargo test --workspace`（CI 的命令）把整个 workspace 的 `sml-value` 一起切到
+保序档 —— 等于顺手改掉 `swsml` / `smltools` 上百条「默认档 = 字节序」的 golden。
+
+**待确认（不阻塞 T1，但会影响跨端）**
+
+| # | 问题 | 现状 / 建议 |
+|---|---|---|
+| ① | **顶层标量**要不要允许 canonical 文本「不可回读」（P5-d-a） | 现状：允许，文本照出、签名字节唯一。若要求严格合法，则只能改 parser 的顶层规则（`E-PARSE-008`），不是 canonical 能单方面决定的 |
+| ② | 浮点跨端口径（C5-b）：Rust 走十进制展开，JS `toString()` 在 `1e21` / `1e-7` 处切指数 | 现状：Rust 侧按十进制展开，向量里给了 `1e10` → `10000000000.0`。JS/Lua 端需实现「展开器」，或反过来把 canonical 改成 ECMAScript 形式（后者 Rust 要自己实现阈值切分）。**T7 之前必须定** |
+| ③ | 元数据键在字节侧是否也前置（L5 的副作用） | 现状：文本前置（C10）、字节保源序（§19.2 原文）⇒ 两份仅在元数据位置不同的数据，文本相同而字节不同。若要「字节 = f(文本)」这一更强性质，需改 §19.2 |
 
 ---
 
@@ -1104,6 +1166,17 @@ tag:u8 | flags:u8 | subtree_len:u32 | payload…
 
 - 加密单位 4 KiB（D28）⇒ 段内按块切分，`subtree_len` 让「跨块子树」也能整块跳过；
 - 压缩（`FRAMES`）在段之上，帧边界不要求与节点边界对齐（解帧后再走节点）。
+
+### 19.5 实现澄清（T0 落地时补，2026-11-04）
+
+| # | 澄清 | 理由 |
+|---|---|---|
+| **L1** | `subtree_len` = **载荷字节数**（不含 `tag:u8 + flags:u8 + len:u32` 这 6 B 节点头）⇒ 跳过子树是 `pos + 4 + subtree_len`（`pos` 指向 `subtree_len` 字段本身） | §19.2 的「跳子树」公式只在这个口径下成立；写成「含头长度」会让公式差 6 B，且两端口径一旦不一致就静默读错 |
+| **L2** | `flags` 位 0 已用：**本对象含 `__type`**（§19.2 原文）。其余位 v1 一率为 0，读到未知位 ⇒ **忽略该位继续解码**（位是加速提示，不是语义） | 位是「省一次查表」的优化，不是数据；把它当语义会让 `flags` 变成第二个版本号 |
+| **L3** | **T0 的 `canonical_bytes` 是自包含的「L0 编码」**：`STRTAB 段内容 ‖ VALUE 段内容`，其中 STRTAB 前补一个 `count:varint` | T0 没有容器，`-> Vec<u8>` 必须能被单独 `load()` 回来；而 §19.2 的表内格式 `(len,utf8)*` 本身不带个数，只有段头的 `len` 能界定边界。容器化后（T1）由段头 `len` 界定，`count` 可省 —— 届时两段各自成型，节点线格式**一个字节都不变** |
+| **L4** | 键与字符串值**共用一张 `STRTAB`**，id = 前序遍历 + 源序首次出现序；全局去重 | §19.2「表内 `(len:varint, utf8)*`，全局去重」；共用一张表意味着 `"rule"` 作为键与作为值只占一格（向量 `strtab-dedup` 钉着） |
+| **L5** | ⚠️ **元数据键在字节侧不前置**：文本按 C10 提到最前，字节按源序写（§19.2 原文「元数据键不特化」） | 两条规则各自有据：C10 是为了「人读 canonical 时元数据总在同一处」，§19.2 是为了「字节里键序就是源序，一条不改」。**副作用**：两份仅在元数据位置上不同的数据，`canonical_text` 相同而 `canonical_bytes` 不同 ⇒ 见 §18.6 待确认 ③ |
+| **L6** | 解码侧硬校验（都会拒绝，不静默降级）：`subtree_len` 与实际消费字节数必须相等；树读完后**不许有剩余字节**；未知 tag 拒绝；对象内重复键拒绝（D15）；非有限浮点拒绝（C13）；`count` 须与剩余字节数自洽（防伪造巨大 count 触发巨量分配） | 「未知段可跳过」的前提是**长度可信**；`subtree_len` 不自洽就等于长度不可信。剩余字节不拒，则「追加不改旧字节」会被静默破坏 |
 
 ---
 
@@ -1194,7 +1267,7 @@ crypto {
 | `smlb sign / append / delegate` | 签名、追加补丁、换钥授权 | T4 | ✅ |
 | `smlb pack / unpack` | 把目录/多文件打成 `.smlb`，或反向取出外来段 | T2 | ✅ |
 | `smlb tree <f>` | 打印层链（index/prev_hash/作者/时间**仅展示**） | T4 | 建议 |
-| `smlb vectors --gen/--check` | 生成/校验跨端 canonical 测试向量（T0 判据） | T0 | ✅ |
+| `smlb vectors --gen/--check` | 生成/校验跨端 canonical 测试向量（T0 判据） | T0 | ✅ **已实现**（2026-11-04，另带「自检」：往返 + 文本一致） |
 | `smlb bench <f>` | 读路径基准（mmap 打开、单子树取、解帧、解密） | T5 | 建议 |
 | `smlb migrate --to fmt=N` | `fmt` 升级（重写 + 重签，需保留旧签名证据） | T5+ | 建议 |
 | `smlb compact` | 合并多层（会**重签**，D8 的例外情况） | T5+ | 建议 |
@@ -1236,6 +1309,7 @@ crypto {
 | `smldb` 侧 | 选择器语法（§7 挪过去后重新定义）、FTS 具体方案、表结构细节 | `smldb` 开工时 |
 | `compact` | 合并多层后如何保留「旧签名证据」 | T5+ |
 | 五端 | JS / Lua 解码器的错误码映射 | T7 |
+| canonical 三条 | 顶层标量能否不可回读（P5-d-a）· 浮点跨端口径（C5-b）· 元数据在字节侧是否前置（L5） | ①③ 可随时定；② **T7 之前**必须定（详见 §18.6） |
 
 ### 23.4 开工顺序（详见 §17）
 
