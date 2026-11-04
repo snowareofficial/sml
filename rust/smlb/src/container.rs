@@ -753,6 +753,19 @@ pub fn ls_lines(info: &FileInfo) -> Vec<String> {
         .collect()
 }
 
+/// Where the “main content” of this file is — P8 wants an answer for every file.
+/// 这个文件的「主内容」在哪 —— P8 要求任何文件都有答案。
+///
+/// T1/T2 还没有 manifest，故按约定：有 `VALUE` 就报它，否则明说「无主内容指针」。
+/// 这句话是**说给用户的**，免得把「约定」读成「manifest 里写死的 `primary`」。
+/// Until the manifest lands (§19.9) this is a convention, not a stored pointer.
+fn primary_hint(info: &FileInfo) -> String {
+    match info.segments.iter().find(|s| s.header.seg_id == SEG_VALUE) {
+        Some(_) => "VALUE（约定：manifest 的 primary 指针待 §19.9）".to_string(),
+        None => "无 —— 这份文件没有 VALUE 段，也没有 manifest 指明主内容".to_string(),
+    }
+}
+
 /// A short multi-line summary for `smlb info`. ｜ 多行摘要，供 `smlb info`。
 pub fn info_lines(path: &str, info: &FileInfo) -> Vec<String> {
     let major = (info.edition & 0xff) as u8;
@@ -766,6 +779,7 @@ pub fn info_lines(path: &str, info: &FileInfo) -> Vec<String> {
         format!("flags     0x{:04x}", info.flags),
         format!("tail_off  {}（T4 尾部表预留）", info.tail_off),
         format!("segments  {}", info.segments.len()),
+        format!("primary   {}", primary_hint(info)),
     ];
     for line in ls_lines(info) {
         out.push(format!("  {line}"));

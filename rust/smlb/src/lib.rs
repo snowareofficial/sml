@@ -52,4 +52,4 @@ pub use container::{
     EDITION, FMT, HEADER_LEN, MAGIC, SEG_HEADER_LEN, SEG_MANIFEST, SEG_STRTAB, SEG_VALUE,
 };
 pub use sml_value::canonical::CanonicalError;
-pub use sml_value::{CanonicalBlocks, Map, Value};
+pub use sml_value::{CanonicalBlocks, Map, Value, MAX_VALUE_DEPTH};
