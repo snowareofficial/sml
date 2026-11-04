@@ -129,3 +129,75 @@ other = "SML view (lossless, true Rust value model)"
 
 [pg_view_json]
 other = "JSON view (lossy: no Int/Float distinction, >2^53 gets corrupted)"
+
+# ---- Home page (layouts/index.html) ----
+
+[home_tagline]
+other = "A declarative data format — low-ceremony syntax, optional schema contracts"
+
+[home_sub]
+other = "One dataset, three uses: config, documents, DSL. Rust reference implementation, plus C / C++ / JS / Lua with matching error codes"
+
+[home_cta_start]
+other = "Start in 30s"
+
+[home_cta_download]
+other = "Download"
+
+[home_cta_docs]
+other = "Docs"
+
+[home_compare_title]
+other = "One config, three spellings"
+
+[home_compare_note]
+other = "SML drops quotes and commas, blocks use braces. Quote values that contain special characters like colons."
+
+[home_entry_title]
+other = "Three ways in"
+
+[home_entry_cfg_t]
+other = "As config"
+[home_entry_cfg_d]
+other = "Replace JSON / YAML / TOML: optional colons, optional commas, fragment inheritance."
+
+[home_entry_doc_t]
+other = "As documents"
+[home_entry_doc_d]
+other = "One dataset, many targets: Markdown / HTML / LaTeX / XML / SVG."
+
+[home_entry_dsl_t]
+other = "As a DSL"
+[home_entry_dsl_d]
+other = "Custom @directives and contract validation, kept in your own repository."
+
+[home_more]
+other = "Learn more"
+
+[home_caps_title]
+other = "Capabilities"
+
+[home_cap_1]
+other = "Optional quotes: barewords are strings"
+[home_cap_2]
+other = "Optional block colon: `a { }` ≡ `a: { }`"
+[home_cap_3]
+other = "Contracts: type and shape validation"
+[home_cap_4]
+other = "Fragments: @base defines, &base reuses"
+[home_cap_5]
+other = "include with namespace isolation"
+[home_cap_6]
+other = "Same error code across five implementations"
+
+[home_dl_title]
+other = "Install"
+
+[home_dl_note]
+other = "Rust reference implementation, C / C++ / JS / Lua bindings, VSCode extension."
+
+[home_ai_title]
+other = "For AI agents"
+
+[home_ai_note]
+other = "llms.txt is a condensed grammar summary for models; the full spec lives in the docs."

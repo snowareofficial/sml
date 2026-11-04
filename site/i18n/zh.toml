@@ -129,3 +129,76 @@ other = "SML 视图（无损，Rust 值模型真实呈现）"
 
 [pg_view_json]
 other = "JSON 视图（有损：Int/Float 不分，超 2^53 会被改坏）"
+
+# ---- 官网首页（layouts/index.html）----
+# ⚠️ home_tagline 仍是**占位**定位：等 A/B/C 三个候选定稿后只改这一处。
+
+[home_tagline]
+other = "声明式数据格式 —— 语法少仪式感，可加契约校验"
+
+[home_sub]
+other = "同一份数据：当配置用、当文档写、当 DSL 用；Rust 参考实现 + C / C++ / JS / Lua 同码"
+
+[home_cta_start]
+other = "30 秒上手"
+
+[home_cta_download]
+other = "下载"
+
+[home_cta_docs]
+other = "文档"
+
+[home_compare_title]
+other = "同一份配置，三种写法"
+
+[home_compare_note]
+other = "SML 省掉引号与逗号，块用花括号；含冒号等特殊字符时仍需引号。"
+
+[home_entry_title]
+other = "三条起步路径"
+
+[home_entry_cfg_t]
+other = "当配置用"
+[home_entry_cfg_d]
+other = "替代 JSON / YAML / TOML：块冒号可省、逗号可选、片段继承复用。"
+
+[home_entry_doc_t]
+other = "当文档写"
+[home_entry_doc_d]
+other = "一套数据多目标输出：Markdown / HTML / LaTeX / XML / SVG。"
+
+[home_entry_dsl_t]
+other = "当 DSL 用"
+[home_entry_dsl_d]
+other = "自定义 @指令 与契约校验，把领域语法留在你自己的仓库。"
+
+[home_more]
+other = "了解更多"
+
+[home_caps_title]
+other = "能力一览"
+
+[home_cap_1]
+other = "引号可选：裸词即字符串"
+[home_cap_2]
+other = "块冒号可省：`a { }` ≡ `a: { }`"
+[home_cap_3]
+other = "契约系统：类型与结构校验"
+[home_cap_4]
+other = "片段继承：@base 定义、&base 引用"
+[home_cap_5]
+other = "include 与命名空间隔离"
+[home_cap_6]
+other = "五端同码：同一错误同一个码"
+
+[home_dl_title]
+other = "安装"
+
+[home_dl_note]
+other = "Rust 参考实现、C / C++ / JS / Lua 绑定、VSCode 扩展。"
+
+[home_ai_title]
+other = "给 AI 读的入口"
+
+[home_ai_note]
+other = "llms.txt 是给模型看的精简语法摘要；完整规范见文档站。"
