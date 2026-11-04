@@ -281,6 +281,11 @@ pub struct Contract {
     /// 跨端（JS / C / C++ / Lua）暂未实现 `@requires` 的解析，见到即按 `E-CONTRACT-018`
     /// 响亮拒绝（参照 `E-CONTRACT-017` 契约叠加未实现的先例），绝不静默忽略或静默给树。
     pub requires: Vec<String>,
+    /// 契约级开关 **`!any`**（S8，§10 Q7）：允许本契约使用 `any` 类型。
+    ///
+    /// `any` 等于放弃类型校验，默认**禁用**；契约里显式写 `!any` 才放行（含 `any` 里的 `null`）。
+    /// **不占特性位**：它是契约级开关，不是文档级特性 —— 一个文档里可以只有个别契约放开 `any`。
+    pub allow_any: bool,
     /// 契约级开关 **`!strict-paths`**（featag 落点规则 §6.1 规则 3）。
     ///
     /// `false`（默认）：落点路径上的父对象不存在 ⇒ **自动创建**（那是「插入」，不是「覆盖」）。
@@ -662,6 +667,10 @@ pub fn apply_contracts(
         // 叠加时取**或**：任一份契约要求「父对象必须已存在」，叠加后就得守这条
         // （与 `required` 的合并口径一致：约束取并，不取某个契约的宽松度）。
         strict_paths: list.iter().any(|c| c.strict_paths),
+        // `!any` 同理取**或**：叠加后只要有一份契约放开，`any` 就可用
+        // （它是「允许」不是「约束」，与 `strict_paths` 的方向相反，但都按「任一」合并 —— 因为
+        //  校验时看的是**合并后**这一份契约，不能因为叠加而把已放开的又收回）。
+        allow_any: list.iter().any(|c| c.allow_any),
         featags: merged_featags,
     };
     apply_contract(&merged, node, contracts, path, warnings)
