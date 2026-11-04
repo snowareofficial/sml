@@ -56,6 +56,25 @@ Editions are **not ordered**, so `Ord` is gone and the criterion is always "is t
 - ⚠️ The registry has no `Removed` row yet, so the branch is **not reachable** today (code and wiring
   are in place; adding a row activates it). `smltools --migrate` (V11) is not implemented yet.
 
+### Added — value model: shared path syntax (featag S1a)
+
+- New module `sml_value::path`: `Path::parse` / `Seg` / `PathError` plus **`Value::get_path`**.
+  One grammar only — key / `.` / `[n]` (0-based) — so `a.b[0].c`, `[0][1]` and `a.[0]` (empty key =
+  "current value") all parse.
+- **Failures say why**: `NotFound` / `OutOfRange` / `NotAnObject` / `NotAnArray`, each carrying the
+  1-based segment number; syntax errors (empty path, empty segment, bad/unclosed index, illegal
+  character) are rejected at `parse` time, and `PathError::is_syntax()` tells the two phases apart.
+  Out-of-range messages include the real length (`that array has 2 elements`).
+- **`Value::get` is untouched**: still `Option`, still "literal key first" (documents whose key
+  literally contains `[` keep working; regression pin `bracket_in_key_name_is_not_rewritten`).
+  The two are deliberately **not** merged — turning `get` into `Result` would silently change every
+  caller, and the compat rule only lives on `get`.
+- Facade: `sml::{Path, PathError, Seg}`. Passes under both the default and `preserve_order` profiles.
+- The same `Path` is the **write** entry for S6 (featag targets): `segments()` / `last()` /
+  `Path::new()` let code assemble targets without going back through a string.
+- ⚠️ **No error code yet**: `PathError` is type + message only. S6 maps target errors onto
+  `E-CONTRACT-0xx` per `featag-spec-draft.md`, which is when attaching a code becomes decidable.
+
 ### Added — parse entry: file + options
 
 - **`parse_file_with(path, ParseOptions)`** (exported from both `sml_parse` and the `sml` facade):

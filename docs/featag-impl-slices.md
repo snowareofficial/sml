@@ -35,6 +35,10 @@
 **S0d 余项**：CLI `--feature` 目前**只接受已发布版本集** —— 是否也让 `50` / `"camelia"` 过（它们都是 `Dev`，
 而 flat flag 没有 `dev` 槽位）**待定**。
 
+**S1a 已落地（2026-11-04）**：`rust/sml-value/src/path.rs` —— `Path::parse` / `Seg` / `PathError` +
+`Value::get_path`（失败带原因与 1 起段号）；旧 `Value::get` 一字未改（仍 `Option` + 字面键优先）。
+验收可演示：`get_path("a.b[0].c")` 取值、`a[9]` 报 `OutOfRange`。**写**留到 S6 复用同一份 `Path`。
+
 **建议顺序**：`S0 → S1a → S2 → S3`（**到这里就能给你看真实数据**）`→ S4 → S5 → S6 → S7 / S8 → S9`。
 **S1b（标识符校验）可并行**：S1a / S2 / S3 都不依赖它，它只在 S4（声明收集）之后才真正卡住。
 
