@@ -110,3 +110,73 @@ fn parse_allowed_default_is_v1() {
     let v = parse_allowed("name: John\n", &[Version::V1]).unwrap();
     assert_eq!(v.get("name"), Some(&Value::Str("John".into())));
 }
+
+// ===========================================================================
+// S0b：`@version` 的 edition 字面量（`docs/version-naming.md`）
+//
+// 目标语法 `@version 50 "camelia" dev`；旧写法一律仍是别名。
+// 本组用例只钉**已发布的 1.0–4.0** 能正常认，以及**各种写错**的报错口径。
+// ===========================================================================
+
+#[test]
+fn edition_literals_are_aliases_for_published_versions() {
+    // 连写 / 点号 / 旧写法 指向同一代
+    for lit in ["10", "1.0", "1", "v1"] {
+        let (_, ver) = parse_versioned(&format!("@version {lit}\nx: 1\n"))
+            .unwrap_or_else(|e| panic!("`@version {lit}` 应被接受：{e}"));
+        assert_eq!(ver, Version::V1, "字面量 {lit}");
+    }
+    for lit in ["40", "4.0", "4", "v4", "\"4\""] {
+        let (_, ver) = parse_versioned(&format!("@version {lit}\nx: 1\n"))
+            .unwrap_or_else(|e| panic!("`@version {lit}` 应被接受：{e}"));
+        assert_eq!(ver, Version::V4, "字面量 {lit}");
+    }
+}
+
+#[test]
+fn dev_edition_requires_the_dev_marker() {
+    let e = parse("@version 50\nx: 1\n").unwrap_err();
+    let msg = format!("{e}");
+    assert!(msg.contains("dev"), "应提示须写 dev 标记：{msg}");
+}
+
+#[test]
+fn dev_edition_is_not_enabled_yet_even_with_marker() {
+    // 定稿前本实现还没有 5.0 的功能集 ⇒ 明确报「未启用」，而不是含糊的「不支持」
+    let e = parse("@version 50 \"camelia\" dev\nx: 1\n").unwrap_err();
+    let msg = format!("{e}");
+    assert!(msg.contains("开发") || msg.contains("未启用"), "应说明尚未启用：{msg}");
+    assert!(msg.contains("camelia"), "文案应带代号：{msg}");
+}
+
+#[test]
+fn published_edition_rejects_dev_marker() {
+    let e = parse("@version 40 dev\nx: 1\n").unwrap_err();
+    let msg = format!("{e}");
+    assert!(msg.contains("不需要") || msg.contains("dev"), "应提示不需要 dev：{msg}");
+}
+
+#[test]
+fn codename_must_agree_with_the_number() {
+    let e = parse("@version 40 \"camelia\"\nx: 1\n").unwrap_err();
+    let msg = format!("{e}");
+    assert!(msg.contains("同一代") || msg.contains("camlia") || msg.contains("camelia"), "{msg}");
+}
+
+#[test]
+fn unknown_codename_and_three_digit_literal_are_rejected() {
+    assert!(parse("@version \"nope\"\nx: 1\n").is_err(), "未知代号应报错");
+    // 三位连写有歧义（10.0 还是 1.00）⇒ 必须写点号
+    let e = parse("@version 100\nx: 1\n").unwrap_err();
+    assert!(
+        format!("{e}").contains("不支持"),
+        "三位连写应报「不支持」而不是被当成 10.0：{e}"
+    );
+}
+
+#[test]
+fn dev_marker_must_be_last() {
+    let e = parse("@version dev 40\nx: 1\n").unwrap_err();
+    let msg = format!("{e}");
+    assert!(msg.contains("最后") || msg.contains("dev"), "{msg}");
+}
