@@ -28,7 +28,7 @@ pub use api::{
     parse_with_features_env, parse_with_warnings,
 };
 pub use contract_map::{AppliedContract, ContractMap, PathSeg};
-pub use ext::{Diagnostic, DiagnosticKind, ParseOptions, ParseOutput};
+pub use ext::{Diagnostic, DiagnosticKind, ParseOptions, ParseOutput, WeakBind, WeakData, WeakDoc};
 pub use error::ParseError;
 
 // 解析器游标需对外可见：`sml_parse::Parser` 被 cond 与测试复用。

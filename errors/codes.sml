@@ -219,6 +219,18 @@ codes: [
       msg: "块头里除 featag 区之外的词不得以 `!` 开头"
       impls: [ rust ] status: done
       note: "featag S2 §2.3 B3。`wea !critical, !web { }` 里第二个 `!web` 落在**块名**位置 ⇒ 歧义（featag 还是块名？），而块名无法加引号，故直接拒。`!wea name { }`（类型词位置）同报此码。与 B2 同源：`!` 只在「块头首词之后、逗号之前」是记号。仅 `type.featag` 开启时生效" }
+    { id: E-PARSE-030 domain: PARSE severity: E title: "弱 profile 重复引用"
+      msg: "同一文档重复引用了同一个弱 profile"
+      impls: [ rust ] status: partial
+      note: "weakdoc（`docs/weakdoc-spec-draft.md`）。落地 I-17 硬性约束 2 的后半句：**同一个 profile 不能在一个文档里重复挂**。判重是**文档级**（不看块路径）—— profile 作用于整份文档，重复写就是笔误，故响亮报错而不是静默去重。另：本码只登记引用关系，**库不读文件系统**：项目根下的 `.smlex` 目录、用户全局、系统三处命名空间的查找全在工具侧，因此「解析结果对有无 profile 完全一致」这条判据自动成立" }
+    { id: E-PARSE-029 domain: PARSE severity: E title: "弱绑定声明的作用域非法"
+      msg: "弱绑定 `@weakbind` 的作用域非法：后面没有块、连续出现，或作用对象不是块"
+      impls: [ rust ] status: partial
+      note: "weakbind 第一刀（`docs/weakbind-spec-draft.md` §3）。照 `@when` 的先例：`@weakbind` 只作用于**紧邻的下一个块**，三类都用本码、靠 detail 区分：dangling（块写完还没等到块）、duplicate（连续两条 `@weakbind`）、target-not-block（后面跟的是标量、数组或片段引用）。为什么一个码而不是三个：触发条件都是「这条声明没能绑定到块上」，只是理由不同 —— 与 E-LEX-007（六类拒绝共用一个码、靠 detail 分）同一做法。仅 `weak` 特性开启时生效：默认关，v1–v4 既有文档一字不变" }
+    { id: W-CONTRACT-001 domain: CONTRACT severity: W title: "弱声明与内置契约不匹配"
+      msg: "弱绑定 `@weakbind` 与内置契约不匹配（警告，不阻断解析）"
+      impls: [ rust ] status: partial
+      note: "weakbind 软校验（`docs/weakbind-spec-draft.md` §4 / §7）。两条纪律：**只读**（不填默认值、不改主树，故「有无 `@weakbind` 主树逐字节相同」这条判据仍成立）与**不阻断**（`DiagnosticKind::WeakBindMismatch` ⇒ `Warning`，解析照常出结果）。八档靠**消息前缀**区分（`Diagnostic` 没有 detail 字段，故写成「…（decl.unknown_contract）：…」这种可检索的形式）：声明侧 decl.unknown_contract / decl.unknown_field / decl.type_mismatch，块内容侧 block.missing_required / block.type_mismatch / block.out_of_range / block.enum_mismatch / block.undeclared_field（最后一档仅当契约 strictness 为 strict 时报）。**内置表为空时整段跳过** —— 否则一落地所有弱声明都会报 unknown_contract。另：弱声明**不算**契约定义，`W-LINT-002`「契约定义从未被应用」必须把它排除" }
     { id: E-CONTRACT-019 domain: CONTRACT severity: E title: "featag 重复声明"
       msg: "同一契约里重复声明了同名的 featag"
       impls: [ rust ] status: done
@@ -671,6 +683,26 @@ codes: [
       msg: "缩进里出现制表符：SML 缩进敏感，请统一用空格"
       impls: [ smltools ] status: done
       note: "制表符宽度因编辑器而异，会让缩进敏感的文档在不同环境里结构不同 —— 故按错误处理" }
+    { id: I-LINT-001 domain: LINT severity: I title: "profile 看起来适用但未被引用"
+      msg: "有个 profile 的适用条件命中了这份文档，但文档没有引用它"
+      impls: [ smltools ] status: done
+      note: "`.smlex` 的 `applies_to`（`docs/smlex-format-draft.md` §3.1）。**只提示、不自动挂**：挂不挂写在文档的 `@weakdoc` 里，工具不替作者改文档。判据是「glob 命中 且 requires 里的契约都已定义」；没写 applies_to 的 profile 一律不猜。I 级（提示），不影响退出码" }
+    { id: E-LINT-002 domain: LINT severity: E title: "profile 要求的顶层字段缺失"
+      msg: "profile 要求文档顶层必须有该字段，但文档里没有"
+      impls: [ smltools ] status: done
+      note: "`.smlex` 的 `checks.require_top_level`（`docs/smlex-format-draft.md` v1.0 §3.2）。**只在工具侧执行**：库不认识 profile，所以解析结果与有无 `.smlex` 无关。按错误处理而不是告警 —— 它是项目自己定的硬规则" }
+    { id: E-LINT-003 domain: LINT severity: E title: "profile 禁止的契约出现"
+      msg: "文档里出现了 profile 明令禁止的契约"
+      impls: [ smltools ] status: done
+      note: "`.smlex` 的 `checks.forbid_contracts`。v1 查**定义侧**（`@contract` 收集表）：契约必须先定义才能应用，故定义侧覆盖了来源；应用侧未查 —— `ContractMap` 只暴露按路径查询，没有遍历接口，强行 `to_sml` 再搜字符串太脆" }
+    { id: E-LINT-005 domain: LINT severity: E title: "profile 无法加载"
+      msg: "`.smlex` 读不出来或不是合法 SML，或 name 与文件名不一致"
+      impls: [ smltools ] status: done
+      note: "按错误处理而非告警：profile 是**用户显式挂的**（文档里写了 `@weakdoc`），加载不了说明这份文档的规则没生效 —— 静默跳过会让「规则明明写了却不生效」变成谜。三处命中同一码，靠 detail 区分（IO / 解析 / name 不符）。profile 找不到（三命名空间都没命中）仍只是 warning：那时用户可能只是没装它" }
+    { id: E-LINT-004 domain: LINT severity: E title: "profile 禁止的键出现"
+      msg: "文档里出现了 profile 明令禁止的键"
+      impls: [ smltools ] status: done
+      note: "`.smlex` 的 `checks.forbid_keys`。**任意层级**匹配键名（递归遍历结果树），命中即报；只报第一处，避免一棵大树刷屏" }
     { id: W-LINT-001 domain: LINT severity: W title: "片段定义从未被引用"
       msg: "片段定义后从未被引用"
       impls: [ smltools ] status: done }

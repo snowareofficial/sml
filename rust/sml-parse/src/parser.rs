@@ -11,7 +11,7 @@ use sml_codes::{
     E_FEATURE_002, E_FEATURE_003, E_INCLUDE_007, E_LEX_007, E_LIMIT_001, E_PARSE_001, E_PARSE_002,
     E_PARSE_003, E_PARSE_004, E_PARSE_005, E_PARSE_006, E_PARSE_007, E_PARSE_011, E_PARSE_012,
     E_PARSE_013, E_PARSE_017, E_PARSE_019, E_PARSE_020, E_PARSE_021, E_PARSE_022, E_PARSE_023,
-    E_PARSE_026, E_PARSE_028, SmlError,
+    E_PARSE_026, E_PARSE_028, E_PARSE_029, E_PARSE_030, SmlError,
 };
 // 这两个只在 `when` feature（@when/@for）下用到；关掉该 feature 时下游会报 unused_imports
 #[cfg(feature = "when")]
@@ -32,7 +32,7 @@ use sml_value::{insert_or_merge, Map, MAX_VALUE_DEPTH, Value};
 
 use crate::contract_bridge::{apply_contract, apply_contracts};
 use crate::contract_map::{ContractMap, PathSeg};
-use crate::ext::{Diagnostic, DiagnosticKind, DirectiveTable, Outcome};
+use crate::ext::{Diagnostic, DiagnosticKind, DirectiveTable, Outcome, WeakBind, WeakData, WeakDoc};
 
 /// The parser. `pub` only so submodules like `cond` can reuse the cursor — **not** part of the public API ｜ 解析器（`pub` 仅为让 `cond` 等子模块复用游标）。
 pub struct Parser {
@@ -98,6 +98,27 @@ pub struct Parser {
     pub(crate) collect_errors: bool,
     /// 收集到的错误（仅 `collect_errors` 时非空）。
     pub(crate) errors: Vec<SmlError>,
+    /// 弱绑定旁路表（`docs/weakbind-spec-draft.md` §5）：`@weakbind` 的产物。
+    ///
+    /// **不进主树** —— 这是核心判据「有无 `@weakbind`，主树与 `contract_map` 逐字节相同」
+    /// 的落点。未使用该指令时为空。
+    pub(crate) weak_binds: Vec<WeakBind>,
+    /// 内置契约表（宿主注入）：`@weakbind` 的软校验拿它比对。
+    ///
+    /// **空表 ⇒ 整段软校验跳过**（否则一落地，所有弱声明都会报 `decl.unknown_contract`）。
+    pub(crate) builtin_contracts: BTreeMap<String, Contract>,
+    /// 已登记的弱绑定，但**还没到目标块收尾** —— 块内容校验要等块填完才能做。
+    ///
+    /// 元组：`(目标块路径, 契约名, 可选字段体)`；收尾时按路径精确匹配取出。
+    pub(crate) weak_pending: Vec<(Vec<PathSeg>, String, Option<BTreeMap<String, FieldSpec>>)>,
+    /// 弱数据旁路表（`@weakdata` 的载荷）：**不进主树**，只给拓展按名读取。
+    ///
+    /// 同一 `(path, name)` 只留最后一条（同名后者覆盖，见 `docs/weakdata-spec-draft.md` §3）。
+    pub(crate) weak_data: Vec<WeakData>,
+    /// 弱 profile 引用（`@weakdoc`）：只存名字，**库不读文件系统**。
+    ///
+    /// 判重是**文档级**（不看路径）：同一个 profile 不能重复挂，重复即 `E-PARSE-030`。
+    pub(crate) weak_docs: Vec<WeakDoc>,
 }
 
 /// 单个块在迭代式解析中的可变状态（迭代式改造第一步：从 `parse_block_inner`
@@ -109,11 +130,27 @@ struct BlockFrame {
     node: Map,
     applied_contracts: Vec<(String, Option<Strictness>)>,
     pending_when: Option<bool>,
+    /// 作用于**紧邻的下一个块**的 `@weakbind`（照 `@when` 的先例）。
+    ///
+    /// 与 `pending_when` 一样是「挂起在父帧、由下一项消费」的状态；差别在于它在
+    /// 目标块**开帧时**就落表（那时 `path_stack` 已压好该块的键），因此不必随
+    /// 容器一路传到 `finish_block`。
+    pending_weakbind: Option<PendingWeak>,
     closing: Option<Tok>,
     /// 裸块上下文：`Some` 时本块体是裸块 `type [name] [args…] { … }` 的体，
     /// 类型名 / 已收集参数存于此，块收尾（finish）时写入 `__type`/`__name`/`__args`
     /// 元数据并跑 typed-block 类型契约（迭代式改造第二步，作业书 §3）。
     bare: Option<BareCtx>,
+}
+
+/// 一条挂起的 `@weakbind` 声明（`docs/weakbind-spec-draft.md` §2）。
+///
+/// 只活到「下一个块开帧」为止：那一刻写进 [`Parser::weak_binds`]，随即清空。
+/// `line` 是 `@weakbind` 所在行（1 起），供宿主把诊断指回原文。
+struct PendingWeak {
+    name: String,
+    body: Option<BTreeMap<String, FieldSpec>>,
+    line: Option<usize>,
 }
 
 /// 裸块上下文（作业书 §3，`Frame::Block.bare`）：建帧时已把 args 收集齐并消费到 `{`，
@@ -459,6 +496,13 @@ impl Parser {
             // 子解析器的映射记录暂不回传父级（同 diags：回传要跨 &mut 借用，
             // 而 `@for` 体内应用契约的场景极少）。克隆只为路径上下文正确。
             contract_map: self.contract_map.clone(),
+            // 弱绑定同 diags：子解析器的记录暂不回传父级（`@for` 体里写 `@weakbind` 极少）。
+            weak_binds: Vec::new(),
+            builtin_contracts: self.builtin_contracts.clone(),
+            weak_pending: Vec::new(),
+            weak_data: Vec::new(),
+            // 判重是文档级：子解析器要看得到父级已有的引用，故克隆（同 contract_map）。
+            weak_docs: self.weak_docs.clone(),
             env: self.env.clone(),
             loop_vars,
             directives: Arc::clone(&self.directives),
@@ -1027,6 +1071,7 @@ impl Parser {
                 node: Map::new(),
                 applied_contracts: Vec::new(),
                 pending_when: None,
+                pending_weakbind: None,
                 closing,
                 bare: None,
             },
@@ -1051,6 +1096,7 @@ impl Parser {
         node: &mut Map,
         applied_contracts: &mut Vec<(String, Option<Strictness>)>,
         pending_when: &mut Option<bool>,
+        pending_weakbind: &mut Option<PendingWeak>,
     ) -> Result<(), SmlError> {
         // `when` feature 关闭时，`pending_when` 只被上面 `#[cfg(feature = "when")]`
         // 块使用；此处显式消费一次，消除 `unused_variables` 警告（TODO L289）。
@@ -1363,6 +1409,148 @@ impl Parser {
                 return Ok(());
             }
         }
+        // —— 弱绑定：`@weakbind <契约名> [<字段体>]`（作用于紧邻的下一个块）——
+        //
+        // 与 `@when` 同一套「挂起状态 + 下一个块消费」的机制，但**不碰契约层**：
+        // 不 resolve、不校验、不填默认值，只把声明记进旁路表
+        // （`docs/weakbind-spec-draft.md` §5）。故这里只读 token，从不查 `self.contracts`。
+        if fname == "weakbind" {
+            if !self.features.has(Feature::Weak) {
+                return Err(SmlError::from_code_msg(E_FEATURE_001)
+                    .with_detail("`weakbind`（请先写 `@feature enable type.weak`）"));
+            }
+            if pending_weakbind.is_some() {
+                return Err(SmlError::from_code_msg(E_PARSE_029)
+                    .with_detail("连续两条 `@weakbind`：它只作用于紧邻的下一个块"));
+            }
+            let name_idx = self.i;
+            let name = match self.next() {
+                Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
+                other => {
+                    return Err(SmlError::from_code_title(E_PARSE_019)
+                        .with_detail(format!("@weakbind 后须契约名，得 {other:?}")))
+                }
+            };
+            // 可选字段体：`{ 字段: 类型 … }`。只写名字时不消费任何块 ——
+            // 形状完全由内置表提供，这正是「不写两遍」的落点。
+            let body = if self.peek() == Some(&Tok::LBrace) {
+                self.next();
+                let mut fields = BTreeMap::new();
+                loop {
+                    match self.peek() {
+                        Some(Tok::RBrace) => {
+                            self.next();
+                            break;
+                        }
+                        None => return Err(SmlError::from_code_msg(E_PARSE_001)),
+                        _ => {}
+                    }
+                    let fkey = match self.next() {
+                        Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
+                        other => {
+                            return Err(SmlError::from_code_title(E_PARSE_006).with_detail(
+                                format!("@weakbind 字段体期望字段名，得 {other:?}"),
+                            ))
+                        }
+                    };
+                    match self.next() {
+                        Some(Tok::Colon) => {}
+                        other => {
+                            return Err(SmlError::from_code_title(E_PARSE_006).with_detail(
+                                format!("`@weakbind` 的字段 `{fkey}` 后须冒号，得 {other:?}"),
+                            ))
+                        }
+                    }
+                    let spec = self.parse_field_spec()?;
+                    fields.insert(fkey, spec);
+                }
+                Some(fields)
+            } else {
+                None
+            };
+            *pending_weakbind = Some(PendingWeak {
+                name,
+                body,
+                line: self.line_of(name_idx),
+            });
+            return Ok(());
+        }
+        // —— 弱 profile 引用：`@weakdoc <名>`（只登记名字，库**不读文件系统**）——
+        //
+        // 项目 `.smlex` 目录 / 用户全局 / 系统三处命名空间的查找全在工具侧 ——
+        // 「不能用于注入」的判据因此自动成立：库连文件都没碰、
+        // 解析结果对有无 profile 必然一致（`docs/weakdoc-spec-draft.md` §4）。
+        if fname == "weakdoc" {
+            if !self.features.has(Feature::Weak) {
+                return Err(SmlError::from_code_msg(E_FEATURE_001)
+                    .with_detail("`weakdoc`（请先写 `@feature enable type.weak`）"));
+            }
+            let name_idx = self.i;
+            let name = match self.next() {
+                Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
+                other => {
+                    return Err(SmlError::from_code_title(E_PARSE_019)
+                        .with_detail(format!("@weakdoc 后须 profile 名，得 {other:?}")))
+                }
+            };
+            // 显式拒绝载荷块：那是 `@weakdata` 的形态，混淆了会让人以为 profile 能内联。
+            if self.peek() == Some(&Tok::LBrace) {
+                return Err(SmlError::from_code_title(E_PARSE_019).with_detail(
+                    "@weakdoc 只写 profile 名，不接受载荷块（要内联数据请用 @weakdata）",
+                ));
+            }
+            // 文档级判重：同一个 profile 不能重复挂（I-17 硬性约束 2）。
+            if self.weak_docs.iter().any(|w| w.name == name) {
+                return Err(SmlError::from_code_msg(E_PARSE_030)
+                    .with_detail(format!("`{name}`（同一个 profile 不能重复挂）")));
+            }
+            self.weak_docs.push(WeakDoc {
+                path: self.path_stack.clone(),
+                name,
+                line: self.line_of(name_idx),
+            });
+            return Ok(());
+        }
+        // —— 弱数据：`@weakdata <名> { … }`（载荷**不进主树**，只给拓展读）——
+        //
+        // 与 `@weakbind` 的分工：这里**没有契约**、内容**根本不进树**；
+        // 库只负责「按名交出去」，不解释内容（`docs/weakdata-spec-draft.md`）。
+        if fname == "weakdata" {
+            if !self.features.has(Feature::Weak) {
+                return Err(SmlError::from_code_msg(E_FEATURE_001)
+                    .with_detail("`weakdata`（请先写 `@feature enable type.weak`）"));
+            }
+            let name_idx = self.i;
+            let name = match self.next() {
+                Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
+                other => {
+                    return Err(SmlError::from_code_title(E_PARSE_019)
+                        .with_detail(format!("@weakdata 后须名字，得 {other:?}")))
+                }
+            };
+            if self.peek() != Some(&Tok::LBrace) {
+                return Err(SmlError::from_code_title(E_PARSE_019)
+                    .with_detail("@weakdata 后须一个 `{ … }` 载荷块"));
+            }
+            self.next(); // `{`
+            let value = self.parse_block(Some(Tok::RBrace))?;
+            let entry = WeakData {
+                path: self.path_stack.clone(),
+                name,
+                value,
+                line: self.line_of(name_idx),
+            };
+            // 同名（同路径）后者覆盖：提示通道按名取值，天然「最后一次生效」。
+            match self
+                .weak_data
+                .iter_mut()
+                .find(|w| w.path == entry.path && w.name == entry.name)
+            {
+                Some(slot) => *slot = entry,
+                None => self.weak_data.push(entry),
+            }
+            return Ok(());
+        }
         // 可选显式参数：`type: X` 与 `name: Y`（顺序不限、均可省略）。
         //
         // v4 起废弃 v3 的位置参数形式（`@f Server [prod] { .. }`）。
@@ -1453,6 +1641,144 @@ impl Parser {
     /// [`ContractWarning`](sml_contract::ContractWarning)；此处转译。
     /// warn 态告警只在 `*_with_warnings` 入口可见：`parse()` / `parse_file()`
     /// 在 `api.rs` 里直接丢掉 `diags`，故对既有调用方零影响。
+    /// 落一条弱绑定：位置取当前 `path_stack`。
+    ///
+    /// 调用时机很关键 —— 必须在**目标块的键已压栈之后**、子帧开出来之时。
+    /// 此时 `path_stack` 恰好指向那个块，与 [`ContractMap`] 的定位口径一致。
+    fn record_weak_bind(&mut self, pending: PendingWeak) {
+        let path = self.path_stack.clone();
+        // 声明侧软校验（名字 / 字段名 / 字段类型）现在就能做；块内容留到收尾。
+        self.check_weak_decl(&pending.name, pending.body.as_ref(), pending.line);
+        self.weak_pending
+            .push((path.clone(), pending.name.clone(), pending.body.clone()));
+        self.weak_binds.push(WeakBind {
+            path,
+            name: pending.name,
+            body: pending.body,
+            line: pending.line,
+        });
+    }
+
+    /// 记一条弱绑定软校验告警（`W-CONTRACT-001`）：**不阻断解析、不改主树**。
+    ///
+    /// 八档差异写在消息前缀里（`（decl.unknown_contract）` 这种），因为
+    /// [`Diagnostic`] 没有 `detail` 字段 —— 见 `docs/weakbind-spec-draft.md` §4。
+    fn push_weak_warn(&mut self, line: Option<usize>, detail: &str, msg: String) {
+        self.diags.push(Diagnostic {
+            kind: DiagnosticKind::WeakBindMismatch,
+            message: format!("sml: 弱声明与内置契约不匹配（{detail}）：{msg}"),
+            line,
+        });
+    }
+
+    /// 声明侧软校验：契约名在内置表里吗？体的字段名 / 类型对得上吗？
+    ///
+    /// **不查 `self.contracts`**：`@weakbind` 认的是**宿主内置**那份表，
+    /// 与文档里 `@contract` 定义的契约互不相干（这正是本项的意义）。
+    fn check_weak_decl(
+        &mut self,
+        name: &str,
+        body: Option<&BTreeMap<String, FieldSpec>>,
+        line: Option<usize>,
+    ) {
+        if self.builtin_contracts.is_empty() {
+            return;
+        }
+        let mut msgs: Vec<(&'static str, String)> = Vec::new();
+        match self.builtin_contracts.get(name) {
+            None => msgs.push((
+                "decl.unknown_contract",
+                format!("内置契约表里没有 `{name}`"),
+            )),
+            Some(c) => {
+                if let Some(body) = body {
+                    for (fname, spec) in body {
+                        match c.fields.get(fname) {
+                            None => msgs.push((
+                                "decl.unknown_field",
+                                format!("契约 `{name}` 没有字段 `{fname}`"),
+                            )),
+                            Some(bi) if bi.ty != spec.ty => msgs.push((
+                                "decl.type_mismatch",
+                                format!(
+                                    "字段 `{name}.{fname}` 的类型与内置契约不同（声明 `{:?}`，内置 `{:?}`）",
+                                    spec.ty, bi.ty
+                                ),
+                            )),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+        for (detail, msg) in msgs {
+            self.push_weak_warn(line, detail, msg);
+        }
+    }
+
+    /// 块内容软校验（块收尾时做）：缺必填 / 类型 / 区间 / 枚举 / 未声明字段。
+    ///
+    /// **只读**：不填默认值、不删不改任何键 —— 「有无 `@weakbind` 主树逐字节相同」
+    /// 这条核心判据全靠这里守住（§9 #1 / #10）。
+    fn check_weak_block(&mut self, node: &Map) {
+        if self.builtin_contracts.is_empty() || self.weak_pending.is_empty() {
+            return;
+        }
+        let path = self.path_stack.clone();
+        let pos = match self.weak_pending.iter().position(|(p, _, _)| *p == path) {
+            Some(i) => i,
+            None => return,
+        };
+        let (_, name, _) = self.weak_pending.remove(pos);
+        let contract = match self.builtin_contracts.get(&name).cloned() {
+            Some(c) => c,
+            None => return,
+        };
+
+        let mut msgs: Vec<(&'static str, String)> = Vec::new();
+        for (fname, spec) in &contract.fields {
+            match node.get(fname) {
+                None if spec.required => msgs.push((
+                    "block.missing_required",
+                    format!("块里缺必填字段 `{name}.{fname}`"),
+                )),
+                None => {}
+                Some(v) => {
+                    if let Err(e) =
+                        sml_contract::check_value(&name, fname, spec, v, &self.builtin_contracts)
+                    {
+                        // 三段细分靠码映射：越界 / 枚举 / 其余都算类型不符。
+                        let detail = match e.code() {
+                            "E-CONTRACT-005" => "block.out_of_range",
+                            "E-CONTRACT-006" => "block.enum_mismatch",
+                            _ => "block.type_mismatch",
+                        };
+                        msgs.push((
+                            detail,
+                            format!("字段 `{name}.{fname}` 不合内置契约：{}", e.message()),
+                        ));
+                    }
+                }
+            }
+        }
+        // 未声明字段：只有**严格**契约才报 —— `warn` / `loose` 本来就是宽容档。
+        if contract.strictness == Strictness::Strict {
+            for k in node.keys() {
+                if !contract.fields.contains_key(k) {
+                    msgs.push((
+                        "block.undeclared_field",
+                        format!("契约 `{name}` 未声明字段 `{k}`"),
+                    ));
+                }
+            }
+        }
+        // 收尾点没有单一源位置（块可能跨多行、可能来自 include）⇒ `line: None`，
+        // 与 `Diagnostic::line` 的既有取舍一致：宁缺勿错。
+        for (detail, msg) in msgs {
+            self.push_weak_warn(None, detail, msg);
+        }
+    }
+
     fn record_contract_warnings(&mut self, ws: Vec<ContractWarning>) {
         for w in ws {
             self.diags.push(Diagnostic {
@@ -1535,7 +1861,12 @@ impl Parser {
                 return Err(SmlError::from_code_msg(E_PARSE_004));
             }
             Some(&Tok::At) => {
-                self.parse_at_directive(&mut frame.node, &mut frame.applied_contracts, &mut frame.pending_when)?;
+                self.parse_at_directive(
+                    &mut frame.node,
+                    &mut frame.applied_contracts,
+                    &mut frame.pending_when,
+                    &mut frame.pending_weakbind,
+                )?;
                 return Ok(Step::Continue);
             }
             _ => {
@@ -1588,6 +1919,11 @@ impl Parser {
                 // - 显式字段撞已有键 = 提升数组（走下方统一同名规则）
                 // `key: &name`（带冒号）仍是值引用，互不影响。
                 if !colon && key.starts_with('&') {
+                    // `@weakbind` 只认块：片段引用（`&frag`）不是块 ⇒ 响亮拒绝，不静默忽略
+                    if frame.pending_weakbind.take().is_some() {
+                        return Err(SmlError::from_code_msg(E_PARSE_029)
+                            .with_detail("`@weakbind` 后面必须紧跟一个块（这里是片段引用）"));
+                    }
                     let resolved = coerce_word(
                         &key,
                         &self.fragments,
@@ -1633,7 +1969,8 @@ impl Parser {
                 // `@when` 条件：先取出 —— 容器值路径要把它翻译进 `Cont::Field`，
                 // 在子容器闭帧归并时才做「保留/丢弃」裁决；标量路径在此直接判断。
                 let pend_when = frame.pending_when.take();
-                match self.value_step(&key, colon, key_idx, pend_when)? {
+                let pend_weak = frame.pending_weakbind.take();
+                match self.value_step(&key, colon, key_idx, pend_when, pend_weak)? {
                     ValueStep::Leaf(val) => {
                         // `@when` 条件为假：值已解析（token 已消费），但不写入父节点。
                         // 必须先解析再丢弃，否则其 token 会被当成下一个键，导致误报。
@@ -1847,6 +2184,20 @@ impl Parser {
                 return Err(e);
             }
         }
+        // 同理：`@weakbind` 后面没等到块（写在了块末尾，或后面只有标量）。
+        // 静默放过会让作者以为这条声明生效了 —— 而它连目标都没有。
+        if state.pending_weakbind.is_some() {
+            let e = SmlError::from_code_msg(E_PARSE_029)
+                .with_detail("`@weakbind` 后未跟随任何块（它只作用于紧邻的下一个块）");
+            if self.collect_errors {
+                self.push_error(e);
+            } else {
+                return Err(e);
+            }
+        }
+        // 弱绑定的**块内容**软校验必须在这里做：块已填完，而 `path_stack` 还没弹
+        // （弹栈在下面的 `is_root` 分支里）。只读：不填默认值、不改树。
+        self.check_weak_block(&state.node);
         let BlockFrame { mut node, applied_contracts, bare, .. } = state;
         // 块结束：若声明了 `@is`，应用契约（填默认值 + 校验 + 严格性检查）。
         // `apply_contracts(false)` 时整段跳过（IDEAS I-2 的 opt-out）。
@@ -2389,7 +2740,21 @@ impl Parser {
 
     /// 值位置的单步（等价旧 `parse_value`）：标量 / `@for` 直接 `Leaf`；容器（`{` / `[` /
     /// 裸块）消费 opening、压好 path/ns、构造 `Cont` 后返回 `Open(child)`。
-    fn value_step(&mut self, key: &str, colon: bool, key_idx: usize, when: Option<bool>) -> Result<ValueStep, SmlError> {
+    fn value_step(
+        &mut self,
+        key: &str,
+        colon: bool,
+        key_idx: usize,
+        when: Option<bool>,
+        weak: Option<PendingWeak>,
+    ) -> Result<ValueStep, SmlError> {
+        // `@weakbind` 只认块：先判「这一项有没有可能成块」，否则每个叶子分支都得写一遍。
+        // 判据与下面实际走哪一支保持一致：裸块 / `{`。标量、数组、`@for` 都不算块。
+        let bare_ahead = !colon && self.bare_block_ahead();
+        if weak.is_some() && !(bare_ahead || matches!(self.peek(), Some(Tok::LBrace))) {
+            return Err(SmlError::from_code_msg(E_PARSE_029)
+                .with_detail("`@weakbind` 后面必须紧跟一个块（标量 / 数组 / `@for` 都不算）"));
+        }
         // 值位置的 `@for var in ... { }` 指令：有界循环展开为数组。
         #[cfg(feature = "when")]
         if let Some(Tok::At) = self.peek() {
@@ -2400,9 +2765,13 @@ impl Parser {
             }
         }
         // 无冒号且后继是裸词: 可能是裸块 `type [name] { }`
-        if !colon && self.bare_block_ahead() {
+        if bare_ahead {
             // 路径压 Key(key)：裸块在结果树里的位置就是「键 key 的值」。
             self.path_stack.push(PathSeg::Key(key.to_string()));
+            // 弱绑定在此落地：键已压栈，此刻的 `path_stack` 就是目标块的位置。
+            if let Some(w) = weak {
+                self.record_weak_bind(w);
+            }
             let frame = self.bare_child_frame(key, Cont::Field { key: key.to_string(), key_idx, when })?;
             return Ok(ValueStep::Open(frame));
         }
@@ -2410,11 +2779,16 @@ impl Parser {
             Some(Tok::LBrace) => {
                 self.next();
                 self.path_stack.push(PathSeg::Key(key.to_string()));
+                // 弱绑定在此落地（与裸块同理：键已压栈）。
+                if let Some(w) = weak {
+                    self.record_weak_bind(w);
+                }
                 Ok(ValueStep::Open(Frame::Block {
                     state: BlockFrame {
                         node: Map::new(),
                         applied_contracts: Vec::new(),
                         pending_when: None,
+                        pending_weakbind: None,
                         closing: Some(Tok::RBrace),
                         bare: None,
                     },
@@ -2511,6 +2885,7 @@ impl Parser {
                 node: Map::new(),
                 applied_contracts: Vec::new(),
                 pending_when: None,
+                pending_weakbind: None,
                 closing: Some(Tok::RBrace),
                 bare: Some(BareCtx { key: type_name.to_string(), args, featags }),
             },
@@ -2604,6 +2979,7 @@ impl Parser {
                         node: Map::new(),
                         applied_contracts: Vec::new(),
                         pending_when: None,
+                        pending_weakbind: None,
                         closing: Some(Tok::RBrace),
                         bare: None,
                     },

@@ -206,6 +206,14 @@ export const E_LIMIT_009 = "E-LIMIT-009";
 export const E_LIMIT_010 = "E-LIMIT-010";
 /// [E-LINT-001] 缩进里出现制表符：缩进里出现制表符：SML 缩进敏感，请统一用空格
 export const E_LINT_001 = "E-LINT-001";
+/// [E-LINT-002] profile 要求的顶层字段缺失：profile 要求文档顶层必须有该字段，但文档里没有
+export const E_LINT_002 = "E-LINT-002";
+/// [E-LINT-003] profile 禁止的契约出现：文档里出现了 profile 明令禁止的契约
+export const E_LINT_003 = "E-LINT-003";
+/// [E-LINT-004] profile 禁止的键出现：文档里出现了 profile 明令禁止的键
+export const E_LINT_004 = "E-LINT-004";
+/// [E-LINT-005] profile 无法加载：`.smlex` 读不出来或不是合法 SML，或 name 与文件名不一致
+export const E_LINT_005 = "E-LINT-005";
 /// [E-MIGRATE-001] 顶层出现文本内容：迁入文档在顶层出现了文本内容（只允许空白）
 export const E_MIGRATE_001 = "E-MIGRATE-001";
 /// [E-MIGRATE-002] 标签未闭合：标签未闭合：文件在标签内提前结束
@@ -298,8 +306,16 @@ export const E_PARSE_026 = "E-PARSE-026";
 export const E_PARSE_027 = "E-PARSE-027";
 /// [E-PARSE-028] 块头里以 `!` 开头的名字：块头里除 featag 区之外的词不得以 `!` 开头
 export const E_PARSE_028 = "E-PARSE-028";
+/// [E-PARSE-029] 弱绑定声明的作用域非法：弱绑定 `@weakbind` 的作用域非法：后面没有块、连续出现，或作用对象不是块
+export const E_PARSE_029 = "E-PARSE-029";
+/// [E-PARSE-030] 弱 profile 重复引用：同一文档重复引用了同一个弱 profile
+export const E_PARSE_030 = "E-PARSE-030";
 /// [I-FEATURE-001] 命令行特性与解析器版本不一致：解析器按其固定版本模式工作，命令行声明的特性版本仅作提示
 export const I_FEATURE_001 = "I-FEATURE-001";
+/// [I-LINT-001] profile 看起来适用但未被引用：有个 profile 的适用条件命中了这份文档，但文档没有引用它
+export const I_LINT_001 = "I-LINT-001";
+/// [W-CONTRACT-001] 弱声明与内置契约不匹配：弱绑定 `@weakbind` 与内置契约不匹配（警告，不阻断解析）
+export const W_CONTRACT_001 = "W-CONTRACT-001";
 /// [W-EDITOR-001] 自定义词与官方关键字冲突：自定义词与官方关键字冲突，已忽略
 export const W_EDITOR_001 = "W-EDITOR-001";
 /// [W-FEATURE-001] 位置参数写法已废弃：位置参数写法已废弃，推荐带参数名的写法
@@ -423,6 +439,10 @@ export const ALL = Object.freeze([
   E_LIMIT_009,
   E_LIMIT_010,
   E_LINT_001,
+  E_LINT_002,
+  E_LINT_003,
+  E_LINT_004,
+  E_LINT_005,
   E_MIGRATE_001,
   E_MIGRATE_002,
   E_MIGRATE_003,
@@ -469,7 +489,11 @@ export const ALL = Object.freeze([
   E_PARSE_026,
   E_PARSE_027,
   E_PARSE_028,
+  E_PARSE_029,
+  E_PARSE_030,
   I_FEATURE_001,
+  I_LINT_001,
+  W_CONTRACT_001,
   W_EDITOR_001,
   W_FEATURE_001,
   W_LINT_001,
@@ -481,4 +505,4 @@ export const ALL = Object.freeze([
   W_PARSE_002,
 ]);
 
-export const COUNT = 158;
+export const COUNT = 166;

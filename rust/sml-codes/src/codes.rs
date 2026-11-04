@@ -318,6 +318,18 @@ pub const E_LIMIT_010: &str = "E-LIMIT-010";
 /// [E-LINT-001] 缩进里出现制表符：缩进里出现制表符：SML 缩进敏感，请统一用空格
 /// EN: Tab in indentation —— A tab appears in indentation: SML is indentation-sensitive, use spaces consistently
 pub const E_LINT_001: &str = "E-LINT-001";
+/// [E-LINT-002] profile 要求的顶层字段缺失：profile 要求文档顶层必须有该字段，但文档里没有
+/// EN: Required top-level field missing (profile) —— The profile requires this top-level field, but the document does not have it
+pub const E_LINT_002: &str = "E-LINT-002";
+/// [E-LINT-003] profile 禁止的契约出现：文档里出现了 profile 明令禁止的契约
+/// EN: Forbidden contract present (profile) —— The document uses a contract that the profile forbids
+pub const E_LINT_003: &str = "E-LINT-003";
+/// [E-LINT-004] profile 禁止的键出现：文档里出现了 profile 明令禁止的键
+/// EN: Forbidden key present (profile) —— The document contains a key that the profile forbids
+pub const E_LINT_004: &str = "E-LINT-004";
+/// [E-LINT-005] profile 无法加载：`.smlex` 读不出来或不是合法 SML，或 name 与文件名不一致
+/// EN: Profile cannot be loaded —— The `.smlex` cannot be read or is not valid SML, or its name does not match the file name
+pub const E_LINT_005: &str = "E-LINT-005";
 /// [E-MIGRATE-001] 顶层出现文本内容：迁入文档在顶层出现了文本内容（只允许空白）
 /// EN: Text content at top level —— The imported document has text content at the top level (only whitespace is allowed)
 pub const E_MIGRATE_001: &str = "E-MIGRATE-001";
@@ -456,9 +468,21 @@ pub const E_PARSE_027: &str = "E-PARSE-027";
 /// [E-PARSE-028] 块头里以 `!` 开头的名字：块头里除 featag 区之外的词不得以 `!` 开头
 /// EN: `!`-prefixed name in a block head —— Words in a block head other than the featag region must not start with `!`
 pub const E_PARSE_028: &str = "E-PARSE-028";
+/// [E-PARSE-029] 弱绑定声明的作用域非法：弱绑定 `@weakbind` 的作用域非法：后面没有块、连续出现，或作用对象不是块
+/// EN: Invalid weak-bind scope —— Invalid `@weakbind` scope: no block follows, it appears consecutively, or the target is not a block
+pub const E_PARSE_029: &str = "E-PARSE-029";
+/// [E-PARSE-030] 弱 profile 重复引用：同一文档重复引用了同一个弱 profile
+/// EN: Duplicate weak-profile reference —— The same weak profile is referenced more than once in one document
+pub const E_PARSE_030: &str = "E-PARSE-030";
 /// [I-FEATURE-001] 命令行特性与解析器版本不一致：解析器按其固定版本模式工作，命令行声明的特性版本仅作提示
 /// EN: CLI feature/parser version mismatch —— The parser works in its fixed version mode; the CLI's declared feature version is advisory only
 pub const I_FEATURE_001: &str = "I-FEATURE-001";
+/// [I-LINT-001] profile 看起来适用但未被引用：有个 profile 的适用条件命中了这份文档，但文档没有引用它
+/// EN: A profile looks applicable but is not referenced —— A profile's `applies_to` conditions match this document, but the document does not reference it
+pub const I_LINT_001: &str = "I-LINT-001";
+/// [W-CONTRACT-001] 弱声明与内置契约不匹配：弱绑定 `@weakbind` 与内置契约不匹配（警告，不阻断解析）
+/// EN: Weak declaration does not match the builtin contract —— The `@weakbind` declaration does not match the builtin contract (warning, parsing continues)
+pub const W_CONTRACT_001: &str = "W-CONTRACT-001";
 /// [W-EDITOR-001] 自定义词与官方关键字冲突：自定义词与官方关键字冲突，已忽略
 /// EN: Custom word conflicts with official keyword —— A custom word conflicts with an official keyword; ignored
 pub const W_EDITOR_001: &str = "W-EDITOR-001";
@@ -591,6 +615,10 @@ pub const ALL: &[&str] = &[
     E_LIMIT_009,
     E_LIMIT_010,
     E_LINT_001,
+    E_LINT_002,
+    E_LINT_003,
+    E_LINT_004,
+    E_LINT_005,
     E_MIGRATE_001,
     E_MIGRATE_002,
     E_MIGRATE_003,
@@ -637,7 +665,11 @@ pub const ALL: &[&str] = &[
     E_PARSE_026,
     E_PARSE_027,
     E_PARSE_028,
+    E_PARSE_029,
+    E_PARSE_030,
     I_FEATURE_001,
+    I_LINT_001,
+    W_CONTRACT_001,
     W_EDITOR_001,
     W_FEATURE_001,
     W_LINT_001,
@@ -650,4 +682,4 @@ pub const ALL: &[&str] = &[
 ];
 
 /// 码总数（与 `errors/codes.sml` 的 `count` 对齐）。
-pub const COUNT: usize = 158;
+pub const COUNT: usize = 166;

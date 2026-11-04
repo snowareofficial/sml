@@ -148,6 +148,21 @@ pub enum Feature {
     /// ⚠️ 「每契约单一语种」不在这里 —— 那是**契约级**规则（同契约多个标识符之间比较），
     /// 跟声明收集（S4）一起做。
     Ident,
+    /// **弱声明族**（`weakbind` / `weakdata` / `weakdoc`）—— 第三个带域名的特性：`type.weak`。
+    ///
+    /// 与 `type.featag` 同域：都挂在「类型与契约」上。`weak` 是**机制级**开关，
+    /// 不是单指令开关 —— 这一族的分工见 `docs/weakbind-spec-draft.md` §2.0：
+    /// `weakbind` = 编辑器/插件按契约解释、库不参与；`weakdata` = 旁路数据；
+    /// `weakdoc` = 项目级 profile 引用。三者共用本开关（用户 2026-11-04 定）。
+    ///
+    /// **命名必须带域**：`docs/feature-namespace-plan.md` §3 规则 1 —— 新增特性一律
+    /// `<域>.<名>`，老名保持平铺。故文档里写 `@feature enable type.weak`，
+    /// **不是**裸 `weak`（裸 `weak` 会被当成未知特性名）。
+    ///
+    /// **opt-in**：不在 `baseline()` 中，不进任何 [`Edition`] 的功能集。
+    ///
+    /// 追加在 `Ident` 之后以保位序稳定（C-ABI 位序绑定，见 `feature_names` 守护用例）。
+    Weak,
 }
 
 /// All registered feature names, in [`FEATURES`] order (i.e. bit order) ｜ 返回全部已注册特性的名字，顺序与 [`FEATURES`]（即特性位序）一致。
@@ -180,6 +195,8 @@ pub static FEATURES: &[(&str, Feature)] = &[
     ("type.featag", Feature::Featag),
     // 第二个带域名：`lex.ident`（标识符白名单，S1b）
     ("lex.ident", Feature::Ident),
+    // 第三个带域名：`type.weak`（弱声明族，见 `docs/weakbind-spec-draft.md`）
+    ("type.weak", Feature::Weak),
 ];
 
 /// 特性名的**封闭域白名单**（`docs/feature-namespace-plan.md` §3，用户 2026-11-03 定死四个域）。

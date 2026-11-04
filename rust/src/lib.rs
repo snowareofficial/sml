@@ -174,7 +174,7 @@ pub fn to_sml_checked(v: &Value) -> Result<String, sml_codes::SmlError> {
 pub use sml_feature::{
     edition_by_codename, feature_names, Edition, Feature, FeatureSet, Version, EDITIONS, FEATURES,
 };
-pub use sml_contract::{Contract, FieldSpec, TypeSpec};
+pub use sml_contract::{Contract, FieldSpec, Strictness, TypeSpec};
 /// Contract inference: derive a contract from data instances ｜ 契约推断（任务 E）：从数据实例反推契约。落地为 `smltools --infer-contract`。
 pub use sml_contract::infer;
 /// External extension point: register custom contract types without editing crate source ｜ 外置扩展点：注册自定义契约类型（`image` / `link` / `time` 等），无需改动本 crate 源码。
