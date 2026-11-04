@@ -337,3 +337,219 @@ pub enum FeatureMode {
     Whitelist,
     Blacklist,
 }
+
+// ===========================================================================
+// Edition —— 版本 = 功能集的名字（edition 模型）
+//
+// 设计：版本之间**没有大小关系**，判据是「这个特性在不在这套集合里」。
+// 见 `docs/version-naming.md`（v1.0 定稿）。
+//
+// ⚠️ 本段是**纯加法**：既有的 [`Version`] 枚举与 `for_version` 一律不动，
+// 供解析层逐步切换（切片 S0a）。等解析层切完再删 `Version`。
+// ===========================================================================
+
+/// 一代版本集的状态 ｜ lifecycle status of one edition.
+///
+/// - `Dev`：开发中，文档必须写 `dev` 标记；
+/// - `Supported`：已发布，**永久向后兼容**（语义与默认特性位都不许再变）；
+/// - `Removed`：曾存在、已被移除（只可能出现在开发代号上）⇒ 报错 + 指向迁移工具。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditionStatus {
+    Dev,
+    Supported,
+    Removed,
+}
+
+/// 一代版本：[大版本].[小版本] ｜ one edition, identified by `major.minor`.
+///
+/// 数字只是**名字**的一部分，不表示大小关系（不做 `>=` 比较）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Edition {
+    pub major: u16,
+    pub minor: u16,
+}
+
+/// 版本登记表的一行：数字 + 代号 + 状态 ｜ one row of the edition registry.
+pub struct EditionRow {
+    pub edition: Edition,
+    /// 开发代号（如 `camelia`）；与数字**永久双向映射**。
+    pub codename: Option<&'static str>,
+    pub status: EditionStatus,
+}
+
+/// 已登记的全部版本集（顺序即「代」的顺序，不参与比较）｜ the edition registry.
+///
+/// ⚠️ 新增一行即可；**不许改既有行的数字或代号**（已发布版本永久兼容）。
+pub static EDITIONS: &[EditionRow] = &[
+    EditionRow { edition: Edition { major: 1, minor: 0 }, codename: None, status: EditionStatus::Supported },
+    EditionRow { edition: Edition { major: 2, minor: 0 }, codename: None, status: EditionStatus::Supported },
+    EditionRow { edition: Edition { major: 3, minor: 0 }, codename: None, status: EditionStatus::Supported },
+    EditionRow { edition: Edition { major: 4, minor: 0 }, codename: None, status: EditionStatus::Supported },
+    EditionRow { edition: Edition { major: 5, minor: 0 }, codename: Some("camelia"), status: EditionStatus::Dev },
+];
+
+impl Edition {
+    /// 构造（const，便于在静态表与常量里用）｜ constructors usable in `const` context.
+    pub const fn new(major: u16, minor: u16) -> Self {
+        Self { major, minor }
+    }
+
+    /// 解析版本字面量 ｜ parse a version literal.
+    ///
+    /// 接受的全部形式（都是**别名**，指向同一代）：
+    /// - 旧写法：`v1`..`v9` / `1`..`9` → 对应 `N.0`
+    /// - 连写：`10` / `40` / `50` → `1.0` / `4.0` / `5.0`（**两段各一位**）
+    /// - 点号：`1.0` / `5.0`
+    ///
+    /// 连写只支持「各大版本/小版本各一位」——`100` 这类三位的必须写点号，
+    /// 否则无法区分 `10.0` 与 `1.00`。非法输入返回 `None`（由调用方映射成错误码）。
+    pub fn parse(lit: &str) -> Option<Edition> {
+        let s = lit.trim();
+        let s = s.strip_prefix('v').or_else(|| s.strip_prefix('V')).unwrap_or(s);
+        if s.is_empty() {
+            return None;
+        }
+        if let Some((a, b)) = s.split_once('.') {
+            if a.is_empty() || b.is_empty() || a.len() > 5 || b.len() > 5 {
+                return None;
+            }
+            let major: u16 = a.parse().ok()?;
+            let minor: u16 = b.parse().ok()?;
+            return Some(Edition { major, minor });
+        }
+        if !s.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        match s.len() {
+            1 => Some(Edition { major: s.parse().ok()?, minor: 0 }),
+            2 => {
+                let mut it = s.chars();
+                let major = it.next()?.to_digit(10)? as u16;
+                let minor = it.next()?.to_digit(10)? as u16;
+                Some(Edition { major, minor })
+            }
+            // 三位及以上必须写点号（`100` 有歧义）
+            _ => None,
+        }
+    }
+
+    /// 规范名字（`5.0`）｜ canonical name.
+    pub fn name(&self) -> String {
+        format!("{}.{}", self.major, self.minor)
+    }
+
+    /// 登记行（未登记的版本返回 `None`）｜ registry row, `None` if not registered.
+    pub fn row(&self) -> Option<&'static EditionRow> {
+        EDITIONS.iter().find(|r| r.edition == *self)
+    }
+
+    /// 代号（未登记或无代号返回 `None`）｜ codename, if any.
+    pub fn codename(&self) -> Option<&'static str> {
+        self.row().and_then(|r| r.codename)
+    }
+
+    /// 生命周期状态（未登记返回 `None`）｜ lifecycle status, `None` if not registered.
+    pub fn status(&self) -> Option<EditionStatus> {
+        self.row().map(|r| r.status)
+    }
+
+    /// 是否处于开发中（`Dev`）｜ whether this edition is still in development.
+    pub fn is_dev(&self) -> bool {
+        self.status() == Some(EditionStatus::Dev)
+    }
+
+    /// 是否可长期使用（`Supported`：已发布、永久兼容）｜ long-term usable.
+    pub fn is_supported(&self) -> bool {
+        self.status() == Some(EditionStatus::Supported)
+    }
+
+    /// 从 [`Version`] 旧枚举转过来（迁移期用）｜ conversion from the legacy enum.
+    pub fn from_version(v: Version) -> Edition {
+        match v {
+            Version::V1 => Edition::new(1, 0),
+            Version::V2 => Edition::new(2, 0),
+            Version::V3 => Edition::new(3, 0),
+            Version::V4 => Edition::new(4, 0),
+        }
+    }
+}
+
+/// 按代号查登记行（`"camelia"` → 5.0）｜ look an edition up by codename.
+pub fn edition_by_codename(name: &str) -> Option<&'static EditionRow> {
+    EDITIONS.iter().find(|r| r.codename == Some(name))
+}
+
+impl fmt::Display for Edition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.name())
+    }
+}
+
+#[cfg(test)]
+mod edition_tests {
+    use super::*;
+
+    #[test]
+    fn aliases_are_the_same_edition() {
+        let one = Edition::new(1, 0);
+        for lit in ["1", "v1", "10", "1.0", "V1"] {
+            assert_eq!(Edition::parse(lit), Some(one), "字面量 {lit}");
+        }
+        let four = Edition::new(4, 0);
+        for lit in ["4", "v4", "40", "4.0"] {
+            assert_eq!(Edition::parse(lit), Some(four), "字面量 {lit}");
+        }
+    }
+
+    #[test]
+    fn dev_edition_parses_like_any_other() {
+        assert_eq!(Edition::parse("50"), Some(Edition::new(5, 0)));
+        assert_eq!(Edition::parse("5.0"), Some(Edition::new(5, 0)));
+        assert_eq!(Edition::parse("v5"), Some(Edition::new(5, 0)));
+    }
+
+    #[test]
+    fn three_digits_need_a_dot() {
+        // `100` 有歧义（10.0 还是 1.00）⇒ 必须写点号
+        assert_eq!(Edition::parse("100"), None);
+        assert_eq!(Edition::parse("10.0"), Some(Edition::new(10, 0)));
+    }
+
+    #[test]
+    fn rejects_garbage() {
+        for lit in ["", "v", "abc", "1.", ".0", "1.2.3", "-1"] {
+            assert_eq!(Edition::parse(lit), None, "字面量 {lit:?} 不该被接受");
+        }
+    }
+
+    #[test]
+    fn registry_status_and_codename() {
+        assert_eq!(Edition::new(4, 0).status(), Some(EditionStatus::Supported));
+        assert_eq!(Edition::new(4, 0).codename(), None);
+        assert_eq!(Edition::new(5, 0).status(), Some(EditionStatus::Dev));
+        assert_eq!(Edition::new(5, 0).codename(), Some("camelia"));
+        assert!(Edition::new(5, 0).is_dev());
+        assert!(Edition::new(4, 0).is_supported());
+        assert_eq!(Edition::new(9, 9).status(), None, "未登记");
+    }
+
+    #[test]
+    fn codename_maps_back_to_edition() {
+        let row = edition_by_codename("camelia").expect("camelia 应已登记");
+        assert_eq!(row.edition, Edition::new(5, 0));
+        assert_eq!(row.status, EditionStatus::Dev);
+        assert!(edition_by_codename("nope").is_none());
+    }
+
+    #[test]
+    fn legacy_version_converts() {
+        assert_eq!(Edition::from_version(Version::V4), Edition::new(4, 0));
+        assert_eq!(Edition::from_version(Version::V1), Edition::new(1, 0));
+    }
+
+    #[test]
+    fn display_is_major_dot_minor() {
+        assert_eq!(Edition::new(5, 0).to_string(), "5.0");
+        assert_eq!(Edition::new(5, 1).to_string(), "5.1");
+    }
+}
