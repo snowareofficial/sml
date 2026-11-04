@@ -1075,6 +1075,7 @@ pub extern "C" fn sml_feature_name(bit: c_uint) -> *const c_char {
         16 => "block-name\0",
         17 => "type.featag\0",
         18 => "lex.ident\0",
+        19 => "type.weak\0",
         _ => return ptr::null(),
     };
     s.as_ptr() as *const c_char

@@ -37,7 +37,7 @@ use sml_value::Value;
 ///
 /// 新增内置指令时必须同步此表，否则同名外置指令会拦截掉内置语义。
 pub const BUILTIN_DIRECTIVES: &[&str] = &[
-    "contract", "is", "type", "version", "feature", "when", "for",
+    "contract", "is", "type", "version", "feature", "when", "for", "weakbind", "weakdata", "weakdoc",
 ];
 
 /// Where the output of an external directive goes ｜ 外置指令的处理结果去向。
@@ -76,6 +76,7 @@ impl Diagnostic {
         match self.kind {
             DiagnosticKind::DuplicateKey => Some(sml_codes::W_PARSE_001),
             DiagnosticKind::KeyOverwritten => Some(sml_codes::W_PARSE_002),
+            DiagnosticKind::WeakBindMismatch => Some(sml_codes::W_CONTRACT_001),
             _ => None,
         }
     }
@@ -103,6 +104,13 @@ pub enum DiagnosticKind {
     KeyOverwritten,
     /// A contract violation **waived** by contract policy. Currently used for `warn` strictness: the block carries fields the contract did not declare (a shape-tolerant violation), which are let through **and reported as this warning**. ｜ 按契约策略**放行**的违约告警。当前用于契约 `warn` 态：块里出现了契约未声明的字段（形状宽容违约），被放行且**产出本条告警**。
     ///
+    /// Weak declaration (`@weakbind`) that does not match the builtin contract table ⇒ `W-CONTRACT-001` ｜
+    /// 弱声明与内置契约不匹配（`W-CONTRACT-001`）：**只告警、不阻断**，且不填默认值、不改主树。
+    ///
+    /// 与 [`Self::Warning`] 的分工：`Warning` 是「契约策略主动放行了形状违约」（运行期放行），
+    /// 本档是「这份声明与宿主内置的那份契约对不上」（**写错了**）。
+    /// 八档差异靠消息前缀区分（`decl.unknown_contract` 等），见 `docs/weakbind-spec-draft.md` §4。
+    WeakBindMismatch,
     /// 与 [`Self::Deprecated`] 的分工见其文档注释：**Deprecated 讲「写法过时」，
     /// Warning 讲「违约被放行」**。它与 DuplicateKey / KeyOverwritten 也不同 ——
     /// 那两条是「既有语义下数据被改写 / 覆盖」的回放告警，本档是「契约主动放宽了约束」
@@ -254,6 +262,23 @@ pub struct ParseOptions {
     /// 按同步点恢复继续），`value` 为**尽力而为的部分结果**。供编辑器一次展示多条
     /// 错误（TODO L16）。**默认关闭 ⇒ 行为与旧版逐字一致**。
     pub collect_errors: bool,
+    /// 是否把**本次解析收集到的契约表**（`@contract` 定义）随输出交回。
+    ///
+    /// ⚠️ 默认 `false`：不开启时 [`ParseOutput::contracts`] 恒为 `None`，
+    /// 与旧版逐字一致（同 [`Self::trace_contracts`] 的取舍）。
+    ///
+    /// **为什么需要它**：内置契约表要用 **SML 写**（`Contract` 含
+    /// `Arc<dyn TypeCheck / Modifier>`，无法从 JSON 反序列化），而解析产物里
+    /// 没有任何公开入口能拿到契约表 ⇒ 宿主要「先用 SML 定义、再注入」就必须能读回。
+    /// 见 `docs/weakbind-spec-draft.md` §6.1。
+    pub(crate) capture_contracts: bool,
+    /// **内置契约表**（由宿主注入）：`@weakbind` 的软校验拿它比对。
+    ///
+    /// 默认空表 ⇒ **整段软校验跳过**（否则一落地，所有弱声明都会报 `decl.unknown_contract`）。
+    /// 表怎么来：用 SML 写一份内置契约集，宿主先 `capture_contracts(true)` 读回、
+    /// 再原样传进来（`Contract` 含 `Arc<dyn …>`，没法从 JSON 反序列化）。
+    /// 见 `docs/weakbind-spec-draft.md` §6.1。
+    pub(crate) builtin_contracts: std::collections::BTreeMap<String, sml_contract::Contract>,
 }
 
 impl Default for ParseOptions {
@@ -265,6 +290,8 @@ impl Default for ParseOptions {
             warn_key_conflict: true,
             apply_contracts: true,
             collect_errors: false,
+            capture_contracts: false,
+            builtin_contracts: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -296,6 +323,27 @@ impl ParseOptions {
     /// Collect multiple errors instead of stopping at the first (builder). Defaults to `false`; collected errors land in [`ParseOutput::errors`] and `value` is a best-effort partial result (TODO L16). ｜ 是否收集多条错误（链式）。默认 `false`；开启后错误进 [`ParseOutput::errors`]，`value` 为尽力而为的部分结果（TODO L16）。
     pub fn collect_errors(mut self, on: bool) -> Self {
         self.collect_errors = on;
+        self
+    }
+
+    /// Hand the collected contract table back in [`ParseOutput::contracts`] (builder). Defaults to `false`. ｜ 把本次收集到的契约表随输出交回（链式）。默认 `false`。
+    ///
+    /// 用途：内置契约表用 SML 定义、再由宿主注入 —— 先解析一遍拿到 `Contract` 值
+    /// （`docs/weakbind-spec-draft.md` §6.1）。
+    pub fn capture_contracts(mut self, on: bool) -> Self {
+        self.capture_contracts = on;
+        self
+    }
+
+    /// Inject the **builtin contract table** used by `@weakbind` soft checks (builder). ｜ 注入内置契约表（链式），供 `@weakbind` 软校验比对。
+    ///
+    /// 空表（默认）⇒ 软校验整段跳过。表通常这样来：
+    /// `parse_with(builtin_sml, ParseOptions::new().capture_contracts(true))?.contracts`。
+    pub fn builtin_contracts(
+        mut self,
+        table: std::collections::BTreeMap<String, sml_contract::Contract>,
+    ) -> Self {
+        self.builtin_contracts = table;
         self
     }
 
@@ -356,6 +404,76 @@ pub struct ParseOutput {
     ///
     /// 未开启该开关时恒为空 —— 此时遇错即 `Err`，本字段为空是「逐字一致」的一部分。
     pub errors: Vec<SmlError>,
+    /// 本次解析收集到的**契约表**（`@contract` 定义）；**仅** [`ParseOptions::capture_contracts`]
+    /// 开启时为 `Some`，否则恒 `None`（与 `contract_map` 同一取舍：不开就与旧版逐字一致）。
+    ///
+    /// 名字 → [`sml_contract::Contract`]。用途：内置契约表用 SML 定义、再由宿主注入回去
+    /// （`docs/weakbind-spec-draft.md` §6.1）。
+    pub contracts: Option<std::collections::BTreeMap<String, sml_contract::Contract>>,
+    /// 弱绑定旁路表（`docs/weakbind-spec-draft.md` §5）。
+    ///
+    /// **不进主树**：`value` 里没有任何 `__weak` 之类的痕迹 —— 这是核心判据
+    /// 「有无 `@weakbind`，主树与 `contract_map` 逐字节相同」的落点。
+    /// 未使用该指令时为空 vec（不设 `Option`，因为空 vec 与「没写过」对消费者等价）。
+    pub weak_binds: Vec<WeakBind>,
+    /// 弱数据旁路表（`docs/weakdata-spec-draft.md`）。
+    ///
+    /// **不进主树**：载荷只在这里，`value` 里查不到同名键 —— 这是「有无 `@weakdata`，
+    /// 主树逐字节相同」这条判据的落点。未使用时为空 vec。
+    pub weak_data: Vec<WeakData>,
+    /// 弱 profile 引用（`docs/weakdoc-spec-draft.md`）：只登记**名字**，库不读文件系统。
+    ///
+    /// 三处命名空间（项目 `.smlex` 目录、用户全局、系统）的查找全在工具侧，
+    /// 因此「解析结果对有无 profile 完全一致」这条判据自动成立。未使用时为空 vec。
+    pub weak_docs: Vec<WeakDoc>,
+}
+
+/// One weak-profile reference: `@weakdoc <name>` ｜ 一条弱 profile 引用。
+///
+/// **只是个名字**：`.smlex` 在不在、在哪一层命名空间命中，库一概不管 ——
+/// 这是「不能用于注入」的可测形态（`docs/weakdoc-spec-draft.md` §4）。
+#[derive(Debug, Clone)]
+pub struct WeakDoc {
+    /// 声明所在块在结果树里的位置；顶层为 `[]`。
+    pub path: Vec<crate::contract_map::PathSeg>,
+    /// profile 名（工具侧按它去三处命名空间里找同名 `.smlex`）。
+    pub name: String,
+    /// `@weakdoc` 所在行号（1 起）；入口拿不到行号信息时为 `None`。
+    pub line: Option<usize>,
+}
+
+/// One weak-data entry: the payload of `@weakdata <name> { … }`, kept **out of the main tree** ｜
+/// 一条弱数据：`@weakdata <名>` 的载荷，**不进主树**，仅由拓展按名读取。
+///
+/// 与 [`WeakBind`] 的分工：`WeakBind` 的数据**仍在树里**、只是库不校验；
+/// 本项的内容**根本不进树**，库也不解释它（见 `docs/weakdata-spec-draft.md` §1）。
+#[derive(Debug, Clone)]
+pub struct WeakData {
+    /// 声明所在块在结果树里的位置；顶层为 `[]`。
+    pub path: Vec<crate::contract_map::PathSeg>,
+    /// 名字（拓展按它取用）。同一 `(path, name)` 只保留**最后一条**。
+    pub name: String,
+    /// 载荷：任意 SML 数据，**不进主树**。
+    pub value: Value,
+    /// `@weakdata` 所在行号（1 起）；入口拿不到行号信息时为 `None`。
+    pub line: Option<usize>,
+}
+
+/// One weak binding: an `@weakbind <name>` declaration and the block it targets ｜
+/// 一条弱绑定：`@weakbind` 声明及其目标块在结果树里的位置。
+///
+/// 定位方式与 [`crate::contract_map::PathSeg`] 同一套 —— 二者回答的是同一个问题
+/// 「某个实体在哪」；差别在于本表记录的是**库未校验**的契约引用。
+#[derive(Debug, Clone)]
+pub struct WeakBind {
+    /// 目标块在结果树里的位置；顶层块为 `[]`。
+    pub path: Vec<crate::contract_map::PathSeg>,
+    /// 声明的契约名（**书写原样**，不做 resolve —— 库不认识它，这正是本项的意义）。
+    pub name: String,
+    /// 可选字段体（`@weakbind tls { host: str }`）；只写名字时为 `None`。
+    pub body: Option<std::collections::BTreeMap<String, sml_contract::FieldSpec>>,
+    /// `@weakbind` 所在行号（1 起）；入口拿不到行号信息时为 `None`。
+    pub line: Option<usize>,
 }
 
 #[cfg(test)]

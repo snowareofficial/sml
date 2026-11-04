@@ -126,6 +126,10 @@ typedef struct sml_value sml_value;
 /* 19th bit: identifier whitelist (`lex.ident`, S1b). Rust-only for now; the C
  * parser does not validate identifiers, so this bit is a placeholder there. */
 #define SML_F_IDENT         (1u << 18)
+/* 20th bit: weak-declaration family (`type.weak`, docs/weakbind-spec-draft.md).
+ * 文档里写作 `@feature enable type.weak`。目前只有 Rust 认识它；其余端在
+ * 发布前那次统一同步里补上（`E-FEATURE-003` / `E-PARSE-005` 是现状，不是终态）。 */
+#define SML_F_WEAK          (1u << 19)
 
 /* 常用组合 */
 #define SML_F_BASIC  (SML_F_BAREWORD_STR | SML_F_INCLUDE | SML_F_FRAGMENT)

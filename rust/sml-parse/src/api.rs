@@ -598,6 +598,14 @@ fn parse_impl_tokens_ext(
         // 是否收集多条错误（TODO L16）；默认 `false`（遇错即停，行为不变）。
         collect_errors: opts.collect_errors,
         errors: Vec::new(),
+        // 弱绑定旁路表：恒收集，但只有写了 `@weakbind` 才有内容（对主树零影响）。
+        weak_binds: Vec::new(),
+        // 内置契约表（宿主注入）与待做的块内容校验。
+        builtin_contracts: opts.builtin_contracts,
+        weak_pending: Vec::new(),
+        // 弱数据旁路表：只有写了 `@weakdata` 才有内容。
+        weak_data: Vec::new(),
+        weak_docs: Vec::new(),
         contract_ext: Arc::new(opts.contract_ext),
         // 契约映射：opt-in。未开启时 None（零开销、结果逐字一致）。
         contract_map: if opts.trace_contracts {
@@ -667,6 +675,15 @@ fn parse_impl_tokens_ext(
         diagnostics: p.diags,
         contract_map: p.contract_map,
         errors: p.errors,
+        weak_binds: p.weak_binds,
+        weak_data: p.weak_data,
+        weak_docs: p.weak_docs,
+        // 契约表回传：opt-in，不开时 None（与 contract_map 同一取舍）。
+        contracts: if opts.capture_contracts {
+            Some(p.contracts.clone())
+        } else {
+            None
+        },
     })
 }
 

@@ -51,6 +51,7 @@ use std::path::Path;
 
 mod highlight;
 mod lint;
+mod profile;
 mod toc;
 mod toml;
 mod xml;
@@ -351,6 +352,28 @@ struct Cli {
     /// 与 `--infer-contract` 配合：输出 JSON 形式的字段类型表（默认 SML）。
     #[arg(long = "json")]
     json: bool,
+
+    /// 导出**内置契约表**（JSON）：输入是一份只含 `@contract` 的 SML，
+    /// 输出符合 `docs/weakbind-spec-draft.md` §6.2 的 schema，供编辑器/插件读取。
+    ///
+    /// 与 `--to` 互不干扰：本模式不产出转换结果，只把契约定义导成数据。
+    #[arg(long = "dump-builtins")]
+    dump_builtins: bool,
+
+    /// 解析 `@weakdoc` 引用：按「显式 → 项目 → 用户全局 → 系统」查找同名 `.smlex`。
+    ///
+    /// 输出 TAB 分隔三列：`名字 / 作用域 / 路径`；未命中的记 `-` 且退出码为 1。
+    /// **只做定位**，不解释 profile 内容（内容语义未定，见 `docs/weakdoc-spec-draft.md`）。
+    #[arg(long = "resolve-profiles")]
+    resolve_profiles: bool,
+
+    /// 追加一个显式 profile 目录（优先级最高，可用于测试与 CI 复现）
+    #[arg(long = "profile-dir")]
+    profile_dir: Option<PathBuf>,
+
+    /// 关闭三命名空间发现（只用 `--profile-dir`）
+    #[arg(long = "no-profiles")]
+    no_profiles: bool,
 }
 
 /// 按输入格式把文本转成 `Value`。
@@ -471,6 +494,10 @@ struct Args {
     toc: bool,
     infer_contract: bool,
     json: bool,
+    dump_builtins: bool,
+    resolve_profiles: bool,
+    profile_dir: Option<PathBuf>,
+    no_profiles: bool,
 }
 
 /// `--feature` 的取值解析：与语言层**同一套字面量**（`10` / `1.0` / `v1` / `50` / `camelia`）。
@@ -520,6 +547,10 @@ fn parse_args(cli: Cli) -> Result<Args, SmlError> {
         toc: cli.toc,
         infer_contract: cli.infer_contract,
         json: cli.json,
+        dump_builtins: cli.dump_builtins,
+        resolve_profiles: cli.resolve_profiles,
+        profile_dir: cli.profile_dir,
+        no_profiles: cli.no_profiles,
     })
 }
 
@@ -1057,6 +1088,345 @@ fn hugo_date() -> String {
     "1970-01-01T00:00:00Z".to_string()
 }
 
+/// `--dump-builtins`：把输入文档里的 `@contract` 定义导出成编辑器可读的 JSON。
+///
+/// schema 见 `docs/weakbind-spec-draft.md` §6.2（`schema` / `contracts[]` / 字段规格）。
+/// **为什么不从 JSON 反向加载**：`Contract` 含 `Arc<dyn TypeCheck / Modifier>`，
+/// 无法反序列化 ⇒ 内置集只能「用 SML 写 → 解析 → 导出/注入」。
+fn dump_builtins(args: &Args) -> Result<(), SmlError> {
+    let text = read_input(&args.input)?;
+    let out = sml::parse_with(&text, sml::ParseOptions::new().capture_contracts(true))
+        .map_err(|e| e.context("parse error: "))?;
+    let table = out.contracts.unwrap_or_default();
+    let json = builtins_json(&table);
+    match &args.output {
+        Some(p) => std::fs::write(p, json.as_bytes())
+            .map_err(|e| SmlError::from_code_msg(E_IO_003).with_detail(format!("{}: {e}", p.display()))),
+        None => {
+            print!("{json}");
+            Ok(())
+        }
+    }
+}
+
+/// JSON 字符串字面量（含控制字符转义）。
+///
+/// 不复用 `escape_front_matter`：那个是给 YAML/TOML 用的，控制字符走 `\u{..}`
+/// （YAML 语法），写进 JSON 不合法。JSON 只认 `\uXXXX`（4 位、无花括号）。
+fn json_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            _ => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// `TypeSpec` → JSON（schema 见草案 §6.2 的 `ty.kind` 表）。
+fn builtins_ty_json(t: &sml::TypeSpec) -> String {
+    use sml::TypeSpec as T;
+    match t {
+        T::Any => "{\"kind\":\"any\"}".to_string(),
+        T::Str => "{\"kind\":\"str\"}".to_string(),
+        T::Int => "{\"kind\":\"int\"}".to_string(),
+        T::Num => "{\"kind\":\"num\"}".to_string(),
+        T::Bool => "{\"kind\":\"bool\"}".to_string(),
+        T::Array(inner) => format!("{{\"kind\":\"array\",\"of\":{}}}", builtins_ty_json(inner)),
+        T::Enum(vals) => format!(
+            "{{\"kind\":\"enum\",\"values\":[{}]}}",
+            vals.iter().map(|v| json_str(v)).collect::<Vec<_>>().join(", ")
+        ),
+        T::ContractRef(n) => format!("{{\"kind\":\"contract\",\"name\":{}}}", json_str(n)),
+        // 模式只导名字：`Pat` 没有稳定的源串表示，导出个「编译后的模式」对编辑器没用
+        T::Pattern { name, .. } => format!("{{\"kind\":\"pattern\",\"name\":{}}}", json_str(name)),
+        T::Ext(n) => format!("{{\"kind\":\"ext\",\"name\":{}}}", json_str(n)),
+    }
+}
+
+/// 一条字段规格 → JSON。
+fn builtins_field_json(name: &str, s: &sml::FieldSpec) -> String {
+    let opt_num = |v: Option<f64>| v.map(|x| x.to_string()).unwrap_or_else(|| "null".to_string());
+    format!(
+        "{{ \"name\": {}, \"ty\": {}, \"required\": {}, \"default\": {}, \"min\": {}, \"max\": {}, \
+         \"from_featag\": {}, \"ext\": {}, \"ext_mods\": [{}] }}",
+        json_str(name),
+        builtins_ty_json(&s.ty),
+        s.required,
+        s.default
+            .as_ref()
+            .map(sml::jsonify)
+            .unwrap_or_else(|| "null".to_string()),
+        opt_num(s.min),
+        opt_num(s.max),
+        s.from_featag,
+        match &s.ext {
+            Some(e) => json_str(e.name()),
+            None => "null".to_string(),
+        },
+        s.mods.iter().map(|m| json_str(m.name())).collect::<Vec<_>>().join(", ")
+    )
+}
+
+/// 整张内置契约表 → JSON（输出确定：契约名与字段名都按 `BTreeMap` 序）。
+fn builtins_json(contracts: &std::collections::BTreeMap<String, sml::Contract>) -> String {
+    let mut out = String::from("{\n  \"schema\": 1,\n  \"contracts\": [\n");
+    for (i, (name, c)) in contracts.iter().enumerate() {
+        if i > 0 {
+            out.push_str(",\n");
+        }
+        let strict = match c.strictness {
+            sml::Strictness::Strict => "strict",
+            sml::Strictness::Warn => "warn",
+            sml::Strictness::Loose => "loose",
+        };
+        let feats = c
+            .featags
+            .iter()
+            .map(|f| {
+                format!(
+                    "{{ \"name\": {}, \"has_spec\": {}, \"target\": {} }}",
+                    json_str(&f.name),
+                    f.spec.is_some(),
+                    f.target
+                        .as_ref()
+                        .map(|t| json_str(&format!("{t}")))
+                        .unwrap_or_else(|| "null".to_string())
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str("    {\n");
+        out.push_str(&format!("      \"name\": {},\n", json_str(name)));
+        out.push_str(&format!("      \"strictness\": \"{strict}\",\n"));
+        out.push_str(&format!(
+            "      \"requires\": [{}],\n",
+            c.requires.iter().map(|r| json_str(r)).collect::<Vec<_>>().join(", ")
+        ));
+        out.push_str(&format!("      \"allow_any\": {},\n", c.allow_any));
+        out.push_str(&format!("      \"strict_paths\": {},\n", c.strict_paths));
+        out.push_str(&format!("      \"featags\": [{feats}],\n"));
+        out.push_str("      \"fields\": [\n");
+        for (j, (fname, spec)) in c.fields.iter().enumerate() {
+            if j > 0 {
+                out.push_str(",\n");
+            }
+            out.push_str("        ");
+            out.push_str(&builtins_field_json(fname, spec));
+        }
+        out.push_str("\n      ]\n    }");
+    }
+    out.push_str("\n  ]\n}\n");
+    out
+}
+
+/// `--resolve-profiles`：把 `@weakdoc` 的名字落到具体文件路径上。
+///
+/// **只在工具侧存在**：库不认识这些路径（`@weakdoc` 只记名字），所以
+/// 「有 / 无 profile，解析结果完全一致」自动成立，不靠测试兜底。
+fn resolve_profiles_mode(args: &Args, text: &str) -> Result<u8, SmlError> {
+    let out = match (&args.input, &args.input_format) {
+        (Some(p), InputFormat::Sml) => sml::parse_file_with(p, sml::ParseOptions::new()),
+        _ => sml::parse_with(text, sml::ParseOptions::new()),
+    }
+    .map_err(|e| e.context("parse error: "))?;
+
+    let roots = if args.no_profiles {
+        Vec::new()
+    } else {
+        profile_search_roots(&args.input, args.profile_dir.as_ref())
+    };
+
+    let mut missing = 0u8;
+    for wd in &out.weak_docs {
+        let mut hit: Option<(&'static str, std::path::PathBuf)> = None;
+        for (scope, dir) in &roots {
+            let cand = dir.join(format!("{}.smlex", wd.name));
+            if cand.is_file() {
+                hit = Some((*scope, cand));
+                break;
+            }
+        }
+        match hit {
+            Some((scope, path)) => println!("{}\t{}\t{}", wd.name, scope, path.display()),
+            None => {
+                missing = 1;
+                println!("{}\t-\t(未找到)", wd.name);
+            }
+        }
+    }
+    Ok(missing)
+}
+
+/// 三命名空间的搜索根，**顺序即优先级**：
+/// 显式 `--profile-dir` → 项目（自输入文件所在目录向上找 `.smlex/profiles`）→ 用户全局 → 系统。
+///
+/// 按名拼路径 => 同层不可能重名，因此不存在「同层冲突」这条分支。
+fn profile_search_roots(
+    input: &Option<PathBuf>,
+    explicit: Option<&PathBuf>,
+) -> Vec<(&'static str, PathBuf)> {
+    let mut out: Vec<(&'static str, PathBuf)> = Vec::new();
+    if let Some(d) = explicit {
+        out.push(("explicit", d.clone()));
+    }
+
+    // 项目级：向上找 `.smlex/profiles`
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let start = match input.as_ref().and_then(|p| p.parent()) {
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => cwd,
+    };
+    let mut cur = start;
+    loop {
+        let cand = cur.join(".smlex").join("profiles");
+        if cand.is_dir() {
+            out.push(("project", cand));
+            break;
+        }
+        let Some(parent) = cur.parent() else { break };
+        if parent == cur {
+            break;
+        }
+        cur = parent.to_path_buf();
+    }
+
+    // 用户全局
+    if cfg!(windows) {
+        if let Some(v) = std::env::var_os("APPDATA") {
+            out.push(("user", PathBuf::from(v).join("sml").join("profiles")));
+        }
+    } else if let Some(v) = std::env::var_os("XDG_CONFIG_HOME") {
+        out.push(("user", PathBuf::from(v).join("sml").join("profiles")));
+    } else if let Some(v) = std::env::var_os("HOME") {
+        out.push((
+            "user",
+            PathBuf::from(v).join(".config").join("sml").join("profiles"),
+        ));
+    }
+
+    // 系统
+    if cfg!(windows) {
+        if let Some(v) = std::env::var_os("ProgramData") {
+            out.push(("system", PathBuf::from(v).join("sml").join("profiles")));
+        }
+    } else {
+        out.push(("system", PathBuf::from("/usr/share/sml/profiles")));
+    }
+    out
+}
+
+/// 执行文档所挂 profile 的 `checks`（**只在工具侧**：库不认识 profile）。
+///
+/// 三种情形分开对待：
+/// - 三处命名空间都没命中 ⇒ **warning**（用户可能只是没装它）；
+/// - 命中但加载失败/格式不对 ⇒ **error**（用户显式挂了它，规则不生效不能静默）；
+/// - 加载成功 ⇒ 跑三项检查，命中即 error（项目自己定的硬规则）。
+fn apply_profile_checks(report: &mut lint::Report, args: &Args, text: &str) {
+    use std::collections::BTreeSet;
+
+    if args.no_profiles {
+        return;
+    }
+    // 文档本身有语法错时 lint 已经报过，profile 检查没有意义。
+    let Ok(out) = sml::parse_with(text, sml::ParseOptions::new().capture_contracts(true)) else {
+        return;
+    };
+    // 注意：**不能**在 `weak_docs` 为空时提前返回 —— 没被引用的 profile 也要按
+    // `applies_to` 给提示，那正是「让作者发现还有这么一份 profile」的路径。
+    let roots = profile_search_roots(&args.input, args.profile_dir.as_ref());
+    let who = args
+        .input
+        .as_ref()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "<stdin>".to_string());
+
+    // `forbid_contracts` 查定义侧：契约必须先定义才能应用，定义侧已覆盖来源。
+    let mut contracts: BTreeSet<String> = BTreeSet::new();
+    if let Some(cs) = &out.contracts {
+        contracts.extend(cs.keys().cloned());
+    }
+
+    for wd in &out.weak_docs {
+        let hit = roots.iter().find_map(|(scope, dir)| {
+            let cand = dir.join(format!("{}.smlex", wd.name));
+            if cand.is_file() {
+                Some((*scope, cand))
+            } else {
+                None
+            }
+        });
+        let Some((scope, path)) = hit else {
+            report.messages.push(format!(
+                "{who}: warning: 未找到 profile `{}`（三处命名空间都没命中，跳过它的 checks）[{}]",
+                wd.name,
+                sml_codes::E_LINT_005
+            ));
+            continue;
+        };
+        match profile::Profile::load(&path) {
+            Ok(p) => {
+                for (code, msg) in p.run(&out.value, &contracts) {
+                    report.messages.push(format!(
+                        "{who}: error: {msg}（profile: {scope} {}）[{code}]",
+                        p.path.display()
+                    ));
+                    report.has_error = true;
+                }
+            }
+            Err(m) => {
+                report.messages.push(format!(
+                    "{who}: error: profile 无法加载：{m} [{}]",
+                    sml_codes::E_LINT_005
+                ));
+                report.has_error = true;
+            }
+        }
+    }
+
+    // 没被引用的 profile：按 `applies_to` 给一条**提示**（不自动挂，也不改退出码）。
+    let referenced: BTreeSet<&str> = out.weak_docs.iter().map(|w| w.name.as_str()).collect();
+    for (scope, dir) in &roots {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.extension().and_then(|s| s.to_str()) != Some("smlex") {
+                continue;
+            }
+            let stem = p
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default()
+                .to_string();
+            if referenced.contains(stem.as_str()) {
+                continue;
+            }
+            let Ok(prof) = profile::Profile::load(&p) else {
+                continue; // 没被引用又读不出来：不打扰（真正报错交给被引用的那条路径）
+            };
+            if prof.suggests_for(args.input.as_deref(), &contracts) {
+                report.messages.push(format!(
+                    "{who}: note: profile `{}` 的适用条件命中了本文档，但没有 `@weakdoc {}`（{scope} {}）[{}]",
+                    prof.name,
+                    prof.name,
+                    p.display(),
+                    sml_codes::I_LINT_001
+                ));
+            }
+        }
+    }
+}
+
 fn main() -> ExitCode {
     // 解析器是递归下降，承诺到 128 层（`MAX_VALUE_DEPTH`）；而 Windows 主线程栈
     // 默认只有 1 MB —— 深文档会在 parse 里直接爆栈（进程 abort，错误码都来不及打，
@@ -1120,6 +1490,17 @@ fn real_main() -> ExitCode {
         return ExitCode::from(2);
     }
 
+    // 内置契约表导出：只导数据、不做转换（与 `--to` 无关，故放在最前面短路）
+    if args.dump_builtins {
+        return match dump_builtins(&args) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("smltools: {e}");
+                ExitCode::from(2)
+            }
+        };
+    }
+
     // 目录批量模式：输入是目录时，逐个文件转换到 --output 目录（lint 模式不适用）
     if !args.lint {
         if let Some(dir) = args.input.as_ref().filter(|p| p.is_dir()) {
@@ -1144,6 +1525,17 @@ fn real_main() -> ExitCode {
         }
     };
 
+    // 弱 profile 引用解析：只做定位（`docs/weakdoc-spec-draft.md` §3）
+    if args.resolve_profiles {
+        return match resolve_profiles_mode(&args, &text) {
+            Ok(code) => ExitCode::from(code),
+            Err(e) => {
+                eprintln!("smltools: {e}");
+                ExitCode::from(2)
+            }
+        };
+    }
+
     // lint 模式：只做静态检查，不产出转换结果
     if args.lint {
         if args.input_format != InputFormat::Sml {
@@ -1155,7 +1547,9 @@ fn real_main() -> ExitCode {
             );
             return ExitCode::from(2);
         }
-        let report = lint::check(&text, &args.input);
+        let mut report = lint::check(&text, &args.input);
+        // `.smlex` 的 checks：只在工具侧执行（`docs/smlex-format-draft.md` §3.2）。
+        apply_profile_checks(&mut report, &args, &text);
         for m in &report.messages {
             eprintln!("{m}");
         }
