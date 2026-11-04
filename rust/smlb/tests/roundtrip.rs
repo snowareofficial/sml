@@ -252,6 +252,64 @@ fn cat_looks_up_by_path() {
     assert_eq!(e.kind(), "bad-path");
 }
 
+/// Robustness: **any** single-byte mutation must come back as an error, never a panic.
+/// 健壮性：**任一**单字节改动都得以错误返回，绝不许 panic。
+///
+/// Why this matters more than it looks: the parser here eats untrusted bytes. A panic
+/// (index out of range / slice overflow) is a DoS on the host, and on a `no_std` target it is
+/// worse. Fuzzing the whole file byte-by-byte is cheap here because files are ~8 KB.
+/// 解码器吃的是不可信字节：一次 panic 就是一次 DoS。文件才 8 KB，逐字节扫一遍很便宜。
+#[test]
+fn single_byte_mutations_never_panic() {
+    let f = smlb::dump(&(CASES[16].build)()).unwrap();
+    for i in 0..f.len() {
+        for flip in [0x01u8, 0x80] {
+            let mut bad = f.clone();
+            bad[i] ^= flip;
+            // 三个入口都要么 Ok 要么 Err —— 只要不 panic 就算过
+            let _ = smlb::info(&bad);
+            let _ = smlb::load(&bad);
+            let _ = smlb::check(&bad);
+        }
+    }
+}
+
+/// Depth limit propagates through the container (same `E-LIMIT-004` as canonical).
+/// 深度上限在容器层同样生效（与 canonical 同一个 `E-LIMIT-004`）。
+#[test]
+fn depth_limit_propagates() {
+    let mut v = smlb::Value::Int(1);
+    for _ in 0..=smlb::MAX_VALUE_DEPTH {
+        v = smlb::Value::Array(vec![v]);
+    }
+    let e = smlb::dump(&v).expect_err("超深值必须被拒");
+    assert!(matches!(
+        e,
+        smlb::ContainerError::Canonical(smlb::CanonicalError::DepthExceeded { .. })
+    ));
+}
+
+/// `dump` is a pure function of the value: two calls, same bytes.
+/// `dump` 是值的纯函数：调两次，字节相同。
+#[test]
+fn dump_is_deterministic() {
+    for case in CASES {
+        let v = (case.build)();
+        assert_eq!(smlb::dump(&v).unwrap(), smlb::dump(&v).unwrap(), "[{}]", case.id);
+    }
+}
+
+/// `info` must answer P8's question (“what is the main content?”) even without a manifest.
+/// `info` 在没有 manifest 时也要回答 P8 的问题（「主内容是什么」）。
+#[test]
+fn info_names_the_primary_by_convention() {
+    let f = smlb::dump(&(CASES[0].build)()).unwrap();
+    let info = smlb::info(&f).unwrap();
+    let text = container::info_lines("t.smlb", &info).join("\n");
+    assert!(text.contains("primary   VALUE（约定"), "{text}");
+    assert!(text.contains("digest    SHA-256"), "{text}");
+}
+
 /// Copy a file, append one extra segment (and its table entry).
 /// 复制一份，追加一个额外段（并在段表里补一项）。
 fn append_segment(
