@@ -308,6 +308,10 @@
    `%APPDATA%` / `$XDG_CONFIG_HOME`（非 Windows 再验 `$HOME/.config` 回落）、`%ProgramData%` 系统层、
    以及「项目 > 用户」「显式 > 用户」两级优先级；**全靠子进程环境变量重定向，不碰真实用户目录**。
    非 Windows 的系统层是**写死** `/usr/share/sml/profiles`（需 root 才能写），已用一条用例把这个事实钉住。
-   ⚠️ 真正仍缺：`.smlex` **读不出来**（IO / 解析 / name 不符）那三条码的用例；
+   ✅ **`.smlex` 加载失败也已补（2026-11-04）**：`profile_errors.rs` 5 条 —— 非 UTF-8 / 不是合法 SML /
+   缺 `name` / `name` 与文件名不一致（统一 `E-LINT-005`）＋「找不到 profile 只是 warning、退出码 0」。
+   ⇒ **weak\* 三件的库侧与工具侧护栏均已齐**，剩余缺口只剩「四端未同步」；
+   📌 顺带记一处现状怪点：找不到 profile 的 warning 复用了 **E 级码 `E-LINT-005`**，
+   会让「按码统计错误数」的 CI 误判（用例已锁行为、未锁码，将来换码只改一处断言）；
 2. **四端未同步**：相关码的 `impls` 只有 `rust`（见 §4.1）；
 3. **文档状态过期**：`IDEAS.md` I-5 / I-15 / I-17 仍写 `Todo` / 「概念阶段」，§2 表就是照抄的。
