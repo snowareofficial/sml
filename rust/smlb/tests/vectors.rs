@@ -48,3 +48,21 @@ fn case_ids_are_unique_and_stable() {
     }
     assert!(smlb::vectors::CASES.len() >= 20, "用例数应覆盖 C4–C10 各条规则");
 }
+
+/// The container inherits C2: no source order ⇒ `dump` refuses, it does not sort.
+/// 容器层继承 C2：没有源序 ⇒ `dump` 报错，而不是偷偷排序。
+///
+/// Only checked in the default build (the `preserve_order` build has nothing to refuse).
+/// 只在默认构建里检查（保序档没有可拒绝的东西）。
+#[cfg(not(feature = "preserve_order"))]
+#[test]
+fn container_dump_also_refuses_to_sort() {
+    let err = smlb::dump(&smlb::Value::Int(1)).expect_err("默认构建的 dump 必须报错");
+    assert!(
+        matches!(
+            err,
+            smlb::ContainerError::Canonical(smlb::CanonicalError::KeyOrderUnavailable)
+        ),
+        "{err:?}"
+    );
+}

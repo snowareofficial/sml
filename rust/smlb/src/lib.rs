@@ -1,19 +1,20 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! `.smlb` — the **binary form** of SML. At T0 this crate ships exactly two things:
-//! `.smlb` —— SML 的**二进制形式**。本 crate 在 T0 只交付两件事：
+//! `.smlb` — the **binary form** of SML. Shipped so far:
+//! `.smlb` —— SML 的**二进制形式**。已交付：
 //!
-//! 1. The canonical form — **implemented in `sml-value`** (see
+//! 1. **T0** — the canonical form, **implemented in `sml-value`** (see
 //!    [`sml_value::Value::canonical_text`] / [`sml_value::Value::canonical_bytes`]); only
 //!    re-exported here. ｜ canonical 形态（实现在 `sml-value`，这里只做门面再导出）。
-//! 2. The cross-end test vectors ([`vectors`]): `smlb vectors --gen/--check`.
+//! 2. **T0** — the cross-end test vectors ([`vectors`]): `smlb vectors --gen/--check`.
 //!    ｜ 跨端测试向量。
+//! 3. **T1** — the container ([`container`]): file header + segment table + `dump` / `load` /
+//!    `info` / `ls`. ｜ 容器：文件头 + 段表 + `dump`/`load`/`info`/`ls`。
 //!
 //! Build order: `docs/smlb-smldb-spec.md` §17 / §23.4 —
 //! **T0 canonical + vectors → T1 encoder → T2 container → T3 read / T4 layer chain / T5 crypto
-//! → T6 tools → T7 five ends**. T1 lands the encoder skeleton (41 B segment header, `STRTAB`
-//! placement) here; T0 deliberately touches no container, because “are the bytes stable?” has
-//! to be answered before “what shell do they go in?”.
-//! 施工顺序同上。T1 才落「编码器骨架 + 段头（41 B）+ `STRTAB` 落点」；T0 刻意不碰容器。
+//! → T6 tools → T7 five ends**. T0 deliberately touched no container (“are the bytes stable?”
+//! before “what shell do they go in?”); T1 adds the shell.
+//! 施工顺序同上：T0 先把「字节稳不稳」钉死，T1 才装壳。
 //!
 //! # Why canonical lives in `sml-value`, not here / 为什么 canonical 不在本 crate
 //!
@@ -42,7 +43,12 @@
 //!
 //! T0 only touches the precondition of #2 (stable canonical); #1 and #3 gain substance at T2/T4.
 
+pub mod container;
 pub mod vectors;
 
+pub use container::{
+    dump, info, load, ContainerError, FileInfo, Segment, SegmentHeader, EDITION, FMT, HEADER_LEN,
+    MAGIC, SEG_HEADER_LEN, SEG_MANIFEST, SEG_STRTAB, SEG_VALUE,
+};
 pub use sml_value::canonical::CanonicalError;
-pub use sml_value::{Map, Value};
+pub use sml_value::{CanonicalBlocks, Map, Value};
