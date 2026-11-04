@@ -56,6 +56,22 @@ Editions are **not ordered**, so `Ord` is gone and the criterion is always "is t
 - ⚠️ The registry has no `Removed` row yet, so the branch is **not reachable** today (code and wiring
   are in place; adding a row activates it). `smltools --migrate` (V11) is not implemented yet.
 
+### Docs — featag S9: policy for the other four implementations (docs only, no code)
+
+- `docs/capability-matrix.md` gains **§1.7b**: feature status of featag and identifier validation
+  across five ends (Rust ✅, the rest ❌), with the actual runtime shape **measured** on 2026-11-04:
+  - JS on `@feature enable type.featag` ⇒ `E-FEATURE-003` (not in `KNOWN_FEATURES`);
+  - Lua on `@feature` itself ⇒ `E-PARSE-005` (no feature set);
+  - Rust with the bit off treats `!critical` as a bareword, while the same
+    `wea !critical, name { }` is accepted by JS as "key + bareword value" — a **pre-existing
+    cross-end divergence**, recorded here without blaming this change;
+  - C / C++ marked `未测` (not measured) rather than guessed.
+- `docs/featag-spec-draft.md`: the status banner changes from "zero implementation" to
+  "Rust implements S0–S8", and states that it currently rides the `type.featag` bit (development
+  exception) rather than `@version 50`.
+- **No code change**: the other four ends deliberately do not implement featag and keep reporting
+  "unsupported on this end". Cross-end sync is scheduled separately by the user (2026-11-04).
+
 ### Changed — featag targets may now traverse arrays (§10 Q20, decided)
 
 - Targets accept `[n]`: `!name: str -> rules[0].name` (previously rejected). Semantics per Q20:
