@@ -524,6 +524,7 @@ impl Parser {
         requires: &mut Vec<String>,
         featags: &mut Vec<FeatagDecl>,
         strict_paths: &mut bool,
+        allow_any: &mut bool,
     ) -> Result<BTreeMap<String, FieldSpec>, SmlError> {
         let mut fields: BTreeMap<String, FieldSpec> = BTreeMap::new();
         loop {
@@ -587,17 +588,23 @@ impl Parser {
                         return Err(SmlError::from_code_msg(E_PARSE_026)
                             .with_detail(format!("`{w}`")));
                     }
-                    // 契约级开关（不是 featag 声明）：`!strict-paths` 管落点规则的松紧（§6.1 规则 3）。
-                    // 它**不占** featag 名，也不接受类型 / 参数 / 落点。
-                    if name == "strict-paths" {
+                    // 契约级开关（不是 featag 声明）：
+                    // - `!any`（S8）：允许本契约用 `any` 类型（默认禁用，§10 Q7）；
+                    // - `!strict-paths`（S6）：落点父对象必须已存在（§6.1 规则 3）。
+                    // 两者都**不占** featag 名，也不接受类型 / 参数 / 落点。
+                    if name == "any" || name == "strict-paths" {
                         if self.peek() == Some(&Tok::Colon)
                             || self.peek_at(1) == Some(&Tok::LBrack)
                         {
                             return Err(SmlError::from_code_title(E_CONTRACT_021).with_detail(
-                                "`!strict-paths` 是契约级开关，不接受类型 / 参数 / 落点".to_string(),
+                                format!("`!{name}` 是契约级开关，不接受类型 / 参数 / 落点"),
                             ));
                         }
-                        *strict_paths = true;
+                        if name == "any" {
+                            *allow_any = true;
+                        } else {
+                            *strict_paths = true;
+                        }
                         continue;
                     }
                     // 参数类型：复用字段规格解析（`[int]` / `str` / 契约引用 / 修饰符全支持）
@@ -1155,7 +1162,13 @@ impl Parser {
             // featag 声明（S4）：契约体内 `!name` / `!name: 类型` / `!name: 类型 -> 落点`
             let mut featags: Vec<FeatagDecl> = Vec::new();
             let mut strict_paths = false;
-            let fields = self.parse_contract_body(&mut requires, &mut featags, &mut strict_paths)?;
+            let mut allow_any = false;
+            let fields = self.parse_contract_body(
+                &mut requires,
+                &mut featags,
+                &mut strict_paths,
+                &mut allow_any,
+            )?;
             // 定义时校验（不是应用时）：契约体里 `@requires` 声明的特性都必须已开启。
             // 特性集在解析前已由 `scan.rs` 把全文的 `@feature` 指令一并剥离并应用，
             // 因此此处校验的是「文档在任意位置声明过的特性」的并集，与书写顺序无关。
@@ -1183,6 +1196,7 @@ impl Parser {
                     fields,
                     strictness,
                     requires,
+                    allow_any,
                     strict_paths,
                     featags,
                 },
@@ -1855,6 +1869,12 @@ impl Parser {
         // 块结束：若声明了 `@is`，应用契约（填默认值 + 校验 + 严格性检查）。
         // `apply_contracts(false)` 时整段跳过（IDEAS I-2 的 opt-out）。
         if self.apply_contracts {
+            // featag S8：`@is` 这条路径也要过「`any` 默认禁用」——与 typed-block 同一判据，
+            // 否则同一个契约换个应用方式（`@is` vs 块头）就得到不同结果。
+            if self.features.has(Feature::Featag) && !applied_contracts.is_empty() {
+                let names: Vec<String> = applied_contracts.iter().map(|(n, _)| n.clone()).collect();
+                self.check_any_allowed(&names)?;
+            }
             if applied_contracts.len() == 1 {
                 // 单契约：**逐字走原路径**（错误文案 / 行为与旧版完全一致）
                 let (cname, ov) = &applied_contracts[0];
@@ -1990,6 +2010,11 @@ impl Parser {
                     ));
                 }
             }
+            // —— featag S8：`any` 默认禁用，写了 `!any` 的契约才放行 ——
+            if self.features.has(Feature::Featag) {
+                self.check_any_allowed(&names)?;
+            }
+
             // —— featag S7：`from-featag` 的键不许文档手写 ——
             //
             // ⚠️ **必须在填充之前**：填充之后 featag 自己写的键与文档手写的键长得一样，
@@ -2148,6 +2173,47 @@ impl Parser {
                         let v = Self::featag_value(&where_, spec, payload)?;
                         sml_contract::check_value(&where_, &where_, spec, &v, &self.contracts)?;
                     }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// featag **S8**：`any` 类型默认禁用，契约里写 `!any` 才放行（§10 Q7）。
+    ///
+    /// 门控 `type.featag`（与其它 v5 行为一致）：没开时整段不查，v4 文档里的 `any` 照旧可用。
+    /// 报码复用 `E-FEATURE-001`（因相同：都是「这项能力没被放行」），detail 说清是**契约级开关**。
+    fn check_any_allowed(&self, contract_names: &[String]) -> Result<(), SmlError> {
+        let mut seen: Vec<String> = Vec::new();
+        for n in contract_names {
+            if let Some(c) = self.contracts.get(n) {
+                Self::walk_any(c, &self.contracts, &mut seen)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// 递归查字段里的 `any`（含 `[any]` 这种数组元素位置）。`seen` 防递归契约绕圈。
+    fn walk_any(
+        contract: &Contract,
+        contracts: &BTreeMap<String, Contract>,
+        seen: &mut Vec<String>,
+    ) -> Result<(), SmlError> {
+        if seen.iter().any(|s| s == &contract.name) {
+            return Ok(());
+        }
+        seen.push(contract.name.clone());
+        for (fname, spec) in &contract.fields {
+            if type_uses_any(&spec.ty) && !contract.allow_any {
+                return Err(SmlError::from_code_msg(E_FEATURE_001).with_detail(format!(
+                    "契约 `{}` 的字段 `{fname}` 用了 `any`（等于放弃类型校验）；\
+                     若确实需要，请在该契约里写 `!any` 显式放开",
+                    contract.name
+                )));
+            }
+            if let TypeSpec::ContractRef(name) = &spec.ty {
+                if let Some(inner) = contracts.get(name) {
+                    Self::walk_any(inner, contracts, seen)?;
                 }
             }
         }
@@ -2659,6 +2725,15 @@ impl Parser {
             cont: Cont::Root,
         };
         self.run_stack(root)
+    }
+}
+
+/// 这个类型里有没有 `any`（含 `[any]`）—— S8 的判据。
+fn type_uses_any(ty: &TypeSpec) -> bool {
+    match ty {
+        TypeSpec::Any => true,
+        TypeSpec::Array(inner) => type_uses_any(inner),
+        _ => false,
     }
 }
 

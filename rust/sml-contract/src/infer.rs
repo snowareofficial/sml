@@ -190,6 +190,7 @@ fn build_object_contract(
         fields: BTreeMap::new(),
         strictness: Strictness::Loose,
         requires: Vec::new(),
+        allow_any: false,
         strict_paths: false,
         featags: Vec::new(),
     });
