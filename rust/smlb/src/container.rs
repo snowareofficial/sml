@@ -31,15 +31,24 @@
 //! 3. **追加不改旧字节** —— T1 只写「冻结文件」；`append` 属 T4，届时只追加段与
 //!    Trailer（T4 的尾部表指针 `tail_off` 已在头里留好，v1 恒 0）。
 //!
-//! # 还没做的两件事（不是忘了）
+//! # 段摘要（T2 起）
 //!
-//! - `sha256:32` **v1 写全 0**：零依赖不引 crate，自己实现 SHA-256 放 T2；
-//!   期间 `info` 会明说「未校验」——**不要在 T1 声称能检出篡改**。
-//! - **manifest 段（0x04）只登记、不写**：它的字段（算法 / profile / `primary` /
-//!   能力位 / 默认值）归 T2。T1 的文件靠 header + 段表就自描述。
-//! ｜ `sha256` is all zeros in T1, and the `MANIFEST` segment is registered but unwritten.
+//! `sha256:32` 现在写**真摘要**（`crate::sha256`，零依赖自实现，FIPS 180-4 向量钉着）：
+//! `load` 对**它用到的段**校验，`smlb check` 逐段全验并且**不提前抛错**（把每段结论都打出来）。
+//! 全 0 摘要仍被接受 = 「这份文件没带摘要」，只是校验更少 —— 不是无效文件。
+//! ｜ Digests are real from T2 on (`sha256.rs`); `load` verifies the segments it uses,
+//! `check` verifies all of them. All-zero means “no digest”, not “invalid”.
+//!
+//! # 还没做的（不是忘了）
+//!
+//! - **manifest 段（`0x04`）仍只登记、不写**：字段（算法 / profile / `primary` / 能力位 /
+//!   默认值）没定，施工草案在 `docs/smlb-smldb-spec.md` §19.9 等用户裁决。
+//!   今天「哪个段是主内容」靠约定（`VALUE` 就是主内容），P8 的 `primary` 指针要等 manifest。
+//! ｜ The `MANIFEST` segment is still registered-but-unwritten; see §19.9 for the pending draft.
 
 use sml_value::{CanonicalError, Value};
+
+use crate::sha256;
 
 /// Magic, written once and never changed (`§12.3`'s existing convention).
 /// 魔数，写一次永不变（沿用 §12.3 的既有约定）。
@@ -156,10 +165,10 @@ impl FileInfo {
             .any(|s| s.header.comp != 0 || s.header.enc != 0)
     }
 
-    /// Is there any integrity digest at all? In v1: never (T1 writes zeros).
-    /// 有没有任何完整性摘要？v1 里永远没有（T1 写全 0）。
+    /// Does any segment carry an integrity digest? (T2-on dumps: yes; T1-era files: no.)
+    /// 有没有段带完整性摘要？（T2 起写；T1 时代的文件没有。）
     pub fn has_digest(&self) -> bool {
-        self.segments.iter().any(|s| s.header.hash != [0u8; 32])
+        self.segments.iter().any(|s| has_digest(&s.header))
     }
 }
 
@@ -229,8 +238,22 @@ pub enum ContainerError {
         /// The repeated id ｜ 重复的 id。
         seg_id: u8,
     },
+    /// A segment's bytes do not hash to the digest stored in its header (tamper/corruption).
+    /// 段字节的摘要与段头里记的不一致（篡改或损坏）。
+    DigestMismatch {
+        /// Segment id ｜ 段 id。
+        seg_id: u8,
+        /// Offset of the body ｜ 段体偏移。
+        at: u64,
+        /// The digest recorded in the header ｜ 段头里记的摘要。
+        expected: [u8; 32],
+        /// The digest recomputed from the bytes ｜ 重算出来的摘要。
+        actual: [u8; 32],
+    },
     /// The `VALUE` body does not decode as canonical bytes ｜ `VALUE` 段体解不开。
     Canonical(CanonicalError),
+    /// The lookup path is malformed or does not exist ｜ 路径写错或不存在的键。
+    Path(sml_value::PathError),
 }
 
 impl ContainerError {
@@ -247,7 +270,9 @@ impl ContainerError {
             ContainerError::UnsupportedAlgorithm { .. } => "unsupported-algorithm",
             ContainerError::MissingSegment { .. } => "missing-segment",
             ContainerError::DuplicateSegment { .. } => "duplicate-segment",
+            ContainerError::DigestMismatch { .. } => "digest-mismatch",
             ContainerError::Canonical(_) => "bad-value",
+            ContainerError::Path(_) => "bad-path",
         }
     }
 }
@@ -299,7 +324,19 @@ impl std::fmt::Display for ContainerError {
             ContainerError::DuplicateSegment { seg_id } => {
                 write!(f, "段 0x{seg_id:02x} 出现了不止一次（D15：不做隐式 last-wins）")
             }
+            ContainerError::DigestMismatch {
+                seg_id,
+                at,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "段 0x{seg_id:02x}（偏移 {at}）摘要不符：记的是 {}，重算是 {} —— 字节被改过或文件损坏",
+                hex8(expected),
+                hex8(actual)
+            ),
             ContainerError::Canonical(e) => write!(f, "VALUE 段体不合规：{e}"),
+            ContainerError::Path(e) => write!(f, "路径取不到：{e}"),
         }
     }
 }
@@ -317,6 +354,41 @@ impl From<CanonicalError> for ContainerError {
 fn align_up(x: u64) -> u64 {
     let a = ALIGN as u64;
     (x + a - 1) / a * a
+}
+
+/// First 4 bytes of a digest as hex — enough to eyeball, short enough for a table row.
+/// 摘要前 4 字节的十六进制 —— 够肉眼比对，也够短。
+fn hex8(d: &[u8; 32]) -> String {
+    d[..4].iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Is this segment carrying a digest at all? (All-zero means "not covered" — T1 files.)
+/// 这个段带摘要吗？（全 0 = 未覆盖 —— T1 的文件就是这样。）
+fn has_digest(h: &SegmentHeader) -> bool {
+    h.hash != [0u8; 32]
+}
+
+/// Verify one segment's digest — **no-op when the header carries none**.
+/// 校验一个段的摘要 —— 段头没记摘要时**什么都不做**。
+///
+/// Why “no-op” instead of “refuse”: T1 wrote zeros, and a file without a digest is *less*
+/// checked, not *invalid*. Refusing would break old files for no security gain.
+/// 为什么「不做事」而不是「拒绝」：T1 的文件写的是全 0，没有摘要只是**校验更少**，
+/// 不是**文件无效**；拒绝只会让旧文件打不开，换不来任何安全收益。
+fn verify_digest(seg: &Segment, body: &[u8]) -> Result<(), ContainerError> {
+    if !has_digest(&seg.header) {
+        return Ok(());
+    }
+    let actual = sha256::digest(body);
+    if actual != seg.header.hash {
+        return Err(ContainerError::DigestMismatch {
+            seg_id: seg.header.seg_id,
+            at: seg.offset,
+            expected: seg.header.hash,
+            actual,
+        });
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -370,7 +442,10 @@ pub fn dump(v: &Value) -> Result<Vec<u8>, ContainerError> {
         out[at + 2] = 0; // enc: plaintext
         out[at + 3..at + 5].copy_from_slice(&0u16.to_le_bytes()); // flags
         out[at + 5..at + 9].copy_from_slice(&len.to_le_bytes());
-        // at+9..at+41 留全 0：T1 不写摘要（T2 落 SHA-256）
+        // 段摘要（§19.1 的 32 B）：v1 固定 SHA-256（manifest 的 hash_id 归 T2 落，
+        // 现在只有一个算法 ⇒ 读到非 0 摘要就按 SHA-256 验）
+        let digest = sha256::digest(body);
+        out[at + 9..at + 41].copy_from_slice(&digest);
 
         if out.len() as u64 != data_off {
             out.resize(data_off as usize, 0);
@@ -500,6 +575,12 @@ pub fn body<'a>(
 /// T1 requires a `VALUE` segment (no manifest ⇒ no `primary` pointer yet); T2 relaxes this via
 /// `primary`. `STRTAB` is optional (absent ⇒ empty table).
 /// T1 必须有 `VALUE`（还没有 manifest ⇒ 没有 `primary` 指针）；`STRTAB` 可缺（缺 = 空表）。
+///
+/// Digests are verified **for the segments used here**; unknown segments are skipped without
+/// verification (they cannot affect the value). `smlb check` is the thorough path — it verifies
+/// every segment, including ones nobody reads.
+/// 摘要只对**本函数用到的段**校验；未知段跳过、不校验（它们影响不到值）。
+/// 逐段全验是 `smlb check` 的事。
 pub fn load(bytes: &[u8]) -> Result<Value, ContainerError> {
     let info = info(bytes)?;
     let mut value: Option<&[u8]> = None;
@@ -510,14 +591,10 @@ pub fn load(bytes: &[u8]) -> Result<Value, ContainerError> {
                 if value.is_some() {
                     return Err(ContainerError::DuplicateSegment { seg_id: SEG_VALUE });
                 }
-                if seg.header.comp != 0 || seg.header.enc != 0 {
-                    return Err(ContainerError::UnsupportedAlgorithm {
-                        seg_id: SEG_VALUE,
-                        comp: seg.header.comp,
-                        enc: seg.header.enc,
-                    });
-                }
-                value = Some(body(bytes, seg)?);
+                require_plain(seg)?;
+                let b = body(bytes, seg)?;
+                verify_digest(seg, b)?;
+                value = Some(b);
             }
             SEG_STRTAB => {
                 if strtab.is_some() {
@@ -525,14 +602,10 @@ pub fn load(bytes: &[u8]) -> Result<Value, ContainerError> {
                         seg_id: SEG_STRTAB,
                     });
                 }
-                if seg.header.comp != 0 || seg.header.enc != 0 {
-                    return Err(ContainerError::UnsupportedAlgorithm {
-                        seg_id: SEG_STRTAB,
-                        comp: seg.header.comp,
-                        enc: seg.header.enc,
-                    });
-                }
-                strtab = Some(body(bytes, seg)?);
+                require_plain(seg)?;
+                let b = body(bytes, seg)?;
+                verify_digest(seg, b)?;
+                strtab = Some(b);
             }
             // 其余一律跳过：不认识 ≠ 读不了（不变量 1）
             _ => {}
@@ -542,8 +615,104 @@ pub fn load(bytes: &[u8]) -> Result<Value, ContainerError> {
     decode_value(strtab.unwrap_or(&[]), value)
 }
 
+/// Refuse compression/encryption this build cannot undo. ｜ 拒绝本构建解不开的压缩/加密。
+fn require_plain(seg: &Segment) -> Result<(), ContainerError> {
+    if seg.header.comp != 0 || seg.header.enc != 0 {
+        return Err(ContainerError::UnsupportedAlgorithm {
+            seg_id: seg.header.seg_id,
+            comp: seg.header.comp,
+            enc: seg.header.enc,
+        });
+    }
+    Ok(())
+}
+
+/// Result of `check`: everything is structural-or-hash checked, **nothing throws early**.
+/// `check` 的结论：结构 + 摘要都查过，**不提前抛错**（好让工具把每段结论都打出来）。
+#[derive(Debug, Clone)]
+pub struct CheckReport {
+    /// One line per finding, in table order ｜ 每段（及总体）一行结论。
+    pub lines: Vec<String>,
+    /// `true` only when every check passed ｜ 只有全过才是 `true`。
+    pub ok: bool,
+}
+
+/// Structural + integrity check (§22 `smlb check`): header, table, truncation, digests, and
+/// whether the `VALUE` segment actually decodes.
+/// 结构 + 完整性校验：头、段表、截断、摘要，以及 `VALUE` 到底能不能解出来。
+///
+/// Structural problems (header/table/truncation) are still hard errors — there is nothing
+/// meaningful to report about segments that are not even inside the file.
+/// 结构性问题（头/段表/截断）仍是硬错误 —— 段都不在文件里，逐段结论没有意义。
+pub fn check(bytes: &[u8]) -> Result<CheckReport, ContainerError> {
+    let info = info(bytes)?;
+    let mut lines = Vec::new();
+    let mut ok = true;
+
+    for seg in &info.segments {
+        let name = seg_name(seg.header.seg_id);
+        let b = body(bytes, seg)?;
+        if has_digest(&seg.header) {
+            let actual = sha256::digest(b);
+            if actual == seg.header.hash {
+                lines.push(format!(
+                    "0x{:02x} {:<10} 摘要 OK ({})",
+                    seg.header.seg_id,
+                    name,
+                    hex8(&actual)
+                ));
+            } else {
+                ok = false;
+                lines.push(format!(
+                    "0x{:02x} {:<10} 摘要不符：记 {} / 算 {}",
+                    seg.header.seg_id,
+                    name,
+                    hex8(&seg.header.hash),
+                    hex8(&actual)
+                ));
+            }
+        } else {
+            ok = false;
+            lines.push(format!(
+                "0x{:02x} {:<10} 未带摘要 —— 无法判断是否被改过",
+                seg.header.seg_id, name
+            ));
+        }
+    }
+
+    match load(bytes) {
+        Ok(_) => lines.push("VALUE    段可解（按 canonical 解码成功）".to_string()),
+        Err(e) => {
+            ok = false;
+            lines.push(format!("VALUE    解不开：{e}"));
+        }
+    }
+
+    lines.push(format!(
+        "结论      {}（{} 段，{} 字节）",
+        if ok { "通过" } else { "未通过" },
+        info.segments.len(),
+        info.file_len
+    ));
+    Ok(CheckReport { lines, ok })
+}
+
 fn decode_value(strtab: &[u8], value: &[u8]) -> Result<Value, ContainerError> {
     Ok(Value::from_canonical_blocks(strtab, value)?)
+}
+
+/// Look one path up inside the primary value (§22 `smlb cat`) — `a.b[0].c` syntax.
+/// 在主值里按路径取一个值（§22 的 `smlb cat`），路径语法 `a.b[0].c`。
+///
+/// T2 的实现是「整棵解出来再找路」；T3 的 `DIR` 段会把它降成 O(1) 跳转。这里刻意先做
+/// 正确的慢版本 —— 语义定下来之后再谈索引，否则索引会替语义背锅。
+/// T2 decodes the whole tree and then walks; T3's `DIR` makes it O(1). Correct-but-slow
+/// first: an index must not be where the semantics are decided.
+pub fn get(bytes: &[u8], path: &str) -> Result<Value, ContainerError> {
+    let v = load(bytes)?;
+    let p = sml_value::Path::parse(path).map_err(ContainerError::Path)?;
+    let found = v.get_path(&p).map_err(ContainerError::Path)?;
+    Ok(found.clone())
 }
 
 /// Human-readable name for a segment id (tools only; unknown ids print as `0xNN`).
@@ -565,13 +734,13 @@ pub fn ls_lines(info: &FileInfo) -> Vec<String> {
         .iter()
         .map(|s| {
             let h = &s.header;
-            let digest = if h.hash == [0u8; 32] {
-                "none(T1)".to_string()
+            let digest = if has_digest(h) {
+                hex8(&h.hash)
             } else {
-                h.hash[..4].iter().map(|b| format!("{b:02x}")).collect::<String>()
+                "none".to_string()
             };
             format!(
-                "0x{:02x} {:<10} off={:<10} len={:<8} comp={:<3} enc={:<3} hash={}",
+                "0x{:02x} {:<12} off={:<10} len={:<8} comp={:<3} enc={:<3} sha256={}",
                 h.seg_id,
                 seg_name(h.seg_id),
                 s.offset,
@@ -612,9 +781,9 @@ pub fn info_lines(path: &str, info: &FileInfo) -> Vec<String> {
     out.push(format!(
         "digest    {}",
         if info.has_digest() {
-            "有（算法见 manifest）"
+            "SHA-256（逐段；`smlb check` 会核）"
         } else {
-            "无 —— T1 不写 sha256，**不要指望它检出篡改**"
+            "无 —— 这份文件没带摘要，**不要指望它检出篡改**"
         }
     ));
     out

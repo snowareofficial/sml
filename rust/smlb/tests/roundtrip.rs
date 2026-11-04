@@ -181,20 +181,75 @@ fn missing_value_segment_is_rejected() {
     assert_eq!(smlb::load(&f).unwrap_err().kind(), "missing-segment");
 }
 
-/// Guard rail: T1 writes **no** digest — tools must not claim tamper detection.
-/// 护栏：T1 **不写**摘要 —— 工具不许声称能检出篡改。
+/// Every segment carries a real digest, and `check` says so.
+/// 每个段都带真摘要，`check` 会把结论打出来。
 #[test]
-fn t1_writes_no_digest() {
+fn digests_are_written() {
     let f = smlb::dump(&(CASES[10].build)()).unwrap();
     let info = smlb::info(&f).unwrap();
-    assert!(!info.has_digest(), "T1 不该写摘要");
-    assert!(info
+    assert!(info.has_digest(), "T2 起应写摘要");
+    assert!(info.segments.iter().all(|s| s.header.hash != [0u8; 32]));
+
+    let report = smlb::check(&f).unwrap();
+    assert!(report.ok, "好文件应通过：{:?}", report.lines);
+    let joined = report.lines.join("\n");
+    assert!(joined.contains("摘要 OK"), "{joined}");
+    assert!(joined.contains("通过"), "{joined}");
+}
+
+/// **The** T2 acceptance: flip one byte ⇒ it is caught.
+/// T2 的核心判据：改一个字节必须被检出。
+#[test]
+fn one_changed_byte_is_caught() {
+    let f = smlb::dump(&(CASES[17].build)()).unwrap();
+    let info = smlb::info(&f).unwrap();
+    let value_seg = info
         .segments
         .iter()
-        .all(|s| s.header.hash == [0u8; 32]));
-    // 头里的自述要把这件事说出来（否则用户以为文件被校验过）
-    let lines = container::info_lines("t.smlb", &info).join("\n");
-    assert!(lines.contains("不要指望"), "info 应明说没有摘要：{lines}");
+        .find(|s| s.header.seg_id == SEG_VALUE)
+        .expect("VALUE 段");
+    let at = value_seg.offset as usize + 3; // 段体里的第 4 字节
+
+    let mut bad = f.clone();
+    bad[at] ^= 0x01;
+
+    let e = smlb::load(&bad).expect_err("改了一个字节，load 必须报错");
+    assert_eq!(e.kind(), "digest-mismatch", "{e}");
+
+    let report = smlb::check(&bad).unwrap();
+    assert!(!report.ok, "check 必须判未通过");
+    assert!(report.lines.join("\n").contains("摘要不符"), "{:?}", report.lines);
+}
+
+/// A file without digests (T1-era, all zeros) still loads — “less checked”, not “invalid”.
+/// 没带摘要（T1 时代，全 0）的文件仍能读 —— 只是校验更少，不是无效。
+#[test]
+fn zeroed_digest_means_unverified_not_invalid() {
+    let mut f = smlb::dump(&(CASES[17].build)()).unwrap();
+    let info = smlb::info(&f).unwrap();
+    for i in 0..info.segments.len() {
+        let at = info.table_off as usize + i * SEG_HEADER_LEN;
+        f[at + 9..at + 41].fill(0);
+    }
+    assert!(smlb::load(&f).is_ok(), "全 0 摘要应视作「未校验」而不是损坏");
+    let report = smlb::check(&f).unwrap();
+    assert!(!report.ok, "但 check 必须说「无法判断是否被改过」");
+    assert!(report.lines.join("\n").contains("未带摘要"), "{:?}", report.lines);
+}
+
+/// `cat`: path lookup against the decoded value (§22).
+/// `cat`：在解出来的值上按路径取值。
+#[test]
+fn cat_looks_up_by_path() {
+    let v = (CASES[19].build)(); // nested-containers：config.port = 8080
+    let f = smlb::dump(&v).unwrap();
+    let port = smlb::get(&f, "config.port").unwrap();
+    assert_eq!(port, smlb::Value::Int(8080));
+    let host0 = smlb::get(&f, "config.hosts[0]").unwrap();
+    assert_eq!(host0, smlb::Value::Str("a".into()));
+
+    let e = smlb::get(&f, "config.nope").expect_err("不存在的键应报错");
+    assert_eq!(e.kind(), "bad-path");
 }
 
 /// Copy a file, append one extra segment (and its table entry).
