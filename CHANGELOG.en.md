@@ -56,6 +56,32 @@ Editions are **not ordered**, so `Ord` is gone and the criterion is always "is t
 - ⚠️ The registry has no `Removed` row yet, so the branch is **not reachable** today (code and wiring
   are in place; adding a row activates it). `smltools --migrate` (V11) is not implemented yet.
 
+### Added — featag S6: target filling
+
+- Arguments are written into the block along the declared `-> target` (§6.1 rules 1–5):
+  ```sml
+  @contract api { !cert: str -> tls.cert  !key: str -> tls.key }
+  api cert["c.pem"] key["k.pem"], web { name: api }
+  ;; ⇒ api: { tls: { cert: "c.pem", key: "k.pem" }, name: "api" }
+  ```
+- **An existing target is an error** (`E-CONTRACT-022`), **never silently skipped**: skipping would
+  make "I thought it was written" the hardest bug to find. This is the language-level form of
+  "a featag must not overwrite".
+- **Parent objects are created automatically** (that is "insert", not "overwrite"); the contract-level
+  switch **`!strict-paths`** requires them to exist and reports `E-CONTRACT-023` otherwise. A
+  non-object in the middle of the path reports the same code.
+- **`auto`** takes the declared `default`; without a `default` it is `E-CONTRACT-022`. ⚠️ Known
+  limitation: arguments are already values by the time we see them, so a bareword `auto` and the
+  quoted `"auto"` **cannot be told apart** (both are treated as `auto`). Fixing that requires
+  `parse_array` to preserve "was this a bareword", which is a separate change.
+- **No target ⇒ pure tag**: only `__featags` gets it, no key is written.
+- **Ordering**: validation (S5) and filling (S6) now both run **before** contract application —
+  otherwise fields that only a featag may supply would be reported as missing first (S7 relies on this).
+- ⚠️ **Targets do not traverse arrays yet**: rejected at declaration time (`E-CONTRACT-020`).
+  The spec contradicts itself here — §6.1 rule 6 (2026-11-04) allows `[n]`, §10 Q12 forbids it.
+  **This needs a decision from the user**; this round follows the more conservative Q12, and the
+  check lives in exactly two places.
+
 ### Added — featag S5: validation opens (undeclared ⇒ reject, argument checks)
 
 - Every featag used at a block head must be declared in a contract **applied to that block**,
