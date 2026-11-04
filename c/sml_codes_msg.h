@@ -56,6 +56,8 @@ static const struct SmlErrorMsg SML_ERROR_MSGS[] = {
     { "E-CONTRACT-019", "error", "CONTRACT", "featag 重复声明", "同一契约里重复声明了同名的 featag", "Duplicate featag declaration", "The same featag is declared twice inside one contract" },
     { "E-CONTRACT-020", "error", "CONTRACT", "featag 落点非法", "featag 的落点必须是点路径（对象键），不能穿数组", "Illegal featag target", "A featag target must be a dotted path of object keys; it cannot index into arrays" },
     { "E-CONTRACT-021", "error", "CONTRACT", "featag 未声明或用法与声明不符", "使用的 featag 没有在该契约里声明，或参数个数 / 类型与声明不符", "Undeclared featag / usage does not match declaration", "The featag is not declared in this contract, or the argument count / type differs from the declaration" },
+    { "E-CONTRACT-022", "error", "CONTRACT", "featag 落点已存在（禁止覆盖）", "featag 要写入的落点已经存在；featag 不能用于覆盖已有值", "featag target already exists (overwrite forbidden)", "The featag target already exists; a featag must not overwrite existing values" },
+    { "E-CONTRACT-023", "error", "CONTRACT", "featag 落点的父对象不存在", "featag 落点路径上的父对象不存在，或那个键已被非对象值占用", "featag target parent is missing", "A parent object on the featag target path is missing, or that key holds a non-object value" },
     { "E-DERIVE-001", "error", "DERIVE", "值与目标类型不符", "SML 值的类型与目标宿主类型不符", "Value/target type mismatch", "The SML value's type does not match the target host type" },
     { "E-DERIVE-002", "error", "DERIVE", "数值超出目标类型范围", "数值超出目标宿主类型的取值范围", "Number out of target type range", "The number is out of the target host type's range" },
     { "E-DERIVE-003", "error", "DERIVE", "未知的枚举值或变体", "未知的枚举值或枚举变体", "Unknown enum value or variant", "Unknown enum value or enum variant" },

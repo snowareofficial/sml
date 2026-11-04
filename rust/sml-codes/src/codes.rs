@@ -99,6 +99,12 @@ pub const E_CONTRACT_020: &str = "E-CONTRACT-020";
 /// [E-CONTRACT-021] featag 未声明或用法与声明不符：使用的 featag 没有在该契约里声明，或参数个数 / 类型与声明不符
 /// EN: Undeclared featag / usage does not match declaration —— The featag is not declared in this contract, or the argument count / type differs from the declaration
 pub const E_CONTRACT_021: &str = "E-CONTRACT-021";
+/// [E-CONTRACT-022] featag 落点已存在（禁止覆盖）：featag 要写入的落点已经存在；featag 不能用于覆盖已有值
+/// EN: featag target already exists (overwrite forbidden) —— The featag target already exists; a featag must not overwrite existing values
+pub const E_CONTRACT_022: &str = "E-CONTRACT-022";
+/// [E-CONTRACT-023] featag 落点的父对象不存在：featag 落点路径上的父对象不存在，或那个键已被非对象值占用
+/// EN: featag target parent is missing —— A parent object on the featag target path is missing, or that key holds a non-object value
+pub const E_CONTRACT_023: &str = "E-CONTRACT-023";
 /// [E-DERIVE-001] 值与目标类型不符：SML 值的类型与目标宿主类型不符
 /// EN: Value/target type mismatch —— The SML value's type does not match the target host type
 pub const E_DERIVE_001: &str = "E-DERIVE-001";
@@ -506,6 +512,8 @@ pub const ALL: &[&str] = &[
     E_CONTRACT_019,
     E_CONTRACT_020,
     E_CONTRACT_021,
+    E_CONTRACT_022,
+    E_CONTRACT_023,
     E_DERIVE_001,
     E_DERIVE_002,
     E_DERIVE_003,
@@ -634,4 +642,4 @@ pub const ALL: &[&str] = &[
 ];
 
 /// 码总数（与 `errors/codes.sml` 的 `count` 对齐）。
-pub const COUNT: usize = 154;
+pub const COUNT: usize = 156;

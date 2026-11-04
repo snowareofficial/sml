@@ -278,6 +278,12 @@ pub struct Contract {
     /// 跨端（JS / C / C++ / Lua）暂未实现 `@requires` 的解析，见到即按 `E-CONTRACT-018`
     /// 响亮拒绝（参照 `E-CONTRACT-017` 契约叠加未实现的先例），绝不静默忽略或静默给树。
     pub requires: Vec<String>,
+    /// 契约级开关 **`!strict-paths`**（featag 落点规则 §6.1 规则 3）。
+    ///
+    /// `false`（默认）：落点路径上的父对象不存在 ⇒ **自动创建**（那是「插入」，不是「覆盖」）。
+    /// `true`：父对象必须已存在，缺了就报 `E-CONTRACT-023` —— 适合「落点必须落在作者写好的
+    /// 结构里」的场景（防止 featag 顺手造出一整棵没人预期的树）。
+    pub strict_paths: bool,
     /// 契约里声明的 featag（**保序**，声明顺序即诊断里的列举顺序）。
     ///
     /// 只在 Rust 侧由 `@contract` 解析填充（S4）；其它四端没有 featag，
@@ -617,6 +623,9 @@ pub fn apply_contracts(
         fields,
         strictness,
         requires: merged_requires,
+        // 叠加时取**或**：任一份契约要求「父对象必须已存在」，叠加后就得守这条
+        // （与 `required` 的合并口径一致：约束取并，不取某个契约的宽松度）。
+        strict_paths: list.iter().any(|c| c.strict_paths),
         featags: merged_featags,
     };
     apply_contract(&merged, node, contracts, path, warnings)
