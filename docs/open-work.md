@@ -304,7 +304,10 @@
    📌 **更正**：工具侧**并非没有测试** —— `smltools/tests/` 里已有 `resolve_profiles.rs`（显式目录优先、
    项目级向上查找、`--no-profiles`、未命中退出码 1）、`profile_checks.rs`（三项 checks + 找不到只是 warning）、
    `profile_suggest.rs`（`applies_to` 提示）、`lint_weakbind.rs`（弱声明不算契约定义）。
-   ⚠️ 真正仍缺：**user-global / system 两层的查找**（现有用例只覆盖 显式 / 项目 / 关闭），
-   以及 `.smlex` **读不出来**（IO / 解析 / name 不符）三条码的用例；
+   ✅ **user-global / system 两层也已补（2026-11-04）**：`smltools/tests/profile_namespaces.rs` 4 条 ——
+   `%APPDATA%` / `$XDG_CONFIG_HOME`（非 Windows 再验 `$HOME/.config` 回落）、`%ProgramData%` 系统层、
+   以及「项目 > 用户」「显式 > 用户」两级优先级；**全靠子进程环境变量重定向，不碰真实用户目录**。
+   非 Windows 的系统层是**写死** `/usr/share/sml/profiles`（需 root 才能写），已用一条用例把这个事实钉住。
+   ⚠️ 真正仍缺：`.smlex` **读不出来**（IO / 解析 / name 不符）那三条码的用例；
 2. **四端未同步**：相关码的 `impls` 只有 `rust`（见 §4.1）；
 3. **文档状态过期**：`IDEAS.md` I-5 / I-15 / I-17 仍写 `Todo` / 「概念阶段」，§2 表就是照抄的。
