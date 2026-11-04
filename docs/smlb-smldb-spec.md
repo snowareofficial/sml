@@ -927,6 +927,8 @@ key 更少一份、零依赖，`ser_text` 已趟过路；O(n) 对真实负载够
 | **D29** | **nonce 永不复用**：`per-file DEK` + `HKDF(DEK, "smlb:"+algo)` 派生 key，`nonce = layer_id ‖ block_index ‖ salt` | 换密钥即换 DEK，旧层 nonce 空间随之作废 |
 | **D30** | **先压缩后加密**；提供 `--no-compress` 关闭压缩以断开 CRIME/BREACH 类推断链 | 长度量化只防「精确长度」，不防「压缩后长度」 |
 | **D31** | **签明文再加密**（sign-then-encrypt）；`SIG` 段**明文存放**，不参与加密 | 否则「验签」要以「解密」为前置 |
+| **D32** | **`VALUE` 段布局 = 前序 + 固定 4 B `subtree_len`**（跳子树 O(1)） | 见 §19；写入留占位、段尾回填 |
+| **D33** | **`DIR` 段做**（可选、派生）：`(parent_off, key_id, child_off)` 排序 + `head_layer`；默认只索引深度 ≤ 4 | 缺失/过期只影响速度；追加后旧索引自动失效 |
 
 ### 16.2 待定（按依赖排序）
 
@@ -1035,3 +1037,56 @@ signed_bytes = "smlb/sig/v1\n"
 3. 否则 canonical 会变成**第三种语法**（`.sml` 一种、canonical 一种），与「不造轮子」相悖。
 
 ⇒ 判据写法：**不把「解析回等价 `Value`」写成规范要求**（避免绑定 parser 的实现细节），而是把它当 **T0 的测试向量判据**。
+
+---
+
+## 19. `VALUE` 段字节布局（v1 草案 · P6 落定）
+
+> 选型：**A 布局（前序 + 固定 4 B `subtree_len`）** + **可选 `DIR` 段**（路径 → 偏移索引）。
+> 取代 §3 那份建立在「HTML 节点」上的旧布局（D2 已改判为编 `Value`）。
+
+### 19.1 段头（40 B）
+
+```
+seg_id:u8 | algo:u8 | flags:u16 | len:u32 | sha256:32
+```
+- `seg_id`：`0x01=VALUE 0x02=STRTAB 0x03=DIR 0x10=FRAMES 0x20=EMBED 0x30=SIG 0x40=PROFILE 0x50=SOURCE 0x60=PROVENANCE`
+- `algo`：0 = 明文未压缩；其余见算法 ID 表（P3）
+- 段起始 **4 KiB 对齐**（配合 D28 的块加密与 mmap）
+
+### 19.2 编码规则
+
+| 项 | 规则 |
+|---|---|
+| 字节序 | 定长 little-endian；变长 **LEB128** |
+| 类型标签 | `0=Null 1=False 2=True 3=Int 4=Float 5=Str 6=Arr 7=Obj` |
+| `Int` | **zigzag + LEB128**（小值 1 B） |
+| `Float` | IEEE-754 **f64 小端 8 B**；与 `Int` 靠 tag 区分（不靠格式） |
+| `Str` | `STRTAB` 的 id（varint）；表内 `(len:varint, utf8)*`，全局去重 |
+| `Arr` | `count:varint` + 逐元素 |
+| `Obj` | 按**源序**写 `count:varint` + 逐条 `(key_id, value)` |
+| 元数据键 | **不特化**：`__type` / `__name` / `__args` / `__featags` 就是普通键；只在 `flags` 放 1 bit「本对象含 `__type`」以省一次查表 |
+| 子树长度 | 每节点固定 **4 B** `subtree_len`（子树上界 4 GiB），写入时留占位、段尾统一回填 |
+| 跳子树 | `pos += 4 + subtree_len` ⇒ **O(1)** |
+
+节点线格式：
+
+```
+tag:u8 | flags:u8 | subtree_len:u32 | payload…
+  Null/Bool/Int/Float: payload 即值本身（Bool 用 tag 区分，无 payload）
+  Str: payload = str_id:varint
+  Arr: payload = count:varint + 元素*（递归）
+  Obj: payload = count:varint + (key_id:varint + 值)*（递归，源序）
+```
+
+### 19.3 `DIR` 段（可选，为随机访问加速）
+
+- 条目：`(parent_off:u32, key_id:varint, child_off:u32)`，按 `(parent_off, key_id)` 排序，二分查找；
+- **带 `head_layer` 字段**：与当前 head 不一致 ⇒ 整段忽略（追加后旧索引自然失效，不需要重写）；
+- 默认只索引 **深度 ≤ 4** 的对象键（`dir_depth` 可配）：52k 节点下约 10k 条目 ≈ 120 KB；
+- 索引是**派生数据**：缺失/过期都只影响速度，不影响正确性（D11 的 `optional` 位）。
+
+### 19.4 与加密/压缩的关系
+
+- 加密单位 4 KiB（D28）⇒ 段内按块切分，`subtree_len` 让「跨块子树」也能整块跳过；
+- 压缩（`FRAMES`）在段之上，帧边界不要求与节点边界对齐（解帧后再走节点）。
