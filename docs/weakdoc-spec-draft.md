@@ -65,7 +65,7 @@ pub weak_docs: Vec<WeakDoc>,
 
 ```console
 $ smltools -i doc.sml --resolve-profiles
-api-docs      project   /home/x/proj/.smlex/profiles/api-docs.smlex
+api-docs      project   ~/proj/.smlex/profiles/api-docs.smlex
 missing-one   -         (未找到)
 $ echo $?
 1
