@@ -117,6 +117,9 @@ struct BlockFrame {
 struct BareCtx {
     key: String,
     args: Vec<Value>,
+    /// 块头的 featag 项（**保序**）。空 = 没有 featag 区，或 `type.featag` 未开启 ——
+    /// 两种情况对结果都没区别，故不必区分。
+    featags: Vec<Value>,
 }
 
 /// 一个"待完成的容器"帧（作业书 §3）。`Block` 是一对 `{}`（含裸块体），`Array` 是一对 `[]`；
@@ -1895,6 +1898,12 @@ impl Parser {
         // __name 的起点：多契约时跳过被算作契约词的 args（首个非契约词是块名）；
         // 单契约 / 无契约与旧版完全一致（args[0]）
         let name_args: &[Value] = if names.len() > 1 { &args[consumed_args..] } else { &args[..] };
+        // featag（S3）：块头的 `!` 区落成**保序数组**。写在契约应用**之后**，
+        // 与 `__type` / `__name` 同理 —— 保留键是语法元数据，不该被 strict 契约
+        // 当成「未声明字段」拒掉（S4 才轮到「声明校验」，届时它读的就是这份数据）。
+        if !bare.featags.is_empty() {
+            m.insert("__featags".into(), Value::Array(bare.featags.clone()));
+        }
         m.insert("__type".into(), Value::Str(key.to_string()));
         // 裸块参数全部保留：首个作 __name，其余放入 __args 数组，
         // 不再静默丢弃（P1-3：`server web prod {}` 的 web/prod 都应可见）。
@@ -2044,11 +2053,13 @@ impl Parser {
         if self.features.has(Feature::Featag) && type_name.starts_with('!') {
             return Err(SmlError::from_code_msg(E_PARSE_028).with_detail(format!("`{type_name}`")));
         }
-        // featag（S2）：块头首词之后的 `!` 区。**只识别语法、不产出数据**（`__featags` 是 S3 的活），
-        // 故这里把整段消费掉即可 —— 后续 args 收集只看到块名与裸词，行为与旧版一致。
-        if self.features.has(Feature::Featag) {
-            self.skip_featag_region()?;
-        }
+        // featag（S2 识别 + S3 落数据）：块头首词之后的 `!` 区，解析成**保序**的项列表，
+        // 稍后由 `finish_bare_block` 写成 `__featags`。声明校验不做（那是 S4/S5）。
+        let featags = if self.features.has(Feature::Featag) {
+            self.parse_featag_region()?
+        } else {
+            Vec::new()
+        };
         let mut args: Vec<Value> = Vec::new();
         while let Some(t) = self.peek().cloned() {
             match t {
@@ -2082,7 +2093,7 @@ impl Parser {
                 applied_contracts: Vec::new(),
                 pending_when: None,
                 closing: Some(Tok::RBrace),
-                bare: Some(BareCtx { key: type_name.to_string(), args }),
+                bare: Some(BareCtx { key: type_name.to_string(), args, featags }),
             },
             cont,
         })
@@ -2096,10 +2107,11 @@ impl Parser {
     /// - **`,` 是终止符**：区内部各项之间不写逗号；`[ ]` 内深度 ≥ 1 的逗号不算终止；
     /// - 区的结束 = 遇到「既不是 `!名` 也不是 `名[`」的词，或直接 `{`。
     ///
-    /// ⚠️ S2 **只识别、不落数据**：参数这里只做**括号配平**（够判 B1/B3 与区边界），
-    /// 真正的值树构造留给 S3 —— 一片一验，别在 S2 就把「识别语法」和「构造数据」混成一件事。
-    fn skip_featag_region(&mut self) -> Result<(), SmlError> {
-        let mut seen = false;
+    /// 返回**保序**的项列表，每项形如 `{ name: "…" }` 或 `{ name: "…", args: [ … ] }`
+    /// （S3 契约：不复用 `__args`，那是「块名之后的裸词」，两种语义混在一起会分不清）。
+    /// 空列表 = 本块头没有 featag 区，调用方逐字走旧路径。
+    fn parse_featag_region(&mut self) -> Result<Vec<Value>, SmlError> {
+        let mut items: Vec<Value> = Vec::new();
         loop {
             let word = match self.peek() {
                 Some(Tok::Word(w)) => Some(w.clone()),
@@ -2115,21 +2127,28 @@ impl Parser {
                         );
                     }
                     self.next();
-                    seen = true;
+                    let mut item = Map::new();
+                    item.insert("name".into(), Value::Str(name.to_string()));
                     if self.peek() == Some(&Tok::LBrack) {
-                        self.skip_featag_args()?;
+                        self.next(); // `parse_array` 假定 `[` 已被消费（与其它调用点一致）
+                        item.insert("args".into(), self.parse_array()?);
                     }
+                    items.push(Value::Object(item));
                 }
-                Some(_) if self.peek_at(1) == Some(&Tok::LBrack) => {
+                Some(w) if self.peek_at(1) == Some(&Tok::LBrack) => {
                     self.next(); // 名字本身不带 `!`，靠 `[` 与块名区分
-                    self.skip_featag_args()?;
-                    seen = true;
+                    self.next(); // 越过的 `[`（`parse_array` 的既有约定）
+                    let mut item = Map::new();
+                    item.insert("name".into(), Value::Str(w));
+                    // 显式写了 `[]` 就保留空数组：`obey[]` 与「没有参数槽」是两回事
+                    item.insert("args".into(), self.parse_array()?);
+                    items.push(Value::Object(item));
                 }
                 _ => break,
             }
         }
-        if !seen {
-            return Ok(()); // 本块头没有 featag 区：逐字走旧路径
+        if items.is_empty() {
+            return Ok(items); // 本块头没有 featag 区
         }
         // `,` = 终止符（可省：`wea !critical { }` 直接进块体也成立）
         if self.peek() == Some(&Tok::Comma) {
@@ -2142,44 +2161,7 @@ impl Parser {
                 return Err(SmlError::from_code_msg(E_PARSE_028).with_detail(format!("`{w}`")));
             }
         }
-        Ok(())
-    }
-
-    /// 只做**括号配平**地跳过 `[ … ]`（S2 不构造值树；嵌套 `[ ]` / `{ }` 全按深度处理）。
-    fn skip_featag_args(&mut self) -> Result<(), SmlError> {
-        debug_assert_eq!(self.peek(), Some(&Tok::LBrack));
-        let mut stack: Vec<u8> = vec![b']']; // 栈底恒为 `]`（进入时刚看到 `[`）
-        self.next();
-        while let Some(t) = self.peek().cloned() {
-            match t {
-                Tok::LBrack => {
-                    stack.push(b']');
-                    self.next();
-                }
-                Tok::LBrace => {
-                    stack.push(b'}');
-                    self.next();
-                }
-                Tok::RBrack | Tok::RBrace => {
-                    let want = if t == Tok::RBrack { b']' } else { b'}' };
-                    let got = if t == Tok::RBrack { ']' } else { '}' };
-                    if stack.pop() != Some(want) {
-                        let expect = if want == b']' { ']' } else { '}' };
-                        return Err(SmlError::from_code_msg(E_PARSE_003).with_detail(format!(
-                            "featag 参数的括号不配平：遇到 `{got}`，此处应闭合 `{expect}`"
-                        )));
-                    }
-                    self.next();
-                    if stack.is_empty() {
-                        return Ok(());
-                    }
-                }
-                _ => {
-                    self.next();
-                }
-            }
-        }
-        Err(SmlError::from_code_msg(E_PARSE_001).with_detail("缺少结束符号 ]"))
+        Ok(items)
     }
 
     /// 数组帧单步推进（等价旧 `parse_array_inner` 的循环体分成立）。

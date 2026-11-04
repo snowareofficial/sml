@@ -1,8 +1,6 @@
-//! featag **S2**：块头 `!` 区的语法识别（含 B1/B2/B3 三条歧义）。
+//! featag **S2 + S3**：块头 `!` 区的语法识别，以及落成 `__featags`（保序数组）。
 //!
-//! 本片**只识别语法、不产出数据** —— `__featags` 是 S3 的活，故这里的用例**刻意断言
-//! 结果里没有 `__featags`**：如果有人提前把 S3 混进来，这条会立刻红。
-//!
+//! 片界：S2 = 认区 + B1/B2/B3 三条歧义；S3 = 落数据（**不做声明校验**，那是 S4/S5）。
 //! 门控：一切都在 `@feature enable type.featag` 后面（默认关 ⇒ 关掉即回到 v4 行为）。
 use sml::{parse, Value};
 
@@ -13,26 +11,52 @@ fn block<'a>(v: &'a Value, key: &str) -> &'a Value {
     v.get(key).unwrap_or_else(|| panic!("缺少块 `{key}`：{v:?}"))
 }
 
+fn featags<'a>(v: &'a Value, key: &str) -> &'a Vec<Value> {
+    block(v, key)
+        .get("__featags")
+        .and_then(|x| x.as_array())
+        .unwrap_or_else(|| panic!("块 `{key}` 应有 `__featags`：{:?}", block(v, key)))
+}
+
 // ---------------------------------------------------------------------------
-// 正例：区被识别，且**不落数据**
+// 正例：区被识别，并落成保序数组
 // ---------------------------------------------------------------------------
 
 #[test]
-fn region_is_recognized_and_leaves_no_featags() {
-    let v = parse(&format!("{ON}wea !critical, name {{ a: 1 }}\n")).expect("应能解析");
+fn region_becomes_ordered_featags_array() {
+    let v = parse(&format!(
+        "{ON}wea !critical obey[1, 2], name {{ a: 1 }}\n"
+    ))
+    .expect("应能解析");
     let b = block(&v, "wea");
+    // 块头其余部分照旧
     assert_eq!(b.get("__type").and_then(|x| x.as_str()), Some("wea"));
     assert_eq!(b.get("__name").and_then(|x| x.as_str()), Some("name"));
     assert_eq!(b.get("a").and_then(|x| x.as_i64()), Some(1));
-    // S2 的边界：区里的东西**不进数据**
-    assert!(b.get("__featags").is_none(), "S2 不许产出 __featags");
+
+    let f = featags(&v, "wea");
+    assert_eq!(f.len(), 2, "两个 featag → 两项");
+    assert_eq!(f[0].get("name").and_then(|x| x.as_str()), Some("critical"));
+    assert!(f[0].get("args").is_none(), "无参项不带 `args` 键");
+    assert_eq!(f[1].get("name").and_then(|x| x.as_str()), Some("obey"));
+    let args = f[1]
+        .get("args")
+        .and_then(|x| x.as_array())
+        .expect("带参项有 args");
+    assert_eq!(args.len(), 2);
+    assert_eq!(args[0].as_i64(), Some(1));
+    assert_eq!(args[1].as_i64(), Some(2));
 }
 
 #[test]
-fn region_accepts_args_and_multiple_items() {
-    // 无参项带 `!`，带参项写成 `名[…]`；各项之间不写逗号，`,` 只作终止符
-    let v = parse(&format!("{ON}wea !critical obey[1, 2], name {{ a: 1 }}\n")).expect("应能解析");
-    assert_eq!(block(&v, "wea").get("__name").and_then(|x| x.as_str()), Some("name"));
+fn duplicates_and_order_are_preserved() {
+    // 用**数组**而不是映射的理由就在这里：同名可重复、顺序不丢。
+    let v = parse(&format!("{ON}wea !a !a !b, x {{ }}\n")).expect("应能解析");
+    let names: Vec<&str> = featags(&v, "wea")
+        .iter()
+        .map(|f| f.get("name").and_then(|x| x.as_str()).unwrap_or("<无>"))
+        .collect();
+    assert_eq!(names, vec!["a", "a", "b"], "顺序与重复都要保留");
 }
 
 #[test]
@@ -41,18 +65,42 @@ fn block_name_may_be_omitted() {
     let b = block(&v, "wea");
     assert!(b.get("__name").is_none(), "没写块名就不该有 __name");
     assert_eq!(b.get("a").and_then(|x| x.as_i64()), Some(1));
+    assert_eq!(featags(&v, "wea").len(), 1);
 }
 
 #[test]
 fn args_may_nest_brackets_and_braces() {
-    for src in [
-        "wea obey[[1, 2], 3], name { }",
-        "wea obey[{ a: 1 }], name { }",
-        "wea obey[], name { }",
-    ] {
-        let doc = format!("{ON}{src}\n");
-        assert!(parse(&doc).is_ok(), "应能解析：{src}");
-    }
+    // 参数是真值，不是被跳过的 token：嵌套数组 / 块都要原样立起来
+    let v = parse(&format!("{ON}wea obey[[1, 2], 3], name {{ }}\n")).expect("应能解析");
+    let f = featags(&v, "wea");
+    let args = f[0].get("args").and_then(|x| x.as_array()).expect("有 args");
+    assert_eq!(args.len(), 2);
+    assert_eq!(
+        args[0].as_array().map(|a| a.len()),
+        Some(2),
+        "第一个参数应是嵌套数组"
+    );
+
+    let v = parse(&format!("{ON}wea obey[{{ a: 1 }}], name {{ }}\n")).expect("应能解析");
+    let f = featags(&v, "wea");
+    let args = f[0].get("args").and_then(|x| x.as_array()).expect("有 args");
+    assert_eq!(
+        args[0].get("a").and_then(|x| x.as_i64()),
+        Some(1),
+        "参数里的块应成对象"
+    );
+}
+
+#[test]
+fn explicit_empty_args_are_kept() {
+    // `obey[]` 与「没有参数槽」是两回事：前者显式写了空数组
+    let v = parse(&format!("{ON}wea obey[], name {{ }}\n")).expect("应能解析");
+    let f = featags(&v, "wea");
+    assert_eq!(
+        f[0].get("args").and_then(|x| x.as_array()).map(|a| a.len()),
+        Some(0),
+        "显式 `[]` 应保留空数组"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -111,9 +159,29 @@ fn consecutive_bang_items_are_all_featags_not_names() {
     // 逗号**之前**的 `!x` 一律是 featag ⇒ `wea !critical !bad { }` 是「两个 featag + 无块名」，
     // 不是 B3。这条钉住「区分块名与 featag 的是逗号，不是 `!` 的有无」。
     let v = parse(&format!("{ON}wea !critical !bad {{ a: 1 }}\n")).expect("应能解析");
-    let b = block(&v, "wea");
-    assert!(b.get("__name").is_none(), "逗号前没有块名");
-    assert_eq!(b.get("a").and_then(|x| x.as_i64()), Some(1));
+    assert!(block(&v, "wea").get("__name").is_none(), "逗号前没有块名");
+    assert_eq!(featags(&v, "wea").len(), 2, "两个 `!x` 都是 featag");
+}
+
+// ---------------------------------------------------------------------------
+// 与契约共存：`__featags` 是语法元数据，不该被 strict 契约当成未声明字段
+// ---------------------------------------------------------------------------
+
+#[test]
+fn featags_survive_a_strict_contract() {
+    // `block-name` 也要开：typed-block 模式下「契约词之后的首个非契约词」默认被当错误
+    // （那是 D2 的拆雷，与 featag 无关），`name` 作为块名必须显式放行。
+    let src = "\
+@feature enable type.featag,typed-block,block-name
+@contract wea { a: int }
+wea !critical, name { a: 1 }
+";
+    let v = parse(src).expect("strict 契约不应因 __featags 报未声明字段");
+    assert_eq!(featags(&v, "wea").len(), 1);
+    assert_eq!(
+        block(&v, "wea").get("a").and_then(|x| x.as_i64()),
+        Some(1)
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -130,6 +198,7 @@ fn without_the_feature_nothing_changes() {
         b.get("__args").and_then(|x| x.as_array()).map(|a| a.len()),
         Some(1)
     );
+    assert!(b.get("__featags").is_none(), "未开特性不该有 __featags");
     // 没开 featag 时 `wea !critical, name { }` 仍是**旧错误**（块头里不许有逗号），
     // 不是新的 B1 —— 新码只在特性开启后出现。
     let err = format!("{}", parse("wea !critical, name { }\n").unwrap_err());
