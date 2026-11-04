@@ -35,11 +35,15 @@ fn duplicate_declaration_errors() {
 }
 
 #[test]
-fn target_may_not_index_into_arrays() {
-    let src = format!("{ON}@contract wea {{\n  a: int\n  !x: [int] -> node[0]\n}}\n");
-    let err = err_of(&src);
-    assert!(err.contains("E-CONTRACT-020"), "落点穿数组应报错：{err}");
-    assert!(err.contains("数组"), "文案应说清原因：{err}");
+fn target_may_index_into_arrays() {
+    // §10 Q20（2026-11-04 用户定）：落点**可以**穿数组。声明期只验语法，
+    // 下标语义（补缺 / 追加 / 越界）由写入期负责，见 `featag_target_array.rs`。
+    let src = format!("{ON}@contract wea {{\n  a: int\n  !x: [int] -> node[0].name\n}}\n");
+    assert!(
+        parse(&src).is_ok(),
+        "带下标的落点应被接受：{:?}",
+        parse(&src).err()
+    );
 }
 
 #[test]

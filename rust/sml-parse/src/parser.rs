@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use sml_codes::{
     E_CONTRACT_001, E_CONTRACT_010, E_CONTRACT_011, E_CONTRACT_012, E_CONTRACT_013, E_CONTRACT_018,
-    E_CONTRACT_019, E_CONTRACT_020, E_CONTRACT_021, E_CONTRACT_022, E_CONTRACT_023, E_EXT_003,
-    E_EXT_004, E_EXT_005, E_EXT_008, E_FEATURE_001,
+    E_CONTRACT_019, E_CONTRACT_020, E_CONTRACT_021, E_CONTRACT_022, E_CONTRACT_023, E_CONTRACT_025,
+    E_EXT_003, E_EXT_004, E_EXT_005, E_EXT_008, E_FEATURE_001,
     E_FEATURE_002, E_FEATURE_003, E_INCLUDE_007, E_LEX_007, E_LIMIT_001, E_PARSE_001, E_PARSE_002,
     E_PARSE_003, E_PARSE_004, E_PARSE_005, E_PARSE_006, E_PARSE_007, E_PARSE_011, E_PARSE_012,
     E_PARSE_013, E_PARSE_017, E_PARSE_019, E_PARSE_020, E_PARSE_021, E_PARSE_022, E_PARSE_023,
@@ -617,29 +617,11 @@ impl Parser {
                     // 落点：`-> 点路径`（不穿数组 —— 见 §10 Q12）
                     let target = if matches!(self.peek(), Some(Tok::Word(t)) if t == "->") {
                         self.next();
-                        let raw = match self.next() {
-                            Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
-                            other => {
-                                return Err(SmlError::from_code_title(E_CONTRACT_020)
-                                    .with_detail(format!("`{name}` 的 `->` 后须落点，得 {other:?}")))
-                            }
-                        };
+                        let raw = self.take_featag_target_text(&name)?;
                         let path = sml_value::Path::parse(&raw).map_err(|e| {
                             SmlError::from_code_title(E_CONTRACT_020)
                                 .with_detail(format!("`{name}` 的落点 `{raw}`：{e}"))
                         })?;
-                        if path.segments().iter().any(|s| matches!(s, Seg::Index(_))) {
-                            return Err(SmlError::from_code_title(E_CONTRACT_020)
-                                .with_detail(format!(
-                                    "`{name}` 的落点 `{raw}` 穿到了数组上（落点只能是对象键路径）"
-                                )));
-                        }
-                        // 裸写 `node[0]` 时词法在 `[` 处断开 ⇒ 落点词之后紧跟 `[` 就是「穿数组」
-                        if self.peek() == Some(&Tok::LBrack) {
-                            return Err(SmlError::from_code_title(E_CONTRACT_020).with_detail(
-                                format!("`{name}` 的落点 `{raw}[…]` 穿到了数组上（落点只能是对象键路径）"),
-                            ));
-                        }
                         Some(path)
                     } else {
                         None
@@ -2179,6 +2161,55 @@ impl Parser {
         Ok(())
     }
 
+    /// 读一个 featag 落点：首词 + 紧跟的 `[n]` / `[n].key` 片段，**拼回原文**再交给 `Path::parse`。
+    ///
+    /// 为什么要拼：词法把 `rules[0].name` 切成 `Word("rules") LBrack Word("0") RBrack Word(".name")`
+    /// —— 方括号是**结构符号**，而落点需要它们作为**文本**。这里只做「相邻即拼接」，不解释语义；
+    /// 解释（段类型、越界等）仍归 `Path` / `write_target`，两件事别混。
+    fn take_featag_target_text(&mut self, name: &str) -> Result<String, SmlError> {
+        let mut raw = match self.next() {
+            Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
+            other => {
+                return Err(SmlError::from_code_title(E_CONTRACT_020)
+                    .with_detail(format!("`{name}` 的 `->` 后须落点，得 {other:?}")))
+            }
+        };
+        loop {
+            match self.peek() {
+                Some(Tok::LBrack) => {
+                    self.next();
+                    match self.next() {
+                        Some(Tok::Word(s)) => {
+                            raw.push('[');
+                            raw.push_str(&s);
+                        }
+                        other => {
+                            return Err(SmlError::from_code_title(E_CONTRACT_020).with_detail(
+                                format!("`{name}` 的落点 `{raw}[…]` 里须写数组下标，得 {other:?}"),
+                            ))
+                        }
+                    }
+                    match self.next() {
+                        Some(Tok::RBrack) => raw.push(']'),
+                        other => {
+                            return Err(SmlError::from_code_title(E_CONTRACT_020).with_detail(
+                                format!("`{name}` 的落点 `{raw}` 的下标未闭合，得 {other:?}"),
+                            ))
+                        }
+                    }
+                }
+                // `rules[0].name`：`.` 开头的词紧跟在 `]` 之后 ⇒ 仍属于本落点
+                Some(Tok::Word(w)) if w.starts_with('.') && raw.ends_with(']') => {
+                    let w = w.clone();
+                    raw.push_str(&w);
+                    self.next();
+                }
+                _ => break,
+            }
+        }
+        Ok(raw)
+    }
+
     /// featag **S8**：`any` 类型默认禁用，契约里写 `!any` 才放行（§10 Q7）。
     ///
     /// 门控 `type.featag`（与其它 v5 行为一致）：没开时整段不查，v4 文档里的 `any` 照旧可用。
@@ -2748,12 +2779,16 @@ fn is_auto_marker(payload: &Value) -> bool {
         if a.len() == 1 && matches!(&a[0], Value::Str(s) if s == "auto"))
 }
 
-/// featag **S6 写落点**（§6.1 规则 1–3）：逐段下钻，最后一段写值。
+/// featag **S6 写落点**（§6.1 规则 1–3 + §10 Q20 的数组下标语义）：逐段下钻，最后一段写值。
 ///
 /// - 落点已存在 ⇒ `E-CONTRACT-022`（**禁止覆盖**）；
 /// - 父对象缺失 ⇒ 默认**自动创建**（「插入」不是「覆盖」）；`strict`（`!strict-paths`）时 ⇒ `E-CONTRACT-023`；
 /// - 路径上某键已是非对象 ⇒ `E-CONTRACT-023`（往里放键没有意义）；
-/// - 含 `Index` 段 ⇒ `E-CONTRACT-020`（S4 的声明期已拒，这里是兜底 —— 两条路都要堵上）。
+/// - **数组下标（Q20，2026-11-04 用户定）**：`n < len` 且元素为 `null` ⇒ 补缺；元素非 null ⇒ `022`；
+///   `n == len` ⇒ **追加**（`strict` 下报 `023`）；`n > len` ⇒ `025`（**绝不补 null**）。
+///
+/// ⚠️ **数组本身不存在时不自动创建**（对象可以、数组不行）：造一个多长的数组、中间填什么，
+/// 没有无歧义的答案；凭空补 null 又违背 `docs/null-semantics.md` N1–N5。
 fn write_target(
     map: &mut Map,
     segs: &[Seg],
@@ -2765,8 +2800,9 @@ fn write_target(
         return Ok(()); // 空路径（`Path::new(vec![])`）＝ 不落任何键
     };
     let Seg::Key(key) = seg else {
+        // 落点从块（对象）出发，第一段必须是键；下标开头在声明期就该被 `Path` 挡住
         return Err(SmlError::from_code_title(E_CONTRACT_020)
-            .with_detail(format!("`{where_}` 的落点含数组下标")));
+            .with_detail(format!("`{where_}` 的落点须以键名开头")));
     };
 
     if rest.is_empty() {
@@ -2780,21 +2816,89 @@ fn write_target(
     }
 
     match map.get_mut(key) {
-        Some(Value::Object(child)) => write_target(child, rest, value, strict, where_),
-        Some(other) => Err(SmlError::from_code_title(E_CONTRACT_023).with_detail(format!(
-            "`{where_}` 的落点路径上 `{key}` 已是{}，没法往里写键",
-            sml_value::describe_value(other)
-        ))),
+        Some(existing) => write_in_value(existing, rest, value, strict, where_),
         None => {
             if strict {
                 return Err(SmlError::from_code_title(E_CONTRACT_023).with_detail(format!(
                     "`{where_}` 的落点路径上父对象 `{key}` 不存在（本契约开了 `!strict-paths`）"
                 )));
             }
+            // 下一段就是下标 ⇒ 需要一个不存在的数组 ⇒ 没法凭空造
+            if matches!(rest.first(), Some(Seg::Index(_))) {
+                return Err(SmlError::from_code_title(E_CONTRACT_023).with_detail(format!(
+                    "`{where_}` 的落点路径上数组 `{key}` 不存在（数组不会凭空创建：长度与中间元素无解）"
+                )));
+            }
             let mut child = Map::new();
             write_target(&mut child, rest, value, strict, where_)?;
             map.insert(key.clone(), Value::Object(child));
             Ok(())
+        }
+    }
+}
+
+/// 从**已存在的值**继续下钻（键段 / 下标段都可能出现）。
+fn write_in_value(
+    cur: &mut Value,
+    segs: &[Seg],
+    value: Value,
+    strict: bool,
+    where_: &str,
+) -> Result<(), SmlError> {
+    let Some((seg, rest)) = segs.split_first() else {
+        return Ok(());
+    };
+    match seg {
+        Seg::Key(key) => match cur {
+            Value::Object(m) => write_target(m, segs, value, strict, where_),
+            other => Err(SmlError::from_code_title(E_CONTRACT_023).with_detail(format!(
+                "`{where_}` 的落点路径上 `{key}` 已是{}，没法往里写键",
+                sml_value::describe_value(other)
+            ))),
+        },
+        Seg::Index(n) => {
+            let Value::Array(items) = cur else {
+                return Err(SmlError::from_code_title(E_CONTRACT_023).with_detail(format!(
+                    "`{where_}` 的落点里下标 `[{n}]` 作用在{}上，不是数组",
+                    sml_value::describe_value(cur)
+                )));
+            };
+            let len = items.len();
+            if *n < len {
+                if rest.is_empty() {
+                    // `null` 是「空位」⇒ 可以填；非 null 是已有值 ⇒ 禁止覆盖
+                    if matches!(items[*n], Value::Null) {
+                        items[*n] = value;
+                        return Ok(());
+                    }
+                    return Err(SmlError::from_code_title(E_CONTRACT_022).with_detail(format!(
+                        "`{where_}` 的落点 `[{n}]` 已有非 null 值（featag 不能覆盖已有值）"
+                    )));
+                }
+                // 还有后续段：null 是「空位」，可以就地立一个空对象继续往下写
+                // （这与「补缺」同源：空位可以被填，非空值不许覆盖）
+                if matches!(items[*n], Value::Null) {
+                    items[*n] = Value::Object(Map::new());
+                }
+                return write_in_value(&mut items[*n], rest, value, strict, where_);
+            }
+            if *n == len {
+                if strict {
+                    return Err(SmlError::from_code_title(E_CONTRACT_023).with_detail(format!(
+                        "`{where_}` 的落点要追加 `[{n}]`，但本契约开了 `!strict-paths`（只允许写已有元素）"
+                    )));
+                }
+                if rest.is_empty() {
+                    items.push(value);
+                    return Ok(());
+                }
+                items.push(Value::Object(Map::new()));
+                let last = items.len() - 1;
+                return write_in_value(&mut items[last], rest, value, strict, where_);
+            }
+            Err(SmlError::from_code_title(E_CONTRACT_025).with_detail(format!(
+                "`{where_}` 的落点 `[{n}]` 越界：该数组只有 {len} 个元素（越界不补 null）"
+            )))
         }
     }
 }

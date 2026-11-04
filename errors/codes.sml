@@ -223,6 +223,10 @@ codes: [
       msg: "同一契约里重复声明了同名的 featag"
       impls: [ rust ] status: done
       note: "featag S4（`docs/featag-spec-draft.md` §2.3 B4）。**只在声明处**查重：使用处允许同名多次出现（`!a !a` 会原样保留在 `__featags` 数组里，应用层自行决定是否合并）。诊断写全 `<契约>.<featag>` —— 作用域契约私有，只写名字会分不清是哪个契约的" }
+    { id: E-CONTRACT-025 domain: CONTRACT severity: E title: "featag 落点越界"
+      msg: "featag 落点里的数组下标越界；越界不会补 null"
+      impls: [ rust ] status: done
+      note: "featag S6（`docs/featag-spec-draft.md` §10 Q20，2026-11-04 用户定）。下标语义：`n < len` 且元素为 null ⇒ 补缺；元素非 null ⇒ 禁止覆盖（E-CONTRACT-022）；`n == len` ⇒ **追加**（`!strict-paths` 下报 E-CONTRACT-023）；`n > len` ⇒ 本码。与「绝不补 null」（`docs/null-semantics.md` N1–N5）一致：越界是**路走不通**，不是「差几个空位」。⚠️ 数组本身不存在时**不自动创建**（对象可以，数组不行 —— 造一个多长的数组、中间填什么，没有无歧义的答案），报 E-CONTRACT-023" }
     { id: E-CONTRACT-024 domain: CONTRACT severity: E title: "该键只能由 featag 写入"
       msg: "字段声明为 from-featag：只能由 featag 落点写入，文档里不能直接赋值"
       impls: [ rust ] status: done

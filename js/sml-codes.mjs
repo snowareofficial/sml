@@ -66,6 +66,8 @@ export const E_CONTRACT_022 = "E-CONTRACT-022";
 export const E_CONTRACT_023 = "E-CONTRACT-023";
 /// [E-CONTRACT-024] 该键只能由 featag 写入：字段声明为 from-featag：只能由 featag 落点写入，文档里不能直接赋值
 export const E_CONTRACT_024 = "E-CONTRACT-024";
+/// [E-CONTRACT-025] featag 落点越界：featag 落点里的数组下标越界；越界不会补 null
+export const E_CONTRACT_025 = "E-CONTRACT-025";
 /// [E-DERIVE-001] 值与目标类型不符：SML 值的类型与目标宿主类型不符
 export const E_DERIVE_001 = "E-DERIVE-001";
 /// [E-DERIVE-002] 数值超出目标类型范围：数值超出目标宿主类型的取值范围
@@ -351,6 +353,7 @@ export const ALL = Object.freeze([
   E_CONTRACT_022,
   E_CONTRACT_023,
   E_CONTRACT_024,
+  E_CONTRACT_025,
   E_DERIVE_001,
   E_DERIVE_002,
   E_DERIVE_003,
@@ -478,4 +481,4 @@ export const ALL = Object.freeze([
   W_PARSE_002,
 ]);
 
-export const COUNT = 157;
+export const COUNT = 158;

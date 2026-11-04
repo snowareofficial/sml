@@ -56,6 +56,23 @@ Editions are **not ordered**, so `Ord` is gone and the criterion is always "is t
 - ⚠️ The registry has no `Removed` row yet, so the branch is **not reachable** today (code and wiring
   are in place; adding a row activates it). `smltools --migrate` (V11) is not implemented yet.
 
+### Changed — featag targets may now traverse arrays (§10 Q20, decided)
+
+- Targets accept `[n]`: `!name: str -> rules[0].name` (previously rejected). Semantics per Q20:
+  - `n < len` with a `null` element ⇒ **fill the gap** (null counts as an empty slot);
+  - `n < len` with a non-null element ⇒ `E-CONTRACT-022` (**overwrite forbidden**);
+  - `n == len` ⇒ **append**; under `!strict-paths` ⇒ `E-CONTRACT-023`;
+  - `n > len` ⇒ **new code `E-CONTRACT-025`** (out of range, **never filled with null**).
+- Declaration time **only checks syntax** (integer index, closed brackets); semantics belong to write
+  time — consistent with "S4 collects, S6 writes".
+- **A missing array is not auto-created** (objects are, arrays are not: length and gap content are
+  undefined) ⇒ `E-CONTRACT-023`. The spec did not say this; it is an implementation addition, now
+  written back into §6.1 rule 6 and §10 Q20.
+- `-> [0]` (starting with a bare index) is still `E-CONTRACT-020` at declaration time: a target starts
+  at a block, so its first segment must be a key.
+- This resolves the spec conflict between §6.1 rule 6 and §10 Q12: Q12's "objects only" is now marked
+  as superseded by Q18/Q20.
+
 ### Changed — `smltools --feature` accepts Dev editions and codenames
 
 - `--feature` now uses the same literals as the language layer: besides `10` / `1.0` / `v1` …,
@@ -117,10 +134,8 @@ Editions are **not ordered**, so `Ord` is gone and the criterion is always "is t
 - **No target ⇒ pure tag**: only `__featags` gets it, no key is written.
 - **Ordering**: validation (S5) and filling (S6) now both run **before** contract application —
   otherwise fields that only a featag may supply would be reported as missing first (S7 relies on this).
-- ⚠️ **Targets do not traverse arrays yet**: rejected at declaration time (`E-CONTRACT-020`).
-  The spec contradicts itself here — §6.1 rule 6 (2026-11-04) allows `[n]`, §10 Q12 forbids it.
-  **This needs a decision from the user**; this round follows the more conservative Q12, and the
-  check lives in exactly two places.
+- ~~Targets do not traverse arrays~~ — **Q20 decided the opposite: `[n]` is supported now**, see the
+  "targets may now traverse arrays" entry above. Declaration time only validates syntax.
 
 ### Added — featag S5: validation opens (undeclared ⇒ reject, argument checks)
 
