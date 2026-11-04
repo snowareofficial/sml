@@ -174,6 +174,8 @@
 #define SML_E_LEX_005 "E-LEX-005"
 /* [E-LEX-006] 转义符后遇文件结束：字符串中的转义符后遇到文件结束 */
 #define SML_E_LEX_006 "E-LEX-006"
+/* [E-LEX-007] 标识符含非法字符：键名（标识符）含非法字符：只允许字母数字、下划线、连字符、汉字 / 假名 / 谚文 */
+#define SML_E_LEX_007 "E-LEX-007"
 /* [E-LIMIT-001] 嵌套过深：嵌套过深，超过本实现的上限层数，疑似递归或恶意输入 */
 #define SML_E_LIMIT_001 "E-LIMIT-001"
 /* [E-LIMIT-002] 模式匹配超步数预算：模式匹配超出步数预算，疑似病态规则或超长输入 */
@@ -309,6 +311,6 @@
 /* [W-PARSE-002] 片段展开覆盖父块键：片段展开覆盖了父块已有的同名键：父块原值丢失 */
 #define SML_W_PARSE_002 "W-PARSE-002"
 
-#define SML_CODES_COUNT 150
+#define SML_CODES_COUNT 151
 
 #endif /* SML_CODES_H */

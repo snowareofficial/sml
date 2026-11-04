@@ -123,6 +123,9 @@ typedef struct sml_value sml_value;
  * Only the Rust parser knows this name so far; C/C++/Lua reject it (E-FEATURE-003 / E-PARSE-005).
  * Rust: bit is registered, grammar arrives in S2 -> enabling it changes nothing yet. */
 #define SML_F_FEATAG        (1u << 17)
+/* 19th bit: identifier whitelist (`lex.ident`, S1b). Rust-only for now; the C
+ * parser does not validate identifiers, so this bit is a placeholder there. */
+#define SML_F_IDENT         (1u << 18)
 
 /* 常用组合 */
 #define SML_F_BASIC  (SML_F_BAREWORD_STR | SML_F_INCLUDE | SML_F_FRAGMENT)

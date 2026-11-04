@@ -1452,6 +1452,12 @@ impl Parser {
                 if looks_like_key_interp {
                     return Err(SmlError::from_code_msg(E_PARSE_013));
                 }
+                // 标识符白名单（S1b，门控 `lex.ident`）：键名不合规就在**这里**报，
+                // 不等下游（下游只会把 `a.b` 当成路径切错，症状离病因很远）。
+                // 片段合并键 `&name` 不是标识符，跳过 —— 它由片段表判对错。
+                if self.features.has(Feature::Ident) && !key.starts_with('&') {
+                    sml_lex::identifiers::check_ident_err(&key)?;
+                }
                 let colon = self.peek() == Some(&Tok::Colon);
                 if colon {
                     self.next();

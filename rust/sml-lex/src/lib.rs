@@ -5,6 +5,9 @@
 
 use std::collections::BTreeMap;
 
+/// 标识符白名单（S1b，门控 `lex.ident`）：`check_ident` / `IdentError`。
+pub mod identifiers;
+
 use sml_codes::{
     E_FEATURE_001, E_FEATURE_002, E_FEATURE_005, E_INCLUDE_006, E_LEX_001, E_LEX_002, E_LEX_003,
     E_LEX_004, E_LEX_005, E_LEX_006, E_PARSE_027, SmlError,

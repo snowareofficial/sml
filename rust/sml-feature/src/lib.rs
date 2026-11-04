@@ -133,6 +133,21 @@ pub enum Feature {
     ///
     /// 追加在 `BlockName` 之后以保位序稳定（C-ABI 位序绑定，见 `feature_names` 守护用例）。
     Featag,
+    /// **标识符校验**（S1b，第二个带域名的特性：`lex.ident`）—— opt-in。
+    ///
+    /// 开启后，**键名**必须满足标识符白名单（`docs/featag-impl-slices.md` §2）：
+    /// ASCII 字母数字 + `_` `-` + CJK 汉字 + 假名 + 谚文；拒绝 `.` `[` `]`（路径语法保留）、
+    /// 空白 / 控制字符、零宽 / 双向控制（Cf）、组合标记（⇒ 天然 NFC）、
+    /// 西里尔 / 希腊等同形字母、全角与兼容区字符。
+    ///
+    /// **为什么单列一个位、而不是塞进 `type.featag`**：标识符规则与 `!` 记号毫无关系，
+    /// 若共用一个位，「开 featag 就顺手改了所有键名」⇒ 回滚粒度变粗、诊断也说不清是谁的规则。
+    /// （`docs/featag-impl-slices.md` 的三条跨片原则写的是「都在 `type.featag` 后面」，
+    /// 这里**有意偏离**并在施工计划里登记了理由。）
+    ///
+    /// ⚠️ 「每契约单一语种」不在这里 —— 那是**契约级**规则（同契约多个标识符之间比较），
+    /// 跟声明收集（S4）一起做。
+    Ident,
 }
 
 /// All registered feature names, in [`FEATURES`] order (i.e. bit order) ｜ 返回全部已注册特性的名字，顺序与 [`FEATURES`]（即特性位序）一致。
@@ -163,6 +178,8 @@ pub static FEATURES: &[(&str, Feature)] = &[
     ("block-name", Feature::BlockName),
     // ⚠️ 第一个**带域**的名字：`type.featag`。老名一律保持平铺（见 FEATURE_DOMAINS）。
     ("type.featag", Feature::Featag),
+    // 第二个带域名：`lex.ident`（标识符白名单，S1b）
+    ("lex.ident", Feature::Ident),
 ];
 
 /// 特性名的**封闭域白名单**（`docs/feature-namespace-plan.md` §3，用户 2026-11-03 定死四个域）。
