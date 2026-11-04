@@ -351,3 +351,32 @@
    都等这一次**完整**发布；**A 表不拆 MVP、不为提前出海挪条目**。
 
 其余是 13 个待决策/待排期的单端项与一批文档债。
+
+---
+
+## 11. 第三次核查（2026-11-04 夜）—— 两处更正 + 三条过期
+
+**更正 1：`lex.ident`（S1b 标识符规则）其实已实现**
+
+`rust/sml-lex/src/identifiers.rs` 就是它：白名单（ASCII + 汉字 U+4E00–9FFF + 假名 U+3040–30FF +
+谚文 U+AC00–D7AF）、拒 `.` `[` `]`、拒空白/控制字符、拒零宽/双向控制、**拒组合标记 ⇒ NFC 自动成立**
+（不需要归一化库）、拒西里尔/希腊/亚美尼亚同形字母、拒全角兼容区；`script_of()` 供「每契约单一语种」判定。
+配套用例：模块内 5 条 + `rust/tests/identifiers.rs`。⇒ 之前记的「NFC 未实现」是错的（当时只 grep 了
+`parser.rs` 与 `sml-lex/lib.rs`，没看新文件）。
+
+**更正 2：三处 CLI 能力确认「不存在」**（不是文档没写，是真的没有）
+
+| 能力 | 现状 | 属于 |
+|---|---|---|
+| `smltools --migrate` | ❌ 无 | `docs/version-naming.md` V9 列为 v5 新功能（把 `Removed` 版本文档升级） |
+| `smltools --check-version` | ❌ 无 | I-16 版本门禁 |
+| `smltools --split-by` | ❌ 无 | I-20 分章 |
+| `--toc` / `--dump-builtins` / `--resolve-profiles` | ✅ 有 | 已完成 |
+
+**三条 TODO 已过期**（照着做会白干，建议勾掉或改写）
+
+| 行 | 原文 | 实况 |
+|---|---|---|
+| L149 | 「建立跨实现一致性测试套件」 | 已有 `tests/conformance/`：**41 个用例**、5 端 runner、`known_divergences.md` 台账 |
+| L203 | 「Lua/JS 缺少单元测试（Rust 有 32 个测试）」 | JS 已有 6 个 `.mjs` 测试；Lua 有 `test_codes.lua`；Rust 测试数早已远超 32 |
+| L166 / L201 | 「顶层标量未统一」「错误边界不一致」 | 需实测复核（套件 41 例已覆盖大半），暂列**待验证**而非已确认缺陷 |
