@@ -56,6 +56,28 @@ Editions are **not ordered**, so `Ord` is gone and the criterion is always "is t
 - ⚠️ The registry has no `Removed` row yet, so the branch is **not reachable** today (code and wiring
   are in place; adding a row activates it). `smltools --migrate` (V11) is not implemented yet.
 
+### Added — featag S4: declaration collection + duplicate check
+
+- `sml_contract::Contract` gains **`featags: Vec<FeatagDecl>`** (**declaration order**), filled by the
+  `@contract` body parser: `!critical` (plain tag) / `!obey: [int]` (typed) / `!tls: [str] -> tls`
+  (typed with target) / `!cert: str -> tls.cert` (dotted target).
+- Parameter types **reuse the field-spec parser** (`parse_field_spec`), so `[T]`, enums, contract
+  references, modifiers and external types all work — S5 needs no second type parser.
+- Targets are stored as **`sml_value::Path`** (reusing S1a): **object keys only, never arrays** —
+  rejected at declaration time with `E-CONTRACT-020`, covering both bare `node[0]` (the lexer breaks
+  at `[`) and quoted `"node[0]"`.
+- **Duplicate declaration** ⇒ `E-CONTRACT-019`; **duplicates at the use site stay legal**
+  (`!a !a` is kept in `__featags`, B4).
+- Identifier rules (`lex.ident`) now cover **declarations**: featag names and field names are
+  validated, plus **one script per contract** — Han + Kana count as one family (`設定ファイル` works),
+  digits / `_` / `-` are ignored, mixing scripts is `E-LEX-007`.
+- When contracts are stacked (`@is A B`), featag declarations are **unioned in declaration order**:
+  the same name in two contracts is two different featags (scope is contract-private).
+- ⚠️ Still **not** done: "undeclared ⇒ reject" and argument type checking (S5), target filling (S6).
+- ⚠️ Collection has **no external observation point** yet (`Contract.featags` is a library type):
+  this slice's tests pin "valid declarations are accepted" and "each invalid form reports its code".
+  It only becomes visible when S5 consumes it — noted here so nobody assumes it was untested.
+
 ### Added — S1b: identifier whitelist, gated by `lex.ident`
 
 - New module `sml_lex::identifiers`: `check_ident` / `IdentError`; entry point
