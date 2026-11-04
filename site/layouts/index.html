@@ -1,0 +1,151 @@
+{{ define "main" }}
+{{/* 官网首页（与 /book/ 文档站分离）。
+     文案全部走 i18n（zh.toml / en.toml），模板里不写死两种语言 —— 避免双语双份漂移。
+     ⚠️ 一句话定位仍是**占位**：等用户在 A/B/C 三个候选里定稿后只改 i18n 一处。 */}}
+<div class="hp">
+
+  <section class="hp-hero">
+    <h1 class="hp-title">SML <span class="hp-logo">{ ❄ }</span></h1>
+    <p class="hp-tagline">{{ i18n "home_tagline" }}</p>
+    <p class="hp-sub">{{ i18n "home_sub" }}</p>
+    <div class="hp-cta">
+      <a class="btn" href="{{ "book/intro/" | relURL }}">{{ i18n "home_cta_start" }}</a>
+      <a class="pill hp-pill-lg" href="{{ "downloads/" | relURL }}">{{ i18n "home_cta_download" }}</a>
+      <a class="pill hp-pill-lg" href="{{ "book/" | relURL }}">{{ i18n "home_cta_docs" }}</a>
+    </div>
+  </section>
+
+  <section>
+    <h2>{{ i18n "home_compare_title" }}</h2>
+    <div class="hp-cols">
+      <div>
+        <div class="hp-cap">JSON</div>
+        <pre><code>{
+  "name": "web",
+  "image": "nginx:1.25",
+  "ports": [80, 443],
+  "deploy": {
+    "region": "cn-north-1",
+    "replicas": 2
+  }
+}</code></pre>
+      </div>
+      <div>
+        <div class="hp-cap">YAML</div>
+        <pre><code>name: web
+image: nginx:1.25
+ports: [80, 443]
+deploy:
+  region: cn-north-1
+  replicas: 2</code></pre>
+      </div>
+      <div>
+        <div class="hp-cap">SML</div>
+        <pre><code>name: web
+image: "nginx:1.25"
+ports: [ 80 443 ]
+deploy {
+  region: cn-north-1
+  replicas: 2
+}</code></pre>
+      </div>
+    </div>
+    <p class="hp-note">{{ i18n "home_compare_note" }}</p>
+  </section>
+
+  <section>
+    <h2>{{ i18n "home_entry_title" }}</h2>
+    <div class="hp-cards">
+      <div class="hp-card">
+        <h3>{{ i18n "home_entry_cfg_t" }}</h3>
+        <p>{{ i18n "home_entry_cfg_d" }}</p>
+        <p class="hp-card-link"><a href="{{ "book/ch01-basics/" | relURL }}">{{ i18n "home_more" }} →</a></p>
+      </div>
+      <div class="hp-card">
+        <h3>{{ i18n "home_entry_doc_t" }}</h3>
+        <p>{{ i18n "home_entry_doc_d" }}</p>
+        <p class="hp-card-link"><a href="{{ "book/ch12-smltools/" | relURL }}">{{ i18n "home_more" }} →</a></p>
+      </div>
+      <div class="hp-card">
+        <h3>{{ i18n "home_entry_dsl_t" }}</h3>
+        <p>{{ i18n "home_entry_dsl_d" }}</p>
+        <p class="hp-card-link"><a href="{{ "book/ch13-extension/" | relURL }}">{{ i18n "home_more" }} →</a></p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>{{ i18n "home_caps_title" }}</h2>
+    <ul class="hp-grid">
+      <li>{{ i18n "home_cap_1" }}</li>
+      <li>{{ i18n "home_cap_2" }}</li>
+      <li>{{ i18n "home_cap_3" }}</li>
+      <li>{{ i18n "home_cap_4" }}</li>
+      <li>{{ i18n "home_cap_5" }}</li>
+      <li>{{ i18n "home_cap_6" }}</li>
+    </ul>
+  </section>
+
+  <section class="hp-band">
+    <div>
+      <h2>{{ i18n "home_dl_title" }}</h2>
+      <p class="hp-note">{{ i18n "home_dl_note" }}</p>
+    </div>
+    <a class="btn" href="{{ "downloads/" | relURL }}">{{ i18n "home_cta_download" }}</a>
+  </section>
+
+  <section class="hp-band">
+    <div>
+      <h2>{{ i18n "home_ai_title" }}</h2>
+      <p class="hp-note">{{ i18n "home_ai_note" }}</p>
+    </div>
+    <a class="pill hp-pill-lg" href="/llms.txt">llms.txt</a>
+  </section>
+
+</div>
+
+<style>
+  .hp { max-width: 1040px; margin: 0 auto; padding: 20px 20px 72px; }
+  .hp section { margin: 44px 0; }
+  .hp h2 { font-size: 20px; margin: 0 0 14px; }
+  .hp-hero { padding: 36px 0 8px; text-align: center; }
+  .hp-title { font-size: 42px; line-height: 1.15; margin: 0 0 14px; letter-spacing: .5px; }
+  .hp-logo { color: var(--accent); font-weight: 400; }
+  .hp-tagline { font-size: 18px; margin: 0 0 8px; }
+  .hp-sub { color: var(--fg-dim); margin: 0 0 24px; font-size: 14px; }
+  .hp-cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .hp-pill-lg { padding: 10px 20px; font-size: 14px; }
+  .hp-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .hp-cols pre {
+    margin: 0; background: var(--bg-elev); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px; overflow: auto; font-size: 13px; line-height: 1.55;
+  }
+  .hp-cap { color: var(--fg-dim); font-size: 12px; letter-spacing: .6px; margin-bottom: 6px; }
+  .hp-note { color: var(--fg-dim); font-size: 13px; margin: 10px 0 0; }
+  .hp-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .hp-card {
+    border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px;
+    background: var(--bg-elev);
+  }
+  .hp-card h3 { margin: 0 0 8px; font-size: 16px; }
+  .hp-card p { margin: 0; color: var(--fg-dim); font-size: 14px; line-height: 1.65; }
+  .hp-card-link { margin-top: 10px !important; }
+  .hp-card-link a { color: var(--accent); text-decoration: none; font-size: 13px; }
+  .hp-card-link a:hover { text-decoration: underline; }
+  .hp-grid {
+    list-style: none; padding: 0; margin: 0;
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 20px;
+  }
+  .hp-grid li { border-left: 2px solid var(--accent); padding: 4px 0 4px 12px; font-size: 14px; line-height: 1.6; }
+  .hp-band {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; background: var(--bg-elev);
+  }
+  .hp-band h2 { margin: 0 0 6px; }
+  .hp-band .hp-note { margin: 0; }
+  @media (max-width: 820px) {
+    .hp-cols, .hp-cards, .hp-grid { grid-template-columns: 1fr; }
+    .hp-title { font-size: 32px; }
+  }
+</style>
+{{ end }}
