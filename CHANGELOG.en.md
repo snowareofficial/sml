@@ -56,6 +56,20 @@ Editions are **not ordered**, so `Ord` is gone and the criterion is always "is t
 - ⚠️ The registry has no `Removed` row yet, so the branch is **not reachable** today (code and wiring
   are in place; adding a row activates it). `smltools --migrate` (V11) is not implemented yet.
 
+### Added — featag S8: the `!any` contract-level switch
+
+- `any` means giving up type validation ⇒ **disabled by default**: a contract using `any` (or `[any]`)
+  without `!any` reports `E-FEATURE-001` (same cause: the capability was not allowed), naming the
+  contract and field and telling the user what to write.
+- Writing **`!any`** in the contract body allows `any` **for that contract** (a **contract-level**
+  switch, **not a feature bit**, §10 Q7); `null` inside `any` passes.
+- **Both application paths share one rule**: the typed-block head and the in-block `@is` are both
+  checked — otherwise the same contract would behave differently depending on how it is applied.
+- Recursive contracts (A↔B) are deduplicated with `seen`, so they cannot loop.
+- Gated by `type.featag`: with it off nothing is checked and v4 `any` keeps working.
+- ⚠️ `!any` used to be collected as "a featag named `any`"; inside a contract body it is now a switch
+  (and no longer lands in `featags`).
+
 ### Added — featag S7: `from-featag` source rule
 
 - Field modifier **`from-featag`** (`FieldSpec.from_featag`): the key **may only be written by a
