@@ -5,84 +5,17 @@
 
 use crate::{Map, MAX_VALUE_DEPTH, Value};
 
-#[cfg(feature = "sml")]
-fn needs_quote(s: &str) -> bool {
-    if s.is_empty() {
-        return true;
-    }
-    match s {
-        "true" | "false" | "null" | "inf" | "nan" => return true,
-        _ => {}
-    }
-    // 纯数字 / 浮点会被字面量化成 Int/Float
-    if s.parse::<i64>().is_ok() || s.parse::<f64>().is_ok() {
-        return true;
-    }
-    // 注释前缀（仅出现在开头才危险）
-    if s.starts_with("--")
-        || s.starts_with("//")
-        || s.starts_with("/*")
-        || s.starts_with("*/")
-        || s.starts_with("*")
-        || s.starts_with("_*")
-    {
-        return true;
-    }
-    // 会破坏语法的字符
-    if s.contains([' ', '\t', '\n', '\r', ':', '#', '{', '}', ',', '[', ']', '"', '\\', '/', '*'])
-    {
-        return true;
-    }
-    // 首字符必须是字母或下划线
-    match s.chars().next() {
-        Some(c) if c.is_alphabetic() || c == '_' => {}
-        _ => return true,
-    }
-    // 其余字符只允许 [A-Za-z0-9_.-]（`.` 在中间安全，如 `web.example`；
-    // 仅 `.` 开头才有歧义，已由首字符规则拦截）
-    !s.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
-}
-
+// Text-atom rules (bare words / quoting / escaping, float spelling) now live in `text_rules`:
+// there are three consumers (`to_sml`, `ser_text`, `canonical`), and the latter two cannot
+// reach inside this module (gated behind the `sml` feature), so each would have copied the
+// rules — the one road that always drifts. Same names are re-exported here, so neither
+// `ser_text.rs` nor the call sites below need a single edit.
+// 「文本原子」规则已搬到 `text_rules`（三个消费者，复制一份必漂移）；此处保留同名
+// re-export，既有调用一行不改。
+//
 // 注：确定性字节**不**靠 `to_sml` 保序实现 —— 那是 `to_sml_canonical`（sort_keys）
 // 的职责，两者是独立开关（§6.2）。保序买到的是「键序 == 源序」，不是同值同字节。
-#[cfg(feature = "sml")]
-/// `pub(crate)`：`ser_text.rs`（直出文本的 serde Serializer）要复用同一套引用规则，
-/// 否则两份发射器会各自漂移。
-pub(crate) fn quote_if_needed(s: &str) -> String {
-    if needs_quote(s) {
-        // 注意：此处**不能**通过转义 `$` 来阻止 `$env.` 展开——
-        // `\u{24}` 之类转义在词法阶段就被解码，解码后的值与未转义形式
-        // 不可区分，`Tok::Str` 也无从判断是否发生过转义。
-        // 该 round-trip 限制已在 `to_sml` 文档中说明（禁用 env 特性即可规避）。
-        //
-        // ⚠️ **控制字符必须转义**（2026-11-03 修）：此前只处理 `\` 与 `"`，
-        // 于是 `\n` / `\t` / `\0` 会以**真实字节**写进引号串里 ——
-        // `s: "u\0v"` dump 出来是 `"u` + 0x00 + `v"`：Rust 自己再读回时文本里带 NUL，
-        // C 的 `sml_dump` 更是在 NUL 处**直接截断**（台账 B-02 记的就是这条）。
-        // 词法层的转义集是 `\n \t \r \0 \" \\ \uXXXX`，故这四个走短形式，
-        // 其余控制字符（0x01–0x1F、0x7F）走 `\u00XX`。
-        let mut out = String::with_capacity(s.len() + 2);
-        out.push('"');
-        for c in s.chars() {
-            match c {
-                '\\' => out.push_str("\\\\"),
-                '"' => out.push_str("\\\""),
-                '\n' => out.push_str("\\n"),
-                '\t' => out.push_str("\\t"),
-                '\r' => out.push_str("\\r"),
-                '\0' => out.push_str("\\0"),
-                c if (c as u32) < 0x20 || c as u32 == 0x7f => {
-                    out.push_str(&format!("\\u{:04X}", c as u32));
-                }
-                c => out.push(c),
-            }
-        }
-        out.push('"');
-        out
-    } else {
-        s.to_string()
-    }
-}
+pub(crate) use crate::text_rules::{format_float, quote_if_needed};
 
 /// 容器是否「扁平」：**直接子项全是标量**（不含对象 / 数组）。
 ///
@@ -187,41 +120,6 @@ fn dump_element(v: &Value, indent: usize, depth: usize, out: &mut String) {
         // `is_flat` 为假只可能是容器；标量一律扁平。真到这儿也退化成单行，
         // 不 panic（本模块对外的承诺是「总能写出一份文本」）。
         _ => out.push_str(&dump_inline(v, depth)),
-    }
-}
-
-#[cfg(feature = "sml")]
-/// 格式化浮点值 —— `raw` 的消费点，也是「保留书写形式」的实现处（P3）。
-///
-/// `pub(crate)`：同 [`quote_if_needed`]，供 `ser_text.rs` 复用 ——
-/// 两份发射器必须共用同一套规则，否则会各自漂移。
-///
-/// `raw` 为解析器记录的原始字面量。若 raw 存在且**解析回来仍等于当前值**，
-/// 则原样输出，从而保留 `1e10` / `1E10` / `1e+10` 这类书写形式。
-/// Rust 的 `f64::Display` 从不输出科学计数法，不存 raw 就必然丢失。
-///
-/// **为何要校验「raw 解析回来是否等于当前值」**：失效规则要求程序构造的
-/// Float 一律 `raw = None`，但万一将来有人绕过该规则（改了值却留着旧 raw），
-/// 校验能让它退回默认格式化，而不是输出一个与值不符的字面量 ——
-/// 把「输出错误数据」降级为「丢失书写形式」。
-pub(crate) fn format_float(f: f64, raw: Option<&str>) -> String {
-    if let Some(r) = raw {
-        if let Ok(parsed) = r.parse::<f64>() {
-            // NaN 自身不等于自身，需单独判定
-            if parsed == f || (parsed.is_nan() && f.is_nan()) {
-                return r.to_string();
-            }
-        }
-    }
-    // 强制保留小数点，避免 1.0 被 Display 写成 "1" 后 round-trip 成 Int
-    if !f.is_finite() {
-        // NaN/inf 没有合法的 SML 字面量；序列化为带引号字符串，
-        // 回读得到 Str 而非非法/改变类型的字面量。
-        format!("\"{}\"", f.to_string())
-    } else if f.fract() == 0.0 {
-        format!("{:.1}", f)
-    } else {
-        format!("{}", f)
     }
 }
 

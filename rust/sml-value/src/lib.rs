@@ -36,6 +36,21 @@
 /// Path syntax shared by readers and writers; `Value::get` keeps its legacy semantics.
 pub mod path;
 
+/// Canonical form (text + bytes): `Value::canonical_text` / `Value::canonical_bytes`.
+/// canonical 形态（文本 + 字节）。
+///
+/// Rules: `docs/smlb-smldb-spec.md` §18 (C1–C13) and §19 (`VALUE` segment layout).
+/// **Not feature-gated**: without `preserve_order` it does not vanish, it reports
+/// [`CanonicalError::KeyOrderUnavailable`] — if the code refused to compile, nobody could
+/// explain “why this machine cannot sign canonical”.
+/// 规则见 spec §18/§19。**不受 feature 门控**：没开 `preserve_order` 时它不消失，而是
+/// **明确报错** —— 编不过的话就没法解释「为什么这台机器上签不出 canonical」。
+pub mod canonical;
+
+/// Text-atom rules (bare words / quoting / escaping, float spelling) shared by `dump`,
+/// `ser_text` and `canonical`. ｜ 「文本原子」规则，三处发射器共用同一份。
+mod text_rules;
+
 mod value;
 // 保序对象（docs/value-layout.md §3/§5）：只在 `preserve_order` 下编译，
 // 未开时 `Map` 就是 `BTreeMap`，本模块不参与构建 —— 不额外占编译时间与体积。
@@ -51,6 +66,10 @@ mod ser_text;
 
 pub use path::{Path, PathError, Seg};
 pub use value::{describe_value, insert_or_merge, Map, MAX_VALUE_DEPTH, Value};
+
+/// Why canonical failed (three families: built wrong / data inexpressible / corrupt bytes).
+/// canonical 的失败原因（三种性质不同：构建方式 / 数据表达不出 / 字节坏了）。
+pub use canonical::CanonicalError;
 
 /// The order-preserving object (`Value::Object` bearer under the `preserve_order` feature).
 /// 保序对象（`Value::Object` 在 `preserve_order` 档下的载体）。
