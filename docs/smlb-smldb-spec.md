@@ -919,6 +919,10 @@ key 更少一份、零依赖，`ser_text` 已趟过路；O(n) 对真实负载够
 | **D21** | **多读多写交给 `smldb`**（SQLite WAL），`.smlb` 不自建 OCC | 与 D4「两档不混」一致 |
 | **D22** | **数组补丁 = 整体替换**（不拼接、不按 index 合并） | 按位改数组是 featag `[n]` 的职责，避免两套机制打架 |
 | **D23** | **`.smlb` 可以装「不经过 SML 的东西」**：外来载荷（其它格式的原始字节）是**一等段**，原样存取，库不解码 | ⇒ `.smlb` = **容器（manifest + 段）+ Value 编码**，不是「只能装 Value」的格式；与 D12「其它格式嵌入」、D14「不做媒体编解码（只当信封）」一致 |
+| **D24** | **自定义衍生格式只能定义「语义」**（段 id 含义 / 必填段 / 扩展键语义），**不能定义「字节编码」** | 「未知段可跳过」是唯一不变量；允许字节层自定义 ⇒ 读前要先跑解释器，不变量即失效 |
+| **D25** | **profile 只影响工具行为**（校验 / 补全 / 签名策略），**不得成为读 `VALUE` 段的前置** | 否则 bootstrap 循环 |
+| **D26** | **API 面 = 5 组 20 个函数**（值↔字节 / 文件 / 读 / 写 / 流·能力·安全），可作为其它 crate 的**样板** | 组内一名一职；`append` 是唯一写路径；不给 `save` / `update` / `set` / `sync` |
+| **D27** | **逆向导出走 A + C 兜底**：默认 `to_value()` + 由 `smltools`/`swsml` 出文本；`smlb` 另提供可选 feature `text` 转发到 `sml::emit::to_sml` | 不内置第二个文本发射器（B 方案）—— 那是长期债 |
 
 ### 16.2 待定（按依赖排序）
 
@@ -934,3 +938,23 @@ key 更少一份、零依赖，`ser_text` 已趟过路；O(n) 对真实负载够
 | **P4** | `§10` 剩余四条：`:has()` 进不进 v1 · `.content` 是否等价 `[class~=content]` · `id` 是否强制唯一 · 规模信封 | FTS 已定（D13） |
 | **P5** | 键序落地细节：canonical 规则、compact 之后签名怎么办 | 与 D6 绑定 |
 | **P6** | `§3` 格式重写：编 `Value` 的具体字节布局（对象/数组/标量/元数据键） | D2 的施工图 |
+
+---
+
+## 17. 施工顺序（草稿 · 未开工 · 与 v5 同步开放）
+
+> 开放节奏见 D1：**设计与实现可以现在做，对外开放等 v5**。阶段 1–3 与 v5 定稿并行不冲突。
+
+| 阶段 | 做什么 | 验收判据 |
+|---|---|---|
+| **T0 前置** | `Value::canonical_bytes()` 的规则定稿（保序、数字格式、`__*` 位置、转义）+ **跨端测试向量**（文本 ↔ 二进制各 N 组，期望字节写死） | 无 `preserve_order` 时**显式报错**；向量在 Rust/JS 上产出同一字节 |
+| **T1 编码（L0）** | 新 crate `smlb` 骨架 + `dump` / `load` / `canonical` | `dump→load→dump` 字节相同；`Int(1)` 与 `Float(1.0)` 可区分；`__type`/`__featags` 原样往返 |
+| **T2 容器（L1）** | 二进制 manifest + 段表 + 段 checksum + 外来载荷 + `primary` + `Capabilities`/`check_caps` | 只读 manifest 能列出全部段；未知 `optional` 可跳过、缺 `required` 明确拒；改一个字节可被检出 |
+| **T3 读（L2）** | `Mmap::open` / `open_parts` / `get` / `text` / `text_of` / `segments` / `payload` / `history` / `provenance` | 打开 100 MB 文件 RSS 增量 < 1 MB；取单个子树不遍历全树 |
+| **T4 历史与签名（L3）** | 层链（`prev_hash`/`index`）+ `sign` / `delegate` / `verify` + `append`（锁 + `prev_hash` 校验）+ `Patch::strategy` | 验签能答「值来自哪层」；并发追加后到者拿到明确冲突；旧签名未授权的换钥被拒 |
+| **T5 压缩与加密（L4）** | zstd 独立帧 + 帧索引；按段加密（SM4 / AES-GCM）；算法 ID 表（含 PQC 登记） | 只解压/解密被访问的段；未知算法 ID ⇒ 明确拒绝；压缩→加密顺序固定 |
+| **T6 工具（T6）** | `smltools --to smlb` / `--from smlb` / `--keep-source`；`smlb sign/verify/append` CLI | 文本 ↔ 二进制双向可跑；签名可被另一端验证 |
+| **T7 五端** | JS / Lua 解码器（只读 `VALUE` 段 + 透传载荷）+ 一致性用例 | 同一 `.smlb` 五端读出同树；载荷字节原样 |
+
+**依赖关系**：T0 是 T1 的前置（没有 canonical 就没有幂等与签名）；T2 依赖 T1；T3–T5 可并行；T6/T7 依赖 T2。
+**明确不在阶段内**：`smldb`（T8，见 §5）、SIMD（§8，等 profile 证明）、FTS 索引（D13）。
