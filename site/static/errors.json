@@ -17,7 +17,7 @@
     "MIGRATE": "迁入格式（JSON / TOML / YAML / XML）",
     "PARSE": "语法"
   },
-  "count": 154,
+  "count": 156,
   "codes": [
     {
       "id": "E-CLI-001",
@@ -409,6 +409,30 @@
       ],
       "status": "done",
       "note": "featag S5 开闸（`docs/featag-spec-draft.md` §10 Q3：**新码**，不复用 E-CONTRACT-012）。三种都用本码、靠 detail 区分：① 未声明（附该契约可用清单）；② 声明为无参（纯标签）却带了参数；③ 声明为带参却没写 `[...]`，或非数组类型的声明给了不止一个参数。**参数类型不符**则走既有类型错误码（`check_type` 那条链），因为那与字段类型错误的因完全相同。库侧可放宽：`ParseOptions::apply_contracts(false)` 时整段校验跳过（与契约校验同一个开关）"
+    },
+    {
+      "id": "E-CONTRACT-022",
+      "severity": "error",
+      "domain": "CONTRACT",
+      "title": "featag 落点已存在（禁止覆盖）",
+      "msg": "featag 要写入的落点已经存在；featag 不能用于覆盖已有值",
+      "impls": [
+        "rust"
+      ],
+      "status": "done",
+      "note": "featag S6（§6.1 规则 1）。用户原话「它不能用于覆盖，这会搞出乱子」—— 故**报错而不是静默跳过**：静默跳过会让「以为写进去了」变成最难查的错。也用于「`auto` 但声明没有默认值」（同样是落点写不进去）"
+    },
+    {
+      "id": "E-CONTRACT-023",
+      "severity": "error",
+      "domain": "CONTRACT",
+      "title": "featag 落点的父对象不存在",
+      "msg": "featag 落点路径上的父对象不存在，或那个键已被非对象值占用",
+      "impls": [
+        "rust"
+      ],
+      "status": "done",
+      "note": "featag S6（§6.1 规则 3）。默认（未开 `!strict-paths`）父对象会**自动创建** —— 那是「插入」不是「覆盖」；契约级开关 `!strict-paths` 打开后要求父对象已存在，缺了就报本码。路径上某键已是标量 / 数组时也报本码（没法往里放键）。与 E-CONTRACT-022 分开：「已存在」是要覆盖、「父不存在」是路走不通，用户的改法完全不同"
     },
     {
       "id": "E-DERIVE-001",

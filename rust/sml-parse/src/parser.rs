@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use sml_codes::{
     E_CONTRACT_001, E_CONTRACT_010, E_CONTRACT_011, E_CONTRACT_012, E_CONTRACT_013, E_CONTRACT_018,
-    E_CONTRACT_019, E_CONTRACT_020, E_CONTRACT_021, E_EXT_003, E_EXT_004, E_EXT_005, E_EXT_008,
-    E_FEATURE_001,
+    E_CONTRACT_019, E_CONTRACT_020, E_CONTRACT_021, E_CONTRACT_022, E_CONTRACT_023, E_EXT_003,
+    E_EXT_004, E_EXT_005, E_EXT_008, E_FEATURE_001,
     E_FEATURE_002, E_FEATURE_003, E_INCLUDE_007, E_LEX_007, E_LIMIT_001, E_PARSE_001, E_PARSE_002,
     E_PARSE_003, E_PARSE_004, E_PARSE_005, E_PARSE_006, E_PARSE_007, E_PARSE_011, E_PARSE_012,
     E_PARSE_013, E_PARSE_017, E_PARSE_019, E_PARSE_020, E_PARSE_021, E_PARSE_022, E_PARSE_023,
@@ -523,6 +523,7 @@ impl Parser {
         &mut self,
         requires: &mut Vec<String>,
         featags: &mut Vec<FeatagDecl>,
+        strict_paths: &mut bool,
     ) -> Result<BTreeMap<String, FieldSpec>, SmlError> {
         let mut fields: BTreeMap<String, FieldSpec> = BTreeMap::new();
         loop {
@@ -585,6 +586,19 @@ impl Parser {
                     if name.is_empty() || name.starts_with('!') {
                         return Err(SmlError::from_code_msg(E_PARSE_026)
                             .with_detail(format!("`{w}`")));
+                    }
+                    // 契约级开关（不是 featag 声明）：`!strict-paths` 管落点规则的松紧（§6.1 规则 3）。
+                    // 它**不占** featag 名，也不接受类型 / 参数 / 落点。
+                    if name == "strict-paths" {
+                        if self.peek() == Some(&Tok::Colon)
+                            || self.peek_at(1) == Some(&Tok::LBrack)
+                        {
+                            return Err(SmlError::from_code_title(E_CONTRACT_021).with_detail(
+                                "`!strict-paths` 是契约级开关，不接受类型 / 参数 / 落点".to_string(),
+                            ));
+                        }
+                        *strict_paths = true;
+                        continue;
                     }
                     // 参数类型：复用字段规格解析（`[int]` / `str` / 契约引用 / 修饰符全支持）
                     let spec = if self.peek() == Some(&Tok::Colon) {
@@ -1132,7 +1146,8 @@ impl Parser {
             let mut requires: Vec<String> = Vec::new();
             // featag 声明（S4）：契约体内 `!name` / `!name: 类型` / `!name: 类型 -> 落点`
             let mut featags: Vec<FeatagDecl> = Vec::new();
-            let fields = self.parse_contract_body(&mut requires, &mut featags)?;
+            let mut strict_paths = false;
+            let fields = self.parse_contract_body(&mut requires, &mut featags, &mut strict_paths)?;
             // 定义时校验（不是应用时）：契约体里 `@requires` 声明的特性都必须已开启。
             // 特性集在解析前已由 `scan.rs` 把全文的 `@feature` 指令一并剥离并应用，
             // 因此此处校验的是「文档在任意位置声明过的特性」的并集，与书写顺序无关。
@@ -1160,6 +1175,7 @@ impl Parser {
                     fields,
                     strictness,
                     requires,
+                    strict_paths,
                     featags,
                 },
             );
@@ -1966,6 +1982,15 @@ impl Parser {
                     ));
                 }
             }
+            // —— featag S5（校验）+ S6（按落点写值）——
+            //
+            // ⚠️ **必须都在契约应用之前**：`from-featag` 那类「只能由 featag 提供」的必填字段，
+            // 一旦让契约先跑，就会被判成「必填字段缺失」（E-CONTRACT-003），
+            // 而它的值本来就应该在下一步由 featag 落点写进来（S7 直接依赖这个次序）。
+            if self.features.has(Feature::Featag) && !bare.featags.is_empty() {
+                self.check_featags(bare, &names)?;
+                self.fill_featag_targets(m, bare, &names)?;
+            }
             let mut applied = false;
             if names.len() == 1 {
                 // 单契约：**逐字走原路径**（错误文案 / 行为与旧版完全一致）。
@@ -2003,12 +2028,15 @@ impl Parser {
         }
         // __name 的起点：多契约时跳过被算作契约词的 args（首个非契约词是块名）；
         // 单契约 / 无契约与旧版完全一致（args[0]）
-        // —— featag S5：校验开闸 ——
+        // —— featag S5 的兜底：没有应用任何契约时也要报「无人声明」——
         //
-        // 门控与契约校验**同一个开关**（`ParseOptions::apply_contracts(false)` 时整段跳过）：
-        // 「库作者不想让文档内的契约/标注生效」这一诉求，对 featag 应当同样成立，
-        // 否则关掉契约却仍被 featag 拦下，等于给沙箱开了个后门。
-        if self.apply_contracts && self.features.has(Feature::Featag) && !bare.featags.is_empty() {
+        // 正常路径已在上面（契约解析块内）校验过；只有 `typed-block` / `contract` 特性关掉时
+        // 才轮到这里。门控与契约校验**同一个开关**（`apply_contracts(false)` 时整段跳过）。
+        if self.apply_contracts
+            && self.features.has(Feature::Featag)
+            && !bare.featags.is_empty()
+            && names.is_empty()
+        {
             self.check_featags(bare, &names)?;
         }
         let name_args: &[Value] = if names.len() > 1 { &args[consumed_args..] } else { &args[..] };
@@ -2095,23 +2123,97 @@ impl Parser {
                 (Some(spec), Some(payload)) => {
                     // 数组类型 ⇒ 参数**表**整体校验（`!obey: [int]` ↔ `obey[1, 2]`）；
                     // 其它类型 ⇒ 只接受 1 个参数，校验那一个（`!cert: str` ↔ `cert["…"]`）。
-                    let v = if matches!(spec.ty, TypeSpec::Array(_)) {
-                        payload.clone()
-                    } else {
-                        let list = payload.as_array().map(|a| a.as_slice()).unwrap_or(&[]);
-                        if list.len() != 1 {
-                            return Err(SmlError::from_code_title(E_CONTRACT_021).with_detail(
-                                format!(
-                                    "`{where_}` 的参数类型不是数组，只接受 1 个参数（实际给了 {} 个）",
-                                    list.len()
-                                ),
-                            ));
-                        }
-                        list[0].clone()
-                    };
-                    sml_contract::check_value(&where_, &where_, spec, &v, &self.contracts)?;
+                    // `auto`（取默认值）不校验：值来自声明本身，S6 写入时再取。
+                    if !is_auto_marker(payload) {
+                        let v = Self::featag_value(&where_, spec, payload)?;
+                        sml_contract::check_value(&where_, &where_, spec, &v, &self.contracts)?;
+                    }
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// 一个 featag 的**值**：数组类型 ⇒ 整张参数表；其它类型 ⇒ 必须恰好 1 个参数。
+    ///
+    /// S5（校验）与 S6（写值）共用这一个换算 —— 否则会出现「校验按一种口径、写进去按另一种」。
+    fn featag_value(where_: &str, spec: &FieldSpec, payload: &Value) -> Result<Value, SmlError> {
+        if matches!(spec.ty, TypeSpec::Array(_)) {
+            return Ok(payload.clone());
+        }
+        let list = payload.as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+        if list.len() != 1 {
+            return Err(SmlError::from_code_title(E_CONTRACT_021).with_detail(format!(
+                "`{where_}` 的参数类型不是数组，只接受 1 个参数（实际给了 {} 个）",
+                list.len()
+            )));
+        }
+        Ok(list[0].clone())
+    }
+
+    /// featag **S6：按落点写值**（§6.1 规则 1–5）。
+    ///
+    /// - 落点**已存在 ⇒ 报错**（禁止覆盖；静默跳过会让「以为写进去了」变成最难查的错）；
+    /// - 父对象默认**自动创建**（那是「插入」不是「覆盖」）；`!strict-paths` 打开后要求父对象已存在；
+    /// - `auto` ⇒ 取声明里的 `default`；
+    /// - 无落点 ⇒ 纯标签，只留在 `__featags`（这里直接跳过）。
+    fn fill_featag_targets(
+        &mut self,
+        m: &mut Map,
+        bare: &BareCtx,
+        contract_names: &[String],
+    ) -> Result<(), SmlError> {
+        let decls: Vec<&FeatagDecl> = contract_names
+            .iter()
+            .filter_map(|n| self.contracts.get(n))
+            .flat_map(|c| c.featags.iter())
+            .collect();
+        let strict = contract_names
+            .iter()
+            .filter_map(|n| self.contracts.get(n))
+            .any(|c| c.strict_paths);
+        let owner = contract_names.first().map(|s| s.as_str()).unwrap_or_default();
+
+        for item in &bare.featags {
+            let fname = item
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let where_ = if owner.is_empty() {
+                fname.clone()
+            } else {
+                format!("{owner}.{fname}")
+            };
+            // 未声明 / 无落点 / 没给参数 都在 S5 报过或无须处理
+            let Some(decl) = decls.iter().find(|d| d.name == fname) else {
+                continue;
+            };
+            let Some(target) = &decl.target else {
+                continue;
+            };
+            let Some(payload) = item.get("args") else {
+                continue;
+            };
+
+            let value = if is_auto_marker(payload) {
+                decl.spec.as_ref().and_then(|s| s.default.clone()).ok_or_else(|| {
+                    SmlError::from_code_title(E_CONTRACT_022).with_detail(format!(
+                        "`{where_}` 的参数是 `auto`（取声明里的默认值），但该声明没有 `default`"
+                    ))
+                })?
+            } else {
+                match &decl.spec {
+                    Some(spec) => Self::featag_value(&where_, spec, payload)?,
+                    // 无类型声明却写了参数：S5 已经报过「声明为无参」，这里不重复报
+                    None => payload
+                        .as_array()
+                        .and_then(|a| a.first().cloned())
+                        .unwrap_or(Value::Null),
+                }
+            };
+
+            write_target(m, target.segments(), value, strict, &where_)?;
         }
         Ok(())
     }
@@ -2537,5 +2639,67 @@ impl Parser {
             cont: Cont::Root,
         };
         self.run_stack(root)
+    }
+}
+
+/// featag 参数是不是 `auto`（= 取声明里的默认值，§6.1 规则 5）。
+///
+/// ⚠️ **已知限制**：参数值在 `parse_array` 里已经变成了 `Value`，**词法形态丢了**，
+/// 所以裸词 `auto` 与引号串 `"auto"` 在这里**无法区分** —— 两者都当 `auto`。
+/// 真需要把字面量 "auto" 当参数时，目前只能避开（例如写 `["auto "]`）。
+/// 要做到精确区分，得让 `parse_array` 把「是否裸词」带回值里，属**另一笔**改动，不塞进本片。
+fn is_auto_marker(payload: &Value) -> bool {
+    matches!(payload, Value::Array(a)
+        if a.len() == 1 && matches!(&a[0], Value::Str(s) if s == "auto"))
+}
+
+/// featag **S6 写落点**（§6.1 规则 1–3）：逐段下钻，最后一段写值。
+///
+/// - 落点已存在 ⇒ `E-CONTRACT-022`（**禁止覆盖**）；
+/// - 父对象缺失 ⇒ 默认**自动创建**（「插入」不是「覆盖」）；`strict`（`!strict-paths`）时 ⇒ `E-CONTRACT-023`；
+/// - 路径上某键已是非对象 ⇒ `E-CONTRACT-023`（往里放键没有意义）；
+/// - 含 `Index` 段 ⇒ `E-CONTRACT-020`（S4 的声明期已拒，这里是兜底 —— 两条路都要堵上）。
+fn write_target(
+    map: &mut Map,
+    segs: &[Seg],
+    value: Value,
+    strict: bool,
+    where_: &str,
+) -> Result<(), SmlError> {
+    let Some((seg, rest)) = segs.split_first() else {
+        return Ok(()); // 空路径（`Path::new(vec![])`）＝ 不落任何键
+    };
+    let Seg::Key(key) = seg else {
+        return Err(SmlError::from_code_title(E_CONTRACT_020)
+            .with_detail(format!("`{where_}` 的落点含数组下标")));
+    };
+
+    if rest.is_empty() {
+        if map.contains_key(key) {
+            return Err(SmlError::from_code_title(E_CONTRACT_022).with_detail(format!(
+                "`{where_}` 的落点 `{key}` 已存在（featag 不能覆盖已有值）"
+            )));
+        }
+        map.insert(key.clone(), value);
+        return Ok(());
+    }
+
+    match map.get_mut(key) {
+        Some(Value::Object(child)) => write_target(child, rest, value, strict, where_),
+        Some(other) => Err(SmlError::from_code_title(E_CONTRACT_023).with_detail(format!(
+            "`{where_}` 的落点路径上 `{key}` 已是{}，没法往里写键",
+            sml_value::describe_value(other)
+        ))),
+        None => {
+            if strict {
+                return Err(SmlError::from_code_title(E_CONTRACT_023).with_detail(format!(
+                    "`{where_}` 的落点路径上父对象 `{key}` 不存在（本契约开了 `!strict-paths`）"
+                )));
+            }
+            let mut child = Map::new();
+            write_target(&mut child, rest, value, strict, where_)?;
+            map.insert(key.clone(), Value::Object(child));
+            Ok(())
+        }
     }
 }

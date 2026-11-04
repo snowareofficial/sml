@@ -223,6 +223,14 @@ codes: [
       msg: "同一契约里重复声明了同名的 featag"
       impls: [ rust ] status: done
       note: "featag S4（`docs/featag-spec-draft.md` §2.3 B4）。**只在声明处**查重：使用处允许同名多次出现（`!a !a` 会原样保留在 `__featags` 数组里，应用层自行决定是否合并）。诊断写全 `<契约>.<featag>` —— 作用域契约私有，只写名字会分不清是哪个契约的" }
+    { id: E-CONTRACT-022 domain: CONTRACT severity: E title: "featag 落点已存在（禁止覆盖）"
+      msg: "featag 要写入的落点已经存在；featag 不能用于覆盖已有值"
+      impls: [ rust ] status: done
+      note: "featag S6（§6.1 规则 1）。用户原话「它不能用于覆盖，这会搞出乱子」—— 故**报错而不是静默跳过**：静默跳过会让「以为写进去了」变成最难查的错。也用于「`auto` 但声明没有默认值」（同样是落点写不进去）" }
+    { id: E-CONTRACT-023 domain: CONTRACT severity: E title: "featag 落点的父对象不存在"
+      msg: "featag 落点路径上的父对象不存在，或那个键已被非对象值占用"
+      impls: [ rust ] status: done
+      note: "featag S6（§6.1 规则 3）。默认（未开 `!strict-paths`）父对象会**自动创建** —— 那是「插入」不是「覆盖」；契约级开关 `!strict-paths` 打开后要求父对象已存在，缺了就报本码。路径上某键已是标量 / 数组时也报本码（没法往里放键）。与 E-CONTRACT-022 分开：「已存在」是要覆盖、「父不存在」是路走不通，用户的改法完全不同" }
     { id: E-CONTRACT-021 domain: CONTRACT severity: E title: "featag 未声明或用法与声明不符"
       msg: "使用的 featag 没有在该契约里声明，或参数个数 / 类型与声明不符"
       impls: [ rust ] status: done
