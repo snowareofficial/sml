@@ -56,6 +56,16 @@ Editions are **not ordered**, so `Ord` is gone and the criterion is always "is t
 - ⚠️ The registry has no `Removed` row yet, so the branch is **not reachable** today (code and wiring
   are in place; adding a row activates it). `smltools --migrate` (V11) is not implemented yet.
 
+### Changed — `smltools --feature` accepts Dev editions and codenames
+
+- `--feature` now uses the same literals as the language layer: besides `10` / `1.0` / `v1` …,
+  **`50` / `5.0` / `v5` and the codename `camelia` are accepted** (previously only published editions).
+- Accepting a Dev edition **must be said out loud**: a note is printed saying the edition is under
+  development, its default feature set is not final, and this gating reflects the current
+  implementation only (same channel as `I-FEATURE-001`).
+- The invalid-value message now mentions "5.0 / camelia (in development)"; the code stays `E-FEATURE-004`.
+- The rule is factored into `edition_arg()` with unit tests (four spellings → one edition; `nope` → `E-FEATURE-004`).
+
 ### Added — featag S8: the `!any` contract-level switch
 
 - `any` means giving up type validation ⇒ **disabled by default**: a contract using `any` (or `[any]`)

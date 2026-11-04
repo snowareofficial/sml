@@ -169,8 +169,11 @@ pub fn to_sml_checked(v: &Value) -> Result<String, sml_codes::SmlError> {
     })
 }
 
-// `Version` 是 `Edition` 的别名（2026-11-04 改名，`docs/version-naming.md` V1）
-pub use sml_feature::{feature_names, Edition, Feature, FeatureSet, Version, EDITIONS, FEATURES};
+// `Version` 是 `Edition` 的别名（2026-11-04 改名，`docs/version-naming.md` V1）。
+// `edition_by_codename` 供 CLI 接受 `--feature camelia`（代号与数字同义）。
+pub use sml_feature::{
+    edition_by_codename, feature_names, Edition, Feature, FeatureSet, Version, EDITIONS, FEATURES,
+};
 pub use sml_contract::{Contract, FieldSpec, TypeSpec};
 /// Contract inference: derive a contract from data instances ｜ 契约推断（任务 E）：从数据实例反推契约。落地为 `smltools --infer-contract`。
 pub use sml_contract::infer;

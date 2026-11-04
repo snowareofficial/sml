@@ -32,8 +32,8 @@
 
 **S0 进度（2026-11-04）**：**S0a**（`Edition` 类型 + `EDITIONS` 登记表）/ **S0b**（`@version` 数字 / 代号 / `dev` 三槽位）/
 **S0c**（`E-FEATURE-010`「版本集已移除」+ `Edition` 贯穿解析层 + 删掉 `Version` 桥接 / 枚举）均已落地。
-**S0d 余项**：CLI `--feature` 目前**只接受已发布版本集** —— 是否也让 `50` / `"camelia"` 过（它们都是 `Dev`，
-而 flat flag 没有 `dev` 槽位）**待定**。
+**S0d 已定（2026-11-04 用户：可以）**：CLI `--feature` **接受 Dev 版本集**（`50` / `5.0` / `v5` / 代号 `camelia`），
+收下时打一条 note 说明「未定稿、只代表当前实现」。flat flag 没有 `dev` 槽位这件事，用「提示 + 不承诺」化解。
 
 **S1a 已落地（2026-11-04）**：`rust/sml-value/src/path.rs` —— `Path::parse` / `Seg` / `PathError` +
 `Value::get_path`（失败带原因与 1 起段号）；旧 `Value::get` 一字未改（仍 `Option` + 字面键优先）。
