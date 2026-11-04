@@ -1255,6 +1255,10 @@ NIST 向量 + 与 CPython `hashlib` 交叉核对的填充边界向量钉着）�
 `smlb cat <f> <path>`（`a.b[0]` 语法，走 `sml_value::Path`，输出**canonical 文本**）。
 `cat` 当前是「整树解出再找路」，`DIR` 段（T3）才把它降到 O(1) —— 先让语义站稳，再上索引。
 
+**「不可信字节」这条线**：解码器吃的是别人的文件，一次 panic 就是一次 DoS。故有一条用例
+**逐字节**改（每字节两种翻转）喂 `info` / `load` / `check`，只允许 `Ok` / `Err`，不许 panic。
+文件 ~8 KB，全扫一遍约 1 秒，代价可以接受。｜ Any single-byte mutation must return, never panic.
+
 ### 19.9 `MANIFEST` 段的施工草案（**待裁** · 2026-11-04 起草，未落代码）
 
 > 为什么现在写：T2 剩下的半块（manifest / 能力位 / `primary` / 外来载荷）里，**只有
