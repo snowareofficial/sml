@@ -269,7 +269,7 @@ codes: [
     { id: E-FEATURE-004 domain: FEATURE severity: E title: "版本声明非法"
       msg: "不支持的版本声明，或版本声明互相冲突；当前支持 v1..v4"
       impls: [ rust c cpp js lua smltools ] status: partial
-      note: "各端支持的版本范围不同（Lua 仅 v1、C 到 v3、JS 现已支持 v1..v4）—— **码相同、支持的版本不同**，差异用字段表达，不再靠文案。C 的「超出接受范围」分支目前是死代码；`@version` 用作片段名、`@feature base` 参数非 v1..v4、命令行传入非法版本名都归此码。JS 的版本只切换**裸词字符串**这一特性（v1 开、v2/v3/v4 关，关闭即裸词报 E-FEATURE-005），v4 与 v3 特性基集相同" }
+      note: "各端支持的版本范围不同（Lua 仅 v1、C 到 v3、JS 现已支持 v1..v4）—— **码相同、支持的版本不同**，差异用字段表达，不再靠文案。C 的「超出接受范围」分支目前是死代码；`@version` 用作片段名、`@feature base` 参数非法、命令行传入非法版本名都归此码。JS 的版本只切换**裸词字符串**这一特性（v1 开、v2/v3/v4 关，关闭即裸词报 E-FEATURE-005），v4 与 v3 特性基集相同。⚠️ **Rust 自 2026-11-04 起按「版本集」判定**（`docs/version-naming.md`）：规范写法 `1.0`..`4.0`（`10`/`20`/`30`/`40`），`v1`..`v4` 与点号写法永久是别名；本码只表示「从未存在 / 写法不合法 / 声明冲突」，**曾被移除的开发代号用 E-FEATURE-010**" }
     { id: E-FEATURE-005 domain: FEATURE severity: E title: "裸词必须加引号"
       msg: "字符串必须加引号：当前特性集禁用了裸词字符串"
       impls: [ rust c js ] status: partial
@@ -288,6 +288,10 @@ codes: [
       msg: "文档请求的特性与调用方允许的特性没有交集"
       impls: [ rust js ] status: partial
       note: "宿主（如 C-ABI 调用方）用 allow 集收窄能力时的拒绝：不静默降级，直接失败。JS 现支持调用方 `opts.features`（Set / Array）作为**允许集上限**：文档内部 `@feature enable` 只能在其上收窄，越权开启即报此码；允许集与文档所需特性无交集同样报此码" }
+    { id: E-FEATURE-010 domain: FEATURE severity: E title: "版本集已移除"
+      msg: "该版本集已被移除，请用迁移工具升级文档中的版本声明"
+      impls: [ rust ] status: partial
+      note: "与 E-FEATURE-004（版本声明非法 = 从未存在、写法不合法或互相冲突）**分开**：本码专指「曾经存在、后因破坏性改动被移除」的开发代号（docs/version-naming.md V7），文案必须带代号与迁移规则 id，并指向 smltools --migrate scan。只作用于开发代号的 Dev → Removed；正式版（10/20/30/40/…）永久向后兼容，永不进此分支。⚠️ 当前 EDITIONS 里还没有 Removed 行 ⇒ 本分支暂不可达（S0c 先把码与接线做好，加一行即生效）；smltools --migrate（V11）尚未实现，文案里的规则 id 是承诺而非现状" }
     { id: W-FEATURE-001 domain: FEATURE severity: W title: "位置参数写法已废弃"
       msg: "位置参数写法已废弃，推荐带参数名的写法"
       impls: [ rust js ] status: partial

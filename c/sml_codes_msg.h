@@ -82,6 +82,7 @@ static const struct SmlErrorMsg SML_ERROR_MSGS[] = {
     { "E-FEATURE-007", "error", "FEATURE", "feature 指令缺少参数", "`@feature` 指令缺少参数", "feature directive missing argument", "The `@feature` directive is missing an argument" },
     { "E-FEATURE-008", "error", "FEATURE", "feature mode 参数非法", "`@feature mode` 的参数须为白名单或黑名单之一", "Invalid feature mode argument", "The `@feature mode` argument must be either whitelist or blacklist" },
     { "E-FEATURE-009", "error", "FEATURE", "请求特性与允许集无交集", "文档请求的特性与调用方允许的特性没有交集", "No overlap with allowed feature set", "The document's requested features have no overlap with the caller's allowed set" },
+    { "E-FEATURE-010", "error", "FEATURE", "版本集已移除", "该版本集已被移除，请用迁移工具升级文档中的版本声明", "Edition has been removed", "This edition has been removed; upgrade the version declaration with the migration tool" },
     { "E-INCLUDE-001", "error", "INCLUDE", "include 文件缺失或读取失败", "include 无法定位或读取目标文件", "include file missing or read failed", "include cannot locate or read the target file" },
     { "E-INCLUDE-002", "error", "INCLUDE", "include 循环引用", "include 循环引用", "include circular reference", "include circular reference" },
     { "E-INCLUDE-003", "error", "INCLUDE", "include 越界拒绝", "include 目标不在基准目录内，已拒绝", "include out-of-bounds rejected", "The include target is outside the base directory; rejected" },

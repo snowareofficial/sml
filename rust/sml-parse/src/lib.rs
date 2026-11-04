@@ -2,7 +2,7 @@
 //!
 //! Errors are coded (`sml_codes::SmlError`, aliased as `ParseError`). `ext` lets downstream crates register custom `@directives` via `ParseOptions` / `parse_with`, and `contract_map` records which contracts were applied to which entity. ｜ 错误带码（`sml_codes::SmlError`，别名 `ParseError`）。`ext` 让下游用 `ParseOptions` / `parse_with` 注册自定义 `@指令`，`contract_map` 记录「哪个实体应用了哪些契约」。
 //!
-//! Public types from the lower layers are re-exported so downstream only needs `sml_parse::`: `Value`, `Tok` / `tokenize`, `Version` / `Feature` / `FeatureSet`, `IncludeTarget`. The `when` feature enables the parse-time `@when` / `@for` primitives. ｜ 下层公共类型在此转发，下游只需 `sml_parse::`：`Value`、`Tok` / `tokenize`、`Version` / `Feature` / `FeatureSet`、`IncludeTarget`。`when` 特性启用解析期 `@when` / `@for` 原语。
+//! Public types from the lower layers are re-exported so downstream only needs `sml_parse::`: `Value`, `Tok` / `tokenize`, `Edition` / `Version` (alias) / `Feature` / `FeatureSet`, `IncludeTarget`. The `when` feature enables the parse-time `@when` / `@for` primitives. ｜ 下层公共类型在此转发，下游只需 `sml_parse::`：`Value`、`Tok` / `tokenize`、`Edition` / `Version`（别名）/ `Feature` / `FeatureSet`、`IncludeTarget`。`when` 特性启用解析期 `@when` / `@for` 原语。
 
 /// 语法分析器（内部实现）。
 mod parser;
@@ -36,7 +36,8 @@ pub use parser::Parser;
 pub use scan::strip_version;
 
 // 转发依赖 crate 的公共类型，使下游只需 `sml_parse::`
-pub use sml_feature::{Feature, FeatureSet, Version};
+// `Version` 是 `Edition` 的别名（2026-11-04 改名，`docs/version-naming.md` V1）
+pub use sml_feature::{Edition, Feature, FeatureSet, Version};
 pub use sml_include::{IncludeTarget, compile_regex, regex_matches};
 pub use sml_lex::{Tok, coerce_word, tokenize};
 pub use sml_value::Value;

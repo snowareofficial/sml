@@ -118,6 +118,8 @@
 #define SML_E_FEATURE_008 "E-FEATURE-008"
 /* [E-FEATURE-009] 请求特性与允许集无交集：文档请求的特性与调用方允许的特性没有交集 */
 #define SML_E_FEATURE_009 "E-FEATURE-009"
+/* [E-FEATURE-010] 版本集已移除：该版本集已被移除，请用迁移工具升级文档中的版本声明 */
+#define SML_E_FEATURE_010 "E-FEATURE-010"
 /* [E-INCLUDE-001] include 文件缺失或读取失败：include 无法定位或读取目标文件 */
 #define SML_E_INCLUDE_001 "E-INCLUDE-001"
 /* [E-INCLUDE-002] include 循环引用：include 循环引用 */
@@ -301,6 +303,6 @@
 /* [W-PARSE-002] 片段展开覆盖父块键：片段展开覆盖了父块已有的同名键：父块原值丢失 */
 #define SML_W_PARSE_002 "W-PARSE-002"
 
-#define SML_CODES_COUNT 146
+#define SML_CODES_COUNT 147
 
 #endif /* SML_CODES_H */

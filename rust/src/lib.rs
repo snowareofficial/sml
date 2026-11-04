@@ -27,7 +27,7 @@
 //! - `$env.VAR` 环境变量内联
 //! - `#` 行注释
 //! - 类型自识别: true/false -> bool, null -> None, 数字 -> i64/f64, 其余 -> String
-//! - `@version v1..v4` 版本化（v2+ 要求字符串显式引号）；`@feature enable/disable` 特性开关
+//! - `@version` 版本集（`10`/`1.0`/`v1` …；`2.0` 起要求字符串显式引号）；`@feature enable/disable` 特性开关
 //!
 //! 值模型: `Value` 枚举 (与 JSON 同构, 另加 `__type`/`__name` 裸块元数据)。
 //!
@@ -167,7 +167,8 @@ pub fn to_sml_checked(v: &Value) -> Result<String, sml_codes::SmlError> {
     })
 }
 
-pub use sml_feature::{feature_names, Feature, FeatureSet, Version, FEATURES};
+// `Version` 是 `Edition` 的别名（2026-11-04 改名，`docs/version-naming.md` V1）
+pub use sml_feature::{feature_names, Edition, Feature, FeatureSet, Version, EDITIONS, FEATURES};
 pub use sml_contract::{Contract, FieldSpec, TypeSpec};
 /// Contract inference: derive a contract from data instances ｜ 契约推断（任务 E）：从数据实例反推契约。落地为 `smltools --infer-contract`。
 pub use sml_contract::infer;
@@ -413,8 +414,10 @@ mod tests {
 
     #[test]
     fn version_display_matches_name() {
-        assert_eq!(Version::V1.name(), "v1");
-        assert_eq!(format!("{}", Version::V1), "v1");
+        // 规范名是 `1.0`（旧写法 `v1` 只是**输入别名**，不再回显 —— 见 docs/version-naming.md §1）
+        assert_eq!(Version::V1.name(), "1.0");
+        assert_eq!(format!("{}", Version::V1), "1.0");
+        assert_eq!(Edition::V4.name(), "4.0");
     }
 
     // ---------------- include ----------------

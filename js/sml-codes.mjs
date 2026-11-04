@@ -112,6 +112,8 @@ export const E_FEATURE_007 = "E-FEATURE-007";
 export const E_FEATURE_008 = "E-FEATURE-008";
 /// [E-FEATURE-009] 请求特性与允许集无交集：文档请求的特性与调用方允许的特性没有交集
 export const E_FEATURE_009 = "E-FEATURE-009";
+/// [E-FEATURE-010] 版本集已移除：该版本集已被移除，请用迁移工具升级文档中的版本声明
+export const E_FEATURE_010 = "E-FEATURE-010";
 /// [E-INCLUDE-001] include 文件缺失或读取失败：include 无法定位或读取目标文件
 export const E_INCLUDE_001 = "E-INCLUDE-001";
 /// [E-INCLUDE-002] include 循环引用：include 循环引用
@@ -352,6 +354,7 @@ export const ALL = Object.freeze([
   E_FEATURE_007,
   E_FEATURE_008,
   E_FEATURE_009,
+  E_FEATURE_010,
   E_INCLUDE_001,
   E_INCLUDE_002,
   E_INCLUDE_003,
@@ -445,4 +448,4 @@ export const ALL = Object.freeze([
   W_PARSE_002,
 ]);
 
-export const COUNT = 146;
+export const COUNT = 147;

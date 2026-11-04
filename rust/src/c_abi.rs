@@ -195,13 +195,13 @@ pub extern "C" fn sml_version() -> *const c_char {
 /// 极简解析 opts JSON: 仅识别顶层 object 的
 ///   "features": [ "glob-include", ... ]
 ///   "env":      { "KEY": "VAL", ... }
-///   "allow":    [ "v1", "v2", "v3" ]
-/// 返回 (features: Vec<Feature>, env: Vec<(String,String)>, allow: Vec<Version>)。
+///   "allow":    [ "10", "20", "v3" ]
+/// 返回 (features: Vec<Feature>, env: Vec<(String,String)>, allow: Vec<Edition>)。
 /// 任何字段缺失即视为空/不限制; 解析失败返回 Err。
-fn parse_opts_json(opts: &str) -> Result<(Vec<Feature>, Vec<(String, String)>, Vec<Version>), String> {
+fn parse_opts_json(opts: &str) -> Result<(Vec<Feature>, Vec<(String, String)>, Vec<Edition>), String> {
     let mut features: Vec<Feature> = Vec::new();
     let mut env: Vec<(String, String)> = Vec::new();
-    let mut allow: Vec<Version> = Vec::new();
+    let mut allow: Vec<Edition> = Vec::new();
     if opts.trim().is_empty() {
         return Ok((features, env, allow));
     }
@@ -242,7 +242,8 @@ fn parse_opts_json(opts: &str) -> Result<(Vec<Feature>, Vec<(String, String)>, V
                     if key == "features" {
                         features.push(Feature::from_name(&val).ok_or_else(|| format!("未知特性 {val}"))?);
                     } else {
-                        allow.push(Version::from_word(&val).ok_or_else(|| format!("未知版本 {val}"))?);
+                        // `Edition::parse` 与文档里的 `@version` 同一套字面量（`10`/`1.0`/`v1`）
+                        allow.push(Edition::parse(&val).ok_or_else(|| format!("未知版本 {val}"))?);
                     }
                 }
             }

@@ -177,6 +177,9 @@ pub const E_FEATURE_008: &str = "E-FEATURE-008";
 /// [E-FEATURE-009] 请求特性与允许集无交集：文档请求的特性与调用方允许的特性没有交集
 /// EN: No overlap with allowed feature set —— The document's requested features have no overlap with the caller's allowed set
 pub const E_FEATURE_009: &str = "E-FEATURE-009";
+/// [E-FEATURE-010] 版本集已移除：该版本集已被移除，请用迁移工具升级文档中的版本声明
+/// EN: Edition has been removed —— This edition has been removed; upgrade the version declaration with the migration tool
+pub const E_FEATURE_010: &str = "E-FEATURE-010";
 /// [E-INCLUDE-001] include 文件缺失或读取失败：include 无法定位或读取目标文件
 /// EN: include file missing or read failed —— include cannot locate or read the target file
 pub const E_INCLUDE_001: &str = "E-INCLUDE-001";
@@ -508,6 +511,7 @@ pub const ALL: &[&str] = &[
     E_FEATURE_007,
     E_FEATURE_008,
     E_FEATURE_009,
+    E_FEATURE_010,
     E_INCLUDE_001,
     E_INCLUDE_002,
     E_INCLUDE_003,
@@ -602,4 +606,4 @@ pub const ALL: &[&str] = &[
 ];
 
 /// 码总数（与 `errors/codes.sml` 的 `count` 对齐）。
-pub const COUNT: usize = 146;
+pub const COUNT: usize = 147;
