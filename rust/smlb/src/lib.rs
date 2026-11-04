@@ -44,11 +44,12 @@
 //! T0 only touches the precondition of #2 (stable canonical); #1 and #3 gain substance at T2/T4.
 
 pub mod container;
+pub mod sha256;
 pub mod vectors;
 
 pub use container::{
-    dump, info, load, ContainerError, FileInfo, Segment, SegmentHeader, EDITION, FMT, HEADER_LEN,
-    MAGIC, SEG_HEADER_LEN, SEG_MANIFEST, SEG_STRTAB, SEG_VALUE,
+    check, dump, get, info, load, CheckReport, ContainerError, FileInfo, Segment, SegmentHeader,
+    EDITION, FMT, HEADER_LEN, MAGIC, SEG_HEADER_LEN, SEG_MANIFEST, SEG_STRTAB, SEG_VALUE,
 };
 pub use sml_value::canonical::CanonicalError;
 pub use sml_value::{CanonicalBlocks, Map, Value};
