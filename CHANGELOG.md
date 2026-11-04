@@ -17,6 +17,35 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 > 因此 `c/` `cpp/` `js/` `lua/`（含 `editors/vscode` 与 `site/` 的四份 vendored 副本）也有改动 ——
 > 见下方「🚨 破坏性变更」与「新增（契约扩展点：严格性三态）」两节。
 
+### 🚨 破坏性变更（版本命名：`Version` 枚举 → `Edition` 查表）
+
+**版本号 = 功能集**（Rust edition 模型，见 `docs/version-naming.md` v1.0）。版本之间**没有大小关系**，
+判据一律是「这个特性在不在这套功能集里」，因此下面这些 API 形态变了：
+
+- `enum Version { V1..V4 }` **删除**，改为 `struct Edition { major, minor }` +
+  `pub use Edition as Version`（旧名字仍是同一类型的别名；`Version::V1..V4` 保留为**关联常量**，
+  所以 `Version::V1` 这类写法照旧编译，但**不再有 `Ord`** —— `v3 < v4` 这种比较从此是编译错误）。
+- `FeatureSet::for_version(Version)` → **`FeatureSet::for_edition(Edition)`**：结论来自
+  `EDITIONS` 登记表每行的 `features` 字段（「一行同时承载数字 / 代号 / 状态 / 功能集」），不再按版本号算。
+- `Edition::name()` / `Display` 回显**规范名** `1.0`..`4.0`（此前是 `v1`..`v4`），错误文案里的版本号随之变化。
+  `Edition::from_word` 删除，改用 `Edition::parse`（接受 `10`/`1.0`/`v1`/`50`/`5.0`/`v5` 等全部别名）。
+- `parse_versioned` / `parse_file_versioned` 返回 `(Value, Edition)`；`parse_allowed(text, &[Edition])`
+  —— 源码里把 `&[Version::V1]` 换成 `&[Edition::V1]` 即可（两个名字是同一类型）。
+- `smltools --feature` 接受同一套字面量（`10`/`1.0`/`v1` …），且**只接受已发布版本集**；
+  非法取值的文案从 `（v1..v4）` 改为 `（1.0..4.0，即 v1..v4）`。
+- C-ABI `sml_loads` 的 `opts.allow` 版本串同样改走 `Edition::parse`（旧写法仍认）。
+
+### 新增（错误码：`E-FEATURE-010` 版本集已移除）
+
+- 「**曾被移除的开发代号**」从此有自己的码，与「版本声明非法」（`E-FEATURE-004`）分开 ——
+  否则用户分不清「我写错了」和「我该迁移了」。文案固定带代号、迁移规则 id（如 `v50-version`）
+  与 `smltools --migrate scan`。
+- 判据集中到**单一入口** `scan::resolve_edition`：`@version` 与 `@feature base` 共用一套
+  「能认哪些标识 / Dev 要不要写 `dev` / Removed 报哪个码」，不再各写一份。
+  ⇒ 顺带的行为变化：`@feature base 50` 现在会像 `@version 50` 一样要求 `dev` 标记。
+- ⚠️ 登记表里还没有 `Removed` 行 ⇒ 该分支**暂不可达**（码与接线已就绪，加一行即生效）；
+  `smltools --migrate`（V11）尚未实现，文案里的规则 id 是承诺。
+
 ### 新增（解析入口：文件 + 选项）
 
 - **`parse_file_with(path, ParseOptions)`**（`sml_parse` 与门面 `sml` 同名导出）：第一个同时做到

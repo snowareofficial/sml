@@ -97,14 +97,19 @@ drop the `@contract` and it is plain data.
 > / `__name` 两个键，契约不生效、不报错）。**跨端共享的文档请改用块内首行
 > `@is Rule`** —— 那是五端等价的可移植写法。
 
-> **Versioning (`Version`):** `@version v1..v4` declares the syntax version; absent
-> means v1. v2 / v3 / v4 require strings to be explicitly quoted (`name: "John"`),
-> while v1 allows barewords; `Version::CURRENT` is v4. The example above declares no
-> `@version`, so it runs on the default v1 baseline.
+> **Edition (`Edition`, alias `Version`):** `@version` declares an **edition**, and an
+> edition is just a **name for a set of default feature bits** — editions are not ordered
+> and cannot be compared. Canonical spellings are `10` / `20` / `30` / `40` (= `1.0`..`4.0`);
+> the legacy `v1`..`v4` and dotted `1.0` forms stay valid aliases forever. Absent means
+> `1.0`. `2.0` and later require strings to be explicitly quoted (`name: "John"`), while
+> `1.0` allows barewords. The next edition `5.0` (codename `camelia`) is still in
+> development, so it must be written `@version 50 "camelia" dev`.
 
-> **版本（`Version`）**：`@version v1..v4` 声明语法版本，缺省即 v1。v2 / v3 / v4 要求
-> 字符串显式引号（`name: "John"`），v1 允许裸词；`Version::CURRENT` 为 v4。上面示例
-> 未声明 `@version`，走默认 v1 基线。
+> **版本集（`Edition`，别名 `Version`）**：`@version` 声明的是**版本集** —— 版本号只是一组
+> **默认特性位**的名字，**彼此没有大小关系、不能比较**。规范写法是 `10` / `20` / `30` / `40`
+> （即 `1.0`..`4.0`）；旧写法 `v1`..`v4` 与点号 `1.0` 永久保留为别名。缺省即 `1.0`。
+> `2.0` 起要求字符串显式引号（`name: "John"`），`1.0` 允许裸词。下一代 `5.0`（代号
+> `camelia`）仍在开发中，必须写成 `@version 50 "camelia" dev`。
 
 ---
 
@@ -146,7 +151,7 @@ Compatible with Rust 2021 and 2024 editions (`build.rs` handles the difference).
 | **Typed block** | `Rule ssh { }` — first word is the contract, auto-applied (needs `@feature enable typed-block`) / 首词即契约，自动套用 |
 | `include` | Split files; textual inline, also usable inside blocks / 拆分文件；文本内联，块内也可用 |
 | Env vars 环境变量 | `$env.VAR` inlined at parse time / 解析期内联 |
-| Versioned 版本化 | `@version v1..v4` |
+| Versioned 版本化 | `@version 10` / `1.0` / `v1` …（版本集，无大小关系） |
 | Feature switches 特性开关 | `@feature enable/disable <name>` (Rust / JS support) / 支持 |
 | Comments 注释 | `#` `--` `//` single-line; `/* */` `_* *_` multi-line / 单行；多行 |
 
