@@ -7,6 +7,11 @@
 > - 语言层：`docs/featag-spec-draft.md`（v1.0，语义闭合、零实现）
 > - 命名与版本位：`docs/feature-namespace-plan.md`（已定稿）
 > - 已在 dev 落地的破坏性改动：`CHANGELOG.md` 的「未发布」段
+>
+> 🔒 **发布节奏（用户 2026-11-04 定）：v5 不早发布，等完整。**
+> ⇒ A 表**不拆「最小可发布集 / 可推迟」**，也不为提前出海而把条目挪到 v5.1；
+> 表 A 里每条都要在 `5.0` 启用的那一次里齐备。同理 `.smlb` / `smldb` 与 v5 同时开放
+> （见 `docs/smlb-smldb-spec.md` 文首）。
 
 ---
 
