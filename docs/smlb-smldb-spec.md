@@ -932,6 +932,8 @@ key 更少一份、零依赖，`ser_text` 已趟过路；O(n) 对真实负载够
 | **D34** | **段头用正交双字段 `comp` + `enc`**（段头 41 B），不枚举「压缩+加密」组合 | 见 §19.1 / §20 |
 | **D35** | **只允许 AEAD**：禁 CBC / CTR / 任何「加密 + 独立 MAC」组合 | 加密与完整性一次做对 |
 | **D36** | **多签名 = 数组，全部必须通过**（不是任一） | 抗量子那一路失效必须暴露出来 |
+| **D37** | **默认值表**（§21）：默认写进 manifest；「启用才有代价」的默认关、「关掉只影响性能」的默认开 | 改默认值不影响旧文件 |
+| **D38** | **配套工具面**（§22）：`info`/`ls`/`cat`/`check`/`verify`/`sign`/`append`/`pack`/`unpack`/`vectors` + `smltools` 互转 + 五端解码器 | 「格式的价值有一半在工具」；`vectors` 是 T0 前置 |
 
 ### 16.2 待定（按依赖排序）
 
@@ -1134,3 +1136,63 @@ crypto {
 - `sig` 是**数组**（可多个，**全部验过**才算通过）；
 - `kem` 是**单个**（首个成功即用）；
 - 量子迁移只是**换编号**，不动结构 ⇒ 这是「算法敏捷」的全部内容。
+
+---
+
+## 21. 默认值与开关（D37）
+
+> 元规则两条：**① 默认值写进 manifest**，读时以文件为准（改默认值不影响旧文件）；
+> **② 「启用才有代价」的默认关**（加密/签名/压缩），**「关掉只影响性能」的默认开**（`DIR`/时间戳）。
+
+| 项 | 默认 | 开关 |
+|---|---|---|
+| 层记录编码 | **二进制**（复用 `VALUE` 编码） | `--with-sml-mirror` 附 SML 文本镜像 |
+| `MANIFEST_SML` 镜像 | **不带** | `--with-mirror` |
+| `SOURCE` 段（P7） | **不带** | `--keep-source` |
+| `DIR` 段 | **带**（深度 ≤ 4） | `--no-dir` / `dir_depth=N` |
+| 时间戳 `created` | **写**，只展示、**不验签** | `--no-timestamps` |
+| 压缩 | 传输档 **zstd** / 冷数据档 **不压** | `--no-compress` / `--compress` |
+| 加密 | **关** | `--encrypt` + 算法 |
+| 签名 | **关** | `--sign` |
+| 哈希 | **SHA-256** | `--hash sm3` / `blake3` |
+| 加密块 / 量化 | **4 KiB / 64 B** | manifest 字段 |
+| 补丁策略 | manifest 内显式（默认 `override`） | `patch.strategy` |
+| `edition` / `fmt` | 当前 edition / `0` | 写入时决定 |
+
+### 21.1 层链三条（P2 落定）
+
+| # | 结论 |
+|---|---|
+| **P2-a** | `prev_hash = H(前一层记录的 canonical 字节)` —— 不覆盖整个文件前缀，追加保持 **O(1)** |
+| **P2-b** | 层记录**复用 `VALUE` 编码**；签名对象 = `canonical_text(layer)` |
+| **P2-c** | `delegation` 放在**层记录里**（而不是独立段）⇒ 天然被**前一层签名**覆盖，正是 D16 要的 |
+
+验签判定链（六步）：`Trailer.head_hash` → 逐层 `prev_hash` → `index` 连续 → 各签名全过（D36）→
+换钥须有前一层覆盖的 `delegation` 且 `j ≤ max_index` → 各段 `sha256` 一致。**时间只进告警**（D17）。
+
+---
+
+## 22. 配套工具（D38 · 用户 2026-11-04 点名「还得有配套工具」）
+
+> 原则：**格式的价值有一半在工具**。没有 `info` / `verify` / `cat`，`.smlb` 就是个打不开的黑盒。
+
+| 工具 / 子命令 | 用途 | 阶段 | v1 必须 |
+|---|---|---|---|
+| `smlb info <f>` | 一眼看清：edition/fmt/段表/能力位/是否签名、是否加密 | T2 | ✅ |
+| `smlb ls <f> [--segments]` | 列段与外来载荷（id/长度/算法） | T2 | ✅ |
+| `smlb cat <f> <path>` | 按路径取值（`a.b[0]`），走 `DIR` | T3 | ✅ |
+| `smlb check <f>` | 结构校验：段哈希、层链、能力位、截断位置 | T2 | ✅ |
+| `smlb verify <f> [--trust k.pub]` | 验签 + 打印每层/每段结论 | T4 | ✅ |
+| `smlb sign / append / delegate` | 签名、追加补丁、换钥授权 | T4 | ✅ |
+| `smlb pack / unpack` | 把目录/多文件打成 `.smlb`，或反向取出外来段 | T2 | ✅ |
+| `smlb tree <f>` | 打印层链（index/prev_hash/作者/时间**仅展示**） | T4 | 建议 |
+| `smlb vectors --gen/--check` | 生成/校验跨端 canonical 测试向量（T0 判据） | T0 | ✅ |
+| `smlb bench <f>` | 读路径基准（mmap 打开、单子树取、解帧、解密） | T5 | 建议 |
+| `smlb migrate --to fmt=N` | `fmt` 升级（重写 + 重签，需保留旧签名证据） | T5+ | 建议 |
+| `smlb compact` | 合并多层（会**重签**，D8 的例外情况） | T5+ | 建议 |
+| `smltools --to smlb` / `--from smlb` | 与 SML 文本互转（D27 的 A 路） | T6 | ✅ |
+| `smltools --to smlb --keep-source` | 带 `SOURCE` 段 | T6 | 建议 |
+| JS / Lua 解码器 | 只读 `VALUE` + 透传载荷（D12 五端可读） | T7 | ✅ |
+| VSCode 扩展（只读） | 直接打开 `.smlb` 浏览树 / 悬停看段信息 | T7+ | 建议 |
+
+**顺序**：`info`/`ls`/`check` 跟着 T2 长出来；`cat`/`verify`/`sign`/`append` 跟 T3/T4；`vectors` 是 T0 的**前置**（没有向量就不知道 canonical 对不对）。
