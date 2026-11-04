@@ -657,7 +657,7 @@
         "rust"
       ],
       "status": "done",
-      "note": "规范文案会附带可用特性列表。**JS 原先把未知特性静默加入集合**（`feats.add(w)` 不校验）⇒ 用户以为开了某项能力、实际什么都没开且无提示；已对齐本码（`js/sml.mjs` 的 `KNOWN_FEATURES`，合法名 = Rust 注册表 15 个 **并集** JS 别名 `top-array`/`bareword-str`/`escape`，并支持逗号分隔）。⚠️ C / C++ / Lua 没有特性集（`@feature` 本身非法 ⇒ 落 `E-PARSE-005`），故不在 impls"
+      "note": "规范文案会附带可用特性列表。**JS 原先把未知特性静默加入集合**（`feats.add(w)` 不校验）⇒ 用户以为开了某项能力、实际什么都没开且无提示；已对齐本码（`js/sml.mjs` 的 `KNOWN_FEATURES`，合法名 = Rust 注册表 15 个 **并集** JS 别名 `top-array`/`bareword-str`/`escape`，并支持逗号分隔）。⚠️ **Rust 自 2026-11-04 起按命名空间判名**（`docs/feature-namespace-plan.md` N4）：老名保持平铺、**不补** `type.xxx` 别名（N2），新增特性写作 `<域>.<名>`（域 = `lex`/`mod`/`type`/`flow`，只在第一个点切一次，三段直接拒）—— 三类失败（三段 / 未知域 / 未注册）**同码**，靠 detail 区分。故 `type.featag` 在 Rust 合法、在 JS/Lua 仍落本码（该特性本就只在 Rust，见 capability-matrix）。⚠️ C / C++ / Lua 没有特性集（`@feature` 本身非法 ⇒ 落 `E-PARSE-005`），故不在 impls"
     },
     {
       "id": "E-FEATURE-004",

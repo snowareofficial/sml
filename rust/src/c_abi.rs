@@ -240,7 +240,11 @@ fn parse_opts_json(opts: &str) -> Result<(Vec<Feature>, Vec<(String, String)>, V
                     let val = std::str::from_utf8(&b[vs..i]).map_err(|_| "opts 值非法 UTF-8".to_string())?.to_string();
                     i += 1;
                     if key == "features" {
-                        features.push(Feature::from_name(&val).ok_or_else(|| format!("未知特性 {val}"))?);
+                        // 与文档里的 `@feature enable` 同一套判据（含 `<域>.<名>` 形态规则）
+                        features.push(
+                            Feature::parse_name(&val)
+                                .map_err(|e| format!("特性名 `{val}` 无效：{e}"))?,
+                        );
                     } else {
                         // `Edition::parse` 与文档里的 `@version` 同一套字面量（`10`/`1.0`/`v1`）
                         allow.push(Edition::parse(&val).ok_or_else(|| format!("未知版本 {val}"))?);
@@ -1069,6 +1073,7 @@ pub extern "C" fn sml_feature_name(bit: c_uint) -> *const c_char {
         14 => "typed-block\0",
         15 => "case-insensitive\0",
         16 => "block-name\0",
+        17 => "type.featag\0",
         _ => return ptr::null(),
     };
     s.as_ptr() as *const c_char

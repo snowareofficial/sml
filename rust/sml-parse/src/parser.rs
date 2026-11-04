@@ -1034,9 +1034,11 @@ impl Parser {
             // 特性集在解析前已由 `scan.rs` 把全文的 `@feature` 指令一并剥离并应用，
             // 因此此处校验的是「文档在任意位置声明过的特性」的并集，与书写顺序无关。
             for req in &requires {
-                let f = Feature::from_name(req).ok_or_else(|| {
+                // 与 `@feature enable` 同一个判据（`lookup_feature` 是 `scan` 的私有函数，
+                // 这里用同一套 `parse_name`）：带点名的形态规则不该因入口不同而不同。
+                let f = Feature::parse_name(req).map_err(|e| {
                     SmlError::from_code_title(E_FEATURE_003).with_detail(format!(
-                        "契约 `{cname}` 的 `@requires` 引用了未知特性 `{req}`"
+                        "契约 `{cname}` 的 `@requires` 引用了无效特性 `{req}`：{e}"
                     ))
                 })?;
                 if !self.features.has(f) {

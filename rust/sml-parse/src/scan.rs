@@ -10,7 +10,8 @@ use sml_codes::{
     SmlError,
 };
 use sml_feature::{
-    edition_by_codename, Edition, EditionStatus, FEATURES, Feature, FeatureMode, FeatureSet,
+    edition_by_codename, Edition, EditionStatus, FEATURES, Feature, FeatureMode, FeatureNameError,
+    FeatureSet,
 };
 use sml_lex::{Tok, compute_string_spans, line_starts_in_string, tokenize};
 use sml_include::strip_line_comment;
@@ -45,6 +46,31 @@ pub fn tok_word(t: &Tok) -> String {
 /// - `@feature whitelist <a,b>`      紧凑白名单
 /// - `@feature blacklist <a,b>`      紧凑黑名单
 ///
+/// 特性名 → 位：**唯一**入口（命名空间形态 + 注册表都在这里判）。
+///
+/// `enable` / `disable` / `whitelist` / `blacklist` 四处，以及契约里的 `@requires`，
+/// 全部走这里 —— 否则「哪个指令对带点名的处理不一样」这种漂移迟早发生。
+///
+/// 失败一律 `E-FEATURE-003`（未知特性名），但 detail 分三档：
+/// 三段名 / 未知域 / 没注册（附可用清单）—— 用户看一眼就知道是「多点了个点」
+/// 还是「名字拼错」还是「这门语言还没这特性」。
+fn lookup_feature(n: &str) -> Result<Feature, SmlError> {
+    Feature::parse_name(n).map_err(|e| {
+        let detail = match e {
+            FeatureNameError::Unknown => format!(
+                "`{n}`，可用：{}",
+                FEATURES
+                    .iter()
+                    .map(|(n, _)| *n)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            other => format!("`{n}`：{other}"),
+        };
+        SmlError::from_code_title(E_FEATURE_003).with_detail(detail)
+    })
+}
+
 /// 未知特性名一律报错，避免拼写错误静默失效。
 pub fn apply_feature_directive(
     line: &str,
@@ -127,12 +153,7 @@ pub fn apply_feature_directive(
             // bareword-string 等默认特性，而非收窄为仅所列项。
             // 真正的「收窄为仅所列」由显式 `@feature mode whitelist` 控制。
             for n in names(2) {
-                let f = Feature::from_name(&n).ok_or_else(|| {
-                    SmlError::from_code_title(E_FEATURE_003).with_detail(format!(
-                        "`{n}`，可用：{}",
-                        FEATURES.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ")
-                    ))
-                })?;
+                let f = lookup_feature(&n)?;
                 *feats = feats.with(f);
                 *touched = touched.with(f);
             }
@@ -140,12 +161,7 @@ pub fn apply_feature_directive(
         }
         "disable" => {
             for n in names(2) {
-                let f = Feature::from_name(&n).ok_or_else(|| {
-                    SmlError::from_code_title(E_FEATURE_003).with_detail(format!(
-                        "`{n}`，可用：{}",
-                        FEATURES.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ")
-                    ))
-                })?;
+                let f = lookup_feature(&n)?;
                 *feats = feats.without(f);
                 *touched = touched.with(f);
             }
@@ -155,12 +171,7 @@ pub fn apply_feature_directive(
             *mode = FeatureMode::Whitelist;
             let mut s = FeatureSet::none();
             for n in names(2) {
-                let f = Feature::from_name(&n).ok_or_else(|| {
-                    SmlError::from_code_title(E_FEATURE_003).with_detail(format!(
-                        "`{n}`，可用：{}",
-                        FEATURES.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ")
-                    ))
-                })?;
+                let f = lookup_feature(&n)?;
                 s = s.with(f);
             }
             *feats = s;
@@ -174,12 +185,7 @@ pub fn apply_feature_directive(
             *mode = FeatureMode::Blacklist;
             let mut s = FeatureSet::all();
             for n in names(2) {
-                let f = Feature::from_name(&n).ok_or_else(|| {
-                    SmlError::from_code_title(E_FEATURE_003).with_detail(format!(
-                        "`{n}`，可用：{}",
-                        FEATURES.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ")
-                    ))
-                })?;
+                let f = lookup_feature(&n)?;
                 s = s.without(f);
             }
             *feats = s;
