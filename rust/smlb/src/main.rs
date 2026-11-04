@@ -19,10 +19,12 @@ use std::process::ExitCode;
 use smlb::vectors;
 
 const USAGE: &str = "\
-smlb — SML 的二进制形式 .smlb（T0：canonical 与测试向量）
+smlb — SML 的二进制形式 .smlb（T0 canonical/向量 + T1 容器）
 
 用法:
-  smlb vectors --gen   [--file PATH]   重新生成向量文件
+  smlb info    <file>                  一眼看清 edition/fmt/段表/摘要状态
+  smlb ls      <file>                  逐段列出 id/偏移/长度/算法（`--segments` 同义）
+  smlb vectors --gen   [--file PATH]   重新生成跨端 canonical 向量
   smlb vectors --check [--file PATH]   重新生成并与磁盘逐行比对
   smlb --help | -h                     本帮助
   smlb --version | -V                  版本
@@ -32,11 +34,12 @@ smlb — SML 的二进制形式 .smlb（T0：canonical 与测试向量）
   `--check` 会先跑自检：每例 bytes → load → bytes 必须逐字节相同，
   且 text(load(bytes)) 必须等于原 text —— 否则签名与字节会各说各话。
 
-  本子命令需要 sml-value 的 preserve_order（spec §18 C2：键序 = 源序）：
+  `vectors` 需要 sml-value 的 preserve_order（spec §18 C2：键序 = 源序）；
+  `info` / `ls` 只读容器，不需要：
     cargo run -p smlb --features preserve_order -- vectors --check
 
-T1 起将增加编码器与段表；T2 起增加 info / ls / check / pack / unpack；
-T4 起增加 sign / verify / append / tree（顺序见 spec §17）。";
+T2 起增加 check / pack / unpack；T3 起 cat；T4 起 sign / verify / append / tree
+（顺序见 spec §17 / §22）。T1 **没有写 sha256**，所以 `info` 会明说「摘要：无」。";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -66,13 +69,47 @@ fn run(args: &[String]) -> Result<String, (u8, String)> {
         "-h" | "--help" | "help" => Ok(USAGE.to_string()),
         "-V" | "--version" => Ok(format!("smlb {}", env!("CARGO_PKG_VERSION"))),
         "vectors" => vectors_cmd(&args[1..]),
+        "info" => read_cmd(&args[1..], |path, bytes| {
+            let info = smlb::info(bytes).map_err(|e| (1, format!("{path}: {e}")))?;
+            Ok(smlb::container::info_lines(path, &info).join("\n"))
+        }),
+        "ls" => {
+            let rest: Vec<String> = args[1..]
+                .iter()
+                .filter(|a| a.as_str() != "--segments")
+                .cloned()
+                .collect();
+            read_cmd(&rest, |path, bytes| {
+                let info = smlb::info(bytes).map_err(|e| (1, format!("{path}: {e}")))?;
+                if info.segments.is_empty() {
+                    return Ok(format!("{path}: 没有段"));
+                }
+                Ok(smlb::container::ls_lines(&info).join("\n"))
+            })
+        }
         other => Err((
             2,
             format!(
-                "未知子命令 `{other}`（T0 只有 `vectors`；`info`/`ls`/`cat` 等自 T2 起才有）"
+                "未知子命令 `{other}`（T1 有 info / ls / vectors；check/pack/cat/verify/append 自 T2–T4 起才有）"
             ),
         )),
     }
+}
+
+/// Read a file and hand its bytes to `f` — shared by `info` / `ls`.
+/// 读文件并把字节交给 `f` —— `info` / `ls` 共用。
+fn read_cmd<F>(args: &[String], f: F) -> Result<String, (u8, String)>
+where
+    F: FnOnce(&str, &[u8]) -> Result<String, (u8, String)>,
+{
+    let Some(path) = args.first() else {
+        return Err((2, "需要一个文件路径".to_string()));
+    };
+    if args.len() > 1 {
+        return Err((2, format!("多余参数 `{}`", args[1])));
+    }
+    let bytes = std::fs::read(path).map_err(|e| (1, format!("读 {path} 失败：{e}")))?;
+    f(path, &bytes)
 }
 
 fn vectors_cmd(args: &[String]) -> Result<String, (u8, String)> {

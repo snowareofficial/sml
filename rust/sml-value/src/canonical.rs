@@ -532,6 +532,24 @@ where
 // subtree is `pos + 4 + subtree_len` (§19.2). ｜ `subtree_len` = **载荷**字节数（不含 6 B
 // 节点头）⇒ 跳过子树是 `pos + 4 + subtree_len`。
 
+/// The two `.smlb` segment bodies produced by one encode: `STRTAB` and `VALUE`.
+/// 一次编码产出的两个 `.smlb` 段体：`STRTAB` 与 `VALUE`。
+///
+/// Both are **segment bodies**, not segments: no 41 B segment header, no alignment, no
+/// `count` prefix — those belong to the container (`smlb`, T1) and to the L0 form
+/// (`canonical_bytes`, T0) respectively.
+/// 两者都只是**段体**：没有 41 B 段头、不涉及对齐、不带 `count` 前缀 —— 那些分别属于
+/// 容器层（`smlb`，T1）与 L0 形态（`canonical_bytes`，T0）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CanonicalBlocks {
+    /// `(len:varint ‖ utf8)*` — **no** entry count (a segment header's `len` is the boundary).
+    /// `(len:varint ‖ utf8)*`，**不带**表项个数（段头 `len` 就是边界）。
+    pub strtab: Vec<u8>,
+    /// Preorder node tree; identical to the tail of [`Value::canonical_bytes`].
+    /// 前序节点树；与 [`Value::canonical_bytes`] 的尾部逐字节相同。
+    pub value: Vec<u8>,
+}
+
 impl Value {
     /// Canonical bytes — the `VALUE` segment payload of `.smlb` (§19). ｜ canonical 字节 —— `.smlb` 的 `VALUE` 段载荷（§19）。
     ///
@@ -564,18 +582,66 @@ impl Value {
         if !key_order_is_source_order() {
             return Err(CanonicalError::KeyOrderUnavailable);
         }
+        let (count, strtab, nodes) = self.encode_blocks()?;
+        let mut out = Vec::with_capacity(strtab.len() + nodes.len() + 8);
+        // L0 形态：把「表项个数」写在最前，才能定位两张表的分界（§19.5 L3）
+        write_uvarint(&mut out, count as u64);
+        out.extend_from_slice(&strtab);
+        out.extend_from_slice(&nodes);
+        Ok(out)
+    }
+
+    /// The same bytes, **split into the two `.smlb` segments**: `(STRTAB, VALUE)`.
+    /// 同一串字节，但**拆成两个 `.smlb` 段**（供容器层使用）。
+    ///
+    /// Why it exists / 为什么要有它：§19.1 把 `STRTAB` 与 `VALUE` 定为两个段，
+    /// 而段头自带 `len`，段内就不需要「表项个数」了（L3）。容器层（`smlb`）拿到这两个
+    /// 块即可直接落段，**不必自己解析 L0 前缀**，也不必复制一遍编码逻辑。
+    ///
+    /// `strtab` 的形态是 `(len:varint ‖ utf8)*`（不含个数）；`value` 是节点树。
+    pub fn canonical_blocks(&self) -> Result<CanonicalBlocks, CanonicalError> {
+        if !key_order_is_source_order() {
+            return Err(CanonicalError::KeyOrderUnavailable);
+        }
+        let (_count, strtab, value) = self.encode_blocks()?;
+        Ok(CanonicalBlocks { strtab, value })
+    }
+
+    /// Inverse of [`Value::canonical_blocks`] — decode from the two segment bodies.
+    /// [`Value::canonical_blocks`] 的逆运算：从两个段体解码。
+    ///
+    /// `strtab` 没有个数前缀 ⇒ 表项一直读到缓冲结尾（段头 `len` 就是个数边界）；
+    /// `value` 必须**恰好**用完，多一个字节即 [`CanonicalError::TrailingBytes`]。
+    pub fn from_canonical_blocks(strtab: &[u8], value: &[u8]) -> Result<Value, CanonicalError> {
+        let mut sr = Reader::new(strtab);
+        let mut table: Vec<&str> = Vec::new();
+        while sr.pos < strtab.len() {
+            let index = table.len();
+            let len = sr.uvarint()?;
+            let raw = sr.take(len)?;
+            let s = std::str::from_utf8(raw).map_err(|_| CanonicalError::BadStrTable { index })?;
+            table.push(s);
+        }
+        let mut vr = Reader::new(value);
+        let v = decode_node(&mut vr, &table, 0)?;
+        if vr.pos != value.len() {
+            return Err(CanonicalError::TrailingBytes { at: vr.pos });
+        }
+        Ok(v)
+    }
+
+    /// Encode once, hand back the pieces: `(strtab_count, strtab_body, value_body)`.
+    /// 编码一次，交出三块：表项个数、表体、节点体。
+    fn encode_blocks(&self) -> Result<(usize, Vec<u8>, Vec<u8>), CanonicalError> {
         let mut tab = StrTab::default();
         let mut nodes = Vec::with_capacity(64);
         encode_node(self, &mut nodes, &mut tab, 0)?;
-
-        let mut out = Vec::with_capacity(nodes.len() + 32);
-        write_uvarint(&mut out, tab.table.len() as u64);
+        let mut strtab = Vec::with_capacity(16);
         for s in &tab.table {
-            write_uvarint(&mut out, s.len() as u64);
-            out.extend_from_slice(s.as_bytes());
+            write_uvarint(&mut strtab, s.len() as u64);
+            strtab.extend_from_slice(s.as_bytes());
         }
-        out.extend_from_slice(&nodes);
-        Ok(out)
+        Ok((tab.table.len(), strtab, nodes))
     }
 
     /// Inverse of [`Value::canonical_bytes`] — the T0 “L0” decoder. ｜ canonical 字节 → 值。

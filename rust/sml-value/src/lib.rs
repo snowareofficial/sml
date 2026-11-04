@@ -70,6 +70,9 @@ pub use value::{describe_value, insert_or_merge, Map, MAX_VALUE_DEPTH, Value};
 /// Why canonical failed (three families: built wrong / data inexpressible / corrupt bytes).
 /// canonical 的失败原因（三种性质不同：构建方式 / 数据表达不出 / 字节坏了）。
 pub use canonical::CanonicalError;
+/// The `STRTAB` + `VALUE` segment bodies of one encode (container layer uses this).
+/// 一次编码产出的 `STRTAB` + `VALUE` 两个段体（供容器层使用）。
+pub use canonical::CanonicalBlocks;
 
 /// The order-preserving object (`Value::Object` bearer under the `preserve_order` feature).
 /// 保序对象（`Value::Object` 在 `preserve_order` 档下的载体）。
