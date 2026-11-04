@@ -261,6 +261,9 @@ pub const E_LEX_005: &str = "E-LEX-005";
 /// [E-LEX-006] 转义符后遇文件结束：字符串中的转义符后遇到文件结束
 /// EN: Escape before end of file —— An escape sequence is followed by end of file inside the string
 pub const E_LEX_006: &str = "E-LEX-006";
+/// [E-LEX-007] 标识符含非法字符：键名（标识符）含非法字符：只允许字母数字、下划线、连字符、汉字 / 假名 / 谚文
+/// EN: Illegal character in identifier —— The key (identifier) contains an illegal character: only letters, digits, `_`, `-`, Han / Kana / Hangul are allowed
+pub const E_LEX_007: &str = "E-LEX-007";
 /// [E-LIMIT-001] 嵌套过深：嵌套过深，超过本实现的上限层数，疑似递归或恶意输入
 /// EN: Nesting too deep —— Nesting exceeds this implementation's depth limit; suspected recursion or malicious input
 pub const E_LIMIT_001: &str = "E-LIMIT-001";
@@ -548,6 +551,7 @@ pub const ALL: &[&str] = &[
     E_LEX_004,
     E_LEX_005,
     E_LEX_006,
+    E_LEX_007,
     E_LIMIT_001,
     E_LIMIT_002,
     E_LIMIT_003,
@@ -618,4 +622,4 @@ pub const ALL: &[&str] = &[
 ];
 
 /// 码总数（与 `errors/codes.sml` 的 `count` 对齐）。
-pub const COUNT: usize = 150;
+pub const COUNT: usize = 151;

@@ -110,6 +110,7 @@ static const struct SmlErrorMsg SML_ERROR_MSGS[] = {
     { "E-LEX-004", "error", "LEX", "字符串含未知转义符", "字符串含未知转义符，转义集见规范", "Unknown escape in string", "Unknown escape sequence in string; see the spec for the escape set" },
     { "E-LEX-005", "error", "LEX", "Unicode 转义非法", "Unicode 转义非法（位数不足、非十六进制、或非法码点）", "Invalid Unicode escape", "Invalid Unicode escape (too few digits, non-hexadecimal, or illegal code point)" },
     { "E-LEX-006", "error", "LEX", "转义符后遇文件结束", "字符串中的转义符后遇到文件结束", "Escape before end of file", "An escape sequence is followed by end of file inside the string" },
+    { "E-LEX-007", "error", "LEX", "标识符含非法字符", "键名（标识符）含非法字符：只允许字母数字、下划线、连字符、汉字 / 假名 / 谚文", "Illegal character in identifier", "The key (identifier) contains an illegal character: only letters, digits, `_`, `-`, Han / Kana / Hangul are allowed" },
     { "E-LIMIT-001", "error", "LIMIT", "嵌套过深", "嵌套过深，超过本实现的上限层数，疑似递归或恶意输入", "Nesting too deep", "Nesting exceeds this implementation's depth limit; suspected recursion or malicious input" },
     { "E-LIMIT-002", "error", "LIMIT", "模式匹配超步数预算", "模式匹配超出步数预算，疑似病态规则或超长输入", "Pattern match over step budget", "Pattern matching exceeded the step budget; suspected pathological rule or overlong input" },
     { "E-LIMIT-003", "error", "LIMIT", "include 展开次数超限", "include 展开次数超过上限，疑似指数膨胀", "include expansion over limit", "include expansions exceeded the limit; suspected exponential blow-up" },

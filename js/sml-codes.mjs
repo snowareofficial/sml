@@ -168,6 +168,8 @@ export const E_LEX_004 = "E-LEX-004";
 export const E_LEX_005 = "E-LEX-005";
 /// [E-LEX-006] 转义符后遇文件结束：字符串中的转义符后遇到文件结束
 export const E_LEX_006 = "E-LEX-006";
+/// [E-LEX-007] 标识符含非法字符：键名（标识符）含非法字符：只允许字母数字、下划线、连字符、汉字 / 假名 / 谚文
+export const E_LEX_007 = "E-LEX-007";
 /// [E-LIMIT-001] 嵌套过深：嵌套过深，超过本实现的上限层数，疑似递归或恶意输入
 export const E_LIMIT_001 = "E-LIMIT-001";
 /// [E-LIMIT-002] 模式匹配超步数预算：模式匹配超出步数预算，疑似病态规则或超长输入
@@ -388,6 +390,7 @@ export const ALL = Object.freeze([
   E_LEX_004,
   E_LEX_005,
   E_LEX_006,
+  E_LEX_007,
   E_LIMIT_001,
   E_LIMIT_002,
   E_LIMIT_003,
@@ -457,4 +460,4 @@ export const ALL = Object.freeze([
   W_PARSE_002,
 ]);
 
-export const COUNT = 150;
+export const COUNT = 151;
