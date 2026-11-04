@@ -222,6 +222,39 @@ pub struct ContractWarning {
     pub message: String,
 }
 
+/// 契约里声明的一个 featag（S4）｜ one `!featag` declaration inside a contract.
+///
+/// 声明写在契约体内、记号与使用处一致（`docs/featag-spec-draft.md` §2.1）：
+///
+/// ```sml
+/// @contract wea {
+///   a: int
+///   !critical              # 无参：纯标签
+///   !obey: [int]           # 带参：参数类型走契约字段类型语法
+///   !tls: [str] -> tls     # 带落点：参数落到 `tls`
+///   !cert: str -> tls.cert # 落点可以是点路径（**不穿数组**）
+/// }
+/// ```
+///
+/// ⚠️ **作用域是契约私有的**（§5）：`wea.critical` 与 `other.critical` 互不干扰，
+/// 故所有诊断必须写全 `<契约>.<featag>`。
+///
+/// ⚠️ 本结构**只承载声明**：参数校验（未声明即拒 / 类型是否相符）在 S5，
+/// 落点填充在 S6。S4 阶段它唯一的用途是「收集 + 查重」。
+#[derive(Debug, Clone)]
+pub struct FeatagDecl {
+    /// 名字（不含 `!`）。
+    pub name: String,
+    /// 参数规格；`None` = 无参 featag（纯标签）。复用 [`FieldSpec`] 是为了让 S5 的
+    /// 类型校验能直接用现成那一套（含 `default` / `min` / `max` / 外置类型）。
+    pub spec: Option<FieldSpec>,
+    /// 落点：**点路径**，只在「有参 + 写了 `->`」时存在；`None` = 不写任何键。
+    ///
+    /// 用 [`sml_value::Path`] 表达，因为 S6 的填充要按段走（`tls.cert` 是两段键，
+    /// 不是一次字符串查找）。数组下标在**声明时**就拒掉（落点不穿数组，§10 Q12）。
+    pub target: Option<sml_value::Path>,
+}
+
 /// A contract (schema): a set of field specs ｜ 契约（schema）：一组字段规格。
 #[derive(Debug, Clone)]
 pub struct Contract {
@@ -245,6 +278,11 @@ pub struct Contract {
     /// 跨端（JS / C / C++ / Lua）暂未实现 `@requires` 的解析，见到即按 `E-CONTRACT-018`
     /// 响亮拒绝（参照 `E-CONTRACT-017` 契约叠加未实现的先例），绝不静默忽略或静默给树。
     pub requires: Vec<String>,
+    /// 契约里声明的 featag（**保序**，声明顺序即诊断里的列举顺序）。
+    ///
+    /// 只在 Rust 侧由 `@contract` 解析填充（S4）；其它四端没有 featag，
+    /// 所以它们见不到这个字段（跨端以「本端不支持」拒绝，见 S9）。
+    pub featags: Vec<FeatagDecl>,
 }
 
 /// 拼接字段路径：`("api", "port")` -> `"api.port"`。
@@ -546,6 +584,12 @@ pub fn apply_contracts(
             }
         }
     }
+    // featag 声明也是并集：叠加后仍按**各自的声明顺序**拼接（同一名字在不同契约里
+    // 本就是不同 featag —— 作用域契约私有，§5；真正的「重名」在**单个契约内**由 S4 拒掉）。
+    let mut merged_featags: Vec<FeatagDecl> = Vec::new();
+    for c in &list {
+        merged_featags.extend(c.featags.iter().cloned());
+    }
     let merged = Contract {
         name: list
             .iter()
@@ -555,6 +599,7 @@ pub fn apply_contracts(
         fields,
         strictness,
         requires: merged_requires,
+        featags: merged_featags,
     };
     apply_contract(&merged, node, contracts, path, warnings)
 }

@@ -6,19 +6,22 @@ use std::sync::Arc;
 
 use sml_codes::{
     E_CONTRACT_001, E_CONTRACT_010, E_CONTRACT_011, E_CONTRACT_012, E_CONTRACT_013, E_CONTRACT_018,
-    E_EXT_003, E_EXT_004, E_EXT_005, E_EXT_008, E_FEATURE_001, E_FEATURE_002, E_FEATURE_003,
-    E_INCLUDE_007, E_LIMIT_001, E_PARSE_001, E_PARSE_002, E_PARSE_003, E_PARSE_004, E_PARSE_005,
-    E_PARSE_006, E_PARSE_007, E_PARSE_011, E_PARSE_012, E_PARSE_013, E_PARSE_017,
-    E_PARSE_019, E_PARSE_020, E_PARSE_021, E_PARSE_022, E_PARSE_023, E_PARSE_026, E_PARSE_028,
-    SmlError,
+    E_CONTRACT_019, E_CONTRACT_020, E_EXT_003, E_EXT_004, E_EXT_005, E_EXT_008, E_FEATURE_001,
+    E_FEATURE_002, E_FEATURE_003, E_INCLUDE_007, E_LEX_007, E_LIMIT_001, E_PARSE_001, E_PARSE_002,
+    E_PARSE_003, E_PARSE_004, E_PARSE_005, E_PARSE_006, E_PARSE_007, E_PARSE_011, E_PARSE_012,
+    E_PARSE_013, E_PARSE_017, E_PARSE_019, E_PARSE_020, E_PARSE_021, E_PARSE_022, E_PARSE_023,
+    E_PARSE_026, E_PARSE_028, SmlError,
 };
 // 这两个只在 `when` feature（@when/@for）下用到；关掉该 feature 时下游会报 unused_imports
 #[cfg(feature = "when")]
 use sml_codes::{E_PARSE_016, E_PARSE_018};
 use sml_contract::{
-    suggest_contract_name, Contract, ContractExt, ContractWarning, FieldSpec, Modifier, Strictness,
-    TypeCheck, TypeSpec,
+    suggest_contract_name, Contract, ContractExt, ContractWarning, FeatagDecl, FieldSpec, Modifier,
+    Strictness, TypeCheck, TypeSpec,
 };
+// `Script` 只用于「每契约单一语种」的判定
+use sml_lex::identifiers::Script;
+use sml_value::Seg;
 use sml_feature::{Feature, FeatureSet};
 use sml_lex::{Span, Tok, coerce_word, lookup_env};
 // `Map` = `Value::Object` 的载体（默认 `BTreeMap`；`preserve_order` 档是保序 `Object`，
@@ -515,7 +518,11 @@ impl Parser {
     ///
     /// 其余 `@xxx` 一律报错而非静默退化成片段（这正是本项目反复踩的「静默失效」坑：
     /// 不认识的 `@xxx` 若走片段定义分支，会被悄无声息地当成名为 `xxx` 的片段消费掉）。
-    fn parse_contract_body(&mut self, requires: &mut Vec<String>) -> Result<BTreeMap<String, FieldSpec>, SmlError> {
+    fn parse_contract_body(
+        &mut self,
+        requires: &mut Vec<String>,
+        featags: &mut Vec<FeatagDecl>,
+    ) -> Result<BTreeMap<String, FieldSpec>, SmlError> {
         let mut fields: BTreeMap<String, FieldSpec> = BTreeMap::new();
         loop {
             match self.peek().cloned() {
@@ -568,6 +575,64 @@ impl Parser {
                             .with_detail(format!("契约体内不支持指令 `@{dir}`（仅 `@requires`）")));
                     }
                 }
+                // featag 声明（S4）：`!name` / `!name: 类型` / `!name: 类型 -> 落点`。
+                // 记号与使用处一致（`!` 前缀），故词法零改动；`!` 只在**契约体内**与**块头**
+                // 这两个位置是记号，别处一律报歧义（§2.3 B2/B3）。
+                Some(Tok::Word(w)) if w.starts_with('!') => {
+                    self.next();
+                    let name = w[1..].to_string();
+                    if name.is_empty() || name.starts_with('!') {
+                        return Err(SmlError::from_code_msg(E_PARSE_026)
+                            .with_detail(format!("`{w}`")));
+                    }
+                    // 参数类型：复用字段规格解析（`[int]` / `str` / 契约引用 / 修饰符全支持）
+                    let spec = if self.peek() == Some(&Tok::Colon) {
+                        self.next();
+                        Some(self.parse_field_spec()?)
+                    } else {
+                        None
+                    };
+                    // 落点：`-> 点路径`（不穿数组 —— 见 §10 Q12）
+                    let target = if matches!(self.peek(), Some(Tok::Word(t)) if t == "->") {
+                        self.next();
+                        let raw = match self.next() {
+                            Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
+                            other => {
+                                return Err(SmlError::from_code_title(E_CONTRACT_020)
+                                    .with_detail(format!("`{name}` 的 `->` 后须落点，得 {other:?}")))
+                            }
+                        };
+                        let path = sml_value::Path::parse(&raw).map_err(|e| {
+                            SmlError::from_code_title(E_CONTRACT_020)
+                                .with_detail(format!("`{name}` 的落点 `{raw}`：{e}"))
+                        })?;
+                        if path.segments().iter().any(|s| matches!(s, Seg::Index(_))) {
+                            return Err(SmlError::from_code_title(E_CONTRACT_020)
+                                .with_detail(format!(
+                                    "`{name}` 的落点 `{raw}` 穿到了数组上（落点只能是对象键路径）"
+                                )));
+                        }
+                        // 裸写 `node[0]` 时词法在 `[` 处断开 ⇒ 落点词之后紧跟 `[` 就是「穿数组」
+                        if self.peek() == Some(&Tok::LBrack) {
+                            return Err(SmlError::from_code_title(E_CONTRACT_020).with_detail(
+                                format!("`{name}` 的落点 `{raw}[…]` 穿到了数组上（落点只能是对象键路径）"),
+                            ));
+                        }
+                        Some(path)
+                    } else {
+                        None
+                    };
+                    // 声明处重名（B4）：只在此查重，使用处允许同名多次
+                    if featags.iter().any(|d| d.name == name) {
+                        return Err(SmlError::from_code_title(E_CONTRACT_019)
+                            .with_detail(format!("`!{name}` 在本契约里出现了两次")));
+                    }
+                    // 标识符白名单（S1b，门控 `lex.ident`）：featag 名同样是标识符
+                    if self.features.has(Feature::Ident) {
+                        sml_lex::identifiers::check_ident_err(&name)?;
+                    }
+                    featags.push(FeatagDecl { name, spec, target });
+                }
                 _ => {
                     let key = match self.next() {
                         Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
@@ -576,6 +641,10 @@ impl Parser {
                                 .with_detail(format!("契约字段期望键，得 {other:?}")))
                         }
                     };
+                    // 标识符白名单（S1b）：字段名同样是标识符
+                    if self.features.has(Feature::Ident) {
+                        sml_lex::identifiers::check_ident_err(&key)?;
+                    }
                     if self.peek() == Some(&Tok::Colon) {
                         self.next();
                     } else {
@@ -584,6 +653,33 @@ impl Parser {
                     }
                     let spec = self.parse_field_spec()?;
                     fields.insert(key, spec);
+                }
+            }
+        }
+        // 「每契约单一语种」（§2.2，门控 `lex.ident`）：同一契约内的标识符（字段名 + featag 名）
+        // 必须同属一种文字系统。只比较「第一种脚本」；纯数字 / `_` / `-` 不参与。
+        //
+        // 为什么在**契约**这一层：同形字真正生效的地方是「同一个命名空间里两个看起来一样的
+        // 名字」，而契约就是那个命名空间。不同契约可以用不同语种。
+        if self.features.has(Feature::Ident) {
+            let mut seen: Option<(Script, String)> = None;
+            for id in fields
+                .keys()
+                .map(|s| s.as_str())
+                .chain(featags.iter().map(|d| d.name.as_str()))
+            {
+                let Some(sc) = sml_lex::identifiers::script_of(id) else {
+                    continue;
+                };
+                match &seen {
+                    None => seen = Some((sc, id.to_string())),
+                    Some((prev, first)) if *prev != sc => {
+                        return Err(SmlError::from_code_msg(E_LEX_007).with_detail(format!(
+                            "`{id}`（{sc}）与 `{first}`（{prev}）混用了文字系统：\
+                             同一契约内的标识符只能有一种语种"
+                        )));
+                    }
+                    _ => {}
                 }
             }
         }
@@ -1033,7 +1129,9 @@ impl Parser {
             }
             self.next();
             let mut requires: Vec<String> = Vec::new();
-            let fields = self.parse_contract_body(&mut requires)?;
+            // featag 声明（S4）：契约体内 `!name` / `!name: 类型` / `!name: 类型 -> 落点`
+            let mut featags: Vec<FeatagDecl> = Vec::new();
+            let fields = self.parse_contract_body(&mut requires, &mut featags)?;
             // 定义时校验（不是应用时）：契约体里 `@requires` 声明的特性都必须已开启。
             // 特性集在解析前已由 `scan.rs` 把全文的 `@feature` 指令一并剥离并应用，
             // 因此此处校验的是「文档在任意位置声明过的特性」的并集，与书写顺序无关。
@@ -1061,6 +1159,7 @@ impl Parser {
                     fields,
                     strictness,
                     requires,
+                    featags,
                 },
             );
             return Ok(());

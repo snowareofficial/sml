@@ -60,6 +60,10 @@
 #define SML_E_CONTRACT_017 "E-CONTRACT-017"
 /* [E-CONTRACT-018] 契约 @requires 无法满足：契约声明的 @requires 特性无法满足，契约无法定义或应用 */
 #define SML_E_CONTRACT_018 "E-CONTRACT-018"
+/* [E-CONTRACT-019] featag 重复声明：同一契约里重复声明了同名的 featag */
+#define SML_E_CONTRACT_019 "E-CONTRACT-019"
+/* [E-CONTRACT-020] featag 落点非法：featag 的落点必须是点路径（对象键），不能穿数组 */
+#define SML_E_CONTRACT_020 "E-CONTRACT-020"
 /* [E-DERIVE-001] 值与目标类型不符：SML 值的类型与目标宿主类型不符 */
 #define SML_E_DERIVE_001 "E-DERIVE-001"
 /* [E-DERIVE-002] 数值超出目标类型范围：数值超出目标宿主类型的取值范围 */
@@ -311,6 +315,6 @@
 /* [W-PARSE-002] 片段展开覆盖父块键：片段展开覆盖了父块已有的同名键：父块原值丢失 */
 #define SML_W_PARSE_002 "W-PARSE-002"
 
-#define SML_CODES_COUNT 151
+#define SML_CODES_COUNT 153
 
 #endif /* SML_CODES_H */
