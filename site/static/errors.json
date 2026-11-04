@@ -17,7 +17,7 @@
     "MIGRATE": "迁入格式（JSON / TOML / YAML / XML）",
     "PARSE": "语法"
   },
-  "count": 157,
+  "count": 158,
   "codes": [
     {
       "id": "E-CLI-001",
@@ -445,6 +445,18 @@
       ],
       "status": "done",
       "note": "featag S7（`docs/featag-spec-draft.md` §6.2）。两档来源：默认（谁都能写）/ `from-featag`（只能 featag 写）—— **刻意没有 `none` / `readonly` 第三档**（用户 2026-11-03：v5 尽量少引入 null / none 思维；「谁都写不了」用「必填但无人提供」或 `optional` 表达）。这条同时是「外来数据不可伪造」的语言级抓手：`from-featag` 的键文档无法自行赋值。检查在 **featag 填充之前**跑，否则 featag 自己写进去的键会被当成「文档手写」误报"
+    },
+    {
+      "id": "E-CONTRACT-025",
+      "severity": "error",
+      "domain": "CONTRACT",
+      "title": "featag 落点越界",
+      "msg": "featag 落点里的数组下标越界；越界不会补 null",
+      "impls": [
+        "rust"
+      ],
+      "status": "done",
+      "note": "featag S6（`docs/featag-spec-draft.md` §10 Q20，2026-11-04 用户定）。下标语义：`n < len` 且元素为 null ⇒ 补缺；元素非 null ⇒ 禁止覆盖（E-CONTRACT-022）；`n == len` ⇒ **追加**（`!strict-paths` 下报 E-CONTRACT-023）；`n > len` ⇒ 本码。与「绝不补 null」（`docs/null-semantics.md` N1–N5）一致：越界是**路走不通**，不是「差几个空位」。⚠️ 数组本身不存在时**不自动创建**（对象可以，数组不行 —— 造一个多长的数组、中间填什么，没有无歧义的答案），报 E-CONTRACT-023"
     },
     {
       "id": "E-DERIVE-001",

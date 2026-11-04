@@ -59,6 +59,7 @@ static const struct SmlErrorMsg SML_ERROR_MSGS[] = {
     { "E-CONTRACT-022", "error", "CONTRACT", "featag 落点已存在（禁止覆盖）", "featag 要写入的落点已经存在；featag 不能用于覆盖已有值", "featag target already exists (overwrite forbidden)", "The featag target already exists; a featag must not overwrite existing values" },
     { "E-CONTRACT-023", "error", "CONTRACT", "featag 落点的父对象不存在", "featag 落点路径上的父对象不存在，或那个键已被非对象值占用", "featag target parent is missing", "A parent object on the featag target path is missing, or that key holds a non-object value" },
     { "E-CONTRACT-024", "error", "CONTRACT", "该键只能由 featag 写入", "字段声明为 from-featag：只能由 featag 落点写入，文档里不能直接赋值", "This key may only be written by a featag", "The field is declared `from-featag`: only a featag target may write it, the document cannot assign it directly" },
+    { "E-CONTRACT-025", "error", "CONTRACT", "featag 落点越界", "featag 落点里的数组下标越界；越界不会补 null", "featag target index out of range", "An array index in the featag target is out of range; out-of-range gaps are never filled with null" },
     { "E-DERIVE-001", "error", "DERIVE", "值与目标类型不符", "SML 值的类型与目标宿主类型不符", "Value/target type mismatch", "The SML value's type does not match the target host type" },
     { "E-DERIVE-002", "error", "DERIVE", "数值超出目标类型范围", "数值超出目标宿主类型的取值范围", "Number out of target type range", "The number is out of the target host type's range" },
     { "E-DERIVE-003", "error", "DERIVE", "未知的枚举值或变体", "未知的枚举值或枚举变体", "Unknown enum value or variant", "Unknown enum value or enum variant" },

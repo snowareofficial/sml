@@ -108,6 +108,9 @@ pub const E_CONTRACT_023: &str = "E-CONTRACT-023";
 /// [E-CONTRACT-024] 该键只能由 featag 写入：字段声明为 from-featag：只能由 featag 落点写入，文档里不能直接赋值
 /// EN: This key may only be written by a featag —— The field is declared `from-featag`: only a featag target may write it, the document cannot assign it directly
 pub const E_CONTRACT_024: &str = "E-CONTRACT-024";
+/// [E-CONTRACT-025] featag 落点越界：featag 落点里的数组下标越界；越界不会补 null
+/// EN: featag target index out of range —— An array index in the featag target is out of range; out-of-range gaps are never filled with null
+pub const E_CONTRACT_025: &str = "E-CONTRACT-025";
 /// [E-DERIVE-001] 值与目标类型不符：SML 值的类型与目标宿主类型不符
 /// EN: Value/target type mismatch —— The SML value's type does not match the target host type
 pub const E_DERIVE_001: &str = "E-DERIVE-001";
@@ -518,6 +521,7 @@ pub const ALL: &[&str] = &[
     E_CONTRACT_022,
     E_CONTRACT_023,
     E_CONTRACT_024,
+    E_CONTRACT_025,
     E_DERIVE_001,
     E_DERIVE_002,
     E_DERIVE_003,
@@ -646,4 +650,4 @@ pub const ALL: &[&str] = &[
 ];
 
 /// 码总数（与 `errors/codes.sml` 的 `count` 对齐）。
-pub const COUNT: usize = 157;
+pub const COUNT: usize = 158;

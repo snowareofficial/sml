@@ -138,6 +138,7 @@
   "E-PARSE-024": { "title": "Invalid field spec in contract", "msg": "Invalid field spec inside a contract definition: empty type, unclosed array or enum, or empty field name" },
   "E-PARSE-025": { "title": "Invalid restricted regex", "msg": "Invalid restricted-regex syntax: a quantifier with no repeatable atom before it, an unclosed character class, or a trailing backslash" },
   "E-CONTRACT-019": { "title": "Duplicate featag declaration", "msg": "The same featag is declared twice inside one contract" },
+  "E-CONTRACT-025": { "title": "featag target index out of range", "msg": "An array index in the featag target is out of range; out-of-range gaps are never filled with null" },
   "E-CONTRACT-024": { "title": "This key may only be written by a featag", "msg": "The field is declared `from-featag`: only a featag target may write it, the document cannot assign it directly" },
   "E-CONTRACT-022": { "title": "featag target already exists (overwrite forbidden)", "msg": "The featag target already exists; a featag must not overwrite existing values" },
   "E-CONTRACT-023": { "title": "featag target parent is missing", "msg": "A parent object on the featag target path is missing, or that key holds a non-object value" },
