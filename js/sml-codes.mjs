@@ -54,6 +54,10 @@ export const E_CONTRACT_016 = "E-CONTRACT-016";
 export const E_CONTRACT_017 = "E-CONTRACT-017";
 /// [E-CONTRACT-018] 契约 @requires 无法满足：契约声明的 @requires 特性无法满足，契约无法定义或应用
 export const E_CONTRACT_018 = "E-CONTRACT-018";
+/// [E-CONTRACT-019] featag 重复声明：同一契约里重复声明了同名的 featag
+export const E_CONTRACT_019 = "E-CONTRACT-019";
+/// [E-CONTRACT-020] featag 落点非法：featag 的落点必须是点路径（对象键），不能穿数组
+export const E_CONTRACT_020 = "E-CONTRACT-020";
 /// [E-DERIVE-001] 值与目标类型不符：SML 值的类型与目标宿主类型不符
 export const E_DERIVE_001 = "E-DERIVE-001";
 /// [E-DERIVE-002] 数值超出目标类型范围：数值超出目标宿主类型的取值范围
@@ -333,6 +337,8 @@ export const ALL = Object.freeze([
   E_CONTRACT_016,
   E_CONTRACT_017,
   E_CONTRACT_018,
+  E_CONTRACT_019,
+  E_CONTRACT_020,
   E_DERIVE_001,
   E_DERIVE_002,
   E_DERIVE_003,
@@ -460,4 +466,4 @@ export const ALL = Object.freeze([
   W_PARSE_002,
 ]);
 
-export const COUNT = 151;
+export const COUNT = 153;

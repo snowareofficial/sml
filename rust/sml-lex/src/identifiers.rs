@@ -203,6 +203,47 @@ fn in_ranges(c: char, ranges: &[(u32, u32)]) -> bool {
     ranges.iter().any(|&(lo, hi)| u >= lo && u <= hi)
 }
 
+/// 标识符用的是什么**文字系统**（只服务「每契约单一语种」，不参与单字符合法性判定）。
+///
+/// 汉字与假名算**同一族**（`Script::Cjk`）：日文里汉字与假名本来就混写
+/// （`設定ファイル`），硬拆成两族会让日文标识符无法书写。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Script {
+    /// ASCII 拉丁字母。
+    Latin,
+    /// 汉字 + 假名。
+    Cjk,
+    /// 谚文音节。
+    Hangul,
+}
+
+impl fmt::Display for Script {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Script::Latin => write!(f, "拉丁字母"),
+            Script::Cjk => write!(f, "汉字/假名"),
+            Script::Hangul => write!(f, "谚文"),
+        }
+    }
+}
+
+/// 取标识符里的**第一种**文字系统；纯数字 / `_` / `-`（不含字母）返回 `None`。
+///
+/// 只看第一种：同一标识符内部混排（`api接口`）**不**在此层拒绝 —— 那属于书写习惯，
+/// 不是同形字风险（同形字是「不同脚本长得一样」，而这里所有允许的脚本都已过白名单）。
+/// 「每契约单一语种」比较的是**不同标识符之间**，那才是同形字真正生效的地方。
+pub fn script_of(s: &str) -> Option<Script> {
+    for c in s.chars() {
+        match c {
+            'A'..='Z' | 'a'..='z' => return Some(Script::Latin),
+            '\u{4E00}'..='\u{9FFF}' | '\u{3040}'..='\u{30FF}' => return Some(Script::Cjk),
+            '\u{AC00}'..='\u{D7AF}' => return Some(Script::Hangul),
+            _ => {}
+        }
+    }
+    None
+}
+
 /// 校验一个标识符（键名 / 契约名 / featag 名）｜ check one identifier.
 ///
 /// 调用方负责**门控**（`Feature::Ident`）：本函数只判规则，不看特性集。

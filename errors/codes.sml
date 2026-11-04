@@ -219,6 +219,14 @@ codes: [
       msg: "块头里除 featag 区之外的词不得以 `!` 开头"
       impls: [ rust ] status: done
       note: "featag S2 §2.3 B3。`wea !critical, !web { }` 里第二个 `!web` 落在**块名**位置 ⇒ 歧义（featag 还是块名？），而块名无法加引号，故直接拒。`!wea name { }`（类型词位置）同报此码。与 B2 同源：`!` 只在「块头首词之后、逗号之前」是记号。仅 `type.featag` 开启时生效" }
+    { id: E-CONTRACT-019 domain: CONTRACT severity: E title: "featag 重复声明"
+      msg: "同一契约里重复声明了同名的 featag"
+      impls: [ rust ] status: done
+      note: "featag S4（`docs/featag-spec-draft.md` §2.3 B4）。**只在声明处**查重：使用处允许同名多次出现（`!a !a` 会原样保留在 `__featags` 数组里，应用层自行决定是否合并）。诊断写全 `<契约>.<featag>` —— 作用域契约私有，只写名字会分不清是哪个契约的" }
+    { id: E-CONTRACT-020 domain: CONTRACT severity: E title: "featag 落点非法"
+      msg: "featag 的落点必须是点路径（对象键），不能穿数组"
+      impls: [ rust ] status: done
+      note: "featag S4 声明期 / S6 填充期同码。落点写作 `!cert: str -> tls.cert`，**只穿对象**：写成 `-> node[0]` 或路径语法非法（连续的 `.`、空段等）都在此拒。§10 Q12 已定「不穿数组」——数组填充要做幂等（谁的顺序？重复执行会怎样？）没有好答案，故语法层直接不开这个口子" }
     { id: W-PARSE-001 domain: PARSE severity: W title: "同一块内键名重复"
       msg: "同一块内键名重复：后者已提升为数组（结构被改写）"
       impls: [ rust ] status: partial

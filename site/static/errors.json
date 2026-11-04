@@ -17,7 +17,7 @@
     "MIGRATE": "迁入格式（JSON / TOML / YAML / XML）",
     "PARSE": "语法"
   },
-  "count": 151,
+  "count": 153,
   "codes": [
     {
       "id": "E-CLI-001",
@@ -373,6 +373,30 @@
       ],
       "status": "partial",
       "note": "TASK：契约级 `@requires` 的定义时校验与跨端拒绝。Rust 在**契约定义时**（而非应用时）校验：契约体里 `@requires feat1, feat2` 声明的任一特性未开启即报此码，文案含契约名与缺失特性名；未知特性名落 `E-FEATURE-003`。跨端（JS / C / C++ / Lua）**明确拒绝**契约里的 `@requires`（不是「暂未实现」—— 是与 E-CONTRACT-017 契约叠加未实现同类的响亮拒绝）。只增不改：本码继承 CONTRACT 既有序号，未改动任何既有码含义"
+    },
+    {
+      "id": "E-CONTRACT-019",
+      "severity": "error",
+      "domain": "CONTRACT",
+      "title": "featag 重复声明",
+      "msg": "同一契约里重复声明了同名的 featag",
+      "impls": [
+        "rust"
+      ],
+      "status": "done",
+      "note": "featag S4（`docs/featag-spec-draft.md` §2.3 B4）。**只在声明处**查重：使用处允许同名多次出现（`!a !a` 会原样保留在 `__featags` 数组里，应用层自行决定是否合并）。诊断写全 `<契约>.<featag>` —— 作用域契约私有，只写名字会分不清是哪个契约的"
+    },
+    {
+      "id": "E-CONTRACT-020",
+      "severity": "error",
+      "domain": "CONTRACT",
+      "title": "featag 落点非法",
+      "msg": "featag 的落点必须是点路径（对象键），不能穿数组",
+      "impls": [
+        "rust"
+      ],
+      "status": "done",
+      "note": "featag S4 声明期 / S6 填充期同码。落点写作 `!cert: str -> tls.cert`，**只穿对象**：写成 `-> node[0]` 或路径语法非法（连续的 `.`、空段等）都在此拒。§10 Q12 已定「不穿数组」——数组填充要做幂等（谁的顺序？重复执行会怎样？）没有好答案，故语法层直接不开这个口子"
     },
     {
       "id": "E-DERIVE-001",

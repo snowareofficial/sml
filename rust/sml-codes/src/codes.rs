@@ -90,6 +90,12 @@ pub const E_CONTRACT_017: &str = "E-CONTRACT-017";
 /// [E-CONTRACT-018] 契约 @requires 无法满足：契约声明的 @requires 特性无法满足，契约无法定义或应用
 /// EN: Contract @requires unsatisfiable —— The @requires features declared by the contract cannot be satisfied; the contract cannot be defined or applied
 pub const E_CONTRACT_018: &str = "E-CONTRACT-018";
+/// [E-CONTRACT-019] featag 重复声明：同一契约里重复声明了同名的 featag
+/// EN: Duplicate featag declaration —— The same featag is declared twice inside one contract
+pub const E_CONTRACT_019: &str = "E-CONTRACT-019";
+/// [E-CONTRACT-020] featag 落点非法：featag 的落点必须是点路径（对象键），不能穿数组
+/// EN: Illegal featag target —— A featag target must be a dotted path of object keys; it cannot index into arrays
+pub const E_CONTRACT_020: &str = "E-CONTRACT-020";
 /// [E-DERIVE-001] 值与目标类型不符：SML 值的类型与目标宿主类型不符
 /// EN: Value/target type mismatch —— The SML value's type does not match the target host type
 pub const E_DERIVE_001: &str = "E-DERIVE-001";
@@ -494,6 +500,8 @@ pub const ALL: &[&str] = &[
     E_CONTRACT_016,
     E_CONTRACT_017,
     E_CONTRACT_018,
+    E_CONTRACT_019,
+    E_CONTRACT_020,
     E_DERIVE_001,
     E_DERIVE_002,
     E_DERIVE_003,
@@ -622,4 +630,4 @@ pub const ALL: &[&str] = &[
 ];
 
 /// 码总数（与 `errors/codes.sml` 的 `count` 对齐）。
-pub const COUNT: usize = 151;
+pub const COUNT: usize = 153;
