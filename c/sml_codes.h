@@ -282,6 +282,12 @@
 #define SML_E_PARSE_024 "E-PARSE-024"
 /* [E-PARSE-025] 受限正则模式非法：受限正则模式语法非法：量词之前没有可重复的原子、字符类未闭合，或以反斜杠结尾 */
 #define SML_E_PARSE_025 "E-PARSE-025"
+/* [E-PARSE-026] featag 区为空：`!` 后必须至少写一个 featag 名（形如 `!critical` 或 `obey[1, 2]`） */
+#define SML_E_PARSE_026 "E-PARSE-026"
+/* [E-PARSE-027] 值位置的 `!` 裸词（疑似 featag）：值位置不能写以 `!` 开头的裸词；若本意是字符串，请用引号包起来 */
+#define SML_E_PARSE_027 "E-PARSE-027"
+/* [E-PARSE-028] 块头里以 `!` 开头的名字：块头里除 featag 区之外的词不得以 `!` 开头 */
+#define SML_E_PARSE_028 "E-PARSE-028"
 /* [I-FEATURE-001] 命令行特性与解析器版本不一致：解析器按其固定版本模式工作，命令行声明的特性版本仅作提示 */
 #define SML_I_FEATURE_001 "I-FEATURE-001"
 /* [W-EDITOR-001] 自定义词与官方关键字冲突：自定义词与官方关键字冲突，已忽略 */
@@ -303,6 +309,6 @@
 /* [W-PARSE-002] 片段展开覆盖父块键：片段展开覆盖了父块已有的同名键：父块原值丢失 */
 #define SML_W_PARSE_002 "W-PARSE-002"
 
-#define SML_CODES_COUNT 147
+#define SML_CODES_COUNT 150
 
 #endif /* SML_CODES_H */

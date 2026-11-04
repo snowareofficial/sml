@@ -9,7 +9,8 @@ use sml_codes::{
     E_EXT_003, E_EXT_004, E_EXT_005, E_EXT_008, E_FEATURE_001, E_FEATURE_002, E_FEATURE_003,
     E_INCLUDE_007, E_LIMIT_001, E_PARSE_001, E_PARSE_002, E_PARSE_003, E_PARSE_004, E_PARSE_005,
     E_PARSE_006, E_PARSE_007, E_PARSE_011, E_PARSE_012, E_PARSE_013, E_PARSE_017,
-    E_PARSE_019, E_PARSE_020, E_PARSE_021, E_PARSE_022, E_PARSE_023, SmlError,
+    E_PARSE_019, E_PARSE_020, E_PARSE_021, E_PARSE_022, E_PARSE_023, E_PARSE_026, E_PARSE_028,
+    SmlError,
 };
 // 这两个只在 `when` feature（@when/@for）下用到；关掉该 feature 时下游会报 unused_imports
 #[cfg(feature = "when")]
@@ -2038,6 +2039,16 @@ impl Parser {
     /// 消费裸块参数（`[args…]`，Word/Str）并建其体帧：确认后是 `{` 并消费之、压入该类型名
     /// 命名空间，返回 `Frame::Block`（`bare` 已填 `BareCtx`）。path（Key/Index）由调用方压。
     fn bare_child_frame(&mut self, type_name: &str, cont: Cont) -> Result<Frame, SmlError> {
+        // featag（B3）：块头的**首词**（类型词）也不许以 `!` 开头 —— `!wea name { }` 里
+        // `!wea` 到底是想写 featag 还是块名？块名无法加引号，故直接拒（§2.3 B3）。
+        if self.features.has(Feature::Featag) && type_name.starts_with('!') {
+            return Err(SmlError::from_code_msg(E_PARSE_028).with_detail(format!("`{type_name}`")));
+        }
+        // featag（S2）：块头首词之后的 `!` 区。**只识别语法、不产出数据**（`__featags` 是 S3 的活），
+        // 故这里把整段消费掉即可 —— 后续 args 收集只看到块名与裸词，行为与旧版一致。
+        if self.features.has(Feature::Featag) {
+            self.skip_featag_region()?;
+        }
         let mut args: Vec<Value> = Vec::new();
         while let Some(t) = self.peek().cloned() {
             match t {
@@ -2075,6 +2086,100 @@ impl Parser {
             },
             cont,
         })
+    }
+
+    /// S2：消费块头首词之后的 **featag 区**（`!critical obey[1, 2]` 与终止逗号）。
+    ///
+    /// 规则（`docs/featag-spec-draft.md` §2.2 / §2.3）：
+    /// - **无参项必须带 `!`**（`!critical`）—— 否则与块名不可分；
+    /// - **带参项写成 `名[ … ]`**（`obey[1, 2]`），靠 `[` 与块名区分；
+    /// - **`,` 是终止符**：区内部各项之间不写逗号；`[ ]` 内深度 ≥ 1 的逗号不算终止；
+    /// - 区的结束 = 遇到「既不是 `!名` 也不是 `名[`」的词，或直接 `{`。
+    ///
+    /// ⚠️ S2 **只识别、不落数据**：参数这里只做**括号配平**（够判 B1/B3 与区边界），
+    /// 真正的值树构造留给 S3 —— 一片一验，别在 S2 就把「识别语法」和「构造数据」混成一件事。
+    fn skip_featag_region(&mut self) -> Result<(), SmlError> {
+        let mut seen = false;
+        loop {
+            let word = match self.peek() {
+                Some(Tok::Word(w)) => Some(w.clone()),
+                _ => None,
+            };
+            match word {
+                Some(w) if w.starts_with('!') => {
+                    // B1：`wea ! , name { }` —— `!` 后面什么都没有（`!!x` 同理）
+                    let name = &w[1..];
+                    if name.is_empty() || name.starts_with('!') {
+                        return Err(
+                            SmlError::from_code_msg(E_PARSE_026).with_detail(format!("`{w}`"))
+                        );
+                    }
+                    self.next();
+                    seen = true;
+                    if self.peek() == Some(&Tok::LBrack) {
+                        self.skip_featag_args()?;
+                    }
+                }
+                Some(_) if self.peek_at(1) == Some(&Tok::LBrack) => {
+                    self.next(); // 名字本身不带 `!`，靠 `[` 与块名区分
+                    self.skip_featag_args()?;
+                    seen = true;
+                }
+                _ => break,
+            }
+        }
+        if !seen {
+            return Ok(()); // 本块头没有 featag 区：逐字走旧路径
+        }
+        // `,` = 终止符（可省：`wea !critical { }` 直接进块体也成立）
+        if self.peek() == Some(&Tok::Comma) {
+            self.next();
+        }
+        // B3：区已结束，紧跟的词落在**块名**位置，`!` 开头 ⇒ 歧义（块名又无法加引号）
+        if let Some(Tok::Word(w)) = self.peek() {
+            if w.starts_with('!') {
+                let w = w.clone();
+                return Err(SmlError::from_code_msg(E_PARSE_028).with_detail(format!("`{w}`")));
+            }
+        }
+        Ok(())
+    }
+
+    /// 只做**括号配平**地跳过 `[ … ]`（S2 不构造值树；嵌套 `[ ]` / `{ }` 全按深度处理）。
+    fn skip_featag_args(&mut self) -> Result<(), SmlError> {
+        debug_assert_eq!(self.peek(), Some(&Tok::LBrack));
+        let mut stack: Vec<u8> = vec![b']']; // 栈底恒为 `]`（进入时刚看到 `[`）
+        self.next();
+        while let Some(t) = self.peek().cloned() {
+            match t {
+                Tok::LBrack => {
+                    stack.push(b']');
+                    self.next();
+                }
+                Tok::LBrace => {
+                    stack.push(b'}');
+                    self.next();
+                }
+                Tok::RBrack | Tok::RBrace => {
+                    let want = if t == Tok::RBrack { b']' } else { b'}' };
+                    let got = if t == Tok::RBrack { ']' } else { '}' };
+                    if stack.pop() != Some(want) {
+                        let expect = if want == b']' { ']' } else { '}' };
+                        return Err(SmlError::from_code_msg(E_PARSE_003).with_detail(format!(
+                            "featag 参数的括号不配平：遇到 `{got}`，此处应闭合 `{expect}`"
+                        )));
+                    }
+                    self.next();
+                    if stack.is_empty() {
+                        return Ok(());
+                    }
+                }
+                _ => {
+                    self.next();
+                }
+            }
+        }
+        Err(SmlError::from_code_msg(E_PARSE_001).with_detail("缺少结束符号 ]"))
     }
 
     /// 数组帧单步推进（等价旧 `parse_array_inner` 的循环体分成立）。
@@ -2148,14 +2253,45 @@ impl Parser {
 
     /// 预扫描：当前位置是否形如裸块的**参数部分**（`[name...] {`），
     /// 即连续若干 `Word`/`Str` 后紧跟 `{`。不消费任何 token。
+    ///
+    /// featag 开启时还要跨过两样东西（否则 `wea !critical, name { }` 会被当成
+    /// 「键 `wea` + 值 `!critical`」，当场在 B2 上报错 —— 这正是第一版踩到的坑）：
+    /// - **`!名` / `名[ … ]` 区**：遇到 `[` 就按括号配平跳过去（配不平 ⇒ 不是块头，回落旧路径）；
+    /// - **区的终止符 `,`**。
     fn bare_block_ahead(&self) -> bool {
         if !matches!(self.peek(), Some(Tok::Word(_)) | Some(Tok::Str(_))) {
             return false;
         }
+        let featag = self.features.has(Feature::Featag);
         let mut probe = self.i;
         while probe < self.toks.len() {
             match &self.toks[probe] {
                 Tok::Word(_) | Tok::Str(_) => probe += 1,
+                Tok::Comma if featag => probe += 1,
+                Tok::LBrack if featag => {
+                    // 只数 [ ] / { } 的深度：配不平就当「不是块头」，交回旧路径报旧错
+                    let mut depth = 0usize;
+                    loop {
+                        match self.toks.get(probe) {
+                            Some(Tok::LBrack) | Some(Tok::LBrace) => {
+                                depth += 1;
+                                probe += 1;
+                            }
+                            Some(Tok::RBrack) | Some(Tok::RBrace) => {
+                                if depth == 0 {
+                                    return false;
+                                }
+                                depth -= 1;
+                                probe += 1;
+                                if depth == 0 {
+                                    break;
+                                }
+                            }
+                            Some(_) => probe += 1,
+                            None => return false,
+                        }
+                    }
+                }
                 Tok::LBrace => return true,
                 _ => return false,
             }

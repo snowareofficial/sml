@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use sml_codes::{
     E_FEATURE_001, E_FEATURE_002, E_FEATURE_005, E_INCLUDE_006, E_LEX_001, E_LEX_002, E_LEX_003,
-    E_LEX_004, E_LEX_005, E_LEX_006, SmlError,
+    E_LEX_004, E_LEX_005, E_LEX_006, E_PARSE_027, SmlError,
 };
 use sml_feature::{Feature, FeatureSet};
 use sml_value::Value;
@@ -405,6 +405,15 @@ pub fn coerce_word(
         "false" => return Ok(Value::Bool(false)),
         "null" => return Ok(Value::Null),
         _ => {}
+    }
+    // featag（B2）：`!` 只在「块头首词之后、逗号之前」是记号；出现在**值位置**就是歧义
+    // （`a: !b` —— 这是字符串还是 featag？）。歧义一律报错，**开了 `bareword-string` 也不豁免**：
+    // 靠特性绕过歧义等于把「猜」藏进配置里。要写字面量请加引号（`a: "!b"`）。
+    //
+    // 门控：只在 `type.featag` 开启时生效 —— 未开启时 `!b` 仍是普通裸词（v1 下即字符串），
+    // v1–v4 既有文档一字不变。
+    if features.has(Feature::Featag) && w.starts_with('!') {
+        return Err(SmlError::from_code_msg(E_PARSE_027).with_detail(format!("`{w}`")));
     }
     // $env.VAR 内联（需 env 特性）
     if let Some(ev) = w.strip_prefix("$env.") {
