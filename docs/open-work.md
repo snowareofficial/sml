@@ -18,6 +18,7 @@
 | 一致性 DIVERGE | 有登记 | 见 §5 |
 | 源码 `TODO/FIXME` | 0 | 干净 ⇒ 欠账都写在文档里，不在代码里 |
 | 文档互相矛盾 | 6 | 见 §8 —— **照着过期文档做会白干** |
+| **weak\* 三件已实现** | 3 | 但**零测试覆盖**，见 §9 |
 
 **三个最该先解决的「卡点」**（不是任务，是让别人没法开工的东西）：
 
@@ -279,3 +280,23 @@
 | 4 | `default null` 是否禁用「待定」、`any` 里 null「待定」 | `docs/feature-namespace-plan.md` L124/L125 | `docs/null-semantics.md` 已定 N3（禁）/ N4（允许） |
 | 5 | C++「不支持 include / 把 include 静默当键值」 | `docs/capability-matrix.md` L162/L241 | I-14 已补齐裸 `include`（`380ae38`），套件 `08/09` 转 AGREE |
 | 6 | `Version::CURRENT` 仍为 V4 | `docs/v5-syntax.md` L21 | 属实，但「加 `Version::V5` 枚举项」已作废，改为「标识 + 查表」（`docs/version-naming.md`） |
+
+## 9. `weak*` 家族实况（用户 2026-11-04：「weakdoc done」）
+
+**三件在 Rust 侧都已实现**，不是概念阶段 —— `IDEAS.md` 的 I-5 / I-15 / I-17 状态已过期：
+
+| 指令 | 实现在哪 | 做了什么 |
+|---|---|---|
+| **`@weakdoc <profile>`** | `parser.rs:1483`、`smltools/main.rs:363/1252/1270` | 只登记 profile 名（库**不读文件系统**）；拒载荷块；文档级判重（`E-PARSE-030`）；工具侧按「显式 → 项目 `.smlex/profiles` → 用户全局 → 系统」查找；执行 `checks`（`require_top_level` / `forbid_contracts` / `forbid_keys`）；`applies_to` 只提示不自动挂 |
+| **`@weakdata`** | `parser.rs`（`WeakData` / `weak_data`）、`ext.rs` | 同名后者覆盖（`weakdata-spec-draft.md` §3） |
+| **`@weakbind`**（原 `weakport` 改名） | `parser.rs`（41 处）、`ext.rs`（20 处） | 只作用于**紧邻的下一个块**（dangling / duplicate / target-not-block 共用 `E-PARSE-019`）；软校验只读、不阻断，走 `Warning`，八档用消息前缀区分 |
+
+**规范都在**：`docs/weakbind-spec-draft.md`（19.7 KB）、`weakdata-spec-draft.md`（4.5 KB）、
+`weakdoc-spec-draft.md`（5.3 KB）；码表里相关条目 7 条。
+
+**三个共同缺口**
+
+1. 🚨 **零测试**：`rust/tests/`、`rust/smltools/tests/` 里**没有任何** `@weak*` 引用，仓库里**没有一个 `.smlex` 夹具**
+   ⇒ 「done」目前只由代码本身保证，回归时没有护栏；
+2. **四端未同步**：相关码的 `impls` 只有 `rust`（见 §4.1）；
+3. **文档状态过期**：`IDEAS.md` I-5 / I-15 / I-17 仍写 `Todo` / 「概念阶段」，§2 表就是照抄的。
