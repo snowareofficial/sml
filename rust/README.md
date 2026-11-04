@@ -178,15 +178,30 @@ println!("{}", to_sml(&v));        // 往返回 SML
 > 需要**保留声明顺序**（如按写作顺序 emit 文档）时，用 `sml::serde::to_string_direct`
 > （仅 derive 路径）——它保留字段声明顺序。
 
-> `get()` supports dotted paths (`db.port`) **and array indices** (`rules[0]`).
-> Literal keys that contain a `.` (e.g. `a.b: 1`) are **not reachable** via `get`, because
-> the path is split on `.` first — reach those by walking `as_object` / `as_array` directly.
+> **Path syntax** (one grammar, read and write): `path := seg ("." seg)*`,
+> `seg := key index*`, `index := "[" DIGIT+ "]"` (0-based, `usize`). Chaining is free:
+> `a.b[0].c`, `[0][1]`, `a.[0]` (empty key = "current value"). Keys may not contain
+> `.` `[` `]` or whitespace — which is why a dotted path is always unambiguous.
+>
+> Two readers:
+> - `get("a.b[0]")` → `Option<&Value>`: legacy, **literal key first**, failure is just `None`.
+> - `get_path(&Path::parse("a.b[0]")?)` → `Result<&Value, PathError>`: **says why**
+>   (`NotFound` / `OutOfRange` / `NotAnObject` / `NotAnArray`, each with the 1-based segment
+>   number). This is the one S6 will reuse to *write*.
+>
 > Accessors beyond `get`: `as_str` / `as_i64` / `as_float` / `as_bool` / `as_array` / `as_object`.
-
-> `get()` 支持点路径（`db.port`）**与数组下标**（`rules[0]`）。
-> **含 `.` 的字面键（如 `a.b: 1`）无法用 `get` 取到**——路径会先按 `.` 切分；请直接
-> 用 `as_object` / `as_array` 逐层取。取整型/浮点/布尔/数组/对象可用 `as_i64` /
-> `as_float` / `as_bool` / `as_array` / `as_object`。
+>
+> **路径语法**（一套语法，读与写共用）：`path := seg ("." seg)*`、`seg := 键 下标*`、
+> `下标 := "[" 数字+ "]"`（0 起）。可任意交替：`a.b[0].c`、`[0][1]`、`a.[0]`
+> （空键 = 「当前值」）。键名**不得含** `.` `[` `]` 或空白 —— 所以点路径**永远无歧义**。
+>
+> 两个读入口：
+> - `get("a.b[0]")` → `Option<&Value>`：旧入口，**字面键优先**，失败只给 `None`；
+> - `get_path(&Path::parse("a.b[0]")?)` → `Result<&Value, PathError>`：**说清原因**
+>   （`NotFound` / `OutOfRange` / `NotAnObject` / `NotAnArray`，并带 1 起算的段号）。
+>   S6 的「写落点」复用的就是这一份。
+>
+> 取整型/浮点/布尔/数组/对象可用 `as_i64` / `as_float` / `as_bool` / `as_array` / `as_object`。
 
 ## Contracts · 契约
 

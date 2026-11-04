@@ -46,6 +46,22 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 - ⚠️ 登记表里还没有 `Removed` 行 ⇒ 该分支**暂不可达**（码与接线已就绪，加一行即生效）；
   `smltools --migrate`（V11）尚未实现，文案里的规则 id 是承诺。
 
+### 新增（值模型：读/写共用的 Path 语法，featag S1a）
+
+- 新模块 `sml_value::path`：`Path::parse` / `Seg` / `PathError` + **`Value::get_path`**。
+  语法只有一种：`键` / `.` / `[n]`（0 起）—— `a.b[0].c`、`[0][1]`、`a.[0]`（空键 = 当前值）都成立。
+- **失败带原因**：`NotFound` / `OutOfRange` / `NotAnObject` / `NotAnArray`，各带 **1 起算的段号**；
+  语法错误（空路径 / 空段 / 下标非法 / 下标未闭合 / 非法字符）在 `parse` 阶段就挡住，
+  用 `PathError::is_syntax()` 区分两阶段。越界文案给出实际长度（`该数组只有 2 个元素`）。
+- **旧 `Value::get` 一个字没改**：仍是 `Option`、仍「字面键优先」（键名本身含 `[` 的文档照旧能取），
+  回归钉子 `bracket_in_key_name_is_not_rewritten` 继续生效。两者刻意**不合并** ——
+  把 `get` 改成 `Result` 会静默改变所有调用方，而兼容规则只挂在它身上。
+- 门面同步：`sml::{Path, PathError, Seg}`；`sml-value` 默认档与 `preserve_order` 档都通过。
+- 这份 `Path` 同时是 S6（featag 落点）的**写入口**：`segments()` / `last()` / `Path::new()`
+  供程序拼装落点，写的时候不必再过一遍字符串。
+- ⚠️ 暂**不带错误码**：`PathError` 只有类型与文案。S6 落点错误按 `featag-spec-draft.md` 的报码表
+  映射到 `E-CONTRACT-0xx`，届时再决定是否给 `PathError` 挂码（现在挂等于先猜一个码）。
+
 ### 新增（解析入口：文件 + 选项）
 
 - **`parse_file_with(path, ParseOptions)`**（`sml_parse` 与门面 `sml` 同名导出）：第一个同时做到
