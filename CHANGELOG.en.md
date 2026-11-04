@@ -56,6 +56,28 @@ Editions are **not ordered**, so `Ord` is gone and the criterion is always "is t
 - ⚠️ The registry has no `Removed` row yet, so the branch is **not reachable** today (code and wiring
   are in place; adding a row activates it). `smltools --migrate` (V11) is not implemented yet.
 
+### Added — featag S5: validation opens (undeclared ⇒ reject, argument checks)
+
+- Every featag used at a block head must be declared in a contract **applied to that block**,
+  otherwise `E-CONTRACT-021` (**new code**, per spec §10 Q3 — not `E-CONTRACT-012`). Diagnostics
+  spell out `<contract>.<featag>` and list what the contract does declare.
+- **No contract applied** is also an error: featag scope is contract-private (§5), so
+  `server !critical, api { }` has nobody declaring it — the message says "declare it with `@contract`".
+- Usage that contradicts the declaration is the same `E-CONTRACT-021` (different detail):
+  arguments on a tag-only featag, a typed featag without `[…]`, or a non-array declaration given
+  more than one argument.
+- **Argument types reuse the field-type chain** (new public `sml_contract::check_value`): an array
+  type (`!obey: [int]`) validates the **whole argument list**; any other type (`!cert: str`) takes
+  exactly one argument and validates it. Type mismatches report the **existing** type codes
+  (same cause as field type errors, so the code must not fork).
+- **Callers can opt out**: `ParseOptions::apply_contracts(false)` skips featag validation too —
+  the **same switch** as contract validation (otherwise "contracts off but featag still blocks"
+  would be a sandbox hole). `__featags` is still emitted: it is syntax-layer output.
+- ⚠️ **Behaviour change**: featags can no longer hang off a bare block with **no contract**
+  (the S2/S3 tests were updated to declare one).
+- ⚠️ **`!any` (S8) does not exist yet**: "any-shaped arguments" must be typed concretely or the
+  opt-out switch must be used.
+
 ### Added — featag S4: declaration collection + duplicate check
 
 - `sml_contract::Contract` gains **`featags: Vec<FeatagDecl>`** (**declaration order**), filled by the
