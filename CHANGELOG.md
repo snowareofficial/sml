@@ -46,6 +46,20 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 - ⚠️ 登记表里还没有 `Removed` 行 ⇒ 该分支**暂不可达**（码与接线已就绪，加一行即生效）；
   `smltools --migrate`（V11）尚未实现，文案里的规则 id 是承诺。
 
+### 文档（featag S9：其它四端策略 —— 纯文档，零代码）
+
+- `docs/capability-matrix.md` 新增 **§1.7b**：featag 与标识符校验的五端实现状态表（Rust ✅、其余 ❌），
+  并**实测**了「❌ 在运行时长什么样」（2026-11-04）：
+  - JS 遇 `@feature enable type.featag` ⇒ `E-FEATURE-003`（`KNOWN_FEATURES` 不含）；
+  - Lua 遇 `@feature` 本身 ⇒ `E-PARSE-005`（没有特性集）；
+  - Rust 未开特性位时 `!critical` 就是裸词；同一份 `wea !critical, name { }` 在 JS 被当
+    「键 + 裸词值」收下 —— 这是**featag 之前就存在的跨端差异**，一并记录不追责；
+  - C / C++ 标「未测」，不编造。
+- `docs/featag-spec-draft.md` 的状态横幅从「零实现」改为「Rust 已实现 S0–S8」，
+  并写清当前是靠特性位 `type.featag`（开发期例外）而非 `@version 50`。
+- **代码零改动**：其它四端按设计不实现 featag，遇 v5 照旧「本端不支持」。
+  跨端统一同步由用户另行安排（2026-11-04：「这个之后会统一同步的」）。
+
 ### 变更（featag 落点现在可以穿数组 —— 按 §10 Q20 定稿）
 
 - 落点支持 `[n]`：`!name: str -> rules[0].name`（此前一律拒绝）。下标语义按 Q20：
