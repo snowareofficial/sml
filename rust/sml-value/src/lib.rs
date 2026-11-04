@@ -32,6 +32,10 @@
 //! sml-value = { version = "0.1.0-alpha.3", features = ["sml"] } # + 序列化回 SML
 //! ```
 
+/// 读/写共用的路径语法（`a.b[0].c`）：`Path::parse` + `Value::get_path`。
+/// Path syntax shared by readers and writers; `Value::get` keeps its legacy semantics.
+pub mod path;
+
 mod value;
 // 保序对象（docs/value-layout.md §3/§5）：只在 `preserve_order` 下编译，
 // 未开时 `Map` 就是 `BTreeMap`，本模块不参与构建 —— 不额外占编译时间与体积。
@@ -45,6 +49,7 @@ mod serde_bridge;
 #[cfg(all(feature = "serde", feature = "sml"))]
 mod ser_text;
 
+pub use path::{Path, PathError, Seg};
 pub use value::{describe_value, insert_or_merge, Map, MAX_VALUE_DEPTH, Value};
 
 /// The order-preserving object (`Value::Object` bearer under the `preserve_order` feature).

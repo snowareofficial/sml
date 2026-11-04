@@ -116,6 +116,8 @@ pub mod emit;
 /// 于是 `--no-default-features` 下整库报 `error[E0432]: unresolved import crate::emit`，
 /// 与「`default-features = false` 回到零依赖」的承诺矛盾（HANDOFF R9）。
 pub use sml_value::{describe_value, Map, Value, MAX_VALUE_DEPTH};
+/// 路径语法（S1a）：读用 `Value::get_path`，写落点（S6）共用同一份 `Path`。
+pub use sml_value::path::{Path, PathError, Seg};
 /// 统一错误类型（`code()` 是跨端稳定契约）。
 ///
 /// 以前调用方只能写 `Result<Value, sml_codes::SmlError>` —— 签名词里带出内部 crate，
