@@ -56,6 +56,26 @@ Editions are **not ordered**, so `Ord` is gone and the criterion is always "is t
 - ⚠️ The registry has no `Removed` row yet, so the branch is **not reachable** today (code and wiring
   are in place; adding a row activates it). `smltools --migrate` (V11) is not implemented yet.
 
+### Added — featag S2: block-head `!` region recognition
+
+- With `@feature enable type.featag`, the `!` region after the block head's first word is recognized:
+  `wea !critical obey[1, 2], name { }`, `wea !critical, { }` (name optional); no-arg items are
+  `!name`, items with args are `name[ … ]`; **`,` terminates** the region (no commas between items).
+- **Three ambiguities, three codes** (`docs/featag-spec-draft.md` §2.3):
+  - `E-PARSE-026` **empty featag region** (`wea ! , name { }`);
+  - `E-PARSE-027` **`!` bareword in a value position** (`a: !b`) — **`bareword-string` does not exempt it**;
+    quote it if you meant a string;
+  - `E-PARSE-028` **`!`-prefixed name in a block head** (block-name position after `,`, or the type word).
+- **S2 recognizes only, it emits no data**: `__featags` is S3, so the resulting tree gains **no key**
+  (a test pins this so S2/S3 cannot silently merge).
+- Look-ahead updated: with featag on, `bare_block_ahead` steps over `!name` / `name[…]` and the
+  terminating comma — otherwise `wea !critical, name { }` reads as "key `wea` + value `!critical`"
+  and misfires on B2 (first attempt did exactly that).
+- Gated entirely behind `type.featag`; **without it v1–v4 is unchanged** (`a: !b` stays a bareword,
+  `server web prod { }` keeps its `__type`/`__name`/`__args`).
+- Cross-end: the three codes list `impls: [ rust ]` — C/C++/Lua have no feature set, JS has no featag,
+  and they keep the old rules on the same input.
+
 ### Added — feature namespaces + the `type.featag` placeholder bit
 
 - `@feature enable <domain>.<name>` now works (`docs/feature-namespace-plan.md` N4):
@@ -71,8 +91,8 @@ Editions are **not ordered**, so `Ord` is gone and the criterion is always "is t
   `@requires`, and the C-ABI `opts.features` all go through it (was five copies).
 - **`type.featag` is reserved** (bit 18, opt-in, not in `baseline()`, not in any `Edition`'s feature
   set): the bit and name are claimed now so S2 has a stable switch to attach to (bit order only grows).
-  ⚠️ **Enabling it changes nothing yet** — the featag grammar (S2) and `__featags` (S3) are unwritten.
-  This is "switch first, grammar next", not an omission.
+  ⚠️ In that placeholder round, enabling it **changed nothing**; **S2 now recognizes the block-head
+  grammar** (next section), but still **emits no data** (`__featags` is S3) — "switch first, grammar next".
 - ⚠️ Cross-end: `type.featag` is **Rust-only**; JS / Lua still report `E-FEATURE-003`
   (the code's note says so).
 

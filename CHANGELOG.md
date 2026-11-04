@@ -46,6 +46,23 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 - ⚠️ 登记表里还没有 `Removed` 行 ⇒ 该分支**暂不可达**（码与接线已就绪，加一行即生效）；
   `smltools --migrate`（V11）尚未实现，文案里的规则 id 是承诺。
 
+### 新增（featag S2：块头 `!` 区语法识别）
+
+- `@feature enable type.featag` 之后，块头首词之后的 `!` 区被识别：
+  `wea !critical obey[1, 2], name { }`、`wea !critical, { }`（块名可省）；
+  无参项写 `!名`、带参项写 `名[ … ]`；**`,` 是终止符**，区内部各项之间不写逗号。
+- **三条歧义各报一码**（`docs/featag-spec-draft.md` §2.3）：
+  - `E-PARSE-026` **空 featag 区**（`wea ! , name { }`）；
+  - `E-PARSE-027` **值位置的 `!` 裸词**（`a: !b`）—— **开了 `bareword-string` 也不豁免**，要写字面量请加引号；
+  - `E-PARSE-028` **块头里以 `!` 开头的名字**（`,` 之后的块名位置，或首词/类型词位置）。
+- **S2 只识别、不落数据**：`__featags` 属于 S3，故结果树里**没有**新键（用例专门钉这一条，
+  防止有人把 S2/S3 混成一片）。
+- 预扫描同步：`bare_block_ahead` 在 featag 开启时跨过 `!名` / `名[…]` 与终止逗号 ——
+  否则 `wea !critical, name { }` 会被当成「键 `wea` + 值 `!critical`」，在 B2 上**误报**（第一版就踩了）。
+- 门控：全部在 `type.featag` 后面，**不开则 v1–v4 一字不变**（`a: !b` 仍是裸词/字符串，
+  `server web prod { }` 的 `__type`/`__name`/`__args` 照旧）。
+- 跨端：三条新码 `impls: [ rust ]` —— C/C++/Lua 没有特性集、JS 未实现 featag，同样输入仍按旧规则。
+
 ### 新增（特性命名空间：带域名 + `type.featag` 占位位）
 
 - `@feature enable <域>.<名>` 生效（`docs/feature-namespace-plan.md` N4）：`Feature::parse_name`
@@ -59,8 +76,8 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   C-ABI 的 `opts.features` 全部走同一套（此前 5 处各写一份）。
 - **新特性 `type.featag` 占位**（第 18 位，opt-in、不在 `baseline()`、不进任何 `Edition` 的功能集）：
   位与名字先占住，S2 一落地就有稳定开关可挂（位序只增不改）。
-  ⚠️ **现在开启它不改变任何解析结果** —— featag 语法（S2）与 `__featags`（S3）都还没写；
-  这是「先备开关、再接语法」的次序，不是漏做。
+  ⚠️ 占位那一轮开启它**曾**不改变任何解析结果；**S2 起已接块头语法识别**（见下条），
+  但仍**不产出数据**（`__featags` 在 S3）—— 「先备开关、再接语法」的次序。
 - ⚠️ 跨端差异：`type.featag` **只在 Rust** 认识，JS / Lua 侧仍报 `E-FEATURE-003`
   （`E-FEATURE-003` 的 note 已写明）。
 
