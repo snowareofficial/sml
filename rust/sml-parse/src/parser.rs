@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use sml_codes::{
     E_CONTRACT_001, E_CONTRACT_010, E_CONTRACT_011, E_CONTRACT_012, E_CONTRACT_013, E_CONTRACT_018,
-    E_CONTRACT_019, E_CONTRACT_020, E_EXT_003, E_EXT_004, E_EXT_005, E_EXT_008, E_FEATURE_001,
+    E_CONTRACT_019, E_CONTRACT_020, E_CONTRACT_021, E_EXT_003, E_EXT_004, E_EXT_005, E_EXT_008,
+    E_FEATURE_001,
     E_FEATURE_002, E_FEATURE_003, E_INCLUDE_007, E_LEX_007, E_LIMIT_001, E_PARSE_001, E_PARSE_002,
     E_PARSE_003, E_PARSE_004, E_PARSE_005, E_PARSE_006, E_PARSE_007, E_PARSE_011, E_PARSE_012,
     E_PARSE_013, E_PARSE_017, E_PARSE_019, E_PARSE_020, E_PARSE_021, E_PARSE_022, E_PARSE_023,
@@ -2002,6 +2003,14 @@ impl Parser {
         }
         // __name 的起点：多契约时跳过被算作契约词的 args（首个非契约词是块名）；
         // 单契约 / 无契约与旧版完全一致（args[0]）
+        // —— featag S5：校验开闸 ——
+        //
+        // 门控与契约校验**同一个开关**（`ParseOptions::apply_contracts(false)` 时整段跳过）：
+        // 「库作者不想让文档内的契约/标注生效」这一诉求，对 featag 应当同样成立，
+        // 否则关掉契约却仍被 featag 拦下，等于给沙箱开了个后门。
+        if self.apply_contracts && self.features.has(Feature::Featag) && !bare.featags.is_empty() {
+            self.check_featags(bare, &names)?;
+        }
         let name_args: &[Value] = if names.len() > 1 { &args[consumed_args..] } else { &args[..] };
         // featag（S3）：块头的 `!` 区落成**保序数组**。写在契约应用**之后**，
         // 与 `__type` / `__name` 同理 —— 保留键是语法元数据，不该被 strict 契约
@@ -2016,6 +2025,92 @@ impl Parser {
             m.insert("__name".into(), name_args[0].clone());
             if name_args.len() > 1 {
                 m.insert("__args".into(), Value::Array(name_args[1..].to_vec()));
+            }
+        }
+        Ok(())
+    }
+
+    /// featag **S5 校验**：块头用到的每个 featag 都必须在**本块应用的契约**里声明过，
+    /// 且参数个数 / 类型与声明相符；**类型不符**走既有类型错误码（同因同码）。
+    ///
+    /// `contract_names` 是 `finish_bare_block` 里已解析到的契约名（多契约 = 声明并集）。
+    /// 诊断一律写全 `<契约>.<featag>`：作用域契约私有，只写名字会分不清是谁的（§5）。
+    fn check_featags(&self, bare: &BareCtx, contract_names: &[String]) -> Result<(), SmlError> {
+        let decls: Vec<&FeatagDecl> = contract_names
+            .iter()
+            .filter_map(|n| self.contracts.get(n))
+            .flat_map(|c| c.featags.iter())
+            .collect();
+        let owner = contract_names.first().map(|s| s.as_str()).unwrap_or_default();
+
+        for item in &bare.featags {
+            let fname = item
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let where_ = if owner.is_empty() {
+                fname.clone()
+            } else {
+                format!("{owner}.{fname}")
+            };
+            let args = item.get("args");
+
+            let Some(decl) = decls.iter().find(|d| d.name == fname) else {
+                // 未声明：把「本块有没有契约」和「契约里声明了什么」分开说
+                let mut avail: Vec<&str> = decls.iter().map(|d| d.name.as_str()).collect();
+                avail.sort_unstable();
+                avail.dedup();
+                let hint = if contract_names.is_empty() {
+                    "本块没有应用任何契约 —— featag 的作用域是契约私有的，先 `@contract` 声明它"
+                        .to_string()
+                } else if avail.is_empty() {
+                    format!("契约 `{owner}` 里一个 featag 都没声明")
+                } else {
+                    format!(
+                        "契约 `{owner}` 里可用：{}",
+                        avail
+                            .iter()
+                            .map(|n| format!("!{n}"))
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    )
+                };
+                return Err(SmlError::from_code_title(E_CONTRACT_021)
+                    .with_detail(format!("`{where_}` 未声明；{hint}")));
+            };
+
+            match (&decl.spec, args) {
+                (None, None) => {}
+                (None, Some(_)) => {
+                    return Err(SmlError::from_code_title(E_CONTRACT_021).with_detail(format!(
+                        "`{where_}` 声明为无参（纯标签），使用处不能带参数"
+                    )))
+                }
+                (Some(_), None) => {
+                    return Err(SmlError::from_code_title(E_CONTRACT_021).with_detail(format!(
+                        "`{where_}` 声明为带参，使用处必须写成 `{fname}[…]`"
+                    )))
+                }
+                (Some(spec), Some(payload)) => {
+                    // 数组类型 ⇒ 参数**表**整体校验（`!obey: [int]` ↔ `obey[1, 2]`）；
+                    // 其它类型 ⇒ 只接受 1 个参数，校验那一个（`!cert: str` ↔ `cert["…"]`）。
+                    let v = if matches!(spec.ty, TypeSpec::Array(_)) {
+                        payload.clone()
+                    } else {
+                        let list = payload.as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+                        if list.len() != 1 {
+                            return Err(SmlError::from_code_title(E_CONTRACT_021).with_detail(
+                                format!(
+                                    "`{where_}` 的参数类型不是数组，只接受 1 个参数（实际给了 {} 个）",
+                                    list.len()
+                                ),
+                            ));
+                        }
+                        list[0].clone()
+                    };
+                    sml_contract::check_value(&where_, &where_, spec, &v, &self.contracts)?;
+                }
             }
         }
         Ok(())

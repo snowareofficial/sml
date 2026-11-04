@@ -96,6 +96,9 @@ pub const E_CONTRACT_019: &str = "E-CONTRACT-019";
 /// [E-CONTRACT-020] featag 落点非法：featag 的落点必须是点路径（对象键），不能穿数组
 /// EN: Illegal featag target —— A featag target must be a dotted path of object keys; it cannot index into arrays
 pub const E_CONTRACT_020: &str = "E-CONTRACT-020";
+/// [E-CONTRACT-021] featag 未声明或用法与声明不符：使用的 featag 没有在该契约里声明，或参数个数 / 类型与声明不符
+/// EN: Undeclared featag / usage does not match declaration —— The featag is not declared in this contract, or the argument count / type differs from the declaration
+pub const E_CONTRACT_021: &str = "E-CONTRACT-021";
 /// [E-DERIVE-001] 值与目标类型不符：SML 值的类型与目标宿主类型不符
 /// EN: Value/target type mismatch —— The SML value's type does not match the target host type
 pub const E_DERIVE_001: &str = "E-DERIVE-001";
@@ -502,6 +505,7 @@ pub const ALL: &[&str] = &[
     E_CONTRACT_018,
     E_CONTRACT_019,
     E_CONTRACT_020,
+    E_CONTRACT_021,
     E_DERIVE_001,
     E_DERIVE_002,
     E_DERIVE_003,
@@ -630,4 +634,4 @@ pub const ALL: &[&str] = &[
 ];
 
 /// 码总数（与 `errors/codes.sml` 的 `count` 对齐）。
-pub const COUNT: usize = 153;
+pub const COUNT: usize = 154;

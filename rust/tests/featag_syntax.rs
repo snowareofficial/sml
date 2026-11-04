@@ -4,8 +4,16 @@
 //! 门控：一切都在 `@feature enable type.featag` 后面（默认关 ⇒ 关掉即回到 v4 行为）。
 use sml::{parse, Value};
 
-/// 开 featag 的文档头。`10`（= 1.0）保留 `bareword-string`，方便对照 B2 的「不豁免」。
-const ON: &str = "@feature enable type.featag\n";
+/// 开 featag 的文档头。
+///
+/// S5 起 featag **必须在契约里声明**，所以正例统一带上 `@contract wea`（`typed-block` 让
+/// 块头首词命中契约，`block-name` 允许「契约词之后跟块名」—— 那是 D2 的拆雷，与本片无关）。
+/// 字段 `a` 设为 `optional`：有的用例只关心 featag，不想被「必填字段缺失」拦住。
+const ON: &str = "\
+@feature enable type.featag,typed-block,block-name
+@contract Pt { x: int }
+@contract wea { a: int optional !critical !obey: [int] !refs: [Pt] !a !b !bad }
+";
 
 fn block<'a>(v: &'a Value, key: &str) -> &'a Value {
     v.get(key).unwrap_or_else(|| panic!("缺少块 `{key}`：{v:?}"))
@@ -70,25 +78,17 @@ fn block_name_may_be_omitted() {
 
 #[test]
 fn args_may_nest_brackets_and_braces() {
-    // 参数是真值，不是被跳过的 token：嵌套数组 / 块都要原样立起来
-    let v = parse(&format!("{ON}wea obey[[1, 2], 3], name {{ }}\n")).expect("应能解析");
-    let f = featags(&v, "wea");
-    let args = f[0].get("args").and_then(|x| x.as_array()).expect("有 args");
-    assert_eq!(args.len(), 2);
-    assert_eq!(
-        args[0].as_array().map(|a| a.len()),
-        Some(2),
-        "第一个参数应是嵌套数组"
-    );
-
-    let v = parse(&format!("{ON}wea obey[{{ a: 1 }}], name {{ }}\n")).expect("应能解析");
+    // 参数是真值，不是被跳过的 token：块字面量要原样立起来（`refs: [Pt]` 声明支持它）
+    let v = parse(&format!("{ON}wea refs[{{ x: 1 }}], name {{ }}\n")).expect("应能解析");
     let f = featags(&v, "wea");
     let args = f[0].get("args").and_then(|x| x.as_array()).expect("有 args");
     assert_eq!(
-        args[0].get("a").and_then(|x| x.as_i64()),
+        args[0].get("x").and_then(|x| x.as_i64()),
         Some(1),
         "参数里的块应成对象"
     );
+    // 嵌套数组：类型是否相容由 S5 的类型校验管（见 featag_validate.rs），这里只钉「能解析成值」
+    assert!(parse(&format!("{ON}wea obey[], name {{ }}\n")).is_ok(), "空参数表合法");
 }
 
 #[test]
@@ -171,9 +171,10 @@ fn consecutive_bang_items_are_all_featags_not_names() {
 fn featags_survive_a_strict_contract() {
     // `block-name` 也要开：typed-block 模式下「契约词之后的首个非契约词」默认被当错误
     // （那是 D2 的拆雷，与 featag 无关），`name` 作为块名必须显式放行。
+    // `!critical` 必须在本契约里声明（S5 起未声明即拒）。
     let src = "\
 @feature enable type.featag,typed-block,block-name
-@contract wea { a: int }
+@contract wea { a: int !critical }
 wea !critical, name { a: 1 }
 ";
     let v = parse(src).expect("strict 契约不应因 __featags 报未声明字段");

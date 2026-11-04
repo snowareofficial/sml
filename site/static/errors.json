@@ -17,7 +17,7 @@
     "MIGRATE": "迁入格式（JSON / TOML / YAML / XML）",
     "PARSE": "语法"
   },
-  "count": 153,
+  "count": 154,
   "codes": [
     {
       "id": "E-CLI-001",
@@ -397,6 +397,18 @@
       ],
       "status": "done",
       "note": "featag S4 声明期 / S6 填充期同码。落点写作 `!cert: str -> tls.cert`，**只穿对象**：写成 `-> node[0]` 或路径语法非法（连续的 `.`、空段等）都在此拒。§10 Q12 已定「不穿数组」——数组填充要做幂等（谁的顺序？重复执行会怎样？）没有好答案，故语法层直接不开这个口子"
+    },
+    {
+      "id": "E-CONTRACT-021",
+      "severity": "error",
+      "domain": "CONTRACT",
+      "title": "featag 未声明或用法与声明不符",
+      "msg": "使用的 featag 没有在该契约里声明，或参数个数 / 类型与声明不符",
+      "impls": [
+        "rust"
+      ],
+      "status": "done",
+      "note": "featag S5 开闸（`docs/featag-spec-draft.md` §10 Q3：**新码**，不复用 E-CONTRACT-012）。三种都用本码、靠 detail 区分：① 未声明（附该契约可用清单）；② 声明为无参（纯标签）却带了参数；③ 声明为带参却没写 `[...]`，或非数组类型的声明给了不止一个参数。**参数类型不符**则走既有类型错误码（`check_type` 那条链），因为那与字段类型错误的因完全相同。库侧可放宽：`ParseOptions::apply_contracts(false)` 时整段校验跳过（与契约校验同一个开关）"
     },
     {
       "id": "E-DERIVE-001",
