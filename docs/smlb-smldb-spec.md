@@ -970,7 +970,7 @@ key 更少一份、零依赖，`ser_text` 已趟过路；O(n) 对真实负载够
 | **T1 编码（L0）** ✅ 已落地（2026-11-04，见 §19.6） | 新 crate `smlb` 骨架 + 文件头 + 段表 + `dump` / `load`（`info` / `ls` 提前到 T1） | `dump→load→dump` 字节相同；`Int(1)` 与 `Float(1.0)` 可区分；`__type`/`__featags` 原样往返；未知段可跳过（用额外段实测） |
 | **T2 容器（L1）** ✅ **全落**（2026-11-04/05，见 §19.8 / §19.9） | 段表 ✅ · 摘要（SHA-256 / SM3，按 `hash_id`）✅ · manifest + `primary` + 能力位 ✅ · 外来载荷 `EMBED` + `payloads[]` + `pack`/`unpack` ✅ · `check` ✅ | 只读 manifest 能列全部段 ✅；未知 `optional` 跳过、缺 `required` 明确拒 ✅；改一字节被检出 ✅ |
 | **T3 读（L2）** ⏳ `cat` 已提前 | `smlb cat`（整树解出再找路）✅；`Mmap::open` / `open_parts` / `text` / `payload` / `history` / `provenance` 未做 | 现版 `cat` 正确但 O(整树)；RSS 判据要等 mmap |
-| **T4 历史与签名（L3）** | 层链（`prev_hash`/`index`）+ `sign` / `delegate` / `verify` + `append`（锁 + `prev_hash` 校验）+ `Patch::strategy` | 验签能答「值来自哪层」；并发追加后到者拿到明确冲突；旧签名未授权的换钥被拒 |
+| **T4 历史与签名（L3）** ✅ 核心已落（2026-11-05，见 §21.1b） | 层链（`prev_hash`/`index`/Trailer）+ `sign` / `append` / `verify` / `delegate` / `tree` + `patch` 合并（D22）；**写者锁（D20）未做** | 验签能答「值来自哪层」（`cat --at N`）✅；未授权的换钥被拒 ✅；并发冲突检测等锁落地 |
 | **T5 压缩与加密（L4）** | zstd 独立帧 + 帧索引；按段加密（SM4 / AES-GCM）；算法 ID 表（含 PQC 登记） | 只解压/解密被访问的段；未知算法 ID ⇒ 明确拒绝；压缩→加密顺序固定 |
 | **T6 工具（T6）** | `smltools --to smlb` / `--from smlb` / `--keep-source`；`smlb sign/verify/append` CLI | 文本 ↔ 二进制双向可跑；签名可被另一端验证 |
 | **T7 五端** | JS / Lua 解码器（只读 `VALUE` 段 + 透传载荷）+ 一致性用例 | 同一 `.smlb` 五端读出同树；载荷字节原样 |
@@ -1201,7 +1201,8 @@ off sz field          含义
 ```
 
 **布局**：头 `[0,40)` → 段表 `seg_count × 41 B`（**紧跟头**，不再钉在 4096）→ 按 `flags` 位 0
-声明的粒度对齐 → 各段数据 → （T4）Trailer 从 **EOF 反向**读固定长度。
+声明的粒度对齐 → 各段数据 → （T4 起）**层记录区**（只追加）→ 末尾 64 B 的 Trailer。
+Trailer 从 EOF 反向读固定长度，细节见 §21.1b。
 
 为什么头里**不放** `Trailer` 偏移、也不放 manifest：两者都会随追加而变，而头是「写一次永不
 变」的东西（否则不变量 3 立刻失守）。manifest 仍是**段**（`0x04`，T1 只登记不写内容）。
@@ -1448,6 +1449,61 @@ crypto {
 验签判定链（六步）：`Trailer.head_hash` → 逐层 `prev_hash` → `index` 连续 → 各签名全过（D36）→
 换钥须有前一层覆盖的 `delegation` 且 `j ≤ max_index` → 各段 `sha256` 一致。**时间只进告警**（D17）。
 
+### 21.1b 层链的落地形态（T4，2026-11-05）
+
+**文件尾**（追加区，写完不再动）：
+
+```text
+… 段数据 | L0 | T0 | L1 | T1 …
+                       ↑ 读者只认 EOF 往前 64 B 的 Trailer
+L_n = len:u32 ‖ prev_off:u64 ‖ reserved:u32 ‖ body（Value 的 L0 字节）
+T   = magic "SMLTRLR1"(8) ‖ layer_count u32 ‖ last_layer_off u64 ‖ head_hash(32) ‖ reserved
+```
+
+**为什么是反向链**（每层记 `prev_off`，Trailer 只指最后一层）：追加只能往 EOF 写；正向链要改
+上一层的 `next` 指针 —— 那就**改了旧字节**。反向链让不变量 3 在**字节层面**也成立，
+不只是「旧签名仍然有效」。旧 Trailer 变成中间字节，读时只看最后一个。
+
+**层体字段**（就是 `VALUE` 编码的对象，P2-b）：
+
+```sml
+layer {
+  index: 3
+  prev_hash: "…64 hex…"      // 首层全 0；其余 = H(上一层的 canonical 字节)
+  author: "…64 hex…"         // Ed25519 公钥（§20 的 0x40）
+  patch: { … }               // 可选：本层要合并进当前值的对象
+  delegation { from sig max_index }   // 可选：换钥授权（D16）
+  sig: [ { algo: 64  bytes: "…hex…" } ]   // 数组，全部必须通过（D36）
+}
+```
+
+**四处实现澄清**（写死在这里，别再让实现者猜）：
+
+| # | 澄清 | 理由 |
+|---|---|---|
+| **A** | **签名对象 = 去掉 `sig` 字段后的 `canonical_text(layer)`** | P2-b 写「签 `canonical_text(layer)`」，可 `sig` 就在 layer 里，直接签会循环 —— 与 §18.4「排除 `SIG` 段自身」同一个道理 |
+| **B** | **偏移不进签名**：`prev_off` / Trailer 都在可签对象之外 | §18.3「位置不是语义」的同一口径；好处是「同一份数据被追加在不同位置」签出来一样 |
+| **C** | **`patch` 的合并规则** = 键已存在则原位覆盖、不存在则追加到尾部、**数组整体替换**（D22）；`load` 返回的是**当前值**（base + 各层补丁），历史值走 `layer::value_at(bytes, base, n)`（`n` 是**层号**，0 起） | 「值来自哪一层」（P2-a）必须有读取面；而 `dump→load→dump` 在**有层**时本来就不该字节相同（D8：`compact` 是唯一例外且必须重签） |
+| **D** | `delegation` 的签名对象是**独立文本** `smlb/delegate/v1\nfrom:…\nto:…\nmax_index:…\n` | 授权是「从 A 到 B 直到第 N 层」这件事本身，与它被放进哪一层无关 |
+
+⚠️ **一个必须说清的边界**：**整条层链可被剥离**（把 EOF 的 Trailer 连同层记录一起删掉，
+文件就退回「未签名」）。没有外部锚点（记住旧 `head_hash` / 对方渠道核对）就无法察觉 ——
+这正是 D18「信任根选择交给调用者」的含义。**不要把「验签通过」读成「这份文件没被换过」。**
+
+**第三方 crate 台账**（用户 2026-11-04 批准引入，要求避开 RustSec 热点；2026-11-05 实测）：
+
+| crate | 用途 | RustSec 历史 | 处置 |
+|---|---|---|---|
+| `ed25519-dalek` 3.0 | §20 `0x40` 签名 | 1 条：RUSTSEC-2022-0093（双公钥签名预言机），1.0.1 起修复 | ✅ 用，`sign` feature 下 |
+| `curve25519-dalek`（间接） | 底座 | 1 条：RUSTSEC-2024-0344（标量减法时序），**>=4.1.3** 修复 | ✅ 随 3.0 带 5.x，已越过 |
+| `getrandom` | keygen 取熵（D41） | 无公告 | ✅ |
+| **`ring`** | 备选 | **RUSTSEC-2025-0010 = UNMAINTAINED** | ❌ 排除 |
+| **`ruzstd`** | 备选压缩 | 2026-10-13 **HIGH 解压炸弹** + 2024-11-18 越界 | ❌ 排除 |
+| **`zstd`（C 绑定）** | 备选压缩 | 2026-10-26 三条（<0.8.0；修 >=0.8.0 + zstd-safe>=8.2） | ⏸ **T5 暂缓**，等冷却 |
+
+仓库既有门禁 `rust/osv_check.py` 扫的是 `Cargo.lock`（含可选依赖），实测 75 个包
+「未发现任何已知漏洞」—— 选型不是凭名片，是被门禁验过的。
+
 ---
 
 ## 22. 配套工具（D38 · 用户 2026-11-04 点名「还得有配套工具」）
@@ -1460,10 +1516,10 @@ crypto {
 | `smlb ls <f> [--segments]` | 列段与外来载荷（id/长度/算法） | T2 | ✅ **已实现**（并列出 `payloads[]` 的名字与长度） |
 | `smlb cat <f> <path>` | 按路径取值（`a.b[0]`），走 `DIR` | T3 | ✅ **已实现**（整树解出再找路；`DIR` 待 T3） |
 | `smlb check <f>` | 结构校验：段哈希、层链、能力位、截断位置 | T2 | ✅ **已实现**（段哈希/截断；层链待 T4、能力位待 §19.9） |
-| `smlb verify <f> [--trust k.pub]` | 验签 + 打印每层/每段结论 | T4 | ✅ |
-| `smlb sign / append / delegate` | 签名、追加补丁、换钥授权 | T4 | ✅ |
+| `smlb verify <f> [--trust k.pub]` | 验链 + 验签，打印每层结论 | T4 | ✅ **已实现**（`--trust` 外部锚点未做） |
+| `smlb sign / append / delegate` | 签名、追加补丁、换钥授权 | T4 | ✅ **已实现**（`keygen` 也在，`sign` 默认原地写） |
 | `smlb pack / unpack` | 把多文件打成 `.smlb`（`EMBED` + `payloads[]`），或反向取出 | T2 | ✅ **已实现**（`unpack` 拒绝目录穿越） |
-| `smlb tree <f>` | 打印层链（index/prev_hash/作者/时间**仅展示**） | T4 | 建议 |
+| `smlb tree <f>` | 打印层链（index/作者/补丁/签名数/授权） | T4 | ✅ **已实现** |
 | `smlb vectors --gen/--check` | 生成/校验跨端 canonical 测试向量（T0 判据） | T0 | ✅ **已实现**（2026-11-04，另带「自检」：往返 + 文本一致） |
 | `smlb bench <f>` | 读路径基准（mmap 打开、单子树取、解帧、解密） | T5 | 建议 |
 | `smlb migrate --to fmt=N` | `fmt` 升级（重写 + 重签，需保留旧签名证据） | T5+ | 建议 |
