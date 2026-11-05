@@ -41,36 +41,98 @@ pub const DIGEST_LEN: usize = 32;
 
 /// Compute the SHA-256 digest of `data`. ｜ 计算 `data` 的 SHA-256 摘要。
 pub fn digest(data: &[u8]) -> [u8; DIGEST_LEN] {
-    let mut h = H0;
+    let mut h = Sha256::new();
+    h.update(data);
+    h.finalize()
+}
 
-    let mut chunks = data.chunks_exact(64);
-    for block in &mut chunks {
-        let mut w = [0u8; 64];
-        w.copy_from_slice(block);
-        compress(&mut h, &w);
+/// Incremental SHA-256 — required by the streaming writer: the segment header's digest
+/// covers bytes that are never all in memory at once (§19.2「写入留占位、段尾回填」).
+/// 增量 SHA-256 —— 流式写的必要件：段头摘要覆盖的字节不会同时在内存里。
+///
+/// 与 [`digest`] 必须给出**同一个结果**（`sha256.rs` 的用例逐块喂入比对）。
+#[derive(Clone)]
+pub struct Sha256 {
+    h: [u32; 8],
+    buf: [u8; 64],
+    buf_len: usize,
+    /// Total bytes fed so far (the padding encodes the **bit** length).
+    /// 已喂入的字节数（padding 里写的是**比特**长度）。
+    total: u64,
+}
+
+impl Default for Sha256 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Sha256 {
+    /// Fresh state. ｜ 新建。
+    pub fn new() -> Self {
+        Sha256 {
+            h: H0,
+            buf: [0u8; 64],
+            buf_len: 0,
+            total: 0,
+        }
     }
 
-    // Padding: 0x80, zeros, then the 64-bit big-endian bit length.
-    // Two possible tail lengths: the remainder fits in 55 bytes (+0x80 +8) ⇒ one block,
-    // otherwise two blocks. ｜ 尾部最多两块：余数 ≤ 55 时一块，否则两块。
-    let rem = chunks.remainder();
-    let mut tail = [0u8; 128];
-    tail[..rem.len()].copy_from_slice(rem);
-    tail[rem.len()] = 0x80;
-    let tail_len = if rem.len() < 56 { 64 } else { 128 };
-    let bits = (data.len() as u64).wrapping_mul(8);
-    tail[tail_len - 8..tail_len].copy_from_slice(&bits.to_be_bytes());
-    for i in 0..tail_len / 64 {
-        let mut w = [0u8; 64];
-        w.copy_from_slice(&tail[i * 64..(i + 1) * 64]);
-        compress(&mut h, &w);
+    /// Feed more bytes. Any chunking of the same input yields the same digest.
+    /// 继续喂字节；同一输入无论怎么切块，结果相同。
+    pub fn update(&mut self, mut data: &[u8]) {
+        self.total = self.total.wrapping_add(data.len() as u64);
+
+        // 先把上次剩下的半块填满
+        if self.buf_len > 0 {
+            let need = 64 - self.buf_len;
+            let take = need.min(data.len());
+            self.buf[self.buf_len..self.buf_len + take].copy_from_slice(&data[..take]);
+            self.buf_len += take;
+            data = &data[take..];
+            if self.buf_len == 64 {
+                let mut w = [0u8; 64];
+                w.copy_from_slice(&self.buf);
+                compress(&mut self.h, &w);
+                self.buf_len = 0;
+            }
+        }
+
+        let mut chunks = data.chunks_exact(64);
+        for block in &mut chunks {
+            let mut w = [0u8; 64];
+            w.copy_from_slice(block);
+            compress(&mut self.h, &w);
+        }
+
+        let rem = chunks.remainder();
+        if !rem.is_empty() {
+            self.buf[..rem.len()].copy_from_slice(rem);
+            self.buf_len = rem.len();
+        }
     }
 
-    let mut out = [0u8; DIGEST_LEN];
-    for (i, word) in h.iter().enumerate() {
-        out[i * 4..i * 4 + 4].copy_from_slice(&word.to_be_bytes());
+    /// Finish and return the digest. Consumes the state (no accidental reuse).
+    /// 收尾并给出摘要；消耗状态，防止误重用。
+    pub fn finalize(mut self) -> [u8; DIGEST_LEN] {
+        let bits = self.total.wrapping_mul(8);
+        let mut tail = [0u8; 128];
+        tail[..self.buf_len].copy_from_slice(&self.buf[..self.buf_len]);
+        tail[self.buf_len] = 0x80;
+        let tail_len = if self.buf_len < 56 { 64 } else { 128 };
+        tail[tail_len - 8..tail_len].copy_from_slice(&bits.to_be_bytes());
+        for i in 0..tail_len / 64 {
+            let mut w = [0u8; 64];
+            w.copy_from_slice(&tail[i * 64..(i + 1) * 64]);
+            compress(&mut self.h, &w);
+        }
+
+        let mut out = [0u8; DIGEST_LEN];
+        for (i, word) in self.h.iter().enumerate() {
+            out[i * 4..i * 4 + 4].copy_from_slice(&word.to_be_bytes());
+        }
+        out
     }
-    out
 }
 
 /// Constant-ish helper: does `data` hash to `expected`? ｜ `data` 的摘要是否等于 `expected`？
@@ -200,6 +262,44 @@ mod tests {
             data[i] = old ^ 0x01;
             assert!(!verify(&data, &good), "第 {i} 字节改动未被检出");
             data[i] = old;
+        }
+    }
+}
+
+#[cfg(test)]
+mod incremental_tests {
+    use super::*;
+
+    /// 同一个输入按**任意**切法喂进去，摘要必须与一次性调用逐字节相同。
+    /// 这是流式写正确性的根：段头摘要不再依赖「字节是否同时在内存里」。
+    #[test]
+    fn any_chunking_matches_one_shot() {
+        let data: Vec<u8> = (0..1000u32).map(|i| (i % 251) as u8).collect();
+        let want = digest(&data);
+
+        for step in [1usize, 3, 63, 64, 65, 127, 128, 129, 500, 1000] {
+            let mut h = Sha256::new();
+            for chunk in data.chunks(step) {
+                h.update(chunk);
+            }
+            assert_eq!(h.finalize(), want, "step={step}");
+        }
+
+        // 空输入与逐字节喂入
+        let mut h = Sha256::new();
+        h.update(&[]);
+        assert_eq!(h.finalize(), digest(&[]));
+    }
+
+    /// 边界长度：55/56/63/64/65 是 padding 分支的临界点。
+    #[test]
+    fn padding_edges() {
+        for n in [0usize, 1, 55, 56, 63, 64, 65, 119, 120, 128] {
+            let data = vec![0xA5u8; n];
+            let mut h = Sha256::new();
+            h.update(&data[..n / 2]);
+            h.update(&data[n / 2..]);
+            assert_eq!(h.finalize(), digest(&data), "n={n}");
         }
     }
 }
