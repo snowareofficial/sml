@@ -31,7 +31,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
       - name: 测试 workspace
-        run: cargo test --workspace
+        # swsml 的 [lib] 同时是 rlib + cdylib，且多个成员以不同 feature 集依赖它
+        # ⇒ cargo #6313 输出文件名碰撞（libsml.rlib），workspace 合跑会让 smlkit-easy
+        # 找不到自己的 rlib。按 cargo 自己的建议「compiling them separately」拆两步：
+        #   - 其余成员合跑；- smlkit-easy 单独跑（单独跑时 feature 集唯一，无碰撞）。
+        run: |
+          cargo test --workspace --exclude smlkit-easy
+          cargo test -p smlkit-easy
       # 零依赖承诺的钉子：README / rust/Cargo.toml 都写「default-features = false 回到完全零依赖」。
       # 2026-11-02 实测发现该承诺是假的（`pub use crate::emit::MAX_VALUE_DEPTH` 没 cfg，
       # 而 `pub mod emit` 被 7 个 emit-* 门控 ⇒ E0432）。已修，并在此加门禁防复发：

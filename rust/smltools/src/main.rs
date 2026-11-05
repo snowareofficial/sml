@@ -42,6 +42,8 @@ use clap::Parser;
 use sml::{Edition, Map, parse, Feature, FeatureSet, Value};
 // ⚠️ `E_INCLUDE_001/004/012` **不再由本 crate 抛出**：include 展开已统一交给库的
 // `sml::parse_file`（原先那份 CLI 自有的行级预处理已删除），这些码由 `sml-include` 带出。
+// `E_CLI_007` 只在 `--to-smlb`（feature `smlb`）分支用到；默认档允许它未使用。
+#[allow(unused_imports)]
 use sml_codes::{
     SmlError, E_CLI_001, E_CLI_002, E_CLI_003, E_CLI_004, E_CLI_005, E_CLI_006, E_CLI_007,
     E_CLI_008,
@@ -527,6 +529,8 @@ struct Args {
     /// 写成 `.smlb` 信封（二进制） ｜ write the result as a `.smlb` envelope
     to_smlb: bool,
     /// `--to-smlb` 的 zstd 级别 ｜ zstd level for `--to-smlb`
+    /// 只在 `smlb` feature 下有人读，默认档允许它「未使用」。
+    #[cfg_attr(not(feature = "smlb"), allow(dead_code))]
     smlb_compress: Option<i32>,
 }
 

@@ -351,9 +351,18 @@ fn cli_output_has_no_duplicate_tool_prefix() {
 
 // ================= 特性（FEATURE） =================
 
+/// Dev 版本集（`v9` / 5.0）用户 2026-11-04 裁决**收下**，但必须打 note 说清
+/// 「这是开发中的功能集，不要写进对外文档」。它不是「未知版本」。
+#[test]
+fn dev_feature_version_is_accepted_with_a_note() {
+    let o = assert_code(&["--feature", "v9"], Some("k: 1\n"), "I-FEATURE-001");
+    assert_eq!(o.code, Some(0), "dev 版本集不该判错\n--- stderr ---\n{}", o.stderr);
+}
+
+/// 真正非法的版本字面量才报 E-FEATURE-004。
 #[test]
 fn unknown_feature_version_is_feature_004() {
-    assert_code(&["--feature", "v9"], Some("k: 1\n"), "E-FEATURE-004");
+    assert_code(&["--feature", "banana"], Some("k: 1\n"), "E-FEATURE-004");
 }
 
 #[test]
