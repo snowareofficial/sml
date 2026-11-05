@@ -1276,7 +1276,10 @@ T2 已经把每段的 `(id, comp, enc, len, sha256)` 写进 manifest 的 `segmen
 在那之前：**`check` 能检出「文件被动过」，检不出「谁动的」**，文档与工具文案都不许越界承诺。
 
 **工具**：`smlb check <f>`（结构 + 逐段摘要 + 能否解码，退出码 1 = 未通过）；
-`smlb cat <f> <path>`（`a.b[0]` 语法，走 `sml_value::Path`，输出**canonical 文本**）。
+`smlb cat <f> [<path>]`（`a.b[0]` 语法，走 `sml_value::Path`，输出 **canonical 文本**）。
+给 `<path>` 取该处当前值；**不给则输出整份**（Unix `cat` 的直觉）。历史回放已拆到
+`smlb history <f> <path> --at N` —— 同一个命令既当「整份输出」又当「历史查询」，
+读者无法从名字预期它的行为（评审 2026-11-05）。
 `cat` 当前是「整树解出再找路」，`DIR` 段（T3）才把它降到 O(1) —— 先让语义站稳，再上索引。
 
 **「不可信字节」这条线**：解码器吃的是别人的文件，一次 panic 就是一次 DoS。故有一条用例
@@ -1959,7 +1962,8 @@ $ smlb verify base.smlb --trust fd4f90d0…         # 有人拿未签名件冒�
 |---|---|---|---|
 | `smlb info <f>` | 一眼看清：edition/fmt/段表/能力位/是否签名、是否加密 | T2 | ✅ **已实现**（T1 提前；能力位/签名状态待 T2/T4 补） |
 | `smlb ls <f> [--segments]` | 列段与外来载荷（id/长度/算法） | T2 | ✅ **已实现**（并列出 `payloads[]` 的名字与长度） |
-| `smlb cat <f> <path>` | 按路径取值（`a.b[0]`），走 `DIR` | T3 | ✅ **已实现**（带 `--at N` 历史回放） |
+| `smlb cat <f> [<path>]` | 无路径输出整份；有路径按路径取值（`a.b[0]`） | T3 | ✅ **已实现** |
+| `smlb history <f> <path> --at N` | 第 N 层为止的值（历史回放） | T4 | ✅ **已实现**（从 `cat --at` 拆出） |
 | `smlb get <f> <path> [--bytes]` | 零拷贝取一棵子树（不解全树），`--bytes` 出原始字节 | T3 | ✅ **已实现**（不依赖 `DIR`：用 `subtree_len` 跳兄弟） |
 | `smlb text <f> [--path P]` | 整份或某一子树的 canonical 文本 | T3 | ✅ **已实现** |
 | `smlb check <f>` | 结构校验：段哈希、层链、能力位、截断位置 | T2 | ✅ **已实现**（段哈希/截断；层链待 T4、能力位待 §19.9） |

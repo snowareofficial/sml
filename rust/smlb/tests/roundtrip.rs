@@ -285,6 +285,32 @@ fn capability_declaration_is_validated_on_write() {
     );
 }
 
+/// `pack_iter` 与 `pack` 必须产出**同一份字节**（前者只是少收一次税）。
+/// The owning-input entry point must be byte-identical to the borrowed one.
+#[test]
+fn pack_iter_matches_pack_byte_for_byte() {
+    let a: &[u8] = b"hello";
+    let b: &[u8] = &[0x00, 0xFF, 0x01];
+
+    let borrowed = smlb::pack(&[("a.txt", a), ("b.bin", b)]).unwrap();
+    let owned = smlb::pack_iter(vec![
+        ("a.txt".to_string(), a.to_vec()),
+        ("b.bin".to_string(), b.to_vec()),
+    ])
+    .unwrap();
+
+    assert_eq!(borrowed, owned, "两个入口必须逐字节相同");
+    assert_eq!(&*smlb::payload(&owned, "b.bin").unwrap(), b);
+
+    // 空归档仍然是明确错误，不会产出「零载荷的文件」
+    assert_eq!(
+        smlb::pack_iter(Vec::<(String, Vec<u8>)>::new())
+            .unwrap_err()
+            .kind(),
+        "empty-archive"
+    );
+}
+
 /// Every segment carries a real digest, and `check` says so.
 /// 每个段都带真摘要，`check` 会把结论打出来。
 #[test]

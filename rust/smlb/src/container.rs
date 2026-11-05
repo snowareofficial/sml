@@ -967,8 +967,51 @@ pub fn pack(items: &[(&str, &[u8])]) -> Result<Vec<u8>, ContainerError> {
 }
 
 /// Same as [`pack`], with explicit choices. ｜ 同 [`pack`]，但显式指定选项。
+///
+/// 便利签名，内部会为每个载荷**复制一份**（`&[u8]` → `Vec<u8>`）。
+/// 手上有拥有所有权的数据时请直接用 [`pack_iter`]，免得白拷一遍。
 pub fn pack_with(
     items: &[(&str, &[u8])],
+    opts: &DumpOptions,
+) -> Result<Vec<u8>, ContainerError> {
+    let owned: Vec<(String, Vec<u8>)> = items
+        .iter()
+        .map(|(n, b)| ((*n).to_string(), b.to_vec()))
+        .collect();
+    pack_owned(&owned, opts)
+}
+
+/// `pack` for callers who already **own** their payloads.
+/// 给「已经持有所有权」的调用方：不必先凑出一个 `Vec<(&str, &[u8])>` 影子数组。
+///
+/// ```ignore
+/// let f = smlb::pack_iter_with(
+///     files.iter().map(|p| std::fs::read(p).map(|b| (p, b))).collect::<Result<Vec<_>, _>>()?,
+///     &opts,
+/// )?;
+/// ```
+pub fn pack_iter<I, N>(items: I) -> Result<Vec<u8>, ContainerError>
+where
+    I: IntoIterator<Item = (N, Vec<u8>)>,
+    N: Into<String>,
+{
+    pack_iter_with(items, &DumpOptions::default())
+}
+
+/// [`pack_iter`] with explicit choices. ｜ 同 [`pack_iter`]，但显式指定选项。
+pub fn pack_iter_with<I, N>(items: I, opts: &DumpOptions) -> Result<Vec<u8>, ContainerError>
+where
+    I: IntoIterator<Item = (N, Vec<u8>)>,
+    N: Into<String>,
+{
+    let owned: Vec<(String, Vec<u8>)> = items.into_iter().map(|(n, b)| (n.into(), b)).collect();
+    pack_owned(&owned, opts)
+}
+
+/// The single implementation both `pack*` families funnel into.
+/// 两个 `pack*` 家族共同落到这一份实现。
+fn pack_owned(
+    items: &[(String, Vec<u8>)],
     opts: &DumpOptions,
 ) -> Result<Vec<u8>, ContainerError> {
     validate_caps(opts)?;
@@ -977,19 +1020,17 @@ pub fn pack_with(
     }
     let mut names: Vec<&str> = Vec::with_capacity(items.len());
     for (name, _) in items {
-        if names.contains(name) {
-            return Err(ContainerError::DuplicatePayloadName {
-                name: (*name).to_string(),
-            });
+        if names.contains(&name.as_str()) {
+            return Err(ContainerError::DuplicatePayloadName { name: name.clone() });
         }
-        names.push(name);
+        names.push(name.as_str());
     }
 
     let mut body: Vec<u8> = Vec::new();
     let mut payloads: Vec<ManifestPayload> = Vec::with_capacity(items.len());
     for (name, data) in items {
         payloads.push(ManifestPayload {
-            name: (*name).to_string(),
+            name: name.clone(),
             len: body_len(data)?,
             digest: hash::digest(opts.hash, data).map_err(ContainerError::Hash)?,
         });

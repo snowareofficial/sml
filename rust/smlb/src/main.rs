@@ -25,7 +25,7 @@ smlb — 通用二进制信封 .smlb（SML 是内置载荷之一）
   smlb info    <file>                  一眼看清 edition/fmt/段表/摘要状态
   smlb ls      <file>                  逐段列出 id/偏移/长度/算法（`--segments` 同义）
   smlb check   <file>                  结构 + 逐段摘要校验，打印每段结论
-  smlb cat     <file> <path>           按路径取值（a.b[0]），输出 canonical 文本
+  smlb cat     <file> [<path>]         无路径输出整份；有路径取当前值（canonical 文本）
   smlb pack    [--zstd [N]] <out.smlb> <file>...
                                        把若干文件打成一个 .smlb 归档（EMBED 段）；
                                        `--zstd` 段级压缩（N = 1..19，默认 3）
@@ -43,7 +43,7 @@ smlb — 通用二进制信封 .smlb（SML 是内置载荷之一）
   smlb verify  <file> [--trust HEX64]  验链 + 验签（全部必须通过，D36）；
                                        `--trust` 把链头钉在外部锚点上（防整条链被剥离）
   smlb tree    <file>                  打印层链：序号 / 作者 / 补丁键数 / 签名数 / 授权
-  smlb cat     <file> <path> [--at N]  取第 N 层为止的值（历史回放）
+  smlb history <file> <path> --at N    取第 N 层为止的值（历史回放；`cat --at` 已迁到这里）
   smlb get     <file> <path> [--bytes] 零拷贝取一棵子树（不解全树）；--bytes 出原始字节十六进制
   smlb text    <file> [--path P]       整份（或某一子树）的 canonical 文本
   smlb vectors --gen   [--file PATH]   重新生成跨端 canonical 向量
@@ -139,6 +139,7 @@ fn run(args: &[String]) -> Result<String, (u8, String)> {
             }
         }),
         "cat" => cat_cmd(&args[1..]),
+        "history" => history_cmd(&args[1..]),
         "pack" => pack_cmd(&args[1..]),
         "unpack" => unpack_cmd(&args[1..]),
         "verify" => verify_cmd(&args[1..]),
@@ -242,25 +243,27 @@ fn pack_cmd(args: &[String]) -> Result<String, (u8, String)> {
     if files.is_empty() {
         return Err((2, "至少给一个要打包的文件".to_string()));
     }
-    let mut owned: Vec<(String, Vec<u8>)> = Vec::with_capacity(files.len());
-    for f in files {
-        let bytes = std::fs::read(f).map_err(|e| (1, format!("读 {f} 失败：{e}")))?;
-        // 载荷名就用调用方给的路径：解包时原样还原目录结构
-        owned.push(((**f).clone(), bytes));
-    }
-    let refs: Vec<(&str, &[u8])> = owned
+    // 载荷名就用调用方给的路径：解包时原样还原目录结构。
+    // 直接把拥有所有权的 (name, bytes) 交给 `pack_iter_with`，不再造 `&[(&str, &[u8])]`
+    // 这层影子数组 —— 那是 API 在向调用方收税（评审原话）。
+    let items: Vec<(String, Vec<u8>)> = files
         .iter()
-        .map(|(n, b)| (n.as_str(), b.as_slice()))
-        .collect();
+        .map(|f| {
+            std::fs::read(f)
+                .map(|b| ((**f).clone(), b))
+                .map_err(|e| (1, format!("读 {f} 失败：{e}")))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let count = items.len();
     let opts = smlb::DumpOptions {
         compress,
         ..Default::default()
     };
-    let file = smlb::pack_with(&refs, &opts).map_err(|e| (1, e.to_string()))?;
+    let file = smlb::pack_iter_with(items, &opts).map_err(|e| (1, e.to_string()))?;
     std::fs::write(out, &file).map_err(|e| (1, format!("写 {out} 失败：{e}")))?;
     Ok(format!(
         "已打包 {} 个载荷 → {out}（{} B{}）",
-        refs.len(),
+        count,
         file.len(),
         match compress {
             Some(l) => format!("，zstd level {l}"),
@@ -315,8 +318,45 @@ fn safe_join(dest: &str, name: &str) -> Result<std::path::PathBuf, (u8, String)>
     Ok(std::path::Path::new(dest).join(name))
 }
 
-/// `smlb cat <file> <path> [--at N]` — 取当前值，或第 N 层为止的历史值。
+/// `smlb cat <file> [<path>]` — 无路径输出整份（Unix 直觉），有路径取当前值。
+///
+/// 历史回放**已拆到** [`history_cmd`]：同一个 `cat` 既当「整份输出」又当「历史查询」，
+/// 正是评审说的「与 Unix 直觉相反」。现在三者的分工：
+/// `cat` = 整份 / 当前值 · `get` = 零拷贝取子树 · `history` = 第 N 层为止的值。
 fn cat_cmd(args: &[String]) -> Result<String, (u8, String)> {
+    let mut pos: Vec<&String> = Vec::new();
+    for a in args {
+        if a == "--at" {
+            return Err((
+                2,
+                "历史回放已拆到 `smlb history <file> <path> --at N`（`cat` 只取当前值）"
+                    .to_string(),
+            ));
+        }
+        pos.push(a);
+    }
+    let Some(file) = pos.first() else {
+        return Err((2, "用法: smlb cat <file> [<path>]".to_string()));
+    };
+    let bytes = std::fs::read(file).map_err(|e| (1, format!("读 {file} 失败：{e}")))?;
+
+    // 无路径 ⇒ 整份 canonical 文本（与 `text` 同源，Unix `cat` 的直觉）
+    let Some(expr) = pos.get(1) else {
+        if pos.len() > 1 {
+            return Err((2, format!("多余参数 `{}`", pos[1])));
+        }
+        let store = smlb::Store::open(&bytes).map_err(|e| (1, format!("{file}: {e}")))?;
+        let text = store.text().map_err(|e| (1, format!("{file}: {e}")))?;
+        return Ok(text.trim_end_matches('\n').to_string());
+    };
+
+    let v = smlb::get(&bytes, expr).map_err(|e| (1, format!("{file}: {e}")))?;
+    v.canonical_text().map_err(|e| (1, format!("{e}")))
+}
+
+/// `smlb history <file> <path> --at N` — 第 N 层为止的值（历史回放）。
+/// History replay, deliberately its own command: `cat` should not silently change meaning.
+fn history_cmd(args: &[String]) -> Result<String, (u8, String)> {
     let mut pos: Vec<&String> = Vec::new();
     let mut at: Option<usize> = None;
     let mut i = 0;
@@ -325,10 +365,7 @@ fn cat_cmd(args: &[String]) -> Result<String, (u8, String)> {
             let Some(n) = args.get(i + 1) else {
                 return Err((2, "`--at` 需要层号".to_string()));
             };
-            at = Some(
-                n.parse()
-                    .map_err(|_| (2, format!("`--at {n}` 不是数字")))?,
-            );
+            at = Some(n.parse().map_err(|_| (2, format!("`--at {n}` 不是数字")))?);
             i += 2;
             continue;
         }
@@ -336,22 +373,18 @@ fn cat_cmd(args: &[String]) -> Result<String, (u8, String)> {
         i += 1;
     }
     let (Some(file), Some(expr)) = (pos.first(), pos.get(1)) else {
-        return Err((2, "用法: smlb cat <file> <path> [--at N]".to_string()));
+        return Err((2, "用法: smlb history <file> <path> --at N".to_string()));
+    };
+    let Some(n) = at else {
+        return Err((
+            2,
+            "`history` 必须给 `--at N`（只想取当前值请用 `cat` / `get`）".to_string(),
+        ));
     };
     let bytes = std::fs::read(file).map_err(|e| (1, format!("读 {file} 失败：{e}")))?;
-    let v = match at {
-        // 历史回放：base 值 + 前 N 层的补丁
-        Some(n) => {
-            let base = smlb::load(&bytes).map_err(|e| (1, format!("{file}: {e}")))?;
-            // load 已经合并了全部层，这里要的是「截至第 n 层」⇒ 重算
-            let raw = smlb::container::base_value(&bytes)
-                .map_err(|e| (1, format!("{file}: {e}")))?;
-            let _ = base;
-            smlb::layer::history_value_at(&bytes, &raw, n, expr)
-                .map_err(|e| (1, format!("{file}: {e}")))?
-        }
-        None => smlb::get(&bytes, expr).map_err(|e| (1, format!("{file}: {e}")))?,
-    };
+    let raw = smlb::container::base_value(&bytes).map_err(|e| (1, format!("{file}: {e}")))?;
+    let v = smlb::layer::history_value_at(&bytes, &raw, n, expr)
+        .map_err(|e| (1, format!("{file}: {e}")))?;
     v.canonical_text().map_err(|e| (1, format!("{e}")))
 }
 
