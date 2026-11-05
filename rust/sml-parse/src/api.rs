@@ -321,6 +321,13 @@ pub fn parse_ordered(text: &str) -> Result<Value, SmlError> {
     Ok(parse_with(text, ParseOptions::new().ordered())?.value)
 }
 
+/// File entry with **explicit source order** (include expansion happens here, so this is the
+/// only way to keep source order across `include`). ｜ 文件入口的显式保序版本：
+/// `include` 只在文件入口展开，故跨 include 的源序必须走这里。
+pub fn parse_file_ordered(path: impl AsRef<std::path::Path>) -> Result<Value, SmlError> {
+    Ok(parse_file_with(path, ParseOptions::new().ordered())?.value)
+}
+
 /// Parse SML text and return the non-fatal diagnostics ｜ 解析 SML 文本，并把**非致命诊断**（键冲突告警）一并交出来。
 ///
 /// 与 [`parse`] 的差别**只在返回值**：`parse` 的签名是 `Result<Value, _>`，承载不了

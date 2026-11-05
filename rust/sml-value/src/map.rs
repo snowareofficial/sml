@@ -46,17 +46,11 @@ impl Map {
     /// ([`Map::ordered`] / `From<OrderedMap>` / `parse_ordered()`).
     /// 默认无序；要源序必须显式选择。
     ///
-    /// ⚠️ 过渡兼容：`preserve_order` 档下 `new()` 仍产出 `Ordered` —— 这是为了让既有
-    /// 「开了 feature 就能签」的调用方不突然坏掉。**它不再决定能不能签**：
-    /// canonical 判定看的是对象自身是哪一态（见 `canonical.rs::all_objects_ordered`），
-    /// 所以默认档里 `Map::ordered()` 构造的对象同样能签 —— 这正是「正确性不再是配置项」。
-    /// 待 `parse_ordered()` 落地、调用点全部显式化后，这个分支会删掉。
+    /// ⚠️ **过渡兼容已结束**：`new()` 一律是**无序**态。
+    /// 保序档也不再自动给 `Ordered` —— 那正是「正确性靠编译开关」的最后一个残留。
+    /// 要源序请显式 [`Map::ordered`] / `From<OrderedMap>` / `parse_ordered()`。
     pub fn new() -> Self {
-        if cfg!(feature = "preserve_order") {
-            Map::Ordered(Box::new(OrderedMap::new()))
-        } else {
-            Map::Unordered(BTreeMap::new())
-        }
+        Map::Unordered(BTreeMap::new())
     }
 
     /// Explicitly **unordered** (UTF-8 byte order). ｜ 显式无序（UTF-8 字节序）。

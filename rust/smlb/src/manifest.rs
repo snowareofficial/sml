@@ -614,7 +614,7 @@ mod tests {
         // 只给三个必填字段，其余靠 §21 默认值
         let v = sml_value::Value::from_canonical_bytes(
             &{
-                let mut m = Map::new();
+                let mut m = Map::ordered();
                 m.insert("primary".into(), Value::Int(1));
                 m.insert("hash_id".into(), Value::Int(0x30));
                 m.insert("segments".into(), sml_value::Value::Array(vec![]));

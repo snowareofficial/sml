@@ -17,13 +17,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 造一个「很多兄弟」的文档：取最后一个字段不必解码前面那 499 棵
     let rows: Vec<Value> = (0..500)
         .map(|i| {
-            let mut m = Map::new();
+            let mut m = Map::ordered();
             m.insert("idx".to_string(), Value::Int(i));
             m.insert("text".to_string(), Value::Str(format!("row-{i}")));
             Value::Object(m)
         })
         .collect();
-    let mut root = Map::new();
+    let mut root = Map::ordered();
     root.insert("rows".to_string(), Value::Array(rows));
     let doc = Value::Object(root);
     let bytes = dump(&doc)?;

@@ -54,7 +54,7 @@ fn opening_a_100mb_file_does_not_copy_it() {
 
     // 1) 造一份 100 MB 的文件（这一步当然吃内存；造完就全部释放）
     {
-        let mut m = Map::new();
+        let mut m = Map::ordered();
         m.insert("big".to_string(), Value::Str("x".repeat(100 * 1024 * 1024)));
         m.insert("port".to_string(), Value::Int(8080));
         let f = smlb::dump(&Value::Object(m)).unwrap();
@@ -96,10 +96,10 @@ fn opening_a_100mb_file_does_not_copy_it() {
 #[test]
 fn mmap_reader_agrees_with_load() {
     let path = temp_path("small");
-    let mut cfg = Map::new();
+    let mut cfg = Map::ordered();
     cfg.insert("port".to_string(), Value::Int(8080));
     cfg.insert("name".to_string(), Value::Str("demo".into()));
-    let mut root = Map::new();
+    let mut root = Map::ordered();
     root.insert("config".to_string(), Value::Object(cfg));
     let doc = Value::Object(root);
 

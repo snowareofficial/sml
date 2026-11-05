@@ -10,21 +10,21 @@ use smlb::layer::{self, Delegation};
 use smlb::{ContainerError, HashAlgo, KeyPair, Map, SignError, Trailer, Value};
 
 fn base_doc() -> Value {
-    let mut cfg = Map::new();
+    let mut cfg = Map::ordered();
     cfg.insert("port".to_string(), Value::Int(8080));
     cfg.insert("name".to_string(), Value::Str("demo".into()));
     Value::Object({
-        let mut m = Map::new();
+        let mut m = Map::ordered();
         m.insert("config".to_string(), Value::Object(cfg));
         m
     })
 }
 
 fn patch(port: i64) -> Value {
-    let mut cfg = Map::new();
+    let mut cfg = Map::ordered();
     cfg.insert("port".to_string(), Value::Int(port));
     Value::Object({
-        let mut m = Map::new();
+        let mut m = Map::ordered();
         m.insert("config".to_string(), Value::Object(cfg));
         m
     })

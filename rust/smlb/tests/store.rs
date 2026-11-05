@@ -19,7 +19,7 @@ fn at(v: &Value, path: &str) -> Value {
 fn wide_doc() -> Value {
     let items: Vec<Value> = (0..500)
         .map(|i| {
-            let mut m = Map::new();
+            let mut m = Map::ordered();
             m.insert("idx".to_string(), Value::Int(i));
             m.insert(
                 "pad".to_string(),
@@ -28,7 +28,7 @@ fn wide_doc() -> Value {
             Value::Object(m)
         })
         .collect();
-    let mut root = Map::new();
+    let mut root = Map::ordered();
     root.insert("arr".to_string(), Value::Array(items));
     root.insert("head".to_string(), Value::Str("根".into()));
     Value::Object(root)
@@ -179,7 +179,7 @@ fn patches_are_visible_through_get() {
     let l0 = smlb::append_layer(&f, &k, None, None, HashAlgo::Sha256).unwrap();
 
     // 补丁把顶层键 head 换掉
-    let mut p = Map::new();
+    let mut p = Map::ordered();
     p.insert("head".to_string(), Value::Str("改过".into()));
     let patch = Value::Object(p);
     let l1 = smlb::append_layer(&l0, &k, Some(patch), None, HashAlgo::Sha256).unwrap();

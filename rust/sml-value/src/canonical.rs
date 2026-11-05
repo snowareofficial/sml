@@ -46,13 +46,13 @@
 //! # Example / 例子
 //!
 //! ```
-//! # #[cfg(feature = "preserve_order")] {
+//! # {
 //! use sml_value::{Map, Value};
 //!
-//! let v = Value::Object(Map::from_iter([
-//!     ("z".to_string(), Value::Int(1)),
-//!     ("a".to_string(), Value::Int(2)),
-//! ]));
+//! let mut m = Map::ordered();          // 显式保源序
+//! m.insert("z".to_string(), Value::Int(1));
+//! m.insert("a".to_string(), Value::Int(2));
+//! let v = Value::Object(m);
 //! // source order in, source order out (**not** `a` first) ｜ 源序进、源序出
 //! assert_eq!(v.canonical_text().unwrap(), "z: 1\na: 2\n");
 //! # }
@@ -343,7 +343,7 @@ impl Value {
     /// # Example / 例子
     ///
     /// ```
-    /// # #[cfg(feature = "preserve_order")] {
+    /// # {
     /// use sml_value::Value;
     ///
     /// assert_eq!(Value::Int(1).canonical_text().unwrap(), "1\n");
@@ -607,7 +607,7 @@ impl Value {
     /// # Example / 例子
     ///
     /// ```
-    /// # #[cfg(feature = "preserve_order")] {
+    /// # {
     /// use sml_value::Value;
     ///
     /// let a = Value::Int(1).canonical_bytes().unwrap();
@@ -1278,7 +1278,9 @@ fn decode_node(
             if n > (r.remaining() / 7) as u64 {
                 return Err(CanonicalError::Truncated { at: r.pos });
             }
-            let mut m = Map::new();
+            // 解码出来的对象**天然保序**：canonical 字节里的键序就是源序（§18 C2）。
+            // 这不是「顺手选的」，而是让 `load()` 的结果可以直接再签一次 canonical。
+            let mut m = Map::ordered();
             for _ in 0..n {
                 let id = r.uvarint()?;
                 let k = table
@@ -1312,12 +1314,12 @@ fn decode_node(
     Ok(value)
 }
 
-#[cfg(all(test, feature = "preserve_order"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
     fn obj(pairs: &[(&str, Value)]) -> Value {
-        let mut m = Map::new();
+        let mut m = Map::ordered();
         for (k, v) in pairs {
             m.insert((*k).to_string(), v.clone());
         }
@@ -1409,7 +1411,7 @@ mod tests {
             ("s", Value::Str("dup".into())),
             ("arr", Value::Array(vec![Value::Str("dup".into()), Value::Int(-3)])),
         ]);
-        let mut m = Map::new();
+        let mut m = Map::ordered();
         m.insert("s".to_string(), Value::Str("dup".into()));
         m.insert(
             "arr".to_string(),

@@ -17,9 +17,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         KeySource, Map, Value,
     };
 
-    let mut cfg = Map::new();
+    let mut cfg = Map::ordered();
     cfg.insert("token".to_string(), Value::Str("s3cr3t".into()));
-    let mut root = Map::new();
+    let mut root = Map::ordered();
     root.insert("config".to_string(), Value::Object(cfg));
     let doc = Value::Object(root);
 
