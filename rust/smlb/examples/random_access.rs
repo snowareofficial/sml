@@ -2,15 +2,9 @@
 //! 随机访问：只读命中的子树，不把整个文档解成 `Value`。
 //! Random access: decode only the subtree you ask for, not the whole tree.
 //!
-//! `cargo run -p smlb --features "preserve_order,mmap" --example random_access`
-//! （不带 `mmap` 也能跑，只是少了 `MappedFile` 那一段）
+//! `cargo run -p smlb --example random_access`
+//! （不带 `mmap` 也能跑，只是少了 `MappedFile` 那一段；本例**不需要** `preserve_order`）
 
-#[cfg(not(feature = "preserve_order"))]
-fn main() {
-    eprintln!("本例需要 `preserve_order`：`cargo run -p smlb --features preserve_order --example random_access`");
-}
-
-#[cfg(feature = "preserve_order")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use smlb::{dump, load, Map, Store, Value};
 
