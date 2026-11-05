@@ -52,7 +52,10 @@ pub use container::{
     align_of, base_value, check, dump, dump_with, embed_body, get, hash_algo, info, load, pack, pack_with, payload,
     payloads, CheckReport, ContainerError, DumpOptions, FileInfo, Segment, SegmentHeader,
     ALIGN_BLOCK, ALIGN_MIN, COMP_ZSTD, EDITION, FLAG_ALIGN_BLOCK, FMT, HEADER_LEN, MAGIC,
-    MAX_DECOMPRESSED, SEG_EMBED, SEG_HEADER_LEN, SEG_MANIFEST, SEG_STRTAB, SEG_VALUE,
+    frame_bytes_at, inflate_frames_all, manifest_of, parse_frame_index, FrameEntry,
+    FRAME_ENTRY_LEN,
+    MAX_DECOMPRESSED, SEG_EMBED, SEG_FRAMES, SEG_HEADER_LEN, SEG_MANIFEST, SEG_STRTAB,
+    SEG_VALUE,
 };
 pub use hash::{HashAlgo, HashError};
 pub use layer::{
