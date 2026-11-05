@@ -34,7 +34,7 @@ fn main() {
 ))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use smlb::{
-        append_layer, dump, dump_encrypted, dump_with, info, DumpOptions, HashAlgo, KeyPair,
+        append_layer, dump, dump_encrypted, dump_with, info, CanonicalValue, DumpOptions, HashAlgo, KeyPair,
         KeySource, Map, Value, FLAG_ALIGN_BLOCK,
     };
 
@@ -47,7 +47,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let doc = Value::Object(root);
 
     // 2) 明文基文件（8 B 对齐，段表紧跟 40 B 头 ⇒ 布局最紧凑，便于看）
-    let base = dump(&doc)?;
+    let cv = CanonicalValue::try_from(doc.clone())?;
+    let base = dump(&cv)?;
     // 3) 尾部追加一层（固定密钥 ⇒ 每次字节相同）
     let kp = KeyPair::from_seed(&[7u8; 32]);
     let signed = append_layer(&base, &kp, None, None, HashAlgo::Sha256)?;
@@ -67,9 +68,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut wide_root = Map::ordered();
     wide_root.insert("rows".to_string(), Value::Array(rows));
     let wide = Value::Object(wide_root);
-    let wide_plain = dump(&wide)?;
+    let cv_wide = CanonicalValue::try_from(wide.clone())?;
+    let wide_plain = dump(&cv_wide)?;
     let wide_z = dump_with(
-        &wide,
+        &cv_wide,
         &DumpOptions {
             compress: Some(9),
             ..Default::default()
@@ -78,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 5) 加密对照：段体是密文，manifest 仍是明文（KDF 参数在里面）
     let aes = dump_encrypted(
-        &doc,
+        &cv,
         &DumpOptions::default(),
         &KeySource::Bytes(&[9u8; 32]),
     )?;

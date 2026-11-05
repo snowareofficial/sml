@@ -41,7 +41,7 @@ fn key(seed: u8) -> KeyPair {
 /// 在字节上一模一样；记住过 head，两件事就分开了。
 #[test]
 fn trust_pins_the_chain_head() {
-    let f = smlb::dump(&base_doc()).unwrap();
+    let f = smlb::dump( &cv(&base_doc()) ).unwrap();
     let signed = smlb::append_layer(&f, &key(1), None, None, HashAlgo::Sha256).unwrap();
 
     let head = layer::chain_head(&signed, HashAlgo::Sha256)
@@ -72,7 +72,7 @@ fn trust_pins_the_chain_head() {
 /// Stripping every layer is caught by the anchor — and by nothing else.
 #[test]
 fn stripped_chain_is_caught_by_the_anchor() {
-    let f = smlb::dump(&base_doc()).unwrap();
+    let f = smlb::dump( &cv(&base_doc()) ).unwrap();
     let signed = smlb::append_layer(&f, &key(1), None, None, HashAlgo::Sha256).unwrap();
     let head = layer::chain_head(&signed, HashAlgo::Sha256).unwrap().unwrap();
 
@@ -93,7 +93,7 @@ fn stripped_chain_is_caught_by_the_anchor() {
 fn swapping_the_base_document_is_detected() {
     let algo = HashAlgo::Sha256;
     let k = key(1);
-    let f = smlb::dump(&base_doc()).unwrap();
+    let f = smlb::dump( &cv(&base_doc()) ).unwrap();
     let v1 = smlb::append_layer(&f, &k, None, None, algo).unwrap();
     assert!(smlb::verify(&v1, algo).unwrap().ok);
 
@@ -121,7 +121,7 @@ fn swapping_the_base_document_is_detected() {
 fn compact_changes_the_head() {
     let algo = HashAlgo::Sha256;
     let k = key(1);
-    let f = smlb::dump(&base_doc()).unwrap();
+    let f = smlb::dump( &cv(&base_doc()) ).unwrap();
     let v1 = smlb::append_layer(&f, &k, None, None, algo).unwrap();
     let head1 = layer::chain_head(&v1, algo).unwrap().unwrap();
     let v2 = smlb::append_layer(&v1, &k, Some(patch(9090)), None, algo).unwrap();
@@ -141,7 +141,7 @@ fn compact_changes_the_head() {
 fn stale_head_gets_an_explicit_append_conflict() {
     let algo = HashAlgo::Sha256;
     let k = key(1);
-    let f = smlb::dump(&base_doc()).unwrap();
+    let f = smlb::dump( &cv(&base_doc()) ).unwrap();
     let v1 = smlb::append_layer(&f, &k, None, None, algo).unwrap();
     let head1 = layer::chain_head(&v1, algo).unwrap().unwrap();
 
@@ -174,7 +174,7 @@ fn stale_head_gets_an_explicit_append_conflict() {
 fn compact_merges_history_and_resigns() {
     let algo = HashAlgo::Sha256;
     let k = key(1);
-    let f = smlb::dump(&base_doc()).unwrap();
+    let f = smlb::dump( &cv(&base_doc()) ).unwrap();
     let v1 = smlb::append_layer(&f, &k, None, None, algo).unwrap();
     let v2 = smlb::append_layer(&v1, &k, Some(patch(9090)), None, algo).unwrap();
     assert_eq!(layer::layers(&v2).unwrap().len(), 2);
@@ -211,7 +211,7 @@ fn compact_merges_history_and_resigns() {
 /// 签一层 → 验签通过 → 当前值不变。
 #[test]
 fn sign_then_verify_passes() {
-    let f = smlb::dump(&base_doc()).unwrap();
+    let f = smlb::dump( &cv(&base_doc()) ).unwrap();
     let signed = smlb::append_layer(&f, &key(1), None, None, HashAlgo::Sha256).unwrap();
 
     let report = smlb::verify(&signed, HashAlgo::Sha256).unwrap();
@@ -227,7 +227,7 @@ fn sign_then_verify_passes() {
 /// 追加补丁 ⇒ 当前值变、历史值不变（P2-a「值来自哪一层」）。
 #[test]
 fn append_patch_changes_current_value_but_not_history() {
-    let f = smlb::dump(&base_doc()).unwrap();
+    let f = smlb::dump( &cv(&base_doc()) ).unwrap();
     let k = key(1);
     let l0 = smlb::append_layer(&f, &k, None, None, HashAlgo::Sha256).unwrap();
     let l1 = smlb::append_layer(&l0, &k, Some(patch(9090)), None, HashAlgo::Sha256).unwrap();
@@ -270,7 +270,7 @@ fn append_patch_changes_current_value_but_not_history() {
 /// 改层体里一个字节 ⇒ 验签必须失败（签名 + 链两条都会响）。
 #[test]
 fn tampered_layer_is_detected() {
-    let f = smlb::dump(&base_doc()).unwrap();
+    let f = smlb::dump( &cv(&base_doc()) ).unwrap();
     let mut signed = smlb::append_layer(&f, &key(1), None, None, HashAlgo::Sha256).unwrap();
     let t = Trailer::parse(&signed).expect("应有 Trailer");
     let body_at = t.last_layer_off as usize + smlb::LAYER_HEADER_LEN;
@@ -289,7 +289,7 @@ fn tampered_layer_is_detected() {
 /// 换钥必须有前一位作者的授权（D16），且层号不得超过 max_index。
 #[test]
 fn delegation_is_required_for_key_change() {
-    let f = smlb::dump(&base_doc()).unwrap();
+    let f = smlb::dump( &cv(&base_doc()) ).unwrap();
     let a = key(1);
     let b = key(2);
     let l0 = smlb::append_layer(&f, &a, None, None, HashAlgo::Sha256).unwrap();
@@ -318,7 +318,7 @@ fn delegation_is_required_for_key_change() {
 /// Trailer 被改（层数对不上）⇒ 层链读不出来，而不是静默少读。
 #[test]
 fn trailer_count_mismatch_is_rejected() {
-    let f = smlb::dump(&base_doc()).unwrap();
+    let f = smlb::dump( &cv(&base_doc()) ).unwrap();
     let mut signed = smlb::append_layer(&f, &key(1), None, None, HashAlgo::Sha256).unwrap();
     let n = signed.len();
     // Trailer: magic(8) + count(4) + last_off(8) + head(32) → count 在倒数第 56 字节
@@ -335,7 +335,7 @@ fn trailer_count_mismatch_is_rejected() {
 /// `smlb check` 会把层链结构也算进结论（不需要密钥那部分）。
 #[test]
 fn check_reports_the_chain() {
-    let f = smlb::dump(&base_doc()).unwrap();
+    let f = smlb::dump( &cv(&base_doc()) ).unwrap();
     let signed = smlb::append_layer(&f, &key(1), None, None, HashAlgo::Sha256).unwrap();
     let report = smlb::check(&signed).unwrap();
     assert!(report.ok, "{:?}", report.lines);
@@ -347,7 +347,7 @@ fn check_reports_the_chain() {
 /// 这条用例把「现状如此」钉住 —— 别以为有了签名就能防住「谁把签名删了」。
 #[test]
 fn stripping_the_trailer_silently_unsigned() {
-    let f = smlb::dump(&base_doc()).unwrap();
+    let f = smlb::dump( &cv(&base_doc()) ).unwrap();
     let signed = smlb::append_layer(&f, &key(1), None, None, HashAlgo::Sha256).unwrap();
     let stripped = &signed[..f.len()];
     assert!(layer::layers(stripped).unwrap().is_empty());
@@ -363,7 +363,7 @@ fn keys_and_signatures_are_deterministic() {
     let k1 = KeyPair::from_seed_hex(&key(7).seed_hex()).unwrap();
     assert_eq!(k1.public_hex(), key(7).public_hex());
 
-    let f = smlb::dump(&base_doc()).unwrap();
+    let f = smlb::dump( &cv(&base_doc()) ).unwrap();
     let a = smlb::append_layer(&f, &key(7), None, None, HashAlgo::Sha256).unwrap();
     let b = smlb::append_layer(&f, &key(7), None, None, HashAlgo::Sha256).unwrap();
     assert_eq!(a, b, "签名是确定性的（Ed25519 无随机数）");
@@ -382,4 +382,9 @@ fn archives_can_be_signed_too() {
         smlb::load(&signed).unwrap_err(),
         ContainerError::PrimaryNotValue { .. }
     ));
+}
+
+/// 测试用：把值断言成 `CanonicalValue`（无序在测试里就该 panic，而不是静默通过）。
+fn cv(v: &smlb::Value) -> smlb::CanonicalValue {
+    smlb::CanonicalValue::try_from(v).expect("测试值必须是有序构造的")
 }

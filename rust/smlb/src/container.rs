@@ -801,28 +801,17 @@ fn validate_caps(opts: &DumpOptions) -> Result<(), ContainerError> {
 }
 
 /// 表序 = 段 id 升序，数据按同序摆放 ⇒ 文件是值的纯函数。
-pub fn dump(v: &Value) -> Result<Vec<u8>, ContainerError> {
-    dump_with(v, &DumpOptions::default())
+///
+/// 入参是 `CanonicalValue` 而不是 `&Value`：**键序在编译期就被证明**，
+/// 不存在「传进来一个 `parse()` 的默认无序值、跑到写盘才报错」这种失败模式。
+/// 拿不到 `CanonicalValue` 就说明值里有无序对象 —— 去 `Map::ordered()` /
+/// `parse_ordered()` 那边修，而不是在写盘层兜。
+pub fn dump(cv: &sml_value::CanonicalValue) -> Result<Vec<u8>, ContainerError> {
+    dump_with(cv, &DumpOptions::default())
 }
 
 /// Same as [`dump`], with explicit choices. ｜ 同 [`dump`]，但显式指定选项。
-pub fn dump_with(v: &Value, opts: &DumpOptions) -> Result<Vec<u8>, ContainerError> {
-    validate_caps(opts)?;
-    dump_sealed(v, opts, None)
-}
-
-/// Type-level [`dump`]: the caller already **proved** key order via [`CanonicalValue`].
-/// 类型层版本：键序已由 [`CanonicalValue`] 在**转换点**证明，这里不存在「运行期才发现
-/// 对象无序」这种失败模式。
-///
-/// 与 [`dump`] 的关系：`dump` 仍接收 `&Value` 并在运行期检查（保留给既有调用方），
-/// 新代码应优先用本函数 —— 编译期就把「`parse()` 的默认无序值」挡在门外。
-pub fn dump_canonical(cv: &sml_value::CanonicalValue) -> Result<Vec<u8>, ContainerError> {
-    dump_canonical_with(cv, &DumpOptions::default())
-}
-
-/// [`dump_canonical`] with explicit choices. ｜ 同 [`dump_canonical`]，但显式指定选项。
-pub fn dump_canonical_with(
+pub fn dump_with(
     cv: &sml_value::CanonicalValue,
     opts: &DumpOptions,
 ) -> Result<Vec<u8>, ContainerError> {
@@ -835,7 +824,7 @@ pub fn dump_canonical_with(
 /// 用 `key` 加密每个内容段；`MANIFEST` 保持明文（KDF 参数就在它里面）。
 #[cfg(feature = "crypto")]
 pub fn dump_encrypted(
-    v: &Value,
+    cv: &sml_value::CanonicalValue,
     opts: &DumpOptions,
     key: &crate::crypto::KeySource<'_>,
 ) -> Result<Vec<u8>, ContainerError> {
@@ -852,7 +841,7 @@ pub fn dump_encrypted(
     // 调用方忘了设就替他设，而不是写出一份「看起来加密了、其实追加会毁数据」的文件。
     let mut forced = opts.clone();
     forced.block_align = true;
-    dump_sealed(v, &forced, Some(&wk))
+    dump_sealed(cv.as_value(), &forced, Some(&wk))
 }
 
 /// Same as [`dump_encrypted`] but without the `crypto` feature — refuses instead of writing
@@ -860,7 +849,7 @@ pub fn dump_encrypted(
 /// 没开 `crypto` feature 时的 [`dump_encrypted`]：明确拒绝，而不是写出一份读不回来的文件。
 #[cfg(not(feature = "crypto"))]
 pub fn dump_encrypted(
-    _v: &Value,
+    _cv: &sml_value::CanonicalValue,
     _opts: &DumpOptions,
     _key: &crate::crypto::KeySource<'_>,
 ) -> Result<Vec<u8>, ContainerError> {

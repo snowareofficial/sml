@@ -37,8 +37,8 @@ fn framed_opts(size: u32) -> DumpOptions {
 #[test]
 fn framed_dump_round_trips() {
     let doc = wide_doc();
-    let plain = smlb::dump(&doc).unwrap();
-    let framed = smlb::dump_with(&doc, &framed_opts(4096)).unwrap();
+    let plain = smlb::dump( &cv(&doc) ).unwrap();
+    let framed = smlb::dump_with( &cv(&doc) , &framed_opts(4096)).unwrap();
 
     assert!(
         framed.len() < plain.len(),
@@ -69,7 +69,7 @@ fn framed_dump_round_trips() {
 /// 索引要校验：连续、不越界、不压到索引区。
 #[test]
 fn frame_index_is_validated() {
-    let framed = smlb::dump_with(&wide_doc(), &framed_opts(4096)).unwrap();
+    let framed = smlb::dump_with( &cv(&wide_doc()) , &framed_opts(4096)).unwrap();
     let info = smlb::info(&framed).unwrap();
     let seg = info
         .segments
@@ -99,7 +99,7 @@ fn frame_index_is_validated() {
 fn only_the_touched_frame_is_inflated() {
     // 用 1 KiB 的帧：这份文档的**节点树**不大（字符串都在 STRTAB 里去重了），
     // 要大一点的帧数只能把帧切细；这也顺带钉住「帧大小是写者旋钮」。
-    let framed = smlb::dump_with(&wide_doc(), &framed_opts(1024)).unwrap();
+    let framed = smlb::dump_with( &cv(&wide_doc()) , &framed_opts(1024)).unwrap();
     let info = smlb::info(&framed).unwrap();
     let seg = info
         .segments
@@ -136,7 +136,7 @@ fn only_the_touched_frame_is_inflated() {
 /// `Store` 也能读分帧文件：导航跑在游标上，跨帧只解需要的那几帧。
 #[test]
 fn store_reads_framed_files_on_demand() {
-    let framed = smlb::dump_with(&wide_doc(), &framed_opts(1024)).unwrap();
+    let framed = smlb::dump_with( &cv(&wide_doc()) , &framed_opts(1024)).unwrap();
 
     let store = Store::open(&framed).expect("分帧文件应能以随机访问方式打开");
     assert_eq!(store.get("rows[0].idx").unwrap(), Value::Int(0));
@@ -159,7 +159,7 @@ fn store_reads_framed_files_on_demand() {
 /// **收益所在**：弄坏一帧，落在**另一帧**的查询仍然成功。
 #[test]
 fn store_inflates_only_the_frames_it_needs() {
-    let framed = smlb::dump_with(&wide_doc(), &framed_opts(1024)).unwrap();
+    let framed = smlb::dump_with( &cv(&wide_doc()) , &framed_opts(1024)).unwrap();
     let info = smlb::info(&framed).unwrap();
     let seg = info
         .segments
@@ -194,7 +194,7 @@ fn store_inflates_only_the_frames_it_needs() {
 /// 分帧文件仍是合法 `.smlb`：`check` 报帧并通过。
 #[test]
 fn check_reports_frames() {
-    let framed = smlb::dump_with(&wide_doc(), &framed_opts(2048)).unwrap();
+    let framed = smlb::dump_with( &cv(&wide_doc()) , &framed_opts(2048)).unwrap();
     let report = smlb::check(&framed).unwrap();
     assert!(report.ok, "{:?}", report.lines);
     let text = report.lines.join("\n");
@@ -210,13 +210,13 @@ fn check_reports_frames() {
 /// ｜ Measured: tree 7.3 KB vs STRTAB 60.5 KB — framing alone compresses the wrong half.
 #[test]
 fn frames_and_segment_compression_coexist() {
-    let plain = smlb::dump(&wide_doc()).unwrap();
+    let plain = smlb::dump( &cv(&wide_doc()) ).unwrap();
     let opts = DumpOptions {
         frame_size: Some(1024),
         compress: Some(5),
         ..Default::default()
     };
-    let both = smlb::dump_with(&wide_doc(), &opts).unwrap();
+    let both = smlb::dump_with( &cv(&wide_doc()) , &opts).unwrap();
 
     let info = smlb::info(&both).unwrap();
     let strtab = info
@@ -250,7 +250,7 @@ fn frames_and_segment_compression_coexist() {
 /// 段体被截断时，索引校验要拦住，而不是越界读。
 #[test]
 fn truncated_frames_body_is_rejected() {
-    let framed = smlb::dump_with(&wide_doc(), &framed_opts(4096)).unwrap();
+    let framed = smlb::dump_with( &cv(&wide_doc()) , &framed_opts(4096)).unwrap();
     let info = smlb::info(&framed).unwrap();
     let seg = info
         .segments
@@ -273,4 +273,9 @@ fn archives_still_report_primary_not_value() {
         smlb::load(&arc).unwrap_err(),
         ContainerError::PrimaryNotValue { .. }
     ));
+}
+
+/// 测试用：把值断言成 `CanonicalValue`（无序在测试里就该 panic，而不是静默通过）。
+fn cv(v: &smlb::Value) -> smlb::CanonicalValue {
+    smlb::CanonicalValue::try_from(v).expect("测试值必须是有序构造的")
 }

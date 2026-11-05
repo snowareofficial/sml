@@ -6,7 +6,7 @@
 //! （不带 `mmap` 也能跑，只是少了 `MappedFile` 那一段；本例**不需要** `preserve_order`）
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use smlb::{dump, load, Map, Store, Value};
+    use smlb::{dump, load, CanonicalValue, Map, Store, Value};
 
     // 造一个「很多兄弟」的文档：取最后一个字段不必解码前面那 499 棵
     let rows: Vec<Value> = (0..500)
@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut root = Map::ordered();
     root.insert("rows".to_string(), Value::Array(rows));
     let doc = Value::Object(root);
-    let bytes = dump(&doc)?;
+    let bytes = dump(&CanonicalValue::try_from(doc.clone())?)?;
 
     // 1) 从字节切片直接开（调用方也可以自己 mmap 后传进来）
     let store = Store::open(&bytes)?;

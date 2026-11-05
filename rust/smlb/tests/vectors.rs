@@ -46,6 +46,11 @@ fn case_ids_are_unique_and_stable() {
 /// 旧实现「连标量也拒」是「正确性靠 feature」的副作用，现已更正。
 #[test]
 fn container_dump_accepts_a_scalar_in_every_build() {
-    let f = smlb::dump(&smlb::Value::Int(1)).expect("标量没有键序问题，任何档都能写");
+    let f = smlb::dump( &cv(&smlb::Value::Int(1)) ).expect("标量没有键序问题，任何档都能写");
     assert!(smlb::check(&f).map(|r| r.ok).unwrap_or(false));
+}
+
+/// 测试用：把值断言成 `CanonicalValue`（无序在测试里就该 panic，而不是静默通过）。
+fn cv(v: &smlb::Value) -> smlb::CanonicalValue {
+    smlb::CanonicalValue::try_from(v).expect("测试值必须是有序构造的")
 }

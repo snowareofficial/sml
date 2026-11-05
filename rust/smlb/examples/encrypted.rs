@@ -14,8 +14,8 @@ fn main() {
 #[cfg(feature = "crypto")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use smlb::{
-        check, dump_encrypted, get_encrypted, info, load, load_encrypted, DumpOptions, KdfParams,
-        KeySource, Map, Value,
+        check, dump_encrypted, get_encrypted, info, load, load_encrypted, CanonicalValue,
+        DumpOptions, KdfParams, KeySource, Map, Value,
     };
 
     let mut cfg = Map::ordered();
@@ -26,7 +26,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 1) 原始密钥：调用方从哪弄到这 32 B，格式一概不管（KMS / HSM / 环境变量都行）
     let master = [0x42u8; 32];
-    let f = dump_encrypted(&doc, &DumpOptions::default(), &KeySource::Bytes(&master))?;
+    let cv = CanonicalValue::try_from(doc.clone())?;
+    let f = dump_encrypted(&cv, &DumpOptions::default(), &KeySource::Bytes(&master))?;
 
     // 加密文件强制 4 KiB 对齐；`MANIFEST` 保持明文（KDF 参数在里面）
     let meta = info(&f)?;
@@ -53,7 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 2) 口令：写时选参数，读时**听文件的**（不给参数）
     let pass: &[u8] = b"correct horse battery staple";
     let f2 = dump_encrypted(
-        &doc,
+        &cv,
         &DumpOptions::default(),
         &KeySource::Passphrase {
             secret: pass,

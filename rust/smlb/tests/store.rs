@@ -39,7 +39,7 @@ fn wide_doc() -> Value {
 #[test]
 fn get_matches_full_decode() {
     let doc = wide_doc();
-    let f = smlb::dump(&doc).unwrap();
+    let f = smlb::dump( &cv(&doc) ).unwrap();
     let store = Store::open(&f).unwrap();
     let full = smlb::load(&f).unwrap();
 
@@ -64,7 +64,7 @@ fn get_matches_full_decode() {
 /// without ever being decoded). ｜ 「不遍历全树」的强形式：把某个兄弟的 tag 改坏，取别的兄弟仍成功。
 #[test]
 fn siblings_are_skipped_without_decoding() {
-    let f = smlb::dump(&wide_doc()).unwrap();
+    let f = smlb::dump( &cv(&wide_doc()) ).unwrap();
     let store = Store::open(&f).unwrap();
 
     // 找到 arr[7] 那棵子树的偏移：用零拷贝的子树字节去定位
@@ -98,7 +98,7 @@ fn siblings_are_skipped_without_decoding() {
 /// `nodes_visited` 只反映兄弟扫描；解码量等于目标子树。
 #[test]
 fn stats_show_sibling_scan_not_full_decode() {
-    let f = smlb::dump(&wide_doc()).unwrap();
+    let f = smlb::dump( &cv(&wide_doc()) ).unwrap();
     let store = Store::open(&f).unwrap();
 
     let (_, near) = store.get_with_stats("arr[1]").unwrap();
@@ -119,7 +119,7 @@ fn stats_show_sibling_scan_not_full_decode() {
 /// `text_of` 必须等于该子树的 canonical 文本；`text` 是整份。
 #[test]
 fn text_of_is_the_subtree_canonical_text() {
-    let f = smlb::dump(&wide_doc()).unwrap();
+    let f = smlb::dump( &cv(&wide_doc()) ).unwrap();
     let store = Store::open(&f).unwrap();
 
     let sub = store.get("arr[3]").unwrap();
@@ -134,7 +134,7 @@ fn text_of_is_the_subtree_canonical_text() {
 /// 默认打开会验摘要；`open_unverified` 不验（留给 `check` 那种要自己报错的场景）。
 #[test]
 fn open_verifies_digests_by_default() {
-    let f = smlb::dump(&wide_doc()).unwrap();
+    let f = smlb::dump( &cv(&wide_doc()) ).unwrap();
     let info = smlb::info(&f).unwrap();
     let value_seg = info
         .segments
@@ -153,7 +153,7 @@ fn open_verifies_digests_by_default() {
 /// 路径错误要说清是哪一段：缺键 / 下标越界 / 类型不对。
 #[test]
 fn path_errors_name_the_segment() {
-    let f = smlb::dump(&wide_doc()).unwrap();
+    let f = smlb::dump( &cv(&wide_doc()) ).unwrap();
     let store = Store::open(&f).unwrap();
 
     let e = store.get("nope").unwrap_err();
@@ -174,7 +174,7 @@ fn path_errors_name_the_segment() {
 fn patches_are_visible_through_get() {
     use smlb::{HashAlgo, KeyPair};
 
-    let f = smlb::dump(&wide_doc()).unwrap();
+    let f = smlb::dump( &cv(&wide_doc()) ).unwrap();
     let k = KeyPair::from_seed(&[9u8; 32]);
     let l0 = smlb::append_layer(&f, &k, None, None, HashAlgo::Sha256).unwrap();
 
@@ -195,4 +195,9 @@ fn patches_are_visible_through_get() {
     // 历史：第 0 层还没有补丁
     let h0 = store.history_at(0).unwrap();
     assert_eq!(at(&h0, "head"), Value::Str("根".into()));
+}
+
+/// 测试用：把值断言成 `CanonicalValue`（无序在测试里就该 panic，而不是静默通过）。
+fn cv(v: &smlb::Value) -> smlb::CanonicalValue {
+    smlb::CanonicalValue::try_from(v).expect("测试值必须是有序构造的")
 }
