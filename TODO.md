@@ -794,6 +794,20 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 - ✅ **已定并落地（2026-11-02）**：`to_string_direct` 与 `Value` 统一为**超 i64 拒收**
   （`[E-DERIVE-002]`），不再写裸词；`ser_de_direct` 用例改为 `big_ints_are_rejected_not_written`。
 - ✅ **告警带码（2026-11-02）**：新增 `W-PARSE-001`（同一块内键名重复）/ `W-PARSE-002`（片段展开覆盖父块键），
+
+---
+
+## 发布前待办（2026-11-05 起）
+
+- [ ] **清理 DeepSeek 开发痕迹**：发布前清理代码 / 文档 / 历史里残留的 DeepSeek 相关字样
+      （敏感部分由 Sal 自行处理；无法完全抹除的部分不强求）。
+- [ ] **国际化**：面向国际发布，README / crate 文档 / CLI 帮助需中英双语（`smlb` 的
+      README 与 crate 文档已双语，其余 crate 与 CLI 待核对）。
+- [ ] **双授权**：提供 MIT 或 Apache-2.0 与木兰 `MulanPSL-2.0` 的双授权选项（木兰可保留为
+      国内口径；当前 `swsml` / `smlb` 均只有 `MulanPSL-2.0`，见各自 `Cargo.toml`）。
+- [ ] **GitHub 地址**：所有 crate（含 `swsml` 门面 crate）的 `repository` 字段补 GitHub
+      地址；当前 `swsml` / `smlb` 的 `Cargo.toml` 只有 `gitee.com/snoware/sml`。README 里
+      GitHub 链接应置于 Gitee 之前（或对外只留 GitHub）。
   由 `Diagnostic::code()` 映射；与 `W-LINT-003` 的分域已写进码表 note（**解析期真的发生时**产出 vs lint 纯文本扫描）。
   `errors/codes.sml` + 三个生成器已同步（146 条码），`key_conflict` 断言带码。
 - 编辑器 / LSP 侧同步：扩展诊断走 `js/sml.mjs` 的 `parseSafe`，**不经过 Rust 库**，本轮的告警它看不见。
