@@ -969,7 +969,7 @@ key 更少一份、零依赖，`ser_text` 已趟过路；O(n) 对真实负载够
 | **T0 前置** ✅ 已落地（2026-11-04，见 §18.6） | `Value::canonical_bytes()` 的规则定稿（保序、数字格式、`__*` 位置、转义）+ **跨端测试向量**（文本 ↔ 二进制各 N 组，期望字节写死） | 无 `preserve_order` 时**显式报错**；向量在 Rust/JS 上产出同一字节（**JS 侧待 T7**，见 §18.6 待确认 ②） |
 | **T1 编码（L0）** ✅ 已落地（2026-11-04，见 §19.6） | 新 crate `smlb` 骨架 + 文件头 + 段表 + `dump` / `load`（`info` / `ls` 提前到 T1） | `dump→load→dump` 字节相同；`Int(1)` 与 `Float(1.0)` 可区分；`__type`/`__featags` 原样往返；未知段可跳过（用额外段实测） |
 | **T2 容器（L1）** ✅ **全落**（2026-11-04/05，见 §19.8 / §19.9） | 段表 ✅ · 摘要（SHA-256 / SM3，按 `hash_id`）✅ · manifest + `primary` + 能力位 ✅ · 外来载荷 `EMBED` + `payloads[]` + `pack`/`unpack` ✅ · `check` ✅ | 只读 manifest 能列全部段 ✅；未知 `optional` 跳过、缺 `required` 明确拒 ✅；改一字节被检出 ✅ |
-| **T3 读（L2）** ✅ 除 mmap 外已落（2026-11-05，见 §19.10） | `Store`：`open` / `subtree_bytes` / `get` / `text` / `text_of` / `history_at` / `payload` / `payloads` ✅；`DIR` / `Mmap::open` / `provenance` 未做 | 「取单个子树不遍历全树」已证（改坏兄弟 tag 仍能取别的）✅；**RSS 判据未达成**（等 mmap 依赖裁决） |
+| **T3 读（L2）** ✅ **全落**（2026-11-05，见 §19.10） | `Store`：`open` / `subtree_bytes` / `get` / `text` / `text_of` / `history_at` / `payload` / `payloads` ✅；`MappedFile`（`mmap` feature）✅；`DIR` / `provenance` 未做（`DIR` 故意不写） | 「取单个子树不遍历全树」✅（改坏兄弟 tag 仍能取别的）；**RSS 判据达成**：100 MB 文件堆增量 **256 B**（< 1 MB） |
 | **T4 历史与签名（L3）** ✅ 核心已落（2026-11-05，见 §21.1b） | 层链（`prev_hash`/`index`/Trailer）+ `sign` / `append` / `verify` / `delegate` / `tree` + `patch` 合并（D22）；**写者锁（D20）未做** | 验签能答「值来自哪层」（`cat --at N`）✅；未授权的换钥被拒 ✅；并发冲突检测等锁落地 |
 | **T5 压缩与加密（L4）** ✅ **全落**（2026-11-05，见 §19.11 / §19.12 / §19.13） | 段级 zstd ✅ · 帧级 `FRAMES` + 索引 ✅ · 导航器按需解帧 ✅ · 解压预算 ✅ · **AES-256-GCM 按块 AEAD + 口令派生 ✅** | 「只解压/解密被访问的部分」✅；「未知算法 ID 明确拒绝」✅；改段头也能被 AAD 抓到 ✅ |
 | **T6 工具（T6）** ⏳ 库接口已落（2026-11-05） | **库在门面 crate**：`sml::envelope` —— `wrap` / `unwrap` / `list` / `sml_to_smlb` / `smlb_to_sml`，门控 feature **`smlb`**（连带 `preserve_order`）；要段级压缩再开 **`smlb-compress`**（多出来的那层是故意的：不该让「只想用信封」的人被动背上 `zstd`）。`smltools` **仍是纯 bin**，库能力不在它里面。`smlb` 的 `pack/unpack/sign/verify/append` CLI ✅；**`smltools --to/--from smlb` ⬜**（输出管线目前「文本进文本出」，二进制要另开一条） | 两轮往返稳定 ✅（`rust/tests/envelope.rs`，6 例 / 带压缩 7 例）；转换不丢信息 ✅；签名跨端待 T7 |
@@ -1405,11 +1405,36 @@ manifest {
 能省的只是**每层 O(兄弟数) 的键比较**。把索引当成「语义的替代品」是危险的，故先让字节导航
 站住，索引等真正出现「万级兄弟 + 高频取键」的场景再上。
 
-**⚠️ 一条判据尚未达成**：`Mmap::open`（打开 100 MB 文件 RSS 增量 < 1 MB）需要真正的内存映射；
-`Store::open(&[u8])` 本身是零拷贝的（调用方 mmap 后传进来即可满足），但我们没提供
-`open_path`：零依赖下拿不到 mmap。补法是加 `mmap` feature + `memmap2`（公告 RUSTSEC-2026-0186
-只涉及 `advise_range` / `flush_range` 系列，**修于 0.9.11**，而 `Store` 只用 `Mmap::map` + 切片，
-不碰那些函数）。**这条要等一句批准**，在那之前 RSS 判据不算过。
+**判据已达成（2026-11-05，user 裁决引入 `memmap2`）**
+
+`mmap` feature 提供 `MappedFile::open(path)` → `store()` / `store_unverified()` / `info()`：
+
+```rust
+let f = MappedFile::open("big.smlb")?;   // 只 mmap，不往堆里搬
+let store = f.store()?;                  // 借用 f（不是自引用结构，无需 unsafe 骗借用检查）
+store.get("port")?;
+```
+
+**为什么是 `MappedFile` 而不是 `Store::open_path`**：`Store<'a>` 借用 `&'a [u8]`，若让它自己持有
+映射再借用自己，就是自引用结构 —— 要么 `unsafe` 骗过借用检查，要么引 `ouroboros` 之类。
+让调用方持有映射、再向它借 `Store`，类型系统自然说清「映射活得比读者久」，一行 `unsafe` 都不用。
+
+那条 `unsafe` 只在 `Mmap::map` 一处，理由写进代码：**`.smlb` 按定位不可变，且每段带摘要，
+被改会在 `Store::open` 时以 `digest-mismatch` 检出** —— 风险由设计接住，不靠运气。
+
+**实测（不是估）**：`rust/smlb/tests/mmap.rs` 用**计数分配器**量堆增量（比读 RSS 可移植）：
+
+```
+文件 104,858,327 B（100 MB），打开 + 取一个小字段 ⇒ 堆增量 256 B
+```
+
+判据要求 < 1 MB，实得 **256 B**（差 4000 倍）。另两条用例钉正确性与错误面：mmap 读与整解读
+逐值一致；文件不存在时给 `io::ErrorKind::NotFound` 而不是 panic。
+
+`memmap2` 台账：一条 **INFO**（RUSTSEC-2026-0186），只涉 `advise_range` / `flush_range`，
+**修于 >= 0.9.11**；本项目只用 `Mmap::map` + 切片，钉 0.9.11 以上。
+
+`DIR` 仍**故意不写**：它只能省每层 O(兄弟数) 的键比较，等真出现「万级兄弟 + 高频取键」再上。
 
 ### 19.11 段级压缩（T5 前半，2026-11-05）
 
