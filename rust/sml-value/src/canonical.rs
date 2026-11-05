@@ -26,8 +26,9 @@
 //! 3. **No opportunistic pretty-printing** (C12). Every layout rule is a fixed value
 //!    (indent, when to stay on one line, separator) — never a function of line width.
 //!
-//! 1. **对象必须保序**（C2）：未开 `preserve_order` 时 `Map` 是 `BTreeMap`，「源序」在类型里
-//!    根本不存在 ⇒ 一律 [`CanonicalError::KeyOrderUnavailable`]，绝不退化成「按排序写」。
+//! 1. **对象必须保序**（C2）：`Map` 显式携带 `Sorted` / `Source` 两态；遇到 `Sorted`
+//!    一律 [`CanonicalError::KeyOrderUnavailable`]，绝不退化成「按排序写」。
+//!    这不再取决于编译开关，而取决于**你手里这个对象**是哪一态。
 //! 2. **非有限浮点报错**（C13）：NaN / ±Inf 没有字面量，不许伪造成 `"nan"` 字符串（会改类型）。
 //! 3. **不许顺手美化**（C12）：排版规则全部是定值，不按行宽、不按「看起来更好」调整。
 //!
@@ -96,11 +97,13 @@ const MAX_SUBTREE_LEN: usize = u32::MAX as usize;
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum CanonicalError {
-    /// This build lacks `preserve_order`, so object key order is not source order (C2).
-    /// 当前构建没有 `preserve_order`，对象键序不是源序（C2）。
+    /// An object carries `Sorted` keys, so source order is not available (C2).
+    /// 对象是显式无序态（`Map::Unordered`），没有源序可写（C2）。
     ///
-    /// It is a **build-time** fact, not a data problem: the same program passes with the feature.
-    /// 这是**构建期**事实，不是数据问题：同一份程序换个 feature 就能过。
+    /// This is a **data-level** fact: `parse_ordered()` / `Map::ordered()` produces an
+    /// object that encodes. No compiler flag changes the answer.
+    /// 这是**数据层**事实：用 `parse_ordered()` / `Map::ordered()` 构造的对象就能编码；
+    /// 换任何编译开关都不会改变结论。
     KeyOrderUnavailable,
     /// A `Float` is NaN / ±Inf, which has no SML literal (C13).
     /// `Float` 是 NaN / ±Inf，没有 SML 字面量（C13）。
@@ -236,8 +239,9 @@ impl std::fmt::Display for CanonicalError {
         match self {
             CanonicalError::KeyOrderUnavailable => write!(
                 f,
-                "canonical 需要对象保序（spec §18 C2）：当前构建未开 `preserve_order`，\
-                 键序不是源序，拒绝退化成「按排序写」。启用该 feature 后重试"
+                "canonical 需要对象保序（spec §18 C2）：这个对象是 `Map::Unordered`（按字节序排序），\
+                 拒绝退化成「按排序写」。请显式用 `parse_ordered()` / `Map::ordered()` / \
+                 `OrderedMap` 构造有序对象后重试 —— 开 feature 不解决问题"
             ),
             CanonicalError::NonFiniteFloat => write!(
                 f,
@@ -302,16 +306,18 @@ impl std::error::Error for CanonicalError {}
 // 文本 canonical（C1–C13）
 // ---------------------------------------------------------------------------
 
-/// Does this build's `Map` keep source order (`preserve_order`)?
-/// 当前构建的 `Map` 是否保源序（`preserve_order`）。
-///
-/// `cfg!` rather than `#[cfg]` splitting the module: both branches must compile, so that
-/// “forgot the feature” shows up as an **explicit runtime error** on every platform.
-/// 用 `cfg!` 而不是 `#[cfg]` 分两份代码：两条分支都要能编译，
-/// 这样「忘了开 feature」表现成**运行期明确报错**而不是某个平台编不过。
-#[inline]
-const fn key_order_is_source_order() -> bool {
-    cfg!(feature = "preserve_order")
+/// 判定移到**值层**：树里每个对象都必须显式是 `Map::Ordered`。
+/// `preserve_order` 编译开关不再参与判定 —— 「能不能签」由你手里这个对象决定。
+impl Value {
+    /// Every object in this tree explicitly carries source order.
+    /// 树里每个对象都显式是保序态（判定看**值**，不看 feature）。
+    fn all_objects_ordered(&self) -> bool {
+        match self {
+            Value::Object(m) => m.is_ordered() && m.values().all(|v| v.all_objects_ordered()),
+            Value::Array(a) => a.iter().all(|v| v.all_objects_ordered()),
+            _ => true,
+        }
+    }
 }
 
 impl Value {
@@ -330,7 +336,7 @@ impl Value {
     ///
     /// # Errors / 错误
     ///
-    /// - [`CanonicalError::KeyOrderUnavailable`] — no `preserve_order` in this build (C2);
+    /// - [`CanonicalError::KeyOrderUnavailable`] — an object is `Map::Unordered` (C2);
     /// - [`CanonicalError::NonFiniteFloat`] — NaN / ±Inf (C13);
     /// - [`CanonicalError::DepthExceeded`] — deeper than [`MAX_VALUE_DEPTH`] (`E-LIMIT-004`).
     ///
@@ -348,7 +354,7 @@ impl Value {
     /// # }
     /// ```
     pub fn canonical_text(&self) -> Result<String, CanonicalError> {
-        if !key_order_is_source_order() {
+        if !self.all_objects_ordered() {
             return Err(CanonicalError::KeyOrderUnavailable);
         }
         let mut out = String::new();
@@ -614,7 +620,7 @@ impl Value {
     /// # }
     /// ```
     pub fn canonical_bytes(&self) -> Result<Vec<u8>, CanonicalError> {
-        if !key_order_is_source_order() {
+        if !self.all_objects_ordered() {
             return Err(CanonicalError::KeyOrderUnavailable);
         }
         let (count, strtab, nodes) = self.encode_blocks()?;
@@ -635,7 +641,7 @@ impl Value {
     ///
     /// `strtab` 的形态是 `(len:varint ‖ utf8)*`（不含个数）；`value` 是节点树。
     pub fn canonical_blocks(&self) -> Result<CanonicalBlocks, CanonicalError> {
-        if !key_order_is_source_order() {
+        if !self.all_objects_ordered() {
             return Err(CanonicalError::KeyOrderUnavailable);
         }
         let (_count, strtab, value) = self.encode_blocks()?;

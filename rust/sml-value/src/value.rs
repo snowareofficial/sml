@@ -1,14 +1,13 @@
-// —— `Value::Object` 的载体：默认 `BTreeMap`（保现状），开 `preserve_order` 才换保序实现 ——
+// —— `Value::Object` 的载体：**显式两态**（方案 2 / B，用户 2026-11-05 裁决） ——
 //
-// 做成**类型别名**而不是新类型，是为了让下游（sml-contract / sml-parse / swsml /
-// smltools）的写法在两种档位下**同一份源码**都能编译：只要它用到的 `Map` 方法
-// 两档都提供，切换就是换个别名，不是全仓改写（对标 toml-rs 的 `preserve_order`）。
-/// Backing map of `Value::Object`, default build: `BTreeMap`, keys in UTF-8 byte order ｜ `Value::Object` 的载体，默认档：`BTreeMap`，键按 UTF-8 字节序。
-#[cfg(not(feature = "preserve_order"))]
-pub type Map = std::collections::BTreeMap<String, Value>;
-/// Backing map of `Value::Object`, `preserve_order` build: source-order `Object` with a lazy index ｜ `Value::Object` 的载体，`preserve_order` 档：保留源序的 `Object`，查找走惰性索引。
-#[cfg(feature = "preserve_order")]
-pub type Map = crate::object::Object;
+// 不再是「一个全局 feature 决定 BTreeMap 还是保序 Object」。`Map` 无条件导出，
+// 内部 `Unordered(BTreeMap)` / `Ordered(Box<OrderedMap>)` 二选一，键序是**值的一部分**、
+// 运行时可查（`Map::ordering()` / `is_ordered()`）。`Value::Object(Map)` 的签名不变，
+// 因此全仓 170+ 处引用与 match arm 不需要改写。
+//
+// 「少隐式」：`Map::new()` 明确是无序态（保持历史 `to_sml` 字节不变）；要签 canonical
+// 必须显式 `Map::ordered()` / `From<OrderedMap>` / `parse_ordered()`，不靠编译开关猜。
+pub use crate::map::Map;
 
 // `fmt` 只在 `sml` 特性下用到（`impl fmt::Display`）⇒ 关掉该特性时必须一起 cfg 掉，
 // 否则每个依赖 sml-value 且未开 `sml` 的 crate 都会背一条 `unused import` 警告
@@ -26,8 +25,9 @@ use crate::dump::to_sml;
 ///
 /// - **Float 带原始字面量**：`Float(f64, Option<String>)` 的第二字段只由解析器填，
 ///   程序构造一律走 [`Value::float`]，它给 `None`。
-/// - **对象键序**：`Object` 变体的载体是 [`Map`]，默认按键排序，开 `preserve_order`
-///   才保留源序；但**相等性两档都按集合**（见下方 `PartialEq`）。
+/// - **对象键序**：`Object` 变体的载体是 [`Map`]，它显式携带 `Sorted` 或 `Source`
+///   两种键序（见 `map.rs`）；默认 `Map::new()` 是 `Sorted`。**相等性一律按集合**
+///   （见下方 `PartialEq`），顺序敏感另走 `eq_ordered`。
 /// - **体积有硬上限**：本文件末尾有 `size_of::<Value>() <= 48` 的编译期断言，
 ///   往枚举里加字段前先看那条断言与 `object.rs` 里 `Index` 套 `Box` 的注释。
 #[derive(Debug, Clone)]

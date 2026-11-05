@@ -23,26 +23,30 @@
 use sml::{parse, CanonicalError, Value};
 
 // ---------------------------------------------------------------------------
-// 默认档：C2 —— 没有源序就报错，不许偷偷排序
+// C2（方案 2 / B 后）：判据看**对象自身是不是显式有序**，不看编译开关
 // ---------------------------------------------------------------------------
 
-#[cfg(not(feature = "preserve_order"))]
 #[test]
-fn c2_default_build_must_refuse_not_sort() {
+fn c2_unordered_object_must_refuse_not_sort() {
+    // 默认 `parse()` 产出的是 `Map::Unordered`（历史兼容），故不能签。
+    // 保序档下 `parse()` 产出 `Ordered`，这两条应通过 —— 测的是「数据」，不是「feature」。
     let v = parse("z: 1\na: 2\n").expect("parse failed");
-    assert_eq!(v.canonical_text().err(), Some(CanonicalError::KeyOrderUnavailable));
-    assert_eq!(v.canonical_bytes().err(), Some(CanonicalError::KeyOrderUnavailable));
+    if !cfg!(feature = "preserve_order") {
+        assert_eq!(v.canonical_text().err(), Some(CanonicalError::KeyOrderUnavailable));
+        assert_eq!(v.canonical_bytes().err(), Some(CanonicalError::KeyOrderUnavailable));
+    }
 
-    // 连标量也一并拒绝：canonical 是「整份文档」的性质，不是「这个值恰好没有键」的性质。
-    // 放行标量等于给出一个「有时能用、有时不能用」的入口，比一律报错更难排查。
-    assert_eq!(
-        Value::Int(1).canonical_text().err(),
-        Some(CanonicalError::KeyOrderUnavailable)
-    );
+    // 标量没有对象 ⇒ 没有键序问题 ⇒ **可以签**。旧设计「连标量也一律拒」是
+    // 「正确性靠 feature」的副作用：把「这台机器没开开关」误当成数据问题。
+    // 现在判定看值本身，标量在任何构建档都稳定可用。
+    assert_eq!(Value::Int(1).canonical_text().unwrap(), "1\n");
 
-    // 文案里必须出现可执行的下一步（人读到就知道该开哪个特性）
+    // 文案必须给出**可执行的下一步**，且不能误导成「开 feature 就能解决」。
     let msg = CanonicalError::KeyOrderUnavailable.to_string();
-    assert!(msg.contains("preserve_order"), "文案应点出 feature：{msg}");
+    assert!(
+        msg.contains("Map::ordered") || msg.contains("parse_ordered"),
+        "文案应指路显式有序入口：{msg}"
+    );
     assert_eq!(CanonicalError::KeyOrderUnavailable.kind(), "key-order-unavailable");
 }
 
