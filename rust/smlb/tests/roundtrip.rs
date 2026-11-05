@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! Container round-trip tests (T1) / 容器往返验收（T1）。
+//! Container round-trip tests (T1 + T2) / 容器往返与自描述验收。
 //!
 //! The whole file is gated on `preserve_order`: without it there is no canonical byte form to
 //! put in a container at all (C2), so there is nothing to test — that path's assertion lives in
@@ -8,15 +8,12 @@
 //! 那条断言在 `tests/vectors.rs` 里（默认构建必须**报错**，不许排序）。
 #![cfg(feature = "preserve_order")]
 
-use smlb::container::{
-    self, seg_name, SEG_HEADER_LEN, SEG_STRTAB, SEG_VALUE,
-};
+use smlb::container::{self, seg_name, SEG_HEADER_LEN, SEG_MANIFEST, SEG_STRTAB, SEG_VALUE};
 use smlb::vectors::CASES;
-
-const ALIGN: usize = 4096;
+use smlb::{DumpOptions, HashAlgo};
 
 fn align4k(x: usize) -> usize {
-    (x + ALIGN - 1) / ALIGN * ALIGN
+    (x + 4095) / 4096 * 4096
 }
 
 /// Criterion: `dump → load → dump` is byte-identical, for **every** vector case.
@@ -35,10 +32,6 @@ fn every_case_roundtrips_byte_identically() {
 
 /// The `VALUE` segment must be **exactly** the T0 node bytes — no wrapping, no re-encoding.
 /// `VALUE` 段必须**就是** T0 的节点字节：不包裹、不重编码。
-///
-/// This is the bridge between T0 and T1: T0's vectors stay the contract, the container only
-/// decides where those bytes live.
-/// 这是 T0 与 T1 的接缝：T0 的向量仍是契约，容器只决定那些字节住在哪。
 #[test]
 fn value_segment_body_is_the_t0_bytes() {
     for case in CASES {
@@ -52,16 +45,23 @@ fn value_segment_body_is_the_t0_bytes() {
             .iter()
             .find(|s| s.header.seg_id == SEG_VALUE)
             .expect("VALUE 段必须在");
-        assert_eq!(container::body(&file, value).unwrap(), &blocks.value[..], "[{}] VALUE 段", case.id);
-        // 与 T0 的 L0 字节相比：只多一个 `count` 前缀与 STRTAB 段（可缺）
-        let l0 = v.canonical_bytes().unwrap();
+        assert_eq!(
+            container::body(&file, value).unwrap(),
+            &blocks.value[..],
+            "[{}] VALUE 段",
+            case.id
+        );
         assert!(
-            l0.ends_with(&blocks.value),
+            v.canonical_bytes().unwrap().ends_with(&blocks.value),
             "[{}] L0 字节尾部应等于 VALUE 段体",
             case.id
         );
 
-        match info.segments.iter().find(|s| s.header.seg_id == SEG_STRTAB) {
+        match info
+            .segments
+            .iter()
+            .find(|s| s.header.seg_id == SEG_STRTAB)
+        {
             Some(seg) => assert_eq!(
                 container::body(&file, seg).unwrap(),
                 &blocks.strtab[..],
@@ -77,11 +77,11 @@ fn value_segment_body_is_the_t0_bytes() {
     }
 }
 
-/// Header fields must match what T1 promised byte for byte.
-/// 文件头字段必须与 T1 承诺的一致（逐字节）。
+/// Header fields must match what the spec promises byte for byte (§19.6).
+/// 文件头字段必须与 §19.6 承诺的一致（逐字节）。
 #[test]
 fn header_is_the_agreed_layout() {
-    let v = (CASES[0].build)();
+    let v = (CASES[0].build)(); // scalar-null：只有 VALUE + MANIFEST 两个段
     let f = smlb::dump(&v).unwrap();
 
     assert_eq!(&f[0..4], b"SWSB", "magic");
@@ -90,95 +90,161 @@ fn header_is_the_agreed_layout() {
     assert_eq!(f[7] as usize, smlb::HEADER_LEN, "hdr_len");
     assert_eq!(
         u64::from_le_bytes(f[8..16].try_into().unwrap()),
-        ALIGN as u64,
-        "seg_table_off 应钉在 4096"
+        smlb::HEADER_LEN as u64,
+        "段表紧跟头（不再钉在 4096）"
     );
-    assert_eq!(u32::from_le_bytes(f[16..20].try_into().unwrap()) as usize, 1, "Int 只有 VALUE 一个段");
-    assert_eq!(u16::from_le_bytes([f[20], f[21]]), 0, "flags v1 恒 0");
-    assert_eq!(u64::from_le_bytes(f[24..32].try_into().unwrap()), 0, "tail_off 留给 T4");
-
-    // 头部之后的填充必须是 0
-    assert!(f[smlb::HEADER_LEN..ALIGN].iter().all(|b| *b == 0), "头后应为零填充");
+    assert_eq!(
+        u32::from_le_bytes(f[16..20].try_into().unwrap()),
+        2,
+        "VALUE + MANIFEST"
+    );
+    assert_eq!(
+        u16::from_le_bytes([f[20], f[21]]),
+        0,
+        "明文默认：flags 位 0 = 0 ⇒ 8 B 对齐"
+    );
+    assert_eq!(
+        u64::from_le_bytes(f[24..32].try_into().unwrap()),
+        0,
+        "tail_off 留给 T4"
+    );
 }
 
-/// Every segment body starts on a 4 KiB boundary (§19.1 / D28).
-/// 每个段体都从 4 KiB 边界开始。
+/// Alignment is declared by `flags` bit 0 (§19.7 丙): 8 B plaintext, 4 KiB when asked.
+/// 对齐由 `flags` 位 0 声明：明文 8 B，指定时 4 KiB。
 #[test]
-fn segments_start_on_4k_boundaries() {
-    let v = (CASES[18].build)(); // 含多字符串 ⇒ 两个段
+fn alignment_follows_the_header_flag() {
+    let v = (CASES[18].build)(); // 有字符串 ⇒ 两个内容段
+
+    let plain = smlb::dump(&v).unwrap();
+    let pi = smlb::info(&plain).unwrap();
+    assert_eq!(pi.align, smlb::ALIGN_MIN);
+    assert_eq!(pi.flags & smlb::FLAG_ALIGN_BLOCK, 0);
+    for s in &pi.segments {
+        assert_eq!(s.offset % smlb::ALIGN_MIN, 0, "段 {} 未按 8 B 对齐", seg_name(s.header.seg_id));
+    }
+    // 明文小文档不再吃 4 KiB 的固定税（T1 时这里是 12 KB 量级）
+    assert!(
+        plain.len() < 1024,
+        "明文小文档应远小于 4 KiB，实得 {} B",
+        plain.len()
+    );
+
+    let opts = DumpOptions {
+        block_align: true,
+        ..Default::default()
+    };
+    let blocked = smlb::dump_with(&v, &opts).unwrap();
+    let bi = smlb::info(&blocked).unwrap();
+    assert_eq!(bi.align, smlb::ALIGN_BLOCK);
+    assert_ne!(bi.flags & smlb::FLAG_ALIGN_BLOCK, 0);
+    for s in &bi.segments {
+        assert_eq!(s.offset % smlb::ALIGN_BLOCK as u64, 0, "段 {} 未按 4 KiB 对齐", seg_name(s.header.seg_id));
+    }
+    // 两种对齐下值与段体都不变，只有位置变
+    assert!(smlb::load(&blocked).unwrap().eq_ordered(&v));
+}
+
+/// `MANIFEST` is written, lists every content segment, and **does not list itself**.
+/// `MANIFEST` 会写、列全内容段、且**不列自己**（否则摘要循环）。
+#[test]
+fn manifest_describes_the_other_segments_only() {
+    let v = (CASES[18].build)();
     let f = smlb::dump(&v).unwrap();
     let info = smlb::info(&f).unwrap();
-    assert!(info.segments.len() >= 2, "这一例应有两个段");
-    for s in &info.segments {
-        assert_eq!(s.offset % ALIGN as u64, 0, "段 {} 未对齐", seg_name(s.header.seg_id));
-    }
-    // 最后一段之后不留填充：文件长度恰好等于「末段偏移 + 末段长度」
-    let last = info.segments.last().expect("至少一段");
-    assert_eq!(
-        f.len() as u64,
-        last.offset + last.header.len as u64,
-        "末段之后不该有尾巴"
+    let m = smlb::manifest::Manifest::from_bytes({
+        let seg = info
+            .segments
+            .iter()
+            .find(|s| s.header.seg_id == SEG_MANIFEST)
+            .expect("MANIFEST 段必须存在");
+        container::body(&f, seg).unwrap()
+    })
+    .unwrap();
+
+    assert_eq!(m.primary, SEG_VALUE, "P8：primary 指向主内容");
+    assert_eq!(m.hash, HashAlgo::Sha256, "默认 SHA-256");
+    assert!(
+        !m.segments.iter().any(|s| s.id == SEG_MANIFEST),
+        "segments[] 不许含 manifest 自己"
     );
+    // 列出的段与段表一致（除 manifest 自己）
+    for seg in &info.segments {
+        if seg.header.seg_id == SEG_MANIFEST {
+            continue;
+        }
+        let entry = m
+            .segments
+            .iter()
+            .find(|e| e.id == seg.header.seg_id)
+            .unwrap_or_else(|| panic!("段 0x{:02x} 没进 manifest", seg.header.seg_id));
+        assert_eq!(entry.len, seg.header.len);
+        assert_eq!(entry.digest, seg.header.hash);
+    }
 }
 
-/// Invariant 1: an unknown segment is skipped by its `len`, whatever it contains.
-/// 不变量 1：未知段按其 `len` 跳过 —— 哪怕它声明了本构建根本不认识的算法。
+/// SM3 is selectable end to end (dump → load → check all by `hash_id`).
+/// SM3 可选，且端到端（dump → load → check）都按 `hash_id` 走。
 #[test]
-fn unknown_segment_is_skipped() {
+fn sm3_digests_work_end_to_end() {
     let v = (CASES[17].build)();
-    let base = smlb::dump(&v).unwrap();
+    let opts = DumpOptions {
+        hash: HashAlgo::Sm3,
+        ..Default::default()
+    };
+    let f = smlb::dump_with(&v, &opts).unwrap();
+    assert!(smlb::load(&f).unwrap().eq_ordered(&v), "SM3 文件应能读回");
 
-    for (seg_id, comp, enc) in [(smlb::SEG_MANIFEST, 0u8, 0u8), (0x7f, 9, 0x10)] {
-        let with_extra = append_segment(base.clone(), seg_id, comp, enc, b"opaque payload");
-        let info = smlb::info(&with_extra).unwrap();
-        assert_eq!(info.segments.len(), 3, "应多出一段");
-        // 仍然读得出来 —— 这是「未知段可跳过」的全部意义
-        let back = smlb::load(&with_extra).expect("未知段不该阻塞读取");
-        assert!(back.eq_ordered(&v), "跳过未知段后值应不变");
-    }
+    let report = smlb::check(&f).unwrap();
+    assert!(report.ok, "{:?}", report.lines);
+    assert!(report.lines.join("\n").contains("SM3"), "{:?}", report.lines);
+
+    // 换个算法验同一份字节 ⇒ 必须不符（否则 hash_id 等于装饰）
+    let sha = smlb::dump(&v).unwrap();
+    let value_seg = smlb::info(&sha)
+        .unwrap()
+        .segments
+        .into_iter()
+        .find(|s| s.header.seg_id == SEG_VALUE)
+        .unwrap();
+    let sha_digest = value_seg.header.hash;
+    let sm3_file_seg = smlb::info(&f)
+        .unwrap()
+        .segments
+        .into_iter()
+        .find(|s| s.header.seg_id == SEG_VALUE)
+        .unwrap();
+    assert_ne!(sha_digest, sm3_file_seg.header.hash);
 }
 
-/// A truncated file is rejected, not silently half-read.
-/// 截断的文件必须报错，而不是「读一半当没事」。
+/// A `required` capability this build does not understand ⇒ refuse to open (D11).
+/// 读不懂的 `required` 能力 ⇒ 拒绝打开（D11）。
 #[test]
-fn truncation_is_rejected() {
-    let v = (CASES[1].build)();
-    let f = smlb::dump(&v).unwrap();
-    for cut in [0usize, 20, smlb::HEADER_LEN, 4096, f.len() - 1] {
-        assert!(
-            smlb::info(&f[..cut]).is_err() || smlb::load(&f[..cut]).is_err(),
-            "cut={cut} 应报错"
-        );
-    }
-}
+fn unknown_required_capability_is_refused() {
+    let v = (CASES[0].build)();
+    let opts = DumpOptions {
+        caps_required: vec!["sig".into()],
+        caps_optional: vec!["dir".into()],
+        ..Default::default()
+    };
+    let f = smlb::dump_with(&v, &opts).unwrap();
 
-/// Version gate (D5): a different `fmt` means a different byte layout ⇒ refuse.
-/// 版本闸门（D5）：`fmt` 不同就是另一套字节布局 ⇒ 拒绝。
-#[test]
-fn unsupported_fmt_is_rejected() {
-    let mut f = smlb::dump(&(CASES[0].build)()).unwrap();
-    f[6] = 1;
-    let e = smlb::info(&f).expect_err("fmt=1 应被拒");
-    assert_eq!(e.kind(), "unsupported-fmt");
-}
+    let e = smlb::load(&f).expect_err("required 里读不懂的能力必须拒");
+    assert_eq!(e.kind(), "missing-capability", "{e}");
 
-/// Wrong magic ⇒ "this is not a `.smlb`", stated plainly.
-/// 魔数不对 ⇒ 明说「这不是 .smlb 文件」。
-#[test]
-fn bad_magic_is_rejected() {
-    let mut f = smlb::dump(&(CASES[0].build)()).unwrap();
-    f[0] = b'X';
-    assert_eq!(smlb::info(&f).unwrap_err().kind(), "bad-magic");
-}
+    let report = smlb::check(&f).unwrap();
+    assert!(!report.ok);
+    let text = report.lines.join("\n");
+    assert!(text.contains("读不懂的必拒能力：sig"), "{text}");
+    assert!(text.contains("可跳过"), "{text}");
 
-/// Without a `VALUE` segment there is nothing to load (T2 adds `primary`, T1 does not).
-/// 没有 `VALUE` 段就没东西可读（`primary` 是 T2 的事）。
-#[test]
-fn missing_value_segment_is_rejected() {
-    let mut f = smlb::dump(&(CASES[0].build)()).unwrap();
-    let table_off = u64::from_le_bytes(f[8..16].try_into().unwrap()) as usize;
-    f[table_off] = 0x60; // VALUE → PROVENANCE
-    assert_eq!(smlb::load(&f).unwrap_err().kind(), "missing-segment");
+    // 认得的 required 不拦
+    let ok_opts = DumpOptions {
+        caps_required: vec!["value".into(), "strtab".into()],
+        ..Default::default()
+    };
+    let ok_file = smlb::dump_with(&v, &ok_opts).unwrap();
+    assert!(smlb::load(&ok_file).is_ok());
 }
 
 /// Every segment carries a real digest, and `check` says so.
@@ -208,7 +274,7 @@ fn one_changed_byte_is_caught() {
         .iter()
         .find(|s| s.header.seg_id == SEG_VALUE)
         .expect("VALUE 段");
-    let at = value_seg.offset as usize + 3; // 段体里的第 4 字节
+    let at = value_seg.offset as usize + 3;
 
     let mut bad = f.clone();
     bad[at] ^= 0x01;
@@ -218,7 +284,11 @@ fn one_changed_byte_is_caught() {
 
     let report = smlb::check(&bad).unwrap();
     assert!(!report.ok, "check 必须判未通过");
-    assert!(report.lines.join("\n").contains("摘要不符"), "{:?}", report.lines);
+    assert!(
+        report.lines.join("\n").contains("摘要不符"),
+        "{:?}",
+        report.lines
+    );
 }
 
 /// A file without digests (T1-era, all zeros) still loads — “less checked”, not “invalid”.
@@ -234,7 +304,78 @@ fn zeroed_digest_means_unverified_not_invalid() {
     assert!(smlb::load(&f).is_ok(), "全 0 摘要应视作「未校验」而不是损坏");
     let report = smlb::check(&f).unwrap();
     assert!(!report.ok, "但 check 必须说「无法判断是否被改过」");
-    assert!(report.lines.join("\n").contains("未带摘要"), "{:?}", report.lines);
+    assert!(
+        report.lines.join("\n").contains("未带摘要"),
+        "{:?}",
+        report.lines
+    );
+}
+
+/// Invariant 1: an unknown segment is skipped by its `len`, whatever it contains.
+/// 不变量 1：未知段按其 `len` 跳过 —— 哪怕它声明了本构建根本不认识的算法。
+#[test]
+fn unknown_segment_is_skipped() {
+    let v = (CASES[17].build)();
+    // 用 4 KiB 对齐的布局，段表后面才有空位插一条额外表项
+    let base = smlb::dump_with(
+        &v,
+        &DumpOptions {
+            block_align: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    for (seg_id, comp, enc) in [(smlb::SEG_MANIFEST + 0x50, 0u8, 0u8), (0x7f, 9, 0x10)] {
+        let with_extra = append_segment(base.clone(), seg_id, comp, enc, b"opaque payload");
+        let info = smlb::info(&with_extra).unwrap();
+        assert_eq!(info.segments.len(), 4, "应多出一段");
+        let back = smlb::load(&with_extra).expect("未知段不该阻塞读取");
+        assert!(back.eq_ordered(&v), "跳过未知段后值应不变");
+    }
+}
+
+/// A truncated file is rejected, not silently half-read.
+/// 截断的文件必须报错，而不是「读一半当没事」。
+#[test]
+fn truncation_is_rejected() {
+    let v = (CASES[1].build)();
+    let f = smlb::dump(&v).unwrap();
+    for cut in [0usize, 20, smlb::HEADER_LEN, f.len() - 1] {
+        assert!(
+            smlb::info(&f[..cut]).is_err() || smlb::load(&f[..cut]).is_err(),
+            "cut={cut} 应报错"
+        );
+    }
+}
+
+/// Version gate (D5): a different `fmt` means a different byte layout ⇒ refuse.
+/// 版本闸门（D5）：`fmt` 不同就是另一套字节布局 ⇒ 拒绝。
+#[test]
+fn unsupported_fmt_is_rejected() {
+    let mut f = smlb::dump(&(CASES[0].build)()).unwrap();
+    f[6] = 1;
+    let e = smlb::info(&f).expect_err("fmt=1 应被拒");
+    assert_eq!(e.kind(), "unsupported-fmt");
+}
+
+/// Wrong magic ⇒ "this is not a `.smlb`", stated plainly.
+/// 魔数不对 ⇒ 明说「这不是 .smlb 文件」。
+#[test]
+fn bad_magic_is_rejected() {
+    let mut f = smlb::dump(&(CASES[0].build)()).unwrap();
+    f[0] = b'X';
+    assert_eq!(smlb::info(&f).unwrap_err().kind(), "bad-magic");
+}
+
+/// Without a `VALUE` segment there is nothing to load.
+/// 没有 `VALUE` 段就没东西可读。
+#[test]
+fn missing_value_segment_is_rejected() {
+    let mut f = smlb::dump(&(CASES[0].build)()).unwrap();
+    let table_off = u64::from_le_bytes(f[8..16].try_into().unwrap()) as usize;
+    f[table_off] = 0x60; // VALUE → PROVENANCE
+    assert_eq!(smlb::load(&f).unwrap_err().kind(), "missing-segment");
 }
 
 /// `cat`: path lookup against the decoded value (§22).
@@ -243,22 +384,17 @@ fn zeroed_digest_means_unverified_not_invalid() {
 fn cat_looks_up_by_path() {
     let v = (CASES[19].build)(); // nested-containers：config.port = 8080
     let f = smlb::dump(&v).unwrap();
-    let port = smlb::get(&f, "config.port").unwrap();
-    assert_eq!(port, smlb::Value::Int(8080));
-    let host0 = smlb::get(&f, "config.hosts[0]").unwrap();
-    assert_eq!(host0, smlb::Value::Str("a".into()));
-
+    assert_eq!(smlb::get(&f, "config.port").unwrap(), smlb::Value::Int(8080));
+    assert_eq!(
+        smlb::get(&f, "config.hosts[0]").unwrap(),
+        smlb::Value::Str("a".into())
+    );
     let e = smlb::get(&f, "config.nope").expect_err("不存在的键应报错");
     assert_eq!(e.kind(), "bad-path");
 }
 
 /// Robustness: **any** single-byte mutation must come back as an error, never a panic.
 /// 健壮性：**任一**单字节改动都得以错误返回，绝不许 panic。
-///
-/// Why this matters more than it looks: the parser here eats untrusted bytes. A panic
-/// (index out of range / slice overflow) is a DoS on the host, and on a `no_std` target it is
-/// worse. Fuzzing the whole file byte-by-byte is cheap here because files are ~8 KB.
-/// 解码器吃的是不可信字节：一次 panic 就是一次 DoS。文件才 8 KB，逐字节扫一遍很便宜。
 #[test]
 fn single_byte_mutations_never_panic() {
     let f = smlb::dump(&(CASES[16].build)()).unwrap();
@@ -266,7 +402,6 @@ fn single_byte_mutations_never_panic() {
         for flip in [0x01u8, 0x80] {
             let mut bad = f.clone();
             bad[i] ^= flip;
-            // 三个入口都要么 Ok 要么 Err —— 只要不 panic 就算过
             let _ = smlb::info(&bad);
             let _ = smlb::load(&bad);
             let _ = smlb::check(&bad);
@@ -295,38 +430,41 @@ fn depth_limit_propagates() {
 fn dump_is_deterministic() {
     for case in CASES {
         let v = (case.build)();
-        assert_eq!(smlb::dump(&v).unwrap(), smlb::dump(&v).unwrap(), "[{}]", case.id);
+        assert_eq!(
+            smlb::dump(&v).unwrap(),
+            smlb::dump(&v).unwrap(),
+            "[{}]",
+            case.id
+        );
     }
 }
 
-/// `info` must answer P8's question (“what is the main content?”) even without a manifest.
-/// `info` 在没有 manifest 时也要回答 P8 的问题（「主内容是什么」）。
+/// `info` must answer P8's question (“what is the main content?”).
+/// `info` 必须回答 P8 的问题（「主内容是什么」）。
 #[test]
-fn info_names_the_primary_by_convention() {
+fn info_names_the_primary() {
     let f = smlb::dump(&(CASES[0].build)()).unwrap();
     let info = smlb::info(&f).unwrap();
-    let text = container::info_lines("t.smlb", &info).join("\n");
-    assert!(text.contains("primary   VALUE（约定"), "{text}");
-    assert!(text.contains("digest    SHA-256"), "{text}");
+    let text = container::info_lines("t.smlb", &f, &info)
+        .unwrap()
+        .join("\n");
+    assert!(text.contains("0x01 VALUE（manifest 的 primary）"), "{text}");
+    assert!(text.contains("hash_id   0x30 SHA-256"), "{text}");
+    assert!(text.contains("段体对齐 8 B"), "{text}");
 }
 
 /// Copy a file, append one extra segment (and its table entry).
 /// 复制一份，追加一个额外段（并在段表里补一项）。
-fn append_segment(
-    mut f: Vec<u8>,
-    seg_id: u8,
-    comp: u8,
-    enc: u8,
-    body: &[u8],
-) -> Vec<u8> {
+fn append_segment(mut f: Vec<u8>, seg_id: u8, comp: u8, enc: u8, body: &[u8]) -> Vec<u8> {
     let table_off = u64::from_le_bytes(f[8..16].try_into().unwrap()) as usize;
     let count = u32::from_le_bytes(f[16..20].try_into().unwrap()) as usize;
     let info = smlb::info(&f).unwrap();
+    assert_eq!(info.align, smlb::ALIGN_BLOCK, "这个用例要求 4 KiB 布局");
     let prev_end = info
         .segments
         .last()
         .map(|s| s.offset as usize + s.header.len as usize)
-        .unwrap_or(ALIGN);
+        .unwrap_or(smlb::HEADER_LEN);
     let off = align4k(prev_end);
 
     let at = table_off + count * SEG_HEADER_LEN;
