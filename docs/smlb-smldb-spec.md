@@ -970,7 +970,7 @@ key 更少一份、零依赖，`ser_text` 已趟过路；O(n) 对真实负载够
 | **T1 编码（L0）** ✅ 已落地（2026-11-04，见 §19.6） | 新 crate `smlb` 骨架 + 文件头 + 段表 + `dump` / `load`（`info` / `ls` 提前到 T1） | `dump→load→dump` 字节相同；`Int(1)` 与 `Float(1.0)` 可区分；`__type`/`__featags` 原样往返；未知段可跳过（用额外段实测） |
 | **T2 容器（L1）** ✅ **全落**（2026-11-04/05，见 §19.8 / §19.9） | 段表 ✅ · 摘要（SHA-256 / SM3，按 `hash_id`）✅ · manifest + `primary` + 能力位 ✅ · 外来载荷 `EMBED` + `payloads[]` + `pack`/`unpack` ✅ · `check` ✅ | 只读 manifest 能列全部段 ✅；未知 `optional` 跳过、缺 `required` 明确拒 ✅；改一字节被检出 ✅ |
 | **T3 读（L2）** ✅ **全落**（2026-11-05，见 §19.10） | `Store`：`open` / `subtree_bytes` / `get` / `text` / `text_of` / `history_at` / `payload` / `payloads` ✅；`MappedFile`（`mmap` feature）✅；`DIR` / `provenance` 未做（`DIR` 故意不写） | 「取单个子树不遍历全树」✅（改坏兄弟 tag 仍能取别的）；**RSS 判据达成**：100 MB 文件堆增量 **256 B**（< 1 MB） |
-| **T4 历史与签名（L3）** ✅ 核心已落（2026-11-05，见 §21.1b） | 层链（`prev_hash`/`index`/Trailer）+ `sign` / `append` / `verify` / `delegate` / `tree` + `patch` 合并（D22）；**写者锁（D20）未做** | 验签能答「值来自哪层」（`cat --at N`）✅；未授权的换钥被拒 ✅；并发冲突检测等锁落地 |
+| **T4 历史与签名（L3）** ✅ **全落**（2026-11-05，见 §21.1b） | 层链 + `sign` / `append` / `verify` / `delegate` / `tree` / `compact` + 历史回放 + `--trust` 锚点 + **写者锁（D20：`--expect-head`）** ✅ | 「值来自哪层」✅；未授权换钥被拒 ✅；陈旧链头追加 ⇒ `AppendConflict` ✅；整条剥离被锚点抓到 ✅；⚠️ **基文档未进签名范围**（见 §21.1b E） |
 | **T5 压缩与加密（L4）** ✅ **全落**（2026-11-05，见 §19.11 / §19.12 / §19.13） | 段级 zstd ✅ · 帧级 `FRAMES` + 索引 ✅ · 导航器按需解帧 ✅ · 解压预算 ✅ · **AES-256-GCM 按块 AEAD + 口令派生 ✅** | 「只解压/解密被访问的部分」✅；「未知算法 ID 明确拒绝」✅；改段头也能被 AAD 抓到 ✅ |
 | **T6 工具（T6）** ⏳ 库接口已落（2026-11-05） | **库在门面 crate**：`sml::envelope` —— `wrap` / `unwrap` / `list` / `sml_to_smlb` / `smlb_to_sml`，门控 feature **`smlb`**（连带 `preserve_order`）；要段级压缩再开 **`smlb-compress`**（多出来的那层是故意的：不该让「只想用信封」的人被动背上 `zstd`）。`smltools` **仍是纯 bin**，库能力不在它里面。`smlb` 的 `pack/unpack/sign/verify/append` CLI ✅；**`smltools --to-smlb` / `--from-smlb` ✅**（二进制不走 `emit`，改在写盘处另开一条 `Vec<u8>` 出口；`--smlb-compress N` 要 `smlb-compress` feature） | 两轮往返稳定 ✅（`rust/tests/envelope.rs` 7 例 + CLI 实跑）；转换不丢信息 ✅；签名跨端待 T7 |
 | **T7 五端** | JS / Lua 解码器（只读 `VALUE` 段 + 透传载荷）+ 一致性用例 | 同一 `.smlb` 五端读出同树；载荷字节原样 |
@@ -1836,6 +1836,28 @@ layer {
 | **C** | **`patch` 的合并规则** = 键已存在则原位覆盖、不存在则追加到尾部、**数组整体替换**（D22）；`load` 返回的是**当前值**（base + 各层补丁），历史值走 `layer::value_at(bytes, base, n)`（`n` 是**层号**，0 起） | 「值来自哪一层」（P2-a）必须有读取面；而 `dump→load→dump` 在**有层**时本来就不该字节相同（D8：`compact` 是唯一例外且必须重签） |
 | **D** | `delegation` 的签名对象是**独立文本** `smlb/delegate/v1\nfrom:…\nto:…\nmax_index:…\n` | 授权是「从 A 到 B 直到第 N 层」这件事本身，与它被放进哪一层无关 |
 
+**E · ⚠️ 新发现的缺口（2026-11-05，尚未裁决）：基文档没有进签名范围。**
+
+`Layer` 的可签字段只有 `index` / `prev_hash` / `author` / `patch` / `delegation`
+（见 `rust/smlb/src/layer.rs:Layer::to_value`），**不含基文档的摘要**。于是两个后果：
+
+1. **链头只由「层记录」决定，与基文档内容无关**。实测：`v1`（基文档 port=8080，1 层无补丁）
+   与 `compact(v2)`（基文档 port=9090，同样 1 层无补丁、同一把钥）的链头**完全相同**
+   （都是 `20965f01…`）。所以 `--trust` 能防「整条链被剥离 / 被换链」，**不能**防「基文档被换掉」。
+2. 攻击者把基文档换成另一份、并重算段头摘要与 manifest 的 `segments[]`，层链签名依然通过 ——
+   段摘要是**完整性校验**，不是**来源认证**。
+
+这不是本轮 `compact` 引入的，是 T4 落地时就存在的口径；compact 只是把它暴露得更明显
+（合并前后链头不变）。补法有两个方向，**都涉及格式变更，故不擅自拍**：
+
+| 方案 | 做法 | 代价 |
+|---|---|---|
+| 甲（推荐） | `Layer` 增 `base_hash: [u8;32]` = `H(层记录之前的全部字节)`，进 `signed_text` | 改层格式；首发前改无破坏（现为 `publish = false`），但所有签名历史作废、要重签 |
+| 乙 | 只在 `chain_head` 计算时把基文档摘要拼进去（`H(layer_bytes ‖ H(base))`），不动文件格式 | 只加固 `--trust`，`verify` 仍答不出基文档被换；且与 `Trailer.head_hash` 的口径分叉，容易混淆 |
+
+在裁决之前：**`smlb verify` 的「通过」只代表「层链自身一致且签名有效」，不代表「基文档没被换过」**，
+工具文案与文档都不许越界承诺。
+
 ⚠️ **一个必须说清的边界**：**整条层链可被剥离**（把 EOF 的 Trailer 连同层记录一起删掉，
 文件就退回「未签名」）。没有外部锚点（记住旧 `head_hash` / 对方渠道核对）就无法察觉 ——
 这正是 D18「信任根选择交给调用者」的含义。**不要把「验签通过」读成「这份文件没被换过」。**
@@ -1866,6 +1888,17 @@ $ smlb verify base.smlb --trust fd4f90d0…         # 有人拿未签名件冒�
 
 `verify` 判断的是「链条自身一致且签名有效」，`--trust` 判断的是「这就是我上次看到的那个链条」。
 前者防伪造层，后者防**整条替换**，两件事不能互相代替。
+
+**写者锁（D20，2026-11-05 落地）**：`append_layer_checked(..., expected_head)` 与 CLI 的
+`--expect-head HEX64`。这是**乐观并发控制**（不是 OS 文件锁）：调用方先记住
+`layer::chain_head`，做完自己的事再带着它回来追加；期间有人追加过 ⇒ 链头必变 ⇒
+后者拿到明确的 `AppendConflict`，而不是把自己的层悄悄挂到别人后面。未签名文件的「当前头」
+按约定是全 0（与首层 `prev_hash` 一致）。D21 说「多写交 `smldb`」，故单文件层面不做 OS 锁。
+
+**`compact`（D8 的唯一例外）**：读当前值（base + 各层补丁）→ `dump` 成全新基文件 →
+签第 0 层（无补丁）。历史被**有意丢弃**，不变量 3 在本次整体重写时被打破，因此**必须重签**；
+旧签名与旧 `--trust` 锚点随之作废，调用方要重建锚点。实跑：`2 层 → 1 层`，验签通过，
+当前值保持 `9090`。
 
 **第三方 crate 台账**（用户 2026-11-04 批准引入，要求避开 RustSec 热点；2026-11-05 实测）：
 
@@ -1902,7 +1935,7 @@ $ smlb verify base.smlb --trust fd4f90d0…         # 有人拿未签名件冒�
 | `smlb vectors --gen/--check` | 生成/校验跨端 canonical 测试向量（T0 判据） | T0 | ✅ **已实现**（2026-11-04，另带「自检」：往返 + 文本一致） |
 | `smlb bench <f>` | 读路径基准（mmap 打开、单子树取、解帧、解密） | T5 | 建议 |
 | `smlb migrate --to fmt=N` | `fmt` 升级（重写 + 重签，需保留旧签名证据） | T5+ | 建议 |
-| `smlb compact` | 合并多层（会**重签**，D8 的例外情况） | T5+ | 建议 |
+| `smlb compact` | 合并多层（会**重签**，D8 的例外情况；丢弃历史、旧锚点需重建） | T4 | ✅ **已实现** |
 | `smltools --to smlb` / `--from smlb` | 与 SML 文本互转（D27 的 A 路） | T6 | ✅ |
 | `smltools --to smlb --keep-source` | 带 `SOURCE` 段 | T6 | 建议 |
 | JS / Lua 解码器 | 只读 `VALUE` + 透传载荷（D12 五端可读） | T7 | ✅ |
