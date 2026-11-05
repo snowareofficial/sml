@@ -971,7 +971,7 @@ key 更少一份、零依赖，`ser_text` 已趟过路；O(n) 对真实负载够
 | **T2 容器（L1）** ✅ **全落**（2026-11-04/05，见 §19.8 / §19.9） | 段表 ✅ · 摘要（SHA-256 / SM3，按 `hash_id`）✅ · manifest + `primary` + 能力位 ✅ · 外来载荷 `EMBED` + `payloads[]` + `pack`/`unpack` ✅ · `check` ✅ | 只读 manifest 能列全部段 ✅；未知 `optional` 跳过、缺 `required` 明确拒 ✅；改一字节被检出 ✅ |
 | **T3 读（L2）** ✅ 除 mmap 外已落（2026-11-05，见 §19.10） | `Store`：`open` / `subtree_bytes` / `get` / `text` / `text_of` / `history_at` / `payload` / `payloads` ✅；`DIR` / `Mmap::open` / `provenance` 未做 | 「取单个子树不遍历全树」已证（改坏兄弟 tag 仍能取别的）✅；**RSS 判据未达成**（等 mmap 依赖裁决） |
 | **T4 历史与签名（L3）** ✅ 核心已落（2026-11-05，见 §21.1b） | 层链（`prev_hash`/`index`/Trailer）+ `sign` / `append` / `verify` / `delegate` / `tree` + `patch` 合并（D22）；**写者锁（D20）未做** | 验签能答「值来自哪层」（`cat --at N`）✅；未授权的换钥被拒 ✅；并发冲突检测等锁落地 |
-| **T5 压缩与加密（L4）** ⏳ 压缩已落、加密未做（2026-11-05，见 §19.11 / §19.12） | 段级 zstd ✅ · 帧级 `FRAMES` + 索引 + 只解一帧原语 ✅ · 解压预算 ✅；**加密 ⬜** · 导航器按需解帧 ⬜ | 「未知算法 ID 明确拒绝」✅；「只解压被访问的段」＝段级已达成，帧级待接导航器 |
+| **T5 压缩与加密（L4）** ⏳ 压缩全落、加密未做（2026-11-05，见 §19.11 / §19.12） | 段级 zstd ✅ · 帧级 `FRAMES` + 索引 ✅ · 导航器按需解帧 ✅ · 解压预算 ✅；**加密 ⬜** | 「只解压被访问的部分」✅（段级 + 帧级都达成）；「未知算法 ID 明确拒绝」✅ |
 | **T6 工具（T6）** | `smltools --to smlb` / `--from smlb` / `--keep-source`；`smlb sign/verify/append` CLI | 文本 ↔ 二进制双向可跑；签名可被另一端验证 |
 | **T7 五端** | JS / Lua 解码器（只读 `VALUE` 段 + 透传载荷）+ 一致性用例 | 同一 `.smlb` 五端读出同树；载荷字节原样 |
 
@@ -1470,12 +1470,21 @@ FRAMES = frame_count:u32le
 分帧真正划算的两种情形：① 节点树本身很大（大量数值/布尔/深嵌套、字符串少）；
 ② 需要「只解被访问的那几帧」。所以 `frame_size` 是**写者按数据形态选**的旋钮，不是默认更好。
 
-**只解一帧**：`frame_bytes_at(body, uncomp_off)` 已可用，用例证明「坏掉第 1 帧，第 0 帧与最后
+**只解一帧的原语**：`frame_bytes_at(body, uncomp_off)`；用例证明「坏掉第 1 帧，第 0 帧与最后
 一帧照样解得出来，而全解必然失败」。
 
-⚠️ **还没接进导航器**：`Store::open` 对分帧文件报 `framed-not-zero-copy`（指路 `load`/`cat`）。
-原因是导航器 `subtree_at` 是**切片式**的，跨帧要改成游标式（按需解帧）。这一步做完，
-「只解压被访问的部分」才对 `get` 生效 —— 记在这里，避免以为分帧已经全通。
+**导航器已接上帧（2026-11-05，同轮完成）**：值层把导航抽成 `TreeCursor` + `subtree_range`
+（返回 `[start, end)` 而不是字节），于是两条路各自最省：
+
+| 来源 | 游标 | 代价 |
+|---|---|---|
+| 明文 `VALUE` | `SliceCursor` | 零拷贝切片，一个字节都不复制 |
+| `FRAMES` | `FrameCursor`（`smlb` 侧，一帧缓存） | **只解覆盖目标区间的帧**；跳过只做算术 |
+
+`Store` 现在对分帧文件也能 `open` / `get` / `text_of`：用例「把**最后一帧**弄坏 ⇒ `rows[0]`
+照常取到、`rows[299]` 报错、整解必失败」把这条性质钉住了。
+⚠️ 唯一仍然做不到的是 `Store::subtree_bytes`（返回 `&[u8]`）—— 跨帧没法借用，它明确报
+`framed-not-zero-copy`；要拿字节请用 `Store::subtree_vec`（物化）。
 
 **还没做**：**加密**（`enc` 字段 / `0x10 AES-256-GCM`）—— 需要「压缩→加密顺序固定」的完整链路，
 且要与 `block_align`、追加不变量一起想，故留到下一轮。
