@@ -55,9 +55,12 @@ pub mod vectors;
 
 #[cfg(feature = "crypto")]
 pub use crypto::{KdfParams, KeySource, ENC_AES256_GCM, KDF_ARGON2ID, KDF_NONE};
+/// 键序已证明的值（TryFrom<Value>）—— dump_canonical 的入参。
+pub use sml_value::CanonicalValue;
 pub use container::{
     align_of, base_value, base_value_with_keys, check, dump, dump_with, dump_encrypted,
-    embed_body, get, get_encrypted, hash_algo, info, load, load_encrypted, pack, pack_iter,
+    dump_canonical, dump_canonical_with, embed_body, get, get_encrypted, hash_algo, info, load,
+    load_encrypted, pack, pack_iter,
     pack_iter_with, pack_with,
     payload,
     payloads, CheckReport, ContainerError, DumpOptions, FileInfo, Segment, SegmentHeader,

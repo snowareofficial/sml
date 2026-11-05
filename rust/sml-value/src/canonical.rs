@@ -308,6 +308,83 @@ impl std::error::Error for CanonicalError {}
 
 /// 判定移到**值层**：树里每个对象都必须显式是 `Map::Ordered`。
 /// `preserve_order` 编译开关不再参与判定 —— 「能不能签」由你手里这个对象决定。
+/// A [`Value`] **proven** to have source-ordered objects at every level.
+/// 已证明「每个对象都是保序态」的值 —— 把 C2 的检查从**运行期**挪到**类型层**。
+///
+/// 为什么需要它：`parse()` 默认产出 `Map::Unordered`（历史字节序），而 `dump` 要求源序，
+/// 于是「最自然的 `parse → dump`」会在运行期失败。有了这个 newtype，同样的错误在
+/// **编译期**就暴露：`dump` 只收 `&CanonicalValue`，而它只能由 `TryFrom<Value>` 得到。
+///
+/// ```ignore
+/// let cv = smlb::CanonicalValue::try_from(sml::parse_ordered(text)?)?;
+/// let bytes = smlb::dump(&cv)?;          // 编译期就保证了有序
+/// ```
+///
+/// 注意 `TryFrom` 的错误是 [`CanonicalError::KeyOrderUnavailable`] —— 转换点上必须
+/// **显式**处理，这正是「少隐式」：不允许悄悄排序，也不允许悄悄通过。
+#[derive(Debug, Clone, PartialEq)]
+pub struct CanonicalValue(Value);
+
+impl CanonicalValue {
+    /// Borrow the inner value. ｜ 借用内部值。
+    pub fn as_value(&self) -> &Value {
+        &self.0
+    }
+
+    /// Take the inner value back. ｜ 取回内部值。
+    pub fn into_value(self) -> Value {
+        self.0
+    }
+
+    /// Canonical text — cannot fail with `KeyOrderUnavailable` by construction.
+    /// canonical 文本；由构造保证**不会**再报 `KeyOrderUnavailable`。
+    pub fn canonical_text(&self) -> Result<String, CanonicalError> {
+        self.0.canonical_text()
+    }
+
+    /// Canonical bytes — same guarantee. ｜ canonical 字节，同样的保证。
+    pub fn canonical_bytes(&self) -> Result<Vec<u8>, CanonicalError> {
+        self.0.canonical_bytes()
+    }
+
+    /// Canonical segment blocks — same guarantee. ｜ canonical 段块，同样的保证。
+    pub fn canonical_blocks(&self) -> Result<CanonicalBlocks, CanonicalError> {
+        self.0.canonical_blocks()
+    }
+
+    /// Order-sensitive equality. ｜ 顺序敏感相等。
+    pub fn eq_ordered(&self, other: &CanonicalValue) -> bool {
+        self.0.eq_ordered(&other.0)
+    }
+}
+
+impl TryFrom<Value> for CanonicalValue {
+    type Error = CanonicalError;
+
+    /// The single conversion point: every object must already be `Map::Ordered`.
+    /// 唯一转换点：每个对象必须已经是 `Map::Ordered`。
+    fn try_from(v: Value) -> Result<Self, Self::Error> {
+        if v.all_objects_ordered() {
+            Ok(CanonicalValue(v))
+        } else {
+            Err(CanonicalError::KeyOrderUnavailable)
+        }
+    }
+}
+
+impl TryFrom<&Value> for CanonicalValue {
+    type Error = CanonicalError;
+
+    /// Check first, clone only on success（避免为一次失败转换白拷整棵树）。
+    fn try_from(v: &Value) -> Result<Self, Self::Error> {
+        if v.all_objects_ordered() {
+            Ok(CanonicalValue(v.clone()))
+        } else {
+            Err(CanonicalError::KeyOrderUnavailable)
+        }
+    }
+}
+
 impl Value {
     /// Every object in this tree explicitly carries source order.
     /// 树里每个对象都显式是保序态（判定看**值**，不看 feature）。

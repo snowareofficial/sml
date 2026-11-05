@@ -69,6 +69,27 @@ fn parse_ordered_keeps_source_order_without_any_feature() {
     assert_eq!(v.clone().into_ordered(), v);
 }
 
+/// `CanonicalValue` 把 C2 的检查挪到**转换点**：成功即保证有序，失败即明确拒绝。
+#[test]
+fn canonical_value_makes_key_order_a_type_level_fact() {
+    let v = sml::parse_ordered("z: 1\na: 2\n").unwrap();
+    let cv = sml::CanonicalValue::try_from(v).unwrap();
+    assert_eq!(cv.canonical_text().unwrap(), "z: 1\na: 2\n");
+
+    // 无序对象在**转换时**就失败 —— 不是等到 dump 才在运行期发现
+    let u = sml::parse("z: 1\na: 2\n").unwrap();
+    assert_eq!(
+        sml::CanonicalValue::try_from(u).unwrap_err(),
+        sml::CanonicalError::KeyOrderUnavailable
+    );
+
+    // 借用版本：先检查、成功才克隆
+    let v2 = sml::parse_ordered("b: 1\n").unwrap();
+    let cv2 = sml::CanonicalValue::try_from(&v2).unwrap();
+    assert_eq!(cv2.as_value(), &v2);
+    assert_eq!(cv2.into_value(), v2);
+}
+
 /// 默认档下 `Map` 是 BTreeMap（键按字节序），与 `OrderedMap` **语义不同**。
 #[cfg(not(feature = "preserve_order"))]
 #[test]

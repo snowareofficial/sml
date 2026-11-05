@@ -9,7 +9,10 @@
 //! canonical 编码只认这一态（spec §18 C2）。所以本例不再需要 `preserve_order`。
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use smlb::{check, dump, dump_with, get, info, load, DumpOptions, HashAlgo, Map, Value};
+    use smlb::{
+        check, dump_canonical, dump_canonical_with, get, info, load, CanonicalValue, DumpOptions,
+        HashAlgo, Map, Value,
+    };
 
     // 1) 造一个值。`Map::ordered()` 显式声明「键序就是源序」。
     let mut config = Map::ordered();
@@ -20,7 +23,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let doc = Value::Object(root);
 
     // 2) 写 → 读 → 往返一致
-    let bytes = dump(&doc)?;
+    //    `CanonicalValue::try_from` 是**唯一**的键序证明点：`parse()` 的默认结果是无序的，
+    //    传进来会在这里失败，而不是等到 dump 才在运行期报错。
+    let cv = CanonicalValue::try_from(doc.clone())?;
+    let bytes = dump_canonical(&cv)?;
     let back = load(&bytes)?;
     assert!(back.eq_ordered(&doc), "值必须原样回来");
 
@@ -35,8 +41,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(get(&bytes, "config.port")?, Value::Int(8080));
 
     // 5) 换摘要算法：读者永远以 manifest 的 hash_id 为准，不需要调用方记得住
-    let sm3 = dump_with(
-        &doc,
+    let sm3 = dump_canonical_with(
+        &cv,
         &DumpOptions {
             hash: HashAlgo::Sm3,
             ..Default::default()
