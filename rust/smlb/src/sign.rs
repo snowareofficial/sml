@@ -166,7 +166,10 @@ pub fn append_layer(
         None => [0u8; 32],
     };
     let index = existing.len() as u32;
-    let mut l = Layer::new(index, prev_hash, key.public_bytes());
+    // 基文档摘要：从**当前文件**算，写进层并进入签名文本（甲方案）。
+    // 追加时基文档不变（只是层区变长），所以后续各层记的是同一个值。
+    let base = layer::base_hash(bytes, algo).map_err(SignError::Layer)?;
+    let mut l = Layer::new(index, prev_hash, key.public_bytes(), base);
     l.patch = patch;
     l.delegation = delegation;
 
@@ -289,6 +292,26 @@ pub fn verify(bytes: &[u8], algo: HashAlgo) -> Result<VerifyReport, SignError> {
             ok: true,
             layers: 0,
         });
+    }
+
+    // 0) 基文档绑定（§21.1b E）：层里记的 base_hash 必须与当前文件的基文档一致。
+    //    即使攻击者没重签也能当场发现「基文档被换」；若他重算了 base_hash，
+    //    签名又会因 signed_text 变了而失效 —— 两头都堵死。
+    match layer::base_hash(bytes, algo) {
+        Ok(want) => {
+            for (i, l) in all.iter().enumerate() {
+                if l.base_hash != want {
+                    ok = false;
+                    lines.push(format!(
+                        "层#{i}   base_hash 与当前基文档不符 —— 基文档被换过"
+                    ));
+                }
+            }
+        }
+        Err(e) => {
+            ok = false;
+            lines.push(format!("基文档   算不出摘要：{e}"));
+        }
     }
 
     // 1) 序号连续 + prev_hash 链接 + 首层 prev_hash 为全 0
