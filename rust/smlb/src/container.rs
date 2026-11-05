@@ -811,6 +811,25 @@ pub fn dump_with(v: &Value, opts: &DumpOptions) -> Result<Vec<u8>, ContainerErro
     dump_sealed(v, opts, None)
 }
 
+/// Type-level [`dump`]: the caller already **proved** key order via [`CanonicalValue`].
+/// 类型层版本：键序已由 [`CanonicalValue`] 在**转换点**证明，这里不存在「运行期才发现
+/// 对象无序」这种失败模式。
+///
+/// 与 [`dump`] 的关系：`dump` 仍接收 `&Value` 并在运行期检查（保留给既有调用方），
+/// 新代码应优先用本函数 —— 编译期就把「`parse()` 的默认无序值」挡在门外。
+pub fn dump_canonical(cv: &sml_value::CanonicalValue) -> Result<Vec<u8>, ContainerError> {
+    dump_canonical_with(cv, &DumpOptions::default())
+}
+
+/// [`dump_canonical`] with explicit choices. ｜ 同 [`dump_canonical`]，但显式指定选项。
+pub fn dump_canonical_with(
+    cv: &sml_value::CanonicalValue,
+    opts: &DumpOptions,
+) -> Result<Vec<u8>, ContainerError> {
+    validate_caps(opts)?;
+    dump_sealed(cv.as_value(), opts, None)
+}
+
 /// Encrypt every content segment with `key` (§19.13). `MANIFEST` stays plaintext — it is what
 /// carries the KDF parameters, so encrypting it would be a bootstrapping loop.
 /// 用 `key` 加密每个内容段；`MANIFEST` 保持明文（KDF 参数就在它里面）。

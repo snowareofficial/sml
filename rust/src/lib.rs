@@ -115,7 +115,9 @@ pub mod emit;
 /// 曾从 `crate::emit` 再导出 —— 而 `pub mod emit` 被 7 个 `emit-*` feature 门控，
 /// 于是 `--no-default-features` 下整库报 `error[E0432]: unresolved import crate::emit`，
 /// 与「`default-features = false` 回到零依赖」的承诺矛盾（HANDOFF R9）。
-pub use sml_value::{describe_value, Map, OrderedMap, Value, MAX_VALUE_DEPTH};
+pub use sml_value::{
+    describe_value, CanonicalValue, Map, OrderedMap, Value, MAX_VALUE_DEPTH,
+};
 /// Why canonical failed (`.smlb` T0, `docs/smlb-smldb-spec.md` §18).
 /// canonical 的失败原因。
 ///
