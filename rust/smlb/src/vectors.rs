@@ -59,7 +59,7 @@ fn s(x: &str) -> Value {
 }
 
 fn obj(pairs: &[(&str, Value)]) -> Value {
-    let mut m = Map::new();
+    let mut m = Map::ordered();
     for (k, v) in pairs {
         m.insert((*k).to_string(), v.clone());
     }

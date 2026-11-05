@@ -59,6 +59,13 @@ impl Map {
         }
     }
 
+    /// Explicitly **unordered** (UTF-8 byte order). ｜ 显式无序（UTF-8 字节序）。
+    ///
+    /// 与 [`Map::ordered`] 成对：要哪一态就写哪一个，不靠 `new()` 的默认。
+    pub fn unordered() -> Self {
+        Map::Unordered(BTreeMap::new())
+    }
+
     /// Explicitly source-ordered. ｜ 显式保源序。
     pub fn ordered() -> Self {
         Map::Ordered(Box::new(OrderedMap::new()))
@@ -191,6 +198,25 @@ impl Map {
         out.into_iter()
     }
 
+    /// Convert this object into the **ordered** carrier, keeping its current key order.
+    /// 转成显式有序载体，**保持当前键序**（不声称这就是源序）。
+    ///
+    /// 用于「值来自 JSON/YAML/程序构造、没有源序概念」的场景：显式承认
+    /// 「我要写 canonical」，代价是键序就是手里这份。SML 文本输入应优先用
+    /// `parse_ordered()`，它才真的保源序。
+    pub fn into_ordered(self) -> Map {
+        match self {
+            Map::Ordered(_) => self,
+            Map::Unordered(bt) => {
+                let mut o = OrderedMap::with_capacity(bt.len());
+                for (k, v) in bt {
+                    o.insert(k, v);
+                }
+                Map::Ordered(Box::new(o))
+            }
+        }
+    }
+
     /// Keys in byte order (no-op for the already-sorted variant).
     /// 按字节序排序；对无序态本来就有序，故是空操作。
     pub fn sort_keys(&mut self) {
@@ -211,6 +237,39 @@ impl Map {
                         .zip(b.iter())
                         .all(|((_, x), (_, y))| x.eq_ordered(y))
             }
+        }
+    }
+}
+
+impl Value {
+    /// Recursively turn every object into an explicitly ordered one.
+    /// 递归把树里每个对象都转成显式有序态（同样保持各自当前键序）。
+    pub fn into_ordered(mut self) -> Value {
+        self.make_ordered();
+        self
+    }
+
+    /// In-place variant. `Value` has an iterative `Drop`, so its fields cannot be moved
+    /// out of a consumed value (E0509) — mutate through `&mut` instead.
+    /// 原地版本：`Value` 带迭代式 `Drop`，不能从消耗的值里移出字段（E0509），故走 `&mut`。
+    pub fn make_ordered(&mut self) {
+        match self {
+            Value::Object(m) => {
+                let old = std::mem::replace(m, Map::new());
+                let mut ordered = old.into_ordered();
+                if let Map::Ordered(ref mut o) = ordered {
+                    for (_, v) in o.iter_mut() {
+                        v.make_ordered();
+                    }
+                }
+                *m = ordered;
+            }
+            Value::Array(a) => {
+                for v in a.iter_mut() {
+                    v.make_ordered();
+                }
+            }
+            _ => {}
         }
     }
 }

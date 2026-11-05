@@ -85,8 +85,8 @@ fn main() -> ExitCode {
             // 只在**真的**因为缺源序而失败时给提示，别把无关错误也糊上这条
             if !cfg!(feature = "preserve_order") && msg.contains("保序") {
                 eprintln!(
-                    "smlb: hint: 本次构建未开 `preserve_order`（spec §18 C2 要求键序 = 源序）\n\
-                     smlb:       改用 `cargo run -p smlb --features preserve_order -- <子命令>`"
+                    "smlb: hint: 这个值是显式无序态（`Map::Unordered`），canonical 需要源序\n\
+                     smlb:       文本用 `parse_ordered()`；程序构造用 `Map::ordered()` / `OrderedMap`"
                 );
             }
             ExitCode::from(code)

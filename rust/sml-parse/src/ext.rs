@@ -279,6 +279,12 @@ pub struct ParseOptions {
     /// 再原样传进来（`Contract` 含 `Arc<dyn …>`，没法从 JSON 反序列化）。
     /// 见 `docs/weakbind-spec-draft.md` §6.1。
     pub(crate) builtin_contracts: std::collections::BTreeMap<String, sml_contract::Contract>,
+    /// **显式保序解析**（方案 2 / B）：`true` ⇒ 对象构造走 `Map::ordered()`，键序 == 源序。
+    ///
+    /// 默认 `false`（`parse()` 的历史行为：键按字节序）。**这是数据形态的显式选择，
+    /// 不是编译开关**：`parse_ordered()` 在任何 feature 组合下都产出可签 canonical 的值。
+    /// 私有字段 ⇒ 外部只能用 `ParseOptions::new().ordered()` 链式打开。
+    pub(crate) ordered: bool,
 }
 
 impl Default for ParseOptions {
@@ -292,6 +298,7 @@ impl Default for ParseOptions {
             collect_errors: false,
             capture_contracts: false,
             builtin_contracts: std::collections::BTreeMap::new(),
+            ordered: false,
         }
     }
 }
@@ -305,6 +312,16 @@ impl ParseOptions {
     }
 
     /// Whether to collect key-conflict warnings (builder). Defaults to `true`. ｜ 是否收集键冲突告警（链式）。默认 `true`。
+    /// Parse into **source-ordered objects** (builder). Defaults to `false`.
+    /// 解析成保源序对象（链式）。默认关闭以保持 `parse()` 的历史字节序。
+    ///
+    /// `parse_ordered()` 就是这个开关的便捷入口。开它之后 `Value` 的对象都是
+    /// `Map::Ordered`，可直接交给 `smlb::dump` / `canonical_*`，**不需要任何 feature**。
+    pub fn ordered(mut self) -> Self {
+        self.ordered = true;
+        self
+    }
+
     pub fn warn_key_conflict(mut self, on: bool) -> Self {
         self.warn_key_conflict = on;
         self

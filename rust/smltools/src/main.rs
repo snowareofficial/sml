@@ -1302,8 +1302,22 @@ fn read_smlb_input(_input: &Option<PathBuf>) -> Result<String, SmlError> {
 /// 把值写成 `.smlb` 信封（`--to-smlb`）。
 /// Write the value as a `.smlb` envelope.
 #[cfg(feature = "smlb")]
-fn write_smlb_output(value: &sml::Value, args: &Args) -> ExitCode {
-    let bytes = match sml::value_to_smlb(value, args.smlb_compress) {
+fn write_smlb_output(value: &sml::Value, args: &Args, text: &str) -> ExitCode {
+    // 键序是数据的一部分：SML 输入重新按源序解析（BTreeMap 会丢源序）；
+    // 其它格式没有源序概念 ⇒ 显式 `into_ordered()` 承认「就用当前顺序」。
+    // 两者都不靠编译开关，调用方一眼看得见自己在选什么。
+    let ordered = if args.input_format == InputFormat::Sml {
+        match sml::parse_ordered(text) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("smltools: {e} [{}]", E_CLI_007);
+                return ExitCode::from(2);
+            }
+        }
+    } else {
+        value.clone().into_ordered()
+    };
+    let bytes = match sml::value_to_smlb(&ordered, args.smlb_compress) {
         Ok(b) => b,
         Err(e) => {
             // E-CLI-007：输出后端报错。
@@ -1333,7 +1347,7 @@ fn write_smlb_output(value: &sml::Value, args: &Args) -> ExitCode {
 
 /// 没开 `smlb` feature 时的 `--to-smlb`：明确拒绝。
 #[cfg(not(feature = "smlb"))]
-fn write_smlb_output(_value: &sml::Value, _args: &Args) -> ExitCode {
+fn write_smlb_output(_value: &sml::Value, _args: &Args, _text: &str) -> ExitCode {
     eprintln!(
         "smltools: 本构建未启用 `smlb` feature，写不了 `.smlb` 信封（用 `--features smlb` 重新构建）[{}]",
         E_CLI_003
@@ -1781,7 +1795,7 @@ fn real_main() -> ExitCode {
 
     // `--to-smlb`：直接写二进制信封。**不走 emit** —— 那条管线是「文本进、文本出」。
     if args.to_smlb {
-        return write_smlb_output(&value, &args);
+        return write_smlb_output(&value, &args, &text);
     }
 
     let rendered = match emit(&value, args.format, &args) {

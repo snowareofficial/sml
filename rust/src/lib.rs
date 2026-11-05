@@ -320,6 +320,7 @@ pub use sml_include::{
 };
 #[cfg(feature = "when")]
 pub use sml_lex::Tok;
+pub use sml_parse::parse_ordered;
 pub use sml_parse::{
     loads, parse, parse_allowed, parse_file, parse_file_features, parse_file_versioned,
     parse_file_with, parse_file_with_warnings, parse_versioned, parse_with, parse_with_features,

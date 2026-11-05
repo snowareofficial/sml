@@ -174,7 +174,7 @@ impl Manifest {
     /// manifest too, because it is what signatures cover).
     /// 字段顺序**固定** ⇒ 字节确定（manifest 也是签名对象，同样受 C12 约束）。
     pub fn to_value(&self) -> Value {
-        let mut m = Map::new();
+        let mut m = Map::ordered();
         m.insert("primary".to_string(), Value::Int(self.primary as i64));
         m.insert("hash_id".to_string(), Value::Int(self.hash.id() as i64));
 
@@ -182,7 +182,7 @@ impl Manifest {
             .segments
             .iter()
             .map(|s| {
-                let mut e = Map::new();
+                let mut e = Map::ordered();
                 e.insert("id".to_string(), Value::Int(s.id as i64));
                 e.insert("comp".to_string(), Value::Int(s.comp as i64));
                 e.insert("enc".to_string(), Value::Int(s.enc as i64));
@@ -198,7 +198,7 @@ impl Manifest {
                 .payloads
                 .iter()
                 .map(|p| {
-                    let mut e = Map::new();
+                    let mut e = Map::ordered();
                     e.insert("name".to_string(), Value::Str(p.name.clone()));
                     e.insert("len".to_string(), Value::Int(p.len as i64));
                     e.insert("sha256".to_string(), Value::Str(hex(&p.digest)));
@@ -208,7 +208,7 @@ impl Manifest {
             m.insert("payloads".to_string(), Value::Array(list));
         }
 
-        let mut crypto = Map::new();
+        let mut crypto = Map::ordered();
         crypto.insert("enc".to_string(), Value::Int(self.crypto_enc as i64));
         crypto.insert(
             "sig".to_string(),
@@ -233,19 +233,19 @@ impl Manifest {
         }
         m.insert("crypto".to_string(), Value::Object(crypto));
 
-        let mut caps = Map::new();
+        let mut caps = Map::ordered();
         caps.insert("required".to_string(), str_array(&self.caps_required));
         caps.insert("optional".to_string(), str_array(&self.caps_optional));
         m.insert("caps".to_string(), Value::Object(caps));
 
-        let mut patch = Map::new();
+        let mut patch = Map::ordered();
         patch.insert(
             "strategy".to_string(),
             Value::Str(self.patch_strategy.clone()),
         );
         m.insert("patch".to_string(), Value::Object(patch));
 
-        let mut defaults = Map::new();
+        let mut defaults = Map::ordered();
         defaults.insert("dir_depth".to_string(), Value::Int(self.dir_depth as i64));
         defaults.insert(
             "crypto_block".to_string(),

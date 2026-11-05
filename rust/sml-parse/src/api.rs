@@ -310,6 +310,17 @@ fn parse_ext(text: &str, feats: FeatureSet, opts: ParseOptions) -> Result<ParseO
         .map_err(|e| with_position(text, e))
 }
 
+/// Parse into **explicitly source-ordered objects** (方案 2 / B).
+/// 解析成**显式保源序**的值：所有对象都是 `Map::Ordered`，可直接交给
+/// `smlb::dump` / `canonical_text` / `canonical_bytes`，**无需任何 feature**。
+///
+/// 与 [`parse`] 的差别只有对象载体：`parse()` 保持历史字节序（BTreeMap 排序），
+/// 本函数保留源序。这是「少隐式」的显式入口 —— 要签 canonical 就调它，
+/// 不用猜这台机器开了什么编译开关。
+pub fn parse_ordered(text: &str) -> Result<Value, SmlError> {
+    Ok(parse_with(text, ParseOptions::new().ordered())?.value)
+}
+
 /// Parse SML text and return the non-fatal diagnostics ｜ 解析 SML 文本，并把**非致命诊断**（键冲突告警）一并交出来。
 ///
 /// 与 [`parse`] 的差别**只在返回值**：`parse` 的签名是 `Result<Value, _>`，承载不了
@@ -575,6 +586,7 @@ fn parse_impl_tokens_ext(
     env: BTreeMap<String, String>,
     opts: ParseOptions,
 ) -> Result<ParseOutput, SmlError> {
+    let ordered = opts.ordered;
     let mut p = Parser {
         toks,
         spans,
@@ -584,6 +596,7 @@ fn parse_impl_tokens_ext(
         contracts: BTreeMap::new(),
         types: BTreeMap::new(),
         features,
+        ordered,
         depth: 0,
         ns_stack: Vec::new(),
         path_stack: Vec::new(),
