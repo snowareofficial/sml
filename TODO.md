@@ -975,7 +975,7 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
 
 | 编号 | 内容 | 源文件 |
 |---|---|---|
-| **I-18** | `.smlb` 二进制格式 + `smldb`（规范已写、零实现，**细节未定**） | `docs/smlb-smldb-spec.md`、`docs/value-layout.md` |
+| **I-18** | `.smlb` 二进制格式（**T0–T6 已落地**，交接见 `HANDOFF-2026-11-05.md`；T7 五端未开工）+ `smldb`（未开工） | `docs/smlb-smldb-spec.md`、`docs/value-layout.md` |
 | **I-19** | `idyml` 瘦别名 / 国际稳定发布线（计划书 · 待建） | `IDYML.md` |
 | **I-20** | 长文档产出链：EPUB / HTML / 分章 / TOC / 增量 emit / emit 定位 | `story/ISSUE_smltools_缺失功能.md` |
 | **I-21** | 语义部件目录 + 跨后端语义一致（figure/admonition/footnote…） | 同上 §四 §五 |
