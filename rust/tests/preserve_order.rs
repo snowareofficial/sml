@@ -1,22 +1,23 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! 对象保序（feature `preserve_order`）的验收用例。
+//! 保序解析的验收用例（方案 2 / B 之后：**不再由 feature 门控**）。
 //!
 //! 依据 `docs/value-layout.md` §3/§5/§6 与 §12：
 //! - 保序买到的是「键序 == 源序」，**不是**确定性字节（后者是 `to_sml_canonical`）；
 //! - 合并规则（§6.3）：已存在的键**原位替换**、不存在的追加到尾部；
-//! - `PartialEq` 两种档位下都按集合相等（§6.1），顺序敏感另走 `eq_ordered`。
+//! - `PartialEq` 两种键序下都按集合相等（§6.1），顺序敏感另走 `eq_ordered`。
 //!
-//! 整份文件由 feature 门控：默认档（`BTreeMap`）下这些断言**不成立也不该成立**，
-//! 那里的键序是字节序（由 `tests/emit.rs` 等既有用例钉着）。
-#![cfg(all(feature = "preserve_order", feature = "sml"))]
+//! 入口是 **`parse_ordered()`**：显式要求源序。默认 `parse_ordered()` 仍按字节序
+//! （由 `tests/emit.rs` 等既有用例钉着）—— 这是「少隐式」：要哪种顺序就写哪个函数，
+//! 不看编译开关。
+#![cfg(feature = "sml")]
 
 use std::collections::BTreeMap;
 
-use sml::{parse, to_sml, to_sml_canonical, Map, Value};
+use sml::{parse_ordered, to_sml, to_sml_canonical, Map, Value};
 
 /// 取顶层对象的键序（按**迭代序**，不是排序后的）。
 fn keys(src: &str) -> Vec<String> {
-    let v = parse(src).expect("parse failed");
+    let v = parse_ordered(src).expect("parse failed");
     match &v {
         Value::Object(m) => m.keys().map(|k| k.to_string()).collect(),
         other => panic!("顶层应为对象，得 {other:?}"),
@@ -25,7 +26,7 @@ fn keys(src: &str) -> Vec<String> {
 
 /// 取 `to_sml` 输出里每行的键名（只取行首到 `:` 的部分）。
 fn line_keys(src: &str) -> Vec<String> {
-    to_sml(&parse(src).expect("parse failed"))
+    to_sml(&parse_ordered(src).expect("parse failed"))
         .lines()
         .filter_map(|l| l.split_once(':').map(|(k, _)| k.trim().to_string()))
         .collect()
@@ -52,7 +53,7 @@ fn to_sml_emits_keys_in_source_order() {
 /// 这正是配置编辑场景里 diff 干净的前提。
 #[test]
 fn edit_then_to_sml_keeps_source_order() {
-    let v = parse("z: 1\na: 2\nm: 3\n").expect("parse failed");
+    let v = parse_ordered("z: 1\na: 2\nm: 3\n").expect("parse failed");
     let mut v = v;
     if let Some(m) = v.as_object_mut() {
         m.insert("a".to_string(), Value::Int(99));
@@ -69,7 +70,7 @@ fn edit_then_to_sml_keeps_source_order() {
 #[test]
 fn nested_blocks_keep_source_order() {
     let src = "outer {\n  z: 1\n  a {\n    y: 2\n    b: 3\n  }\n}\n";
-    let v = parse(src).expect("parse failed");
+    let v = parse_ordered(src).expect("parse failed");
     let outer = v.get("outer").expect("outer");
     let ok: Vec<String> = match outer {
         Value::Object(m) => m.keys().map(|k| k.to_string()).collect(),
@@ -95,7 +96,7 @@ fn nested_blocks_keep_source_order() {
 #[test]
 fn frag_overrides_in_place() {
     let src = "@base { host: \"new\" port: 8080 tls: true }\nserver {\n  host: \"old\"\n  port: 80\n  &base\n}\n";
-    let v = parse(src).expect("parse failed");
+    let v = parse_ordered(src).expect("parse failed");
     let sv = v.get("server").expect("server");
     let ks: Vec<String> = match sv {
         Value::Object(m) => m.keys().map(|k| k.to_string()).collect(),
@@ -110,7 +111,7 @@ fn frag_overrides_in_place() {
 #[test]
 fn frag_appends_new_keys_at_tail() {
     let src = "@base { port: 80 }\nserver {\n  host: \"h1\"\n  &base\n}\n";
-    let v = parse(src).expect("parse failed");
+    let v = parse_ordered(src).expect("parse failed");
     let sv = v.get("server").expect("server");
     let ks: Vec<String> = match sv {
         Value::Object(m) => m.keys().map(|k| k.to_string()).collect(),
@@ -123,7 +124,7 @@ fn frag_appends_new_keys_at_tail() {
 #[test]
 fn frag_mixed_override_and_append() {
     let src = "@base { port: 80 tls: true }\nserver {\n  host: \"h1\"\n  port: 8080\n  &base\n}\n";
-    let v = parse(src).expect("parse failed");
+    let v = parse_ordered(src).expect("parse failed");
     let sv = v.get("server").expect("server");
     let ks: Vec<String> = match sv {
         Value::Object(m) => m.keys().map(|k| k.to_string()).collect(),
@@ -143,11 +144,11 @@ fn include_merge_follows_same_rule() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("建临时目录失败");
     std::fs::write(dir.join("base.sml"), "tls: true\n").unwrap();
-    // include 只在**文件入口**展开（token 层拼接），故必须走 `parse_file`
+    // include 只在**文件入口**展开（token 层拼接），故必须走文件入口（保序版）
     // —— 直接 `parse` 会把 `include` 当成普通键（既有语义，见 error_codes.rs）。
     let main = dir.join("main.sml");
     std::fs::write(&main, "include \"base.sml\"\nhost: \"h1\"\n").unwrap();
-    let v = sml::parse_file(main.to_str().unwrap()).expect("parse_file failed");
+    let v = sml::parse_file_ordered(main.to_str().unwrap()).expect("parse_file failed");
     let ks: Vec<String> = match &v {
         Value::Object(m) => m.keys().map(|k| k.to_string()).collect(),
         other => panic!("应为对象，得 {other:?}"),
@@ -163,7 +164,7 @@ fn include_merge_follows_same_rule() {
 #[test]
 fn duplicate_key_promotion_keeps_position() {
     let src = "a: 1\nb: 2\na: 3\n";
-    let v = parse(src).expect("parse failed");
+    let v = parse_ordered(src).expect("parse failed");
     let ks: Vec<String> = match &v {
         Value::Object(m) => m.keys().map(|k| k.to_string()).collect(),
         other => panic!("应为对象，得 {other:?}"),
@@ -180,8 +181,8 @@ fn duplicate_key_promotion_keeps_position() {
 /// 这条是「杜绝大面积红色」的守门用例。
 #[test]
 fn eq_is_still_set_equality() {
-    let a = parse("a: 1\nb: 2\n").unwrap();
-    let b = parse("b: 2\na: 1\n").unwrap();
+    let a = parse_ordered("a: 1\nb: 2\n").unwrap();
+    let b = parse_ordered("b: 2\na: 1\n").unwrap();
     assert_eq!(a, b, "顺序不得参与 PartialEq");
     assert!(a.eq_ordered(&a.clone()));
     assert!(!a.eq_ordered(&b), "顺序敏感比较应另走 eq_ordered");
@@ -196,8 +197,8 @@ fn eq_is_still_set_equality() {
 /// 二者是独立开关：保序回答「作者怎么写」，canonical 回答「同值同字节」。
 #[test]
 fn canonical_is_independent_of_source_order() {
-    let a = parse("z: 1\na: 2\n").unwrap();
-    let b = parse("a: 2\nz: 1\n").unwrap();
+    let a = parse_ordered("z: 1\na: 2\n").unwrap();
+    let b = parse_ordered("a: 2\nz: 1\n").unwrap();
     assert_ne!(to_sml(&a), to_sml(&b), "保序档下源序不同 ⇒ 输出不同");
     assert_eq!(
         to_sml_canonical(&a),
@@ -211,7 +212,7 @@ fn canonical_is_independent_of_source_order() {
 #[test]
 fn canonical_recurses_and_does_not_mutate() {
     let src = "outer {\n  z: 1\n  a: 2\n}\ntop: 3\n";
-    let v = parse(src).unwrap();
+    let v = parse_ordered(src).unwrap();
     let out = to_sml_canonical(&v);
     // 键后接块时 `dump` 会换行再写 `{`（与 `to_sml` 的既有排版一致）
     assert_eq!(out, "outer:\n{\n  a: 2\n  z: 1\n}\ntop: 3\n", "{out}");
@@ -258,7 +259,7 @@ fn value_size_stays_within_budget() {
 /// 保序档与 `BTreeMap` 的互转：键集合一致（过渡期与测试用）。
 #[test]
 fn converts_to_and_from_btree_map() {
-    let v = parse("z: 1\na: 2\n").unwrap();
+    let v = parse_ordered("z: 1\na: 2\n").unwrap();
     let m = v.as_object().expect("对象");
     let bt: BTreeMap<String, Value> = m
         .iter()

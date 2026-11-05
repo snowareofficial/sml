@@ -23,7 +23,8 @@ mod cond;
 pub mod ext;
 
 pub use api::{
-    loads, parse, parse_allowed, parse_file, parse_file_features, parse_file_versioned, parse_ordered,
+    loads, parse, parse_allowed, parse_file, parse_file_features, parse_file_ordered,
+    parse_file_versioned, parse_ordered,
     parse_file_with, parse_file_with_warnings, parse_versioned, parse_with, parse_with_features,
     parse_with_features_env, parse_with_warnings,
 };

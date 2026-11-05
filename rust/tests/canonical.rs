@@ -54,13 +54,13 @@ fn c2_unordered_object_must_refuse_not_sort() {
 // 保序档：内容判据
 // ---------------------------------------------------------------------------
 
-#[cfg(feature = "preserve_order")]
 mod ordered {
     use super::*;
     use sml::Map;
 
+    /// 保序内容判据统一入口：`parse_ordered()` 显式要源序（默认 `sml::parse_ordered()` 是字节序）。
     fn text(src: &str) -> String {
-        parse(src)
+        sml::parse_ordered(src)
             .expect("parse failed")
             .canonical_text()
             .expect("canonical_text failed")
@@ -108,8 +108,8 @@ mod ordered {
     /// 「同一逻辑数据同字节」当场不成立 —— 签名也就跟着分裂。
     #[test]
     fn c5_raw_literal_does_not_leak_into_canonical() {
-        let a = parse("x: 1e10\n").expect("parse failed");
-        let b = parse("x: 10000000000.0\n").expect("parse failed");
+        let a = sml::parse_ordered("x: 1e10\n").expect("parse failed");
+        let b = sml::parse_ordered("x: 10000000000.0\n").expect("parse failed");
         assert_eq!(a.canonical_text().unwrap(), b.canonical_text().unwrap());
         assert_eq!(a.canonical_bytes().unwrap(), b.canonical_bytes().unwrap());
         assert!(a.canonical_text().unwrap().contains("10000000000.0"));
@@ -137,19 +137,19 @@ mod ordered {
         ];
         for v in cases {
             let doc = {
-                let mut m = Map::new();
+                let mut m = Map::ordered();
                 m.insert("s".to_string(), v.clone());
                 Value::Object(m)
             };
             let t = doc.canonical_text().unwrap();
             let back =
-                parse(&t).unwrap_or_else(|e| panic!("canonical 文本不是合法 SML：{t:?} {e:?}"));
+                sml::parse_ordered(&t).unwrap_or_else(|e| panic!("canonical 文本不是合法 SML：{t:?} {e:?}"));
             assert_eq!(back, doc, "往返不一致：{t:?}");
 
             // 标量自身的 canonical 文本也照常产出（签名字节唯一），只是**不是**可回读的文档
             let solo = v.canonical_text().unwrap();
             assert!(solo.ends_with('\n'));
-            assert!(parse(&solo).is_err(), "顶层标量本就不该被接受：{solo:?}");
+            assert!(sml::parse_ordered(&solo).is_err(), "顶层标量本就不该被接受：{solo:?}");
         }
     }
 
@@ -184,7 +184,7 @@ mod ordered {
     #[test]
     fn dump_load_dump_is_byte_identical() {
         let src = "z: 1\na: [1 2 3]\nnested { p: 2.5 q: { } }\ns: \"a b\"\nneg: -7\n";
-        let v = parse(src).expect("parse failed");
+        let v = sml::parse_ordered(src).expect("parse failed");
         let b1 = v.canonical_bytes().unwrap();
         let loaded = Value::from_canonical_bytes(&b1).expect("load failed");
         assert_eq!(loaded, v, "值必须相等");
@@ -218,13 +218,13 @@ mod ordered {
     /// 判据：`__type` / `__featags` 原样往返（字节侧不特化它们，文本侧前置）。
     #[test]
     fn metadata_roundtrips_verbatim() {
-        let mut featag = Map::new();
+        let mut featag = Map::ordered();
         featag.insert("name".to_string(), Value::Str("obey".into()));
         featag.insert(
             "args".to_string(),
             Value::Array(vec![Value::Int(1), Value::Int(2)]),
         );
-        let mut m = Map::new();
+        let mut m = Map::ordered();
         m.insert("name".to_string(), Value::Str("wea".into()));
         m.insert(
             "__featags".to_string(),
@@ -242,15 +242,15 @@ mod ordered {
         let t = v.canonical_text().unwrap();
         assert!(t.starts_with("__type: Rule\n"), "{t}");
         assert!(t.contains("__featags: ["), "{t}");
-        assert_eq!(parse(&t).expect("canonical 文本应可解析"), v);
+        assert_eq!(sml::parse_ordered(&t).expect("canonical 文本应可解析"), v);
     }
 
     /// C12: same logical data ⇒ same bytes (whatever the origin or the layout used).
     /// C12：同一逻辑数据 ⇒ 同一串字节（不同来源、不同书写排版都一样）。
     #[test]
     fn c12_same_logical_data_same_bytes() {
-        let a = parse("a: 1\nb: [1 2]\n").expect("parse failed");
-        let b = parse("a: 1 b: [1, 2]").expect("parse failed");
+        let a = sml::parse_ordered("a: 1\nb: [1 2]\n").expect("parse failed");
+        let b = sml::parse_ordered("a: 1 b: [1, 2]").expect("parse failed");
         assert_eq!(a, b);
         assert_eq!(a.canonical_bytes().unwrap(), b.canonical_bytes().unwrap());
         assert_eq!(a.canonical_text().unwrap(), b.canonical_text().unwrap());
@@ -282,7 +282,7 @@ mod ordered {
     /// 空文档（空对象）必须是 `{ }` 而不是空串。
     #[test]
     fn empty_document() {
-        let v = parse("").expect("空文档应解析为空对象");
+        let v = sml::parse_ordered("").expect("空文档应解析为空对象");
         assert_eq!(v.canonical_text().unwrap(), "{ }\n");
         assert_eq!(Value::from_canonical_bytes(&v.canonical_bytes().unwrap()).unwrap(), v);
     }

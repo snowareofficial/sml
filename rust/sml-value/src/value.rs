@@ -148,25 +148,12 @@ impl PartialEq for Value {
 /// assert_eq!(calls, 0);
 /// assert_eq!(m.get("n").and_then(|v| v.as_i64()), Some(7));
 /// ```
-#[cfg(not(feature = "preserve_order"))]
-pub fn insert_or_merge<F>(m: &mut Map, key: &str, value: Value, merge: F)
-where
-    F: FnOnce(&mut Value, Value),
-{
-    if let Some(existing) = m.get_mut(key) {
-        merge(existing, value);
-    } else {
-        m.insert(key.to_string(), value);
-    }
-}
-
-/// Ordered-build sibling: forwards straight to [`crate::Object::insert_or_merge`] ｜ 保序档版本，见 [`insert_or_merge`]。
-#[cfg(feature = "preserve_order")]
 #[inline]
 pub fn insert_or_merge<F>(m: &mut Map, key: &str, value: Value, merge: F)
 where
     F: FnOnce(&mut Value, Value),
 {
+    // 两态语义一致：键不存在就追加到尾部，存在就交给 merge。
     m.insert_or_merge(key, value, merge)
 }
 
@@ -200,15 +187,7 @@ impl Value {
         }
     }
 
-    /// 对象层「同序且相等」：两种档位下语义一致
-    /// （`BTreeMap` 的迭代序即键序，保序 `Object` 的迭代序即源序）。
-    #[cfg(not(feature = "preserve_order"))]
-    fn objects_eq_ordered(a: &Map, b: &Map) -> bool {
-        a.len() == b.len()
-            && a.iter().zip(b.iter()).all(|((k1, v1), (k2, v2))| k1 == k2 && v1.eq_ordered(v2))
-    }
-
-    #[cfg(feature = "preserve_order")]
+    /// 对象层「同序且相等」：两种键序语义一致（无序态的迭代序即字节序，有序态即源序）。
     fn objects_eq_ordered(a: &Map, b: &Map) -> bool {
         a.eq_ordered(b)
     }
@@ -220,7 +199,7 @@ impl Value {
     pub fn sort_keys_deep(&mut self) {
         match self {
             Value::Object(m) => {
-                #[cfg(feature = "preserve_order")]
+                // 无序态本来就是字节序，排序是空操作；有序态按字节序重排。
                 m.sort_keys();
                 for v in m.values_mut() {
                     v.sort_keys_deep();

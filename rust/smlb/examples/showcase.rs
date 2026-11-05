@@ -39,10 +39,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // 1) 一份「看得懂」的小文档：文本进 STRTAB、节点树进 VALUE
-    let mut server = Map::new();
+    let mut server = Map::ordered();
     server.insert("host".to_string(), Value::Str("web.example".into()));
     server.insert("port".to_string(), Value::Int(8080));
-    let mut root = Map::new();
+    let mut root = Map::ordered();
     root.insert("server".to_string(), Value::Object(server));
     let doc = Value::Object(root);
 
@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 4) 压缩对照：文本多的文档里 STRTAB 是大头，压缩才看得出效果
     let rows: Vec<Value> = (0..200)
         .map(|i| {
-            let mut m = Map::new();
+            let mut m = Map::ordered();
             m.insert("idx".to_string(), Value::Int(i));
             m.insert(
                 "text".to_string(),
@@ -64,7 +64,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Value::Object(m)
         })
         .collect();
-    let mut wide_root = Map::new();
+    let mut wide_root = Map::ordered();
     wide_root.insert("rows".to_string(), Value::Array(rows));
     let wide = Value::Object(wide_root);
     let wide_plain = dump(&wide)?;

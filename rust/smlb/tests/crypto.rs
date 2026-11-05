@@ -7,10 +7,10 @@
 use smlb::{ContainerError, DumpOptions, KdfParams, KeySource, Map, Store, Value};
 
 fn doc() -> Value {
-    let mut cfg = Map::new();
+    let mut cfg = Map::ordered();
     cfg.insert("port".to_string(), Value::Int(8080));
     cfg.insert("name".to_string(), Value::Str("demo".into()));
-    let mut m = Map::new();
+    let mut m = Map::ordered();
     m.insert("config".to_string(), Value::Object(cfg));
     Value::Object(m)
 }

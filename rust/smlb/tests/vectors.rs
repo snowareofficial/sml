@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 //! Guard for the cross-end vectors file / 跨端向量文件的守门用例。
 //!
-//! Same two-sided shape as `tests/canonical.rs` in the root package: the default build
-//! must **fail loudly** (C2), and the `preserve_order` build must match the committed file.
-//! 与根包的 `tests/canonical.rs` 同一套路：默认构建必须**明确报错**（C2），
-//! 保序构建必须与入库的向量文件逐字节一致。
+//! 方案 2 / B 之后：向量对象是**显式有序**构造的（`Map::ordered()`），所以
+//! **默认构建（没有任何 feature）也能产出向量**并与入库文件逐字节一致 —— 这正是
+//! 「正确性不再是配置项」。仍然拒的是**显式无序**的对象（C2：绝不偷偷按排序写）。
 //!
 //! Why a test and not only a CLI: CI runs `cargo test`, not `cargo run`. The vectors file is
 //! the contract JS/Lua/C/C++ align to (T7), so drift has to turn red on its own.
@@ -18,18 +17,12 @@ fn committed_vectors_match_the_code() {
     smlb::vectors::check(&path).unwrap_or_else(|e| panic!("{e}"));
 }
 
-/// Precondition instead of a silent skip / 用「前提断言」代替静默跳过。
-///
-/// A skipped test is indistinguishable from a passing one in the log; asserting the error
-/// keeps the C2 promise visible in the default build too.
-/// 被跳过的用例在日志里与通过的长得一模一样；断言「确实报错」才能让 C2 的承诺在默认
-/// 构建里也看得见。
-#[cfg(not(feature = "preserve_order"))]
+/// 默认构建也能产出向量：向量里的对象是 `Map::ordered()` 显式构造的。
+/// 这条在**任何 feature 组合**下都必须通过 —— 它就是「正确性不是配置项」的证据。
 #[test]
-fn without_preserve_order_rendering_refuses_to_sort() {
-    let err = smlb::vectors::render().expect_err("默认构建必须报错，绝不按排序产出向量");
-    assert!(matches!(err, smlb::CanonicalError::KeyOrderUnavailable), "{err:?}");
-    assert_eq!(err.kind(), "key-order-unavailable");
+fn rendering_works_without_any_feature() {
+    let got = smlb::vectors::render().expect("显式有序的对象在任何构建档都能编出向量");
+    assert!(!got.is_empty());
 }
 
 /// Case ids are the cross-end join key / 用例 id 是跨端的对齐键。
@@ -49,20 +42,10 @@ fn case_ids_are_unique_and_stable() {
     assert!(smlb::vectors::CASES.len() >= 20, "用例数应覆盖 C4–C10 各条规则");
 }
 
-/// The container inherits C2: no source order ⇒ `dump` refuses, it does not sort.
-/// 容器层继承 C2：没有源序 ⇒ `dump` 报错，而不是偷偷排序。
-///
-/// Only checked in the default build (the `preserve_order` build has nothing to refuse).
-/// 只在默认构建里检查（保序档没有可拒绝的东西）。
-#[cfg(not(feature = "preserve_order"))]
+/// 容器层继承 C2，但判定看**值**：标量没有键序问题，任何构建档都能写。
+/// 旧实现「连标量也拒」是「正确性靠 feature」的副作用，现已更正。
 #[test]
-fn container_dump_also_refuses_to_sort() {
-    let err = smlb::dump(&smlb::Value::Int(1)).expect_err("默认构建的 dump 必须报错");
-    assert!(
-        matches!(
-            err,
-            smlb::ContainerError::Canonical(smlb::CanonicalError::KeyOrderUnavailable)
-        ),
-        "{err:?}"
-    );
+fn container_dump_accepts_a_scalar_in_every_build() {
+    let f = smlb::dump(&smlb::Value::Int(1)).expect("标量没有键序问题，任何档都能写");
+    assert!(smlb::check(&f).map(|r| r.ok).unwrap_or(false));
 }

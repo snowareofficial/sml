@@ -17,10 +17,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use smlb::{check, dump, dump_with, get, info, load, DumpOptions, HashAlgo, Map, Value};
 
     // 1) 造一个值。键的顺序就是源序（开了 preserve_order 才成立）。
-    let mut config = Map::new();
+    let mut config = Map::ordered();
     config.insert("port".to_string(), Value::Int(8080));
     config.insert("name".to_string(), Value::Str("demo".into()));
-    let mut root = Map::new();
+    let mut root = Map::ordered();
     root.insert("config".to_string(), Value::Object(config));
     let doc = Value::Object(root);
 

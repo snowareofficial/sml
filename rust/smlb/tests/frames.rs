@@ -11,7 +11,7 @@ use smlb::{ContainerError, DumpOptions, Map, Store, Value, SEG_FRAMES};
 fn wide_doc() -> Value {
     let rows: Vec<Value> = (0..300)
         .map(|i| {
-            let mut m = Map::new();
+            let mut m = Map::ordered();
             m.insert("idx".to_string(), Value::Int(i));
             m.insert(
                 "text".to_string(),
@@ -20,7 +20,7 @@ fn wide_doc() -> Value {
             Value::Object(m)
         })
         .collect();
-    let mut root = Map::new();
+    let mut root = Map::ordered();
     root.insert("rows".to_string(), Value::Array(rows));
     Value::Object(root)
 }
