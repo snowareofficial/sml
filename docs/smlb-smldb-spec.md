@@ -968,7 +968,7 @@ key 更少一份、零依赖，`ser_text` 已趟过路；O(n) 对真实负载够
 |---|---|---|
 | **T0 前置** ✅ 已落地（2026-11-04，见 §18.6） | `Value::canonical_bytes()` 的规则定稿（保序、数字格式、`__*` 位置、转义）+ **跨端测试向量**（文本 ↔ 二进制各 N 组，期望字节写死） | 无 `preserve_order` 时**显式报错**；向量在 Rust/JS 上产出同一字节（**JS 侧待 T7**，见 §18.6 待确认 ②） |
 | **T1 编码（L0）** ✅ 已落地（2026-11-04，见 §19.6） | 新 crate `smlb` 骨架 + 文件头 + 段表 + `dump` / `load`（`info` / `ls` 提前到 T1） | `dump→load→dump` 字节相同；`Int(1)` 与 `Float(1.0)` 可区分；`__type`/`__featags` 原样往返；未知段可跳过（用额外段实测） |
-| **T2 容器（L1）** ✅ **已落**（2026-11-04，见 §19.8 / §19.9） | 段表 ✅ · 摘要（SHA-256 / SM3，按 `hash_id`）✅ · manifest + `primary` + 能力位 ✅ · `check` ✅；**`pack`/`unpack`（外来载荷）⬜** | 只读 manifest 能列全部段 ✅；未知 `optional` 跳过、缺 `required` 明确拒 ✅；改一字节被检出 ✅ |
+| **T2 容器（L1）** ✅ **全落**（2026-11-04/05，见 §19.8 / §19.9） | 段表 ✅ · 摘要（SHA-256 / SM3，按 `hash_id`）✅ · manifest + `primary` + 能力位 ✅ · 外来载荷 `EMBED` + `payloads[]` + `pack`/`unpack` ✅ · `check` ✅ | 只读 manifest 能列全部段 ✅；未知 `optional` 跳过、缺 `required` 明确拒 ✅；改一字节被检出 ✅ |
 | **T3 读（L2）** ⏳ `cat` 已提前 | `smlb cat`（整树解出再找路）✅；`Mmap::open` / `open_parts` / `text` / `payload` / `history` / `provenance` 未做 | 现版 `cat` 正确但 O(整树)；RSS 判据要等 mmap |
 | **T4 历史与签名（L3）** | 层链（`prev_hash`/`index`）+ `sign` / `delegate` / `verify` + `append`（锁 + `prev_hash` 校验）+ `Patch::strategy` | 验签能答「值来自哪层」；并发追加后到者拿到明确冲突；旧签名未授权的换钥被拒 |
 | **T5 压缩与加密（L4）** | zstd 独立帧 + 帧索引；按段加密（SM4 / AES-GCM）；算法 ID 表（含 PQC 登记） | 只解压/解密被访问的段；未知算法 ID ⇒ 明确拒绝；压缩→加密顺序固定 |
@@ -1304,6 +1304,10 @@ manifest {
     { id: 1  comp: 0x00  enc: 0x00  len: 42  sha256: "…64 hex…" }
     { id: 2  comp: 0x00  enc: 0x00  len: 14  sha256: "…" }
   ]
+  payloads: [                // 仅归档类文件有：EMBED 段里的外来载荷，**按段体内顺序**
+    { name: "notes/a.md"  len: 8   sha256: "…" }
+    { name: "bin/blob.dat" len: 5  sha256: "…" }
+  ]
   crypto { enc: 0x00  sig: [ ]  kem: 0x00 }   // §20.2：只允许 AEAD；sig 是数组、全部要过
   caps  { required: [ ]  optional: [ ] }      // D11：见 19.9.3
   patch { strategy: override }                // D22 / §21
@@ -1322,7 +1326,24 @@ manifest {
 | `crypto` / `hash_id` | §20 / §20.2 | 编号一律用 §20 的表；`none = 0x00` |
 | `caps` | D11 两位集 + P10「同一判定函数」 | 见 19.9.3 |
 | `defaults` | §21「默认值写进 manifest」 | 读时以文件为准，改默认值不影响旧文件 |
+| `payloads[]` | D23「外来载荷是一等段」+ §22 `pack/unpack` | 归档类文件的文件清单（名字/长度/摘要），偏移靠 `len` 走出来 |
 | `created` / `tool` | D17 / D12 | **只展示**，绝不进验证的必要条件 |
+
+**§19.9.2b 归档：为什么是「一个 `EMBED` 段 + 一张 `payloads[]`」**
+
+段是按 `seg_id` 认的（`segments[]` 也按 id 立条目），同种段来两个就说不清谁是谁 ——
+§18.3 的「按 id 升序」直接失效。故约定：
+
+- **一个 `.smlb` 至多一个 `EMBED` 段**，段体是各载荷**按 `payloads[]` 顺序拼接**；
+- `payloads[]` 只记 (name, len, sha256)，**不记偏移** —— 偏移由 `len` 累加走出来
+  （与段表同一套思路：表里没有位置，位置就不可能和内容不一致）；
+- `primary` 指向 `EMBED`（P8 允许主内容不是 `VALUE`）⇒ 这类文件 `load` 会明确报
+  `PrimaryNotValue`，取数据走 `payloads()` / `payload(name)`；
+- 归档默认 `caps.required: [embed]`：读不懂 `embed` 的读者应当明说读不懂，而不是当空文件。
+
+⚠️ **解包必须挡目录穿越**：载荷名来自**文件**，可以写成 `../../etc/passwd`。
+`smlb unpack` 对「绝对路径 / 含 `..` / 含盘符」一律拒绝（tar-slip 是最老的解包漏洞之一，
+格式不做这件事，工具就必须做）。
 
 **§19.9.3 `caps` 用名字还是位号 —— ✅ 已裁决：甲（名字）**
 
@@ -1346,8 +1367,8 @@ manifest {
 | 2 | `dump` 写 `0x04` 段；`load` 走 `primary`，无 manifest 时退回「VALUE 就是主内容」（兼容 T1 文件） | ✅ |
 | 3 | `caps` 判定函数 + 未知 `required` ⇒ `MissingCapability` | ✅ |
 | 4 | 验收：manifest 列全内容段（不含自己）· 缺 `required` 明确拒 · 未知 `optional` 跳过 · 改一字节被检出 | ✅ |
-| 5 | `pack` / `unpack`（`0x20 EMBED` + manifest） | ⬜ 未做（`SEG_EMBED` 已登记） |
-| 6 | `primary` 指向非 Value 段（如 `EMBED`）时的 `payload()` 读取路径 | ⬜ 未做（现给 `PrimaryNotValue`） |
+| 5 | `pack` / `unpack`（`0x20 EMBED` + `payloads[]` + CLI） | ✅ |
+| 6 | `primary` 指向非 Value 段时的裸字节读取路径（`embed_body` / `payloads` / `payload`） | ✅ |
 
 ⚠️ **引导顺序**（实现者必须知道）：manifest 的**摘要算法声明在它自己体内**（`hash_id`），
 所以只能「先解码 → 拿 `hash_id` → 再用它验 manifest 自己的摘要」。这就是它必须用
@@ -1436,12 +1457,12 @@ crypto {
 | 工具 / 子命令 | 用途 | 阶段 | v1 必须 |
 |---|---|---|---|
 | `smlb info <f>` | 一眼看清：edition/fmt/段表/能力位/是否签名、是否加密 | T2 | ✅ **已实现**（T1 提前；能力位/签名状态待 T2/T4 补） |
-| `smlb ls <f> [--segments]` | 列段与外来载荷（id/长度/算法） | T2 | ✅ **已实现**（T1 提前） |
+| `smlb ls <f> [--segments]` | 列段与外来载荷（id/长度/算法） | T2 | ✅ **已实现**（并列出 `payloads[]` 的名字与长度） |
 | `smlb cat <f> <path>` | 按路径取值（`a.b[0]`），走 `DIR` | T3 | ✅ **已实现**（整树解出再找路；`DIR` 待 T3） |
 | `smlb check <f>` | 结构校验：段哈希、层链、能力位、截断位置 | T2 | ✅ **已实现**（段哈希/截断；层链待 T4、能力位待 §19.9） |
 | `smlb verify <f> [--trust k.pub]` | 验签 + 打印每层/每段结论 | T4 | ✅ |
 | `smlb sign / append / delegate` | 签名、追加补丁、换钥授权 | T4 | ✅ |
-| `smlb pack / unpack` | 把目录/多文件打成 `.smlb`，或反向取出外来段 | T2 | ⬜ **未做**（`SEG_EMBED=0x20` 已登记，等 manifest 的 `payload()` 一并做） |
+| `smlb pack / unpack` | 把多文件打成 `.smlb`（`EMBED` + `payloads[]`），或反向取出 | T2 | ✅ **已实现**（`unpack` 拒绝目录穿越） |
 | `smlb tree <f>` | 打印层链（index/prev_hash/作者/时间**仅展示**） | T4 | 建议 |
 | `smlb vectors --gen/--check` | 生成/校验跨端 canonical 测试向量（T0 判据） | T0 | ✅ **已实现**（2026-11-04，另带「自检」：往返 + 文本一致） |
 | `smlb bench <f>` | 读路径基准（mmap 打开、单子树取、解帧、解密） | T5 | 建议 |
