@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 //! Library-level envelope tests (T6 的「库也支持」那一半) / 库接口验收。
 //!
-//! 门控 `preserve_order`：canonical 字节需要源序（`smlb` 的 C2）。
-#![cfg(feature = "preserve_order")]
+//! 门控 `smlb`（它同时带来 `preserve_order`）：信封接口只在开了 feature 时存在。
+#![cfg(feature = "smlb")]
 
-use smltools::{list, sml_to_smlb, smlb_to_sml, unwrap, wrap, EnvelopeError};
+use sml::{list, sml_to_smlb, smlb_to_sml, unwrap, wrap, EnvelopeError};
 
 /// 任意字节 ⇄ 信封：这是新定位下的**第一等路径**。
 #[test]
@@ -21,8 +21,8 @@ fn arbitrary_bytes_round_trip() {
     assert_eq!(listed[0].len as usize, payload.len());
 }
 
-/// 压缩是可选项，且真的变小。
-#[cfg(feature = "compress")]
+/// 压缩是可选项，且真的变小（要 `smlb-compress`：它才把 zstd 拉进来）。
+#[cfg(feature = "smlb-compress")]
 #[test]
 fn compression_is_opt_in() {
     let payload = vec![b'a'; 100_000];

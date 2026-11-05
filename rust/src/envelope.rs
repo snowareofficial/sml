@@ -1,12 +1,18 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 //! `.smlb` as a **general-purpose envelope**: wrap arbitrary bytes, unwrap them, and convert
-//! SML text to/from the `VALUE` payload.
+//! SML text to/from the `VALUE` payload. Behind the `smlb` feature.
 //! 把 `.smlb` 当**通用信封**用：装任意字节、取出、以及 SML 文本 ⇄ `VALUE` 载荷。
+//! 名字挂在 `sml::envelope` 下，**只有 `smlb` feature 才存在**。
 //!
-//! 定位（`rust/smlb/README.md`，2026-11-05 起）：`.smlb` 是**不可变、可寻址、可验证的通用二进制
-//! 信封**，SML 只是内置载荷之一。所以本模块的第一等公民是 `bytes ⇄ 信封`，
-//! SML 文本只是「载荷之一」的便捷入口 —— 不要把 `sml_to_smlb` 当成主路径。
+//! 定位（`rust/smlb/README.md`，2026-11-05 起）：`.smlb` 是**不可变、可寻址、可验证的通用
+//! 二进制信封**，SML 只是内置载荷之一。所以本模块的第一等公民是 `bytes ⇄ 信封`，
+//! `sml_to_smlb` 只是「载荷之一」的便捷入口 —— 别把它当成主路径。
 //! ｜ Envelope first, SML payload second — that order is the whole point of the repositioning.
+//!
+//! 为什么放在 `swsml` 而不是 `smltools`（用户 2026-11-05）：`smltools` **只是 bin**；
+//! 库能力归门面 crate 的附属模块，并且用 feature 门控（关掉 `smlb` 就完全看不到它，
+//! 依赖树里也不会出现 `smlb`）。
+//! ｜ `smltools` stays bin-only; library surface belongs here, behind a feature.
 
 use std::fmt;
 
@@ -14,8 +20,8 @@ use smlb::{ContainerError, DumpOptions, ManifestPayload, Value};
 
 /// Why an envelope operation failed. ｜ 信封操作失败的原因。
 ///
-/// 四类分开报，因为它们**处置方式不同**：解析错要去改文本、容器错说明文件有问题、
-/// 载荷名不存在要问清楚名字、根本不是信封要看扩展名是不是给错了。
+/// 四类分开报，因为处置方式不同：解析错要去改文本、容器错说明文件有问题、
+/// 载荷名不存在要问清楚名字、根本没有载荷要看是不是拿错了文件。
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum EnvelopeError {
@@ -126,11 +132,11 @@ pub fn list(bytes: &[u8]) -> Result<Vec<Payload>, EnvelopeError> {
 
 /// SML text → envelope (stored as the `VALUE` payload). ｜ SML 文本 → 信封（存成 `VALUE` 载荷）。
 ///
-/// 这是「SML 是内置载荷之一」的具体落点：和 [`wrap`] 产出的是同一种文件，只是载荷类型不同，
+/// 这是「SML 是内置载荷之一」的具体落点：与 [`wrap`] 产出的是同一种文件，只是载荷类型不同，
 /// 故 `smlb cat` / `smlb check` 对两者一样有效。
 /// Same file format as [`wrap`], different payload kind — so `smlb cat` / `check` work on both.
 pub fn sml_to_smlb(text: &str, compress: Option<i32>) -> Result<Vec<u8>, EnvelopeError> {
-    let v: Value = sml::parse(text).map_err(EnvelopeError::Parse)?;
+    let v: Value = crate::parse(text).map_err(EnvelopeError::Parse)?;
     let opts = DumpOptions {
         compress,
         ..Default::default()
@@ -141,9 +147,9 @@ pub fn sml_to_smlb(text: &str, compress: Option<i32>) -> Result<Vec<u8>, Envelop
 /// Envelope → SML text. ｜ 信封 → SML 文本。
 ///
 /// Only works when the primary payload is a `Value`; a bytes envelope says so explicitly
-/// instead of pretending to be empty.
+/// instead of pretending to be an empty document.
 /// 只有主载荷是 `Value` 时才行；字节信封会**明确说明**，不会假装是空文档。
 pub fn smlb_to_sml(bytes: &[u8]) -> Result<String, EnvelopeError> {
     let v = smlb::load(bytes)?;
-    Ok(sml::to_sml(&v))
+    Ok(crate::to_sml(&v))
 }
