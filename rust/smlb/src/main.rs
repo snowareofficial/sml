@@ -753,12 +753,12 @@ fn parse_delegation(text: &str) -> Result<smlb::Delegation, (u8, String)> {
     }
 }
 
-#[cfg(feature = "sign")]
+// 不加 cfg：`verify --trust` 在没有 `sign` feature 的构建里也要解析/打印链头。
 fn to_hex(d: &[u8]) -> String {
     d.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-#[cfg(feature = "sign")]
+// 同上：`hex32` 依赖它。
 fn hex_n(s: &str) -> Option<Vec<u8>> {
     if s.len() % 2 != 0 || !s.is_ascii() {
         return None;
@@ -770,7 +770,7 @@ fn hex_n(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-#[cfg(feature = "sign")]
+// 同上：`--trust HEX64` 的解析与签名无关。
 fn hex32(s: &str) -> Option<[u8; 32]> {
     let v = hex_n(s)?;
     v.as_slice().try_into().ok()
