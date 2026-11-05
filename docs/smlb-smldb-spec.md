@@ -969,7 +969,7 @@ key 更少一份、零依赖，`ser_text` 已趟过路；O(n) 对真实负载够
 | **T0 前置** ✅ 已落地（2026-11-04，见 §18.6） | `Value::canonical_bytes()` 的规则定稿（保序、数字格式、`__*` 位置、转义）+ **跨端测试向量**（文本 ↔ 二进制各 N 组，期望字节写死） | 无 `preserve_order` 时**显式报错**；向量在 Rust/JS 上产出同一字节（**JS 侧待 T7**，见 §18.6 待确认 ②） |
 | **T1 编码（L0）** ✅ 已落地（2026-11-04，见 §19.6） | 新 crate `smlb` 骨架 + 文件头 + 段表 + `dump` / `load`（`info` / `ls` 提前到 T1） | `dump→load→dump` 字节相同；`Int(1)` 与 `Float(1.0)` 可区分；`__type`/`__featags` 原样往返；未知段可跳过（用额外段实测） |
 | **T2 容器（L1）** ✅ **全落**（2026-11-04/05，见 §19.8 / §19.9） | 段表 ✅ · 摘要（SHA-256 / SM3，按 `hash_id`）✅ · manifest + `primary` + 能力位 ✅ · 外来载荷 `EMBED` + `payloads[]` + `pack`/`unpack` ✅ · `check` ✅ | 只读 manifest 能列全部段 ✅；未知 `optional` 跳过、缺 `required` 明确拒 ✅；改一字节被检出 ✅ |
-| **T3 读（L2）** ⏳ `cat` 已提前 | `smlb cat`（整树解出再找路）✅；`Mmap::open` / `open_parts` / `text` / `payload` / `history` / `provenance` 未做 | 现版 `cat` 正确但 O(整树)；RSS 判据要等 mmap |
+| **T3 读（L2）** ✅ 除 mmap 外已落（2026-11-05，见 §19.10） | `Store`：`open` / `subtree_bytes` / `get` / `text` / `text_of` / `history_at` / `payload` / `payloads` ✅；`DIR` / `Mmap::open` / `provenance` 未做 | 「取单个子树不遍历全树」已证（改坏兄弟 tag 仍能取别的）✅；**RSS 判据未达成**（等 mmap 依赖裁决） |
 | **T4 历史与签名（L3）** ✅ 核心已落（2026-11-05，见 §21.1b） | 层链（`prev_hash`/`index`/Trailer）+ `sign` / `append` / `verify` / `delegate` / `tree` + `patch` 合并（D22）；**写者锁（D20）未做** | 验签能答「值来自哪层」（`cat --at N`）✅；未授权的换钥被拒 ✅；并发冲突检测等锁落地 |
 | **T5 压缩与加密（L4）** | zstd 独立帧 + 帧索引；按段加密（SM4 / AES-GCM）；算法 ID 表（含 PQC 登记） | 只解压/解密被访问的段；未知算法 ID ⇒ 明确拒绝；压缩→加密顺序固定 |
 | **T6 工具（T6）** | `smltools --to smlb` / `--from smlb` / `--keep-source`；`smlb sign/verify/append` CLI | 文本 ↔ 二进制双向可跑；签名可被另一端验证 |
@@ -1376,11 +1376,52 @@ manifest {
 **自包含的 L0 形态**（`count ‖ STRTAB ‖ 节点树`）而不是「裸节点 + 外部 STRTAB」的根本原因。
 `VALUE` 段则可以「裸节点 + 外部 `STRTAB`」，因为它前面已经有个 manifest 在替它说话了。
 
+### 19.10 随机访问（T3 落地，2026-11-05）
+
+**问题**：`load()` 把整棵树解成 `Value` —— 读 100 MB 文档只为一个字段，就得在堆上造出
+几百 MB 的节点。T3 的判据是「**取单个子树不遍历全树**」。
+
+**做法（两段）**
+
+| 层 | 入口 | 做了什么 |
+|---|---|---|
+| 容器（`rust/smlb/src/store.rs`） | `Store::open(&[u8])` → `container::open_raw` | 只解析头 + 段表 + manifest + 层链；`VALUE` / `STRTAB` 段体**保持 `&[u8]`**，不构造任何 `Value` |
+| 值（`rust/sml-value/src/canonical.rs`） | `subtree_at(strtab, value, &Path)` | 在节点树上按路径下行，**兄弟节点用 `subtree_len` 跳过**，只对命中的那棵调 `decode_node` |
+
+导航放在 `sml-value` 而不是 `smlb`：线格式只有一份，两份导航器必然漂移（与 `text_rules`
+同一条理由）。`smlb::Store` 只是把两段拼起来，并补上「层补丁覆盖顶层键」的读取口径。
+
+**判据怎么钉的**（`rust/smlb/tests/store.rs`，7 例）
+
+| 判据 | 怎么证 |
+|---|---|
+| **解码量 == 目标子树**（不是整树） | 把某个**兄弟**的 tag 改成 `0xFF`：整树 `load` 必失败，而 `get` 其它兄弟仍成功 —— 说明坏掉的那棵**根本没被解码**（只是按 `subtree_len` 跳过） |
+| 取值与整树一致 | 4 条路径与 `load()` + `get_path` 逐值比对 |
+| 零拷贝 | `subtree_bytes(path)` 返回的切片 < 段体长度的 1/10；单独解码仍等于整树里的那个节点 |
+| 兄弟扫描的开销是可见的 | `nodes_visited`：取 `arr[499]` ≈ 500，取 `arr[1]` < 10 —— 这个数**只**反映兄弟比较（`DIR` 要省的那部分） |
+| 打开默认验摘要 | 改段体 1 字节 ⇒ `Store::open` 报 `digest-mismatch`；`open_unverified` 仍能开（留给 `check`） |
+
+**`DIR` 为什么还没写**：判据要的「不遍历全树」（= 解码量、分配量）现在已经满足；`DIR`
+能省的只是**每层 O(兄弟数) 的键比较**。把索引当成「语义的替代品」是危险的，故先让字节导航
+站住，索引等真正出现「万级兄弟 + 高频取键」的场景再上。
+
+**⚠️ 一条判据尚未达成**：`Mmap::open`（打开 100 MB 文件 RSS 增量 < 1 MB）需要真正的内存映射；
+`Store::open(&[u8])` 本身是零拷贝的（调用方 mmap 后传进来即可满足），但我们没提供
+`open_path`：零依赖下拿不到 mmap。补法是加 `mmap` feature + `memmap2`（公告 RUSTSEC-2026-0186
+只涉及 `advise_range` / `flush_range` 系列，**修于 0.9.11**，而 `Store` 只用 `Mmap::map` + 切片，
+不碰那些函数）。**这条要等一句批准**，在那之前 RSS 判据不算过。
+
 ---
 
 ## 20. 算法 ID 表（v1 · P3 落定）
 
 > 原则：**编号一经发布，永不复用**；未知 ID **明确拒绝**（算法属 `required` 类能力，跳过等于拿密文当明文）。
+>
+> **压缩实现选型（2026-11-05 实测 RustSec）**：`0x01 zstd` 的三个实现近期全被点名
+> （`zstd` 2026-10-26 三条 / `zstd-sys` 同日 wasm 内存破坏 / `ruzstd` 2026-10-13 **HIGH 解压炸弹**），
+> `0x02 lz4` 的纯 Rust 实现 `lz4_flex` 也有 2026-03-17 **HIGH**（畸形数据泄露未初始化内存）。
+> 故 **T5 优先做 `0x03 deflate`（`flate2` + `miniz_oxide`，零公告）**，zstd 等生态冷却后再补；
+> 解压侧一律加「输出上限」挡炸弹（§24.1 S5 的内存预算）。
 
 | 区间 | 类别 | 已分配 |
 |---|---|---|
@@ -1514,7 +1555,9 @@ layer {
 |---|---|---|---|
 | `smlb info <f>` | 一眼看清：edition/fmt/段表/能力位/是否签名、是否加密 | T2 | ✅ **已实现**（T1 提前；能力位/签名状态待 T2/T4 补） |
 | `smlb ls <f> [--segments]` | 列段与外来载荷（id/长度/算法） | T2 | ✅ **已实现**（并列出 `payloads[]` 的名字与长度） |
-| `smlb cat <f> <path>` | 按路径取值（`a.b[0]`），走 `DIR` | T3 | ✅ **已实现**（整树解出再找路；`DIR` 待 T3） |
+| `smlb cat <f> <path>` | 按路径取值（`a.b[0]`），走 `DIR` | T3 | ✅ **已实现**（带 `--at N` 历史回放） |
+| `smlb get <f> <path> [--bytes]` | 零拷贝取一棵子树（不解全树），`--bytes` 出原始字节 | T3 | ✅ **已实现**（不依赖 `DIR`：用 `subtree_len` 跳兄弟） |
+| `smlb text <f> [--path P]` | 整份或某一子树的 canonical 文本 | T3 | ✅ **已实现** |
 | `smlb check <f>` | 结构校验：段哈希、层链、能力位、截断位置 | T2 | ✅ **已实现**（段哈希/截断；层链待 T4、能力位待 §19.9） |
 | `smlb verify <f> [--trust k.pub]` | 验链 + 验签，打印每层结论 | T4 | ✅ **已实现**（`--trust` 外部锚点未做） |
 | `smlb sign / append / delegate` | 签名、追加补丁、换钥授权 | T4 | ✅ **已实现**（`keygen` 也在，`sign` 默认原地写） |
