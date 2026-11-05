@@ -26,6 +26,8 @@ smlb — SML 的二进制形式 .smlb（T0 canonical/向量 + T1 容器）
   smlb ls      <file>                  逐段列出 id/偏移/长度/算法（`--segments` 同义）
   smlb check   <file>                  结构 + 逐段摘要校验，打印每段结论
   smlb cat     <file> <path>           按路径取值（a.b[0]），输出 canonical 文本
+  smlb pack    <out.smlb> <file>...    把若干文件打成一个 .smlb 归档（EMBED 段）
+  smlb unpack  <file> <destdir>        把归档里的载荷逐个写出到目录
   smlb vectors --gen   [--file PATH]   重新生成跨端 canonical 向量
   smlb vectors --check [--file PATH]   重新生成并与磁盘逐行比对
   smlb --help | -h                     本帮助
@@ -94,7 +96,13 @@ fn run(args: &[String]) -> Result<String, (u8, String)> {
                 if info.segments.is_empty() {
                     return Ok(format!("{path}: 没有段"));
                 }
-                Ok(smlb::container::ls_lines(&info).join("\n"))
+                let mut out = smlb::container::ls_lines(&info);
+                // 归档类文件还要列载荷（名字 + 长度），否则 `ls` 看不出里面装了什么
+                let pl = smlb::payloads(bytes).map_err(|e| (1, format!("{path}: {e}")))?;
+                for p in pl {
+                    out.push(format!("     payload {:<24} {} B", p.name, p.len));
+                }
+                Ok(out.join("\n"))
             })
         }
         "check" => read_cmd(&args[1..], |path, bytes| {
@@ -119,11 +127,11 @@ fn run(args: &[String]) -> Result<String, (u8, String)> {
             // 输出 canonical 文本：与签名对象同一形态，可直接拿去比对
             v.canonical_text().map_err(|e| (1, format!("{e}")))
         }
+        "pack" => pack_cmd(&args[1..]),
+        "unpack" => unpack_cmd(&args[1..]),
         other => Err((
             2,
-            format!(
-                "未知子命令 `{other}`（现有 info / ls / check / cat / vectors；pack/verify/append 自 T2+/T4 起才有）"
-            ),
+            format!("未知子命令 `{other}`（现有 info / ls / check / cat / pack / unpack / vectors）"),
         )),
     }
 }
@@ -179,4 +187,79 @@ fn vectors_cmd(args: &[String]) -> Result<String, (u8, String)> {
         (true, false) => vectors::generate(&path).map_err(|e| (1, e)),
         (false, true) => vectors::check(&path).map_err(|e| (1, e)),
     }
+}
+
+/// `smlb pack <out.smlb> <file>...` — pack blobs into one archive.
+/// 把若干文件打成一个 `.smlb` 归档。
+fn pack_cmd(args: &[String]) -> Result<String, (u8, String)> {
+    let Some(out) = args.first() else {
+        return Err((2, "用法: smlb pack <out.smlb> <file>...".to_string()));
+    };
+    let files = &args[1..];
+    if files.is_empty() {
+        return Err((2, "至少给一个要打包的文件".to_string()));
+    }
+    let mut owned: Vec<(String, Vec<u8>)> = Vec::with_capacity(files.len());
+    for f in files {
+        let bytes = std::fs::read(f).map_err(|e| (1, format!("读 {f} 失败：{e}")))?;
+        // 载荷名就用调用方给的路径：解包时原样还原目录结构
+        owned.push((f.clone(), bytes));
+    }
+    let refs: Vec<(&str, &[u8])> = owned
+        .iter()
+        .map(|(n, b)| (n.as_str(), b.as_slice()))
+        .collect();
+    let file = smlb::pack(&refs).map_err(|e| (1, e.to_string()))?;
+    std::fs::write(out, &file).map_err(|e| (1, format!("写 {out} 失败：{e}")))?;
+    Ok(format!(
+        "已打包 {} 个载荷 → {out}（{} B）",
+        refs.len(),
+        file.len()
+    ))
+}
+
+/// `smlb unpack <file> <destdir>` — write every payload out.
+/// 把归档里的载荷逐个写出到目录。
+///
+/// ⚠️ 载荷名来自**文件**，可能带 `..` 或绝对路径 ⇒ 解包前必须挡住目录穿越。
+/// 一个能写任意路径的「解包」等于把 tar-slip 送上门。
+/// Payload names come from the file: reject `..` / absolute paths (tar-slip).
+fn unpack_cmd(args: &[String]) -> Result<String, (u8, String)> {
+    let (Some(file), Some(dest)) = (args.first(), args.get(1)) else {
+        return Err((2, "用法: smlb unpack <file> <destdir>".to_string()));
+    };
+    let bytes = std::fs::read(file).map_err(|e| (1, format!("读 {file} 失败：{e}")))?;
+    let list = smlb::payloads(&bytes).map_err(|e| (1, format!("{file}: {e}")))?;
+    if list.is_empty() {
+        return Err((1, format!("{file}: 里面没有载荷（不是归档，或者 manifest 没列）")));
+    }
+    let mut written = 0usize;
+    for p in &list {
+        let path = safe_join(dest, &p.name)?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| (1, format!("建目录 {} 失败：{e}", parent.display())))?;
+        }
+        let data = smlb::payload(&bytes, &p.name).map_err(|e| (1, format!("{file}: {e}")))?;
+        std::fs::write(&path, data)
+            .map_err(|e| (1, format!("写 {} 失败：{e}", path.display())))?;
+        written += 1;
+    }
+    Ok(format!("已解包 {written} 个载荷 → {dest}"))
+}
+
+/// Reject anything that could escape `dest` (tar-slip). ｜ 挡住目录穿越。
+fn safe_join(dest: &str, name: &str) -> Result<std::path::PathBuf, (u8, String)> {
+    let bad = name.is_empty()
+        || name.starts_with('/')
+        || name.starts_with('\\')
+        || name.contains(':')
+        || name.split(['/', '\\']).any(|c| c == "..");
+    if bad {
+        return Err((
+            1,
+            format!("拒绝解包：载荷名 `{name}` 是绝对路径或含 `..`（目录穿越）"),
+        ));
+    }
+    Ok(std::path::Path::new(dest).join(name))
 }

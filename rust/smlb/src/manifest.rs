@@ -54,6 +54,25 @@ pub struct ManifestSegment {
     pub digest: [u8; 32],
 }
 
+/// One entry of `payloads[]` — a foreign blob inside the `EMBED` segment (D23).
+/// `payloads[]` 的一条 —— `EMBED` 段里的一段外来载荷（D23）。
+///
+/// 为什么载荷要单独一张表、而不是「一个文件一个 `EMBED` 段」：段是按 `seg_id` 认的
+/// （`segments[]` 也按 id 立条目），同种段来两个就说不清谁是谁。故约定
+/// **一个文件至多一个 `EMBED` 段**，段体是各载荷按序拼接，`payloads[]` 按序描述它们
+/// —— 偏移不存，靠 `len` 走出来（与段表同一套思路）。
+/// ｜ One `EMBED` segment per file; the body is the payloads concatenated in order, and
+/// `payloads[]` describes them in the same order (offsets are walked, never stored).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManifestPayload {
+    /// File/part name, e.g. `notes/2026.md` (informational + lookup key) ｜ 名字（查找键）。
+    pub name: String,
+    /// Payload length ｜ 载荷长度。
+    pub len: u32,
+    /// Digest of the payload bytes ｜ 载荷字节摘要。
+    pub digest: [u8; 32],
+}
+
 /// Default `dir_depth` (§21: `DIR` indexes depth ≤ 4). ｜ 默认 `dir_depth`。
 pub const DEFAULT_DIR_DEPTH: u32 = 4;
 /// Default crypto block size (§21 / D28: 4 KiB). ｜ 默认加密块。
@@ -72,6 +91,9 @@ pub struct Manifest {
     pub hash: HashAlgo,
     /// Signable segment list, ascending id, **excluding this manifest** ｜ 可签段清单（升序、不含自己）。
     pub segments: Vec<ManifestSegment>,
+    /// Foreign payloads inside the `EMBED` segment, in body order (D23)
+    /// `EMBED` 段里的外来载荷，按段体内顺序（D23）。
+    pub payloads: Vec<ManifestPayload>,
     /// `caps.required`: unknown ⇒ refuse (D11) ｜ 读不懂必须拒。
     pub caps_required: Vec<String>,
     /// `caps.optional`: unknown ⇒ skip (D11) ｜ 读不懂可跳过。
@@ -104,6 +126,7 @@ impl Manifest {
             primary,
             hash,
             segments,
+            payloads: Vec::new(),
             caps_required: Vec::new(),
             caps_optional: Vec::new(),
             patch_strategy: DEFAULT_PATCH_STRATEGY.to_string(),
@@ -160,6 +183,21 @@ impl Manifest {
             })
             .collect();
         m.insert("segments".to_string(), Value::Array(segs));
+
+        if !self.payloads.is_empty() {
+            let list: Vec<Value> = self
+                .payloads
+                .iter()
+                .map(|p| {
+                    let mut e = Map::new();
+                    e.insert("name".to_string(), Value::Str(p.name.clone()));
+                    e.insert("len".to_string(), Value::Int(p.len as i64));
+                    e.insert("sha256".to_string(), Value::Str(hex(&p.digest)));
+                    Value::Object(e)
+                })
+                .collect();
+            m.insert("payloads".to_string(), Value::Array(list));
+        }
 
         let mut crypto = Map::new();
         crypto.insert("enc".to_string(), Value::Int(self.crypto_enc as i64));
@@ -257,6 +295,34 @@ impl Manifest {
             });
         }
 
+        let mut payloads = Vec::new();
+        if let Some(Value::Array(a)) = obj.get("payloads") {
+            for e in a {
+                let m = match e {
+                    Value::Object(m) => m,
+                    _ => return Err(ManifestError::BadShape("payloads[]")),
+                };
+                let name = match m.get("name") {
+                    Some(Value::Str(s)) => s.clone(),
+                    Some(_) => return Err(ManifestError::BadShape("payloads[].name")),
+                    None => return Err(ManifestError::Missing("payloads[].name")),
+                };
+                let len = int_field(m, "len").ok_or(ManifestError::Missing("payloads[].len"))?;
+                let digest_hex = match m.get("sha256") {
+                    Some(Value::Str(s)) => s.clone(),
+                    Some(_) => return Err(ManifestError::BadShape("payloads[].sha256")),
+                    None => return Err(ManifestError::Missing("payloads[].sha256")),
+                };
+                let digest = from_hex(&digest_hex)
+                    .ok_or(ManifestError::BadShape("payloads[].sha256（需 64 位十六进制）"))?;
+                payloads.push(ManifestPayload {
+                    name,
+                    len: len as u32,
+                    digest,
+                });
+            }
+        }
+
         let crypto = obj.get("crypto").and_then(as_object);
         let caps = obj.get("caps").and_then(as_object);
         let patch = obj.get("patch").and_then(as_object);
@@ -274,6 +340,7 @@ impl Manifest {
                 .and_then(|c| c.get("optional"))
                 .map(str_list)
                 .unwrap_or_default(),
+            payloads,
             patch_strategy: patch
                 .and_then(|p| match p.get("strategy") {
                     Some(Value::Str(s)) => Some(s.clone()),
@@ -326,7 +393,8 @@ impl Manifest {
 /// 为什么用段种类而不是抽象特性：能力只在「读不懂会怎样」不同时才有意义，而段种类正是今天
 /// 唯一的那条线。
 pub fn known_capabilities() -> &'static [&'static str] {
-    &["value", "strtab", "manifest"]
+    // `embed` 在 T2 收尾时补进来：本构建已经能读 `EMBED` 段（`payloads` / `payload`）
+    &["value", "strtab", "manifest", "embed"]
 }
 
 /// Outcome of applying `caps` to a build's known set (D11 + P10: one predicate for both paths).

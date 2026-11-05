@@ -56,14 +56,16 @@ pub mod sm3;
 pub mod vectors;
 
 pub use container::{
-    align_of, check, dump, dump_with, get, info, load, CheckReport, ContainerError, DumpOptions,
-    FileInfo, Segment, SegmentHeader, ALIGN_BLOCK, ALIGN_MIN, EDITION, FLAG_ALIGN_BLOCK, FMT,
-    HEADER_LEN, MAGIC, SEG_EMBED, SEG_HEADER_LEN, SEG_MANIFEST, SEG_STRTAB, SEG_VALUE,
+    align_of, check, dump, dump_with, embed_body, get, info, load, pack, pack_with, payload,
+    payloads, CheckReport, ContainerError, DumpOptions, FileInfo, Segment, SegmentHeader,
+    ALIGN_BLOCK, ALIGN_MIN, EDITION, FLAG_ALIGN_BLOCK, FMT, HEADER_LEN, MAGIC, SEG_EMBED,
+    SEG_HEADER_LEN, SEG_MANIFEST, SEG_STRTAB, SEG_VALUE,
 };
 pub use hash::{HashAlgo, HashError};
 pub use manifest::{
-    check_caps, check_caps_against, CapsVerdict, Manifest, ManifestError, ManifestSegment,
-    DEFAULT_CRYPTO_BLOCK, DEFAULT_DIR_DEPTH, DEFAULT_PAD_QUANTUM, DEFAULT_PATCH_STRATEGY,
+    check_caps, check_caps_against, CapsVerdict, Manifest, ManifestError, ManifestPayload,
+    ManifestSegment, DEFAULT_CRYPTO_BLOCK, DEFAULT_DIR_DEPTH, DEFAULT_PAD_QUANTUM,
+    DEFAULT_PATCH_STRATEGY,
 };
 pub use sml_value::canonical::CanonicalError;
 pub use sml_value::{CanonicalBlocks, Map, Value, MAX_VALUE_DEPTH};
