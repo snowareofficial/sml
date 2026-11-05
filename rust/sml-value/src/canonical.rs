@@ -60,6 +60,7 @@
 use std::collections::HashMap;
 
 use crate::text_rules::{format_float, quote_if_needed};
+use crate::path::{Path, Seg};
 use crate::{Map, Value, MAX_VALUE_DEPTH};
 
 /// Fixed output order of metadata keys (C10 / P5-c) — **the order is the definition**.
@@ -179,6 +180,23 @@ pub enum CanonicalError {
         /// Start offset of the leftovers ｜ 剩余字节起始偏移。
         at: usize,
     },
+    /// Navigation: the path names a key/index that the tree does not have.
+    /// 导航：路径里的键/下标在树里不存在。
+    ///
+    /// Note this is about **bytes**, not about a `Value` that happens to be missing: the
+    /// navigator never builds the surrounding objects, so it reports the failing segment.
+    /// 注意这是「字节里找不到」，不是「某个 `Value` 缺键」：导航器不构造外围对象，
+    /// 故只报出错的那一段。
+    PathNotFound {
+        /// The segment that could not be resolved (`key` or `[index]`) ｜ 解不开的那一段。
+        seg: String,
+    },
+    /// Navigation: the path descends into a scalar, or indexes a non-array.
+    /// 导航：路径往标量里钻，或对非数组取下标。
+    PathTypeMismatch {
+        /// The offending segment ｜ 出错的那一段。
+        seg: String,
+    },
 }
 
 impl CanonicalError {
@@ -199,6 +217,8 @@ impl CanonicalError {
             CanonicalError::SubtreeLenMismatch { .. } => "subtree-len-mismatch",
             CanonicalError::SubtreeLenOverflow { .. } => "subtree-len-overflow",
             CanonicalError::TrailingBytes { .. } => "trailing-bytes",
+            CanonicalError::PathNotFound { .. } => "path-not-found",
+            CanonicalError::PathTypeMismatch { .. } => "path-type-mismatch",
         }
     }
 }
@@ -254,6 +274,12 @@ impl std::fmt::Display for CanonicalError {
                 f,
                 "偏移 {at} 处 subtree_len 声明 {declared}，超出剩余字节"
             ),
+            CanonicalError::PathNotFound { seg } => {
+                write!(f, "路径段 `{seg}` 在节点树里不存在")
+            }
+            CanonicalError::PathTypeMismatch { seg } => {
+                write!(f, "路径段 `{seg}` 落在了标量上，或对非数组取了下标")
+            }
             CanonicalError::TrailingBytes { at } => {
                 write!(f, "树读完后在偏移 {at} 处还有多余字节")
             }
@@ -876,6 +902,194 @@ impl<'a> Reader<'a> {
             }
             shift += 7;
         }
+    }
+}
+
+/// A node's **raw byte range** inside the `VALUE` body — zero copy, no `Value` built.
+/// 节点在 `VALUE` 段体里的**原始字节范围** —— 零拷贝，不构造 `Value`。
+///
+/// `bytes` includes the 6 B node header (`tag:u8 ‖ flags:u8 ‖ len:u32`), i.e. exactly the
+/// slice one could hand back to [`Value::from_canonical_bytes`]-style decoding.
+/// `bytes` 含 6 B 节点头，正好是可以直接再解码的那一段。
+#[derive(Debug, Clone, Copy)]
+pub struct Subtree<'a> {
+    /// The node's bytes, header included ｜ 节点字节（含头）。
+    pub bytes: &'a [u8],
+    /// How many nodes the walk **looked at**: one per level on the path, plus every sibling it
+    /// skipped by `subtree_len` (headers read, payloads never decoded).
+    /// 走表时**看过**的节点数：路径上每层一个，加上每个按 `subtree_len` 跳过的兄弟
+    /// （只读了头，载荷一个字节都没解码）。
+    ///
+    /// 口径的意义：这个数**只**反映「逐兄弟比较」的开销（`DIR` 将来要省的那部分），
+    /// 而**解码量**恒等于目标子树的大小 —— 后者才是「不遍历全树」的判据。
+    /// ｜ It measures the sibling scan only; the number of **decoded** nodes equals the target
+    /// subtree, which is what “does not traverse the whole tree” asserts.
+    pub nodes_visited: usize,
+}
+
+/// Find `path` in the node tree and return its raw byte range, **skipping siblings by
+/// `subtree_len`** — no `Value` is built and no unrelated subtree is decoded.
+/// 在节点树里按路径找到目标，返回它的原始字节范围；**兄弟节点靠 `subtree_len` 跳过**，
+/// 不构造 `Value`、不解无关子树。
+///
+/// This is what makes “取单个子树不遍历全树” true at the byte level: descending costs
+/// O(sum of sibling lengths skipped) in *pointer arithmetic*, and O(children) in comparisons —
+/// never O(size of the document) in allocations.
+/// 这就是「取单个子树不遍历全树」在字节层面的实现：下行只花指针算术与逐兄弟比较，
+/// 分配量与文档大小无关。
+///
+/// - an empty path returns the root subtree ｜ 空路径返回根子树；
+/// - `strtab` is the `STRTAB` segment body (same shape as [`Value::canonical_blocks`]'s);
+///   对象键要靠它把 `key_id` 还原成字符串 ｜ 对象键要靠它还原成字符串。
+pub fn subtree_at<'a>(
+    strtab: &[u8],
+    value: &'a [u8],
+    path: &Path,
+) -> Result<Subtree<'a>, CanonicalError> {
+    let table = parse_strtab(strtab)?;
+    let mut r = Reader::new(value);
+    let (bytes, visited) = descend(&mut r, &table, path.segments(), 0)?;
+    Ok(Subtree {
+        bytes,
+        nodes_visited: visited,
+    })
+}
+
+/// Decode a **single** subtree produced by [`subtree_at`] into a `Value`.
+/// 把 [`subtree_at`] 拿到的**单个子树**解成 `Value`。
+///
+/// `subtree` must be exactly one node: trailing bytes are rejected (same rule as
+/// [`Value::from_canonical_bytes`], otherwise “append only” could be broken silently).
+/// `subtree` 必须正好是一个节点，多一个字节就报 `TrailingBytes`。
+pub fn value_from_subtree(strtab: &[u8], subtree: &[u8]) -> Result<Value, CanonicalError> {
+    let table = parse_strtab(strtab)?;
+    let mut r = Reader::new(subtree);
+    let v = decode_node(&mut r, &table, 0)?;
+    if r.pos != subtree.len() {
+        return Err(CanonicalError::TrailingBytes { at: r.pos });
+    }
+    Ok(v)
+}
+
+/// Parse the `STRTAB` body (`(len:varint ‖ utf8)*`, no count — the segment header is the boundary).
+/// 解析 `STRTAB` 段体（`(len:varint ‖ utf8)*`，无个数 —— 段头 `len` 就是边界）。
+fn parse_strtab(strtab: &[u8]) -> Result<Vec<&str>, CanonicalError> {
+    let mut sr = Reader::new(strtab);
+    let mut table: Vec<&str> = Vec::new();
+    while sr.pos < strtab.len() {
+        let index = table.len();
+        let len = sr.uvarint()?;
+        let raw = sr.take(len)?;
+        let s = std::str::from_utf8(raw).map_err(|_| CanonicalError::BadStrTable { index })?;
+        table.push(s);
+    }
+    Ok(table)
+}
+
+/// One node's header: `(tag, payload_len)`; the reader is left at the payload.
+/// 读一个节点头：返回 `(tag, 载荷长度)`，reader 停在载荷起点。
+fn read_header(r: &mut Reader<'_>) -> Result<(u8, usize), CanonicalError> {
+    let tag = r.u8()?;
+    let _flags = r.u8()?;
+    let len = r.u32le()? as usize;
+    if len > r.remaining() {
+        return Err(CanonicalError::SubtreeLenOverflow {
+            at: r.pos,
+            declared: len,
+        });
+    }
+    Ok((tag, len))
+}
+
+/// Consume one whole node (header + payload) and return its bytes.
+/// 吃掉一整个节点（头 + 载荷），返回它的字节。
+fn take_node<'a>(r: &mut Reader<'a>) -> Result<&'a [u8], CanonicalError> {
+    let start = r.pos;
+    let (_tag, len) = read_header(r)?;
+    r.take(len as u64)?;
+    Ok(&r.buf[start..r.pos])
+}
+
+/// Walk `segs` from the node at the reader's position; returns the target's bytes and how many
+/// nodes were looked at. ｜ 从当前节点按 `segs` 下行，返回目标字节与看过的节点数。
+fn descend<'a>(
+    r: &mut Reader<'a>,
+    table: &[&str],
+    segs: &[Seg],
+    depth: usize,
+) -> Result<(&'a [u8], usize), CanonicalError> {
+    if depth > MAX_VALUE_DEPTH {
+        return Err(CanonicalError::DepthExceeded { depth });
+    }
+    let start = r.pos;
+    let (tag, len) = read_header(r)?;
+    let payload_end = r.pos + len;
+
+    // 到头了：整节点连头一起交出去，reader 跳过它
+    if segs.is_empty() {
+        r.pos = payload_end;
+        return Ok((&r.buf[start..payload_end], 1));
+    }
+
+    match (tag, &segs[0]) {
+        (TAG_OBJ, Seg::Key(want)) => {
+            let n = r.uvarint()?;
+            if n > (r.remaining() / 2) as u64 {
+                // 防御伪造的巨大 count（每项至少 key_id + 6 B 节点头 ⇒ 下界取 2 保守）
+                return Err(CanonicalError::Truncated { at: r.pos });
+            }
+            let mut visited = 0usize;
+            for _ in 0..n {
+                let key_id = r.uvarint()?;
+                let key = table
+                    .get(key_id as usize)
+                    .ok_or(CanonicalError::StrIdOutOfRange { id: key_id })?;
+                if key == want {
+                    let (bytes, sub) = descend(r, table, &segs[1..], depth + 1)?;
+                    return Ok((bytes, sub + 1 + visited));
+                }
+                take_node(r)?;
+                visited += 1;
+            }
+            Err(CanonicalError::PathNotFound {
+                seg: want.clone(),
+            })
+        }
+        (TAG_ARR, Seg::Index(want)) => {
+            let n = r.uvarint()?;
+            if n > (r.remaining() / 6) as u64 {
+                return Err(CanonicalError::Truncated { at: r.pos });
+            }
+            if *want >= n as usize {
+                return Err(CanonicalError::PathNotFound {
+                    seg: format!("[{want}]"),
+                });
+            }
+            let mut visited = 0usize;
+            for idx in 0..n as usize {
+                if idx == *want {
+                    let (bytes, sub) = descend(r, table, &segs[1..], depth + 1)?;
+                    return Ok((bytes, sub + 1 + visited));
+                }
+                take_node(r)?;
+                visited += 1;
+            }
+            Err(CanonicalError::PathNotFound {
+                seg: format!("[{want}]"),
+            })
+        }
+        (TAG_OBJ, other) | (TAG_ARR, other) => Err(CanonicalError::PathTypeMismatch {
+            seg: match other {
+                Seg::Key(k) => k.clone(),
+                Seg::Index(i) => format!("[{i}]"),
+            },
+        }),
+        _ => Err(CanonicalError::PathTypeMismatch {
+            seg: match &segs[0] {
+                Seg::Key(k) => k.clone(),
+                Seg::Index(i) => format!("[{i}]"),
+            },
+        }),
     }
 }
 
