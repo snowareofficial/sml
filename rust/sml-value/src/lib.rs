@@ -40,11 +40,11 @@ pub mod path;
 /// canonical 形态（文本 + 字节）。
 ///
 /// Rules: `docs/smlb-smldb-spec.md` §18 (C1–C13) and §19 (`VALUE` segment layout).
-/// **Not feature-gated**: without `preserve_order` it does not vanish, it reports
-/// [`CanonicalError::KeyOrderUnavailable`] — if the code refused to compile, nobody could
-/// explain “why this machine cannot sign canonical”.
-/// 规则见 spec §18/§19。**不受 feature 门控**：没开 `preserve_order` 时它不消失，而是
-/// **明确报错** —— 编不过的话就没法解释「为什么这台机器上签不出 canonical」。
+/// **Not feature-gated**: it inspects the object's explicit ordering (`Map::ordering()`),
+/// not a compiler flag. An unordered object gets [`CanonicalError::KeyOrderUnavailable`]
+/// with a message that points at `Map::ordered()` / `parse_ordered()`.
+/// 规则见 spec §18/§19。**不受 feature 门控**：判定看对象的显式键序，不看编译开关；
+/// 无序对象会报 `KeyOrderUnavailable`，并明确指路 `Map::ordered()` / `parse_ordered()`。
 pub mod canonical;
 
 /// Text-atom rules (bare words / quoting / escaping, float spelling) shared by `dump`,
@@ -52,6 +52,7 @@ pub mod canonical;
 mod text_rules;
 
 mod value;
+mod map;
 // 保序对象（docs/value-layout.md §3/§5）：**无条件编译**。
 //
 // 方案 2 的第一步（用户 2026-11-05 裁决）：「有序 / 无序」要成为两个显式类型，

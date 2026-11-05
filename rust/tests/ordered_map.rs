@@ -25,6 +25,30 @@ fn ordered_map_keeps_source_order_in_every_profile() {
     assert_eq!(keys2, vec!["b", "a"], "覆盖已有键不许改变位置");
 }
 
+/// **本轮最关键的一条判据**：默认构建（没有任何 feature）里，
+/// 只要对象是**显式有序**的，就能签 canonical；无序对象则明确报错。
+/// 「能不能签」由值决定，不再由编译开关决定。
+#[test]
+fn explicit_ordered_object_can_be_canonicalized_in_default_build() {
+    use sml::CanonicalError;
+
+    let mut o = OrderedMap::new();
+    o.insert("b".to_string(), Value::Int(2));
+    o.insert("a".to_string(), Value::Int(1));
+    let v = Value::Object(Map::from(o));
+    assert_eq!(v.canonical_text().unwrap(), "b: 2\na: 1\n");
+
+    let mut u = Map::new();
+    u.insert("b".to_string(), Value::Int(2));
+    u.insert("a".to_string(), Value::Int(1));
+    let e = Value::Object(u).canonical_text().unwrap_err();
+    assert_eq!(e, CanonicalError::KeyOrderUnavailable);
+    assert!(
+        e.to_string().contains("Map::ordered") || e.to_string().contains("parse_ordered"),
+        "错误必须指路显式入口：{e}"
+    );
+}
+
 /// 默认档下 `Map` 是 BTreeMap（键按字节序），与 `OrderedMap` **语义不同**。
 #[cfg(not(feature = "preserve_order"))]
 #[test]
@@ -33,7 +57,7 @@ fn map_and_ordered_map_are_distinct_in_default_build() {
     m.insert("b".to_string(), Value::Int(2));
     m.insert("a".to_string(), Value::Int(1));
 
-    let keys: Vec<String> = m.keys().cloned().collect();
+    let keys: Vec<String> = m.keys().map(|k| k.to_string()).collect();
     assert_eq!(keys, vec!["a", "b"], "默认档 Map 仍按 UTF-8 字节序");
 
     let mut o = OrderedMap::new();
