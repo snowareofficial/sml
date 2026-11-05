@@ -1171,11 +1171,21 @@ pub fn hash_algo(bytes: &[u8]) -> Result<HashAlgo, ContainerError> {
 /// O(n), RSS O(1)); `false` is for callers that are going to run [`check`] anyway.
 /// `verify` 控制是否验摘要：`true` 把段体过一遍哈希（CPU O(n)、RSS O(1)）；`false` 留给
 /// 反正要跑 [`check`] 的调用方。
+/// Where the node tree lives: a plain `VALUE` body, or a `FRAMES` body to be inflated on demand.
+/// 节点树的来源：普通 `VALUE` 段体，或需要按需解压的 `FRAMES` 段体。
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum ValueSource<'a> {
+    /// Plain, zero-copy. ｜ 明文，零拷贝。
+    Plain(&'a [u8]),
+    /// Framed zstd (T5): skip without inflating, read on demand. ｜ 分帧：跳过不解、按需解。
+    Framed(&'a [u8]),
+}
+
 pub(crate) struct RawParts<'a> {
     /// Parsed header + segment table ｜ 已解析的头与段表。
     pub info: FileInfo,
-    /// `VALUE` body (node tree, no decoding) ｜ `VALUE` 段体（节点树，未解码）。
-    pub value: &'a [u8],
+    /// Where the node tree is ｜ 节点树在哪。
+    pub value: ValueSource<'a>,
     /// `STRTAB` body (empty when the file has no such segment) ｜ `STRTAB` 段体（可空）。
     pub strtab: &'a [u8],
     /// Manifest, when present ｜ manifest（可能没有）。
@@ -1197,9 +1207,20 @@ pub(crate) fn open_raw<'a>(bytes: &'a [u8], verify: bool) -> Result<RawParts<'a>
     let algo = manifest.as_ref().map(|m| m.hash).unwrap_or(hash::DEFAULT);
 
     let mut value: Option<&[u8]> = None;
+    let mut frames: Option<&[u8]> = None;
     let mut strtab: Option<&[u8]> = None;
     for seg in &info.segments {
         match seg.header.seg_id {
+            SEG_FRAMES => {
+                if frames.is_some() {
+                    return Err(ContainerError::DuplicateSegment { seg_id: SEG_FRAMES });
+                }
+                let b = body(bytes, seg)?;
+                if verify {
+                    verify_digest(seg, b, algo)?;
+                }
+                frames = Some(b);
+            }
             SEG_VALUE | SEG_STRTAB => {
                 if seg.header.comp != 0 {
                     return Err(ContainerError::ZeroCopyNeedsPlain {
@@ -1230,13 +1251,13 @@ pub(crate) fn open_raw<'a>(bytes: &'a [u8], verify: bool) -> Result<RawParts<'a>
         }
     }
     let primary_id = manifest.as_ref().map(|m| m.primary).unwrap_or(SEG_VALUE);
-    if primary_id == SEG_FRAMES {
-        return Err(ContainerError::FramedNotZeroCopy);
-    }
-    if primary_id != SEG_VALUE {
-        return Err(ContainerError::PrimaryNotValue { id: primary_id });
-    }
-    let value = value.ok_or(ContainerError::MissingSegment { seg_id: SEG_VALUE })?;
+    let value = match (primary_id, value, frames) {
+        (SEG_FRAMES, _, Some(f)) => ValueSource::Framed(f),
+        (SEG_FRAMES, _, None) => return Err(ContainerError::MissingSegment { seg_id: SEG_FRAMES }),
+        (SEG_VALUE, Some(v), _) => ValueSource::Plain(v),
+        (SEG_VALUE, None, _) => return Err(ContainerError::MissingSegment { seg_id: SEG_VALUE }),
+        (other, _, _) => return Err(ContainerError::PrimaryNotValue { id: other }),
+    };
     Ok(RawParts {
         info,
         value,
@@ -1370,6 +1391,35 @@ fn body_of<'a>(seg: &Segment, bytes: &'a [u8]) -> Result<Body<'a>, ContainerErro
 #[cfg(feature = "compress")]
 pub fn inflate_zstd(raw: &[u8], limit: usize) -> Result<Vec<u8>, ()> {
     zstd::bulk::decompress(raw, limit).map_err(|_| ())
+}
+
+/// Inflate one raw zstd frame with a declared output length (no index involved).
+/// 解一个裸 zstd 帧（给定解压后长度，不涉及索引）。
+///
+/// 供按需解帧的读取器使用：解出来的长度必须与索引声明一致，否则说明索引与数据对不上。
+/// ｜ Used by the on-demand reader; a length mismatch means index and data disagree.
+pub fn inflate_frame(raw: &[u8], uncomp_len: usize) -> Result<Vec<u8>, ContainerError> {
+    #[cfg(not(feature = "compress"))]
+    {
+        let _ = (raw, uncomp_len);
+        Err(ContainerError::CompressFeatureDisabled { comp: COMP_ZSTD })
+    }
+    #[cfg(feature = "compress")]
+    {
+        let out = inflate_zstd(raw, uncomp_len).map_err(|_| {
+            ContainerError::DecompressTooLarge {
+                seg_id: SEG_FRAMES,
+                limit: uncomp_len,
+            }
+        })?;
+        if out.len() != uncomp_len {
+            return Err(ContainerError::BadFrameIndex(format!(
+                "帧解压出 {} B，索引说有 {uncomp_len} B",
+                out.len()
+            )));
+        }
+        Ok(out)
+    }
 }
 
 /// Parse + validate a `FRAMES` body's index. ｜ 解析并校验 `FRAMES` 段体的帧索引。

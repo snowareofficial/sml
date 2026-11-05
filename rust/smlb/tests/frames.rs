@@ -132,18 +132,62 @@ fn only_the_touched_frame_is_inflated() {
     );
 }
 
-/// Zero-copy random access refuses framed files with a message that points somewhere useful.
-/// 零拷贝随机访问对分帧文件明确拒绝，并指路。
+/// `Store` reads framed files too — navigation runs on a cursor, so it can skip across frames.
+/// `Store` 也能读分帧文件：导航跑在游标上，跨帧只解需要的那几帧。
 #[test]
-fn store_refuses_framed_files() {
-    let framed = smlb::dump_with(&wide_doc(), &framed_opts(4096)).unwrap();
-    let e = Store::open(&framed).expect_err("分帧文件不该被当成可零拷贝打开");
-    assert_eq!(e.kind(), "framed-not-zero-copy", "{e}");
-    assert!(e.to_string().contains("load"), "{e}");
+fn store_reads_framed_files_on_demand() {
+    let framed = smlb::dump_with(&wide_doc(), &framed_opts(1024)).unwrap();
 
-    // 整树路径照常
-    assert!(smlb::load(&framed).unwrap().eq_ordered(&wide_doc()));
-    assert_eq!(smlb::get(&framed, "rows[7].idx").unwrap(), Value::Int(7));
+    let store = Store::open(&framed).expect("分帧文件应能以随机访问方式打开");
+    assert_eq!(store.get("rows[0].idx").unwrap(), Value::Int(0));
+    assert_eq!(store.get("rows[299].idx").unwrap(), Value::Int(299));
+    assert_eq!(
+        store.text_of("rows[7].idx").unwrap(),
+        "7\n",
+        "取到的子树文本必须精确"
+    );
+
+    // 零拷贝切片对分帧做不到（跨帧没法借用），但物化版本可以
+    assert_eq!(
+        store.subtree_bytes("rows[0]").unwrap_err().kind(),
+        "framed-not-zero-copy"
+    );
+    assert!(!store.subtree_vec("rows[0]").unwrap().is_empty());
+}
+
+/// **The payoff**: corrupt one frame and a lookup landing in *another* frame still works.
+/// **收益所在**：弄坏一帧，落在**另一帧**的查询仍然成功。
+#[test]
+fn store_inflates_only_the_frames_it_needs() {
+    let framed = smlb::dump_with(&wide_doc(), &framed_opts(1024)).unwrap();
+    let info = smlb::info(&framed).unwrap();
+    let seg = info
+        .segments
+        .iter()
+        .find(|s| s.header.seg_id == SEG_FRAMES)
+        .unwrap();
+    let body = container::body(&framed, seg).unwrap();
+    let entries = smlb::parse_frame_index(body).unwrap();
+
+    // 把**最后**一帧的压缩数据翻一位
+    let last = *entries.last().unwrap();
+    let mut broken = framed.clone();
+    let at = seg.offset as usize + last.comp_off as usize + 3;
+    broken[at] ^= 0x01;
+
+    // 不验摘要（摘要覆盖整段，必然不符），直接看「按需解帧」的行为
+    let store = Store::open_unverified(&broken).unwrap();
+    assert_eq!(
+        store.get("rows[0].idx").unwrap(),
+        Value::Int(0),
+        "第 0 行在完好的帧里，必须取得到"
+    );
+    assert!(
+        store.get("rows[299].idx").is_err(),
+        "最后一行在坏帧里，必须报错而不是给出错值"
+    );
+    // 整解则必然失败
+    assert!(smlb::load(&broken).is_err());
 }
 
 /// A framed file is still a valid `.smlb`: `check` reports frames and passes.
