@@ -191,6 +191,13 @@ pub enum CanonicalError {
         /// The segment that could not be resolved (`key` or `[index]`) ｜ 解不开的那一段。
         seg: String,
     },
+    /// The byte source could not supply bytes (e.g. a corrupt compression frame).
+    /// 字节源拿不出字节（例如压缩帧损坏）。
+    ///
+    /// 值层只认识「字节」，不知道帧/压缩；这条变体的用途是把**源**的失败如实传上去，
+    /// 而不是伪装成「截断」。
+    /// ｜ The value layer knows bytes, not frames; this carries the source's failure verbatim.
+    Source(String),
     /// Navigation: the path descends into a scalar, or indexes a non-array.
     /// 导航：路径往标量里钻，或对非数组取下标。
     PathTypeMismatch {
@@ -218,6 +225,7 @@ impl CanonicalError {
             CanonicalError::SubtreeLenOverflow { .. } => "subtree-len-overflow",
             CanonicalError::TrailingBytes { .. } => "trailing-bytes",
             CanonicalError::PathNotFound { .. } => "path-not-found",
+            CanonicalError::Source(_) => "source-unavailable",
             CanonicalError::PathTypeMismatch { .. } => "path-type-mismatch",
         }
     }
@@ -274,6 +282,7 @@ impl std::fmt::Display for CanonicalError {
                 f,
                 "偏移 {at} 处 subtree_len 声明 {declared}，超出剩余字节"
             ),
+            CanonicalError::Source(why) => write!(f, "字节源取不到数据：{why}"),
             CanonicalError::PathNotFound { seg } => {
                 write!(f, "路径段 `{seg}` 在节点树里不存在")
             }
@@ -905,6 +914,98 @@ impl<'a> Reader<'a> {
     }
 }
 
+/// A forward-only cursor over the **node tree** bytes — the seam that lets a caller supply
+/// bytes that are not in one contiguous buffer (e.g. zstd frames).
+/// 节点树上的**只进游标** —— 这条接缝让调用方能提供「不在同一块内存里」的字节（如 zstd 帧）。
+///
+/// Why not `&[u8]`: a framed file must be able to **skip** a subtree without decompressing it.
+/// Skipping is pure arithmetic; only the bytes actually read (node headers, key ids) and the
+/// final range need materialising.
+/// 为什么不是 `&[u8]`：分帧文件必须能**跳过**一棵子树而不解压它 —— 跳过是纯算术，
+/// 只有真正读到的字节（节点头、key id）与最终目标区间才需要物化。
+pub trait TreeCursor {
+    /// Current logical offset. ｜ 当前逻辑偏移。
+    fn pos(&self) -> usize;
+    /// Bytes left. ｜ 剩余字节数。
+    fn remaining(&self) -> usize;
+    /// Read one byte. ｜ 读 1 字节。
+    fn read_u8(&mut self) -> Result<u8, CanonicalError>;
+    /// Read a little-endian u32. ｜ 读小端 u32。
+    fn read_u32le(&mut self) -> Result<u32, CanonicalError>;
+    /// Read a LEB128 u64. ｜ 读 LEB128 u64。
+    fn read_uvarint(&mut self) -> Result<u64, CanonicalError>;
+    /// Advance without reading (the whole point for framed bytes).
+    /// 只前进不读取（对分帧字节来说，这正是重点）。
+    fn skip(&mut self, n: usize) -> Result<(), CanonicalError>;
+}
+
+/// The plain-buffer cursor: zero copy, the bytes are already in memory.
+/// 普通缓冲游标：零拷贝，字节本来就在内存里。
+pub struct SliceCursor<'a> {
+    buf: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> SliceCursor<'a> {
+    /// Wrap a `VALUE` body. ｜ 包一个 `VALUE` 段体。
+    pub fn new(buf: &'a [u8]) -> Self {
+        SliceCursor { buf, pos: 0 }
+    }
+}
+
+impl<'a> TreeCursor for SliceCursor<'a> {
+    fn pos(&self) -> usize {
+        self.pos
+    }
+
+    fn remaining(&self) -> usize {
+        self.buf.len() - self.pos
+    }
+
+    fn read_u8(&mut self) -> Result<u8, CanonicalError> {
+        if self.pos >= self.buf.len() {
+            return Err(CanonicalError::Truncated { at: self.pos });
+        }
+        let b = self.buf[self.pos];
+        self.pos += 1;
+        Ok(b)
+    }
+
+    fn read_u32le(&mut self) -> Result<u32, CanonicalError> {
+        if self.remaining() < 4 {
+            return Err(CanonicalError::Truncated { at: self.pos });
+        }
+        let s = &self.buf[self.pos..self.pos + 4];
+        self.pos += 4;
+        Ok(u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
+    }
+
+    fn read_uvarint(&mut self) -> Result<u64, CanonicalError> {
+        let start = self.pos;
+        let mut result: u64 = 0;
+        let mut shift = 0;
+        loop {
+            if shift > 63 {
+                return Err(CanonicalError::VarintTooLong { at: start });
+            }
+            let byte = self.read_u8()?;
+            result |= ((byte & 0x7f) as u64) << shift;
+            if byte & 0x80 == 0 {
+                return Ok(result);
+            }
+            shift += 7;
+        }
+    }
+
+    fn skip(&mut self, n: usize) -> Result<(), CanonicalError> {
+        if n > self.remaining() {
+            return Err(CanonicalError::Truncated { at: self.pos });
+        }
+        self.pos += n;
+        Ok(())
+    }
+}
+
 /// A node's **raw byte range** inside the `VALUE` body — zero copy, no `Value` built.
 /// 节点在 `VALUE` 段体里的**原始字节范围** —— 零拷贝，不构造 `Value`。
 ///
@@ -947,12 +1048,33 @@ pub fn subtree_at<'a>(
     path: &Path,
 ) -> Result<Subtree<'a>, CanonicalError> {
     let table = parse_strtab(strtab)?;
-    let mut r = Reader::new(value);
-    let (bytes, visited) = descend(&mut r, &table, path.segments(), 0)?;
+    let mut cur = SliceCursor::new(value);
+    let (start, end, visited) = descend(&mut cur, &table, path.segments(), 0)?;
     Ok(Subtree {
-        bytes,
+        bytes: &value[start..end],
         nodes_visited: visited,
     })
+}
+
+/// Locate one subtree over **any** cursor; returns its `[start, end)` byte range.
+/// 在**任意**游标上定位一棵子树，返回它的 `[start, end)` 字节区间。
+///
+/// A range instead of bytes keeps both callers happy: a plain buffer slices it out for free, a
+/// framed reader materialises exactly that range (⟹ only the frames it overlaps are inflated).
+/// 返回区间而不是字节：切片路径白拿，分帧路径只解覆盖这段的那几帧。
+pub fn subtree_range<C: TreeCursor>(
+    cur: &mut C,
+    table: &[&str],
+    segs: &[Seg],
+    depth: usize,
+) -> Result<(usize, usize, usize), CanonicalError> {
+    descend(cur, table, segs, depth)
+}
+
+/// Parse the `STRTAB` body into a lookup table (for [`subtree_range`] / [`value_from_subtree`]).
+/// 把 `STRTAB` 段体解析成查找表（供 [`subtree_range`] / [`value_from_subtree`] 使用）。
+pub fn parse_strtab_table(strtab: &[u8]) -> Result<Vec<&str>, CanonicalError> {
+    parse_strtab(strtab)
 }
 
 /// Decode a **single** subtree produced by [`subtree_at`] into a `Value`.
@@ -986,69 +1108,70 @@ fn parse_strtab(strtab: &[u8]) -> Result<Vec<&str>, CanonicalError> {
     Ok(table)
 }
 
-/// One node's header: `(tag, payload_len)`; the reader is left at the payload.
-/// 读一个节点头：返回 `(tag, 载荷长度)`，reader 停在载荷起点。
-fn read_header(r: &mut Reader<'_>) -> Result<(u8, usize), CanonicalError> {
-    let tag = r.u8()?;
-    let _flags = r.u8()?;
-    let len = r.u32le()? as usize;
-    if len > r.remaining() {
+/// One node's header through any cursor: `(tag, payload_len)`, left at the payload.
+/// 通过任意游标读一个节点头：返回 `(tag, 载荷长度)`，停在载荷起点。
+fn read_header<C: TreeCursor>(cur: &mut C) -> Result<(u8, usize), CanonicalError> {
+    let tag = cur.read_u8()?;
+    let _flags = cur.read_u8()?;
+    let len = cur.read_u32le()? as usize;
+    if len > cur.remaining() {
         return Err(CanonicalError::SubtreeLenOverflow {
-            at: r.pos,
+            at: cur.pos(),
             declared: len,
         });
     }
     Ok((tag, len))
 }
 
-/// Consume one whole node (header + payload) and return its bytes.
-/// 吃掉一整个节点（头 + 载荷），返回它的字节。
-fn take_node<'a>(r: &mut Reader<'a>) -> Result<&'a [u8], CanonicalError> {
-    let start = r.pos;
-    let (_tag, len) = read_header(r)?;
-    r.take(len as u64)?;
-    Ok(&r.buf[start..r.pos])
+/// Consume one whole node (header + payload) — **without reading the payload**.
+/// 吃掉一整个节点（头 + 载荷）—— **不读载荷**。
+fn skip_node<C: TreeCursor>(cur: &mut C) -> Result<(), CanonicalError> {
+    let (_tag, len) = read_header(cur)?;
+    cur.skip(len)
 }
 
-/// Walk `segs` from the node at the reader's position; returns the target's bytes and how many
-/// nodes were looked at. ｜ 从当前节点按 `segs` 下行，返回目标字节与看过的节点数。
-fn descend<'a>(
-    r: &mut Reader<'a>,
+/// Walk `segs` from the node at the cursor; returns `[start, end)` and how many nodes were
+/// looked at. The **target's payload is skipped over, never read**.
+/// 从游标当前位置按 `segs` 下行，返回 `[start, end)` 与看过的节点数；**目标载荷只跳过、不读取**。
+///
+/// Skipping is why this is a range and not bytes: a framed reader can then materialise exactly
+/// the frames that overlap `[start, end)` and leave the rest compressed.
+/// 跳过正是「返回区间而不是字节」的理由：分帧读取器只需物化覆盖该区间的帧。
+fn descend<C: TreeCursor>(
+    cur: &mut C,
     table: &[&str],
     segs: &[Seg],
     depth: usize,
-) -> Result<(&'a [u8], usize), CanonicalError> {
+) -> Result<(usize, usize, usize), CanonicalError> {
     if depth > MAX_VALUE_DEPTH {
         return Err(CanonicalError::DepthExceeded { depth });
     }
-    let start = r.pos;
-    let (tag, len) = read_header(r)?;
-    let payload_end = r.pos + len;
+    let start = cur.pos();
+    let (tag, len) = read_header(cur)?;
 
-    // 到头了：整节点连头一起交出去，reader 跳过它
     if segs.is_empty() {
-        r.pos = payload_end;
-        return Ok((&r.buf[start..payload_end], 1));
+        cur.skip(len)?;
+        return Ok((start, cur.pos(), 1));
     }
 
     match (tag, &segs[0]) {
         (TAG_OBJ, Seg::Key(want)) => {
-            let n = r.uvarint()?;
-            if n > (r.remaining() / 2) as u64 {
+            let n = cur.read_uvarint()?;
+            if n > (cur.remaining() / 2) as u64 {
                 // 防御伪造的巨大 count（每项至少 key_id + 6 B 节点头 ⇒ 下界取 2 保守）
-                return Err(CanonicalError::Truncated { at: r.pos });
+                return Err(CanonicalError::Truncated { at: cur.pos() });
             }
             let mut visited = 0usize;
             for _ in 0..n {
-                let key_id = r.uvarint()?;
+                let key_id = cur.read_uvarint()?;
                 let key = table
                     .get(key_id as usize)
                     .ok_or(CanonicalError::StrIdOutOfRange { id: key_id })?;
                 if key == want {
-                    let (bytes, sub) = descend(r, table, &segs[1..], depth + 1)?;
-                    return Ok((bytes, sub + 1 + visited));
+                    let (s, e, sub) = descend(cur, table, &segs[1..], depth + 1)?;
+                    return Ok((s, e, sub + 1 + visited));
                 }
-                take_node(r)?;
+                skip_node(cur)?;
                 visited += 1;
             }
             Err(CanonicalError::PathNotFound {
@@ -1056,9 +1179,9 @@ fn descend<'a>(
             })
         }
         (TAG_ARR, Seg::Index(want)) => {
-            let n = r.uvarint()?;
-            if n > (r.remaining() / 6) as u64 {
-                return Err(CanonicalError::Truncated { at: r.pos });
+            let n = cur.read_uvarint()?;
+            if n > (cur.remaining() / 6) as u64 {
+                return Err(CanonicalError::Truncated { at: cur.pos() });
             }
             if *want >= n as usize {
                 return Err(CanonicalError::PathNotFound {
@@ -1068,10 +1191,10 @@ fn descend<'a>(
             let mut visited = 0usize;
             for idx in 0..n as usize {
                 if idx == *want {
-                    let (bytes, sub) = descend(r, table, &segs[1..], depth + 1)?;
-                    return Ok((bytes, sub + 1 + visited));
+                    let (s, e, sub) = descend(cur, table, &segs[1..], depth + 1)?;
+                    return Ok((s, e, sub + 1 + visited));
                 }
-                take_node(r)?;
+                skip_node(cur)?;
                 visited += 1;
             }
             Err(CanonicalError::PathNotFound {
