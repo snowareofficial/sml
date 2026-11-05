@@ -87,6 +87,54 @@ fn stripped_chain_is_caught_by_the_anchor() {
     assert!(text.contains("剥离"), "{text}");
 }
 
+/// 甲方案的核心收益：**换掉基文档**会被验签当场发现，不必动层区一个字节。
+/// The base document is bound into the signed chain (§21.1b E).
+#[test]
+fn swapping_the_base_document_is_detected() {
+    let algo = HashAlgo::Sha256;
+    let k = key(1);
+    let f = smlb::dump(&base_doc()).unwrap();
+    let v1 = smlb::append_layer(&f, &k, None, None, algo).unwrap();
+    assert!(smlb::verify(&v1, algo).unwrap().ok);
+
+    // 只改**基文档区**的一个字节（层记录、Trailer、签名一个都没动）
+    let mut bad = v1.clone();
+    bad[200] ^= 0x01;
+    assert_ne!(bad, v1);
+
+    let report = smlb::verify(&bad, algo).unwrap();
+    assert!(!report.ok, "{:?}", report.lines);
+    assert!(
+        report.lines.join("\n").contains("base_hash"),
+        "错误必须点名 base_hash：{:?}",
+        report.lines
+    );
+
+    // 没有 `sign` feature 的结构校验也能抓到（链头只用到摘要）
+    let chain = layer::verify_chain(&bad, algo).unwrap();
+    assert!(!chain.ok, "{:?}", chain.lines);
+    assert!(chain.lines.join("\n").contains("base_hash"), "{:?}", chain.lines);
+}
+
+/// compact 换了基文档 ⇒ 链头必须**变**（这正是甲方案修掉的那个反直觉现象）。
+#[test]
+fn compact_changes_the_head() {
+    let algo = HashAlgo::Sha256;
+    let k = key(1);
+    let f = smlb::dump(&base_doc()).unwrap();
+    let v1 = smlb::append_layer(&f, &k, None, None, algo).unwrap();
+    let head1 = layer::chain_head(&v1, algo).unwrap().unwrap();
+    let v2 = smlb::append_layer(&v1, &k, Some(patch(9090)), None, algo).unwrap();
+
+    let merged = smlb::compact(&v2, &k, algo).unwrap();
+    let head2 = layer::chain_head(&merged, algo).unwrap().unwrap();
+    assert_ne!(head1, head2, "基文档变了，链头不能还是同一个");
+
+    // 旧锚点因此正确失效（之前会误判通过）
+    assert!(!smlb::verify_trusted(&merged, algo, &head1).unwrap().ok);
+    assert!(smlb::verify_trusted(&merged, algo, &head2).unwrap().ok);
+}
+
 /// D20 写者锁：两个写者基于**同一个链头**工作，后者必须拿到明确冲突。
 /// Optimistic writer lock: a stale head must fail loudly, not append silently.
 #[test]

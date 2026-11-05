@@ -126,6 +126,13 @@ pub struct Layer {
     pub prev_hash: [u8; 32],
     /// Author's Ed25519 public key (32 B) ｜ 作者公钥。
     pub author: [u8; 32],
+    /// `H(all bytes before the first layer record)` — binds the **base document** into the
+    /// signed content (§21.1b E, 用户 2026-11-05 裁决「甲」).
+    /// 「第一条层记录之前的全部字节」的摘要 —— 把**基文档**绑进签名范围。
+    ///
+    /// 没有它，链头只由层记录决定：换掉基文档、重算段摘要，签名仍然通过。
+    /// ｜ Without it the chain says nothing about the document it is attached to.
+    pub base_hash: [u8; 32],
     /// Optional patch merged into the value (D22: arrays replace wholesale)
     /// 可选补丁，合并进当前值（D22：数组整体替换）。
     pub patch: Option<Value>,
@@ -138,11 +145,17 @@ pub struct Layer {
 impl Layer {
     /// A fresh, unsigned layer pointing at `prev_hash`.
     /// 新建一个未签名、指向 `prev_hash` 的层。
-    pub fn new(index: u32, prev_hash: [u8; 32], author: [u8; 32]) -> Layer {
+    pub fn new(
+        index: u32,
+        prev_hash: [u8; 32],
+        author: [u8; 32],
+        base_hash: [u8; 32],
+    ) -> Layer {
         Layer {
             index,
             prev_hash,
             author,
+            base_hash,
             patch: None,
             delegation: None,
             sigs: Vec::new(),
@@ -156,6 +169,7 @@ impl Layer {
         m.insert("index".to_string(), Value::Int(self.index as i64));
         m.insert("prev_hash".to_string(), Value::Str(hex(&self.prev_hash)));
         m.insert("author".to_string(), Value::Str(hex(&self.author)));
+        m.insert("base_hash".to_string(), Value::Str(hex(&self.base_hash)));
         if let Some(p) = &self.patch {
             m.insert("patch".to_string(), p.clone());
         }
@@ -206,6 +220,9 @@ impl Layer {
         };
         let prev_hash = field_hash(m, "prev_hash")?;
         let author = field_hash(m, "author")?;
+        // 缺 base_hash 一律当**不合规**（不静默降级成旧格式）：本项目 publish=false，
+        // 没有需要兼容的历史签名文件；放行等于让「基文档被换」重新变成盲区。
+        let base_hash = field_hash(m, "base_hash")?;
         let patch = m.get("patch").cloned();
         let delegation = match m.get("delegation") {
             Some(Value::Object(d)) => Some(Delegation {
@@ -251,6 +268,7 @@ impl Layer {
             index,
             prev_hash,
             author,
+            base_hash,
             patch,
             delegation,
             sigs,
@@ -309,6 +327,32 @@ fn from_hex(s: &str) -> Option<Vec<u8>> {
 
 /// All layers, oldest first (decoded from the reverse chain).
 /// 全部层，从旧到新（由反向链解出）。
+/// Where the **base document** ends: offset of the first (oldest) layer record.
+/// 基文档在哪结束：最旧那条层记录的偏移。
+///
+/// 反向链沿 `prev_off` 回溯到 0 即最旧记录。没有 Trailer 时整个文件都是基文档。
+/// ｜ Walk the reverse chain to `prev_off == 0`; without a trailer, the whole file is the base.
+pub fn base_prefix_len(bytes: &[u8]) -> Result<usize, LayerError> {
+    let Some(t) = Trailer::parse(bytes) else {
+        return Ok(bytes.len());
+    };
+    let mut off = t.last_layer_off;
+    loop {
+        let (_body, prev_off) = read_record(bytes, off)?;
+        if prev_off == 0 {
+            return Ok(off as usize);
+        }
+        off = prev_off;
+    }
+}
+
+/// Hash of the base document (everything before the first layer record).
+/// 基文档的摘要（第一条层记录之前的全部字节）。
+pub fn base_hash(bytes: &[u8], algo: HashAlgo) -> Result<[u8; 32], LayerError> {
+    let n = base_prefix_len(bytes)?;
+    hash::digest(algo, &bytes[..n]).map_err(|_| LayerError::Truncated { at: n as u64 })
+}
+
 pub fn layers(bytes: &[u8]) -> Result<Vec<Layer>, LayerError> {
     let Some(t) = Trailer::parse(bytes) else {
         return Ok(Vec::new());
@@ -515,6 +559,15 @@ pub fn verify_chain(bytes: &[u8], algo: HashAlgo) -> Result<ChainReport, LayerEr
         }
         let body = l.canonical_bytes().map_err(LayerError::Canonical)?;
         prev_head = hash::digest(algo, &body).map_err(|_| LayerError::Truncated { at: 0 })?;
+    }
+
+    // 基文档绑定（§21.1b E）：每层记的 base_hash 必须与**当前文件**的基文档一致。
+    let want_base = base_hash(bytes, algo)?;
+    for (i, l) in all.iter().enumerate() {
+        if l.base_hash != want_base {
+            ok = false;
+            lines.push(format!("层#{i}   base_hash 与当前基文档不符 —— 基文档被换过"));
+        }
     }
 
     if let Some(t) = Trailer::parse(bytes) {

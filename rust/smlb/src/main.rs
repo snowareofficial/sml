@@ -65,8 +65,8 @@ T5 压缩与加密（库）/ T6 互转（库在 `sml::envelope`）。施工顺�
 
 注意:
   - 加密（`dump_encrypted`）与 mmap（`MappedFile`）目前**只有库接口，没有 CLI**；
-  - `verify` 通过只代表「层链自身一致且签名有效」，不代表「基文档没被换过」
-    （基文档未进签名范围，见 spec §21.1b E）；要防整条链被剥离请用 `--trust`。";
+  - 层记录的 `base_hash` 已把基文档绑进签名（spec §21.1b E）；换基文档会当场被
+    `verify` 抓到。要防「整条层链被剥离」，仍须用 `--trust` 记住链头。";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
