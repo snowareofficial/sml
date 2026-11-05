@@ -45,6 +45,16 @@ getrandom = { version = "0.3", optional = true }
 #   —— 用户 2026-11-05 裁决「用 zstd-sys 这条链」，即接受非 wasm 目标上的风险为零。
 # - 被排除的替代：`ruzstd`（2026-10-13 HIGH 解压炸弹）、`lz4_flex`（2026-03-17 HIGH）。
 zstd = { version = "0.14", optional = true }
+# 加密（T5）：AES-256-GCM + HKDF 派生 + Argon2id 口令派生。
+#
+# 台账（2026-11-05 实测 RustSec）：
+# - `aes-gcm`：RUSTSEC-2023-0096（MEDIUM，`decrypt_in_place_detached` 在 tag 失败时
+#   仍暴露明文），**修于 0.10.3**；本项目只用高层 `encrypt`/`decrypt`，不碰 `_detached`。
+# - `chacha20poly1305` / `argon2` / `hkdf`：无公告。
+aes-gcm = { version = "0.10.3", optional = true }
+hkdf = { version = "0.12", optional = true }
+sha2 = { version = "0.10", optional = true }
+argon2 = { version = "0.5", optional = true }
 
 [features]
 # 对象保序（转发到 sml-value）：**canonical 的前提**（spec §18 C2）。
@@ -62,4 +72,7 @@ sign = ["dep:ed25519-dalek", "dep:getrandom"]
 # 压缩（T5）：段级 `comp` 字段（§19.1 / §20 的 `0x01 zstd`）。
 # 关掉后仍**能读**未压缩文件；读到压缩段会明确报「本构建不支持该压缩算法」。
 compress = ["dep:zstd"]
+# 加密（T5）：`dump_encrypted` / `load_encrypted` / `get_encrypted` 与 §20 的密文。
+# 关掉后仍**能读**明文文件；读到加密段明确报 `crypto-feature-disabled`。
+crypto = ["dep:aes-gcm", "dep:hkdf", "dep:sha2", "dep:argon2", "dep:getrandom"]
 default = []

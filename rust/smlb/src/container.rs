@@ -61,6 +61,7 @@
 use sml_value::{CanonicalError, Value};
 
 use crate::hash::{self, HashAlgo};
+use crate::crypto;
 use crate::layer::{self, LayerError};
 use crate::manifest::{self, Manifest, ManifestError, ManifestPayload, ManifestSegment};
 
@@ -351,6 +352,38 @@ pub enum ContainerError {
     /// The digest algorithm is unknown or unimplemented (§20: never guess)
     /// 摘要算法未知或未实现（§20：绝不猜）。
     Hash(crate::hash::HashError),
+    /// A block failed AEAD authentication: wrong key, tampered ciphertext, **or a tampered
+    /// segment header** (header fields are bound into the AAD, §19.13.2).
+    /// 某块认证失败：钥匙错、密文被改，**或段头被改**。
+    AuthFailed {
+        /// Segment id ｜ 段 id。
+        seg_id: u8,
+        /// Which block ｜ 第几块。
+        block: u32,
+        /// Why ｜ 原因。
+        reason: String,
+    },
+    /// The file is encrypted but the caller supplied no key material.
+    /// 文件是加密的，但调用方没给密钥材料。
+    KeyRequired,
+    /// A passphrase was given but the writer chose no KDF parameters.
+    /// 给了口令，但写者没指定 KDF 参数。
+    KdfRequired,
+    /// The KDF parameters given by the caller disagree with the file's.
+    /// 调用方给的 KDF 参数与文件里的不一致。
+    KdfMismatch(String),
+    /// The KDF id is unknown or unimplemented (§20: never guess).
+    /// KDF 编号未知或未实现（§20：绝不猜）。
+    KdfUnsupported {
+        /// The id ｜ 编号。
+        id: u8,
+    },
+    /// Encrypted files cannot be opened for zero-copy random access.
+    /// 加密文件不能以零拷贝方式随机访问。
+    EncryptedNotZeroCopy,
+    /// Something the crypto layer refused (key derivation, block layout, …).
+    /// 加密层拒绝了某件事（派生失败、块布局不对等）。
+    Crypto(String),
     /// The append-only layer chain is unreadable (T4) ｜ 层链读不出来（T4）。
     Layer(LayerError),
     /// Decompression was requested but this build has no `compress` feature.
@@ -436,6 +469,13 @@ impl ContainerError {
             ContainerError::MissingCapability { .. } => "missing-capability",
             ContainerError::ManifestMismatch { .. } => "manifest-mismatch",
             ContainerError::Hash(_) => "unsupported-hash",
+            ContainerError::AuthFailed { .. } => "auth-failed",
+            ContainerError::KeyRequired => "key-required",
+            ContainerError::KdfRequired => "kdf-required",
+            ContainerError::KdfMismatch(_) => "kdf-mismatch",
+            ContainerError::KdfUnsupported { .. } => "kdf-unsupported",
+            ContainerError::EncryptedNotZeroCopy => "encrypted-not-zero-copy",
+            ContainerError::Crypto(_) => "crypto",
             ContainerError::Layer(_) => "bad-layer",
             ContainerError::CompressFeatureDisabled { .. } => "compress-feature-disabled",
             ContainerError::DecompressTooLarge { .. } => "decompress-too-large",
@@ -533,6 +573,30 @@ impl std::fmt::Display for ContainerError {
                 "段 0x{seg_id:02x} 的 `{field}` 在 manifest 与段表里不一致（两边有一边被改过）"
             ),
             ContainerError::Hash(e) => write!(f, "摘要算法不可用：{e}"),
+            ContainerError::AuthFailed {
+                seg_id,
+                block,
+                reason,
+            } => write!(
+                f,
+                "段 0x{seg_id:02x} 第 {block} 块认证失败：{reason}（钥匙错、密文被改，或段头被改）"
+            ),
+            ContainerError::KeyRequired => write!(
+                f,
+                "这份文件是加密的，必须提供密钥（`KeySource::Bytes` 或 `Passphrase`）"
+            ),
+            ContainerError::KdfRequired => {
+                write!(f, "写口令文件必须给 KDF 参数（`kdf: Some(..)`）")
+            }
+            ContainerError::KdfMismatch(why) => write!(f, "KDF 参数不符：{why}"),
+            ContainerError::KdfUnsupported { id } => {
+                write!(f, "不支持的 KDF 编号 0x{id:02x}（本构建不猜）")
+            }
+            ContainerError::EncryptedNotZeroCopy => write!(
+                f,
+                "这份文件是加密的，零拷贝随机访问做不到；请用 `load_encrypted` / `get_encrypted`"
+            ),
+            ContainerError::Crypto(why) => write!(f, "加密层：{why}"),
             ContainerError::Layer(e) => write!(f, "层链读不出来：{e}"),
             ContainerError::CompressFeatureDisabled { comp } => write!(
                 f,
@@ -700,6 +764,54 @@ pub fn dump(v: &Value) -> Result<Vec<u8>, ContainerError> {
 
 /// Same as [`dump`], with explicit choices. ｜ 同 [`dump`]，但显式指定选项。
 pub fn dump_with(v: &Value, opts: &DumpOptions) -> Result<Vec<u8>, ContainerError> {
+    dump_sealed(v, opts, None)
+}
+
+/// Encrypt every content segment with `key` (§19.13). `MANIFEST` stays plaintext — it is what
+/// carries the KDF parameters, so encrypting it would be a bootstrapping loop.
+/// 用 `key` 加密每个内容段；`MANIFEST` 保持明文（KDF 参数就在它里面）。
+#[cfg(feature = "crypto")]
+pub fn dump_encrypted(
+    v: &Value,
+    opts: &DumpOptions,
+    key: &crate::crypto::KeySource<'_>,
+) -> Result<Vec<u8>, ContainerError> {
+    let salt = crate::crypto::random_salt().map_err(ContainerError::Crypto)?;
+    let wk = crate::crypto::derive_write_keys(key, salt).map_err(|e| {
+        if e.contains("KdfParams") {
+            ContainerError::KdfRequired
+        } else {
+            ContainerError::Crypto(e)
+        }
+    })?;
+    // 加密文件必须 4 KiB 对齐（§19.7 丙）：块加密与「追加不改旧字节」都要它。
+    // 调用方忘了设就替他设，而不是写出一份「看起来加密了、其实追加会毁数据」的文件。
+    let mut forced = opts.clone();
+    forced.block_align = true;
+    dump_sealed(v, &forced, Some(&wk))
+}
+
+/// Same as [`dump_encrypted`] but without the `crypto` feature — refuses instead of writing
+/// a file nobody can read.
+/// 没开 `crypto` feature 时的 [`dump_encrypted`]：明确拒绝，而不是写出一份读不回来的文件。
+#[cfg(not(feature = "crypto"))]
+pub fn dump_encrypted(
+    _v: &Value,
+    _opts: &DumpOptions,
+    _key: &crate::crypto::KeySource<'_>,
+) -> Result<Vec<u8>, ContainerError> {
+    Err(ContainerError::Crypto(
+        "本构建未启用 `crypto` feature".to_string(),
+    ))
+}
+
+/// Shared writer body: optional encryption, then manifest + layout.
+/// 写者共用体：可选加密，再走 manifest 与布局。
+fn dump_sealed(
+    v: &Value,
+    opts: &DumpOptions,
+    keys: Option<&crate::crypto::WriteKeys>,
+) -> Result<Vec<u8>, ContainerError> {
     let blocks = v.canonical_blocks()?;
 
     // 内容段（manifest 的 segments[] 只列它们，**不含自己** —— 否则摘要循环）
@@ -721,7 +833,30 @@ pub fn dump_with(v: &Value, opts: &DumpOptions) -> Result<Vec<u8>, ContainerErro
     }
 
     let sealed = seal(segs, opts)?;
-    let manifest = build_manifest(primary, &sealed, &[], opts)?;
+
+    // 加密：每个内容段独立按块 AEAD；`MANIFEST` 一律明文
+    let sealed: Vec<(u8, u8, Vec<u8>, bool)> = {
+        let mut out = Vec::with_capacity(sealed.len());
+        for (id, comp, body) in sealed {
+            match keys {
+                Some(k) if id != SEG_MANIFEST => {
+                    let enc = crate::crypto::seal_segment(id, comp, &body, &k.keys)
+                        .map_err(ContainerError::Crypto)?;
+                    out.push((id, comp, enc, true));
+                }
+                _ => out.push((id, comp, body, false)),
+            }
+        }
+        out
+    };
+
+    let mut manifest = build_manifest(primary, &sealed, &[], opts)?;
+    if let Some(k) = keys {
+        manifest.crypto_enc = crate::crypto::ENC_AES256_GCM;
+        manifest.kdf_kind = k.kdf_kind;
+        manifest.kdf = k.kdf;
+        manifest.file_salt = Some(k.keys.file_salt);
+    }
     write_file(sealed, manifest, opts)
 }
 
@@ -816,7 +951,10 @@ pub fn pack_with(
     }
     let body_len_total = body_len(&body)?;
 
-    let sealed = seal(vec![(SEG_EMBED, body)], opts)?;
+    let sealed: Vec<(u8, u8, Vec<u8>, bool)> = seal(vec![(SEG_EMBED, body)], opts)?
+        .into_iter()
+        .map(|(id, comp, b)| (id, comp, b, false))
+        .collect();
     let mut manifest = build_manifest(SEG_EMBED, &sealed, &payloads, opts)?;
     // 归档的「能力」就是 embed：读不懂 embed 的读者应当明说读不懂，而不是当空文件
     manifest.caps_required = if opts.caps_required.is_empty() {
@@ -832,16 +970,16 @@ pub fn pack_with(
 /// 为 `segs` 组装 manifest（摘要用 `opts.hash` 现算）。
 fn build_manifest(
     primary: u8,
-    segs: &[(u8, u8, Vec<u8>)],
+    segs: &[(u8, u8, Vec<u8>, bool)],
     payloads: &[ManifestPayload],
     opts: &DumpOptions,
 ) -> Result<Manifest, ContainerError> {
     let mut manifest_segments = Vec::with_capacity(segs.len());
-    for (seg_id, comp, stored) in segs {
+    for (seg_id, comp, stored, encrypted) in segs {
         manifest_segments.push(ManifestSegment {
             id: *seg_id,
             comp: *comp,
-            enc: 0,
+            enc: if *encrypted { crypto::ENC_AES256_GCM } else { 0 },
             len: body_len(stored)?,
             digest: hash::digest(opts.hash, stored).map_err(ContainerError::Hash)?,
         });
@@ -856,14 +994,14 @@ fn build_manifest(
 /// Lay out header + segment table + segments (the part every writer shares).
 /// 落版：头 + 段表 + 段数据（所有写入口共用的那段）。
 fn write_file(
-    mut segs: Vec<(u8, u8, Vec<u8>)>,
+    mut segs: Vec<(u8, u8, Vec<u8>, bool)>,
     manifest: Manifest,
     opts: &DumpOptions,
 ) -> Result<Vec<u8>, ContainerError> {
     let manifest_bytes = manifest.to_bytes()?;
     // manifest 自己**不压缩**：它必须在「还不知道用什么解压」的时候就能读（引导顺序）
-    segs.push((SEG_MANIFEST, 0, manifest_bytes));
-    segs.sort_by_key(|(id, _, _)| *id);
+    segs.push((SEG_MANIFEST, 0, manifest_bytes, false));
+    segs.sort_by_key(|(id, _, _, _)| *id);
 
     let flags: u16 = if opts.block_align { FLAG_ALIGN_BLOCK } else { 0 };
     let granule = align_of(flags);
@@ -886,12 +1024,12 @@ fn write_file(
 
     // --- table + data ---
     let mut data_off = data_start;
-    for (i, (seg_id, comp, body)) in segs.iter().enumerate() {
+    for (i, (seg_id, comp, body, encrypted)) in segs.iter().enumerate() {
         let len = body_len(body)?;
         let at = table_off as usize + i * SEG_HEADER_LEN;
         out[at] = *seg_id;
         out[at + 1] = *comp;
-        out[at + 2] = 0; // enc: plaintext
+        out[at + 2] = if *encrypted { crypto::ENC_AES256_GCM } else { 0 };
         out[at + 3..at + 5].copy_from_slice(&0u16.to_le_bytes()); // 段头 flags（T1 起恒 0）
         out[at + 5..at + 9].copy_from_slice(&len.to_le_bytes());
         let digest = hash::digest(opts.hash, body).map_err(ContainerError::Hash)?;
@@ -1083,6 +1221,90 @@ pub fn body<'a>(
 /// every segment and cross-checks the manifest against the table.
 /// 摘要只对**本函数用到的段**校验；逐段全验 + manifest 交叉核对是 `smlb check` 的事。
 pub fn load(bytes: &[u8]) -> Result<Value, ContainerError> {
+    load_with_keys(bytes, None)
+}
+
+/// Decrypt + load with caller-provided key material (§19.13).
+/// 带密钥解密并读出值。明文文件也能用（`keys` 会被忽略）。
+#[cfg(feature = "crypto")]
+pub fn load_encrypted(
+    bytes: &[u8],
+    key: &crypto::KeySource<'_>,
+) -> Result<Value, ContainerError> {
+    let keys = read_file_keys(bytes, key)?;
+    load_with_keys(bytes, keys.as_ref())
+}
+
+/// Without the `crypto` feature, the name still exists — it just refuses.
+/// 没开 `crypto` 时同名入口仍在：明确拒绝，而不是从补全列表里消失。
+#[cfg(not(feature = "crypto"))]
+pub fn load_encrypted(
+    _bytes: &[u8],
+    _key: &crypto::KeySource<'_>,
+) -> Result<Value, ContainerError> {
+    Err(ContainerError::Crypto(
+        "本构建未启用 `crypto` feature".to_string(),
+    ))
+}
+
+/// See [`load_encrypted`]. ｜ 见 [`load_encrypted`]。
+#[cfg(not(feature = "crypto"))]
+pub fn get_encrypted(
+    _bytes: &[u8],
+    _path: &str,
+    _key: &crypto::KeySource<'_>,
+) -> Result<Value, ContainerError> {
+    Err(ContainerError::Crypto(
+        "本构建未启用 `crypto` feature".to_string(),
+    ))
+}
+
+/// Derive the per-file keys from the manifest's `crypto` block.
+/// 按 manifest 里的 `crypto` 块派生本文件的密钥。
+///
+/// 明文文件返回 `Ok(None)`：不给密钥也能读，这条路径不制造“必须带钥”的假象。
+/// Plaintext files return `Ok(None)` — they must stay readable without any key.
+#[cfg(feature = "crypto")]
+pub fn read_file_keys(
+    bytes: &[u8],
+    key: &crypto::KeySource<'_>,
+) -> Result<Option<crypto::FileKeys>, ContainerError> {
+    let info = info(bytes)?;
+    let Some(m) = read_manifest(bytes, &info)? else {
+        return Ok(None);
+    };
+    if m.crypto_enc == 0 {
+        return Ok(None);
+    }
+    if m.crypto_enc != crypto::ENC_AES256_GCM {
+        return Err(ContainerError::UnsupportedAlgorithm {
+            seg_id: SEG_VALUE,
+            comp: 0,
+            enc: m.crypto_enc,
+        });
+    }
+    let Some(salt) = m.file_salt else {
+        return Err(ContainerError::Crypto(
+            "manifest 说文件加密，但没写 salt".to_string(),
+        ));
+    };
+    crypto::derive_read_keys(key, m.kdf_kind, m.kdf, salt)
+        .map(Some)
+        .map_err(|e| {
+            if e.contains("不符") {
+                ContainerError::KdfMismatch(e)
+            } else if e.starts_with("不支持") {
+                ContainerError::KdfUnsupported { id: m.kdf_kind }
+            } else {
+                ContainerError::Crypto(e)
+            }
+        })
+}
+
+fn load_with_keys(
+    bytes: &[u8],
+    keys: Option<&crypto::FileKeys>,
+) -> Result<Value, ContainerError> {
     let info = info(bytes)?;
     let manifest = read_manifest(bytes, &info)?;
 
@@ -1092,7 +1314,7 @@ pub fn load(bytes: &[u8]) -> Result<Value, ContainerError> {
             return Err(ContainerError::MissingCapability { name: name.clone() });
         }
     }
-    let base = base_value(bytes)?;
+    let base = base_value_with_keys(bytes, keys)?;
 
     // 层链的补丁按顺序合并进来 ⇒ 返回的是「当前值」，不是「第一版」
     // （历史版本走 `layer::value_at`；这是 P2-a「值来自哪一层」的读取面）
@@ -1222,6 +1444,9 @@ pub(crate) fn open_raw<'a>(bytes: &'a [u8], verify: bool) -> Result<RawParts<'a>
                 frames = Some(b);
             }
             SEG_VALUE | SEG_STRTAB => {
+                if seg.header.enc != 0 {
+                    return Err(ContainerError::EncryptedNotZeroCopy);
+                }
                 if seg.header.comp != 0 {
                     return Err(ContainerError::ZeroCopyNeedsPlain {
                         seg_id: seg.header.seg_id,
@@ -1274,6 +1499,14 @@ pub(crate) fn open_raw<'a>(bytes: &'a [u8], verify: bool) -> Result<RawParts<'a>
 /// 日常读当前值请用 [`load`]。
 /// For history replay; use [`load`] for the current value.
 pub fn base_value(bytes: &[u8]) -> Result<Value, ContainerError> {
+    base_value_with_keys(bytes, None)
+}
+
+/// [`base_value`] with key material for encrypted segments. ｜ 带密钥的 [`base_value`]。
+pub fn base_value_with_keys(
+    bytes: &[u8],
+    keys: Option<&crypto::FileKeys>,
+) -> Result<Value, ContainerError> {
     let info = info(bytes)?;
     let manifest = read_manifest(bytes, &info)?;
     let algo = manifest.as_ref().map(|m| m.hash).unwrap_or(hash::DEFAULT);
@@ -1293,6 +1526,7 @@ pub fn base_value(bytes: &[u8]) -> Result<Value, ContainerError> {
                 }
                 let raw = body(bytes, seg)?;
                 verify_digest(seg, raw, algo)?;
+                // 分帧 + 加密不叠加（§19.13：加密段里没有 FRAMES）
                 framed = Some(inflate_frames_all(raw)?);
             }
             SEG_VALUE => {
@@ -1303,7 +1537,7 @@ pub fn base_value(bytes: &[u8]) -> Result<Value, ContainerError> {
                 // 反过来验解压结果会把「文件被改」误报成「解压失败」，也验不出压缩数据被改。
                 let raw = body(bytes, seg)?;
                 verify_digest(seg, raw, algo)?;
-                value = Some(body_of(seg, bytes)?);
+                value = Some(body_of(seg, bytes, keys)?);
             }
             SEG_STRTAB => {
                 if strtab.is_some() {
@@ -1313,7 +1547,7 @@ pub fn base_value(bytes: &[u8]) -> Result<Value, ContainerError> {
                 }
                 let raw = body(bytes, seg)?;
                 verify_digest(seg, raw, algo)?;
-                strtab = Some(body_of(seg, bytes)?);
+                strtab = Some(body_of(seg, bytes, keys)?);
             }
             _ => {}
         }
@@ -1343,17 +1577,40 @@ type Body<'a> = std::borrow::Cow<'a, [u8]>;
 ///
 /// 解压预算由 [`MAX_DECOMPRESSED`] 卡死：`len` 是压缩后长度，对「能膨胀到多大」一无所知。
 /// ｜ `len` is the compressed size and says nothing about the inflated size — hence the cap.
-fn body_of<'a>(seg: &Segment, bytes: &'a [u8]) -> Result<Body<'a>, ContainerError> {
-    if seg.header.enc != 0 {
-        return Err(ContainerError::UnsupportedAlgorithm {
-            seg_id: seg.header.seg_id,
-            comp: seg.header.comp,
-            enc: seg.header.enc,
-        });
-    }
+fn body_of<'a>(
+    seg: &Segment,
+    bytes: &'a [u8],
+    keys: Option<&crypto::FileKeys>,
+) -> Result<Body<'a>, ContainerError> {
     let raw = body(bytes, seg)?;
+
+    // 顺序：**先解密，再解压**（写时是「先压后加」，D28）
+    let plain: std::borrow::Cow<'a, [u8]> = if seg.header.enc != 0 {
+        let Some(k) = keys else {
+            return Err(ContainerError::KeyRequired);
+        };
+        let out = crypto::open_segment(
+            seg.header.seg_id,
+            seg.header.comp,
+            raw,
+            k,
+            MAX_DECOMPRESSED,
+        )
+        .map_err(|e| match e.block {
+            Some(block) => ContainerError::AuthFailed {
+                seg_id: seg.header.seg_id,
+                block,
+                reason: e.reason,
+            },
+            None => ContainerError::Crypto(e.reason),
+        })?;
+        std::borrow::Cow::Owned(out)
+    } else {
+        std::borrow::Cow::Borrowed(raw)
+    };
+
     match seg.header.comp {
-        0 => Ok(std::borrow::Cow::Borrowed(raw)),
+        0 => Ok(plain),
         COMP_ZSTD => {
             #[cfg(not(feature = "compress"))]
             {
@@ -1361,7 +1618,7 @@ fn body_of<'a>(seg: &Segment, bytes: &'a [u8]) -> Result<Body<'a>, ContainerErro
             }
             #[cfg(feature = "compress")]
             {
-                let out = inflate_zstd(raw, MAX_DECOMPRESSED).map_err(|_| {
+                let out = inflate_zstd(&plain, MAX_DECOMPRESSED).map_err(|_| {
                     ContainerError::DecompressTooLarge {
                         seg_id: seg.header.seg_id,
                         limit: MAX_DECOMPRESSED,
@@ -1673,8 +1930,14 @@ pub fn check(bytes: &[u8]) -> Result<CheckReport, ContainerError> {
                 }
             }
         }
-        if seg.header.comp != 0 {
-            match body_of(seg, bytes) {
+        if seg.header.enc != 0 {
+            lines.push(format!(
+                "0x{:02x} {:<10} 加密 0x{:02x}（未解密；`load_encrypted` 才看得到明文）",
+                seg.header.seg_id, name, seg.header.enc
+            ));
+        }
+        if seg.header.comp != 0 && seg.header.enc == 0 {
+            match body_of(seg, bytes, None) {
                 Ok(inflated) => lines.push(format!(
                     "0x{:02x} {:<10} 压缩 0x{:02x}：{} B → {} B",
                     seg.header.seg_id,
@@ -1852,7 +2115,20 @@ pub fn check(bytes: &[u8]) -> Result<CheckReport, ContainerError> {
         }
     }
 
-    // 4) 真的能不能解
+    // 4) 真的能不能解（加密文件没有钥匙，只报状态）
+    if info.segments.iter().any(|s| s.header.enc != 0) {
+        lines.push(
+            "VALUE    加密段未解密 —— 用 `load_encrypted` / `get_encrypted` 才能读出明文".to_string(),
+        );
+        lines.push(format!(
+            "结论      {}（{} 段，{} 字节，对齐 {} B）",
+            if ok { "结构通过" } else { "未通过" },
+            info.segments.len(),
+            info.file_len,
+            info.align
+        ));
+        return Ok(CheckReport { lines, ok });
+    }
     match load(bytes) {
         Ok(_) => lines.push("VALUE    段可解（按 canonical 解码成功）".to_string()),
         // 归档类文件（primary = EMBED）本来就**不该**解成 Value ⇒ 这不是失败，
@@ -1918,7 +2194,7 @@ pub fn embed_body<'a>(bytes: &'a [u8]) -> Result<Body<'a>, ContainerError> {
     if let Some(m) = &manifest {
         verify_digest(seg, raw, m.hash)?;
     }
-    body_of(seg, bytes)
+    body_of(seg, bytes, None)
 }
 
 /// List the payloads declared in the manifest, in body order.
@@ -1993,6 +2269,20 @@ pub fn payload<'a>(
 /// first: an index must not be where the semantics are decided.
 pub fn get(bytes: &[u8], path: &str) -> Result<Value, ContainerError> {
     let v = load(bytes)?;
+    let p = sml_value::Path::parse(path).map_err(ContainerError::Path)?;
+    let found = v.get_path(&p).map_err(ContainerError::Path)?;
+    Ok(found.clone())
+}
+
+/// `get` with key material for encrypted files. ｜ 带密钥按路径取值。
+#[cfg(feature = "crypto")]
+pub fn get_encrypted(
+    bytes: &[u8],
+    path: &str,
+    key: &crypto::KeySource<'_>,
+) -> Result<Value, ContainerError> {
+    let keys = read_file_keys(bytes, key)?;
+    let v = load_with_keys(bytes, keys.as_ref())?;
     let p = sml_value::Path::parse(path).map_err(ContainerError::Path)?;
     let found = v.get_path(&p).map_err(ContainerError::Path)?;
     Ok(found.clone())

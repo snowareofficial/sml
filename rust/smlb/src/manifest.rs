@@ -112,6 +112,12 @@ pub struct Manifest {
     pub crypto_sig: Vec<u8>,
     /// `crypto.kem` (§20) ｜ KEM 算法。
     pub crypto_kem: u8,
+    /// `crypto.kdf` (§20: `0x00` none / `0x51` Argon2id) ｜ 口令派生算法。
+    pub kdf_kind: u8,
+    /// Argon2id parameters (only when `kdf_kind != 0`) ｜ 口令派生参数。
+    pub kdf: Option<crate::crypto::KdfParams>,
+    /// Per-file salt (hex in the value form); seeds nonce + KDF ｜ 每文件一个盐。
+    pub file_salt: Option<[u8; 16]>,
     /// `created` — display only (D17) ｜ 时间戳，只展示。
     pub created: Option<String>,
     /// `tool` — display only (D12) ｜ 写入者，只展示。
@@ -136,6 +142,9 @@ impl Manifest {
             crypto_enc: 0,
             crypto_sig: Vec::new(),
             crypto_kem: 0,
+            kdf_kind: 0,
+            kdf: None,
+            file_salt: None,
             created: None,
             tool: None,
         }
@@ -211,6 +220,17 @@ impl Manifest {
             ),
         );
         crypto.insert("kem".to_string(), Value::Int(self.crypto_kem as i64));
+        if self.kdf_kind != 0 {
+            crypto.insert("kdf".to_string(), Value::Int(self.kdf_kind as i64));
+            if let Some(k) = &self.kdf {
+                crypto.insert("kdf_m".to_string(), Value::Int(k.m_cost as i64));
+                crypto.insert("kdf_t".to_string(), Value::Int(k.t_cost as i64));
+                crypto.insert("kdf_p".to_string(), Value::Int(k.p_cost as i64));
+            }
+        }
+        if let Some(s) = &self.file_salt {
+            crypto.insert("salt".to_string(), Value::Str(hex(s)));
+        }
         m.insert("crypto".to_string(), Value::Object(crypto));
 
         let mut caps = Map::new();
@@ -372,6 +392,18 @@ impl Manifest {
                 })
                 .unwrap_or_default(),
             crypto_kem: crypto.and_then(|c| int_field(c, "kem")).unwrap_or(0) as u8,
+            kdf_kind: crypto.and_then(|c| int_field(c, "kdf")).unwrap_or(0) as u8,
+            kdf: crypto.and_then(|c| {
+                Some(crate::crypto::KdfParams {
+                    m_cost: int_field(c, "kdf_m")? as u32,
+                    t_cost: int_field(c, "kdf_t")? as u32,
+                    p_cost: int_field(c, "kdf_p")? as u32,
+                })
+            }),
+            file_salt: crypto.and_then(|c| match c.get("salt") {
+                Some(Value::Str(s)) => from_hex16(s),
+                _ => None,
+            }),
             created: obj.get("created").and_then(|v| match v {
                 Value::Str(s) => Some(s.clone()),
                 _ => None,
@@ -511,8 +543,21 @@ fn str_list(v: &Value) -> Vec<String> {
     }
 }
 
-fn hex(d: &[u8; 32]) -> String {
+fn hex(d: &[u8]) -> String {
     d.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Parse a 32-hex-digit string into 16 bytes (per-file salt).
+/// 把 32 位十六进制解析成 16 字节（每文件盐）。
+fn from_hex16(s: &str) -> Option<[u8; 16]> {
+    if s.len() != 32 || !s.is_ascii() {
+        return None;
+    }
+    let mut out = [0u8; 16];
+    for (i, slot) in out.iter_mut().enumerate() {
+        *slot = u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).ok()?;
+    }
+    Some(out)
 }
 
 fn from_hex(s: &str) -> Option<[u8; 32]> {
