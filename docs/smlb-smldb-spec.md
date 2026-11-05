@@ -1541,31 +1541,71 @@ pub enum KeySource<'a> {
 #### §19.13.1 接口草案（示意，**尚未实现** · 2026-11-05）
 
 > 先定「用起来长什么样」，再写实现 —— 用例不顺手就说明接口错了，改接口比改实现便宜。
+>
+> 用户 2026-11-05 定了三条：**一个 enum**（不拆写/读两个类型）、**命名要一眼就懂**、
+> **API 树要扁平**（一个树、每层节点少一些）。
 
-**写：原始密钥（也就是外部秘密那条路）**
+**API 树（根下一层，六个动作 + 四个类型）**
 
-```rust
-use smlb::{dump_sealed, DumpOptions, SealKey};
-
-// 钥匙从哪来，库不管：环境变量、KMS、HSM、文件、内存里的 Secret，都行
-let master: [u8; 32] = load_master_from_kms("prod/smlb/key")?;
-
-let bytes = dump_sealed(
-    &value,
-    &DumpOptions { block_align: true, ..Default::default() },  // 加密必须 4 KiB
-    &SealKey::Bytes(&master),
-)?;                                                     // enc = 0x10，manifest 记 kdf: 0x00
+```text
+smlb
+├─ dump / dump_with / dump_encrypted        写
+├─ load / load_encrypted                    读成 Value
+├─ get  / get_encrypted                     按路径取一个节点
+├─ check / info / ls                        只看结构（不需要钥匙）
+├─ pack / unpack                            EMBED 归档
+└─ KeySource / KdfParams / DumpOptions / Store
 ```
 
-**写：口令派生**
+扁平的理由：多一层模块就多一个要记的路径。`KdfParams` 挂在根上而不是
+`crypto::kdf::Argon2Params` —— 名字已经说明一切，位置不必再说明一次。
+
+#### 密钥：一个 enum
 
 ```rust
-let bytes = dump_sealed(
+/// 造钥材料。写时 `kdf` 必须给；读时留 `None`，**文件里写的说了算**。
+pub enum KeySource<'a> {
+    /// 32 字节原始密钥 —— 也就是**外部秘密**那条路（KMS/HSM/secret manager 取回来就是它）
+    Bytes(&'a [u8; 32]),
+    /// 口令：写要选参数（`Some`），读要听文件的（`None`）
+    Passphrase {
+        secret: &'a [u8],
+        kdf: Option<KdfParams>,
+    },
+}
+```
+
+两个方向各错一次就会报错，**不会静默走偏**：
+
+| 情形 | 结果 |
+|---|---|
+| 写时 `kdf: None` | `Err(kdf-required)` —— 写者必须选参数 |
+| 读时 `kdf: Some(p)` 且与文件不符 | `Err(kdf-mismatch)` —— 不假装没看见 |
+| 读时 `kdf: None` | 正常：参数取自 manifest |
+
+**写：原始密钥（= 外部秘密）**
+
+```rust
+use smlb::{dump_encrypted, DumpOptions, KeySource};
+
+let master: [u8; 32] = load_master_from_kms("prod/smlb/key")?;   // 库不管钥匙从哪来
+
+let bytes = dump_encrypted(
+    &value,
+    &DumpOptions { block_align: true, ..Default::default() },   // 加密强制 4 KiB
+    &KeySource::Bytes(&master),
+)?;                                                            // enc=0x10，manifest 记 kdf: 0x00
+```
+
+**写：口令**
+
+```rust
+let bytes = dump_encrypted(
     &value,
     &DumpOptions { block_align: true, ..Default::default() },
-    &SealKey::Passphrase {
+    &KeySource::Passphrase {
         secret: b"correct horse battery staple",
-        params: KdfParams::argon2id_default(),   // 写者选参数，库现算 salt，一并写进 manifest
+        kdf: Some(KdfParams::argon2id_default()),   // 写者选；salt 由库现算并写进 manifest
     },
 )?;
 ```
@@ -1573,41 +1613,33 @@ let bytes = dump_sealed(
 **读：对钥 / 错钥**
 
 ```rust
-let v = load_sealed(&bytes, &OpenKey::Bytes(&master))?;      // Ok
-let e = load_sealed(&bytes, &OpenKey::Bytes(&wrong_key))?;   // Err: 块 0 认证失败
-assert_eq!(e.kind(), "auth-failed");                          // 明确是「认证失败」，不是「文件坏了」
+let v = load_encrypted(&bytes, &KeySource::Bytes(&master))?;   // Ok
+let e = load_encrypted(&bytes, &KeySource::Bytes(&wrong_key))
+        .expect_err("错钥必须失败");
+assert_eq!(e.kind(), "auth-failed");     // 明确是「认证失败」，不是「文件坏了」
 ```
 
-**口令那条：参数从文件里读，不靠调用方记**
+**读：口令（参数听文件的）**
 
 ```rust
-// 调用方只需要口令 —— salt / m / t / p **一律从 manifest 取**
-let v = load_sealed(&bytes, &OpenKey::Passphrase { secret: pass })?;
+let v = load_encrypted(&bytes, &KeySource::Passphrase { secret: pass, kdf: None })?;
 ```
 
-> **为什么写/读是两个类型**：写者要**选** KDF 参数（`SealKey::Passphrase { params }`），
-> 读者**不能选** —— 参数就在文件里，读的人自己指定一套只会打不开自己的文件。
-> 把这两个方向塞进同一个 enum（`KeySource { kdf: Option<...> }`）会让「读」这条路多出
-> 一个「填错了也编译通过」的坑；分成两个类型，编译期就不给机会。
-> ｜ The asymmetry is deliberate: writers choose KDF params, readers must obey the file's.
-
-**随机访问：加密文件**不能**零拷贝**（和分帧同一个理由）
+**取一个字段：只解覆盖目标的块**
 
 ```rust
-let e = Store::open(&bytes).expect_err("加密文件不能零拷贝");   // encrypted-not-zero-copy
+let e = Store::open(&bytes).expect_err("加密文件不能零拷贝");
 assert_eq!(e.kind(), "encrypted-not-zero-copy");
 
-// 取一个字段：只解覆盖目标的那几块 → 再走节点导航（与分帧同一个思路）
-let port = smlb::get_sealed(&bytes, "config.port", &OpenKey::Bytes(&master))?;
+let port = get_encrypted(&bytes, "config.port", &KeySource::Bytes(&master))?;
 ```
 
-**`check` 不需要钥匙**（结构、摘要、块数、算法都能读；只报「密文未解密」）
+**`check` 不需要钥匙**（结构、摘要、块数、算法都能读）
 
 ```text
 $ smlb check secret.smlb
 算法      SHA-256（hash_id 0x30）
-0x01 VALUE      摘要 OK (…)          enc=0x10 AES-256-GCM  12 块
-0x02 STRTAB     摘要 OK (…)
+0x01 VALUE      摘要 OK (…)      enc=0x10 AES-256-GCM  12 块
 0x04 MANIFEST   摘要 OK (…)
 manifest  primary = 0x01 · kdf = 0x00（原始密钥）
 crypto    加密：AES-256-GCM（本构建可解，需提供密钥）
@@ -1619,9 +1651,11 @@ crypto    加密：AES-256-GCM（本构建可解，需提供密钥）
 | `kind()` | 何时 |
 |---|---|
 | `encrypted-not-zero-copy` | 对加密文件调用零拷贝 `Store` 读取 |
-| `auth-failed` | 块认证失败：密钥错、密文被改、段头被改（AAD 绑了段头） |
+| `auth-failed` | 块认证失败：钥匙错、密文被改、**段头被改**（AAD 绑了段头） |
 | `key-required` | 文件加密但没给 `KeySource` |
-| `kdf-unsupported` | `kdf` 编号本构建不实现（如将来新增的 scrypt） |
+| `kdf-required` | 写口令时没给 `KdfParams` |
+| `kdf-mismatch` | 读口令时给的参数与文件里的不符 |
+| `kdf-unsupported` | `kdf` 编号本构建不实现（如将来的 scrypt） |
 | `crypto-feature-disabled` | 本构建没开 `crypto` feature |
 
 #### crate 台账（2026-11-05 实测 RustSec）
