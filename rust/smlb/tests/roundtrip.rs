@@ -247,6 +247,44 @@ fn unknown_required_capability_is_refused() {
     assert!(smlb::load(&ok_file).is_ok());
 }
 
+/// 写侧只校验**格式**（合法标识符、不重复），不按闭集硬拒 ——
+/// 后者会掐死「声明未来能力」这条唯一扩展通道。
+/// Writer-side validation is about **form**, not membership.
+#[test]
+fn capability_declaration_is_validated_on_write() {
+    let v = (CASES[0].build)();
+
+    // 名字不合法：空格 / 大写 / 数字开头
+    for bad in ["Bad Name", "Sig", "1dir", ""] {
+        let opts = DumpOptions {
+            caps_required: vec![bad.into()],
+            ..Default::default()
+        };
+        let e = smlb::dump_with(&v, &opts).unwrap_err();
+        assert_eq!(e.kind(), "bad-capability-name", "`{bad}` 应被拒：{e}");
+    }
+
+    // 同一个名字在 required 与 optional 之间重复
+    let dup = DumpOptions {
+        caps_required: vec!["sig".into()],
+        caps_optional: vec!["sig".into()],
+        ..Default::default()
+    };
+    let e = smlb::dump_with(&v, &dup).unwrap_err();
+    assert_eq!(e.kind(), "duplicate-capability", "{e}");
+
+    // 合法的未来能力仍然写得出来（`sig` / `dir` 不在 known 闭集里）
+    let future = DumpOptions {
+        caps_required: vec!["sig".into()],
+        caps_optional: vec!["dir".into()],
+        ..Default::default()
+    };
+    assert!(
+        smlb::dump_with(&v, &future).is_ok(),
+        "已登记但本构建不处理的能力必须仍可声明"
+    );
+}
+
 /// Every segment carries a real digest, and `check` says so.
 /// 每个段都带真摘要，`check` 会把结论打出来。
 #[test]
