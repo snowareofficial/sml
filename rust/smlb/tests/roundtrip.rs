@@ -311,6 +311,26 @@ fn pack_iter_matches_pack_byte_for_byte() {
     );
 }
 
+/// 流式载荷入口（`impl Read`）与内存入口必须产出**同一份字节**。
+/// The reader-based entry point must be byte-identical to the buffer-based one.
+#[test]
+fn pack_from_readers_matches_pack_byte_for_byte() {
+    use std::io::Cursor;
+
+    let a: &[u8] = b"hello";
+    let b: &[u8] = &[0x00, 0xFF, 0x01];
+
+    let borrowed = smlb::pack(&[("a.txt", a), ("b.bin", b)]).unwrap();
+    let streamed = smlb::pack_from_readers(vec![
+        ("a.txt".to_string(), Cursor::new(a.to_vec())),
+        ("b.bin".to_string(), Cursor::new(b.to_vec())),
+    ])
+    .unwrap();
+
+    assert_eq!(borrowed, streamed, "两个入口必须逐字节相同");
+    assert_eq!(&*smlb::payload(&streamed, "b.bin").unwrap(), b);
+}
+
 /// Every segment carries a real digest, and `check` says so.
 /// 每个段都带真摘要，`check` 会把结论打出来。
 #[test]

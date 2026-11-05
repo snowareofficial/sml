@@ -335,6 +335,8 @@ pub enum ContainerError {
         /// The id `primary` names ｜ `primary` 写的 id。
         id: u8,
     },
+    /// Reading a payload stream failed ｜ 读取载荷流失败。
+    PayloadRead(String),
     /// A declared capability name is not a well-formed identifier.
     /// 声明的能力名不是合法标识符（写侧格式校验）。
     BadCapabilityName {
@@ -478,6 +480,7 @@ impl ContainerError {
             ContainerError::BadManifest(_) => "bad-manifest",
             ContainerError::PrimarySegmentMissing { .. } => "primary-segment-missing",
             ContainerError::PrimaryNotValue { .. } => "primary-not-value",
+            ContainerError::PayloadRead(_) => "payload-read",
             ContainerError::BadCapabilityName { .. } => "bad-capability-name",
             ContainerError::DuplicateCapability { .. } => "duplicate-capability",
             ContainerError::MissingCapability { .. } => "missing-capability",
@@ -578,6 +581,7 @@ impl std::fmt::Display for ContainerError {
                 f,
                 "manifest 的 primary 指向段 0x{id:02x}，它不是 Value 段（load 只解值；裸载荷走 payload）"
             ),
+            ContainerError::PayloadRead(why) => write!(f, "读载荷失败：{why}"),
             ContainerError::BadCapabilityName { name } => write!(
                 f,
                 "能力名 `{name}` 不合法：只允许小写字母 / 数字 / `-` / `.`，且不能以数字开头"
@@ -1013,6 +1017,41 @@ where
     N: Into<String>,
 {
     let owned: Vec<(String, Vec<u8>)> = items.into_iter().map(|(n, b)| (n.into(), b)).collect();
+    pack_owned(&owned, opts)
+}
+
+/// [`pack_iter`] for callers whose payloads are **streams**, not buffers.
+/// 给「载荷是流而不是内存缓冲」的调用方：逐个 `Read` 读入并算摘要。
+///
+/// 注意本函数仍会把每个载荷读成一个 `Vec<u8>`（段体要一次算摘要 + 长度）。
+/// 要连内存也省掉，用 [`Writer`]（`add_segment` 边写边落盘）。
+pub fn pack_from_readers<I, N, R>(items: I) -> Result<Vec<u8>, ContainerError>
+where
+    I: IntoIterator<Item = (N, R)>,
+    N: Into<String>,
+    R: std::io::Read,
+{
+    pack_from_readers_with(items, &DumpOptions::default())
+}
+
+/// [`pack_from_readers`] with explicit choices. ｜ 同 [`pack_from_readers`]，但显式指定选项。
+pub fn pack_from_readers_with<I, N, R>(
+    items: I,
+    opts: &DumpOptions,
+) -> Result<Vec<u8>, ContainerError>
+where
+    I: IntoIterator<Item = (N, R)>,
+    N: Into<String>,
+    R: std::io::Read,
+{
+    let mut owned: Vec<(String, Vec<u8>)> = Vec::new();
+    for (name, mut reader) in items {
+        let mut buf = Vec::new();
+        reader
+            .read_to_end(&mut buf)
+            .map_err(|e| ContainerError::PayloadRead(e.to_string()))?;
+        owned.push((name.into(), buf));
+    }
     pack_owned(&owned, opts)
 }
 
