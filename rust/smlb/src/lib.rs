@@ -38,6 +38,7 @@
 //! 仍零第三方依赖）。容器层（段表 / manifest / 层链 / 签名 / 加密）一概不进 `sml-value`。
 
 pub mod container;
+pub mod crypto;
 pub mod hash;
 pub mod layer;
 pub mod manifest;
@@ -48,8 +49,12 @@ pub mod sign;
 pub mod sm3;
 pub mod vectors;
 
+#[cfg(feature = "crypto")]
+pub use crypto::{KdfParams, KeySource, ENC_AES256_GCM, KDF_ARGON2ID, KDF_NONE};
 pub use container::{
-    align_of, base_value, check, dump, dump_with, embed_body, get, hash_algo, info, load, pack, pack_with, payload,
+    align_of, base_value, base_value_with_keys, check, dump, dump_with, dump_encrypted,
+    embed_body, get, get_encrypted, hash_algo, info, load, load_encrypted, pack, pack_with,
+    payload,
     payloads, CheckReport, ContainerError, DumpOptions, FileInfo, Segment, SegmentHeader,
     ALIGN_BLOCK, ALIGN_MIN, COMP_ZSTD, EDITION, FLAG_ALIGN_BLOCK, FMT, HEADER_LEN, MAGIC,
     frame_bytes_at, inflate_frames_all, manifest_of, parse_frame_index, FrameEntry,
