@@ -29,6 +29,12 @@ categories = [
 ]
 exclude = ["/target"]
 
+# 库接口（用户 2026-11-05：转换不能只有命令行，嵌进别人程序是更自然的路）。
+# CLI 与库共用同一份实现，CLI 只是调用者之一。见 `src/envelope.rs` 的模块头。
+[lib]
+name = "smltools"
+path = "src/lib.rs"
+
 [[bin]]
 name = "smltools"
 path = "src/main.rs"
@@ -49,8 +55,13 @@ swsml = { version = "0.6.9-dev.0", path = "../", features = [
     "emit-custom",
 ] }
 clap = { version = "4.5", features = ["derive"] }
+# `.smlb` 信封：包装 / 取出 / 列出载荷（D3：本 crate 可以依赖它，反之不行）
+smlb = { version = "0.6.9-dev.0", path = "../smlb" }
 
 [features]
 # 对象保序：转发到 swsml（理由见 ../sml-parse/Cargo.toml 的同名注释 ——
 # 本 crate 不吃 sml-value，但它是 swsml 的一个下游，少了这一条同样会分裂出两份）。
-preserve_order = ["swsml/preserve_order"]
+preserve_order = ["swsml/preserve_order", "smlb/preserve_order"]
+# `.smlb` 段级压缩（zstd）。默认关：装上它就把 zstd 拉进依赖树，
+# 与「默认构建零三方依赖」的口径冲突，故显式开启。
+compress = ["smlb/compress"]
