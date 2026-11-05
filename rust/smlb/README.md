@@ -41,8 +41,8 @@ cargo test -p smlb --features "preserve_order,sign,compress,crypto,mmap"
 > - 程序构造：`Map::ordered()` / `Map::unordered()` / `OrderedMap` 显式二选一
 > - 遇到无序对象，`dump` 报 `key-order-unavailable` 并**指路上面这些入口**，开 feature 不解决
 >
-> 过渡期 `preserve_order` 只影响 `Map::new()` 的默认态，不影响「能不能签」；待调用点
-> 全部显式化后即删除。
+> `preserve_order` 已退场为 **no-op 兼容名**：它不再影响 `Map::new()`（一律无序），
+> 也不再影响「能不能签」。保留只是为了既有的 `--features preserve_order` 命令还能跑。
 
 尚未发布（`publish = false`，随 SML v5 一起开放）。当前用 path 依赖：
 

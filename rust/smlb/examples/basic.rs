@@ -2,21 +2,16 @@
 //! 最小用例：一个 `Value` 写进 `.smlb`，再读回来、按路径取值、做完整性校验。
 //! Minimal: dump a `Value` into `.smlb`, load it back, look up a path, check integrity.
 //!
-//! 跑法（canonical 字节要求源序，见 spec §18 C2）：
-//! `cargo run -p smlb --features preserve_order --example basic`
+//! 跑法（**不需要任何 feature**）：
+//! `cargo run -p smlb --example basic`
 //!
-//! 没开 `preserve_order` 时本例只打印一行提示 —— 这是**明确拒绝**，不是偷偷排序。
+//! 键序是**值层事实**：`Map::ordered()` 在任何 feature 组合下都能用，
+//! canonical 编码只认这一态（spec §18 C2）。所以本例不再需要 `preserve_order`。
 
-#[cfg(not(feature = "preserve_order"))]
-fn main() {
-    eprintln!("本例需要 `preserve_order`：`cargo run -p smlb --features preserve_order --example basic`");
-}
-
-#[cfg(feature = "preserve_order")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use smlb::{check, dump, dump_with, get, info, load, DumpOptions, HashAlgo, Map, Value};
 
-    // 1) 造一个值。键的顺序就是源序（开了 preserve_order 才成立）。
+    // 1) 造一个值。`Map::ordered()` 显式声明「键序就是源序」。
     let mut config = Map::ordered();
     config.insert("port".to_string(), Value::Int(8080));
     config.insert("name".to_string(), Value::Str("demo".into()));

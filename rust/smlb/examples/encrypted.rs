@@ -2,15 +2,16 @@
 //! 加密：原始密钥（也就是外部 KMS/secret manager 那条路）与口令派生。
 //! Encryption: a raw 32 B key (the external-secret path) or a passphrase.
 //!
-//! `cargo run -p smlb --features "preserve_order,crypto" --example encrypted`
+//! `cargo run -p smlb --features crypto --example encrypted`
+//! （只有 `crypto` 是必需的；键序走 `Map::ordered()`，与 feature 无关）
 
-#[cfg(not(all(feature = "preserve_order", feature = "crypto")))]
+#[cfg(not(feature = "crypto"))]
 fn main() {
-    eprintln!("本例需要 `preserve_order,crypto`：");
-    eprintln!("  cargo run -p smlb --features \"preserve_order,crypto\" --example encrypted");
+    eprintln!("本例需要 `crypto`：");
+    eprintln!("  cargo run -p smlb --features crypto --example encrypted");
 }
 
-#[cfg(all(feature = "preserve_order", feature = "crypto"))]
+#[cfg(feature = "crypto")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use smlb::{
         check, dump_encrypted, get_encrypted, info, load, load_encrypted, DumpOptions, KdfParams,
