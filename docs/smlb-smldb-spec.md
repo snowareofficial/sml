@@ -1415,7 +1415,7 @@ manifest {
 
 **用户裁决**：压缩走 zstd 的 C 绑定链（`zstd` → `zstd-safe` → `zstd-sys`），**不**换 deflate。
 台账（实测）：`zstd 0.14.3` / `zstd-safe 8.2.0` / `zstd-sys 2.1.2+zstd.1.5.7`；
-`osv_check.py` 扫 85 个包「未发现任何已知漏洞」。`zstd-sys` 2026-10-26 那条（allocator shim
+`osv_check.py` 扫 **111 个包**（含 T5 加密引入的 `aes-gcm` / `argon2` / `hkdf` / `sha2`）「未发现任何已知漏洞」。`zstd-sys` 2026-10-26 那条（allocator shim
 内存破坏）**只落 wasm32**，本 crate 不构建 wasm —— ⚠️ **将来若上 wasm，这条必须重新评审**。
 
 **机制**：用 §19.1 **早就有的** `comp:u8` 字段做**段级**压缩（`0x01 = zstd`），不新造段。
