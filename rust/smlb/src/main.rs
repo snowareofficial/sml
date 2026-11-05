@@ -37,6 +37,8 @@ smlb — SML 的二进制形式 .smlb（T0 canonical/向量 + T1 容器）
   smlb verify  <file>                  验链 + 验签（全部必须通过，D36）
   smlb tree    <file>                  打印层链：序号 / 作者 / 补丁键数 / 签名数 / 授权
   smlb cat     <file> <path> [--at N]  取第 N 层为止的值（历史回放）
+  smlb get     <file> <path> [--bytes] 零拷贝取一棵子树（不解全树）；--bytes 出原始字节十六进制
+  smlb text    <file> [--path P]       整份（或某一子树）的 canonical 文本
   smlb vectors --gen   [--file PATH]   重新生成跨端 canonical 向量
   smlb vectors --check [--file PATH]   重新生成并与磁盘逐行比对
   smlb --help | -h                     本帮助
@@ -128,6 +130,8 @@ fn run(args: &[String]) -> Result<String, (u8, String)> {
         "pack" => pack_cmd(&args[1..]),
         "unpack" => unpack_cmd(&args[1..]),
         "verify" => verify_cmd(&args[1..]),
+        "get" => get_cmd(&args[1..]),
+        "text" => text_cmd(&args[1..]),
         "tree" => tree_cmd(&args[1..]),
         "keygen" => keygen_cmd(&args[1..]),
         "delegate" => delegate_cmd(&args[1..]),
@@ -677,4 +681,72 @@ fn hex_n(s: &str) -> Option<Vec<u8>> {
 fn hex32(s: &str) -> Option<[u8; 32]> {
     let v = hex_n(s)?;
     v.as_slice().try_into().ok()
+}
+
+/// `smlb get <file> <path> [--bytes]` — 随机访问取一棵子树（T3）。
+fn get_cmd(args: &[String]) -> Result<String, (u8, String)> {
+    let mut pos: Vec<&String> = Vec::new();
+    let mut raw = false;
+    for a in args {
+        if a == "--bytes" {
+            raw = true;
+        } else {
+            pos.push(a);
+        }
+    }
+    let (Some(file), Some(expr)) = (pos.first(), pos.get(1)) else {
+        return Err((2, "用法: smlb get <file> <path> [--bytes]".to_string()));
+    };
+    let bytes = std::fs::read(file).map_err(|e| (1, format!("读 {file} 失败：{e}")))?;
+    let store = smlb::Store::open(&bytes).map_err(|e| (1, format!("{file}: {e}")))?;
+
+    if raw {
+        // 零拷贝：直接把子树字节打成十六进制（含 6 B 节点头），给调试与跨端比对用
+        let sub = store
+            .subtree_bytes(expr)
+            .map_err(|e| (1, format!("{file}: {e}")))?;
+        return Ok(sub.iter().map(|b| format!("{b:02x}")).collect::<String>());
+    }
+    let (v, touched) = store
+        .get_with_stats(expr)
+        .map_err(|e| (1, format!("{file}: {e}")))?;
+    let mut out = v.canonical_text().map_err(|e| (1, format!("{e}")))?;
+    // 把「看了几个节点」写进 stderr：判据要能被人看见，而不是只在测试里
+    eprintln!("smlb: 导航看过 {touched} 个节点（未遍历全树）");
+    out = out.trim_end_matches('\n').to_string();
+    Ok(out)
+}
+
+/// `smlb text <file> [--path P]` — 整份或某一子树的 canonical 文本。
+fn text_cmd(args: &[String]) -> Result<String, (u8, String)> {
+    let mut file: Option<&String> = None;
+    let mut path: Option<&String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--path" {
+            let Some(v) = args.get(i + 1) else {
+                return Err((2, "`--path` 需要一个路径".to_string()));
+            };
+            path = Some(v);
+            i += 2;
+            continue;
+        }
+        if file.is_none() {
+            file = Some(&args[i]);
+        } else {
+            return Err((2, format!("多余参数 `{}`", args[i])));
+        }
+        i += 1;
+    }
+    let Some(file) = file else {
+        return Err((2, "用法: smlb text <file> [--path P]".to_string()));
+    };
+    let bytes = std::fs::read(file).map_err(|e| (1, format!("读 {file} 失败：{e}")))?;
+    let store = smlb::Store::open(&bytes).map_err(|e| (1, format!("{file}: {e}")))?;
+    let text = match path {
+        Some(p) => store.text_of(p),
+        None => store.text(),
+    }
+    .map_err(|e| (1, format!("{file}: {e}")))?;
+    Ok(text.trim_end_matches('\n').to_string())
 }

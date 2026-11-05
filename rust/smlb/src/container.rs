@@ -430,6 +430,10 @@ impl std::fmt::Display for ContainerError {
                 hex8(expected),
                 hex8(actual)
             ),
+            // 导航类错误（路径取不到）不是「段体不合规」：字节是好的，是路径问错了
+            ContainerError::Canonical(
+                e @ (CanonicalError::PathNotFound { .. } | CanonicalError::PathTypeMismatch { .. }),
+            ) => write!(f, "{e}"),
             ContainerError::Canonical(e) => write!(f, "VALUE 段体不合规：{e}"),
             ContainerError::Path(e) => write!(f, "路径取不到：{e}"),
             ContainerError::BadManifest(e) => write!(f, "{e}"),
@@ -893,7 +897,10 @@ pub fn load(bytes: &[u8]) -> Result<Value, ContainerError> {
 /// 验摘要挡的是**意外损坏**（改一个字节），挡不了**蓄意伪造**（没有签名，谁都能重算）。
 /// 蓄意那一路归 T4 的签名，这里不冒充。
 /// The digest catches corruption, not forgery — forgery is T4's job.
-fn read_manifest(bytes: &[u8], info: &FileInfo) -> Result<Option<Manifest>, ContainerError> {
+pub(crate) fn read_manifest(
+    bytes: &[u8],
+    info: &FileInfo,
+) -> Result<Option<Manifest>, ContainerError> {
     let Some((seg, b, m)) = decode_manifest(bytes, info)? else {
         return Ok(None);
     };
@@ -929,6 +936,80 @@ pub fn hash_algo(bytes: &[u8]) -> Result<HashAlgo, ContainerError> {
     Ok(read_manifest(bytes, &info)?
         .map(|m| m.hash)
         .unwrap_or(hash::DEFAULT))
+}
+
+/// Everything `T3` needs to open a file **without decoding the tree**: parsed header/table,
+/// the raw segment bodies, the manifest, and the layer chain.
+/// T3 打开文件（**不解整树**）所需的一切：已解析的头与段表、原始段体、manifest、层链。
+///
+/// `verify` controls digest checking: `true` hashes the `VALUE`/`STRTAB` bodies once (CPU
+/// O(n), RSS O(1)); `false` is for callers that are going to run [`check`] anyway.
+/// `verify` 控制是否验摘要：`true` 把段体过一遍哈希（CPU O(n)、RSS O(1)）；`false` 留给
+/// 反正要跑 [`check`] 的调用方。
+pub(crate) struct RawParts<'a> {
+    /// Parsed header + segment table ｜ 已解析的头与段表。
+    pub info: FileInfo,
+    /// `VALUE` body (node tree, no decoding) ｜ `VALUE` 段体（节点树，未解码）。
+    pub value: &'a [u8],
+    /// `STRTAB` body (empty when the file has no such segment) ｜ `STRTAB` 段体（可空）。
+    pub strtab: &'a [u8],
+    /// Manifest, when present ｜ manifest（可能没有）。
+    pub manifest: Option<Manifest>,
+    /// Layer chain, oldest first ｜ 层链（从旧到新）。
+    pub layers: Vec<crate::layer::Layer>,
+}
+
+/// Open for random access: no `Value` is built. ｜ 以随机访问的方式打开：不构造 `Value`。
+pub(crate) fn open_raw<'a>(bytes: &'a [u8], verify: bool) -> Result<RawParts<'a>, ContainerError> {
+    let info = info(bytes)?;
+    let manifest = read_manifest(bytes, &info)?;
+    if let Some(m) = &manifest {
+        let verdict = manifest::check_caps(m);
+        if let Some(name) = verdict.missing_required.first() {
+            return Err(ContainerError::MissingCapability { name: name.clone() });
+        }
+    }
+    let algo = manifest.as_ref().map(|m| m.hash).unwrap_or(hash::DEFAULT);
+
+    let mut value: Option<&[u8]> = None;
+    let mut strtab: Option<&[u8]> = None;
+    for seg in &info.segments {
+        match seg.header.seg_id {
+            SEG_VALUE | SEG_STRTAB => {
+                require_plain(seg)?;
+                let b = body(bytes, seg)?;
+                if verify {
+                    verify_digest(seg, b, algo)?;
+                }
+                if seg.header.seg_id == SEG_VALUE {
+                    if value.is_some() {
+                        return Err(ContainerError::DuplicateSegment { seg_id: SEG_VALUE });
+                    }
+                    value = Some(b);
+                } else {
+                    if strtab.is_some() {
+                        return Err(ContainerError::DuplicateSegment {
+                            seg_id: SEG_STRTAB,
+                        });
+                    }
+                    strtab = Some(b);
+                }
+            }
+            _ => {}
+        }
+    }
+    let primary_id = manifest.as_ref().map(|m| m.primary).unwrap_or(SEG_VALUE);
+    if primary_id != SEG_VALUE {
+        return Err(ContainerError::PrimaryNotValue { id: primary_id });
+    }
+    let value = value.ok_or(ContainerError::MissingSegment { seg_id: SEG_VALUE })?;
+    Ok(RawParts {
+        info,
+        value,
+        strtab: strtab.unwrap_or(&[]),
+        manifest,
+        layers: layer::layers(bytes).map_err(ContainerError::Layer)?,
+    })
 }
 
 /// The **base** value: `VALUE` + `STRTAB` decoded, **without** applying layer patches.

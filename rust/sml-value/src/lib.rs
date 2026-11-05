@@ -69,7 +69,7 @@ pub use value::{describe_value, insert_or_merge, Map, MAX_VALUE_DEPTH, Value};
 
 /// Why canonical failed (three families: built wrong / data inexpressible / corrupt bytes).
 /// canonical 的失败原因（三种性质不同：构建方式 / 数据表达不出 / 字节坏了）。
-pub use canonical::CanonicalError;
+pub use canonical::{subtree_at, value_from_subtree, CanonicalError, Subtree};
 /// The `STRTAB` + `VALUE` segment bodies of one encode (container layer uses this).
 /// 一次编码产出的 `STRTAB` + `VALUE` 两个段体（供容器层使用）。
 pub use canonical::CanonicalBlocks;
