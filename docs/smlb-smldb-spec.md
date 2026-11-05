@@ -968,7 +968,7 @@ key 更少一份、零依赖，`ser_text` 已趟过路；O(n) 对真实负载够
 |---|---|---|
 | **T0 前置** ✅ 已落地（2026-11-04，见 §18.6） | `Value::canonical_bytes()` 的规则定稿（保序、数字格式、`__*` 位置、转义）+ **跨端测试向量**（文本 ↔ 二进制各 N 组，期望字节写死） | 无 `preserve_order` 时**显式报错**；向量在 Rust/JS 上产出同一字节（**JS 侧待 T7**，见 §18.6 待确认 ②） |
 | **T1 编码（L0）** ✅ 已落地（2026-11-04，见 §19.6） | 新 crate `smlb` 骨架 + 文件头 + 段表 + `dump` / `load`（`info` / `ls` 提前到 T1） | `dump→load→dump` 字节相同；`Int(1)` 与 `Float(1.0)` 可区分；`__type`/`__featags` 原样往返；未知段可跳过（用额外段实测） |
-| **T2 容器（L1）** ⏳ **一半已落**（2026-11-04，见 §19.8） | 段表 ✅ · 段 checksum ✅ · `check` ✅；**manifest / `primary` / 能力位 / 外来载荷待 §19.9 裁决** | 改一个字节已被检出（`check`）；manifest 那三条验收未做 |
+| **T2 容器（L1）** ✅ **已落**（2026-11-04，见 §19.8 / §19.9） | 段表 ✅ · 摘要（SHA-256 / SM3，按 `hash_id`）✅ · manifest + `primary` + 能力位 ✅ · `check` ✅；**`pack`/`unpack`（外来载荷）⬜** | 只读 manifest 能列全部段 ✅；未知 `optional` 跳过、缺 `required` 明确拒 ✅；改一字节被检出 ✅ |
 | **T3 读（L2）** ⏳ `cat` 已提前 | `smlb cat`（整树解出再找路）✅；`Mmap::open` / `open_parts` / `text` / `payload` / `history` / `provenance` 未做 | 现版 `cat` 正确但 O(整树)；RSS 判据要等 mmap |
 | **T4 历史与签名（L3）** | 层链（`prev_hash`/`index`）+ `sign` / `delegate` / `verify` + `append`（锁 + `prev_hash` 校验）+ `Patch::strategy` | 验签能答「值来自哪层」；并发追加后到者拿到明确冲突；旧签名未授权的换钥被拒 |
 | **T5 压缩与加密（L4）** | zstd 独立帧 + 帧索引；按段加密（SM4 / AES-GCM）；算法 ID 表（含 PQC 登记） | 只解压/解密被访问的段；未知算法 ID ⇒ 明确拒绝；压缩→加密顺序固定 |
@@ -1192,16 +1192,16 @@ off sz field          含义
  4  2  edition        低字节 = major，高字节 = minor（v4 ⇒ 04 00；v5 ⇒ 05 00）
  6  1  fmt            字节布局补丁位（D5），常态 0
  7  1  hdr_len        头部总长（本版 40）；旧读者据此跳过将来新增字段
- 8  8  seg_table_off  u64 —— 用户 2026-11-04：u64 现在就付（v1 恒 4096）
+ 8  8  seg_table_off  u64 —— 用户 2026-11-04：u64 现在就付（v1 恒 = hdr_len）
 16  4  seg_count
-20  2  flags          v1 全 0；未知位一律忽略（与 L2 同口径，不做第二个版本号）
+20  2  flags          **位 0 = 段体对齐粒度**（0 = 8 B / 1 = 4 KiB，§19.7 丙）；其余位忽略
 22  2  reserved       0
 24  8  tail_off       T4 的尾部段表预留，v1 恒 0
 32  8  reserved       0
 ```
 
-**布局**：头 `[0,40)` → 零填充到 4096 → 段表 `seg_count × 41 B` → 对齐到 4 KiB → 各段数据
-→ （T4）Trailer 从 **EOF 反向**读固定长度。
+**布局**：头 `[0,40)` → 段表 `seg_count × 41 B`（**紧跟头**，不再钉在 4096）→ 按 `flags` 位 0
+声明的粒度对齐 → 各段数据 → （T4）Trailer 从 **EOF 反向**读固定长度。
 
 为什么头里**不放** `Trailer` 偏移、也不放 manifest：两者都会随追加而变，而头是「写一次永不
 变」的东西（否则不变量 3 立刻失守）。manifest 仍是**段**（`0x04`，T1 只登记不写内容）。
@@ -1214,10 +1214,10 @@ off sz field          含义
 2. ~~**`sha256:32` 在 T1 写全 0**~~ —— **T2 起已写真摘要**（零依赖 SHA-256，见 §19.8）；
    T1 时代的文件（摘要全 0）仍可读，只是「未校验」。`info` 对两种文件分别明说。
 3. **`STRTAB` 只在非空时落段**：空表没有字节，写它只是白白多 4 KiB 对齐填充。
-4. **小文档的固定开销**：40 B 头 + 段表落在第一个 4 KiB 块，每段各自 4 KiB 对齐 ⇒
-   实测一份 65 B 载荷的文档落成 **12,302 B**（两段）。8 MB 文档上是 0.15%，可忽略；
-   小配置上是 200×。这与 §19.1「段起始 4 KiB 对齐」一致，但与 D28「小于一块的段**合并进
-   同一块**」存在**字面冲突** —— 见 §19.7 待裁。
+4. **小文档的固定开销（已按 §19.7 丙落地）**：T1 时代一份 65 B 载荷落成 **12,302 B**；
+   丙落地后同一份是 **772 B**（头 40 + 段表 123 + 三个段体，8 B 对齐），其中 **516 B 是
+   manifest**（`segments[]` 里每条 64 位十六进制摘要最占地方）。加密文件回到 4 KiB 对齐
+   （≈12.8 KB），那是 D28 的块加密要求，不是格式税。
 
 ### 19.7 待裁：段对齐 vs 「小段合并进同一块」
 
@@ -1226,14 +1226,34 @@ off sz field          含义
 | 甲 | §19.1「段起始 **4 KiB 对齐**」 | 每个段各占 4 KiB 的整数倍 ⇒ 51 B 的 `VALUE` 也吃 4 KiB |
 | 乙 | D28「加密粒度 = 4 KiB 物理块（**小于一块的段合并进同一块**）」 | 隐含「多个段可以**共享**一个 4 KiB 块」⇒ 段不各自对齐 |
 
-T1 按**甲**（原文最直接）实现，因为乙描述的是加密块划分、没说段布局跟着改。
-若裁决为乙，改法是「段 8 字节对齐、加密时按 4 KiB 块切」，**只影响 `fmt`**（首发前改，无破坏）。
-判据：小文档的固定开销从 12 KB 降到 ~1 KB 量级。
+**✅ 已裁决（用户 2026-11-04）：走丙** —— `flags` 位 0 声明对齐粒度，写者决定：
+
+| 位 0 | 粒度 | 谁用 |
+|---|---|---|
+| `0` | **8 B** | 明文文件（默认）。小文档不再吃 4 KiB 固定税 |
+| `1` | **4 KiB** | 加密文件（T5 强制）：块 AEAD 要求段体落在块边界上，否则追加会重写旧块 |
+
+**为什么粒度必须自描述**：段数据没有偏移字段、位置靠走表算出来（§19.6 事实 1），
+粒度猜错 ⇒ 整张表错位 ⇒ 读到垃圾。写一位、读者无条件照它走，是唯一不靠猜的做法；
+而「不懂位 0 的旧读者」会把 4 KiB 文件按 8 B 走 —— 错位后**立刻**被长度/摘要检查拦下，
+是**响亮的失败**而不是静默读错。
+
+落地：`smlb::ALIGN_MIN` / `ALIGN_BLOCK` / `FLAG_ALIGN_BLOCK` / `align_of(flags)`，
+`DumpOptions::block_align` 是写者旋钮（默认 `false`）。T5 加密时强制置位。
 
 ### 19.8 段摘要 + `check` / `cat`（T2 前半，2026-11-04）
 
-**摘要已真写**：段头的 `sha256:32` 由零依赖自实现填（`rust/smlb/src/sha256.rs`，FIPS 180-4，
-NIST 向量 + 与 CPython `hashlib` 交叉核对的填充边界向量钉着）。语义三条：
+**摘要已真写**：段头的 `sha256:32`（字段名沿用 §19.1，实际算法由 `hash_id` 定）由零依赖自实现填。
+用户 2026-11-04 定「**默认 SHA-256，可选 SM3 / BLAKE3**」，故：
+
+| 算法 | 编号 | 状态 | 依据 |
+|---|---|---|---|
+| SHA-256 | `0x30` | ✅ 已实现（默认） | FIPS 180-4；NIST 向量 + 与 CPython `hashlib` 交叉核对 |
+| SM3 | `0x31` | ✅ 已实现（可选） | GB/T 32905-2016；标准向量 + 5 条填充边界与 `hashlib` 核对 |
+| BLAKE3 | `0x32` | **只登记，未实现** | 树哈希代码量大且无小体量可自验向量；声明它 ⇒ `unsupported-hash` 明确拒绝，不猜 |
+
+分派在 `rust/smlb/src/hash.rs`（`HashAlgo` / `digest_by_id`）：**写**默认 SHA-256，**读**一律以
+manifest 的 `hash_id` 为准。语义三条：
 
 | 规则 | 说明 | 理由 |
 |---|---|---|
@@ -1248,8 +1268,11 @@ NIST 向量 + 与 CPython `hashlib` 交叉核对的填充边界向量钉着）�
 - 改 `len` ⇒ 段体偏移错位，通常**先**被摘要或长度检查拦下；
 - 改 `flags` ⇒ **无人察觉**（v1 段头 `flags` 恒 0，读到未知位置接忽略，见 §19.5 L2）。
 
-完整覆盖要等 manifest 进签名范围（T4，`canonical_manifest` 含每段 `(id, comp, enc, len, sha256)`）。
-在那之前：**`check` 能检出「段体被改」，检不出「段头被改」**，文档与工具文案都不许越界承诺。
+T2 已经把每段的 `(id, comp, enc, len, sha256)` 写进 manifest 的 `segments[]`（§19.9），`check` 会
+拿它与段表**交叉核对** —— 所以**现在**改段头字段也会被 `check` 报出来（一致性对不上）。
+但这一层挡的是**意外损坏**：篡改者可以连 manifest 一起改（没有签名挡他）。
+**防伪造**要等 T4 的 `canonical_manifest` 进签名范围。
+在那之前：**`check` 能检出「文件被动过」，检不出「谁动的」**，文档与工具文案都不许越界承诺。
 
 **工具**：`smlb check <f>`（结构 + 逐段摘要 + 能否解码，退出码 1 = 未通过）；
 `smlb cat <f> <path>`（`a.b[0]` 语法，走 `sml_value::Path`，输出**canonical 文本**）。
@@ -1259,11 +1282,11 @@ NIST 向量 + 与 CPython `hashlib` 交叉核对的填充边界向量钉着）�
 **逐字节**改（每字节两种翻转）喂 `info` / `load` / `check`，只允许 `Ok` / `Err`，不许 panic。
 文件 ~8 KB，全扫一遍约 1 秒，代价可以接受。｜ Any single-byte mutation must return, never panic.
 
-### 19.9 `MANIFEST` 段的施工草案（**待裁** · 2026-11-04 起草，未落代码）
+### 19.9 `MANIFEST` 段（✅ 已落定并落地 · 2026-11-04）
 
-> 为什么现在写：T2 剩下的半块（manifest / 能力位 / `primary` / 外来载荷）里，**只有
-> manifest 的字段集合是没定的**，而它一旦定错，签名范围（T4）与能力位（D11）都得跟着返工。
-> 按纪律**不自己拍** —— 草案写死在这里，裁决后一次性落代码。
+> 本节先以草案形式给用户过目，**用户 2026-11-04 裁决后已落代码**（`rust/smlb/src/manifest.rs`）：
+> 编码形态 A ✅、字段表 ✅、`caps` 用**名字**（甲）✅、`hash_id` 默认 SHA-256 且 SM3 可选 ✅。
+> 仍待裁的只有「BLAKE3 要不要真实现」。
 
 **§19.9.1 编码形态（建议 A，几乎无争议）**
 
@@ -1301,25 +1324,35 @@ manifest {
 | `defaults` | §21「默认值写进 manifest」 | 读时以文件为准，改默认值不影响旧文件 |
 | `created` / `tool` | D17 / D12 | **只展示**，绝不进验证的必要条件 |
 
-**§19.9.3 唯一需要裁决的点：`caps` 用名字还是用位号**
+**§19.9.3 `caps` 用名字还是位号 —— ✅ 已裁决：甲（名字）**
 
 | 方案 | 长什么样 | 取舍 |
 |---|---|---|
 | **甲（建议）名字** | `caps { required: [ "value" "dir" ]  optional: [ "provenance" ] }` | 首发前不冻结位号；未知名字按 D11 分两档；将来映射到位号也只是查表。代价：多几十字节字符串 |
 | 乙 位号 | `required: 0x0000_0003` | 紧凑；但**位号一经发布永不复用**（§20 的规矩），首发前定死等于把「哪个能力占第几位」一次性焊死 |
 
-建议 **甲**：D11 要的是「读不懂必须拒 / 可跳过」这个**语义**，不是「1 个 bit」这个**形态**。
-名字先走，等能力集合稳定（v5 定稿）再在 manifest 加 `caps_bits` 冗余字段即可，不必改结构。
-P10 的「同一个判定函数」照旧：`check_caps(names) -> Verdict { Ok, MissingRequired(name), Ignored(name) }`。
+用户裁决 **甲**（并注明「实际上乙也是可以很灵活的」）⇒ 名字先走，位号当**可选加速**留到能力集合稳定
+（v5 定稿）后再加 `caps_bits` 冗余字段，不必改结构。
 
-**§19.9.4 落地清单（拿到裁决后按此做，T2 收尾）**
+落地：`known_capabilities()`（本构建认得的集合，v1 = `value` / `strtab` / `manifest`）+
+`check_caps()` / `check_caps_against()`，后者就是 P10 要的那个接缝 —— **裁剪 = 传一个更小的集合**，
+判定逻辑一行不改。`load` 遇到读不懂的 `required` ⇒ `MissingCapability` 直接拒，**绝不半读**。
 
-1. `container.rs` 加 `Manifest` struct + `encode_manifest` / `decode_manifest`（复用 `Value` 编码）；
-2. `dump` 写 `0x04` 段；`load` 改走 `primary`（无 manifest 时退回「找 `VALUE`」，兼容 T1 文件）；
-3. `caps` 判定函数 + 未知 `required` ⇒ 明确拒（新 `ContainerError::MissingCapability`）；
-4. `pack` / `unpack`：目录打成「一个 `EMBED` 段（`0x20`）+ manifest」，或反向取出；
-5. 验收：只读 manifest 能列全部段 / 缺 `required` 明确拒 / 未知 `optional` 可跳过 /
-   改任一字节 ⇒ `check` 报错（含段头字段，补上 §19.8 的缺口）。
+**§19.9.4 落地状态**
+
+| # | 项 | 状态 |
+|---|---|---|
+| 1 | `Manifest` struct + `to_value` / `from_value` / `to_bytes` / `from_bytes`（复用 `Value` 编码，L0 自包含） | ✅ |
+| 2 | `dump` 写 `0x04` 段；`load` 走 `primary`，无 manifest 时退回「VALUE 就是主内容」（兼容 T1 文件） | ✅ |
+| 3 | `caps` 判定函数 + 未知 `required` ⇒ `MissingCapability` | ✅ |
+| 4 | 验收：manifest 列全内容段（不含自己）· 缺 `required` 明确拒 · 未知 `optional` 跳过 · 改一字节被检出 | ✅ |
+| 5 | `pack` / `unpack`（`0x20 EMBED` + manifest） | ⬜ 未做（`SEG_EMBED` 已登记） |
+| 6 | `primary` 指向非 Value 段（如 `EMBED`）时的 `payload()` 读取路径 | ⬜ 未做（现给 `PrimaryNotValue`） |
+
+⚠️ **引导顺序**（实现者必须知道）：manifest 的**摘要算法声明在它自己体内**（`hash_id`），
+所以只能「先解码 → 拿 `hash_id` → 再用它验 manifest 自己的摘要」。这就是它必须用
+**自包含的 L0 形态**（`count ‖ STRTAB ‖ 节点树`）而不是「裸节点 + 外部 STRTAB」的根本原因。
+`VALUE` 段则可以「裸节点 + 外部 `STRTAB`」，因为它前面已经有个 manifest 在替它说话了。
 
 ---
 
@@ -1408,7 +1441,7 @@ crypto {
 | `smlb check <f>` | 结构校验：段哈希、层链、能力位、截断位置 | T2 | ✅ **已实现**（段哈希/截断；层链待 T4、能力位待 §19.9） |
 | `smlb verify <f> [--trust k.pub]` | 验签 + 打印每层/每段结论 | T4 | ✅ |
 | `smlb sign / append / delegate` | 签名、追加补丁、换钥授权 | T4 | ✅ |
-| `smlb pack / unpack` | 把目录/多文件打成 `.smlb`，或反向取出外来段 | T2 | ✅ |
+| `smlb pack / unpack` | 把目录/多文件打成 `.smlb`，或反向取出外来段 | T2 | ⬜ **未做**（`SEG_EMBED=0x20` 已登记，等 manifest 的 `payload()` 一并做） |
 | `smlb tree <f>` | 打印层链（index/prev_hash/作者/时间**仅展示**） | T4 | 建议 |
 | `smlb vectors --gen/--check` | 生成/校验跨端 canonical 测试向量（T0 判据） | T0 | ✅ **已实现**（2026-11-04，另带「自检」：往返 + 文本一致） |
 | `smlb bench <f>` | 读路径基准（mmap 打开、单子树取、解帧、解密） | T5 | 建议 |
