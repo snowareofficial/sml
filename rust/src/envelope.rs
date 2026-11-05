@@ -137,11 +137,21 @@ pub fn list(bytes: &[u8]) -> Result<Vec<Payload>, EnvelopeError> {
 /// Same file format as [`wrap`], different payload kind — so `smlb cat` / `check` work on both.
 pub fn sml_to_smlb(text: &str, compress: Option<i32>) -> Result<Vec<u8>, EnvelopeError> {
     let v: Value = crate::parse(text).map_err(EnvelopeError::Parse)?;
+    value_to_smlb(&v, compress)
+}
+
+/// Already-parsed value → envelope, without a text round-trip.
+/// 已经解析好的值 → 信封，**不经过文本往返**。
+///
+/// 工具侧（`smltools --to-smlb`）需要这一条：它手上已经是 `Value` 了，再 `to_sml` 一遍
+/// 又 `parse` 一遍纯属白花 CPU，而且会在「文本表达不出某个值」时莫名失败。
+/// ｜ The CLI already holds a `Value`; re-serialising it to text only to parse it back is waste.
+pub fn value_to_smlb(value: &Value, compress: Option<i32>) -> Result<Vec<u8>, EnvelopeError> {
     let opts = DumpOptions {
         compress,
         ..Default::default()
     };
-    Ok(smlb::dump_with(&v, &opts)?)
+    Ok(smlb::dump_with(value, &opts)?)
 }
 
 /// Envelope → SML text. ｜ 信封 → SML 文本。
