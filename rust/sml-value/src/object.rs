@@ -2,8 +2,9 @@
 //! 有序对象：`Value::Object` 在 feature `preserve_order` 下的载体。
 //!
 //! 对应 `docs/value-layout.md` §3（数据结构）/ §5（三档查找）/ §6（顺序语义）。
-//! 默认**不编译**：未开 `preserve_order` 时 `Value::Object` 仍是 `BTreeMap`
-//! （见 `value.rs` 里的 `Map` 别名），行为与历史版本逐字节一致。
+//! 2026-11-05 起**无条件编译**（方案 2 第一步）：`OrderedMap` 在默认档也存在，
+//! 作为与 `Map` 并列的显式类型。此时 `Value::Object` 的载体仍由 `preserve_order`
+//! 别名决定，下一步才切换；行为与历史版本逐字节一致，未开 feature 时不变。
 //!
 //! # 为什么不用第三方（`IndexMap` 等）
 //!

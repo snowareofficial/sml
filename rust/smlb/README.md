@@ -28,6 +28,16 @@
 
 ## 安装
 
+**完整构建**（所有能力都挂在 feature 后；`default = []` 只留只读子集）：
+
+```bash
+cargo test -p smlb --features "preserve_order,sign,compress,crypto,mmap"
+# 只想要「读写都正确」的最小集合：preserve_order 一个就够
+```
+
+> ⚠️ 不开 `preserve_order` 时 `dump` 会在运行期报 `key-order-unavailable`。
+> 这是**已知缺陷**（正确性不该是配置项），正在按「显式 `Map` / `OrderedMap` 两个类型」迁移。
+
 尚未发布（`publish = false`，随 SML v5 一起开放）。当前用 path 依赖：
 
 ```toml

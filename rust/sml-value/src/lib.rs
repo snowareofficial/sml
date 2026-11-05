@@ -52,9 +52,11 @@ pub mod canonical;
 mod text_rules;
 
 mod value;
-// 保序对象（docs/value-layout.md §3/§5）：只在 `preserve_order` 下编译，
-// 未开时 `Map` 就是 `BTreeMap`，本模块不参与构建 —— 不额外占编译时间与体积。
-#[cfg(feature = "preserve_order")]
+// 保序对象（docs/value-layout.md §3/§5）：**无条件编译**。
+//
+// 方案 2 的第一步（用户 2026-11-05 裁决）：「有序 / 无序」要成为两个显式类型，
+// 而不是一个全局 feature 开关。此模块是零依赖自实现（Vec<Entry> + 惰性三档索引），
+// 不引 indexmap，故无条件编译不违反「零依赖核心」铁律，也不增加依赖树。
 mod object;
 #[cfg(feature = "sml")]
 mod dump;
@@ -77,15 +79,21 @@ pub use canonical::{
 /// 一次编码产出的 `STRTAB` + `VALUE` 两个段体（供容器层使用）。
 pub use canonical::CanonicalBlocks;
 
-/// The order-preserving object (`Value::Object` bearer under the `preserve_order` feature).
-/// 保序对象（`Value::Object` 在 `preserve_order` 档下的载体）。
+/// **显式保序对象** —— 与 [`Map`] 并列的第二个对象载体，任何构建档都存在。
+/// The explicitly **order-preserving** object; exists in every build profile.
 ///
-/// This type does **not** exist in the default profile — `Map` is simply `BTreeMap` there.
-/// Downstream code should always write `Map` so the same source compiles under both profiles.
-/// 默认档**不存在**这个类型 —— 那时 `Map` 就是 `BTreeMap`。下游请一律写 `Map`，
-/// 这样两种档位下是同一份源码。
-#[cfg(feature = "preserve_order")]
+/// - [`Map`]：默认 `BTreeMap<String, Value>`，键按 UTF-8 字节序（无序 = 显式选择）。
+/// - [`OrderedMap`]：自实现的 `Vec<Entry>` + 惰性索引，键序 == 源序。
+///
+/// ⚠️ 当前阶段（方案 2 第一步）：`Value::Object` 的载体仍由 `preserve_order` 决定
+/// —— 开了 feature 时 `Map` 就是本类型，两种名字指同一份实现。**下一步**才把
+/// `Value::Object` 换成可容纳两者的显式枚举，并让 canonical 按对象变体判定，
+/// 那时全局 feature 开关才真正退场。现在先让类型本身无条件可用、可被测试。
+///
+/// 保留 `Object` 这个名字是为了兼容已有代码（`preserve_order` 档下它一直叫这个）。
 pub use object::Object;
+/// Alias with the name the API review asked for. ｜ 评审要求的显式名字。
+pub use object::Object as OrderedMap;
 
 #[cfg(feature = "sml")]
 pub use dump::{to_sml, to_sml_canonical, to_sml_checked, to_sml_with, DumpOptions};
