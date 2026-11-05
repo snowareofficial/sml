@@ -1,0 +1,555 @@
+// SPDX-License-Identifier: MulanPSL-2.0
+//! The `MANIFEST` segment (`0x04`) — the file's self-description (D10 / P8 / P9).
+//! `MANIFEST` 段 —— 文件的自描述（D10 / P8 / P9）。
+//!
+//! # 为什么它值得单独一层
+//!
+//! 头 + 段表能回答「有哪些段、各多长」，答不了这五件事：
+//!
+//! 1. **主内容是哪个段**（P8：`primary` 永远有值，`.smlb` 才能兼作通用容器）；
+//! 2. **摘要用哪个算法**（§20：段头那 32 B 没有算法标记，只能由文件自己说）；
+//! 3. **段头的算法/长度能进签名**（§18.3；段表本身不进签名，因为偏移随追加而变）；
+//! 4. **能力声明**（D11：读不懂必须拒 / 可跳过）；
+//! 5. **默认值以文件为准**（§21 / D37：改默认值不影响旧文件）。
+//!
+//! # 编码
+//!
+//! manifest 就是**一个 `Value`（Object）**，用 [`sml_value::Value::canonical_bytes`] 落成
+//! **自包含的 L0 形态**（`count ‖ STRTAB ‖ 节点树`）。为什么这里用 L0 而 `VALUE` 段用裸节点：
+//! manifest 必须在**还不知道 `STRTAB` 在哪**的时候就能读 —— 引导顺序决定了它不能依赖别的段。
+//! ｜ The manifest is encoded as a self-contained L0 blob so it can be read before anything else.
+//!
+//! 收益：零新增编解码器（复用 T0 的 canonical），且 `--with-mirror` 想导出可读版本时，
+//! 直接把同一个 `Value` 用 `to_sml` 写出来即可（P9 的 `MANIFEST_SML` 镜像段）。
+//!
+//! # 三处容易踩的点
+//!
+//! 1. **`segments[]` 不含 manifest 自己**：含自己就是「我的摘要要算进我自己的字节」，循环。
+//!    与 §18.4「排除 `SIG` 段自身」同一个道理。
+//! 2. **`segments[]` 与段表是故意重复的**：段表负责定位（含偏移、不进签名），
+//!    `segments[]` 负责可签（算法/长度/摘要、按 id 升序）。两者不一致 ⇒ `check` 报错，
+//!    重复本身就是一次交叉验证的机会。
+//! 3. **`created` / `tool` 只展示**（D17：系统时间不可信）；它们进不了验证的必要条件。
+
+use sml_value::{CanonicalError, Map, Value};
+
+use crate::hash::HashAlgo;
+
+/// Segment id of the manifest itself ｜ manifest 自己的段 id。
+pub const SEG_MANIFEST: u8 = 0x04;
+
+/// One entry of `segments[]` — the **signable** view of a segment (no offset, §18.3).
+/// `segments[]` 的一条 —— 段的**可签**视图（不含偏移，§18.3）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManifestSegment {
+    /// Segment kind ｜ 段种类。
+    pub id: u8,
+    /// Compression algorithm id ｜ 压缩算法 id。
+    pub comp: u8,
+    /// Encryption algorithm id ｜ 加密算法 id。
+    pub enc: u8,
+    /// Stored length ｜ 落盘长度。
+    pub len: u32,
+    /// Digest (algorithm from [`Manifest::hash`]) ｜ 摘要（算法由 `hash` 决定）。
+    pub digest: [u8; 32],
+}
+
+/// Default `dir_depth` (§21: `DIR` indexes depth ≤ 4). ｜ 默认 `dir_depth`。
+pub const DEFAULT_DIR_DEPTH: u32 = 4;
+/// Default crypto block size (§21 / D28: 4 KiB). ｜ 默认加密块。
+pub const DEFAULT_CRYPTO_BLOCK: u32 = 4096;
+/// Default padding quantum (§21 / D28: 64 B). ｜ 默认量化档。
+pub const DEFAULT_PAD_QUANTUM: u32 = 64;
+/// Default patch strategy (§21 / D22). ｜ 默认补丁策略。
+pub const DEFAULT_PATCH_STRATEGY: &str = "override";
+
+/// The manifest (a `Value` in memory, T0 bytes on disk). ｜ manifest 的内存形态。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Manifest {
+    /// `primary`: which segment holds the main content (P8) ｜ 主内容所在段 id。
+    pub primary: u8,
+    /// `hash_id`: digest algorithm for every segment header (§20) ｜ 摘要算法。
+    pub hash: HashAlgo,
+    /// Signable segment list, ascending id, **excluding this manifest** ｜ 可签段清单（升序、不含自己）。
+    pub segments: Vec<ManifestSegment>,
+    /// `caps.required`: unknown ⇒ refuse (D11) ｜ 读不懂必须拒。
+    pub caps_required: Vec<String>,
+    /// `caps.optional`: unknown ⇒ skip (D11) ｜ 读不懂可跳过。
+    pub caps_optional: Vec<String>,
+    /// `patch.strategy` ｜ 补丁策略。
+    pub patch_strategy: String,
+    /// `defaults.dir_depth` ｜ `DIR` 索引深度。
+    pub dir_depth: u32,
+    /// `defaults.crypto_block` ｜ 加密块大小。
+    pub crypto_block: u32,
+    /// `defaults.pad_quantum` ｜ 长度量化档。
+    pub pad_quantum: u32,
+    /// `crypto.enc` (§20) ｜ 加密算法。
+    pub crypto_enc: u8,
+    /// `crypto.sig` (§20; array — D36: 全部必须通过) ｜ 签名算法数组。
+    pub crypto_sig: Vec<u8>,
+    /// `crypto.kem` (§20) ｜ KEM 算法。
+    pub crypto_kem: u8,
+    /// `created` — display only (D17) ｜ 时间戳，只展示。
+    pub created: Option<String>,
+    /// `tool` — display only (D12) ｜ 写入者，只展示。
+    pub tool: Option<String>,
+}
+
+impl Manifest {
+    /// A minimal manifest for `segments`, defaulting everything §21 gives a default.
+    /// 给 `segments` 造一个最小 manifest，其余按 §21 的默认值。
+    pub fn minimal(primary: u8, hash: HashAlgo, segments: Vec<ManifestSegment>) -> Manifest {
+        Manifest {
+            primary,
+            hash,
+            segments,
+            caps_required: Vec::new(),
+            caps_optional: Vec::new(),
+            patch_strategy: DEFAULT_PATCH_STRATEGY.to_string(),
+            dir_depth: DEFAULT_DIR_DEPTH,
+            crypto_block: DEFAULT_CRYPTO_BLOCK,
+            pad_quantum: DEFAULT_PAD_QUANTUM,
+            crypto_enc: 0,
+            crypto_sig: Vec::new(),
+            crypto_kem: 0,
+            created: None,
+            tool: None,
+        }
+    }
+
+    /// Serialize to the manifest segment body (self-contained L0 bytes).
+    /// 落成 manifest 段体（自包含的 L0 字节）。
+    pub fn to_bytes(&self) -> Result<Vec<u8>, CanonicalError> {
+        self.to_value().canonical_bytes()
+    }
+
+    /// Parse from the manifest segment body. ｜ 从 manifest 段体解析。
+    ///
+    /// **Loose on purpose** (D10): unknown keys are ignored, missing optional keys take §21's
+    /// defaults. A missing `primary` / `hash_id` / `segments` is an error — those three are the
+    /// reason the manifest exists at all.
+    /// **故意宽松**（D10）：未知键忽略、缺省键取 §21 默认值；但 `primary` / `hash_id` /
+    /// `segments` 三者缺一即错 —— 它们正是 manifest 存在的理由。
+    pub fn from_bytes(bytes: &[u8]) -> Result<Manifest, ManifestError> {
+        let v = Value::from_canonical_bytes(bytes).map_err(ManifestError::Canonical)?;
+        Manifest::from_value(&v)
+    }
+
+    /// Encode as a `Value` (the SML-mirror-friendly form). ｜ 编成 `Value`（可导出成 SML 的形态）。
+    ///
+    /// Field order is **fixed** by construction ⇒ the bytes are deterministic (C12 applies to the
+    /// manifest too, because it is what signatures cover).
+    /// 字段顺序**固定** ⇒ 字节确定（manifest 也是签名对象，同样受 C12 约束）。
+    pub fn to_value(&self) -> Value {
+        let mut m = Map::new();
+        m.insert("primary".to_string(), Value::Int(self.primary as i64));
+        m.insert("hash_id".to_string(), Value::Int(self.hash.id() as i64));
+
+        let segs: Vec<Value> = self
+            .segments
+            .iter()
+            .map(|s| {
+                let mut e = Map::new();
+                e.insert("id".to_string(), Value::Int(s.id as i64));
+                e.insert("comp".to_string(), Value::Int(s.comp as i64));
+                e.insert("enc".to_string(), Value::Int(s.enc as i64));
+                e.insert("len".to_string(), Value::Int(s.len as i64));
+                e.insert("sha256".to_string(), Value::Str(hex(&s.digest)));
+                Value::Object(e)
+            })
+            .collect();
+        m.insert("segments".to_string(), Value::Array(segs));
+
+        let mut crypto = Map::new();
+        crypto.insert("enc".to_string(), Value::Int(self.crypto_enc as i64));
+        crypto.insert(
+            "sig".to_string(),
+            Value::Array(
+                self.crypto_sig
+                    .iter()
+                    .map(|id| Value::Int(*id as i64))
+                    .collect(),
+            ),
+        );
+        crypto.insert("kem".to_string(), Value::Int(self.crypto_kem as i64));
+        m.insert("crypto".to_string(), Value::Object(crypto));
+
+        let mut caps = Map::new();
+        caps.insert("required".to_string(), str_array(&self.caps_required));
+        caps.insert("optional".to_string(), str_array(&self.caps_optional));
+        m.insert("caps".to_string(), Value::Object(caps));
+
+        let mut patch = Map::new();
+        patch.insert(
+            "strategy".to_string(),
+            Value::Str(self.patch_strategy.clone()),
+        );
+        m.insert("patch".to_string(), Value::Object(patch));
+
+        let mut defaults = Map::new();
+        defaults.insert("dir_depth".to_string(), Value::Int(self.dir_depth as i64));
+        defaults.insert(
+            "crypto_block".to_string(),
+            Value::Int(self.crypto_block as i64),
+        );
+        defaults.insert(
+            "pad_quantum".to_string(),
+            Value::Int(self.pad_quantum as i64),
+        );
+        m.insert("defaults".to_string(), Value::Object(defaults));
+
+        // 只展示的两个字段：有才写（写空串会让 canonical 输出多两行噪音）
+        if let Some(c) = &self.created {
+            m.insert("created".to_string(), Value::Str(c.clone()));
+        }
+        if let Some(t) = &self.tool {
+            m.insert("tool".to_string(), Value::Str(t.clone()));
+        }
+
+        Value::Object(m)
+    }
+
+    /// Decode from a `Value`, applying §21 defaults for anything missing.
+    /// 从 `Value` 解码，缺的按 §21 默认值补。
+    pub fn from_value(v: &Value) -> Result<Manifest, ManifestError> {
+        let obj = match v {
+            Value::Object(m) => m,
+            _ => return Err(ManifestError::NotAnObject),
+        };
+        let primary = int_field(obj, "primary")
+            .ok_or(ManifestError::Missing("primary"))?;
+        if !(0..=u8::MAX as i64).contains(&primary) {
+            return Err(ManifestError::BadInt("primary"));
+        }
+        let hash_id = int_field(obj, "hash_id").ok_or(ManifestError::Missing("hash_id"))?;
+        let hash = HashAlgo::from_id(hash_id as u8)
+            .ok_or(ManifestError::UnknownHash(hash_id as u8))?;
+
+        let segs = match obj.get("segments") {
+            Some(Value::Array(a)) => a,
+            Some(_) => return Err(ManifestError::BadShape("segments")),
+            None => return Err(ManifestError::Missing("segments")),
+        };
+        let mut segments = Vec::with_capacity(segs.len());
+        for e in segs {
+            let m = match e {
+                Value::Object(m) => m,
+                _ => return Err(ManifestError::BadShape("segments[]")),
+            };
+            let id = int_field(m, "id").ok_or(ManifestError::Missing("segments[].id"))?;
+            let comp = int_field(m, "comp").unwrap_or(0);
+            let enc = int_field(m, "enc").unwrap_or(0);
+            let len = int_field(m, "len").ok_or(ManifestError::Missing("segments[].len"))?;
+            let digest_hex = match m.get("sha256") {
+                Some(Value::Str(s)) => s.clone(),
+                Some(_) => return Err(ManifestError::BadShape("segments[].sha256")),
+                None => return Err(ManifestError::Missing("segments[].sha256")),
+            };
+            let digest = from_hex(&digest_hex)
+                .ok_or(ManifestError::BadShape("segments[].sha256（需 64 位十六进制）"))?;
+            segments.push(ManifestSegment {
+                id: id as u8,
+                comp: comp as u8,
+                enc: enc as u8,
+                len: len as u32,
+                digest,
+            });
+        }
+
+        let crypto = obj.get("crypto").and_then(as_object);
+        let caps = obj.get("caps").and_then(as_object);
+        let patch = obj.get("patch").and_then(as_object);
+        let defaults = obj.get("defaults").and_then(as_object);
+
+        Ok(Manifest {
+            primary: primary as u8,
+            hash,
+            segments,
+            caps_required: caps
+                .and_then(|c| c.get("required"))
+                .map(str_list)
+                .unwrap_or_default(),
+            caps_optional: caps
+                .and_then(|c| c.get("optional"))
+                .map(str_list)
+                .unwrap_or_default(),
+            patch_strategy: patch
+                .and_then(|p| match p.get("strategy") {
+                    Some(Value::Str(s)) => Some(s.clone()),
+                    _ => None,
+                })
+                .unwrap_or_else(|| DEFAULT_PATCH_STRATEGY.to_string()),
+            dir_depth: defaults
+                .and_then(|d| int_field(d, "dir_depth"))
+                .map(|n| n as u32)
+                .unwrap_or(DEFAULT_DIR_DEPTH),
+            crypto_block: defaults
+                .and_then(|d| int_field(d, "crypto_block"))
+                .map(|n| n as u32)
+                .unwrap_or(DEFAULT_CRYPTO_BLOCK),
+            pad_quantum: defaults
+                .and_then(|d| int_field(d, "pad_quantum"))
+                .map(|n| n as u32)
+                .unwrap_or(DEFAULT_PAD_QUANTUM),
+            crypto_enc: crypto.and_then(|c| int_field(c, "enc")).unwrap_or(0) as u8,
+            crypto_sig: crypto
+                .and_then(|c| match c.get("sig") {
+                    Some(Value::Array(a)) => Some(
+                        a.iter()
+                            .filter_map(|v| v.as_i64())
+                            .map(|n| n as u8)
+                            .collect::<Vec<u8>>(),
+                    ),
+                    _ => None,
+                })
+                .unwrap_or_default(),
+            crypto_kem: crypto.and_then(|c| int_field(c, "kem")).unwrap_or(0) as u8,
+            created: obj.get("created").and_then(|v| match v {
+                Value::Str(s) => Some(s.clone()),
+                _ => None,
+            }),
+            tool: obj.get("tool").and_then(|v| match v {
+                Value::Str(s) => Some(s.clone()),
+                _ => None,
+            }),
+        })
+    }
+}
+
+/// Capability names this build understands (v1: the segment kinds it can actually process).
+/// 本构建认得的能力名（v1：它真能处理的段种类）。
+///
+/// Why segment kinds and not abstract "features": a capability is only meaningful if it changes
+/// what happens when you *don't* understand it. Skipping an unknown segment vs. refusing to open
+/// is exactly that line, and segment kinds are the only such line we have today.
+/// 为什么用段种类而不是抽象特性：能力只在「读不懂会怎样」不同时才有意义，而段种类正是今天
+/// 唯一的那条线。
+pub fn known_capabilities() -> &'static [&'static str] {
+    &["value", "strtab", "manifest"]
+}
+
+/// Outcome of applying `caps` to a build's known set (D11 + P10: one predicate for both paths).
+/// 把 `caps` 套到「本构建认得的集合」上的结论（D11 + P10）。
+///
+/// `P10` 要求「编译期裁剪」与「异构读者」走同一个判定函数 —— 本函数就是那个函数：
+/// 裁剪掉的段种类从 [`known_capabilities`] 里消失即可，判定逻辑一行都不用改。
+/// P10 wants feature-pruning and foreign readers to share one predicate; this is it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CapsVerdict {
+    /// Required names this build does not understand ⇒ must refuse. ｜ 必拒清单。
+    pub missing_required: Vec<String>,
+    /// Optional names this build does not understand ⇒ skipped (not an error). ｜ 跳过清单。
+    pub ignored_optional: Vec<String>,
+}
+
+impl CapsVerdict {
+    /// OK to open? ｜ 能打开吗？
+    pub fn is_ok(&self) -> bool {
+        self.missing_required.is_empty()
+    }
+}
+
+/// Apply a manifest's `caps` to this build's known set.
+/// 用本构建的已知集合判定 manifest 的 `caps`。
+pub fn check_caps(manifest: &Manifest) -> CapsVerdict {
+    check_caps_against(manifest, known_capabilities())
+}
+
+/// Same, against an explicit set — the seam that keeps P10 honest (pruning = pass a smaller set).
+/// 同上，但显式给集合 —— P10 的接缝就在这里（裁剪 = 传一个更小的集合）。
+pub fn check_caps_against(manifest: &Manifest, known: &[&str]) -> CapsVerdict {
+    let unknown = |n: &String| !known.iter().any(|k| k == n);
+    CapsVerdict {
+        missing_required: manifest
+            .caps_required
+            .iter()
+            .filter(|n| unknown(n))
+            .cloned()
+            .collect(),
+        ignored_optional: manifest
+            .caps_optional
+            .iter()
+            .filter(|n| unknown(n))
+            .cloned()
+            .collect(),
+    }
+}
+
+/// Why a manifest could not be decoded. ｜ manifest 解不开的原因。
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ManifestError {
+    /// The manifest bytes are not a valid canonical encoding ｜ 字节不是合规的 canonical。
+    Canonical(CanonicalError),
+    /// The decoded value is not an object ｜ 解出来的不是对象。
+    NotAnObject,
+    /// A required field is absent ｜ 缺必填字段。
+    Missing(&'static str),
+    /// A field has the wrong shape ｜ 字段形状不对。
+    BadShape(&'static str),
+    /// An integer field is out of range ｜ 整数字段越界。
+    BadInt(&'static str),
+    /// `hash_id` is not in §20 ｜ `hash_id` 不在 §20 表里。
+    UnknownHash(u8),
+}
+
+impl std::fmt::Display for ManifestError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ManifestError::Canonical(e) => write!(f, "manifest 字节不合规：{e}"),
+            ManifestError::NotAnObject => write!(f, "manifest 顶层必须是对象"),
+            ManifestError::Missing(k) => write!(f, "manifest 缺必填字段 `{k}`"),
+            ManifestError::BadShape(k) => write!(f, "manifest 字段 `{k}` 形状不对"),
+            ManifestError::BadInt(k) => write!(f, "manifest 字段 `{k}` 越界"),
+            ManifestError::UnknownHash(id) => {
+                write!(f, "manifest 的 hash_id 0x{id:02x} 不在 §20 表里")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ManifestError {}
+
+fn as_object(v: &Value) -> Option<&Map> {
+    match v {
+        Value::Object(m) => Some(m),
+        _ => None,
+    }
+}
+
+fn int_field(m: &Map, key: &str) -> Option<i64> {
+    match m.get(key) {
+        Some(Value::Int(n)) => Some(*n),
+        Some(Value::Float(f, _)) if f.fract() == 0.0 => Some(*f as i64),
+        _ => None,
+    }
+}
+
+fn str_array(items: &[String]) -> Value {
+    Value::Array(items.iter().cloned().map(Value::Str).collect())
+}
+
+fn str_list(v: &Value) -> Vec<String> {
+    match v {
+        Value::Array(a) => a
+            .iter()
+            .filter_map(|x| match x {
+                Value::Str(s) => Some(s.clone()),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn hex(d: &[u8; 32]) -> String {
+    d.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn from_hex(s: &str) -> Option<[u8; 32]> {
+    if s.len() != 64 || !s.is_ascii() {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for i in 0..32 {
+        out[i] = u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).ok()?;
+    }
+    Some(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample() -> Manifest {
+        let mut m = Manifest::minimal(
+            crate::container::SEG_VALUE,
+            HashAlgo::Sm3,
+            vec![ManifestSegment {
+                id: crate::container::SEG_VALUE,
+                comp: 0,
+                enc: 0,
+                len: 42,
+                digest: [7u8; 32],
+            }],
+        );
+        m.caps_required = vec!["value".into()];
+        m.caps_optional = vec!["sig".into(), "dir".into()];
+        m.created = Some("2026-11-04T00:00:00Z".into());
+        m.tool = Some("smlb test".into());
+        m
+    }
+
+    #[cfg(feature = "preserve_order")]
+    #[test]
+    fn round_trips_through_bytes() {
+        let m = sample();
+        let bytes = m.to_bytes().unwrap();
+        assert_eq!(Manifest::from_bytes(&bytes).unwrap(), m);
+    }
+
+    #[cfg(feature = "preserve_order")]
+    #[test]
+    fn encoding_is_deterministic() {
+        assert_eq!(sample().to_bytes().unwrap(), sample().to_bytes().unwrap());
+    }
+
+    #[cfg(feature = "preserve_order")]
+    #[test]
+    fn unknown_keys_are_ignored_and_defaults_apply() {
+        // 只给三个必填字段，其余靠 §21 默认值
+        let v = sml_value::Value::from_canonical_bytes(
+            &{
+                let mut m = Map::new();
+                m.insert("primary".into(), Value::Int(1));
+                m.insert("hash_id".into(), Value::Int(0x30));
+                m.insert("segments".into(), sml_value::Value::Array(vec![]));
+                m.insert("future_field".into(), Value::Str("ignore me".into()));
+                sml_value::Value::Object(m).canonical_bytes().unwrap()
+            },
+        )
+        .unwrap();
+        let m = Manifest::from_value(&v).unwrap();
+        assert_eq!(m.hash, HashAlgo::Sha256);
+        assert_eq!(m.dir_depth, DEFAULT_DIR_DEPTH);
+        assert_eq!(m.crypto_block, DEFAULT_CRYPTO_BLOCK);
+        assert_eq!(m.patch_strategy, DEFAULT_PATCH_STRATEGY);
+        assert!(m.created.is_none());
+    }
+
+    #[test]
+    fn missing_required_fields_are_errors() {
+        let empty = Value::Object(Map::new());
+        assert!(matches!(
+            Manifest::from_value(&empty),
+            Err(ManifestError::Missing("primary"))
+        ));
+    }
+
+    #[test]
+    fn caps_split_into_refuse_and_skip() {
+        let m = sample();
+        let v = check_caps(&m);
+        assert!(v.is_ok(), "value 是认得的");
+        assert_eq!(v.ignored_optional, vec!["sig".to_string(), "dir".to_string()]);
+
+        let mut m2 = sample();
+        m2.caps_required = vec!["sig".into()];
+        let v2 = check_caps(&m2);
+        assert!(!v2.is_ok());
+        assert_eq!(v2.missing_required, vec!["sig".to_string()]);
+    }
+
+    /// P10: pruning is "pass a smaller set", not "write another predicate".
+    /// P10：裁剪就是「传一个更小的集合」，不是另写一个判据。
+    #[test]
+    fn pruning_reuses_the_same_predicate() {
+        let mut m = sample();
+        m.caps_required = vec!["dir".into()];
+        assert!(check_caps(&m).is_ok() == false); // 本构建不认 dir
+        let pruned = &["value", "manifest"]; // 想象把 strtab 也裁掉
+        let v = check_caps_against(&m, pruned);
+        assert!(!v.is_ok());
+    }
+}

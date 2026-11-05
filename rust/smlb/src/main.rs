@@ -79,7 +79,9 @@ fn run(args: &[String]) -> Result<String, (u8, String)> {
         "vectors" => vectors_cmd(&args[1..]),
         "info" => read_cmd(&args[1..], |path, bytes| {
             let info = smlb::info(bytes).map_err(|e| (1, format!("{path}: {e}")))?;
-            Ok(smlb::container::info_lines(path, &info).join("\n"))
+            let lines = smlb::container::info_lines(path, bytes, &info)
+                .map_err(|e| (1, format!("{path}: {e}")))?;
+            Ok(lines.join("\n"))
         }),
         "ls" => {
             let rest: Vec<String> = args[1..]
