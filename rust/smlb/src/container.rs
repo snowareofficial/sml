@@ -61,7 +61,7 @@
 use sml_value::{CanonicalError, Value};
 
 use crate::hash::{self, HashAlgo};
-use crate::manifest::{self, Manifest, ManifestError, ManifestSegment};
+use crate::manifest::{self, Manifest, ManifestError, ManifestPayload, ManifestSegment};
 
 /// Magic, written once and never changed (`§12.3`'s existing convention).
 /// 魔数，写一次永不变（沿用 §12.3 的既有约定）。
@@ -314,6 +314,27 @@ pub enum ContainerError {
     /// The digest algorithm is unknown or unimplemented (§20: never guess)
     /// 摘要算法未知或未实现（§20：绝不猜）。
     Hash(crate::hash::HashError),
+    /// `pack` was given nothing to pack ｜ `pack` 一个文件都没给。
+    EmptyArchive,
+    /// Two payloads with the same name (`pack` refuses ambiguity, D15 spirit)
+    /// 两个同名载荷（`pack` 拒绝歧义，与 D15 同精神）。
+    DuplicatePayloadName {
+        /// The repeated name ｜ 重复的名字。
+        name: String,
+    },
+    /// No payload with that name in the manifest ｜ manifest 里没有这个载荷。
+    PayloadNotFound {
+        /// The name asked for ｜ 要的名字。
+        name: String,
+    },
+    /// The `payloads[]` table disagrees with the `EMBED` segment body
+    /// `payloads[]` 与 `EMBED` 段体不一致。
+    PayloadTableMismatch {
+        /// Payload name ｜ 载荷名。
+        name: String,
+        /// Which field disagrees ｜ 哪个字段对不上。
+        field: &'static str,
+    },
 }
 
 impl ContainerError {
@@ -339,6 +360,10 @@ impl ContainerError {
             ContainerError::MissingCapability { .. } => "missing-capability",
             ContainerError::ManifestMismatch { .. } => "manifest-mismatch",
             ContainerError::Hash(_) => "unsupported-hash",
+            ContainerError::EmptyArchive => "empty-archive",
+            ContainerError::DuplicatePayloadName { .. } => "duplicate-payload-name",
+            ContainerError::PayloadNotFound { .. } => "payload-not-found",
+            ContainerError::PayloadTableMismatch { .. } => "payload-table-mismatch",
         }
     }
 }
@@ -421,6 +446,16 @@ impl std::fmt::Display for ContainerError {
                 "段 0x{seg_id:02x} 的 `{field}` 在 manifest 与段表里不一致（两边有一边被改过）"
             ),
             ContainerError::Hash(e) => write!(f, "摘要算法不可用：{e}"),
+            ContainerError::EmptyArchive => write!(f, "没有东西可打包（至少要一个文件）"),
+            ContainerError::DuplicatePayloadName { name } => {
+                write!(f, "载荷名 `{name}` 重复（拒绝歧义：解包时该覆盖谁？）")
+            }
+            ContainerError::PayloadNotFound { name } => {
+                write!(f, "manifest 里没有名为 `{name}` 的载荷")
+            }
+            ContainerError::PayloadTableMismatch { name, field } => {
+                write!(f, "载荷 `{name}` 的 `{field}` 与 EMBED 段体不一致")
+            }
         }
     }
 }
@@ -540,33 +575,108 @@ pub fn dump(v: &Value) -> Result<Vec<u8>, ContainerError> {
 pub fn dump_with(v: &Value, opts: &DumpOptions) -> Result<Vec<u8>, ContainerError> {
     let blocks = v.canonical_blocks()?;
 
-    // 1) 内容段（manifest 的 segments[] 只列它们，**不含自己** —— 否则摘要循环）
+    // 内容段（manifest 的 segments[] 只列它们，**不含自己** —— 否则摘要循环）
     let mut segs: Vec<(u8, Vec<u8>)> = Vec::with_capacity(3);
     segs.push((SEG_VALUE, blocks.value));
     if !blocks.strtab.is_empty() {
         segs.push((SEG_STRTAB, blocks.strtab));
     }
 
-    // 2) manifest 段体：按 segments[] 的可签视图现算摘要（算法由 opts.hash 定）
+    let manifest = build_manifest(SEG_VALUE, &segs, &[], opts)?;
+    write_file(segs, manifest, opts)
+}
+
+/// Pack foreign blobs into one `.smlb` archive (D23 / §22 `smlb pack`).
+/// 把外来载荷打成一个 `.smlb` 归档（D23 / §22 的 `smlb pack`）。
+///
+/// 一个文件**至多一个 `EMBED` 段**，段体是各载荷按入参顺序拼接；`payloads[]` 按同序描述
+/// （名字 / 长度 / 摘要），偏移不存、靠 `len` 走出来 —— 与段表同一套思路。
+/// `primary` 指向 `EMBED`（P8：主内容可以不是 `VALUE`），所以这类文件 `load` 会明确报
+/// [`ContainerError::PrimaryNotValue`]，要用 [`payloads`] / [`payload`] 去取。
+/// One `EMBED` segment per file; payloads are concatenated in order and described in the same
+/// order. `primary` points at `EMBED`, so `load` says `PrimaryNotValue` by design.
+pub fn pack(items: &[(&str, &[u8])]) -> Result<Vec<u8>, ContainerError> {
+    pack_with(items, &DumpOptions::default())
+}
+
+/// Same as [`pack`], with explicit choices. ｜ 同 [`pack`]，但显式指定选项。
+pub fn pack_with(
+    items: &[(&str, &[u8])],
+    opts: &DumpOptions,
+) -> Result<Vec<u8>, ContainerError> {
+    if items.is_empty() {
+        return Err(ContainerError::EmptyArchive);
+    }
+    let mut names: Vec<&str> = Vec::with_capacity(items.len());
+    for (name, _) in items {
+        if names.contains(name) {
+            return Err(ContainerError::DuplicatePayloadName {
+                name: (*name).to_string(),
+            });
+        }
+        names.push(name);
+    }
+
+    let mut body: Vec<u8> = Vec::new();
+    let mut payloads: Vec<ManifestPayload> = Vec::with_capacity(items.len());
+    for (name, data) in items {
+        payloads.push(ManifestPayload {
+            name: (*name).to_string(),
+            len: body_len(data)?,
+            digest: hash::digest(opts.hash, data).map_err(ContainerError::Hash)?,
+        });
+        body.extend_from_slice(data);
+    }
+    let body_len_total = body_len(&body)?;
+
+    let segs = vec![(SEG_EMBED, body)];
+    let mut manifest = build_manifest(SEG_EMBED, &segs, &payloads, opts)?;
+    // 归档的「能力」就是 embed：读不懂 embed 的读者应当明说读不懂，而不是当空文件
+    manifest.caps_required = if opts.caps_required.is_empty() {
+        vec!["embed".to_string()]
+    } else {
+        opts.caps_required.clone()
+    };
+    let _ = body_len_total;
+    write_file(segs, manifest, opts)
+}
+
+/// Assemble a manifest for `segs` (digests computed with `opts.hash`).
+/// 为 `segs` 组装 manifest（摘要用 `opts.hash` 现算）。
+fn build_manifest(
+    primary: u8,
+    segs: &[(u8, Vec<u8>)],
+    payloads: &[ManifestPayload],
+    opts: &DumpOptions,
+) -> Result<Manifest, ContainerError> {
     let mut manifest_segments = Vec::with_capacity(segs.len());
-    for (seg_id, body) in &segs {
-        let len = body_len(body)?;
+    for (seg_id, body) in segs {
         manifest_segments.push(ManifestSegment {
             id: *seg_id,
             comp: 0,
             enc: 0,
-            len,
+            len: body_len(body)?,
             digest: hash::digest(opts.hash, body).map_err(ContainerError::Hash)?,
         });
     }
-    let mut manifest = Manifest::minimal(SEG_VALUE, opts.hash, manifest_segments);
+    let mut manifest = Manifest::minimal(primary, opts.hash, manifest_segments);
+    manifest.payloads = payloads.to_vec();
     manifest.caps_required = opts.caps_required.clone();
     manifest.caps_optional = opts.caps_optional.clone();
+    Ok(manifest)
+}
+
+/// Lay out header + segment table + segments (the part every writer shares).
+/// 落版：头 + 段表 + 段数据（所有写入口共用的那段）。
+fn write_file(
+    mut segs: Vec<(u8, Vec<u8>)>,
+    manifest: Manifest,
+    opts: &DumpOptions,
+) -> Result<Vec<u8>, ContainerError> {
     let manifest_bytes = manifest.to_bytes()?;
     segs.push((SEG_MANIFEST, manifest_bytes));
     segs.sort_by_key(|(id, _)| *id);
 
-    // 3) 布局：头 → 段表（紧跟头，不再钉在 4096）→ 对齐 → 段数据
     let flags: u16 = if opts.block_align { FLAG_ALIGN_BLOCK } else { 0 };
     let granule = align_of(flags);
     let table_off = HEADER_LEN as u64;
@@ -999,6 +1109,59 @@ pub fn check(bytes: &[u8]) -> Result<CheckReport, ContainerError> {
                     verdict.ignored_optional.join(", ")
                 ));
             }
+            // 载荷表：`payloads[]` 与 EMBED 段体必须互相说得通
+            if !m.payloads.is_empty() {
+                match embed_body(bytes) {
+                    Ok(b) => {
+                        let mut cursor = 0usize;
+                        for p in &m.payloads {
+                            let end = cursor + p.len as usize;
+                            if end > b.len() {
+                                ok = false;
+                                lines.push(format!(
+                                    "payload   `{}` 的 len 越出 EMBED 段体（{} > {}）",
+                                    p.name,
+                                    end,
+                                    b.len()
+                                ));
+                                cursor = end;
+                                continue;
+                            }
+                            match hash::digest(algo, &b[cursor..end]) {
+                                Ok(actual) if actual == p.digest => lines.push(format!(
+                                    "payload   `{}` 摘要 OK（{} B）",
+                                    p.name, p.len
+                                )),
+                                Ok(_) => {
+                                    ok = false;
+                                    lines.push(format!("payload   `{}` 摘要不符", p.name));
+                                }
+                                Err(e) => {
+                                    ok = false;
+                                    lines.push(format!("payload   `{}` 算不了摘要：{e}", p.name));
+                                }
+                            }
+                            cursor = end;
+                        }
+                        if cursor != b.len() {
+                            ok = false;
+                            lines.push(format!(
+                                "payload   payloads[] 合计 {cursor} B ≠ EMBED 段体 {} B",
+                                b.len()
+                            ));
+                        }
+                    }
+                    Err(e) => {
+                        ok = false;
+                        lines.push(format!("payload   声明了载荷但取不到 EMBED 段体：{e}"));
+                    }
+                }
+            } else if info.segments.iter().any(|s| s.header.seg_id == SEG_EMBED) {
+                lines.push(
+                    "payload   EMBED 段存在但 manifest 没列载荷（无人认领的裸字节）".to_string(),
+                );
+            }
+
             if m.created.is_some() || m.tool.is_some() {
                 lines.push(format!(
                     "溯源      {} / {}（只展示，不验签 —— D17）",
@@ -1012,6 +1175,11 @@ pub fn check(bytes: &[u8]) -> Result<CheckReport, ContainerError> {
     // 4) 真的能不能解
     match load(bytes) {
         Ok(_) => lines.push("VALUE    段可解（按 canonical 解码成功）".to_string()),
+        // 归档类文件（primary = EMBED）本来就**不该**解成 Value ⇒ 这不是失败，
+        // 而是「按设计如此」。把它算作错误会让每个 pack 出来的文件都红。
+        Err(ContainerError::PrimaryNotValue { id }) => lines.push(format!(
+            "VALUE    主内容是段 0x{id:02x}，不是 Value（归档类文件，按设计如此）"
+        )),
         Err(e) => {
             ok = false;
             lines.push(format!("VALUE    解不开：{e}"));
@@ -1030,6 +1198,76 @@ pub fn check(bytes: &[u8]) -> Result<CheckReport, ContainerError> {
 
 fn decode_value(strtab: &[u8], value: &[u8]) -> Result<Value, ContainerError> {
     Ok(Value::from_canonical_blocks(strtab, value)?)
+}
+
+/// The `EMBED` segment's body (foreign blobs, stored verbatim — D23).
+/// `EMBED` 段的段体（外来载荷，原样存取 —— D23）。
+///
+/// 为什么单独一个入口：`load` 只解 `Value`，而归档类文件的 `primary` 是 `EMBED`
+/// （P8 允许），所以「取裸字节」必须有一条不走 `Value` 解码的路。
+/// `load` decodes values; archives have `primary = EMBED`, so raw bytes need their own path.
+pub fn embed_body<'a>(bytes: &'a [u8]) -> Result<&'a [u8], ContainerError> {
+    let info = info(bytes)?;
+    let seg = info
+        .segments
+        .iter()
+        .find(|s| s.header.seg_id == SEG_EMBED)
+        .ok_or(ContainerError::MissingSegment { seg_id: SEG_EMBED })?;
+    require_plain(seg)?;
+    let b = body(bytes, seg)?;
+    let manifest = read_manifest(bytes, &info)?;
+    if let Some(m) = manifest {
+        verify_digest(seg, b, m.hash)?;
+    }
+    Ok(b)
+}
+
+/// List the payloads declared in the manifest, in body order.
+/// 列出 manifest 里声明的载荷（按段体内顺序）。
+pub fn payloads(bytes: &[u8]) -> Result<Vec<ManifestPayload>, ContainerError> {
+    let info = info(bytes)?;
+    Ok(read_manifest(bytes, &info)?
+        .map(|m| m.payloads)
+        .unwrap_or_default())
+}
+
+/// Extract one payload by name (§22 `smlb unpack` 的取值口).
+/// 按名字取一段载荷（`smlb unpack` 的取值口）。
+///
+/// 偏移不存：`payloads[]` 按序给出 `len`，本函数沿着加起来走 —— 与段表同一套思路，
+/// 好处是「表里没有位置」⇒ 位置不可能与内容不一致。
+/// Offsets are walked from the ordered `len`s, never stored.
+pub fn payload<'a>(bytes: &'a [u8], name: &str) -> Result<&'a [u8], ContainerError> {
+    let info = info(bytes)?;
+    let manifest = read_manifest(bytes, &info)?
+        .ok_or(ContainerError::MissingSegment { seg_id: SEG_MANIFEST })?;
+    let body = embed_body(bytes)?;
+
+    let mut cursor = 0usize;
+    for p in &manifest.payloads {
+        let end = cursor + p.len as usize;
+        if end > body.len() {
+            return Err(ContainerError::PayloadTableMismatch {
+                name: p.name.clone(),
+                field: "len（越出 EMBED 段体）",
+            });
+        }
+        if p.name == name {
+            let slice = &body[cursor..end];
+            let actual = hash::digest(manifest.hash, slice).map_err(ContainerError::Hash)?;
+            if actual != p.digest {
+                return Err(ContainerError::PayloadTableMismatch {
+                    name: p.name.clone(),
+                    field: "sha256",
+                });
+            }
+            return Ok(slice);
+        }
+        cursor = end;
+    }
+    Err(ContainerError::PayloadNotFound {
+        name: name.to_string(),
+    })
 }
 
 /// Look one path up inside the primary value (§22 `smlb cat`) — `a.b[0].c` syntax.

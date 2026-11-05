@@ -453,6 +453,91 @@ fn info_names_the_primary() {
     assert!(text.contains("段体对齐 8 B"), "{text}");
 }
 
+// ---------------------------------------------------------------------------
+// 归档：EMBED + payloads[]（D23 / §22 pack·unpack）
+// ---------------------------------------------------------------------------
+
+/// `pack` → `payloads` / `payload` → `check` 全通，且 `load` 明确说「主内容不是 Value」。
+#[test]
+fn pack_round_trips_payloads() {
+    let blobs: [(&str, &[u8]); 3] = [
+        ("notes/a.md", b"# hello\n"),
+        ("bin/blob.dat", &[0u8, 1, 2, 0xff, 0xfe]),
+        ("empty.txt", b""),
+    ];
+    let f = smlb::pack(&blobs).unwrap();
+
+    let list = smlb::payloads(&f).unwrap();
+    assert_eq!(
+        list.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(),
+        vec!["notes/a.md", "bin/blob.dat", "empty.txt"]
+    );
+    for (name, data) in blobs {
+        assert_eq!(smlb::payload(&f, name).unwrap(), data, "载荷 {name} 字节不符");
+    }
+
+    let report = smlb::check(&f).unwrap();
+    assert!(report.ok, "{:?}", report.lines);
+    let text = report.lines.join("\n");
+    assert!(text.contains("payload   `notes/a.md` 摘要 OK"), "{text}");
+
+    // 归档的主内容是 EMBED 段 ⇒ `load` 必须明说，而不是硬解成 Value
+    let e = smlb::load(&f).unwrap_err();
+    assert_eq!(e.kind(), "primary-not-value", "{e}");
+
+    let info = smlb::info(&f).unwrap();
+    let lines = container::info_lines("a.smlb", &f, &info).unwrap().join("\n");
+    assert!(lines.contains("primary   0x20 EMBED（manifest 的 primary）"), "{lines}");
+    assert!(lines.contains("caps      required [embed]"), "{lines}");
+}
+
+/// 同名载荷一律拒绝：解包时该覆盖谁是没有答案的问题。
+#[test]
+fn pack_rejects_duplicate_and_empty() {
+    assert_eq!(
+        smlb::pack(&[]).unwrap_err().kind(),
+        "empty-archive"
+    );
+    let dup: [(&str, &[u8]); 2] = [("a.txt", b"1"), ("a.txt", b"2")];
+    assert_eq!(
+        smlb::pack(&dup).unwrap_err().kind(),
+        "duplicate-payload-name"
+    );
+}
+
+/// 改载荷里的一个字节 ⇒ 段摘要 + 载荷摘要双重报错，且 `payload()` 拒绝给数据。
+#[test]
+fn payload_tamper_is_caught() {
+    let blobs: [(&str, &[u8]); 1] = [("a.bin", b"0123456789")];
+    let mut f = smlb::pack(&blobs).unwrap();
+    let info = smlb::info(&f).unwrap();
+    let embed = info
+        .segments
+        .iter()
+        .find(|s| s.header.seg_id == smlb::SEG_EMBED)
+        .unwrap();
+    let at = embed.offset as usize + 3;
+    f[at] ^= 0x01;
+
+    let report = smlb::check(&f).unwrap();
+    assert!(!report.ok);
+    let text = report.lines.join("\n");
+    assert!(text.contains("摘要不符"), "{text}");
+
+    // payload() 自己也会核：段摘要已不符 ⇒ 直接拒
+    assert!(smlb::payload(&f, "a.bin").is_err());
+}
+
+/// 不存在的载荷名要给明确的错，而不是空切片。
+#[test]
+fn missing_payload_is_named_in_the_error() {
+    let blobs: [(&str, &[u8]); 1] = [("a.txt", b"x")];
+    let f = smlb::pack(&blobs).unwrap();
+    let e = smlb::payload(&f, "nope.txt").unwrap_err();
+    assert_eq!(e.kind(), "payload-not-found");
+    assert!(e.to_string().contains("nope.txt"), "{e}");
+}
+
 /// Copy a file, append one extra segment (and its table entry).
 /// 复制一份，追加一个额外段（并在段表里补一项）。
 fn append_segment(mut f: Vec<u8>, seg_id: u8, comp: u8, enc: u8, body: &[u8]) -> Vec<u8> {
