@@ -57,7 +57,7 @@ fn opening_a_100mb_file_does_not_copy_it() {
         let mut m = Map::ordered();
         m.insert("big".to_string(), Value::Str("x".repeat(100 * 1024 * 1024)));
         m.insert("port".to_string(), Value::Int(8080));
-        let f = smlb::dump(&Value::Object(m)).unwrap();
+        let f = smlb::dump( &cv(&Value::Object(m)) ).unwrap();
         assert!(
             f.len() > 100 * 1024 * 1024,
             "文件应大于 100 MB，实得 {}",
@@ -103,7 +103,7 @@ fn mmap_reader_agrees_with_load() {
     root.insert("config".to_string(), Value::Object(cfg));
     let doc = Value::Object(root);
 
-    let f = smlb::dump(&doc).unwrap();
+    let f = smlb::dump( &cv(&doc) ).unwrap();
     std::fs::write(&path, &f).unwrap();
 
     let mapped = MappedFile::open(&path).unwrap();
@@ -126,4 +126,9 @@ fn mmap_reader_agrees_with_load() {
 fn missing_file_is_an_io_error() {
     let e = MappedFile::open(temp_path("nope")).unwrap_err();
     assert_eq!(e.kind(), std::io::ErrorKind::NotFound);
+}
+
+/// 测试用：把值断言成 `CanonicalValue`（无序在测试里就该 panic，而不是静默通过）。
+fn cv(v: &smlb::Value) -> smlb::CanonicalValue {
+    smlb::CanonicalValue::try_from(v).expect("测试值必须是有序构造的")
 }

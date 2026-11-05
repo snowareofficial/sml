@@ -59,8 +59,7 @@ pub use crypto::{KdfParams, KeySource, ENC_AES256_GCM, KDF_ARGON2ID, KDF_NONE};
 pub use sml_value::CanonicalValue;
 pub use container::{
     align_of, base_value, base_value_with_keys, check, dump, dump_with, dump_encrypted,
-    dump_canonical, dump_canonical_with, embed_body, get, get_encrypted, hash_algo, info, load,
-    load_encrypted, pack, pack_iter,
+    embed_body, get, get_encrypted, hash_algo, info, load, load_encrypted, pack, pack_iter,
     pack_iter_with, pack_with,
     payload,
     payloads, CheckReport, ContainerError, DumpOptions, FileInfo, Segment, SegmentHeader,

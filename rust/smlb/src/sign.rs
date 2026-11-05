@@ -147,7 +147,10 @@ pub fn compact(
     algo: HashAlgo,
 ) -> Result<Vec<u8>, SignError> {
     let current = crate::load(bytes).map_err(SignError::Container)?;
-    let fresh = crate::dump(&current).map_err(SignError::Container)?;
+    // `load` 的对象来自 canonical 解码（键序即源序），转换不会失败；
+    // 但按类型来走，失败也只是把 CanonicalError 如实上抛。
+    let cv = sml_value::CanonicalValue::try_from(current)?;
+    let fresh = crate::dump(&cv).map_err(SignError::Container)?;
     append_layer(&fresh, key, None, None, algo)
 }
 

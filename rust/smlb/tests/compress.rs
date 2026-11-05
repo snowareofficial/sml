@@ -29,12 +29,12 @@ fn repetitive_doc() -> Value {
 #[test]
 fn compressed_dump_round_trips_and_shrinks() {
     let doc = repetitive_doc();
-    let plain = smlb::dump(&doc).unwrap();
+    let plain = smlb::dump( &cv(&doc) ).unwrap();
     let opts = DumpOptions {
         compress: Some(3),
         ..Default::default()
     };
-    let packed = smlb::dump_with(&doc, &opts).unwrap();
+    let packed = smlb::dump_with( &cv(&doc) , &opts).unwrap();
 
     assert!(
         packed.len() < plain.len(),
@@ -44,8 +44,8 @@ fn compressed_dump_round_trips_and_shrinks() {
     );
     assert!(smlb::load(&packed).unwrap().eq_ordered(&doc), "值必须原样回来");
     assert_eq!(
-        smlb::dump(&smlb::load(&packed).unwrap()).unwrap(),
-        smlb::dump(&doc).unwrap(),
+        smlb::dump( &cv(&smlb::load(&packed).unwrap()) ).unwrap(),
+        smlb::dump( &cv(&doc) ).unwrap(),
         "解压后再写回（未压缩）应与原始一致"
     );
 
@@ -77,7 +77,7 @@ fn manifest_records_compression() {
         compress: Some(5),
         ..Default::default()
     };
-    let f = smlb::dump_with(&repetitive_doc(), &opts).unwrap();
+    let f = smlb::dump_with( &cv(&repetitive_doc()) , &opts).unwrap();
     let info = smlb::info(&f).unwrap();
     let report = smlb::check(&f).unwrap();
     assert!(report.ok, "{:?}", report.lines);
@@ -117,7 +117,7 @@ fn unknown_compression_id_is_refused() {
         compress: Some(3),
         ..Default::default()
     };
-    let mut f = smlb::dump_with(&repetitive_doc(), &opts).unwrap();
+    let mut f = smlb::dump_with( &cv(&repetitive_doc()) , &opts).unwrap();
     let info = smlb::info(&f).unwrap();
     let seg = info
         .segments
@@ -166,7 +166,7 @@ fn zero_copy_refuses_compressed_segments() {
         compress: Some(3),
         ..Default::default()
     };
-    let f = smlb::dump_with(&repetitive_doc(), &opts).unwrap();
+    let f = smlb::dump_with( &cv(&repetitive_doc()) , &opts).unwrap();
 
     let e = Store::open(&f).expect_err("压缩文件不该被当成可零拷贝打开");
     assert_eq!(e.kind(), "zero-copy-needs-plain", "{e}");
@@ -179,4 +179,9 @@ fn zero_copy_refuses_compressed_segments() {
         smlb::get(&f, "rows[0].idx").unwrap(),
         Value::Int(0)
     );
+}
+
+/// 测试用：把值断言成 `CanonicalValue`（无序在测试里就该 panic，而不是静默通过）。
+fn cv(v: &smlb::Value) -> smlb::CanonicalValue {
+    smlb::CanonicalValue::try_from(v).expect("测试值必须是有序构造的")
 }

@@ -10,7 +10,7 @@
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use smlb::{
-        check, dump_canonical, dump_canonical_with, get, info, load, CanonicalValue, DumpOptions,
+        check, dump, dump_with, get, info, load, CanonicalValue, DumpOptions,
         HashAlgo, Map, Value,
     };
 
@@ -26,7 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //    `CanonicalValue::try_from` 是**唯一**的键序证明点：`parse()` 的默认结果是无序的，
     //    传进来会在这里失败，而不是等到 dump 才在运行期报错。
     let cv = CanonicalValue::try_from(doc.clone())?;
-    let bytes = dump_canonical(&cv)?;
+    let bytes = dump(&cv)?;
     let back = load(&bytes)?;
     assert!(back.eq_ordered(&doc), "值必须原样回来");
 
@@ -41,7 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(get(&bytes, "config.port")?, Value::Int(8080));
 
     // 5) 换摘要算法：读者永远以 manifest 的 hash_id 为准，不需要调用方记得住
-    let sm3 = dump_canonical_with(
+    let sm3 = dump_with(
         &cv,
         &DumpOptions {
             hash: HashAlgo::Sm3,

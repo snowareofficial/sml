@@ -23,8 +23,7 @@ fn master(seed: u8) -> [u8; 32] {
 #[test]
 fn encrypted_round_trip() {
     let key = master(1);
-    let f = smlb::dump_encrypted(
-        &doc(),
+    let f = smlb::dump_encrypted( &cv(&doc()) ,
         &DumpOptions::default(),
         &KeySource::Bytes(&key),
     )
@@ -65,7 +64,7 @@ fn encrypted_round_trip() {
 #[test]
 fn wrong_key_is_auth_failed() {
     let key = master(1);
-    let f = smlb::dump_encrypted(&doc(), &DumpOptions::default(), &KeySource::Bytes(&key)).unwrap();
+    let f = smlb::dump_encrypted( &cv(&doc()) , &DumpOptions::default(), &KeySource::Bytes(&key)).unwrap();
 
     let e = smlb::load_encrypted(&f, &KeySource::Bytes(&master(2))).unwrap_err();
     assert_eq!(e.kind(), "auth-failed", "{e}");
@@ -76,7 +75,7 @@ fn wrong_key_is_auth_failed() {
 #[test]
 fn tampered_ciphertext_is_auth_failed() {
     let key = master(3);
-    let mut f = smlb::dump_encrypted(&doc(), &DumpOptions::default(), &KeySource::Bytes(&key)).unwrap();
+    let mut f = smlb::dump_encrypted( &cv(&doc()) , &DumpOptions::default(), &KeySource::Bytes(&key)).unwrap();
     let info = smlb::info(&f).unwrap();
     let seg = info
         .segments
@@ -101,7 +100,7 @@ fn tampered_ciphertext_is_auth_failed() {
 #[test]
 fn tampered_segment_header_is_caught() {
     let key = master(4);
-    let mut f = smlb::dump_encrypted(&doc(), &DumpOptions::default(), &KeySource::Bytes(&key)).unwrap();
+    let mut f = smlb::dump_encrypted( &cv(&doc()) , &DumpOptions::default(), &KeySource::Bytes(&key)).unwrap();
     let info = smlb::info(&f).unwrap();
     let idx = info
         .segments
@@ -120,8 +119,7 @@ fn tampered_segment_header_is_caught() {
 #[test]
 fn passphrase_round_trip() {
     let pass: &[u8] = b"correct horse battery staple";
-    let f = smlb::dump_encrypted(
-        &doc(),
+    let f = smlb::dump_encrypted( &cv(&doc()) ,
         &DumpOptions::default(),
         &KeySource::Passphrase {
             secret: pass,
@@ -157,8 +155,7 @@ fn passphrase_round_trip() {
 #[test]
 fn kdf_parameter_mistakes_are_explicit() {
     let pass: &[u8] = b"pw";
-    let e = smlb::dump_encrypted(
-        &doc(),
+    let e = smlb::dump_encrypted( &cv(&doc()) ,
         &DumpOptions::default(),
         &KeySource::Passphrase {
             secret: pass,
@@ -168,8 +165,7 @@ fn kdf_parameter_mistakes_are_explicit() {
     .unwrap_err();
     assert_eq!(e.kind(), "kdf-required", "{e}");
 
-    let f = smlb::dump_encrypted(
-        &doc(),
+    let f = smlb::dump_encrypted( &cv(&doc()) ,
         &DumpOptions::default(),
         &KeySource::Passphrase {
             secret: pass,
@@ -197,7 +193,7 @@ fn kdf_parameter_mistakes_are_explicit() {
 #[test]
 fn store_refuses_encrypted_files() {
     let key = master(5);
-    let f = smlb::dump_encrypted(&doc(), &DumpOptions::default(), &KeySource::Bytes(&key)).unwrap();
+    let f = smlb::dump_encrypted( &cv(&doc()) , &DumpOptions::default(), &KeySource::Bytes(&key)).unwrap();
 
     let e = Store::open(&f).expect_err("加密文件不能零拷贝");
     assert_eq!(e.kind(), "encrypted-not-zero-copy", "{e}");
@@ -211,7 +207,7 @@ fn store_refuses_encrypted_files() {
 fn mixing_key_kinds_is_refused() {
     let key = master(6);
     let plain_key_file =
-        smlb::dump_encrypted(&doc(), &DumpOptions::default(), &KeySource::Bytes(&key)).unwrap();
+        smlb::dump_encrypted( &cv(&doc()) , &DumpOptions::default(), &KeySource::Bytes(&key)).unwrap();
 
     let e = smlb::load_encrypted(
         &plain_key_file,
@@ -223,8 +219,7 @@ fn mixing_key_kinds_is_refused() {
     .unwrap_err();
     assert!(e.to_string().contains("原始密钥"), "{e}");
 
-    let pass_file = smlb::dump_encrypted(
-        &doc(),
+    let pass_file = smlb::dump_encrypted( &cv(&doc()) ,
         &DumpOptions::default(),
         &KeySource::Passphrase {
             secret: b"pw",
@@ -244,7 +239,7 @@ fn mixing_key_kinds_is_refused() {
 #[test]
 fn manifest_stays_plaintext() {
     let key = master(7);
-    let f = smlb::dump_encrypted(&doc(), &DumpOptions::default(), &KeySource::Bytes(&key)).unwrap();
+    let f = smlb::dump_encrypted( &cv(&doc()) , &DumpOptions::default(), &KeySource::Bytes(&key)).unwrap();
     let info = smlb::info(&f).unwrap();
     let manifest = info
         .segments
@@ -265,6 +260,11 @@ fn manifest_stays_plaintext() {
 fn missing_feature_is_reported() {
     let key = master(8);
     let e: ContainerError =
-        smlb::dump_encrypted(&doc(), &DumpOptions::default(), &KeySource::Bytes(&key)).unwrap_err();
+        smlb::dump_encrypted( &cv(&doc()) , &DumpOptions::default(), &KeySource::Bytes(&key)).unwrap_err();
     assert_eq!(e.kind(), "crypto");
+}
+
+/// 测试用：把值断言成 `CanonicalValue`（无序在测试里就该 panic，而不是静默通过）。
+fn cv(v: &smlb::Value) -> smlb::CanonicalValue {
+    smlb::CanonicalValue::try_from(v).expect("测试值必须是有序构造的")
 }

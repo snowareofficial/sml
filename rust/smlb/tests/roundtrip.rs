@@ -22,10 +22,10 @@ fn align4k(x: usize) -> usize {
 fn every_case_roundtrips_byte_identically() {
     for case in CASES {
         let v = (case.build)();
-        let file = smlb::dump(&v).unwrap_or_else(|e| panic!("[{}] dump 失败：{e}", case.id));
+        let file = smlb::dump( &cv(&v) ).unwrap_or_else(|e| panic!("[{}] dump 失败：{e}", case.id));
         let back = smlb::load(&file).unwrap_or_else(|e| panic!("[{}] load 失败：{e}", case.id));
         assert!(back.eq_ordered(&v), "[{}] 值/键序没原样回来", case.id);
-        let again = smlb::dump(&back).unwrap();
+        let again = smlb::dump( &cv(&back) ).unwrap();
         assert_eq!(again, file, "[{}] dump→load→dump 字节不同", case.id);
     }
 }
@@ -37,7 +37,7 @@ fn value_segment_body_is_the_t0_bytes() {
     for case in CASES {
         let v = (case.build)();
         let blocks = v.canonical_blocks().unwrap();
-        let file = smlb::dump(&v).unwrap();
+        let file = smlb::dump( &cv(&v) ).unwrap();
         let info = smlb::info(&file).unwrap();
 
         let value = info
@@ -82,7 +82,7 @@ fn value_segment_body_is_the_t0_bytes() {
 #[test]
 fn header_is_the_agreed_layout() {
     let v = (CASES[0].build)(); // scalar-null：只有 VALUE + MANIFEST 两个段
-    let f = smlb::dump(&v).unwrap();
+    let f = smlb::dump( &cv(&v) ).unwrap();
 
     assert_eq!(&f[0..4], b"SWSB", "magic");
     assert_eq!(u16::from_le_bytes([f[4], f[5]]), smlb::EDITION, "edition");
@@ -116,7 +116,7 @@ fn header_is_the_agreed_layout() {
 fn alignment_follows_the_header_flag() {
     let v = (CASES[18].build)(); // 有字符串 ⇒ 两个内容段
 
-    let plain = smlb::dump(&v).unwrap();
+    let plain = smlb::dump( &cv(&v) ).unwrap();
     let pi = smlb::info(&plain).unwrap();
     assert_eq!(pi.align, smlb::ALIGN_MIN);
     assert_eq!(pi.flags & smlb::FLAG_ALIGN_BLOCK, 0);
@@ -134,7 +134,7 @@ fn alignment_follows_the_header_flag() {
         block_align: true,
         ..Default::default()
     };
-    let blocked = smlb::dump_with(&v, &opts).unwrap();
+    let blocked = smlb::dump_with( &cv(&v) , &opts).unwrap();
     let bi = smlb::info(&blocked).unwrap();
     assert_eq!(bi.align, smlb::ALIGN_BLOCK);
     assert_ne!(bi.flags & smlb::FLAG_ALIGN_BLOCK, 0);
@@ -150,7 +150,7 @@ fn alignment_follows_the_header_flag() {
 #[test]
 fn manifest_describes_the_other_segments_only() {
     let v = (CASES[18].build)();
-    let f = smlb::dump(&v).unwrap();
+    let f = smlb::dump( &cv(&v) ).unwrap();
     let info = smlb::info(&f).unwrap();
     let m = smlb::manifest::Manifest::from_bytes({
         let seg = info
@@ -192,7 +192,7 @@ fn sm3_digests_work_end_to_end() {
         hash: HashAlgo::Sm3,
         ..Default::default()
     };
-    let f = smlb::dump_with(&v, &opts).unwrap();
+    let f = smlb::dump_with( &cv(&v) , &opts).unwrap();
     assert!(smlb::load(&f).unwrap().eq_ordered(&v), "SM3 文件应能读回");
 
     let report = smlb::check(&f).unwrap();
@@ -200,7 +200,7 @@ fn sm3_digests_work_end_to_end() {
     assert!(report.lines.join("\n").contains("SM3"), "{:?}", report.lines);
 
     // 换个算法验同一份字节 ⇒ 必须不符（否则 hash_id 等于装饰）
-    let sha = smlb::dump(&v).unwrap();
+    let sha = smlb::dump( &cv(&v) ).unwrap();
     let value_seg = smlb::info(&sha)
         .unwrap()
         .segments
@@ -227,7 +227,7 @@ fn unknown_required_capability_is_refused() {
         caps_optional: vec!["dir".into()],
         ..Default::default()
     };
-    let f = smlb::dump_with(&v, &opts).unwrap();
+    let f = smlb::dump_with( &cv(&v) , &opts).unwrap();
 
     let e = smlb::load(&f).expect_err("required 里读不懂的能力必须拒");
     assert_eq!(e.kind(), "missing-capability", "{e}");
@@ -243,7 +243,7 @@ fn unknown_required_capability_is_refused() {
         caps_required: vec!["value".into(), "strtab".into()],
         ..Default::default()
     };
-    let ok_file = smlb::dump_with(&v, &ok_opts).unwrap();
+    let ok_file = smlb::dump_with( &cv(&v) , &ok_opts).unwrap();
     assert!(smlb::load(&ok_file).is_ok());
 }
 
@@ -260,7 +260,7 @@ fn capability_declaration_is_validated_on_write() {
             caps_required: vec![bad.into()],
             ..Default::default()
         };
-        let e = smlb::dump_with(&v, &opts).unwrap_err();
+        let e = smlb::dump_with( &cv(&v) , &opts).unwrap_err();
         assert_eq!(e.kind(), "bad-capability-name", "`{bad}` 应被拒：{e}");
     }
 
@@ -270,7 +270,7 @@ fn capability_declaration_is_validated_on_write() {
         caps_optional: vec!["sig".into()],
         ..Default::default()
     };
-    let e = smlb::dump_with(&v, &dup).unwrap_err();
+    let e = smlb::dump_with( &cv(&v) , &dup).unwrap_err();
     assert_eq!(e.kind(), "duplicate-capability", "{e}");
 
     // 合法的未来能力仍然写得出来（`sig` / `dir` 不在 known 闭集里）
@@ -280,7 +280,7 @@ fn capability_declaration_is_validated_on_write() {
         ..Default::default()
     };
     assert!(
-        smlb::dump_with(&v, &future).is_ok(),
+        smlb::dump_with( &cv(&v) , &future).is_ok(),
         "已登记但本构建不处理的能力必须仍可声明"
     );
 }
@@ -315,7 +315,7 @@ fn pack_iter_matches_pack_byte_for_byte() {
 /// 每个段都带真摘要，`check` 会把结论打出来。
 #[test]
 fn digests_are_written() {
-    let f = smlb::dump(&(CASES[10].build)()).unwrap();
+    let f = smlb::dump( &cv(&(CASES[10].build)()) ).unwrap();
     let info = smlb::info(&f).unwrap();
     assert!(info.has_digest(), "T2 起应写摘要");
     assert!(info.segments.iter().all(|s| s.header.hash != [0u8; 32]));
@@ -331,7 +331,7 @@ fn digests_are_written() {
 /// T2 的核心判据：改一个字节必须被检出。
 #[test]
 fn one_changed_byte_is_caught() {
-    let f = smlb::dump(&(CASES[17].build)()).unwrap();
+    let f = smlb::dump( &cv(&(CASES[17].build)()) ).unwrap();
     let info = smlb::info(&f).unwrap();
     let value_seg = info
         .segments
@@ -359,7 +359,7 @@ fn one_changed_byte_is_caught() {
 /// 没带摘要（T1 时代，全 0）的文件仍能读 —— 只是校验更少，不是无效。
 #[test]
 fn zeroed_digest_means_unverified_not_invalid() {
-    let mut f = smlb::dump(&(CASES[17].build)()).unwrap();
+    let mut f = smlb::dump( &cv(&(CASES[17].build)()) ).unwrap();
     let info = smlb::info(&f).unwrap();
     for i in 0..info.segments.len() {
         let at = info.table_off as usize + i * SEG_HEADER_LEN;
@@ -381,8 +381,7 @@ fn zeroed_digest_means_unverified_not_invalid() {
 fn unknown_segment_is_skipped() {
     let v = (CASES[17].build)();
     // 用 4 KiB 对齐的布局，段表后面才有空位插一条额外表项
-    let base = smlb::dump_with(
-        &v,
+    let base = smlb::dump_with( &cv(&v) ,
         &DumpOptions {
             block_align: true,
             ..Default::default()
@@ -404,7 +403,7 @@ fn unknown_segment_is_skipped() {
 #[test]
 fn truncation_is_rejected() {
     let v = (CASES[1].build)();
-    let f = smlb::dump(&v).unwrap();
+    let f = smlb::dump( &cv(&v) ).unwrap();
     for cut in [0usize, 20, smlb::HEADER_LEN, f.len() - 1] {
         assert!(
             smlb::info(&f[..cut]).is_err() || smlb::load(&f[..cut]).is_err(),
@@ -417,7 +416,7 @@ fn truncation_is_rejected() {
 /// 版本闸门（D5）：`fmt` 不同就是另一套字节布局 ⇒ 拒绝。
 #[test]
 fn unsupported_fmt_is_rejected() {
-    let mut f = smlb::dump(&(CASES[0].build)()).unwrap();
+    let mut f = smlb::dump( &cv(&(CASES[0].build)()) ).unwrap();
     f[6] = 1;
     let e = smlb::info(&f).expect_err("fmt=1 应被拒");
     assert_eq!(e.kind(), "unsupported-fmt");
@@ -427,7 +426,7 @@ fn unsupported_fmt_is_rejected() {
 /// 魔数不对 ⇒ 明说「这不是 .smlb 文件」。
 #[test]
 fn bad_magic_is_rejected() {
-    let mut f = smlb::dump(&(CASES[0].build)()).unwrap();
+    let mut f = smlb::dump( &cv(&(CASES[0].build)()) ).unwrap();
     f[0] = b'X';
     assert_eq!(smlb::info(&f).unwrap_err().kind(), "bad-magic");
 }
@@ -436,7 +435,7 @@ fn bad_magic_is_rejected() {
 /// 没有 `VALUE` 段就没东西可读。
 #[test]
 fn missing_value_segment_is_rejected() {
-    let mut f = smlb::dump(&(CASES[0].build)()).unwrap();
+    let mut f = smlb::dump( &cv(&(CASES[0].build)()) ).unwrap();
     let table_off = u64::from_le_bytes(f[8..16].try_into().unwrap()) as usize;
     f[table_off] = 0x60; // VALUE → PROVENANCE
     assert_eq!(smlb::load(&f).unwrap_err().kind(), "missing-segment");
@@ -447,7 +446,7 @@ fn missing_value_segment_is_rejected() {
 #[test]
 fn cat_looks_up_by_path() {
     let v = (CASES[19].build)(); // nested-containers：config.port = 8080
-    let f = smlb::dump(&v).unwrap();
+    let f = smlb::dump( &cv(&v) ).unwrap();
     assert_eq!(smlb::get(&f, "config.port").unwrap(), smlb::Value::Int(8080));
     assert_eq!(
         smlb::get(&f, "config.hosts[0]").unwrap(),
@@ -461,7 +460,7 @@ fn cat_looks_up_by_path() {
 /// 健壮性：**任一**单字节改动都得以错误返回，绝不许 panic。
 #[test]
 fn single_byte_mutations_never_panic() {
-    let f = smlb::dump(&(CASES[16].build)()).unwrap();
+    let f = smlb::dump( &cv(&(CASES[16].build)()) ).unwrap();
     for i in 0..f.len() {
         for flip in [0x01u8, 0x80] {
             let mut bad = f.clone();
@@ -481,7 +480,7 @@ fn depth_limit_propagates() {
     for _ in 0..=smlb::MAX_VALUE_DEPTH {
         v = smlb::Value::Array(vec![v]);
     }
-    let e = smlb::dump(&v).expect_err("超深值必须被拒");
+    let e = smlb::dump( &cv(&v) ).expect_err("超深值必须被拒");
     assert!(matches!(
         e,
         smlb::ContainerError::Canonical(smlb::CanonicalError::DepthExceeded { .. })
@@ -495,8 +494,8 @@ fn dump_is_deterministic() {
     for case in CASES {
         let v = (case.build)();
         assert_eq!(
-            smlb::dump(&v).unwrap(),
-            smlb::dump(&v).unwrap(),
+            smlb::dump( &cv(&v) ).unwrap(),
+            smlb::dump( &cv(&v) ).unwrap(),
             "[{}]",
             case.id
         );
@@ -507,7 +506,7 @@ fn dump_is_deterministic() {
 /// `info` 必须回答 P8 的问题（「主内容是什么」）。
 #[test]
 fn info_names_the_primary() {
-    let f = smlb::dump(&(CASES[0].build)()).unwrap();
+    let f = smlb::dump( &cv(&(CASES[0].build)()) ).unwrap();
     let info = smlb::info(&f).unwrap();
     let text = container::info_lines("t.smlb", &f, &info)
         .unwrap()
@@ -631,4 +630,9 @@ fn append_segment(mut f: Vec<u8>, seg_id: u8, comp: u8, enc: u8, body: &[u8]) ->
     }
     f.extend_from_slice(body);
     f
+}
+
+/// 测试用：把值断言成 `CanonicalValue`（无序在测试里就该 panic，而不是静默通过）。
+fn cv(v: &smlb::Value) -> smlb::CanonicalValue {
+    smlb::CanonicalValue::try_from(v).expect("测试值必须是有序构造的")
 }

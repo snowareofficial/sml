@@ -153,7 +153,11 @@ pub fn value_to_smlb(value: &Value, compress: Option<i32>) -> Result<Vec<u8>, En
         compress,
         ..Default::default()
     };
-    Ok(smlb::dump_with(value, &opts)?)
+    // 键序是**值层事实**：这里显式转换，无序值在转换点就被拒，
+    // 而不是等到写盘才报 `key-order-unavailable`。
+    let cv = smlb::CanonicalValue::try_from(value)
+        .map_err(|e| EnvelopeError::Container(ContainerError::Canonical(e)))?;
+    Ok(smlb::dump_with(&cv, &opts)?)
 }
 
 /// Envelope → SML text. ｜ 信封 → SML 文本。
