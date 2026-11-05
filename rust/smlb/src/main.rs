@@ -28,6 +28,15 @@ smlb — SML 的二进制形式 .smlb（T0 canonical/向量 + T1 容器）
   smlb cat     <file> <path>           按路径取值（a.b[0]），输出 canonical 文本
   smlb pack    <out.smlb> <file>...    把若干文件打成一个 .smlb 归档（EMBED 段）
   smlb unpack  <file> <destdir>        把归档里的载荷逐个写出到目录
+
+签名与层链（T4，需 `--features sign`）:
+  smlb keygen  [--out FILE]            生成 Ed25519 密钥（seed/pub 各一行十六进制）
+  smlb sign    <file> --seed HEX|FILE [--patch P.smlb] [-o OUT] [--in-place]
+  smlb append  <file> <patch.smlb> --seed HEX|FILE [-o OUT] [--in-place] [--delegation F]
+  smlb delegate --seed OLD --to PUBKEY --max N [--out FILE]   签一份换钥授权（D16）
+  smlb verify  <file>                  验链 + 验签（全部必须通过，D36）
+  smlb tree    <file>                  打印层链：序号 / 作者 / 补丁键数 / 签名数 / 授权
+  smlb cat     <file> <path> [--at N]  取第 N 层为止的值（历史回放）
   smlb vectors --gen   [--file PATH]   重新生成跨端 canonical 向量
   smlb vectors --check [--file PATH]   重新生成并与磁盘逐行比对
   smlb --help | -h                     本帮助
@@ -115,20 +124,15 @@ fn run(args: &[String]) -> Result<String, (u8, String)> {
                 Err((1, out))
             }
         }),
-        "cat" => {
-            let Some(path) = args.get(1) else {
-                return Err((2, "用法: smlb cat <file> <path>（如 `a.b[0]`）".to_string()));
-            };
-            let Some(expr) = args.get(2) else {
-                return Err((2, "用法: smlb cat <file> <path>".to_string()));
-            };
-            let bytes = std::fs::read(path).map_err(|e| (1, format!("读 {path} 失败：{e}")))?;
-            let v = smlb::get(&bytes, expr).map_err(|e| (1, format!("{path}: {e}")))?;
-            // 输出 canonical 文本：与签名对象同一形态，可直接拿去比对
-            v.canonical_text().map_err(|e| (1, format!("{e}")))
-        }
+        "cat" => cat_cmd(&args[1..]),
         "pack" => pack_cmd(&args[1..]),
         "unpack" => unpack_cmd(&args[1..]),
+        "verify" => verify_cmd(&args[1..]),
+        "tree" => tree_cmd(&args[1..]),
+        "keygen" => keygen_cmd(&args[1..]),
+        "delegate" => delegate_cmd(&args[1..]),
+        "sign" => sign_cmd(&args[1..], false),
+        "append" => sign_cmd(&args[1..], true),
         other => Err((
             2,
             format!("未知子命令 `{other}`（现有 info / ls / check / cat / pack / unpack / vectors）"),
@@ -262,4 +266,415 @@ fn safe_join(dest: &str, name: &str) -> Result<std::path::PathBuf, (u8, String)>
         ));
     }
     Ok(std::path::Path::new(dest).join(name))
+}
+
+/// `smlb cat <file> <path> [--at N]` — 取当前值，或第 N 层为止的历史值。
+fn cat_cmd(args: &[String]) -> Result<String, (u8, String)> {
+    let mut pos: Vec<&String> = Vec::new();
+    let mut at: Option<usize> = None;
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--at" {
+            let Some(n) = args.get(i + 1) else {
+                return Err((2, "`--at` 需要层号".to_string()));
+            };
+            at = Some(
+                n.parse()
+                    .map_err(|_| (2, format!("`--at {n}` 不是数字")))?,
+            );
+            i += 2;
+            continue;
+        }
+        pos.push(&args[i]);
+        i += 1;
+    }
+    let (Some(file), Some(expr)) = (pos.first(), pos.get(1)) else {
+        return Err((2, "用法: smlb cat <file> <path> [--at N]".to_string()));
+    };
+    let bytes = std::fs::read(file).map_err(|e| (1, format!("读 {file} 失败：{e}")))?;
+    let v = match at {
+        // 历史回放：base 值 + 前 N 层的补丁
+        Some(n) => {
+            let base = smlb::load(&bytes).map_err(|e| (1, format!("{file}: {e}")))?;
+            // load 已经合并了全部层，这里要的是「截至第 n 层」⇒ 重算
+            let raw = smlb::container::base_value(&bytes)
+                .map_err(|e| (1, format!("{file}: {e}")))?;
+            let _ = base;
+            smlb::layer::history_value_at(&bytes, &raw, n, expr)
+                .map_err(|e| (1, format!("{file}: {e}")))?
+        }
+        None => smlb::get(&bytes, expr).map_err(|e| (1, format!("{file}: {e}")))?,
+    };
+    v.canonical_text().map_err(|e| (1, format!("{e}")))
+}
+
+/// `smlb verify <file>` — 验链 + 验签。
+fn verify_cmd(args: &[String]) -> Result<String, (u8, String)> {
+    let Some(file) = args.first() else {
+        return Err((2, "用法: smlb verify <file>".to_string()));
+    };
+    let bytes = std::fs::read(file).map_err(|e| (1, format!("读 {file} 失败：{e}")))?;
+    let algo = smlb::container::hash_algo(&bytes).map_err(|e| (1, format!("{file}: {e}")))?;
+
+    #[cfg(feature = "sign")]
+    {
+        let report = smlb::verify(&bytes, algo).map_err(|e| (1, format!("{file}: {e}")))?;
+        let mut out = report.lines.join("\n");
+        out.push_str(&format!(
+            "\n\n{file}: {}（{} 层）",
+            if report.ok { "通过" } else { "未通过" },
+            report.layers
+        ));
+        if report.ok {
+            Ok(out)
+        } else {
+            Err((1, out))
+        }
+    }
+    #[cfg(not(feature = "sign"))]
+    {
+        // 没有 sign feature 也能回答「结构对不对」，但不能回答「谁签的」
+        let chain = smlb::layer::verify_chain(&bytes, algo)
+            .map_err(|e| (1, format!("{file}: {e}")))?;
+        let mut out = chain.lines.join("\n");
+        out.push_str(
+            "\n注意     本构建未启用 `sign` feature：上面只验了链结构，**签名一个字都没验**",
+        );
+        if chain.ok {
+            Ok(out)
+        } else {
+            Err((1, out))
+        }
+    }
+}
+
+/// `smlb tree <file>` — 打印层链。
+fn tree_cmd(args: &[String]) -> Result<String, (u8, String)> {
+    let Some(file) = args.first() else {
+        return Err((2, "用法: smlb tree <file>".to_string()));
+    };
+    let bytes = std::fs::read(file).map_err(|e| (1, format!("读 {file} 失败：{e}")))?;
+    let all = smlb::layer::layers(&bytes).map_err(|e| (1, format!("{file}: {e}")))?;
+    if all.is_empty() {
+        return Ok(format!("{file}: 没有层（未签名）"));
+    }
+    let mut out = vec![format!("{file}: {} 层", all.len())];
+    for l in &all {
+        let patch = match &l.patch {
+            Some(smlb::Value::Object(m)) => format!("patch {} 键", m.len()),
+            Some(_) => "patch（整值替换）".to_string(),
+            None => "无补丁".to_string(),
+        };
+        let deleg = match &l.delegation {
+            Some(d) => format!("delegation ≤ {}", d.max_index),
+            None => "-".to_string(),
+        };
+        out.push(format!(
+            "  层#{:<3} 作者 {}…  {}  签名 {} 条  {}",
+            l.index,
+            &hex_prefix(&l.author),
+            patch,
+            l.sigs.len(),
+            deleg
+        ));
+    }
+    Ok(out.join("\n"))
+}
+
+/// `smlb keygen [--out FILE]` — 生成 Ed25519 密钥。
+fn keygen_cmd(args: &[String]) -> Result<String, (u8, String)> {
+    #[cfg(feature = "sign")]
+    {
+        let mut out_path: Option<&String> = None;
+        let mut i = 0;
+        while i < args.len() {
+            if args[i] == "--out" {
+                let Some(p) = args.get(i + 1) else {
+                    return Err((2, "`--out` 需要一个路径".to_string()));
+                };
+                out_path = Some(p);
+                i += 2;
+                continue;
+            }
+            return Err((2, format!("`keygen` 不认识参数 `{}`", args[i])));
+        }
+        let kp = smlb::KeyPair::generate().map_err(|e| (1, e.to_string()))?;
+        let text = format!("seed:{}\npub:{}\n", kp.seed_hex(), kp.public_hex());
+        match out_path {
+            Some(p) => {
+                std::fs::write(p, text.as_bytes())
+                    .map_err(|e| (1, format!("写 {p} 失败：{e}")))?;
+                Ok(format!(
+                    "已写入 {p}\n注意：seed 是私钥，别提交、别贴群里（权限请自行收紧）"
+                ))
+            }
+            None => Ok(format!(
+                "{text}\n注意：seed 是私钥，别提交、别贴群里（权限请自行收紧）"
+            )),
+        }
+    }
+    #[cfg(not(feature = "sign"))]
+    {
+        let _ = args;
+        Err((1, "本构建未启用 `sign` feature，无法生成密钥".to_string()))
+    }
+}
+
+/// `smlb sign` / `smlb append` — 追加一个已签名的层。
+fn sign_cmd(args: &[String], need_patch: bool) -> Result<String, (u8, String)> {
+    #[cfg(feature = "sign")]
+    {
+        let mut file: Option<&String> = None;
+        let mut patch_path: Option<&String> = None;
+        let mut seed_src: Option<&String> = None;
+        let mut out_path: Option<&String> = None;
+        let mut deleg_path: Option<&String> = None;
+        let mut in_place = false;
+        let mut i = 0;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--seed" => {
+                    let Some(v) = args.get(i + 1) else {
+                        return Err((2, "`--seed` 需要一个十六进制种子或文件路径".to_string()));
+                    };
+                    seed_src = Some(v);
+                    i += 2;
+                }
+                "--patch" => {
+                    let Some(v) = args.get(i + 1) else {
+                        return Err((2, "`--patch` 需要一个 .smlb 路径".to_string()));
+                    };
+                    patch_path = Some(v);
+                    i += 2;
+                }
+                "-o" | "--out" => {
+                    let Some(v) = args.get(i + 1) else {
+                        return Err((2, "`-o` 需要一个路径".to_string()));
+                    };
+                    out_path = Some(v);
+                    i += 2;
+                }
+                "--delegation" => {
+                    let Some(v) = args.get(i + 1) else {
+                        return Err((2, "`--delegation` 需要一个文件路径".to_string()));
+                    };
+                    deleg_path = Some(v);
+                    i += 2;
+                }
+                "--in-place" => {
+                    in_place = true;
+                    i += 1;
+                }
+                other => {
+                    if other.starts_with('-') {
+                        return Err((2, format!("不认识的参数 `{other}`")));
+                    }
+                    if file.is_none() {
+                        file = Some(&args[i]);
+                    } else if patch_path.is_none() {
+                        patch_path = Some(&args[i]);
+                    } else {
+                        return Err((2, format!("多余参数 `{other}`")));
+                    }
+                    i += 1;
+                }
+            }
+        }
+        let Some(file) = file else {
+            return Err((2, "用法: smlb sign <file> --seed HEX|FILE [--patch P.smlb]".to_string()));
+        };
+        if need_patch && patch_path.is_none() {
+            return Err((2, "`append` 必须给一个补丁文件".to_string()));
+        }
+        let Some(seed_src) = seed_src else {
+            return Err((2, "必须给 `--seed`（十六进制种子，或含 `seed:` 行的文件）".to_string()));
+        };
+
+        // 种子：既接受 64 位十六进制，也接受 keygen 写出的文件
+        let seed = if seed_src.len() == 64 && seed_src.chars().all(|c| c.is_ascii_hexdigit()) {
+            seed_src.clone()
+        } else {
+            let text = std::fs::read_to_string(seed_src)
+                .map_err(|e| (1, format!("读 {seed_src} 失败：{e}")))?;
+            text.lines()
+                .find_map(|l| l.strip_prefix("seed:").map(|s| s.trim().to_string()))
+                .ok_or((1, format!("{seed_src} 里没有 `seed:` 行")))? 
+        };
+        let kp = smlb::KeyPair::from_seed_hex(&seed).map_err(|e| (1, e.to_string()))?;
+
+        let bytes = std::fs::read(file).map_err(|e| (1, format!("读 {file} 失败：{e}")))?;
+        let algo = smlb::container::hash_algo(&bytes).map_err(|e| (1, format!("{file}: {e}")))?;
+        let patch = match patch_path {
+            Some(p) => {
+                let pb = std::fs::read(p).map_err(|e| (1, format!("读 {p} 失败：{e}")))?;
+                Some(smlb::load(&pb).map_err(|e| (1, format!("{p}: {e}")))?)
+            }
+            None => None,
+        };
+
+        // 换钥授权（D16）：由**上一位作者**离线签好，随本层一起走
+        let delegation = match deleg_path {
+            Some(p) => {
+                let text =
+                    std::fs::read_to_string(p).map_err(|e| (1, format!("读 {p} 失败：{e}")))?;
+                Some(parse_delegation(&text)?)
+            }
+            None => None,
+        };
+
+        let signed = smlb::append_layer(&bytes, &kp, patch.clone(), delegation, algo)
+            .map_err(|e| (1, e.to_string()))?;
+        let dest = match (out_path, in_place) {
+            (Some(p), _) => p.as_str(),
+            (None, _) => file.as_str(), // 默认原地（与 `git commit` 同直觉）
+        };
+        std::fs::write(dest, &signed).map_err(|e| (1, format!("写 {dest} 失败：{e}")))?;
+        let n = smlb::layer::layers(&signed).map(|l| l.len()).unwrap_or(0);
+        Ok(format!(
+            "已追加 1 层 → {dest}（现有 {n} 层，{} B）",
+            signed.len()
+        ))
+    }
+    #[cfg(not(feature = "sign"))]
+    {
+        let _ = (args, need_patch);
+        Err((1, "本构建未启用 `sign` feature，无法签名".to_string()))
+    }
+}
+
+fn hex_prefix(k: &[u8; 32]) -> String {
+    k[..4].iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// `smlb delegate --seed OLD --to PUBKEY --max N [--out FILE]` — 签一份换钥授权。
+fn delegate_cmd(args: &[String]) -> Result<String, (u8, String)> {
+    #[cfg(feature = "sign")]
+    {
+        let mut seed_src: Option<&String> = None;
+        let mut to: Option<&String> = None;
+        let mut max: Option<u32> = None;
+        let mut out_path: Option<&String> = None;
+        let mut i = 0;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--seed" => {
+                    let Some(v) = args.get(i + 1) else {
+                        return Err((2, "`--seed` 需要一个十六进制种子或文件路径".to_string()));
+                    };
+                    seed_src = Some(v);
+                    i += 2;
+                }
+                "--to" => {
+                    let Some(v) = args.get(i + 1) else {
+                        return Err((2, "`--to` 需要新作者的公钥（64 位十六进制）".to_string()));
+                    };
+                    to = Some(v);
+                    i += 2;
+                }
+                "--max" => {
+                    let Some(v) = args.get(i + 1) else {
+                        return Err((2, "`--max` 需要一个层号".to_string()));
+                    };
+                    max = Some(v.parse().map_err(|_| (2, format!("`--max {v}` 不是数字")))?);
+                    i += 2;
+                }
+                "--out" => {
+                    let Some(v) = args.get(i + 1) else {
+                        return Err((2, "`--out` 需要一个路径".to_string()));
+                    };
+                    out_path = Some(v);
+                    i += 2;
+                }
+                other => return Err((2, format!("`delegate` 不认识参数 `{other}`"))),
+            }
+        }
+        let (Some(seed_src), Some(to), Some(max)) = (seed_src, to, max) else {
+            return Err((
+                2,
+                "用法: smlb delegate --seed OLD --to PUBKEY --max N [--out FILE]".to_string(),
+            ));
+        };
+        let seed = read_seed(seed_src)?;
+        let kp = smlb::KeyPair::from_seed_hex(&seed).map_err(|e| (1, e.to_string()))?;
+        let to_bytes = hex32(to).ok_or((2, "`--to` 需要 64 位十六进制公钥".to_string()))?;
+        let d = kp.delegate(&to_bytes, max);
+        let text = format!(
+            "from:{}\nsig:{}\nmax:{}\n",
+            to_hex(&d.from),
+            to_hex(&d.sig),
+            d.max_index
+        );
+        match out_path {
+            Some(p) => {
+                std::fs::write(p, text.as_bytes()).map_err(|e| (1, format!("写 {p} 失败：{e}")))?;
+                Ok(format!("已写入 {p}（换钥授权：≤ 第 {max} 层）"))
+            }
+            None => Ok(text),
+        }
+    }
+    #[cfg(not(feature = "sign"))]
+    {
+        let _ = args;
+        Err((1, "本构建未启用 `sign` feature，无法签授权".to_string()))
+    }
+}
+
+/// 读种子：既接受 64 位十六进制，也接受 `keygen --out` 写出的文件。
+#[cfg(feature = "sign")]
+fn read_seed(src: &str) -> Result<String, (u8, String)> {
+    if src.len() == 64 && src.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Ok(src.to_string());
+    }
+    let text = std::fs::read_to_string(src).map_err(|e| (1, format!("读 {src} 失败：{e}")))?;
+    text.lines()
+        .find_map(|l| l.strip_prefix("seed:").map(|s| s.trim().to_string()))
+        .ok_or((1, format!("{src} 里没有 `seed:` 行")))
+}
+
+/// 解析 `delegate` 写出的文件（`from:` / `sig:` / `max:` 三行）。
+#[cfg(feature = "sign")]
+fn parse_delegation(text: &str) -> Result<smlb::Delegation, (u8, String)> {
+    let mut from = None;
+    let mut sig = None;
+    let mut max = None;
+    for line in text.lines() {
+        if let Some(v) = line.strip_prefix("from:") {
+            from = Some(hex32(v.trim()).ok_or((2, "delegation.from 需 64 位十六进制".to_string()))?);
+        } else if let Some(v) = line.strip_prefix("sig:") {
+            sig = Some(hex_n(v.trim()).ok_or((2, "delegation.sig 需十六进制".to_string()))?);
+        } else if let Some(v) = line.strip_prefix("max:") {
+            max = Some(v.trim().parse().map_err(|_| (2, "delegation.max 不是数字".to_string()))?);
+        }
+    }
+    match (from, sig, max) {
+        (Some(from), Some(sig), Some(max_index)) => Ok(smlb::Delegation {
+            from,
+            max_index,
+            sig,
+        }),
+        _ => Err((2, "delegation 文件缺 `from:` / `sig:` / `max:`".to_string())),
+    }
+}
+
+#[cfg(feature = "sign")]
+fn to_hex(d: &[u8]) -> String {
+    d.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[cfg(feature = "sign")]
+fn hex_n(s: &str) -> Option<Vec<u8>> {
+    if s.len() % 2 != 0 || !s.is_ascii() {
+        return None;
+    }
+    let mut out = Vec::with_capacity(s.len() / 2);
+    for i in (0..s.len()).step_by(2) {
+        out.push(u8::from_str_radix(&s[i..i + 2], 16).ok()?);
+    }
+    Some(out)
+}
+
+#[cfg(feature = "sign")]
+fn hex32(s: &str) -> Option<[u8; 32]> {
+    let v = hex_n(s)?;
+    v.as_slice().try_into().ok()
 }
