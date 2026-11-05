@@ -34,9 +34,11 @@ smlb — 通用二进制信封 .smlb（SML 是内置载荷之一）
 签名与层链（T4，需 `--features sign`）:
   smlb keygen  [--out FILE]            生成 Ed25519 密钥（seed/pub 各一行十六进制）
   smlb sign    <file> --seed HEX|FILE [--patch P.smlb] [-o OUT] [--in-place]
+                                      [--delegation F]
   smlb append  <file> <patch.smlb> --seed HEX|FILE [--expect-head HEX64] [-o OUT]
                                       `--expect-head` 把追加钉在写者看到的链头上（D20）
-  smlb compact <file> --seed HEX|FILE [-o OUT]  合并多层并**重签**（D8 的唯一例外；丢弃历史） [--in-place] [--delegation F]
+  smlb compact <file> --seed HEX|FILE [-o OUT]
+                                      合并多层并**重签**（D8 唯一例外；丢弃历史，旧锚点要重建）
   smlb delegate --seed OLD --to PUBKEY --max N [--out FILE]   签一份换钥授权（D16）
   smlb verify  <file> [--trust HEX64]  验链 + 验签（全部必须通过，D36）；
                                        `--trust` 把链头钉在外部锚点上（防整条链被剥离）
@@ -58,8 +60,13 @@ smlb — 通用二进制信封 .smlb（SML 是内置载荷之一）
   `info` / `ls` / `check` 只读容器，`cat` 要解码（解码也要源序），故 `cat` 同理：
     cargo run -p smlb --features preserve_order -- vectors --check
 
-T2 余下：manifest / 能力位 / primary / pack / unpack；T4 起 sign / verify / append / tree
-（顺序见 spec §17 / §22）。摘要已从 T2 起真写（SHA-256），`check` 会逐段核。";
+已实现：T0 向量 / T1 容器 / T2 manifest·摘要·EMBED / T3 随机访问 / T4 层链签名 /
+T5 压缩与加密（库）/ T6 互转（库在 `sml::envelope`）。施工顺序见 spec §17 / §22。
+
+注意:
+  - 加密（`dump_encrypted`）与 mmap（`MappedFile`）目前**只有库接口，没有 CLI**；
+  - `verify` 通过只代表「层链自身一致且签名有效」，不代表「基文档没被换过」
+    （基文档未进签名范围，见 spec §21.1b E）；要防整条链被剥离请用 `--trust`。";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
