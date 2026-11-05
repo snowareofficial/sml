@@ -102,6 +102,55 @@ impl KeyPair {
 /// **不改旧字节**：新层与 Trailer 都写在原文件末尾之后；旧 Trailer 变成中间字节，
 /// 读者只认 EOF 往前 64 B 的那个。
 /// Append-only: new layer + trailer go after EOF; the old trailer becomes interior bytes.
+/// Append **only if the chain head is still what the writer saw** (D20: 多读一写).
+/// 只有在「链头还是写者上次看到的那一个」时才追加（D20）。
+///
+/// 这是**乐观并发控制**，不是 OS 文件锁：调用方先记住 `layer::chain_head`，做完自己的事再
+/// 带着它回来追加。若期间别人追加过，链头必变 ⇒ 后者拿到一个明确的 `AppendConflict`，
+/// 而不是把自己的层悄悄挂到别人后面（那样 `prev_hash` 虽然对，但语义上覆盖了别人的意图）。
+///
+/// 未签名文件没有链头，按约定用**全 0**（与首层 `prev_hash` 的约定一致）。
+/// ｜ Optimistic, not an OS lock: pass the head you read; unsigned files use all-zero.
+pub fn append_layer_checked(
+    bytes: &[u8],
+    key: &KeyPair,
+    patch: Option<Value>,
+    delegation: Option<Delegation>,
+    algo: HashAlgo,
+    expected_head: &[u8; 32],
+) -> Result<Vec<u8>, SignError> {
+    let actual = layer::chain_head(bytes, algo)
+        .map_err(SignError::Layer)?
+        .unwrap_or([0u8; 32]);
+    if actual != *expected_head {
+        return Err(SignError::AppendConflict {
+            expected: *expected_head,
+            actual,
+        });
+    }
+    append_layer(bytes, key, patch, delegation, algo)
+}
+
+/// Merge every layer into a fresh base document and **sign it again** (D8 的唯一例外).
+/// 把所有层合并进一份新的基文档并**重新签名**（D8 的唯一例外）。
+///
+/// 步骤：读当前值（base + 各层补丁）→ `dump` 成全新的基文件 → 签第 0 层（无补丁）。
+/// 于是历史被丢弃（这是调用方明确要求的），而「追加不改旧字节」的不变量 3 只在本次
+/// **整体重写**时被有意打破 —— 旧签名随之作废，这正是它必须重签的原因。
+///
+/// 用 `--trust` 钉过旧链头的调用方会在 compact 后收到 `head 不符`：这是**正确**的，
+/// compact 换了链条，应当重新建立锚点。
+/// ｜ History is intentionally dropped; any old `--trust` anchor must be re-established.
+pub fn compact(
+    bytes: &[u8],
+    key: &KeyPair,
+    algo: HashAlgo,
+) -> Result<Vec<u8>, SignError> {
+    let current = crate::load(bytes).map_err(SignError::Container)?;
+    let fresh = crate::dump(&current).map_err(SignError::Container)?;
+    append_layer(&fresh, key, None, None, algo)
+}
+
 pub fn append_layer(
     bytes: &[u8],
     key: &KeyPair,
@@ -409,11 +458,26 @@ pub enum SignError {
     Layer(LayerError),
     /// The digest algorithm is unavailable ｜ 摘要算法不可用。
     Hash(crate::hash::HashError),
+    /// Nobody appended based on the head this writer saw (D20) ｜ 链头已变，追加冲突。
+    AppendConflict {
+        /// The head the writer based its work on ｜ 写者记住的链头。
+        expected: [u8; 32],
+        /// The head the file actually has now ｜ 文件现在的链头。
+        actual: [u8; 32],
+    },
+    /// `compact` could not read/rewrite the base document ｜ 合并时读写基文档失败。
+    Container(crate::ContainerError),
 }
 
 impl From<crate::CanonicalError> for SignError {
     fn from(e: crate::CanonicalError) -> Self {
         SignError::Canonical(e)
+    }
+}
+
+impl From<crate::ContainerError> for SignError {
+    fn from(e: crate::ContainerError) -> Self {
+        SignError::Container(e)
     }
 }
 
@@ -425,6 +489,14 @@ impl std::fmt::Display for SignError {
             SignError::Canonical(e) => write!(f, "{e}"),
             SignError::Layer(e) => write!(f, "{e}"),
             SignError::Hash(e) => write!(f, "{e}"),
+            SignError::AppendConflict { expected, actual } => write!(
+                f,
+                "追加冲突（D20）：你基于链头 {}… 工作，文件现在是 {}… —— 期间有人追加过；\
+                 请重新读取后再试，不要覆盖别人的意图",
+                &hex(expected)[..16],
+                &hex(actual)[..16]
+            ),
+            SignError::Container(e) => write!(f, "容器层：{e}"),
         }
     }
 }

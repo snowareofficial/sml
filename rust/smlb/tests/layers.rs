@@ -7,7 +7,7 @@
 #![cfg(all(feature = "preserve_order", feature = "sign"))]
 
 use smlb::layer::{self, Delegation};
-use smlb::{ContainerError, HashAlgo, KeyPair, Map, Trailer, Value};
+use smlb::{ContainerError, HashAlgo, KeyPair, Map, SignError, Trailer, Value};
 
 fn base_doc() -> Value {
     let mut cfg = Map::new();
@@ -85,6 +85,79 @@ fn stripped_chain_is_caught_by_the_anchor() {
     let text = anchored.lines.join("\n");
     assert!(text.contains("一层都没有"), "{text}");
     assert!(text.contains("剥离"), "{text}");
+}
+
+/// D20 写者锁：两个写者基于**同一个链头**工作，后者必须拿到明确冲突。
+/// Optimistic writer lock: a stale head must fail loudly, not append silently.
+#[test]
+fn stale_head_gets_an_explicit_append_conflict() {
+    let algo = HashAlgo::Sha256;
+    let k = key(1);
+    let f = smlb::dump(&base_doc()).unwrap();
+    let v1 = smlb::append_layer(&f, &k, None, None, algo).unwrap();
+    let head1 = layer::chain_head(&v1, algo).unwrap().unwrap();
+
+    // A：基于 head1 追加 ⇒ 成功
+    let v2 = smlb::append_layer_checked(&v1, &k, Some(patch(9090)), None, algo, &head1).unwrap();
+    assert_eq!(layer::layers(&v2).unwrap().len(), 2);
+
+    // B：也基于 head1（已经陈旧）⇒ 明确冲突，且消息点名两个链头
+    let e = smlb::append_layer_checked(&v2, &k, Some(patch(1111)), None, algo, &head1)
+        .unwrap_err();
+    assert!(
+        matches!(e, SignError::AppendConflict { .. }),
+        "应报 AppendConflict，实得 {e:?}"
+    );
+    assert!(e.to_string().contains("追加冲突"), "{e}");
+
+    // 未签名文件的「当前头」按约定是全 0
+    let v0 = smlb::append_layer_checked(&f, &k, None, None, algo, &[0u8; 32]).unwrap();
+    assert_eq!(layer::layers(&v0).unwrap().len(), 1);
+    // 反之，拿非零期望去追加未签名件同样冲突
+    assert!(matches!(
+        smlb::append_layer_checked(&f, &k, None, None, algo, &head1).unwrap_err(),
+        SignError::AppendConflict { .. }
+    ));
+}
+
+/// D8 的例外：compact 合并多层、丢弃历史、**重签**。
+/// `compact` rewrites the base, drops history, and must re-sign.
+#[test]
+fn compact_merges_history_and_resigns() {
+    let algo = HashAlgo::Sha256;
+    let k = key(1);
+    let f = smlb::dump(&base_doc()).unwrap();
+    let v1 = smlb::append_layer(&f, &k, None, None, algo).unwrap();
+    let v2 = smlb::append_layer(&v1, &k, Some(patch(9090)), None, algo).unwrap();
+    assert_eq!(layer::layers(&v2).unwrap().len(), 2);
+
+    let before: Value = smlb::load(&v2).unwrap();
+    let old_head = layer::chain_head(&v2, algo).unwrap().unwrap();
+
+    let merged = smlb::compact(&v2, &k, algo).unwrap();
+
+    // 值不变、只剩一层、链能通过
+    assert!(smlb::load(&merged).unwrap().eq_ordered(&before));
+    assert_eq!(layer::layers(&merged).unwrap().len(), 1);
+    assert!(smlb::verify(&merged, algo).unwrap().ok);
+
+    // 链条被换过 ⇒ 旧锚点必须失效（这是正确的，调用方要重建锚点）
+    let new_head = layer::chain_head(&merged, algo).unwrap().unwrap();
+    assert_ne!(new_head, old_head);
+    assert!(!smlb::verify_trusted(&merged, algo, &old_head).unwrap().ok);
+    assert!(smlb::verify_trusted(&merged, algo, &new_head).unwrap().ok);
+
+    // 合并后仍可继续追加（带写者锁）
+    let again = smlb::append_layer_checked(
+        &merged,
+        &k,
+        Some(patch(1111)),
+        None,
+        algo,
+        &new_head,
+    )
+    .unwrap();
+    assert!(smlb::verify(&again, algo).unwrap().ok);
 }
 
 /// 签一层 → 验签通过 → 当前值不变。

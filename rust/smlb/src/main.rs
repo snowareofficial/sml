@@ -34,7 +34,9 @@ smlb — 通用二进制信封 .smlb（SML 是内置载荷之一）
 签名与层链（T4，需 `--features sign`）:
   smlb keygen  [--out FILE]            生成 Ed25519 密钥（seed/pub 各一行十六进制）
   smlb sign    <file> --seed HEX|FILE [--patch P.smlb] [-o OUT] [--in-place]
-  smlb append  <file> <patch.smlb> --seed HEX|FILE [-o OUT] [--in-place] [--delegation F]
+  smlb append  <file> <patch.smlb> --seed HEX|FILE [--expect-head HEX64] [-o OUT]
+                                      `--expect-head` 把追加钉在写者看到的链头上（D20）
+  smlb compact <file> --seed HEX|FILE [-o OUT]  合并多层并**重签**（D8 的唯一例外；丢弃历史） [--in-place] [--delegation F]
   smlb delegate --seed OLD --to PUBKEY --max N [--out FILE]   签一份换钥授权（D16）
   smlb verify  <file> [--trust HEX64]  验链 + 验签（全部必须通过，D36）；
                                        `--trust` 把链头钉在外部锚点上（防整条链被剥离）
@@ -140,6 +142,7 @@ fn run(args: &[String]) -> Result<String, (u8, String)> {
         "delegate" => delegate_cmd(&args[1..]),
         "sign" => sign_cmd(&args[1..], false),
         "append" => sign_cmd(&args[1..], true),
+        "compact" => compact_cmd(&args[1..]),
         other => Err((
             2,
             format!("未知子命令 `{other}`（现有 info / ls / check / cat / pack / unpack / vectors）"),
@@ -518,6 +521,69 @@ fn keygen_cmd(args: &[String]) -> Result<String, (u8, String)> {
 }
 
 /// `smlb sign` / `smlb append` — 追加一个已签名的层。
+/// `smlb compact <file> --seed …` —— 合并多层、丢弃历史、重签（D8）。
+fn compact_cmd(args: &[String]) -> Result<String, (u8, String)> {
+    #[cfg(feature = "sign")]
+    {
+        let mut file: Option<&String> = None;
+        let mut seed_src: Option<&String> = None;
+        let mut out_path: Option<&String> = None;
+        let mut i = 0;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--seed" => {
+                    let Some(v) = args.get(i + 1) else {
+                        return Err((2, "`--seed` 需要种子或文件".to_string()));
+                    };
+                    seed_src = Some(v);
+                    i += 2;
+                }
+                "-o" | "--out" => {
+                    let Some(v) = args.get(i + 1) else {
+                        return Err((2, "`-o` 需要一个路径".to_string()));
+                    };
+                    out_path = Some(v);
+                    i += 2;
+                }
+                other => {
+                    if other.starts_with('-') {
+                        return Err((2, format!("不认识的参数 `{other}`")));
+                    }
+                    if file.is_none() {
+                        file = Some(&args[i]);
+                    } else {
+                        return Err((2, format!("多余参数 `{other}`")));
+                    }
+                    i += 1;
+                }
+            }
+        }
+        let Some(file) = file else {
+            return Err((2, "用法: smlb compact <file> --seed HEX|FILE [-o OUT]".to_string()));
+        };
+        let Some(seed_src) = seed_src else {
+            return Err((2, "必须给 `--seed`（compact 会重签）".to_string()));
+        };
+        let seed = read_seed(seed_src)?;
+        let kp = smlb::KeyPair::from_seed_hex(&seed).map_err(|e| (1, e.to_string()))?;
+        let bytes = std::fs::read(file).map_err(|e| (1, format!("读 {file} 失败：{e}")))?;
+        let algo = smlb::container::hash_algo(&bytes).map_err(|e| (1, format!("{file}: {e}")))?;
+        let before = smlb::layer::layers(&bytes).map(|l| l.len()).unwrap_or(0);
+        let fresh = smlb::compact(&bytes, &kp, algo).map_err(|e| (1, e.to_string()))?;
+        let dest = out_path.map(|s| s.as_str()).unwrap_or(file.as_str());
+        std::fs::write(dest, &fresh).map_err(|e| (1, format!("写 {dest} 失败：{e}")))?;
+        Ok(format!(
+            "已合并 {before} 层 → {dest}（重签为 1 层，{} B；历史已丢弃，旧 --trust 锚点需重建）",
+            fresh.len()
+        ))
+    }
+    #[cfg(not(feature = "sign"))]
+    {
+        let _ = args;
+        Err((1, "本构建未启用 `sign` feature，无法重签".to_string()))
+    }
+}
+
 fn sign_cmd(args: &[String], need_patch: bool) -> Result<String, (u8, String)> {
     #[cfg(feature = "sign")]
     {
@@ -526,6 +592,7 @@ fn sign_cmd(args: &[String], need_patch: bool) -> Result<String, (u8, String)> {
         let mut seed_src: Option<&String> = None;
         let mut out_path: Option<&String> = None;
         let mut deleg_path: Option<&String> = None;
+        let mut expect_head: Option<[u8; 32]> = None;
         let mut in_place = false;
         let mut i = 0;
         while i < args.len() {
@@ -549,6 +616,15 @@ fn sign_cmd(args: &[String], need_patch: bool) -> Result<String, (u8, String)> {
                         return Err((2, "`-o` 需要一个路径".to_string()));
                     };
                     out_path = Some(v);
+                    i += 2;
+                }
+                "--expect-head" => {
+                    let Some(v) = args.get(i + 1) else {
+                        return Err((2, "`--expect-head` 需要 64 位十六进制链头".to_string()));
+                    };
+                    expect_head = Some(hex32(v).ok_or_else(|| {
+                        (2, format!("--expect-head 需要 64 位十六进制，实得 `{v}`"))
+                    })?);
                     i += 2;
                 }
                 "--delegation" => {
@@ -619,8 +695,12 @@ fn sign_cmd(args: &[String], need_patch: bool) -> Result<String, (u8, String)> {
             None => None,
         };
 
-        let signed = smlb::append_layer(&bytes, &kp, patch.clone(), delegation, algo)
-            .map_err(|e| (1, e.to_string()))?;
+        // D20：给了 `--expect-head` 就走带冲突检测的追加，否则沿用无条件追加
+        let signed = match &expect_head {
+            Some(h) => smlb::append_layer_checked(&bytes, &kp, patch.clone(), delegation, algo, h),
+            None => smlb::append_layer(&bytes, &kp, patch.clone(), delegation, algo),
+        }
+        .map_err(|e| (1, e.to_string()))?;
         let dest = match (out_path, in_place) {
             (Some(p), _) => p.as_str(),
             (None, _) => file.as_str(), // 默认原地（与 `git commit` 同直觉）
