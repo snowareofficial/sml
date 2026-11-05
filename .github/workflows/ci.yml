@@ -44,7 +44,7 @@ jobs:
       # 不把它并进 `--workspace --features ...`：特性按构建图取并集，那会把整个 workspace 的
       # sml-value 一起切到保序档，等于顺手改掉 swsml / smltools 上百条「默认档 = 字节序」的 golden。
       - name: .smlb 全部（保序 + 签名）
-        run: cargo test -p smlb --features preserve_order,sign
+        run: cargo test -p smlb --features preserve_order,sign,compress
 
   # serde 套件不在 --workspace 里（tests/serde_bridge.rs 是 cfg(feature = "serde")），必须单列
   rust-serde:
