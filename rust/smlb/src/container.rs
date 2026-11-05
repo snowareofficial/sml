@@ -1549,7 +1549,8 @@ pub fn frame_bytes_at(
         })?;
     #[cfg(not(feature = "compress"))]
     {
-        let _ = body;
+        // 这里 `e` 用不上（解不了帧），显式吃掉以保持两档都零告警
+        let _ = (body, e);
         return Err(ContainerError::CompressFeatureDisabled { comp: COMP_ZSTD });
     }
     #[cfg(feature = "compress")]
