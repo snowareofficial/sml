@@ -271,3 +271,145 @@ pub mod out {
 **与 I-19 `smlkit` 的分工**（别混）：
 - `smlkit` = **同一套能力的换名瘦别名**（`pub use` 转发，零新 API），解决「找不到」；
 - `smlkit-easy` = **能力子集 + 新 API 层**（`Doc`），解决「装了不会用」。两者可并存。
+
+---
+
+## 附：API 硬规则（**全仓库适用**，含未开工的 `smlkit`）
+
+> 用户 2026-11-05 定：**所有 API 都照这三条走**，`smlkit` 还没开工也先把约束立在这里，
+> 免得它长出自己的另一套习惯。已落地的样板是 `.smlb` 的加密接口（§19.13.1）。
+
+### 规则 1 · 一个 enum 管一组选项
+
+同一件事的多个来源/形态，**写在同一个 enum 里**，不要拆成「写版类型 + 读版类型」两个。
+
+```rust
+// ✅ 一个 enum，两个方向靠函数签名约束
+pub enum KeySource<'a> {
+    Bytes(&'a [u8; 32]),
+    Passphrase { secret: &'a [u8], kdf: Option<KdfParams> },
+}
+
+// ❌ 两个类型：调用方要在两个名字之间做一次没有信息量的选择
+pub enum SealKey<'a> { … }
+pub enum OpenKey<'a> { … }
+```
+
+代价与对策：一个 enum 会多出「这个字段在写/读时该不该填」的语义。**用运行期显式报错**解决
+（`kdf-required` / `kdf-mismatch`），而不是靠加类型来区分 —— 多一个类型，用户就多背一个名字。
+
+### 规则 2 · 命名：明确 > 简短
+
+四条判据，按顺序看：
+
+| 判据 | 含义 | 反例 |
+|---|---|---|
+| **明确** | 只读名字就知道干什么 | `seal` / `open`（`open` 还能是「打开文件」） |
+| **一眼就懂** | 不需要看文档才敢用 | `encode_blocks`（编什么？给谁用？） |
+| **好记** | 沿用既有词根，不新造概念 | `serialize2` / `dump_ex` |
+| **好补全** | 前缀成组，敲前几个字母就能选 | `getq` / `mkv` 这类缩写 |
+
+落地做法：**动词沿用既有词汇表**（`dump` / `load` / `get` / `check` / `pack`），
+变体只加**一个**尾缀词：`dump_encrypted` / `load_encrypted` / `get_encrypted`。
+不新造 `seal` / `unseal` / `cipher_dump` 这类第二套词。
+
+### 规则 3 · API 树扁平：一个树，每层节点少一些
+
+```text
+smlb
+├─ dump / dump_with / dump_encrypted
+├─ load / load_encrypted
+├─ get  / get_encrypted
+├─ check / info / ls
+├─ pack / unpack
+└─ KeySource / KdfParams / DumpOptions / Store
+```
+
+- 根下**一层**放动作与类型，不再套 `crypto::kdf::Argon2Params` —— 名字已经说明一切，
+  路径不必再说明一次；
+- 每层节点数控制在「一屏能扫完」；加能力优先**加方法**，不优先**加模块**；
+- 深路径只在「同一概念确实有两级分类」时才用，且必须是稳定分类，不是临时归堆。
+
+### 与渐进式心模的关系（这条优先于上面三条）
+
+渐进式心模的要求是**每层只增加一个概念**（本文 §1–§6）。API 规则服务于它，不是反过来：
+
+| 层 | 允许出现的东西 | 不许出现 |
+|---|---|---|
+| L0 最简路径 | `parse` / `Value` / `get` / `as_i64` | 任何 feature、任何 `_encrypted` 变体 |
+| L1 进阶 | `DumpOptions` / `KeySource` 这类**可选旋钮** | 必须理解才能读文件的**强制**概念 |
+| L2 专家 | `crypto` / `compress` / `sign` 各 feature | 默认构建里的第三方依赖 |
+
+所以判定顺序永远是：**先问「L0 会不会被迫看到它」**，再问「命名与位置合不合上面三条」。
+一个命名再好、位置再扁平，只要它出现在 L0 的补全列表里，就是错的。
+
+---
+
+## 附：API 硬规则（**全仓库适用**，含未开工的 `smlkit`）
+
+> 用户 2026-11-05 定：**所有 API 都照这三条走**，`smlkit` 还没开工也先把约束立在这里，
+> 免得它长出自己的另一套习惯。已落地的样板是 `.smlb` 的加密接口（§19.13.1）。
+
+### 规则 1 · 一个 enum 管一组选项
+
+同一件事的多个来源/形态，**写在同一个 enum 里**，不要拆成「写版类型 + 读版类型」两个。
+
+```rust
+// ✅ 一个 enum，两个方向靠函数签名约束
+pub enum KeySource<'a> {
+    Bytes(&'a [u8; 32]),
+    Passphrase { secret: &'a [u8], kdf: Option<KdfParams> },
+}
+
+// ❌ 两个类型：调用方要在两个名字之间做一次没有信息量的选择
+pub enum SealKey<'a> { … }
+pub enum OpenKey<'a> { … }
+```
+
+代价与对策：一个 enum 会多出「这个字段在写/读时该不该填」的语义。**用运行期显式报错**解决
+（`kdf-required` / `kdf-mismatch`），而不是靠加类型来区分 —— 多一个类型，用户就多背一个名字。
+
+### 规则 2 · 命名：明确 > 简短
+
+四条判据，按顺序看：
+
+| 判据 | 含义 | 反例 |
+|---|---|---|
+| **明确** | 只读名字就知道干什么 | `seal` / `open`（`open` 还能是「打开文件」） |
+| **一眼就懂** | 不需要看文档才敢用 | `encode_blocks`（编什么？给谁用？） |
+| **好记** | 沿用既有词根，不新造概念 | `serialize2` / `dump_ex` |
+| **好补全** | 前缀成组，敲前几个字母就能选 | `getq` / `mkv` 这类缩写 |
+
+落地做法：**动词沿用既有词汇表**（`dump` / `load` / `get` / `check` / `pack`），
+变体只加**一个**尾缀词：`dump_encrypted` / `load_encrypted` / `get_encrypted`。
+不新造 `seal` / `unseal` / `cipher_dump` 这类第二套词。
+
+### 规则 3 · API 树扁平：一个树，每层节点少一些
+
+```text
+smlb
+├─ dump / dump_with / dump_encrypted
+├─ load / load_encrypted
+├─ get  / get_encrypted
+├─ check / info / ls
+├─ pack / unpack
+└─ KeySource / KdfParams / DumpOptions / Store
+```
+
+- 根下**一层**放动作与类型，不再套 `crypto::kdf::Argon2Params` —— 名字已经说明一切，
+  路径不必再说明一次；
+- 每层节点数控制在「一屏能扫完」；加能力优先**加方法**，不优先**加模块**；
+- 深路径只在「同一概念确实有两级分类」时才用，且必须是稳定分类，不是临时归堆。
+
+### 与渐进式心模的关系（这条优先于上面三条）
+
+渐进式心模的要求是**每层只增加一个概念**（本文 §1–§6）。API 规则服务于它，不是反过来：
+
+| 层 | 允许出现的东西 | 不许出现 |
+|---|---|---|
+| L0 最简路径 | `parse` / `Value` / `get` / `as_i64` | 任何 feature、任何 `_encrypted` 变体 |
+| L1 进阶 | `DumpOptions` / `KeySource` 这类**可选旋钮** | 必须理解才能读文件的**强制**概念 |
+| L2 专家 | `crypto` / `compress` / `sign` 各 feature | 默认构建里的第三方依赖 |
+
+所以判定顺序永远是：**先问「L0 会不会被迫看到它」**，再问「命名与位置合不合上面三条」。
+一个命名再好、位置再扁平，只要它出现在 L0 的补全列表里，就是错的。

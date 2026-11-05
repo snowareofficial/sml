@@ -971,7 +971,7 @@ key 更少一份、零依赖，`ser_text` 已趟过路；O(n) 对真实负载够
 | **T2 容器（L1）** ✅ **全落**（2026-11-04/05，见 §19.8 / §19.9） | 段表 ✅ · 摘要（SHA-256 / SM3，按 `hash_id`）✅ · manifest + `primary` + 能力位 ✅ · 外来载荷 `EMBED` + `payloads[]` + `pack`/`unpack` ✅ · `check` ✅ | 只读 manifest 能列全部段 ✅；未知 `optional` 跳过、缺 `required` 明确拒 ✅；改一字节被检出 ✅ |
 | **T3 读（L2）** ✅ 除 mmap 外已落（2026-11-05，见 §19.10） | `Store`：`open` / `subtree_bytes` / `get` / `text` / `text_of` / `history_at` / `payload` / `payloads` ✅；`DIR` / `Mmap::open` / `provenance` 未做 | 「取单个子树不遍历全树」已证（改坏兄弟 tag 仍能取别的）✅；**RSS 判据未达成**（等 mmap 依赖裁决） |
 | **T4 历史与签名（L3）** ✅ 核心已落（2026-11-05，见 §21.1b） | 层链（`prev_hash`/`index`/Trailer）+ `sign` / `append` / `verify` / `delegate` / `tree` + `patch` 合并（D22）；**写者锁（D20）未做** | 验签能答「值来自哪层」（`cat --at N`）✅；未授权的换钥被拒 ✅；并发冲突检测等锁落地 |
-| **T5 压缩与加密（L4）** ⏳ 压缩全落、加密未做（2026-11-05，见 §19.11 / §19.12） | 段级 zstd ✅ · 帧级 `FRAMES` + 索引 ✅ · 导航器按需解帧 ✅ · 解压预算 ✅；**加密 ⬜** | 「只解压被访问的部分」✅（段级 + 帧级都达成）；「未知算法 ID 明确拒绝」✅ |
+| **T5 压缩与加密（L4）** ✅ **全落**（2026-11-05，见 §19.11 / §19.12 / §19.13） | 段级 zstd ✅ · 帧级 `FRAMES` + 索引 ✅ · 导航器按需解帧 ✅ · 解压预算 ✅ · **AES-256-GCM 按块 AEAD + 口令派生 ✅** | 「只解压/解密被访问的部分」✅；「未知算法 ID 明确拒绝」✅；改段头也能被 AAD 抓到 ✅ |
 | **T6 工具（T6）** | `smltools --to smlb` / `--from smlb` / `--keep-source`；`smlb sign/verify/append` CLI | 文本 ↔ 二进制双向可跑；签名可被另一端验证 |
 | **T7 五端** | JS / Lua 解码器（只读 `VALUE` 段 + 透传载荷）+ 一致性用例 | 同一 `.smlb` 五端读出同树；载荷字节原样 |
 
@@ -1667,12 +1667,31 @@ crypto    加密：AES-256-GCM（本构建可解，需提供密钥）
 | `argon2` | `0x51` 口令派生 | 无 | ✅ |
 | `hkdf` | D29 派生 | 无 | ✅ |
 
-#### 还没做的（下一步）
+#### §19.13.2 块布局与实现（**已落地** 2026-11-05）
 
-1. `crypto` feature + 上面四个 crate（默认构建仍零第三方依赖）；
-2. 段头 `enc` 写入 + **按 4 KiB 块 AEAD**（每块一个 tag）+ `flags` 位 0 强制为 1（§19.7 丙）；
-3. 「压缩→加密」顺序固定（先压后加，D28），并在 `check` 里报出块数/算法；
-4. 追加语义：加密文件的**新增段必须落在新块边界**（否则重写旧块 ⇒ 破坏不变量 3）。
+```text
+加密段体 = plain_len:u32le ‖ block_count:u32le ‖ block…
+block    = ciphertext(≤4096 B) ‖ tag(16 B)              ← 最后一块可短
+nonce    = layer_id:u32le ‖ block_index:u32le ‖ file_salt[0..4]
+AAD      = seg_id:u8 ‖ comp:u8 ‖ block_index:u32le ‖ block_count:u32le ‖ plain_len:u32le
+密钥      master ─HKDF(salt=file_salt, "smlb:0x10")→ AEAD key
+```
+
+| 规则 | 为什么 |
+|---|---|
+| **AAD 绑段头**（`seg_id`/`comp`/块序/块数/明文长） | 改段头 ⇒ 解密当场失败。这**补上了 §19.8 那个缺口**（「改段头 `flags` 无人察觉」）在加密文件上的那一半 |
+| **`MANIFEST` 永不加密** | `kdf` 参数与 `salt` 就在它里面；加密它 = 「要先解密才知道怎么解密」 |
+| **加密 ⇒ 强制 4 KiB 对齐** | 块加密与「追加不改旧字节」都要它；`dump_encrypted` **替调用方强制**，不写「看起来加密了、追加会毁数据」的文件 |
+| **先压后加 / 先解后解压** | D28 的顺序固定，读侧反着来 |
+| **`check` 不需要钥匙** | 结构、摘要、`enc` 算法、块数都能读；只报「加密段未解密」，把「是不是合法文件」与「能不能读明文」分成两件事 |
+| **加密件不是字节确定的** | `file_salt` 每文件随机（D41 允许它进一次性标识）；所以只有明文 `dump` 承诺 C12 的「同值同字节」 |
+
+**用例钉住的六件事**（`rust/smlb/tests/crypto.rs`，9 条）：往返 / 错钥 `auth-failed` /
+改密文 `auth-failed` / **改段头 `auth-failed`** / 口令往返（读侧参数取自 manifest）/
+写口令缺参数 `kdf-required`、读时参数不符 `kdf-mismatch` / 零拷贝对加密件 `encrypted-not-zero-copy` /
+两种钥混用明确报错 / `MANIFEST` 保持明文可读。
+
+**还没做**：追加语义（加密文件的**新增段必须落在新块边界**）—— 与 T4 的 `append` 一起做。
 
 ---
 
