@@ -972,7 +972,7 @@ key 更少一份、零依赖，`ser_text` 已趟过路；O(n) 对真实负载够
 | **T3 读（L2）** ✅ 除 mmap 外已落（2026-11-05，见 §19.10） | `Store`：`open` / `subtree_bytes` / `get` / `text` / `text_of` / `history_at` / `payload` / `payloads` ✅；`DIR` / `Mmap::open` / `provenance` 未做 | 「取单个子树不遍历全树」已证（改坏兄弟 tag 仍能取别的）✅；**RSS 判据未达成**（等 mmap 依赖裁决） |
 | **T4 历史与签名（L3）** ✅ 核心已落（2026-11-05，见 §21.1b） | 层链（`prev_hash`/`index`/Trailer）+ `sign` / `append` / `verify` / `delegate` / `tree` + `patch` 合并（D22）；**写者锁（D20）未做** | 验签能答「值来自哪层」（`cat --at N`）✅；未授权的换钥被拒 ✅；并发冲突检测等锁落地 |
 | **T5 压缩与加密（L4）** ✅ **全落**（2026-11-05，见 §19.11 / §19.12 / §19.13） | 段级 zstd ✅ · 帧级 `FRAMES` + 索引 ✅ · 导航器按需解帧 ✅ · 解压预算 ✅ · **AES-256-GCM 按块 AEAD + 口令派生 ✅** | 「只解压/解密被访问的部分」✅；「未知算法 ID 明确拒绝」✅；改段头也能被 AAD 抓到 ✅ |
-| **T6 工具（T6）** | `smltools --to smlb` / `--from smlb` / `--keep-source`；`smlb sign/verify/append` CLI | 文本 ↔ 二进制双向可跑；签名可被另一端验证 |
+| **T6 工具（T6）** ⏳ 库接口已落（2026-11-05） | **库**：`smltools::{wrap, unwrap, list, sml_to_smlb, smlb_to_sml}` ✅（7 例）；`smlb` 的 `pack/unpack/sign/verify/append` CLI ✅；**`smltools --to/--from smlb` ⬜**（输出管线目前「文本进文本出」，二进制要另开一条） | 两轮往返稳定 ✅（`tests/envelope.rs`）；转换不丢信息 ✅；签名跨端待 T7 |
 | **T7 五端** | JS / Lua 解码器（只读 `VALUE` 段 + 透传载荷）+ 一致性用例 | 同一 `.smlb` 五端读出同树；载荷字节原样 |
 
 **依赖关系**：T0 是 T1 的前置（没有 canonical 就没有幂等与签名）；T2 依赖 T1；T3–T5 可并行；T6/T7 依赖 T2。
