@@ -311,6 +311,40 @@ fn pack_iter_matches_pack_byte_for_byte() {
     );
 }
 
+/// `Writer`（段体落临时文件、内存 O(1)）必须与 `dump`（全内存）产出**同一份字节**。
+/// The streaming writer must be byte-identical to the in-memory one.
+#[test]
+fn writer_matches_dump_byte_for_byte() {
+    use smlb::{CanonicalValue, DumpOptions, Writer, SEG_STRTAB, SEG_VALUE};
+
+    let doc = (CASES[3].build)();
+    let cv = CanonicalValue::try_from(doc).unwrap();
+    let expected = smlb::dump(&cv).unwrap();
+
+    let mut buf: Vec<u8> = Vec::new();
+    let mut w = Writer::new(&mut buf, &DumpOptions::default(), SEG_VALUE).unwrap();
+    let blocks = cv.canonical_blocks().unwrap();
+    // 段按 id 升序：VALUE(0x01) 在 STRTAB(0x02) 之前
+    w.add_segment(SEG_VALUE, 0, 0, &blocks.value).unwrap();
+    // `dump` 不写**空段**（STRTAB 为空时省略），这里保持一致
+    if !blocks.strtab.is_empty() {
+        w.add_segment(SEG_STRTAB, 0, 0, &blocks.strtab).unwrap();
+    }
+    w.finish().unwrap();
+
+    assert_eq!(expected, buf, "Writer 与 dump 必须逐字节相同");
+    assert!(smlb::check(&buf).unwrap().ok);
+
+    // 升序约束是硬要求：倒序加入必须被拒
+    let mut buf2: Vec<u8> = Vec::new();
+    let mut w2 = Writer::new(&mut buf2, &DumpOptions::default(), SEG_VALUE).unwrap();
+    w2.add_segment(SEG_STRTAB, 0, 0, &blocks.strtab).unwrap();
+    assert!(
+        w2.add_segment(SEG_VALUE, 0, 0, &blocks.value).is_err(),
+        "倒序加入必须报错，否则段体顺序与段表顺序会不一致"
+    );
+}
+
 /// 流式载荷入口（`impl Read`）与内存入口必须产出**同一份字节**。
 /// The reader-based entry point must be byte-identical to the buffer-based one.
 #[test]

@@ -63,7 +63,7 @@ pub use container::{
     pack_from_readers, pack_from_readers_with, pack_iter,
     pack_iter_with, pack_with,
     payload,
-    payloads, CheckReport, ContainerError, DumpOptions, FileInfo, Segment, SegmentHeader,
+    payloads, CheckReport, ContainerError, DumpOptions, FileInfo, Segment, SegmentHeader, Writer,
     ALIGN_BLOCK, ALIGN_MIN, COMP_ZSTD, EDITION, FLAG_ALIGN_BLOCK, FMT, HEADER_LEN, MAGIC,
     frame_bytes_at, inflate_frames_all, manifest_of, parse_frame_index, FrameEntry,
     FRAME_ENTRY_LEN,
