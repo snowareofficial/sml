@@ -474,6 +474,22 @@ pub struct ChainReport {
 /// 这一层的价值：**没有 `sign` feature 的构建也能回答「文件被改过没有」**（改内容 ⇒ 段摘要不符；
 /// 删/改层 ⇒ 链断或 head 不符），只是不能回答「是谁签的」。
 /// ｜ Structural integrity without keys: “was it changed?”, just not “by whom?”.
+/// The chain's **head**: hash of the last layer's canonical bytes.
+/// 层链的**头**：最后一层规范字节的摘要。
+///
+/// `None` 表示文件里**没有层** —— 这是「未签名」与「链被整个剥离」在字节层面**唯一**的区别，
+/// 也正是为什么需要一个外部锚点（`--trust`）才能把这两件事分开（D18）。
+/// ｜ `None` means “no layers” — indistinguishable from “chain stripped”, hence an external anchor.
+pub fn chain_head(bytes: &[u8], algo: HashAlgo) -> Result<Option<[u8; 32]>, LayerError> {
+    let all = layers(bytes)?;
+    let Some(last) = all.last() else {
+        return Ok(None);
+    };
+    let body = last.canonical_bytes().map_err(LayerError::Canonical)?;
+    let head = hash::digest(algo, &body).map_err(|_| LayerError::Truncated { at: 0 })?;
+    Ok(Some(head))
+}
+
 pub fn verify_chain(bytes: &[u8], algo: HashAlgo) -> Result<ChainReport, LayerError> {
     let all = layers(bytes)?;
     let mut lines = Vec::new();

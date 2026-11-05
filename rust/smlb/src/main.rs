@@ -36,7 +36,8 @@ smlb — 通用二进制信封 .smlb（SML 是内置载荷之一）
   smlb sign    <file> --seed HEX|FILE [--patch P.smlb] [-o OUT] [--in-place]
   smlb append  <file> <patch.smlb> --seed HEX|FILE [-o OUT] [--in-place] [--delegation F]
   smlb delegate --seed OLD --to PUBKEY --max N [--out FILE]   签一份换钥授权（D16）
-  smlb verify  <file>                  验链 + 验签（全部必须通过，D36）
+  smlb verify  <file> [--trust HEX64]  验链 + 验签（全部必须通过，D36）；
+                                       `--trust` 把链头钉在外部锚点上（防整条链被剥离）
   smlb tree    <file>                  打印层链：序号 / 作者 / 补丁键数 / 签名数 / 授权
   smlb cat     <file> <path> [--at N]  取第 N 层为止的值（历史回放）
   smlb get     <file> <path> [--bytes] 零拷贝取一棵子树（不解全树）；--bytes 出原始字节十六进制
@@ -346,15 +347,47 @@ fn cat_cmd(args: &[String]) -> Result<String, (u8, String)> {
 
 /// `smlb verify <file>` — 验链 + 验签。
 fn verify_cmd(args: &[String]) -> Result<String, (u8, String)> {
-    let Some(file) = args.first() else {
-        return Err((2, "用法: smlb verify <file>".to_string()));
+    // `--trust HEX64`：可选的外部锚点（D18）。没有它，「本来没签」与「签了又被剥掉」
+    // 在字节上一模一样 —— 这正是 §21.1c 那条已知边界。
+    let mut trust: Option<[u8; 32]> = None;
+    let mut file: Option<&String> = None;
+    let mut i = 0usize;
+    while i < args.len() {
+        if args[i] == "--trust" {
+            let Some(hex) = args.get(i + 1) else {
+                return Err((2, "用法: smlb verify <file> [--trust HEX64]".to_string()));
+            };
+            trust = Some(hex32(hex).ok_or_else(|| {
+                (2, format!("--trust 要 64 位十六进制（链头哈希），实得 `{hex}`"))
+            })?);
+            i += 2;
+            continue;
+        }
+        file = Some(&args[i]);
+        i += 1;
+    }
+    let Some(file) = file else {
+        return Err((2, "用法: smlb verify <file> [--trust HEX64]".to_string()));
     };
     let bytes = std::fs::read(file).map_err(|e| (1, format!("读 {file} 失败：{e}")))?;
     let algo = smlb::container::hash_algo(&bytes).map_err(|e| (1, format!("{file}: {e}")))?;
 
     #[cfg(feature = "sign")]
     {
-        let report = smlb::verify(&bytes, algo).map_err(|e| (1, format!("{file}: {e}")))?;
+        let report = match &trust {
+            Some(t) => smlb::verify_trusted(&bytes, algo, t),
+            None => smlb::verify(&bytes, algo),
+        }
+        .map_err(|e| (1, format!("{file}: {e}")))?;
+        if trust.is_none() && report.ok {
+            // 没有锚点时把链头打出来 —— 让人**记得住**下一次要钉什么
+            if let Ok(Some(head)) = smlb::layer::chain_head(&bytes, algo) {
+                eprintln!(
+                    "smlb: hint: 本次链头 {}（下次可用 `--trust` 钉住它，防整条链被剥离）",
+                    to_hex(&head)
+                );
+            }
+        }
         let mut out = report.lines.join("\n");
         out.push_str(&format!(
             "\n\n{file}: {}（{} 层）",
@@ -372,6 +405,34 @@ fn verify_cmd(args: &[String]) -> Result<String, (u8, String)> {
         // 没有 sign feature 也能回答「结构对不对」，但不能回答「谁签的」
         let chain = smlb::layer::verify_chain(&bytes, algo)
             .map_err(|e| (1, format!("{file}: {e}")))?;
+        let mut chain = chain;
+        if let Some(t) = &trust {
+            // 链头只用到摘要，不需要 ed25519 ⇒ 没有 `sign` 也能钉锚点
+            match smlb::layer::chain_head(&bytes, algo) {
+                Ok(Some(head)) if head == *t => {
+                    chain.lines.push("锚点     head 与期望一致（外部锚点，D18）".to_string())
+                }
+                Ok(Some(head)) => {
+                    chain.ok = false;
+                    chain.lines.push(format!(
+                        "锚点     head 不符：文件是 {}…，期望 {}…",
+                        &to_hex(&head)[..16],
+                        &to_hex(t)[..16]
+                    ));
+                }
+                Ok(None) => {
+                    chain.ok = false;
+                    chain.lines.push(
+                        "锚点     文件里一层都没有，而 --trust 给了期望值 —— 层链可能被整个剥离"
+                            .to_string(),
+                    );
+                }
+                Err(e) => {
+                    chain.ok = false;
+                    chain.lines.push(format!("锚点     算不出链头：{e}"));
+                }
+            }
+        }
         let mut out = chain.lines.join("\n");
         out.push_str(
             "\n注意     本构建未启用 `sign` feature：上面只验了链结构，**签名一个字都没验**",

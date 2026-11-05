@@ -34,6 +34,59 @@ fn key(seed: u8) -> KeyPair {
     KeyPair::from_seed(&[seed; 32])
 }
 
+/// `--trust`：链头被钉住 ⇒ 换掉整条链会被发现。
+/// Pinning the head catches a wholesale chain swap.
+///
+/// 这是 §21.1c 那条已知边界的**唯一**补法：没有外部锚点时，「本来没签」与「签了又被剥掉」
+/// 在字节上一模一样；记住过 head，两件事就分开了。
+#[test]
+fn trust_pins_the_chain_head() {
+    let f = smlb::dump(&base_doc()).unwrap();
+    let signed = smlb::append_layer(&f, &key(1), None, None, HashAlgo::Sha256).unwrap();
+
+    let head = layer::chain_head(&signed, HashAlgo::Sha256)
+        .unwrap()
+        .expect("签过名就一定有链头");
+
+    // 对得上 ⇒ 通过
+    let ok = smlb::verify_trusted(&signed, HashAlgo::Sha256, &head).unwrap();
+    assert!(ok.ok, "{:?}", ok.lines);
+    assert!(ok.lines.join("\n").contains("与期望一致"), "{:?}", ok.lines);
+
+    // 期望值错了 ⇒ 不过是哪一条错，必须是「未通过」
+    let wrong = [0xAAu8; 32];
+    let bad = smlb::verify_trusted(&signed, HashAlgo::Sha256, &wrong).unwrap();
+    assert!(!bad.ok, "{:?}", bad.lines);
+    assert!(bad.lines.join("\n").contains("head 不符"), "{:?}", bad.lines);
+
+    // 链头是**最后一层**的哈希：再追加一层，链头必须变
+    let deeper =
+        smlb::append_layer(&signed, &key(1), Some(patch(9090)), None, HashAlgo::Sha256).unwrap();
+    let head2 = layer::chain_head(&deeper, HashAlgo::Sha256).unwrap().unwrap();
+    assert_ne!(head, head2, "追加一层后链头必须变");
+    let bad2 = smlb::verify_trusted(&deeper, HashAlgo::Sha256, &head).unwrap();
+    assert!(!bad2.ok, "拿旧锚点验新文件必须不通过");
+}
+
+/// 整条层链被剥离（拿未签名文件冒充）⇒ 锚点必须把它抓出来。
+/// Stripping every layer is caught by the anchor — and by nothing else.
+#[test]
+fn stripped_chain_is_caught_by_the_anchor() {
+    let f = smlb::dump(&base_doc()).unwrap();
+    let signed = smlb::append_layer(&f, &key(1), None, None, HashAlgo::Sha256).unwrap();
+    let head = layer::chain_head(&signed, HashAlgo::Sha256).unwrap().unwrap();
+
+    // 未签名的原文件：`verify` 自己会判「通过（0 层）」—— 这正是需要锚点的原因
+    assert!(smlb::verify(&f, HashAlgo::Sha256).unwrap().ok);
+    assert_eq!(layer::chain_head(&f, HashAlgo::Sha256).unwrap(), None);
+
+    let anchored = smlb::verify_trusted(&f, HashAlgo::Sha256, &head).unwrap();
+    assert!(!anchored.ok, "{:?}", anchored.lines);
+    let text = anchored.lines.join("\n");
+    assert!(text.contains("一层都没有"), "{text}");
+    assert!(text.contains("剥离"), "{text}");
+}
+
 /// 签一层 → 验签通过 → 当前值不变。
 #[test]
 fn sign_then_verify_passes() {
