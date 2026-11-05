@@ -234,8 +234,10 @@ fn find_key(v: &Value, key: &str, prefix: &str) -> Option<String> {
     match v {
         Value::Object(m) => {
             for (k, sub) in m {
-                let p = if prefix.is_empty() {
-                    k.clone()
+                // `k` 的类型随 `Map` 的底层容器而变（BTreeMap / IndexMap），
+                // 显式 `to_string()` 让两种档编译同一份代码。
+                let p: String = if prefix.is_empty() {
+                    k.to_string()
                 } else {
                     format!("{prefix}.{k}")
                 };

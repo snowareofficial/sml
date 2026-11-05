@@ -19,7 +19,7 @@ use std::process::ExitCode;
 use smlb::vectors;
 
 const USAGE: &str = "\
-smlb — SML 的二进制形式 .smlb（T0 canonical/向量 + T1 容器）
+smlb — 通用二进制信封 .smlb（SML 是内置载荷之一）
 
 用法:
   smlb info    <file>                  一眼看清 edition/fmt/段表/摘要状态
