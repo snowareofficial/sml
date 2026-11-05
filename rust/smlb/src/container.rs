@@ -1125,6 +1125,285 @@ fn build_manifest(
     Ok(manifest)
 }
 
+/// Streaming writer: segment bodies go to a temp file as they arrive, so peak heap stays
+/// O(manifest) regardless of how large the payloads are. `finish()` lays them out.
+/// 流式写入器：段体一到达就落到临时文件，**峰值堆占用只与 manifest 有关**（O(1)）；
+/// `finish()` 再按布局输出到最终 `W: Write`。
+///
+/// # 为什么用临时文件而不是「预留 + 回填」
+/// `.smlb` 的段表在段体**之前**，且 `Manifest.segments[]` 要写每个段的 `len` 与 `digest`。
+/// 对流式段体，这两者都要读完才知道；而 manifest 的**序列化长度**又取决于 `len` 的
+/// varint 长度 ⇒ 无法在写之前精确预留。硬要"不落临时文件"，只能把段体留在内存里。
+/// ｜ The manifest length depends on the varint width of `len`, which is unknown until the
+/// stream ends — so pre-reserving a slot is impossible without buffering. Hence a temp file.
+///
+/// # 约束
+/// - 段按 `seg_id` **升序**加入（段体顺序必须等于段表顺序，见 `info` 的偏移走法）。
+/// - `finish()` 自动追加 `MANIFEST` 段（它不描述自己）。
+/// - 本版不支持 `payloads[]`（`pack` 的载荷表）；要做归档请用 [`pack_from_readers`]。
+pub struct Writer<W: std::io::Write> {
+    out: W,
+    opts: DumpOptions,
+    primary: u8,
+    tmp: std::fs::File,
+    /// 临时文件的清理守卫：把 `Drop` 挂在它身上，`Writer` 自己就不必实现 `Drop`
+    /// —— 否则 `finish(mut self)` 无法移出 `out`（E0509）。
+    /// 字段本身从不被读，它的价值全在 drop 时。
+    #[allow(dead_code)]
+    guard: TempGuard,
+    segs: Vec<(ManifestSegment, u64)>,
+    tmp_len: u64,
+    finished: bool,
+}
+
+impl<W: std::io::Write> Writer<W> {
+    /// Create a writer over `out`. `primary` is the `seg_id` of the main content.
+    /// 在 `out` 上创建写入器；`primary` 是主内容的段 id。
+    pub fn new(out: W, opts: &DumpOptions, primary: u8) -> Result<Self, ContainerError> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let n = SEQ.fetch_add(1, Ordering::Relaxed);
+        let tmp_path = std::env::temp_dir().join(format!(
+            "smlb-writer-{}-{}.tmp",
+            std::process::id(),
+            n
+        ));
+        let tmp = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&tmp_path)
+            .map_err(|e| ContainerError::PayloadRead(format!("建临时文件失败：{e}")))?;
+        Ok(Writer {
+            out,
+            opts: opts.clone(),
+            primary,
+            tmp,
+            guard: TempGuard(Some(tmp_path)),
+            segs: Vec::new(),
+            tmp_len: 0,
+            finished: false,
+        })
+    }
+
+    /// Append a segment whose body is already in memory.
+    /// 追加一个段体已在内存里的段。
+    pub fn add_segment(
+        &mut self,
+        id: u8,
+        comp: u8,
+        enc: u8,
+        body: &[u8],
+    ) -> Result<(), ContainerError> {
+        use std::io::Write as _;
+        self.check_order(id)?;
+        self.tmp
+            .write_all(body)
+            .map_err(|e| ContainerError::PayloadRead(format!("写临时文件失败：{e}")))?;
+        let len = body.len() as u32;
+        let digest = hash::digest(self.opts.hash, body).map_err(ContainerError::Hash)?;
+        self.segs.push((
+            ManifestSegment {
+                id,
+                comp,
+                enc,
+                len,
+                digest,
+            },
+            self.tmp_len,
+        ));
+        self.tmp_len += body.len() as u64;
+        Ok(())
+    }
+
+    /// Append a segment by **streaming** a reader: never holds the whole body in memory.
+    /// 流式追加：逐块读 `reader`，边写临时文件边算摘要，**整段不进内存**。
+    ///
+    /// 只有 SHA-256 有增量实现；其它算法会退化成先读进内存（并在文档里注明）。
+    pub fn add_segment_reader<R: std::io::Read>(
+        &mut self,
+        id: u8,
+        comp: u8,
+        enc: u8,
+        mut reader: R,
+    ) -> Result<(), ContainerError> {
+        use std::io::Write as _;
+        self.check_order(id)?;
+
+        if self.opts.hash != HashAlgo::Sha256 {
+            let mut buf = Vec::new();
+            reader
+                .read_to_end(&mut buf)
+                .map_err(|e| ContainerError::PayloadRead(e.to_string()))?;
+            return self.add_segment(id, comp, enc, &buf);
+        }
+
+        let mut hasher = crate::sha256::Sha256::new();
+        let mut buf = vec![0u8; 64 * 1024];
+        let mut total: u64 = 0;
+        loop {
+            let got = reader
+                .read(&mut buf)
+                .map_err(|e| ContainerError::PayloadRead(e.to_string()))?;
+            if got == 0 {
+                break;
+            }
+            hasher.update(&buf[..got]);
+            self.tmp
+                .write_all(&buf[..got])
+                .map_err(|e| ContainerError::PayloadRead(format!("写临时文件失败：{e}")))?;
+            total += got as u64;
+        }
+        let len = u32::try_from(total)
+            .map_err(|_| ContainerError::PayloadRead("单段超过 4 GiB".to_string()))?;
+        self.segs.push((
+            ManifestSegment {
+                id,
+                comp,
+                enc,
+                len,
+                digest: hasher.finalize(),
+            },
+            self.tmp_len,
+        ));
+        self.tmp_len += total;
+        Ok(())
+    }
+
+    fn check_order(&self, id: u8) -> Result<(), ContainerError> {
+        if self.finished {
+            return Err(ContainerError::PayloadRead("Writer 已 finish".to_string()));
+        }
+        if let Some((last, _)) = self.segs.last() {
+            if id <= last.id {
+                return Err(ContainerError::PayloadRead(format!(
+                    "段必须按 id 严格升序加入（上一段 0x{:02x}，本段 0x{id:02x}）",
+                    last.id
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Lay out header + table + bodies, append the manifest, and hand `out` back.
+    /// 落版：头 + 段表 + 段体，追加 manifest，返回 `out`。
+    pub fn finish(mut self) -> Result<W, ContainerError> {
+        use std::io::{Read as _, Seek as _, SeekFrom};
+
+        let manifest_seg = {
+            let mut segs: Vec<ManifestSegment> = self.segs.iter().map(|(s, _)| s.clone()).collect();
+            segs.sort_by_key(|s| s.id);
+            let mut m = Manifest::minimal(self.primary, self.opts.hash, segs);
+            m.caps_required = self.opts.caps_required.clone();
+            m.caps_optional = self.opts.caps_optional.clone();
+            let bytes = m.to_bytes()?;
+            let digest = hash::digest(self.opts.hash, &bytes).map_err(ContainerError::Hash)?;
+            let seg = ManifestSegment {
+                id: SEG_MANIFEST,
+                comp: 0,
+                enc: 0,
+                len: bytes.len() as u32,
+                digest,
+            };
+            (seg, bytes)
+        };
+        self.finished = true;
+
+        // 段表顺序 = id 升序；manifest 插到它该在的位置。
+        let mut order: Vec<(ManifestSegment, Option<u64>)> = self
+            .segs
+            .drain(..)
+            .map(|(s, off)| (s, Some(off)))
+            .collect();
+        order.push((manifest_seg.0.clone(), None));
+        order.sort_by_key(|(s, _)| s.id);
+
+        let flags: u16 = if self.opts.block_align { FLAG_ALIGN_BLOCK } else { 0 };
+        let granule = align_of(flags);
+        let table_off = HEADER_LEN as u64;
+        let table_end = table_off + (order.len() * SEG_HEADER_LEN) as u64;
+        let data_start = align_up(table_end, granule);
+
+        // 头
+        let mut head = [0u8; HEADER_LEN];
+        head[0..4].copy_from_slice(&MAGIC);
+        head[4..6].copy_from_slice(&EDITION.to_le_bytes());
+        head[6] = FMT;
+        head[7] = HEADER_LEN as u8;
+        head[8..16].copy_from_slice(&table_off.to_le_bytes());
+        head[16..20].copy_from_slice(&(order.len() as u32).to_le_bytes());
+        head[20..22].copy_from_slice(&flags.to_le_bytes());
+        self.out
+            .write_all(&head)
+            .map_err(|e| ContainerError::PayloadRead(format!("写出失败：{e}")))?;
+
+        // 段表
+        for (seg, _) in &order {
+            let mut e = [0u8; SEG_HEADER_LEN];
+            e[0] = seg.id;
+            e[1] = seg.comp;
+            e[2] = seg.enc;
+            e[5..9].copy_from_slice(&seg.len.to_le_bytes());
+            e[9..41].copy_from_slice(&seg.digest);
+            self.out
+                .write_all(&e)
+                .map_err(|e| ContainerError::PayloadRead(format!("写出失败：{e}")))?;
+        }
+        let pad = data_start - table_end;
+        self.out
+            .write_all(&vec![0u8; pad as usize])
+            .map_err(|e| ContainerError::PayloadRead(format!("写出失败：{e}")))?;
+
+        // 段体（按段表顺序；manifest 从内存、其余从临时文件）
+        for (seg, off) in &order {
+            if seg.id == SEG_MANIFEST {
+                self.out
+                    .write_all(&manifest_seg.1)
+                    .map_err(|e| ContainerError::PayloadRead(format!("写出失败：{e}")))?;
+            } else {
+                let off = off.expect("content segment has a tmp offset");
+                self.tmp
+                    .seek(SeekFrom::Start(off))
+                    .map_err(|e| ContainerError::PayloadRead(format!("seek 失败：{e}")))?;
+                let mut left = seg.len as u64;
+                let mut buf = vec![0u8; 64 * 1024];
+                while left > 0 {
+                    let want = std::cmp::min(left as usize, buf.len());
+                    self.tmp
+                        .read_exact(&mut buf[..want])
+                        .map_err(|e| ContainerError::PayloadRead(format!("读临时文件失败：{e}")))?;
+                    self.out
+                        .write_all(&buf[..want])
+                        .map_err(|e| ContainerError::PayloadRead(format!("写出失败：{e}")))?;
+                    left -= want as u64;
+                }
+            }
+            let pad = align_up(seg.len as u64, granule) - seg.len as u64;
+            if pad > 0 && seg.id != SEG_MANIFEST {
+                self.out
+                    .write_all(&vec![0u8; pad as usize])
+                    .map_err(|e| ContainerError::PayloadRead(format!("写出失败：{e}")))?;
+            }
+        }
+        self.out
+            .flush()
+            .map_err(|e| ContainerError::PayloadRead(format!("flush 失败：{e}")))?;
+        // `guard` 在这里被 drop，临时文件随之删除
+        Ok(self.out)
+    }
+}
+
+/// 临时文件清理守卫（`Writer` 不实现 `Drop`，见 `guard` 字段的注释）。
+struct TempGuard(Option<std::path::PathBuf>);
+
+impl Drop for TempGuard {
+    fn drop(&mut self) {
+        if let Some(p) = self.0.take() {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+}
+
 /// Lay out header + segment table + segments (the part every writer shares).
 /// 落版：头 + 段表 + 段数据（所有写入口共用的那段）。
 fn write_file(
