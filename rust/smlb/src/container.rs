@@ -61,6 +61,7 @@
 use sml_value::{CanonicalError, Value};
 
 use crate::hash::{self, HashAlgo};
+use crate::layer::{self, LayerError};
 use crate::manifest::{self, Manifest, ManifestError, ManifestPayload, ManifestSegment};
 
 /// Magic, written once and never changed (`§12.3`'s existing convention).
@@ -314,6 +315,8 @@ pub enum ContainerError {
     /// The digest algorithm is unknown or unimplemented (§20: never guess)
     /// 摘要算法未知或未实现（§20：绝不猜）。
     Hash(crate::hash::HashError),
+    /// The append-only layer chain is unreadable (T4) ｜ 层链读不出来（T4）。
+    Layer(LayerError),
     /// `pack` was given nothing to pack ｜ `pack` 一个文件都没给。
     EmptyArchive,
     /// Two payloads with the same name (`pack` refuses ambiguity, D15 spirit)
@@ -360,6 +363,7 @@ impl ContainerError {
             ContainerError::MissingCapability { .. } => "missing-capability",
             ContainerError::ManifestMismatch { .. } => "manifest-mismatch",
             ContainerError::Hash(_) => "unsupported-hash",
+            ContainerError::Layer(_) => "bad-layer",
             ContainerError::EmptyArchive => "empty-archive",
             ContainerError::DuplicatePayloadName { .. } => "duplicate-payload-name",
             ContainerError::PayloadNotFound { .. } => "payload-not-found",
@@ -446,6 +450,7 @@ impl std::fmt::Display for ContainerError {
                 "段 0x{seg_id:02x} 的 `{field}` 在 manifest 与段表里不一致（两边有一边被改过）"
             ),
             ContainerError::Hash(e) => write!(f, "摘要算法不可用：{e}"),
+            ContainerError::Layer(e) => write!(f, "层链读不出来：{e}"),
             ContainerError::EmptyArchive => write!(f, "没有东西可打包（至少要一个文件）"),
             ContainerError::DuplicatePayloadName { name } => {
                 write!(f, "载荷名 `{name}` 重复（拒绝歧义：解包时该覆盖谁？）")
@@ -864,42 +869,16 @@ pub fn load(bytes: &[u8]) -> Result<Value, ContainerError> {
             return Err(ContainerError::MissingCapability { name: name.clone() });
         }
     }
-    let algo = manifest.as_ref().map(|m| m.hash).unwrap_or(hash::DEFAULT);
-    let primary_id = manifest.as_ref().map(|m| m.primary).unwrap_or(SEG_VALUE);
-    if primary_id != SEG_VALUE {
-        return Err(ContainerError::PrimaryNotValue { id: primary_id });
-    }
+    let base = base_value(bytes)?;
 
-    let mut value: Option<&[u8]> = None;
-    let mut strtab: Option<&[u8]> = None;
-    for seg in &info.segments {
-        match seg.header.seg_id {
-            SEG_VALUE => {
-                if value.is_some() {
-                    return Err(ContainerError::DuplicateSegment { seg_id: SEG_VALUE });
-                }
-                require_plain(seg)?;
-                let b = body(bytes, seg)?;
-                verify_digest(seg, b, algo)?;
-                value = Some(b);
-            }
-            SEG_STRTAB => {
-                if strtab.is_some() {
-                    return Err(ContainerError::DuplicateSegment {
-                        seg_id: SEG_STRTAB,
-                    });
-                }
-                require_plain(seg)?;
-                let b = body(bytes, seg)?;
-                verify_digest(seg, b, algo)?;
-                strtab = Some(b);
-            }
-            // 其余一律跳过：不认识 ≠ 读不了（不变量 1）
-            _ => {}
-        }
+    // 层链的补丁按顺序合并进来 ⇒ 返回的是「当前值」，不是「第一版」
+    // （历史版本走 `layer::value_at`；这是 P2-a「值来自哪一层」的读取面）
+    let chain = layer::layers(bytes).map_err(ContainerError::Layer)?;
+    if chain.is_empty() {
+        Ok(base)
+    } else {
+        Ok(layer::apply_patches(&base, &chain)?)
     }
-    let value = value.ok_or(ContainerError::MissingSegment { seg_id: SEG_VALUE })?;
-    decode_value(strtab.unwrap_or(&[]), value)
 }
 
 /// Read + decode the `MANIFEST` segment if the file has one. ｜ 有 manifest 就把它读出来。
@@ -941,6 +920,61 @@ fn decode_manifest<'a>(
     let b = body(bytes, &seg)?;
     let m = Manifest::from_bytes(b).map_err(ContainerError::BadManifest)?;
     Ok(Some((seg, b, m)))
+}
+
+/// The digest algorithm this file declares (`manifest.hash_id`), or SHA-256 when it has no
+/// manifest. ｜ 这个文件声明的摘要算法（`manifest.hash_id`）；没有 manifest 时按 SHA-256。
+pub fn hash_algo(bytes: &[u8]) -> Result<HashAlgo, ContainerError> {
+    let info = info(bytes)?;
+    Ok(read_manifest(bytes, &info)?
+        .map(|m| m.hash)
+        .unwrap_or(hash::DEFAULT))
+}
+
+/// The **base** value: `VALUE` + `STRTAB` decoded, **without** applying layer patches.
+/// 基础值：解出 `VALUE` + `STRTAB`，**不**合并层补丁。
+///
+/// 用途：历史回放（`layer::value_at` 要从第一版开始逐层合并），以及「这一版和上一版差在哪」。
+/// 日常读当前值请用 [`load`]。
+/// For history replay; use [`load`] for the current value.
+pub fn base_value(bytes: &[u8]) -> Result<Value, ContainerError> {
+    let info = info(bytes)?;
+    let manifest = read_manifest(bytes, &info)?;
+    let algo = manifest.as_ref().map(|m| m.hash).unwrap_or(hash::DEFAULT);
+    let primary_id = manifest.as_ref().map(|m| m.primary).unwrap_or(SEG_VALUE);
+    if primary_id != SEG_VALUE {
+        return Err(ContainerError::PrimaryNotValue { id: primary_id });
+    }
+
+    let mut value: Option<&[u8]> = None;
+    let mut strtab: Option<&[u8]> = None;
+    for seg in &info.segments {
+        match seg.header.seg_id {
+            SEG_VALUE => {
+                if value.is_some() {
+                    return Err(ContainerError::DuplicateSegment { seg_id: SEG_VALUE });
+                }
+                require_plain(seg)?;
+                let b = body(bytes, seg)?;
+                verify_digest(seg, b, algo)?;
+                value = Some(b);
+            }
+            SEG_STRTAB => {
+                if strtab.is_some() {
+                    return Err(ContainerError::DuplicateSegment {
+                        seg_id: SEG_STRTAB,
+                    });
+                }
+                require_plain(seg)?;
+                let b = body(bytes, seg)?;
+                verify_digest(seg, b, algo)?;
+                strtab = Some(b);
+            }
+            _ => {}
+        }
+    }
+    let value = value.ok_or(ContainerError::MissingSegment { seg_id: SEG_VALUE })?;
+    decode_value(strtab.unwrap_or(&[]), value)
 }
 
 /// Refuse compression/encryption this build cannot undo. ｜ 拒绝本构建解不开的压缩/加密。
@@ -1183,6 +1217,24 @@ pub fn check(bytes: &[u8]) -> Result<CheckReport, ContainerError> {
         Err(e) => {
             ok = false;
             lines.push(format!("VALUE    解不开：{e}"));
+        }
+    }
+
+    // 5) 层链结构（不需要密钥的那部分；签名要 `smlb verify`）
+    match layer::verify_chain(bytes, algo) {
+        Ok(chain) => {
+            if chain.layers > 0 {
+                for l in &chain.lines {
+                    lines.push(l.clone());
+                }
+                if !chain.ok {
+                    ok = false;
+                }
+            }
+        }
+        Err(e) => {
+            ok = false;
+            lines.push(format!("层链     读不出来：{e}"));
         }
     }
 

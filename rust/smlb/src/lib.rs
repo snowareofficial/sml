@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! `.smlb` — the **binary form** of SML. Shipped so far:
-//! `.smlb` —— SML 的**二进制形式**。已交付：
+//! `.smlb` — an immutable, addressable, verifiable binary envelope; SML is one of its
+//! built-in payloads, not its whole identity. Shipped so far:
+//! `.smlb` —— 不可变、可寻址、可验证的二进制信封；SML 只是内置载荷之一，不是全部。已交付：
 //!
 //! 1. **T0** — the canonical form, **implemented in `sml-value`** (see
 //!    [`sml_value::Value::canonical_text`] / [`sml_value::Value::canonical_bytes`]); only
@@ -50,18 +51,27 @@
 
 pub mod container;
 pub mod hash;
+pub mod layer;
 pub mod manifest;
 pub mod sha256;
+#[cfg(feature = "sign")]
+pub mod sign;
 pub mod sm3;
 pub mod vectors;
 
 pub use container::{
-    align_of, check, dump, dump_with, embed_body, get, info, load, pack, pack_with, payload,
+    align_of, base_value, check, dump, dump_with, embed_body, get, hash_algo, info, load, pack, pack_with, payload,
     payloads, CheckReport, ContainerError, DumpOptions, FileInfo, Segment, SegmentHeader,
     ALIGN_BLOCK, ALIGN_MIN, EDITION, FLAG_ALIGN_BLOCK, FMT, HEADER_LEN, MAGIC, SEG_EMBED,
     SEG_HEADER_LEN, SEG_MANIFEST, SEG_STRTAB, SEG_VALUE,
 };
 pub use hash::{HashAlgo, HashError};
+pub use layer::{
+    layers, ChainReport, Delegation, Layer, LayerError, SigEntry, Trailer, LAYER_HEADER_LEN,
+    TRAILER_LEN, TRAILER_MAGIC,
+};
+#[cfg(feature = "sign")]
+pub use sign::{append_layer, verify, KeyPair, SignError, VerifyReport, ED25519};
 pub use manifest::{
     check_caps, check_caps_against, CapsVerdict, Manifest, ManifestError, ManifestPayload,
     ManifestSegment, DEFAULT_CRYPTO_BLOCK, DEFAULT_DIR_DEPTH, DEFAULT_PAD_QUANTUM,
