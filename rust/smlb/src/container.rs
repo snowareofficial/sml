@@ -129,6 +129,29 @@ pub const SEG_EMBED: u8 = 0x20;
 /// `PROVENANCE` 段 id（T4 才用）。
 pub const SEG_PROVENANCE: u8 = 0x60;
 
+/// `FRAMES` segment id (§19.1) — the value tree stored as **independent zstd frames** plus an
+/// index, so a reader can inflate only the frames it touches (§19.12).
+/// `FRAMES` 段 id —— 值树按**独立 zstd 帧**存放并带索引，读者可以只解它碰到的那几帧。
+pub const SEG_FRAMES: u8 = 0x10;
+
+/// One frame index entry: `uncomp_off:u32 ‖ comp_off:u32 ‖ comp_len:u32 ‖ uncomp_len:u32`.
+/// 一条帧索引。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FrameEntry {
+    /// Where this frame starts in the **inflated** value bytes ｜ 解压后起点。
+    pub uncomp_off: u32,
+    /// Where this frame starts inside the segment body ｜ 在段体内的起点。
+    pub comp_off: u32,
+    /// Compressed length ｜ 压缩后长度。
+    pub comp_len: u32,
+    /// Inflated length ｜ 解压后长度。
+    pub uncomp_len: u32,
+}
+
+/// Frame index header + entries: `frame_count:u32 ‖ entries[…](16 B each)`.
+/// 帧索引：`帧数:u32 ‖ 表项…`（每项 16 B）。
+pub const FRAME_ENTRY_LEN: usize = 16;
+
 /// §20 compression id: `0x01 = zstd` (the only one this build implements).
 /// §20 压缩编号：`0x01 = zstd`（本构建唯一实现的压缩算法）。
 pub const COMP_ZSTD: u8 = 0x01;
@@ -346,6 +369,16 @@ pub enum ContainerError {
     },
     /// zstd itself refused to compress ｜ zstd 自己拒绝压缩。
     CompressFailed(String),
+    /// The `FRAMES` index is malformed (overlaps, gaps, out of bounds).
+    /// `FRAMES` 的帧索引不合法（重叠 / 断档 / 越界）。
+    BadFrameIndex(String),
+    /// A framed file cannot be opened for zero-copy random access.
+    /// 分帧文件不能以零拷贝方式随机访问。
+    ///
+    /// 帧是独立压缩的，跳节点要跨帧 ⇒ 只能「按需解帧」。当前 `Store` 的导航器是切片式的，
+    /// 故明确报错并指路整解；按需解帧的读取器见 `frame_bytes_at`（已可用，尚未接进导航器）。
+    /// ｜ Frames are independently compressed; the slice-based navigator cannot cross them yet.
+    FramedNotZeroCopy,
     /// Random access (T3) needs a plain segment; this one is compressed.
     /// 随机访问（T3）要求段体是明文；这一段是压缩的。
     ///
@@ -408,6 +441,8 @@ impl ContainerError {
             ContainerError::DecompressTooLarge { .. } => "decompress-too-large",
             ContainerError::CompressFailed(_) => "compress-failed",
             ContainerError::ZeroCopyNeedsPlain { .. } => "zero-copy-needs-plain",
+            ContainerError::BadFrameIndex(_) => "bad-frame-index",
+            ContainerError::FramedNotZeroCopy => "framed-not-zero-copy",
             ContainerError::EmptyArchive => "empty-archive",
             ContainerError::DuplicatePayloadName { .. } => "duplicate-payload-name",
             ContainerError::PayloadNotFound { .. } => "payload-not-found",
@@ -508,6 +543,12 @@ impl std::fmt::Display for ContainerError {
                 "段 0x{seg_id:02x} 解压后会超过上限 {limit} B —— 按解压炸弹处理，拒绝"
             ),
             ContainerError::CompressFailed(e) => write!(f, "zstd 压缩失败：{e}"),
+            ContainerError::BadFrameIndex(why) => write!(f, "帧索引不合法：{why}"),
+            ContainerError::FramedNotZeroCopy => write!(
+                f,
+                "这份文件是分帧压缩的（FRAMES），零拷贝随机访问做不到；请用 `load` / `cat`\
+                 （会按需解帧）"
+            ),
             ContainerError::ZeroCopyNeedsPlain { seg_id, comp } => write!(
                 f,
                 "段 0x{seg_id:02x} 是压缩的（comp=0x{comp:02x}），随机访问不能零拷贝；\
@@ -611,6 +652,17 @@ pub struct DumpOptions {
     pub caps_required: Vec<String>,
     /// `caps.optional`: "skip these if you don't" ｜ 「不懂就跳过」。
     pub caps_optional: Vec<String>,
+    /// Split the **value tree** into independent zstd frames of about this many bytes
+    /// (`None` = off). ｜ 把**节点树**切成约这么大的独立 zstd 帧（`None` = 不分帧）。
+    ///
+    /// 两个旋钮的分工（可共存）：`frame_size` 管节点树（`FRAMES` 段），`compress` 管**其余段**
+    /// （主要是 `STRTAB`）。帧的压缩级别取 `compress.unwrap_or(3)`。
+    ///
+    /// ⚠️ 为什么两个都要：文本多的文档里 `STRTAB` 往往比节点树**大一个数量级**（实测 300 行
+    /// 文档：树 7.3 KB / 表 60.5 KB），只分帧等于只压了小头。故「先分帧、再按段压 STRTAB」
+    /// 才是完整形态；两个旋钮各管一段，互不覆盖。
+    /// ｜ `STRTAB` can dwarf the node tree, so framing the tree alone is half the job.
+    pub frame_size: Option<u32>,
     /// Compress every segment body with zstd at this level (`None` = uncompressed).
     /// 用这个级别把每个段体压成 zstd（`None` = 不压）。
     ///
@@ -626,6 +678,7 @@ impl Default for DumpOptions {
             block_align: false,
             caps_required: Vec::new(),
             caps_optional: Vec::new(),
+            frame_size: None,
             compress: None,
         }
     }
@@ -651,14 +704,73 @@ pub fn dump_with(v: &Value, opts: &DumpOptions) -> Result<Vec<u8>, ContainerErro
 
     // 内容段（manifest 的 segments[] 只列它们，**不含自己** —— 否则摘要循环）
     let mut segs: Vec<(u8, Vec<u8>)> = Vec::with_capacity(3);
-    segs.push((SEG_VALUE, blocks.value));
+    // 分帧：值树进 FRAMES（每帧独立可解），STRTAB 仍按段走
+    let primary = match opts.frame_size {
+        Some(size) => {
+            let level = opts.compress.unwrap_or(3);
+            segs.push((SEG_FRAMES, build_frames(&blocks.value, level, size)?));
+            SEG_FRAMES
+        }
+        None => {
+            segs.push((SEG_VALUE, blocks.value));
+            SEG_VALUE
+        }
+    };
     if !blocks.strtab.is_empty() {
         segs.push((SEG_STRTAB, blocks.strtab));
     }
 
     let sealed = seal(segs, opts)?;
-    let manifest = build_manifest(SEG_VALUE, &sealed, &[], opts)?;
+    let manifest = build_manifest(primary, &sealed, &[], opts)?;
     write_file(sealed, manifest, opts)
+}
+
+/// Build a `FRAMES` body: header + index + independent zstd frames (§19.12).
+/// 造一个 `FRAMES` 段体：帧数 + 索引 + 各独立 zstd 帧。
+#[cfg(feature = "compress")]
+fn build_frames(value: &[u8], level: i32, frame_size: u32) -> Result<Vec<u8>, ContainerError> {
+    let size = frame_size.max(1) as usize;
+    let count = value.len().div_ceil(size).max(1);
+    let mut entries: Vec<FrameEntry> = Vec::with_capacity(count);
+    let mut frames: Vec<u8> = Vec::new();
+    let header_len = 4 + count * FRAME_ENTRY_LEN;
+
+    for chunk_start in (0..value.len().max(1)).step_by(size) {
+        let end = (chunk_start + size).min(value.len());
+        let chunk = if chunk_start <= value.len() {
+            &value[chunk_start.min(value.len())..end]
+        } else {
+            &[][..]
+        };
+        let packed = deflate_zstd(chunk, level).map_err(|_| {
+            ContainerError::CompressFailed(format!("zstd level {level} 拒绝压缩该帧"))
+        })?;
+        entries.push(FrameEntry {
+            uncomp_off: chunk_start as u32,
+            comp_off: (header_len + frames.len()) as u32,
+            comp_len: packed.len() as u32,
+            uncomp_len: chunk.len() as u32,
+        });
+        frames.extend_from_slice(&packed);
+    }
+
+    let mut out = Vec::with_capacity(header_len + frames.len());
+    out.extend_from_slice(&(entries.len() as u32).to_le_bytes());
+    for e in &entries {
+        out.extend_from_slice(&e.uncomp_off.to_le_bytes());
+        out.extend_from_slice(&e.comp_off.to_le_bytes());
+        out.extend_from_slice(&e.comp_len.to_le_bytes());
+        out.extend_from_slice(&e.uncomp_len.to_le_bytes());
+    }
+    out.extend_from_slice(&frames);
+    Ok(out)
+}
+
+/// Without the `compress` feature, framing is impossible — say so instead of writing garbage.
+/// 没开 `compress` 时不能分帧 —— 明确报错，不写垃圾。
+#[cfg(not(feature = "compress"))]
+fn build_frames(_value: &[u8], _level: i32, _size: u32) -> Result<Vec<u8>, ContainerError> {
+    Err(ContainerError::CompressFeatureDisabled { comp: COMP_ZSTD })
 }
 
 /// Pack foreign blobs into one `.smlb` archive (D23 / §22 `smlb pack`).
@@ -816,6 +928,11 @@ fn seal(
     {
         let mut out = Vec::with_capacity(segs.len());
         for (id, body) in segs {
+            // `FRAMES` 段内部已经是压缩帧，再套一层只会白亏一次解压
+            if id == SEG_FRAMES {
+                out.push((id, 0, body));
+                continue;
+            }
             let packed = deflate_zstd(&body, level).map_err(|_| {
                 ContainerError::CompressFailed(format!("zstd level {level} 拒绝压缩该段"))
             })?;
@@ -1031,6 +1148,12 @@ fn decode_manifest<'a>(
     Ok(Some((seg, b, m)))
 }
 
+/// The manifest of a file (error when it has none). ｜ 读文件的 manifest（没有就报错）。
+pub fn manifest_of(bytes: &[u8]) -> Result<Manifest, ContainerError> {
+    let info = info(bytes)?;
+    read_manifest(bytes, &info)?.ok_or(ContainerError::MissingSegment { seg_id: SEG_MANIFEST })
+}
+
 /// The digest algorithm this file declares (`manifest.hash_id`), or SHA-256 when it has no
 /// manifest. ｜ 这个文件声明的摘要算法（`manifest.hash_id`）；没有 manifest 时按 SHA-256。
 pub fn hash_algo(bytes: &[u8]) -> Result<HashAlgo, ContainerError> {
@@ -1107,6 +1230,9 @@ pub(crate) fn open_raw<'a>(bytes: &'a [u8], verify: bool) -> Result<RawParts<'a>
         }
     }
     let primary_id = manifest.as_ref().map(|m| m.primary).unwrap_or(SEG_VALUE);
+    if primary_id == SEG_FRAMES {
+        return Err(ContainerError::FramedNotZeroCopy);
+    }
     if primary_id != SEG_VALUE {
         return Err(ContainerError::PrimaryNotValue { id: primary_id });
     }
@@ -1131,14 +1257,23 @@ pub fn base_value(bytes: &[u8]) -> Result<Value, ContainerError> {
     let manifest = read_manifest(bytes, &info)?;
     let algo = manifest.as_ref().map(|m| m.hash).unwrap_or(hash::DEFAULT);
     let primary_id = manifest.as_ref().map(|m| m.primary).unwrap_or(SEG_VALUE);
-    if primary_id != SEG_VALUE {
+    if primary_id != SEG_VALUE && primary_id != SEG_FRAMES {
         return Err(ContainerError::PrimaryNotValue { id: primary_id });
     }
 
     let mut value: Option<Body<'_>> = None;
+    let mut framed: Option<Vec<u8>> = None;
     let mut strtab: Option<Body<'_>> = None;
     for seg in &info.segments {
         match seg.header.seg_id {
+            SEG_FRAMES => {
+                if framed.is_some() {
+                    return Err(ContainerError::DuplicateSegment { seg_id: SEG_FRAMES });
+                }
+                let raw = body(bytes, seg)?;
+                verify_digest(seg, raw, algo)?;
+                framed = Some(inflate_frames_all(raw)?);
+            }
             SEG_VALUE => {
                 if value.is_some() {
                     return Err(ContainerError::DuplicateSegment { seg_id: SEG_VALUE });
@@ -1162,7 +1297,12 @@ pub fn base_value(bytes: &[u8]) -> Result<Value, ContainerError> {
             _ => {}
         }
     }
-    let value = value.ok_or(ContainerError::MissingSegment { seg_id: SEG_VALUE })?;
+    let value: Body<'_> = match (primary_id, value, framed) {
+        (SEG_FRAMES, _, Some(v)) => Body::Owned(v),
+        (SEG_FRAMES, _, None) => return Err(ContainerError::MissingSegment { seg_id: SEG_FRAMES }),
+        (_, Some(v), _) => v,
+        (_, None, _) => return Err(ContainerError::MissingSegment { seg_id: SEG_VALUE }),
+    };
     decode_value(strtab.as_deref().unwrap_or(&[]), &value)
 }
 
@@ -1230,6 +1370,150 @@ fn body_of<'a>(seg: &Segment, bytes: &'a [u8]) -> Result<Body<'a>, ContainerErro
 #[cfg(feature = "compress")]
 pub fn inflate_zstd(raw: &[u8], limit: usize) -> Result<Vec<u8>, ()> {
     zstd::bulk::decompress(raw, limit).map_err(|_| ())
+}
+
+/// Parse + validate a `FRAMES` body's index. ｜ 解析并校验 `FRAMES` 段体的帧索引。
+///
+/// 校验四件事：帧数非 0；`uncomp_off` 从 0 起**连续**（不重叠不断档）；每帧的压缩区间落在
+/// 段体内；`comp_off ≥ 索引区末尾`（帧区不能压到索引上）。
+/// ｜ Continuity, bounds, and “frames never overlap the index” are all enforced here.
+pub fn parse_frame_index(body: &[u8]) -> Result<Vec<FrameEntry>, ContainerError> {
+    if body.len() < 4 {
+        return Err(ContainerError::BadFrameIndex("段体不足 4 B".to_string()));
+    }
+    let count = u32::from_le_bytes([body[0], body[1], body[2], body[3]]) as usize;
+    if count == 0 {
+        return Err(ContainerError::BadFrameIndex("帧数为 0".to_string()));
+    }
+    let index_end = 4 + count
+        .checked_mul(FRAME_ENTRY_LEN)
+        .ok_or_else(|| ContainerError::BadFrameIndex("帧数过大".to_string()))?;
+    if index_end > body.len() {
+        return Err(ContainerError::BadFrameIndex(format!(
+            "索引要 {index_end} B，段体只有 {} B",
+            body.len()
+        )));
+    }
+
+    let mut out = Vec::with_capacity(count);
+    let mut expect_uncomp = 0u32;
+    let mut expect_comp = index_end as u32;
+    for i in 0..count {
+        let at = 4 + i * FRAME_ENTRY_LEN;
+        let u32_at = |o: usize| u32::from_le_bytes([body[o], body[o + 1], body[o + 2], body[o + 3]]);
+        let e = FrameEntry {
+            uncomp_off: u32_at(at),
+            comp_off: u32_at(at + 4),
+            comp_len: u32_at(at + 8),
+            uncomp_len: u32_at(at + 12),
+        };
+        if e.uncomp_off != expect_uncomp {
+            return Err(ContainerError::BadFrameIndex(format!(
+                "第 {i} 帧的解压起点是 {}，应为 {expect_uncomp}（断档或重叠）",
+                e.uncomp_off
+            )));
+        }
+        if e.comp_off != expect_comp {
+            return Err(ContainerError::BadFrameIndex(format!(
+                "第 {i} 帧的压缩起点是 {}，应为 {expect_comp}（索引区与帧区交错）",
+                e.comp_off
+            )));
+        }
+        let comp_end = e.comp_off as usize + e.comp_len as usize;
+        if comp_end > body.len() {
+            return Err(ContainerError::BadFrameIndex(format!(
+                "第 {i} 帧越出段体（{comp_end} > {}）",
+                body.len()
+            )));
+        }
+        expect_uncomp = e
+            .uncomp_off
+            .checked_add(e.uncomp_len)
+            .ok_or_else(|| ContainerError::BadFrameIndex("解压长度溢出".to_string()))?;
+        expect_comp = comp_end as u32;
+        out.push(e);
+    }
+    if expect_comp as usize != body.len() {
+        return Err(ContainerError::BadFrameIndex(format!(
+            "帧区合计到 {expect_comp} B，段体是 {} B（多出尾巴）",
+            body.len()
+        )));
+    }
+    Ok(out)
+}
+
+/// Inflate **every** frame, concatenated — what `load` needs. ｜ 全解（`load` 用）。
+pub fn inflate_frames_all(body: &[u8]) -> Result<Vec<u8>, ContainerError> {
+    let entries = parse_frame_index(body)?;
+    let total: usize = entries.iter().map(|e| e.uncomp_len as usize).sum();
+    if total > MAX_DECOMPRESSED {
+        return Err(ContainerError::DecompressTooLarge {
+            seg_id: SEG_FRAMES,
+            limit: MAX_DECOMPRESSED,
+        });
+    }
+    #[cfg(not(feature = "compress"))]
+    {
+        return Err(ContainerError::CompressFeatureDisabled { comp: COMP_ZSTD });
+    }
+    #[cfg(feature = "compress")]
+    {
+        let mut out = Vec::with_capacity(total);
+        for (_i, e) in entries.iter().enumerate() {
+            let start = e.comp_off as usize;
+            let end = start + e.comp_len as usize;
+            let frame = inflate_zstd(&body[start..end], e.uncomp_len as usize).map_err(|_| {
+                ContainerError::DecompressTooLarge {
+                    seg_id: SEG_FRAMES,
+                    limit: e.uncomp_len as usize,
+                }
+            })?;
+            if frame.len() != e.uncomp_len as usize {
+                return Err(ContainerError::BadFrameIndex(format!(
+                    "帧解压出 {} B，索引说有 {} B",
+                    frame.len(),
+                    e.uncomp_len
+                )));
+            }
+            out.extend_from_slice(&frame);
+        }
+        Ok(out)
+    }
+}
+
+/// Inflate **only** the frame covering `uncomp_off` — the point of framing (§T5).
+/// **只**解 `uncomp_off` 落在的那一帧 —— 分帧的意义就在这里。
+///
+/// 返回 `(该帧索引, 该帧解压后的字节)`；`uncomp_off` 用来在本帧内继续定位。
+/// ｜ Returns the frame plus its inflated bytes; `uncomp_off` locates it inside the frame.
+pub fn frame_bytes_at(
+    body: &[u8],
+    uncomp_off: u32,
+) -> Result<(FrameEntry, Vec<u8>), ContainerError> {
+    let entries = parse_frame_index(body)?;
+    let e = entries
+        .iter()
+        .find(|e| uncomp_off >= e.uncomp_off && uncomp_off < e.uncomp_off + e.uncomp_len)
+        .ok_or_else(|| {
+            ContainerError::BadFrameIndex(format!("偏移 {uncomp_off} 不在任何帧里"))
+        })?;
+    #[cfg(not(feature = "compress"))]
+    {
+        let _ = body;
+        return Err(ContainerError::CompressFeatureDisabled { comp: COMP_ZSTD });
+    }
+    #[cfg(feature = "compress")]
+    {
+        let start = e.comp_off as usize;
+        let end = start + e.comp_len as usize;
+        let frame = inflate_zstd(&body[start..end], e.uncomp_len as usize).map_err(|_| {
+            ContainerError::DecompressTooLarge {
+                seg_id: SEG_FRAMES,
+                limit: e.uncomp_len as usize,
+            }
+        })?;
+        Ok((*e, frame))
+    }
 }
 
 /// Compress one buffer with zstd — the mirror of [`inflate_zstd`], exposed for the same reason
@@ -1316,6 +1600,27 @@ pub fn check(bytes: &[u8]) -> Result<CheckReport, ContainerError> {
                 seg.header.seg_id, name
             ));
             continue;
+        }
+        if seg.header.seg_id == SEG_FRAMES {
+            match parse_frame_index(b) {
+                Ok(entries) => {
+                    let total: u32 = entries.iter().map(|e| e.uncomp_len).sum();
+                    lines.push(format!(
+                        "0x{:02x} {:<10} {} 帧，解压后 {total} B（最大帧 {} B）",
+                        seg.header.seg_id,
+                        name,
+                        entries.len(),
+                        entries.iter().map(|e| e.uncomp_len).max().unwrap_or(0)
+                    ));
+                }
+                Err(e) => {
+                    ok = false;
+                    lines.push(format!(
+                        "0x{:02x} {:<10} 帧索引坏了：{e}",
+                        seg.header.seg_id, name
+                    ));
+                }
+            }
         }
         if seg.header.comp != 0 {
             match body_of(seg, bytes) {
@@ -1649,6 +1954,7 @@ pub fn seg_name(seg_id: u8) -> String {
         SEG_VALUE => "VALUE".to_string(),
         SEG_STRTAB => "STRTAB".to_string(),
         SEG_DIR => "DIR".to_string(),
+        SEG_FRAMES => "FRAMES".to_string(),
         SEG_EMBED => "EMBED".to_string(),
         SEG_MANIFEST => "MANIFEST".to_string(),
         SEG_PROVENANCE => "PROVENANCE".to_string(),
