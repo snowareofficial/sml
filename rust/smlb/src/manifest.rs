@@ -429,6 +429,32 @@ pub fn known_capabilities() -> &'static [&'static str] {
     &["value", "strtab", "manifest", "embed"]
 }
 
+/// 格式**已登记**、但本构建不处理的能力名。
+/// Registered in the format, but this build does not act on them.
+///
+/// 与 [`known_capabilities`] 的分工：「认得」决定**能不能打开**，「已登记」决定
+/// **这个名字是否属于本规范**。写者可以声明后者里的名字（例如未来实现 `sig` 层链的
+/// 读者），读者不认识就按 `required` / `optional` 拒绝或跳过 —— 这条通道不能掐死，
+/// 否则格式永远无法扩展。
+///
+/// ⚠️ **加名字要过评审**（`docs/smlb-smldb-spec.md` §21.4）：
+/// ① 在这里登记；② 同时加跨端向量；③ §21.4 表里加一行说明语义。
+/// 缺任一条就会出现「两年后一堆互相读不了的文件」。
+pub fn registered_capabilities() -> &'static [&'static str] {
+    &["sig", "dir", "frames", "source", "crypto"]
+}
+
+/// A capability name must be a lowercase identifier (no spaces, no uppercase,
+/// no leading digit). This is the **format** check; membership is a separate question.
+/// 能力名的**格式**校验：小写标识符。是否属于规范另由登记表回答。
+pub fn is_well_formed_capability(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with(|c: char| c.is_ascii_digit())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.')
+}
+
 /// Outcome of applying `caps` to a build's known set (D11 + P10: one predicate for both paths).
 /// 把 `caps` 套到「本构建认得的集合」上的结论（D11 + P10）。
 ///

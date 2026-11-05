@@ -335,6 +335,18 @@ pub enum ContainerError {
         /// The id `primary` names ｜ `primary` 写的 id。
         id: u8,
     },
+    /// A declared capability name is not a well-formed identifier.
+    /// 声明的能力名不是合法标识符（写侧格式校验）。
+    BadCapabilityName {
+        /// The offending name ｜ 违规的名字。
+        name: String,
+    },
+    /// The same capability is declared twice (in `required`, `optional`, or both).
+    /// 同一个能力被声明了两次（`required` / `optional` / 跨两者）。
+    DuplicateCapability {
+        /// The repeated name ｜ 重复的名字。
+        name: String,
+    },
     /// A `required` capability this build does not understand (D11: must refuse)
     /// 声明了本构建不懂的 `required` 能力（D11：必须拒）。
     MissingCapability {
@@ -466,6 +478,8 @@ impl ContainerError {
             ContainerError::BadManifest(_) => "bad-manifest",
             ContainerError::PrimarySegmentMissing { .. } => "primary-segment-missing",
             ContainerError::PrimaryNotValue { .. } => "primary-not-value",
+            ContainerError::BadCapabilityName { .. } => "bad-capability-name",
+            ContainerError::DuplicateCapability { .. } => "duplicate-capability",
             ContainerError::MissingCapability { .. } => "missing-capability",
             ContainerError::ManifestMismatch { .. } => "manifest-mismatch",
             ContainerError::Hash(_) => "unsupported-hash",
@@ -563,6 +577,15 @@ impl std::fmt::Display for ContainerError {
             ContainerError::PrimaryNotValue { id } => write!(
                 f,
                 "manifest 的 primary 指向段 0x{id:02x}，它不是 Value 段（load 只解值；裸载荷走 payload）"
+            ),
+            ContainerError::BadCapabilityName { name } => write!(
+                f,
+                "能力名 `{name}` 不合法：只允许小写字母 / 数字 / `-` / `.`，且不能以数字开头"
+            ),
+            ContainerError::DuplicateCapability { name } => write!(
+                f,
+                "能力 `{name}` 被声明了两次（required / optional 之间也算重复）—— \
+                 重复声明会让「谁说了算」变成实现细节，必须显式去重"
             ),
             ContainerError::MissingCapability { name } => write!(
                 f,
@@ -757,6 +780,26 @@ impl Default for DumpOptions {
 ///
 /// Table order = ascending `seg_id` (§18.3's canonical ordering), data laid out in the same
 /// order — so the file is a pure function of the value (C12 at container level).
+/// Validate the writer's capability declaration (**format level only**).
+/// 只校验**格式**：名字合法、不重复。
+///
+/// 为什么不在写侧硬拒「不在 `known_capabilities()` 里」的名字：那会掐死「声明未来能力」
+/// 这条唯一扩展通道（`sig` / `dir` 就是这么来的）。属于规范与否由
+/// [`crate::manifest::registered_capabilities`] 回答，治理规则见 spec §21.4。
+fn validate_caps(opts: &DumpOptions) -> Result<(), ContainerError> {
+    let mut seen: Vec<&str> = Vec::new();
+    for name in opts.caps_required.iter().chain(opts.caps_optional.iter()) {
+        if !crate::manifest::is_well_formed_capability(name) {
+            return Err(ContainerError::BadCapabilityName { name: name.clone() });
+        }
+        if seen.contains(&name.as_str()) {
+            return Err(ContainerError::DuplicateCapability { name: name.clone() });
+        }
+        seen.push(name.as_str());
+    }
+    Ok(())
+}
+
 /// 表序 = 段 id 升序，数据按同序摆放 ⇒ 文件是值的纯函数。
 pub fn dump(v: &Value) -> Result<Vec<u8>, ContainerError> {
     dump_with(v, &DumpOptions::default())
@@ -764,6 +807,7 @@ pub fn dump(v: &Value) -> Result<Vec<u8>, ContainerError> {
 
 /// Same as [`dump`], with explicit choices. ｜ 同 [`dump`]，但显式指定选项。
 pub fn dump_with(v: &Value, opts: &DumpOptions) -> Result<Vec<u8>, ContainerError> {
+    validate_caps(opts)?;
     dump_sealed(v, opts, None)
 }
 
@@ -776,6 +820,7 @@ pub fn dump_encrypted(
     opts: &DumpOptions,
     key: &crate::crypto::KeySource<'_>,
 ) -> Result<Vec<u8>, ContainerError> {
+    validate_caps(opts)?;
     let salt = crate::crypto::random_salt().map_err(ContainerError::Crypto)?;
     let wk = crate::crypto::derive_write_keys(key, salt).map_err(|e| {
         if e.contains("KdfParams") {
@@ -926,6 +971,7 @@ pub fn pack_with(
     items: &[(&str, &[u8])],
     opts: &DumpOptions,
 ) -> Result<Vec<u8>, ContainerError> {
+    validate_caps(opts)?;
     if items.is_empty() {
         return Err(ContainerError::EmptyArchive);
     }
