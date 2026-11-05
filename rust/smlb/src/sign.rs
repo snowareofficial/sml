@@ -159,6 +159,48 @@ fn hash_of(body: &[u8], algo: HashAlgo) -> Result<[u8; 32], SignError> {
     crate::hash::digest(algo, body).map_err(SignError::Hash)
 }
 
+/// Verify **and** pin the chain head against an external anchor (D18: 信任根交给调用者).
+/// 验签并把链头钉在外部锚点上（D18：信任根交给调用者）。
+///
+/// 为什么需要它：整条层链可以被**完整剥离**（删掉 Trailer 与所有层记录），文件就退回
+/// 「未签名」，而 `verify` 会告诉你「通过（0 层）」。只有记住过一个期望的 head，才能把
+/// 「本来就没签」与「签了又被剥掉」分开。这就是 `--trust` 的全部意义。
+/// ｜ Without an anchor, “unsigned” and “stripped” look identical — this function is the anchor.
+pub fn verify_trusted(
+    bytes: &[u8],
+    algo: HashAlgo,
+    trust: &[u8; 32],
+) -> Result<VerifyReport, SignError> {
+    let mut report = verify(bytes, algo)?;
+    match crate::layer::chain_head(bytes, algo) {
+        Ok(Some(head)) if head == *trust => {
+            report
+                .lines
+                .push("锚点     head 与期望一致（外部锚点，D18）".to_string());
+        }
+        Ok(Some(head)) => {
+            report.ok = false;
+            let got: String = head[..8].iter().map(|b| format!("{b:02x}")).collect();
+            let want: String = trust[..8].iter().map(|b| format!("{b:02x}")).collect();
+            report.lines.push(format!(
+                "锚点     head 不符：文件是 {got}…，期望 {want}… —— 层链被改过或被替换"
+            ));
+        }
+        Ok(None) => {
+            report.ok = false;
+            report.lines.push(
+                "锚点     文件里**一层都没有**，而 --trust 给了期望值 —— 层链可能被整个剥离（这条只能靠外部锚点发现）"
+                    .to_string(),
+            );
+        }
+        Err(e) => {
+            report.ok = false;
+            report.lines.push(format!("锚点     算不出链头：{e}"));
+        }
+    }
+    Ok(report)
+}
+
 /// Verification report: one line per check, `ok` only when everything passed.
 /// 验签报告：一条检查一行，全过才是 `ok`。
 #[derive(Debug, Clone)]

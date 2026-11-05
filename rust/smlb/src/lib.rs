@@ -72,7 +72,7 @@ pub use layer::{
     TRAILER_LEN, TRAILER_MAGIC,
 };
 #[cfg(feature = "sign")]
-pub use sign::{append_layer, verify, KeyPair, SignError, VerifyReport, ED25519};
+pub use sign::{append_layer, verify, verify_trusted, KeyPair, SignError, VerifyReport, ED25519};
 pub use manifest::{
     check_caps, check_caps_against, CapsVerdict, Manifest, ManifestError, ManifestPayload,
     ManifestSegment, DEFAULT_CRYPTO_BLOCK, DEFAULT_DIR_DEPTH, DEFAULT_PAD_QUANTUM,
