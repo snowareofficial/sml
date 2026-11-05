@@ -58,3 +58,5 @@ clap = { version = "4.5", features = ["derive"] }
 preserve_order = ["swsml/preserve_order"]
 # 需要 `.smlb` 信封时同时打开（转发到 swsml 的同名 feature）。
 smlb = ["swsml/smlb"]
+# `--to-smlb --smlb-compress N` 需要它（再把 zstd 拉进来）。
+smlb-compress = ["smlb", "swsml/smlb-compress"]

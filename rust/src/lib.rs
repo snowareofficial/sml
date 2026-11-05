@@ -134,7 +134,9 @@ pub use sml_value::path::{Path, PathError, Seg};
 #[cfg(feature = "smlb")]
 pub mod envelope;
 #[cfg(feature = "smlb")]
-pub use envelope::{list, sml_to_smlb, smlb_to_sml, unwrap, wrap, EnvelopeError, Payload};
+pub use envelope::{
+    list, sml_to_smlb, smlb_to_sml, unwrap, value_to_smlb, wrap, EnvelopeError, Payload,
+};
 /// 统一错误类型（`code()` 是跨端稳定契约）。
 ///
 /// 以前调用方只能写 `Result<Value, sml_codes::SmlError>` —— 签名词里带出内部 crate，

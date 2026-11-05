@@ -4,7 +4,7 @@
 //! 门控 `smlb`（它同时带来 `preserve_order`）：信封接口只在开了 feature 时存在。
 #![cfg(feature = "smlb")]
 
-use sml::{list, sml_to_smlb, smlb_to_sml, unwrap, wrap, EnvelopeError};
+use sml::{list, sml_to_smlb, smlb_to_sml, unwrap, value_to_smlb, wrap, EnvelopeError};
 
 /// 任意字节 ⇄ 信封：这是新定位下的**第一等路径**。
 #[test]
@@ -45,6 +45,18 @@ fn sml_text_round_trip() {
         back,
         "第二次往返必须稳定（canonical 的 C12 精神）"
     );
+}
+
+/// `value_to_smlb`：已解析的值直接写信封（CLI 的 `--to-smlb` 走这条，不经文本往返）。
+#[test]
+fn value_to_smlb_skips_the_text_detour() {
+    let v: sml::Value = sml::parse("server web {\n  port: 8080\n}\n").unwrap();
+    let f = value_to_smlb(&v, None).unwrap();
+    // 与「先转文本再解析」的产物**逐字节相同**：省的是 CPU，不是语义
+    assert_eq!(f, sml_to_smlb("server web {\n  port: 8080\n}\n", None).unwrap());
+    // 且能读回来
+    let back = smlb_to_sml(&f).unwrap();
+    assert!(back.contains("8080"), "{back}");
 }
 
 /// 载荷名不存在时要把**现有的名字**报出来，而不是只说「没有」。
