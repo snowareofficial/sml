@@ -125,6 +125,16 @@ pub use sml_value::{describe_value, Map, Value, MAX_VALUE_DEPTH};
 pub use sml_value::CanonicalError;
 /// 路径语法（S1a）：读用 `Value::get_path`，写落点（S6）共用同一份 `Path`。
 pub use sml_value::path::{Path, PathError, Seg};
+
+/// `.smlb` 通用二进制信封（`wrap` / `unwrap` / `sml_to_smlb` / `smlb_to_sml`）。
+/// `.smlb` as a general-purpose envelope — only with the `smlb` feature.
+///
+/// 关掉 feature 时这个模块**根本不存在**（不是空壳）：依赖树里也不会有 `smlb`。
+/// Off means absent, not empty — `smlb` is not even in the dependency graph.
+#[cfg(feature = "smlb")]
+pub mod envelope;
+#[cfg(feature = "smlb")]
+pub use envelope::{list, sml_to_smlb, smlb_to_sml, unwrap, wrap, EnvelopeError, Payload};
 /// 统一错误类型（`code()` 是跨端稳定契约）。
 ///
 /// 以前调用方只能写 `Result<Value, sml_codes::SmlError>` —— 签名词里带出内部 crate，

@@ -767,7 +767,6 @@ version = "0.6.9-dev.0"
 dependencies = [
  "clap",
  "sml-codes",
- "smlb",
  "swsml",
 ]
 
@@ -797,6 +796,7 @@ dependencies = [
  "sml-parse",
  "sml-pattern",
  "sml-value",
+ "smlb",
  "swsml-derive",
  "toml",
 ]

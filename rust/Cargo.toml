@@ -81,6 +81,8 @@ name = "sml"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
+# `.smlb` 信封（feature `smlb` 才编）。方向：swsml 依赖 smlb，反之不行（D3）。
+smlb = { version = "0.6.9-dev.0", path = "smlb", optional = true }
 # ---- 内部功能 crate（按依赖层级自上而下）----
 # 错误码（唯一事实来源 errors/codes.sml）：语言层各 crate 与 C-ABI 都用它，
 # 从而保证「同一触发条件五端同码」在 Rust 侧是**编译期常量**而不是手抄字面量。
@@ -125,6 +127,14 @@ sml = ["sml-value/sml"]
 # 「特性集合完全相同」的 rlib，本图里只要有一份 `sml-value` 带 `preserve_order`、
 # 另一份不带，就会被编成两个不同的 crate 实例，`Value` 随即裂成两个互不兼容的
 # 类型（`expected sml_value::Value, found Value`）。各子 crate 的同名 feature 同理。
+# `.smlb` 通用二进制信封（`sml::envelope`）。默认关：装上它就把 `smlb` 拉进依赖树。
+# ⚠️ 它**连带打开 `preserve_order`**：`smlb` 的 canonical 字节要求源序，
+# 而 `smlb/preserve_order` 会转发到 `sml-value/preserve_order` —— 不一起开，
+# 构建图里就会有两个 `sml-value` 实例（`Value` 裂成两个类型）。
+smlb = ["dep:smlb", "smlb/preserve_order", "preserve_order"]
+# `.smlb` 信封 + 段级 zstd 压缩。**再开一层**是故意的：压缩会把 `zstd` 的 C 绑定
+# 拉进依赖树，不该由「只是想用信封」的人被动承担。
+smlb-compress = ["smlb", "smlb/compress"]
 preserve_order = [
     "sml-value/preserve_order",
     "sml-lex/preserve_order",
