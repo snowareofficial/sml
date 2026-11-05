@@ -971,7 +971,7 @@ key 更少一份、零依赖，`ser_text` 已趟过路；O(n) 对真实负载够
 | **T2 容器（L1）** ✅ **全落**（2026-11-04/05，见 §19.8 / §19.9） | 段表 ✅ · 摘要（SHA-256 / SM3，按 `hash_id`）✅ · manifest + `primary` + 能力位 ✅ · 外来载荷 `EMBED` + `payloads[]` + `pack`/`unpack` ✅ · `check` ✅ | 只读 manifest 能列全部段 ✅；未知 `optional` 跳过、缺 `required` 明确拒 ✅；改一字节被检出 ✅ |
 | **T3 读（L2）** ✅ 除 mmap 外已落（2026-11-05，见 §19.10） | `Store`：`open` / `subtree_bytes` / `get` / `text` / `text_of` / `history_at` / `payload` / `payloads` ✅；`DIR` / `Mmap::open` / `provenance` 未做 | 「取单个子树不遍历全树」已证（改坏兄弟 tag 仍能取别的）✅；**RSS 判据未达成**（等 mmap 依赖裁决） |
 | **T4 历史与签名（L3）** ✅ 核心已落（2026-11-05，见 §21.1b） | 层链（`prev_hash`/`index`/Trailer）+ `sign` / `append` / `verify` / `delegate` / `tree` + `patch` 合并（D22）；**写者锁（D20）未做** | 验签能答「值来自哪层」（`cat --at N`）✅；未授权的换钥被拒 ✅；并发冲突检测等锁落地 |
-| **T5 压缩与加密（L4）** | zstd 独立帧 + 帧索引；按段加密（SM4 / AES-GCM）；算法 ID 表（含 PQC 登记） | 只解压/解密被访问的段；未知算法 ID ⇒ 明确拒绝；压缩→加密顺序固定 |
+| **T5 压缩与加密（L4）** ⏳ 压缩前半已落（2026-11-05，见 §19.11） | 段级 zstd（`comp`）✅ + 解压预算 ✅；**加密 / `FRAMES` 帧级 ⬜** | 「未知算法 ID 明确拒绝」✅；「只解压被访问的段」要等帧级 |
 | **T6 工具（T6）** | `smltools --to smlb` / `--from smlb` / `--keep-source`；`smlb sign/verify/append` CLI | 文本 ↔ 二进制双向可跑；签名可被另一端验证 |
 | **T7 五端** | JS / Lua 解码器（只读 `VALUE` 段 + 透传载荷）+ 一致性用例 | 同一 `.smlb` 五端读出同树；载荷字节原样 |
 
@@ -1411,13 +1411,49 @@ manifest {
 只涉及 `advise_range` / `flush_range` 系列，**修于 0.9.11**，而 `Store` 只用 `Mmap::map` + 切片，
 不碰那些函数）。**这条要等一句批准**，在那之前 RSS 判据不算过。
 
+### 19.11 段级压缩（T5 前半，2026-11-05）
+
+**用户裁决**：压缩走 zstd 的 C 绑定链（`zstd` → `zstd-safe` → `zstd-sys`），**不**换 deflate。
+台账（实测）：`zstd 0.14.3` / `zstd-safe 8.2.0` / `zstd-sys 2.1.2+zstd.1.5.7`；
+`osv_check.py` 扫 85 个包「未发现任何已知漏洞」。`zstd-sys` 2026-10-26 那条（allocator shim
+内存破坏）**只落 wasm32**，本 crate 不构建 wasm —— ⚠️ **将来若上 wasm，这条必须重新评审**。
+
+**机制**：用 §19.1 **早就有的** `comp:u8` 字段做**段级**压缩（`0x01 = zstd`），不新造段。
+
+**三条硬规则**（都是踩过才知道的）：
+
+| 规则 | 为什么 |
+|---|---|
+| **只有真变小才压** | 40 B 的段经 zstd 可能**变大**（帧头 + 熵编码开销），读者还要为它付一次解压 —— 白亏两头。`STRTAB` 是短串集合，尤其容易压不动 |
+| **`MANIFEST` 段永不压缩** | 引导顺序：先读 manifest 才知道用什么算法，它自己不能依赖解压 |
+| **摘要覆盖「落盘字节」** | 段头摘要算的是**压缩后**的字节。若对解压结果验，则「压缩数据被改」验不出来，还会把篡改误报成「解压失败」（实现时第一版就踩了这个坑） |
+
+**解压预算**：[`MAX_DECOMPRESSED`] = 256 MiB（§24.1 S5 的内存预算）。`len` 是**压缩后**长度，
+对「能膨胀到多大」一无所知 —— 100 B 可以声称 100 GB。`zstd::bulk::decompress(data, cap)` 把
+`cap` 当**分配上限**，超出即失败，不是先分配再发现。
+
+**与 T3 的冲突（已明确报错，不静默降级）**：压缩段要先解压才能跳节点，而解压等于把「零拷贝」
+变成「全部展开」。故 `Store::open` 对压缩文件返回 `zero-copy-needs-plain` 并指路
+`load` / `cat`；`smlb check` 会打出「压缩 0x01：36 B → 200002 B」证明解压链路真的通。
+
+**实测**：200 KB 的重复文本 ×2 打成归档 —— 未压缩 200,810 B，`--zstd` 后 **844 B**（238×）；
+`unpack` 逐字节还原。
+
+**还没做（T5 后半）**：
+1. **`FRAMES`（`0x10`）+ 帧索引** —— 那才是 T5 原文的「只解压被访问的部分」。段级压缩对单个大
+   `VALUE` 等于「一解全解」。帧索引布局需要裁决，草案：
+   `frame_count:u32 ‖ (uncomp_off:u32, comp_off:u32, comp_len:u32, uncomp_len:u32)* ‖ frames`。
+2. **加密**（`enc` 字段 / `0x10 AES-256-GCM`）—— 要有「压缩→加密顺序固定」的完整链路，
+   且要考虑与 `block_align`、追加的相互作用，故一并留到下一轮。
+
 ---
 
 ## 20. 算法 ID 表（v1 · P3 落定）
 
 > 原则：**编号一经发布，永不复用**；未知 ID **明确拒绝**（算法属 `required` 类能力，跳过等于拿密文当明文）。
 >
-> **压缩实现选型（2026-11-05 实测 RustSec）**：`0x01 zstd` 的三个实现近期全被点名
+> **压缩实现选型（2026-11-05）**：用户裁决「用 zstd 的 C 绑定链（`zstd` → `zstd-safe` → `zstd-sys`）」，
+> 即接受 `zstd-sys` 那条公告只落在 wasm32；deflate 留作备选。背景：`0x01 zstd` 的三个实现近期全被点名
 > （`zstd` 2026-10-26 三条 / `zstd-sys` 同日 wasm 内存破坏 / `ruzstd` 2026-10-13 **HIGH 解压炸弹**），
 > `0x02 lz4` 的纯 Rust 实现 `lz4_flex` 也有 2026-03-17 **HIGH**（畸形数据泄露未初始化内存）。
 > 故 **T5 优先做 `0x03 deflate`（`flate2` + `miniz_oxide`，零公告）**，zstd 等生态冷却后再补；
@@ -1561,7 +1597,7 @@ layer {
 | `smlb check <f>` | 结构校验：段哈希、层链、能力位、截断位置 | T2 | ✅ **已实现**（段哈希/截断；层链待 T4、能力位待 §19.9） |
 | `smlb verify <f> [--trust k.pub]` | 验链 + 验签，打印每层结论 | T4 | ✅ **已实现**（`--trust` 外部锚点未做） |
 | `smlb sign / append / delegate` | 签名、追加补丁、换钥授权 | T4 | ✅ **已实现**（`keygen` 也在，`sign` 默认原地写） |
-| `smlb pack / unpack` | 把多文件打成 `.smlb`（`EMBED` + `payloads[]`），或反向取出 | T2 | ✅ **已实现**（`unpack` 拒绝目录穿越） |
+| `smlb pack / unpack` | 把多文件打成 `.smlb`（`EMBED` + `payloads[]`），或反向取出 | T2 | ✅ **已实现**（`unpack` 拒绝目录穿越；`pack --zstd` 段级压缩） |
 | `smlb tree <f>` | 打印层链（index/作者/补丁/签名数/授权） | T4 | ✅ **已实现** |
 | `smlb vectors --gen/--check` | 生成/校验跨端 canonical 测试向量（T0 判据） | T0 | ✅ **已实现**（2026-11-04，另带「自检」：往返 + 文本一致） |
 | `smlb bench <f>` | 读路径基准（mmap 打开、单子树取、解帧、解密） | T5 | 建议 |
