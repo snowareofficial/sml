@@ -579,7 +579,7 @@ impl std::fmt::Display for ContainerError {
                 reason,
             } => write!(
                 f,
-                "段 0x{seg_id:02x} 第 {block} 块认证失败：{reason}（钥匙错、密文被改，或段头被改）"
+                "段 0x{seg_id:02x} 第 {block} 块认证失败：{reason}"
             ),
             ContainerError::KeyRequired => write!(
                 f,

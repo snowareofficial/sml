@@ -404,7 +404,7 @@ pub(crate) fn open_segment(
                 )
                 .map_err(|_| OpenError {
                     block: Some(i),
-                    reason: "认证失败（钥匙错、密文被改，或段头被改）".to_string(),
+                    reason: "钥匙错、密文被改，或段头被改".to_string(),
                 })?;
             out.extend_from_slice(&opened);
             at += want;
