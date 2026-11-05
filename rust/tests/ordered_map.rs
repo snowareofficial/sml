@@ -38,7 +38,7 @@ fn explicit_ordered_object_can_be_canonicalized_in_default_build() {
     let v = Value::Object(Map::from(o));
     assert_eq!(v.canonical_text().unwrap(), "b: 2\na: 1\n");
 
-    let mut u = Map::new();
+    let mut u = Map::unordered();
     u.insert("b".to_string(), Value::Int(2));
     u.insert("a".to_string(), Value::Int(1));
     let e = Value::Object(u).canonical_text().unwrap_err();
@@ -49,11 +49,31 @@ fn explicit_ordered_object_can_be_canonicalized_in_default_build() {
     );
 }
 
+/// `parse_ordered()` 保源序，且在**默认构建**里就能签 canonical（不需要任何 feature）。
+#[test]
+fn parse_ordered_keeps_source_order_without_any_feature() {
+    let v = sml::parse_ordered("z: 1\na: 2\n").unwrap();
+    assert_eq!(v.canonical_text().unwrap(), "z: 1\na: 2\n");
+
+    // `parse()` 的历史行为不变：键按字节序排序
+    #[cfg(not(feature = "preserve_order"))]
+    {
+        let u = sml::parse("z: 1\na: 2\n").unwrap();
+        assert_eq!(sml::to_sml(&u).replace(' ', "").contains("a:2"), true);
+        assert_eq!(
+            u.canonical_text().unwrap_err(),
+            sml::CanonicalError::KeyOrderUnavailable
+        );
+    }
+
+    assert_eq!(v.clone().into_ordered(), v);
+}
+
 /// 默认档下 `Map` 是 BTreeMap（键按字节序），与 `OrderedMap` **语义不同**。
 #[cfg(not(feature = "preserve_order"))]
 #[test]
 fn map_and_ordered_map_are_distinct_in_default_build() {
-    let mut m = Map::new();
+    let mut m = Map::unordered();
     m.insert("b".to_string(), Value::Int(2));
     m.insert("a".to_string(), Value::Int(1));
 

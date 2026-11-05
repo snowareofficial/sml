@@ -165,7 +165,7 @@ impl Layer {
     /// Encode as a `Value`; `with_sigs = false` drops the `sig` field (the signable form).
     /// 编成 `Value`；`with_sigs = false` 时去掉 `sig`（可签形态）。
     pub fn to_value(&self, with_sigs: bool) -> Value {
-        let mut m = Map::new();
+        let mut m = Map::ordered();
         m.insert("index".to_string(), Value::Int(self.index as i64));
         m.insert("prev_hash".to_string(), Value::Str(hex(&self.prev_hash)));
         m.insert("author".to_string(), Value::Str(hex(&self.author)));
@@ -174,7 +174,7 @@ impl Layer {
             m.insert("patch".to_string(), p.clone());
         }
         if let Some(d) = &self.delegation {
-            let mut dm = Map::new();
+            let mut dm = Map::ordered();
             dm.insert("from".to_string(), Value::Str(hex(&d.from)));
             dm.insert("max_index".to_string(), Value::Int(d.max_index as i64));
             dm.insert("sig".to_string(), Value::Str(hex_slice(&d.sig)));
@@ -185,7 +185,7 @@ impl Layer {
                 .sigs
                 .iter()
                 .map(|s| {
-                    let mut sm = Map::new();
+                    let mut sm = Map::ordered();
                     sm.insert("algo".to_string(), Value::Int(s.algo as i64));
                     sm.insert("bytes".to_string(), Value::Str(hex_slice(&s.bytes)));
                     Value::Object(sm)

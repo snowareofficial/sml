@@ -35,10 +35,14 @@ cargo test -p smlb --features "preserve_order,sign,compress,crypto,mmap"
 # 只想要「读写都正确」的最小集合：preserve_order 一个就够
 ```
 
-> ⚠️ 默认 `parse()` 产出**无序**对象（`Map::Unordered`），`dump` 会明确报
-> `key-order-unavailable` 并指路 `Map::ordered()` / `parse_ordered()`。
-> 键序现在是**值的一部分**（`Map` / `OrderedMap` 两个显式类型），不再是编译开关；
-> 过渡期 `preserve_order` 只影响 `Map::new()` 的默认态，不影响「能不能签」。
+> ✅ 默认构建（无 feature）就能读写：`smlb pack` / `smltools --to-smlb` 都可用。
+> 键序现在是**值的一部分**（`Map::Unordered` / `Map::Ordered` 两个显式态），不是编译开关。
+> - 文本输入：`parse_ordered()` 保源序；`parse()` 保持历史字节序（不能签 canonical）
+> - 程序构造：`Map::ordered()` / `Map::unordered()` / `OrderedMap` 显式二选一
+> - 遇到无序对象，`dump` 报 `key-order-unavailable` 并**指路上面这些入口**，开 feature 不解决
+>
+> 过渡期 `preserve_order` 只影响 `Map::new()` 的默认态，不影响「能不能签」；待调用点
+> 全部显式化后即删除。
 
 尚未发布（`publish = false`，随 SML v5 一起开放）。当前用 path 依赖：
 

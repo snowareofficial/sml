@@ -56,6 +56,8 @@ pub struct Parser {
     pub(crate) contracts: BTreeMap<String, Contract>,
     /// 生效特性集（已与调用方允许范围交集）
     pub features: FeatureSet,
+    /// 显式保序解析（见 `ext::ParseOptions::ordered`）。
+    pub(crate) ordered: bool,
     /// 当前值嵌套深度（块 / 数组的递归层数）。
     /// 由 `parse_block` / `parse_array` 的 wrapper 维护，用于防止栈溢出。
     pub(crate) depth: usize,
@@ -196,6 +198,16 @@ enum ValueStep {
 }
 
 impl Parser {
+    /// 按本次解析的显式选择新建对象载体。**所有**对象构造点都必须走这里。
+    fn new_map(&self) -> Map {
+        if self.ordered {
+            Map::ordered()
+        } else {
+            // 必须直接落到 `Map::new()`：这里再调 self.new_map() 就是自递归。
+            Map::new()
+        }
+    }
+
     /// Look up `$env.X`: the parse-local override table first, then the process environment ｜ 查 `$env.X`。
     pub fn env_var(&self, name: &str) -> String {
         lookup_env(Some(&self.env), name)
@@ -490,6 +502,7 @@ impl Parser {
             contracts: self.contracts.clone(),
             types: self.types.clone(),
             features: self.features,
+            ordered: self.ordered,
             depth: self.depth + 1,
             ns_stack: self.ns_stack.clone(),
             path_stack: self.path_stack.clone(),
@@ -1068,7 +1081,7 @@ impl Parser {
     pub(crate) fn parse_block(&mut self, closing: Option<Tok>) -> Result<Value, SmlError> {
         let root = Frame::Block {
             state: BlockFrame {
-                node: Map::new(),
+                node: self.new_map(),
                 applied_contracts: Vec::new(),
                 pending_when: None,
                 pending_weakbind: None,
@@ -1609,7 +1622,7 @@ impl Parser {
             let mut sub = match &blk {
                 Value::Object(m) => m.clone(),
                 other => {
-                    let mut m = Map::new();
+                    let mut m = self.new_map();
                     m.insert("_value".into(), other.clone());
                     m
                 }
@@ -2785,7 +2798,7 @@ impl Parser {
                 }
                 Ok(ValueStep::Open(Frame::Block {
                     state: BlockFrame {
-                        node: Map::new(),
+                        node: self.new_map(),
                         applied_contracts: Vec::new(),
                         pending_when: None,
                         pending_weakbind: None,
@@ -2882,7 +2895,7 @@ impl Parser {
         self.ns_stack.push(type_name.to_string());
         Ok(Frame::Block {
             state: BlockFrame {
-                node: Map::new(),
+                node: self.new_map(),
                 applied_contracts: Vec::new(),
                 pending_when: None,
                 pending_weakbind: None,
@@ -2921,7 +2934,7 @@ impl Parser {
                         );
                     }
                     self.next();
-                    let mut item = Map::new();
+                    let mut item = self.new_map();
                     item.insert("name".into(), Value::Str(name.to_string()));
                     if self.peek() == Some(&Tok::LBrack) {
                         self.next(); // `parse_array` 假定 `[` 已被消费（与其它调用点一致）
@@ -2932,7 +2945,7 @@ impl Parser {
                 Some(w) if self.peek_at(1) == Some(&Tok::LBrack) => {
                     self.next(); // 名字本身不带 `!`，靠 `[` 与块名区分
                     self.next(); // 越过的 `[`（`parse_array` 的既有约定）
-                    let mut item = Map::new();
+                    let mut item = self.new_map();
                     item.insert("name".into(), Value::Str(w));
                     // 显式写了 `[]` 就保留空数组：`obey[]` 与「没有参数槽」是两回事
                     item.insert("args".into(), self.parse_array()?);
@@ -2976,7 +2989,7 @@ impl Parser {
                 self.path_stack.push(PathSeg::Index(arr.len()));
                 Ok(Step::Open(Frame::Block {
                     state: BlockFrame {
-                        node: Map::new(),
+                        node: self.new_map(),
                         applied_contracts: Vec::new(),
                         pending_when: None,
                         pending_weakbind: None,
@@ -3205,7 +3218,7 @@ fn write_target(
                     "`{where_}` 的落点路径上数组 `{key}` 不存在（数组不会凭空创建：长度与中间元素无解）"
                 )));
             }
-            let mut child = Map::new();
+            let mut child = Map::ordered();
             write_target(&mut child, rest, value, strict, where_)?;
             map.insert(key.clone(), Value::Object(child));
             Ok(())
@@ -3254,7 +3267,7 @@ fn write_in_value(
                 // 还有后续段：null 是「空位」，可以就地立一个空对象继续往下写
                 // （这与「补缺」同源：空位可以被填，非空值不许覆盖）
                 if matches!(items[*n], Value::Null) {
-                    items[*n] = Value::Object(Map::new());
+                    items[*n] = Value::Object(Map::ordered());
                 }
                 return write_in_value(&mut items[*n], rest, value, strict, where_);
             }
@@ -3268,7 +3281,7 @@ fn write_in_value(
                     items.push(value);
                     return Ok(());
                 }
-                items.push(Value::Object(Map::new()));
+                items.push(Value::Object(Map::ordered()));
                 let last = items.len() - 1;
                 return write_in_value(&mut items[last], rest, value, strict, where_);
             }
