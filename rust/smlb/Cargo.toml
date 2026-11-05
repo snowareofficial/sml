@@ -35,6 +35,16 @@ sml-value = { version = "0.6.9-dev.0", path = "../sml-value" }
 # `ruzstd`（2026-10-13 HIGH 解压炸弹）、`zstd` 绑定（2026-10-26 三条新公告，属 T5，等冷却）。
 ed25519-dalek = { version = "3.0", optional = true }
 getrandom = { version = "0.3", optional = true }
+# 压缩（T5）：zstd 的 C 绑定链（`zstd` → `zstd-safe` → `zstd-sys`）。
+#
+# 台账（2026-11-05 实测 RustSec）：
+# - `zstd` 2026-10-26 三条（未初始化内存泄漏 / 跨流数据泄漏 / 字典训练越界），
+#   **影响 <0.8.0，修于 >=0.8.0**，且 0.8.0+ 需 `zstd-safe >= 8.2.0`；
+# - `zstd-sys` 同日一条：**仅 wasm32 目标**的 allocator shim 内存破坏。
+#   ⚠️ 本 crate 目前不构建 wasm（CI 无 wasm32 目标）；**若将来要上 wasm，这条必须重新评审**
+#   —— 用户 2026-11-05 裁决「用 zstd-sys 这条链」，即接受非 wasm 目标上的风险为零。
+# - 被排除的替代：`ruzstd`（2026-10-13 HIGH 解压炸弹）、`lz4_flex`（2026-03-17 HIGH）。
+zstd = { version = "0.14", optional = true }
 
 [features]
 # 对象保序（转发到 sml-value）：**canonical 的前提**（spec §18 C2）。
@@ -49,4 +59,7 @@ preserve_order = ["sml-value/preserve_order"]
 # 层链签名（T4）：`smlb sign / append / verify / keygen / tree` 的验签部分。
 # 关掉后**仍能读**层链（序号/prev_hash 这些不需要密码学），只是签名为「未校验」。
 sign = ["dep:ed25519-dalek", "dep:getrandom"]
+# 压缩（T5）：段级 `comp` 字段（§19.1 / §20 的 `0x01 zstd`）。
+# 关掉后仍**能读**未压缩文件；读到压缩段会明确报「本构建不支持该压缩算法」。
+compress = ["dep:zstd"]
 default = []

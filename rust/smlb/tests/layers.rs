@@ -203,7 +203,7 @@ fn archives_can_be_signed_too() {
     let signed = smlb::append_layer(&arc, &key(3), None, None, HashAlgo::Sha256).unwrap();
     let r = smlb::verify(&signed, HashAlgo::Sha256).unwrap();
     assert!(r.ok, "{:?}", r.lines);
-    assert_eq!(smlb::payload(&signed, "a.txt").unwrap(), b"hello");
+    assert_eq!(&*smlb::payload(&signed, "a.txt").unwrap(), b"hello");
     assert!(matches!(
         smlb::load(&signed).unwrap_err(),
         ContainerError::PrimaryNotValue { .. }
