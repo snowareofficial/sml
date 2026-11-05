@@ -26,7 +26,9 @@ smlb — SML 的二进制形式 .smlb（T0 canonical/向量 + T1 容器）
   smlb ls      <file>                  逐段列出 id/偏移/长度/算法（`--segments` 同义）
   smlb check   <file>                  结构 + 逐段摘要校验，打印每段结论
   smlb cat     <file> <path>           按路径取值（a.b[0]），输出 canonical 文本
-  smlb pack    <out.smlb> <file>...    把若干文件打成一个 .smlb 归档（EMBED 段）
+  smlb pack    [--zstd [N]] <out.smlb> <file>...
+                                       把若干文件打成一个 .smlb 归档（EMBED 段）；
+                                       `--zstd` 段级压缩（N = 1..19，默认 3）
   smlb unpack  <file> <destdir>        把归档里的载荷逐个写出到目录
 
 签名与层链（T4，需 `--features sign`）:
@@ -200,10 +202,32 @@ fn vectors_cmd(args: &[String]) -> Result<String, (u8, String)> {
 /// `smlb pack <out.smlb> <file>...` — pack blobs into one archive.
 /// 把若干文件打成一个 `.smlb` 归档。
 fn pack_cmd(args: &[String]) -> Result<String, (u8, String)> {
-    let Some(out) = args.first() else {
-        return Err((2, "用法: smlb pack <out.smlb> <file>...".to_string()));
+    // `--zstd [N]`：N 可省（下一个 token 不是数字时就取默认 3）
+    let mut compress: Option<i32> = None;
+    let mut rest: Vec<&String> = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--zstd" {
+            compress = Some(match args.get(i + 1).and_then(|v| v.parse::<i32>().ok()) {
+                Some(level) => {
+                    i += 2;
+                    level
+                }
+                None => {
+                    i += 1;
+                    3
+                }
+            });
+            continue;
+        }
+        rest.push(&args[i]);
+        i += 1;
+    }
+
+    let Some(out) = rest.first() else {
+        return Err((2, "用法: smlb pack [--zstd [N]] <out.smlb> <file>...".to_string()));
     };
-    let files = &args[1..];
+    let files = &rest[1..];
     if files.is_empty() {
         return Err((2, "至少给一个要打包的文件".to_string()));
     }
@@ -211,18 +235,26 @@ fn pack_cmd(args: &[String]) -> Result<String, (u8, String)> {
     for f in files {
         let bytes = std::fs::read(f).map_err(|e| (1, format!("读 {f} 失败：{e}")))?;
         // 载荷名就用调用方给的路径：解包时原样还原目录结构
-        owned.push((f.clone(), bytes));
+        owned.push(((**f).clone(), bytes));
     }
     let refs: Vec<(&str, &[u8])> = owned
         .iter()
         .map(|(n, b)| (n.as_str(), b.as_slice()))
         .collect();
-    let file = smlb::pack(&refs).map_err(|e| (1, e.to_string()))?;
+    let opts = smlb::DumpOptions {
+        compress,
+        ..Default::default()
+    };
+    let file = smlb::pack_with(&refs, &opts).map_err(|e| (1, e.to_string()))?;
     std::fs::write(out, &file).map_err(|e| (1, format!("写 {out} 失败：{e}")))?;
     Ok(format!(
-        "已打包 {} 个载荷 → {out}（{} B）",
+        "已打包 {} 个载荷 → {out}（{} B{}）",
         refs.len(),
-        file.len()
+        file.len(),
+        match compress {
+            Some(l) => format!("，zstd level {l}"),
+            None => String::new(),
+        }
     ))
 }
 
@@ -249,7 +281,7 @@ fn unpack_cmd(args: &[String]) -> Result<String, (u8, String)> {
                 .map_err(|e| (1, format!("建目录 {} 失败：{e}", parent.display())))?;
         }
         let data = smlb::payload(&bytes, &p.name).map_err(|e| (1, format!("{file}: {e}")))?;
-        std::fs::write(&path, data)
+        std::fs::write(&path, &data)
             .map_err(|e| (1, format!("写 {} 失败：{e}", path.display())))?;
         written += 1;
     }

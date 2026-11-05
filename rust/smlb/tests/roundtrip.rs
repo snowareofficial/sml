@@ -473,7 +473,7 @@ fn pack_round_trips_payloads() {
         vec!["notes/a.md", "bin/blob.dat", "empty.txt"]
     );
     for (name, data) in blobs {
-        assert_eq!(smlb::payload(&f, name).unwrap(), data, "载荷 {name} 字节不符");
+        assert_eq!(&*smlb::payload(&f, name).unwrap(), data, "载荷 {name} 字节不符");
     }
 
     let report = smlb::check(&f).unwrap();

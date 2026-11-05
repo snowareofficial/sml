@@ -129,6 +129,19 @@ pub const SEG_EMBED: u8 = 0x20;
 /// `PROVENANCE` 段 id（T4 才用）。
 pub const SEG_PROVENANCE: u8 = 0x60;
 
+/// §20 compression id: `0x01 = zstd` (the only one this build implements).
+/// §20 压缩编号：`0x01 = zstd`（本构建唯一实现的压缩算法）。
+pub const COMP_ZSTD: u8 = 0x01;
+
+/// Decompression budget: refuse to inflate a segment beyond this (bomb guard, §24.1 S5).
+/// 解压预算：单段解压不得超过它（炸弹防护，§24.1 S5）。
+///
+/// Why a fixed cap and not “trust `len`”: `len` is the **compressed** length, so it says
+/// nothing about how far a malicious frame can expand. A 100 B input can claim 100 GB.
+/// 为什么要有硬上限：`len` 是**压缩后**长度，对「能膨胀到多大」一无所知 —— 100 B 输入
+/// 可以声称 100 GB。`zstd::bulk::decompress` 的输出上限正是为此。
+pub const MAX_DECOMPRESSED: usize = 256 * 1024 * 1024;
+
 /// Segment header size: `seg_id:u8 | comp:u8 | enc:u8 | flags:u16 | len:u32 | sha256:32`.
 /// 段头大小（§19.1，41 B）。
 pub const SEG_HEADER_LEN: usize = 41;
@@ -317,6 +330,33 @@ pub enum ContainerError {
     Hash(crate::hash::HashError),
     /// The append-only layer chain is unreadable (T4) ｜ 层链读不出来（T4）。
     Layer(LayerError),
+    /// Decompression was requested but this build has no `compress` feature.
+    /// 文件是压缩的，但本构建没开 `compress` feature。
+    CompressFeatureDisabled {
+        /// The compression id the file declares ｜ 文件声明的压缩编号。
+        comp: u8,
+    },
+    /// The decompressed size would exceed [`MAX_DECOMPRESSED`] (bomb guard).
+    /// 解压后会超过 [`MAX_DECOMPRESSED`]（炸弹防护）。
+    DecompressTooLarge {
+        /// Segment id ｜ 段 id。
+        seg_id: u8,
+        /// The cap ｜ 上限。
+        limit: usize,
+    },
+    /// zstd itself refused to compress ｜ zstd 自己拒绝压缩。
+    CompressFailed(String),
+    /// Random access (T3) needs a plain segment; this one is compressed.
+    /// 随机访问（T3）要求段体是明文；这一段是压缩的。
+    ///
+    /// 压缩段要解压才能跳节点，而解压就等于把「零拷贝」变成「全部展开」—— 那正是 T3 要避免的。
+    /// ｜ Decompressing to navigate would undo exactly what T3 avoids.
+    ZeroCopyNeedsPlain {
+        /// Segment id ｜ 段 id。
+        seg_id: u8,
+        /// The declared compression id ｜ 声明的压缩编号。
+        comp: u8,
+    },
     /// `pack` was given nothing to pack ｜ `pack` 一个文件都没给。
     EmptyArchive,
     /// Two payloads with the same name (`pack` refuses ambiguity, D15 spirit)
@@ -364,6 +404,10 @@ impl ContainerError {
             ContainerError::ManifestMismatch { .. } => "manifest-mismatch",
             ContainerError::Hash(_) => "unsupported-hash",
             ContainerError::Layer(_) => "bad-layer",
+            ContainerError::CompressFeatureDisabled { .. } => "compress-feature-disabled",
+            ContainerError::DecompressTooLarge { .. } => "decompress-too-large",
+            ContainerError::CompressFailed(_) => "compress-failed",
+            ContainerError::ZeroCopyNeedsPlain { .. } => "zero-copy-needs-plain",
             ContainerError::EmptyArchive => "empty-archive",
             ContainerError::DuplicatePayloadName { .. } => "duplicate-payload-name",
             ContainerError::PayloadNotFound { .. } => "payload-not-found",
@@ -455,6 +499,20 @@ impl std::fmt::Display for ContainerError {
             ),
             ContainerError::Hash(e) => write!(f, "摘要算法不可用：{e}"),
             ContainerError::Layer(e) => write!(f, "层链读不出来：{e}"),
+            ContainerError::CompressFeatureDisabled { comp } => write!(
+                f,
+                "段声明了压缩算法 0x{comp:02x}，但本构建未启用 `compress` feature（不猜、不硬解）"
+            ),
+            ContainerError::DecompressTooLarge { seg_id, limit } => write!(
+                f,
+                "段 0x{seg_id:02x} 解压后会超过上限 {limit} B —— 按解压炸弹处理，拒绝"
+            ),
+            ContainerError::CompressFailed(e) => write!(f, "zstd 压缩失败：{e}"),
+            ContainerError::ZeroCopyNeedsPlain { seg_id, comp } => write!(
+                f,
+                "段 0x{seg_id:02x} 是压缩的（comp=0x{comp:02x}），随机访问不能零拷贝；\
+                 这类文件请用 `load` / `cat`（会整段解压）"
+            ),
             ContainerError::EmptyArchive => write!(f, "没有东西可打包（至少要一个文件）"),
             ContainerError::DuplicatePayloadName { name } => {
                 write!(f, "载荷名 `{name}` 重复（拒绝歧义：解包时该覆盖谁？）")
@@ -553,6 +611,12 @@ pub struct DumpOptions {
     pub caps_required: Vec<String>,
     /// `caps.optional`: "skip these if you don't" ｜ 「不懂就跳过」。
     pub caps_optional: Vec<String>,
+    /// Compress every segment body with zstd at this level (`None` = uncompressed).
+    /// 用这个级别把每个段体压成 zstd（`None` = 不压）。
+    ///
+    /// 只有**真的变小**才写压缩形态（否则白花 CPU 还多一层解压）；`comp` 字段会如实记录。
+    /// ｜ Only used when it actually shrinks the body; the `comp` field records the truth.
+    pub compress: Option<i32>,
 }
 
 impl Default for DumpOptions {
@@ -562,6 +626,7 @@ impl Default for DumpOptions {
             block_align: false,
             caps_required: Vec::new(),
             caps_optional: Vec::new(),
+            compress: None,
         }
     }
 }
@@ -591,8 +656,9 @@ pub fn dump_with(v: &Value, opts: &DumpOptions) -> Result<Vec<u8>, ContainerErro
         segs.push((SEG_STRTAB, blocks.strtab));
     }
 
-    let manifest = build_manifest(SEG_VALUE, &segs, &[], opts)?;
-    write_file(segs, manifest, opts)
+    let sealed = seal(segs, opts)?;
+    let manifest = build_manifest(SEG_VALUE, &sealed, &[], opts)?;
+    write_file(sealed, manifest, opts)
 }
 
 /// Pack foreign blobs into one `.smlb` archive (D23 / §22 `smlb pack`).
@@ -638,8 +704,8 @@ pub fn pack_with(
     }
     let body_len_total = body_len(&body)?;
 
-    let segs = vec![(SEG_EMBED, body)];
-    let mut manifest = build_manifest(SEG_EMBED, &segs, &payloads, opts)?;
+    let sealed = seal(vec![(SEG_EMBED, body)], opts)?;
+    let mut manifest = build_manifest(SEG_EMBED, &sealed, &payloads, opts)?;
     // 归档的「能力」就是 embed：读不懂 embed 的读者应当明说读不懂，而不是当空文件
     manifest.caps_required = if opts.caps_required.is_empty() {
         vec!["embed".to_string()]
@@ -647,25 +713,25 @@ pub fn pack_with(
         opts.caps_required.clone()
     };
     let _ = body_len_total;
-    write_file(segs, manifest, opts)
+    write_file(sealed, manifest, opts)
 }
 
 /// Assemble a manifest for `segs` (digests computed with `opts.hash`).
 /// 为 `segs` 组装 manifest（摘要用 `opts.hash` 现算）。
 fn build_manifest(
     primary: u8,
-    segs: &[(u8, Vec<u8>)],
+    segs: &[(u8, u8, Vec<u8>)],
     payloads: &[ManifestPayload],
     opts: &DumpOptions,
 ) -> Result<Manifest, ContainerError> {
     let mut manifest_segments = Vec::with_capacity(segs.len());
-    for (seg_id, body) in segs {
+    for (seg_id, comp, stored) in segs {
         manifest_segments.push(ManifestSegment {
             id: *seg_id,
-            comp: 0,
+            comp: *comp,
             enc: 0,
-            len: body_len(body)?,
-            digest: hash::digest(opts.hash, body).map_err(ContainerError::Hash)?,
+            len: body_len(stored)?,
+            digest: hash::digest(opts.hash, stored).map_err(ContainerError::Hash)?,
         });
     }
     let mut manifest = Manifest::minimal(primary, opts.hash, manifest_segments);
@@ -678,13 +744,14 @@ fn build_manifest(
 /// Lay out header + segment table + segments (the part every writer shares).
 /// 落版：头 + 段表 + 段数据（所有写入口共用的那段）。
 fn write_file(
-    mut segs: Vec<(u8, Vec<u8>)>,
+    mut segs: Vec<(u8, u8, Vec<u8>)>,
     manifest: Manifest,
     opts: &DumpOptions,
 ) -> Result<Vec<u8>, ContainerError> {
     let manifest_bytes = manifest.to_bytes()?;
-    segs.push((SEG_MANIFEST, manifest_bytes));
-    segs.sort_by_key(|(id, _)| *id);
+    // manifest 自己**不压缩**：它必须在「还不知道用什么解压」的时候就能读（引导顺序）
+    segs.push((SEG_MANIFEST, 0, manifest_bytes));
+    segs.sort_by_key(|(id, _, _)| *id);
 
     let flags: u16 = if opts.block_align { FLAG_ALIGN_BLOCK } else { 0 };
     let granule = align_of(flags);
@@ -707,11 +774,11 @@ fn write_file(
 
     // --- table + data ---
     let mut data_off = data_start;
-    for (i, (seg_id, body)) in segs.iter().enumerate() {
+    for (i, (seg_id, comp, body)) in segs.iter().enumerate() {
         let len = body_len(body)?;
         let at = table_off as usize + i * SEG_HEADER_LEN;
         out[at] = *seg_id;
-        out[at + 1] = 0; // comp: none
+        out[at + 1] = *comp;
         out[at + 2] = 0; // enc: plaintext
         out[at + 3..at + 5].copy_from_slice(&0u16.to_le_bytes()); // 段头 flags（T1 起恒 0）
         out[at + 5..at + 9].copy_from_slice(&len.to_le_bytes());
@@ -725,6 +792,41 @@ fn write_file(
         data_off = align_up(out.len() as u64, granule);
     }
     Ok(out)
+}
+
+/// Compress segment bodies when it actually pays off; returns `(id, comp, stored_bytes)`.
+/// 段体压缩（只有真变小才压）；返回 `(段 id, comp 编号, 落盘字节)`。
+///
+/// 为什么「变小才压」：压缩 40 B 的段可能变**大**（帧头 + 熵编码开销），而读者要为它付一次
+/// 解压 —— 白亏两头。`STRTAB` 常是短串集合，尤其容易压不动。
+/// ｜ A 40-byte body can grow under zstd; paying decompression for a bigger body loses twice.
+fn seal(
+    segs: Vec<(u8, Vec<u8>)>,
+    opts: &DumpOptions,
+) -> Result<Vec<(u8, u8, Vec<u8>)>, ContainerError> {
+    let Some(level) = opts.compress else {
+        return Ok(segs.into_iter().map(|(id, b)| (id, 0, b)).collect());
+    };
+    #[cfg(not(feature = "compress"))]
+    {
+        let _ = level;
+        return Err(ContainerError::CompressFeatureDisabled { comp: COMP_ZSTD });
+    }
+    #[cfg(feature = "compress")]
+    {
+        let mut out = Vec::with_capacity(segs.len());
+        for (id, body) in segs {
+            let packed = deflate_zstd(&body, level).map_err(|_| {
+                ContainerError::CompressFailed(format!("zstd level {level} 拒绝压缩该段"))
+            })?;
+            if packed.len() < body.len() {
+                out.push((id, COMP_ZSTD, packed));
+            } else {
+                out.push((id, 0, body));
+            }
+        }
+        Ok(out)
+    }
 }
 
 /// Segment body length as `u32` (4 GiB per segment, §19.1's `len:u32`).
@@ -976,6 +1078,12 @@ pub(crate) fn open_raw<'a>(bytes: &'a [u8], verify: bool) -> Result<RawParts<'a>
     for seg in &info.segments {
         match seg.header.seg_id {
             SEG_VALUE | SEG_STRTAB => {
+                if seg.header.comp != 0 {
+                    return Err(ContainerError::ZeroCopyNeedsPlain {
+                        seg_id: seg.header.seg_id,
+                        comp: seg.header.comp,
+                    });
+                }
                 require_plain(seg)?;
                 let b = body(bytes, seg)?;
                 if verify {
@@ -1027,18 +1135,19 @@ pub fn base_value(bytes: &[u8]) -> Result<Value, ContainerError> {
         return Err(ContainerError::PrimaryNotValue { id: primary_id });
     }
 
-    let mut value: Option<&[u8]> = None;
-    let mut strtab: Option<&[u8]> = None;
+    let mut value: Option<Body<'_>> = None;
+    let mut strtab: Option<Body<'_>> = None;
     for seg in &info.segments {
         match seg.header.seg_id {
             SEG_VALUE => {
                 if value.is_some() {
                     return Err(ContainerError::DuplicateSegment { seg_id: SEG_VALUE });
                 }
-                require_plain(seg)?;
-                let b = body(bytes, seg)?;
-                verify_digest(seg, b, algo)?;
-                value = Some(b);
+                // 摘要覆盖的是**落盘字节**（压缩后的），故先验存储字节再解压；
+                // 反过来验解压结果会把「文件被改」误报成「解压失败」，也验不出压缩数据被改。
+                let raw = body(bytes, seg)?;
+                verify_digest(seg, raw, algo)?;
+                value = Some(body_of(seg, bytes)?);
             }
             SEG_STRTAB => {
                 if strtab.is_some() {
@@ -1046,21 +1155,101 @@ pub fn base_value(bytes: &[u8]) -> Result<Value, ContainerError> {
                         seg_id: SEG_STRTAB,
                     });
                 }
-                require_plain(seg)?;
-                let b = body(bytes, seg)?;
-                verify_digest(seg, b, algo)?;
-                strtab = Some(b);
+                let raw = body(bytes, seg)?;
+                verify_digest(seg, raw, algo)?;
+                strtab = Some(body_of(seg, bytes)?);
             }
             _ => {}
         }
     }
     let value = value.ok_or(ContainerError::MissingSegment { seg_id: SEG_VALUE })?;
-    decode_value(strtab.unwrap_or(&[]), value)
+    decode_value(strtab.as_deref().unwrap_or(&[]), &value)
 }
 
-/// Refuse compression/encryption this build cannot undo. ｜ 拒绝本构建解不开的压缩/加密。
+/// A segment body after decompression: borrowed when stored plain, owned when inflated.
+/// 解压之后的段体：未压缩时借用，压缩时拥有。
+///
+/// `Cow` 而不是「一律 `Vec`」：未压缩是常态，多一次拷贝就等于把零拷贝的 `VALUE` 白扔掉。
+/// ｜ `Cow`, not `Vec`: an unconditional copy would throw away the zero-copy `VALUE`.
+type Body<'a> = std::borrow::Cow<'a, [u8]>;
+
+/// Fetch a segment's bytes, **decompressing** when its header says so.
+/// 取段体字节，段头声明了压缩就解压。
+///
+/// ⚠️ 调用方若还要验摘要，必须对 `body(bytes, seg)`（落盘字节）验，**不是**对这里的返回值：
+/// 摘要记在段头上、算的是压缩后的字节（§19.11）。
+/// ｜ Callers that verify digests must hash the **stored** bytes, not this return value.
+///
+/// 解压预算由 [`MAX_DECOMPRESSED`] 卡死：`len` 是压缩后长度，对「能膨胀到多大」一无所知。
+/// ｜ `len` is the compressed size and says nothing about the inflated size — hence the cap.
+fn body_of<'a>(seg: &Segment, bytes: &'a [u8]) -> Result<Body<'a>, ContainerError> {
+    if seg.header.enc != 0 {
+        return Err(ContainerError::UnsupportedAlgorithm {
+            seg_id: seg.header.seg_id,
+            comp: seg.header.comp,
+            enc: seg.header.enc,
+        });
+    }
+    let raw = body(bytes, seg)?;
+    match seg.header.comp {
+        0 => Ok(std::borrow::Cow::Borrowed(raw)),
+        COMP_ZSTD => {
+            #[cfg(not(feature = "compress"))]
+            {
+                Err(ContainerError::CompressFeatureDisabled { comp: COMP_ZSTD })
+            }
+            #[cfg(feature = "compress")]
+            {
+                let out = inflate_zstd(raw, MAX_DECOMPRESSED).map_err(|_| {
+                    ContainerError::DecompressTooLarge {
+                        seg_id: seg.header.seg_id,
+                        limit: MAX_DECOMPRESSED,
+                    }
+                })?;
+                Ok(std::borrow::Cow::Owned(out))
+            }
+        }
+        other => Err(ContainerError::UnsupportedAlgorithm {
+            seg_id: seg.header.seg_id,
+            comp: other,
+            enc: 0,
+        }),
+    }
+}
+
+/// Inflate one zstd frame with an explicit output cap. ｜ 按显式上限解一个 zstd 帧。
+///
+/// Exposed so tests (and future T5 frame readers) can exercise the **bomb guard** with a tiny
+/// limit instead of allocating 256 MiB to prove the cap works.
+/// 单独暴露是为了让测试能用很小的上限验「炸弹防护」，而不必真去分配 256 MiB。
+///
+/// `zstd::bulk::decompress(data, cap)` uses `cap` as the **allocation ceiling** — an input
+/// claiming to expand beyond it fails instead of allocating first.
+/// `zstd::bulk::decompress` 把 `cap` 当**分配上限**：声称要膨胀到上限之外的输入会直接失败，
+/// 而不是先分配再发现。
+#[cfg(feature = "compress")]
+pub fn inflate_zstd(raw: &[u8], limit: usize) -> Result<Vec<u8>, ()> {
+    zstd::bulk::decompress(raw, limit).map_err(|_| ())
+}
+
+/// Compress one buffer with zstd — the mirror of [`inflate_zstd`], exposed for the same reason
+/// (tests and future frame writers must not reach for the `zstd` crate directly).
+/// [`inflate_zstd`] 的镜像：同样单独暴露，免得测试与将来的帧写入方直接依赖 `zstd` crate。
+#[cfg(feature = "compress")]
+pub fn deflate_zstd(raw: &[u8], level: i32) -> Result<Vec<u8>, ()> {
+    zstd::bulk::compress(raw, level).map_err(|_| ())
+}
+
+/// Refuse encryption this build cannot undo. ｜ 拒绝本构建解不开的加密。
 fn require_plain(seg: &Segment) -> Result<(), ContainerError> {
-    if seg.header.comp != 0 || seg.header.enc != 0 {
+    if seg.header.comp != 0 && seg.header.comp != COMP_ZSTD {
+        return Err(ContainerError::UnsupportedAlgorithm {
+            seg_id: seg.header.seg_id,
+            comp: seg.header.comp,
+            enc: seg.header.enc,
+        });
+    }
+    if seg.header.enc != 0 {
         return Err(ContainerError::UnsupportedAlgorithm {
             seg_id: seg.header.seg_id,
             comp: seg.header.comp,
@@ -1127,6 +1316,25 @@ pub fn check(bytes: &[u8]) -> Result<CheckReport, ContainerError> {
                 seg.header.seg_id, name
             ));
             continue;
+        }
+        if seg.header.comp != 0 {
+            match body_of(seg, bytes) {
+                Ok(inflated) => lines.push(format!(
+                    "0x{:02x} {:<10} 压缩 0x{:02x}：{} B → {} B",
+                    seg.header.seg_id,
+                    name,
+                    seg.header.comp,
+                    seg.header.len,
+                    inflated.len()
+                )),
+                Err(e) => {
+                    ok = false;
+                    lines.push(format!(
+                        "0x{:02x} {:<10} 解不开：{e}",
+                        seg.header.seg_id, name
+                    ));
+                }
+            }
         }
         match hash::digest(algo, b) {
             Ok(actual) if actual == seg.header.hash => lines.push(format!(
@@ -1228,6 +1436,7 @@ pub fn check(bytes: &[u8]) -> Result<CheckReport, ContainerError> {
             if !m.payloads.is_empty() {
                 match embed_body(bytes) {
                     Ok(b) => {
+                        let b: &[u8] = &b;
                         let mut cursor = 0usize;
                         for p in &m.payloads {
                             let end = cursor + p.len as usize;
@@ -1339,7 +1548,7 @@ fn decode_value(strtab: &[u8], value: &[u8]) -> Result<Value, ContainerError> {
 /// 为什么单独一个入口：`load` 只解 `Value`，而归档类文件的 `primary` 是 `EMBED`
 /// （P8 允许），所以「取裸字节」必须有一条不走 `Value` 解码的路。
 /// `load` decodes values; archives have `primary = EMBED`, so raw bytes need their own path.
-pub fn embed_body<'a>(bytes: &'a [u8]) -> Result<&'a [u8], ContainerError> {
+pub fn embed_body<'a>(bytes: &'a [u8]) -> Result<Body<'a>, ContainerError> {
     let info = info(bytes)?;
     let seg = info
         .segments
@@ -1347,12 +1556,13 @@ pub fn embed_body<'a>(bytes: &'a [u8]) -> Result<&'a [u8], ContainerError> {
         .find(|s| s.header.seg_id == SEG_EMBED)
         .ok_or(ContainerError::MissingSegment { seg_id: SEG_EMBED })?;
     require_plain(seg)?;
-    let b = body(bytes, seg)?;
+    // 摘要对落盘字节验，载荷切片对解压后的字节切（`payloads[]` 记的是原始长度）
+    let raw = body(bytes, seg)?;
     let manifest = read_manifest(bytes, &info)?;
-    if let Some(m) = manifest {
-        verify_digest(seg, b, m.hash)?;
+    if let Some(m) = &manifest {
+        verify_digest(seg, raw, m.hash)?;
     }
-    Ok(b)
+    body_of(seg, bytes)
 }
 
 /// List the payloads declared in the manifest, in body order.
@@ -1367,10 +1577,17 @@ pub fn payloads(bytes: &[u8]) -> Result<Vec<ManifestPayload>, ContainerError> {
 /// Extract one payload by name (§22 `smlb unpack` 的取值口).
 /// 按名字取一段载荷（`smlb unpack` 的取值口）。
 ///
+/// 返回 `Cow`：`EMBED` 段未压缩时零拷贝借用，压缩时解压成拥有（`payloads[]` 的长度是
+/// **解压后**的长度，故切片必须在解压后的字节上做）。
+/// ｜ `Cow`: borrowed when the `EMBED` body is plain, owned when it was compressed.
+///
 /// 偏移不存：`payloads[]` 按序给出 `len`，本函数沿着加起来走 —— 与段表同一套思路，
 /// 好处是「表里没有位置」⇒ 位置不可能与内容不一致。
 /// Offsets are walked from the ordered `len`s, never stored.
-pub fn payload<'a>(bytes: &'a [u8], name: &str) -> Result<&'a [u8], ContainerError> {
+pub fn payload<'a>(
+    bytes: &'a [u8],
+    name: &str,
+) -> Result<Body<'a>, ContainerError> {
     let info = info(bytes)?;
     let manifest = read_manifest(bytes, &info)?
         .ok_or(ContainerError::MissingSegment { seg_id: SEG_MANIFEST })?;
@@ -1394,7 +1611,15 @@ pub fn payload<'a>(bytes: &'a [u8], name: &str) -> Result<&'a [u8], ContainerErr
                     field: "sha256",
                 });
             }
-            return Ok(slice);
+            // 未压缩 ⇒ 借用（零拷贝）；压缩过 ⇒ 只能拷出来（原缓冲是局部解压结果）
+            return Ok(match body {
+                std::borrow::Cow::Borrowed(b) => {
+                    std::borrow::Cow::Borrowed(&b[cursor..end])
+                }
+                std::borrow::Cow::Owned(v) => {
+                    std::borrow::Cow::Owned(v[cursor..end].to_vec())
+                }
+            });
         }
         cursor = end;
     }

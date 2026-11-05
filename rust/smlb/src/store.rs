@@ -201,7 +201,7 @@ impl<'a> Store<'a> {
     }
 
     /// Extract one payload by name (zero copy). ｜ 按名字取一段载荷（零拷贝）。
-    pub fn payload(&self, name: &str) -> Result<&'a [u8], ContainerError> {
+    pub fn payload(&self, name: &str) -> Result<std::borrow::Cow<'a, [u8]>, ContainerError> {
         container::payload(self.bytes, name)
     }
 
