@@ -46,6 +46,10 @@ pub mod sha256;
 pub mod store;
 #[cfg(feature = "sign")]
 pub mod sign;
+/// 内存映射读取（T3 的 RSS 判据），feature `mmap`。
+/// Memory-mapped reading, behind the `mmap` feature.
+#[cfg(feature = "mmap")]
+pub mod mmap;
 pub mod sm3;
 pub mod vectors;
 
@@ -75,6 +79,8 @@ pub use manifest::{
     DEFAULT_PATCH_STRATEGY,
 };
 pub use store::Store;
+#[cfg(feature = "mmap")]
+pub use mmap::MappedFile;
 pub use sml_value::canonical::CanonicalError;
 pub use sml_value::{subtree_at, value_from_subtree, Path, Subtree};
 pub use sml_value::{CanonicalBlocks, Map, Value, MAX_VALUE_DEPTH};
