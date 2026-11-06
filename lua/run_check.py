@@ -84,6 +84,16 @@ def main():
     if rc != 0:
         failed += 1
 
+    # 4) `.ambr` 解码器对拍容器向量（T7 / N03）
+    print(">>> %s test_ambr.lua" % name)
+    rc, out, err = run(exe, ["test_ambr.lua"])
+    sys.stdout.write(out)
+    if err:
+        sys.stderr.write(err)
+    print("AMBR rc=%d" % rc)
+    if rc != 0:
+        failed += 1
+
     if failed:
         print("\n%d 组失败" % failed)
         return 1
