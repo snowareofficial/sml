@@ -144,7 +144,7 @@ fn sorted_lower_bound(entries: &[Entry], slots: &[u32], key: &str) -> usize {
 /// 在本档规模下比 FNV 慢，而我们需要的只是「分布够均匀」——
 /// 真发生碰撞也只退化成线性探测，正确性由「命中后比对 key」保证。
 #[inline]
-fn hash_key(s: &str) -> u64 {
+pub(crate) fn hash_key(s: &str) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in s.as_bytes() {
         h ^= *b as u64;

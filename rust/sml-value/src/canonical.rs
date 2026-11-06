@@ -58,8 +58,7 @@
 //! # }
 //! ```
 
-use std::collections::HashMap;
-
+use crate::object::hash_key;
 use crate::text_rules::{format_float, quote_if_needed};
 use crate::path::{Path, Seg};
 use crate::{Map, Value, MAX_VALUE_DEPTH};
@@ -759,11 +758,11 @@ impl Value {
         encode_node(self, &mut counter, &mut tab, 0)?;
         let mut nodes = Vec::with_capacity(counter.0);
         encode_node(self, &mut nodes, &mut tab, 0)?;
-        // 编码完成后 `ids` 就没用了（后面只按 `table` 顺序写表体）。
-        // 先释放它：否则这张 HashMap 会与 `strtab` / `out` 同时占着高水位。
-        // ｜ Drop the hashmap before allocating the two output buffers: it can be ~O(n) buckets.
-        let StrTab { ids, table } = tab;
-        drop(ids);
+        // 编码完成后索引表就没用了（后面只按 `table` 顺序写表体）。
+        // 先释放它：别让它与 `strtab` / `out` 同时占着高水位。
+        // ｜ Drop the index before allocating the two output buffers.
+        let StrTab { slots, table } = tab;
+        drop(slots);
         // 表体长度现在可以精确求和（表已建完），一次分配到位。
         let exact: usize = table.iter().map(|s| s.len() + 2).sum();
         let mut strtab = Vec::with_capacity(exact);
@@ -811,21 +810,60 @@ impl Value {
 /// the whole encoding is copy-free.
 /// 键与字符串值**共用一张表**，故 `"rule"` 作为键和作为值只占一份；借用 `&'a str` 而非
 /// `String`：编码全程零拷贝。
-#[derive(Default)]
+///
+/// 索引侧用**自写的开放寻址表**：槽里只存 `u32`（`table` 下标 + 1，0 = 空），
+/// 命中后再比一次真实字符串。原来的 `HashMap<&str, u32>` 每个桶要 16 B 键 + 4 B 值 + 控制位，
+/// 8000 项约 16k 桶 ⇒ 几百 KiB 高水位；这里同样规模只要 64 KiB。
+/// ｜ Compact open addressing: 4 B per slot instead of a full HashMap entry.
 struct StrTab<'a> {
-    ids: HashMap<&'a str, u32>,
+    slots: Vec<u32>,
     table: Vec<&'a str>,
 }
 
+impl<'a> Default for StrTab<'a> {
+    fn default() -> Self {
+        Self { slots: vec![0; 16], table: Vec::new() }
+    }
+}
+
 impl<'a> StrTab<'a> {
-    fn id_of(&mut self, s: &'a str) -> u32 {
-        if let Some(&id) = self.ids.get(s) {
-            return id;
+    /// Load factor ≤ 0.5 ⇒ linear probing averages ~1.5 probes.
+    /// 装载因子 ≤ 0.5，线性探测平均约 1.5 次。
+    fn grow_if_needed(&mut self) {
+        if (self.table.len() + 1) * 2 < self.slots.len() {
+            return;
         }
-        let id = self.table.len() as u32;
-        self.table.push(s);
-        self.ids.insert(s, id);
-        id
+        let new_len = (self.slots.len() * 2).max(16);
+        let mut slots = vec![0u32; new_len];
+        let mask = new_len - 1;
+        for (idx, s) in self.table.iter().enumerate() {
+            let mut i = hash_key(s) as usize & mask;
+            while slots[i] != 0 {
+                i = (i + 1) & mask;
+            }
+            slots[i] = idx as u32 + 1;
+        }
+        self.slots = slots;
+    }
+
+    fn id_of(&mut self, s: &'a str) -> u32 {
+        self.grow_if_needed();
+        let mask = self.slots.len() - 1;
+        let mut i = hash_key(s) as usize & mask;
+        loop {
+            let v = self.slots[i];
+            if v == 0 {
+                let id = self.table.len() as u32;
+                self.table.push(s);
+                self.slots[i] = id + 1;
+                return id;
+            }
+            // 槽里只是下标，必须回查真实字符串才算命中（防哈希碰撞串号）。
+            if self.table[(v - 1) as usize] == s {
+                return v - 1;
+            }
+            i = (i + 1) & mask;
+        }
     }
 }
 
