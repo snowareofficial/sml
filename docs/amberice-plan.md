@@ -421,7 +421,12 @@ cargo bench --bench smlb --features "smlb-compress,smlb-crypto,smlb-mmap"
 
 ---
 
-## 7. 候选：`amberice` 加「bincode 式」typed 载荷（2026-11-06 用户提出）
+## 7. ✅ 已收录进 v1：`amberice` 的「bincode 式」typed 载荷（2026-11-06 用户提出并裁决）
+
+> **2026-11-06 用户裁决「v1 带吧」** ⇒ 本节内容已成正式规范：
+> `docs/amberice-smldb-spec.md §25`（`0x70 TYPED` / `0x71 SCHEMA`，含「`VALUE` 必写」等四条收录前提）。
+> 本节保留作设计讨论与取舍记录；**以 §25 为准**，两处冲突时按 §25 执行。
+> 实现仍未开工：Rust 侧 N04，五端「跳过」侧 N03。
 
 ### 7.1 先把「方便」拆开：你要的可能是两件不同的事
 
@@ -434,7 +439,7 @@ cargo bench --bench smlb --features "smlb-compress,smlb-crypto,smlb-mmap"
 
 ### 7.2 形态：两个新段；**schema 默认不写进文件**
 
-段 id 现状（`rust/smlb/src/container.rs`）：`0x01 VALUE` / `0x02 STRTAB` / `0x03 DIR` / `0x04 MANIFEST` / `0x10 FRAMES` / `0x20 EMBED` / `0x30 SIG` / `0x40 PROFILE` / `0x50 SOURCE` / `0x60 PROVENANCE`。
+段 id 现状（`rust/amberice/src/container.rs`）：`0x01 VALUE` / `0x02 STRTAB` / `0x03 DIR` / `0x04 MANIFEST` / `0x10 FRAMES` / `0x20 EMBED` / `0x30 SIG` / `0x40 PROFILE` / `0x50 SOURCE` / `0x60 PROVENANCE` / `0x70 TYPED` / `0x71 SCHEMA`（后两段 = spec §25）。
 **未知段可跳过**是既有规则（表项自带 `len`，`load` 只认自己需要的 `seg_id`）⇒ 加段不需要动版本位。
 
 - `0x70 TYPED`：段头是 `count` + `count × (var_id, off, len)` 的**目录**（按 `var_id` 升序 ⇒ 二分 O(log n)），后面跟载荷字节。**目录在段内**，所以 `var(id)` 不依赖 schema。
