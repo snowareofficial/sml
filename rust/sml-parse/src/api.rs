@@ -22,17 +22,19 @@ use crate::scan::{features_for, strip_features, strip_version};
 
 /// 「正文里不可能有任何 `@` 指令」的**保守**判据（IDEAS I-23 的快路径闸门）。
 ///
-/// 三条缺一不可：
+/// 两条缺一不可：
 /// - 不以 BOM 开头 —— `strip_version` 除 `@version` 外**只做 BOM 归一化**，跳过它会把
 ///   BOM 喂进词法器，首个键名被静默改掉；
-/// - 不以 `\` 结尾 —— 慢路径「按行重建」会在文件尾补换行，使 `k: "abc\` 报 `E-LEX-004`
-///   而不是词法层的 `E-LEX-006`；那是**已登记的跨端「同因不同码」**（见 `TODO.md` §三·十二 H 组），
-///   不随性能优化一起改；
 /// - 不含 `@` 字节 —— 有 `@` 才可能含 `@version` / `@feature` / `@指令`。
 ///   `@` 出现在引号串或注释里也会退回慢路径：只多一次 memchr，换「宁慢不误」。
+///
+/// 曾经还有第三条「不以 `\` 结尾」：慢路径「按行重建」会在文件尾补换行，使 `k: "abc\`
+/// 报 `E-LEX-004` 而不是词法层的 `E-LEX-006`。**T21 裁决（2026-11-06）统一到 006 后**，
+/// `scan` 只在真有换行可补时才补（见 `scan::needs_trailing_newline`），那条判据随之失效 ——
+/// 以 `\` 结尾的输入现在既走快路径、又与慢路径报同一个码。
 #[inline]
 fn no_directives(text: &str) -> bool {
-    !text.starts_with('\u{feff}') && !text.ends_with('\\') && !text.as_bytes().contains(&b'@')
+    !text.starts_with('\u{feff}') && !text.as_bytes().contains(&b'@')
 }
 
 /// `E-FEATURE-004`：文档声明的版本不在调用方给出的白名单里。
