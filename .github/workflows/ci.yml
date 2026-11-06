@@ -83,6 +83,11 @@ jobs:
       - name: 构建 Rust cdylib（供 C++ RS-BRIDGE 链接）
         working-directory: rust
         run: cargo build --release
+      # 写入路径需要解析器，故 `amberice-ffi` 必须带 `sml` feature 单独构建一次；
+      # 上一步的 `cargo build` 不带该 feature（保持 `amberice` 不依赖解析器）。
+      - name: 构建 amberice-ffi（写入能力，供 C/C++/Python 写入测试）
+        working-directory: rust
+        run: cargo build --release -p amberice-ffi --features sml
       - name: C 检查（必须在 c/ 里跑）
         working-directory: c
         run: python3 build_check.py --run
@@ -103,6 +108,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y luajit
           python3 lua/run_check.py
+      # `.ambr` 写入：C / C++ / Python 各跑一遍 pack→load。脚本在没有 cdylib 时
+      # 显式 SKIP（退出 0）而不是假绿；真正的失败（编译错 / 断言错 / 崩溃）一律非零。
+      - name: .ambr 写入（C / C++ / Python）
+        env:
+          AMBR_LIB: ${{ github.workspace }}/rust/target/release/libamberice_ffi.so
+        run: python3 tools/check/check_ambr_write.py
 
   # 守卫：私有资产不进主库 + 错误码生成物幂等（需要全历史，故 fetch-depth: 0）
   guards:
