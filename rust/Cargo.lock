@@ -53,6 +53,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "amberice-ffi"
+version = "0.6.9-dev.0"
+dependencies = [
+ "amberice",
+]
+
+[[package]]
 name = "anstream"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
