@@ -13,14 +13,17 @@
 | 1 | Rust | 原生（参考实现） | ✅ 已有 | — | `amberice` |
 | 2 | JS | 纯 JS | ✅ 21/21 | `5c4eeb1` | 已进 CI |
 | 3 | C | 纯 C99 | ✅ 21/21 + 5 抽检 | `cebdc4c` | `build_check.py --run` |
-| 4 | C++ | 纯 C++17 | 🔄 进行中 | | |
-| 5 | Lua | 纯 Lua | ⬜ 待做 | | |
-| 6 | Java | **纯 Java** | ⬜ 待做 | | 源码在 `bindings/java/src/main/java/sml/`（StarLand 目录里只有 jar，无源码） |
-| 7 | Python | 纯 Python（与 FFI 二选一） | ⬜ 待做 | | `bindings/python` |
-| 8 | C# | FFI（P/Invoke） | ⬜ 待做 | | `bindings/csharp` |
-| 9 | Go | FFI（cgo） | ⬜ 待做 | | `bindings/go` |
-| 10 | Ruby | FFI（Fiddle） | ⬜ 待做 | | `bindings/ruby` |
-| 11 | FFI 面 | `amberice` 出 C ABI | ⬜ 待做 | | 让 6–10 共用一套 `ambr_*` |
+| 4 | C++ | 纯 C++17 | ✅ 21/21 + 5 抽检 | `b47d342` | `cpp/build_verify.py` |
+| 5 | Lua | 纯 Lua（f64 需 LuaJIT ffi） | ✅ 21/21 + 5 抽检 | 本次 | `lua/run_check.py` |
+| 6 | Java | **纯 Java**（不再依赖 cdylib） | ✅ 21/21 + 5 抽检 | 本次 | `bindings/java/.../Ambr.java` |
+| 7 | Python | FFI（ctypes） | ⬜ 待做 | | 需先有 FFI 面（见 11） |
+| 8 | C# | FFI（P/Invoke） | ⬜ 待做 | | 需先有 FFI 面 |
+| 9 | Go | FFI（cgo） | ⬜ 待做 | | 需先有 FFI 面 |
+| 10 | Ruby | FFI（Fiddle） | ⬜ 待做 | | 需先有 FFI 面 |
+| 11 | FFI 面 | `amberice` 出 C ABI | ⬜ 待做 | | 让 7–10 共用一套 `ambr_*` |
+
+> Java 现状说明：`bindings/java` 里的 `Sml` 是 FFM 调 Rust cdylib（不是原生实现）；
+> `Ambr` 是**纯 Java**，不加载任何本地库 —— 这正是用户说的「java 这种可能应该做」。
 
 ## 需要按顺序做的事
 
