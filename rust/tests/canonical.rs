@@ -287,3 +287,55 @@ mod ordered {
         assert_eq!(Value::from_canonical_bytes(&v.canonical_bytes().unwrap()).unwrap(), v);
     }
 }
+
+// ---------------------------------------------------------------------------
+// 顶层标量：默认拒绝（W16），显式 opt-in 后精确往返（spec §23.3）
+// Top-level scalars: rejected by default, exact round-trip behind an opt-in.
+// ---------------------------------------------------------------------------
+mod top_level_scalar {
+    use sml::{parse, parse_with, ParseOptions, Value};
+
+    #[test]
+    fn rejected_by_default() {
+        for src in ["42", "-7", "1.5", "true", "null", "\"hi\""] {
+            let e = parse(src).expect_err(src);
+            assert!(e.to_string().contains("E-PARSE-008"), "{src}: {e}");
+        }
+    }
+
+    #[test]
+    fn opt_in_round_trips_exactly() {
+        let cases: [(&str, Value); 6] = [
+            ("42", Value::Int(42)),
+            ("-7", Value::Int(-7)),
+            ("1.5", Value::float(1.5)),
+            ("true", Value::Bool(true)),
+            ("null", Value::Null),
+            ("\"hi\"", Value::Str("hi".into())),
+        ];
+        for (src, want) in cases {
+            let got = parse_with(src, ParseOptions::new().allow_top_scalar())
+                .unwrap_or_else(|e| panic!("{src}: {e}"))
+                .value;
+            assert_eq!(got, want, "{src}");
+
+            // 与发射器对称：canonical_text 再解析回来必须还是同一个值。
+            // Symmetric with the emitter: canonical_text must parse back to the same value.
+            let text = got.canonical_text().expect("canonical_text");
+            let back = parse_with(&text, ParseOptions::new().allow_top_scalar())
+                .unwrap_or_else(|e| panic!("{text:?}: {e}"))
+                .value;
+            assert_eq!(back, want, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn ambiguous_forms_still_rejected() {
+        // 有歧义的形态照旧报错：把标量当块类型名会改写数据形状（T9 / W16）。
+        // Ambiguous forms still error: reinterpreting a scalar as a block type rewrites the shape.
+        for src in ["42 a { b: 1 }", "42\nb: 1", "42\n[1,2]"] {
+            let e = parse_with(src, ParseOptions::new().allow_top_scalar()).expect_err(src);
+            assert!(e.to_string().contains("E-PARSE-008"), "{src}: {e}");
+        }
+    }
+}

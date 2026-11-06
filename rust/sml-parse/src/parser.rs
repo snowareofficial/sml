@@ -9,7 +9,8 @@ use sml_codes::{
     E_CONTRACT_019, E_CONTRACT_020, E_CONTRACT_021, E_CONTRACT_022, E_CONTRACT_023, E_CONTRACT_025,
     E_EXT_003, E_EXT_004, E_EXT_005, E_EXT_008, E_FEATURE_001,
     E_FEATURE_002, E_FEATURE_003, E_INCLUDE_007, E_LEX_007, E_LIMIT_001, E_PARSE_001, E_PARSE_002,
-    E_PARSE_003, E_PARSE_004, E_PARSE_005, E_PARSE_006, E_PARSE_007, E_PARSE_011, E_PARSE_012,
+    E_PARSE_003, E_PARSE_004, E_PARSE_005, E_PARSE_006, E_PARSE_007, E_PARSE_008, E_PARSE_011,
+    E_PARSE_012,
     E_PARSE_013, E_PARSE_017, E_PARSE_019, E_PARSE_020, E_PARSE_021, E_PARSE_022, E_PARSE_023,
     E_PARSE_026, E_PARSE_028, E_PARSE_029, E_PARSE_030, SmlError,
 };
@@ -1027,6 +1028,37 @@ impl<'a> Parser<'a> {
     }
 
     /// 解析外置修饰符的取值：裸词 / 引号串 / 块 / 数组。
+    /// Parse a **lone top-level scalar** — the read-back direction of `canonical_text`.
+    /// 解析单个顶层标量 —— `canonical_text` 的读回方向。
+    ///
+    /// The caller guarantees the token stream is exactly one `Word` / `Str`
+    /// (`ParseOptions::allow_top_scalar`). Uses the same coercion as a field value,
+    /// so `42` → `Int`, `1.0` → `Float`, `true` / `null` / quoted strings all agree
+    /// with what the emitter produces.
+    /// ｜ 调用方保证恰好剩一个 `Word`/`Str`；与字段值走同一套 coerce，
+    /// 保证与发射器逐字对称。
+    pub(crate) fn parse_lone_scalar(&mut self) -> Result<Value, SmlError> {
+        let v = match self.next() {
+            Some(Tok::Word(w)) => coerce_word(
+                &w,
+                &self.fragments,
+                self.features,
+                &self.ns_prefix(),
+                Some(&self.env),
+            )?,
+            Some(Tok::Str(s)) => {
+                if s.contains("$env.") && !self.features.has(Feature::Env) {
+                    return Err(SmlError::from_code_msg(E_FEATURE_002)
+                        .with_detail(format!("字符串 `\"{s}\"` 无法解析")));
+                }
+                Value::Str(self.interp_str(&s))
+            }
+            // 调用方已判过是单标量；到这里说明判据与实现不一致，按原码报错。
+            _ => return Err(SmlError::from_code_msg(E_PARSE_008)),
+        };
+        Ok(v)
+    }
+
     fn parse_modifier_value(&mut self) -> Result<Value, SmlError> {
         match self.peek().cloned() {
             Some(Tok::Word(w)) => {

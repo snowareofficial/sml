@@ -8,6 +8,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using Sml;
+// SmlException is nested in the Sml class; inside `namespace Sml.Test` the name `Sml`
+// resolves to the namespace first, so alias it explicitly.
+using SmlException = Sml.Sml.SmlException;
 
 namespace Sml.Test
 {
@@ -125,9 +128,10 @@ namespace Sml.Test
             // 6. flags 沙箱
             string envDoc = "x: $env.NOPE\n";
             bool baseOk;
+            string baseCode = "";
             try { Sml.Loads(envDoc, 0); baseOk = true; }
-            catch (SmlException e) { baseOk = e.CodeStr != "E-FEATURE-002"; }
-            Check("6 baseline(flags=0) 不因特性报错", baseOk);
+            catch (SmlException e) { baseOk = e.CodeStr != "E-FEATURE-002"; baseCode = e.CodeStr; }
+            Check("6 baseline(flags=0) 不因特性报错", baseOk, "code=" + baseCode);
 
             int noEnv = Sml.F_BASIC & ~Sml.F_ENV;
             try
@@ -192,6 +196,29 @@ namespace Sml.Test
                 }
             }
             Check("10 .ambr 21 例逐字符", total == 21 && ok == 21, ok + "/" + total);
+
+            // 11. 写入往返：顶层容器必须原样回来；顶层标量被 sml-parse 以
+            //     E-PARSE-008 拒绝（unfinished §4.2 的已知欠账），单独计数。
+            int rt = 0, scalars = 0;
+            foreach (var c in doc.RootElement.GetProperty("cases").EnumerateArray())
+            {
+                string id = c.GetProperty("id").GetString() ?? "?";
+                string want = c.GetProperty("canonical_text").GetString() ?? "";
+                try
+                {
+                    if (Amberice.Container.LoadText(Amberice.Container.PackText(want)) == want) rt++;
+                    else Console.WriteLine("  FAIL  ambr pack " + id + "  往返不一致");
+                }
+                catch (Amberice.Container.AmbericeException e) when (e.Message.Contains("E-PARSE-008"))
+                {
+                    scalars++;
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine("  FAIL  ambr pack " + id + "  " + e.Message);
+                }
+            }
+            Check("11 .ambr 写入往返 21 例", rt == 21 && scalars == 0, rt + " round-trip, " + scalars + " scalar");
         }
 
         /// <summary>从 bin 目录或当前目录向上找仓库根下的相对路径。</summary>

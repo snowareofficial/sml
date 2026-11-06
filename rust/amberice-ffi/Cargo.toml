@@ -19,3 +19,18 @@ crate-type = ["cdylib", "rlib"]
 # 只用 path：带 `version` 时 cargo 会拿 workspace 版本做匹配，预发布号容易踩空。
 # ⚠️ 是 `../amberice`，不是 `..` —— `..` 是 workspace 根（包名 `swsml`）。
 amberice = { path = "../amberice" }
+
+# 可选：把 SML 源文本解析成值，供「写入」路径（`ambr_pack_text`）使用。
+# 为什么关在 FFI 层：`amberice` 的硬约束是「容器层不依赖 SML 解析器」——那是它能被
+# 非 SML 项目独立采用的理由。便捷写入属于绑定层，不能反过来污染格式 crate。
+# ｜ Optional: parse SML source for the write path. Kept here so the format crate
+#   stays parser-free.
+[dependencies.sml]
+package = "swsml"
+path = ".."
+optional = true
+
+[features]
+default = []
+# 打开才有 `ambr_pack_text`；不打开时 cdylib 仍只有读能力，依赖树不变。
+sml = ["dep:sml"]

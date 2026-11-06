@@ -285,6 +285,16 @@ pub struct ParseOptions {
     /// 不是编译开关**：`parse_ordered()` 在任何 feature 组合下都产出可签 canonical 的值。
     /// 私有字段 ⇒ 外部只能用 `ParseOptions::new().ordered()` 链式打开。
     pub(crate) ordered: bool,
+    /// **允许单个顶层标量**（`42` / `null` / `"x"`）。
+    ///
+    /// 默认 `false` ⇒ 保持 W16 的裁决：顶层标量报 `E-PARSE-008`，因为
+    /// 它能被 `canonical_text` 写出、却无法从容器形态读回，静默造键会改掉数据形状。
+    ///
+    /// 打开它的唯一正当场景：**读回自己写出的 canonical 文本**。这时「不可往返」
+    /// 这个理由不成立 —— 文本本来就是 canonical 发射器的产物（spec §23.3
+    /// 「顶层标量可回读」）。它不是「新语法」：`42` 一直是合法标量，只是入口更严。
+    /// ｜ Opt-in: read back canonical text that legitimately starts with a scalar.
+    pub(crate) allow_top_scalar: bool,
 }
 
 impl Default for ParseOptions {
@@ -299,6 +309,7 @@ impl Default for ParseOptions {
             capture_contracts: false,
             builtin_contracts: std::collections::BTreeMap::new(),
             ordered: false,
+            allow_top_scalar: false,
         }
     }
 }
@@ -319,6 +330,21 @@ impl ParseOptions {
     /// `Map::Ordered`，可直接交给 `amberice::dump` / `canonical_*`，**不需要任何 feature**。
     pub fn ordered(mut self) -> Self {
         self.ordered = true;
+        self
+    }
+
+    /// Allow a **single top-level scalar** (builder). Defaults to `false`.
+    /// 允许单个顶层标量（链式）。默认 `false`。
+    ///
+    /// 只对「读回 canonical 文本」有用：`canonical_text` 会输出 `42\n` / `null\n`，
+    /// 默认入口却把它们判成 `E-PARSE-008`（W16 防的是静默造键，不是标量本身）。
+    /// 打开后 `42` 解析成 `Value::Int(42)`，与 Rust 侧 `dump` 的写入方向对称。
+    ///
+    /// 只影响**恰好一个标量 token** 的文档；`42 a { }` 这类有歧义的形态
+    /// 仍然按原判据报错（把 `42` 当块类型名会改写形状）。
+    /// ｜ Only a lone scalar token is accepted; ambiguous forms still error.
+    pub fn allow_top_scalar(mut self) -> Self {
+        self.allow_top_scalar = true;
         self
     }
 
