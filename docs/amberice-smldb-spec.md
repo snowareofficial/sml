@@ -1125,7 +1125,7 @@ cargo run -p amberice --features preserve_order -- vectors --check
 ```
 seg_id:u8 | comp:u8 | enc:u8 | flags:u16 | len:u32 | sha256:32
 ```
-- `seg_id`：`0x01=VALUE 0x02=STRTAB 0x03=DIR 0x10=FRAMES 0x20=EMBED 0x30=SIG 0x40=PROFILE 0x50=SOURCE 0x60=PROVENANCE`
+- `seg_id`：`0x01=VALUE 0x02=STRTAB 0x03=DIR 0x10=FRAMES 0x20=EMBED 0x30=SIG 0x40=PROFILE 0x50=SOURCE 0x60=PROVENANCE 0x70=TYPED 0x71=SCHEMA`（后两段见 §25）
 - **`comp` 与 `enc` 正交两字段**（D34）：压缩与加密组合不枚举，避免组合爆炸
 - `sha256:32` 固定 32 B，**具体哈希由 manifest 的 `hash_id` 决定**（SHA-256 / SM3 / BLAKE3 都是 32 B，见 §20）
 - 段起始 **4 KiB 对齐**（配合 D28 的块加密与 mmap）
@@ -1161,6 +1161,11 @@ tag:u8 | flags:u8 | subtree_len:u32 | payload…
 - **带 `head_layer` 字段**：与当前 head 不一致 ⇒ 整段忽略（追加后旧索引自然失效，不需要重写）；
 - 默认只索引 **深度 ≤ 4** 的对象键（`dir_depth` 可配）：52k 节点下约 10k 条目 ≈ 120 KB；
 - 索引是**派生数据**：缺失/过期都只影响速度，不影响正确性（D11 的 `optional` 位）。
+
+> ✅ **v1 收录（用户 2026-11-06 裁决）**：写者**可选**写；不写不影响任何正确性。
+> 五端解码器对它的要求只有「认段头 + 按 `len` 跳过」，**不要求解析条目**。
+> 实现状态：`SEG_DIR` 已登记（`rust/amberice/src/container.rs`）、`dir_depth` 默认值已落 manifest；
+> **写入端未做** → N05。§25.1 的收录前提对它同样有效。
 
 ### 19.4 与加密/压缩的关系
 
@@ -2132,3 +2137,79 @@ stream      = PRNG(purpose_key, info = file_id ‖ layer_id ‖ block_index ‖ 
 | 致盲读 vs 随机访问性能 | 默认关，可选开 |
 | 统一错误 vs 排障体验 | 默认统一，`--explain` 显式打开 |
 | 层大小固定 vs 追加灵活 | 建议而非强制（S4） |
+
+---
+
+## 25. `TYPED` / `SCHEMA` 段（v1 收录 · 仅 Rust 实现 · experimental）
+
+> 用户 2026-11-06 裁决：**`.ambr` v1 带 DIR + TYPED**。本节把 `docs/amberice-plan.md §7` 的
+> 「候选」升为 v1 正文；DIR 的字节布局原本就在 §19.3，那里只补了收录状态。
+
+### 25.1 收录前提（破一条就不许收录）
+
+1. **`VALUE` 必写** —— 任何 `.ambr` 都必须有 `0x01 VALUE`（+ `0x02 STRTAB`）。`TYPED` **不得**成为唯一载荷。
+2. **canonical 相等与签名语义只看 `VALUE`** —— `TYPED` 是旁路，不参与 `eq_ordered` / `canonical_text` / `canonical_bytes`。
+3. **未知段可跳过**（§23.1 ①）不因这两段改变：不认 `TYPED` 的读取方只按段头 `len` 跳过。
+4. **不动版本位**：段 id 已登记，加段属向后兼容扩展，`fmt` 补丁位不变。
+
+⇒ 由此定死 T7 的判据：五端解码器对这两段的要求是「**认段头 + 跳过 + 验摘要**」，**不是**「解出值」。语义实现只做 Rust（§7.6 已定「v1 只做 Rust，标 experimental；跨端同步单列」）。
+
+### 25.2 `0x70 TYPED` 段体
+
+```text
+TYPED   = count:varint ‖ entries[count] ‖ payload
+entries = (var_id:varint, off:u32le, len:u32le)
+```
+
+- `entries` **按 `var_id` 升序** ⇒ `Store::var(id)` 二分 O(log n)；
+- `off` 相对 `payload` 起点计数，`payload` 紧跟目录；
+- `var_id = 0` 保留（表示「未指定」）；重复 `var_id` 写入时**直接报错**，不自动分配、不猜测；
+- 目录在段内 ⇒ 取变量**不依赖** `SCHEMA`，`var(id)` 无需外部类型信息。
+
+### 25.3 `0x71 SCHEMA` 段（可选）
+
+只放「给人 / 给别的语言看」的东西：`type_id → 字段 id / 变体 id → 名字与类型`。不写也能读，只是读端必须在编译期知道 `T`。**默认不落盘。**
+
+| 模式 | 文件里有什么 | 谁需要类型信息 | 适用 |
+|---|---|---|---|
+| **外置 schema（默认）** | 只有 `TYPED` | 调用方编译期知道 `T` | 热路径、内部存储、体积最小 |
+| **内嵌 schema（可选）** | `TYPED` + `SCHEMA` | 读端动态读 | `cat` 工具、跨语言、长期归档 |
+
+### 25.4 线格式（零依赖、可手写）
+
+| 项 | 写法 | 理由 |
+|---|---|---|
+| 无符号整数 | LEB128 varint（复用 canonical 的 varint） | 小数字占 1 字节 |
+| 有符号整数 | zigzag → varint | 负数不膨胀 |
+| `f32` / `f64` | 固定 4 / 8 字节小端 | 二进制里不需要「十进制展开」，那套只服务 canonical 文本 |
+| 字符串 / 字节 | varint 长度 + 原始字节 | 不做 UTF-8 二次校验（`&str` 已保证） |
+| 数组 | varint 元素数 + 元素 | 同样带预算 |
+| `Option` | 1 字节 tag（0/1） | 可空字段仍要区分「无」与「零值」 |
+| 枚举 | varint 变体 id + 载荷 | 「变量 + 其 id」的核心 |
+| 结构体 | 按字段 id 升序**全量写** | 类型不变 ⇒ 不需要 presence bitset / 缺省字段跳过，解码路径最短 |
+
+**硬约束**：深度上限、总字节上限、元素数上限（与 `MAX_DECOMPRESSED` 同族），防「声明 4G 元素」的炸弹；解码全程 `safe`，不写 `unsafe`。
+
+### 25.5 「变量类型不变」是契约，不是提醒
+
+1. **写入时记 `type_id`**：类型路径 + 字段 id 表 + 变体 id 表的稳定指纹（不是类型名字符串本身）；
+2. **读出时比对**：不等 ⇒ `TypedError::TypeMismatch`，**不猜、不升级、不强转**，错误里带「文件里是什么 / 代码里要什么」；
+3. **v1 不做 schema 演进**：加字段、改字段类型、改变体顺序都算**新类型**（新 `type_id` 或新 `var_id`）；
+4. 因此 `Option<T>` 的「有没有」是**值语义**，不是「字段缺不缺」。
+
+### 25.6 caps：DIR 沿用 `dir`，TYPED 不新增 cap
+
+- **DIR**：沿用已注册的 `dir`（`caps_optional`），语义是「索引存在，不认就忽略」；
+- **TYPED**：**不新增 cap 名**。理由：`VALUE` 必写 ⇒ 不认 TYPED 的读取方本来就能读出全部值；用 `info` 列出段名（`TYPED` / `SCHEMA`）即可告知「本文件还带 typed 载荷」。
+- 不新增 cap 也意味着**不需要改 `registered_capabilities()`**，不产生「声明了却没人认」的假能力。
+
+### 25.7 状态
+
+| 项 | 状态 |
+|---|---|
+| 段 id 登记（`0x70` / `0x71`） | ✅ 本规范 |
+| DIR 写入（可选段） | ❌ 未做 → N05；读取端已能忽略 |
+| Rust `put_var` / `get_var` | ❌ 未做 → N04 |
+| 五端解码器「跳过」 | ❌ 未做 → N03 / T7 |
+| 内嵌 schema / serde 桥 | 待定（`amberice-plan.md §7.12`） |
+| 字节布局影响 | **零**：不写这两段的文件与收录前逐字节相同 |
