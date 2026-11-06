@@ -80,12 +80,15 @@ cargo bench --bench profile --features amberice -- --quick
 | 项 | 状态 | 实测（确定性指标：allocs / 峰值堆） |
 |---|---|---|
 | **E1** `to_sml` 预分配 + `quote_if_needed` 改 `Cow<str>` | ✅ `63f52a8` | `flat@4000 to_sml` allocs **12,016 → 2**；`canonical_text` **8,015 → 15**；`small to_sml` 66 → 38；峰值 128.3 → 125.3 KiB |
-| **E2** canonical/STRTAB 精确预分配 | ✅ 部分 `5ef6f53` | `flat@4000 canonical_bytes` allocs **51 → 38（−25%）**；`small` 15 → 12；`deep@120` 25 → 20；**峰值仍 792 KiB** |
-| P1 / P2 / P3 | 未做 | — |
+| **E2** canonical/STRTAB 精确预分配 | ✅ 部分 `5ef6f53` | `flat@4000 canonical_bytes` allocs **51 → 38（−25%）**；`small` 15 → 12；`deep@120` 25 → 20；峰值仍 792 KiB |
+| **P1** 字段写入接管键所有权 | ✅ `75febff` | parse allocs `small` 101 → 90、`flat@4000` **32,562 → 28,562（正好每键 −1）**、`deep@120` 873 → 753；同机时间 −12%~−15%；峰值不变 |
+| **E2 续**：两趟编码（阶段 2 提前做） | ✅ `8b9cb28` | `canonical_bytes` 峰值 **792.0 → 728.0 KiB（−8%）**、allocs 38 → 28；`deep@120` 12.4 → 11.4 KiB / 20 → 16 |
+| **P2** `Object::with_capacity(4)` | ❌ 不做 | 分析即可判死：`flat@4000` 只有一个对象，`Vec` 仍要长到 4096，预置 4 只省 2 次分配；`deep@120` 有 120 个单键对象，预置 4 会让每块多占 3×64 B，却仍是 1 次分配 ⇒ 纯内存回归 |
+| **P3** 入口单趟 | 未做 | `scan` 是唯一漏斗，改动面大；留给阶段 2 与 P4 一起 |
 
-E2 的峰值没降，原因与两种被否决的做法都写进了提交说明：遍历式容量 hint 让 `deep@120` allocs 25 → 127；顶层估算让峰值涨到 853 KiB。根因是 `nodes` Vec 从 64 B 起翻倍增长，**要降到 ≤1.2× 输出必须改成「先计数、再编码」的两趟编码器**，归阶段 2。
+**峰值为什么只降 8%**：两趟编码干掉的是 `nodes` Vec 的翻倍增长；剩下的 728 KiB 主要来自 `StrTab` 的 `HashMap<&str, u32>`（8000 项 ⇒ 约 16k 桶，键 16 B）与 `table: Vec<&str>` 同驻。要再降得换更紧凑的 interning 表（自写开放寻址 / 只存 u32 索引），单列后续项。
 
-> ⚠️ 本轮所有**时间**列都受整机噪声污染（同期未改动的 `perf` 基准 `small parse` 从 8,528 ns 变成 19,517 ns，约 2.3×），因此阶段 1 只用 **allocs / 峰值堆**判定；时间数字待噪声消退后重跑再写回基线。
+> ⚠️ 本轮早段**时间**列受整机噪声污染（同期未改动的 `perf` 基准 `small parse` 从 8,528 ns 变成 19,517 ns，约 2.3×）；P1 的前后对照是在噪声消退后的**同机连续两次**测的（8,898 → 7,530 ns）。其余时间数字仍建议重跑正式口径再写回 `docs/perf-baseline.md`。
 
 ---
 
