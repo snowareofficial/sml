@@ -33,8 +33,8 @@
 //! | 要段与载荷清单 | [`Store::segments`] / [`Store::payload`] |
 
 use sml_value::{
-    parse_strtab_table, subtree_at, subtree_range, value_from_subtree, CanonicalError, Path,
-    TreeCursor, Value,
+    parse_strtab_table, subtree_at_with_table, subtree_range, value_from_subtree_with_table,
+    CanonicalError, Path, TreeCursor, Value,
 };
 
 use crate::container::{self, ContainerError, FileInfo, FrameEntry, Segment};
@@ -54,8 +54,26 @@ pub struct Store<'a> {
     /// `FRAMES` body when the tree is framed (T5). ｜ 分帧时的 `FRAMES` 段体。
     frames: Option<&'a [u8]>,
     strtab: &'a [u8],
+    /// `STRTAB` parsed **on first use**, then cached. ｜ 首次使用时解析、之后缓存的 `STRTAB` 表。
+    ///
+    /// Why lazy: `open` promises O(1) heap (the T3 RSS criterion); parsing the table eagerly
+    /// would allocate O(keys) for callers that never call `get`.
+    /// Why cache: `get` used to re-walk the whole table on every call (twice on the framed path);
+    /// the table is a pure function of the segment, so per-call O(keys) is pure waste.
+    /// ｜ 惰性保住 `open` 的 O(1) 内存；缓存去掉每次 `get` 的 O(键数) 重扫。
+    strtab_table: std::sync::OnceLock<StrTab<'a>>,
     manifest: Option<Manifest>,
     layers: Vec<Layer>,
+}
+
+/// Parsed `STRTAB`, cached. Custom `Debug` keeps `Store`'s debug output short.
+/// 已解析的 `STRTAB` 缓存；自定义 `Debug` 避免打印整张表。
+struct StrTab<'a>(Vec<&'a str>);
+
+impl std::fmt::Debug for StrTab<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "StrTab({} entries)", self.0.len())
+    }
 }
 
 /// A cursor over a `FRAMES` body: **skips without inflating**, inflates only what is read.
@@ -221,6 +239,7 @@ impl<'a> Store<'a> {
                 container::ValueSource::Framed(b) => Some(b),
             },
             strtab: parts.strtab,
+            strtab_table: std::sync::OnceLock::new(),
             manifest: parts.manifest,
             layers: parts.layers,
         })
@@ -256,6 +275,25 @@ impl<'a> Store<'a> {
         self.strtab
     }
 
+    /// Parsed `STRTAB` table, built **on first use** and then reused.
+    /// 已解析的 `STRTAB` 表：**首次使用时**才建，之后复用。
+    ///
+    /// Cost: one O(keys) pass the first time, O(1) afterwards. Keeping it lazy is what
+    /// preserves `Store::open`'s O(1) heap (the T3 RSS criterion).
+    /// ｜ 一次 O(键数) 换之后每次 O(1)；惰性是为了不破坏 `open` 的 O(1) 堆。
+    fn strtab_table(&self) -> Result<&[&'a str], ContainerError> {
+        if let Some(t) = self.strtab_table.get() {
+            return Ok(&t.0);
+        }
+        let parsed = StrTab(parse_strtab_table(self.strtab)?);
+        let _ = self.strtab_table.set(parsed); // 并发输了也没事：别人已放进去
+        Ok(&self
+            .strtab_table
+            .get()
+            .expect("table was just set, or a concurrent caller set it")
+            .0)
+    }
+
     /// The raw bytes of one subtree — **zero copy**, header included.
     /// 一棵子树的原始字节 —— **零拷贝**，含节点头。
     ///
@@ -266,7 +304,8 @@ impl<'a> Store<'a> {
             return Err(ContainerError::FramedNotZeroCopy);
         }
         let p = Path::parse(path).map_err(ContainerError::Path)?;
-        let sub = subtree_at(self.strtab, self.value, &p)?;
+        let table = self.strtab_table()?;
+        let sub = subtree_at_with_table(table, self.value, &p)?;
         Ok(sub.bytes)
     }
 
@@ -279,13 +318,14 @@ impl<'a> Store<'a> {
         let p = Path::parse(path).map_err(ContainerError::Path)?;
         match self.frames {
             None => {
-                let sub = subtree_at(self.strtab, self.value, &p)?;
+                let table = self.strtab_table()?;
+                let sub = subtree_at_with_table(table, self.value, &p)?;
                 Ok(sub.bytes.to_vec())
             }
             Some(body) => {
-                let table = parse_strtab_table(self.strtab)?;
+                let table = self.strtab_table()?;
                 let mut cur = FrameCursor::new(body)?;
-                let (s, e, _) = subtree_range(&mut cur, &table, p.segments(), 0)?;
+                let (s, e, _) = subtree_range(&mut cur, table, p.segments(), 0)?;
                 cur.read_range(s, e)
             }
         }
@@ -320,16 +360,17 @@ impl<'a> Store<'a> {
         // 2) 导航：明文零拷贝切片；分帧只解覆盖目标的那几帧
         match self.frames {
             None => {
-                let sub = subtree_at(self.strtab, self.value, &p)?;
-                let v = value_from_subtree(self.strtab, sub.bytes)?;
+                let table = self.strtab_table()?;
+                let sub = subtree_at_with_table(table, self.value, &p)?;
+                let v = value_from_subtree_with_table(table, sub.bytes)?;
                 Ok((v, sub.nodes_visited))
             }
             Some(body) => {
-                let table = parse_strtab_table(self.strtab)?;
+                let table = self.strtab_table()?;
                 let mut cur = FrameCursor::new(body)?;
-                let (s, e, visited) = subtree_range(&mut cur, &table, p.segments(), 0)?;
+                let (s, e, visited) = subtree_range(&mut cur, table, p.segments(), 0)?;
                 let bytes = cur.read_range(s, e)?;
-                let v = value_from_subtree(self.strtab, &bytes)?;
+                let v = value_from_subtree_with_table(table, &bytes)?;
                 Ok((v, visited))
             }
         }

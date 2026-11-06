@@ -1131,8 +1131,18 @@ pub fn subtree_at<'a>(
     path: &Path,
 ) -> Result<Subtree<'a>, CanonicalError> {
     let table = parse_strtab(strtab)?;
+    subtree_at_with_table(&table, value, path)
+}
+
+/// Same as [`subtree_at`], but takes an **already parsed** `STRTAB` table.
+/// 同 [`subtree_at`]，但复用**已经解析好**的 `STRTAB` 表。
+pub fn subtree_at_with_table<'a>(
+    table: &[&str],
+    value: &'a [u8],
+    path: &Path,
+) -> Result<Subtree<'a>, CanonicalError> {
     let mut cur = SliceCursor::new(value);
-    let (start, end, visited) = descend(&mut cur, &table, path.segments(), 0)?;
+    let (start, end, visited) = descend(&mut cur, table, path.segments(), 0)?;
     Ok(Subtree {
         bytes: &value[start..end],
         nodes_visited: visited,
@@ -1168,8 +1178,22 @@ pub fn parse_strtab_table(strtab: &[u8]) -> Result<Vec<&str>, CanonicalError> {
 /// `subtree` 必须正好是一个节点，多一个字节就报 `TrailingBytes`。
 pub fn value_from_subtree(strtab: &[u8], subtree: &[u8]) -> Result<Value, CanonicalError> {
     let table = parse_strtab(strtab)?;
+    value_from_subtree_with_table(&table, subtree)
+}
+
+/// Same as [`value_from_subtree`], but takes an **already parsed** `STRTAB` table.
+/// 同 [`value_from_subtree`]，但复用**已经解析好**的 `STRTAB` 表。
+///
+/// Why: `Store::get` used to re-walk the whole `STRTAB` body on every call (twice on the
+/// framed path — once for navigation, once here). The table is a pure function of the
+/// container's `STRTAB` segment, so it can be parsed once at `open` and reused.
+/// ｜ The per-call O(key count) scan was the dominant cost of random access.
+pub fn value_from_subtree_with_table(
+    table: &[&str],
+    subtree: &[u8],
+) -> Result<Value, CanonicalError> {
     let mut r = Reader::new(subtree);
-    let v = decode_node(&mut r, &table, 0)?;
+    let v = decode_node(&mut r, table, 0)?;
     if r.pos != subtree.len() {
         return Err(CanonicalError::TrailingBytes { at: r.pos });
     }
