@@ -216,6 +216,12 @@ name = "amberice"
 harness = false
 required-features = ["amberice"]
 
+# 阶段 0 归因基准：parse 峰值堆 / tokenize 时间 / 跨规模 get×1000。
+# 不设 required-features：容器组用 #[cfg(feature = "amberice")] 自行跳过。
+[[bench]]
+name = "profile"
+harness = false
+
 # ---------------------------------------------------------------------------
 # cargo-deb 原型（可选；**不是**默认构建路径）。
 # 默认且经验证的打包路径：packaging/build_deb.sh（dpkg-deb，四包拆分 + SONAME
