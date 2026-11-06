@@ -13,6 +13,8 @@
 //!
 //! No feature gate / 不做 feature 门控：only `&str` / `f64`, no third-party, no IO.
 
+use std::borrow::Cow;
+
 /// Whether a string needs quotes — i.e. bare form would lose its type or break syntax.
 /// 是否需要给字符串加引号（即：裸词形式会丢失类型或破坏语法）。
 pub(crate) fn needs_quote(s: &str) -> bool {
@@ -65,7 +67,7 @@ pub(crate) fn needs_quote(s: &str) -> bool {
 /// C 的 `sml_dump` 更是在 NUL 处**直接截断**（台账 B-02 记的就是这条）。
 /// 词法层的转义集是 `\n \t \r \0 \" \\ \uXXXX`，故这四个走短形式，
 /// 其余控制字符（0x01–0x1F、0x7F）走 `\u00XX`。
-pub(crate) fn quote_if_needed(s: &str) -> String {
+pub(crate) fn quote_if_needed(s: &str) -> Cow<'_, str> {
     if needs_quote(s) {
         let mut out = String::with_capacity(s.len() + 2);
         out.push('"');
@@ -84,9 +86,11 @@ pub(crate) fn quote_if_needed(s: &str) -> String {
             }
         }
         out.push('"');
-        out
+        Cow::Owned(out)
     } else {
-        s.to_string()
+        // 绝大多数键/值不需要引号：借用原文，避免每次发射都分配一个 String。
+        // ｜ Borrow when no quoting is needed: the common case costs zero allocations.
+        Cow::Borrowed(s)
     }
 }
 

@@ -159,7 +159,7 @@ fn dump_scalar(v: &Value) -> String {
         Value::Bool(b) => b.to_string(),
         Value::Int(i) => i.to_string(),
         Value::Float(f, raw) => format_float(*f, raw.as_deref()),
-        Value::Str(s) => quote_if_needed(s),
+        Value::Str(s) => quote_if_needed(s).into_owned(),
         _ => "".into(),
     }
 }
@@ -255,14 +255,23 @@ fn dump_inline(v: &Value, depth: usize) -> String {
 /// 就是本函数**，所以日志里同样可能冒出一段占位文本。要错误语义请用 [`to_sml_checked`]
 /// （CLI 与 C-ABI 的 `sml_dump` 正走它）。
 pub fn to_sml(v: &Value) -> String {
-    let mut out = String::new();
+    // 预分配输出：扁平对象每行约 "k1234: value-1234"（取 32 B 的保守值）。
+    // 从 `String::new()` 起要反复扩容并搬移整段文本；估算只影响容量，不影响一个字节。
+    // ｜ Capacity hint only; nested documents still grow naturally, bytes are unchanged.
+    let guess = match v {
+        Value::Object(m) => m.len().saturating_mul(32).saturating_add(64),
+        _ => 64,
+    };
+    let mut out = String::with_capacity(guess);
     if let Value::Object(m) = v {
         if m.contains_key("__type") {
             dump_block(m, 0, 0, &mut out);
         } else {
             for (k, val) in m {
                 // 同 [`starts_inline`]：块值自己会换行，别在行尾留空格
-                out.push_str(&format!("{}:", quote_if_needed(k)));
+                // 直接 push 而不是 `format!("{}:", ...)`：每键少一次临时 String 分配。
+                out.push_str(&quote_if_needed(k));
+                out.push(':');
                 if starts_inline(val) {
                     out.push(' ');
                 }
