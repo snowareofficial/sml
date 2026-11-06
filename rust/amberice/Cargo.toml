@@ -18,9 +18,8 @@ publish = false
 [lib]
 name = "amberice"
 path = "src/lib.rs"
-# `ffi` feature 下额外产出 cdylib（`amberice.dll` / `libamberice.so`），供 Python/C#/Go/Ruby 调。
-# rlib 保留：Rust 侧与测试照常 `use amberice::…`。
-crate-type = ["rlib", "cdylib"]
+# 纯 rlib：C ABI 已拆到独立的 `amberice-ffi`（cdylib），本 crate 不再为 FFI 付构建代价。
+# ｜ Pure rlib; the C ABI lives in the separate `amberice-ffi` cdylib.
 
 [[bin]]
 name = "amberice"
@@ -87,6 +86,4 @@ crypto = ["dep:aes-gcm", "dep:hkdf", "dep:sha2", "dep:argon2", "dep:getrandom"]
 # 内存映射（T3）：`MappedFile::open` —— 打开 100 MB 文件不把它搬上堆。
 # 关掉后一切照旧，只是得自己把 `&[u8]` 传进 `Store::open`。
 mmap = ["dep:memmap2"]
-# 最小 C ABI：`ambr_text` / `ambr_free_str`（见 src/ffi.rs）。无额外依赖。
-ffi = []
 default = []

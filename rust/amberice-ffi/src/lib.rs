@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! Minimal C ABI for `.ambr` (feature `ffi`) — one function, no value handles.
-//! `.ambr` 的最小 C ABI（feature `ffi`）：只有一个函数，不暴露值句柄。
+//! Minimal C ABI for `.ambr` — one function, no value handles.
+//! `.ambr` 的最小 C ABI：只有一个函数，不暴露值句柄。
+//!
+//! Independent crate / 独立 crate: `amberice` stays a pure rlib; this cdylib is the only
+//! artifact that FFI consumers link. ｜ `amberice` 保持纯 rlib，FFI 消费方只链接这个 cdylib。
 //!
 //! Why text and not a tree / 为什么返回文本而不是值树:
 //!   Every FFI consumer already has an SML parser (Python/C#/Go/Ruby all wrap `swsml`).
@@ -44,7 +47,7 @@ pub unsafe extern "C" fn ambr_text(
             return Err("AMBR: 空指针".to_string());
         }
         let bytes = std::slice::from_raw_parts(buf, len);
-        let value = crate::load(bytes).map_err(|e| format!("AMBR: {e}"))?;
+        let value = amberice::load(bytes).map_err(|e| format!("AMBR: {e}"))?;
         value
             .canonical_text()
             .map_err(|e| format!("AMBR: {e}"))

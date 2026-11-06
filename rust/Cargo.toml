@@ -37,6 +37,9 @@ members = [
     # `.ambr`（SML 的二进制形式）：只依赖值模型，**不依赖 sml-parse**（docs/amberice-smldb-spec.md D3）。
     # `publish = false` —— 与 v5 一起开放（D1）。
     "amberice",
+    # 独立 cdylib：`.ambr` 的最小 C ABI（`ambr_text` / `ambr_free_str`）。
+    # 拆成独立 crate 是为了让 `amberice` 保持纯 rlib（不替 FFI 消费方付 cdylib 成本）。
+    "amberice-ffi",
     # 门面 crate：根上 `pub use swsml::*`，`easy` 模块是「读配置」的 4 概念入门层。
     # 独立发布线（`swml` 0.1.0，见 swml/README.md；`publish = false` 直到一起发）。
     "swml",

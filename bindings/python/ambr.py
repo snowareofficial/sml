@@ -7,8 +7,8 @@
 #   `loads(load_text(bytes))`. Keeping the FFI to two symbols avoids duplicating the value
 #   model in Python. ｜ 值树用现有 `loads` 物化，FFI 只负责把容器解成 canonical 文本。
 #
-# Load path / 库路径: env `AMBR_LIB` (full path) wins; otherwise `amberice` on the loader path.
-#   Build it with: cargo build -p amberice --features ffi
+# Load path / 库路径: env `AMBR_LIB` (full path) wins; otherwise `amberice_ffi` on the loader path.
+#   Build it with: cargo build -p amberice-ffi
 """`.ambr` reader backed by the `amberice` cdylib. ｜ 基于 amberice cdylib 的 `.ambr` 读取器。"""
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ def _load_lib():
     if _lib is not None:
         return _lib
     path = _lib_path()
-    lib = ctypes.CDLL(path) if path else ctypes.CDLL("amberice")
+    lib = ctypes.CDLL(path) if path else ctypes.CDLL("amberice_ffi")
     lib.ambr_text.restype = ctypes.c_void_p
     lib.ambr_text.argtypes = [
         ctypes.c_char_p,

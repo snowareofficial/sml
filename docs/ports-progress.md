@@ -20,7 +20,10 @@
 | 8 | C# | FFI（P/Invoke） | ⬜ 待做 | | 同一对符号，见下方配方 |
 | 9 | Go | FFI（cgo） | ⬜ 待做 | | 同上 |
 | 10 | Ruby | FFI（Fiddle） | ⬜ 待做 | | 同上 |
-| 11 | FFI 面 | `amberice` 出 C ABI | ✅ `ambr_text` / `ambr_free_str` | 本次 | `rust/amberice/src/ffi.rs` + `include/amberice.h` |
+| 11 | FFI 面 | **独立 crate** `amberice-ffi`（cdylib） | ✅ `ambr_text` / `ambr_free_str` | 本次 | `rust/amberice-ffi/`；`amberice` 保持纯 rlib |
+
+> FFI 端**刻意只到「文本」为止**：更友好的对象 API（值/路径/类型）等 `swml` 定稿后再一次性加，
+> 免得五个绑定先把一套临时 API 抄死。现在这层只承诺「字节进、canonical 文本出」。
 
 > Java 现状说明：`bindings/java` 里的 `Sml` 是 FFM 调 Rust cdylib（不是原生实现）；
 > `Ambr` 是**纯 Java**，不加载任何本地库 —— 这正是用户说的「java 这种可能应该做」。
