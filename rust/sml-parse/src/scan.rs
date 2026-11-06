@@ -256,6 +256,24 @@ fn blank_of(s: &str) -> String {
 pub fn strip_features(
     text: &str,
 ) -> Result<(String, FeatureSet, FeatureSet, FeatureMode, Option<Edition>, bool), SmlError> {
+    // ⚡ 快路径：`feature` 一词都不在文本里 ⇒ 不可能有 `@feature`（含 `@ feature` 写法）。
+    // 逐行 push_str、字符串区间表、等长替换全可跳过；判据保守，误命中只会走慢路径。
+    // ｜ Conservative gate; a false positive merely falls back to the line loop.
+    if !text.contains("feature") {
+        let mut out = String::with_capacity(text.len() + 1);
+        out.push_str(text);
+        if !text.ends_with('\n') {
+            out.push('\n'); // 与逐行分支相同的「末行补换行」历史行为
+        }
+        return Ok((
+            out,
+            FeatureSet::baseline(),
+            FeatureSet::none(),
+            FeatureMode::Default,
+            None,
+            false,
+        ));
+    }
     let mut out = String::new();
     // ⚡ **惰性求值**（IDEAS I-23 第二处）：`compute_string_spans` 是 O(n) 全文扫描，
     // 存在的唯一目的是回答「这个 `@` 是不是落在多行字符串里」。而**首字符不是 `@` 的行
@@ -554,6 +572,18 @@ pub fn strip_version(text: &str) -> Result<(String, Option<Edition>), SmlError> 
         }
         None => text,
     };
+    // ⚡ 快路径：指令词 `version` 根本不在文本里 ⇒ 不可能有 `@version`（哪怕写成
+    // `@ version` 也含这个词）。逐行 push_str 与字符串区间表都可以整段跳过。
+    // 判据刻意保守：`version` 出现在普通数据里只会误走慢路径，不会漏判。
+    // ｜ Conservative gate: a false positive only costs the old path, never a wrong parse.
+    if !text.contains("version") {
+        let mut rest = String::with_capacity(text.len() + 1);
+        rest.push_str(text);
+        if !text.ends_with('\n') {
+            rest.push('\n'); // 与下面逐行分支相同的「末行补换行」历史行为
+        }
+        return Ok((rest, None));
+    }
     // ⚡ 惰性求值（同 `strip_features`）：只有首字符是 `@` 的行才可能是指令
     let mut spans: Option<Vec<(usize, usize)>> = None;
     let mut declared: Option<Edition> = None;
