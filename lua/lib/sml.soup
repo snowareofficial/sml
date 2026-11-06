@@ -1597,4 +1597,213 @@ function Sml.dump(v)
   return table.concat(out)
 end
 
+-- ===========================================================================
+-- `.ambr` read-only decoder (T7 / N03) ｜ `.ambr` 只读解码器
+--
+-- Scope: 40 B header + 41 B segment table + `VALUE`/`STRTAB`; every other segment is
+-- skipped by its `len`. Compressed/encrypted VALUE/STRTAB is refused, not guessed.
+-- ｜ 只解 VALUE/STRTAB；其余段按 len 跳过；压缩/加密的段明确报错。
+--
+-- Returns `value, err` (never throws). Note: a top-level `null` decodes to `nil, nil`,
+-- so always check the second return. `f64` needs LuaJIT's `ffi`; without it a Float node
+-- fails with a clear message instead of a wrong value.
+-- ｜ 返回 `value, err` 不抛错；顶层 null 是 `nil, nil`；f64 依赖 LuaJIT 的 ffi。
+-- ===========================================================================
+local _ambr_ffi = nil
+do
+  local ok, ffi = pcall(require, "ffi")
+  if ok then _ambr_ffi = ffi end
+end
+
+local function _ambr_align(x, granule)
+  return math.ceil(x / granule) * granule
+end
+
+-- Minimal byte reader over a Lua string (1-based positions). ｜ 最小字节读取器。
+local function _ambr_reader(b)
+  return { b = b, len = #b, pos = 1 }
+end
+
+local function _ambr_u8(r)
+  if r.pos > r.len then return nil end
+  local v = string.byte(r.b, r.pos)
+  r.pos = r.pos + 1
+  return v
+end
+
+local function _ambr_u32(r)
+  if r.pos + 3 > r.len then return nil end
+  local a, b, c, d = string.byte(r.b, r.pos, r.pos + 3)
+  r.pos = r.pos + 4
+  return a + b * 256 + c * 65536 + d * 16777216
+end
+
+local function _ambr_u64(r)
+  local lo = _ambr_u32(r)
+  if not lo then return nil end
+  local hi = _ambr_u32(r)
+  if not hi then return nil end
+  return hi * 4294967296 + lo
+end
+
+local function _ambr_varint(r)
+  local v, shift = 0, 0
+  for _ = 1, 10 do
+    local byte = _ambr_u8(r)
+    if not byte then return nil end
+    v = v + (byte % 128) * 2 ^ shift
+    if byte < 128 then return v end
+    shift = shift + 7
+  end
+  return nil
+end
+
+local function _ambr_f64(r)
+  if not _ambr_ffi then return false end
+  if r.pos + 7 > r.len then return nil end
+  local raw = string.sub(r.b, r.pos, r.pos + 7)
+  r.pos = r.pos + 8
+  local d = _ambr_ffi.new("double[1]")
+  _ambr_ffi.copy(d, raw, 8)
+  return d[0]
+end
+
+-- Decode one node. `box.err` carries the first failure out. ｜ 解一个节点，错误写进 box.err。
+local function _ambr_node(r, strtab, depth, box)
+  if depth > 128 then box.err = "嵌套超过上限"; return nil end
+  local tag = _ambr_u8(r)
+  local _flags = _ambr_u8(r)
+  local sub = _ambr_u32(r)
+  if not tag or not _flags or not sub then box.err = "节点头越界"; return nil end
+  local payload = r.pos
+  local value
+
+  if tag == 0 then
+    value = nil
+  elseif tag == 1 then
+    value = false
+  elseif tag == 2 then
+    value = true
+  elseif tag == 3 then
+    local z = _ambr_varint(r)
+    if not z then box.err = "整数截断"; return nil end
+    local n = math.floor(z / 2)
+    if z % 2 == 1 then n = -n - 1 end
+    value = n
+  elseif tag == 4 then
+    local d = _ambr_f64(r)
+    if d == false then box.err = "解 f64 需要 LuaJIT 的 ffi"; return nil end
+    if d == nil then box.err = "浮点截断"; return nil end
+    value = d
+  elseif tag == 5 then
+    local id = _ambr_varint(r)
+    if not id or not strtab[id + 1] then box.err = "字符串 id 越界"; return nil end
+    value = strtab[id + 1]
+  elseif tag == 6 then
+    local count = _ambr_varint(r)
+    if not count then box.err = "数组截断"; return nil end
+    if count > 1000000 then box.err = "数组元素数超过上限"; return nil end
+    local arr = {}
+    for i = 1, count do
+      local item = _ambr_node(r, strtab, depth + 1, box)
+      if box.err then return nil end
+      arr[i] = item
+    end
+    value = arr
+  elseif tag == 7 then
+    local count = _ambr_varint(r)
+    if not count then box.err = "对象截断"; return nil end
+    if count > 1000000 then box.err = "对象字段数超过上限"; return nil end
+    local obj = {}
+    for _ = 1, count do
+      local key_id = _ambr_varint(r)
+      if not key_id or not strtab[key_id + 1] then box.err = "键 id 越界"; return nil end
+      local key = strtab[key_id + 1]
+      if obj[key] ~= nil then box.err = "对象里出现重复键"; return nil end
+      local child = _ambr_node(r, strtab, depth + 1, box)
+      if box.err then return nil end
+      obj[key] = child
+    end
+    value = obj
+  else
+    box.err = "未定义的节点 tag"
+    return nil
+  end
+
+  if (r.pos - payload) ~= sub then
+    box.err = "subtree_len 与实际消费不符"
+    return nil
+  end
+  return value
+end
+
+function Sml.ambr_load(bytes)
+  if type(bytes) ~= "string" or #bytes < 40 then
+    return nil, "AMBR: 文件短于 40 B 头"
+  end
+  if string.sub(bytes, 1, 4) ~= "AMBR" then
+    return nil, "AMBR: 不是 .ambr 文件（magic 不是 AMBR）"
+  end
+  local fmt = string.byte(bytes, 7)
+  local hdr_len = string.byte(bytes, 8)
+  local hr = _ambr_reader(string.sub(bytes, 1, 40))
+  hr.pos = 9
+  local table_off = _ambr_u64(hr)
+  if not table_off then return nil, "AMBR: 头被截断" end
+  hr.pos = 17
+  local count = _ambr_u32(hr)
+  if not count then return nil, "AMBR: 头被截断" end
+  local flags = string.byte(bytes, 21) + string.byte(bytes, 22) * 256
+  if fmt ~= 0 then return nil, "AMBR: 不支持的字节布局版本" end
+  if hdr_len < 40 or table_off < hdr_len then
+    return nil, "AMBR: 头部长度或段表偏移非法"
+  end
+
+  local granule = (flags % 2 == 1) and 4096 or 8
+  local body_at = _ambr_align(table_off + count * 41, granule)
+  local value_body, strtab_body = nil, nil
+
+  for i = 0, count - 1 do
+    local o = table_off + i * 41 + 1 -- 1-based
+    if o + 40 > #bytes then return nil, "AMBR: 段表越界" end
+    local id = string.byte(bytes, o)
+    local comp = string.byte(bytes, o + 1)
+    local enc = string.byte(bytes, o + 2)
+    local len = string.byte(bytes, o + 5) + string.byte(bytes, o + 6) * 256 +
+                string.byte(bytes, o + 7) * 65536 + string.byte(bytes, o + 8) * 16777216
+    if body_at + len > #bytes then return nil, "AMBR: 段体长度越界" end
+    if id == 1 or id == 2 then
+      if comp ~= 0 or enc ~= 0 then
+        return nil, "AMBR: VALUE/STRTAB 压缩或加密过，本解码器不解"
+      end
+      if id == 1 then
+        value_body = string.sub(bytes, body_at + 1, body_at + len)
+      else
+        strtab_body = string.sub(bytes, body_at + 1, body_at + len)
+      end
+    end
+    body_at = _ambr_align(body_at + len, granule)
+  end
+
+  if not value_body then return nil, "AMBR: 找不到 VALUE 段" end
+
+  local strtab = {}
+  if strtab_body then
+    local r = _ambr_reader(strtab_body)
+    while r.pos <= r.len do
+      local n = _ambr_varint(r)
+      if not n or r.pos + n - 1 > r.len then return nil, "AMBR: STRTAB 解析失败" end
+      strtab[#strtab + 1] = string.sub(r.b, r.pos, r.pos + n - 1)
+      r.pos = r.pos + n
+    end
+  end
+
+  local r = _ambr_reader(value_body)
+  local box = {}
+  local v = _ambr_node(r, strtab, 0, box)
+  if box.err then return nil, "AMBR: " .. box.err end
+  if r.pos ~= r.len + 1 then return nil, "AMBR: VALUE 段读完仍有剩余字节" end
+  return v
+end
+
 return Sml
