@@ -40,7 +40,7 @@
 | T02 | 顶层标量行为统一 | 已完成(未勾)：五端同报 `E-PARSE-008` | P2 | 无 | 五端各跑 `42` 均得 `E-PARSE-008`（码表该条 `impls: [ rust js c cpp lua ] status: done`） | `TODO.md:166`、对照 `TODO.md:1178` | 无；只需回填勾选 |
 | T03 | 错误边界不一致（同名键 / 未闭合括号 / 空文档 / 仅注释 / 重复片段名） | 部分完成：同名键已改告警 `W-PARSE-001/002`；空文档与仅注释两例已五端 AGREE | P1 | T01 | 五类各一条 conformance 用例全 AGREE | `TODO.md:201`、`tests/conformance/known_divergences.md:15` | 实现者 |
 | T04 | Lua/JS 缺单元测试 | 部分完成：Lua 有 `test_codes.lua` 184 条 + `run_check.py` 120 条；JS 有 `probe-error-codes.mjs` 52 条（均为脚本，非测试框架） | P2 | T01 | 两端各有进 CI 的测试目标，且 `0 passed` 不算通过 | `TODO.md:203` | 实现者 |
-| T05 | C `sml_dump` 与 Rust `to_sml` 逐字节对齐 | 部分完成：行数一致 19/19、总行差 0；剩「引号策略」「键序」两类未改 | P2 | 无 | `python tools/check_dump_parity.py` 逐字节一致，或两类取舍写进规范并登记 | `TODO.md:204`、`TODO.md:1180` | 用户（两类是数据保真级取舍） |
+| T05 | C `sml_dump` 与 Rust `to_sml` 逐字节对齐 | **已完成（2026-11-06，用户裁决「留路」）**：两类差异写进 `docs/value-layout.md`「渲染差异（允许）」；`check_dump_parity.py` 改为分类判定 + `--strict` 保留旧口径。134 文件语料：仅键序 25 / 引号 21 / 未分类 0（其余 13 全落在串内转义、`$env`、浮点写法三类已知项） | P2 | 无 | `python tools/check_dump_parity.py` 逐字节一致，或两类取舍写进规范并登记 | `TODO.md:204`、`TODO.md:1180`、`docs/value-layout.md §渲染差异（允许）` | 无 |
 | T06 | Lua 补契约数组 `[契约名]` | 未做（用户已定「先不动 Lua」） | P2 | 无 | `41_contract_array` 五端 AGREE | `TODO.md:318` | 用户 |
 | T07 | 清理 DeepSeek 开发痕迹 | 未做（发布前） | P0 | 无 | 代码/文档/历史关键词 grep 归零，或产出「无法抹除」清单 | `TODO.md:802` | 用户（敏感部分自行处理） |
 | T08 | 国际化：README / crate 文档 / CLI 帮助中英双语（范围：`swml` / `swsml` / `sml-*`，**`smltools` 不算**；`amberice` / `smlkit-easy` 待问） | 未做；`smlb` 已双语，其余 crate 与 CLI 待核对 | P1 | T28 / T40 / T41 / T42（与文档治理同批） | 逐 crate 清单勾完；缺英文时回退中文且不静默 | `TODO.md:804`、`docs/amberice-plan.md:2.1` | 实现者；**对外措辞动前问用户** |
