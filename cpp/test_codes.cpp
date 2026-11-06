@@ -949,9 +949,9 @@ static void test_error_msgs() {
     }
     if (empty == 0) std::cout << "  ok: 全量非空 -> 所有码 title/msg 非空\n";
     else { std::cout << "FAIL: 全量非空 有 " << empty << " 条码 title/msg 为空\n"; failures++; }
-    // 25 -> 27：R1 新增 W-PARSE-001/002 后码表变了，本断言当时漏改（JS/Lua 同处已修）
-    if (parse == 27) std::cout << "  ok: PARSE 领域 -> 27 条\n";
-    else { std::cout << "FAIL: PARSE 领域期望 27, 实得 " << parse << "\n"; failures++; }
+    // 25 -> 27 -> 32：码表一直在长，本断言漏改过两轮（JS/Lua/C 三端已对齐 32）
+    if (parse == 32) std::cout << "  ok: PARSE 领域 -> 32 条\n";
+    else { std::cout << "FAIL: PARSE 领域期望 32, 实得 " << parse << "\n"; failures++; }
     std::cout << "  .. 共 " << count << " 条码\n";
 }
 

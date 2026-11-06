@@ -75,6 +75,17 @@ if rc == 0:
 else:
     sys.exit(rc)
 
+# --- `.ambr` 只读解码器对拍容器向量（T7 / N03）：21 例 + 语义抽检 ---
+rc = run(["g++", "-std=c++17", "-I.", "-o", "t_ambr.exe", "test_ambr.cpp", "ambr.cpp"])
+if rc == 0:
+    rc2, out = run_out([os.path.join(HERE, "t_ambr.exe")])
+    with open(os.path.join(HERE, "t_ambr_out.txt"), "w", encoding="utf-8") as f:
+        f.write(out)
+    print("AMBR rc=%d" % rc2)
+    if rc2 != 0: sys.exit(rc2)
+else:
+    sys.exit(rc)
+
 # --- 桥接 Rust cdylib 的 v3 能力 (sml_rs.* 与原生 sml.cpp 并存) ---
 SML_RUST_LIB = os.environ.get("SML_RUST_LIB")
 if SML_RUST_LIB is None:
