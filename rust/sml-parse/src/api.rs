@@ -656,7 +656,11 @@ fn parse_impl_tokens_ext<'a>(
     //   排除：`hello world`（两 token 裸键对，值可往返）、`@version v1`+`42`（首结构是
     //    @ 指令，非标量）、`42 { a: 1 }`（名为 42 的块，紧跟 `{`）、`42: x`（键值）。
     let lone_scalar = matches!(p.toks.as_slice(), [Tok::Word(_)] | [Tok::Str(_)]);
-    if lone_scalar {
+    // `allow_top_scalar` 是「读回 canonical 文本」的显式入口（spec §23.3）。
+    // 默认仍报 E_PARSE_008：W16 防的是**静默造键**（`42` 被解析成 `{"42": 42}`），
+    // 而不是标量本身；只要不静默改写形状，单标量可以精确往返。
+    // ｜ Opt-in read-back; the default still rejects to keep W16's guarantee.
+    if lone_scalar && !opts.allow_top_scalar {
         return Err(SmlError::from_code_msg(E_PARSE_008));
     }
     if is_scalar_value(p.toks.first()) {
@@ -686,6 +690,8 @@ fn parse_impl_tokens_ext<'a>(
             p.next();
             p.parse_block(Some(Tok::RBrace))
         }
+        // 单标量：只有显式 opt-in 才会走到这里（否则上面已报 E_PARSE_008）。
+        _ if lone_scalar => p.parse_lone_scalar(),
         _ => p.parse_block(None),
     };
     // 契约映射出口：排序后随输出返回（此后只读）。未开启时为 None。
