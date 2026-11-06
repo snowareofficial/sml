@@ -155,6 +155,30 @@ int main(int argc, char **argv) {
         cases++;
         p = hex_at + strlen("\"ambr_hex\": \"") + strlen(hex);
     }
+    /* Negative control: corrupt one digest byte of the first segment (table at 40, digest
+    ** starts at 49) and expect a refusal. Otherwise "verify the digest" is decorative.
+    ** 反向用例：改坏一个摘要字节必须拒绝。 */
+    {
+        char hex[8192];
+        if (take_quoted(json, "\"ambr_hex\": \"", hex, sizeof hex)) {
+            unsigned char *b = NULL;
+            size_t n = 0;
+            if (hex_to_bytes(hex, strlen(hex), &b, &n) && n > 49) {
+                char err[128];
+                b[49] ^= 0xff;
+                sml_value *v = sml_ambr_load(b, n, err, sizeof err);
+                if (v) {
+                    printf("FAIL: 改坏摘要后仍解码成功\n");
+                    failures++;
+                    sml_free(v);
+                } else {
+                    printf("  ok: 改坏摘要 → 拒绝\n");
+                }
+                free(b);
+            }
+        }
+    }
+
     free(json);
 
     printf("[ambr] %d 例，%d 个失败\n", cases, failures);
