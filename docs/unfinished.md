@@ -141,7 +141,7 @@ docs 子域 · 命名陷阱（包名 `swsml` / 库名 `sml`）。
 |---|---|---|
 | 命名候选 `amberice` | **已裁决（2026-11-06）：`smlb` 改名后的名字** | B 档已落地（`0f1c7f4`：`.ambr` / `AMBR`）；`swsml` **已发 18 版**（最新 `0.6.9-dev.0`）保持 core；`smlkit` → `swml` 另算（下一行） |
 | 主仓迁 GitHub | **用户准备中** | 前置：Gitee 推荐先拿完；清单见 `TODO.md §10.2`（双远端 / CI / Pages / `repository` / 保护规则） |
-| 门面改名 `smlkit` → `swml` | **已定，未动手** | `swml` 三注册表 404（2026-11-06）；`swsml` 保持 core；`smlkit-easy` 是否跟改待裁（`TODO.md §11.1`） |
+| 门面改名 `smlkit` → `swml` | **部分完成：crate 已建（2026-11-06）** | `rust/swml` = `pub use swsml::*` + `easy` 模块（原 `smlkit-easy` 并入，不再单独发）；三注册表 404 已核；`swsml` 保持 core；**发布未动**（`TODO.md §11.1`） |
 | 别名 `swmltool` / `swmltools` | **待做，有硬前提** | `smltools` 是 bin-only ⇒ 必须先抽 `lib` 才能做真别名；**纯占位违反 crates.io 政策**（`TODO.md §11.1`） |
 | `.swl` 文件后缀 | **已裁决（2026-11-06）：定 `.swl`** | 文本后缀 `.swl`；`.sml` 作**长期读取别名**（516 个受控文件不动）；`.smld` 作废；**写出默认值改到 v5**；规范落点 `docs/amberice-smldb-spec.md §0`（`TODO.md §11.2`） |
 | 官网重写 | **待做，顺序绑命名** | 只有首页 / 下载页版本落后 / 教科书 ch11·ch12 重复 / `llms.txt` 手抄；等 11.1–11.2 定稿（`TODO.md §11.3`） |

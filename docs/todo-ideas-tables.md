@@ -43,7 +43,7 @@
 | T05 | C `sml_dump` 与 Rust `to_sml` 逐字节对齐 | **已完成（2026-11-06，用户裁决「留路」）**：两类差异写进 `docs/value-layout.md`「渲染差异（允许）」；`check_dump_parity.py` 改为分类判定 + `--strict` 保留旧口径。134 文件语料：仅键序 25 / 引号 21 / 未分类 0（其余 13 全落在串内转义、`$env`、浮点写法三类已知项） | P2 | 无 | `python tools/check_dump_parity.py` 逐字节一致，或两类取舍写进规范并登记 | `TODO.md:204`、`TODO.md:1180`、`docs/value-layout.md §渲染差异（允许）` | 无 |
 | T06 | Lua 补契约数组 `[契约名]` | 未做（用户已定「先不动 Lua」） | P2 | 无 | `41_contract_array` 五端 AGREE | `TODO.md:318` | 用户 |
 | T07 | 清理 DeepSeek 开发痕迹 | 未做（发布前） | P0 | 无 | 代码/文档/历史关键词 grep 归零，或产出「无法抹除」清单 | `TODO.md:802` | 用户（敏感部分自行处理） |
-| T08 | 国际化：README / crate 文档 / CLI 帮助中英双语（范围：`swml` / `swsml` / `sml-*`，**`smltools` 不算**；`amberice` / `smlkit-easy` 待问） | 未做；`smlb` 已双语，其余 crate 与 CLI 待核对 | P1 | T28 / T40 / T41 / T42（与文档治理同批） | 逐 crate 清单勾完；缺英文时回退中文且不静默 | `TODO.md:804`、`docs/amberice-plan.md:2.1` | 实现者；**对外措辞动前问用户** |
+| T08 | 国际化：README / crate 文档 / CLI 帮助中英双语（范围：`swml` / `swsml` / `sml-*`，**`smltools` 不算**；`amberice` / `swml::easy` 已双语） | 未做；`smlb` / `swml`（含 `easy`）已双语，其余 crate 与 CLI 待核对。**运行时文案机制：`swi18n`**（用户 2026-11-06 批准；零依赖、系统语言 + 回退链） | P1 | T28 / T40 / T41 / T42（与文档治理同批） | 逐 crate 清单勾完；缺英文时回退中文且不静默 | `TODO.md:804`、`docs/amberice-plan.md:2.1` | 实现者；**对外措辞动前问用户** |
 | T09 | 双授权（MIT 或 Apache-2.0 + MulanPSL-2.0） | 未做；`swsml` / `smlb` 现仅 MulanPSL-2.0 | P0 | 无 | 两 crate 的 `license` 字段、LICENSE 文件、README 三处一致 | `TODO.md:806` | 用户（授权口径） |
 | T10 | 各 crate `repository` 补 GitHub 地址 | 未做；现只有 `gitee.com/snoware/sml` | P1 | T30 | 每个 `Cargo.toml` 指 GitHub，README 链接 GitHub 在前 | `TODO.md:808` | 用户（等迁 GitHub） |
 | T11 | Lua 嵌套数组 | 未做（用户已定「先不动 Lua」） | P2 | 无 | `05`/`06`/`07` 五端 AGREE | `TODO.md:967` | 用户 |
@@ -66,7 +66,7 @@
 | T28 | 全仓文档对齐 + 可重跑机制 | 未做（§九 五条症状，执行方案在 §14） | P0 | T40 / T41 / T42 | §九 的 4 条「做完的定义」全部满足 | `TODO.md:1414` | 实现者 |
 | T29 | 裁决 `amberice` 定位 | 已完成(未勾)：2026-11-06 用户裁决 = **`smlb` 改名后的名字**；B 档已落地（`0f1c7f4`：`.ambr` / `AMBR`） | P0 | 无 | 一句话定层（格式品牌 / 产品线 / 引擎），并回答「是否取代 smlkit、CLI 是否双名、语言是否仍叫 SML」 | `TODO.md:1440`、`TODO.md:1533` | 用户 |
 | T30 | 主仓迁 GitHub（Gitee 降镜像） | 待用户动作（前置：Gitee 先拿完） | P0 | T29 | `origin`=GitHub；同步方向反转；CI 绿；Pages/域名/`repository` 就位；发布公告 | `TODO.md:1465` | 用户 |
-| T31 | 门面 `smlkit` → `swml` | 已定、未动手（crate 未建，零迁移） | P1 | T18 / T29 | `swml` 0.1.0 建好（独立仓、`pub use swsml::*`）并按发布纪律发出 | `TODO.md:1488` | 用户（发布动作） |
+| T31 | 门面 `smlkit` → `swml` | **部分完成（2026-11-06）**：`rust/swml` 已建（`pub use swsml::*` + `easy` 模块 = 原 `smlkit-easy`），本地 `0.1.0-dev.0`、`publish = false`；**发布动作未做** | P1 | T18 / T29 | `swml` 0.1.0 建好（独立仓、`pub use swsml::*`）并按发布纪律发出 | `TODO.md:1488`、`rust/swml` | 用户（发布动作） |
 | T32 | 防御别名 `swmltool` / `swmltools` | 待做，有硬前提 | P2 | T31 | `smltools` 抽出 `lib`，别名包同版本、README 写明是别名（否则违反 crates.io 反占坑） | `TODO.md:1497` | 实现者（抽 lib）+ 用户（发布） |
 | T33 | 裁决 `.swl` 后缀策略 | **已裁决（2026-11-06）：`.swl`**；读别名已落（`smltools --from swl` + 扩展名列表 + VS Code `languages.extensions`）；写出默认留 v5；516 个 `.sml` 引用未动 | P1 | T29 | 二选一（`.swl` 或 `.smld`）+ 读取端别名；改默认留到 v5 | `TODO.md:1510`、`docs/amberice-smldb-spec.md §0` | 无（实现者已完成读端） |
 | T34 | 官网重写 | 未做（顺序绑命名） | P1 | T31 / T33 | 五区信息架构；版本与下载项由构建生成；中英同源；旧链接 301 | `TODO.md:1525` | 实现者（排期在命名后） |
@@ -201,7 +201,7 @@
 | I-17 | `weakdoc`：`.smlex` profile 引用 | Partial（库侧已实现，工具侧未做） | 语言 / profile | 工具侧发现规则 | 补三命名空间发现 + `--profile-dir`；把「不注入」写成可测判据 | `IDEAS.md:652` |
 | I-16 | 版本后缀与发布门禁 | 方案已定；门禁未做 | 发布治理 | CI | 做 `--check-version`（当前 `smltools` **无此参数**）拦「没到门槛就 bump」 | `IDEAS.md:677` |
 | I-18 | `amberice`（原 `.smlb`）二进制 + `smldb` | **文档写 Todo「零实现」= 过期**；T0–T6 已落，且 2026-11-06 改名完成（`smlb` → `amberice`、`.ambr` / `AMBR`） | 格式 / 持久化 | 设计前提：`Value` 还是 HTML 式节点模型 | **T7 五端解码器仍为零**（JS/Lua/C/C++ 无 `AMBR` 命中）+ `smldb`；先定 FTS / `:has()` / `id` 唯一 / 规模信封 | `IDEAS.md:702`、`docs/unfinished.md:69` |
-| I-19 | 品牌门面 `swml`（原 `smlkit`） | 名字已定（2026-11-06）；**crate 仍未建** | 命名 / 发布 | T18 / T29 | 新建 `swml` 0.1.0（独立仓、依赖 crates.io、`publish` 按纪律）；`smlkit-easy` 是否改 `swml-easy` 待裁 | `IDEAS.md:727` |
+| I-19 | 品牌门面 `swml`（原 `smlkit`） | **crate 已建（2026-11-06）**：`rust/swml`（`pub use swsml::*` + `easy` 模块）；`smlkit-easy` 已并入 `easy`、不再单独发；**未发布** | 命名 / 发布 | T18 / T29 | 新建 `swml` 0.1.0（独立仓、依赖 crates.io、`publish` 按纪律）；`smlkit-easy` 是否改 `swml-easy` 待裁 | `IDEAS.md:727` |
 | I-20 | 长文档产出链 | Partial（`--toc` + 锚点已落） | 工具 / 长文档 | 无 | 仍缺 `--to epub`、`--split-by section`、增量 emit、emit 源定位 | `IDEAS.md:766` |
 | I-21 | 语义部件目录 | Partial（跨后端漂移三修已落） | 工具 / 语义部件 | 无 | 六类部件：figure / admonition / footnote / deflist / sub·sup / toc 生成 | `IDEAS.md:792` |
 | I-22 | 下游方言六条设计问题 | Todo（**有对外发布禁令**） | 语言设计 / 下游 | 用户明确指示 | 只在内部讨论；六问逐条给「采纳 / 不采纳 / 待定」的说法 | `IDEAS.md:816` |

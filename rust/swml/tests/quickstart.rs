@@ -2,7 +2,7 @@
 //! 这一层只承诺 4 个概念能跑通。**每条用例都对应 README 里的一句话**，
 //! 所以 README 与行为不会各说各话。
 
-use smlkit_easy::Doc;
+use swml::easy::Doc;
 
 #[test]
 fn read_a_field_by_dotted_path() {
@@ -66,7 +66,7 @@ fn read_file_expands_include() {
 
 #[test]
 fn escape_hatch_and_conversions() {
-    use smlkit_easy::Error;
+    use swml::easy::Error;
 
     let doc = Doc::read("a: 1").unwrap();
     // raw() 给到底层 Value
@@ -74,7 +74,7 @@ fn escape_hatch_and_conversions() {
     // Display 与 to_sml 同源
     assert_eq!(doc.to_string(), doc.to_sml());
     // 能整体转成 Value
-    let value: smlkit_easy::Value = doc.clone().into();
+    let value: swml::easy::Value = doc.clone().into();
     assert_eq!(value.get("a").and_then(|v| v.as_i64()), Some(1));
 
     // Error 就是 SmlError 的别名（同一类型，不是包装）
