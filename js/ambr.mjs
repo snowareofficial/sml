@@ -18,6 +18,8 @@
 //! Not implemented yet ｜ 尚未做: digest verification (needs SHA-256; do it in the harness
 //! before trusting a file) and write-back (a read-only port is conformant by design).
 
+import { sha256, digestEqual } from "./sha256.mjs";
+
 const MAGIC = [0x41, 0x4d, 0x42, 0x52]; // "AMBR"
 const SEG_VALUE = 0x01;
 const SEG_STRTAB = 0x02;
@@ -248,6 +250,14 @@ export function load(input, options = {}) {
       if (comp !== 0) throw new AmbrError(`段 0x${id.toString(16)} 压缩过（comp=${comp}），本解码器不解压`, o);
       if (enc !== 0) throw new AmbrError(`段 0x${id.toString(16)} 加密过（enc=${enc}），本解码器不解密`, o);
       const body = b.subarray(bodyAt, bodyAt + len);
+      // Digest check (T7 criterion: "read the header, skip, **verify the digest**").
+      // ｜ T7 判据里的「验摘要」：段头 32 B 就是对段体做的 SHA-256。
+      if (options.verify !== false) {
+        const want = b.subarray(o + 9, o + 41);
+        if (!digestEqual(sha256(body), want)) {
+          throw new AmbrError(`段 0x${id.toString(16)} 摘要不符（段体被改动？）`, bodyAt);
+        }
+      }
       if (id === SEG_VALUE) valueBytes = body;
       else strtabBytes = body;
     }
