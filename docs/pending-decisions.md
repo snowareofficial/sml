@@ -119,6 +119,10 @@ VPS 半边留 `TODO(用户补事实)` 注释，不猜目标。
 - **T24 待办但对象变了**：`origin` 只剩 `dev`/`main`；`github` 有 6 条 `feat/*` + 2 条 `align/*`，
   要收的是这批（哪些已合并需逐条看）。
 - **T22 / T23 无法本地验证**（仓库设置），按用户说法 `dev` 保护已设置。
+- **T24 / T26 已获批准、尚未执行**（2026-11-06 用户「删」）：删 `github/align/bare-colon-e006`、
+  `github/align/frag-splice-c`、`github/feat/error-info-i18n`、`github/master`。
+  后 4 条未并入（`feat/bindings-java-python-ruby` / `bindings-v2` / `iter-parse-parser` /
+  `w25-error-msg-lookup`）用户未表态，保留。**下一会话执行时需再次确认**（远端破坏性操作）。
 
 ### 通用原则（D3 的教训）
 
