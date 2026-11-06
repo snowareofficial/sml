@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 //! **Canonical form**: the same data must yield the same text and the same bytes, no matter
-//! whether it came from `.sml` text, from program construction, or from another `.smlb`.
+//! whether it came from `.sml` text, from program construction, or from another `.ambr`.
 //! **canonical 形态**：让「同一份数据」无论来自 `.sml` 文本、程序构造，还是另一个
-//! `.smlb`，都产出**同一串文本**与**同一串字节**。
+//! `.ambr`，都产出**同一串文本**与**同一串字节**。
 //!
-//! Rules live in `docs/smlb-smldb-spec.md` §18 (C1–C13) and §19 (`VALUE` segment layout).
-//! 依据 `docs/smlb-smldb-spec.md` §18（C1–C13）与 §19（`VALUE` 段布局）。两张面孔：
+//! Rules live in `docs/amberice-smldb-spec.md` §18 (C1–C13) and §19 (`VALUE` segment layout).
+//! 依据 `docs/amberice-smldb-spec.md` §18（C1–C13）与 §19（`VALUE` 段布局）。两张面孔：
 //!
 //! | Form / 形态 | Entry / 入口 | Use / 用途 | Affected by `fmt` / 受 `fmt` 影响 |
 //! |---|---|---|---|
@@ -92,7 +92,7 @@ const MAX_SUBTREE_LEN: usize = u32::MAX as usize;
 /// Why an enum and not a `String` / 为什么是**独立的枚举**：the three failure families are of
 /// different nature — “built wrong” (C2), “data inexpressible” (C13), “bytes are corrupt”
 /// (decode) — and callers must handle them differently (e.g. `--check` maps them to distinct
-/// exit codes). The code table has no `E-SMLB-*` yet (that surface is fixed in T2), so this
+/// exit codes). The code table has no `E-AMBR-*` yet (that surface is fixed in T2), so this
 /// exposes a **stable `kind()` name** plus descriptive text; depth keeps `E-LIMIT-004`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -211,7 +211,7 @@ pub enum CanonicalError {
 
 impl CanonicalError {
     /// Stable machine-readable class name — a temporary anchor until the code table is fixed in T2
-    /// (then these become `E-SMLB-*`). ｜ 稳定的机器可读分类名（T2 定稿后换成 `E-SMLB-*`）。
+    /// (then these become `E-AMBR-*`). ｜ 稳定的机器可读分类名（T2 定稿后换成 `E-AMBR-*`）。
     pub fn kind(&self) -> &'static str {
         match self {
             CanonicalError::KeyOrderUnavailable => "key-order-unavailable",
@@ -316,8 +316,8 @@ impl std::error::Error for CanonicalError {}
 /// **编译期**就暴露：`dump` 只收 `&CanonicalValue`，而它只能由 `TryFrom<Value>` 得到。
 ///
 /// ```ignore
-/// let cv = smlb::CanonicalValue::try_from(sml::parse_ordered(text)?)?;
-/// let bytes = smlb::dump(&cv)?;          // 编译期就保证了有序
+/// let cv = amberice::CanonicalValue::try_from(sml::parse_ordered(text)?)?;
+/// let bytes = amberice::dump(&cv)?;          // 编译期就保证了有序
 /// ```
 ///
 /// 注意 `TryFrom` 的错误是 [`CanonicalError::KeyOrderUnavailable`] —— 转换点上必须
@@ -502,7 +502,7 @@ fn write_value(
         Value::Float(f, _raw) => {
             // C5 + C12：**忽略 raw**。raw 是解析期的书写痕迹（`1e10` vs `10000000000.0`），
             // 不参与相等比较，若让它进 canonical，「同一逻辑数据同字节」立刻不成立 ——
-            // 同一份数据从文本读入与从 `.smlb` 读入会得到两串不同文本，签名随之分裂。
+            // 同一份数据从文本读入与从 `.ambr` 读入会得到两串不同文本，签名随之分裂。
             if !f.is_finite() {
                 return Err(CanonicalError::NonFiniteFloat);
             }
@@ -650,14 +650,14 @@ where
 // subtree is `pos + 4 + subtree_len` (§19.2). ｜ `subtree_len` = **载荷**字节数（不含 6 B
 // 节点头）⇒ 跳过子树是 `pos + 4 + subtree_len`。
 
-/// The two `.smlb` segment bodies produced by one encode: `STRTAB` and `VALUE`.
-/// 一次编码产出的两个 `.smlb` 段体：`STRTAB` 与 `VALUE`。
+/// The two `.ambr` segment bodies produced by one encode: `STRTAB` and `VALUE`.
+/// 一次编码产出的两个 `.ambr` 段体：`STRTAB` 与 `VALUE`。
 ///
 /// Both are **segment bodies**, not segments: no 41 B segment header, no alignment, no
-/// `count` prefix — those belong to the container (`smlb`, T1) and to the L0 form
+/// `count` prefix — those belong to the container (`amberice`, T1) and to the L0 form
 /// (`canonical_bytes`, T0) respectively.
 /// 两者都只是**段体**：没有 41 B 段头、不涉及对齐、不带 `count` 前缀 —— 那些分别属于
-/// 容器层（`smlb`，T1）与 L0 形态（`canonical_bytes`，T0）。
+/// 容器层（`amberice`，T1）与 L0 形态（`canonical_bytes`，T0）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalBlocks {
     /// `(len:varint ‖ utf8)*` — **no** entry count (a segment header's `len` is the boundary).
@@ -669,7 +669,7 @@ pub struct CanonicalBlocks {
 }
 
 impl Value {
-    /// Canonical bytes — the `VALUE` segment payload of `.smlb` (§19). ｜ canonical 字节 —— `.smlb` 的 `VALUE` 段载荷（§19）。
+    /// Canonical bytes — the `VALUE` segment payload of `.ambr` (§19). ｜ canonical 字节 —— `.ambr` 的 `VALUE` 段载荷（§19）。
     ///
     /// Same logical data ⇒ same bytes (C12), whatever the origin. `Int(1)` and `Float(1.0)`
     /// are told apart by `tag` (not by spelling), and `subtree_len` lets a whole subtree be
@@ -709,11 +709,11 @@ impl Value {
         Ok(out)
     }
 
-    /// The same bytes, **split into the two `.smlb` segments**: `(STRTAB, VALUE)`.
-    /// 同一串字节，但**拆成两个 `.smlb` 段**（供容器层使用）。
+    /// The same bytes, **split into the two `.ambr` segments**: `(STRTAB, VALUE)`.
+    /// 同一串字节，但**拆成两个 `.ambr` 段**（供容器层使用）。
     ///
     /// Why it exists / 为什么要有它：§19.1 把 `STRTAB` 与 `VALUE` 定为两个段，
-    /// 而段头自带 `len`，段内就不需要「表项个数」了（L3）。容器层（`smlb`）拿到这两个
+    /// 而段头自带 `len`，段内就不需要「表项个数」了（L3）。容器层（`amberice`）拿到这两个
     /// 块即可直接落段，**不必自己解析 L0 前缀**，也不必复制一遍编码逻辑。
     ///
     /// `strtab` 的形态是 `(len:varint ‖ utf8)*`（不含个数）；`value` 是节点树。

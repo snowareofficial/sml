@@ -312,7 +312,7 @@ fn parse_ext(text: &str, feats: FeatureSet, opts: ParseOptions) -> Result<ParseO
 
 /// Parse into **explicitly source-ordered objects** (方案 2 / B).
 /// 解析成**显式保源序**的值：所有对象都是 `Map::Ordered`，可直接交给
-/// `smlb::dump` / `canonical_text` / `canonical_bytes`，**无需任何 feature**。
+/// `amberice::dump` / `canonical_text` / `canonical_bytes`，**无需任何 feature**。
 ///
 /// 与 [`parse`] 的差别只有对象载体：`parse()` 保持历史字节序（BTreeMap 排序），
 /// 本函数保留源序。这是「少隐式」的显式入口 —— 要签 canonical 就调它，

@@ -3,7 +3,7 @@
 #
 # 本地跑法（Windows 上必须显式指定 nightly 与 msvc target —— ASAN 只在该 target 可用）：
 #   rustup +nightly target add x86_64-pc-windows-msvc
-#   cargo +nightly fuzz run smlb_load -- -runs=100000
+#   cargo +nightly fuzz run amberice_load -- -runs=100000
 [workspace]
 
 [package]
@@ -28,7 +28,7 @@ sml-regex = { path = "../sml-regex" }
 # 值层（L3）：canonical 字节 + 文本发射器（L1 往返判据要用 `to_sml`）
 sml-value = { path = "../sml-value", features = ["sml"] }
 # 容器层（L2）：全能力打开，才能同时 fuzz 压缩 / 加密 / 签名 / mmap 的读路径
-smlb = { path = "../smlb", features = [
+amberice = { path = "../amberice", features = [
     "preserve_order",
     "sign",
     "compress",
@@ -58,36 +58,36 @@ doc = false
 bench = false
 
 [[bin]]
-name = "smlb_load"
-path = "fuzz_targets/smlb_load.rs"
+name = "amberice_load"
+path = "fuzz_targets/amberice_load.rs"
 test = false
 doc = false
 bench = false
 
 [[bin]]
-name = "smlb_get"
-path = "fuzz_targets/smlb_get.rs"
+name = "amberice_get"
+path = "fuzz_targets/amberice_get.rs"
 test = false
 doc = false
 bench = false
 
 [[bin]]
-name = "smlb_pack"
-path = "fuzz_targets/smlb_pack.rs"
+name = "amberice_pack"
+path = "fuzz_targets/amberice_pack.rs"
 test = false
 doc = false
 bench = false
 
 [[bin]]
-name = "smlb_layer"
-path = "fuzz_targets/smlb_layer.rs"
+name = "amberice_layer"
+path = "fuzz_targets/amberice_layer.rs"
 test = false
 doc = false
 bench = false
 
 [[bin]]
-name = "smlb_crypto"
-path = "fuzz_targets/smlb_crypto.rs"
+name = "amberice_crypto"
+path = "fuzz_targets/amberice_crypto.rs"
 test = false
 doc = false
 bench = false

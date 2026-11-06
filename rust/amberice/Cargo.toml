@@ -1,0 +1,87 @@
+[package]
+name = "amberice"
+# `.ambr` = 通用二进制信封（不可变 · 可寻址 · 可验证；SML 是内置载荷之一。`docs/amberice-smldb-spec.md`，D2：编 `Value`）。
+#
+# 为什么独立成 crate（D3）：**只依赖值模型** —— 「读一个文件不必拖进解析器」。
+# 本 crate 的默认构建连 `sml-value` 的 `sml`（文本发射器）特性都不需要：
+# canonical 文本只用 `sml-value` 里那份共享的「文本原子规则」。
+#
+# ⚠️ 发布节奏（D1）：`.ambr` / `smldb` 与 v5 一起开放，故 `publish = false`。
+version.workspace = true
+edition = "2021"
+description = "通用二进制信封 .ambr：不可变 · 可寻址 · 可签名校验；SML 是内置载荷之一。"
+license = "MulanPSL-2.0"
+repository = "https://gitee.com/snoware/sml"
+authors = ["Sal <sal@mail.swebase.cn>"]
+publish = false
+
+[lib]
+name = "amberice"
+path = "src/lib.rs"
+
+[[bin]]
+name = "amberice"
+path = "src/main.rs"
+
+[dependencies]
+sml-value = { version = "0.6.9-dev.0", path = "../sml-value" }
+# 签名（T4）：**只有 `sign` feature 下才进来**（用户 2026-11-04 批准引入，要求避开 RustSec 热点）。
+#
+# 选型台账（2026-11-05 实测 RustSec）：
+# - `ed25519-dalek` 3.0：历史上只有 RUSTSEC-2022-0093（双公钥签名预言机，1.0.1 起修复）；
+# - `curve25519-dalek`（间接）：RUSTSEC-2024-0344（标量减法时序），>= 4.1.3 已修，3.0 带 5.x 早已越过；
+# - `getrandom`：无公告页，仅 keygen 取熵（D41：熵只进一次性标识）。
+# 被**排除**的同期热点：`ring`（RUSTSEC-2025-0010 直接标 unmaintained）、
+# `ruzstd`（2026-10-13 HIGH 解压炸弹）、`zstd` 绑定（2026-10-26 三条新公告，属 T5，等冷却）。
+ed25519-dalek = { version = "3.0", optional = true }
+getrandom = { version = "0.3", optional = true }
+# 压缩（T5）：zstd 的 C 绑定链（`zstd` → `zstd-safe` → `zstd-sys`）。
+#
+# 台账（2026-11-05 实测 RustSec）：
+# - `zstd` 2026-10-26 三条（未初始化内存泄漏 / 跨流数据泄漏 / 字典训练越界），
+#   **影响 <0.8.0，修于 >=0.8.0**，且 0.8.0+ 需 `zstd-safe >= 8.2.0`；
+# - `zstd-sys` 同日一条：**仅 wasm32 目标**的 allocator shim 内存破坏。
+#   ⚠️ 本 crate 目前不构建 wasm（CI 无 wasm32 目标）；**若将来要上 wasm，这条必须重新评审**
+#   —— 用户 2026-11-05 裁决「用 zstd-sys 这条链」，即接受非 wasm 目标上的风险为零。
+# - 被排除的替代：`ruzstd`（2026-10-13 HIGH 解压炸弹）、`lz4_flex`（2026-03-17 HIGH）。
+zstd = { version = "0.14", optional = true }
+# 加密（T5）：AES-256-GCM + HKDF 派生 + Argon2id 口令派生。
+#
+# 台账（2026-11-05 实测 RustSec）：
+# - `aes-gcm`：RUSTSEC-2023-0096（MEDIUM，`decrypt_in_place_detached` 在 tag 失败时
+#   仍暴露明文），**修于 0.10.3**；本项目只用高层 `encrypt`/`decrypt`，不碰 `_detached`。
+# - `chacha20poly1305` / `argon2` / `hkdf`：无公告。
+aes-gcm = { version = "0.10.3", optional = true }
+hkdf = { version = "0.12", optional = true }
+sha2 = { version = "0.10", optional = true }
+argon2 = { version = "0.5", optional = true }
+# 内存映射（T3 的 RSS 判据）：`MappedFile` / `Store::open`。
+#
+# 台账（2026-11-05 实测 RustSec）：`memmap2` 有一条 **INFO**（RUSTSEC-2026-0186），
+# 只涉及 `advise_range` / `flush_range` 系列函数，**修于 >= 0.9.11**；
+# 本项目只用 `Mmap::map` + 切片，不碰那两个 API，且钉在 0.9.11 以上。
+memmap2 = { version = "0.9.11", optional = true }
+
+[features]
+# 对象保序（转发到 sml-value）：**canonical 的前提**（spec §18 C2）。
+#
+# 为什么默认关、而不是让本 crate 硬开：cargo 的特性是**按构建图取并集**的，
+# 本 crate 若硬开，`cargo test --workspace`（CI 的命令）会把整个 workspace 的
+# `sml-value` 一起切到保序档 —— 那等于顺手改掉 swsml / smltools 的既有行为，
+# 而它们是「默认档 = BTreeMap 字节序」的成百条 golden 用例。
+# 故：本 crate 自己跑时显式带 `--features preserve_order`
+# （不带的后果是**明确报错**而不是悄悄排序，见 `CanonicalError::KeyOrderUnavailable`）。
+preserve_order = ["sml-value/preserve_order"]
+# 层链签名（T4）：`amberice sign / append / verify / keygen / tree` 的验签部分。
+# 关掉后**仍能读**层链（序号/prev_hash 这些不需要密码学），只是签名为「未校验」。
+sign = ["dep:ed25519-dalek", "dep:getrandom"]
+# 压缩（T5）：段级 `comp` 字段（§19.1 / §20 的 `0x01 zstd`）。
+# 关掉后仍**能读**未压缩文件；读到压缩段会明确报「本构建不支持该压缩算法」。
+compress = ["dep:zstd"]
+# 加密（T5）：`dump_encrypted` / `load_encrypted` / `get_encrypted` 与 §20 的密文。
+# 关掉后仍**能读**明文文件；读到加密段明确报 `crypto-feature-disabled`。
+crypto = ["dep:aes-gcm", "dep:hkdf", "dep:sha2", "dep:argon2", "dep:getrandom"]
+# 内存映射（T3）：`MappedFile::open` —— 打开 100 MB 文件不把它搬上堆。
+# 关掉后一切照旧，只是得自己把 `&[u8]` 传进 `Store::open`。
+mmap = ["dep:memmap2"]
+default = []

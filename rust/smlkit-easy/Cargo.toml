@@ -7,7 +7,7 @@ license = "MulanPSL-2.0"
 repository = "https://gitee.com/snoware/sml"
 homepage = "https://sml.swebase.cn"
 readme = "README.md"
-# 尚未发布：等 I-18（.smlb / smldb）与 I-19 一起发，见仓库 TODO./IDEAS。
+# 尚未发布：等 I-18（.ambr / smldb）与 I-19 一起发，见仓库 TODO./IDEAS。
 publish = false
 
 [lib]

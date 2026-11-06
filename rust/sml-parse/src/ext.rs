@@ -316,7 +316,7 @@ impl ParseOptions {
     /// 解析成保源序对象（链式）。默认关闭以保持 `parse()` 的历史字节序。
     ///
     /// `parse_ordered()` 就是这个开关的便捷入口。开它之后 `Value` 的对象都是
-    /// `Map::Ordered`，可直接交给 `smlb::dump` / `canonical_*`，**不需要任何 feature**。
+    /// `Map::Ordered`，可直接交给 `amberice::dump` / `canonical_*`，**不需要任何 feature**。
     pub fn ordered(mut self) -> Self {
         self.ordered = true;
         self

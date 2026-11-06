@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 //! 基准共用件：计时器 + **峰值堆**计数 + 表格输出。
 //!
-//! 为什么值层与容器层的基准单独开文件（`value.rs` / `smlb.rs`），而这个模块只放共用件：
+//! 为什么值层与容器层的基准单独开文件（`value.rs` / `amberice.rs`），而这个模块只放共用件：
 //! `perf.rs` 的历史基线已入库，**一个字节都不改**（改了就没法跟 `docs/perf-baseline.md` 比）；
 //! 新两层共用同一套口径（release、5 轮取最小、同时报吞吐与峰值堆），故抽到这里。
 //! ｜ Shared harness for the new benches; `perf.rs` stays untouched so its baseline remains comparable.
@@ -148,7 +148,7 @@ pub fn row(label: &str, size: &str, op: &str, per_op: f64, bytes_per_op: usize, 
 }
 
 /// 只报内存、不报耗时的行（用于 `mmap` 这类「时间不是卖点」的判据）。
-#[allow(dead_code)] // 只有开了 `smlb-mmap` 的 bench 用它
+#[allow(dead_code)] // 只有开了 `amberice-mmap` 的 bench 用它
 pub fn row_mem(label: &str, size: &str, op: &str, mem: Mem) {
     println!(
         "| `{label}` | {size} | `{op}` | — | — | {} | {} |",

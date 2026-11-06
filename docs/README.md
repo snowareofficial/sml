@@ -3,8 +3,8 @@
 > 2026-11-04 建立。这个目录此前 **13 份文档平铺**、规范/计划/审计混放，读者无法判断权威性。
 > 本页给每份文档标**类型 + 状态**，是 P2（结构重构）的第一步。
 >
-> **2026-11-06 更新**：登记新增三份（`unfinished.md` / `smlb-design-origin.md` / `open-work.md`），
-> 并修正两处过期状态（`smlb-smldb-spec.md` 已不是「零实现」；`perf-baseline.md` 只覆盖 `parse`）。
+> **2026-11-06 更新**：登记新增三份（`unfinished.md` / `amberice-design-origin.md` / `open-work.md`），
+> 并修正两处过期状态（`amberice-smldb-spec.md` 已不是「零实现」；`perf-baseline.md` 只覆盖 `parse`）。
 > 当天用户点名「文档过于混乱、落后」，治理项已记进 `TODO.md` §九。
 >
 > ⚠️ **暂不移动文件**：`IDEAS.md` / `TODO.md`（由你自己维护）里有 6 处引用 `docs/*.md`，
@@ -35,11 +35,11 @@
 | `iter-parse-plan.md` | **archive** | 已完成并合入 | 迭代式解析改造（`9f7d528`） |
 | `doc-reconcile-2026-10-28.md` | **archive** | 一次性记录 | 文档对账（多数结论已落进代码/文档） |
 | `capability-matrix.md` | ref | 需更新（版本口径待 v5） | 五端能力矩阵 |
-| `perf-baseline.md` | ref | 2026-11-03，**只覆盖 `parse`** | 性能基准与分配账（`value` / `smlb` 两份 bench 未并入） |
-| `value-layout.md` | plan | 草案 v0.1，9 条验收全未打勾 | 内存值布局（与 `.smlb` 绑定） |
-| `smlb-smldb-spec.md` | plan | **T0–T6 已落**；T7 五端、`smldb` 未开工 | `.smlb` 格式 / `smldb`；§16.2 与 §23.3 仍有未定项 |
+| `perf-baseline.md` | ref | 2026-11-03，**只覆盖 `parse`** | 性能基准与分配账（`value` / `amberice` 两份 bench 未并入） |
+| `value-layout.md` | plan | 草案 v0.1，9 条验收全未打勾 | 内存值布局（与 `.ambr` 绑定） |
+| `amberice-smldb-spec.md` | plan | **T0–T6 已落**；T7 五端、`smldb` 未开工 | `.ambr` 格式 / `smldb`；§16.2 与 §23.3 仍有未定项 |
 | `unfinished.md` | **ref（唯一清单）** | 2026-11-06 快照 | 「还剩什么」只看这份；`open-work.md` 已归档 |
-| `smlb-design-origin.md` | archive | 2026-11-06 汇编 | `.smlb` 设计起点与原话（A/B/C 三级，逐条带出处） |
+| `amberice-design-origin.md` | archive | 2026-11-06 汇编 | `.ambr` 设计起点与原话（A/B/C 三级，逐条带出处） |
 | `open-work.md` | archive | 2026-11-04，**已被取代** | 三次扫描叠加；只查历史细节，勿据此排期 |
 
 ## 读的顺序（给你自己，也给新人）

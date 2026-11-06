@@ -116,7 +116,7 @@ cargo bench --bench perf -- --quick   # 迭代数减半，冒烟用
    与嵌套层数无关。`deep` 之所以略快，是因为每个 map 只有 1 个键、BTreeMap 只需一个节点。
 
 ⇒ **这里没有可做的局部优化**。真正能动的是「键的表示」（interning / 小字符串内联 /
-inline 小 map），那正是 `docs/value-layout.md` 与 `.smlb` 字符串表的地盘（IDEAS I-18）。
+inline 小 map），那正是 `docs/value-layout.md` 与 `.ambr` 字符串表的地盘（IDEAS I-18）。
 在解析器里改任何一行都只是把常数挪来挪去。
 
 ## 分配账（2026-11-03，为「每键 ≈400 ns」归因）
@@ -140,11 +140,11 @@ inline 小 map），那正是 `docs/value-layout.md` 与 `.smlb` 字符串表的
 不是某个可以微调的常数。要真正降下来必须动**表示**：
 
 - `Tok::Word(String)` → 借用切片（`&'a str` / `Span` 索引），让 token 不再自持分配；
-- 或键 interning（全局串表，`.smlb` 的字符串表就是这个思路）；
+- 或键 interning（全局串表，`.ambr` 的字符串表就是这个思路）；
 - 或 inline 小 map（`k: 1` 这种单键对象不单独 malloc）。
 
 ⚠️ 这三条都是**跨 crate 的表示变更**（lexer → parser → value），
-不是解析器里能局部完成的；而且会跟 `docs/value-layout.md`、`.smlb` 的字符串表设计绑在一起
+不是解析器里能局部完成的；而且会跟 `docs/value-layout.md`、`.ambr` 的字符串表设计绑在一起
 ⇒ 归 IDEAS I-18 / value-layout 讨论，**不在性能任务里顺手做**。
 
 ### （历史）第二处之前的数字
@@ -183,6 +183,6 @@ inline 小 map），那正是 `docs/value-layout.md` 与 `.smlb` 字符串表的
 - [x] **推广**：快路径已覆盖 `parse` / `parse_versioned` / `parse_allowed` /
       `parse_with_features` / `parse_with_features_env` / `parse_with` / `parse_with_warnings`
 - [ ] **下一个真正的杠杆**：每键 ≈400 ns 是「键的表示」问题 ——
-      小字符串内联 / 键 interning / inline 小 map，属 `docs/value-layout.md` 与 `.smlb`（I-18）。
+      小字符串内联 / 键 interning / inline 小 map，属 `docs/value-layout.md` 与 `.ambr`（I-18）。
 - [ ] 编译期切分（`preserve_order`、`emit-*`）留到最后 —— 注意文档里的 `@feature`
       是**运行期**开关，**不能**编译掉。

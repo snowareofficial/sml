@@ -2,7 +2,7 @@
 //! 值层基准：`to_sml` / `canonical_text` / `canonical_bytes` / `Value::get` / `eq_ordered`。
 //!
 //! 为什么单独一层（HANDOFF §5.2）：值层是**解析与容器之间的公共底座**，
-//! `parse`、`dump`、`smlb::load` 全都压在它上面。把这层的数字先拿到，
+//! `parse`、`dump`、`amberice::load` 全都压在它上面。把这层的数字先拿到，
 //! 后面两层的异常才有归因 —— 否则「`load` 慢」到底慢在解码还是慢在值层，说不清。
 //!
 //! 用法：
