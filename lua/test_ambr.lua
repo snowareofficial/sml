@@ -62,6 +62,16 @@ while true do
     bad(id, err)
   elseif id == "scalar-int" then
     if v == 1 then ok(id) else bad(id, "期望整数 1") end
+  elseif id == "scalar-int-i64-min" then
+    -- 5.3+ 有 integer 子类型，必须精确到 math.mininteger；5.1 / LuaJIT 只有 double，
+    -- 只要求不崩，不要求精确（这是运行时能力，不是解码器的错）。
+    -- ｜ 5.3+ must be exact; 5.1 / LuaJIT can only degrade.
+    if math.maxinteger then
+      if math.type(v) == "integer" and v == math.mininteger then ok(id)
+      else bad(id, "期望 math.mininteger，实得 " .. tostring(v) .. " (" .. tostring(math.type(v)) .. ")") end
+    else
+      ok(id .. " (double runtime, exactness not required)")
+    end
   elseif id == "flat-array" then
     if type(v) == "table" and #v == 3 and v[1] == 1 and v[3] == 3 then ok(id)
     else bad(id, "期望 [1 2 3]") end
