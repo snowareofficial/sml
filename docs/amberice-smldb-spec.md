@@ -2231,6 +2231,10 @@ entries = (var_id:varint, type_id:u64le, off:u32le, len:u32le)
   **白名单（已实现，裁决甲）**：段头 `flags` 位 0 = 「本段声明明文」。加密文件里每段
   `enc == 0` 当且仅当该位为 1；两者不一致 ⇒ 拒读。写侧 `DumpOptions.crypto_plain: Vec<u8>`。
   典型用法：把 `DIR` 声明为明文以保住索引（用保密性换速度），或让 `TYPED` 保持可读。
+  ⚠️ **当前没有消费者**：`Store::open` 在加密文件上连 `VALUE` 都拒绝（`EncryptedNotZeroCopy`），
+  且没有接收密钥的入口。所以「明文 `DIR`」目前只是**格式上的许可**，不产生任何性能收益；
+  要等带密钥的读取路径（`Store::open_with_keys` 一类）落地才真正有用。
+  在此之前，声明明文只对「实现方自己解密的路径」有意义（如 `load_encrypted` 之后的再读）。
 - 不新增 cap 也意味着**不需要改 `registered_capabilities()`**，不产生「声明了却没人认」的假能力。
 
 ### 25.7 状态

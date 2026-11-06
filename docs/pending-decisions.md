@@ -93,3 +93,7 @@ VPS 半边留 `TODO(用户补事实)` 注释，不猜目标。
 **白名单：甲（已实现）**——段头 `flags` 位 0 = 「本段声明明文」（`SEG_FLAG_PLAINTEXT`）；
 写侧 `DumpOptions.crypto_plain: Vec<u8>`，读侧要求 `enc == 0` 与声明位一致，不一致即拒读。
 不动 manifest 布局。
+
+⚠️ **这条现在收益为零，必须记清楚**：`Store` 没有接收密钥的入口，加密文件上连 `VALUE`
+都读不了（`EncryptedNotZeroCopy`），所以「声明明文 `DIR`」目前不产生任何加速。
+它要等**带密钥的 Store**（`open_with_keys` 一类）才有消费者；在那之前写这条只是格式许可。
