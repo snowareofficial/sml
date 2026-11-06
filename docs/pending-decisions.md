@@ -90,6 +90,24 @@ VPS 半边留 `TODO(用户补事实)` 注释，不猜目标。
 - 明文文件：出现 `enc != 0` 的段，否则 `EncryptedSegmentInPlainFile`；
 - `DIR` 已并入 seal/加密流水线；加密文件里它是密文，`Store::get` 用不上索引（安全优先于速度）。
 
+---
+
+## 2026-11-06 用户答复（四条）
+
+- **D1 发布**：「还没到发布」⇒ 只准备 release.yml 与 v5 表 A，**不执行任何发布动作**。
+- **D2 授权**：「都 MulanPSL-2.0 了，基本算白送」⇒ **保持单授权**，不改任何 `license` 字段。
+- **D4 VPS**：「一个定时请求 Cloudflare Worker，CF Worker 触发 GitHub Workflow 完成多平台的
+  构建和发布」⇒ **根本没有 VPS**。T36 的 deploy.yml 方案作废：改为
+  `cron → CF Worker → repository_dispatch → GitHub Actions（多平台构建 + 发布）`。
+- **D3 `@feature base`**：用户问「哪里用到它了，是不是已弃用」。**没有弃用**，仍是活的：
+  Rust `scan::resolve_edition`（与 `@version` 共用判据）、`js/sml.mjs` 的版本检测、
+  `grammar.sml` 的指令表、`js/probe-error-codes.mjs` 的版本矩阵用例。
+  所以 D3 的真问题不是「弃用没」，而是**要不要新增 `@title`** 来承载书名（现状用顶层 `title:` 键）。
+  待用户一句话。
+
+> B 组（操作类）多条已过时，例如 `dev` 分支保护已设置。实现者不再按旧清单催办，
+> 以用户实际状态为准；表里对应行改标「待核实」。
+
 **白名单：甲（已实现）**——段头 `flags` 位 0 = 「本段声明明文」（`SEG_FLAG_PLAINTEXT`）；
 写侧 `DumpOptions.crypto_plain: Vec<u8>`，读侧要求 `enc == 0` 与声明位一致，不一致即拒读。
 不动 manifest 布局。
