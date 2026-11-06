@@ -73,7 +73,9 @@ enum InputFormat {
 impl InputFormat {
     fn parse(s: &str) -> Option<InputFormat> {
         match s.to_ascii_lowercase().as_str() {
-            "sml" => Some(InputFormat::Sml),
+            // `swl` 是 2026-11-06 裁决的新文本后缀（spec §0）：格式名仍是 sml，
+            // 这里只让 `--from swl` 等价于 `--from sml`，不新增一种输入格式。
+            "sml" | "swl" => Some(InputFormat::Sml),
             "json" => Some(InputFormat::Json),
             "toml" => Some(InputFormat::Toml),
             "yaml" | "yml" => Some(InputFormat::Yaml),
@@ -91,7 +93,8 @@ impl InputFormat {
     /// 体量最大的一类，让用户为此多敲一次 `--from xml` 没有意义。
     fn extensions(&self) -> &'static [&'static str] {
         match self {
-            InputFormat::Sml => &["sml"],
+            // `.swl` 是 v5 起的默认文本后缀，`.sml` 长期作读取别名（spec §0）。
+            InputFormat::Sml => &["sml", "swl"],
             InputFormat::Json => &["json"],
             InputFormat::Toml => &["toml"],
             InputFormat::Yaml => &["yaml", "yml"],
@@ -140,7 +143,8 @@ fn resolve_input_format(
     match explicit {
         // `E-CLI-001`：显式指定时取值校验；按扩展名推断不会走到这里。
         Some(s) => InputFormat::parse(s).ok_or_else(|| {
-            SmlError::from_code_msg(E_CLI_001).with_detail(format!("`{s}`（sml|json|toml|yaml|xml）"))
+            SmlError::from_code_msg(E_CLI_001)
+                .with_detail(format!("`{s}`（sml|swl|json|toml|yaml|xml）"))
         }),
         None => Ok(InputFormat::detect(input)),
     }

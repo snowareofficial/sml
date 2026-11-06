@@ -26,7 +26,8 @@
   "main": "./src/extension.js",
   "activationEvents": [
     "onLanguage:sml",
-    "workspaceContains:**/*.sml"
+    "workspaceContains:**/*.sml",
+    "workspaceContains:**/*.swl"
   ],
   "contributes": {
     "commands": [
@@ -71,7 +72,8 @@
           "sml"
         ],
         "extensions": [
-          ".sml"
+          ".sml",
+          ".swl"
         ],
         "configuration": "./language-configuration.json"
       }

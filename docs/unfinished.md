@@ -139,11 +139,11 @@ docs 子域 · 命名陷阱（包名 `swsml` / 库名 `sml`）。
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| 命名候选 `amberice` | **待裁决** | 三个注册表实测 404（crates.io / PyPI / npm，2026-11-06）；`swsml` **已发 18 版**（最新 `0.6.9-dev.0`），`smlb` / `smlkit` / `amberice` **未发** ⇒ 改名窗口对后三者开放；建议 `amberice` 只占门面层（原 `smlkit` 坑位），不动 `.smlb` / `SWSB` / `sml` / `smlb` |
+| 命名候选 `amberice` | **已裁决（2026-11-06）：`smlb` 改名后的名字** | B 档已落地（`0f1c7f4`：`.ambr` / `AMBR`）；`swsml` **已发 18 版**（最新 `0.6.9-dev.0`）保持 core；`smlkit` → `swml` 另算（下一行） |
 | 主仓迁 GitHub | **用户准备中** | 前置：Gitee 推荐先拿完；清单见 `TODO.md §10.2`（双远端 / CI / Pages / `repository` / 保护规则） |
 | 门面改名 `smlkit` → `swml` | **已定，未动手** | `swml` 三注册表 404（2026-11-06）；`swsml` 保持 core；`smlkit-easy` 是否跟改待裁（`TODO.md §11.1`） |
 | 别名 `swmltool` / `swmltools` | **待做，有硬前提** | `smltools` 是 bin-only ⇒ 必须先抽 `lib` 才能做真别名；**纯占位违反 crates.io 政策**（`TODO.md §11.1`） |
-| `.swl` 文件后缀 | **待裁决** | `.sml` 被 **516** 个文件引用；与已定的 `.smld` 冲突；建议「先接受别名、默认留到 v5」（`TODO.md §11.2`） |
+| `.swl` 文件后缀 | **已裁决（2026-11-06）：定 `.swl`** | 文本后缀 `.swl`；`.sml` 作**长期读取别名**（516 个受控文件不动）；`.smld` 作废；**写出默认值改到 v5**；规范落点 `docs/amberice-smldb-spec.md §0`（`TODO.md §11.2`） |
 | 官网重写 | **待做，顺序绑命名** | 只有首页 / 下载页版本落后 / 教科书 ch11·ch12 重复 / `llms.txt` 手抄；等 11.1–11.2 定稿（`TODO.md §11.3`） |
 | 发布工作流 `release.yml` | **待做** | tag + 人工审批；crates.io 按拓扑序 + dry-run；VSIX/Open VSX/Release 附属产物；顺序在命名与迁 GitHub 之后（`TODO.md §12.1`） |
 | 定时部署 `deploy.yml` | **待做，对象待明确** | Cloudflare 现为 **Pages**（`sml-site`）非 Worker；VPS 部署内容仓库无记录；**触发改用 Ruby 脚本 + 系统级定时器**（Actions cron 不准点且 60 天停用）；`TODO.md §12.2` |
