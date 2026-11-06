@@ -560,8 +560,8 @@ fn parse_impl(
 ///
 /// `spans` 与 `toks` 一一对应；**拿不到就传空**（如文件入口的 include 展开
 /// 是跨文件合并的 token 流，没有可映射的单一原文）—— 解析器会退回「不带位置」。
-fn parse_impl_tokens(
-    toks: Vec<Tok>,
+fn parse_impl_tokens<'a>(
+    toks: Vec<Tok<'a>>,
     spans: Vec<Span>,
     lines: Vec<usize>,
     features: FeatureSet,
@@ -574,19 +574,19 @@ fn parse_impl_tokens(
 /// 顶层首个 token 是否为「值型标量」：数字 / 引号串 / bool / null。
 /// 裸词标识符（如 `server`、`a`，作为块类型名/块名）**不算**值型 —— 这是区分
 /// T9 误报（`42 a { }`）与合法带类型块（`server web { }`）的关键。
-fn is_scalar_value(tok: Option<&Tok>) -> bool {
+fn is_scalar_value(tok: Option<&Tok<'_>>) -> bool {
     match tok {
         Some(Tok::Str(_)) => true,
         Some(Tok::Word(w)) => {
-            matches!(w.as_str(), "true" | "false" | "null") || w.as_str().parse::<f64>().is_ok()
+            matches!(w.as_ref(), "true" | "false" | "null") || w.as_ref().parse::<f64>().is_ok()
         }
         _ => false,
     }
 }
 
 /// 同 [`parse_impl_tokens`]，但携带外置扩展（见 [`crate::ext`]）。
-fn parse_impl_tokens_ext(
-    toks: Vec<Tok>,
+fn parse_impl_tokens_ext<'a>(
+    toks: Vec<Tok<'a>>,
     spans: Vec<Span>,
     lines: Vec<usize>,
     features: FeatureSet,

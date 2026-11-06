@@ -3,6 +3,7 @@
 //!
 //! Depends only on the value model and the feature set (whether a bareword may act as a string is decided by `Feature::BarewordStr`); it knows nothing about syntax structure, so it is easy to test and reuse on its own. ｜ 只依赖值模型与特性集（裸词是否可当字符串由 `Feature::BarewordStr` 决定），不涉及语法结构，便于单独测试与复用。
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 /// 标识符白名单（S1b，门控 `lex.ident`）：`check_ident` / `IdentError`。
@@ -19,9 +20,25 @@ use sml_value::Value;
 // 解析: 词法 + 递归下降
 // ---------------------------------------------------------------------------
 
-/// Token. `pub` only so submodules such as `cond` can reuse the parser cursor; it is not part of the outward API (the core module itself is private). ｜ 词法单元。`pub` 仅为让 `cond` 等子模块复用解析器游标，不对外暴露（核心模块本身是私有的）。
+/// Token. `pub` because `cond` and downstream crates reuse the parser cursor;
+/// it is re-exported by `sml-parse` and (under `when`) by `swsml`.
+/// ｜ 词法单元。`cond` 等子模块与下游 crate 会复用它被 `sml-parse` 再导出。
+///
+/// # 生命周期（0.7.0 变更）
+///
+/// `Word` / `Str` 现在是 [`Cow`]：裸词与无转义引号串**借用输入文本**，切词零分配。
+/// 代价是 `Vec<Tok<'a>>` 不能脱离输入 `&'a str` 存活（不能存 `'static`、不能从函数
+/// 里只返回 token）。需要独立存活时：
+///
+/// ```text
+/// let owned: Vec<TokOwned> = tokenize(text)?.into_iter().map(Tok::into_owned).collect();
+/// ```
+///
+/// 或直接把源文本与 token 一起放进同一个 struct（自引用结构请用 owning_ref /
+/// 索引偏移，别直接存引用）。
+/// ｜ Tokens borrow the source; use [`Tok::into_owned`] to detach them.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Tok {
+pub enum Tok<'a> {
     LBrace,  // {
     RBrace,  // }
     LBrack,  // [
@@ -35,8 +52,36 @@ pub enum Tok {
     /// 当成片段体消费掉（`@` + `mailer { .. }` 与 `@mailer { .. }`
     /// 的 token 流完全相同），导致内容被静默丢弃且不报错。
     BareAt,
-    Str(String),   // 引号串 (已解码)
-    Word(String),  // 裸词
+    Str(Cow<'a, str>),   // 引号串：无转义时借原文，含转义时解码为 Owned
+    Word(Cow<'a, str>),  // 裸词：连续切片时借原文，注释穿插时 Owned
+}
+
+/// Owned token: all text detached from the source. ｜ 完全脱离原文的 token（`'static`）。
+///
+/// 用途：把 token 存进 struct / 缓存 / 跨线程，或从函数里返回而不带源文本。
+/// ｜ Use this when you need tokens to outlive the input string.
+pub type TokOwned = Tok<'static>;
+
+impl Tok<'_> {
+    /// Turn every borrowed word into an owned one, yielding [`TokOwned`].
+    /// 把所有借用的词变成 owned，得到 [`TokOwned`]。
+    ///
+    /// 这是 `Tok<'a>` 借用版的退路：`tokenize(text)?.into_iter().map(Tok::into_owned)`
+    /// 就能重新拿到可独立存活的 token 流（代价是每词一次分配）。
+    pub fn into_owned(self) -> TokOwned {
+        match self {
+            Tok::LBrace => Tok::LBrace,
+            Tok::RBrace => Tok::RBrace,
+            Tok::LBrack => Tok::LBrack,
+            Tok::RBrack => Tok::RBrack,
+            Tok::Comma => Tok::Comma,
+            Tok::Colon => Tok::Colon,
+            Tok::At => Tok::At,
+            Tok::BareAt => Tok::BareAt,
+            Tok::Str(s) => Tok::Str(Cow::Owned(s.into_owned())),
+            Tok::Word(w) => Tok::Word(Cow::Owned(w.into_owned())),
+        }
+    }
 }
 
 /// A token's range in the source (**byte** offsets, half-open) ｜ 词法单元在原文中的区间（**字节**偏移，左闭右开）。
@@ -98,36 +143,79 @@ impl<'a> Iterator for PosChars<'a> {
     }
 }
 
+/// 把一个已积累完的裸词冲进 token 流。｜ Flush one finished bareword.
+///
+/// `word_start` 是词在原文里的起点；`owned` 只在「注释插进词中间」时才有值 ——
+/// 那时 token 内容不是原文的连续切片，必须保留已拼好的 owned 串。
+fn flush_word<'a>(
+    text: &'a str,
+    word_start: &mut Option<usize>,
+    owned: &mut Option<String>,
+    toks: &mut Vec<Tok<'a>>,
+    spans: &mut Vec<Span>,
+    end: usize,
+) {
+    let Some(start) = word_start.take() else {
+        return;
+    };
+    let (word, span_start) = match owned.take() {
+        Some(s) => {
+            // 注释插进词中：沿用旧实现的「end - 内容字节长」口径，span 逐字不变。
+            let span_start = end.saturating_sub(s.len());
+            (Cow::Owned(s), span_start)
+        }
+        None => (Cow::Borrowed(&text[start..end]), start),
+    };
+    toks.push(Tok::Word(word));
+    spans.push(Span { start: span_start, end });
+}
+
+/// 普通字符进词：只记起点，不复制字节（除非已因注释而不连续）。
+fn push_word(c: char, at: usize, word_start: &mut Option<usize>, owned: &mut Option<String>) {
+    if word_start.is_none() {
+        *word_start = Some(at);
+    }
+    if let Some(s) = owned.as_mut() {
+        s.push(c);
+    }
+}
+
+/// 注释出现在词中间：把已扫过的连续部分落成 owned，之后继续拼。
+fn break_contiguity(text: &str, word_start: Option<usize>, owned: &mut Option<String>, at: usize) {
+    if owned.is_none() {
+        if let Some(start) = word_start {
+            *owned = Some(text[start..at].to_string());
+        }
+    }
+}
+
 /// Tokenize **and** return each token's byte range in the source ｜ 切词，**并**返回每个 token 在原文中的字节区间。
 ///
 /// 与 [`tokenize`] 是同一个扫描器、同一套判据，只是多记一份旁路区间；
 /// 需要错误定位的入口（解析器 / CLI / 编辑器）用它。
-pub fn tokenize_spans(text: &str) -> Result<(Vec<Tok>, Vec<Span>), SmlError> {
-    // 试过按 `text.len()/4` 预估容量（`with_capacity`）—— 实测**无收益**
-    // （32k 行 5.16ms → 5.39ms，噪声内；各规模有增有减）。真正的大头是**每个词
-    // 一次 `String` 分配**，不是 Vec 扩容搬移，故此处保持 `Vec::new()`，
-    // 不为一个没测出来的收益增加代码。（记录在此，免得后来者重复试一次）
-    let mut toks = Vec::new();
+///
+/// ⚡ `Word` / `Str` 借用原文：裸词与无转义引号串是 `Cow::Borrowed`，**零分配**；
+/// 只有注释插进词中间、或引号串含转义时才回落 `Cow::Owned`（行为逐字不变）。
+/// ｜ Borrow whenever the bytes are a contiguous slice of the source.
+pub fn tokenize_spans(text: &str) -> Result<(Vec<Tok<'_>>, Vec<Span>), SmlError> {
+    let mut toks: Vec<Tok<'_>> = Vec::new();
     let mut spans = Vec::new();
     let mut chars = PosChars::new(text);
-    let mut buf = String::new();
-    // 闭包只按参数操作，不捕获可变状态，故无需 mut。
-    //
-    // `end` 由调用方给：裸词的字符是**连续**消费的（注释/定界符都会先把 buf 冲掉），
-    // 故起点 = `end - buf 的字节长度`，不必额外维护「词起始」状态。
-    let flush = |buf: &mut String, toks: &mut Vec<Tok>, spans: &mut Vec<Span>, end: usize| {
-        if !buf.is_empty() {
-            let len: usize = buf.chars().map(|c| c.len_utf8()).sum();
-            let start = end.saturating_sub(len);
-            toks.push(Tok::Word(std::mem::take(buf)));
-            spans.push(Span { start, end });
-        }
-    };
+    // 当前裸词：只记起点，不复制字节。
+    let mut word_start: Option<usize> = None;
+    let mut owned: Option<String> = None;
+    macro_rules! flush {
+        ($end:expr) => {
+            flush_word(text, &mut word_start, &mut owned, &mut toks, &mut spans, $end)
+        };
+    }
+
     while let Some(c) = chars.next() {
         // 本字符的起始偏移：`next()` 之后 pos 已越过它，故回退它的字节长度
         let c_start = chars.pos() - c.len_utf8();
         match c {
             '#' => {
+                break_contiguity(text, word_start, &mut owned, c_start);
                 // 单行注释到行尾
                 for c2 in chars.by_ref() {
                     if c2 == '\n' {
@@ -138,6 +226,7 @@ pub fn tokenize_spans(text: &str) -> Result<(Vec<Tok>, Vec<Span>), SmlError> {
             '-' => {
                 // `--` 单行注释到行尾；否则作为普通字符
                 if chars.peek() == Some(&'-') {
+                    break_contiguity(text, word_start, &mut owned, c_start);
                     chars.next(); // 吃掉第二个 -
                     for c2 in chars.by_ref() {
                         if c2 == '\n' {
@@ -145,14 +234,15 @@ pub fn tokenize_spans(text: &str) -> Result<(Vec<Tok>, Vec<Span>), SmlError> {
                         }
                     }
                 } else {
-                    buf.push(c);
+                    push_word(c, c_start, &mut word_start, &mut owned);
                 }
             }
             '/' => {
                 match chars.peek() {
                     // `//` 单行注释到行尾
                     Some('/') => {
-                        chars.next(); // 吃掉第二个 /
+                        break_contiguity(text, word_start, &mut owned, c_start);
+                        chars.next();
                         for c2 in chars.by_ref() {
                             if c2 == '\n' {
                                 break;
@@ -161,6 +251,7 @@ pub fn tokenize_spans(text: &str) -> Result<(Vec<Tok>, Vec<Span>), SmlError> {
                     }
                     // `/*` 多行注释，直到 `*/`；EOF 未闭合则报错（与未闭合字符串一致）
                     Some('*') => {
+                        break_contiguity(text, word_start, &mut owned, c_start);
                         chars.next(); // 吃掉 *
                         loop {
                             match chars.next() {
@@ -178,12 +269,13 @@ pub fn tokenize_spans(text: &str) -> Result<(Vec<Tok>, Vec<Span>), SmlError> {
                         }
                     }
                     // 否则作为普通字符（如路径 a/b/c）
-                    _ => buf.push(c),
+                    _ => push_word(c, c_start, &mut word_start, &mut owned),
                 }
             }
             '_' => {
                 // `_*` 多行注释，直到 `*_`；否则作为普通字符
                 if chars.peek() == Some(&'*') {
+                    break_contiguity(text, word_start, &mut owned, c_start);
                     chars.next(); // 吃掉 *
                     loop {
                         match chars.next() {
@@ -200,16 +292,22 @@ pub fn tokenize_spans(text: &str) -> Result<(Vec<Tok>, Vec<Span>), SmlError> {
                         }
                     }
                 } else {
-                    buf.push(c);
+                    push_word(c, c_start, &mut word_start, &mut owned);
                 }
             }
             '"' => {
-                flush(&mut buf, &mut toks, &mut spans, c_start);
-                let mut s = String::new();
+                flush!(c_start);
+                let content_start = chars.pos(); // 开引号之后
+                let mut decoded: Option<String> = None;
                 loop {
                     match chars.next() {
                         Some('"') => break,
                         Some('\\') => {
+                            let esc_start = chars.pos() - 1; // 反斜杠所在偏移
+                            if decoded.is_none() {
+                                decoded = Some(text[content_start..esc_start].to_string());
+                            }
+                            let s = decoded.as_mut().expect("刚初始化");
                             // 转义：\n \t \r \0 \" \\ \u{XXXX} \uXXXX
                             match chars.next() {
                                 Some('n') => s.push('\n'),
@@ -235,9 +333,7 @@ pub fn tokenize_spans(text: &str) -> Result<(Vec<Tok>, Vec<Span>), SmlError> {
                                                 hex.push(c2);
                                             } else {
                                                 // B8：\uXXXX 定长读 4 字符，
-                                                // 不足 4 位说明输入截断/非法，
-                                                // 必须把已读的 hex 当作失败处理
-                                                // 而非静默丢弃（否则会吃掉后续引号）。
+                                                // 不足 4 位说明输入截断/非法
                                                 return Err(SmlError::from_code_title(E_LEX_005)
                                                     .with_detail(format!("期望 4 位，得 {hex:?}")));
                                             }
@@ -260,9 +356,7 @@ pub fn tokenize_spans(text: &str) -> Result<(Vec<Tok>, Vec<Span>), SmlError> {
                                     s.push(ch);
                                 }
                                 Some(other) => {
-                                    // 未知转义（非 n/t/r/0/"/\/u）：必须报错，而非静默丢弃
-                                    // 反斜杠（P1-5：\U \d \z 等会让路径/正则静默损坏）。
-                                    // 与 \u 系列一致的严格策略：非法转义即失败。
+                                    // 未知转义：必须报错，而非静默丢弃
                                     return Err(SmlError::from_code_title(E_LEX_004).with_detail(
                                         format!(
                                             "\\{other}（仅支持 \\n \\t \\r \\0 \\\" \\\\ \\uXXXX）"
@@ -275,57 +369,61 @@ pub fn tokenize_spans(text: &str) -> Result<(Vec<Tok>, Vec<Span>), SmlError> {
                                 }
                             }
                         }
-                        Some(other) => s.push(other),
-                        // B9：未闭合字符串（EOF 前没有闭合引号）必须报错，
-                        // 否则后续整行/整个文件会被静默吞并。
+                        Some(other) => {
+                            // 无转义时不复制字节：最后直接借 `text[content_start..content_end]`。
+                            if let Some(s) = decoded.as_mut() {
+                                s.push(other);
+                            }
+                        }
+                        // B9：未闭合字符串（EOF 前没有闭合引号）必须报错
                         None => {
                             return Err(SmlError::from_code_msg(E_LEX_001))
                         }
                     }
                 }
+                let content_end = chars.pos() - 1; // 闭合引号的位置
+                let word = match decoded {
+                    Some(owned) => Cow::Owned(owned),
+                    None => Cow::Borrowed(&text[content_start..content_end]),
+                };
                 // 字符串区间含首尾引号（左闭右开）
                 spans.push(Span { start: c_start, end: chars.pos() });
-                toks.push(Tok::Str(s));
+                toks.push(Tok::Str(word));
             }
             '{' => {
-                flush(&mut buf, &mut toks, &mut spans, c_start);
+                flush!(c_start);
                 toks.push(Tok::LBrace);
                 spans.push(Span { start: c_start, end: chars.pos() });
             }
             '}' => {
-                flush(&mut buf, &mut toks, &mut spans, c_start);
+                flush!(c_start);
                 toks.push(Tok::RBrace);
                 spans.push(Span { start: c_start, end: chars.pos() });
             }
             '[' => {
-                flush(&mut buf, &mut toks, &mut spans, c_start);
+                flush!(c_start);
                 toks.push(Tok::LBrack);
                 spans.push(Span { start: c_start, end: chars.pos() });
             }
             ']' => {
-                flush(&mut buf, &mut toks, &mut spans, c_start);
+                flush!(c_start);
                 toks.push(Tok::RBrack);
                 spans.push(Span { start: c_start, end: chars.pos() });
             }
             ',' => {
-                flush(&mut buf, &mut toks, &mut spans, c_start);
+                flush!(c_start);
                 toks.push(Tok::Comma);
                 spans.push(Span { start: c_start, end: chars.pos() });
             }
             ':' => {
-                flush(&mut buf, &mut toks, &mut spans, c_start);
+                flush!(c_start);
                 toks.push(Tok::Colon);
                 spans.push(Span { start: c_start, end: chars.pos() });
             }
             '@' => {
                 // `@` 仅当位于**词首**时才是片段定义标记（`@base { ... }`）。
-                // 出现在词中间时（典型如邮箱 `a@b.c`）必须作为普通字符保留：
-                // 否则 `a@b.c` 会被切成 `Word("a")` + `At` + `Word("b.c")`，
-                // 后半段在解析时被丢弃，导致邮箱静默损坏为 `a`。
-                if buf.is_empty() {
-                    // 仅当 `@` 与后随内容紧邻（无空白）时才是片段/指令标记。
-                    // 孤立 `@`（后接空白或行尾）单独记为 BareAt，交由解析器报错，
-                    // 避免其后的块被误认作片段体而静默丢弃。
+                // 出现在词中间时（典型如邮箱 `a@b.c`）必须作为普通字符保留。
+                if word_start.is_none() {
                     let adjacent = match chars.peek() {
                         None => false,
                         Some(c) => !c.is_whitespace(),
@@ -333,19 +431,17 @@ pub fn tokenize_spans(text: &str) -> Result<(Vec<Tok>, Vec<Span>), SmlError> {
                     toks.push(if adjacent { Tok::At } else { Tok::BareAt });
                     spans.push(Span { start: c_start, end: chars.pos() });
                 } else {
-                    buf.push(c);
+                    push_word(c, c_start, &mut word_start, &mut owned);
                 }
             }
             ' ' | '\t' | '\n' | '\r' => {
-                // 空白本身不是 token：词在此处结束，故 end 取空白的起始偏移
-                flush(&mut buf, &mut toks, &mut spans, c_start);
+                // 空白本身不是 token：词在此处结束
+                flush!(c_start);
             }
-            _ => {
-                buf.push(c);
-            }
+            _ => push_word(c, c_start, &mut word_start, &mut owned),
         }
     }
-    flush(&mut buf, &mut toks, &mut spans, chars.pos());
+    flush!(chars.pos());
     Ok((toks, spans))
 }
 
@@ -353,7 +449,7 @@ pub fn tokenize_spans(text: &str) -> Result<(Vec<Tok>, Vec<Span>), SmlError> {
 ///
 /// 行为与加入 spans 之前**逐字一致**：内部就是 [`tokenize_spans`] 丢掉区间。
 /// 需要错误定位的入口改用 [`tokenize_spans`]。
-pub fn tokenize(text: &str) -> Result<Vec<Tok>, SmlError> {
+pub fn tokenize(text: &str) -> Result<Vec<Tok<'_>>, SmlError> {
     tokenize_spans(text).map(|(t, _)| t)
 }
 

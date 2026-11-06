@@ -86,7 +86,22 @@ cargo bench --bench profile --features amberice -- --quick
 | **P2** `Object::with_capacity(4)` | ❌ 不做 | 分析即可判死：`flat@4000` 只有一个对象，`Vec` 仍要长到 4096，预置 4 只省 2 次分配；`deep@120` 有 120 个单键对象，预置 4 会让每块多占 3×64 B，却仍是 1 次分配 ⇒ 纯内存回归 |
 | **② 紧凑 interning 表** | ✅ `4b2cadb` | `StrTab` 的 `HashMap<&str,u32>` → 自写开放寻址（槽只存 `u32` 下标，命中回查真串防碰撞）。`canonical_bytes` 峰值 **728.0 → 239.0 KiB（−67%）**、时间 1.64 ms → 0.76 ms（−54%）、allocs 28 → 26；`deep@120` 11.4 → 3.9 KiB。相对最初基线：792.0 → 239.0 KiB（**−70%**）、51 → 26 allocs |
 | **① P3 入口快路径** | ✅ `48a8e55` | `strip_version` / `strip_features` 加保守判据（连 `version` / `feature` 一词都没有 ⇒ 跳过逐行重建）。同机连续两次：`large@directive` **−19.8%**、`deep` −17.4%、`large` −12.9%、`small` 无变化（本就走 `no_directives` 快路径） |
-| **③ P5 借用 token** | ⏸ 待裁决 | 收益最大（tokenize 占 parse 约 27%），但 `Tok::Word(String)` 是公开枚举、68 处使用点；需先拍是否允许 `0.7.0` 破 API |
+| **③ P5 借用 token（A 方案）** | ✅ 已落地 | 用户拍 **A（破 API）**：`Tok<'a>` + `Word/Str(Cow<'a, str>)`；词法器改为「连续切片零分配、转义/注释穿插才 Owned」。同机连续两次测：`flat@4000 tokenize` **11,926 → 26 allocs（−99.8%）**、时间 −60%；`parse` **28,562 → 8,662 allocs（−70%）**、时间 −37%；`perf large parse` −39%、`large@directive` −33%。详见 §1.3 |
+
+## 1.3 ③ A 方案：生命周期扩散与退路
+
+**做了什么**
+
+- `sml-lex`：`Tok<'a>`，`Word`/`Str` 用 `Cow<'a, str>`；词法器只记词起点，连续切片直接 `Cow::Borrowed`，只有引号串含转义、或注释插进词中间（token 不再是原文连续切片）才 `Cow::Owned`。**这两个例外是必须的**，否则转义解码和跨注释的词会静默改数据。
+- 新增 `TokOwned = Tok<'static>` 与 `Tok::into_owned()`，并在 `sml-parse` / `swsml` 两处再导出 —— 这是 `Tok<'a>` 借用版的退路：`tokenize(t)?.into_iter().map(Tok::into_owned)` 一行回到可独立存活的 token 流。
+- `sml-parse`：`Parser<'a>` 的 `toks: Vec<Tok<'a>>`；但**显式栈帧不带生命周期** —— `BlockFrame.closing` 改成 `TokOwned`（它本来就只是 `RBrace`/`RBrack` 标记）。若让 `Frame<'a>` 带上 `'a`，`&mut Vec<Frame<'a>>` 的不变性会把整个 `&mut self` 借用撑到 `'a`（`run_stack` 里 16 处 E0503/E0499）。这是本次最大的一处结构性调整。
+- `sml-include`：主文本 token 借用原文；子文件 `read_to_string` / 清洗后的 `cleaned` 是临时 `String`，其 token 经 `into_owned()` 脱离后再并入输出流。
+
+**为什么比「纯 `&'a str` 的 A」好用**：`Cow` 自己处理转义与 include，用户不必手工造 owned；`TokOwned` + `into_owned()` 给了明确的脱离路径。仍是 `0.7.0` 破 API（`Vec<Tok<'a>>` 不能 `'static`、不能脱离源文本返回），但上一轮列的「难用」点里，转义和 include 两类已由库消化。
+
+**验证**：`cargo check --workspace --all-targets` 绿；`cargo test --workspace --exclude smlkit-easy` 109 个 test binary 全绿；`smlkit-easy` / `sml-parse --all-features` / `sml-lex --all-features` 全绿；`amberice vectors --check` 21 例逐字节一致。
+
+> ⚠️ 时间数字均为 `--quick` 同机连续两次对照（A 前 / A 后），正式口径待重跑后写回 `docs/perf-baseline.md`。`deep@120 tokenize` 时间 +10.5%（178.8 → 197.7 µs）但 allocs −88%，判为噪声/小幅回归，后续跟进。
 
 **峰值为什么能降到 239 KiB**：两趟编码干掉 `nodes` Vec 翻倍，紧凑表再把 `HashMap` 每桶 24 B 压成 4 B 的 `u32` 槽；id 分配顺序（首次出现序）未变 ⇒ `vectors --check` 21 例逐字节一致。
 
