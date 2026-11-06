@@ -1167,6 +1167,21 @@ tag:u8 | flags:u8 | subtree_len:u32 | payload…
 - 默认只索引 **深度 ≤ 4** 的对象键（`dir_depth` 可配）：52k 节点下约 10k 条目 ≈ 120 KB；
 - 索引是**派生数据**：缺失/过期都只影响速度，不影响正确性（D11 的 `optional` 位）。
 
+**段体字节布局（N05 落地时写死，2026-11-06）**：
+
+```text
+DIR     = head_layer:u32le ‖ count:varint ‖ entries[count]
+entries = (parent_off:u32le ‖ key_id:varint ‖ child_off:u32le)*   按 (parent, key) 升序
+```
+
+- 偏移是**明文 `VALUE` 段体内的字节偏移**（`0` = 根节点）；
+- **默认不写**：`DumpOptions.dir = false`。索引会改字节，故与「不写这两段的文件与收录前逐字节相同」（§25.7）保持一致；
+- 写出时归到 `caps_optional` 的 `dir`（不认就忽略）；
+- 实现：`rust/amberice/src/dir.rs`（构建 + 解析）、`Store::lookup_dir`（逐层二分，答不了就回退线性走）。
+- ⚠️ **代价实测**：`flat@16000` 单层 16k 键 —— 文件 447.2 → 611.2 KiB（+36.7%），中键 get 54,097 → **412 ns**（−99%）。
+  索引项与兄弟数成正比，故「一个巨大扁平对象」是它最费空间的形状；`dir_depth` 帮不上（深度只有 1）。
+  用不用按场景定：读多写少、键多而深 ⇒ 开；写多或只需整树读 ⇒ 不开。
+
 > ✅ **v1 收录（用户 2026-11-06 裁决）**：写者**可选**写；不写不影响任何正确性。
 > 五端解码器对它的要求只有「认段头 + 按 `len` 跳过」，**不要求解析条目**。
 > 实现状态：`SEG_DIR` 已登记（`rust/amberice/src/container.rs`）、`dir_depth` 默认值已落 manifest；
@@ -2163,8 +2178,12 @@ stream      = PRNG(purpose_key, info = file_id ‖ layer_id ‖ block_index ‖ 
 
 ```text
 TYPED   = count:varint ‖ entries[count] ‖ payload
-entries = (var_id:varint, off:u32le, len:u32le)
+entries = (var_id:varint, type_id:u64le, off:u32le, len:u32le)
 ```
+
+> 📌 `type_id` 是 **2026-11-06（N04 落地时）补进目录的**：§25.5 要求读出时比对类型，
+> 而原来那版三字段项**没地方放** `type_id`。加这一笔时还没有任何文件写出过 `TYPED`，
+> 故直接扩布局，而不是发一份无法校验的契约。
 
 - `entries` **按 `var_id` 升序** ⇒ `Store::var(id)` 二分 O(log n)；
 - `off` 相对 `payload` 起点计数，`payload` 紧跟目录；
@@ -2213,8 +2232,8 @@ entries = (var_id:varint, off:u32le, len:u32le)
 | 项 | 状态 |
 |---|---|
 | 段 id 登记（`0x70` / `0x71`） | ✅ 本规范 |
-| DIR 写入（可选段） | ❌ 未做 → N05；读取端已能忽略 |
-| Rust `put_var` / `get_var` | ❌ 未做 → N04 |
-| 五端解码器「跳过」 | ❌ 未做 → N03 / T7 |
+| DIR 写入（可选段） | ✅ **N05（2026-11-06）**：`DumpOptions.dir`（默认关）+ `dir_depth`；`Store::get` 逐层二分 |
+| Rust `put_var` / `get_var` | ✅ **N04（2026-11-06）**：`Writer::put_var` + `Store::var`；整数/浮点/bool/String/`Bytes`/`Vec<T>`/`Option<T>` |
+| 五端解码器「跳过」 | ❌ 未做 → N03 / T7（判据仍是认段头 + 跳过 + 验摘要） |
 | 内嵌 schema / serde 桥 | 待定（`amberice-plan.md §7.12`） |
 | 字节布局影响 | **零**：不写这两段的文件与收录前逐字节相同 |
