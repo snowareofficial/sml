@@ -39,6 +39,10 @@
 
 pub mod container;
 pub mod crypto;
+/// 最小 C ABI（feature `ffi`）：`.ambr` → canonical 文本。
+/// Minimal C ABI (feature `ffi`): `.ambr` → canonical text.
+#[cfg(feature = "ffi")]
+pub mod ffi;
 /// `DIR`（0x03）路径索引：派生数据，缺失/过期只影响速度（N05 / §19.3）。
 /// `DIR` path index: derived data; missing or stale only costs speed (N05 / §19.3).
 pub mod dir;

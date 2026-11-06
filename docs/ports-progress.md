@@ -16,11 +16,11 @@
 | 4 | C++ | 纯 C++17 | ✅ 21/21 + 5 抽检 | `b47d342` | `cpp/build_verify.py` |
 | 5 | Lua | 纯 Lua（f64 需 LuaJIT ffi） | ✅ 21/21 + 5 抽检 | 本次 | `lua/run_check.py` |
 | 6 | Java | **纯 Java**（不再依赖 cdylib） | ✅ 21/21 + 5 抽检 | 本次 | `bindings/java/.../Ambr.java` |
-| 7 | Python | FFI（ctypes） | ⬜ 待做 | | 需先有 FFI 面（见 11） |
-| 8 | C# | FFI（P/Invoke） | ⬜ 待做 | | 需先有 FFI 面 |
-| 9 | Go | FFI（cgo） | ⬜ 待做 | | 需先有 FFI 面 |
-| 10 | Ruby | FFI（Fiddle） | ⬜ 待做 | | 需先有 FFI 面 |
-| 11 | FFI 面 | `amberice` 出 C ABI | ⬜ 待做 | | 让 7–10 共用一套 `ambr_*` |
+| 7 | Python | FFI（ctypes） | ✅ 21/21 **逐字符** | 本次 | `bindings/python/ambr.py` |
+| 8 | C# | FFI（P/Invoke） | ⬜ 待做 | | 同一对符号，见下方配方 |
+| 9 | Go | FFI（cgo） | ⬜ 待做 | | 同上 |
+| 10 | Ruby | FFI（Fiddle） | ⬜ 待做 | | 同上 |
+| 11 | FFI 面 | `amberice` 出 C ABI | ✅ `ambr_text` / `ambr_free_str` | 本次 | `rust/amberice/src/ffi.rs` + `include/amberice.h` |
 
 > Java 现状说明：`bindings/java` 里的 `Sml` 是 FFM 调 Rust cdylib（不是原生实现）；
 > `Ambr` 是**纯 Java**，不加载任何本地库 —— 这正是用户说的「java 这种可能应该做」。
@@ -37,6 +37,21 @@
    每端一个「21 例」测试脚本；没有 FFI 产物时跳过而不是假绿。
 6. 全部完成后：`docs/amberice-smldb-spec.md` 解码器行改成「五端 + FFI」，
    N03 / T7 收口。
+
+## 剩余 FFI 端的三步配方
+
+共同前提：`cargo build -p amberice --features ffi` 产出 `amberice.dll` / `libamberice.so`。
+
+1. 声明两个符号：
+   - `char *ambr_text(const unsigned char *buf, size_t len, char *err, size_t errsz)`
+   - `void ambr_free_str(char *p)`
+2. 传字节、收文本：长度必须显式传（`.ambr` 里必然有 NUL）；失败返回 NULL、`err` 里是
+   `AMBR: …`（NUL 结尾，可截断）。
+3. 对拍：把返回的文本与 `tests/vectors/amberice-container.v1.json` 的 `canonical_text`
+   **逐字符**比较——比解成对象再比更严，同时钉住 canonical 发射。
+
+C# `[DllImport("amberice")]`；Go `import "C"` + `C.GoString`；Ruby `Fiddle::Function`。
+三端都只需 ~40 行，不需要值模型：要树就用各自的 `loads(text)`。
 
 ## 已知坑（各端照抄，别再踩）
 
