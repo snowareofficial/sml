@@ -1646,23 +1646,78 @@ local function _ambr_u64(r)
   return hi * 4294967296 + lo
 end
 
+-- uint64 varint + zigzag, exact on Lua 5.3+.
+--
+-- ⚠️ Both arithmetic tricks fail on i64 bounds:
+--   * `v + (b % 128) * 2 ^ shift` — `^` always yields a float ⇒ precision dies above 2^53;
+--   * `v + (b % 128) * mul` with `mul = mul * 128` — Lua's integer is **signed** and
+--     multiplication wraps, so `mul` becomes mininteger at 2^63 and the sum is wrong.
+-- The only correct form is bitwise (`|`, `<<`, logical `>>`), which is a **syntax error
+-- on 5.1 / LuaJIT**. So the exact implementation is compiled from a string at load time;
+-- if that fails we keep a float fallback that is exact only up to 2^53.
+-- ｜ 位运算是唯一正确形式，但 5.1/LuaJIT 不认 —— 用字符串动态编译；失败则退回 float。
+local _ambr_uint = nil
+do
+  local src = [[
+    return {
+      varint = function(u8, r)
+        local v, shift = 0, 0
+        for _ = 1, 10 do
+          local byte = u8(r)
+          if not byte then return nil end
+          v = v | ((byte & 0x7f) << shift)
+          if byte < 0x80 then return v end
+          shift = shift + 7
+        end
+        return nil
+      end,
+      zigzag = function(z)
+        local half = z >> 1
+        if (z & 1) ~= 0 then return -half - 1 end
+        return half
+      end
+    }
+  ]]
+  local chunk = (loadstring or load)(src)
+  if chunk then _ambr_uint = chunk() end
+end
+
 local function _ambr_varint(r)
-  local v, shift = 0, 0
+  if _ambr_uint then return _ambr_uint.varint(_ambr_u8, r) end
+
+  -- float fallback (5.1 / LuaJIT): exact only up to 2^53.
+  local v, mul = 0, 1
   for _ = 1, 10 do
     local byte = _ambr_u8(r)
     if not byte then return nil end
-    v = v + (byte % 128) * 2 ^ shift
+    v = v + (byte % 128) * mul
     if byte < 128 then return v end
-    shift = shift + 7
+    mul = mul * 128
   end
   return nil
 end
 
+local function _ambr_zigzag(z)
+  if _ambr_uint then return _ambr_uint.zigzag(z) end
+  local half = math.floor(z / 2)
+  if z % 2 == 1 then return -half - 1 end
+  return half
+end
+
+-- f64: `string.unpack` (Lua 5.3+) first — exact and no LuaJIT needed; fall back to
+-- LuaJIT's `ffi`. `false` means "this runtime cannot read f64 exactly".
+-- ｜ 优先 `string.unpack`（5.3+ 精确、不依赖 LuaJIT），否则用 ffi；false = 不支持。
+local _ambr_unpack = string.unpack
+
 local function _ambr_f64(r)
-  if not _ambr_ffi then return false end
   if r.pos + 7 > r.len then return nil end
   local raw = string.sub(r.b, r.pos, r.pos + 7)
   r.pos = r.pos + 8
+  if _ambr_unpack then
+    local d = _ambr_unpack("<d", raw)
+    return d
+  end
+  if not _ambr_ffi then return false end
   local d = _ambr_ffi.new("double[1]")
   _ambr_ffi.copy(d, raw, 8)
   return d[0]
@@ -1687,9 +1742,7 @@ local function _ambr_node(r, strtab, depth, box)
   elseif tag == 3 then
     local z = _ambr_varint(r)
     if not z then box.err = "整数截断"; return nil end
-    local n = math.floor(z / 2)
-    if z % 2 == 1 then n = -n - 1 end
-    value = n
+    value = _ambr_zigzag(z)
   elseif tag == 4 then
     local d = _ambr_f64(r)
     if d == false then box.err = "解 f64 需要 LuaJIT 的 ffi"; return nil end
