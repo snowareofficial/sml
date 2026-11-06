@@ -754,12 +754,19 @@ impl Value {
         let mut tab = StrTab::default();
         let mut nodes = Vec::with_capacity(64);
         encode_node(self, &mut nodes, &mut tab, 0)?;
-        let mut strtab = Vec::with_capacity(16);
-        for s in &tab.table {
+        // 编码完成后 `ids` 就没用了（后面只按 `table` 顺序写表体）。
+        // 先释放它：否则这张 HashMap 会与 `strtab` / `out` 同时占着高水位。
+        // ｜ Drop the hashmap before allocating the two output buffers: it can be ~O(n) buckets.
+        let StrTab { ids, table } = tab;
+        drop(ids);
+        // 表体长度现在可以精确求和（表已建完），一次分配到位。
+        let exact: usize = table.iter().map(|s| s.len() + 2).sum();
+        let mut strtab = Vec::with_capacity(exact);
+        for s in &table {
             write_uvarint(&mut strtab, s.len() as u64);
             strtab.extend_from_slice(s.as_bytes());
         }
-        Ok((tab.table.len(), strtab, nodes))
+        Ok((table.len(), strtab, nodes))
     }
 
     /// Inverse of [`Value::canonical_bytes`] — the T0 “L0” decoder. ｜ canonical 字节 → 值。
