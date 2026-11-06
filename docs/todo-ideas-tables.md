@@ -170,11 +170,11 @@
 
 | 编号 | 主题 | 状态 | 优先级 | 依赖 | 完成判据 | 来源 | 卡在谁 |
 |---|---|---|---|---|---|---|---|
-| N01 | 正式口径基准重跑（`--quick` 数字不进基线） | 未做 | P1 | 无 | `cargo bench`（不带 `--quick`）跑 `perf` / `value` / `amberice` 三份，数字写回 `docs/perf-baseline.md` | `docs/perf-plan.md §1.3` | 实现者 |
-| N02 | `deep@120 tokenize` 时间回归跟进（+10.5%） | 未做 | P2 | N01 | 同机对照确认是噪声还是真回归；真回归则修 | `docs/perf-plan.md §1.3` | 实现者 |
+| N01 | 正式口径基准重跑（`--quick` 数字不进基线） | **已完成**（2026-11-06）：`perf` / `value` / `amberice` / `profile` 四份正式口径数字已写回 `docs/perf-baseline.md`「当前（正式口径）」；顺带发现 §1.1 的 get×1000 与 small parse 受噪声污染 | P1 | 无 | `cargo bench`（不带 `--quick`）跑 `perf` / `value` / `amberice` 三份，数字写回 `docs/perf-baseline.md` | `docs/perf-plan.md §1.3` | 无 |
+| N02 | `deep@120 tokenize` 时间回归跟进（+10.5%） | **已完成**（2026-11-06）：判定**不成立**。同配置复测 102,777 / 113,465 / 117,571 ns，低于「A 前」的 178.8 µs ⇒ 那对数字落在污染窗口 | P2 | N01 | 同机对照确认是噪声还是真回归；真回归则修 | `docs/perf-plan.md §1.3` | 无 |
 | N03 | T7 五端 `.ambr` 解码器（JS / Lua / C / C++） | 未做 | P1 | I-18 | 四端能读 `AMBR` 头并解出值与段表；跨端向量通过 | 本会话改名后 | 实现者 |
 | N04 | typed 载荷 v1（外置 schema） | 未做 | P2 | T16 | `put_var` / `get_var` + `0x70 TYPED` 段；对照 bench 出体积/时间表 | `docs/amberice-plan.md §7` | 用户（三次决策已定，见 §7.9） |
-| N05 | A5 `DIR` 段（get 的兄弟扫描 O(n) → O(log n)） | 未做 | P2 | N03 | 16k 键中键 get 从 125 µs 降到 ≤30 µs；加格式版本位 | `docs/amberice-plan.md §3.6` | 用户（格式项，与 T7 同批） |
+| N05 | A5 `DIR` 段（get 的兄弟扫描 O(n) → O(log n)） | 未做（**起点数字已纠正**：125 µs 是受污染值，正式口径 16k 键中键 get = 55,743 ns、4k = 11,458 ns） | P2 | N03 | 16k 键中键 get 从 55.7 µs 降到 ≤30 µs（−46%）或按「≥15% 且随规模不再线性」表述，二选一后写死；加格式版本位 | `docs/amberice-plan.md §3.6`、`docs/perf-baseline.md §异常 3` | 用户（格式项，与 T7 同批） |
 | N06 | SM3 ISA 后端（ARMv8.2 `FEAT_SM3` / x86 SM3 / RISC-V Zvksh） | 未做 | P2 | 硬件 | 有该 ISA 的机器上出加速比；本机只能验标准向量 | `docs/amberice-plan.md §3.7` | 硬件 |
 
 ---

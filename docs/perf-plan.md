@@ -24,6 +24,10 @@
 
 ## 1. 现状账（已测，`--quick`，同机 2026-11-06）
 
+> ⚠️ **本节 §1 / §1.1 的数字是 `--quick`，其中时间列还落在整机噪声窗口里**（`small parse` 记 17,970 ns，
+> 同机正式口径是 5,063 ns）。**唯一可引用的口径见 `docs/perf-baseline.md` 的「当前（正式口径，2026-11-06）」。**
+> 保留本节的用途只有一个：看「阶段 0 当时是怎么排期的」。
+
 | 层 | 负载 | 操作 | ns/op | 峰值堆 | allocs |
 |---|---|---|---|---|---|
 | 解析 | `small` 205 B | parse | 8,528 | — | 101（10.1/元素） |
@@ -101,7 +105,11 @@ cargo bench --bench profile --features amberice -- --quick
 
 **验证**：`cargo check --workspace --all-targets` 绿；`cargo test --workspace --exclude smlkit-easy` 109 个 test binary 全绿；`smlkit-easy` / `sml-parse --all-features` / `sml-lex --all-features` 全绿；`amberice vectors --check` 21 例逐字节一致。
 
-> ⚠️ 时间数字均为 `--quick` 同机连续两次对照（A 前 / A 后），正式口径待重跑后写回 `docs/perf-baseline.md`。`deep@120 tokenize` 时间 +10.5%（178.8 → 197.7 µs）但 allocs −88%，判为噪声/小幅回归，后续跟进。
+> ✅ 正式口径已于 2026-11-06 重跑（N01，HEAD `4b7cfd1`），数字见 `docs/perf-baseline.md`「当前（正式口径）」。
+> **`deep@120 tokenize` 的 +10.5%（178.8 → 197.7 µs）判定为不成立**（N02）：同配置复测 102,777 / 113,465 / 117,571 ns，
+> 比「A 前」还低 43% —— 那一对数字整个落在污染窗口里（同期 `small parse` 也从 8.5 µs 虚高到 19.5 µs）。
+> 另外实测 `tokenize` 占 `parse` 已降到 17–19%（`small` 1,173/5,063、`flat@4000` 397,530/2,574,685），
+> P6/SIMD 词法的收益上限相应下调到 −10% 左右。
 
 **峰值为什么能降到 239 KiB**：两趟编码干掉 `nodes` Vec 翻倍，紧凑表再把 `HashMap` 每桶 24 B 压成 4 B 的 `u32` 槽；id 分配顺序（首次出现序）未变 ⇒ `vectors --check` 21 例逐字节一致。
 
@@ -148,7 +156,7 @@ cargo bench --bench profile --features amberice -- --quick
 | **A2** | `load` 逐节点分配（8,173 → 目标 ≤5,000） | 时间 −15%~−25% | 中高：值模型/arena | V1 之后 |
 | **A3** | `dump` 编码缓冲复用（同 E2） | 与 E2 同批 | 低 | E2 |
 | **A4** | `Writer` 缓冲与 syscall 次数（40 MB/s） | 待测 | 低 | 无 |
-| **A5** | mmap 首触页 / `DIR` 段（get 不必扫全表） | 冷启动页数 O(键数)→O(log n) | 中：**格式项** | 与 T7 一起定 |
+| **A5** | mmap 首触页 / `DIR` 段（get 不必扫全表） | 冷启动页数 O(键数)→O(log n)；`flat@16000` 中键 get 实测 **55,743 ns**（4,000 键 11,458 ns，仍线性） | 中：**格式项** | 与 T7 一起定 |
 | **A6** | 加密路径（分块 / AAD 次数） | 待测 | 中 | 无 |
 
 ### 2.5 CLI / 构建
@@ -182,14 +190,14 @@ cargo bench --bench profile --features amberice -- --quick
 
 整体目标（**留出噪声余量后**，不是承诺）：
 
-| 指标 | 现在 | 目标 |
-|---|---|---|
-| `small` parse（正式口径） | 7,073 ns | ≤5,500 ns（−22%） |
-| `large` parse | 5,229,215 ns | ≤4,200,000 ns（−20%） |
-| `to_sml` `large` | 2,074,170 ns | ≤1,800,000 ns（−13%） |
-| `canonical_bytes` 峰值 | 792 KiB | ≤128 KiB（−84%） |
-| `load` allocs | 8,173 | ≤5,000（−39%） |
-| `Store::get` | 13,966 ns | 保持（已达成） |
+| 指标 | 11-03 基线 | 2026-11-06 实测（N01） | 目标 | 判定 |
+|---|---|---|---|---|
+| `small` parse | 7,073 ns | **5,137 ns**（−27%） | ≤5,500 ns（−22%） | ✅ **超额达成** |
+| `large` parse | 5,229,215 ns | **3,550,530 ns**（−32%） | ≤4,200,000 ns（−20%） | ✅ **超额达成** |
+| `to_sml` `large` | 2,074,170 ns | **2,896,775 ns** | ≤1,800,000 ns（−13%） | ❌ 旧值本机不可复现（回退 E1 后仍 2.88 ms）⇒ 目标作废，改用 `flat@4000 to_sml` 259,312 ns / 2 allocs 作判据 |
+| `canonical_bytes` 峰值 | 792.0 KiB | **239.0 KiB**（−70%） | ≤128 KiB（−84%） | 进行中（allocs 51 → 26） |
+| `load` allocs | 8,173 | **8,173** | ≤5,000（−39%） | 未动（A2 未开工） |
+| `Store::get` | 13,966 ns | **11,041 ns** | 保持 | ✅ 达成（峰值 136 B / 5 allocs） |
 
 ---
 
