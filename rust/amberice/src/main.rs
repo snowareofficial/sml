@@ -46,8 +46,8 @@ amberice — 通用二进制信封 .ambr（SML 是内置载荷之一）
   amberice history <file> <path> --at N    取第 N 层为止的值（历史回放；`cat --at` 已迁到这里）
   amberice get     <file> <path> [--bytes] 零拷贝取一棵子树（不解全树）；--bytes 出原始字节十六进制
   amberice text    <file> [--path P]       整份（或某一子树）的 canonical 文本
-  amberice vectors --gen   [--file PATH]   重新生成跨端 canonical 向量
-  amberice vectors --check [--file PATH]   重新生成并与磁盘逐行比对
+  amberice vectors --gen   [--file PATH] [--container-file PATH]  重新生成跨端向量
+  amberice vectors --check [--file PATH] [--container-file PATH]  重新生成并逐行比对
   amberice --help | -h                     本帮助
   amberice --version | -V                  版本
 
@@ -178,6 +178,7 @@ fn vectors_cmd(args: &[String]) -> Result<String, (u8, String)> {
     let mut gen = false;
     let mut check = false;
     let mut file: Option<PathBuf> = None;
+    let mut container_file: Option<PathBuf> = None;
 
     let mut i = 0;
     while i < args.len() {
@@ -191,11 +192,20 @@ fn vectors_cmd(args: &[String]) -> Result<String, (u8, String)> {
                 file = Some(PathBuf::from(p));
                 i += 1;
             }
+            "--container-file" => {
+                let Some(p) = args.get(i + 1) else {
+                    return Err((2, "`--container-file` 需要一个路径参数".to_string()));
+                };
+                container_file = Some(PathBuf::from(p));
+                i += 1;
+            }
             "-h" | "--help" => return Ok(USAGE.to_string()),
             other => {
                 return Err((
                     2,
-                    format!("`vectors` 不认识参数 `{other}`（只支持 --gen / --check / --file）"),
+                    format!(
+                        "`vectors` 不认识参数 `{other}`（只支持 --gen / --check / --file / --container-file）"
+                    ),
                 ))
             }
         }
@@ -203,11 +213,20 @@ fn vectors_cmd(args: &[String]) -> Result<String, (u8, String)> {
     }
 
     let path = file.unwrap_or_else(vectors::resolve_default);
+    let cpath = container_file.unwrap_or_else(vectors::resolve_container_default);
     match (gen, check) {
         (true, true) => Err((2, "`--gen` 与 `--check` 只能二选一".to_string())),
         (false, false) => Err((2, "`vectors` 需要 `--gen` 或 `--check`".to_string())),
-        (true, false) => vectors::generate(&path).map_err(|e| (1, e)),
-        (false, true) => vectors::check(&path).map_err(|e| (1, e)),
+        (true, false) => {
+            let a = vectors::generate(&path).map_err(|e| (1, e))?;
+            let b = vectors::generate_container(&cpath).map_err(|e| (1, e))?;
+            Ok(format!("{a}\n{b}"))
+        }
+        (false, true) => {
+            let a = vectors::check(&path).map_err(|e| (1, e))?;
+            let b = vectors::check_container(&cpath).map_err(|e| (1, e))?;
+            Ok(format!("{a}\n{b}"))
+        }
     }
 }
 

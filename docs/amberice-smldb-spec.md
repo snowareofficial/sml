@@ -1978,13 +1978,13 @@ $ amberice verify base.ambr --trust fd4f90d0…         # 有人拿未签名件�
 | `amberice sign / append / delegate` | 签名、追加补丁、换钥授权 | T4 | ✅ **已实现**（`keygen` 也在，`sign` 默认原地写） |
 | `amberice pack / unpack` | 把多文件打成 `.ambr`（`EMBED` + `payloads[]`），或反向取出 | T2 | ✅ **已实现**（`unpack` 拒绝目录穿越；`pack --zstd` 段级压缩） |
 | `amberice tree <f>` | 打印层链（index/作者/补丁/签名数/授权） | T4 | ✅ **已实现** |
-| `amberice vectors --gen/--check` | 生成/校验跨端 canonical 测试向量（T0 判据） | T0 | ✅ **已实现**（2026-11-04，另带「自检」：往返 + 文本一致） |
+| `amberice vectors --gen/--check` | 生成/校验跨端测试向量：`amberice-canonical.v1.json`（节点编码）+ `amberice-container.v1.json`（整份 `.ambr`，2026-11-06 加） | T0 / T7 | ✅ **已实现**（另带「自检」：往返 + 文本一致 + `dump` 两次同字节） |
 | `amberice bench <f>` | 读路径基准（mmap 打开、单子树取、解帧、解密） | T5 | 建议 |
 | `amberice migrate --to fmt=N` | `fmt` 升级（重写 + 重签，需保留旧签名证据） | T5+ | 建议 |
 | `amberice compact` | 合并多层（会**重签**，D8 的例外情况；丢弃历史、旧锚点需重建） | T4 | ✅ **已实现** |
 | `smltools --to amberice` / `--from amberice` | 与 SML 文本互转（D27 的 A 路） | T6 | ✅ |
 | `smltools --to amberice --keep-source` | 带 `SOURCE` 段 | T6 | 建议 |
-| JS / Lua 解码器 | 只读 `VALUE` + 透传载荷（D12 五端可读） | T7 | ✅ |
+| JS / C / C++ / Lua 解码器 | 只读 `VALUE` + 透传载荷（D12 五端可读） | T7 / N03 | ❌ **未做**（2026-11-06 核实：四端零实现；判据已备好 —— `tests/vectors/amberice-container.v1.json` 的 `ambr_hex` + `canonical_text`） |
 | VSCode 扩展（只读） | 直接打开 `.ambr` 浏览树 / 悬停看段信息 | T7+ | 建议 |
 
 **顺序**：`info`/`ls`/`check` 跟着 T2 长出来；`cat`/`verify`/`sign`/`append` 跟 T3/T4；`vectors` 是 T0 的**前置**（没有向量就不知道 canonical 对不对）。
