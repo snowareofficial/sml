@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! Cross-end canonical test vectors (T0 criterion, spec §17 T0 / §22).
-//! 跨端 canonical 测试向量。
+//! Cross-end test vectors, in two layers (T0 / T7, spec §17 / §22).
+//! 跨端测试向量，分两层：
+//!
+//! - `amberice-canonical.v1.json` — **node encoding** (`STRTAB ‖ VALUE`), pins §19.2 tags;
+//! - `amberice-container.v1.json` — **the whole `.ambr` file** (header, table, alignment,
+//!   manifest), pins §19.1/§19.6/§19.7/§19.9 and is what the JS / C / C++ / Lua decoders
+//!   (T7 / N03) align to: decode `ambr_hex`, compare `canonical_text`, skip unknown segments.
+//! ｜ 一份钉节点编码，一份钉整个文件 —— 四端照后者写解码器，不必读 Rust 实现。
 //!
 //! **Why they exist** / **为什么需要它**: canonical's correctness cannot be proven by Rust
 //! comparing against itself — that is circular (the same implementation agreeing with the
@@ -26,7 +32,7 @@
 
 use std::path::{Path, PathBuf};
 
-use sml_value::{CanonicalError, Map, Value};
+use sml_value::{CanonicalError, CanonicalValue, Map, Value};
 
 /// Format marker — cross-end scripts use it to decide “is this mine to read?”.
 /// 向量文件的格式标识（跨端脚本据它判断「这是不是我能读的东西」）。
@@ -36,6 +42,19 @@ pub const FORMAT: &str = "amberice/canonical-vectors";
 pub const VERSION: u32 = 1;
 /// Default location, relative to the repo root. ｜ 默认落点（相对仓库根）。
 pub const DEFAULT_PATH: &str = "tests/vectors/amberice-canonical.v1.json";
+
+/// Container-level vector format marker. ｜ 容器级向量的格式标识。
+///
+/// 与 canonical 向量分开两件事：那份钉「节点编码」，这份钉「整个 `.ambr` 文件」——
+/// 头部 40 B、段表 41 B × n、段体对齐、MANIFEST。四端（JS/C/C++/Lua）照 `ambr_hex`
+/// 解出 `canonical_text` 即可，不必读 Rust 实现。
+/// ｜ Two layers, two files: node encoding vs. the whole container (header, table, alignment).
+pub const CONTAINER_FORMAT: &str = "amberice/container-vectors";
+/// Container vector format version (bumped only when fields change).
+/// 容器向量格式版本（只有字段增删才 +1）。
+pub const CONTAINER_VERSION: u32 = 1;
+/// Default location of the container vectors. ｜ 容器向量默认落点。
+pub const CONTAINER_PATH: &str = "tests/vectors/amberice-container.v1.json";
 
 /// One vector case. ｜ 一个向量用例。
 pub struct Case {
@@ -306,17 +325,92 @@ pub fn verify_self() -> Result<(), String> {
     Ok(())
 }
 
+/// Render the **container** vectors file (whole `.ambr` bytes per case).
+/// 渲染**容器**向量文件（每例给整份 `.ambr` 字节）。
+///
+/// Why a separate file rather than more fields in the canonical one: the two layers change for
+/// different reasons (node layout vs. header/table/alignment), so a change in one must not
+/// rewrite the other's diff. ｜ 分层分文件：节点布局与容器布局各自演进，互不搅 diff。
+///
+/// The pass criterion for a decoder is **the decoded tree**, expressed as `canonical_text`;
+/// write-back is deliberately not required (a read-only port can still be conformant).
+/// ｜ 判据是解出的值树（用 `canonical_text` 表达），**不要求**写回。
+pub fn render_container() -> Result<String, String> {
+    let mut out = String::with_capacity(8192);
+    out.push_str("{\n");
+    out.push_str(&format!("  \"format\": \"{CONTAINER_FORMAT}\",\n"));
+    out.push_str(&format!("  \"version\": {CONTAINER_VERSION},\n"));
+    out.push_str("  \"spec\": \"docs/amberice-smldb-spec.md §19.1 / §19.3 / §19.6 / §19.7 / §19.9\",\n");
+    out.push_str(
+        "  \"note\": \"由 `amberice vectors --gen` 生成，勿手改；`--check` 重新生成并逐行比对。\
+读端拿 ambr_hex 解出值树后，canonical_text 必须逐字符相同；未知段一律跳过（表项自带 len），\
+不需要理解 TYPED / DIR 的语义。\",\n",
+    );
+    out.push_str("  \"cases\": [\n");
+    for (i, case) in CASES.iter().enumerate() {
+        let v = (case.build)();
+        let cv = CanonicalValue::try_from(&v).map_err(|e| format!("[{}] 值不可有序：{e}", case.id))?;
+        let bytes = crate::dump(&cv).map_err(|e| format!("[{}] dump 失败：{e}", case.id))?;
+        let text = v.canonical_text().map_err(|e| format!("[{}] {e}", case.id))?;
+        out.push_str("    {\n");
+        out.push_str(&format!("      \"id\": \"{}\",\n", case.id));
+        out.push_str("      \"source\": ");
+        push_json_str(&mut out, case.source);
+        out.push_str(",\n      \"note\": ");
+        push_json_str(&mut out, case.note);
+        out.push_str(",\n      \"canonical_text\": ");
+        push_json_str(&mut out, &text);
+        out.push_str(&format!(",\n      \"ambr_len\": {},\n", bytes.len()));
+        out.push_str("      \"ambr_hex\": ");
+        push_json_str(&mut out, &hex(&bytes));
+        out.push_str("\n    }");
+        if i + 1 != CASES.len() {
+            out.push(',');
+        }
+        out.push('\n');
+    }
+    out.push_str("  ]\n}\n");
+    Ok(out)
+}
+
+/// Container self-check: determinism + `dump → load → canonical_text` for every case.
+/// 容器自检：确定性 + 每例「dump → load → canonical_text」往返。
+///
+/// Determinism is a hard requirement here: the fixtures are raw bytes, so a timestamp or a
+/// hash-map iteration order leaking into `dump` would make `--check` flaky rather than wrong.
+/// ｜ 确定性是硬要求：fixture 是原始字节，一旦 `dump` 带进时间戳或哈希序，`--check` 会抖动。
+pub fn verify_container() -> Result<(), String> {
+    for case in CASES {
+        let v = (case.build)();
+        let cv = CanonicalValue::try_from(&v).map_err(|e| format!("[{}] 值不可有序：{e}", case.id))?;
+        let a = crate::dump(&cv).map_err(|e| format!("[{}] dump 失败：{e}", case.id))?;
+        let b = crate::dump(&cv).map_err(|e| format!("[{}] dump 失败：{e}", case.id))?;
+        if a != b {
+            return Err(format!(
+                "[{}] `dump` 两次产出不同字节（{} B vs {} B）—— 容器层混进了非确定性",
+                case.id,
+                a.len(),
+                b.len()
+            ));
+        }
+        let back = crate::load(&a).map_err(|e| format!("[{}] 解不回来：{e}", case.id))?;
+        let want = v.canonical_text().map_err(|e| format!("[{}] {e}", case.id))?;
+        let got = back.canonical_text().map_err(|e| format!("[{}] {e}", case.id))?;
+        if want != got {
+            return Err(format!(
+                "[{}] 容器往返后值变了：\n  原: {want:?}\n  回: {got:?}",
+                case.id
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// `--gen`: regenerate and write to disk. ｜ 重新生成并写盘。
 pub fn generate(path: &Path) -> Result<String, String> {
     verify_self()?;
     let body = render().map_err(|e| format!("{e}"))?;
-    if let Some(dir) = path.parent() {
-        if !dir.as_os_str().is_empty() {
-            std::fs::create_dir_all(dir).map_err(|e| format!("建目录 {} 失败：{e}", dir.display()))?;
-        }
-    }
-    // 用 `write`（字节）而不是带换行转换的文本写：Windows 上 `\n` 不该变成 `\r\n`
-    std::fs::write(path, body.as_bytes()).map_err(|e| format!("写 {} 失败：{e}", path.display()))?;
+    write_bytes(path, &body)?;
     Ok(format!(
         "已生成 {} 例 → {}（{} B）",
         CASES.len(),
@@ -347,6 +441,56 @@ pub fn check(path: &Path) -> Result<String, String> {
     ))
 }
 
+/// `--gen` for the container vectors. ｜ 生成容器向量。
+pub fn generate_container(path: &Path) -> Result<String, String> {
+    verify_container()?;
+    let body = render_container()?;
+    write_bytes(path, &body)?;
+    Ok(format!(
+        "已生成 {} 例容器向量 → {}（{} B）",
+        CASES.len(),
+        path.display(),
+        body.len()
+    ))
+}
+
+/// `--check` for the container vectors. ｜ 校验容器向量。
+pub fn check_container(path: &Path) -> Result<String, String> {
+    verify_container()?;
+    let expected = render_container()?;
+    let actual = std::fs::read_to_string(path).map_err(|e| {
+        format!(
+            "读 {} 失败：{e}（先跑 `amberice vectors --gen`）",
+            path.display()
+        )
+    })?;
+    if actual == expected {
+        return Ok(format!(
+            "{} 例容器向量与 {} 逐字节一致（自检亦过）",
+            CASES.len(),
+            path.display()
+        ));
+    }
+    Err(format!(
+        "{} 与当前代码不一致 —— 要么改了容器布局（那就重新 `--gen`），\
+         要么手改了文件（请改回）：\n{}",
+        path.display(),
+        first_line_diff(&expected, &actual)
+    ))
+}
+
+/// Write bytes **without** newline translation (Windows must not turn `\n` into `\r\n`).
+/// 按字节写盘（Windows 上不许把 `\n` 翻成 `\r\n`）。
+fn write_bytes(path: &Path, body: &str) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        if !dir.as_os_str().is_empty() {
+            std::fs::create_dir_all(dir)
+                .map_err(|e| format!("建目录 {} 失败：{e}", dir.display()))?;
+        }
+    }
+    std::fs::write(path, body.as_bytes()).map_err(|e| format!("写 {} 失败：{e}", path.display()))
+}
+
 fn first_line_diff(expected: &str, actual: &str) -> String {
     let mut el = expected.lines();
     let mut al = actual.lines();
@@ -368,20 +512,29 @@ fn first_line_diff(expected: &str, actual: &str) -> String {
 /// Resolve the default location: cwd first, then two levels up (`amberice` usually runs from
 /// `rust/` or `rust/amberice/`). ｜ 默认落点解析：先看 cwd，再往上找两级。
 pub fn resolve_default() -> PathBuf {
+    resolve_in(DEFAULT_PATH)
+}
+
+/// Same resolution for the container vectors. ｜ 容器向量用同一套落点解析。
+pub fn resolve_container_default() -> PathBuf {
+    resolve_in(CONTAINER_PATH)
+}
+
+fn resolve_in(rel: &str) -> PathBuf {
     let up = |n: usize| {
         let mut p = String::new();
         for _ in 0..n {
             p.push_str("../");
         }
-        p.push_str(DEFAULT_PATH);
+        p.push_str(rel);
         p
     };
-    for cand in [DEFAULT_PATH.to_string(), up(1), up(2)] {
+    for cand in [rel.to_string(), up(1), up(2)] {
         if Path::new(&cand).is_file() {
             return PathBuf::from(cand);
         }
     }
-    PathBuf::from(DEFAULT_PATH)
+    PathBuf::from(rel)
 }
 
 fn hex(bytes: &[u8]) -> String {
