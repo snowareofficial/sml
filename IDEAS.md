@@ -724,12 +724,16 @@ svc { @is Svc  name: gateway  x-owner: infra }
   - ⚠️ `value-layout.md` 的 9 条验收**一条未打勾**、6 个未决问题，且与 `.smlb` 的 canonical 排序**尚未对齐**
 - **关联**：`I-20`（长文档）、`preserve_order`（是它能否「源序进源序出」的前提）。
 
-## I-19 `smlkit`：品牌门面（瘦别名）/ 国际稳定发布线
+## I-19 品牌门面（瘦别名）/ 国际稳定发布线：`swml`（原名 `smlkit`）
 
-- **Status / 状态**：`命名已定（2026-11-03 用户裁决 `smlkit`）`；**crate 未建**（
-  `<待定>` 见下「落地顺序」）。~~原候选 `idyml` 已否决~~。
+- **Status / 状态**：**2026-11-06 用户改名：门面叫 `swml`**（`smlkit` 作废；`swsml` 保持原名、退居 core）。
+  **crate 仍未建**（`rust/` 下只有 `smlkit-easy`），故改名零迁移成本。
 - **2026-11-04 用户裁决**：**还需商榷** —— 名字虽已定，但「建门面 crate」这一步暂缓，不进排期；
   同期让位给 `weak*`（I-5 / I-15 / I-17）。
+- **2026-11-06 用户裁决（改名 + 分层）**：`smlkit` → **`swml`**，`swsml` 做**幕后 core**；
+  `smltools` 保持原名，另加 `swmltool` / `swmltools` 作防御（须合规，见 `TODO.md §11.1`）；
+  同时明确「**`smlkit` 和 `amberice` 定位不一样**」⇒ `amberice` 不是本条的名字，落点另记
+  （`TODO.md §11.4` 待一句裁决）。`smlkit-easy` 是否跟改 `swml-easy` 待裁。
 - **为什么否掉 `idyml`**：它**不是**被占用（实测 crates.io / PyPI / npm 三处全空），问题是**误导** ——
   `-yml` 会让名字主动说错话，让人以为「又一个 YAML」。⇒ 由此立下一条**排除规则**：
   **名字里不许出现 `yml` / `yaml` / `ml` / `json` / `toml` / `ini` 词根。**
@@ -740,22 +744,24 @@ svc { @is Svc  name: gateway  x-owner: infra }
   | `sml` / `sml-rs` / `idml` | **已被无关项目占用**（Standard ML / 智能电表协议） | — | — |
   | `swsml` | 本仓（已发布） | 空 | 空 |
   | ~~`idyml`~~ | 空 | 空 | 空 |
-  | **`smlkit`** | **空** | **空** | **空** |
+  | **`smlkit`**（已作废） | **空** | **空** | **空** |
+  | **`swml`**（2026-11-06 改名，实测当天） | **空（404）** | **空（404）** | **空（404）** |
+  | `swmltool` / `swmltools`（2026-11-06 实测） | **空（404）** | 未查 | 未查 |
   | `sml-easy` / `smlbase` / `smlcore` / `smldoc` / `smlx` | 空 | 空 | 空/未知 |
 
-- **想法**：`smlkit` 作为**品牌门面**（瘦别名，`pub use swsml::*` 级别，零新 API），
+- **想法**：`swml` 作为**品牌门面**（瘦别名，`pub use swsml::*` 级别，零新 API），
   面向国际用户、作为比 `swsml` 更保守的发布线（只跟 swsml 稳定 minor）。
   它与 `smlkit-easy`（渐进式 API 层，见 `TODO.md` §三·十二 I 组）构成一族：
-  **`smlkit` = 门面，`smlkit-easy` = 入门层，`swsml` = 底层实现（不改名）**。
-- **明确不做**：不 fork 实现、不翻内部注释；`smlkit` 这个门面**不进本仓 workspace**
+  **`swml` = 门面，`smlkit-easy` = 入门层（是否改名 `swml-easy` 待裁），`swsml` = 底层实现（不改名）**。
+- **明确不做**：不 fork 实现、不翻内部注释；`swml` 这个门面**不进本仓 workspace**
   （依赖走 crates.io，独立仓库），而 `smlkit-easy` 现在先在本仓里开发（`publish = false`）。
 - **落地顺序（建议）**：① `smlkit-easy` 的 L1/L2 先做完（它才是「装了不会用」的解药）；
-  ② 等 `.smlb` / `smldb`（I-18）就位；③ **0.7.0 一次性发** `smlkit`（门面）+ `smlkit-easy` + `smlkit-smlb`/`db`（若做）。
+  ② 等 `.smlb` / `smldb`（I-18）就位；③ **0.7.0 一次性发** `swml`（门面）+ `smlkit-easy` + `swml-smlb`/`db`（若做）。
 - **发布前必须做**：GitHub org / 域名 / docs 子域三处一起占（否则「名字不撞」只解决一半）；
   再跑一遍三生态占用检查（crates.io / PyPI / npm，命令见下）。
   查占用用：`Invoke-WebRequest https://crates.io/api/v1/crates/<name>`（404 = 空）。
 - **与 I-12 的关系**：I-12 是「**把 `swsml` 自己改名**」—— 成本最高（已发布、11 个 crate、SONAME、文档）；
-  本条是「**另开一个门面**」，成本低得多。**现状：不动 `swsml`，只加 `smlkit` 一族。**
+  本条是「**另开一个门面**」，成本低得多。**现状：不动 `swsml`，只加 `swml` 一族。**
 
 ## I-20 长文档产出链：EPUB / 独立 HTML / 分章 / TOC / 增量 emit（**未做**）
 

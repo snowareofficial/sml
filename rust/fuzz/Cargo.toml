@@ -1,5 +1,9 @@
 # 自成 workspace：fuzz 需 nightly/libFuzzer，绝不能进父 workspace 的 members
 # （否则 `cargo test --workspace` 会尝试编它而失败）。路径依赖 swsml 可跨 workspace。
+#
+# 本地跑法（Windows 上必须显式指定 nightly 与 msvc target —— ASAN 只在该 target 可用）：
+#   rustup +nightly target add x86_64-pc-windows-msvc
+#   cargo +nightly fuzz run smlb_load -- -runs=100000
 [workspace]
 
 [package]
@@ -13,14 +17,84 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-
-[dependencies.sml_parse]
-package = "sml-parse"
-path = "../sml-parse"
+# 文本层（L1）：词法 / 语法 / 错误码表
+sml-lex = { path = "../sml-lex" }
+sml-parse = { path = "../sml-parse" }
+sml-include = { path = "../sml-include" }
+sml-feature = { path = "../sml-feature" }
+sml-codes = { path = "../sml-codes" }
+# L4：受限正则引擎（`include` 的模式串解析，零依赖自研）
+sml-regex = { path = "../sml-regex" }
+# 值层（L3）：canonical 字节 + 文本发射器（L1 往返判据要用 `to_sml`）
+sml-value = { path = "../sml-value", features = ["sml"] }
+# 容器层（L2）：全能力打开，才能同时 fuzz 压缩 / 加密 / 签名 / mmap 的读路径
+smlb = { path = "../smlb", features = [
+    "preserve_order",
+    "sign",
+    "compress",
+    "crypto",
+    "mmap",
+] }
 
 [[bin]]
 name = "parse"
 path = "fuzz_targets/parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_file"
+path = "fuzz_targets/parse_file.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "value_canonical"
+path = "fuzz_targets/value_canonical.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "smlb_load"
+path = "fuzz_targets/smlb_load.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "smlb_get"
+path = "fuzz_targets/smlb_get.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "smlb_pack"
+path = "fuzz_targets/smlb_pack.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "smlb_layer"
+path = "fuzz_targets/smlb_layer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "smlb_crypto"
+path = "fuzz_targets/smlb_crypto.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "regex_compile"
+path = "fuzz_targets/regex_compile.rs"
 test = false
 doc = false
 bench = false

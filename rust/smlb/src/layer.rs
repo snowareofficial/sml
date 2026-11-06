@@ -337,13 +337,18 @@ pub fn base_prefix_len(bytes: &[u8]) -> Result<usize, LayerError> {
         return Ok(bytes.len());
     };
     let mut off = t.last_layer_off;
-    loop {
+    // 步数必须封顶：`prev_off` 是**文件里的数字**，可以被写成环（自己指自己 / 两点互指）。
+    // 不封顶就是死循环（fuzz 的「不卡死」判据）。上限用「文件最多放得下几条记录」，
+    // 而不是 `layer_count` —— 后者也是可伪造的 u32，最大 4G 步。
+    let max_steps = bytes.len() / LAYER_HEADER_LEN + 1;
+    for _ in 0..max_steps {
         let (_body, prev_off) = read_record(bytes, off)?;
         if prev_off == 0 {
             return Ok(off as usize);
         }
         off = prev_off;
     }
+    Err(LayerError::Truncated { at: off })
 }
 
 /// Hash of the base document (everything before the first layer record).
@@ -357,16 +362,17 @@ pub fn layers(bytes: &[u8]) -> Result<Vec<Layer>, LayerError> {
     let Some(t) = Trailer::parse(bytes) else {
         return Ok(Vec::new());
     };
-    if t.last_layer_off + (LAYER_HEADER_LEN as u64) > bytes.len() as u64 {
-        return Err(LayerError::Truncated {
-            at: t.last_layer_off,
-        });
-    }
-    let mut out: Vec<Layer> = Vec::with_capacity(t.layer_count as usize);
+    // ⚠️ 三条防御都针对**伪造的 Trailer**（fuzz 撞出来的，别删）：
+    // 1. 不按 `layer_count` 预分配 —— 它是 u32，写 0xFFFF_FFFF 就是当场要 4G 项的分配；
+    // 2. `prev_off` 可以成环（含自指），步数必须封顶，否则死循环 + 无界增长；
+    // 3. 偏移检查交给 `read_record`（那里走 `checked_add`），这里不再自己加。
+    let declared = t.layer_count as usize;
+    let mut out: Vec<Layer> = Vec::new();
     let mut off = t.last_layer_off;
-    loop {
+    let max_steps = declared.min(bytes.len() / LAYER_HEADER_LEN) + 1;
+    for _ in 0..max_steps {
         let (body, prev_off) = read_record(bytes, off)?;
-        let v = Value::from_canonical_bytes(body).map_err(|e| LayerError::Canonical(e))?;
+        let v = Value::from_canonical_bytes(body).map_err(LayerError::Canonical)?;
         let layer = Layer::from_value(&v).map_err(LayerError::Manifest)?;
         out.push(layer);
         if prev_off == 0 {
@@ -375,9 +381,9 @@ pub fn layers(bytes: &[u8]) -> Result<Vec<Layer>, LayerError> {
         off = prev_off;
     }
     out.reverse();
-    if out.len() != t.layer_count as usize {
+    if out.len() != declared {
         return Err(LayerError::CountMismatch {
-            declared: t.layer_count as usize,
+            declared,
             found: out.len(),
         });
     }

@@ -135,6 +135,11 @@ smlb = ["dep:smlb", "smlb/preserve_order", "preserve_order"]
 # `.smlb` 信封 + 段级 zstd 压缩。**再开一层**是故意的：压缩会把 `zstd` 的 C 绑定
 # 拉进依赖树，不该由「只是想用信封」的人被动承担。
 smlb-compress = ["smlb", "smlb/compress"]
+# `.smlb` 信封 + 按块 AEAD 解密（`load_encrypted` / `get_encrypted`）。同样单开一层：
+# `aes-gcm` / `argon2` 不该由「只读明文文件」的人被动承担。
+smlb-crypto = ["smlb", "smlb/crypto"]
+# `.smlb` 信封 + 内存映射读取（`MappedFile`）。单开一层：`memmap2` 只服务 `mmap` 判据。
+smlb-mmap = ["smlb", "smlb/mmap"]
 preserve_order = [
     "sml-value/preserve_order",
     "sml-lex/preserve_order",
@@ -196,6 +201,20 @@ lto = false
 [[bench]]
 name = "perf"
 harness = false
+
+# 值层基准（HANDOFF §5.2）：`to_sml` / `canonical_*` / `Value::get` / `eq_ordered`。
+# 与 `perf` 共用计时口径，但**不改 perf.rs** —— 它的数字已进 docs/perf-baseline.md。
+[[bench]]
+name = "value"
+harness = false
+
+# 容器层基准（HANDOFF §5.2）：`dump` / `load` / `pack` / `Store::get` / `Writer` / 解密 / mmap。
+# 需要 `smlb` feature（默认关：装上它就把 `smlb` 拉进依赖树）；压缩 / 解密 / mmap 三组
+# 各由 `smlb-compress` / `smlb-crypto` / `smlb-mmap` 再开一层，没开就打印「已跳过」。
+[[bench]]
+name = "smlb"
+harness = false
+required-features = ["smlb"]
 
 # ---------------------------------------------------------------------------
 # cargo-deb 原型（可选；**不是**默认构建路径）。
