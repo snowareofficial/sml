@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 //! 契约表回传（`ParseOptions::capture_contracts`）：内置契约表要能用 SML 写、
-//! 再被宿主读回来注入（`docs/weakbind-spec-draft.md` §6.1）。
+//! 再被宿主读回来注入（`docs/swsml/spec/weakbind.md` §6.1）。
 //!
 //! 钉两件事：
 //! 1. **默认不开** ⇒ `contracts` 恒 `None`（与 `contract_map` 同一取舍，向后兼容的钉子）；

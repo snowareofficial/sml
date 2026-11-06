@@ -97,7 +97,7 @@ jobs:
       - name: JS .ambr 解码器（容器向量）
         run: node js/test-ambr-decoder.mjs
       - name: JS 四份副本一致性
-        run: python3 tools/check_js_copies.py
+        run: python3 tools/check/check_js_copies.py
       - name: Lua 检查
         run: |
           sudo apt-get update
@@ -120,12 +120,17 @@ jobs:
           cargo build --release -p smltools
           echo "$PWD/target/release" >> "$GITHUB_PATH"
       - name: 私有资产守卫
-        run: python3 tools/check_private_assets.py
+        run: python3 tools/check/check_private_assets.py
       - name: 错误码生成物幂等校验
         run: |
           python3 errors/gen_json.py
           python3 errors/gen_codes.py
           git diff --exit-code
+      # 文档门禁：docs/meta.sml 是唯一清单。未登记 / 断链 / stale 无替代者 / updated 超期
+      # 任一命中即红。**放在 `git diff --exit-code` 之后** —— 它自己会重写 docs/report.md。
+      - name: 文档门禁（meta.sml → 索引 / 体检 / 断链）
+        working-directory: rust
+        run: cargo run -p smldocs -- --check
 
   # Miri：C-ABI 的 UB 检测（很慢，单独 job + 超时，不允许 continue-on-error）
   miri:

@@ -1,7 +1,7 @@
 //! Identifier whitelist (S1b) ｜ 标识符白名单。
 //!
 //! 门控在特性位 `lex.ident`（默认**关**）—— 关掉就回到 v4 行为，既有文档一字不变。
-//! 唯一权威是 `docs/featag-impl-slices.md` §2 的那两张表；本文件是它在 Rust 侧的实现。
+//! 唯一权威是 `docs/swsml/plan/featag-slices.md` §2 的那两张表；本文件是它在 Rust 侧的实现。
 //!
 //! # 允许
 //!
@@ -24,7 +24,7 @@
 //! 6. 全角 / 兼容区字符 —— 「看起来一样、比较不等」。
 //!
 //! ⚠️ **「每契约单一语种」不在这里**：那条规则要比较**同一契约内多个标识符**
-//! （见 `docs/featag-impl-slices.md` §2.2），落在契约声明收集（S4）那一层。
+//! （见 `docs/swsml/plan/featag-slices.md` §2.2），落在契约声明收集（S4）那一层。
 
 use std::fmt;
 

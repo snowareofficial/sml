@@ -100,7 +100,7 @@ pub struct Parser<'a> {
     pub(crate) collect_errors: bool,
     /// 收集到的错误（仅 `collect_errors` 时非空）。
     pub(crate) errors: Vec<SmlError>,
-    /// 弱绑定旁路表（`docs/weakbind-spec-draft.md` §5）：`@weakbind` 的产物。
+    /// 弱绑定旁路表（`docs/swsml/spec/weakbind.md` §5）：`@weakbind` 的产物。
     ///
     /// **不进主树** —— 这是核心判据「有无 `@weakbind`，主树与 `contract_map` 逐字节相同」
     /// 的落点。未使用该指令时为空。
@@ -115,7 +115,7 @@ pub struct Parser<'a> {
     pub(crate) weak_pending: Vec<(Vec<PathSeg>, String, Option<BTreeMap<String, FieldSpec>>)>,
     /// 弱数据旁路表（`@weakdata` 的载荷）：**不进主树**，只给拓展按名读取。
     ///
-    /// 同一 `(path, name)` 只留最后一条（同名后者覆盖，见 `docs/weakdata-spec-draft.md` §3）。
+    /// 同一 `(path, name)` 只留最后一条（同名后者覆盖，见 `docs/swsml/spec/weakdata.md` §3）。
     pub(crate) weak_data: Vec<WeakData>,
     /// 弱 profile 引用（`@weakdoc`）：只存名字，**库不读文件系统**。
     ///
@@ -145,7 +145,7 @@ struct BlockFrame {
     bare: Option<BareCtx>,
 }
 
-/// 一条挂起的 `@weakbind` 声明（`docs/weakbind-spec-draft.md` §2）。
+/// 一条挂起的 `@weakbind` 声明（`docs/swsml/spec/weakbind.md` §2）。
 ///
 /// 只活到「下一个块开帧」为止：那一刻写进 [`Parser::weak_binds`]，随即清空。
 /// `line` 是 `@weakbind` 所在行（1 起），供宿主把诊断指回原文。
@@ -1426,7 +1426,7 @@ impl<'a> Parser<'a> {
         //
         // 与 `@when` 同一套「挂起状态 + 下一个块消费」的机制，但**不碰契约层**：
         // 不 resolve、不校验、不填默认值，只把声明记进旁路表
-        // （`docs/weakbind-spec-draft.md` §5）。故这里只读 token，从不查 `self.contracts`。
+        // （`docs/swsml/spec/weakbind.md` §5）。故这里只读 token，从不查 `self.contracts`。
         if fname == "weakbind" {
             if !self.features.has(Feature::Weak) {
                 return Err(SmlError::from_code_msg(E_FEATURE_001)
@@ -1492,7 +1492,7 @@ impl<'a> Parser<'a> {
         //
         // 项目 `.smlex` 目录 / 用户全局 / 系统三处命名空间的查找全在工具侧 ——
         // 「不能用于注入」的判据因此自动成立：库连文件都没碰、
-        // 解析结果对有无 profile 必然一致（`docs/weakdoc-spec-draft.md` §4）。
+        // 解析结果对有无 profile 必然一致（`docs/swsml/spec/weakdoc.md` §4）。
         if fname == "weakdoc" {
             if !self.features.has(Feature::Weak) {
                 return Err(SmlError::from_code_msg(E_FEATURE_001)
@@ -1527,7 +1527,7 @@ impl<'a> Parser<'a> {
         // —— 弱数据：`@weakdata <名> { … }`（载荷**不进主树**，只给拓展读）——
         //
         // 与 `@weakbind` 的分工：这里**没有契约**、内容**根本不进树**；
-        // 库只负责「按名交出去」，不解释内容（`docs/weakdata-spec-draft.md`）。
+        // 库只负责「按名交出去」，不解释内容（`docs/swsml/spec/weakdata.md`）。
         if fname == "weakdata" {
             if !self.features.has(Feature::Weak) {
                 return Err(SmlError::from_code_msg(E_FEATURE_001)
@@ -1675,7 +1675,7 @@ impl<'a> Parser<'a> {
     /// 记一条弱绑定软校验告警（`W-CONTRACT-001`）：**不阻断解析、不改主树**。
     ///
     /// 八档差异写在消息前缀里（`（decl.unknown_contract）` 这种），因为
-    /// [`Diagnostic`] 没有 `detail` 字段 —— 见 `docs/weakbind-spec-draft.md` §4。
+    /// [`Diagnostic`] 没有 `detail` 字段 —— 见 `docs/swsml/spec/weakbind.md` §4。
     fn push_weak_warn(&mut self, line: Option<usize>, detail: &str, msg: String) {
         self.diags.push(Diagnostic {
             kind: DiagnosticKind::WeakBindMismatch,
@@ -2910,7 +2910,7 @@ impl<'a> Parser<'a> {
 
     /// S2：消费块头首词之后的 **featag 区**（`!critical obey[1, 2]` 与终止逗号）。
     ///
-    /// 规则（`docs/featag-spec-draft.md` §2.2 / §2.3）：
+    /// 规则（`docs/swsml/spec/featag.md` §2.2 / §2.3）：
     /// - **无参项必须带 `!`**（`!critical`）—— 否则与块名不可分；
     /// - **带参项写成 `名[ … ]`**（`obey[1, 2]`），靠 `[` 与块名区分；
     /// - **`,` 是终止符**：区内部各项之间不写逗号；`[ ]` 内深度 ≥ 1 的逗号不算终止；
@@ -3179,7 +3179,7 @@ fn is_auto_marker(payload: &Value) -> bool {
 ///   `n == len` ⇒ **追加**（`strict` 下报 `023`）；`n > len` ⇒ `025`（**绝不补 null**）。
 ///
 /// ⚠️ **数组本身不存在时不自动创建**（对象可以、数组不行）：造一个多长的数组、中间填什么，
-/// 没有无歧义的答案；凭空补 null 又违背 `docs/null-semantics.md` N1–N5。
+/// 没有无歧义的答案；凭空补 null 又违背 `docs/swsml/spec/null.md` N1–N5。
 fn write_target(
     map: &mut Map,
     segs: &[Seg],

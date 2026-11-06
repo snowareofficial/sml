@@ -465,7 +465,7 @@ mod tests {
             if i.domain == "PARSE" { parse += 1; }
         }
         assert_eq!(empty, 0, "所有码 title/msg 必须非空");
-        assert_eq!(parse, 32, "PARSE 领域应为 32 条（含 E-PARSE-028..030 与 W-PARSE-001/002）");
+        assert_eq!(parse, 27, "PARSE 领域应为 27 条（含 W-PARSE-001/002）");
     }
 
     #[cfg(not(feature = "zh"))]

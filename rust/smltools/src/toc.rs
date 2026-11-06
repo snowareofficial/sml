@@ -6,7 +6,7 @@
 //!
 //! ⚠️ **顺序**：默认 `Value::Object` 是 BTreeMap（按名字排序），源序不保。
 //! 想让目录按书写顺序，就给容器块用 `children` 数组（那里保序），或整体开 `preserve_order`。
-//! 这条与 `docs/value-layout.md` §3 同源。
+//! 这条与 `docs/swsml/spec/value-layout.md` §3 同源。
 
 use sml::Value;
 

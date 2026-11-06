@@ -86,7 +86,7 @@ sml-book.epub
 #    `.git/info/exclude`，**不写进公开仓库**（2026-10-28 脱敏）。
 #    工作副本放在仓库之外，主库工作区里**不放**这些文件（放了就有手滑提交进公开库的机会）。
 #    下面几条**故意保留**：不是给文件找地方放，而是「万一有人放进工作区」时挡一道。
-#    守卫：`python tools/check_private_assets.py`（查历史 / 索引 / 这几条规则在位）。
+#    守卫：`python tools/check/check_private_assets.py`（查历史 / 索引 / 这几条规则在位）。
 SML_政务数据密级标注规范_报送稿.*
 SML图形管线项目_全量文档合集.md
 SML_数字字面量保真性审计报告.md
@@ -122,8 +122,10 @@ node_modules/
 
 # 本地临时件的集中收纳处（2026-10-26 起）：`_` 开头已由上一条覆盖，
 # 这里显式写出来只为让下一个人知道「根目录那堆 `_*` 去哪了」。
-# 收纳规则：被仓库引用的 `_*` 留在根（如 `_rust_test.bat` 是构建入口），
-# 其余一律挪进来；**要删就整目录删，别一个个挑**。
+# 收纳规则：被仓库引用的 `_*` 才留在原位，其余一律挪进来；**要删就整目录删，别一个个挑**。
+# 2026-11-06：根目录的 18 个一次性脚本 / 日志已清空（含 `_rust_test.bat` —— 它不再被任何
+# 入库文件引用），根目录现在只剩 `.gitattributes` / `.gitignore` / `LICENSE` / 各 README /
+# TODO / IDEAS / CHANGELOG / llms.txt / grammar.sml。
 _scratch/
 # 010 Editor 样例的二进制产物：由 cargo run --example showcase 生成，不入库
 rust/amberice/examples/*.ambr
@@ -173,10 +175,12 @@ rust/*.log
 HL-cfg.sml
 
 # ── 内部任务笔记与本地探针（不进版本库）────────────────────────────────────
-# TASK-*.md 是本会话内部任务笔记；probe_requires_crossend.mjs 是一次性跨端探针。
+# **根目录的** TASK-*.md 是本会话内部任务笔记；probe_requires_crossend.mjs 是一次性跨端探针。
 # 用户裁决（2026-10-14 发版前）：这几类留本地，不提交。
-TASK-*.md
-tools/probe_requires_crossend.mjs
+# 2026-11-06：规则收窄为 `/TASK-*.md`（只挡仓库根）。已入库的历史任务书统一归档在
+# `docs/repo/archive/task/`，属仓库资产，不再被这条规则误挡。
+/TASK-*.md
+tools/check/probe_requires_crossend.mjs
 
 # ── 根级 public/（游离 Hugo 产物，非部署目标）──────────────────────────────
 # 部署输出是 site/public（见 site/wrangler.toml 的 pages_build_output_dir）；

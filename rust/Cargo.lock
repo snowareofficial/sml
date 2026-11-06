@@ -772,6 +772,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "smldocs"
+version = "0.6.9-dev.0"
+dependencies = [
+ "swsml",
+]
+
+[[package]]
 name = "smltools"
 version = "0.6.9-dev.0"
 dependencies = [

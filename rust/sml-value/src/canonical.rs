@@ -4,8 +4,8 @@
 //! **canonical 形态**：让「同一份数据」无论来自 `.sml` 文本、程序构造，还是另一个
 //! `.ambr`，都产出**同一串文本**与**同一串字节**。
 //!
-//! Rules live in `docs/amberice-smldb-spec.md` §18 (C1–C13) and §19 (`VALUE` segment layout).
-//! 依据 `docs/amberice-smldb-spec.md` §18（C1–C13）与 §19（`VALUE` 段布局）。两张面孔：
+//! Rules live in `docs/amberice/spec/format.md` §18 (C1–C13) and §19 (`VALUE` segment layout).
+//! 依据 `docs/amberice/spec/format.md` §18（C1–C13）与 §19（`VALUE` 段布局）。两张面孔：
 //!
 //! | Form / 形态 | Entry / 入口 | Use / 用途 | Affected by `fmt` / 受 `fmt` 影响 |
 //! |---|---|---|---|

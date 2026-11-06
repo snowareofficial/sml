@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! `.smlex` **加载失败**的四类情形（`docs/weakdoc-spec-draft.md` §3、`docs/smlex-format-draft.md`）。
+//! `.smlex` **加载失败**的四类情形（`docs/swsml/spec/weakdoc.md` §3、`docs/swsml/spec/smlex.md`）。
 //!
 //! 全部落在 `E-LINT-005`「profile 无法加载」，靠 detail 区分：
 //! ① 读取失败（IO / 非 UTF-8）② 不是合法 SML ③ 缺必填 `name` ④ `name` 与文件名不一致。

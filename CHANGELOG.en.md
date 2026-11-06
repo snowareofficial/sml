@@ -28,7 +28,7 @@ Conventions carried over from `CHANGELOG.md`:
 
 ### 🚨 Breaking — version naming: `Version` enum → `Edition` lookup
 
-An edition is just a **name for a set of default feature bits** (`docs/version-naming.md` v1.0).
+An edition is just a **name for a set of default feature bits** (`docs/swsml/spec/version.md` v1.0).
 Editions are **not ordered**, so `Ord` is gone and the criterion is always "is this feature in that set".
 
 - `enum Version { V1..V4 }` is **deleted**; new `struct Edition { major, minor }` plus
@@ -58,7 +58,7 @@ Editions are **not ordered**, so `Ord` is gone and the criterion is always "is t
 
 ### Docs — featag S9: policy for the other four implementations (docs only, no code)
 
-- `docs/capability-matrix.md` gains **§1.7b**: feature status of featag and identifier validation
+- `docs/swsml/ref/capability-matrix.md` gains **§1.7b**: feature status of featag and identifier validation
   across five ends (Rust ✅, the rest ❌), with the actual runtime shape **measured** on 2026-11-04:
   - JS on `@feature enable type.featag` ⇒ `E-FEATURE-003` (not in `KNOWN_FEATURES`);
   - Lua on `@feature` itself ⇒ `E-PARSE-005` (no feature set);
@@ -66,7 +66,7 @@ Editions are **not ordered**, so `Ord` is gone and the criterion is always "is t
     `wea !critical, name { }` is accepted by JS as "key + bareword value" — a **pre-existing
     cross-end divergence**, recorded here without blaming this change;
   - C / C++ marked `未测` (not measured) rather than guessed.
-- `docs/featag-spec-draft.md`: the status banner changes from "zero implementation" to
+- `docs/swsml/spec/featag.md`: the status banner changes from "zero implementation" to
   "Rust implements S0–S8", and states that it currently rides the `type.featag` bit (development
   exception) rather than `@version 50`.
 - **No code change**: the other four ends deliberately do not implement featag and keep reporting
@@ -244,7 +244,7 @@ Editions are **not ordered**, so `Ord` is gone and the criterion is always "is t
 - With `@feature enable type.featag`, the `!` region after the block head's first word is recognized:
   `wea !critical obey[1, 2], name { }`, `wea !critical, { }` (name optional); no-arg items are
   `!name`, items with args are `name[ … ]`; **`,` terminates** the region (no commas between items).
-- **Three ambiguities, three codes** (`docs/featag-spec-draft.md` §2.3):
+- **Three ambiguities, three codes** (`docs/swsml/spec/featag.md` §2.3):
   - `E-PARSE-026` **empty featag region** (`wea ! , name { }`);
   - `E-PARSE-027` **`!` bareword in a value position** (`a: !b`) — **`bareword-string` does not exempt it**;
     quote it if you meant a string;
@@ -262,7 +262,7 @@ Editions are **not ordered**, so `Ord` is gone and the criterion is always "is t
 
 ### Added — feature namespaces + the `type.featag` placeholder bit
 
-- `@feature enable <domain>.<name>` now works (`docs/feature-namespace-plan.md` N4):
+- `@feature enable <domain>.<name>` now works (`docs/swsml/spec/features.md` N4):
   `Feature::parse_name` validates the shape before the lookup — **split at the first dot only**,
   three segments (`a.b.c`) are rejected outright; domains are a **closed whitelist**
   `FEATURE_DOMAINS = ["lex","mod","type","flow"]` (N1), and an unknown domain is reported with it.

@@ -39,7 +39,7 @@ pub mod path;
 /// Canonical form (text + bytes): `Value::canonical_text` / `Value::canonical_bytes`.
 /// canonical 形态（文本 + 字节）。
 ///
-/// Rules: `docs/amberice-smldb-spec.md` §18 (C1–C13) and §19 (`VALUE` segment layout).
+/// Rules: `docs/amberice/spec/format.md` §18 (C1–C13) and §19 (`VALUE` segment layout).
 /// **Not feature-gated**: it inspects the object's explicit ordering (`Map::ordering()`),
 /// not a compiler flag. An unordered object gets [`CanonicalError::KeyOrderUnavailable`]
 /// with a message that points at `Map::ordered()` / `parse_ordered()`.
@@ -53,7 +53,7 @@ mod text_rules;
 
 mod value;
 mod map;
-// 保序对象（docs/value-layout.md §3/§5）：**无条件编译**。
+// 保序对象（docs/swsml/spec/value-layout.md §3/§5）：**无条件编译**。
 //
 // 方案 2 的第一步（用户 2026-11-05 裁决）：「有序 / 无序」要成为两个显式类型，
 // 而不是一个全局 feature 开关。此模块是零依赖自实现（Vec<Entry> + 惰性三档索引），

@@ -4,7 +4,7 @@
 #   smltools -i rust/smltools/profile.sml --dump-builtins > profile-builtins.json
 #
 # ⚠️ 这些契约**只描述形状**，不执行任何检查；`.smlex` 的解释权在工具侧。
-#    规范见 docs/smlex-format-draft.md（v1.0）。
+#    规范见 docs/swsml/spec/smlex.md（v1.0）。
 # ⚠️ 全部用 loose：格式明确要求「未知字段 ⇒ warning + 忽略」（前向兼容），
 #    若用 strict，一个更新版本的 profile 在老工具里就会被判成错。
 

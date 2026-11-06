@@ -118,7 +118,7 @@ pub mod emit;
 pub use sml_value::{
     describe_value, CanonicalValue, Map, OrderedMap, Value, MAX_VALUE_DEPTH,
 };
-/// Why canonical failed (`.ambr` T0, `docs/amberice-smldb-spec.md` §18).
+/// Why canonical failed (`.ambr` T0, `docs/amberice/spec/format.md` §18).
 /// canonical 的失败原因。
 ///
 /// Without `preserve_order`, `Value::canonical_text` / `canonical_bytes` always return
@@ -190,7 +190,7 @@ pub fn to_sml_checked(v: &Value) -> Result<String, sml_codes::SmlError> {
     })
 }
 
-// `Version` 是 `Edition` 的别名（2026-11-04 改名，`docs/version-naming.md` V1）。
+// `Version` 是 `Edition` 的别名（2026-11-04 改名，`docs/swsml/spec/version.md` V1）。
 // `edition_by_codename` 供 CLI 接受 `--feature camelia`（代号与数字同义）。
 pub use sml_feature::{
     edition_by_codename, feature_names, Edition, Feature, FeatureSet, Version, EDITIONS, FEATURES,
@@ -441,7 +441,7 @@ mod tests {
 
     #[test]
     fn version_display_matches_name() {
-        // 规范名是 `1.0`（旧写法 `v1` 只是**输入别名**，不再回显 —— 见 docs/version-naming.md §1）
+        // 规范名是 `1.0`（旧写法 `v1` 只是**输入别名**，不再回显 —— 见 docs/swsml/spec/version.md §1）
         assert_eq!(Version::V1.name(), "1.0");
         assert_eq!(format!("{}", Version::V1), "1.0");
         assert_eq!(Edition::V4.name(), "4.0");

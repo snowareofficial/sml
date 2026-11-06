@@ -1,6 +1,6 @@
 # SML — VSCode 扩展
 
-为 [SML](../README.md)（SNOWARE Markup Language）提供编辑支持。
+为 [SML](../../README.md)（SNOWARE Markup Language）提供编辑支持。
 
 ## 功能
 
@@ -212,7 +212,7 @@ An English version of this document is available at
 
 # SML — VSCode Extension
 
-Provides editing support for [SML](../README.md) (SNOWARE Markup Language).
+Provides editing support for [SML](../../README.md) (SNOWARE Markup Language).
 
 ## Features
 

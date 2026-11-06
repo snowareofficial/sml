@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 //! 保序解析的验收用例（方案 2 / B 之后：**不再由 feature 门控**）。
 //!
-//! 依据 `docs/value-layout.md` §3/§5/§6 与 §12：
+//! 依据 `docs/swsml/spec/value-layout.md` §3/§5/§6 与 §12：
 //! - 保序买到的是「键序 == 源序」，**不是**确定性字节（后者是 `to_sml_canonical`）；
 //! - 合并规则（§6.3）：已存在的键**原位替换**、不存在的追加到尾部；
 //! - `PartialEq` 两种键序下都按集合相等（§6.1），顺序敏感另走 `eq_ordered`。

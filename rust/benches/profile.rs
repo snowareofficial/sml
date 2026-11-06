@@ -3,7 +3,7 @@
 //! 阶段 0 归因基准：补三条原基准没测到的行。
 //! Attribution bench: the three measurements the historical baselines lack.
 //!
-//! 为什么不改 `benches/perf.rs`：那份是 `docs/perf-baseline.md` 的历史基线，
+//! 为什么不改 `benches/perf.rs`：那份是 `docs/swsml/ref/perf-baseline.md` 的历史基线，
 //! **一个字节都不改**才能与既有数字并排比较。这里新开一份，复用 `common` 的口径。
 //! ｜ `perf.rs` stays untouched so its numbers remain comparable; this file adds rows only.
 //!

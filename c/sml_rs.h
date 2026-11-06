@@ -119,14 +119,14 @@ typedef struct sml_value sml_value;
 #define SML_F_TYPED_BLOCK   (1u << 14) /* 块级类型标注：`<契约名> <块名> { .. }` */
 #define SML_F_CASE_INSENSITIVE (1u << 15) /* 契约名查找首字母大小写不敏感 */
 #define SML_F_BLOCK_NAME    (1u << 16) /* 块级标注里"非契约词"可作块名 */
-/* 18th bit. 文档里写作 `type.featag`（第一个带域名，见 docs/feature-namespace-plan.md）。
+/* 18th bit. 文档里写作 `type.featag`（第一个带域名，见 docs/swsml/spec/features.md）。
  * Only the Rust parser knows this name so far; C/C++/Lua reject it (E-FEATURE-003 / E-PARSE-005).
  * Rust: bit is registered, grammar arrives in S2 -> enabling it changes nothing yet. */
 #define SML_F_FEATAG        (1u << 17)
 /* 19th bit: identifier whitelist (`lex.ident`, S1b). Rust-only for now; the C
  * parser does not validate identifiers, so this bit is a placeholder there. */
 #define SML_F_IDENT         (1u << 18)
-/* 20th bit: weak-declaration family (`type.weak`, docs/weakbind-spec-draft.md).
+/* 20th bit: weak-declaration family (`type.weak`, docs/swsml/spec/weakbind.md).
  * 文档里写作 `@feature enable type.weak`。目前只有 Rust 认识它；其余端在
  * 发布前那次统一同步里补上（`E-FEATURE-003` / `E-PARSE-005` 是现状，不是终态）。 */
 #define SML_F_WEAK          (1u << 19)

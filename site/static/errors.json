@@ -384,7 +384,7 @@
         "rust"
       ],
       "status": "done",
-      "note": "featag S4（`docs/featag-spec-draft.md` §2.3 B4）。**只在声明处**查重：使用处允许同名多次出现（`!a !a` 会原样保留在 `__featags` 数组里，应用层自行决定是否合并）。诊断写全 `<契约>.<featag>` —— 作用域契约私有，只写名字会分不清是哪个契约的"
+      "note": "featag S4（`docs/swsml/spec/featag.md` §2.3 B4）。**只在声明处**查重：使用处允许同名多次出现（`!a !a` 会原样保留在 `__featags` 数组里，应用层自行决定是否合并）。诊断写全 `<契约>.<featag>` —— 作用域契约私有，只写名字会分不清是哪个契约的"
     },
     {
       "id": "E-CONTRACT-020",
@@ -408,7 +408,7 @@
         "rust"
       ],
       "status": "done",
-      "note": "featag S5 开闸（`docs/featag-spec-draft.md` §10 Q3：**新码**，不复用 E-CONTRACT-012）。三种都用本码、靠 detail 区分：① 未声明（附该契约可用清单）；② 声明为无参（纯标签）却带了参数；③ 声明为带参却没写 `[...]`，或非数组类型的声明给了不止一个参数。**参数类型不符**则走既有类型错误码（`check_type` 那条链），因为那与字段类型错误的因完全相同。库侧可放宽：`ParseOptions::apply_contracts(false)` 时整段校验跳过（与契约校验同一个开关）"
+      "note": "featag S5 开闸（`docs/swsml/spec/featag.md` §10 Q3：**新码**，不复用 E-CONTRACT-012）。三种都用本码、靠 detail 区分：① 未声明（附该契约可用清单）；② 声明为无参（纯标签）却带了参数；③ 声明为带参却没写 `[...]`，或非数组类型的声明给了不止一个参数。**参数类型不符**则走既有类型错误码（`check_type` 那条链），因为那与字段类型错误的因完全相同。库侧可放宽：`ParseOptions::apply_contracts(false)` 时整段校验跳过（与契约校验同一个开关）"
     },
     {
       "id": "E-CONTRACT-022",
@@ -444,7 +444,7 @@
         "rust"
       ],
       "status": "done",
-      "note": "featag S7（`docs/featag-spec-draft.md` §6.2）。两档来源：默认（谁都能写）/ `from-featag`（只能 featag 写）—— **刻意没有 `none` / `readonly` 第三档**（用户 2026-11-03：v5 尽量少引入 null / none 思维；「谁都写不了」用「必填但无人提供」或 `optional` 表达）。这条同时是「外来数据不可伪造」的语言级抓手：`from-featag` 的键文档无法自行赋值。检查在 **featag 填充之前**跑，否则 featag 自己写进去的键会被当成「文档手写」误报"
+      "note": "featag S7（`docs/swsml/spec/featag.md` §6.2）。两档来源：默认（谁都能写）/ `from-featag`（只能 featag 写）—— **刻意没有 `none` / `readonly` 第三档**（用户 2026-11-03：v5 尽量少引入 null / none 思维；「谁都写不了」用「必填但无人提供」或 `optional` 表达）。这条同时是「外来数据不可伪造」的语言级抓手：`from-featag` 的键文档无法自行赋值。检查在 **featag 填充之前**跑，否则 featag 自己写进去的键会被当成「文档手写」误报"
     },
     {
       "id": "E-CONTRACT-025",
@@ -456,7 +456,7 @@
         "rust"
       ],
       "status": "done",
-      "note": "featag S6（`docs/featag-spec-draft.md` §10 Q20，2026-11-04 用户定）。下标语义：`n < len` 且元素为 null ⇒ 补缺；元素非 null ⇒ 禁止覆盖（E-CONTRACT-022）；`n == len` ⇒ **追加**（`!strict-paths` 下报 E-CONTRACT-023）；`n > len` ⇒ 本码。与「绝不补 null」（`docs/null-semantics.md` N1–N5）一致：越界是**路走不通**，不是「差几个空位」。⚠️ 数组本身不存在时**不自动创建**（对象可以，数组不行 —— 造一个多长的数组、中间填什么，没有无歧义的答案），报 E-CONTRACT-023"
+      "note": "featag S6（`docs/swsml/spec/featag.md` §10 Q20，2026-11-04 用户定）。下标语义：`n < len` 且元素为 null ⇒ 补缺；元素非 null ⇒ 禁止覆盖（E-CONTRACT-022）；`n == len` ⇒ **追加**（`!strict-paths` 下报 E-CONTRACT-023）；`n > len` ⇒ 本码。与「绝不补 null」（`docs/swsml/spec/null.md` N1–N5）一致：越界是**路走不通**，不是「差几个空位」。⚠️ 数组本身不存在时**不自动创建**（对象可以，数组不行 —— 造一个多长的数组、中间填什么，没有无歧义的答案），报 E-CONTRACT-023"
     },
     {
       "id": "E-DERIVE-001",
@@ -741,7 +741,7 @@
         "rust"
       ],
       "status": "done",
-      "note": "规范文案会附带可用特性列表。**JS 原先把未知特性静默加入集合**（`feats.add(w)` 不校验）⇒ 用户以为开了某项能力、实际什么都没开且无提示；已对齐本码（`js/sml.mjs` 的 `KNOWN_FEATURES`，合法名 = Rust 注册表 15 个 **并集** JS 别名 `top-array`/`bareword-str`/`escape`，并支持逗号分隔）。⚠️ **Rust 自 2026-11-04 起按命名空间判名**（`docs/feature-namespace-plan.md` N4）：老名保持平铺、**不补** `type.xxx` 别名（N2），新增特性写作 `<域>.<名>`（域 = `lex`/`mod`/`type`/`flow`，只在第一个点切一次，三段直接拒）—— 三类失败（三段 / 未知域 / 未注册）**同码**，靠 detail 区分。故 `type.featag` 在 Rust 合法、在 JS/Lua 仍落本码（该特性本就只在 Rust，见 capability-matrix）。⚠️ C / C++ / Lua 没有特性集（`@feature` 本身非法 ⇒ 落 `E-PARSE-005`），故不在 impls"
+      "note": "规范文案会附带可用特性列表。**JS 原先把未知特性静默加入集合**（`feats.add(w)` 不校验）⇒ 用户以为开了某项能力、实际什么都没开且无提示；已对齐本码（`js/sml.mjs` 的 `KNOWN_FEATURES`，合法名 = Rust 注册表 15 个 **并集** JS 别名 `top-array`/`bareword-str`/`escape`，并支持逗号分隔）。⚠️ **Rust 自 2026-11-04 起按命名空间判名**（`docs/swsml/spec/features.md` N4）：老名保持平铺、**不补** `type.xxx` 别名（N2），新增特性写作 `<域>.<名>`（域 = `lex`/`mod`/`type`/`flow`，只在第一个点切一次，三段直接拒）—— 三类失败（三段 / 未知域 / 未注册）**同码**，靠 detail 区分。故 `type.featag` 在 Rust 合法、在 JS/Lua 仍落本码（该特性本就只在 Rust，见 capability-matrix）。⚠️ C / C++ / Lua 没有特性集（`@feature` 本身非法 ⇒ 落 `E-PARSE-005`），故不在 impls"
     },
     {
       "id": "E-FEATURE-004",
@@ -758,7 +758,7 @@
         "smltools"
       ],
       "status": "partial",
-      "note": "各端支持的版本范围不同（Lua 仅 v1、C 到 v3、JS 现已支持 v1..v4）—— **码相同、支持的版本不同**，差异用字段表达，不再靠文案。C 的「超出接受范围」分支目前是死代码；`@version` 用作片段名、`@feature base` 参数非法、命令行传入非法版本名都归此码。JS 的版本只切换**裸词字符串**这一特性（v1 开、v2/v3/v4 关，关闭即裸词报 E-FEATURE-005），v4 与 v3 特性基集相同。⚠️ **Rust 自 2026-11-04 起按「版本集」判定**（`docs/version-naming.md`）：规范写法 `1.0`..`4.0`（`10`/`20`/`30`/`40`），`v1`..`v4` 与点号写法永久是别名；本码只表示「从未存在 / 写法不合法 / 声明冲突」，**曾被移除的开发代号用 E-FEATURE-010**"
+      "note": "各端支持的版本范围不同（Lua 仅 v1、C 到 v3、JS 现已支持 v1..v4）—— **码相同、支持的版本不同**，差异用字段表达，不再靠文案。C 的「超出接受范围」分支目前是死代码；`@version` 用作片段名、`@feature base` 参数非法、命令行传入非法版本名都归此码。JS 的版本只切换**裸词字符串**这一特性（v1 开、v2/v3/v4 关，关闭即裸词报 E-FEATURE-005），v4 与 v3 特性基集相同。⚠️ **Rust 自 2026-11-04 起按「版本集」判定**（`docs/swsml/spec/version.md`）：规范写法 `1.0`..`4.0`（`10`/`20`/`30`/`40`），`v1`..`v4` 与点号写法永久是别名；本码只表示「从未存在 / 写法不合法 / 声明冲突」，**曾被移除的开发代号用 E-FEATURE-010**"
     },
     {
       "id": "E-FEATURE-005",
@@ -833,7 +833,7 @@
         "rust"
       ],
       "status": "partial",
-      "note": "与 E-FEATURE-004（版本声明非法 = 从未存在、写法不合法或互相冲突）**分开**：本码专指「曾经存在、后因破坏性改动被移除」的开发代号（docs/version-naming.md V7），文案必须带代号与迁移规则 id，并指向 smltools --migrate scan。只作用于开发代号的 Dev → Removed；正式版（10/20/30/40/…）永久向后兼容，永不进此分支。⚠️ 当前 EDITIONS 里还没有 Removed 行 ⇒ 本分支暂不可达（S0c 先把码与接线做好，加一行即生效）；smltools --migrate（V11）尚未实现，文案里的规则 id 是承诺而非现状"
+      "note": "与 E-FEATURE-004（版本声明非法 = 从未存在、写法不合法或互相冲突）**分开**：本码专指「曾经存在、后因破坏性改动被移除」的开发代号（docs/swsml/spec/version.md V7），文案必须带代号与迁移规则 id，并指向 smltools --migrate scan。只作用于开发代号的 Dev → Removed；正式版（10/20/30/40/…）永久向后兼容，永不进此分支。⚠️ 当前 EDITIONS 里还没有 Removed 行 ⇒ 本分支暂不可达（S0c 先把码与接线做好，加一行即生效）；smltools --migrate（V11）尚未实现，文案里的规则 id 是承诺而非现状"
     },
     {
       "id": "E-INCLUDE-001",
@@ -1206,10 +1206,14 @@
       "title": "转义符后遇文件结束",
       "msg": "字符串中的转义符后遇到文件结束",
       "impls": [
+        "c",
+        "cpp",
+        "js",
+        "lua",
         "rust"
       ],
-      "status": "partial",
-      "note": "其余端静默接受。⚠️ 同因不同码：C 的解析入口对该输入报 E-LEX-001（它没有 Rust 那种按行重建，转义符后遇 EOF 就是未闭合串）—— 两个实现口径不同，未合并"
+      "status": "done",
+      "note": "**T21 裁决（2026-11-06）：五端统一到 006**。改前同一输入三处三码：Rust 词法层 006 / Rust `parse` 入口 004（`strip_version`·`strip_features` 按行重建时在文件尾补了换行 ⇒ 变成「未知转义」）/ C·C++·JS·Lua 001（当成未闭合串）。现在 Rust 的 `scan` 只在真有换行可补时才补（`needs_trailing_newline`），两个入口看到同一个 EOF；四端在「未闭合且上一个转义未完成」处改报 006。**与 001 的边界**：转义符后面**真有一个换行**时仍是 004（转义符后跟换行属未知转义），006 只覆盖「转义符后直接 EOF」。**为什么不并进 001**：修复动作不同 —— 006 要补「被转义的字符」，001 要补「结束引号」；且 001 无法区分「忘了收尾」与「少打了一个字符」"
     },
     {
       "id": "E-LEX-007",
@@ -1221,7 +1225,7 @@
         "rust"
       ],
       "status": "done",
-      "note": "S1b 新增（`docs/featag-impl-slices.md` §2 白名单）。**门控在 `lex.ident`**（默认关，故 v1–v4 既有文档一字不变）。六类拒绝共用本码、靠 detail 区分：`.` `[` `]`（路径语法保留）、空白 / 控制字符、零宽与双向控制（Cf）、组合标记（⇒ 天然 NFC，无需归一化库）、西里尔 / 希腊等同形字母、全角与兼容区字符。**为什么一个码而不是六个**：触发条件都是「这个字符不该出现在标识符里」，只是理由不同 —— 与 E-FEATURE-003 的多档 detail 同一做法，避免码表为同因分叉。「每契约单一语种」是契约级规则，随 S4 另做"
+      "note": "S1b 新增（`docs/swsml/plan/featag-slices.md` §2 白名单）。**门控在 `lex.ident`**（默认关，故 v1–v4 既有文档一字不变）。六类拒绝共用本码、靠 detail 区分：`.` `[` `]`（路径语法保留）、空白 / 控制字符、零宽与双向控制（Cf）、组合标记（⇒ 天然 NFC，无需归一化库）、西里尔 / 希腊等同形字母、全角与兼容区字符。**为什么一个码而不是六个**：触发条件都是「这个字符不该出现在标识符里」，只是理由不同 —— 与 E-FEATURE-003 的多档 detail 同一做法，避免码表为同因分叉。「每契约单一语种」是契约级规则，随 S4 另做"
     },
     {
       "id": "E-LIMIT-001",
@@ -1379,7 +1383,7 @@
         "smltools"
       ],
       "status": "done",
-      "note": "`.smlex` 的 `checks.require_top_level`（`docs/smlex-format-draft.md` v1.0 §3.2）。**只在工具侧执行**：库不认识 profile，所以解析结果与有无 `.smlex` 无关。按错误处理而不是告警 —— 它是项目自己定的硬规则"
+      "note": "`.smlex` 的 `checks.require_top_level`（`docs/swsml/spec/smlex.md` v1.0 §3.2）。**只在工具侧执行**：库不认识 profile，所以解析结果与有无 `.smlex` 无关。按错误处理而不是告警 —— 它是项目自己定的硬规则"
     },
     {
       "id": "E-LINT-003",
@@ -1982,7 +1986,7 @@
         "rust"
       ],
       "status": "done",
-      "note": "featag S2（`docs/featag-spec-draft.md` §2.3 B1）。只在 `type.featag` 开启、且处于**块头首词之后**时判：`wea ! , name { }` 这种「`!` 直接跟 `,`/`{`」的写法。报错而不猜，是因为空区既可能是「漏写名字」也可能是「想写字面量 `!`」—— 后者请加引号。未开启该特性时 `!` 仍是普通裸词，v1–v4 行为不变"
+      "note": "featag S2（`docs/swsml/spec/featag.md` §2.3 B1）。只在 `type.featag` 开启、且处于**块头首词之后**时判：`wea ! , name { }` 这种「`!` 直接跟 `,`/`{`」的写法。报错而不猜，是因为空区既可能是「漏写名字」也可能是「想写字面量 `!`」—— 后者请加引号。未开启该特性时 `!` 仍是普通裸词，v1–v4 行为不变"
     },
     {
       "id": "E-PARSE-027",
@@ -2018,7 +2022,7 @@
         "rust"
       ],
       "status": "partial",
-      "note": "weakbind 第一刀（`docs/weakbind-spec-draft.md` §3）。照 `@when` 的先例：`@weakbind` 只作用于**紧邻的下一个块**，三类都用本码、靠 detail 区分：dangling（块写完还没等到块）、duplicate（连续两条 `@weakbind`）、target-not-block（后面跟的是标量、数组或片段引用）。为什么一个码而不是三个：触发条件都是「这条声明没能绑定到块上」，只是理由不同 —— 与 E-LEX-007（六类拒绝共用一个码、靠 detail 分）同一做法。仅 `weak` 特性开启时生效：默认关，v1–v4 既有文档一字不变"
+      "note": "weakbind 第一刀（`docs/swsml/spec/weakbind.md` §3）。照 `@when` 的先例：`@weakbind` 只作用于**紧邻的下一个块**，三类都用本码、靠 detail 区分：dangling（块写完还没等到块）、duplicate（连续两条 `@weakbind`）、target-not-block（后面跟的是标量、数组或片段引用）。为什么一个码而不是三个：触发条件都是「这条声明没能绑定到块上」，只是理由不同 —— 与 E-LEX-007（六类拒绝共用一个码、靠 detail 分）同一做法。仅 `weak` 特性开启时生效：默认关，v1–v4 既有文档一字不变"
     },
     {
       "id": "E-PARSE-030",
@@ -2030,7 +2034,7 @@
         "rust"
       ],
       "status": "partial",
-      "note": "weakdoc（`docs/weakdoc-spec-draft.md`）。落地 I-17 硬性约束 2 的后半句：**同一个 profile 不能在一个文档里重复挂**。判重是**文档级**（不看块路径）—— profile 作用于整份文档，重复写就是笔误，故响亮报错而不是静默去重。另：本码只登记引用关系，**库不读文件系统**：项目根下的 `.smlex` 目录、用户全局、系统三处命名空间的查找全在工具侧，因此「解析结果对有无 profile 完全一致」这条判据自动成立"
+      "note": "weakdoc（`docs/swsml/spec/weakdoc.md`）。落地 I-17 硬性约束 2 的后半句：**同一个 profile 不能在一个文档里重复挂**。判重是**文档级**（不看块路径）—— profile 作用于整份文档，重复写就是笔误，故响亮报错而不是静默去重。另：本码只登记引用关系，**库不读文件系统**：项目根下的 `.smlex` 目录、用户全局、系统三处命名空间的查找全在工具侧，因此「解析结果对有无 profile 完全一致」这条判据自动成立"
     },
     {
       "id": "I-FEATURE-001",
@@ -2054,7 +2058,7 @@
         "smltools"
       ],
       "status": "done",
-      "note": "`.smlex` 的 `applies_to`（`docs/smlex-format-draft.md` §3.1）。**只提示、不自动挂**：挂不挂写在文档的 `@weakdoc` 里，工具不替作者改文档。判据是「glob 命中 且 requires 里的契约都已定义」；没写 applies_to 的 profile 一律不猜。I 级（提示），不影响退出码"
+      "note": "`.smlex` 的 `applies_to`（`docs/swsml/spec/smlex.md` §3.1）。**只提示、不自动挂**：挂不挂写在文档的 `@weakdoc` 里，工具不替作者改文档。判据是「glob 命中 且 requires 里的契约都已定义」；没写 applies_to 的 profile 一律不猜。I 级（提示），不影响退出码"
     },
     {
       "id": "W-CONTRACT-001",
@@ -2066,7 +2070,7 @@
         "rust"
       ],
       "status": "partial",
-      "note": "weakbind 软校验（`docs/weakbind-spec-draft.md` §4 / §7）。两条纪律：**只读**（不填默认值、不改主树，故「有无 `@weakbind` 主树逐字节相同」这条判据仍成立）与**不阻断**（`DiagnosticKind::WeakBindMismatch` ⇒ `Warning`，解析照常出结果）。八档靠**消息前缀**区分（`Diagnostic` 没有 detail 字段，故写成「…（decl.unknown_contract）：…」这种可检索的形式）：声明侧 decl.unknown_contract / decl.unknown_field / decl.type_mismatch，块内容侧 block.missing_required / block.type_mismatch / block.out_of_range / block.enum_mismatch / block.undeclared_field（最后一档仅当契约 strictness 为 strict 时报）。**内置表为空时整段跳过** —— 否则一落地所有弱声明都会报 unknown_contract。另：弱声明**不算**契约定义，`W-LINT-002`「契约定义从未被应用」必须把它排除"
+      "note": "weakbind 软校验（`docs/swsml/spec/weakbind.md` §4 / §7）。两条纪律：**只读**（不填默认值、不改主树，故「有无 `@weakbind` 主树逐字节相同」这条判据仍成立）与**不阻断**（`DiagnosticKind::WeakBindMismatch` ⇒ `Warning`，解析照常出结果）。八档靠**消息前缀**区分（`Diagnostic` 没有 detail 字段，故写成「…（decl.unknown_contract）：…」这种可检索的形式）：声明侧 decl.unknown_contract / decl.unknown_field / decl.type_mismatch，块内容侧 block.missing_required / block.type_mismatch / block.out_of_range / block.enum_mismatch / block.undeclared_field（最后一档仅当契约 strictness 为 strict 时报）。**内置表为空时整段跳过** —— 否则一落地所有弱声明都会报 unknown_contract。另：弱声明**不算**契约定义，`W-LINT-002`「契约定义从未被应用」必须把它排除"
     },
     {
       "id": "W-EDITOR-001",

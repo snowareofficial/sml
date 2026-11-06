@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 //! `@weakdata`（I-15）：**不进主树**的载荷，只给拓展按名读取。
 //!
-//! 钉四件事（`docs/weakdata-spec-draft.md`）：
+//! 钉四件事（`docs/swsml/spec/weakdata.md`）：
 //! 1. 载荷只出现在 `weak_data` 里，主树**查不到**同名键；
 //! 2. 有 / 无 `@weakdata`，主树与 `contract_map` 逐字节相同（核心判据）；
 //! 3. 同一 `(path, name)` 后者覆盖，只留一条；

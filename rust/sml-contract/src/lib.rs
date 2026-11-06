@@ -227,7 +227,7 @@ pub struct ContractWarning {
 
 /// 契约里声明的一个 featag（S4）｜ one `!featag` declaration inside a contract.
 ///
-/// 声明写在契约体内、记号与使用处一致（`docs/featag-spec-draft.md` §2.1）：
+/// 声明写在契约体内、记号与使用处一致（`docs/swsml/spec/featag.md` §2.1）：
 ///
 /// ```sml
 /// @contract wea {

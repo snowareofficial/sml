@@ -28,7 +28,7 @@ SEVERITY_OF = {"E": "error", "W": "warning", "I": "info"}
 # smltools 的定位统一走 tools/smltools_bin.py —— 那里**不写死本机盘符**
 # （此前这里写死本机绝对路径：换机器或清一次缓存就找不到，
 #  而站点构建只是打印一行 `!!` 继续跑，结果是官网错误码表静默变成「加载失败」）。
-sys.path.insert(0, os.path.join(ROOT, "tools"))
+sys.path.insert(0, os.path.join(ROOT, "tools", "gen"))
 from smltools_bin import find_smltools  # noqa: E402
 
 

@@ -3,7 +3,7 @@
 ** ambr.c — read-only `.ambr` decoder (T7 / N03).
 ** ambr.c —— `.ambr` 只读解码器（T7 / N03）。
 **
-** Layout follows docs/amberice-smldb-spec.md §19:
+** Layout follows docs/amberice/spec/format.md §19:
 **   header 40 B: magic[4] edition:u16 fmt:u8 hdr_len:u8 table_off:u64 count:u32 flags:u16 …
 **   entry 41 B : id:u8 comp:u8 enc:u8 flags:u16 len:u32 sha256[32]
 **   bodies      : aligned to 8 B (flags bit 0 = 0) or 4 KiB (bit 0 = 1), walked as

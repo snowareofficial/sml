@@ -44,7 +44,7 @@ pub unsafe extern "C" fn ambr_text(
 ) -> *mut c_char {
     let outcome = catch_unwind(AssertUnwindSafe(|| {
         if buf.is_null() {
-            return Err("AMBR: 空指针".to_string());
+            return Err("AMBR: null pointer (空指针)".to_string());
         }
         let bytes = std::slice::from_raw_parts(buf, len);
         let value = amberice::load(bytes).map_err(|e| format!("AMBR: {e}"))?;
@@ -57,7 +57,7 @@ pub unsafe extern "C" fn ambr_text(
         Ok(Ok(text)) => match std::ffi::CString::new(text) {
             Ok(c) => c.into_raw(),
             Err(_) => {
-                write_err(err, errsz, "AMBR: 文本含 NUL");
+                write_err(err, errsz, "AMBR: text contains NUL (文本含 NUL)");
                 std::ptr::null_mut()
             }
         },
@@ -66,7 +66,7 @@ pub unsafe extern "C" fn ambr_text(
             std::ptr::null_mut()
         }
         Err(_) => {
-            write_err(err, errsz, "AMBR: 解码器 panic");
+            write_err(err, errsz, "AMBR: decoder panic (解码器 panic)");
             std::ptr::null_mut()
         }
     }

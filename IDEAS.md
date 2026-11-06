@@ -184,7 +184,7 @@ Confirm the reading with the user before writing any code.
   内置表注入 `builtin_contracts` / `--dump-builtins` / `W-CONTRACT-001` 八档软校验**均已落地**
   （用例：`weakbind.rs` 8 + `builtin_contracts.rs` 3 + `weakbind_warn.rs` 10 + `dump_builtins.rs` 4 + lint 钉子 1）；
   **编辑器提示与其余端未做**（草案 §10）。
-- **规范草案**：`docs/weakbind-spec-draft.md`（v0.1，第一刀已落地 · 其余未闭合）——
+- **规范草案**：`docs/swsml/spec/weakbind.md`（v0.1，第一刀已落地 · 其余未闭合）——
   语法 / 作用域 / 码（`E-PARSE-029` + `W-CONTRACT-001`）/ 旁路表 / 内置表与导出格式 /
   多端同步清单 / 用例清单都在那里；本条只留定位与沿革。
 - **优先级（2026-11-04 用户裁决）**：`weak*` 族（I-5 / I-15 / I-17）**先做**；
@@ -512,7 +512,7 @@ svc { @is Svc  name: gateway  x-owner: infra }
   `@feature` / `@when` / `typed-block`（见 `TODO.md` §7.3 的实测差异）。
 - **Order / 顺序**：先有能力矩阵 → 再有宣传语；反过来就是长期负债。
 - **Progress / 进展（2026-10-27，分支 `feat/capability-matrix`）**：矩阵已产出 ——
-  `docs/capability-matrix.md`（每格附实跑命令与输出）。**它同时挖出三条此前不在任何清单上的
+  `docs/swsml/ref/capability-matrix.md`（每格附实跑命令与输出）。**它同时挖出三条此前不在任何清单上的
   静默缺陷**（Lua 大整数丢精度 / C++ 无 include / JS `\uXXXX` 少跳一位），已登记为 `TODO.md` 雷 6。
   ⚠️ 该文档 §5 列明的差异项在修完之前**不得**写成「SML 支持」。
   **仍未做**：`.github/` 的 CONTRIBUTING / issue 模板 / PR 模板（本轮那条任务没起）。
@@ -630,7 +630,7 @@ svc { @is Svc  name: gateway  x-owner: infra }
 
 - **Status / 状态**：`Partial`（2026-11-04，**仅 Rust 单端**）——
   语法 `@weakdata <名> { … }`、旁路表 `ParseOutput.weak_data`、同名后者覆盖、7 条用例已落地；
-  其余端与编辑器属发布前同步。规范：`docs/weakdata-spec-draft.md`。
+  其余端与编辑器属发布前同步。规范：`docs/swsml/spec/weakdata.md`。
 - **优先级（2026-11-04 用户裁决）**：`weak*` 族**先做**（I-5 / I-15 / I-17 为一组）；
   `.smlb` / `smldb` / `smlkit` **还需商榷**，不排期。
 - **Idea / 想法**：`weakdata` 声明的数据**不进入解析**（不进主树、不影响解析结果），
@@ -654,7 +654,7 @@ svc { @is Svc  name: gateway  x-owner: infra }
 - **Status / 状态**：`Partial`（2026-11-04，**库侧已实现**）——
   `@weakdoc <名>` 语法、旁路表 `ParseOutput.weak_docs`、文档级判重（`E-PARSE-030`）、6 条用例已落地；
   **三命名空间发现（项目 `.smlex/profiles` / 用户全局 / 系统）与 `--profile-dir` 属工具侧，未做**。
-  规范：`docs/weakdoc-spec-draft.md`（含路径表）。
+  规范：`docs/swsml/spec/weakdoc.md`（含路径表）。
 - **优先级（2026-11-04 用户裁决）**：`weak*` 族**先做**（I-5 / I-15 / I-17 为一组）；
   `.smlb` / `smldb` / `smlkit` **还需商榷**，不排期。
 - **Idea / 想法**：项目里放一个 **`.smlex`** 文件，存**必要的 profile**
@@ -688,7 +688,7 @@ svc { @is Svc  name: gateway  x-owner: infra }
   | 1 | 现状 / `-dev` | 功能自由迭代 | 无 |
   | 2 | `-beta.N` | 特性冻结，只修不增 | feature 收口；五端四主要语法对齐 |
   | 3 | `-rc.N` | 候选发布 | 排雷 1/2/3/4/5 开口清零 |
-  | 4 | 正式（无后缀） | 稳定 | ① 安全：`cargo audit` + `miri_check.py` + `osv_check.py` + fuzz 全绿（结果贴 `CHANGELOG.md`）；② conformance **27/9→0**；③ 性能基线达标（⚠️ 原写「`docs/iter-parse-plan.md` §1.4」，**该节不存在、文件里也没有「性能基线」字样** —— 悬空引用。基线本身要先建，见 I-23） |
+  | 4 | 正式（无后缀） | 稳定 | ① 安全：`cargo audit` + `miri_check.py` + `osv_check.py` + fuzz 全绿（结果贴 `CHANGELOG.md`）；② conformance **27/9→0**；③ 性能基线达标（⚠️ 原写「`docs/swsml/archive/iter-parse.md` §1.4」，**该节不存在、文件里也没有「性能基线」字样** —— 悬空引用。基线本身要先建，见 I-23） |
 
   **bump 纪律**：平时不 bump，发版才重排 —— `dev` 积量期间版本号保持不变；正式发版时用
   `workspace.version` 一次性统一主 crate 与子 crate（当前 8 个 crates 版本各自漂移，属历史包袱）。
@@ -704,7 +704,7 @@ svc { @is Svc  name: gateway  x-owner: infra }
 - **Status / 状态**：`Todo`（规范已定、零实现；**细节未定，用户 2026-11-03 明说「smlb 等的一些细节我还没定好」⇒ 只登记，不动手**）。
 - **2026-11-04 用户裁决**：**还需商榷** —— 继续暂缓，不进排期；同期让位给 `weak*`（I-5 / I-15 / I-17）。
   ⚠️ 连带：`TODO.md` §六 的「发布准备」原定「等 I-18 + I-19 一起发」，前提已不成立，需重定节奏。
-- **出处**：`docs/smlb-smldb-spec.md`（881 行，2026-11-02 入库；文件头挂「内容可能再议」横幅）+ `docs/value-layout.md`（324 行）。
+- **出处**：`docs/amberice/spec/format.md`（881 行，2026-11-02 入库；文件头挂「内容可能再议」横幅）+ `docs/swsml/spec/value-layout.md`（324 行）。
   这两份**长期不在 `TODO.md` / `IDEAS.md` 里**，只躺在 HANDOFF §4.5，2026-11-03 被打扫出来才登记。
 - **已写清的部分**（`【已定】` 仅代表写作时的判断，不代表批准）：
   - 内存布局：标签 interning + 实体解码 + 契约定长槽位（`value-layout.md`）
@@ -726,14 +726,20 @@ svc { @is Svc  name: gateway  x-owner: infra }
 
 ## I-19 品牌门面（瘦别名）/ 国际稳定发布线：`swml`（原名 `smlkit`）
 
-- **Status / 状态**：**2026-11-06 用户改名：门面叫 `swml`**（`smlkit` 作废；`swsml` 保持原名、退居 core）。
-  **crate 仍未建**（`rust/` 下只有 `smlkit-easy`），故改名零迁移成本。
+- **Status / 状态**：**`swml` 已建、未发布** —— `rust/swml/src/{lib,easy}.rs`，
+  `publish = false`，`smlkit-easy` 已并入它的 `easy` 模块（原 crate 不再存在）。
+  发布状态与口径冲突见 `docs/swml/status.md`。
 - **2026-11-04 用户裁决**：**还需商榷** —— 名字虽已定，但「建门面 crate」这一步暂缓，不进排期；
   同期让位给 `weak*`（I-5 / I-15 / I-17）。
 - **2026-11-06 用户裁决（改名 + 分层）**：`smlkit` → **`swml`**，`swsml` 做**幕后 core**；
-  `smltools` 保持原名，另加 `swmltool` / `swmltools` 作防御（须合规，见 `TODO.md §11.1`）；
+  `smltools` 保持原名，另加 `swmltool` / `swmltools` 作防御（须合规，见 `TODO.md §11.1`）。
   同时明确「**`smlkit` 和 `amberice` 定位不一样**」⇒ `amberice` 不是本条的名字，落点另记
-  （`TODO.md §11.4` 待一句裁决）。`smlkit-easy` 是否跟改 `swml-easy` 待裁。
+  （`TODO.md §11.4` 待一句裁决）。
+- **工具面边界（2026-11-06 用户点破，已执行）**：**`smltools` 只做用户面** —— 转换 / 迁移 / lint /
+  编辑器集成；**仓库自身的治理**（文档索引 / 体检 / 门禁 / 发布检查）不进 `smltools`，
+  各开 `publish = false` 的内部 crate（首个是 `rust/smldocs`，见 `TODO.md §14.3/§14.4`）。
+  判据一句话：**一条命令如果换一个仓库就毫无意义，它就不属于产品 CLI**。
+  这条同时是 I-19 的边界：门面/别名解决「找不到」，内部工具解决「维护本仓」，两者不得混进同一个包。
 - **为什么否掉 `idyml`**：它**不是**被占用（实测 crates.io / PyPI / npm 三处全空），问题是**误导** ——
   `-yml` 会让名字主动说错话，让人以为「又一个 YAML」。⇒ 由此立下一条**排除规则**：
   **名字里不许出现 `yml` / `yaml` / `ml` / `json` / `toml` / `ini` 词根。**
@@ -841,18 +847,18 @@ svc { @is Svc  name: gateway  x-owner: infra }
   3. **专门快路径**：最常见的一类文档是「纯键值、无指令、无 include」。可以让入口先做一次
      廉价扫描，命中就走**不含指令/包含/契约**的解析循环（物理上不存在那些判断与分支）。
 - **Gap / 缺口**：~~全仓没有 benchmark~~ ✅ **2026-11-03 已补**：`rust/benches/perf.rs`
-  （零依赖手写计时器，不引 criterion）+ `docs/perf-baseline.md`。
+  （零依赖手写计时器，不引 criterion）+ `docs/swsml/ref/perf-baseline.md`。
   基线（release、5 轮取最小）：`small` parse **15.2 µs / 12.8 MB/s**、`large`（909 KiB）
   parse **10.9 ms / 81.4 MB/s**、`deep`（120 层）parse **81.6 µs / 8.5 MB/s**；
   `to_sml` 约为同输入 parse 的 **1/4** 耗时。
   ⇒ 最刺眼的一条：**小文档的单位成本是大文档的 6 倍**，即固定开销主导（入口的版本/特性剥离、
   `FeatureSet` 求交、`ParseOptions` 组装、词法初始分配）。
-  （另：I-16 门槛里「性能基线达标（`docs/iter-parse-plan.md` §1.4）」仍是**悬空引用** ——
+  （另：I-16 门槛里「性能基线达标（`docs/swsml/archive/iter-parse.md` §1.4）」仍是**悬空引用** ——
   该节不存在，现已在 I-16 就地标注并指向本条。）
 - **前置条件（按序）**：~~① 建基准~~ ✅ 已完成；~~② 挑一处 A/B~~ ✅ **已落地（2026-11-03）**；③ 有效再推广。
 - **第一处 A/B 结果**（`parse` 加「无 `@` 则不剥离」快路径）：
   small **15.2 → 7.1 µs（−53%）**、large **10.9 → 5.6 ms（−48%）**、deep **81.6 → 52.9 µs（−35%）**；
-  一致性套件 AGREE 32 / DIVERGE 8 **未变**。详见 `docs/perf-baseline.md`。
+  一致性套件 AGREE 32 / DIVERGE 8 **未变**。详见 `docs/swsml/ref/perf-baseline.md`。
   **根因**：不是「入口组装」，而是 `scan::strip_features` 的 `compute_string_spans` ——
   它为判断 `@` 是否落在引号串内**无差别扫全文**，扫描常数 × 极短正文 = 固定开销。
 - **第二处 A/B 结果**（`compute_string_spans` 惰性求值，只扫 `@` 候选行）：
@@ -861,14 +867,14 @@ svc { @is Svc  name: gateway  x-owner: infra }
 - **第三处（深嵌套）结论：不该在这里改**。实测 `deep` 377 ns/层、`deep@60` 373 ns/层
   （每层恒定），而 `flat@120`（120 个键挤在一个 map）**433 ns/键、比嵌套更慢**
   ⇒ 瓶颈是「每个键的 `String` + map 节点分配」，与嵌套无关。真要动是**键的表示**
-  （小字符串内联 / interning / inline 小 map）⇒ 转 `docs/value-layout.md` 与 I-18。
+  （小字符串内联 / interning / inline 小 map）⇒ 转 `docs/swsml/spec/value-layout.md` 与 I-18。
 - **推广**：快路径已覆盖 7 个入口（`parse` / `parse_versioned` / `parse_allowed` /
   `parse_with_features(_env)` / `parse_with` / `parse_with_warnings`）。
 - **分配归因（2026-11-03）**：基准里加了零依赖 `GlobalAlloc` 计数器 —— 边际成本
   **每键 6.9 次分配**（词法 ≈2.8 + 解析 ≈4）。⇒ 每键 ≈400 ns 就是「7 次 malloc +
   一次 BTreeMap 插入」的钱。**再往下只能动表示**：`Tok::Word(String)` → 借用切片 /
   键 interning / inline 小 map —— 三条都是 lexer→parser→value 的跨 crate 变更，
-  与 `docs/value-layout.md` 和 I-18 的字符串表设计绑在一起，**不在性能任务里做**。
+  与 `docs/swsml/spec/value-layout.md` 和 I-18 的字符串表设计绑在一起，**不在性能任务里做**。
 - **⚠️ 硬约束（想清楚再动手）**：**文档里的 `@feature enable/disable` 是运行期、文档级开关**，
   所以**不能**把 SML 特性位编译掉 —— 能被编译掉的只有「调用方在编译期就决定」的那部分
   （`preserve_order`、`emit-*`）。而仓库里 **cargo feature 与 SML 特性同名**（`when` / `for` /
@@ -901,7 +907,7 @@ svc { @is Svc  name: gateway  x-owner: infra }
 | I-19 `smlkit` 品牌门面 | 有用：给国际用户一条**保守发布线**，成本比给 `swsml` 改名低得多。**名字已定 `smlkit`**（2026-11-03；三生态实测全空；`idyml` 因误导 YAML 被否） | 低到中 —— 一个只剩 `pub use` 的 crate + 独立仓库 + CI | 先做 `smlkit-easy` 的 L1/L2（那才是解药），**0.7.0 与 `.smlb`/`smldb` 一起发**；发布前把 GitHub org / 域名 / docs 子域一起占 |
 | I-20 长文档产出链 | **有用且缺口硬**：EPUB / HTML 是「用 SML 写小说」的终点；分章 + TOC 基础设施已具备、只差 CLI 层 | 中 —— `--to epub`/`--to html` 各一个后端；分章 / TOC 轻 | `--to html` 本就有；`--toc` 与标题锚点 **2026-11-03 已落地**（顺带修了「段落被缩进成代码块」）；下一步 `--split-by section`，再 EPUB，增量 emit 与 emit 定位往后放 |
 | I-21 语义部件目录 | 有用，但**先修跨后端一致**比加新部件更值（`theorem`/`math`/内联角色只在 markdown 生效，属语义漂移） | 中 —— 每个部件 × 各后端 | ①②③ 已于 **2026-11-03 全部落地**（内联角色补齐到 latex/svg/slint、`math` 响应 `--math`、latex 定理/证明环境）；下一步才是 figure/admonition/footnote/toc，UI 部件库最后 |
-| I-23 更激进的性能优化 | **有用但目前不可测**：仓库里**一个 benchmark 都没有**，谈提速全是空话 | 低（先建基准）→ 中（改热路径）→ 高（编译期切分） | 只做第一步：`criterion` 三组基准 + `docs/perf-baseline.md`。没有数字之前**不要**动双份实现 —— 那会把维护成本永久翻倍 |
+| I-23 更激进的性能优化 | **有用但目前不可测**：仓库里**一个 benchmark 都没有**，谈提速全是空话 | 低（先建基准）→ 中（改热路径）→ 高（编译期切分） | 只做第一步：`criterion` 三组基准 + `docs/swsml/ref/perf-baseline.md`。没有数字之前**不要**动双份实现 —— 那会把维护成本永久翻倍 |
 | I-22 下游方言六问 | **只对上游有参考价值**：3（`required_if`）与 4（源码顺序）与 I-7 / `preserve_order` 直接相关，值得吸收；1/5 属方言口味，2 属「布局 DSL」倾向 | 低 —— 现在只是问题清单 | 先把 3、4 两条并入 I-7 与 `preserve_order` 讨论；其余**未经用户明确指令不得对外提出** |
 
 > 一句话 / One line：**I-7 + I-9 是同一件事的两半**（约束能表达 / 写错能看见），性价比最高；

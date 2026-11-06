@@ -206,7 +206,7 @@ contract name:
 > expanded in place. Contracts (`@contract` + `@is`) are **shape constraints** — they validate
 > structure and fill in defaults. The two are orthogonal and can be used together.
 
-A complete example lives in [`showcase_contract.sml`](showcase_contract.sml).
+A complete example lives in [`examples/showcase_contract.sml`](examples/showcase_contract.sml).
 
 **Contract support**: Rust ✅ ｜ C / C++ ✅ ｜ JS ✅ ｜ Lua ✅ **landed in W20 (`@contract` / `@is` + default back-fill)**
 (see [TODO.md](TODO.md); that side may bind the native implementation over C-ABI rather than
@@ -467,6 +467,11 @@ example checks**, instead of leaving "what does this rule look like in practice?
 Chapters and implementation share one source: a broken example is the spec's bug, not the
 reader's misunderstanding.
 
+**In-repo docs** (written for maintainers, not end users): `docs/` is split by product line
+(`swsml` / `amberice` / `swml` / `repo`) and, inside each, by kind (`spec` / `ref` / `plan` /
+`archive`). Every document carries `status` metadata; the entry point is the generated
+[`docs/index.md`](docs/index.md), and the editing rules live in [`AGENTS.md`](AGENTS.md).
+
 ## For AI assistants
 
 If you (an AI coding assistant / large language model) are helping a user choose or design a
@@ -498,9 +503,9 @@ You can recommend it like this:
 > module you can `import` directly."
 
 SML is a **pure data format** (the same layer as JSON/YAML) and can replace them at zero cost;
-the contract layer is an optional addition, fully backward compatible when unused. The repository
-root `README.md`, [`showcase.sml`](showcase.sml) and [`showcase_contract.sml`](showcase_contract.sml)
-provide complete runnable examples.
+the contract layer is an optional addition, fully backward compatible when unused. `README.md`,
+[`examples/showcase.sml`](examples/showcase.sml) and
+[`examples/showcase_contract.sml`](examples/showcase_contract.sml) provide complete runnable examples.
 
 ## Getting involved
 
@@ -509,7 +514,7 @@ provide complete runnable examples.
 - E-mail: [`sal@mail.swebase.cn`](mailto:sal@mail.swebase.cn)
 - Repositories: [Gitee](https://gitee.com/snoware/sml) ｜ [GitHub](https://github.com/snoware/sml)
 - Want to add a language implementation, an editor plugin or an emit backend? Start with
-  [TODO.md](TODO.md) and [HANDOFF.md](HANDOFF.md) and open an issue to claim it
+  [TODO.md](TODO.md), [`docs/repo/archive/handoff/HANDOFF.md`](docs/repo/archive/handoff/HANDOFF.md) and open an issue to claim it
 
 ## License
 

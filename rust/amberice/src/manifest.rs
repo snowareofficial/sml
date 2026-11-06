@@ -437,7 +437,7 @@ pub fn known_capabilities() -> &'static [&'static str] {
 /// 读者），读者不认识就按 `required` / `optional` 拒绝或跳过 —— 这条通道不能掐死，
 /// 否则格式永远无法扩展。
 ///
-/// ⚠️ **加名字要过评审**（`docs/amberice-smldb-spec.md` §21.4）：
+/// ⚠️ **加名字要过评审**（`docs/amberice/spec/format.md` §21.4）：
 /// ① 在这里登记；② 同时加跨端向量；③ §21.4 表里加一行说明语义。
 /// 缺任一条就会出现「两年后一堆互相读不了的文件」。
 pub fn registered_capabilities() -> &'static [&'static str] {

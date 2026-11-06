@@ -154,10 +154,60 @@ namespace Sml.Test
             // 9. GetIn
             Check("9 GetIn 路径取值", Sml.GetIn(obj, "server.host") is string s && s == "example.com", "");
 
+            // 10. `.ambr` 跨端容器向量（21 例，逐字符）
+            RunAmbrVectors();
+
             Console.WriteLine();
             if (_failures == 0) { Console.WriteLine("ALL OK"); return 0; }
             Console.WriteLine("SOME FAILED (" + _failures + ")");
             return 1;
+        }
+
+        /// <summary>`.ambr` 21 例：hex → LoadText → 与 canonical_text 逐字符比较。</summary>
+        private static void RunAmbrVectors()
+        {
+            string? path = FindRepoFile(Path.Combine("tests", "vectors", "amberice-container.v1.json"));
+            if (path == null)
+            {
+                Check("10 .ambr 向量文件存在", false, "未找到 tests/vectors/amberice-container.v1.json");
+                return;
+            }
+
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            int total = 0, ok = 0;
+            foreach (var c in doc.RootElement.GetProperty("cases").EnumerateArray())
+            {
+                total++;
+                string id = c.GetProperty("id").GetString() ?? "?";
+                byte[] bytes = Convert.FromHexString(c.GetProperty("ambr_hex").GetString() ?? "");
+                string want = c.GetProperty("canonical_text").GetString() ?? "";
+                try
+                {
+                    if (Amberice.Container.LoadText(bytes) == want) ok++;
+                    else Console.WriteLine("  FAIL  ambr " + id + "  文本不一致");
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine("  FAIL  ambr " + id + "  " + e.Message);
+                }
+            }
+            Check("10 .ambr 21 例逐字符", total == 21 && ok == 21, ok + "/" + total);
+        }
+
+        /// <summary>从 bin 目录或当前目录向上找仓库根下的相对路径。</summary>
+        private static string? FindRepoFile(string relative)
+        {
+            foreach (var start in new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() })
+            {
+                var dir = new DirectoryInfo(start);
+                while (dir != null)
+                {
+                    string p = Path.Combine(dir.FullName, relative);
+                    if (File.Exists(p)) return p;
+                    dir = dir.Parent;
+                }
+            }
+            return null;
         }
     }
 }

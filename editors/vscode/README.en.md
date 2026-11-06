@@ -1,6 +1,6 @@
 # SML — VSCode Extension
 
-Provides editing support for [SML](../README.md) (SNOWARE Markup Language).
+Provides editing support for [SML](../../README.md) (SNOWARE Markup Language).
 
 ## Features
 

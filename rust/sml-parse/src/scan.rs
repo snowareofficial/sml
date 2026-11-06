@@ -343,7 +343,7 @@ pub fn strip_features(
 
 /// `@version` 声明里的三个槽位 ｜ the three slots of an `@version` declaration.
 ///
-/// 目标语法（edition 模型，见 `docs/version-naming.md`）：
+/// 目标语法（edition 模型，见 `docs/swsml/spec/version.md`）：
 ///
 /// ```text
 /// @version 50 "camelia" dev
@@ -384,7 +384,7 @@ fn supported_edition_names() -> String {
 
 /// 迁移规则的 id（`5.0` → `v50-version`）｜ migration rule id for one edition.
 ///
-/// 与 `docs/version-naming.md` §4.5 的规则命名一致：`--rule v50-version` 就是「改 `@version` 行」那条。
+/// 与 `docs/swsml/spec/version.md` §4.5 的规则命名一致：`--rule v50-version` 就是「改 `@version` 行」那条。
 /// 规则登记处将来只有一处（V8 / §4.5 第 4 条），此处不另存表 —— 由代号的数字形式拼出来即可。
 pub fn migration_rule_id(e: Edition) -> String {
     format!("v{}{}-version", e.major, e.minor)
@@ -405,7 +405,7 @@ fn edition_removed(e: Edition) -> SmlError {
 
 /// 把「字面量 / 代号 + `dev` 标记」解析成一代版本集，并检查它的生命周期状态 ｜ resolve an edition.
 ///
-/// **单一判据点**（`docs/version-naming.md` V10）：`@version` 与 `@feature base` 都走这里，
+/// **单一判据点**（`docs/swsml/spec/version.md` V10）：`@version` 与 `@feature base` 都走这里，
 /// 于是「哪些标识能认」「Dev 要不要写 `dev`」「Removed 报哪个码」只有一份实现。
 ///
 /// 三态处理：

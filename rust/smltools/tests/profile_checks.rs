@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! `.smlex` 的 `checks` 执行（`docs/smlex-format-draft.md` v1.0 §3.2）。
+//! `.smlex` 的 `checks` 执行（`docs/swsml/spec/smlex.md` v1.0 §3.2）。
 //!
 //! 钉三件事：
 //! 1. 三项检查真的生效（缺顶层字段 / 禁用契约 / 禁用键），且都按 error 处理；

@@ -63,5 +63,5 @@ assignees: ""
 
 **注意：**
 - 复杂功能可能需要先开一个 Discussion 讨论设计细节
-- RFC 级别的大变更请参考 [RFC Process](docs/rfc-process.md)
+- RFC 级别的大变更请先看 [文档架构](../../docs/repo/plan/doc-architecture.md) 与 [文档索引](../../docs/index.md)
 - I-6 (featag), I-7 (契约约束), I-8 (TOML 风格) 等功能已在 IDEAS.md 中规划

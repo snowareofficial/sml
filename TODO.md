@@ -154,7 +154,7 @@
   - 建议位置：`tests/conformance.{sml,json}` + 各语言一个 runner
 
 - [x] **系统性核对各实现的特性支持矩阵**（2026-10-27 **已完成**）
-  - 产出：`docs/capability-matrix.md`（在 `feat/capability-matrix` 分支），每格附实跑命令与输出
+  - 产出：`docs/swsml/ref/capability-matrix.md`（在 `feat/capability-matrix` 分支），每格附实跑命令与输出
   - `include "path"`：**C++ 不支持** —— 静默当键值，不报错也不展开（另三端正常） ⇒ 见排雷区「雷 6」
   - 转义集：基础六个五端一致；`\uXXXX` **JS 有 bug**；「Lua 额外支持 `\a \b \f \v \'`」经实测**是假的**
     （五端全部 `E-LEX-004`，`lua/lib/sml.soup:187` 已收窄注释）⇒ 本行是**陈旧记录，勿再引用**
@@ -758,7 +758,7 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 | `rust/sml-lex/src/lib.rs:477` | 大整数经 `coerce_word` 的 B10 规则直出可写，回读按 `looks_int` 分支得到 `Value::Str`（不是 Int/Float）；**类型不对称但 round-trip 安全、零精度损失**。✅ **已写进文档（2026-11-03）**：`sml-lex::coerce_word` 的 docs.rs 文档加了「数字词的三条落点」表（`42`⇒Int / `0755`⇒**Str** / `9223372036854775808`⇒**Str** / `1.5`⇒Float）与陷阱段，点明「判类型别假设数字就是 `Int`」 | ④ |
 | `rust/sml-value/src/ser_text.rs:82` + `serde_bridge.rs` 的 float 构造（raw=None） | ✅ **已定性（2026-10-28；不是修复，是收口）**：实测证实 serde **没有任何钩子**能让序列化侧拿到浮点原始文本 —— `Serializer` 对浮点只有 `serialize_f64(v: f64)` 一个入口（`serde_core-1.0.229/src/ser/mod.rs:681`），`f64` **按值**传入，数据模型里没有「数值 + 书写文本」的位置；唯一能带文本的是 `collect_str`，而它落到 `serialize_str`，会让浮点在 JSON 等**其它格式**里变成字符串（真改数据，比丢写法糟）。⇒ 维持「不保 raw」，写进 `ser_text.rs` 模块文档 | ② |
 | `rust/sml-value/src/ser_text.rs:82` vs `rust/sml-value/src/dump.rs:215` | ✅ **已定性（同上）**：两条发射器对浮点的输出不对称**不可消除**（serde 侧无 raw 槽位）。文档就近补在三处 —— `ser_text.rs` 模块文档 / `serde_bridge.rs` 的 `impl Serialize for Value` / `dump.rs` 的 `format_float`；并由两条**能跑**的测试钉住：`rust/tests/ser_de_direct.rs::float_raw_only_survives_to_sml`（行为）与 `::serde_hands_the_emitter_only_an_f64`（探针 Serializer 实测「只给了 f64」） | ④ |
-| `rust/sml-value/src/dump.rs:193-202`（`format_float`） | ✅ **Rust 侧已保真（2026-11-02 复核 + 钉测试）**：`format_float` 对整数值浮点强制 `{:.1}`（`dump.rs:197-198`），`1.0` / `1e10` / `-2.0` 都不会退化成整数；新增 `integral_float_keeps_dot_zero` 钉住。✅ **五端口径（2026-11-03 收口）**：C 的 `add_float`（`%g` 后对整数补 `.0`、NaN/inf 转**引号串**）与 C++ 的 `fmt_float` 已对齐 Rust，`19_num_one_dot_zero` 的 C / C++ 格转为 AGREE；**JS / Lua 结构上做不到** —— 它们的数字模型里 `1` 与 `1.0` 是同一个值，要区分就得给值模型加标记（`docs/value-layout.md` / I-18 量级），已登记为**结构差异**而非缺陷 | ④ |
+| `rust/sml-value/src/dump.rs:193-202`（`format_float`） | ✅ **Rust 侧已保真（2026-11-02 复核 + 钉测试）**：`format_float` 对整数值浮点强制 `{:.1}`（`dump.rs:197-198`），`1.0` / `1e10` / `-2.0` 都不会退化成整数；新增 `integral_float_keeps_dot_zero` 钉住。✅ **五端口径（2026-11-03 收口）**：C 的 `add_float`（`%g` 后对整数补 `.0`、NaN/inf 转**引号串**）与 C++ 的 `fmt_float` 已对齐 Rust，`19_num_one_dot_zero` 的 C / C++ 格转为 AGREE；**JS / Lua 结构上做不到** —— 它们的数字模型里 `1` 与 `1.0` 是同一个值，要区分就得给值模型加标记（`docs/swsml/spec/value-layout.md` / I-18 量级），已登记为**结构差异**而非缺陷 | ④ |
 
 #### C 已修（仅登记 —— W16 / B10 修过一批同类型）
 
@@ -840,7 +840,7 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 
 ### 雷 6：五端能力矩阵挖出的跨实现缺陷（2026-10-27 agent 产出）
 
-来源：`docs/capability-matrix.md`（`feat/capability-matrix` 分支；每格附实跑命令与输出，可逐格复现）。
+来源：`docs/swsml/ref/capability-matrix.md`（`feat/capability-matrix` 分支；每格附实跑命令与输出，可逐格复现）。
 **这三条此前不在任何清单上** —— 都是「静默」类，即不报错、但数据是错的。按危险度排：
 
 | # | 问题 | 位置 | 属类 |
@@ -854,7 +854,7 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 - 「JS / C 键位裸冒号静默」—— **已修**（JS 我实跑复核过，报 `E-PARSE-006` 且文案带示例）。
 
 **宣传语门禁**（I-10 的顺序要求：先有能力矩阵，再有宣传语）：上面三条修完之前，
-`docs/capability-matrix.md` §5 列出的差异项**不得**写成「SML 支持」。
+`docs/swsml/ref/capability-matrix.md` §5 列出的差异项**不得**写成「SML 支持」。
 
 ### 雷 7：假绿测试 —— `ser_de_direct.rs` 从未在 CI 执行（2026-10-28 发现并修）
 
@@ -975,7 +975,7 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
 
 | 编号 | 内容 | 源文件 |
 |---|---|---|
-| **I-18** | `.smlb` 二进制格式（**T0–T6 已落地**，交接见 `HANDOFF-2026-11-05.md`；T7 五端未开工）+ `smldb`（未开工） | `docs/smlb-smldb-spec.md`、`docs/value-layout.md` |
+| **I-18** | `.smlb` 二进制格式（**T0–T6 已落地**，交接见 `HANDOFF-2026-11-05.md`；T7 五端未开工）+ `smldb`（未开工） | `docs/amberice/spec/format.md`、`docs/swsml/spec/value-layout.md` |
 | **I-19** | `idyml` 瘦别名 / 国际稳定发布线（计划书 · 待建） | `IDYML.md` |
 | **I-20** | 长文档产出链：EPUB / HTML / 分章 / TOC / 增量 emit / emit 定位 | `story/ISSUE_smltools_缺失功能.md` |
 | **I-21** | 语义部件目录 + 跨后端语义一致（figure/admonition/footnote…） | 同上 §四 §五 |
@@ -1015,7 +1015,7 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
 ### G. 性能（2026-11-03 用户点题 IDEAS I-23：更激进的性能优化）
 
 - [x] **基准已建（2026-11-03）**：`rust/benches/perf.rs`（**零依赖**手写计时器，不引 criterion）
-      + `docs/perf-baseline.md`（口径 / 三组负载 / 数字 / 三条可读结论）。
+      + `docs/swsml/ref/perf-baseline.md`（口径 / 三组负载 / 数字 / 三条可读结论）。
       基线（release、5 轮取最小）：`small` parse 15.2 µs（12.8 MB/s）、`large` parse 10.9 ms
       （81.4 MB/s）、`deep` parse 81.6 µs（8.5 MB/s）、`to_sml` 是同输入 parse 的 1/4 耗时。
       ⇒ **小文档的单位成本是大文档的 6 倍**（固定开销主导），这是最值得也最常见的优化场景。
@@ -1023,7 +1023,7 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
       「BOM 归一 → 两趟剥离 → 特性求交」，直接用 v1 基线。**收益**：small **−53%**
       （15.2 → 7.1 µs）、large **−48%**（10.9 → 5.6 ms）、deep **−35%**（81.6 → 52.9 µs）。
       根因不是「入口组装」而是 `scan::strip_features` 的 `compute_string_spans` ——
-      它为了判断 `@` 是否在引号串内**无差别扫全文**。数字与验证见 `docs/perf-baseline.md`。
+      它为了判断 `@` 是否在引号串内**无差别扫全文**。数字与验证见 `docs/swsml/ref/perf-baseline.md`。
 - [x] **第二处已落地**：`compute_string_spans` 惰性求值 —— 原来无条件全文扫一遍找引号区间，
       现在只在遇到**以 `@` 开头**的候选行时才扫（首字符不是 `@` 的行不可能是指令）。
       含 `@` 的大文档 **−36%**（10.31 → 6.59 ms）。为此专门加了 `large@directive` 负载，
@@ -1032,18 +1032,18 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
       `deep` 377 ns/层、`deep@60` 373 ns/层（每层恒定）；而 `flat@120`（同样键值总量、
       120 个键挤在一个 map 里）**433 ns/键，比嵌套更慢**。⇒ 瓶颈不是「嵌套」，是
       **每个键的 `String` 分配 + map 节点分配**这一笔固定账。真要动是「键的表示」
-      （小字符串内联 / interning / inline 小 map），属 `docs/value-layout.md` 与 `.smlb`（I-18）。
+      （小字符串内联 / interning / inline 小 map），属 `docs/swsml/spec/value-layout.md` 与 `.smlb`（I-18）。
 - [x] **推广已做**：快路径覆盖 `parse` / `parse_versioned` / `parse_allowed` /
       `parse_with_features` / `parse_with_features_env` / `parse_with` / `parse_with_warnings`
       （共用一个 `no_directives` 判据与三个共用的错误/尾段构造函数，避免抄五份）。
 - [x] **归因完成（2026-11-03）**：基准挂了零依赖 `GlobalAlloc` 计数器。边际成本
       **每键 6.9 次分配**（词法 ≈2.8 + 解析 ≈4），B/op 也有账 ⇒ 「每键 400 ns」就是
-      「7 次 malloc + 一次 BTreeMap 插入」的钱。数据见 `docs/perf-baseline.md` 的「分配账」。
+      「7 次 malloc + 一次 BTreeMap 插入」的钱。数据见 `docs/swsml/ref/perf-baseline.md` 的「分配账」。
 - [ ] **下一个杠杆（需要设计决策，别在性能任务里顺手做）**：动**表示**而非常数 ——
       ① `Tok::Word(String)` → 借用切片（token 不再自持分配）；
       ② 键 interning（全局串表，与 `.smlb` 字符串表同一思路）；
       ③ inline 小 map（单键对象不单独 malloc）。
-      三条都是 lexer → parser → value 的跨 crate 变更，且与 `docs/value-layout.md` / I-18 绑定。
+      三条都是 lexer → parser → value 的跨 crate 变更，且与 `docs/swsml/spec/value-layout.md` / I-18 绑定。
 - [ ] ⚠️ **先想清「哪一层能编译掉」**：文档里的 `@feature enable/disable` 是**运行期、文档级**开关，
       **不能**编译掉；能编译掉的只有调用方在**编译期**决定的那部分（`preserve_order`、`emit-*`）。
       仓库里 cargo feature 与 SML 特性**同名**（`when` / `for` / `contract`），动手前逐项确认。
@@ -1054,7 +1054,7 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
 > 原候选 `idyml` 被否 —— 不是被占用（三生态实测全空），而是 `-yml` 会**误导成 YAML**。
 > 由此立的排除规则与完整占用实测表见 `IDEAS.md` I-19。
 
-> 裁决与理由见 `docs/api-progressive-draft.md` §7。与 I-19 `idyml` 分工：
+> 裁决与理由见 `docs/swml/spec/api.md` §7。与 I-19 `idyml` 分工：
 > `idyml` 是**换名瘦别名**（解决「找不到」），本 crate 是**能力子集 + 新 API 层**（解决「装了不会用」）。
 
 - [x] **L0 已落地**：`rust/smlkit-easy/` —— `Doc` + `read` / `read_file`（展开 include）/
@@ -1413,19 +1413,19 @@ git push --force github refs/tags/v0.6.2 refs/tags/v0.6.3 refs/tags/v0.6.4
 
 - [ ] **全仓文档对齐一次，并留下可重跑的机制**：
       症状（都是实例，不是感觉）：
-      ① **同一事实多处各说一套** —— `docs/open-work.md` 一天内三份快照叠在一起
+      ① **同一事实多处各说一套** —— `docs/repo/archive/open-work.md` 一天内三份快照叠在一起
          （§1–§9 早快照 / §10「当前口径」/ §11 第三次核查），条目与行号互相矛盾；
       ② **已完成的不回填** —— `HANDOFF-2026-11-05.md` 仍写「fuzz 只有 1 个 target、
          bench 只有解析」，实际已有 **9 个 target + 3 份 bench**（2026-11-06）；
-         `docs/perf-baseline.md` 只有 `parse`，`value` / `smlb` 两份未进基线；
+         `docs/swsml/ref/perf-baseline.md` 只有 `parse`，`value` / `smlb` 两份未进基线；
       ③ **过期的没删** —— `IDEAS.md` I-6 仍 `Blocked`（Rust S0–S9 已收官）、I-18 仍「零实现」
-         （T0–T6 已落）；`docs/smlb-smldb-spec.md §16.2` 的 P2/P6 已实现仍标待定；
-         `docs/v5-syntax.md` B6/B7 标 ⬜ 但代码已做；`docs/featag-impl-slices.md` S4/S5 同上；
+         （T0–T6 已落）；`docs/amberice/spec/format.md §16.2` 的 P2/P6 已实现仍标待定；
+         `docs/swsml/spec/v5.md` B6/B7 标 ⬜ 但代码已做；`docs/swsml/plan/featag-slices.md` S4/S5 同上；
       ④ **残句 / 错位** —— 本文件「发布前待办」与「雷 2」之间有三行无归属碎句；
-      ⑤ **无法重跑** —— `docs/open-work.md` 自称「自动扫描」，但仓库里**没有生成脚本**。
+      ⑤ **无法重跑** —— `docs/repo/archive/open-work.md` 自称「自动扫描」，但仓库里**没有生成脚本**。
       做完的定义：
-      1. `docs/unfinished.md`（2026-11-06 已建）是**唯一**「还剩什么」清单，
-         `docs/open-work.md` 只归档不再更新；
+      1. `docs/repo/ref/unfinished.md`（2026-11-06 已建）是**唯一**「还剩什么」清单，
+         `docs/repo/archive/open-work.md` 只归档不再更新；
       2. 每份规范 / 交接头部写「最后核对日期 + 对应代码版本（commit）」；
       3. `tools/` 下有一个可重跑的扫描脚本（TODO 勾选 / IDEAS 状态 / 码表 `impls` / 规范里的 ⬜），
          产出即该清单，**禁止手工维护两份**；
@@ -1590,7 +1590,7 @@ git push --force github refs/tags/v0.6.2 refs/tags/v0.6.3 refs/tags/v0.6.4
         私钥只进 Environment secrets。
       - 依赖：`sync-from-gitee.yml` 的同步方向要随 §10.2 一起反转，否则部署可能落旧提交。
       - 观测：每次部署把「版本 / commit / 结果」写进 GitHub Deployment 或一条 issue 评论，便于回溯。
-      - 顺带（不另开条目）：`docs/unfinished.md §9` 记的「CI 不跑 fuzz/bench」可加一个 **nightly** job，
+      - 顺带（不另开条目）：`docs/repo/ref/unfinished.md §9` 记的「CI 不跑 fuzz/bench」可加一个 **nightly** job，
         但它是**质量门**不是发布门，别塞进 `release.yml` 卡发版。
 
 ---
@@ -1605,7 +1605,7 @@ git push --force github refs/tags/v0.6.2 refs/tags/v0.6.3 refs/tags/v0.6.4
       - 存四份基线：`cargo bench --bench value`、`cargo bench --bench smlb --features
         "smlb-compress,smlb-crypto,smlb-mmap"` 的**原始输出**；`cargo test -p smlb --features ...` 结果；
         `rust/fuzz/corpus/` 打包快照（种子语料也是资产）。
-      - 存放：基线数字进审计报告（`docs/audit-2026-11.md`），代码由 tag 钉住；**不复制整棵源码**。
+      - 存放：基线数字进 `docs/swsml/ref/perf-baseline.md`（唯一基线口径），代码由 tag 钉住；**不复制整棵源码**。
       - 判据：从 tag 能重建出与今天一致的数字（同一机器、同一负载）。
 
 - [ ] **13.2 优化（只做能测出收益的）**：
@@ -1642,7 +1642,7 @@ git push --force github refs/tags/v0.6.2 refs/tags/v0.6.3 refs/tags/v0.6.4
 > 5. 每份文档要有 **写日期 / 职责 / 状态**，**变更记录单独成文**，做到**可扫描、可报告、可统一修改**。
 > ⚠️ 与 §九 的关系：§九 是「症状 + 做完的定义」，本节是**执行方案**（不另起第三份清单）。
 
-- [ ] **14.1 归档：一次性切换（同一批提交内完成）**：
+- [x] **14.1 归档：一次性切换（同一批提交内完成）** ✅ 2026-11-06 已切完：
       - 切之前做**引用图**（`git grep -n "<basename>"`）—— 但它是**切之前的工具**，不构成“分阶段交付”。
       - 同一批提交里做完四件事：**新目录建好 → 内容全部复制/合并/重写进去 → 所有引用改到新路径 → 旧位置清空**。
         旧位置不保留“临时副本”，也不留一半新一半旧（这正是混乱的来源）。
@@ -1651,11 +1651,13 @@ git push --force github refs/tags/v0.6.2 refs/tags/v0.6.3 refs/tags/v0.6.4
         `site/content/**/_index.md`（Hugo 必需）、`site/static/_headers`（CORS）、`__init__.py`（包入口）。
         它们**不是“以后再归档”**：要么在本次切到新路径并同步改引用，要么在 `docs/meta.sml` 里登记为
         `status: keep` 的例外 —— **例外必须是显式的、可扫描的**，不是“忘了”。
-      - 目录：`archive/<年份>/<原路径>`，复制保留原相对路径，便于回查；**原内容不删，只是搬走**。
+      - 目录（用户 2026-11-06 定，**不是** `archive/<年份>/<原路径>`）：
+        `docs/{swsml,amberice,swml,repo}/{spec,ref,plan,archive}/` —— **先产品线，产品线内部再分类型**；
+        仓库根的 `HANDOFF*.md` / `TASK-agent*.md` 进 `docs/repo/archive/{handoff,task}/`。
       - 规模参考：受版本控制 `_*` **18 个**；磁盘上约 **231 个**（含生成目录；可再生成的产物直接删，不进 archive）。
       - 切完必须同步：`.gitignore` 的 `**/_*` 与 `!` 例外、CI 路径、`site` 构建输入、全部文档链接（断链检查进 CI）。
 
-- [ ] **14.2 文档元数据：用 SML 写，不用 YAML**：
+- [x] **14.2 文档元数据：用 SML 写，不用 YAML** ✅ 2026-11-06 已落（`docs/meta.sml` / `docs/changes.sml`）：
       - 单一清单 `docs/meta.sml`（**一个文件管全部文档**，便于统一修改与合并冲突收敛）：
 
         ```sml
@@ -1667,20 +1669,25 @@ git push --force github refs/tags/v0.6.2 refs/tags/v0.6.3 refs/tags/v0.6.4
           status: stale             # current | draft | stale | archive | keep
           scope: ".smlb / smldb 规范"
           supersedes: null
-          superseded_by: "docs/unfinished.md"
+          superseded_by: "docs/repo/ref/unfinished.md"
         }
         ```
         （上面是单条示例，真实文件是 `doc { title: ... }` 的数组；键名固定，脚本可校验。）
       - **变更记录单独成文**：`docs/changes.sml`（记录型：`doc / at / commit / summary`），
-        由它生成人读的 `docs/changes.md`；**正文里不写历史**。
+        `changes.sml` 本体即人可读（SML 就是给人写的），**不另生成 md**；**正文里不写历史**。
       - 读者入口 = **生成的索引/报告**（`docs/index.md` / `docs/report.md`），不是原文；
         过期文档在索引里直接显示 `stale` + 替代者。
       - 解释口径：**「不能直接看原内容」= 先看索引/摘要/状态**，不让人一头扎进正文；
         正文仍是可读的 Markdown（不加密、不删）。
 
-- [ ] **14.3 扫描器：`smltools docs`（Rust + `swsml`，不用 Python）**：
-      - 位置：`smltools` 新子命令 `docs`（已有 crate、已依赖 `swsml`，零新二进制）：
-        `smltools docs --check` / `--index` / `--report` / `--fix`。
+- [x] **14.3 扫描器：独立 crate `smldocs`（Rust + `swsml`，不用 Python）** ✅ 2026-11-06 已落：
+      - ⚠️ **位置更正（用户 2026-11-06 点破）**：**不做成 `smltools` 的子命令**。
+        `smltools` 是**给装 SML 的人**的产品 CLI（转换 / 迁移 / lint），已发布；把这套东西塞进去，
+        等于让每个 `cargo install smltools` 的人都背一套只对本仓有意义的命令，而且它硬编码
+        `docs/meta.sml` 的目录布局，会跟着本仓结构漂移。
+      - 落点：`rust/smldocs/`，**`publish = false`** 的内部 bin crate，只在 workspace 内存在：
+        `cargo run -p smldocs -- --check` / `--index` / `--report` / `--fix`。
+        仍然是 dogfooding：元数据是 `.sml`，解析器是 `swsml`。
       - 读 `docs/meta.sml` + `docs/changes.sml`（用 `swsml` 解析，dogfooding），产出：
         `docs/index.md`（文件 / 日期 / 职责 / 状态 / 替代者）、`docs/report.md`
         （缺元数据 / `updated` 超期 / 断链 / `superseded_by` 指向不存在 / 无 owner / 未登记的文档）。
@@ -1688,6 +1695,19 @@ git push --force github refs/tags/v0.6.2 refs/tags/v0.6.3 refs/tags/v0.6.4
         `--fix` 只做机械补全（补 `updated`、写 `status`），**不猜内容**。
       - 判据：任意文档 3 秒内查到「写于何时、谁负责、是否过期、替代者是谁」；
         批量改 = 改 `meta.sml` 一处 + 重跑；**任何文档都不许手写“曾经如此”的历史**。
+
+- [ ] **14.4 工具面边界：`smltools` 只做用户面**（2026-11-06 用户点破，本次清理）：
+      - **规则**：`smltools` 的公开 CLI 只放「装了 SML 的人会用到」的能力 —— 转换 / 迁移 / lint /
+        编辑器集成；**仓库自身的治理**（文档索引、体检、门禁、发布检查）不进 `smltools`，
+        各自开 `publish = false` 的内部 crate。
+      - **判据**：一条命令如果**换一个仓库就毫无意义**，它就不属于产品 CLI。
+      - 本次已清：`smltools docs` 子命令撤掉，改 `rust/smldocs`（见 14.3）；
+        `smltools` 的 `Cli` / `Args` / `real_main` / 文档里不残留任何 `docs` 参数，
+        `cargo build -p smltools` 与 `smltools --help` 的选项表回到产品面。
+      - 仍待做（属**产品**面，不是治理面）：
+        ① `smltools` 抽 lib（`smltools::run()`）—— 这是 `swmltools` 防御性别名的前置（§11.1）；
+        ② 复核 `--to custom` / `--hugo` / `--zola` 三个入口：它们是产品能力，但带着「本仓站点」的假设，
+           要么写清通用形态，要么挪进内部工具。
 
 > 执行顺序：**§13（代码）→ §14（文档/文件，一刀切）**；§14 内部**不分批**，一次切完再进 CI 门禁。
 

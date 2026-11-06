@@ -21,15 +21,15 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 - 新特性位 **`type.weak`**（`Feature::Weak`，bit 19）：**opt-in**，不在 `baseline()`、不进任何 `Edition`。
   文档里写 `@feature enable type.weak`；裸 `weak` 会被 `E-FEATURE-003` 拒掉
-  （`docs/feature-namespace-plan.md` §3 规则 1：新增特性一律 `<域>.<名>`）。
+  （`docs/swsml/spec/features.md` §3 规则 1：新增特性一律 `<域>.<名>`）。
 - 新内置指令 **`@weakbind <契约名> [<字段体>]`**：照 `@when` 的先例**只作用于紧邻的下一个块**；
-  库**不校验、不填默认值、不改树**，只把声明记进旁路表（`docs/weakbind-spec-draft.md`）。
+  库**不校验、不填默认值、不改树**，只把声明记进旁路表（`docs/swsml/spec/weakbind.md`）。
 - 新错误码 **`E-PARSE-029`**「弱绑定声明的作用域非法」（`impls: [rust]`、`status: partial`）：
   悬空 / 连续出现 / 目标不是块，三档靠 `detail` 区分。
 - 新增 `ParseOptions::capture_contracts(bool)` + `ParseOutput::contracts`：
   把本次解析收集到的 `@contract` 表交回（`Option<BTreeMap<String, Contract>>`）。
   用途是「内置契约表用 SML 定义、再注入回去」—— `Contract` 含 `Arc<dyn TypeCheck>`，
-  没法从 JSON 反序列化，所以只能走这条路（`docs/weakbind-spec-draft.md` §6.1）。
+  没法从 JSON 反序列化，所以只能走这条路（`docs/swsml/spec/weakbind.md` §6.1）。
   **默认关**，不开时恒为 `None`。
 - ⚠️ **升级注意**：`ParseOutput` 一次加了**两个**字段：`weak_binds: Vec<WeakBind>`
   （**恒存在**，未使用该指令时为空 vec）与 `contracts: Option<...>`（默认 `None`）。
@@ -37,7 +37,7 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   定位口径与 `contract_map` 相同（`Vec<PathSeg>`）。
 - ⚠️ C-ABI 同步：`sml_feature_name(19)` = `"type.weak"`，`c/sml_rs.h` 增 `SML_F_WEAK`。
 - 新增 CLI **`smltools --dump-builtins`**：把输入文档里的 `@contract` 定义导出成 JSON
-  （`docs/weakbind-spec-draft.md` §6.2 的 schema），供编辑器/插件读内置契约形状。
+  （`docs/swsml/spec/weakbind.md` §6.2 的 schema），供编辑器/插件读内置契约形状。
   与 `--to` 无关；输出确定（契约名与字段名按 `BTreeMap` 序），可作 golden 基线。
 - 新增 `ParseOptions::builtin_contracts(table)`：注入**内置契约表**，`@weakbind` 的软校验拿它比对。
   **空表（默认）⇒ 软校验整段跳过**。典型用法：
@@ -50,11 +50,11 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   `ParseOutput.weak_data`（`Vec<WeakData>`：`path` / `name` / `value` / `line`）。
   与 `@weakbind` 共用 `type.weak` 开关；**同一 `(path, name)` 后者覆盖**；
   缺名字 / 缺载荷块 ⇒ `E-PARSE-019`（不为它单开码）。
-  规范：`docs/weakdata-spec-draft.md`。
+  规范：`docs/swsml/spec/weakdata.md`。
 - 新内置指令 **`@weakdoc <名>`**（I-17）：只登记 profile 引用，**库不读文件系统**，
   记录进 `ParseOutput.weak_docs`（`Vec<WeakDoc>`：`path` / `name` / `line`）。
   同一 profile 重复引用 ⇒ 新码 **`E-PARSE-030`**（文档级判重）；写载荷块 ⇒ `E-PARSE-019`
-  （并提示改用 `@weakdata`）。三命名空间发现属工具侧，见 `docs/weakdoc-spec-draft.md` §3。
+  （并提示改用 `@weakdata`）。三命名空间发现属工具侧，见 `docs/swsml/spec/weakdoc.md` §3。
 - 新增 CLI **`smltools --resolve-profiles`**：把 `@weakdoc` 引用按
   「显式 `--profile-dir` → 项目（向上找 `.smlex/profiles/`）→ 用户全局 → 系统」解析成文件路径；
   TAB 三列输出，未命中记 `-` 且退出码 1。配套 `--no-profiles` 关闭发现。
@@ -66,7 +66,7 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   `require_top_level` / `forbid_contracts` / `forbid_keys` 三项，命中即 error；
   新增 `E-LINT-002/003/004`（三项检查）与 `E-LINT-005`（profile 不可用：找不到 = warning，
   读不出/解析失败/`name` 不符 = error）。**仍然只在工具侧**：库不认识 profile。
-- **`.smlex` 内容格式 v1.0 定稿**（`docs/smlex-format-draft.md`）：文件就是一份普通 SML，
+- **`.smlex` 内容格式 v1.0 定稿**（`docs/swsml/spec/smlex.md`）：文件就是一份普通 SML，
   顶层 `name` / `version` / `description` / `applies_to` / `checks` / `hints` / `emit`；
   不变量三条（不注入 / 未知字段 warning 忽略 / name 必须等于文件名）。
   形状契约放在 `rust/smltools/profile.sml`（`loose`），可用 `--dump-builtins` 导出给编辑器。
@@ -78,7 +78,7 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 🚨 破坏性变更（版本命名：`Version` 枚举 → `Edition` 查表）
 
-**版本号 = 功能集**（Rust edition 模型，见 `docs/version-naming.md` v1.0）。版本之间**没有大小关系**，
+**版本号 = 功能集**（Rust edition 模型，见 `docs/swsml/spec/version.md` v1.0）。版本之间**没有大小关系**，
 判据一律是「这个特性在不在这套功能集里」，因此下面这些 API 形态变了：
 
 - `enum Version { V1..V4 }` **删除**，改为 `struct Edition { major, minor }` +
@@ -107,14 +107,14 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 文档（featag S9：其它四端策略 —— 纯文档，零代码）
 
-- `docs/capability-matrix.md` 新增 **§1.7b**：featag 与标识符校验的五端实现状态表（Rust ✅、其余 ❌），
+- `docs/swsml/ref/capability-matrix.md` 新增 **§1.7b**：featag 与标识符校验的五端实现状态表（Rust ✅、其余 ❌），
   并**实测**了「❌ 在运行时长什么样」（2026-11-04）：
   - JS 遇 `@feature enable type.featag` ⇒ `E-FEATURE-003`（`KNOWN_FEATURES` 不含）；
   - Lua 遇 `@feature` 本身 ⇒ `E-PARSE-005`（没有特性集）；
   - Rust 未开特性位时 `!critical` 就是裸词；同一份 `wea !critical, name { }` 在 JS 被当
     「键 + 裸词值」收下 —— 这是**featag 之前就存在的跨端差异**，一并记录不追责；
   - C / C++ 标「未测」，不编造。
-- `docs/featag-spec-draft.md` 的状态横幅从「零实现」改为「Rust 已实现 S0–S8」，
+- `docs/swsml/spec/featag.md` 的状态横幅从「零实现」改为「Rust 已实现 S0–S8」，
   并写清当前是靠特性位 `type.featag`（开发期例外）而非 `@version 50`。
 - **代码零改动**：其它四端按设计不实现 featag，遇 v5 照旧「本端不支持」。
   跨端统一同步由用户另行安排（2026-11-04：「这个之后会统一同步的」）。
@@ -260,7 +260,7 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 - `@feature enable type.featag` 之后，块头首词之后的 `!` 区被识别：
   `wea !critical obey[1, 2], name { }`、`wea !critical, { }`（块名可省）；
   无参项写 `!名`、带参项写 `名[ … ]`；**`,` 是终止符**，区内部各项之间不写逗号。
-- **三条歧义各报一码**（`docs/featag-spec-draft.md` §2.3）：
+- **三条歧义各报一码**（`docs/swsml/spec/featag.md` §2.3）：
   - `E-PARSE-026` **空 featag 区**（`wea ! , name { }`）；
   - `E-PARSE-027` **值位置的 `!` 裸词**（`a: !b`）—— **开了 `bareword-string` 也不豁免**，要写字面量请加引号；
   - `E-PARSE-028` **块头里以 `!` 开头的名字**（`,` 之后的块名位置，或首词/类型词位置）。
@@ -274,7 +274,7 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ### 新增（特性命名空间：带域名 + `type.featag` 占位位）
 
-- `@feature enable <域>.<名>` 生效（`docs/feature-namespace-plan.md` N4）：`Feature::parse_name`
+- `@feature enable <域>.<名>` 生效（`docs/swsml/spec/features.md` N4）：`Feature::parse_name`
   先验形态再查表 —— **只在第一个点切一次**，三段（`a.b.c`）直接拒；域是**封闭白名单**
   `FEATURE_DOMAINS = ["lex","mod","type","flow"]`（N1），未知域报「未知域 + 白名单」。
 - **老名保持平铺，且不给别名**（N2）：`typed-block` 照旧可用，`type.typed-block` **不认**

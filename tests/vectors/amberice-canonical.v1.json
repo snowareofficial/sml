@@ -1,7 +1,7 @@
 {
   "format": "amberice/canonical-vectors",
   "version": 1,
-  "spec": "docs/amberice-smldb-spec.md §18 (C1-C13) + §19",
+  "spec": "docs/amberice/spec/format.md §18 (C1-C13) + §19",
   "note": "由 `amberice vectors --gen` 生成，勿手改；`--check` 会重新生成并逐行比对。任一实现按 source 造出同一个值后，canonical_text 必须逐字符相同、bytes_hex 必须逐字节相同。",
   "cases": [
     {
