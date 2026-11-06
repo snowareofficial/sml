@@ -2,12 +2,15 @@
 """Build the Rust cdylib and verify the C / C++ examples actually run.
 
 Replaces ad-hoc gcc/g++ invocations in PowerShell, which keep tripping AMSI.
+
+2026-11-06：产物一律进 c/build/ 与 cpp/build/（已 gitignore），
+不再把 exe / dll 复制到源码目录旁边。
 """
+import glob
 import os
+import shutil
 import subprocess
 import sys
-import glob
-import shutil
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -17,6 +20,9 @@ except Exception:
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 RUST = os.path.join(ROOT, "rust")
+CPP = os.path.join(ROOT, "cpp")
+BUILD_C = os.path.join(HERE, "build")
+BUILD_CPP = os.path.join(CPP, "build")
 
 
 def run(cmd, cwd=None):
@@ -117,8 +123,9 @@ def main():
     print("  library: %s" % dll)
 
     libdir = os.path.dirname(dll)
-    # Copy next to the examples so loaders can find it.
-    for d in (HERE, os.path.join(ROOT, "cpp")):
+    # Copy into the build dirs so the examples there can find it at runtime.
+    for d in (BUILD_C, BUILD_CPP):
+        os.makedirs(d, exist_ok=True)
         try:
             shutil.copy2(dll, os.path.join(d, os.path.basename(dll)))
         except Exception as e:
@@ -128,16 +135,16 @@ def main():
 
     # 2. C example
     print("\n=== C example ===")
-    exe = os.path.join(HERE, "example_rs_check.exe")
+    exe = os.path.join(BUILD_C, "example_rs_check.exe")
     rc, out = run(["gcc", "-std=c99", "-Wall", "-Wextra",
-                   "example_rs.c", "-I", ".",
+                   os.path.join("examples", "example_rs.c"), "-I", ".",
                    "-L", libdir, "-lsml", "-o", exe], cwd=HERE)
     print(out[-2500:])
     if rc != 0:
         ok = False
         print("  FAILED: compile C example")
     else:
-        rc, out = run([exe], cwd=HERE)
+        rc, out = run([exe], cwd=BUILD_C)
         print(out[-3000:])
         if rc != 0:
             ok = False
@@ -145,8 +152,7 @@ def main():
 
     # 3. C++ example
     print("\n=== C++ example ===")
-    cpp = os.path.join(ROOT, "cpp")
-    exe2 = os.path.join(cpp, "example_rs_check.exe")
+    exe2 = os.path.join(BUILD_CPP, "example_rs_check.exe")
     # Note: -static-libgcc/-static-libstdc++ is a workaround for this machine,
     # where an older libstdc++-6.dll earlier on PATH cannot resolve the
     # symbols the current g++ emits (even a plain C++11 program fails with
@@ -154,15 +160,15 @@ def main():
     # keeps the check about our code rather than the toolchain environment.
     rc, out = run(["g++", "-std=c++17", "-Wall",
                    "-static-libgcc", "-static-libstdc++",
-                   "example_rs.cpp", "sml_rs.cpp",
-                   "-I", ".", "-I", os.path.join(ROOT, "c"),
-                   "-L", libdir, "-lsml", "-o", exe2], cwd=cpp)
+                   os.path.join("examples", "example_rs.cpp"), "sml_rs.cpp",
+                   "-I", ".", "-I", HERE,
+                   "-L", libdir, "-lsml", "-o", exe2], cwd=CPP)
     print(out[-2500:])
     if rc != 0:
         ok = False
         print("  FAILED: compile C++ example")
     else:
-        rc, out = run([exe2], cwd=cpp)
+        rc, out = run([exe2], cwd=BUILD_CPP)
         print(out[-3000:])
         if rc != 0:
             ok = False
@@ -171,9 +177,9 @@ def main():
     # Diagnose DLL resolution when a run produced no output at all.
     if not ok:
         print("\n--- diagnostics ---")
-        for label, exedir in (("c", HERE), ("cpp", os.path.join(ROOT, "cpp"))):
+        for label, exedir in (("c", BUILD_C), ("cpp", BUILD_CPP)):
             dll_there = os.path.join(exedir, os.path.basename(dll))
-            print("  %s/: sml.dll present = %s" % (label, os.path.isfile(dll_there)))
+            print("  %s: sml.dll present = %s" % (label, os.path.isfile(dll_there)))
         print("  PATH contains libdir: %s"
               % (libdir.lower() in os.environ.get("PATH", "").lower()))
 

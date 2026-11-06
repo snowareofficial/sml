@@ -38,6 +38,10 @@ docs/meta.sml  docs/changes.sml        元数据与变更记录（手写）
 
 判据：**先归属产品线，再分 spec/ref/plan/archive**；不允许从仓库根平铺一堆 `*.md`。
 
+**构建产物不落源码目录**：`c/build/`、`cpp/build/`、`js/build/`、`lua/build/`（均已 gitignore）；
+一次性探针以 `_` 开头并归 `_scratch/`。源码目录里看到 `*.exe` / `*.dll` / `*_out.txt`，
+说明有人在源码旁边直接编译 —— 那是要修的，不是要提交的。
+
 ## 4. 工具面边界（别再犯）
 
 - `smltools` 是**产品 CLI**（给装了 SML 的人：转换 / 迁移 / lint）。仓库自身的治理

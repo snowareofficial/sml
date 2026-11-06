@@ -1,12 +1,18 @@
 # SPDX-License-Identifier: MulanPSL-2.0
 # build_verify.py - compile and run the C++ SML demo, capture output.
+#
+# 目录约定（2026-11-06 起）：源码在 cpp/（库）、cpp/examples/、cpp/tests/；
+# **所有产物一律落到 cpp/build/**（被 .gitignore 忽略）——
+# 不再把 .exe / *_out.txt 丢在源码旁边，临时与永久分开。
 import argparse
+import os
 import subprocess
 import sys
-import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)  # cpp/ 的上级 = 仓库根
+BUILD = os.path.join(HERE, "build")
+os.makedirs(BUILD, exist_ok=True)
 os.environ["PATH"] = r"C:\msys64\ucrt64\bin" + ";" + os.environ.get("PATH", "")
 
 # RS-BRIDGE 需要 Rust cdylib；CI 里要先 `cargo build --release` 再显式传 SML_RUST_LIB。
@@ -16,6 +22,7 @@ AP = argparse.ArgumentParser(description="C++ SML 构建/运行验证")
 AP.add_argument("--allow-skip-rs-bridge", action="store_true",
                 help="Rust cdylib 缺失时跳过 RS-BRIDGE 而不报错（仅本地缺库排查用；CI 不带）")
 ARGS = AP.parse_args()
+
 
 def run(cmd):
     print(">>> " + " ".join(cmd))
@@ -27,60 +34,72 @@ def run(cmd):
     print("exit=%d" % p.returncode)
     return p.returncode
 
+
 def run_out(cmd):
     p = subprocess.run(cmd, cwd=HERE, capture_output=True)
     out = (p.stdout or b"").decode("utf-8", "replace") + (p.stderr or b"").decode("utf-8", "replace")
     return p.returncode, out
 
-rc = run(["g++", "-std=c++17", "-I.", "-o", "example.exe", "example.cpp", "sml.cpp"])
+
+def exe(name):
+    return os.path.join(BUILD, name)
+
+
+def write_log(name, text):
+    with open(os.path.join(BUILD, name), "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+rc = run(["g++", "-std=c++17", "-I", HERE, "-o", exe("example.exe"),
+          os.path.join(HERE, "examples", "example.cpp"), os.path.join(HERE, "sml.cpp")])
 if rc != 0:
     sys.exit(rc)
-rc = run([os.path.join(HERE, "example.exe")])
+rc = run([exe("example.exe")])
 if rc != 0:
     sys.exit(rc)
 
-rc = run(["g++", "-std=c++17", "-I.", "-o", "t_contract.exe", "test_contracts.cpp", "sml.cpp"])
+rc = run(["g++", "-std=c++17", "-I", HERE, "-o", exe("t_contract.exe"),
+          os.path.join(HERE, "tests", "test_contracts.cpp"), os.path.join(HERE, "sml.cpp")])
 if rc == 0:
-    rc2, out = run_out([os.path.join(HERE, "t_contract.exe")])
-    with open(os.path.join(HERE, "t_contract_out.txt"), "w", encoding="utf-8") as f:
-        f.write(out)
+    rc2, out = run_out([exe("t_contract.exe")])
+    write_log("t_contract_out.txt", out)
     print("CONTRACT rc=%d" % rc2)
     if rc2 != 0: sys.exit(rc2)
 
-rc = run(["g++", "-std=c++17", "-I.", "-o", "t_comments.exe", "test_comments.cpp", "sml.cpp"])
+rc = run(["g++", "-std=c++17", "-I", HERE, "-o", exe("t_comments.exe"),
+          os.path.join(HERE, "tests", "test_comments.cpp"), os.path.join(HERE, "sml.cpp")])
 if rc == 0:
-    rc2, out = run_out([os.path.join(HERE, "t_comments.exe")])
-    with open(os.path.join(HERE, "t_comments_out.txt"), "w", encoding="utf-8") as f:
-        f.write(out)
+    rc2, out = run_out([exe("t_comments.exe")])
+    write_log("t_comments_out.txt", out)
     print("COMMENTS rc=%d" % rc2)
     if rc2 != 0: sys.exit(rc2)
 
 # --- 深度守卫回归用例：纯块嵌套曾绕过守卫打穿栈，必须报错而不是崩 ---
-rc = run(["g++", "-std=c++17", "-I.", "-o", "t_limits.exe", "test_limits.cpp", "sml.cpp"])
+rc = run(["g++", "-std=c++17", "-I", HERE, "-o", exe("t_limits.exe"),
+          os.path.join(HERE, "tests", "test_limits.cpp"), os.path.join(HERE, "sml.cpp")])
 if rc == 0:
-    rc2, out = run_out([os.path.join(HERE, "t_limits.exe")])
-    with open(os.path.join(HERE, "t_limits_out.txt"), "w", encoding="utf-8") as f:
-        f.write(out)
+    rc2, out = run_out([exe("t_limits.exe")])
+    write_log("t_limits_out.txt", out)
     print("LIMITS rc=%d" % rc2)
     if rc2 != 0: sys.exit(rc2)
 
 # --- 错误码回归（W10，C++ 侧）：触发条件 → 期望码，码是跨端契约 ---
-rc = run(["g++", "-std=c++17", "-I.", "-o", "t_codes.exe", "test_codes.cpp", "sml.cpp"])
+rc = run(["g++", "-std=c++17", "-I", HERE, "-o", exe("t_codes.exe"),
+          os.path.join(HERE, "tests", "test_codes.cpp"), os.path.join(HERE, "sml.cpp")])
 if rc == 0:
-    rc2, out = run_out([os.path.join(HERE, "t_codes.exe")])
-    with open(os.path.join(HERE, "t_codes_out.txt"), "w", encoding="utf-8") as f:
-        f.write(out)
+    rc2, out = run_out([exe("t_codes.exe")])
+    write_log("t_codes_out.txt", out)
     print("CODES rc=%d" % rc2)
     if rc2 != 0: sys.exit(rc2)
 else:
     sys.exit(rc)
 
 # --- `.ambr` 只读解码器对拍容器向量（T7 / N03）：21 例 + 语义抽检 ---
-rc = run(["g++", "-std=c++17", "-I.", "-o", "t_ambr.exe", "test_ambr.cpp", "ambr.cpp"])
+rc = run(["g++", "-std=c++17", "-I", HERE, "-o", exe("t_ambr.exe"),
+          os.path.join(HERE, "tests", "test_ambr.cpp"), os.path.join(HERE, "ambr.cpp")])
 if rc == 0:
-    rc2, out = run_out([os.path.join(HERE, "t_ambr.exe")])
-    with open(os.path.join(HERE, "t_ambr_out.txt"), "w", encoding="utf-8") as f:
-        f.write(out)
+    rc2, out = run_out([exe("t_ambr.exe")])
+    write_log("t_ambr_out.txt", out)
     print("AMBR rc=%d" % rc2)
     if rc2 != 0: sys.exit(rc2)
 else:
@@ -100,17 +119,18 @@ _rs_present = os.path.isdir(SML_RUST_LIB) and any(
 
 if not _rs_present:
     if ARGS.allow_skip_rs_bridge:
+        # 显式允许跳过：**整段**跳过（原先只打印一句仍然去编译，必然失败 —— 假跳过）。
         print("RS-BRIDGE 跳过（--allow-skip-rs-bridge）: 在 %s 下找不到 Rust cdylib" % SML_RUST_LIB)
-    else:
-        print("RS-BRIDGE 失败: 在 %s 下找不到 Rust cdylib（先 `cargo build --release` 并设 SML_RUST_LIB）" % SML_RUST_LIB)
-        sys.exit(1)
+        sys.exit(0)
+    print("RS-BRIDGE 失败: 在 %s 下找不到 Rust cdylib（先 `cargo build --release` 并设 SML_RUST_LIB）" % SML_RUST_LIB)
+    sys.exit(1)
 
-rc = run(["g++", "-std=c++17", "-I.", "-o", "example_rs.exe",
-          "example_rs.cpp", "sml_rs.cpp", "-L" + SML_RUST_LIB, "-lsml"])
+rc = run(["g++", "-std=c++17", "-I", HERE, "-o", exe("example_rs.exe"),
+          os.path.join(HERE, "examples", "example_rs.cpp"), os.path.join(HERE, "sml_rs.cpp"),
+          "-L" + SML_RUST_LIB, "-lsml"])
 if rc == 0:
-    rc2, out = run_out([os.path.join(HERE, "example_rs.exe")])
-    with open(os.path.join(HERE, "example_rs_out.txt"), "w", encoding="utf-8") as f:
-        f.write(out)
+    rc2, out = run_out([exe("example_rs.exe")])
+    write_log("example_rs_out.txt", out)
     print("RS-BRIDGE rc=%d" % rc2)
     if rc2 != 0: sys.exit(rc2)
 else:

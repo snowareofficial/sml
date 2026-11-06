@@ -112,7 +112,7 @@
 | **JS 余额 4 条**（+ 副本漏同步修复） | （见 `git log`） | 未注册指令 `E-PARSE-005`（顺带片段显式参数 ⇒ `E-PARSE-020`）、未定义片段引用 `E-INCLUDE-006`、**特性门控**（`contract`/`fragment` ⇒ `E-FEATURE-001`、`env` ⇒ `E-FEATURE-002`）、模式预算 `E-LIMIT-002`（JS 落在**编译期**） | HEAD 版 `js/sml.mjs` 配同一份 `probe-error-codes.mjs` ⇒ **13 条红**；新实现 `ALL OK`（45 条用例） |
 | **Rust A 批 6 条**（+ 两个新码） | （见 `git log`） | `sml-regex` 的三条失败路径（非法 ⇒ **新码 `E-PARSE-025`**、过长 ⇒ `E-LIMIT-007`、超预算 ⇒ `E-LIMIT-002`）、`to_sml_checked` 深度超限 ⇒ `E-LIMIT-004`、serde 桥 u64 超 i64 ⇒ `E-DERIVE-002`、C-ABI 新增 `sml_dump_err` 写码、YAML 未知转义 ⇒ **新码 `E-MIGRATE-018`** | ① `sml-regex` 的宽松入口（= 旧行为）与 `*_checked`（新行为）在**同一份输入**上同时断言 ⇒ 「改前确实静默」被钉进测试；② YAML 用**改动前的 release 二进制**跑同一份探针：旧 `rc=0` 静默保留 `\d` / 新 `rc=1` + `E-MIGRATE-018`，正对照两侧逐字节相同；③ `security.rs` 的 `regex_failures_report_codes` 端到端覆盖三个码 |
 | **Lua 末段 6 条** | （见 git log） | 词法 `fail()` 带码透传（`A0`）+ 未闭合字符串/块注释（`/*`/`_*`）+ 未知转义 + `\u` 非法（定长四位+代理区+超范围）+ 数组里多余的 `}` + 闭合符错配 + 顶层多余的 `}`/`]` + 未注册指令（显式 `type:`/`name:`、位置参数/缺体 ⇒ `E-PARSE-005`）+ 未定义片段引用 ⇒ `E-INCLUDE-006` + 顶层标量 ⇒ `E-PARSE-008` | HEAD 版 `lua/lib/sml.soup` 配同一份 `lua/_w16_probe.lua` ⇒ **13 条红**；新实现 `ALL PASS`（30 条，16 条正对照防误伤） |
-| **C++ 末段 6 条** | （见 git log） | 同 Lua 的 LEX 五条 + `E-PARSE-002/003/005/008` + `E-INCLUDE-006`；块注释/字符串/转义/闭合符/顶层标量/未注册指令/未定义片段引用全部对齐 C/Rust | HEAD 版 `cpp/sml.cpp` 配 `cpp/test_codes.cpp` 同一份 30 条 ⇒ 2 条红；新实现 `CODES 全绿`（原 80 + 30 = 110 条） |
+| **C++ 末段 6 条** | （见 git log） | 同 Lua 的 LEX 五条 + `E-PARSE-002/003/005/008` + `E-INCLUDE-006`；块注释/字符串/转义/闭合符/顶层标量/未注册指令/未定义片段引用全部对齐 C/Rust | HEAD 版 `cpp/sml.cpp` 配 `cpp/tests/test_codes.cpp` 同一份 30 条 ⇒ 2 条红；新实现 `CODES 全绿`（原 80 + 30 = 110 条） |
 
 **C 批的全仓扫描记录**（41 个 `.sml`，`c/_w16_scan.py`）：OK 29 → 22、FAIL 12 → 19，
 7 条 OK→FAIL 逐条查过根因，**没有一条是「原本正确的文档被误伤」**：

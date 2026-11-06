@@ -273,7 +273,7 @@ def prep_c(tmp):
         ep.why = "缺 gcc"
         return ep
     exe = os.path.join(tmp, "dump_c.exe")
-    src = os.path.join(ROOT, "tools", "dump_c.c")     # 复用 W4 的 C 侧 dumper
+    src = os.path.join(ROOT, "tools", "gen", "dump_c.c")     # 复用 W4 的 C 侧 dumper
     rc, out, err = run([cc, "-std=c99", "-I" + os.path.join(ROOT, "c"),
                         "-o", exe, src, os.path.join(ROOT, "c", "sml.c")])
     if rc != 0:
