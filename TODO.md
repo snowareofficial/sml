@@ -1407,3 +1407,287 @@ git push --force github refs/tags/v0.6.2 refs/tags/v0.6.3 refs/tags/v0.6.4
 ⇒ 排期时这几项要当**正式工作**排进去，不能一直当作"有空再说"。对应：
 版本号 → IDEAS I-16；取名 → I-12；宣传 → I-10；仓库布局 → 本章八·一 / 八·二。
 
+---
+
+## 九、文档治理（2026-11-06 用户点名：**过于混乱、落后**）
+
+- [ ] **全仓文档对齐一次，并留下可重跑的机制**：
+      症状（都是实例，不是感觉）：
+      ① **同一事实多处各说一套** —— `docs/open-work.md` 一天内三份快照叠在一起
+         （§1–§9 早快照 / §10「当前口径」/ §11 第三次核查），条目与行号互相矛盾；
+      ② **已完成的不回填** —— `HANDOFF-2026-11-05.md` 仍写「fuzz 只有 1 个 target、
+         bench 只有解析」，实际已有 **9 个 target + 3 份 bench**（2026-11-06）；
+         `docs/perf-baseline.md` 只有 `parse`，`value` / `smlb` 两份未进基线；
+      ③ **过期的没删** —— `IDEAS.md` I-6 仍 `Blocked`（Rust S0–S9 已收官）、I-18 仍「零实现」
+         （T0–T6 已落）；`docs/smlb-smldb-spec.md §16.2` 的 P2/P6 已实现仍标待定；
+         `docs/v5-syntax.md` B6/B7 标 ⬜ 但代码已做；`docs/featag-impl-slices.md` S4/S5 同上；
+      ④ **残句 / 错位** —— 本文件「发布前待办」与「雷 2」之间有三行无归属碎句；
+      ⑤ **无法重跑** —— `docs/open-work.md` 自称「自动扫描」，但仓库里**没有生成脚本**。
+      做完的定义：
+      1. `docs/unfinished.md`（2026-11-06 已建）是**唯一**「还剩什么」清单，
+         `docs/open-work.md` 只归档不再更新；
+      2. 每份规范 / 交接头部写「最后核对日期 + 对应代码版本（commit）」；
+      3. `tools/` 下有一个可重跑的扫描脚本（TODO 勾选 / IDEAS 状态 / 码表 `impls` / 规范里的 ⬜），
+         产出即该清单，**禁止手工维护两份**；
+      4. 过期说法一律删或改写，不保留「曾经如此」的正文（历史归 git）。
+
+---
+
+## 十、命名与仓库迁移（2026-11-06 讨论 · **均未动手**）
+
+### 10.1 命名候选：`amberice`（用户 2026-11-06：「改名 amberice 怎样，smlb」）
+
+- [ ] **裁决：是否把「门面 / 品牌层」改叫 `amberice`**：
+      - **占用实测（2026-11-06，HTTP 404 = 未注册）**：`amberice` 在 crates.io / PyPI / npm **三个都空**；
+        GitHub org、域名、商标**未查**（要占再去查）。
+      - **发布状态实测（2026-11-06，crates.io API）**（用户当天提醒「还没发布」，据此复核）：
+        - `swsml` **已发布**：18 个版本，最新 `0.6.9-dev.0`（2026-10-30），仓库字段仍指 Gitee；
+        - `smlb` / `smlkit` / `amberice` **均未发布**（404）⇒ **改名窗口对这三个名字完全开放**。
+      - **因此成本只有两类**：`swsml` 只能「新名另发 + 旧名保留/弃用」（不能改名，且 2026-11-03
+        用户已裁「不改名」，`IDEAS.md` I-12 `Rejected`）；其余是**内部引用**成本（文档 / CI / 示例 / 测试）。
+      - **建议形态（待拍板）**：`amberice` 占**门面/品牌层**（即 I-19 未建的 `smlkit` 坑位），
+        `smlb` 仍作「`.smlb` 格式的 crate」保持记忆点，`.smlb` 后缀与 magic `SWSB` 不动；
+        `swsml` 继续当引擎名。这样只需新建一个 crate + 可选 CLI 别名，改动面最小。
+      - **若要更进一步**（都还没发布，技术上可行，但各有代价）：
+        ① 把 `smlb` crate/CLI 一并改名 ⇒ 与 `.smlb` 后缀的对应关系断掉，文档要全仓扫；
+        ② 把 `sml`/`swsml`/`.smld` 也改名 ⇒ 五端、文法、站点、错误码、已发布包全部牵连，不建议。
+      - **待答三问**：`amberice` 是否取代 `smlkit`？CLI 是否双名（`smlb` + `amberice`）？
+        语言本身仍叫 SML 吗？
+      - **命名规则复核**：不含 `yml` / `yaml` / `ml` / `json` / `toml` / `ini` 词根（I-19 的排除规则）✅。
+        但 `amberice` 是 amber + ice（琥珀 / 冰 ⇒「固化快照」，语义贴 `.smlb` 的不可变定位），
+        同时也撞「琥珀冰」这类俗名与颜色名，**拼写歧义**（`amberice` / `amber ice` / `amber-ice`）——
+        要域名的话三种拼写都得占。
+      - **窗口**：`smlb` / `smlkit` 一旦首发就只能弃用不能改名 ⇒ 要改必须在**首次发布前**；现在正是窗口。
+      - **`smlkit-easy` 已存在**（`rust/smlkit-easy/`）⇒ 若门面改叫 `amberice`，它的包名是否跟进要一起裁。
+
+### 10.2 主仓迁 GitHub（用户 2026-11-06：「主 repo 改去 github（gitee 推荐先拿完，我准备）」）
+
+- [ ] **主仓以 GitHub 为主远端，Gitee 降为镜像**：
+      - **前置（用户动作）**：Gitee 侧推荐**先拿完**再迁 —— 迁完再回去养号，成本更高。
+      - 迁移清单（本项只做**总入口**，不重复既有条目）：
+        1. 建 GitHub org + 主仓（仓名与 10.1 的命名一起裁，别先建后改）；
+        2. 双远端：`origin` = GitHub，`gitee` 保留推送；分支删除口径见本文件 §八·一（L1324 那条）；
+           ⚠️ **`.github/workflows/sync-from-gitee.yml` 的方向必须反过来**（现在是「Gitee 权威 → GitHub 镜像」
+           每 6 小时；迁后应「GitHub 权威 → Gitee 镜像」），否则 CI 与部署会一直跑旧提交；
+        3. CI：核对 `.github/workflows/*.yml` 是否引用 Gitee 专属 secrets / 域名（迁后 CI 必须仍绿）；
+        4. Pages / 域名 / docs 子域 —— 与「发布前还要占三处」（L1086 那条）合并执行；
+        5. 各 crate `Cargo.toml` 的 `repository` 补 GitHub（L808 那条），README 里 GitHub 链接置于 Gitee 之前；
+        6. 两台远端各自设保护规则（L1271 那条）；
+        7. 迁移公告 / issue 模板 / 旧链接跳转说明。
+      - ⚠️ **迁移不改代码，但会动 CI 与发布脚本** ⇒ 按「发布动作」对待，清理待办时别顺手做。
+
+---
+
+## 十一、命名分层 / 文件后缀 / 官网重写（2026-11-06 用户定，**均未动手**）
+
+> 与 §10.1 的关系：`amberice` 与 `smlkit` **定位不同**（用户 2026-11-06 明确），不要合并成一个名字。
+> 本节记录**已说定的**与**还差一句裁决的**，执行时按 11.1 → 11.3 顺序，别交叉。
+
+### 11.1 命名分层（用户 2026-11-06 定）
+
+- [ ] **门面 `smlkit` → `swml`**（`swsml` 退居幕后 core）：
+      - 事实：`smlkit` **crate 未建**（`rust/` 下只有 `smlkit-easy`）⇒ crate 侧零迁移；
+        `swsml` **已发 18 版**（最新 `0.6.9-dev.0`）⇒ 保持原名、只当 core，符合 `IDEAS.md` I-12 的裁决。
+      - **占用实测（2026-11-06）**：`swml` 在 crates.io / PyPI / npm **三个都 404（空）**；
+        `swmltool`、`swmltools` 在 crates.io 也空。GitHub org / 域名仍未查。
+      - 落地：新建 `swml`（0.1.0），`pub use swsml::*`；需要转发 `smlb` 时用 optional feature，
+        不要复制实现。门面**不进本仓 workspace**（沿用 I-19 的「独立仓库、依赖 crates.io」）。
+      - 连带：`smlkit-easy` 是否改名 `swml-easy` —— **待裁**（它已存在，改名有成本）；
+        `IDEAS.md` I-19 的标题/状态要同步（已在本轮加注，避免又一处过期）。
+- [ ] **防御性别名 `swmltool` / `swmltools`**（用户 2026-11-06：占位作安全防护，且**不违 crates.io 条例**）：
+      - ⚠️ crates.io 政策**禁止抢注/占坑**（crate name squatting），**只发空 crate 会被下架**，还可能牵连账号。
+      - 合规姿势只有一种：发**真能用**的薄壳，并在 description/README 写明「本包是 `smltools` 的别名」，
+        与主包同版本、持续维护。
+      - 硬前提：`smltools` 目前是 **bin-only**（`[[bin]]`，无 `lib.rs`）⇒ 薄壳不能 `use` 它。二选一：
+        ① **抽 lib**：把 CLI 入口抽成 `smltools::run()`，两个 bin 共用（推荐，一次到位）；
+        ② **转发子进程**：`swmltools` 直接 `Command::new("smltools")` 继承 stdio（能跑，但依赖 PATH 里有主程序）。
+      - 命名权衡：`swmltool`（单数）与 `swmltools`（复数）**两个都发**等于维护三个 CLI 名；
+        建议只占**用户最可能敲错的那一个**（复数 `swmltools` 更像 `smltools` 的近邻）。
+      - 前置：先抽 lib，再发别名 —— 否则不做，宁可不占。
+
+### 11.2 文件后缀：`.swl` 能不能用、要不要当默认（用户 2026-11-06 提问）
+
+- [ ] **裁决并落地后缀策略**：
+      - 现状（可复核）：`.sml` 被 **516 个受版本控制的文件**提到（`git grep -lE "\.sml([^a-zA-Z0-9]|$)"`）；
+        `spec §1` 已把 `.smld` 定为「sml 文本文档」、`.smlb` 为二进制 ⇒ 再加 `.swl` 会**四个后缀互相打架**。
+      - 唯一站得住的换名理由：`.sml` 同时是 **Standard ML** 的扩展名，编辑器/高亮容易认错。
+      - **建议分两步，别一步到位**：
+        1. **读取端先接受** `.swl` 作别名（五端 include 解析 + VS Code/Zed 关联 + `smltools` 输入），
+           默认仍 `.sml`；成本小、可回滚，也不打断已有用户文件；
+        2. **设默认放到 v5**：与 `swml` 命名一起发，附迁移说明（`git mv` + `include` glob 检查）；
+           因为改默认会波及示例、测试、站点模板、模板生成器与用户仓库里的 glob。
+      - 命名一致性提醒：品牌 `swml`、扩展 `.swl`（**少一个 `m`**）不派生，用户难记；
+        要么 `.swml`（与品牌一致），要么沿用 `.sml`。**`.swl` 是三个候选里最弱的**。
+      - 待答：`.swl` 与 `.smld` **谁当「文本文档」的默认**？（二选一，不要并存）
+
+### 11.3 官网重写（用户 2026-11-06 点名）
+
+- [ ] **站点重写**（不是改版：信息架构 + 内容生成一起做）：
+      - 现状：只有首页；下载页版本落后（`.vsix` 0.5.0 源码 vs 0.4.3 产物）；教科书 ch11/ch12 各两份；
+        `llms.txt` 手抄；`site/` 内容与 `docs/` 多处重复且不同步。
+      - 目标：清晰的信息架构（语言 / 格式 / 工具 / 下载 / 文档），**版本号与下载项由构建生成**，
+        中英同源（不手工维护两份），旧链接 301。
+      - 顺序：**等 11.1 / 11.2 的名字与后缀定稿再动手** —— 否则要重写两遍。
+      - 范围提示：站点重写不改 Rust 代码，但会动 `site/` 全部模板与 CI 部署；按「发布动作」排期。
+
+### 11.4 还差一句裁决：`amberice` 的定位
+
+- 已知：你明确「`smlkit` 和 `amberice` 定位不一样」；`amberice` 三个注册表都空。
+- **未定**：它指哪一层？① `.smlb` 容器/格式的品牌（crate 名 or 只是商标）？② 独立产品线（如 smldb/服务）？
+  ③ 运行时/引擎？—— 这决定它落在 crate、CLI 还是纯商标，也决定 §10.1 的「改名范围」要不要收窄。
+- 处理：**先不写进代码与文件名**；等这句定了一起做（`TODO.md §10.1` 的三问仍然有效）。
+
+---
+
+## 十二、CI/CD 自动化：发布与定时部署（2026-11-06 用户点名 · **均未动手**）
+
+> 顺序：**§11.1 命名 → §10.2 迁 GitHub → 本节**。发布工作流里写死的包名/仓库地址，
+> 命名或托管方一改就得重写两遍；所以本节排在最后，不是因为它不重要，而是它最依赖前两项。
+
+### 12.1 发布工作流 `release.yml`（GitHub Actions → 各平台）
+
+- [ ] **tag 触发 + 人工审批的多平台发布**：
+      - 触发：push tag `v*`（或 `workflow_dispatch` 指定版本）；发布 job 挂 `environment: release`，
+        **必须人工批准**才真发（避免误打 tag 直接推到 crates.io）。
+      - **发版前闸门**（任一红即停）：tag == `rust/Cargo.toml` 的 workspace version ==
+        `editors/vscode/package.json` 版本 == 站点下载页版本；`CHANGELOG.md` 有对应条目；
+        `smlb vectors --check`；`cargo test --workspace --exclude smlkit-easy -j 1`；
+        `python tests/conformance/run_conformance.py`；`python rust/osv_check.py`。
+      - **crates.io 按依赖拓扑序**逐条 `cargo publish --locked`：
+        `sml-codes` → `sml-value` → `sml-lex` → `sml-pattern` → `sml-contract` → `sml-feature`
+        → `sml-regex` → `sml-include` → `sml-parse` → `swsml` → `smlb` → `smltools`
+        → `smlkit-easy`（名字随 §11.1 改）。**同版本已存在 ⇒ 跳过，不失败**（幂等）；
+        PR 上先跑 `--dry-run`。
+      - **其它平台先盘点、再写进矩阵**（别凭印象）：VS Code Marketplace（`VSCE_PAT`，
+        `_prepublish.mjs` 必须全绿）· Open VSX（`OVSX_TOKEN`）· npm（若 `site/public/sml.mjs` 要发包）·
+        PyPI（若有 Python 绑定包）· GitHub Release（三平台 CLI 二进制 + `SHA256SUMS` + 签名）。
+      - 密钥全部放 **Environment secrets**（不放仓库级）；第三方 action **按 commit SHA 钉死**；
+        workflow `permissions` 最小化；不用 `pull_request_target`。
+      - **不可撤回**：crates.io 只能 yank、npm 只能 deprecate ⇒ dry-run 通过才允许真发；
+        发错号只能补一个新 patch，**不许删 tag 重发同号**。
+      - 前置：§10.2（迁 GitHub）+ §11.1（`swml` 命名）先定。
+
+### 12.2 定时部署 `deploy.yml`（VPS + Cloudflare）
+
+- [ ] **定时 / 手动触发的一键部署 + 失败回滚**：
+      - **先把「部署什么」写清**（现状只确认了一半）：
+        Cloudflare 现在是 **Pages 项目 `sml-site`**（`site/wrangler.toml`：`wrangler pages deploy`），
+        **不是 Worker**；若要 Worker（边缘 API / 重写路由），需另建 `wrangler deploy` 与其配置。
+        VPS 上跑的到底是什么（站点镜像 / Gitea / 演示服务）——**仓库里没有记录，需你补一句**。
+      - **触发方式（2026-11-06 用户定）**：**Ruby 脚本 + 系统级定时器**（VPS 上的 `systemd timer`
+        或 host cron 调脚本），不要依赖 GitHub Actions 的 `schedule`。
+        理由（两条硬事实）：Actions 定时**不保证准点**（高负载延迟）；仓库 **60 天无活动会被自动停用**
+        （`sync-from-gitee.yml` 已踩过，用 push 兜底唤醒）。Ruby 脚本在部署机上跑，时间可控、也不烧 Actions 分钟。
+      - 脚本职责边界（写死，别把逻辑散进 workflow）：构建 → 部署 Pages → 部署 VPS →
+        健康检查 → 失败回滚 → 输出结构化结果（JSON/日志，含版本与 commit）。
+        **幂等可重跑**；退出码非 0 必须让定时器/告警看见；日志脱敏（不带 token）。
+        Actions 侧只保留 `workflow_dispatch` 手动入口，避免两套逻辑各写一遍。
+      - 流程：构建（Hugo + `smlb vectors --check`）→ Pages（`wrangler pages deploy`）
+        → VPS（`rsync -az --delete` 到版本目录 + 切 symlink，或 `docker compose pull && up -d`）
+        → 健康检查（HTTP 200 + 页面版本号 == tag）→ 失败**回滚上一版** → 通知。
+      - 密钥：`CF_API_TOKEN` / `CF_ACCOUNT_ID` / `VPS_HOST` / `VPS_USER` / `VPS_SSH_KEY` /
+        `VPS_KNOWN_HOSTS`；SSH 用**专用部署用户**，`authorized_keys` 里用 `command=` 限死动作；
+        私钥只进 Environment secrets。
+      - 依赖：`sync-from-gitee.yml` 的同步方向要随 §10.2 一起反转，否则部署可能落旧提交。
+      - 观测：每次部署把「版本 / commit / 结果」写进 GitHub Deployment 或一条 issue 评论，便于回溯。
+      - 顺带（不另开条目）：`docs/unfinished.md §9` 记的「CI 不跑 fuzz/bench」可加一个 **nightly** job，
+        但它是**质量门**不是发布门，别塞进 `release.yml` 卡发版。
+
+---
+
+## 十三、swsml / smlb 深水区：优化 · 漏洞与缺陷 · 存档（2026-11-06 新任务）
+
+> 三件事**按顺序**：先存档（留对照物）→ 再优化/审计（有判据）→ 最后写回文档。
+> 没有 before/after 数字的「优化」不算数；没有复现的「漏洞」只能算待验证。
+
+- [ ] **13.1 存档（先做，不改一行代码）**：
+      - `git tag -a pre-deep-2026-11-06`（只在本地/远端打标签，不动代码、不发版）。
+      - 存四份基线：`cargo bench --bench value`、`cargo bench --bench smlb --features
+        "smlb-compress,smlb-crypto,smlb-mmap"` 的**原始输出**；`cargo test -p smlb --features ...` 结果；
+        `rust/fuzz/corpus/` 打包快照（种子语料也是资产）。
+      - 存放：基线数字进审计报告（`docs/audit-2026-11.md`），代码由 tag 钉住；**不复制整棵源码**。
+      - 判据：从 tag 能重建出与今天一致的数字（同一机器、同一负载）。
+
+- [ ] **13.2 优化（只做能测出收益的）**：
+      - 现有基线（本机 2026-11-06，release）：`Store::get` ≈150 µs（含建 `STRTAB` 表）vs
+        `load+get_path` ≈2.8 ms；`dump(flat@4000)` 31 MB/s；`load` 34 MB/s；
+        `canonical_bytes` ≈1.2 ms / 51 allocs；`to_sml` ≈1.0 ms / 12016 allocs。
+      - 候选（收益/风险从高到低）：① `Store::get` 每次重建 `STRTAB` 表（O(键数)，`DIR` 段落地前最扎眼）；
+        ② `canonical_bytes` 51 次分配（预分配 / 写穿）；③ `to_sml` 每键约 3 次分配；
+        ④ `load` 8173 allocs（节点级分配）。
+      - 验收：同一负载 bench 提升 **≥15%** 且 `eq_ordered` / fuzz 不回归；否则回滚。
+        **禁止为跑分改语义**（键序、错误码、字节布局都不许动）。
+
+- [ ] **13.3 漏洞 / 缺陷检查（按面，不按感觉）**：
+      - 工具面：`cargo clippy --all-targets --all-features -- -D warnings`；`cargo miri test`
+        （CI 已有 miri job，覆盖 `smlb` 的 `unsafe`）；`python rust/osv_check.py`；`cargo audit`（若装）；
+        ASAN 下每个 fuzz target 各跑 **30 分钟**（当前只做短跑）。
+      - 代码面：`unsafe` 全量（`mmap.rs` 映射生命周期最关键）；crypto（nonce / AAD / 块边界，
+        已有「改一字节」「换钥匙」两条否定用例）；层链（已修 3 个伪造 Trailer 问题，继续长跑）；
+        整数溢出（debug 全量 + 定点构造）；解压炸弹（`MAX_DECOMPRESSED` = 256 MiB 是否该降）。
+      - 文档面：源码 `TODO/FIXME/todo!` 复核（当前 0）；错误码 `impls` 与实现一致性
+        （42 条「只有 Rust」是**已知欠账**，不是 bug，别混）。
+      - 产出：每条给「位置 / 复现 / 影响 / 修法 / 回归测试」；无复现的降级为「待验证」并留在清单里。
+
+---
+
+## 十四、文件与文档归档 + 元数据化（2026-11-06 用户定 · **一刀切**）
+
+> 用户要点（2026-11-06 明确，含对我的纠正）：
+> 1. **一刀切，彻底** —— 不许“先出图、再分批、留例外到以后”；否则还是混乱一片；
+> 2. 整理方式 = **复制 → 合并 → 重写**，一次切完，**不留新旧并存**；
+> 3. 文档类**不能直接看原内容**：先看索引/摘要/状态；
+> 4. **元数据与工具都用 SML 自己**（不用 YAML front matter、不用 Python 扫描器）—— 这是 dogfooding：
+>    元数据文件本身就该是 `.sml`，解析器就是 `swsml`，顺手把解析器当工具用；
+> 5. 每份文档要有 **写日期 / 职责 / 状态**，**变更记录单独成文**，做到**可扫描、可报告、可统一修改**。
+> ⚠️ 与 §九 的关系：§九 是「症状 + 做完的定义」，本节是**执行方案**（不另起第三份清单）。
+
+- [ ] **14.1 归档：一次性切换（同一批提交内完成）**：
+      - 切之前做**引用图**（`git grep -n "<basename>"`）—— 但它是**切之前的工具**，不构成“分阶段交付”。
+      - 同一批提交里做完四件事：**新目录建好 → 内容全部复制/合并/重写进去 → 所有引用改到新路径 → 旧位置清空**。
+        旧位置不保留“临时副本”，也不留一半新一半旧（这正是混乱的来源）。
+      - 唯一允许的例外是**被 CI / 构建 / 包入口硬引用**的文件：`editors/vscode/scripts/_prepublish.mjs`、
+        `_verify_*.mjs`、`_gen_seti_theme.py`、`site/_verify_lessons.mjs`、`site/_run_verify.py`、
+        `site/content/**/_index.md`（Hugo 必需）、`site/static/_headers`（CORS）、`__init__.py`（包入口）。
+        它们**不是“以后再归档”**：要么在本次切到新路径并同步改引用，要么在 `docs/meta.sml` 里登记为
+        `status: keep` 的例外 —— **例外必须是显式的、可扫描的**，不是“忘了”。
+      - 目录：`archive/<年份>/<原路径>`，复制保留原相对路径，便于回查；**原内容不删，只是搬走**。
+      - 规模参考：受版本控制 `_*` **18 个**；磁盘上约 **231 个**（含生成目录；可再生成的产物直接删，不进 archive）。
+      - 切完必须同步：`.gitignore` 的 `**/_*` 与 `!` 例外、CI 路径、`site` 构建输入、全部文档链接（断链检查进 CI）。
+
+- [ ] **14.2 文档元数据：用 SML 写，不用 YAML**：
+      - 单一清单 `docs/meta.sml`（**一个文件管全部文档**，便于统一修改与合并冲突收敛）：
+
+        ```sml
+        docs {
+          title: "smlb-smldb-spec.md"
+          date: "2026-11-02"        # 写于
+          updated: "2026-11-06"     # 最后核对（对应 commit 记在 changes.sml）
+          owner: "格式层"            # 职责方（人/组/模块）
+          status: stale             # current | draft | stale | archive | keep
+          scope: ".smlb / smldb 规范"
+          supersedes: null
+          superseded_by: "docs/unfinished.md"
+        }
+        ```
+        （上面是单条示例，真实文件是 `doc { title: ... }` 的数组；键名固定，脚本可校验。）
+      - **变更记录单独成文**：`docs/changes.sml`（记录型：`doc / at / commit / summary`），
+        由它生成人读的 `docs/changes.md`；**正文里不写历史**。
+      - 读者入口 = **生成的索引/报告**（`docs/index.md` / `docs/report.md`），不是原文；
+        过期文档在索引里直接显示 `stale` + 替代者。
+      - 解释口径：**「不能直接看原内容」= 先看索引/摘要/状态**，不让人一头扎进正文；
+        正文仍是可读的 Markdown（不加密、不删）。
+
+- [ ] **14.3 扫描器：`smltools docs`（Rust + `swsml`，不用 Python）**：
+      - 位置：`smltools` 新子命令 `docs`（已有 crate、已依赖 `swsml`，零新二进制）：
+        `smltools docs --check` / `--index` / `--report` / `--fix`。
+      - 读 `docs/meta.sml` + `docs/changes.sml`（用 `swsml` 解析，dogfooding），产出：
+        `docs/index.md`（文件 / 日期 / 职责 / 状态 / 替代者）、`docs/report.md`
+        （缺元数据 / `updated` 超期 / 断链 / `superseded_by` 指向不存在 / 无 owner / 未登记的文档）。
+      - `--check` 进 CI：**未登记**、断链、`status: stale` 但无 `superseded_by` 即红；
+        `--fix` 只做机械补全（补 `updated`、写 `status`），**不猜内容**。
+      - 判据：任意文档 3 秒内查到「写于何时、谁负责、是否过期、替代者是谁」；
+        批量改 = 改 `meta.sml` 一处 + 重跑；**任何文档都不许手写“曾经如此”的历史**。
+
+> 执行顺序：**§13（代码）→ §14（文档/文件，一刀切）**；§14 内部**不分批**，一次切完再进 CI 门禁。
+
