@@ -32,6 +32,7 @@
 | `doc-architecture.md` | plan | 提议 | 文档四层架构 + 单一事实来源 + P1–P4 |
 | `doc-defects.md` | plan | 2026-11-04 快照 | P1 盘点结果（用户可见文档无硬错误，风险在 209 个无 doctest 的 sml 块） |
 | `api-progressive-draft.md` | plan | 已拍板（Q1–Q10 全定；Q4 的「独立 crate」2026-11-06 改判为 `swml::easy` 模块） | 渐进式 API 的分层与裁决记录 |
+| `pending-decisions.md` | record | 4 条待用户裁决（发布 / 授权 / `@feature base` 书名 / VPS） | 每条附「不裁决时的默认路径」 |
 | `iter-parse-plan.md` | **archive** | 已完成并合入 | 迭代式解析改造（`9f7d528`） |
 | `doc-reconcile-2026-10-28.md` | **archive** | 一次性记录 | 文档对账（多数结论已落进代码/文档） |
 | `capability-matrix.md` | ref | 需更新（版本口径待 v5） | 五端能力矩阵 |
