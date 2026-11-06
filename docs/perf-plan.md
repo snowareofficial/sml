@@ -84,9 +84,11 @@ cargo bench --bench profile --features amberice -- --quick
 | **P1** 字段写入接管键所有权 | ✅ `75febff` | parse allocs `small` 101 → 90、`flat@4000` **32,562 → 28,562（正好每键 −1）**、`deep@120` 873 → 753；同机时间 −12%~−15%；峰值不变 |
 | **E2 续**：两趟编码（阶段 2 提前做） | ✅ `8b9cb28` | `canonical_bytes` 峰值 **792.0 → 728.0 KiB（−8%）**、allocs 38 → 28；`deep@120` 12.4 → 11.4 KiB / 20 → 16 |
 | **P2** `Object::with_capacity(4)` | ❌ 不做 | 分析即可判死：`flat@4000` 只有一个对象，`Vec` 仍要长到 4096，预置 4 只省 2 次分配；`deep@120` 有 120 个单键对象，预置 4 会让每块多占 3×64 B，却仍是 1 次分配 ⇒ 纯内存回归 |
-| **P3** 入口单趟 | 未做 | `scan` 是唯一漏斗，改动面大；留给阶段 2 与 P4 一起 |
+| **② 紧凑 interning 表** | ✅ `4b2cadb` | `StrTab` 的 `HashMap<&str,u32>` → 自写开放寻址（槽只存 `u32` 下标，命中回查真串防碰撞）。`canonical_bytes` 峰值 **728.0 → 239.0 KiB（−67%）**、时间 1.64 ms → 0.76 ms（−54%）、allocs 28 → 26；`deep@120` 11.4 → 3.9 KiB。相对最初基线：792.0 → 239.0 KiB（**−70%**）、51 → 26 allocs |
+| **① P3 入口快路径** | ✅ `48a8e55` | `strip_version` / `strip_features` 加保守判据（连 `version` / `feature` 一词都没有 ⇒ 跳过逐行重建）。同机连续两次：`large@directive` **−19.8%**、`deep` −17.4%、`large` −12.9%、`small` 无变化（本就走 `no_directives` 快路径） |
+| **③ P5 借用 token** | ⏸ 待裁决 | 收益最大（tokenize 占 parse 约 27%），但 `Tok::Word(String)` 是公开枚举、68 处使用点；需先拍是否允许 `0.7.0` 破 API |
 
-**峰值为什么只降 8%**：两趟编码干掉的是 `nodes` Vec 的翻倍增长；剩下的 728 KiB 主要来自 `StrTab` 的 `HashMap<&str, u32>`（8000 项 ⇒ 约 16k 桶，键 16 B）与 `table: Vec<&str>` 同驻。要再降得换更紧凑的 interning 表（自写开放寻址 / 只存 u32 索引），单列后续项。
+**峰值为什么能降到 239 KiB**：两趟编码干掉 `nodes` Vec 翻倍，紧凑表再把 `HashMap` 每桶 24 B 压成 4 B 的 `u32` 槽；id 分配顺序（首次出现序）未变 ⇒ `vectors --check` 21 例逐字节一致。
 
 > ⚠️ 本轮早段**时间**列受整机噪声污染（同期未改动的 `perf` 基准 `small parse` 从 8,528 ns 变成 19,517 ns，约 2.3×）；P1 的前后对照是在噪声消退后的**同机连续两次**测的（8,898 → 7,530 ns）。其余时间数字仍建议重跑正式口径再写回 `docs/perf-baseline.md`。
 
