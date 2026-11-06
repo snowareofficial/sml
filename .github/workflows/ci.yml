@@ -92,6 +92,10 @@ jobs:
         run: python3 cpp/build_verify.py
       - name: JS 错误码探针
         run: node js/probe-error-codes.mjs
+      # N03 / T7：`.ambr` 解码器对拍容器向量（21 例）。fixture 由 Rust 侧生成，
+      # 这一步是「四端照文件对齐」的第一个可执行判据。
+      - name: JS .ambr 解码器（容器向量）
+        run: node js/test-ambr-decoder.mjs
       - name: JS 四份副本一致性
         run: python3 tools/check_js_copies.py
       - name: Lua 检查

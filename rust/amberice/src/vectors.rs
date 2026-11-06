@@ -344,7 +344,8 @@ pub fn render_container() -> Result<String, String> {
     out.push_str(
         "  \"note\": \"由 `amberice vectors --gen` 生成，勿手改；`--check` 重新生成并逐行比对。\
 读端拿 ambr_hex 解出值树后，canonical_text 必须逐字符相同；未知段一律跳过（表项自带 len），\
-不需要理解 TYPED / DIR 的语义。\",\n",
+不需要理解 TYPED / DIR 的语义。⚠️ 元数据键（__type / __name / __args / __featags）在**字节侧保持源序**、\
+在 canonical_text 里按 C10 **前置**（§19.5 L5）—— 对拍前两边都按 C10 归一化，否则 typed block / featag 会只差键位。\",\n",
     );
     out.push_str("  \"cases\": [\n");
     for (i, case) in CASES.iter().enumerate() {

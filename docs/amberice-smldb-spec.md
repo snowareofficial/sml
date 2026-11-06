@@ -752,6 +752,9 @@ if word == u32::from_le_bytes(*b"div>") { /* ... */ }
 
 - **默认不暴露数据库特点**：sml 当配置 / 文档用时，新手与绝大多数场景**无需知道底层是 DB**。
   入口极简，把「内存解析」与「持久化」统一进同一套 sml 心智，底层 DB 只是可选加速/落盘层。
+- **半独立于门面（2026-11-06 用户确认）**：`smldb` 只依赖 `amberice`（→ `sml-value`），
+  **不依赖 `swsml` / `sml-parse`** —— 与 D3 同向：DB 层不该把解析器和六个发射后端拖进依赖图。
+  要读 `.sml` 文本时由调用方自己带 `swsml`；只读 `.ambr` 的场景完全不碰语言层。
 - **UX 铁律（贯穿始终）：操作好上手，同时功能强大。** 常用路径像配置文件一样直觉（面向新手），
   进阶路径不设天花板（面向老手）；默认行为简单，能力用显式入口暴露，不牺牲表达力换省事。
 - **提供 sml-style（或 amberice）的 NoSQL**：`.swl`（sml 文本）文档当 NoSQL 文档用 —— 键值 / 文档语义，
@@ -1984,7 +1987,7 @@ $ amberice verify base.ambr --trust fd4f90d0…         # 有人拿未签名件�
 | `amberice compact` | 合并多层（会**重签**，D8 的例外情况；丢弃历史、旧锚点需重建） | T4 | ✅ **已实现** |
 | `smltools --to amberice` / `--from amberice` | 与 SML 文本互转（D27 的 A 路） | T6 | ✅ |
 | `smltools --to amberice --keep-source` | 带 `SOURCE` 段 | T6 | 建议 |
-| JS / C / C++ / Lua 解码器 | 只读 `VALUE` + 透传载荷（D12 五端可读） | T7 / N03 | ❌ **未做**（2026-11-06 核实：四端零实现；判据已备好 —— `tests/vectors/amberice-container.v1.json` 的 `ambr_hex` + `canonical_text`） |
+| JS / C / C++ / Lua 解码器 | 只读 `VALUE` + 透传载荷（D12 五端可读） | T7 / N03 | 🟡 **JS 已通（2026-11-06）**：`js/ambr.mjs` 对拍容器向量 **21/21**（`node js/test-ambr-decoder.mjs`，已进 CI）；C / C++ / Lua 未做 |
 | VSCode 扩展（只读） | 直接打开 `.ambr` 浏览树 / 悬停看段信息 | T7+ | 建议 |
 
 **顺序**：`info`/`ls`/`check` 跟着 T2 长出来；`cat`/`verify`/`sign`/`append` 跟 T3/T4；`vectors` 是 T0 的**前置**（没有向量就不知道 canonical 对不对）。
