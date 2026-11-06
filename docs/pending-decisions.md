@@ -110,6 +110,21 @@ VPS 半边留 `TODO(用户补事实)` 注释，不猜目标。
 > B 组（操作类）多条已过时，例如 `dev` 分支保护已设置。实现者不再按旧清单催办，
 > 以用户实际状态为准；表里对应行改标「待核实」。
 
+### B 组本地核实（2026-11-06，`git remote -v` / `git branch -r`）
+
+- **T30 已基本完成**：远端已有 `github` → `github.com/snowareofficial/sml`（`github/main`、`github/dev` 都在）；
+  `origin` 仍指旧地址且 `HEAD -> origin/dev`。剩「Gitee 降为镜像」的口径问题。
+- **T25 已不存在**：`origin/feat/i9-contract-typo-hint` 不在分支列表里。
+- **T26 半过时**：`origin/master` 已无；**`github/master` 仍在**，需要删的是后者。
+- **T24 待办但对象变了**：`origin` 只剩 `dev`/`main`；`github` 有 6 条 `feat/*` + 2 条 `align/*`，
+  要收的是这批（哪些已合并需逐条看）。
+- **T22 / T23 无法本地验证**（仓库设置），按用户说法 `dev` 保护已设置。
+
+### 通用原则（D3 的教训）
+
+**先判断是「文档缺口」还是「语言缺口」。** 承载位已存在、只是没写进规范 ⇒ 补文档；
+只有「表达不了」才考虑加语法。加语法要付出五端解析 + 码表 + 文档的代价，收益必须能说清。
+
 **白名单：甲（已实现）**——段头 `flags` 位 0 = 「本段声明明文」（`SEG_FLAG_PLAINTEXT`）；
 写侧 `DumpOptions.crypto_plain: Vec<u8>`，读侧要求 `enc == 0` 与声明位一致，不一致即拒读。
 不动 manifest 布局。
