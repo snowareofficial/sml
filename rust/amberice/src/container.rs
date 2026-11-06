@@ -120,6 +120,11 @@ pub const SEG_STRTAB: u8 = 0x02;
 /// `DIR` 段 id（§19.3 的可选路径索引，N05 起可写）。
 pub const SEG_DIR: u8 = 0x03;
 
+/// Segment flag bit 0: **declared plaintext** inside an encrypted file (D5 ruling 甲).
+/// `0b1` = the writer explicitly declares this segment unencrypted; readers verify it.
+/// 段标志位 0：加密文件里**声明本段明文**（D5 裁决甲）。
+pub const SEG_FLAG_PLAINTEXT: u16 = 0b0001;
+
 /// `TYPED` segment id (§25.2) — typed variables (N04).
 /// `TYPED` 段 id（§25.2 的强类型变量，N04）。
 pub const SEG_TYPED: u8 = 0x70;
@@ -681,7 +686,7 @@ impl std::fmt::Display for ContainerError {
             }
             ContainerError::PlaintextSegmentInEncryptedFile { seg_id } => write!(
                 f,
-                "加密文件里段 0x{seg_id:02x} 是明文：只有 MANIFEST 允许不加密（D5 裁决丙）"
+                "加密文件里段 0x{seg_id:02x} 的加密状态与段头 flags 声明不一致（D5 裁决甲）"
             ),
             ContainerError::EncryptedSegmentInPlainFile { seg_id } => write!(
                 f,
@@ -801,6 +806,10 @@ pub struct DumpOptions {
     /// How deep `DIR` indexes object keys (manifest `defaults.dir_depth`, default 4).
     /// `DIR` 索引到第几层对象键（manifest 的 `dir_depth`，默认 4）。
     pub dir_depth: u32,
+    /// Segment ids the writer **declares plaintext** in an encrypted file (D5 ruling 甲).
+    /// Empty by default: encrypt everything except `MANIFEST`.
+    /// ｜ 加密文件里由写者声明「不加密」的段；默认空（除 MANIFEST 外全加密）。
+    pub crypto_plain: Vec<u8>,
 }
 
 impl Default for DumpOptions {
@@ -814,6 +823,7 @@ impl Default for DumpOptions {
             compress: None,
             dir: false,
             dir_depth: crate::manifest::DEFAULT_DIR_DEPTH,
+            crypto_plain: Vec::new(),
         }
     }
 }
@@ -953,7 +963,8 @@ fn dump_sealed(
         let mut out = Vec::with_capacity(sealed.len());
         for (id, comp, body) in sealed {
             match keys {
-                Some(k) if id != SEG_MANIFEST => {
+                // D5（甲）：`crypto_plain` 里的段按写者声明保持明文，其余一律加密。
+                Some(k) if id != SEG_MANIFEST && !opts.crypto_plain.contains(&id) => {
                     let enc = crate::crypto::seal_segment(id, comp, &body, &k.keys)
                         .map_err(ContainerError::Crypto)?;
                     out.push((id, comp, enc, true));
@@ -1535,7 +1546,13 @@ fn write_file(
         out[at] = *seg_id;
         out[at + 1] = *comp;
         out[at + 2] = if *encrypted { crypto::ENC_AES256_GCM } else { 0 };
-        out[at + 3..at + 5].copy_from_slice(&0u16.to_le_bytes()); // 段头 flags（T1 起恒 0）
+        // D5（甲）：加密文件里未加密、又不是 MANIFEST 的段，必须打「声明明文」位。
+        let seg_flags: u16 = if !*encrypted && *seg_id != SEG_MANIFEST && manifest.crypto_enc != 0 {
+            SEG_FLAG_PLAINTEXT
+        } else {
+            0
+        };
+        out[at + 3..at + 5].copy_from_slice(&seg_flags.to_le_bytes());
         out[at + 5..at + 9].copy_from_slice(&len.to_le_bytes());
         let digest = hash::digest(opts.hash, body).map_err(ContainerError::Hash)?;
         out[at + 9..at + 41].copy_from_slice(&digest);
@@ -1946,10 +1963,14 @@ pub(crate) fn open_raw<'a>(bytes: &'a [u8], verify: bool) -> Result<RawParts<'a>
         if seg.header.seg_id == SEG_MANIFEST {
             continue;
         }
-        if file_encrypted && seg.header.enc == 0 {
-            return Err(ContainerError::PlaintextSegmentInEncryptedFile {
-                seg_id: seg.header.seg_id,
-            });
+        if file_encrypted {
+            // D5（甲）：明文段必须在段头 `flags` 位 0 声明；声明与实际必须一致。
+            let declared = seg.header.flags & SEG_FLAG_PLAINTEXT != 0;
+            if (seg.header.enc == 0) != declared {
+                return Err(ContainerError::PlaintextSegmentInEncryptedFile {
+                    seg_id: seg.header.seg_id,
+                });
+            }
         }
         if !file_encrypted && seg.header.enc != 0 {
             return Err(ContainerError::EncryptedSegmentInPlainFile {

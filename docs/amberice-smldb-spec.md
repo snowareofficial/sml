@@ -2228,7 +2228,9 @@ entries = (var_id:varint, type_id:u64le, off:u32le, len:u32le)
 - **加密一致性（D5 裁决丙，2026-11-06）**：加密文件里除 `MANIFEST` 外**每段都必须加密**；
   出现明文段 ⇒ 拒读（`PlaintextSegmentInEncryptedFile`）；明文文件里出现加密段 ⇒ 同样拒读。
   代价：加密文件里的 `DIR`/`TYPED` 是密文，`Store::get` 用不上索引 —— 安全优先于速度。
-  「白名单声明不加密的段」需要一个自描述位（建议段头 `flags` 位 0），**尚未实现**。
+  **白名单（已实现，裁决甲）**：段头 `flags` 位 0 = 「本段声明明文」。加密文件里每段
+  `enc == 0` 当且仅当该位为 1；两者不一致 ⇒ 拒读。写侧 `DumpOptions.crypto_plain: Vec<u8>`。
+  典型用法：把 `DIR` 声明为明文以保住索引（用保密性换速度），或让 `TYPED` 保持可读。
 - 不新增 cap 也意味着**不需要改 `registered_capabilities()`**，不产生「声明了却没人认」的假能力。
 
 ### 25.7 状态

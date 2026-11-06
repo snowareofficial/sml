@@ -90,7 +90,6 @@ VPS 半边留 `TODO(用户补事实)` 注释，不猜目标。
 - 明文文件：出现 `enc != 0` 的段，否则 `EncryptedSegmentInPlainFile`；
 - `DIR` 已并入 seal/加密流水线；加密文件里它是密文，`Store::get` 用不上索引（安全优先于速度）。
 
-**白名单（你问的「声明不加密的段」）—— 能，但还没做**，缺一个自描述声明位：
-- 候选甲：段头 `flags` 位 0 = 「本段声明明文」（逐段自描述，不动 manifest）；
-- 候选乙：manifest 加 `crypto.plain_segs` 列表（集中，但要改 manifest 布局）。
-建议甲。确认后实现，`DumpOptions` 加 `crypto_plain: Vec<u8>`，读端按声明校验。
+**白名单：甲（已实现）**——段头 `flags` 位 0 = 「本段声明明文」（`SEG_FLAG_PLAINTEXT`）；
+写侧 `DumpOptions.crypto_plain: Vec<u8>`，读侧要求 `enc == 0` 与声明位一致，不一致即拒读。
+不动 manifest 布局。
