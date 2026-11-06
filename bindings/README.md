@@ -34,7 +34,30 @@ SML v3 的**宿主语言绑定**，统一经 **C-ABI**（`c/sml_rs.h` 为宪法�
 | Ruby | `ruby/` | `fiddle`（零三方依赖） | ✅ 跑绿 |
 | Java | `java/` | JDK Panama FFM | ✅ 跑绿 |
 | Go | `go/` | `cgo` | ✅ 跑绿 |
-| C# | `csharp/` | `P/Invoke` | ⚠️ 本机无 `dotnet`，未实地验证（逻辑与其余四门严格对齐） |
+| C# | `csharp/` | `P/Invoke` | ✅ 跑绿（11 项；本机以 `net11.0` 代跑，项目仍以 `net8.0` 为目标） |
+
+> C# 注：验证机只装了 11.0 的 targeting pack 且 NuGet 不可达，故用临时 project 按
+> `net11.0` 编译同一批源码；`net8.0` 目标本身未实测（代码只用 .NET 5+ API）。
+
+## `.ambr` 绑定
+
+`.ambr` 不走 `sml_*` 宪法，走独立的 `ambr_*` C ABI（`rust/amberice-ffi`）。
+**读**各端都有；**写**是可选模块——没有 cdylib 时显式报错或跳过，不会退化。
+
+| 端 | 读 | 写 | 写入口 |
+|---|---|---|---|
+| C# | ✅ | ✅ | `Container.PackText`（P/Invoke） |
+| Go | ✅ | ✅ | `PackText`（cgo） |
+| Ruby | ✅ | ✅ | `pack_text`（Fiddle） |
+| Python | ✅ | ✅ | `pack_text`（ctypes） |
+| Java | ✅ | ✅ | `AmbrWrite.packText`（Panama） |
+| Lua | ✅ | ✅ | `pack_text`（LuaJIT FFI；纯 Lua 5.3+ 只能读） |
+| C | ✅ | ✅ | `ambr_write.c`（独立编译单元，链接期选择） |
+| C++ | ✅ | ✅ | `ambr_write.cpp`（同上） |
+| JS | ✅ | ✅ | `js/ambr_write.mjs`（wasm） |
+
+分发策略未裁决：见 `PACKAGING.md`；只报告不发布的自检：
+`python3 tools/check/check_packaging.py`。
 
 ## 已知事实（实现行为，非 bug）
 
