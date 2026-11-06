@@ -21,12 +21,14 @@
 | 仅 Rust 实现（`impls: [ rust ]`） | **47**；语言层 **39**（PARSE 16 / CONTRACT 10 / FEATURE 4 / INCLUDE 3 / EXT 3 / LEX 2 / LIMIT 1）+ DERIVE 8（宿主绑定层，Rust 专属，不是跨端欠账） | `Select-String errors/codes.sml '^\s*impls:\s*\[\s*rust\s*\]'`，按 `domain` 分组 |
 | 一致性套件 | **41 例 / AGREE 34 / DIVERGE 7** | `python tests/conformance/run_conformance.py` |
 | `.vsix` 产物 vs 源码 | 产物最新 **0.4.3**，`package.json` 已是 **0.5.0** | `Get-ChildItem editors/vscode -Filter *.vsix` |
+| 本会话新增（表 1.5，N01–N06） | **6**（全部未做） | 见 `## 表 1.5` |
 
-**三处与旧文档不一致（以本表为准，别照抄旧数字）**
+**四处与旧文档不一致（以本表为准，别照抄旧数字）**
 
 1. `docs/unfinished.md §0` 写「42 条 `impls: [rust]`」——实测 **47 条**（其中语言层 39 条才是四端欠账）。
 2. `TODO.md:812` 写「146 条码」——实测 **166 条**。
 3. `TODO.md:166`「顶层标量未统一」、`TODO.md:149`「一致性套件本轮不做」都是**过期未勾**：前者五端已同报 `E-PARSE-008`，后者套件已建（41 例）。
+4. `IDEAS.md` 的 `I-23` 写 `Todo`、`I-18` 写「零实现」、`TODO.md §10.1` 写 `smlb` 待裁决 —— 均已被 2026-11-06 覆盖：改名 B 档落地（`0f1c7f4`）、性能 A/B 全落（`b5ec96a`…`f6c19b3`）。见 T29 / I-18 / I-23 行。
 
 ---
 
@@ -49,7 +51,7 @@
 | T13 | `@feature base` 只认版本号，文档无法声明书名 | 未做；CLI 按顶层 `title:` 推断（已是事实约定） | P2 | 无 | 一个正式承载位（字段或指令）+ 规范页 + 五端同判据 | `TODO.md:971`、`IDEAS.md:788` | 用户裁决 |
 | T14 | 重打 `.vsix` | 未做：源码 0.5.0，入库产物最新 0.4.3 | P1 | 无 | `sml-lang-0.5.0.vsix` 入库 + 复制到 `site/static/dl/` + 下载页同步 | `TODO.md:1003` | 用户（需网络 + 定版本号） |
 | T15 | weak* 落地后同步扩展 | 未做 | P1 | I-5 / I-15 / I-17 | 语法文件 + 补全 + `package.json` `languages` 齐备，`_prepublish.mjs` 全绿 | `TODO.md:1007` | 实现者 |
-| T16 | 表示层优化（`Tok` 借用 / 键 interning / inline 小 map） | 未做（需设计决策） | P2 | I-18、`docs/value-layout.md` | 同负载 bench ≥15%，`eq_ordered` / fuzz 不回归 | `TODO.md:1042` | 用户（动表示层） |
+| T16 | 表示层优化（`Tok` 借用 / 键 interning / inline 小 map） | 部分完成：**`Tok` 借用已落**（2026-11-06，A 方案 `f6c19b3`：tokenize allocs −99.8%、parse allocs −70%）；键 interning / inline 小 map 未做 | P2 | I-18、`docs/value-layout.md` | 同负载 bench ≥15%，`eq_ordered` / fuzz 不回归 | `TODO.md:1042` | 用户（动表示层） |
 | T17 | 先想清「哪一层能编译掉」 | 未做 | P2 | 无 | 一张逐项表：cargo feature vs SML 特性（`when`/`for`/`contract` 同名）各能否编译掉 | `TODO.md:1047` | 实现者 |
 | T18 | 重定发布节奏 | 未做；原「等 I-18/I-19」前提已不成立 | P0 | T29 / T31 / T35 | 写死发布顺序与门槛（谁先发、什么条件） | `TODO.md:1080` | 用户裁决 |
 | T19 | 发布前占 GitHub org / 域名 / docs 子域 | 未做 | P0 | T30 | 三处已注册可解析，并记进发布清单 | `TODO.md:1086` | 用户 |
@@ -62,7 +64,7 @@
 | T26 | 删 `origin/master` | 未做（实测落后 `main` 223 笔、完全包含） | P2 | 无 | `git push origin --delete master` 成功 | `TODO.md:1281` | 用户 |
 | T27 | 双远端同步口径 | 常驻约束（不可勾） | — | 无 | 无；`--delete` 不同步、工作流不带 `--prune` 是刻意的 | `TODO.md:1324` | 无 |
 | T28 | 全仓文档对齐 + 可重跑机制 | 未做（§九 五条症状，执行方案在 §14） | P0 | T40 / T41 / T42 | §九 的 4 条「做完的定义」全部满足 | `TODO.md:1414` | 实现者 |
-| T29 | 裁决 `amberice` 定位 | 待裁决（三注册表均 404） | P0 | 无 | 一句话定层（格式品牌 / 产品线 / 引擎），并回答「是否取代 smlkit、CLI 是否双名、语言是否仍叫 SML」 | `TODO.md:1440`、`TODO.md:1533` | 用户 |
+| T29 | 裁决 `amberice` 定位 | 已完成(未勾)：2026-11-06 用户裁决 = **`smlb` 改名后的名字**；B 档已落地（`0f1c7f4`：`.ambr` / `AMBR`） | P0 | 无 | 一句话定层（格式品牌 / 产品线 / 引擎），并回答「是否取代 smlkit、CLI 是否双名、语言是否仍叫 SML」 | `TODO.md:1440`、`TODO.md:1533` | 用户 |
 | T30 | 主仓迁 GitHub（Gitee 降镜像） | 待用户动作（前置：Gitee 先拿完） | P0 | T29 | `origin`=GitHub；同步方向反转；CI 绿；Pages/域名/`repository` 就位；发布公告 | `TODO.md:1465` | 用户 |
 | T31 | 门面 `smlkit` → `swml` | 已定、未动手（crate 未建，零迁移） | P1 | T18 / T29 | `swml` 0.1.0 建好（独立仓、`pub use swsml::*`）并按发布纪律发出 | `TODO.md:1488` | 用户（发布动作） |
 | T32 | 防御别名 `swmltool` / `swmltools` | 待做，有硬前提 | P2 | T31 | `smltools` 抽出 `lib`，别名包同版本、README 写明是别名（否则违反 crates.io 反占坑） | `TODO.md:1497` | 实现者（抽 lib）+ 用户（发布） |
@@ -164,6 +166,19 @@
 
 ---
 
+## 表 1.5 · 2026-11-06 会话新增（不在 `TODO.md`，全部未做）
+
+| 编号 | 主题 | 状态 | 优先级 | 依赖 | 完成判据 | 来源 | 卡在谁 |
+|---|---|---|---|---|---|---|---|
+| N01 | 正式口径基准重跑（`--quick` 数字不进基线） | 未做 | P1 | 无 | `cargo bench`（不带 `--quick`）跑 `perf` / `value` / `amberice` 三份，数字写回 `docs/perf-baseline.md` | `docs/perf-plan.md §1.3` | 实现者 |
+| N02 | `deep@120 tokenize` 时间回归跟进（+10.5%） | 未做 | P2 | N01 | 同机对照确认是噪声还是真回归；真回归则修 | `docs/perf-plan.md §1.3` | 实现者 |
+| N03 | T7 五端 `.ambr` 解码器（JS / Lua / C / C++） | 未做 | P1 | I-18 | 四端能读 `AMBR` 头并解出值与段表；跨端向量通过 | 本会话改名后 | 实现者 |
+| N04 | typed 载荷 v1（外置 schema） | 未做 | P2 | T16 | `put_var` / `get_var` + `0x70 TYPED` 段；对照 bench 出体积/时间表 | `docs/amberice-plan.md §7` | 用户（三次决策已定，见 §7.9） |
+| N05 | A5 `DIR` 段（get 的兄弟扫描 O(n) → O(log n)） | 未做 | P2 | N03 | 16k 键中键 get 从 125 µs 降到 ≤30 µs；加格式版本位 | `docs/amberice-plan.md §3.6` | 用户（格式项，与 T7 同批） |
+| N06 | SM3 ISA 后端（ARMv8.2 `FEAT_SM3` / x86 SM3 / RISC-V Zvksh） | 未做 | P2 | 硬件 | 有该 ISA 的机器上出加速比；本机只能验标准向量 | `docs/amberice-plan.md §3.7` | 硬件 |
+
+---
+
 ## 表 2 · IDEAS（23 条）
 
 | 编号 | 名称 | 状态 | 类型 | 依赖 | 下一步 | 来源(file:行) |
@@ -185,12 +200,12 @@
 | I-15 | `weakdata` 扩展数据通道 | Partial（2026-11-04，仅 Rust） | 语言 / 数据通道 | 多端同步 + 扩展 | 与 I-5 先划边界；落地后按 I-13 补「语义 + 例子 + 陷阱」 | `IDEAS.md:629` |
 | I-17 | `weakdoc`：`.smlex` profile 引用 | Partial（库侧已实现，工具侧未做） | 语言 / profile | 工具侧发现规则 | 补三命名空间发现 + `--profile-dir`；把「不注入」写成可测判据 | `IDEAS.md:652` |
 | I-16 | 版本后缀与发布门禁 | 方案已定；门禁未做 | 发布治理 | CI | 做 `--check-version`（当前 `smltools` **无此参数**）拦「没到门槛就 bump」 | `IDEAS.md:677` |
-| I-18 | `.smlb` 二进制 + `smldb` | **文档写 Todo「零实现」= 过期**；实测 T0–T6 已落（`rust/smlb/` 存在） | 格式 / 持久化 | 设计前提：`Value` 还是 HTML 式节点模型 | T7 五端解码器（JS/Lua/C/C++ 均无 `SWSB` 命中）+ `smldb`；先定 FTS / `:has()` / `id` 唯一 / 规模信封 | `IDEAS.md:702`、`docs/unfinished.md:69` |
+| I-18 | `amberice`（原 `.smlb`）二进制 + `smldb` | **文档写 Todo「零实现」= 过期**；T0–T6 已落，且 2026-11-06 改名完成（`smlb` → `amberice`、`.ambr` / `AMBR`） | 格式 / 持久化 | 设计前提：`Value` 还是 HTML 式节点模型 | **T7 五端解码器仍为零**（JS/Lua/C/C++ 无 `AMBR` 命中）+ `smldb`；先定 FTS / `:has()` / `id` 唯一 / 规模信封 | `IDEAS.md:702`、`docs/unfinished.md:69` |
 | I-19 | 品牌门面 `swml`（原 `smlkit`） | 名字已定（2026-11-06）；**crate 仍未建** | 命名 / 发布 | T18 / T29 | 新建 `swml` 0.1.0（独立仓、依赖 crates.io、`publish` 按纪律）；`smlkit-easy` 是否改 `swml-easy` 待裁 | `IDEAS.md:727` |
 | I-20 | 长文档产出链 | Partial（`--toc` + 锚点已落） | 工具 / 长文档 | 无 | 仍缺 `--to epub`、`--split-by section`、增量 emit、emit 源定位 | `IDEAS.md:766` |
 | I-21 | 语义部件目录 | Partial（跨后端漂移三修已落） | 工具 / 语义部件 | 无 | 六类部件：figure / admonition / footnote / deflist / sub·sup / toc 生成 | `IDEAS.md:792` |
 | I-22 | 下游方言六条设计问题 | Todo（**有对外发布禁令**） | 语言设计 / 下游 | 用户明确指示 | 只在内部讨论；六问逐条给「采纳 / 不采纳 / 待定」的说法 | `IDEAS.md:816` |
-| I-23 | 更激进的性能优化 | `Todo` 标签已过期：基准 + 两处 A/B 已落（small −53%），剩表示层 | 性能 | T16 / I-18 | 动表示层（`Tok` 借用 / interning / inline map）前先做 T17 的层级判定 | `IDEAS.md:830` |
+| I-23 | 更激进的性能优化 | **Done（除表示层）**：2026-11-06 完成 A1 表缓存（get −93%）、E1/E2 发射预分配、P1 键所有权、P3 入口快路径、紧凑 interning（峰值 −70%）、Tok 借用化（tokenize allocs −99.8%）；剩 V1 键 interning / A2 arena | 性能 | T16 / I-18 | 动表示层（`Tok` 借用 / interning / inline map）前先做 T17 的层级判定 | `IDEAS.md:830` |
 
 ---
 
