@@ -19,7 +19,9 @@ FILES = ["sml.c", "example.c"]
 # 回归用例：编译并运行（不是只做语法检查）。test_limits.c 盯的是「深嵌套打穿栈」
 # 与「err 为空时的越界写 / 空指针写」—— 这两类问题语法检查一无所知。
 # test_codes.c 盯的是「同一条件报的是哪个码」：码是跨端稳定契约，语法检查同样看不见。
-TESTS = ["test_limits.c", "test_codes.c"]
+TESTS = ["test_limits.c", "test_codes.c", "test_ambr.c"]
+# 有些用例需要额外一个实现文件（`.ambr` 解码器是独立单元）。｜ Extra sources per test.
+EXTRA = {"test_ambr.c": ["ambr.c"]}
 
 
 def run(args):
@@ -63,7 +65,7 @@ def main():
         for f in TESTS:
             exe = f[:-2] + "_check"
             rc, out, err = run([CC, "-std=c99", "-Wall", "-Wextra",
-                                FILES[0], f, "-o", exe])
+                                FILES[0]] + EXTRA.get(f, []) + [f, "-o", exe])
             if rc != 0:
                 ok = False
                 print("[FAIL] compile %s" % f)
