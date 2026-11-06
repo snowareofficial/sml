@@ -60,7 +60,7 @@ pub fn count_allocs<T>(f: impl FnOnce() -> T) -> (T, usize, usize) {
 /// 128 B/B 留足余量；而「平方级拼接」一眼就是几个数量级。
 ///
 /// `allowance` 只给**会解压**的入口：库自己把单段解压封在
-/// [`smlb::MAX_DECOMPRESSED`]（256 MiB），一个文件最多 5 个可压缩段
+/// [`amberice::MAX_DECOMPRESSED`]（256 MiB），一个文件最多 5 个可压缩段
 /// （`VALUE` / `STRTAB` / `EMBED` / `FRAMES` / `MANIFEST`）—— 所以「一次调用」
 /// 合法上限是 5 × 256 MiB。这不是放宽，而是把库声明的上限写进判据：
 /// 真正的 OOM 由 libFuzzer 的 `-rss_limit_mb`（默认 2 GiB）兜底，
@@ -101,14 +101,14 @@ pub fn check_call<T>(
 ///
 /// `info` 失败 ⇒ 文件连段表都读不出来，后续入口更走不到解压 ⇒ 额度 0。
 pub fn decompression_allowance(bytes: &[u8]) -> usize {
-    match smlb::info(bytes) {
+    match amberice::info(bytes) {
         Ok(info)
             if info
                 .segments
                 .iter()
-                .any(|s| s.header.comp != 0 || s.header.enc != 0 || s.header.seg_id == smlb::SEG_FRAMES) =>
+                .any(|s| s.header.comp != 0 || s.header.enc != 0 || s.header.seg_id == amberice::SEG_FRAMES) =>
         {
-            5 * smlb::MAX_DECOMPRESSED
+            5 * amberice::MAX_DECOMPRESSED
         }
         _ => 0,
     }
@@ -127,7 +127,7 @@ pub fn assert_sml_error(e: &sml_codes::SmlError) {
 }
 
 /// 容器层错误分类：`kind()` 必须落在已知集合内（空串 = 分类漏了）。
-pub fn assert_container_error(e: &smlb::ContainerError) {
+pub fn assert_container_error(e: &amberice::ContainerError) {
     const KNOWN: &[&str] = &[
         "too-short",
         "bad-magic",

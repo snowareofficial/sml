@@ -38,6 +38,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "amberice"
+version = "0.6.9-dev.0"
+dependencies = [
+ "aes-gcm",
+ "argon2",
+ "ed25519-dalek",
+ "getrandom 0.3.4",
+ "hkdf",
+ "memmap2",
+ "sha2 0.10.9",
+ "sml-value",
+ "zstd",
+]
+
+[[package]]
 name = "anstream"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -750,21 +765,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "smlb"
-version = "0.6.9-dev.0"
-dependencies = [
- "aes-gcm",
- "argon2",
- "ed25519-dalek",
- "getrandom 0.3.4",
- "hkdf",
- "memmap2",
- "sha2 0.10.9",
- "sml-value",
- "zstd",
-]
-
-[[package]]
 name = "smlkit-easy"
 version = "0.1.0-dev.0"
 dependencies = [
@@ -796,6 +796,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 name = "swsml"
 version = "0.6.9-dev.0"
 dependencies = [
+ "amberice",
  "serde",
  "serde_json",
  "sml-codes",
@@ -806,7 +807,6 @@ dependencies = [
  "sml-parse",
  "sml-pattern",
  "sml-value",
- "smlb",
  "swsml-derive",
  "toml",
 ]

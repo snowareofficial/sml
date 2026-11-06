@@ -54,9 +54,9 @@ clap = { version = "4.5", features = ["derive"] }
 # 对象保序：转发到 swsml（理由见 ../sml-parse/Cargo.toml 的同名注释 ——
 # 本 crate 不吃 sml-value，但它是 swsml 的一个下游，少了这一条同样会分裂出两份）。
 # 库能力在下游 crate，不在本 crate（本 crate 只是 bin）：
-# `.smlb` 信封 = `swsml` 的 `smlb` feature（`sml::envelope`）。
+# `.ambr` 信封 = `swsml` 的 `amberice` feature（`sml::envelope`）。
 preserve_order = ["swsml/preserve_order"]
-# 需要 `.smlb` 信封时同时打开（转发到 swsml 的同名 feature）。
-smlb = ["swsml/smlb"]
-# `--to-smlb --smlb-compress N` 需要它（再把 zstd 拉进来）。
-smlb-compress = ["smlb", "swsml/smlb-compress"]
+# 需要 `.ambr` 信封时同时打开（转发到 swsml 的同名 feature）。
+amberice = ["swsml/amberice"]
+# `--to-amberice --amberice-compress N` 需要它（再把 zstd 拉进来）。
+amberice-compress = ["amberice", "swsml/amberice-compress"]

@@ -553,7 +553,7 @@ diagnostics: [
 # 11. 生态（不是文法，但同属「成果」，一并记录）
 # -----------------------------------------------------------------------------
 ecosystem {
-    crates: [ sml-lex sml-parse sml-value sml-contract sml-include sml-feature sml-pattern sml-regex smlb smltools smlkit-easy swsml ]
+    crates: [ sml-lex sml-parse sml-value sml-contract sml-include sml-feature sml-pattern sml-regex amberice smltools smlkit-easy swsml ]
     editors: [
         { name: vscode extent: "高亮 诊断 补全 格式化 跳转 悬浮 自检 颜色标记" }
         { name: lsp    extent: "诊断 补全 跳转 悬浮" }
@@ -562,7 +562,7 @@ ecosystem {
     tooling: [
         "smltools：to json / yaml / toml / tmlanguage / format / check 等子命令"
         "serde 可选 feature：Value 手写 Serialize/Deserialize，保持数据形状自然"
-        "smlb / smldb：二进制布局与数据库（规范已成文，实现为零）"
+        "amberice / smldb：二进制布局与数据库（规范已成文，实现为零）"
     ]
 }
 

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! Acceptance tests for canonical (`.smlb` T0) — rules in `docs/smlb-smldb-spec.md` §18 / §19.
-//! canonical（`.smlb` 的 T0）验收用例。
+//! Acceptance tests for canonical (`.ambr` T0) — rules in `docs/amberice-smldb-spec.md` §18 / §19.
+//! canonical（`.ambr` 的 T0）验收用例。
 //!
 //! **Both profiles run this file, and both are green** / **两种档位都跑，两边都绿**:
 //!
@@ -16,9 +16,9 @@
 //! 为什么「报错」那一档必须留在默认构建里：默认构建是所有人（和 CI）实际跑的那份；若该判断
 //! 只在开了 feature 时才存在，「忘了开特性」就会静默变成一次排序。
 //!
-//! The **expected bytes** do not live here but in `tests/vectors/smlb-canonical.v1.json`
-//! (guarded by `smlb vectors --check`) — that is the contract JS/Lua/C/C++ align to.
-//! 跨端字节的**期望值**不在本文件，而在 `tests/vectors/smlb-canonical.v1.json`。
+//! The **expected bytes** do not live here but in `tests/vectors/amberice-canonical.v1.json`
+//! (guarded by `amberice vectors --check`) — that is the contract JS/Lua/C/C++ align to.
+//! 跨端字节的**期望值**不在本文件，而在 `tests/vectors/amberice-canonical.v1.json`。
 
 use sml::{parse, CanonicalError, Value};
 
@@ -104,7 +104,7 @@ mod ordered {
     /// C5/C12: `raw` (the spelling seen by the parser) **never enters** canonical.
     /// C5/C12：`raw`（解析期的书写痕迹）**不进** canonical。
     ///
-    /// 若让它进：`x: 1e10` 从文本读入与从 `.smlb` 读入会得到两串不同文本，
+    /// 若让它进：`x: 1e10` 从文本读入与从 `.ambr` 读入会得到两串不同文本，
     /// 「同一逻辑数据同字节」当场不成立 —— 签名也就跟着分裂。
     #[test]
     fn c5_raw_literal_does_not_leak_into_canonical() {

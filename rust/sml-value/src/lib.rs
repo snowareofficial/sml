@@ -39,7 +39,7 @@ pub mod path;
 /// Canonical form (text + bytes): `Value::canonical_text` / `Value::canonical_bytes`.
 /// canonical 形态（文本 + 字节）。
 ///
-/// Rules: `docs/smlb-smldb-spec.md` §18 (C1–C13) and §19 (`VALUE` segment layout).
+/// Rules: `docs/amberice-smldb-spec.md` §18 (C1–C13) and §19 (`VALUE` segment layout).
 /// **Not feature-gated**: it inspects the object's explicit ordering (`Map::ordering()`),
 /// not a compiler flag. An unordered object gets [`CanonicalError::KeyOrderUnavailable`]
 /// with a message that points at `Map::ordered()` / `parse_ordered()`.

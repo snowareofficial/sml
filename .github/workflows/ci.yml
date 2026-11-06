@@ -44,13 +44,13 @@ jobs:
       # 任何新增「无 cfg 却引用 emit」的代码都会让这一步红。
       - name: 零 feature 档必须能编译（零依赖承诺）
         run: cargo check -p swsml --no-default-features
-      # 跨端 canonical 向量（.smlb T0）：**必须单列** —— `smlb` 的 preserve_order 是 opt-in，
+      # 跨端 canonical 向量（.ambr T0）：**必须单列** —— `amberice` 的 preserve_order 是 opt-in，
       # 上面那条 `--workspace` 跑的是默认档，只验证「没有源序时明确报错」（C2），
       # 而向量文件与代码是否一致（C12 的字节契约）只有带 feature 才验得到。
       # 不把它并进 `--workspace --features ...`：特性按构建图取并集，那会把整个 workspace 的
       # sml-value 一起切到保序档，等于顺手改掉 swsml / smltools 上百条「默认档 = 字节序」的 golden。
-      - name: .smlb 全部（保序 + 签名）
-        run: cargo test -p smlb --features preserve_order,sign,compress
+      - name: .ambr 全部（保序 + 签名）
+        run: cargo test -p amberice --features preserve_order,sign,compress
 
   # serde 套件不在 --workspace 里（tests/serde_bridge.rs 是 cfg(feature = "serde")），必须单列
   rust-serde:

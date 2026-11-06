@@ -2,7 +2,7 @@
 //! L3 值层模糊：canonical 字节 + `STRTAB` 表 + 子块导航（零拷贝）。
 //!
 //! 为什么单独 fuzz 而不是只靠 L2（HANDOFF §4.2）：一个畸形 canonical 字节从
-//! `smlb::load` 进去要穿过容器层才暴露，从 `Value::from_canonical_bytes` 直接进去
+//! `amberice::load` 进去要穿过容器层才暴露，从 `Value::from_canonical_bytes` 直接进去
 //! 一眼就能定位。
 //!
 //! 断言（HANDOFF §4.5）：

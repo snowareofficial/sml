@@ -42,7 +42,7 @@ use clap::Parser;
 use sml::{Edition, Map, parse, Feature, FeatureSet, Value};
 // ⚠️ `E_INCLUDE_001/004/012` **不再由本 crate 抛出**：include 展开已统一交给库的
 // `sml::parse_file`（原先那份 CLI 自有的行级预处理已删除），这些码由 `sml-include` 带出。
-// `E_CLI_007` 只在 `--to-smlb`（feature `smlb`）分支用到；默认档允许它未使用。
+// `E_CLI_007` 只在 `--to-amberice`（feature `amberice`）分支用到；默认档允许它未使用。
 #[allow(unused_imports)]
 use sml_codes::{
     SmlError, E_CLI_001, E_CLI_002, E_CLI_003, E_CLI_004, E_CLI_005, E_CLI_006, E_CLI_007,
@@ -378,22 +378,22 @@ struct Cli {
     #[arg(long = "no-profiles")]
     no_profiles: bool,
 
-    /// 从 `.smlb` 信封读入（二进制），再按 `--to` 输出
+    /// 从 `.ambr` 信封读入（二进制），再按 `--to` 输出
     ///
-    /// 信封里的主载荷必须是 `Value`（即由 SML 文本写成的）；字节载荷（`--to-smlb` 之外的
+    /// 信封里的主载荷必须是 `Value`（即由 SML 文本写成的）；字节载荷（`--to-amberice` 之外的
     /// 归档类文件）会明确报错，而不是当成空文档。
-    #[arg(long = "from-smlb")]
-    from_smlb: bool,
+    #[arg(long = "from-amberice")]
+    from_amberice: bool,
 
-    /// 把结果写成 `.smlb` 信封（二进制），忽略 `--to`
+    /// 把结果写成 `.ambr` 信封（二进制），忽略 `--to`
     ///
     /// 与 `--hugo` / `--zola` / `--lint` 互斥（它们是纯文本产物）。
-    #[arg(long = "to-smlb")]
-    to_smlb: bool,
+    #[arg(long = "to-amberice")]
+    to_amberice: bool,
 
-    /// `--to-smlb` 用的 zstd 级别（需构建带 `compress` feature；缺省不压）
-    #[arg(long = "smlb-compress", value_name = "N")]
-    smlb_compress: Option<i32>,
+    /// `--to-amberice` 用的 zstd 级别（需构建带 `compress` feature；缺省不压）
+    #[arg(long = "amberice-compress", value_name = "N")]
+    amberice_compress: Option<i32>,
 }
 
 /// 按输入格式把文本转成 `Value`。
@@ -402,11 +402,11 @@ struct Cli {
 /// **迁入**格式，直接解析成数据，不参与 SML 的版本与特性机制。
 fn load_input(text: &str, args: &Args) -> Result<Value, SmlError> {
     match args.input_format {
-        // ⚠️ `--from-smlb` 时传 `&None`：`text` 已经从信封解出来了，若把路径传下去，
+        // ⚠️ `--from-amberice` 时传 `&None`：`text` 已经从信封解出来了，若把路径传下去，
         // `parse_with` 会**按路径重读文件**（拿二进制当 UTF-8 读，报 "stream did not
         // contain valid UTF-8"），而且 include 在写信封时就已展开完，没有基准目录可解析。
         InputFormat::Sml => {
-            let path = if args.from_smlb { &None } else { &args.input };
+            let path = if args.from_amberice { &None } else { &args.input };
             parse_with(text, path, args.feature)
         }
         // 复用 crate 内既有实现（与 C-ABI 同款：零依赖、带深度限制与 UTF-8 修正）
@@ -524,14 +524,14 @@ struct Args {
     resolve_profiles: bool,
     profile_dir: Option<PathBuf>,
     no_profiles: bool,
-    /// 从 `.smlb` 信封读入（二进制） ｜ read the input as a `.smlb` envelope
-    from_smlb: bool,
-    /// 写成 `.smlb` 信封（二进制） ｜ write the result as a `.smlb` envelope
-    to_smlb: bool,
-    /// `--to-smlb` 的 zstd 级别 ｜ zstd level for `--to-smlb`
-    /// 只在 `smlb` feature 下有人读，默认档允许它「未使用」。
-    #[cfg_attr(not(feature = "smlb"), allow(dead_code))]
-    smlb_compress: Option<i32>,
+    /// 从 `.ambr` 信封读入（二进制） ｜ read the input as a `.ambr` envelope
+    from_amberice: bool,
+    /// 写成 `.ambr` 信封（二进制） ｜ write the result as a `.ambr` envelope
+    to_amberice: bool,
+    /// `--to-amberice` 的 zstd 级别 ｜ zstd level for `--to-amberice`
+    /// 只在 `amberice` feature 下有人读，默认档允许它「未使用」。
+    #[cfg_attr(not(feature = "amberice"), allow(dead_code))]
+    amberice_compress: Option<i32>,
 }
 
 /// `--feature` 的取值解析：与语言层**同一套字面量**（`10` / `1.0` / `v1` / `50` / `camelia`）。
@@ -585,9 +585,9 @@ fn parse_args(cli: Cli) -> Result<Args, SmlError> {
         resolve_profiles: cli.resolve_profiles,
         profile_dir: cli.profile_dir,
         no_profiles: cli.no_profiles,
-        from_smlb: cli.from_smlb,
-        to_smlb: cli.to_smlb,
-        smlb_compress: cli.smlb_compress,
+        from_amberice: cli.from_amberice,
+        to_amberice: cli.to_amberice,
+        amberice_compress: cli.amberice_compress,
     })
 }
 
@@ -1265,13 +1265,13 @@ fn builtins_json(contracts: &std::collections::BTreeMap<String, sml::Contract>) 
     out
 }
 
-/// 读一个 `.smlb` 信封，把它的 `VALUE` 载荷还原成 SML 文本。
-/// Read a `.smlb` envelope and render its `VALUE` payload back to SML text.
+/// 读一个 `.ambr` 信封，把它的 `VALUE` 载荷还原成 SML 文本。
+/// Read a `.ambr` envelope and render its `VALUE` payload back to SML text.
 ///
 /// 字节信封（`EMBED` 主内容）会**明确报错**，而不是假装成空文档 —— 那是「拿错文件」与
 /// 「文件是空的」两件事，混一起会让人查很久。
-#[cfg(feature = "smlb")]
-fn read_smlb_input(input: &Option<PathBuf>) -> Result<String, SmlError> {
+#[cfg(feature = "amberice")]
+fn read_amberice_input(input: &Option<PathBuf>) -> Result<String, SmlError> {
     use std::io::Read as _;
     let bytes = match input {
         Some(p) => std::fs::read(p).map_err(|e| {
@@ -1286,23 +1286,23 @@ fn read_smlb_input(input: &Option<PathBuf>) -> Result<String, SmlError> {
             buf
         }
     };
-    sml::smlb_to_sml(&bytes).map_err(|e| {
-        SmlError::from_code_msg(E_IO_001).with_detail(format!("不是可读的 .smlb：{e}"))
+    sml::amberice_to_sml(&bytes).map_err(|e| {
+        SmlError::from_code_msg(E_IO_001).with_detail(format!("不是可读的 .ambr：{e}"))
     })
 }
 
-/// 没开 `smlb` feature 时的同名入口：明确说「本构建不支持」，而不是编译不过。
-/// Without the `smlb` feature the option still parses — it just refuses, with a reason.
-#[cfg(not(feature = "smlb"))]
-fn read_smlb_input(_input: &Option<PathBuf>) -> Result<String, SmlError> {
+/// 没开 `amberice` feature 时的同名入口：明确说「本构建不支持」，而不是编译不过。
+/// Without the `amberice` feature the option still parses — it just refuses, with a reason.
+#[cfg(not(feature = "amberice"))]
+fn read_amberice_input(_input: &Option<PathBuf>) -> Result<String, SmlError> {
     Err(SmlError::from_code_msg(E_CLI_003)
-        .with_detail("本构建未启用 `smlb` feature，读不了 `.smlb` 信封"))
+        .with_detail("本构建未启用 `amberice` feature，读不了 `.ambr` 信封"))
 }
 
-/// 把值写成 `.smlb` 信封（`--to-smlb`）。
-/// Write the value as a `.smlb` envelope.
-#[cfg(feature = "smlb")]
-fn write_smlb_output(value: &sml::Value, args: &Args, text: &str) -> ExitCode {
+/// 把值写成 `.ambr` 信封（`--to-amberice`）。
+/// Write the value as a `.ambr` envelope.
+#[cfg(feature = "amberice")]
+fn write_amberice_output(value: &sml::Value, args: &Args, text: &str) -> ExitCode {
     // 键序是数据的一部分：SML 输入重新按源序解析（BTreeMap 会丢源序）；
     // 其它格式没有源序概念 ⇒ 显式 `into_ordered()` 承认「就用当前顺序」。
     // 两者都不靠编译开关，调用方一眼看得见自己在选什么。
@@ -1317,7 +1317,7 @@ fn write_smlb_output(value: &sml::Value, args: &Args, text: &str) -> ExitCode {
     } else {
         value.clone().into_ordered()
     };
-    let bytes = match sml::value_to_smlb(&ordered, args.smlb_compress) {
+    let bytes = match sml::value_to_amberice(&ordered, args.amberice_compress) {
         Ok(b) => b,
         Err(e) => {
             // E-CLI-007：输出后端报错。
@@ -1345,11 +1345,11 @@ fn write_smlb_output(value: &sml::Value, args: &Args, text: &str) -> ExitCode {
     }
 }
 
-/// 没开 `smlb` feature 时的 `--to-smlb`：明确拒绝。
-#[cfg(not(feature = "smlb"))]
-fn write_smlb_output(_value: &sml::Value, _args: &Args, _text: &str) -> ExitCode {
+/// 没开 `amberice` feature 时的 `--to-amberice`：明确拒绝。
+#[cfg(not(feature = "amberice"))]
+fn write_amberice_output(_value: &sml::Value, _args: &Args, _text: &str) -> ExitCode {
     eprintln!(
-        "smltools: 本构建未启用 `smlb` feature，写不了 `.smlb` 信封（用 `--features smlb` 重新构建）[{}]",
+        "smltools: 本构建未启用 `amberice` feature，写不了 `.ambr` 信封（用 `--features amberice` 重新构建）[{}]",
         E_CLI_003
     );
     ExitCode::from(2)
@@ -1645,25 +1645,25 @@ fn real_main() -> ExitCode {
     }
 
     // 组合校验：信封是二进制，与「纯文本产物 / 纯文本检查」互斥（E-CLI-003）。
-    if args.to_smlb && (args.hugo.is_some() || args.zola.is_some() || args.lint) {
+    if args.to_amberice && (args.hugo.is_some() || args.zola.is_some() || args.lint) {
         eprintln!(
-            "smltools: --to-smlb 与 --hugo / --zola / --lint 互斥（后三者产出纯文本）[{}]",
+            "smltools: --to-amberice 与 --hugo / --zola / --lint 互斥（后三者产出纯文本）[{}]",
             E_CLI_003
         );
         return ExitCode::from(2);
     }
-    if args.from_smlb && args.input_format != InputFormat::Sml {
+    if args.from_amberice && args.input_format != InputFormat::Sml {
         eprintln!(
-            "smltools: --from-smlb 时不能再指定 --from {}（信封自带格式）[{}]",
+            "smltools: --from-amberice 时不能再指定 --from {}（信封自带格式）[{}]",
             args.input_format.name(),
             E_CLI_003
         );
         return ExitCode::from(2);
     }
 
-    // `--from-smlb`：先解信封，再当 SML 文本往下走（后面的管线完全不变）
-    let text = if args.from_smlb {
-        match read_smlb_input(&args.input) {
+    // `--from-amberice`：先解信封，再当 SML 文本往下走（后面的管线完全不变）
+    let text = if args.from_amberice {
+        match read_amberice_input(&args.input) {
             Ok(t) => t,
             Err(e) => {
                 eprintln!("smltools: {e}");
@@ -1793,9 +1793,9 @@ fn real_main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    // `--to-smlb`：直接写二进制信封。**不走 emit** —— 那条管线是「文本进、文本出」。
-    if args.to_smlb {
-        return write_smlb_output(&value, &args, &text);
+    // `--to-amberice`：直接写二进制信封。**不走 emit** —— 那条管线是「文本进、文本出」。
+    if args.to_amberice {
+        return write_amberice_output(&value, &args, &text);
     }
 
     let rendered = match emit(&value, args.format, &args) {

@@ -118,7 +118,7 @@ pub mod emit;
 pub use sml_value::{
     describe_value, CanonicalValue, Map, OrderedMap, Value, MAX_VALUE_DEPTH,
 };
-/// Why canonical failed (`.smlb` T0, `docs/smlb-smldb-spec.md` §18).
+/// Why canonical failed (`.ambr` T0, `docs/amberice-smldb-spec.md` §18).
 /// canonical 的失败原因。
 ///
 /// Without `preserve_order`, `Value::canonical_text` / `canonical_bytes` always return
@@ -128,16 +128,16 @@ pub use sml_value::CanonicalError;
 /// 路径语法（S1a）：读用 `Value::get_path`，写落点（S6）共用同一份 `Path`。
 pub use sml_value::path::{Path, PathError, Seg};
 
-/// `.smlb` 通用二进制信封（`wrap` / `unwrap` / `sml_to_smlb` / `smlb_to_sml`）。
-/// `.smlb` as a general-purpose envelope — only with the `smlb` feature.
+/// `.ambr` 通用二进制信封（`wrap` / `unwrap` / `sml_to_amberice` / `amberice_to_sml`）。
+/// `.ambr` as a general-purpose envelope — only with the `amberice` feature.
 ///
-/// 关掉 feature 时这个模块**根本不存在**（不是空壳）：依赖树里也不会有 `smlb`。
-/// Off means absent, not empty — `smlb` is not even in the dependency graph.
-#[cfg(feature = "smlb")]
+/// 关掉 feature 时这个模块**根本不存在**（不是空壳）：依赖树里也不会有 `amberice`。
+/// Off means absent, not empty — `amberice` is not even in the dependency graph.
+#[cfg(feature = "amberice")]
 pub mod envelope;
-#[cfg(feature = "smlb")]
+#[cfg(feature = "amberice")]
 pub use envelope::{
-    list, sml_to_smlb, smlb_to_sml, unwrap, value_to_smlb, wrap, EnvelopeError, Payload,
+    list, sml_to_amberice, amberice_to_sml, unwrap, value_to_amberice, wrap, EnvelopeError, Payload,
 };
 /// 统一错误类型（`code()` 是跨端稳定契约）。
 ///

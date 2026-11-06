@@ -3,7 +3,7 @@
 //! 「文本原子」规则：引号/转义判定与浮点写法。
 //!
 //! Why a separate module / 为什么单独一个模块：three consumers now — `dump` (`to_sml`),
-//! `ser_text` (serde direct emit) and `canonical` (the `.smlb` canonical text).
+//! `ser_text` (serde direct emit) and `canonical` (the `.ambr` canonical text).
 //! While these lived in `dump` the third one could not reach them (`dump` is gated behind
 //! the `sml` feature, `canonical` is not), so the only options were “copy it” — exactly the
 //! drift trap called out in `ser_text.rs`. Moved here: **one copy of the rules**.
@@ -104,7 +104,7 @@ pub(crate) fn quote_if_needed(s: &str) -> String {
 ///
 /// ⚠️ **canonical never reads `raw`** (`spec §18 C5/C12`) / **canonical 不走 raw**：
 /// raw 是解析期的书写痕迹、不参与相等比较，若让它进 canonical，「同一逻辑数据同字节」
-/// 就不成立（同一份数据从文本读入与从 `.smlb` 读入会得到两串不同字节）。
+/// 就不成立（同一份数据从文本读入与从 `.ambr` 读入会得到两串不同字节）。
 /// canonical 一律 `raw = None` 调用本函数。
 pub(crate) fn format_float(f: f64, raw: Option<&str>) -> String {
     if let Some(r) = raw {

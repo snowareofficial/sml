@@ -10,7 +10,7 @@
 | 资产 | 规模 | 问题 |
 |---|---|---|
 | 站点教科书 `site/content/{zh,en}/book/` | 各 **17 篇**（`intro` + `ch01`–`ch14` + `appendix` + `_index`） | 两语**并行手写** ⇒ 同一句话要改两处，漂移必然 |
-| `docs/` | **13 份** md | **三类混放**：规范草案（featag / version / null / v5）、审计记录（doc-reconcile / capability-matrix）、计划（iter-parse / api-progressive / perf-baseline / value-layout / smlb-spec）—— **没有权威标记**，读者不知道哪份说了算 |
+| `docs/` | **13 份** md | **三类混放**：规范草案（featag / version / null / v5）、审计记录（doc-reconcile / capability-matrix）、计划（iter-parse / api-progressive / perf-baseline / value-layout / amberice-spec）—— **没有权威标记**，读者不知道哪份说了算 |
 | 根目录 | `README.md` / `README.en.md` / `llms.txt` / `CHANGELOG.md` / `CHANGELOG.en.md` | 版本口径、错误码条数、能力矩阵在多处**手写**（历史上同时存在 141/144/143/139 四个数字） |
 | 教科书代码块 | 大量 | **不可执行、无 doctest 保护** ⇒ 语法变了照样「绿」 |
 
@@ -56,7 +56,7 @@
 | `docs/feature-namespace-plan.md` | 拆：规范部分 → `docs/spec/features.md`；计划部分留 plan |
 | `docs/capability-matrix.md` | → 参考层（半生成） |
 | `docs/doc-reconcile-2026-10-28.md`、`docs/iter-parse-plan.md` | → `docs/archive/`（已完成/一次性记录） |
-| `docs/api-progressive-draft.md`、`value-layout.md`、`smlb-smldb-spec.md` | 留 `docs/plan/`（未定稿方案） |
+| `docs/api-progressive-draft.md`、`value-layout.md`、`amberice-smldb-spec.md` | 留 `docs/plan/`（未定稿方案） |
 | 教科书 ch01–ch14 | 内容保留；**示例抽到共用片段**；新增「featag / 版本 / 标识符」三节（随代码切片交付） |
 
 ## 5. 迁移阶段

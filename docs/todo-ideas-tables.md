@@ -41,7 +41,7 @@
 | T05 | C `sml_dump` 与 Rust `to_sml` 逐字节对齐 | 部分完成：行数一致 19/19、总行差 0；剩「引号策略」「键序」两类未改 | P2 | 无 | `python tools/check_dump_parity.py` 逐字节一致，或两类取舍写进规范并登记 | `TODO.md:204`、`TODO.md:1180` | 用户（两类是数据保真级取舍） |
 | T06 | Lua 补契约数组 `[契约名]` | 未做（用户已定「先不动 Lua」） | P2 | 无 | `41_contract_array` 五端 AGREE | `TODO.md:318` | 用户 |
 | T07 | 清理 DeepSeek 开发痕迹 | 未做（发布前） | P0 | 无 | 代码/文档/历史关键词 grep 归零，或产出「无法抹除」清单 | `TODO.md:802` | 用户（敏感部分自行处理） |
-| T08 | 国际化：README / crate 文档 / CLI 帮助中英双语 | 未做；`smlb` 已双语，其余 crate 与 CLI 待核对 | P1 | 无 | 逐 crate 清单勾完；缺英文时回退中文且不静默 | `TODO.md:804` | 实现者 |
+| T08 | 国际化：README / crate 文档 / CLI 帮助中英双语（范围：`swml` / `swsml` / `sml-*`，**`smltools` 不算**；`amberice` / `smlkit-easy` 待问） | 未做；`smlb` 已双语，其余 crate 与 CLI 待核对 | P1 | T28 / T40 / T41 / T42（与文档治理同批） | 逐 crate 清单勾完；缺英文时回退中文且不静默 | `TODO.md:804`、`docs/amberice-plan.md:2.1` | 实现者；**对外措辞动前问用户** |
 | T09 | 双授权（MIT 或 Apache-2.0 + MulanPSL-2.0） | 未做；`swsml` / `smlb` 现仅 MulanPSL-2.0 | P0 | 无 | 两 crate 的 `license` 字段、LICENSE 文件、README 三处一致 | `TODO.md:806` | 用户（授权口径） |
 | T10 | 各 crate `repository` 补 GitHub 地址 | 未做；现只有 `gitee.com/snoware/sml` | P1 | T30 | 每个 `Cargo.toml` 指 GitHub，README 链接 GitHub 在前 | `TODO.md:808` | 用户（等迁 GitHub） |
 | T11 | Lua 嵌套数组 | 未做（用户已定「先不动 Lua」） | P2 | 无 | `05`/`06`/`07` 五端 AGREE | `TODO.md:967` | 用户 |

@@ -39,7 +39,7 @@
 //! | 契约**内容**（定义、类型校验实现、`contract_map` / `errors` 专家字段） | [`sml`]（`parse_with` / `ParseOutput`） |
 //! | 逐后端输出的**旋钮**（`math` / `standalone` / 自定义模板…） | [`sml::emit`] 的 Options |
 //! | 特性开关、版本范围限制 | [`sml`] 的 `parse_with_features` / `parse_allowed` |
-//! | 二进制持久化、查询 | 待 I-18（`.smlb` / `smldb`）落地 |
+//! | 二进制持久化、查询 | 待 I-18（`.ambr` / `smldb`）落地 |
 //!
 //! 本层给的三个「进阶」能力，每个都只有一个概念：
 //!

@@ -249,7 +249,7 @@ pub mod out {
 ## 7. 拍板记录（2026-11-03，用户已定）
 
 > 用户原话：「我想把渐进式按需学习、使用的心智模型放到一个**不撞名**的 crate，文档独立且使用
-> swsml 能力。之后 smlb、db 等做好后一起发布。稳定化、优化完 0.7.0 就会有大量好用功能。」
+> swsml 能力。之后 amberice、db 等做好后一起发布。稳定化、优化完 0.7.0 就会有大量好用功能。」
 
 **10 条全部落定**（Q5 早前已落地）：
 
@@ -265,7 +265,7 @@ pub mod out {
 | Q9 写回文本 | 不要；给一个 `to_sml()` 方法就够 | ✅ 已实现 |
 | Q10 `preserve_order` | 不进 L0 推荐 | ✅ 文档已按此写 |
 
-**发布节奏（用户定的）**：不单独发 —— 等 `.smlb` / `smldb`（I-18）与 `smlkit`（I-19）一起发；
+**发布节奏（用户定的）**：不单独发 —— 等 `.ambr` / `smldb`（I-18）与 `smlkit`（I-19）一起发；
 「稳定化 + 优化」完成后 **0.7.0 一次性给出成批好用能力**。故 `Cargo.toml` 里 `publish = false`。
 
 **与 I-19 `smlkit` 的分工**（别混）：
@@ -277,7 +277,7 @@ pub mod out {
 ## 附：API 硬规则（**全仓库适用**，含未开工的 `smlkit`）
 
 > 用户 2026-11-05 定：**所有 API 都照这三条走**，`smlkit` 还没开工也先把约束立在这里，
-> 免得它长出自己的另一套习惯。已落地的样板是 `.smlb` 的加密接口（§19.13.1）。
+> 免得它长出自己的另一套习惯。已落地的样板是 `.ambr` 的加密接口（§19.13.1）。
 
 ### 规则 1 · 一个 enum 管一组选项
 
@@ -316,7 +316,7 @@ pub enum OpenKey<'a> { … }
 ### 规则 3 · API 树扁平：一个树，每层节点少一些
 
 ```text
-smlb
+amberice
 ├─ dump / dump_with / dump_encrypted
 ├─ load / load_encrypted
 ├─ get  / get_encrypted
@@ -348,7 +348,7 @@ smlb
 ## 附：API 硬规则（**全仓库适用**，含未开工的 `smlkit`）
 
 > 用户 2026-11-05 定：**所有 API 都照这三条走**，`smlkit` 还没开工也先把约束立在这里，
-> 免得它长出自己的另一套习惯。已落地的样板是 `.smlb` 的加密接口（§19.13.1）。
+> 免得它长出自己的另一套习惯。已落地的样板是 `.ambr` 的加密接口（§19.13.1）。
 
 ### 规则 1 · 一个 enum 管一组选项
 
@@ -387,7 +387,7 @@ pub enum OpenKey<'a> { … }
 ### 规则 3 · API 树扁平：一个树，每层节点少一些
 
 ```text
-smlb
+amberice
 ├─ dump / dump_with / dump_encrypted
 ├─ load / load_encrypted
 ├─ get  / get_encrypted

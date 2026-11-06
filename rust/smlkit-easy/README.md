@@ -3,7 +3,7 @@
 读一份 SML 只需要 **4 个概念**：文档 → 字段 → 值 → 错误。入门（L0 / L1）只暴露这 4 个；
 要诊断与逐后端输出，再加两个。
 
-> 状态：**未发布**（`publish = false`）。计划与 `.smlb` / `smldb` 一起发。API 仍可能变。
+> 状态：**未发布**（`publish = false`）。计划与 `.ambr` / `smldb` 一起发。API 仍可能变。
 
 ## 30 秒
 
@@ -93,7 +93,7 @@ let _ = (md, html);
 | 契约**内容**（定义、校验实现、`contract_map` / `errors` 专家字段） | `swsml`（`parse_with` / `ParseOutput`） |
 | 逐后端输出的**旋钮**（`math` / `standalone` / 自定义模板…） | `swsml` 的 `emit::*` Options |
 | 特性开关、版本范围限制 | `swsml` 的 `parse_with_features` / `parse_allowed` |
-| 二进制持久化与查询 | 待 `.smlb` / `smldb`（尚未实现） |
+| 二进制持久化与查询 | 待 `.ambr` / `smldb`（尚未实现） |
 
 ## 两个必须知道的坑
 

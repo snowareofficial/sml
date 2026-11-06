@@ -12,13 +12,13 @@
 > - ✅ 直接 2：人工可读——输出序 = 作者组织序，不被打散。
 > - ✅ 直接 3：合并/拼接确定——配合 §6.3 规则（已存在原位替换、不存在追加尾部），`&base`/include 结果可测可押。
 > - ✅ 深层 4：顺序成为可定义维度——`eq_ordered`、与 `sort_keys` 解耦的 canonical、C-ABI 迭代序可写进头文件。
-> - ✅ 深层 5：为 §13/§14 DB/.smlb 层铺路——值层能保序，`.smlb`/Store 才能稳定按序序列化检索。
+> - ✅ 深层 5：为 §13/§14 DB/.ambr 层铺路——值层能保序，`.ambr`/Store 才能稳定按序序列化检索。
 > - ⚠️ 保序**不买**：确定性字节（另走 canonical/sort_keys）、查找性能（另走三档索引）、顺序参与相等（默认仍集合相等，见 §6.1）。四者是独立开关/特性。
 >
 > **toml-rs 保序做法参考（2026-10-31）：** 高层 `toml` crate 默认 `Value::Table = BTreeMap`（保序），靠 **`preserve_order` feature 才切 `IndexMap` 保序**；真正 round-trip（往返编辑+保留注释格式）走底层 `toml_edit`，其 Table 用 `IndexMap<String, Item>` 保插入序。→ 印证两点：(a) 业界把「保序」做成**默认关、opt-in**，与本文「全局保序 feature 默认关」一致；(b) 它靠第三方 `IndexMap` 实现，我们零依赖需自实现 §5 三档，等价效果、不破铁律。
 >
 > **保序的「效果五层 + 不买三项」速记（2026-10-31，供拍板判断值不值）：**
-> - 买① 往返稳定：`parse→改→to_sml` 键序==源序，diff 干净（G1）。② 合并确定：`&base`/include 合并结果可预测、可测（§6.3）。③ 顺序可定义：`eq_ordered`、C-ABI 迭代序写进头文件（§8）。④ 与 `sort_keys` 解耦：保序 vs 确定性(canonical) 两个独立开关（§6.2）。⑤ DB/.smlb 铺路：值层保序是 §13/§14「大量保序持久化」的前置。
+> - 买① 往返稳定：`parse→改→to_sml` 键序==源序，diff 干净（G1）。② 合并确定：`&base`/include 合并结果可预测、可测（§6.3）。③ 顺序可定义：`eq_ordered`、C-ABI 迭代序写进头文件（§8）。④ 与 `sort_keys` 解耦：保序 vs 确定性(canonical) 两个独立开关（§6.2）。⑤ DB/.ambr 铺路：值层保序是 §13/§14「大量保序持久化」的前置。
 > - 不买① 确定性字节（同值同字节靠 canonical/sort_keys，非保序）。② 查找快（保序via Vec 是 O(n)，快靠懒索引三档，另一特性）。③ 相等含序（PartialEq 仍按集合，§6.1）。
 >
 > **toml-rs 对标·一行**：`toml_edit`(indexmap 铁保序+保注释) + `toml`(默认 BTreeMap，靠 `preserve_order` feature 切 IndexMap)。→ 启示：①「保序=默认关+opt-in」是业界惯例，印证我们全局保序 feature 默认关的定位；② round-trip(连格式保序) 与 纯数据保序是两个不同 feature，勿混进值层；③ toml-rs 靠第三方 indexmap，我们零依赖自实现 §5 三档，效果等价——是我们的差异化卖点。

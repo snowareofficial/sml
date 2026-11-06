@@ -1,22 +1,22 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! `.smlb` as a **general-purpose envelope**: wrap arbitrary bytes, unwrap them, and convert
-//! SML text to/from the `VALUE` payload. Behind the `smlb` feature.
-//! 把 `.smlb` 当**通用信封**用：装任意字节、取出、以及 SML 文本 ⇄ `VALUE` 载荷。
-//! 名字挂在 `sml::envelope` 下，**只有 `smlb` feature 才存在**。
+//! `.ambr` as a **general-purpose envelope**: wrap arbitrary bytes, unwrap them, and convert
+//! SML text to/from the `VALUE` payload. Behind the `amberice` feature.
+//! 把 `.ambr` 当**通用信封**用：装任意字节、取出、以及 SML 文本 ⇄ `VALUE` 载荷。
+//! 名字挂在 `sml::envelope` 下，**只有 `amberice` feature 才存在**。
 //!
-//! 定位（`rust/smlb/README.md`，2026-11-05 起）：`.smlb` 是**不可变、可寻址、可验证的通用
+//! 定位（`rust/amberice/README.md`，2026-11-05 起）：`.ambr` 是**不可变、可寻址、可验证的通用
 //! 二进制信封**，SML 只是内置载荷之一。所以本模块的第一等公民是 `bytes ⇄ 信封`，
-//! `sml_to_smlb` 只是「载荷之一」的便捷入口 —— 别把它当成主路径。
+//! `sml_to_amberice` 只是「载荷之一」的便捷入口 —— 别把它当成主路径。
 //! ｜ Envelope first, SML payload second — that order is the whole point of the repositioning.
 //!
 //! 为什么放在 `swsml` 而不是 `smltools`（用户 2026-11-05）：`smltools` **只是 bin**；
-//! 库能力归门面 crate 的附属模块，并且用 feature 门控（关掉 `smlb` 就完全看不到它，
-//! 依赖树里也不会出现 `smlb`）。
+//! 库能力归门面 crate 的附属模块，并且用 feature 门控（关掉 `amberice` 就完全看不到它，
+//! 依赖树里也不会出现 `amberice`）。
 //! ｜ `smltools` stays bin-only; library surface belongs here, behind a feature.
 
 use std::fmt;
 
-use smlb::{ContainerError, DumpOptions, ManifestPayload, Value};
+use amberice::{ContainerError, DumpOptions, ManifestPayload, Value};
 
 /// Why an envelope operation failed. ｜ 信封操作失败的原因。
 ///
@@ -27,7 +27,7 @@ use smlb::{ContainerError, DumpOptions, ManifestPayload, Value};
 pub enum EnvelopeError {
     /// SML text did not parse ｜ SML 文本解析失败。
     Parse(sml_codes::SmlError),
-    /// The `.smlb` container refused (bad layout, digest, capability, …)
+    /// The `.ambr` container refused (bad layout, digest, capability, …)
     /// 容器层拒绝（布局、摘要、能力位……）。
     Container(ContainerError),
     /// The named payload is not inside the envelope ｜ 信封里没有这个载荷。
@@ -76,8 +76,8 @@ pub struct Payload {
     pub len: u32,
 }
 
-/// Wrap arbitrary bytes into a `.smlb` envelope.
-/// 把任意字节装进 `.smlb` 信封。
+/// Wrap arbitrary bytes into a `.ambr` envelope.
+/// 把任意字节装进 `.ambr` 信封。
 ///
 /// `name` is what [`unwrap`] will ask for; for a single file the plain file name is the
 /// obvious choice. Compression is opt-in (`compress` = zstd level).
@@ -87,7 +87,7 @@ pub fn wrap(name: &str, bytes: &[u8], compress: Option<i32>) -> Result<Vec<u8>, 
         compress,
         ..Default::default()
     };
-    Ok(smlb::pack_with(&[(name, bytes)], &opts)?)
+    Ok(amberice::pack_with(&[(name, bytes)], &opts)?)
 }
 
 /// Extract one payload from an envelope. ｜ 从信封里取出一个载荷。
@@ -114,13 +114,13 @@ pub fn unwrap(bytes: &[u8], name: Option<&str>) -> Result<Vec<u8>, EnvelopeError
             available: all.iter().map(|p| p.name.clone()).collect(),
         });
     }
-    Ok(smlb::payload(bytes, &name)?.into_owned())
+    Ok(amberice::payload(bytes, &name)?.into_owned())
 }
 
 /// List the payloads of an envelope (cheap: reads the manifest only).
 /// 列出信封里的载荷（很便宜：只读 manifest）。
 pub fn list(bytes: &[u8]) -> Result<Vec<Payload>, EnvelopeError> {
-    let declared: Vec<ManifestPayload> = smlb::payloads(bytes)?;
+    let declared: Vec<ManifestPayload> = amberice::payloads(bytes)?;
     Ok(declared
         .into_iter()
         .map(|p| Payload {
@@ -133,31 +133,31 @@ pub fn list(bytes: &[u8]) -> Result<Vec<Payload>, EnvelopeError> {
 /// SML text → envelope (stored as the `VALUE` payload). ｜ SML 文本 → 信封（存成 `VALUE` 载荷）。
 ///
 /// 这是「SML 是内置载荷之一」的具体落点：与 [`wrap`] 产出的是同一种文件，只是载荷类型不同，
-/// 故 `smlb cat` / `smlb check` 对两者一样有效。
-/// Same file format as [`wrap`], different payload kind — so `smlb cat` / `check` work on both.
-pub fn sml_to_smlb(text: &str, compress: Option<i32>) -> Result<Vec<u8>, EnvelopeError> {
+/// 故 `amberice cat` / `amberice check` 对两者一样有效。
+/// Same file format as [`wrap`], different payload kind — so `amberice cat` / `check` work on both.
+pub fn sml_to_amberice(text: &str, compress: Option<i32>) -> Result<Vec<u8>, EnvelopeError> {
     // 显式保序：文本里的键序就是数据的一部分，BTreeMap 会把它丢掉。
     // 用 parse_ordered 后，默认构建（无 feature）也能写出可签 canonical 的信封。
     let v: Value = crate::parse_ordered(text).map_err(EnvelopeError::Parse)?;
-    value_to_smlb(&v, compress)
+    value_to_amberice(&v, compress)
 }
 
 /// Already-parsed value → envelope, without a text round-trip.
 /// 已经解析好的值 → 信封，**不经过文本往返**。
 ///
-/// 工具侧（`smltools --to-smlb`）需要这一条：它手上已经是 `Value` 了，再 `to_sml` 一遍
+/// 工具侧（`smltools --to-amberice`）需要这一条：它手上已经是 `Value` 了，再 `to_sml` 一遍
 /// 又 `parse` 一遍纯属白花 CPU，而且会在「文本表达不出某个值」时莫名失败。
 /// ｜ The CLI already holds a `Value`; re-serialising it to text only to parse it back is waste.
-pub fn value_to_smlb(value: &Value, compress: Option<i32>) -> Result<Vec<u8>, EnvelopeError> {
+pub fn value_to_amberice(value: &Value, compress: Option<i32>) -> Result<Vec<u8>, EnvelopeError> {
     let opts = DumpOptions {
         compress,
         ..Default::default()
     };
     // 键序是**值层事实**：这里显式转换，无序值在转换点就被拒，
     // 而不是等到写盘才报 `key-order-unavailable`。
-    let cv = smlb::CanonicalValue::try_from(value)
+    let cv = amberice::CanonicalValue::try_from(value)
         .map_err(|e| EnvelopeError::Container(ContainerError::Canonical(e)))?;
-    Ok(smlb::dump_with(&cv, &opts)?)
+    Ok(amberice::dump_with(&cv, &opts)?)
 }
 
 /// Envelope → SML text. ｜ 信封 → SML 文本。
@@ -165,7 +165,7 @@ pub fn value_to_smlb(value: &Value, compress: Option<i32>) -> Result<Vec<u8>, En
 /// Only works when the primary payload is a `Value`; a bytes envelope says so explicitly
 /// instead of pretending to be an empty document.
 /// 只有主载荷是 `Value` 时才行；字节信封会**明确说明**，不会假装是空文档。
-pub fn smlb_to_sml(bytes: &[u8]) -> Result<String, EnvelopeError> {
-    let v = smlb::load(bytes)?;
+pub fn amberice_to_sml(bytes: &[u8]) -> Result<String, EnvelopeError> {
+    let v = amberice::load(bytes)?;
     Ok(crate::to_sml(&v))
 }
