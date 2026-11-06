@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 //! L2：诊断（`*_with_report` / `diagnostics()`）与逐后端输出（`out::*`）。
 
-use smlkit_easy::Doc;
+use swml::easy::Doc;
 
 const DUP_KEY: &str = "a: 1\na: 2\n";
 
@@ -25,7 +25,7 @@ fn plain_entry_has_no_diagnostics() {
 #[test]
 fn read_with_also_carries_diagnostics() {
     // `read_with` 转发的是 `parse_with`（返回 ParseOutput），诊断顺带就有。
-    let doc = Doc::read_with(DUP_KEY, smlkit_easy::Contracts::On).unwrap();
+    let doc = Doc::read_with(DUP_KEY, swml::easy::Contracts::On).unwrap();
     assert_eq!(doc.diagnostics().len(), 1);
 }
 
@@ -48,7 +48,7 @@ fn report_file_entry_expands_include_and_keeps_diagnostics() {
 #[test]
 fn out_markdown_shoots_a_document() {
     let doc = Doc::read("h1 { text: \"标题\" }\np { text: \"正文\" }").unwrap();
-    let md = smlkit_easy::out::markdown(&doc).unwrap();
+    let md = swml::easy::out::markdown(&doc).unwrap();
     assert!(md.contains("# 标题"), "markdown 输出异常: {md}");
     assert!(md.contains("正文"), "markdown 输出异常: {md}");
 }
@@ -57,7 +57,7 @@ fn out_markdown_shoots_a_document() {
 #[test]
 fn out_html_shoots_a_document() {
     let doc = Doc::read("p { text: \"正文\" }").unwrap();
-    let html = smlkit_easy::out::html(&doc).unwrap();
+    let html = swml::easy::out::html(&doc).unwrap();
     assert!(html.contains("<!DOCTYPE html>"), "应为完整文档: {html}");
     assert!(html.contains("正文"), "html 输出异常: {html}");
 }

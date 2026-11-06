@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 //! L1：`Contracts` 闸门。每个用例都钉住一句「默认不变 / 关了确实不一样」。
 
-use smlkit_easy::{Contracts, Doc};
+use swml::easy::{Contracts, Doc};
 
 const UNKNOWN_CONTRACT: &str = "@version v1\ndoc {\n  @is NoSuch\n  x: 1\n}\n";
 const TYPE_MISMATCH: &str =

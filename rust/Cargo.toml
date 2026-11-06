@@ -37,8 +37,9 @@ members = [
     # `.ambr`（SML 的二进制形式）：只依赖值模型，**不依赖 sml-parse**（docs/amberice-smldb-spec.md D3）。
     # `publish = false` —— 与 v5 一起开放（D1）。
     "amberice",
-    # 渐进式入门门面（独立发布线，见 smlkit-easy/README.md；`publish = false` 直到一起发）
-    "smlkit-easy",
+    # 门面 crate：根上 `pub use swsml::*`，`easy` 模块是「读配置」的 4 概念入门层。
+    # 独立发布线（`swml` 0.1.0，见 swml/README.md；`publish = false` 直到一起发）。
+    "swml",
 ]
 resolver = "2"
 

@@ -1,64 +1,69 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! # smlkit-easy
+//! # swml::easy
 //!
-//! 读一份 SML 只需要 **4 个概念**：文档 → 字段 → 值 → 错误。入门（L0 / L1）只暴露这 4 个；
-//! 要诊断和逐后端输出再多两个：诊断（[`Doc::diagnostics`]）与输出（[`out`]）。
+//! Reading SML takes **four concepts**: document → field → value → error. This module exposes
+//! only those four; diagnostics ([`Doc::diagnostics`]) and per-backend output ([`out`]) are the
+//! two optional extras. ｜ 读一份 SML 只需要**四个概念**：文档 → 字段 → 值 → 错误。
+//! 入门只暴露这四个；诊断与逐后端输出是可有可无的两个附加项。
 //!
 //! ```no_run
-//! // ⚠️ 本 crate 尚未发布，下面是发布后的用法；现在试跑请看本仓库的 `tests/quickstart.rs`。
-//! use smlkit_easy::Doc;
+//! use swml::easy::Doc;
 //!
 //! let doc = Doc::read("server { host: localhost port: 8080 }")?;
 //! assert_eq!(doc.str("server.host"), Some("localhost"));
 //! assert_eq!(doc.int("server.port"), Some(8080));
-//! # Ok::<(), smlkit_easy::Error>(())
+//! # Ok::<(), swml::easy::Error>(())
 //! ```
 //!
-//! ## 为什么单独一个 crate
+//! ## Why a module, not a separate crate ｜ 为什么做成模块而不是独立 crate
 //!
-//! `swsml` 的根命名空间有 **90 多个**名字（13 个 `parse_*`、31 个 C-ABI 函数、include 的
-//! 内部件、三个 `MAX_*`…）。那是给「要把 SML 嵌进自己产品、需要控制每个旋钮」的人准备的；
-//! 只想读个配置的人不该先读完那些。
+//! The beginner path lives **inside `swml`**, the facade crate. `swml` already re-exports all
+//! of `swsml` at its root, so a separate crate would buy nothing but another version to keep
+//! in sync — and the whole point of the facade is one install for both audiences.
+//! ｜ 入门层放在**门面 crate `swml` 里**。`swml` 的根已经原样再导出了 `swsml`，
+//! 再拆一个独立 crate 只会多一条要同步的版本线；门面的意义本来就是「一次安装，两种人用」。
 //!
-//! 所以这一层**不在 `swsml` 里做成模块**：模块解决不了「`use sml::*` 时把 31 个 C 函数
-//! 一起拉进命名空间」这种事，而且会继续挤占根命名空间。独立 crate 才能做到 ——
-//! **这里的根只有 4 个名字：`Doc`、`Value`、`Error`、`Contracts`。**
+//! The four names below are the whole public surface of this module —
+//! `Doc`, `Value`, `Error`, `Contracts`. ｜ 本模块的公开面只有四个名字：
+//! `Doc`、`Value`、`Error`、`Contracts`。
 //!
-//! > 顺带记下本仓最容易踩的命名陷阱：**包名是 `swsml`、库名是 `sml`**
-//! > （crates.io 上 `sml-rs` 被无关项目占了，只能换包名）。
-//! > 于是 `Cargo.toml` 里写 `swsml = "0.6"`，代码里却要 `use sml::…`。
-//! > 本 crate 的 `Cargo.toml` 用 `sml = { package = "swsml", … }` 把这件事显式化了。
+//! > Naming trap worth remembering ｜ 值得记住的命名陷阱：the package is `swsml`, the lib is
+//! > `sml` (crates.io already had `sml-rs`). So `Cargo.toml` says `swsml` while code says
+//! > `use sml::…`. `swml/Cargo.toml` makes that explicit with `sml = { package = "swsml" }`.
 //!
-//! `Value` 出现是因为 [`Doc::list`] 与 [`Doc::raw`] 的返回类型就是它（否则调用方
-//! 连类型都写不出来）；它是 swsml 的值类型本身，**不是**本 crate 另造的一层包装。
+//! `Value` appears because [`Doc::list`] and [`Doc::raw`] return it; it is `swsml`'s value type
+//! itself, **not** a wrapper. ｜ `Value` 出现是因为两个访问器的返回类型就是它；
+//! 它是 `swsml` 的值类型本身，不是包装。
 //!
-//! ## 这一层故意不做什么
+//! ## What this layer deliberately omits ｜ 这一层故意不做什么
 //!
-//! | 不做 | 想要就去用 |
+//! | Not here ｜ 不做 | Use instead ｜ 想要就去用 |
 //! |---|---|
-//! | 契约**内容**（定义、类型校验实现、`contract_map` / `errors` 专家字段） | [`sml`]（`parse_with` / `ParseOutput`） |
-//! | 逐后端输出的**旋钮**（`math` / `standalone` / 自定义模板…） | [`sml::emit`] 的 Options |
-//! | 特性开关、版本范围限制 | [`sml`] 的 `parse_with_features` / `parse_allowed` |
-//! | 二进制持久化、查询 | 待 I-18（`.ambr` / `smldb`）落地 |
+//! | Contract **contents** (definitions, type checks, `contract_map` / `errors`) | [`sml`] (`parse_with` / `ParseOutput`) |
+//! | Per-backend **knobs** (`math` / `standalone` / custom templates…) | [`sml::emit`] options |
+//! | Feature switches, version allow-lists | [`sml`] `parse_with_features` / `parse_allowed` |
+//! | Binary persistence, queries | I-18 (`.ambr` / `smldb`), still in progress |
 //!
-//! 本层给的三个「进阶」能力，每个都只有一个概念：
+//! Three optional extras, one concept each ｜ 三个附加能力，每个只有一个概念：
 //!
-//! - [`Contracts`]：文档里写 `@is <契约名>` 时认不认；
-//! - [`Doc::read_with_report`] + [`Doc::diagnostics`]：把非致命诊断挂到文档上；
-//! - [`out`]：一个后端一枚函数（`out::markdown` / `out::html` / `out::latex` …），
-//!   各由同名 `emit-*` feature 门控 —— 关掉就**整个不存在**，不是运行时错误。
+//! - [`Contracts`] — whether `@is <name>` inside the document is enforced ｜ 文档里的 `@is` 认不认；
+//! - [`Doc::read_with_report`] + [`Doc::diagnostics`] — attach non-fatal diagnostics to the doc ｜
+//!   把非致命诊断挂到文档上；
+//! - [`out`] — one function per backend, gated by the matching `emit-*` feature: turning it off
+//!   makes the function **not exist** rather than fail at runtime ｜ 关掉即函数不存在，不是运行时错误。
 //!
-//! 再往下（按名字应用契约、`contract_map`、增量 emit）就回 [`sml`]。
+//! Anything below that (apply contracts by name, `contract_map`, incremental emit) goes back to
+//! [`sml`] ｜ 再往下就回专家层。
 //!
-//! ## 字段路径
+//! ## Field paths ｜ 字段路径
 //!
-//! 访问器接受 **`.` 分隔的路径**（`"db.host"`），与 [`sml::Value::get`] 同源：
+//! Accessors take **dot-separated paths** (`"db.host"`), same source as [`sml::Value::get`] ｜
+//! 访问器接受 `.` 分隔的路径，与 `Value::get` 同源：
 //!
-//! - **只能穿对象**：`items.0.name` 这类**永远取不到**（路径语法里没有下标），
-//!   数组先用 [`Doc::list`] 取出来再自己索引；
-//! - **键名自带 `.` 的字段取不到**（分段后每段当完整键名匹配）；
-//! - 取不到一律 `None` / `false`，**不报错** —— 想区分「不存在」和「值不对」时，
-//!   那已经超出这一层的范围，请用 [`Doc::raw`] 回去看 [`sml::Value`]。
+//! - **Objects only** ｜ 只能穿对象：`items.0.name` never resolves (no index syntax in paths);
+//!   pull the array out with [`Doc::list`] and index it yourself.
+//! - A key that itself contains `.` is unreachable ｜ 键名自带 `.` 的字段取不到。
+//! - Missing → `None` / `false`, **never an error** ｜ 取不到一律静默，用 [`Doc::raw`] 区分「不存在」与「类型不对」。
 
 use std::path::Path;
 
@@ -80,7 +85,7 @@ pub use sml::Value;
 /// 只有想「用自己的结构体当契约来源」时才需要 [`Contracts::Off`]。
 ///
 /// ```
-/// use smlkit_easy::{Contracts, Doc};
+/// use swml::easy::{Contracts, Doc};
 ///
 /// // 文档里引用了不存在的契约：默认直接报错
 /// let err = Doc::read("@version v1\ndoc {\n  @is NoSuch\n  x: 1\n}\n").unwrap_err();
@@ -128,7 +133,7 @@ impl Doc {
     /// 解析一段 SML 文本。
     ///
     /// ```
-    /// let doc = smlkit_easy::Doc::read("name: demo tags: [ a b ]").unwrap();
+    /// let doc = swml::easy::Doc::read("name: demo tags: [ a b ]").unwrap();
     /// assert_eq!(doc.str("name"), Some("demo"));
     /// assert!(doc.has("tags"));
     /// ```
@@ -136,7 +141,7 @@ impl Doc {
     /// 失败时拿到的是**带码**的错误（码是跨端契约，可直接用于判断分支）：
     ///
     /// ```
-    /// let err = smlkit_easy::Doc::read("42").unwrap_err();
+    /// let err = swml::easy::Doc::read("42").unwrap_err();
     /// assert_eq!(err.code(), "E-PARSE-008"); // 顶层须为容器，单个标量无法往返
     /// ```
     pub fn read(text: &str) -> Result<Self, Error> {
@@ -163,7 +168,7 @@ impl Doc {
     /// 摆到明面上（典型场景：契约由调用方自己的结构体提供，文件里的 `@is` 应当忽略）。
     ///
     /// ```
-    /// use smlkit_easy::{Contracts, Doc};
+    /// use swml::easy::{Contracts, Doc};
     ///
     /// let text = "@version v1\n@contract P { n: str role: str default guest }\ndoc {\n  @is P\n  n: 42\n}\n";
     /// // 契约开启：类型不符直接报错
@@ -197,7 +202,7 @@ impl Doc {
     /// 没有另造 `Report` 类型，复用的就是 [`sml::ParseOutput`] 的 `diagnostics` 字段。
     ///
     /// ```
-    /// let doc = smlkit_easy::Doc::read_with_report("a: 1\na: 2").unwrap();
+    /// let doc = swml::easy::Doc::read_with_report("a: 1\na: 2").unwrap();
     /// assert_eq!(doc.diagnostics().len(), 1);        // 重复键被提升为数组，但不是错误
     /// assert!(doc.has("a"));
     /// ```
@@ -249,7 +254,7 @@ impl Doc {
     /// 取字符串。值不是字符串时返回 `None`。
     ///
     /// ```
-    /// let doc = smlkit_easy::Doc::read("a: hi b: 1").unwrap();
+    /// let doc = swml::easy::Doc::read("a: hi b: 1").unwrap();
     /// assert_eq!(doc.str("a"), Some("hi"));
     /// assert_eq!(doc.str("b"), None); // 是数字，不是字符串
     /// ```
@@ -260,7 +265,7 @@ impl Doc {
     /// 取整数。**只认整数类型的值**，不做字符串到数字的转换。
     ///
     /// ```
-    /// let doc = smlkit_easy::Doc::read("port: 8080 mode: 0755").unwrap();
+    /// let doc = swml::easy::Doc::read("port: 8080 mode: 0755").unwrap();
     /// assert_eq!(doc.int("port"), Some(8080));
     /// // ⚠️ 前导零是**字符串**（保住权限位语义），所以这里取不到：
     /// assert_eq!(doc.int("mode"), None);
@@ -285,7 +290,7 @@ impl Doc {
     /// 取数组（**只读切片**）。想要下标访问就从这里拿：
     ///
     /// ```
-    /// let doc = smlkit_easy::Doc::read("tags: [ a b ]").unwrap();
+    /// let doc = swml::easy::Doc::read("tags: [ a b ]").unwrap();
     /// let tags = doc.list("tags").unwrap();
     /// assert_eq!(tags.len(), 2);
     /// assert_eq!(tags[1].as_str(), Some("b"));
@@ -335,7 +340,7 @@ pub mod out {
         feature = "emit-svg",
         feature = "emit-slint"
     ))]
-    use crate::Error;
+    use super::Error;
     #[cfg(any(
         feature = "emit-markdown",
         feature = "emit-html",

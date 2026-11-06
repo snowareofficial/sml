@@ -1,0 +1,50 @@
+[package]
+name = "swml"
+version = "0.1.0-dev.0"
+edition = "2021"
+description = "SML facade: the full `swsml` surface at the root, plus a four-concept `easy` module for reading configs."
+license = "MulanPSL-2.0"
+repository = "https://gitee.com/snoware/sml"
+homepage = "https://sml.swebase.cn"
+readme = "README.md"
+# 尚未发布：与 I-19 / T31 一起发（`swml` 0.1.0 独立发布线，见 TODO §11.1）。
+publish = false
+
+[lib]
+name = "swml"
+
+[dependencies]
+# ⚠️ 依赖键写成 `sml` 而不是 `swsml`：swsml 的 `[lib] name = "sml"`,
+# 而 Rust 代码里 `use` 的是**库名**。写成 `swsml = { path = ".." }` 会直接报
+# 「cannot find crate swsml」—— 这是本仓最容易踩的一处命名陷阱，故在此显式改名。
+# ｜ Dependency key is `sml`, not `swsml`, because swsml's lib name is `sml`.
+#
+# 门面必须原样搬出 swsml 的全部公开面（`pub use sml::*`），所以这里**用默认档**：
+# 关掉 feature 会让根上少掉 emit 模块，那就不是「同一套 API」了。
+# 想让 swsml 变小，请直接依赖 swsml 并自行裁剪。
+# ｜ Default features on purpose: a facade that trims features is no longer the same API.
+sml = { package = "swsml", path = "..", version = "0.6.9-dev.0" }
+
+[features]
+default = [
+    "emit-markdown",
+    "emit-html",
+    "emit-latex",
+    "emit-xml",
+    "emit-svg",
+    "emit-slint",
+]
+# 每个 `emit-*` 只门控 `easy::out` 的同名函数（关掉即整个函数不存在）。
+# 它**不会**关掉 swsml 的 emit 模块 —— 那是底层 crate 的 feature。
+# ｜ These flags gate `easy::out` only; they do not trim swsml itself.
+emit-markdown = []
+emit-html = []
+emit-latex = []
+emit-xml = []
+emit-svg = []
+emit-slint = []
+# 对象保序：**必须**转发到 swsml（它会再转发到 7 个子 crate）。
+# 漏了这处，`Value` 会被编成两个互不兼容的实例（`expected sml_value::Value, found Value`）。
+# 按 Q10 的裁决：**不进 default**，要用自己开。
+# ｜ `preserve_order` must be forwarded; otherwise two incompatible `Value` types appear.
+preserve_order = ["sml/preserve_order"]
