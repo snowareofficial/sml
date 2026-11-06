@@ -15,8 +15,9 @@
 //! objects keep **source order** (plain object insertion order).
 //! ｜ 整数超出 ±2^53-1 时转字符串（与解析器一致），对象保留源序。
 //!
-//! Not implemented yet ｜ 尚未做: digest verification (needs SHA-256; do it in the harness
-//! before trusting a file) and write-back (a read-only port is conformant by design).
+//! Not implemented here ｜ 本文件不做: digest verification on write and the write path itself —
+//! hashing is in `sha256.mjs`, and encoding lives in [`./ambr_write.mjs`] (Rust encoder via wasm,
+//! so canonical bytes cannot drift). ｜ 摘要与编码器不在本文件：写入见 `ambr_write.mjs`。
 
 import { sha256, digestEqual } from "./sha256.mjs";
 
