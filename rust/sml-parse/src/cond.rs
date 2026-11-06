@@ -149,12 +149,12 @@ pub fn eval_for_header(p: &mut Parser) -> Result<(String, Vec<String>), SmlError
         match p.peek() {
             Some(Tok::LBrace) => break, // 停在 '{'，交给 slice_block_tokens
             Some(Tok::Word(w)) => {
-                let w = w.clone();
+                let w = w.clone().into_owned();
                 p.next();
                 items.push(w);
             }
             Some(Tok::Str(s)) => {
-                let s = s.clone();
+                let s = s.clone().into_owned();
                 p.next();
                 items.push(s);
             }
@@ -172,5 +172,5 @@ pub fn eval_for_header(p: &mut Parser) -> Result<(String, Vec<String>), SmlError
         return Err(SmlError::from_code_title(E_PARSE_018)
             .with_detail("`@for` 的 `in` 后至少须有一个枚举项"));
     }
-    Ok((var, items))
+    Ok((var.into_owned(), items))
 }

@@ -19,7 +19,7 @@ use sml_include::strip_line_comment;
 /// The token's string content (`Word` / `Str` yield their text; anything else yields `""`) ｜ 取出 token 的字符串内容。
 pub fn tok_word(t: &Tok) -> String {
     match t {
-        Tok::Word(s) | Tok::Str(s) => s.clone(),
+        Tok::Word(s) | Tok::Str(s) => s.clone().into_owned(),
         _ => String::new(),
     }
 }
@@ -493,7 +493,7 @@ pub fn version_directive(line: &str) -> Result<Option<VersionDecl>, SmlError> {
         (Some(Tok::At), Some(Tok::Word(w))) if w == "version" => {}
         _ => return Ok(None),
     }
-    let rest: Vec<&Tok> = it.collect();
+    let rest: Vec<&Tok<'_>> = it.collect();
     if rest.is_empty() {
         return Err(SmlError::from_code_title(E_FEATURE_004).with_detail(
             "`@version` 须带版本字面量或代号（如 `@version 4` / `@version 50 \"camelia\" dev`）；`version` 不可作为片段名",
@@ -511,11 +511,11 @@ pub fn version_directive(line: &str) -> Result<Option<VersionDecl>, SmlError> {
             Tok::Str(s) => {
                 // 引号串既可能是数字（`@version "4"`，历史写法），也可能是代号
                 if Edition::parse(s).is_some() {
-                    if decl.literal.replace(s.clone()).is_some() {
+                    if decl.literal.replace(s.clone().into_owned()).is_some() {
                         return Err(SmlError::from_code_title(E_FEATURE_004)
                             .with_detail("`@version` 出现了两个数字字面量"));
                     }
-                } else if decl.codename.replace(s.clone()).is_some() {
+                } else if decl.codename.replace(s.clone().into_owned()).is_some() {
                     return Err(SmlError::from_code_title(E_FEATURE_004)
                         .with_detail("`@version` 出现了两个代号"));
                 }
@@ -529,7 +529,7 @@ pub fn version_directive(line: &str) -> Result<Option<VersionDecl>, SmlError> {
                 decl.dev = true;
             }
             Tok::Word(w) => {
-                if decl.literal.replace(w.clone()).is_some() {
+                if decl.literal.replace(w.clone().into_owned()).is_some() {
                     return Err(SmlError::from_code_title(E_FEATURE_004)
                         .with_detail("`@version` 出现了两个数字字面量"));
                 }

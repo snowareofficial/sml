@@ -40,5 +40,5 @@ pub use scan::strip_version;
 // `Version` 是 `Edition` 的别名（2026-11-04 改名，`docs/version-naming.md` V1）
 pub use sml_feature::{Edition, Feature, FeatureSet, Version};
 pub use sml_include::{IncludeTarget, compile_regex, regex_matches};
-pub use sml_lex::{Tok, coerce_word, tokenize};
+pub use sml_lex::{Tok, TokOwned, coerce_word, tokenize};
 pub use sml_value::Value;

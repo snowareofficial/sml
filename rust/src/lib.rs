@@ -321,7 +321,7 @@ pub use sml_include::{
     MAX_REGEX_LEN, MAX_REGEX_STEPS,
 };
 #[cfg(feature = "when")]
-pub use sml_lex::Tok;
+pub use sml_lex::{Tok, TokOwned};
 pub use sml_parse::{parse_file_ordered, parse_ordered};
 pub use sml_parse::{
     loads, parse, parse_allowed, parse_file, parse_file_features, parse_file_versioned,

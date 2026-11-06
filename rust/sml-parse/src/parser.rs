@@ -24,7 +24,7 @@ use sml_contract::{
 use sml_lex::identifiers::Script;
 use sml_value::Seg;
 use sml_feature::{Feature, FeatureSet};
-use sml_lex::{Span, Tok, coerce_word, lookup_env};
+use sml_lex::{Span, Tok, TokOwned, coerce_word, lookup_env};
 // `Map` = `Value::Object` 的载体（默认 `BTreeMap`；`preserve_order` 档是保序 `Object`，
 // 迭代序 == 源序）。解析器里凡是「正在收集的块字段表」都必须是 `Map` —— 它是
 // 保序的**唯一真相源**；`fragments` / `types` / `contracts` 是普通表，仍是 `BTreeMap`。
@@ -35,8 +35,8 @@ use crate::contract_map::{ContractMap, PathSeg};
 use crate::ext::{Diagnostic, DiagnosticKind, DirectiveTable, Outcome, WeakBind, WeakData, WeakDoc};
 
 /// The parser. `pub` only so submodules like `cond` can reuse the cursor — **not** part of the public API ｜ 解析器（`pub` 仅为让 `cond` 等子模块复用游标）。
-pub struct Parser {
-    pub(crate) toks: Vec<Tok>,
+pub struct Parser<'a> {
+    pub(crate) toks: Vec<Tok<'a>>,
     /// 与 `toks` **一一对应**的原文区间（字节偏移），供错误定位。
     ///
     /// 可能为空：文件入口经 `resolve_includes` 拿到的是**跨文件合并**后的 token 流，
@@ -138,7 +138,7 @@ struct BlockFrame {
     /// 目标块**开帧时**就落表（那时 `path_stack` 已压好该块的键），因此不必随
     /// 容器一路传到 `finish_block`。
     pending_weakbind: Option<PendingWeak>,
-    closing: Option<Tok>,
+    closing: Option<TokOwned>,
     /// 裸块上下文：`Some` 时本块体是裸块 `type [name] [args…] { … }` 的体，
     /// 类型名 / 已收集参数存于此，块收尾（finish）时写入 `__type`/`__name`/`__args`
     /// 元数据并跑 typed-block 类型契约（迭代式改造第二步，作业书 §3）。
@@ -197,7 +197,7 @@ enum ValueStep {
     Open(Frame),
 }
 
-impl Parser {
+impl<'a> Parser<'a> {
     /// 按本次解析的显式选择新建对象载体。**所有**对象构造点都必须走这里。
     fn new_map(&self) -> Map {
         if self.ordered {
@@ -405,7 +405,7 @@ impl Parser {
     /// 仅 `@for` 使用：随 cargo feature `when` 一起编译，关闭时不参与编译
     /// （否则会留一条 dead_code 警告，掩盖真正的问题）。
     #[cfg(feature = "when")]
-    fn slice_block_tokens(&mut self) -> Result<Vec<Tok>, SmlError> {
+    fn slice_block_tokens(&mut self) -> Result<Vec<Tok<'a>>, SmlError> {
         if self.peek() != Some(&Tok::LBrace) {
             return Err(SmlError::from_code_title(E_PARSE_018).with_detail("`@for` 后须 `{ ... }` 循环体"));
         }
@@ -451,13 +451,13 @@ impl Parser {
         positional: bool,
     ) -> Result<Option<String>, SmlError> {
         // 显式形式：紧邻的 `name` 后必须跟冒号，否则它是普通裸词（如块体首键）。
-        let is_explicit = matches!(self.peek(), Some(Tok::Word(w)) if w.as_str() == "name")
+        let is_explicit = matches!(self.peek(), Some(Tok::Word(w)) if w.as_ref() == "name")
             && matches!(self.peek_at(1), Some(Tok::Colon));
         if is_explicit {
             self.next(); // `name`
             self.next(); // `:`
             return match self.next() {
-                Some(Tok::Word(s)) | Some(Tok::Str(s)) => Ok(Some(s)),
+                Some(Tok::Word(s)) | Some(Tok::Str(s)) => Ok(Some(s.into_owned())),
                 other => Err(SmlError::from_code_title(E_EXT_003).with_detail(format!(
                     "扩展指令 `@{fname}` 的 `name:` 后须值，得 {other:?}"
                 ))),
@@ -480,14 +480,14 @@ impl Parser {
                 ),
                 line: self.line_of(self.i.saturating_sub(1)),
             });
-            return Ok(Some(w));
+            return Ok(Some(w.into_owned()));
         }
         Ok(None)
     }
 
     /// 同 `slice_block_tokens`：`@for` 专用，随 feature `when` 一起编译。
     #[cfg(feature = "when")]
-    fn spawn_for_child(&self, inner: Vec<Tok>, var: &str, item: &str) -> Parser {
+    fn spawn_for_child(&self, inner: Vec<Tok<'a>>, var: &str, item: &str) -> Parser<'a> {
         let mut loop_vars = self.loop_vars.clone();
         loop_vars.insert(var.to_string(), item.to_string());
         Parser {
@@ -551,16 +551,16 @@ impl Parser {
     }
 
     /// Peek at the current token (`pub` only for sibling submodules, not public API) ｜ 前看当前 token。
-    pub fn peek(&self) -> Option<&Tok> {
+    pub fn peek(&self) -> Option<&Tok<'a>> {
         self.toks.get(self.i)
     }
     /// 前看 n 个 token（n=0 等价于 [`Self::peek`]）。
     /// 用于区分「关键字参数 `type:` `name:`」与「恰巧同名的片段名」。
-    fn peek_at(&self, n: usize) -> Option<&Tok> {
+    fn peek_at(&self, n: usize) -> Option<&Tok<'a>> {
         self.toks.get(self.i + n)
     }
     /// Consume and return the current token (`pub` only for sibling submodules, not public API) ｜ 消费并返回当前 token。
-    pub fn next(&mut self) -> Option<Tok> {
+    pub fn next(&mut self) -> Option<Tok<'a>> {
         let t = self.toks.get(self.i).cloned();
         if t.is_some() {
             self.i += 1;
@@ -713,7 +713,7 @@ impl Parser {
                             .with_detail(format!("契约字段 `{key}` 后须有冒号")));
                     }
                     let spec = self.parse_field_spec()?;
-                    fields.insert(key, spec);
+                    fields.insert(key.into_owned(), spec);
                 }
             }
         }
@@ -792,7 +792,7 @@ impl Parser {
                 // 带空格的形式（`x: str ?`）在词法上已是独立 Word，由下面的
                 // 「未知类型」分支与 `parse_contract_body` 的冒号检查拦住（同码）。
                 Self::reject_legacy_modifier_in_type(&w)?;
-                match w.as_str() {
+                match w.as_ref() {
                 "str" => TypeSpec::Str,
                 "int" => TypeSpec::Int,
                 "num" => TypeSpec::Num,
@@ -814,7 +814,7 @@ impl Parser {
                                 self.next();
                             }
                             Some(Tok::Word(s)) | Some(Tok::Str(s)) => {
-                                vals.push(s);
+                                vals.push(s.into_owned());
                                 self.next();
                             }
                             _ => {
@@ -849,7 +849,7 @@ impl Parser {
                         }
                         match self.peek().cloned() {
                             Some(Tok::Word(s)) | Some(Tok::Str(s)) => {
-                                rest = s;
+                                rest = s.into_owned();
                                 self.next();
                             }
                             _ => break,
@@ -888,7 +888,7 @@ impl Parser {
                     Self::reject_legacy_modifier_in_type(w)?;
                 }
                 let inner = match self.next() {
-                    Some(Tok::Word(w)) => match w.as_str() {
+                    Some(Tok::Word(w)) => match w.as_ref() {
                         "str" => TypeSpec::Str,
                         "int" => TypeSpec::Int,
                         "num" => TypeSpec::Num,
@@ -952,7 +952,7 @@ impl Parser {
                 break;
             }
             match self.peek().cloned() {
-                Some(Tok::Word(w)) => match w.as_str() {
+                Some(Tok::Word(w)) => match w.as_ref() {
                     "optional" => {
                         required = false;
                         self.next();
@@ -971,7 +971,7 @@ impl Parser {
                                 &self.ns_prefix(),
                                 Some(&self.env),
                             )?,
-                            Some(Tok::Str(s)) => Value::Str(s),
+                            Some(Tok::Str(s)) => Value::Str(s.into_owned()),
                             other => {
                                 return Err(SmlError::from_code_title(E_PARSE_021).with_detail(format!("default 期望值，得 {other:?}")))
                             }
@@ -1041,7 +1041,7 @@ impl Parser {
             }
             Some(Tok::Str(s)) => {
                 self.next();
-                Ok(Value::Str(s))
+                Ok(Value::Str(s.into_owned()))
             }
             Some(Tok::LBrace) => {
                 self.next();
@@ -1078,7 +1078,7 @@ impl Parser {
     /// [`Parser::run_stack`] 跑到底。`run_stack` 内维护「显式栈容器层数」作为
     /// 深度守卫，任何嵌套深度的原生调用栈成本都是常数 —— 128 层放行 / 129 报
     /// 此码的执行口径与原递归实现逐字符一致。
-    pub(crate) fn parse_block(&mut self, closing: Option<Tok>) -> Result<Value, SmlError> {
+    pub(crate) fn parse_block(&mut self, closing: Option<TokOwned>) -> Result<Value, SmlError> {
         let root = Frame::Block {
             state: BlockFrame {
                 node: self.new_map(),
@@ -1178,7 +1178,7 @@ impl Parser {
             // 均复用裸词，不引入新 token。对齐 JS 实现：js/sml.mjs 同样接受这三个词。
             let mut strictness = Strictness::Strict;
             if let Some(Tok::Word(w)) = self.peek().cloned() {
-                match w.as_str() {
+                match w.as_ref() {
                     "loose" => {
                         strictness = Strictness::Loose;
                         self.next();
@@ -1256,7 +1256,7 @@ impl Parser {
             // 片段定义」——syntax_guard 有专门的回归测试守着这条语义
             //（fragment_named_type_or_name_still_works），故不可抢占。
             let is_type_decl =
-                matches!(self.peek(), Some(Tok::Word(w)) if w.as_str() == "name")
+                matches!(self.peek(), Some(Tok::Word(w)) if w.as_ref() == "name")
                     && matches!(self.toks.get(self.i + 1), Some(Tok::Colon));
             if is_type_decl {
                 self.next(); // 消费 name
@@ -1302,12 +1302,12 @@ impl Parser {
             //   不是契约名 —— 否则同行的键值永远写不了。
             // 行号未知（文件入口 / `@for` 体）⇒ **只收一个词**（旧行为），
             // 宁可少收，不可收错。
-            let mut queue: Vec<(String, usize)> = vec![(raw.clone(), self.i - 1)];
+            let mut queue: Vec<(String, usize)> = vec![(raw.clone().into_owned(), self.i - 1)];
             // 块级严格度覆盖：契约原始名 → 覆盖档。严格度关键字紧跟在某个契约名之后，
             // 即绑定到那个契约（D3）：`@is X loose` / `@is X warn` / `@is X strict`。
             // 例：`@is A warn B` ⇒ A=Warn、B=契约级默认；`@is A B warn` ⇒ A=默认、B=Warn。
             let mut overrides: BTreeMap<String, Strictness> = BTreeMap::new();
-            let mut last_name: Option<String> = Some(raw.clone());
+            let mut last_name: Option<String> = Some(raw.clone().into_owned());
             let mut prev = self.i - 1;
             if !self.lines.is_empty() {
                 loop {
@@ -1329,9 +1329,9 @@ impl Parser {
                                 _ => unreachable!(),
                             };
                             // 紧跟契约名之后的严格度关键字 ⇒ 绑定到上一个契约（块级覆盖）
-                            if matches!(w.as_str(), "loose" | "warn" | "strict") {
+                            if matches!(w.as_ref(), "loose" | "warn" | "strict") {
                                 if let Some(n) = last_name.take() {
-                                    let s = match w.as_str() {
+                                    let s = match w.as_ref() {
                                         "loose" => Strictness::Loose,
                                         "warn" => Strictness::Warn,
                                         _ => Strictness::Strict,
@@ -1350,8 +1350,8 @@ impl Parser {
                             }
                             self.next();
                             prev = idx;
-                            queue.push((w.clone(), idx));
-                            last_name = Some(w);
+                            queue.push((w.clone().into_owned(), idx));
+                            last_name = Some(w.into_owned());
                         }
                         _ => break,
                     }
@@ -1475,14 +1475,14 @@ impl Parser {
                         }
                     }
                     let spec = self.parse_field_spec()?;
-                    fields.insert(fkey, spec);
+                    fields.insert(fkey.into_owned(), spec);
                 }
                 Some(fields)
             } else {
                 None
             };
             *pending_weakbind = Some(PendingWeak {
-                name,
+                name: name.into_owned(),
                 body,
                 line: self.line_of(name_idx),
             });
@@ -1519,7 +1519,7 @@ impl Parser {
             }
             self.weak_docs.push(WeakDoc {
                 path: self.path_stack.clone(),
-                name,
+                name: name.into_owned(),
                 line: self.line_of(name_idx),
             });
             return Ok(());
@@ -1549,7 +1549,7 @@ impl Parser {
             let value = self.parse_block(Some(Tok::RBrace))?;
             let entry = WeakData {
                 path: self.path_stack.clone(),
-                name,
+                name: name.into_owned(),
                 value,
                 line: self.line_of(name_idx),
             };
@@ -1599,13 +1599,13 @@ impl Parser {
                     return Err(SmlError::from_code_title(E_PARSE_020)
                         .with_detail(format!("片段 `@{fname}` 的 `type:` 参数重复")));
                 }
-                ftype = Some(val);
+                ftype = Some(val.into_owned());
             } else {
                 if farg.is_some() {
                     return Err(SmlError::from_code_title(E_PARSE_020)
                         .with_detail(format!("片段 `@{fname}` 的 `name:` 参数重复")));
                 }
-                farg = Some(val);
+                farg = Some(val.into_owned());
             }
         }
         // 既非 `{` 也非流末尾：既可能是拼错的指令，也可能是旧的位置参数形式。
@@ -1832,8 +1832,10 @@ impl Parser {
                 };
                 if let Some(cl) = &frame.closing {
                     // 原判据是 `*cl == tok`（同符号即匹配）；不克隆 ⇒ 比判别式
-                    let same = std::mem::discriminant(cl)
-                        == std::mem::discriminant(self.peek().unwrap());
+                    let same = matches!(
+                        (cl, self.peek().unwrap()),
+                        (Tok::RBrace, Tok::RBrace) | (Tok::RBrack, Tok::RBrack)
+                    );
                     if same {
                         self.next();
                         return Ok(Step::Finish);
@@ -1991,7 +1993,7 @@ impl Parser {
                             return Ok(Step::Continue);
                         }
                         // 同名冲突 -> 提升为数组（静默改数据：SML 既定语义，改告警）。
-                        self.insert_field_val(&mut frame.node, key, key_idx, val);
+                        self.insert_field_val(&mut frame.node, key.into_owned(), key_idx, val);
                         return Ok(Step::Continue);
                     }
                     // 子容器：交给显式栈（`Cont::Field` 已携带 key/key_idx/when）。
@@ -2091,7 +2093,7 @@ impl Parser {
 
     /// 块内错误恢复：跳到「同层的新字段（`Word/Str` 紧跟 `:`）」/ `@` 指令 /
     /// 本帧闭合 `}` / EOF；同步点本身**不消费**，交给下一轮正常处理。
-    fn recover_block(toks: &[Tok], i: &mut usize) {
+    fn recover_block(toks: &[Tok<'_>], i: &mut usize) {
         let mut depth: i32 = 0;
         let mut k = *i;
         while let Some(tok) = toks.get(k) {
@@ -2124,7 +2126,7 @@ impl Parser {
     }
 
     /// 数组内错误恢复：跳到本帧闭合 `]` 或同层 `,`（消费逗号，作为下一元素起点）。
-    fn recover_array(toks: &[Tok], i: &mut usize) {
+    fn recover_array(toks: &[Tok<'_>], i: &mut usize) {
         let mut depth: i32 = 0;
         let mut k = *i;
         while let Some(tok) = toks.get(k) {
@@ -2532,7 +2534,7 @@ impl Parser {
     /// 解释（段类型、越界等）仍归 `Path` / `write_target`，两件事别混。
     fn take_featag_target_text(&mut self, name: &str) -> Result<String, SmlError> {
         let mut raw = match self.next() {
-            Some(Tok::Word(s)) | Some(Tok::Str(s)) => s,
+            Some(Tok::Word(s)) | Some(Tok::Str(s)) => s.into_owned(),
             other => {
                 return Err(SmlError::from_code_title(E_CONTRACT_020)
                     .with_detail(format!("`{name}` 的 `->` 后须落点，得 {other:?}")))
@@ -2564,7 +2566,7 @@ impl Parser {
                 }
                 // `rules[0].name`：`.` 开头的词紧跟在 `]` 之后 ⇒ 仍属于本落点
                 Some(Tok::Word(w)) if w.starts_with('.') && raw.ends_with(']') => {
-                    let w = w.clone();
+                    let w = w.clone().into_owned();
                     raw.push_str(&w);
                     self.next();
                 }
@@ -2881,7 +2883,7 @@ impl Parser {
                 }
                 Tok::Str(_) => {
                     if let Some(Tok::Str(s)) = self.next() {
-                        args.push(Value::Str(s));
+                        args.push(Value::Str(s.into_owned()));
                     }
                 }
                 _ => break,
@@ -2946,7 +2948,7 @@ impl Parser {
                     self.next(); // 名字本身不带 `!`，靠 `[` 与块名区分
                     self.next(); // 越过的 `[`（`parse_array` 的既有约定）
                     let mut item = self.new_map();
-                    item.insert("name".into(), Value::Str(w));
+                    item.insert("name".into(), Value::Str(w.into_owned()));
                     // 显式写了 `[]` 就保留空数组：`obey[]` 与「没有参数槽」是两回事
                     item.insert("args".into(), self.parse_array()?);
                     items.push(Value::Object(item));
@@ -3033,7 +3035,7 @@ impl Parser {
             }
             Some(&Tok::Str(_)) => {
                 if let Some(Tok::Str(s)) = self.next() {
-                    arr.push(Value::Str(s));
+                    arr.push(Value::Str(s.into_owned()));
                 }
                 Ok(Step::Continue)
             }

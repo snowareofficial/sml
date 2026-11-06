@@ -4,6 +4,7 @@
 //! 与 [`crate`]（指令解析）分开，是因为这部分要读文件系统、递归展开，
 //! 且受 `MAX_INCLUDE_DEPTH` / `MAX_INCLUDE_EXPANSIONS` 双重限深保护。
 
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
 use sml_codes::{
@@ -12,7 +13,7 @@ use sml_codes::{
 };
 use sml_feature::{Feature, FeatureSet};
 use sml_lex::{
-    Span, Tok, advance_line, compute_block_comment_spans, compute_string_spans,
+    Span, Tok, TokOwned, advance_line, compute_block_comment_spans, compute_string_spans,
     line_starts_in_string, tokenize, tokenize_spans,
 };
 
@@ -44,13 +45,13 @@ use crate::{
 ///
 /// ⚠️ 本函数**丢掉 span**：展开后的 token 来自多个文件，没有可映射的单一原文。
 /// 需要错误定位请用 [`resolve_includes_spans`]（它在「整篇无 include」时才给 span）。
-pub fn resolve_includes(
-    text: &str,
+pub fn resolve_includes<'a>(
+    text: &'a str,
     base: &Path,
     features: FeatureSet,
-) -> Result<Vec<Tok>, SmlError> {
+) -> Result<Vec<Tok<'a>>, SmlError> {
     let mut stack: Vec<PathBuf> = Vec::new();
-    let mut toks: Vec<Tok> = Vec::new();
+    let mut toks: Vec<Tok<'a>> = Vec::new();
     let mut expansions: u64 = 0;
     expand_includes(text, base, &mut stack, features, &mut toks, &mut expansions)?;
     Ok(toks)
@@ -64,11 +65,11 @@ pub fn resolve_includes(
 ///
 /// 判据与 [`expand_includes`] 的快速路径一致：无 include ⇒ 展开是恒等操作，
 /// 直接整篇 `tokenize_spans`，避免「展开 + 再补位置」重复词法。
-pub fn resolve_includes_spans(
-    text: &str,
+pub fn resolve_includes_spans<'a>(
+    text: &'a str,
     base: &Path,
     features: FeatureSet,
-) -> Result<(Vec<Tok>, Option<Vec<Span>>), SmlError> {
+) -> Result<(Vec<Tok<'a>>, Option<Vec<Span>>), SmlError> {
     let string_spans = compute_string_spans(text);
     let mut has_include = false;
     for seg in segments(text, &string_spans) {
@@ -87,12 +88,12 @@ pub fn resolve_includes_spans(
 
 /// Recursively expand includes into the `out` token stream (the worker behind [`resolve_includes`]) ｜ 递归展开 include 到 `out` token 流。
 /// `expansions` 为「全局已展开文件计数」，用于防御指数膨胀 DoS（同一文件被多处包含仍计数）。
-pub fn expand_includes(
-    text: &str,
+pub fn expand_includes<'a>(
+    text: &'a str,
     base: &Path,
     stack: &mut Vec<PathBuf>,
     features: FeatureSet,
-    out: &mut Vec<Tok>,
+    out: &mut Vec<Tok<'a>>,
     expansions: &mut u64,
 ) -> Result<(), SmlError> {
     if stack.len() >= MAX_INCLUDE_DEPTH {
@@ -202,7 +203,7 @@ pub fn expand_includes(
                         // 命名空间包含：用 `ns { ... }` 包裹子文件 tokens（零拷贝）
                         if let Some(ns) = &t.namespace {
                             for seg in ns.split('.') {
-                                out.push(Tok::Word(seg.to_string()));
+                                out.push(Tok::Word(Cow::Owned(seg.to_string())));
                                 out.push(Tok::LBrace);
                             }
                             out.extend(inner);
@@ -279,9 +280,9 @@ fn segments<'a>(text: &'a str, string_spans: &[(usize, usize)]) -> Vec<&'a str> 
 /// 用于 `import "x" { a, b }` 部分引用：避免整文件内联。
 ///
 /// （原文档前两行讲的是「读文件 + 剥 `@version`」，属另一个函数，早已错挂在此 —— 2026-11-02 删除。）
-pub fn filter_top_level_keys(toks: Vec<Tok>, keys: &[String]) -> Vec<Tok> {
+pub fn filter_top_level_keys<'a>(toks: Vec<Tok<'a>>, keys: &[String]) -> Vec<Tok<'a>> {
     let key_set: std::collections::HashSet<&str> = keys.iter().map(|s| s.as_str()).collect();
-    let mut out: Vec<Tok> = Vec::with_capacity(toks.len());
+    let mut out: Vec<Tok<'a>> = Vec::with_capacity(toks.len());
     let mut i = 0;
     let n = toks.len();
     while i < n {
@@ -354,7 +355,7 @@ pub fn filter_top_level_keys(toks: Vec<Tok>, keys: &[String]) -> Vec<Tok> {
         } else {
             i + 1
         };
-        if key_set.contains(key_name.as_str()) {
+        if key_set.contains(key_name.as_ref()) {
             for t in &toks[i..j] {
                 out.push(t.clone());
             }
@@ -380,7 +381,7 @@ pub fn expand_file_tokens(
     stack: &mut Vec<PathBuf>,
     features: FeatureSet,
     expansions: &mut u64,
-) -> Result<Vec<Tok>, SmlError> {
+) -> Result<Vec<TokOwned>, SmlError> {
     // 子文件也可能带 **UTF-8 BOM**（记事本「另存为 UTF-8」）：不去掉的话，
     // 它的第一个键名会变成 `\u{feff}x`。
     // 主文件那条路由 `sml-parse::scan::strip_version` 收口（文本入口的唯一漏斗），
@@ -406,7 +407,8 @@ pub fn expand_file_tokens(
         .join("\n");
     let mut toks = Vec::new();
     expand_includes(&cleaned, base, stack, features, &mut toks, expansions)?;
-    Ok(toks)
+    // `cleaned` 是本函数造出来的临时 String：token 必须脱离它才能返回。
+    Ok(toks.into_iter().map(Tok::into_owned).collect())
 }
 
 #[cfg(test)]
