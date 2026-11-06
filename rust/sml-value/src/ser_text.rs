@@ -87,7 +87,7 @@ fn render_scalar(n: &Node) -> String {
         Node::Bool(b) => b.to_string(),
         Node::Int(i) => i.to_string(),
         Node::Float(f) => format_float(*f, None),
-        Node::Str(s) => quote_if_needed(s),
+        Node::Str(s) => quote_if_needed(s).into_owned(),
         // `dump_scalar` 的兜底：容器不会走到这里
         Node::Array(_) | Node::Object(_) => String::new(),
     }
