@@ -327,6 +327,28 @@ impl Object {
         self.index_insert(slot);
     }
 
+    /// Same as [`Object::insert_or_merge`], but **takes ownership of the key**.
+    /// 同 [`Object::insert_or_merge`]，但**接管键的所有权**。
+    ///
+    /// Parser already owns a `String` for every field; the borrowed variant had to copy it
+    /// into a `Box<str>` (`to_string()` + `into_boxed_str()` = one copy and often a realloc).
+    /// Here the buffer is converted directly. `merge` also receives the stored key so the
+    /// caller can build diagnostics without keeping a second copy alive.
+    /// ｜ 解析器本来就持有 `String`：借用版要复制一遍，这里直接转 `Box<str>`。
+    pub fn insert_or_merge_owned<F>(&mut self, key: String, value: Value, merge: F)
+    where
+        F: FnOnce(&str, &mut Value, Value),
+    {
+        if let Some(i) = self.position_of(&key) {
+            let e = &mut self.entries[i];
+            merge(&e.key, &mut e.value, value);
+            return;
+        }
+        let slot = self.entries.len();
+        self.entries.push(Entry { key: key.into_boxed_str(), value });
+        self.index_insert(slot);
+    }
+
     /// Remove a key and return its value; later keys shift left, so the whole index is discarded ｜ 删键并返回其值；其后的键位置前移，故整张索引作废。
     pub fn remove(&mut self, key: &str) -> Option<Value> {
         let i = self.position_of(key)?;

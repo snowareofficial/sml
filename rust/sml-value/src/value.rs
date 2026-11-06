@@ -157,6 +157,19 @@ where
     m.insert_or_merge(key, value, merge)
 }
 
+/// Owned-key variant of [`insert_or_merge`]: the parser's dedicated path.
+/// [`insert_or_merge`] 的接管所有权版本：解析器专用。
+///
+/// `merge` receives the **stored** key, so diagnostics need no second copy of the name.
+/// ｜ `merge` 拿到的是已存入的键，诊断文案不必再留一份拷贝。
+#[inline]
+pub fn insert_or_merge_owned<F>(m: &mut Map, key: String, value: Value, merge: F)
+where
+    F: FnOnce(&str, &mut Value, Value),
+{
+    m.insert_or_merge_owned(key, value, merge)
+}
+
 impl Value {
     /// Order-sensitive equality: objects must also have the same key order ｜ 顺序敏感相等（§6.1）：逐层比较，对象要求**键序也相同**。
     ///

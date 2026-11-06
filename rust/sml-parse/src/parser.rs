@@ -28,7 +28,7 @@ use sml_lex::{Span, Tok, coerce_word, lookup_env};
 // `Map` = `Value::Object` 的载体（默认 `BTreeMap`；`preserve_order` 档是保序 `Object`，
 // 迭代序 == 源序）。解析器里凡是「正在收集的块字段表」都必须是 `Map` —— 它是
 // 保序的**唯一真相源**；`fragments` / `types` / `contracts` 是普通表，仍是 `BTreeMap`。
-use sml_value::{insert_or_merge, Map, MAX_VALUE_DEPTH, Value};
+use sml_value::{insert_or_merge_owned, Map, MAX_VALUE_DEPTH, Value};
 
 use crate::contract_bridge::{apply_contract, apply_contracts};
 use crate::contract_map::{ContractMap, PathSeg};
@@ -2702,12 +2702,12 @@ impl Parser {
     /// 把一条字段值写入父块节点，含「同名冲突 → 提升为数组」的既定语义
     /// （静默改数据：SML 既定语义，改为告警）。
     ///
-    /// ⚠️ 走 `Map::insert_or_merge` 而**不是** `get_mut` + `insert`：后者是两次查找
+    /// ⚠️ 走 `Map::insert_or_merge_owned` 而**不是** `get_mut` + `insert`：后者是两次查找
     /// （`BTreeMap::insert` 只查一次），保序档下实测多花约 30% 解析时间。
     /// 冲突分支里也**原地**改写（`remove` + `insert` 会把键挪到尾部，
     /// 那是把实现细节泄漏成了行为差异）。
     fn insert_field_val(&mut self, node: &mut Map, key: String, key_idx: usize, val: Value) {
-        insert_or_merge(node, &key, val, |existing, val| {
+        insert_or_merge_owned(node, key, val, |key, existing, val| {
             let msg = match existing {
                 Value::Array(a) => format!(
                     "sml: 键 `{key}` 在同一块内再次出现，已追加进既有数组\
