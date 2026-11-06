@@ -208,3 +208,6 @@ examples/micro/CH32V103xx.sml
 /c/libamberice_ffi.dll.a
 # root dist/ (packaging output; packaging/dist/ is already ignored)
 /dist/
+
+# root build/ (cross-language check artifacts)
+/build/
