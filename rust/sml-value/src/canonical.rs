@@ -752,7 +752,12 @@ impl Value {
     /// 编码一次，交出三块：表项个数、表体、节点体。
     fn encode_blocks(&self) -> Result<(usize, Vec<u8>, Vec<u8>), CanonicalError> {
         let mut tab = StrTab::default();
-        let mut nodes = Vec::with_capacity(64);
+        // 两趟编码：第一趟只计数（同时把字符串表建好），第二趟按精确容量写字节。
+        // 这样 `nodes` 不再从 64 B 起翻倍增长 —— 那正是 792 KiB 高水位的来源。
+        // ｜ Two passes: count (and build the string table), then encode into an exact buffer.
+        let mut counter = Counter(0);
+        encode_node(self, &mut counter, &mut tab, 0)?;
+        let mut nodes = Vec::with_capacity(counter.0);
         encode_node(self, &mut nodes, &mut tab, 0)?;
         // 编码完成后 `ids` 就没用了（后面只按 `table` 顺序写表体）。
         // 先释放它：否则这张 HashMap 会与 `strtab` / `out` 同时占着高水位。
@@ -826,9 +831,9 @@ impl<'a> StrTab<'a> {
 
 /// Write one node: reserve `subtree_len`, backfill it after the children are written (§19.2).
 /// 写一个节点：先占位 `subtree_len`，子节点写完后回填。
-fn encode_node<'a>(
+fn encode_node<'a, S: NodeSink>(
     v: &'a Value,
-    out: &mut Vec<u8>,
+    out: &mut S,
     tab: &mut StrTab<'a>,
     depth: usize,
 ) -> Result<(), CanonicalError> {
@@ -906,7 +911,7 @@ fn encode_node<'a>(
     if payload_len > MAX_SUBTREE_LEN {
         return Err(CanonicalError::SubtreeTooLarge { len: payload_len });
     }
-    out[len_at..len_at + 4].copy_from_slice(&(payload_len as u32).to_le_bytes());
+    out.patch_len(len_at, payload_len as u32);
     Ok(())
 }
 
@@ -931,7 +936,56 @@ fn unzigzag(z: u64) -> i64 {
     ((z >> 1) as i64) ^ -((z & 1) as i64)
 }
 
-fn write_uvarint(out: &mut Vec<u8>, mut v: u64) {
+/// Node-byte sink: either a real `Vec<u8>` or a pass that only counts bytes.
+/// 节点字节的去处：真实缓冲，或只计数的第一趟。
+trait NodeSink {
+    fn len(&self) -> usize;
+    fn push(&mut self, b: u8);
+    fn extend_from_slice(&mut self, b: &[u8]);
+    fn patch_len(&mut self, at: usize, n: u32);
+}
+
+impl NodeSink for Vec<u8> {
+    #[inline]
+    fn len(&self) -> usize {
+        Vec::len(self)
+    }
+    #[inline]
+    fn push(&mut self, b: u8) {
+        Vec::push(self, b);
+    }
+    #[inline]
+    fn extend_from_slice(&mut self, b: &[u8]) {
+        Vec::extend_from_slice(self, b);
+    }
+    #[inline]
+    fn patch_len(&mut self, at: usize, n: u32) {
+        self[at..at + 4].copy_from_slice(&n.to_le_bytes());
+    }
+}
+
+/// First-pass sink: no allocation, only the exact byte count.
+/// 第一趟的去处：不分配，只累计精确字节数。
+struct Counter(usize);
+
+impl NodeSink for Counter {
+    #[inline]
+    fn len(&self) -> usize {
+        self.0
+    }
+    #[inline]
+    fn push(&mut self, _b: u8) {
+        self.0 += 1;
+    }
+    #[inline]
+    fn extend_from_slice(&mut self, b: &[u8]) {
+        self.0 += b.len();
+    }
+    #[inline]
+    fn patch_len(&mut self, _at: usize, _n: u32) {}
+}
+
+fn write_uvarint<S: NodeSink>(out: &mut S, mut v: u64) {
     loop {
         let byte = (v & 0x7f) as u8;
         v >>= 7;
