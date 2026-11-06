@@ -75,6 +75,18 @@ cargo bench --bench profile --features amberice -- --quick
 
 > ⚠️ `--features amberice` 会连带打开 `preserve_order`，本表 parse 是**保序档**；默认档数字看 `benches/perf.rs`，两者不可直接相减。
 
+## 1.2 阶段 1 进度（2026-11-06）
+
+| 项 | 状态 | 实测（确定性指标：allocs / 峰值堆） |
+|---|---|---|
+| **E1** `to_sml` 预分配 + `quote_if_needed` 改 `Cow<str>` | ✅ `63f52a8` | `flat@4000 to_sml` allocs **12,016 → 2**；`canonical_text` **8,015 → 15**；`small to_sml` 66 → 38；峰值 128.3 → 125.3 KiB |
+| **E2** canonical/STRTAB 精确预分配 | ✅ 部分 `5ef6f53` | `flat@4000 canonical_bytes` allocs **51 → 38（−25%）**；`small` 15 → 12；`deep@120` 25 → 20；**峰值仍 792 KiB** |
+| P1 / P2 / P3 | 未做 | — |
+
+E2 的峰值没降，原因与两种被否决的做法都写进了提交说明：遍历式容量 hint 让 `deep@120` allocs 25 → 127；顶层估算让峰值涨到 853 KiB。根因是 `nodes` Vec 从 64 B 起翻倍增长，**要降到 ≤1.2× 输出必须改成「先计数、再编码」的两趟编码器**，归阶段 2。
+
+> ⚠️ 本轮所有**时间**列都受整机噪声污染（同期未改动的 `perf` 基准 `small parse` 从 8,528 ns 变成 19,517 ns，约 2.3×），因此阶段 1 只用 **allocs / 峰值堆**判定；时间数字待噪声消退后重跑再写回基线。
+
 ---
 
 ## 2. 优化目录（按层，编号即排期单位）
