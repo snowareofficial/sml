@@ -2225,6 +2225,10 @@ entries = (var_id:varint, type_id:u64le, off:u32le, len:u32le)
 
 - **DIR**：沿用已注册的 `dir`（`caps_optional`），语义是「索引存在，不认就忽略」；
 - **TYPED**：**不新增 cap 名**。理由：`VALUE` 必写 ⇒ 不认 TYPED 的读取方本来就能读出全部值；用 `info` 列出段名（`TYPED` / `SCHEMA`）即可告知「本文件还带 typed 载荷」。
+- **加密一致性（D5 裁决丙，2026-11-06）**：加密文件里除 `MANIFEST` 外**每段都必须加密**；
+  出现明文段 ⇒ 拒读（`PlaintextSegmentInEncryptedFile`）；明文文件里出现加密段 ⇒ 同样拒读。
+  代价：加密文件里的 `DIR`/`TYPED` 是密文，`Store::get` 用不上索引 —— 安全优先于速度。
+  「白名单声明不加密的段」需要一个自描述位（建议段头 `flags` 位 0），**尚未实现**。
 - 不新增 cap 也意味着**不需要改 `registered_capabilities()`**，不产生「声明了却没人认」的假能力。
 
 ### 25.7 状态

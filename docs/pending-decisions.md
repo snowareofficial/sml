@@ -78,3 +78,19 @@ VPS 半边留 `TODO(用户补事实)` 注释，不猜目标。
 - **T43「动不动 C++」**：已在 `TODO.md:1181` 标 ✋；默认路径 = 不动 C++，用例保持 DIVERGE 并在台账注明。
 - **T06 / T11 / T48（Lua 三项）**：已定「先不动 Lua」，不重复登记。
 - **T22–T26 / T30 / T14 / T49**：都是「只有你能点的按钮」，属操作而非裁决，列在 `docs/todo-ideas-tables.md` 的「卡在谁 = 用户」。
+
+---
+
+## D5 · 加密文件里的 `DIR` / `TYPED`（**已裁决：丙**，2026-11-06）
+
+**裁决**：丙 —— 加密状态必须自洽，宁可拒读也不猜。
+
+**已实现**（`rust/amberice/src/container.rs`）：
+- 加密文件：除 `MANIFEST` 外每段必须 `enc != 0`，否则 `PlaintextSegmentInEncryptedFile`；
+- 明文文件：出现 `enc != 0` 的段，否则 `EncryptedSegmentInPlainFile`；
+- `DIR` 已并入 seal/加密流水线；加密文件里它是密文，`Store::get` 用不上索引（安全优先于速度）。
+
+**白名单（你问的「声明不加密的段」）—— 能，但还没做**，缺一个自描述声明位：
+- 候选甲：段头 `flags` 位 0 = 「本段声明明文」（逐段自描述，不动 manifest）；
+- 候选乙：manifest 加 `crypto.plain_segs` 列表（集中，但要改 manifest 布局）。
+建议甲。确认后实现，`DumpOptions` 加 `crypto_plain: Vec<u8>`，读端按声明校验。

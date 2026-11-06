@@ -303,6 +303,18 @@ pub enum ContainerError {
         /// The missing id ｜ 缺的 id。
         seg_id: u8,
     },
+    /// An encrypted file carries a plaintext segment that is not `MANIFEST` (D5 ruling 丙).
+    /// 加密文件里出现了未加密、又不是 `MANIFEST` 的段（D5 裁决丙）。
+    PlaintextSegmentInEncryptedFile {
+        /// The offending segment ｜ 违规的段。
+        seg_id: u8,
+    },
+    /// A plaintext file carries an encrypted segment — the manifest does not say it is encrypted.
+    /// 明文文件里出现了加密段，而 manifest 并未声明加密。
+    EncryptedSegmentInPlainFile {
+        /// The offending segment ｜ 违规的段。
+        seg_id: u8,
+    },
     /// `TYPED` (0x70) failed to build or decode ｜ `TYPED` 段构建/解码失败。
     Typed(String),
     /// `DIR` (0x03) failed to build ｜ `DIR` 段构建失败。
@@ -512,6 +524,8 @@ impl ContainerError {
             ContainerError::DuplicatePayloadName { .. } => "duplicate-payload-name",
             ContainerError::PayloadNotFound { .. } => "payload-not-found",
             ContainerError::PayloadTableMismatch { .. } => "payload-table-mismatch",
+            ContainerError::PlaintextSegmentInEncryptedFile { .. } => "plaintext-in-encrypted",
+            ContainerError::EncryptedSegmentInPlainFile { .. } => "encrypted-in-plaintext",
             ContainerError::Typed(_) => "typed",
             ContainerError::Dir(_) => "dir",
         }
@@ -665,6 +679,14 @@ impl std::fmt::Display for ContainerError {
             ContainerError::PayloadTableMismatch { name, field } => {
                 write!(f, "载荷 `{name}` 的 `{field}` 与 EMBED 段体不一致")
             }
+            ContainerError::PlaintextSegmentInEncryptedFile { seg_id } => write!(
+                f,
+                "加密文件里段 0x{seg_id:02x} 是明文：只有 MANIFEST 允许不加密（D5 裁决丙）"
+            ),
+            ContainerError::EncryptedSegmentInPlainFile { seg_id } => write!(
+                f,
+                "明文文件里段 0x{seg_id:02x} 标了加密，但 manifest 的 crypto.enc 是 0"
+            ),
             ContainerError::Typed(msg) => write!(f, "TYPED 段：{msg}"),
             ContainerError::Dir(msg) => write!(f, "DIR 段：{msg}"),
         }
@@ -918,6 +940,11 @@ fn dump_sealed(
     if !blocks.strtab.is_empty() {
         segs.push((SEG_STRTAB, blocks.strtab));
     }
+    // DIR 必须走同一条 seal/加密流水线：加密文件里它也得是密文（D5 裁决丙）。
+    // 加密时读端用不了它（见 Store::dir_view），这是有意的：安全优先于速度。
+    if let Some(body) = dir_body {
+        segs.push((SEG_DIR, body));
+    }
 
     let sealed = seal(segs, opts)?;
 
@@ -936,13 +963,6 @@ fn dump_sealed(
         }
         out
     };
-
-    // DIR（N05）：派生索引，明文、放在加密循环之外 —— 读端要能直接查，不必先解密。
-    // 段顺序 0x03 落在 STRTAB(0x02) 之后、MANIFEST(0x04) 之前，段表仍按 id 升序。
-    let mut sealed = sealed;
-    if let Some(body) = dir_body {
-        sealed.push((SEG_DIR, 0, body, false));
-    }
 
     let mut manifest = build_manifest(primary, &sealed, &[], opts)?;
     if opts.dir && !manifest.caps_optional.iter().any(|c| c == "dir") {
@@ -1916,6 +1936,27 @@ pub(crate) fn open_raw<'a>(bytes: &'a [u8], verify: bool) -> Result<RawParts<'a>
         }
     }
     let algo = manifest.as_ref().map(|m| m.hash).unwrap_or(hash::DEFAULT);
+
+    // D5（裁决丙，2026-11-06）：加密状态必须自洽，宁可拒绝也不猜。
+    // · 加密文件：除 MANIFEST 外每段都必须 enc != 0（明文旁路段一律拒）；
+    // · 明文文件：不允许出现 enc != 0 的段（manifest 的 crypto.enc 是 0）。
+    // ｜ D5 (ruling C): an encrypted file must encrypt every segment but MANIFEST.
+    let file_encrypted = manifest.as_ref().map(|m| m.crypto_enc != 0).unwrap_or(false);
+    for seg in &info.segments {
+        if seg.header.seg_id == SEG_MANIFEST {
+            continue;
+        }
+        if file_encrypted && seg.header.enc == 0 {
+            return Err(ContainerError::PlaintextSegmentInEncryptedFile {
+                seg_id: seg.header.seg_id,
+            });
+        }
+        if !file_encrypted && seg.header.enc != 0 {
+            return Err(ContainerError::EncryptedSegmentInPlainFile {
+                seg_id: seg.header.seg_id,
+            });
+        }
+    }
 
     let mut value: Option<&[u8]> = None;
     let mut frames: Option<&[u8]> = None;
