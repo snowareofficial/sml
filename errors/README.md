@@ -59,7 +59,7 @@ E - CONTRACT - 002
   它只回答「各端报不报这个错、报得一样不一样」。
 - **「同一条件多端同码」现在可断言到五端**：Rust ↔ JS ↔ C ↔ C++ ↔ Lua 各有一份
   「触发条件 → 期望码」的用例（`rust/tests/error_codes.rs`、`js/probe-error-codes.mjs`、
-  `c/test_codes.c`、`cpp/test_codes.cpp`、`lua/test_codes.lua`），互不相交的部分按实现
+  `c/tests/test_codes.c`、`cpp/tests/test_codes.cpp`、`lua/test_codes.lua`），互不相交的部分按实现
   结构差异豁免，**交集部分逐一同码**。
 - **Lua 的实现面本来就窄**（不是 W10 造成的），**但 W20 两个阶段已把它补齐**：
   一阶段补契约（`@contract` / `@is` + 默认值回填），二阶段补 include（沙箱根、链栈环检测、

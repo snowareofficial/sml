@@ -612,11 +612,11 @@ local function test_positive_controls()
 end
 
 -- ------------------------------------------------------------------
--- 语法 / 词法：W16（把静默改成报错的一批；见 TASK-agent.md / c/test_codes.c）
+-- 语法 / 词法：W16（把静默改成报错的一批；见 TASK-agent.md / c/tests/test_codes.c）
 -- ------------------------------------------------------------------
 -- 每条新增的严格性都配**正对照**：把静默改成报错，最大的风险是误伤合法文档，
 -- 只测「应当失败」的一半会看不出误伤。期望值与 Rust / JS / C 逐字同码
--- （见 rust/tests/error_codes.rs、js/probe-error-codes.mjs、c/test_codes.c）。
+-- （见 rust/tests/error_codes.rs、js/probe-error-codes.mjs、c/tests/test_codes.c）。
 local function test_w16_codes()
   io.write("[LEX / W16]\n")
   expect_code("未闭合字符串", "k: \"abc\n", "E-LEX-001")

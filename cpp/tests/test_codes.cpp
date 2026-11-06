@@ -837,7 +837,7 @@ static void test_err_null_safe() {
 }
 
 // ------------------------------------------------------------------
-// W16：把静默改成报错的一批（见 TASK-agent.md / c/test_codes.c）。
+// W16：把静默改成报错的一批（见 TASK-agent.md / c/tests/test_codes.c）。
 // 每条严格性都配**正对照**：把静默改成报错，最大的风险是误伤合法文档，
 // 只测「应当失败」的一半会看不出误伤。期望值与 Rust / JS / Lua / C 逐字同码。
 static void test_w16_codes() {
