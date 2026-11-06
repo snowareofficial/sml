@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! `applies_to` 提示（`docs/smlex-format-draft.md` §3.1）：**只提示、不自动挂**。
+//! `applies_to` 提示（`docs/swsml/spec/smlex.md` §3.1）：**只提示、不自动挂**。
 //!
 //! 钉三件事：
 //! 1. `glob` 命中且没被引用 ⇒ `I-LINT-001` 提示，退出码仍是 0；

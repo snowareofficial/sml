@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 //! `--resolve-profiles` 的验收：`@weakdoc` 的名字落到具体 `.smlex` 文件上。
 //!
-//! 钉四件事（`docs/weakdoc-spec-draft.md` §3）：
+//! 钉四件事（`docs/swsml/spec/weakdoc.md` §3）：
 //! 1. **项目级**：自输入文件所在目录**向上**找 `.smlex/profiles/`；
 //! 2. **显式目录优先**：`--profile-dir` 命中就不再看后面几层；
 //! 3. **`--no-profiles`** 关掉三命名空间发现；

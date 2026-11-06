@@ -1,5 +1,5 @@
 # 内置契约表样例：只用于 `--dump-builtins` 的验收（不进产品路径）。
-# 形状对齐 docs/weakbind-spec-draft.md §6.2。
+# 形状对齐 docs/swsml/spec/weakbind.md §6.2。
 @contract tls {
     host: str required
     port: int optional

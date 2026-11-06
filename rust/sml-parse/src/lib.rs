@@ -37,7 +37,7 @@ pub use parser::Parser;
 pub use scan::strip_version;
 
 // 转发依赖 crate 的公共类型，使下游只需 `sml_parse::`
-// `Version` 是 `Edition` 的别名（2026-11-04 改名，`docs/version-naming.md` V1）
+// `Version` 是 `Edition` 的别名（2026-11-04 改名，`docs/swsml/spec/version.md` V1）
 pub use sml_feature::{Edition, Feature, FeatureSet, Version};
 pub use sml_include::{IncludeTarget, compile_regex, regex_matches};
 pub use sml_lex::{Tok, TokOwned, coerce_word, tokenize};

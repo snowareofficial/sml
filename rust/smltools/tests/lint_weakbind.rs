@@ -3,7 +3,7 @@
 //!
 //! `W-LINT-002`「契约定义从未被应用」专门抓「定义了契约却没人 `@is`」。若 `@weakbind`
 //! 被当成契约定义，每一处弱绑定都会吃一条假告警 —— 功能一落地就是噪音制造机
-//! （`docs/weakbind-spec-draft.md` §4 末尾那条「连带必须改」）。
+//! （`docs/swsml/spec/weakbind.md` §4 末尾那条「连带必须改」）。
 
 use std::io::Write;
 use std::process::{Command, Stdio};

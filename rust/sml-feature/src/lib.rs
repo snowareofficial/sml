@@ -6,7 +6,7 @@
 //! - [`Feature`] / [`FeatureSet`] — capability bits and bitmask sets; ｜ 能力位与位掩码集合；
 //! - [`FEATURES`] / [`EDITIONS`] — 特性表与版本登记表（一行同时承载数字 / 代号 / 状态 / **功能集**）。
 //!
-//! ⚠️ **版本之间没有大小关系**（`docs/version-naming.md` v1.0）：版本号只是「一整套默认特性位」的名字，
+//! ⚠️ **版本之间没有大小关系**（`docs/swsml/spec/version.md` v1.0）：版本号只是「一整套默认特性位」的名字，
 //! 判据永远是「这个特性在不在这套功能集里」，所以本类型**不实现 `Ord`**。
 //!
 //! 刻意**不**包含 `@version`/`@feature` 的**扫描**：那部分需要 `Tok`
@@ -122,7 +122,7 @@ pub enum Feature {
     /// `!featag` 语法（`wea !critical obey[1,2] { }`）—— **第一个带域名**的特性。
     ///
     /// 文档里写作 `@feature enable type.featag`（`<域>.<名>`，最多两段，见
-    /// `docs/feature-namespace-plan.md` §3 / N4）。老特性一律保持平铺，**不给** `type.xxx` 别名（N2）。
+    /// `docs/swsml/spec/features.md` §3 / N4）。老特性一律保持平铺，**不给** `type.xxx` 别名（N2）。
     ///
     /// **当前状态（2026-11-04）**：位已注册（默认关、不在 `baseline()`、不进任何 [`Edition`]
     /// 的功能集）。S2 接**块头语法识别**、S3 接**数据落盘**：开启后
@@ -135,14 +135,14 @@ pub enum Feature {
     Featag,
     /// **标识符校验**（S1b，第二个带域名的特性：`lex.ident`）—— opt-in。
     ///
-    /// 开启后，**键名**必须满足标识符白名单（`docs/featag-impl-slices.md` §2）：
+    /// 开启后，**键名**必须满足标识符白名单（`docs/swsml/plan/featag-slices.md` §2）：
     /// ASCII 字母数字 + `_` `-` + CJK 汉字 + 假名 + 谚文；拒绝 `.` `[` `]`（路径语法保留）、
     /// 空白 / 控制字符、零宽 / 双向控制（Cf）、组合标记（⇒ 天然 NFC）、
     /// 西里尔 / 希腊等同形字母、全角与兼容区字符。
     ///
     /// **为什么单列一个位、而不是塞进 `type.featag`**：标识符规则与 `!` 记号毫无关系，
     /// 若共用一个位，「开 featag 就顺手改了所有键名」⇒ 回滚粒度变粗、诊断也说不清是谁的规则。
-    /// （`docs/featag-impl-slices.md` 的三条跨片原则写的是「都在 `type.featag` 后面」，
+    /// （`docs/swsml/plan/featag-slices.md` 的三条跨片原则写的是「都在 `type.featag` 后面」，
     /// 这里**有意偏离**并在施工计划里登记了理由。）
     ///
     /// ⚠️ 「每契约单一语种」不在这里 —— 那是**契约级**规则（同契约多个标识符之间比较），
@@ -151,11 +151,11 @@ pub enum Feature {
     /// **弱声明族**（`weakbind` / `weakdata` / `weakdoc`）—— 第三个带域名的特性：`type.weak`。
     ///
     /// 与 `type.featag` 同域：都挂在「类型与契约」上。`weak` 是**机制级**开关，
-    /// 不是单指令开关 —— 这一族的分工见 `docs/weakbind-spec-draft.md` §2.0：
+    /// 不是单指令开关 —— 这一族的分工见 `docs/swsml/spec/weakbind.md` §2.0：
     /// `weakbind` = 编辑器/插件按契约解释、库不参与；`weakdata` = 旁路数据；
     /// `weakdoc` = 项目级 profile 引用。三者共用本开关（用户 2026-11-04 定）。
     ///
-    /// **命名必须带域**：`docs/feature-namespace-plan.md` §3 规则 1 —— 新增特性一律
+    /// **命名必须带域**：`docs/swsml/spec/features.md` §3 规则 1 —— 新增特性一律
     /// `<域>.<名>`，老名保持平铺。故文档里写 `@feature enable type.weak`，
     /// **不是**裸 `weak`（裸 `weak` 会被当成未知特性名）。
     ///
@@ -195,11 +195,11 @@ pub static FEATURES: &[(&str, Feature)] = &[
     ("type.featag", Feature::Featag),
     // 第二个带域名：`lex.ident`（标识符白名单，S1b）
     ("lex.ident", Feature::Ident),
-    // 第三个带域名：`type.weak`（弱声明族，见 `docs/weakbind-spec-draft.md`）
+    // 第三个带域名：`type.weak`（弱声明族，见 `docs/swsml/spec/weakbind.md`）
     ("type.weak", Feature::Weak),
 ];
 
-/// 特性名的**封闭域白名单**（`docs/feature-namespace-plan.md` §3，用户 2026-11-03 定死四个域）。
+/// 特性名的**封闭域白名单**（`docs/swsml/spec/features.md` §3，用户 2026-11-03 定死四个域）。
 ///
 /// 规则（N1 / N2 / N4，都是定稿）：
 /// - **只有新增特性带域**，写作 `<域>.<名>`；老名保持平铺 —— 故判据很便宜：**名字里有点 = 新特性**；
@@ -320,7 +320,7 @@ impl FeatureSet {
     /// ⚠️ 早先的文档写「极简三件套」，与实现不符（`baseline` 实际有 8 位），2026-11-02 更正。
     ///
     /// `const` 是因为版本登记表 [`EDITIONS`] 要在静态初始化里为每一代**写死**它的功能集
-    /// （「版本 = 功能集」，见 `docs/version-naming.md` §2）。
+    /// （「版本 = 功能集」，见 `docs/swsml/spec/version.md` §2）。
     pub const fn baseline() -> FeatureSet {
         FeatureSet::none()
             .with(Feature::BarewordStr)
@@ -410,7 +410,7 @@ pub enum FeatureMode {
 // Edition —— 版本 = 功能集的名字（edition 模型）
 //
 // 设计：版本之间**没有大小关系**，判据是「这个特性在不在这套集合里」。
-// 见 `docs/version-naming.md`（v1.0 定稿）。
+// 见 `docs/swsml/spec/version.md`（v1.0 定稿）。
 //
 // 一行 = { 数字, 代号, 状态, **功能集** }（单一事实来源）：
 // 代号映射与默认特性位同处登记，不可能漂。
@@ -591,7 +591,7 @@ impl Edition {
     }
 }
 
-/// 旧名字：`Version` 是 [`Edition`] 的**类型别名**（改名零破坏，见 `docs/version-naming.md` V1）。
+/// 旧名字：`Version` 是 [`Edition`] 的**类型别名**（改名零破坏，见 `docs/swsml/spec/version.md` V1）。
 ///
 /// 保留它是因为「语法版本」这个词已经写进大量教程与文档；代码侧两者完全同一类型。
 pub use Edition as Version;

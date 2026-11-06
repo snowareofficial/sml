@@ -1,7 +1,7 @@
 //! 标识符白名单（**S1b**）门面测试。
 //!
 //! 门控：`@feature enable lex.ident`（默认关 ⇒ 关掉即回到 v4 行为）。
-//! 规则权威：`docs/featag-impl-slices.md` §2 的两张表。
+//! 规则权威：`docs/swsml/plan/featag-slices.md` §2 的两张表。
 use sml::parse;
 
 const ON: &str = "@feature enable lex.ident\n";

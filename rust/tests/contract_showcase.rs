@@ -10,7 +10,7 @@ use std::path::Path;
 
 #[test]
 fn showcase_contract_parses_and_applies() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../showcase_contract.sml");
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/showcase_contract.sml");
     if !Path::new(path).exists() {
         // 发布产物中不含仓库根的示例文件，跳过即可
         eprintln!("跳过：未找到 {path}（crate 中未包含仓库根的示例文件）");

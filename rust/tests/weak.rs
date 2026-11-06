@@ -1,6 +1,6 @@
 //! `weak*` 三件（`@weakbind` / `@weakdata` / `@weakdoc`）的**护栏用例**。
 //!
-//! 背景：这三件在 Rust 侧早已实现（`parser.rs`），但此前**零测试覆盖**（`docs/open-work.md` §9）。
+//! 背景：这三件在 Rust 侧早已实现（`parser.rs`），但此前**零测试覆盖**（`docs/repo/archive/open-work.md` §9）。
 //! 本文件把它们规范里写死的硬约束逐条钉住 —— 尤其是每次都要验的那条**核心判据**：
 //!
 //! > 有无 `@weak*` 指令，**主树与 `contract_map` 必须逐字节相同**。

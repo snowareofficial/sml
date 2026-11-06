@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 //! `--dump-builtins` 的验收：把 `@contract` 定义导成编辑器可读的 JSON
-//! （schema 见 `docs/weakbind-spec-draft.md` §6.2）。
+//! （schema 见 `docs/swsml/spec/weakbind.md` §6.2）。
 //!
 //! 走**真实二进制**（同 `error_codes.rs` 的理由）：用户拿到的是 stdout 里那份 JSON，
 //! 而不是某个内部函数的返回值。
@@ -86,7 +86,7 @@ fn output_is_deterministic() {
 }
 
 /// 仓内那份 `profile.sml`（`.smlex` 的形状）必须能被导出 ——
-/// 它是编辑器补全的形状来源（`docs/smlex-format-draft.md` §9）。
+/// 它是编辑器补全的形状来源（`docs/swsml/spec/smlex.md` §9）。
 #[test]
 fn profile_shape_dumps() {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/profile.sml");

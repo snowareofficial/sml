@@ -24,7 +24,7 @@
   `30`（JS/Lua 缺 `__type`/`__name`）。逐条见下。
 - 📌 **`19` 的剩余差异是结构性的，不要再当 bug 修**：C / C++ 有独立的 Float 标签（2026-11-03 起
   `1.0` 也写成 `1.0`，与 Rust 同口径），而 **JS / Lua 的数字模型里 `1` 与 `1.0` 是同一个值**，
-  除非给值模型加标记（那是 `docs/value-layout.md` / I-18 的量级），否则无从区分。
+  除非给值模型加标记（那是 `docs/swsml/spec/value-layout.md` / I-18 的量级），否则无从区分。
 
 ## 用法
 
@@ -56,7 +56,7 @@ Rust `to_sml` ／ C `sml_dump` ／ C++ `to_sml` ／ JS `stringify` ／ Lua `Sml.
 
 - 只比 JSON 会漏 —— `smltools --to json` 把 `1.0` 写成 `1`，「浮点身份」这条**点名要钉的**差异会被载体静默吃掉。
 - 逐字节更不行 —— `1e10` / `1e+10` / `10000000000`、`3.14` / `3.1400000000000001` 是**同一个值**的
-  不同写法（`docs/capability-matrix.md` §3 #7/#8 已定性为渲染差异）。
+  不同写法（`docs/swsml/ref/capability-matrix.md` §3 #7/#8 已定性为渲染差异）。
   逐字节比对只对 C↔Rust 成立，那是 W4 `tools/check_dump_parity.py` 的职责，两者分工不同。
 
 ## 基线（2026-10-28 全量跑 —— ⚠️ **已过期**，新基线见文首 2026-11-03 复核）
@@ -104,7 +104,7 @@ Rust `to_sml` ／ C `sml_dump` ／ C++ `to_sml` ／ JS `stringify` ／ Lua `Sml.
 | 7 | `13_contract_default` | ~~C 报 `E-CONTRACT-003`~~ **C 半 W24 已修**：C 现认 `optional`/`default`，该格转 A，用例整体 AGREE | **已修复（W24）** | 见下方「#7–#9 + #18 是同一件事」 |
 | 8 | `14_contract_enum_range` | ~~C 报 `字段 default 必填但缺失`~~ **C 半 W24 已修**：转 A，用例整体 AGREE | **已修复（W24）** | 同 #7 |
 | 9 | `16_contract_compose` | ~~C 半报必填缺失~~ **C 半 W24 已修**；~~JS 丢 `o.inner.tag`~~ **JS 半已修（2026-11-03 复核）**：`applyDefaults` 现在对 `sp.type === "contract"` 的字段递归调用自身，实测 JS 输出 `inner: { x: 1, tag: t }`。本用例现已 **AGREE** | **已修复** | 下方「#9 的 JS 半」一节保留作历史；`site/content/*/book/ch05-contract.md` 的「JS 不递归回填」提示已同步改为「五端一致」 |
-| 10 | `19_num_one_dot_zero` | Rust 保 `1.0` 为 float，其余四端当 int | 已知取舍 | `docs/capability-matrix.md` 已登记「`1.0` 只有 Rust 保留为浮点」；雷 5 B 组 `format_float` |
+| 10 | `19_num_one_dot_zero` | Rust 保 `1.0` 为 float，其余四端当 int | 已知取舍 | `docs/swsml/ref/capability-matrix.md` 已登记「`1.0` 只有 Rust 保留为浮点」；雷 5 B 组 `format_float` |
 | 11 | `20_num_bigint` | Lua 丢精度：`330106201503071234` → `...070000`，`i64::MAX` → `...8000000` | 已知取舍 | 能力矩阵已登记「大整数 >2^53 分裂；Lua 转 float 丢精度」；雷 6 #1。⚠️ 属**数据保真**级，但 LuaJIT 值模型只有 double，改不了。**JS 那格的 AGREE 是载体盲区**，见 §载体盲区 B-01 |
 | 12 | `22_escape_basic` | C++ 的 dump 不能被 Rust 回读 | **已修复（fix/needs-quote-escaping）** | 根因：C++ 的 dump 只对「含空格」加引号（`v->s.find(' ')`），**含换行/制表/回车的串原样写出**，`b` 被读成新键 ⇒ `E-PARSE-006`。本任务（fix/needs-quote-escaping）在 `cpp/sml.cpp` 新增 `dump_needs_quote`（空白/`#{}`/`"`/`\` 均判为需引号，**换行一并纳入**）+ `dump_escape_str`（转义串内 `"`/`\`），`dump_value`/`dump_inline` 的 Str 分支改用之。现状：该用例五端全 AGREE |
 | 13 | `23_escape_unicode` | ~~JS 的 `\uXXXX` 多出数字~~ **JS 半已修（2026-10-30，`!16`）**：`i += 4` → `i += 5`，2026-11-03 复核源码确认（行号 131→133）。**C++ 半仍未修**：只认 `\u{...}`，四位形式报 `E-LEX-005` | **已修复（JS）／ 缺陷（C++）** | 能力矩阵已登记「`\uXXXX` JS 有 bug」；C++ 需补四位形式 |

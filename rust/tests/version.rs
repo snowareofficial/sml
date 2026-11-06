@@ -112,7 +112,7 @@ fn parse_allowed_default_is_v1() {
 }
 
 // ===========================================================================
-// S0b：`@version` 的 edition 字面量（`docs/version-naming.md`）
+// S0b：`@version` 的 edition 字面量（`docs/swsml/spec/version.md`）
 //
 // 目标语法 `@version 50 "camelia" dev`；旧写法一律仍是别名。
 // 本组用例只钉**已发布的 1.0–4.0** 能正常认，以及**各种写错**的报错口径。

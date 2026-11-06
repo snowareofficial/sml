@@ -361,7 +361,7 @@ struct Cli {
     json: bool,
 
     /// 导出**内置契约表**（JSON）：输入是一份只含 `@contract` 的 SML，
-    /// 输出符合 `docs/weakbind-spec-draft.md` §6.2 的 schema，供编辑器/插件读取。
+    /// 输出符合 `docs/swsml/spec/weakbind.md` §6.2 的 schema，供编辑器/插件读取。
     ///
     /// 与 `--to` 互不干扰：本模式不产出转换结果，只把契约定义导成数据。
     #[arg(long = "dump-builtins")]
@@ -370,7 +370,7 @@ struct Cli {
     /// 解析 `@weakdoc` 引用：按「显式 → 项目 → 用户全局 → 系统」查找同名 `.smlex`。
     ///
     /// 输出 TAB 分隔三列：`名字 / 作用域 / 路径`；未命中的记 `-` 且退出码为 1。
-    /// **只做定位**，不解释 profile 内容（内容语义未定，见 `docs/weakdoc-spec-draft.md`）。
+    /// **只做定位**，不解释 profile 内容（内容语义未定，见 `docs/swsml/spec/weakdoc.md`）。
     #[arg(long = "resolve-profiles")]
     resolve_profiles: bool,
 
@@ -1031,7 +1031,7 @@ fn which_zola() -> Option<std::path::PathBuf> {
 ///
 /// 两处历史问题在此一并纠正：
 /// 1. 旧注释声称「从 SML 文本提取 `@feature base <name>`」，但实现里从来没有这段逻辑；
-///    而 `@feature base` 只接受**版本集**（`10` / `1.0` / `v1` …，见 `docs/version-naming.md`），
+///    而 `@feature base` 只接受**版本集**（`10` / `1.0` / `v1` …，见 `docs/swsml/spec/version.md`），
 ///    本来也承载不了名字 —— 注释与实现各说各话。
 ///    这里换成真正可用的推源头：文档顶层的 `title:` 字段。
 /// 2. 旧实现会读顶层 `__name`，但两个调用点都传 `&Value::Null`，该分支**从未被触发过**；
@@ -1131,7 +1131,7 @@ fn hugo_date() -> String {
 
 /// `--dump-builtins`：把输入文档里的 `@contract` 定义导出成编辑器可读的 JSON。
 ///
-/// schema 见 `docs/weakbind-spec-draft.md` §6.2（`schema` / `contracts[]` / 字段规格）。
+/// schema 见 `docs/swsml/spec/weakbind.md` §6.2（`schema` / `contracts[]` / 字段规格）。
 /// **为什么不从 JSON 反向加载**：`Contract` 含 `Arc<dyn TypeCheck / Modifier>`，
 /// 无法反序列化 ⇒ 内置集只能「用 SML 写 → 解析 → 导出/注入」。
 fn dump_builtins(args: &Args) -> Result<(), SmlError> {
@@ -1684,7 +1684,7 @@ fn real_main() -> ExitCode {
         }
     };
 
-    // 弱 profile 引用解析：只做定位（`docs/weakdoc-spec-draft.md` §3）
+    // 弱 profile 引用解析：只做定位（`docs/swsml/spec/weakdoc.md` §3）
     if args.resolve_profiles {
         return match resolve_profiles_mode(&args, &text) {
             Ok(code) => ExitCode::from(code),
@@ -1707,7 +1707,7 @@ fn real_main() -> ExitCode {
             return ExitCode::from(2);
         }
         let mut report = lint::check(&text, &args.input);
-        // `.smlex` 的 checks：只在工具侧执行（`docs/smlex-format-draft.md` §3.2）。
+        // `.smlex` 的 checks：只在工具侧执行（`docs/swsml/spec/smlex.md` §3.2）。
         apply_profile_checks(&mut report, &args, &text);
         for m in &report.messages {
             eprintln!("{m}");

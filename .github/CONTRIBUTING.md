@@ -192,7 +192,7 @@ fn test_feature_behavior() {
 
 ## 🆘 获取帮助
 
-- **技术问题** - 查看 [`docs/`](docs/) 目录
+- **技术问题** - 查看 [`docs/index.md`](../docs/index.md)（文档总索引；按产品线分组）
 - **即时交流** - GitHub Discussions
 - **Bug 报告** - 提供最小复现示例
 

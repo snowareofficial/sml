@@ -1,4 +1,4 @@
-//! `.smlex` profile：读取 + `checks` 执行（格式见 `docs/smlex-format-draft.md` v1.0）。
+//! `.smlex` profile：读取 + `checks` 执行（格式见 `docs/swsml/spec/smlex.md` v1.0）。
 //!
 //! ⚠️ **全在工具侧**：库不认识 profile（`@weakdoc` 只记名字），所以
 //! 「有 / 无 `.smlex`，解析结果完全一致」自动成立。

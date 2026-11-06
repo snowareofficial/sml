@@ -25,6 +25,9 @@ members = [
     ".",
     "derive",
     "smltools",
+    # 本仓 docs/ 的索引与门禁：**内部工具，publish = false**。
+    # 不进 `smltools` —— 那是给装 SML 的人的产品 CLI，不该背负本仓的目录布局。
+    "smldocs",
     "sml-codes",
     "sml-value",
     "sml-regex",
@@ -34,7 +37,7 @@ members = [
     "sml-contract",
     "sml-parse",
     "sml-pattern",
-    # `.ambr`（SML 的二进制形式）：只依赖值模型，**不依赖 sml-parse**（docs/amberice-smldb-spec.md D3）。
+    # `.ambr`（SML 的二进制形式）：只依赖值模型，**不依赖 sml-parse**（docs/amberice/spec/format.md D3）。
     # `publish = false` —— 与 v5 一起开放（D1）。
     "amberice",
     # 独立 cdylib：`.ambr` 的最小 C ABI（`ambr_text` / `ambr_free_str`）。
@@ -123,7 +126,7 @@ derive = ["dep:swsml-derive"]
 # 只需「解析」的嵌入式场景可关闭，省掉序列化代码。
 sml = ["sml-value/sml"]
 # 对象保序：`Value::Object` 换用保源序的载体，`to_sml` 键序 == 源序
-# （docs/value-layout.md §3/§5/§6）。**默认关闭**，与 toml-rs 的 `preserve_order` 同定位：
+# （docs/swsml/spec/value-layout.md §3/§5/§6）。**默认关闭**，与 toml-rs 的 `preserve_order` 同定位：
 # 默认档（BTreeMap）的行为与历史版本逐字节一致，开这个才切到保序实现。
 # 注意它**不是**「确定性字节」开关：那个是 `to_sml_canonical`（§6.2），互不影响。
 #
@@ -207,7 +210,7 @@ name = "perf"
 harness = false
 
 # 值层基准（HANDOFF §5.2）：`to_sml` / `canonical_*` / `Value::get` / `eq_ordered`。
-# 与 `perf` 共用计时口径，但**不改 perf.rs** —— 它的数字已进 docs/perf-baseline.md。
+# 与 `perf` 共用计时口径，但**不改 perf.rs** —— 它的数字已进 docs/swsml/ref/perf-baseline.md。
 [[bench]]
 name = "value"
 harness = false

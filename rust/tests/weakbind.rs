@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! weakbind 第一刀：`@weakbind` 的语法、作用域与旁路表（`docs/weakbind-spec-draft.md`）。
+//! weakbind 第一刀：`@weakbind` 的语法、作用域与旁路表（`docs/swsml/spec/weakbind.md`）。
 //!
 //! 钉三件事：
 //! 1. **核心判据**：有 / 无 `@weakbind`，主树与 `contract_map` 逐字节相同 ——

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! `@weakdoc` 的**用户全局 / 系统**两层命名空间（`docs/weakdoc-spec-draft.md` §3）。
+//! `@weakdoc` 的**用户全局 / 系统**两层命名空间（`docs/swsml/spec/weakdoc.md` §3）。
 //!
 //! 已有的 `resolve_profiles.rs` 覆盖「显式目录 / 项目级向上查找 / `--no-profiles`」；
 //! 这里补最后两层，并**只通过子进程环境变量重定向**（绝不碰真实用户目录）：

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 //! `@weakdoc`（I-17）：只登记 profile **名字**，库不读文件系统。
 //!
-//! 钉四件事（`docs/weakdoc-spec-draft.md`）：
+//! 钉四件事（`docs/swsml/spec/weakdoc.md`）：
 //! 1. 主树零污染、运行期语义不变（有 / 无 `@weakdoc` 主树与 `contract_map` 相同）；
 //! 2. 判重是**文档级**：同一个 profile 挂两次 ⇒ `E-PARSE-030`（跨块也算）；
 //! 3. `@weakdoc` **不接受载荷块**（那是 `@weakdata` 的形态）⇒ `E-PARSE-019`；

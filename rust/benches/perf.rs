@@ -11,7 +11,7 @@
 //! cargo bench --bench perf -- --quick   # 迭代数减半（冒烟用）
 //! ```
 //!
-//! 输出是给人看的表格 + 可直接抄进 `docs/perf-baseline.md` 的数值（ns/op、MB/s）。
+//! 输出是给人看的表格 + 可直接抄进 `docs/swsml/ref/perf-baseline.md` 的数值（ns/op、MB/s）。
 //!
 //! ⚠️ 三组负载覆盖的是**三种不同形状**，别只看一个数：
 //! - `small`   —— 10 个键，代表「配置片段」；固定开销（入口组装、tokenize 启动）占比最高

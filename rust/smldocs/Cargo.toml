@@ -1,0 +1,26 @@
+# smldocs —— 本仓库 `docs/` 的索引与门禁（**内部工具，不发布**）。
+#
+# 为什么单独一个 crate、而不是 `smltools` 的子命令：
+#   `smltools` 是**给装 SML 的人**的产品 CLI（转换 / 迁移 / lint），它要知道的是 SML 语法；
+#   而这里跑的是**本仓库的文档治理**（硬编码 `docs/meta.sml` 的目录布局）。
+#   塞进 `smltools` 就等于让每个 `cargo install smltools` 的人都背一套他永远用不到的、
+#   还跟着本仓目录结构漂移的命令。所以：产品面归产品，仓库治理归这里，`publish = false`。
+#
+# 仍然是 dogfooding：元数据用 SML 写（`docs/meta.sml`），解析用本项目自己的解析器（`swsml`）。
+[package]
+name = "smldocs"
+version.workspace = true
+edition = "2021"
+description = "(INTERNAL) Index and gate for this repository's docs/ — reads docs/meta.sml and emits docs/index.md + docs/report.md. Not published."
+license = "MulanPSL-2.0"
+repository = "https://gitee.com/snoware/sml"
+publish = false
+
+[[bin]]
+name = "smldocs"
+path = "src/main.rs"
+
+[dependencies]
+# 只借解析器：读 meta.sml / changes.sml 用的就是它，不需要 emit 后端与 .ambr 信封。
+# 依赖键写 `swsml`、代码里 `use sml::…`（swsml 的库名是 `sml`）。
+swsml = { version = "0.6.9-dev.0", path = "..", default-features = false }

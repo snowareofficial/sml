@@ -2,7 +2,7 @@
 //! `@weakbind` 软校验（`W-CONTRACT-001`）：与内置契约表比对，**只告警、不改树**。
 //!
 //! 八档 detail 走消息前缀（`Diagnostic` 没有 detail 字段），见
-//! `docs/weakbind-spec-draft.md` §4。这里钉住四件事：
+//! `docs/swsml/spec/weakbind.md` §4。这里钉住四件事：
 //! 1. 声明侧三档（unknown_contract / unknown_field / type_mismatch）；
 //! 2. 块内容四档（missing_required / type_mismatch / out_of_range / enum_mismatch）；
 //! 3. `block.undeclared_field` 只在 **strict** 契约上报；

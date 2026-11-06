@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! Acceptance tests for canonical (`.ambr` T0) — rules in `docs/amberice-smldb-spec.md` §18 / §19.
+//! Acceptance tests for canonical (`.ambr` T0) — rules in `docs/amberice/spec/format.md` §18 / §19.
 //! canonical（`.ambr` 的 T0）验收用例。
 //!
 //! **Both profiles run this file, and both are green** / **两种档位都跑，两边都绿**:

@@ -399,7 +399,7 @@ extension {
 }
 
 v5_draft {
-    note: "当前 @version 仍是 v4；下列形态按 docs/v5-syntax.md 表 A 登记，未定稿；featag 子块是活代码（Rust 端可解析）"
+    note: "当前 @version 仍是 v4；下列形态按 docs/swsml/spec/v5.md 表 A 登记，未定稿；featag 子块是活代码（Rust 端可解析）"
     rules: [
         "FEATAG-DECL   ::= ! NAME | ! NAME : FIELD-SPEC | ! NAME : FIELD-SPEC -> PATH"
         "BLOCK-HEAD    ::= TYPE FEATAG-REGION [ , ] [ NAME ] { MEMBER }"
@@ -430,7 +430,7 @@ v5_draft {
     # -------------------------------------------------------------------------
     featag {
         status: impl_rust
-        spec: "docs/featag-spec-draft.md"
+        spec: "docs/swsml/spec/featag.md"
         enable: "@feature enable type.featag, typed-block, block-name"
         enable_note: "三个特性缺一不可：type.featag 开语法、typed-block 让块头首词命中契约、block-name 允许契约词后跟块名"
 

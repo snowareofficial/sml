@@ -1,6 +1,6 @@
 [package]
 name = "amberice"
-# `.ambr` = 通用二进制信封（不可变 · 可寻址 · 可验证；SML 是内置载荷之一。`docs/amberice-smldb-spec.md`，D2：编 `Value`）。
+# `.ambr` = 通用二进制信封（不可变 · 可寻址 · 可验证；SML 是内置载荷之一。`docs/amberice/spec/format.md`，D2：编 `Value`）。
 #
 # 为什么独立成 crate（D3）：**只依赖值模型** —— 「读一个文件不必拖进解析器」。
 # 本 crate 的默认构建连 `sml-value` 的 `sml`（文本发射器）特性都不需要：
