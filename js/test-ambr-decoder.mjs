@@ -128,4 +128,23 @@ if (failures.length) {
   console.error(`${failures.length} 个失败`);
   process.exit(1);
 }
+// Negative control: the digest check must actually fire. Flip one digest byte of the first
+// segment (table at 40, digest at 49) and expect a throw.
+// ｜ 反向用例：改坏一个摘要字节必须报错，否则「验摘要」是假的。
+{
+  const bytes = hexToBytes(fixture.cases[0].ambr_hex);
+  bytes[49] ^= 0xff;
+  let threw = false;
+  try {
+    load(bytes);
+  } catch (e) {
+    threw = /摘要不符/.test(e.message);
+  }
+  if (!threw) {
+    console.error("  FAIL 改坏摘要后仍解码成功 —— 校验没生效");
+    process.exit(1);
+  }
+  console.log("  ok: 改坏摘要 → 拒绝");
+}
+
 console.log("[ambr] ALL OK");
