@@ -146,6 +146,30 @@ impl Map {
         }
     }
 
+    /// Owned-key variant: see [`Object::insert_or_merge_owned`](crate::Object::insert_or_merge_owned).
+    /// 接管键所有权的版本：解析器每字段本来就持有 `String`，避免再复制一份。
+    pub fn insert_or_merge_owned<F>(&mut self, key: String, value: Value, merge: F)
+    where
+        F: FnOnce(&str, &mut Value, Value),
+    {
+        match self {
+            Map::Unordered(m) => {
+                use std::collections::btree_map::Entry;
+                match m.entry(key) {
+                    Entry::Occupied(mut e) => {
+                        // 重复键是罕见路径；这里克隆一份键名只是为了给 merge 出诊断文案。
+                        let owned = e.key().clone();
+                        merge(&owned, e.get_mut(), value);
+                    }
+                    Entry::Vacant(e) => {
+                        e.insert(value);
+                    }
+                }
+            }
+            Map::Ordered(m) => m.insert_or_merge_owned(key, value, merge),
+        }
+    }
+
     pub fn remove(&mut self, key: &str) -> Option<Value> {
         match self {
             Map::Unordered(m) => m.remove(key),

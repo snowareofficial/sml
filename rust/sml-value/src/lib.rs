@@ -68,7 +68,9 @@ mod serde_bridge;
 mod ser_text;
 
 pub use path::{Path, PathError, Seg};
-pub use value::{describe_value, insert_or_merge, Map, MAX_VALUE_DEPTH, Value};
+pub use value::{
+    describe_value, insert_or_merge, insert_or_merge_owned, Map, MAX_VALUE_DEPTH, Value,
+};
 
 /// Why canonical failed (three families: built wrong / data inexpressible / corrupt bytes).
 /// canonical 的失败原因（三种性质不同：构建方式 / 数据表达不出 / 字节坏了）。
