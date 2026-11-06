@@ -503,6 +503,9 @@ static void test_lex_codes(void) {
     printf("[LEX]\n");
 
     expect_code("未闭合字符串", "k: \"abc\n", SML_E_LEX_001);
+    /* T21（2026-11-06）：转义符后**直接**遇 EOF 是 006，不是 001 —— 修复动作不同
+       （补一个被转义的字符 vs 补结束引号）。改前 C 落在 001。 */
+    expect_code("转义符后遇 EOF", "k: \"abc\\", SML_E_LEX_006);
     expect_code("未闭合块注释 /*", "k: 1\n/* 没有收尾\n", SML_E_LEX_002);
     expect_code("未闭合块注释 _*", "k: 1\n_* 没有收尾\n", SML_E_LEX_003);
     expect_code("未知转义", "k: \"a\\qb\"\n", SML_E_LEX_004);
@@ -830,8 +833,10 @@ static void test_error_msgs_all(void) {
     if (empty == 0) printf("  ok: %-32s -> 所有码 title/msg 非空\n", "全量非空");
     else { printf("FAIL: 全量非空 有 %d 条码 title/msg 为空\n", empty); failures++; }
 
-    if (parse == 27) printf("  ok: %-32s -> PARSE 27 条\n", "PARSE 领域");
-    else { printf("FAIL: PARSE 领域期望 27, 实得 %d\n", parse); failures++; }
+    /* 快照守卫：与 Rust `sml-codes/src/msgs.rs` 的 32 条对齐
+       （含 E-PARSE-028..030 与 W-PARSE-001/002）。此前这里是 27，早已过期。 */
+    if (parse == 32) printf("  ok: %-32s -> PARSE 32 条\n", "PARSE 领域");
+    else { printf("FAIL: PARSE 领域期望 32, 实得 %d\n", parse); failures++; }
 
     printf("  .. 共 %d 条码\n", count);
 }

@@ -236,6 +236,17 @@ fn blank_of(s: &str) -> String {
     " ".repeat(s.len())
 }
 
+/// 末行补换行是历史行为，但源文本**以 `\` 结尾**时不能补。
+///
+/// 补了就把「转义符后遇文件结束」（`E-LEX-006`）改写成「未知转义」（`E-LEX-004`）——
+/// 那是「按行重建」的实现副作用，不是语义差别。T21 已裁决统一到 006（2026-11-06），
+/// 故这里只放过这一种收尾：EOF 之后的那个位置**本来就没有字符**，不该凭空造一个。
+///
+/// 不在字符串里时补不补都一样（`\` 只是裸词里的普通字节），所以判据可以这么粗。
+fn needs_trailing_newline(raw: &str) -> bool {
+    !raw.ends_with('\n') && !raw.ends_with('\\')
+}
+
 /// Strip `@version` / `@feature` lines and report what they said ｜ 剥离 `@version` / `@feature` 指令行，并汇报它们说了什么。
 ///
 /// 返回六元组（顺序即为契约，改顺序会静默打乱所有调用方）：
@@ -262,7 +273,7 @@ pub fn strip_features(
     if !text.contains("feature") {
         let mut out = String::with_capacity(text.len() + 1);
         out.push_str(text);
-        if !text.ends_with('\n') {
+        if needs_trailing_newline(text) {
             out.push('\n'); // 与逐行分支相同的「末行补换行」历史行为
         }
         return Ok((
@@ -318,9 +329,9 @@ pub fn strip_features(
         }
         out.push_str(raw);
         // 末行没有换行时补一个 —— **历史行为**（`tests/error_codes.rs` 的
-        // `lex_escape_at_eof_needs_the_lexer` 钉着它的可观察后果）。
+        // `lex_escape_at_eof_stays_006` 钉着它的可观察后果）。
         // 补在**文末**不影响任何既有偏移，故与「等长」不冲突。
-        if !raw.ends_with('\n') {
+        if needs_trailing_newline(raw) {
             out.push('\n');
         }
     }
@@ -579,7 +590,7 @@ pub fn strip_version(text: &str) -> Result<(String, Option<Edition>), SmlError> 
     if !text.contains("version") {
         let mut rest = String::with_capacity(text.len() + 1);
         rest.push_str(text);
-        if !text.ends_with('\n') {
+        if needs_trailing_newline(text) {
             rest.push('\n'); // 与下面逐行分支相同的「末行补换行」历史行为
         }
         return Ok((rest, None));
@@ -617,7 +628,7 @@ pub fn strip_version(text: &str) -> Result<(String, Option<Edition>), SmlError> 
         }
         rest.push_str(raw);
         // 同上：末行无换行时补一个（历史行为，文末追加不影响既有偏移）
-        if !raw.ends_with('\n') {
+        if needs_trailing_newline(raw) {
             rest.push('\n');
         }
     }

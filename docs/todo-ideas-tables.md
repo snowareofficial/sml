@@ -18,14 +18,14 @@
 | TODO 非复选框欠账 | **8** | 人工取自 `TODO.md` 表格行 / `⬜` 标记 / `⏳ 待修`（本文 T43–T50，逐行注来源） |
 | IDEAS 条目 | **23**（I-1…I-23，其中 I-12 = `Rejected`） | `Select-String IDEAS.md '^## I-\d+'` |
 | 码表条目 | **166** | `Select-String errors/codes.sml '\{ id: [EWI]-'` |
-| 仅 Rust 实现（`impls: [ rust ]`） | **47**；语言层 **39**（PARSE 16 / CONTRACT 10 / FEATURE 4 / INCLUDE 3 / EXT 3 / LEX 2 / LIMIT 1）+ DERIVE 8（宿主绑定层，Rust 专属，不是跨端欠账） | `Select-String errors/codes.sml '^\s*impls:\s*\[\s*rust\s*\]'`，按 `domain` 分组 |
+| 仅 Rust 实现（`impls: [ rust ]`） | **46**；语言层 **38**（PARSE 16 / CONTRACT 10 / FEATURE 4 / INCLUDE 3 / EXT 3 / LEX 1 / LIMIT 1）+ DERIVE 8（宿主绑定层，Rust 专属，不是跨端欠账）。LEX 从 2 降到 1：`E-LEX-006` 已由 T21 在五端收口 | `Select-String errors/codes.sml '^\s*impls:\s*\[\s*rust\s*\]'`，按 `domain` 分组 |
 | 一致性套件 | **41 例 / AGREE 34 / DIVERGE 7** | `python tests/conformance/run_conformance.py` |
 | `.vsix` 产物 vs 源码 | 产物最新 **0.4.3**，`package.json` 已是 **0.5.0** | `Get-ChildItem editors/vscode -Filter *.vsix` |
 | 本会话新增（表 1.5，N01–N06） | **6**（全部未做） | 见 `## 表 1.5` |
 
 **四处与旧文档不一致（以本表为准，别照抄旧数字）**
 
-1. `docs/unfinished.md §0` 写「42 条 `impls: [rust]`」——实测 **47 条**（其中语言层 39 条才是四端欠账）。
+1. `docs/unfinished.md §0` 写「42 条 `impls: [rust]`」——实测 **46 条**（其中语言层 38 条才是四端欠账；T21 收口 `E-LEX-006` 后各减 1）。
 2. `TODO.md:812` 写「146 条码」——实测 **166 条**。
 3. `TODO.md:166`「顶层标量未统一」、`TODO.md:149`「一致性套件本轮不做」都是**过期未勾**：前者五端已同报 `E-PARSE-008`，后者套件已建（41 例）。
 4. `IDEAS.md` 的 `I-23` 写 `Todo`、`I-18` 写「零实现」、`TODO.md §10.1` 写 `smlb` 待裁决 —— 均已被 2026-11-06 覆盖：改名 B 档落地（`0f1c7f4`）、性能 A/B 全落（`b5ec96a`…`f6c19b3`）。见 T29 / I-18 / I-23 行。
@@ -56,7 +56,7 @@
 | T18 | 重定发布节奏 | 未做；原「等 I-18/I-19」前提已不成立 | P0 | T29 / T31 / T35 | 写死发布顺序与门槛（谁先发、什么条件） | `TODO.md:1080` | 用户裁决 |
 | T19 | 发布前占 GitHub org / 域名 / docs 子域 | 未做 | P0 | T30 | 三处已注册可解析，并记进发布清单 | `TODO.md:1086` | 用户 |
 | T20 | 命名陷阱（包名 `swsml` / 库名 `sml`） | 常驻约束（不可勾） | — | 无 | 无；写进 `Cargo.toml` 注释与 README 即可 | `TODO.md:1087` | 无 |
-| T21 | `k: "abc\`（转义符后 EOF）三端三个码 | 待裁决（Rust 词法 `E-LEX-006` / Rust `parse` 入口 `E-LEX-004` / C·JS·Lua `E-LEX-001`） | P1 | T01 | 三端同码，或分域写清且码表 `impls` / note 同步 | `TODO.md:1093` | 用户（006 / 001 / 分域 三选一） |
+| T21 | `k: "abc\`（转义符后 EOF）三端三个码 | **已完成（2026-11-06，用户选①）**：五端统一 `E-LEX-006`。Rust `scan` 不再给「以 `\` 结尾」的文本补换行（`needs_trailing_newline`），`parse` 入口从 004 回到 006，`api.rs` 的兼容哨删除；C/C++/JS/Lua 在「未闭合且上一转义未完成」处改报 006；码表 `impls: [rust c cpp js lua] status: done` | P1 | T01 | 三端同码，或分域写清且码表 `impls` / note 同步 | `TODO.md:1093`、`errors/codes.sml` E-LEX-006 note | 无 |
 | T22 | 两台远端分支保护 | 未做（2026-10-26 暂缓、2026-11-02 再「先等等」） | P1 | T30 | `main`/`dev` 禁强推 + required checks 生效（用一次直推验证被挡） | `TODO.md:1271`、`TODO.md:1188` | 用户（仓库设置） |
 | T23 | PR 默认目标指 `dev` | 未做 | P2 | 无 | 两远端各设一次，建 PR 时默认目标为 `dev` | `TODO.md:1274` | 用户 |
 | T24 | 收掉存量长期分支（4 条） | 未做；只在 GitHub，GitHub 通了才能删 | P2 | T30 | 四条各走 PR → `dev` 后删除，`git ls-remote` 不再出现 | `TODO.md:1275` | 用户 / 外部（GitHub 连通） |

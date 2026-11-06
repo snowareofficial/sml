@@ -104,6 +104,12 @@ function tokenize(text) {
       while (i < n) {
         const cc = text[i];
         if (cc === '"') { i++; closed = true; break; }
+        // 转义符后**直接**遇文件结尾 ⇒ E-LEX-006（与 Rust 词法层同码）。
+        // 语义上不是「少了结束引号」，而是「少了一个被转义的字符」。
+        // T21 裁决（2026-11-06）：五端统一到 006。
+        if (cc === "\\" && i + 1 >= n) {
+          throwCode("E-LEX-006", "sml: 字符串中的转义符后遇到文件结束");
+        }
         if (cc === "\\" && i + 1 < n) {
           i++;
           const e = text[i];

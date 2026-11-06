@@ -124,6 +124,8 @@ static void test_lex_codes() {
 
     // 字符串未闭合（缺少结束引号）
     expect_code("unterminated string", "k: \"abc\n", SML_E_LEX_001);
+    // T21（2026-11-06）：转义符后**直接**遇 EOF 是 006（改前本端报 001）。
+    expect_code("escape before EOF", "k: \"abc\\", SML_E_LEX_006);
 
     // 未知转义 → E-LEX-004（codes.sml 的 impls 明列 cpp，note 是「严格策略：未知转义
     // 即失败，避免路径与正则被静默损坏」；此前本实现把 `\` 与字符双双塞回、静默放行）

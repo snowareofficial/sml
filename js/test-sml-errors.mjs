@@ -43,7 +43,7 @@ eq("所有码 title/msg 非空", empty, 0);
 // 快照守卫：25 → 27（R1 新增 W-PARSE-001/002）→ 30（featag S2 新增 E-PARSE-026/027/028）。
 // ⚠️ 这是**故意**写死的数：改码表时要同步这一行与 lua/test_codes.lua 的同名断言，
 // 否则「码表被无意改动」这件事就没人拦了。
-eq("PARSE 领域码数", listErrorCodes({ domain: "PARSE" }).length, 30);
+eq("PARSE 领域码数", listErrorCodes({ domain: "PARSE" }).length, 32);
 
 console.log(bad === 0 ? "ALL OK" : `${bad} FAILED`);
 process.exit(bad === 0 ? 0 : 1);

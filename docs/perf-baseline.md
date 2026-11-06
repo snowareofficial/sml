@@ -206,6 +206,10 @@ cargo bench --bench profile --features amberice             # 保序档（与 §
 这个「同因不同码」已写进 `errors/codes.sml` 的 E-LEX-006 note（C/JS/Lua 报 `E-LEX-001`，
 三端未合并）。**改它是跨端契约变更，不搭性能优化的车** —— 已登记进 `TODO.md` §三·十二 H 组。
 
+> ✅ **后续（2026-11-06，T21 裁决①）**：五端已统一到 `E-LEX-006`。`api.rs` 那条
+> 「以 `\` 结尾不进快路径」的兼容哨已删除，`scan` 也不再给这类文本补换行 ——
+> 上面这段是**当时**的状态记录，不要据此判断现在的行为。
+
 **验证**：`cargo test -j 1 --no-fail-fast` 仅 `_stack_probe` 红（基线）；一致性套件
 **AGREE 32 / DIVERGE 8 未变**。
 

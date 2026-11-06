@@ -620,6 +620,8 @@ end
 local function test_w16_codes()
   io.write("[LEX / W16]\n")
   expect_code("未闭合字符串", "k: \"abc\n", "E-LEX-001")
+  -- T21（2026-11-06）：转义符后**直接**遇 EOF 是 006（改前本端报 001）
+  expect_code("转义符后遇 EOF", "k: \"abc\\", "E-LEX-006")
   expect_code("未闭合块注释 /*", "k: 1\n/* abc\n", "E-LEX-002")
   expect_code("未闭合块注释 _*", "k: 1\n_* abc\n", "E-LEX-003")
   expect_code("未知转义", "k: \"a\\qb\"\n", "E-LEX-004")
@@ -751,8 +753,9 @@ local function test_error_info()
     bad("空/非字符串入参 期望 nil", "非 nil")
   end
 
-  -- 全量性质（跨端契约）：所有码 title/msg 非空；PARSE 领域恰好 30 条
-  -- 快照守卫：25 → 27（R1 新增 W-PARSE-001/002）→ 30（featag S2 新增 E-PARSE-026/027/028）。
+  -- 全量性质（跨端契约）：所有码 title/msg 非空；PARSE 领域恰好 32 条
+  -- 快照守卫：25 → 27（R1 新增 W-PARSE-001/002）→ 30（featag S2 新增 E-PARSE-026/027/028）
+  -- → 32（与 Rust `sml-codes/src/msgs.rs` 的 32 条对齐；三端此前的 27/30 都已过期）。
   -- ⚠️ 改码表要同步本断言与 js/test-sml-errors.mjs 的同名断言，否则「码表被无意改动」就没人拦。
   local parse, empty, count = 0, 0, 0
   for _, z in pairs(EM.ZH) do
@@ -762,8 +765,8 @@ local function test_error_info()
   end
   if empty == 0 then ok("全量非空 -> 所有码 title/msg 非空")
   else bad("全量非空 有 " .. empty .. " 条码 title/msg 为空", empty) end
-  if parse == 30 then ok("PARSE 领域 -> 30 条")
-  else bad("PARSE 领域期望 30", parse) end
+  if parse == 32 then ok("PARSE 领域 -> 32 条")
+  else bad("PARSE 领域期望 32", parse) end
   io.write(string.format("  .. 共 %d 条码\n", count))
 end
 
