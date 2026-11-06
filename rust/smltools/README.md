@@ -153,7 +153,7 @@ front matter 的 `.md`；`--zola-build` 会顺带调用本机 `zola build`（需
 
 ```text
 $ smltools --from nosuch
-smltools: unknown input format `nosuch` (sml|json|toml|yaml|xml) [E-CLI-001]
+smltools: unknown input format `nosuch` (sml|swl|json|toml|yaml|xml) [E-CLI-001]
 
 $ smltools --lint -i doc.sml
 doc.sml:1: error: 缩进里出现 tab；SML 缩进敏感，请统一用空格 [E-LINT-001]
@@ -342,7 +342,7 @@ the message, matching the Rust-side `SmlError` `Display` convention:
 
 ```text
 $ smltools --from nosuch
-smltools: unknown input format `nosuch` (sml|json|toml|yaml|xml) [E-CLI-001]
+smltools: unknown input format `nosuch` (sml|swl|json|toml|yaml|xml) [E-CLI-001]
 
 $ smltools --lint -i doc.sml
 doc.sml:1: error: 缩进里出现 tab；SML 缩进敏感，请统一用空格 [E-LINT-001]
