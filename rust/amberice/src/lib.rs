@@ -39,6 +39,9 @@
 
 pub mod container;
 pub mod crypto;
+/// `DIR`（0x03）路径索引：派生数据，缺失/过期只影响速度（N05 / §19.3）。
+/// `DIR` path index: derived data; missing or stale only costs speed (N05 / §19.3).
+pub mod dir;
 pub mod hash;
 pub mod layer;
 pub mod manifest;
@@ -51,6 +54,9 @@ pub mod sign;
 #[cfg(feature = "mmap")]
 pub mod mmap;
 pub mod sm3;
+/// `TYPED`（0x70）强类型变量：编译期已知类型走数字 id，不写名字（N04 / §25）。
+/// `TYPED` (0x70) typed variables: numeric ids instead of names when the type is known.
+pub mod typed;
 pub mod vectors;
 
 #[cfg(feature = "crypto")]
@@ -67,9 +73,10 @@ pub use container::{
     ALIGN_BLOCK, ALIGN_MIN, COMP_ZSTD, EDITION, FLAG_ALIGN_BLOCK, FMT, HEADER_LEN, MAGIC,
     frame_bytes_at, inflate_frames_all, manifest_of, parse_frame_index, FrameEntry,
     FRAME_ENTRY_LEN,
-    MAX_DECOMPRESSED, SEG_EMBED, SEG_FRAMES, SEG_HEADER_LEN, SEG_MANIFEST, SEG_STRTAB,
-    SEG_VALUE,
+    MAX_DECOMPRESSED, SEG_DIR, SEG_EMBED, SEG_FRAMES, SEG_HEADER_LEN, SEG_MANIFEST, SEG_STRTAB,
+    SEG_TYPED, SEG_VALUE,
 };
+pub use dir::{Dir, DirError, Entry as DirEntry};
 pub use hash::{HashAlgo, HashError};
 pub use layer::{
     layers, ChainReport, Delegation, Layer, LayerError, SigEntry, Trailer, LAYER_HEADER_LEN,
@@ -86,6 +93,10 @@ pub use manifest::{
     DEFAULT_PATCH_STRATEGY,
 };
 pub use store::Store;
+pub use typed::{
+    directory as typed_directory, read_var, type_hash, Decode, Encode, Typed, TypedError, VarEntry,
+    VarId,
+};
 #[cfg(feature = "mmap")]
 pub use mmap::MappedFile;
 pub use sml_value::canonical::CanonicalError;

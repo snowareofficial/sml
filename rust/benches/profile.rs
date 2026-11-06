@@ -100,6 +100,34 @@ fn main() {
                 0,
                 mem,
             );
+
+            // N05 判据：同一份值带 `DIR` 时，中键 get 应当从 O(兄弟数) 变成 O(log n)。
+            // ｜ Same file with the optional `DIR` index: sibling scan → binary search.
+            let dir_opts = amberice::DumpOptions {
+                dir: true,
+                ..Default::default()
+            };
+            let file_dir = amberice::dump_with(&cv, &dir_opts).expect("dump(DIR) 失败");
+            let store_dir = amberice::Store::open(&file_dir).expect("Store::open(DIR) 失败");
+            let _ = store_dir.get(&key).expect("预热失败");
+            let t = common::bench(n, || {
+                for _ in 0..PER_OP {
+                    let _ = std::hint::black_box(store_dir.get(&key).expect("get 失败"));
+                }
+            });
+            let mem = common::measure(|| {
+                for _ in 0..PER_OP {
+                    let _ = std::hint::black_box(store_dir.get(&key).expect("get 失败"));
+                }
+            });
+            common::row(
+                &format!("flat@{nkeys}"),
+                &common::human_bytes(file_dir.len() as f64),
+                "get×1000 均摊（DIR）",
+                t / PER_OP as f64,
+                0,
+                mem,
+            );
         }
     }
     #[cfg(not(feature = "amberice"))]

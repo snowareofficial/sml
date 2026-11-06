@@ -116,9 +116,13 @@ pub const FMT: u8 = 0;
 pub const SEG_VALUE: u8 = 0x01;
 /// `STRTAB` segment id (§19.1). ｜ `STRTAB` 段 id。
 pub const SEG_STRTAB: u8 = 0x02;
-/// `DIR` segment id (§19.1) — index only; nothing writes it before T2/T3.
-/// `DIR` 段 id（纯索引；T2/T3 之前没人写它）。
+/// `DIR` segment id (§19.1/§19.3) — optional path index, written from N05.
+/// `DIR` 段 id（§19.3 的可选路径索引，N05 起可写）。
 pub const SEG_DIR: u8 = 0x03;
+
+/// `TYPED` segment id (§25.2) — typed variables (N04).
+/// `TYPED` 段 id（§25.2 的强类型变量，N04）。
+pub const SEG_TYPED: u8 = 0x70;
 /// `MANIFEST` segment id — **registered here in T1, written from T2**.
 /// `MANIFEST` 段 id：T1 只登记，T2 才写内容。
 pub const SEG_MANIFEST: u8 = 0x04;
@@ -299,6 +303,10 @@ pub enum ContainerError {
         /// The missing id ｜ 缺的 id。
         seg_id: u8,
     },
+    /// `TYPED` (0x70) failed to build or decode ｜ `TYPED` 段构建/解码失败。
+    Typed(String),
+    /// `DIR` (0x03) failed to build ｜ `DIR` 段构建失败。
+    Dir(String),
     /// The same critical segment id appears twice (D15: no implicit last-wins)
     /// 同一个关键段 id 出现两次（D15：不做隐式 last-wins）。
     DuplicateSegment {
@@ -504,6 +512,8 @@ impl ContainerError {
             ContainerError::DuplicatePayloadName { .. } => "duplicate-payload-name",
             ContainerError::PayloadNotFound { .. } => "payload-not-found",
             ContainerError::PayloadTableMismatch { .. } => "payload-table-mismatch",
+            ContainerError::Typed(_) => "typed",
+            ContainerError::Dir(_) => "dir",
         }
     }
 }
@@ -655,6 +665,8 @@ impl std::fmt::Display for ContainerError {
             ContainerError::PayloadTableMismatch { name, field } => {
                 write!(f, "载荷 `{name}` 的 `{field}` 与 EMBED 段体不一致")
             }
+            ContainerError::Typed(msg) => write!(f, "TYPED 段：{msg}"),
+            ContainerError::Dir(msg) => write!(f, "DIR 段：{msg}"),
         }
     }
 }
@@ -760,6 +772,13 @@ pub struct DumpOptions {
     /// 只有**真的变小**才写压缩形态（否则白花 CPU 还多一层解压）；`comp` 字段会如实记录。
     /// ｜ Only used when it actually shrinks the body; the `comp` field records the truth.
     pub compress: Option<i32>,
+    /// Write the optional `DIR` index (§19.3). Off by default: an index is derived data and
+    /// changes the bytes, so old files and fixtures stay byte-identical unless asked.
+    /// 是否写可选的 `DIR` 索引。默认关：索引是派生数据且会改字节，不要求时保持逐字节不变。
+    pub dir: bool,
+    /// How deep `DIR` indexes object keys (manifest `defaults.dir_depth`, default 4).
+    /// `DIR` 索引到第几层对象键（manifest 的 `dir_depth`，默认 4）。
+    pub dir_depth: u32,
 }
 
 impl Default for DumpOptions {
@@ -771,6 +790,8 @@ impl Default for DumpOptions {
             caps_optional: Vec::new(),
             frame_size: None,
             compress: None,
+            dir: false,
+            dir_depth: crate::manifest::DEFAULT_DIR_DEPTH,
         }
     }
 }
@@ -870,6 +891,15 @@ fn dump_sealed(
     keys: Option<&crate::crypto::WriteKeys>,
 ) -> Result<Vec<u8>, ContainerError> {
     let blocks = v.canonical_blocks()?;
+    // DIR 必须在 `blocks.value` 被移进 segs 之前算好（它要读整段明文节点树）。
+    let dir_body = if opts.dir {
+        Some(
+            crate::dir::build(&blocks.value, 0, opts.dir_depth)
+                .map_err(|e| ContainerError::Dir(e.to_string()))?,
+        )
+    } else {
+        None
+    };
 
     // 内容段（manifest 的 segments[] 只列它们，**不含自己** —— 否则摘要循环）
     let mut segs: Vec<(u8, Vec<u8>)> = Vec::with_capacity(3);
@@ -907,7 +937,18 @@ fn dump_sealed(
         out
     };
 
+    // DIR（N05）：派生索引，明文、放在加密循环之外 —— 读端要能直接查，不必先解密。
+    // 段顺序 0x03 落在 STRTAB(0x02) 之后、MANIFEST(0x04) 之前，段表仍按 id 升序。
+    let mut sealed = sealed;
+    if let Some(body) = dir_body {
+        sealed.push((SEG_DIR, 0, body, false));
+    }
+
     let mut manifest = build_manifest(primary, &sealed, &[], opts)?;
+    if opts.dir && !manifest.caps_optional.iter().any(|c| c == "dir") {
+        // `dir` 是已注册的 optional 能力：不认就忽略，不影响正确性（§25.6）。
+        manifest.caps_optional.push("dir".to_string());
+    }
     if let Some(k) = keys {
         manifest.crypto_enc = crate::crypto::ENC_AES256_GCM;
         manifest.kdf_kind = k.kdf_kind;
@@ -1122,6 +1163,8 @@ fn build_manifest(
     manifest.payloads = payloads.to_vec();
     manifest.caps_required = opts.caps_required.clone();
     manifest.caps_optional = opts.caps_optional.clone();
+    // 索引深度是写者给的默认值；读端只把它当提示（段里自带 head_layer）。
+    manifest.dir_depth = opts.dir_depth;
     Ok(manifest)
 }
 
@@ -1154,6 +1197,9 @@ pub struct Writer<W: std::io::Write> {
     segs: Vec<(ManifestSegment, u64)>,
     tmp_len: u64,
     finished: bool,
+    /// Typed variables collected by [`Writer::put_var`], written as `TYPED` at `finish`.
+    /// [`Writer::put_var`] 收集的强类型变量，`finish` 时写成 `TYPED` 段。
+    typed: crate::typed::Typed,
 }
 
 impl<W: std::io::Write> Writer<W> {
@@ -1183,7 +1229,22 @@ impl<W: std::io::Write> Writer<W> {
             segs: Vec::new(),
             tmp_len: 0,
             finished: false,
+            typed: crate::typed::Typed::new(),
         })
+    }
+
+    /// Store one typed variable; the body becomes a `TYPED` (0x70) segment at `finish()`.
+    /// 存一个强类型变量；`finish()` 时写成 `TYPED`（0x70）段。
+    ///
+    /// The value is **additive**: `VALUE` is still written by the caller, and canonical
+    /// equality / signatures never look at this segment (§25.1).
+    /// ｜ 它是附加通道：`VALUE` 仍由调用方写，canonical 相等与签名不看这一段。
+    pub fn put_var<T: crate::typed::Encode>(
+        &mut self,
+        id: crate::typed::VarId,
+        v: &T,
+    ) -> Result<(), ContainerError> {
+        self.typed.put(id, v).map_err(ContainerError::from)
     }
 
     /// Append a segment whose body is already in memory.
@@ -1290,6 +1351,12 @@ impl<W: std::io::Write> Writer<W> {
     pub fn finish(mut self) -> Result<W, ContainerError> {
         use std::io::{Read as _, Seek as _, SeekFrom};
 
+        // `TYPED` 的 id 最大（0x70），此时追加不会破坏「段按 id 升序」的约束。
+        if !self.typed.is_empty() {
+            let body = self.typed.to_bytes();
+            self.add_segment(SEG_TYPED, 0, 0, &body)?;
+        }
+
         let manifest_seg = {
             let mut segs: Vec<ManifestSegment> = self.segs.iter().map(|(s, _)| s.clone()).collect();
             segs.sort_by_key(|s| s.id);
@@ -1355,7 +1422,12 @@ impl<W: std::io::Write> Writer<W> {
             .map_err(|e| ContainerError::PayloadRead(format!("写出失败：{e}")))?;
 
         // 段体（按段表顺序；manifest 从内存、其余从临时文件）
-        for (seg, off) in &order {
+        //
+        // ⚠️ 补零的条件是「**不是最后一段**」，不是「不是 manifest」。manifest 的 id 是 0x04，
+        // 而 `TYPED` 是 0x70 ⇒ 段表按 id 升序时 manifest **可能不在末尾**；若还按 id 特判，
+        // 后面那段的偏移会与 `info()` 的 `align_up` 走法错位，摘要随即不匹配。
+        // ｜ Pad every segment except the last one — manifest is not necessarily last anymore.
+        for (i, (seg, off)) in order.iter().enumerate() {
             if seg.id == SEG_MANIFEST {
                 self.out
                     .write_all(&manifest_seg.1)
@@ -1379,7 +1451,7 @@ impl<W: std::io::Write> Writer<W> {
                 }
             }
             let pad = align_up(seg.len as u64, granule) - seg.len as u64;
-            if pad > 0 && seg.id != SEG_MANIFEST {
+            if pad > 0 && i + 1 != order.len() {
                 self.out
                     .write_all(&vec![0u8; pad as usize])
                     .map_err(|e| ContainerError::PayloadRead(format!("写出失败：{e}")))?;
@@ -1827,6 +1899,10 @@ pub(crate) struct RawParts<'a> {
     pub manifest: Option<Manifest>,
     /// Layer chain, oldest first ｜ 层链（从旧到新）。
     pub layers: Vec<crate::layer::Layer>,
+    /// Optional `DIR` body (plain only; compressed/encrypted index is ignored) ｜ 可选的 `DIR` 段体。
+    pub dir: Option<&'a [u8]>,
+    /// Optional `TYPED` body (plain only) ｜ 可选的 `TYPED` 段体。
+    pub typed: Option<&'a [u8]>,
 }
 
 /// Open for random access: no `Value` is built. ｜ 以随机访问的方式打开：不构造 `Value`。
@@ -1844,6 +1920,8 @@ pub(crate) fn open_raw<'a>(bytes: &'a [u8], verify: bool) -> Result<RawParts<'a>
     let mut value: Option<&[u8]> = None;
     let mut frames: Option<&[u8]> = None;
     let mut strtab: Option<&[u8]> = None;
+    let mut dir: Option<&[u8]> = None;
+    let mut typed: Option<&[u8]> = None;
     for seg in &info.segments {
         match seg.header.seg_id {
             SEG_FRAMES => {
@@ -1885,6 +1963,29 @@ pub(crate) fn open_raw<'a>(bytes: &'a [u8], verify: bool) -> Result<RawParts<'a>
                     strtab = Some(b);
                 }
             }
+            // `DIR` / `TYPED` 是可选旁路：压缩或加密形态一律**忽略**（不报错、不解压），
+            // 因为缺少它们只影响速度 / 强类型取值，不影响 `VALUE` 的正确性（§25.1）。
+            // ｜ Optional side channels: comp/enc forms are ignored rather than fatal.
+            SEG_DIR | SEG_TYPED => {
+                if seg.header.comp != 0 || seg.header.enc != 0 {
+                    continue;
+                }
+                let b = body(bytes, seg)?;
+                if verify {
+                    verify_digest(seg, b, algo)?;
+                }
+                if seg.header.seg_id == SEG_DIR {
+                    if dir.is_some() {
+                        return Err(ContainerError::DuplicateSegment { seg_id: SEG_DIR });
+                    }
+                    dir = Some(b);
+                } else {
+                    if typed.is_some() {
+                        return Err(ContainerError::DuplicateSegment { seg_id: SEG_TYPED });
+                    }
+                    typed = Some(b);
+                }
+            }
             _ => {}
         }
     }
@@ -1902,6 +2003,8 @@ pub(crate) fn open_raw<'a>(bytes: &'a [u8], verify: bool) -> Result<RawParts<'a>
         strtab: strtab.unwrap_or(&[]),
         manifest,
         layers: layer::layers(bytes).map_err(ContainerError::Layer)?,
+        dir,
+        typed,
     })
 }
 

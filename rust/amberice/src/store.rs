@@ -32,6 +32,8 @@
 //! | 要逐层历史 | [`Store::history_at`] |
 //! | 要段与载荷清单 | [`Store::segments`] / [`Store::payload`] |
 
+use std::collections::HashMap;
+
 use sml_value::{
     parse_strtab_table, subtree_at_with_table, subtree_range, value_from_subtree_with_table,
     CanonicalError, Path, TreeCursor, Value,
@@ -64,6 +66,13 @@ pub struct Store<'a> {
     strtab_table: std::sync::OnceLock<StrTab<'a>>,
     manifest: Option<Manifest>,
     layers: Vec<Layer>,
+    /// Optional `DIR` body (N05); parsed on first use. ｜ 可选的 `DIR` 段体，首次使用时解析。
+    dir: Option<&'a [u8]>,
+    dir_index: std::sync::OnceLock<Option<crate::dir::Dir>>,
+    /// `key → STRTAB id`, built on the first `DIR` lookup ｜ 首次用 `DIR` 时建的键→id 表。
+    key_ids: std::sync::OnceLock<HashMap<&'a str, u32>>,
+    /// Optional `TYPED` body (N04) ｜ 可选的 `TYPED` 段体。
+    typed: Option<&'a [u8]>,
 }
 
 /// Parsed `STRTAB`, cached. Custom `Debug` keeps `Store`'s debug output short.
@@ -242,6 +251,10 @@ impl<'a> Store<'a> {
             strtab_table: std::sync::OnceLock::new(),
             manifest: parts.manifest,
             layers: parts.layers,
+            dir: parts.dir,
+            dir_index: std::sync::OnceLock::new(),
+            key_ids: std::sync::OnceLock::new(),
+            typed: parts.typed,
         })
     }
 
@@ -292,6 +305,104 @@ impl<'a> Store<'a> {
             .get()
             .expect("table was just set, or a concurrent caller set it")
             .0)
+    }
+
+    /// Parsed `DIR`, when the file has a usable one ｜ 文件里有可用的 `DIR` 时返回它。
+    fn dir_view(&self) -> Option<&crate::dir::Dir> {
+        let body = self.dir?;
+        self.dir_index
+            .get_or_init(|| crate::dir::parse(body).ok())
+            .as_ref()
+    }
+
+    /// `key → STRTAB id` map, built once ｜ 键 → 串 id 表，只建一次。
+    fn key_ids(&self) -> Result<&HashMap<&'a str, u32>, ContainerError> {
+        if let Some(m) = self.key_ids.get() {
+            return Ok(m);
+        }
+        let table = self.strtab_table()?;
+        let mut m = HashMap::with_capacity(table.len());
+        for (i, k) in table.iter().enumerate() {
+            m.entry(*k).or_insert(i as u32);
+        }
+        let _ = self.key_ids.set(m);
+        Ok(self.key_ids.get().expect("map was just set"))
+    }
+
+    /// Resolve a path through `DIR`: binary search per indexed level.
+    /// 通过 `DIR` 解路径：每个已索引的层做一次二分。
+    ///
+    /// Returns `None` whenever the index cannot answer (absent, stale, path deeper than
+    /// `dir_depth`, path goes through an array, or the offset is out of range) — the caller
+    /// then falls back to the linear walk. **Never** returns a wrong value.
+    /// ｜ 索引答不了就返回 `None`，由调用方回退线性走；**绝不给错值**。
+    fn lookup_dir(&self, p: &Path) -> Result<Option<Value>, ContainerError> {
+        if self.frames.is_some() {
+            return Ok(None);
+        }
+        let Some(dir) = self.dir_view() else {
+            return Ok(None);
+        };
+        // 追加过层 ⇒ 索引已过期（§19.3 的 head_layer 语义），整段忽略。
+        if dir.head_layer != self.layers.len() as u32 {
+            return Ok(None);
+        }
+        let ids = self.key_ids()?;
+        let mut cur: u32 = 0;
+        for seg in p.segments() {
+            let sml_value::Seg::Key(k) = seg else {
+                return Ok(None);
+            };
+            let Some(&id) = ids.get(k.as_str()) else {
+                return Ok(None);
+            };
+            let Some(child) = dir.find(cur, id) else {
+                return Ok(None);
+            };
+            cur = child;
+        }
+
+        let off = cur as usize;
+        if off + 6 > self.value.len() {
+            return Ok(None);
+        }
+        let sub = u32::from_le_bytes([
+            self.value[off + 2],
+            self.value[off + 3],
+            self.value[off + 4],
+            self.value[off + 5],
+        ]) as usize;
+        let end = off
+            .checked_add(6)
+            .and_then(|x| x.checked_add(sub))
+            .ok_or(CanonicalError::SubtreeLenOverflow { at: off, declared: sub })?;
+        if end > self.value.len() {
+            return Ok(None);
+        }
+        let table = self.strtab_table()?;
+        Ok(Some(value_from_subtree_with_table(
+            table,
+            &self.value[off..end],
+        )?))
+    }
+
+    /// Raw `DIR` body, when present ｜ `DIR` 段体（若有）。
+    pub fn dir_body(&self) -> Option<&'a [u8]> {
+        self.dir
+    }
+
+    /// Raw `TYPED` body, when present ｜ `TYPED` 段体（若有）。
+    pub fn typed_body(&self) -> Option<&'a [u8]> {
+        self.typed
+    }
+
+    /// Decode typed variable `id` as `T` (N04 / §25).
+    /// 按 `T` 解强类型变量 `id`（N04 / §25）。
+    pub fn var<T: crate::typed::Decode>(&self, id: crate::typed::VarId) -> Result<T, ContainerError> {
+        let seg = self.typed.ok_or_else(|| {
+            ContainerError::Typed("本文件没有 TYPED 段（0x70）".to_string())
+        })?;
+        crate::typed::read_var(seg, id).map_err(ContainerError::from)
     }
 
     /// The raw bytes of one subtree — **zero copy**, header included.
@@ -357,7 +468,12 @@ impl<'a> Store<'a> {
             }
         }
 
-        // 2) 导航：明文零拷贝切片；分帧只解覆盖目标的那几帧
+        // 2) DIR 快路径（N05）：索引有效且路径不深于索引深度时，逐层二分
+        if let Some(v) = self.lookup_dir(&p)? {
+            return Ok((v, 1));
+        }
+
+        // 3) 导航：明文零拷贝切片；分帧只解覆盖目标的那几帧
         match self.frames {
             None => {
                 let table = self.strtab_table()?;
