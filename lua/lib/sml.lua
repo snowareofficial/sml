@@ -137,6 +137,9 @@ end
 -- 报 E-LIMIT-001 对嵌套数组与嵌套块同口径。
 -------------------------------------------------------------------------------
 local ARRAY_MT = {}
+-- 导出给 `.ambr` 写入器：它需要区分「空数组」与「空对象」，而两边各自 new 一个
+-- 元表就永远认不出对方。｜ Shared marker so ambr_pack recognises our empty arrays.
+Sml.ARRAY_MT = ARRAY_MT
 
 -- 是否为「数组」：带 ARRAY_MT 标记者优先；否则回退到旧的「有整数键 1..n 且无非数字键」
 -- 判定（兼容直接喂给 Sml.dump 的普通表、以及 set_field 由重复键合成的数组）。
@@ -795,6 +798,8 @@ end
 local function parse_block(tokens, i, closing, fragments, contracts, depth)
   enter_depth(depth)
   local node = {}
+  -- 键的**源序**（供 `.ambr` 写入；不进值树，见 finish）
+  local order = {}
   local n = #tokens
   -- 本块声明的 `@is 契约名`：块结束时应用（Rust 的 applied_contract）
   local pending_is = nil
@@ -805,11 +810,29 @@ local function parse_block(tokens, i, closing, fragments, contracts, depth)
     if pending_is ~= nil then
       apply_contract(node, contracts, pending_is)
     end
+    -- 记录**源序**到元表：`pairs` 看不见它，`dump` / 契约校验都不受影响，
+    -- 但 `.ambr` 写入需要它（Lua 表本身不保序）。
+    -- 契约回填的默认值不在源序里，追加到末尾。
+    -- ｜ Record source key order in the metatable: invisible to `pairs`, `dump` and
+    --   contract validation, but required by the `.ambr` writer.
+    if next(order) ~= nil then
+      for k in pairs(node) do
+        local seen = false
+        for j = 1, #order do
+          if order[j] == k then seen = true; break end
+        end
+        if not seen then order[#order + 1] = k end
+      end
+      local mt = getmetatable(node) or {}
+      mt.__order = order
+      setmetatable(node, mt)
+    end
     return node, next_i
   end
   -- 同名 key 冲突时提升为数组（避免静默覆盖，见 Bug 1）
   local function set_field(k, v)
     if node[k] == nil then
+      order[#order + 1] = k
       node[k] = v
     elseif type(node[k]) == "table" and node[k][1] ~= nil then
       node[k][#node[k]+1] = v   -- 已是数组，追加
@@ -1403,7 +1426,7 @@ end
 --   Sml.load(text)         —— include 关闭（与改动前一致）
 --   Sml.load(text, base)   —— include 开启，base 为沙箱根（W20 第二阶段）
 ------------------------------------------------------------------------------
-function Sml.load(text, base)
+function Sml.load(text, base, allow_top_scalar)
   -- 文件级规范化：去掉开头的 UTF-8 BOM（U+FEFF = \239\187\191）。
   -- BOM **不是空白** ⇒ 会被词法器吞进第一个单词 ⇒ 第一个键名变成 "\u{FEFF}x"（**静默**改键名）。
   -- 来源很常见：Windows 记事本「另存为 UTF-8」。与 Rust / JS / C / C++ 对齐。
@@ -1486,6 +1509,13 @@ function Sml.load(text, base)
     -- 裸词标识符（块类型名/块名）不算值型，`server web { }` 合法。
     local first_val = is_scalar_value(first)
     if first_is_bare_scalar and (only or (first_val and followed_by_container)) then
+      -- `allow_top_scalar`：读回 canonical 文本时需要一个单标量入口（与 Rust
+      -- `ParseOptions::allow_top_scalar` 同判据）。只放行**恰好一个** token；
+      -- `42 a { }` 这类有歧义形态仍然报错。
+      -- ｜ Opt-in single-scalar read-back; ambiguous forms still error.
+      if allow_top_scalar and only then
+        return coerce(first, fragments)
+      end
       fail("E-PARSE-008", "顶层只能是容器（键值块 / 对象块 / 数组），单个标量无法往返：" .. tostring(first))
     end
     return (select(1, parse_block(toks, 1, nil, fragments, contracts, 0)))
