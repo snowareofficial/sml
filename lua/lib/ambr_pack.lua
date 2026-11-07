@@ -159,8 +159,21 @@ function M.array(...)
     return setmetatable({ ... }, ARRAY_MT)
 end
 
+-- `sml.lua` 的空数组用**它自己的** ARRAY_MT 标记；两边各 new 一个就永远认不出对方。
+-- 懒加载，避免模块循环依赖。
+-- ｜ `sml.lua` marks empty arrays with its own metatable; share it lazily.
+local sml_marker = nil   -- nil = 未查；false = 查过但没有
+local function shared_array_marker()
+    if sml_marker ~= nil then return sml_marker or nil end
+    local ok, S = pcall(require, "sml")
+    sml_marker = (ok and S.ARRAY_MT) or false
+    return sml_marker or nil
+end
+
 local function is_array(t)
     if getmetatable(t) == ARRAY_MT then return true end
+    local shared = shared_array_marker()
+    if shared and getmetatable(t) == shared then return true end
     local n = 0
     for k in pairs(t) do
         if type(k) ~= "number" or k ~= math.floor(k) or k < 1 then return false end
@@ -231,7 +244,10 @@ local function enc_node(v, order_of, st)
             end
         end
         local p = uvarint(n) .. table.concat(parts)
-        return string.pack("<BBI4", OBJ, 0, #p) .. p
+        -- flags bit 0 = FLAG_HAS_TYPE：对象含 `__type` 键时置位（Rust `encode_node`）。
+        -- ｜ Bit 0 is FLAG_HAS_TYPE, set when the object carries a `__type` key.
+        local flags = (v["__type"] ~= nil) and 1 or 0
+        return string.pack("<BBI4", OBJ, flags, #p) .. p
     end
     error("ambr_pack: unsupported value type " .. tv, 2)
 end
@@ -247,6 +263,28 @@ function M.encode_blocks(v, order)
 
     local function order_of(t)
         if order and order[t] then return order[t] end
+        -- `Sml.load` 把源序记在元表的 `__order` 上（不进值树）
+        local mt = getmetatable(t)
+        if mt and mt.__order then
+            local o = mt.__order
+            -- 字节侧是**源序**：`__type` / `__name` 在解析树里是后加的，所以排在末尾；
+            -- 文本侧把它们提到最前是 C10 的规定（§18.2 vs §19.2 的已知差异）。
+            -- ｜ Byte side keeps metadata keys last (source order), unlike canonical text.
+            if t["__type"] ~= nil or t["__featags"] ~= nil then
+                local out = {}
+                for i = 1, #o do
+                    local k = o[i]
+                    if k ~= "__type" and k ~= "__name" and k ~= "__featags" then
+                        out[#out + 1] = k
+                    end
+                end
+                if t["__featags"] ~= nil then out[#out + 1] = "__featags" end
+                if t["__type"] ~= nil then out[#out + 1] = "__type" end
+                if t["__name"] ~= nil then out[#out + 1] = "__name" end
+                return out
+            end
+            return o
+        end
         guessed = true
         return sorted_keys(t)
     end
@@ -418,6 +456,21 @@ function M.pack(v, order)
 
     return header .. table.concat(table_parts) .. string.rep("\0", data_start - table_end)
         .. table.concat(data_parts), guessed
+end
+
+--- Pack SML **source text** into `.ambr` bytes.
+--- 把 SML **源文本**打成 `.ambr` 字节。
+---
+--- Requires `sml.lua` (the parser records source key order in the value's metatable).
+--- Returns `nil, err` on a parse failure.
+--- ｜ 依赖 `sml.lua`（解析器把源序记在元表里）；解析失败返回 `nil, err`。
+function M.pack_text(text)
+    local Sml = require("sml")
+    -- 第三个参数是 `allow_top_scalar`：canonical 文本可能是单个标量（`42\n`）。
+    local ok, v, err = pcall(Sml.load, text, nil, true)
+    if not ok then return nil, tostring(v) end
+    if v == nil and err ~= nil then return nil, err end
+    return M.pack(v)
 end
 
 return M
