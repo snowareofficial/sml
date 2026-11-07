@@ -57,6 +57,11 @@ unsafe fn write_err(err: *mut c_char, errsz: usize, msg: &str) {
 ///
 /// The returned string is owned by the caller: release with [`ambr_free_str`].
 /// ｜ 返回的字符串归调用方，用 [`ambr_free_str`] 释放。
+///
+/// # Safety
+/// `buf` must point to `len` readable bytes (NULL is rejected, not dereferenced);
+/// `err` must point to `errsz` writable bytes, or be NULL when `errsz == 0`.
+/// ｜ `buf` 必须指向 `len` 字节可读内存；`err` 必须指向 `errsz` 字节可写内存。
 #[no_mangle]
 pub unsafe extern "C" fn ambr_text(
     buf: *const c_uchar,
@@ -113,6 +118,11 @@ pub extern "C" fn ambr_alloc(len: usize) -> *mut c_uchar {
 
 /// Release a buffer from [`ambr_alloc`]. `len` must be the length it was asked for.
 /// NULL and `len == 0` are no-ops. ｜ 释放 [`ambr_alloc`] 的缓冲；`len` 必须与申请时一致。
+///
+/// # Safety
+/// `p` must be a pointer returned by [`ambr_alloc`] with the **same** `len`, and must
+/// not be freed twice.
+/// ｜ `p` 必须是 [`ambr_alloc`] 的返回值、`len` 与申请时一致，且不得重复释放。
 #[no_mangle]
 pub unsafe extern "C" fn ambr_dealloc(p: *mut c_uchar, len: usize) {
     if p.is_null() || len == 0 {
@@ -125,6 +135,11 @@ pub unsafe extern "C" fn ambr_dealloc(p: *mut c_uchar, len: usize) {
 
 /// Release a string returned by [`ambr_text`]. NULL is a no-op.
 /// 释放 [`ambr_text`] 返回的字符串；NULL 是空操作。
+///
+/// # Safety
+/// `p` must be a pointer returned by [`ambr_text`] (or NULL), and must be freed
+/// exactly once.
+/// ｜ `p` 必须是 [`ambr_text`] 的返回值（或 NULL），且只能释放一次。
 #[no_mangle]
 pub unsafe extern "C" fn ambr_free_str(p: *mut c_char) {
     if !p.is_null() {
@@ -143,6 +158,11 @@ pub unsafe extern "C" fn ambr_free_str(p: *mut c_char) {
 ///
 /// Returns NULL on failure; `*out_len` is 0 then. Free with [`ambr_free_bytes`].
 /// 失败返回 NULL（此时 `*out_len` 为 0）；用 [`ambr_free_bytes`] 释放。
+///
+/// # Safety
+/// `text` must point to `len` readable bytes; `out_len` must be writable; `err` must
+/// point to `errsz` writable bytes, or be NULL when `errsz == 0`.
+/// ｜ `text` / `out_len` / `err` 的可读写要求同 [`ambr_text`]。
 #[cfg(feature = "sml")]
 #[no_mangle]
 pub unsafe extern "C" fn ambr_pack_text(
@@ -231,6 +251,11 @@ pub unsafe extern "C" fn ambr_pack_text(
 
 /// Release bytes returned by [`ambr_pack_text`]. `len` must be the `out_len` it wrote.
 /// 释放 [`ambr_pack_text`] 返回的字节；`len` 必须是它写出的 `out_len`。
+///
+/// # Safety
+/// `p` must be the pointer [`ambr_pack_text`] returned, with the exact `out_len` it
+/// wrote, and must not be freed twice.
+/// ｜ `p` 必须是 [`ambr_pack_text`] 的返回值、`len` 为它写出的 `out_len`，且不得重复释放。
 #[no_mangle]
 pub unsafe extern "C" fn ambr_free_bytes(p: *mut c_uchar, len: usize) {
     if !p.is_null() && len > 0 {
