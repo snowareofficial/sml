@@ -2,7 +2,7 @@
 -- 本文件由 errors/gen_js_errors.py 生成，请勿手改。
 -- 中文（默认/源语言）来自 site/static/errors.json；英文来自 errors/msg.en.json。
 -- 某条码/字段缺英文时回退中文，永不返回空。
--- 由 lua/lib/sml.soup 的 Sml.error_info 复用（五端同向量同结果）。
+-- 由 lua/lib/sml.lua 的 Sml.error_info 复用（五端同向量同结果）。
 local M = {}
 
 M.ZH = {

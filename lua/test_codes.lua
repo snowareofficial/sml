@@ -2,7 +2,7 @@
 --
 -- 职责不是「Lua 报了错」，而是钉住**报的是哪个码**：码是跨端稳定契约，文案不是
 -- （见 errors/README.md 与 errors/codes.sml）。期望值直接写码字面量，这些字面量
--- 会被 `errors/gen_codes.py` 的反向校验扫到（`lua/lib/sml.soup` 在它的清单里，
+-- 会被 `errors/gen_codes.py` 的反向校验扫到（`lua/lib/sml.lua` 在它的清单里，
 -- 本文件不在 —— 本文件的期望值就是抄码表，抄错会被下面的断言当场抓住）。
 --
 -- 覆盖范围：Lua 侧**真的会报**的码。故意不测的（给不存在的东西编用例等于发护照）：
@@ -34,7 +34,7 @@
 
 local self = arg[0] or "test_codes.lua"
 local root = self:match("^(.+)[/\\]") or "."
-package.path = root .. "/?.soup;" .. root .. "/?/init.soup;" .. package.path
+package.path = root .. "/?.lua;" .. root .. "/?/init.lua;" .. package.path
 local Sml = require("lib.sml")
 
 local failures = 0
@@ -780,7 +780,7 @@ end
 -- Rust 规范写 `[ 2, 3 ]`、Lua dump 写 `[ 2 3 ]`，二者值树一致、仅标点差异；
 -- 归一后同形 —— 与 conformance 的 token 层判据同口径）。
 -- 纯数组嵌套的深度守卫：128 层放行 / 第 129 层报 E-LIMIT-001（与块嵌套同口径，
--- 共用同一 depth 计数器，见 lib/sml.soup 的 MAX_VALUE_DEPTH 注释）。
+-- 共用同一 depth 计数器，见 lib/sml.lua 的 MAX_VALUE_DEPTH 注释）。
 -- ------------------------------------------------------------------
 local function norm_sml(s)
   -- 括号前后加空格、去掉数组逗号、折叠空白 —— 把 Lua dump 与 Rust 规范 SML 之间

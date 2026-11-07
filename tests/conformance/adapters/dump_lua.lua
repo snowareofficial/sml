@@ -1,7 +1,7 @@
 -- W5：把 .sml 用 **Lua 侧** 解析后 dump 成 SML 文本，供跨实现一致性套件比对。
 --
 -- 用法（驱动脚本负责设 LUA_PATH）：
---   LUA_PATH="<repo>/lua/?.soup;<repo>/lua/?.lua" luajit dump_lua.lua <输出文件> <file.sml> ...
+--   LUA_PATH="<repo>/lua/?.lua;<repo>/lua/?.lua" luajit dump_lua.lua <输出文件> <file.sml> ...
 --
 -- 为什么**写到文件**而不是 stdout：Windows 上 Lua 的 stdout 是**文本模式**，
 -- `io.write("\n")` 会被翻成 "\r\n"。而本套件要比较的是字符串的**内容** ——

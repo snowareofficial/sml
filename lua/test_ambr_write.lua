@@ -11,13 +11,13 @@
 --   ｜ 逐字节对拍由有 canonical 发射器的端负责；Lua 验语义。
 --
 -- Run / 运行:
---   AMBR_LIB=... LUA_PATH="lua/lib/?.soup;lua/?.lua;;" luajit lua/test_ambr_write.lua
+--   AMBR_LIB=... LUA_PATH="lua/lib/?.lua;lua/?.lua;;" luajit lua/test_ambr_write.lua
 
 local here = (arg and arg[0] or ""):match("^(.*)[/\\][^/\\]*$") or "."
 package.path = table.concat({
-  here .. "/lib/?.soup", here .. "/lib/?.lua",
+  here .. "/lib/?.lua", here .. "/lib/?.lua",
   here .. "/?.lua",
-  "lua/lib/?.soup", "lua/lib/?.lua", "lua/?.lua",
+  "lua/lib/?.lua", "lua/lib/?.lua", "lua/?.lua",
   package.path,
 }, ";")
 

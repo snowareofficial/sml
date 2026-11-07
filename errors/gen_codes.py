@@ -63,7 +63,7 @@ LITERAL_FILES = [
     "c/sml.c",
     "c/sml.h",
     "cpp/sml.cpp",
-    "lua/lib/sml.soup",
+    "lua/lib/sml.lua",
 ]
 CODE_RE = re.compile(r"\b[EWI]-[A-Z]+-\d{3}\b")
 

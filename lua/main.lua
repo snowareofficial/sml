@@ -6,7 +6,7 @@
 local src = debug.getinfo(1, "S").source
 local self = src:match("^@(.+)$") or src
 local dir = self:match("^(.+)[/\\]") or "."
-local libdir = dir .. "/?.soup;" .. dir .. "/?/init.soup"
+local libdir = dir .. "/?.lua;" .. dir .. "/?/init.lua"
 package.path = libdir .. ";" .. package.path
 
 local Sml = require("lib.sml")
