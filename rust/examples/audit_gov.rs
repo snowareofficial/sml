@@ -46,7 +46,7 @@ fn main() {
         .filter_map(|l| l.split_once(": ").map(|(k, v)| (k, v)))
         .collect();
 
-    println!("{:<18} {:<22} {:<24} {}", "字段", "原字面量", "Rust 解析为", "判定");
+    println!("{:<18} {:<22} {:<24} 判定", "字段", "原字面量", "Rust 解析为");
     println!("{}", "-".repeat(88));
 
     let mut issues = 0;
@@ -56,7 +56,7 @@ fn main() {
     };
 
     for (k, lit) in &lit_of {
-        let val = map.get(*k).cloned().unwrap_or(Value::Null);
+        let val = map.get(k).cloned().unwrap_or(Value::Null);
         let shown = match &val {
             Value::Float(f, raw) => match raw {
                 Some(r) => format!("Float({f}) raw={r}"),

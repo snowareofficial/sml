@@ -26,7 +26,7 @@ fn main() {
     ];
 
     let mut wrong = 0;
-    println!("{:<14} {:<22} {}", "字面量", "实际解析为", "判定");
+    println!("{:<14} {:<22} 判定", "字面量", "实际解析为");
     println!("{}", "-".repeat(64));
     for (want_num, lit) in cases {
         let got = scalar_of(lit);

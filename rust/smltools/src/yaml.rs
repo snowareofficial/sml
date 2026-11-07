@@ -127,11 +127,10 @@ fn strip_comment(s: &str) -> &str {
         match b[i] {
             b'\'' if !in_d => in_s = !in_s,
             b'"' if !in_s => in_d = !in_d,
-            b'#' if !in_s && !in_d => {
-                if i == 0 || b[i - 1] == b' ' || b[i - 1] == b'\t' {
+            b'#' if !in_s && !in_d
+                && (i == 0 || b[i - 1] == b' ' || b[i - 1] == b'\t') => {
                     return &s[..i];
                 }
-            }
             _ => {}
         }
     }

@@ -124,11 +124,9 @@ fn metadata_keeps_written_form() {
 #[test]
 fn defaults_are_filled_when_matched_by_first_letter() {
     // 兜底命中后走的是正常契约应用路径（默认值照常填充），不是另一套逻辑
-    let src = format!(
-        "@feature enable case-insensitive\n\
-         @contract Cfg {{ host: str port: int default 8080 }}\n\
-         cfg web {{ @is cfg host: h1 }}\n"
-    );
+    let src = "@feature enable case-insensitive\n\
+         @contract Cfg { host: str port: int default 8080 }\n\
+         cfg web { @is cfg host: h1 }\n".to_string();
     let v = parse(&src).expect("`@is cfg` 应命中契约 Cfg");
     assert_eq!(v.get("cfg.port"), Some(&sml::Value::Int(8080)));
 }

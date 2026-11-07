@@ -255,8 +255,8 @@ fn parse_key_path(s: &str) -> Result<Vec<String>, SmlError> {
     let mut out = Vec::new();
     let mut cur = String::new();
     let (mut in_s, mut in_d) = (false, false);
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
+    let chars = s.chars().peekable();
+    for c in chars {
         match c {
             '"' if !in_s => {
                 in_d = !in_d;
@@ -290,8 +290,8 @@ fn parse_key_path(s: &str) -> Result<Vec<String>, SmlError> {
 }
 
 /// 导航到 `path` 指向的表（不存在则创建）；`[[a]]` 时落在最后一个元素上。
-fn ensure_table<'a>(
-    root: &'a mut Map,
+fn ensure_table(
+    root: &mut Map,
     path: &[String],
     no: usize,
 ) -> Result<(), SmlError> {

@@ -74,8 +74,7 @@ fn file_entry_with_options_expands_includes_and_can_disable_contracts() {
 
     // ② 新入口 + 空选项：契约仍是默认开启 ⇒ 与旧入口同码报错（行为不加不减）
     let e2 = sml_parse::parse_file_with(&main, ParseOptions::new())
-        .err()
-        .expect("空选项下仍应报未知契约");
+        .expect_err("空选项下仍应报未知契约");
     assert_eq!(e2.code(), e.code(), "新入口空选项应与旧入口同码：{e2} vs {e}");
 
     // ③ 新入口 + 关闭契约：既展开了 include，也不因未知契约报错

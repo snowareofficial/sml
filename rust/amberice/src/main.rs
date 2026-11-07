@@ -531,7 +531,7 @@ fn tree_cmd(args: &[String]) -> Result<String, (u8, String)> {
         out.push(format!(
             "  层#{:<3} 作者 {}…  {}  签名 {} 条  {}",
             l.index,
-            &hex_prefix(&l.author),
+            hex_prefix(&l.author),
             patch,
             l.sigs.len(),
             deleg
@@ -899,7 +899,7 @@ fn to_hex(d: &[u8]) -> String {
 
 // 同上：`hex32` 依赖它。
 fn hex_n(s: &str) -> Option<Vec<u8>> {
-    if s.len() % 2 != 0 || !s.is_ascii() {
+    if !s.len().is_multiple_of(2) || !s.is_ascii() {
         return None;
     }
     let mut out = Vec::with_capacity(s.len() / 2);
