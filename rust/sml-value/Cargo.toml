@@ -18,6 +18,10 @@ name = "sml_value"
 serde = { version = "1", optional = true }
 
 [features]
+# 32 位目标默认**拒绝编译**：本 crate 有多处 `u64 as usize` / `usize as u32`，
+# 依赖 64 位指针宽度。确实要在 32 位跑（嵌入式等）才显式打开，风险自负。
+# ｜ 32-bit targets are rejected by default; opt in explicitly.
+allow-32bit = []
 # SML 文本序列化器（to_sml）。只需解析/承载数据时可关闭，回到完全零依赖。
 sml = []
 # Value 的 Serialize/Deserialize 实现 + to_value/from_value 桥接。
