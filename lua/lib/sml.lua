@@ -326,8 +326,28 @@ local function coerce(tok, fragments)
   -- 引号串（内部支持 $env.VAR 展开）
   if string.sub(tok, 1, 1) == '"' and string.sub(tok, -1) == '"' then
     local inner = string.sub(tok, 2, -2)
-    local ev = string.match(inner, "^%$env%.(.+)$")
-    if ev then return os.getenv(ev) or "" end
+    -- 内插 `$env.NAME`（与 Rust `interp_str` 同语义）：NAME 取 [字母数字_ .]，
+    -- 取到第一个其它字符为止；名字为空则原样保留 `$env.`。
+    -- 原先只认「整串恰为 $env.NAME」，内嵌形式不替换 —— conformance 26 的分歧。
+    -- ｜ Inline `$env.NAME`, same as the Rust reference.
+    if string.find(inner, "$env.", 1, true) then
+      local out, pos = {}, 1
+      while true do
+        local s, e = string.find(inner, "$env.", pos, true)
+        if not s then out[#out + 1] = string.sub(inner, pos); break end
+        out[#out + 1] = string.sub(inner, pos, s - 1)
+        local rest = string.sub(inner, e + 1)
+        local name = string.match(rest, "^[%w_%.]+")
+        if name and #name > 0 then
+          out[#out + 1] = os.getenv(name) or ""
+          pos = e + 1 + #name
+        else
+          out[#out + 1] = "$env."
+          pos = e + 1
+        end
+      end
+      return table.concat(out)
+    end
     return inner
   end
   if tok == "true" then return true end

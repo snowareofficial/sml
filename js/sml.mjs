@@ -349,16 +349,31 @@ function isScalarValue(tok) {
 }
 
 function coerceStr(s, fragments, feats) {
-  const ev = s.match(/^\$env\.(.+)$/);
-  if (ev) {
-    // 与 coerceWord 同一道闸（引号串里的 `$env.X` 同样要受 `env` 特性管辖）
-    if (feats && !feats.has("env")) {
-      throw throwCode("E-FEATURE-002",
-        "sml: 当前特性集禁用了 `$env`（env），字符串 `" + s + "` 无法解析");
-    }
-    return envLookup(ev[1]);
+  if (!s.includes("$env.")) return s;
+  // 与 coerceWord 同一道闸（引号串里的 `$env.X` 同样要受 `env` 特性管辖）
+  if (feats && !feats.has("env")) {
+    throw throwCode("E-FEATURE-002",
+      "sml: 当前特性集禁用了 `$env`（env），字符串 `" + s + "` 无法解析");
   }
-  return s;
+  // 内插 `$env.NAME`（与 Rust `interp_str` 同语义）：NAME 取 [\w.]，取到第一个其它
+  // 字符为止；名字为空则原样保留 `$env.`。原先只认「整串恰为 $env.NAME」（conformance 26）。
+  const out = [];
+  let pos = 0;
+  for (;;) {
+    const at = s.indexOf("$env.", pos);
+    if (at < 0) { out.push(s.slice(pos)); break; }
+    out.push(s.slice(pos, at));
+    const rest = s.slice(at + 5);
+    const m = rest.match(/^[\w.]+/);
+    if (m && m[0].length > 0) {
+      out.push(envLookup(m[0]));
+      pos = at + 5 + m[0].length;
+    } else {
+      out.push("$env.");
+      pos = at + 5;
+    }
+  }
+  return out.join("");
 }
 
 function isNum(v) { return typeof v === "number" && !Number.isNaN(v); }
