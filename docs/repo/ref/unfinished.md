@@ -1,4 +1,7 @@
-# 未完成清单（2026-11-06 快照 · 一处看全）
+# 未完成清单（2026-11-07 核对 · 一处看全）
+
+> **最后核对：2026-11-07**（代码版本 `fadbf53`）。本轮改动：T7 五端解码器已落地、
+> canonical 的顶层标量与元数据字节侧已做、`swml`/`amberice` 独立仓列为待裁决。
 
 > **权威仍是 `TODO.md` / `IDEAS.md`**（用户维护）；本文件只是把散在四处的欠账合成一页，
 > 每条带来源行号，方便「还剩什么」一眼看完。
@@ -68,6 +71,9 @@
 
 ## 4. 主线 C：`.smlb` / `smldb`（I-18）
 
+> **定位**：`.ambr` 是**基座**，场景归附属 crate，不往核心里塞。段表不存逐段偏移（按 `len` 走）、
+> `Store` 零拷贝、分层追加——这三条有一部分是**专门给 `smldb` 准备的**，不是为普通配置文件优化。
+
 ### 4.1 已落地（别再当欠账）
 
 T0 canonical + 21 例向量 · T1 容器（40 B 头/段表/对齐）· T2 manifest/caps/payloads/pack·unpack ·
@@ -79,14 +85,13 @@ T5 段级 zstd + 帧级 FRAMES + 按块 AEAD · T6 `sml::envelope` + CLI 互转�
 
 | 项 | 内容 | 来源 |
 |---|---|---|
-| **T7 五端解码器** | JS / Lua / C / C++ **未开工**（只做 JS + C 也可先覆盖浏览器与嵌入式） | `HANDOFF-2026-11-05.md:43` |
 | **`smldb`** | 未开工：选择器（§7 已从 `.smlb` 挪过来重新定义）、FTS 方案、表结构 | `spec §16.2` / `§23.3` |
 | `DIR` 段 | 故意不写（只省每层 O(兄弟数) 键比较）；`Store::get` 现在每次建 `STRTAB` 表（O(键数)） | `spec:1440` |
 | P7 `SOURCE` 段 | 是否带「原文 + 行号映射」未定 ⇒ 注释/源码位置保不保 | `spec §16.2` |
 | P2 层链形态 | 实现已按 D19/D20 落地，文档仍列「待定」 | `spec §16.2`（**过期**） |
 | P6 | D2 的施工图 —— 已由 T0/T2 实现，文档仍列「待定」 | `spec §16.2`（**过期**） |
 | P10 | 能力裁剪与格式扩展共用判定函数 —— 已有 `check_caps`，未明确「同一函数」判据 | `spec §16.2` |
-| canonical 三条 | 顶层标量可回读 · 浮点跨端口径 · 元数据字节侧前置 | `spec §23.3` |
+| canonical 三条 | 顶层标量可回读（**已做**：`ParseOptions::allow_top_scalar`）· 元数据字节侧前置（**已做**：`ambr_pack_text` + Lua 纯实现）· **浮点跨端口径**（`19`：JS/LuaJIT 载体限制，已登记放行） | `spec §23.3`（前两条**已过期**） |
 | `compact` 旧签名证据 | 合并多层后如何保留「旧签名证据」未定 | `spec §23.3` |
 
 ---
@@ -149,6 +154,7 @@ docs 子域 · 命名陷阱（包名 `swsml` / 库名 `sml`）。
 | 定时部署 `deploy.yml` | **待做，对象待明确** | Cloudflare 现为 **Pages**（`sml-site`）非 Worker；VPS 部署内容仓库无记录；**触发改用 Ruby 脚本 + 系统级定时器**（Actions cron 不准点且 60 天停用）；`TODO.md §12.2` |
 | swsml / smlb 深水区 | **新任务，未开工** | 先打 tag 存档（基线 = 两份 bench + 测试 + fuzz 语料）→ 有数字的优化（≥15%）→ 按面做漏洞/缺陷检查（clippy / miri / osv / ASAN 长跑）；`TODO.md §13` |
 | `_*` 文件归档 + 文档元数据 | **新任务，一刀切** | 受版本控制 `_*` 18 个、磁盘约 231 个；**一次切完、不留新旧并存**；元数据与扫描器**都用 SML 自己**（`docs/meta.sml` + `smltools docs`），不用 YAML/Python（`TODO.md §14`） |
+| `swml` / `amberice` 独立 GitHub 仓 | **待裁决（2026-11-07）** | `swsml` monorepo 仍是根仓库；`amberice` 先做**只读镜像**（`git subtree split -P rust/amberice`，接收 issue 不接 PR）；`swml` 建占位仓等命名定稿；真独立需 `sml-value` 先发 crates.io |
 
 ---
 
@@ -194,7 +200,8 @@ docs 子域 · 命名陷阱（包名 `swsml` / 库名 `sml`）。
 | fuzz 找到并修的 bug | 层链伪造 Trailer：`last_layer_off + 16` 溢出、按 `layer_count` 预分配 4G 项、`prev_off` 成环死循环 | `rust/smlb/src/layer.rs`；回归 `rust/smlb/tests/hostile_chain.rs`（3 例） |
 | bench 覆盖 | `benches/value.rs`（to_sml/canonical/get/eq_ordered）、`benches/smlb.rs`（dump/load/pack/get/Writer/解密/mmap）、`benches/common/mod.rs`（峰值堆计数） | `cargo bench --bench value`；`cargo bench --bench smlb --features "smlb-compress,smlb-crypto,smlb-mmap"` |
 | 新增 feature | `smlb-crypto`、`smlb-mmap`（与既有 `smlb-compress` 同形） | `rust/Cargo.toml` |
-| 未做 | **CI 不跑 fuzz/bench**（需 nightly + ASAN，可另开 job）；`smldb` 无 target；T7 五端无一致性 fuzz | §0 |
+| T7 五端解码器 | JS / Lua / C / C++ 解码器 + C#/Go/Java/Python/Ruby 绑定；`.ambr` 读写 21/21 **逐字节**一致 | `lua/test_ambr_write.lua`、`tools/check/check_ambr_write.py` |
+| 未做 | **CI 不跑 fuzz/bench**（需 nightly + ASAN，可另开 job）；`smldb` 无 target；五端无一致性 fuzz | §0 |
 
 ---
 
