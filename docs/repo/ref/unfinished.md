@@ -147,7 +147,7 @@ docs 子域 · 命名陷阱（包名 `swsml` / 库名 `sml`）。
 | 官网重写 | **待做，顺序绑命名** | 只有首页 / 下载页版本落后 / 教科书 ch11·ch12 重复 / `llms.txt` 手抄；等 11.1–11.2 定稿（`TODO.md §11.3`） |
 | 发布工作流 `release.yml` | **待做** | tag + 人工审批；crates.io 按拓扑序 + dry-run；VSIX/Open VSX/Release 附属产物；顺序在命名与迁 GitHub 之后（`TODO.md §12.1`） |
 | 定时部署 `deploy.yml` | **待做，对象待明确** | Cloudflare 现为 **Pages**（`sml-site`）非 Worker；VPS 部署内容仓库无记录；**触发改用 Ruby 脚本 + 系统级定时器**（Actions cron 不准点且 60 天停用）；`TODO.md §12.2` |
-| swsml / smlb 深水区 | **新任务，未开工** | 先打 tag 存档（基线 = 两份 bench + 测试 + fuzz 语料）→ 有数字的优化（≥15%）→ 按面做漏洞/缺陷检查（clippy / miri / osv / ASAN 长跑）；`TODO.md §13` |
+| swsml / smlb 深水区 | **13.1 已存档；13.2 的 ①②③ 实测早已修完** | 存档：tag `pre-deep-2026-11-07` + `baseline-2026-11-07/`（两份 bench 原始输出 + fuzz 语料 2549 文件）。优化实测：`Store::get` **10.4 µs**（`TODO` 记的 150 µs 已过期，**14×**），`canonical_bytes` 已两趟预分配，`to_sml` 已 `with_capacity` + 直接 `push_str`。**唯一真实欠账**：`load` 8173 allocs（`flat@4000`，节点级分配，需 arena 类改动，非「15% 小步」）。`clippy` **182 警告**，`-D warnings` 门禁开不了 | `TODO.md §13` |
 | `_*` 文件归档 + 文档元数据 | **新任务，一刀切** | 受版本控制 `_*` 18 个、磁盘约 231 个；**一次切完、不留新旧并存**；元数据与扫描器**都用 SML 自己**（`docs/meta.sml` + `smltools docs`），不用 YAML/Python（`TODO.md §14`） |
 | `swml` / `amberice` 独立 GitHub 仓 | **待裁决（2026-11-07）** | `swsml` monorepo 仍是根仓库；`amberice` 先做**只读镜像**（`git subtree split -P rust/amberice`，接收 issue 不接 PR）；`swml` 建占位仓等命名定稿；真独立需 `sml-value` 先发 crates.io |
 
