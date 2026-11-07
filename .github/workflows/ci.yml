@@ -113,7 +113,11 @@ jobs:
       - name: .ambr 写入（C / C++ / Python）
         env:
           AMBR_LIB: ${{ github.workspace }}/rust/target/release/libamberice_ffi.so
-        run: python3 tools/check/check_ambr_write.py
+        run: |
+          # 先打一行产物清单：失败时能一眼分清「cdylib 没编出来」和「脚本找错路径」。
+          # ｜ Print the artifact list first so a failure is diagnosable.
+          ls -l rust/target/release/libamberice_ffi.* 2>/dev/null || echo "NO libamberice_ffi.* in rust/target/release"
+          python3 tools/check/check_ambr_write.py
 
   # 守卫：私有资产不进主库 + 错误码生成物幂等（需要全历史，故 fetch-depth: 0）
   guards:

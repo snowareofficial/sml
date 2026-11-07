@@ -43,8 +43,12 @@ getrandom = { version = "0.3", optional = true }
 # - `zstd` 2026-10-26 三条（未初始化内存泄漏 / 跨流数据泄漏 / 字典训练越界），
 #   **影响 <0.8.0，修于 >=0.8.0**，且 0.8.0+ 需 `zstd-safe >= 8.2.0`；
 # - `zstd-sys` 同日一条：**仅 wasm32 目标**的 allocator shim 内存破坏。
-#   ⚠️ 本 crate 目前不构建 wasm（CI 无 wasm32 目标）；**若将来要上 wasm，这条必须重新评审**
-#   —— 用户 2026-11-05 裁决「用 zstd-sys 这条链」，即接受非 wasm 目标上的风险为零。
+#   2026-11-07 复核：本仓库锁定 `2.1.2+zstd.1.5.7`，其 Readme 提供 `no_wasm_shim`
+#   （「给自带 C 标准库的 wasm 工具链用」）。用户指出该版本已修复此问题；
+#   本地缺 clang（cc-rs 编 zstd 的 C 源码需要）**未能实测**，故 wasm + compress 仍按
+#   「未验证」对待：要上 wasm 先补 clang 再跑一次
+#   `cargo build -p amberice --features compress --target wasm32-unknown-unknown`。
+#   ｜ Fixed per user report in 2.1.2; not verified locally (no clang).
 # - 被排除的替代：`ruzstd`（2026-10-13 HIGH 解压炸弹）、`lz4_flex`（2026-03-17 HIGH）。
 zstd = { version = "0.14", optional = true }
 # 加密（T5）：AES-256-GCM + HKDF 派生 + Argon2id 口令派生。
