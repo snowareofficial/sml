@@ -211,3 +211,9 @@ examples/micro/CH32V103xx.sml
 
 # root build/ (cross-language check artifacts)
 /build/
+
+# 练习用草稿 crate（本地保留，勿入库）：`rust/amberice/examples/knight/`。
+# 临时规则：发布前把该目录移出仓库，并一并删除本段忽略条目，
+# 以及 `rust/Cargo.toml` 的 `members` 引用、`rust/Cargo.lock` 里的 `knight` 包条目。
+# 对应待办：TODO.md 「发布前待办」。
+/rust/amberice/examples/knight/

@@ -1,7 +1,7 @@
 # docs 索引
 
 > **本文件由 `cargo run -p smldocs -- --index` 生成，勿手改。**
-> 生成于 2026-11-06，数据源 `docs/meta.sml`（49 份文档）。体检结论见 [`report.md`](report.md)。
+> 生成于 2026-11-07，数据源 `docs/meta.sml`（50 份文档）。体检结论见 [`report.md`](report.md)。
 
 ## 一眼看结论
 
@@ -60,7 +60,7 @@
 | [`swml/spec/api.md`](swml/spec/api.md) | 2026-11-02 | 2026-11-06 | **current** | — | swml 门面公开面：根 = swsml 全集，easy = 四个概念 |
 | [`swml/status.md`](swml/status.md) | 2026-11-06 | 2026-11-06 | **current** | — | swml 发布状态（未发布 / publish=false）与 workspace 口径冲突 |
 
-## repo（22 份）
+## repo（23 份）
 
 | 文档 | 写于 | 最后核对 | 状态 | 替代者 | 职责 |
 |---|---|---|---|---|---|
@@ -84,6 +84,7 @@
 | [`repo/archive/task/TASK-agent.md`](repo/archive/task/TASK-agent.md) | 2026-09-18 | 2026-10-28 | **archive** | — | 任务书（主） |
 | [`repo/plan/doc-architecture.md`](repo/plan/doc-architecture.md) | 2026-11-04 | 2026-11-06 | **stale** | `docs/index.md` | 文档四层架构 + P1–P4（提议；已由本次治理落地） |
 | [`repo/ref/pending-decisions.md`](repo/ref/pending-decisions.md) | 2026-11-06 | 2026-11-06 | **current** | — | 裁决台账：五条已全部裁决 + 仍待裁项的去处 |
-| [`repo/ref/todo-ideas-tables.md`](repo/ref/todo-ideas-tables.md) | 2026-11-06 | 2026-11-06 | **current** | — | TODO / IDEAS 条目表：卡在谁、什么状态 |
-| [`repo/ref/unfinished.md`](repo/ref/unfinished.md) | 2026-11-06 | 2026-11-06 | **current** | — | 唯一「还剩什么」清单（分类 / 判据 / 复核命令） |
+| [`repo/ref/scan.md`](repo/ref/scan.md) | 2026-11-07 | 2026-11-07 | **current** | — | 自动扫描的计数结果（tools/scan_status.py --write 生成，勿手改） |
+| [`repo/ref/todo-ideas-tables.md`](repo/ref/todo-ideas-tables.md) | 2026-11-06 | 2026-11-07 | **current** | — | TODO / IDEAS 条目表：卡在谁、什么状态 |
+| [`repo/ref/unfinished.md`](repo/ref/unfinished.md) | 2026-11-06 | 2026-11-07 | **current** | — | 唯一「还剩什么」清单（分类 / 判据 / 复核命令） |
 

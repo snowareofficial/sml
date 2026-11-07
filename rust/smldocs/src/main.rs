@@ -26,13 +26,14 @@ smldocs —— 本仓库 docs/ 的索引与门禁（内部工具，不发布）
 用法：
   smldocs --index              生成 docs/index.md（按 owner 分组，显示 status 与替代者）
   smldocs --report             生成 docs/report.md（缺字段 / 超期 / 断链 / stale 无替代者 / 未登记）
-  smldocs --check              CI 门禁：上述任一命中即非零退出
+  smldocs --check              CI 门禁（只读，不写任何文件 ｜ read-only）：任一命中即非零退出
   smldocs --fix                只补 updated / status，不猜内容
 选项：
   --docs-root <DIR>            仓库根（缺省时在当前目录与上一级找 docs/meta.sml）
   -h, --help                   显示本帮助
 
-组合：`--check` 会顺带刷新 docs/report.md；`--fix` 可与其它开关同用。
+组合：`--check` 纯只读 ｜ read-only；`--fix` 可与其它开关同用。
+写入生成物：内容相同则不写 ｜ skip if unchanged；内容要变且目标有未提交改动时拒绝覆盖 ｜ refuse to overwrite uncommitted files.
 ";
 
 fn main() -> ExitCode {

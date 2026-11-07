@@ -1,6 +1,6 @@
 # 未完成清单（2026-11-07 核对 · 一处看全）
 
-> **最后核对：2026-11-07**（代码版本 `d8ba2cf`）。本轮改动：T7 五端解码器已落地、
+> **最后核对：2026-11-07**（代码版本 `8268700`）。本轮改动：T7 五端解码器已落地、
 > canonical 的顶层标量与元数据字节侧已做、I-14 排雷（unwrap / as）、32 位编译门、
 > **clippy 182 → 0**、`swml`/`amberice` 独立仓列为待裁决。
 
@@ -149,7 +149,7 @@ docs 子域 · 命名陷阱（包名 `swsml` / 库名 `sml`）。
 | 发布工作流 `release.yml` | **待做** | tag + 人工审批；crates.io 按拓扑序 + dry-run；VSIX/Open VSX/Release 附属产物；顺序在命名与迁 GitHub 之后（`TODO.md §12.1`） |
 | 定时部署 `deploy.yml` | **待做，对象待明确** | Cloudflare 现为 **Pages**（`sml-site`）非 Worker；VPS 部署内容仓库无记录；**触发改用 Ruby 脚本 + 系统级定时器**（Actions cron 不准点且 60 天停用）；`TODO.md §12.2` |
 | swsml / smlb 深水区 | **13.1 已存档；13.2 的 ①②③ 实测早已修完** | 存档：tag `pre-deep-2026-11-07` + `baseline-2026-11-07/`（两份 bench 原始输出 + fuzz 语料 2549 文件）。优化实测：`Store::get` **10.4 µs**（`TODO` 记的 150 µs 已过期，**14×**），`canonical_bytes` 已两趟预分配，`to_sml` 已 `with_capacity` + 直接 `push_str`。**唯一真实欠账**：`load` 8173 allocs（`flat@4000`，节点级分配，需 arena 类改动，非「15% 小步」）。`clippy` **0 警告**（182 → 0：`missing_safety_doc` 45、两轮 `--fix`、文档类 42、结构类 31、机械类 19 全部清完；3 处 `large_enum_variant` 与 1 处 `should_implement_trait` 是带理由的 `#[allow]`）。`-D warnings` 门禁已写进 `ci.yml`（本地实跑 `cargo clippy --workspace --all-targets -- -D warnings` exit=0） | `TODO.md §13` |
-| `_*` 文件归档 + 文档元数据 | **新任务，一刀切** | 受版本控制 `_*` 18 个、磁盘约 231 个；**一次切完、不留新旧并存**；元数据与扫描器**都用 SML 自己**（`docs/meta.sml` + `smltools docs`），不用 YAML/Python（`TODO.md §14`） |
+| `_*` 文件归档 + 文档元数据 | **新任务，一刀切** | 受版本控制 `_*` 18 个、磁盘约 231 个；**一次切完、不留新旧并存**；文档元数据用 SML 自己（`docs/meta.sml` + `smldocs`），不引 YAML；`scan.md` 由 `tools/scan_status.py --write` 生成（`TODO.md §14`） |
 | `swml` / `amberice` 独立 GitHub 仓 | **待裁决（2026-11-07）** | `swsml` monorepo 仍是根仓库；`amberice` 先做**只读镜像**（`git subtree split -P rust/amberice`，接收 issue 不接 PR）；`swml` 建占位仓等命名定稿；真独立需 `sml-value` 先发 crates.io |
 
 ---
@@ -182,7 +182,7 @@ docs 子域 · 命名陷阱（包名 `swsml` / 库名 `sml`）。
 **2026-11-06 追加口径（用户，含对“分批”的纠正）**：**一刀切，彻底**，不许新旧并存；
 整理只做**复制 / 合并 / 重写**；文档类**不许直接读原文** —— 先看生成的索引/报告；
 每份文档必须有**写日期、职责、状态**，**变更记录单独成文**；目标：**可扫描、可报告、可统一修改**。
-**元数据与扫描器都用 SML 自己**（`docs/meta.sml` + `smltools docs`），不引 YAML、不用 Python 扫描器 —— dogfooding。
+**文档元数据用 SML 自己**（`docs/meta.sml` + `smldocs`），不引 YAML —— dogfooding；`scan.md` 的计数由 `tools/scan_status.py --write` 生成。
 执行方案见 `TODO.md §14`（本节的 4 条判据被它细化，不冲突、不另起体系）。
 
 ---
@@ -197,6 +197,7 @@ docs 子域 · 命名陷阱（包名 `swsml` / 库名 `sml`）。
 | bench 覆盖 | `benches/value.rs`（to_sml/canonical/get/eq_ordered）、`benches/smlb.rs`（dump/load/pack/get/Writer/解密/mmap）、`benches/common/mod.rs`（峰值堆计数） | `cargo bench --bench value`；`cargo bench --bench smlb --features "smlb-compress,smlb-crypto,smlb-mmap"` |
 | 新增 feature | `smlb-crypto`、`smlb-mmap`（与既有 `smlb-compress` 同形） | `rust/Cargo.toml` |
 | T7 五端解码器 | JS / Lua / C / C++ 解码器 + C#/Go/Java/Python/Ruby 绑定；`.ambr` 读写 21/21 **逐字节**一致 | `lua/test_ambr_write.lua`、`tools/check/check_ambr_write.py` |
+| TODO / IDEAS 两张表 | 交付物 [`todo-ideas-tables.md`](todo-ideas-tables.md)：TODO 表（未完成 / Done / 会话新增）与 IDEAS 表 I-1…I-23，逐条带状态、依赖、完成判据、来源行号、卡在谁 | `docs/index.md` 中该文档 `status: current`；取数命令见该文 §0 / §3 |
 | 未做 | **CI 不跑 fuzz/bench**（需 nightly + ASAN，可另开 job）；`smldb` 无 target；五端无一致性 fuzz | §0 |
 
 ---
@@ -219,35 +220,10 @@ cargo +nightly fuzz run smlb_load corpus/smlb_load -- -runs=20000
 
 ---
 
-## 11. 新会话的唯一任务：把 TODO / IDEAS 做成**两张表**（2026-11-06 用户定）
+## 11. 两张表：已完成
 
-> 用户原话：「新会话的任务是做 todo、ideas 两张表，**单纯做两张表**」。
-> 所以：**只产表，不执行任何条目、不改代码、不勾选、不删原文件、不跑长测试**（允许读文件与 grep 核对）。
+TODO / IDEAS 两张表在 [`todo-ideas-tables.md`](todo-ideas-tables.md)（`status: current`），
+逐条带状态、依赖、完成判据、来源行号与卡在谁；取数命令与复核对账在该文 §0 / §3。
+本文件只列欠账，已完成项统一记在 §9。
 
-**输入（只读）**
-
-| 来源 | 取什么 |
-|---|---|
-| `TODO.md` | 全部 `- [ ]`（当前 **42**）+ 已勾的 `- [x]`（作为 Done 行） |
-| `IDEAS.md` | I-1…I-23 的编号 / 名称 / Status / 内部未勾 |
-| `docs/repo/ref/unfinished.md` | 分类、判据、复核命令（本文件） |
-| `errors/codes.sml` | 跨端欠账的硬证据（`impls` 字段） |
-| `docs/amberice/spec/format.md` §16.2 / §23.3 | `.smlb` 内部未定项（P2/P7/P10…） |
-
-**输出：两张 Markdown 表**（可以是一个文件两张表，也可以两个文件；由你定）
-
-- **TODO 表**：`编号 | 主题 | 状态 | 优先级 | 依赖 | 完成判据 | 来源(file:行) | 卡在谁`
-- **IDEAS 表**：`编号 | 名称 | 状态 | 类型 | 依赖 | 下一步 | 来源(file:行)`
-
-**规则（按重要性）**
-
-1. **一行一条**；同一件事在多处出现只留一行，其余并进「来源」列，不合并不同条目；
-2. **状态以实测/代码为准**，不以文档自述为准（现实例：I-6 写 `Blocked` 但 Rust S0–S9 已收官；I-18 写「零实现」但 T0–T6 已落）；
-3. **已完成也保留一行**，标 `Done`，单独放表尾 —— 目的是“别再当欠账”，不是删记录；
-4. **每行都要能回答**：是什么 / 为什么没做 / 做完的标准 / 卡在谁（人、决策、还是外部条件）；
-5. **数字可复核**：表头给出取数命令（`Select-String` / `git grep` / `python tests/conformance/...`），
-   不写“约”“左右”这类无法验证的量；
-6. 表里**不许出现**“见上文”“同上”这类依赖上下文的写法 —— 单行拿来就能排期。
-
-⚠️ 做完两张表就停。`TODO.md §10.1/§10.2`（命名 / 迁 GitHub）与 §12–§14 都是**发布或大改动作**，
-要单独排期，不要在这个会话里顺手做。
+`TODO.md` §10 / §12–§14 属发布或大改动作，按各自排期单独处理，不随文档整理顺手做。
