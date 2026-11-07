@@ -320,6 +320,11 @@ function coerceWord(w, fragments, nsMap, feats) {
     // 超出 2^53 的整数无法精确表示，转 Number 即静默损坏（如 18 位身份证号）。
     // 与 Rust 侧「i64 内即精确」的差异源于两种语言数值类型的能力上限，
     // 差异方向是更保守 —— 宁可保为字符串，也不损坏。
+    // ⚠️ 语言限制（不是缺陷）：JS 只有一种数字类型（IEEE-754 double），`1.0` 与 `1`
+    // 解析后是同一个值，**无法保留浮点身份**。conformance 19 因此必然分歧；
+    // 不做模拟（把 float 包成自有类型会污染值模型，所有调用方都要判型）。
+    // ｜ JS has a single number type: `1.0` and `1` are indistinguishable. Known
+    //   limitation — see tests/conformance/known_divergences.md #10.
     if (INT_LITERAL.test(w) && !Number.isSafeInteger(Number(w))) return w;
     return Number(w);
   }
