@@ -677,6 +677,10 @@ pub unsafe extern "C" fn sml_free(v: *mut CSmlValue) {
 }
 
 /// 值类型判别，返回 `sml_type` 枚举值；NULL 或非预期返回 -1。
+///
+/// # Safety
+/// `v` 必须是本库返回、尚未释放的句柄（或 NULL）；释放后再用是未定义行为。
+/// ｜ `v` must be a live handle from this library, or NULL.
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_typeof(v: *const CSmlValue) -> c_int {
@@ -697,7 +701,7 @@ pub unsafe extern "C" fn sml_typeof(v: *const CSmlValue) -> c_int {
 
 /// 取对象字段（**借用**，不可释放）；键不存在或类型不符返回 NULL。
 ///
-/// # 安全契约（调用方必须遵守）
+/// # Safety
 /// 返回的指针**借用**自 `v` 指向的值，**没有独立所有权**：
 /// - 不得传给 [`sml_free`]（会 double free）；
 /// - 不得在 `v` 被 `sml_free` 之后继续使用（use-after-free）；
@@ -747,6 +751,10 @@ pub unsafe extern "C" fn sml_get(
 ///
 /// ⚠️ **NULL 不说原因**：「路径不存在」「中途不是对象」返回的同一个 NULL，
 /// 与「取到的值本身是空」也无法区分。要定位是哪一段断的，就自己分段调 [`sml_get`]。
+///
+/// # Safety
+/// 返回的指针**借用**自 `v`，规则同 [`sml_get`]：不可 `sml_free`，不可在 `v`
+/// 释放之后使用；`path` 必须是 NUL 结尾的 C 字符串。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_get_path(
@@ -779,6 +787,9 @@ pub unsafe extern "C" fn sml_get_path(
 ///
 /// 生命周期约束同 [`sml_get`]：返回值借用自 `v`，不可释放、不可跨越 `v` 的
 /// 释放点使用。
+///
+/// # Safety
+/// `v` 必须是本库返回、尚未释放的句柄；返回指针借用自 `v`，不可 `sml_free`。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_at(v: *const CSmlValue, idx: usize) -> *const CSmlValue {
@@ -796,6 +807,9 @@ pub unsafe extern "C" fn sml_at(v: *const CSmlValue, idx: usize) -> *const CSmlV
 }
 
 /// 元素个数（数组长度 / 对象字段数）；其它类型返回 0。
+///
+/// # Safety
+/// `v` 必须是本库返回、尚未释放的句柄（或 NULL）。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_size(v: *const CSmlValue) -> usize {
@@ -818,6 +832,9 @@ pub unsafe extern "C" fn sml_size(v: *const CSmlValue) -> usize {
 /// 顺序与 [`sml_get`] 一致：对象的迭代序 —— 默认档是键的字典序
 /// （`BTreeMap`），`preserve_order` 档是**源序**（见 §8：迭代序是行为契约，
 /// C 侧不得假设按键排序）。
+///
+/// # Safety
+/// `v` 必须是有效的对象句柄；返回的 `*mut c_char` 是**新分配**，必须 [`sml_free_str`]。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_key_at(v: *const CSmlValue, idx: usize) -> *mut c_char {
@@ -848,6 +865,9 @@ pub unsafe extern "C" fn sml_key_at(v: *const CSmlValue, idx: usize) -> *mut c_c
 ///
 /// ⚠️ **`0` 有三种含义**：空串、非字符串、`v` 为 NULL —— 返回值无法区分。
 /// 要区分就先 [`sml_typeof`]（`4` = Str），再用 [`sml_str_dup`] 或本函数两趟取。
+///
+/// # Safety
+/// `v` 必须是有效句柄；`buf` 必须可写 `buflen` 字节，或为 NULL（此时只回报长度）。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_str_copy(
@@ -876,6 +896,9 @@ pub unsafe extern "C" fn sml_str_copy(
 }
 
 /// 字符串值的新分配副本（调用方 `sml_free_str` 释放）；非字符串返回 NULL。
+///
+/// # Safety
+/// `v` 必须是有效句柄；返回的字符串是**新分配**，必须 [`sml_free_str`]。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_str_dup(v: *const CSmlValue) -> *mut c_char {
@@ -892,6 +915,9 @@ pub unsafe extern "C" fn sml_str_dup(v: *const CSmlValue) -> *mut c_char {
 }
 
 /// 整数取值；非整数返回 0（用 [`sml_typeof`] 先判别类型）。
+///
+/// # Safety
+/// `v` 必须是本库返回、尚未释放的句柄（或 NULL）。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_int_value(v: *const CSmlValue) -> i64 {
@@ -906,6 +932,9 @@ pub unsafe extern "C" fn sml_int_value(v: *const CSmlValue) -> i64 {
 }
 
 /// 浮点取值；非数值返回 0.0。
+///
+/// # Safety
+/// `v` 必须是本库返回、尚未释放的句柄（或 NULL）。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_real_value(v: *const CSmlValue) -> f64 {
