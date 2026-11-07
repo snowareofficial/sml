@@ -27,9 +27,8 @@ fn records_name_and_does_not_touch_the_tree() {
     assert_eq!(wd.line, Some(3), "行号指向 `@weakdoc` 那行（前两行是 HDR）");
 
     assert_eq!(out.value.get("api-docs"), None, "引用本身绝不能进主树");
-    assert_eq!(
+    assert!(
         out.value.get("web").and_then(|v| v.get("host")).is_some(),
-        true,
         "文档其余部分照常"
     );
 }

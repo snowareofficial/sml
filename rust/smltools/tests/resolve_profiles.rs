@@ -27,7 +27,7 @@ fn write(p: &Path, body: &str) {
 
 /// 跑一次 CLI，返回 `(stdout, 退出码)`。
 fn run(args: &[&str]) -> (String, i32) {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_smltools"))
+    let child = Command::new(env!("CARGO_BIN_EXE_smltools"))
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

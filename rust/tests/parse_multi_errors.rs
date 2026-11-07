@@ -78,7 +78,7 @@ fn collects_errors_from_for_body() {
     let out = collect(text);
     let codes: Vec<&str> = out.errors.iter().map(|e| e.code()).collect();
     assert!(
-        codes.iter().any(|c| *c == "E-PARSE-006"),
+        codes.contains(&"E-PARSE-006"),
         "for 体内的解析错误应被收集：{codes:?}"
     );
     // 两个枚举项都跑完（失败的以 Null 占位，不中断整个数组）。

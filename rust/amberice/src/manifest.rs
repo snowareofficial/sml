@@ -686,7 +686,7 @@ mod tests {
     fn pruning_reuses_the_same_predicate() {
         let mut m = sample();
         m.caps_required = vec!["dir".into()];
-        assert!(check_caps(&m).is_ok() == false); // 本构建不认 dir
+        assert!(!check_caps(&m).is_ok()); // 本构建不认 dir
         let pruned = &["value", "manifest"]; // 想象把 strtab 也裁掉
         let v = check_caps_against(&m, pruned);
         assert!(!v.is_ok());

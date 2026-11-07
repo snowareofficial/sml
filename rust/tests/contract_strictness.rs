@@ -56,7 +56,7 @@ fn strict_rejects_undeclared_field() {
 
 #[test]
 fn warn_allows_undeclared_field_and_warns() {
-    let src = format!("@contract Cfg warn {{\n  host: str\n  port: int default 8080\n}}\ndoc {{\n  @is Cfg\n  host: db1\n  extra: 1\n}}\n");
+    let src = "@contract Cfg warn {\n  host: str\n  port: int default 8080\n}\ndoc {\n  @is Cfg\n  host: db1\n  extra: 1\n}\n".to_string();
     let (v, warns) = with_warns(&src);
     // 值树与 strict 成功分支逐字一致：声明字段原样、未声明字段也保留
     assert_eq!(v.get("doc.host").unwrap().as_str(), Some("db1"));
@@ -110,7 +110,7 @@ fn block_warn_overrides_contract_strict() {
 /// 契约级 loose，块级 `@is X warn` ⇒ warn 胜（块级显式 > 契约级）：放行 + Warning。
 #[test]
 fn block_warn_overrides_contract_loose() {
-    let src = format!("@contract Cfg loose {{\n  host: str\n}}\ndoc {{\n  @is Cfg warn\n  host: db1\n  extra: 1\n}}\n");
+    let src = "@contract Cfg loose {\n  host: str\n}\ndoc {\n  @is Cfg warn\n  host: db1\n  extra: 1\n}\n".to_string();
     let (_v, warns) = with_warns(&src);
     assert_eq!(warns.len(), 1, "块级 warn 应压倒契约级 loose，实际 {warns:?}");
     assert_eq!(warns[0].kind, DiagnosticKind::Warning);
@@ -119,7 +119,7 @@ fn block_warn_overrides_contract_loose() {
 /// 契约级 warn，块级 `@is X loose` ⇒ loose 胜：静默放行（无诊断）。
 #[test]
 fn block_loose_overrides_contract_warn() {
-    let src = format!("@contract Cfg warn {{\n  host: str\n}}\ndoc {{\n  @is Cfg loose\n  host: db1\n  extra: 1\n}}\n");
+    let src = "@contract Cfg warn {\n  host: str\n}\ndoc {\n  @is Cfg loose\n  host: db1\n  extra: 1\n}\n".to_string();
     let (_v, warns) = with_warns(&src);
     assert!(
         warns.is_empty(),

@@ -1461,7 +1461,7 @@ mod feature {
         let main = dir.join("main.sml");
         std::fs::write(&sub, "a: 1\nb: 2\n").unwrap();
         // 用正斜杠书写相对路径，避免反斜杠被字符串转义吃掉
-        let rel = format!("include \"sub.sml\" as pkg\n");
+        let rel = "include \"sub.sml\" as pkg\n".to_string();
         std::fs::write(&main, &rel).unwrap();
         let v = match parse_file(&main) {
             Ok(v) => v,

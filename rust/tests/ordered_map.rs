@@ -59,7 +59,7 @@ fn parse_ordered_keeps_source_order_without_any_feature() {
     #[cfg(not(feature = "preserve_order"))]
     {
         let u = sml::parse("z: 1\na: 2\n").unwrap();
-        assert_eq!(sml::to_sml(&u).replace(' ', "").contains("a:2"), true);
+        assert!(sml::to_sml(&u).replace(' ', "").contains("a:2"));
         assert_eq!(
             u.canonical_text().unwrap_err(),
             sml::CanonicalError::KeyOrderUnavailable

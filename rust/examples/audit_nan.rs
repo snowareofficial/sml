@@ -31,7 +31,7 @@ const VALUES: &[(&str, &str)] = &[
 
 fn main() {
     println!("契约: w: num min 0 max 100\n");
-    println!("{:<18} {:<14} {}", "标签", "写入值", "校验结果");
+    println!("{:<18} {:<14} 校验结果", "标签", "写入值");
     println!("{}", "-".repeat(72));
 
     let mut bypassed = 0;
