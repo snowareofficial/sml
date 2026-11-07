@@ -892,9 +892,7 @@ pub unsafe extern "C" fn sml_str_copy(
     }
     let n = need.min(buflen - 1);
     let src = s.as_bytes();
-    for i in 0..n {
-        *buf.add(i) = src[i] as c_char;
-    }
+    std::ptr::copy_nonoverlapping(src.as_ptr(), buf as *mut u8, n);
     *buf.add(n) = 0;
     need
 }

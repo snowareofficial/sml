@@ -43,7 +43,7 @@ fn main() {
     // 键 -> 原字面量
     let lit_of: Vec<(&str, &str)> = GOV
         .lines()
-        .filter_map(|l| l.split_once(": ").map(|(k, v)| (k, v)))
+        .filter_map(|l| l.split_once(": "))
         .collect();
 
     println!("{:<18} {:<22} {:<24} 判定", "字段", "原字面量", "Rust 解析为");

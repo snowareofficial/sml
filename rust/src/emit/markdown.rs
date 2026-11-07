@@ -270,7 +270,7 @@ fn emit_value(
             if let Some(ty) = inferred {
                 match ty {
                     "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
-                        let level = if ty.starts_with('h') { ty[1..].parse().unwrap_or(1) } else { 0 };
+                        let level = if let Some(n) = ty.strip_prefix('h') { n.parse().unwrap_or(1) } else { 0 };
                         if level > 0 {
                             out.push_str(&format!("{} {}\n\n", "#".repeat(level), escape_text(s, &opt.base)));
                         } else {

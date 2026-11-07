@@ -91,13 +91,13 @@ fn tmpdir(tag: &str) -> PathBuf {
     p
 }
 
-fn write_file(dir: &PathBuf, name: &str, content: &str) -> PathBuf {
+fn write_file(dir: &std::path::Path, name: &str, content: &str) -> PathBuf {
     let p = dir.join(name);
     std::fs::write(&p, content).expect("写临时文件失败");
     p
 }
 
-fn s(p: &PathBuf) -> String {
+fn s(p: &std::path::Path) -> String {
     p.to_str().expect("临时路径应为 UTF-8").to_string()
 }
 

@@ -456,10 +456,11 @@ fn resolve_edition(
         }
         Some(EditionStatus::Dev) => {
             if !dev {
+                let ver = format!("{}{}", ed.major, ed.minor);
                 return Err(SmlError::from_code_title(E_FEATURE_004).with_detail(format!(
                     "`{}` 尚未定稿，须显式写 `dev` 标记：`@version {} \"{}\" dev`",
                     ed.name(),
-                    format!("{}{}", ed.major, ed.minor),
+                    ver,
                     ed.codename().unwrap_or("代号")
                 )));
             }

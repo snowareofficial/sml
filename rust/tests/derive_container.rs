@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: MulanPSL-2.0
+// `#[sml(file = ...)]` 由 derive 宏生成 `from_file()`；该 lint 落在 `#[derive]`
+// 属性行上，struct 上的 `#[allow]` 覆盖不到，故放模块级。
+#![allow(clippy::self_named_constructors)]
 //! 容器级 `#[sml(...)]` 属性：`path` / `file` / `default` / `deny_unknown_fields` / `rename`。
 //!
 //! 这些都是「配置场景」要的能力：一个标签打在 struct 上，直接从 SML 拿到结构体数据。
@@ -48,6 +51,8 @@ struct Unit;
 
 // ---- file：生成 from_file() ----
 
+// `from_file` 是 derive 宏按 `#[sml(file = ...)]` 生成的构造器，名字由宏定，
+// 不是手写 API —— 不为了 lint 改生成规则。
 #[derive(SmlDeserialize, Debug, PartialEq)]
 #[sml(file = "tests/.tmp_container_file.sml")]
 struct FromFile {
