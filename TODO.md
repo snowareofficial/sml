@@ -1727,3 +1727,33 @@ git push --force github refs/tags/v0.6.2 refs/tags/v0.6.3 refs/tags/v0.6.4
 
 > 执行顺序：**§13（代码）→ §14（文档/文件，一刀切）**；§14 内部**不分批**，一次切完再进 CI 门禁。
 
+---
+
+## 十五、剩余（2026-11-07 归位）
+
+> 本轮已清：conformance **41/0**、`.ambr` 跨端读写 **21/21 逐字节**、I-14 排雷
+> （310 `unwrap` / 230 `as`）、`clippy` **182 → 0**（`-D warnings` 已进 `ci.yml`）、
+> 32 位编译门。以下为**尚未开工**的独立项，互不阻塞。
+
+- [ ] **15.1 FFI 安全加固**（I-14 续）：
+      - ASAN：`gcc -fsanitize=address` 编 `c/tests/*.c`，跑 21 例，抓 use-after-free / double-free；
+      - cbindgen：生成 `sml.h` 与 `rust/src/c_abi.rs` 的导出比对，防 ABI 漂移；
+      - FFI 边界 fuzz：garbage 指针 / 长度错配。
+      - **不做**：类型化句柄（newtype 区分借用/所有权）——覆盖全部 `sml_*` 签名，
+        发布前不动。`# Safety` 契约已全部补齐（45 处）。
+- [ ] **15.2 `13.2 ④` 分配优化**：`load` 对 `flat@4000` 有 **8173 次分配**（节点级）。
+      只有 arena / bump（`Value` 改索引式，API 大改）或 `SmallString` 两条路，均属**重构**，
+      不是「提升 15%」的小步。单独立项，不与 §13.2 的「≥15%」验收混用。
+      `13.2 ①②③` 实测早已修完（见 `docs/repo/ref/unfinished.md §7.1`）。
+- [ ] **15.3 仓库拆分**（待用户裁决）：`swml` / `amberice` 独立 GitHub 仓，
+      `swsml` monorepo 仍是根仓库；`amberice` 先做 `git subtree split -P rust/amberice`
+      只读镜像（接收 issue 不接 PR），真独立需 `sml-value` 先发 crates.io。
+      ⚠️ 方向待裁：本节按「gitee 权威、GitHub 协作面」，`TODO §10.2` 写的是
+      「GitHub 主、Gitee 镜像」，两者相反，裁决后改 §10.2。
+- [ ] **15.4 文档治理收尾**：`docs/repo/ref/unfinished.md §11` 仍写「新会话的唯一任务是做
+      两张表，做完就停」，而 `todo-ideas-tables.md` 已 current ⇒ 该句降级为「已完成」。
+- [ ] **15.5 CI 首次实跑**：GitHub 连不上，`.github/workflows/ci.yml` 未在 Linux 上跑过。
+      网络恢复后推 `dev` 并 `workflow_dispatch`，验证 `amberice-ffi` 的 `.so`、
+      `.ambr` 写入链接 `-lamberice_ffi`、`lua5.4` 纯实现写入 21/21、以及本轮新增的
+      Clippy 门禁。
+

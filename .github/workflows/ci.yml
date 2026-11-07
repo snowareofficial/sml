@@ -38,6 +38,10 @@ jobs:
         run: |
           cargo test --workspace --exclude swml
           cargo test -p swml
+      - name: Clippy 门禁（-D warnings）
+        # 2026-11-07 把 clippy 从 182 清到 0；结构类 4 处 `#[allow]` 都写了理由
+        # （热路径 enum / 词法游标 / derive 宏生成的构造器），不是无脑放行。
+        run: cargo clippy --workspace --all-targets -- -D warnings
       # 零依赖承诺的钉子：README / rust/Cargo.toml 都写「default-features = false 回到完全零依赖」。
       # 2026-11-02 实测发现该承诺是假的（`pub use crate::emit::MAX_VALUE_DEPTH` 没 cfg，
       # 而 `pub mod emit` 被 7 个 emit-* 门控 ⇒ E0432）。已修，并在此加门禁防复发：
