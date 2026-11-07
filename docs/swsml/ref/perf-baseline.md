@@ -44,6 +44,20 @@ cargo bench --bench perf -- --quick     # 迭代数减半，冒烟用（**不进
 > `large` 是**程序生成**的固定文本，不读 `story/` 的稿子 —— 基准要可复现，不能依赖某份
 > 私有素材是否存在。
 
+## 2026-11-07 存档（`TODO §13.1`）
+
+- **tag**：`pre-deep-2026-11-07`（代码由它钉住）。
+- **原始输出**：`baseline-2026-11-07/value.txt`、`baseline-2026-11-07/amberice.txt`。
+- **fuzz 语料**：`baseline-2026-11-07/fuzz-corpus.zip`（2549 个文件，1.5 MB；corpus 本身被
+  `rust/fuzz/.gitignore` 忽略，故必须单独快照）。
+- **重跑**：
+  ```bash
+  cargo bench --bench value
+  cargo bench --bench amberice --features "amberice-compress,amberice-crypto,amberice-mmap"
+  ```
+- **口径**：同机、同 release profile。本轮未与 2026-11-06 的数字逐项 diff —— 存档的用途是
+  「优化前后能对照」，不是「证明今天更快」。
+
 ## 基线数字
 
 ### 当前（正式口径，2026-11-06，HEAD `4b7cfd1`）
