@@ -166,6 +166,11 @@ pub unsafe extern "C" fn sml_dump_err(
 /// 注：早期版本此函数名为 `sml_free`，与 `sml.h`（纯 C 后端）的
 /// `sml_free(sml_value*)` 语义冲突。为让两个后端心智模型一致
 /// （`sml_free` 释放值树、`sml_free_str` 释放字符串），此处重命名。
+///
+/// # Safety
+/// `p` 必须是本库字符串入口（`sml_parse` / `sml_dump` / `sml_parse_ex` / `sml_dumps`）
+/// 的返回值，或 NULL；且只能释放一次。
+/// ｜ `p` must come from this library's string returns and be freed exactly once.
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_free_str(p: *mut c_char) {
@@ -658,6 +663,11 @@ pub unsafe extern "C" fn sml_load_file(
 ///
 /// 与 `sml.h`（纯 C 后端）的 `sml_free` 语义一致：都是释放值树。
 /// 释放字符串请用 [`sml_free_str`]。
+///
+/// # Safety
+/// `v` 必须是 [`sml_loads`] / [`sml_load_file`] 返回的根节点（或 NULL），且只能释放
+/// 一次；释放后再使用该句柄（含其子节点）是未定义行为。
+/// ｜ Free the root once; any use of the handle or its children afterwards is UB.
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_free(v: *mut CSmlValue) {
@@ -1386,6 +1396,10 @@ pub extern "C" fn sml_alloc(n: usize) -> *mut u8 {
 }
 
 /// 释放 [`sml_alloc`] 得到的指针。
+///
+/// # Safety
+/// `p` 必须是 [`sml_alloc`] 的返回值、`n` 必须与申请时一致，且不得重复释放。
+/// ｜ `p` must come from `sml_alloc` with the same `n`, freed exactly once.
 #[cfg(target_arch = "wasm32")]
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
