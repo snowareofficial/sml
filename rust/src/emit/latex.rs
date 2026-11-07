@@ -608,10 +608,8 @@ fn block_text(v: &Value, opt: &LatexOptions, depth: usize) -> Result<String, Sml
 /// `children` 的加入让 `li { }` 子块写法可用 —— 注意**不能用**多个同名
 /// `li { }` 裸块并列：SML 对象字段按名字存储，同名的后者会覆盖前者。
 fn list_items(v: &Value) -> Vec<Value> {
-    if let Some(items) = v.get("items") {
-        if let Value::Array(a) = items {
-            return a.clone();
-        }
+    if let Some(Value::Array(a)) = v.get("items") {
+        return a.clone();
     }
     if let Some(Value::Array(a)) = v.get("children") {
         return a.clone();

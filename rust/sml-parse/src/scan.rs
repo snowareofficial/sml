@@ -264,9 +264,10 @@ fn needs_trailing_newline(raw: &str) -> bool {
 ///
 /// 多行字符串内部形如 `@feature` 的文本不算指令（靠 `compute_string_spans` 判定），
 /// 否则 `note: "..."` 里写一行 `@feature enable x` 就能改掉整份文档的语义。
-pub fn strip_features(
-    text: &str,
-) -> Result<(String, FeatureSet, FeatureSet, FeatureMode, Option<Edition>, bool), SmlError> {
+/// `strip_features` 的六元组结果；抽成别名压住 `clippy::type_complexity`。
+type StrippedFeatures = (String, FeatureSet, FeatureSet, FeatureMode, Option<Edition>, bool);
+
+pub fn strip_features(text: &str) -> Result<StrippedFeatures, SmlError> {
     // ⚡ 快路径：`feature` 一词都不在文本里 ⇒ 不可能有 `@feature`（含 `@ feature` 写法）。
     // 逐行 push_str、字符串区间表、等长替换全可跳过；判据保守，误命中只会走慢路径。
     // ｜ Conservative gate; a false positive merely falls back to the line loop.

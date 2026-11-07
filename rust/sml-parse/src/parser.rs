@@ -36,6 +36,10 @@ use crate::contract_map::{ContractMap, PathSeg};
 use crate::ext::{Diagnostic, DiagnosticKind, DirectiveTable, Outcome, WeakBind, WeakData, WeakDoc};
 
 /// The parser. `pub` only so submodules like `cond` can reuse the cursor — **not** part of the public API ｜ 解析器（`pub` 仅为让 `cond` 等子模块复用游标）。
+/// 一条挂起的 `@weakbind`：`(目标块路径, 契约名, 可选字段体)`。
+/// 抽成别名只为压住 `clippy::type_complexity`，语义与 `weak_pending` 字段一致。
+type WeakPending = (Vec<PathSeg>, String, Option<BTreeMap<String, FieldSpec>>);
+
 pub struct Parser<'a> {
     pub(crate) toks: Vec<Tok<'a>>,
     /// 与 `toks` **一一对应**的原文区间（字节偏移），供错误定位。
@@ -113,7 +117,7 @@ pub struct Parser<'a> {
     /// 已登记的弱绑定，但**还没到目标块收尾** —— 块内容校验要等块填完才能做。
     ///
     /// 元组：`(目标块路径, 契约名, 可选字段体)`；收尾时按路径精确匹配取出。
-    pub(crate) weak_pending: Vec<(Vec<PathSeg>, String, Option<BTreeMap<String, FieldSpec>>)>,
+    pub(crate) weak_pending: Vec<WeakPending>,
     /// 弱数据旁路表（`@weakdata` 的载荷）：**不进主树**，只给拓展按名读取。
     ///
     /// 同一 `(path, name)` 只留最后一条（同名后者覆盖，见 `docs/swsml/spec/weakdata.md` §3）。
@@ -168,6 +172,11 @@ struct BareCtx {
 
 /// 一个"待完成的容器"帧（作业书 §3）。`Block` 是一对 `{}`（含裸块体），`Array` 是一对 `[]`；
 /// `cont` 记录本帧完成后把结果交回父帧的方式。迭代式改造第二步显式栈的栈元素。
+// 解析器的热路径类型：每消费一个 token 就创建/匹配一次。`Box` 掉大字段能把枚举
+// 压小，代价是**每 token 一次堆分配**，且所有 `match Frame::...` 的写法都要改。
+// 这里刻意保留栈上布局 —— 省下的字节抵不上分配与改动面。
+// ｜ Keep the stack layout: Box would trade enum size for a per-token allocation.
+#[allow(clippy::large_enum_variant)]
 enum Frame {
     Block { state: BlockFrame, cont: Cont },
     Array { arr: Vec<Value>, cont: Cont },
@@ -185,6 +194,8 @@ enum Cont {
 
 /// 显式栈驱动循环中，单帧单步推进的返回。`Continue` 表当前帧未结束、继续消费下一个
 /// token；`Finish` 表当前帧已完成（对应的容器体已闭合）；`Open` 表遇到子容器，需压新帧。
+// 同 `Frame`：`Open(Frame)` 让两个变体大小悬殊，但它返回后立刻被消费，不驻留。
+#[allow(clippy::large_enum_variant)]
 enum Step {
     Continue,
     Finish,
@@ -193,6 +204,8 @@ enum Step {
 
 /// 单步推进后的"值位置"结果（迭代式改造第二步）：`Leaf` 是立即得到的标量值/数组，
 /// `Open` 是需要压栈继续解析的子容器帧。仅由加速循环把它们翻译回 `Step`。
+// 同 `Frame`：仅由加速循环翻译回 `Step`，不长期持有。
+#[allow(clippy::large_enum_variant)]
 enum ValueStep {
     Leaf(Value),
     Open(Frame),

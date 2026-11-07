@@ -452,19 +452,17 @@ impl<'a> Store<'a> {
         let p = Path::parse(path).map_err(ContainerError::Path)?;
 
         // 1) 顶层键被补丁覆盖？那就在补丁值上走（补丁本来就在内存里）
-        if let Some(first) = p.segments().first() {
-            if let sml_value::Seg::Key(k) = first {
-                if let Some(v) = self.patch_override(k) {
-                    let rest = Path::new(p.segments()[1..].to_vec());
-                    let found = if rest.is_empty() {
-                        v.clone()
-                    } else {
-                        v.get_path(&rest)
-                            .map_err(ContainerError::Path)?
-                            .clone()
-                    };
-                    return Ok((found, 0));
-                }
+        if let Some(sml_value::Seg::Key(k)) = p.segments().first() {
+            if let Some(v) = self.patch_override(k) {
+                let rest = Path::new(p.segments()[1..].to_vec());
+                let found = if rest.is_empty() {
+                    v.clone()
+                } else {
+                    v.get_path(&rest)
+                        .map_err(ContainerError::Path)?
+                        .clone()
+                };
+                return Ok((found, 0));
             }
         }
 

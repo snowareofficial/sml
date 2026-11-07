@@ -203,7 +203,10 @@ pub extern "C" fn sml_version() -> *const c_char {
 ///   "allow":    [ "10", "20", "v3" ]
 /// 返回 (features: Vec<Feature>, env: Vec<(String,String)>, allow: Vec<Edition>)。
 /// 任何字段缺失即视为空/不限制; 解析失败返回 Err。
-fn parse_opts_json(opts: &str) -> Result<(Vec<Feature>, Vec<(String, String)>, Vec<Edition>), String> {
+/// 解析 opts JSON 的三元组；抽成别名压住 `clippy::type_complexity`。
+type ParsedOpts = (Vec<Feature>, Vec<(String, String)>, Vec<Edition>);
+
+fn parse_opts_json(opts: &str) -> Result<ParsedOpts, String> {
     let mut features: Vec<Feature> = Vec::new();
     let mut env: Vec<(String, String)> = Vec::new();
     let mut allow: Vec<Edition> = Vec::new();
