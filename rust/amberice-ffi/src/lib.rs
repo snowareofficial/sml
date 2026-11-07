@@ -156,6 +156,40 @@ pub unsafe extern "C" fn ambr_pack_text(
         *out_len = 0;
     }
 
+    /// Move metadata keys to the end of every object.
+    ///
+    /// `canonical_text` puts `__type` / `__name` / `__featags` **first** (C10, for
+    /// readability), but the byte side stores **source order**, where the parser appends
+    /// them last. Parsing canonical text and dumping it straight would reorder the object
+    /// and change the bytes (conformance: typed-block / featags-nested).
+    /// ｜ 文本侧元数据在前（C10），字节侧在末尾（源序）；直接 dump 会换序。
+    fn metadata_last(v: sml::Value) -> sml::Value {
+        // `Value` implements `Drop`, so match by reference and clone the children.
+        // ｜ `Value` 实现了 `Drop`，按引用匹配、克隆子节点。
+        if let sml::Value::Object(m) = &v {
+            let mut plain: Vec<(String, sml::Value)> = Vec::new();
+            let mut meta: Vec<(String, sml::Value)> = Vec::new();
+            for (k, val) in m {
+                let val = metadata_last(val.clone());
+                if k == "__type" || k == "__name" || k == "__featags" {
+                    meta.push((k.to_string(), val));
+                } else {
+                    plain.push((k.to_string(), val));
+                }
+            }
+            plain.extend(meta);
+            let mut out = sml::Map::ordered();
+            for (k, val) in plain {
+                out.insert(k, val);
+            }
+            return sml::Value::Object(out);
+        }
+        if let sml::Value::Array(a) = &v {
+            return sml::Value::Array(a.iter().map(|x| metadata_last(x.clone())).collect());
+        }
+        v
+    }
+
     let outcome = catch_unwind(AssertUnwindSafe(|| {
         if text.is_null() {
             return Err("AMBR: null pointer (空指针)".to_string());
@@ -168,7 +202,7 @@ pub unsafe extern "C" fn ambr_pack_text(
         // ｜ Must opt in: canonical_text can emit a lone scalar, and this path reads it back.
         let opts = sml::ParseOptions::new().ordered().allow_top_scalar();
         let out = sml::parse_with(src, opts).map_err(|e| format!("AMBR: {e}"))?;
-        let canonical = amberice::CanonicalValue::try_from(out.value)
+        let canonical = amberice::CanonicalValue::try_from(metadata_last(out.value))
             .map_err(|e| format!("AMBR: not canonical / 非 canonical: {e}"))?;
         amberice::dump(&canonical).map_err(|e| format!("AMBR: {e}"))
     }));
