@@ -43,12 +43,13 @@ getrandom = { version = "0.3", optional = true }
 # - `zstd` 2026-10-26 三条（未初始化内存泄漏 / 跨流数据泄漏 / 字典训练越界），
 #   **影响 <0.8.0，修于 >=0.8.0**，且 0.8.0+ 需 `zstd-safe >= 8.2.0`；
 # - `zstd-sys` 同日一条：**仅 wasm32 目标**的 allocator shim 内存破坏。
-#   2026-11-07 复核：本仓库锁定 `2.1.2+zstd.1.5.7`，其 Readme 提供 `no_wasm_shim`
-#   （「给自带 C 标准库的 wasm 工具链用」）。用户指出该版本已修复此问题；
-#   本地缺 clang（cc-rs 编 zstd 的 C 源码需要）**未能实测**，故 wasm + compress 仍按
-#   「未验证」对待：要上 wasm 先补 clang 再跑一次
-#   `cargo build -p amberice --features compress --target wasm32-unknown-unknown`。
-#   ｜ Fixed per user report in 2.1.2; not verified locally (no clang).
+#   2026-11-07 复核（实测）：锁定 `2.1.2+zstd.1.5.7`。装上 `clang` + `llvm-ar` 后，
+#   `cargo build -p amberice --features compress --target wasm32-unknown-unknown`
+#   **编译通过**（7.3 s，无 allocator shim 报错）。
+#   ⚠️ 编过 ≠ 运行正确：RustSec 那条说的是**内存破坏**，只在运行时暴露。要让 wasm + 压缩
+#   正式可用，仍需在 wasm 宿主里跑一遍压缩向量（`tests/vectors/amberice-container.v1.json`
+#   的压缩用例）。在那之前，wasm 版按「不压缩」发布。
+#   ｜ Builds; runtime behaviour still unverified.
 # - 被排除的替代：`ruzstd`（2026-10-13 HIGH 解压炸弹）、`lz4_flex`（2026-03-17 HIGH）。
 zstd = { version = "0.14", optional = true }
 # 加密（T5）：AES-256-GCM + HKDF 派生 + Argon2id 口令派生。
