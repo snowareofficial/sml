@@ -106,8 +106,12 @@ jobs:
       - name: Lua 检查
         run: |
           sudo apt-get update
-          sudo apt-get install -y luajit
+          sudo apt-get install -y luajit lua5.4
           python3 lua/run_check.py
+      # 纯 Lua 5.3+ 编码器：不依赖 FFI / cdylib，单独验证一遍逐字节一致。
+      # ｜ Pure-Lua 5.3+ writer, no FFI and no cdylib.
+      - name: Lua 5.4 纯实现写入（21 例逐字节）
+        run: lua5.4 lua/test_ambr_write.lua
       # `.ambr` 写入：C / C++ / Python 各跑一遍 pack→load。脚本在没有 cdylib 时
       # 显式 SKIP（退出 0）而不是假绿；真正的失败（编译错 / 断言错 / 崩溃）一律非零。
       - name: .ambr 写入（C / C++ / Python）
