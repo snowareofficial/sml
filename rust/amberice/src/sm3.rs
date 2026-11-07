@@ -39,15 +39,14 @@ pub const DIGEST_LEN: usize = 32;
 pub fn digest(data: &[u8]) -> [u8; DIGEST_LEN] {
     let mut v = IV;
 
-    let mut chunks = data.chunks_exact(64);
-    for block in &mut chunks {
+    let (blocks, rem) = data.as_chunks::<64>();
+    for block in blocks {
         let mut w = [0u8; 64];
-        w.copy_from_slice(block);
+        w.copy_from_slice(block.as_slice());
         compress(&mut v, &w);
     }
 
     // 与 SHA-256 同一套 Merkle–Damgård 填充：0x80 + 0 + 64 位大端比特长度。
-    let rem = chunks.remainder();
     let mut tail = [0u8; 128];
     tail[..rem.len()].copy_from_slice(rem);
     tail[rem.len()] = 0x80;

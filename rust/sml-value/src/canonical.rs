@@ -1367,18 +1367,16 @@ fn descend<C: TreeCursor>(
                 // 防御伪造的巨大 count（每项至少 key_id + 6 B 节点头 ⇒ 下界取 2 保守）
                 return Err(CanonicalError::Truncated { at: cur.pos() });
             }
-            let mut visited = 0usize;
-            for _ in 0..n {
+            for visited in 0..n {
                 let key_id = cur.read_uvarint()?;
                 let key = table
                     .get(key_id as usize)
                     .ok_or(CanonicalError::StrIdOutOfRange { id: key_id })?;
                 if key == want {
                     let (s, e, sub) = descend(cur, table, &segs[1..], depth + 1)?;
-                    return Ok((s, e, sub + 1 + visited));
+                    return Ok((s, e, sub + 1 + visited as usize));
                 }
                 skip_node(cur)?;
-                visited += 1;
             }
             Err(CanonicalError::PathNotFound {
                 seg: want.clone(),
@@ -1394,14 +1392,12 @@ fn descend<C: TreeCursor>(
                     seg: format!("[{want}]"),
                 });
             }
-            let mut visited = 0usize;
             for idx in 0..n as usize {
                 if idx == *want {
                     let (s, e, sub) = descend(cur, table, &segs[1..], depth + 1)?;
-                    return Ok((s, e, sub + 1 + visited));
+                    return Ok((s, e, sub + 1 + idx));
                 }
                 skip_node(cur)?;
-                visited += 1;
             }
             Err(CanonicalError::PathNotFound {
                 seg: format!("[{want}]"),

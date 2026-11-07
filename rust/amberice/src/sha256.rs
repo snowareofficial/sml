@@ -98,14 +98,13 @@ impl Sha256 {
             }
         }
 
-        let mut chunks = data.chunks_exact(64);
-        for block in &mut chunks {
+        let (blocks, rem) = data.as_chunks::<64>();
+        for block in blocks {
             let mut w = [0u8; 64];
-            w.copy_from_slice(block);
+            w.copy_from_slice(block.as_slice());
             compress(&mut self.h, &w);
         }
 
-        let rem = chunks.remainder();
         if !rem.is_empty() {
             self.buf[..rem.len()].copy_from_slice(rem);
             self.buf_len = rem.len();
