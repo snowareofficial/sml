@@ -534,6 +534,30 @@ def sig_key(c):
     return json.dumps(c["json"], sort_keys=True, ensure_ascii=False) + "\x00" + repr(c["tokens"])
 
 
+# 放行名单：只放行「同一数值、int/float 身份不同」的情形，其它差异照旧判红。
+# ｜ Waivers: only "same numeric value, different int/float identity" is tolerated.
+WAIVERS = {
+    "19_num_one_dot_zero":
+        "JS 的 Number 与 LuaJIT 的 double 只有一种数字类型，`1.0` 与 `1` 不可区分"
+        "（载体限制，见 known_divergences.md #10）；抹平后仍要求数值相等、结构相同",
+}
+
+
+def sig_key_numeric_only(c):
+    """同 [`sig_key`]，但把 int/float 身份抹平成同一个数值 —— **只给 WAIVERS 里的用例**。
+
+    为什么不能全局用：其余用例靠 int/float 身份判定真差异（`1` 与 `1.0` 在支持该
+    区分的端上是必须留住的差异）。
+    """
+    toks = []
+    for kind, val in c["tokens"]:
+        if kind in ("int", "float"):
+            toks.append(("num", repr(float(val))))
+        else:
+            toks.append((kind, val))
+    return json.dumps(c["json"], sort_keys=True, ensure_ascii=False) + "\x00" + repr(toks)
+
+
 # ---------------------------------------------------------------------------
 # 用例
 # ---------------------------------------------------------------------------
@@ -669,7 +693,8 @@ def main():
                     elif r.get("canon") is None:
                         cells[e.name] = "NC"       # 解析成功，但 dump 不能被 Rust 回读
                     else:
-                        k = sig_key(r["canon"])
+                        k = (sig_key_numeric_only(r["canon"]) if stem in WAIVERS
+                             else sig_key(r["canon"]))
                         if k not in classes:
                             classes[k] = (chr(ord("A") + len(classes)), [])
                         classes[k][1].append(e.name)
@@ -725,11 +750,18 @@ def main():
         print("-" * disp_width(head))
         for stem, cells, verdict, detail, _ in rows:
             line = pad(stem, name_w + 2) + "".join(pad(str(cells.get(e.name, "-")), 6) for e in eps)
-            print(line + verdict)
+            mark = "*" if (stem in WAIVERS and verdict == "AGREE") else ""
+            print(line + verdict + mark)
         # 表格只放短记号，原因见下面的逐条明细
         print("\n图例：A/B/C = 值树分组（同字母即完全一致）；e = 按期望码失败；"
               "ERR = 该端解析失败；NC = 该端 dump 不能被 Rust 回读；"
               "! = 适配器异常（不是实现差异）；skip = 该端缺工具链")
+
+        waived = [s for s, _, v, _, _ in rows if s in WAIVERS and v == "AGREE"]
+        if waived:
+            print("\n== 放行项（表格里的 *）==")
+            for s in waived:
+                print("  %s — %s" % (s, WAIVERS[s]))
 
         print("\n== 分类统计（按端；参考实现 = Rust）==")
         print(pad("端", 8) + pad("AGREE", 8) + pad("DIVERGE", 10) + pad("PARSE_FAIL", 12) + "SKIP")
