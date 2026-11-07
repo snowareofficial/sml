@@ -337,9 +337,11 @@ fn custom_normal_template_still_works() {
 #[test]
 fn latex_documentclass_cannot_inject_preamble() {
     let v = obj(&[("doc", obj(&[("__type", s("p")), ("text", s("hello"))]))]);
-    let mut opt = LatexOptions::default();
-    // 试图用 `}` 闭合 \documentclass{} 后追加 \write18
-    opt.documentclass = "article}\\write18{id}\\documentclass{".to_string();
+    let opt = LatexOptions {
+        // 试图用 `}` 闭合 \documentclass{} 后追加 \write18
+        documentclass: "article}\\write18{id}\\documentclass{".to_string(),
+        ..Default::default()
+    };
     let out = to_latex(&v, &opt).unwrap();
     assert!(
         !out.contains("\\write18"),
@@ -367,8 +369,7 @@ fn latex_math_rejects_dangerous_primitives() {
         "doc",
         obj(&[("__type", s("math")), ("text", s("x + \\input{/etc/passwd}"))]),
     )]);
-    let mut opt = LatexOptions::default();
-    opt.math = true;
+    let opt = LatexOptions { math: true, ..Default::default() };
     assert!(
         to_latex(&v, &opt).is_err(),
         "数学块放行了 \\input 等危险原语"
@@ -381,8 +382,7 @@ fn latex_math_accepts_plain_formula() {
         "doc",
         obj(&[("__type", s("math")), ("text", s("E = mc^2"))]),
     )]);
-    let mut opt = LatexOptions::default();
-    opt.math = true;
+    let opt = LatexOptions { math: true, ..Default::default() };
     let out = to_latex(&v, &opt).unwrap();
     assert!(out.contains("$E = mc^2$"), "正常公式被误杀：{out}");
 }

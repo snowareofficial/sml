@@ -572,7 +572,11 @@ impl<'a> Parser<'a> {
     fn peek_at(&self, n: usize) -> Option<&Tok<'a>> {
         self.toks.get(self.i + n)
     }
-    /// Consume and return the current token (`pub` only for sibling submodules, not public API) ｜ 消费并返回当前 token。
+    /// Consume and return the current token (`pub` only for sibling submodules, not public API) ｜ 消费并返回当前 token.
+    /// 这是词法游标的一次推进，**不是** `Iterator`：解析器还要 `peek_at` / 回退 / 记偏移，
+    /// 套 `Iterator` 会丢掉这些方法且让所有调用点改语义。
+    /// ｜ A cursor step, not an Iterator; peek/rewind/offset are also required.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<Tok<'a>> {
         let t = self.toks.get(self.i).cloned();
         if t.is_some() {
