@@ -6,6 +6,7 @@
 //! - `amberice-container.v1.json` — **the whole `.ambr` file** (header, table, alignment,
 //!   manifest), pins §19.1/§19.6/§19.7/§19.9 and is what the JS / C / C++ / Lua decoders
 //!   (T7 / N03) align to: decode `ambr_hex`, compare `canonical_text`, skip unknown segments.
+//!
 //! ｜ 一份钉节点编码，一份钉整个文件 —— 四端照后者写解码器，不必读 Rust 实现。
 //!
 //! **Why they exist** / **为什么需要它**: canonical's correctness cannot be proven by Rust

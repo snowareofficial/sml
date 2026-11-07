@@ -646,6 +646,7 @@ pub fn strip_version(text: &str) -> Result<(String, Option<Edition>), SmlError> 
 /// - 若文档显式声明过 `@feature`（had_feature=true），则完全采用其推导的 `feats`；
 /// - 否则（仅靠 `@version` 声明或默认），取该代版本的**默认功能集**
 ///   （[`FeatureSet::for_edition`] 查表：`2.0` 起不含 `bareword-string`）。
+///
 /// 这样 v3 文档即使不写任何 `@feature` 也默认严格；调用方的 `allowed` 在
 /// 入口处再与结果取交集，文档无法扩宽。
 pub fn features_for(

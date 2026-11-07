@@ -302,9 +302,10 @@ fn parse_opts_json(opts: &str) -> Result<(Vec<Feature>, Vec<(String, String)>, V
 ///   {"features":["glob-include","contract"],"env":{"APP_ENV":"prod"},"allow":["v1","v3"]}
 /// - features: 调用方额外启用的特性 (与文档 @feature 取交集)。
 /// - env:      环境变量**覆盖表**，供 `$env.X` 内联解析。仅作用于本次调用，
-///             不写入进程环境（避免并发调用下 `set_var` 的数据竞争，以及
-///             覆盖 `PATH` / `LD_PRELOAD` 等影响进程行为的变量）。
+///   不写入进程环境（避免并发调用下 `set_var` 的数据竞争，以及
+///   覆盖 `PATH` / `LD_PRELOAD` 等影响进程行为的变量）。
 /// - allow:    限定文档声明的版本必须在此范围内; 空数组表示不限制。
+///
 /// 失败 (语法/版本/特性越权/文件找不到) 返回 NULL。
 ///
 /// # Safety

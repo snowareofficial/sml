@@ -42,6 +42,7 @@
 //! - **段对齐按 `flags` 位 0 声明**（§19.7 丙）：位 0 = 0 ⇒ 段体 8 字节对齐（明文，默认）；
 //!   位 0 = 1 ⇒ 4 KiB 对齐（加密文件必须，T5 强制）。粒度**必须自描述**：走表靠它，
 //!   猜错就整张表错位。
+//!
 //! ｜ Segment alignment is declared by header `flags` bit 0 (8 B plaintext / 4 KiB encrypted).
 //!
 //! # manifest（T2 后半）
@@ -770,6 +771,7 @@ fn verify_digest(seg: &Segment, body: &[u8], algo: HashAlgo) -> Result<(), Conta
 /// 只有两个旋钮，且都**由写者决定、写进文件**（读者永远照文件来）：
 /// - `hash`：段摘要算法（默认 SHA-256；SM3 可选；BLAKE3 已登记未实现）；
 /// - `block_align`：段体是否 4 KiB 对齐（明文不需要；**加密文件必须**，T5 会强制）。
+///
 /// ｜ Both knobs are writer-side and self-described in the file; readers never guess.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DumpOptions {

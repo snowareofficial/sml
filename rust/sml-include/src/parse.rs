@@ -76,9 +76,11 @@ pub struct IncludeTarget {
 /// 部分引用（挑键）—— 两种等价写法：
 /// - `import "x.sml" as w { a, b }`          挑键 a,b，挂到命名空间 w
 /// - `import { a, b } as w in "x.sml"`        等价写法（键列表在前）
+///
 /// 省略 `as w` 则挑出的键直接平铺到当前作用域：
 /// - `import "x.sml" { a, b }`
 /// - `import { a, b } in "x.sml"`
+///
 /// 注：部分引用只作用于单文件目标，不与 glob/regex 通配组合。
 ///
 /// 返回 `Ok(None)` 表示该行不是 include 指令；`Err` 表示特性未开启等语义错误。
