@@ -16,7 +16,7 @@ i18n 约定（与仓库一致）：**中文是源语言（默认）**，英文�
     js/sml-errors.mjs              JS 模块（ESM）
     rust/sml-codes/src/msgs.rs     Rust 模块（查表 + 归一 + 回退）
     c/sml_codes_msg.h              C / C++ 头（静态表 + 线性查找；header-only）
-    lua/sml_errors.lua             Lua 模块（由 lib/sml.soup 的 Sml.error_info 复用）
+    lua/sml_errors.lua             Lua 模块（由 lib/sml.lua 的 Sml.error_info 复用）
 
 五端对同一组向量必须给出相同结果（见 js/test-sml-errors.mjs）。文案从数据来，
 不许手写/改写任何 title/msg。
@@ -459,7 +459,7 @@ def lua_src(zh, en_all):
         "-- 本文件由 errors/gen_js_errors.py 生成，请勿手改。",
         "-- 中文（默认/源语言）来自 site/static/errors.json；英文来自 errors/msg.en.json。",
         "-- 某条码/字段缺英文时回退中文，永不返回空。",
-        "-- 由 lua/lib/sml.soup 的 Sml.error_info 复用（五端同向量同结果）。",
+        "-- 由 lua/lib/sml.lua 的 Sml.error_info 复用（五端同向量同结果）。",
         "local M = {}",
         "",
         "M.ZH = {",

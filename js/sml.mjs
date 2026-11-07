@@ -2,7 +2,7 @@
 // SML — SNOWARE Markup Language (JavaScript 实现, ESM)
 //
 // 纯 JS、零依赖，Node >=14 与浏览器均可用。语法与 Soup 生态的
-// lib/sml.soup (Lua) 及 sml-rs (Rust) 对齐：
+// lib/sml.lua (Lua) 及 sml-rs (Rust) 对齐：
 //   裸词字符串 / 引号串（转义 + $env 内联）/ true/false/null / 数字 /
 //   块 key { } / 裸块 type name { } / 数组 [ ] / 逗号可选 /
 //   注释：单行 `#` / `--` / `//`，多行 `/* */` 与 `_* *_` /
@@ -1630,7 +1630,7 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
           text = files[String(onePath).split(".").join("/") + ".sml"];
         }
         if (text === undefined) fail("E-INCLUDE-001", "sml: include 目标未找到: " + onePath, dirPos);
-        // include 环检测（与 Rust sml-include / c/sml.c / lua/lib/sml.soup 同码）：
+        // include 环检测（与 Rust sml-include / c/sml.c / lua/lib/sml.lua 同码）：
         // 栈 = 当前**正在展开**的文件链；命中即环 —— 菱形包含（b、c 各被引用一次）不算环。
         // 此前 JS 无环检测，互相 include 会一路递归到宿主 RangeError；现在改成响亮的 E-INCLUDE-002。
         if (includeStack.includes(onePath)) {

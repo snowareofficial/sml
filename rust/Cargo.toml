@@ -195,7 +195,7 @@ serde = { version = "1.0.210", features = ["derive"] }
 serde_json = "1.0.132"
 toml = "0.8.19"
 
-# 兼容 Soup 的 Lua 实现（lib/sml.soup）语法语义：
+# 兼容 Soup 的 Lua 实现（lib/sml.lua）语法语义：
 #   裸词字符串 / 引号串（转义 + $env 内联）/ true/false/null /
 #   数字（int/float/科学计数）/ 块 key { } / 裸块 type name { } /
 #   数组 [ ] / 逗号可选 / # 注释 / @片段 &引用 / include 指令。

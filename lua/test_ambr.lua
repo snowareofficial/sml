@@ -2,15 +2,15 @@
 -- test_ambr.lua — `.ambr` 解码器对拍容器向量（T7 / N03，Lua 端）。
 --
 -- 判据：fixture 里 21 个 `ambr_hex` 全部解码成功 + 若干形状逐值正确。
--- 运行：LUA_PATH="lua/?.soup;lua/?.lua;;" luajit lua/test_ambr.lua [fixture.json]
+-- 运行：LUA_PATH="lua/?.lua;lua/?.lua;;" luajit lua/test_ambr.lua [fixture.json]
 --
--- 先用本目录的 sml.soup；再从仓库根解析 fixture 路径，便于在任意 cwd 下跑。
+-- 先用本目录的 sml.lua；再从仓库根解析 fixture 路径，便于在任意 cwd 下跑。
 
 local here = (arg and arg[0] or ""):match("^(.*)[/\\][^/\\]*$") or "."
 package.path = table.concat({
-  here .. "/lib/?.soup", here .. "/lib/?.lua", -- sml.soup
+  here .. "/lib/?.lua", here .. "/lib/?.lua", -- sml.lua
   here .. "/?.lua",                            -- sml_errors.lua（生成物在 lua/ 下）
-  "lua/lib/?.soup", "lua/lib/?.lua", "lua/?.lua",
+  "lua/lib/?.lua", "lua/lib/?.lua", "lua/?.lua",
   package.path,
 }, ";")
 local Sml = require("sml")
