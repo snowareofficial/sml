@@ -491,8 +491,11 @@ local function parse_type(tokens, i)
     if el == "str" or el == "int" or el == "num" or el == "bool" or el == "any" then
       elem = { kind = el }
     else
-      -- 本实现没有 @type / 外置类型注册 → 与 Rust「未注册的数组元素类型」同码
-      fail("E-CONTRACT-012", "数组元素类型名未知：`" .. el .. "`")
+      -- 非内置名 → 契约引用，与 `parse_type` 标量位的口径一致（542 行）。
+      -- 改前一律报 E-CONTRACT-012，把合法的 `peers: [Endpoint]` 误杀
+      -- （Rust 2026-11-03 已改同族修法；conformance 41）。
+      -- ｜ Non-builtin element names fall back to a contract reference.
+      elem = { kind = "contract", ref = unquote(el) }
     end
     i = i + 1
     if tokens[i] == "]" then i = i + 1 end
@@ -947,6 +950,20 @@ local function parse_block(tokens, i, closing, fragments, contracts, depth)
         local arr
         arr, i = parse_array(tokens, i + 1, fragments, contracts, depth + 1)
         set_field(key, arr)
+      elseif not colon and (nxt == nil or nxt == "}" or nxt == "]" or nxt == ",") then
+        -- 键后无值：键本身即值。`&frag` 是**片段展开**——把片段的字段并进当前块
+        -- （splice），而不是造一个 `&frag` 键。
+        -- 改前这一格落进下面的「标量」分支，把结束符 `}` 当值吃掉 ⇒ 整块未闭合
+        -- （conformance 11 的 Lua 半边）。
+        -- ｜ Bare `&frag` splices the fragment's fields into this block.
+        local fname = string.match(key, "^&(.+)$")
+        if fname and fragments and fragments[fname] then
+          for fk, fv in pairs(fragments[fname]) do
+            set_field(fk, deep_copy(fv))
+          end
+        else
+          set_field(key, coerce(key, fragments))
+        end
       elseif not colon and nxt ~= nil and nxt ~= "}" and nxt ~= "]" and nxt ~= ","
              and not words_then_directive(tokens, i) then
         -- 裸块：key 为类型，后续 token 直到 { 为参数
@@ -1506,16 +1523,26 @@ local function dump_value(v, indent, out)
       out[#out+1] = pad .. "]"
       return
     end
-    -- 块/对象
+    -- 块/对象：带 `__type` 时输出块头 `Type name {`（与 Rust `to_sml` / C `sml_dump` 同形），
+    -- 否则退回普通对象 `{ … }`。改前一直跳过 `__type`/`__name` ⇒ 元数据在 dump 后丢失
+    -- （conformance 30 的 Lua 半边）。
+    -- ｜ Emit the typed-block header instead of dropping the metadata.
     local has_body = false
     for k, val in pairs(v) do
       if k ~= "__type" and k ~= "__name" then has_body = true; break end
     end
-    if not has_body then
+    local ty = v.__type
+    if not has_body and not ty then
       out[#out+1] = "{}"
       return
     end
-    out[#out+1] = "\n" .. pad .. "{"
+    if ty then
+      out[#out+1] = tostring(ty)
+      if v.__name then out[#out+1] = " " .. tostring(v.__name) end
+      out[#out+1] = " {"
+    else
+      out[#out+1] = "\n" .. pad .. "{"
+    end
     for k, val in pairs(v) do
       if k ~= "__type" and k ~= "__name" then
         out[#out+1] = "\n" .. pad .. "  " .. tostring(k) .. ": "
@@ -1587,6 +1614,33 @@ function Sml.dump(v)
     return table.concat(out)
   end
   local out = {}
+  -- 形如 `{ User = { __type = "User", __name = "u1", … } }` 时，`User` 只是块头，
+  -- 不能再包一层 `User:`（否则 dump 出来是 `User: User u1 {`，解析回来多一层）。
+  -- Rust 的 `to_sml` / C 的 `sml_dump` 就是还原成 `User u1 { … }`。
+  -- ｜ `{ Type = { __type = Type … } }` collapses back to `Type name { … }`.
+  do
+    local only_k, only_v, count = nil, nil, 0
+    for k, val in pairs(v) do
+      count = count + 1
+      if count > 1 then break end
+      only_k, only_v = k, val
+    end
+    if count == 1 and type(only_v) == "table" and only_v.__type == only_k then
+      dump_value(only_v, 0, out)
+      out[#out+1] = "\n"
+      return table.concat(out)
+    end
+  end
+
+  -- 顶层也可能是 typed block（用例 30 的根就是 `User u1 { … }`）：
+  -- 输出 `Type name {` 块头，而不是把元数据丢掉。
+  -- ｜ The root itself can be a typed block; keep its header.
+  local ty = type(v) == "table" and v.__type or nil
+  if ty then
+    out[#out+1] = tostring(ty)
+    if v.__name then out[#out+1] = " " .. tostring(v.__name) end
+    out[#out+1] = " {\n"
+  end
   for k, val in pairs(v) do
     if k ~= "__type" and k ~= "__name" then
       out[#out+1] = tostring(k) .. ": "
@@ -1594,6 +1648,7 @@ function Sml.dump(v)
       out[#out+1] = "\n"
     end
   end
+  if ty then out[#out+1] = "}\n" end
   return table.concat(out)
 end
 
