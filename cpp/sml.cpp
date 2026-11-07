@@ -78,6 +78,9 @@ static std::string lower(std::string s) {
     return s;
 }
 static bool is_digit(char c){ return c >= '0' && c <= '9'; }
+static bool is_hex_digit(char c){
+    return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f');
+}
 static bool is_space(char c){ return c==' '||c=='\t'||c=='\n'||c=='\r'; }
 
 // unescape \u{XXXX} / \uXXXX inside a quoted string body (inner, without quotes)
@@ -92,17 +95,24 @@ static std::string unescape_unicode(const std::string& inner, std::string* err) 
             bool brace = (j < n && inner[j] == '{');
             if (brace) j++;
             std::string hex;
-            while (j < n && (is_xdigit_((unsigned char)inner[j]) ||
-                             (inner[j]>='A'&&inner[j]<='F') ||
-                             (inner[j]>='a'&&inner[j]<='f'))) {
-                hex.push_back(inner[j]); j++;
-            }
             if (brace) {
+                while (j < n && is_hex_digit(inner[j])) { hex.push_back(inner[j]); j++; }
                 if (j >= n || inner[j] != '}') { if(err)*err=code_prefix(SML_E_LEX_005, "sml: bad \\u{...} escape"); return out; }
                 j++; // consume }
+                if (hex.empty()) { if(err)*err=code_prefix(SML_E_LEX_005, "sml: empty unicode escape"); return out; }
+            } else {
+                // Fixed four digits, consumed **exactly** — scanning greedily would swallow a
+                // trailing hex-looking char: `\u0041b` used to become "0041b" (5 digits) and
+                // report E-LEX-005 instead of decoding `aAb`.
+                // ｜ 固定四位要**恰好**吃四位：贪婪扫描会把 `\u0041b` 的 b 也算进去。
+                for (int k = 0; k < 4; ++k) {
+                    if (j >= n || !is_hex_digit(inner[j])) {
+                        if(err)*err=code_prefix(SML_E_LEX_005, "sml: unicode 转义位数不足（须四位十六进制或 \\u{...}）");
+                        return out;
+                    }
+                    hex.push_back(inner[j]); j++;
+                }
             }
-            if (hex.empty()) { if(err)*err=code_prefix(SML_E_LEX_005, "sml: empty unicode escape"); return out; }
-            if (!brace && hex.size() != 4) { if(err)*err=code_prefix(SML_E_LEX_005, "sml: unicode 转义位数不足（须四位十六进制或 \\u{...}）"); return out; }
             // parse hex
             unsigned long cp = 0;
             try { cp = std::stoul(hex, nullptr, 16); } catch(...) { if(err)*err=code_prefix(SML_E_LEX_005, "sml: bad unicode codepoint"); return out; }

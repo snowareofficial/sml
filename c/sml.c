@@ -472,6 +472,23 @@ static void lex_run(lexer *lx, const char *text) {
                注意只在**真的遇到文件结尾**时报：上面那个缓冲区保护 break 不属于此条件。 */
             if (!closed && *p == '\0')
                 lex_err(lx, SML_E_LEX_001 " 字符串未闭合（缺少结束引号）");
+            /* 引号串**整串恰为** `$env.NAME` ⇒ 按环境变量替换（三档口径第 2 档）。
+               内嵌形式（`pre-$env.X-post`）不替换，与 C++/JS/Lua 同口径；
+               Rust 的内嵌展开是已知分歧（conformance 26），不在本次范围。
+               ｜ Whole-string `$env.NAME` only; embedded forms stay literal. */
+            if (strncmp(sb, "$env.", 5) == 0) {
+                const char *name = sb + 5;
+                const char *q = name;
+                while (*q && ((*q >= 'a' && *q <= 'z') || (*q >= 'A' && *q <= 'Z')
+                              || (*q >= '0' && *q <= '9') || *q == '_')) q++;
+                if (q != name && *q == '\0') {
+                    const char *ev = getenv(name);
+                    size_t el = ev ? strlen(ev) : 0;
+                    if (el >= sizeof(sb)) el = sizeof(sb) - 1;
+                    if (el) memcpy(sb, ev, el);
+                    sb[el] = '\0';
+                }
+            }
             lex_push(lx, T_STR, strdup(sb));
         } else if (c == '{') { FLUSH(); lex_push(lx, T_LBRACE, NULL); p++; }
         else if (c == '}') { FLUSH(); lex_push(lx, T_RBRACE, NULL); p++; }

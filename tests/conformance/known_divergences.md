@@ -2,7 +2,20 @@
 
 本目录是 W5 的产出：**一份共享用例，五端（Rust / C / C++ / JS / Lua）各跑一遍，比较值树**。
 
-## 2026-11-03 复核（**引用前先看这段**，下文的计数与分类已多处过期）
+## 2026-11-07 复核（**引用前先看这段**，下文 2026-11-03 的计数已被本段取代）
+
+实测 **AGREE 36 / DIVERGE 5**（`python tests/conformance/run_conformance.py`）。
+自 2026-11-03 的 34/7 起，本轮修好两条**已登记为缺陷**的用例：
+
+- `23_escape_unicode`：C++ 的固定四位 `\uXXXX` 用**贪婪扫描**，`\u0041b` 会把 `b` 当成
+  第 5 位十六进制 ⇒ 误报 `E-LEX-005`。改为恰好取四位。
+- `25_env_quoted_exact`：C 的引号串不做整串 `$env.NAME` 替换（得到空串）。已补三档口径的第 2 档。
+
+剩余 5 条**没有一条是未知缺陷**，均为已登记取舍或待裁决：
+`11`（C++ 行级 `&frag` ✋ 待裁决 / Lua 解析失败）、`19`（`1.0` 的浮点身份）、
+`26`（三档口径收敛到哪一档 ✋）、`30`（Lua 丢元数据）、`41`（Lua 契约数组）。
+
+## 2026-11-03 复核（历史，计数已被上段取代）
 
 - **用例 41 个**（新增 `37`~`41`：未注册指令 / 未闭合块 / 空文档 / 只有注释 / 契约数组），基线
   **AGREE 34 / DIVERGE 7**（2026-11-03 第二棒：`08`/`09`/`19` 一半各修好一处，32–9 → 34–7）。
@@ -107,8 +120,8 @@ Rust `to_sml` ／ C `sml_dump` ／ C++ `to_sml` ／ JS `stringify` ／ Lua `Sml.
 | 10 | `19_num_one_dot_zero` | Rust 保 `1.0` 为 float，其余四端当 int | 已知取舍 | `docs/swsml/ref/capability-matrix.md` 已登记「`1.0` 只有 Rust 保留为浮点」；雷 5 B 组 `format_float` |
 | 11 | `20_num_bigint` | Lua 丢精度：`330106201503071234` → `...070000`，`i64::MAX` → `...8000000` | 已知取舍 | 能力矩阵已登记「大整数 >2^53 分裂；Lua 转 float 丢精度」；雷 6 #1。⚠️ 属**数据保真**级，但 LuaJIT 值模型只有 double，改不了。**JS 那格的 AGREE 是载体盲区**，见 §载体盲区 B-01 |
 | 12 | `22_escape_basic` | C++ 的 dump 不能被 Rust 回读 | **已修复（fix/needs-quote-escaping）** | 根因：C++ 的 dump 只对「含空格」加引号（`v->s.find(' ')`），**含换行/制表/回车的串原样写出**，`b` 被读成新键 ⇒ `E-PARSE-006`。本任务（fix/needs-quote-escaping）在 `cpp/sml.cpp` 新增 `dump_needs_quote`（空白/`#{}`/`"`/`\` 均判为需引号，**换行一并纳入**）+ `dump_escape_str`（转义串内 `"`/`\`），`dump_value`/`dump_inline` 的 Str 分支改用之。现状：该用例五端全 AGREE |
-| 13 | `23_escape_unicode` | ~~JS 的 `\uXXXX` 多出数字~~ **JS 半已修（2026-10-30，`!16`）**：`i += 4` → `i += 5`，2026-11-03 复核源码确认（行号 131→133）。**C++ 半仍未修**：只认 `\u{...}`，四位形式报 `E-LEX-005` | **已修复（JS）／ 缺陷（C++）** | 能力矩阵已登记「`\uXXXX` JS 有 bug」；C++ 需补四位形式 |
-| 14 | `25_env_quoted_exact` | C 在引号内不替换 `$env`（得到空串） | 已知取舍 | 能力矩阵「引号内三档行为：Rust 真插值 / C 不替换 / C++·JS·Lua 仅整串锚定」 |
+| 13 | `23_escape_unicode` | ~~JS 的 `\uXXXX` 多出数字~~ **JS 半已修（2026-10-30，`!16`）**：`i += 4` → `i += 5`，2026-11-03 复核源码确认（行号 131→133）。~~C++ 只认 `\u{...}`~~ **C++ 半已修（2026-11-07）**：非 brace 形式改为**恰好取四位**（原为贪婪扫描，`\u0041b` 把 `b` 算成第 5 位） | **已修复（双端）** | 用例现为 AGREE |
+| 14 | `25_env_quoted_exact` | ~~C 在引号内不替换 `$env`（得到空串）~~ **已修复（2026-11-07）**：C 的引号串在**整串恰为** `$env.NAME` 时按环境变量替换（三档口径第 2 档；内嵌形式仍保持字面，见 #15） | **已修复** | 用例现为 AGREE |
 | 15 | `26_env_quoted_embed` | 只有 Rust 做真插值，其余四端原样保留 `$env.SML_CONF_TOKEN` | 已知取舍 | 同 #14（三档口径的中段）。三档要不要收敛、收敛到哪一档，属 ✋ |
 | 16 | `30_typed_block_meta` | ~~JS / Lua 缺 `__type` / `__name` 元数据~~ **JS 半已修（2026-11-03 复核）**：实测 JS 输出带 `__type: "User"` / `__name: "u1"` | 已知取舍（Lua）／ **已修复（JS）** | Lua 已登记（能力矩阵 三·十「Lua 连元数据都丢」）；JS 那半此前**未登记**，现已闭合 |
 | 17 | `32_escape_quote` | 除 Rust 外四端 dump 都无法被回读（`E-LEX-001` 字符串未闭合） | **已修复（fix/needs-quote-escaping）** | 根因：四端的 `needs_quote` / `quoteIfNeeded` 只判空白与 `:#{}`，**不判 `"` 与 `\`** ⇒ `quote"in` 原样写出、非法 SML。本任务（fix/needs-quote-escaping）四端同修：`c/sml.c` `needs_quote`、`cpp/sml.cpp` `dump_needs_quote`、`js/sml.mjs` `quoteIfNeeded`（正则加 `"\\`）、`lua/lib/sml.soup` `sml_needs_quote` 均纳入 `"`/`\`；**转义两端也一并补**：C 与 Lua 此前加引号却漏转义串内 `"`/`\`（已补 `escape`/`sml_escape_str`），JS 原已有转义。现状：该用例五端全 AGREE |
