@@ -187,7 +187,7 @@ fn add_thread(list: &mut Vec<usize>, prog: &[Inst], pc: usize) {
         match &prog[p] {
             Inst::Split(x, y) => {
                 for &nx in [y, x].iter() {
-                    if !seen.contains(&nx) {
+                    if !seen.contains(nx) {
                         seen.push(*nx);
                         stack.push(*nx);
                     }

@@ -526,7 +526,7 @@ impl<'a> Store<'a> {
     /// 「到第 `upto` 层为止（含）」的值，见 [`layer::value_at`]。
     pub fn history_at(&self, upto: usize) -> Result<Value, ContainerError> {
         let base = Value::from_canonical_blocks(self.strtab, &self.logical_value()?)?;
-        Ok(layer::value_at(self.bytes, &base, upto).map_err(ContainerError::Layer)?)
+        layer::value_at(self.bytes, &base, upto).map_err(ContainerError::Layer)
     }
 
     /// Payload names declared by the manifest. ｜ manifest 声明的载荷清单。

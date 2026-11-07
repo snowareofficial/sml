@@ -723,7 +723,7 @@ pub fn align_of(flags: u16) -> u64 {
 /// Round `x` up to the next multiple of `granule`. ｜ 把 `x` 向上取整到 `granule` 的倍数。
 fn align_up(x: u64, granule: u64) -> u64 {
     let a = granule.max(1);
-    (x + a - 1) / a * a
+    x.div_ceil(a) * a
 }
 
 /// First 4 bytes of a digest as hex — enough to eyeball, short enough for a table row.
@@ -1594,7 +1594,7 @@ fn seal(
     #[cfg(not(feature = "compress"))]
     {
         let _ = level;
-        return Err(ContainerError::CompressFeatureDisabled { comp: COMP_ZSTD });
+        Err(ContainerError::CompressFeatureDisabled { comp: COMP_ZSTD })
     }
     #[cfg(feature = "compress")]
     {
@@ -2351,7 +2351,7 @@ pub fn inflate_frames_all(body: &[u8]) -> Result<Vec<u8>, ContainerError> {
     }
     #[cfg(not(feature = "compress"))]
     {
-        return Err(ContainerError::CompressFeatureDisabled { comp: COMP_ZSTD });
+        Err(ContainerError::CompressFeatureDisabled { comp: COMP_ZSTD })
     }
     #[cfg(feature = "compress")]
     {
@@ -2398,7 +2398,7 @@ pub fn frame_bytes_at(
     {
         // 这里 `e` 用不上（解不了帧），显式吃掉以保持两档都零告警
         let _ = (body, e);
-        return Err(ContainerError::CompressFeatureDisabled { comp: COMP_ZSTD });
+        Err(ContainerError::CompressFeatureDisabled { comp: COMP_ZSTD })
     }
     #[cfg(feature = "compress")]
     {

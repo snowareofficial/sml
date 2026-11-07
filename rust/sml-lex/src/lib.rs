@@ -556,11 +556,10 @@ pub fn coerce_word(
         // 保留前导零语义：以 `0` 开头且非 0x/0b 的纯数字（如 0755、007）必须保留为
         // 字符串，否则权限位/编号会被静默改写（P1-4：mode: 0755 不应变成 755）。
         // 0xFF / 0b101 等显式进制前缀不在其列，按原逻辑（非 i64 十进制）走下方字符串。
-        if digits.starts_with('0') && digits.len() > 1 && !w.starts_with("0x") && !w.starts_with("0b") {
-            if digits.chars().all(|c| c.is_ascii_digit()) {
+        if digits.starts_with('0') && digits.len() > 1 && !w.starts_with("0x") && !w.starts_with("0b")
+            && digits.chars().all(|c| c.is_ascii_digit()) {
                 return Ok(Value::Str(w.to_string()));
             }
-        }
         return Ok(Value::Int(i));
     }
     // B10：整数超 i64 范围时，不能静默降级为 Float（会丢精度，

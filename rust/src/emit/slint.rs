@@ -173,7 +173,7 @@ fn emit_slint(
             let kw = if base == "Window" { "export component" } else { "component" };
             out.push_str(&format!("{} {} inherits {} {{\n", kw, cname, base));
             emit_slint_body(v, opt, depth + 1, out)?;
-            out.push_str(&format!("}}\n"));
+            out.push_str(&"}\n".to_string());
             return Ok(());
         }
 

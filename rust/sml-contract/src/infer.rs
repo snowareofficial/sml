@@ -194,7 +194,7 @@ fn build_object_contract(
         strict_paths: false,
         featags: Vec::new(),
     });
-    for (k, _vals) in &field_vals {
+    for k in field_vals.keys() {
         // 不用 `unwrap()`：那依赖「184/185 行插入的键 == 这里遍历的键」这条跨段不变量，
         // 中间一旦加了过滤就会 panic。拿不到就跳过（下一轮 inference 会重建）。
         // ｜ Avoid unwrap: the keys are inserted above, but that invariant spans 13 lines.

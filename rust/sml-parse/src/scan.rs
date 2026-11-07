@@ -228,7 +228,7 @@ fn line_spans(text: &str) -> Vec<(usize, usize)> {
 
 /// 去掉行尾的换行符（`\n` / `\r\n`），只留行内容 —— 与 `str::lines()` 的取法一致。
 fn trim_line_end(raw: &str) -> &str {
-    raw.trim_end_matches(|c| c == '\n' || c == '\r')
+    raw.trim_end_matches(['\n', '\r'])
 }
 
 /// 与 `s` **等长**（按字节）的空格串：用于「剥离指令行但不改变偏移」。

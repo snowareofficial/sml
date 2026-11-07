@@ -412,7 +412,7 @@ pub fn resolve_target_paths(
         // 目录分隔符 ⇒ `re:"widget_.*\.sml"` 被切成 dir=`widget_.*` / pat=`.sml`，
         // 报「include 目录读取失败 …\widget_.*」。文档里的那个例子在 Windows 上因此
         // 一直是坏的，Linux（sep=`/`）碰不到 —— 属平台相关缺陷。
-        let (dir, pat) = split_dir_slash(&pat);
+        let (dir, pat) = split_dir_slash(pat);
         return glob_or_regex_dir(
             &base.join(dir.replace('/', std::path::MAIN_SEPARATOR_STR)),
             pat,
@@ -573,11 +573,10 @@ pub fn glob_matches(pattern: &str, text: &str) -> bool {
         }
     }
     // 末段若非 `*` 结尾，必须后缀匹配
-    if !pattern.ends_with('*') {
-        if pos != text.len() {
+    if !pattern.ends_with('*')
+        && pos != text.len() {
             return false;
         }
-    }
     true
 }
 

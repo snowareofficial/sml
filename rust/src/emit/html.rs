@@ -383,13 +383,12 @@ fn emit_children(
                 Value::Object(_) => {
                     emit_object(val, Some(k), opt, depth + 1, hlevel + 1, out)?;
                 }
-                Value::Array(a) => {
-                    if a.iter().all(|x| matches!(x, Value::Object(_))) {
+                Value::Array(a)
+                    if a.iter().all(|x| matches!(x, Value::Object(_))) => {
                         for item in a {
                             emit_object(item, Some(k), opt, depth + 1, hlevel + 1, out)?;
                         }
                     }
-                }
                 _ => {}
             }
         }
@@ -449,7 +448,7 @@ fn apply_roles(s: &str) -> String {
             let mut inner = String::new();
             let mut depth = 1usize;
             let mut closed = false;
-            while let Some(d) = chars.next() {
+            for d in chars.by_ref() {
                 if d == '{' {
                     depth += 1;
                     inner.push(d);

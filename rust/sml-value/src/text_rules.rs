@@ -123,7 +123,7 @@ pub(crate) fn format_float(f: f64, raw: Option<&str>) -> String {
     if !f.is_finite() {
         // NaN/inf 没有合法的 SML 字面量；序列化为带引号字符串，
         // 回读得到 Str 而非非法/改变类型的字面量。
-        format!("\"{}\"", f.to_string())
+        format!("\"{}\"", f)
     } else if f.fract() == 0.0 {
         format!("{:.1}", f)
     } else {

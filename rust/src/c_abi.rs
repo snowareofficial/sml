@@ -819,7 +819,7 @@ pub unsafe extern "C" fn sml_key_at(v: *const CSmlValue, idx: usize) -> *mut c_c
         Value::Object(m) => m
             .keys()
             .nth(idx)
-            .and_then(|k| cstr(k))
+            .and_then(cstr)
             .unwrap_or(ptr::null_mut()),
         _ => ptr::null_mut(),
     }
@@ -917,13 +917,10 @@ pub unsafe extern "C" fn sml_bool_value(v: *const CSmlValue) -> c_int {
         return 0;
     }
     match &(*(v as *const Value)) {
-        Value::Bool(b) => {
-            if *b {
+        Value::Bool(b)
+            if *b => {
                 1
-            } else {
-                0
             }
-        }
         _ => 0,
     }
 }

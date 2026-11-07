@@ -311,7 +311,7 @@ fn hex_slice(d: &[u8]) -> String {
 }
 
 fn from_hex(s: &str) -> Option<Vec<u8>> {
-    if s.len() % 2 != 0 || !s.is_ascii() {
+    if !s.len().is_multiple_of(2) || !s.is_ascii() {
         return None;
     }
     let mut out = Vec::with_capacity(s.len() / 2);
@@ -394,7 +394,7 @@ fn read_record(bytes: &[u8], off: u64) -> Result<(&[u8], u64), LayerError> {
     let start = off as usize;
     if start
         .checked_add(LAYER_HEADER_LEN)
-        .map_or(true, |e| e > bytes.len())
+        .is_none_or(|e| e > bytes.len())
     {
         return Err(LayerError::Truncated { at: off });
     }
@@ -501,8 +501,7 @@ pub fn history_value_at(
 ) -> Result<Value, LayerError> {
     let v = value_at(bytes, base, upto)?;
     let p = Path::parse(path).map_err(|_| LayerError::Manifest(ManifestError::BadShape("path")))?;
-    v.get_path(&p)
-        .map(|x| x.clone())
+    v.get_path(&p).cloned()
         .map_err(|_| LayerError::Manifest(ManifestError::BadShape("path")))
 }
 

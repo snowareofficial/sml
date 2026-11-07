@@ -350,8 +350,8 @@ impl<'a> Parser<'a> {
         let mut out = String::with_capacity(s.len());
         let mut chars = s.chars().peekable();
         while let Some(c) = chars.next() {
-            if c == '$' {
-                if chars.peek() == Some(&'{') {
+            if c == '$'
+                && chars.peek() == Some(&'{') {
                     // 收集 `${ ... }` 中的名字
                     chars.next(); // 消费 '{'
                     let mut name = String::new();
@@ -373,7 +373,6 @@ impl<'a> Parser<'a> {
                     continue;
                 }
                 // 非 `${` 的 `$`（如孤立 `$env` 写错、或普通 `$`）：原样保留
-            }
             out.push(c);
         }
         // 再处理 `$env.NAME`（与裸词路径一致受 `Feature::Env` 约束）
@@ -900,7 +899,7 @@ impl<'a> Parser<'a> {
                         // 故显式拒绝并给准话（与 JS 的差异记在 E-CONTRACT-012 的 note 里）。
                         "enum" => {
                             return Err(SmlError::from_code_title(E_CONTRACT_012)
-                                .with_detail("数组元素位置不支持 `enum`；请改写成 `[str]` 并在契约层约束".to_string()))
+                                .with_detail("数组元素位置不支持 `enum`；请改写成 `[str]` 并在契约层约束"))
                         }
                         // 非内置名按单值位置的同一套次序判定（见上面 `other =>` 分支）：
                         //   1. `@type` 声明的模式类型
@@ -1854,7 +1853,7 @@ impl<'a> Parser<'a> {
                     return Err(SmlError::from_code_msg(E_PARSE_001)
                         .with_detail(format!("缺少结束符号 {want}")));
                 }
-                return Ok(Step::Finish);
+                Ok(Step::Finish)
             }
             // 右符号：变体是单元变体，用 `&Tok::…` 模式即可借着匹配，无需克隆
             Some(&Tok::RBrace) | Some(&Tok::RBrack) => {
@@ -1884,7 +1883,7 @@ impl<'a> Parser<'a> {
                 }
                 // 顶层遇到多余的右括号 `}` / `]`：必须报错（之前静默忽略，
                 // 会掩盖作者漏写的 `key:`、错配括号等问题）。
-                return Err(SmlError::from_code_title(E_PARSE_003).with_detail(format!("{got}")));
+                Err(SmlError::from_code_title(E_PARSE_003).with_detail(got))
             }
             Some(&Tok::Comma) => {
                 // 逗号在 SML 中只用于对象字段分隔（`k: v, k2: v2`）与数组元素分隔
@@ -1900,12 +1899,12 @@ impl<'a> Parser<'a> {
                     self.next();
                     return Ok(Step::Continue);
                 }
-                return Err(SmlError::from_code_msg(E_PARSE_007));
+                Err(SmlError::from_code_msg(E_PARSE_007))
             }
             // 孤立 `@`：其后没有片段名/指令名。必须报错——否则其后紧跟的
             // 块会被当作片段体消费，导致内容被静默丢弃（不报错）。
             Some(&Tok::BareAt) => {
-                return Err(SmlError::from_code_msg(E_PARSE_004));
+                Err(SmlError::from_code_msg(E_PARSE_004))
             }
             Some(&Tok::At) => {
                 self.parse_at_directive(
@@ -1914,7 +1913,7 @@ impl<'a> Parser<'a> {
                     &mut frame.pending_when,
                     &mut frame.pending_weakbind,
                 )?;
-                return Ok(Step::Continue);
+                Ok(Step::Continue)
             }
             _ => {
                 // key
@@ -2026,10 +2025,10 @@ impl<'a> Parser<'a> {
                         }
                         // 同名冲突 -> 提升为数组（静默改数据：SML 既定语义，改告警）。
                         self.insert_field_val(&mut frame.node, key.into_owned(), key_idx, val);
-                        return Ok(Step::Continue);
+                        Ok(Step::Continue)
                     }
                     // 子容器：交给显式栈（`Cont::Field` 已携带 key/key_idx/when）。
-                    ValueStep::Open(child) => return Ok(Step::Open(child)),
+                    ValueStep::Open(child) => Ok(Step::Open(child)),
                 }
         }
     }

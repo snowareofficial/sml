@@ -153,7 +153,7 @@ impl Parser {
             return Err("sml: 量词缺少 `}`".into());
         }
         self.i += 1;
-        if min > crate::QUANT_MAX || max.map_or(false, |m| m > crate::QUANT_MAX) {
+        if min > crate::QUANT_MAX || max.is_some_and(|m| m > crate::QUANT_MAX) {
             return Err(format!(
                 "sml: 量词过大（> {}），拒绝编译（防病态规则）",
                 crate::QUANT_MAX
