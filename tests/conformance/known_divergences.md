@@ -4,7 +4,8 @@
 
 ## 2026-11-07 复核（**引用前先看这段**，下文 2026-11-03 的计数已被本段取代）
 
-实测 **AGREE 40 / DIVERGE 1**（`python tests/conformance/run_conformance.py`）。
+实测 **AGREE 41 / DIVERGE 0**（`python tests/conformance/run_conformance.py`；
+`19` 以 `*` 放行，见文末「放行项」）。
 自 2026-11-03 的 34/7 起，本轮修好七条**已登记为缺陷**的用例：
 
 - `23_escape_unicode`：C++ 的固定四位 `\uXXXX` 用**贪婪扫描**，`\u0041b` 会把 `b` 当成
