@@ -1888,10 +1888,13 @@ pub(crate) fn read_manifest(
 /// Decode without verifying — `check` needs to *report* a bad manifest digest instead of
 /// aborting on it (that is the difference between `check` and `load`).
 /// 只解码不校验 —— `check` 要「报告」manifest 摘要不符，而不是一遇错就停。
+/// `(段头, 段体, 解析后的 manifest)`；抽成别名压住 `clippy::type_complexity`。
+type DecodedManifest<'a> = Option<(Segment, &'a [u8], Manifest)>;
+
 fn decode_manifest<'a>(
     bytes: &'a [u8],
     info: &FileInfo,
-) -> Result<Option<(Segment, &'a [u8], Manifest)>, ContainerError> {
+) -> Result<DecodedManifest<'a>, ContainerError> {
     let seg = info
         .segments
         .iter()

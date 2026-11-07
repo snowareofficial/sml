@@ -527,10 +527,8 @@ fn math_source(v: &Value) -> String {
 
 /// 列表项提取：优先 `items` 数组，否则对象自身为数组，否则单行文本。
 fn list_items(v: &Value) -> Vec<Value> {
-    if let Some(items) = v.get("items") {
-        if let Value::Array(a) = items {
-            return a.clone();
-        }
+    if let Some(Value::Array(a)) = v.get("items") {
+        return a.clone();
     }
     if let Value::Array(a) = v {
         return a.clone();
@@ -553,13 +551,11 @@ fn emit_list_item(
     }
     // 任务列表项：{ text, done }
     if opt.task_list {
-        if let Some(done) = item.get("done") {
-            if let Value::Bool(b) = done {
-                let text = item.get("text").and_then(|x| x.as_str()).unwrap_or("");
-                let boxchar = if *b { "x" } else { " " };
-                out.push_str(&format!("{}{}- [{}] {}\n", pad, marker, boxchar, escape_text(text, &opt.base)));
-                return Ok(());
-            }
+        if let Some(Value::Bool(b)) = item.get("done") {
+            let text = item.get("text").and_then(|x| x.as_str()).unwrap_or("");
+            let boxchar = if *b { "x" } else { " " };
+            out.push_str(&format!("{}{}- [{}] {}\n", pad, marker, boxchar, escape_text(text, &opt.base)));
+            return Ok(());
         }
     }
     match item {
