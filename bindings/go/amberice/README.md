@@ -40,17 +40,18 @@ Then make the artifact visible to both the linker and the loader:
 |---|---|---|
 | Linux | `CGO_LDFLAGS=-L<dir>` | `LD_LIBRARY_PATH=<dir>` |
 | macOS | `CGO_LDFLAGS=-L<dir>` | `DYLD_LIBRARY_PATH=<dir>` |
-| Windows + MinGW | see below | `PATH=<dir>` |
+| Windows + MinGW | `CGO_LDFLAGS=-L<dir> -l:amberice_ffi.dll.lib` | `PATH=<dir>` |
 
-Windows: rustc emits an MSVC-style `amberice_ffi.dll.lib`, which GNU ld cannot read.
-Generate a MinGW import library once:
+Windows: rustc emits an MSVC-style `amberice_ffi.dll.lib`. MinGW's `ld` reads it
+directly when the file is named explicitly with `-l:` — **no `gendef`/`dlltool` step**.
+Verified on `x86_64-pc-windows-msvc` rustc 1.99 + MinGW gcc 16.
 
-Windows：rustc 产出 MSVC 风格 `amberice_ffi.dll.lib`，GNU ld 认不了；生成一次 import lib：
+Windows：rustc 产出 MSVC 风格 `amberice_ffi.dll.lib`；MinGW 的 `ld` 用 `-l:` 精确指定
+文件名即可直接读取，**不需要 gendef/dlltool**（已在 `x86_64-pc-windows-msvc` rustc 1.99
++ MinGW gcc 16 上实测）。
 
 ```bash
-gendef amberice_ffi.dll
-dlltool -d amberice_ffi.def -l libamberice_ffi.dll.a -D amberice_ffi.dll
-CGO_LDFLAGS=-L. go test ./...
+CGO_LDFLAGS="-L<dir> -l:amberice_ffi.dll.lib" go test ./...
 ```
 
 Point `AMBR_LIB` at the full dll path to override the name the binding searches for.

@@ -60,11 +60,15 @@ def find_lib() -> Path | None:
 
 
 def find_implib(lib: Path) -> Path | None:
-    """Windows + MinGW needs a lib*.dll.a next to (or near) the dll."""
+    """Windows: rustc emits `amberice_ffi.dll.lib`; MinGW's ld reads it via `-l:name`.
+
+    No gendef/dlltool step — verified with `x86_64-pc-windows-msvc` rustc 1.99 + gcc 16.
+    ｜ rustc 的 MSVC import lib 可被 MinGW ld 直接读取，不需要 dlltool。
+    """
     env = os.environ.get("AMBR_IMPLIB")
     if env and Path(env).is_file():
         return Path(env)
-    for cand in (lib.parent / "libamberice_ffi.dll.a", ROOT / "c" / "libamberice_ffi.dll.a"):
+    for cand in (lib.with_suffix(".dll.lib"), lib.parent / "libamberice_ffi.dll.a"):
         if cand.is_file():
             return cand
     return None
@@ -115,9 +119,9 @@ def check_c(lib: Path, env: dict[str, str]) -> int:
     if os.name == "nt":
         implib = find_implib(lib)
         if implib is None:
-            log("  ! Windows: no libamberice_ffi.dll.a (run gendef + dlltool); skipping C")
+            log("  ! Windows: no amberice_ffi.dll.lib next to the dll; skipping C")
             return 2
-        link = [str(implib)]
+        link = ["-L", str(implib.parent), "-l:" + implib.name]
 
     rc = run(
         [cc, "-std=c99", "-I", str(ROOT / "c"), "-o", str(exe),
@@ -145,9 +149,9 @@ def check_cpp(lib: Path, env: dict[str, str]) -> int:
     if os.name == "nt":
         implib = find_implib(lib)
         if implib is None:
-            log("  ! Windows: no libamberice_ffi.dll.a; skipping C++")
+            log("  ! Windows: no amberice_ffi.dll.lib next to the dll; skipping C++")
             return 2
-        link = [str(implib)]
+        link = ["-L", str(implib.parent), "-l:" + implib.name]
 
     rc = run(
         [cxx, "-std=c++17", "-I", str(ROOT / "cpp"), "-o", str(exe),
