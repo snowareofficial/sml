@@ -270,9 +270,11 @@ local function test_contract_codes()
   -- E-PARSE-023 enum 后须为数组
   expect_code("enum needs array", "@contract S { st: enum a b }\nx { @is S st: a }\n",
               "E-PARSE-023")
-  -- E-CONTRACT-012 数组元素类型未知（本端只有这一条可达分支）
-  expect_code("unknown array element type",
-    "@contract S { xs: [nope] }\nx { @is S xs: [ 1 ] }\n", "E-CONTRACT-012")
+  -- 数组元素名现按**契约引用**处理（conformance 41 的修法）：`[nope]` 不再在解析期
+  -- 报 E-CONTRACT-012，而是在校验期因「未知契约」失败（008）。
+  -- 原期望 012 是改前的行为；@feature 里的 `[Endpoint]` 这类已定义契约走通。
+  expect_code("array element contract unknown",
+    "@contract S { xs: [nope] }\nx { @is S xs: [ 1 ] }\n", "E-CONTRACT-008")
   -- E-PARSE-019 指令头语法非法（@contract / @is 缺名字或缺体）
   expect_code("@contract without name", "@contract { a: str }\nx: 1\n", "E-PARSE-019")
   expect_code("@contract without body", "@contract S\nx: 1\n", "E-PARSE-019")

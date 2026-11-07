@@ -2208,8 +2208,17 @@ function dumpValue(v, indent, out) {
     }
   } else if (typeof v === "object") {
     const keys = Object.keys(v).filter((k) => k !== "__type" && k !== "__name");
-    if (keys.length === 0) { out.push("{}"); return; }
-    out.push("\n" + pad + "{");
+    // Typed block: emit `Type name { … }` instead of dropping the metadata.
+    // 带类型块：输出块头，而不是把 `__type` / `__name` 丢掉（conformance 30）。
+    const ty = v.__type;
+    if (keys.length === 0 && !ty) { out.push("{}"); return; }
+    if (ty) {
+      out.push(String(ty));
+      if (v.__name !== undefined) out.push(" " + String(v.__name));
+      out.push(" {");
+    } else {
+      out.push("\n" + pad + "{");
+    }
     for (const k of keys) {
       out.push("\n" + "  ".repeat(indent + 1) + k + ": ");
       dumpValue(v[k], indent + 1, out);
@@ -2240,7 +2249,20 @@ function dumpInline(v) {
 export function stringify(v) {
   const out = [];
   if (v && typeof v === "object" && !Array.isArray(v)) {
-    for (const k of Object.keys(v)) {
+    const all = Object.keys(v);
+    // `{ User = { __type = "User", … } }` collapses back to `User name { … }`;
+    // otherwise re-parsing adds one extra layer (`User: User …`).
+    // ｜ 单键且键名 == 值的 `__type` 时还原成块头。
+    if (all.length === 1) {
+      const k = all[0];
+      const sub = v[k];
+      if (sub && typeof sub === "object" && !Array.isArray(sub) && sub.__type === k) {
+        dumpValue(sub, 0, out);
+        out.push("\n");
+        return out.join("");
+      }
+    }
+    for (const k of all) {
       if (k === "__type" || k === "__name") continue;
       out.push(k + ": ");
       dumpValue(v[k], 0, out);
