@@ -472,22 +472,43 @@ static void lex_run(lexer *lx, const char *text) {
                注意只在**真的遇到文件结尾**时报：上面那个缓冲区保护 break 不属于此条件。 */
             if (!closed && *p == '\0')
                 lex_err(lx, SML_E_LEX_001 " 字符串未闭合（缺少结束引号）");
-            /* 引号串**整串恰为** `$env.NAME` ⇒ 按环境变量替换（三档口径第 2 档）。
-               内嵌形式（`pre-$env.X-post`）不替换，与 C++/JS/Lua 同口径；
-               Rust 的内嵌展开是已知分歧（conformance 26），不在本次范围。
-               ｜ Whole-string `$env.NAME` only; embedded forms stay literal. */
-            if (strncmp(sb, "$env.", 5) == 0) {
-                const char *name = sb + 5;
-                const char *q = name;
-                while (*q && ((*q >= 'a' && *q <= 'z') || (*q >= 'A' && *q <= 'Z')
-                              || (*q >= '0' && *q <= '9') || *q == '_')) q++;
-                if (q != name && *q == '\0') {
-                    const char *ev = getenv(name);
-                    size_t el = ev ? strlen(ev) : 0;
-                    if (el >= sizeof(sb)) el = sizeof(sb) - 1;
-                    if (el) memcpy(sb, ev, el);
-                    sb[el] = '\0';
+            /* 内插 `$env.NAME`（与 Rust `interp_str` 同语义）：NAME 取 [字母数字_ .]，
+               取到第一个其它字符为止；无 `$env.` 或名字为空时原样保留。
+               原先只做「整串恰为 `$env.NAME`」，内嵌形式不替换 —— 那是 conformance 26
+               的分歧；四端统一为内插后该用例转 AGREE。
+               ｜ Inline `$env.NAME`, same semantics as the Rust reference. */
+            {
+                char tmp[sizeof(sb)];
+                const char *src = sb;
+                size_t ti = 0;
+                int changed = 0;
+                while (*src && ti + 1 < sizeof(tmp)) {
+                    if (strncmp(src, "$env.", 5) == 0) {
+                        const char *name = src + 5;
+                        const char *q = name;
+                        while (*q && ((*q >= 'a' && *q <= 'z') || (*q >= 'A' && *q <= 'Z')
+                                      || (*q >= '0' && *q <= '9') || *q == '_' || *q == '.')) q++;
+                        if (q > name) {
+                            char var[256];
+                            size_t nl = (size_t)(q - name);
+                            if (nl >= sizeof(var)) nl = sizeof(var) - 1;
+                            memcpy(var, name, nl);
+                            var[nl] = '\0';
+                            const char *ev = getenv(var);
+                            const char *val = ev ? ev : "";
+                            size_t vl = strlen(val);
+                            if (ti + vl + 1 >= sizeof(tmp)) vl = sizeof(tmp) - ti - 2;
+                            memcpy(tmp + ti, val, vl);
+                            ti += vl;
+                            src = q;
+                            changed = 1;
+                            continue;
+                        }
+                    }
+                    tmp[ti++] = *src++;
                 }
+                tmp[ti] = '\0';
+                if (changed) memcpy(sb, tmp, ti + 1);
             }
             lex_push(lx, T_STR, strdup(sb));
         } else if (c == '{') { FLUSH(); lex_push(lx, T_LBRACE, NULL); p++; }

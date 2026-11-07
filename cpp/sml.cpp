@@ -389,6 +389,38 @@ static ValuePtr coerce_word(const std::string& raw,
     return Value::string(t);
 }
 
+/* 内插 `$env.NAME`（与 Rust `interp_str` 同语义）：NAME 取 [字母数字_ .]，取到第一个
+   其它字符为止；名字为空则原样保留 `$env.`。改前只认「整串恰为 `$env.VAR`」，
+   内嵌形式不替换 —— conformance 26 的分歧，四端已统一为内插。
+   ｜ Inline `$env.NAME`, same semantics as the Rust reference. */
+static std::string interp_env(const std::string& s) {
+    if (s.find("$env.") == std::string::npos) return s;
+    std::string out;
+    size_t pos = 0;
+    for (;;) {
+        size_t at = s.find("$env.", pos);
+        if (at == std::string::npos) { out.append(s, pos, std::string::npos); break; }
+        out.append(s, pos, at - pos);
+        size_t j = at + 5, k = j;
+        while (k < s.size()) {
+            char c = s[k];
+            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                  (c >= '0' && c <= '9') || c == '_' || c == '.')) break;
+            k++;
+        }
+        if (k > j) {
+            std::string name = s.substr(j, k - j);
+            const char* ev = std::getenv(name.c_str());
+            out += (ev ? ev : "");
+            pos = k;
+        } else {
+            out += "$env.";
+            pos = at + 5;
+        }
+    }
+    return out;
+}
+
 static ValuePtr coerce(const Token& tok,
                        const std::map<std::string,ValuePtr>& fragments,
                        std::string* err) {
@@ -396,13 +428,8 @@ static ValuePtr coerce(const Token& tok,
     const std::string& t = tok.s;
     if (!t.empty() && t[0] == '"' && t.back() == '"') {
         std::string inner = t.substr(1, t.size()-2);
-        // $env."VAR" or $env.VAR (quoted)
-        if (inner.rfind("$env.", 0) == 0) {
-            const char* e = std::getenv(inner.c_str()+5);
-            return Value::string(e ? e : "");
-        }
         std::string ue = unescape_unicode(inner, err);
-        return Value::string(ue);
+        return Value::string(interp_env(ue));
     }
     return coerce_word(t, fragments, err);
 }
