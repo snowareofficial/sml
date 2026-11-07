@@ -602,16 +602,21 @@ pub fn strip_version(text: &str) -> Result<(String, Option<Edition>), SmlError> 
     for (line_start, line_end) in line_spans(text) {
         let raw = &text[line_start..line_end];
         let line = trim_line_end(raw);
-        // 多行字符串内的行（如 `note: "..."` 跨行）里的 @version 不是指令，原样保留
-        let is_directive = if line.trim_start().starts_with('@') {
+        // 多行字符串内的行（如 `note: "..."` 跨行）里的 @version 不是指令，原样保留。
+        // 只解析一次：原写法先 `matches!(.., Some(_))` 再 `unwrap()`，既多解析一遍，
+        // 又把「一定为 Some」这个不变量藏进 unwrap（改坏前半句就会 panic）。
+        // ｜ Parse once; the old code called version_directive twice and unwrapped.
+        let direct_decl = if line.trim_start().starts_with('@') {
             let spans = spans.get_or_insert_with(|| compute_string_spans(text));
-            !line_starts_in_string(text, line_start, spans)
-                && matches!(version_directive(line)?, Some(_))
+            if line_starts_in_string(text, line_start, spans) {
+                None
+            } else {
+                version_directive(line)?
+            }
         } else {
-            false
+            None
         };
-        if is_directive {
-            let decl = version_directive(line)?.unwrap();
+        if let Some(decl) = direct_decl {
             let ed = resolve_version_decl(&decl)?;
             match declared {
                 None => declared = Some(ed),

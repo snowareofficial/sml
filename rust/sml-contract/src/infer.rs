@@ -195,8 +195,11 @@ fn build_object_contract(
         featags: Vec::new(),
     });
     for (k, _vals) in &field_vals {
-        let ty = field_ty.get(k).unwrap().clone();
-        let required = *field_required.get(k).unwrap();
+        // 不用 `unwrap()`：那依赖「184/185 行插入的键 == 这里遍历的键」这条跨段不变量，
+        // 中间一旦加了过滤就会 panic。拿不到就跳过（下一轮 inference 会重建）。
+        // ｜ Avoid unwrap: the keys are inserted above, but that invariant spans 13 lines.
+        let Some(ty) = field_ty.get(k).cloned() else { continue };
+        let Some(&required) = field_required.get(k) else { continue };
         let spec = FieldSpec {
             ty,
             required,
