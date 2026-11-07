@@ -62,7 +62,7 @@ impl Map {
 
     /// Explicitly source-ordered. ｜ 显式保源序。
     pub fn ordered() -> Self {
-        Map::Ordered(Box::new(OrderedMap::new()))
+        Map::Ordered(Box::default())
     }
 
     /// Which ordering this object has. ｜ 这个对象是哪种键序。
@@ -273,7 +273,7 @@ impl Value {
     pub fn make_ordered(&mut self) {
         match self {
             Value::Object(m) => {
-                let old = std::mem::replace(m, Map::new());
+                let old = std::mem::take(m);
                 let mut ordered = old.into_ordered();
                 if let Map::Ordered(ref mut o) = ordered {
                     for (_, v) in o.iter_mut() {

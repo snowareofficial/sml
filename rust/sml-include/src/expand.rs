@@ -73,7 +73,7 @@ pub fn resolve_includes_spans<'a>(
     let string_spans = compute_string_spans(text);
     let mut has_include = false;
     for seg in segments(text, &string_spans) {
-        if matches!(parse_include_line(seg, features)?, Some(_)) {
+        if parse_include_line(seg, features)?.is_some() {
             has_include = true;
             break;
         }
@@ -120,7 +120,7 @@ pub fn expand_includes<'a>(
     {
         let mut has_include = false;
         for seg in segments(text, &spans) {
-            if matches!(parse_include_line(seg, features)?, Some(_)) {
+            if parse_include_line(seg, features)?.is_some() {
                 has_include = true;
                 break;
             }

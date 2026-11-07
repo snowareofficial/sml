@@ -234,6 +234,6 @@ pub unsafe extern "C" fn ambr_pack_text(
 #[no_mangle]
 pub unsafe extern "C" fn ambr_free_bytes(p: *mut c_uchar, len: usize) {
     if !p.is_null() && len > 0 {
-        drop(Box::from_raw(std::slice::from_raw_parts_mut(p, len) as *mut [u8]));
+        drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(p, len)));
     }
 }

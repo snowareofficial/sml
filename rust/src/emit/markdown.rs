@@ -732,7 +732,7 @@ fn apply_roles(s: &str) -> String {
             let mut inner = String::new();
             let mut depth = 1usize;
             let mut closed = false;
-            while let Some(d) = chars.next() {
+            for d in chars.by_ref() {
                 if d == '{' {
                     depth += 1;
                     inner.push(d);

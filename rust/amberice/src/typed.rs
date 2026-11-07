@@ -459,7 +459,7 @@ impl Typed {
             out.extend_from_slice(&(body.len() as u32).to_le_bytes());
             off += body.len() as u32;
         }
-        for (_, (_, body)) in &self.vars {
+        for (_, body) in self.vars.values() {
             out.extend_from_slice(body);
         }
         out

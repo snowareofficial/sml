@@ -273,7 +273,7 @@ fn compile_elem(
                 return Err(format!("sml: 量词最大({mxv})不能小于最小({mn})"));
             }
         }
-        if mn > QUANT_MAX as i64 || mx.map_or(false, |x| x > QUANT_MAX as i64) {
+        if mn > QUANT_MAX as i64 || mx.is_some_and(|x| x > QUANT_MAX as i64) {
             return Err(format!(
                 "sml: 量词过大（> {QUANT_MAX}），拒绝编译（防病态规则；嵌套膨胀另有程序规模上限）"
             ));
@@ -384,7 +384,7 @@ fn parse_times(v: &Value, table: &dyn KeywordTable) -> Result<(usize, Option<usi
             return Err(format!("sml: 量词最大({mx})不能小于最小({min})"));
         }
     }
-    if min > QUANT_MAX as i64 || max.map_or(false, |m| m > QUANT_MAX as i64) {
+    if min > QUANT_MAX as i64 || max.is_some_and(|m| m > QUANT_MAX as i64) {
         return Err(format!(
             "sml: 量词过大（> {QUANT_MAX}），拒绝编译（防病态规则；嵌套膨胀另有程序规模上限）"
         ));

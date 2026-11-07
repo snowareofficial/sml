@@ -1486,7 +1486,7 @@ fn decode_node(
                 let k = table
                     .get(id as usize)
                     .ok_or(CanonicalError::StrIdOutOfRange { id })?;
-                if m.contains_key(*k) {
+                if m.contains_key(k) {
                     return Err(CanonicalError::DuplicateKey {
                         key: (*k).to_string(),
                     });

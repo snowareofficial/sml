@@ -233,7 +233,7 @@ impl Object {
         match &mut **idx {
             Index::Sorted(slots) => {
                 if n > SORTED_MAX {
-                    *idx = Box::new(Index::Hash(HashIndex::build(&self.entries)));
+                    **idx = Index::Hash(HashIndex::build(&self.entries));
                     return;
                 }
                 let pos = sorted_lower_bound(&self.entries, slots, &self.entries[slot].key);
@@ -442,7 +442,7 @@ impl std::fmt::Debug for Object {
             if i > 0 {
                 f.write_str(", ")?;
             }
-            write!(f, "{:?}: {:?}", &*e.key, &e.value)?;
+            write!(f, "{:?}: {:?}", &*e.key, e.value)?;
         }
         f.write_str("}")
     }
