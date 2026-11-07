@@ -1009,9 +1009,21 @@ fn build_frames(value: &[u8], level: i32, frame_size: u32) -> Result<Vec<u8>, Co
         let packed = deflate_zstd(chunk, level).map_err(|_| {
             ContainerError::CompressFailed(format!("zstd level {level} 拒绝压缩该帧"))
         })?;
+        // 4 GiB 上限：`as` 到这里会**静默截断**，之后所有帧偏移都错位（读端解出垃圾
+        // 而不报错）。用 `try_from` 明确失败，与 `body_len` 同口径。
+        // ｜ `as` would truncate silently past 4 GiB and shift every later frame.
+        let uncomp_off = u32::try_from(chunk_start).map_err(|_| {
+            ContainerError::Canonical(CanonicalError::SubtreeTooLarge { len: chunk_start })
+        })?;
+        let comp_off = u32::try_from(header_len + frames.len()).map_err(|_| {
+            ContainerError::Canonical(CanonicalError::SubtreeTooLarge {
+                len: header_len + frames.len(),
+            })
+        })?;
         entries.push(FrameEntry {
-            uncomp_off: chunk_start as u32,
-            comp_off: (header_len + frames.len()) as u32,
+            uncomp_off,
+            comp_off,
+            // 帧内长度受 `frame_size: u32` 约束，不会超 u32。
             comp_len: packed.len() as u32,
             uncomp_len: chunk.len() as u32,
         });
