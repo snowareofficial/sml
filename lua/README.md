@@ -10,7 +10,7 @@ except the writer (see below).
 | 运行时 | 版本 | 读 `.sml` | `.ambr` 解码 | `.ambr` 写入 | `i64` 精确 | `f64` 精确 |
 |---|---|---|---|---|---|---|
 | PUC Lua | 5.1 / 5.2 | ✅ | ✅ | ❌ | ❌ double | ❌ 不支持 |
-| PUC Lua | 5.3 / 5.4 / 5.5 | ✅ | ✅ | ❌ 未实现 | ✅ integer | ✅ `string.unpack` |
+| PUC Lua | 5.3 / 5.4 / 5.5 | ✅ | ✅ | ✅ 纯实现 | ✅ integer | ✅ `string.unpack` |
 | LuaJIT | 2.0 / 2.1 | ✅ | ✅ | ✅ FFI | ❌ double | ✅ `ffi` |
 
 「精确」指解码后的值能无损表示原字面量；不能时**行为不同**，见下一节。
@@ -32,18 +32,24 @@ the behaviour differs — see below.
 > `luajit` 用 `pcall(require, "ffi")`。
 > ｜ Detection is by runtime probing, not by `_VERSION`.
 
-## 为什么 5.3+ 不能写 `.ambr`（但可以）
+## 两条写入路线 / Two writer backends
 
-`.ambr` 写入需要 canonical 编码器（值 → `STRTAB` + 值块）与段表/摘要。LuaJIT 走 FFI
-调 Rust cdylib（`lua/lib/ambr_write.lua`），5.3+ 目前没有纯 Lua 编码器。
+| 后端 | 模块 | 要求 | 能力 |
+|---|---|---|---|
+| FFI | `lib/ambr_write.lua` | LuaJIT + `amberice_ffi` cdylib | 未压缩容器 |
+| 纯实现 | `lib/ambr_pack.lua` | **Lua 5.3+**（integer 子类型 + 位运算 + `string.pack`） | 未压缩容器 |
 
-5.3+ **具备实现它的语言能力**（integer 子类型 + 位运算 + `string.pack`），只是还没写。
-`lua/lib/ambr_write.lua` 在没有 `ffi` 时会明确返回
-`AMBR: LuaJIT ffi unavailable — writes need LuaJIT`，不静默降级。
+`test_ambr_write.lua` 自动选择：有可写 cdylib 用 FFI，否则用纯实现；两者都没有则显式
+SKIP。两条路线都按 `tests/vectors/amberice-container.v1.json` 的 21 例**逐字节**对拍。
 
-Writing needs a canonical encoder plus the segment table and digests. LuaJIT calls the
-Rust cdylib through FFI; 5.3+ has the language features to do it natively but no
-implementation yet. The writer module reports that clearly instead of degrading silently.
+The test picks FFI when a writable cdylib is present, falls back to the pure encoder, and
+skips loudly when neither is available. Both are checked byte-for-byte against the vectors.
+
+纯实现的关键约束：Lua 表不保序，所以 `ambr_pack` 依赖 `sml.lua` 在解析时记录到元表的
+源序（`__order`）；手工构造值时必须显式给 `order`。
+
+The pure encoder needs source key order, which `sml.lua` records in the value's metatable;
+hand-built values must pass `order` explicitly.
 
 ## 文件 / Files
 
