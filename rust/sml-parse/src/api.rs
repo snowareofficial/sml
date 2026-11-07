@@ -737,7 +737,6 @@ fn parse_impl_tokens_ext<'a>(
 /// （原先挂在这里的「值嵌套深度上限」说明属于别的条目：`api.rs` 早已没有那个常量，
 /// 它带来的 `MAX_INCLUDE_DEPTH` intra-doc 链接也是悬空的 —— 2026-11-02 删除。）
 ///
-
 pub fn parse_file(path: impl AsRef<Path>) -> Result<Value, SmlError> {
     let path = path.as_ref();
     let text = std::fs::read_to_string(path)

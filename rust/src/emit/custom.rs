@@ -85,6 +85,12 @@ pub struct CustomOptions {
     pub include_only: Option<HashSet<String>>,
 }
 
+impl Default for CustomOptions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CustomOptions {
     /// No rules, nothing excluded; fields with no matching rule are still rendered in source order ｜ 无规则、不排除任何字段；没有规则命中的字段仍按源序照常渲染。
     pub fn new() -> Self {
@@ -259,12 +265,13 @@ fn render(
 
     // 单遍占位符替换：先把所有占位符收集齐，统一替换，避免已插入内容里的
     // 占位符（如 value="{key}"）被二次展开。需按占位符长度降序，避免 {items:...} 被 {item} 截断。
-    let mut subs: Vec<(String, String)> = Vec::new();
-    subs.push(("{nested}".to_string(), nested));
-    subs.push(("{raw}".to_string(), raw_sml(v)));
-    subs.push(("{value}".to_string(), value_text.clone()));
-    subs.push(("{key}".to_string(), key_text));
-    subs.push(("{item}".to_string(), value_text));
+    let mut subs: Vec<(String, String)> = vec![
+        ("{nested}".to_string(), nested),
+        ("{raw}".to_string(), raw_sml(v)),
+        ("{value}".to_string(), value_text.clone()),
+        ("{key}".to_string(), key_text),
+        ("{item}".to_string(), value_text),
+    ];
     for (tpl, rendered) in &item_loops {
         subs.push((format!("{{items:{}}}", tpl), rendered.clone()));
     }
