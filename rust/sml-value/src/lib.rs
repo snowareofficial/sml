@@ -34,6 +34,15 @@
 
 /// 读/写共用的路径语法（`a.b[0].c`）：`Path::parse` + `Value::get_path`。
 /// Path syntax shared by readers and writers; `Value::get` keeps its legacy semantics.
+// 32 位目标默认拒绝编译：本 crate 有多处 `u64 as usize` / `usize as u32`，依赖
+// 64 位指针宽度。确实要在 32 位跑（嵌入式等）请显式开 `allow-32bit`。
+// ｜ Reject 32-bit targets unless the caller opts in via `allow-32bit`.
+#[cfg(all(not(target_pointer_width = "64"), not(feature = "allow-32bit")))]
+compile_error!(
+    "32-bit targets are not supported by default: `u64 as usize` / `usize as u32` \
+     would truncate. Rebuild with `--features allow-32bit` to accept that risk."
+);
+
 pub mod path;
 
 /// Canonical form (text + bytes): `Value::canonical_text` / `Value::canonical_bytes`.
