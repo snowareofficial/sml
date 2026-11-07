@@ -949,6 +949,9 @@ pub unsafe extern "C" fn sml_real_value(v: *const CSmlValue) -> f64 {
 }
 
 /// 布尔取值；非布尔返回 0。
+///
+/// # Safety
+/// `v` 必须是本库返回、尚未释放的句柄（或 NULL）。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_bool_value(v: *const CSmlValue) -> c_int {
@@ -967,6 +970,9 @@ pub unsafe extern "C" fn sml_bool_value(v: *const CSmlValue) -> c_int {
 // —— tomlc99 风格的单行便利取值 ——
 
 /// `sml_get_path` + [`sml_str_dup`] 的合体（调用方 `sml_free_str` 释放）。
+///
+/// # Safety
+/// `v` 必须是有效句柄；`path` 必须是 NUL 结尾的 C 字符串；返回的字符串是**新分配**。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_str_in(
@@ -992,7 +998,9 @@ pub unsafe extern "C" fn sml_str_in(
 /// 而 `ok` 同时是 `0`。所以「返回 1」既不等于「成功」，也不等于「原值就是 1」。
 ///
 /// ⚠️ **`ok` 传 NULL 就没救**：失败与「值就是 0」返回的是同一个 `0`。
-#[cfg_attr(edge2024, unsafe(no_mangle))]
+///
+/// # Safety
+/// `v` 必须是有效句柄；`path` 必须是 NUL 结尾的 C 字符串；`ok` 可写 4 字节或为 NULL。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_int_in(
@@ -1022,7 +1030,9 @@ pub unsafe extern "C" fn sml_int_in(
 ///
 /// ⚠️ **同样是「看 `ok`」而不是「看返回 0/1」**：`false` 与非布尔字段都返回 `0`，
 /// 只有 `ok` 能区分「读到了 false」和「压根没读到」。
-#[cfg_attr(edge2024, unsafe(no_mangle))]
+///
+/// # Safety
+/// `v` 必须是有效句柄；`path` 必须是 NUL 结尾的 C 字符串；`ok` 可写 4 字节或为 NULL。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_bool_in(
@@ -1057,6 +1067,9 @@ pub unsafe extern "C" fn sml_bool_in(
 ///
 /// ⚠️ **NULL 有两种来源**：`v` 为 NULL、或超过 [`crate::MAX_VALUE_DEPTH`]（128 层，根算第 0 层）。
 /// 本函数没有 `err` 出参，**区分不了**，也不告诉你差多少层。
+///
+/// # Safety
+/// `v` 必须是本库返回、尚未释放的句柄；返回的字符串是**新分配**，必须 [`sml_free_str`]。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
 pub unsafe extern "C" fn sml_dumps(v: *const CSmlValue, _flags: c_uint) -> *mut c_char {
