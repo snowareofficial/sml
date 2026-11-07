@@ -808,6 +808,9 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 - [ ] **GitHub 地址**：所有 crate（含 `swsml` 门面 crate）的 `repository` 字段补 GitHub
       地址；当前 `swsml` / `smlb` 的 `Cargo.toml` 只有 `gitee.com/snoware/sml`。README 里
       GitHub 链接应置于 Gitee 之前（或对外只留 GitHub）。
+- [ ] **移出 knight 练习草稿**：`rust/amberice/examples/knight/` 是本地练习 crate，发布前移出
+      仓库；痕迹一并清理 —— `.gitignore` 中的忽略条目、`rust/Cargo.toml` 的 `members` 引用、
+      `rust/Cargo.lock` 的 `knight` 包条目。完成判据：`cargo metadata` 不再引用已移除目录。
   由 `Diagnostic::code()` 映射；与 `W-LINT-003` 的分域已写进码表 note（**解析期真的发生时**产出 vs lint 纯文本扫描）。
   `errors/codes.sml` + 三个生成器已同步（146 条码），`key_conflict` 断言带码。
 - 编辑器 / LSP 侧同步：扩展诊断走 `js/sml.mjs` 的 `parseSafe`，**不经过 Rust 库**，本轮的告警它看不见。
@@ -1750,8 +1753,9 @@ git push --force github refs/tags/v0.6.2 refs/tags/v0.6.3 refs/tags/v0.6.4
       只读镜像（接收 issue 不接 PR），真独立需 `sml-value` 先发 crates.io。
       ⚠️ 方向待裁：本节按「gitee 权威、GitHub 协作面」，`TODO §10.2` 写的是
       「GitHub 主、Gitee 镜像」，两者相反，裁决后改 §10.2。
-- [ ] **15.4 文档治理收尾**：`docs/repo/ref/unfinished.md §11` 仍写「新会话的唯一任务是做
-      两张表，做完就停」，而 `todo-ideas-tables.md` 已 current ⇒ 该句降级为「已完成」。
+- [x] **15.4 文档治理收尾**（2026-11-07）：`unfinished.md §11` 降级为「两张表：已完成」并指向
+      `todo-ideas-tables.md`，已完成项归 §9；该表头部去掉悬空的 §11 引用；
+      `unfinished.md` 头部代码版本同步到 `8268700`。
 - [ ] **15.5 CI 首次实跑**：GitHub 连不上，`.github/workflows/ci.yml` 未在 Linux 上跑过。
       网络恢复后推 `dev` 并 `workflow_dispatch`，验证 `amberice-ffi` 的 `.so`、
       `.ambr` 写入链接 `-lamberice_ffi`、`lua5.4` 纯实现写入 21/21、以及本轮新增的

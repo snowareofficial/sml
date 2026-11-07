@@ -533,7 +533,7 @@ fn fix(root: &Path, docs: &mut [Doc]) -> Result<Vec<String>, String> {
             changed.push(format!("{}：补 status = draft（不猜成 current）", d.title));
         }
     }
-    std::fs::write(&path, meta_sml(docs, &header)).map_err(|e| format!("写 {META} 失败：{e}"))?;
+    write_out(&path, &meta_sml(docs, &header), root)?;
     Ok(changed)
 }
 
@@ -579,20 +579,24 @@ pub fn run(opts: Opts) -> ExitCode {
 
     if opts.index || (!opts.report && !opts.check) {
         let out = index_md(&docs, &findings, t);
-        if let Err(e) = write_out(&root.join(INDEX), &out) {
-            eprintln!("smldocs: {e}");
-            return ExitCode::from(2);
+        match write_out(&root.join(INDEX), &out, &root) {
+            Ok(true) => println!("smldocs: 已生成 {INDEX}（{} 份文档） ｜ regenerated", docs.len()),
+            Ok(false) => println!("smldocs: {INDEX} 无变更 ｜ up to date"),
+            Err(e) => {
+                eprintln!("smldocs: {e}");
+                return ExitCode::from(2);
+            }
         }
-        println!("smldocs: 已生成 {INDEX}（{} 份文档）", docs.len());
     }
-    if opts.report || opts.check {
+    if opts.report {
         let out = report_md(&docs, &findings, t);
-        if let Err(e) = write_out(&root.join(REPORT), &out) {
-            eprintln!("smldocs: {e}");
-            return ExitCode::from(2);
-        }
-        if opts.report {
-            println!("smldocs: 已生成 {REPORT}（{} 处问题）", findings.total());
+        match write_out(&root.join(REPORT), &out, &root) {
+            Ok(true) => println!("smldocs: 已生成 {REPORT}（{} 处问题） ｜ regenerated", findings.total()),
+            Ok(false) => println!("smldocs: {REPORT} 无变更 ｜ up to date"),
+            Err(e) => {
+                eprintln!("smldocs: {e}");
+                return ExitCode::from(2);
+            }
         }
     }
     if opts.check {
@@ -616,9 +620,45 @@ pub fn run(opts: Opts) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn write_out(path: &Path, text: &str) -> Result<(), String> {
+/// 写生成物：内容相同则不写（幂等）；内容要变时先挡未提交改动。`true` = 真的写了文件。
+fn write_out(path: &Path, text: &str, root: &Path) -> Result<bool, String> {
+    if let Ok(old) = std::fs::read_to_string(path) {
+        if old == text {
+            return Ok(false);
+        }
+    }
+    guard_uncommitted(root, path)?;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("建目录 {} 失败：{e}", dir.display()))?;
     }
-    std::fs::write(path, text).map_err(|e| format!("写 {} 失败：{e}", path.display()))
+    std::fs::write(path, text).map_err(|e| format!("写 {} 失败：{e}", path.display()))?;
+    Ok(true)
+}
+
+/// 内容即将被覆盖时，目标文件若有未提交改动则拒绝；`git` 不可用一律 fail-closed。
+fn guard_uncommitted(root: &Path, path: &Path) -> Result<(), String> {
+    let rel = path
+        .strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/");
+    let out = std::process::Command::new("git")
+        .args(["status", "--porcelain", "--", rel.as_str()])
+        .current_dir(root)
+        .output()
+        .map_err(|e| {
+            format!("未提交检测失败 ｜ uncommitted-check failed：无法运行 git ｜ cannot run git：{e}")
+        })?;
+    if !out.status.success() {
+        return Err(format!(
+            "未提交检测失败 ｜ uncommitted-check failed：git status {status} ｜ git status failed",
+            status = out.status
+        ));
+    }
+    if !String::from_utf8_lossy(&out.stdout).trim().is_empty() {
+        return Err(format!(
+            "拒绝覆盖未提交改动 ｜ refusing to overwrite uncommitted changes：{rel}（先提交或手动处理 ｜ commit or resolve it first）"
+        ));
+    }
+    Ok(())
 }
