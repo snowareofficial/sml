@@ -1330,8 +1330,22 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
             st.i++;
             set_field_local(node, key, v);
         } else if (nxt.t == Token::T::RBrace || nxt.t==Token::T::RBracket) {
-            // key }  -> key itself is the value (Rust: coerce key)
-            set_field_local(node, key, coerce_word(key, st.fragments, st.err));
+            /* key }  -> key itself is the value (Rust: coerce key).
+               例外：块内独立一行的 `&frag` 是**字段展开**（splice）——把片段的字段并进
+               当前块，而不是造一个 `&frag` 键（conformance 11；C/JS/Lua 已是此行为）。
+               ｜ A bare `&frag` splices the fragment's fields into this block. */
+            if (!key.empty() && key[0] == '&') {
+                auto it = st.fragments.find(key.substr(1));
+                if (it != st.fragments.end() && it->second->tag == Value::Tag::Obj) {
+                    for (auto& kv : it->second->obj) {
+                        set_field_local(node, kv.first, kv.second->clone());
+                    }
+                } else {
+                    set_field_local(node, key, coerce_word(key, st.fragments, st.err));
+                }
+            } else {
+                set_field_local(node, key, coerce_word(key, st.fragments, st.err));
+            }
         } else {
             // nxt is some structural token with no value
             set_field_local(node, key, Value::null());
