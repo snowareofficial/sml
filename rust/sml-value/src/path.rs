@@ -334,9 +334,8 @@ impl FromStr for Path {
 impl Value {
     /// Resolve a parsed path, reporting **why** it failed ｜ 按路径取值，失败带原因。
     ///
-    /// 与 [`Value::get`] 的区别：不吃「字面键优先」的兼容规则、失败不返回 `None` 而返回
-    /// [`PathError`]（键不存在 / 越界 / 类型不符各自可辨，且带段号）。
-    /// 段号 `at` 从 **1** 起，与 [`PathError`] 的文案一致。
+    /// 与 [`Value::get`] 不同：不吃「字面键优先」，失败返回 [`PathError`]（带 1 起段号）而非 `None`。
+    /// ｜ Unlike `Value::get`, failures carry a reason and a 1-based segment index.
     ///
     /// ```
     /// use sml_value::{Path, Value};

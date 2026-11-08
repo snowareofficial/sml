@@ -1,3 +1,18 @@
+//! ## 两个读入口 / Two lookup entries
+//!
+//! `Value::get(path)` 与 `Value::get_path(&Path::parse(..)?)` 共用一套路径语法，
+//! 语义刻意不同：
+//!
+//! - `get`：**字面键名优先**（键名本身含 `[` 时按整段原文查），失败一律 `None`；
+//!   保持既有调用方的编译结果与「字面键优先」的兼容行为。
+//! - `get_path`：clean 语义，失败返回 `PathError`（`NotFound` / `OutOfRange` /
+//!   `NotAnObject` / `NotAnArray`，段号从 1 起）；featag S6 的写落点用它。
+//!
+//! 两者不合并：把 `get` 改成 `Result` 会改变所有调用方的编译结果，而
+//! 「字面键优先」的回归钉子是 `bracket_in_key_name_is_not_rewritten`。
+//! ｜ Keeping both entries separate is a compatibility decision: changing `get`
+//!    to return `Result` would break every existing caller's build.
+
 // —— `Value::Object` 的载体：**显式两态**（方案 2 / B，用户 2026-11-05 裁决） ——
 //
 // 不再是「一个全局 feature 决定 BTreeMap 还是保序 Object」。`Map` 无条件导出，
@@ -341,18 +356,9 @@ pub fn describe_value(v: &Value) -> String {
 impl Value {
     /// Path lookup（"." dotted path; `[idx]` array subscript，chainable） ｜ 对象字段按需取（支持 "." 点路径；键后可跟 `[idx]` 数组下标，可链式）。
     ///
-    /// 例如 `"a.b[0].c"`：先取对象 `a` 的字段 `b`，再取下标 0 的数组元素，最后取其字段 `c`。
-    /// 下标越界、下标非数字、或下标作用于非数组，均返回 None；点路径语义与旧版一致。
-    ///
-    /// ⚠️ **字面键名优先**：先按整段原文查一遍键，命中就用它。故键名本身含 `[` 的文档
-    /// （如键就叫 `a[0]`）**不受**下标语法影响 —— 新增的下标能力只在「无精确键匹配」时生效，
-    /// 不会把既有文档从 `Some` 变成 `None`（回归测试：`bracket_in_key_name_is_not_rewritten`）。
-    ///
-    /// ⚠️ **这是旧入口，语义已被历史钉住**：失败一律 `None`，问不出是「键不存在」「越界」
-    /// 还是「类型不符」。需要原因（尤其**写落点**时）请用
-    /// [`Path::parse`](crate::Path::parse) + [`Value::get_path`]：同一套语法、失败带段号。
-    /// 两者刻意**不合并**——把 `get` 改成 `Result` 会静默改变所有调用方的编译结果，
-    /// 而「字面键优先」这条兼容规则的回归钉子还挂在它身上。
+    /// 旧入口：**字面键名优先**，失败一律 `None`；要原因请用
+    /// [`Path::parse`](crate::Path::parse) + [`Value::get_path`]（同一套语法、失败带段号）。
+    /// ｜ Legacy entry: literal keys win, failures return `None`; use `get_path` for the reason.
     ///
     /// # 示例
     /// ```
