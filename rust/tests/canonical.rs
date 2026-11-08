@@ -2,19 +2,13 @@
 //! Acceptance tests for canonical (`.ambr` T0) — rules in `docs/amberice/spec/format.md` §18 / §19.
 //! canonical（`.ambr` 的 T0）验收用例。
 //!
-//! **Both profiles run this file, and both are green** / **两种档位都跑，两边都绿**:
-//!
-//! | Build / 构建 | What it asserts / 断言什么 |
-//! |---|---|
-//! | Default (no `preserve_order`) ｜ 默认 | The C2 hard criterion: `canonical_text` / `canonical_bytes` **must error out**, never degrade to “write sorted” ｜ 必须显式报错 |
-//! | `--features preserve_order` | Content criteria: key order = source order, every layout rule C4–C10, `dump→load→dump` byte-identical, `Int` vs `Float` distinguishable, `__type`/`__featags` verbatim round-trip ｜ 内容判据 |
-//!
-//! Why the error profile must stay in the default build: the default build is what everyone
-//! (and CI) actually runs. If that check only existed under `#[cfg(feature = "preserve_order")]`,
-//! “forgot the feature” would silently become a sort — one document signing two different ways
-//! on two machines, with nobody reporting anything.
-//! 为什么「报错」那一档必须留在默认构建里：默认构建是所有人（和 CI）实际跑的那份；若该判断
-//! 只在开了 feature 时才存在，「忘了开特性」就会静默变成一次排序。
+//! 判据看**值自身**：`parse()` 产出 `Map::Unordered`，`canonical_text` / `canonical_bytes`
+//! 返回 `CanonicalError::KeyOrderUnavailable`（C2，绝不退化成「按排序写」）；
+//! `parse_ordered()` / `Map::ordered()` 产出 `Map::Ordered`，可签；标量不受键序约束。
+//! 两档构建（`default` 与 `--features preserve_order`）跑同一文件、结论相同 ——
+//! `preserve_order` 是空 feature，不改变键序判定。
+//! ｜ Key order is a property of the value, not of the build; both feature profiles run
+//!    this file with the same expectations.
 //!
 //! The **expected bytes** do not live here but in `tests/vectors/amberice-canonical.v1.json`
 //! (guarded by `amberice vectors --check`) — that is the contract JS/Lua/C/C++ align to.
@@ -28,13 +22,10 @@ use sml::{parse, CanonicalError, Value};
 
 #[test]
 fn c2_unordered_object_must_refuse_not_sort() {
-    // 默认 `parse()` 产出的是 `Map::Unordered`（历史兼容），故不能签。
-    // 保序档下 `parse()` 产出 `Ordered`，这两条应通过 —— 测的是「数据」，不是「feature」。
+    // `parse()` 产出 `Map::Unordered`，故不能签；两档构建结论相同 —— 测的是数据，不是 feature。
     let v = parse("z: 1\na: 2\n").expect("parse failed");
-    if !cfg!(feature = "preserve_order") {
-        assert_eq!(v.canonical_text().err(), Some(CanonicalError::KeyOrderUnavailable));
-        assert_eq!(v.canonical_bytes().err(), Some(CanonicalError::KeyOrderUnavailable));
-    }
+    assert_eq!(v.canonical_text().err(), Some(CanonicalError::KeyOrderUnavailable));
+    assert_eq!(v.canonical_bytes().err(), Some(CanonicalError::KeyOrderUnavailable));
 
     // 标量没有对象 ⇒ 没有键序问题 ⇒ **可以签**。旧设计「连标量也一律拒」是
     // 「正确性靠 feature」的副作用：把「这台机器没开开关」误当成数据问题。
@@ -51,7 +42,7 @@ fn c2_unordered_object_must_refuse_not_sort() {
 }
 
 // ---------------------------------------------------------------------------
-// 保序档：内容判据
+// 内容判据
 // ---------------------------------------------------------------------------
 
 mod ordered {

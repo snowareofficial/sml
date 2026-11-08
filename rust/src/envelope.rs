@@ -136,8 +136,9 @@ pub fn list(bytes: &[u8]) -> Result<Vec<Payload>, EnvelopeError> {
 /// 故 `amberice cat` / `amberice check` 对两者一样有效。
 /// Same file format as [`wrap`], different payload kind — so `amberice cat` / `check` work on both.
 pub fn sml_to_amberice(text: &str, compress: Option<i32>) -> Result<Vec<u8>, EnvelopeError> {
-    // 显式保序：文本里的键序就是数据的一部分，BTreeMap 会把它丢掉。
-    // 用 parse_ordered 后，默认构建（无 feature）也能写出可签 canonical 的信封。
+    // 显式保序：文本里的键序就是数据的一部分，排序容器会把它丢掉。
+    // `parse_ordered` 产出 `Map::Ordered`，即可签 canonical；`sml::envelope` 由
+    // `feature = "amberice"` 门控，该 feature 会连带打开 `preserve_order`（空 feature）。
     let v: Value = crate::parse_ordered(text).map_err(EnvelopeError::Parse)?;
     value_to_amberice(&v, compress)
 }

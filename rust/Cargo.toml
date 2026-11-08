@@ -125,19 +125,19 @@ derive = ["dep:swsml-derive"]
 # SML 文本发射器（to_sml 及其依赖的 dump_* 辅助）。
 # 只需「解析」的嵌入式场景可关闭，省掉序列化代码。
 sml = ["sml-value/sml"]
-# 对象保序：`Value::Object` 换用保源序的载体，`to_sml` 键序 == 源序
-# （docs/swsml/spec/value-layout.md §3/§5/§6）。**默认关闭**，与 toml-rs 的 `preserve_order` 同定位：
-# 默认档（BTreeMap）的行为与历史版本逐字节一致，开这个才切到保序实现。
-# 注意它**不是**「确定性字节」开关：那个是 `to_sml_canonical`（§6.2），互不影响。
+# 兼容名链：`sml-value/preserve_order` 是**空 feature**（no-op）。保留下面这组转发
+# 只为不打断既有的 `--features preserve_order` 命令，它不改变任何类型、行为或构建产物。
+# ｜ Compatibility alias: `sml-value/preserve_order` is empty; forwarding is kept so existing
+#    `--features preserve_order` commands keep working. No type or behaviour change.
 #
-# ⚠️ 转发到**每一个也吃 `sml-value` 的依赖**（含间接的）：cargo 只复用
-# 「特性集合完全相同」的 rlib，本图里只要有一份 `sml-value` 带 `preserve_order`、
-# 另一份不带，就会被编成两个不同的 crate 实例，`Value` 随即裂成两个互不兼容的
-# 类型（`expected sml_value::Value, found Value`）。各子 crate 的同名 feature 同理。
+# 键序由**值自身**决定：`Map::Unordered` / `Map::Ordered` 两态。`parse_ordered()` 或
+# `Map::ordered()` 产出的对象可签 canonical；`Unordered` 对象在
+# `canonical_text()` / `canonical_bytes()` 处返回 `CanonicalError::KeyOrderUnavailable`，
+# 标量不受键序约束。判定与任何 feature 档位无关。
+# ｜ Key order is a property of the value, not of the build.
+#
 # `.ambr` 通用二进制信封（`sml::envelope`）。默认关：装上它就把 `amberice` 拉进依赖树。
-# ⚠️ 它**连带打开 `preserve_order`**：`amberice` 的 canonical 字节要求源序，
-# 而 `amberice/preserve_order` 会转发到 `sml-value/preserve_order` —— 不一起开，
-# 构建图里就会有两个 `sml-value` 实例（`Value` 裂成两个类型）。
+# 写出走 `parse_ordered`，不依赖 feature 档位。
 amberice = ["dep:amberice", "amberice/preserve_order", "preserve_order"]
 # `.ambr` 信封 + 段级 zstd 压缩。**再开一层**是故意的：压缩会把 `zstd` 的 C 绑定
 # 拉进依赖树，不该由「只是想用信封」的人被动承担。

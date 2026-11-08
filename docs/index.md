@@ -1,7 +1,7 @@
 # docs 索引
 
 > **本文件由 `cargo run -p smldocs -- --index` 生成，勿手改。**
-> 生成于 2026-11-07，数据源 `docs/meta.sml`（50 份文档）。体检结论见 [`report.md`](report.md)。
+> 生成于 2026-11-08，数据源 `docs/meta.sml`（50 份文档）。体检结论见 [`report.md`](report.md)。
 
 ## 一眼看结论
 
@@ -48,7 +48,7 @@
 | [`amberice/decisions.md`](amberice/decisions.md) | 2026-11-02 | 2026-11-06 | **current** | — | .ambr 决策记录：D1–D41 已裁决、P1–P10 待定、§12 草案、§15 键序 |
 | [`amberice/plan/plan.md`](amberice/plan/plan.md) | 2026-11-06 | 2026-11-06 | **current** | — | amberice 改名范围 + 第一批优化（A1）与里程碑 |
 | [`amberice/ref/ports.md`](amberice/ref/ports.md) | 2026-11-06 | 2026-11-06 | **current** | — | 多端 .ambr 解码器进度台账（C# / Go / Ruby 三端未做） |
-| [`amberice/spec/format.md`](amberice/spec/format.md) | 2026-11-02 | 2026-11-06 | **current** | — | .ambr 格式规范：信封 / canonical / VALUE 段 / 算法表 / 默认值 / 侧信道 |
+| [`amberice/spec/format.md`](amberice/spec/format.md) | 2026-11-02 | 2026-11-08 | **current** | — | .ambr 格式规范：信封 / canonical / VALUE 段 / 算法表 / 默认值 / 侧信道 |
 | [`amberice/spec/smldb.md`](amberice/spec/smldb.md) | 2026-11-02 | 2026-11-06 | **draft** | — | smldb 数据库层：表结构 / 后端选型 / 选择器 / 四层 API（全部未开工） |
 | [`amberice/spec/tools.md`](amberice/spec/tools.md) | 2026-11-02 | 2026-11-06 | **current** | — | .ambr 配套工具面：info / ls / cat / check / verify / sign / pack / vectors |
 

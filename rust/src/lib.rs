@@ -121,9 +121,11 @@ pub use sml_value::{
 /// Why canonical failed (`.ambr` T0, `docs/amberice/spec/format.md` §18).
 /// canonical 的失败原因。
 ///
-/// Without `preserve_order`, `Value::canonical_text` / `canonical_bytes` always return
-/// [`sml_value::CanonicalError::KeyOrderUnavailable`] (C2: never sort silently).
-/// 未开 `preserve_order` 时两个入口一律返回该错误 —— 绝不悄悄排序。
+/// `KeyOrderUnavailable` 只在对象处于显式无序态（`Map::Unordered`）时返回；
+/// `parse_ordered()` / `Map::ordered()` 产出的对象可签，标量不受键序约束。
+/// 判定看值本身，与 `preserve_order` 或其它编译开关无关（C2: never sort silently）。
+/// ｜ `KeyOrderUnavailable` depends on the value's `Map` state, not on any feature flag;
+///    `parse_ordered()` / `Map::ordered()` produce signable objects.
 pub use sml_value::CanonicalError;
 /// 路径语法（S1a）：读用 `Value::get_path`，写落点（S6）共用同一份 `Path`。
 pub use sml_value::path::{Path, PathError, Seg};

@@ -17,9 +17,10 @@
 //!
 //! # Three hard rules / 三条硬规矩
 //!
-//! 1. **Objects must keep source order** (C2). Without the `preserve_order` feature `Map` is
-//!    a `BTreeMap` and “source order” **does not exist in the type at all**; this module then
-//!    returns [`CanonicalError::KeyOrderUnavailable`] instead of degrading to “write sorted”.
+//! 1. **Objects must keep source order** (C2). `Map` carries `Unordered` / `Ordered` explicitly;
+//!    an `Unordered` object returns [`CanonicalError::KeyOrderUnavailable`] instead of
+//!    degrading to “write sorted”. `parse_ordered()` / `Map::ordered()` produce a signable
+//!    value. This is a **data-level** fact — no feature flag changes the answer.
 //!    Silent sorting would make “the same document signs differently on two machines” a fact.
 //! 2. **Non-finite floats are an error** (C13). NaN / ±Inf have no SML literal — canonical is
 //!    static text, so it refuses rather than faking `"nan"` (which would change the type).

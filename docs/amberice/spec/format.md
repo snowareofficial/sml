@@ -264,7 +264,7 @@ if word == u32::from_le_bytes(*b"div>") { /* ... */ }
 | # | 规则 |
 |---|---|
 | **C1** | 编码 UTF-8，**无 BOM**，行尾一律 `\n`（不受平台影响） |
-| **C2** | **键序 = 源序**（D6 保序）。无 `preserve_order` 的构建**直接报错**，绝不排序 |
+| **C2** | **键序 = 源序**（D6 保序）。对象为 `Map::Unordered` 时**直接报错**（`CanonicalError::KeyOrderUnavailable`），绝不退化成排序；`parse_ordered()` / `Map::ordered()` 产出的 `Map::Ordered` 可签。判定看值本身，与 feature 档位无关 |
 | **C3** | 缩进固定 2 空格；不写行尾空格；文件以单个 `\n` 结尾 |
 | **C4** | `Int`：十进制 ASCII，无前导零、无 `+`、`-0` 归一为 `0` |
 | **C5** | `Float`：最短往返表示，**必须带小数点或指数**（`1.0` 不能写成 `1`，否则 load 回 Int）；`-0.0` 保留符号 |
@@ -292,7 +292,7 @@ if word == u32::from_le_bytes(*b"div>") { /* ... */ }
 | **C8-b** | 多行容器的收尾括号**回到键的缩进**；`键: {` 与 `键: [` 的括号留在**同一行** | 「键与它的值永远相邻」，减少一条排版自由度 |
 | **C9-a** | 顶层对象写**字段列表**（不套 `{ }`）；空对象仍写 `{ }` | 顶层是「文档」而不是「值」；空文档没有字段可写，只能退到 C9 的空对象形式 |
 | **P5-d-a** | 「输出是合法 SML」的边界 = **顶层为容器**。顶层标量照常产出文本（签名字节唯一），但**不可作为文档回读** | parser 明确要求顶层为容器（`E-PARSE-008`「顶层须为容器，单独的标量无法往返」）。这是 parser 的既有约束，不是 canonical 的取舍 —— 若要改，改 parser 的顶层规则，而 canonical 跟着走 |
-| **C2-a** | 未开 `preserve_order` 时**整份文档一律报错**（连标量也报） | 放行「恰好没有键的值」会让入口变成「有时能用、有时不能用」，比一律报错更难排查 |
+| **C2-a** | **只有含 `Map::Unordered` 对象**的值报错；标量等不含键的值可签 | 键序是对象自身的状态，不是构建档位；把「有没有键」当成档位问题会让错误原因不可判定 |
 
 
 ### 18.3 元数据（manifest）canonical
@@ -352,7 +352,7 @@ signed_bytes = "amberice/sig/v1\n"
 
 | 判据 | 钉在哪 |
 |---|---|
-| 无 `preserve_order` ⇒ **显式报错**（C2，绝不排序） | `rust/tests/canonical.rs`（默认档）+ `rust/amberice/tests/vectors.rs`（默认档） |
+| `Map::Unordered` ⇒ **显式报错**（C2，绝不排序） | `rust/tests/canonical.rs` + `rust/amberice/tests/vectors.rs`（两档构建同一判据） |
 | 非有限浮点 ⇒ **报错**（C13，不伪造字面量） | `canonical.rs` 单测 + `tests/canonical.rs` |
 | 同一逻辑数据 ⇒ 同一串字节（C12） | `tests/canonical.rs::c12_*`、`amberice vectors` 自检 |
 | `dump→load→dump` 逐字节相同 / `Int(1)`≠`Float(1.0)` / `__type`·`__featags` 原样往返 | `tests/canonical.rs` |
@@ -360,15 +360,15 @@ signed_bytes = "amberice/sig/v1\n"
 **怎么跑**
 
 ```
-cargo test --test canonical                                  # 默认档：验 C2
-cargo test --features preserve_order --test canonical        # 保序档：验内容
+cargo test --test canonical                                  # C2 与内容判据
+cargo test --features preserve_order --test canonical        # 兼容名档：同一组判据
 cargo test -p amberice --features preserve_order                 # 向量文件与代码一致
 cargo run -p amberice --features preserve_order -- vectors --check
 ```
 
-⚠️ `amberice` 的 `preserve_order` 是**opt-in**，不让它硬开：cargo 的特性按构建图取并集，
-硬开会让 `cargo test --workspace`（CI 的命令）把整个 workspace 的 `sml-value` 一起切到
-保序档 —— 等于顺手改掉 `swsml` / `smltools` 上百条「默认档 = 字节序」的 golden。
+⚠️ `amberice` 的 `preserve_order` 是**兼容名**（空 feature，opt-in，不进 `default`）：
+上列命令保留它只为不打断既有调用。canonical 的键序判据看值本身，`parse_ordered()` /
+`Map::ordered()` 产出的 `Map::Ordered` 在两档构建下都能签，标量不受键序约束。
 
 **待确认（不阻塞 T1，但会影响跨端）**
 
@@ -1179,7 +1179,7 @@ $ amberice verify base.ambr --trust fd4f90d0…         # 有人拿未签名件�
 
 | 要点 | 为什么 |
 |---|---|
-| **链头 = 最后一层规范字节的摘要**（`layer::chain_head`） | 它与签名无关，只用摘要 ⇒ 没有 `sign` feature 的构建**也能钉锚点**（但层体是 canonical 字节，仍需 `preserve_order`；实测两种构建都验过） |
+| **链头 = 最后一层规范字节的摘要**（`layer::chain_head`） | 它与签名无关，只用摘要 ⇒ 没有 `sign` feature 的构建**也能钉锚点**（层体是 canonical 字节，需 `parse_ordered()` / `Map::ordered()` 产出的显式保序值；两档构建同一判据） |
 | **没有层 + 给了锚点 ⇒ 未通过** | 「本来没签」与「签了又被剥掉」在字节上完全一样，只有锚点能把它们分开 |
 | 未给锚点时打印一行 `hint` **把链头打出来** | 让人**记得住**下次要钉什么；不打印就等于永远没人用得上这条 |
 
