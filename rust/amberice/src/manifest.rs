@@ -620,7 +620,6 @@ mod tests {
         m
     }
 
-    #[cfg(feature = "preserve_order")]
     #[test]
     fn round_trips_through_bytes() {
         let m = sample();
@@ -628,13 +627,11 @@ mod tests {
         assert_eq!(Manifest::from_bytes(&bytes).unwrap(), m);
     }
 
-    #[cfg(feature = "preserve_order")]
     #[test]
     fn encoding_is_deterministic() {
         assert_eq!(sample().to_bytes().unwrap(), sample().to_bytes().unwrap());
     }
 
-    #[cfg(feature = "preserve_order")]
     #[test]
     fn unknown_keys_are_ignored_and_defaults_apply() {
         // 只给三个必填字段，其余靠 §21 默认值

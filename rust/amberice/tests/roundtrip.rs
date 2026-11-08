@@ -1,19 +1,17 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 //! Container round-trip tests (T1 + T2) / 容器往返与自描述验收。
 //!
-//! The whole file is gated on `preserve_order`: without it there is no canonical byte form to
-//! put in a container at all (C2), so there is nothing to test — that path's assertion lives in
-//! `tests/vectors.rs` (the default build must **error**, not sort).
-//! 整份文件由 `preserve_order` 门控：没有源序就没有可装的 canonical 字节（C2），
-//! 那条断言在 `tests/vectors.rs` 里（默认构建必须**报错**，不许排序）。
-#![cfg(feature = "preserve_order")]
+//! 用例里的对象由 `Map::ordered()` 显式构造，canonical 字节在任何 feature 组合下都可产出，
+//! 故本文件不设档位门控；C2 的「显式无序值必须报错」由 `tests/vectors.rs` 单独钉住。
+//! ｜ Objects here are built with `Map::ordered()`; canonical bytes are available in every
+//!    feature profile. The C2 "unordered value must error" criterion lives in `tests/vectors.rs`.
 
 use amberice::container::{self, seg_name, SEG_HEADER_LEN, SEG_MANIFEST, SEG_STRTAB, SEG_VALUE};
 use amberice::vectors::CASES;
 use amberice::{DumpOptions, HashAlgo};
 
 fn align4k(x: usize) -> usize {
-    (x + 4095) / 4096 * 4096
+    x.div_ceil(4096) * 4096
 }
 
 /// Criterion: `dump → load → dump` is byte-identical, for **every** vector case.
@@ -139,7 +137,7 @@ fn alignment_follows_the_header_flag() {
     assert_eq!(bi.align, amberice::ALIGN_BLOCK);
     assert_ne!(bi.flags & amberice::FLAG_ALIGN_BLOCK, 0);
     for s in &bi.segments {
-        assert_eq!(s.offset % amberice::ALIGN_BLOCK as u64, 0, "段 {} 未按 4 KiB 对齐", seg_name(s.header.seg_id));
+        assert_eq!(s.offset % amberice::ALIGN_BLOCK, 0, "段 {} 未按 4 KiB 对齐", seg_name(s.header.seg_id));
     }
     // 两种对齐下值与段体都不变，只有位置变
     assert!(amberice::load(&blocked).unwrap().eq_ordered(&v));
