@@ -35,7 +35,7 @@ use i18n::Concept::*;
 
 // `Map` = `Value::Object` 的载体（默认 `BTreeMap`，开 `preserve_order` 是保序 `Object`）。
 // 本 crate 里 `rules`（规则表）是**普通表**，仍是 `BTreeMap`；只有从 `Value::Object`
-// 里取出来的那张要用 `Map` —— 两者不可混写，否则保序档编译不过。
+// 里取出来的那张要用 `Map` —— 两者不可混写，否则`Map::Ordered` 态编译不过。
 use sml_value::{Map, Value};
 
 /// Character class. Unicode semantics by default: `Alpha` matches CJK, `Digit` matches full-width digits. ｜ 字符类。默认 Unicode 语义：`Alpha` 匹配汉字，`Digit` 匹配全角数字。

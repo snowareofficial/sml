@@ -77,7 +77,7 @@ cargo bench --bench profile --features amberice -- --quick
 2. **parse 峰值堆** `flat@4000` 1.4 MiB / 32,562 allocs ⇒ P1（键所有权）、P2（小容量）、V1（interning）的收益可用这一行验，不必再猜。
 3. **`get` 的 O(键数) 已去掉，剩 O(兄弟数)**：三种规模下 **allocs 恒 4–5/get、峰值恒 120–136 B**，但中键耗时 8.3 µs → 28.8 µs → 125.4 µs 近似线性。前者证明 A1 的表缓存生效；后者是 `subtree_at` 的兄弟比较（已知取舍），归 **A5 `DIR` 段**，不要当成 A1 没做完。
 
-> ⚠️ `--features amberice` 会连带打开 `preserve_order`，本表 parse 是**保序档**；默认档数字看 `benches/perf.rs`，两者不可直接相减。
+> ⚠️ `--features amberice` 会连带打开 `preserve_order`（空 feature，不改变键序判定）；本表与 `benches/perf.rs` 的默认 feature 组合数字不可直接相减。
 
 ## 1.2 阶段 1 进度（2026-11-06）
 

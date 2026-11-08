@@ -47,7 +47,7 @@ impl Map {
     /// 默认无序；要源序必须显式选择。
     ///
     /// ⚠️ **过渡兼容已结束**：`new()` 一律是**无序**态。
-    /// 保序档也不再自动给 `Ordered` —— 那正是「正确性靠编译开关」的最后一个残留。
+    /// `Map::Ordered` 态也不再自动给 `Ordered` —— 那正是「正确性靠编译开关」的最后一个残留。
     /// 要源序请显式 [`Map::ordered`] / `From<OrderedMap>` / `parse_ordered()`。
     pub fn new() -> Self {
         Map::Unordered(BTreeMap::new())
@@ -323,7 +323,7 @@ impl From<OrderedMap> for Map {
 
 /// `BTreeMap` natively supports `From<[(K, V); N]>`; downstream code uses that form.
 /// 下游有 `Map::from([...])` / `.into()` 的写法，这里补上（一律落成**无序**态，
-/// 与历史默认档 `BTreeMap::from` 的排序行为一致）。
+/// 与 `BTreeMap::from` 的排序行为一致）。
 impl<const N: usize> From<[(String, Value); N]> for Map {
     fn from(arr: [(String, Value); N]) -> Self {
         // 只有这一个具体 impl，`("a".into(), v)` 才能推断出 `String`

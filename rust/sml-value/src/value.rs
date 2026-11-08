@@ -64,7 +64,7 @@ pub enum Value {
 
 /// §12 验收：`Value` 不得因换载体而膨胀。
 ///
-/// 保序档下 `Object` = `Vec<Entry>`(24) + `OnceLock<Box<Index>>`(16) = 40 B，
+/// `Map::Ordered` 态下 `Object` = `Vec<Entry>`(24) + `OnceLock<Box<Index>>`(16) = 40 B，
 /// 加判别式后 `Value` = 48 B。**超过 48 就说明索引又被塞回了 `Object` 里**
 /// （见 `object.rs` 里 `Index` 套 `Box` 的注释）——那条注释与本断言是一对。
 const _: () = assert!(std::mem::size_of::<Value>() <= 48);
@@ -129,7 +129,7 @@ impl PartialEq for Value {
 /// - 键已存在 ⇒ **不动位置**，把旧值与 `value` 一起交给 `merge`。
 ///
 /// 存在理由：写字段要「先查重名、再写入」，写成 `get_mut` + `insert` 是两次查找，
-/// 而 `BTreeMap::insert` 只查一次 —— 保序档必须也能一次查完才谈得上「不比现状慢」
+/// 而 `BTreeMap::insert` 只查一次 —— `Map::Ordered` 态必须也能一次查完才谈得上「不比现状慢」
 /// （实测两次查找会让 5k 键解析慢约 30%，见 `object::Object::insert_or_merge`）。
 ///
 /// ```
@@ -208,7 +208,7 @@ impl Value {
     /// Recursive canonical sort by key UTF-8 byte order（for canonical output，§6.2） ｜ 递归按键的 UTF-8 字节序重排（canonical 输出用，§6.2）。
     ///
     /// 与保序**解耦**：保序回答「作者怎么写」，canonical 回答「同值同字节」。
-    /// 未开 `preserve_order` 时对象是 `BTreeMap`，本方法等价于深拷贝（本来就有序）。
+    /// 对象处于 `Map::Unordered` 态时载体是 `BTreeMap`，本方法等价于深拷贝（本来就有序）。
     pub fn sort_keys_deep(&mut self) {
         match self {
             Value::Object(m) => {

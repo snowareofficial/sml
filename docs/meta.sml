@@ -62,9 +62,9 @@ docs {
     { title: "docs/swsml/archive/iter-parse.md" date: "2026-10-30" updated: "2026-11-02" owner: "swsml" status: "archive" scope: "迭代式解析改造（已完成并合入 dev）" supersedes: null superseded_by: null }
     { title: "docs/swsml/plan/featag-slices.md" date: "2026-11-04" updated: "2026-11-06" owner: "swsml" status: "current" scope: "featag 实现切片 S0–S9（S0–S8 已落，S9 其它端待同步）" supersedes: null superseded_by: null }
     { title: "docs/swsml/plan/features-plan.md" date: "2026-11-04" updated: "2026-11-06" owner: "swsml" status: "stale" scope: "v5 版本位落地步骤与被推翻的旧清单" supersedes: null superseded_by: "docs/swsml/spec/features.md" }
-    { title: "docs/swsml/plan/perf-plan.md" date: "2026-11-06" updated: "2026-11-06" owner: "swsml" status: "current" scope: "全面优化计划：时间 / 内存 / 缓存 / 指令集四线" supersedes: null superseded_by: null }
+    { title: "docs/swsml/plan/perf-plan.md" date: "2026-11-06" updated: "2026-11-08" owner: "swsml" status: "current" scope: "全面优化计划：时间 / 内存 / 缓存 / 指令集四线" supersedes: null superseded_by: null }
     { title: "docs/swsml/ref/capability-matrix.md" date: "2026-10-27" updated: "2026-11-04" owner: "swsml" status: "draft" scope: "五端能力矩阵（2026-10-27 快照，v5 版本口径待补）" supersedes: null superseded_by: null }
-    { title: "docs/swsml/ref/perf-baseline.md" date: "2026-11-03" updated: "2026-11-06" owner: "swsml" status: "current" scope: "性能基线 v0（只覆盖 parse；value / amberice 两份 bench 未并入）" supersedes: null superseded_by: null }
+    { title: "docs/swsml/ref/perf-baseline.md" date: "2026-11-03" updated: "2026-11-08" owner: "swsml" status: "current" scope: "性能基线 v0（只覆盖 parse；value / amberice 两份 bench 未并入）" supersedes: null superseded_by: null }
     { title: "docs/swsml/spec/featag.md" date: "2026-11-04" updated: "2026-11-06" owner: "swsml" status: "current" scope: "featag 语法 / 落点 / from-featag（Rust 已实现，其它端未同步）" supersedes: null superseded_by: null }
     { title: "docs/swsml/spec/features.md" date: "2026-11-04" updated: "2026-11-06" owner: "swsml" status: "current" scope: "特性命名空间：4 个域、两段上限、新增特性带域" supersedes: null superseded_by: null }
     { title: "docs/swsml/spec/null.md" date: "2026-11-04" updated: "2026-11-06" owner: "swsml" status: "current" scope: "null / none 五条语义与五端现状" supersedes: null superseded_by: null }

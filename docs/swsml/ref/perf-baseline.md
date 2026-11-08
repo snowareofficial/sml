@@ -66,11 +66,11 @@ cargo bench --bench perf -- --quick     # 迭代数减半，冒烟用（**不进
 
 ```bash
 cd rust
-cargo bench --bench perf                                    # 默认档（BTreeMap 键序）
+cargo bench --bench perf                                    # 默认 feature 组合（parse 产出 Map::Unordered）
 cargo bench --bench value                                   # 默认档
 cargo bench --bench amberice --features "amberice-compress,amberice-crypto,amberice-mmap"
 cargo bench --bench profile                                 # 默认档（tokenize 归因）
-cargo bench --bench profile --features amberice             # 保序档（与 §1.1 同口径）
+cargo bench --bench profile --features amberice             # 带 amberice 组合（与 §1.1 同口径）
 ```
 
 #### 解析 / 发射（`perf`，默认档）
@@ -151,7 +151,7 @@ cargo bench --bench profile --features amberice             # 保序档（与 §
 
 #### 归因（`profile`）：tokenize 占比与 get 的规模曲线
 
-| 负载 | 规模 | 操作 | 默认档 ns/op | 保序档 ns/op | 峰值堆 | allocs |
+| 负载 | 规模 | 操作 | 默认档 ns/op | 带 amberice 组合 ns/op | 峰值堆 | allocs |
 |---|---|---|---|---|---|---|
 | `small` | 205 B | `parse` | 5,211 | 5,063 | 6.2 KiB | 45 |
 | `flat@4000` | 68.1 KiB | `parse` | 2,535,792 | 2,574,685 | 1.3 MiB | 8,662 |
@@ -165,7 +165,7 @@ cargo bench --bench profile --features amberice             # 保序档（与 §
 
 #### N05 `DIR` 索引：`get` 不再随兄弟数增长（2026-11-06）
 
-同一份值 dump 两次（`DumpOptions.dir = false / true`），中键各取 1000 次（正式口径、保序档）：
+同一份值 dump 两次（`DumpOptions.dir = false / true`），中键各取 1000 次（正式口径、带 amberice 组合）：
 
 | 负载 | 无 `DIR` | 有 `DIR` | 变化 | 文件大小（无 → 有） |
 |---|---|---|---|---|

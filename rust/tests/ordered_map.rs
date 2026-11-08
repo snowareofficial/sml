@@ -90,7 +90,7 @@ fn canonical_value_makes_key_order_a_type_level_fact() {
     assert_eq!(cv2.into_value(), v2);
 }
 
-/// 默认档下 `Map` 是 BTreeMap（键按字节序），与 `OrderedMap` **语义不同**。
+/// `Map::Unordered` 态下 `Map` 是 BTreeMap（键按字节序），与 `OrderedMap` **语义不同**。
 #[cfg(not(feature = "preserve_order"))]
 #[test]
 fn map_and_ordered_map_are_distinct_in_default_build() {
@@ -99,7 +99,7 @@ fn map_and_ordered_map_are_distinct_in_default_build() {
     m.insert("a".to_string(), Value::Int(1));
 
     let keys: Vec<String> = m.keys().map(|k| k.to_string()).collect();
-    assert_eq!(keys, vec!["a", "b"], "默认档 Map 仍按 UTF-8 字节序");
+    assert_eq!(keys, vec!["a", "b"], "`Map::Unordered` 态 Map 仍按 UTF-8 字节序");
 
     let mut o = OrderedMap::new();
     o.insert("b".to_string(), Value::Int(2));

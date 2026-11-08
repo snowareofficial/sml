@@ -913,8 +913,8 @@ impl<'de> MapAccess<'de> for MapDeserializer {
         if self.map.is_empty() {
             return Ok(None);
         }
-        // `Map` 两档都是 `IntoIterator`：默认档（`BTreeMap`）按键字母序，
-        // `preserve_order` 档（`Object`）按源序 —— 语义自然对齐，不必分档写。
+        // `Map` 两档都是 `IntoIterator`：`Map::Unordered` 态（`BTreeMap`）按键字母序，
+        // `Map::Ordered` 态（`Object`）按源序 —— 语义自然对齐，不必分档写。
         // 借用自身上的迭代逐个弹：先取下键，值留到 `next_value_seed` 再交。
         let mut it = std::mem::take(&mut self.map).into_iter();
         let (k, v) = it.next().expect("非空必有首项");

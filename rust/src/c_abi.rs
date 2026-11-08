@@ -833,8 +833,8 @@ pub unsafe extern "C" fn sml_size(v: *const CSmlValue) -> usize {
 /// 故返回堆副本——语义同 [`sml_str_dup`]。调用方读后务必 `sml_free_str`，
 /// 切勿当借用指针跨 `sml_free(v)` 长期使用。
 ///
-/// 顺序与 [`sml_get`] 一致：对象的迭代序 —— 默认档是键的字典序
-/// （`BTreeMap`），`preserve_order` 档是**源序**（见 §8：迭代序是行为契约，
+/// 顺序与 [`sml_get`] 一致：对象的迭代序 —— `Map::Unordered` 态是键的字典序
+/// （`BTreeMap`），`Map::Ordered` 态是**源序**（见 §8：迭代序是行为契约，
 /// C 侧不得假设按键排序）。
 ///
 /// # Safety
@@ -1320,7 +1320,7 @@ pub fn json_to_value(s: &str) -> Option<Value> {
         match b[*i] {
             b'{' => {
                 *i += 1;
-                // 用 `Map`（= `Value::Object` 的载体）：保序档下这里建出来的对象
+                // 用 `Map`（= `Value::Object` 的载体）：`Map::Ordered` 态下这里建出来的对象
                 // 保的是**文本里的出现序**，正是 C-ABI 要承诺的迭代序（§8）。
                 let mut m = Map::new();
                 skip_ws(b, i);
