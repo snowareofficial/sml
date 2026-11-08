@@ -44,11 +44,11 @@ pub const MAX_VALUE_DEPTH: usize = sml_value::MAX_VALUE_DEPTH;
 
 /// 取对象键的 `&str`（**两个档位通用**）。
 ///
-/// `Value::Object` 的键在默认档是 `String`、在 `preserve_order` 档是 `Box<str>`，
+/// `Value::Object` 的键在 `Map::Unordered` 态是 `String`、在 `Map::Ordered` 态是 `Box<str>`，
 /// 迭代产出的分别是 `&String` / `&str`。两者都能 `AsRef<str>`，但**没有**共同的
 /// `.as_str()`（`str::as_str` 至今仍是 unstable）—— 所以各后端一律走这个入口，
 /// 别再直接写 `k.as_str()` / `k.clone()`（后者在 `&str` 上克隆出的是 `&str`，
-/// 不是 `String`，会在保序档编译失败）。
+/// 不是 `String`，会在`Map::Ordered` 态编译失败）。
 #[inline]
 pub(crate) fn key_of(k: &(impl AsRef<str> + ?Sized)) -> &str {
     k.as_ref()

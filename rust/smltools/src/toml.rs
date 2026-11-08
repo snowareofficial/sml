@@ -101,7 +101,7 @@ pub fn to_toml(v: &Value) -> String {
 
 fn write_table(out: &mut String, m: &Map, path: &[String]) {
     // TOML 要求：先写标量键，再写子表/表数组
-    // 键一律收 `&str`：对象的键在默认档是 `&String`、保序档是 `&str`。
+    // 键一律收 `&str`：对象的键在`Map::Unordered` 态是 `&String`、`Map::Ordered` 态是 `&str`。
     let mut scalars: Vec<(&str, &Value)> = Vec::new();
     let mut tables: Vec<(&str, &Map)> = Vec::new();
     let mut arrays: Vec<(&str, &Vec<Value>)> = Vec::new();

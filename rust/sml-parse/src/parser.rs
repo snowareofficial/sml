@@ -26,7 +26,7 @@ use sml_lex::identifiers::Script;
 use sml_value::Seg;
 use sml_feature::{Feature, FeatureSet};
 use sml_lex::{Span, Tok, TokOwned, coerce_word, lookup_env};
-// `Map` = `Value::Object` 的载体（默认 `BTreeMap`；`preserve_order` 档是保序 `Object`，
+// `Map` = `Value::Object` 的载体（默认 `BTreeMap`；`Map::Ordered` 态是保序 `Object`，
 // 迭代序 == 源序）。解析器里凡是「正在收集的块字段表」都必须是 `Map` —— 它是
 // 保序的**唯一真相源**；`fragments` / `types` / `contracts` 是普通表，仍是 `BTreeMap`。
 use sml_value::{insert_or_merge_owned, Map, MAX_VALUE_DEPTH, Value};
@@ -2753,7 +2753,7 @@ impl<'a> Parser<'a> {
     /// （静默改数据：SML 既定语义，改为告警）。
     ///
     /// ⚠️ 走 `Map::insert_or_merge_owned` 而**不是** `get_mut` + `insert`：后者是两次查找
-    /// （`BTreeMap::insert` 只查一次），保序档下实测多花约 30% 解析时间。
+    /// （`BTreeMap::insert` 只查一次），`Map::Ordered` 态下实测多花约 30% 解析时间。
     /// 冲突分支里也**原地**改写（`remove` + `insert` 会把键挪到尾部，
     /// 那是把实现细节泄漏成了行为差异）。
     fn insert_field_val(&mut self, node: &mut Map, key: String, key_idx: usize, val: Value) {

@@ -195,8 +195,8 @@ fn dump_inline(v: &Value, depth: usize) -> String {
 /// # 键的输出顺序（§6.2）
 ///
 /// 按对象的**迭代序**输出：
-/// - 默认档（`BTreeMap`）：键的 UTF-8 字节序 —— 与历史版本逐字节一致；
-/// - `preserve_order` 档：**源序**（解析时键出现的先后）。
+/// - `Map::Unordered` 态（`BTreeMap`）：键的 UTF-8 字节序 —— 与历史版本逐字节一致；
+/// - `Map::Ordered` 态：**源序**（解析时键出现的先后）。
 ///
 /// 需要「同值同字节」（哈希 / 签名 / 去重 / 二进制）请走 [`to_sml_canonical`]，
 /// 它与保序是两个独立开关，不会互相影响。
@@ -294,7 +294,7 @@ pub fn to_sml(v: &Value) -> String {
 pub struct DumpOptions {
     /// Emit in key UTF-8 byte order (**recursively** into all nested objects). ｜ 按 key 的 UTF-8 字节序输出（**递归**到所有嵌套对象）。
     ///
-    /// 默认 `false` = 保对象自身的迭代序（默认档即键序，`preserve_order` 档即源序）。
+    /// 默认 `false` = 保对象自身的迭代序（`Map::Unordered` 态为字节序，`Map::Ordered` 态为源序）。
     /// `true` 时同一份值无论来源顺序如何，输出**逐字节相同**。
     pub sort_keys: bool,
 }
@@ -312,8 +312,8 @@ pub fn to_sml_with(v: &Value, opts: &DumpOptions) -> String {
 ///
 /// 与保序解耦（§6.2）：`preserve_order` 决定「存的时候留不留源序」，
 /// 本函数决定「写的时候按不按字节序」。两者可任意组合：
-/// - 默认档 + 本函数 == 默认档 `to_sml`（`BTreeMap` 本来就有序）；
-/// - `preserve_order` 档 + 本函数 == 同值同字节（即使源序不同）。
+/// - `Map::Unordered` 态 + 本函数 == `Map::Unordered` 态 `to_sml`（`BTreeMap` 本来就有序）；
+/// - `Map::Ordered` 态 + 本函数 == 同值同字节（即使源序不同）。
 ///
 /// # 示例
 /// ```

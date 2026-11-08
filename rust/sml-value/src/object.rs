@@ -591,7 +591,7 @@ impl IntoIterator for Object {
     }
 }
 
-// —— 与 BTreeMap 的互转：给「默认档 ↔ 保序档」的过渡与测试用 ——
+// —— 与 BTreeMap 的互转：给「`Map::Unordered` ↔ `Map::Ordered`」两种态的测试用 ——
 
 impl From<BTreeMap<String, Value>> for Object {
     fn from(m: BTreeMap<String, Value>) -> Self {

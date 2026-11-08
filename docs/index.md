@@ -26,9 +26,9 @@
 | [`swsml/archive/iter-parse.md`](swsml/archive/iter-parse.md) | 2026-10-30 | 2026-11-02 | **archive** | — | 迭代式解析改造（已完成并合入 dev） |
 | [`swsml/plan/featag-slices.md`](swsml/plan/featag-slices.md) | 2026-11-04 | 2026-11-06 | **current** | — | featag 实现切片 S0–S9（S0–S8 已落，S9 其它端待同步） |
 | [`swsml/plan/features-plan.md`](swsml/plan/features-plan.md) | 2026-11-04 | 2026-11-06 | **stale** | `docs/swsml/spec/features.md` | v5 版本位落地步骤与被推翻的旧清单 |
-| [`swsml/plan/perf-plan.md`](swsml/plan/perf-plan.md) | 2026-11-06 | 2026-11-06 | **current** | — | 全面优化计划：时间 / 内存 / 缓存 / 指令集四线 |
+| [`swsml/plan/perf-plan.md`](swsml/plan/perf-plan.md) | 2026-11-06 | 2026-11-08 | **current** | — | 全面优化计划：时间 / 内存 / 缓存 / 指令集四线 |
 | [`swsml/ref/capability-matrix.md`](swsml/ref/capability-matrix.md) | 2026-10-27 | 2026-11-04 | **draft** | — | 五端能力矩阵（2026-10-27 快照，v5 版本口径待补） |
-| [`swsml/ref/perf-baseline.md`](swsml/ref/perf-baseline.md) | 2026-11-03 | 2026-11-06 | **current** | — | 性能基线 v0（只覆盖 parse；value / amberice 两份 bench 未并入） |
+| [`swsml/ref/perf-baseline.md`](swsml/ref/perf-baseline.md) | 2026-11-03 | 2026-11-08 | **current** | — | 性能基线 v0（只覆盖 parse；value / amberice 两份 bench 未并入） |
 | [`swsml/spec/featag.md`](swsml/spec/featag.md) | 2026-11-04 | 2026-11-06 | **current** | — | featag 语法 / 落点 / from-featag（Rust 已实现，其它端未同步） |
 | [`swsml/spec/features.md`](swsml/spec/features.md) | 2026-11-04 | 2026-11-06 | **current** | — | 特性命名空间：4 个域、两段上限、新增特性带域 |
 | [`swsml/spec/null.md`](swsml/spec/null.md) | 2026-11-04 | 2026-11-06 | **current** | — | null / none 五条语义与五端现状 |

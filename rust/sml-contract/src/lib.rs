@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-// `Map` = `Value::Object` 的载体（默认 `BTreeMap`；`preserve_order` 档是保序 `Object`）。
+// `Map` = `Value::Object` 的载体（默认 `BTreeMap`；`Map::Ordered` 态是保序 `Object`）。
 // 本 crate 里凡是**来自/进入 `Value::Object`** 的表都必须用它，
 // 其余（`contracts` 契约表、`fields` 字段表、`ext_data`）是普通表，仍是 `BTreeMap`。
 use sml_codes::{
@@ -768,7 +768,7 @@ pub fn apply_contract(
     // 只有真的挂了外置修饰符才做这次快照 —— 零扩展时连这一次遍历都省掉。
     let authored_keys: Option<BTreeSet<String>> =
         if c.fields.values().any(|f| !f.mods.is_empty()) {
-            // `.map(to_string)` 而非 `.cloned()`：保序档的 `keys()` 产出 `&str`，
+            // `.map(to_string)` 而非 `.cloned()`：`Map::Ordered` 态的 `keys()` 产出 `&str`，
             // `str: Clone` 不成立 —— 收成 `String` 两档同形。
             Some(node.keys().map(|k| k.to_string()).collect())
         } else {

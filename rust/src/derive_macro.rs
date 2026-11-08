@@ -424,7 +424,7 @@ pub mod __private {
     }
 
     // 注：`out` 必须是 `Map`（`Value::Object` 的载体），不能图省事写 `BTreeMap::new()`
-    // —— 那在保序档下类型不匹配。`for (k, val) in m` 的 `k` 在两档下分别是
+    // —— 那在`Map::Ordered` 态下类型不匹配。`for (k, val) in m` 的 `k` 在两档下分别是
     // `&String` / `&str`，故一律 `to_string()`（而非 `clone()`）收键。
     impl<V: SmlSerialize> SmlSerialize for BTreeMap<String, V> {
         #[inline]
@@ -456,7 +456,7 @@ pub mod __private {
         #[inline]
         fn to_sml_value(&self) -> Result<Value, String> {
             // 与 `Option`/`Vec` 一样不能靠 `collect()` 的类型推断走捷径：
-            // `Value::Object` 的载体是 `Map`，保序档下它**不是** `BTreeMap`。
+            // `Value::Object` 的载体是 `Map`，`Map::Ordered` 态下它**不是** `BTreeMap`。
             let mut out = Map::new();
             for (k, v) in self {
                 out.insert(k.clone(), v.to_sml_value()?);

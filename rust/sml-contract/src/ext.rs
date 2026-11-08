@@ -101,8 +101,8 @@ pub struct GroupView<'a> {
     /// 兜底策略，不是「用户同时塞进两种支付方式」的意图表达。
     /// 「一个都不写算不算错」另由 `required` / [`ExactlyOne`] 表达。
     /// ⚠️ 键存在即算出现，**含显式写 `null`** —— 写了这个键就是意图表达。
-    /// 键用 `String` 而非 `&str`：`Value::Object` 的键在 `preserve_order` 档下是
-    /// `Box<str>`，迭代产出 `&str`；默认档是 `String`。收成 `String` 让两档同形
+    /// 键用 `String` 而非 `&str`：`Value::Object` 的键在 `Map::Ordered` 态下是
+    /// `Box<str>`，迭代产出 `&str`；`Map::Unordered` 态是 `String`。收成 `String` 让两档同形
     /// （`present` 只在校验期用一次，多这一次分配无所谓）。
     pub present: &'a BTreeMap<String, &'a Value>,
 }

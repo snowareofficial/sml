@@ -159,7 +159,7 @@ fn include_merge_follows_same_rule() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 重复键提升为数组时**不挪位置**（保序档下 `remove` + `insert` 会把键甩到尾部，
+/// 重复键提升为数组时**不挪位置**（`Map::Ordered` 态下 `remove` + `insert` 会把键甩到尾部，
 /// 那是实现细节泄漏成行为差异 —— 这条用例挡住它）。
 #[test]
 fn duplicate_key_promotion_keeps_position() {
@@ -199,7 +199,7 @@ fn eq_is_still_set_equality() {
 fn canonical_is_independent_of_source_order() {
     let a = parse_ordered("z: 1\na: 2\n").unwrap();
     let b = parse_ordered("a: 2\nz: 1\n").unwrap();
-    assert_ne!(to_sml(&a), to_sml(&b), "保序档下源序不同 ⇒ 输出不同");
+    assert_ne!(to_sml(&a), to_sml(&b), "`Map::Ordered` 态下源序不同 ⇒ 输出不同");
     assert_eq!(
         to_sml_canonical(&a),
         to_sml_canonical(&b),
@@ -256,7 +256,7 @@ fn value_size_stays_within_budget() {
     );
 }
 
-/// 保序档与 `BTreeMap` 的互转：键集合一致（过渡期与测试用）。
+/// `Map::Ordered` 态与 `BTreeMap` 的互转：键集合一致（过渡期与测试用）。
 #[test]
 fn converts_to_and_from_btree_map() {
     let v = parse_ordered("z: 1\na: 2\n").unwrap();

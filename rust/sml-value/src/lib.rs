@@ -102,7 +102,7 @@ pub use canonical::CanonicalBlocks;
 /// `Value::Object` 换成可容纳两者的显式枚举，并让 canonical 按对象变体判定，
 /// 那时全局 feature 开关才真正退场。现在先让类型本身无条件可用、可被测试。
 ///
-/// 保留 `Object` 这个名字是为了兼容已有代码（`preserve_order` 档下它一直叫这个）。
+/// 保留 `Object` 这个名字是为了兼容已有代码（`Map::Ordered` 态下它一直叫这个）。
 pub use object::Object;
 /// Alias with the name the API review asked for. ｜ 评审要求的显式名字。
 pub use object::Object as OrderedMap;
