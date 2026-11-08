@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 //! T3 random-access reader tests / T3 随机访问读取的验收用例。
 //!
-//! Gated on `preserve_order` (no canonical bytes without source order).
-//! 门控 `preserve_order`：没有源序就没有 canonical 字节。
-#![cfg(feature = "preserve_order")]
+//! 用例里的对象由 `Map::ordered()` 显式构造，canonical 字节在任何 feature 组合下都可产出，
+//! 故本文件不设档位门控。
+//! ｜ Objects here are built with `Map::ordered()`; canonical bytes are available in every
+//!    feature profile, so this file is not gated.
 
 use amberice::{ContainerError, Map, Path, Store, Value};
 

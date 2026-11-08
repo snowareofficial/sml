@@ -10,7 +10,6 @@
 //! 为什么不能只靠 CLI：CI 跑的是 `cargo test`，不是 `cargo run`。向量文件是 T7 五端
 //! 要对齐的契约，漂移必须自己变红 —— 靠人记得手跑一次 `--check` 不算门禁。
 
-#[cfg(feature = "preserve_order")]
 #[test]
 fn committed_vectors_match_the_code() {
     let path = amberice::vectors::resolve_default();

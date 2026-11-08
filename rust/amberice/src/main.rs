@@ -82,8 +82,9 @@ fn main() -> ExitCode {
             } else {
                 eprintln!("amberice: {msg}");
             }
-            // 只在**真的**因为缺源序而失败时给提示，别把无关错误也糊上这条
-            if !cfg!(feature = "preserve_order") && msg.contains("保序") {
+            // 只在**真的**因为缺源序而失败时给提示，别把无关错误也糊上这条；
+            // 该错误在两档构建下都会出现，与 feature 无关
+            if msg.contains("保序") {
                 eprintln!(
                     "amberice: hint: 这个值是显式无序态（`Map::Unordered`），canonical 需要源序\n\
                      amberice:       文本用 `parse_ordered()`；程序构造用 `Map::ordered()` / `OrderedMap`"
