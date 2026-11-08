@@ -808,9 +808,6 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
 - [ ] **GitHub 地址**：所有 crate（含 `swsml` 门面 crate）的 `repository` 字段补 GitHub
       地址；当前 `swsml` / `smlb` 的 `Cargo.toml` 只有 `gitee.com/snoware/sml`。README 里
       GitHub 链接应置于 Gitee 之前（或对外只留 GitHub）。
-- [ ] **移出 knight 练习草稿**：`rust/amberice/examples/knight/` 是本地练习 crate，发布前移出
-      仓库；痕迹一并清理 —— `.gitignore` 中的忽略条目、`rust/Cargo.toml` 的 `members` 引用、
-      `rust/Cargo.lock` 的 `knight` 包条目。完成判据：`cargo metadata` 不再引用已移除目录。
   由 `Diagnostic::code()` 映射；与 `W-LINT-003` 的分域已写进码表 note（**解析期真的发生时**产出 vs lint 纯文本扫描）。
   `errors/codes.sml` + 三个生成器已同步（146 条码），`key_conflict` 断言带码。
 - 编辑器 / LSP 侧同步：扩展诊断走 `js/sml.mjs` 的 `parseSafe`，**不经过 Rust 库**，本轮的告警它看不见。
