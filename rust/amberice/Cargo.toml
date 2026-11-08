@@ -70,14 +70,13 @@ argon2 = { version = "0.5", optional = true }
 memmap2 = { version = "0.9.11", optional = true }
 
 [features]
-# 对象保序（转发到 sml-value）：**canonical 的前提**（spec §18 C2）。
+# 兼容名：转发到 `sml-value/preserve_order` 的空 feature，保留只为不打断既有命令。
+# ｜ Compatibility alias only; `sml-value` does not change behaviour for this feature.
 #
-# 为什么默认关、而不是让本 crate 硬开：cargo 的特性是**按构建图取并集**的，
-# 本 crate 若硬开，`cargo test --workspace`（CI 的命令）会把整个 workspace 的
-# `sml-value` 一起切到保序档 —— 那等于顺手改掉 swsml / smltools 的既有行为，
-# 而它们是「默认档 = BTreeMap 字节序」的成百条 golden 用例。
-# 故：本 crate 自己跑时显式带 `--features preserve_order`
-# （不带的后果是**明确报错**而不是悄悄排序，见 `CanonicalError::KeyOrderUnavailable`）。
+# canonical 能否产出取决于值本身：`Map::Unordered` 返回
+# `CanonicalError::KeyOrderUnavailable`；`parse_ordered()` / `Map::ordered()` 产出的
+# `Map::Ordered` 可签，标量不受键序约束（spec §18 C2）。与 feature 档位无关。
+# ｜ Whether canonical succeeds is a property of the value, not of the build.
 preserve_order = ["sml-value/preserve_order"]
 # 层链签名（T4）：`amberice sign / append / verify / keygen / tree` 的验签部分。
 # 关掉后**仍能读**层链（序号/prev_hash 这些不需要密码学），只是签名为「未校验」。

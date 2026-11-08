@@ -136,6 +136,6 @@ fn main() {
     println!();
     println!("> `get×1000 均摊` 的 ns/op 是**单次 get**（整批 1000 次除以 1000），取的是中间键；");
     println!("> 该行的峰值堆是**整批 1000 次**的高水位，稳态下应不随规模增长。");
-    println!("> 带 `--features amberice` 时会连带打开 `preserve_order`：本表的 parse 数字是");
-    println!("> **保序档**，默认档请看 `benches/perf.rs`（两者不可直接相减）。");
+    println!("> `--features amberice` 会连带打开 `preserve_order`（空 feature，不改变键序判定）；");
+    println!("> 本表与 `benches/perf.rs` 的默认档数字不可直接相减。");
 }

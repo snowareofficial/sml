@@ -43,8 +43,7 @@ emit-latex = []
 emit-xml = []
 emit-svg = []
 emit-slint = []
-# 对象保序：**必须**转发到 swsml（它会再转发到 7 个子 crate）。
-# 漏了这处，`Value` 会被编成两个互不兼容的实例（`expected sml_value::Value, found Value`）。
-# 按 Q10 的裁决：**不进 default**，要用自己开。
-# ｜ `preserve_order` must be forwarded; otherwise two incompatible `Value` types appear.
+# 兼容名：转发到 `sml/preserve_order` 的空 feature 链，保留只为不打断既有命令；
+# 不改变 `Value` 类型或行为。按 Q10 的裁决：**不进 default**，要用自己开。
+# ｜ Compatibility alias only; no type or behaviour change. Not in `default` (Q10).
 preserve_order = ["sml/preserve_order"]
