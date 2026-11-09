@@ -61,7 +61,7 @@ pub(crate) fn needs_quote(s: &str) -> bool {
 /// 阶段就被解码，解码后的值与未转义形式不可区分，`Tok::Str` 也无从判断是否发生过转义。
 /// 该 round-trip 限制已在 `to_sml` 文档中说明（禁用 env 特性即可规避）。
 ///
-/// ⚠️ **Control chars must be escaped** (fixed 2026-11-03) / **控制字符必须转义**：
+/// **Control chars must be escaped** (fixed 2026-11-03) / **控制字符必须转义**：
 /// 此前只处理 `\` 与 `"`，于是 `\n` / `\t` / `\0` 会以**真实字节**写进引号串里 ——
 /// `s: "u\0v"` dump 出来是 `"u` + 0x00 + `v"`：Rust 自己再读回时文本里带 NUL，
 /// C 的 `sml_dump` 更是在 NUL 处**直接截断**（台账 B-02 记的就是这条）。
@@ -106,7 +106,7 @@ pub(crate) fn quote_if_needed(s: &str) -> Cow<'_, str> {
 /// 规则（改了值却留着旧 raw），校验能让它退回默认格式化，而不是输出一个与值不符的字面量
 /// —— 把「输出错误数据」降级为「丢失书写形式」。
 ///
-/// ⚠️ **canonical never reads `raw`** (`spec §18 C5/C12`) / **canonical 不走 raw**：
+/// **canonical never reads `raw`** (`spec §18 C5/C12`) / **canonical 不走 raw**：
 /// raw 是解析期的书写痕迹、不参与相等比较，若让它进 canonical，「同一逻辑数据同字节」
 /// 就不成立（同一份数据从文本读入与从 `.ambr` 读入会得到两串不同字节）。
 /// canonical 一律 `raw = None` 调用本函数。

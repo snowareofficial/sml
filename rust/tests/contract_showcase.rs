@@ -79,7 +79,7 @@ fn showcase_contract_parses_and_applies() {
     //   · 块键是**类型词** `Metrics`（不是块名 `metrics`）；
     //   · 首词仅作 `__type` / `__name` 元数据；
     //   · 字段原样保留，**不做**契约校验（`loose` 此时也不参与）。
-    // ⚠️ 开启态（契约生效 + default 填充 + strict 校验）由 `rust/tests/syntax_guard.rs`
+    // 开启态（契约生效 + default 填充 + strict 校验）由 `rust/tests/syntax_guard.rs`
     // 的 5 条 `typed_block_*` 用例覆盖 —— 两边合起来才是完整语义，缺一不可。
     let m = v
         .get("Metrics")
@@ -109,7 +109,7 @@ fn showcase_contract_parses_and_applies() {
     assert_eq!(v.get("contract"), None);
     assert_eq!(v.get("Server"), None);
     assert_eq!(v.get("Address"), None);
-    // ⚠️ `Metrics` **不在此列**：样例未开 `typed-block`，`Metrics metrics { }` 因此是普通
+    // `Metrics` **不在此列**：样例未开 `typed-block`，`Metrics metrics { }` 因此是普通
     // 裸块，键就是**类型词** `Metrics`（其 `__type`/`__name` 已在上面断言）。
     // 开了该特性时块键才是**块名** `metrics` —— 见 `syntax_guard.rs` 的 `typed_block_*`。
 }

@@ -27,7 +27,7 @@ cargo clippy --all-features --all-targets
 
 | 编号 | 项目 | 状态 | 说明 |
 |---|---|---|---|
-| R-15 | C-ABI 导出函数未标 `unsafe` 却解引用裸指针 | ✅ 已修 | 4 个函数（5 处告警点） |
+| R-15 | C-ABI 导出函数未标 `unsafe` 却解引用裸指针 | 已修 | 4 个函数（5 处告警点） |
 
 **问题**：`sml_parse` / `sml_dump` / `sml_parse_ex` / `sml_parse_file` 声明为**安全函数**，
 体内却直接 `CStr::from_ptr(外部传入的裸指针)`。对 C 调用方无影响（C 本来就不校验），
@@ -137,11 +137,11 @@ cargo clippy --all-features --all-targets
 
 | 写法 | v3 | v4 |
 |---|---|---|
-| `@f { host: a }` | ✅ | ✅（不变，最常见形式） |
-| `@f type: Server { }` | ✅ | ✅（新推荐写法） |
-| `@f type: S name: prod { }` | ✅ | ✅（顺序不限） |
-| `@f Server { }` | ✅ | ❌ 报错（位置参数已废弃） |
-| `@nosuch blk { x: 1 }` | ⚠️ 静默清空 | ✅ 报错 |
+| `@f { host: a }` | 是 | （不变，最常见形式） |
+| `@f type: Server { }` | 是 | （新推荐写法） |
+| `@f type: S name: prod { }` | 是 | （顺序不限） |
+| `@f Server { }` | 是 | 否：报错（位置参数已废弃） |
+| `@nosuch blk { x: 1 }` | 静默清空 | 报错 |
 
 **改动清单**（`rust/src/core.rs`）：
 
@@ -176,12 +176,12 @@ cargo clippy --all-features --all-targets
 
 | 编号 | 项目 | 状态 | 说明 |
 |---|---|---|---|
-| N1 | Markdown `code` 块 `lang` 注入 | ✅ 已修 | **P1-3 围栏逃逸的残留面** |
-| N2 | Markdown 表格单元格结构字符 | ✅ 已修 | `\|` 伪造列、换行伪造行 |
-| N3 | Markdown 字段名注入 | ✅ 已修 | 逃逸出列表、破坏 `**key**` 定界 |
-| N4 | ReDoS 步数预算按起点重置 | ✅ 已修 | 总开销 = 起点数 × 2M |
-| N5 | Slint 字符串字面量未转义换行 | ✅ 已修 | 产出不可编译的跨行字符串 |
-| N6 | custom emit `exclude` 被 `text` 绕过 | ✅ 已修 | `exclude:["text"]` 形同虚设 |
+| N1 | Markdown `code` 块 `lang` 注入 | 已修 | **P1-3 围栏逃逸的残留面** |
+| N2 | Markdown 表格单元格结构字符 | 已修 | `\|` 伪造列、换行伪造行 |
+| N3 | Markdown 字段名注入 | 已修 | 逃逸出列表、破坏 `**key**` 定界 |
+| N4 | ReDoS 步数预算按起点重置 | 已修 | 总开销 = 起点数 × 2M |
+| N5 | Slint 字符串字面量未转义换行 | 已修 | 产出不可编译的跨行字符串 |
+| N6 | custom emit `exclude` 被 `text` 绕过 | 已修 | `exclude:["text"]` 形同虚设 |
 
 ### N1　Markdown `code` 块 `lang` 未清洗 → 围栏逃逸（P1-3 残留）
 
@@ -315,14 +315,14 @@ ReDoS 预算测试仍通过；`cargo test --workspace` **467 通过 / 0 失败**
 
 | 编号 | 项目 | 状态 | 实测证据 |
 |---|---|---|---|
-| P0-1 | parse 数组路径深度限制 | ✅ 已修 | 深度 127 数组=Ok；128/129 数组=Err（与对象一致）；50000 层返回 Err 不崩溃 |
-| P0-2 | `Value` 递归 Drop | ✅ 已修 | `drop(50000 层 Object)` / `drop(50000 层 Array)` 均正常 |
-| P0-3 | emit 递归 clone（**部分**） | ⚠️ **xml 未修** | svg/lvgl/slint/md/latex/sml 均返回 `Err(深度超过上限 128)`；**xml 在 20000 / 50000 层栈溢出 abort** |
-| P1-1 | lvgl depth 检查 | ✅ 已修 | 返回 `Err(lvgl: 递归深度超过上限 128)` |
-| P1-2 | slint body / callback depth 检查 | ✅ 已修 | 均返回 `Err(slint: 递归深度超过上限 128)` |
-| P1-3 | Markdown 围栏逃逸 | ✅ 已修 | 改用 4 反引号围栏，注入内容包在围栏内 |
-| P1-4 | Slint 标识符清洗 | ✅ 已修 | `x; injected` → `xinjected`（空格、分号已剔除） |
-| P2-1 | C-ABI NUL 静默空串 | ✅ 已修 | `sml_str_dup` 返回 NULL；对照正常串返回 `Some("hello")` |
+| P0-1 | parse 数组路径深度限制 | 已修 | 深度 127 数组=Ok；128/129 数组=Err（与对象一致）；50000 层返回 Err 不崩溃 |
+| P0-2 | `Value` 递归 Drop | 已修 | `drop(50000 层 Object)` / `drop(50000 层 Array)` 均正常 |
+| P0-3 | emit 递归 clone（**部分**） | **xml 未修** | svg/lvgl/slint/md/latex/sml 均返回 `Err(深度超过上限 128)`；**xml 在 20000 / 50000 层栈溢出 abort** |
+| P1-1 | lvgl depth 检查 | 已修 | 返回 `Err(lvgl: 递归深度超过上限 128)` |
+| P1-2 | slint body / callback depth 检查 | 已修 | 均返回 `Err(slint: 递归深度超过上限 128)` |
+| P1-3 | Markdown 围栏逃逸 | 已修 | 改用 4 反引号围栏，注入内容包在围栏内 |
+| P1-4 | Slint 标识符清洗 | 已修 | `x; injected` → `xinjected`（空格、分号已剔除） |
+| P2-1 | C-ABI NUL 静默空串 | 已修 | `sml_str_dup` 返回 NULL；对照正常串返回 `Some("hello")` |
 
 ### 最后一项修复（P0-3 残留，已完成）
 
@@ -387,7 +387,7 @@ ReDoS 预算测试仍通过；`cargo test --workspace` **467 通过 / 0 失败**
 
 ## 二、待修复缺陷
 
-> ⚠️ **本节的「待修复」是审计当时（2026-08-31）的结论，不是当前状态。**
+> **本节的「待修复」是审计当时（2026-08-31）的结论，不是当前状态。**
 > 下列 P0-1 / P0-2 / P0-3 / P1-1 / P1-2 / P1-3 / P1-4 均已修复，P2-1 也已改为
 > 「返回 NULL 并置错误」（见 `src/c_abi.rs` 的 `cstr`）。复测结果见
 > [§0. 第二轮复测结果速览](#0-第二轮复测结果速览) 与 [§一、已修复确认](#一已修复确认回归验证通过无需再处理)。

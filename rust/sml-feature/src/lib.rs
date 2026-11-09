@@ -6,7 +6,7 @@
 //! - [`Feature`] / [`FeatureSet`] — capability bits and bitmask sets; ｜ 能力位与位掩码集合；
 //! - [`FEATURES`] / [`EDITIONS`] — 特性表与版本登记表（一行同时承载数字 / 代号 / 状态 / **功能集**）。
 //!
-//! ⚠️ **版本之间没有大小关系**（`docs/swsml/spec/version.md` v1.0）：版本号只是「一整套默认特性位」的名字，
+//! **版本之间没有大小关系**（`docs/swsml/spec/version.md` v1.0）：版本号只是「一整套默认特性位」的名字，
 //! 判据永远是「这个特性在不在这套功能集里」，所以本类型**不实现 `Ord`**。
 //!
 //! 刻意**不**包含 `@version`/`@feature` 的**扫描**：那部分需要 `Tok`
@@ -111,7 +111,7 @@ pub enum Feature {
     /// `ssh` 被挤进 `__args`，全程不报错 —— 契约写错等于静默失效。
     /// 开启本特性后恢复「首个非契约词 = 块名，其余进 `__args`」的行为。
     ///
-    /// ⚠️ **只作用于 typed-block 模式**（首词命中了契约表）。普通裸块
+    /// **只作用于 typed-block 模式**（首词命中了契约表）。普通裸块
     /// `server web prod { }` 的既有行为不受影响（`__type`/`__name`/`__args` 回归红线）。
     ///
     /// **opt-in**：不在 `baseline()` 中，需文档显式 `@feature enable block-name`；
@@ -129,7 +129,7 @@ pub enum Feature {
     /// `wea !critical obey[1, 2], name { }` 会产出
     /// `{ wea: { __featags: [ { name: "critical" }, { name: "obey", args: [1, 2] } ], … } }`
     /// （保序数组）；三条歧义各报一码（`E-PARSE-026/027/028`）。
-    /// ⚠️ 仍**不做声明校验**（未声明的 featag、参数类型不符都放行）—— 那是 S4/S5。
+    /// 仍**不做声明校验**（未声明的 featag、参数类型不符都放行）—— 那是 S4/S5。
     ///
     /// 追加在 `BlockName` 之后以保位序稳定（C-ABI 位序绑定，见 `feature_names` 守护用例）。
     Featag,
@@ -145,7 +145,7 @@ pub enum Feature {
     /// （`docs/swsml/plan/featag-slices.md` 的三条跨片原则写的是「都在 `type.featag` 后面」，
     /// 这里**有意偏离**并在施工计划里登记了理由。）
     ///
-    /// ⚠️ 「每契约单一语种」不在这里 —— 那是**契约级**规则（同契约多个标识符之间比较），
+    /// 「每契约单一语种」不在这里 —— 那是**契约级**规则（同契约多个标识符之间比较），
     /// 跟声明收集（S4）一起做。
     Ident,
     /// **弱声明族**（`weakbind` / `weakdata` / `weakdoc`）—— 第三个带域名的特性：`type.weak`。
@@ -191,7 +191,7 @@ pub static FEATURES: &[(&str, Feature)] = &[
     ("typed-block", Feature::TypedBlock),
     ("case-insensitive", Feature::CaseInsensitive),
     ("block-name", Feature::BlockName),
-    // ⚠️ 第一个**带域**的名字：`type.featag`。老名一律保持平铺（见 FEATURE_DOMAINS）。
+    // 第一个**带域**的名字：`type.featag`。老名一律保持平铺（见 FEATURE_DOMAINS）。
     ("type.featag", Feature::Featag),
     // 第二个带域名：`lex.ident`（标识符白名单，S1b）
     ("lex.ident", Feature::Ident),
@@ -317,7 +317,7 @@ impl FeatureSet {
     /// `top-level-array` / `namespace` / `implicit-ns`。
     /// 仅「多目标 / glob / 正则 / 扩展名重写 / when / for / typed-block / case-insensitive /
     /// block-name / type.featag」等高级能力需文档内 `@feature enable` 显式开启（避免重蹈 YAML 覆辙）。
-    /// ⚠️ 早先的文档写「极简三件套」，与实现不符（`baseline` 实际有 8 位），2026-11-02 更正。
+    /// 早先的文档写「极简三件套」，与实现不符（`baseline` 实际有 8 位），2026-11-02 更正。
     ///
     /// `const` 是因为版本登记表 [`EDITIONS`] 要在静态初始化里为每一代**写死**它的功能集
     /// （「版本 = 功能集」，见 `docs/swsml/spec/version.md` §2）。
@@ -450,7 +450,7 @@ pub struct EditionRow {
 
 /// 已登记的全部版本集（顺序即「代」的顺序，不参与比较）｜ the edition registry.
 ///
-/// ⚠️ 新增一行即可；**不许改既有行的数字、代号或功能集**（已发布版本永久兼容）。
+/// 新增一行即可；**不许改既有行的数字、代号或功能集**（已发布版本永久兼容）。
 ///
 /// | 代 | 别名 | 默认差异 |
 /// |---|---|---|

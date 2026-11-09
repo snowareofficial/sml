@@ -67,7 +67,7 @@ No quotes, no commas, no indentation traps — and the schema layer stays **opti
 drop the `@contract` and it is plain data.
 无引号、无逗号、无缩进陷阱，schema 层还是**可选**的——删掉 `@contract` 它就是普通数据。
 
-> **⚠️ The type name must match the contract name exactly (case-sensitive, and it
+> **The type name must match the contract name exactly (case-sensitive, and it
 > fails silently).** When the contract is declared `Rule`, you **must** write
 > `Rule ssh { }`. Writing `rule ssh { }` means the first word never hits the contract
 > table, so the contract **silently does not apply** — no validation, no defaults,
@@ -78,7 +78,7 @@ drop the `@contract` and it is plain data.
 > This is the easiest trap to fall into. A "case-insensitive first letter" switch is
 > under discussion (a project decision).
 
-> **⚠️ 类型名必须与契约名完全一致（大小写敏感，且会静默失效）。**
+> **类型名必须与契约名完全一致（大小写敏感，且会静默失效）。**
 > 契约声明为 `Rule` 时，**必须**写 `Rule ssh { }`。若写成 `rule ssh { }`，首词不会命中
 > 契约表，契约**静默不生效**——不校验、不填默认值、**也不报错**。实测：
 > - `Rule ssh { action: bogus }` → `E-CONTRACT-006`（enum 违规，被拦下）

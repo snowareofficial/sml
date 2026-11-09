@@ -79,7 +79,7 @@ fuzz_target!(|data: &[u8]| {
 
         // 篡改一个字节：必须报错（AEAD 或段摘要兜底），不许静默给出错值。
         //
-        // ⚠️ 必须改在**段体内部**：`block_align` 的 4 KiB 对齐填充不在摘要/认证范围内
+        // 必须改在**段体内部**：`block_align` 的 4 KiB 对齐填充不在摘要/认证范围内
         // （§19.7 丙），改填充字节本来就无害 —— 拿它当判据会得到假阳性（fuzz 撞过）。
         let info = amberice::info(&enc).expect("自己加密的文件 info 必须通过");
         if let Some(seg) = info

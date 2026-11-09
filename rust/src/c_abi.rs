@@ -37,14 +37,14 @@ fn cstr_or_null(s: &str) -> *mut c_char {
 ///
 /// # 陷阱
 ///
-/// ⚠️ **你以为失败时能问出原因 —— 其实本函数一律只给 NULL**：没有码、没有位置、
+/// **你以为失败时能问出原因 —— 其实本函数一律只给 NULL**：没有码、没有位置、
 /// 也不区分「语法错」与「特性被禁」。要错误语义请用 `sml_dump_err` 或值树 API。
 ///
-/// ⚠️ **你以为按旧文案调 `sml_free(p)` 释放就行 —— 字符串要用 `sml_free_str`**。
+/// **你以为按旧文案调 `sml_free(p)` 释放就行 —— 字符串要用 `sml_free_str`**。
 /// `sml_free` 释放的是**值树**（与 `sml.h` 纯 C 后端一致），两者语义不同，
 /// 改名原因见 `sml_free_str` 的说明。本函数此前的「调用方 sml_free 释放」是过期文案。
 ///
-/// ⚠️ **你以为它能读带 `include` 的配置 —— 它内部走的是 `parse`，不展开 `include`**
+/// **你以为它能读带 `include` 的配置 —— 它内部走的是 `parse`，不展开 `include`**
 /// （文本入口不做 IO）。要模块化请用 `sml_parse_file`。
 ///
 /// # Safety
@@ -572,15 +572,15 @@ fn feature_set_from_flags(flags: c_uint) -> FeatureSet {
 ///
 /// # 陷阱
 ///
-/// ⚠️ **`flags = 0` 不等于「不限制」**：它是 baseline（八项核心），
+/// **`flags = 0` 不等于「不限制」**：它是 baseline（八项核心），
 /// 于是文档里 `@feature enable when` 这类 opt-in 能力会被**静默削掉**（见
 /// `parse_with_features` 的说明：越权不是报错，而是取交集）。
 ///
-/// ⚠️ **位序是 `FEATURES` 数组的下标**，且**只认前 32 个**（`i >= 32` 直接丢弃）。
+/// **位序是 `FEATURES` 数组的下标**，且**只认前 32 个**（`i >= 32` 直接丢弃）。
 /// C 侧别硬编码数字：用 `SML_F_*` 宏，或用 [`sml_feature_name`] / [`sml_features_mask`]
 /// 现查，否则 Rust 侧调一次表顺序，C 侧就全错位了。
 ///
-/// ⚠️ **非 UTF-8 输入被静默替换**：`text` 走 `to_string_lossy()`，
+/// **非 UTF-8 输入被静默替换**：`text` 走 `to_string_lossy()`，
 /// 非法字节变成 U+FFFD 且**不报错**。对字节流不放心的调用方请先自行校验编码。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
@@ -623,15 +623,15 @@ pub unsafe extern "C" fn sml_loads(
 ///
 /// # 陷阱
 ///
-/// ⚠️ **`flags = 0` 是 baseline 八项，不是「不限制」**（同 [`sml_loads`]）：
+/// **`flags = 0` 是 baseline 八项，不是「不限制」**（同 [`sml_loads`]）：
 /// 文档里的 `@when` / `@for` / `typed-block` 等 opt-in 语法会直接报 **`E-FEATURE-001`**
 /// （不是静默忽略），要全放开传 `sml_features_mask()`。
 ///
-/// ⚠️ **只要真展开了 `include`，错误就没有行列**：跨文件没有单一原文可映射，
+/// **只要真展开了 `include`，错误就没有行列**：跨文件没有单一原文可映射，
 /// 位置信息不再生成 —— 同一份内容「手拼成单文件」时能报「第 N 行第 M 列」，
 /// 「文件 + include」时只有码和文案。
 ///
-/// ⚠️ **一条告警都拿不到**：本入口返回 `Value`，键冲突（`W-PARSE-001`）与片段覆盖
+/// **一条告警都拿不到**：本入口返回 `Value`，键冲突（`W-PARSE-001`）与片段覆盖
 /// （`W-PARSE-002`）这两类诊断在这里被**丢弃** —— C-ABI 目前没有交出诊断的入口，
 /// 需要就回 Rust 侧用 `parse_file_with_warnings`。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
@@ -747,13 +747,13 @@ pub unsafe extern "C" fn sml_get(
 ///
 /// # 陷阱
 ///
-/// ⚠️ **只能穿对象，不能穿数组**：`items.0.name` 这类写法**永远失败** ——
+/// **只能穿对象，不能穿数组**：`items.0.name` 这类写法**永远失败** ——
 /// 路径语法里没有下标，数组元素只能先取到数组、再用 [`sml_at`] 逐层往下。
 ///
-/// ⚠️ **键名自带 `.` 的字段取不到**：分段后每段都当作**完整键名**去匹配，
+/// **键名自带 `.` 的字段取不到**：分段后每段都当作**完整键名**去匹配，
 /// 所以 `k: "a.b"` 这种字段路径表达不出来，只能用 [`sml_get`] 显式取。
 ///
-/// ⚠️ **NULL 不说原因**：「路径不存在」「中途不是对象」返回的同一个 NULL，
+/// **NULL 不说原因**：「路径不存在」「中途不是对象」返回的同一个 NULL，
 /// 与「取到的值本身是空」也无法区分。要定位是哪一段断的，就自己分段调 [`sml_get`]。
 ///
 /// # Safety
@@ -864,10 +864,10 @@ pub unsafe extern "C" fn sml_key_at(v: *const CSmlValue, idx: usize) -> *mut c_c
 ///
 /// # 陷阱
 ///
-/// ⚠️ **长度是字节，不是字符**：截断按字节切，`buflen - 1` 正好落在某个 UTF-8 多字节字符
+/// **长度是字节，不是字符**：截断按字节切，`buflen - 1` 正好落在某个 UTF-8 多字节字符
 /// 中间时，缓冲区里留下的是**非法 UTF-8 半字符**，且不报任何错。中文/emoji 字段尤其容易中招。
 ///
-/// ⚠️ **`0` 有三种含义**：空串、非字符串、`v` 为 NULL —— 返回值无法区分。
+/// **`0` 有三种含义**：空串、非字符串、`v` 为 NULL —— 返回值无法区分。
 /// 要区分就先 [`sml_typeof`]（`4` = Str），再用 [`sml_str_dup`] 或本函数两趟取。
 ///
 /// # Safety
@@ -995,11 +995,11 @@ pub unsafe extern "C" fn sml_str_in(
 ///
 /// # 陷阱
 ///
-/// ⚠️ **必须看 `ok`，不能看返回值**：`ok = 0` 时返回值**仍可能非 0** ——
+/// **必须看 `ok`，不能看返回值**：`ok = 0` 时返回值**仍可能非 0** ——
 /// 字段是 `Float` 时 [`sml_int_value`] 会把它**截断**成 `i64` 返回（`1.9` ⇒ `1`），
 /// 而 `ok` 同时是 `0`。所以「返回 1」既不等于「成功」，也不等于「原值就是 1」。
 ///
-/// ⚠️ **`ok` 传 NULL 就没救**：失败与「值就是 0」返回的是同一个 `0`。
+/// **`ok` 传 NULL 就没救**：失败与「值就是 0」返回的是同一个 `0`。
 ///
 /// # Safety
 /// `v` 必须是有效句柄；`path` 必须是 NUL 结尾的 C 字符串；`ok` 可写 4 字节或为 NULL。
@@ -1030,7 +1030,7 @@ pub unsafe extern "C" fn sml_int_in(
 ///
 /// # 陷阱
 ///
-/// ⚠️ **同样是「看 `ok`」而不是「看返回 0/1」**：`false` 与非布尔字段都返回 `0`，
+/// **同样是「看 `ok`」而不是「看返回 0/1」**：`false` 与非布尔字段都返回 `0`，
 /// 只有 `ok` 能区分「读到了 false」和「压根没读到」。
 ///
 /// # Safety
@@ -1064,10 +1064,10 @@ pub unsafe extern "C" fn sml_bool_in(
 ///
 /// # 陷阱
 ///
-/// ⚠️ **`_flags` 目前被完全忽略**（形参名带下划线不是笔误）—— 传任何值都不改变输出。
+/// **`_flags` 目前被完全忽略**（形参名带下划线不是笔误）—— 传任何值都不改变输出。
 /// 别以为它能选「canonical / 保序」：想按键字节序请用 Rust 的 `to_sml_canonical`。
 ///
-/// ⚠️ **NULL 有两种来源**：`v` 为 NULL、或超过 [`crate::MAX_VALUE_DEPTH`]（128 层，根算第 0 层）。
+/// **NULL 有两种来源**：`v` 为 NULL、或超过 [`crate::MAX_VALUE_DEPTH`]（128 层，根算第 0 层）。
 /// 本函数没有 `err` 出参，**区分不了**，也不告诉你差多少层。
 ///
 /// # Safety
@@ -1100,7 +1100,7 @@ pub unsafe extern "C" fn sml_dumps(v: *const CSmlValue, _flags: c_uint) -> *mut 
 /// 顺序与 [`FEATURES`] 表严格对应，由 `tests/c_abi.rs` 的
 /// `feature_name_matches_features_table` 用例守护。
 ///
-/// ⚠️ **新增特性时必须同步这张表**：`sml-feature` 的 `FEATURES` 增长后，
+/// **新增特性时必须同步这张表**：`sml-feature` 的 `FEATURES` 增长后，
 /// 若这里漏补，C 调用方会对新特性位拿到 NULL（既有的失败即由此而来：
 /// `typed-block` 入表后本函数未同步，bit 14 返回 NULL）。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
@@ -1232,7 +1232,7 @@ pub fn jsonify(v: &Value) -> String {
 /// - 递归深度上限 128：不可信 JSON 能构造极深嵌套把宿主栈打爆（abort，不可 catch），
 ///   超限返回 `None`（审计 #4）。
 ///
-/// ⚠️ 解析完**不检查尾随内容**：`{"a":1} 垃圾` 仍返回 `Ok`-等价的 `Some`。
+/// 解析完**不检查尾随内容**：`{"a":1} 垃圾` 仍返回 `Ok`-等价的 `Some`。
 /// 当作严格校验用会漏，需要严格性请走 `parse_*` 那一套（带码的 `SmlError`）。
 pub fn json_to_value(s: &str) -> Option<Value> {
     let bytes = s.as_bytes();

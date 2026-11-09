@@ -343,7 +343,7 @@ fn check_reports_the_chain() {
     assert!(text.contains("Trailer   head_hash OK"), "{text}");
 }
 
-/// ⚠️ 已知边界：**整条层链可被剥离**（没有外部锚点就无法察觉）。
+/// 已知边界：**整条层链可被剥离**（没有外部锚点就无法察觉）。
 /// 这条用例把「现状如此」钉住 —— 别以为有了签名就能防住「谁把签名删了」。
 #[test]
 fn stripping_the_trailer_silently_unsigned() {

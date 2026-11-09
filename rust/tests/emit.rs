@@ -453,7 +453,7 @@ fn deeply_nested(depth: usize) -> sml::Value {
 
 /// 对象链：`{node:{node:…}}`——与数组链是**两种递归形状**，都要防栈溢出。
 ///
-/// ⚠️ 键名**不要用 `a`**：markdown 后端把 `Some("a")` 当链接块（`[text](href)`），
+/// 键名**不要用 `a`**：markdown 后端把 `Some("a")` 当链接块（`[text](href)`），
 /// 用 `a` 做键会让整棵树被渲染成一个空链接，测不到深度路径（2026-11-02 踩过）。
 fn deeply_nested_objects(depth: usize) -> sml::Value {
     let mut v = sml::Value::Int(0);
@@ -469,7 +469,7 @@ fn deeply_nested_objects(depth: usize) -> sml::Value {
 // 均在递归处检查 MAX_VALUE_DEPTH），故本测试不再忽略 —— 它正是防止"某个后端
 // 漏加保护又被悄悄放过"的回归网。
 //
-// ✅ 2026-11-02：不再包 256 MB 大栈——`deeply_nested` 是循环构造、`Drop` 是迭代式、
+// 2026-11-02：不再包 256 MB 大栈——`deeply_nested` 是循环构造、`Drop` 是迭代式、
 // `to_sml` 与各 emit 后端都有 `MAX_VALUE_DEPTH` 守卫，5 万层在默认 2 MiB 栈上安全。
 
 #[test]

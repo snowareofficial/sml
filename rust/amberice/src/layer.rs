@@ -25,7 +25,7 @@
 //! 不只是「签名仍然有效」。
 //! ｜ Reverse links so an append touches nothing but EOF (invariant 3 holds byte-wise).
 //!
-//! ⚠️ **偏移不进签名**：`prev_off` / Trailer 都在签名对象之外 —— 与 §18.3「位置不是语义」
+//! **偏移不进签名**：`prev_off` / Trailer 都在签名对象之外 —— 与 §18.3「位置不是语义」
 //! 同口径。所以「同一份数据在不同位置被追加」签出来的东西是一样的。
 //!
 //! # 签名对象的一处澄清（实现即文档）
@@ -362,7 +362,7 @@ pub fn layers(bytes: &[u8]) -> Result<Vec<Layer>, LayerError> {
     let Some(t) = Trailer::parse(bytes) else {
         return Ok(Vec::new());
     };
-    // ⚠️ 三条防御都针对**伪造的 Trailer**（fuzz 撞出来的，别删）：
+    // 三条防御都针对**伪造的 Trailer**（fuzz 撞出来的，别删）：
     // 1. 不按 `layer_count` 预分配 —— 它是 u32，写 0xFFFF_FFFF 就是当场要 4G 项的分配；
     // 2. `prev_off` 可以成环（含自指），步数必须封顶，否则死循环 + 无界增长；
     // 3. 偏移检查交给 `read_record`（那里走 `checked_add`），这里不再自己加。

@@ -9,7 +9,7 @@
 //! | user | `%APPDATA%\sml\profiles` | `$XDG_CONFIG_HOME/sml/profiles`，缺失则 `$HOME/.config/sml/profiles` |
 //! | system | `%ProgramData%\sml\profiles` | `/usr/share/sml/profiles`（**写死**，见文末说明） |
 //!
-//! ⚠️ 非 Windows 的 system 层是**写死路径**，要覆盖它必须往 `/usr/share` 写文件（需 root），
+//! 非 Windows 的 system 层是**写死路径**，要覆盖它必须往 `/usr/share` 写文件（需 root），
 //! 故本文件在非 Windows 上**不测 system**，只在 `system_layer_is_hardcoded_on_unix` 里钉住这一事实。
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};

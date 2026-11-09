@@ -3,7 +3,7 @@
 > 演示 `#[derive(SmlSerialize, SmlDeserialize)]` 的「Rust struct → SML 文本 → 解析回 Rust struct」链路。
 > 所有输出均来自 `swsml` crate 实测（`cargo run --example ...`）。
 
-> ⚠️ `#[sml(flatten)]` 键冲突行为已变更：提升上来的键若与父块已有字段同名，**两方向都报错**
+> `#[sml(flatten)]` 键冲突行为已变更：提升上来的键若与父块已有字段同名，**两方向都报错**
 > （flatten 盖父块 / 父块盖 flatten），`to_sml_value()` 返回 `Err`。此前「后者胜」的静默覆盖已取消；
 > 依赖旧行为的代码会开始收到 `Err`，需要保留旧行为请改名或去掉 `flatten`。
 
@@ -98,7 +98,7 @@ equal: true
 Outer { a: Inner { x: 1, y: 2 }, name: "web", tags: ["a", "b"], active: true }
 ```
 
-**结论**：derive 宏自产自销，`to_string` 输出永远是合法 `:` 语法，再 `from_str` 回来 struct 完全一致 ✅
+**结论**：derive 宏自产自销，`to_string` 输出永远是合法 `:` 语法，再 `from_str` 回来 struct 完全一致
 
 ---
 
@@ -139,7 +139,7 @@ a:
 ```
 
 **结论**：`x = 1` 被拆成键 `"x"`=字符串 `"="` 与多余的键 `"1"=1`，`y=2` 整段变成键 `"y=2"`。
-信息在**第一次 `parse` 就已丢失**，round-trip 后再多次也回不到原始意图 ❌
+信息在**第一次 `parse` 就已丢失**，round-trip 后再多次也回不到原始意图 否：
 
 ---
 
@@ -174,7 +174,7 @@ Object({
 
 | 入口 | 起点 | `=` 是否可用 | 能否无损往返 |
 |------|------|-------------|--------------|
-| derive 宏 `to_string` | Rust struct 实例 | 不涉及（自动生成 `:`） | ✅ 能 |
-| 手写 SML 文本 `parse` | SML 文本文件 | ❌ 不支持，会被吞进裸词 | ❌ 用 `=` 会破坏 |
+| derive 宏 `to_string` | Rust struct 实例 | 不涉及（自动生成 `:`） | 能 |
+| 手写 SML 文本 `parse` | SML 文本文件 | 否：不支持，会被吞进裸词 | 否：用 `=` 会破坏 |
 
 > 一句话：**struct derive 这条路全程不碰手写 SML，因此 `=` 问题不会出现**；只有你直接手写 SML 文本时才必须用 `:`。

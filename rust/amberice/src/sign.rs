@@ -272,7 +272,7 @@ pub struct VerifyReport {
 /// and the delegation chain (D16).
 /// 验整条链：序号、`prev_hash`、Trailer head、每条签名（D36）、换钥授权链（D16）。
 ///
-/// ⚠️ 时间不进判定（D17）：层里根本没存时间 —— 存了也只展示。
+/// 时间不进判定（D17）：层里根本没存时间 —— 存了也只展示。
 /// Time is not part of the decision (D17); layers carry none.
 pub fn verify(bytes: &[u8], algo: HashAlgo) -> Result<VerifyReport, SignError> {
     let all = match layer::layers(bytes) {

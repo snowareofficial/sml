@@ -11,7 +11,7 @@
 //! `value.rs` 里 `size_of::<Value>() <= 48` 的编译期红线；装箱后本枚举 32 B，
 //! `Value` 40 B。多一次堆分配只落在「显式选择保序」的路径上。
 //!
-//! ⚠️ 默认 `parse()` 仍产出 `Unordered`（历史兼容）。要签 canonical，必须**显式**
+//! 默认 `parse()` 仍产出 `Unordered`（历史兼容）。要签 canonical，必须**显式**
 //! 走 `parse_ordered()` / `Map::ordered()` / `From<OrderedMap>` —— 这正是「少隐式」：
 //! 能不能签，取决于你手里这个对象是哪一态，而不是这台机器开了什么 feature。
 
@@ -46,7 +46,7 @@ impl Map {
     /// ([`Map::ordered`] / `From<OrderedMap>` / `parse_ordered()`).
     /// 默认无序；要源序必须显式选择。
     ///
-    /// ⚠️ **过渡兼容已结束**：`new()` 一律是**无序**态。
+    /// **过渡兼容已结束**：`new()` 一律是**无序**态。
     /// `Map::Ordered` 态也不再自动给 `Ordered` —— 那正是「正确性靠编译开关」的最后一个残留。
     /// 要源序请显式 [`Map::ordered`] / `From<OrderedMap>` / `parse_ordered()`。
     pub fn new() -> Self {

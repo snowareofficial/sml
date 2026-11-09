@@ -88,7 +88,7 @@ fn from_str_missing_option_fields_default() {
 fn from_str_enum_variants() {
     // 单元变体：`{"in-maintenance": "in-maintenance"}`。
     //
-    // ⚠️ **W16 起顶层裸词不再是合法 SML**（`E-PARSE-008`：顶层标量不可往返，
+    // **W16 起顶层裸词不再是合法 SML**（`E-PARSE-008`：顶层标量不可往返，
     // 改前 `in-maintenance` 会被静默造键成 `{"in-maintenance": "in-maintenance"}`），
     // 故必须写出等价的键值形式。本用例此前一直是「靠那个造键行为过的」——
     // 而这条套件只在 `--features serde` 下编译，全量 `cargo test --workspace`

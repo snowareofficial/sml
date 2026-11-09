@@ -2,7 +2,7 @@
 //!
 //! 运行: cargo run -p swsml --features serde --example audit_gov
 //!
-//! 背景：交接手册 3.4 曾列出「政务数据风险清单」，但标注为 ⚠️ 推测、未实测。
+//! 背景：交接手册 3.4 曾列出「政务数据风险清单」，但标注为 推测、未实测。
 //! 本探针用真实形态的政务数据实测，确认 P1/P3/P4 修复后的实际表现。
 //!
 //! 关注两类风险：
@@ -70,7 +70,7 @@ fn main() {
         let is_text = matches!(val, Value::Str(_));
         let verdict = if expect_text && !is_text {
             issues += 1;
-            "⚠ 风险：应保持文本却成了数字".to_string()
+            " 风险：应保持文本却成了数字".to_string()
         } else if is_text {
             "保持文本".to_string()
         } else {

@@ -13,7 +13,7 @@
 //! ⑥ warn 态**不放行**类型不符 / 必填缺失（各一条，钉住 D1 边界）；
 //! ⑦ `parse()` 看不到 warn 告警、`parse_with_warnings` 看得到（各一条）。
 //!
-//! ⚠️ 本文件只通过 `parse` / `parse_with_warnings` / `parse_with` 进入，不改任何实现。
+//! 本文件只通过 `parse` / `parse_with_warnings` / `parse_with` 进入，不改任何实现。
 
 use sml::{parse, parse_with_warnings, DiagnosticKind, Value};
 

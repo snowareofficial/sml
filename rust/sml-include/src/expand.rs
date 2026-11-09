@@ -43,7 +43,7 @@ use crate::{
 /// - 目标无法规范化（不存在 / 权限）⇒ `E-INCLUDE-001`；读到但读不出文本 ⇒ `E-IO-001`；
 /// - 文档未开 `include` 特性却写了 include ⇒ `E-FEATURE-001`。
 ///
-/// ⚠️ 本函数**丢掉 span**：展开后的 token 来自多个文件，没有可映射的单一原文。
+/// 本函数**丢掉 span**：展开后的 token 来自多个文件，没有可映射的单一原文。
 /// 需要错误定位请用 [`resolve_includes_spans`]（它在「整篇无 include」时才给 span）。
 pub fn resolve_includes<'a>(
     text: &'a str,
@@ -130,7 +130,7 @@ pub fn expand_includes<'a>(
             return Ok(());
         }
     }
-    // ⚠️ 这里**不再** `for line in text.lines()`：逐行 `tokenize` 会让任何**跨行的词法单元**
+    // 这里**不再** `for line in text.lines()`：逐行 `tokenize` 会让任何**跨行的词法单元**
     // （多行块注释 `/* … */`、多行字符串）在**第 1 行**就报"未闭合" —— 实测曾让 4 份语料
     // 在文件入口（`parse_file` / C-ABI `sml_load_file` / 编辑器）直接读不了。
     // 现在按**段**遍历：跨行单元与它所在的那些行粘成一段，段内是自洽的词法单元（见 `segments`）。
@@ -248,7 +248,7 @@ fn segments<'a>(text: &'a str, string_spans: &[(usize, usize)]) -> Vec<&'a str> 
         .copied()
         .filter(|(s, e)| text[*s..*e].contains('\n'))
         .collect();
-    // ⚠️ 原来 `multi.iter().any(...)` 对文本的**每一个字节**全扫一遍跨行单元区间
+    // 原来 `multi.iter().any(...)` 对文本的**每一个字节**全扫一遍跨行单元区间
     // ⇒ O(字节数 × 区间数) 的二次复杂度（与 sml-lex 那两处同源）。
     // 两个来源各自有序，但 `chain` 之后整体**未必**有序 ⇒ 先排序（O(m log m)），
     // 再用只前进的游标：`i` 单调递增，摊还 O(1)，总复杂度回到 O(n log n)。

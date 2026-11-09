@@ -57,7 +57,7 @@ pub struct SmlError {
     message: String,
     /// 出错位置：原文中的**字节**偏移。**可选** —— 早期构造点不传就是 `None`。
     ///
-    /// ⚠️ `Display` / `render` **不输出**它：码与文案才是稳定契约，位置属于
+    /// `Display` / `render` **不输出**它：码与文案才是稳定契约，位置属于
     /// 「给人看的附加信息」，不同端的呈现方式可以不同。需要行列时由调用方
     /// 拿 [`SmlError::pos`] 配合原文换算（见 `sml-parse` 的出口）。
     pos: Option<usize>,

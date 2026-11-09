@@ -104,7 +104,7 @@ pub const ALIGN_BLOCK: u64 = 4096;
 /// Edition written by T1: `4.0` = `major 4, minor 0` ⇒ `0x0004`.
 /// T1 写入的 edition：`4.0` ⇒ `0x0004`。
 ///
-/// ⚠️ 单一事实来源是 `sml-feature` 的 `EDITIONS`（`Edition::CURRENT = V4`）。
+/// 单一事实来源是 `sml-feature` 的 `EDITIONS`（`Edition::CURRENT = V4`）。
 /// 这里硬编码是因为 D3：`amberice` **只依赖值模型**，不拖解析/特性层。版本一旦升到 v5
 /// （D1 说是跟 v5 一起开放），这里要**手动跟一手**。
 pub const EDITION: u16 = 0x0004;
@@ -790,7 +790,7 @@ pub struct DumpOptions {
     /// 两个旋钮的分工（可共存）：`frame_size` 管节点树（`FRAMES` 段），`compress` 管**其余段**
     /// （主要是 `STRTAB`）。帧的压缩级别取 `compress.unwrap_or(3)`。
     ///
-    /// ⚠️ 为什么两个都要：文本多的文档里 `STRTAB` 往往比节点树**大一个数量级**（实测 300 行
+    /// 为什么两个都要：文本多的文档里 `STRTAB` 往往比节点树**大一个数量级**（实测 300 行
     /// 文档：树 7.3 KB / 表 60.5 KB），只分帧等于只压了小头。故「先分帧、再按段压 STRTAB」
     /// 才是完整形态；两个旋钮各管一段，互不覆盖。
     /// ｜ `STRTAB` can dwarf the node tree, so framing the tree alone is half the job.
@@ -1468,7 +1468,7 @@ impl<W: std::io::Write> Writer<W> {
 
         // 段体（按段表顺序；manifest 从内存、其余从临时文件）
         //
-        // ⚠️ 补零的条件是「**不是最后一段**」，不是「不是 manifest」。manifest 的 id 是 0x04，
+        // 补零的条件是「**不是最后一段**」，不是「不是 manifest」。manifest 的 id 是 0x04，
         // 而 `TYPED` 是 0x70 ⇒ 段表按 id 升序时 manifest **可能不在末尾**；若还按 id 特判，
         // 后面那段的偏移会与 `info()` 的 `align_up` 走法错位，摘要随即不匹配。
         // ｜ Pad every segment except the last one — manifest is not necessarily last anymore.
@@ -2166,7 +2166,7 @@ type Body<'a> = std::borrow::Cow<'a, [u8]>;
 /// Fetch a segment's bytes, **decompressing** when its header says so.
 /// 取段体字节，段头声明了压缩就解压。
 ///
-/// ⚠️ 调用方若还要验摘要，必须对 `body(bytes, seg)`（落盘字节）验，**不是**对这里的返回值：
+/// 调用方若还要验摘要，必须对 `body(bytes, seg)`（落盘字节）验，**不是**对这里的返回值：
 /// 摘要记在段头上、算的是压缩后的字节（§19.11）。
 /// ｜ Callers that verify digests must hash the **stored** bytes, not this return value.
 ///

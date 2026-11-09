@@ -97,7 +97,7 @@ pub use canonical::CanonicalBlocks;
 /// - [`Map`]：默认 `BTreeMap<String, Value>`，键按 UTF-8 字节序（无序 = 显式选择）。
 /// - [`OrderedMap`]：自实现的 `Vec<Entry>` + 惰性索引，键序 == 源序。
 ///
-/// ⚠️ 当前阶段（方案 2 第一步）：`Value::Object` 的载体仍由 `preserve_order` 决定
+/// 当前阶段（方案 2 第一步）：`Value::Object` 的载体仍由 `preserve_order` 决定
 /// —— 开了 feature 时 `Map` 就是本类型，两种名字指同一份实现。**下一步**才把
 /// `Value::Object` 换成可容纳两者的显式枚举，并让 canonical 按对象变体判定，
 /// 那时全局 feature 开关才真正退场。现在先让类型本身无条件可用、可被测试。

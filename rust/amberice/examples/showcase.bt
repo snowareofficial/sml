@@ -56,7 +56,7 @@ FSeek(hdr.seg_table_off);
 SegmentEntry segs[hdr.seg_count];
 
 // ---------- 段体：位置靠「表尾对齐 → 逐段走长度」算出来 ----------
-// ⚠️ 段表项里**没有偏移字段**，这是刻意的：表里没有位置，位置就不可能与内容不一致。
+// 段表项里**没有偏移字段**，这是刻意的：表里没有位置，位置就不可能与内容不一致。
 local uint64 off = ((hdr.seg_table_off + hdr.seg_count * 41 + granule - 1) / granule) * granule;
 local int i;
 for (i = 0; i < hdr.seg_count; i++) {

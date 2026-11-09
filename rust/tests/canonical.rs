@@ -109,7 +109,7 @@ mod ordered {
     /// C7: bare words / quoting / escaping, and the text must **parse back** (P5-d).
     /// C7：字符串裸词/引号/转义，且**能解析回去**（P5-d：canonical 必须是合法 SML）。
     ///
-    /// ⚠️ 约束来自 parser 而非 canonical：**顶层必须是容器**
+    /// 约束来自 parser 而非 canonical：**顶层必须是容器**
     /// （`E-PARSE-008`「顶层须为容器，单独的标量无法往返」）。故这里把每个字符串放进
     /// 一个单键对象里验往返 —— 「字符串怎么写」与「顶层能不能是标量」是两件事，
     /// 后者已记进 spec §18.2（实现澄清）。

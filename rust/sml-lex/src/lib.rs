@@ -485,7 +485,7 @@ pub fn lookup_env(overrides: Option<&BTreeMap<String, String>>, name: &str) -> S
 ///
 /// # 陷阱
 ///
-/// ⚠️ **大整数经文本往返会变成字符串**：`9223372036854775808` 解析出来是
+/// **大整数经文本往返会变成字符串**：`9223372036854775808` 解析出来是
 /// `Value::Str("9223372036854775808")`，不是 `Int` 也不是 `Float`。
 /// 这是刻意的取舍 —— round-trip **完全安全、零精度损失**（写回去还是原样那一串），
 /// 代价是**类型不对称**：同一份文档在 Rust 里读出来是 `Str`，在 JS 里可能升成字符串、
@@ -664,7 +664,7 @@ pub fn compute_string_spans(text: &str) -> Vec<(usize, usize)> {
 pub fn line_starts_in_string(_text: &str, start: usize, spans: &[(usize, usize)]) -> bool {
     // 指令通常位于行首（可有缩进）。检测起始位置是否在字符串内即可。
     //
-    // ⚠️ 原来是 `spans.iter().any(...)`：调用点是**逐行**的，于是每个行首都全扫一遍
+    // 原来是 `spans.iter().any(...)`：调用点是**逐行**的，于是每个行首都全扫一遍
     // 区间表 ⇒ O(行数 × 区间数) 的二次复杂度。`spans` 由 [`compute_string_spans`]
     // 产出，按起点升序且互不重叠，故可二分 ⇒ O(log m)。
     // 全部调用点（`sml-parse/src/scan.rs`、`sml-include/src/expand.rs`）传的都是
@@ -688,7 +688,7 @@ pub fn line_starts_in_string(_text: &str, start: usize, spans: &[(usize, usize)]
 pub fn compute_block_comment_spans(text: &str) -> Vec<(usize, usize)> {
     let bytes = text.as_bytes();
     let strings = compute_string_spans(text);
-    // ⚠️ 原写法 `strings.iter().any(...)` 是**二次复杂度**：它对文本的**每一个字节**
+    // 原写法 `strings.iter().any(...)` 是**二次复杂度**：它对文本的**每一个字节**
     // 扫一遍全部字符串区间 ⇒ O(字节数 × 区间数)。实测 32k 行文档耗时 6.1s，
     // 规模 ×4 时耗时 ×16（量级特征明确，见 `tests/perf_smoke.rs`）。
     // `compute_string_spans` 的区间按起点升序、互不重叠，而这里的 `i` 单调递增

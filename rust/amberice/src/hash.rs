@@ -7,7 +7,7 @@
 //! `hash_id`），读者照它算。所以「算出摘要」这一步必须能按 id 走，而不是硬写 SHA-256 ——
 //! 否则「可选 SM3」就只是一句空话。
 //!
-//! ⚠️ 三条不许越界 / three lines not to cross：
+//! 三条不许越界 / three lines not to cross：
 //!
 //! 1. **未知 id 明确拒绝**（§20「编号一经发布永不复用」+ 未知算法跳过等于拿错算法验签）；
 //! 2. **登记 ≠ 实现**：`0x32 BLAKE3` 在表里有号，本构建没实现 ⇒ [`HashError::NotImplemented`]，

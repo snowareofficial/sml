@@ -127,7 +127,7 @@ pub fn parse_file_versioned(path: impl AsRef<Path>) -> Result<(Value, Edition), 
 /// 那类告警（片段展开覆盖父块已有的键）几乎只发生在真实文档里，而片段又常常
 /// 定义在被 include 的子文件中 —— 只有文本入口会漏掉最典型的那一类。
 ///
-/// ⚠️ 文件入口**无 include** 时 token 与原文一一对应 ⇒ 诊断带行号；**有 include** 时
+/// 文件入口**无 include** 时 token 与原文一一对应 ⇒ 诊断带行号；**有 include** 时
 /// token 跨文件合并、没有可映射的单一原文 ⇒ `line` 为 `None`（文案末尾会指引改用
 /// `smltools --lint` 拿行号）。
 pub fn parse_file_with_warnings(
@@ -285,7 +285,7 @@ pub fn parse(text: &str) -> Result<Value, SmlError> {
 ///
 /// # 陷阱
 ///
-/// ⚠️ **你以为「传空选项就等于 `parse`，随便用哪个都行」—— 其实 [`parse`] 把诊断丢了**。
+/// **你以为「传空选项就等于 `parse`，随便用哪个都行」—— 其实 [`parse`] 把诊断丢了**。
 /// 键冲突（`DuplicateKey`：重复键已**提升为数组**）与片段覆盖（`KeyOverwritten`：父块原值
 /// **已丢失**）都会改写数据，而 `parse` 的签名 `Result<Value, _>` 承载不了这些告警
 /// （见 [`crate::ext::Diagnostic`]）。生产路径请走本函数或 [`parse_with_warnings`]。
@@ -435,16 +435,16 @@ pub fn parse_allowed(
 ///
 /// # 陷阱
 ///
-/// ⚠️ **「文档开了但被悄悄削掉」不会报错**。实现只检查**整个交集**是否为空
+/// **「文档开了但被悄悄削掉」不会报错**。实现只检查**整个交集**是否为空
 /// （空 ⇒ `E-FEATURE-009`）；单个特性落在 `allowed` 之外时是**静默剔除**。
 /// 于是文档作者写了 `@feature enable glob-include`、解析成功、那项能力却根本没开——
 /// 与 [`parse`] 的行为正好相反（`parse` 用文档自己的特性，不设上限）。
 /// 需要「越权即失败」时必须自己比对：`feats` 与 `effective` 的差集非空就报错。
 ///
-/// ⚠️ **别把返回值当新的 `allowed` 往下传**：它是交集，再交集一次只会**越传越窄**，
+/// **别把返回值当新的 `allowed` 往下传**：它是交集，再交集一次只会**越传越窄**，
 /// 子文档（如被外层包含的片段）会看不到外层已启用的能力，且失败现场远离真正的肇事处。
 ///
-/// ⚠️ **空交集与版本不符是两个码**：本函数报 `E-FEATURE-009`，
+/// **空交集与版本不符是两个码**：本函数报 `E-FEATURE-009`，
 /// 版本不在范围内由 [`parse_allowed`] 报 `E-FEATURE-004`，别混着断言。
 pub fn parse_with_features(
     text: &str,

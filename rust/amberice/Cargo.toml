@@ -6,7 +6,7 @@ name = "amberice"
 # 本 crate 的默认构建连 `sml-value` 的 `sml`（文本发射器）特性都不需要：
 # canonical 文本只用 `sml-value` 里那份共享的「文本原子规则」。
 #
-# ⚠️ 发布节奏（D1）：`.ambr` / `smldb` 与 v5 一起开放，故 `publish = false`。
+# 发布节奏（D1）：`.ambr` / `smldb` 与 v5 一起开放，故 `publish = false`。
 version.workspace = true
 edition = "2021"
 description = "通用二进制信封 .ambr：不可变 · 可寻址 · 可签名校验；SML 是内置载荷之一。"
@@ -46,7 +46,7 @@ getrandom = { version = "0.3", optional = true }
 #   2026-11-07 复核（实测）：锁定 `2.1.2+zstd.1.5.7`。装上 `clang` + `llvm-ar` 后，
 #   `cargo build -p amberice --features compress --target wasm32-unknown-unknown`
 #   **编译通过**（7.3 s，无 allocator shim 报错）。
-#   ⚠️ 编过 ≠ 运行正确：RustSec 那条说的是**内存破坏**，只在运行时暴露。要让 wasm + 压缩
+#   编过 ≠ 运行正确：RustSec 那条说的是**内存破坏**，只在运行时暴露。要让 wasm + 压缩
 #   正式可用，仍需在 wasm 宿主里跑一遍压缩向量（`tests/vectors/amberice-container.v1.json`
 #   的压缩用例）。在那之前，wasm 版按「不压缩」发布。
 #   ｜ Builds; runtime behaviour still unverified.

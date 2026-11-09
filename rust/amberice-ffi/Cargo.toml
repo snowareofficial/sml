@@ -17,7 +17,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 # 只依赖容器层；不拖 swsml / sml-parse（半独立，见 spec §13.1）。
 # 只用 path：带 `version` 时 cargo 会拿 workspace 版本做匹配，预发布号容易踩空。
-# ⚠️ 是 `../amberice`，不是 `..` —— `..` 是 workspace 根（包名 `swsml`）。
+# 是 `../amberice`，不是 `..` —— `..` 是 workspace 根（包名 `swsml`）。
 amberice = { path = "../amberice" }
 
 # 可选：把 SML 源文本解析成值，供「写入」路径（`ambr_pack_text`）使用。

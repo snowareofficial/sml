@@ -451,7 +451,7 @@ fn zed_highlights(custom: &Value) -> Result<String, SmlError> {
     let mut s = String::new();
     s.push_str("; 由 smltools 生成（--to highlight）—— 请勿手改，改那份 SML 定制文件。\n");
     s.push_str(";\n");
-    s.push_str("; ⚠️ 本查询依赖 tree-sitter-sml grammar 的节点名（见 editors/zed/grammars/sml）。\n");
+    s.push_str("; 本查询依赖 tree-sitter-sml grammar 的节点名（见 editors/zed/grammars/sml）。\n");
     s.push_str(";    若你的 grammar 节点名不同（如用 (integer) 而非 (number)），请对照 grammar 调整。\n");
     s.push_str(";    Zed 用 Tree-sitter，不使用 TextMate 的 scope 名 —— 这是与 VSIX 侧的本质差异。\n");
     s.push_str(";\n");
@@ -470,7 +470,7 @@ fn zed_highlights(custom: &Value) -> Result<String, SmlError> {
     s.push_str("[\"{\" \"}\" \"[\" \"]\" \":\" \",\"] @punctuation\n");
     if !directives.is_empty() {
         s.push_str("\n; 方言指令（本定制的重点）：只有这些名字按关键字着色\n");
-        s.push_str("; ⚠️ 谓词带 `@`：grammar 里 `directive` 节点的文本是 `@form` 而不是 `form`，\n");
+        s.push_str("; 谓词带 `@`：grammar 里 `directive` 节点的文本是 `@form` 而不是 `form`，\n");
         s.push_str(";    写成 `^form$` 会永远匹配不上（高亮静默失效）。\n");
         s.push_str("((directive) @keyword\n");
         s.push_str(&format!(

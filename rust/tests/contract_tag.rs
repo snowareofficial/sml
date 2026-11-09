@@ -19,7 +19,7 @@ fn empty_contract_works_as_a_tag_without_polluting_data() {
     println!("{v:#?}");
     // 叠加两份契约：Security（空）+ Rule。
     // 结果树里不应出现 Security 注入的任何字段 —— 空契约 = 纯标签。
-    // ⚠️ typed block 的键是**首词**（类型名 `Rule`），实例名 `ssh` 在 `__name` 里
+    // typed block 的键是**首词**（类型名 `Rule`），实例名 `ssh` 在 `__name` 里
     let block = v.get("Rule").expect("typed block 以首词为键");
     assert_eq!(block.get("__name").and_then(|x| x.as_str()), Some("ssh"));
     let keys: Vec<_> = match block {

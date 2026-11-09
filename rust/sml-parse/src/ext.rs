@@ -21,7 +21,7 @@
 //! - **键冲突告警**（雷 5 · A 组 4-5）：同一块内键名重复 ⇒ 提升为数组；片段展开
 //!   （`&name`）覆盖父块已有的同名键 ⇒ 父块原值丢失。二者此前**完全静默**，现产出
 //!   [`DiagnosticKind::DuplicateKey`] / [`DiagnosticKind::KeyOverwritten`]。
-//!   ⚠️ **语义一律不变** —— 告警只说明「数据被改写 / 覆盖过」，`Value` 与旧版
+//!   **语义一律不变** —— 告警只说明「数据被改写 / 覆盖过」，`Value` 与旧版
 //!   逐字一致。告警只经 `*_with_warnings` 入口交出（[`crate::parse_with_warnings`]），
 //!   `parse()` 恒不返回；开关见 [`ParseOptions::warn_key_conflict`]。
 //! - 扩展只影响**解析期**；它不改变词法，也不能引入新的 token。
@@ -54,7 +54,7 @@ pub enum Outcome {
 
 /// A non-fatal diagnostic. Fatal problems still surface as `Err` (a coded [`sml_codes::SmlError`]), so a warning never aborts parsing. ｜ 非致命诊断。致命问题仍然走 `Err`（带码的 `SmlError`），避免把警告当错误打断解析。
 ///
-/// ⚠️ `line` 是后加的字段：对**只读取**诊断的代码无破坏，只有在本 crate 之外
+/// `line` 是后加的字段：对**只读取**诊断的代码无破坏，只有在本 crate 之外
 /// 用结构体字面量构造 `Diagnostic` 才会缺字段（与 `ParseOutput` 加
 /// `contract_map` 时同一判据，已记入 CHANGELOG「升级注意」）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -224,7 +224,7 @@ impl DirectiveTable {
 
 /// Parse-time options. **With every option left empty, behaviour is byte-identical to the existing parser.** ｜ 解析期可选项。**全部为空时与既有解析行为完全一致。**
 ///
-/// ⚠️ [`Self::warn_key_conflict`] 默认 `true`，且它是**唯一**一个默认非假的开关：
+/// [`Self::warn_key_conflict`] 默认 `true`，且它是**唯一**一个默认非假的开关：
 /// 它只影响 `diagnostics` 的内容，不影响 `Value`，故不算「改变既有行为」。
 #[derive(Clone)]
 pub struct ParseOptions {
@@ -235,7 +235,7 @@ pub struct ParseOptions {
     pub contract_ext: ContractExt,
     /// 是否记录**契约映射**（哪个实体应用了哪些契约）。
     ///
-    /// ⚠️ 默认 `false`：不开启时 `ParseOutput` 与旧版**逐字一致**
+    /// 默认 `false`：不开启时 `ParseOutput` 与旧版**逐字一致**
     /// （`contract_map` 恒为 `None`，解析路径零额外开销）。
     /// 开启后见 [`crate::contract_map::ContractMap`]。
     pub(crate) trace_contracts: bool,
@@ -245,7 +245,7 @@ pub struct ParseOptions {
     /// 默认 `true`：调用方既然选了 `*_with_warnings` 入口，本意就是要看见告警。
     /// 置 `false` 可关掉（如文档刻意用重复键构造数组）。
     ///
-    /// ⚠️ 本开关**只影响 `diagnostics` 的内容**，不改变 `Value`；且
+    /// 本开关**只影响 `diagnostics` 的内容**，不改变 `Value`；且
     /// `parse()` / `parse_file()` 这些不带 warnings 的入口恒不返回诊断
     /// （它们在 `api.rs` 里就丢掉了）⇒ 对既有调用方零影响。
     pub warn_key_conflict: bool,
@@ -264,7 +264,7 @@ pub struct ParseOptions {
     pub collect_errors: bool,
     /// 是否把**本次解析收集到的契约表**（`@contract` 定义）随输出交回。
     ///
-    /// ⚠️ 默认 `false`：不开启时 [`ParseOutput::contracts`] 恒为 `None`，
+    /// 默认 `false`：不开启时 [`ParseOutput::contracts`] 恒为 `None`，
     /// 与旧版逐字一致（同 [`Self::trace_contracts`] 的取舍）。
     ///
     /// **为什么需要它**：内置契约表要用 **SML 写**（`Contract` 含
@@ -430,7 +430,7 @@ impl ParseOptions {
 
 /// Parse output with extensions: the value plus non-fatal diagnostics. ｜ 带扩展的解析输出：值 + 非致命诊断。
 ///
-/// ⚠️ 这是**公开结构体加字段**（`contract_map`）：对只读取的代码无破坏，
+/// 这是**公开结构体加字段**（`contract_map`）：对只读取的代码无破坏，
 /// 只有结构体字面量构造会缺字段 —— 已记入 CHANGELOG「升级注意」。
 #[derive(Debug, Clone)]
 pub struct ParseOutput {

@@ -355,7 +355,7 @@ fn gen_path_step(cont: &ContainerAttrs) -> proc_macro2::TokenStream {
 
 /// `#[sml(deny_unknown_fields)]`：块里出现未声明的键时报错。
 ///
-/// ⚠️ **带 `flatten` 字段时检查整体失效** —— 这不是「豁免 flatten 提升的键」，
+/// **带 `flatten` 字段时检查整体失效** —— 这不是「豁免 flatten 提升的键」，
 /// 而是那些键在宏展开期根本枚举不到（目标类型可能是外部类型）。
 /// 想要「不许这种组合」请用 `deny_unknown_fields = "strict"`，让它在编译期就报错。
 fn gen_deny_step(

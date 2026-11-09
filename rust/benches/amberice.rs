@@ -11,7 +11,7 @@
 //! cargo bench --bench amberice --features "amberice-compress,amberice-crypto,amberice-mmap"  # 全量
 //! ```
 //!
-//! ⚠️ 同 `value.rs`：计时闭包里不能用 `debug_assert!`（bench 档会整句删掉，
+//! 同 `value.rs`：计时闭包里不能用 `debug_assert!`（bench 档会整句删掉，
 //! 纯读操作连带被优化成 0 ns），结果一律过 `std::hint::black_box`。
 //!
 //! 可比性：`MB/s` 按**文件字节数**算（`dump` 那几行按值的规范字节数），
