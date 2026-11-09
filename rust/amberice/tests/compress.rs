@@ -57,14 +57,14 @@ fn compressed_dump_round_trips_and_shrinks() {
     // 段表里的 comp 字段必须如实记录
     let info = amberice::info(&packed).unwrap();
     assert!(
-        info.segments.iter().any(|s| s.header.comp == amberice::COMP_ZSTD),
+        info.segments.iter().any(|s| s.header.comp == amberice::container::COMP_ZSTD),
         "至少有一个段声明了 zstd"
     );
     // manifest 自己不压缩（引导顺序：先读它才知道用什么算法）
     let manifest = info
         .segments
         .iter()
-        .find(|s| s.header.seg_id == amberice::SEG_MANIFEST)
+        .find(|s| s.header.seg_id == amberice::container::SEG_MANIFEST)
         .unwrap();
     assert_eq!(manifest.header.comp, 0, "manifest 不许压缩");
 }
@@ -83,10 +83,10 @@ fn manifest_records_compression() {
     assert!(report.ok, "{:?}", report.lines);
 
     for seg in &info.segments {
-        if seg.header.seg_id == amberice::SEG_MANIFEST {
+        if seg.header.seg_id == amberice::container::SEG_MANIFEST {
             continue;
         }
-        assert_eq!(seg.header.comp, amberice::COMP_ZSTD, "段应压缩");
+        assert_eq!(seg.header.comp, amberice::container::COMP_ZSTD, "段应压缩");
     }
 }
 
@@ -122,7 +122,7 @@ fn unknown_compression_id_is_refused() {
     let seg = info
         .segments
         .iter()
-        .find(|s| s.header.comp == amberice::COMP_ZSTD)
+        .find(|s| s.header.comp == amberice::container::COMP_ZSTD)
         .expect("应有一段是压缩的");
     // 段表里 comp 在段头第 2 字节
     let at = info.table_off as usize
@@ -131,7 +131,7 @@ fn unknown_compression_id_is_refused() {
             .iter()
             .position(|s| s.header.seg_id == seg.header.seg_id)
             .unwrap()
-            * amberice::SEG_HEADER_LEN;
+            * amberice::container::SEG_HEADER_LEN;
     f[at + 1] = 0x02; // 0x02 = lz4（§20 预留，本构建不实现）
 
     let e = amberice::load(&f).expect_err("未知压缩编号必须拒绝");

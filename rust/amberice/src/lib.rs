@@ -59,28 +59,19 @@ pub mod sm3;
 pub mod typed;
 pub mod vectors;
 
-pub use crypto::{FileKeys, KdfParams, KeySource, ENC_AES256_GCM, KDF_ARGON2ID, KDF_NONE};
+pub use crypto::{FileKeys, KdfParams, KeySource};
 /// 键序已证明的值（TryFrom<Value>）—— dump_canonical 的入参。
 pub use sml_value::CanonicalValue;
+/// 用户级动作与类型；段布局常量、帧工具、段头结构见 [`container`]。
+/// ｜ User-level actions and types; segment layout symbols live in [`container`].
 pub use container::{
-    align_of, base_value, base_value_with_keys, check, dump, dump_with, dump_encrypted,
-    embed_body, get, get_encrypted, hash_algo, info, load, load_encrypted, pack,
-    pack_from_readers, pack_from_readers_with, pack_iter,
-    pack_iter_with, pack_with,
-    payload,
-    payloads, CheckReport, ContainerError, DumpOptions, FileInfo, Segment, SegmentHeader, Writer,
-    ALIGN_BLOCK, ALIGN_MIN, COMP_ZSTD, EDITION, FLAG_ALIGN_BLOCK, FMT, HEADER_LEN, MAGIC,
-    frame_bytes_at, inflate_frames_all, manifest_of, parse_frame_index, FrameEntry,
-    FRAME_ENTRY_LEN,
-    MAX_DECOMPRESSED, SEG_DIR, SEG_EMBED, SEG_FRAMES, SEG_HEADER_LEN, SEG_MANIFEST, SEG_STRTAB,
-    SEG_TYPED, SEG_VALUE,
+    base_value, base_value_with_keys, check, dump, dump_with, dump_encrypted, embed_body, get,
+    get_encrypted, info, load, load_encrypted, pack, pack_from_readers, pack_from_readers_with,
+    pack_iter, pack_iter_with, pack_with, payload, payloads, CheckReport, ContainerError,
+    DumpOptions, FileInfo, Writer,
 };
-pub use dir::{Dir, DirError, Entry as DirEntry};
-pub use hash::{HashAlgo, HashError};
-pub use layer::{
-    layers, ChainReport, Delegation, Layer, LayerError, SigEntry, Trailer, LAYER_HEADER_LEN,
-    TRAILER_LEN, TRAILER_MAGIC,
-};
+pub use hash::HashAlgo;
+pub use layer::layers;
 #[cfg(feature = "sign")]
 pub use sign::{
     append_layer, append_layer_checked, compact, verify, verify_trusted, KeyPair, SignError,
@@ -88,16 +79,10 @@ pub use sign::{
 };
 pub use manifest::{
     check_caps, check_caps_against, CapsVerdict, Manifest, ManifestError, ManifestPayload,
-    ManifestSegment, DEFAULT_CRYPTO_BLOCK, DEFAULT_DIR_DEPTH, DEFAULT_PAD_QUANTUM,
-    DEFAULT_PATCH_STRATEGY,
+    ManifestSegment,
 };
 pub use store::Store;
-pub use typed::{
-    directory as typed_directory, read_var, type_hash, Decode, Encode, Typed, TypedError, VarEntry,
-    VarId,
-};
 #[cfg(feature = "mmap")]
 pub use mmap::MappedFile;
 pub use sml_value::canonical::CanonicalError;
-pub use sml_value::{subtree_at, value_from_subtree, Path, Subtree};
-pub use sml_value::{CanonicalBlocks, Map, Value, MAX_VALUE_DEPTH};
+pub use sml_value::{Map, Path, Value, MAX_VALUE_DEPTH};

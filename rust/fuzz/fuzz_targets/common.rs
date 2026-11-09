@@ -60,7 +60,7 @@ pub fn count_allocs<T>(f: impl FnOnce() -> T) -> (T, usize, usize) {
 /// 128 B/B 留足余量；而「平方级拼接」一眼就是几个数量级。
 ///
 /// `allowance` 只给**会解压**的入口：库自己把单段解压封在
-/// [`amberice::MAX_DECOMPRESSED`]（256 MiB），一个文件最多 5 个可压缩段
+/// [`amberice::container::MAX_DECOMPRESSED`]（256 MiB），一个文件最多 5 个可压缩段
 /// （`VALUE` / `STRTAB` / `EMBED` / `FRAMES` / `MANIFEST`）—— 所以「一次调用」
 /// 合法上限是 5 × 256 MiB。这不是放宽，而是把库声明的上限写进判据：
 /// 真正的 OOM 由 libFuzzer 的 `-rss_limit_mb`（默认 2 GiB）兜底，
@@ -106,9 +106,9 @@ pub fn decompression_allowance(bytes: &[u8]) -> usize {
             if info
                 .segments
                 .iter()
-                .any(|s| s.header.comp != 0 || s.header.enc != 0 || s.header.seg_id == amberice::SEG_FRAMES) =>
+                .any(|s| s.header.comp != 0 || s.header.enc != 0 || s.header.seg_id == amberice::container::SEG_FRAMES) =>
         {
-            5 * amberice::MAX_DECOMPRESSED
+            5 * amberice::container::MAX_DECOMPRESSED
         }
         _ => 0,
     }

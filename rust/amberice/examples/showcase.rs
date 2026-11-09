@@ -33,9 +33,10 @@ fn main() {
     feature = "crypto"
 ))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    use amberice::container::FLAG_ALIGN_BLOCK;
     use amberice::{
         append_layer, dump, dump_encrypted, dump_with, info, CanonicalValue, DumpOptions, HashAlgo, KeyPair,
-        KeySource, Map, Value, FLAG_ALIGN_BLOCK,
+        KeySource, Map, Value,
     };
 
     // 1) 一份「看得懂」的小文档：文本进 STRTAB、节点树进 VALUE
@@ -97,7 +98,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== {} ===", main_path.display());
     println!("size {} B", signed.len());
     let meta = info(&signed)?;
-    let table_end = meta.table_off as usize + meta.segments.len() * amberice::SEG_HEADER_LEN;
+    let table_end = meta.table_off as usize + meta.segments.len() * amberice::container::SEG_HEADER_LEN;
     println!("[0,40)      文件头 magic=AMBR / edition / fmt / hdr_len=40");
     println!(
         "            seg_table_off={} seg_count={} flags=0x{:04x} (对齐 {} B)",
@@ -111,10 +112,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         meta.table_off,
         table_end,
         meta.segments.len(),
-        amberice::SEG_HEADER_LEN
+        amberice::container::SEG_HEADER_LEN
     );
     for (i, s) in meta.segments.iter().enumerate() {
-        let at = meta.table_off as usize + i * amberice::SEG_HEADER_LEN;
+        let at = meta.table_off as usize + i * amberice::container::SEG_HEADER_LEN;
         println!(
             "  @{at:<4} id=0x{:02x} comp={} enc={} len={:<5} sha256={:02x}{:02x}{:02x}{:02x}…",
             s.header.seg_id,
@@ -139,11 +140,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "[{:>5}, {:>5})  层记录（len:u32 ‖ prev_off:u64 ‖ reserved:u32 ‖ Value 字节）",
         base.len(),
-        signed.len() - amberice::TRAILER_LEN
+        signed.len() - amberice::layer::TRAILER_LEN
     );
     println!(
         "[{:>5}, {:>5})  Trailer 64 B，魔数 SMLTRLR1",
-        signed.len() - amberice::TRAILER_LEN,
+        signed.len() - amberice::layer::TRAILER_LEN,
         signed.len()
     );
     println!("  不变量 3：signed[0..{}] == base（追加不改旧字节）", base.len());

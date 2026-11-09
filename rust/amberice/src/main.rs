@@ -870,7 +870,7 @@ fn read_seed(src: &str) -> Result<String, (u8, String)> {
 
 /// 解析 `delegate` 写出的文件（`from:` / `sig:` / `max:` 三行）。
 #[cfg(feature = "sign")]
-fn parse_delegation(text: &str) -> Result<amberice::Delegation, (u8, String)> {
+fn parse_delegation(text: &str) -> Result<amberice::layer::Delegation, (u8, String)> {
     let mut from = None;
     let mut sig = None;
     let mut max = None;
@@ -884,7 +884,7 @@ fn parse_delegation(text: &str) -> Result<amberice::Delegation, (u8, String)> {
         }
     }
     match (from, sig, max) {
-        (Some(from), Some(sig), Some(max_index)) => Ok(amberice::Delegation {
+        (Some(from), Some(sig), Some(max_index)) => Ok(amberice::layer::Delegation {
             from,
             max_index,
             sig,

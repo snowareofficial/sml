@@ -50,7 +50,7 @@ fn get_matches_full_decode() {
 
     // 子树字节可以单独解码（含 6 B 节点头），且只属于这棵子树
     let sub = store.subtree_bytes("arr[42]").unwrap();
-    let decoded = amberice::value_from_subtree(store.strtab_body(), sub).unwrap();
+    let decoded = sml_value::value_from_subtree(store.strtab_body(), sub).unwrap();
     assert_eq!(decoded, at(&full, "arr[42]"));
     assert!(
         sub.len() < store.value_body().len() / 10,
@@ -140,7 +140,7 @@ fn open_verifies_digests_by_default() {
     let value_seg = info
         .segments
         .iter()
-        .find(|s| s.header.seg_id == amberice::SEG_VALUE)
+        .find(|s| s.header.seg_id == amberice::container::SEG_VALUE)
         .unwrap();
     let mut bad = f.clone();
     bad[value_seg.offset as usize + 10] ^= 0x01;
