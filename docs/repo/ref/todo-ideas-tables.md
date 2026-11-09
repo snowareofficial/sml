@@ -19,7 +19,7 @@
 | IDEAS 条目 | **23**（I-1…I-23，其中 I-12 = `Rejected`） | `Select-String IDEAS.md '^## I-\d+'` |
 | 码表条目 | **166** | `Select-String errors/codes.sml '\{ id: [EWI]-'` |
 | 仅 Rust 实现（`impls: [ rust ]`） | **46**；语言层 **38**（PARSE 16 / CONTRACT 10 / FEATURE 4 / INCLUDE 3 / EXT 3 / LEX 1 / LIMIT 1）+ DERIVE 8（宿主绑定层，Rust 专属，不是跨端欠账）。LEX 从 2 降到 1：`E-LEX-006` 已由 T21 在五端收口 | `Select-String errors/codes.sml '^\s*impls:\s*\[\s*rust\s*\]'`，按 `domain` 分组 |
-| 一致性套件 | **41 例 / AGREE 34 / DIVERGE 7** | `python tests/conformance/run_conformance.py` |
+| 一致性套件 | **41 例 / AGREE 41 / DIVERGE 0**（`19` 以 `*` 放行） | `python tests/conformance/run_conformance.py`；`docs/repo/ref/scan.md` |
 | `.vsix` 产物 vs 源码 | 产物最新 **0.4.3**，`package.json` 已是 **0.5.0** | `Get-ChildItem editors/vscode -Filter *.vsix` |
 | 本会话新增（表 1.5，N01–N06） | **6**（全部未做） | 见 `## 表 1.5` |
 
@@ -36,7 +36,7 @@
 
 | 编号 | 主题 | 状态 | 优先级 | 依赖 | 完成判据 | 来源(file:行) | 卡在谁 |
 |---|---|---|---|---|---|---|---|
-| T01 | 跨实现一致性套件（conformance） | 部分完成：41 例已建，AGREE 34 / DIVERGE 7 | P1 | 无 | `run_conformance.py` 输出 DIVERGE=0 且五端无 SKIP | `TODO.md:149`、`tests/conformance/known_divergences.md:6` | 实现者（剩 7 条跨端缺陷） |
+| T01 | 跨实现一致性套件（conformance） | 部分完成：41 例 AGREE 41 / DIVERGE 0；`19` 经 `WAIVERS` 以 `*` 放行，待登记为永久取舍 | P1 | 无 | `run_conformance.py` 输出 DIVERGE=0 且五端无 SKIP（后者未在 CI 实测） | `TODO.md:149`、`tests/conformance/known_divergences.md:5` | 实现者（永久取舍登记 / CI 首跑） |
 | T02 | 顶层标量行为统一 | 已完成(未勾)：五端同报 `E-PARSE-008` | P2 | 无 | 五端各跑 `42` 均得 `E-PARSE-008`（码表该条 `impls: [ rust js c cpp lua ] status: done`） | `TODO.md:166`、对照 `TODO.md:1178` | 无；只需回填勾选 |
 | T03 | 错误边界不一致（同名键 / 未闭合括号 / 空文档 / 仅注释 / 重复片段名） | 部分完成：同名键已改告警 `W-PARSE-001/002`；空文档与仅注释两例已五端 AGREE | P1 | T01 | 五类各一条 conformance 用例全 AGREE | `TODO.md:201`、`tests/conformance/known_divergences.md:15` | 实现者 |
 | T04 | Lua/JS 缺单元测试 | 部分完成：Lua 有 `test_codes.lua` 184 条 + `run_check.py` 120 条；JS 有 `probe-error-codes.mjs` 52 条（均为脚本，非测试框架） | P2 | T01 | 两端各有进 CI 的测试目标，且 `0 passed` 不算通过 | `TODO.md:203` | 实现者 |
