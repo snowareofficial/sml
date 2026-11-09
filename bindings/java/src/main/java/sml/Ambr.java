@@ -14,8 +14,10 @@
 //   Null→null, Bool→Boolean, Int→Long, Float→Double, Str→String,
 //   Arr→ArrayList<Object>, Obj→LinkedHashMap<String,Object> (source order).
 //
-// Errors / 错误: no `E-AMBR-*` code exists yet (lands with T7) ⇒ message starts with
-// `AMBR:` and carries no code. ｜ 错误暂不带码，前缀 `AMBR:`。
+// 错误：容器错误不占 `errors/codes.sml` 五端码位，当前不带码、前缀 `AMBR:`；
+// 落 `E-AMBR-*` 须改该表并重生成五端产物，不在本端手写码。
+// ｜ Errors: outside the five-end code table; no code, `AMBR:` prefix. Any `E-AMBR-*`
+//    code must be added via `errors/codes.sml` with all ends regenerated.
 package sml;
 
 import java.io.IOException;

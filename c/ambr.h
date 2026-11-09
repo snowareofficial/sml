@@ -10,11 +10,11 @@
 **     compressed/encrypted VALUE is reported instead of guessed.
 **   ｜ 只解 VALUE/STRTAB；其余段按 len 跳过；压缩/加密的 VALUE 明确报错。
 **
-** Error messages / 错误信息:
-**   Decoder errors are **not** in `errors/codes.sml` yet (the `E-AMBR-*` table lands with T7),
-**   so they carry no code — the message starts with `AMBR:` instead. Once the table exists,
-**   replace the prefix with the assigned code.
-**   ｜ 解码错误暂未进码表，消息前缀是 `AMBR:`；码表落地后换成 `E-AMBR-*`。
+** 错误信息：解码错误不占 `errors/codes.sml` 五端码位，当前不带码，消息前缀是 `AMBR:`。
+** 落 `E-AMBR-*` 须改该表并重生成五端产物，不在本端手写码。
+** ｜ Error messages: decoder errors are outside the five-end code table and carry no code;
+**    the `AMBR:` prefix is current. Any `E-AMBR-*` code must be added via `errors/codes.sml`
+**    with all five ends regenerated, never hand-written in this binding.
 **
 ** Memory / 内存: the returned tree is owned by the caller (`sml_free`).
 ** 编译: gcc sml.c ambr.c test_ambr.c -o test_ambr
