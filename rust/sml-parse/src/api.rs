@@ -1,8 +1,39 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! Public parsing API for SML (`parse` / `parse_file` / `parse_with` etc.) ｜ SML 解析的**公开 API**。
+//! SML 解析的**公开 API**（`parse` / `parse_file` / `parse_with` 等）。
+//! ｜ Public parsing API for SML (`parse` / `parse_file` / `parse_with` etc.).
 //!
 //! 与 [`crate::parser`] 分开：后者是内部实现，这里只做入口组装
 //! （特性求取 → 指令剥离 → tokenize → 解析 → include 展开）。
+//! ｜ The parser lives in [`crate::parser`]; this module only assembles entries.
+//!
+//! # 文件入口 / File entries
+//!
+//! 所有 `parse_file_*` 都按**被解析文件自身所在目录**解析相对路径与 `include`，
+//! 从主文件剥离 `@version` / `@feature`，最终允许集为
+//! `FeatureSet::all() ∩ 文档声明`；`parse_file_features` 再与调用方集合取交。
+//! ｜ File entries resolve relative paths against the file's own directory and
+//!    intersect declared features with `FeatureSet::all()`.
+//!
+//! ## 为什么文本入口之外还要文件入口
+//!
+//! `KeyOverwritten` 这类告警（片段展开覆盖父块已有的键）几乎只发生在真实文档里，
+//! 片段又常定义在被 include 的子文件中 —— 只有文本入口会漏掉最典型的一类，
+//! 故 `parse_with_warnings` 之外另有 `parse_file_with_warnings`。
+//! ｜ Some diagnostics only arise across included files, hence a file entry for warnings.
+//!
+//! ## 诊断的行号 / Diagnostic line numbers
+//!
+//! 无 include 时 token 与原文一一对应 ⇒ 带行号；有 include 时 token 跨文件合并、
+//! 无单一原文 ⇒ `line` 为 `None`，文案会指引改用 `smltools --lint`。
+//! ｜ `line` is `None` when includes merge tokens from several files; use `smltools --lint`.
+//!
+//! ## `parse_file_with` 的存在理由
+//!
+//! 旧入口让「文件」与「选项」互斥：`parse_file` 一族写死 `ParseOptions::new()`，
+//! `parse_with` 收选项却不展开 include。本入口把两者接上；传默认选项时
+//! `value` 与 `parse_file` 逐字一致，只多返回诊断 / 契约表 / 错误。
+//! ｜ Combines file/include handling with caller options; with default options the
+//!    value is byte-identical to `parse_file`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -94,7 +125,8 @@ pub fn parse_versioned(text: &str) -> Result<(Value, Edition), SmlError> {
     Ok((parse_impl(&rest, feats, BTreeMap::new())?, v))
 }
 
-/// Parse an SML file (expand includes) and return its declared edition ｜ 解析 SML 文件：展开 include，并返回其声明的**版本集**
+/// 解析 SML 文件（展开 include），并返回文档声明的版本。
+/// ｜ Parse an SML file (expand includes) and return its declared edition.
 pub fn parse_file_versioned(path: impl AsRef<Path>) -> Result<(Value, Edition), SmlError> {
     let path = path.as_ref();
     let text = std::fs::read_to_string(path).map_err(|e| {
@@ -120,15 +152,8 @@ pub fn parse_file_versioned(path: impl AsRef<Path>) -> Result<(Value, Edition), 
     Ok((val, v))
 }
 
-/// Parse an SML file (expand includes) and collect the non-fatal diagnostics ｜ 解析 SML 文件（展开 include），并把**非致命诊断**（键冲突告警）一并交出来。
-///
-/// 为什么除了 [`parse_with_warnings`] 还要单给一个文件入口：`KeyOverwritten`
-/// 那类告警（片段展开覆盖父块已有的键）几乎只发生在真实文档里，而片段又常常
-/// 定义在被 include 的子文件中 —— 只有文本入口会漏掉最典型的那一类。
-///
-/// 文件入口**无 include** 时 token 与原文一一对应 ⇒ 诊断带行号；**有 include** 时
-/// token 跨文件合并、没有可映射的单一原文 ⇒ `line` 为 `None`（文案末尾会指引改用
-/// `smltools --lint` 拿行号）。
+/// 解析 SML 文件（展开 include），并把**非致命诊断**一并交出来；理由与行号规则见模块文档。
+/// ｜ Parse an SML file (expand includes) and collect non-fatal diagnostics; see module docs.
 pub fn parse_file_with_warnings(
     path: impl AsRef<Path>,
 ) -> Result<(Value, Vec<Diagnostic>), SmlError> {
@@ -161,19 +186,8 @@ pub fn parse_file_with_warnings(
     Ok((out.value, out.diagnostics))
 }
 
-/// 文件入口 + 调用方选项（**展开 include**，与 [`parse_with`] 的文件版对应）｜ file entry with [`ParseOptions`]
-///
-/// 存在的理由：此前「**文件**」与「**选项**」互斥 —— [`parse_file`] 一族内部把
-/// [`ParseOptions::new`] 写死、不接受调用方选项；而 [`parse_with`] 虽收选项却只走
-/// `tokenize_spans`、**不展开 include**。于是「读文件（含 include）+ 关掉文档内契约」
-/// 这种组合在旧入口下**无路可走**。本入口把两者接上：
-///
-/// - 相对路径与 include 展开基准 = 该文件自身所在目录（与 [`parse_file`] 同）；
-/// - 版本/特性声明照旧从主文件剥离，最终允许集 = `FeatureSet::all() ∩ 文档声明`；
-/// - 传入 [`ParseOptions::new`] 时，`value` 与 [`parse_file`] 逐字一致，差别只在
-///   额外返回 `diagnostics` / `contract_map` / `errors`（与 [`parse_with`] 同一返回类型）；
-/// - 诊断的 `line` 规则同 [`parse_file_with_warnings`]：无 include 时带行号，有 include
-///   时为 `None`（跨文件无单一原文，宁缺勿错）。
+/// 文件入口 + 调用方选项（**展开 include**）；存在理由与返回结构见模块文档。
+/// ｜ File entry with `ParseOptions` (expand includes); see the module docs.
 pub fn parse_file_with(
     path: impl AsRef<Path>,
     opts: ParseOptions,
@@ -322,9 +336,8 @@ pub fn parse_ordered(text: &str) -> Result<Value, SmlError> {
     Ok(parse_with(text, ParseOptions::new().ordered())?.value)
 }
 
-/// File entry with **explicit source order** (include expansion happens here, so this is the
-/// only way to keep source order across `include`). ｜ 文件入口的显式保序版本：
-/// `include` 只在文件入口展开，故跨 include 的源序必须走这里。
+/// 文件入口的显式保序版本：`include` 只在文件入口展开，跨 include 的源序必须走这里。
+/// ｜ File entry with explicit source order; the only way to keep it across includes.
 pub fn parse_file_ordered(path: impl AsRef<std::path::Path>) -> Result<Value, SmlError> {
     Ok(parse_file_with(path, ParseOptions::new().ordered())?.value)
 }
@@ -727,15 +740,8 @@ fn parse_impl_tokens_ext<'a>(
 // 而非进程工作目录，因此嵌套 include 时路径行为可预期。
 // ---------------------------------------------------------------------------
 
-/// Parse an SML file (expanding `include`) into a `Value`. ｜ 解析 SML 文件（展开 `include`）到 `Value`。
-///
-/// 相对路径按**该文件自身所在目录**解析；版本/特性声明从主文件剥离，
-/// 最终允许集 = `FeatureSet::all() ∩ 文档声明`。本入口不接受 [`ParseOptions`]
-/// —— 要传选项（如关掉文档内契约）请用 `parse_file_with`。
-///
-/// （原先挂在这里的「值嵌套深度上限」说明属于别的条目：`api.rs` 早已没有那个常量，
-/// 它带来的 `MAX_INCLUDE_DEPTH` intra-doc 链接也是悬空的 —— 2026-11-02 删除。）
-///
+/// 解析 SML 文件（展开 `include`）到 `Value`；不接受 `ParseOptions`，要传选项请用 `parse_file_with`。
+/// ｜ Parse an SML file (expand `include`) into a `Value`; options need `parse_file_with`.
 pub fn parse_file(path: impl AsRef<Path>) -> Result<Value, SmlError> {
     let path = path.as_ref();
     let text = std::fs::read_to_string(path)
@@ -761,12 +767,11 @@ pub fn parse_file(path: impl AsRef<Path>) -> Result<Value, SmlError> {
         .map_err(|e| with_position(&rest, e))
 }
 
-/// Same as [`parse_file`], plus a caller-supplied allowed feature set `caller_allowed` intersected with the document's `@feature` declarations; lets FFI (`sml_load_file(flags)`) restrict file-entry capabilities via `flags` (e.g. disable `include` / `env`). ｜ 同 [`parse_file`]，但额外接受一个「调用方允许特性集」`caller_allowed`，与文档 `@feature` 声明取交集。用于 FFI（`sml_load_file(flags)`）让调用方通过 `flags` 限制文件入口能力（如禁用 `include`/`env`）。
+/// 同 [`parse_file`]，额外与调用方允许集 `caller_allowed` 取交；交集为空即报错（不让 `flags` 形同虚设）。
+/// ｜ Like `parse_file`, intersected with a caller-supplied set; an empty result is an error.
 ///
-/// 行为：
-/// - 最终允许集 = `FeatureSet::all() ∩ 文档声明特性 ∩ caller_allowed`。
-/// - 若交集为空（调用方禁用了一切可用特性），视为「不允许任何能力」并报错，
-///   避免静默以全开集回退读取文件（那会令 `flags` 形同虚设）。
+/// 供 FFI（`sml_load_file(flags)`）限制文件入口能力，如禁用 `include` / `env`。
+/// ｜ Used by FFI to restrict file-entry capabilities such as `include` / `env`.
 pub fn parse_file_features(
     path: impl AsRef<Path>,
     caller_allowed: FeatureSet,
