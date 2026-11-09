@@ -2,6 +2,41 @@
 //!
 //! 与 `Value` 同 crate 的原因见 [`crate`] 文档：`Display` impl 需要它。
 //! 本模块整体由 feature `sml` 门控，只需解析的场景不参与编译。
+//!
+//! # 三个写入口 / Three emit entries
+//!
+//! | 函数 | 键序 | 深度超限时 |
+//! |---|---|---|
+//! | [`to_sml`] / `Display for Value` | 按值的 `Map` 态 | 不失败，写 `/* …深度超限… */ null`（块是 `… {}`） |
+//! | [`to_sml_canonical`] | 递归按键 UTF-8 字节序 | 同 `to_sml`（静默写占位） |
+//! | [`to_sml_checked`] | 按值的 `Map` 态 | 返回 `E-LIMIT-004` |
+//!
+//! 键序由值自身的 `Map::Unordered` / `Map::Ordered` 决定，与编译开关无关；
+//! `to_sml_canonical` 的「同值同字节」用于哈希 / 签名 / 去重 / 二进制，与保序是两个独立开关（§6.2）。
+//! ｜ Key order is a property of the value, not of the build.
+//!
+//! ## 超深静默降级 / Over-depth degradation
+//!
+//! 上限 [`crate::MAX_VALUE_DEPTH`]（128，根算第 0 层），守卫在 `dump_value` /
+//! `dump_element` / `dump_block` / `dump_inline` 各写一遍。超限节点被换成占位文本，
+//! 看着合法、回读却是 `null`，**且不报任何错**。`impl fmt::Display for Value` 就是
+//! `to_sml`，`println!("{v}")` 同样有此风险；CLI 与 C-ABI 的 `sml_dump` 走
+//! [`to_sml_checked`] 要错误语义。
+//! ｜ Over-deep nodes are replaced silently; use `to_sml_checked` when failure must be loud.
+//!
+//! ## `$env.` 无法无损往返 / `$env.` cannot round-trip
+//!
+//! 即使加引号，再解析仍会被当作环境变量内联展开（词法阶段即解码 `\u{24}`，与未转义形式
+//! 不可区分）。例如 `Value::Str("$env.PATH")` 写出为 `"$env.PATH"`，读回变成 `PATH` 的实际值。
+//! 解析不可信文档时应显式禁用 `env` 特性（`sml_parse::parse_with_features` +
+//! `FeatureSet::without(Feature::Env)`）；此处是代码字体不是链接 —— `sml-value` 不能依赖
+//! `sml-parse`，否则成环。
+//! ｜ Values starting with `$env.` cannot round-trip; disable `env` for untrusted input.
+//!
+//! ## 元数据块 / Metadata blocks
+//!
+//! 含 `__type` / `__name` 的块原样输出所有键，保证元数据可完整往返。
+//! ｜ Blocks with `__type` / `__name` keep all keys so metadata round-trips.
 
 use crate::{Map, MAX_VALUE_DEPTH, Value};
 
@@ -187,49 +222,11 @@ fn dump_inline(v: &Value, depth: usize) -> String {
     }
 }
 
-/// Serialize back to SML text (round-trip) ｜ 序列化回 SML 文本 (round-trip)。
+/// 序列化回 SML 文本：键序按值的 `Map` 态，超深节点静默写占位文本。
+/// ｜ Serialize back to SML text; over-deep nodes become placeholders.
 ///
-/// 含 `__type` / `__name` 的块（如枚举带数据变体序列化的结果）
-/// 会原样输出所有键，保证元数据可完整往返。
-///
-/// # 键的输出顺序（§6.2）
-///
-/// 按对象的**迭代序**输出：
-/// - `Map::Unordered` 态（`BTreeMap`）：键的 UTF-8 字节序 —— 与历史版本逐字节一致；
-/// - `Map::Ordered` 态：**源序**（解析时键出现的先后）。
-///
-/// 需要「同值同字节」（哈希 / 签名 / 去重 / 二进制）请走 [`to_sml_canonical`]，
-/// 它与保序是两个独立开关，不会互相影响。
-///
-/// # 已知限制（`$env` 与 round-trip）
-///
-/// 以 `$env.` 开头的字符串值**无法**无损往返：即使序列化时加了引号，
-/// 再次解析时仍会被当作环境变量内联展开（引号串路径也承认 `$env.X`，
-/// 见 `parse_value`）。例如 `Value::Str("$env.PATH")` 写出为
-/// `"$env.PATH"`，读回来变成 `PATH` 的实际值。
-///
-/// 该限制无法在序列化侧绕过——SML 的转义（`\u{24}`）在词法阶段即解码，
-/// 解码后的值与未转义形式不可区分。
-///
-/// **因此**：解析任何**不可信**的 SML 文档时，应显式禁用 `env` 特性
-/// （`sml_parse::parse_with_features` + `FeatureSet::without(Feature::Env)`；
-/// 这里是**代码字体不是链接** —— `sml-value` 不能依赖 `sml-parse`，否则成环），
-/// 这样 `$env.X` 一律解析失败，既杜绝环境变量读取，也消除 round-trip 歧义。
-#[cfg(feature = "sml")]
-/// # 语义：**总能给你一份文本**，但超深节点会被换成占位内容
-///
-/// 与同族两个入口的差别（都在本模块）：
-///
-/// | 函数 | 深度超限时 |
-/// |---|---|
-/// | 本函数 / `Display for Value` | **不失败**，把超限位置写成 `/* …深度超限… */ null`（块是 `… {}`） |
-/// | [`to_sml_checked`] | 返回错误（`E-LIMIT-004`） |
-/// | [`to_sml_canonical`] | 同本函数（静默写占位） |
-///
-/// 键序由值自身的 `Map::Unordered` / `Map::Ordered` 决定；[`to_sml_canonical`] 另外按键字节序输出，
-/// 与编译开关无关。 ｜ Key order is a property of the value, not of the build.
-///
-/// # 例子
+/// 要错误语义用 [`to_sml_checked`]，要同值同字节用 [`to_sml_canonical`]；
+/// 限制与理由见模块文档。 ｜ See the module docs for limits and rationale.
 ///
 /// ```
 /// use sml_value::{to_sml, to_sml_checked, Value, MAX_VALUE_DEPTH};
@@ -244,17 +241,7 @@ fn dump_inline(v: &Value, depth: usize) -> String {
 /// assert!(to_sml(&v).contains("深度超限"));
 /// assert!(to_sml_checked(&v).is_err());
 /// ```
-///
-/// # 陷阱
-///
-/// **你以为「返回 `String` 就说明拿到了全文」—— 其实超限节点被替换成
-/// `/* …深度超限… */ null`，文本回读得到 `null`，且不报任何错**。守卫在
-/// `dump_value` / `dump_element` / `dump_block` / `dump_inline` 四处各写一遍；
-/// 上限是 [`crate::MAX_VALUE_DEPTH`]（128，**根算第 0 层**，见 `max_value_depth`）。
-///
-/// **你以为 `println!("{v}")` 是安全的调试手段 —— 其实 `impl fmt::Display for Value`
-/// 就是本函数**，所以日志里同样可能冒出一段占位文本。要错误语义请用 [`to_sml_checked`]
-/// （CLI 与 C-ABI 的 `sml_dump` 正走它）。
+#[cfg(feature = "sml")]
 pub fn to_sml(v: &Value) -> String {
     // 预分配输出：扁平对象每行约 "k1234: value-1234"（取 32 B 的保守值）。
     // 从 `String::new()` 起要反复扩容并搬移整段文本；估算只影响容量，不影响一个字节。
