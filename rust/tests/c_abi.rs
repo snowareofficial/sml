@@ -278,7 +278,7 @@ fn json_to_value_keeps_utf8() {
     let out = unsafe { sml_parse(text.as_ptr()) };
     assert!(!out.is_null());
     let json = unsafe { CStr::from_ptr(out) }.to_str().unwrap();
-    let v = sml::json_to_value(json).expect("json_to_value 应成功");
+    let v = sml::c_abi::json_to_value(json).expect("json_to_value 应成功");
     let got = v.get("k").and_then(|x| x.as_str()).unwrap_or_default();
     assert_eq!(got, "中文", "中文不应被二次编码");
     unsafe { sml_free_str(out) };
@@ -296,7 +296,7 @@ fn json_to_value_depth_limit() {
     for _ in 0..100_000 {
         s.push(']');
     }
-    let v = sml::json_to_value(&s);
+    let v = sml::c_abi::json_to_value(&s);
     assert!(v.is_none(), "超深嵌套应被拒绝而非栈溢出");
 }
 
@@ -312,7 +312,7 @@ fn nul_in_string_not_silent_empty() {
         m.insert("k".into(), Value::Str("a\u{0}b".into()));
         m
     });
-    let json = sml::jsonify(&v);
+    let json = sml::c_abi::jsonify(&v);
     // 输出不得含裸 NUL（应转义为 \u0000）
     assert!(!json.contains('\u{0}'), "jsonify 输出不应含裸 NUL: {json:?}");
     assert!(json.contains("\\u0000"), "NUL 应被转义为 \\u0000: {json}");

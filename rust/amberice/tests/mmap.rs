@@ -121,11 +121,15 @@ fn mmap_reader_agrees_with_load() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// 不存在的文件给 IO 错，不是 panic。 ｜ Missing file → io::Error.
+/// 不存在的文件给 IO 错，不是 panic。 ｜ Missing file → an I/O error, not a panic.
 #[test]
 fn missing_file_is_an_io_error() {
     let e = MappedFile::open(temp_path("nope")).unwrap_err();
-    assert_eq!(e.kind(), std::io::ErrorKind::NotFound);
+    assert_eq!(e.kind(), "io");
+    assert!(matches!(
+        e,
+        amberice::ContainerError::Io { kind: std::io::ErrorKind::NotFound, .. }
+    ));
 }
 
 /// 测试用：把值断言成 `CanonicalValue`（无序在测试里就该 panic，而不是静默通过）。

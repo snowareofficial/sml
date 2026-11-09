@@ -484,6 +484,14 @@ pub enum ContainerError {
         /// Which field disagrees ｜ 哪个字段对不上。
         field: &'static str,
     },
+    /// 打开文件 / 建立内存映射时的 IO 失败（如文件不存在）。
+    /// ｜ I/O failure while opening a file or creating the mapping (e.g. missing file).
+    Io {
+        /// `std::io::ErrorKind` 分类 ｜ The `std::io::ErrorKind` category.
+        kind: std::io::ErrorKind,
+        /// 原始错误文案 ｜ Original error message.
+        message: String,
+    },
 }
 
 impl ContainerError {
@@ -534,6 +542,7 @@ impl ContainerError {
             ContainerError::EncryptedSegmentInPlainFile { .. } => "encrypted-in-plaintext",
             ContainerError::Typed(_) => "typed",
             ContainerError::Dir(_) => "dir",
+            ContainerError::Io { .. } => "io",
         }
     }
 }
@@ -695,11 +704,23 @@ impl std::fmt::Display for ContainerError {
             ),
             ContainerError::Typed(msg) => write!(f, "TYPED 段：{msg}"),
             ContainerError::Dir(msg) => write!(f, "DIR 段：{msg}"),
+            ContainerError::Io { kind, message } => {
+                write!(f, "文件 IO 失败（{kind:?}）：{message} ｜ I/O error ({kind:?}): {message}")
+            }
         }
     }
 }
 
 impl std::error::Error for ContainerError {}
+
+impl From<std::io::Error> for ContainerError {
+    fn from(e: std::io::Error) -> Self {
+        ContainerError::Io {
+            kind: e.kind(),
+            message: e.to_string(),
+        }
+    }
+}
 
 impl From<CanonicalError> for ContainerError {
     fn from(e: CanonicalError) -> Self {
