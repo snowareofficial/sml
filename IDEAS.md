@@ -608,7 +608,8 @@ svc { @is Svc  name: gateway  x-owner: infra }
     同口径（整数值浮点保留 `.0`，NaN/inf 转引号串）⇒ 套件 `19` 的 C/C++ 格转 AGREE；
     **JS / Lua 结构上无法区分 `1` 与 `1.0`**，登记为结构差异（要改就动值模型，属 I-18）。
   - ✅ 雷 6 三条全清：Lua 大整数（`11-02`）、C++ 裸 `include`（`11-03` **补齐**，`08/09` 转 AGREE）、
-    JS `\uXXXX`（`10-30`）。一致性基线 **41 用例 / AGREE 34 / DIVERGE 7**。
+    JS `\uXXXX`（`10-30`）。一致性基线以 `tests/conformance/known_divergences.md` 头部与
+    `docs/repo/ref/scan.md` 为准（现算，不在此写死）。
   - ⏳ 仍未动：雷 1 根因（迭代式解析，已闭）、雷 3 的崩用户类（已复核 0 处）与冗余类（已修）——
     剩下的都是**已定性为不做**或**结构上做不到**的（见 `TODO.md` 排雷区与 `known_divergences.md`）。
 - **Idea / 想法**：做一次**系统性**扫描，把「看起来在测、实际没测」「静默改数据」
