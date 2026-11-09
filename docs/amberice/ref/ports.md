@@ -17,10 +17,10 @@
 | 5 | Lua | 纯 Lua（f64 需 LuaJIT ffi） | ✅ 21/21 + 5 抽检 | 本次 | `lua/run_check.py` |
 | 6 | Java | **纯 Java**（不再依赖 cdylib） | ✅ 21/21 + 5 抽检 | 本次 | `bindings/java/.../Ambr.java` |
 | 7 | Python | FFI（ctypes） | ✅ 21/21 **逐字符** | 本次 | `bindings/python/ambr.py` |
-| 8 | C# | FFI（P/Invoke） | ⬜ 待做 | | 同一对符号，见下方配方 |
+| 8 | C# | FFI（P/Invoke） | ⬜ 待做 | | 同一套读路径符号，见下方配方 |
 | 9 | Go | FFI（cgo） | ⬜ 待做 | | 同上 |
 | 10 | Ruby | FFI（Fiddle） | ⬜ 待做 | | 同上 |
-| 11 | FFI 面 | **独立 crate** `amberice-ffi`（cdylib） | ✅ `ambr_text` / `ambr_free_str` | 本次 | `rust/amberice-ffi/`；`amberice` 保持纯 rlib |
+| 11 | FFI 面 | **独立 crate** `amberice-ffi`（cdylib） | ✅ 7 个导出符号，`rust/amberice/include/amberice.h` 为契约 | 本次 | `rust/amberice-ffi/`；`amberice` 保持纯 rlib |
 
 > FFI 端**刻意只到「文本」为止**：更友好的对象 API（值/路径/类型）等 `swml` 定稿后再一次性加，
 > 免得五个绑定先把一套临时 API 抄死。现在这层只承诺「字节进、canonical 文本出」。
@@ -38,11 +38,14 @@
 
 ## 剩余 FFI 端的三步配方
 
-共同前提：`cargo build -p amberice-ffi` 产出 `amberice.dll` / `libamberice.so`。
+共同前提：`cargo build -p amberice-ffi` 产出 `amberice_ffi.dll` / `libamberice_ffi.so`。
 
-1. 声明两个符号：
+1. 按 `rust/amberice/include/amberice.h` 声明读路径所需符号（完整清单在头文件）：
+   - `uint32_t ambr_caps(void)` —— 先查能力位
    - `char *ambr_text(const unsigned char *buf, size_t len, char *err, size_t errsz)`
    - `void ambr_free_str(char *p)`
+   - 写入路径另需 `ambr_pack_text` / `ambr_free_bytes`（`sml` feature）；宿主缓冲用
+     `ambr_alloc` / `ambr_dealloc`
 2. 传字节、收文本：长度必须显式传（`.ambr` 里必然有 NUL）；失败返回 NULL、`err` 里是
    `AMBR: …`（NUL 结尾，可截断）。
 3. 对拍：把返回的文本与 `tests/vectors/amberice-container.v1.json` 的 `canonical_text`

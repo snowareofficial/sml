@@ -46,9 +46,9 @@
 |---|---|---|---|---|---|
 | [`amberice/archive/design-origin.md`](amberice/archive/design-origin.md) | 2026-11-06 | 2026-11-06 | **archive** | — | .ambr 设计起点与用户原话汇编（A/B/C 三级，逐条带出处） |
 | [`amberice/decisions.md`](amberice/decisions.md) | 2026-11-02 | 2026-11-06 | **current** | — | .ambr 决策记录：D1–D41 已裁决、P1–P10 待定、§12 草案、§15 键序 |
-| [`amberice/plan/plan.md`](amberice/plan/plan.md) | 2026-11-06 | 2026-11-06 | **current** | — | amberice 改名范围 + 第一批优化（A1）与里程碑 |
-| [`amberice/ref/ports.md`](amberice/ref/ports.md) | 2026-11-06 | 2026-11-06 | **current** | — | 多端 .ambr 解码器进度台账（C# / Go / Ruby 三端未做） |
-| [`amberice/spec/format.md`](amberice/spec/format.md) | 2026-11-02 | 2026-11-08 | **current** | — | .ambr 格式规范：信封 / canonical / VALUE 段 / 算法表 / 默认值 / 侧信道 |
+| [`amberice/plan/plan.md`](amberice/plan/plan.md) | 2026-11-06 | 2026-11-09 | **current** | — | amberice 改名范围 + 第一批优化（A1）与里程碑 |
+| [`amberice/ref/ports.md`](amberice/ref/ports.md) | 2026-11-06 | 2026-11-09 | **current** | — | 多端 .ambr 解码器进度台账（C# / Go / Ruby 三端未做） |
+| [`amberice/spec/format.md`](amberice/spec/format.md) | 2026-11-02 | 2026-11-09 | **current** | — | .ambr 格式规范：信封 / canonical / VALUE 段 / 算法表 / 默认值 / 侧信道 |
 | [`amberice/spec/smldb.md`](amberice/spec/smldb.md) | 2026-11-02 | 2026-11-06 | **draft** | — | smldb 数据库层：表结构 / 后端选型 / 选择器 / 四层 API（全部未开工） |
 | [`amberice/spec/tools.md`](amberice/spec/tools.md) | 2026-11-02 | 2026-11-06 | **current** | — | .ambr 配套工具面：info / ls / cat / check / verify / sign / pack / vectors |
 
@@ -57,7 +57,7 @@
 | 文档 | 写于 | 最后核对 | 状态 | 替代者 | 职责 |
 |---|---|---|---|---|---|
 | [`swml/plan/api-draft.md`](swml/plan/api-draft.md) | 2026-11-02 | 2026-11-06 | **draft** | — | 门面未定项：根命名空间债务 / 命名二义 / feature 传播 / 发布口径 |
-| [`swml/spec/api.md`](swml/spec/api.md) | 2026-11-02 | 2026-11-06 | **current** | — | swml 门面公开面：根 = swsml 全集，easy = 四个概念 |
+| [`swml/spec/api.md`](swml/spec/api.md) | 2026-11-02 | 2026-11-09 | **current** | — | swml 门面公开面：根 = swsml 全集，easy = 四个概念 |
 | [`swml/status.md`](swml/status.md) | 2026-11-06 | 2026-11-06 | **current** | — | swml 发布状态（未发布 / publish=false）与 workspace 口径冲突 |
 
 ## repo（23 份）

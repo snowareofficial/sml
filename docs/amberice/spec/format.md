@@ -848,13 +848,14 @@ pub enum KeySource<'a> {
 }
 ```
 
-读者入口 `open_with_keys(bytes, &KeySource)`；写者 `dump_with(…, keys)`。
+读者入口 `load_encrypted(bytes, &KeySource)` 与 `get_encrypted(bytes, path, &KeySource)`；
+写者 `dump_encrypted(…, &KeySource)` / `dump_with(…, keys)`。
 **`KeySource::Bytes` 就是外部秘密的接缝** —— 也允许调用方传一个闭包/回调去取（由上层决定
 何时问 KMS、缓存多久、失败怎么退），库只认「最后拿到 32 B」这一件事。
 
-#### §19.13.1 接口草案（示意，**尚未实现** · 2026-11-05）
+#### §19.13.1 用户级 API 树（已落地）
 
-> 先定「用起来长什么样」，再写实现 —— 用例不顺手就说明接口错了，改接口比改实现便宜。
+> 根下一层只放用户级动作；段布局与低层符号留在各自子模块。
 >
 > 用户 2026-11-05 定了三条：**一个 enum**（不拆写/读两个类型）、**命名要一眼就懂**、
 > **API 树要扁平**（一个树、每层节点少一些）。
@@ -1469,7 +1470,7 @@ entries = (var_id:varint, type_id:u64le, off:u32le, len:u32le)
   典型用法：把 `DIR` 声明为明文以保住索引（用保密性换速度），或让 `TYPED` 保持可读。
   ⚠️ **当前没有消费者**：`Store::open` 在加密文件上连 `VALUE` 都拒绝（`EncryptedNotZeroCopy`），
   且没有接收密钥的入口。所以「明文 `DIR`」目前只是**格式上的许可**，不产生任何性能收益；
-  要等带密钥的读取路径（`Store::open_with_keys` 一类）落地才真正有用。
+  要等带密钥的零拷贝读取路径落地才真正有用。
   在此之前，声明明文只对「实现方自己解密的路径」有意义（如 `load_encrypted` 之后的再读）。
 - 不新增 cap 也意味着**不需要改 `registered_capabilities()`**，不产生「声明了却没人认」的假能力。
 

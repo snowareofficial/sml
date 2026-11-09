@@ -23,9 +23,9 @@
 //! ｜ 入门层放在**门面 crate `swml` 里**。`swml` 的根已经原样再导出了 `swsml`，
 //! 再拆一个独立 crate 只会多一条要同步的版本线；门面的意义本来就是「一次安装，两种人用」。
 //!
-//! The four names below are the whole public surface of this module —
-//! `Doc`, `Value`, `Error`, `Contracts`. ｜ 本模块的公开面只有四个名字：
-//! `Doc`、`Value`、`Error`、`Contracts`。
+//! L0 只需四个概念：`Doc`、`Value`、`Error`、`Contracts`。
+//! 完整公开面还包括 `pub mod out`（六个 emit 后端）与 `Doc` 上的访问器方法。
+//! ｜ L0 needs four concepts; the full surface also has `pub mod out` and `Doc` accessors.
 //!
 //! > Naming trap worth remembering ｜ 值得记住的命名陷阱：the package is `swsml`, the lib is
 //! > `sml` (crates.io already had `sml-rs`). So `Cargo.toml` says `swsml` while code says

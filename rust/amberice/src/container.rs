@@ -2161,7 +2161,7 @@ pub fn base_value_with_keys(
 ///
 /// `Cow` 而不是「一律 `Vec`」：未压缩是常态，多一次拷贝就等于把零拷贝的 `VALUE` 白扔掉。
 /// ｜ `Cow`, not `Vec`: an unconditional copy would throw away the zero-copy `VALUE`.
-type Body<'a> = std::borrow::Cow<'a, [u8]>;
+pub type Body<'a> = std::borrow::Cow<'a, [u8]>;
 
 /// Fetch a segment's bytes, **decompressing** when its header says so.
 /// 取段体字节，段头声明了压缩就解压。

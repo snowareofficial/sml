@@ -27,9 +27,9 @@ docs {
   doc: [
     { title: "docs/amberice/archive/design-origin.md" date: "2026-11-06" updated: "2026-11-06" owner: "amberice" status: "archive" scope: ".ambr 设计起点与用户原话汇编（A/B/C 三级，逐条带出处）" supersedes: null superseded_by: null }
     { title: "docs/amberice/decisions.md" date: "2026-11-02" updated: "2026-11-06" owner: "amberice" status: "current" scope: ".ambr 决策记录：D1–D41 已裁决、P1–P10 待定、§12 草案、§15 键序" supersedes: null superseded_by: null }
-    { title: "docs/amberice/plan/plan.md" date: "2026-11-06" updated: "2026-11-06" owner: "amberice" status: "current" scope: "amberice 改名范围 + 第一批优化（A1）与里程碑" supersedes: null superseded_by: null }
-    { title: "docs/amberice/ref/ports.md" date: "2026-11-06" updated: "2026-11-06" owner: "amberice" status: "current" scope: "多端 .ambr 解码器进度台账（C# / Go / Ruby 三端未做）" supersedes: null superseded_by: null }
-    { title: "docs/amberice/spec/format.md" date: "2026-11-02" updated: "2026-11-08" owner: "amberice" status: "current" scope: ".ambr 格式规范：信封 / canonical / VALUE 段 / 算法表 / 默认值 / 侧信道" supersedes: null superseded_by: null }
+    { title: "docs/amberice/plan/plan.md" date: "2026-11-06" updated: "2026-11-09" owner: "amberice" status: "current" scope: "amberice 改名范围 + 第一批优化（A1）与里程碑" supersedes: null superseded_by: null }
+    { title: "docs/amberice/ref/ports.md" date: "2026-11-06" updated: "2026-11-09" owner: "amberice" status: "current" scope: "多端 .ambr 解码器进度台账（C# / Go / Ruby 三端未做）" supersedes: null superseded_by: null }
+    { title: "docs/amberice/spec/format.md" date: "2026-11-02" updated: "2026-11-09" owner: "amberice" status: "current" scope: ".ambr 格式规范：信封 / canonical / VALUE 段 / 算法表 / 默认值 / 侧信道" supersedes: null superseded_by: null }
     { title: "docs/amberice/spec/smldb.md" date: "2026-11-02" updated: "2026-11-06" owner: "amberice" status: "draft" scope: "smldb 数据库层：表结构 / 后端选型 / 选择器 / 四层 API（全部未开工）" supersedes: null superseded_by: null }
     { title: "docs/amberice/spec/tools.md" date: "2026-11-02" updated: "2026-11-06" owner: "amberice" status: "current" scope: ".ambr 配套工具面：info / ls / cat / check / verify / sign / pack / vectors" supersedes: null superseded_by: null }
     { title: "docs/repo/archive/doc-defects.md" date: "2026-11-04" updated: "2026-11-04" owner: "repo" status: "archive" scope: "P1 文档盘点结果（2026-11-04 快照）" supersedes: null superseded_by: null }
@@ -56,7 +56,7 @@ docs {
     { title: "docs/repo/ref/unfinished.md" date: "2026-11-06" updated: "2026-11-07" owner: "repo" status: "current" scope: "唯一「还剩什么」清单（分类 / 判据 / 复核命令）" supersedes: null superseded_by: null }
     { title: "docs/repo/ref/scan.md" date: "2026-11-07" updated: "2026-11-07" owner: "repo" status: "current" scope: "自动扫描的计数结果（tools/scan_status.py --write 生成，勿手改）" supersedes: null superseded_by: null }
     { title: "docs/swml/plan/api-draft.md" date: "2026-11-02" updated: "2026-11-06" owner: "swml" status: "draft" scope: "门面未定项：根命名空间债务 / 命名二义 / feature 传播 / 发布口径" supersedes: null superseded_by: null }
-    { title: "docs/swml/spec/api.md" date: "2026-11-02" updated: "2026-11-06" owner: "swml" status: "current" scope: "swml 门面公开面：根 = swsml 全集，easy = 四个概念" supersedes: null superseded_by: null }
+    { title: "docs/swml/spec/api.md" date: "2026-11-02" updated: "2026-11-09" owner: "swml" status: "current" scope: "swml 门面公开面：根 = swsml 全集，easy = 四个概念" supersedes: null superseded_by: null }
     { title: "docs/swml/status.md" date: "2026-11-06" updated: "2026-11-06" owner: "swml" status: "current" scope: "swml 发布状态（未发布 / publish=false）与 workspace 口径冲突" supersedes: null superseded_by: null }
     { title: "docs/swsml/archive/idyml-rejected.md" date: "2026-10-15" updated: "2026-11-03" owner: "swsml" status: "archive" scope: "idyml 改名方案（2026-11-03 否决）" supersedes: null superseded_by: null }
     { title: "docs/swsml/archive/iter-parse.md" date: "2026-10-30" updated: "2026-11-02" owner: "swsml" status: "archive" scope: "迭代式解析改造（已完成并合入 dev）" supersedes: null superseded_by: null }

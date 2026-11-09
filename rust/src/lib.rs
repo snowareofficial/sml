@@ -334,6 +334,7 @@ pub use sml_parse::{
 /// External extension point: register custom `@directives` (e.g. `@form` / `@policy` / `@flow`) ｜ 外置扩展点：注册自定义 `@指令`（如 `@form` / `@policy` / `@flow`），
 /// 无需改动本 crate 源码 —— 方言定义留在下游仓库。
 pub use sml_parse::ext;
+#[doc(hidden)]
 pub use c_abi::*;
 
 // derive trait + 宏 (两个不同命名空间：手写 trait + swsml_derive 提供的 derive 宏)
