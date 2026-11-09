@@ -1,9 +1,11 @@
 # `.ambr` 配套工具
 
-> **产品线** amberice ｜ **状态** current ｜ **最后核对** 2026-11-06
+> **产品线** amberice ｜ **状态** current ｜ **最后核对** 2026-11-09
 >
-> 格式的可用性有一半在工具面：`info` / `ls` / `cat` / `check` / `verify` / `sign` / `append`
-> / `pack` / `unpack` / `vectors`，以及 `smltools` 的文本互转与五端解码器。
+> 格式的可用性有一半在工具面：`info` / `ls` / `cat` / `check` / `get` / `history` /
+> `text` / `tree` / `pack` / `unpack` / `vectors` / `verify` / `sign` / `append` /
+> `compact` / `keygen` / `delegate`，以及 `smltools` 的文本互转与五端解码器。
+> 完整清单以 `amberice --help` 为准（CLI 兜底提示也指向它）。
 > 格式本体见 `format.md`；决策记录见 `../decisions.md`；元数据在 `docs/meta.sml`。
 >
 > **章节编号是 `amberice` 产品线的全局编号**，不是本文件内的连续编号：第 0–4, 8–9, 11, 18–21, 23–25 节在 `format.md`；第 5–7, 13–14, 17 节在 `smldb.md`；第 10, 12, 15–16 节在 `../decisions.md`。

@@ -34,8 +34,8 @@ assert_eq!(e.to_string(), "顶层须为容器（键值块、对象块或数组�
 
 - **码是稳定契约，文案不是**。码来自 `errors/codes.sml`（生成，勿手改），
   文案随便改；用户脚本应当判断码而不是文案。
-- `Display` 把码缀在文案之后，而 `From<SmlError> for String` **只取文案** ——
-  后者是给本仓库既有的 `Result<_, String>` 接口留的兼容通道。
+- `Display` 把码缀在文案之后；只要纯文案用 `SmlError::message()`。
+  没有到 `String` 的隐式转换，C ABI 这类只能传文本的边界需显式调用 `message()`。
 
 ## 生成物
 
@@ -81,9 +81,9 @@ assert_eq!(e.code(), "E-PARSE-008");
 
 - **The code is the stable contract, the wording is not.** Codes come from
   `errors/codes.sml` (generated, do not edit by hand); wording may change freely.
-- `Display` appends the code to the message, while `From<SmlError> for String`
-  yields the **message only** — a compatibility channel for the many existing
-  `Result<_, String>` APIs in this repository.
+- `Display` appends the code to the message; `SmlError::message()` yields text only.
+  There is no implicit `Into<String>`: boundaries that can only carry text, such as
+  the C ABI, must call `message()` explicitly.
 
 ## Generated files
 
