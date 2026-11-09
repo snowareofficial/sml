@@ -42,3 +42,17 @@ fn just_under_limit_roundtrips() {
         to_sml_checked(&v).unwrap_or_else(|e| panic!("{n} 层应能序列化，实得 {e}"));
     }
 }
+
+/// 门面把零依赖层的纯文案错误转成结构化码：码只出现一次，且不由文案解析得到。
+/// ｜ The facade attaches the code once from the generated constant, never by parsing text.
+#[test]
+fn facade_attaches_code_without_duplicating_it() {
+    let mut v = sml::Value::Int(1);
+    for _ in 0..=MAX_VALUE_DEPTH {
+        v = sml::Value::Array(vec![v]);
+    }
+    let e = to_sml_checked(&v).expect_err("程序化构造的超深值应在序列化侧被拒");
+    assert_eq!(e.code(), "E-LIMIT-004");
+    assert!(!e.message().contains("[E-"), "码不应重复写进 message：{e}");
+    assert!(e.render().ends_with("[E-LIMIT-004]"), "render 应带码：{e}");
+}
