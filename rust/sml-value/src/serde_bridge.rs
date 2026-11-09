@@ -710,7 +710,7 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
                 }
                 visitor.visit_byte_buf(buf)
             }
-            other => Err(type_err(&other, "字节数组")),
+            other => Err(type_err(other, "字节数组")),
         }
     }
     fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value, Error>
