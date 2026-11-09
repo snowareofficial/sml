@@ -497,7 +497,10 @@ impl<'a> Store<'a> {
 
 可选 `serde` 桥（feature `typed-serde`），但核心不依赖 serde；也不引入 `bincode` 本体——只要「数字 id + varint」这套思路。
 
-**再强一档：用类型化句柄把「取错类型」变成编译错误**
+**再强一档：用类型化句柄把「取错类型」变成编译错误（未落地）**
+
+当前实现：`VarId` + `Store::var<T: Decode>(&self, id) -> T` / `Writer::put_var`，
+类型由 `Decode` 约束在取值点校验。下面这版把类型绑进句柄，属于后续增强，不是现有签名：
 
 ```rust
 pub struct VarKey<T> { id: VarId, _t: PhantomData<fn() -> T> }

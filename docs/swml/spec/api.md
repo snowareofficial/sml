@@ -27,7 +27,7 @@
 
 ## 2. `swml::easy` 的公开面
 
-### 2.1 四个概念（本模块的全部公开名）
+### 2.1 L0 的四个概念
 
 ```rust
 pub use sml::SmlError as Error;   // 换名不换类型，保住跨端稳定的 Error::code()
@@ -64,7 +64,7 @@ impl Doc {
     pub fn bool(&self, path: &str) -> Option<bool>;
     pub fn list(&self, path: &str) -> Option<&[Value]>;
     pub fn raw(&self) -> &Value;        // 唯一逃生口；不用它也能跑通 L0
-    pub fn to_sml(&self) -> String;     // 写回文本的唯一入口，名字不复用 to_string / to_sml 一族
+    pub fn to_sml(&self) -> String;     // 写回文本的唯一入口；L0 不暴露 to_sml 一族的其它名字
 }
 ```
 
