@@ -218,15 +218,16 @@ fn dump_inline(v: &Value, depth: usize) -> String {
 #[cfg(feature = "sml")]
 /// # 语义：**总能给你一份文本**，但超深节点会被换成占位内容
 ///
-/// 与同族三个入口的差别（都在本模块）：
+/// 与同族两个入口的差别（都在本模块）：
 ///
 /// | 函数 | 深度超限时 |
 /// |---|---|
 /// | 本函数 / `Display for Value` | **不失败**，把超限位置写成 `/* …深度超限… */ null`（块是 `… {}`） |
 /// | [`to_sml_checked`] | 返回错误（`E-LIMIT-004`） |
-/// | [`to_sml_canonical`] / [`to_sml_with`] | 同本函数（静默写占位） |
+/// | [`to_sml_canonical`] | 同本函数（静默写占位） |
 ///
-/// 「保序」（`preserve_order` feature）与「确定性字节」（`to_sml_canonical`）是**两个独立开关**。
+/// 键序由值自身的 `Map::Unordered` / `Map::Ordered` 决定；[`to_sml_canonical`] 另外按键字节序输出，
+/// 与编译开关无关。 ｜ Key order is a property of the value, not of the build.
 ///
 /// # 例子
 ///
@@ -286,34 +287,15 @@ pub fn to_sml(v: &Value) -> String {
     out
 }
 
-/// Serialization options (§6.2). ｜ 序列化选项（§6.2）。
+/// canonical 序列化：**递归**按键字节序输出，同值必同字节。
+/// ｜ Recursive key byte-order output; equal values always give identical bytes.
 ///
-/// 只放**与顺序有关**的开关：保序（`to_sml`）与确定性（canonical）是两件事，
-/// 必须能各自独立选择 —— 否则「我想保序」就会被迫连「字节稳定」一起买下。
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct DumpOptions {
-    /// Emit in key UTF-8 byte order (**recursively** into all nested objects). ｜ 按 key 的 UTF-8 字节序输出（**递归**到所有嵌套对象）。
-    ///
-    /// 默认 `false` = 保对象自身的迭代序（`Map::Unordered` 态为字节序，`Map::Ordered` 态为源序）。
-    /// `true` 时同一份值无论来源顺序如何，输出**逐字节相同**。
-    pub sort_keys: bool,
-}
-
-/// Serialize per [`DumpOptions`]; byte-identical to [`to_sml`] when `sort_keys=false`. ｜ 按 [`DumpOptions`] 序列化；`sort_keys=false` 时与 [`to_sml`] 逐字节一致。
-pub fn to_sml_with(v: &Value, opts: &DumpOptions) -> String {
-    if opts.sort_keys {
-        to_sml(&v.sorted_by_key())
-    } else {
-        to_sml(v)
-    }
-}
-
-/// Canonical serialization: **recursive** key byte-order output, equal values ⇒ identical bytes. ｜ canonical 序列化：**递归**按键字节序输出，同值必同字节。
-///
-/// 与保序解耦（§6.2）：`preserve_order` 决定「存的时候留不留源序」，
-/// 本函数决定「写的时候按不按字节序」。两者可任意组合：
-/// - `Map::Unordered` 态 + 本函数 == `Map::Unordered` 态 `to_sml`（`BTreeMap` 本来就有序）；
+/// 键序是值自身的事（`Map::Unordered` / `Map::Ordered`），与编译开关无关；
+/// 本函数只决定写的时候按不按字节序输出：
+/// - `Map::Unordered` 态 + 本函数 == 该态的 `to_sml`（`BTreeMap` 本来就有序）；
 /// - `Map::Ordered` 态 + 本函数 == 同值同字节（即使源序不同）。
+///
+/// ｜ Key order is a property of the value, not of the build.
 ///
 /// # 示例
 /// ```

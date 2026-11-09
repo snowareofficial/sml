@@ -1,4 +1,4 @@
-//! SML syntax analysis: a recursive-descent parser plus the public parse API (`parse` / `parse_file` / `loads` and their `_with_*` variants). ｜ SML 语法分析：递归下降解析器与公开 parse API（`parse` / `parse_file` / `loads` 及各自的 `_with_*` 变体）。
+//! SML syntax analysis: a recursive-descent parser plus the public parse API (`parse` / `parse_file` / `parse_with` and their variants). ｜ SML 语法分析：递归下降解析器与公开 parse API（`parse` / `parse_file` / `parse_with` 及其变体）。
 //!
 //! Errors are coded (`sml_codes::SmlError`, aliased as `ParseError`). `ext` lets downstream crates register custom `@directives` via `ParseOptions` / `parse_with`, and `contract_map` records which contracts were applied to which entity. ｜ 错误带码（`sml_codes::SmlError`，别名 `ParseError`）。`ext` 让下游用 `ParseOptions` / `parse_with` 注册自定义 `@指令`，`contract_map` 记录「哪个实体应用了哪些契约」。
 //!
@@ -23,7 +23,7 @@ mod cond;
 pub mod ext;
 
 pub use api::{
-    loads, parse, parse_allowed, parse_file, parse_file_features, parse_file_ordered,
+    parse, parse_allowed, parse_file, parse_file_features, parse_file_ordered,
     parse_file_versioned, parse_ordered,
     parse_file_with, parse_file_with_warnings, parse_versioned, parse_with, parse_with_features,
     parse_with_features_env, parse_with_warnings,

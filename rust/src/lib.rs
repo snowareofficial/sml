@@ -150,7 +150,7 @@ pub use sml_codes::SmlError;
 /// Custom-type pattern matching engine: backtracking-free, ReDoS-immune ｜ 自定义类型（`@type`）使用的模式匹配引擎：无回溯、免疫 ReDoS。
 pub use sml_pattern as pattern;
 #[cfg(feature = "sml")]
-pub use sml_value::{to_sml, to_sml_canonical, to_sml_with, DumpOptions};
+pub use sml_value::{to_sml, to_sml_canonical};
 
 /// Like [`to_sml`], but returns `E-LIMIT-004` on depth overflow ｜ 与 [`to_sml`] 相同，但**深度超限返回 `E-LIMIT-004`**（W16）而不是静默写占位文本。
 ///
@@ -173,7 +173,7 @@ pub use sml_value::{to_sml, to_sml_canonical, to_sml_with, DumpOptions};
 ///
 /// **`to_sml` 本身永不失败**。它被 40 余处按「总能给你一份文本」的契约使用
 /// （含 `Value` 的 `Display`），超深时写的是 `/* …深度超限… */ null` 这类**占位文本**：
-/// 看着像合法 SML、回读却是 `null`。所以只要链路上还有 `to_sml` / `to_sml_with` /
+/// 看着像合法 SML、回读却是 `null`。所以只要链路上还有 `to_sml` /
 /// `format!("{v}")`，静默降级就还在；要失败语义只能走本函数（CLI 与 C-ABI 已改走这里）。
 ///
 /// **判据只有深度**。本函数不校验类型、不做语义修正 —— `Ok` 只代表「没超深」，
@@ -217,7 +217,7 @@ pub use sml_include::{
 pub use sml_lex::{Tok, TokOwned};
 pub use sml_parse::{parse_file_ordered, parse_ordered};
 pub use sml_parse::{
-    loads, parse, parse_allowed, parse_file, parse_file_features, parse_file_versioned,
+    parse, parse_allowed, parse_file, parse_file_features, parse_file_versioned,
     parse_file_with, parse_file_with_warnings, parse_versioned, parse_with, parse_with_features,
     parse_with_features_env, parse_with_warnings, AppliedContract, ContractMap, Diagnostic,
     DiagnosticKind, ParseError, ParseOptions, ParseOutput, PathSeg,
