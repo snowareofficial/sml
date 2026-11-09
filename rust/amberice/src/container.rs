@@ -2263,9 +2263,25 @@ fn body_of<'a>(
 /// claiming to expand beyond it fails instead of allocating first.
 /// `zstd::bulk::decompress` 把 `cap` 当**分配上限**：声称要膨胀到上限之外的输入会直接失败，
 /// 而不是先分配再发现。
+/// zstd 调用失败；具体上下文由调用方补成 `ContainerError`。
+/// ｜ A zstd call failed; callers add the `ContainerError` context.
 #[cfg(feature = "compress")]
-pub fn inflate_zstd(raw: &[u8], limit: usize) -> Result<Vec<u8>, ()> {
-    zstd::bulk::decompress(raw, limit).map_err(|_| ())
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ZstdError;
+
+#[cfg(feature = "compress")]
+impl std::fmt::Display for ZstdError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("zstd 压缩/解压失败 ｜ zstd compress/decompress failed")
+    }
+}
+
+#[cfg(feature = "compress")]
+impl std::error::Error for ZstdError {}
+
+#[cfg(feature = "compress")]
+pub fn inflate_zstd(raw: &[u8], limit: usize) -> Result<Vec<u8>, ZstdError> {
+    zstd::bulk::decompress(raw, limit).map_err(|_| ZstdError)
 }
 
 /// Inflate one raw zstd frame with a declared output length (no index involved).
@@ -2384,7 +2400,7 @@ pub fn inflate_frames_all(body: &[u8]) -> Result<Vec<u8>, ContainerError> {
     #[cfg(feature = "compress")]
     {
         let mut out = Vec::with_capacity(total);
-        for (_i, e) in entries.iter().enumerate() {
+        for e in entries.iter() {
             let start = e.comp_off as usize;
             let end = start + e.comp_len as usize;
             let frame = inflate_zstd(&body[start..end], e.uncomp_len as usize).map_err(|_| {
@@ -2446,8 +2462,8 @@ pub fn frame_bytes_at(
 /// (tests and future frame writers must not reach for the `zstd` crate directly).
 /// [`inflate_zstd`] 的镜像：同样单独暴露，免得测试与将来的帧写入方直接依赖 `zstd` crate。
 #[cfg(feature = "compress")]
-pub fn deflate_zstd(raw: &[u8], level: i32) -> Result<Vec<u8>, ()> {
-    zstd::bulk::compress(raw, level).map_err(|_| ())
+pub fn deflate_zstd(raw: &[u8], level: i32) -> Result<Vec<u8>, ZstdError> {
+    zstd::bulk::compress(raw, level).map_err(|_| ZstdError)
 }
 
 /// Refuse encryption this build cannot undo. ｜ 拒绝本构建解不开的加密。

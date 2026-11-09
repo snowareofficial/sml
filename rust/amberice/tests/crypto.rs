@@ -3,7 +3,6 @@
 #![cfg(all(feature = "preserve_order", feature = "crypto"))]
 
 #[allow(unused_imports)]
-#[allow(unused_imports)]
 use amberice::{ContainerError, DumpOptions, KdfParams, KeySource, Map, Store, Value};
 
 fn doc() -> Value {
