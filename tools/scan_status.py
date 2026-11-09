@@ -55,7 +55,10 @@ def scan_codes() -> dict:
     text = (ROOT / "errors" / "codes.sml").read_text(encoding="utf-8", errors="replace")
     total = only_rust = 0
     missing: dict[str, int] = {}
-    for m in re.finditer(r"impls:\s*\[([^\]]*)\]", text):
+    # 只认行首的真实 impls 字段：note 文字里可能写 `impls: [rust]` 这类示例，
+    # 不加 ^ 锚点会被当成一条码，令总数与四端缺口各多 1。
+    # ｜ Anchor at line start; illustrative `impls: [...]` inside a note is not a code entry.
+    for m in re.finditer(r"^\s*impls:\s*\[([^\]]*)\]", text, re.MULTILINE):
         impls = m.group(1).split()
         total += 1
         if impls == ["rust"]:
