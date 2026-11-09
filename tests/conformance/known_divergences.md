@@ -62,8 +62,9 @@ python tests/conformance/run_conformance.py --no-build      :: 不自动构建 s
 ```
 
 - 缺工具链的端标 `SKIP` 并说明缺什么（**不会**悄悄当成通过）。
-- 退出码：`0` = 无 DIVERGE / PARSE_FAIL；`1` = 有。**本台账还没清空 ⇒ 现在是 1，属预期**。
-  那是**有意的红灯**，不是套件坏了。
+- 退出码：`0` = 无 DIVERGE / PARSE_FAIL；`1` = 有。当前 41 例全 AGREE（`19` 经
+  `WAIVERS` 以 `*` 放行，不算 DIVERGE），故为 `0`。若差异复现，退出码回到 `1`，
+  须逐条登记进本台账，不许静默忽略。
 - 环境变量：`SMLTOOLS`（指定 Rust 侧可执行文件）、`SML_REPO`（覆盖仓库根）。
   用例 `24~26` 依赖 `SML_CONF_TOKEN=conf-token-1`，driver 自己会设，无需手工准备。
 
