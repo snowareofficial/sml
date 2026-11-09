@@ -155,8 +155,10 @@ pub enum OpenKey<'a> { … }
 
 一个名字只表达一件事；同一动作不给第二个名字。名字要能单独看懂，不依赖上下文。
 
-- 反例（本仓历史债务）：`to_string` / `to_sml` / `to_sml_canonical` /
-  `to_string_direct` / `SmlSerialize::to_sml()` —— 同一动作的五种含义。
+- 反例（同一动作给了第二个名字）：`sml::to_string(&v)` 与 `SmlSerialize::to_sml()`
+  是同一个动作的两份皮；这类重复才该合并。
+- 不同职责不要误判成同义：`to_sml`（主发射器）/ `to_sml_canonical`（确定性字节）/
+  `to_string_direct`（不经 `Value`、保声明顺序）各表达一件事，名字也各自说清。
 - 正例：`Contracts::{Off, On}`、`Doc::read_file_with_report`。
 
 ### 规则 3 · API 树扁平：一棵树，每层节点少一些
