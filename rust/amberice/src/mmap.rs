@@ -42,8 +42,9 @@ pub struct MappedFile {
 }
 
 impl MappedFile {
-    /// Map a file read-only. Nothing is read into the heap. ｜ 只读映射，不往堆里搬。
-    pub fn open(path: impl AsRef<Path>) -> std::io::Result<MappedFile> {
+    /// 只读映射，不往堆里搬；失败归到 `ContainerError::Io`。
+    /// ｜ Map a file read-only into memory; failures become `ContainerError::Io`.
+    pub fn open(path: impl AsRef<Path>) -> Result<MappedFile, ContainerError> {
         let file = File::open(path)?;
         // SAFETY: see the module docs — `.ambr` is immutable by contract and every segment is
         // digest-checked on open, so a file mutated underneath us is *detected*, not trusted.

@@ -91,7 +91,10 @@
 
 // ---------------------------------------------------------------------------
 
-mod c_abi;
+/// C-ABI 的内部实现：符号经 `#[no_mangle]` 导出到 cdylib，不占 crate 根。
+/// ｜ C-ABI internals: symbols are exported via `#[no_mangle]`, not re-exported at the root.
+#[doc(hidden)]
+pub mod c_abi;
 // 仅在 `derive` feature 下编译：否则整个模块都是死代码，下游 `default-features = false`
 // 使用时会刷一整屏 dead_code 警告（下游工程因此无法做到零警告）。
 #[cfg(feature = "derive")]
@@ -225,8 +228,9 @@ pub use sml_parse::{
 /// External extension point: register custom `@directives` (e.g. `@form` / `@policy` / `@flow`) ｜ 外置扩展点：注册自定义 `@指令`（如 `@form` / `@policy` / `@flow`），
 /// 无需改动本 crate 源码 —— 方言定义留在下游仓库。
 pub use sml_parse::ext;
-#[doc(hidden)]
-pub use c_abi::*;
+// 这两个是纯 Rust 的 JSON 桥函数（供 `smltools` 与 `c_abi` 共用），不是 C-ABI 符号。
+// ｜ Pure-Rust JSON bridge functions shared by `smltools` and `c_abi`, not C-ABI symbols.
+pub use c_abi::{json_to_value, jsonify};
 
 // derive trait + 宏 (两个不同命名空间：手写 trait + swsml_derive 提供的 derive 宏)
 #[cfg(feature = "derive")]
@@ -272,7 +276,7 @@ pub mod serde {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+    use crate::c_abi::{json_to_value, jsonify};
 
     // ---------------- version ----------------
 
