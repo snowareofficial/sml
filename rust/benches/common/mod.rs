@@ -118,7 +118,7 @@ pub fn header(title: &str) {
     println!(
         "- 构建档位：{}",
         if cfg!(debug_assertions) {
-            "debug（⚠️ 数字没有参考价值，请用 `cargo bench`）"
+            "debug（数字没有参考价值，请用 `cargo bench`）"
         } else {
             "release / bench profile"
         }

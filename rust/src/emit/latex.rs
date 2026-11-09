@@ -24,7 +24,7 @@
 //! 会翻译成 `\hyperref[...]{...}` / `\emph{}` / `$...$` / `\emph{}` / `\textbf{}`；
 //! `{math:}` 受 `math` 选项控制，且与块级公式共用危险原语检查。
 //!
-//! ⚠️ `theorem` / `proof` 需要 `amsthm`，`{ref:}` 需要 `hyperref`。完整文档模式
+//! `theorem` / `proof` 需要 `amsthm`，`{ref:}` 需要 `hyperref`。完整文档模式
 //! （`full_document` 与 `base.standalone` 均为真）会自动写进导言区；只取片段时要自己加。
 
 use crate::Value;
@@ -170,7 +170,7 @@ pub fn to_latex(v: &Value, opt: &LatexOptions) -> Result<String, SmlError> {
         let class = sanitize_documentclass(&opt.documentclass);
         // 前导区：`amsthm` 提供 `theorem` / `proof` 环境（本模块现在会产出它们），
         // `hyperref` 供内联角色 `{ref: label}` 翻译成 `\hyperref[...]{...}`。
-        // ⚠️ 拿片段（`full_document: false` 或 `base.standalone: false`）时这两行不在，
+        // 拿片段（`full_document: false` 或 `base.standalone: false`）时这两行不在，
         // 调用方需自行在导言区 `\usepackage{amsthm,hyperref}`。
         out.push_str(&format!(
             "\\documentclass{{{}}}\n\\usepackage{{amsthm}}\n\\usepackage{{hyperref}}\n\\begin{{document}}\n",

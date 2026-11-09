@@ -207,7 +207,7 @@ impl Doc {
     /// assert!(doc.has("a"));
     /// ```
     ///
-    /// ⚠️ 这一档用的是**默认契约开关**（等价 [`Contracts::On`]）。要「关掉文档内 `@is`」
+    /// 这一档用的是**默认契约开关**（等价 [`Contracts::On`]）。要「关掉文档内 `@is`」
     /// 又「拿诊断」，请回 [`sml::parse_with`]（专家层，`ParseOutput` 三个字段都在）。
     pub fn read_with_report(text: &str) -> Result<Self, Error> {
         sml::parse_with_warnings(text).map(|(value, diagnostics)| Self {
@@ -267,11 +267,11 @@ impl Doc {
     /// ```
     /// let doc = swml::easy::Doc::read("port: 8080 mode: 0755").unwrap();
     /// assert_eq!(doc.int("port"), Some(8080));
-    /// // ⚠️ 前导零是**字符串**（保住权限位语义），所以这里取不到：
+    /// // 前导零是**字符串**（保住权限位语义），所以这里取不到：
     /// assert_eq!(doc.int("mode"), None);
     /// ```
     ///
-    /// ⚠️ 同一个坑还有更大的一种：超出 `i64` 的整数（`9223372036854775808`）也是**字符串**。
+    /// 同一个坑还有更大的一种：超出 `i64` 的整数（`9223372036854775808`）也是**字符串**。
     /// 判类型请以本函数的返回值为准，别假设「看起来是数字就是整数」。
     pub fn int(&self, path: &str) -> Option<i64> {
         self.value.get(path)?.as_i64()

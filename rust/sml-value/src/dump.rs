@@ -23,7 +23,7 @@ pub(crate) use crate::text_rules::{format_float, quote_if_needed};
 /// `{ type: home }`、`{ offset: "0x00" size: "0x400" }` 扁平 → 紧凑一行；
 /// `{ fields: { field: [ … ] } }` 里嵌了容器 → 展开多行。
 ///
-/// ⚠️ **只看一层，不递归**。递归版（「子孙全是标量」）是个恒真判据 ——
+/// **只看一层，不递归**。递归版（「子孙全是标量」）是个恒真判据 ——
 /// 任何对象的子孙最终都会落到标量，于是所有东西都被判成扁平、排版分毫不改。
 /// 写这段时真踩了这个坑（编译与测试全绿，只是完全没生效）。
 /// 非递归顺带去掉了一处递归，程序构造的超深 `Value` 也撑不爆栈。
@@ -246,12 +246,12 @@ fn dump_inline(v: &Value, depth: usize) -> String {
 ///
 /// # 陷阱
 ///
-/// ⚠️ **你以为「返回 `String` 就说明拿到了全文」—— 其实超限节点被替换成
+/// **你以为「返回 `String` 就说明拿到了全文」—— 其实超限节点被替换成
 /// `/* …深度超限… */ null`，文本回读得到 `null`，且不报任何错**。守卫在
 /// `dump_value` / `dump_element` / `dump_block` / `dump_inline` 四处各写一遍；
 /// 上限是 [`crate::MAX_VALUE_DEPTH`]（128，**根算第 0 层**，见 `max_value_depth`）。
 ///
-/// ⚠️ **你以为 `println!("{v}")` 是安全的调试手段 —— 其实 `impl fmt::Display for Value`
+/// **你以为 `println!("{v}")` 是安全的调试手段 —— 其实 `impl fmt::Display for Value`
 /// 就是本函数**，所以日志里同样可能冒出一段占位文本。要错误语义请用 [`to_sml_checked`]
 /// （CLI 与 C-ABI 的 `sml_dump` 正走它）。
 pub fn to_sml(v: &Value) -> String {
@@ -336,7 +336,7 @@ pub fn to_sml_canonical(v: &Value) -> String {
 /// 5 万层的值用递归实现会**自己**先把栈写爆（Rust 栈溢出是 abort，接不住），
 /// 与 `dump_element` 注释里记的那次 `0xC00000FD` 是同一类。
 ///
-/// ⚠️ **口径：根 = 0**（与解析器 `Parser::depth`、各 emit 后端的 `depth` 形参一致）。
+/// **口径：根 = 0**（与解析器 `Parser::depth`、各 emit 后端的 `depth` 形参一致）。
 /// 改前这里把根算作 1，于是「解析允许 128 层、序列化却说 129 超限」——
 /// 恰好 128 层的文档变成「能解析、`--to json` 能出、`to_sml` 却拒」（TODO 雷 9）。
 #[cfg(feature = "sml")]

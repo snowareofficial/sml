@@ -48,7 +48,7 @@ cargo install smltools
 cargo build --release -p smltools
 ```
 
-> ⚠️ **实验性 (EXPERIMENTAL)**：CLI 接口与 emit 后端组合仍可能随用户反馈调整，
+> **实验性 (EXPERIMENTAL)**：CLI 接口与 emit 后端组合仍可能随用户反馈调整，
 > 暂不做语义化稳定性承诺。生产关键路径请勿依赖其精确行为，请关注版本号变更日志。
 
 ## 用法
@@ -228,7 +228,7 @@ cargo install smltools
 cargo build --release -p smltools
 ```
 
-> ⚠️ **EXPERIMENTAL**: the CLI surface and emit backends may change between releases;
+> **EXPERIMENTAL**: the CLI surface and emit backends may change between releases;
 > no SemVer stability is guaranteed yet. Do not rely on its exact behavior in
 > production-critical paths; watch the changelog.
 

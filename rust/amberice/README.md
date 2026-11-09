@@ -35,7 +35,7 @@ cargo test -p amberice --features "preserve_order,sign,compress,crypto,mmap"
 # 只想要「读写都正确」的最小集合：preserve_order 一个就够
 ```
 
-> ✅ 默认构建（无 feature）就能读写：`amberice pack` / `smltools --to-amberice` 都可用。
+> 默认构建（无 feature）就能读写：`amberice pack` / `smltools --to-amberice` 都可用。
 > 键序现在是**值的一部分**（`Map::Unordered` / `Map::Ordered` 两个显式态），不是编译开关。
 > - 文本输入：`parse_ordered()` 保源序；`parse()` 保持历史字节序（不能签 canonical）
 > - 程序构造：`Map::ordered()` / `Map::unordered()` / `OrderedMap` 显式二选一

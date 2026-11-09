@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 //! `smltools` — the SML command-line transpiler (partial emit backends / doc-site integration). ｜ `smltools` — SML 命令行转译器（部分 emit / 文档站集成）。
 //!
-//! ⚠️ **实验性 (EXPERIMENTAL)**：本 crate 已从 `swsml` 主 crate 拆分为独立发布
+//! **实验性 (EXPERIMENTAL)**：本 crate 已从 `swsml` 主 crate 拆分为独立发布
 //! （版本 `0.1.5`），CLI 接口与 emit 后端组合仍可能随用户反馈调整，暂不做语义化
 //! 稳定性承诺。生产关键路径请勿依赖其精确行为，请关注版本号变更日志。
 //!
@@ -40,7 +40,7 @@ use sml::emit::{
 use clap::Parser;
 // `to_sml` 不再直接调用：SML 输出走带检查的 `sml::to_sml_checked`（W16，见 emit()）
 use sml::{Edition, Map, parse, Feature, FeatureSet, Value};
-// ⚠️ `E_INCLUDE_001/004/012` **不再由本 crate 抛出**：include 展开已统一交给库的
+// `E_INCLUDE_001/004/012` **不再由本 crate 抛出**：include 展开已统一交给库的
 // `sml::parse_file`（原先那份 CLI 自有的行级预处理已删除），这些码由 `sml-include` 带出。
 // `E_CLI_007` 只在 `--to-amberice`（feature `amberice`）分支用到；默认档允许它未使用。
 #[allow(unused_imports)]
@@ -343,7 +343,7 @@ struct Cli {
     ///
     /// 标题取自 `h1..h6` / `topic` / `section`；**有 `label` 的条目才是链接**，
     /// 没给 `label` 的只列标题（锚点得先有个名字，不能瞎造）。
-    /// ⚠️ 标题顺序：块用 `children` 数组时才保源序，否则按字段名排序（BTreeMap 语义）。
+    /// 标题顺序：块用 `children` 数组时才保源序，否则按字段名排序（BTreeMap 语义）。
     #[arg(long = "toc")]
     toc: bool,
 
@@ -406,7 +406,7 @@ struct Cli {
 /// **迁入**格式，直接解析成数据，不参与 SML 的版本与特性机制。
 fn load_input(text: &str, args: &Args) -> Result<Value, SmlError> {
     match args.input_format {
-        // ⚠️ `--from-amberice` 时传 `&None`：`text` 已经从信封解出来了，若把路径传下去，
+        // `--from-amberice` 时传 `&None`：`text` 已经从信封解出来了，若把路径传下去，
         // `parse_with` 会**按路径重读文件**（拿二进制当 UTF-8 读，报 "stream did not
         // contain valid UTF-8"），而且 include 在写信封时就已展开完，没有基准目录可解析。
         InputFormat::Sml => {
@@ -640,7 +640,7 @@ fn read_input(input: &Option<PathBuf>) -> Result<String, SmlError> {
 /// 其余能力（glob / regex / multi-include …）仍沿用全集、由文档 `@feature enable` 自行决定，
 /// 避免 `--feature` 顺手砍掉与版本无关的高级能力。
 ///
-/// ⚠️ **已知缺口（两条，登记在 TODO.md 排雷区）**：
+/// **已知缺口（两条，登记在 TODO.md 排雷区）**：
 /// 1. **这里只折算了一处版本差异** —— 另一处是 `3.0`/`4.0` 的片段定义参数形式
 ///    （`4.0` 起废弃 `@f Server prod { }` 的位置参数，改显式 `type:` / `name:`）。
 ///    解析器实际是「两种写法都收 + 位置参数给弃用诊断」，**没有做版本门控**
@@ -1891,7 +1891,7 @@ mod tests {
         assert!(format!("{e}").contains("camelia"), "文案应提示开发中的版本集：{e}");
     }
 
-    /// ⚠️ 这组用例喂的是**真实的上游错误**（直接调用 `sml::emit::*` 让它自己报错），
+    /// 这组用例喂的是**真实的上游错误**（直接调用 `sml::emit::*` 让它自己报错），
     /// 而不是本文件手写的字面量 —— 因此它钉的是「码真的由 emit 后端带上」，
     /// 上游换码会让这里**响亮地**失败。
     ///

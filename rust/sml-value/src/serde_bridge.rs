@@ -153,7 +153,7 @@ impl<'de> Visitor<'de> for ValueVisitor {
 /// 这里刻意**不用 `#[derive(Deserialize)]` 的自定义结构**：本 crate 的 `serde`
 /// 依赖没开 `derive` feature（那是 dev/门面侧的事），doctest 里拿不到派生宏。
 ///
-/// ⚠️ 本文件的这条 doctest 曾经是**全仓唯一一条「名义存在、实际从不运行」的测试**：
+/// 本文件的这条 doctest 曾经是**全仓唯一一条「名义存在、实际从不运行」的测试**：
 /// 它写的是 `sml::serde::from_str(...)` —— 而 `sml` 是门面 crate，本 crate 不可能
 /// 引用它（会形成循环依赖），且 `serde` feature 默认关闭，故从来没人编译过它。
 /// W16 的 A 批在 `--features serde` 下真跑时它当场红了，已改成**真测 `from_value`**

@@ -802,7 +802,7 @@ impl<'a> Parser<'a> {
             Some(Tok::Word(w)) => {
                 // 遗留符号修饰符 `?` / `=` 已废弃（2026-10-30），五端一律 E-PARSE-006。
                 //
-                // ⚠️ 为什么**不在词法层**把它们切成分隔符：`?` 在 `@pattern` 里是量词
+                // 为什么**不在词法层**把它们切成分隔符：`?` 在 `@pattern` 里是量词
                 // （`sml-pattern`），全局切开会把 `a?` 这类合法模式拆坏。
                 // 故在**契约字段的类型位置**定点拦截 —— 类型名本不该含这两个字符，
                 // 命中即说明作者写的是遗留符号修饰符（粘连式，如 `str?` / `int=5`）。
@@ -1343,7 +1343,7 @@ impl<'a> Parser<'a> {
             // —— 多契约收集（D1，TASK-agent-w24 §2）——
             // `@is` 后**连续取裸词**：遇 `:` / `{` / `]` / **换行**即停；
             // 逗号作分隔（**可省**：`@is a, b` ≡ `@is a b`）。
-            // ⚠️ 两条停机判据缺一不可：
+            // 两条停机判据缺一不可：
             // - 「换行即停」：SML 一行可以只有 `@is X` 而把字段写在下一行，
             //   无脑收词会把下一行的键吞进契约名；
             // - 「裸词后跟 `:` 的是键」：`@is A host: h1` 的 host 是键值，
@@ -2391,7 +2391,7 @@ impl<'a> Parser<'a> {
             // 真正的块名 `ssh` 被挤进 `__args`，全程不报错 ⇒ 契约写错＝静默失效。
             // 现在：未开启 `block-name` 时直接报错，拼错的契约名立刻暴露。
             //
-            // ⚠️ 只在**首词命中了契约表**（typed-block 模式）时生效；普通裸块
+            // 只在**首词命中了契约表**（typed-block 模式）时生效；普通裸块
             // `server web prod { }` 的既有行为不受影响（回归红线）。
             if !names.is_empty() && args.len() > consumed_args && !self.features.has(Feature::BlockName) {
                 if let Value::Str(w) = &args[consumed_args] {
@@ -2413,7 +2413,7 @@ impl<'a> Parser<'a> {
 
             // —— featag S7：`from-featag` 的键不许文档手写 ——
             //
-            // ⚠️ **必须在填充之前**：填充之后 featag 自己写的键与文档手写的键长得一样，
+            // **必须在填充之前**：填充之后 featag 自己写的键与文档手写的键长得一样，
             // 就分不出「来源合法」还是「伪造」了 —— 而来源正是这条规则的**全部意义**。
             if self.features.has(Feature::Featag) {
                 for n in &names {
@@ -2425,7 +2425,7 @@ impl<'a> Parser<'a> {
 
             // —— featag S5（校验）+ S6（按落点写值）——
             //
-            // ⚠️ **必须都在契约应用之前**：`from-featag` 那类「只能由 featag 提供」的必填字段，
+            // **必须都在契约应用之前**：`from-featag` 那类「只能由 featag 提供」的必填字段，
             // 一旦让契约先跑，就会被判成「必填字段缺失」（E-CONTRACT-003），
             // 而它的值本来就应该在下一步由 featag 落点写进来（S7 直接依赖这个次序）。
             if self.features.has(Feature::Featag) && !bare.featags.is_empty() {
@@ -2752,7 +2752,7 @@ impl<'a> Parser<'a> {
     /// 把一条字段值写入父块节点，含「同名冲突 → 提升为数组」的既定语义
     /// （静默改数据：SML 既定语义，改为告警）。
     ///
-    /// ⚠️ 走 `Map::insert_or_merge_owned` 而**不是** `get_mut` + `insert`：后者是两次查找
+    /// 走 `Map::insert_or_merge_owned` 而**不是** `get_mut` + `insert`：后者是两次查找
     /// （`BTreeMap::insert` 只查一次），`Map::Ordered` 态下实测多花约 30% 解析时间。
     /// 冲突分支里也**原地**改写（`remove` + `insert` 会把键挪到尾部，
     /// 那是把实现细节泄漏成了行为差异）。
@@ -3209,7 +3209,7 @@ fn type_uses_any(ty: &TypeSpec) -> bool {
 
 /// featag 参数是不是 `auto`（= 取声明里的默认值，§6.1 规则 5）。
 ///
-/// ⚠️ **已知限制**：参数值在 `parse_array` 里已经变成了 `Value`，**词法形态丢了**，
+/// **已知限制**：参数值在 `parse_array` 里已经变成了 `Value`，**词法形态丢了**，
 /// 所以裸词 `auto` 与引号串 `"auto"` 在这里**无法区分** —— 两者都当 `auto`。
 /// 真需要把字面量 "auto" 当参数时，目前只能避开（例如写 `["auto "]`）。
 /// 要做到精确区分，得让 `parse_array` 把「是否裸词」带回值里，属**另一笔**改动，不塞进本片。
@@ -3226,7 +3226,7 @@ fn is_auto_marker(payload: &Value) -> bool {
 /// - **数组下标（Q20，2026-11-04 用户定）**：`n < len` 且元素为 `null` ⇒ 补缺；元素非 null ⇒ `022`；
 ///   `n == len` ⇒ **追加**（`strict` 下报 `023`）；`n > len` ⇒ `025`（**绝不补 null**）。
 ///
-/// ⚠️ **数组本身不存在时不自动创建**（对象可以、数组不行）：造一个多长的数组、中间填什么，
+/// **数组本身不存在时不自动创建**（对象可以、数组不行）：造一个多长的数组、中间填什么，
 /// 没有无歧义的答案；凭空补 null 又违背 `docs/swsml/spec/null.md` N1–N5。
 fn write_target(
     map: &mut Map,

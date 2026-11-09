@@ -4,7 +4,7 @@
 //! 为什么从值树抽、而不是从已生成的文本里反解：文本反解要按格式各写一遍扫描，
 //! 遇到代码块里的 `#` 就误判；值树里标题就是 `h1..h6` / `topic` / `section` 这些块类型，判据稳定。
 //!
-//! ⚠️ **顺序**：默认 `Value::Object` 是 BTreeMap（按名字排序），源序不保。
+//! **顺序**：默认 `Value::Object` 是 BTreeMap（按名字排序），源序不保。
 //! 想让目录按书写顺序，就给容器块用 `children` 数组（那里保序），或整体开 `preserve_order`。
 //! 这条与 `docs/swsml/spec/value-layout.md` §3 同源。
 

@@ -299,11 +299,11 @@ fn include_read_failure_is_include_001() {
 
 #[test]
 fn include_self_reference_is_include_002() {
-    // ⚠️ 行为变更（2026-09-19）：本用例原名 `include_depth_limit_is_include_004`，
+    // 行为变更（2026-09-19）：本用例原名 `include_depth_limit_is_include_004`，
     // 断言 `E-INCLUDE-004`（16 层耗尽才发现）—— 那是 **CLI 自有展开**的行为。
     // CLI 改为走库的 `parse_file` 后，库的链栈**先**判出循环引用 ⇒ `E-INCLUDE-002`，
     // 诊断更准（"自己包含自己"本来就该说循环，而不是说"嵌套太深"）。
-    // ⚠️ `E-INCLUDE-004`（语言层 32 层上限）的覆盖不在这里 —— 库自身的用例负责。
+    // `E-INCLUDE-004`（语言层 32 层上限）的覆盖不在这里 —— 库自身的用例负责。
     let dir = tmpdir("incdepth");
     let main = write_file(&dir, "self.sml", "include \"self.sml\"\n");
     assert_code(&["-i", &s(&main)], None, "E-INCLUDE-002");

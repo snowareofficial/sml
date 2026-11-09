@@ -405,10 +405,10 @@ impl Value {
     /// canonical would become a third syntax of its own.
     /// 输出一定以**单个** `\n` 结尾（C3）、一定不含注释（C11）、一定是合法 SML 文本（P5-d）。
     ///
-    /// ⚠️ “Legal SML” stops at a **container root**: a bare top-level scalar is rejected by the
+    /// “Legal SML” stops at a **container root**: a bare top-level scalar is rejected by the
     /// parser (`E-PARSE-008`), so `canonical_text` still emits it (the signing bytes are unique)
     /// but it cannot be read back as a document. Recorded in §18.2 as an implementation note.
-    /// ⚠️ 「合法 SML」的前提是**顶层为容器**：裸的顶层标量会被 parser 拒（`E-PARSE-008`），
+    /// 「合法 SML」的前提是**顶层为容器**：裸的顶层标量会被 parser 拒（`E-PARSE-008`），
     /// 故标量仍产出文本（签名字节唯一）但不可作为文档回读。已回写进 §18.2。
     ///
     /// # Errors / 错误

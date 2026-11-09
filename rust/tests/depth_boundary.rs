@@ -10,7 +10,7 @@
 //!   * `MAX_VALUE_DEPTH` 层：**解析成功** 且 **序列化成功**；
 //!   * `MAX_VALUE_DEPTH + 1` 层：解析阶段就报 `E-LIMIT-001`。
 //!
-//! ⚠️ 必须用**闭合**嵌套：不闭合会被 `E-PARSE-001`（未闭合块）先抓住，测到的不是深度。
+//! 必须用**闭合**嵌套：不闭合会被 `E-PARSE-001`（未闭合块）先抓住，测到的不是深度。
 
 use sml::{parse, to_sml, to_sml_checked, MAX_VALUE_DEPTH};
 

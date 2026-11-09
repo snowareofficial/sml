@@ -239,10 +239,10 @@ pub struct ContractWarning {
 /// }
 /// ```
 ///
-/// ⚠️ **作用域是契约私有的**（§5）：`wea.critical` 与 `other.critical` 互不干扰，
+/// **作用域是契约私有的**（§5）：`wea.critical` 与 `other.critical` 互不干扰，
 /// 故所有诊断必须写全 `<契约>.<featag>`。
 ///
-/// ⚠️ 本结构**只承载声明**：参数校验（未声明即拒 / 类型是否相符）在 S5，
+/// 本结构**只承载声明**：参数校验（未声明即拒 / 类型是否相符）在 S5，
 /// 落点填充在 S6。S4 阶段它唯一的用途是「收集 + 查重」。
 #[derive(Debug, Clone)]
 pub struct FeatagDecl {
@@ -332,7 +332,7 @@ pub fn check_value(
 
 /// 检查「`from-featag` 的键没有被文档手写」（featag S7，§6.2）。
 ///
-/// ⚠️ **必须在 featag 落点填充之前调用**：填充之后，featag 自己写进去的键与文档手写的键
+/// **必须在 featag 落点填充之前调用**：填充之后，featag 自己写进去的键与文档手写的键
 /// 长得一模一样，就分不出「来源合法」还是「伪造」了 —— 而来源正是这条规则的**全部意义**。
 ///
 /// 递归：遇到 `ContractRef` 字段且值确实是块时，按被引用契约继续查（嵌套的 `from-featag`）。
@@ -601,7 +601,7 @@ pub fn apply_contracts(
         effs.push(ov.unwrap_or(c.strictness));
     }
     // 两两冲突预检：同字段名但类型 / 默认值 / 区间不同即冲突。
-    // ⚠️ 按**字段名**遍历（BTreeMap 有序），与书写顺序无关。
+    // 按**字段名**遍历（BTreeMap 有序），与书写顺序无关。
     // 类型比较用 `TypeSpec::name()` 的规范串（ext 类型即注册名，同名即同校验器）。
     for i in 0..list.len() {
         for j in (i + 1)..list.len() {
@@ -706,7 +706,7 @@ pub fn apply_contract(
     //    数值越界 / 枚举越界 / 互斥组违约等**恒为 Err**，warn 态也不放行 ——
     //    错类型的数据放行出去是灾难，形状宽容与数据正确性不是一回事）。
     //    优先级：strict > warn > loose。多契约叠加时由 `apply_contracts` 取最严一档。
-    //    ⚠️ 违约放行时值树与 strict 下的**成功**分支逐字一致（不改数据形状）。
+    //    违约放行时值树与 strict 下的**成功**分支逐字一致（不改数据形状）。
     match c.strictness {
         Strictness::Strict => {
             for k in node.keys() {

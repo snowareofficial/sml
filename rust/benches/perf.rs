@@ -13,7 +13,7 @@
 //!
 //! 输出是给人看的表格 + 可直接抄进 `docs/swsml/ref/perf-baseline.md` 的数值（ns/op、MB/s）。
 //!
-//! ⚠️ 三组负载覆盖的是**三种不同形状**，别只看一个数：
+//! 三组负载覆盖的是**三种不同形状**，别只看一个数：
 //! - `small`   —— 10 个键，代表「配置片段」；固定开销（入口组装、tokenize 启动）占比最高
 //! - `large`   —— 约 35 万字，代表「长篇文档」（`story/` 那份压测稿的量级）
 //! - `deep`    —— 120 层嵌套（`MAX_VALUE_DEPTH` 是 128），代表「深度路径」
@@ -85,7 +85,7 @@ fn main() {
     println!(
         "- 构建档位：{}",
         if cfg!(debug_assertions) {
-            "debug（⚠️ 数字没有参考价值，请用 `cargo bench`）"
+            "debug（数字没有参考价值，请用 `cargo bench`）"
         } else {
             "release / bench profile"
         }

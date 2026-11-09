@@ -295,7 +295,7 @@ fn pack_cmd(args: &[String]) -> Result<String, (u8, String)> {
 /// `amberice unpack <file> <destdir>` — write every payload out.
 /// 把归档里的载荷逐个写出到目录。
 ///
-/// ⚠️ 载荷名来自**文件**，可能带 `..` 或绝对路径 ⇒ 解包前必须挡住目录穿越。
+/// 载荷名来自**文件**，可能带 `..` 或绝对路径 ⇒ 解包前必须挡住目录穿越。
 /// 一个能写任意路径的「解包」等于把 tar-slip 送上门。
 /// Payload names come from the file: reject `..` / absolute paths (tar-slip).
 fn unpack_cmd(args: &[String]) -> Result<String, (u8, String)> {

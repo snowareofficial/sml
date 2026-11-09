@@ -7,7 +7,7 @@
 //! 口径：**只影响查找** —— 契约声明名、`__type` / `__name` 元数据、错误信息里的
 //! 契约名一律保持书写原样；且只归一化**首字母**，不是整体忽略大小写。
 //!
-//! ⚠️ 用 `parse_with_features` 精确控制特性集来测「开 / 关」：因为 `@feature` 默认走
+//! 用 `parse_with_features` 精确控制特性集来测「开 / 关」：因为 `@feature` 默认走
 //! **blacklist 模式（基集全开）**，文档里一旦出现任何 `@feature` 指令，特性集就从
 //! `FeatureSet::all()` 起算 —— 若用裸 `parse()`，只写 `@feature enable typed-block`
 //! 也会把本特性一并打开，测不出开关效果（见文末

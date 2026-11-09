@@ -14,7 +14,7 @@ publish = false
 name = "swml"
 
 [dependencies]
-# ⚠️ 依赖键写成 `sml` 而不是 `swsml`：swsml 的 `[lib] name = "sml"`,
+# 依赖键写成 `sml` 而不是 `swsml`：swsml 的 `[lib] name = "sml"`,
 # 而 Rust 代码里 `use` 的是**库名**。写成 `swsml = { path = ".." }` 会直接报
 # 「cannot find crate swsml」—— 这是本仓最容易踩的一处命名陷阱，故在此显式改名。
 # ｜ Dependency key is `sml`, not `swsml`, because swsml's lib name is `sml`.

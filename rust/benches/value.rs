@@ -11,7 +11,7 @@
 //! cargo bench --bench value -- --quick
 //! ```
 //!
-//! ⚠️ 计时闭包里**不能用 `debug_assert!` 兜结果**：bench 档 `debug-assertions = false`，
+//! 计时闭包里**不能用 `debug_assert!` 兜结果**：bench 档 `debug-assertions = false`，
 //! 断言整句被删，纯读操作（`eq_ordered` / `Value::get`）会连带被优化掉 ——
 //! 实测会得到 `0 ns/op`。故统一用 `std::hint::black_box` 把结果钉住。
 //!

@@ -74,7 +74,7 @@ fn strip_anchors(pat: &str) -> &str {
 /// 超长的处理是塞一个 `\u{0}` 占位模式 ⇒ 调用方拿到的是「合法但不匹配」，
 /// **不 panic、也不报错**。
 ///
-/// ⚠️ 因此这个入口只适合「可选模式」场景；需要知道失败原因的走
+/// 因此这个入口只适合「可选模式」场景；需要知道失败原因的走
 /// [`compile_regex_checked`]（生产路径 regex-include 用的就是它）。
 pub fn compile_regex(pat: &str) -> MiniRegex {
     // 去掉可能的首尾 `^`/`$` 锚（由 matcher 解释）后做长度上限检查
@@ -149,7 +149,7 @@ fn validate_pattern(inner: &str) -> Result<(), RegexError> {
 
 /// Match **the whole** `text` with a mini-regex (`^` / `$` anchors are honoured) ｜ 用受限正则匹配整个 `text`。
 ///
-/// ⚠️ 步数预算耗尽时它**静默判「不匹配」**（既有行为，被 40+ 处断言依赖）。
+/// 步数预算耗尽时它**静默判「不匹配」**（既有行为，被 40+ 处断言依赖）。
 /// 需要「预算耗尽要报错」的调用方走 [`regex_matches_checked`]。
 pub fn regex_matches(re: &MiniRegex, text: &str) -> bool {
     matches_inner(re, text).0
@@ -183,7 +183,7 @@ fn matches_inner(re: &MiniRegex, text: &str) -> (bool, u64) {
     // 一个恶意模式即可把整个解析挂死（安全审计 P3-1）。故在此统一持有并传递。
     let mut steps: u64 = 0;
     let matched = if anchored_start {
-        // ⚠️ 这里必须和下面的循环一样校验 `anchored_end`：只判 `is_some()` 的话，
+        // 这里必须和下面的循环一样校验 `anchored_end`：只判 `is_some()` 的话，
         // `^...$` 会退化成「前缀匹配」——`^conf\.sml$` 能匹配 `conf.sml.bak`。
         // 这是与量词 off-by-one 同一次修复中翻出来的第二个既有缺陷（见 AUDIT_REPORT）。
         match backtrack_match(p, text, 0, &mut steps) {

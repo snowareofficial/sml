@@ -7,7 +7,7 @@
 //! 用户拿到的是 `E-CONTRACT-003`（必填缺失）而不是 `E-PARSE-006`，与另外三端不一致。
 //! `tests/conformance/cases/35_contract_modifier_question_only.sml` 就是为钉住这格而设。
 //!
-//! ⚠️ 为什么不在词法层切开 `?`：`?` 在 `@pattern` 里是量词（`sml-pattern`），
+//! 为什么不在词法层切开 `?`：`?` 在 `@pattern` 里是量词（`sml-pattern`），
 //! 全局切分会把 `a?` 这类合法模式拆坏。故在契约字段的**类型位置**定点拦截。
 
 use sml::parse;

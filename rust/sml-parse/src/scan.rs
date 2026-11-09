@@ -36,7 +36,7 @@ pub fn tok_word(t: &Tok) -> String {
 /// 即「该代的默认位 + 我显式改的那几个」，**显式声明优先于版本规则**。
 /// 版本集在 `features_for` 里才可知（`@version` 先被剥掉），故基集的版本部分在那里补。
 ///
-/// ⚠️ 这里改过一次语义：旧实现不写 mode 时基集起算是 `FeatureSet::all()`，于是文档里
+/// 这里改过一次语义：旧实现不写 mode 时基集起算是 `FeatureSet::all()`，于是文档里
 /// 出现**任何**一行 `@feature`（哪怕只写 `@feature enable typed-block`）都会让**全部
 /// 16 个特性生效** —— `when` / `for` / `glob-include` 以及 opt-in 的
 /// `case-insensitive` 被顺手打开，与「enable X = 只开 X」的直觉相反。需要旧行为请显式
@@ -179,7 +179,7 @@ pub fn apply_feature_directive(
         }
         "blacklist" => {
             // 紧凑黑名单：语义上就是 blacklist 模式（基集全开、移除所列）。
-            // ⚠️ 必须显式置 mode：否则 `features_for` 会走 Default 分支、用版本规则
+            // 必须显式置 mode：否则 `features_for` 会走 Default 分支、用版本规则
             // 补回「裸词字符串」等项，把这里的 `without` 抵消掉（既有用例
             // `feature::feature_blacklist_removes` 即钉这条）。
             *mode = FeatureMode::Blacklist;
@@ -291,7 +291,7 @@ pub fn strip_features(text: &str) -> Result<StrippedFeatures, SmlError> {
     // 存在的唯一目的是回答「这个 `@` 是不是落在多行字符串里」。而**首字符不是 `@` 的行
     // 根本不可能是指令** ⇒ 真遇到候选行时才扫，别为一份没有指令的文档白扫全文。
     let mut spans: Option<Vec<(usize, usize)>> = None;
-    // ⚠️ 基集 = **版本基线**（8 个核心特性），而不是「全开」。
+    // 基集 = **版本基线**（8 个核心特性），而不是「全开」。
     // 旧实现这里起算是 `FeatureSet::all()`：于是文档里出现**任何**一行 `@feature`
     // （哪怕只写 `@feature enable typed-block`），最终特性集都会变成「全部 16 个特性
     // 全开」—— 连 `when` / `for` / `glob-include` 以及 opt-in 的 `case-insensitive`
@@ -317,7 +317,7 @@ pub fn strip_features(text: &str) -> Result<StrippedFeatures, SmlError> {
                 match apply_feature_directive(line, &mut feats, &mut mode, &mut base, &mut touched) {
                     Ok(true) => {
                         had_feature = true;
-                        // ⚠️ **等长替换**：指令行换成同长度空格，行尾原样保留。
+                        // **等长替换**：指令行换成同长度空格，行尾原样保留。
                         // 直接 `continue`（删行）会让其后所有偏移比原文少 N 字节。
                         out.push_str(&blank_of(line));
                         out.push_str(&raw[line.len()..]);
@@ -572,9 +572,9 @@ pub fn strip_version(text: &str) -> Result<(String, Option<Edition>), SmlError> 
     // （本轮五端实测全中：Rust 输出 `"\u{feff}x": 1`、JS 输出 `{"\u{feff}x":1}`）。
     // 来源极常见：Windows 记事本「另存为 UTF-8」、Excel 导出的文本。
     //
-    // ⚠️ 仓库里 `smltools` 的 **YAML / XML 导入器早就各自去了 BOM**（`yaml.rs:93`、`xml.rs:63`），
+    // 仓库里 `smltools` 的 **YAML / XML 导入器早就各自去了 BOM**（`yaml.rs:93`、`xml.rs:63`），
     // 只有 native SML 这条路径漏了 —— 属于"同一件事两套待遇"，本轮补齐。
-    // ⚠️ BOM 换成**等长的 3 个空格**（U+FEFF 在 UTF-8 里占 3 字节）而不是删掉：
+    // BOM 换成**等长的 3 个空格**（U+FEFF 在 UTF-8 里占 3 字节）而不是删掉：
     // 删掉会让它之后的所有偏移少 3 字节，首行/首列定位就不准了。
     // 空格对词法无影响（`\u{feff}` 才是那个会被吞进键名的字符）。
     let owned;
@@ -749,7 +749,7 @@ mod tests {
             .iter()
             .position(|t| matches!(t, Tok::Word(w) if w == "ab"))
             .expect("应能找到键 ab");
-        // ⚠️ 不能写 `src.find("ab")`：enable 里就含 "ab"，会命中错的那处
+        // 不能写 `src.find("ab")`：enable 里就含 "ab"，会命中错的那处
         let expected = src.find("\nab:").unwrap() + 1;
         assert_eq!(
             spans[idx].start, expected,
@@ -774,7 +774,7 @@ mod tests {
 
     /// `Removed` 必须用**专用码**（`E-FEATURE-010`），文案带代号 + 迁移规则 id。
     ///
-    /// ⚠️ 登记表里现在还没有 `Removed` 行 ⇒ 只能直接测构造函数。加一行即接上，
+    /// 登记表里现在还没有 `Removed` 行 ⇒ 只能直接测构造函数。加一行即接上，
     /// 这条用例同时钉住「码与文案长什么样」，防止将来接分支时又复用 004。
     #[test]
     fn removed_edition_has_its_own_code() {

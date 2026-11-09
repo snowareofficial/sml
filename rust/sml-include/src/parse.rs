@@ -173,7 +173,7 @@ pub fn parse_include_line(line: &str, features: FeatureSet) -> Result<Option<Vec
         // Lua 早在 W20 第二阶段就按此码拒绝（`lua/lib/sml.soup` 的 `include_line_path`），
         // 现在 Rust 对齐 ⇒ 跨端同码同语义（`errors/codes.sml` 的 impls 已加 rust）。
         //
-        // ⚠️ 两处豁免：① `import a.b`（点分模块名，裸词是**语法**的一部分）⇒ 由 `via_import` 排除；
+        // 两处豁免：① `import a.b`（点分模块名，裸词是**语法**的一部分）⇒ 由 `via_import` 排除；
         //             ② `re:"…"`（受限正则模式，首字符本来就是 `r`，不是引号）。
         if !via_import && !raw.starts_with("re:") && (!quoted || !closed) {
             return Err(SmlError::from_code_msg(E_INCLUDE_012).with_detail(format!(
@@ -255,7 +255,7 @@ pub fn next_token(s: &str) -> Option<(String, &str)> {
 /// 为什么需要它：`include` 的路径**必须加引号**（`E-INCLUDE-012`），而「未加引号」与
 /// 「引号未闭合」在旧实现里都**看不出来** —— 前者被当路径解析（于是用户拿到的报错是
 /// "文件不存在"，被引去查一个不存在的文件）、后者静默把已读内容当完整路径。
-/// ⚠️ `import a.b`（点分模块名）的裸词是**语法**的一部分，故判据只在 `include` 上用
+/// `import a.b`（点分模块名）的裸词是**语法**的一部分，故判据只在 `include` 上用
 /// （见 `parse_include_line` 里的用法）。
 pub fn next_token_meta(s: &str) -> Option<(String, &str, bool, bool)> {
     let s = s.trim_start();
@@ -363,7 +363,7 @@ pub fn finalize_target(
                 None
             } else if is_dotted_module_name(&raw, via_import)
                 || (features.has(Feature::ImplicitNs)
-                    // ⚠️ 通配 / 正则目标的 `raw` **不是文件名**（`re:"conf"` 里没有点、
+                    // 通配 / 正则目标的 `raw` **不是文件名**（`re:"conf"` 里没有点、
                     // `*.sml` 也不是路径）⇒ 不能让 implicit-ns 给它们编命名空间：
                     // 老判据会给 `include re:"conf"` 挂一个名叫 `re:"conf"` 的命名空间。
                     && !raw.contains('.')
@@ -372,7 +372,7 @@ pub fn finalize_target(
             {
                 // `import a.b.c`：点分模块名（无扩展名、无路径分隔）⇒ 自动 `as a.b.c`
                 // `include "foo"`（无点）：implicit-ns 默认以文件名为命名空间
-                // ⚠️ `import "x.sml"` **不在此列**：带扩展名 = 普通内联（与 include 等价）
+                // `import "x.sml"` **不在此列**：带扩展名 = 普通内联（与 include 等价）
                 Some(raw.clone())
             } else {
                 None
@@ -409,7 +409,7 @@ pub fn resolve_target_paths(
         // 模式可含目录前缀（如 re:"lib/widget_.*"）：按 **SML 层的 `/`** 拆出目录，
         // 只把**目录部分**归一到平台分隔符。
         //
-        // ⚠️ 不能"先把整个模式里的 `/` 换成平台分隔符、再按平台分隔符 `split_dir`"（原写法）：
+        // 不能"先把整个模式里的 `/` 换成平台分隔符、再按平台分隔符 `split_dir`"（原写法）：
         // Windows 的 `MAIN_SEPARATOR` 就是 `\`，而正则里 `\.`（转义点号）的 `\` 会被当成
         // 目录分隔符 ⇒ `re:"widget_.*\.sml"` 被切成 dir=`widget_.*` / pat=`.sml`，
         // 报「include 目录读取失败 …\widget_.*」。文档里的那个例子在 Windows 上因此
@@ -461,7 +461,7 @@ pub fn resolve_target_paths(
 
 /// Split `a/b/pattern` into (`a/b`, `pattern`) on the **platform** separator ｜ 按**平台**分隔符切「目录 / 模式」。
 ///
-/// ⚠️ 通配 / 正则目标**不要**用它，用 [`split_dir_slash`]：SML 文档里的路径一律写 `/`，
+/// 通配 / 正则目标**不要**用它，用 [`split_dir_slash`]：SML 文档里的路径一律写 `/`，
 /// 而 Windows 的 `MAIN_SEPARATOR` 是 `\`，会把正则里的 `\.` 误当成目录分隔符。
 ///
 /// （原文档讲的是「遍历 `base` 目录条目」，那是 [`glob_or_regex_dir`] 的活，早已错挂在此 —— 2026-11-02 移回。）

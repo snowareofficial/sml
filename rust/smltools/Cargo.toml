@@ -1,6 +1,6 @@
 # smltools — SML (SNOWARE Markup Language) 命令行转换器 / 多目标翻译器。
 #
-# ⚠️ 实验性 (EXPERIMENTAL)：此 crate 从 swsml 主 crate 拆分为独立发布，
+# 实验性 (EXPERIMENTAL)：此 crate 从 swsml 主 crate 拆分为独立发布，
 #    对外 CLI 接口与 emit 后端组合仍可能随用户反馈调整，暂不做语义化稳定性承诺。
 #    生产关键路径请勿依赖其精确行为；建议关注版本号变更日志。
 [package]
@@ -9,7 +9,7 @@ name = "smltools"
 # 改名对下游是不兼容变更（Cargo.toml、脚本、CI 里的名字都要改），按 0.x 纪律动 MINOR。
 # 0.2.1：跟随 swsml 0.6.2 的 PATCH —— include 展开统一走 `sml::parse_file`（多目标 include
 # 不再静默丢第二个文件）、错误码不再按文案猜、clap 用法错误带 `E-CLI-008`。
-# ⚠️ 凡改动 `swsml = { version = ... }` 的**版本要求**，必须与 `rust/Cargo.toml` 的
+# 凡改动 `swsml = { version = ... }` 的**版本要求**，必须与 `rust/Cargo.toml` 的
 #    swsml 版本同步，否则 crates.io 会解析到旧版（那份 emit 仍返回 `String`），本仓编译失败。
 version.workspace = true
 edition = "2021"

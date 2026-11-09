@@ -27,7 +27,7 @@ sml = []
 # Value 的 Serialize/Deserialize 实现 + to_value/from_value 桥接。
 # 注：吃 SML 文本的 `from_str` 在门面 crate（需要解析器）。
 serde = ["dep:serde"]
-# ⚠️ **已退场（2026-11-05，方案 2 / B）**：这个 feature 现在是 **no-op 兼容名**，
+# **已退场（2026-11-05，方案 2 / B）**：这个 feature 现在是 **no-op 兼容名**，
 # 保留只是为了不破坏既有的 `--features preserve_order` 命令。
 #
 # 键序现在由**值自身**决定，不再由编译开关决定：

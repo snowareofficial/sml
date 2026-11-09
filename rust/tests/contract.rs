@@ -295,7 +295,7 @@ fn composition_array_of_contracts_validated_per_element() {
     // 2026-11-03 起 Rust 侧支持：此前解析器在数组元素位置只认内置类型与外置类型，
     // 非内置名一律报 `E-CONTRACT-012`（而 JS 因为递归 parseFieldSpec，天然支持）。
     // 校验器一侧本来就是通用的（逐元素构造 FieldSpec 再递归），所以只改了解析。
-    // ⚠️ `port` 写成 optional：**数组元素不回溯填 default**（元素规格刻意不带 default，
+    // `port` 写成 optional：**数组元素不回溯填 default**（元素规格刻意不带 default，
     // 见 `check_type` 里构造 elem 那段），所以必填字段必须逐元素写出来。
     let v = ok(
         "@contract Endpoint { host: str  port: int optional }
