@@ -487,8 +487,8 @@ pub enum ContainerError {
 }
 
 impl ContainerError {
-    /// Stable machine-readable class name (the `E-AMBR-*` table lands in T2).
-    /// 稳定的机器可读分类名（`E-AMBR-*` 码表在 T2 定）。
+    /// 稳定的机器可读分类名；容器错误不占 `errors/codes.sml` 五端码位。
+    /// ｜ Stable machine-readable class; container errors are outside the five-end code table.
     pub fn kind(&self) -> &'static str {
         match self {
             ContainerError::TooShort { .. } => "too-short",

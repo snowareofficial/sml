@@ -343,7 +343,7 @@ signed_bytes = "amberice/sig/v1\n"
 | 东西 | 在哪 | 说明 |
 |---|---|---|
 | `Value::canonical_text()` / `canonical_bytes()` / `from_canonical_bytes()` | `rust/sml-value/src/canonical.rs` | 规格把 API 写作 `Value::canonical_*`（§18.1），孤儿规则决定它必须住在定义 `Value` 的 crate；**容器层（段表/manifest/层链/签名/加密）一概不进 `sml-value`** |
-| `CanonicalError`（13 个变体 + `kind()`） | 同上 | 码表还没有 `E-AMBR-*`（面在 T2 定），故先给稳定 `kind()`；深度沿用 `E-LIMIT-004` |
+| `CanonicalError`（13 个变体 + `kind()`） | 同上 | 容器错误不占 `errors/codes.sml` 五端码位，当前给稳定 `kind()`；深度沿用 `E-LIMIT-004`。落 `E-AMBR-*` 须改 `errors/codes.sml` 并重生成五端产物 |
 | 「文本原子」规则（裸词/引号/转义、浮点写法） | `rust/sml-value/src/text_rules.rs` | 从 `dump.rs` 搬出来，**三个发射器共用一份**（`to_sml` / `ser_text` / `canonical`） |
 | crate `amberice` + `amberice vectors` CLI | `rust/amberice/` | T0 只有门面 + 向量；编码器骨架归 T1。`publish = false`（D1） |
 | 跨端向量 | `tests/vectors/amberice-canonical.v1.json` | 21 例，`canonical_text` + `bytes_hex` 双期望值 |

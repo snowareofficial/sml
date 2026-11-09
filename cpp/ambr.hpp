@@ -6,8 +6,10 @@
 // No compression / encryption / typed semantics — such VALUE bodies are refused, not guessed.
 // ｜ 只解 VALUE/STRTAB；压缩或加密的 VALUE 明确报错，其余段按 len 跳过。
 //
-// Errors / 错误: not in `errors/codes.sml` yet (E-AMBR-* lands with T7) ⇒ message starts
-// with `AMBR:` and carries no code. ｜ 错误暂不带码，前缀 `AMBR:`。
+// 错误：容器错误不占 `errors/codes.sml` 五端码位，当前不带码、前缀 `AMBR:`；
+// 落 `E-AMBR-*` 须改该表并重生成五端产物，不在本端手写码。
+// ｜ Errors: outside the five-end code table; no code, `AMBR:` prefix. Any `E-AMBR-*`
+//    code must be added via `errors/codes.sml` with all ends regenerated.
 #ifndef SML_AMBR_HPP
 #define SML_AMBR_HPP
 

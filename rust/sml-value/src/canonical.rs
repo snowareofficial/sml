@@ -89,11 +89,10 @@ const MAX_SUBTREE_LEN: usize = u32::MAX as usize;
 
 /// Why canonical failed / canonical 失败原因。
 ///
-/// Why an enum and not a `String` / 为什么是**独立的枚举**：the three failure families are of
-/// different nature — “built wrong” (C2), “data inexpressible” (C13), “bytes are corrupt”
-/// (decode) — and callers must handle them differently (e.g. `--check` maps them to distinct
-/// exit codes). The code table has no `E-AMBR-*` yet (that surface is fixed in T2), so this
-/// exposes a **stable `kind()` name** plus descriptive text; depth keeps `E-LIMIT-004`.
+/// 三类失败（C2 构建不符 / C13 数据不可表达 / 字节损坏）需分别处理，故用枚举而非 `String`。
+/// 稳定 `kind()` 是当前机器可读分类；容器错误不占 `errors/codes.sml` 五端码位，深度沿用 `E-LIMIT-004`。
+/// ｜ Distinct failure families need distinct handling. `kind()` is the stable class; container
+///    errors are outside the five-end code table (`E-AMBR-*` would land via `errors/codes.sml`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum CanonicalError {
@@ -210,8 +209,8 @@ pub enum CanonicalError {
 }
 
 impl CanonicalError {
-    /// Stable machine-readable class name — a temporary anchor until the code table is fixed in T2
-    /// (then these become `E-AMBR-*`). ｜ 稳定的机器可读分类名（T2 定稿后换成 `E-AMBR-*`）。
+    /// 稳定的机器可读分类名；容器错误不占 `errors/codes.sml` 五端码位。
+    /// ｜ Stable machine-readable class; container errors are outside the five-end code table.
     pub fn kind(&self) -> &'static str {
         match self {
             CanonicalError::KeyOrderUnavailable => "key-order-unavailable",
