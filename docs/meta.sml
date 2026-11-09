@@ -31,7 +31,7 @@ docs {
     { title: "docs/amberice/ref/ports.md" date: "2026-11-06" updated: "2026-11-09" owner: "amberice" status: "current" scope: "多端 .ambr 解码器进度台账（C# / Go / Ruby 三端未做）" supersedes: null superseded_by: null }
     { title: "docs/amberice/spec/format.md" date: "2026-11-02" updated: "2026-11-09" owner: "amberice" status: "current" scope: ".ambr 格式规范：信封 / canonical / VALUE 段 / 算法表 / 默认值 / 侧信道" supersedes: null superseded_by: null }
     { title: "docs/amberice/spec/smldb.md" date: "2026-11-02" updated: "2026-11-06" owner: "amberice" status: "draft" scope: "smldb 数据库层：表结构 / 后端选型 / 选择器 / 四层 API（全部未开工）" supersedes: null superseded_by: null }
-    { title: "docs/amberice/spec/tools.md" date: "2026-11-02" updated: "2026-11-06" owner: "amberice" status: "current" scope: ".ambr 配套工具面：info / ls / cat / check / verify / sign / pack / vectors" supersedes: null superseded_by: null }
+    { title: "docs/amberice/spec/tools.md" date: "2026-11-02" updated: "2026-11-09" owner: "amberice" status: "current" scope: ".ambr 配套工具面：子命令清单以 amberice --help 为准，另含五端解码器" supersedes: null superseded_by: null }
     { title: "docs/repo/archive/doc-defects.md" date: "2026-11-04" updated: "2026-11-04" owner: "repo" status: "archive" scope: "P1 文档盘点结果（2026-11-04 快照）" supersedes: null superseded_by: null }
     { title: "docs/repo/archive/doc-reconcile-2026-10-28.md" date: "2026-10-28" updated: "2026-11-03" owner: "repo" status: "archive" scope: "2026-10-28 文档对账的一次性记录" supersedes: null superseded_by: null }
     { title: "docs/repo/archive/handoff/HANDOFF-2026-10-26.md" date: "2026-10-26" updated: "2026-10-26" owner: "repo" status: "archive" scope: "会话交接（2026-10-26）" supersedes: null superseded_by: null }

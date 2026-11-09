@@ -18,9 +18,11 @@
 //! - [`SmlError::message`] / [`Display`](std::fmt::Display) 给出人读的文案；
 //! - **同一触发条件在五端必须给同一个码**（`errors/README.md` 的纪律）。
 //!
-//! 注意 [`SmlError`] 的 `Display` 会把码缀在文案之后（`文案 [E-PARSE-008]`），
-//! 而 `From<SmlError> for String` **只取文案** —— 后者是为既有那些
-//! `Result<_, String>` 的接口保留的兼容通道，它们的行为一字不变。
+//! [`SmlError`] 的 `Display` 会把码缀在文案之后（`文案 [E-PARSE-008]`）；
+//! 只要纯文案请用 [`SmlError::message`]。没有到 `String` 的隐式转换：
+//! C ABI 这类只能传文本的边界需显式调用 `message()`，避免 `?` 静默丢码。
+//! ｜ `Display` appends the code; `message()` gives text only. C ABI boundaries
+//!    that can only carry text must call `message()` explicitly.
 //!
 //! ```
 //! use sml_codes::{SmlError, E_PARSE_008};
@@ -28,7 +30,7 @@
 //! let e = SmlError::new(E_PARSE_008, "顶层须为容器");
 //! assert_eq!(e.code(), "E-PARSE-008");
 //! assert_eq!(e.to_string(), "顶层须为容器 [E-PARSE-008]");
-//! assert_eq!(String::from(e), "顶层须为容器");
+//! assert_eq!(e.message(), "顶层须为容器");
 //! ```
 
 pub mod codes;

@@ -465,7 +465,9 @@ mod tests {
             if i.domain == "PARSE" { parse += 1; }
         }
         assert_eq!(empty, 0, "所有码 title/msg 必须非空");
-        assert_eq!(parse, 27, "PARSE 领域应为 27 条（含 W-PARSE-001/002）");
+        // 与 `errors/codes.sml` 的 PARSE 域条数一致（E-PARSE-001..030 + W-PARSE-001/002）。
+        // 改码表时同步此值 ｜ Keep in sync with the PARSE domain in `errors/codes.sml`.
+        assert_eq!(parse, 32, "PARSE 领域条数须与 errors/codes.sml 一致");
     }
 
     #[cfg(not(feature = "zh"))]

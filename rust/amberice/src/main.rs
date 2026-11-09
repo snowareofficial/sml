@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! The `amberice` command line (T0 has exactly one subcommand: `vectors`).
-//! `amberice` 命令行（T0 只有一个子命令：`vectors`）。
+//! `amberice` 命令行：子命令清单以 `USAGE` 常量为准。
+//! ｜ The `amberice` CLI; the `USAGE` constant is the single source for its subcommand list.
 //!
-//! Hand-rolled argument parsing, **no `clap`**: this crate's charter is “depends only on the
-//! value model” (D3), and T0 has a single `vectors --gen/--check [--file PATH]` — no framework
-//! needed. Revisit when T6's tool surface (`info`/`ls`/`cat`/`verify`/`append`…) grows.
-//! 手写参数解析而**不引 `clap`**：定位是「只依赖值模型」（D3），T0 用不上框架。
+//! 手写参数解析，**不引 `clap`**：本 crate 只依赖值模型（D3），不为一个帮助文本引入框架。
+//! ｜ Hand-rolled argument parsing, no `clap`: this crate depends only on the value model (D3).
 //!
 //! Exit codes (scripts depend on them) / 退出码约定：
 //! - `0` success ｜ 成功；
@@ -154,7 +152,9 @@ fn run(args: &[String]) -> Result<String, (u8, String)> {
         "compact" => compact_cmd(&args[1..]),
         other => Err((
             2,
-            format!("未知子命令 `{other}`（现有 info / ls / check / cat / pack / unpack / vectors）"),
+            format!(
+                "未知子命令 `{other}`；完整清单见 `amberice --help` ｜ unknown subcommand; see `amberice --help`"
+            ),
         )),
     }
 }
