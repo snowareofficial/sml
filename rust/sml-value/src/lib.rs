@@ -108,7 +108,7 @@ pub use object::Object;
 pub use object::Object as OrderedMap;
 
 #[cfg(feature = "sml")]
-pub use dump::{to_sml, to_sml_canonical, to_sml_checked, to_sml_with, DumpOptions};
+pub use dump::{to_sml, to_sml_canonical, to_sml_checked};
 
 /// The serde bridge functions (`Value` ↔ any serde type).
 /// serde 桥接函数（`Value` ↔ 任意 serde 类型）。

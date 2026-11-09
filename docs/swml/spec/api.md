@@ -116,7 +116,7 @@ pub mod out {
 
 | # | 问题 | 裁决 |
 |---|---|---|
-| Q1 | L0 入口叫什么 | `read`（`load` / `loads` 已被 `sml::loads` 占用，不能用） |
+| Q1 | L0 入口叫什么 | `read`（一眼看懂；`load` / `loads` 与解析层 `parse` 系列易混） |
 | Q2 | 是否引入新类型 | 是，`Doc` |
 | Q3 | 是否保留 `raw() -> &Value` 逃生口 | 保留 |
 | Q4 | 承载形态：`swsml` 内模块 vs 独立 crate | **并入门面 crate `swml` 的 `easy` 模块**（2026-11-06 收口：两条发布线合成一条） |
@@ -155,8 +155,8 @@ pub enum OpenKey<'a> { … }
 
 一个名字只表达一件事；同一动作不给第二个名字。名字要能单独看懂，不依赖上下文。
 
-- 反例（本仓历史债务）：`to_string` / `to_sml` / `to_sml_canonical` / `to_sml_with` /
-  `to_string_direct` / `SmlSerialize::to_sml()` —— 同一动作的六种含义。
+- 反例（本仓历史债务）：`to_string` / `to_sml` / `to_sml_canonical` /
+  `to_string_direct` / `SmlSerialize::to_sml()` —— 同一动作的五种含义。
 - 正例：`Contracts::{Off, On}`、`Doc::read_file_with_report`。
 
 ### 规则 3 · API 树扁平：一棵树，每层节点少一些

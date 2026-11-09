@@ -1,6 +1,6 @@
 # sml-parse
 
-SML 语法分析：递归下降解析器与公开 parse API（`parse` / `parse_file` / `loads`）。
+SML 语法分析：递归下降解析器与公开 parse API（`parse` / `parse_file` / `parse_with`）。
 
 **English below** ｜ 中文在上方，English 在下方
 

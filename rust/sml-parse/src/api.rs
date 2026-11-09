@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! Public parsing API for SML (`parse` / `parse_file` / `loads` etc.) ｜ SML 解析的**公开 API**。
+//! Public parsing API for SML (`parse` / `parse_file` / `parse_with` etc.) ｜ SML 解析的**公开 API**。
 //!
 //! 与 [`crate::parser`] 分开：后者是内部实现，这里只做入口组装
 //! （特性求取 → 指令剥离 → tokenize → 解析 → include 展开）。
@@ -15,7 +15,6 @@ use sml_lex::{Span, Tok, tokenize_spans};
 use sml_value::Value;
 
 use crate::contract_map::ContractMap;
-use crate::error::ParseError;
 use crate::ext::{Diagnostic, ParseOptions, ParseOutput};
 use crate::parser::Parser;
 use crate::scan::{features_for, strip_features, strip_version};
@@ -794,9 +793,4 @@ pub fn parse_file_features(
     let lines = if spans.is_empty() { Vec::new() } else { token_lines(&rest, &spans) };
     parse_impl_tokens(toks, spans, lines, allowed, BTreeMap::new())
         .map_err(|e| with_position(&rest, e))
-}
-
-/// Parse into an object (throws `ParseError`, which carries an error code) ｜ 解析到对象 (失败抛 `ParseError`，它带**错误码**，见 [`sml_codes::SmlError`])
-pub fn loads(text: &str) -> Result<Value, ParseError> {
-    parse(text)
 }
