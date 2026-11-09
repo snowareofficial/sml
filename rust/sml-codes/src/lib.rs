@@ -197,17 +197,6 @@ impl fmt::Display for SmlError {
 
 impl std::error::Error for SmlError {}
 
-/// 兼容通道：**只取文案**，丢掉码。
-///
-/// 存在的原因是本仓库大量既有接口仍是 `Result<_, String>`：有了这条 `From`，
-/// 那些调用方 `foo()?` 不必改一行就能继续编译，行为也一字不变。
-/// 新接口（语言层）请直接用 `Result<_, SmlError>`，别再退回去用 `String`。
-impl From<SmlError> for String {
-    fn from(e: SmlError) -> String {
-        e.message
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,13 +269,6 @@ mod tests {
     }
 
     #[test]
-    fn string_conversion_drops_code() {
-        let e = SmlError::new(E_PARSE_008, "顶层须为容器");
-        let s: String = e.into();
-        assert_eq!(s, "顶层须为容器");
-    }
-
-    #[test]
     fn with_code_keeps_message_and_context_prepends() {
         let e = SmlError::new(E_INCLUDE_011, "词法失败")
             .with_code(E_INCLUDE_001)
@@ -308,16 +290,15 @@ mod tests {
         assert_eq!(e.pos(), Some(12));
     }
 
-    /// 位置**不属于**稳定契约：同一个错误带不带位置，`Display` / `render` /
-    /// `From<SmlError> for String` 必须逐字相同（位置由出口按需附加）。
+    /// 位置**不属于**稳定契约：同一个错误带不带位置，`Display` / `render` / `message()`
+    /// 必须逐字相同（位置由出口按需附加）。
     #[test]
     fn pos_does_not_change_display_or_render() {
         let plain = SmlError::new(E_LEX_001, "字符串未闭合");
         let with_pos = SmlError::new(E_LEX_001, "字符串未闭合").at(12);
         assert_eq!(plain.to_string(), with_pos.to_string());
         assert_eq!(plain.render(), with_pos.render());
-        let s: String = with_pos.into();
-        assert_eq!(s, "字符串未闭合");
+        assert_eq!(with_pos.message(), "字符串未闭合");
     }
 
     #[test]

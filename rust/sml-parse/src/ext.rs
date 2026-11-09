@@ -407,17 +407,19 @@ impl ParseOptions {
         Ok(self)
     }
 
-    /// Register an out-of-tree contract type (builder). ｜ 链式注册一个外置契约类型。
-    pub fn with_type(mut self, t: impl sml_contract::TypeCheck + 'static) -> Result<Self, String> {
+    /// 链式注册一个外置契约类型；失败带错误码。
+    /// ｜ Register an out-of-tree contract type (builder); failures carry an error code.
+    pub fn with_type(mut self, t: impl sml_contract::TypeCheck + 'static) -> Result<Self, SmlError> {
         self.contract_ext.register_type(t)?;
         Ok(self)
     }
 
-    /// Register an out-of-tree field modifier such as `items_max` (builder). ｜ 链式注册一个外置字段修饰符（如 `items_max`）。
+    /// 链式注册一个外置字段修饰符（如 `items_max`）；失败带错误码。
+    /// ｜ Register an out-of-tree field modifier (builder); failures carry an error code.
     pub fn with_modifier(
         mut self,
         m: impl sml_contract::Modifier + 'static,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, SmlError> {
         self.contract_ext.register_modifier(m)?;
         Ok(self)
     }

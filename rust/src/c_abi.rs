@@ -340,7 +340,11 @@ pub unsafe extern "C" fn sml_parse_ex(text: *const c_char, opts: *const c_char) 
             allowed = allowed.with(*f);
         }
         let env_map: BTreeMap<String, String> = env.into_iter().collect();
-        let val = parse_with_features_env(&t, allowed, env_map).map(|(v, _)| v)?;
+        // C ABI 只能传文本，此处显式取文案（不带码），避免隐式丢码。
+        // ｜ The C ABI carries text only; take the message explicitly instead of a silent `?` conversion.
+        let val = parse_with_features_env(&t, allowed, env_map)
+            .map(|(v, _)| v)
+            .map_err(|e| e.message().to_string())?;
         if !allow.is_empty() {
             let declared = strip_version(&t).ok().and_then(|(_, d)| d);
             if let Some(d) = declared {

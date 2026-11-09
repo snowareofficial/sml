@@ -369,9 +369,10 @@ pub mod serde {
     #[cfg(feature = "sml")]
     pub use sml_value::serde::to_string_direct;
 
-    /// Deserialize directly from SML text into any `Deserialize` type (like `toml::from_str`) ｜ 从 SML 文本直接反序列化到任意 `Deserialize` 类型（等价于 `toml::from_str`）。
+    /// 从 SML 文本反序列化到任意 `Deserialize` 类型；此入口的错误只给文案，语言层 `parse` 才带码。
+    /// ｜ Deserialize SML text into any `Deserialize` type; errors are plain text, unlike coded `parse`.
     pub fn from_str<T: serde::de::DeserializeOwned>(text: &str) -> Result<T, String> {
-        let value = crate::parse(text)?;
+        let value = crate::parse(text).map_err(|e| e.message().to_string())?;
         from_value(value)
     }
 }

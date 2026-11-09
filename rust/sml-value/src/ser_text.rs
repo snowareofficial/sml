@@ -169,7 +169,7 @@ fn render_element(n: &Node, indent: usize, depth: usize) -> String {
         return render_inline(n, depth);
     }
     match n {
-        Node::Object(m) => format!("{{") + &render_object_body(m, indent, depth),
+        Node::Object(m) => "{".to_string() + &render_object_body(m, indent, depth),
         Node::Array(a) => {
             let mut out = String::from("[");
             for e in a {
