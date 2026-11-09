@@ -267,7 +267,7 @@ pub fn parse(text: &str) -> Result<Value, SmlError> {
 ///
 /// let out = sml_parse::parse_with("name: x\n@form F { a: 1 }\n", ParseOptions::new().directive(Form)?)?;
 /// assert_eq!(out.value.get("name"), Some(&Value::Str("x".into())));
-/// # Ok::<(), String>(())
+/// # Ok::<(), sml_codes::SmlError>(())
 /// ```
 /// # 语义：只做「文本 → 值」，**不碰文件系统**
 ///

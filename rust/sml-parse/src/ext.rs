@@ -29,7 +29,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use sml_codes::SmlError;
+use sml_codes::{E_EXT_002, SmlError};
 use sml_contract::ContractExt;
 use sml_value::Value;
 
@@ -174,20 +174,21 @@ impl DirectiveTable {
         }
     }
 
-    /// Register one external directive; **a duplicate name is always an error**, never a silent overwrite
-    /// ｜ 注册一条外置指令。**重名一律报错**，不静默覆盖：
+    /// 注册一条外置指令；与内置同名或重复注册一律报 `E-EXT-002`，不静默覆盖。
+    /// ｜ Register an external directive; built-in or duplicate names return `E-EXT-002`.
     ///
     /// 与内置同名会改写核心语义，与已注册同名多半是重复注册的手误。
-    pub fn register(&mut self, d: impl Directive + 'static) -> Result<(), String> {
+    pub fn register(&mut self, d: impl Directive + 'static) -> Result<(), SmlError> {
         let name = d.name().to_string();
         if BUILTIN_DIRECTIVES.contains(&name.as_str()) {
-            return Err(format!(
-                "sml: 不可注册与内置指令同名的扩展指令 `@{name}`（内置：{}）",
+            return Err(SmlError::from_code_title(E_EXT_002).with_detail(format!(
+                "不可注册与内置指令同名的扩展指令 `@{name}`（内置：{}）",
                 BUILTIN_DIRECTIVES.join(" / ")
-            ));
+            )));
         }
         if self.items.contains_key(&name) {
-            return Err(format!("sml: 扩展指令 `@{name}` 已注册"));
+            return Err(SmlError::from_code_title(E_EXT_002)
+                .with_detail(format!("扩展指令 `@{name}` 已注册")));
         }
         self.items.insert(name, Arc::new(d));
         Ok(())
@@ -403,9 +404,9 @@ impl ParseOptions {
         self
     }
 
-    /// 链式注册一条外置指令；注册失败返回 `Err`，便于 `?` 展开。
-    /// ｜ Register an out-of-tree directive; returns `Err` on failure.
-    pub fn directive(mut self, d: impl Directive + 'static) -> Result<Self, String> {
+    /// 链式注册一条外置指令；重名失败带 `E-EXT-002`，便于 `?` 展开。
+    /// ｜ Register an out-of-tree directive; name conflicts return a coded error.
+    pub fn directive(mut self, d: impl Directive + 'static) -> Result<Self, SmlError> {
         self.directives.register(d)?;
         Ok(self)
     }
@@ -598,23 +599,25 @@ mod tests {
         );
     }
 
-    /// 内置指令名不可被外置扩展占用（否则会改写核心语义）。
+    /// 内置指令名不可被外置扩展占用（否则会改写核心语义），且失败带 `E-EXT-002`。
     #[test]
     fn builtin_names_cannot_be_overridden() {
         for n in ["contract", "is", "version", "feature", "type"] {
-            assert!(
-                ParseOptions::new().directive(Meta(n)).is_err(),
-                "`@{n}` 是内置指令，注册应失败"
-            );
+            let e = match ParseOptions::new().directive(Meta(n)) {
+                Err(e) => e,
+                Ok(_) => panic!("`@{n}` 是内置指令，注册应失败"),
+            };
+            assert_eq!(e.code(), E_EXT_002, "`@{n}` 的失败应带扩展注册名冲突码：{e}");
         }
     }
 
-    /// 同名重复注册应报错，不静默覆盖。
+    /// 同名重复注册应报错，不静默覆盖；错误同样带 `E-EXT-002`。
     #[test]
     fn duplicate_registration_errors() {
         let mut o = ParseOptions::new();
         o.directives.register(Meta("form")).unwrap();
-        assert!(o.directives.register(Meta("form")).is_err());
+        let e = o.directives.register(Meta("form")).expect_err("重名应报错");
+        assert_eq!(e.code(), E_EXT_002, "重名失败应带扩展注册名冲突码：{e}");
     }
 
     /// 外置契约类型：注册后能在契约里直接用，且校验真的生效。
