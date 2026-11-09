@@ -315,45 +315,41 @@ impl Default for ParseOptions {
 }
 
 impl ParseOptions {
-    /// All defaults; only `warn_key_conflict` is on, everything else is off / empty ｜ 全默认值：仅 `warn_key_conflict` 为真，其余全关或为空。
-    ///
-    /// 这个组合与「不给选项」的行为**逐字一致**，所以可以放心用它再链式改一项。
+    /// 全默认值：仅 `warn_key_conflict` 为真，其余全关或为空；与「不给选项」逐字一致。
+    /// ｜ All defaults; byte-identical to passing no options.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Whether to collect key-conflict warnings (builder). Defaults to `true`. ｜ 是否收集键冲突告警（链式）。默认 `true`。
-    /// Parse into **source-ordered objects** (builder). Defaults to `false`.
-    /// 解析成保源序对象（链式）。默认关闭以保持 `parse()` 的历史字节序。
+    /// 解析成保源序对象；默认关闭以保持 `parse()` 的历史字节序。
+    /// ｜ Parse into source-ordered objects; defaults to off.
     ///
-    /// `parse_ordered()` 就是这个开关的便捷入口。开它之后 `Value` 的对象都是
-    /// `Map::Ordered`，可直接交给 `amberice::dump` / `canonical_*`，**不需要任何 feature**。
+    /// `parse_ordered()` 是这个开关的便捷入口；开启后对象为 `Map::Ordered`，
+    /// 可直接交给 `amberice::dump` / `canonical_*`，不需要任何 feature。
     pub fn ordered(mut self) -> Self {
         self.ordered = true;
         self
     }
 
-    /// Allow a **single top-level scalar** (builder). Defaults to `false`.
-    /// 允许单个顶层标量（链式）。默认 `false`。
+    /// 允许单个顶层标量（默认关闭）；只用于读回 canonical 文本，有歧义的形态仍报错。
+    /// ｜ Allow a lone top-level scalar, for reading back canonical text.
     ///
-    /// 只对「读回 canonical 文本」有用：`canonical_text` 会输出 `42\n` / `null\n`，
-    /// 默认入口却把它们判成 `E-PARSE-008`（W16 防的是静默造键，不是标量本身）。
-    /// 打开后 `42` 解析成 `Value::Int(42)`，与 Rust 侧 `dump` 的写入方向对称。
-    ///
-    /// 只影响**恰好一个标量 token** 的文档；`42 a { }` 这类有歧义的形态
-    /// 仍然按原判据报错（把 `42` 当块类型名会改写形状）。
-    /// ｜ Only a lone scalar token is accepted; ambiguous forms still error.
+    /// 默认入口把 `42` / `null` 判成 `E-PARSE-008`（W16 防静默造键）；打开后
+    /// `42` 解析成 `Value::Int(42)`，与 `dump` 的写入方向对称。
     pub fn allow_top_scalar(mut self) -> Self {
         self.allow_top_scalar = true;
         self
     }
 
+    /// 是否收集键冲突告警；默认 `true`，只影响 `diagnostics`、不改变 `Value`。
+    /// ｜ Whether to collect key-conflict warnings; defaults to on, value unchanged.
     pub fn warn_key_conflict(mut self, on: bool) -> Self {
         self.warn_key_conflict = on;
         self
     }
 
-    /// Whether to apply in-file contracts at parse time (builder). Defaults to `true`. ｜ 是否在解析期应用文件内契约（链式）。默认 `true`。
+    /// 是否在解析期应用文件内契约；默认 `true`。
+    /// ｜ Whether to apply in-file contracts at parse time; defaults to on.
     ///
     /// `false` ⇒ 跳过 `@is` / typed-block 的契约应用与校验（不填默认值、
     /// 未知契约不报错）；`@contract` 定义仍收集且不进入结果树。
@@ -363,13 +359,17 @@ impl ParseOptions {
         self
     }
 
-    /// Collect multiple errors instead of stopping at the first (builder). Defaults to `false`; collected errors land in [`ParseOutput::errors`] and `value` is a best-effort partial result (TODO L16). ｜ 是否收集多条错误（链式）。默认 `false`；开启后错误进 [`ParseOutput::errors`]，`value` 为尽力而为的部分结果（TODO L16）。
+    /// 是否收集多条错误而非遇错即停；默认 `false`。
+    /// ｜ Collect multiple errors instead of stopping at the first; defaults to off.
+    ///
+    /// 开启后错误进 [`ParseOutput::errors`]，`value` 为尽力而为的部分结果（TODO L16）。
     pub fn collect_errors(mut self, on: bool) -> Self {
         self.collect_errors = on;
         self
     }
 
-    /// Hand the collected contract table back in [`ParseOutput::contracts`] (builder). Defaults to `false`. ｜ 把本次收集到的契约表随输出交回（链式）。默认 `false`。
+    /// 把本次收集到的契约表随 [`ParseOutput::contracts`] 交回；默认 `false`。
+    /// ｜ Hand the collected contract table back in `ParseOutput::contracts`; defaults to off.
     ///
     /// 用途：内置契约表用 SML 定义、再由宿主注入 —— 先解析一遍拿到 `Contract` 值
     /// （`docs/swsml/spec/weakbind.md` §6.1）。
@@ -378,7 +378,8 @@ impl ParseOptions {
         self
     }
 
-    /// Inject the **builtin contract table** used by `@weakbind` soft checks (builder). ｜ 注入内置契约表（链式），供 `@weakbind` 软校验比对。
+    /// 注入内置契约表（链式），供 `@weakbind` 软校验比对。
+    /// ｜ Inject the builtin contract table used by `@weakbind` soft checks.
     ///
     /// 空表（默认）⇒ 软校验整段跳过。表通常这样来：
     /// `parse_with(builtin_sml, ParseOptions::new().capture_contracts(true))?.contracts`。
@@ -390,7 +391,8 @@ impl ParseOptions {
         self
     }
 
-    /// Enables contract-map recording (builder). ｜ 开启契约映射记录（链式）。
+    /// 开启契约映射记录（链式）。
+    /// ｜ Enable contract-map recording.
     ///
     /// ```ignore
     /// let out = sml_parse::parse_with(text, ParseOptions::new().trace_contracts(true))?;
@@ -401,7 +403,8 @@ impl ParseOptions {
         self
     }
 
-    /// Register an out-of-tree directive (builder; returns Err on failure so `?` unwraps it). ｜ 链式注册一条外置指令（注册失败返回 Err，便于 `?` 展开）。
+    /// 链式注册一条外置指令；注册失败返回 `Err`，便于 `?` 展开。
+    /// ｜ Register an out-of-tree directive; returns `Err` on failure.
     pub fn directive(mut self, d: impl Directive + 'static) -> Result<Self, String> {
         self.directives.register(d)?;
         Ok(self)
@@ -424,7 +427,8 @@ impl ParseOptions {
         Ok(self)
     }
 
-    /// Whether any extension is present (lets the parser skip the extension branches, keeping zero-extension runs zero-cost). ｜ 是否携带任何扩展（用于快速跳过扩展分支，保证零扩展零开销）。
+    /// 是否携带任何扩展；用于跳过扩展分支，保证零扩展零开销。
+    /// ｜ Whether any extension is present; lets zero-extension runs skip those branches.
     pub fn has_ext(&self) -> bool {
         !self.directives.is_empty() || !self.contract_ext.is_empty()
     }
