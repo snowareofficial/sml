@@ -24,7 +24,8 @@
 
 use std::path::PathBuf;
 
-use sml::{split_kv, strip_line_comment, MAX_VALUE_DEPTH};
+use sml::lint::split_kv;
+use sml::{strip_line_comment, MAX_VALUE_DEPTH};
 use sml_codes::{E_LINT_001, W_LINT_001, W_LINT_002, W_LINT_004, W_LINT_005};
 
 /// Result of one lint run ｜ 检查结果。
@@ -90,8 +91,8 @@ pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
         .map(|(i, l)| (i + 1, l.to_string(), indent_of(l)))
         .collect();
 
-    // 契约/片段的定义与引用：**单一来源**（库的 `sml::scan_source_refs`，TODO 雷 3）。
-    let refs = sml::scan_source_refs(text);
+    // 契约/片段的定义与引用：**单一来源**（库的 `sml::lint::scan_source_refs`，TODO 雷 3）。
+    let refs = sml::lint::scan_source_refs(text);
 
     for (no, raw, _indent) in &lines {
         // tab 缩进
@@ -177,7 +178,7 @@ pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
 
     // ---- 4. 结构检查（仅解析成功时）----
     if let Ok((v, _)) = &parsed {
-        let d = sml::depth_of(v);
+        let d = sml::lint::depth_of(v);
         if d > MAX_VALUE_DEPTH / 2 {
             // W-LINT-005：嵌套超过建议阈值（只提醒可读性，不是拒绝 —— 解析上限见 E-LIMIT-001）。
             // 阈值 = MAX_VALUE_DEPTH / 2，库改 MAX_VALUE_DEPTH 时自动跟随。
@@ -213,7 +214,7 @@ fn indent_of(line: &str) -> usize {
 
 
 
-/// 值的嵌套深度（**单一来源**：直接复用 `sml::depth_of`，见该函数文档）。
+/// 值的嵌套深度（**单一来源**：直接复用 `sml::lint::depth_of`，见该函数文档）。
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,8 +242,8 @@ mod tests {
     fn depth_of_is_library_single_source() {
         let v = sml::parse("a { b { c: 1 } }").unwrap();
         // 根(1) -> a 的对象(2) -> b 的对象(3) -> 标量 c:1(4)
-        assert_eq!(sml::depth_of(&v), 4, "根(1)+a(2)+b(3)+标量(4)");
-        assert_eq!(sml::depth_of(&Value::Int(1)), 1, "标量 = 1");
+        assert_eq!(sml::lint::depth_of(&v), 4, "根(1)+a(2)+b(3)+标量(4)");
+        assert_eq!(sml::lint::depth_of(&Value::Int(1)), 1, "标量 = 1");
     }
 
     /// W-LINT-005：嵌套超过建议阈值（阈值 64，解析上限 128）。
@@ -267,18 +268,21 @@ mod tests {
         assert!(out.contains("[E-PARSE-001]"), "应透传 E-PARSE-001：\n{out}");
     }
 
-    /// 单一来源：`scan_source_refs` 复用库的 `BUILTIN_DIRECTIVES`（含 `include`），
-    /// 库的指令集变动时自动跟随，不会静默误判新指令为片段。
+    /// 单一来源：内置指令判定取解析层名单 + `include`，weak* 等新指令自动跟随，
+    /// 不会被静默误判为片段定义。
     #[test]
     fn builtin_directives_is_single_source() {
-        assert!(sml::BUILTIN_DIRECTIVES.contains(&"include"));
-        assert_eq!(sml::BUILTIN_DIRECTIVES.len(), 8);
-        let r = sml::scan_source_refs("@contract C { }\n@include \"x.sml\"\n@frag { }\n");
+        assert!(sml::lint::is_builtin_directive("contract"));
+        assert!(sml::lint::is_builtin_directive("include"));
+        assert!(sml::lint::is_builtin_directive("weakbind"));
+        let r = sml::lint::scan_source_refs(
+            "@contract C { }\n@include \"x.sml\"\n@weakbind tls\n@frag { }\n",
+        );
         // 名单里的都不是片段定义；名单外的才算。
         assert!(!r
             .fragment_defs
             .iter()
-            .any(|(n, _)| n == "contract" || n == "include"));
+            .any(|(n, _)| n == "contract" || n == "include" || n == "weakbind"));
         assert!(r.fragment_defs.iter().any(|(n, _)| n == "frag"));
         assert!(r.contract_defs.iter().any(|(n, _)| n == "C"));
     }
@@ -296,17 +300,17 @@ mod tests {
         assert!(out.contains("W-LINT-001"), "注释后的片段定义应被识别：\n{out}");
     }
 
-    /// `split_kv` 现在复用 `sml::split_kv`（与解析器同口径：冒号即分隔符），
+    /// `split_kv` 现在复用 `sml::lint::split_kv`（与解析器同口径：冒号即分隔符），
     /// 因此无空格的 `k:1` 也会被识别为字段——重复键由 W-LINT-003 捕获。
     #[test]
     fn split_kv_matches_parser() {
-        assert_eq!(sml::split_kv("k: 1"), Some(("k".to_string(), "1".to_string())));
-        assert_eq!(sml::split_kv("k:1"), Some(("k".to_string(), "1".to_string())));
+        assert_eq!(sml::lint::split_kv("k: 1"), Some(("k".to_string(), "1".to_string())));
+        assert_eq!(sml::lint::split_kv("k:1"), Some(("k".to_string(), "1".to_string())));
         assert_eq!(
-            sml::split_kv("k: 'a:b'"),
+            sml::lint::split_kv("k: 'a:b'"),
             Some(("k".to_string(), "'a:b'".to_string()))
         );
-        assert_eq!(sml::split_kv("notakv"), None);
+        assert_eq!(sml::lint::split_kv("notakv"), None);
         // 无空格重复键：由解析期的 W-PARSE-001 报出（lint 不再自写扫描）。
         let out = messages("k:1\nk:2\n");
         assert!(out.contains("W-PARSE-001"), "无空格重复键应被捕获：\n{out}");
