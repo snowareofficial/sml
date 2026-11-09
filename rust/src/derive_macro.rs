@@ -39,9 +39,8 @@ pub trait SmlDeserialize: Sized {
     }
 }
 
-/// Serialize to SML text — a toml-rs style free function (equivalent to [`SmlSerialize::to_sml`]) ｜ 序列化为 SML 文本。
-///
-/// 与 `toml::to_string` 一致：返回 `Result`（例如 `#[sml(flatten)]` 字段产出的不是块时失败）。
+/// 序列化为 SML 文本（`toml::to_string` 风格的便利函数），委托给 [`SmlSerialize::to_sml`]。
+/// ｜ Serialize to SML text (toml-style convenience function); delegates to `SmlSerialize::to_sml`.
 ///
 /// ```rust
 /// # #[cfg(feature = "derive")] {
@@ -55,7 +54,7 @@ pub trait SmlDeserialize: Sized {
 /// ```
 #[cfg(feature = "sml")]
 pub fn to_string<T: SmlSerialize + ?Sized>(value: &T) -> Result<String, String> {
-    Ok(crate::to_sml(&value.to_sml_value()?))
+    value.to_sml()
 }
 
 /// Parse SML text and deserialize it — a toml-rs style free function (equivalent to [`SmlDeserialize::from_sml`]) ｜ 解析 SML 文本并反序列化。
