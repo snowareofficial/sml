@@ -85,6 +85,6 @@
 | [`repo/plan/doc-architecture.md`](repo/plan/doc-architecture.md) | 2026-11-04 | 2026-11-06 | **stale** | `docs/index.md` | 文档四层架构 + P1–P4（提议；已由本次治理落地） |
 | [`repo/ref/pending-decisions.md`](repo/ref/pending-decisions.md) | 2026-11-06 | 2026-11-06 | **current** | — | 裁决台账：五条已全部裁决 + 仍待裁项的去处 |
 | [`repo/ref/scan.md`](repo/ref/scan.md) | 2026-11-07 | 2026-11-09 | **current** | — | 自动扫描的计数结果（tools/scan_status.py --write 生成，勿手改） |
-| [`repo/ref/todo-ideas-tables.md`](repo/ref/todo-ideas-tables.md) | 2026-11-06 | 2026-11-07 | **current** | — | TODO / IDEAS 条目表：卡在谁、什么状态 |
+| [`repo/ref/todo-ideas-tables.md`](repo/ref/todo-ideas-tables.md) | 2026-11-06 | 2026-11-09 | **current** | — | TODO / IDEAS 条目表：卡在谁、什么状态 |
 | [`repo/ref/unfinished.md`](repo/ref/unfinished.md) | 2026-11-06 | 2026-11-09 | **current** | — | 唯一「还剩什么」清单（分类 / 判据 / 复核命令） |
 
