@@ -106,6 +106,7 @@ mod derive_macro;
     feature = "emit-html"
 ))]
 pub mod emit;
+pub mod lint;
 
 // ---------------------------------------------------------------------------
 // re-export：把各功能 crate 的公共 API 聚合到 `sml::` 单一命名空间，
@@ -203,119 +204,9 @@ pub use sml_contract::infer;
 /// External extension point: register custom contract types without editing crate source ｜ 外置扩展点：注册自定义契约类型（`image` / `link` / `time` 等），无需改动本 crate 源码。
 pub use sml_contract::ext as contract_ext;
 
-// ---------------------------------------------------------------------------
-// 单一来源：内置指令名单与「键: 值」切分。
-// smltools `--lint` 直接复用，避免与解析器/词法器各实现一份而静默分叉
-// （库增/改指令或 kv 语义时，lint 自动跟随）。
-// ---------------------------------------------------------------------------
+// lint 扫描工具见 `lint` 模块；根不再导出这些内部量。
 
-/// Top-level builtin directive names: these `@xxx` are not fragment definitions ｜ SML 顶层内置指令名单：这些 `@xxx` 不是片段定义。
-///
-/// 与解析层在注册阶段就拒绝的 7 个内建名（contract/is/type/version/feature/when/for）
-/// 一致，并额外包含由 `sml-include` 层处理的 `include`——lint 据此把 `@xxx` 区分为
-/// 「片段定义」还是「内置指令」，库新增/调整指令时这里自动跟随。
-pub const BUILTIN_DIRECTIVES: &[&str] = &[
-    "contract", "is", "type", "version", "feature", "when", "for", "include",
-];
 
-/// Split `key: value` with the same rule as the parser ｜ 切分 `键: 值`：与解析器同口径——冒号即字段分隔符（不要求后跟空白），字符串/引号内的冒号不算。供 `smltools --lint` 复用。
-pub fn split_kv(s: &str) -> Option<(String, String)> {
-    let b = s.as_bytes();
-    let (mut in_s, mut in_d) = (false, false);
-    for i in 0..b.len() {
-        match b[i] {
-            b'\'' if !in_d => in_s = !in_s,
-            b'"' if !in_s => in_d = !in_d,
-            b':' if !in_s && !in_d => {
-                let k = s[..i].trim().trim_matches(['"', '\'']).to_string();
-                if k.is_empty() {
-                    return None;
-                }
-                return Some((k, s[i + 1..].trim().to_string()));
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-// 递归深度上限 `MAX_VALUE_DEPTH` 的再导出在上方 `pub use sml_value::{…}` 处
-// （不再从 `crate::emit` 取，原因见那里的注释 / HANDOFF R9）。
-// lint 的「嵌套过深」阈值仍取它的一半，库改一处、lint 自动跟随。
-
-/// **Nesting depth** of a value (parser-internal state excluded): a root container counts 1, a scalar counts 1 ｜ 值的**嵌套深度**。
-///
-/// 与 `smltools --lint` 的 `W-LINT-005`（建议阈值 `MAX_VALUE_DEPTH / 2`）共用同一实现，
-/// 避免 CLI 与库各写一份、改一处漏一处（TODO 雷 3 的分叉项）。
-pub fn depth_of(value: &Value) -> usize {
-    match value {
-        Value::Array(a) => 1 + a.iter().map(depth_of).max().unwrap_or(0),
-        Value::Object(m) => 1 + m.values().map(depth_of).max().unwrap_or(0),
-        _ => 1,
-    }
-}
-
-/// Source-scan result: contract / fragment **definitions** and **uses** (line numbers start at 1) ｜ 源码扫描结果。
-#[derive(Debug, Default, Clone)]
-pub struct SourceRefs {
-    pub contract_defs: Vec<(String, usize)>,
-    pub contract_uses: Vec<(String, usize)>,
-    pub fragment_defs: Vec<(String, usize)>,
-    pub fragment_uses: Vec<(String, usize)>,
-}
-
-/// Scan source text for contract / fragment definitions and uses (feeds `smltools --lint`'s unused checks) ｜ 扫描源码里的契约/片段定义与引用。
-///
-/// 这是**行级文本扫描**，不是解析器；但它与解析器共用 `strip_line_comment` /
-/// `BUILTIN_DIRECTIVES` 的语义，故收在库里当单一来源（TODO 雷 3 的分叉项）。
-pub fn scan_source_refs(text: &str) -> SourceRefs {
-    let mut out = SourceRefs::default();
-    for (i, raw) in text.lines().enumerate() {
-        let no = i + 1;
-        let body = strip_line_comment(raw).trim();
-        if body.is_empty() {
-            continue;
-        }
-        if let Some(d) = body.strip_prefix('@') {
-            let word = d
-                .split(|c: char| c.is_whitespace() || c == ':' || c == '{')
-                .next()
-                .unwrap_or("");
-            if word == "contract" {
-                if let Some(nm) = first_word_after(d, "contract") {
-                    out.contract_defs.push((nm, no));
-                }
-            } else if word == "is" {
-                if let Some(nm) = first_word_after(d, "is") {
-                    out.contract_uses.push((nm, no));
-                }
-            } else if !word.is_empty() && !BUILTIN_DIRECTIVES.contains(&word) {
-                out.fragment_defs.push((word.to_string(), no));
-            }
-        }
-        for (idx, _) in body.match_indices('&') {
-            let rest = &body[idx + 1..];
-            let nm: String = rest
-                .chars()
-                .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
-                .collect();
-            if !nm.is_empty() {
-                out.fragment_uses.push((nm, no));
-            }
-        }
-    }
-    out
-}
-
-/// 取 `指令` 之后的第一个词（如 `contract Server {` → `Server`）。
-fn first_word_after(s: &str, kw: &str) -> Option<String> {
-    let rest = s.trim_start().strip_prefix(kw)?.trim_start_matches([':', ' ']);
-    let w: String = rest
-        .chars()
-        .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
-        .collect();
-    if w.is_empty() { None } else { Some(w) }
-}
 
 pub use sml_include::{
     IncludeTarget, MiniRegex, RegexError, compile_regex, compile_regex_checked,
