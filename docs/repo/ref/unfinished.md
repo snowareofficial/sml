@@ -39,12 +39,11 @@
 | 项 | 内容 | 来源 |
 |---|---|---|
 | 错误码 | 42 条 `impls: [rust]`（featag 6 / weak* 3 / v5 若干 / 老能力历史缺口 82 条另计） | `errors/codes.sml`；`open-work.md` §4 |
-| 一致性套件 | 41 例，AGREE 34 / DIVERGE 7：`10`/`11` 的 C++ 行级 `&frag`、`19` 的 JS/Lua 浮点身份等 | `tests/conformance/known_divergences.md`；`python tests/conformance/run_conformance.py` |
+| 一致性套件 | 41 例 **AGREE 41 / DIVERGE 0**；`19` 的浮点身份是 JS/Lua 的载体限制，以 `*` 放行，**待登记为永久取舍** | `tests/conformance/known_divergences.md` 头部；`python tests/conformance/run_conformance.py` |
 | featag 四端 | Rust S0–S9 已收官；C/JS/Lua/C++ 未认识 `type.featag` | `IDEAS.md` I-6（状态 `Blocked` 已过期） |
 | weak* 四端 | `@weakbind` / `@weakdata` / `@weakdoc` 库+工具均完成，仅 Rust | `IDEAS.md` I-5/I-15/I-17（`Partial`） |
 | 版本模型 | `Edition` 已替换 `Version`，四端未同步 | `docs/swsml/spec/version.md` |
 | TODO 里的跨端 7 项 | 顶层标量口径 L166 · 错误边界 L201 · Lua/JS 单测 L203 · C `sml_dump` 对齐 L204 · Lua 契约数组 L318 · Lua 嵌套数组 L967 · `k: "abc\` 三端三码 L1093 | `TODO.md` |
-| 临时探针 | `known_divergences.md` 末节约 40 个 `_*` 文件，等套件全 AGREE 后清 | `TODO.md:969` |
 
 ---
 
