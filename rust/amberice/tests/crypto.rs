@@ -34,9 +34,9 @@ fn encrypted_round_trip() {
     let value_seg = info
         .segments
         .iter()
-        .find(|s| s.header.seg_id == amberice::SEG_VALUE)
+        .find(|s| s.header.seg_id == amberice::container::SEG_VALUE)
         .unwrap();
-    assert_eq!(value_seg.header.enc, amberice::ENC_AES256_GCM);
+    assert_eq!(value_seg.header.enc, amberice::crypto::ENC_AES256_GCM);
     // 加密文件强制 4 KiB 对齐
     assert_eq!(info.align, 4096);
 
@@ -80,7 +80,7 @@ fn tampered_ciphertext_is_auth_failed() {
     let seg = info
         .segments
         .iter()
-        .find(|s| s.header.seg_id == amberice::SEG_VALUE)
+        .find(|s| s.header.seg_id == amberice::container::SEG_VALUE)
         .unwrap();
     let at = seg.offset as usize + amberice::crypto::CRYPTO_HEADER + 5;
     f[at] ^= 0x01;
@@ -105,10 +105,10 @@ fn tampered_segment_header_is_caught() {
     let idx = info
         .segments
         .iter()
-        .position(|s| s.header.seg_id == amberice::SEG_VALUE)
+        .position(|s| s.header.seg_id == amberice::container::SEG_VALUE)
         .unwrap();
     // 段头第 2 字节是 `comp`：0 → 1（zstd）。摘要不覆盖段头，但 AAD 覆盖。
-    let at = info.table_off as usize + idx * amberice::SEG_HEADER_LEN + 1;
+    let at = info.table_off as usize + idx * amberice::container::SEG_HEADER_LEN + 1;
     f[at] = 1;
 
     let e = amberice::load_encrypted(&f, &KeySource::Bytes(&key)).unwrap_err();
@@ -244,13 +244,13 @@ fn manifest_stays_plaintext() {
     let manifest = info
         .segments
         .iter()
-        .find(|s| s.header.seg_id == amberice::SEG_MANIFEST)
+        .find(|s| s.header.seg_id == amberice::container::SEG_MANIFEST)
         .unwrap();
     assert_eq!(manifest.header.enc, 0, "manifest 必须明文（KDF 参数在里面）");
     // 不带钥也能读出 manifest 的字段
-    let m = amberice::manifest_of(&f).unwrap();
-    assert_eq!(m.crypto_enc, amberice::ENC_AES256_GCM);
-    assert_eq!(m.kdf_kind, amberice::KDF_NONE);
+    let m = amberice::container::manifest_of(&f).unwrap();
+    assert_eq!(m.crypto_enc, amberice::crypto::ENC_AES256_GCM);
+    assert_eq!(m.kdf_kind, amberice::crypto::KDF_NONE);
     assert!(m.file_salt.is_some());
 }
 

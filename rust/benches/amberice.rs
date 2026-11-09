@@ -19,7 +19,8 @@
 mod common;
 
 use sml::CanonicalValue;
-use amberice::{DumpOptions, SEG_STRTAB, SEG_VALUE};
+use amberice::container::{SEG_STRTAB, SEG_VALUE};
+use amberice::DumpOptions;
 
 fn main() {
     let quick = common::quick();

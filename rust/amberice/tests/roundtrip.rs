@@ -83,12 +83,12 @@ fn header_is_the_agreed_layout() {
     let f = amberice::dump( &cv(&v) ).unwrap();
 
     assert_eq!(&f[0..4], b"AMBR", "magic");
-    assert_eq!(u16::from_le_bytes([f[4], f[5]]), amberice::EDITION, "edition");
-    assert_eq!(f[6], amberice::FMT, "fmt");
-    assert_eq!(f[7] as usize, amberice::HEADER_LEN, "hdr_len");
+    assert_eq!(u16::from_le_bytes([f[4], f[5]]), amberice::container::EDITION, "edition");
+    assert_eq!(f[6], amberice::container::FMT, "fmt");
+    assert_eq!(f[7] as usize, amberice::container::HEADER_LEN, "hdr_len");
     assert_eq!(
         u64::from_le_bytes(f[8..16].try_into().unwrap()),
-        amberice::HEADER_LEN as u64,
+        amberice::container::HEADER_LEN as u64,
         "段表紧跟头（不再钉在 4096）"
     );
     assert_eq!(
@@ -116,10 +116,10 @@ fn alignment_follows_the_header_flag() {
 
     let plain = amberice::dump( &cv(&v) ).unwrap();
     let pi = amberice::info(&plain).unwrap();
-    assert_eq!(pi.align, amberice::ALIGN_MIN);
-    assert_eq!(pi.flags & amberice::FLAG_ALIGN_BLOCK, 0);
+    assert_eq!(pi.align, amberice::container::ALIGN_MIN);
+    assert_eq!(pi.flags & amberice::container::FLAG_ALIGN_BLOCK, 0);
     for s in &pi.segments {
-        assert_eq!(s.offset % amberice::ALIGN_MIN, 0, "段 {} 未按 8 B 对齐", seg_name(s.header.seg_id));
+        assert_eq!(s.offset % amberice::container::ALIGN_MIN, 0, "段 {} 未按 8 B 对齐", seg_name(s.header.seg_id));
     }
     // 明文小文档不再吃 4 KiB 的固定税（T1 时这里是 12 KB 量级）
     assert!(
@@ -134,10 +134,10 @@ fn alignment_follows_the_header_flag() {
     };
     let blocked = amberice::dump_with( &cv(&v) , &opts).unwrap();
     let bi = amberice::info(&blocked).unwrap();
-    assert_eq!(bi.align, amberice::ALIGN_BLOCK);
-    assert_ne!(bi.flags & amberice::FLAG_ALIGN_BLOCK, 0);
+    assert_eq!(bi.align, amberice::container::ALIGN_BLOCK);
+    assert_ne!(bi.flags & amberice::container::FLAG_ALIGN_BLOCK, 0);
     for s in &bi.segments {
-        assert_eq!(s.offset % amberice::ALIGN_BLOCK, 0, "段 {} 未按 4 KiB 对齐", seg_name(s.header.seg_id));
+        assert_eq!(s.offset % amberice::container::ALIGN_BLOCK, 0, "段 {} 未按 4 KiB 对齐", seg_name(s.header.seg_id));
     }
     // 两种对齐下值与段体都不变，只有位置变
     assert!(amberice::load(&blocked).unwrap().eq_ordered(&v));
@@ -313,7 +313,7 @@ fn pack_iter_matches_pack_byte_for_byte() {
 /// The streaming writer must be byte-identical to the in-memory one.
 #[test]
 fn writer_matches_dump_byte_for_byte() {
-    use amberice::{CanonicalValue, DumpOptions, Writer, SEG_STRTAB, SEG_VALUE};
+    use amberice::{CanonicalValue, DumpOptions, Writer};
 
     let doc = (CASES[3].build)();
     let cv = CanonicalValue::try_from(doc).unwrap();
@@ -441,7 +441,7 @@ fn unknown_segment_is_skipped() {
     )
     .unwrap();
 
-    for (seg_id, comp, enc) in [(amberice::SEG_MANIFEST + 0x50, 0u8, 0u8), (0x7f, 9, 0x10)] {
+    for (seg_id, comp, enc) in [(amberice::container::SEG_MANIFEST + 0x50, 0u8, 0u8), (0x7f, 9, 0x10)] {
         let with_extra = append_segment(base.clone(), seg_id, comp, enc, b"opaque payload");
         let info = amberice::info(&with_extra).unwrap();
         assert_eq!(info.segments.len(), 4, "应多出一段");
@@ -456,7 +456,7 @@ fn unknown_segment_is_skipped() {
 fn truncation_is_rejected() {
     let v = (CASES[1].build)();
     let f = amberice::dump( &cv(&v) ).unwrap();
-    for cut in [0usize, 20, amberice::HEADER_LEN, f.len() - 1] {
+    for cut in [0usize, 20, amberice::container::HEADER_LEN, f.len() - 1] {
         assert!(
             amberice::info(&f[..cut]).is_err() || amberice::load(&f[..cut]).is_err(),
             "cut={cut} 应报错"
@@ -629,7 +629,7 @@ fn payload_tamper_is_caught() {
     let embed = info
         .segments
         .iter()
-        .find(|s| s.header.seg_id == amberice::SEG_EMBED)
+        .find(|s| s.header.seg_id == amberice::container::SEG_EMBED)
         .unwrap();
     let at = embed.offset as usize + 3;
     f[at] ^= 0x01;
@@ -659,12 +659,12 @@ fn append_segment(mut f: Vec<u8>, seg_id: u8, comp: u8, enc: u8, body: &[u8]) ->
     let table_off = u64::from_le_bytes(f[8..16].try_into().unwrap()) as usize;
     let count = u32::from_le_bytes(f[16..20].try_into().unwrap()) as usize;
     let info = amberice::info(&f).unwrap();
-    assert_eq!(info.align, amberice::ALIGN_BLOCK, "这个用例要求 4 KiB 布局");
+    assert_eq!(info.align, amberice::container::ALIGN_BLOCK, "这个用例要求 4 KiB 布局");
     let prev_end = info
         .segments
         .last()
         .map(|s| s.offset as usize + s.header.len as usize)
-        .unwrap_or(amberice::HEADER_LEN);
+        .unwrap_or(amberice::container::HEADER_LEN);
     let off = align4k(prev_end);
 
     let at = table_off + count * SEG_HEADER_LEN;

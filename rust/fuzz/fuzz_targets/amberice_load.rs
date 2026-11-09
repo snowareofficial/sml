@@ -118,7 +118,7 @@ fuzz_target!(|data: &[u8]| {
 
     // —— 帧索引：段体格式自描述，畸形必须报 BadFrameIndex 而不是 panic ——
     if let Err(e) = common::check_call("parse_frame_index", len, quota, || {
-        amberice::parse_frame_index(data)
+        amberice::container::parse_frame_index(data)
     }) {
         common::assert_container_error(&e);
     }

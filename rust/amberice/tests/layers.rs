@@ -6,8 +6,8 @@
 //! without the latter.
 #![cfg(all(feature = "preserve_order", feature = "sign"))]
 
-use amberice::layer::{self, Delegation};
-use amberice::{ContainerError, HashAlgo, KeyPair, Map, SignError, Trailer, Value};
+use amberice::layer::{self, Delegation, Trailer};
+use amberice::{ContainerError, HashAlgo, KeyPair, Map, SignError, Value};
 
 fn base_doc() -> Value {
     let mut cfg = Map::ordered();
@@ -273,7 +273,7 @@ fn tampered_layer_is_detected() {
     let f = amberice::dump( &cv(&base_doc()) ).unwrap();
     let mut signed = amberice::append_layer(&f, &key(1), None, None, HashAlgo::Sha256).unwrap();
     let t = Trailer::parse(&signed).expect("应有 Trailer");
-    let body_at = t.last_layer_off as usize + amberice::LAYER_HEADER_LEN;
+    let body_at = t.last_layer_off as usize + amberice::layer::LAYER_HEADER_LEN;
     signed[body_at + 2] ^= 0x01; // 层体里翻一位
 
     let report = amberice::verify(&signed, HashAlgo::Sha256).unwrap();
@@ -322,7 +322,7 @@ fn trailer_count_mismatch_is_rejected() {
     let mut signed = amberice::append_layer(&f, &key(1), None, None, HashAlgo::Sha256).unwrap();
     let n = signed.len();
     // Trailer: magic(8) + count(4) + last_off(8) + head(32) → count 在倒数第 56 字节
-    let count_at = n - amberice::TRAILER_LEN + 8;
+    let count_at = n - amberice::layer::TRAILER_LEN + 8;
     signed[count_at] = 5; // 声称 5 层
 
     let e = layer::layers(&signed).expect_err("层数对不上必须报错");

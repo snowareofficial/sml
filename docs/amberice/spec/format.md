@@ -525,7 +525,7 @@ Trailer 从 EOF 反向读固定长度，细节见 §21.1b。
 而「不懂位 0 的旧读者」会把 4 KiB 文件按 8 B 走 —— 错位后**立刻**被长度/摘要检查拦下，
 是**响亮的失败**而不是静默读错。
 
-落地：`amberice::ALIGN_MIN` / `ALIGN_BLOCK` / `FLAG_ALIGN_BLOCK` / `align_of(flags)`，
+落地：`amberice::container::{ALIGN_MIN, ALIGN_BLOCK, FLAG_ALIGN_BLOCK, align_of(flags)}`，
 `DumpOptions::block_align` 是写者旋钮（默认 `false`）。T5 加密时强制置位。
 
 ### 19.8 段摘要 + `check` / `cat`（T2 前半，2026-11-04）
@@ -860,17 +860,22 @@ pub enum KeySource<'a> {
 > 用户 2026-11-05 定了三条：**一个 enum**（不拆写/读两个类型）、**命名要一眼就懂**、
 > **API 树要扁平**（一个树、每层节点少一些）。
 
-**API 树（根下一层，六个动作 + 四个类型）**
+**API 树（库根下一层：用户级动作 + 类型）**
 
 ```text
 amberice
-├─ dump / dump_with / dump_encrypted        写
-├─ load / load_encrypted                    读成 Value
-├─ get  / get_encrypted                     按路径取一个节点
-├─ check / info / ls                        只看结构（不需要钥匙）
-├─ pack / unpack                            EMBED 归档
-└─ KeySource / KdfParams / DumpOptions / Store
+├─ dump / dump_with / dump_encrypted              写
+├─ load / load_encrypted / base_value            读
+├─ get  / get_encrypted                          按路径取一个节点
+├─ check / info                                  只看结构
+├─ pack* / payload / payloads / embed_body       EMBED 归档
+├─ layers / verify / append_layer / compact      层链（sign feature）
+└─ KeySource / KdfParams / DumpOptions / Store / MappedFile / CanonicalValue / ContainerError
 ```
+
+段布局常量、帧工具、段头结构，以及 dir / hash / typed / manifest 的低层符号都在各自子模块
+（`container` / `layer` / `typed` / `dir` / `hash` / `manifest`），不占根名。
+CLI 的 `ls` / `cat` / `unpack` / `text` 是命令，不是库 API。
 
 扁平的理由：多一层模块就多一个要记的路径。`KdfParams` 挂在根上而不是
 `crypto::kdf::Argon2Params` —— 名字已经说明一切，位置不必再说明一次。

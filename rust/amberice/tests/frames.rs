@@ -3,8 +3,8 @@
 //! T5 帧级压缩验收（`FRAMES` 0x10，§19.12）。
 #![cfg(all(feature = "preserve_order", feature = "compress"))]
 
-use amberice::container;
-use amberice::{ContainerError, DumpOptions, Map, Store, Value, SEG_FRAMES};
+use amberice::container::{self, SEG_FRAMES};
+use amberice::{ContainerError, DumpOptions, Map, Store, Value};
 
 /// A document comfortably larger than the frame size, so several frames exist.
 /// 明显大于帧大小的文档，保证有多帧。
@@ -54,10 +54,10 @@ fn framed_dump_round_trips() {
         "应有 FRAMES 段"
     );
     assert!(
-        !info.segments.iter().any(|s| s.header.seg_id == amberice::SEG_VALUE),
+        !info.segments.iter().any(|s| s.header.seg_id == amberice::container::SEG_VALUE),
         "分帧后不该再有 VALUE 段"
     );
-    let m = amberice::manifest_of(&framed).unwrap();
+    let m = amberice::container::manifest_of(&framed).unwrap();
     assert_eq!(m.primary, SEG_FRAMES, "primary 必须指 FRAMES");
 
     let report = amberice::check(&framed).unwrap();
@@ -77,20 +77,20 @@ fn frame_index_is_validated() {
         .find(|s| s.header.seg_id == SEG_FRAMES)
         .unwrap();
     let body = container::body(&framed, seg).unwrap();
-    let entries = amberice::parse_frame_index(body).unwrap();
+    let entries = amberice::container::parse_frame_index(body).unwrap();
     assert!(entries.len() >= 2, "应有至少两帧");
 
     // 把第 1 帧的 uncomp_off 改坏 ⇒ 断档
     let mut bad = body.to_vec();
-    let at = 4 + amberice::FRAME_ENTRY_LEN;
+    let at = 4 + amberice::container::FRAME_ENTRY_LEN;
     bad[at] = 0x7f;
-    let e = amberice::parse_frame_index(&bad).unwrap_err();
+    let e = amberice::container::parse_frame_index(&bad).unwrap_err();
     assert_eq!(e.kind(), "bad-frame-index", "{e}");
 
     // 帧数改成 0 ⇒ 拒绝
     let mut zero = body.to_vec();
     zero[0..4].copy_from_slice(&0u32.to_le_bytes());
-    assert!(amberice::parse_frame_index(&zero).is_err());
+    assert!(amberice::container::parse_frame_index(&zero).is_err());
 }
 
 /// **The point of framing**: breaking one frame must not stop another frame from being read.
@@ -107,7 +107,7 @@ fn only_the_touched_frame_is_inflated() {
         .find(|s| s.header.seg_id == SEG_FRAMES)
         .unwrap();
     let body = container::body(&framed, seg).unwrap();
-    let entries = amberice::parse_frame_index(body).unwrap();
+    let entries = amberice::container::parse_frame_index(body).unwrap();
     assert!(entries.len() >= 3, "至少三帧才能证「互不影响」（实得 {}）", entries.len());
 
     // 把第 1 帧的压缩数据翻一位
@@ -115,19 +115,19 @@ fn only_the_touched_frame_is_inflated() {
     broken[entries[1].comp_off as usize + 3] ^= 0x01;
 
     // 第 0 帧仍能单独解出来（只解了它自己）
-    let (e0, bytes0) = amberice::frame_bytes_at(&broken, entries[0].uncomp_off).unwrap();
+    let (e0, bytes0) = amberice::container::frame_bytes_at(&broken, entries[0].uncomp_off).unwrap();
     assert_eq!(e0.uncomp_off, 0);
     assert_eq!(bytes0.len(), entries[0].uncomp_len as usize);
 
     // 最后一帧同样能单独解（证明扫索引时不碰帧数据）
     let last = entries.last().unwrap();
-    let (el, bytesl) = amberice::frame_bytes_at(&broken, last.uncomp_off).unwrap();
+    let (el, bytesl) = amberice::container::frame_bytes_at(&broken, last.uncomp_off).unwrap();
     assert_eq!(el.comp_off, last.comp_off);
     assert_eq!(bytesl.len(), last.uncomp_len as usize);
 
     // 全解则会失败（坏帧在里面）
     assert!(
-        amberice::inflate_frames_all(&broken).is_err(),
+        amberice::container::inflate_frames_all(&broken).is_err(),
         "整解应当因为坏帧失败"
     );
 }
@@ -167,7 +167,7 @@ fn store_inflates_only_the_frames_it_needs() {
         .find(|s| s.header.seg_id == SEG_FRAMES)
         .unwrap();
     let body = container::body(&framed, seg).unwrap();
-    let entries = amberice::parse_frame_index(body).unwrap();
+    let entries = amberice::container::parse_frame_index(body).unwrap();
 
     // 把**最后**一帧的压缩数据翻一位
     let last = *entries.last().unwrap();
@@ -222,11 +222,11 @@ fn frames_and_segment_compression_coexist() {
     let strtab = info
         .segments
         .iter()
-        .find(|s| s.header.seg_id == amberice::SEG_STRTAB)
+        .find(|s| s.header.seg_id == amberice::container::SEG_STRTAB)
         .expect("这份文档有 STRTAB");
     assert_eq!(
         strtab.header.comp,
-        amberice::COMP_ZSTD,
+        amberice::container::COMP_ZSTD,
         "STRTAB 应按段压缩（它才是大头）"
     );
     let frames = info
@@ -259,7 +259,7 @@ fn truncated_frames_body_is_rejected() {
         .unwrap();
     let body = container::body(&framed, seg).unwrap();
     let cut = &body[..body.len() - 8];
-    let e = amberice::parse_frame_index(cut).unwrap_err();
+    let e = amberice::container::parse_frame_index(cut).unwrap_err();
     assert_eq!(e.kind(), "bad-frame-index", "{e}");
 }
 

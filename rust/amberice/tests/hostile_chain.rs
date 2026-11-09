@@ -10,8 +10,8 @@
 //! 3. `prev_off` 成环 —— 旧代码是 `loop`，没有任何步数上限（死循环）。
 //!
 //! 本文件**不**门控 `sign`：读层链不需要密码学，坏 trailer 的拒绝也应当是读侧义务。
-use amberice::layer;
-use amberice::{Map, Trailer, Value};
+use amberice::layer::{self, Trailer};
+use amberice::{Map, Value};
 
 fn doc() -> Value {
     let mut m = Map::ordered();

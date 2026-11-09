@@ -3,7 +3,8 @@
 //! `TYPED`（N04）测试：强类型变量搭在 `VALUE` 旁边，读时比对 `type_id`。
 
 use amberice::typed::{type_hash, Decode, Decoder, Encode, Encoder, TypedError};
-use amberice::{CanonicalValue, ContainerError, DumpOptions, Map, Store, Value, SEG_STRTAB, SEG_VALUE, Writer};
+use amberice::container::{SEG_STRTAB, SEG_VALUE};
+use amberice::{CanonicalValue, ContainerError, DumpOptions, Map, Store, Value, Writer};
 
 #[derive(Debug, PartialEq)]
 struct User {
@@ -124,7 +125,7 @@ fn missing_var_and_missing_segment_are_distinct() {
 
 #[test]
 fn duplicate_and_reserved_ids_are_rejected() {
-    let mut t = amberice::Typed::new();
+    let mut t = amberice::typed::Typed::new();
     assert!(matches!(
         t.put(0, &1u32).expect_err("id=0 必须拒绝"),
         TypedError::ReservedVarId
@@ -138,13 +139,13 @@ fn duplicate_and_reserved_ids_are_rejected() {
 
 #[test]
 fn bytes_newtype_is_not_an_array_of_varints() {
-    let mut t = amberice::Typed::new();
+    let mut t = amberice::typed::Typed::new();
     let raw = amberice::typed::Bytes(vec![0u8, 1, 2, 127, 128, 255]);
     t.put(7, &raw).expect("put");
     let body = t.to_bytes();
     // 段体 = 目录（count 1 + 项 1+8+4+4）+ 载荷（长度 1 + 6 字节）≈ 25 B。
     // 若退化成「每个字节一个 varint」，仅 6 个原始字节就要 11 B 以上且语义不同。
     assert!(body.len() < 32, "Bytes 应当紧凑编码，实际 {} B", body.len());
-    let back: amberice::typed::Bytes = amberice::read_var(&body, 7).expect("read");
+    let back: amberice::typed::Bytes = amberice::typed::read_var(&body, 7).expect("read");
     assert_eq!(back, raw);
 }
