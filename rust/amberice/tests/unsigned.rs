@@ -55,6 +55,34 @@ fn unsigned_layer_links_and_merges() {
     assert_eq!(m2.get("port"), Some(&Value::Int(9091)));
 }
 
+/// D53：`verify --allow-unsigned` 只把「没有签名」从失败改成明确接受，
+/// 其余检查（Trailer / 链指针 / 已签名层）一律照旧。
+#[cfg(feature = "sign")]
+#[test]
+fn verify_allows_unsigned_only_when_explicit() {
+    let b = base();
+    let one = append_unsigned(&b, Some(obj(&[("port", Value::Int(9090))])), HashAlgo::Sha256)
+        .expect("append");
+
+    let strict = amberice::verify(&one, HashAlgo::Sha256).expect("verify");
+    assert!(!strict.ok, "默认必须把无签名层判为失败");
+    assert!(strict.lines.iter().any(|l| l.contains("没有签名")));
+
+    let allowed =
+        amberice::verify_with(&one, HashAlgo::Sha256, true).expect("verify allow");
+    assert!(allowed.ok, "{:?}", allowed.lines);
+    assert!(allowed.lines.iter().any(|l| l.contains("--allow-unsigned")));
+
+    // 允许无签名 ≠ 允许被改：Trailer head 仍要严丝合缝。
+    let mut broken = one.clone();
+    // Trailer 末尾 12 B 是保留位（不参与校验）；改 head_hash 的最后一个字节。
+    let last = broken.len() - 20;
+    broken[last] ^= 0xff;
+    let report =
+        amberice::verify_with(&broken, HashAlgo::Sha256, true).expect("verify broken");
+    assert!(!report.ok, "链头被改必须失败：{:?}", report.lines);
+}
+
 #[test]
 fn unsigned_layer_without_patch_is_allowed() {
     let b = base();

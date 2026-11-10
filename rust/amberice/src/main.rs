@@ -41,8 +41,10 @@ amberice — 通用二进制信封 .ambr（SML 是内置载荷之一）
   amberice migrate <file> --to fmt=N (-o OUT | --in-place) [--seed HEX|FILE]
                                       fmt 升级骨架：只支持 fmt=0；有层必须给 --seed 重签
   amberice delegate --seed OLD --to PUBKEY --max N [--out FILE]   签一份换钥授权（D16）
-  amberice verify  <file> [--trust HEX64]  验链 + 验签（全部必须通过，D36）；
-                                       `--trust` 把链头钉在外部锚点上（防整条链被剥离）
+  amberice verify  <file> [--trust HEX64] [--allow-unsigned]
+                                      验链 + 验签（全部必须通过，D36）；
+                                      `--trust` 把链头钉在外部锚点上（防整条链被剥离）；
+                                      `--allow-unsigned` 显式接受「层没有签名」（仍不能替代 --trust）
   amberice tree    <file>                  打印层链：序号 / 作者 / 补丁键数 / 签名数 / 授权
   amberice history <file> <path> --at N    取第 N 层为止的值（历史回放；`cat --at` 已迁到这里）
   amberice get     <file> <path> [--bytes] [--mmap]
@@ -515,12 +517,16 @@ fn verify_cmd(args: &[String]) -> Result<String, (u8, String)> {
     // `--trust HEX64`：可选的外部锚点（D18）。没有它，「本来没签」与「签了又被剥掉」
     // 在字节上一模一样 —— 这正是 §21.1c 那条已知边界。
     let mut trust: Option<[u8; 32]> = None;
+    let mut allow_unsigned = false;
     let mut file: Option<&String> = None;
     let mut i = 0usize;
     while i < args.len() {
         if args[i] == "--trust" {
             let Some(hex) = args.get(i + 1) else {
-                return Err((2, "用法: amberice verify <file> [--trust HEX64]".to_string()));
+                return Err((
+                    2,
+                    "用法: amberice verify <file> [--trust HEX64] [--allow-unsigned]".to_string(),
+                ));
             };
             trust = Some(hex32(hex).ok_or_else(|| {
                 (2, format!("--trust 要 64 位十六进制（链头哈希），实得 `{hex}`"))
@@ -528,11 +534,19 @@ fn verify_cmd(args: &[String]) -> Result<String, (u8, String)> {
             i += 2;
             continue;
         }
+        if args[i] == "--allow-unsigned" {
+            allow_unsigned = true;
+            i += 1;
+            continue;
+        }
         file = Some(&args[i]);
         i += 1;
     }
     let Some(file) = file else {
-        return Err((2, "用法: amberice verify <file> [--trust HEX64]".to_string()));
+        return Err((
+            2,
+            "用法: amberice verify <file> [--trust HEX64] [--allow-unsigned]".to_string(),
+        ));
     };
     let bytes = std::fs::read(file).map_err(|e| (1, format!("读 {file} 失败：{e}")))?;
     let algo = amberice::container::hash_algo(&bytes).map_err(|e| (1, format!("{file}: {e}")))?;
@@ -540,8 +554,8 @@ fn verify_cmd(args: &[String]) -> Result<String, (u8, String)> {
     #[cfg(feature = "sign")]
     {
         let report = match &trust {
-            Some(t) => amberice::verify_trusted(&bytes, algo, t),
-            None => amberice::verify(&bytes, algo),
+            Some(t) => amberice::verify_trusted_with(&bytes, algo, t, allow_unsigned),
+            None => amberice::verify_with(&bytes, algo, allow_unsigned),
         }
         .map_err(|e| (1, format!("{file}: {e}")))?;
         if trust.is_none() && report.ok {
@@ -567,7 +581,9 @@ fn verify_cmd(args: &[String]) -> Result<String, (u8, String)> {
     }
     #[cfg(not(feature = "sign"))]
     {
-        // 没有 sign feature 也能回答「结构对不对」，但不能回答「谁签的」
+        // 没有 sign feature 也能回答「结构对不对」，但不能回答「谁签的」；
+        // `--allow-unsigned` 在这里不影响结论，但命令行面保持一致。
+        let _ = allow_unsigned;
         let chain = amberice::layer::verify_chain(&bytes, algo)
             .map_err(|e| (1, format!("{file}: {e}")))?;
         let mut chain = chain;
@@ -1274,6 +1290,32 @@ mod migrate_tests {
         let got = super::read_file(path.to_str().expect("utf8"), true).expect("read");
         assert_eq!(got.as_slice(), b"AMBR-test");
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[cfg(feature = "sign")]
+    #[test]
+    fn verify_cmd_honours_allow_unsigned() {
+        use amberice::{append_unsigned, CanonicalValue, HashAlgo, Map, Value};
+
+        let mut m = Map::ordered();
+        m.insert("a".to_string(), Value::Int(1));
+        let v = Value::Object(m);
+        let base = amberice::dump(&CanonicalValue::try_from(&v).expect("ordered")).expect("dump");
+        let one = append_unsigned(&base, Some(Value::Int(2)), HashAlgo::Sha256).expect("append");
+        let p = std::env::temp_dir().join(format!(
+            "amberice-verify-unsigned-{}.ambr",
+            std::process::id()
+        ));
+        std::fs::write(&p, &one).expect("write");
+        let path = p.to_str().expect("utf8").to_string();
+
+        assert!(
+            super::verify_cmd(std::slice::from_ref(&path)).is_err(),
+            "默认应判失败"
+        );
+        let out = super::verify_cmd(&["--allow-unsigned".to_string(), path]).expect("allow");
+        assert!(out.contains("通过"), "{out}");
+        let _ = std::fs::remove_file(&p);
     }
 
     #[test]

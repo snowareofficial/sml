@@ -145,6 +145,8 @@
 - `load` 返回基值按层补丁合并后的当前值；`history` / `Store::history_at` 回放第 N 层为止的值。
 - CLI 的 `verify --trust` 把链头钉在外部锚点，防整条链被剥离；`append --expect-head` 做追加冲突检测；`compact` 合并多层并重签，旧锚点需重建。
 - 未启用 `sign` feature 的构建仍能读链结构与钉锚点，但 `verify` 明确提示「签名一个字都没验」。
+- D53：`verify --allow-unsigned` 只把「层没有签名」从失败改成明确接受；`--trust` 仍是区分
+  「从未签」与「签了又被剥离」的唯一手段。
 - D53：`append_unsigned` / `Ingestor` 让无 `sign` 构建也能批量追加**未签名**层（`author` 全 0、`sigs` 空）；
   `Ingestor` 按帧数/时间合成一层、tmp+fsync+rename 提交、`recover` 回扫截断半层。
 - D53：`redact` 是写前纯值变换（删/遮盖/哈希），规则不进文件；唯一抹除仍是整份重写。
