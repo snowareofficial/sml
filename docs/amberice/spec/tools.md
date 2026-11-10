@@ -34,6 +34,7 @@
 | `amberice bench <f>` | 读路径基准（mmap 打开、单子树取、解帧、解密） | T5 | 建议 |
 | `amberice migrate --to fmt=N` | `fmt` 升级骨架：只支持 `fmt=0`；有层必须 `--seed` 重签（D49） | T5+ | ✅ 骨架 |
 | `amberice compact` | 合并多层（会**重签**，D8 的例外情况；丢弃历史、旧锚点需重建） | T4 | ✅ **已实现** |
+| `amberice info/ls/check/cat/get/text --mmap` | 用内存映射读（D47）；构建没开 `mmap` 时**退回普通读取并提示**，命令本身不随 feature 消失 | T3 | ✅ |
 | `smltools --to amberice` / `--from amberice` | 与 SML 文本互转（D27 的 A 路） | T6 | ✅ |
 | `smltools --to amberice --dir [N]` | 同时写可选 `DIR` 路径索引（`DumpOptions.dir` / `dir_depth`，D43）；缺省不写 | T6 | ✅ |
 | `smltools --to amberice --keep-source` | 带 `SOURCE` 段（D46） | T6 | ✅（需 `amberice-source` feature；CLI 会警告原文敏感） |

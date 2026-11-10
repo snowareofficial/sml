@@ -179,7 +179,8 @@
 
 子命令清单的唯一事实来源是 `rust/amberice/src/main.rs` 的 `USAGE` 常量：
 
-- 读与检查：`info`、`ls`、`check`、`cat`（`--schema` 按内嵌 schema 渲染 `TYPED`）、`text`、`get`
+- 读与检查：`info`、`ls`、`check`、`cat`（`--schema` 按内嵌 schema 渲染 `TYPED`）、`text`、`get`；
+  以上读命令都支持 `--mmap`（D47），构建没开 `mmap` 时退回普通读取并提示
 - 归档：`pack`（可选 `--zstd [N]`）、`unpack`
 - 层链：`keygen`、`sign`、`append`、`compact`、`delegate`、`verify`、`tree`、`history`
 - 版本：`migrate --to fmt=N`（骨架，只支持 0；有层必须 `--seed` 重签）

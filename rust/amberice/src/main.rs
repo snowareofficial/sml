@@ -20,10 +20,10 @@ const USAGE: &str = "\
 amberice — 通用二进制信封 .ambr（SML 是内置载荷之一）
 
 用法:
-  amberice info    <file>                  一眼看清 edition/fmt/段表/摘要状态
-  amberice ls      <file>                  逐段列出 id/偏移/长度/算法（`--segments` 同义）
-  amberice check   <file>                  结构 + 逐段摘要校验，打印每段结论
-  amberice cat     <file> [<path>] [--schema]
+  amberice info    <file> [--mmap]         一眼看清 edition/fmt/段表/摘要状态
+  amberice ls      <file> [--mmap]         逐段列出 id/偏移/长度/算法（`--segments` 同义）
+  amberice check   <file> [--mmap]         结构 + 逐段摘要校验，打印每段结论
+  amberice cat     <file> [<path>] [--schema] [--mmap]
                                       无路径输出整份；有路径取当前值；--schema 按内嵌 schema 渲染 TYPED
   amberice pack    [--zstd [N]] <out.ambr> <file>...
                                        把若干文件打成一个 .ambr 归档（EMBED 段）；
@@ -45,8 +45,10 @@ amberice — 通用二进制信封 .ambr（SML 是内置载荷之一）
                                        `--trust` 把链头钉在外部锚点上（防整条链被剥离）
   amberice tree    <file>                  打印层链：序号 / 作者 / 补丁键数 / 签名数 / 授权
   amberice history <file> <path> --at N    取第 N 层为止的值（历史回放；`cat --at` 已迁到这里）
-  amberice get     <file> <path> [--bytes] 零拷贝取一棵子树（不解全树）；--bytes 出原始字节十六进制
-  amberice text    <file> [--path P]       整份（或某一子树）的 canonical 文本
+  amberice get     <file> <path> [--bytes] [--mmap]
+                                      零拷贝取一棵子树（不解全树）；--bytes 出原始字节十六进制
+  amberice text    <file> [--path P] [--mmap]
+                                      整份（或某一子树）的 canonical 文本
   amberice vectors --gen   [--file PATH] [--container-file PATH]  重新生成跨端向量
   amberice vectors --check [--file PATH] [--container-file PATH]  重新生成并逐行比对
   amberice --help | -h                     本帮助
@@ -65,7 +67,8 @@ amberice — 通用二进制信封 .ambr（SML 是内置载荷之一）
 T5 压缩与加密（库）/ T6 互转（库在 `sml::envelope`）。施工顺序见 spec §17 / §22。
 
 注意:
-  - 加密（`dump_encrypted`）与 mmap（`MappedFile`）目前**只有库接口，没有 CLI**；
+  - 加密（`dump_encrypted`）只有库接口，CLI 不处理密钥来源；
+  - mmap 由 `--mmap` 在 `info` / `ls` / `check` / `cat` / `get` / `text` 上启用（需 `--features mmap`）；
   - 层记录的 `base_hash` 已把基文档绑进签名（spec §21.1b E）；换基文档会当场被
     `verify` 抓到。要防「整条层链被剥离」，仍须用 `--trust` 记住链头。";
 
@@ -163,20 +166,66 @@ fn run(args: &[String]) -> Result<String, (u8, String)> {
     }
 }
 
-/// Read a file and hand its bytes to `f` — shared by `info` / `ls`.
-/// 读文件并把字节交给 `f` —— `info` / `ls` 共用。
+/// 文件字节：默认读进内存；`--mmap` 时优先只读映射。
+/// ｜ File bytes: owned by default, memory-mapped when `--mmap` is available.
+enum FileBytes {
+    Owned(Vec<u8>),
+    #[cfg(feature = "mmap")]
+    Mapped(amberice::MappedFile),
+}
+
+impl FileBytes {
+    fn as_slice(&self) -> &[u8] {
+        match self {
+            FileBytes::Owned(b) => b,
+            #[cfg(feature = "mmap")]
+            FileBytes::Mapped(m) => m.bytes(),
+        }
+    }
+}
+
+/// 读文件；`--mmap` 走映射，构建没开 `mmap` 时**退回普通读取**而不是让命令消失。
+/// CLI 的命令面不随 crate feature 变化（D47）；mmap 只影响 RSS / 页行为，不影响结果（D37）。
+fn read_file(path: &str, mmap: bool) -> Result<FileBytes, (u8, String)> {
+    if mmap {
+        #[cfg(feature = "mmap")]
+        {
+            let m = amberice::MappedFile::open(path)
+                .map_err(|e| (1, format!("映射 {path} 失败：{e}")))?;
+            return Ok(FileBytes::Mapped(m));
+        }
+        #[cfg(not(feature = "mmap"))]
+        {
+            eprintln!("amberice: 本构建未启用 `mmap` 能力，`--mmap` 退回普通读取（结果相同）");
+        }
+    }
+    let bytes = std::fs::read(path).map_err(|e| (1, format!("读 {path} 失败：{e}")))?;
+    Ok(FileBytes::Owned(bytes))
+}
+
+/// Read a file and hand its bytes to `f` — shared by `info` / `ls` / `check`.
+/// 读文件并把字节交给 `f` —— `info` / `ls` / `check` 共用。
 fn read_cmd<F>(args: &[String], f: F) -> Result<String, (u8, String)>
 where
     F: FnOnce(&str, &[u8]) -> Result<String, (u8, String)>,
 {
-    let Some(path) = args.first() else {
+    let mut mmap = false;
+    let mut pos: Vec<&String> = Vec::new();
+    for a in args {
+        if a == "--mmap" {
+            mmap = true;
+        } else {
+            pos.push(a);
+        }
+    }
+    let Some(path) = pos.first() else {
         return Err((2, "需要一个文件路径".to_string()));
     };
-    if args.len() > 1 {
-        return Err((2, format!("多余参数 `{}`", args[1])));
+    if pos.len() > 1 {
+        return Err((2, format!("多余参数 `{}`", pos[1])));
     }
-    let bytes = std::fs::read(path).map_err(|e| (1, format!("读 {path} 失败：{e}")))?;
-    f(path, &bytes)
+    let input = read_file(path.as_str(), mmap)?;
+    f(path.as_str(), input.as_slice())
 }
 
 fn vectors_cmd(args: &[String]) -> Result<String, (u8, String)> {
@@ -350,6 +399,7 @@ fn safe_join(dest: &str, name: &str) -> Result<std::path::PathBuf, (u8, String)>
 fn cat_cmd(args: &[String]) -> Result<String, (u8, String)> {
     let mut pos: Vec<&String> = Vec::new();
     let mut want_schema = false;
+    let mut mmap = false;
     for a in args {
         match a.as_str() {
             "--at" => {
@@ -362,18 +412,25 @@ fn cat_cmd(args: &[String]) -> Result<String, (u8, String)> {
             "--schema" => {
                 want_schema = true;
             }
+            "--mmap" => {
+                mmap = true;
+            }
             _ => pos.push(a),
         }
     }
     let Some(file) = pos.first() else {
-        return Err((2, "用法: amberice cat <file> [<path>] [--schema]".to_string()));
+        return Err((
+            2,
+            "用法: amberice cat <file> [<path>] [--schema] [--mmap]".to_string(),
+        ));
     };
     if want_schema && pos.len() > 1 {
         return Err((2, "`--schema` 不接受路径参数（它渲染整份 TYPED）".to_string()));
     }
-    let bytes = std::fs::read(file).map_err(|e| (1, format!("读 {file} 失败：{e}")))?;
+    let input = read_file(file.as_str(), mmap)?;
+    let bytes = input.as_slice();
     if want_schema {
-        return render_typed(file, &bytes);
+        return render_typed(file.as_str(), bytes);
     }
 
     // 无路径 ⇒ 整份 canonical 文本（与 `text` 同源，Unix `cat` 的直觉）
@@ -381,12 +438,12 @@ fn cat_cmd(args: &[String]) -> Result<String, (u8, String)> {
         if pos.len() > 1 {
             return Err((2, format!("多余参数 `{}`", pos[1])));
         }
-        let store = amberice::Store::open(&bytes).map_err(|e| (1, format!("{file}: {e}")))?;
+        let store = amberice::Store::open(bytes).map_err(|e| (1, format!("{file}: {e}")))?;
         let text = store.text().map_err(|e| (1, format!("{file}: {e}")))?;
         return Ok(text.trim_end_matches('\n').to_string());
     };
 
-    let v = amberice::get(&bytes, expr).map_err(|e| (1, format!("{file}: {e}")))?;
+    let v = amberice::get(bytes, expr).map_err(|e| (1, format!("{file}: {e}")))?;
     v.canonical_text().map_err(|e| (1, format!("{e}")))
 }
 
@@ -1110,18 +1167,25 @@ fn hex32(s: &str) -> Option<[u8; 32]> {
 fn get_cmd(args: &[String]) -> Result<String, (u8, String)> {
     let mut pos: Vec<&String> = Vec::new();
     let mut raw = false;
+    let mut mmap = false;
     for a in args {
         if a == "--bytes" {
             raw = true;
+        } else if a == "--mmap" {
+            mmap = true;
         } else {
             pos.push(a);
         }
     }
     let (Some(file), Some(expr)) = (pos.first(), pos.get(1)) else {
-        return Err((2, "用法: amberice get <file> <path> [--bytes]".to_string()));
+        return Err((
+            2,
+            "用法: amberice get <file> <path> [--bytes] [--mmap]".to_string(),
+        ));
     };
-    let bytes = std::fs::read(file).map_err(|e| (1, format!("读 {file} 失败：{e}")))?;
-    let store = amberice::Store::open(&bytes).map_err(|e| (1, format!("{file}: {e}")))?;
+    let input = read_file(file.as_str(), mmap)?;
+    let bytes = input.as_slice();
+    let store = amberice::Store::open(bytes).map_err(|e| (1, format!("{file}: {e}")))?;
 
     if raw {
         // 零拷贝：直接把子树字节打成十六进制（含 6 B 节点头），给调试与跨端比对用
@@ -1144,6 +1208,7 @@ fn get_cmd(args: &[String]) -> Result<String, (u8, String)> {
 fn text_cmd(args: &[String]) -> Result<String, (u8, String)> {
     let mut file: Option<&String> = None;
     let mut path: Option<&String> = None;
+    let mut mmap = false;
     let mut i = 0;
     while i < args.len() {
         if args[i] == "--path" {
@@ -1154,6 +1219,11 @@ fn text_cmd(args: &[String]) -> Result<String, (u8, String)> {
             i += 2;
             continue;
         }
+        if args[i] == "--mmap" {
+            mmap = true;
+            i += 1;
+            continue;
+        }
         if file.is_none() {
             file = Some(&args[i]);
         } else {
@@ -1162,10 +1232,14 @@ fn text_cmd(args: &[String]) -> Result<String, (u8, String)> {
         i += 1;
     }
     let Some(file) = file else {
-        return Err((2, "用法: amberice text <file> [--path P]".to_string()));
+        return Err((
+            2,
+            "用法: amberice text <file> [--path P] [--mmap]".to_string(),
+        ));
     };
-    let bytes = std::fs::read(file).map_err(|e| (1, format!("读 {file} 失败：{e}")))?;
-    let store = amberice::Store::open(&bytes).map_err(|e| (1, format!("{file}: {e}")))?;
+    let input = read_file(file.as_str(), mmap)?;
+    let bytes = input.as_slice();
+    let store = amberice::Store::open(bytes).map_err(|e| (1, format!("{file}: {e}")))?;
     let text = match path {
         Some(p) => store.text_of(p),
         None => store.text(),
@@ -1186,6 +1260,20 @@ mod migrate_tests {
         assert_eq!(header_fmt(&h), Some(3));
         assert_eq!(header_fmt(b"AMBR"), None);
         assert_eq!(header_fmt(b"NOPE\x04\x00\x00\x28"), None);
+    }
+
+    #[test]
+    fn mmap_flag_falls_back_without_losing_bytes() {
+        // 无论是否启用 `mmap`，`read_file(.., true)` 都必须给出同样的字节；
+        // 没启用时只是退回普通读取并打一行提示（CLI 命令面不随 feature 变化）。
+        let path = std::env::temp_dir().join(format!(
+            "amberice-cli-mmap-{}.bin",
+            std::process::id()
+        ));
+        std::fs::write(&path, b"AMBR-test").expect("write");
+        let got = super::read_file(path.to_str().expect("utf8"), true).expect("read");
+        assert_eq!(got.as_slice(), b"AMBR-test");
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
