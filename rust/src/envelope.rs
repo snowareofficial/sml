@@ -150,8 +150,22 @@ pub fn sml_to_amberice(text: &str, compress: Option<i32>) -> Result<Vec<u8>, Env
 /// 又 `parse` 一遍纯属白花 CPU，而且会在「文本表达不出某个值」时莫名失败。
 /// ｜ The CLI already holds a `Value`; re-serialising it to text only to parse it back is waste.
 pub fn value_to_amberice(value: &Value, compress: Option<i32>) -> Result<Vec<u8>, EnvelopeError> {
+    value_to_amberice_with(value, compress, None)
+}
+
+/// Same as [`value_to_amberice`], optionally writing the `DIR` path index (D43).
+/// 与 [`value_to_amberice`] 相同，另可选写 `DIR` 路径索引（D43）。
+///
+/// `dir_depth = Some(n)` 写索引；`None` 保持与旧路径逐字节相同。
+pub fn value_to_amberice_with(
+    value: &Value,
+    compress: Option<i32>,
+    dir_depth: Option<u32>,
+) -> Result<Vec<u8>, EnvelopeError> {
     let opts = DumpOptions {
         compress,
+        dir: dir_depth.is_some(),
+        dir_depth: dir_depth.unwrap_or(amberice::manifest::DEFAULT_DIR_DEPTH),
         ..Default::default()
     };
     // 键序是**值层事实**：这里显式转换，无序值在转换点就被拒，

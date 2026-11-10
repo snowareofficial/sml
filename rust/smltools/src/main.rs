@@ -398,6 +398,10 @@ struct Cli {
     /// `--to-amberice` 用的 zstd 级别（需构建带 `compress` feature；缺省不压）
     #[arg(long = "amberice-compress", value_name = "N")]
     amberice_compress: Option<i32>,
+
+    /// `--to-amberice` 同时写可选 `DIR` 路径索引（默认不写）；可选值 = 索引深度，缺省 4
+    #[arg(long = "dir", value_name = "N", num_args = 0..=1, default_missing_value = "4")]
+    dir: Option<u32>,
 }
 
 /// 按输入格式把文本转成 `Value`。
@@ -536,6 +540,9 @@ struct Args {
     /// 只在 `amberice` feature 下有人读，默认档允许它「未使用」。
     #[cfg_attr(not(feature = "amberice"), allow(dead_code))]
     amberice_compress: Option<i32>,
+    /// `--to-amberice` 写 `DIR` 索引的深度（`None` = 不写）｜ DIR depth, `None` = off
+    #[cfg_attr(not(feature = "amberice"), allow(dead_code))]
+    dir: Option<u32>,
 }
 
 /// `--feature` 的取值解析：与语言层**同一套字面量**（`10` / `1.0` / `v1` / `50` / `camelia`）。
@@ -592,6 +599,7 @@ fn parse_args(cli: Cli) -> Result<Args, SmlError> {
         from_amberice: cli.from_amberice,
         to_amberice: cli.to_amberice,
         amberice_compress: cli.amberice_compress,
+        dir: cli.dir,
     })
 }
 
@@ -1321,7 +1329,7 @@ fn write_amberice_output(value: &sml::Value, args: &Args, text: &str) -> ExitCod
     } else {
         value.clone().into_ordered()
     };
-    let bytes = match sml::value_to_amberice(&ordered, args.amberice_compress) {
+    let bytes = match sml::value_to_amberice_with(&ordered, args.amberice_compress, args.dir) {
         Ok(b) => b,
         Err(e) => {
             // E-CLI-007：输出后端报错。
@@ -1660,6 +1668,13 @@ fn real_main() -> ExitCode {
         eprintln!(
             "smltools: --from-amberice 时不能再指定 --from {}（信封自带格式）[{}]",
             args.input_format.name(),
+            E_CLI_003
+        );
+        return ExitCode::from(2);
+    }
+    if args.dir.is_some() && !args.to_amberice {
+        eprintln!(
+            "smltools: --dir 只与 --to-amberice 一起用（只有写信封时才有索引可写）[{}]",
             E_CLI_003
         );
         return ExitCode::from(2);
