@@ -22,7 +22,8 @@ amberice — 通用二进制信封 .ambr（SML 是内置载荷之一）
 用法:
   amberice info    <file> [--mmap]         一眼看清 edition/fmt/段表/摘要状态
   amberice ls      <file> [--mmap]         逐段列出 id/偏移/长度/算法（`--segments` 同义）
-  amberice check   <file> [--mmap]         结构 + 逐段摘要校验，打印每段结论
+  amberice check   <file> [--mmap] [--evidence FILE]
+                                      结构 + 逐段摘要校验；`--evidence` 只核对旁证里的 new_head
   amberice cat     <file> [<path>] [--schema] [--mmap]
                                       无路径输出整份；有路径取当前值；--schema 按内嵌 schema 渲染 TYPED
   amberice pack    [--zstd [N]] <out.ambr> <file>...
@@ -36,8 +37,9 @@ amberice — 通用二进制信封 .ambr（SML 是内置载荷之一）
                                       [--delegation F]
   amberice append  <file> <patch.ambr> --seed HEX|FILE [--expect-head HEX64] [-o OUT]
                                       `--expect-head` 把追加钉在写者看到的链头上（D20）
-  amberice compact <file> --seed HEX|FILE [-o OUT]
-                                      合并多层并**重签**（D8 唯一例外；丢弃历史，旧锚点要重建）
+  amberice compact <file> --seed HEX|FILE [-o OUT] [--evidence FILE]
+                                      合并多层并**重签**（D8 唯一例外；丢弃历史，旧锚点要重建）；
+                                      `--evidence` 另写一份 SML canonical 旁证（D54）
   amberice migrate <file> --to fmt=N (-o OUT | --in-place) [--seed HEX|FILE]
                                       fmt 升级骨架：只支持 fmt=0；有层必须给 --seed 重签
   amberice delegate --seed OLD --to PUBKEY --max N [--out FILE]   签一份换钥授权（D16）
@@ -135,16 +137,7 @@ fn run(args: &[String]) -> Result<String, (u8, String)> {
                 Ok(out.join("\n"))
             })
         }
-        "check" => read_cmd(&args[1..], |path, bytes| {
-            let report = amberice::check(bytes).map_err(|e| (1, format!("{path}: {e}")))?;
-            let mut out = report.lines.join("\n");
-            out.push_str(&format!("\n\n{}: {}", path, if report.ok { "通过" } else { "未通过" }));
-            if report.ok {
-                Ok(out)
-            } else {
-                Err((1, out))
-            }
-        }),
+        "check" => check_cmd(&args[1..]),
         "cat" => cat_cmd(&args[1..]),
         "history" => history_cmd(&args[1..]),
         "pack" => pack_cmd(&args[1..]),
@@ -228,6 +221,148 @@ where
     }
     let input = read_file(path.as_str(), mmap)?;
     f(path.as_str(), input.as_slice())
+}
+
+/// `amberice check <file> [--mmap] [--evidence FILE]`（D54）。
+/// 旁证只用于核对 `new_head`：它不参与摘要/签名判定，也不能替代 `--trust`。
+fn check_cmd(args: &[String]) -> Result<String, (u8, String)> {
+    let mut mmap = false;
+    let mut evidence: Option<&String> = None;
+    let mut file: Option<&String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--mmap" => {
+                mmap = true;
+                i += 1;
+            }
+            "--evidence" => {
+                let Some(v) = args.get(i + 1) else {
+                    return Err((2, "`--evidence` 需要一个文件".to_string()));
+                };
+                evidence = Some(v);
+                i += 2;
+            }
+            other => {
+                if other.starts_with('-') {
+                    return Err((2, format!("不认识的参数 `{other}`")));
+                }
+                if file.is_none() {
+                    file = Some(&args[i]);
+                } else {
+                    return Err((2, format!("多余参数 `{other}`")));
+                }
+                i += 1;
+            }
+        }
+    }
+    let Some(file) = file else {
+        return Err((
+            2,
+            "用法: amberice check <file> [--mmap] [--evidence FILE]".to_string(),
+        ));
+    };
+    let input = read_file(file.as_str(), mmap)?;
+    let bytes = input.as_slice();
+    let report = amberice::check(bytes).map_err(|e| (1, format!("{file}: {e}")))?;
+    let mut ok = report.ok;
+    let mut lines = report.lines;
+    if let Some(ev) = evidence {
+        let want = read_evidence_new_head(ev)?;
+        let algo =
+            amberice::container::hash_algo(bytes).map_err(|e| (1, format!("{file}: {e}")))?;
+        let got = amberice::layer::chain_head(bytes, algo)
+            .map_err(|e| (1, format!("{file}: {e}")))?;
+        match got {
+            Some(h) if h == want => lines.push("证据     new_head 与当前链头一致".to_string()),
+            Some(h) => {
+                ok = false;
+                lines.push(format!(
+                    "证据     new_head 不符：文件 {}…，证据 {}…",
+                    &to_hex(&h)[..16],
+                    &to_hex(&want)[..16]
+                ));
+            }
+            None => {
+                ok = false;
+                lines.push("证据     文件里没有层，证据的 new_head 无从核对".to_string());
+            }
+        }
+    }
+    let mut out = lines.join("\n");
+    out.push_str(&format!(
+        "\n\n{file}: {}",
+        if ok { "通过" } else { "未通过" }
+    ));
+    if ok {
+        Ok(out)
+    } else {
+        Err((1, out))
+    }
+}
+
+/// 生成 `compact` 的 SML canonical 旁证文本（D54）。
+#[cfg_attr(not(feature = "sign"), allow(dead_code))]
+fn evidence_text(
+    old_head: Option<[u8; 32]>,
+    old_layers: usize,
+    new_head: Option<[u8; 32]>,
+    new_layers: usize,
+) -> Result<String, (u8, String)> {
+    use amberice::{Map, Value};
+    let mut m = Map::ordered();
+    m.insert(
+        "old_head".to_string(),
+        Value::Str(old_head.map(|h| to_hex(&h)).unwrap_or_else(|| "none".to_string())),
+    );
+    m.insert("old_layers".to_string(), Value::Int(old_layers as i64));
+    m.insert(
+        "new_head".to_string(),
+        Value::Str(new_head.map(|h| to_hex(&h)).unwrap_or_else(|| "none".to_string())),
+    );
+    m.insert("new_layers".to_string(), Value::Int(new_layers as i64));
+    Value::Object(m)
+        .canonical_text()
+        .map_err(|e| (1, format!("证据文本失败：{e}")))
+}
+
+#[cfg_attr(not(feature = "sign"), allow(dead_code))]
+fn write_compact_evidence(
+    path: &str,
+    old_head: Option<[u8; 32]>,
+    old_layers: usize,
+    new_head: Option<[u8; 32]>,
+    new_layers: usize,
+) -> Result<(), (u8, String)> {
+    let text = evidence_text(old_head, old_layers, new_head, new_layers)?;
+    std::fs::write(path, text.as_bytes()).map_err(|e| (1, format!("写 {path} 失败：{e}")))
+}
+
+/// 只读旁证里的 `new_head`（D54）。D3 不引 SML 解析器，故按机器写入的固定形状严格扫描。
+/// Read only `new_head` from the evidence; the file is machine-written, so a strict scan is enough.
+fn read_evidence_new_head(path: &str) -> Result<[u8; 32], (u8, String)> {
+    let text =
+        std::fs::read_to_string(path).map_err(|e| (1, format!("读 {path} 失败：{e}")))?;
+    let mut found: Option<[u8; 32]> = None;
+    for line in text.lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix("new_head:") else {
+            continue;
+        };
+        if found.is_some() {
+            return Err((2, format!("{path}: `new_head` 出现多次")));
+        }
+        let token = rest.trim();
+        let token = token
+            .strip_prefix('"')
+            .and_then(|s| s.strip_suffix('"'))
+            .unwrap_or(token);
+        found = Some(
+            hex32(token)
+                .ok_or_else(|| (2, format!("{path}: `new_head` 不是 64 位十六进制")))?,
+        );
+    }
+    found.ok_or_else(|| (2, format!("{path}: 证据里没有 `new_head`")))
 }
 
 fn vectors_cmd(args: &[String]) -> Result<String, (u8, String)> {
@@ -706,6 +841,7 @@ fn compact_cmd(args: &[String]) -> Result<String, (u8, String)> {
         let mut file: Option<&String> = None;
         let mut seed_src: Option<&String> = None;
         let mut out_path: Option<&String> = None;
+        let mut evidence: Option<&String> = None;
         let mut i = 0;
         while i < args.len() {
             match args[i].as_str() {
@@ -723,6 +859,13 @@ fn compact_cmd(args: &[String]) -> Result<String, (u8, String)> {
                     out_path = Some(v);
                     i += 2;
                 }
+                "--evidence" => {
+                    let Some(v) = args.get(i + 1) else {
+                        return Err((2, "`--evidence` 需要一个路径".to_string()));
+                    };
+                    evidence = Some(v);
+                    i += 2;
+                }
                 other => {
                     if other.starts_with('-') {
                         return Err((2, format!("不认识的参数 `{other}`")));
@@ -737,7 +880,11 @@ fn compact_cmd(args: &[String]) -> Result<String, (u8, String)> {
             }
         }
         let Some(file) = file else {
-            return Err((2, "用法: amberice compact <file> --seed HEX|FILE [-o OUT]".to_string()));
+            return Err((
+                2,
+                "用法: amberice compact <file> --seed HEX|FILE [-o OUT] [--evidence FILE]"
+                    .to_string(),
+            ));
         };
         let Some(seed_src) = seed_src else {
             return Err((2, "必须给 `--seed`（compact 会重签）".to_string()));
@@ -747,9 +894,16 @@ fn compact_cmd(args: &[String]) -> Result<String, (u8, String)> {
         let bytes = std::fs::read(file).map_err(|e| (1, format!("读 {file} 失败：{e}")))?;
         let algo = amberice::container::hash_algo(&bytes).map_err(|e| (1, format!("{file}: {e}")))?;
         let before = amberice::layer::layers(&bytes).map(|l| l.len()).unwrap_or(0);
+        let old_head = amberice::layer::chain_head(&bytes, algo)
+            .map_err(|e| (1, format!("{file}: {e}")))?;
         let fresh = amberice::compact(&bytes, &kp, algo).map_err(|e| (1, e.to_string()))?;
         let dest = out_path.map(|s| s.as_str()).unwrap_or(file.as_str());
         std::fs::write(dest, &fresh).map_err(|e| (1, format!("写 {dest} 失败：{e}")))?;
+        if let Some(ev) = evidence {
+            let new_head = amberice::layer::chain_head(&fresh, algo)
+                .map_err(|e| (1, format!("{dest}: {e}")))?;
+            write_compact_evidence(ev, old_head, before, new_head, 1)?;
+        }
         Ok(format!(
             "已合并 {before} 层 → {dest}（重签为 1 层，{} B；历史已丢弃，旧 --trust 锚点需重建）",
             fresh.len()
@@ -1290,6 +1444,79 @@ mod migrate_tests {
         let got = super::read_file(path.to_str().expect("utf8"), true).expect("read");
         assert_eq!(got.as_slice(), b"AMBR-test");
         let _ = std::fs::remove_file(&path);
+    }
+
+    fn tmp(name: &str, suffix: &str) -> String {
+        std::env::temp_dir()
+            .join(format!(
+                "amberice-{name}-{}-{suffix}",
+                std::process::id()
+            ))
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    #[test]
+    fn check_evidence_matches_only_new_head() {
+        use amberice::{append_unsigned, CanonicalValue, HashAlgo, Map, Value};
+
+        let mut m = Map::ordered();
+        m.insert("a".to_string(), Value::Int(1));
+        let base = amberice::dump(&CanonicalValue::try_from(&Value::Object(m)).expect("ordered"))
+            .expect("dump");
+        let one = append_unsigned(&base, Some(Value::Int(2)), HashAlgo::Sha256).expect("append");
+        let file = tmp("check-evidence", "ambr");
+        std::fs::write(&file, &one).expect("write file");
+        let ev = tmp("check-evidence", "sml");
+        let head = amberice::layer::chain_head(&one, HashAlgo::Sha256)
+            .expect("head")
+            .expect("one layer");
+        super::write_compact_evidence(&ev, None, 0, Some(head), 1).expect("evidence");
+
+        let out = super::check_cmd(&["--evidence".to_string(), ev.clone(), file.clone()])
+            .expect("evidence should match");
+        assert!(out.contains("new_head 与当前链头一致"), "{out}");
+
+        // 只核对 new_head：换成别的 head 必须失败
+        super::write_compact_evidence(&ev, None, 0, Some([0u8; 32]), 1).expect("evidence 2");
+        assert!(super::check_cmd(&["--evidence".to_string(), ev.clone(), file.clone()]).is_err());
+
+        let _ = std::fs::remove_file(&file);
+        let _ = std::fs::remove_file(&ev);
+    }
+
+    #[cfg(feature = "sign")]
+    #[test]
+    fn compact_writes_evidence_with_new_head() {
+        use amberice::{CanonicalValue, HashAlgo, KeyPair, Map, Value};
+
+        let mut m = Map::ordered();
+        m.insert("a".to_string(), Value::Int(1));
+        let base = amberice::dump(&CanonicalValue::try_from(&Value::Object(m)).expect("ordered"))
+            .expect("dump");
+        let file = tmp("compact-evidence", "ambr");
+        std::fs::write(&file, &base).expect("write");
+        let ev = tmp("compact-evidence", "sml");
+        let kp = KeyPair::generate().expect("key");
+
+        super::compact_cmd(&[
+            file.clone(),
+            "--seed".to_string(),
+            kp.seed_hex(),
+            "--evidence".to_string(),
+            ev.clone(),
+        ])
+        .expect("compact");
+
+        let fresh = std::fs::read(&file).expect("read fresh");
+        let head = amberice::layer::chain_head(&fresh, HashAlgo::Sha256)
+            .expect("head")
+            .expect("one layer");
+        assert_eq!(super::read_evidence_new_head(&ev).expect("evidence"), head);
+        assert!(super::check_cmd(&["--evidence".to_string(), ev.clone(), file.clone()]).is_ok());
+
+        let _ = std::fs::remove_file(&file);
+        let _ = std::fs::remove_file(&ev);
     }
 
     #[cfg(feature = "sign")]
