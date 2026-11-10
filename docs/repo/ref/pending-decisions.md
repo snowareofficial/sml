@@ -1,8 +1,8 @@
 # 待用户裁决项 · 台账
 
-> **产品线** repo ｜ **状态** current ｜ **最后核对** 2026-11-06
+> **产品线** repo ｜ **状态** current ｜ **最后核对** 2026-11-10
 >
-> **结论先行：本文件登记的五条已全部裁决**，没有「等用户点头才能动」的项。
+> **结论先行：本文件登记的六条已全部裁决**，没有「等用户点头才能动」的项。
 > 仍需用户拍板的事项在 `TODO.md`（§10.1 / §10.2 / §11.2 / §11.4），本文件不重复登记。
 > 元数据在 `docs/meta.sml`。
 
@@ -10,21 +10,24 @@
 
 | # | 事项 | 裁决 | 落地状态 |
 |---|---|---|---|
-| D1 | 发布节奏 + v5 定稿 | **还没到发布**：只准备 `release.yml` 与 v5 表 A，不执行任何发布动作 | 未发布（`publish = false` 保持） |
+| D1 | 发布节奏 + v5 定稿 | **准备发布 dev1**；dev2 与 `amberice` / `bamcore` / `bambin` 一起发；v5 表 A 定稿仍是发布前置 | 未发布（`publish = false` 保持）；`release.yml` 待建 |
 | D2 | 双授权口径 | **保持 MulanPSL-2.0 单授权**，不改任何 `license` 字段 | 已定，无需改动 |
 | D3 | `@feature base` 的「书名」承载位 | **不新增任何语法**；书名就是普通数据（顶层 `title:`），CLI 推断规则写进规范 | 由「语言扩展」降级为「文档补齐」 |
 | D4 | `deploy.yml` 的 VPS 部署内容 | **根本没有 VPS**：`cron → CF Worker → repository_dispatch → GitHub Actions（多平台构建 + 发布）` | 旧 T36 方案作废 |
 | D5 | 加密文件里的 `DIR` / `TYPED` | **丙**：加密状态必须自洽，宁可拒读也不猜 | 已实现（`rust/amberice/src/container.rs`） |
+| D6 | 发布拓扑 / 仓库分工 / 官网 | 见 §1 D6：预发布后缀、通用内核抽出、GitHub `swsml` 对外主仓、`/doc` 子路径 | 口径已定，落地待做 |
 
 ## 1. 逐条理由（供回查）
 
 ### D1 · 发布节奏
 
-问题曾是「谁先发、什么条件发；`@version 50 "camelia" dev` 什么时候不再报 `E-FEATURE-004`」。
-选项有三（先 `swsml` / 三个一起 / 先 `amberice` + `swml`），用户答「还没到发布」⇒ 三条都不取自今，
-只做**准备**：`release.yml` 按依赖拓扑序写好但不执行；v5 表 A 回填照做，不动 `E-FEATURE-004` 的启用位。
+用户 2026-11-10 宣布：**准备发布 dev1**；dev2 与 `amberice` / `bamcore` / `bambin` 一起发。
+`dev1` / `dev2` 是预发布版本后缀（用户示例 `0.6.9-dev2`；当前 workspace 为 `0.6.9-dev.0`，
+定版时统一后缀格式）。发布不可逆，`swsml` 已发 18 版，0.7.0 的破坏性变更需要对外口径。
 
-为什么必须用户拍：发布不可逆，且 `swsml` 已发 18 版，0.7.0 的破坏性变更需要对外口径。
+发布前置：`release.yml`（tag + 人工审批 + 拓扑序 `cargo publish` dry-run）、v5 表 A 定稿、
+各 crate `publish = false` 的解除依赖 D6 的仓名与 `repository` 值；`E-FEATURE-004` 的启用位
+在 v5 定稿前不动。
 
 ### D2 · 授权
 
@@ -52,6 +55,29 @@ Rust `scan::resolve_edition`（与 `@version` 共用判据）、`js/sml.mjs` 的
 明文文件：出现 `enc != 0` 的段即 `EncryptedSegmentInPlainFile`。
 `DIR` 已并入 seal / 加密流水线；加密文件里它是密文，`Store::get` 用不上索引（安全优先于速度）。
 
+### D6 · 发布拓扑、仓库分工与官网（2026-11-10）
+
+用户口径逐条登记：
+
+| 项 | 裁定 |
+|---|---|
+| `dev1` / `dev2` | 预发布版本后缀（`0.6.9-dev2` 形态）；dev2 为成批发布批次 |
+| dev2 同发内容 | `amberice` + `bamcore` + `bambin` |
+| `bamcore` | 从 `amberice` 抽出的可通用部分，配以自定义格式所需的部件 |
+| `bambin` | 用户原话「让开发者省心的文件格式」；**细节未展开，定义待补** |
+| 对外主仓 | GitHub 上的 `swsml` 仓（门面仓）；本仓保持权威开发源，用 workflow 单向推送，对外收 star / issue / PR |
+| crate git 链接 | 用 GitHub 的 URL（`repository` 字段）；精确 URL 待新仓名确定 |
+| 官网 | 用户单独做；本仓现有 `site/` 内容挂到新官网 `/doc` 子路径 |
+
+门面 `swml` 的源码留在本仓 workspace，不拆 crate 源码；「单独仓库」指对外的 GitHub `swsml` 主仓。
+
+**落地待做**（不在本文件裁决范围）：新仓 org / 全名、`repository` 精确值、版本后缀格式统一、
+`release.yml`、v5 表 A 定稿、`publish = false` 解除、`site/ → /doc` 的构建与 301。
+
+⚠️ **要收 PR 的硬冲突**：现有 `.github/workflows/sync-from-gitee.yml` 的 `guard` 在 GitHub 端
+出现「Gitee 没有的独有提交」时会中止同步（防误覆盖）。GitHub 仓一旦合并 PR 就必然产生独有提交，
+单向镜像随即被挡。要同时「workflow 推进去」和「收 PR」，必须先定回灌或放宽 guard 的口径。
+
 ## 2. 通用原则（D3 的教训）
 
 **先判断是「文档缺口」还是「语言缺口」。** 承载位已存在、只是没写进规范 ⇒ 补文档；
@@ -71,5 +97,5 @@ Rust `scan::resolve_edition`（与 `@version` 共用判据）、`js/sml.mjs` 的
 |---|---|
 | `amberice` 到底指哪一层（格式品牌 / 独立产品线 / 运行时） | `TODO.md` §11.4 |
 | `.swl` 与 `.smld` 谁当「文本文档」默认（现在定的是 `.swl`） | `TODO.md` §11.2 |
-| 主仓迁 GitHub、Gitee 降为镜像的时点 | `TODO.md` §10.2 |
-| `swml` 是否留在本仓 workspace | `docs/swml/status.md` §4 |
+| 主仓时点（方向已由 D6 裁定：GitHub `swsml` 对外主仓、workflow 单向推送） | `TODO.md` §10.2 |
+| `swml` 源码是否留在本仓 workspace | **D6 已裁定：留本仓**；真拆 crate 源码需另行裁决 |

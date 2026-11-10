@@ -53,13 +53,13 @@ docs {
     { title: "docs/repo/archive/task/TASK-agent-w8-w9.md" date: "2026-09-18" updated: "2026-10-28" owner: "repo" status: "archive" scope: "任务书（W8–W9）" supersedes: null superseded_by: null }
     { title: "docs/repo/archive/task/TASK-agent.md" date: "2026-09-18" updated: "2026-10-28" owner: "repo" status: "archive" scope: "任务书（主）" supersedes: null superseded_by: null }
     { title: "docs/repo/plan/doc-architecture.md" date: "2026-11-04" updated: "2026-11-06" owner: "repo" status: "stale" scope: "文档四层架构 + P1–P4（提议；已由本次治理落地）" supersedes: null superseded_by: "docs/index.md" }
-    { title: "docs/repo/ref/pending-decisions.md" date: "2026-11-06" updated: "2026-11-06" owner: "repo" status: "current" scope: "裁决台账：五条已全部裁决 + 仍待裁项的去处" supersedes: null superseded_by: null }
+    { title: "docs/repo/ref/pending-decisions.md" date: "2026-11-06" updated: "2026-11-10" owner: "repo" status: "current" scope: "裁决台账：D1–D6 已全部裁决（含发布拓扑 / 仓库分工 / 官网）+ 仍待裁项的去处" supersedes: null superseded_by: null }
     { title: "docs/repo/ref/todo-ideas-tables.md" date: "2026-11-06" updated: "2026-11-10" owner: "repo" status: "current" scope: "TODO / IDEAS 条目表：卡在谁、什么状态" supersedes: null superseded_by: null }
     { title: "docs/repo/ref/unfinished.md" date: "2026-11-06" updated: "2026-11-10" owner: "repo" status: "current" scope: "唯一「还剩什么」清单（分类 / 判据 / 复核命令）" supersedes: null superseded_by: null }
     { title: "docs/repo/ref/scan.md" date: "2026-11-07" updated: "2026-11-10" owner: "repo" status: "current" scope: "自动扫描的计数结果（tools/scan_status.py --write 生成，勿手改）" supersedes: null superseded_by: null }
     { title: "docs/swml/plan/api-draft.md" date: "2026-11-02" updated: "2026-11-06" owner: "swml" status: "draft" scope: "门面未定项：根命名空间债务 / 命名二义 / feature 传播 / 发布口径" supersedes: null superseded_by: null }
     { title: "docs/swml/spec/api.md" date: "2026-11-02" updated: "2026-11-09" owner: "swml" status: "current" scope: "swml 门面公开面：根 = swsml 全集，easy = 四个概念" supersedes: null superseded_by: null }
-    { title: "docs/swml/status.md" date: "2026-11-06" updated: "2026-11-06" owner: "swml" status: "current" scope: "swml 发布状态（未发布 / publish=false）与 workspace 口径冲突" supersedes: null superseded_by: null }
+    { title: "docs/swml/status.md" date: "2026-11-06" updated: "2026-11-10" owner: "swml" status: "current" scope: "swml 发布状态（dev2 成批发 / publish=false）+ 门面源码与对外仓分工" supersedes: null superseded_by: null }
     { title: "docs/swsml/archive/idyml-rejected.md" date: "2026-10-15" updated: "2026-11-03" owner: "swsml" status: "archive" scope: "idyml 改名方案（2026-11-03 否决）" supersedes: null superseded_by: null }
     { title: "docs/swsml/archive/iter-parse.md" date: "2026-10-30" updated: "2026-11-02" owner: "swsml" status: "archive" scope: "迭代式解析改造（已完成并合入 dev）" supersedes: null superseded_by: null }
     { title: "docs/swsml/plan/featag-slices.md" date: "2026-11-04" updated: "2026-11-10" owner: "swsml" status: "current" scope: "featag 实现切片 S0–S9（S0–S9 已收官；其它四端按 S9 策略不实现）" supersedes: null superseded_by: null }

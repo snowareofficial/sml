@@ -1,7 +1,7 @@
 # docs 索引
 
 > **本文件由 `cargo run -p smldocs -- --index` 生成，勿手改。**
-> 数据源 `docs/meta.sml`（52 份文档，摘要 `cfffde3d8e026714`）。摘要变了就必须重跑生成；
+> 数据源 `docs/meta.sml`（52 份文档，摘要 `80adf1572fd0f588`）。摘要变了就必须重跑生成；
 > 本文件不记生成日期 / HEAD，避免跨天或提交后假漂移。体检结论见 [`report.md`](report.md)。
 
 ## 一眼看结论
@@ -61,7 +61,7 @@
 |---|---|---|---|---|---|
 | [`swml/plan/api-draft.md`](swml/plan/api-draft.md) | 2026-11-02 | 2026-11-06 | **draft** | — | 门面未定项：根命名空间债务 / 命名二义 / feature 传播 / 发布口径 |
 | [`swml/spec/api.md`](swml/spec/api.md) | 2026-11-02 | 2026-11-09 | **current** | — | swml 门面公开面：根 = swsml 全集，easy = 四个概念 |
-| [`swml/status.md`](swml/status.md) | 2026-11-06 | 2026-11-06 | **current** | — | swml 发布状态（未发布 / publish=false）与 workspace 口径冲突 |
+| [`swml/status.md`](swml/status.md) | 2026-11-06 | 2026-11-10 | **current** | — | swml 发布状态（dev2 成批发 / publish=false）+ 门面源码与对外仓分工 |
 
 ## repo（23 份）
 
@@ -86,7 +86,7 @@
 | [`repo/archive/task/TASK-agent-w8-w9.md`](repo/archive/task/TASK-agent-w8-w9.md) | 2026-09-18 | 2026-10-28 | **archive** | — | 任务书（W8–W9） |
 | [`repo/archive/task/TASK-agent.md`](repo/archive/task/TASK-agent.md) | 2026-09-18 | 2026-10-28 | **archive** | — | 任务书（主） |
 | [`repo/plan/doc-architecture.md`](repo/plan/doc-architecture.md) | 2026-11-04 | 2026-11-06 | **stale** | `docs/index.md` | 文档四层架构 + P1–P4（提议；已由本次治理落地） |
-| [`repo/ref/pending-decisions.md`](repo/ref/pending-decisions.md) | 2026-11-06 | 2026-11-06 | **current** | — | 裁决台账：五条已全部裁决 + 仍待裁项的去处 |
+| [`repo/ref/pending-decisions.md`](repo/ref/pending-decisions.md) | 2026-11-06 | 2026-11-10 | **current** | — | 裁决台账：D1–D6 已全部裁决（含发布拓扑 / 仓库分工 / 官网）+ 仍待裁项的去处 |
 | [`repo/ref/scan.md`](repo/ref/scan.md) | 2026-11-07 | 2026-11-10 | **current** | — | 自动扫描的计数结果（tools/scan_status.py --write 生成，勿手改） |
 | [`repo/ref/todo-ideas-tables.md`](repo/ref/todo-ideas-tables.md) | 2026-11-06 | 2026-11-10 | **current** | — | TODO / IDEAS 条目表：卡在谁、什么状态 |
 | [`repo/ref/unfinished.md`](repo/ref/unfinished.md) | 2026-11-06 | 2026-11-10 | **current** | — | 唯一「还剩什么」清单（分类 / 判据 / 复核命令） |

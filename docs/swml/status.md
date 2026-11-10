@@ -1,13 +1,14 @@
 # `swml` 状态
 
-> **产品线** swml ｜ **状态** current ｜ **最后核对** 2026-11-06
+> **产品线** swml ｜ **状态** current ｜ **最后核对** 2026-11-10
 >
 > 一页看清门面 crate 的发布状态与仓库位置。公开面规范见 `spec/api.md`；
 > 未定项见 `plan/api-draft.md`；元数据在 `docs/meta.sml`。
 
 ## 1. 一句话
 
-`swml` **已建、未发布**：`publish = false`，与 `amberice` / v5 一起发。
+`swml` **已建、未发布**：`publish = false`；随 dev2 与 `amberice` / `bamcore` / `bambin`
+一起发（`docs/repo/ref/pending-decisions.md` D1 / D6）。
 
 ## 2. 事实（可复核）
 
@@ -24,16 +25,19 @@
 
 ## 3. 发布线
 
-- 不单独发版：等 `amberice`（`.ambr`）与 v5 定稿后**一次性**给出成批能力
-  （用户 2026-11-03 / 2026-11-06 两次确认）。
+- 不单独发版：随 **dev2** 与 `amberice` / `bamcore` / `bambin` 成批发布（用户 2026-11-10 裁定，
+  见 `docs/repo/ref/pending-decisions.md` D1 / D6）；v5 表 A 定稿仍是前置。
+- 对外主仓是 GitHub 的 `swsml` 仓，本仓保持权威开发源，用 workflow 单向推送；
+  crate 的 `repository` 用 GitHub URL（精确值待新仓名确定）。
 - 发布前必须绿：`cargo test -p swml`、`cargo check -p swml --no-default-features`。
 
-## 4. ⚠️ 待裁决：门面到底在不在本仓 workspace
+## 4. 门面源码与对外仓（2026-11-10 已裁定）
 
-| 说法 | 出处 | 事实 |
-|---|---|---|
-| 「门面**不进**本仓 workspace（独立仓库、依赖 crates.io）」 | `TODO.md` §11.1 | 与代码相反 |
-| `swml` 是 workspace member，随仓编译与测试 | `rust/Cargo.toml` 的 `members` | ← 现状 |
+| 项 | 裁定 |
+|---|---|
+| 门面源码 | **留在本仓 workspace**，继续随仓编译与测试（`rust/Cargo.toml` 的 `members`） |
+| 对外仓 | GitHub 上的 `swsml` 仓作主仓，workflow 单向推送，对外收 star / issue / PR |
+| crate 链接 | `repository` 用 GitHub URL；精确值待新仓名确定后回填各 `Cargo.toml` |
 
-两种口径不能同时成立，**未裁决**。影响：`cargo test --workspace` 是否覆盖门面、
-发布拓扑里 `swml` 的位置、以及「独立仓库」是否需要拆出去。裁决前按现状（在 workspace 内）执行。
+`TODO.md` §11.1「门面不进本仓 workspace（独立仓库、依赖 crates.io）」与代码相反，
+按本裁定不采纳；若日后要真把 crate 源码拆到独立仓，需另行裁决（依赖 `sml-value` 先发 crates.io）。

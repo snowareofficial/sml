@@ -78,5 +78,6 @@ changes {
     { doc: "docs/amberice/ref/claims-audit.md" at: "2026-11-10" commit: "1088b3a" summary: "核实 45 条论断：修正 §0.1 当前事实、证据引用与 §7 / §8 表述" }
     { doc: "docs/index.md" at: "2026-11-10" commit: "009dc9f" summary: "生成物头行改记 meta.sml 内容摘要（去掉生成日期），report.md 同步；scan.md 正文未变不重写；CI 加生成物幂等校验" }
     { doc: "rust/amberice/examples/probe_layers.rs" at: "2026-11-10" commit: "92c4062" summary: "新增：三条实测探针由 _scratch/probe/ 转为 example 入库；decisions §16.5.8 与 unfinished §12 的引用同步" }
+    { doc: "docs/repo/ref/pending-decisions.md" at: "2026-11-10" commit: "4c355f3" summary: "新增 D6 发布拓扑 / 仓库分工 / 官网裁定，更新 D1 发布节奏；swml/status.md、unfinished.md、todo-ideas-tables.md 的发布线、对外主仓与官网口径同步" }
   ]
 }
