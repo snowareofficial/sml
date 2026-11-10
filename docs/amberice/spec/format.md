@@ -1415,7 +1415,7 @@ stream      = PRNG(purpose_key, info = file_id ‖ layer_id ‖ block_index ‖ 
 3. **未知段可跳过**（§23.1 ①）不因这两段改变：不认 `TYPED` 的读取方只按段头 `len` 跳过。
 4. **不动版本位**：段 id 已登记，加段属向后兼容扩展，`fmt` 补丁位不变。
 
-⇒ 由此定死 T7 的判据：五端解码器对这两段的要求是「**认段头 + 跳过 + 验摘要**」，**不是**「解出值」。语义实现只做 Rust（`smldb.md §7.6` 已定「v1 只做 Rust，标 experimental；跨端同步单列」）。
+⇒ T7 判据（D45 起）：五端解码器对这两段要「**认段头 + 解 `SCHEMA`（canonical `Value`）+ 按 schema 渲染 `TYPED`**」；`VALUE` 仍是唯一的相等 / 签名对象，不因这两段改变。
 
 ### 25.2 `0x70 TYPED` 段体
 
@@ -1441,6 +1441,30 @@ entries = (var_id:varint, type_id:u64le, off:u32le, len:u32le)
 |---|---|---|---|
 | **外置 schema（默认）** | 只有 `TYPED` | 调用方编译期知道 `T` | 热路径、内部存储、体积最小 |
 | **内嵌 schema（可选）** | `TYPED` + `SCHEMA` | 读端动态读 | `cat` 工具、跨语言、长期归档 |
+
+**段体形状（D45）**：自包含 canonical `Value`（L0 字节，可单独解，不依赖 `VALUE`）：
+
+```sml
+{
+  schema_version: 1
+  types: [
+    {
+      id: "1a2b3c4d5e6f7788"      # type_id 的 16 位小写十六进制（u64，绕开 Int 上限）
+      name: "User"
+      kind: "struct"              # struct | enum
+      fields: [                   # struct 用
+        { id: 1, name: "id",   ty: "u64" }
+        { id: 2, name: "name", ty: "str" }
+      ]
+      variants: [ { id: 0, name: "Allow" } ]   # enum 用
+    }
+  ]
+}
+```
+
+`ty` 的 v1 词表：`bool` / `u8`–`u64` / `i8`–`i64` / `f32` / `f64` / `str` / `bytes`；
+容器写 `{ vec: <ty> }` / `{ opt: <ty> }`；引用另一个类型写 `{ type: "<id>" }`。
+v1 **不自动生成** schema：调用方手写或由工具生成，`Writer::put_schema` 只负责落段。
 
 ### 25.4 线格式（零依赖、可手写）
 
@@ -1487,7 +1511,8 @@ entries = (var_id:varint, type_id:u64le, off:u32le, len:u32le)
 | 段 id 登记（`0x70` / `0x71`） | ✅ 本规范 |
 | DIR 写入（可选段） | ✅ **N05（2026-11-06）**：`DumpOptions.dir`（默认关）+ `dir_depth`；`Store::get` 逐层二分 |
 | Rust `put_var` / `get_var` | ✅ **N04（2026-11-06）**：`Writer::put_var` + `Store::var`；整数/浮点/bool/String/`Bytes`/`Vec<T>`/`Option<T>` |
-| 五端解码器「跳过」 | ❌ 未做 → N03 / T7（判据仍是认段头 + 跳过 + 验摘要） |
-| 内嵌 schema / serde 桥 | 待定（`amberice-plan.md `smldb.md §7.12``） |
+| 内嵌 schema（Rust） | ✅ **D45（2026-11-10）**：`Writer::put_schema` + `Store::schema`；段体是自包含 canonical `Value` |
+| 五端解 schema / 渲染 TYPED | ❌ 未做（D45 已裁，排在 T7） |
+| serde 桥 | 待定（`amberice-plan.md `smldb.md §7.12``） |
 | 字节布局影响 | **零**：不写这两段的文件与收录前逐字节相同 |
 
