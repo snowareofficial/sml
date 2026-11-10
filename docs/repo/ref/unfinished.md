@@ -224,7 +224,8 @@ TODO / IDEAS 两张表在 [`todo-ideas-tables.md`](todo-ideas-tables.md)（`stat
 
 > 证据底稿 `docs/amberice/ref/claims-audit.md`（`status: draft`）与讨论记录
 > `docs/amberice/decisions.md §16.5`（待裁决 · 不作结论）都不得当结论引用。
-> 代码基线 `136803b`：审计 #11 / #12 / #20 已落地（原子写 + 尾垃圾检测），现状见底稿 §0.1。
+> 审计 #11 / #12 / #20 与 `check` 的尾部检测均已落地；基线在 `136803b` 复核，
+> 后续扩充见底稿 §0.1 / §8，实测数字见 `decisions.md §16.5.8`。
 > 三条探针已于 2026-11-10 实测完，数字与口径见 `decisions.md §16.5.8`；
 > 探针 2 暴露的 `check` 可探测性缺口已修复（读端行为不变）。
 

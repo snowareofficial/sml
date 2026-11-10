@@ -1,6 +1,7 @@
 # `.ambr` 论断核实台账（2026-11-10）
 
-> **产品线** amberice ｜ **状态** draft（待裁决）｜ **最后核对** 2026-11-10 ｜ **代码基线** `136803b`
+> **产品线** amberice ｜ **状态** draft（待裁决）｜ **最后核对** 2026-11-10
+> 代码事实以 §0.1 的复核基线与 §8 的后续扩充为准；复核命令见 §9。
 >
 > **draft（未定稿）**：本文件是 2026-11-10 会话 45 条论断的核实台账，**不得当结论引用**。
 > 去留（逐条采纳并进 `decisions.md`，或整体移入 `docs/amberice/archive/`）由用户裁决，见 §10。
@@ -23,7 +24,8 @@
 2026-11-10 实测通过（22/22 逐字符 + 往返，`ref/ports.md`）；`docs/meta.sml` 的 `scope`
 与生成的索引按「全端已通」维护，多端状态以 `ref/ports.md` 正文为唯一事实来源。
 
-统计是会话当时的核实快照，不是当前实现状态；其中标「未实测」的 #20 已于 2026-11-10 实测，结论见 §8。
+统计是会话当时的核实快照，不是当前实现状态；其中标「未实测」的 #20 已于 2026-11-10 实测，
+`check` 的可探测性缺口也已修复，见 §8。
 
 ### 0.1 会话后落地（基线 `136803b`，尾部检测扩充见 §8）
 
@@ -67,7 +69,7 @@
 | 17 | `Trailer::parse` 只看 EOF 前 64 B | 成立 | `rust/amberice/src/layer.rs`：`bytes[bytes.len() - TRAILER_LEN..]` |
 | 18 | 容器解析不校验文件尾，只校验段边界 | 成立（现状见 §0.1） | `rust/amberice/src/container.rs`：`info()` 只做 `table_end > bytes.len()` 与 `end > bytes.len()`；`open_raw()` 直接复用 |
 | 19 | 无 Trailer 时 `layers()` 返回空链（视为「没层」） | 成立 | `layer.rs`：`let Some(t) = Trailer::parse(bytes) else { return Ok(Vec::new()) }` |
-| 20 | 半截追加能被「优雅降级」（读端退回基文档） | **未实测**（现状见 §0.1） | 由 #18 + #19 可推断为静默忽略；但未跑。另有两个未排除分支：半截尾若让 magic 对齐到 EOF-64，`layers()` 会因 `layer_count` 不符报 `CountMismatch`；`check` 不检查尾垃圾，**丢失的追加不会被任何命令报出来** |
+| 20 | 半截追加能被「优雅降级」（读端退回基文档） | **未实测**（会话快照；现状见 §0.1 / §8） | 由 #18 + #19 可推断为静默忽略；但未跑。另有两个未排除分支：半截尾若让 magic 对齐到 EOF-64，`layers()` 会因 `layer_count` 不符报 `CountMismatch`；会话当时 `check` 不检查截尾，**丢失的追加不会被任何命令报出来**（该可探测性缺口已在 §8 修复） |
 | 21 | 现有测试没覆盖「尾部半截写」 | 成立（现状见 §0.1） | `rust/amberice/tests/`：`roundtrip::truncation_is_rejected` 只截整文件（切段），`hostile_chain` 只打伪造 `off` / `count`，无 torn-append 用例 |
 | 22 | `CountMismatch` 是硬错分支 | 成立 | `layer.rs`：错误枚举内含 `CountMismatch { declared, found }` |
 

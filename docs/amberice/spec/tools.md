@@ -25,7 +25,7 @@
 | `amberice history <f> <path> --at N` | 第 N 层为止的值（历史回放） | T4 | ✅ **已实现**（从 `cat --at` 拆出） |
 | `amberice get <f> <path> [--bytes]` | 零拷贝取一棵子树（不解全树），`--bytes` 出原始字节 | T3 | ✅ **已实现**（不依赖 `DIR`：用 `subtree_len` 跳兄弟） |
 | `amberice text <f> [--path P]` | 整份或某一子树的 canonical 文本 | T3 | ✅ **已实现** |
-| `amberice check <f> [--evidence FILE]` | 结构校验：段哈希、层链、能力位、截断位置；`--evidence` 只核对旁证里的 `new_head`（D54）；完整 Trailer 之后多出的字节会明确报出；找不到完整 Trailer 但段区之后还有字节（截尾）也报出 | T2 | ✅ **已实现**（段哈希/截断；层链待 T4、能力位待 `format.md §19.9`） |
+| `amberice check <f> [--evidence FILE]` | 结构校验：段哈希、层链、能力位、截断位置；`--evidence` 只核对旁证里的 `new_head`（D54）；完整 Trailer 之后多出的字节会明确报出；找不到完整 Trailer 但段区之后还有字节（截尾）也报出 | T2 | ✅ **已实现**（段哈希 / 截断 / 层链 / 能力位 / 尾部两档） |
 | `amberice verify <f> [--trust HEX64] [--allow-unsigned]` | 验链 + 验签，打印每层结论；`--trust` 把链头钉在外部锚点上；`--allow-unsigned` 显式接受无签名层（仍不能替代 `--trust`） | T4 | ✅ **已实现**（防整条链被剥离） |
 | `amberice sign / append / delegate` | 签名、追加补丁、换钥授权 | T4 | ✅ **已实现**（`keygen` 也在，`sign` 默认原地写；写入走 tmp+rename，不先截断原文件） |
 | `amberice pack / unpack` | 把多文件打成 `.ambr`（`EMBED` + `payloads[]`），或反向取出 | T2 | ✅ **已实现**（`unpack` 拒绝目录穿越；`pack --zstd` 段级压缩） |

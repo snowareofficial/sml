@@ -150,12 +150,12 @@ jobs:
           python3 errors/gen_codes.py
           git diff --exit-code
       # 文档门禁：docs/meta.sml 是唯一清单。未登记 / 断链 / stale 无替代者 / updated 超期
-      # 任一命中即红。**放在 `git diff --exit-code` 之后** —— 它自己会重写 docs/report.md。
+      # 任一命中即红。`--check` 纯只读，不写生成物。
       - name: 文档门禁（meta.sml → 索引 / 体检 / 断链）
         working-directory: rust
         run: cargo run -p smldocs -- --check
-      # 生成物幂等：数据源变了却没重跑生成 ⇒ 这里变红。生成物不记日期，
-      # scan.md 内容不变时不重写，所以跨天重跑也不会假红。
+      # 生成物幂等：数据源变了却没重跑生成 ⇒ 这里变红。index / report 头行只记
+      # meta.sml 摘要；scan.md 记时间戳但正文未变时不重写，所以跨天重跑不会假红。
       - name: 文档生成物重跑
         working-directory: rust
         run: |
