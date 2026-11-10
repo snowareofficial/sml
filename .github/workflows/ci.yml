@@ -31,12 +31,20 @@ jobs:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
       - name: 测试 workspace
-        # swsml 的 [lib] 同时是 rlib + cdylib，且多个成员以不同 feature 集依赖它
-        # ⇒ cargo #6313 输出文件名碰撞（libsml.rlib），workspace 合跑可能让下游成员
-        # 找不到自己的 rlib。按 cargo 自己的建议「compiling them separately」拆两步：
-        #   - 其余成员合跑；- 门面 swml 单独跑（单独跑时 feature 集唯一，无碰撞）。
+        # cargo #6313：swsml 的 [lib] 同时产 rlib + cdylib，一次 `--workspace` 合跑里
+        # 不同 feature 集的下游会抢同一个 libsml.rlib，链接时 std / c_abi 符号全丢。
+        # 按 cargo 的建议「compiling them separately」逐包跑：每次调用只解析一套
+        # feature 集，不产生同名输出碰撞；门面 swml 仍单独跑。
+        # 清单 = `cargo metadata --no-deps` 的 packages，新增 crate 时同步补这里。
         run: |
-          cargo test --workspace --exclude swml
+          set -e
+          for p in swsml swsml-derive sml-value sml-codes sml-regex sml-lex \
+                   sml-feature sml-include sml-contract sml-pattern sml-parse \
+                   smltools smldocs amberice amberice-ffi; do
+            echo "::group::cargo test -p $p"
+            cargo test -p "$p"
+            echo "::endgroup::"
+          done
           cargo test -p swml
       - name: Clippy 门禁（-D warnings）
         # 2026-11-07 把 clippy 从 182 清到 0；结构类 4 处 `#[allow]` 都写了理由
