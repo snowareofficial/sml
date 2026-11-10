@@ -25,16 +25,16 @@
 
 统计是会话当时的核实快照，不是当前实现状态。
 
-### 0.1 会话后落地（HEAD `136803b`）
+### 0.1 会话后落地（代码基线 `136803b`）
 
 审计 #11 / #12 / #20 已由 `fix(amberice): 原子写与尾部垃圾检测` 落地。下表是当前源码事实；
 §2 表格保留会话当时的核实快照，标「现状见 §0.1」的行不再反映现状。
 
 | 审计项 | 当前事实 | 源码 |
 |---|---|---|
-| #10 / #11 | `append` 仍默认覆盖原文件，但落盘走 `write_atomic`：先写 `<path>.tmp-<pid>` 再 `rename`，不截断正式文件；该路径不做 `fsync` | `rust/amberice/src/main.rs`（`write_atomic`、append 分支） |
+| #10 / #11 | `append` 仍默认覆盖原文件，但落盘走 `write_atomic`：先写同目录 tmp 文件（`with_extension("tmp-<pid>")`，替换扩展名，如 `foo.ambr` → `foo.tmp-1234`）再 `rename`，不截断正式文件；该路径不做 `fsync` | `rust/amberice/src/main.rs`（`write_atomic`、append 分支） |
 | #12 | 崩在 tmp 写入阶段不会毁掉原文件；正式文件名下始终是旧文件或完整新文件 | 同上；`rust/amberice/src/ingest.rs`（tmp + fsync + rename） |
-| #18 / #20 | `check` 回扫最多 1 MiB 找完整 Trailer，其后多出的字节按「半截追加或尾垃圾」报出；`info` / `open_raw` 仍只校验段边界 | `rust/amberice/src/container.rs`（`check` 第 6 步）、`rust/amberice/src/layer.rs`（`find_trailer`） |
+| #18 / #20 | `check` 回扫最多 1 MiB 找完整 Trailer，其后多出的字节按「半截追加或尾垃圾」报出；`info` 仍只校验段边界，`open_raw` 还校验 caps / 加密自洽 / 重复段 / 段摘要，但都不检查文件尾 | `rust/amberice/src/container.rs`（`check` 第 6 步、`open_raw`）、`rust/amberice/src/layer.rs`（`find_trailer`） |
 | #21 | 已有 `check_reports_trailing_garbage` 用例（尾部多 20 B ⇒ `check` 报「20 B」且结论不通过） | `rust/amberice/tests/unsigned.rs` |
 | #9 / #16 | 未变：`append_layer` 仍整文件复制进新 `Vec<u8>`，追加成本仍是 O(文件大小) | `rust/amberice/src/sign.rs` |
 
@@ -45,10 +45,10 @@
 | 1 | `.ambr` 是不可变档；热数据走 `smldb` 的 BLOB + 缓存（D4） | 成立 | `docs/amberice/decisions.md` D4 |
 | 2 | 不承担可变 DB（MVCC）与追加式日志（D14） | 成立 | `decisions.md` D14 |
 | 3 | 高频采集按「写前脱敏 + 批量追加 + `history: keep\|drop`」收口（D53） | 成立 | `decisions.md` D53 |
-| 4 | 规模信封：单文档 ≤ 8 MB、文档数 ≤ 10⁵、写入 ≤ 1/s、每批 fsync | 成立（裁决） | `decisions.md §10` 第 5 行；**代码无任何限流**，见 #16 |
+| 4 | 规模信封：单文档 ≤ 8 MB、文档数 ≤ 10⁵、写入 ≤ 1/s、每批 fsync | 成立（裁决） | `decisions.md §10` 第 5 行；CLI 派发全表无速率控制，**代码无任何限流** |
 | 5 | 衍生格式只能定义语义、不能定义字节编码（D24） | 成立 | `decisions.md` D24 |
 | 6 | `amberice` 只依赖 `sml-value`，其余依赖全为 optional | 成立 | `rust/amberice/Cargo.toml`：`sml-value` 之外均带 `optional = true` |
-| 7 | 默认档零第三方依赖 | 成立 | 同上；`[features]` 无 `default`，四项 feature 才拉依赖 |
+| 7 | 默认档零第三方依赖 | 成立 | 同上；`Cargo.toml` 的 `default = []`（空默认集，不拉可选依赖），四项 feature 才拉依赖 |
 | 8 | 多写者并发交 `smldb`（D21） | 成立 | `decisions.md` D21 |
 
 ## 2. 写路径（本次讨论的核心）
@@ -75,9 +75,9 @@
 | # | 论断 | 结论 | 证据 |
 |---|---|---|---|
 | 23 | `Store` 只有只读 API，不是可写内存模型 | 成立 | `store.rs` 的 `pub fn` 清单无任何 `&mut self` 写入方法 |
-| 24 | `DIR` 带 `head_layer`，追加后整段失效但只影响速度 | 成立 | `spec/format.md §19.10`「与当前 head 不一致 ⇒ 整段忽略」 |
+| 24 | `DIR` 带 `head_layer`，追加后整段失效但只影响速度 | 成立 | `spec/format.md §19.3`「与当前 head 不一致 ⇒ 整段忽略」 |
 | 25 | `FrameCursor` 只解覆盖目标区间的帧；坏最后一帧不影响前面的取值 | 成立 | `spec/format.md §19.12`（含实测用例描述） |
-| 26 | 每条 `payloads[]` 开销「约 40 B」 | **需修正** | 摘要按 **64 字符十六进制串**写进 manifest（`rust/amberice/src/manifest.rs`：`Value::Str(hex(&p.digest))`），再加 `name` / `len` / 对象键 ⇒ **约 100 B 量级** |
+| 26 | 每条 `payloads[]` 开销「约 40 B」 | **需修正** | 摘要按 **64 字符十六进制串**写进 manifest（`rust/amberice/src/manifest.rs`：`Value::Str(hex(&p.digest))`），再加 `name` / `len` / 对象键 ⇒ **约 100 B 量级**（估算，源码无实测数字） |
 | 27 | 一个文件至多一个 `EMBED` 段，段内可多载荷 | 成立 | `manifest.rs` 结构注释 |
 | 28 | 格式不带自定界，文档边界由容器告知 | 成立 | `decisions.md §12.3`「不内带自定界」 |
 
@@ -87,7 +87,7 @@
 |---|---|---|---|
 | 29 | 摘要挡意外损坏；蓄意伪造归签名 | 成立 | `spec/overview.md §3.7` |
 | 30 | 多签名全部必须通过，不做短路 | 成立 | `decisions.md` D36 / D40 |
-| 31 | `compact` 后旧 `--trust` 锚点必须重建 | 成立 | `sign.rs` `compact` 文档注释；`decisions.md` D54 |
+| 31 | `compact` 后旧 `--trust` 锚点必须重建 | 成立 | `sign.rs` `compact` 文档注释（锚点必须重建）；D54 只管 `--evidence` 旁证，不是本条依据 |
 | 32 | 「签名不提供更多安全，只提供可归因」 | **需修正** | 签名确实挡**蓄意伪造**（摘要挡不了）。默认不签的理由是「没有第二方验签」，不是签名无用 |
 | 33 | SHA-256 / SM3 / BLAKE3 为自实现，不引外部散列库 | 成立 | `rust/amberice/src/{sha256,sm3,blake3}.rs` 无任何 `use` / `extern crate` |
 | 34 | 「`crypto.rs` 也是零依赖自实现」 | **需修正** | `crypto.rs` 依赖 `aes-gcm`；`crypto` feature = `aes-gcm` + `hkdf` + `sha2` + `argon2` + `getrandom`。自实现的只有三种摘要 |
@@ -117,7 +117,7 @@
 
 口径：PowerShell + .NET `FileStream`（`Create` / `Append` + `Flush(true)`），8 MB / 64 MB 各 3 次。
 一次性数据写进 `_scratch/writepath/`（gitignored），跑完即删，该目录当前不存在。复现执行下面
-这段，输出同样落在 `_scratch/writepath/`：
+这段，测试数据落在该目录，结果只打印到控制台：
 
 ```powershell
 $dir = "_scratch/writepath"
@@ -154,13 +154,16 @@ Remove-Item $dir -Recurse -Force
 
 读法：**本机不是标准测试环境**（波动大，同一尺寸三次差到 30 %），这批数字**不可作为基线、
 不可跨机器比较、不得进裁决**；它只保留一件事：本机上整文件重写与尾部追加的量级差约为
-两个数量级（1466 ms 对 1.0 ms）。要比基线，按 `swsml/ref/perf-baseline.md` 的口径另立环境。
+3 个数量级（1466 ms 对 1.0 ms；按最慢的 7.80 ms 也有约 2.3 个数量级）。
+要比基线，按 `swsml/ref/perf-baseline.md` 的口径另立环境。
 
 ## 8. 剩余未实测项
 
 `check` 的尾垃圾检测已落地并有 `check_reports_trailing_garbage` 用例（§0.1），会话时记的
-「静默丢一次写入」缺口已补。**仍未实测**的是 `decisions.md §16.5.8` 探针 2 的完整形态：
-对有层文件分别截掉尾部 1 / 32 / 64 / 128 B，看 `info` / `cat` / `check` 各自的结果。
+「静默丢一次写入」缺口**部分补上**：`check` 只在 1 MiB 内找到完整 Trailer 且其后有多余字节时
+报警，`info` / `cat` 仍静默，无完整 Trailer 的截尾不报。**仍未实测**的是
+`decisions.md §16.5.8` 探针 2 的完整形态：对有层文件分别截掉尾部 1 / 32 / 64 / 128 B，
+看 `info` / `cat` / `check` 各自的结果。
 在它跑通之前，规范里不得写「半截尾可优雅退化」，也不得据此设计尾部恢复。
 
 ## 9. 复核方式
