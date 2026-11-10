@@ -1,7 +1,7 @@
 # docs 索引
 
 > **本文件由 `cargo run -p smldocs -- --index` 生成，勿手改。**
-> 生成于 2026-11-09，数据源 `docs/meta.sml`（50 份文档）。体检结论见 [`report.md`](report.md)。
+> 生成于 2026-11-10，数据源 `docs/meta.sml`（51 份文档）。体检结论见 [`report.md`](report.md)。
 
 ## 一眼看结论
 
@@ -40,7 +40,7 @@
 | [`swsml/spec/weakdata.md`](swsml/spec/weakdata.md) | 2026-11-04 | 2026-11-06 | **draft** | — | weakdata 语法与判别（Rust 已实现，其它端与编辑器未做） |
 | [`swsml/spec/weakdoc.md`](swsml/spec/weakdoc.md) | 2026-11-04 | 2026-11-06 | **draft** | — | weakdoc 语法与 .smlex 发现（库侧已实现，工具侧未做） |
 
-## amberice（7 份）
+## amberice（8 份）
 
 | 文档 | 写于 | 最后核对 | 状态 | 替代者 | 职责 |
 |---|---|---|---|---|---|
@@ -49,6 +49,7 @@
 | [`amberice/plan/plan.md`](amberice/plan/plan.md) | 2026-11-06 | 2026-11-09 | **current** | — | amberice 改名范围 + 第一批优化（A1）与里程碑 |
 | [`amberice/ref/ports.md`](amberice/ref/ports.md) | 2026-11-06 | 2026-11-09 | **current** | — | 多端 .ambr 解码器进度台账（C# / Go / Ruby 三端未做） |
 | [`amberice/spec/format.md`](amberice/spec/format.md) | 2026-11-02 | 2026-11-09 | **current** | — | .ambr 格式规范：信封 / canonical / VALUE 段 / 算法表 / 默认值 / 侧信道 |
+| [`amberice/spec/overview.md`](amberice/spec/overview.md) | 2026-11-10 | 2026-11-10 | **current** | — | amberice 是什么：以源码为唯一事实来源的产品线定义（边界 / 格式 / 能力面 / 多端 / 实现状态） |
 | [`amberice/spec/smldb.md`](amberice/spec/smldb.md) | 2026-11-02 | 2026-11-06 | **draft** | — | smldb 数据库层：表结构 / 后端选型 / 选择器 / 四层 API（全部未开工） |
 | [`amberice/spec/tools.md`](amberice/spec/tools.md) | 2026-11-02 | 2026-11-09 | **current** | — | .ambr 配套工具面：子命令清单以 amberice --help 为准，另含五端解码器 |
 

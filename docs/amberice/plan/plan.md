@@ -426,7 +426,7 @@ cargo bench --bench smlb --features "smlb-compress,smlb-crypto,smlb-mmap"
 > **2026-11-06 用户裁决「v1 带吧」** ⇒ 本节内容已成正式规范：
 > `docs/amberice/spec/format.md §25`（`0x70 TYPED` / `0x71 SCHEMA`，含「`VALUE` 必写」等四条收录前提）。
 > 本节保留作设计讨论与取舍记录；**以 §25 为准**，两处冲突时按 §25 执行。
-> 实现仍未开工：Rust 侧 N04，五端「跳过」侧 N03。
+> 实现状态：Rust 侧已落（`rust/amberice/src/typed.rs`，`Writer::put_var` / `Store::var`）；五端「跳过」侧 N03 未做。
 
 ### 7.1 先把「方便」拆开：你要的可能是两件不同的事
 
@@ -544,7 +544,7 @@ pub fn get<T: Decode>(s: &Store, k: VarKey<T>) -> Result<T, TypedError>;
 
 ### 7.8 建议落地顺序
 
-1. `rust/smlb/src/typed/` + feature `typed`，**只做外置 schema**；先手写 3 个类型（struct / enum / Vec）跑通。
+1. `rust/amberice/src/typed.rs`（模块常开，无独立 feature），**只做外置 schema**；先手写 3 个类型（struct / enum / Vec）跑通。
 2. 加 `0x70 TYPED` 段 + `Store::var`；确认 `check` / `sign` / `compress` 自动覆盖。
 3. 对照 bench：同一份 4000 字段数据，`Value` vs `typed` 的字节数与时间，出表后再决定要不要内嵌 schema。
 4. 内嵌 schema 与 CLI `--schema` 放第二阶段。

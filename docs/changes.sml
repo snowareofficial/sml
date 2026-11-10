@@ -59,5 +59,6 @@ changes {
     { doc: "examples/showcase.sml" at: "2026-11-06" commit: "e16de31" summary: "移动自仓库根 showcase.sml（示例归 examples/；README 两处链接同步）" }
     { doc: "examples/showcase_contract.sml" at: "2026-11-06" commit: "e16de31" summary: "移动自仓库根 showcase_contract.sml（同一批；rust/tests/contract_showcase.rs 的夹具路径同步）" }
     { doc: "AGENTS.md" at: "2026-11-06" commit: "e16de31" summary: "新建：agent 阅读规则（先读索引 / 只读 current / draft 与 stale 须点名 / 正文不写历史 / 新 doc 先登记）" }
+    { doc: "docs/amberice/spec/overview.md" at: "2026-11-10" commit: "bbc3631" summary: "新建：从 amberice / amberice-ffi / 各端解码器与门禁源码重新导出产品线定义，不引用既有文档正文" }
   ]
 }
