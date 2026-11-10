@@ -110,3 +110,40 @@ fn unsigned_layer_without_patch_is_allowed() {
     assert!(ls[0].patch.is_none());
     assert_eq!(load(&one).unwrap().canonical_text().unwrap(), load(&b).unwrap().canonical_text().unwrap());
 }
+
+/// 探针 2：截掉 Trailer 后 `check` 必须报出来，不能静默退回基文档。
+#[test]
+fn check_reports_truncated_trailer() {
+    let b = base();
+    let one = append_unsigned(
+        &b,
+        Some(obj(&[("port", Value::Int(9090))])),
+        HashAlgo::Sha256,
+    )
+    .expect("append");
+    assert!(amberice::check(&one).expect("check clean").ok);
+
+    for cut in [1usize, 32, 64, 128] {
+        let broken = &one[..one.len() - cut];
+        let report = amberice::check(broken).expect("check broken");
+        let text = report.lines.join("\n");
+        assert!(!report.ok, "截尾 {cut} B 必须判未通过：{text}");
+        assert!(
+            text.contains("Trailer"),
+            "截尾 {cut} B 应指出 Trailer 问题：{text}"
+        );
+    }
+}
+
+/// 无层文件不能因为「段区之后还有字节」被误判为尾部损坏。
+#[test]
+fn check_plain_file_has_no_tail_warning() {
+    let b = base();
+    let report = amberice::check(&b).expect("check");
+    assert!(report.ok, "{:?}", report.lines);
+    assert!(
+        !report.lines.iter().any(|l| l.starts_with("尾部")),
+        "{:?}",
+        report.lines
+    );
+}

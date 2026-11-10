@@ -76,5 +76,6 @@ changes {
     { doc: "docs/index.md" at: "2026-11-10" commit: "d55a556" summary: "重生成索引：meta.sml 的 scope / updated 回填同步进生成物" }
     { doc: "docs/repo/ref/unfinished.md" at: "2026-11-10" commit: "9d95c37" summary: "回填核对基准、补记 amberice 原子写变更、收口 claims-audit 措辞" }
     { doc: "docs/amberice/ref/claims-audit.md" at: "2026-11-10" commit: "1088b3a" summary: "核实 45 条论断：修正 §0.1 当前事实、证据引用与 §7 / §8 表述" }
+    { doc: "docs/index.md" at: "2026-11-10" commit: "009dc9f" summary: "生成物头行改记 meta.sml 内容摘要（去掉生成日期），report.md 同步；scan.md 正文未变不重写；CI 加生成物幂等校验" }
   ]
 }

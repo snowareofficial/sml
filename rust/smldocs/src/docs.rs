@@ -204,6 +204,18 @@ fn fmt_date(days: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
+/// `meta.sml` 内容摘要（FNV-1a 64）：生成物只跟数据源走。
+/// 不记日期 / HEAD —— 那两者会在跨天或提交后制造假漂移。
+fn meta_digest(root: &Path) -> String {
+    let bytes = std::fs::read(root.join(META)).unwrap_or_default();
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in bytes {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{h:08x}")
+}
+
 // ── Markdown 链接 ────────────────────────────────────────────────────────────
 
 /// 抹掉行内代码（`` `…` ``）：代码里的 `byte[128](24)` 不是链接。
@@ -388,13 +400,13 @@ fn write_sections(f: &Findings, out: &mut Vec<String>) {
 
 // ── 生成 ─────────────────────────────────────────────────────────────────────
 
-fn index_md(docs: &[Doc], f: &Findings, t: i64) -> String {
+fn index_md(docs: &[Doc], f: &Findings, digest: &str) -> String {
     let mut s = String::new();
     s.push_str("# docs 索引\n\n");
     s.push_str(&format!(
         "> **本文件由 `cargo run -p smldocs -- --index` 生成，勿手改。**\n\
-         > 生成于 {}，数据源 `docs/meta.sml`（{} 份文档）。体检结论见 [`report.md`](report.md)。\n\n",
-        fmt_date(t),
+         > 数据源 `docs/meta.sml`（{} 份文档，摘要 `{digest}`）。摘要变了就必须重跑生成；\n\
+         > 本文件不记生成日期 / HEAD，避免跨天或提交后假漂移。体检结论见 [`report.md`](report.md)。\n\n",
         docs.len()
     ));
     s.push_str(&format!(
@@ -463,13 +475,13 @@ fn rel_link(path: &str) -> String {
     path.trim_start_matches("docs/").to_string()
 }
 
-fn report_md(docs: &[Doc], f: &Findings, t: i64) -> String {
+fn report_md(docs: &[Doc], f: &Findings, digest: &str) -> String {
     let mut s = String::new();
     s.push_str("# docs 体检报告\n\n");
     s.push_str(&format!(
         "> **本文件由 `cargo run -p smldocs -- --report` 生成，勿手改。**\n\
-         > 生成于 {}，检查 {} 份登记文档。任一项命中时 `docs --check` 非零退出。\n\n",
-        fmt_date(t),
+         > 数据源 `docs/meta.sml` 摘要 `{digest}`，检查 {} 份登记文档。任一项命中时 `docs --check` 非零退出。\n\
+         > 本文件不记生成日期 / HEAD，避免跨天或提交后假漂移。\n\n",
         docs.len()
     ));
     s.push_str(&format!("## 合计\n\n**{} 处问题**。\n", f.total()));
@@ -575,10 +587,10 @@ pub fn run(opts: Opts) -> ExitCode {
     }
 
     let findings = inspect(&root, &docs);
-    let t = today();
+    let digest = meta_digest(&root);
 
     if opts.index || (!opts.report && !opts.check) {
-        let out = index_md(&docs, &findings, t);
+        let out = index_md(&docs, &findings, &digest);
         match write_out(&root.join(INDEX), &out, &root) {
             Ok(true) => println!("smldocs: 已生成 {INDEX}（{} 份文档） ｜ regenerated", docs.len()),
             Ok(false) => println!("smldocs: {INDEX} 无变更 ｜ up to date"),
@@ -589,7 +601,7 @@ pub fn run(opts: Opts) -> ExitCode {
         }
     }
     if opts.report {
-        let out = report_md(&docs, &findings, t);
+        let out = report_md(&docs, &findings, &digest);
         match write_out(&root.join(REPORT), &out, &root) {
             Ok(true) => println!("smldocs: 已生成 {REPORT}（{} 处问题） ｜ regenerated", findings.total()),
             Ok(false) => println!("smldocs: {REPORT} 无变更 ｜ up to date"),
