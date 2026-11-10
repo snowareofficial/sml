@@ -36,6 +36,8 @@ C# / Go / Ruby 三端 FFI 已于 2026-11-10 实测通过（21/21 逐字符 + 往
 摘要侧仍有一条欠账：五端只算 SHA-256，`0x31 SM3` / `0x32 BLAKE3` 的文件会被误报「摘要不符」。
 补 `hash_id` 分派（能算则验、不能算则明确跳过）排在 D44 后续，先登记不扩散。
 
+D45 的 `SCHEMA` / `TYPED` 渲染：JS 已通（`js/test-ambr-typed.mjs`）；C / C++ / Lua / Java 未做。
+
 - FFI 面已经是**独立 crate** `rust/amberice-ffi`（cdylib），`amberice` 保持纯 rlib；
   不要再给 `amberice` 加 `ffi` feature —— 它没有，也不该有。
 - 三端目前**不在 CI 里**，靠人工跑；命令见下节，结果记在本表。

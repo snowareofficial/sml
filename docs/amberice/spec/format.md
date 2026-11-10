@@ -1518,8 +1518,8 @@ enum / `variants` 不在 v1：`typed.rs` 目前只有 struct / vec / opt，写�
 
 ### 25.8 动态渲染契约（D45）
 
-`cat --schema` 每行一个变量：`var <var_id> <TypeName>: <value>`，值按 canonical 文本规则输出。
-字段顺序取 schema；`bytes` 输出小写十六进制串；`opt` 的空值输出 `null`；`u64` 超过
-`i64::MAX` 时无法用 `Value::Int` 表示 ⇒ 明确报错，不截断。五端按同一契约渲染，字节级对拍
-留待后续容器向量钉住。
+跨端契约是**值投影**：`[{ id, name, value }]`，`value` 的字段顺序取 schema；`bytes` 输出小写
+十六进制串；`opt` 的空值为 `null`；`u64` 超过 `i64::MAX` 时无法用 `Value::Int` 表示 ⇒ 明确报错，
+不截断。Rust 的 `cat --schema` 把同一投影打印成 `var <var_id> <TypeName>: <value>` 文本；
+五端返回等价投影，由各端测试与 Rust 对拍钉住。
 
