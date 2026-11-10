@@ -7,10 +7,9 @@
 //! 定「默认 SHA-256，可选 SM3 / BLAKE3」，故 SM3 必须真能算 —— 否则「可选」是空话。
 //! 国密这一路对国内合规场景是刚需，标准文档（GB/T 32905）公开、实现短。
 //!
-//! BLAKE3 只登记编号（`0x32`）、**未实现**：它是树哈希（Bao 树 + 分块 + 可并行），代码量
-//! 比 SHA-256/SM3 大一个量级，且没有像 GB/T 那样一页能读完的标准向量表可供自验。
-//! 按 §20「未知 ID 明确拒绝」的口径，声明 `0x32` 的文件会被明确拒绝，不会静默拿错算法算。
-//! ｜ BLAKE3 is registered but not implemented (tree hash); declaring it is rejected explicitly.
+//! BLAKE3（`0x32`）另在 [`crate::blake3`] 里实现：它是树哈希，结构另算一类，不与
+//! SHA-256 / SM3 混在同一个文件里。
+//! ｜ BLAKE3 lives in its own module; this file stays the linear Merkle–Damgård pair.
 //!
 //! # 结构差异（读代码时别按 SHA-256 的直觉套）
 //!

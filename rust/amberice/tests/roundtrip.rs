@@ -215,6 +215,36 @@ fn sm3_digests_work_end_to_end() {
     assert_ne!(sha_digest, sm3_file_seg.header.hash);
 }
 
+/// BLAKE3 is selectable end to end, same as SM3 (D44).
+/// BLAKE3 与 SM3 一样可选，且端到端按 `hash_id` 走。
+#[test]
+fn blake3_digests_work_end_to_end() {
+    let v = (CASES[17].build)();
+    let opts = DumpOptions {
+        hash: HashAlgo::Blake3,
+        ..Default::default()
+    };
+    let f = amberice::dump_with(&cv(&v), &opts).unwrap();
+    assert!(amberice::load(&f).unwrap().eq_ordered(&v), "BLAKE3 文件应能读回");
+
+    let report = amberice::check(&f).unwrap();
+    assert!(report.ok, "{:?}", report.lines);
+    assert!(report.lines.join("\n").contains("BLAKE3"), "{:?}", report.lines);
+
+    let digest = |bytes: &[u8]| {
+        amberice::info(bytes)
+            .unwrap()
+            .segments
+            .into_iter()
+            .find(|s| s.header.seg_id == SEG_VALUE)
+            .unwrap()
+            .header
+            .hash
+    };
+    let sha = amberice::dump(&cv(&v)).unwrap();
+    assert_ne!(digest(&sha), digest(&f));
+}
+
 /// A `required` capability this build does not understand ⇒ refuse to open (D11).
 /// 读不懂的 `required` 能力 ⇒ 拒绝打开（D11）。
 #[test]

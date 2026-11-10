@@ -37,6 +37,7 @@
 //! 加固有方法，故实现住在定义 `Value` 的 `sml-value`，本 crate 只做门面再导出（符合 D2，
 //! 仍零第三方依赖）。容器层（段表 / manifest / 层链 / 签名 / 加密）一概不进 `sml-value`。
 
+pub mod blake3;
 pub mod container;
 pub mod crypto;
 /// `DIR`（0x03）路径索引：派生数据，缺失/过期只影响速度（N05 / §19.3）。

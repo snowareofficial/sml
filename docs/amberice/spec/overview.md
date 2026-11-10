@@ -123,7 +123,7 @@
 |---|---|---|
 | `0x30` | SHA-256 | 默认；零依赖自实现 |
 | `0x31` | SM3 | 零依赖自实现 |
-| `0x32` | BLAKE3 | 只登记编号，调用 `digest` 明确返回 `NotImplemented` |
+| `0x32` | BLAKE3 | 零依赖标量实现（无密钥 32 B 摘要），官方 KAT 覆盖单块与跨 chunk |
 
 未知 id 明确拒绝，绝不猜一个算法去验。摘要挡的是意外损坏；蓄意伪造归签名。
 
@@ -224,12 +224,14 @@
 
 共同边界：各端原生解码器只承诺**未压缩、未加密**的 `VALUE` + `STRTAB`，其余段按表项 `len` 跳过；遇到 `comp != 0` / `enc != 0` 明确拒绝，不猜语义。绑定层不翻译错误文案，`AMBR:` 原样透传。
 
+**摘要校验的已知边界**：各端目前只算 SHA-256（`hash_id = 0x30`）。`0x31 SM3` / `0x32 BLAKE3` 的文件在五端会报「摘要不符」——这是能力缺失，不是文件损坏。五端补 `hash_id` 分派排在 D44 后续。
+
 跨端契约由两份生成物钉住：`amberice-canonical.v1.json` 钉节点编码，`amberice-container.v1.json` 钉整个文件（头、段表、对齐、manifest、压缩与加密用例）。用例表在 `rust/amberice/src/vectors.rs`，`amberice vectors --check` 重新生成并逐行比对；各端解码器照 `ambr_hex` 解出值与 `canonical_text` 对拍，不需要读 Rust 实现。CI 把带 `preserve_order,sign,compress` 的 `cargo test -p amberice`、四端对拍脚本、`amberice-ffi --features sml` 构建与写入门禁单列，避免被默认档合并掩盖。
 
 ## 6. 当前实现状态（代码可查）
 
 - 两个 Rust crate 都是 `publish = false`；`EDITION = 0x0004` 硬编码在 `container.rs`，版本升级需手动跟。
-- 摘要 `0x32` BLAKE3 只有编号，没有实现。
+- 三个摘要算法均已实现；BLAKE3 只做无密钥 32 B 摘要（无 keyed / XOF）。
 - `FRAMES` 的按需解帧已接入 `Store::get` 与 `subtree_bytes`（后者对分帧结果物化为 `Owned`）。
 - wasm + zstd 组合只验证过编译，压缩向量的运行时行为未验（`rust/amberice/Cargo.toml` 台账）。
 - 加密与内存映射只有库接口，没有 CLI 子命令。
