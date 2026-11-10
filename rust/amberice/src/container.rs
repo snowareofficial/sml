@@ -132,6 +132,10 @@ pub const SEG_TYPED: u8 = 0x70;
 /// `SCHEMA` segment id (§25.3) — optional, canonical `Value` describing `TYPED` types (D45).
 /// `SCHEMA` 段 id（§25.3，可选）：用 canonical `Value` 描述 `TYPED` 的类型布局（D45）。
 pub const SEG_SCHEMA: u8 = 0x71;
+/// `SOURCE` segment id (§19.1) — optional, verbatim original text (P7 / D46).
+/// Only ever written by an explicit call under the `source` feature; readers may skip it.
+/// `SOURCE` 段 id —— 可选的原文逐字节（P7 / D46）。仅在 `source` feature 下由显式调用写入。
+pub const SEG_SOURCE: u8 = 0x50;
 /// `MANIFEST` segment id — **registered here in T1, written from T2**.
 /// `MANIFEST` 段 id：T1 只登记，T2 才写内容。
 pub const SEG_MANIFEST: u8 = 0x04;
@@ -435,6 +439,9 @@ pub enum ContainerError {
         /// The compression id the file declares ｜ 文件声明的压缩编号。
         comp: u8,
     },
+    /// `SOURCE` was requested but this build has no `source` feature (D46).
+    /// 要写 `SOURCE`，但本构建没开 `source` feature（D46）。
+    SourceFeatureDisabled,
     /// The decompressed size would exceed [`MAX_DECOMPRESSED`] (bomb guard).
     /// 解压后会超过 [`MAX_DECOMPRESSED`]（炸弹防护）。
     DecompressTooLarge {
@@ -525,6 +532,7 @@ impl ContainerError {
             ContainerError::Crypto(_) => "crypto",
             ContainerError::Layer(_) => "bad-layer",
             ContainerError::CompressFeatureDisabled { .. } => "compress-feature-disabled",
+            ContainerError::SourceFeatureDisabled => "source-feature-disabled",
             ContainerError::DecompressTooLarge { .. } => "decompress-too-large",
             ContainerError::CompressFailed(_) => "compress-failed",
             ContainerError::ZeroCopyNeedsPlain { .. } => "zero-copy-needs-plain",
@@ -662,6 +670,10 @@ impl std::fmt::Display for ContainerError {
             ContainerError::CompressFeatureDisabled { comp } => write!(
                 f,
                 "段声明了压缩算法 0x{comp:02x}，但本构建未启用 `compress` feature（不猜、不硬解）"
+            ),
+            ContainerError::SourceFeatureDisabled => write!(
+                f,
+                "要写 SOURCE 段，但本构建未启用 `source` feature（用 `--features source` 重新构建）"
             ),
             ContainerError::DecompressTooLarge { seg_id, limit } => write!(
                 f,
@@ -886,7 +898,23 @@ pub fn dump_with(
     opts: &DumpOptions,
 ) -> Result<Vec<u8>, ContainerError> {
     validate_caps(opts)?;
-    dump_sealed(cv.as_value(), opts, None)
+    dump_sealed(cv.as_value(), opts, None, None)
+}
+
+/// Same as [`dump_with`], plus the verbatim original text as `SOURCE` (0x50) — D46.
+/// 同 [`dump_with`]，另把原文写进 `SOURCE`（0x50）—— D46。
+///
+/// Available only with the `source` feature; the text is stored **verbatim** and is never
+/// interpreted by the library. Treat the output as sensitive.
+/// 仅在 `source` feature 下可用；原文逐字节保存、库不做解释。产物按敏感文件对待。
+#[cfg(feature = "source")]
+pub fn dump_with_source(
+    cv: &sml_value::CanonicalValue,
+    opts: &DumpOptions,
+    source: &str,
+) -> Result<Vec<u8>, ContainerError> {
+    validate_caps(opts)?;
+    dump_sealed(cv.as_value(), opts, None, Some(source))
 }
 
 /// Encrypt every content segment with `key` (§19.13). `MANIFEST` stays plaintext — it is what
@@ -911,7 +939,7 @@ pub fn dump_encrypted(
     // 调用方忘了设就替他设，而不是写出一份「看起来加密了、其实追加会毁数据」的文件。
     let mut forced = opts.clone();
     forced.block_align = true;
-    dump_sealed(cv.as_value(), &forced, Some(&wk))
+    dump_sealed(cv.as_value(), &forced, Some(&wk), None)
 }
 
 /// Same as [`dump_encrypted`] but without the `crypto` feature — refuses instead of writing
@@ -934,6 +962,7 @@ fn dump_sealed(
     v: &Value,
     opts: &DumpOptions,
     keys: Option<&crate::crypto::WriteKeys>,
+    source: Option<&str>,
 ) -> Result<Vec<u8>, ContainerError> {
     let blocks = v.canonical_blocks()?;
     // DIR 必须在 `blocks.value` 被移进 segs 之前算好（它要读整段明文节点树）。
@@ -972,7 +1001,7 @@ fn dump_sealed(
     let sealed = seal(segs, opts)?;
 
     // 加密：每个内容段独立按块 AEAD；`MANIFEST` 一律明文
-    let sealed: Vec<(u8, u8, Vec<u8>, bool)> = {
+    let mut sealed: Vec<(u8, u8, Vec<u8>, bool)> = {
         let mut out = Vec::with_capacity(sealed.len());
         for (id, comp, body) in sealed {
             match keys {
@@ -987,6 +1016,10 @@ fn dump_sealed(
         }
         out
     };
+    // D46：原文段不压缩、不加密（逐字节原文），由显式 API 提供。
+    if let Some(src) = source {
+        sealed.push((SEG_SOURCE, 0, src.as_bytes().to_vec(), false));
+    }
 
     let mut manifest = build_manifest(primary, &sealed, &[], opts)?;
     if opts.dir && !manifest.caps_optional.iter().any(|c| c == "dir") {
@@ -1261,6 +1294,10 @@ pub struct Writer<W: std::io::Write> {
     /// Optional `SCHEMA` value from [`Writer::put_schema`], written as `SCHEMA` at `finish`.
     /// [`Writer::put_schema`] 给的 schema，`finish` 时写成 `SCHEMA` 段。
     schema: Option<Value>,
+    /// Original text from [`Writer::put_source`], written as `SOURCE` at `finish` (D46).
+    /// [`Writer::put_source`] 给的原文，`finish` 时写成 `SOURCE` 段（D46）。
+    #[cfg(feature = "source")]
+    source: Option<String>,
 }
 
 impl<W: std::io::Write> Writer<W> {
@@ -1292,6 +1329,8 @@ impl<W: std::io::Write> Writer<W> {
             finished: false,
             typed: crate::typed::Typed::new(),
             schema: None,
+            #[cfg(feature = "source")]
+            source: None,
         })
     }
 
@@ -1322,6 +1361,26 @@ impl<W: std::io::Write> Writer<W> {
             });
         }
         self.schema = Some(schema.clone());
+        Ok(())
+    }
+
+    /// Store the verbatim original text as `SOURCE` (0x50) — **explicit, never implicit** (D46).
+    /// 原样保存原文为 `SOURCE`（0x50）—— **只显式调用，绝不隐式写入**（D46）。
+    ///
+    /// # Warning ｜ 警告
+    ///
+    /// Original text is a **sensitive surface** (keys, tokens, comments). Enabling the `source`
+    /// feature already prints a build-time warning; this call is the second, explicit opt-in.
+    /// D46: no default path writes `SOURCE`; a reader that does not know it skips by `len`.
+    /// ｜ 原文是敏感面；`source` feature 已有构建期 warning，本调用是第二次显式确认。
+    #[cfg(feature = "source")]
+    pub fn put_source(&mut self, text: &str) -> Result<(), ContainerError> {
+        if self.source.is_some() {
+            return Err(ContainerError::DuplicateSegment {
+                seg_id: SEG_SOURCE,
+            });
+        }
+        self.source = Some(text.to_string());
         Ok(())
     }
 
@@ -1429,6 +1488,11 @@ impl<W: std::io::Write> Writer<W> {
     pub fn finish(mut self) -> Result<W, ContainerError> {
         use std::io::{Read as _, Seek as _, SeekFrom};
 
+        // `SOURCE`（0x50）必须早于 `TYPED`（0x70）写入，否则违反段 id 升序。
+        #[cfg(feature = "source")]
+        if let Some(src) = self.source.take() {
+            self.add_segment(SEG_SOURCE, 0, 0, src.as_bytes())?;
+        }
         // `TYPED` 的 id 最大（0x70），此时追加不会破坏「段按 id 升序」的约束。
         if !self.typed.is_empty() {
             let body = self.typed.to_bytes();
@@ -1997,6 +2061,8 @@ pub(crate) struct RawParts<'a> {
     pub typed: Option<&'a [u8]>,
     /// Optional `SCHEMA` body (plain only) ｜ 可选的 `SCHEMA` 段体。
     pub schema: Option<&'a [u8]>,
+    /// Optional `SOURCE` body (plain only; D46) ｜ 可选的 `SOURCE` 段体（明文，D46）。
+    pub source: Option<&'a [u8]>,
 }
 
 /// Open for random access: no `Value` is built. ｜ 以随机访问的方式打开：不构造 `Value`。
@@ -2042,6 +2108,7 @@ pub(crate) fn open_raw<'a>(bytes: &'a [u8], verify: bool) -> Result<RawParts<'a>
     let mut dir: Option<&[u8]> = None;
     let mut typed: Option<&[u8]> = None;
     let mut schema: Option<&[u8]> = None;
+    let mut source: Option<&[u8]> = None;
     for seg in &info.segments {
         match seg.header.seg_id {
             SEG_FRAMES => {
@@ -2086,7 +2153,7 @@ pub(crate) fn open_raw<'a>(bytes: &'a [u8], verify: bool) -> Result<RawParts<'a>
             // `DIR` / `TYPED` 是可选旁路：压缩或加密形态一律**忽略**（不报错、不解压），
             // 因为缺少它们只影响速度 / 强类型取值，不影响 `VALUE` 的正确性（§25.1）。
             // ｜ Optional side channels: comp/enc forms are ignored rather than fatal.
-            SEG_DIR | SEG_TYPED | SEG_SCHEMA => {
+            SEG_DIR | SEG_TYPED | SEG_SCHEMA | SEG_SOURCE => {
                 if seg.header.comp != 0 || seg.header.enc != 0 {
                     continue;
                 }
@@ -2106,6 +2173,12 @@ pub(crate) fn open_raw<'a>(bytes: &'a [u8], verify: bool) -> Result<RawParts<'a>
                             return Err(ContainerError::DuplicateSegment { seg_id: SEG_TYPED });
                         }
                         typed = Some(b);
+                    }
+                    SEG_SOURCE => {
+                        if source.is_some() {
+                            return Err(ContainerError::DuplicateSegment { seg_id: SEG_SOURCE });
+                        }
+                        source = Some(b);
                     }
                     _ => {
                         if schema.is_some() {
@@ -2135,6 +2208,7 @@ pub(crate) fn open_raw<'a>(bytes: &'a [u8], verify: bool) -> Result<RawParts<'a>
         dir,
         typed,
         schema,
+        source,
     })
 }
 

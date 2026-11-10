@@ -90,4 +90,8 @@ crypto = ["dep:aes-gcm", "dep:hkdf", "dep:sha2", "dep:argon2", "dep:getrandom"]
 # 内存映射（T3）：`MappedFile::open` —— 打开 100 MB 文件不把它搬上堆。
 # 关掉后一切照旧，只是得自己把 `&[u8]` 传进 `Store::open`。
 mmap = ["dep:memmap2"]
+# 原文保留（P7 / D46）：可选 `SOURCE`（0x50）段。**默认关** —— 一旦启用，原文会随文件走，
+# 本身就是敏感面。写侧还必须显式调用 `put_source` / `dump_with_source`，不会隐式写入。
+# ｜ Original-text retention (P7 / D46): opt-in only; enabling the feature alone writes nothing.
+source = []
 default = []

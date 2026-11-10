@@ -143,8 +143,8 @@ pub use sml_value::path::{Path, PathError, Seg};
 pub mod envelope;
 #[cfg(feature = "amberice")]
 pub use envelope::{
-    list, sml_to_amberice, amberice_to_sml, unwrap, value_to_amberice, value_to_amberice_with, wrap,
-    EnvelopeError, Payload,
+    list, sml_to_amberice, amberice_to_sml, unwrap, value_to_amberice, value_to_amberice_with,
+    value_to_amberice_source_with, wrap, EnvelopeError, Payload,
 };
 /// 统一错误类型（`code()` 是跨端稳定契约）。
 ///

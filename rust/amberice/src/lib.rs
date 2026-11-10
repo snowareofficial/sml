@@ -71,6 +71,9 @@ pub use container::{
     pack_iter, pack_iter_with, pack_with, payload, payloads, CheckReport, ContainerError,
     DumpOptions, FileInfo, Writer,
 };
+/// `SOURCE`（0x50）原文写入（D46）：只在 `source` feature 下存在，且必须显式调用。
+#[cfg(feature = "source")]
+pub use container::dump_with_source;
 pub use hash::HashAlgo;
 pub use layer::layers;
 #[cfg(feature = "sign")]

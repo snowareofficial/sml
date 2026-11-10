@@ -147,6 +147,8 @@ amberice-compress = ["amberice", "amberice/compress"]
 amberice-crypto = ["amberice", "amberice/crypto"]
 # `.ambr` 信封 + 内存映射读取（`MappedFile`）。单开一层：`memmap2` 只服务 `mmap` 判据。
 amberice-mmap = ["amberice", "amberice/mmap"]
+# `.ambr` 信封 + `SOURCE`（0x50）原文段（D46）。单开一层：原文入文件即敏感面。
+amberice-source = ["amberice", "amberice/source"]
 preserve_order = [
     "sml-value/preserve_order",
     "sml-lex/preserve_order",
