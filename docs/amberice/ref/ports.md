@@ -14,13 +14,16 @@
 | 2 | JS | 纯 JS | ✅ 22/22 | `5c4eeb1` | 已进 CI |
 | 3 | C | 纯 C99 | ✅ 22/22 + 5 抽检 | `cebdc4c` | `build_check.py --run` |
 | 4 | C++ | 纯 C++17 | ✅ 22/22 + 5 抽检 | `b47d342` | `cpp/build_verify.py` |
-| 5 | Lua | 纯 Lua（f64 需 LuaJIT ffi） | ✅ 22/22 + 5 抽检 | 本次 | `lua/run_check.py` |
-| 6 | Java | **纯 Java**（不再依赖 cdylib） | ✅ 22/22 + 5 抽检 | 本次 | `bindings/java/.../Ambr.java` |
-| 7 | Python | FFI（ctypes） | ✅ 22/22 **逐字符** | 本次 | `bindings/python/ambr.py` |
+| 5 | Lua | 纯 Lua（f64 需 LuaJIT ffi） | ✅ 22/22 + 5 抽检 | 已入库 | `lua/run_check.py` |
+| 6 | Java | **纯 Java**（不再依赖 cdylib） | ✅ 22/22 + 5 抽检 | 已入库 | `bindings/java/.../Ambr.java` |
+| 7 | Python | FFI（ctypes） | ✅ 22/22 **逐字符** | 已入库 | `bindings/python/ambr.py` |
 | 8 | C# | FFI（P/Invoke） | ✅ 22/22 逐字符 + 往返 | `e91ce7a` | `bindings/csharp/Amberice.cs`；`dotnet run --project Sml.csproj` |
 | 9 | Go | FFI（cgo） | ✅ 22/22 逐字符 + 往返 | `e91ce7a` | `go test ./amberice`；Windows 需 `CGO_LDFLAGS` 指到 cdylib 目录 |
 | 10 | Ruby | FFI（Fiddle） | ✅ 22/22 逐字符 + 往返 | `e91ce7a` | `AMBR_LIB=… ruby test_amberice.rb` |
-| 11 | FFI 面 | **独立 crate** `amberice-ffi`（cdylib） | ✅ 7 个导出符号，`rust/amberice/include/amberice.h` 为契约 | 本次 | `rust/amberice-ffi/`；`amberice` 保持纯 rlib |
+| 11 | FFI 面 | **独立 crate** `amberice-ffi`（cdylib） | ✅ 7 个导出符号，`rust/amberice/include/amberice.h` 为契约 | 已入库 | `rust/amberice-ffi/`；`amberice` 保持纯 rlib |
+
+> 提交列只记首次落地；「已入库」不锚定具体提交号，台账不随提交推进改写。
+> 要追某一端的历史用 `git log -- <端目录>`。
 
 > FFI 端**刻意只到「文本」为止**：更友好的对象 API（值/路径/类型）等 `swml` 定稿后再一次性加，
 > 免得五个绑定先把一套临时 API 抄死。现在这层只承诺「字节进、canonical 文本出」。
@@ -30,7 +33,10 @@
 
 ## 还差什么
 
-C# / Go / Ruby 三端 FFI 已于 2026-11-10 实测通过（22/22 逐字符 + 往返，`e91ce7a` 入库）；
+C# / Go / Ruby 三端代码在 `e91ce7a` 入库，2026-11-10 的实测收口记在 `082032a`
+（当时向量为 **21 例**，提交消息即「实测 21/21」）。第 22 例（TYPED / SCHEMA）由
+`8fcf26e` 加入，当前 `amberice-container.v1.json` 为 22 例；这三端扩到 22 例后**未重测**，
+表中 22/22 沿用全端口径，复核时应先补这一轮。
 状态表 11 行全部达标，`spec/tools.md` 的解码器行按「全端 + FFI」维护，N03 / T7 已收口。
 
 摘要侧仍有一条欠账：五端只算 SHA-256，`0x31 SM3` / `0x32 BLAKE3` 的文件会被误报「摘要不符」。

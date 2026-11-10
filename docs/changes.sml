@@ -8,6 +8,7 @@
 #   summary  一句话：搬自哪里 / 由什么拆分 / 为什么删
 #
 # 只记「文档资产的变动」。代码变动看 CHANGELOG.md 与 git log。
+# 事后补记的条目，commit 填变更所在提交；早期条目填的是该批基于的提交，两种口径并存。
 
 changes {
   change: [
@@ -59,7 +60,7 @@ changes {
     { doc: "examples/showcase.sml" at: "2026-11-06" commit: "e16de31" summary: "移动自仓库根 showcase.sml（示例归 examples/；README 两处链接同步）" }
     { doc: "examples/showcase_contract.sml" at: "2026-11-06" commit: "e16de31" summary: "移动自仓库根 showcase_contract.sml（同一批；rust/tests/contract_showcase.rs 的夹具路径同步）" }
     { doc: "AGENTS.md" at: "2026-11-06" commit: "e16de31" summary: "新建：agent 阅读规则（先读索引 / 只读 current / draft 与 stale 须点名 / 正文不写历史 / 新 doc 先登记）" }
-    { doc: "docs/amberice/spec/overview.md" at: "2026-11-10" commit: "bbc3631" summary: "新建：从 amberice / amberice-ffi / 各端解码器与门禁源码重新导出产品线定义，不引用既有文档正文" }
+    { doc: "docs/amberice/spec/overview.md" at: "2026-11-10" commit: "c7ff213" summary: "新建：从 amberice / amberice-ffi / 各端解码器与门禁源码重新导出产品线定义，不引用既有文档正文" }
 
     { doc: "docs/amberice/ref/claims-audit.md" at: "2026-11-10" commit: "8fcf26e" summary: "新建：2026-11-10 会话 45 条论断逐条核实，标 draft 并加正文顶部「临时件」横幅；待处理：并进 decisions.md §16.1 或整体移入 amberice/archive/" }
     { doc: "docs/amberice/decisions.md" at: "2026-11-10" commit: "8fcf26e" summary: "新增 §16.5 写路径 / 归档边界讨论与节级「临时节」横幅；文件仍 current，D1–D54、P12、§16.3 等既有裁决未降级" }
@@ -70,5 +71,10 @@ changes {
     { doc: "docs/amberice/ref/claims-audit.md" at: "2026-11-10" commit: "136803b" summary: "改写：补 §0.1 会话后落地对照（原子写 / 尾垃圾检测 / 回归用例）、§7 可复现脚本，§8 / §9 复核命令对齐 136803b；仍保持 draft" }
     { doc: "docs/amberice/decisions.md" at: "2026-11-10" commit: "136803b" summary: "改写：§16.5 的代码事实与探针进度对齐 136803b；仍为待裁决节，D1–D54 / P12 / §16.3 未动" }
     { doc: "docs/repo/ref/unfinished.md" at: "2026-11-10" commit: "136803b" summary: "补 §12：临时产物去留与三条探针登记进唯一欠账清单" }
+
+    { doc: "docs/amberice/ref/claims-audit.md" at: "2026-11-10" commit: "ce88149" summary: "新增 45 条论断核实台账（draft）与 §16.5 待裁讨论，全仓状态回填，索引同步到 52 份" }
+    { doc: "docs/index.md" at: "2026-11-10" commit: "d55a556" summary: "重生成索引：meta.sml 的 scope / updated 回填同步进生成物" }
+    { doc: "docs/repo/ref/unfinished.md" at: "2026-11-10" commit: "9d95c37" summary: "回填核对基准、补记 amberice 原子写变更、收口 claims-audit 措辞" }
+    { doc: "docs/amberice/ref/claims-audit.md" at: "2026-11-10" commit: "1088b3a" summary: "核实 45 条论断：修正 §0.1 当前事实、证据引用与 §7 / §8 表述" }
   ]
 }
