@@ -207,6 +207,12 @@ pub fn value_to_amberice_source_with(
     }
 }
 
+/// Envelope → `Value` (no text round-trip). Used by check/redaction tooling.
+/// 信封 → `Value`（不经文本往返）；给检查/脱敏工具用。
+pub fn amberice_value(bytes: &[u8]) -> Result<Value, EnvelopeError> {
+    Ok(amberice::load(bytes)?)
+}
+
 /// Envelope → SML text. ｜ 信封 → SML 文本。
 ///
 /// Only works when the primary payload is a `Value`; a bytes envelope says so explicitly

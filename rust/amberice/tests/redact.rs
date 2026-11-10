@@ -114,6 +114,38 @@ fn redacted_dump_does_not_contain_the_secrets() {
 }
 
 #[test]
+fn check_reports_unredacted_and_accepts_redacted() {
+    let mut rules = RedactRules::new();
+    rules.drop_path("user.id_card").expect("drop");
+    rules.mask_path("user.phone").expect("mask");
+    rules.hash_path("session.token").expect("hash");
+
+    let mut v = doc();
+    let bad = rules.check(&v).expect("check");
+    assert_eq!(bad.len(), 3, "{bad:?}");
+    assert!(bad.iter().any(|b| b.path == "user.id_card"));
+    assert!(bad.iter().any(|b| b.reason.contains("***")));
+
+    rules.apply(&mut v).expect("apply");
+    assert!(rules.check(&v).expect("check").is_empty());
+
+    // 部分脱敏：把 mask 改回明文，必须重新报出来
+    let Value::Object(top) = &mut v else { panic!("root") };
+    let Some(Value::Object(user)) = top.get_mut("user") else {
+        panic!("user")
+    };
+    user.insert("phone".to_string(), s("13800001111"));
+    let bad = rules.check(&v).expect("check");
+    assert_eq!(bad.len(), 1);
+    assert_eq!(bad[0].path, "user.phone");
+
+    // 缺失路径视为通过（可选字段）
+    let mut optional = RedactRules::new();
+    optional.drop_path("user.not_there").expect("rule");
+    assert!(optional.check(&v).expect("check").is_empty());
+}
+
+#[test]
 fn hash_is_deterministic_and_value_sensitive() {
     let mut a = doc();
     let mut b = doc();

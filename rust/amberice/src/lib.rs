@@ -81,7 +81,9 @@ pub use ingest::{
     Commit, History, IngestError, IngestOptions, Ingestor, PushOutcome, Recovery,
 };
 pub use layer::{append_unsigned, layers};
-pub use redact::{RedactAction, RedactError, RedactRule, RedactRules};
+pub use redact::{
+    RedactAction, RedactError, RedactRule, RedactRules, RedactViolation,
+};
 #[cfg(feature = "sign")]
 pub use sign::{
     append_layer, append_layer_checked, compact, verify, verify_trusted, verify_trusted_with,
