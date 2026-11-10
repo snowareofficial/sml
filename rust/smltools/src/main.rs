@@ -408,6 +408,13 @@ struct Cli {
     /// 原文是敏感面：键名、注释、被删掉的行都会随文件走。
     #[arg(long = "keep-source")]
     keep_source: bool,
+
+    /// `--to-amberice` 写之前按规则脱敏（D53）；规则文件是 SML 数组
+    ///
+    /// 形如 `[ { path: "user.phone" action: mask } ]`；规则不进文件。
+    /// 与 `--keep-source` 互斥：SOURCE 会把原文原样留下，等于没脱敏。
+    #[arg(long = "redact-rules", value_name = "FILE")]
+    redact_rules: Option<PathBuf>,
 }
 
 /// 按输入格式把文本转成 `Value`。
@@ -552,6 +559,9 @@ struct Args {
     /// `--to-amberice` 同时写 `SOURCE` 段（D46）｜ also write the `SOURCE` segment
     #[cfg_attr(not(feature = "amberice"), allow(dead_code))]
     keep_source: bool,
+    /// `--to-amberice` 的脱敏规则文件（D53）｜ redaction rules file
+    #[cfg_attr(not(feature = "amberice"), allow(dead_code))]
+    redact_rules: Option<PathBuf>,
 }
 
 /// `--feature` 的取值解析：与语言层**同一套字面量**（`10` / `1.0` / `v1` / `50` / `camelia`）。
@@ -610,6 +620,7 @@ fn parse_args(cli: Cli) -> Result<Args, SmlError> {
         amberice_compress: cli.amberice_compress,
         dir: cli.dir,
         keep_source: cli.keep_source,
+        redact_rules: cli.redact_rules,
     })
 }
 
@@ -1323,12 +1334,29 @@ fn read_amberice_input(_input: &Option<PathBuf>) -> Result<String, SmlError> {
 
 /// 把值写成 `.ambr` 信封（`--to-amberice`）。
 /// Write the value as a `.ambr` envelope.
+/// 读脱敏规则文件并解析成 `RedactRules`（D53）。规则文本解析归 CLI，`amberice` 保持无解析器。
+/// Load redaction rules; text parsing stays in the CLI so `amberice` remains parser-free.
+#[cfg(feature = "amberice")]
+fn load_redact_rules(path: &std::path::Path) -> Result<sml::RedactRules, SmlError> {
+    let text = std::fs::read_to_string(path).map_err(|e| {
+        SmlError::from_code_msg(E_IO_001).with_detail(format!("读 {} 失败：{e}", path.display()))
+    })?;
+    let v = sml::parse_ordered(&text).map_err(|e| {
+        SmlError::from_code_msg(E_CLI_003)
+            .with_detail(format!("脱敏规则 {}: {e}", path.display()))
+    })?;
+    sml::RedactRules::from_value(&v).map_err(|e| {
+        SmlError::from_code_msg(E_CLI_003)
+            .with_detail(format!("脱敏规则 {}: {e}", path.display()))
+    })
+}
+
 #[cfg(feature = "amberice")]
 fn write_amberice_output(value: &sml::Value, args: &Args, text: &str) -> ExitCode {
     // 键序是数据的一部分：SML 输入重新按源序解析（BTreeMap 会丢源序）；
     // 其它格式没有源序概念 ⇒ 显式 `into_ordered()` 承认「就用当前顺序」。
     // 两者都不靠编译开关，调用方一眼看得见自己在选什么。
-    let ordered = if args.input_format == InputFormat::Sml {
+    let mut ordered = if args.input_format == InputFormat::Sml {
         match sml::parse_ordered(text) {
             Ok(v) => v,
             Err(e) => {
@@ -1339,6 +1367,28 @@ fn write_amberice_output(value: &sml::Value, args: &Args, text: &str) -> ExitCod
     } else {
         value.clone().into_ordered()
     };
+    // D53：写前脱敏 —— 先改值，再写文件；规则本身不进文件。
+    if let Some(path) = &args.redact_rules {
+        let rules = match load_redact_rules(path) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("smltools: {e}");
+                return ExitCode::from(2);
+            }
+        };
+        if let Err(e) = rules.apply(&mut ordered) {
+            eprintln!(
+                "smltools: 脱敏失败：{e}（规则文件 {}）[{}]",
+                path.display(),
+                E_CLI_003
+            );
+            return ExitCode::from(2);
+        }
+        eprintln!(
+            "smltools: 已应用 {} 条脱敏规则（仅作用于本次输出，规则不写入文件）",
+            rules.len()
+        );
+    }
     let built = if args.keep_source {
         eprintln!(
             "smltools: 警告：--keep-source 会把原文写入 SOURCE 段；键名、注释与已删内容都会随文件走，按敏感文件对待"
@@ -1704,6 +1754,20 @@ fn real_main() -> ExitCode {
         );
         return ExitCode::from(2);
     }
+    if args.redact_rules.is_some() && !args.to_amberice {
+        eprintln!(
+            "smltools: --redact-rules 只与 --to-amberice 一起用（脱敏发生在写文件之前）[{}]",
+            E_CLI_003
+        );
+        return ExitCode::from(2);
+    }
+    if args.redact_rules.is_some() && args.keep_source {
+        eprintln!(
+            "smltools: --redact-rules 与 --keep-source 互斥：SOURCE 会把原文原样留下，等于没脱敏[{}]",
+            E_CLI_003
+        );
+        return ExitCode::from(2);
+    }
 
     // `--from-amberice`：先解信封，再当 SML 文本往下走（后面的管线完全不变）
     let text = if args.from_amberice {
@@ -1898,6 +1962,26 @@ fn real_main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// D53：脱敏规则在写文件之前生效；规则本身不参与输出。
+    #[cfg(feature = "amberice")]
+    #[test]
+    fn redact_rules_mask_and_drop() {
+        let rules_text = "[ { path: \"user.phone\" action: mask } \
+                          { path: \"user.id_card\" action: drop } ]";
+        let rules_v = sml::parse_ordered(rules_text).expect("rules parse");
+        let rules = sml::RedactRules::from_value(&rules_v).expect("rules");
+        let mut doc = sml::parse_ordered(
+            "user { phone: \"13800001111\" id_card: \"110101199001011234\" name: ada }",
+        )
+        .expect("doc");
+        rules.apply(&mut doc).expect("apply");
+        let out = sml::to_sml(&doc);
+        assert!(!out.contains("13800001111"), "{out}");
+        assert!(!out.contains("110101199001011234"), "{out}");
+        assert!(out.contains("***"), "{out}");
+        assert!(out.contains("ada"), "{out}");
+    }
 
     /// 造一个深度 `levels` 的嵌套对象（用于触发后端的递归深度闸）。
     fn deep_value(levels: usize) -> Value {
