@@ -797,8 +797,8 @@ FRAMES = frame_count:u32le
 
 `Store` 现在对分帧文件也能 `open` / `get` / `text_of`：用例「把**最后一帧**弄坏 ⇒ `rows[0]`
 照常取到、`rows[299]` 报错、整解必失败」把这条性质钉住了。
-⚠️ 唯一仍然做不到的是 `Store::subtree_bytes`（返回 `&[u8]`）—— 跨帧没法借用，它明确报
-`framed-not-zero-copy`；要拿字节请用 `Store::subtree_vec`（物化）。
+`Store::subtree_bytes` 统一返回 `SubtreeBytes`：明文 `Borrowed`（零拷贝），分帧 `Owned`
+（只解覆盖目标区间的帧）。不再有「分帧单独做不到」的错误（D42）。
 
 **还没做**：加密本体（见 §19.13 的裁决与接口约定）。
 

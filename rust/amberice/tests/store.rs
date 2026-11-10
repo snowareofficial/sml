@@ -50,7 +50,7 @@ fn get_matches_full_decode() {
 
     // 子树字节可以单独解码（含 6 B 节点头），且只属于这棵子树
     let sub = store.subtree_bytes("arr[42]").unwrap();
-    let decoded = sml_value::value_from_subtree(store.strtab_body(), sub).unwrap();
+    let decoded = sml_value::value_from_subtree(store.strtab_body(), sub.as_ref()).unwrap();
     assert_eq!(decoded, at(&full, "arr[42]"));
     assert!(
         sub.len() < store.value_body().len() / 10,

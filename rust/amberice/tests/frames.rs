@@ -147,12 +147,10 @@ fn store_reads_framed_files_on_demand() {
         "取到的子树文本必须精确"
     );
 
-    // 零拷贝切片对分帧做不到（跨帧没法借用），但物化版本可以
-    assert_eq!(
-        store.subtree_bytes("rows[0]").unwrap_err().kind(),
-        "framed-not-zero-copy"
-    );
-    assert!(!store.subtree_vec("rows[0]").unwrap().is_empty());
+    // D42：分帧走物化，不再有「做不到」这条错误
+    let sub = store.subtree_bytes("rows[0]").unwrap();
+    assert!(!sub.is_borrowed());
+    assert!(!sub.is_empty());
 }
 
 /// **The payoff**: corrupt one frame and a lookup landing in *another* frame still works.

@@ -255,9 +255,9 @@ get_with_stats(path)
 
 | 改动 | 位置 |
 |---|---|
-| `Store` 增加 `OnceLock<StrTab<'a>>`，**首次 get 才解析**（不是 `open` 时） | `rust/smlb/src/store.rs` |
+| `Store` 增加 `OnceLock<StrTab<'a>>`，**首次 get 才解析**（不是 `open` 时） | `rust/amberice/src/store.rs` |
 | 新增 `subtree_at_with_table` / `value_from_subtree_with_table`，旧函数保留为便捷入口 | `rust/sml-value/src/canonical.rs` |
-| `subtree_bytes` / `subtree_vec` / `get_with_stats` 全部复用缓存表 | `rust/smlb/src/store.rs` |
+| `subtree_bytes` / `get_with_stats` 全部复用缓存表 | `rust/amberice/src/store.rs` |
 
 | 指标 | 改前 | 改后 | 变化 |
 |---|---|---|---|
