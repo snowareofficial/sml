@@ -25,7 +25,7 @@
 | `amberice history <f> <path> --at N` | 第 N 层为止的值（历史回放） | T4 | ✅ **已实现**（从 `cat --at` 拆出） |
 | `amberice get <f> <path> [--bytes]` | 零拷贝取一棵子树（不解全树），`--bytes` 出原始字节 | T3 | ✅ **已实现**（不依赖 `DIR`：用 `subtree_len` 跳兄弟） |
 | `amberice text <f> [--path P]` | 整份或某一子树的 canonical 文本 | T3 | ✅ **已实现** |
-| `amberice check <f>` | 结构校验：段哈希、层链、能力位、截断位置 | T2 | ✅ **已实现**（段哈希/截断；层链待 T4、能力位待 `format.md §19.9`） |
+| `amberice check <f> [--evidence FILE]` | 结构校验：段哈希、层链、能力位、截断位置；`--evidence` 只核对旁证里的 `new_head`（D54） | T2 | ✅ **已实现**（段哈希/截断；层链待 T4、能力位待 `format.md §19.9`） |
 | `amberice verify <f> [--trust HEX64] [--allow-unsigned]` | 验链 + 验签，打印每层结论；`--trust` 把链头钉在外部锚点上；`--allow-unsigned` 显式接受无签名层（仍不能替代 `--trust`） | T4 | ✅ **已实现**（防整条链被剥离） |
 | `amberice sign / append / delegate` | 签名、追加补丁、换钥授权 | T4 | ✅ **已实现**（`keygen` 也在，`sign` 默认原地写） |
 | `amberice pack / unpack` | 把多文件打成 `.ambr`（`EMBED` + `payloads[]`），或反向取出 | T2 | ✅ **已实现**（`unpack` 拒绝目录穿越；`pack --zstd` 段级压缩） |
@@ -33,7 +33,7 @@
 | `amberice vectors --gen/--check` | 生成/校验跨端测试向量：`amberice-canonical.v1.json`（节点编码）+ `amberice-container.v1.json`（整份 `.ambr`，2026-11-06 加） | T0 / T7 | ✅ **已实现**（另带「自检」：往返 + 文本一致 + `dump` 两次同字节） |
 | `amberice bench <f>` | 读路径基准（mmap 打开、单子树取、解帧、解密） | T5 | 建议 |
 | `amberice migrate --to fmt=N` | `fmt` 升级骨架：只支持 `fmt=0`；有层必须 `--seed` 重签（D49） | T5+ | ✅ 骨架 |
-| `amberice compact` | 合并多层（会**重签**，D8 的例外情况；丢弃历史、旧锚点需重建） | T4 | ✅ **已实现** |
+| `amberice compact [--evidence FILE]` | 合并多层（会**重签**，D8 的例外情况；丢弃历史、旧锚点需重建）；`--evidence` 写 SML canonical 旁证（D54） | T4 | ✅ **已实现** |
 | `amberice info/ls/check/cat/get/text --mmap` | 用内存映射读（D47）；构建没开 `mmap` 时**退回普通读取并提示**，命令本身不随 feature 消失 | T3 | ✅ |
 | `smltools --to amberice` / `--from amberice` | 与 SML 文本互转（D27 的 A 路） | T6 | ✅ |
 | `smltools --to amberice --dir [N]` | 同时写可选 `DIR` 路径索引（`DumpOptions.dir` / `dir_depth`，D43）；缺省不写 | T6 | ✅ |
