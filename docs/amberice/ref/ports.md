@@ -39,7 +39,8 @@ C# / Go / Ruby 三端 FFI 已于 2026-11-10 实测通过（21/21 逐字符 + 往
 D45 的 `SCHEMA` / `TYPED` 渲染：JS 已通（`js/test-ambr-typed.mjs`）、C 已通
 （`sml_ambr_load_typed` + `c/tests/test_ambr_typed.c`，已进 `build_check.py`）、C++ 已通
 （`ambr_load_typed` + `cpp/tests/test_ambr_typed.cpp`，已进 `build_verify.py`）、Lua 已通
-（`Sml.ambr_load_typed` + `lua/test_ambr_typed.lua`，已进 `run_check.py`）；Java 未做。
+（`Sml.ambr_load_typed` + `lua/test_ambr_typed.lua`，已进 `run_check.py`）、Java 已通
+（`Ambr.loadTyped` + `AmbrTest.java` 内的断言）。五端渲染均已通过；共享容器向量待加。
 
 - FFI 面已经是**独立 crate** `rust/amberice-ffi`（cdylib），`amberice` 保持纯 rlib；
   不要再给 `amberice` 加 `ffi` feature —— 它没有，也不该有。
