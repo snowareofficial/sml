@@ -19,6 +19,13 @@
 **   defaults, required, enum, min/max bounds, and nested ContractRef composition.
 */
 
+/* `strdup` / `strtok_r` 是 POSIX，不是 ISO C99：严格 `-std=c99` 下 glibc 不声明，
+   编译器把它们当成返回 int，指针直接被截断（Linux CI 的 C 检查就是这样红的）。
+   feature test macro 必须在任何系统头文件之前定义；MSVC 走自己的别名，不需要。*/
+#if !defined(_WIN32) && !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include "sml.h"
 #include "sml_codes.h"   /* 错误码宏；唯一事实来源 errors/codes.sml（见 errors/README.md）*/
 

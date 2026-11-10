@@ -924,7 +924,7 @@
         "rust"
       ],
       "status": "done",
-      "note": "含命名空间逐级回退后仍未命中的情形。C 改前把未命中的引用 `return sml_new_str(w)` 静默退化成字符串（下游取值取不到、还查不出原因），W16 起报此码；JS 改前同样静默当普通键。用户已裁决这类必须报错（「这种不应该出现，堪比 void」）。⚠️ **JS 的判定面比 Rust 宽**：JS 的 include 是「把子文件单独 parse 再合并数据」，**不携带子文件的片段表** —— 而 Rust/C++/Lua 都是**解析前文本展开**，跨文件片段天然可见。于是 `examples/app.sml`（`include` 后用 `&net`）在 JS 下必报此码、在 Rust 下正常。这是既有能力缺口（W16 让它从「静默字符串」变成「响亮拒绝」）；**W16 末段 C++ 与 Lua 也补报此码**（见 cpp/sml.cpp coerce_word、lua/lib/sml.soup A9）"
+      "note": "含命名空间逐级回退后仍未命中的情形。C 改前把未命中的引用 `return sml_new_str(w)` 静默退化成字符串（下游取值取不到、还查不出原因），W16 起报此码；JS 改前同样静默当普通键。用户已裁决这类必须报错（「这种不应该出现，堪比 void」）。⚠️ **JS 的判定面比 Rust 宽**：JS 的 include 是「把子文件单独 parse 再合并数据」，**不携带子文件的片段表** —— 而 Rust/C++/Lua 都是**解析前文本展开**，跨文件片段天然可见。于是 `examples/app.sml`（`include` 后用 `&net`）在 JS 下必报此码、在 Rust 下正常。这是既有能力缺口（W16 让它从「静默字符串」变成「响亮拒绝」）；**W16 末段 C++ 与 Lua 也补报此码**（见 cpp/sml.cpp coerce_word、lua/lib/sml.lua A9）"
     },
     {
       "id": "E-INCLUDE-007",
