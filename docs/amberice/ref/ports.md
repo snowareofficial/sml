@@ -1,4 +1,4 @@
-# 多端 `.ambr` 解码器 · 进度台账（2026-11-06）
+# 多端 `.ambr` 解码器 · 进度台账（2026-11-10）
 
 > 用户出门前指示：**一次走多步**，用时钟命令记录时间，单开文件记进度（本文件）。
 > 回来时先看这张表，再看每步的提交号。
@@ -17,9 +17,9 @@
 | 5 | Lua | 纯 Lua（f64 需 LuaJIT ffi） | ✅ 21/21 + 5 抽检 | 本次 | `lua/run_check.py` |
 | 6 | Java | **纯 Java**（不再依赖 cdylib） | ✅ 21/21 + 5 抽检 | 本次 | `bindings/java/.../Ambr.java` |
 | 7 | Python | FFI（ctypes） | ✅ 21/21 **逐字符** | 本次 | `bindings/python/ambr.py` |
-| 8 | C# | FFI（P/Invoke） | ⬜ 待做 | | 同一套读路径符号，见下方配方 |
-| 9 | Go | FFI（cgo） | ⬜ 待做 | | 同上 |
-| 10 | Ruby | FFI（Fiddle） | ⬜ 待做 | | 同上 |
+| 8 | C# | FFI（P/Invoke） | ✅ 21/21 逐字符 + 往返 | `e91ce7a` | `bindings/csharp/Amberice.cs`；`dotnet run --project Sml.csproj` |
+| 9 | Go | FFI（cgo） | ✅ 21/21 逐字符 + 往返 | `e91ce7a` | `go test ./amberice`；Windows 需 `CGO_LDFLAGS` 指到 cdylib 目录 |
+| 10 | Ruby | FFI（Fiddle） | ✅ 21/21 逐字符 + 往返 | `e91ce7a` | `AMBR_LIB=… ruby test_amberice.rb` |
 | 11 | FFI 面 | **独立 crate** `amberice-ffi`（cdylib） | ✅ 7 个导出符号，`rust/amberice/include/amberice.h` 为契约 | 本次 | `rust/amberice-ffi/`；`amberice` 保持纯 rlib |
 
 > FFI 端**刻意只到「文本」为止**：更友好的对象 API（值/路径/类型）等 `swml` 定稿后再一次性加，
@@ -30,18 +30,28 @@
 
 ## 还差什么
 
-只剩 **C# / Go / Ruby 三端 FFI**（配方见下节）。表里已达标的那几端不要重做。
+C# / Go / Ruby 三端 FFI 已于 2026-11-10 实测通过（21/21 逐字符 + 往返，`e91ce7a` 入库）。
+`spec/tools.md` 的解码器行已改成「全端 + FFI」，N03 / T7 可按此收口；表里已达标的端不要重做。
 
-摘要侧另有一条欠账：五端只算 SHA-256，`0x31 SM3` / `0x32 BLAKE3` 的文件会被误报「摘要不符」。
+摘要侧仍有一条欠账：五端只算 SHA-256，`0x31 SM3` / `0x32 BLAKE3` 的文件会被误报「摘要不符」。
 补 `hash_id` 分派（能算则验、不能算则明确跳过）排在 D44 后续，先登记不扩散。
 
 - FFI 面已经是**独立 crate** `rust/amberice-ffi`（cdylib），`amberice` 保持纯 rlib；
   不要再给 `amberice` 加 `ffi` feature —— 它没有，也不该有。
-- 补齐后：把 `spec/tools.md` 的解码器行改成「全端 + FFI」，N03 / T7 收口。
+- 三端目前**不在 CI 里**，靠人工跑；命令见下节，结果记在本表。
 
-## 剩余 FFI 端的三步配方
+## C# / Go / Ruby 的构建与运行
 
-共同前提：`cargo build -p amberice-ffi` 产出 `amberice_ffi.dll` / `libamberice_ffi.so`。
+共同前提：`cargo build -p amberice-ffi --features sml` 产出 `amberice_ffi.dll` / `libamberice_ffi.so`。
+实测（2026-11-10，Windows / MSVC Rust + MSYS2 gcc 16.1）：
+
+```text
+C#   : dotnet run --project Sml.csproj              （PATH 加 <target>/debug）
+Go   : CGO_LDFLAGS=-L<target>/debug go test ./amberice
+Ruby : AMBR_LIB=<target>/debug/amberice_ffi.dll ruby test_amberice.rb
+```
+
+Go 若链接失败，再按平台说明生成导入库（`gendef` + `dlltool`）；本次 MSYS2 gcc 直接链接通过。
 
 1. 按 `rust/amberice/include/amberice.h` 声明读路径所需符号（完整清单在头文件）：
    - `uint32_t ambr_caps(void)` —— 先查能力位
