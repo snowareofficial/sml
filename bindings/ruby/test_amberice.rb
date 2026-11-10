@@ -65,7 +65,7 @@ cases.each do |c|
   end
 end
 
-if fails.zero? && cases.length == 21 && rt_ok + rt_scalar == cases.length
+if fails.zero? && cases.length == 22 && rt_ok + rt_scalar == cases.length
   puts "#{ok}/#{cases.length} read, #{rt_ok} round-trip, #{rt_scalar} top-level scalars rejected (E-PARSE-008)"
 else
   warn "#{ok}/#{cases.length} read, #{rt_ok} round-trip, #{rt_scalar} scalar, #{fails} failed"

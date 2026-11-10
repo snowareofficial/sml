@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 // test_ambr.cpp — `.ambr` 解码器对拍容器向量（T7 / N03，C++ 端）。
 //
-// 判据：fixture 里 21 个 `ambr_hex` 全部解码成功 + 若干形状逐值正确。
+// 判据：fixture 里 22 个 `ambr_hex` 全部解码成功 + 若干形状逐值正确。
 // 运行：./t_ambr.exe [fixture.json]（默认 ../tests/vectors/amberice-container.v1.json）
 #include <cstdio>
 #include <fstream>
@@ -113,8 +113,8 @@ int main(int argc, char** argv) {
     }
 
     std::printf("[ambr] %d 例，%d 个失败\n", cases, failures);
-    if (cases != 21) {
-        std::printf("FAIL: 期望 21 例，实得 %d\n", cases);
+    if (cases != 22) {
+        std::printf("FAIL: 期望 22 例，实得 %d\n", cases);
         failures++;
     }
     std::printf("%s\n", failures ? "[ambr] FAILED" : "[ambr] ALL OK");

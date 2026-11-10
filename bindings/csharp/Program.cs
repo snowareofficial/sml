@@ -158,7 +158,7 @@ namespace Sml.Test
             // 9. GetIn
             Check("9 GetIn 路径取值", Sml.GetIn(obj, "server.host") is string s && s == "example.com", "");
 
-            // 10. `.ambr` 跨端容器向量（21 例，逐字符）
+            // 10. `.ambr` 跨端容器向量（22 例，逐字符）
             RunAmbrVectors();
 
             Console.WriteLine();
@@ -167,7 +167,7 @@ namespace Sml.Test
             return 1;
         }
 
-        /// <summary>`.ambr` 21 例：hex → LoadText → 与 canonical_text 逐字符比较。</summary>
+        /// <summary>`.ambr` 22 例：hex → LoadText → 与 canonical_text 逐字符比较。</summary>
         private static void RunAmbrVectors()
         {
             string? path = FindRepoFile(Path.Combine("tests", "vectors", "amberice-container.v1.json"));
@@ -195,7 +195,7 @@ namespace Sml.Test
                     Console.WriteLine("  FAIL  ambr " + id + "  " + e.Message);
                 }
             }
-            Check("10 .ambr 21 例逐字符", total == 21 && ok == 21, ok + "/" + total);
+            Check("10 .ambr 22 例逐字符", total == 22 && ok == 22, ok + "/" + total);
 
             // 11. 写入往返：顶层容器必须原样回来；顶层标量被 sml-parse 以
             //     E-PARSE-008 拒绝（unfinished §4.2 的已知欠账），单独计数。
@@ -218,7 +218,7 @@ namespace Sml.Test
                     Console.WriteLine("  FAIL  ambr pack " + id + "  " + e.Message);
                 }
             }
-            Check("11 .ambr 写入往返 21 例", rt == 21 && scalars == 0, rt + " round-trip, " + scalars + " scalar");
+            Check("11 .ambr 写入往返 22 例", rt == 22 && scalars == 0, rt + " round-trip, " + scalars + " scalar");
         }
 
         /// <summary>从 bin 目录或当前目录向上找仓库根下的相对路径。</summary>

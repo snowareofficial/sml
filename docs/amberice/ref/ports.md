@@ -3,7 +3,7 @@
 > 用户出门前指示：**一次走多步**，用时钟命令记录时间，单开文件记进度（本文件）。
 > 回来时先看这张表，再看每步的提交号。
 
-**判据（所有端一致）**：`tests/vectors/amberice-container.v1.json` 的 21 个 `ambr_hex`
+**判据（所有端一致）**：`tests/vectors/amberice-container.v1.json` 的 22 个 `ambr_hex`
 全部解码成功，且各自端内的语义抽检通过。真值来源 = Rust 的 `canonical_text`。
 
 ## 状态表
@@ -11,15 +11,15 @@
 | # | 端 | 方式 | 状态 | 提交 | 备注 |
 |---|---|---|---|---|---|
 | 1 | Rust | 原生（参考实现） | ✅ 已有 | — | `amberice` |
-| 2 | JS | 纯 JS | ✅ 21/21 | `5c4eeb1` | 已进 CI |
-| 3 | C | 纯 C99 | ✅ 21/21 + 5 抽检 | `cebdc4c` | `build_check.py --run` |
-| 4 | C++ | 纯 C++17 | ✅ 21/21 + 5 抽检 | `b47d342` | `cpp/build_verify.py` |
-| 5 | Lua | 纯 Lua（f64 需 LuaJIT ffi） | ✅ 21/21 + 5 抽检 | 本次 | `lua/run_check.py` |
-| 6 | Java | **纯 Java**（不再依赖 cdylib） | ✅ 21/21 + 5 抽检 | 本次 | `bindings/java/.../Ambr.java` |
-| 7 | Python | FFI（ctypes） | ✅ 21/21 **逐字符** | 本次 | `bindings/python/ambr.py` |
-| 8 | C# | FFI（P/Invoke） | ✅ 21/21 逐字符 + 往返 | `e91ce7a` | `bindings/csharp/Amberice.cs`；`dotnet run --project Sml.csproj` |
-| 9 | Go | FFI（cgo） | ✅ 21/21 逐字符 + 往返 | `e91ce7a` | `go test ./amberice`；Windows 需 `CGO_LDFLAGS` 指到 cdylib 目录 |
-| 10 | Ruby | FFI（Fiddle） | ✅ 21/21 逐字符 + 往返 | `e91ce7a` | `AMBR_LIB=… ruby test_amberice.rb` |
+| 2 | JS | 纯 JS | ✅ 22/22 | `5c4eeb1` | 已进 CI |
+| 3 | C | 纯 C99 | ✅ 22/22 + 5 抽检 | `cebdc4c` | `build_check.py --run` |
+| 4 | C++ | 纯 C++17 | ✅ 22/22 + 5 抽检 | `b47d342` | `cpp/build_verify.py` |
+| 5 | Lua | 纯 Lua（f64 需 LuaJIT ffi） | ✅ 22/22 + 5 抽检 | 本次 | `lua/run_check.py` |
+| 6 | Java | **纯 Java**（不再依赖 cdylib） | ✅ 22/22 + 5 抽检 | 本次 | `bindings/java/.../Ambr.java` |
+| 7 | Python | FFI（ctypes） | ✅ 22/22 **逐字符** | 本次 | `bindings/python/ambr.py` |
+| 8 | C# | FFI（P/Invoke） | ✅ 22/22 逐字符 + 往返 | `e91ce7a` | `bindings/csharp/Amberice.cs`；`dotnet run --project Sml.csproj` |
+| 9 | Go | FFI（cgo） | ✅ 22/22 逐字符 + 往返 | `e91ce7a` | `go test ./amberice`；Windows 需 `CGO_LDFLAGS` 指到 cdylib 目录 |
+| 10 | Ruby | FFI（Fiddle） | ✅ 22/22 逐字符 + 往返 | `e91ce7a` | `AMBR_LIB=… ruby test_amberice.rb` |
 | 11 | FFI 面 | **独立 crate** `amberice-ffi`（cdylib） | ✅ 7 个导出符号，`rust/amberice/include/amberice.h` 为契约 | 本次 | `rust/amberice-ffi/`；`amberice` 保持纯 rlib |
 
 > FFI 端**刻意只到「文本」为止**：更友好的对象 API（值/路径/类型）等 `swml` 定稿后再一次性加，
@@ -30,7 +30,7 @@
 
 ## 还差什么
 
-C# / Go / Ruby 三端 FFI 已于 2026-11-10 实测通过（21/21 逐字符 + 往返，`e91ce7a` 入库）。
+C# / Go / Ruby 三端 FFI 已于 2026-11-10 实测通过（22/22 逐字符 + 往返，`e91ce7a` 入库）。
 `spec/tools.md` 的解码器行已改成「全端 + FFI」，N03 / T7 可按此收口；表里已达标的端不要重做。
 
 摘要侧仍有一条欠账：五端只算 SHA-256，`0x31 SM3` / `0x32 BLAKE3` 的文件会被误报「摘要不符」。
@@ -40,7 +40,8 @@ D45 的 `SCHEMA` / `TYPED` 渲染：JS 已通（`js/test-ambr-typed.mjs`）、C 
 （`sml_ambr_load_typed` + `c/tests/test_ambr_typed.c`，已进 `build_check.py`）、C++ 已通
 （`ambr_load_typed` + `cpp/tests/test_ambr_typed.cpp`，已进 `build_verify.py`）、Lua 已通
 （`Sml.ambr_load_typed` + `lua/test_ambr_typed.lua`，已进 `run_check.py`）、Java 已通
-（`Ambr.loadTyped` + `AmbrTest.java` 内的断言）。五端渲染均已通过；共享容器向量待加。
+（`Ambr.loadTyped` + `AmbrTest.java` 内的断言）。五端渲染均已通过；容器向量已加
+`typed-schema` 用例（22 例），D45 收口。
 
 - FFI 面已经是**独立 crate** `rust/amberice-ffi`（cdylib），`amberice` 保持纯 rlib；
   不要再给 `amberice` 加 `ffi` feature —— 它没有，也不该有。

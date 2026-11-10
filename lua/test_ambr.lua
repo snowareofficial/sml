@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MulanPSL-2.0
 -- test_ambr.lua — `.ambr` 解码器对拍容器向量（T7 / N03，Lua 端）。
 --
--- 判据：fixture 里 21 个 `ambr_hex` 全部解码成功 + 若干形状逐值正确。
+-- 判据：fixture 里 22 个 `ambr_hex` 全部解码成功 + 若干形状逐值正确。
 -- 运行：LUA_PATH="lua/?.lua;lua/?.lua;;" luajit lua/test_ambr.lua [fixture.json]
 --
 -- 先用本目录的 sml.lua；再从仓库根解析 fixture 路径，便于在任意 cwd 下跑。
@@ -92,8 +92,8 @@ while true do
 end
 
 print(string.format("[ambr] %d 例，%d 个失败", cases, failures))
-if cases ~= 21 then
-  print(string.format("FAIL: 期望 21 例，实得 %d", cases))
+if cases ~= 22 then
+  print(string.format("FAIL: 期望 22 例，实得 %d", cases))
   failures = failures + 1
 end
 print(failures == 0 and "[ambr] ALL OK" or "[ambr] FAILED")

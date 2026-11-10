@@ -32,8 +32,8 @@ func TestVectors(t *testing.T) {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatalf("vector parse failed / 向量解析失败: %v", err)
 	}
-	if len(doc.Cases) != 21 {
-		t.Fatalf("want 21 cases, got %d / 期望 21 例，实际 %d", len(doc.Cases), len(doc.Cases))
+	if len(doc.Cases) != 22 {
+		t.Fatalf("want 22 cases, got %d / 期望 22 例，实际 %d", len(doc.Cases), len(doc.Cases))
 	}
 
 	ok := 0

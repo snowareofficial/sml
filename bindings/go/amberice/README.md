@@ -64,9 +64,9 @@ Point `AMBR_LIB` at the full dll path to override the name the binding searches 
 go test ./amberice -v
 ```
 
-The test decodes all 21 vectors in `tests/vectors/amberice-container.v1.json` and compares
+The test decodes all 22 vectors in `tests/vectors/amberice-container.v1.json` and compares
 the result to `canonical_text` **byte for byte**. A missing vector file skips loudly instead
 of faking green.
 
-测试解码 `tests/vectors/amberice-container.v1.json` 的全部 21 例，与 `canonical_text`
+测试解码 `tests/vectors/amberice-container.v1.json` 的全部 22 例，与 `canonical_text`
 **逐字符**比较；向量文件缺失时显式跳过，不假绿。

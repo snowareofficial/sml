@@ -3,7 +3,7 @@
 // AmbrWriteTest.java —— Java 端可选写入器对拍容器向量。
 //
 // Judgement / 判据:
-//   1. `AmbrWrite.packText(canonical_text)` succeeds for all 21 vectors;
+//   1. `AmbrWrite.packText(canonical_text)` succeeds for all 22 vectors;
 //   2. `Ambr.load` of the packed bytes succeeds for all 21;
 //   3. the five shapes already asserted by `AmbrTest` keep their values.
 //   Byte-for-byte canonical parity is asserted by the ends that own a canonical emitter
@@ -60,8 +60,8 @@ public final class AmbrWriteTest {
         }
 
         System.out.printf("[ambr-write] %d 例，%d 个 pack 成功，%d 个失败%n", cases, packed, failures);
-        if (cases != 21) {
-            System.out.printf("FAIL: 期望 21 例，实得 %d%n", cases);
+        if (cases != 22) {
+            System.out.printf("FAIL: 期望 22 例，实得 %d%n", cases);
             failures++;
         }
         System.out.println(failures == 0 ? "[ambr-write] ALL OK" : "[ambr-write] FAILED");

@@ -1512,7 +1512,7 @@ enum / `variants` 不在 v1：`typed.rs` 目前只有 struct / vec / opt，写�
 | DIR 写入（可选段） | ✅ **N05（2026-11-06）**：`DumpOptions.dir`（默认关）+ `dir_depth`；`Store::get` 逐层二分 |
 | Rust `put_var` / `get_var` | ✅ **N04（2026-11-06）**：`Writer::put_var` + `Store::var`；整数/浮点/bool/String/`Bytes`/`Vec<T>`/`Option<T>` |
 | 内嵌 schema（Rust） | ✅ **D45（2026-11-10）**：`Writer::put_schema` + `Store::schema`；段体是自包含 canonical `Value`；`cat --schema` 可动态渲染 |
-| 五端解 schema / 渲染 TYPED | ❌ 未做（D45 已裁，排在 T7） |
+| 五端解 schema / 渲染 TYPED | ✅ **D45（2026-11-10）**：C / C++ / JS / Lua / Java 全部实现；容器向量加 `typed-schema`（22 例） |
 | serde 桥 | 待定（`amberice-plan.md `smldb.md §7.12``） |
 | 字节布局影响 | **零**：不写这两段的文件与收录前逐字节相同 |
 
