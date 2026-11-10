@@ -1,6 +1,7 @@
 # 未完成清单（2026-11-10 核对 · 一处看全）
 
-> **最后核对：2026-11-10**（HEAD `d55a556`）。
+> **最后核对：2026-11-10**。核对基准不锚定 HEAD；要复现当时的代码版本用
+> `git log -1 --format='%h %cs %s' -- rust/`。本行只维护核对日期，提交推进不改这里。
 
 > **权威仍是 `TODO.md` / `IDEAS.md`**（用户维护）；本文件只是把散在四处的欠账合成一页，
 > 每条带来源行号，方便「还剩什么」一眼看完。
@@ -219,16 +220,18 @@ TODO / IDEAS 两张表在 [`todo-ideas-tables.md`](todo-ideas-tables.md)（`stat
 
 ---
 
-## 12. amberice 临时产物与未跑探针（2026-11-10）
+## 12. amberice 临时产物与探针实测（2026-11-10）
 
 > 证据底稿 `docs/amberice/ref/claims-audit.md`（`status: draft`）与讨论记录
 > `docs/amberice/decisions.md §16.5`（待裁决 · 不作结论）都不得当结论引用。
 > 代码基线 `136803b`：审计 #11 / #12 / #20 已落地（原子写 + 尾垃圾检测），现状见底稿 §0.1。
+> 三条探针已于 2026-11-10 实测完，数字与口径见 `decisions.md §16.5.8`；
+> **探针 2 发现半截追加静默丢写入**，已转成本节的新增欠账。
 
 | 项 | 内容 | 做完的判据 | 来源 |
 |---|---|---|---|
 | 底稿去留 | 逐条采纳并进 `decisions.md §16.1`，或整体移入 `docs/amberice/archive/` | `meta.sml` 的 `title` / `status` / `scope` 同步，`changes.sml` 记一条，`--index` / `--check` 重跑 | `claims-audit.md §10` |
 | §16.5 去留 | 随底稿一并处理，节级「待裁决」横幅按结果去掉或随节归档 | 索引中 `decisions.md` 的 `scope` 不再写「待裁决」；D1–D54 / P12 / §16.3 状态不变 | `decisions.md §16.5` |
-| 探针 1 · 成本 | 8 MB / 64 MB 上 `append` 与「seek + 写尾」的耗时对比 | 有 `amberice` 实测数字；只有磁盘下限微基准不算 | `decisions.md §16.5.8` |
-| 探针 2 · 鲁棒性 | 有层文件截尾 1 / 32 / 64 / 128 B，看 `info` / `cat` / `check` | 四条都有结果；跑通前规范不得写「半截尾可优雅退化」 | `decisions.md §16.5.8`、`claims-audit.md §8` |
-| 探针 3 · 层数 | 100 层时 `value()` 与 `Store::get` 耗时，用来定 `compact` 阈值 | 有实测数字并补进底稿 | `decisions.md §16.5.8` |
+| 探针 1 · 成本 | ✅ 已实测：8 MB `append_unsigned` 38.720 ms / 64 MB 296.232 ms；尾部追加 200 B 恒定 1.2–1.8 ms | 数字与口径见 `decisions.md §16.5.8` | `_scratch/probe/`（未入库） |
+| 探针 2 · 鲁棒性 | ✅ 已实测：四档截尾均静默退回基文档，`check` 报「通过」 | **新增欠账**：补「有层文件找不到完整 Trailer」的 `check` 告警 + 回归用例，否则半截追加静默丢一次写入 | `decisions.md §16.5.8`、`claims-audit.md §8` |
+| 探针 3 · 层数 | ✅ 已实测：100 层 / 39,603 B，`load` 0.3209 ms、`Store::value` 0.2837 ms、`Store::get` 0.2300 ms | `compact` 阈值改看体积与层数，不只看读耗时 | `decisions.md §16.5.8` |

@@ -157,7 +157,7 @@
 | D63 | 四条工作分支合入 `dev` 并删除 | Done | — | 无 | 本地 worktree 与分支已清，主工作区在 `dev` | `TODO.md:1268` | 无 |
 | D64 | `feat/bindings-v2` 已删 | Done | — | 无 | `git cherry` 确认 5 笔等价存在于 `dev` | `TODO.md:1278` | 无 |
 | D65 | 两条考古分支判定作废 | Done（远端仍留作重写备份） | — | 无 | `git cherry -v` 证据表已记 | `TODO.md:1283` | 无 |
-| D66 | 工作树脱敏 | Done | — | 无 | 49 个文件 + 两个漏网产物，`ae0b400` + `e63b86b` | `TODO.md:1333` | 无 |
+| D66 | 工作树脱敏 | Done | — | 无 | `ae0b400` 实为 **12 个文件**，`e63b86b` 为空提交；「49 文件 + 2 漏网」是重写前的旧口径，更正见 `docs/repo/archive/handoff/HANDOFF-2026-10-28.md §2.1` | `TODO.md:1333` | 无 |
 | D67 | 历史重写 | Done | — | 无 | blob / 提交信息 / 路径三处同换，覆盖全部 refs | `TODO.md:1335` | 无 |
 | D68 | 隐私闸门两道 | Done | — | 无 | 私有报送件 + 隐私串；`python tools/check_private_assets.py` | `TODO.md:1336` | 无 |
 | D69 | 守卫挂进 CI `guards` job | Done | — | 无 | CI 只跑通用规则（无 `tools/.private_patterns`） | `TODO.md:1341` | 无 |

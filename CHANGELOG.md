@@ -2,6 +2,9 @@
 
 本文件从 **0.6.1** 起开始记录；更早的变更见 Gitee 提交历史与各次 release 说明。
 
+> 2026-10-28 做过全历史重写（`filter-branch` + `gc --prune=now`），此前正文里的 7–8 位
+> 提交号已不在当前对象库中，只作沿革参考，不要用 `git show` 复核。
+
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 版本号遵循 Cargo 的语义化版本解释：**0.x 阶段 MINOR 变化视为不兼容**（0.6 → 0.7 会让下游无法自动更新），
 PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.6.0 → 0.6.1），只有真正的破坏性改动才动 MINOR。
@@ -27,8 +30,11 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 - `check()` 新增第 6 步：回扫最多 1 MiB 找完整 Trailer，其后仍有多余字节按
   「半截追加或尾垃圾」报出并使结论不通过；`info` / `open_raw` 仍只校验段边界。
   回归用例 `rust/amberice/tests/unsigned.rs::check_reports_trailing_garbage`（尾部多 20 B）。
-- **未变**：`append_layer` 仍把旧文件整体复制进新 `Vec<u8>`，追加成本仍为 O(文件大小)；
-  截尾 1 / 32 / 64 / 128 B 的读端行为仍待探针 2（`docs/amberice/decisions.md §16.5.8`）。
+- **未变**：`append_layer` 仍把旧文件整体复制进新 `Vec<u8>`，追加成本仍为 O(文件大小)。
+- ⚠️ **已知缺口（探针 2 实测）**：有层文件截尾 1 / 32 / 64 / 128 B 时，`layers()` 返回空链、
+  读端静默退回基文档，`check` 仍报「结论 通过」。`check` 第 6 步只覆盖「完整 Trailer 之后
+  的多余字节」，覆盖不了 Trailer 被截断的情形 ⇒ 半截追加会静默丢一次写入。
+  实测数字与口径见 `docs/amberice/decisions.md §16.5.8`，修复前不得写「能优雅退化」。
 
 ### 新增（`weakbind` 第一刀：`@weakbind` + `ParseOutput::weak_binds`）
 
