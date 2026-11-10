@@ -32,7 +32,7 @@
 | `amberice tree <f>` | 打印层链（index/作者/补丁/签名数/授权） | T4 | ✅ **已实现** |
 | `amberice vectors --gen/--check` | 生成/校验跨端测试向量：`amberice-canonical.v1.json`（节点编码）+ `amberice-container.v1.json`（整份 `.ambr`，2026-11-06 加） | T0 / T7 | ✅ **已实现**（另带「自检」：往返 + 文本一致 + `dump` 两次同字节） |
 | `amberice bench <f>` | 读路径基准（mmap 打开、单子树取、解帧、解密） | T5 | 建议 |
-| `amberice migrate --to fmt=N` | `fmt` 升级（重写 + 重签，需保留旧签名证据） | T5+ | 建议 |
+| `amberice migrate --to fmt=N` | `fmt` 升级骨架：只支持 `fmt=0`；有层必须 `--seed` 重签（D49） | T5+ | ✅ 骨架 |
 | `amberice compact` | 合并多层（会**重签**，D8 的例外情况；丢弃历史、旧锚点需重建） | T4 | ✅ **已实现** |
 | `smltools --to amberice` / `--from amberice` | 与 SML 文本互转（D27 的 A 路） | T6 | ✅ |
 | `smltools --to amberice --dir [N]` | 同时写可选 `DIR` 路径索引（`DumpOptions.dir` / `dir_depth`，D43）；缺省不写 | T6 | ✅ |

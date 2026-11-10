@@ -37,6 +37,8 @@ amberice — 通用二进制信封 .ambr（SML 是内置载荷之一）
                                       `--expect-head` 把追加钉在写者看到的链头上（D20）
   amberice compact <file> --seed HEX|FILE [-o OUT]
                                       合并多层并**重签**（D8 唯一例外；丢弃历史，旧锚点要重建）
+  amberice migrate <file> --to fmt=N (-o OUT | --in-place) [--seed HEX|FILE]
+                                      fmt 升级骨架：只支持 fmt=0；有层必须给 --seed 重签
   amberice delegate --seed OLD --to PUBKEY --max N [--out FILE]   签一份换钥授权（D16）
   amberice verify  <file> [--trust HEX64]  验链 + 验签（全部必须通过，D36）；
                                        `--trust` 把链头钉在外部锚点上（防整条链被剥离）
@@ -150,6 +152,7 @@ fn run(args: &[String]) -> Result<String, (u8, String)> {
         "sign" => sign_cmd(&args[1..], false),
         "append" => sign_cmd(&args[1..], true),
         "compact" => compact_cmd(&args[1..]),
+        "migrate" => migrate_cmd(&args[1..]),
         other => Err((
             2,
             format!(
@@ -644,6 +647,151 @@ fn compact_cmd(args: &[String]) -> Result<String, (u8, String)> {
     }
 }
 
+/// `amberice migrate <file> --to fmt=N` —— fmt 升级骨架（D49）。
+/// 只支持当前布局（`fmt=0`）；未知目标明确拒绝。文件有层时必须给 `--seed` 重签。
+fn migrate_cmd(args: &[String]) -> Result<String, (u8, String)> {
+    let mut file: Option<&String> = None;
+    let mut to: Option<u32> = None;
+    let mut out_path: Option<&String> = None;
+    let mut in_place = false;
+    let mut seed_src: Option<&String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--to" => {
+                let Some(v) = args.get(i + 1) else {
+                    return Err((2, "`--to` 需要 fmt 编号".to_string()));
+                };
+                to = Some(
+                    v.parse::<u32>()
+                        .map_err(|_| (2, format!("`--to {v}` 不是编号")))?,
+                );
+                i += 2;
+            }
+            "-o" | "--out" => {
+                let Some(v) = args.get(i + 1) else {
+                    return Err((2, "`-o` 需要一个路径".to_string()));
+                };
+                out_path = Some(v);
+                i += 2;
+            }
+            "--in-place" => {
+                in_place = true;
+                i += 1;
+            }
+            "--seed" => {
+                let Some(v) = args.get(i + 1) else {
+                    return Err((2, "`--seed` 需要 HEX 或文件".to_string()));
+                };
+                seed_src = Some(v);
+                i += 2;
+            }
+            other if other.starts_with('-') => {
+                return Err((2, format!("不认识的参数 `{other}`")));
+            }
+            other => {
+                if file.is_none() {
+                    file = Some(&args[i]);
+                    i += 1;
+                } else {
+                    return Err((2, format!("多余参数 `{other}`")));
+                }
+            }
+        }
+    }
+    let Some(file) = file else {
+        return Err((
+            2,
+            "用法: amberice migrate <file> --to fmt=N (-o OUT | --in-place) [--seed HEX|FILE]"
+                .to_string(),
+        ));
+    };
+    let Some(to) = to else {
+        return Err((2, "必须给 `--to fmt=N`".to_string()));
+    };
+    if to != 0 {
+        return Err((
+            1,
+            format!("migrate: 本构建只认识 fmt=0（当前布局）；目标 fmt={to} 未定义，拒绝猜"),
+        ));
+    }
+    if in_place && out_path.is_some() {
+        return Err((2, "`-o` 与 `--in-place` 只能给一个".to_string()));
+    }
+    if !in_place && out_path.is_none() {
+        return Err((2, "migrate 需要 `-o OUT` 或 `--in-place`（不默认覆盖）".to_string()));
+    }
+
+    let bytes = std::fs::read(file).map_err(|e| (1, format!("读 {file} 失败：{e}")))?;
+    let src_fmt =
+        header_fmt(&bytes).ok_or_else(|| (1, format!("{file}: 不是 .ambr 文件或头部被截断")))?;
+    if src_fmt != 0 {
+        return Err((
+            1,
+            format!("migrate: 源文件 fmt={src_fmt}，本构建只认识 0，无法读取"),
+        ));
+    }
+    let layers = amberice::layers(&bytes).map(|l| l.len()).unwrap_or(0);
+
+    let fresh = match seed_src {
+        Some(src) => {
+            #[cfg(feature = "sign")]
+            {
+                let seed = read_seed(src)?;
+                let kp =
+                    amberice::KeyPair::from_seed_hex(&seed).map_err(|e| (1, e.to_string()))?;
+                let algo = amberice::container::hash_algo(&bytes)
+                    .map_err(|e| (1, format!("{file}: {e}")))?;
+                amberice::compact(&bytes, &kp, algo).map_err(|e| (1, e.to_string()))?
+            }
+            #[cfg(not(feature = "sign"))]
+            {
+                let _ = src;
+                return Err((1, "本构建未启用 `sign` feature，无法重签".to_string()));
+            }
+        }
+        None if layers > 0 => {
+            return Err((
+                1,
+                format!(
+                    "migrate: 文件有 {layers} 层，重写会丢弃签名；给 `--seed` 重签，或先 `compact`"
+                ),
+            ));
+        }
+        None => rewrite_current(&bytes).map_err(|e| (1, format!("{file}: {e}")))?,
+    };
+
+    let dest = match (out_path, in_place) {
+        (Some(p), _) => p.as_str(),
+        (None, true) => file.as_str(),
+        (None, false) => unreachable!("上面已拦住"),
+    };
+    std::fs::write(dest, &fresh).map_err(|e| (1, format!("写 {dest} 失败：{e}")))?;
+    let note = if layers > 0 {
+        "签名已重签为 1 层，旧 --trust 锚点需重建"
+    } else {
+        "无层，未涉及签名"
+    };
+    Ok(format!(
+        "已迁移 {file} → {dest}（fmt 0 → 0，{} B；{note}）",
+        fresh.len()
+    ))
+}
+
+/// 只读头里的 `fmt`（第 7 字节）；magic 不符或长度不足返回 `None`。
+/// Read `fmt` from the fixed header; `None` when the magic/size does not fit.
+fn header_fmt(bytes: &[u8]) -> Option<u8> {
+    (bytes.len() >= 8 && &bytes[..4] == b"AMBR").then(|| bytes[6])
+}
+
+/// 按当前布局重写：`load` → `dump`，不涉及签名。
+/// Rewrite in the current layout: `load` then `dump`, no signatures involved.
+fn rewrite_current(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    let v = amberice::load(bytes).map_err(|e| e.to_string())?;
+    let cv = amberice::CanonicalValue::try_from(&v).map_err(|e| e.to_string())?;
+    amberice::dump(&cv).map_err(|e| e.to_string())
+}
+
 fn sign_cmd(args: &[String], need_patch: bool) -> Result<String, (u8, String)> {
     #[cfg(feature = "sign")]
     {
@@ -982,4 +1130,19 @@ fn text_cmd(args: &[String]) -> Result<String, (u8, String)> {
     }
     .map_err(|e| (1, format!("{file}: {e}")))?;
     Ok(text.trim_end_matches('\n').to_string())
+}
+
+#[cfg(test)]
+mod migrate_tests {
+    use super::header_fmt;
+
+    #[test]
+    fn header_fmt_reads_the_seventh_byte() {
+        let mut h = *b"AMBR\x04\x00\x00\x28";
+        assert_eq!(header_fmt(&h), Some(0));
+        h[6] = 3;
+        assert_eq!(header_fmt(&h), Some(3));
+        assert_eq!(header_fmt(b"AMBR"), None);
+        assert_eq!(header_fmt(b"NOPE\x04\x00\x00\x28"), None);
+    }
 }
