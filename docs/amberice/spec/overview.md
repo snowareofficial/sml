@@ -148,6 +148,7 @@
 - D53：`append_unsigned` / `Ingestor` 让无 `sign` 构建也能批量追加**未签名**层（`author` 全 0、`sigs` 空）；
   `Ingestor` 按帧数/时间合成一层、tmp+fsync+rename 提交、`recover` 回扫截断半层。
 - D53：`redact` 是写前纯值变换（删/遮盖/哈希），规则不进文件；唯一抹除仍是整份重写。
+  CLI 入口是 `smltools --to-amberice --redact-rules FILE`，与 `--keep-source` 互斥（后者会留原文）。
 
 ### 3.10 压缩与加密
 
