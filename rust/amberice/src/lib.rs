@@ -57,6 +57,7 @@ pub mod mmap;
 pub mod sm3;
 /// `TYPED`（0x70）强类型变量：编译期已知类型走数字 id，不写名字（N04 / §25）。
 /// `TYPED` (0x70) typed variables: numeric ids instead of names when the type is known.
+pub mod redact;
 pub mod typed;
 pub mod vectors;
 
@@ -76,6 +77,7 @@ pub use container::{
 pub use container::dump_with_source;
 pub use hash::HashAlgo;
 pub use layer::layers;
+pub use redact::{RedactAction, RedactError, RedactRule, RedactRules};
 #[cfg(feature = "sign")]
 pub use sign::{
     append_layer, append_layer_checked, compact, verify, verify_trusted, KeyPair, SignError,
