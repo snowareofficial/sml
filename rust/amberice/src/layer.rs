@@ -358,6 +358,53 @@ pub fn base_hash(bytes: &[u8], algo: HashAlgo) -> Result<[u8; 32], LayerError> {
     hash::digest(algo, &bytes[..n]).map_err(|_| LayerError::Truncated { at: n as u64 })
 }
 
+/// Append one **unsigned** layer (D53): `author` all-zero, `sigs` empty, chain links unchanged.
+/// 追加一个**未签名**层（D53）：作者全 0、无签名、链指针照常。
+///
+/// Use it only when signatures are not part of the trust model (plaintext archive, batch
+/// ingest). `verify` still reports `无签名` for these layers — that is intentional: stripping
+/// a signature must never look like "it was never signed".
+/// ｜ 只用于不依赖签名的场景；`verify` 仍会明确报「无签名」，不会把剥签当成从未签。
+pub fn append_unsigned(
+    bytes: &[u8],
+    patch: Option<Value>,
+    algo: HashAlgo,
+) -> Result<Vec<u8>, LayerError> {
+    let existing = layers(bytes)?;
+    let old_trailer = Trailer::parse(bytes);
+
+    let prev_hash = match existing.last() {
+        Some(l) => {
+            let body = l.canonical_bytes().map_err(LayerError::Canonical)?;
+            hash::digest(algo, &body).map_err(LayerError::Hash)?
+        }
+        None => [0u8; 32],
+    };
+    let index = existing.len() as u32;
+    let base = base_hash(bytes, algo)?;
+    let mut l = Layer::new(index, prev_hash, [0u8; 32], base);
+    l.patch = patch;
+
+    let body = l.canonical_bytes().map_err(LayerError::Canonical)?;
+    let prev_off = old_trailer.map(|t| t.last_layer_off).unwrap_or(0);
+    let new_off = bytes.len() as u64;
+
+    let mut out = Vec::with_capacity(bytes.len() + body.len() + LAYER_HEADER_LEN + TRAILER_LEN);
+    out.extend_from_slice(bytes);
+    out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+    out.extend_from_slice(&prev_off.to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes()); // reserved
+    out.extend_from_slice(&body);
+
+    let trailer = Trailer {
+        layer_count: index + 1,
+        last_layer_off: new_off,
+        head_hash: hash::digest(algo, &body).map_err(LayerError::Hash)?,
+    };
+    out.extend_from_slice(&trailer.to_bytes());
+    Ok(out)
+}
+
 pub fn layers(bytes: &[u8]) -> Result<Vec<Layer>, LayerError> {
     let Some(t) = Trailer::parse(bytes) else {
         return Ok(Vec::new());
@@ -423,6 +470,8 @@ pub enum LayerError {
     Canonical(crate::CanonicalError),
     /// A required field is missing/bad ｜ 必填字段缺失或形状不对。
     Manifest(ManifestError),
+    /// Hashing a layer body failed ｜ 层体哈希失败。
+    Hash(crate::hash::HashError),
     /// The trailer's `layer_count` disagrees with the chain length ｜ 层数对不上。
     CountMismatch {
         /// Declared in the trailer ｜ Trailer 里写的。
@@ -444,6 +493,7 @@ impl std::fmt::Display for LayerError {
                 write!(f, "层体字段 `{k}` 形状不对")
             }
             LayerError::Manifest(e) => write!(f, "层体字段不对：{e}"),
+            LayerError::Hash(e) => write!(f, "层体哈希失败：{e}"),
             LayerError::CountMismatch { declared, found } => write!(
                 f,
                 "Trailer 说 {declared} 层，实际走出 {found} 层（链断了或被截断）"

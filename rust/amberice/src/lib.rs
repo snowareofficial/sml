@@ -44,6 +44,7 @@ pub mod crypto;
 /// `DIR` path index: derived data; missing or stale only costs speed (N05 / §19.3).
 pub mod dir;
 pub mod hash;
+pub mod ingest;
 pub mod layer;
 pub mod manifest;
 pub mod sha256;
@@ -76,7 +77,10 @@ pub use container::{
 #[cfg(feature = "source")]
 pub use container::dump_with_source;
 pub use hash::HashAlgo;
-pub use layer::layers;
+pub use ingest::{
+    Commit, History, IngestError, IngestOptions, Ingestor, PushOutcome, Recovery,
+};
+pub use layer::{append_unsigned, layers};
 pub use redact::{RedactAction, RedactError, RedactRule, RedactRules};
 #[cfg(feature = "sign")]
 pub use sign::{
