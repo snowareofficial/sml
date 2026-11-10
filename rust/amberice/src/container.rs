@@ -3056,7 +3056,10 @@ pub fn seg_name(seg_id: u8) -> String {
         SEG_FRAMES => "FRAMES".to_string(),
         SEG_EMBED => "EMBED".to_string(),
         SEG_MANIFEST => "MANIFEST".to_string(),
+        SEG_SOURCE => "SOURCE".to_string(),
         SEG_PROVENANCE => "PROVENANCE".to_string(),
+        SEG_TYPED => "TYPED".to_string(),
+        SEG_SCHEMA => "SCHEMA".to_string(),
         other => format!("0x{other:02x}"),
     }
 }
