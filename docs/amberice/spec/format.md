@@ -1,6 +1,6 @@
 # `.ambr` 格式规范（`amberice`）
 
-> **产品线** amberice ｜ **状态** current ｜ **最后核对** 2026-11-09
+> **产品线** amberice ｜ **状态** current ｜ **最后核对** 2026-11-10
 >
 > 本文是 `.ambr` 二进制格式的**唯一权威**：信封、canonical 规则、`VALUE` 段布局、算法表、
 > 默认值表、侧信道防护、设计终态。决策记录（D1–D41 与待拍板项）在 `../decisions.md`；
@@ -391,7 +391,7 @@ cargo run -p amberice --features preserve_order -- vectors --check
 ```
 seg_id:u8 | comp:u8 | enc:u8 | flags:u16 | len:u32 | sha256:32
 ```
-- `seg_id`：`0x01=VALUE 0x02=STRTAB 0x03=DIR 0x10=FRAMES 0x20=EMBED 0x30=SIG 0x40=PROFILE 0x50=SOURCE 0x60=PROVENANCE 0x70=TYPED 0x71=SCHEMA`（后两段见 §25）
+- `seg_id`：`0x01=VALUE 0x02=STRTAB 0x03=DIR 0x10=FRAMES 0x20=EMBED 0x30=SIG 0x40=PROFILE 0x50=SOURCE 0x60=PROVENANCE 0x70=TYPED 0x71=SCHEMA`（`SOURCE` 见 §19.14；后两段见 §25）
 - **`comp` 与 `enc` 正交两字段**（D34）：压缩与加密组合不枚举，避免组合爆炸
 - `sha256:32` 固定 32 B，**具体哈希由 manifest 的 `hash_id` 决定**（SHA-256 / SM3 / BLAKE3 都是 32 B，见 §20）
 - 段起始 **4 KiB 对齐**（配合 D28 的块加密与 mmap）
@@ -1014,6 +1014,15 @@ AAD      = seg_id:u8 ‖ comp:u8 ‖ block_index:u32le ‖ block_count:u32le ‖
 
 **还没做**：追加语义（加密文件的**新增段必须落在新块边界**）—— 与 T4 的 `append` 一起做。
 
+
+### 19.14 `SOURCE`（0x50，可选）
+
+段体 = **原文逐字节**（UTF-8），不压缩、不加密；库不解释内容，只负责原样存取。
+
+写侧**默认永不写**：只有 `source` feature + 显式 `Writer::put_source` / `dump_with_source`
+才落段（D46）；启用 feature 时 `build.rs` 打双语 warning，CLI 使用处再提示一次。
+读侧 `Store::source_text()` 原样返回；不认识该段的读者按 `len` 跳过，不影响 `VALUE`。
+原文入文件即敏感面：键名、注释、被删掉的行都会随文件走，且 `history: keep` 下旧原文不会消失。
 
 ---
 

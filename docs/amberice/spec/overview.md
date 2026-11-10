@@ -91,7 +91,8 @@
 | `0x60` | `PROVENANCE` | 已登记，读者按未知段跳过 |
 | `0x70` | `TYPED` | 编译期已知类型的强变量，附加旁路通道 |
 
-不在表里的 id 同样合法：读者按 `len` 跳过，不解析、不猜语义。`0x30 SIG` / `0x40 PROFILE` / `0x50 SOURCE` 在规范里已登记，当前实现不写这些段。
+不在表里的 id 同样合法：读者按 `len` 跳过，不解析、不猜语义。`0x30 SIG` / `0x40 PROFILE` 已登记但实现不写；
+`0x50 SOURCE` 在 `source` feature + 显式 `put_source` / `dump_with_source` 下才写（D46），默认不写。
 
 ### 3.4 三条不变量
 

@@ -36,7 +36,7 @@
 | `amberice compact` | 合并多层（会**重签**，D8 的例外情况；丢弃历史、旧锚点需重建） | T4 | ✅ **已实现** |
 | `smltools --to amberice` / `--from amberice` | 与 SML 文本互转（D27 的 A 路） | T6 | ✅ |
 | `smltools --to amberice --dir [N]` | 同时写可选 `DIR` 路径索引（`DumpOptions.dir` / `dir_depth`，D43）；缺省不写 | T6 | ✅ |
-| `smltools --to amberice --keep-source` | 带 `SOURCE` 段 | T6 | 建议 |
+| `smltools --to amberice --keep-source` | 带 `SOURCE` 段（D46） | T6 | ✅（需 `amberice-source` feature；CLI 会警告原文敏感） |
 | JS / C / C++ / Lua / Java 解码器 | 只读 `VALUE` + 透传载荷（D12 五端可读） | T7 / N03 | ✅ **五端 + 纯 Java 全通（2026-11-06）**：JS `js/ambr.mjs`、C `c/ambr.c`、C++ `cpp/ambr.cpp`、Lua `Sml.ambr_load`、Java `sml.Ambr` —— 各 22/22 + 语义抽检，四个端已进各自检查脚本。**FFI 绑定（Python/C#/Go/Ruby）2026-11-10 实测全通（22/22 + 往返）** |
 | VSCode 扩展（只读） | 直接打开 `.ambr` 浏览树 / 悬停看段信息 | T7+ | 建议 |
 

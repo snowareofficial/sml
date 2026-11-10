@@ -60,3 +60,5 @@ preserve_order = ["swsml/preserve_order"]
 amberice = ["swsml/amberice"]
 # `--to-amberice --amberice-compress N` 需要它（再把 zstd 拉进来）。
 amberice-compress = ["amberice", "swsml/amberice-compress"]
+# `--to-amberice --keep-source` 需要它（SOURCE 段，D46；原文入文件即敏感面）。
+amberice-source = ["amberice", "swsml/amberice-source"]

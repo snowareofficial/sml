@@ -75,6 +75,8 @@ pub struct Store<'a> {
     typed: Option<&'a [u8]>,
     /// Optional `SCHEMA` body (D45) ｜ 可选的 `SCHEMA` 段体。
     schema: Option<&'a [u8]>,
+    /// Optional `SOURCE` body (D46) ｜ 可选的 `SOURCE` 段体。
+    source: Option<&'a [u8]>,
 }
 
 /// 一棵子树的原始字节（含 6 B 节点头）。
@@ -292,6 +294,7 @@ impl<'a> Store<'a> {
             key_ids: std::sync::OnceLock::new(),
             typed: parts.typed,
             schema: parts.schema,
+            source: parts.source,
         })
     }
 
@@ -450,6 +453,22 @@ impl<'a> Store<'a> {
         Ok(Some(
             Value::from_canonical_bytes(body).map_err(ContainerError::Canonical)?,
         ))
+    }
+
+    /// Raw `SOURCE` body, when present (D46). ｜ `SOURCE` 段体（若有，D46）。
+    pub fn source_body(&self) -> Option<&'a [u8]> {
+        self.source
+    }
+
+    /// The original text, when the file carries `SOURCE` (D46).
+    /// 文件带 `SOURCE` 时返回原文；不是合法 UTF-8 则明确报错。
+    pub fn source_text(&self) -> Result<Option<&'a str>, ContainerError> {
+        match self.source {
+            Some(b) => std::str::from_utf8(b)
+                .map(Some)
+                .map_err(|_| ContainerError::PayloadRead("SOURCE 段不是合法 UTF-8".to_string())),
+            None => Ok(None),
+        }
     }
 
     /// Decode typed variable `id` as `T` (N04 / §25).

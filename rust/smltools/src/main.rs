@@ -402,6 +402,12 @@ struct Cli {
     /// `--to-amberice` 同时写可选 `DIR` 路径索引（默认不写）；可选值 = 索引深度，缺省 4
     #[arg(long = "dir", value_name = "N", num_args = 0..=1, default_missing_value = "4")]
     dir: Option<u32>,
+
+    /// `--to-amberice` 同时把原文写进 `SOURCE` 段（D46；需构建带 `amberice-source`）
+    ///
+    /// 原文是敏感面：键名、注释、被删掉的行都会随文件走。
+    #[arg(long = "keep-source")]
+    keep_source: bool,
 }
 
 /// 按输入格式把文本转成 `Value`。
@@ -543,6 +549,9 @@ struct Args {
     /// `--to-amberice` 写 `DIR` 索引的深度（`None` = 不写）｜ DIR depth, `None` = off
     #[cfg_attr(not(feature = "amberice"), allow(dead_code))]
     dir: Option<u32>,
+    /// `--to-amberice` 同时写 `SOURCE` 段（D46）｜ also write the `SOURCE` segment
+    #[cfg_attr(not(feature = "amberice"), allow(dead_code))]
+    keep_source: bool,
 }
 
 /// `--feature` 的取值解析：与语言层**同一套字面量**（`10` / `1.0` / `v1` / `50` / `camelia`）。
@@ -600,6 +609,7 @@ fn parse_args(cli: Cli) -> Result<Args, SmlError> {
         to_amberice: cli.to_amberice,
         amberice_compress: cli.amberice_compress,
         dir: cli.dir,
+        keep_source: cli.keep_source,
     })
 }
 
@@ -1329,7 +1339,15 @@ fn write_amberice_output(value: &sml::Value, args: &Args, text: &str) -> ExitCod
     } else {
         value.clone().into_ordered()
     };
-    let bytes = match sml::value_to_amberice_with(&ordered, args.amberice_compress, args.dir) {
+    let built = if args.keep_source {
+        eprintln!(
+            "smltools: 警告：--keep-source 会把原文写入 SOURCE 段；键名、注释与已删内容都会随文件走，按敏感文件对待"
+        );
+        sml::value_to_amberice_source_with(&ordered, args.amberice_compress, args.dir, text)
+    } else {
+        sml::value_to_amberice_with(&ordered, args.amberice_compress, args.dir)
+    };
+    let bytes = match built {
         Ok(b) => b,
         Err(e) => {
             // E-CLI-007：输出后端报错。
@@ -1675,6 +1693,13 @@ fn real_main() -> ExitCode {
     if args.dir.is_some() && !args.to_amberice {
         eprintln!(
             "smltools: --dir 只与 --to-amberice 一起用（只有写信封时才有索引可写）[{}]",
+            E_CLI_003
+        );
+        return ExitCode::from(2);
+    }
+    if args.keep_source && !args.to_amberice {
+        eprintln!(
+            "smltools: --keep-source 只与 --to-amberice 一起用（只有写信封时才有 SOURCE 可写）[{}]",
             E_CLI_003
         );
         return ExitCode::from(2);

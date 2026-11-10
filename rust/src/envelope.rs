@@ -175,6 +175,38 @@ pub fn value_to_amberice_with(
     Ok(amberice::dump_with(&cv, &opts)?)
 }
 
+/// Same as [`value_to_amberice_with`], plus the verbatim original text as `SOURCE` (D46).
+/// 与 [`value_to_amberice_with`] 相同，另把原文写进 `SOURCE`（D46）。
+///
+/// Without the `amberice-source` feature this refuses explicitly instead of silently dropping
+/// the text. ｜ 未启用 `amberice-source` 时明确拒绝，绝不静默丢弃原文。
+pub fn value_to_amberice_source_with(
+    value: &Value,
+    compress: Option<i32>,
+    dir_depth: Option<u32>,
+    source: &str,
+) -> Result<Vec<u8>, EnvelopeError> {
+    #[cfg(feature = "amberice-source")]
+    {
+        let opts = DumpOptions {
+            compress,
+            dir: dir_depth.is_some(),
+            dir_depth: dir_depth.unwrap_or(amberice::manifest::DEFAULT_DIR_DEPTH),
+            ..Default::default()
+        };
+        let cv = amberice::CanonicalValue::try_from(value)
+            .map_err(|e| EnvelopeError::Container(ContainerError::Canonical(e)))?;
+        Ok(amberice::dump_with_source(&cv, &opts, source)?)
+    }
+    #[cfg(not(feature = "amberice-source"))]
+    {
+        let _ = (value, compress, dir_depth, source);
+        Err(EnvelopeError::Container(
+            ContainerError::SourceFeatureDisabled,
+        ))
+    }
+}
+
 /// Envelope → SML text. ｜ 信封 → SML 文本。
 ///
 /// Only works when the primary payload is a `Value`; a bytes envelope says so explicitly
