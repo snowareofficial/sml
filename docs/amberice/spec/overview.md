@@ -180,6 +180,7 @@
 - 读与检查：`info`、`ls`、`check`、`cat`、`text`、`get`
 - 归档：`pack`（可选 `--zstd [N]`）、`unpack`
 - 层链：`keygen`、`sign`、`append`、`compact`、`delegate`、`verify`、`tree`、`history`
+- 版本：`migrate --to fmt=N`（骨架，只支持 0；有层必须 `--seed` 重签）
 - 向量：`vectors --gen` / `vectors --check`
 - 元信息：`--help`、`--version`
 
