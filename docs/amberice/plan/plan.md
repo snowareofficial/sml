@@ -426,7 +426,7 @@ cargo bench --bench smlb --features "smlb-compress,smlb-crypto,smlb-mmap"
 > **2026-11-06 用户裁决「v1 带吧」** ⇒ 本节内容已成正式规范：
 > `docs/amberice/spec/format.md §25`（`0x70 TYPED` / `0x71 SCHEMA`，含「`VALUE` 必写」等四条收录前提）。
 > 本节保留作设计讨论与取舍记录；**以 §25 为准**，两处冲突时按 §25 执行。
-> 实现状态：Rust 侧已落（`rust/amberice/src/typed.rs`，`Writer::put_var` / `Store::var`）；五端「跳过」侧 N03 未做。
+> 实现状态：Rust 侧已落（`rust/amberice/src/typed.rs`，`Writer::put_var` / `Store::var`）；五端解码器已全端通过 22/22（`ref/ports.md`），N03 已收口。
 
 ### 7.1 先把「方便」拆开：你要的可能是两件不同的事
 

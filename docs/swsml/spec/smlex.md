@@ -1,9 +1,10 @@
-# `.smlex` 内容格式 v1.0（**格式已定稿 · 解释器未实现**）
+# `.smlex` 内容格式 v1.0（**格式已定稿 · 工具侧部分实现**）
 
 > 状态横幅：**格式定稿**（2026-11-04）。三条待定已全部裁决，见 §8。
 > 已实现：`smltools --resolve-profiles` 定位文件（`docs/swsml/spec/weakdoc.md` §3）、
-> `rust/smltools/profile.sml` 导出形状（§9）、**`checks` 三项执行**（`--lint`，§10）。
-> **未实现**：`applies_to` 匹配、`hints` 接编辑器、`emit` 接生成器。
+> `rust/smltools/profile.sml` 导出形状（§9）、**`checks` 三项执行**（`--lint`，§10）、
+> `applies_to` 建议提示（`--lint` 给 `I-LINT-001`，只提示不自动挂，§10）。
+> **未实现**：`hints` 接编辑器、`emit` 接生成器。
 > 决定来源：2026-11-04 与用户确认「先把 `.smlex` 的内容格式定下来」。
 
 ---
