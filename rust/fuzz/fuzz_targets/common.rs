@@ -163,7 +163,6 @@ pub fn assert_container_error(e: &amberice::ContainerError) {
         "compress-failed",
         "zero-copy-needs-plain",
         "bad-frame-index",
-        "framed-not-zero-copy",
         "empty-archive",
         "duplicate-payload-name",
         "payload-not-found",

@@ -445,13 +445,6 @@ pub enum ContainerError {
     /// The `FRAMES` index is malformed (overlaps, gaps, out of bounds).
     /// `FRAMES` 的帧索引不合法（重叠 / 断档 / 越界）。
     BadFrameIndex(String),
-    /// A framed file cannot be opened for zero-copy random access.
-    /// 分帧文件不能以零拷贝方式随机访问。
-    ///
-    /// 帧是独立压缩的，跳节点要跨帧 ⇒ 只能「按需解帧」。当前 `Store` 的导航器是切片式的，
-    /// 故明确报错并指路整解；按需解帧的读取器见 `frame_bytes_at`（已可用，尚未接进导航器）。
-    /// ｜ Frames are independently compressed; the slice-based navigator cannot cross them yet.
-    FramedNotZeroCopy,
     /// Random access (T3) needs a plain segment; this one is compressed.
     /// 随机访问（T3）要求段体是明文；这一段是压缩的。
     ///
@@ -533,7 +526,6 @@ impl ContainerError {
             ContainerError::CompressFailed(_) => "compress-failed",
             ContainerError::ZeroCopyNeedsPlain { .. } => "zero-copy-needs-plain",
             ContainerError::BadFrameIndex(_) => "bad-frame-index",
-            ContainerError::FramedNotZeroCopy => "framed-not-zero-copy",
             ContainerError::EmptyArchive => "empty-archive",
             ContainerError::DuplicatePayloadName { .. } => "duplicate-payload-name",
             ContainerError::PayloadNotFound { .. } => "payload-not-found",
@@ -674,11 +666,6 @@ impl std::fmt::Display for ContainerError {
             ),
             ContainerError::CompressFailed(e) => write!(f, "zstd 压缩失败：{e}"),
             ContainerError::BadFrameIndex(why) => write!(f, "帧索引不合法：{why}"),
-            ContainerError::FramedNotZeroCopy => write!(
-                f,
-                "这份文件是分帧压缩的（FRAMES），零拷贝随机访问做不到；请用 `load` / `cat`\
-                 （会按需解帧）"
-            ),
             ContainerError::ZeroCopyNeedsPlain { seg_id, comp } => write!(
                 f,
                 "段 0x{seg_id:02x} 是压缩的（comp=0x{comp:02x}），随机访问不能零拷贝；\

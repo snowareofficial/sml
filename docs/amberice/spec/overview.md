@@ -150,7 +150,8 @@
 - 加密 id `0x10` = AES-256-GCM，段体按 4 KiB 块做 AEAD：`plain_len` / `block_count` 头 + 每块密文与 16 B tag；nonce 由层 id、块号、每文件 salt 组成，AAD 绑定 `seg_id` / `comp` / 块号 / 块数 / 明文长度，改段头会当场认证失败。
 - 密钥入口 `KeySource` 两条路：原始 32 B 密钥（HKDF 派生）或口令（Argon2id `0x51`，参数写进 manifest）；文件只声明算法与参数，不写密钥从哪来。
 - 写顺序「先压后加」，读顺序「先解密再解压」，摘要始终对落盘字节验。加密文件强制 4 KiB 对齐，`MANIFEST` 恒明文，且因每文件随机 salt 而**不承诺字节确定**。
-- 零拷贝随机访问不支持加密段、压缩段与分帧文件（`EncryptedNotZeroCopy` / `ZeroCopyNeedsPlain` / `FramedNotZeroCopy`），明确报错而不是半读。
+- 零拷贝随机访问不支持加密段与压缩段（`EncryptedNotZeroCopy` / `ZeroCopyNeedsPlain`）；分帧走
+  `SubtreeBytes::Owned`（只解目标区间），不再是错误。
 
 ### 3.11 错误模型
 
@@ -229,7 +230,7 @@
 
 - 两个 Rust crate 都是 `publish = false`；`EDITION = 0x0004` 硬编码在 `container.rs`，版本升级需手动跟。
 - 摘要 `0x32` BLAKE3 只有编号，没有实现。
-- `FRAMES` 的按需解帧游标已可用，`Store` 的切片式导航器尚未接入（`FramedNotZeroCopy`）。
+- `FRAMES` 的按需解帧已接入 `Store::get` 与 `subtree_bytes`（后者对分帧结果物化为 `Owned`）。
 - wasm + zstd 组合只验证过编译，压缩向量的运行时行为未验（`rust/amberice/Cargo.toml` 台账）。
 - 加密与内存映射只有库接口，没有 CLI 子命令。
 - smldb 没有实现代码，不属于本产品线已交付能力。

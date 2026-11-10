@@ -75,6 +75,40 @@ pub struct Store<'a> {
     typed: Option<&'a [u8]>,
 }
 
+/// 一棵子树的原始字节（含 6 B 节点头）。
+/// 明文走 `Borrowed`（零拷贝），分帧走 `Owned`（只解覆盖目标区间的帧）。
+/// ｜ Raw subtree bytes: borrowed for plain segments, materialised for framed ones.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubtreeBytes<'a> {
+    /// Borrowed straight out of the container buffer — no copy. ｜ 直接借用容器缓冲，零拷贝。
+    Borrowed(&'a [u8]),
+    /// Materialised because the value lives across compression frames. ｜ 跨帧时物化。
+    Owned(Vec<u8>),
+}
+
+impl SubtreeBytes<'_> {
+    /// `true` when nothing was copied. ｜ 是否零拷贝。
+    pub fn is_borrowed(&self) -> bool {
+        matches!(self, Self::Borrowed(_))
+    }
+}
+
+impl AsRef<[u8]> for SubtreeBytes<'_> {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            Self::Borrowed(b) => b,
+            Self::Owned(v) => v,
+        }
+    }
+}
+
+impl std::ops::Deref for SubtreeBytes<'_> {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        self.as_ref()
+    }
+}
+
 /// Parsed `STRTAB`, cached. Custom `Debug` keeps `Store`'s debug output short.
 /// 已解析的 `STRTAB` 缓存；自定义 `Debug` 避免打印整张表。
 struct StrTab<'a>(Vec<&'a str>);
@@ -405,39 +439,21 @@ impl<'a> Store<'a> {
         crate::typed::read_var(seg, id).map_err(ContainerError::from)
     }
 
-    /// The raw bytes of one subtree — **zero copy**, header included.
-    /// 一棵子树的原始字节 —— **零拷贝**，含节点头。
-    ///
-    /// Siblings are skipped via `subtree_len`; nothing is allocated for them.
-    /// 兄弟节点靠 `subtree_len` 跳过，不为它们分配任何东西。
-    pub fn subtree_bytes(&self, path: &str) -> Result<&'a [u8], ContainerError> {
-        if self.frames.is_some() {
-            return Err(ContainerError::FramedNotZeroCopy);
-        }
+    /// 一棵子树的原始字节（含 6 B 节点头）。
+    /// 明文借用；分帧物化，只解覆盖目标区间的帧。
+    /// ｜ Raw subtree bytes, header included; framed trees inflate only the target range.
+    pub fn subtree_bytes(&self, path: &str) -> Result<SubtreeBytes<'a>, ContainerError> {
         let p = Path::parse(path).map_err(ContainerError::Path)?;
         let table = self.strtab_table()?;
-        let sub = subtree_at_with_table(table, self.value, &p)?;
-        Ok(sub.bytes)
-    }
-
-    /// Same as [`Store::subtree_bytes`], but **materialised** so framed files work too.
-    /// 同 [`Store::subtree_bytes`]，但**物化**返回，分帧文件也能用。
-    ///
-    /// 分帧时只解「覆盖目标区间」的帧 —— 这正是把导航器接到帧上的意义。
-    /// ｜ For framed files only the frames overlapping the target are inflated.
-    pub fn subtree_vec(&self, path: &str) -> Result<Vec<u8>, ContainerError> {
-        let p = Path::parse(path).map_err(ContainerError::Path)?;
         match self.frames {
             None => {
-                let table = self.strtab_table()?;
                 let sub = subtree_at_with_table(table, self.value, &p)?;
-                Ok(sub.bytes.to_vec())
+                Ok(SubtreeBytes::Borrowed(sub.bytes))
             }
             Some(body) => {
-                let table = self.strtab_table()?;
                 let mut cur = FrameCursor::new(body)?;
                 let (s, e, _) = subtree_range(&mut cur, table, p.segments(), 0)?;
-                cur.read_range(s, e)
+                Ok(SubtreeBytes::Owned(cur.read_range(s, e)?))
             }
         }
     }
