@@ -19,11 +19,18 @@
 **   defaults, required, enum, min/max bounds, and nested ContractRef composition.
 */
 
-/* `strdup` / `strtok_r` 是 POSIX，不是 ISO C99：严格 `-std=c99` 下 glibc 不声明，
-   编译器把它们当成返回 int，指针直接被截断（Linux CI 的 C 检查就是这样红的）。
+/* `strdup` / `strtok_r` / `realpath` 是 POSIX / XSI，不是 ISO C99：严格 `-std=c99`
+   下 glibc 不声明，编译器会把它们当成返回 int，指针直接被截断。
+   - `_XOPEN_SOURCE 700` 覆盖 realpath（XSI），并隐含 POSIX.1-2008；
+   - `_POSIX_C_SOURCE 200809L` 明确覆盖 strdup / strtok_r 与 realpath(path, NULL)。
    feature test macro 必须在任何系统头文件之前定义；MSVC 走自己的别名，不需要。*/
-#if !defined(_WIN32) && !defined(_POSIX_C_SOURCE)
+#if !defined(_WIN32)
+#ifndef _XOPEN_SOURCE
+#define _XOPEN_SOURCE 700
+#endif
+#ifndef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200809L
+#endif
 #endif
 
 #include "sml.h"
