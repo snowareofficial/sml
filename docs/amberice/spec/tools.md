@@ -21,7 +21,7 @@
 |---|---|---|---|
 | `amberice info <f>` | 一眼看清：edition/fmt/段表/能力位/是否签名、是否加密 | T2 | ✅ **已实现**（T1 提前；能力位/签名状态待 T2/T4 补） |
 | `amberice ls <f> [--segments]` | 列段与外来载荷（id/长度/算法） | T2 | ✅ **已实现**（并列出 `payloads[]` 的名字与长度） |
-| `amberice cat <f> [<path>] [--schema]` | 无路径输出整份；有路径按路径取值（`a.b[0]`）；`--schema` 按内嵌 `SCHEMA` 渲染 `TYPED`（D45） | T3 | ✅ **已实现** |
+| `amberice cat <f> [<path>] [--schema\|--source]` | 无路径输出整份；有路径按路径取值（`a.b[0]`）；`--schema` 按内嵌 `SCHEMA` 渲染 `TYPED`（D45）；`--source` 原样打印 `SOURCE`（D46） | T3 | ✅ **已实现** |
 | `amberice history <f> <path> --at N` | 第 N 层为止的值（历史回放） | T4 | ✅ **已实现**（从 `cat --at` 拆出） |
 | `amberice get <f> <path> [--bytes]` | 零拷贝取一棵子树（不解全树），`--bytes` 出原始字节 | T3 | ✅ **已实现**（不依赖 `DIR`：用 `subtree_len` 跳兄弟） |
 | `amberice text <f> [--path P]` | 整份或某一子树的 canonical 文本 | T3 | ✅ **已实现** |

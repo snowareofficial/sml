@@ -24,8 +24,9 @@ amberice — 通用二进制信封 .ambr（SML 是内置载荷之一）
   amberice ls      <file> [--mmap]         逐段列出 id/偏移/长度/算法（`--segments` 同义）
   amberice check   <file> [--mmap] [--evidence FILE]
                                       结构 + 逐段摘要校验；`--evidence` 只核对旁证里的 new_head
-  amberice cat     <file> [<path>] [--schema] [--mmap]
-                                      无路径输出整份；有路径取当前值；--schema 按内嵌 schema 渲染 TYPED
+  amberice cat     <file> [<path>] [--schema|--source] [--mmap]
+                                      无路径输出整份；有路径取当前值；--schema 按内嵌 schema 渲染 TYPED；
+                                      --source 原样打印 SOURCE 段（0x50，D46）
   amberice pack    [--zstd [N]] <out.ambr> <file>...
                                        把若干文件打成一个 .ambr 归档（EMBED 段）；
                                        `--zstd` 段级压缩（N = 1..19，默认 3）
@@ -536,6 +537,7 @@ fn safe_join(dest: &str, name: &str) -> Result<std::path::PathBuf, (u8, String)>
 fn cat_cmd(args: &[String]) -> Result<String, (u8, String)> {
     let mut pos: Vec<&String> = Vec::new();
     let mut want_schema = false;
+    let mut want_source = false;
     let mut mmap = false;
     for a in args {
         match a.as_str() {
@@ -549,6 +551,9 @@ fn cat_cmd(args: &[String]) -> Result<String, (u8, String)> {
             "--schema" => {
                 want_schema = true;
             }
+            "--source" => {
+                want_source = true;
+            }
             "--mmap" => {
                 mmap = true;
             }
@@ -558,16 +563,28 @@ fn cat_cmd(args: &[String]) -> Result<String, (u8, String)> {
     let Some(file) = pos.first() else {
         return Err((
             2,
-            "用法: amberice cat <file> [<path>] [--schema] [--mmap]".to_string(),
+            "用法: amberice cat <file> [<path>] [--schema|--source] [--mmap]".to_string(),
         ));
     };
-    if want_schema && pos.len() > 1 {
-        return Err((2, "`--schema` 不接受路径参数（它渲染整份 TYPED）".to_string()));
+    if want_schema && want_source {
+        return Err((2, "`--schema` 与 `--source` 互斥".to_string()));
+    }
+    if (want_schema || want_source) && pos.len() > 1 {
+        return Err((2, "`--schema` / `--source` 不接受路径参数".to_string()));
     }
     let input = read_file(file.as_str(), mmap)?;
     let bytes = input.as_slice();
     if want_schema {
         return render_typed(file.as_str(), bytes);
+    }
+    if want_source {
+        // D46：`SOURCE` 是原文逐字节；这里原样打印，只去掉显示用行尾换行。
+        let store = amberice::Store::open(bytes).map_err(|e| (1, format!("{file}: {e}")))?;
+        let text = store
+            .source_text()
+            .map_err(|e| (1, format!("{file}: {e}")))?
+            .ok_or_else(|| (1, format!("{file}: 没有 SOURCE 段（0x50）")))?;
+        return Ok(text.trim_end_matches('\n').to_string());
     }
 
     // 无路径 ⇒ 整份 canonical 文本（与 `text` 同源，Unix `cat` 的直觉）
@@ -1454,6 +1471,26 @@ mod migrate_tests {
             ))
             .to_string_lossy()
             .into_owned()
+    }
+
+    #[cfg(feature = "source")]
+    #[test]
+    fn cat_source_prints_original_text() {
+        use amberice::{dump_with_source, CanonicalValue, DumpOptions, Map, Value};
+
+        let mut m = Map::ordered();
+        m.insert("a".to_string(), Value::Int(1));
+        let cv = CanonicalValue::try_from(&Value::Object(m)).expect("ordered");
+        let src = "a: 1\n// 注释与缩进原样保留\n";
+        let bytes = dump_with_source(&cv, &DumpOptions::default(), src).expect("dump");
+        let file = tmp("cat-source", "ambr");
+        std::fs::write(&file, &bytes).expect("write");
+
+        let out = super::cat_cmd(&["--source".to_string(), file.clone()]).expect("source");
+        assert_eq!(out, src.trim_end_matches('\n'));
+        // 同一文件照常能按值读
+        assert!(super::cat_cmd(std::slice::from_ref(&file)).is_ok());
+        let _ = std::fs::remove_file(&file);
     }
 
     #[test]
