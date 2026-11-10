@@ -149,3 +149,49 @@ fn bytes_newtype_is_not_an_array_of_varints() {
     let back: amberice::typed::Bytes = amberice::typed::read_var(&body, 7).expect("read");
     assert_eq!(back, raw);
 }
+
+/// D45：`SCHEMA` 是可选附加段；写入后可读回，且不影响 `TYPED` / `VALUE`。
+#[test]
+fn schema_segment_is_optional_and_round_trips() {
+    let v = doc();
+    let cv = CanonicalValue::try_from(&v).expect("ordered");
+    let blocks = cv.canonical_blocks().expect("blocks");
+    let schema = {
+        let mut ty = Map::ordered();
+        ty.insert("id".to_string(), Value::Str("1a2b3c4d5e6f7788".to_string()));
+        ty.insert("name".to_string(), Value::Str("User".to_string()));
+        ty.insert("kind".to_string(), Value::Str("struct".to_string()));
+        let mut field = Map::ordered();
+        field.insert("id".to_string(), Value::Int(1));
+        field.insert("name".to_string(), Value::Str("id".to_string()));
+        field.insert("ty".to_string(), Value::Str("u64".to_string()));
+        ty.insert("fields".to_string(), Value::Array(vec![Value::Object(field)]));
+        let mut top = Map::ordered();
+        top.insert("schema_version".to_string(), Value::Int(1));
+        top.insert("types".to_string(), Value::Array(vec![Value::Object(ty)]));
+        Value::Object(top)
+    };
+
+    let mut buf = Vec::new();
+    {
+        let mut w = Writer::new(&mut buf, &DumpOptions::default(), SEG_VALUE).expect("writer");
+        w.add_segment(SEG_VALUE, 0, 0, &blocks.value).expect("VALUE");
+        if !blocks.strtab.is_empty() {
+            w.add_segment(SEG_STRTAB, 0, 0, &blocks.strtab).expect("STRTAB");
+        }
+        w.put_var(1, &user()).expect("put_var");
+        w.put_schema(&schema).expect("put_schema");
+        w.finish().expect("finish");
+    }
+
+    let s = Store::open(&buf).expect("open");
+    assert_eq!(s.schema().expect("schema"), Some(schema));
+    assert!(s.schema_body().is_some());
+    assert_eq!(s.var::<User>(1).expect("var"), user());
+    assert!(amberice::check(&buf).expect("check").ok);
+
+    // 不写 schema 时，读侧必须给 None（不是空对象）。
+    let plain = build_with_vars();
+    let s2 = Store::open(&plain).expect("open plain");
+    assert!(s2.schema().expect("schema").is_none());
+}

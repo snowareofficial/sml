@@ -131,6 +131,7 @@
 
 - `DIR`：`(父对象偏移, 键 id, 子偏移)` 的排序索引，把逐层线性比键变成二分。它带建索引时的层数，层数变了整段忽略；缺失 / 过期 / 损坏一律回退线性导航，不会给出错误答案。
 - `TYPED`：按 `var_id` 存数字 id + 固定布局的强类型值，读时比对 `TYPE_ID`。`VALUE` 仍必写，canonical 相等与签名都不看这一段。
+- `SCHEMA`：可选，`type_id → 字段/变体` 的 canonical `Value`；`Writer::put_schema` 写、`Store::schema` 读。不写也能读 `TYPED`（D45）。
 - `FRAMES`：帧数 + 每项 16 B 的帧索引（解压后偏移 / 压缩后偏移 / 压缩长 / 解压长），各帧独立压缩；`FrameCursor` 跳过不解压、只解真正读到的区间。
 - `EMBED`：段体是各载荷按序拼接，`payloads[]` 按序给 `name / len / 摘要`；偏移不存，按 `len` 走位。`unpack` 拒绝含 `..`、绝对路径、盘符的载荷名。
 

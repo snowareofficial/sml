@@ -73,6 +73,8 @@ pub struct Store<'a> {
     key_ids: std::sync::OnceLock<HashMap<&'a str, u32>>,
     /// Optional `TYPED` body (N04) ｜ 可选的 `TYPED` 段体。
     typed: Option<&'a [u8]>,
+    /// Optional `SCHEMA` body (D45) ｜ 可选的 `SCHEMA` 段体。
+    schema: Option<&'a [u8]>,
 }
 
 /// 一棵子树的原始字节（含 6 B 节点头）。
@@ -289,6 +291,7 @@ impl<'a> Store<'a> {
             dir_index: std::sync::OnceLock::new(),
             key_ids: std::sync::OnceLock::new(),
             typed: parts.typed,
+            schema: parts.schema,
         })
     }
 
@@ -428,6 +431,25 @@ impl<'a> Store<'a> {
     /// Raw `TYPED` body, when present ｜ `TYPED` 段体（若有）。
     pub fn typed_body(&self) -> Option<&'a [u8]> {
         self.typed
+    }
+
+    /// Raw `SCHEMA` body, when present ｜ `SCHEMA` 段体（若有）。
+    pub fn schema_body(&self) -> Option<&'a [u8]> {
+        self.schema
+    }
+
+    /// The `SCHEMA` value, when the file carries one (D45).
+    /// 文件带 `SCHEMA` 时返回解出的值（D45）。
+    ///
+    /// Self-contained L0 bytes: parseable without the `VALUE` segment.
+    /// 自包含 L0 字节：不需要 `VALUE` 段就能解。
+    pub fn schema(&self) -> Result<Option<Value>, ContainerError> {
+        let Some(body) = self.schema else {
+            return Ok(None);
+        };
+        Ok(Some(
+            Value::from_canonical_bytes(body).map_err(ContainerError::Canonical)?,
+        ))
     }
 
     /// Decode typed variable `id` as `T` (N04 / §25).

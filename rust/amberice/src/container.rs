@@ -129,6 +129,9 @@ pub const SEG_FLAG_PLAINTEXT: u16 = 0b0001;
 /// `TYPED` segment id (§25.2) — typed variables (N04).
 /// `TYPED` 段 id（§25.2 的强类型变量，N04）。
 pub const SEG_TYPED: u8 = 0x70;
+/// `SCHEMA` segment id (§25.3) — optional, canonical `Value` describing `TYPED` types (D45).
+/// `SCHEMA` 段 id（§25.3，可选）：用 canonical `Value` 描述 `TYPED` 的类型布局（D45）。
+pub const SEG_SCHEMA: u8 = 0x71;
 /// `MANIFEST` segment id — **registered here in T1, written from T2**.
 /// `MANIFEST` 段 id：T1 只登记，T2 才写内容。
 pub const SEG_MANIFEST: u8 = 0x04;
@@ -1255,6 +1258,9 @@ pub struct Writer<W: std::io::Write> {
     /// Typed variables collected by [`Writer::put_var`], written as `TYPED` at `finish`.
     /// [`Writer::put_var`] 收集的强类型变量，`finish` 时写成 `TYPED` 段。
     typed: crate::typed::Typed,
+    /// Optional `SCHEMA` value from [`Writer::put_schema`], written as `SCHEMA` at `finish`.
+    /// [`Writer::put_schema`] 给的 schema，`finish` 时写成 `SCHEMA` 段。
+    schema: Option<Value>,
 }
 
 impl<W: std::io::Write> Writer<W> {
@@ -1285,6 +1291,7 @@ impl<W: std::io::Write> Writer<W> {
             tmp_len: 0,
             finished: false,
             typed: crate::typed::Typed::new(),
+            schema: None,
         })
     }
 
@@ -1300,6 +1307,22 @@ impl<W: std::io::Write> Writer<W> {
         v: &T,
     ) -> Result<(), ContainerError> {
         self.typed.put(id, v).map_err(ContainerError::from)
+    }
+
+    /// Store the optional `SCHEMA` (0x71) value; written at `finish()` (D45).
+    /// 存可选的 `SCHEMA`（0x71）；`finish()` 时落段（D45）。
+    ///
+    /// A `Value` describing `type_id → fields/variants`. It is additive: canonical equality
+    /// and signatures look at `VALUE` only, exactly like `TYPED` (§25.1).
+    /// 它是附加信息：canonical 相等与签名只看 `VALUE`，与 `TYPED` 同一口径（§25.1）。
+    pub fn put_schema(&mut self, schema: &Value) -> Result<(), ContainerError> {
+        if self.schema.is_some() {
+            return Err(ContainerError::DuplicateSegment {
+                seg_id: SEG_SCHEMA,
+            });
+        }
+        self.schema = Some(schema.clone());
+        Ok(())
     }
 
     /// Append a segment whose body is already in memory.
@@ -1410,6 +1433,11 @@ impl<W: std::io::Write> Writer<W> {
         if !self.typed.is_empty() {
             let body = self.typed.to_bytes();
             self.add_segment(SEG_TYPED, 0, 0, &body)?;
+        }
+        // `SCHEMA`（0x71）比 `TYPED`（0x70）大，仍满足段按 id 升序。
+        if let Some(schema) = self.schema.take() {
+            let body = schema.canonical_bytes().map_err(ContainerError::Canonical)?;
+            self.add_segment(SEG_SCHEMA, 0, 0, &body)?;
         }
 
         let manifest_seg = {
@@ -1967,6 +1995,8 @@ pub(crate) struct RawParts<'a> {
     pub dir: Option<&'a [u8]>,
     /// Optional `TYPED` body (plain only) ｜ 可选的 `TYPED` 段体。
     pub typed: Option<&'a [u8]>,
+    /// Optional `SCHEMA` body (plain only) ｜ 可选的 `SCHEMA` 段体。
+    pub schema: Option<&'a [u8]>,
 }
 
 /// Open for random access: no `Value` is built. ｜ 以随机访问的方式打开：不构造 `Value`。
@@ -2011,6 +2041,7 @@ pub(crate) fn open_raw<'a>(bytes: &'a [u8], verify: bool) -> Result<RawParts<'a>
     let mut strtab: Option<&[u8]> = None;
     let mut dir: Option<&[u8]> = None;
     let mut typed: Option<&[u8]> = None;
+    let mut schema: Option<&[u8]> = None;
     for seg in &info.segments {
         match seg.header.seg_id {
             SEG_FRAMES => {
@@ -2055,7 +2086,7 @@ pub(crate) fn open_raw<'a>(bytes: &'a [u8], verify: bool) -> Result<RawParts<'a>
             // `DIR` / `TYPED` 是可选旁路：压缩或加密形态一律**忽略**（不报错、不解压），
             // 因为缺少它们只影响速度 / 强类型取值，不影响 `VALUE` 的正确性（§25.1）。
             // ｜ Optional side channels: comp/enc forms are ignored rather than fatal.
-            SEG_DIR | SEG_TYPED => {
+            SEG_DIR | SEG_TYPED | SEG_SCHEMA => {
                 if seg.header.comp != 0 || seg.header.enc != 0 {
                     continue;
                 }
@@ -2063,16 +2094,25 @@ pub(crate) fn open_raw<'a>(bytes: &'a [u8], verify: bool) -> Result<RawParts<'a>
                 if verify {
                     verify_digest(seg, b, algo)?;
                 }
-                if seg.header.seg_id == SEG_DIR {
-                    if dir.is_some() {
-                        return Err(ContainerError::DuplicateSegment { seg_id: SEG_DIR });
+                match seg.header.seg_id {
+                    SEG_DIR => {
+                        if dir.is_some() {
+                            return Err(ContainerError::DuplicateSegment { seg_id: SEG_DIR });
+                        }
+                        dir = Some(b);
                     }
-                    dir = Some(b);
-                } else {
-                    if typed.is_some() {
-                        return Err(ContainerError::DuplicateSegment { seg_id: SEG_TYPED });
+                    SEG_TYPED => {
+                        if typed.is_some() {
+                            return Err(ContainerError::DuplicateSegment { seg_id: SEG_TYPED });
+                        }
+                        typed = Some(b);
                     }
-                    typed = Some(b);
+                    _ => {
+                        if schema.is_some() {
+                            return Err(ContainerError::DuplicateSegment { seg_id: SEG_SCHEMA });
+                        }
+                        schema = Some(b);
+                    }
                 }
             }
             _ => {}
@@ -2094,6 +2134,7 @@ pub(crate) fn open_raw<'a>(bytes: &'a [u8], verify: bool) -> Result<RawParts<'a>
         layers: layer::layers(bytes).map_err(ContainerError::Layer)?,
         dir,
         typed,
+        schema,
     })
 }
 
