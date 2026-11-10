@@ -104,6 +104,13 @@ def scan_marks() -> int:
     return n
 
 
+def strip_stamp(text: str) -> str:
+    """去掉生成时间戳行，只比较正文是否变化。"""
+    return "\n".join(
+        line for line in text.splitlines() if not line.startswith("> 生成：")
+    )
+
+
 def render(d: dict) -> str:
     stamp = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [
@@ -177,6 +184,9 @@ def main() -> int:
     text = render(data)
     if args.write:
         OUT.parent.mkdir(parents=True, exist_ok=True)
+        if OUT.is_file() and strip_stamp(OUT.read_text(encoding="utf-8")) == strip_stamp(text):
+            print(f"unchanged {OUT.relative_to(ROOT)}")
+            return 0
         OUT.write_text(text, encoding="utf-8", newline="\n")
         print(f"written {OUT.relative_to(ROOT)}")
     else:

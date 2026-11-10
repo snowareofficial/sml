@@ -154,6 +154,17 @@ jobs:
       - name: 文档门禁（meta.sml → 索引 / 体检 / 断链）
         working-directory: rust
         run: cargo run -p smldocs -- --check
+      # 生成物幂等：数据源变了却没重跑生成 ⇒ 这里变红。生成物不记日期，
+      # scan.md 内容不变时不重写，所以跨天重跑也不会假红。
+      - name: 文档生成物重跑
+        working-directory: rust
+        run: |
+          cargo run -p smldocs -- --index
+          cargo run -p smldocs -- --report
+      - name: 状态扫描重跑
+        run: python3 tools/scan_status.py --write
+      - name: 生成物无漂移
+        run: git diff --exit-code -- docs/index.md docs/report.md docs/repo/ref/scan.md
 
   # Miri：C-ABI 的 UB 检测（很慢，单独 job + 超时，不允许 continue-on-error）
   miri:

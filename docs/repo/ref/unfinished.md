@@ -226,12 +226,12 @@ TODO / IDEAS 两张表在 [`todo-ideas-tables.md`](todo-ideas-tables.md)（`stat
 > `docs/amberice/decisions.md §16.5`（待裁决 · 不作结论）都不得当结论引用。
 > 代码基线 `136803b`：审计 #11 / #12 / #20 已落地（原子写 + 尾垃圾检测），现状见底稿 §0.1。
 > 三条探针已于 2026-11-10 实测完，数字与口径见 `decisions.md §16.5.8`；
-> **探针 2 发现半截追加静默丢写入**，已转成本节的新增欠账。
+> 探针 2 暴露的 `check` 可探测性缺口已修复（读端行为不变）。
 
 | 项 | 内容 | 做完的判据 | 来源 |
 |---|---|---|---|
 | 底稿去留 | 逐条采纳并进 `decisions.md §16.1`，或整体移入 `docs/amberice/archive/` | `meta.sml` 的 `title` / `status` / `scope` 同步，`changes.sml` 记一条，`--index` / `--check` 重跑 | `claims-audit.md §10` |
 | §16.5 去留 | 随底稿一并处理，节级「待裁决」横幅按结果去掉或随节归档 | 索引中 `decisions.md` 的 `scope` 不再写「待裁决」；D1–D54 / P12 / §16.3 状态不变 | `decisions.md §16.5` |
 | 探针 1 · 成本 | ✅ 已实测：8 MB `append_unsigned` 38.720 ms / 64 MB 296.232 ms；尾部追加 200 B 恒定 1.2–1.8 ms | 数字与口径见 `decisions.md §16.5.8` | `_scratch/probe/`（未入库） |
-| 探针 2 · 鲁棒性 | ✅ 已实测：四档截尾均静默退回基文档，`check` 报「通过」 | **新增欠账**：补「有层文件找不到完整 Trailer」的 `check` 告警 + 回归用例，否则半截追加静默丢一次写入 | `decisions.md §16.5.8`、`claims-audit.md §8` |
+| 探针 2 · 鲁棒性 | ✅ 已实测并修复：读端仍退回基文档，但 `check` 四档均判「未通过」并指出 Trailer 损坏 | 回归用例 `rust/amberice/tests/unsigned.rs::check_reports_truncated_trailer`，另有无层文件防误报用例 | `decisions.md §16.5.8`、`claims-audit.md §8` |
 | 探针 3 · 层数 | ✅ 已实测：100 层 / 39,603 B，`load` 0.3209 ms、`Store::value` 0.2837 ms、`Store::get` 0.2300 ms | `compact` 阈值改看体积与层数，不只看读耗时 | `decisions.md §16.5.8` |

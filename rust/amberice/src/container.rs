@@ -2919,13 +2919,33 @@ pub fn check(bytes: &[u8]) -> Result<CheckReport, ContainerError> {
     }
 
     // 6) 尾部：完整 Trailer 之后还有字节 ⇒ 半截追加 / 尾垃圾（D53 / 审计 #20）。
-    if let Some((end, _)) = layer::find_trailer(bytes, algo) {
-        if end != bytes.len() {
-            ok = false;
-            lines.push(format!(
-                "尾部     完整层记录之后多出 {} B（半截追加或尾垃圾）",
-                bytes.len() - end
-            ));
+    //    没有完整 Trailer、但段区之后还有字节 ⇒ 层记录 / Trailer 被截断（探针 2）：
+    //    原先这一档会静默退回基文档且 `check` 报「通过」，等於丢一次写入不报警。
+    match layer::find_trailer(bytes, algo) {
+        Some((end, _)) => {
+            if end != bytes.len() {
+                ok = false;
+                lines.push(format!(
+                    "尾部     完整层记录之后多出 {} B（半截追加或尾垃圾）",
+                    bytes.len() - end
+                ));
+            }
+        }
+        None => {
+            let seg_end = info
+                .segments
+                .iter()
+                .map(|s| s.offset + s.header.len as u64)
+                .max()
+                .unwrap_or(0);
+            let aligned_end = align_up(seg_end, info.align);
+            if bytes.len() as u64 > aligned_end {
+                ok = false;
+                lines.push(format!(
+                    "尾部     段区之后还有 {} B，但找不到完整 Trailer（层记录被截断或 Trailer 损坏）",
+                    bytes.len() as u64 - aligned_end
+                ));
+            }
         }
     }
 

@@ -25,18 +25,18 @@
 
 统计是会话当时的核实快照，不是当前实现状态；其中标「未实测」的 #20 已于 2026-11-10 实测，结论见 §8。
 
-### 0.1 会话后落地（代码基线 `136803b`）
+### 0.1 会话后落地（基线 `136803b`，尾部检测扩充见 §8）
 
-审计 #11 / #12 / #20 已由 `fix(amberice): 原子写与尾部垃圾检测` 落地。下表是**截至代码基线
-`136803b`** 的源码事实（之后若有代码提交需重新核实）；§2 表格保留会话当时的核实快照，
-标「现状见 §0.1」的行不再反映现状。
+审计 #11 / #12 / #20 已由 `fix(amberice): 原子写与尾部垃圾检测` 落地。下表在 `136803b`
+复核；`check` 的尾部检测此后又扩充了一档（见 §8），复核当前实现以 §9 命令为准。
+§2 表格保留会话当时的核实快照，标「现状见 §0.1」的行不再反映现状。
 
 | 审计项 | 当前事实 | 源码 |
 |---|---|---|
 | #10 / #11 | `append` 仍默认覆盖原文件，但落盘走 `write_atomic`：先写同目录 tmp 文件（`with_extension("tmp-<pid>")`，替换扩展名，如 `foo.ambr` → `foo.tmp-1234`）再 `rename`，不截断正式文件；该路径不做 `fsync` | `rust/amberice/src/main.rs`（`write_atomic`、append 分支） |
 | #12 | 崩在 tmp 写入阶段不会毁掉原文件；正式文件名下始终是旧文件或完整新文件 | 同上；`rust/amberice/src/ingest.rs`（tmp + fsync + rename） |
-| #18 / #20 | `check` 回扫最多 1 MiB 找完整 Trailer，其后多出的字节按「半截追加或尾垃圾」报出；`info` 仍只校验段边界，`open_raw` 还校验 caps / 加密自洽 / 重复段 / 段摘要，但都不检查文件尾 | `rust/amberice/src/container.rs`（`check` 第 6 步、`open_raw`）、`rust/amberice/src/layer.rs`（`find_trailer`） |
-| #21 | 已有 `check_reports_trailing_garbage` 用例（尾部多 20 B ⇒ `check` 报「20 B」且结论不通过） | `rust/amberice/tests/unsigned.rs` |
+| #18 / #20 | `check` 回扫最多 1 MiB 找完整 Trailer：找到且其后有多余字节 ⇒ 报尾垃圾；**找不到但段区之后还有字节** ⇒ 报「层记录被截断或 Trailer 损坏」。`info` 仍只校验段边界，`open_raw` 还校验 caps / 加密自洽 / 重复段 / 段摘要，但都不检查文件尾 | `rust/amberice/src/container.rs`（`check` 第 6 步、`open_raw`）、`rust/amberice/src/layer.rs`（`find_trailer`） |
+| #21 | 已有 `check_reports_trailing_garbage` 用例（尾部多 20 B ⇒ `check` 报「20 B」且结论不通过），另有截尾与无层防误报用例 | `rust/amberice/tests/unsigned.rs` |
 | #9 / #16 | 未变：`append_layer` 仍整文件复制进新 `Vec<u8>`，追加成本仍是 O(文件大小) | `rust/amberice/src/sign.rs` |
 
 ## 1. 边界与已裁决项
@@ -158,18 +158,21 @@ Remove-Item $dir -Recurse -Force
 3 个数量级（1466 ms 对 1.0 ms；按最慢的 7.80 ms 也有约 2.3 个数量级）。
 要比基线，按 `swsml/ref/perf-baseline.md` 的口径另立环境。
 
-## 8. 探针 2 实测（2026-11-10）
+## 8. 探针 2 实测与修复（2026-11-10）
 
 会话时标「未实测」的 #20 已跑完：1 层文件（1056 B）分别截掉 1 / 32 / 64 / 128 B，
 四档结果一致 —— `info` = OK、`load` = OK、`layers()` = 空链、`Store::get` 返回基文档旧值，
-`check` 返回 `ok=true`「结论 通过」且无尾部告警。
+`CountMismatch` 四档均未命中。当时的 `check` 返回 `ok=true`「结论 通过」且无告警：
+第 6 步只在 `find_trailer` 找到完整 Trailer 且其后有多余字节时报警，截尾破坏 Trailer 后
+该分支不触发 ⇒ **半截追加静默丢一次写入**。
 
-结论：**半截追加静默丢一次写入，读端退回基文档，`check` 不报告**。`check` 第 6 步只在
-`find_trailer` 找到完整 Trailer 且其后有多余字节时报警；截尾破坏 Trailer 后该分支不触发，
-因此 §0.1 记的「缺口部分补上」仍成立。`CountMismatch` 四档均未命中。
+**已修复**：`check` 第 6 步增加一档 —— 找不到完整 Trailer、但段区（按 `info.align`
+对齐后的段末）之后还有字节时，报「层记录被截断或 Trailer 损坏」并判未通过。四档复跑
+均为 `ok=false`，例如「段区之后还有 319 B，但找不到完整 Trailer」；无层文件不误报
+（`check_plain_file_has_no_tail_warning`）。
 
-规范里不得写「半截尾可优雅退化」；要做尾部恢复，先补「有层文件但找不到完整 Trailer」
-的 `check` 告警并加回归用例。数字与口径见 `decisions.md §16.5.8`。
+**未改**：`info` / `load` / `layers()` 的读端行为，截尾仍退回基文档。规范仍不得写
+「半截尾可优雅退化」，尾部恢复本身仍待设计。数字与口径见 `decisions.md §16.5.8`。
 
 ## 9. 复核方式
 

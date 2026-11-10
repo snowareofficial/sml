@@ -20,6 +20,15 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 > 因此 `c/` `cpp/` `js/` `lua/`（含 `editors/vscode` 与 `site/` 的四份 vendored 副本）也有改动 ——
 > 见下方「🚨 破坏性变更」与「新增（契约扩展点：严格性三态）」两节。
 
+### 变更（仓库治理：文档生成物幂等）
+
+- `smldocs --index` / `--report` 的头行改记 `docs/meta.sml` 的内容摘要（FNV-1a 64），
+  不再写「生成于 YYYY-MM-DD」；生成物只跟数据源走，跨天重跑不产生假漂移，
+  也不再锚定会在提交后立刻失效的 HEAD。
+- `tools/scan_status.py --write` 在正文未变时不重写文件（保留旧时间戳）。
+- `.github/workflows/ci.yml` 增加生成物幂等校验：重跑索引 / 体检 / 状态扫描后
+  `git diff --exit-code`，数据源变了却没重跑生成物即判红。
+
 ### 修复（`amberice`：落盘原子化与尾垃圾检测，审计 #11 / #12 / #20）
 
 - CLI 的 `pack` / `compact` / `migrate` / `sign` / `append` 与 compact 证据文件的落盘
@@ -31,10 +40,14 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   「半截追加或尾垃圾」报出并使结论不通过；`info` / `open_raw` 仍只校验段边界。
   回归用例 `rust/amberice/tests/unsigned.rs::check_reports_trailing_garbage`（尾部多 20 B）。
 - **未变**：`append_layer` 仍把旧文件整体复制进新 `Vec<u8>`，追加成本仍为 O(文件大小)。
-- ⚠️ **已知缺口（探针 2 实测）**：有层文件截尾 1 / 32 / 64 / 128 B 时，`layers()` 返回空链、
-  读端静默退回基文档，`check` 仍报「结论 通过」。`check` 第 6 步只覆盖「完整 Trailer 之后
-  的多余字节」，覆盖不了 Trailer 被截断的情形 ⇒ 半截追加会静默丢一次写入。
-  实测数字与口径见 `docs/amberice/decisions.md §16.5.8`，修复前不得写「能优雅退化」。
+- ⚠️ **探针 2 实测**：有层文件截尾 1 / 32 / 64 / 128 B 时，`layers()` 返回空链、读端静默
+  退回基文档 —— 半截追加会丢一次写入。原 `check` 第 6 步只覆盖「完整 Trailer 之后的多余
+  字节」，覆盖不了 Trailer 被截断的情形，会误报「结论 通过」。
+- 修复（`amberice check`）：找不到完整 Trailer、但段区之后还有字节时，报
+  「层记录被截断或 Trailer 损坏」并判未通过；无层文件不受影响。
+  回归 `rust/amberice/tests/unsigned.rs::check_reports_truncated_trailer` 与
+  `check_plain_file_has_no_tail_warning`。**读端行为未改**：`info` / `load` / `layers()` 仍
+  退回基文档，规范仍不得写「能优雅退化」。实测口径见 `docs/amberice/decisions.md §16.5.8`。
 
 ### 新增（`weakbind` 第一刀：`@weakbind` + `ParseOutput::weak_binds`）
 

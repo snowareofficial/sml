@@ -1,7 +1,8 @@
 # docs 索引
 
 > **本文件由 `cargo run -p smldocs -- --index` 生成，勿手改。**
-> 生成于 2026-11-10，数据源 `docs/meta.sml`（52 份文档）。体检结论见 [`report.md`](report.md)。
+> 数据源 `docs/meta.sml`（52 份文档，摘要 `cfffde3d8e026714`）。摘要变了就必须重跑生成；
+> 本文件不记生成日期 / HEAD，避免跨天或提交后假漂移。体检结论见 [`report.md`](report.md)。
 
 ## 一眼看结论
 
