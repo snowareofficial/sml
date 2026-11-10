@@ -416,17 +416,98 @@ impl Manifest {
     }
 }
 
-/// Capability names this build understands (v1: the segment kinds it can actually process).
-/// 本构建认得的能力名（v1：它真能处理的段种类）。
+/// How this build classifies one declared capability name (D52).
+/// 本构建把一个能力名归到哪一类（D52）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CapStatus {
+    /// Understood by this build. ｜ 认得。
+    Known,
+    /// Registered in the spec, but this build was compiled without it (feature pruned).
+    /// 规范已登记，但本构建被裁剪掉了。
+    Pruned,
+    /// Not in the spec's registry at all — a writer's extension name.
+    /// 规范里根本没登记 —— 写者的扩展名。
+    Unregistered,
+}
+
+/// The capability registry: `known` (this build) vs `registered` (the spec), D52.
+/// 能力注册表：`known`（本构建）vs `registered`（规范），D52。
 ///
-/// Why segment kinds and not abstract "features": a capability is only meaningful if it changes
-/// what happens when you *don't* understand it. Skipping an unknown segment vs. refusing to open
-/// is exactly that line, and segment kinds are the only such line we have today.
-/// 为什么用段种类而不是抽象特性：能力只在「读不懂会怎样」不同时才有意义，而段种类正是今天
-/// 唯一的那条线。
-pub fn known_capabilities() -> &'static [&'static str] {
-    // `embed` 在 T2 收尾时补进来：本构建已经能读 `EMBED` 段（`payloads` / `payload`）
-    &["value", "strtab", "manifest", "embed"]
+/// `verdict()` is the **only** predicate; pruning is "pass a smaller `known`", not a second
+/// code path. ｜ `verdict()` 是唯一判据；裁剪 = 传更小的 `known`，不写第二条路径。
+#[derive(Debug, Clone)]
+pub struct CapabilityRegistry<'a> {
+    /// Names this build actually understands; shrinks with features.
+    /// 本构建真认得的能力；随 feature 收缩。
+    pub known: Vec<&'a str>,
+    /// Names the spec has registered (superset of `known`, plus future names).
+    /// 规范已登记的名字（`known` 的超集，含未来能力）。
+    pub registered: &'static [&'static str],
+}
+
+impl CapabilityRegistry<'static> {
+    /// This build's registry. ｜ 本构建的注册表。
+    pub fn current() -> CapabilityRegistry<'static> {
+        // 基础读取能力常开：读段/值、`EMBED`、`DIR`、`SOURCE`、`TYPED` 都不需要额外 feature。
+        #[allow(unused_mut)]
+        let mut known: Vec<&'static str> =
+            vec!["value", "strtab", "manifest", "embed", "dir", "source", "typed"];
+        #[cfg(feature = "sign")]
+        known.push("sig");
+        #[cfg(feature = "compress")]
+        known.push("frames");
+        #[cfg(feature = "crypto")]
+        known.push("crypto");
+        CapabilityRegistry {
+            known,
+            registered: registered_capabilities(),
+        }
+    }
+}
+
+impl<'a> CapabilityRegistry<'a> {
+    /// Classify one name. ｜ 给一个名字分类。
+    pub fn status(&self, name: &str) -> CapStatus {
+        if self.known.contains(&name) {
+            CapStatus::Known
+        } else if self.registered.contains(&name) {
+            CapStatus::Pruned
+        } else {
+            CapStatus::Unregistered
+        }
+    }
+
+    /// Apply a manifest's `caps` — the one predicate both `load` and `check` use.
+    /// 用本注册表判定 manifest 的 `caps` —— `load` 与 `check` 共用的唯一判据。
+    pub fn verdict(&self, manifest: &Manifest) -> CapsVerdict {
+        let mut entries = Vec::new();
+        let mut missing_required = Vec::new();
+        let mut ignored_optional = Vec::new();
+        for name in &manifest.caps_required {
+            let st = self.status(name);
+            if st != CapStatus::Known {
+                missing_required.push(name.clone());
+            }
+            entries.push((name.clone(), st));
+        }
+        for name in &manifest.caps_optional {
+            let st = self.status(name);
+            if st != CapStatus::Known {
+                ignored_optional.push(name.clone());
+            }
+            entries.push((name.clone(), st));
+        }
+        CapsVerdict {
+            missing_required,
+            ignored_optional,
+            entries,
+        }
+    }
+}
+
+/// Convenience: this build's `known` set. ｜ 便捷入口：本构建的 `known` 集合。
+pub fn known_capabilities() -> Vec<&'static str> {
+    CapabilityRegistry::current().known
 }
 
 /// 格式**已登记**、但本构建不处理的能力名。
@@ -441,7 +522,16 @@ pub fn known_capabilities() -> &'static [&'static str] {
 /// ① 在这里登记；② 同时加跨端向量；③ §21.4 表里加一行说明语义。
 /// 缺任一条就会出现「两年后一堆互相读不了的文件」。
 pub fn registered_capabilities() -> &'static [&'static str] {
-    &["sig", "dir", "frames", "source", "crypto"]
+    &[
+        "sig",
+        "dir",
+        "frames",
+        "source",
+        "crypto",
+        "embed",
+        "typed",
+        "provenance",
+    ]
 }
 
 /// A capability name must be a lowercase identifier (no spaces, no uppercase,
@@ -459,7 +549,7 @@ pub fn is_well_formed_capability(name: &str) -> bool {
 /// 把 `caps` 套到「本构建认得的集合」上的结论（D11 + P10）。
 ///
 /// `P10` 要求「编译期裁剪」与「异构读者」走同一个判定函数 —— 本函数就是那个函数：
-/// 裁剪掉的段种类从 [`known_capabilities`] 里消失即可，判定逻辑一行都不用改。
+/// 裁剪掉的段种类从 [`CapabilityRegistry::known`] 里消失即可，判定逻辑一行都不用改。
 /// P10 wants feature-pruning and foreign readers to share one predicate; this is it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapsVerdict {
@@ -467,6 +557,9 @@ pub struct CapsVerdict {
     pub missing_required: Vec<String>,
     /// Optional names this build does not understand ⇒ skipped (not an error). ｜ 跳过清单。
     pub ignored_optional: Vec<String>,
+    /// Every declared name with its classification, required first then optional.
+    /// 每个声明名的分类（先 required 后 optional），供 `check` 打印三种文案。
+    pub entries: Vec<(String, CapStatus)>,
 }
 
 impl CapsVerdict {
@@ -476,30 +569,20 @@ impl CapsVerdict {
     }
 }
 
-/// Apply a manifest's `caps` to this build's known set.
-/// 用本构建的已知集合判定 manifest 的 `caps`。
+/// Apply a manifest's `caps` to this build's registry.
+/// 用本构建的注册表判定 manifest 的 `caps`。
 pub fn check_caps(manifest: &Manifest) -> CapsVerdict {
-    check_caps_against(manifest, known_capabilities())
+    CapabilityRegistry::current().verdict(manifest)
 }
 
 /// Same, against an explicit set — the seam that keeps P10 honest (pruning = pass a smaller set).
 /// 同上，但显式给集合 —— P10 的接缝就在这里（裁剪 = 传一个更小的集合）。
 pub fn check_caps_against(manifest: &Manifest, known: &[&str]) -> CapsVerdict {
-    let unknown = |n: &String| !known.iter().any(|k| k == n);
-    CapsVerdict {
-        missing_required: manifest
-            .caps_required
-            .iter()
-            .filter(|n| unknown(n))
-            .cloned()
-            .collect(),
-        ignored_optional: manifest
-            .caps_optional
-            .iter()
-            .filter(|n| unknown(n))
-            .cloned()
-            .collect(),
+    CapabilityRegistry {
+        known: known.to_vec(),
+        registered: registered_capabilities(),
     }
+    .verdict(manifest)
 }
 
 /// Why a manifest could not be decoded. ｜ manifest 解不开的原因。
@@ -614,7 +697,7 @@ mod tests {
             }],
         );
         m.caps_required = vec!["value".into()];
-        m.caps_optional = vec!["sig".into(), "dir".into()];
+        m.caps_optional = vec!["provenance".into()];
         m.created = Some("2026-11-04T00:00:00Z".into());
         m.tool = Some("amberice test".into());
         m
@@ -668,13 +751,15 @@ mod tests {
         let m = sample();
         let v = check_caps(&m);
         assert!(v.is_ok(), "value 是认得的");
-        assert_eq!(v.ignored_optional, vec!["sig".to_string(), "dir".to_string()]);
+        assert_eq!(v.ignored_optional, vec!["provenance".to_string()]);
+        assert_eq!(v.entries[1], ("provenance".to_string(), CapStatus::Pruned));
 
         let mut m2 = sample();
-        m2.caps_required = vec!["sig".into()];
+        m2.caps_required = vec!["future-x".into()];
         let v2 = check_caps(&m2);
         assert!(!v2.is_ok());
-        assert_eq!(v2.missing_required, vec!["sig".to_string()]);
+        assert_eq!(v2.missing_required, vec!["future-x".to_string()]);
+        assert_eq!(v2.entries[0].1, CapStatus::Unregistered);
     }
 
     /// P10: pruning is "pass a smaller set", not "write another predicate".
@@ -682,10 +767,52 @@ mod tests {
     #[test]
     fn pruning_reuses_the_same_predicate() {
         let mut m = sample();
-        m.caps_required = vec!["dir".into()];
-        assert!(!check_caps(&m).is_ok()); // 本构建不认 dir
+        m.caps_required = vec!["provenance".into()];
+        assert!(!check_caps(&m).is_ok()); // 已登记但本构建不处理
         let pruned = &["value", "manifest"]; // 想象把 strtab 也裁掉
-        let v = check_caps_against(&m, pruned);
-        assert!(!v.is_ok());
+        assert!(!check_caps_against(&m, pruned).is_ok());
+        // 把同一个名字加进 known，同一判据立刻通过 —— 没有第二条路径。
+        assert!(check_caps_against(&m, &["value", "manifest", "provenance"]).is_ok());
+    }
+
+    #[test]
+    fn registry_classifies_and_registers_extension_names() {
+        let reg = CapabilityRegistry::current();
+        assert_eq!(reg.status("value"), CapStatus::Known);
+        assert_eq!(reg.status("provenance"), CapStatus::Pruned);
+        assert_eq!(reg.status("not-in-spec"), CapStatus::Unregistered);
+
+        // D52：`embed` / `typed` / `provenance` 必须真正进登记表。
+        for name in ["embed", "typed", "provenance"] {
+            assert!(reg.registered.contains(&name), "{name} 未登记");
+        }
+        assert!(reg.known.contains(&"embed"));
+
+        #[cfg(feature = "sign")]
+        assert_eq!(reg.status("sig"), CapStatus::Known);
+        #[cfg(not(feature = "sign"))]
+        assert_eq!(reg.status("sig"), CapStatus::Pruned);
+
+        #[cfg(feature = "compress")]
+        assert_eq!(reg.status("frames"), CapStatus::Known);
+        #[cfg(not(feature = "compress"))]
+        assert_eq!(reg.status("frames"), CapStatus::Pruned);
+
+        #[cfg(feature = "crypto")]
+        assert_eq!(reg.status("crypto"), CapStatus::Known);
+        #[cfg(not(feature = "crypto"))]
+        assert_eq!(reg.status("crypto"), CapStatus::Pruned);
+    }
+
+    #[test]
+    fn verdict_entries_keep_required_then_optional_order() {
+        let mut m = sample();
+        m.caps_required = vec!["value".into(), "provenance".into()];
+        m.caps_optional = vec!["future-x".into()];
+        let v = check_caps(&m);
+        let names: Vec<&str> = v.entries.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, vec!["value", "provenance", "future-x"]);
+        assert_eq!(v.entries[1].1, CapStatus::Pruned);
+        assert_eq!(v.entries[2].1, CapStatus::Unregistered);
     }
 }

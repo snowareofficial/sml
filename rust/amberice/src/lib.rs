@@ -82,8 +82,8 @@ pub use sign::{
     VerifyReport, ED25519,
 };
 pub use manifest::{
-    check_caps, check_caps_against, CapsVerdict, Manifest, ManifestError, ManifestPayload,
-    ManifestSegment,
+    check_caps, check_caps_against, CapStatus, CapabilityRegistry, CapsVerdict, Manifest,
+    ManifestError, ManifestPayload, ManifestSegment,
 };
 pub use store::{Store, SubtreeBytes};
 #[cfg(feature = "mmap")]
