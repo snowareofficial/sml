@@ -45,7 +45,7 @@
 | 文档 | 写于 | 最后核对 | 状态 | 替代者 | 职责 |
 |---|---|---|---|---|---|
 | [`amberice/archive/design-origin.md`](amberice/archive/design-origin.md) | 2026-11-06 | 2026-11-06 | **archive** | — | .ambr 设计起点与用户原话汇编（A/B/C 三级，逐条带出处） |
-| [`amberice/decisions.md`](amberice/decisions.md) | 2026-11-02 | 2026-11-09 | **current** | — | .ambr 决策记录：D1–D41 已裁决、P1–P11 待定、§12 草案、§15 键序、§16.3 脱敏与串口场景 |
+| [`amberice/decisions.md`](amberice/decisions.md) | 2026-11-02 | 2026-11-10 | **current** | — | .ambr 决策记录：D1–D41 已裁决、P1–P12 待定、§12 草案、§15 键序、§16.3 脱敏与串口场景、§16.4 孪生格式定位 |
 | [`amberice/plan/plan.md`](amberice/plan/plan.md) | 2026-11-06 | 2026-11-09 | **current** | — | amberice 改名范围 + 第一批优化（A1）与里程碑 |
 | [`amberice/ref/ports.md`](amberice/ref/ports.md) | 2026-11-06 | 2026-11-09 | **current** | — | 多端 .ambr 解码器进度台账（C# / Go / Ruby 三端未做） |
 | [`amberice/spec/format.md`](amberice/spec/format.md) | 2026-11-02 | 2026-11-09 | **current** | — | .ambr 格式规范：信封 / canonical / VALUE 段 / 算法表 / 默认值 / 侧信道 |
