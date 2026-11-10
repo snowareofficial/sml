@@ -178,7 +178,7 @@ Remove-Item $dir -Recurse -Force
 ## 10. 去留（待用户裁决）
 
 本文保持 `draft`，**不得当结论引用**；`decisions.md §16.5` 按同一「待裁决 · 不作结论」口径标注。
-用户回来后选一条做完，别让本文长期停在 `draft`：
+由用户选一条做完，别让本文长期停在 `draft`：
 
 1. **采纳**：把 §2–§6 里站得住的条目并进 `decisions.md §16.1`（成为 D55/D56…），
    本文改 `status: archive`（或删除并在 `docs/changes.sml` 记一条 `change`）。

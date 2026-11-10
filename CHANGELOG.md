@@ -17,6 +17,18 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 > 因此 `c/` `cpp/` `js/` `lua/`（含 `editors/vscode` 与 `site/` 的四份 vendored 副本）也有改动 ——
 > 见下方「🚨 破坏性变更」与「新增（契约扩展点：严格性三态）」两节。
 
+### 修复（`amberice`：落盘原子化与尾垃圾检测，审计 #11 / #12 / #20）
+
+- CLI 的 `pack` / `compact` / `migrate` / `sign` / `append` 与 compact 证据文件的落盘
+  改走 `write_atomic`：先写 `<path>.tmp-<pid>` 再 `rename`，不再用 `std::fs::write`
+  先截断正式文件；崩在 tmp 写入阶段不会毁掉原文件。
+  该路径不做 `fsync`（由调用方按场景决定）；采集侧 `Ingestor` 保持 tmp + fsync + rename + `recover`。
+- `check()` 新增第 6 步：回扫最多 1 MiB 找完整 Trailer，其后仍有多余字节按
+  「半截追加或尾垃圾」报出并使结论不通过；`info` / `open_raw` 仍只校验段边界。
+  回归用例 `rust/amberice/tests/unsigned.rs::check_reports_trailing_garbage`（尾部多 20 B）。
+- **未变**：`append_layer` 仍把旧文件整体复制进新 `Vec<u8>`，追加成本仍为 O(文件大小)；
+  截尾 1 / 32 / 64 / 128 B 的读端行为仍待探针 2（`docs/amberice/decisions.md §16.5.8`）。
+
 ### 新增（`weakbind` 第一刀：`@weakbind` + `ParseOutput::weak_binds`）
 
 - 新特性位 **`type.weak`**（`Feature::Weak`，bit 19）：**opt-in**，不在 `baseline()`、不进任何 `Edition`。
