@@ -336,7 +336,17 @@ fn write_compact_evidence(
     new_layers: usize,
 ) -> Result<(), (u8, String)> {
     let text = evidence_text(old_head, old_layers, new_head, new_layers)?;
-    std::fs::write(path, text.as_bytes()).map_err(|e| (1, format!("写 {path} 失败：{e}")))
+    write_atomic(path, text.as_bytes())
+}
+
+/// 落盘 `.ambr`：tmp + rename，避免 `fs::write` 先截断、崩在中途毁原文件（审计 #11/#12）。
+/// 与 `Ingestor` 同口径；`fsync` 由调用方按场景决定，这里不做。
+fn write_atomic(path: &str, bytes: &[u8]) -> Result<(), (u8, String)> {
+    let p = std::path::Path::new(path);
+    let tmp = p.with_extension(format!("tmp-{}", std::process::id()));
+    std::fs::write(&tmp, bytes).map_err(|e| (1, format!("写 {} 失败：{e}", tmp.display())))?;
+    std::fs::rename(&tmp, p).map_err(|e| (1, format!("替换 {path} 失败：{e}")))?;
+    Ok(())
 }
 
 /// 只读旁证里的 `new_head`（D54）。D3 不引 SML 解析器，故按机器写入的固定形状严格扫描。
@@ -471,7 +481,7 @@ fn pack_cmd(args: &[String]) -> Result<String, (u8, String)> {
         ..Default::default()
     };
     let file = amberice::pack_iter_with(items, &opts).map_err(|e| (1, e.to_string()))?;
-    std::fs::write(out, &file).map_err(|e| (1, format!("写 {out} 失败：{e}")))?;
+    write_atomic(out, &file)?;
     Ok(format!(
         "已打包 {} 个载荷 → {out}（{} B{}）",
         count,
@@ -915,7 +925,7 @@ fn compact_cmd(args: &[String]) -> Result<String, (u8, String)> {
             .map_err(|e| (1, format!("{file}: {e}")))?;
         let fresh = amberice::compact(&bytes, &kp, algo).map_err(|e| (1, e.to_string()))?;
         let dest = out_path.map(|s| s.as_str()).unwrap_or(file.as_str());
-        std::fs::write(dest, &fresh).map_err(|e| (1, format!("写 {dest} 失败：{e}")))?;
+        write_atomic(dest, &fresh)?;
         if let Some(ev) = evidence {
             let new_head = amberice::layer::chain_head(&fresh, algo)
                 .map_err(|e| (1, format!("{dest}: {e}")))?;
@@ -1052,7 +1062,7 @@ fn migrate_cmd(args: &[String]) -> Result<String, (u8, String)> {
         (None, true) => file.as_str(),
         (None, false) => unreachable!("上面已拦住"),
     };
-    std::fs::write(dest, &fresh).map_err(|e| (1, format!("写 {dest} 失败：{e}")))?;
+    write_atomic(dest, &fresh)?;
     let note = if layers > 0 {
         "签名已重签为 1 层，旧 --trust 锚点需重建"
     } else {
@@ -1199,7 +1209,7 @@ fn sign_cmd(args: &[String], need_patch: bool) -> Result<String, (u8, String)> {
             (Some(p), _) => p.as_str(),
             (None, _) => file.as_str(), // 默认原地（与 `git commit` 同直觉）
         };
-        std::fs::write(dest, &signed).map_err(|e| (1, format!("写 {dest} 失败：{e}")))?;
+        write_atomic(dest, &signed)?;
         let n = amberice::layer::layers(&signed).map(|l| l.len()).unwrap_or(0);
         Ok(format!(
             "已追加 1 层 → {dest}（现有 {n} 层，{} B）",

@@ -2918,6 +2918,17 @@ pub fn check(bytes: &[u8]) -> Result<CheckReport, ContainerError> {
         }
     }
 
+    // 6) 尾部：完整 Trailer 之后还有字节 ⇒ 半截追加 / 尾垃圾（D53 / 审计 #20）。
+    if let Some((end, _)) = layer::find_trailer(bytes, algo) {
+        if end != bytes.len() {
+            ok = false;
+            lines.push(format!(
+                "尾部     完整层记录之后多出 {} B（半截追加或尾垃圾）",
+                bytes.len() - end
+            ));
+        }
+    }
+
     lines.push(format!(
         "结论      {}（{} 段，{} 字节，对齐 {} B）",
         if ok { "通过" } else { "未通过" },

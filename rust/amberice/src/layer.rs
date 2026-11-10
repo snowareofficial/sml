@@ -405,6 +405,55 @@ pub fn append_unsigned(
     Ok(out)
 }
 
+/// Scan back up to 1 MiB for the last **intact** trailer; returns its end offset.
+/// 回扫最多 1 MiB，找最后一个完整 Trailer 的结束偏移。
+///
+/// Shared by `Ingestor::recover` and `check`'s tail-garbage detection (D53 / audit #20):
+/// a complete old trailer followed by bytes means a torn append or trailing garbage.
+/// ｜ 完整 trailer 之后还有字节 ⇒ 半截追加或尾垃圾。
+pub fn find_trailer(bytes: &[u8], algo: HashAlgo) -> Option<(usize, Trailer)> {
+    if bytes.len() < TRAILER_LEN {
+        return None;
+    }
+    let start = bytes.len().saturating_sub(1 << 20);
+    for pos in (start..=bytes.len() - TRAILER_LEN).rev() {
+        if bytes[pos..pos + 8] != TRAILER_MAGIC {
+            continue;
+        }
+        let Some(t) = Trailer::parse(&bytes[..pos + TRAILER_LEN]) else {
+            continue;
+        };
+        let Ok(off) = usize::try_from(t.last_layer_off) else {
+            continue;
+        };
+        let Some(hdr_end) = off.checked_add(LAYER_HEADER_LEN) else {
+            continue;
+        };
+        if hdr_end > pos {
+            continue;
+        }
+        let body_len = u32::from_le_bytes([
+            bytes[off],
+            bytes[off + 1],
+            bytes[off + 2],
+            bytes[off + 3],
+        ]) as usize;
+        let Some(rec_end) = hdr_end.checked_add(body_len) else {
+            continue;
+        };
+        if rec_end != pos {
+            continue;
+        }
+        let Ok(got) = hash::digest(algo, &bytes[hdr_end..pos]) else {
+            continue;
+        };
+        if got == t.head_hash {
+            return Some((pos + TRAILER_LEN, t));
+        }
+    }
+    None
+}
+
 pub fn layers(bytes: &[u8]) -> Result<Vec<Layer>, LayerError> {
     let Some(t) = Trailer::parse(bytes) else {
         return Ok(Vec::new());

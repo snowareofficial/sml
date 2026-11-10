@@ -83,6 +83,24 @@ fn verify_allows_unsigned_only_when_explicit() {
     assert!(!report.ok, "链头被改必须失败：{:?}", report.lines);
 }
 
+/// 审计 #20：完整 Trailer 之后多出的字节必须被 `check` 报出来，不能静默吞掉。
+#[test]
+fn check_reports_trailing_garbage() {
+    let b = base();
+    let one = append_unsigned(&b, Some(obj(&[("port", Value::Int(9090))])), HashAlgo::Sha256)
+        .expect("append");
+    let clean = amberice::check(&one).expect("check clean");
+    assert!(clean.ok, "{:?}", clean.lines);
+
+    let mut broken = one.clone();
+    broken.extend_from_slice(&[0u8; 20]);
+    let report = amberice::check(&broken).expect("check broken");
+    assert!(!report.ok);
+    let text = report.lines.join("\n");
+    assert!(text.contains("尾部"), "{text}");
+    assert!(text.contains("20 B"), "{text}");
+}
+
 #[test]
 fn unsigned_layer_without_patch_is_allowed() {
     let b = base();
