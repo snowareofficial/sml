@@ -94,6 +94,16 @@ def main():
     if rc != 0:
         failed += 1
 
+    # 5) D45：SCHEMA/TYPED 动态渲染
+    print(">>> %s test_ambr_typed.lua" % name)
+    rc, out, err = run(exe, ["test_ambr_typed.lua"])
+    sys.stdout.write(out)
+    if err:
+        sys.stderr.write(err)
+    print("AMBR-TYPED rc=%d" % rc)
+    if rc != 0:
+        failed += 1
+
     if failed:
         print("\n%d 组失败" % failed)
         return 1

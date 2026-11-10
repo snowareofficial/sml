@@ -1706,8 +1706,10 @@ end
 -- `.ambr` read-only decoder (T7 / N03) ｜ `.ambr` 只读解码器
 --
 -- Scope: 40 B header + 41 B segment table + `VALUE`/`STRTAB`; every other segment is
--- skipped by its `len`. Compressed/encrypted VALUE/STRTAB is refused, not guessed.
--- ｜ 只解 VALUE/STRTAB；其余段按 len 跳过；压缩/加密的段明确报错。
+-- skipped by its `len`. `Sml.ambr_load_typed` additionally reads `TYPED` (0x70) and
+-- `SCHEMA` (0x71) and renders the typed variables (D45). Compressed/encrypted
+-- VALUE/STRTAB is refused, not guessed.
+-- ｜ 主路径只解 VALUE/STRTAB；`ambr_load_typed` 另解 TYPED/SCHEMA；压缩/加密的段明确报错。
 --
 -- Returns `value, err` (never throws). Note: a top-level `null` decodes to `nil, nil`,
 -- so always check the second return. `f64` needs LuaJIT's `ffi`; without it a Float node
@@ -1895,7 +1897,9 @@ local function _ambr_node(r, strtab, depth, box)
   return value
 end
 
-function Sml.ambr_load(bytes)
+-- Walk the container and return the segment bodies we care about.
+-- 走一遍容器，返回关心的段体。
+local function _ambr_walk(bytes)
   if type(bytes) ~= "string" or #bytes < 40 then
     return nil, "AMBR: 文件短于 40 B 头"
   end
@@ -1919,7 +1923,7 @@ function Sml.ambr_load(bytes)
 
   local granule = (flags % 2 == 1) and 4096 or 8
   local body_at = _ambr_align(table_off + count * 41, granule)
-  local value_body, strtab_body = nil, nil
+  local p = {}
 
   for i = 0, count - 1 do
     local o = table_off + i * 41 + 1 -- 1-based
@@ -1935,19 +1939,32 @@ function Sml.ambr_load(bytes)
         return nil, "AMBR: VALUE/STRTAB 压缩或加密过，本解码器不解"
       end
       if id == 1 then
-        value_body = string.sub(bytes, body_at + 1, body_at + len)
+        p.value = string.sub(bytes, body_at + 1, body_at + len)
       else
-        strtab_body = string.sub(bytes, body_at + 1, body_at + len)
+        p.strtab = string.sub(bytes, body_at + 1, body_at + len)
+      end
+    elseif id == 0x70 or id == 0x71 then
+      if comp ~= 0 or enc ~= 0 then
+        if id == 0x70 then p.typed_opaque = true else p.schema_opaque = true end
+      elseif id == 0x70 then
+        p.typed = string.sub(bytes, body_at + 1, body_at + len)
+      else
+        p.schema = string.sub(bytes, body_at + 1, body_at + len)
       end
     end
     body_at = _ambr_align(body_at + len, granule)
   end
+  return p
+end
 
-  if not value_body then return nil, "AMBR: 找不到 VALUE 段" end
+function Sml.ambr_load(bytes)
+  local p, werr = _ambr_walk(bytes)
+  if not p then return nil, werr end
+  if not p.value then return nil, "AMBR: 找不到 VALUE 段" end
 
   local strtab = {}
-  if strtab_body then
-    local r = _ambr_reader(strtab_body)
+  if p.strtab then
+    local r = _ambr_reader(p.strtab)
     while r.pos <= r.len do
       local n = _ambr_varint(r)
       if not n or r.pos + n - 1 > r.len then return nil, "AMBR: STRTAB 解析失败" end
@@ -1956,12 +1973,282 @@ function Sml.ambr_load(bytes)
     end
   end
 
-  local r = _ambr_reader(value_body)
+  local r = _ambr_reader(p.value)
   local box = {}
   local v = _ambr_node(r, strtab, 0, box)
   if box.err then return nil, "AMBR: " .. box.err end
   if r.pos ~= r.len + 1 then return nil, "AMBR: VALUE 段读完仍有剩余字节" end
   return v
+end
+
+-- ===========================================================================
+-- SCHEMA（0x71）+ TYPED（0x70）动态渲染（D45 / §25.8）
+-- ===========================================================================
+
+local _AMBR_PRIMS = {
+  bool = true, u8 = true, u16 = true, u32 = true, u64 = true,
+  i8 = true, i16 = true, i32 = true, i64 = true,
+  f32 = true, f64 = true, str = true, bytes = true,
+}
+
+-- u64 的 type_id 按 16 位小写十六进制返回，避免 >2^53 时的数值精度问题。
+local function _ambr_u64_hex(r)
+  local lo = _ambr_u32(r)
+  if not lo then return nil end
+  local hi = _ambr_u32(r)
+  if not hi then return nil end
+  return string.format("%04x%04x%04x%04x",
+    math.floor(hi / 65536), hi % 65536, math.floor(lo / 65536), lo % 65536)
+end
+
+local function _ambr_f32(r)
+  if r.pos + 3 > r.len then return nil end
+  local raw = string.sub(r.b, r.pos, r.pos + 3)
+  r.pos = r.pos + 4
+  if _ambr_unpack then return _ambr_unpack("<f", raw) end
+  if not _ambr_ffi then return false end
+  local f = _ambr_ffi.new("float[1]")
+  _ambr_ffi.copy(f, raw, 4)
+  return f[0]
+end
+
+local function _ambr_hex(s)
+  return (s:gsub(".", function(c) return string.format("%02x", string.byte(c)) end))
+end
+
+local function _ambr_parse_ty(v, box)
+  if type(v) == "string" then
+    if _AMBR_PRIMS[v] then return { kind = v } end
+    box.err = "SCHEMA 里有未知 ty"
+    return nil
+  end
+  if type(v) ~= "table" then
+    box.err = "SCHEMA 的 ty 必须是字符串或对象"
+    return nil
+  end
+  if v.vec ~= nil then
+    local inner = _ambr_parse_ty(v.vec, box)
+    if not inner then return nil end
+    return { kind = "vec", inner = inner }
+  end
+  if v.opt ~= nil then
+    local inner = _ambr_parse_ty(v.opt, box)
+    if not inner then return nil end
+    return { kind = "opt", inner = inner }
+  end
+  if v.type ~= nil then
+    if type(v.type) ~= "string" or #v.type ~= 16 or not v.type:match("^[0-9a-f]+$") then
+      box.err = "SCHEMA 的 type 引用非法"
+      return nil
+    end
+    return { kind = "named", id = v.type }
+  end
+  box.err = "SCHEMA 的 ty 对象缺 vec/opt/type"
+  return nil
+end
+
+local function _ambr_parse_schema(schema, box)
+  if type(schema) ~= "table" then
+    box.err = "SCHEMA 必须是对象"
+    return nil
+  end
+  if schema.schema_version ~= 1 then
+    box.err = "schema_version 只支持 1"
+    return nil
+  end
+  if type(schema.types) ~= "table" then
+    box.err = "SCHEMA 缺 types"
+    return nil
+  end
+  local types = {}
+  for _, tv in ipairs(schema.types) do
+    if type(tv) ~= "table" then
+      box.err = "SCHEMA 的 types[] 必须是对象"
+      return nil
+    end
+    local id = tv.id
+    if type(id) ~= "string" or #id ~= 16 or not id:match("^[0-9a-f]+$") then
+      box.err = "SCHEMA 的 type id 非法"
+      return nil
+    end
+    if types[id] then
+      box.err = "SCHEMA 的 type id 重复"
+      return nil
+    end
+    if tv.kind ~= nil and tv.kind ~= "struct" then
+      box.err = "v1 只支持 kind: struct"
+      return nil
+    end
+    if type(tv.fields) ~= "table" then
+      box.err = "SCHEMA 的 type 缺 fields"
+      return nil
+    end
+    local fields = {}
+    local last = -1
+    for _, f in ipairs(tv.fields) do
+      if type(f) ~= "table" or type(f.id) ~= "number" or f.id <= last then
+        box.err = "SCHEMA 的 fields 必须按 id 严格升序"
+        return nil
+      end
+      last = f.id
+      if type(f.name) ~= "string" then
+        box.err = "SCHEMA 的 field 缺 name"
+        return nil
+      end
+      local ty = _ambr_parse_ty(f.ty, box)
+      if not ty then return nil end
+      fields[#fields + 1] = { name = f.name, ty = ty }
+    end
+    types[id] = { name = tv.name, fields = fields }
+  end
+  return types
+end
+
+local _ambr_decode_typed
+local function _ambr_decode_struct(r, td, types, depth, box)
+  if depth > 128 then box.err = "TYPED 嵌套超过上限"; return nil end
+  local o = {}
+  for i = 1, #td.fields do
+    local f = td.fields[i]
+    local v = _ambr_decode_typed(r, f.ty, types, depth + 1, box)
+    if box.err then return nil end
+    o[f.name] = v
+  end
+  return o
+end
+
+_ambr_decode_typed = function(r, ty, types, depth, box)
+  if depth > 128 then box.err = "TYPED 嵌套超过上限"; return nil end
+  local k = ty.kind
+  if k == "bool" then
+    local z = _ambr_varint(r)
+    if not z then box.err = "TYPED 载荷截断"; return nil end
+    if z ~= 0 and z ~= 1 then box.err = "布尔的 tag 只能是 0/1"; return nil end
+    return z == 1
+  elseif k == "u8" or k == "u16" or k == "u32" then
+    local max = (k == "u8") and 255 or ((k == "u16") and 65535 or 4294967295)
+    local z = _ambr_varint(r)
+    if not z then box.err = "TYPED 载荷截断"; return nil end
+    if z > max then box.err = "整数超出目标类型范围"; return nil end
+    return z
+  elseif k == "u64" then
+    local z = _ambr_varint(r)
+    if not z then box.err = "TYPED 载荷截断"; return nil end
+    return z
+  elseif k == "i8" or k == "i16" or k == "i32" or k == "i64" then
+    local z = _ambr_varint(r)
+    if not z then box.err = "TYPED 载荷截断"; return nil end
+    local n = _ambr_zigzag(z)
+    local lim = (k == "i8") and 127 or ((k == "i16") and 32767 or
+                ((k == "i32") and 2147483647 or 9223372036854775807))
+    if n > lim or n < -lim - 1 then box.err = "整数超出目标类型范围"; return nil end
+    return n
+  elseif k == "f32" then
+    local f = _ambr_f32(r)
+    if f == false then box.err = "解 f32 需要 string.unpack 或 LuaJIT 的 ffi"; return nil end
+    if f == nil then box.err = "TYPED 载荷截断"; return nil end
+    return f
+  elseif k == "f64" then
+    local d = _ambr_f64(r)
+    if d == false then box.err = "解 f64 需要 LuaJIT 的 ffi"; return nil end
+    if d == nil then box.err = "TYPED 载荷截断"; return nil end
+    return d
+  elseif k == "str" then
+    local n = _ambr_varint(r)
+    if not n or r.pos + n - 1 > r.len then box.err = "字符串长度越界"; return nil end
+    local s = string.sub(r.b, r.pos, r.pos + n - 1)
+    r.pos = r.pos + n
+    return s
+  elseif k == "bytes" then
+    local n = _ambr_varint(r)
+    if not n or r.pos + n - 1 > r.len then box.err = "字节长度越界"; return nil end
+    local s = string.sub(r.b, r.pos, r.pos + n - 1)
+    r.pos = r.pos + n
+    return _ambr_hex(s)
+  elseif k == "vec" then
+    local count = _ambr_varint(r)
+    if not count or count > 1000000 then box.err = "数组元素数越界"; return nil end
+    local a = {}
+    for i = 1, count do
+      local item = _ambr_decode_typed(r, ty.inner, types, depth + 1, box)
+      if box.err then return nil end
+      a[i] = item
+    end
+    return a
+  elseif k == "opt" then
+    local tag = _ambr_varint(r)
+    if tag == 0 then return nil end
+    if tag == 1 then return _ambr_decode_typed(r, ty.inner, types, depth + 1, box) end
+    box.err = "Option 的 tag 只能是 0/1"
+    return nil
+  elseif k == "named" then
+    local td = types[ty.id]
+    if not td then box.err = "SCHEMA 里没有这个 type_id"; return nil end
+    return _ambr_decode_struct(r, td, types, depth + 1, box)
+  end
+  box.err = "未知 ty"
+  return nil
+end
+
+function Sml.ambr_load_typed(bytes)
+  local p, werr = _ambr_walk(bytes)
+  if not p then return nil, werr end
+  if p.typed_opaque or p.schema_opaque then
+    return nil, "AMBR: TYPED/SCHEMA 压缩或加密过，本解码器不解"
+  end
+  if not p.typed then return {} end
+  if not p.schema then
+    return nil, "AMBR: 没有 SCHEMA 段（0x71），无法按名渲染 TYPED"
+  end
+
+  local box = {}
+  local sr = _ambr_reader(p.schema)
+  local count = _ambr_varint(sr)
+  if not count or count > 1000000 then return nil, "AMBR: L0 字符串个数非法" end
+  local sst = {}
+  for i = 1, count do
+    local n = _ambr_varint(sr)
+    if not n or sr.pos + n - 1 > sr.len then return nil, "AMBR: L0 字符串长度越界" end
+    sst[i] = string.sub(sr.b, sr.pos, sr.pos + n - 1)
+    sr.pos = sr.pos + n
+  end
+  local schema = _ambr_node(sr, sst, 0, box)
+  if box.err then return nil, "AMBR: " .. box.err end
+  if sr.pos ~= sr.len + 1 then return nil, "AMBR: SCHEMA 段读完仍有剩余字节" end
+
+  local types = _ambr_parse_schema(schema, box)
+  if not types then return nil, "AMBR: " .. box.err end
+
+  local tr = _ambr_reader(p.typed)
+  local n = _ambr_varint(tr)
+  if not n or n > 1000000 then return nil, "AMBR: TYPED 条目数非法" end
+  local ents = {}
+  for i = 1, n do
+    local id = _ambr_varint(tr)
+    local type_id = _ambr_u64_hex(tr)
+    local off = _ambr_u32(tr)
+    local len = _ambr_u32(tr)
+    if not id or id == 0 or not type_id or not off or not len then
+      return nil, "AMBR: TYPED 目录被截断"
+    end
+    ents[i] = { id = id, type_id = type_id, off = off, len = len }
+  end
+  local base = tr.pos
+
+  local out = {}
+  for i = 1, #ents do
+    local e = ents[i]
+    local td = types[e.type_id]
+    if not td then return nil, "AMBR: SCHEMA 里没有这个 type_id" end
+    local start = base + e.off
+    if start + e.len - 1 > #p.typed then return nil, "AMBR: TYPED 载荷越界" end
+    local er = _ambr_reader(string.sub(p.typed, start, start + e.len - 1))
+    local val = _ambr_decode_struct(er, td, types, 0, box)
+    if box.err then return nil, "AMBR: " .. box.err end
+    if er.pos ~= er.len + 1 then return nil, "AMBR: TYPED 载荷解完仍有剩余字节" end
+    out[i] = { id = e.id, name = td.name, value = val }
+  end
+  return out
 end
 
 return Sml
