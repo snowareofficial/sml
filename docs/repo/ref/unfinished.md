@@ -112,7 +112,7 @@ T5 段级 zstd + 帧级 FRAMES + 按块 AEAD · T6 `sml::envelope` + CLI 互转�
 |---|---|---|
 | `smltools --migrate` | 不存在（V9 列为 v5 新功能） | `docs/swsml/spec/version.md` V9 |
 | `smltools --split-by` | 不存在（I-20） | `open-work.md:373` |
-| 官网 | 只有首页；下载页版本落后；教科书 ch11/ch12 各两份；`llms.txt` 手抄 | `open-work.md:268-269,343` |
+| 官网 | 新官网由用户单独做；本仓现有 `site/` 内容挂到 `/doc` 子路径（D6）；现有首页 / 下载页版本落后、教科书 ch11/ch12 各两份、`llms.txt` 手抄 | `docs/repo/ref/pending-decisions.md` D6、`open-work.md:268-269,343` |
 | 示例 doctest | 209 个示例无 doctest | `open-work.md:343` |
 | `.vsix` | 源码 `0.5.0`，入库产物只到 `0.4.3`；重打需网络 + 版本号（用户动作） | `TODO.md:1003` |
 | weak* 改 vsix | 三个 weak 指令任一落地都要同步扩展 | `TODO.md:1007` |
@@ -122,30 +122,31 @@ T5 段级 zstd + 帧级 FRAMES + 按块 AEAD · T6 `sml::envelope` + CLI 互转�
 ## 7. 发布治理（发布前要清）
 
 `TODO.md` L802–L810：清 DeepSeek 开发痕迹 · 国际化（README/crate 文档/CLI 帮助）·
-各 crate 补 GitHub `repository` 地址。双授权按 `docs/repo/ref/pending-decisions.md` D2 保持
-`MulanPSL-2.0` 单授权，不列入发布前待办。
+各 crate 补 GitHub `repository` 地址（**方向已定，精确 URL 待新仓名**，见 D6）。
+双授权按 `docs/repo/ref/pending-decisions.md` D2 保持 `MulanPSL-2.0` 单授权，不列入发布前待办。
 
-`TODO.md` L1080–L1087：发布节奏（等 I-18/19 的前提已不成立，需重定）· 占 GitHub org / 域名 /
-docs 子域 · 命名陷阱（包名 `swsml` / 库名 `sml`）。
+`TODO.md` L1080–L1087：发布节奏已由 2026-11-10 裁定（**dev1 准备发布、dev2 成批发布**，见 D1 / D6）·
+占 GitHub org / 域名 / docs 子域 · 命名陷阱（包名 `swsml` / 库名 `sml`）。
 
 **只能你做**（`TODO.md` L1271–L1324）：两台远端分支保护 · PR 默认目标指 `dev` ·
 删存量长期分支 · 删 `origin/feat/i9-contract-typo-hint` / `origin/master` · 双远端同步口径。
+要收 PR 还须先解决 `sync-from-gitee.yml` 的 guard 与 PR 合并独有提交的冲突（见 D6）。
 
 ### 7.1 2026-11-06 新增（`TODO.md` §十）
 
 | 项 | 状态 | 说明 |
 |---|---|---|
 | 命名候选 `amberice` | **已裁决（2026-11-06）：`smlb` 改名后的名字** | B 档已落地（`0f1c7f4`：`.ambr` / `AMBR`）；`swsml` **已发 18 版**（最新 `0.6.9-dev.0`）保持 core；`smlkit` → `swml` 另算（下一行） |
-| 主仓迁 GitHub | **用户准备中** | 前置：Gitee 推荐先拿完；清单见 `TODO.md §10.2`（双远端 / CI / Pages / `repository` / 保护规则） |
+| 对外主仓 | **方向已定（D6）：GitHub `swsml` 仓，workflow 单向推送，收 star / issue / PR** | 本仓保持权威开发源；**同步方向不反转**；时点待定，清单见 `TODO.md §10.2`（双远端 / CI / Pages / `repository` / 保护规则）；收 PR 前须调整 `sync-from-gitee.yml` 的 guard |
 | 门面改名 `smlkit` → `swml` | **部分完成：crate 已建（2026-11-06）** | `rust/swml` = `pub use swsml::*` + `easy` 模块（原 `smlkit-easy` 并入，不再单独发）；三注册表 404 已核；`swsml` 保持 core；**发布未动**（`TODO.md §11.1`） |
 | 别名 `swmltool` / `swmltools` | **待做，有硬前提** | `smltools` 是 bin-only ⇒ 必须先抽 `lib` 才能做真别名；**纯占位违反 crates.io 政策**（`TODO.md §11.1`） |
 | `.swl` 文件后缀 | **已裁决（2026-11-06）：定 `.swl`** | 文本后缀 `.swl`；`.sml` 作**长期读取别名**（516 个受控文件不动）；`.smld` 作废；**写出默认值改到 v5**；规范落点 `docs/amberice/spec/format.md §0`（`TODO.md §11.2`） |
-| 官网重写 | **待做，顺序绑命名** | 只有首页 / 下载页版本落后 / 教科书 ch11·ch12 重复 / `llms.txt` 手抄；等 11.1–11.2 定稿（`TODO.md §11.3`） |
+| 官网 | **用户单独做，本仓不实施** | 新官网由用户自建；本仓现有 `site/` 内容挂到新官网 `/doc` 子路径（D6）；旧链接 301 与构建方式待定 |
 | 发布工作流 `release.yml` | **待做** | tag + 人工审批；crates.io 按拓扑序 + dry-run；VSIX/Open VSX/Release 附属产物；顺序在命名与迁 GitHub 之后（`TODO.md §12.1`） |
 | 定时部署 `deploy.yml` | **待做** | 按 `docs/repo/ref/pending-decisions.md` D4：`cron → CF Worker → repository_dispatch → GitHub Actions`（多平台构建与发布）；无 VPS，rsync / 健康检查 / 回滚方案作废；`TODO.md §12.2` |
 | swsml / smlb 深水区 | **13.1 已存档；13.2 的 ①②③ 实测早已修完** | 存档：tag `pre-deep-2026-11-07` + `baseline-2026-11-07/`（两份 bench 原始输出 + fuzz 语料 2549 文件）。优化实测：`Store::get` **10.4 µs**（`TODO` 记的 150 µs 已过期，**14×**），`canonical_bytes` 已两趟预分配，`to_sml` 已 `with_capacity` + 直接 `push_str`。**唯一真实欠账**：`load` 8173 allocs（`flat@4000`，节点级分配，需 arena 类改动，非「15% 小步」）。`clippy` **0 警告**（182 → 0：`missing_safety_doc` 45、两轮 `--fix`、文档类 42、结构类 31、机械类 19 全部清完；3 处 `large_enum_variant` 与 1 处 `should_implement_trait` 是带理由的 `#[allow]`）。`-D warnings` 门禁已写进 `ci.yml`（本地实跑 `cargo clippy --workspace --all-targets -- -D warnings` exit=0） | `TODO.md §13` |
 | `_*` 文件归档 + 文档元数据 | **新任务，一刀切** | 受版本控制 `_*` 18 个、磁盘约 231 个；**一次切完、不留新旧并存**；文档元数据用 SML 自己（`docs/meta.sml` + `smldocs`），不引 YAML；`scan.md` 由 `tools/scan_status.py --write` 生成（`TODO.md §14`） |
-| `swml` / `amberice` 独立 GitHub 仓 | **待裁决（2026-11-07）** | `swsml` monorepo 仍是根仓库；`amberice` 先做**只读镜像**（`git subtree split -P rust/amberice`，接收 issue 不接 PR）；`swml` 建占位仓等命名定稿；真独立需 `sml-value` 先发 crates.io |
+| 对外 GitHub 仓 | **已裁定（D6，2026-11-10）** | 只做 **GitHub `swsml` 对外主仓**（workflow 推送、收 star / issue / PR）；`amberice` 不再单独建只读镜像仓，dev2 与 `bamcore` / `bambin` 一起发；crate 源码留本仓，真独立需 `sml-value` 先发 crates.io |
 
 ---
 

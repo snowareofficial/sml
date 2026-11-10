@@ -64,11 +64,11 @@
 | T27 | 双远端同步口径 | 常驻约束（不可勾） | — | 无 | 无；`--delete` 不同步、工作流不带 `--prune` 是刻意的 | `TODO.md:1324` | 无 |
 | T28 | 全仓文档对齐 + 可重跑机制 | 未做（§九 五条症状，执行方案在 §14） | P0 | T40 / T41 / T42 | §九 的 4 条「做完的定义」全部满足 | `TODO.md:1414` | 实现者 |
 | T29 | 裁决 `amberice` 定位 | 已完成(未勾)：2026-11-06 用户裁决 = **`smlb` 改名后的名字**；B 档已落地（`0f1c7f4`：`.ambr` / `AMBR`） | P0 | 无 | 一句话定层（格式品牌 / 产品线 / 引擎），并回答「是否取代 smlkit、CLI 是否双名、语言是否仍叫 SML」 | `TODO.md:1440`、`TODO.md:1533` | 用户 |
-| T30 | 主仓迁 GitHub（Gitee 降镜像） | 待用户动作（前置：Gitee 先拿完） | P0 | T29 | `origin`=GitHub；同步方向反转；CI 绿；Pages/域名/`repository` 就位；发布公告 | `TODO.md:1465` | 用户 |
-| T31 | 门面 `smlkit` → `swml` | **部分完成（2026-11-06）**：`rust/swml` 已建（`pub use swsml::*` + `easy` 模块 = 原 `smlkit-easy`），本地 `0.1.0-dev.0`、`publish = false`；**发布动作未做** | P1 | T18 / T29 | `swml` 0.1.0 建好（独立仓、`pub use swsml::*`）并按发布纪律发出 | `TODO.md:1488`、`rust/swml` | 用户（发布动作） |
+| T30 | 对外主仓（原「主仓迁 GitHub」） | **方向已定（D6）**：GitHub `swsml` 仓作主仓，workflow 单向推送、收 star / issue / PR；本仓保持权威开发源，**同步方向不反转**；时点待用户动作 | P0 | T29 | CI 绿；Pages/域名/`repository` 就位；收 PR 前调整 `sync-from-gitee.yml` guard；发布公告 | `TODO.md:1465`、`docs/repo/ref/pending-decisions.md` D6 | 用户 |
+| T31 | 门面 `smlkit` → `swml` | **部分完成（2026-11-06）**：`rust/swml` 已建（`pub use swsml::*` + `easy` 模块 = 原 `smlkit-easy`），本地 `0.1.0-dev.0`、`publish = false`；**发布动作未做** | P1 | T18 / T29 | 门面源码留本仓 workspace；随 dev2 与 `amberice` / `bamcore` / `bambin` 成批发，按发布纪律发出 | `TODO.md:1488`、`docs/repo/ref/pending-decisions.md` D1 / D6 | 用户（发布动作） |
 | T32 | 防御别名 `swmltool` / `swmltools` | 待做，有硬前提 | P2 | T31 | `smltools` 抽出 `lib`，别名包同版本、README 写明是别名（否则违反 crates.io 反占坑） | `TODO.md:1497` | 实现者（抽 lib）+ 用户（发布） |
 | T33 | 裁决 `.swl` 后缀策略 | **已裁决（2026-11-06）：`.swl`**；读别名已落（`smltools --from swl` + 扩展名列表 + VS Code `languages.extensions`）；写出默认留 v5；516 个 `.sml` 引用未动 | P1 | T29 | 二选一（`.swl` 或 `.smld`）+ 读取端别名；改默认留到 v5 | `TODO.md:1510`、`docs/amberice/spec/format.md §0` | 无（实现者已完成读端） |
-| T34 | 官网重写 | 未做（顺序绑命名） | P1 | T31 / T33 | 五区信息架构；版本与下载项由构建生成；中英同源；旧链接 301 | `TODO.md:1525` | 实现者（排期在命名后） |
+| T34 | 官网 | **用户单独做，本仓不实施** | P1 | T31 / T33 | 新官网由用户自建；本仓现有 `site/` 内容挂到新官网 `/doc` 子路径（D6）；旧链接 301 与构建方式待定 | `TODO.md:1525`、`docs/repo/ref/pending-decisions.md` D6 | 用户 |
 | T35 | 发布工作流 `release.yml` | 未做 | P1 | T30 / T31 | tag 触发 + `environment: release` 人工审批 + 发布前闸门 + 拓扑序 `cargo publish` 先 `--dry-run` 全绿 | `TODO.md:1549` | 实现者 |
 | T36 | 定时部署 `deploy.yml` | 未做；部署对象一半未知（Cloudflare 是 Pages 不是 Worker；VPS 跑什么仓库无记录） | P2 | T30 + 用户补事实 | Ruby 脚本 + 系统定时器：构建→Pages→VPS→健康检查→失败回滚，退出码可观测 | `TODO.md:1572` | 用户（补 VPS 部署内容） |
 | T37 | 13.1 存档（tag + 四份基线） | 未做（不改一行代码，可立即做） | P1 | 无 | `git tag -a pre-deep-2026-11-06`；两份 bench + smlb 测试 + fuzz 语料快照；从 tag 能重建同机同数字 | `TODO.md:1603` | 实现者 |
