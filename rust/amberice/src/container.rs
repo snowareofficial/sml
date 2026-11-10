@@ -2787,6 +2787,28 @@ pub fn check(bytes: &[u8]) -> Result<CheckReport, ContainerError> {
                     verdict.ignored_optional.join(", ")
                 ));
             }
+            // D52：三态分类 —— `registered` 真正参与 `check`，不再只是张没人调用的表。
+            let mut pruned = Vec::new();
+            let mut unregistered = Vec::new();
+            for (name, st) in &verdict.entries {
+                match st {
+                    manifest::CapStatus::Pruned => pruned.push(name.clone()),
+                    manifest::CapStatus::Unregistered => unregistered.push(name.clone()),
+                    manifest::CapStatus::Known => {}
+                }
+            }
+            if !pruned.is_empty() {
+                lines.push(format!(
+                    "caps      已登记但本构建裁剪：{}",
+                    pruned.join(", ")
+                ));
+            }
+            if !unregistered.is_empty() {
+                lines.push(format!(
+                    "caps      未登记（不在 §21.4 表里）：{}",
+                    unregistered.join(", ")
+                ));
+            }
             // 载荷表：`payloads[]` 与 EMBED 段体必须互相说得通
             if !m.payloads.is_empty() {
                 match embed_body(bytes) {

@@ -646,9 +646,12 @@ manifest {
 用户裁决 **甲**（并注明「实际上乙也是可以很灵活的」）⇒ 名字先走，位号当**可选加速**留到能力集合稳定
 （v5 定稿）后再加 `caps_bits` 冗余字段，不必改结构。
 
-落地：`known_capabilities()`（本构建认得的集合，v1 = `value` / `strtab` / `manifest`）+
-`check_caps()` / `check_caps_against()`，后者就是 P10 要的那个接缝 —— **裁剪 = 传一个更小的集合**，
-判定逻辑一行不改。`load` 遇到读不懂的 `required` ⇒ `MissingCapability` 直接拒，**绝不半读**。
+落地（D52）：`CapabilityRegistry { known, registered }` —— `known` 随 feature 收缩
+（基础 `value` / `strtab` / `manifest` / `embed` / `dir` / `source` / `typed`；`sign` 加 `sig`，
+`compress` 加 `frames`，`crypto` 加 `crypto`），`registered` 是规范表（再加 `provenance`）。
+`verdict()` 是唯一判据，`check_caps_against()` 就是 P10 的接缝 —— **裁剪 = 传一个更小的集合**，
+判定逻辑一行不改。`load` 遇到读不懂的 `required` ⇒ `MissingCapability` 直接拒，**绝不半读**；
+`check` 按 `CapStatus::{Known, Pruned, Unregistered}` 三态打印。
 
 **§19.9.4 落地状态**
 
@@ -1235,10 +1238,11 @@ $ amberice verify base.ambr --trust fd4f90d0…         # 有人拿未签名件�
 最典型的「碎片化引擎」入口 —— 两年后一堆互相读不了的文件，通常就是从「谁都能随手加
 一个名字」开始的。故把**登记**与**理解**拆成两件不同的事：
 
-| 概念 | 函数 | 回答什么 | 后果 |
+| 概念 | 函数 / 字段 | 回答什么 | 后果 |
 |---|---|---|---|
-| 本构建**理解** | `manifest::known_capabilities()` | 「这个文件我能完整处理吗」 | `required` 缺 ⇒ 拒；`optional` 缺 ⇒ 跳过 |
-| 格式**已登记** | `manifest::registered_capabilities()` | 「这个名字属于本规范吗」 | 未登记 ⇒ `check` 标「未登记能力」 |
+| 本构建**理解** | `CapabilityRegistry::known`（随 feature） | 「这个文件我能完整处理吗」 | `required` 缺 ⇒ 拒；`optional` 缺 ⇒ 跳过 |
+| 格式**已登记** | `CapabilityRegistry::registered` / `registered_capabilities()` | 「这个名字属于本规范吗」 | 未登记 ⇒ `check` 标「未登记（不在 §21.4）」 |
+| **分类** | `CapabilityRegistry::status()` → `CapStatus::{Known, Pruned, Unregistered}` | 「这个名字对**本构建**是哪一类」 | `check` 分三态打印；`verdict()` 只此一条判据 |
 
 **准入规则（加一个名字必须同时做三件事）**：
 

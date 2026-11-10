@@ -251,8 +251,9 @@ fn blake3_digests_work_end_to_end() {
 fn unknown_required_capability_is_refused() {
     let v = (CASES[0].build)();
     let opts = DumpOptions {
-        caps_required: vec!["sig".into()],
-        caps_optional: vec!["dir".into()],
+        // 用「已登记但永不实现」的名字，避免测试随 feature 档位漂移（D52）。
+        caps_required: vec!["provenance".into()],
+        caps_optional: vec!["future-x".into()],
         ..Default::default()
     };
     let f = amberice::dump_with( &cv(&v) , &opts).unwrap();
@@ -263,8 +264,10 @@ fn unknown_required_capability_is_refused() {
     let report = amberice::check(&f).unwrap();
     assert!(!report.ok);
     let text = report.lines.join("\n");
-    assert!(text.contains("读不懂的必拒能力：sig"), "{text}");
+    assert!(text.contains("读不懂的必拒能力：provenance"), "{text}");
     assert!(text.contains("可跳过"), "{text}");
+    assert!(text.contains("已登记但本构建裁剪：provenance"), "{text}");
+    assert!(text.contains("未登记"), "{text}");
 
     // 认得的 required 不拦
     let ok_opts = DumpOptions {
@@ -301,10 +304,10 @@ fn capability_declaration_is_validated_on_write() {
     let e = amberice::dump_with( &cv(&v) , &dup).unwrap_err();
     assert_eq!(e.kind(), "duplicate-capability", "{e}");
 
-    // 合法的未来能力仍然写得出来（`sig` / `dir` 不在 known 闭集里）
+    // 合法的未来能力仍然写得出来（`provenance` 已登记、`future-x` 未登记）
     let future = DumpOptions {
-        caps_required: vec!["sig".into()],
-        caps_optional: vec!["dir".into()],
+        caps_required: vec!["provenance".into()],
+        caps_optional: vec!["future-x".into()],
         ..Default::default()
     };
     assert!(
