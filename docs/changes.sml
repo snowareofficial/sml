@@ -77,5 +77,6 @@ changes {
     { doc: "docs/repo/ref/unfinished.md" at: "2026-11-10" commit: "9d95c37" summary: "回填核对基准、补记 amberice 原子写变更、收口 claims-audit 措辞" }
     { doc: "docs/amberice/ref/claims-audit.md" at: "2026-11-10" commit: "1088b3a" summary: "核实 45 条论断：修正 §0.1 当前事实、证据引用与 §7 / §8 表述" }
     { doc: "docs/index.md" at: "2026-11-10" commit: "009dc9f" summary: "生成物头行改记 meta.sml 内容摘要（去掉生成日期），report.md 同步；scan.md 正文未变不重写；CI 加生成物幂等校验" }
+    { doc: "rust/amberice/examples/probe_layers.rs" at: "2026-11-10" commit: "92c4062" summary: "新增：三条实测探针由 _scratch/probe/ 转为 example 入库；decisions §16.5.8 与 unfinished §12 的引用同步" }
   ]
 }

@@ -417,8 +417,9 @@ path 依赖或内嵌；多端 FFI 已全端通过（含 C# / Go / Ruby，见 `re
 
 #### 16.5.8 探针实测（2026-11-10，release / Windows x86_64）
 
-三条探针均已跑完，一次性探针在 `_scratch/probe/`（未入库）。数字为多轮最小值，
-口径与 `swsml/ref/perf-baseline.md` 一致；**只作裁决依据，不进性能基线**。
+三条探针均已跑完，可复现探针已入库：
+`cargo run --release -p amberice --example probe_layers`（`rust/amberice/examples/probe_layers.rs`）。
+数字为多轮最小值，口径与 `swsml/ref/perf-baseline.md` 一致；**只作裁决依据，不进性能基线**。
 
 1. **成本**：8 MB / 64 MB 的 `.ambr`，5 轮取最小（ms）。
 
