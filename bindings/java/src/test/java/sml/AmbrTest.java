@@ -104,6 +104,48 @@ public final class AmbrTest {
         }
     }
 
+    /** D45：`SCHEMA` + `TYPED` 动态渲染（fixture 与 C / C++ / Lua / JS 共用）。 */
+    @SuppressWarnings("unchecked")
+    private static void checkTyped() {
+        final String[] candidates = {
+            "c/tests/typed_fixture.h",
+            "../c/tests/typed_fixture.h",
+            "../../c/tests/typed_fixture.h",
+            "../../../c/tests/typed_fixture.h",
+        };
+        String src = null;
+        for (String c : candidates) {
+            if (Files.isRegularFile(Path.of(c))) {
+                try {
+                    src = Files.readString(Path.of(c), StandardCharsets.UTF_8);
+                } catch (IOException e) {
+                    check("D45 typed fixture", false, e.getMessage());
+                    return;
+                }
+                break;
+            }
+        }
+        if (src == null) {
+            check("D45 typed fixture", false, "找不到 c/tests/typed_fixture.h");
+            return;
+        }
+        final int q1 = src.indexOf('"');
+        final int q2 = src.indexOf('"', q1 + 1);
+        final List<Object> vars = Ambr.loadTyped(hexToBytes(src.substring(q1 + 1, q2)));
+        check("D45 typed: one variable", vars.size() == 1, "size=" + vars.size());
+        final Map<?, ?> item = (Map<?, ?>) vars.get(0);
+        check("D45 typed: var id", ((Number) item.get("id")).longValue() == 1, "id=" + item.get("id"));
+        check("D45 typed: type name", "User".equals(item.get("name")), "name=" + item.get("name"));
+        final Map<?, ?> v = (Map<?, ?>) item.get("value");
+        check("D45 typed: field id", ((Number) v.get("id")).longValue() == 42, "id=" + v.get("id"));
+        check("D45 typed: field name", "ada".equals(v.get("name")), "name=" + v.get("name"));
+        final List<?> tags = (List<?>) v.get("tags");
+        check("D45 typed: tags", tags != null && tags.size() == 2
+                && "a".equals(tags.get(0)) && "b".equals(tags.get(1)), String.valueOf(tags));
+        check("D45 typed: note null", v.containsKey("note") && v.get("note") == null,
+                "note=" + v.get("note"));
+    }
+
     public static void main(String[] args) throws IOException {
         final String path = resolveFixture(args);
         final String json = Files.readString(Path.of(path), StandardCharsets.UTF_8);
@@ -120,6 +162,8 @@ public final class AmbrTest {
             cases++;
             pos = next[0];
         }
+
+        checkTyped();
 
         System.out.println("[ambr] " + cases + " 例，" + fails + " 个失败");
         if (cases != 21) {
