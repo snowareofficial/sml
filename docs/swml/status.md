@@ -7,8 +7,8 @@
 
 ## 1. 一句话
 
-`swml` **已建、未发布**：`publish = false`；随 dev2 与 `amberice` / `bamcore` / `bambin`
-一起发（`docs/repo/ref/pending-decisions.md` D1 / D6）。
+`swml` **已建、未发布**：`publish = false`，门面先不动，不参与 dev1 / dev2 发布
+（`docs/repo/ref/pending-decisions.md` D6）。
 
 ## 2. 事实（可复核）
 
@@ -25,8 +25,8 @@
 
 ## 3. 发布线
 
-- 不单独发版：随 **dev2** 与 `amberice` / `bamcore` / `bambin` 成批发布（用户 2026-11-10 裁定，
-  见 `docs/repo/ref/pending-decisions.md` D1 / D6）；v5 表 A 定稿仍是前置。
+- **门面先不动**（用户 2026-11-11）：`swml` 不参与 dev1 / dev2 发布，继续 `publish = false`；
+  dev2 的成批内容是 `amberice` / `bamcore` / `bambin`（D1 / D6）。v5 表 A 定稿仍是发布前置。
 - 对外主仓是 GitHub 的 `swsml` 仓，本仓保持权威开发源，用 workflow 单向推送；
   crate 的 `repository` 用 GitHub URL（精确值待新仓名确定）。
 - 发布前必须绿：`cargo test -p swml`、`cargo check -p swml --no-default-features`。

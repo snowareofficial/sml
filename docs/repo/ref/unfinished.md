@@ -138,7 +138,7 @@ T5 段级 zstd + 帧级 FRAMES + 按块 AEAD · T6 `sml::envelope` + CLI 互转�
 |---|---|---|
 | 命名候选 `amberice` | **已裁决（2026-11-06）：`smlb` 改名后的名字** | B 档已落地（`0f1c7f4`：`.ambr` / `AMBR`）；`swsml` **已发 18 版**（最新 `0.6.9-dev.0`）保持 core；`smlkit` → `swml` 另算（下一行） |
 | 对外主仓 | **方向已定（D6）：GitHub `swsml` 仓，workflow 单向推送，收 star / issue / PR** | 本仓保持权威开发源；**同步方向不反转**；时点待定，清单见 `TODO.md §10.2`（双远端 / CI / Pages / `repository` / 保护规则）；收 PR 前须调整 `sync-from-gitee.yml` 的 guard |
-| 门面改名 `smlkit` → `swml` | **部分完成：crate 已建（2026-11-06）** | `rust/swml` = `pub use swsml::*` + `easy` 模块（原 `smlkit-easy` 并入，不再单独发）；三注册表 404 已核；`swsml` 保持 core；**发布未动**（`TODO.md §11.1`） |
+| 门面改名 `smlkit` → `swml` | **部分完成：crate 已建（2026-11-06）；门面先不动（2026-11-11）** | `rust/swml` = `pub use swsml::*` + `easy` 模块（原 `smlkit-easy` 并入，不再单独发）；三注册表 404 已核；`swsml` 保持 core；**不参与 dev1 / dev2 发布、不拆仓**（D6、`TODO.md §11.1`） |
 | 别名 `swmltool` / `swmltools` | **待做，有硬前提** | `smltools` 是 bin-only ⇒ 必须先抽 `lib` 才能做真别名；**纯占位违反 crates.io 政策**（`TODO.md §11.1`） |
 | `.swl` 文件后缀 | **已裁决（2026-11-06）：定 `.swl`** | 文本后缀 `.swl`；`.sml` 作**长期读取别名**（516 个受控文件不动）；`.smld` 作废；**写出默认值改到 v5**；规范落点 `docs/amberice/spec/format.md §0`（`TODO.md §11.2`） |
 | 官网 | **用户单独做，本仓不实施** | 新官网由用户自建；本仓现有 `site/` 内容挂到新官网 `/doc` 子路径（D6）；旧链接 301 与构建方式待定 |

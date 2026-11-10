@@ -68,15 +68,18 @@ Rust `scan::resolve_edition`（与 `@version` 共用判据）、`js/sml.mjs` 的
 | 对外主仓 | GitHub 上的 `swsml` 仓（门面仓）；本仓保持权威开发源，用 workflow 单向推送，对外收 star / issue / PR |
 | crate git 链接 | 用 GitHub 的 URL（`repository` 字段）；精确 URL 待新仓名确定 |
 | 官网 | 用户单独做；本仓现有 `site/` 内容挂到新官网 `/doc` 子路径 |
+| 门面 `swml` | **先不动**（2026-11-11）：不参与 dev1 / dev2 发布，不拆 crate 源码、不单独建仓 |
 
-门面 `swml` 的源码留在本仓 workspace，不拆 crate 源码；「单独仓库」指对外的 GitHub `swsml` 主仓。
+门面 `swml` 的源码留在本仓 workspace；「单独仓库」指对外的 GitHub `swsml` 主仓，
+与门面 crate 的发布无关。
 
 **落地待做**（不在本文件裁决范围）：新仓 org / 全名、`repository` 精确值、版本后缀格式统一、
 `release.yml`、v5 表 A 定稿、`publish = false` 解除、`site/ → /doc` 的构建与 301。
 
-⚠️ **要收 PR 的硬冲突**：现有 `.github/workflows/sync-from-gitee.yml` 的 `guard` 在 GitHub 端
-出现「Gitee 没有的独有提交」时会中止同步（防误覆盖）。GitHub 仓一旦合并 PR 就必然产生独有提交，
-单向镜像随即被挡。要同时「workflow 推进去」和「收 PR」，必须先定回灌或放宽 guard 的口径。
+**PR 回灌口径（2026-11-11 已定）**：GitHub 主仓合并 PR 后，由用户**手动回灌 Gitee**；
+`.github/workflows/sync-from-gitee.yml` 的 `guard` 与单向推送方向**不改**。
+guard 在「GitHub 有 Gitee 没有的独有提交」时会中止同步，这是刻意保留的防误覆盖行为 ——
+回灌前镜像会停，属预期，不要为绕过它改 workflow。
 
 ## 2. 通用原则（D3 的教训）
 
