@@ -226,7 +226,18 @@ pub fn verify_trusted(
     algo: HashAlgo,
     trust: &[u8; 32],
 ) -> Result<VerifyReport, SignError> {
-    let mut report = verify(bytes, algo)?;
+    verify_trusted_with(bytes, algo, trust, false)
+}
+
+/// [`verify_trusted`] with an explicit decision on unsigned layers (D53).
+/// 显式决定是否接受未签名层的 [`verify_trusted`]（D53）。
+pub fn verify_trusted_with(
+    bytes: &[u8],
+    algo: HashAlgo,
+    trust: &[u8; 32],
+    allow_unsigned: bool,
+) -> Result<VerifyReport, SignError> {
+    let mut report = verify_with(bytes, algo, allow_unsigned)?;
     match crate::layer::chain_head(bytes, algo) {
         Ok(Some(head)) if head == *trust => {
             report
@@ -275,6 +286,22 @@ pub struct VerifyReport {
 /// 时间不进判定（D17）：层里根本没存时间 —— 存了也只展示。
 /// Time is not part of the decision (D17); layers carry none.
 pub fn verify(bytes: &[u8], algo: HashAlgo) -> Result<VerifyReport, SignError> {
+    verify_with(bytes, algo, false)
+}
+
+/// [`verify`] with an explicit decision on unsigned layers (D53).
+/// 显式决定是否接受未签名层的 [`verify`]（D53）。
+///
+/// `allow_unsigned = true` only flips **"层没有签名"** from failure to an explicit
+/// acknowledgement; every other check (base_hash, links, trailer, signed layers) is unchanged.
+/// It does **not** distinguish "never signed" from "signature stripped" — that still needs
+/// `--trust` (D18).
+/// ｜ 只把「没有签名」从失败改成明确接受；其余检查不变，也仍不能替代 `--trust`。
+pub fn verify_with(
+    bytes: &[u8],
+    algo: HashAlgo,
+    allow_unsigned: bool,
+) -> Result<VerifyReport, SignError> {
     let all = match layer::layers(bytes) {
         Ok(v) => v,
         Err(e) => {
@@ -348,6 +375,16 @@ pub fn verify(bytes: &[u8], algo: HashAlgo) -> Result<VerifyReport, SignError> {
 
     // 3) 每条签名都要过（D36：全部通过，不是任一）
     for (i, l) in all.iter().enumerate() {
+        if l.sigs.is_empty() {
+            if allow_unsigned {
+                // 未签名层的 author 是全 0，不能拿去构造 VerifyingKey；先分流。
+                lines.push(format!("层#{i}   没有签名（--allow-unsigned：已明确接受）"));
+            } else {
+                ok = false;
+                lines.push(format!("层#{i}   没有签名"));
+            }
+            continue;
+        }
         let text = match l.signed_text() {
             Ok(t) => t,
             Err(e) => {
@@ -364,11 +401,6 @@ pub fn verify(bytes: &[u8], algo: HashAlgo) -> Result<VerifyReport, SignError> {
                 continue;
             }
         };
-        if l.sigs.is_empty() {
-            ok = false;
-            lines.push(format!("层#{i}   没有签名"));
-            continue;
-        }
         for (j, s) in l.sigs.iter().enumerate() {
             if s.algo != ED25519 {
                 ok = false;

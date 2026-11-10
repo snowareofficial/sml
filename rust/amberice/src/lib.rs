@@ -84,8 +84,8 @@ pub use layer::{append_unsigned, layers};
 pub use redact::{RedactAction, RedactError, RedactRule, RedactRules};
 #[cfg(feature = "sign")]
 pub use sign::{
-    append_layer, append_layer_checked, compact, verify, verify_trusted, KeyPair, SignError,
-    VerifyReport, ED25519,
+    append_layer, append_layer_checked, compact, verify, verify_trusted, verify_trusted_with,
+    verify_with, KeyPair, SignError, VerifyReport, ED25519,
 };
 pub use manifest::{
     check_caps, check_caps_against, CapStatus, CapabilityRegistry, CapsVerdict, Manifest,
