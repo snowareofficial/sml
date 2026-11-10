@@ -4,11 +4,11 @@
 //!
 //! Scope ｜ 范围:
 //! - parses the 40 B header, walks the 41 B segment table, reads `VALUE` (0x01) and
-//!   `STRTAB` (0x02), and **skips every other segment** (table entries carry `len`);
-//! - does **not** interpret `TYPED` (0x70) / `DIR` (0x03) / `MANIFEST` (0x04) semantics —
-//!   that is the whole point of "unknown segments are skippable" (spec §23.1);
+//!   `STRTAB` (0x02);
+//! - `loadTyped()` additionally reads `TYPED` (0x70) and `SCHEMA` (0x71) and renders the
+//!   typed variables (D45); `DIR` / `MANIFEST` / other segments stay skippable (§23.1);
 //! - refuses compressed (`comp != 0`) or encrypted (`enc != 0`) segments instead of guessing.
-//! ｜ 只解 VALUE / STRTAB，其余段按 `len` 跳过；不解释 TYPED/DIR/MANIFEST 语义。
+//! ｜ 主路径解 VALUE / STRTAB；`loadTyped` 另解 TYPED + SCHEMA，其余段仍按 `len` 跳过。
 //!
 //! Value mapping ｜ 值映射 (same as `js/sml.mjs`, so both paths compare directly):
 //! `Int` within ±2^53-1 → `Number`, beyond → decimal `String`; `Float` → `Number`;
@@ -24,6 +24,8 @@ import { sha256, digestEqual } from "./sha256.mjs";
 const MAGIC = [0x41, 0x4d, 0x42, 0x52]; // "AMBR"
 const SEG_VALUE = 0x01;
 const SEG_STRTAB = 0x02;
+const SEG_TYPED = 0x70;
+const SEG_SCHEMA = 0x71;
 const ALIGN_MIN = 8;
 const ALIGN_BLOCK = 4096;
 const NODE_HEADER = 6; // tag:u8 | flags:u8 | subtree_len:u32
@@ -214,7 +216,9 @@ function decodeStrtab(bytes) {
 ///
 /// @param {Uint8Array|ArrayBuffer} input
 /// @param {{maxDepth?: number}} [options]
-export function load(input, options = {}) {
+/// Walk the container and return the segment bodies we care about.
+/// 走一遍容器，返回关心的段体。
+function walk(input, options = {}) {
   const b = input instanceof Uint8Array ? input : new Uint8Array(input);
   const maxDepth = options.maxDepth ?? 128;
   if (b.length < 40) throw new AmbrError("文件短于 40 B 头");
@@ -233,9 +237,13 @@ export function load(input, options = {}) {
 
   const align = (flags & 1) !== 0 ? ALIGN_BLOCK : ALIGN_MIN;
   let bodyAt = alignUp(tableOff + count * SEG_HEADER, align);
-
-  let strtabBytes = null;
-  let valueBytes = null;
+  const parts = {
+    valueBytes: null,
+    strtabBytes: null,
+    typedBytes: null,
+    schemaBytes: null,
+    maxDepth,
+  };
 
   for (let i = 0; i < count; i++) {
     const o = tableOff + i * SEG_HEADER;
@@ -247,7 +255,9 @@ export function load(input, options = {}) {
     // 表项布局：`len` 在偏移 5（不是 4，`flags` 占 2 B）。
     const len = readU32(b, o + 5);
     if (bodyAt + len > b.length) throw new AmbrError(`段 0x${id.toString(16)} 长度越界`, o);
-    if (id === SEG_VALUE || id === SEG_STRTAB) {
+    const wanted =
+      id === SEG_VALUE || id === SEG_STRTAB || id === SEG_TYPED || id === SEG_SCHEMA;
+    if (wanted) {
       if (comp !== 0) throw new AmbrError(`段 0x${id.toString(16)} 压缩过（comp=${comp}），本解码器不解压`, o);
       if (enc !== 0) throw new AmbrError(`段 0x${id.toString(16)} 加密过（enc=${enc}），本解码器不解密`, o);
       const body = b.subarray(bodyAt, bodyAt + len);
@@ -259,18 +269,263 @@ export function load(input, options = {}) {
           throw new AmbrError(`段 0x${id.toString(16)} 摘要不符（段体被改动？）`, bodyAt);
         }
       }
-      if (id === SEG_VALUE) valueBytes = body;
-      else strtabBytes = body;
+      if (id === SEG_VALUE) parts.valueBytes = body;
+      else if (id === SEG_STRTAB) parts.strtabBytes = body;
+      else if (id === SEG_TYPED) parts.typedBytes = body;
+      else parts.schemaBytes = body;
     }
     bodyAt = alignUp(bodyAt + len, align);
   }
+  return parts;
+}
 
-  if (!valueBytes) throw new AmbrError("找不到 VALUE 段（0x01）");
-  const strtab = strtabBytes ? decodeStrtab(strtabBytes) : [];
-  const r = new Reader(valueBytes);
-  const value = decodeNode(r, strtab, 0, maxDepth);
+/// Decode a whole `.ambr` file into a plain JS value.
+/// 把整份 `.ambr` 解成普通 JS 值。
+///
+/// @param {Uint8Array|ArrayBuffer} input
+/// @param {{maxDepth?: number}} [options]
+export function load(input, options = {}) {
+  const p = walk(input, options);
+  if (!p.valueBytes) throw new AmbrError("找不到 VALUE 段（0x01）");
+  const strtab = p.strtabBytes ? decodeStrtab(p.strtabBytes) : [];
+  const r = new Reader(p.valueBytes);
+  const value = decodeNode(r, strtab, 0, p.maxDepth);
   if (!r.eof()) throw new AmbrError(`VALUE 段读完仍有 ${r.end - r.pos} B 剩余`, r.pos);
   return value;
 }
 
-export default { load, AmbrError };
+// ---------------------------------------------------------------------------
+// SCHEMA（0x71）+ TYPED（0x70）动态渲染（D45 / §25.8）
+// ---------------------------------------------------------------------------
+
+/// Decode self-contained L0 bytes: `count:varint ‖ strings ‖ node tree`.
+/// 解自包含 L0：`count ‖ 字符串表 ‖ 节点树`。
+function decodeL0(bytes, maxDepth) {
+  const r = new Reader(bytes);
+  const count = Number(r.varint());
+  if (!Number.isInteger(count) || count < 0 || count > 1_000_000) {
+    throw new AmbrError("L0 字符串个数越界", 0);
+  }
+  const dec = new TextDecoder("utf-8", { fatal: true });
+  const strtab = [];
+  for (let i = 0; i < count; i++) {
+    const at = r.pos;
+    const len = Number(r.varint());
+    if (!Number.isInteger(len) || len < 0 || r.pos + len > r.end) {
+      throw new AmbrError(`L0 字符串 ${i} 长度越界`, at);
+    }
+    try {
+      strtab.push(dec.decode(bytes.subarray(r.pos, r.pos + len)));
+    } catch {
+      throw new AmbrError(`L0 字符串 ${i} 不是合法 UTF-8`, at);
+    }
+    r.pos += len;
+  }
+  const value = decodeNode(r, strtab, 0, maxDepth);
+  if (!r.eof()) throw new AmbrError(`L0 读完仍有 ${r.end - r.pos} B 剩余`, r.pos);
+  return value;
+}
+
+const PRIMS = new Set([
+  "bool", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64",
+  "f32", "f64", "str", "bytes",
+]);
+
+function parseTy(ty) {
+  if (typeof ty === "string") {
+    if (PRIMS.has(ty)) return { kind: ty };
+    throw new AmbrError(`未知 ty ${JSON.stringify(ty)}`);
+  }
+  if (ty && typeof ty === "object" && !Array.isArray(ty)) {
+    if ("vec" in ty) return { kind: "vec", inner: parseTy(ty.vec) };
+    if ("opt" in ty) return { kind: "opt", inner: parseTy(ty.opt) };
+    if ("type" in ty) {
+      if (typeof ty.type !== "string" || !/^[0-9a-f]{16}$/.test(ty.type)) {
+        throw new AmbrError("type 引用必须是 16 位小写十六进制");
+      }
+      return { kind: "named", id: BigInt("0x" + ty.type) };
+    }
+  }
+  throw new AmbrError("ty 必须是字符串或 {vec|opt|type}");
+}
+
+function parseSchema(schema) {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+    throw new AmbrError("SCHEMA 必须是对象");
+  }
+  if (schema.schema_version !== 1) throw new AmbrError("schema_version 只支持 1");
+  if (!Array.isArray(schema.types)) throw new AmbrError("SCHEMA 缺 types");
+  const out = new Map();
+  for (const t of schema.types) {
+    if (!t || typeof t !== "object" || Array.isArray(t)) throw new AmbrError("types[] 必须是对象");
+    if (typeof t.id !== "string" || !/^[0-9a-f]{16}$/.test(t.id)) {
+      throw new AmbrError("type id 必须是 16 位小写十六进制");
+    }
+    const id = BigInt("0x" + t.id);
+    if ((t.kind ?? "struct") !== "struct") throw new AmbrError("v1 只支持 kind: struct");
+    if (!Array.isArray(t.fields)) throw new AmbrError(`type ${t.id} 缺 fields`);
+    const fields = [];
+    let last = 0;
+    for (const f of t.fields) {
+      if (!f || !Number.isInteger(f.id) || f.id <= last) {
+        throw new AmbrError("fields 必须按 id 严格升序");
+      }
+      last = f.id;
+      if (typeof f.name !== "string") throw new AmbrError("field 缺 name");
+      fields.push({ name: f.name, ty: parseTy(f.ty) });
+    }
+    if (out.has(id)) throw new AmbrError(`type id ${t.id} 重复`);
+    out.set(id, { name: String(t.name), fields });
+  }
+  return out;
+}
+
+function typedDirectory(body) {
+  const r = new Reader(body);
+  const count = Number(r.varint());
+  if (!Number.isInteger(count) || count < 0 || count > 1_000_000) {
+    throw new AmbrError("TYPED 条目数越界");
+  }
+  const entries = [];
+  for (let i = 0; i < count; i++) {
+    const id = Number(r.varint());
+    if (!Number.isInteger(id) || id <= 0) throw new AmbrError(`var_id ${id} 非法`);
+    const lo = r.u32();
+    const hi = r.u32();
+    const typeId = (BigInt(hi) << 32n) | BigInt(lo);
+    const off = r.u32();
+    const len = r.u32();
+    entries.push({ id, typeId, off, len });
+  }
+  return { entries, base: r.pos };
+}
+
+function readF32(r) {
+  if (r.pos + 4 > r.end) throw new AmbrError("读取越界", r.pos);
+  const v = new DataView(r.b.buffer, r.b.byteOffset + r.pos, 4).getFloat32(0, true);
+  r.pos += 4;
+  return v;
+}
+
+function zigzag(z) {
+  return (z >> 1n) ^ -(z & 1n);
+}
+
+function intValue(n) {
+  return n > INT_MAX || n < INT_MIN ? n.toString() : Number(n);
+}
+
+function decodeStruct(r, t, types, depth) {
+  if (depth > 128) throw new AmbrError("TYPED 嵌套超过上限", r.pos);
+  const obj = {};
+  for (const f of t.fields) obj[f.name] = decodeTyped(r, f.ty, types, depth + 1);
+  return obj;
+}
+
+function decodeTyped(r, ty, types, depth) {
+  switch (ty.kind) {
+    case "bool": {
+      const v = r.varint();
+      if (v === 0n) return false;
+      if (v === 1n) return true;
+      throw new AmbrError(`布尔的 tag 只能是 0/1，读到 ${v}`);
+    }
+    case "u8":
+    case "u16":
+    case "u32": {
+      const max = { u8: 255n, u16: 65535n, u32: 4294967295n }[ty.kind];
+      const v = r.varint();
+      if (v > max) throw new AmbrError(`整数超出 ${ty.kind} 的范围`);
+      return Number(v);
+    }
+    case "u64":
+      return intValue(r.varint());
+    case "i8":
+    case "i16":
+    case "i32":
+    case "i64": {
+      const n = zigzag(r.varint());
+      const max = {
+        i8: 127n, i16: 32767n, i32: 2147483647n, i64: 9223372036854775807n,
+      }[ty.kind];
+      if (n > max || n < -max - 1n) throw new AmbrError(`整数超出 ${ty.kind} 的范围`);
+      return intValue(n);
+    }
+    case "f32":
+      return readF32(r);
+    case "f64":
+      return r.f64();
+    case "str": {
+      const at = r.pos;
+      const len = Number(r.varint());
+      if (!Number.isInteger(len) || len < 0 || r.pos + len > r.end) {
+        throw new AmbrError("字符串长度越界", at);
+      }
+      const bytes = r.b.subarray(r.pos, r.pos + len);
+      r.pos += len;
+      try {
+        return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      } catch {
+        throw new AmbrError("字符串不是合法 UTF-8", at);
+      }
+    }
+    case "bytes": {
+      const at = r.pos;
+      const len = Number(r.varint());
+      if (!Number.isInteger(len) || len < 0 || r.pos + len > r.end) {
+        throw new AmbrError("字节长度越界", at);
+      }
+      let hex = "";
+      for (let i = 0; i < len; i++) hex += r.b[r.pos + i].toString(16).padStart(2, "0");
+      r.pos += len;
+      return hex;
+    }
+    case "vec": {
+      const count = Number(r.varint());
+      if (!Number.isInteger(count) || count < 0 || count > 1_000_000) {
+        throw new AmbrError("数组元素数越界", r.pos);
+      }
+      const out = new Array(count);
+      for (let i = 0; i < count; i++) out[i] = decodeTyped(r, ty.inner, types, depth + 1);
+      return out;
+    }
+    case "opt": {
+      const tag = r.varint();
+      if (tag === 0n) return null;
+      if (tag === 1n) return decodeTyped(r, ty.inner, types, depth + 1);
+      throw new AmbrError(`Option 的 tag 只能是 0/1，读到 ${tag}`);
+    }
+    case "named": {
+      const t = types.get(ty.id);
+      if (!t) throw new AmbrError(`SCHEMA 里没有 type_id ${ty.id.toString(16).padStart(16, "0")}`);
+      return decodeStruct(r, t, types, depth + 1);
+    }
+    default:
+      throw new AmbrError(`未知 ty ${ty.kind}`);
+  }
+}
+
+/// Render `TYPED` via an embedded `SCHEMA` (D45): `[{ id, name, value }]`.
+/// 用内嵌 `SCHEMA` 渲染 `TYPED`：`[{ id, name, value }]`。
+export function loadTyped(input, options = {}) {
+  const p = walk(input, options);
+  if (!p.typedBytes) return [];
+  if (!p.schemaBytes) throw new AmbrError("没有 SCHEMA 段（0x71），无法按名渲染 TYPED");
+  const types = parseSchema(decodeL0(p.schemaBytes, p.maxDepth));
+  const { entries, base } = typedDirectory(p.typedBytes);
+  const out = [];
+  for (const e of entries) {
+    const t = types.get(e.typeId);
+    if (!t) throw new AmbrError(`SCHEMA 里没有 type_id ${e.typeId.toString(16).padStart(16, "0")}`);
+    const start = base + e.off;
+    const end = start + e.len;
+    if (end > p.typedBytes.length) throw new AmbrError("TYPED 载荷越界", start);
+    const r = new Reader(p.typedBytes.subarray(start, end));
+    const value = decodeStruct(r, t, types, 0);
+    if (!r.eof()) throw new AmbrError("TYPED 载荷解完仍有剩余字节", r.pos);
+    out.push({ id: e.id, name: t.name, value });
+  }
+  return out;
+}
+
+export default { load, loadTyped, AmbrError };

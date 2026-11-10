@@ -285,3 +285,4 @@ fn documented_renders_nested_fields() {
     };
     assert_eq!(tags.len(), 2);
 }
+
