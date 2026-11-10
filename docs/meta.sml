@@ -26,7 +26,7 @@
 docs {
   doc: [
     { title: "docs/amberice/archive/design-origin.md" date: "2026-11-06" updated: "2026-11-06" owner: "amberice" status: "archive" scope: ".ambr 设计起点与用户原话汇编（A/B/C 三级，逐条带出处）" supersedes: null superseded_by: null }
-    { title: "docs/amberice/decisions.md" date: "2026-11-02" updated: "2026-11-10" owner: "amberice" status: "current" scope: ".ambr 决策记录：D1–D41 已裁决、P1–P12 待定、§12 草案、§15 键序、§16.3 脱敏与串口场景、§16.4 孪生格式定位" supersedes: null superseded_by: null }
+    { title: "docs/amberice/decisions.md" date: "2026-11-02" updated: "2026-11-10" owner: "amberice" status: "current" scope: ".ambr 决策记录：D1–D54 已裁决、P12 待定、§12 草案、§15 键序、§16.3 已定（D53）、§16.4 孪生格式定位" supersedes: null superseded_by: null }
     { title: "docs/amberice/plan/plan.md" date: "2026-11-06" updated: "2026-11-09" owner: "amberice" status: "current" scope: "amberice 改名范围 + 第一批优化（A1）与里程碑" supersedes: null superseded_by: null }
     { title: "docs/amberice/ref/ports.md" date: "2026-11-06" updated: "2026-11-09" owner: "amberice" status: "current" scope: "多端 .ambr 解码器进度台账（C# / Go / Ruby 三端未做）" supersedes: null superseded_by: null }
     { title: "docs/amberice/spec/format.md" date: "2026-11-02" updated: "2026-11-09" owner: "amberice" status: "current" scope: ".ambr 格式规范：信封 / canonical / VALUE 段 / 算法表 / 默认值 / 侧信道" supersedes: null superseded_by: null }
