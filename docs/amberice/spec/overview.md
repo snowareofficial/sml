@@ -169,7 +169,7 @@
 | 随机访问 | `Store`（`open` / `get` / `get_with_stats` / `text` / `text_of` / `subtree_bytes` / `value` / `history_at` / `var` / `payload` / `segments` / `manifest` / `layers`）、`MappedFile` |
 | 层链 | `layers`、`append_layer`、`append_layer_checked`、`verify`、`verify_trusted`、`compact`、`KeyPair` |
 | 声明与自描述 | `Manifest`、`check_caps`、`check_caps_against`、`HashAlgo`、`DumpOptions` |
-| 库级信封 | `sml::envelope` 的 `wrap` / `unwrap` / `list` / `sml_to_amberice` / `amberice_to_sml` / `value_to_amberice`（门面 `amberice` feature） |
+| 库级信封 | `sml::envelope` 的 `wrap` / `unwrap` / `list` / `sml_to_amberice` / `amberice_to_sml` / `value_to_amberice` / `value_to_amberice_with`（门面 `amberice` feature） |
 
 `Store::open` 不构造 `Value`、不复制大块数据：打开只读头、段表、manifest，按路径下行时靠 `subtree_len` 跳过兄弟节点，只解命中的子树；补丁按顶层键合并。
 

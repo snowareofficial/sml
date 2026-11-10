@@ -100,3 +100,17 @@ fn parse_errors_stay_parse_errors() {
     let e = sml_to_amberice("server { port: ", None).unwrap_err();
     assert!(matches!(e, EnvelopeError::Parse(_)), "{e:?}");
 }
+
+/// D43：`DIR` 是 opt-in 的派生索引——写与不写都是合法文件，取值结果不变。
+#[test]
+fn dir_index_is_opt_in() {
+    let text = "server web {\n  host: a.example\n  port: 8080\n}\n";
+    let v: sml::Value = sml::parse_ordered(text).unwrap();
+    let plain = sml::value_to_amberice(&v, None).unwrap();
+    let indexed = sml::value_to_amberice_with(&v, None, Some(4)).unwrap();
+    assert_ne!(plain, indexed, "写了索引就一定会改字节");
+    assert!(amberice::Store::open(&plain).unwrap().dir_body().is_none());
+    let store = amberice::Store::open(&indexed).unwrap();
+    assert!(store.dir_body().is_some(), "DIR 段应存在");
+    assert_eq!(store.get("server.port").unwrap(), sml::Value::Int(8080));
+}

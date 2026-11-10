@@ -427,6 +427,7 @@ tag:u8 | flags:u8 | subtree_len:u32 | payload…
 - **带 `head_layer` 字段**：与当前 head 不一致 ⇒ 整段忽略（追加后旧索引自然失效，不需要重写）；
 - 默认只索引 **深度 ≤ 4** 的对象键（`dir_depth` 可配）：52k 节点下约 10k 条目 ≈ 120 KB；
 - 索引是**派生数据**：缺失/过期都只影响速度，不影响正确性（D11 的 `optional` 位）。
+- 写入口：库用 `DumpOptions.dir` / `dir_depth`；CLI 用 `smltools --to-amberice --dir [N]`。默认不写（D43）。
 
 **段体字节布局（N05 落地时写死，2026-11-06）**：
 
