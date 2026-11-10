@@ -22,6 +22,12 @@ BUILD = os.path.join(HERE, "build")
 os.makedirs(BUILD, exist_ok=True)
 
 CC = "gcc"
+# 实现用了 strdup / strtok_r / realpath 等 POSIX / XSI 函数，源码里已放 feature test
+# macro；这里再用 gnu99 兜底，避免不同 glibc 版本对 feature macro 的处理差异。
+# `-Werror=implicit-function-declaration`：任何漏声明直接红，不要等链接才炸。
+# `-lm`：sml.c 的 add_float 用了 floor()，Linux 上 libm 不自动链接（MSVC/MinGW 会）。
+CFLAGS = ["-std=gnu99", "-Wall", "-Wextra", "-Werror=implicit-function-declaration"]
+LDLIBS = ["-lm"]
 SRC = os.path.join(HERE, "sml.c")
 FILES = [SRC, os.path.join(HERE, "examples", "example.c")]
 
@@ -50,8 +56,7 @@ def main():
     ok = True
 
     for f in FILES:
-        rc, out, err = run([CC, "-std=c99", "-Wall", "-Wextra",
-                            "-I", HERE, "-fsyntax-only", f])
+        rc, out, err = run([CC] + CFLAGS + ["-I", HERE, "-fsyntax-only", f])
         if rc == 0:
             print("[OK]   syntax  %s" % os.path.relpath(f, HERE))
         else:
@@ -61,8 +66,8 @@ def main():
 
     if do_run and ok:
         exe = os.path.join(BUILD, "example_check")
-        rc, out, err = run([CC, "-std=c99", "-Wall", "-Wextra", "-I", HERE,
-                            FILES[0], FILES[1], "-o", exe])
+        rc, out, err = run([CC] + CFLAGS + ["-I", HERE,
+                            FILES[0], FILES[1], "-o", exe] + LDLIBS)
         if rc != 0:
             ok = False
             print("[FAIL] compile example")
@@ -81,8 +86,8 @@ def main():
         for f, extra in TESTS:
             stem = os.path.splitext(os.path.basename(f))[0]
             exe = os.path.join(BUILD, stem + "_check")
-            rc, out, err = run([CC, "-std=c99", "-Wall", "-Wextra", "-I", HERE,
-                                SRC] + extra + [f, "-o", exe])
+            rc, out, err = run([CC] + CFLAGS + ["-I", HERE,
+                                SRC] + extra + [f, "-o", exe] + LDLIBS)
             if rc != 0:
                 ok = False
                 print("[FAIL] compile %s" % os.path.relpath(f, HERE))
