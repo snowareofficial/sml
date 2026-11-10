@@ -243,7 +243,8 @@
 - 两个 Rust crate 都是 `publish = false`；`EDITION = 0x0004` 硬编码在 `container.rs`，版本升级需手动跟。
 - 三个摘要算法均已实现；BLAKE3 只做无密钥 32 B 摘要（无 keyed / XOF）。
 - `FRAMES` 的按需解帧已接入 `Store::get` 与 `subtree_bytes`（后者对分帧结果物化为 `Owned`）。
-- wasm + zstd 组合只验证过编译，压缩向量的运行时行为未验（`rust/amberice/Cargo.toml` 台账）。
+- wasm + zstd 组合只验证过编译，压缩向量的运行时行为未验（`rust/amberice/Cargo.toml` 台账）；
+  启用 `wasm32 + compress` 时 `amberice/build.rs` 会打双语 warning（D50），wasm 仍应默认不压缩。
 - 加密与内存映射只有库接口，没有 CLI 子命令。
 - smldb 没有实现代码，不属于本产品线已交付能力。
 - 顶层 `amberice/` 目录只放 Python 绑定，与 `rust/amberice/` 不是一回事。

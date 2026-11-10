@@ -94,4 +94,7 @@ mmap = ["dep:memmap2"]
 # 本身就是敏感面。写侧还必须显式调用 `put_source` / `dump_with_source`，不会隐式写入。
 # ｜ Original-text retention (P7 / D46): opt-in only; enabling the feature alone writes nothing.
 source = []
+# 32 位目标（wasm32）：转发 `sml-value` 的风险门。默认拒编，开它表示明确接受
+# `u64 as usize` / `usize as u32` 的截断风险。wasm 发布仍应默认不压缩（D50）。
+allow-32bit = ["sml-value/allow-32bit"]
 default = []

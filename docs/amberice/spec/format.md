@@ -1039,6 +1039,9 @@ AAD      = seg_id:u8 ‖ comp:u8 ‖ block_index:u32le ‖ block_count:u32le ‖
 > `0x02 lz4` 的纯 Rust 实现 `lz4_flex` 也有 2026-03-17 **HIGH**（畸形数据泄露未初始化内存）。
 > 故 **T5 优先做 `0x03 deflate`（`flate2` + `miniz_oxide`，零公告）**，zstd 等生态冷却后再补；
 > 解压侧一律加「输出上限」挡炸弹（§24.1 S5 的内存预算）。
+>
+> **wasm32 + compress（D50）**：wasm 默认按不压缩发布；启用该组合时 `amberice/build.rs`
+> 打双语 warning —— 只验证过编译，压缩向量从未在 wasm 宿主里跑过（编过 ≠ 跑对）。
 
 | 区间 | 类别 | 已分配 |
 |---|---|---|
