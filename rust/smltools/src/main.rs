@@ -415,6 +415,30 @@ struct Cli {
     /// 与 `--keep-source` 互斥：SOURCE 会把原文原样留下，等于没脱敏。
     #[arg(long = "redact-rules", value_name = "FILE")]
     redact_rules: Option<PathBuf>,
+
+    /// 检查一个 `.ambr` 是否已按 `--redact-rules` 脱敏（D53）；通过 0，未通过 1
+    #[arg(long = "check-redact", value_name = "FILE")]
+    check_redact: Option<PathBuf>,
+
+    /// 批量追加（D53）：从 stdin 读帧（`---` 行分隔），每批合成一层
+    #[arg(long = "ingest", value_name = "FILE")]
+    ingest: Option<PathBuf>,
+
+    /// `--ingest` 每层最多攒多少帧（默认 64；0 = 关闭帧数触发）
+    #[arg(long = "frames", value_name = "N")]
+    frames: Option<u32>,
+
+    /// `--ingest` 距上次提交多少毫秒后提交（默认 1000；0 = 关闭时间触发）
+    #[arg(long = "max-delay", value_name = "MS")]
+    max_delay: Option<u64>,
+
+    /// `--ingest` 历史策略：keep（默认，追加未签名层）/ drop（整份重写）
+    #[arg(long = "history", value_name = "keep|drop")]
+    history: Option<String>,
+
+    /// `--ingest` 不对临时文件 fsync（默认 fsync）
+    #[arg(long = "no-fsync")]
+    no_fsync: bool,
 }
 
 /// 按输入格式把文本转成 `Value`。
@@ -562,6 +586,24 @@ struct Args {
     /// `--to-amberice` 的脱敏规则文件（D53）｜ redaction rules file
     #[cfg_attr(not(feature = "amberice"), allow(dead_code))]
     redact_rules: Option<PathBuf>,
+    /// `--check-redact` 目标文件 ｜ check an `.ambr` for redaction
+    #[cfg_attr(not(feature = "amberice"), allow(dead_code))]
+    check_redact: Option<PathBuf>,
+    /// `--ingest` 目标文件 ｜ batch-append target
+    #[cfg_attr(not(feature = "amberice"), allow(dead_code))]
+    ingest: Option<PathBuf>,
+    /// `--ingest` 帧数阈值 ｜ frames-per-layer
+    #[cfg_attr(not(feature = "amberice"), allow(dead_code))]
+    frames: Option<u32>,
+    /// `--ingest` 时间阈值（毫秒）｜ max delay in ms
+    #[cfg_attr(not(feature = "amberice"), allow(dead_code))]
+    max_delay: Option<u64>,
+    /// `--ingest` 历史策略 ｜ keep / drop
+    #[cfg_attr(not(feature = "amberice"), allow(dead_code))]
+    history: Option<String>,
+    /// `--ingest` 是否关闭 fsync ｜ disable fsync
+    #[cfg_attr(not(feature = "amberice"), allow(dead_code))]
+    no_fsync: bool,
 }
 
 /// `--feature` 的取值解析：与语言层**同一套字面量**（`10` / `1.0` / `v1` / `50` / `camelia`）。
@@ -621,6 +663,12 @@ fn parse_args(cli: Cli) -> Result<Args, SmlError> {
         dir: cli.dir,
         keep_source: cli.keep_source,
         redact_rules: cli.redact_rules,
+        check_redact: cli.check_redact,
+        ingest: cli.ingest,
+        frames: cli.frames,
+        max_delay: cli.max_delay,
+        history: cli.history,
+        no_fsync: cli.no_fsync,
     })
 }
 
@@ -1351,6 +1399,124 @@ fn load_redact_rules(path: &std::path::Path) -> Result<sml::RedactRules, SmlErro
     })
 }
 
+/// `--check-redact FILE --redact-rules RULES`：检查文件是否已是脱敏形态（D53）。
+#[cfg(feature = "amberice")]
+fn check_redact_mode(file: &std::path::Path, args: &Args) -> Result<u8, SmlError> {
+    let Some(rules_path) = &args.redact_rules else {
+        return Err(SmlError::from_code_msg(E_CLI_003)
+            .with_detail("--check-redact 需要 --redact-rules"));
+    };
+    let bytes = std::fs::read(file).map_err(|e| {
+        SmlError::from_code_msg(E_IO_001).with_detail(format!("读 {} 失败：{e}", file.display()))
+    })?;
+    let v = sml::amberice_value(&bytes).map_err(|e| {
+        SmlError::from_code_msg(E_CLI_003).with_detail(format!("{}: {e}", file.display()))
+    })?;
+    let rules = load_redact_rules(rules_path)?;
+    let bad = rules.check(&v).map_err(|e| {
+        SmlError::from_code_msg(E_CLI_003)
+            .with_detail(format!("{}: {e}", rules_path.display()))
+    })?;
+    if bad.is_empty() {
+        eprintln!(
+            "{}: 通过（{} 条规则均已是脱敏形态）",
+            file.display(),
+            rules.len()
+        );
+        Ok(0)
+    } else {
+        for b in &bad {
+            eprintln!("  {}: {}", b.path, b.reason);
+        }
+        eprintln!("{}: 未通过（{} 条规则命中）", file.display(), bad.len());
+        Ok(1)
+    }
+}
+
+#[cfg(not(feature = "amberice"))]
+fn check_redact_mode(_file: &std::path::Path, _args: &Args) -> Result<u8, SmlError> {
+    Err(SmlError::from_code_msg(E_CLI_003)
+        .with_detail("本构建未启用 `amberice` feature，无法检查 `.ambr`"))
+}
+
+/// `--ingest FILE`：从 stdin 读帧（`---` 行分隔），批量追加（D53）。
+#[cfg(feature = "amberice")]
+fn ingest_mode(file: &std::path::Path, args: &Args) -> Result<u8, SmlError> {
+    use std::io::Read as _;
+
+    let history = match args.history.as_deref().unwrap_or("keep") {
+        "keep" => sml::History::Keep,
+        "drop" => sml::History::Drop,
+        other => {
+            return Err(SmlError::from_code_msg(E_CLI_003)
+                .with_detail(format!("--history 只认 keep / drop，实得 `{other}`")))
+        }
+    };
+    let opts = sml::IngestOptions {
+        frames_per_layer: args.frames.unwrap_or(64),
+        max_delay_ms: args.max_delay.unwrap_or(1000),
+        fsync: !args.no_fsync,
+        history,
+    };
+
+    let mut text = String::new();
+    std::io::stdin().read_to_string(&mut text).map_err(|e| {
+        SmlError::from_code_msg(E_IO_001).with_detail(format!("读 stdin 失败：{e}"))
+    })?;
+    // Windows 的 `Get-Content -Raw` 可能带 UTF-8 BOM；不剥掉会变成第一个键的一部分。
+    let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+    let mut chunks: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    for line in text.lines() {
+        if line.trim() == "---" {
+            if !cur.trim().is_empty() {
+                chunks.push(std::mem::take(&mut cur));
+            }
+        } else {
+            cur.push_str(line);
+            cur.push('\n');
+        }
+    }
+    if !cur.trim().is_empty() {
+        chunks.push(cur);
+    }
+
+    let mut ing = sml::Ingestor::open(file, opts).map_err(|e| {
+        SmlError::from_code_msg(E_CLI_007)
+            .with_detail(format!("{}: {e}", file.display()))
+    })?;
+    let mut frames = 0usize;
+    for (i, chunk) in chunks.iter().enumerate() {
+        let v = sml::parse_ordered(chunk).map_err(|e| {
+            SmlError::from_code_msg(E_CLI_003)
+                .with_detail(format!("第 {} 帧: {e}", i + 1))
+        })?;
+        ing.push(v).map_err(|e| {
+            SmlError::from_code_msg(E_CLI_007)
+                .with_detail(format!("第 {} 帧: {e}", i + 1))
+        })?;
+        frames += 1;
+    }
+    let c = ing.commit().map_err(|e| {
+        SmlError::from_code_msg(E_CLI_007)
+            .with_detail(format!("{}: {e}", file.display()))
+    })?;
+    eprintln!(
+        "{}: {} 帧 → {} 层（{} B）",
+        file.display(),
+        frames,
+        c.layers,
+        c.bytes
+    );
+    Ok(0)
+}
+
+#[cfg(not(feature = "amberice"))]
+fn ingest_mode(_file: &std::path::Path, _args: &Args) -> Result<u8, SmlError> {
+    Err(SmlError::from_code_msg(E_CLI_003)
+        .with_detail("本构建未启用 `amberice` feature，无法批量追加"))
+}
+
 #[cfg(feature = "amberice")]
 fn write_amberice_output(value: &sml::Value, args: &Args, text: &str) -> ExitCode {
     // 键序是数据的一部分：SML 输入重新按源序解析（BTreeMap 会丢源序）；
@@ -1683,6 +1849,45 @@ fn real_main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+
+    // 独立模式：脱敏检查 / 批量追加（D53）。两者都不走「文本进、文本出」管线。
+    if args.check_redact.is_some() && args.ingest.is_some() {
+        eprintln!(
+            "smltools: --check-redact 与 --ingest 互斥，请只选其一 [{}]",
+            E_CLI_003
+        );
+        return ExitCode::from(2);
+    }
+    if (args.check_redact.is_some() || args.ingest.is_some())
+        && (args.to_amberice
+            || args.from_amberice
+            || args.input.is_some()
+            || args.output.is_some())
+    {
+        eprintln!(
+            "smltools: --check-redact / --ingest 不与 -i / -o / --to-amberice / --from-amberice 组合 [{}]",
+            E_CLI_003
+        );
+        return ExitCode::from(2);
+    }
+    if let Some(f) = &args.check_redact {
+        return match check_redact_mode(f, &args) {
+            Ok(code) => ExitCode::from(code),
+            Err(e) => {
+                eprintln!("smltools: {e}");
+                ExitCode::from(2)
+            }
+        };
+    }
+    if let Some(f) = &args.ingest {
+        return match ingest_mode(f, &args) {
+            Ok(code) => ExitCode::from(code),
+            Err(e) => {
+                eprintln!("smltools: {e}");
+                ExitCode::from(2)
+            }
+        };
+    }
 
     // 互斥 / 依赖校验（E-CLI-003：互斥项同时给出，或依赖项缺失）
     if args.zola_build && args.zola.is_none() {

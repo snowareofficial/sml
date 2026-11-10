@@ -52,6 +52,16 @@ pub struct RedactRules {
     rules: Vec<RedactRule>,
 }
 
+/// One rule that does **not** look redacted on this value (D53 check mode).
+/// 一条「看起来没脱敏」的规则（D53 检查模式）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RedactViolation {
+    /// Rule path ｜ 规则路径。
+    pub path: String,
+    /// Why it looks unredacted ｜ 为什么看起来没脱敏。
+    pub reason: String,
+}
+
 /// Why redaction failed. ｜ 脱敏失败的原因。
 #[derive(Debug)]
 #[non_exhaustive]
@@ -168,6 +178,42 @@ impl RedactRules {
         self.rules.is_empty()
     }
 
+    /// Check whether every rule already looks redacted (D53 check mode).
+    /// 检查每条规则是否**已经**是脱敏形态（D53 检查模式）。
+    ///
+    /// - `Drop`: path must be absent
+    /// - `Mask`: value must be [`MASK`]
+    /// - `Hash`: value must be a 64-char lowercase hex digest
+    ///
+    /// Missing paths are fine (optional fields); shape mismatches are errors.
+    /// 缺失路径视为通过（可选字段很常见）；形状不匹配仍报错。
+    pub fn check(&self, v: &Value) -> Result<Vec<RedactViolation>, RedactError> {
+        let mut out = Vec::new();
+        for rule in &self.rules {
+            let Some(found) = lookup(v, rule.path.segments())? else {
+                continue;
+            };
+            let bad = match rule.action {
+                RedactAction::Drop => Some("路径仍然存在（drop 规则未生效）"),
+                RedactAction::Mask => match found {
+                    Value::Str(s) if s == MASK => None,
+                    _ => Some("值不是固定遮盖 `***`"),
+                },
+                RedactAction::Hash => match found {
+                    Value::Str(s) if is_sha256_hex(s) => None,
+                    _ => Some("值不是 64 位小写十六进制摘要"),
+                },
+            };
+            if let Some(reason) = bad {
+                out.push(RedactViolation {
+                    path: rule.path.to_string(),
+                    reason: reason.to_string(),
+                });
+            }
+        }
+        Ok(out)
+    }
+
     /// Apply every rule in order. Missing paths are a no-op; shape mismatches are errors.
     /// 按顺序应用；路径缺失是 no-op，形状不匹配则报错。
     pub fn apply(&self, v: &mut Value) -> Result<(), RedactError> {
@@ -176,6 +222,37 @@ impl RedactRules {
         }
         Ok(())
     }
+}
+
+/// Resolve a path; `None` when any segment is missing, error when the shape does not fit.
+fn lookup<'a>(root: &'a Value, segs: &[Seg]) -> Result<Option<&'a Value>, RedactError> {
+    let mut cur = root;
+    for seg in segs {
+        match (seg, cur) {
+            (Seg::Key(k), Value::Object(m)) => {
+                let Some(next) = m.get(k) else {
+                    return Ok(None);
+                };
+                cur = next;
+            }
+            (Seg::Index(i), Value::Array(a)) => {
+                let Some(next) = a.get(*i) else {
+                    return Ok(None);
+                };
+                cur = next;
+            }
+            _ => {
+                return Err(RedactError::BadRules(
+                    "检查路径与值形状不匹配".to_string(),
+                ))
+            }
+        }
+    }
+    Ok(Some(cur))
+}
+
+fn is_sha256_hex(s: &str) -> bool {
+    s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 fn apply_rule(root: &mut Value, rule: &RedactRule) -> Result<(), RedactError> {

@@ -143,12 +143,12 @@ pub use sml_value::path::{Path, PathError, Seg};
 pub mod envelope;
 #[cfg(feature = "amberice")]
 pub use envelope::{
-    list, sml_to_amberice, amberice_to_sml, unwrap, value_to_amberice, value_to_amberice_with,
-    value_to_amberice_source_with, wrap, EnvelopeError, Payload,
+    amberice_to_sml, amberice_value, list, sml_to_amberice, unwrap, value_to_amberice,
+    value_to_amberice_source_with, value_to_amberice_with, wrap, EnvelopeError, Payload,
 };
-/// D53：写前脱敏规则（`amberice::redact`），只在 `.ambr` feature 下可见。
+/// D53：写前脱敏 / 批量归档，只在 `.ambr` feature 下可见。
 #[cfg(feature = "amberice")]
-pub use amberice::{RedactAction, RedactRules};
+pub use amberice::{History, IngestOptions, Ingestor, RedactAction, RedactRules};
 /// 统一错误类型（`code()` 是跨端稳定契约）。
 ///
 /// 以前调用方只能写 `Result<Value, sml_codes::SmlError>` —— 签名词里带出内部 crate，
