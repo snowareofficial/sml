@@ -23,7 +23,8 @@ amberice — 通用二进制信封 .ambr（SML 是内置载荷之一）
   amberice info    <file>                  一眼看清 edition/fmt/段表/摘要状态
   amberice ls      <file>                  逐段列出 id/偏移/长度/算法（`--segments` 同义）
   amberice check   <file>                  结构 + 逐段摘要校验，打印每段结论
-  amberice cat     <file> [<path>]         无路径输出整份；有路径取当前值（canonical 文本）
+  amberice cat     <file> [<path>] [--schema]
+                                      无路径输出整份；有路径取当前值；--schema 按内嵌 schema 渲染 TYPED
   amberice pack    [--zstd [N]] <out.ambr> <file>...
                                        把若干文件打成一个 .ambr 归档（EMBED 段）；
                                        `--zstd` 段级压缩（N = 1..19，默认 3）
@@ -348,20 +349,32 @@ fn safe_join(dest: &str, name: &str) -> Result<std::path::PathBuf, (u8, String)>
 /// `cat` = 整份 / 当前值 · `get` = 零拷贝取子树 · `history` = 第 N 层为止的值。
 fn cat_cmd(args: &[String]) -> Result<String, (u8, String)> {
     let mut pos: Vec<&String> = Vec::new();
+    let mut want_schema = false;
     for a in args {
-        if a == "--at" {
-            return Err((
-                2,
-                "历史回放已拆到 `amberice history <file> <path> --at N`（`cat` 只取当前值）"
-                    .to_string(),
-            ));
+        match a.as_str() {
+            "--at" => {
+                return Err((
+                    2,
+                    "历史回放已拆到 `amberice history <file> <path> --at N`（`cat` 只取当前值）"
+                        .to_string(),
+                ));
+            }
+            "--schema" => {
+                want_schema = true;
+            }
+            _ => pos.push(a),
         }
-        pos.push(a);
     }
     let Some(file) = pos.first() else {
-        return Err((2, "用法: amberice cat <file> [<path>]".to_string()));
+        return Err((2, "用法: amberice cat <file> [<path>] [--schema]".to_string()));
     };
+    if want_schema && pos.len() > 1 {
+        return Err((2, "`--schema` 不接受路径参数（它渲染整份 TYPED）".to_string()));
+    }
     let bytes = std::fs::read(file).map_err(|e| (1, format!("读 {file} 失败：{e}")))?;
+    if want_schema {
+        return render_typed(file, &bytes);
+    }
 
     // 无路径 ⇒ 整份 canonical 文本（与 `text` 同源，Unix `cat` 的直觉）
     let Some(expr) = pos.get(1) else {
@@ -375,6 +388,35 @@ fn cat_cmd(args: &[String]) -> Result<String, (u8, String)> {
 
     let v = amberice::get(&bytes, expr).map_err(|e| (1, format!("{file}: {e}")))?;
     v.canonical_text().map_err(|e| (1, format!("{e}")))
+}
+
+/// `cat --schema`：用内嵌 `SCHEMA`（0x71）把 `TYPED`（0x70）渲染成 `var <id> <name>: <值>`。
+/// Render `TYPED` via the embedded `SCHEMA`; one line per variable.
+fn render_typed(file: &str, bytes: &[u8]) -> Result<String, (u8, String)> {
+    let store = amberice::Store::open(bytes).map_err(|e| (1, format!("{file}: {e}")))?;
+    let schema = store
+        .schema()
+        .map_err(|e| (1, format!("{file}: {e}")))?
+        .ok_or_else(|| (1, format!("{file}: 没有 SCHEMA 段（0x71），无法按名渲染 TYPED")))?;
+    let body = store
+        .typed_body()
+        .ok_or_else(|| (1, format!("{file}: 没有 TYPED 段（0x70）")))?;
+    let vars =
+        amberice::typed::documented(body, &schema).map_err(|e| (1, format!("{file}: {e}")))?;
+    if vars.is_empty() {
+        return Ok(format!("{file}: 没有强类型变量"));
+    }
+    let mut out = String::new();
+    for v in vars {
+        // 顶层对象的 canonical 文本不带花括号；套一个同名键，输出才是 `Name: { … }`。
+        let mut one = amberice::Map::ordered();
+        one.insert(v.name.clone(), v.value);
+        let text = amberice::Value::Object(one)
+            .canonical_text()
+            .map_err(|e| (1, format!("{e}")))?;
+        out.push_str(&format!("var {} {}\n", v.id, text));
+    }
+    Ok(out.trim_end_matches('\n').to_string())
 }
 
 /// `amberice history <file> <path> --at N` — 第 N 层为止的值（历史回放）。
@@ -1144,5 +1186,73 @@ mod migrate_tests {
         assert_eq!(header_fmt(&h), Some(3));
         assert_eq!(header_fmt(b"AMBR"), None);
         assert_eq!(header_fmt(b"NOPE\x04\x00\x00\x28"), None);
+    }
+
+    #[test]
+    fn cat_schema_renders_typed_vars() {
+        use amberice::container::{SEG_STRTAB, SEG_VALUE};
+        use amberice::typed::{type_hash, Encode, Encoder};
+        use amberice::{CanonicalValue, DumpOptions, Map, Value, Writer};
+
+        #[derive(Debug)]
+        struct Point {
+            x: u32,
+            y: u32,
+        }
+        impl Encode for Point {
+            const TYPE_ID: u64 = type_hash(&["struct", "Point", "x", "y"]);
+            fn encode(&self, e: &mut Encoder<'_>) {
+                self.x.encode(e);
+                self.y.encode(e);
+            }
+        }
+
+        let doc = {
+            let mut m = Map::ordered();
+            m.insert("ok".to_string(), Value::Bool(true));
+            Value::Object(m)
+        };
+        let cv = CanonicalValue::try_from(&doc).expect("ordered");
+        let blocks = cv.canonical_blocks().expect("blocks");
+        let schema = {
+            let mut ty = Map::ordered();
+            ty.insert(
+                "id".to_string(),
+                Value::Str(format!("{:016x}", Point::TYPE_ID)),
+            );
+            ty.insert("name".to_string(), Value::Str("Point".to_string()));
+            ty.insert("kind".to_string(), Value::Str("struct".to_string()));
+            let mut fx = Map::ordered();
+            fx.insert("id".to_string(), Value::Int(1));
+            fx.insert("name".to_string(), Value::Str("x".to_string()));
+            fx.insert("ty".to_string(), Value::Str("u32".to_string()));
+            let mut fy = Map::ordered();
+            fy.insert("id".to_string(), Value::Int(2));
+            fy.insert("name".to_string(), Value::Str("y".to_string()));
+            fy.insert("ty".to_string(), Value::Str("u32".to_string()));
+            ty.insert(
+                "fields".to_string(),
+                Value::Array(vec![Value::Object(fx), Value::Object(fy)]),
+            );
+            let mut top = Map::ordered();
+            top.insert("schema_version".to_string(), Value::Int(1));
+            top.insert("types".to_string(), Value::Array(vec![Value::Object(ty)]));
+            Value::Object(top)
+        };
+
+        let mut buf = Vec::new();
+        {
+            let mut w = Writer::new(&mut buf, &DumpOptions::default(), SEG_VALUE).unwrap();
+            w.add_segment(SEG_VALUE, 0, 0, &blocks.value).unwrap();
+            if !blocks.strtab.is_empty() {
+                w.add_segment(SEG_STRTAB, 0, 0, &blocks.strtab).unwrap();
+            }
+            w.put_var(1, &Point { x: 7, y: 9 }).unwrap();
+            w.put_schema(&schema).unwrap();
+            w.finish().unwrap();
+        }
+
+        let out = super::render_typed("t.ambr", &buf).expect("render");
+        assert_eq!(out, "var 1 Point: { x: 7, y: 9 }");
     }
 }

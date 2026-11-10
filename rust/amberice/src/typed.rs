@@ -34,7 +34,9 @@
 //! type is not allowed to change (§25.5).
 //! ｜ 结构体全量写、字段 id 升序 —— 类型不许变，故不需要 presence bitset。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+
+use sml_value::{Map, Value};
 
 /// Variable id; `0` is reserved for "unspecified" ｜ 变量 id；`0` 保留给「未指定」。
 pub type VarId = u32;
@@ -570,6 +572,351 @@ pub fn read_var<T: Decode>(segment: &[u8], id: VarId) -> Result<T, TypedError> {
     Ok(out)
 }
 
+// ---------------------------------------------------------------------------
+// 内嵌 schema（D45）：用 `SCHEMA` 值把 `TYPED` 动态渲染成「变量 → 值」。
+// Embedded schema (D45): render `TYPED` without compile-time types.
+// ---------------------------------------------------------------------------
+
+/// 一条动态渲染出来的变量。 ｜ One dynamically rendered variable.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DocumentedVar {
+    /// Variable id ｜ 变量 id。
+    pub id: VarId,
+    /// Type name from `SCHEMA` ｜ `SCHEMA` 里的类型名。
+    pub name: String,
+    /// Decoded value (fields in schema order) ｜ 解出的值（字段按 schema 顺序）。
+    pub value: Value,
+}
+
+enum TypeRef {
+    Bool,
+    U8,
+    U16,
+    U32,
+    U64,
+    I8,
+    I16,
+    I32,
+    I64,
+    F32,
+    F64,
+    Str,
+    Bytes,
+    Vec(Box<TypeRef>),
+    Opt(Box<TypeRef>),
+    Named(u64),
+}
+
+struct FieldDef {
+    name: String,
+    ty: TypeRef,
+}
+
+struct TypeDef {
+    name: String,
+    fields: Vec<FieldDef>,
+}
+
+fn schema_err(why: impl Into<String>) -> TypedError {
+    TypedError::Schema(why.into())
+}
+
+fn as_obj<'a>(v: &'a Value, what: &str) -> Result<&'a Map, TypedError> {
+    match v {
+        Value::Object(m) => Ok(m),
+        _ => Err(schema_err(format!("{what} 必须是对象"))),
+    }
+}
+
+fn as_arr<'a>(v: &'a Value, what: &str) -> Result<&'a [Value], TypedError> {
+    match v {
+        Value::Array(a) => Ok(a),
+        _ => Err(schema_err(format!("{what} 必须是数组"))),
+    }
+}
+
+fn as_str<'a>(v: &'a Value, what: &str) -> Result<&'a str, TypedError> {
+    match v {
+        Value::Str(s) => Ok(s),
+        _ => Err(schema_err(format!("{what} 必须是字符串"))),
+    }
+}
+
+fn as_u64(v: &Value, what: &str) -> Result<u64, TypedError> {
+    match v {
+        Value::Int(i) if *i >= 0 => Ok(*i as u64),
+        _ => Err(schema_err(format!("{what} 必须是非负整数"))),
+    }
+}
+
+fn parse_type_id(s: &str) -> Result<u64, TypedError> {
+    if s.len() != 16 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(schema_err("type id 必须是 16 位十六进制"));
+    }
+    u64::from_str_radix(s, 16).map_err(|_| schema_err("type id 不是合法十六进制"))
+}
+
+fn parse_ty(v: &Value) -> Result<TypeRef, TypedError> {
+    match v {
+        Value::Str(s) => match s.as_str() {
+            "bool" => Ok(TypeRef::Bool),
+            "u8" => Ok(TypeRef::U8),
+            "u16" => Ok(TypeRef::U16),
+            "u32" => Ok(TypeRef::U32),
+            "u64" => Ok(TypeRef::U64),
+            "i8" => Ok(TypeRef::I8),
+            "i16" => Ok(TypeRef::I16),
+            "i32" => Ok(TypeRef::I32),
+            "i64" => Ok(TypeRef::I64),
+            "f32" => Ok(TypeRef::F32),
+            "f64" => Ok(TypeRef::F64),
+            "str" => Ok(TypeRef::Str),
+            "bytes" => Ok(TypeRef::Bytes),
+            other => Err(schema_err(format!("未知 ty `{other}`"))),
+        },
+        Value::Object(m) => {
+            if let Some(inner) = m.get("vec") {
+                return Ok(TypeRef::Vec(Box::new(parse_ty(inner)?)));
+            }
+            if let Some(inner) = m.get("opt") {
+                return Ok(TypeRef::Opt(Box::new(parse_ty(inner)?)));
+            }
+            if let Some(inner) = m.get("type") {
+                return Ok(TypeRef::Named(parse_type_id(as_str(inner, "type")?)?));
+            }
+            Err(schema_err("ty 对象要有 vec / opt / type 之一"))
+        }
+        _ => Err(schema_err("ty 必须是字符串或对象")),
+    }
+}
+
+fn parse_schema(schema: &Value) -> Result<HashMap<u64, TypeDef>, TypedError> {
+    let top = as_obj(schema, "SCHEMA")?;
+    let version = top
+        .get("schema_version")
+        .ok_or_else(|| schema_err("缺 schema_version"))?;
+    if as_u64(version, "schema_version")? != 1 {
+        return Err(schema_err("schema_version 只支持 1"));
+    }
+    let types = as_arr(
+        top.get("types").ok_or_else(|| schema_err("缺 types"))?,
+        "types",
+    )?;
+    let mut out = HashMap::new();
+    for t in types {
+        let o = as_obj(t, "types[]")?;
+        let id = parse_type_id(as_str(
+            o.get("id").ok_or_else(|| schema_err("type 缺 id"))?,
+            "id",
+        )?)?;
+        let name = as_str(
+            o.get("name").ok_or_else(|| schema_err("type 缺 name"))?,
+            "name",
+        )?
+        .to_string();
+        let kind = match o.get("kind") {
+            Some(v) => as_str(v, "kind")?,
+            None => "struct",
+        };
+        if kind != "struct" {
+            return Err(schema_err("v1 只支持 kind: struct"));
+        }
+        let fields_v = as_arr(
+            o.get("fields").ok_or_else(|| schema_err("type 缺 fields"))?,
+            "fields",
+        )?;
+        let mut fields = Vec::new();
+        let mut last = 0u64;
+        for f in fields_v {
+            let fo = as_obj(f, "fields[]")?;
+            let fid = as_u64(fo.get("id").ok_or_else(|| schema_err("field 缺 id"))?, "field id")?;
+            if fid <= last {
+                return Err(schema_err("fields 必须按 id 严格升序"));
+            }
+            last = fid;
+            let fname = as_str(
+                fo.get("name").ok_or_else(|| schema_err("field 缺 name"))?,
+                "field name",
+            )?
+            .to_string();
+            let ty = parse_ty(fo.get("ty").ok_or_else(|| schema_err("field 缺 ty"))?)?;
+            fields.push(FieldDef { name: fname, ty });
+        }
+        if out.insert(id, TypeDef { name, fields }).is_some() {
+            return Err(schema_err("type id 重复"));
+        }
+    }
+    Ok(out)
+}
+
+fn read_fixed<const N: usize>(d: &mut Decoder<'_>) -> Result<[u8; N], TypedError> {
+    let at = d.pos;
+    if d.remaining() < N {
+        return Err(TypedError::Truncated { at });
+    }
+    let mut out = [0u8; N];
+    out.copy_from_slice(&d.b[d.pos..d.pos + N]);
+    d.pos += N;
+    Ok(out)
+}
+
+fn hex_string(b: &[u8]) -> String {
+    let mut s = String::with_capacity(b.len() * 2);
+    for x in b {
+        s.push_str(&format!("{x:02x}"));
+    }
+    s
+}
+
+fn decode_struct(
+    d: &mut Decoder<'_>,
+    t: &TypeDef,
+    types: &HashMap<u64, TypeDef>,
+) -> Result<Value, TypedError> {
+    d.enter()?;
+    let mut m = Map::ordered();
+    for f in &t.fields {
+        let v = decode_ty(d, &f.ty, types)?;
+        m.insert(f.name.clone(), v);
+    }
+    d.leave();
+    Ok(Value::Object(m))
+}
+
+fn decode_ty(
+    d: &mut Decoder<'_>,
+    ty: &TypeRef,
+    types: &HashMap<u64, TypeDef>,
+) -> Result<Value, TypedError> {
+    let uint = |d: &mut Decoder<'_>, max: u64, name: &'static str| -> Result<Value, TypedError> {
+        let v = d.get_varint()?;
+        if v > max {
+            return Err(TypedError::OutOfRange { type_name: name });
+        }
+        Ok(Value::Int(v as i64))
+    };
+    match ty {
+        TypeRef::Bool => match d.get_varint()? {
+            0 => Ok(Value::Bool(false)),
+            1 => Ok(Value::Bool(true)),
+            v => Err(TypedError::BadBool { value: v }),
+        },
+        TypeRef::U8 => uint(d, u8::MAX as u64, "u8"),
+        TypeRef::U16 => uint(d, u16::MAX as u64, "u16"),
+        TypeRef::U32 => uint(d, u32::MAX as u64, "u32"),
+        TypeRef::U64 => {
+            let v = d.get_varint()?;
+            i64::try_from(v)
+                .map(Value::Int)
+                .map_err(|_| TypedError::OutOfRange { type_name: "u64" })
+        }
+        TypeRef::I8 => {
+            let v = d.get_i64()?;
+            i8::try_from(v).map_err(|_| TypedError::OutOfRange { type_name: "i8" })?;
+            Ok(Value::Int(v))
+        }
+        TypeRef::I16 => {
+            let v = d.get_i64()?;
+            i16::try_from(v).map_err(|_| TypedError::OutOfRange { type_name: "i16" })?;
+            Ok(Value::Int(v))
+        }
+        TypeRef::I32 => {
+            let v = d.get_i64()?;
+            i32::try_from(v).map_err(|_| TypedError::OutOfRange { type_name: "i32" })?;
+            Ok(Value::Int(v))
+        }
+        TypeRef::I64 => Ok(Value::Int(d.get_i64()?)),
+        TypeRef::F32 => {
+            let raw: [u8; 4] = read_fixed(d)?;
+            Ok(Value::float(f32::from_le_bytes(raw) as f64))
+        }
+        TypeRef::F64 => {
+            let raw: [u8; 8] = read_fixed(d)?;
+            Ok(Value::float(f64::from_le_bytes(raw)))
+        }
+        TypeRef::Str => {
+            let b = d.get_bytes()?;
+            let s = std::str::from_utf8(b).map_err(|_| TypedError::BadUtf8)?;
+            Ok(Value::Str(s.to_string()))
+        }
+        TypeRef::Bytes => Ok(Value::Str(hex_string(d.get_bytes()?))),
+        TypeRef::Vec(inner) => {
+            let count = d.get_varint()?;
+            if count > MAX_ELEMS {
+                return Err(TypedError::TooManyElements { at: d.pos, count });
+            }
+            d.enter()?;
+            let mut out = Vec::with_capacity((count as usize).min(1024));
+            for _ in 0..count {
+                out.push(decode_ty(d, inner, types)?);
+            }
+            d.leave();
+            Ok(Value::Array(out))
+        }
+        TypeRef::Opt(inner) => match d.get_varint()? {
+            0 => Ok(Value::Null),
+            1 => decode_ty(d, inner, types),
+            tag => Err(TypedError::BadOptionTag { tag }),
+        },
+        TypeRef::Named(id) => {
+            let t = types
+                .get(id)
+                .ok_or(TypedError::UnknownType { id: *id })?;
+            decode_struct(d, t, types)
+        }
+    }
+}
+
+fn payload_base(segment: &[u8]) -> Result<usize, TypedError> {
+    let mut d = Decoder::new(segment);
+    let count = d.get_varint()?;
+    if count > MAX_ELEMS {
+        return Err(TypedError::TooManyElements { at: 0, count });
+    }
+    for _ in 0..count {
+        d.get_varint()?;
+        if d.remaining() < 16 {
+            return Err(TypedError::Truncated { at: d.pos });
+        }
+        d.pos += 16;
+    }
+    Ok(d.pos)
+}
+
+/// 用内嵌 `SCHEMA` 渲染 `TYPED`：字段名与顺序都来自 schema（D45）。
+/// Render `TYPED` via an embedded `SCHEMA`; field names and order come from the schema.
+pub fn documented(segment: &[u8], schema: &Value) -> Result<Vec<DocumentedVar>, TypedError> {
+    let types = parse_schema(schema)?;
+    let dir = directory(segment)?;
+    let base = payload_base(segment)?;
+    let mut out = Vec::with_capacity(dir.len());
+    for e in dir {
+        let t = types
+            .get(&e.type_id)
+            .ok_or(TypedError::UnknownType { id: e.type_id })?;
+        let start = base
+            .checked_add(e.off as usize)
+            .ok_or(TypedError::Truncated { at: base })?;
+        let end = start
+            .checked_add(e.len as usize)
+            .ok_or(TypedError::Truncated { at: start })?;
+        if end > segment.len() {
+            return Err(TypedError::Truncated { at: start });
+        }
+        let mut d = Decoder::new(&segment[start..end]);
+        let value = decode_struct(&mut d, t, &types)?;
+        if d.remaining() != 0 {
+            return Err(TypedError::Trailing { at: d.pos });
+        }
+        out.push(DocumentedVar {
+            id: e.id,
+            name: t.name.clone(),
+            value,
+        });
+    }
+    Ok(out)
+}
+
 /// `TYPED` failures ｜ `TYPED` 失败原因。
 #[derive(Debug)]
 pub enum TypedError {
@@ -609,6 +956,10 @@ pub enum TypedError {
     DepthExceeded,
     /// Not a `TYPED` body (empty or too short) ｜ 不是 `TYPED` 段体。
     NotTyped,
+    /// `SCHEMA` is malformed ｜ `SCHEMA` 不合法。
+    Schema(String),
+    /// `SCHEMA` has no definition for this `type_id` ｜ `SCHEMA` 里没有这个 type_id。
+    UnknownType { id: u64 },
 }
 
 impl std::fmt::Display for TypedError {
@@ -639,6 +990,8 @@ impl std::fmt::Display for TypedError {
             }
             TypedError::DepthExceeded => write!(f, "嵌套深度超过 {MAX_DEPTH}"),
             TypedError::NotTyped => write!(f, "不是 TYPED 段体"),
+            TypedError::Schema(why) => write!(f, "SCHEMA 不合法：{why}"),
+            TypedError::UnknownType { id } => write!(f, "SCHEMA 里没有 type_id {id:016x}"),
         }
     }
 }
