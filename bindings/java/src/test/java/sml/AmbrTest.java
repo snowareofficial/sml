@@ -166,8 +166,8 @@ public final class AmbrTest {
         checkTyped();
 
         System.out.println("[ambr] " + cases + " 例，" + fails + " 个失败");
-        if (cases != 21) {
-            System.out.println("FAIL: 期望 21 例，实得 " + cases);
+        if (cases != 22) {
+            System.out.println("FAIL: 期望 22 例，实得 " + cases);
             fails++;
         }
         System.out.println(fails == 0 ? "[ambr] ALL OK" : "[ambr] FAILED");

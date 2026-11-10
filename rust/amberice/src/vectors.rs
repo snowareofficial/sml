@@ -326,6 +326,81 @@ pub fn verify_self() -> Result<(), String> {
     Ok(())
 }
 
+/// D45 case: `VALUE` + `TYPED(Point)` + `SCHEMA(Point)`. Decoders must skip the two side
+/// channels and still return the same `VALUE`.
+/// D45 用例：带 `TYPED` + `SCHEMA` 的文件；解码器按 `len` 跳过，值树不变。
+fn typed_container_case() -> Result<(Vec<u8>, String), String> {
+    use crate::container::{SEG_STRTAB, SEG_VALUE};
+    use crate::typed::{type_hash, Encode, Encoder};
+
+    #[derive(Clone)]
+    struct Point {
+        x: u32,
+        y: u32,
+    }
+    impl Encode for Point {
+        const TYPE_ID: u64 = type_hash(&["struct", "Point", "x", "y"]);
+        fn encode(&self, e: &mut Encoder<'_>) {
+            self.x.encode(e);
+            self.y.encode(e);
+        }
+    }
+
+    let v = obj(&[("who", s("u1"))]);
+    let cv = CanonicalValue::try_from(&v).map_err(|e| format!("[typed-schema] 值不可有序：{e}"))?;
+    let blocks = cv
+        .canonical_blocks()
+        .map_err(|e| format!("[typed-schema] canonical blocks：{e}"))?;
+
+    let schema = {
+        let mut ty = Map::ordered();
+        ty.insert(
+            "id".to_string(),
+            Value::Str(format!("{:016x}", Point::TYPE_ID)),
+        );
+        ty.insert("name".to_string(), Value::Str("Point".to_string()));
+        ty.insert("kind".to_string(), Value::Str("struct".to_string()));
+        let mut fx = Map::ordered();
+        fx.insert("id".to_string(), Value::Int(1));
+        fx.insert("name".to_string(), Value::Str("x".to_string()));
+        fx.insert("ty".to_string(), Value::Str("u32".to_string()));
+        let mut fy = Map::ordered();
+        fy.insert("id".to_string(), Value::Int(2));
+        fy.insert("name".to_string(), Value::Str("y".to_string()));
+        fy.insert("ty".to_string(), Value::Str("u32".to_string()));
+        ty.insert(
+            "fields".to_string(),
+            Value::Array(vec![Value::Object(fx), Value::Object(fy)]),
+        );
+        let mut top = Map::ordered();
+        top.insert("schema_version".to_string(), Value::Int(1));
+        top.insert("types".to_string(), Value::Array(vec![Value::Object(ty)]));
+        Value::Object(top)
+    };
+
+    let mut buf = Vec::new();
+    {
+        let mut w = crate::Writer::new(&mut buf, &crate::DumpOptions::default(), SEG_VALUE)
+            .map_err(|e| format!("[typed-schema] Writer：{e}"))?;
+        w.add_segment(SEG_VALUE, 0, 0, &blocks.value)
+            .map_err(|e| format!("[typed-schema] VALUE：{e}"))?;
+        if !blocks.strtab.is_empty() {
+            w.add_segment(SEG_STRTAB, 0, 0, &blocks.strtab)
+                .map_err(|e| format!("[typed-schema] STRTAB：{e}"))?;
+        }
+        w.put_var(1, &Point { x: 7, y: 9 })
+            .map_err(|e| format!("[typed-schema] put_var：{e}"))?;
+        w.put_schema(&schema)
+            .map_err(|e| format!("[typed-schema] put_schema：{e}"))?;
+        w.finish()
+            .map_err(|e| format!("[typed-schema] finish：{e}"))?;
+    }
+    let text = v
+        .canonical_text()
+        .map_err(|e| format!("[typed-schema] canonical_text：{e}"))?;
+    Ok((buf, text))
+}
+
 /// Render the **container** vectors file (whole `.ambr` bytes per case).
 /// 渲染**容器**向量文件（每例给整份 `.ambr` 字节）。
 ///
@@ -366,11 +441,29 @@ pub fn render_container() -> Result<String, String> {
         out.push_str("      \"ambr_hex\": ");
         push_json_str(&mut out, &hex(&bytes));
         out.push_str("\n    }");
-        if i + 1 != CASES.len() {
+        if i + 1 != CASES.len() + 1 {
             out.push(',');
         }
         out.push('\n');
     }
+
+    // D45：TYPED + SCHEMA。解码器按 len 跳过这两段，值树仍是 VALUE。
+    let (tbytes, ttext) = typed_container_case()?;
+    out.push_str("    {\n");
+    out.push_str("      \"id\": \"typed-schema\",\n");
+    out.push_str("      \"source\": ");
+    push_json_str(&mut out, "who: u1（+ TYPED Point + SCHEMA Point）");
+    out.push_str(",\n      \"note\": ");
+    push_json_str(
+        &mut out,
+        "D45 未知段可跳过：TYPED/SCHEMA 存在时命令式解码仍得到同一个 VALUE",
+    );
+    out.push_str(",\n      \"canonical_text\": ");
+    push_json_str(&mut out, &ttext);
+    out.push_str(&format!(",\n      \"ambr_len\": {},\n", tbytes.len()));
+    out.push_str("      \"ambr_hex\": ");
+    push_json_str(&mut out, &hex(&tbytes));
+    out.push_str("\n    }\n");
     out.push_str("  ]\n}\n");
     Ok(out)
 }
@@ -404,6 +497,26 @@ pub fn verify_container() -> Result<(), String> {
                 case.id
             ));
         }
+    }
+
+    // D45：同一份 TYPED+SCHEMA 文件两次产出必须一致，且侧段不改变值树。
+    let (a, want) = typed_container_case()?;
+    let b = typed_container_case()?.0;
+    if a != b {
+        return Err("[typed-schema] `Writer` 两次产出不同字节 —— 侧段混进了非确定性".to_string());
+    }
+    let back = crate::load(&a).map_err(|e| format!("[typed-schema] 解不回来：{e}"))?;
+    let got = back
+        .canonical_text()
+        .map_err(|e| format!("[typed-schema] {e}"))?;
+    if want != got {
+        return Err(format!(
+            "[typed-schema] 侧段改变了值树：\n  原: {want:?}\n  回: {got:?}"
+        ));
+    }
+    let store = crate::Store::open(&a).map_err(|e| format!("[typed-schema] Store::open：{e}"))?;
+    if store.typed_body().is_none() || store.schema().map_err(|e| e.to_string())?.is_none() {
+        return Err("[typed-schema] 文件缺少 TYPED 或 SCHEMA 段".to_string());
     }
     Ok(())
 }
@@ -450,7 +563,7 @@ pub fn generate_container(path: &Path) -> Result<String, String> {
     write_bytes(path, &body)?;
     Ok(format!(
         "已生成 {} 例容器向量 → {}（{} B）",
-        CASES.len(),
+        CASES.len() + 1,
         path.display(),
         body.len()
     ))
@@ -469,7 +582,7 @@ pub fn check_container(path: &Path) -> Result<String, String> {
     if actual == expected {
         return Ok(format!(
             "{} 例容器向量与 {} 逐字节一致（自检亦过）",
-            CASES.len(),
+            CASES.len() + 1,
             path.display()
         ));
     }

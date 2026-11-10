@@ -2,7 +2,7 @@
 ** SPDX-License-Identifier: MulanPSL-2.0
 ** test_ambr.c — `.ambr` 解码器对拍容器向量（T7 / N03）。
 **
-** 判据：`tests/vectors/amberice-container.v1.json` 里的 21 个 `ambr_hex` 全部解码成功，
+** 判据：`tests/vectors/amberice-container.v1.json` 里的 22 个 `ambr_hex` 全部解码成功，
 ** 且若干形状（标量 / 数组 / 嵌套 / STRTAB 去重 / 元数据块）逐值正确。
 ** 这里只做最小 JSON 扫描（找 "id": " 与 "ambr_hex": " 两段），不引第三方。
 **
@@ -182,8 +182,8 @@ int main(int argc, char **argv) {
     free(json);
 
     printf("[ambr] %d 例，%d 个失败\n", cases, failures);
-    if (cases != 21) {
-        printf("FAIL: 期望 21 例，实得 %d\n", cases);
+    if (cases != 22) {
+        printf("FAIL: 期望 22 例，实得 %d\n", cases);
         failures++;
     }
     printf("%s\n", failures ? "[ambr] FAILED" : "[ambr] ALL OK");
