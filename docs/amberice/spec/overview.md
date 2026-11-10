@@ -152,6 +152,8 @@
 - D53：`redact` 是写前纯值变换（删/遮盖/哈希），规则不进文件；唯一抹除仍是整份重写。
   CLI 入口是 `smltools --to-amberice --redact-rules FILE`，与 `--keep-source` 互斥（后者会留原文）；
   另有 `--check-redact`（只读检查）与 `--ingest`（stdin 帧批量追加，帧间用 `---` 行分隔）。
+- CLI 的 `.ambr` 写入统一 tmp+rename（不再先截断）；`check` 会报「完整 Trailer 之后多出的字节」
+  （半截追加 / 尾垃圾），`Ingestor::recover` 与它共用同一套完整 Trailer 判定。
 
 ### 3.10 压缩与加密
 

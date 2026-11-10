@@ -16,7 +16,7 @@ use std::time::Instant;
 use sml_value::{CanonicalValue, Value};
 
 use crate::hash::HashAlgo;
-use crate::layer::{self, LAYER_HEADER_LEN, TRAILER_LEN, TRAILER_MAGIC};
+use crate::layer;
 
 /// Whether the file keeps history. ｜ 文件是否保留历史。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -219,55 +219,24 @@ impl Ingestor {
     /// 找回最后一个完整 Trailer 并截断；找不到就报错，绝不截到不明位置。
     pub fn recover(&mut self) -> Result<Recovery, IngestError> {
         let bytes = std::fs::read(&self.path).map_err(|e| IngestError::Io(e.to_string()))?;
-        if bytes.len() >= TRAILER_LEN {
-            if let Some(t) = layer::Trailer::parse(&bytes) {
-                if let Ok(ls) = layer::layers(&bytes) {
-                    if ls.len() as u32 == t.layer_count {
-                        self.bytes = bytes;
-                        return Ok(Recovery {
-                            truncated_bytes: 0,
-                            dropped_tail: false,
-                        });
-                    }
-                }
-            }
-        }
-
-        let start = bytes.len().saturating_sub(1 << 20);
-        for pos in (start..=bytes.len().saturating_sub(TRAILER_LEN)).rev() {
-            if bytes[pos..pos + 8] != TRAILER_MAGIC {
-                continue;
-            }
-            let Some(t) = layer::Trailer::parse(&bytes[..pos + TRAILER_LEN]) else {
-                continue;
-            };
-            let off = t.last_layer_off as usize;
-            if off + LAYER_HEADER_LEN > pos {
-                continue;
-            }
-            let body_len =
-                u32::from_le_bytes([bytes[off], bytes[off + 1], bytes[off + 2], bytes[off + 3]])
-                    as usize;
-            if off + LAYER_HEADER_LEN + body_len != pos {
-                continue;
-            }
-            let body = &bytes[off + LAYER_HEADER_LEN..pos];
-            let Ok(got) = crate::hash::digest(self.algo, body) else {
-                continue;
-            };
-            if got != t.head_hash {
-                continue;
-            }
-            let keep = pos + TRAILER_LEN;
-            let truncated = bytes.len() - keep;
-            self.bytes = bytes[..keep].to_vec();
-            atomic_write(&self.path, &self.bytes, self.opts.fsync)?;
+        // 与 `check` 共用同一套「完整 Trailer」判定，避免两边口径漂移。
+        let Some((end, _)) = layer::find_trailer(&bytes, self.algo) else {
+            return Err(IngestError::RecoverFailed);
+        };
+        if end == bytes.len() {
+            self.bytes = bytes;
             return Ok(Recovery {
-                truncated_bytes: truncated,
-                dropped_tail: truncated > 0,
+                truncated_bytes: 0,
+                dropped_tail: false,
             });
         }
-        Err(IngestError::RecoverFailed)
+        let truncated = bytes.len() - end;
+        self.bytes = bytes[..end].to_vec();
+        atomic_write(&self.path, &self.bytes, self.opts.fsync)?;
+        Ok(Recovery {
+            truncated_bytes: truncated,
+            dropped_tail: true,
+        })
     }
 }
 
