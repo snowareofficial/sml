@@ -105,6 +105,17 @@ if rc == 0:
 else:
     sys.exit(rc)
 
+# --- D45：SCHEMA/TYPED 动态渲染（fixture 与 C / JS 共用） ---
+rc = run(["g++", "-std=c++17", "-I", HERE, "-o", exe("t_ambr_typed.exe"),
+          os.path.join(HERE, "tests", "test_ambr_typed.cpp"), os.path.join(HERE, "ambr.cpp")])
+if rc == 0:
+    rc2, out = run_out([exe("t_ambr_typed.exe")])
+    write_log("t_ambr_typed_out.txt", out)
+    print("AMBR-TYPED rc=%d" % rc2)
+    if rc2 != 0: sys.exit(rc2)
+else:
+    sys.exit(rc)
+
 # --- 桥接 Rust cdylib 的 v3 能力 (sml_rs.* 与原生 sml.cpp 并存) ---
 SML_RUST_LIB = os.environ.get("SML_RUST_LIB")
 if SML_RUST_LIB is None:
