@@ -1,7 +1,8 @@
-# weakdoc 规范草案 v0.1（**库侧已实现，工具侧未做**）
+# weakdoc 规范草案 v0.1（**库侧与 CLI 发现已实现，编辑器侧未做**）
 
-> 状态横幅：**Rust 库侧已实现**（语法 / 旁路表 / 判重 / 判别用例）。
-> **`.smlex` 的发现与解释全部未做** —— 那是工具侧（`smltools` / 编辑器）的活，见 §3。
+> 状态横幅：**Rust 库侧已实现**（语法 / 旁路表 / 判重 / 判别用例）；
+> `.smlex` 的三命名空间发现已由 `smltools --resolve-profiles` 实现（§3、§8）。
+> **未做**：编辑器侧的发现与提示、其余四端与绑定层。
 > 决定来源：2026-11-04 与用户确认（三命名空间；项目级目录用 `.smlex/profiles`）。
 >
 > 同族文档：`docs/swsml/spec/weakbind.md`、`docs/swsml/spec/weakdata.md`。

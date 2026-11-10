@@ -1,6 +1,6 @@
 # 未完成清单（2026-11-09 核对 · 一处看全）
 
-> **最后核对：2026-11-09**（代码版本 `e655d93`）。
+> **最后核对：2026-11-10**（HEAD `3b2d83a` + 工作区未提交改动）。
 
 > **权威仍是 `TODO.md` / `IDEAS.md`**（用户维护）；本文件只是把散在四处的欠账合成一页，
 > 每条带来源行号，方便「还剩什么」一眼看完。
@@ -18,7 +18,7 @@
 > 本节只留结论；**不再手工维护表格**（`TODO.md` §9 第三条）。
 
 - 单端（Rust）功能基本清空；剩**两条主线** —— **四端同步** 与 **v5 定稿**。
-- `.smlb` 库侧 T0–T6 已落，剩 **`smldb`**；**T7 五端解码器 2026-11-07 完成**（21/21 逐字节，两个写入后端）。
+- `.smlb` 库侧 T0–T6 已落，剩 **`smldb`**；**T7 多端解码器全端已通**（22/22 逐字符，含 C# / Go / Ruby FFI；状态见 `docs/amberice/ref/ports.md`）。
 - 外挂一批发布治理与文档债（§7、§8）。
 
 ---
@@ -28,9 +28,8 @@
 1. **`5.0` 未启用**：`@version 50 "camelia" dev` 实测报 `E-FEATURE-004`（S0b 有意为之）
    ⇒ featag / weak* / v5 新语法只能靠 `@feature enable ...` 在 v4 文档上试跑，版本位这条路没通。
    来源：`open-work.md:332`、`docs/swsml/spec/v5.md:21`。
-2. **四端欠账 42 条码**：新能力全在 Rust，跨端同步必须一次性做（§2）。
-3. **文档状态与代码脱节**：照着过期文档做会白干（§8），且**没有可重跑的扫描脚本**
-   （`open-work.md` 自称「自动扫描」，实际是人工整理）。
+2. **四端欠账 46 条码**：其中语言层 **38** 条属跨端欠账（DERIVE 8 条是 Rust 专属绑定层），新能力全在 Rust，跨端同步必须一次性做（§2）。
+3. **生成物与实时扫描未同步**：`docs/repo/ref/scan.md` 由 `tools/scan_status.py --write` 生成，文档改动后必须重跑，否则计数过期（§8）。
 
 ---
 
@@ -38,9 +37,9 @@
 
 | 项 | 内容 | 来源 |
 |---|---|---|
-| 错误码 | 42 条 `impls: [rust]`（featag 6 / weak* 3 / v5 若干 / 老能力历史缺口 82 条另计） | `errors/codes.sml`；`open-work.md` §4 |
+| 错误码 | 46 条 `impls: [rust]`，其中语言层 **38** 条属跨端欠账（DERIVE 8 条是 Rust 专属绑定层，不计） | `errors/codes.sml`；`docs/repo/ref/scan.md` |
 | 一致性套件 | 41 例 **AGREE 41 / DIVERGE 0**；`19` 的浮点身份是 JS/Lua 的载体限制，以 `*` 放行，**待登记为永久取舍** | `tests/conformance/known_divergences.md` 头部；`python tests/conformance/run_conformance.py` |
-| featag 四端 | Rust S0–S9 已收官；C/JS/Lua/C++ 未认识 `type.featag` | `IDEAS.md` I-6（状态 `Blocked` 已过期） |
+| featag 四端 | Rust S0–S9 已收官；C / C++ / JS / Lua 按 **S9 策略不实现**，遇 v5 报「本端不支持」，属设计取舍非欠账 | `docs/swsml/plan/featag-slices.md` S9 |
 | weak* 四端 | `@weakbind` / `@weakdata` / `@weakdoc` 库+工具均完成，仅 Rust | `IDEAS.md` I-5/I-15/I-17（`Partial`） |
 | 版本模型 | `Edition` 已替换 `Version`，四端未同步 | `docs/swsml/spec/version.md` |
 | TODO 里的跨端 7 项 | 顶层标量口径 L166 · 错误边界 L201 · Lua/JS 单测 L203 · C `sml_dump` 对齐 L204 · Lua 契约数组 L318 · Lua 嵌套数组 L967 · `k: "abc\` 三端三码 L1093 | `TODO.md` |
@@ -51,14 +50,11 @@
 
 | 项 | 内容 | 来源 |
 |---|---|---|
-| `5.0` 启用 | 现在 `Dev` + 报错；A 表条目未实现 | `docs/swsml/spec/v5.md` A 表（11 处 ⬜） |
-| B6 | 版本表示重构（标识 + 功能集查表）已做；文档仍写 ⬜ | `docs/swsml/spec/v5.md:63`（**过期**） |
-| B7 | `type.featag` 特性位已加；文档仍写 ⬜ | `docs/swsml/spec/v5.md:64`（**过期**） |
-| B8 | 跨端版本号统一（C 0.2.0 / VSIX 0.5.0 / Rust 0.6.x） | `docs/swsml/spec/v5.md:65` |
-| B9 | Rust emit 对 null 的产出不统一（md 丢、html 写 `(空)`） | `docs/swsml/spec/v5.md:66`、`docs/swsml/spec/null.md` N5-b |
-| B10 | 五端 null 往返一致（C/C++/Lua 用例待补） | `docs/swsml/spec/v5.md:67` |
+| `5.0` 启用 | 现在 `Dev` + 报 `E-FEATURE-004`；表 A 实现已先行，定稿时按 11 条逐条实测 | `docs/swsml/spec/v5.md` A 表、`docs/repo/ref/todo-ideas-tables.md` T50 |
+| B8 | 跨端版本号统一（C 0.2.0 / VSIX 0.5.0 / Rust 0.6.x） | `docs/swsml/spec/v5.md` 表 B |
+| B9 | Rust emit 对 null 的产出不统一（md 丢、html 写 `(空)`） | `docs/swsml/spec/v5.md` 表 B、`docs/swsml/spec/null.md` N5-b |
+| B10 | 五端 null 往返一致（C/C++/Lua 用例待补） | `docs/swsml/spec/v5.md` 表 B |
 | A13/N3 | `default null` v5 起禁用 —— 未实现 | `docs/swsml/spec/null.md` |
-| 标识符 S1b | `lex.ident` 其实已实现（`sml-lex/identifiers.rs`）；**文档记成未做** | `open-work.md:359-365`（**过期**） |
 
 ---
 
@@ -100,7 +96,7 @@ T5 段级 zstd + 帧级 FRAMES + 按块 AEAD · T6 `sml::envelope` + CLI 互转�
 | I-13 | 「实现即文档」示范只落了一个 | `Partial` |
 | I-14 | 排雷：可修项基本修完，剩余跨端 | `Partial` |
 | I-16 | 版本后缀已定；**`smltools --check-version` 不存在** | 方案已定、门禁未做 |
-| I-19 | 门面 crate 未建；**2026-11-06 改名 `smlkit` → `swml`**（`swsml` 退居 core） | 未建 |
+| I-19 | 门面 crate `rust/swml` 已建（`pub use swsml::*` + `easy` 模块）；`publish = false`，**未发布** | 部分完成 |
 | I-20 | 长文档链：`--split-by` / EPUB / 增量 emit / 源定位 未做 | `Partial` |
 | I-21 | 六类语义部件（figure/admonition/footnote/deflist/sub·sup/toc）未做 | `Partial` |
 | I-22 | 下游方言六问（源文件未入库，**有对外发布禁令**） | `Todo` |
@@ -125,7 +121,8 @@ T5 段级 zstd + 帧级 FRAMES + 按块 AEAD · T6 `sml::envelope` + CLI 互转�
 ## 7. 发布治理（发布前要清）
 
 `TODO.md` L802–L810：清 DeepSeek 开发痕迹 · 国际化（README/crate 文档/CLI 帮助）·
-双授权（MIT/Apache-2.0 + 木兰）· 各 crate 补 GitHub `repository` 地址。
+各 crate 补 GitHub `repository` 地址。双授权按 `docs/repo/ref/pending-decisions.md` D2 保持
+`MulanPSL-2.0` 单授权，不列入发布前待办。
 
 `TODO.md` L1080–L1087：发布节奏（等 I-18/19 的前提已不成立，需重定）· 占 GitHub org / 域名 /
 docs 子域 · 命名陷阱（包名 `swsml` / 库名 `sml`）。
@@ -144,7 +141,7 @@ docs 子域 · 命名陷阱（包名 `swsml` / 库名 `sml`）。
 | `.swl` 文件后缀 | **已裁决（2026-11-06）：定 `.swl`** | 文本后缀 `.swl`；`.sml` 作**长期读取别名**（516 个受控文件不动）；`.smld` 作废；**写出默认值改到 v5**；规范落点 `docs/amberice/spec/format.md §0`（`TODO.md §11.2`） |
 | 官网重写 | **待做，顺序绑命名** | 只有首页 / 下载页版本落后 / 教科书 ch11·ch12 重复 / `llms.txt` 手抄；等 11.1–11.2 定稿（`TODO.md §11.3`） |
 | 发布工作流 `release.yml` | **待做** | tag + 人工审批；crates.io 按拓扑序 + dry-run；VSIX/Open VSX/Release 附属产物；顺序在命名与迁 GitHub 之后（`TODO.md §12.1`） |
-| 定时部署 `deploy.yml` | **待做，对象待明确** | Cloudflare 现为 **Pages**（`sml-site`）非 Worker；VPS 部署内容仓库无记录；**触发改用 Ruby 脚本 + 系统级定时器**（Actions cron 不准点且 60 天停用）；`TODO.md §12.2` |
+| 定时部署 `deploy.yml` | **待做** | 按 `docs/repo/ref/pending-decisions.md` D4：`cron → CF Worker → repository_dispatch → GitHub Actions`（多平台构建与发布）；无 VPS，rsync / 健康检查 / 回滚方案作废；`TODO.md §12.2` |
 | swsml / smlb 深水区 | **13.1 已存档；13.2 的 ①②③ 实测早已修完** | 存档：tag `pre-deep-2026-11-07` + `baseline-2026-11-07/`（两份 bench 原始输出 + fuzz 语料 2549 文件）。优化实测：`Store::get` **10.4 µs**（`TODO` 记的 150 µs 已过期，**14×**），`canonical_bytes` 已两趟预分配，`to_sml` 已 `with_capacity` + 直接 `push_str`。**唯一真实欠账**：`load` 8173 allocs（`flat@4000`，节点级分配，需 arena 类改动，非「15% 小步」）。`clippy` **0 警告**（182 → 0：`missing_safety_doc` 45、两轮 `--fix`、文档类 42、结构类 31、机械类 19 全部清完；3 处 `large_enum_variant` 与 1 处 `should_implement_trait` 是带理由的 `#[allow]`）。`-D warnings` 门禁已写进 `ci.yml`（本地实跑 `cargo clippy --workspace --all-targets -- -D warnings` exit=0） | `TODO.md §13` |
 | `_*` 文件归档 + 文档元数据 | **新任务，一刀切** | 受版本控制 `_*` 18 个、磁盘约 231 个；**一次切完、不留新旧并存**；文档元数据用 SML 自己（`docs/meta.sml` + `smldocs`），不引 YAML；`scan.md` 由 `tools/scan_status.py --write` 生成（`TODO.md §14`） |
 | `swml` / `amberice` 独立 GitHub 仓 | **待裁决（2026-11-07）** | `swsml` monorepo 仍是根仓库；`amberice` 先做**只读镜像**（`git subtree split -P rust/amberice`，接收 issue 不接 PR）；`swml` 建占位仓等命名定稿；真独立需 `sml-value` 先发 crates.io |
@@ -155,25 +152,20 @@ docs 子域 · 命名陷阱（包名 `swsml` / 库名 `sml`）。
 
 > 已记进 `TODO.md`（发布前待办）。这里给出症状与「做完的定义」，否则这条会变成一句抱怨。
 
-**症状（都有实例）**
+**仍存在的症状**
 
 | 类型 | 实例 |
 |---|---|
-| 同一事实多处各说一套 | `open-work.md` 一天内三份快照叠在一起（§1–§9 / §10 / §11） |
-| 已完成的没回填 | `HANDOFF-2026-11-05.md:44-45` 写「fuzz 只有 1 个 target / bench 只有解析」；实际 **9 个 target + 3 份 bench**（2026-11-06） |
-| 同上 | `docs/swsml/ref/perf-baseline.md` 只有 `parse`；`value` / `smlb` 两份 bench 未进基线 |
-| 同上 | `IDEAS.md` I-6 仍 `Blocked`（Rust S0–S9 已收官）、I-18 仍「零实现」（T0–T6 已落） |
+| 用户维护文件的状态没回填 | `IDEAS.md` I-6 仍 `Blocked`（Rust S0–S9 已收官）、I-18 仍「零实现」（T0–T7 已落） |
 | 已过期的没删 | `spec §16.2` 的 P2/P6 标「待定」，实际已实现 |
-| 同上 | `docs/swsml/spec/v5.md` B6/B7 标 ⬜，代码已做；`featag-impl-slices.md` S4/S5 标未做，测试已有 |
 | 残句 / 错位 | `TODO.md` L811–813 是三行无归属的碎句（上一条列表与下一条「雷 2」之间） |
-| 无法重跑 | `open-work.md` 自称「自动扫描」，仓库里**没有生成脚本** |
 
 **做完的定义**
 
 1. `docs/repo/ref/unfinished.md`（本文件）是**唯一**「还剩什么」清单；`open-work.md` 归档不再更新；
 2. 每份规范/交接头部有「最后核对日期 + 对应代码版本（commit）」；
-3. `tools/` 下有一个能重跑的扫描脚本（TODO 勾选 / IDEAS 状态 / 码表 `impls` / 文档 ⬜），
-   产出即本文件，禁止手工维护两份；
+3. `tools/scan_status.py` 是唯一计数来源（TODO 勾选 / IDEAS 状态 / 码表 `impls` / 文档 ⬜），
+   产出 `docs/repo/ref/scan.md`；文档改动后重跑 `--write`，禁止手工维护两份；
 4. 「过期说法」一律**删掉或改写**，不保留「曾经如此」的正文（历史归 git）。
 
 **2026-11-06 追加口径（用户，含对“分批”的纠正）**：**一刀切，彻底**，不许新旧并存；
@@ -193,7 +185,7 @@ docs 子域 · 命名陷阱（包名 `swsml` / 库名 `sml`）。
 | fuzz 找到并修的 bug | 层链伪造 Trailer：`last_layer_off + 16` 溢出、按 `layer_count` 预分配 4G 项、`prev_off` 成环死循环 | `rust/smlb/src/layer.rs`；回归 `rust/smlb/tests/hostile_chain.rs`（3 例） |
 | bench 覆盖 | `benches/value.rs`（to_sml/canonical/get/eq_ordered）、`benches/smlb.rs`（dump/load/pack/get/Writer/解密/mmap）、`benches/common/mod.rs`（峰值堆计数） | `cargo bench --bench value`；`cargo bench --bench smlb --features "smlb-compress,smlb-crypto,smlb-mmap"` |
 | 新增 feature | `smlb-crypto`、`smlb-mmap`（与既有 `smlb-compress` 同形） | `rust/Cargo.toml` |
-| T7 五端解码器 | JS / Lua / C / C++ 解码器 + C#/Go/Java/Python/Ruby 绑定；`.ambr` 读写 21/21 **逐字节**一致 | `lua/test_ambr_write.lua`、`tools/check/check_ambr_write.py` |
+| T7 多端解码器 | JS / Lua / C / C++ / 纯 Java 解码器 + C# / Go / Python / Ruby FFI 绑定；容器向量 22/22 **逐字符**一致 | `docs/amberice/ref/ports.md`、`lua/test_ambr_write.lua`、`tools/check/check_ambr_write.py` |
 | TODO / IDEAS 两张表 | 交付物 [`todo-ideas-tables.md`](todo-ideas-tables.md)：TODO 表（未完成 / Done / 会话新增）与 IDEAS 表 I-1…I-23，逐条带状态、依赖、完成判据、来源行号、卡在谁 | `docs/index.md` 中该文档 `status: current`；取数命令见该文 §0 / §3 |
 | 未做 | **CI 不跑 fuzz/bench**（需 nightly + ASAN，可另开 job）；`smldb` 无 target；五端无一致性 fuzz | §0 |
 
@@ -224,3 +216,19 @@ TODO / IDEAS 两张表在 [`todo-ideas-tables.md`](todo-ideas-tables.md)（`stat
 本文件只列欠账，已完成项统一记在 §9。
 
 `TODO.md` §10 / §12–§14 属发布或大改动作，按各自排期单独处理，不随文档整理顺手做。
+
+---
+
+## 12. amberice 临时产物与未跑探针（2026-11-10）
+
+> 证据底稿 `docs/amberice/ref/claims-audit.md`（`status: draft`）与讨论记录
+> `docs/amberice/decisions.md §16.5`（待裁决 · 不作结论）都不得当结论引用。
+> 代码基线 `136803b`：审计 #11 / #12 / #20 已落地（原子写 + 尾垃圾检测），现状见底稿 §0.1。
+
+| 项 | 内容 | 做完的判据 | 来源 |
+|---|---|---|---|
+| 底稿去留 | 逐条采纳并进 `decisions.md §16.1`，或整体移入 `docs/amberice/archive/` | `meta.sml` 的 `title` / `status` / `scope` 同步，`changes.sml` 记一条，`--index` / `--check` 重跑 | `claims-audit.md §10` |
+| §16.5 去留 | 随底稿一并处理，节级「待裁决」横幅按结果去掉或随节归档 | 索引中 `decisions.md` 的 `scope` 不再写「待裁决」；D1–D54 / P12 / §16.3 状态不变 | `decisions.md §16.5` |
+| 探针 1 · 成本 | 8 MB / 64 MB 上 `append` 与「seek + 写尾」的耗时对比 | 有 `amberice` 实测数字；只有磁盘下限微基准不算 | `decisions.md §16.5.8` |
+| 探针 2 · 鲁棒性 | 有层文件截尾 1 / 32 / 64 / 128 B，看 `info` / `cat` / `check` | 四条都有结果；跑通前规范不得写「半截尾可优雅退化」 | `decisions.md §16.5.8`、`claims-audit.md §8` |
+| 探针 3 · 层数 | 100 层时 `value()` 与 `Store::get` 耗时，用来定 `compact` 阈值 | 有实测数字并补进底稿 | `decisions.md §16.5.8` |

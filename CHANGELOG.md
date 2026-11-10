@@ -70,7 +70,8 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   顶层 `name` / `version` / `description` / `applies_to` / `checks` / `hints` / `emit`；
   不变量三条（不注入 / 未知字段 warning 忽略 / name 必须等于文件名）。
   形状契约放在 `rust/smltools/profile.sml`（`loose`），可用 `--dump-builtins` 导出给编辑器。
-  ⚠️ **只是格式**：`checks` 的执行、`hints` 接编辑器、`emit` 接生成器都还没做。
+  ⚠️ **格式 + 工具侧部分**：`checks` 三项已接 `--lint`（命中即 error），`applies_to` 只提示不自动挂；
+  `hints` 接编辑器、`emit` 接生成器未做。
 - ⚠️ **升级注意（补充）**：`ParseOutput` 这轮共加**三个**字段 —— `weak_binds` / `weak_data` /
   `weak_docs`（后两者恒存在、未使用时为空 vec）。
 - **未做（明确登记，别当成已支持）**：编辑器提示（vscode / lsp / zed）、其余四端与绑定层 ——

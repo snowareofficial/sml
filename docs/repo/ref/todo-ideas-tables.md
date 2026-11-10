@@ -13,26 +13,25 @@
 
 | 维度 | 实测值 | 复核命令 |
 |---|---|---|
-| TODO 未勾 | **42** | `Select-String TODO.md '^\s*- \[ \]'` |
-| TODO 已勾 | **70** | `Select-String TODO.md '^\s*- \[ x\]'` |
+| TODO 未勾 | **44** | `Select-String TODO.md '^\s*- \[ \]'` |
+| TODO 已勾 | **75** | `Select-String TODO.md '^\s*- \[ x\]'` |
 | TODO 非复选框欠账 | **8** | 人工取自 `TODO.md` 表格行 / `⬜` 标记 / `⏳ 待修`（本文 T43–T50，逐行注来源） |
 | IDEAS 条目 | **23**（I-1…I-23，其中 I-12 = `Rejected`） | `Select-String IDEAS.md '^## I-\d+'` |
 | 码表条目 | **166** | `Select-String errors/codes.sml '\{ id: [EWI]-'` |
 | 仅 Rust 实现（`impls: [ rust ]`） | **46**；语言层 **38**（PARSE 16 / CONTRACT 10 / FEATURE 4 / INCLUDE 3 / EXT 3 / LEX 1 / LIMIT 1）+ DERIVE 8（宿主绑定层，Rust 专属，不是跨端欠账）。LEX 从 2 降到 1：`E-LEX-006` 已由 T21 在五端收口 | `Select-String errors/codes.sml '^\s*impls:\s*\[\s*rust\s*\]'`，按 `domain` 分组 |
 | 一致性套件 | **41 例 / AGREE 41 / DIVERGE 0**（`19` 以 `*` 放行） | `python tests/conformance/run_conformance.py`；`docs/repo/ref/scan.md` |
 | `.vsix` 产物 vs 源码 | 产物最新 **0.4.3**，`package.json` 已是 **0.5.0** | `Get-ChildItem editors/vscode -Filter *.vsix` |
-| 本会话新增（表 1.5，N01–N06） | **6**（全部未做） | 见 `## 表 1.5` |
+| 本会话新增（表 1.5，N01–N06） | **6**（已完成 4 / 部分完成 1 / 未做 1） | 见 `## 表 1.5` |
 
-**四处与旧文档不一致（以本表为准，别照抄旧数字）**
+**三处与旧文档不一致（以本表为准，别照抄旧数字）**
 
-1. `docs/repo/ref/unfinished.md §0` 写「42 条 `impls: [rust]`」——实测 **46 条**（其中语言层 38 条才是四端欠账；T21 收口 `E-LEX-006` 后各减 1）。
-2. `TODO.md:812` 写「146 条码」——实测 **166 条**。
-3. `TODO.md:166`「顶层标量未统一」、`TODO.md:149`「一致性套件本轮不做」都是**过期未勾**：前者五端已同报 `E-PARSE-008`，后者套件已建（41 例）。
-4. `IDEAS.md` 的 `I-23` 写 `Todo`、`I-18` 写「零实现」、`TODO.md §10.1` 写 `smlb` 待裁决 —— 均已被 2026-11-06 覆盖：改名 B 档落地（`0f1c7f4`）、性能 A/B 全落（`b5ec96a`…`f6c19b3`）。见 T29 / I-18 / I-23 行。
+1. `TODO.md:812` 写「146 条码」——实测 **166 条**。
+2. `TODO.md:166`「顶层标量未统一」、`TODO.md:149`「一致性套件本轮不做」都是**过期未勾**：前者五端已同报 `E-PARSE-008`，后者套件已建（41 例）。
+3. `IDEAS.md` 的 `I-23` 写 `Todo`、`I-18` 写「零实现」、`TODO.md §10.1` 写 `smlb` 待裁决 —— 均已被 2026-11-06 覆盖：改名 B 档落地（`0f1c7f4`）、性能 A/B 全落（`b5ec96a`…`f6c19b3`）。见 T29 / I-18 / I-23 行。
 
 ---
 
-## 表 1 · TODO（未完成 42 + 非复选框 8）
+## 表 1 · TODO（未完成 44 + 非复选框 8）
 
 | 编号 | 主题 | 状态 | 优先级 | 依赖 | 完成判据 | 来源(file:行) | 卡在谁 |
 |---|---|---|---|---|---|---|---|
@@ -89,7 +88,7 @@
 
 ---
 
-## 表 1（续）· TODO 已完成 70 条（Done，别再当欠账）
+## 表 1（续）· TODO 已完成 75 条（Done，别再当欠账）
 
 | 编号 | 主题 | 状态 | 优先级 | 依赖 | 完成判据 | 来源(file:行) | 卡在谁 |
 |---|---|---|---|---|---|---|---|
@@ -166,13 +165,13 @@
 
 ---
 
-## 表 1.5 · 2026-11-06 会话新增（不在 `TODO.md`，全部未做）
+## 表 1.5 · 2026-11-06 会话新增（不在 `TODO.md`；已完成 4 / 部分完成 1 / 未做 1）
 
 | 编号 | 主题 | 状态 | 优先级 | 依赖 | 完成判据 | 来源 | 卡在谁 |
 |---|---|---|---|---|---|---|---|
 | N01 | 正式口径基准重跑（`--quick` 数字不进基线） | **已完成**（2026-11-06）：`perf` / `value` / `amberice` / `profile` 四份正式口径数字已写回 `docs/swsml/ref/perf-baseline.md`「当前（正式口径）」；顺带发现 §1.1 的 get×1000 与 small parse 受噪声污染 | P1 | 无 | `cargo bench`（不带 `--quick`）跑 `perf` / `value` / `amberice` 三份，数字写回 `docs/swsml/ref/perf-baseline.md` | `docs/swsml/plan/perf-plan.md §1.3` | 无 |
 | N02 | `deep@120 tokenize` 时间回归跟进（+10.5%） | **已完成**（2026-11-06）：判定**不成立**。同配置复测 102,777 / 113,465 / 117,571 ns，低于「A 前」的 178.8 µs ⇒ 那对数字落在污染窗口 | P2 | N01 | 同机对照确认是噪声还是真回归；真回归则修 | `docs/swsml/plan/perf-plan.md §1.3` | 无 |
-| N03 | T7 五端 `.ambr` 解码器（JS / Lua / C / C++） | **未做，格式已冻结不再等待**（2026-11-06 用户裁决 v1 带 DIR/TYPED；落地在 spec §19.3 + §25，判据 = 认段头 + 跳过 + 验摘要，**不要求解 TYPED/DIR**）；**Rust 基准已出（`4a45f2a`）**：`tests/vectors/amberice-container.v1.json` 21 例；**JS + C 已通**：`js/ambr.mjs` 21/21（进 CI）、`c/ambr.c` 21 例 + 5 项语义抽检（`build_check.py --run`）；C++ / Lua 未做 | P1 | 无（原依赖 I-18 已解） | 四端能读 `AMBR` 头并解出值与段表；跨端向量通过 | `docs/amberice/spec/format.md §25.1`、`tests/vectors/amberice-container.v1.json` | 实现者 |
+| N03 | T7 五端 `.ambr` 解码器（JS / Lua / C / C++） | **已完成（全端 + FFI）**：`amberice-container.v1.json` 22 例；JS / C / C++ / Lua / 纯 Java 各 22/22 + 语义抽检，C# / Go / Python / Ruby FFI 2026-11-10 全通（22/22 逐字符）；状态表见 `docs/amberice/ref/ports.md` | P1 | 无（原依赖 I-18 已解） | 各端能读 `AMBR` 头并解出值与段表；跨端向量通过 | `docs/amberice/ref/ports.md`、`tests/vectors/amberice-container.v1.json` | 无 |
 | N04 | typed 载荷 v1（外置 schema） | **部分完成（2026-11-06）**：`Writer::put_var` / `Store::var` + `0x70 TYPED` 段；整数/浮点/bool/String/`Bytes`/`Vec<T>`/`Option<T>`；目录带 `type_id`、读时比对；`VALUE` 仍必写。**体积/时间对照表未做** | P2 | T16、N01（已解） | `put_var` / `get_var` + `0x70 TYPED` 段；对照 bench 出体积/时间表；不得让 `VALUE` 变成可选 | `docs/amberice/spec/format.md §25`、`docs/amberice/plan/plan.md §7` | 实现者（剩 bench 对照） |
 | N05 | A5 `DIR` 段（get 的兄弟扫描 O(n) → O(log n)） | **已完成（2026-11-06）**：`DumpOptions.dir`（默认关）+ `dir_depth`；`Store::get` 逐层二分，缺失/过期回退线性。实测 16k 键中键 get **54,097 → 412 ns（−99.2%）**，文件 +36.7%；1k/4k/16k 耗时基本持平（313/422/412 ns） | P2 | N03 | 16k 键中键 get 从 55.7 µs 降到 ≤30 µs（−46%）或按「≥15% 且随规模不再线性」表述，二选一后写死；索引缺失/过期只降速不改语义 | `docs/amberice/spec/format.md §19.3`、`docs/swsml/ref/perf-baseline.md §N05 DIR` | 无 |
 | N06 | SM3 ISA 后端（ARMv8.2 `FEAT_SM3` / x86 SM3 / RISC-V Zvksh） | 未做 | P2 | 硬件 | 有该 ISA 的机器上出加速比；本机只能验标准向量 | `docs/amberice/plan/plan.md §3.7` | 硬件 |
@@ -198,9 +197,9 @@
 | I-13 | 实现即文档 | Partial（只落了一个示范） | 流程 / 文档 | 无 | 每落一个能力补「语义 + 例子 + 陷阱」，例子必须可跑（doctest 或测试） | `IDEAS.md:583` |
 | I-14 | 仓库排雷行动 | Partial（可修项基本修完） | 质量 / 排雷 | 无 | 剩余为「已定性不做」或「结构上做不到」；跨端项归 T01 | `IDEAS.md:601` |
 | I-15 | `weakdata` 扩展数据通道 | Partial（2026-11-04，仅 Rust） | 语言 / 数据通道 | 多端同步 + 扩展 | 与 I-5 先划边界；落地后按 I-13 补「语义 + 例子 + 陷阱」 | `IDEAS.md:629` |
-| I-17 | `weakdoc`：`.smlex` profile 引用 | Partial（库侧已实现，工具侧未做） | 语言 / profile | 工具侧发现规则 | 补三命名空间发现 + `--profile-dir`；把「不注入」写成可测判据 | `IDEAS.md:652` |
+| I-17 | `weakdoc`：`.smlex` profile 引用 | Partial（库侧 + CLI 三命名空间发现已实现；编辑器侧未做） | 语言 / profile | 编辑器侧发现规则 | 补编辑器侧发现与提示；把「不注入」写成可测判据 | `IDEAS.md:652`、`docs/swsml/spec/weakdoc.md` |
 | I-16 | 版本后缀与发布门禁 | 方案已定；门禁未做 | 发布治理 | CI | 做 `--check-version`（当前 `smltools` **无此参数**）拦「没到门槛就 bump」 | `IDEAS.md:677` |
-| I-18 | `amberice`（原 `.smlb`）二进制 + `smldb` | **文档写 Todo「零实现」= 过期**；T0–T6 已落，且 2026-11-06 改名完成（`smlb` → `amberice`、`.ambr` / `AMBR`） | 格式 / 持久化 | 设计前提：`Value` 还是 HTML 式节点模型 | **T7 五端解码器仍为零**（JS/Lua/C/C++ 无 `AMBR` 命中）+ `smldb`；先定 FTS / `:has()` / `id` 唯一 / 规模信封 | `IDEAS.md:702`、`docs/repo/ref/unfinished.md:69` |
+| I-18 | `amberice`（原 `.smlb`）二进制 + `smldb` | **文档写 Todo「零实现」= 过期**；T0–T7 全端已落，且 2026-11-06 改名完成（`smlb` → `amberice`、`.ambr` / `AMBR`） | 格式 / 持久化 | 设计前提：`Value` 还是 HTML 式节点模型 | **`smldb` 未开工**（选择器 / FTS / 表结构）；先定 FTS / `:has()` / `id` 唯一 / 规模信封 | `IDEAS.md:702`、`docs/amberice/ref/ports.md` |
 | I-19 | 品牌门面 `swml`（原 `smlkit`） | **crate 已建（2026-11-06）**：`rust/swml`（`pub use swsml::*` + `easy` 模块）；`smlkit-easy` 已并入 `easy`、不再单独发；**未发布** | 命名 / 发布 | T18 / T29 | 新建 `swml` 0.1.0（独立仓、依赖 crates.io、`publish` 按纪律）；`smlkit-easy` 是否改 `swml-easy` 待裁 | `IDEAS.md:727` |
 | I-20 | 长文档产出链 | Partial（`--toc` + 锚点已落） | 工具 / 长文档 | 无 | 仍缺 `--to epub`、`--split-by section`、增量 emit、emit 源定位 | `IDEAS.md:766` |
 | I-21 | 语义部件目录 | Partial（跨后端漂移三修已落） | 工具 / 语义部件 | 无 | 六类部件：figure / admonition / footnote / deflist / sub·sup / toc 生成 | `IDEAS.md:792` |
@@ -213,11 +212,11 @@
 
 ```bash
 # 仓库根
-Select-String TODO.md '^\s*- \[ \]'                        # 42
-Select-String TODO.md '^\s*- \[x\]'                        # 70
+Select-String TODO.md '^\s*- \[ \]'                        # 44
+Select-String TODO.md '^\s*- \[x\]'                        # 75
 Select-String IDEAS.md '^## I-\d+'                         # 23
 Select-String errors/codes.sml '\{ id: [EWI]-'             # 166
-Select-String errors/codes.sml '^\s*impls:\s*\[\s*rust\s*\]'  # 47（语言层 39 + DERIVE 8）
+Select-String errors/codes.sml '^\s*impls:\s*\[\s*rust\s*\]'  # 46（语言层 38 + DERIVE 8）
 python tests/conformance/run_conformance.py                # 41 例，AGREE/DIVERGE 现算
 
 # 工具能力是否存在（0 命中 = 不存在）

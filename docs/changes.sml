@@ -60,5 +60,15 @@ changes {
     { doc: "examples/showcase_contract.sml" at: "2026-11-06" commit: "e16de31" summary: "移动自仓库根 showcase_contract.sml（同一批；rust/tests/contract_showcase.rs 的夹具路径同步）" }
     { doc: "AGENTS.md" at: "2026-11-06" commit: "e16de31" summary: "新建：agent 阅读规则（先读索引 / 只读 current / draft 与 stale 须点名 / 正文不写历史 / 新 doc 先登记）" }
     { doc: "docs/amberice/spec/overview.md" at: "2026-11-10" commit: "bbc3631" summary: "新建：从 amberice / amberice-ffi / 各端解码器与门禁源码重新导出产品线定义，不引用既有文档正文" }
+
+    { doc: "docs/amberice/ref/claims-audit.md" at: "2026-11-10" commit: "8fcf26e" summary: "新建：2026-11-10 会话 45 条论断逐条核实，标 draft 并加正文顶部「临时件」横幅；待处理：并进 decisions.md §16.1 或整体移入 amberice/archive/" }
+    { doc: "docs/amberice/decisions.md" at: "2026-11-10" commit: "8fcf26e" summary: "新增 §16.5 写路径 / 归档边界讨论与节级「临时节」横幅；文件仍 current，D1–D54、P12、§16.3 等既有裁决未降级" }
+    { doc: "_scratch/writepath/" at: "2026-11-10" commit: "8fcf26e" summary: "删除：微基准一次性数据（未入库）；复现方法留在 docs/amberice/ref/claims-audit.md §7" }
+
+    { doc: "docs/meta.sml" at: "2026-11-10" commit: "3b2d83a" summary: "状态回填：scope 与 updated 对齐源码（perf-baseline 四份 bench / featag S9 策略 / smlex 工具侧 / weak* 实现面）；current 文档的过期数字、横幅与 T7 口径同步改写" }
+
+    { doc: "docs/amberice/ref/claims-audit.md" at: "2026-11-10" commit: "136803b" summary: "改写：补 §0.1 会话后落地对照（原子写 / 尾垃圾检测 / 回归用例）、§7 可复现脚本，§8 / §9 复核命令对齐 136803b；仍保持 draft" }
+    { doc: "docs/amberice/decisions.md" at: "2026-11-10" commit: "136803b" summary: "改写：§16.5 的代码事实与探针进度对齐 136803b；仍为待裁决节，D1–D54 / P12 / §16.3 未动" }
+    { doc: "docs/repo/ref/unfinished.md" at: "2026-11-10" commit: "136803b" summary: "补 §12：临时产物去留与三条探针登记进唯一欠账清单" }
   ]
 }
