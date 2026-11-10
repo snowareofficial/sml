@@ -232,6 +232,6 @@ TODO / IDEAS 两张表在 [`todo-ideas-tables.md`](todo-ideas-tables.md)（`stat
 |---|---|---|---|
 | 底稿去留 | 逐条采纳并进 `decisions.md §16.1`，或整体移入 `docs/amberice/archive/` | `meta.sml` 的 `title` / `status` / `scope` 同步，`changes.sml` 记一条，`--index` / `--check` 重跑 | `claims-audit.md §10` |
 | §16.5 去留 | 随底稿一并处理，节级「待裁决」横幅按结果去掉或随节归档 | 索引中 `decisions.md` 的 `scope` 不再写「待裁决」；D1–D54 / P12 / §16.3 状态不变 | `decisions.md §16.5` |
-| 探针 1 · 成本 | ✅ 已实测：8 MB `append_unsigned` 38.720 ms / 64 MB 296.232 ms；尾部追加 200 B 恒定 1.2–1.8 ms | 数字与口径见 `decisions.md §16.5.8` | `_scratch/probe/`（未入库） |
+| 探针 1 · 成本 | ✅ 已实测：8 MB `append_unsigned` 38.720 ms / 64 MB 296.232 ms；尾部追加 200 B 恒定 1.2–1.8 ms | 数字与口径见 `decisions.md §16.5.8` | `cargo run --release -p amberice --example probe_layers` |
 | 探针 2 · 鲁棒性 | ✅ 已实测并修复：读端仍退回基文档，但 `check` 四档均判「未通过」并指出 Trailer 损坏 | 回归用例 `rust/amberice/tests/unsigned.rs::check_reports_truncated_trailer`，另有无层文件防误报用例 | `decisions.md §16.5.8`、`claims-audit.md §8` |
 | 探针 3 · 层数 | ✅ 已实测：100 层 / 39,603 B，`load` 0.3209 ms、`Store::value` 0.2837 ms、`Store::get` 0.2300 ms | `compact` 阈值改看体积与层数，不只看读耗时 | `decisions.md §16.5.8` |

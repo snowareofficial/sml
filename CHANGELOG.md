@@ -28,6 +28,9 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 - `tools/scan_status.py --write` 在正文未变时不重写文件（保留旧时间戳）。
 - `.github/workflows/ci.yml` 增加生成物幂等校验：重跑索引 / 体检 / 状态扫描后
   `git diff --exit-code`，数据源变了却没重跑生成物即判红。
+- 三条实测探针入库为 `rust/amberice/examples/probe_layers.rs`
+  （`cargo run --release -p amberice --example probe_layers`），成本 / 截尾 / 层数数字可复现；
+  大文件写在系统临时目录，跑完即删。
 
 ### 修复（`amberice`：落盘原子化与尾垃圾检测，审计 #11 / #12 / #20）
 
