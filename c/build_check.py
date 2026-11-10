@@ -33,6 +33,7 @@ TESTS = [
     (os.path.join(HERE, "tests", "test_limits.c"), []),
     (os.path.join(HERE, "tests", "test_codes.c"), []),
     (os.path.join(HERE, "tests", "test_ambr.c"), [os.path.join(HERE, "ambr.c")]),
+    (os.path.join(HERE, "tests", "test_ambr_typed.c"), [os.path.join(HERE, "ambr.c")]),
 ]
 
 

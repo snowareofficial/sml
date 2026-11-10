@@ -335,55 +335,60 @@ static sml_value *decode_node(rd *r, const strtab *st, int depth, char *err, siz
     return v;
 }
 
-sml_value *sml_ambr_load(const unsigned char *buf, size_t len, char *err, size_t errsz) {
+/* Segment bodies we care about; `walk_segments` fills them. ｜ 关心的段体。 */
+typedef struct {
+    const unsigned char *value, *strtab, *typed, *schema;
+    size_t value_len, strtab_len, typed_len, schema_len;
+    int typed_opaque, schema_opaque;
+} ambr_parts;
+
+static int walk_segments(const unsigned char *buf, size_t len, ambr_parts *out,
+                         char *err, size_t errsz) {
     if (err && errsz) err[0] = '\0';
+    memset(out, 0, sizeof *out);
     if (!buf || len < 40) {
         set_err(err, errsz, "文件短于 40 B 头");
-        return NULL;
+        return 0;
     }
     if (memcmp(buf, "AMBR", 4) != 0) {
         set_err(err, errsz, "不是 .ambr 文件（magic 不是 AMBR）");
-        return NULL;
+        return 0;
     }
     unsigned fmt = buf[6];
     unsigned hdr_len = buf[7];
     rd h = { buf, len, 8 };
     unsigned long long table_off;
     unsigned long count;
-    unsigned flags;
     if (!rd_u64(&h, &table_off)) {
         set_err(err, errsz, "头被截断");
-        return NULL;
+        return 0;
     }
     h.pos = 16;
     if (!rd_u32(&h, &count)) {
         set_err(err, errsz, "头被截断");
-        return NULL;
+        return 0;
     }
-    h.pos = 20;
-    if (h.pos + 2 > len) {
+    if (20 + 2 > len) {
         set_err(err, errsz, "头被截断");
-        return NULL;
+        return 0;
     }
-    flags = (unsigned)buf[20] | ((unsigned)buf[21] << 8);
+    unsigned flags = (unsigned)buf[20] | ((unsigned)buf[21] << 8);
     if (fmt != 0) {
         set_err(err, errsz, "不支持的字节布局版本");
-        return NULL;
+        return 0;
     }
     if (hdr_len < 40 || table_off < hdr_len) {
         set_err(err, errsz, "头部长度或段表偏移非法");
-        return NULL;
+        return 0;
     }
     size_t granule = (flags & 1u) ? ALIGN_BLOCK : ALIGN_MIN;
     size_t body_at = align_up((size_t)table_off + (size_t)count * SEG_HDR, granule);
 
-    const unsigned char *value = NULL, *strtab_body = NULL;
-    size_t value_len = 0, strtab_len = 0;
     for (unsigned long i = 0; i < count; i++) {
         size_t o = (size_t)table_off + i * SEG_HDR;
         if (o + SEG_HDR > len) {
             set_err(err, errsz, "段表越界");
-            return NULL;
+            return 0;
         }
         unsigned id = buf[o];
         unsigned comp = buf[o + 1];
@@ -393,39 +398,63 @@ sml_value *sml_ambr_load(const unsigned char *buf, size_t len, char *err, size_t
                                 ((unsigned long)buf[o + 8] << 24);
         if (body_at + seg_len > len) {
             set_err(err, errsz, "段体长度越界");
-            return NULL;
+            return 0;
         }
         if (id == SEG_VALUE || id == SEG_STRTAB) {
             if (comp != 0 || enc != 0) {
                 set_err(err, errsz, "VALUE/STRTAB 压缩或加密过，本解码器不解");
-                return NULL;
+                return 0;
             }
             if (!digest_ok(buf + body_at, seg_len, buf + o + 9)) {
                 set_err(err, errsz, "段摘要不符（段体被改动？）");
-                return NULL;
+                return 0;
             }
             if (id == SEG_VALUE) {
-                value = buf + body_at;
-                value_len = seg_len;
+                out->value = buf + body_at;
+                out->value_len = seg_len;
             } else {
-                strtab_body = buf + body_at;
-                strtab_len = seg_len;
+                out->strtab = buf + body_at;
+                out->strtab_len = seg_len;
+            }
+        } else if (id == 0x70 || id == 0x71) {
+            /* 可选旁路：压缩/加密形态按 Store 的口径忽略，不阻断 VALUE 读取。 */
+            if (comp != 0 || enc != 0) {
+                if (id == 0x70) out->typed_opaque = 1;
+                else out->schema_opaque = 1;
+            } else {
+                if (!digest_ok(buf + body_at, seg_len, buf + o + 9)) {
+                    set_err(err, errsz, "段摘要不符（段体被改动？）");
+                    return 0;
+                }
+                if (id == 0x70) {
+                    out->typed = buf + body_at;
+                    out->typed_len = seg_len;
+                } else {
+                    out->schema = buf + body_at;
+                    out->schema_len = seg_len;
+                }
             }
         }
         body_at = align_up(body_at + seg_len, granule);
     }
-    if (!value) {
+    return 1;
+}
+
+sml_value *sml_ambr_load(const unsigned char *buf, size_t len, char *err, size_t errsz) {
+    ambr_parts p;
+    if (!walk_segments(buf, len, &p, err, errsz)) return NULL;
+    if (!p.value) {
         set_err(err, errsz, "找不到 VALUE 段");
         return NULL;
     }
 
     strtab st = { NULL, 0, 0 };
-    if (strtab_body && !parse_strtab(strtab_body, strtab_len, &st)) {
+    if (p.strtab && !parse_strtab(p.strtab, p.strtab_len, &st)) {
         set_err(err, errsz, "STRTAB 解析失败");
         strtab_free(&st);
         return NULL;
     }
-    rd r = { value, value_len, 0 };
+    rd r = { p.value, p.value_len, 0 };
     sml_value *v = decode_node(&r, &st, 0, err, errsz);
     if (v && r.pos != r.len) {
         set_err(err, errsz, "VALUE 段读完仍有剩余字节");
@@ -434,6 +463,593 @@ sml_value *sml_ambr_load(const unsigned char *buf, size_t len, char *err, size_t
     }
     strtab_free(&st);
     return v;
+}
+
+/* ------------------------------------------------------------------------- */
+/* SCHEMA（0x71）+ TYPED（0x70）动态渲染（D45 / §25.8）                      */
+/* ------------------------------------------------------------------------- */
+
+typedef enum {
+    T_BOOL, T_U8, T_U16, T_U32, T_U64, T_I8, T_I16, T_I32, T_I64,
+    T_F32, T_F64, T_STR, T_BYTES, T_VEC, T_OPT, T_NAMED
+} tref_kind;
+
+typedef struct tref {
+    tref_kind kind;
+    unsigned long long named;
+    struct tref *inner;
+} tref;
+
+typedef struct {
+    char *name;
+    tref *type;
+} field_def;
+
+typedef struct {
+    unsigned long long id;
+    char *name;
+    field_def *fields;
+    size_t nfields;
+} type_def;
+
+typedef struct {
+    type_def *items;
+    size_t len, cap;
+} schema_def;
+
+typedef struct {
+    unsigned long long id, type_id;
+    unsigned long len, off;
+} typed_entry;
+
+static char *dup_str(const char *s) {
+    size_t n = strlen(s);
+    char *p = (char *)malloc(n + 1);
+    if (!p) return NULL;
+    memcpy(p, s, n + 1);
+    return p;
+}
+
+static int parse_type_id(const char *s, unsigned long long *out) {
+    if (!s || strlen(s) != 16) return 0;
+    unsigned long long v = 0;
+    for (size_t i = 0; i < 16; i++) {
+        char c = s[i];
+        unsigned d;
+        if (c >= '0' && c <= '9') d = (unsigned)(c - '0');
+        else if (c >= 'a' && c <= 'f') d = (unsigned)(c - 'a' + 10);
+        else return 0;
+        v = (v << 4) | d;
+    }
+    *out = v;
+    return 1;
+}
+
+static void tref_free(tref *t) {
+    if (!t) return;
+    tref_free(t->inner);
+    free(t);
+}
+
+static int parse_ty(const sml_value *v, tref **out, char *err, size_t errsz);
+
+static int parse_ty(const sml_value *v, tref **out, char *err, size_t errsz) {
+    if (!v) {
+        set_err(err, errsz, "SCHEMA 缺 ty");
+        return 0;
+    }
+    tref *t = (tref *)calloc(1, sizeof *t);
+    if (!t) {
+        set_err(err, errsz, "内存不足");
+        return 0;
+    }
+    if (v->type == SML_STR) {
+        const char *s = v->u.s;
+        if (!strcmp(s, "bool")) t->kind = T_BOOL;
+        else if (!strcmp(s, "u8")) t->kind = T_U8;
+        else if (!strcmp(s, "u16")) t->kind = T_U16;
+        else if (!strcmp(s, "u32")) t->kind = T_U32;
+        else if (!strcmp(s, "u64")) t->kind = T_U64;
+        else if (!strcmp(s, "i8")) t->kind = T_I8;
+        else if (!strcmp(s, "i16")) t->kind = T_I16;
+        else if (!strcmp(s, "i32")) t->kind = T_I32;
+        else if (!strcmp(s, "i64")) t->kind = T_I64;
+        else if (!strcmp(s, "f32")) t->kind = T_F32;
+        else if (!strcmp(s, "f64")) t->kind = T_F64;
+        else if (!strcmp(s, "str")) t->kind = T_STR;
+        else if (!strcmp(s, "bytes")) t->kind = T_BYTES;
+        else {
+            set_err(err, errsz, "SCHEMA 里有未知 ty");
+            free(t);
+            return 0;
+        }
+    } else if (v->type == SML_OBJECT) {
+        sml_value *inner = sml_obj_get(v, "vec");
+        if (inner) {
+            t->kind = T_VEC;
+            if (!parse_ty(inner, &t->inner, err, errsz)) { free(t); return 0; }
+        } else if ((inner = sml_obj_get(v, "opt")) != NULL) {
+            t->kind = T_OPT;
+            if (!parse_ty(inner, &t->inner, err, errsz)) { free(t); return 0; }
+        } else if ((inner = sml_obj_get(v, "type")) != NULL) {
+            if (inner->type != SML_STR || !parse_type_id(inner->u.s, &t->named)) {
+                set_err(err, errsz, "SCHEMA 的 type 引用非法");
+                free(t);
+                return 0;
+            }
+            t->kind = T_NAMED;
+        } else {
+            set_err(err, errsz, "SCHEMA 的 ty 对象缺 vec/opt/type");
+            free(t);
+            return 0;
+        }
+    } else {
+        set_err(err, errsz, "SCHEMA 的 ty 必须是字符串或对象");
+        free(t);
+        return 0;
+    }
+    *out = t;
+    return 1;
+}
+
+static void schema_free(schema_def *sd) {
+    if (!sd) return;
+    for (size_t i = 0; i < sd->len; i++) {
+        free(sd->items[i].name);
+        for (size_t j = 0; j < sd->items[i].nfields; j++) {
+            free(sd->items[i].fields[j].name);
+            tref_free(sd->items[i].fields[j].type);
+        }
+        free(sd->items[i].fields);
+    }
+    free(sd->items);
+    sd->items = NULL;
+    sd->len = sd->cap = 0;
+}
+
+static int schema_push(schema_def *sd, type_def td) {
+    if (sd->len == sd->cap) {
+        size_t cap = sd->cap ? sd->cap * 2 : 8;
+        type_def *p = (type_def *)realloc(sd->items, cap * sizeof *p);
+        if (!p) return 0;
+        sd->items = p;
+        sd->cap = cap;
+    }
+    sd->items[sd->len++] = td;
+    return 1;
+}
+
+static int parse_schema(const sml_value *schema, schema_def *sd, char *err, size_t errsz) {
+    if (schema->type != SML_OBJECT) {
+        set_err(err, errsz, "SCHEMA 必须是对象");
+        return 0;
+    }
+    sml_value *ver = sml_obj_get(schema, "schema_version");
+    if (!ver || ver->type != SML_INT || ver->u.i != 1) {
+        set_err(err, errsz, "schema_version 只支持 1");
+        return 0;
+    }
+    sml_value *types = sml_obj_get(schema, "types");
+    if (!types || types->type != SML_ARRAY) {
+        set_err(err, errsz, "SCHEMA 缺 types");
+        return 0;
+    }
+    for (size_t i = 0; i < types->u.arr.len; i++) {
+        sml_value *tv = types->u.arr.items[i];
+        if (!tv || tv->type != SML_OBJECT) {
+            set_err(err, errsz, "SCHEMA 的 types[] 必须是对象");
+            schema_free(sd);
+            return 0;
+        }
+        sml_value *idv = sml_obj_get(tv, "id");
+        sml_value *nv = sml_obj_get(tv, "name");
+        sml_value *kv = sml_obj_get(tv, "kind");
+        sml_value *fv = sml_obj_get(tv, "fields");
+        unsigned long long id;
+        if (!idv || idv->type != SML_STR || !parse_type_id(idv->u.s, &id)) {
+            set_err(err, errsz, "SCHEMA 的 type id 非法");
+            schema_free(sd);
+            return 0;
+        }
+        if (!nv || nv->type != SML_STR) {
+            set_err(err, errsz, "SCHEMA 的 type 缺 name");
+            schema_free(sd);
+            return 0;
+        }
+        if (kv && (kv->type != SML_STR || strcmp(kv->u.s, "struct") != 0)) {
+            set_err(err, errsz, "v1 只支持 kind: struct");
+            schema_free(sd);
+            return 0;
+        }
+        if (!fv || fv->type != SML_ARRAY) {
+            set_err(err, errsz, "SCHEMA 的 type 缺 fields");
+            schema_free(sd);
+            return 0;
+        }
+        for (size_t k = 0; k < sd->len; k++) {
+            if (sd->items[k].id == id) {
+                set_err(err, errsz, "SCHEMA 的 type id 重复");
+                schema_free(sd);
+                return 0;
+            }
+        }
+        type_def td;
+        td.id = id;
+        td.name = dup_str(nv->u.s);
+        td.fields = (field_def *)calloc(fv->u.arr.len, sizeof(field_def));
+        td.nfields = fv->u.arr.len;
+        if (!td.name || (fv->u.arr.len && !td.fields)) {
+            free(td.name);
+            free(td.fields);
+            set_err(err, errsz, "内存不足");
+            schema_free(sd);
+            return 0;
+        }
+        long long last = -1;
+        for (size_t j = 0; j < fv->u.arr.len; j++) {
+            sml_value *fo = fv->u.arr.items[j];
+            sml_value *fid = fo && fo->type == SML_OBJECT ? sml_obj_get(fo, "id") : NULL;
+            sml_value *fn = fo && fo->type == SML_OBJECT ? sml_obj_get(fo, "name") : NULL;
+            sml_value *ft = fo && fo->type == SML_OBJECT ? sml_obj_get(fo, "ty") : NULL;
+            if (!fid || fid->type != SML_INT || fid->u.i <= last) {
+                set_err(err, errsz, "SCHEMA 的 fields 必须按 id 严格升序");
+                goto fail_td;
+            }
+            last = fid->u.i;
+            if (!fn || fn->type != SML_STR) {
+                set_err(err, errsz, "SCHEMA 的 field 缺 name");
+                goto fail_td;
+            }
+            td.fields[j].name = dup_str(fn->u.s);
+            if (!td.fields[j].name || !parse_ty(ft, &td.fields[j].type, err, errsz)) {
+                goto fail_td;
+            }
+            continue;
+        fail_td:
+            free(td.name);
+            for (size_t q = 0; q < td.nfields; q++) {
+                free(td.fields[q].name);
+                tref_free(td.fields[q].type);
+            }
+            free(td.fields);
+            schema_free(sd);
+            return 0;
+        }
+        if (!schema_push(sd, td)) {
+            free(td.name);
+            for (size_t q = 0; q < td.nfields; q++) {
+                free(td.fields[q].name);
+                tref_free(td.fields[q].type);
+            }
+            free(td.fields);
+            set_err(err, errsz, "内存不足");
+            schema_free(sd);
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static const type_def *schema_find(const schema_def *sd, unsigned long long id) {
+    for (size_t i = 0; i < sd->len; i++) {
+        if (sd->items[i].id == id) return &sd->items[i];
+    }
+    return NULL;
+}
+
+static sml_value *decode_typed(rd *r, const tref *t, const schema_def *sd, int depth,
+                               char *err, size_t errsz);
+
+static sml_value *decode_struct(rd *r, const type_def *td, const schema_def *sd, int depth,
+                                char *err, size_t errsz) {
+    if (depth > MAX_DEPTH) {
+        set_err(err, errsz, "TYPED 嵌套超过上限");
+        return NULL;
+    }
+    sml_value *o = sml_new_object();
+    if (!o) return NULL;
+    for (size_t i = 0; i < td->nfields; i++) {
+        sml_value *fv = decode_typed(r, td->fields[i].type, sd, depth + 1, err, errsz);
+        if (!fv) {
+            sml_free(o);
+            return NULL;
+        }
+        sml_obj_set(o, td->fields[i].name, fv);
+    }
+    return o;
+}
+
+static int read_len_bytes(rd *r, const unsigned char **b, size_t *n) {
+    unsigned long long len;
+    if (!rd_varint(r, &len)) return 0;
+    if (len > (unsigned long long)(r->len - r->pos)) return 0;
+    *b = r->b + r->pos;
+    *n = (size_t)len;
+    r->pos += (size_t)len;
+    return 1;
+}
+
+static sml_value *bytes_hex(const unsigned char *b, size_t n) {
+    static const char *H = "0123456789abcdef";
+    char *s = (char *)malloc(n * 2 + 1);
+    if (!s) return NULL;
+    for (size_t i = 0; i < n; i++) {
+        s[i * 2] = H[b[i] >> 4];
+        s[i * 2 + 1] = H[b[i] & 15];
+    }
+    s[n * 2] = '\0';
+    sml_value *v = sml_new_str(s);
+    free(s);
+    return v;
+}
+
+static sml_value *decode_typed(rd *r, const tref *t, const schema_def *sd, int depth,
+                               char *err, size_t errsz) {
+    if (depth > MAX_DEPTH) {
+        set_err(err, errsz, "TYPED 嵌套超过上限");
+        return NULL;
+    }
+    unsigned long long z;
+    switch (t->kind) {
+    case T_BOOL:
+        if (!rd_varint(r, &z) || z > 1) {
+            set_err(err, errsz, "布尔的 tag 只能是 0/1");
+            return NULL;
+        }
+        return sml_new_bool((int)z);
+    case T_U8:
+    case T_U16:
+    case T_U32: {
+        unsigned long long max = t->kind == T_U8 ? 255ULL : t->kind == T_U16 ? 65535ULL : 4294967295ULL;
+        if (!rd_varint(r, &z) || z > max) {
+            set_err(err, errsz, "整数超出目标类型范围");
+            return NULL;
+        }
+        return sml_new_int((long long)z);
+    }
+    case T_U64:
+        if (!rd_varint(r, &z)) {
+            set_err(err, errsz, "TYPED 载荷截断");
+            return NULL;
+        }
+        if (z > 9223372036854775807ULL) {
+            set_err(err, errsz, "u64 超出 i64 范围，无法用 Int 表示");
+            return NULL;
+        }
+        return sml_new_int((long long)z);
+    case T_I8:
+    case T_I16:
+    case T_I32:
+    case T_I64: {
+        if (!rd_varint(r, &z)) {
+            set_err(err, errsz, "TYPED 载荷截断");
+            return NULL;
+        }
+        long long n = (long long)(z >> 1) ^ -(long long)(z & 1);
+        long long lim = t->kind == T_I8 ? 127LL : t->kind == T_I16 ? 32767LL
+                       : t->kind == T_I32 ? 2147483647LL : 9223372036854775807LL;
+        if (n > lim || n < -lim - 1) {
+            set_err(err, errsz, "整数超出目标类型范围");
+            return NULL;
+        }
+        return sml_new_int(n);
+    }
+    case T_F32: {
+        if (r->pos + 4 > r->len) {
+            set_err(err, errsz, "TYPED 载荷截断");
+            return NULL;
+        }
+        float f;
+        memcpy(&f, r->b + r->pos, 4);
+        r->pos += 4;
+        return sml_new_float((double)f);
+    }
+    case T_F64: {
+        if (r->pos + 8 > r->len) {
+            set_err(err, errsz, "TYPED 载荷截断");
+            return NULL;
+        }
+        double d;
+        memcpy(&d, r->b + r->pos, 8);
+        r->pos += 8;
+        return sml_new_float(d);
+    }
+    case T_STR: {
+        const unsigned char *b;
+        size_t n;
+        if (!read_len_bytes(r, &b, &n)) {
+            set_err(err, errsz, "字符串长度越界");
+            return NULL;
+        }
+        return sml_new_strn((const char *)b, n);
+    }
+    case T_BYTES: {
+        const unsigned char *b;
+        size_t n;
+        if (!read_len_bytes(r, &b, &n)) {
+            set_err(err, errsz, "字节长度越界");
+            return NULL;
+        }
+        return bytes_hex(b, n);
+    }
+    case T_VEC: {
+        if (!rd_varint(r, &z) || z > MAX_ELEMS) {
+            set_err(err, errsz, "数组元素数越界");
+            return NULL;
+        }
+        sml_value *a = sml_new_array();
+        if (!a) return NULL;
+        for (unsigned long long i = 0; i < z; i++) {
+            sml_value *item = decode_typed(r, t->inner, sd, depth + 1, err, errsz);
+            if (!item) {
+                sml_free(a);
+                return NULL;
+            }
+            sml_arr_push(a, item);
+        }
+        return a;
+    }
+    case T_OPT: {
+        if (!rd_varint(r, &z) || z > 1) {
+            set_err(err, errsz, "Option 的 tag 只能是 0/1");
+            return NULL;
+        }
+        if (z == 0) return sml_new_null();
+        return decode_typed(r, t->inner, sd, depth + 1, err, errsz);
+    }
+    case T_NAMED: {
+        const type_def *td = schema_find(sd, t->named);
+        if (!td) {
+            set_err(err, errsz, "SCHEMA 里没有这个 type_id");
+            return NULL;
+        }
+        return decode_struct(r, td, sd, depth + 1, err, errsz);
+    }
+    }
+    set_err(err, errsz, "未知 ty");
+    return NULL;
+}
+
+static int parse_l0_strings(rd *r, strtab *st, char *err, size_t errsz) {
+    unsigned long long count;
+    if (!rd_varint(r, &count) || count > MAX_ELEMS) {
+        set_err(err, errsz, "L0 字符串个数非法");
+        return 0;
+    }
+    for (unsigned long long i = 0; i < count; i++) {
+        const unsigned char *b;
+        size_t n;
+        if (!read_len_bytes(r, &b, &n)) {
+            set_err(err, errsz, "L0 字符串长度越界");
+            return 0;
+        }
+        if (!strtab_push(st, b, n)) {
+            set_err(err, errsz, "内存不足");
+            return 0;
+        }
+    }
+    return 1;
+}
+
+sml_value *sml_ambr_load_typed(const unsigned char *buf, size_t len, char *err, size_t errsz) {
+    ambr_parts p;
+    if (!walk_segments(buf, len, &p, err, errsz)) return NULL;
+    if (p.typed_opaque || p.schema_opaque) {
+        set_err(err, errsz, "TYPED/SCHEMA 压缩或加密过，本解码器不解");
+        return NULL;
+    }
+    if (!p.typed) return sml_new_array();
+    if (!p.schema) {
+        set_err(err, errsz, "没有 SCHEMA 段（0x71），无法按名渲染 TYPED");
+        return NULL;
+    }
+
+    rd sr = { p.schema, p.schema_len, 0 };
+    strtab sst = { NULL, 0, 0 };
+    if (!parse_l0_strings(&sr, &sst, err, errsz)) {
+        strtab_free(&sst);
+        return NULL;
+    }
+    sml_value *schema = decode_node(&sr, &sst, 0, err, errsz);
+    strtab_free(&sst);
+    if (!schema) return NULL;
+    if (sr.pos != sr.len) {
+        set_err(err, errsz, "SCHEMA 段读完仍有剩余字节");
+        sml_free(schema);
+        return NULL;
+    }
+
+    schema_def sd = { NULL, 0, 0 };
+    if (!parse_schema(schema, &sd, err, errsz)) {
+        sml_free(schema);
+        return NULL;
+    }
+    sml_free(schema);
+
+    rd tr = { p.typed, p.typed_len, 0 };
+    unsigned long long count;
+    if (!rd_varint(&tr, &count) || count > MAX_ELEMS) {
+        set_err(err, errsz, "TYPED 条目数非法");
+        schema_free(&sd);
+        return NULL;
+    }
+    typed_entry *ents = count ? (typed_entry *)calloc((size_t)count, sizeof *ents) : NULL;
+    if (count && !ents) {
+        set_err(err, errsz, "内存不足");
+        schema_free(&sd);
+        return NULL;
+    }
+    for (unsigned long long i = 0; i < count; i++) {
+        unsigned long long id, type_id;
+        unsigned long off, elen;
+        if (!rd_varint(&tr, &id) || id == 0 || id > 4294967295ULL ||
+            !rd_u64(&tr, &type_id) || !rd_u32(&tr, &off) || !rd_u32(&tr, &elen)) {
+            set_err(err, errsz, "TYPED 目录被截断");
+            free(ents);
+            schema_free(&sd);
+            return NULL;
+        }
+        ents[i].id = id;
+        ents[i].type_id = type_id;
+        ents[i].off = off;
+        ents[i].len = elen;
+    }
+    size_t base = tr.pos;
+
+    sml_value *out = sml_new_array();
+    if (!out) {
+        free(ents);
+        schema_free(&sd);
+        return NULL;
+    }
+    for (unsigned long long i = 0; i < count; i++) {
+        const type_def *td = schema_find(&sd, ents[i].type_id);
+        if (!td) {
+            set_err(err, errsz, "SCHEMA 里没有这个 type_id");
+            sml_free(out);
+            free(ents);
+            schema_free(&sd);
+            return NULL;
+        }
+        if ((size_t)ents[i].off + ents[i].len > p.typed_len - base) {
+            set_err(err, errsz, "TYPED 载荷越界");
+            sml_free(out);
+            free(ents);
+            schema_free(&sd);
+            return NULL;
+        }
+        rd er = { p.typed + base + ents[i].off, ents[i].len, 0 };
+        sml_value *val = decode_struct(&er, td, &sd, 0, err, errsz);
+        if (!val) {
+            sml_free(out);
+            free(ents);
+            schema_free(&sd);
+            return NULL;
+        }
+        if (er.pos != er.len) {
+            set_err(err, errsz, "TYPED 载荷解完仍有剩余字节");
+            sml_free(val);
+            sml_free(out);
+            free(ents);
+            schema_free(&sd);
+            return NULL;
+        }
+        sml_value *item = sml_new_object();
+        if (!item) {
+            sml_free(val);
+            sml_free(out);
+            free(ents);
+            schema_free(&sd);
+            return NULL;
+        }
+        sml_obj_set(item, "id", sml_new_int((long long)ents[i].id));
+        sml_obj_set(item, "name", sml_new_str(td->name));
+        sml_obj_set(item, "value", val);
+        sml_arr_push(out, item);
+    }
+    free(ents);
+    schema_free(&sd);
+    return out;
 }
 
 sml_value *sml_ambr_load_file(const char *path, char *err, size_t errsz) {
