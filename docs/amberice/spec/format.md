@@ -1451,12 +1451,11 @@ entries = (var_id:varint, type_id:u64le, off:u32le, len:u32le)
     {
       id: "1a2b3c4d5e6f7788"      # type_id 的 16 位小写十六进制（u64，绕开 Int 上限）
       name: "User"
-      kind: "struct"              # struct | enum
-      fields: [                   # struct 用
+      kind: "struct"              # v1 只有 struct；enum 留给后续版本
+      fields: [
         { id: 1, name: "id",   ty: "u64" }
         { id: 2, name: "name", ty: "str" }
       ]
-      variants: [ { id: 0, name: "Allow" } ]   # enum 用
     }
   ]
 }
@@ -1465,6 +1464,7 @@ entries = (var_id:varint, type_id:u64le, off:u32le, len:u32le)
 `ty` 的 v1 词表：`bool` / `u8`–`u64` / `i8`–`i64` / `f32` / `f64` / `str` / `bytes`；
 容器写 `{ vec: <ty> }` / `{ opt: <ty> }`；引用另一个类型写 `{ type: "<id>" }`。
 v1 **不自动生成** schema：调用方手写或由工具生成，`Writer::put_schema` 只负责落段。
+enum / `variants` 不在 v1：`typed.rs` 目前只有 struct / vec / opt，写进 schema 只会造出读不了的声明。
 
 ### 25.4 线格式（零依赖、可手写）
 
@@ -1511,8 +1511,15 @@ v1 **不自动生成** schema：调用方手写或由工具生成，`Writer::put
 | 段 id 登记（`0x70` / `0x71`） | ✅ 本规范 |
 | DIR 写入（可选段） | ✅ **N05（2026-11-06）**：`DumpOptions.dir`（默认关）+ `dir_depth`；`Store::get` 逐层二分 |
 | Rust `put_var` / `get_var` | ✅ **N04（2026-11-06）**：`Writer::put_var` + `Store::var`；整数/浮点/bool/String/`Bytes`/`Vec<T>`/`Option<T>` |
-| 内嵌 schema（Rust） | ✅ **D45（2026-11-10）**：`Writer::put_schema` + `Store::schema`；段体是自包含 canonical `Value` |
+| 内嵌 schema（Rust） | ✅ **D45（2026-11-10）**：`Writer::put_schema` + `Store::schema`；段体是自包含 canonical `Value`；`cat --schema` 可动态渲染 |
 | 五端解 schema / 渲染 TYPED | ❌ 未做（D45 已裁，排在 T7） |
 | serde 桥 | 待定（`amberice-plan.md `smldb.md §7.12``） |
 | 字节布局影响 | **零**：不写这两段的文件与收录前逐字节相同 |
+
+### 25.8 动态渲染契约（D45）
+
+`cat --schema` 每行一个变量：`var <var_id> <TypeName>: <value>`，值按 canonical 文本规则输出。
+字段顺序取 schema；`bytes` 输出小写十六进制串；`opt` 的空值输出 `null`；`u64` 超过
+`i64::MAX` 时无法用 `Value::Int` 表示 ⇒ 明确报错，不截断。五端按同一契约渲染，字节级对拍
+留待后续容器向量钉住。
 

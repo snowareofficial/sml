@@ -67,6 +67,56 @@ fn user() -> User {
     }
 }
 
+/// `User` 的内嵌 schema（字段顺序必须与 `Encode` 一致）。
+/// Embedded schema for `User`; field order must match `Encode`.
+fn user_schema() -> Value {
+    let mut id = Map::ordered();
+    id.insert("id".to_string(), Value::Int(1));
+    id.insert("name".to_string(), Value::Str("id".to_string()));
+    id.insert("ty".to_string(), Value::Str("u64".to_string()));
+
+    let mut name = Map::ordered();
+    name.insert("id".to_string(), Value::Int(2));
+    name.insert("name".to_string(), Value::Str("name".to_string()));
+    name.insert("ty".to_string(), Value::Str("str".to_string()));
+
+    let mut vec_str = Map::ordered();
+    vec_str.insert("vec".to_string(), Value::Str("str".to_string()));
+    let mut tags = Map::ordered();
+    tags.insert("id".to_string(), Value::Int(3));
+    tags.insert("name".to_string(), Value::Str("tags".to_string()));
+    tags.insert("ty".to_string(), Value::Object(vec_str));
+
+    let mut opt_str = Map::ordered();
+    opt_str.insert("opt".to_string(), Value::Str("str".to_string()));
+    let mut note = Map::ordered();
+    note.insert("id".to_string(), Value::Int(4));
+    note.insert("name".to_string(), Value::Str("note".to_string()));
+    note.insert("ty".to_string(), Value::Object(opt_str));
+
+    let mut ty = Map::ordered();
+    ty.insert(
+        "id".to_string(),
+        Value::Str(format!("{USER_TYPE:016x}")),
+    );
+    ty.insert("name".to_string(), Value::Str("User".to_string()));
+    ty.insert("kind".to_string(), Value::Str("struct".to_string()));
+    ty.insert(
+        "fields".to_string(),
+        Value::Array(vec![
+            Value::Object(id),
+            Value::Object(name),
+            Value::Object(tags),
+            Value::Object(note),
+        ]),
+    );
+
+    let mut top = Map::ordered();
+    top.insert("schema_version".to_string(), Value::Int(1));
+    top.insert("types".to_string(), Value::Array(vec![Value::Object(ty)]));
+    Value::Object(top)
+}
+
 /// Build a file with `VALUE`/`STRTAB` (always) + `TYPED` (from `put_var`).
 fn build_with_vars() -> Vec<u8> {
     let v = doc();
@@ -194,4 +244,44 @@ fn schema_segment_is_optional_and_round_trips() {
     let plain = build_with_vars();
     let s2 = Store::open(&plain).expect("open plain");
     assert!(s2.schema().expect("schema").is_none());
+}
+
+/// D45：schema 驱动的动态渲染要覆盖标量 / 字符串 / vec / opt。
+#[test]
+fn documented_renders_nested_fields() {
+    let v = doc();
+    let cv = CanonicalValue::try_from(&v).expect("ordered");
+    let blocks = cv.canonical_blocks().expect("blocks");
+    let schema = user_schema();
+
+    let mut buf = Vec::new();
+    {
+        let mut w = Writer::new(&mut buf, &DumpOptions::default(), SEG_VALUE).expect("writer");
+        w.add_segment(SEG_VALUE, 0, 0, &blocks.value).expect("VALUE");
+        if !blocks.strtab.is_empty() {
+            w.add_segment(SEG_STRTAB, 0, 0, &blocks.strtab).expect("STRTAB");
+        }
+        w.put_var(1, &user()).expect("put_var");
+        w.put_schema(&schema).expect("put_schema");
+        w.finish().expect("finish");
+    }
+
+    let store = Store::open(&buf).expect("open");
+    let vars = amberice::typed::documented(store.typed_body().expect("typed"), &schema)
+        .expect("documented");
+    assert_eq!(vars.len(), 1);
+    assert_eq!(vars[0].id, 1);
+    assert_eq!(vars[0].name, "User");
+
+    let Value::Object(m) = &vars[0].value else {
+        panic!("应为对象");
+    };
+    assert_eq!(m.get("id"), Some(&Value::Int(42)));
+    let want_name = Value::Str("ada".to_string());
+    assert_eq!(m.get("name"), Some(&want_name));
+    assert_eq!(m.get("note"), Some(&Value::Null));
+    let Some(Value::Array(tags)) = m.get("tags") else {
+        panic!("tags 应为数组");
+    };
+    assert_eq!(tags.len(), 2);
 }
