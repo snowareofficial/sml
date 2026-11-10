@@ -538,7 +538,7 @@ Trailer 从 EOF 反向读固定长度，细节见 §21.1b。
 |---|---|---|---|
 | SHA-256 | `0x30` | ✅ 已实现（默认） | FIPS 180-4；NIST 向量 + 与 CPython `hashlib` 交叉核对 |
 | SM3 | `0x31` | ✅ 已实现（可选） | GB/T 32905-2016；标准向量 + 5 条填充边界与 `hashlib` 核对 |
-| BLAKE3 | `0x32` | **只登记，未实现** | 树哈希代码量大且无小体量可自验向量；声明它 ⇒ `unsupported-hash` 明确拒绝，不猜 |
+| BLAKE3 | `0x32` | ✅ 已实现（可选，D44） | 零依赖标量实现；官方向量覆盖单块 / 单 chunk / 跨 chunk / 3072 B |
 
 分派在 `rust/amberice/src/hash.rs`（`HashAlgo` / `digest_by_id`）：**写**默认 SHA-256，**读**一律以
 manifest 的 `hash_id` 为准。语义三条：
@@ -577,7 +577,7 @@ T2 已经把每段的 `(id, comp, enc, len, sha256)` 写进 manifest 的 `segmen
 
 > 本节先以草案形式给用户过目，**用户 2026-11-04 裁决后已落代码**（`rust/amberice/src/manifest.rs`）：
 > 编码形态 A ✅、字段表 ✅、`caps` 用**名字**（甲）✅、`hash_id` 默认 SHA-256 且 SM3 可选 ✅。
-> 仍待裁的只有「BLAKE3 要不要真实现」。
+> BLAKE3 已由 D44 收口为「实现」（零依赖标量版）。
 
 **§19.9.1 编码形态（建议 A，几乎无争议）**
 

@@ -777,7 +777,7 @@ fn verify_digest(seg: &Segment, body: &[u8], algo: HashAlgo) -> Result<(), Conta
 /// What `dump` may choose. ｜ `dump` 可选的两件事。
 ///
 /// 只有两个旋钮，且都**由写者决定、写进文件**（读者永远照文件来）：
-/// - `hash`：段摘要算法（默认 SHA-256；SM3 可选；BLAKE3 已登记未实现）；
+/// - `hash`：段摘要算法（默认 SHA-256；SM3 / BLAKE3 可选）；
 /// - `block_align`：段体是否 4 KiB 对齐（明文不需要；**加密文件必须**，T5 会强制）。
 ///
 /// ｜ Both knobs are writer-side and self-described in the file; readers never guess.

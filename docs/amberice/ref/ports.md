@@ -32,6 +32,9 @@
 
 只剩 **C# / Go / Ruby 三端 FFI**（配方见下节）。表里已达标的那几端不要重做。
 
+摘要侧另有一条欠账：五端只算 SHA-256，`0x31 SM3` / `0x32 BLAKE3` 的文件会被误报「摘要不符」。
+补 `hash_id` 分派（能算则验、不能算则明确跳过）排在 D44 后续，先登记不扩散。
+
 - FFI 面已经是**独立 crate** `rust/amberice-ffi`（cdylib），`amberice` 保持纯 rlib；
   不要再给 `amberice` 加 `ffi` feature —— 它没有，也不该有。
 - 补齐后：把 `spec/tools.md` 的解码器行改成「全端 + FFI」，N03 / T7 收口。
