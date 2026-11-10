@@ -37,7 +37,7 @@
 | `smltools --to amberice` / `--from amberice` | 与 SML 文本互转（D27 的 A 路） | T6 | ✅ |
 | `smltools --to amberice --dir [N]` | 同时写可选 `DIR` 路径索引（`DumpOptions.dir` / `dir_depth`，D43）；缺省不写 | T6 | ✅ |
 | `smltools --to amberice --keep-source` | 带 `SOURCE` 段 | T6 | 建议 |
-| JS / C / C++ / Lua / Java 解码器 | 只读 `VALUE` + 透传载荷（D12 五端可读） | T7 / N03 | ✅ **五端 + 纯 Java 全通（2026-11-06）**：JS `js/ambr.mjs`、C `c/ambr.c`、C++ `cpp/ambr.cpp`、Lua `Sml.ambr_load`、Java `sml.Ambr` —— 各 21/21 + 语义抽检，四个端已进各自检查脚本。**FFI 绑定（Python/C#/Go/Ruby）未做** |
+| JS / C / C++ / Lua / Java 解码器 | 只读 `VALUE` + 透传载荷（D12 五端可读） | T7 / N03 | ✅ **五端 + 纯 Java 全通（2026-11-06）**：JS `js/ambr.mjs`、C `c/ambr.c`、C++ `cpp/ambr.cpp`、Lua `Sml.ambr_load`、Java `sml.Ambr` —— 各 21/21 + 语义抽检，四个端已进各自检查脚本。**FFI 绑定（Python/C#/Go/Ruby）2026-11-10 实测全通（21/21 + 往返）** |
 | VSCode 扩展（只读） | 直接打开 `.ambr` 浏览树 / 悬停看段信息 | T7+ | 建议 |
 
 **顺序**：`info`/`ls`/`check` 跟着 T2 长出来；`cat`/`verify`/`sign`/`append` 跟 T3/T4；`vectors` 是 T0 的**前置**（没有向量就不知道 canonical 对不对）。
