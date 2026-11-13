@@ -204,9 +204,15 @@ check("规范里哈希组 16 号明细齐全",
       and "| `0x3E` | **扩展命名空间转义**" in spec
       and "| `0x3F` | 私有 / 实验" in spec)
 check("其它组也留了国密 PQC 位",
-      "`0x62` 国密 PQC 签名（预留）" in spec
+      "`0x21` 国密 PQC 对称（预留）" in spec
+      and "`0x42` 国密 PQC 签名（预留）" in spec
+      and "`0x62` 国密 PQC 签名（预留）" in spec
       and "`0x83` 国密 PQC KEM（预留）" in spec
       and "`0xA2` 国密 PQC 混合（预留）" in spec)
+# 已知的区间重叠必须一直被登记着，别在后续编辑里被悄悄抹掉。
+check("规范登记了 0x50–0x5F 的既有区间冲突",
+      "既有区间重叠（待裁决，未擅自改号）" in spec
+      and "`0x50–0x5F` 同时出现在" in spec)
 
 print()
 if FAILURES:

@@ -1050,10 +1050,10 @@ AAD      = seg_id:u8 ‖ comp:u8 ‖ block_index:u32le ‖ block_count:u32le ‖
 | `0x00` | 无 | `0x00 = none`（明文、未压缩） |
 | **`0x01–0x0F`** | 压缩 | `0x01 zstd` · `0x02 lz4`（预留）· `0x03 deflate`（预留） |
 | **`0x10–0x1F`** | 对称加密（经典） | `0x10 AES-256-GCM` · `0x11 ChaCha20-Poly1305` |
-| **`0x20–0x2F`** | 对称加密（国密） | `0x20 SM4-GCM` |
+| **`0x20–0x2F`** | 对称加密（国密） | `0x20 SM4-GCM` · **`0x21` 国密 PQC 对称（预留）** |
 | **`0x50–0x5F`** | **口令派生（KDF）** | `0x00 none`（原始密钥）· `0x51 Argon2id` |
 | **`0x30–0x3F`** | 哈希 | `0x30 SHA-256` · `0x31 SM3` · `0x32 BLAKE3` · `0x33` 国密 SM 抗量子（预留）· `0x34` 通用 PQC（预留）· `0x35–0x3D` 未分配槽（预留）· `0x3E` 扩展命名空间 · `0x3F` 私有/实验 |
-| **`0x40–0x5F`** | 签名（经典） | `0x40 Ed25519` · `0x41 ECDSA-P256-SHA256` · `0x50 SM2-with-SM3` |
+| **`0x40–0x5F`** | 签名（经典） | `0x40 Ed25519` · `0x41 ECDSA-P256-SHA256` · **`0x42` 国密 PQC 签名（预留）** · `0x50 SM2-with-SM3` |
 | **`0x60–0x7F`** | 签名（PQC） | `0x60 ML-DSA-65` · `0x61 ML-DSA-87` · **`0x62` 国密 PQC 签名（预留）** |
 | **`0x80–0x9F`** | KEM | `0x80 X25519` · `0x81 ML-KEM-768` · `0x82 ML-KEM-1024` · **`0x83` 国密 PQC KEM（预留）** |
 | **`0xA0–0xAF`** | 混合 | `0xA0 X25519+ML-KEM-768` · `0xA1 SM2+ML-KEM-768` · **`0xA2` 国密 PQC 混合（预留）** |
@@ -1097,7 +1097,9 @@ New algorithms get a new range instead of squeezing into an existing one.
 | 组 | 类别 | 组内侧预留（**永久，不回收**） |
 |---|---|---|
 | `0x01–0x0F` | 压缩 | `0x02` lz4 · `0x03` deflate |
+| `0x20–0x2F` | 对称加密（国密） | `0x21` 国密 PQC 对称 |
 | `0x30–0x3F` | 哈希 | `0x33` 国密 SM 抗量子 · `0x34` 通用 PQC · `0x35–0x3D` 未分配槽 · `0x3E` 转义 · `0x3F` 私有 |
+| `0x40–0x5F` | 签名（经典） | `0x42` 国密 PQC 签名 |
 | `0x60–0x7F` | 签名（PQC） | `0x62` 国密 PQC 签名 |
 | `0x80–0x9F` | KEM | `0x83` 国密 PQC KEM |
 | `0xA0–0xAF` | 混合 | `0xA2` 国密 PQC 混合 |
@@ -1105,6 +1107,15 @@ New algorithms get a new range instead of squeezing into an existing one.
 > 组边界是硬边界：`0x2F` / `0x40` 对哈希组而言是**未知编号**（`HashError::Unknown`），
 > 不会因为「多预留」被吞进来。｜ Group boundaries stay hard: ids outside the group are
 > `Unknown`, never silently absorbed as "reserved".
+
+> ⚠️ **既有区间重叠（待裁决，未擅自改号）**：上表 `0x50–0x5F` 同时出现在
+> 「口令派生（KDF）」与「签名（经典，`0x40–0x5F`）」两行里 —— 这是本规范早先的
+> 遗留冲突，不是本次多预留引入的。在裁决前：**不要**在该区间新增编号；
+> 已分配的 `0x50 SM2-with-SM3` 与 `0x51 Argon2id` 的含义保持不变（同号不同组
+> 会无法判读，将来必须迁走其中一组并写清迁移规则）。
+> ｜ Pre-existing overlap: `0x50–0x5F` is claimed by both KDF and classic signatures.
+> No new ids there until the conflict is resolved; existing assignments keep their
+> meaning. One of the two groups has to move, with a documented migration.
 
 #### 20.3.2 哈希组 `0x30–0x3F` 明细
 
