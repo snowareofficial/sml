@@ -9,10 +9,12 @@
 --   ｜ 有 FFI 用 FFI；否则用纯 Lua 5.3+ 编码器。
 --
 -- Judgement / 判据:
---   1. `pack_text(canonical_text)` succeeds for all 21 vectors;
+--   1. `pack_text(canonical_text)` succeeds for all 22 vectors;
 --   2. the produced bytes are **identical** to `ambr_hex` in the vector file;
 --   3. `ambr_load` of those bytes succeeds and the five shapes keep their values.
---   ｜ 21 例全部可打包、**逐字节**等于向量、读回后五种形状语义正确。
+--   ｜ 22 例全部可打包；21 例**逐字节**等于向量（`typed-schema` 的 fixture 带
+--      TYPED / SCHEMA 旁路段，文本写入器只产 VALUE，按「未知段可跳过」不要求复刻）；
+--      读回后五种形状语义正确。
 --
 -- Run / 运行:
 --   LUA_PATH="lua/lib/?.lua;lua/?.lua;;" lua5.5 lua/test_ambr_write.lua
@@ -107,6 +109,8 @@ end
 
 local json = read_all(path)
 local failures, cases, packed_ok, bytes_ok = 0, 0, 0, 0
+local skipped_bytes = {}
+local NO_BYTE_IDENTITY = { ["typed-schema"] = true }
 local pos = 1
 
 local function bad(id, msg)
@@ -129,7 +133,9 @@ while true do
     packed_ok = packed_ok + 1
 
     -- Byte-for-byte against the vector: both backends must agree with Rust.
-    if hx then
+    -- `typed-schema` 的 fixture 额外带 TYPED / SCHEMA 旁路段，文本→字节写入器只产 VALUE，
+    -- 按「未知段可跳过」不该要求复刻；改由 pack 成功 + 读回语义兜住（与 JS 同口径）。
+    if hx and not NO_BYTE_IDENTITY[id] then
       local want = hex_to_bytes(hx)
       if bytes == want then
         bytes_ok = bytes_ok + 1
@@ -139,6 +145,8 @@ while true do
         bad(id, string.format("bytes differ at %d (%02x vs %02x, %d vs %d B)",
           d, bytes:byte(d) or 0, want:byte(d) or 0, #bytes, #want))
       end
+    elseif hx then
+      skipped_bytes[#skipped_bytes + 1] = id
     end
 
     local v, lerr = Sml.ambr_load(bytes)
@@ -168,8 +176,11 @@ end
 
 print(string.format("[ambr-write] %d 例，%d 个 pack 成功，%d 个字节一致，%d 个失败",
   cases, packed_ok, bytes_ok, failures))
-if cases ~= 21 then
-  print(string.format("FAIL: 期望 21 例，实得 %d", cases))
+if #skipped_bytes > 0 then
+  print("（不要求逐字节：" .. table.concat(skipped_bytes, ", ") .. "）")
+end
+if cases ~= 22 then
+  print(string.format("FAIL: 期望 22 例，实得 %d", cases))
   failures = failures + 1
 end
 print(failures == 0 and "[ambr-write] ALL OK" or "[ambr-write] FAILED")
