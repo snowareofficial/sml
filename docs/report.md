@@ -1,7 +1,7 @@
 # docs 体检报告
 
 > **本文件由 `cargo run -p smldocs -- --report` 生成，勿手改。**
-> 数据源 `docs/meta.sml` 摘要 `d05a309e105273c0`，检查 55 份登记文档。任一项命中时 `docs --check` 非零退出。
+> 数据源 `docs/meta.sml` 摘要 `d9bed341b492fc0c`，检查 56 份登记文档。任一项命中时 `docs --check` 非零退出。
 > 本文件不记生成日期 / HEAD，避免跨天或提交后假漂移。
 
 ## 合计

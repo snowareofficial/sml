@@ -313,6 +313,70 @@ Conventions carried over from `CHANGELOG.md`:
   `sml_parse_file_full`); `cpp/tests/test_codes.cpp` (diagnostic line, include resolved against
   the file's directory, `E-IO-001` for a missing path).
 
+### Added (amberice platform aligned with swsml)
+
+- **New guard** `tools/check/check_amberice_align.py` (stdlib only, read-only, wired into the CI
+  guards job) turns "remember to follow v5 by hand" into an executable check:
+  ① the last `Supported` major in `EDITIONS` ⇔ `Edition::CURRENT` ⇔
+  `amberice::container::EDITION` ⇔ Lua `EDITION` ⇔ `04 00` (LE u16) in all 22 container vectors;
+  ② `c/sml_rs.h` and all five bindings expose the full `SML_F_*` bit set `0..19`;
+  ③ `AMBR_CAP_READ/WRITE` agree across ffi / C / JS / Lua (**deliberately not** compared with
+  swsml `FEATURES`); ④ `errors/codes.sml` entry count matches the three generated `COUNT`s.
+- **Five bindings gained feature bits 12..18** (`when` / `for` / `typed-block` /
+  `case-insensitive` / `block-name` / `type.featag` / `lex.ident`); they previously mirrored
+  only 0..11 + 19. A Ruby indentation slip that put the new constants outside the module was fixed.
+- **Stale facts cleaned up**: `swsml 0.6.4` / `0.6.3` in C/C++ bridge and binding headers replaced
+  by "provided by `sml_version()`"; `TODO.md`'s 146 codes now points at `COUNT`; 16 / 17 features
+  corrected to 20; CI step names 41 -> 60 cases, container vector note 21 -> 22 (the pure-Lua
+  writer still uses the 21 canonical cases).
+- **The long-standing "C# ambr read-only gap" was a build artifact**, not a defect: rebuilding
+  with `cargo build -p amberice-ffi --features sml` makes the whole C# suite `ALL OK`, and
+  `check_ambr_write.py` (with explicit `AMBR_LIB`) reports 22/22 read + 22/22 round-trip.
+- New doc `docs/amberice/ref/swsml-alignment.md`: alignment surface, deliberate differences
+  (`ambr_*` vs `sml_*` are two ABIs, `AMBR_CAP_*` belong to amberice, `AMBR:` text pass-through),
+  and open decisions; registered in `meta.sml` (`smldocs --check`: 56 docs).
+
+### Added (amberice stands on its own: `E-AMBR-*` codes, Rust error type, platform parity)
+
+- **Standalone `AMBR` domain**: eight codes `E-AMBR-001`..`008` in `errors/codes.sml`
+  (invalid input / bad format / unsupported / integrity / crypto / canonical / host I/O /
+  internal), `status: done`, `impls: [ amberice ]`. Container errors deliberately do **not**
+  occupy SML language-layer codes. Code table **167 -> 175**; all five generated artifacts rebuilt.
+- **i18n**: eight English `title/msg` pairs in `errors/msg.en.json`, an English domain name in
+  `errors/gen_js_errors.py::DOMAIN_EN`, and a "container layer" row in `errors/README.md`.
+  Chinese remains the single source of truth; missing English falls back to Chinese.
+- **Rust error type** `rust/amberice/src/error.rs::AmbrError`: eight orthogonal variants with
+  `code()` / `kind()` / `detail()` / `render()` plus `std::error::Error`.
+  `From<ContainerError>` maps all **44 fine-grained variants** explicitly into the eight kinds,
+  with **no catch-all** (a new variant is a compile error until classified);
+  `From<CanonicalError>` maps to `E-AMBR-006`. Re-exported as `amberice::AmbrError`.
+- **Codes on the ABI boundary**: `err` buffers now read `AMBR: [E-AMBR-xxx] <detail>`; the code
+  sits in the first 19 bytes so even a 20-byte buffer keeps it. Hosts can branch on
+  `\[E-AMBR-\d{3}\]` instead of parsing prose. C++/JS/Lua/C# wrapper errors were updated too,
+  along with the `js/test-ambr-write.mjs` assertion.
+- **Guard extended** `tools/check/check_amberice_align.py`: code table ⇔ `AmbrError::code()` ⇔
+  five wrapper sites ⇔ English messages; any drift fails the check.
+- **Platform parity**: the `ports.md` gap ("C# / Go / Ruby never retested at 22 vectors, not in
+  CI") is closed — all three pass 22/22 (including round-trips) and, together with the pure-Java
+  implementation, now run in the `non-rust` CI job. All 11 rows of the status table are in CI.
+- Bilingual comments/docs synced: `c/ambr.h`, `cpp/ambr.hpp`, Java `Ambr.java`, `format.md`
+  (two "no codes" claims and the `E-AMBR-non-finite-float` placeholder -> `E-AMBR-006`),
+  `ports.md`, `swsml-alignment.md`; `meta.sml` `updated` / `scope` refreshed.
+- **wasm carries the codes too**: `rust/amberice-ffi/Cargo.toml` now forwards the
+  `allow-32bit` gate (`sml-value`'s 32-bit truncation risk) and `js/build_ambr_wasm.py`
+  enables it only for the wasm build. After rebuilding `js/build/amberice_ffi.wasm`,
+  decoder errors in `js/test-ambr-write.mjs` also read `AMBR: [E-AMBR-002] ...`.
+  That test's pre-existing `typed-schema` false failure was fixed as well: its fixture
+  carries extra TYPED/SCHEMA side segments while a text-to-bytes writer emits VALUE only,
+  so byte identity cannot apply (skippable segments per spec); round-trip / text / fixed-point
+  criteria cover it. Now 22/22 round-trips and 19/19 byte identities pass.
+- Regressions: `cargo test -p amberice --lib` (24 tests, 3 new),
+  `cargo test -p amberice-ffi --features sml` (coded FFI errors + a 20-byte truncation case),
+  `js/test-ambr-write.mjs`, and the 22 container vectors in C# / Go / Ruby / Java / Python.
+- User decision "**2 wait**": the v5 edition bump is intentionally **not** in this batch; the
+  guard still turns red when `Edition::CURRENT` becomes V5, demanding the three copies and
+  regenerated vectors.
+
 ### 🚨 Breaking — version naming: `Version` enum → `Edition` lookup
 
 An edition is just a **name for a set of default feature bits** (`docs/swsml/spec/version.md` v1.0).

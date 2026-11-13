@@ -809,7 +809,7 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
       地址；当前 `swsml` / `smlb` 的 `Cargo.toml` 只有 `gitee.com/snoware/sml`。README 里
       GitHub 链接应置于 Gitee 之前（或对外只留 GitHub）。
   由 `Diagnostic::code()` 映射；与 `W-LINT-003` 的分域已写进码表 note（**解析期真的发生时**产出 vs lint 纯文本扫描）。
-  `errors/codes.sml` + 三个生成器已同步（146 条码），`key_conflict` 断言带码。
+  `errors/codes.sml` + 三个生成器已同步（码数见 `rust/sml-codes/src/codes.rs` 的 `COUNT`），`key_conflict` 断言带码。
 - 编辑器 / LSP 侧同步：扩展诊断走 `js/sml.mjs` 的 `parseSafe`，**不经过 Rust 库**，本轮的告警它看不见。
 
 ### 雷 2：`examples/slint/login.sml` 解析不过（示例是坏的）—— ✅ 2026-11-02 已修（重写示例）

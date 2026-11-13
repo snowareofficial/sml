@@ -275,7 +275,7 @@ if word == u32::from_le_bytes(*b"div>") { /* ... */ }
 | **C10** | 元数据键 `__type` / `__name` / `__args` / `__featags` **固定在块内最前**，顺序即此序（见 P5-c） |
 | **C11** | 不允许输出注释（`Value` 里没有注释；原文在 `SOURCE` 段时才保留） |
 | **C12** | 同一逻辑数据必须产出同一串字节 —— **任何实现不得「顺手美化」**（如把 `[a b]` 拆行） |
-| **C13** | **非有限浮点（NaN / ±Inf）没有字面量**：语言里只能「由算式得到」（如 `1/0`），而 canonical 是静态文本 ⇒ **遇到非有限浮点直接报错**（`E-AMBR-非有限浮点`）。确实要存时，由调用者显式转成字符串（`"nan"` / `"inf"`），库不代劳 |
+| **C13** | **非有限浮点（NaN / ±Inf）没有字面量**：语言里只能「由算式得到」（如 `1/0`），而 canonical 是静态文本 ⇒ **遇到非有限浮点直接报错**（`E-AMBR-006`）。确实要存时，由调用者显式转成字符串（`"nan"` / `"inf"`），库不代劳 |
 
 ### 18.2b 实现澄清（T0 落地时补，2026-11-04）
 
@@ -343,7 +343,7 @@ signed_bytes = "amberice/sig/v1\n"
 | 东西 | 在哪 | 说明 |
 |---|---|---|
 | `Value::canonical_text()` / `canonical_bytes()` / `from_canonical_bytes()` | `rust/sml-value/src/canonical.rs` | 规格把 API 写作 `Value::canonical_*`（§18.1），孤儿规则决定它必须住在定义 `Value` 的 crate；**容器层（段表/manifest/层链/签名/加密）一概不进 `sml-value`** |
-| `CanonicalError`（13 个变体 + `kind()`） | 同上 | 容器错误不占 `errors/codes.sml` 五端码位，当前给稳定 `kind()`；深度沿用 `E-LIMIT-004`。落 `E-AMBR-*` 须改 `errors/codes.sml` 并重生成五端产物 |
+| `CanonicalError`（13 个变体 + `kind()`） | 同上 | 容器错误归 `errors/codes.sml` 的独立 `AMBR` 域（2026-11-13 起）：`rust/amberice/src/error.rs::AmbrError` 把 44 个 `ContainerError` 变体收敛成 8 类，带 `code()` / `kind()`；深度沿用 `E-LIMIT-004` |
 | 「文本原子」规则（裸词/引号/转义、浮点写法） | `rust/sml-value/src/text_rules.rs` | 从 `dump.rs` 搬出来，**三个发射器共用一份**（`to_sml` / `ser_text` / `canonical`） |
 | crate `amberice` + `amberice vectors` CLI | `rust/amberice/` | T0 只有门面 + 向量；编码器骨架归 T1。`publish = false`（D1） |
 | 跨端向量 | `tests/vectors/amberice-canonical.v1.json` | 21 例，`canonical_text` + `bytes_hex` 双期望值 |
@@ -1294,7 +1294,7 @@ $ amberice verify base.ambr --trust fd4f90d0…         # 有人拿未签名件�
 |---|---|---|
 | `smldb` 侧 | 选择器语法（`smldb.md §7` 挪过去后重新定义）、FTS 具体方案、表结构细节 | `smldb` 开工时 |
 | `compact` | 合并多层后如何保留「旧签名证据」 | T5+ |
-| 五端 | JS / Lua 解码器的错误码映射 | T7 |
+| 五端 | JS / Lua 解码器的错误码映射 | ✅ 2026-11-13（`AMBR` 域 8 码 + FFI 串带码 + 各端 wrapper 带码；守护 `check_amberice_align.py`） |
 | canonical 三条 | 顶层标量能否不可回读（P5-d-a）· 浮点跨端口径（C5-b）· 元数据在字节侧是否前置（L5） | ①③ 可随时定；② 按用户 2026-11-04 的裁决**与四端统一同步时定**（详见 §18.6） |
 
 ### 23.4 开工顺序（详见 `smldb.md §17`）

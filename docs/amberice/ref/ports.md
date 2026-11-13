@@ -17,9 +17,9 @@
 | 5 | Lua | 纯 Lua（f64 需 LuaJIT ffi） | ✅ 22/22 + 5 抽检 | 已入库 | `lua/run_check.py` |
 | 6 | Java | **纯 Java**（不再依赖 cdylib） | ✅ 22/22 + 5 抽检 | 已入库 | `bindings/java/.../Ambr.java` |
 | 7 | Python | FFI（ctypes） | ✅ 22/22 **逐字符** | 已入库 | `bindings/python/ambr.py` |
-| 8 | C# | FFI（P/Invoke） | ✅ 22/22 逐字符 + 往返 | `e91ce7a` | `bindings/csharp/Amberice.cs`；`dotnet run --project Sml.csproj` |
-| 9 | Go | FFI（cgo） | ✅ 22/22 逐字符 + 往返 | `e91ce7a` | `go test ./amberice`；Windows 需 `CGO_LDFLAGS` 指到 cdylib 目录 |
-| 10 | Ruby | FFI（Fiddle） | ✅ 22/22 逐字符 + 往返 | `e91ce7a` | `AMBR_LIB=… ruby test_amberice.rb` |
+| 8 | C# | FFI（P/Invoke） | ✅ 22/22 逐字符 + 往返 | `e91ce7a` | `bindings/csharp/Amberice.cs`；`dotnet run --project Sml.csproj`；**2026-11-13 复测 22/22 全绿** |
+| 9 | Go | FFI（cgo） | ✅ 22/22 逐字符 + 往返 | `e91ce7a` | `go test ./amberice`；Windows 需 `CGO_LDFLAGS` 指到 cdylib 目录；**2026-11-13 复测 22/22** |
+| 10 | Ruby | FFI（Fiddle） | ✅ 22/22 逐字符 + 往返 | `e91ce7a` | `AMBR_LIB=… ruby test_amberice.rb`；**2026-11-13 复测 22/22 + 22 往返** |
 | 11 | FFI 面 | **独立 crate** `amberice-ffi`（cdylib） | ✅ 7 个导出符号，`rust/amberice/include/amberice.h` 为契约 | 已入库 | `rust/amberice-ffi/`；`amberice` 保持纯 rlib |
 
 > 提交列只记首次落地；「已入库」不锚定具体提交号，台账不随提交推进改写。
@@ -35,9 +35,16 @@
 
 C# / Go / Ruby 三端代码在 `e91ce7a` 入库，2026-11-10 的实测收口记在 `082032a`
 （当时向量为 **21 例**，提交消息即「实测 21/21」）。第 22 例（TYPED / SCHEMA）由
-`8fcf26e` 加入，当前 `amberice-container.v1.json` 为 22 例；这三端扩到 22 例后**未重测**，
-表中 22/22 沿用全端口径，复核时应先补这一轮。
+`8fcf26e` 加入，当前 `amberice-container.v1.json` 为 22 例。
+**2026-11-13 已补 22 例复测并全部进 CI**：Go `TestVectors` / `TestPackRoundTrip`、
+Ruby `22/22 read + 22 round-trip`、C# `dotnet run` 全绿（连同 Java 纯实现一起进 CI）。
+表中 22/22 现在是**实测口径**，不再是「沿用全端口径」。
 状态表 11 行全部达标，`spec/tools.md` 的解码器行按「全端 + FFI」维护，N03 / T7 已收口。
+
+错误码（2026-11-13）：`errors/codes.sml` 新增独立 `AMBR` 域 8 条（`E-AMBR-001`…`008`，
+英文文案在 `errors/msg.en.json`），Rust 侧 `amberice::AmbrError` 提供 `code()` / `kind()` /
+`render()`；C-ABI 的 `err` 缓冲统一为 `AMBR: [E-AMBR-xxx] <detail>`，宿主按方括号里的码
+分支即可，不再靠文本前缀猜。详见 `docs/amberice/ref/swsml-alignment.md`。
 
 摘要侧仍有一条欠账：五端只算 SHA-256，`0x31 SM3` / `0x32 BLAKE3` 的文件会被误报「摘要不符」。
 补 `hash_id` 分派（能算则验、不能算则明确跳过）排在 D44 后续，先登记不扩散。
@@ -51,7 +58,8 @@ D45 的 `SCHEMA` / `TYPED` 渲染：JS 已通（`js/test-ambr-typed.mjs`）、C 
 
 - FFI 面已经是**独立 crate** `rust/amberice-ffi`（cdylib），`amberice` 保持纯 rlib；
   不要再给 `amberice` 加 `ffi` feature —— 它没有，也不该有。
-- 三端目前**不在 CI 里**，靠人工跑；命令见下节，结果记在本表。
+- 三端**已进 CI**（2026-11-13，见 `.github/workflows/ci.yml` 的 non-rust job）；
+  Java 纯实现也一并接入。本地命令仍见下节，便于离线复核。
 
 ## C# / Go / Ruby 的构建与运行
 

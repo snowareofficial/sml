@@ -287,6 +287,66 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   `sml_parse_file_full` 两条；`cpp/tests/test_codes.cpp` 增三条
   （`load_file` 诊断行号 / include 以文件目录展开 / 缺文件 `E-IO-001`）。
 
+### 新增（amberice 平台对齐 swsml）
+
+- **新增对齐守护** `tools/check/check_amberice_align.py`（纯标准库、只读、CI guards job 已接入），
+  把「v5 时手动跟一手」变成可执行判据：
+  ① `EDITIONS` 最后一个 `Supported` 的 major ⇔ `Edition::CURRENT` ⇔
+  `amberice::container::EDITION` ⇔ Lua `EDITION` ⇔ 22 例容器向量的头 `04 00`（LE u16）；
+  ② `c/sml_rs.h` 与五门绑定各有一套完整 `SML_F_*` 位 `0..19`；
+  ③ `AMBR_CAP_READ/WRITE` 在 ffi / C / JS / Lua 四处一致（**刻意不与 swsml FEATURES 比**）；
+  ④ `errors/codes.sml` 条目数与三份生成物 `COUNT` 一致。
+- **补齐五门绑定特性位 12..18**（`when` / `for` / `typed-block` / `case-insensitive` /
+  `block-name` / `type.featag` / `lex.ident`）：此前只镜像 0..11 + 19，调用方拿不到这些常量。
+  顺手修掉补位时 Ruby 常量被写到模块外的缩进问题。
+- **清理过期事实**：`c/sml_rs.h` / `cpp/sml_rs.*` 的 `swsml 0.6.4` 与五门绑定的
+  `swsml 0.6.3` 头注释改为「由 `sml_version()` 提供，不写死」；`TODO.md` 的 146 条码改引用
+  `COUNT`；`scan.rs` 的 16 / `features.md` 的 17 个特性改 20；CI 步骤名 41 → 60 例、
+  容器向量注释 21 → 22 例（Lua 纯写入仍是 canonical 21 例）。
+- **澄清「C# ambr 只读缺口」**：按 CI 方式 `cargo build -p amberice-ffi --features sml`
+  重建后 C# 整组 `ALL OK`，`check_ambr_write.py`（显式 `AMBR_LIB`）22/22 读 + 22/22 往返。
+  属构建链没对齐，不是实现缺陷。
+- 新文档 `docs/amberice/ref/swsml-alignment.md`：对齐面 / 刻意差异（`ambr_*` 与 `sml_*`
+  两套独立 ABI、`AMBR_CAP_*` 是 amberice 自己的能力位、`AMBR:` 文本透传）/ 待裁决项，
+  已登记 `meta.sml`（`smldocs --check` 56 份文档）。
+
+### 新增（amberice 自成一体：`E-AMBR-*` 错误码 + Rust 错误类型 + 支持平台对齐）
+
+- **独立 `AMBR` 错误码域**：`errors/codes.sml` 新增 8 条 `E-AMBR-001`…`008`
+  （入参非法 / 容器格式 / 不支持的能力 / 完整性 / 加解密 / canonical / 宿主 IO / 内部错误），
+  `status: done`、`impls: [ amberice ]`。不占 SML 语言层码位 —— 容器错误与
+  `E-PARSE-*` / `E-LEX-*` 是两件事。码表 **167 → 175**，5 份生成物已重跑。
+- **i18n**：`errors/msg.en.json` 补 8 条英文 `title/msg`，
+  `errors/gen_js_errors.py::DOMAIN_EN` 补英文域名 `amberice container (.ambr)`，
+  `errors/README.md` 分层表加「容器层」。中文仍是唯一事实来源，英文缺失自动回退。
+- **Rust 错误类型** `rust/amberice/src/error.rs::AmbrError`：8 个正交变体，
+  `code()` / `kind()` / `detail()` / `render()` + `std::error::Error`；
+  `From<ContainerError>` 把 **44 个细粒度变体**显式归成 8 类且**无兜底**
+  （新增变体时编译器强制归类），`From<CanonicalError>` 归 `E-AMBR-006`。
+  `amberice::AmbrError` 已从 crate 根导出。
+- **C-ABI / wrapper 错误带码**：`err` 缓冲统一 `AMBR: [E-AMBR-xxx] <detail>`，码落在前 19
+  字节，小缓冲也截不掉；宿主用 `\[E-AMBR-\d{3}\]` 取码即可分支，不用解析文案。
+  C++ / JS / Lua / C# 的 wrapper 本地错误也同步带码；`js/test-ambr-write.mjs` 断言更新。
+- **守护扩充** `tools/check/check_amberice_align.py`：码表 ⇔ `AmbrError::code()` ⇔
+  五处 wrapper 文本 ⇔ 英文文案，四处不一致即判红。
+- **支持平台对齐**：`ports.md` 自点的「C# / Go / Ruby 扩到 22 例后未重测、三端不在 CI」
+  已补 —— 三端实测 22/22（含往返）全绿，连同 **Java 纯实现**一起进
+  `.github/workflows/ci.yml` 的 non-rust job；状态表 11 行现在全在 CI 内。
+- 文档与注释（中英双语同步）：`c/ambr.h`、`cpp/ambr.hpp`、Java `Ambr.java`、
+  `format.md`（两处「不带码」断言 + `E-AMBR-非有限浮点` 占位改为 `E-AMBR-006`）、
+  `ports.md`、`swsml-alignment.md`；`meta.sml` 的 `updated` / `scope` 已回填。
+- **wasm 平台也带码**：`rust/amberice-ffi/Cargo.toml` 新增 `allow-32bit` feature 转发
+  （`sml-value` 的 32 位风险门），`js/build_ambr_wasm.py` 只在 wasm 构建命令里显式带上；
+  重建 `js/build/amberice_ffi.wasm` 后 `js/test-ambr-write.mjs` 的解码错误也带
+  `[E-AMBR-002]`。顺带修掉该测试里 `typed-schema` 的**既有假红**：这条 fixture 额外含
+  TYPED / SCHEMA 旁路段，文本→字节写入器只产 VALUE，按「未知段可跳过」不该要求逐字节
+  相同；改由往返 / 文本 / 固定点三条判据兜住。现 22/22 往返、19/19 字节一致全绿。
+- 回归：`cargo test -p amberice --lib`（24 例，含 3 条新错误类型用例）、
+  `cargo test -p amberice-ffi --features sml`（FFI 错误串带码 + 20 字节小缓冲截断用例）、
+  `js/test-ambr-write.mjs`、C# / Go / Ruby / Java / Python 的 22 例容器向量。
+- 用户裁决「**2 先等等**」：v5 发布时的 edition 升级本批**不动**；守护仍会在
+  `Edition::CURRENT` 升 V5 时变红，要求同步三副本并重生成向量。
+
 ### 变更（仓库治理：文档生成物幂等）
 
 - `smldocs --index` / `--report` 的头行改记 `docs/meta.sml` 的内容摘要（FNV-1a 64），
