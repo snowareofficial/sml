@@ -50,6 +50,7 @@ DOMAIN_EN = {
     "CLI": "Command line & tool usage",
     "LINT": "lint diagnostics",
     "EDITOR": "Editor extension host",
+    "AMBR": "amberice container (.ambr)",
 }
 
 TAIL = r'''

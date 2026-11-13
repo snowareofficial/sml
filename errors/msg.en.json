@@ -166,5 +166,13 @@
   "W-LINT-005": { "title": "Nesting exceeds suggested threshold", "msg": "Nesting depth has exceeded the suggested threshold" },
   "W-PARSE-001": { "title": "Duplicate key promoted to array", "msg": "The key is duplicated within the same block: later values have been promoted to an array (the structure was rewritten)" },
   "W-PARSE-002": { "title": "Fragment expansion overwrites a parent block key", "msg": "Fragment expansion overwrote a key already present in the parent block: the parent's original value is lost" },
-  "W-CLI-001": { "title": "Referenced profile not found", "msg": "The referenced profile was not found in the project, user, or system namespace (warning, parsing continues)" }
+  "W-CLI-001": { "title": "Referenced profile not found", "msg": "The referenced profile was not found in the project, user, or system namespace (warning, parsing continues)" },
+  "E-AMBR-001": { "title": "Invalid input", "msg": "Null pointer, empty input, invalid UTF-8, or text containing NUL" },
+  "E-AMBR-002": { "title": "Invalid container format", "msg": "Bad magic, layout version, header, segment table, or segment body (including truncation and missing segments)" },
+  "E-AMBR-003": { "title": "Unsupported capability", "msg": "The file uses an algorithm, compression, feature, or capability bit this build does not support" },
+  "E-AMBR-004": { "title": "Integrity check failed", "msg": "Digest, manifest declaration, or signature verification failed" },
+  "E-AMBR-005": { "title": "Crypto or key failure", "msg": "Missing key, KDF mismatch, or decryption failed" },
+  "E-AMBR-006": { "title": "Canonicalization failed", "msg": "The payload cannot be converted to canonical text or a canonical value" },
+  "E-AMBR-007": { "title": "Host or I/O failure", "msg": "Local library not loaded, file I/O failed, or input buffer allocation failed" },
+  "E-AMBR-008": { "title": "Internal error", "msg": "Decoder/encoder panic or an unexpected internal state" }
 }

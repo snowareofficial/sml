@@ -17,9 +17,13 @@
 //! `ambr_alloc` + `ambr_dealloc` (input buffers for hosts without a allocator, e.g. wasm).
 //! ｜ 读两个、写两个、能力位一个、输入缓冲两个。
 //!
-//! Errors / 错误: message starts with `AMBR: `; the buffer is NUL-terminated and truncated,
-//! never overrun (`errsz == 0` is allowed). ｜ 错误写进调用方缓冲，绝不越界。
+//! Errors / 错误: message is `AMBR: [E-AMBR-xxx] <detail>` — the **stable code** is always
+//! in the first 20 bytes, so hosts can branch on it instead of parsing prose (use
+//! `\[E-AMBR-\d{3}\]`). Codes come from `errors/codes.sml` (domain `AMBR`) via
+//! [`amberice::AmbrError`]. The buffer is NUL-terminated and truncated, never overrun
+//! (`errsz == 0` is allowed). ｜ 错误带稳定码，写进调用方缓冲，绝不越界。
 
+use amberice::AmbrError;
 use std::os::raw::{c_char, c_uchar};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -71,20 +75,22 @@ pub unsafe extern "C" fn ambr_text(
 ) -> *mut c_char {
     let outcome = catch_unwind(AssertUnwindSafe(|| {
         if buf.is_null() {
-            return Err("AMBR: null pointer (空指针)".to_string());
+            return Err(AmbrError::InvalidInput("null pointer (空指针)".into()).render());
         }
         let bytes = std::slice::from_raw_parts(buf, len);
-        let value = amberice::load(bytes).map_err(|e| format!("AMBR: {e}"))?;
+        let value = amberice::load(bytes)
+            .map_err(|e| AmbrError::from(e).render())?;
         value
             .canonical_text()
-            .map_err(|e| format!("AMBR: {e}"))
+            .map_err(|e| AmbrError::from(e).render())
     }));
 
     match outcome {
         Ok(Ok(text)) => match std::ffi::CString::new(text) {
             Ok(c) => c.into_raw(),
             Err(_) => {
-                write_err(err, errsz, "AMBR: text contains NUL (文本含 NUL)");
+                let msg = AmbrError::Internal("text contains NUL (文本含 NUL)".into()).render();
+                write_err(err, errsz, &msg);
                 std::ptr::null_mut()
             }
         },
@@ -93,7 +99,8 @@ pub unsafe extern "C" fn ambr_text(
             std::ptr::null_mut()
         }
         Err(_) => {
-            write_err(err, errsz, "AMBR: decoder panic (解码器 panic)");
+            let msg = AmbrError::Internal("decoder panic (解码器 panic)".into()).render();
+            write_err(err, errsz, &msg);
             std::ptr::null_mut()
         }
     }
@@ -212,19 +219,21 @@ pub unsafe extern "C" fn ambr_pack_text(
 
     let outcome = catch_unwind(AssertUnwindSafe(|| {
         if text.is_null() {
-            return Err("AMBR: null pointer (空指针)".to_string());
+            return Err(AmbrError::InvalidInput("null pointer (空指针)".into()).render());
         }
         let raw = std::slice::from_raw_parts(text as *const u8, len);
-        let src = std::str::from_utf8(raw)
-            .map_err(|e| format!("AMBR: invalid UTF-8 / 无效 UTF-8: {e}"))?;
+        let src = std::str::from_utf8(raw).map_err(|e| {
+            AmbrError::InvalidInput(format!("invalid UTF-8 / 无效 UTF-8: {e}")).render()
+        })?;
         // `allow_top_scalar` 是必需的：`canonical_text` 会输出 `42\n` / `null\n`，
         // 默认入口按 W16 报 E-PARSE-008；写路径必须能读回自己写出的东西。
         // ｜ Must opt in: canonical_text can emit a lone scalar, and this path reads it back.
         let opts = sml::ParseOptions::new().ordered().allow_top_scalar();
-        let out = sml::parse_with(src, opts).map_err(|e| format!("AMBR: {e}"))?;
+        let out = sml::parse_with(src, opts)
+            .map_err(|e| AmbrError::Canonical(format!("SML parse failed / 解析失败: {e}")).render())?;
         let canonical = amberice::CanonicalValue::try_from(metadata_last(out.value))
-            .map_err(|e| format!("AMBR: not canonical / 非 canonical: {e}"))?;
-        amberice::dump(&canonical).map_err(|e| format!("AMBR: {e}"))
+            .map_err(|e| AmbrError::Canonical(format!("not canonical / 非 canonical: {e}")).render())?;
+        amberice::dump(&canonical).map_err(|e| AmbrError::from(e).render())
     }));
 
     match outcome {
@@ -243,7 +252,8 @@ pub unsafe extern "C" fn ambr_pack_text(
             std::ptr::null_mut()
         }
         Err(_) => {
-            write_err(err, errsz, "AMBR: encoder panic (编码器 panic)");
+            let msg = AmbrError::Internal("encoder panic (编码器 panic)".into()).render();
+            write_err(err, errsz, &msg);
             std::ptr::null_mut()
         }
     }
@@ -260,5 +270,36 @@ pub unsafe extern "C" fn ambr_pack_text(
 pub unsafe extern "C" fn ambr_free_bytes(p: *mut c_uchar, len: usize) {
     if !p.is_null() && len > 0 {
         drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(p, len)));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::CStr;
+
+    /// 宿主拿到的 `err` 缓冲必须带稳定码，且码在**前 20 字节**内（小缓冲也不会被截掉）。
+    #[test]
+    fn errors_carry_stable_codes() {
+        let mut err = [0 as c_char; 256];
+        let not_ambr = [0u8; 48];
+        let p = unsafe {
+            ambr_text(not_ambr.as_ptr(), not_ambr.len(), err.as_mut_ptr(), err.len())
+        };
+        assert!(p.is_null(), "坏魔数必须失败");
+        let msg = unsafe { CStr::from_ptr(err.as_ptr()) }.to_str().unwrap();
+        assert!(msg.starts_with("AMBR: [E-AMBR-002]"), "{msg}");
+
+        let mut err2 = [0 as c_char; 256];
+        let p2 = unsafe { ambr_text(std::ptr::null(), 0, err2.as_mut_ptr(), err2.len()) };
+        assert!(p2.is_null(), "空指针必须失败");
+        let msg2 = unsafe { CStr::from_ptr(err2.as_ptr()) }.to_str().unwrap();
+        assert!(msg2.starts_with("AMBR: [E-AMBR-001]"), "{msg2}");
+
+        // 码在很小缓冲里也不能被截掉：19 字节足够放 `AMBR: [E-AMBR-001]`
+        let mut tiny = [0 as c_char; 20];
+        unsafe { ambr_text(std::ptr::null(), 0, tiny.as_mut_ptr(), tiny.len()) };
+        let short = unsafe { CStr::from_ptr(tiny.as_ptr()) }.to_str().unwrap();
+        assert!(short.contains("E-AMBR-001"), "{short}");
     }
 }

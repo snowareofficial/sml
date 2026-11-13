@@ -27,6 +27,14 @@ struct SmlErrorMsg {
 };
 
 static const struct SmlErrorMsg SML_ERROR_MSGS[] = {
+    { "E-AMBR-001", "error", "AMBR", "入参非法", "传入了空指针、空输入、无效 UTF-8 或含 NUL 的文本", "Invalid input", "Null pointer, empty input, invalid UTF-8, or text containing NUL" },
+    { "E-AMBR-002", "error", "AMBR", "容器格式非法", "魔数、布局版本、文件头、段表或段体不合规（含截断与缺段）", "Invalid container format", "Bad magic, layout version, header, segment table, or segment body (including truncation and missing segments)" },
+    { "E-AMBR-003", "error", "AMBR", "不支持的能力", "文件用了本构建不支持的算法、压缩、feature 或能力位", "Unsupported capability", "The file uses an algorithm, compression, feature, or capability bit this build does not support" },
+    { "E-AMBR-004", "error", "AMBR", "完整性校验失败", "摘要、manifest 声明或签名校验不通过", "Integrity check failed", "Digest, manifest declaration, or signature verification failed" },
+    { "E-AMBR-005", "error", "AMBR", "加解密或密钥失败", "缺少密钥、KDF 不匹配或解密失败", "Crypto or key failure", "Missing key, KDF mismatch, or decryption failed" },
+    { "E-AMBR-006", "error", "AMBR", "canonical 化失败", "载荷无法转成 canonical 文本 / canonical 值", "Canonicalization failed", "The payload cannot be converted to canonical text or a canonical value" },
+    { "E-AMBR-007", "error", "AMBR", "宿主或 IO 失败", "本地库未加载、文件读写或输入缓冲分配失败", "Host or I/O failure", "Local library not loaded, file I/O failed, or input buffer allocation failed" },
+    { "E-AMBR-008", "error", "AMBR", "内部错误", "解码器 / 编码器 panic 或未预期的内部状态", "Internal error", "Decoder/encoder panic or an unexpected internal state" },
     { "E-CLI-001", "error", "CLI", "输入格式未知", "输入格式取值未知", "Unknown input format", "The input format value is unknown" },
     { "E-CLI-002", "error", "CLI", "输出格式未知", "输出格式取值未知", "Unknown output format", "The output format value is unknown" },
     { "E-CLI-003", "error", "CLI", "参数组合非法", "命令行参数组合非法：互斥项同时给出，或依赖项缺失", "Invalid argument combination", "Invalid command-line argument combination: mutually exclusive options given together, or a required dependency is missing" },

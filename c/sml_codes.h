@@ -8,6 +8,22 @@
 #ifndef SML_CODES_H
 #define SML_CODES_H
 
+/* [E-AMBR-001] 入参非法：传入了空指针、空输入、无效 UTF-8 或含 NUL 的文本 */
+#define SML_E_AMBR_001 "E-AMBR-001"
+/* [E-AMBR-002] 容器格式非法：魔数、布局版本、文件头、段表或段体不合规（含截断与缺段） */
+#define SML_E_AMBR_002 "E-AMBR-002"
+/* [E-AMBR-003] 不支持的能力：文件用了本构建不支持的算法、压缩、feature 或能力位 */
+#define SML_E_AMBR_003 "E-AMBR-003"
+/* [E-AMBR-004] 完整性校验失败：摘要、manifest 声明或签名校验不通过 */
+#define SML_E_AMBR_004 "E-AMBR-004"
+/* [E-AMBR-005] 加解密或密钥失败：缺少密钥、KDF 不匹配或解密失败 */
+#define SML_E_AMBR_005 "E-AMBR-005"
+/* [E-AMBR-006] canonical 化失败：载荷无法转成 canonical 文本 / canonical 值 */
+#define SML_E_AMBR_006 "E-AMBR-006"
+/* [E-AMBR-007] 宿主或 IO 失败：本地库未加载、文件读写或输入缓冲分配失败 */
+#define SML_E_AMBR_007 "E-AMBR-007"
+/* [E-AMBR-008] 内部错误：解码器 / 编码器 panic 或未预期的内部状态 */
+#define SML_E_AMBR_008 "E-AMBR-008"
 /* [E-CLI-001] 输入格式未知：输入格式取值未知 */
 #define SML_E_CLI_001 "E-CLI-001"
 /* [E-CLI-002] 输出格式未知：输出格式取值未知 */
@@ -343,6 +359,6 @@
 /* [W-PARSE-002] 片段展开覆盖父块键：片段展开覆盖了父块已有的同名键：父块原值丢失 */
 #define SML_W_PARSE_002 "W-PARSE-002"
 
-#define SML_CODES_COUNT 167
+#define SML_CODES_COUNT 175
 
 #endif /* SML_CODES_H */

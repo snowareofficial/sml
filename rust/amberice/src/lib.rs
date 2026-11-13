@@ -43,6 +43,9 @@ pub mod crypto;
 /// `DIR`（0x03）路径索引：派生数据，缺失/过期只影响速度（N05 / §19.3）。
 /// `DIR` path index: derived data; missing or stale only costs speed (N05 / §19.3).
 pub mod dir;
+/// `.ambr` 统一错误类型（稳定码 `E-AMBR-*` + 机器可判类别）。
+/// ｜ Unified error type with stable codes and a machine-readable kind.
+pub mod error;
 pub mod hash;
 pub mod ingest;
 pub mod layer;
@@ -63,6 +66,7 @@ pub mod typed;
 pub mod vectors;
 
 pub use crypto::{FileKeys, KdfParams, KeySource};
+pub use error::AmbrError;
 /// 键序已证明的值（TryFrom<Value>）—— dump_canonical 的入参。
 pub use sml_value::CanonicalValue;
 /// 用户级动作与类型；段布局常量、帧工具、段头结构见 [`container`]。

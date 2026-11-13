@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MulanPSL-2.0
 # SML 多语言宿主绑定（Ruby / fiddle）。
 # 仓库：https://gitee.com/snoware/sml
-# @version 0.1.0 (swsml 0.6.3)
+# @version 由 sml_version() 提供（不在此写死包版本）
 
 # frozen_string_literal: true
 # SML 宿主绑定（Ruby / fiddle）—— 经 C-ABI 调 Rust cdylib（sml / libsml）。
@@ -34,6 +34,14 @@ module Sml
   SML_F_GLOB_INCLUDE  = 1 << 9
   SML_F_REGEX_INCLUDE = 1 << 10
   SML_F_EXT_REWRITE   = 1 << 11
+  # 12..18 与 c/sml_rs.h 逐位一致（守护：tools/check/check_amberice_align.py）
+  SML_F_WHEN          = 1 << 12
+  SML_F_FOR           = 1 << 13
+  SML_F_TYPED_BLOCK   = 1 << 14
+  SML_F_CASE_INSENSITIVE = 1 << 15
+  SML_F_BLOCK_NAME    = 1 << 16
+  SML_F_FEATAG        = 1 << 17
+  SML_F_IDENT         = 1 << 18
   SML_F_BASIC = SML_F_BAREWORD_STR | SML_F_INCLUDE | SML_F_FRAGMENT
 
   # ---- 值类型 ----

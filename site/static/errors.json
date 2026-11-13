@@ -2,6 +2,7 @@
   "version": 1,
   "coverage": "全量（2026-09-18 清点：语言层 + 宿主绑定层 + 工具层 + 编辑器层）",
   "domains": {
+    "AMBR": "amberice 容器（.ambr）",
     "CLI": "命令行与工具用法",
     "CONTRACT": "契约",
     "DERIVE": "Rust 派生宏与 serde 桥",
@@ -17,8 +18,104 @@
     "MIGRATE": "迁入格式（JSON / TOML / YAML / XML）",
     "PARSE": "语法"
   },
-  "count": 167,
+  "count": 175,
   "codes": [
+    {
+      "id": "E-AMBR-001",
+      "severity": "error",
+      "domain": "AMBR",
+      "title": "入参非法",
+      "msg": "传入了空指针、空输入、无效 UTF-8 或含 NUL 的文本",
+      "impls": [
+        "amberice"
+      ],
+      "status": "done",
+      "note": "ABI 边界的入参校验；宿主库版本不影响判定"
+    },
+    {
+      "id": "E-AMBR-002",
+      "severity": "error",
+      "domain": "AMBR",
+      "title": "容器格式非法",
+      "msg": "魔数、布局版本、文件头、段表或段体不合规（含截断与缺段）",
+      "impls": [
+        "amberice"
+      ],
+      "status": "done",
+      "note": "ContainerError 里所有结构 / 布局类变体归此码；细节在消息的 detail 部分"
+    },
+    {
+      "id": "E-AMBR-003",
+      "severity": "error",
+      "domain": "AMBR",
+      "title": "不支持的能力",
+      "msg": "文件用了本构建不支持的算法、压缩、feature 或能力位",
+      "impls": [
+        "amberice"
+      ],
+      "status": "done",
+      "note": "含只读构建（amberice-ffi 未开 sml feature）时的写入请求；可用 ambr_caps() 先查"
+    },
+    {
+      "id": "E-AMBR-004",
+      "severity": "error",
+      "domain": "AMBR",
+      "title": "完整性校验失败",
+      "msg": "摘要、manifest 声明或签名校验不通过",
+      "impls": [
+        "amberice"
+      ],
+      "status": "done",
+      "note": "字节被改过 / 文件损坏 / 密钥不受信都走此码；与 E-AMBR-005 的「加解密失败」分开"
+    },
+    {
+      "id": "E-AMBR-005",
+      "severity": "error",
+      "domain": "AMBR",
+      "title": "加解密或密钥失败",
+      "msg": "缺少密钥、KDF 不匹配或解密失败",
+      "impls": [
+        "amberice"
+      ],
+      "status": "done",
+      "note": "密钥材料的问题，不是字节校验的问题"
+    },
+    {
+      "id": "E-AMBR-006",
+      "severity": "error",
+      "domain": "AMBR",
+      "title": "canonical 化失败",
+      "msg": "载荷无法转成 canonical 文本 / canonical 值",
+      "impls": [
+        "amberice"
+      ],
+      "status": "done",
+      "note": "含键序不可用、非有限浮点、深度超限与 SML 源文本解析失败"
+    },
+    {
+      "id": "E-AMBR-007",
+      "severity": "error",
+      "domain": "AMBR",
+      "title": "宿主或 IO 失败",
+      "msg": "本地库未加载、文件读写或输入缓冲分配失败",
+      "impls": [
+        "amberice"
+      ],
+      "status": "done",
+      "note": "宿主环境问题，与 .ambr 内容无关"
+    },
+    {
+      "id": "E-AMBR-008",
+      "severity": "error",
+      "domain": "AMBR",
+      "title": "内部错误",
+      "msg": "解码器 / 编码器 panic 或未预期的内部状态",
+      "impls": [
+        "amberice"
+      ],
+      "status": "done",
+      "note": "不应发生；出现即视为实现缺陷，保留 detail 供排查"
+    },
     {
       "id": "E-CLI-001",
       "severity": "error",

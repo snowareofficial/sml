@@ -2,6 +2,22 @@
 // 本文件由 errors/gen_codes.py 从 errors/codes.sml 生成，请勿手改。
 // 唯一事实来源是 errors/codes.sml（见 errors/README.md）。
 
+/// [E-AMBR-001] 入参非法：传入了空指针、空输入、无效 UTF-8 或含 NUL 的文本
+export const E_AMBR_001 = "E-AMBR-001";
+/// [E-AMBR-002] 容器格式非法：魔数、布局版本、文件头、段表或段体不合规（含截断与缺段）
+export const E_AMBR_002 = "E-AMBR-002";
+/// [E-AMBR-003] 不支持的能力：文件用了本构建不支持的算法、压缩、feature 或能力位
+export const E_AMBR_003 = "E-AMBR-003";
+/// [E-AMBR-004] 完整性校验失败：摘要、manifest 声明或签名校验不通过
+export const E_AMBR_004 = "E-AMBR-004";
+/// [E-AMBR-005] 加解密或密钥失败：缺少密钥、KDF 不匹配或解密失败
+export const E_AMBR_005 = "E-AMBR-005";
+/// [E-AMBR-006] canonical 化失败：载荷无法转成 canonical 文本 / canonical 值
+export const E_AMBR_006 = "E-AMBR-006";
+/// [E-AMBR-007] 宿主或 IO 失败：本地库未加载、文件读写或输入缓冲分配失败
+export const E_AMBR_007 = "E-AMBR-007";
+/// [E-AMBR-008] 内部错误：解码器 / 编码器 panic 或未预期的内部状态
+export const E_AMBR_008 = "E-AMBR-008";
 /// [E-CLI-001] 输入格式未知：输入格式取值未知
 export const E_CLI_001 = "E-CLI-001";
 /// [E-CLI-002] 输出格式未知：输出格式取值未知
@@ -339,6 +355,14 @@ export const W_PARSE_002 = "W-PARSE-002";
 
 /// 全部错误码，按 id 升序。
 export const ALL = Object.freeze([
+  E_AMBR_001,
+  E_AMBR_002,
+  E_AMBR_003,
+  E_AMBR_004,
+  E_AMBR_005,
+  E_AMBR_006,
+  E_AMBR_007,
+  E_AMBR_008,
   E_CLI_001,
   E_CLI_002,
   E_CLI_003,
@@ -508,4 +532,4 @@ export const ALL = Object.freeze([
   W_PARSE_002,
 ]);
 
-export const COUNT = 167;
+export const COUNT = 175;

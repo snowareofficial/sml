@@ -293,7 +293,7 @@ pub fn strip_features(text: &str) -> Result<StrippedFeatures, SmlError> {
     let mut spans: Option<Vec<(usize, usize)>> = None;
     // 基集 = **版本基线**（8 个核心特性），而不是「全开」。
     // 旧实现这里起算是 `FeatureSet::all()`：于是文档里出现**任何**一行 `@feature`
-    // （哪怕只写 `@feature enable typed-block`），最终特性集都会变成「全部 16 个特性
+    // （哪怕只写 `@feature enable typed-block`），最终特性集都会变成「全部 20 个特性
     // 全开」—— 连 `when` / `for` / `glob-include` 以及 opt-in 的 `case-insensitive`
     // 都被顺手打开。这与「enable X = 只开 X」的直觉相反（`@feature` 是**开关**，
     // 不是「顺便把其余都打开」的开关）。

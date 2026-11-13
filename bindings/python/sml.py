@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MulanPSL-2.0
 # SML 多语言宿主绑定（Python / ctypes）。
 # 仓库：https://gitee.com/snoware/sml
-# @version 0.1.0 (swsml 0.6.3)
+# @version 由 sml_version() 提供（不在此写死包版本）
 
 """SML 宿主绑定（Python / ctypes）—— 经 C-ABI 调 Rust cdylib（sml / libsml）。
 
@@ -52,6 +52,14 @@ SML_F_MULTI_INCLUDE = 1 << 8
 SML_F_GLOB_INCLUDE = 1 << 9
 SML_F_REGEX_INCLUDE = 1 << 10
 SML_F_EXT_REWRITE = 1 << 11
+# 12..18 与 c/sml_rs.h 逐位一致（守护：tools/check/check_amberice_align.py）
+SML_F_WHEN = 1 << 12
+SML_F_FOR = 1 << 13
+SML_F_TYPED_BLOCK = 1 << 14
+SML_F_CASE_INSENSITIVE = 1 << 15
+SML_F_BLOCK_NAME = 1 << 16
+SML_F_FEATAG = 1 << 17
+SML_F_IDENT = 1 << 18
 # 弱声明族（`@weakbind` / `@weakdata` / `@weakdoc`）：opt-in，**不在**基线里。
 # 要校验弱绑定，`flags` 得显式带上这一位（flags 是特性上限，不是「额外启用」）。
 SML_F_WEAK = 1 << 19

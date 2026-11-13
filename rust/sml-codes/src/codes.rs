@@ -12,6 +12,30 @@
 
 #![allow(dead_code)]
 
+/// [E-AMBR-001] 入参非法：传入了空指针、空输入、无效 UTF-8 或含 NUL 的文本
+/// EN: Invalid input —— Null pointer, empty input, invalid UTF-8, or text containing NUL
+pub const E_AMBR_001: &str = "E-AMBR-001";
+/// [E-AMBR-002] 容器格式非法：魔数、布局版本、文件头、段表或段体不合规（含截断与缺段）
+/// EN: Invalid container format —— Bad magic, layout version, header, segment table, or segment body (including truncation and missing segments)
+pub const E_AMBR_002: &str = "E-AMBR-002";
+/// [E-AMBR-003] 不支持的能力：文件用了本构建不支持的算法、压缩、feature 或能力位
+/// EN: Unsupported capability —— The file uses an algorithm, compression, feature, or capability bit this build does not support
+pub const E_AMBR_003: &str = "E-AMBR-003";
+/// [E-AMBR-004] 完整性校验失败：摘要、manifest 声明或签名校验不通过
+/// EN: Integrity check failed —— Digest, manifest declaration, or signature verification failed
+pub const E_AMBR_004: &str = "E-AMBR-004";
+/// [E-AMBR-005] 加解密或密钥失败：缺少密钥、KDF 不匹配或解密失败
+/// EN: Crypto or key failure —— Missing key, KDF mismatch, or decryption failed
+pub const E_AMBR_005: &str = "E-AMBR-005";
+/// [E-AMBR-006] canonical 化失败：载荷无法转成 canonical 文本 / canonical 值
+/// EN: Canonicalization failed —— The payload cannot be converted to canonical text or a canonical value
+pub const E_AMBR_006: &str = "E-AMBR-006";
+/// [E-AMBR-007] 宿主或 IO 失败：本地库未加载、文件读写或输入缓冲分配失败
+/// EN: Host or I/O failure —— Local library not loaded, file I/O failed, or input buffer allocation failed
+pub const E_AMBR_007: &str = "E-AMBR-007";
+/// [E-AMBR-008] 内部错误：解码器 / 编码器 panic 或未预期的内部状态
+/// EN: Internal error —— Decoder/encoder panic or an unexpected internal state
+pub const E_AMBR_008: &str = "E-AMBR-008";
 /// [E-CLI-001] 输入格式未知：输入格式取值未知
 /// EN: Unknown input format —— The input format value is unknown
 pub const E_CLI_001: &str = "E-CLI-001";
@@ -516,6 +540,14 @@ pub const W_PARSE_002: &str = "W-PARSE-002";
 
 /// 全部错误码，按 id 升序（码表里就是按 id 排序的）。
 pub const ALL: &[&str] = &[
+    E_AMBR_001,
+    E_AMBR_002,
+    E_AMBR_003,
+    E_AMBR_004,
+    E_AMBR_005,
+    E_AMBR_006,
+    E_AMBR_007,
+    E_AMBR_008,
     E_CLI_001,
     E_CLI_002,
     E_CLI_003,
@@ -686,4 +718,4 @@ pub const ALL: &[&str] = &[
 ];
 
 /// 码总数（与 `errors/codes.sml` 的 `count` 对齐）。
-pub const COUNT: usize = 167;
+pub const COUNT: usize = 175;
