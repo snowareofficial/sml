@@ -465,6 +465,19 @@ KDF 从 `0x50–0x5F` 迁走。
   同时把子进程输出按 UTF-8 解码，避免中文/箭头被 GBK 判成失败。
 - 回归：`cpp/build_verify.py` 8 档全 rc=0（AMBR 含 SM3/BLAKE3 与反例）。
 
+### 新增（Lua 端补齐 hash_id 分派：纯 Lua SM3 + BLAKE3）
+
+- **算法**：新增 `lua/lib/ambr_hash.lua` —— 纯 Lua 实现 SM3（GB/T 32905-2016）与 BLAKE3
+  （无密钥 32 B，1 KiB 分块 / chunk 链 / 父节点合并 / `ROOT` 收尾）。位运算走 LuaJIT 的
+  `bit` 库（32 位有符号统一 `u32()` 归一）；语法保持 Lua 5.1 兼容（不用 `//`、`&`）。
+- **按 manifest 分派**：`lua/lib/sml.lua` 的 `_ambr_walk` 先扫 `MANIFEST`(0x04) 解出
+  `hash_id`，再按 `0x30/0x31/0x32` 分派（SHA-256 复用写侧实现，不重复一份）；此前 Lua
+  **完全不验摘要**，本批把校验一并补上。加载不到 `ambr_hash` 时**明确跳过并标注**
+  （`p.digest_skipped`），绝不退回 SHA-256。
+- **测试**：`lua/test_ambr.lua` 读 `tests/vectors/amberice-hash-algos.v1.hex` 两例 +
+  改坏摘要反例（打印 `hash_id 0x31 decoded (sm3)`）。
+- 回归：`lua/run_check.py` 全绿（22 例 + SM3/BLAKE3 + 反例）。
+
 ### 变更（仓库治理：文档生成物幂等）
 
 - `smldocs --index` / `--report` 的头行改记 `docs/meta.sml` 的内容摘要（FNV-1a 64），

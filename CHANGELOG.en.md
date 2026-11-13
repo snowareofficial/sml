@@ -514,6 +514,21 @@ a version), sub-ids are 2 bytes, and KDF moves out of `0x50–0x5F`.
   trips the GBK locale.
 - Regressions: `cpp/build_verify.py` all eight gates rc=0 (AMBR covers SM3/BLAKE3 + negative).
 
+### Added (Lua gains `hash_id` dispatch: pure-Lua SM3 + BLAKE3)
+
+- **Algorithms**: new `lua/lib/ambr_hash.lua` — pure-Lua SM3 (GB/T 32905-2016) and BLAKE3
+  (unkeyed 32-byte digest: 1 KiB chunks, chunk chaining, parent merging, `ROOT`
+  finalisation). Bit operations use LuaJIT's `bit` library with `u32()` normalisation, and
+  the syntax stays Lua 5.1-compatible (no `//` or `&`).
+- **Dispatch from the manifest**: `_ambr_walk` in `lua/lib/sml.lua` now scans `MANIFEST`
+  (0x04) for `hash_id` and dispatches on `0x30/0x31/0x32` (SHA-256 is reused from the writer
+  rather than duplicated). Lua previously verified **no** digests at all; this batch adds the
+  check too. When `ambr_hash` cannot be loaded, verification is **skipped explicitly**
+  (`p.digest_skipped`) instead of falling back to SHA-256.
+- **Tests**: `lua/test_ambr.lua` reads `tests/vectors/amberice-hash-algos.v1.hex` (two
+  cases) plus a tampered-digest negative case (`hash_id 0x31 decoded (sm3)`).
+- Regressions: `lua/run_check.py` fully green (22 vectors + SM3/BLAKE3 + negative case).
+
 ### 🚨 Breaking — version naming: `Version` enum → `Edition` lookup
 
 An edition is just a **name for a set of default feature bits** (`docs/swsml/spec/version.md` v1.0).

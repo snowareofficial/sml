@@ -91,6 +91,70 @@ while true do
   pos = after_hex
 end
 
+
+-- hash_id 分派（§20）：读 tests/vectors/amberice-hash-algos.v1.hex（SM3 / BLAKE3 各一份），
+-- 断言能解码且值正确；再改坏第一份的段摘要，断言必须拒绝。
+-- ｜ Verify hash_id dispatch against the Rust-generated fixtures, plus a tampered-digest case.
+local function run_hash_fixtures()
+  local fpath = here .. "/../tests/vectors/amberice-hash-algos.v1.hex"
+  local f = io.open(fpath, "rb")
+  if not f then
+    print("FAIL: hash fixtures -> " .. fpath)
+    failures = failures + 1
+    return
+  end
+  local cases2 = 0
+  for line in f:lines() do
+    if line ~= "" and string.sub(line, 1, 1) ~= "#" then
+      local id, hid, hx = string.match(line, "^(%S+)%s+(%d+)%s+(%S+)$")
+      if not id then
+        print("FAIL: hash fixture format -> " .. line)
+        failures = failures + 1
+      else
+        local bytes = hex_to_bytes(hx)
+        local v, err = Sml.ambr_load(bytes)
+        if not v then
+          print("FAIL: " .. id .. " -> " .. tostring(err))
+          failures = failures + 1
+        elseif type(v) ~= "table" or v.who ~= "u1" or v.n ~= 7 then
+          print("FAIL: " .. id .. " -> value mismatch")
+          failures = failures + 1
+        else
+          print(string.format("  ok: hash_id 0x%02x decoded (%s)", tonumber(hid), id))
+          -- 反例：改坏段表首项摘要 ⇒ 必须拒绝
+          if cases2 == 0 then
+            local table_off = 0
+            for i = 8, 1, -1 do
+              table_off = table_off * 256 + string.byte(bytes, 9 + i - 1)
+            end
+            local at = table_off + 9
+            if at <= #bytes then
+              local c = string.byte(bytes, at)
+              local flipped = string.char((c + 1) % 256)
+              local bad_bytes = string.sub(bytes, 1, at - 1) .. flipped .. string.sub(bytes, at + 1)
+              local v2 = Sml.ambr_load(bad_bytes)
+              if v2 then
+                print("FAIL: " .. id .. " -> tampered digest still decodes")
+                failures = failures + 1
+              else
+                print("  ok: tampered digest -> rejected (" .. id .. ")")
+              end
+            end
+          end
+        end
+      end
+      cases2 = cases2 + 1
+    end
+  end
+  f:close()
+  if cases2 ~= 2 then
+    print(string.format("FAIL: hash fixtures expected 2, got %d", cases2))
+    failures = failures + 1
+  end
+end
+
+run_hash_fixtures()
+
 print(string.format("[ambr] %d 例，%d 个失败", cases, failures))
 if cases ~= 22 then
   print(string.format("FAIL: 期望 22 例，实得 %d", cases))
