@@ -404,6 +404,16 @@ struct Cli {
     #[arg(long = "profiles-force")]
     profiles_force: bool,
 
+    /// `.ambr` 包的信任锚（公钥 hex，64 字符）：给了就必须验签通过
+    /// ｜ trust anchor for `.ambr` packages (64 hex chars)
+    #[arg(long = "profiles-trust", value_name = "HEX64")]
+    profiles_trust: Option<String>,
+
+    /// 要求包已签名：无签名或验签失败即拒绝安装
+    /// ｜ require a signed package
+    #[arg(long = "profiles-require-signature")]
+    profiles_require_signature: bool,
+
     /// 迁移模式：scan（只报告，有命中退出码 1）/ apply（写回，幂等）/ rules（列规则）
     ///
     /// 依据 `docs/swsml/spec/version.md` §4.5：**默认不写文件**，要写必须显式 `apply`。
@@ -615,6 +625,10 @@ struct Args {
     profiles_remove: Option<String>,
     profiles_scope: String,
     profiles_force: bool,
+    #[cfg_attr(not(feature = "amberice"), allow(dead_code))]
+    profiles_trust: Option<String>,
+    #[cfg_attr(not(feature = "amberice"), allow(dead_code))]
+    profiles_require_signature: bool,
     /// `--migrate <scan|apply|rules>` ｜ migration mode
     migrate: Option<String>,
     /// `--rule a,b` ｜ rule filter
@@ -716,6 +730,8 @@ fn parse_args(cli: Cli) -> Result<Args, SmlError> {
         profiles_remove: cli.profiles_remove,
         profiles_scope: cli.profiles_scope,
         profiles_force: cli.profiles_force,
+        profiles_trust: cli.profiles_trust,
+        profiles_require_signature: cli.profiles_require_signature,
         migrate: cli.migrate,
         rule: cli.rule,
         backup: cli.backup,
@@ -1818,6 +1834,93 @@ fn smlex_name(bytes: &[u8]) -> Option<String> {
     v.get("name").and_then(|x| x.as_str()).map(|s| s.to_string())
 }
 
+/// 解析 64 字符十六进制公钥。
+#[cfg(feature = "amberice")]
+fn parse_hex32(s: &str) -> Option<[u8; 32]> {
+    let s = s.trim();
+    if s.len() != 64 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for i in 0..32 {
+        out[i] = u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).ok()?;
+    }
+    Some(out)
+}
+
+/// 安装 `.ambr` 包前的验签。
+///
+/// 默认**不阻断**：没签名只提示；给了 `--profiles-trust` 就必须验签通过；
+/// `--profiles-require-signature` 把「没签名」也变成失败。
+/// ｜ Returns `Err(())` when the caller asked for a guarantee and did not get one.
+#[cfg(feature = "amberice")]
+fn verify_package(args: &Args, bytes: &[u8]) -> Result<(), ()> {
+    use amberice::hash::HashAlgo;
+    let algo: HashAlgo = amberice::container::manifest_of(bytes)
+        .map(|m| m.hash)
+        .unwrap_or(amberice::hash::DEFAULT);
+    let anchor_hex = match &args.profiles_trust {
+        Some(h) => h,
+        None => {
+            return match amberice::sign::verify_with(bytes, algo, false) {
+                // `layers == 0` 表示**根本没有签名层**，不能当成“验过了”。
+                Ok(r) if r.ok && r.layers > 0 => {
+                    println!("  验签 有签名层且内容完整（{} 层；未给 --profiles-trust，锚点未确认）", r.layers);
+                    Ok(())
+                }
+                Ok(r) => {
+                    let detail = if r.layers == 0 {
+                        "没有签名层".to_string()
+                    } else {
+                        r.lines.join("；")
+                    };
+                    if args.profiles_require_signature {
+                        eprintln!("smltools: 验签未通过：{detail}");
+                        return Err(());
+                    }
+                    println!("  验签 {detail} —— 继续安装，但请自行确认来源");
+                    Ok(())
+                }
+            Err(e) => {
+                if args.profiles_require_signature {
+                    eprintln!("smltools: 包没有可用的签名层：{e}");
+                    return Err(());
+                }
+                println!("  验签 无签名层（{e}）—— 继续安装，但请自行确认来源");
+                Ok(())
+            }
+            };
+        }
+    };
+    let Some(anchor) = parse_hex32(anchor_hex) else {
+        eprintln!("smltools: --profiles-trust 需要 64 个十六进制字符");
+        return Err(());
+    };
+    match amberice::sign::verify_trusted(bytes, algo, &anchor) {
+        Ok(r) if r.ok => {
+            println!("  验签 通过（{} 层，锚点已匹配）", r.layers);
+            Ok(())
+        }
+        Ok(r) => {
+            eprintln!("smltools: 验签未通过：{}", r.lines.join("；"));
+            Err(())
+        }
+        Err(e) => {
+            eprintln!("smltools: 验签出错：{e}");
+            Err(())
+        }
+    }
+}
+
+#[cfg(not(feature = "amberice"))]
+fn verify_package(args: &Args, _bytes: &[u8]) -> Result<(), ()> {
+    if args.profiles_trust.is_some() || args.profiles_require_signature {
+        eprintln!("smltools: 本构建未启用 `amberice` feature，无法验签（去掉 --profiles-trust / --profiles-require-signature）");
+        return Err(());
+    }
+    Ok(())
+}
+
 fn profiles_cmd(args: &Args) -> ExitCode {
     if args.profiles_list {
         return profiles_list(args);
@@ -1902,15 +2005,20 @@ fn profiles_install(args: &Args, src: &std::path::Path) -> ExitCode {
         }
         out
     } else if src.extension().and_then(|s| s.to_str()) == Some("ambr") {
+        // 读文件与验签放在 feature 之外：默认构建也能给出「未启用 amberice」之外的
+        // 签名结论（`verify_package` 的 no-feature 版本会明确拒绝 --profiles-trust）。
+        let bytes = match std::fs::read(src) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("smltools: 读 {} 失败：{e}", src.display());
+                return ExitCode::from(2);
+            }
+        };
+        if verify_package(args, &bytes).is_err() {
+            return ExitCode::from(1);
+        }
         #[cfg(feature = "amberice")]
         {
-            let bytes = match std::fs::read(src) {
-                Ok(b) => b,
-                Err(e) => {
-                    eprintln!("smltools: 读 {} 失败：{e}", src.display());
-                    return ExitCode::from(2);
-                }
-            };
             let list = match sml::list(&bytes) {
                 Ok(l) => l,
                 Err(e) => {
@@ -2012,7 +2120,7 @@ fn profiles_install(args: &Args, src: &std::path::Path) -> ExitCode {
         "[profiles] 安装 {ok} 个，跳过 {skipped} 个 → {}",
         dir.display()
     );
-    println!("（本构建只校验「文件名 = name」与可解析性，不做包签名校验）");
+    println!("（签名结论见上：默认只提示；`--profiles-require-signature` 或 `--profiles-trust` 可强制）");
     if skipped > 0 {
         ExitCode::from(1)
     } else {

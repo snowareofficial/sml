@@ -644,6 +644,22 @@ a version), sub-ids are 2 bytes, and KDF moves out of `0x50–0x5F`.
 - Regressions: `cargo test -p amberice --test user_segment` (written and reported; no USER
   segment by default).
 
+### Added (signature verification when installing `.ambr` packages)
+
+- `smltools --profiles-install` now uses `amberice::sign` (multi-layer chain + delegation):
+  - **default**: verify and print the verdict (`signed and complete` / `no signature layer`),
+    without blocking;
+  - `--profiles-trust <HEX64>`: a trust anchor is required and must match;
+  - `--profiles-require-signature`: no signature layer (or a failure) refuses the install
+    (rc=1).
+- The digest/signature algorithm comes from the manifest's `hash_id`; "no signature layer" and
+  "signed but no anchor" are reported separately — never pretending it was verified.
+- `smltools` now depends on `amberice` directly (`sign` feature; the `amberice` feature forwards
+  `dep:amberice`). In a default build the two flags refuse with "not enabled in this build".
+- Spec `docs/swsml/spec/smlex.md` gained §11.5 (three signature policies).
+- Regressions: `cargo clippy -p smltools --all-targets` (default and with `--features amberice`)
+  is clean; `--profiles-require-signature` returns rc=1 for unsigned packages.
+
 ### 🚨 Breaking — version naming: `Version` enum → `Edition` lookup
 
 An edition is just a **name for a set of default feature bits** (`docs/swsml/spec/version.md` v1.0).
