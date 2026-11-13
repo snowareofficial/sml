@@ -631,6 +631,19 @@ a version), sub-ids are 2 bytes, and KDF moves out of `0x50–0x5F`.
 - Spec `format.md` gained §19.10.1; regressions in `cargo test -p amberice --test stream`
   (streaming info matches, payloads byte-identical, missing payload errors, bad magic errors).
 
+### Added (package metadata: `pack --meta` writes a `USER` segment, carried not interpreted)
+
+- **`amberice pack --meta <file>`** stores the file's raw bytes in a `USER` (`0xF0`) segment
+  under submagic `PKG\x00` v1; the container never interprets it. `amberice info` prints
+  `user PKG (v1, N B)` plus a printable preview and shows `0xf0 USER` in the table.
+- **`DumpOptions.user_segments: Vec<UserSegment>`** (`seg_id` + `submagic` + `version` +
+  `payload`), empty by default — existing files stay byte-identical (the 22 container vectors
+  still match).
+- By decision: metadata is **carried and displayed only**; it never drives install or
+  validation ("the user's own data").
+- Regressions: `cargo test -p amberice --test user_segment` (written and reported; no USER
+  segment by default).
+
 ### 🚨 Breaking — version naming: `Version` enum → `Edition` lookup
 
 An edition is just a **name for a set of default feature bits** (`docs/swsml/spec/version.md` v1.0).

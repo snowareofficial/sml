@@ -1097,6 +1097,17 @@ caps: {
 - 将来若确需 OS 级识别（`file` 命令 / 双击 / 文件关联），只能走 **`fmt` 升级 + `hdr_len`
   扩展**：在头部**追加**一个字段（不是替换 `AMBR`），并同步升级 `fmt`。
 
+#### 19.15.4 工具侧：`pack --meta`
+
+```bash
+amberice pack --meta pkg.sml out.ambr api-docs.smlex
+```
+
+- `--meta <file>`：把文件**原文**放进 `USER`（`PKG\x00`，v1）段，容器**不解释**；
+- `amberice info` 展示 `user PKG（v1，N B）` 与可打印预览，段表里是 `0xf0 USER`；
+- 元数据**不参与**任何安装 / 校验决策 —— 它是「使用者自己的数据」，只被携带与展示
+  （2026-11-14 裁决）。缺失也不影响读取。
+
 #### 19.15.3 `submagic` 登记表
 
 | `submagic` | 用途 | 归属 | 状态 |
