@@ -437,9 +437,18 @@ fn vectors_cmd(args: &[String]) -> Result<String, (u8, String)> {
 fn pack_cmd(args: &[String]) -> Result<String, (u8, String)> {
     // `--zstd [N]`：N 可省（下一个 token 不是数字时就取默认 3）
     let mut compress: Option<i32> = None;
+    let mut meta: Option<String> = None;
     let mut rest: Vec<&String> = Vec::new();
     let mut i = 0;
     while i < args.len() {
+        if args[i] == "--meta" {
+            let Some(path) = args.get(i + 1) else {
+                return Err((2, "用法: amberice pack [--zstd [N]] [--meta <file.sml>] <out.ambr> <file>...".to_string()));
+            };
+            meta = Some(path.to_string());
+            i += 2;
+            continue;
+        }
         if args[i] == "--zstd" {
             compress = Some(match args.get(i + 1).and_then(|v| v.parse::<i32>().ok()) {
                 Some(level) => {
@@ -476,10 +485,21 @@ fn pack_cmd(args: &[String]) -> Result<String, (u8, String)> {
         })
         .collect::<Result<Vec<_>, _>>()?;
     let count = items.len();
-    let opts = amberice::DumpOptions {
+    let mut opts = amberice::DumpOptions {
         compress,
         ..Default::default()
     };
+    // 包元数据：原文入 `USER` 段（submagic `PKG\0`，v1），容器**不解释**。
+    // 只带、只展示；不参与任何安装决策（用户 2026-11-14 裁决）。
+    if let Some(path) = &meta {
+        let payload = std::fs::read(path).map_err(|e| (1, format!("读 {path} 失败：{e}")))?;
+        opts.user_segments.push(amberice::container::UserSegment {
+            seg_id: amberice::container::SEG_USER,
+            submagic: *b"PKG\0",
+            version: 1,
+            payload,
+        });
+    }
     let file = amberice::pack_iter_with(items, &opts).map_err(|e| (1, e.to_string()))?;
     write_atomic(out, &file)?;
     Ok(format!(

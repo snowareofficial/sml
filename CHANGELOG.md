@@ -568,6 +568,16 @@ KDF 从 `0x50–0x5F` 迁走。
 - 规范 `format.md` 新增 §19.10.1；回归 `cargo test -p amberice --test stream` 2 例
   （流式 info 与整份一致、载荷逐字节一致、缺失载荷报错、坏 magic 报错）。
 
+### 新增（包元数据：`pack --meta` 写入 `USER` 段，只带不解释）
+
+- **`amberice pack --meta <file>`**：把文件**原文**写进 `USER`（`0xF0`）段的 `PKG\x00` v1 载荷，
+  容器不解释内容；`amberice info` 展示 `user PKG（v1，N B）` + 可打印预览，段表显示 `0xf0 USER`。
+- **`DumpOptions.user_segments: Vec<UserSegment>`**（`seg_id` + `submagic` + `version` + `payload`），
+  默认空 —— 旧文件逐字节不变（22 例容器向量仍一致）。
+- 按裁决：元数据**只带、只展示**，不参与安装/校验决策（「使用者自己当数据存」）。
+- 回归：`cargo test -p amberice --test user_segment` 2 例（写入并被 `info` 报告；
+  默认不写 USER 段）。
+
 ### 变更（仓库治理：文档生成物幂等）
 
 - `smldocs --index` / `--report` 的头行改记 `docs/meta.sml` 的内容摘要（FNV-1a 64），

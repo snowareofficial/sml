@@ -146,6 +146,10 @@ pub const SEG_EMBED: u8 = 0x20;
 /// `PROVENANCE` segment id (§19.1) — T4 payload.
 /// `PROVENANCE` 段 id（T4 才用）。
 pub const SEG_PROVENANCE: u8 = 0x60;
+/// 应用扩展段（§19.15）：段体 = `submagic[4] + version[1] + payload`。
+/// 容器不解释内容；未知 submagic 的读者按 `len` 跳过。
+/// ｜ Application extension segment. Body = submagic + version + payload.
+pub const SEG_USER: u8 = 0xF0;
 
 /// `FRAMES` segment id (§19.1) — the value tree stored as **independent zstd frames** plus an
 /// index, so a reader can inflate only the frames it touches (§19.12).
@@ -803,6 +807,34 @@ fn verify_digest(seg: &Segment, body: &[u8], algo: HashAlgo) -> Result<(), Conta
 // Write / 写
 // ---------------------------------------------------------------------------
 
+/// 一个 `USER`（`0xF0`）扩展段（§19.15）。
+///
+/// 容器只负责原样存取：不解释 `payload`，也不把它并入 `VALUE` / `MANIFEST`。
+/// 应用身份建议同时写进 `caps`（`user.<名字>`），这样不懂的读端会**明确拒绝**。
+/// ｜ One `USER` segment; the container stores it verbatim.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserSegment {
+    /// 段 id：默认 [`SEG_USER`]（`0xF0`）；`0xF1`–`0xFF` 留给应用二进制流。
+    pub seg_id: u8,
+    /// 4 字节 ASCII，区分同一段号下的不同扩展（`PKG\0` / `PTCH` / `BIFC` …）。
+    pub submagic: [u8; 4],
+    /// 该 submagic 自己的版本，从 `1` 起。
+    pub version: u8,
+    /// 容器不解释的载荷。
+    pub payload: Vec<u8>,
+}
+
+impl UserSegment {
+    /// 段体 = `submagic[4] ‖ version[1] ‖ payload`。
+    pub fn body(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(5 + self.payload.len());
+        out.extend_from_slice(&self.submagic);
+        out.push(self.version);
+        out.extend_from_slice(&self.payload);
+        out
+    }
+}
+
 /// What `dump` may choose. ｜ `dump` 可选的两件事。
 ///
 /// 只有两个旋钮，且都**由写者决定、写进文件**（读者永远照文件来）：
@@ -811,6 +843,7 @@ fn verify_digest(seg: &Segment, body: &[u8], algo: HashAlgo) -> Result<(), Conta
 ///
 /// ｜ Both knobs are writer-side and self-described in the file; readers never guess.
 #[derive(Debug, Clone, PartialEq, Eq)]
+
 pub struct DumpOptions {
     /// Digest algorithm for every segment header ｜ 段摘要算法。
     pub hash: HashAlgo,
@@ -849,6 +882,9 @@ pub struct DumpOptions {
     /// Empty by default: encrypt everything except `MANIFEST`.
     /// ｜ 加密文件里由写者声明「不加密」的段；默认空（除 MANIFEST 外全加密）。
     pub crypto_plain: Vec<u8>,
+    /// 可选的 `USER` 段（§19.15）。默认空：不写任何扩展段，旧文件逐字节不变。
+    /// ｜ Optional `USER` segments; empty by default so old bytes stay identical.
+    pub user_segments: Vec<UserSegment>,
 }
 
 impl Default for DumpOptions {
@@ -863,6 +899,7 @@ impl Default for DumpOptions {
             dir: false,
             dir_depth: crate::manifest::DEFAULT_DIR_DEPTH,
             crypto_plain: Vec::new(),
+            user_segments: Vec::new(),
         }
     }
 }
@@ -1231,7 +1268,11 @@ fn pack_parts(
     }
     let body_len_total = body_len(&body)?;
 
-    let sealed: Vec<(u8, u8, Vec<u8>, bool)> = seal(vec![(SEG_EMBED, body)], opts)?
+    let mut raw_segs: Vec<(u8, Vec<u8>)> = vec![(SEG_EMBED, body)];
+    for u in &opts.user_segments {
+        raw_segs.push((u.seg_id, u.body()));
+    }
+    let sealed: Vec<(u8, u8, Vec<u8>, bool)> = seal(raw_segs, opts)?
         .into_iter()
         .map(|(id, comp, b)| (id, comp, b, false))
         .collect();
@@ -3120,6 +3161,7 @@ pub fn seg_name(seg_id: u8) -> String {
         SEG_MANIFEST => "MANIFEST".to_string(),
         SEG_SOURCE => "SOURCE".to_string(),
         SEG_PROVENANCE => "PROVENANCE".to_string(),
+        SEG_USER => "USER".to_string(),
         SEG_TYPED => "TYPED".to_string(),
         SEG_SCHEMA => "SCHEMA".to_string(),
         other => format!("0x{other:02x}"),
@@ -3233,6 +3275,32 @@ pub fn info_lines(
             }
         }
         None => out.push("manifest  无（T1 时代文件）".to_string()),
+    }
+    for seg in info.segments.iter().filter(|s| s.header.seg_id == SEG_USER) {
+        let raw = body_of(seg, bytes, None)?;
+        if raw.len() < 5 {
+            out.push(format!(
+                "user      0x{:02x} 段体过短（{} B，需至少 5 B）",
+                seg.header.seg_id,
+                raw.len()
+            ));
+            continue;
+        }
+        let sub = &raw[0..4];
+        let ver = raw[4];
+        let name = String::from_utf8_lossy(sub)
+            .trim_end_matches('\0')
+            .to_string();
+        out.push(format!("user      {name}（v{ver}，{} B）", raw.len() - 5));
+        // 原文预览：容器不解释，只把可打印部分摆出来供人眼判断。
+        let preview: String = raw[5..]
+            .iter()
+            .take(60)
+            .map(|&b| if (0x20..0x7f).contains(&b) { b as char } else { '.' })
+            .collect();
+        if !preview.is_empty() {
+            out.push(format!("          预览 {preview}"));
+        }
     }
     for line in ls_lines(info) {
         out.push(format!("  {line}"));
