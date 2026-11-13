@@ -521,6 +521,26 @@ KDF 从 `0x50–0x5F` 迁走。
 - 回归：`amberice --lib` **33 例**、C `test_ambr`（`info=49/0` / `50/0`）、
   C++ 8 档、Java 22 例 + 夹具、Lua 22 例 + 夹具、JS `test-ambr-hash`。
 
+### 新增（`.smlex` 的安装 / 卸载：`.ambr` 包与目录两种源）
+
+- **`smltools` 三条新命令**（不需要读输入文档，先于解析处理）：
+  - `--profiles-list`：按「显式 → 项目 → 用户 → 系统」四层列出可见的 `.smlex`
+  - `--profiles-install <PATH>`：源可以是**目录**（收 `*.smlex`），也可以是 **`.ambr` 包**
+    （`amberice pack` 产物；只取 `*.smlex` 载荷，载荷名只取文件名、目录部分丢弃，
+    `../evil.smlex` 不会变成安装路径）
+  - `--profiles-remove <NAME>`：删指定层的 `<name>.smlex`
+  - 配套 `--profiles-scope user|project|system`（默认 `user`）与 `--profiles-force`
+- **装前校验**：文件名必须与内容里的 `name:` 一致（否则 `E-LINT-005`，且不落盘）、
+  内容必须可解析；同名已存在默认拒绝。
+- **安装位置**沿用现有四层：`user` = `%APPDATA%\sml\profiles` /
+  `$XDG_CONFIG_HOME/sml/profiles`；`project` = `<cwd>/.smlex/profiles`；
+  `system` = `%ProgramData%\sml\profiles` / `/usr/share/sml/profiles`。
+- **本版不做包签名校验**：只保证完整性与「名字对得上」，输出里明示未验签。
+  `.ambr` 安装需 `--features amberice`；默认构建会**明确报「未启用」**而不是静默失败。
+- 规范 `docs/swsml/spec/smlex.md` 新增 §11「安装与分发」（两种源 / 三层 scope / 校验规则）。
+- 回归：`cargo test -p smltools --test profiles` 3 例（安装→列出→卸载闭环、名字不一致被拒、
+  源不存在报错）。
+
 ### 变更（仓库治理：文档生成物幂等）
 
 - `smldocs --index` / `--report` 的头行改记 `docs/meta.sml` 的内容摘要（FNV-1a 64），

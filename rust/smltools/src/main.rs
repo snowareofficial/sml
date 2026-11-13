@@ -383,6 +383,27 @@ struct Cli {
     #[arg(long = "no-profiles")]
     no_profiles: bool,
 
+    /// 列出四层 namespace 里可见的 `.smlex` ｜ list visible `.smlex` profiles
+    #[arg(long = "profiles-list")]
+    profiles_list: bool,
+
+    /// 安装 `.smlex`：源可以是目录，也可以是 `.ambr` 包（归档里只取 `*.smlex` 载荷）
+    /// ｜ install from a directory or an `.ambr` package
+    #[arg(long = "profiles-install", value_name = "PATH")]
+    profiles_install: Option<PathBuf>,
+
+    /// 卸载一个 profile（删 `<scope>/<name>.smlex`） ｜ remove one installed profile
+    #[arg(long = "profiles-remove", value_name = "NAME")]
+    profiles_remove: Option<String>,
+
+    /// 安装 / 卸载的目标层：`user`（默认）/ `project` / `system` ｜ target scope
+    #[arg(long = "profiles-scope", value_name = "SCOPE", default_value = "user")]
+    profiles_scope: String,
+
+    /// 覆盖已存在的同名 profile ｜ overwrite an existing profile
+    #[arg(long = "profiles-force")]
+    profiles_force: bool,
+
     /// 迁移模式：scan（只报告，有命中退出码 1）/ apply（写回，幂等）/ rules（列规则）
     ///
     /// 依据 `docs/swsml/spec/version.md` §4.5：**默认不写文件**，要写必须显式 `apply`。
@@ -589,6 +610,11 @@ struct Args {
     resolve_profiles: bool,
     profile_dir: Option<PathBuf>,
     no_profiles: bool,
+    profiles_list: bool,
+    profiles_install: Option<PathBuf>,
+    profiles_remove: Option<String>,
+    profiles_scope: String,
+    profiles_force: bool,
     /// `--migrate <scan|apply|rules>` ｜ migration mode
     migrate: Option<String>,
     /// `--rule a,b` ｜ rule filter
@@ -685,6 +711,11 @@ fn parse_args(cli: Cli) -> Result<Args, SmlError> {
         resolve_profiles: cli.resolve_profiles,
         profile_dir: cli.profile_dir,
         no_profiles: cli.no_profiles,
+        profiles_list: cli.profiles_list,
+        profiles_install: cli.profiles_install,
+        profiles_remove: cli.profiles_remove,
+        profiles_scope: cli.profiles_scope,
+        profiles_force: cli.profiles_force,
         migrate: cli.migrate,
         rule: cli.rule,
         backup: cli.backup,
@@ -1729,6 +1760,291 @@ fn profile_search_roots(
     out
 }
 
+
+// ---------------------------------------------------------------------------
+// `--profiles-*`：`.smlex` profile 的查询 / 安装 / 卸载
+//
+// 包格式就是 `.ambr`（`amberice pack` 产出的归档）：解包后只取 `*.smlex` 载荷；
+// 目录安装则直接收目录里的 `*.smlex`。**不联网、不注册服务**，只往四层 namespace 里
+// 放文件（位置见 `profile_search_roots`）。内容与文件名必须同名，否则 `E-LINT-005`。
+// ---------------------------------------------------------------------------
+
+/// 目标层的 profile 目录。
+/// - `user`（默认）：Windows `%APPDATA%\sml\profiles`；其它 `$XDG_CONFIG_HOME/sml/profiles`
+///   或 `~/.config/sml/profiles`
+/// - `project`：`<cwd>/.smlex/profiles`
+/// - `system`：Windows `%ProgramData%\sml\profiles`；其它 `/usr/share/sml/profiles`
+fn profiles_scope_dir(scope: &str) -> Result<PathBuf, String> {
+    match scope {
+        "project" => Ok(std::env::current_dir()
+            .map_err(|e| format!("取当前目录失败：{e}"))?
+            .join(".smlex")
+            .join("profiles")),
+        "user" => {
+            if cfg!(windows) {
+                let v = std::env::var_os("APPDATA")
+                    .ok_or_else(|| "未设置 %APPDATA%，无法定位用户层".to_string())?;
+                Ok(PathBuf::from(v).join("sml").join("profiles"))
+            } else if let Some(v) = std::env::var_os("XDG_CONFIG_HOME") {
+                Ok(PathBuf::from(v).join("sml").join("profiles"))
+            } else {
+                let v = std::env::var_os("HOME")
+                    .ok_or_else(|| "未设置 $HOME，无法定位用户层".to_string())?;
+                Ok(PathBuf::from(v)
+                    .join(".config")
+                    .join("sml")
+                    .join("profiles"))
+            }
+        }
+        "system" => {
+            if cfg!(windows) {
+                let v = std::env::var_os("ProgramData")
+                    .ok_or_else(|| "未设置 %ProgramData%，无法定位系统层".to_string())?;
+                Ok(PathBuf::from(v).join("sml").join("profiles"))
+            } else {
+                Ok(PathBuf::from("/usr/share/sml/profiles"))
+            }
+        }
+        other => Err(format!(
+            "未知 --profiles-scope `{other}`（可选 user / project / system）"
+        )),
+    }
+}
+
+/// 从 `.smlex` 字节里取 `name:`（校验「文件名 = name」用）。
+fn smlex_name(bytes: &[u8]) -> Option<String> {
+    let text = std::str::from_utf8(bytes).ok()?;
+    let v = sml::parse(text).ok()?;
+    v.get("name").and_then(|x| x.as_str()).map(|s| s.to_string())
+}
+
+fn profiles_cmd(args: &Args) -> ExitCode {
+    if args.profiles_list {
+        return profiles_list(args);
+    }
+    if let Some(src) = &args.profiles_install {
+        return profiles_install(args, src);
+    }
+    if let Some(name) = &args.profiles_remove {
+        return profiles_remove(args, name);
+    }
+    ExitCode::SUCCESS
+}
+
+fn profiles_list(args: &Args) -> ExitCode {
+    let mut total = 0usize;
+    for (layer, dir) in profile_search_roots(&args.input, args.profile_dir.as_ref()) {
+        let exists = dir.is_dir();
+        println!(
+            "[{layer}] {}{}",
+            dir.display(),
+            if exists { "" } else { "（不存在）" }
+        );
+        if !exists {
+            continue;
+        }
+        let mut names: Vec<String> = std::fs::read_dir(&dir)
+            .map(|rd| {
+                rd.filter_map(|e| e.ok())
+                    .map(|e| e.path())
+                    .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("smlex"))
+                    .filter_map(|p| p.file_stem().and_then(|s| s.to_str()).map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        names.sort();
+        if names.is_empty() {
+            println!("  （无 .smlex）");
+        }
+        for n in &names {
+            println!("  - {n}");
+        }
+        total += names.len();
+    }
+    println!("共 {total} 个 profile");
+    ExitCode::SUCCESS
+}
+
+fn profiles_install(args: &Args, src: &std::path::Path) -> ExitCode {
+    let dir = match profiles_scope_dir(&args.profiles_scope) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("smltools: {e}");
+            return ExitCode::from(2);
+        }
+    };
+
+    let files: Vec<(String, Vec<u8>)> = if src.is_dir() {
+        let mut out = Vec::new();
+        match std::fs::read_dir(src) {
+            Ok(rd) => {
+                for e in rd.flatten() {
+                    let p = e.path();
+                    if p.extension().and_then(|s| s.to_str()) != Some("smlex") {
+                        continue;
+                    }
+                    let Some(stem) = p.file_stem().and_then(|s| s.to_str()) else {
+                        continue;
+                    };
+                    match std::fs::read(&p) {
+                        Ok(data) => out.push((stem.to_string(), data)),
+                        Err(e) => {
+                            eprintln!("smltools: 读 {} 失败：{e}", p.display());
+                            return ExitCode::from(2);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("smltools: 读目录 {} 失败：{e}", src.display());
+                return ExitCode::from(2);
+            }
+        }
+        out
+    } else if src.extension().and_then(|s| s.to_str()) == Some("ambr") {
+        #[cfg(feature = "amberice")]
+        {
+            let bytes = match std::fs::read(src) {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("smltools: 读 {} 失败：{e}", src.display());
+                    return ExitCode::from(2);
+                }
+            };
+            let list = match sml::list(&bytes) {
+                Ok(l) => l,
+                Err(e) => {
+                    eprintln!("smltools: {} 不是可读的 .ambr：{e}", src.display());
+                    return ExitCode::from(2);
+                }
+            };
+            let mut out = Vec::new();
+            for p in list {
+                if !p.name.ends_with(".smlex") {
+                    continue;
+                }
+                // 载荷名是**打包时的路径**（可能带目录）：只取文件名当 profile 名，
+                // 目录部分一律丢弃 —— 包是外部输入，`../evil.smlex` 不能变成安装路径。
+                let Some(stem) = std::path::Path::new(&p.name)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_string())
+                else {
+                    eprintln!("smltools: 载荷名非法：{}", p.name);
+                    return ExitCode::from(2);
+                };
+                match sml::unwrap(&bytes, Some(&p.name)) {
+                    Ok(data) => out.push((stem, data)),
+                    Err(e) => {
+                        eprintln!("smltools: 取载荷 {} 失败：{e}", p.name);
+                        return ExitCode::from(2);
+                    }
+                }
+            }
+            out
+        }
+        #[cfg(not(feature = "amberice"))]
+        {
+            eprintln!(
+                "smltools: 本构建未启用 `amberice` feature，读不了 `.ambr` 包；\
+                 请改用目录安装，或 `cargo build -p smltools --features amberice`"
+            );
+            return ExitCode::from(2);
+        }
+    } else {
+        eprintln!(
+            "smltools: 安装源只能是目录或 `.ambr` 包：{}",
+            src.display()
+        );
+        return ExitCode::from(2);
+    };
+
+    if files.is_empty() {
+        eprintln!("smltools: {} 里没有 `.smlex`", src.display());
+        return ExitCode::from(1);
+    }
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        eprintln!("smltools: 建目录 {} 失败：{e}", dir.display());
+        return ExitCode::from(2);
+    }
+
+    let mut ok = 0usize;
+    let mut skipped = 0usize;
+    for (stem, data) in &files {
+        // 文件名与内容里的 `name:` 必须一致，否则运行期会报 `E-LINT-005`。
+        match smlex_name(data) {
+            Some(n) if n == *stem => {}
+            Some(n) => {
+                eprintln!(
+                    "smltools: {stem}.smlex 里的 name 是 `{n}`，与文件名不一致（E-LINT-005）"
+                );
+                skipped += 1;
+                continue;
+            }
+            None => {
+                eprintln!("smltools: {stem}.smlex 缺 `name:` 或不是合法 SML（E-LINT-005）");
+                skipped += 1;
+                continue;
+            }
+        }
+        let dst = dir.join(format!("{stem}.smlex"));
+        if dst.exists() && !args.profiles_force {
+            eprintln!(
+                "smltools: {} 已存在（用 --profiles-force 覆盖）",
+                dst.display()
+            );
+            skipped += 1;
+            continue;
+        }
+        match std::fs::write(&dst, data) {
+            Ok(()) => {
+                println!("  装 {}", dst.display());
+                ok += 1;
+            }
+            Err(e) => {
+                eprintln!("smltools: 写 {} 失败：{e}", dst.display());
+                skipped += 1;
+            }
+        }
+    }
+
+    println!(
+        "[profiles] 安装 {ok} 个，跳过 {skipped} 个 → {}",
+        dir.display()
+    );
+    println!("（本构建只校验「文件名 = name」与可解析性，不做包签名校验）");
+    if skipped > 0 {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+fn profiles_remove(args: &Args, name: &str) -> ExitCode {
+    let dir = match profiles_scope_dir(&args.profiles_scope) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("smltools: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let p = dir.join(format!("{name}.smlex"));
+    if !p.is_file() {
+        eprintln!("smltools: {} 不存在", p.display());
+        return ExitCode::from(1);
+    }
+    match std::fs::remove_file(&p) {
+        Ok(()) => {
+            println!("  删 {}", p.display());
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("smltools: 删 {} 失败：{e}", p.display());
+            ExitCode::from(2)
+        }
+    }
+}
+
 /// `--migrate <scan|apply|rules>` 的实现（规则在 [`migrate::RULES`]）。
 ///
 /// 三条纪律（`docs/swsml/spec/version.md` §4.5）：
@@ -2153,6 +2469,11 @@ fn real_main() -> ExitCode {
     }
 
     // `--from-amberice`：先解信封，再当 SML 文本往下走（后面的管线完全不变）
+    // `.smlex` profile 的查询 / 安装 / 卸载：不需要读输入文档，先于一切处理。
+    if args.profiles_list || args.profiles_install.is_some() || args.profiles_remove.is_some() {
+        return profiles_cmd(&args);
+    }
+
     let text = if args.from_amberice {
         match read_amberice_input(&args.input) {
             Ok(t) => t,

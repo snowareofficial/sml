@@ -573,6 +573,31 @@ a version), sub-ids are 2 bytes, and KDF moves out of `0x50–0x5F`.
 - Regressions: `amberice --lib` **33 tests**, C `test_ambr` (`info=49/0` / `50/0`), C++ all eight
   gates, Java 22 vectors + fixtures, Lua 22 vectors + fixtures, JS `test-ambr-hash`.
 
+### Added (installing/removing `.smlex`: `.ambr` package or directory)
+
+- **Three new `smltools` commands** (handled before any input parsing):
+  - `--profiles-list` lists visible `.smlex` across the four namespaces
+    (explicit → project → user → system);
+  - `--profiles-install <PATH>` accepts a **directory** (all `*.smlex` inside) or an
+    **`.ambr` package** (output of `amberice pack`; only `*.smlex` payloads are taken, and
+    only the file name is used — directory parts are dropped so `../evil.smlex` cannot
+    become an install path);
+  - `--profiles-remove <NAME>` deletes `<name>.smlex` from the chosen scope;
+  - plus `--profiles-scope user|project|system` (default `user`) and `--profiles-force`.
+- **Pre-install checks**: the file name must match the `name:` inside (`E-LINT-005`, nothing
+  is written in that case) and the content must parse; an existing profile is rejected unless
+  forced.
+- **Locations** reuse the four namespaces: `user` = `%APPDATA%\sml\profiles` /
+  `$XDG_CONFIG_HOME/sml/profiles`; `project` = `<cwd>/.smlex/profiles`; `system` =
+  `%ProgramData%\sml\profiles` / `/usr/share/sml/profiles`.
+- **No package signature verification yet**: only integrity and name agreement; the output
+  says so explicitly. `.ambr` install needs `--features amberice`; the default build refuses
+  with a clear message instead of failing silently.
+- Spec `docs/swsml/spec/smlex.md` gained §11 "Install and distribution" (two sources, three
+  scopes, validation rules).
+- Regressions: `cargo test -p smltools --test profiles` (install → list → remove round trip,
+  name mismatch rejected, missing source).
+
 ### 🚨 Breaking — version naming: `Version` enum → `Edition` lookup
 
 An edition is just a **name for a set of default feature bits** (`docs/swsml/spec/version.md` v1.0).
