@@ -555,6 +555,19 @@ KDF 从 `0x50–0x5F` 迁走。
   登记只占名、未实现；未登记者允许私有使用，但读端必须按未知跳过。
 - 守护新增一条：§19.15、「魔数不可替换」、`BIFC` / `PTCH` 登记必须在位。
 
+### 新增（`amberice` 流式读取：大包只取需要的载荷）
+
+- **`amberice::stream::StreamReader<R: Read + Seek>`**：
+  - `open` 只读 40 B 头 + 段表，**不读任何段体**；
+  - `payload(name)` 在 `EMBED` 未压缩时**直接 seek 到该载荷**并只读那一片，其余字节一个不读；
+  - `payloads()` 只读 `MANIFEST`；
+  - `load()` 只读 `VALUE` + `STRTAB`，段摘要边读边验；
+  - `info()` 与 `container::info()` 结果一致（同一套校验）。
+- **明确限制**：`EMBED` 压缩/加密时无法随机访问，报 `unsupported-algorithm`，请改用
+  `container::payload`（需整份字节）——不假装支持。
+- 规范 `format.md` 新增 §19.10.1；回归 `cargo test -p amberice --test stream` 2 例
+  （流式 info 与整份一致、载荷逐字节一致、缺失载荷报错、坏 magic 报错）。
+
 ### 变更（仓库治理：文档生成物幂等）
 
 - `smldocs --index` / `--report` 的头行改记 `docs/meta.sml` 的内容摘要（FNV-1a 64），

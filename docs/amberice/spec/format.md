@@ -731,6 +731,21 @@ store.get("port")?;
 
 `DIR` 仍**故意不写**：它只能省每层 O(兄弟数) 的键比较，等真出现「万级兄弟 + 高频取键」再上。
 
+#### 19.10.1 流式读取（`amberice::stream::StreamReader`）
+
+`info` / `load` / `payload` 都要求整份字节（`&[u8]`）。需要「大包只取一点」时用流式入口：
+
+```rust
+let mut r = amberice::stream::StreamReader::open(std::fs::File::open("pkg.ambr")?)?;
+let meta = r.payloads()?;                 // 只读 MANIFEST
+let bytes = r.payload("api-docs.smlex")?; // 只读这一片 EMBED
+```
+
+- `open` 只读头与段表；`payload(name)` 在 `EMBED` 未压缩时**直接 seek 到该载荷**，其余字节不读；
+- `load()` 只读 `VALUE` + `STRTAB`，段摘要边读边验；
+- `EMBED` 压缩或加密时明确报 `unsupported-algorithm`（解压后无法随机访问），改用 `container::payload`；
+- `StreamReader::info()` 与 `container::info()` 结果一致（同一套校验，测试已钉住）。
+
 ### 19.11 段级压缩（T5 前半，2026-11-05）
 
 **用户裁决**：压缩走 zstd 的 C 绑定链（`zstd` → `zstd-safe` → `zstd-sys`），**不**换 deflate。
