@@ -53,7 +53,8 @@ Ruby `22/22 read + 22 round-trip`、C# `dotnet run` 全绿（连同 Java 纯实�
 | Rust `amberice` | ✅ `hash.rs::digest_by_id` 按 manifest 的 `hash_id` 走，三个算法都实现；未知 id 明确拒绝 | 正常验 |
 | FFI 五绑定（C# / Go / Ruby / Python / Java FFM 路径） | 走 Rust `ambr_text`，继承上表 | 正常验 |
 | JS | ✅ 2026-11-13 起解 manifest 取 `hash_id`，`0x30/31/32` 分别走 `sha256.mjs` / `sm3.mjs` / `blake3.mjs`；预留号与多级元组**明确跳过并标注**（`report.skipped`） | 正常验 |
-| C / C++ / Java 纯实现 / Lua | ❌ 段摘要写死 SHA-256，不读 manifest 的 `hash_id` | **误报「摘要不符」** |
+| C | ✅ 2026-11-13 起解 manifest 取 `hash_id`，`0x30/31/32` 分别走 SHA-256 / SM3 / BLAKE3；预留号与多级元组跳过并置 `digest_skipped`（`c/ambr.c`） | 正常验 |
+| C++ / Java 纯实现 / Lua | ❌ 段摘要写死 SHA-256，不读 manifest 的 `hash_id` | **误报「摘要不符」** |
 
 ⇒ 欠账不是「Rust 没分派」，而是**独立解码器没跟上**。可选两档：① 在各端补 SM3 / BLAKE3
 实现后按 `hash_id` 验；② 先做「不能算则明确跳过并标注」（D44 后续），不误报但也别假装验过。

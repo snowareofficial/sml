@@ -111,6 +111,81 @@ static void check_case(const char *id, const unsigned char *bytes, size_t len) {
     sml_free(v);
 }
 
+
+/* hash_id 分派（§20）：读 `tests/vectors/amberice-hash-algos.v1.hex`
+ * （SM3 / BLAKE3 各一份，由 Rust `dump_with` 生成），断言能解码且值正确；
+ * 再改坏第一份的段摘要，断言必须拒绝 —— 否则「按 hash_id 换算法」是装饰。
+ * ｜ Verify hash_id dispatch against Rust-generated SM3 / BLAKE3 fixtures, plus a
+ * tampered-digest negative case. */
+static void run_hash_fixtures(void) {
+    const char *path = "../tests/vectors/amberice-hash-algos.v1.hex";
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        fail("hash 夹具", path);
+        return;
+    }
+    char line[4096];
+    int cases = 0;
+    while (fgets(line, sizeof line, f)) {
+        if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') continue;
+        char id[32] = {0};
+        char hex[4000] = {0};
+        int hid = -1;
+        if (sscanf(line, "%31s %d %3999s", id, &hid, hex) != 3) {
+            fail("hash 夹具格式", line);
+            continue;
+        }
+        unsigned char *bytes = NULL;
+        size_t blen = 0;
+        if (!hex_to_bytes(hex, strlen(hex), &bytes, &blen)) {
+            fail(id, "hex 非法");
+            continue;
+        }
+        char err[256];
+        err[0] = '\0';
+        sml_value *v = sml_ambr_load(bytes, blen, err, sizeof err);
+        if (!v) {
+            fail(id, err);
+            free(bytes);
+            continue;
+        }
+        sml_value *who = sml_obj_get(v, "who");
+        sml_value *num = sml_obj_get(v, "n");
+        if (who && who->type == SML_STR && strcmp(who->u.s, "u1") == 0 &&
+            num && num->type == SML_INT && num->u.i == 7) {
+            printf("  ok: hash_id 0x%02x 解码（%s）\n", hid, id);
+        } else {
+            fail(id, "值不符");
+        }
+        sml_free(v);
+
+        /* 反例：改坏段表首项摘要 ⇒ 必须拒绝。 */
+        if (cases == 0 && blen > 49) {
+            unsigned long long table_off = 0;
+            for (int i = 7; i >= 0; i--) table_off = (table_off << 8) | bytes[8 + i];
+            if ((size_t)table_off + 49 < blen) {
+                bytes[(size_t)table_off + 9] ^= 0xff;
+                char err2[256];
+                err2[0] = '\0';
+                sml_value *bad = sml_ambr_load(bytes, blen, err2, sizeof err2);
+                if (bad) {
+                    fail(id, "改坏摘要后仍解码成功");
+                    sml_free(bad);
+                } else {
+                    printf("  ok: 改坏摘要 → 拒绝（%s）\n", id);
+                }
+            }
+        }
+        free(bytes);
+        cases++;
+    }
+    fclose(f);
+    if (cases != 2) {
+        printf("FAIL: hash 夹具期望 2 例，实得 %d\n", cases);
+        failures++;
+    }
+}
+
 int main(int argc, char **argv) {
     const char *path = argc > 1 ? argv[1] : "../tests/vectors/amberice-container.v1.json";
     FILE *f = fopen(path, "rb");
@@ -180,6 +255,8 @@ int main(int argc, char **argv) {
     }
 
     free(json);
+
+    run_hash_fixtures();
 
     printf("[ambr] %d 例，%d 个失败\n", cases, failures);
     if (cases != 22) {

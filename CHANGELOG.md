@@ -436,6 +436,19 @@ KDF 从 `0x50–0x5F` 迁走。
 - 回归：JS `test-ambr-hash`（官方向量 + 夹具 + 反例全过）、`test-ambr-decoder` 22/22、
   `test-ambr-write` ALL OK。
 
+### 新增（C 端补齐 `hash_id` 分派：SM3 + BLAKE3）
+
+- **算法**：`c/ambr.c` 内新增零依赖 SM3（GB/T 32905-2016）与 BLAKE3（无密钥 32 B，
+  与 Rust 同构：1 KiB 分块、chunk 链、父节点合并、`ROOT` 收尾）。
+- **按 manifest 分派**：新增 `manifest_hash_id()`（解自包含 canonical 编码取 `hash_id`）
+  与 `digest_check(hash_id, …)`（`0x30/0x31/0x32` 分别走 SHA-256 / SM3 / BLAKE3）；
+  `walk_segments` 先扫 `MANIFEST`(0x04) 再验其余段（连 manifest 自己一起验），
+  **不再写死 SHA-256**。预留号 / 多级元组返回「跳过」并置 `digest_skipped`，不猜算法。
+- **测试**：新夹具 `tests/vectors/amberice-hash-algos.v1.hex`（纯 hex，供 C/C++/Lua/Java
+  免 JSON 解析）；`c/tests/test_ambr.c` 增两例解码 + 改坏摘要反例，打印
+  `hash_id 0x31 解码（sm3）` / `0x32（blake3）`。
+- CI 无需新增步骤（C 测试走 `build_check.py --run`）。
+
 ### 变更（仓库治理：文档生成物幂等）
 
 - `smldocs --index` / `--report` 的头行改记 `docs/meta.sml` 的内容摘要（FNV-1a 64），
