@@ -1051,9 +1051,9 @@ AAD      = seg_id:u8 ‖ comp:u8 ‖ block_index:u32le ‖ block_count:u32le ‖
 | **`0x01–0x0F`** | 压缩 | `0x01 zstd` · `0x02 lz4`（预留）· `0x03 deflate`（预留） |
 | **`0x10–0x1F`** | 对称加密（经典） | `0x10 AES-256-GCM` · `0x11 ChaCha20-Poly1305` |
 | **`0x20–0x2F`** | 对称加密（国密） | `0x20 SM4-GCM` · **`0x21` 国密 PQC 对称（预留）** |
-| **`0x50–0x5F`** | **口令派生（KDF）** | `0x00 none`（原始密钥）· `0x51 Argon2id` |
+| **`0xB0–0xBF`** | **口令派生（KDF）**（2026-11-13 由 `0x50–0x5F` 迁来） | `0x00 none`（原始密钥）· `0xB1 Argon2id`（旧号 `0x51` 只读兼容，见 §20.4） |
 | **`0x30–0x3F`** | 哈希 | `0x30 SHA-256` · `0x31 SM3` · `0x32 BLAKE3` · `0x33` 国密 SM 抗量子（预留）· `0x34` 通用 PQC（预留）· `0x35–0x3D` 未分配槽（预留）· `0x3E` 扩展命名空间 · `0x3F` 私有/实验 |
-| **`0x40–0x5F`** | 签名（经典） | `0x40 Ed25519` · `0x41 ECDSA-P256-SHA256` · **`0x42` 国密 PQC 签名（预留）** · `0x50 SM2-with-SM3` |
+| **`0x40–0x5F`** | 签名（经典） | `0x40 Ed25519` · `0x41 ECDSA-P256-SHA256` · **`0x42` 国密 PQC 签名（预留）** · `0x50 SM2-with-SM3`（`0x51` 不再属于本组，见 §20.4） |
 | **`0x60–0x7F`** | 签名（PQC） | `0x60 ML-DSA-65` · `0x61 ML-DSA-87` · **`0x62` 国密 PQC 签名（预留）** |
 | **`0x80–0x9F`** | KEM | `0x80 X25519` · `0x81 ML-KEM-768` · `0x82 ML-KEM-1024` · **`0x83` 国密 PQC KEM（预留）** |
 | **`0xA0–0xAF`** | 混合 | `0xA0 X25519+ML-KEM-768` · `0xA1 SM2+ML-KEM-768` · **`0xA2` 国密 PQC 混合（预留）** |
@@ -1100,6 +1100,7 @@ New algorithms get a new range instead of squeezing into an existing one.
 | `0x20–0x2F` | 对称加密（国密） | `0x21` 国密 PQC 对称 |
 | `0x30–0x3F` | 哈希 | `0x33` 国密 SM 抗量子 · `0x34` 通用 PQC · `0x35–0x3D` 未分配槽 · `0x3E` 转义 · `0x3F` 私有 |
 | `0x40–0x5F` | 签名（经典） | `0x42` 国密 PQC 签名 |
+| `0xB0–0xBF` | KDF（口令派生） | `0xB1` Argon2id（`0x51` 旧号只读兼容） |
 | `0x60–0x7F` | 签名（PQC） | `0x62` 国密 PQC 签名 |
 | `0x80–0x9F` | KEM | `0x83` 国密 PQC KEM |
 | `0xA0–0xAF` | 混合 | `0xA2` 国密 PQC 混合 |
@@ -1108,14 +1109,18 @@ New algorithms get a new range instead of squeezing into an existing one.
 > 不会因为「多预留」被吞进来。｜ Group boundaries stay hard: ids outside the group are
 > `Unknown`, never silently absorbed as "reserved".
 
-> ⚠️ **既有区间重叠（待裁决，未擅自改号）**：上表 `0x50–0x5F` 同时出现在
-> 「口令派生（KDF）」与「签名（经典，`0x40–0x5F`）」两行里 —— 这是本规范早先的
-> 遗留冲突，不是本次多预留引入的。在裁决前：**不要**在该区间新增编号；
-> 已分配的 `0x50 SM2-with-SM3` 与 `0x51 Argon2id` 的含义保持不变（同号不同组
-> 会无法判读，将来必须迁走其中一组并写清迁移规则）。
-> ｜ Pre-existing overlap: `0x50–0x5F` is claimed by both KDF and classic signatures.
-> No new ids there until the conflict is resolved; existing assignments keep their
-> meaning. One of the two groups has to move, with a documented migration.
+> ✅ **既有区间重叠已裁决（2026-11-13）**：`0x50–0x5F` 曾被「口令派生（KDF）」与
+> 「签名（经典）」同时占用。用户裁决 **KDF 迁走** —— KDF 组移到独立的 `0xB0–0xBF`，
+> `0x40–0x5F` 完整归签名（经典）。
+>
+> **迁移规则（不改已发布号的含义）**：
+> - 写端：KDF 一律写新号（`0xB1 Argon2id`），不再产出 `0x51`；
+> - 读端：KDF 语境下 `0x51` **只读兼容**（等同 `0xB1`），签名语境下 `0x51` 视为
+>   **未分配**（不得解释成任何签名算法）；
+> - `0x50 SM2-with-SM3` 属签名，编号与含义都不变；
+> - 新文件不得再使用 `0x51` 作 KDF；该号在 KDF 语境下**永不改义**，直到所有旧文件淘汰。
+> ｜ Decided: KDF moves to its own range. Writers emit `0xB1`; readers accept the legacy
+> `0x51` **only** in the KDF context. In the signature context `0x51` is unassigned.
 
 #### 20.3.2 哈希组 `0x30–0x3F` 明细
 
@@ -1134,18 +1139,28 @@ New algorithms get a new range instead of squeezing into an existing one.
 现在固定号码与语义，将来只是把算法填进去，**不换号**。
 ｜ Registering now fixes the number; a future standard fills it in without renumbering.
 
-#### 20.3.3 组内末两号：转义与私有
+#### 20.3.3 组内末两号：转义（多级元组）与私有
 
-- **`0x?E` = 扩展命名空间转义**：组内编号用尽时，`hash_id = 0x3E` 表示后面还有**二级子编号**
-  （manifest 内追加 1 字节 `hash_sub_id`），于是 `(0x3E, sub)` 又是一整个命名空间，
-  不必改段头 / 段布局。转义号本身只是**机制位**，不是算法。
-  ｜ `0x?E` escapes into a second-level `(0x3E, sub_id)` namespace, so running out of
-  first-level ids does not require a new segment layout.
+**`0x?E` = 扩展命名空间转义**：组内编号用尽时不改段布局，而是把 `hash` 写成**元组**：
+
+```sml
+hash_id: 0x30                    // 一级：单算法号（既有形态，字节不变）
+hash_id: [ 0x3E, 1, 0x0001 ]     // 二级：转义号、命名空间版本、子号
+hash_id: [ 0x3E, 1, 0x0001, 0x0002 ]  // 三级：版本 + 多级子号
+```
+
+- **第一个子号是命名空间版本号**（`1` 起、只增不改）：将来二级命名空间自身要演进
+  （换切分规则、换语义），靠升版本号表达，读端按版本解释后面的字节 —— 不必再动段头。
+- **每级子号 2 字节**（`0..=65535`），**最多 4 级**；超长 / 越界 / 缺版本号一律拒绝。
+- 一级形态仍是**整数**，字节形态与既有文件完全一致；只有多级才写数组。
+- 转义机制**只登记、未实现**：`HashAlgo::ExtendedNamespace` 的 `digest` 返回
+  `HashError::NotImplemented(0x3E)`；`Manifest::hash_path` 已能往返保存元组，
+  但本构建不会用它算摘要。将来实现必须同步升级 `fmt`，不得静默改变 1 字节 `hash_id`
+  的读法。
 - **`0x?F` = 私有 / 实验**：厂商内部可用，**不得**出现在互通文件；公共实现读到即拒绝。
-  ｜ `0x?F` is private/experimental and must not appear in interoperable files.
-- 目前**只登记、未实现**：manifest 尚无 `hash_sub_id` 字段，读到 `0x3E` / `0x3F`
-  一律 `HashError::NotImplemented`，绝不猜算法。将来实现转义时必须同步升级 `fmt`
-  并在 §20.4 写清字节布局 —— 不能静默改变现有 1 字节 `hash_id` 的读法。
+  ｜ The escape opens a versioned, multi-level `(0x3E, version, sub...)` namespace so a
+  one-byte `hash_id` never caps the format. Registered, not implemented. `0x?F` is
+  private/experimental and must not appear in interoperable files.
 
 #### 20.3.4 预留位的读端语义
 

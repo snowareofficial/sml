@@ -126,6 +126,127 @@ impl HashAlgo {
     }
 }
 
+/// 多级转义路径：manifest 里写成 `[0x3E, ns_version, sub1, sub2, …]`（§20.3.3）。
+///
+/// 用户 2026-11-13 裁决：`hash` 可以是**二元组**，且将来可能三级；**第一个子号是命名空间
+/// 版本号**（1 起、只增），其后每级 2 字节子号。这样一级号用尽后不必改段头 / 段布局，
+/// 靠「版本 + 多级子号」延长格式寿命。
+/// ｜ Multi-level escape path: `[ESCAPE, ns_version, sub1, sub2, ...]`. The first sub-value
+/// is the **namespace version** (starts at 1, only increases); every further level is a
+/// 2-byte sub-id. Registering the escape keeps a one-byte `hash_id` from capping the format.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct HashPath {
+    /// 二级命名空间的版本（1 起，只增）｜ Namespace version, starts at 1.
+    pub ns_version: u8,
+    /// 逐级子号（每级 2 字节，至少一级）｜ Per-level sub-ids, 2 bytes each, at least one.
+    pub subs: Vec<u16>,
+}
+
+/// 路径最多 4 级：够用且能挡住畸形 manifest 塞超长数组。
+/// ｜ At most four levels: enough, and it rejects absurd manifests.
+pub const MAX_HASH_SUBS: usize = 4;
+
+/// `hash` 元组写不出来 / 读不懂的原因。
+/// ｜ Why a `hash` tuple could not be encoded or decoded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum HashPathError {
+    /// Not an array ｜ 不是数组。
+    NotAnArray,
+    /// First element is not the escape id ｜ 首元素不是转义号。
+    BadEscape(i64),
+    /// Namespace version out of `0..=255` ｜ 版本号越界。
+    BadVersion(i64),
+    /// No sub-id after the version ｜ 版本号之后没有子号。
+    EmptyPath,
+    /// More than [`MAX_HASH_SUBS`] levels ｜ 子号级数过多。
+    TooManySubs(usize),
+    /// A sub-id is outside `0..=65535` ｜ 子号越界（每级 2 字节）。
+    SubOutOfRange(i64),
+}
+
+impl std::fmt::Display for HashPathError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HashPathError::NotAnArray => write!(f, "hash 元组必须是数组"),
+            HashPathError::BadEscape(v) => {
+                write!(f, "hash 元组首元素必须是转义号 0x{HASH_ESCAPE:02x}，读到 {v}")
+            }
+            HashPathError::BadVersion(v) => write!(f, "命名空间版本号越界：{v}（应在 0..=255）"),
+            HashPathError::EmptyPath => write!(f, "hash 元组缺少子号"),
+            HashPathError::TooManySubs(n) => {
+                write!(f, "hash 元组子号级数 {n} 超过上限 {MAX_HASH_SUBS}")
+            }
+            HashPathError::SubOutOfRange(v) => {
+                write!(f, "子号越界：{v}（每级 2 字节，应在 0..=65535）")
+            }
+        }
+    }
+}
+
+impl std::error::Error for HashPathError {}
+
+impl HashPath {
+    /// 编成 manifest 里的值：`[0x3E, version, sub…]`。
+    /// ｜ Encode as the manifest value `[ESCAPE, version, sub...]`.
+    pub fn to_value(&self) -> crate::Value {
+        let mut items = Vec::with_capacity(2 + self.subs.len());
+        items.push(crate::Value::Int(HASH_ESCAPE as i64));
+        items.push(crate::Value::Int(self.ns_version as i64));
+        for s in &self.subs {
+            items.push(crate::Value::Int(*s as i64));
+        }
+        crate::Value::Array(items)
+    }
+
+    /// 从 manifest 的值读回来，并做全部形状 / 范围校验。
+    /// ｜ Decode from the manifest value, validating shape and ranges.
+    pub fn from_value(v: &crate::Value) -> Result<Self, HashPathError> {
+        let items = match v {
+            crate::Value::Array(a) => a,
+            _ => return Err(HashPathError::NotAnArray),
+        };
+        let int_at = |i: usize| match items.get(i) {
+            Some(crate::Value::Int(n)) => Some(*n),
+            _ => None,
+        };
+        let escape = int_at(0).ok_or(HashPathError::NotAnArray)?;
+        if escape != HASH_ESCAPE as i64 {
+            return Err(HashPathError::BadEscape(escape));
+        }
+        let version = int_at(1).ok_or(HashPathError::BadVersion(-1))?;
+        if !(0..=255).contains(&version) {
+            return Err(HashPathError::BadVersion(version));
+        }
+        let raw = &items[2..];
+        if raw.is_empty() {
+            return Err(HashPathError::EmptyPath);
+        }
+        if raw.len() > MAX_HASH_SUBS {
+            return Err(HashPathError::TooManySubs(raw.len()));
+        }
+        let mut subs = Vec::with_capacity(raw.len());
+        for item in raw {
+            let n = match item {
+                crate::Value::Int(n) => *n,
+                _ => return Err(HashPathError::SubOutOfRange(-1)),
+            };
+            if !(0..=65535).contains(&n) {
+                return Err(HashPathError::SubOutOfRange(n));
+            }
+            subs.push(n as u16);
+        }
+        Ok(HashPath { ns_version: version as u8, subs })
+    }
+
+    /// 人读形式（工具输出用）｜ Human-readable form for tool output.
+    pub fn name(&self) -> String {
+        let subs: Vec<String> = self.subs.iter().map(|s| format!("0x{s:04x}")).collect();
+        format!("escape v{} / {}", self.ns_version, subs.join("."))
+    }
+}
+
 /// Why a digest could not be produced. ｜ 算不出摘要的原因。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -217,6 +338,40 @@ mod tests {
         assert_eq!(digest_by_id(0x2F, b"x"), Err(HashError::Unknown(0x2F)));
         assert_eq!(digest_by_id(0x40, b"x"), Err(HashError::Unknown(0x40)));
         assert_eq!(digest_by_id(0x99, b"x"), Err(HashError::Unknown(0x99)));
+    }
+
+    #[test]
+    fn hash_path_two_and_three_levels_round_trip() {
+        // 用户裁决：`[0x3E, ns_version, sub…]`，版本号在前，最多 4 级。
+        let two = HashPath { ns_version: 1, subs: vec![0x0001] };
+        let three = HashPath { ns_version: 1, subs: vec![0x0001, 0x0002] };
+        for p in [two, three] {
+            let v = p.to_value();
+            assert_eq!(HashPath::from_value(&v), Ok(p));
+        }
+    }
+
+    #[test]
+    fn hash_path_rejects_malformed_values() {
+        use crate::Value;
+        let cases = [
+            (Value::Int(0x3E), HashPathError::NotAnArray),
+            (Value::Array(vec![Value::Int(0x30), Value::Int(1), Value::Int(1)]),
+             HashPathError::BadEscape(0x30)),
+            (Value::Array(vec![Value::Int(0x3E), Value::Int(256), Value::Int(1)]),
+             HashPathError::BadVersion(256)),
+            (Value::Array(vec![Value::Int(0x3E), Value::Int(1)]),
+             HashPathError::EmptyPath),
+            (Value::Array(vec![Value::Int(0x3E), Value::Int(1), Value::Int(70000)]),
+             HashPathError::SubOutOfRange(70000)),
+            (Value::Array(vec![
+                Value::Int(0x3E), Value::Int(1), Value::Int(1), Value::Int(2),
+                Value::Int(3), Value::Int(4), Value::Int(5),
+            ]), HashPathError::TooManySubs(5)),
+        ];
+        for (v, want) in cases {
+            assert_eq!(HashPath::from_value(&v), Err(want));
+        }
     }
 
     #[test]

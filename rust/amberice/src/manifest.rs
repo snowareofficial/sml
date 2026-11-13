@@ -88,7 +88,12 @@ pub struct Manifest {
     /// `primary`: which segment holds the main content (P8) ｜ 主内容所在段 id。
     pub primary: u8,
     /// `hash_id`: digest algorithm for every segment header (§20) ｜ 摘要算法。
+    /// 一级形态时就是它；多级转义时 `hash == HashAlgo::ExtendedNamespace` 且
+    /// [`Manifest::hash_path`] 带 `[版本, 子号…]`。
     pub hash: HashAlgo,
+    /// 多级转义路径（`[0x3E, ns_version, sub…]`）；一级形态为 `None`。
+    /// ｜ Multi-level escape path; `None` for the one-level form.
+    pub hash_path: Option<crate::hash::HashPath>,
     /// Signable segment list, ascending id, **excluding this manifest** ｜ 可签段清单（升序、不含自己）。
     pub segments: Vec<ManifestSegment>,
     /// Foreign payloads inside the `EMBED` segment, in body order (D23)
@@ -131,6 +136,7 @@ impl Manifest {
         Manifest {
             primary,
             hash,
+            hash_path: None,
             segments,
             payloads: Vec::new(),
             caps_required: Vec::new(),
@@ -176,7 +182,13 @@ impl Manifest {
     pub fn to_value(&self) -> Value {
         let mut m = Map::ordered();
         m.insert("primary".to_string(), Value::Int(self.primary as i64));
-        m.insert("hash_id".to_string(), Value::Int(self.hash.id() as i64));
+        // 一级写整数（保持既有字节形态）；多级写 `[0x3E, ns_version, sub…]`。
+        // ｜ One level stays an integer; multi-level is the escape tuple.
+        let hash_value = match &self.hash_path {
+            Some(p) => p.to_value(),
+            None => Value::Int(self.hash.id() as i64),
+        };
+        m.insert("hash_id".to_string(), hash_value);
 
         let segs: Vec<Value> = self
             .segments
@@ -280,9 +292,26 @@ impl Manifest {
         if !(0..=u8::MAX as i64).contains(&primary) {
             return Err(ManifestError::BadInt("primary"));
         }
-        let hash_id = int_field(obj, "hash_id").ok_or(ManifestError::Missing("hash_id"))?;
-        let hash = HashAlgo::from_id(hash_id as u8)
-            .ok_or(ManifestError::UnknownHash(hash_id as u8))?;
+        // `hash_id` 允许两种形态：整数（一级）或 `[0x3E, ns_version, sub…]`（多级）。
+        // ｜ `hash_id` is either an integer or the escape tuple.
+        let (hash, hash_path) = match obj.get("hash_id") {
+            None => return Err(ManifestError::Missing("hash_id")),
+            Some(Value::Int(n)) => {
+                if !(0..=255).contains(n) {
+                    return Err(ManifestError::BadShape("hash_id"));
+                }
+                let algo = HashAlgo::from_id(*n as u8)
+                    .ok_or(ManifestError::UnknownHash(*n as u8))?;
+                (algo, None)
+            }
+            Some(v @ Value::Array(_)) => {
+                let path = crate::hash::HashPath::from_value(v)
+                    .map_err(ManifestError::BadHashPath)?;
+                // 多级一律解析成转义号：`digest` 会明确报 NotImplemented(0x3E)。
+                (HashAlgo::ExtendedNamespace, Some(path))
+            }
+            Some(_) => return Err(ManifestError::BadShape("hash_id")),
+        };
 
         let segs = match obj.get("segments") {
             Some(Value::Array(a)) => a,
@@ -351,6 +380,7 @@ impl Manifest {
         Ok(Manifest {
             primary: primary as u8,
             hash,
+            hash_path,
             segments,
             caps_required: caps
                 .and_then(|c| c.get("required"))
@@ -601,6 +631,8 @@ pub enum ManifestError {
     BadInt(&'static str),
     /// `hash_id` is not in §20 ｜ `hash_id` 不在 §20 表里。
     UnknownHash(u8),
+    /// `hash_id` 元组（多级转义）形状不合法 ｜ Malformed escape tuple.
+    BadHashPath(crate::hash::HashPathError),
 }
 
 impl std::fmt::Display for ManifestError {
@@ -611,6 +643,7 @@ impl std::fmt::Display for ManifestError {
             ManifestError::Missing(k) => write!(f, "manifest 缺必填字段 `{k}`"),
             ManifestError::BadShape(k) => write!(f, "manifest 字段 `{k}` 形状不对"),
             ManifestError::BadInt(k) => write!(f, "manifest 字段 `{k}` 越界"),
+            ManifestError::BadHashPath(e) => write!(f, "manifest 的 hash_id 元组不合法：{e}"),
             ManifestError::UnknownHash(id) => {
                 write!(f, "manifest 的 hash_id 0x{id:02x} 不在 §20 表里")
             }
@@ -713,6 +746,49 @@ mod tests {
     #[test]
     fn encoding_is_deterministic() {
         assert_eq!(sample().to_bytes().unwrap(), sample().to_bytes().unwrap());
+    }
+
+    #[test]
+    fn multi_level_hash_id_round_trips() {
+        // `[0x3E, ns_version, sub…]` 经 canonical bytes 往返后语义不变。
+        let mut m = sample();
+        m.hash = HashAlgo::ExtendedNamespace;
+        m.hash_path = Some(crate::hash::HashPath { ns_version: 1, subs: vec![0x0001, 0x0002] });
+        let bytes = m.to_bytes().unwrap();
+        let back = Manifest::from_bytes(&bytes).unwrap();
+        assert_eq!(back.hash, HashAlgo::ExtendedNamespace);
+        assert_eq!(back.hash_path, m.hash_path);
+        // 写回的值必须是数组，而不是整数（字节形态要稳定）。
+        let v = back.to_value();
+        let obj = match &v {
+            Value::Object(o) => o,
+            _ => panic!("manifest 不是对象"),
+        };
+        assert!(matches!(obj.get("hash_id"), Some(Value::Array(a)) if a.len() == 4));
+    }
+
+    #[test]
+    fn one_level_hash_id_stays_an_integer() {
+        let v = sample().to_value();
+        let obj = match &v {
+            Value::Object(o) => o,
+            _ => panic!("manifest 不是对象"),
+        };
+        assert!(matches!(obj.get("hash_id"), Some(Value::Int(_))));
+    }
+
+    #[test]
+    fn malformed_multi_level_hash_id_is_rejected() {
+        let bad = |v: Value| {
+            let mut m = sml_value::Map::ordered();
+            m.insert("primary".into(), Value::Int(1));
+            m.insert("hash_id".into(), v);
+            m.insert("segments".into(), Value::Array(vec![]));
+            Manifest::from_value(&Value::Object(m))
+        };
+        assert!(bad(Value::Array(vec![Value::Int(0x30), Value::Int(1), Value::Int(1)])).is_err());
+        assert!(bad(Value::Array(vec![Value::Int(0x3E), Value::Int(1)])).is_err());
+        assert!(bad(Value::Str("0x3e".into())).is_err());
     }
 
     #[test]

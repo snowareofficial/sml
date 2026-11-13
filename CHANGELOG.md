@@ -393,6 +393,31 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
   「具名预留号不变」、「组边界是 Unknown」）。
 - 说明：`0x30/31/32` 的语义与编号**一字未改**；只扩登记，不动已发布契约。
 
+### 新增（`hash` 多级元组 + KDF 迁移：把格式寿命写进编号规则）
+
+用户 2026-11-13 裁决：`hash` 写成**元组**（可能三级，第一个是版本号）、子号 2 字节、
+KDF 从 `0x50–0x5F` 迁走。
+
+- **多级转义元组**（`format.md §20.3.3`）：`hash_id: 0x30`（一级，字节不变）或
+  `[0x3E, ns_version, sub1, sub2…]`（多级）。**第一个子号是命名空间版本号**（1 起、只增），
+  其后每级 **2 字节**（`0..=65535`）、**最多 4 级**。一级号用尽时不必改段头 / 段布局。
+- **Rust 落地**：`hash.rs::HashPath`（`ns_version` + `subs`，`to_value` / `from_value`
+  全量形状与范围校验，`MAX_HASH_SUBS = 4`；`HashPathError` 六种拒绝原因）；
+  `Manifest.hash_path`（一级为 `None`，多级保存路径），`to_value` 一级写整数、
+  多级写数组，`from_value` 两种形态都接受；新增 `ManifestError::BadHashPath`。
+  多级时 `hash` 解析成 `HashAlgo::ExtendedNamespace`，`digest` 仍报
+  `NotImplemented(0x3E)` —— 本构建不会拿它算摘要（只登记、未实现）。
+- **KDF 迁移**（`format.md §20.3.1` / §20.4 迁移规则）：KDF 组移到独立区间
+  **`0xB0–0xBF`**，`Argon2id` 新号 **`0xB1`**；旧号 `0x51` **只在 KDF 语境只读兼容**，
+  签名语境视为未分配。写端不再产出 `0x51`；`0x50 SM2-with-SM3` 编号与含义不变。
+  顺带修掉规范里 KDF 与签名（经典）同占 `0x50–0x5F` 的既有冲突。
+- **其它组多留号**（用户「得留」）：对称国密 `0x21`、经典签名 `0x42` 各留一个
+  国密 PQC 位（与 `0x62` / `0x83` / `0xA2` 共同覆盖国密 PQC 的四类算法面）。
+- **守护** `check_amberice_align.py`：新增「KDF 迁移已登记」「HashPath 已实现」
+  「manifest 能往返多级 hash_id」「规范写明元组形态与版本号在前」四组判据。
+- 回归：`cargo test -p amberice --lib` **31 例**（新增 HashPath 往返 / 拒绝畸形 /
+  manifest 多级往返 / 一级仍是整数 / 畸形 hash_id 被拒）。
+
 ### 变更（仓库治理：文档生成物幂等）
 
 - `smldocs --index` / `--report` 的头行改记 `docs/meta.sml` 的内容摘要（FNV-1a 64），
