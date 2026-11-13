@@ -598,6 +598,26 @@ a version), sub-ids are 2 bytes, and KDF moves out of `0x50–0x5F`.
 - Regressions: `cargo test -p smltools --test profiles` (install → list → remove round trip,
   name mismatch rejected, missing source).
 
+### Added (spec for the `USER` extension area: `0xF0` + submagic, `AMBR` is fixed)
+
+- **Spec §19.15**: a `USER` segment (`0xF0`, optional) whose body is
+  `submagic[4] + version[1] + payload`. A file may carry several (distinguished by
+  `submagic`; duplicates are `E-AMBR-002`), unknown submagics are skipped by `len`, and
+  digests/signatures still cover the bytes while the container does **not** interpret them.
+  `0xF1`–`0xFF` stay reserved for application binary streams.
+- **Application identity** (instead of an application magic): `USER` submagic + `caps`.
+  `caps.required: [user.bifcp]` makes unaware readers **refuse explicitly** (`E-AMBR-003`)
+  rather than silently reading.
+- **Hard rules in the spec**: the first four bytes are **always** `AMBR`; no option may
+  replace them with an application magic; the reserved header bytes `bytes[22..24]` /
+  `bytes[32..40]` mean "ignore on read" and must not carry application identity; OS-level
+  detection, if ever needed, must go through a `fmt` bump and an **appended** `hdr_len` field.
+- **`submagic` registry**: `BIFC` (BIFCP), `PKG\x00` (package metadata), `PTCH` (patch
+  metadata) — registration only reserves the name (nothing implemented); unregistered
+  submagics may be used privately but readers must skip them.
+- Guard gained a check: §19.15, the "no magic replacement" rule, and the `BIFC` / `PTCH`
+  entries must all be present.
+
 ### 🚨 Breaking — version naming: `Version` enum → `Edition` lookup
 
 An edition is just a **name for a set of default feature bits** (`docs/swsml/spec/version.md` v1.0).
