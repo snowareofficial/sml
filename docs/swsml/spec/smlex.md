@@ -200,3 +200,48 @@ $ smltools -i rust/smltools/profile.sml --dump-builtins > profile-builtins.json
 
 三档严重度的取舍：**用户显式挂了 profile**（文档里写了 `@weakdoc`），规则不生效不能静默 ⇒ error；
 但三处命名空间都没命中时可能只是"没装"，故只 warning。
+
+## 11. 安装与分发（`--profiles-*`）
+
+`.smlex` 没有注册中心、也不联网：**安装 = 把文件放进某一层 namespace 的 `profiles` 目录**。
+`smltools` 只提供「放 / 列 / 删」这三个动作，以及装前的基本校验。
+
+### 11.1 两种安装源
+
+| 源 | 说明 |
+|---|---|
+| **目录** | 收目录里的 `*.smlex`（可一次装多个） |
+| **`.ambr` 包** | `amberice pack <out.ambr> <file>...` 的产物；安装时只取 `*.smlex` 载荷，其余载荷忽略 |
+
+包是归档，不是新格式 —— 摘要、压缩、manifest 都复用 `amberice` 的能力。
+载荷名可能带目录（打包时传的是路径），安装时**只取文件名**，目录部分丢弃
+（`../evil.smlex` 不会变成安装路径）。
+
+### 11.2 目标层（`--profiles-scope`，默认 `user`）
+
+| scope | 路径 |
+|---|---|
+| `user` | Windows `%APPDATA%\sml\profiles`；其它 `$XDG_CONFIG_HOME/sml/profiles` 或 `~/.config/sml/profiles` |
+| `project` | `<cwd>/.smlex/profiles` |
+| `system` | Windows `%ProgramData%\sml\profiles`；其它 `/usr/share/sml/profiles` |
+
+发现顺序与安装目标共用同一组路径（见 `profile_search_roots`），所以装完 `user` 层后，
+任何目录下的文档都能解析到它。
+
+### 11.3 命令
+
+```bash
+smltools --profiles-list                                  # 四层里各有哪些 profile
+smltools --profiles-install ./team-profiles --profiles-scope project
+smltools --profiles-install api-docs-1.2.0.ambr           # 默认装到 user 层
+smltools --profiles-remove api-docs
+```
+
+### 11.4 装前校验
+
+- 文件名必须与内容里的 `name:` 一致，否则 `E-LINT-005`（此时该文件不落盘）
+- 内容必须是可解析的 SML
+- 同名已存在默认拒绝，`--profiles-force` 才覆盖
+
+**本版不做包签名校验**：只保证「内容可解析 + 名字对得上」。输出里会明示未验签；
+将来接入 `amberice verify` 时，签名校验应成为默认、`--allow-unsigned` 才放行。
