@@ -202,13 +202,324 @@ static void sha256_final(sha256_t *s, unsigned char out[32]) {
     }
 }
 
-/* 1 = digest matches. ｜ 摘要一致返回 1。 */
-static int digest_ok(const unsigned char *body, size_t len, const unsigned char *want) {
-    sha256_t s;
+
+/* --- SM3 (GB/T 32905-2016)，按 manifest 的 hash_id=0x31 校验段摘要。 -------- */
+typedef struct {
+    unsigned int h[8];
+    unsigned long long bitlen;
+    unsigned char buf[64];
+    size_t fill;
+} sm3_t;
+
+static const unsigned int SM3_IV[8] = {
+    0x7380166fu, 0x4914b2b9u, 0x172442d7u, 0xda8a0600u,
+    0xa96f30bcu, 0x163138aau, 0xe38dee4du, 0xb0fb0e4eu,
+};
+
+static unsigned int rotl32(unsigned int x, int n) {
+    n &= 31;
+    return n ? ((x << n) | (x >> (32 - n))) : x;
+}
+
+static unsigned int sm3_p0(unsigned int x) { return x ^ rotl32(x, 9) ^ rotl32(x, 17); }
+static unsigned int sm3_p1(unsigned int x) { return x ^ rotl32(x, 15) ^ rotl32(x, 23); }
+
+static void sm3_block(sm3_t *s, const unsigned char *p) {
+    unsigned int w[68], w1[64];
+    for (int j = 0; j < 16; j++) {
+        w[j] = ((unsigned int)p[j * 4] << 24) | ((unsigned int)p[j * 4 + 1] << 16) |
+               ((unsigned int)p[j * 4 + 2] << 8) | (unsigned int)p[j * 4 + 3];
+    }
+    for (int j = 16; j < 68; j++) {
+        w[j] = sm3_p1(w[j - 16] ^ w[j - 9] ^ rotl32(w[j - 3], 15)) ^ rotl32(w[j - 13], 7) ^ w[j - 6];
+    }
+    for (int j = 0; j < 64; j++) w1[j] = w[j] ^ w[j + 4];
+
+    unsigned int a = s->h[0], b = s->h[1], c = s->h[2], d = s->h[3];
+    unsigned int e = s->h[4], f = s->h[5], g = s->h[6], h = s->h[7];
+    for (int j = 0; j < 64; j++) {
+        unsigned int tj = (j < 16) ? 0x79cc4519u : 0x7a879d8au;
+        unsigned int ss1 = rotl32(rotl32(a, 12) + e + rotl32(tj, j), 7);
+        unsigned int ss2 = ss1 ^ rotl32(a, 12);
+        unsigned int ff = (j < 16) ? (a ^ b ^ c) : ((a & b) | (a & c) | (b & c));
+        unsigned int gg = (j < 16) ? (e ^ f ^ g) : ((e & f) | (~e & g));
+        unsigned int tt1 = ff + d + ss2 + w1[j];
+        unsigned int tt2 = gg + h + ss1 + w[j];
+        d = c;
+        c = rotl32(b, 9);
+        b = a;
+        a = tt1;
+        h = g;
+        g = rotl32(f, 19);
+        f = e;
+        e = sm3_p0(tt2);
+    }
+    s->h[0] ^= a; s->h[1] ^= b; s->h[2] ^= c; s->h[3] ^= d;
+    s->h[4] ^= e; s->h[5] ^= f; s->h[6] ^= g; s->h[7] ^= h;
+}
+
+static void sm3_init(sm3_t *s) {
+    memcpy(s->h, SM3_IV, sizeof SM3_IV);
+    s->bitlen = 0;
+    s->fill = 0;
+}
+
+static void sm3_update(sm3_t *s, const unsigned char *p, size_t n) {
+    s->bitlen += (unsigned long long)n * 8u;
+    while (n--) {
+        s->buf[s->fill++] = *p++;
+        if (s->fill == 64) { sm3_block(s, s->buf); s->fill = 0; }
+    }
+}
+
+static void sm3_final(sm3_t *s, unsigned char out[32]) {
+    unsigned long long bits = s->bitlen;
+    unsigned char pad = 0x80;
+    sm3_update(s, &pad, 1);
+    pad = 0;
+    while (s->fill != 56) sm3_update(s, &pad, 1);
+    unsigned char len8[8];
+    for (int i = 0; i < 8; i++) len8[i] = (unsigned char)(bits >> (56 - i * 8));
+    sm3_update(s, len8, 8);
+    for (int i = 0; i < 8; i++) {
+        out[i * 4] = (unsigned char)(s->h[i] >> 24);
+        out[i * 4 + 1] = (unsigned char)(s->h[i] >> 16);
+        out[i * 4 + 2] = (unsigned char)(s->h[i] >> 8);
+        out[i * 4 + 3] = (unsigned char)(s->h[i]);
+    }
+}
+
+static void sm3_digest(const unsigned char *p, size_t n, unsigned char out[32]) {
+    sm3_t s;
+    sm3_init(&s);
+    sm3_update(&s, p, n);
+    sm3_final(&s, out);
+}
+
+/* --- BLAKE3（无密钥 32 B 摘要），hash_id=0x32。与 rust/amberice/src/blake3.rs 同构。 -- */
+#define B3_BLOCK_LEN 64
+#define B3_CHUNK_LEN 1024
+#define B3_MAX_DEPTH 54
+#define B3_CHUNK_START (1u << 0)
+#define B3_CHUNK_END   (1u << 1)
+#define B3_PARENT      (1u << 2)
+#define B3_ROOT        (1u << 3)
+
+static const unsigned int B3_IV[8] = {
+    0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,
+    0x510e527fu, 0x9b05688cu, 0x1f83d9abu, 0x5be0cd19u,
+};
+
+static const int B3_PERM[16] = {2, 6, 3, 10, 7, 0, 4, 13, 1, 11, 12, 5, 9, 14, 15, 8};
+
+static void b3_g(unsigned int s[16], int a, int b, int c, int d, unsigned int mx, unsigned int my) {
+    s[a] = s[a] + s[b] + mx;
+    s[d] = rotr32(s[d] ^ s[a], 16);
+    s[c] = s[c] + s[d];
+    s[b] = rotr32(s[b] ^ s[c], 12);
+    s[a] = s[a] + s[b] + my;
+    s[d] = rotr32(s[d] ^ s[a], 8);
+    s[c] = s[c] + s[d];
+    s[b] = rotr32(s[b] ^ s[c], 7);
+}
+
+static void b3_round(unsigned int s[16], const unsigned int m[16]) {
+    b3_g(s, 0, 4, 8, 12, m[0], m[1]);
+    b3_g(s, 1, 5, 9, 13, m[2], m[3]);
+    b3_g(s, 2, 6, 10, 14, m[4], m[5]);
+    b3_g(s, 3, 7, 11, 15, m[6], m[7]);
+    b3_g(s, 0, 5, 10, 15, m[8], m[9]);
+    b3_g(s, 1, 6, 11, 12, m[10], m[11]);
+    b3_g(s, 2, 7, 8, 13, m[12], m[13]);
+    b3_g(s, 3, 4, 9, 14, m[14], m[15]);
+}
+
+static void b3_permute(unsigned int m[16]) {
+    unsigned int old[16];
+    memcpy(old, m, sizeof old);
+    for (int i = 0; i < 16; i++) m[i] = old[B3_PERM[i]];
+}
+
+static void b3_compress(const unsigned int cv[8], const unsigned int m_in[16],
+                        unsigned long long counter, unsigned int block_len,
+                        unsigned int flags, unsigned int out[16]) {
+    unsigned int s[16], m[16];
+    memcpy(s, cv, 8 * sizeof(unsigned int));
+    s[8] = B3_IV[0]; s[9] = B3_IV[1]; s[10] = B3_IV[2]; s[11] = B3_IV[3];
+    s[12] = (unsigned int)(counter & 0xffffffffu);
+    s[13] = (unsigned int)(counter >> 32);
+    s[14] = block_len;
+    s[15] = flags;
+    memcpy(m, m_in, sizeof m);
+    for (int i = 0; i < 7; i++) { b3_round(s, m); b3_permute(m); }
+    for (int i = 0; i < 8; i++) {
+        out[i] = s[i] ^ s[i + 8];
+        out[i + 8] = s[i + 8] ^ cv[i];
+    }
+}
+
+static void b3_words(const unsigned char *buf, size_t len, unsigned int m[16]) {
+    memset(m, 0, 16 * sizeof(unsigned int));
+    size_t full = len / 4;
+    for (size_t i = 0; i < full; i++) {
+        m[i] = (unsigned int)buf[i * 4] | ((unsigned int)buf[i * 4 + 1] << 8) |
+               ((unsigned int)buf[i * 4 + 2] << 16) | ((unsigned int)buf[i * 4 + 3] << 24);
+    }
+    size_t rem = len % 4;
+    if (rem) {
+        unsigned int w = 0;
+        for (size_t i = 0; i < rem; i++) w |= (unsigned int)buf[full * 4 + i] << (8 * i);
+        m[full] = w;
+    }
+}
+
+typedef struct {
+    unsigned int cv[8];
+    unsigned int words[16];
+    unsigned long long counter;
+    unsigned int block_len;
+    unsigned int flags;
+} b3_output;
+
+static void b3_output_cv(const b3_output *o, unsigned int cv[8]) {
+    unsigned int s[16];
+    b3_compress(o->cv, o->words, o->counter, o->block_len, o->flags, s);
+    memcpy(cv, s, 8 * sizeof(unsigned int));
+}
+
+static void b3_output_root(const b3_output *o, unsigned char out[32]) {
+    unsigned int s[16];
+    b3_compress(o->cv, o->words, 0, o->block_len, o->flags | B3_ROOT, s);
+    for (int i = 0; i < 8; i++) {
+        out[i * 4] = (unsigned char)(s[i]);
+        out[i * 4 + 1] = (unsigned char)(s[i] >> 8);
+        out[i * 4 + 2] = (unsigned char)(s[i] >> 16);
+        out[i * 4 + 3] = (unsigned char)(s[i] >> 24);
+    }
+}
+
+static void b3_parent_output(const unsigned int left[8], const unsigned int right[8], b3_output *o) {
+    memcpy(o->cv, B3_IV, sizeof B3_IV);
+    memcpy(o->words, left, 8 * sizeof(unsigned int));
+    memcpy(o->words + 8, right, 8 * sizeof(unsigned int));
+    o->counter = 0;
+    o->block_len = B3_BLOCK_LEN;
+    o->flags = B3_PARENT;
+}
+
+static void b3_parent_cv(const unsigned int left[8], const unsigned int right[8], unsigned int cv[8]) {
+    b3_output o;
+    b3_parent_output(left, right, &o);
+    b3_output_cv(&o, cv);
+}
+
+typedef struct {
+    unsigned int cv[8];
+    unsigned long long counter;
+    unsigned char buf[B3_BLOCK_LEN];
+    size_t buf_len;
+    size_t blocks;
+} b3_chunk;
+
+static void b3_chunk_init(b3_chunk *c, unsigned long long counter) {
+    memcpy(c->cv, B3_IV, sizeof B3_IV);
+    c->counter = counter;
+    c->buf_len = 0;
+    c->blocks = 0;
+}
+
+static size_t b3_chunk_len(const b3_chunk *c) { return B3_BLOCK_LEN * c->blocks + c->buf_len; }
+
+static unsigned int b3_chunk_start_flag(const b3_chunk *c) {
+    return c->blocks == 0 ? B3_CHUNK_START : 0u;
+}
+
+static void b3_chunk_update(b3_chunk *c, const unsigned char *p, size_t n) {
+    while (n) {
+        if (c->buf_len == B3_BLOCK_LEN) {
+            unsigned int words[16], s[16];
+            b3_words(c->buf, B3_BLOCK_LEN, words);
+            b3_compress(c->cv, words, c->counter, B3_BLOCK_LEN, b3_chunk_start_flag(c), s);
+            memcpy(c->cv, s, 8 * sizeof(unsigned int));
+            c->blocks++;
+            c->buf_len = 0;
+        }
+        size_t take = B3_BLOCK_LEN - c->buf_len;
+        if (take > n) take = n;
+        memcpy(c->buf + c->buf_len, p, take);
+        c->buf_len += take;
+        p += take;
+        n -= take;
+    }
+}
+
+static void b3_chunk_output(const b3_chunk *c, b3_output *o) {
+    memcpy(o->cv, c->cv, sizeof c->cv);
+    b3_words(c->buf, c->buf_len, o->words);
+    o->counter = c->counter;
+    o->block_len = (unsigned int)c->buf_len;
+    o->flags = b3_chunk_start_flag(c) | B3_CHUNK_END;
+}
+
+static void b3_digest(const unsigned char *data, size_t len, unsigned char out[32]) {
+    b3_chunk chunk;
+    b3_chunk_init(&chunk, 0);
+    unsigned int stack[B3_MAX_DEPTH][8];
+    size_t stack_len = 0;
+    size_t at = 0;
+
+    while (at < len) {
+        if (b3_chunk_len(&chunk) == B3_CHUNK_LEN) {
+            b3_output o;
+            unsigned int cv[8];
+            b3_chunk_output(&chunk, &o);
+            b3_output_cv(&o, cv);
+            unsigned long long total = chunk.counter + 1;
+            /* push + 按「total 为偶数就合并」收敛 */
+            memcpy(stack[stack_len++], cv, 8 * sizeof(unsigned int));
+            while (total % 2 == 0 && stack_len >= 2) {
+                unsigned int right[8], left[8];
+                memcpy(right, stack[--stack_len], sizeof right);
+                memcpy(left, stack[--stack_len], sizeof left);
+                b3_parent_cv(left, right, stack[stack_len++]);
+                total /= 2;
+            }
+            b3_chunk_init(&chunk, chunk.counter + 1);
+        }
+        size_t take = B3_CHUNK_LEN - b3_chunk_len(&chunk);
+        if (take > len - at) take = len - at;
+        b3_chunk_update(&chunk, data + at, take);
+        at += take;
+    }
+
+    b3_output o;
+    b3_chunk_output(&chunk, &o);
+    for (size_t i = stack_len; i > 0; i--) {
+        unsigned int right[8];
+        b3_output_cv(&o, right);
+        b3_parent_output(stack[i - 1], right, &o);
+    }
+    b3_output_root(&o, out);
+}
+
+/* 段摘要校验：算法由 manifest 的 `hash_id` 决定（§20），不再写死 SHA-256。
+ * 返回 1 = 匹配，0 = 不符，-1 = 本端算不了（预留号 / 多级元组）⇒ 跳过并标注。
+ * ｜ 1 = match, 0 = mismatch, -1 = cannot verify (reserved id) ⇒ skip explicitly. */
+static int digest_check(int hash_id, const unsigned char *body, size_t len,
+                        const unsigned char *want) {
     unsigned char got[32];
-    sha256_init(&s);
-    sha256_update(&s, body, len);
-    sha256_final(&s, got);
+    if (hash_id == 0x30) {
+        sha256_t s;
+        sha256_init(&s);
+        sha256_update(&s, body, len);
+        sha256_final(&s, got);
+    } else if (hash_id == 0x31) {
+        sm3_digest(body, len, got);
+    } else if (hash_id == 0x32) {
+        b3_digest(body, len, got);
+    } else {
+        return -1; /* 预留号 / 多级元组：不猜算法 */
+    }
     return memcmp(got, want, 32) == 0;
 }
 
@@ -340,7 +651,53 @@ typedef struct {
     const unsigned char *value, *strtab, *typed, *schema;
     size_t value_len, strtab_len, typed_len, schema_len;
     int typed_opaque, schema_opaque;
+    /* manifest 声明的摘要算法（§20）；digest_skipped = 本端算不了，已跳过校验。 */
+    int hash_id;
+    int digest_skipped;
 } ambr_parts;
+
+/* 从 MANIFEST(0x04) 段体读 `hash_id`。段体是**自包含**的 canonical 编码：
+ * `varint count` + `count × (varint len ‖ utf8)` + 节点树。
+ * 多级元组（数组形态）本端不实现：统一返回 0x3E（转义号），由调用方按「跳过」处理。 */
+static int manifest_hash_id(const unsigned char *body, size_t len, int *out) {
+    rd r = { body, len, 0 };
+    unsigned long long count;
+    if (!rd_varint(&r, &count)) return 0;
+    if (count > (unsigned long long)len) return 0;
+    strtab st = {0};
+    for (unsigned long long i = 0; i < count; i++) {
+        unsigned long long n;
+        if (!rd_varint(&r, &n) || n > (unsigned long long)(r.len - r.pos)) {
+            strtab_free(&st);
+            return 0;
+        }
+        if (!strtab_push(&st, body + r.pos, (size_t)n)) {
+            strtab_free(&st);
+            return 0;
+        }
+        r.pos += (size_t)n;
+    }
+    char errbuf[128];
+    sml_value *tree = decode_node(&r, &st, 0, errbuf, sizeof errbuf);
+    strtab_free(&st);
+    if (!tree) return 0;
+
+    int hash = 0x30; /* 缺 hash_id ⇒ §21 默认 SHA-256 */
+    sml_value *h = sml_obj_get(tree, "hash_id");
+    if (h && h->type == SML_INT) {
+        long long v = h->u.i;
+        if (v < 0 || v > 255) { sml_free(tree); return 0; }
+        hash = (int)v;
+    } else if (h && h->type == SML_ARRAY) {
+        hash = 0x3E; /* 多级元组：转义号，本端不实现 */
+    } else if (h) {
+        sml_free(tree);
+        return 0;
+    }
+    sml_free(tree);
+    *out = hash;
+    return 1;
+}
 
 static int walk_segments(const unsigned char *buf, size_t len, ambr_parts *out,
                          char *err, size_t errsz) {
@@ -384,6 +741,30 @@ static int walk_segments(const unsigned char *buf, size_t len, ambr_parts *out,
     size_t granule = (flags & 1u) ? ALIGN_BLOCK : ALIGN_MIN;
     size_t body_at = align_up((size_t)table_off + (size_t)count * SEG_HDR, granule);
 
+    /* 引导顺序（与 Rust/JS 一致）：先扫一遍找 MANIFEST，解出 hash_id，
+     * 再用它验其余段（连 manifest 自己一起验）。
+     * ｜ Bootstrap: read hash_id from MANIFEST first, then verify with it. */
+    out->hash_id = 0x30;
+    {
+        size_t scan = body_at;
+        for (unsigned long i = 0; i < count; i++) {
+            size_t o = (size_t)table_off + i * SEG_HDR;
+            if (o + SEG_HDR > len) break;
+            unsigned id = buf[o];
+            unsigned comp = buf[o + 1], enc = buf[o + 2];
+            unsigned long seg_len = (unsigned long)buf[o + 5] | ((unsigned long)buf[o + 6] << 8) |
+                                    ((unsigned long)buf[o + 7] << 16) |
+                                    ((unsigned long)buf[o + 8] << 24);
+            if (scan + seg_len > len) break;
+            if (id == 0x04 && comp == 0 && enc == 0) {
+                int found = 0x30;
+                if (manifest_hash_id(buf + scan, seg_len, &found)) out->hash_id = found;
+                break;
+            }
+            scan = align_up(scan + seg_len, granule);
+        }
+    }
+
     for (unsigned long i = 0; i < count; i++) {
         size_t o = (size_t)table_off + i * SEG_HDR;
         if (o + SEG_HDR > len) {
@@ -405,10 +786,12 @@ static int walk_segments(const unsigned char *buf, size_t len, ambr_parts *out,
                 set_err(err, errsz, "VALUE/STRTAB 压缩或加密过，本解码器不解");
                 return 0;
             }
-            if (!digest_ok(buf + body_at, seg_len, buf + o + 9)) {
+            int dc = digest_check(out->hash_id, buf + body_at, seg_len, buf + o + 9);
+            if (dc == 0) {
                 set_err(err, errsz, "段摘要不符（段体被改动？）");
                 return 0;
             }
+            if (dc < 0) out->digest_skipped = 1;
             if (id == SEG_VALUE) {
                 out->value = buf + body_at;
                 out->value_len = seg_len;
@@ -416,16 +799,27 @@ static int walk_segments(const unsigned char *buf, size_t len, ambr_parts *out,
                 out->strtab = buf + body_at;
                 out->strtab_len = seg_len;
             }
+        } else if (id == 0x04) {
+            if (comp == 0 && enc == 0) {
+                int dm = digest_check(out->hash_id, buf + body_at, seg_len, buf + o + 9);
+                if (dm == 0) {
+                    set_err(err, errsz, "段摘要不符（段体被改动？）");
+                    return 0;
+                }
+                if (dm < 0) out->digest_skipped = 1;
+            }
         } else if (id == 0x70 || id == 0x71) {
             /* 可选旁路：压缩/加密形态按 Store 的口径忽略，不阻断 VALUE 读取。 */
             if (comp != 0 || enc != 0) {
                 if (id == 0x70) out->typed_opaque = 1;
                 else out->schema_opaque = 1;
             } else {
-                if (!digest_ok(buf + body_at, seg_len, buf + o + 9)) {
+                int dc2 = digest_check(out->hash_id, buf + body_at, seg_len, buf + o + 9);
+                if (dc2 == 0) {
                     set_err(err, errsz, "段摘要不符（段体被改动？）");
                     return 0;
                 }
+                if (dc2 < 0) out->digest_skipped = 1;
                 if (id == 0x70) {
                     out->typed = buf + body_at;
                     out->typed_len = seg_len;

@@ -225,6 +225,18 @@ check("代码实现多级 hash 元组（HashPath）",
 check("manifest 能往返多级 hash_id",
       "pub hash_path: Option<crate::hash::HashPath>," in read("rust/amberice/src/manifest.rs")
       and "crate::hash::HashPath::from_value(v)" in read("rust/amberice/src/manifest.rs"))
+# 已经补了 hash_id 分派的端：代码里必须真的有「解 manifest + 按号分派」的实现。
+c_src = read("c/ambr.c")
+js_src = read("js/ambr.mjs")
+check("C 端按 hash_id 分派（manifest + digest_check）",
+      "static int manifest_hash_id(" in c_src
+      and "digest_check(out->hash_id" in c_src
+      and "sm3_digest(" in c_src
+      and "b3_digest(" in c_src)
+check("JS 端按 hash_id 分派（manifest + digestFnFor）",
+      "function readHashId(" in js_src
+      and "function digestFnFor(" in js_src
+      and "digestFn(body)" in js_src)
 check("规范写明元组形态与版本号在前",
       "hash_id: [ 0x3E, 1, 0x0001 ]" in spec
       and "**第一个子号是命名空间版本号**" in spec

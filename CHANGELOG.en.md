@@ -482,6 +482,21 @@ a version), sub-ids are 2 bytes, and KDF moves out of `0x50–0x5F`.
 - Regressions: `test-ambr-hash` (vectors + fixtures + negative case), `test-ambr-decoder`
   22/22, `test-ambr-write` ALL OK.
 
+### Added (C gains `hash_id` dispatch: SM3 + BLAKE3)
+
+- **Algorithms**: `c/ambr.c` now carries dependency-free SM3 (GB/T 32905-2016) and BLAKE3
+  (unkeyed 32-byte digest, mirroring Rust: 1 KiB chunks, chunk chaining, parent merging,
+  `ROOT` finalisation).
+- **Dispatch from the manifest**: new `manifest_hash_id()` (decodes the self-contained
+  canonical body for `hash_id`) and `digest_check(hash_id, ...)` (`0x30/0x31/0x32` -> SHA-256
+  / SM3 / BLAKE3). `walk_segments` reads `MANIFEST` (0x04) first and then verifies every
+  segment — including the manifest itself — so SHA-256 is no longer hardcoded. Reserved ids
+  and multi-level tuples return "skip" and set `digest_skipped` instead of guessing.
+- **Tests**: new fixture `tests/vectors/amberice-hash-algos.v1.hex` (plain hex so
+  C/C++/Lua/Java need no JSON parser); `c/tests/test_ambr.c` gained two decode cases plus a
+  tampered-digest negative case, printing `hash_id 0x31 解码（sm3）` / `0x32（blake3）`.
+- No new CI step needed (C tests run inside `build_check.py --run`).
+
 ### 🚨 Breaking — version naming: `Version` enum → `Edition` lookup
 
 An edition is just a **name for a set of default feature bits** (`docs/swsml/spec/version.md` v1.0).
