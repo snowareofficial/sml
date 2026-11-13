@@ -26,7 +26,9 @@
 docs {
   doc: [
     { title: "docs/amberice/archive/design-origin.md" date: "2026-11-06" updated: "2026-11-06" owner: "amberice" status: "archive" scope: ".ambr 设计起点与用户原话汇编（A/B/C 三级，逐条带出处）" supersedes: null superseded_by: null }
-    { title: "docs/amberice/decisions.md" date: "2026-11-02" updated: "2026-11-10" owner: "amberice" status: "current" scope: ".ambr 决策记录：D1–D54 已裁决、P12 待定、§12 草案、§15 键序、§16.3 已定（D53）、§16.4 孪生格式、§16.5 写路径/归档边界（待裁决，不作结论）" supersedes: null superseded_by: null }
+    { title: "docs/amberice/decisions.md" date: "2026-11-02" updated: "2026-11-11" owner: "amberice" status: "current" scope: ".ambr 决策记录：D1–D55 已裁决、P12 待定、§12 草案、§15 键序、§16.3 已定（D53）、§16.4 孪生格式、§16.5 写路径已裁（D55）/ 其余待裁" supersedes: null superseded_by: null }
+    { title: "docs/amberice/plan/interrupt-path-layers.md" date: "2026-11-12" updated: "2026-11-12" owner: "amberice" status: "draft" scope: "随时中断 / 操作路径 / 分层与 trait 的创新讨论纪要（支点 8 条、未收口 U1–U9、用户原话、示例代码形态）；不作结论" supersedes: null superseded_by: null }
+    { title: "docs/amberice/plan/multi-writer.md" date: "2026-11-12" updated: "2026-11-12" owner: "amberice" status: "draft" scope: "多写者 / 数据属性 / 写路径讨论记录（判据 / 设计空间 / 排除项 / 未实测，附录为用户原话）；不作结论" supersedes: null superseded_by: null }
     { title: "docs/amberice/plan/plan.md" date: "2026-11-06" updated: "2026-11-10" owner: "amberice" status: "current" scope: "amberice 改名范围 + 第一批优化（A1）与里程碑" supersedes: null superseded_by: null }
     { title: "docs/amberice/ref/ports.md" date: "2026-11-06" updated: "2026-11-10" owner: "amberice" status: "current" scope: "多端 .ambr 解码器进度台账（全端已通，含 C# / Go / Ruby；摘要仅 SHA-256）" supersedes: null superseded_by: null }
     { title: "docs/amberice/ref/claims-audit.md" date: "2026-11-10" updated: "2026-11-10" owner: "amberice" status: "draft" scope: "45 条论断逐条核实（成立 / 需修正 / 未实测 / 判断）；draft 不作结论，去留待用户裁决" supersedes: null superseded_by: null }
@@ -54,14 +56,15 @@ docs {
     { title: "docs/repo/archive/task/TASK-agent.md" date: "2026-09-18" updated: "2026-10-28" owner: "repo" status: "archive" scope: "任务书（主）" supersedes: null superseded_by: null }
     { title: "docs/repo/plan/doc-architecture.md" date: "2026-11-04" updated: "2026-11-06" owner: "repo" status: "stale" scope: "文档四层架构 + P1–P4（提议；已由本次治理落地）" supersedes: null superseded_by: "docs/index.md" }
     { title: "docs/repo/ref/pending-decisions.md" date: "2026-11-06" updated: "2026-11-10" owner: "repo" status: "current" scope: "裁决台账：D1–D6 已全部裁决（含发布拓扑 / 仓库分工 / 官网）+ 仍待裁项的去处" supersedes: null superseded_by: null }
-    { title: "docs/repo/ref/todo-ideas-tables.md" date: "2026-11-06" updated: "2026-11-10" owner: "repo" status: "current" scope: "TODO / IDEAS 条目表：卡在谁、什么状态" supersedes: null superseded_by: null }
-    { title: "docs/repo/ref/unfinished.md" date: "2026-11-06" updated: "2026-11-10" owner: "repo" status: "current" scope: "唯一「还剩什么」清单（分类 / 判据 / 复核命令）" supersedes: null superseded_by: null }
+    { title: "docs/repo/ref/todo-ideas-tables.md" date: "2026-11-06" updated: "2026-11-13" owner: "repo" status: "current" scope: "TODO / IDEAS 条目表：卡在谁、什么状态" supersedes: null superseded_by: null }
+    { title: "docs/repo/ref/unfinished.md" date: "2026-11-06" updated: "2026-11-13" owner: "repo" status: "current" scope: "唯一「还剩什么」清单（分类 / 判据 / 复核命令）" supersedes: null superseded_by: null }
     { title: "docs/repo/ref/scan.md" date: "2026-11-07" updated: "2026-11-10" owner: "repo" status: "current" scope: "自动扫描的计数结果（tools/scan_status.py --write 生成，勿手改）" supersedes: null superseded_by: null }
     { title: "docs/swml/plan/api-draft.md" date: "2026-11-02" updated: "2026-11-06" owner: "swml" status: "draft" scope: "门面未定项：根命名空间债务 / 命名二义 / feature 传播 / 发布口径" supersedes: null superseded_by: null }
     { title: "docs/swml/spec/api.md" date: "2026-11-02" updated: "2026-11-09" owner: "swml" status: "current" scope: "swml 门面公开面：根 = swsml 全集，easy = 四个概念" supersedes: null superseded_by: null }
     { title: "docs/swml/status.md" date: "2026-11-06" updated: "2026-11-10" owner: "swml" status: "current" scope: "swml 发布状态（dev2 成批发 / publish=false）+ 门面源码与对外仓分工" supersedes: null superseded_by: null }
     { title: "docs/swsml/archive/idyml-rejected.md" date: "2026-10-15" updated: "2026-11-03" owner: "swsml" status: "archive" scope: "idyml 改名方案（2026-11-03 否决）" supersedes: null superseded_by: null }
     { title: "docs/swsml/archive/iter-parse.md" date: "2026-10-30" updated: "2026-11-02" owner: "swsml" status: "archive" scope: "迭代式解析改造（已完成并合入 dev）" supersedes: null superseded_by: null }
+    { title: "docs/swsml/plan/crossend-sync.md" date: "2026-11-12" updated: "2026-11-13" owner: "swsml" status: "current" scope: "跨端同步施工切片：码表分类、weak 三兄弟 / Edition 四端、验收命令与开工裁决" supersedes: null superseded_by: null }
     { title: "docs/swsml/plan/featag-slices.md" date: "2026-11-04" updated: "2026-11-10" owner: "swsml" status: "current" scope: "featag 实现切片 S0–S9（S0–S9 已收官；其它四端按 S9 策略不实现）" supersedes: null superseded_by: null }
     { title: "docs/swsml/plan/features-plan.md" date: "2026-11-04" updated: "2026-11-06" owner: "swsml" status: "stale" scope: "v5 版本位落地步骤与被推翻的旧清单" supersedes: null superseded_by: "docs/swsml/spec/features.md" }
     { title: "docs/swsml/plan/perf-plan.md" date: "2026-11-06" updated: "2026-11-08" owner: "swsml" status: "current" scope: "全面优化计划：时间 / 内存 / 缓存 / 指令集四线" supersedes: null superseded_by: null }
@@ -73,9 +76,9 @@ docs {
     { title: "docs/swsml/spec/smlex.md" date: "2026-11-04" updated: "2026-11-10" owner: "swsml" status: "current" scope: ".smlex 内容格式 v1.0（格式定稿；checks 与 applies_to 提示已接 --lint，hints / emit 未实现）" supersedes: null superseded_by: null }
     { title: "docs/swsml/spec/v5.md" date: "2026-11-04" updated: "2026-11-10" owner: "swsml" status: "draft" scope: "v5 变更总表（工作底稿，v5 未定稿；B6/B7 已落地，表 A 待定稿实测）" supersedes: null superseded_by: null }
     { title: "docs/swsml/spec/value-layout.md" date: "2026-11-02" updated: "2026-11-06" owner: "swsml" status: "draft" scope: "值层内存布局提案（未拍板，需二次蒸馏）" supersedes: null superseded_by: null }
-    { title: "docs/swsml/spec/version.md" date: "2026-11-04" updated: "2026-11-06" owner: "swsml" status: "current" scope: "版本 = 功能集（edition）；版本位与三态生命周期" supersedes: null superseded_by: null }
-    { title: "docs/swsml/spec/weakbind.md" date: "2026-11-04" updated: "2026-11-10" owner: "swsml" status: "draft" scope: "weakbind 语法 / 作用域 / 旁路表（Rust 单端已实现；编辑器与其余四端未做）" supersedes: null superseded_by: null }
-    { title: "docs/swsml/spec/weakdata.md" date: "2026-11-04" updated: "2026-11-06" owner: "swsml" status: "draft" scope: "weakdata 语法与判别（Rust 已实现，其它端与编辑器未做）" supersedes: null superseded_by: null }
-    { title: "docs/swsml/spec/weakdoc.md" date: "2026-11-04" updated: "2026-11-10" owner: "swsml" status: "draft" scope: "weakdoc 语法与 .smlex 发现（库侧与 CLI 发现已实现，编辑器侧未做）" supersedes: null superseded_by: null }
+    { title: "docs/swsml/spec/version.md" date: "2026-11-04" updated: "2026-11-13" owner: "swsml" status: "current" scope: "版本 = 功能集（edition）；版本位与三态生命周期（五端字面量已同步，见 §7）" supersedes: null superseded_by: null }
+    { title: "docs/swsml/spec/weakbind.md" date: "2026-11-04" updated: "2026-11-13" owner: "swsml" status: "current" scope: "weakbind 语法 / 作用域 / 旁路表 / 默认忽略口径（语言层五端已实现；C-ABI / 绑定层见 crossend-sync.md）" supersedes: null superseded_by: null }
+    { title: "docs/swsml/spec/weakdata.md" date: "2026-11-04" updated: "2026-11-12" owner: "swsml" status: "current" scope: "weakdata 语法与判别（Rust 已实现；多端同步见 crossend-sync.md）" supersedes: null superseded_by: null }
+    { title: "docs/swsml/spec/weakdoc.md" date: "2026-11-04" updated: "2026-11-13" owner: "swsml" status: "current" scope: "weakdoc 语法与 .smlex 发现 / W-CLI-001 提示（库侧、CLI 发现与提示均已实现）" supersedes: null superseded_by: null }
   ]
 }

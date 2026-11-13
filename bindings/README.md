@@ -11,6 +11,31 @@ SML v3 的**宿主语言绑定**，统一经 **C-ABI**（`c/sml_rs.h` 为宪法�
 `sml_real_value` / `sml_bool_value` / `sml_dumps` / `sml_dump` / `sml_dump_err` /
 `sml_version` / `sml_features_mask` / `sml_feature_name`。
 
+**v3.1 新增（P7，诊断出口）**：`sml_parse_with_diags` / `sml_diag_list_free`。五门都提供
+对应的语言层封装（`loads_with_diags` 一类的名字），交出与 Rust `Diagnostic` 同形的
+「稳定码 + 文案 + 行号 + 严重度」，**值树与 `sml_loads` 逐字节相同**（诊断只报告，不改语义）。
+
+**v3.1 新增（P7 第二片，完整选项）**：`sml_builtin`（`new` / `free` / `count` / `add_field` /
+`set_range` / `add_enum`）+ `sml_opts` + `sml_parse_full`。五门都提供 `loads_full` 一族：
+特性上限 + `$env` 覆盖表 + 内置契约表一次传进去，`W-CONTRACT-001` 由此在绑定层可达。
+⚠️ `flags` 是**特性上限**（交集），`type.weak` 是 opt-in ⇒ 要校验弱绑定得显式带上该位。
+
+**v3.1 新增（P7 第四片，弱声明三表）**：`sml_parse_full_lists` / `sml_weaklists`。五门都提供
+`loads_full_lists` 一族，交出 `@weakbind` / `@weakdata` / `@weakdoc` 三表（`weakdata` 的
+载荷已物化）；三者**都不进主树**。文件入口 `sml_load_file_full` 目前只有 C-ABI / C++ 接了。
+
+**v3.1 新增（P7 第七片，聚合结果）**：`sml_parse_all` + `sml_result_*` getter 一族
+（值树 / 诊断 / 多错误 / 弱表 / 契约映射 / 契约表，`want` 用 `SML_WANT_*` 位选）。
+五门都提供 `parse_all` 一族（`parse_all` / `Sml.parse_all` / `Sml.parseAll` /
+`ParseAllOf`），一次拿全；`contracts` 用新增的 **`sml_builtin_clone`** 克隆成宿主独占的
+句柄，所以「捕获 → 释放结果 → 再当内置表注入」这条链不必吊着结果句柄的命。
+
+**v3.1 新增（P7 第八片，文件入口）**：`sml_load_file_full`。五门都有 `load_file_full` 一族
+（`load_file_full` / `Sml.load_file_full` / `Sml.loadFileFull` / `LoadFileFull`）：
+展开 `include`（相对路径以文件目录为基准），并交出诊断 + 弱表。跨 include 时行号可能为 0
+—— token 跨文件合并，没有可映射的单一原文。至此 `crossend-sync.md` §0.6 的绑定层列
+**整列收口**。
+
 ## 统一实现路径（§2.3-A：值树直访）
 
 - **读**（`loads`/`load_file`/取值）：直接遍历 v3 值树，**不经 JSON**——int/float/bool 类型保真、
@@ -28,13 +53,13 @@ SML v3 的**宿主语言绑定**，统一经 **C-ABI**（`c/sml_rs.h` 为宪法�
 
 ## 语言清单
 
-| 语言 | 目录 | FFI 机制 | 验证状态 |
-|---|---|---|---|
-| Python | `python/` | `ctypes` | ✅ 跑绿（§4 八断言 + 内存循环） |
-| Ruby | `ruby/` | `fiddle`（零三方依赖） | ✅ 跑绿 |
-| Java | `java/` | JDK Panama FFM | ✅ 跑绿 |
-| Go | `go/` | `cgo` | ✅ 跑绿 |
-| C# | `csharp/` | `P/Invoke` | ✅ 跑绿（11 项；本机以 `net11.0` 代跑，项目仍以 `net8.0` 为目标） |
+| 语言 | 目录 | FFI 机制 | 验证状态 | 诊断出口（v3.1） | 完整选项（v3.1） | 弱表（v3.1） | 聚合结果（v3.1） |
+|---|---|---|---|---|---|---|---|
+| Python | `python/` | `ctypes` | ✅ 跑绿（§4 八断言 + 内存循环） | `sml.loads_with_diags` → `(对象, [Diagnostic])` | `loads_full(text, flags, env, builtins)` + `Builtin` | `loads_full_lists` → `(对象, [Diagnostic], WeakLists)` | `parse_all(...)` → `ParseAll` |
+| Ruby | `ruby/` | `fiddle`（零三方依赖） | ✅ 跑绿 | `Sml.loads_with_diags` → `[对象, [Diagnostic]]` | `loads_full(text, flags:, env:, builtins:)` + `Builtin` | `Sml.loads_full_lists` → `[对象, 诊断, WeakLists]` | `Sml.parse_all` → `ParseAll` |
+| Java | `java/` | JDK Panama FFM | ✅ 跑绿 | `Sml.loadsWithDiags` → `Parsed{value, diagnostics}` | `loadsFull(text, Opts)` + `Builtin` | `Sml.loadsFullLists` → `Parsed{..., lists}` | `Sml.parseAll` → `ParseAll` |
+| Go | `go/` | `cgo` | ✅ 跑绿 | `LoadsWithDiags` → `(any, []Diagnostic, error)` | `LoadsFull(text, Opts)` + `Builtin` | `LoadsFullLists` → `(any, [], WeakLists, error)` | `ParseAllOf` → `*ParseAll` |
+| C# | `csharp/` | `P/Invoke` | ✅ 跑绿（11 项；本机以 `net11.0` 代跑，项目仍以 `net8.0` 为目标） | `LoadsWithDiags` → `(object, out List<Diagnostic>)` | `LoadsFull(text, Opts, out diags)` + `Builtin` | `LoadsFullLists(..., out diags, out lists)` | `Sml.ParseAllOf` → `ParseAll` |
 
 > C# 注：验证机只装了 11.0 的 targeting pack 且 NuGet 不可达，故用临时 project 按
 > `net11.0` 编译同一批源码；`net8.0` 目标本身未实测（代码只用 .NET 5+ API）。

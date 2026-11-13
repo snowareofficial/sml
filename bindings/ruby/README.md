@@ -10,6 +10,12 @@
 | 函数 | 说明 |
 |---|---|
 | `Sml.loads(text, flags=0)` | 文本 → 原生对象（Hash/Array/Integer/Float/String/true-false/nil） |
+| `Sml.loads_with_diags(text, flags=0)` | 文本 → `[对象, [Diagnostic]]`（P7；值树与 `loads` 逐字节相同） |
+| `Sml.loads_full(text, flags:, env:, builtins:)` | 文本 → `[对象, [Diagnostic]]`，带完整选项（特性上限 / `$env` 注入 / 内置契约表） |
+| `Sml::Builtin` | 内置契约表构造器（`add_field` / `set_range` / `add_enum`） |
+| `Sml.loads_full_lists(...)` | 同 `loads_full`，另交出弱声明三表 → `[对象, 诊断, WeakLists]` |
+| `Sml.parse_all(text, flags:, env:, builtins:, want:)` | 一次拿全：值树 + 诊断 + 多错误 + 弱表 + 契约映射 + 契约表（`ParseAll`） |
+| `Sml.load_file_full(path, flags:, env:, builtins:)` | 文件入口：展开 include + 诊断 + 弱表 → `[对象, 诊断, WeakLists]` |
 | `Sml.load_file(path, flags=0)` | 文件 → 原生对象（展开 include） |
 | `Sml.dumps(obj, flags=0)` | 原生对象 → SML 文本 |
 | `Sml.version` | 版本串（静态，不释放） |

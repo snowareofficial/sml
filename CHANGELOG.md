@@ -20,6 +20,273 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 > 因此 `c/` `cpp/` `js/` `lua/`（含 `editors/vscode` 与 `site/` 的四份 vendored 副本）也有改动 ——
 > 见下方「🚨 破坏性变更」与「新增（契约扩展点：严格性三态）」两节。
 
+### 🚨 发布口径（预告：跨端同步，尚未落地）
+
+- **四端公开 API 破坏**：C / C++ / JS / Lua 将各加「解析成功 + 诊断列表」出口，用于交出
+  `W-PARSE-001` / `W-PARSE-002`。现有入口（C 的 `sml_parse(... err ...)`、C++ / Lua 的
+  `value, err`、JS 的 `parseSafe`）只有「成功 / 失败」二选一，改动会波及调用方 ⇒ 属破坏性变更。
+- **版本口径**：按本文件文首的 Cargo 0.x 语义（MINOR = 不兼容），下一个正式版为 **0.7.0**；
+  `swsml` 与 `smltools` 版本号互相独立。C 库 / VSIX 的版本号统一属
+  `docs/swsml/spec/v5.md` 表 B 的 B8，另记。
+- **分栏**：发版说明里「库 API 破坏」与「文档语法破坏」分开写，不混在一节。
+- **能力对等原则**：`swsml`（Rust）能做的事，FFI（`rust/src/c_abi.rs` / `c/sml_rs.h` /
+  `cpp/sml_rs.hpp`）与其它端（含五个绑定层）**功能上都要有**。判据是功能等价 / 可观测结果一致，
+  不要求 API 形态或内部机制同形（Rust 特有的 trait 对象 / 闭包注册点不必改成函数指针）。
+  不因「当前没有消费者」而永久裁剪，允许按切片分批落地。判据见
+  `docs/swsml/plan/crossend-sync.md` §0.6。
+- **C-ABI**：新增 `CSmlDiagnostic` / weak 旁路表 / 扩展选项结构时，同步 `rust/src/c_abi.rs`、
+  `c/sml_rs.h`、`cpp/sml_rs.hpp` 与五个绑定层；只并存新符号、不改旧签名（`sml_dump_err` 先例）。
+- ⚠️ 本条只定口径：不 bump 版本号、不发版、不动 `E-FEATURE-004` 启用位。施工切片见
+  `docs/swsml/plan/crossend-sync.md` §0.5 / P4 / P7。
+
+### 新增（跨端同步 P4：诊断出口 + `weakbind` 软校验）
+
+- **C**：`sml_parse_ex` + `sml_diag` / `sml_diag_free` 交出带行号诊断；`sml_builtin`
+  句柄（`add_field` / `set_range` / `add_enum`）注入内置契约表，
+  `sml_parse_with_builtins` 产出 `W-CONTRACT-001` 七档并把旁路表交付给
+  `sml_weakbind ** / size_t *`（配 `sml_weakbind_free`）。
+- **C++**：`Parser::parse(..., &diags)`；新增 `ParseOptions` + `Parser::parse_with`
+  （`builtins` / `weak_binds` / `diags` / `include_dir`）、`BuiltinTable`、`WeakBind`。
+- **JS**：`parseSafe()` 返回 `warnings` 与 `weakBinds`；`opts.builtinContracts` 注入内置表。
+- **Lua**：`Sml.parse_with_warnings`；`Sml.parse_with_builtins(text, builtins, base)`
+  返回 `值, err, warnings, weak_binds`。
+- **共同**：未开 `type.weak` 时 `@weakbind` / `@weakdata` / `@weakdoc` 五端一律
+  `E-FEATURE-001`；软校验**只读** —— 不填默认值、不删改键，主树逐字节不变。
+- ⚠️ `sml_parse_with_builtins` 是本轮新符号，之前未发布过，故直接放宽签名
+  （多两个旁路表出参）不构成二次破坏；随 0.7.0 一并给出。
+
+### 新增（跨端同步 P7：C-ABI 诊断出口 + 五个绑定层对齐）
+
+- **C-ABI**：`sml_parse_with_diags(text, flags, sml_diag_list *, sml_error *)` 与
+  `sml_diag_list_free`；`sml_diag` / `sml_diag_list` / `sml_severity` 三个新类型。
+  交出稳定码（`W-PARSE-001` / `W-PARSE-002` / `W-CONTRACT-001` 等）+ 文案 + 行号 + 严重度；
+  **值树与 `sml_loads` 逐字节相同**，致命错误仍只走 `sml_error`。
+  旧符号一个没改（`sml_loads` / `sml_load_file` 原样保留）。
+- **Rust 侧**：新增 `sml_parse::parse_with_features_warnings`（= `parse_with_features`
+  的特性上限 + `parse_with_warnings` 的诊断）。
+- **C++ 封装**：`sml_rs.hpp` 新增 `Severity` / `Diagnostic` / `DiagLoadResult` 与
+  `loads_with_diags`；新增回归 `cpp/tests/test_rs_diag.cpp`，由 `cpp/build_verify.py` 的
+  `RS-DIAG` 一档跑（需 `SML_RUST_LIB`）。
+- **五个绑定层**（Python / Ruby / Java / Go / C#）：各自提供 `loads_with_diags` 一族，
+  诊断表整体释放、不单独 free 其中的字符串。`bindings/README.md` 的对齐清单已扩到 v3.1。
+- 未落：`errors` 多错误、`contract_map` / `contracts`、三条 weak 旁路表、扩展选项结构、
+  文件 + 诊断入口（见 `docs/swsml/plan/crossend-sync.md` P7）。
+
+### 新增（跨端同步 P7 第二片：扩展选项 + 内置契约表注入）
+
+- **C-ABI**：`sml_builtin`（不透明句柄：`_new` / `_free` / `_count` / `_add_field` /
+  `_set_range` / `_add_enum`，与纯 C 端 `sml.h` 同形状）+ `sml_opts`
+  （`struct_size` / `flags` / `env` / `env_len` / `builtins`）+ `sml_parse_full`。
+  `W-CONTRACT-001` 由此在 C-ABI 上**可达**（声明侧 3 档 + 块内容侧 4 档）。
+- **Rust**：新增 `sml_parse::parse_full(text, allowed, env, opts)` —— 特性上限 +
+  `$env` 覆盖表 + 全部 `ParseOptions` 的超集入口；`parse_with_features_warnings`
+  改为它的包装（同一代码路径，防两套语义）。
+- **C++ 封装**：`sml::Builtin`（RAII，`create` / `count` / `add_field` / `set_range` /
+  `add_enum`）、`sml::Opts`、`loads_full`。
+- ⚠️ **`flags` 是特性上限，不是「额外启用」**：`type.weak` 是 opt-in、不在基线里，
+  传 `0` 时文档的 `@feature enable type.weak` 会被交集剔除，`@weakbind` 随即报
+  `E-FEATURE-001`。要校验弱绑定请传 `SML_F_BASIC | SML_F_WEAK`（或 `sml_features_mask()`）。
+  这一格有显式用例（`cpp/tests/test_rs_diag.cpp`），防「以为默认全开」。
+- 未落：五个绑定层的 opts / 内置表封装、三条 weak 旁路表、`errors` / `contract_map` /
+  `contracts`、文件 + 诊断入口。
+
+### 新增（跨端同步 P7 第三片：五个绑定层对齐完整选项）
+
+- Python `loads_full(text, flags, env, builtins)` + `Builtin`、Ruby
+  `loads_full(text, flags:, env:, builtins:)` + `Builtin`、Java `loadsFull(text, Opts)` +
+  `Builtin`（`AutoCloseable`）、Go `LoadsFull(text, Opts)` + `NewBuiltin`、C#
+  `LoadsFull(text, Opts, out diags)` + `Builtin`（`IDisposable`）。
+- 五门都提供 `SML_F_WEAK` 常量与「建表 → 4 条 `W-CONTRACT-001` → 值树不变 → env 注入 →
+  基线不含 `type.weak` 报 `E-FEATURE-001`」的回归用例；`bindings/README.md` 的对齐清单
+  增列「完整选项」一栏。
+- 顺带修掉一处跨语言布局错误：Java 的 `sml_diag` 多算了尾部 4 字节填充，第二条诊断起
+  偏移 28 而非 24 ⇒ FFM 报 alignment 违例（此前只测过 1 条诊断，未暴露）。
+  Go 侧 `env` 指针数组改在 C 内存里分配（cgo 不允许把含指针的 Go 内存交给 C）。
+
+### 新增（跨端同步 P7 第四片：弱声明三表 + 文件入口过 FFI）
+
+- **C-ABI**：`sml_weakbind` / `sml_weakdata` / `sml_weakdoc` / `sml_weaklists` +
+  `sml_weaklists_free`；`sml_parse_full_lists`（`sml_parse_full` = 它传 `lists = NULL`）
+  与 `sml_load_file_full`。三张弱表按纯 C 端同形交出（`path` / `name` / `line`），
+  `weakdata.value` 是独立的值树句柄但**随表释放**，不能单独 `sml_free`。
+- **Rust**：新增 `sml_parse::parse_file_full(path, allowed, env, opts)`。
+- **C++ 封装**：`sml::WeakLists`（RAII，`n_binds` / `binds()` 等）、
+  `loads_full(text, opts, WeakLists *)`、`load_file_full(path, opts, WeakLists *)`。
+- 回归：`rust/tests/c_abi.rs` 增 2 例（三表齐 + 主树无痕 + 载荷可读 + 释放幂等；
+  文件入口展开 include + `E-IO-001`），`cpp/tests/test_rs_diag.cpp` 增 2 段（11 项）。
+- 仍未做：五个绑定层的弱表封装（诊断与选项已齐）、`errors` / `contract_map` / `contracts`。
+
+### 新增（跨端同步 P7 第五片：五个绑定层交出弱声明三表）
+
+- Python `loads_full_lists` → `(对象, [Diagnostic], WeakLists)`；Ruby
+  `Sml.loads_full_lists` → `[对象, 诊断, WeakLists]`；Java `Sml.loadsFullLists` →
+  `Parsed.lists`；Go `LoadsFullLists` → `(any, []Diagnostic, WeakLists, error)`；C#
+  `LoadsFullLists(..., out diags, out lists)`。
+- 三表内容与 C-ABI 一致（`path` / `name` / `line`）；`@weakdata` 的载荷在读取时**立即物化**
+  成宿主对象，随后整体释放 C 侧表，宿主侧不承担生命周期。
+- 五门各加同一组回归：三表 1/1/1、`weakdata` 载荷可读、`@weakdoc` 顶层 path 为空串、
+  主树无痕、100 次不崩。
+- 未接：绑定层的**文件入口**（`sml_load_file_full` 仍只有 C-ABI / C++ 用）。
+
+### 新增（跨端同步 P7 第六片：聚合结果 `sml_result`）
+
+- **C-ABI**：`sml_parse_all(text, opts, want, err)` + `sml_result_*` getter 一族
+  （`value` / `diags` / `errors` / `weak` / `contract_map` / `contracts`）与 `sml_result_free`；
+  `want` 取 `SML_WANT_*` 位。设计原则：**一次解析 → 一个结果句柄 → getter**，
+  以后新增输出只加一个位与一个 getter，既有符号的签名不再随能力增长而改。
+- 新类型：`sml_contract_ref` / `sml_contractmap`（契约映射的扁平表示：每个
+  (实体, 契约) 一行）。所有 getter 返回**借用**指针，随 `sml_result_free` 失效。
+- `SML_WANT_ERRORS` 打开后，语法/契约错**不再**返回 NULL：值树是尽力而为的部分结果，
+  全部错误在 `sml_result_errors` 里（`severity = 1`，行号由字节偏移换算）。
+- `SML_WANT_CONTRACTS` 给出的 `sml_builtin` 可直接当内置表注入，于是
+  「用 SML 写契约表 → 再注入回去」（`docs/swsml/spec/weakbind.md` §6.1）在 C-ABI 上闭环。
+- **C++ 封装**：`sml::Result`（RAII）+ `sml::Want` 位 + `sml::Builtin::borrow()`。
+- 回归：`rust/tests/c_abi.rs` +2 例（33 全绿）、`cpp/tests/test_rs_diag.cpp` +2 段（17 项）。
+- 仍未做：五个绑定层的 `sml_parse_all` 封装。
+
+### 变更（码表台账回填：`impls` 与实现对齐）
+
+- `errors/codes.sml`：`W-PARSE-001` 的 `impls` 补到 `[ rust js c cpp lua ]`、`status` 转
+  `done`（五端都经各自的「成功 + 诊断列表」出口交出、带行号，触发条件一致）；
+  `W-CONTRACT-001` 的 `impls` 补到五端（`status` 仍 `partial`：四端缺
+  `block.undeclared_field`，它依赖契约 strictness）；`W-PARSE-002` 仍只有 Rust，但 note
+  改成「其余四端有诊断通道、尚未接这条告警」，删掉已不成立的「四端无诊断通道」。
+- 重生成 8 份产物时补齐**产物滞后**：`W-CLI-001` 早已登记在码表，产物里却缺它
+  （`SML_CODES_COUNT` / `COUNT` 166 → 167，`c/sml_codes.h`、`js/sml-codes.mjs`、
+  `rust/sml-codes/src/codes.rs`、`lua/sml_errors.lua`、`site/static/errors.json` 同步）。
+
+### 新增（`W-CLI-001`：`@weakdoc` 引用的 profile 未找到 → 只告警）
+
+- **`smltools`**：普通解析路径新增 `warn_missing_profiles` —— 文档写了 `@weakdoc X` 而
+  项目 / 用户 / 系统三处都没有 `X.smlex` 时，往 stderr 写一条 `[W-CLI-001]`；
+  **退出码仍是 0**，产物与「没有 `@weakdoc`」的那份**逐字节相同**。
+  `--no-profiles` 不报（用户明确关掉发现），`--resolve-profiles` 保持自己的退出码 1。
+- **码表分工修正**：`--lint` 里「找不到 profile」原先借用 `E-LINT-005`（一个 **error** 码），
+  现改为 `W-CLI-001`；`E-LINT-005` 只留给「找到了但读不出来」。`errors/codes.sml` 两条的
+  note 同步改写，`W-CLI-001` 的 `status` 由 `partial` 转 `done`。
+- **回归**：新增 `rust/smltools/tests/warn_missing_profile.rs`（5 例：告警 + 退出码 0 +
+  产物对照、命中不报、`--no-profiles` 不报、`--lint` 同码、`--resolve-profiles` 不受影响）；
+  `profile_checks.rs` 的「找不到」一例改判为 `W-CLI-001`。
+- 8 份码表产物随之重生成（仅 note / status 变化，码数仍 167）。
+
+### 新增（跨端同步 P7 第七片：五个绑定层交出聚合结果）
+
+- **C-ABI**：新增 `sml_builtin_clone(const sml_builtin *)` —— 把 `sml_result_contracts`
+  的**借用**表变成宿主**独占**的句柄，于是「捕获 → 释放结果 → 再当内置表注入」不必吊着
+  结果句柄的命。
+- **五个绑定层**：Python `parse_all(...)` → `ParseAll`、Ruby `Sml.parse_all`、Java
+  `Sml.parseAll`、Go `ParseAllOf`、C# `Sml.ParseAllOf`；`want` 位与 `SML_WANT_*` 逐位一致，
+  一次拿全「值树 + 诊断 + 多错误 + 弱表 + 契约映射 + 契约表」。
+  `contracts` 是**已克隆**的 `Builtin`，调用方持有、`close()` / `Dispose()` 自理。
+- **C++ 封装**：`sml::Builtin::adopt()`（接管克隆句柄）与 `Result::contracts_owned()`。
+- **回归**：C-ABI 侧新增 `builtin_clone_outlives_the_result`（释放结果后仍能注入并命中
+  `W-CONTRACT-001`）；五门各加一节「契约映射 srv→tls / 捕获 1 份 / 闭环注入 / 多错误 2 条
+  且行号 1·3、severity=1 / 未请求 ERRORS 仍报错 / 100 次不崩」；C++ `Result` 用例加克隆检查。
+- 至此 `crossend-sync.md` §0.6 的 `errors` / `contract_map` / `contracts` 三行在
+  **C-ABI + 五绑定**上整行收口；绑定层只剩 `load_file_full`（文件 + 诊断）。
+
+### 新增（跨端同步 P7 第八片：绑定层的文件入口）
+
+- **五个绑定层**：Python `load_file_full(path, flags, env, builtins)` → `(对象, 诊断, WeakLists)`、
+  Ruby `Sml.load_file_full`、Java `Sml.loadFileFull` → `Parsed{value, diagnostics, lists}`、
+  Go `LoadFileFull` → `(对象, []Diagnostic, WeakLists, error)`、C#
+  `Sml.LoadFileFull(..., out diags, out lists)`。展开 `include`（相对路径以文件目录为基准），
+  与 `loads_full_lists` 一一对应；跨 include 时行号可能为 0（token 跨文件合并）。
+- **回归**：五门各一节 —— include 已展开、弱表带 `@weakdoc`、干净文件零诊断、
+  不存在的路径报 `E-IO-001`。
+- 至此 `crossend-sync.md` §0.6 的**绑定层列整列收口**（C-ABI + 五个绑定层全部对齐）。
+
+### 变更（跨端同步 P5：`@version` 字面量五端一致）
+
+- **四处实现补同一个口径的字面量解析器**：C `version_lit_major`、C++ 同名 helper、JS
+  `versionLitMajor`、Lua `version_lit_major`。接受 `vN` / `N` / `N.0` / `N0`（连写）与代号
+  `camelia`；`5.0` 族（`50` / `5.0` / `v5` / `"camelia"`）统一报 **`E-FEATURE-004`**
+  且文案说明「5.0 仍为 Dev」，而不是笼统的「不支持」。
+- **版本决定特性基集**（此前只有 Rust / JS 有）：v1 开 `bareword-string`，v2 起关 ——
+  C 走既有 `ps->version`，C++ 在 `scan_features` 里、Lua 在 `@version` 分支里补上
+  （C++ 必须在词法**前**生效，否则第一行之后的裸词已按 v1 语义取值）。
+- **新增 6 条一致性用例**（`tests/conformance/cases/55`–`60`）：连写 `10`、点号 `2.0`、
+  `v4`、`50`（`E-FEATURE-004`）、代号（`E-FEATURE-004`）、**`v2` + 裸词 ⇒ `E-FEATURE-005`**。
+  默认套件 **54 → 60 例，全 AGREE**。
+- `lua/test_codes.lua` 里「`v2` 太新应报错」的旧断言随语义更新为一组新断言。
+- `docs/swsml/spec/version.md` 新增 §7 实现进度（字面量 ✅ / `Removed` 三态与迁移工具 ⬜）。
+- 说明：`50` 仍**不启用**（v5 未定稿），本片只统一「怎么读版本字面量、按哪套基集解析」。
+
+### 变更（P6 收口：三份台账对齐 + 扫描器交叉核对）
+
+- `tests/conformance/known_divergences.md`：新增「2026-11-13 当前口径」段
+  （**AGREE 60 / DIVERGE 0**），原 43 / 52 两处降级为历史 —— 此前 `scan.md` 照抄 43，
+  `unfinished.md` / T 表也各写一套数，属于该文件自己点名的「卡点 3」复发。
+- `tools/scan_status.py`：新增 `scan_cases()`，`scan.md` 的 conformance 行改为
+  「AGREE N（用例 M 个）」，**N ≠ M 时当场标 ⚠️ 台账过期**，不再靠人肉比对。
+- `docs/repo/ref/unfinished.md` §2 与 `todo-ideas-tables.md` §0 逐行对齐：错误码 44 / 语言层 36、
+  套件 60、weak\* 五端、版本模型（P5 字面量已同步）、FFI（绑定层列整列收口）。
+- 纯文档 + 生成物，无代码行为变更；`docs/index.md` / `report.md` / `scan.md` 已重生成。
+
+### 新增（`smltools --migrate`：scan / apply / rules）
+
+- 新模块 `rust/smltools/src/migrate.rs`：规则登记处（`RULES`，单一事实来源）+ 扫 / 改两段实现。
+- CLI：`--migrate <scan|apply|rules>`、`--rule a,b`、`--backup`。
+  - **默认 scan 不写文件**，有命中退出码 **1**（CI 可直接拦）；
+  - **apply 幂等**：第二次 apply 零改动，随后 scan 0 命中（`tests/migrate.rs` 钉住）；
+  - `--rule` 只跑指定规则，未知 id 报 `E-CLI-008`；
+  - `--migrate` 与 `-o` / `--lint` / `--hugo` / `--zola` / `--to-amberice` / `--from-amberice`
+    互斥（`E-CLI-003`）；`apply` 必须有 `-i`。
+- 当前两条规则：`version-literal`、`feature-base-literal` —— `@version` / `@feature base`
+  的字面量改成规范连写（`v3` / `3` / `3.0` → `30`），保留同行代号与 `dev`；
+  **5.0 族只提示不迁移**（迁到 `50` 仍是 `E-FEATURE-004`，改了等于没改）。
+- 回归：`cargo test -p smltools --bins`（92 例，含 4 条模块单测）+ `--test migrate`（6 例）。
+- 文档：`version.md` §7 迁移工具行改 🟡 并写明「语法类规则留待下一片」；
+  `rust/smltools/README.md` 增「版本迁移」小节与退出码说明。
+
+### 新增（`--migrate` 第三条规则：扩展指令位置参数 → `name:`）
+
+- 新规则 `directive-name-arg`：`@form F { }` → `@form name: F { }`（v4 起位置参数已废弃，
+  `DiagnosticKind::Deprecated` 那条告警的可修版本）。
+- **必须**配 `--migrate-directive <名,…>` 白名单：纯文本扫描分不清「扩展指令的位置参数」与
+  「片段定义 `@name Type Name { }`」，猜错会把片段定义改坏 —— 不给白名单时该规则
+  **一个字都不动**；显式 `--rule directive-name-arg` 却不给白名单 ⇒ `E-CLI-003`（依赖缺失，
+  不许静默零命中）。
+- 判据与 `parser.rs::take_directive_arg` 的位置参数分支一一对应：裸词参数**紧跟** `{` 才算，
+  `name:` 已显式 / 引号参数 / 后面不是 `{` / 不在白名单 全部不动。
+- 回归：模块单测 6 例（含「不该改的五种形状」）、`tests/migrate.rs` 7 例（新增白名单链路与
+  缺参报错）。
+- 文档：`smltools/README.md` 规则表 + `version.md` §7。
+
+### 新增（编辑器侧 `@weakdoc` 提示：`W-CLI-001`）
+
+- **桥接层** `editors/vscode/src/sml-parse.mjs`：新增 `weakDocRefs`（渲染位置）与
+  `missingProfileRefs(text, known)`（纯函数，**不碰 fs**）；`collectWeakDocs` 改为复用前者，
+  于是两处判据只有一份。注释里的 `@weakdoc` 不算引用（否则会为一句注释报提示）。
+- **VSCode 扩展**：`updateDiagnostics` 追加 **Information + `W-CLI-001`**
+  （项目 / 用户 / 系统三处命名空间都找不到同名 `.smlex` 时提示），只提示、不阻断；
+  文案走 `L()` 并补了英文译文（`_check_l10n.mjs` 全绿）。
+- **LSP**：`publishDiagnostics` 同样追加该提示，Neovim / Helix 等任意 LSP 客户端可用；
+  语法错仍是 Error，不被新提示挤掉。
+- **回归**：`_verify_ext.mjs` 新增 5 条纯函数断言；新增
+  `editors/lsp/_verify_diagnostics.mjs`（**真起 LSP 进程走 stdio**，断言「缺 ⇒ 发
+  Information / 有 ⇒ 零提示 / 语法错仍是 Error」），并接进 `_prepublish.mjs` 的发布门槛。
+- 文档：`weakdoc.md` §5 编辑器行转 ✅；T 表 `I-17` 转 **Done**。
+
+### 新增（本地四端文件入口：C / C++ 补「文件 + 诊断」）
+
+- **C**：`sml_parse_file_ex(path, err, errsz, diags, n_diags)` 与
+  `sml_parse_file_full(path, err, errsz, builtin, diags, n_diags, binds, n_binds)`；
+  `sml_parse_file` 变薄包装。三者共用一个 `parse_file_core`，不复制「读文件 + 展开 include」。
+- **C++**：`Parser::load_file(path, opts, err)`（诊断 / 弱表 / 内置表仍走 `ParseOptions`，
+  不另造出参形状）；`include_dir` 未给时**默认取文件所在目录**，与 Rust `parse_file` /
+  C `sml_parse_file` 同口径。
+- **JS / Lua 不加文件入口**（有意）：两者都设计成宿主读文本（JS 用 `files` map、
+  Lua 用 `base` 目录做 include），在库内塞 `fs` 会破坏浏览器 / 纯 Lua 的可移植性。
+- 🐞 顺带修掉两处**行号错位**（都被新用例当场抓出，Rust / JS / Lua 一直是对的）：
+  - **C**：`W-PARSE-001` 的行号取的是「下一个未消费 token」，实际报出**文件最后一行**；
+    改为记录键 token 的行（`ps->key_line` + `diag_push_at`）。
+  - **C++**：同一处取 `st.toks[st.i].line`，在块尾/EOF 时给出 **0**；改为
+    记录键 token 的行（`cur_key_line`）。
+- 回归：`c/tests/test_codes.c` 增「文件入口交出诊断（`@ line 2`）」与
+  `sml_parse_file_full` 两条；`cpp/tests/test_codes.cpp` 增三条
+  （`load_file` 诊断行号 / include 以文件目录展开 / 缺文件 `E-IO-001`）。
+
 ### 变更（仓库治理：文档生成物幂等）
 
 - `smldocs --index` / `--report` 的头行改记 `docs/meta.sml` 的内容摘要（FNV-1a 64），

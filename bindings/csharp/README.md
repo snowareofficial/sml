@@ -12,6 +12,12 @@
 | 成员 | 说明 |
 |---|---|
 | `Sml.Loads(text, flags=0)` | 文本 → 原生对象（`Dictionary`/`List`/`long`/`double`/`bool`/`string`/`null`） |
+| `Sml.LoadsWithDiags(text, flags, out diags)` | 文本 → 原生对象 + `List<Diagnostic>`（P7；值树与 `Loads` 逐字节相同） |
+| `Sml.LoadsFull(text, Opts, out diags)` | 同上，另带完整选项（特性上限 / `$env` 注入 / 内置契约表） |
+| `Sml.Builtin` | 内置契约表构造器（`AddField` / `SetRange` / `AddEnum`，`IDisposable`） |
+| `Sml.LoadsFullLists(..., out diags, out lists)` | 同 `LoadsFull`，另交出弱声明三表 |
+| `Sml.ParseAllOf(text, Opts[, want])` | 一次拿全：值树 + 诊断 + 多错误 + 弱表 + 契约映射 + 契约表（`ParseAll`） |
+| `Sml.LoadFileFull(path, Opts, out diags, out lists)` | 文件入口：展开 include + 诊断 + 弱表 |
 | `Sml.LoadFile(path, flags=0)` | 文件 → 原生对象（展开 include） |
 | `Sml.Dumps(obj, flags=0)` | 原生对象 → SML 文本 |
 | `Sml.Version()` | 版本串（静态，不释放） |

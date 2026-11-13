@@ -19,6 +19,29 @@
 | **特别高亮** | 选中一个词 → 右键「特别高亮选中词（当前工作区）」：把该词在**整个工作区**里点亮（状态栏显示 N 处 / M 文件；点状态栏或对同一个词再触发一次即清除） |
 | **自检** | 悬浮 / 跳转 / 高亮「没反应」时，右键「SML: 自检」：把扩展版本、**包内解析器指纹**、命令注册、语言模式、文档校验结果、光标下的词能不能跳转 —— 逐条写进「输出 → SML」 |
 | **格式化** | 按 SML 规范重排（解析 → 序列化），解析失败时不改动文件 |
+| **最新标准** | Edition 版本集（`50 "camelia" dev` / 代号 / `v1`–`v4`）、20 个特性（含带域 `type.featag` / `lex.ident` / `type.weak`）、featag（`!name` / `name[值]` / `-> 落点` / `from-featag`）、weak\* 三兄弟与 `.smlex` profile：高亮、补全、悬停、profile 发现与 `hints` 词表。边界见下节 |
+
+## 最新标准的适配边界
+
+扩展**只提供编辑期提示**，不替解析器做决定：
+
+| 写法 | 编辑器侧 | 解析器侧 |
+|---|---|---|
+| `@version 50 "camelia" dev` / `"camelia"` / `v1`–`v4` | 高亮 + 补全 + 悬停（Dev 项带警告） | `v1`–`v4` 可直接写；`50 "camelia"` 仍是 Dev 且**功能集尚未启用**，Rust 与 JS 写入即报 `E-FEATURE-004` |
+| `@feature enable type.featag` / `lex.ident` / `type.weak` 及 17 个平铺老名 | 全量补全，与 `rust/sml-feature/src/lib.rs::FEATURES` 逐项同序核对 | 20 位特性表；新增位一律 opt-in |
+| `@weakbind` / `@weakdata` / `@weakdoc` / `@requires` | 高亮 + 补全 + 悬停 + 排除出片段名 | Rust 单端；需 `@feature enable type.weak` |
+| featag `!name` / `name[值]` / `-> 落点` / `from-featag` / `__featags` | 高亮 + 声明名补全 + 修饰符 | Rust 单端；需 `type.featag` |
+| `.smlex` profile（`.smlex/profiles/*.smlex`） | 文件关联 + 顶层字段补全 + 三命名空间发现 + `hints` 候选 + `@weakdoc` 悬停 | 工具侧 `--lint` / `--resolve-profiles`；库不参与 |
+
+**5.0 别写进正式文档**：规范里 `@version 50 "camelia" dev` 是合法的开发期写法，但 5.0 的功能集
+尚未启用，`smltools`（Rust）与 JS 解析器当前都报 `E-FEATURE-004`「版本集仍在开发中，本实现尚未启用」。
+补全保留 `50` / `"camelia"` 只为登记语法，候选项与悬停都写明会报错，`@version` 默认片段只给 `v1`–`v4`。
+
+**不自动挂 profile**：`applies_to` 命中只作提示，`hints` 只对显式写了 `@weakdoc` 的文档生效
+（`docs/swsml/spec/smlex.md` §3.1）；`checks` / `emit` 归工具侧，扩展不解释。
+
+C / C++ / JS / Lua 按 `docs/swsml/plan/featag-slices.md` 的 S9 策略**不实现**这批语法，
+遇 v5 照旧报「本端不支持」——补全里有，不等于本端解析器认。共享文档请勿照提示写。
 
 ## 颜色标记能干什么（写 DSL / 做分析时）
 

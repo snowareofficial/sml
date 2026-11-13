@@ -1,8 +1,10 @@
-# weakbind 规范草案 v0.1（**Rust 单端已实现 · 编辑器与其余四端未做**）
+# weakbind 规范 v1.0（Rust 单端已实现 · 多端同步见施工计划）
 
-> 状态横幅：**第一刀已落地（Rust 单端）** —— 语法 / 作用域 / 旁路表 / `E-PARSE-029`、
-> 内置表注入、`--dump-builtins`、`W-CONTRACT-001` 软校验均已实现并有用例（见 §10）；
-> **未做**：编辑器提示（vscode / lsp / zed）、其余四端与绑定层。
+> 状态横幅：语义已定稿。语法 / 作用域 / 旁路表 / `E-PARSE-029`、内置表注入、
+> `--dump-builtins`、`W-CONTRACT-001` 软校验在 Rust 单端均有实现与用例（见 §10）。
+> 语言层其余四端的识别 / 门控 / 七档软校验 / 旁路表已落地；编辑器提示、
+> `E-PARSE-029` 四端、C-ABI / 绑定层仍属发布前同步，切片与判据见
+> `docs/swsml/plan/crossend-sync.md` P4 / P7。
 > `IDEAS.md` I-5 的定位与沿革以本文件为准。
 > 决定来源：2026-11-04 与用户逐条确认（命名 `weakbind`、库可读取、warning 报在库里、
 > 多端同步属发布前必做项、编辑器提示是主需求）。本文件只做归纳，不新增决定。
@@ -57,7 +59,7 @@
 |---|---|---|---|
 | 族名（**非语法**，只是称呼） | `weak*` | 文档里的统称 | 0 |
 | **特性位（feature）** | **`type.weak`** | `@feature enable type.weak` | `FEATURES` 表加一行（`sml-feature/src/lib.rs:161`）+ 五端 + 编辑器 `FEATURE_NAMES`（`extension.js:318`） |
-| **指令 / 关键字（keyword）** | `@weakbind` | `@weakbind tls` | 加进 `BUILTIN_DIRECTIVES`（`sml-parse/src/ext.rs:40`，现有 7 个：`contract` / `is` / `type` / `version` / `feature` / `when` / `for`） |
+| **指令 / 关键字（keyword）** | `@weakbind` | `@weakbind tls` | 加进 `BUILTIN_DIRECTIVES`（`sml-parse/src/ext.rs:40`，现有 10 个：`contract` / `is` / `type` / `version` / `feature` / `when` / `for` / `weakbind` / `weakdata` / `weakdoc`） |
 
 - `type.weak` 是**开关**：决定这族机制认不认；
 - `weakbind` 是**语法**：决定文档里怎么写；
@@ -189,9 +191,11 @@ pub weak_binds: Vec<WeakBind>,
 - **实测佐证**：语料里出现过的契约名共 29 个、118 次，全是教程示例
   （`Service` 24 · `Server` 12 · `Endpoint` 12 · `User` 8 · `ResenderConfig` 7 …）。
   这些一旦进了"内置表"，读者会误以为它们是官方内置契约 —— 必须避免。
-- ✅ **读回已打通**：`ParseOptions::capture_contracts(true)` ⇒ `ParseOutput::contracts`
-  （3 条用例，`rust/tests/builtin_contracts.rs`）。注入侧（`builtin_contracts`）与导出
-  （`--dump-builtins`）仍未做 —— 这两步才是「内置表」真正完成。
+- ✅ **读回 / 注入 / 导出均已完成**：`ParseOptions::capture_contracts(true)` ⇒
+  `ParseOutput::contracts`（3 条用例，`rust/tests/builtin_contracts.rs`）；注入侧
+  `ParseOptions::builtin_contracts`（`rust/sml-parse/src/ext.rs`）；导出
+  `smltools --dump-builtins`（5 条端到端用例，`rust/smltools/tests/dump_builtins.rs`）。
+  验收命令：`cargo test -p smltools --test dump_builtins`。
 - **文件格式**：内置集用 **SML** 写（与文档同语法、同一套校验），由 CLI 读入再注入；
   理由：`Contract` 含 `Arc<dyn TypeCheck / Modifier>`，**无法从 JSON 反序列化**。
 - ⚠️ **落点限制**：解析 `builtin.sml` 的代码不能放 `sml-contract`（它不能依赖 `sml-parse`，
@@ -249,12 +253,12 @@ pub weak_binds: Vec<WeakBind>,
 | 2 | 内置表内容 | **库里零内容**，宿主注入（§6.1） |
 | 3 | 导出格式 | **全量字段**（§6.2） |
 
-**待定**
+**已定（补充）**
 
-| # | 事项 | 我的建议 |
+| # | 事项 | 结论 |
 |---|---|---|
-| 1 | `@feature` 位叫 `weak` 还是 `weakbind` | `weak` —— 理由见 §7.1 |
-| 2 | `@weakbind { }` / `@weakbind type: X { }` 这种「定义名为 `weakbind` 的片段」要不要留豁免（照 `@when` 的 `is_fragment_form`） | **不留** —— 常见度极低，留了会让「未注册指令」的判定多一个洞 |
+| 1 | `@feature` 位叫什么 | **`type.weak`**（理由见 §7.1）；裸 `weak` 会报 `E-FEATURE-003` |
+| 2 | `@weakbind { }` / `@weakbind type: X { }` 要不要留片段名豁免 | **不留，且未开 `type.weak` 时一律报 `E-FEATURE-001`**（2026-11-13 裁决）：指令名闭合、五端同码（用例 `53_weakbind_gate`）；`{ }` 形态也不再落回片段定义 |
 
 ### 7.1 为什么特性位叫 `type.weak`（而不是裸 `weak`）
 
@@ -320,7 +324,7 @@ pub weak_binds: Vec<WeakBind>,
 | 内置指令登记 | ✅ | `sml-parse/src/ext.rs` 的 `BUILTIN_DIRECTIVES` 加 `weakbind` |
 | 语法 `@weakbind <名> [<体>]` | ✅ | `parser.rs::parse_at_directive` |
 | 作用域（紧邻下一个块） | ✅ | `BlockFrame.pending_weakbind` + `value_step` |
-| 码 `E-PARSE-029` | ✅ | `errors/codes.sml`（`impls: [rust]` / `status: partial`）；`W-CONTRACT-001` **未加** |
+| 码 `E-PARSE-029` | ✅ | `errors/codes.sml`（`impls: [rust]` / `status: partial`）；`W-CONTRACT-001` **已加**（八档软校验，见下表与 `rust/tests/weakbind_warn.rs`） |
 | 旁路表 `weak_binds` | ✅ | `ParseOutput.weak_binds` —— **恒收集的 `Vec`**，不是 `Option`（空 vec 与「没写过」对消费者等价） |
 | 用例 | ✅ 8 条 | `rust/tests/weakbind.rs`（含核心判据的差分用例） |
 | C-ABI 位名 | ✅ | `rust/src/c_abi.rs::sml_feature_name` bit 19 + `c/sml_rs.h` 的 `SML_F_WEAK` |
@@ -328,8 +332,13 @@ pub weak_binds: Vec<WeakBind>,
 | 内置表**注入** `ParseOptions.builtin_contracts` | ✅ | 空表 ⇒ 整段软校验跳过 |
 | 导出 `smltools -i builtin.sml --dump-builtins [-o out.json]` | ✅ | 输出即 §6.2 的 schema（JSON 固定，不走 `--to`），4 条端到端用例 |
 | `W-CONTRACT-001` 软校验 | ✅ | 八档（decl.* 3 + block.* 5），**只读**：不填默认值、不改树；10 条用例在 `rust/tests/weakbind_warn.rs` |
-| 扩展提示（vscode / lsp / zed） | ⬜ | 属发布前同步那批（§8） |
-| 其余四端 + smltools + 绑定层 | ⬜ | 同上 |
+| 语言层四端（`js` / `c` / `cpp` / `lua`） | ✅ | `@weakbind` 识别 + `type.weak` 门控 + `W-CONTRACT-001` 七档 + 旁路表：JS `parseSafe()` 的 `warnings` / `weakBinds`；C `sml_parse_with_builtins` + `sml_builtin` + `sml_weakbind`；C++ `Parser::parse_with` + `BuiltinTable` + `ParseOptions::weak_binds`；Lua `Sml.parse_with_builtins` |
+| `E-PARSE-029` 四端 | ⬜ | 悬空 / 连续 / 目标不是块：四端把悬空项**按块丢弃**（不报码），仍只有 Rust 报 029 |
+| `weak_data` / `weak_docs` 旁路表（四端） | ⬜ | `@weakdata` / `@weakdoc` 目前只做识别与门控，载荷不进旁路表 |
+| 扩展提示（vscode / lsp / zed） | ⬜ | 属发布前同步那批（§8）；切片见 `docs/swsml/plan/crossend-sync.md` P4 |
+| C-ABI（`sml_parse_full_lists` / `sml_weaklists` / `sml_parse_all`） | ✅ | 旁路表 + 诊断 + 内置表注入三样都过 FFI；`sml_parse_all` 的 `SML_WANT_CONTRACTS` 把 §6.1 的「用 SML 写契约表 → 再注入回去」闭环（借用的 `sml_builtin` 可直接当内置表），C++ 侧 `WeakLists` / `Result` 为 RAII |
+| 五个绑定层的弱表封装 | ✅ | `loads_full_lists` 一族：三表都交出，`weakdata` 载荷已物化；文件入口仍只有 C-ABI / C++ 接了 |
+| `smltools` 三项 | ⬜ | `--dump-builtins` 已有；`W-CLI-001` 提示与 lint 放过未做 |
 
 **已知边界（第一刀刻意没做，写下来免得被当成 bug）**
 

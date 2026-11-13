@@ -1,7 +1,7 @@
 # docs 索引
 
 > **本文件由 `cargo run -p smldocs -- --index` 生成，勿手改。**
-> 数据源 `docs/meta.sml`（52 份文档，摘要 `80adf1572fd0f588`）。摘要变了就必须重跑生成；
+> 数据源 `docs/meta.sml`（55 份文档，摘要 `d05a309e105273c0`）。摘要变了就必须重跑生成；
 > 本文件不记生成日期 / HEAD，避免跨天或提交后假漂移。体检结论见 [`report.md`](report.md)。
 
 ## 一眼看结论
@@ -19,12 +19,13 @@
 > 维护规则：新增文档必须先登记 `docs/meta.sml`；正文不写历史（历史进 `docs/changes.sml`）；
 > 数字不手写，引用生成物或实测命令。`--check` 进 CI，任一命中即红。
 
-## swsml（17 份）
+## swsml（18 份）
 
 | 文档 | 写于 | 最后核对 | 状态 | 替代者 | 职责 |
 |---|---|---|---|---|---|
 | [`swsml/archive/idyml-rejected.md`](swsml/archive/idyml-rejected.md) | 2026-10-15 | 2026-11-03 | **archive** | — | idyml 改名方案（2026-11-03 否决） |
 | [`swsml/archive/iter-parse.md`](swsml/archive/iter-parse.md) | 2026-10-30 | 2026-11-02 | **archive** | — | 迭代式解析改造（已完成并合入 dev） |
+| [`swsml/plan/crossend-sync.md`](swsml/plan/crossend-sync.md) | 2026-11-12 | 2026-11-13 | **current** | — | 跨端同步施工切片：码表分类、weak 三兄弟 / Edition 四端、验收命令与开工裁决 |
 | [`swsml/plan/featag-slices.md`](swsml/plan/featag-slices.md) | 2026-11-04 | 2026-11-10 | **current** | — | featag 实现切片 S0–S9（S0–S9 已收官；其它四端按 S9 策略不实现） |
 | [`swsml/plan/features-plan.md`](swsml/plan/features-plan.md) | 2026-11-04 | 2026-11-06 | **stale** | `docs/swsml/spec/features.md` | v5 版本位落地步骤与被推翻的旧清单 |
 | [`swsml/plan/perf-plan.md`](swsml/plan/perf-plan.md) | 2026-11-06 | 2026-11-08 | **current** | — | 全面优化计划：时间 / 内存 / 缓存 / 指令集四线 |
@@ -36,17 +37,19 @@
 | [`swsml/spec/smlex.md`](swsml/spec/smlex.md) | 2026-11-04 | 2026-11-10 | **current** | — | .smlex 内容格式 v1.0（格式定稿；checks 与 applies_to 提示已接 --lint，hints / emit 未实现） |
 | [`swsml/spec/v5.md`](swsml/spec/v5.md) | 2026-11-04 | 2026-11-10 | **draft** | — | v5 变更总表（工作底稿，v5 未定稿；B6/B7 已落地，表 A 待定稿实测） |
 | [`swsml/spec/value-layout.md`](swsml/spec/value-layout.md) | 2026-11-02 | 2026-11-06 | **draft** | — | 值层内存布局提案（未拍板，需二次蒸馏） |
-| [`swsml/spec/version.md`](swsml/spec/version.md) | 2026-11-04 | 2026-11-06 | **current** | — | 版本 = 功能集（edition）；版本位与三态生命周期 |
-| [`swsml/spec/weakbind.md`](swsml/spec/weakbind.md) | 2026-11-04 | 2026-11-10 | **draft** | — | weakbind 语法 / 作用域 / 旁路表（Rust 单端已实现；编辑器与其余四端未做） |
-| [`swsml/spec/weakdata.md`](swsml/spec/weakdata.md) | 2026-11-04 | 2026-11-06 | **draft** | — | weakdata 语法与判别（Rust 已实现，其它端与编辑器未做） |
-| [`swsml/spec/weakdoc.md`](swsml/spec/weakdoc.md) | 2026-11-04 | 2026-11-10 | **draft** | — | weakdoc 语法与 .smlex 发现（库侧与 CLI 发现已实现，编辑器侧未做） |
+| [`swsml/spec/version.md`](swsml/spec/version.md) | 2026-11-04 | 2026-11-13 | **current** | — | 版本 = 功能集（edition）；版本位与三态生命周期（五端字面量已同步，见 §7） |
+| [`swsml/spec/weakbind.md`](swsml/spec/weakbind.md) | 2026-11-04 | 2026-11-13 | **current** | — | weakbind 语法 / 作用域 / 旁路表 / 默认忽略口径（语言层五端已实现；C-ABI / 绑定层见 crossend-sync.md） |
+| [`swsml/spec/weakdata.md`](swsml/spec/weakdata.md) | 2026-11-04 | 2026-11-12 | **current** | — | weakdata 语法与判别（Rust 已实现；多端同步见 crossend-sync.md） |
+| [`swsml/spec/weakdoc.md`](swsml/spec/weakdoc.md) | 2026-11-04 | 2026-11-13 | **current** | — | weakdoc 语法与 .smlex 发现 / W-CLI-001 提示（库侧、CLI 发现与提示均已实现） |
 
-## amberice（9 份）
+## amberice（11 份）
 
 | 文档 | 写于 | 最后核对 | 状态 | 替代者 | 职责 |
 |---|---|---|---|---|---|
 | [`amberice/archive/design-origin.md`](amberice/archive/design-origin.md) | 2026-11-06 | 2026-11-06 | **archive** | — | .ambr 设计起点与用户原话汇编（A/B/C 三级，逐条带出处） |
-| [`amberice/decisions.md`](amberice/decisions.md) | 2026-11-02 | 2026-11-10 | **current** | — | .ambr 决策记录：D1–D54 已裁决、P12 待定、§12 草案、§15 键序、§16.3 已定（D53）、§16.4 孪生格式、§16.5 写路径/归档边界（待裁决，不作结论） |
+| [`amberice/decisions.md`](amberice/decisions.md) | 2026-11-02 | 2026-11-11 | **current** | — | .ambr 决策记录：D1–D55 已裁决、P12 待定、§12 草案、§15 键序、§16.3 已定（D53）、§16.4 孪生格式、§16.5 写路径已裁（D55）/ 其余待裁 |
+| [`amberice/plan/interrupt-path-layers.md`](amberice/plan/interrupt-path-layers.md) | 2026-11-12 | 2026-11-12 | **draft** | — | 随时中断 / 操作路径 / 分层与 trait 的创新讨论纪要（支点 8 条、未收口 U1–U9、用户原话、示例代码形态）；不作结论 |
+| [`amberice/plan/multi-writer.md`](amberice/plan/multi-writer.md) | 2026-11-12 | 2026-11-12 | **draft** | — | 多写者 / 数据属性 / 写路径讨论记录（判据 / 设计空间 / 排除项 / 未实测，附录为用户原话）；不作结论 |
 | [`amberice/plan/plan.md`](amberice/plan/plan.md) | 2026-11-06 | 2026-11-10 | **current** | — | amberice 改名范围 + 第一批优化（A1）与里程碑 |
 | [`amberice/ref/claims-audit.md`](amberice/ref/claims-audit.md) | 2026-11-10 | 2026-11-10 | **draft** | — | 45 条论断逐条核实（成立 / 需修正 / 未实测 / 判断）；draft 不作结论，去留待用户裁决 |
 | [`amberice/ref/ports.md`](amberice/ref/ports.md) | 2026-11-06 | 2026-11-10 | **current** | — | 多端 .ambr 解码器进度台账（全端已通，含 C# / Go / Ruby；摘要仅 SHA-256） |
@@ -88,6 +91,6 @@
 | [`repo/plan/doc-architecture.md`](repo/plan/doc-architecture.md) | 2026-11-04 | 2026-11-06 | **stale** | `docs/index.md` | 文档四层架构 + P1–P4（提议；已由本次治理落地） |
 | [`repo/ref/pending-decisions.md`](repo/ref/pending-decisions.md) | 2026-11-06 | 2026-11-10 | **current** | — | 裁决台账：D1–D6 已全部裁决（含发布拓扑 / 仓库分工 / 官网）+ 仍待裁项的去处 |
 | [`repo/ref/scan.md`](repo/ref/scan.md) | 2026-11-07 | 2026-11-10 | **current** | — | 自动扫描的计数结果（tools/scan_status.py --write 生成，勿手改） |
-| [`repo/ref/todo-ideas-tables.md`](repo/ref/todo-ideas-tables.md) | 2026-11-06 | 2026-11-10 | **current** | — | TODO / IDEAS 条目表：卡在谁、什么状态 |
-| [`repo/ref/unfinished.md`](repo/ref/unfinished.md) | 2026-11-06 | 2026-11-10 | **current** | — | 唯一「还剩什么」清单（分类 / 判据 / 复核命令） |
+| [`repo/ref/todo-ideas-tables.md`](repo/ref/todo-ideas-tables.md) | 2026-11-06 | 2026-11-13 | **current** | — | TODO / IDEAS 条目表：卡在谁、什么状态 |
+| [`repo/ref/unfinished.md`](repo/ref/unfinished.md) | 2026-11-06 | 2026-11-13 | **current** | — | 唯一「还剩什么」清单（分类 / 判据 / 复核命令） |
 

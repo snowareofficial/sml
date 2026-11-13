@@ -91,6 +91,31 @@ smltools -i chip.svd   --to sml > chip.sml   # XML / CMSIS-SVD → SML（--from 
 元素同时有属性/子元素时文本才进 `_text`；空元素 → `{}`；**叶子一律字符串**
 （XML 无类型，不猜数字/布尔）；命名空间前缀保留；按 XML 规范先做行尾归一（`\r\n` → `\n`）。
 
+### 版本迁移（`--migrate`）
+
+把非规范 / 已废弃的写法改成规范写法，**默认只报告**（`docs/swsml/spec/version.md` §4.5）：
+
+```bash
+smltools -i a.sml --migrate scan                 # 只报告；有命中退出码 1（可接 CI）
+smltools -i a.sml --migrate apply                # 写回；幂等（再扫一次 0 命中）
+smltools -i a.sml --migrate apply --backup       # 先写 a.sml.bak
+smltools -i a.sml --migrate apply --rule version-literal   # 只跑指定规则
+smltools --migrate rules                         # 列全部规则（id / 适用版本集 / 说明）
+# 扩展指令的语法迁移要给白名单（否则分不清扩展指令与片段定义）
+smltools -i a.sml --migrate apply --migrate-directive form,card
+```
+
+规则：
+
+| id | 改什么 |
+|---|---|
+| `version-literal` | `@version` 字面量 → 规范连写（`v3` / `3` / `3.0` → `30`），保留代号与 `dev` |
+| `feature-base-literal` | 同上，作用于 `@feature base` |
+| `directive-name-arg` | 扩展指令的位置参数 → 显式 `name:`（`@form F { }` → `@form name: F { }`），**必须**配 `--migrate-directive` |
+
+两条纪律：**5.0 族只提示不迁移**（迁到 `50` 仍是 `E-FEATURE-004`，改了等于没改）；
+`directive-name-arg` 不给白名单就**一个字都不动** —— 猜错的代价是把片段定义改坏。
+
 ### 目录批量
 
 ```bash
@@ -142,8 +167,8 @@ front matter 的 `.md`；`--zola-build` 会顺带调用本机 `zola build`（需
 | 码 | 含义 |
 |---|---|
 | 0 | 成功 |
-| 1 | 解析 / 翻译失败（`--lint` 发现 error 级问题也算） |
-| 2 | 参数或 IO 错误（如目录模式漏了 `-o`） |
+| 1 | 解析 / 翻译失败（`--lint` 发现 error 级问题也算；`--migrate scan` 有命中也算） |
+| 2 | 参数或 IO 错误（如目录模式漏了 `-o`、`--migrate` 与 `-o` 同用、未知 `--rule`） |
 
 ### 错误码
 

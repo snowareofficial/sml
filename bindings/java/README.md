@@ -8,6 +8,12 @@
 | 成员 | 说明 |
 |---|---|
 | `Sml.loads(text, flags=0)` | 文本 → 原生对象（`Map`/`List`/`Long`/`Double`/`Boolean`/`String`/`null`） |
+| `Sml.loadsWithDiags(text, flags=0)` | 文本 → `Parsed{value, diagnostics}`（P7；值树与 `loads` 逐字节相同） |
+| `Sml.loadsFull(text, Opts)` | 同上，另带完整选项（特性上限 / `$env` 注入 / 内置契约表） |
+| `Sml.Builtin` | 内置契约表构造器（`addField` / `setRange` / `addEnum`，`AutoCloseable`） |
+| `Sml.loadsFullLists(text, Opts)` | 同 `loadsFull`，另把弱声明三表放进 `Parsed.lists` |
+| `Sml.parseAll(text, Opts[, want])` | 一次拿全：值树 + 诊断 + 多错误 + 弱表 + 契约映射 + 契约表（`ParseAll`） |
+| `Sml.loadFileFull(path, Opts)` | 文件入口：展开 include + 诊断 + 弱表 → `Parsed{value, diagnostics, lists}` |
 | `Sml.loadFile(path, flags=0)` | 文件 → 原生对象（展开 include） |
 | `Sml.dumps(obj, flags=0)` | 原生对象 → SML 文本 |
 | `Sml.version()` | 版本串（静态，不释放） |
