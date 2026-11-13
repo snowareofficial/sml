@@ -329,6 +329,341 @@ static void test_feature_codes(void) {
     expect_code("裸词必须加引号（v2）",
                 "@version v2\nk: hello\n",
                 SML_E_FEATURE_005);
+
+    /* `@feature enable|disable`：C 端只识别、不门控（见 sml.c 的 SML_FEATURE_NAMES） */
+    expect_ok("@feature enable when", "@version v1\n@feature enable when\nk: 1\n");
+    expect_ok("@feature disable contract", "@feature disable contract\nk: 1\n");
+    expect_ok("@feature enable 多个名字", "@feature enable when, for\nk: 1\n");
+    expect_code("未知特性名", "@feature enable nosuch\nk: 1\n", SML_E_FEATURE_002);
+    expect_code("@feature 缺参数", "@feature\nk: 1\n", SML_E_FEATURE_007);
+    expect_code("@feature enable 缺名字", "@feature enable\nk: 1\n", SML_E_FEATURE_007);
+    expect_code("mode 子命令本端未支持",
+                "@feature mode whitelist\nk: 1\n", SML_E_FEATURE_006);
+
+    /* 门控：disable contract 后 `@contract` / `@is` 必须被拒（E-FEATURE-001），
+       默认（基线开）仍可用。 */
+    expect_code("disable contract 后 @contract",
+                "@feature disable contract\n@contract S { x: int }\n", SML_E_FEATURE_001);
+    expect_code("disable contract 后 @is",
+                "@feature disable contract\nx { @is S }\n", SML_E_FEATURE_001);
+    expect_ok("默认 contract 仍开",
+              "@contract S { x: int }\nx { @is S\n  x: 1 }\n");
+
+    /* fragment 门控：disable 后片段定义必须被拒，默认仍可定义并引用 */
+    expect_code("disable fragment 后 @f { }",
+                "@feature disable fragment\n@f { x: 1 }\n", SML_E_FEATURE_001);
+    expect_ok("默认 fragment 仍开", "@f { x: 1 }\nk: &f\n");
+
+    /* top-level-array 门控：预处理扫过 `@feature` 行后才能判「实质首个 token 是 [」 */
+    expect_code("disable top-level-array 后 [1 2]",
+                "@feature disable top-level-array\n[1 2]\n", SML_E_FEATURE_001);
+    expect_ok("默认顶层数组仍开", "[1 2]\n");
+
+    /* 2026-11-13 裁决：未开 `type.weak` 时 weak* 响亮拒绝（E-FEATURE-001） */
+    expect_code("weakbind 未开 type.weak",
+                "@weakbind tls\nserver { port: 80 }\n", SML_E_FEATURE_001);
+    expect_code("weakdoc 未开 type.weak",
+                "@weakdoc base\nk: 1\n", SML_E_FEATURE_001);
+
+    /* 诊断出口：重复键产出 W-PARSE-001，值树不变；干净文档不产出 */
+    {
+        char derr[256];
+        sml_diag *dg = NULL;
+        size_t ndg = 0;
+        sml_value *v;
+        memset(derr, 0, sizeof(derr));
+        v = sml_parse_ex("a: 1\na: 2\n", derr, sizeof(derr), &dg, &ndg);
+        if (v && ndg == 1 && dg && strcmp(dg[0].code, "W-PARSE-001") == 0
+            && sml_arr_len(sml_obj_get(v, "a")) == 2) {
+            printf("  ok: %-30s -> a=[1,2] + 1 条 warning\n", "重复键产出 W-PARSE-001");
+        } else {
+            printf("FAIL: 重复键诊断（err=%s ndg=%zu）\n", derr, ndg);
+            failures++;
+        }
+        if (v) sml_free(v);
+        sml_diag_free(dg, ndg);
+
+        dg = NULL; ndg = 0;
+        memset(derr, 0, sizeof(derr));
+        v = sml_parse_ex("a: 1\nb: 2\n", derr, sizeof(derr), &dg, &ndg);
+        if (v && ndg == 0 && dg == NULL) {
+            printf("  ok: %-30s -> 0 条\n", "干净文档无诊断");
+        } else {
+            printf("FAIL: 干净文档诊断（ndg=%zu）\n", ndg);
+            failures++;
+        }
+        if (v) sml_free(v);
+        sml_diag_free(dg, ndg);
+
+        /* 文件入口与文本入口同判据：同一个重复键文档，经 `sml_parse_file_ex`
+           也要拿到同一条 `W-PARSE-001`（行号对得上原文）。 */
+        {
+            FILE *fp = fopen("_tc_dup_diag.sml", "wb");
+            if (fp) { fputs("a: 1\na: 2\n", fp); fclose(fp); }
+            dg = NULL; ndg = 0;
+            memset(derr, 0, sizeof(derr));
+            v = sml_parse_file_ex("_tc_dup_diag.sml", derr, sizeof(derr), &dg, &ndg);
+            if (v && ndg == 1 && dg && strcmp(dg[0].code, "W-PARSE-001") == 0
+                && dg[0].line == 2 && sml_arr_len(sml_obj_get(v, "a")) == 2) {
+                printf("  ok: %-30s -> 1 条 @ line 2\n", "文件入口交出诊断");
+            } else {
+                printf("FAIL: 文件入口诊断（err=%s ndg=%zu line=%d）\n",
+                       derr, ndg, (dg && ndg) ? dg[0].line : -1);
+                failures++;
+            }
+            if (v) sml_free(v);
+            sml_diag_free(dg, ndg);
+
+            /* 完整版：文件入口 + 内置表 + 弱表（这里只要「诊断出得来」） */
+            dg = NULL; ndg = 0;
+            memset(derr, 0, sizeof(derr));
+            v = sml_parse_file_full("_tc_dup_diag.sml", derr, sizeof(derr), NULL,
+                                    &dg, &ndg, NULL, NULL);
+            if (v && ndg == 1) {
+                printf("  ok: %-30s -> 1 条\n", "sml_parse_file_full");
+            } else {
+                printf("FAIL: sml_parse_file_full（err=%s ndg=%zu）\n", derr, ndg);
+                failures++;
+            }
+            if (v) sml_free(v);
+            sml_diag_free(dg, ndg);
+            remove("_tc_dup_diag.sml");
+        }
+    }
+
+    /* 弱绑定软校验：内置表 + 缺必填 -> W-CONTRACT-001，值树不变 */
+    {
+        sml_builtin *b = sml_builtin_new();
+        sml_diag *dg = NULL;
+        size_t ndg = 0;
+        char werr[256];
+        sml_value *v;
+        sml_builtin_add_field(b, "tls", "cert", "str", 1);
+        sml_builtin_add_field(b, "tls", "port", "int", 0);
+        memset(werr, 0, sizeof(werr));
+        v = sml_parse_with_builtins(
+            "@feature enable type.weak\n@weakbind tls\nserver { port: 80 }\n",
+            werr, sizeof(werr), b, &dg, &ndg, NULL, NULL);
+        if (v && ndg == 1 && dg && strcmp(dg[0].code, "W-CONTRACT-001") == 0
+            && sml_obj_get(v, "server")) {
+            printf("  ok: %-30s -> 1 条（缺 cert）\n", "weakbind 块软校验");
+        } else {
+            printf("FAIL: weakbind 块软校验（err=%s ndg=%zu）\n", werr, ndg);
+            failures++;
+        }
+        if (v) sml_free(v);
+        sml_diag_free(dg, ndg);
+        sml_builtin_free(b);
+    }
+
+    /* 弱绑定区间 / 枚举软校验：port 越界 + mode 不在枚举 -> 2 条 */
+    {
+        sml_builtin *b = sml_builtin_new();
+        sml_diag *dg = NULL;
+        size_t ndg = 0;
+        char werr[256];
+        sml_value *v;
+        sml_builtin_add_field(b, "tls", "port", "int", 0);
+        sml_builtin_set_range(b, "tls", "port", 1, 1, 1, 65535);
+        sml_builtin_add_field(b, "tls", "mode", "any", 0);
+        sml_builtin_add_enum(b, "tls", "mode", "strict");
+        sml_builtin_add_enum(b, "tls", "mode", "loose");
+        memset(werr, 0, sizeof(werr));
+        v = sml_parse_with_builtins(
+            "@feature enable type.weak\n@weakbind tls\n"
+            "server { port: 99999, mode: nope }\n",
+            werr, sizeof(werr), b, &dg, &ndg, NULL, NULL);
+        if (v && ndg == 2 && dg && strcmp(dg[0].code, "W-CONTRACT-001") == 0) {
+            printf("  ok: %-30s -> 2 条（区间+枚举）\n", "weakbind 区间/枚举软校验");
+        } else {
+            printf("FAIL: weakbind 区间/枚举（ndg=%zu）\n", ndg);
+            failures++;
+        }
+        if (v) sml_free(v);
+        sml_diag_free(dg, ndg);
+        sml_builtin_free(b);
+    }
+
+    /* 弱绑定声明侧：未知契约名 / 未知字段 / 类型不符 */
+    {
+        sml_builtin *b = sml_builtin_new();
+        sml_diag *dg = NULL;
+        size_t ndg = 0;
+        char werr[256];
+        sml_value *v;
+        sml_builtin_add_field(b, "tls", "cert", "str", 1);
+
+        /* 未知契约名 */
+        memset(werr, 0, sizeof(werr));
+        dg = NULL; ndg = 0;
+        v = sml_parse_with_builtins(
+            "@feature enable type.weak\n@weakbind nope\nserver { port: 80 }\n",
+            werr, sizeof(werr), b, &dg, &ndg, NULL, NULL);
+        if (v && ndg == 1 && dg && strcmp(dg[0].code, "W-CONTRACT-001") == 0) {
+            printf("  ok: %-30s -> 1 条（未知契约）\n", "weakbind 声明侧-未知契约");
+        } else {
+            printf("FAIL: weakbind 声明侧-未知契约（ndg=%zu）\n", ndg);
+            failures++;
+        }
+        if (v) sml_free(v);
+        sml_diag_free(dg, ndg);
+
+        /* 未知字段 + 类型不符（同一体里两条） */
+        memset(werr, 0, sizeof(werr));
+        dg = NULL; ndg = 0;
+        v = sml_parse_with_builtins(
+            "@feature enable type.weak\n"
+            "@weakbind tls { unknown: int cert: int }\n"
+            "server { cert: \"x\" }\n",
+            werr, sizeof(werr), b, &dg, &ndg, NULL, NULL);
+        if (v && ndg == 2 && dg && strcmp(dg[0].code, "W-CONTRACT-001") == 0) {
+            printf("  ok: %-30s -> 2 条（未知字段+类型不符）\n", "weakbind 声明侧-体比对");
+        } else {
+            printf("FAIL: weakbind 声明侧-体比对（ndg=%zu）\n", ndg);
+            failures++;
+        }
+        if (v) sml_free(v);
+        sml_diag_free(dg, ndg);
+        sml_builtin_free(b);
+    }
+
+    /* 弱绑定类型软校验：cert 声明 str，实得数字 -> 1 条 warning */
+    {
+        sml_builtin *b = sml_builtin_new();
+        sml_diag *dg = NULL;
+        size_t ndg = 0;
+        char werr[256];
+        sml_value *v;
+        sml_builtin_add_field(b, "tls", "cert", "str", 1);
+        sml_builtin_add_field(b, "tls", "port", "int", 0);
+        memset(werr, 0, sizeof(werr));
+        v = sml_parse_with_builtins(
+            "@feature enable type.weak\n@weakbind tls\nserver { cert: 123, port: 80 }\n",
+            werr, sizeof(werr), b, &dg, &ndg, NULL, NULL);
+        if (v && ndg == 1 && dg && strcmp(dg[0].code, "W-CONTRACT-001") == 0) {
+            printf("  ok: %-30s -> 1 条（类型不符）\n", "weakbind 类型软校验");
+        } else {
+            printf("FAIL: weakbind 类型软校验（ndg=%zu）\n", ndg);
+            failures++;
+        }
+        if (v) sml_free(v);
+        sml_diag_free(dg, ndg);
+        sml_builtin_free(b);
+    }
+
+    /* 弱绑定旁路表：交出「哪个块绑了哪个契约」，且主树逐字节不变 */
+    {
+        sml_builtin *b = sml_builtin_new();
+        sml_diag *dg = NULL;
+        size_t ndg = 0;
+        sml_weakbind *wb = NULL;
+        size_t nwb = 0;
+        char werr[256];
+        sml_value *v, *v2;
+        char *d1, *d2;
+        sml_builtin_add_field(b, "tls", "port", "int", 0);
+        memset(werr, 0, sizeof(werr));
+        v = sml_parse_with_builtins(
+            "@feature enable type.weak\n"
+            "srv {\n@weakbind tls\nweb { port: 80 }\n}\n",
+            werr, sizeof(werr), b, &dg, &ndg, &wb, &nwb);
+        /* 核心判据：去掉 `@weakbind` 后主树逐字节相同 */
+        v2 = sml_parse("@feature enable type.weak\nsrv {\nweb { port: 80 }\n}\n",
+                       werr, sizeof(werr));
+        d1 = v ? sml_dump(v) : NULL;
+        d2 = v2 ? sml_dump(v2) : NULL;
+        if (v && v2 && d1 && d2 && strcmp(d1, d2) == 0
+            && ndg == 0 && nwb == 1 && wb
+            && strcmp(wb[0].name, "tls") == 0
+            && strcmp(wb[0].path, "srv.web") == 0
+            && wb[0].line == 3
+            && sml_get_path(v, "srv.web.port")) {
+            printf("  ok: %-30s -> srv.web = tls（第 3 行），主树不变\n",
+                   "weakbind 旁路表");
+        } else {
+            printf("FAIL: weakbind 旁路表（nwb=%zu name=%s path=%s）\n",
+                   nwb, nwb ? wb[0].name : "-", nwb ? wb[0].path : "-");
+            failures++;
+        }
+        if (v) sml_free(v);
+        if (v2) sml_free(v2);
+        sml_free_str(d1);
+        sml_free_str(d2);
+        sml_diag_free(dg, ndg);
+        sml_weakbind_free(wb, nwb);
+        sml_builtin_free(b);
+    }
+
+    /* env 门控：引号串含 `$env.` 且未开 env ⇒ E-FEATURE-002；默认仍内插 */
+    expect_code("disable env 后引号串内插",
+                "@feature disable env\nk: \"$env.NOPE\"\n", SML_E_FEATURE_002);
+    expect_ok("默认 env 仍开", "k: \"$env.NOPE\"\n");
+
+    /* bareword-string 门控：关闭后纯字符串裸词必须加引号（E-FEATURE-005） */
+    expect_code("disable bareword-string 后裸词",
+                "@feature disable bareword-string\nk: hello\n", SML_E_FEATURE_005);
+    expect_ok("默认裸词仍开", "k: hello\n");
+
+    /* include 门控：需要文件入口才会展开 */
+    if (write_file("_tc_feat_inc.sml",
+                   "@feature disable include\n@include \"x.sml\"\n") == 0) {
+        expect_code_file("disable include 后 @include",
+                         "_tc_feat_inc.sml", SML_E_FEATURE_001);
+        rm_file("_tc_feat_inc.sml");
+    }
+
+    /* @when：条件假则丢弃紧邻字段，条件真则保留（未设置的环境变量等价空串） */
+    {
+        char werr[256];
+        sml_value *v;
+        memset(werr, 0, sizeof(werr));
+        v = sml_parse("@feature enable when\n"
+                      "@when $env.__SML_PROBE__ == \"yes\"\n"
+                      "drop: 1\nkeep: 2\n", werr, sizeof(werr));
+        if (v && sml_obj_get(v, "keep") && !sml_obj_get(v, "drop")) {
+            printf("  ok: %-30s -> keep=2,drop=nil\n", "@when 条件假丢弃紧邻字段");
+        } else {
+            printf("FAIL: @when 裁剪（err=%s）\n", werr);
+            failures++;
+        }
+        if (v) sml_free(v);
+
+        memset(werr, 0, sizeof(werr));
+        v = sml_parse("@feature enable when\n"
+                      "@when $env.__SML_PROBE__ == \"\"\n"
+                      "keep: 1\n", werr, sizeof(werr));
+        if (v && sml_obj_get(v, "keep")) {
+            printf("  ok: %-30s -> keep=1\n", "@when 条件真保留字段");
+        } else {
+            printf("FAIL: @when 条件真（err=%s）\n", werr);
+            failures++;
+        }
+        if (v) sml_free(v);
+    }
+    expect_code("@when 连续出现",
+                "@feature enable when\n@when $env.A == \"1\"\n@when $env.B == \"2\"\nk: 1\n",
+                SML_E_PARSE_016);
+    expect_code("@when 悬空",
+                "@feature enable when\nk: 1\n@when $env.A == \"1\"\n",
+                SML_E_PARSE_017);
+
+    /* @for：有界展开成数组，`${var}` 只读插值 */
+    {
+        char ferr[256];
+        sml_value *v;
+        memset(ferr, 0, sizeof(ferr));
+        v = sml_parse("@version v1\n@feature enable for\n"
+                      "hosts: @for h in a b { name: \"${h}\" }\n",
+                      ferr, sizeof(ferr));
+        if (v && sml_obj_get(v, "hosts")
+            && sml_arr_len(sml_obj_get(v, "hosts")) == 2) {
+            printf("  ok: %-30s -> 2 项\n", "@for 展开为数组");
+        } else {
+            printf("FAIL: @for 正例（err=%s）\n", ferr);
+            failures++;
+        }
+        if (v) sml_free(v);
+    }
 }
 
 /* ------------------------------------------------------------------ */

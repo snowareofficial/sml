@@ -955,6 +955,229 @@ static void test_error_msgs() {
     std::cout << "  .. 共 " << count << " 条码\n";
 }
 
+// ------------------------------------------------------------------
+// `@feature enable|disable`：与 C 端同一判据（只识别、不门控）
+// ------------------------------------------------------------------
+static void test_feature_directive() {
+    std::cout << "[FEATURE directive]\n";
+    expect_ok("@feature enable when", "@version v1\n@feature enable when\nk: 1\n");
+    expect_ok("@feature disable contract", "@feature disable contract\nk: 1\n");
+    expect_ok("@feature enable 多个名字", "@feature enable when, for\nk: 1\n");
+    expect_code("未知特性名", "@feature enable nosuch\nk: 1\n", SML_E_FEATURE_002);
+    expect_code("@feature 缺参数", "@feature\nk: 1\n", SML_E_FEATURE_007);
+    expect_code("@feature enable 缺名字", "@feature enable\nk: 1\n", SML_E_FEATURE_007);
+    expect_code("mode 子命令本端未支持",
+                "@feature mode whitelist\nk: 1\n", SML_E_FEATURE_006);
+
+    // 门控：disable contract 后 `@contract` / `@is` 必须被拒，默认（基线开）仍可用
+    expect_code("disable contract 后 @contract",
+                "@feature disable contract\n@contract S { x: int }\n", SML_E_FEATURE_001);
+    expect_code("disable contract 后 @is",
+                "@feature disable contract\nx { @is S }\n", SML_E_FEATURE_001);
+    expect_ok("默认 contract 仍开",
+              "@contract S { x: int }\nx { @is S\n  x: 1 }\n");
+
+    // fragment 门控：disable 后片段定义必须被拒，默认仍可定义并引用
+    expect_code("disable fragment 后 @f { }",
+                "@feature disable fragment\n@f { x: 1 }\n", SML_E_FEATURE_001);
+    expect_ok("默认 fragment 仍开", "@f { x: 1 }\nk: &f\n");
+
+    // top-level-array 门控：预处理扫过 `@feature` 行后才能判「实质首个 token 是 [」
+    expect_code("disable top-level-array 后 [1 2]",
+                "@feature disable top-level-array\n[1 2]\n", SML_E_FEATURE_001);
+    expect_ok("默认顶层数组仍开", "[1 2]\n");
+
+    // 2026-11-13 裁决：未开 `type.weak` 时 weak* 响亮拒绝（E-FEATURE-001）
+    expect_code("weakbind 未开 type.weak",
+                "@weakbind tls\nserver { port: 80 }\n", SML_E_FEATURE_001);
+    expect_code("weakdoc 未开 type.weak",
+                "@weakdoc base\nk: 1\n", SML_E_FEATURE_001);
+
+    // 诊断出口：重复键产出 W-PARSE-001，值树不变
+    {
+        std::vector<sml::Diag> dg;
+        std::string derr;
+        auto v = sml::Parser::parse("a: 1\na: 2\n", &derr, "", &dg);
+        if (v && dg.size() == 1 && dg[0].code == "W-PARSE-001") {
+            std::cout << "  ok: 重复键产出 W-PARSE-001\n";
+        } else {
+            std::cout << "FAIL: 重复键诊断 n=" << dg.size() << " err=" << derr << "\n";
+            failures++;
+        }
+    }
+
+    // 文件入口（`Parser::load_file`）：include 以文件目录为基准 + 诊断经 opts 交出
+    {
+        namespace fs = std::filesystem;
+        const fs::path dir = fs::temp_directory_path() / "sml_cpp_file_entry";
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+        fs::create_directories(dir, ec);
+        {
+            std::ofstream(dir / "sub.sml") << "from_sub: 1\n";
+            std::ofstream(dir / "dup.sml") << "a: 1\na: 2\n";
+            std::ofstream(dir / "main.sml") << "@include \"sub.sml\"\nk: 2\n";
+        }
+
+        std::string ferr;
+        // ① 同一文件内的重复键：诊断带行号（与文本入口同判据）
+        {
+            std::vector<sml::Diag> dg;
+            sml::ParseOptions o;
+            o.diags = &dg;
+            auto v = sml::Parser::load_file((dir / "dup.sml").string(), o, &ferr);
+            const bool ok = v && dg.size() == 1 && dg[0].code == "W-PARSE-001" && dg[0].line == 2;
+            if (ok) std::cout << "  ok: load_file 交诊断（W-PARSE-001 @ line 2）\n";
+            else {
+                std::cout << "FAIL: load_file 诊断（n=" << dg.size()
+                          << " line=" << (dg.empty() ? -1 : dg[0].line) << " err=" << ferr << "）\n";
+                failures++;
+            }
+        }
+
+        // ② include 展开：相对路径按**文件所在目录**解析（不必传 include_dir）
+        {
+            std::vector<sml::Diag> dg;
+            sml::ParseOptions o;
+            o.diags = &dg;
+            auto v = sml::Parser::load_file((dir / "main.sml").string(), o, &ferr);
+            const std::string txt = v ? sml::Parser::to_sml(v) : std::string();
+            const bool ok = v && txt.find("from_sub") != std::string::npos && dg.empty();
+            if (ok) std::cout << "  ok: load_file 以文件目录展开 include\n";
+            else {
+                std::cout << "FAIL: load_file include（txt=" << txt << " err=" << ferr << "）\n";
+                failures++;
+            }
+        }
+
+        // ③ 文件不存在 ⇒ E-IO-001（与其余端同码）
+        {
+            auto v = sml::Parser::load_file((dir / "nope.sml").string(), &ferr);
+            const bool ok = !v && ferr.find(SML_E_IO_001) != std::string::npos;
+            if (ok) std::cout << "  ok: load_file 缺文件 -> E-IO-001\n";
+            else {
+                std::cout << "FAIL: load_file 缺文件（err=" << ferr << "）\n";
+                failures++;
+            }
+        }
+        fs::remove_all(dir, ec);
+    }
+
+    // 弱绑定软校验：内置表注入 + 七档 W-CONTRACT-001 + 旁路表（只读，值树不变）
+    {
+        sml::BuiltinTable b;
+        b.add_field("tls", "cert", "str", true);
+        b.add_field("tls", "port", "int", false);
+        b.set_range("tls", "port", 1, 65535);
+        b.add_field("tls", "mode", "any", false);
+        b.add_enum("tls", "mode", "strict");
+        b.add_enum("tls", "mode", "loose");
+
+        sml::ParseOptions opts;
+        std::vector<sml::Diag> dg;
+        std::vector<sml::WeakBind> wb;
+        opts.builtins = &b;
+        opts.diags = &dg;
+        opts.weak_binds = &wb;
+        std::string derr;
+
+        /* 块内容侧：类型 / 区间 / 枚举三档各一条 */
+        auto v = sml::Parser::parse_with(
+            "@feature enable type.weak\n"
+            "srv {\n@weakbind tls\nweb { cert: 1, port: 99999, mode: nope }\n}\n",
+            opts, &derr);
+        int w = 0;
+        for (const auto& d : dg) if (d.code == "W-CONTRACT-001") w++;
+        auto plain = sml::Parser::parse(
+            "@feature enable type.weak\nsrv {\nweb { cert: 1, port: 99999, mode: nope }\n}\n");
+        const bool same_tree = v && plain
+            && sml::Parser::to_sml(v) == sml::Parser::to_sml(plain);
+        if (v && w == 3 && wb.size() == 1 && wb[0].name == "tls"
+            && wb[0].path == "srv.web" && wb[0].line == 3 && same_tree) {
+            std::cout << "  ok: 弱绑定块内容三档 -> 3 条 warning，srv.web = tls\n";
+        } else {
+            std::cout << "FAIL: 弱绑定软校验 w=" << w << " nwb=" << wb.size()
+                      << " same_tree=" << same_tree << " err=" << derr << "\n";
+            failures++;
+        }
+
+        /* 声明侧：未知契约名 */
+        dg.clear(); wb.clear(); derr.clear();
+        v = sml::Parser::parse_with(
+            "@feature enable type.weak\n@weakbind nope\nsrv { cert: \"x\" }\n",
+            opts, &derr);
+        w = 0;
+        for (const auto& d : dg) if (d.code == "W-CONTRACT-001") w++;
+        if (v && w == 1 && wb.size() == 1 && wb[0].path == "srv") {
+            std::cout << "  ok: 弱绑定声明侧-未知契约 -> 1 条\n";
+        } else {
+            std::cout << "FAIL: 弱绑定声明侧-未知契约 w=" << w << " nwb=" << wb.size() << "\n";
+            failures++;
+        }
+
+        /* 声明侧：可选字段体的未知字段 + 类型不符 */
+        dg.clear(); wb.clear(); derr.clear();
+        v = sml::Parser::parse_with(
+            "@feature enable type.weak\n"
+            "@weakbind tls { unknown: int cert: int }\n"
+            "srv { cert: \"x\" }\n",
+            opts, &derr);
+        w = 0;
+        for (const auto& d : dg) if (d.code == "W-CONTRACT-001") w++;
+        if (v && w == 2) {
+            std::cout << "  ok: 弱绑定声明侧-体比对 -> 2 条（未知字段 + 类型不符）\n";
+        } else {
+            std::cout << "FAIL: 弱绑定声明侧-体比对 w=" << w << "\n";
+            failures++;
+        }
+
+        /* 空表护栏：内置表为空 ⇒ 零 warning（否则所有名字都会报 unknown_contract） */
+        sml::ParseOptions empty_opts;
+        std::vector<sml::Diag> edg;
+        empty_opts.diags = &edg;
+        dg.clear();
+        v = sml::Parser::parse_with(
+            "@feature enable type.weak\n@weakbind tls\nsrv { cert: \"x\" }\n",
+            empty_opts, &derr);
+        if (v && edg.empty()) {
+            std::cout << "  ok: 空内置表 -> 零 warning\n";
+        } else {
+            std::cout << "FAIL: 空内置表护栏 n=" << edg.size() << "\n";
+            failures++;
+        }
+    }
+
+    // env 门控：引号串含 `$env.` 且未开 env ⇒ E-FEATURE-002；默认仍内插
+    expect_code("disable env 后引号串内插",
+                "@feature disable env\nk: \"$env.NOPE\"\n", SML_E_FEATURE_002);
+    expect_ok("默认 env 仍开", "k: \"$env.NOPE\"\n");
+
+    // bareword-string 门控：关闭后纯字符串裸词必须加引号（E-FEATURE-005）
+    expect_code("disable bareword-string 后裸词",
+                "@feature disable bareword-string\nk: hello\n", SML_E_FEATURE_005);
+    expect_ok("默认裸词仍开", "k: hello\n");
+
+    // include 门控：disable 后展开阶段必须拒绝（传 dir 才会进 expand_includes）
+    expect_code("disable include 后 @include",
+                "@feature disable include\n@include \"x.sml\"\n",
+                SML_E_FEATURE_001, ".");
+
+    // @when：条件假丢弃紧邻字段；连续/悬空各一条
+    expect_ok("@when 条件假丢弃紧邻字段",
+              "@feature enable when\n@when $env.__SML_PROBE__ == \"yes\"\ndrop: 1\nkeep: 2\n");
+    expect_code("@when 连续出现",
+                "@feature enable when\n@when $env.A == \"1\"\n@when $env.B == \"2\"\nk: 1\n",
+                SML_E_PARSE_016);
+    expect_code("@when 悬空",
+                "@feature enable when\nk: 1\n@when $env.A == \"1\"\n",
+                SML_E_PARSE_017);
+
+    // @for：有界展开成数组，`${var}` 只读插值
+    expect_ok("@for 展开为数组",
+              "@version v1\n@feature enable for\n"
+              "hosts: @for h in a b { name: \"${h}\" }\n");
+}
+
 int main() {
     test_lex_codes();
     test_parse_codes();
@@ -967,6 +1190,7 @@ int main() {
     test_include_expansion();
     test_positive_controls();
     test_w16_codes();
+    test_feature_directive();
     test_err_null_safe();
     test_error_msgs();
 

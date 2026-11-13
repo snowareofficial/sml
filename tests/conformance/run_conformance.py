@@ -56,6 +56,10 @@
   PARSE_FAIL  值树用例里**所有**可用端都解析失败 ⇒ 多半是用例本身写坏了
 
 退出码：0 = 没有 DIVERGE 也没有 PARSE_FAIL；1 = 有（有 SKIP 不算失败）。
+`--require-all` 额外要求所请求的端全部可用：任一端 SKIP 即退出 1，避免「少跑几端
+也算五端一致」的假绿 ｜ With `--require-all`, any skipped endpoint is a hard failure.
+`--pending` 跑 `cases/pending/` 下的先行用例：DIVERGE 是预期结果，明细照常打印但不进
+退出码；用例本身写坏（PARSE_FAIL）仍判红。修好后把用例移入 `cases/` 才算收敛。
 
 ------------------------------------------------------------------------------
 四、用法
@@ -64,6 +68,8 @@
   python tests/conformance/run_conformance.py --case nest_array --show 3
   python tests/conformance/run_conformance.py --end rust --end js
   python tests/conformance/run_conformance.py --no-build      # 不自动构建 smltools
+  python tests/conformance/run_conformance.py --require-all   # 五端必须全部可用（CI 用）
+  python tests/conformance/run_conformance.py --pending       # 跑 pending/ 的先行用例，DIVERGE 为预期
 
 环境变量：
   SMLTOOLS   指定 Rust 侧 `smltools` 可执行文件（不指定则自动探测，见 find_smltools）
@@ -89,6 +95,7 @@ ROOT = os.environ.get("SML_REPO") or os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONF = os.path.join(ROOT, "tests", "conformance")
 CASES = os.path.join(CONF, "cases")
+PENDING = os.path.join(CASES, "pending")
 ADAPTERS = os.path.join(CONF, "adapters")
 ENDPOINTS = ["rust", "c", "cpp", "js", "lua"]
 
@@ -575,14 +582,15 @@ def read_directives(path):
     return d
 
 
-def discover(filter_pat):
-    if not os.path.isdir(CASES):
+def discover(filter_pat, root=None):
+    root = root or CASES
+    if not os.path.isdir(root):
         return []
-    names = sorted(n for n in os.listdir(CASES)
+    names = sorted(n for n in os.listdir(root)
                    if n.endswith(".sml") and not n.startswith("_"))
     if filter_pat:
         names = [n for n in names if any(p.lower() in n.lower() for p in filter_pat)]
-    return [os.path.join(CASES, n) for n in names]
+    return [os.path.join(root, n) for n in names]
 
 
 # ---------------------------------------------------------------------------
@@ -596,12 +604,21 @@ def main():
                     help="只跑指定端（可重复）")
     ap.add_argument("--show", type=int, default=2, help="每个 DIVERGE 打印几处差异（默认 2）")
     ap.add_argument("--no-build", action="store_true", help="不自动构建 smltools")
+    ap.add_argument("--require-all", action="store_true",
+                    help="所有端必须可用；有 SKIP 即失败 ｜ Fail if any endpoint is skipped")
+    ap.add_argument("--pending", action="store_true",
+                    help="跑 pending/ 下的先行用例；DIVERGE 为预期 ｜ Staged cases, divergences expected")
     ap.add_argument("--verbose", action="store_true", help="打印每端原始 dump")
     args = ap.parse_args()
 
-    files = discover(args.case)
+    root = PENDING if args.pending else CASES
+    files = discover(args.case, root)
     if not files:
-        print("[!] 没找到用例（%s）。用 --case 过滤时确认子串对得上。" % CASES)
+        if args.pending:
+            # 空目录是**好事**：先行用例都收敛进 cases/ 了。
+            print("[i] cases/pending/ 为空：没有待收敛的先行用例。")
+            return 0
+        print("[!] 没找到用例（%s）。用 --case 过滤时确认子串对得上。" % root)
         return 1
     # 空用例是**假绿**：五端都产出空树，于是全员 AGREE。
     # （本目录真的被并发写入清空过一次 ⇒ 加这道闸，别让「用例坏了」表现成「五端一致」。）
@@ -632,8 +649,16 @@ def main():
             return 1
 
         active = [e for e in eps if e.ok]
+        if args.pending:
+            print("== PENDING 先行用例：DIVERGE 为预期，明细须逐条登记 ==")
         print("\n用例 %d 个，可用端 %d 个（%s）\n"
               % (len(files), len(active), ", ".join(e.name for e in active)))
+
+        if args.require_all and len(active) != len(wanted):
+            skipped = [e.name for e in eps if not e.ok]
+            print("[!] --require-all：以下端 SKIP，不能判定为五端一致：%s"
+                  % ", ".join(skipped))
+            return 1
 
         rows = []
         per_end = {e.name: {"AGREE": 0, "DIVERGE": 0, "SKIP": 0, "PARSE_FAIL": 0} for e in eps}
@@ -823,6 +848,14 @@ def main():
                         print("\n--- %s / %s --- %s" % (stem, n, first_line(r["msg"], 160)))
 
         print()
+        if args.pending:
+            if agg.get("PARSE_FAIL"):
+                print("结论：pending 用例本身写坏（PARSE_FAIL）⇒ 退出码 1。")
+                return 1
+            print("结论：pending 模式 DIVERGE %d 条为预期，明细已列出；逐条登记进 "
+                  "tests/conformance/known_divergences.md，修好后移入 cases/ ⇒ 退出码 0。"
+                  % len(diverged))
+            return 0
         if diverged or agg.get("PARSE_FAIL"):
             print("结论：存在 DIVERGE / PARSE_FAIL ⇒ 退出码 1。"
                   "差异请逐条登记进 tests/conformance/known_divergences.md（不许静默忽略）。")

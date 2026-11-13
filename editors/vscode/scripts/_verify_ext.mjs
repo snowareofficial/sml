@@ -34,8 +34,31 @@ for (const fn of [
   // include / import 的编辑器导航（跳转 / 悬停 / 补全）依赖它取路径与**行内列区间**
   // ——行为验证在 `_verify_nav.mjs`，这里只钉"确实导出了"。
   "parseIncludeTargets",
+  // `@weakdoc` 未找到 profile 的提示（`W-CLI-001`）依赖这两个：
+  // `weakDocRefs` 给位置，`missingProfileRefs` 判「在不在已安装集合里」。
+  "weakDocRefs", "missingProfileRefs",
 ]) {
   check(typeof m[fn] === "function", `${fn} 可导出`);
+}
+
+// —— `@weakdoc` 提示：位置要能精确到名字，且**不猜**（注释、多行写法都不算）——
+if (typeof m.weakDocRefs === "function") {
+  const refs = m.weakDocRefs(
+    "@version v1\n@weakdoc api-docs\n  @weakdoc   other.one\n# @weakdoc in-comment-ok\n"
+  );
+  check(refs.length === 2, "@weakdoc 命中 2 处（含缩进；注释里的不算）", JSON.stringify(refs));
+  check(!refs.some((r) => r.name === "in-comment-ok"),
+    "注释里的 `@weakdoc` 不是引用", JSON.stringify(refs));
+  check(
+    refs[0] && refs[0].name === "api-docs" && refs[0].line === 1 && refs[0].col === 9,
+    "@weakdoc 行列指向名字本身（`@weakdoc ` 正好 9 列）", JSON.stringify(refs[0])
+  );
+  const miss = m.missingProfileRefs("@weakdoc a\n@weakdoc b\n", new Set(["a"]));
+  check(miss.length === 1 && miss[0].name === "b",
+    "missingProfileRefs 只报不在集合里的", JSON.stringify(miss));
+  check(m.missingProfileRefs("@weakdoc a\n", new Set(["a"])).length === 0,
+    "已安装的 profile 不提示");
+  check(m.missingProfileRefs("k: 1\n", new Set()).length === 0, "没有 @weakdoc 时零提示");
 }
 
 if (typeof m.parseSafe === "function") {
@@ -330,6 +353,125 @@ try {
 for (const f of ["src/special-highlight.js", "src/highlight.js", "src/extension.js"]) {
   const r = spawnSync(process.execPath, ["--check", f], { encoding: "utf-8" });
   check(r.status === 0, `语法检查 ${f}`, r.status === 0 ? "" : (r.stderr || "").split("\n")[0]);
+}
+
+// —— 最新标准：编辑器侧清单 vs Rust 单一事实来源 ——
+// 这类漂移最阴险：grammar / 补全都还在，只是「认的名字」停在旧一代，
+// 用户写 `type.featag` 时补全空空如也。故直接读 Rust 表逐项核对，不靠人肉记忆。
+try {
+  const REPO = path.resolve(ROOT, "..", "..");
+  const extJs = readFileSync(path.join(ROOT, "src", "extension.js"), "utf-8");
+  const parseMjs = readFileSync(path.join(ROOT, "src", "sml-parse.mjs"), "utf-8");
+  const featRs = readFileSync(path.join(REPO, "rust", "sml-feature", "src", "lib.rs"), "utf-8");
+  const extRs = readFileSync(path.join(REPO, "rust", "sml-parse", "src", "ext.rs"), "utf-8");
+
+  const featureBlock = /pub static FEATURES:[\s\S]*?\n\];/.exec(featRs)?.[0] || "";
+  const rustFeatures = [...featureBlock.matchAll(/^\s*\("([^"]+)",\s*Feature::/gm)].map((x) => x[1]);
+  const jsFeatureBlock = /const FEATURE_NAMES = \[[\s\S]*?\]\.map/.exec(extJs)?.[0] || "";
+  const jsFeatures = [...jsFeatureBlock.matchAll(/\{\s*n:\s*"([^"]+)"/g)].map((x) => x[1]);
+  check(rustFeatures.length === 20, "Rust FEATURES 表读出 20 项", `读出 ${rustFeatures.length}`);
+  check(
+    JSON.stringify(rustFeatures) === JSON.stringify(jsFeatures),
+    "补全特性名与 Rust FEATURES 逐项同序一致（C-ABI 位序）",
+    `差异 ${rustFeatures.filter((n, i) => jsFeatures[i] !== n).join(",") || "无"}`
+  );
+
+  const dirBlock = /pub const BUILTIN_DIRECTIVES:[\s\S]*?\n\];/.exec(extRs)?.[0] || "";
+  const rustDirs = [...dirBlock.matchAll(/"([a-z]+)"/g)].map((x) => x[1]);
+  const resBlock = /const RESERVED_DIRECTIVES = new Set\(\[[\s\S]*?\]\)/.exec(parseMjs)?.[0] || "";
+  const jsDirs = [...resBlock.matchAll(/"([a-z]+)"/g)].map((x) => x[1]);
+  check(
+    rustDirs.length === 10 && rustDirs.every((d) => jsDirs.includes(d)),
+    "10 条内置指令都在 RESERVED_DIRECTIVES 里（不会被当片段名）",
+    `漏了 ${rustDirs.filter((d) => !jsDirs.includes(d)).join(",") || "无"}`
+  );
+
+  const editionBlock = /pub static EDITIONS:[\s\S]*?\n\];/.exec(featRs)?.[0] || "";
+  check(
+    /codename:\s*Some\("camelia"\)/.test(editionBlock) &&
+      editionBlock.includes("Edition::new(5, 0)") &&
+      editionBlock.includes("EditionStatus::Dev"),
+    "Rust EDITIONS 里 5.0 / camelia 仍是 Dev"
+  );
+  check(extJs.includes('@version 50 "camelia" dev'), "补全仍登记 50 \"camelia\" dev 的开发期写法");
+  // 登记 ≠ 可用：5.0 功能集未启用，Rust 与 JS 写入都报 E-FEATURE-004。
+  // 补全若不带这条警告，就是教用户写一保存就报错的文档（外置修饰符那次踩过）。
+  check(extJs.includes("E-FEATURE-004") && extJs.includes("未启用"),
+    "Dev 版本集候选明确标注未启用与 E-FEATURE-004");
+  check(!extJs.includes("${1|v1,v2,v3,v4,50|}"),
+    "@version 默认片段不把 50 放进可选项");
+
+  const pkg = JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf-8"));
+  const grammar = JSON.parse(readFileSync(path.join(ROOT, "syntaxes", "sml.tmLanguage.json"), "utf-8"));
+  const langExt = pkg.contributes.languages[0].extensions;
+  check([".sml", ".swl", ".smlex"].every((e) => langExt.includes(e)), "package.json 关联 .smlex");
+  check(["sml", "swl", "smlex"].every((f) => grammar.fileTypes.includes(f)), "grammar.fileTypes 覆盖 .smlex");
+  const baseline = readFileSync(path.join(REPO, "rust", "smltools", "assets", "baseline.tmLanguage.json"), "utf-8");
+  const auth = readFileSync(path.join(ROOT, "syntaxes", "sml.tmLanguage.json"), "utf-8");
+  check(baseline === auth, "smltools 内嵌高亮基线与权威 grammar 逐字一致");
+} catch (e) {
+  check(false, "最新标准清单核对", String(e && e.message));
+}
+
+// —— 新增桥接纯函数：featag 名 / weakdoc 引用 / .smlex profile 字段 ——
+try {
+  for (const fn of ["collectFeatagNames", "collectWeakDocs", "parseProfileFields"]) {
+    check(typeof m[fn] === "function", `${fn} 可导出`);
+  }
+  const tags = m.collectFeatagNames("!critical obey[1, 2]\na != b\n!!x");
+  check(tags.includes("critical") && !tags.includes("b") && !tags.includes("x"),
+    "collectFeatagNames 排除 != 与 !!", JSON.stringify(tags));
+  const refs = m.collectWeakDocs("@weakdoc api-docs\n@weakdoc changelog");
+  check(refs.length === 2 && refs.includes("api-docs"),
+    "collectWeakDocs 收全 profile 引用", JSON.stringify(refs));
+  const profile = m.parseProfileFields([
+    "name: api-docs",
+    "version: 1",
+    'description: "API docs"',
+    "applies_to {",
+    '    glob: ["docs/api/**/*.sml"]',
+    "}",
+    "checks {",
+    "    require_top_level: [title version]",
+    "}",
+    "hints {",
+    "    keys: [title version authors]",
+    "    values { layout: [post, page] }",
+    "}",
+    "emit { html { toc_depth: 3 } }",
+  ].join("\n"));
+  check(profile.name === "api-docs" && profile.version === "1",
+    "profile 必填字段读出", `${profile.name} / ${profile.version}`);
+  check(profile.keys.join(",") === "title,version,authors",
+    "hints.keys 读出", JSON.stringify(profile.keys));
+  check((profile.values.layout || []).join(",") === "post,page",
+    "嵌套 hints.values 读出", JSON.stringify(profile.values));
+  check((profile.globs || []).includes("docs/api/**/*.sml"),
+    "applies_to.glob 读出", JSON.stringify(profile.globs));
+} catch (e) {
+  check(false, "新桥接纯函数", String(e && e.message));
+}
+
+// —— 诊断定位：`parseSafe` 不给位置时，不许把错误画到首行注释 ——
+// 实测踩过：v5 版本声明报「版本声明非法」但 position/pos 都为 null，旧兜底 0,0 +
+// 范围拉到行尾 ⇒ 用户看到「第一行注释整行标红」，完全指错地方。
+try {
+  const withVersion = [
+    "# 这是注释，不该被标红",
+    "# 另一行注释",
+    '@version 50 "camelia" dev',
+    "a: 1",
+  ].join("\n");
+  const ds = m.diagnose(withVersion, { files: {} });
+  check(ds.length === 1 && ds[0].line === 2 && ds[0].col === 0,
+    "解析无位置时诊断落到触发指令行（不是首行注释）", JSON.stringify(ds));
+
+  const noHint = ["# 注释行一", "# 注释行二", "wea { a: 1"].join("\n");
+  const ds2 = m.diagnose(noHint, { files: {} });
+  check(ds2.length === 0 || ds2[0].line >= 2,
+    "错误里没有 @指令线索时也不落在注释行", JSON.stringify(ds2));
+} catch (e) {
+  check(false, "诊断定位回归", String(e && e.message));
 }
 
 console.log(failed === 0 ? "\nEXT VERIFY ALL PASS" : `\n${failed} 项失败`);
