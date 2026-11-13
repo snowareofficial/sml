@@ -497,6 +497,23 @@ a version), sub-ids are 2 bytes, and KDF moves out of `0x50–0x5F`.
   tampered-digest negative case, printing `hash_id 0x31 解码（sm3）` / `0x32（blake3）`.
 - No new CI step needed (C tests run inside `build_check.py --run`).
 
+### Added (C++ gains segment-digest verification and `hash_id` dispatch)
+
+- **Verification first, then dispatch**: `cpp/ambr.cpp` previously did **not verify segment
+  digests at all** (it was not "hardcoded SHA-256"). This batch adds the check: `walk_segments`
+  reads `MANIFEST` (0x04) for `hash_id`, then verifies every segment (including the manifest).
+- **Algorithms**: dependency-free SHA-256 / SM3 / BLAKE3 (same rule as Rust and C);
+  `digest_check(hash_id, ...)` dispatches on `0x30/0x31/0x32`, returning "skip" (and setting
+  `digest_skipped`) for reserved ids and multi-level tuples.
+- **Tests**: `cpp/tests/test_ambr.cpp` reads `tests/vectors/amberice-hash-algos.v1.hex`
+  (two cases) plus a tampered-digest negative case (prints `hash_id 0x31 decoded (sm3)`).
+- **Toolchain fix**: on Windows, using `<fstream>` made `t_ambr.exe` fail with
+  `0xC0000139` (ENTRYPOINT_NOT_FOUND) because PATH's `libstdc++` differed from the build
+  one. `build_verify.py` now adds `-static-libstdc++ -static-libgcc` on win32 for all nine
+  compile sites (not on Linux), and decodes child output as UTF-8 so CJK text no longer
+  trips the GBK locale.
+- Regressions: `cpp/build_verify.py` all eight gates rc=0 (AMBR covers SM3/BLAKE3 + negative).
+
 ### 🚨 Breaking — version naming: `Version` enum → `Edition` lookup
 
 An edition is just a **name for a set of default feature bits** (`docs/swsml/spec/version.md` v1.0).

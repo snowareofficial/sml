@@ -24,9 +24,15 @@ AP.add_argument("--allow-skip-rs-bridge", action="store_true",
 ARGS = AP.parse_args()
 
 
+# Windows 上 PATH 里的 libstdc++ 可能与编译期版本不匹配：新代码用 <fstream> 后会
+# 报 0xC0000139（ENTRYPOINT_NOT_FOUND）。静态链接这两个运行时库即可，Linux 不需要。
+EXTRA = ["-static-libstdc++", "-static-libgcc"] if sys.platform == "win32" else []
+
 def run(cmd):
     print(">>> " + " ".join(cmd))
-    p = subprocess.run(cmd, cwd=HERE, capture_output=True, text=True)
+    # 子进程输出含中文 / 箭头：强制 UTF-8 解码，别让 locale(GBK) 把测试判成失败。
+    p = subprocess.run(cmd, cwd=HERE, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
     if p.stdout:
         sys.stdout.write(p.stdout)
     if p.stderr:
@@ -50,7 +56,7 @@ def write_log(name, text):
         f.write(text)
 
 
-rc = run(["g++", "-std=c++17", "-I", HERE, "-o", exe("example.exe"),
+rc = run(["g++", "-std=c++17", *EXTRA, "-I", HERE, "-o", exe("example.exe"),
           os.path.join(HERE, "examples", "example.cpp"), os.path.join(HERE, "sml.cpp")])
 if rc != 0:
     sys.exit(rc)
@@ -58,7 +64,7 @@ rc = run([exe("example.exe")])
 if rc != 0:
     sys.exit(rc)
 
-rc = run(["g++", "-std=c++17", "-I", HERE, "-o", exe("t_contract.exe"),
+rc = run(["g++", "-std=c++17", *EXTRA, "-I", HERE, "-o", exe("t_contract.exe"),
           os.path.join(HERE, "tests", "test_contracts.cpp"), os.path.join(HERE, "sml.cpp")])
 if rc == 0:
     rc2, out = run_out([exe("t_contract.exe")])
@@ -66,7 +72,7 @@ if rc == 0:
     print("CONTRACT rc=%d" % rc2)
     if rc2 != 0: sys.exit(rc2)
 
-rc = run(["g++", "-std=c++17", "-I", HERE, "-o", exe("t_comments.exe"),
+rc = run(["g++", "-std=c++17", *EXTRA, "-I", HERE, "-o", exe("t_comments.exe"),
           os.path.join(HERE, "tests", "test_comments.cpp"), os.path.join(HERE, "sml.cpp")])
 if rc == 0:
     rc2, out = run_out([exe("t_comments.exe")])
@@ -75,7 +81,7 @@ if rc == 0:
     if rc2 != 0: sys.exit(rc2)
 
 # --- 深度守卫回归用例：纯块嵌套曾绕过守卫打穿栈，必须报错而不是崩 ---
-rc = run(["g++", "-std=c++17", "-I", HERE, "-o", exe("t_limits.exe"),
+rc = run(["g++", "-std=c++17", *EXTRA, "-I", HERE, "-o", exe("t_limits.exe"),
           os.path.join(HERE, "tests", "test_limits.cpp"), os.path.join(HERE, "sml.cpp")])
 if rc == 0:
     rc2, out = run_out([exe("t_limits.exe")])
@@ -84,7 +90,7 @@ if rc == 0:
     if rc2 != 0: sys.exit(rc2)
 
 # --- 错误码回归（W10，C++ 侧）：触发条件 → 期望码，码是跨端契约 ---
-rc = run(["g++", "-std=c++17", "-I", HERE, "-o", exe("t_codes.exe"),
+rc = run(["g++", "-std=c++17", *EXTRA, "-I", HERE, "-o", exe("t_codes.exe"),
           os.path.join(HERE, "tests", "test_codes.cpp"), os.path.join(HERE, "sml.cpp")])
 if rc == 0:
     rc2, out = run_out([exe("t_codes.exe")])
@@ -95,7 +101,7 @@ else:
     sys.exit(rc)
 
 # --- `.ambr` 只读解码器对拍容器向量（T7 / N03）：21 例 + 语义抽检 ---
-rc = run(["g++", "-std=c++17", "-I", HERE, "-o", exe("t_ambr.exe"),
+rc = run(["g++", "-std=c++17", *EXTRA, "-I", HERE, "-o", exe("t_ambr.exe"),
           os.path.join(HERE, "tests", "test_ambr.cpp"), os.path.join(HERE, "ambr.cpp")])
 if rc == 0:
     rc2, out = run_out([exe("t_ambr.exe")])
@@ -106,7 +112,7 @@ else:
     sys.exit(rc)
 
 # --- D45：SCHEMA/TYPED 动态渲染（fixture 与 C / JS 共用） ---
-rc = run(["g++", "-std=c++17", "-I", HERE, "-o", exe("t_ambr_typed.exe"),
+rc = run(["g++", "-std=c++17", *EXTRA, "-I", HERE, "-o", exe("t_ambr_typed.exe"),
           os.path.join(HERE, "tests", "test_ambr_typed.cpp"), os.path.join(HERE, "ambr.cpp")])
 if rc == 0:
     rc2, out = run_out([exe("t_ambr_typed.exe")])
@@ -136,7 +142,7 @@ if not _rs_present:
     print("RS-BRIDGE 失败: 在 %s 下找不到 Rust cdylib（先 `cargo build --release` 并设 SML_RUST_LIB）" % SML_RUST_LIB)
     sys.exit(1)
 
-rc = run(["g++", "-std=c++17", "-I", HERE, "-o", exe("example_rs.exe"),
+rc = run(["g++", "-std=c++17", *EXTRA, "-I", HERE, "-o", exe("example_rs.exe"),
           os.path.join(HERE, "examples", "example_rs.cpp"), os.path.join(HERE, "sml_rs.cpp"),
           "-L" + SML_RUST_LIB, "-lsml"])
 if rc == 0:
@@ -149,7 +155,7 @@ else:
     sys.exit(rc)
 
 # --- P7：诊断出口（sml::loads_with_diags）—— C-ABI 功能对等的最小钉子 ---
-rc = run(["g++", "-std=c++17", "-I", HERE, "-o", exe("t_rs_diag.exe"),
+rc = run(["g++", "-std=c++17", *EXTRA, "-I", HERE, "-o", exe("t_rs_diag.exe"),
           os.path.join(HERE, "tests", "test_rs_diag.cpp"), os.path.join(HERE, "sml_rs.cpp"),
           "-L" + SML_RUST_LIB, "-lsml"])
 if rc != 0:

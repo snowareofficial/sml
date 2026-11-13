@@ -82,6 +82,66 @@ static void check_case(const std::string& id, const std::vector<unsigned char>& 
     }
 }
 
+
+/* hash_id 分派（§20）：读 `tests/vectors/amberice-hash-algos.v1.hex`（SM3 / BLAKE3 各一份），
+ * 断言能解码且值正确；再改坏第一份的段摘要，断言必须拒绝。
+ * ｜ Verify hash_id dispatch against the Rust-generated fixtures, plus a tampered-digest case. */
+static void run_hash_fixtures() {
+    const char* path = "../tests/vectors/amberice-hash-algos.v1.hex";
+    std::ifstream in(path);
+    if (!in) {
+        fail("hash fixtures", path);
+        return;
+    }
+    std::string line;
+    int cases = 0;
+    while (std::getline(in, line)) {
+        if (line.empty() || line[0] == '#') continue;
+        std::istringstream ls(line);
+        std::string id, hex;
+        int hid = -1;
+        if (!(ls >> id >> hid >> hex)) {
+            fail("hash fixture format", line);
+            continue;
+        }
+        auto bytes = hex_to_bytes(hex);
+        if (bytes.empty()) {
+            fail(id, "bad hex");
+            continue;
+        }
+        std::string err;
+        auto v = sml::ambr_load(bytes.data(), bytes.size(), &err);
+        if (!v) {
+            fail(id, err);
+            continue;
+        }
+        auto who = (*v)->get("who");
+        auto num = (*v)->get("n");
+        if (who && who->tag == sml::Value::Tag::Str && who->s == "u1" &&
+            num && num->tag == sml::Value::Tag::Int && num->i == 7) {
+            std::printf("  ok: hash_id 0x%02x decoded (%s)\n", hid, id.c_str());
+        } else {
+            fail(id, "value mismatch");
+        }
+        /* 反例：改坏段表首项摘要 ⇒ 必须拒绝。 */
+        if (cases == 0 && bytes.size() > 49) {
+            unsigned long long table_off = 0;
+            for (int i = 7; i >= 0; i--) table_off = (table_off << 8) | bytes[8 + i];
+            if ((size_t)table_off + 49 < bytes.size()) {
+                bytes[(size_t)table_off + 9] ^= 0xff;
+                auto bad = sml::ambr_load(bytes.data(), bytes.size(), &err);
+                if (bad) fail(id, "tampered digest still decodes");
+                else std::printf("  ok: tampered digest -> rejected (%s)\n", id.c_str());
+            }
+        }
+        cases++;
+    }
+    if (cases != 2) {
+        std::printf("FAIL: hash fixtures expected 2, got %d\n", cases);
+        failures++;
+    }
+}
+
 int main(int argc, char** argv) {
     const std::string path = argc > 1 ? argv[1] : "../tests/vectors/amberice-container.v1.json";
     std::ifstream in(path);
@@ -104,13 +164,15 @@ int main(int argc, char** argv) {
         if (!take_quoted(json, id_end, "\"ambr_hex\": \"", &hex, &hex_end)) break;
         auto bytes = hex_to_bytes(hex);
         if (bytes.empty()) {
-            fail(id, "hex 非法");
+            fail(id, "bad hex");
         } else {
             check_case(id, bytes);
         }
         cases++;
         pos = hex_end;
     }
+
+    run_hash_fixtures();
 
     std::printf("[ambr] %d 例，%d 个失败\n", cases, failures);
     if (cases != 22) {
