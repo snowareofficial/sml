@@ -545,6 +545,34 @@ a version), sub-ids are 2 bytes, and KDF moves out of `0x50–0x5F`.
 - Regressions: all 22 Java vectors still pass, proving the new SHA-256 check matches existing
   files.
 
+### Added (multi-level escape `fmt` gate + public "was it verified?" signal)
+
+- **`fmt` gate (D5, hard)**: a `fmt=0` file must **not** carry a multi-level `hash_id`
+  `[0x3E, version, sub...]` — the escape changes how `hash_id` is read, so guessing a
+  one-level id means verifying with the wrong algorithm. New
+  `ContainerError::HashPathRequiresFmt { fmt }` (mapped to `E-AMBR-002`), enforced by the pure
+  function `check_hash_path_fmt(fmt, path)` inside `decode_manifest` (shared by `load` /
+  `info` / `check`). §20.3.3 now states the precondition: bump `fmt` to 1 **and** document the
+  byte layout, version semantics and sub-id allocation in §20.4 in the same batch.
+- **Versions start at 1**: `HashPath::from_value` now rejects `ns_version = 0` (reserved), with
+  a new unit test.
+- **"Was it verified?" is now public** (previously internal only):
+  - **C**: `sml_ambr_load_ex(buf, len, sml_ambr_info *info, err, errsz)` with
+    `sml_ambr_info { hash_id, digest_skipped }`; `sml_ambr_load` became a thin wrapper.
+  - **C++**: `sml::AmbrInfo { hash_id, digest_skipped }` plus an `ambr_load(buf, len, AmbrInfo*,
+    err)` overload; the three-argument form is a thin wrapper.
+  - **Lua**: `Sml.ambr_load` returns `value, err, info`.
+  - **Java**: `Ambr.loadWithInfo(bytes)` returning `Info { value, hashId, digestSkipped }`.
+  - **JS**: `load(bytes, {report})`'s `report.skipped` was already public; the test now asserts
+    `skipped === null` for algorithms this side can compute.
+- **Tool output**: `amberice info` / `check` print
+  "multi-level escape ... ⇒ not implemented in this build, digests unverified" and show the path
+  on the `hash_id` line.
+- **Guard** gained two checks: the `fmt` gate exists (variant + pure function + `error.rs`
+  mapping) and all five sides expose the "verified?" output.
+- Regressions: `amberice --lib` **33 tests**, C `test_ambr` (`info=49/0` / `50/0`), C++ all eight
+  gates, Java 22 vectors + fixtures, Lua 22 vectors + fixtures, JS `test-ambr-hash`.
+
 ### 🚨 Breaking — version naming: `Version` enum → `Edition` lookup
 
 An edition is just a **name for a set of default feature bits** (`docs/swsml/spec/version.md` v1.0).

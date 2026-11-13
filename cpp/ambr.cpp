@@ -706,6 +706,11 @@ bool walk_segments(const unsigned char* buf, size_t len, Parts* out, std::string
 }
 
 std::optional<ValuePtr> ambr_load(const unsigned char* buf, size_t len, std::string* err) {
+    return ambr_load(buf, len, nullptr, err);
+}
+
+std::optional<ValuePtr> ambr_load(const unsigned char* buf, size_t len, AmbrInfo* info,
+                                  std::string* err) {
     if (err) err->clear();
     Parts p;
     if (!walk_segments(buf, len, &p, err)) return std::nullopt;
@@ -724,6 +729,10 @@ std::optional<ValuePtr> ambr_load(const unsigned char* buf, size_t len, std::str
     if (v && r.pos != r.len) {
         set_err(err, "VALUE 段读完仍有剩余字节");
         return std::nullopt;
+    }
+    if (v && info) {
+        info->hash_id = p.hash_id;
+        info->digest_skipped = p.digest_skipped;
     }
     return v;
 }

@@ -71,7 +71,9 @@ for (const c of fixture.cases) {
   }
   const same =
     tree && tree.who === fixture._value.who && tree.n === fixture._value.n;
-  const hashOk = report.hashId === c.hash_id && report.verified === true;
+  // SM3 / BLAKE3 本端都能算 ⇒ 不应出现「跳过校验」。
+  const hashOk =
+    report.hashId === c.hash_id && report.verified === true && report.skipped === null;
   same && hashOk
     ? ok(`fixture ${c.id}`, `hash_id=0x${c.hash_id.toString(16)} verified`)
     : fail(

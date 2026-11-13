@@ -835,6 +835,11 @@ static int walk_segments(const unsigned char *buf, size_t len, ambr_parts *out,
 }
 
 sml_value *sml_ambr_load(const unsigned char *buf, size_t len, char *err, size_t errsz) {
+    return sml_ambr_load_ex(buf, len, NULL, err, errsz);
+}
+
+sml_value *sml_ambr_load_ex(const unsigned char *buf, size_t len, sml_ambr_info *info,
+                            char *err, size_t errsz) {
     ambr_parts p;
     if (!walk_segments(buf, len, &p, err, errsz)) return NULL;
     if (!p.value) {
@@ -856,6 +861,10 @@ sml_value *sml_ambr_load(const unsigned char *buf, size_t len, char *err, size_t
         v = NULL;
     }
     strtab_free(&st);
+    if (v && info) {
+        info->hash_id = p.hash_id;
+        info->digest_skipped = p.digest_skipped;
+    }
     return v;
 }
 

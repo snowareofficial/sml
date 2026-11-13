@@ -256,6 +256,19 @@ check("JS 端按 hash_id 分派（manifest + digestFnFor）",
       "function readHashId(" in js_src
       and "function digestFnFor(" in js_src
       and "digestFn(body)" in js_src)
+# 多级转义的 fmt 门 + 各端「是否验过」的可观测出参
+check("fmt 门已实现（HashPathRequiresFmt + 纯函数）",
+      "HashPathRequiresFmt" in read("rust/amberice/src/container.rs")
+      and "fn check_hash_path_fmt(" in read("rust/amberice/src/container.rs")
+      and "C::HashPathRequiresFmt { .. }" in read("rust/amberice/src/error.rs"))
+check("规范写明 fmt 门",
+      "`fmt` 门（D5，硬约束）" in spec and "HashPathRequiresFmt" in spec)
+check("五端公开「是否验过」",
+      "sml_ambr_load_ex" in read("c/ambr.h")
+      and "struct AmbrInfo" in read("cpp/ambr.hpp")
+      and "digest_skipped" in read("lua/lib/sml.lua")
+      and "loadWithInfo" in read("bindings/java/src/main/java/sml/Ambr.java")
+      and "report.skipped" in read("js/ambr.mjs"))
 check("规范写明元组形态与版本号在前",
       "hash_id: [ 0x3E, 1, 0x0001 ]" in spec
       and "**第一个子号是命名空间版本号**" in spec

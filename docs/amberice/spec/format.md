@@ -1157,6 +1157,12 @@ hash_id: [ 0x3E, 1, 0x0001, 0x0002 ]  // 三级：版本 + 多级子号
   `HashError::NotImplemented(0x3E)`；`Manifest::hash_path` 已能往返保存元组，
   但本构建不会用它算摘要。将来实现必须同步升级 `fmt`，不得静默改变 1 字节 `hash_id`
   的读法。
+- **`fmt` 门（D5，硬约束）**：转义改变了 `hash_id` 的读法，所以 **`fmt=0` 的文件不得
+  使用 `[0x3E, …]`**。读端遇到「多级 `hash_id` + `fmt=0`」必须报
+  `ContainerError::HashPathRequiresFmt`（`E-AMBR-002`），不得按一级编号去猜。
+  启用转义的前提是：先把 `fmt` 升到 **1**，并在 §20.4 写清二级命名空间的字节布局、
+  版本号语义与子号分配规则 —— 三件事同批落地，缺一不可。
+  ｜ `fmt=0` must not carry a multi-level `hash_id`; readers must reject it explicitly.
 - **`0x?F` = 私有 / 实验**：厂商内部可用，**不得**出现在互通文件；公共实现读到即拒绝。
   ｜ The escape opens a versioned, multi-level `(0x3E, version, sub...)` namespace so a
   one-byte `hash_id` never caps the format. Registered, not implemented. `0x?F` is
