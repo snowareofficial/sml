@@ -109,7 +109,7 @@ jobs:
         run: python3 cpp/build_verify.py
       - name: JS 错误码探针
         run: node js/probe-error-codes.mjs
-      # N03 / T7：`.ambr` 解码器对拍容器向量（21 例）。fixture 由 Rust 侧生成，
+      # N03 / T7：`.ambr` 解码器对拍容器向量（22 例）。fixture 由 Rust 侧生成，
       # 这一步是「四端照文件对齐」的第一个可执行判据。
       - name: JS .ambr 解码器（容器向量）
         run: node js/test-ambr-decoder.mjs
@@ -126,7 +126,7 @@ jobs:
         run: lua5.4 lua/test_ambr_write.lua
       # 同一份用例五端各解析一遍，比值树；--require-all 让「少跑一端」直接判红，
       # 不留「SKIP 也算过」的假绿。｜ One shared corpus, five parsers, no skipped endpoint.
-      - name: 五端一致性套件（41 例，五端无 SKIP）
+      - name: 五端一致性套件（60 例，五端无 SKIP）
         run: python3 tests/conformance/run_conformance.py --require-all
       # `.ambr` 写入：C / C++ / Python 各跑一遍 pack→load。脚本在没有 cdylib 时
       # 显式 SKIP（退出 0）而不是假绿；真正的失败（编译错 / 断言错 / 崩溃）一律非零。
@@ -138,6 +138,28 @@ jobs:
           # ｜ Print the artifact list first so a failure is diagnosable.
           ls -l rust/target/release/libamberice_ffi.* 2>/dev/null || echo "NO libamberice_ffi.* in rust/target/release"
           python3 tools/check/check_ambr_write.py
+      # amberice 支持平台对齐 swsml：Java / Go / Ruby / C# 四端各跑一遍 22 例容器向量
+      # （逐字符 + 往返）。此前只有 C / C++ / JS / Lua / Python 进 CI，这四端靠人工，
+      # 且 ports.md 记着「扩到 22 例后未重测」。见 docs/amberice/ref/ports.md。
+      - name: amberice 22 例容器向量（Java 纯实现）
+        run: |
+          javac -d bindings/java/out bindings/java/src/main/java/sml/*.java bindings/java/src/test/java/sml/AmbrTest.java
+          java -cp bindings/java/out sml.AmbrTest
+      - name: amberice 22 例容器向量（Go / cgo）
+        working-directory: bindings/go
+        env:
+          CGO_LDFLAGS: -L${{ github.workspace }}/rust/target/release -lamberice_ffi
+          LD_LIBRARY_PATH: ${{ github.workspace }}/rust/target/release
+        run: go test -count=1 ./amberice
+      - name: amberice 22 例容器向量（Ruby / Fiddle）
+        env:
+          AMBR_LIB: ${{ github.workspace }}/rust/target/release/libamberice_ffi.so
+        run: ruby bindings/ruby/test_amberice.rb
+      - name: amberice 22 例容器向量（C# / P-Invoke）
+        working-directory: bindings/csharp
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/rust/target/release
+        run: dotnet run --project Sml.csproj
 
   # 守卫：私有资产不进主库 + 错误码生成物幂等（需要全历史，故 fetch-depth: 0）
   guards:
@@ -178,6 +200,10 @@ jobs:
         run: python3 tools/scan_status.py --write
       - name: 生成物无漂移
         run: git diff --exit-code -- docs/index.md docs/report.md docs/repo/ref/scan.md
+      # amberice ↔ swsml 对齐：edition 三副本 / 五门特性位 / FFI 能力位 / 码表 COUNT。
+      # 纯标准库只读脚本，不依赖任何已构建的产物，故放在 guards job 里。
+      - name: amberice 对齐守护
+        run: python3 tools/check/check_amberice_align.py
 
   # Miri：C-ABI 的 UB 检测（很慢，单独 job + 超时，不允许 continue-on-error）
   miri:

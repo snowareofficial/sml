@@ -117,10 +117,16 @@ async function main() {
     if (bytesToHex(again) === bytesToHex(packed)) fixedPoint++;
     else failures.push(`${id}: 重打包不是固定点（${again.length} B vs ${packed.length} B）`);
 
-    // 4) 字节契约：只在文本侧没有发生 C10 键序前置时要求逐字节相同
-    //    ｜ Byte identity only where the text side did not move metadata keys.
+    // 4) 字节契约：只在文本侧没有发生 C10 键序前置、且 fixture 没有旁路段时要求逐字节相同。
+    //    `typed-schema`（第 22 例）的 fixture 额外带 TYPED / SCHEMA 段，而文本→字节
+    //    写入器只会产出 VALUE 段 —— 旁路段按规格「未知段可跳过」，不可能也不应该
+    //    被复刻，故改由判据 1/2/3（往返 / 文本 / 固定点）兜住。
+    //    ｜ Byte identity only where C10 did not reorder keys and the fixture has no
+    //    skippable side segments: `typed-schema` carries TYPED/SCHEMA that a text writer
+    //    cannot (and per spec need not) reproduce.
+    const NO_BYTE_IDENTITY = new Set(["typed-schema"]);
     const orderShifted = diff(want, srcTree) !== null;
-    if (orderShifted) {
+    if (orderShifted || NO_BYTE_IDENTITY.has(id)) {
       reordered.push(id);
     } else if (bytesToHex(packed) === c.ambr_hex) {
       bytesEqual++;
@@ -135,7 +141,7 @@ async function main() {
   console.log(
     `[ambr-write] 往返 ${round}/${n}，文本一致 ${textSame}/${n}，` +
       `固定点 ${fixedPoint}/${n}，字节一致 ${bytesEqual}/${n - reordered.length}` +
-      (reordered.length ? `（C10 元数据前置，不要求字节一致：${reordered.join(", ")}）` : "")
+      (reordered.length ? `（不要求逐字节：${reordered.join(", ")}）` : "")
   );
 
   if (failures.length) {
@@ -147,7 +153,7 @@ async function main() {
   // ｜ Negative controls: data errors are AmbrError (`AMBR:` prefix); misuse is TypeError.
   const ok = [
     expectThrow("非法 SML", () => writer.pack("a: [ 1"), AmbrError, /^AMBR: /),
-    expectThrow("空输入", () => writer.pack(""), AmbrError, /^AMBR: empty input/),
+    expectThrow("空输入", () => writer.pack(""), AmbrError, /^AMBR: \[E-AMBR-001\] empty input/),
     expectThrow("非字符串", () => writer.pack(42), TypeError, /String/),
     expectThrow("坏字节回读", () => writer.canonicalText(new Uint8Array(40)), AmbrError, /^AMBR: /),
   ].every(Boolean);

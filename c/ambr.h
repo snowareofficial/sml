@@ -13,11 +13,12 @@
 **     guessed.
 **   ｜ 主路径只解 VALUE/STRTAB；`sml_ambr_load_typed` 另解 TYPED/SCHEMA；压缩/加密的 VALUE 报错。
 **
-** 错误信息：解码错误不占 `errors/codes.sml` 五端码位，当前不带码，消息前缀是 `AMBR:`。
-** 落 `E-AMBR-*` 须改该表并重生成五端产物，不在本端手写码。
-** ｜ Error messages: decoder errors are outside the five-end code table and carry no code;
-**    the `AMBR:` prefix is current. Any `E-AMBR-*` code must be added via `errors/codes.sml`
-**    with all five ends regenerated, never hand-written in this binding.
+** 错误信息：`errors/codes.sml` 的独立 `AMBR` 域（`E-AMBR-001`…`008`）；
+** FFI 错误串形如 `AMBR: [E-AMBR-002] <detail>`，宿主按方括号里的码分支，不解析文案。
+** 码由 `rust/amberice/src/error.rs` 的 `AmbrError` 统一给出，本端不手抄码表。
+** ｜ Error messages: the standalone `AMBR` domain in `errors/codes.sml`
+**    (`E-AMBR-001`..`008`). FFI errors read `AMBR: [E-AMBR-002] <detail>`; hosts branch on
+**    the bracketed code, never on prose. Source: `amberice::AmbrError`.
 **
 ** Memory / 内存: the returned tree is owned by the caller (`sml_free`).
 ** 编译: gcc sml.c ambr.c test_ambr.c -o test_ambr
