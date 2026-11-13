@@ -115,7 +115,7 @@ namespace Amberice
         public static string LoadText(byte[] data)
         {
             if (data == null) throw new ArgumentNullException(nameof(data));
-            if (data.Length == 0) throw new AmbericeException("AMBR: empty input");
+            if (data.Length == 0) throw new AmbericeException("AMBR: [E-AMBR-001] empty input");
 
             var err = new byte[ErrSize];
             IntPtr ptr = ambr_text(data, (UIntPtr)data.Length, err, (UIntPtr)err.Length);
@@ -173,11 +173,11 @@ namespace Amberice
             if (text == null) throw new ArgumentNullException(nameof(text));
             if ((Capabilities & Capability.Write) == 0)
                 throw new AmbericeException(
-                    "AMBR: this build is read-only — rebuild amberice-ffi with --features sml / " +
+                    "AMBR: [E-AMBR-003] this build is read-only — rebuild amberice-ffi with --features sml / " +
                     "本次构建只读：请用 --features sml 重新构建 amberice-ffi");
 
             byte[] utf8 = System.Text.Encoding.UTF8.GetBytes(text);
-            if (utf8.Length == 0) throw new AmbericeException("AMBR: empty input");
+            if (utf8.Length == 0) throw new AmbericeException("AMBR: [E-AMBR-001] empty input");
 
             var err = new byte[ErrSize];
             UIntPtr outLen;
@@ -203,7 +203,7 @@ namespace Amberice
             int n = Array.IndexOf(err, (byte)0);
             if (n < 0) n = err.Length;
             string msg = System.Text.Encoding.UTF8.GetString(err, 0, n);
-            return string.IsNullOrEmpty(msg) ? "AMBR: decode failed (no message)" : msg;
+            return string.IsNullOrEmpty(msg) ? "AMBR: [E-AMBR-008] decode failed (no message)" : msg;
         }
     }
 }

@@ -63,7 +63,10 @@ def target_dir():
 
 
 def build():
-    cmd = ["cargo", "build", "-p", "amberice-ffi", "--features", "sml",
+    # `allow-32bit`：wasm32 是 32 位目标，`sml-value` 默认拒编（u64→usize 截断风险）。
+    # 只在这条 wasm 构建命令里显式开，native 构建一律不带。
+    # ｜ wasm32 needs the explicit 32-bit risk opt-in; native builds never pass it.
+    cmd = ["cargo", "build", "-p", "amberice-ffi", "--features", "sml,allow-32bit",
            "--release", "--target", TARGET]
     print("[..] " + " ".join(cmd) + "   (cwd=rust)")
     rc = subprocess.call(cmd, cwd=RUST)

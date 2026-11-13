@@ -84,7 +84,7 @@ export function createAmbrWriter(instance) {
     const bytes = enc.encode(text);
     const cap = Math.max(bytes.length, 1);
     const p = ptr(ex.ambr_alloc(cap));
-    if (!p) throw new AmbrError("AMBR: ambr_alloc 返回 NULL（内存不足？）");
+    if (!p) throw new AmbrError("AMBR: [E-AMBR-007] ambr_alloc 返回 NULL（内存不足？）");
     new Uint8Array(ex.memory.buffer, p, bytes.length).set(bytes);
     return [p, bytes.length, cap];
   }
@@ -100,10 +100,10 @@ export function createAmbrWriter(instance) {
     if (typeof text !== "string") {
       throw new TypeError("pack(text): text 必须是 String / must be a string");
     }
-    if (text.length === 0) throw new AmbrError("AMBR: empty input");
+    if (text.length === 0) throw new AmbrError("AMBR: [E-AMBR-001] empty input");
     if (!writable()) {
       throw new AmbrError(
-        "AMBR: this build is read-only — rebuild amberice-ffi with --features sml / " +
+        "AMBR: [E-AMBR-003] this build is read-only — rebuild amberice-ffi with --features sml / " +
           "本次构建只读：请用 --features sml 重新构建 amberice-ffi"
       );
     }
@@ -113,11 +113,11 @@ export function createAmbrWriter(instance) {
     const pErr = ptr(ex.ambr_alloc(ERR_SIZE));
     try {
       const pOut = ptr(ex.ambr_pack_text(pIn, len, pLen, pErr, ERR_SIZE));
-      if (!pOut) throwFromErr(pErr, "AMBR: encode failed (no message)");
+      if (!pOut) throwFromErr(pErr, "AMBR: [E-AMBR-008] encode failed (no message)");
       const n = new DataView(ex.memory.buffer).getUint32(pLen, true);
       if (n === 0) {
         ex.ambr_free_bytes(pOut, 0);
-        throw new AmbrError("AMBR: encoder returned 0 bytes");
+        throw new AmbrError("AMBR: [E-AMBR-008] encoder returned 0 bytes");
       }
       // Copy out: the returned slice lives in linear memory, which may grow later.
       // ｜ 先拷出来：返回的切片在线性内存里，后续分配可能让它失效。
@@ -135,15 +135,15 @@ export function createAmbrWriter(instance) {
   /// 把 `.ambr` 字节解成 canonical 文本（与其余各端同一符号）。
   function canonicalText(input) {
     const b = input instanceof Uint8Array ? input : new Uint8Array(input);
-    if (b.length < 40) throw new AmbrError("AMBR: 文件短于 40 B 头");
+    if (b.length < 40) throw new AmbrError("AMBR: [E-AMBR-002] 文件短于 40 B 头");
     const cap = Math.max(b.length, 1);
     const p = ptr(ex.ambr_alloc(cap));
-    if (!p) throw new AmbrError("AMBR: ambr_alloc 返回 NULL（内存不足？）");
+    if (!p) throw new AmbrError("AMBR: [E-AMBR-007] ambr_alloc 返回 NULL（内存不足？）");
     const pErr = ptr(ex.ambr_alloc(ERR_SIZE));
     new Uint8Array(ex.memory.buffer, p, b.length).set(b);
     try {
       const pOut = ptr(ex.ambr_text(p, b.length, pErr, ERR_SIZE));
-      if (!pOut) throwFromErr(pErr, "AMBR: decode failed (no message)");
+      if (!pOut) throwFromErr(pErr, "AMBR: [E-AMBR-008] decode failed (no message)");
       try {
         return readCStr(ex, pOut);
       } finally {

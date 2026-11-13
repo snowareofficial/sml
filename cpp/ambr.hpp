@@ -8,10 +8,10 @@
 // by the typed loader. No compression / encryption — such VALUE bodies are refused.
 // ｜ 主路径只解 VALUE/STRTAB；`ambr_load_typed` 另解 TYPED/SCHEMA；压缩或加密的 VALUE 明确报错。
 //
-// 错误：容器错误不占 `errors/codes.sml` 五端码位，当前不带码、前缀 `AMBR:`；
-// 落 `E-AMBR-*` 须改该表并重生成五端产物，不在本端手写码。
-// ｜ Errors: outside the five-end code table; no code, `AMBR:` prefix. Any `E-AMBR-*`
-//    code must be added via `errors/codes.sml` with all ends regenerated.
+// 错误：`errors/codes.sml` 的独立 `AMBR` 域（`E-AMBR-001`…`008`）；FFI 串形如
+// `AMBR: [E-AMBR-002] <detail>`，宿主按码分支。码来自 `amberice::AmbrError`。
+// ｜ Errors: standalone `AMBR` domain (`E-AMBR-001`..`008`); FFI strings carry
+//    `AMBR: [E-AMBR-002] <detail>` so hosts can branch on the code.
 #ifndef SML_AMBR_HPP
 #define SML_AMBR_HPP
 

@@ -31,7 +31,7 @@ local has_ffi, ffi = pcall(require, "ffi")
 if not has_ffi then
   -- Keep the module shape; fail at the call site with a message that names the cause.
   -- 保持模块形状；调用时才失败，并说明原因。
-  local msg = "AMBR: LuaJIT ffi unavailable — writes need LuaJIT / 写入需要 LuaJIT 的 ffi"
+  local msg = "AMBR: [E-AMBR-007] LuaJIT ffi unavailable — writes need LuaJIT / 写入需要 LuaJIT 的 ffi"
   function M.capabilities() return 0, msg end
   function M.pack_text() return nil, msg end
   function M.pack_text_file() return nil, msg end
@@ -53,7 +53,7 @@ local function lib()
   if name == nil or name == "" then name = "amberice_ffi" end
   local ok, l = pcall(ffi.load, name)
   if not ok then
-    return nil, "AMBR: cannot load libamberice_ffi / 加载失败: " .. tostring(l)
+    return nil, "AMBR: [E-AMBR-007] cannot load libamberice_ffi / 加载失败: " .. tostring(l)
   end
   _lib = l
   return _lib
@@ -77,7 +77,7 @@ function M.pack_text(text)
   local caps = tonumber(l.ambr_caps())
   -- Lua 5.1 has no bitwise ops: `caps & CAP_WRITE` as floor-division.
   if math.floor(caps / M.CAP_WRITE) % 2 == 0 then
-    return nil, "AMBR: this build is read-only — rebuild amberice-ffi with --features sml"
+    return nil, "AMBR: [E-AMBR-003] this build is read-only — rebuild amberice-ffi with --features sml"
   end
 
   local errbuf = ffi.new("char[256]")
@@ -100,7 +100,7 @@ function M.pack_text_file(text, path)
   if not bytes then return nil, err end
 
   local f, ferr = io.open(path, "wb")
-  if not f then return nil, "AMBR: cannot write " .. path .. ": " .. tostring(ferr) end
+  if not f then return nil, "AMBR: [E-AMBR-007] cannot write " .. path .. ": " .. tostring(ferr) end
   f:write(bytes)
   f:close()
   return #bytes, nil

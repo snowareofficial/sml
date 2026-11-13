@@ -30,7 +30,7 @@ unsigned ambr_caps() { return ::ambr_caps(); }
 std::optional<std::vector<unsigned char>> ambr_pack_text(std::string_view text, std::string* err) {
     if (!ambr_can_write()) {
         if (err) {
-            *err = "AMBR: this build is read-only — rebuild amberice-ffi with --features sml / "
+            *err = "AMBR: [E-AMBR-003] this build is read-only — rebuild amberice-ffi with --features sml / "
                    "本次构建只读：请用 --features sml 重新构建 amberice-ffi";
         }
         return std::nullopt;
