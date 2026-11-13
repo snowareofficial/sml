@@ -81,6 +81,22 @@ pub const DEFAULT_CRYPTO_BLOCK: u32 = 4096;
 pub const DEFAULT_PAD_QUANTUM: u32 = 64;
 /// Default patch strategy (§21 / D22). ｜ 默认补丁策略。
 pub const DEFAULT_PATCH_STRATEGY: &str = "override";
+/// `override`：新文档直接替换旧文档 —— 当前唯一实现的策略。
+pub const PATCH_STRATEGY_OVERRIDE: &str = "override";
+/// `zstd-patch`：**预留、未实现**。读到它必须显式拒绝，不得当成 `override` 处理
+/// （那会把「增量补丁」误当「整份覆盖」，得到一个看似成功、实则内容错误的结果）。
+/// ｜ Reserved, not implemented.
+pub const PATCH_STRATEGY_ZSTD: &str = "zstd-patch";
+
+/// 是否为已登记的策略（含预留）。未知策略仍按宽松接受（前向兼容），由读者自行判断。
+pub fn is_known_patch_strategy(s: &str) -> bool {
+    matches!(s, PATCH_STRATEGY_OVERRIDE | PATCH_STRATEGY_ZSTD)
+}
+
+/// 该策略在本构建里是否**已实现**（只有 `override`）。
+pub fn is_implemented_patch_strategy(s: &str) -> bool {
+    s == PATCH_STRATEGY_OVERRIDE
+}
 
 /// The manifest (a `Value` in memory, T0 bytes on disk). ｜ manifest 的内存形态。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -741,6 +757,16 @@ mod tests {
         let m = sample();
         let bytes = m.to_bytes().unwrap();
         assert_eq!(Manifest::from_bytes(&bytes).unwrap(), m);
+    }
+
+    #[test]
+    fn patch_strategy_reservation() {
+        assert!(is_known_patch_strategy(PATCH_STRATEGY_OVERRIDE));
+        assert!(is_known_patch_strategy(PATCH_STRATEGY_ZSTD));
+        assert!(!is_known_patch_strategy("diff"));
+        assert!(is_implemented_patch_strategy(PATCH_STRATEGY_OVERRIDE));
+        // 预留 ≠ 实现：`zstd-patch` 不能被当成 `override` 处理。
+        assert!(!is_implemented_patch_strategy(PATCH_STRATEGY_ZSTD));
     }
 
     #[test]

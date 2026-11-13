@@ -592,6 +592,18 @@ KDF 从 `0x50–0x5F` 迁走。
 - 回归：`cargo clippy -p smltools --all-targets`（默认与 `--features amberice`）0 告警；
   `--profiles-require-signature` 对无签名包返回 rc=1。
 
+### 新增（增量补丁预留：`PTCH` 段约定与 `zstd-patch` 策略）
+
+- **规范 §19.15.5**：登记 `PTCH`（`submagic = PTCH`，v1）的载荷约定
+  `{ base, target, algo }`，补丁正文将来走 `0xF1`–`0xFF` 应用二进制流；**本版不实现**，
+  读到只当扩展列出，不参与 `VALUE` 解码。
+- **`patch_strategy` 取值表**：`override`（已实现，默认）/ `zstd-patch`（预留，未实现）。
+  `amberice info` 遇到未实现策略会标注「（预留，本构建未实现）」，
+  **不得**把它当 `override` 应用 —— 那会把增量当覆盖，得到看似成功、内容错误的结果。
+- 代码新增 `PATCH_STRATEGY_OVERRIDE` / `PATCH_STRATEGY_ZSTD`、
+  `is_known_patch_strategy()`、`is_implemented_patch_strategy()`（纯判定，不改解析行为）。
+- 回归：`cargo test -p amberice --lib manifest` 12 例（新增「预留 ≠ 实现」用例）。
+
 ### 变更（仓库治理：文档生成物幂等）
 
 - `smldocs --index` / `--report` 的头行改记 `docs/meta.sml` 的内容摘要（FNV-1a 64），
