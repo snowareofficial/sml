@@ -783,6 +783,7 @@ dependencies = [
 name = "smltools"
 version = "0.6.9-dev.0"
 dependencies = [
+ "amberice",
  "clap",
  "sml-codes",
  "swsml",

@@ -49,6 +49,8 @@ swsml = { version = "0.6.9-dev.0", path = "../", features = [
     "emit-custom",
 ] }
 clap = { version = "4.5", features = ["derive"] }
+# 安装 `.ambr` 包时要验签：直接依赖 `amberice` 的 `sign` feature（`swsml` 只转发 envelope）。
+amberice = { version = "0.6.9-dev.0", path = "../amberice", features = ["sign"], optional = true }
 
 [features]
 # 对象保序：转发到 swsml（理由见 ../sml-parse/Cargo.toml 的同名注释 ——
@@ -57,7 +59,7 @@ clap = { version = "4.5", features = ["derive"] }
 # `.ambr` 信封 = `swsml` 的 `amberice` feature（`sml::envelope`）。
 preserve_order = ["swsml/preserve_order"]
 # 需要 `.ambr` 信封时同时打开（转发到 swsml 的同名 feature）。
-amberice = ["swsml/amberice"]
+amberice = ["swsml/amberice", "dep:amberice"]
 # `--to-amberice --amberice-compress N` 需要它（再把 zstd 拉进来）。
 amberice-compress = ["amberice", "swsml/amberice-compress"]
 # `--to-amberice --keep-source` 需要它（SOURCE 段，D46；原文入文件即敏感面）。

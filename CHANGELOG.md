@@ -578,6 +578,20 @@ KDF 从 `0x50–0x5F` 迁走。
 - 回归：`cargo test -p amberice --test user_segment` 2 例（写入并被 `info` 报告；
   默认不写 USER 段）。
 
+### 新增（安装 `.ambr` 包时验签：默认提示、可强制）
+
+- `smltools --profiles-install` 装 `.ambr` 包时接上 `amberice::sign`（多签名层链 + 委托）：
+  - **默认**：验签并打印结论（`有签名层且内容完整` / `没有签名层`），**不阻断**；
+  - `--profiles-trust <HEX64>`：给信任锚，**必须**验签通过（锚点匹配）才装；
+  - `--profiles-require-signature`：无签名层或验签失败 ⇒ 拒绝（rc=1）。
+- 摘要/签名算法取 manifest 的 `hash_id`；「没有签名层」与「有签名但没锚点」分开表述，
+  不假装验过。
+- `smltools` 直接依赖 `amberice`（`sign` feature，`amberice` feature 转发 `dep:amberice`）；
+  默认构建下 `--profiles-trust` / `--profiles-require-signature` 会明确报「本构建未启用」。
+- 规范 `docs/swsml/spec/smlex.md` 新增 §11.5（三种签名策略）。
+- 回归：`cargo clippy -p smltools --all-targets`（默认与 `--features amberice`）0 告警；
+  `--profiles-require-signature` 对无签名包返回 rc=1。
+
 ### 变更（仓库治理：文档生成物幂等）
 
 - `smldocs --index` / `--report` 的头行改记 `docs/meta.sml` 的内容摘要（FNV-1a 64），
