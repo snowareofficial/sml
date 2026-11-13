@@ -14,6 +14,10 @@
 //!    「大概也行」的默认（`0x32` 曾长期处于这个状态，实现见 [`crate::blake3`]）；
 //! 3. **默认只影响写、不影响读**：写文件时默认 SHA-256；读文件一律以 manifest 的 `hash_id` 为准
 //!    （`hash_id` 缺失时也退回默认，那是 T1 时代没有 manifest 的文件）。
+//! 4. **预留位**：`0x33` 留给国密 SM 系列抗量子哈希（算法待国标发布）。当前只是登记编号，
+//!    `digest` 报 `NotImplemented`；编号永不复用。
+//!    ｜ `0x33` is reserved for a future SM-family post-quantum digest: registered,
+//!    not implemented, never reassigned.
 
 /// Algorithms from §20's hash range (all produce 32-byte digests).
 /// §20 哈希区间的算法（都产出 32 B 摘要）。
@@ -27,6 +31,12 @@ pub enum HashAlgo {
     /// `0x32` — BLAKE3 (unkeyed 32 B digest; see [`crate::blake3`]).
     /// `0x32` ✓ 已实现（无密钥 32 B 摘要，见 [`crate::blake3`]）。
     Blake3,
+    /// `0x33` — **预留**：国密 SM 系列抗量子 / 量子安全哈希（算法待国标发布）。
+    /// 占位不是实现：本构建算不出来，读端必须报 [`HashError::NotImplemented`]，
+    /// 不许退回 SHA-256 假装验过。编号一经预留不得挪作它用（§20「编号永不复用」）。
+    /// ｜ Reserved for a future Chinese-standard (SM family) post-quantum digest.
+    /// Registration is NOT implementation: `digest` returns `NotImplemented`.
+    SmPqcDigest,
 }
 
 /// What this build writes when the caller does not choose. ｜ 调用方不指定时的写入口径。
@@ -39,6 +49,7 @@ impl HashAlgo {
             HashAlgo::Sha256 => 0x30,
             HashAlgo::Sm3 => 0x31,
             HashAlgo::Blake3 => 0x32,
+            HashAlgo::SmPqcDigest => 0x33,
         }
     }
 
@@ -49,6 +60,7 @@ impl HashAlgo {
             0x30 => Some(HashAlgo::Sha256),
             0x31 => Some(HashAlgo::Sm3),
             0x32 => Some(HashAlgo::Blake3),
+            0x33 => Some(HashAlgo::SmPqcDigest),
             _ => None,
         }
     }
@@ -59,12 +71,14 @@ impl HashAlgo {
             HashAlgo::Sha256 => "SHA-256",
             HashAlgo::Sm3 => "SM3",
             HashAlgo::Blake3 => "BLAKE3",
+            HashAlgo::SmPqcDigest => "SM-PQC-DIGEST (reserved)",
         }
     }
 
     /// Does this build actually compute it? ｜ 本构建真能算吗？
     pub const fn is_implemented(self) -> bool {
         matches!(self, HashAlgo::Sha256 | HashAlgo::Sm3 | HashAlgo::Blake3)
+        // `SmPqcDigest` 故意不在内：预留位没有实现，读端必须明确拒绝。
     }
 }
 
@@ -100,6 +114,8 @@ pub fn digest(algo: HashAlgo, data: &[u8]) -> Result<[u8; 32], HashError> {
         HashAlgo::Sha256 => Ok(crate::sha256::digest(data)),
         HashAlgo::Sm3 => Ok(crate::sm3::digest(data)),
         HashAlgo::Blake3 => Ok(crate::blake3::digest(data)),
+        // 预留位：登记了编号但本构建算不出 ⇒ 明确拒绝，绝不猜一个算法去验。
+        HashAlgo::SmPqcDigest => Err(HashError::NotImplemented(0x33)),
     }
 }
 
@@ -119,7 +135,23 @@ mod tests {
         for algo in [HashAlgo::Sha256, HashAlgo::Sm3, HashAlgo::Blake3] {
             assert_eq!(HashAlgo::from_id(algo.id()), Some(algo));
         }
-        assert_eq!(HashAlgo::from_id(0x33), None);
+        // 0x33 是**预留**（能反查，但没有实现）；0x34 起仍是未知。
+        assert_eq!(HashAlgo::from_id(0x33), Some(HashAlgo::SmPqcDigest));
+        assert_eq!(HashAlgo::from_id(0x34), None);
+    }
+
+    #[test]
+    fn reserved_sm_pqc_slot_is_registered_but_not_implemented() {
+        let a = HashAlgo::SmPqcDigest;
+        assert_eq!(a.id(), 0x33);
+        assert!(!a.is_implemented(), "预留位不能标成已实现");
+        assert_eq!(
+            digest_by_id(0x33, b"abc"),
+            Err(HashError::NotImplemented(0x33)),
+            "预留位必须明确拒绝，不能退回 SHA-256"
+        );
+        assert_eq!(digest_by_id(0x34, b"abc"), Err(HashError::Unknown(0x34)));
+        assert!(a.name().contains("reserved"));
     }
 
     #[test]

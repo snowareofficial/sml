@@ -167,6 +167,23 @@ en_msgs = json.loads(read("errors/msg.en.json"))
 missing_en = sorted(c for c in ambr_codes if c not in en_msgs)
 check("AMBR 码有英文 title/msg（i18n）", not missing_en, f"缺英文={missing_en}")
 
+# ---------------------------------------------------------------------------
+# 6. §20 hash_id 预留位：0x33 已登记、未实现，且规范同步
+# ---------------------------------------------------------------------------
+hash_src = read("rust/amberice/src/hash.rs")
+spec = read("docs/amberice/spec/format.md")
+check("0x33 在 HashAlgo 里登记",
+      "0x33 => Some(HashAlgo::SmPqcDigest)" in hash_src
+      and "HashAlgo::SmPqcDigest => 0x33" in hash_src)
+check("0x33 未实现且明确拒绝",
+      "HashAlgo::SmPqcDigest => Err(HashError::NotImplemented(0x33))" in hash_src)
+check("0x33 没被算作已实现",
+      "matches!(self, HashAlgo::Sha256 | HashAlgo::Sm3 | HashAlgo::Blake3)" in hash_src)
+check("规范 §20.3 同步预留位",
+      "### 20.3 预留编号（`0x33`）" in spec and "`0x33` 国密 SM 系列抗量子哈希（预留）" in spec)
+check("0x34 仍是未知编号",
+      "assert_eq!(HashAlgo::from_id(0x34), None);" in hash_src)
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} 项未对齐：" + "、".join(FAILURES))
