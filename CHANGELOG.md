@@ -418,6 +418,24 @@ KDF 从 `0x50–0x5F` 迁走。
 - 回归：`cargo test -p amberice --lib` **31 例**（新增 HashPath 往返 / 拒绝畸形 /
   manifest 多级往返 / 一级仍是整数 / 畸形 hash_id 被拒）。
 
+### 新增（JS 端补齐 `hash_id` 分派：SM3 + BLAKE3）
+
+- **零依赖算法**：新增 `js/sm3.mjs`（GB/T 32905-2016）与 `js/blake3.mjs`
+  （无密钥 32 B，与 `rust/amberice/src/blake3.rs` 同构：1 KiB 分块、chunk 链、父节点合并、
+  `ROOT` 收尾）。官方向量全过：SM3 空串 / `abc`；BLAKE3 0 / 1 / 1024 / 1025 / 2049 / 3072 B。
+- **按 manifest 分派**：`js/ambr.mjs` 先扫段表找到 `MANIFEST`(0x04)，按自包含 canonical
+  编码解出 `hash_id`，再据此选摘要函数（`0x30` SHA-256 / `0x31` SM3 / `0x32` BLAKE3），
+  连 manifest 段自己也一起验。**不再写死 SHA-256**，也不会对 SM3/BLAKE3 文件误报
+  「摘要不符」。
+- **预留号与多级元组不猜**：`hash_id` 为预留号（`0x33` 起）或多级元组时，
+  解码器**明确跳过**摘要校验并标注（`options.report.skipped`），不退回 SHA-256。
+- **跨端夹具**：新增 `tests/vectors/amberice-hash-algos.v1.json`（Rust
+  `dump_with(hash = Sm3 | Blake3)` 生成，各 724 B），JS 端直接读它验证
+  `report.hashId` 与 `verified`；另加「改坏段摘要必须报错」的反例，证明分派真的换了算法。
+- CI 增 `node js/test-ambr-hash.mjs` 一步。
+- 回归：JS `test-ambr-hash`（官方向量 + 夹具 + 反例全过）、`test-ambr-decoder` 22/22、
+  `test-ambr-write` ALL OK。
+
 ### 变更（仓库治理：文档生成物幂等）
 
 - `smldocs --index` / `--report` 的头行改记 `docs/meta.sml` 的内容摘要（FNV-1a 64），

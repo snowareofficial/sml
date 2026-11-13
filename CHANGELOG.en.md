@@ -460,6 +460,28 @@ a version), sub-ids are 2 bytes, and KDF moves out of `0x50–0x5F`.
 - Regressions: `cargo test -p amberice --lib` (**31 tests**, including HashPath round-trip,
   malformed-value rejection, manifest multi-level round-trip, one-level stays an integer).
 
+### Added (JS gains `hash_id` dispatch: SM3 + BLAKE3)
+
+- **Dependency-free algorithms**: new `js/sm3.mjs` (GB/T 32905-2016) and `js/blake3.mjs`
+  (unkeyed 32-byte digest, mirroring `rust/amberice/src/blake3.rs`: 1 KiB chunks, chunk
+  chaining, parent merging, `ROOT` finalisation). All official vectors pass: SM3 empty / `abc`;
+  BLAKE3 at 0 / 1 / 1024 / 1025 / 2049 / 3072 bytes.
+- **Dispatch from the manifest**: `js/ambr.mjs` first scans the segment table for
+  `MANIFEST` (0x04), decodes its self-contained canonical body to read `hash_id`, then picks
+  the digest (`0x30` SHA-256 / `0x31` SM3 / `0x32` BLAKE3) — verifying the manifest segment
+  itself too. SHA-256 is no longer hardcoded, so SM3/BLAKE3 files stop yielding false
+  "digest mismatch" errors.
+- **Reserved ids and multi-level tuples are not guessed**: for a reserved `hash_id`
+  (`0x33`+) or an escape tuple, the decoder **skips** digest verification explicitly and
+  records it (`options.report.skipped`) instead of falling back to SHA-256.
+- **Cross-end fixture**: `tests/vectors/amberice-hash-algos.v1.json` (produced by Rust
+  `dump_with(hash = Sm3 | Blake3)`, 724 B each) is read by the JS test to assert
+  `report.hashId` / `verified`, plus a tampered-digest negative case proving the dispatch
+  really changes algorithms.
+- CI gained `node js/test-ambr-hash.mjs`.
+- Regressions: `test-ambr-hash` (vectors + fixtures + negative case), `test-ambr-decoder`
+  22/22, `test-ambr-write` ALL OK.
+
 ### 🚨 Breaking — version naming: `Version` enum → `Edition` lookup
 
 An edition is just a **name for a set of default feature bits** (`docs/swsml/spec/version.md` v1.0).

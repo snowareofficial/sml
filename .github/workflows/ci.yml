@@ -113,6 +113,9 @@ jobs:
       # 这一步是「四端照文件对齐」的第一个可执行判据。
       - name: JS .ambr 解码器（容器向量）
         run: node js/test-ambr-decoder.mjs
+      # hash_id 分派：SM3 / BLAKE3 官方向量 + Rust 生成的两种算法的容器夹具 + 坏摘要反例。
+      - name: JS hash_id 分派（SM3 / BLAKE3）
+        run: node js/test-ambr-hash.mjs
       - name: JS 四份副本一致性
         run: python3 tools/check/check_js_copies.py
       - name: Lua 检查
