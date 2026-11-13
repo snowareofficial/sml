@@ -20,10 +20,13 @@
 //! so canonical bytes cannot drift). ｜ 摘要与编码器不在本文件：写入见 `ambr_write.mjs`。
 
 import { sha256, digestEqual } from "./sha256.mjs";
+import { sm3 } from "./sm3.mjs";
+import { blake3 } from "./blake3.mjs";
 
 const MAGIC = [0x41, 0x4d, 0x42, 0x52]; // "AMBR"
 const SEG_VALUE = 0x01;
 const SEG_STRTAB = 0x02;
+const SEG_MANIFEST = 0x04;
 const SEG_TYPED = 0x70;
 const SEG_SCHEMA = 0x71;
 const ALIGN_MIN = 8;
@@ -189,6 +192,45 @@ function decodeNode(r, strtab, depth, maxDepth) {
   return value;
 }
 
+/// §20 `hash_id` → 摘要函数。返回 `null` = 本解码器算不了（预留号 / 多级元组），
+/// 此时**跳过校验并明确标注**，绝不退回 SHA-256 假装验过。
+/// ｜ Map a §20 `hash_id` to a digest function; `null` means "cannot verify", which is
+/// reported and skipped — never silently treated as SHA-256.
+function digestFnFor(hashId) {
+  if (hashId === 0x30) return sha256;
+  if (hashId === 0x31) return sm3;
+  if (hashId === 0x32) return blake3;
+  return null;
+}
+
+/// 从 `MANIFEST`(0x04) 段体读 `hash_id`。manifest 是**自包含**的 canonical 编码：
+/// `varint count` + `count × (varint len ‖ utf8)` + 一个节点树，所以这里先解它自己的
+/// 字符串表，再复用 `decodeNode`。
+/// ｜ Read `hash_id` from the manifest body: it is a self-contained canonical encoding.
+function readHashId(body) {
+  const r = new Reader(body);
+  const count = Number(r.varint());
+  if (!Number.isSafeInteger(count) || count < 0 || count > body.length) {
+    throw new AmbrError("manifest 字符串表项数异常", 0);
+  }
+  const dec = new TextDecoder("utf-8", { fatal: true });
+  const strtab = [];
+  for (let i = 0; i < count; i++) {
+    const len = Number(r.varint());
+    if (!Number.isSafeInteger(len) || len < 0 || r.pos + len > body.length) {
+      throw new AmbrError("manifest 字符串表越界", r.pos);
+    }
+    strtab.push(dec.decode(body.subarray(r.pos, r.pos + len)));
+    r.pos += len;
+  }
+  const tree = decodeNode(r, strtab, 0, 64);
+  const raw = tree && tree.hash_id;
+  if (Array.isArray(raw)) return { hashId: raw[0], multi: true };
+  if (typeof raw === "number") return { hashId: raw, multi: false };
+  // 缺 `hash_id` 是 manifest 的错误，但解码值不依赖它 —— 按 §21 默认 SHA-256。
+  return { hashId: 0x30, multi: false };
+}
+
 /// Decode a `STRTAB` segment body: `(len:varint ‖ utf8)*` — **no** count prefix.
 /// 解 `STRTAB` 段体：`(len:varint ‖ utf8)*`，**不带**表项个数。
 function decodeStrtab(bytes) {
@@ -236,7 +278,46 @@ function walk(input, options = {}) {
   if (tableOff < hdrLen) throw new AmbrError(`段表偏移 ${tableOff} 落在头内`, 8);
 
   const align = (flags & 1) !== 0 ? ALIGN_BLOCK : ALIGN_MIN;
-  let bodyAt = alignUp(tableOff + count * SEG_HEADER, align);
+  const tableEnd = alignUp(tableOff + count * SEG_HEADER, align);
+
+  // 引导顺序（与 Rust 一致）：先扫一遍段表找出 `MANIFEST`，解出 `hash_id`，
+  // 再用它验其余段（连 manifest 自己一起验）。
+  // ｜ Bootstrap: read `hash_id` from the manifest first, then verify with it.
+  const report = options.report;
+  let hashId = 0x30;
+  let multiLevel = false;
+  if (options.verify !== false) {
+    let at = tableEnd;
+    for (let i = 0; i < count; i++) {
+      const o = tableOff + i * SEG_HEADER;
+      if (o + SEG_HEADER > b.length) throw new AmbrError("段表越界", o);
+      const id = b[o];
+      const comp = b[o + 1];
+      const enc = b[o + 2];
+      const len = readU32(b, o + 5);
+      if (at + len > b.length) throw new AmbrError(`段 0x${id.toString(16)} 长度越界`, o);
+      if (id === SEG_MANIFEST && comp === 0 && enc === 0) {
+        const found = readHashId(b.subarray(at, at + len));
+        hashId = found.hashId;
+        multiLevel = found.multi;
+        break;
+      }
+      at = alignUp(at + len, align);
+    }
+  }
+  const digestFn = digestFnFor(hashId);
+  const canVerify = options.verify !== false && digestFn !== null;
+  if (report) {
+    report.hashId = hashId;
+    report.multiLevel = multiLevel;
+    report.verified = canVerify;
+    report.skipped = options.verify !== false && digestFn === null
+      ? `hash_id 0x${hashId.toString(16)} 本解码器未实现，已跳过摘要校验`
+      : null;
+    report.segments = [];
+  }
+
+  let bodyAt = tableEnd;
   const parts = {
     valueBytes: null,
     strtabBytes: null,
@@ -257,22 +338,26 @@ function walk(input, options = {}) {
     if (bodyAt + len > b.length) throw new AmbrError(`段 0x${id.toString(16)} 长度越界`, o);
     const wanted =
       id === SEG_VALUE || id === SEG_STRTAB || id === SEG_TYPED || id === SEG_SCHEMA;
-    if (wanted) {
+    const isManifest = id === SEG_MANIFEST;
+    if (wanted || isManifest) {
       if (comp !== 0) throw new AmbrError(`段 0x${id.toString(16)} 压缩过（comp=${comp}），本解码器不解压`, o);
       if (enc !== 0) throw new AmbrError(`段 0x${id.toString(16)} 加密过（enc=${enc}），本解码器不解密`, o);
       const body = b.subarray(bodyAt, bodyAt + len);
-      // Digest check (T7 criterion: "read the header, skip, **verify the digest**").
-      // ｜ T7 判据里的「验摘要」：段头 32 B 就是对段体做的 SHA-256。
-      if (options.verify !== false) {
+      // 摘要校验：算法由 manifest 的 `hash_id` 决定（§20），不是写死 SHA-256。
+      // ｜ Digest check dispatch: the algorithm comes from `hash_id`, never hardcoded.
+      if (canVerify) {
         const want = b.subarray(o + 9, o + 41);
-        if (!digestEqual(sha256(body), want)) {
+        if (!digestEqual(digestFn(body), want)) {
           throw new AmbrError(`段 0x${id.toString(16)} 摘要不符（段体被改动？）`, bodyAt);
         }
+        if (report) report.segments.push({ id, verified: true });
+      } else if (report && options.verify !== false) {
+        report.segments.push({ id, verified: false });
       }
       if (id === SEG_VALUE) parts.valueBytes = body;
       else if (id === SEG_STRTAB) parts.strtabBytes = body;
       else if (id === SEG_TYPED) parts.typedBytes = body;
-      else parts.schemaBytes = body;
+      else if (id === SEG_SCHEMA) parts.schemaBytes = body;
     }
     bodyAt = alignUp(bodyAt + len, align);
   }
