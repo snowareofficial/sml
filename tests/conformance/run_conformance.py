@@ -281,8 +281,10 @@ def prep_c(tmp):
         return ep
     exe = os.path.join(tmp, "dump_c.exe")
     src = os.path.join(ROOT, "tools", "gen", "dump_c.c")     # 复用 W4 的 C 侧 dumper
+    # `-lm`：`sml.c` 的 `add_float` 用了 `floor()`，Linux 上 libm 不自动链接
+    # （MSVC/MinGW 会）。缺了它 Linux/CI 直接链接失败，C 端会整段 SKIP。
     rc, out, err = run([cc, "-std=c99", "-I" + os.path.join(ROOT, "c"),
-                        "-o", exe, src, os.path.join(ROOT, "c", "sml.c")])
+                        "-o", exe, src, os.path.join(ROOT, "c", "sml.c"), "-lm"])
     if rc != 0:
         ep.why = "编译 C dumper 失败: " + first_line(err or out)
         return ep
