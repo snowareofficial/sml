@@ -261,6 +261,10 @@ check("fmt 门已实现（HashPathRequiresFmt + 纯函数）",
       "HashPathRequiresFmt" in read("rust/amberice/src/container.rs")
       and "fn check_hash_path_fmt(" in read("rust/amberice/src/container.rs")
       and "C::HashPathRequiresFmt { .. }" in read("rust/amberice/src/error.rs"))
+check("规范写明 USER 区（0xF0）与应用标识",
+      "### 19.15 `USER`" in spec
+      and "魔数**不可替换**" in spec
+      and "BIFC" in spec and "PTCH" in spec)
 check("规范写明 fmt 门",
       "`fmt` 门（D5，硬约束）" in spec and "HashPathRequiresFmt" in spec)
 check("五端公开「是否验过」",
