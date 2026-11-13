@@ -529,6 +529,22 @@ a version), sub-ids are 2 bytes, and KDF moves out of `0x50–0x5F`.
   cases) plus a tampered-digest negative case (`hash_id 0x31 decoded (sm3)`).
 - Regressions: `lua/run_check.py` fully green (22 vectors + SM3/BLAKE3 + negative case).
 
+### Added (pure-Java implementation gains `hash_id` dispatch: SM3 + BLAKE3)
+
+- **Verification first, then dispatch**: `bindings/java/src/main/java/sml/Ambr.java` previously
+  verified **no** segment digests (same situation as C++ and Lua). It now scans `MANIFEST`
+  (0x04) for `hash_id` and verifies every segment, including the manifest itself.
+- **Algorithms**: dependency-free SHA-256 / SM3 / BLAKE3 in plain Java (no JCA, so a missing
+  `MessageDigest.SM3` or provider drift cannot change results); `digestFor(hashId, ...)`
+  dispatches on `0x30/0x31/0x32`, and reserved ids / multi-level tuples return `null` (skip)
+  while setting `Parts.digestSkipped`.
+- **Coded errors**: `AmbrException` now renders `AMBR: [E-AMBR-xxx] <detail>` (default
+  `E-AMBR-002`), with `E-AMBR-004` for digest mismatches — consistent with the other wrappers.
+- **Tests**: `AmbrTest.java` reads `tests/vectors/amberice-hash-algos.v1.hex` (two cases) plus a
+  tampered-digest negative case asserting rejection with `E-AMBR-004`.
+- Regressions: all 22 Java vectors still pass, proving the new SHA-256 check matches existing
+  files.
+
 ### 🚨 Breaking — version naming: `Version` enum → `Edition` lookup
 
 An edition is just a **name for a set of default feature bits** (`docs/swsml/spec/version.md` v1.0).

@@ -56,7 +56,7 @@ Ruby `22/22 read + 22 round-trip`、C# `dotnet run` 全绿（连同 Java 纯实�
 | C | ✅ 2026-11-13 起解 manifest 取 `hash_id`，`0x30/31/32` 分别走 SHA-256 / SM3 / BLAKE3；预留号与多级元组跳过并置 `digest_skipped`（`c/ambr.c`） | 正常验 |
 | C++ | ✅ 2026-11-13 起解 manifest 取 `hash_id`，按 `0x30/31/32` 分派；此前**完全没验摘要**（不是写死 SHA-256），本批补上校验 + 分派（`cpp/ambr.cpp`） | 正常验 |
 | Lua | ✅ 2026-11-13 起解 manifest 取 `hash_id`，按 `0x30/31/32` 分派；纯 Lua 实现 SM3 / BLAKE3（`lua/lib/ambr_hash.lua`，用 LuaJIT 的 `bit` 库；加载不到时**明确跳过**并标注，不误报） | 正常验 |
-| Java 纯实现 | ❌ 无摘要校验（不是写错算法） | 未验 |
+| Java 纯实现 | ✅ 2026-11-13 起解 manifest 取 `hash_id`，按 `0x30/31/32` 分派（`bindings/java/.../Ambr.java`，纯 Java 实现三种算法）；预留号 / 多级元组跳过并置 `digestSkipped` | 正常验 |
 
 ⇒ 欠账不是「Rust 没分派」，而是**独立解码器没跟上**。可选两档：① 在各端补 SM3 / BLAKE3
 实现后按 `hash_id` 验；② 先做「不能算则明确跳过并标注」（D44 后续），不误报但也别假装验过。

@@ -478,6 +478,21 @@ KDF 从 `0x50–0x5F` 迁走。
   改坏摘要反例（打印 `hash_id 0x31 decoded (sm3)`）。
 - 回归：`lua/run_check.py` 全绿（22 例 + SM3/BLAKE3 + 反例）。
 
+### 新增（Java 纯实现补齐 hash_id 分派：SM3 + BLAKE3）
+
+- **先补校验，再补分派**：`bindings/java/src/main/java/sml/Ambr.java` 此前**完全不验段摘要**
+  （与 C++ / Lua 同一情况）。本批先按 §19.8 把校验补上：`walk` 先扫 `MANIFEST`(0x04) 取
+  `hash_id`，再逐段验（连 manifest 自己一起）。
+- **算法**：纯 Java 实现 SHA-256 / SM3 / BLAKE3（不依赖 JCA，避免 `MessageDigest` 缺 SM3
+  或端间漂移）；`digestFor(hashId, …)` 按 `0x30/0x31/0x32` 分派，预留号 / 多级元组返回
+  `null` 表示「跳过」并置 `Parts.digestSkipped`。
+- **错误带码**：`AmbrException` 改为 `AMBR: [E-AMBR-xxx] <detail>`（默认 `E-AMBR-002`），
+  摘要不符显式 `E-AMBR-004` —— 与其余 wrapper 的口径一致。
+- **测试**：`bindings/java/src/test/java/sml/AmbrTest.java` 读
+  `tests/vectors/amberice-hash-algos.v1.hex` 两例 + 改坏摘要反例（断言拒绝且码为
+  `E-AMBR-004`）。
+- 回归：Java 22 例仍全绿（说明新增的 SHA-256 校验与既有文件一致）。
+
 ### 变更（仓库治理：文档生成物幂等）
 
 - `smldocs --index` / `--report` 的头行改记 `docs/meta.sml` 的内容摘要（FNV-1a 64），

@@ -146,6 +146,68 @@ public final class AmbrTest {
                 "note=" + v.get("note"));
     }
 
+    /** hash_id 分派（§20）：读 tests/vectors/amberice-hash-algos.v1.hex 两例，
+     *  断言能解码且值正确；再改坏第一份的段摘要，断言必须拒绝。 */
+    private static void runHashFixtures() {
+        String fpath = null;
+        for (String c : new String[] {
+                "tests/vectors/amberice-hash-algos.v1.hex",
+                "../tests/vectors/amberice-hash-algos.v1.hex",
+                "../../tests/vectors/amberice-hash-algos.v1.hex",
+                "../../../tests/vectors/amberice-hash-algos.v1.hex" }) {
+            if (Files.isRegularFile(Path.of(c))) { fpath = c; break; }
+        }
+        if (fpath == null) {
+            check("hash fixtures", false, "amberice-hash-algos.v1.hex not found");
+            return;
+        }
+        int seen = 0;
+        try {
+            for (String line : Files.readAllLines(Path.of(fpath), StandardCharsets.UTF_8)) {
+                if (line.isEmpty() || line.startsWith("#")) continue;
+                final String[] parts = line.trim().split("\\s+");
+                if (parts.length != 3) {
+                    check("hash fixture format", false, line);
+                    continue;
+                }
+                final String id = parts[0];
+                final int hashId = Integer.parseInt(parts[1]);
+                byte[] bytes = hexToBytes(parts[2]);
+                final Object v = Ambr.load(bytes);
+                final boolean good = v instanceof java.util.Map
+                        && "u1".equals(((java.util.Map<?, ?>) v).get("who"))
+                        && Long.valueOf(7).equals(((java.util.Map<?, ?>) v).get("n"));
+                check("hash_id 0x" + Integer.toHexString(hashId) + " decoded (" + id + ")", good,
+                      good ? "" : "value mismatch: " + v);
+
+                if (seen == 0) {
+                    // 反例：改坏段表首项摘要 ⇒ 必须拒绝
+                    final long tableOff = ((long) (bytes[8] & 0xff)) | ((long) (bytes[9] & 0xff) << 8)
+                            | ((long) (bytes[10] & 0xff) << 16) | ((long) (bytes[11] & 0xff) << 24)
+                            | ((long) (bytes[12] & 0xff) << 32) | ((long) (bytes[13] & 0xff) << 40)
+                            | ((long) (bytes[14] & 0xff) << 48) | ((long) (bytes[15] & 0xff) << 56);
+                    final int at = (int) tableOff + 9;
+                    if (at < bytes.length) {
+                        bytes[at] ^= (byte) 0xff;
+                        boolean rejected = false;
+                        try {
+                            Ambr.load(bytes);
+                        } catch (Ambr.AmbrException e) {
+                            rejected = e.getMessage().contains("E-AMBR-004");
+                        }
+                        check("tampered digest -> rejected (" + id + ")", rejected,
+                              rejected ? "" : "did not reject with E-AMBR-004");
+                    }
+                }
+                seen++;
+            }
+        } catch (IOException e) {
+            check("hash fixtures read", false, e.getMessage());
+            return;
+        }
+        check("hash fixtures count", seen == 2, "expected 2, got " + seen);
+    }
+
     public static void main(String[] args) throws IOException {
         final String path = resolveFixture(args);
         final String json = Files.readString(Path.of(path), StandardCharsets.UTF_8);
@@ -164,6 +226,8 @@ public final class AmbrTest {
         }
 
         checkTyped();
+
+        runHashFixtures();
 
         System.out.println("[ambr] " + cases + " 例，" + fails + " 个失败");
         if (cases != 22) {

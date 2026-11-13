@@ -246,6 +246,12 @@ check("Lua 端按 hash_id 分派（ambr_hash + manifest）",
       and "function M.blake3(" in lua_hash_src
       and "function _ambr_manifest_hash_id(" in lua_sml_src
       and "local digest_fn = _ambr_hash_by_id(hash_id)" in lua_sml_src)
+java_ambr_src = read("bindings/java/src/main/java/sml/Ambr.java")
+check("Java 端按 hash_id 分派（manifest + digestFor）",
+      "static byte[] sm3(" in java_ambr_src
+      and "static byte[] blake3(" in java_ambr_src
+      and "private static Integer manifestHashId(" in java_ambr_src
+      and "digestFor(p.hashId" in java_ambr_src)
 check("JS 端按 hash_id 分派（manifest + digestFnFor）",
       "function readHashId(" in js_src
       and "function digestFnFor(" in js_src
