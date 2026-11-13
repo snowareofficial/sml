@@ -50,7 +50,10 @@ const (
 	SMLF_GLOB_INC     = 1 << 9
 	SMLF_REGEX_INC    = 1 << 10
 	SMLF_EXT_REWRITE  = 1 << 11
-	SMLF_BASIC        = SMLF_BAREWORD_STR | SMLF_INCLUDE | SMLF_FRAGMENT
+	// SMLF_WEAK 弱声明族（@weakbind / @weakdata / @weakdoc）：opt-in、不在基线里。
+	// LoadsFull 的 Flags 是**特性上限**，要校验弱绑定得显式带上这一位。
+	SMLF_WEAK  = 1 << 19
+	SMLF_BASIC = SMLF_BAREWORD_STR | SMLF_INCLUDE | SMLF_FRAGMENT
 )
 
 // 值类型
@@ -172,6 +175,378 @@ func LoadFile(path string, flags int) (interface{}, error) {
 	}
 	defer C.sml_free(root)
 	return materialize(root), nil
+}
+
+// Diagnostic 一条非致命诊断（键冲突 W-PARSE-001 / 片段覆盖 W-PARSE-002 / 弱声明不匹配 W-CONTRACT-001）。
+type Diagnostic struct {
+	Code     string // 稳定码；该档暂无码时为空串
+	Text     string // 人读文案（不含码）
+	Line     int    // 1 起；0 = 未知
+	Severity int    // 0 = warning，1 = error（预留）
+}
+
+// LoadsWithDiags 文本 -> 原生对象 + 非致命诊断。
+//
+// 与 Loads 的差别只有返回值：值树逐字节相同，诊断只说明「数据被改写 / 覆盖过」，
+// 不阻断解析。致命错误仍走 error。
+func LoadsWithDiags(text string, flags int) (interface{}, []Diagnostic, error) {
+	ctext := C.CString(text)
+	defer C.free(unsafe.Pointer(ctext))
+	var err C.sml_error
+	var dl C.sml_diag_list
+	root := C.sml_parse_with_diags(ctext, C.uint(flags), &dl, &err)
+	if root == nil {
+		C.sml_diag_list_free(&dl)
+		return nil, nil, errorFrom(&err)
+	}
+	defer C.sml_free(root)
+	defer C.sml_diag_list_free(&dl)
+	diags := make([]Diagnostic, 0, int(dl.len))
+	if dl.len > 0 {
+		items := unsafe.Slice((*C.sml_diag)(unsafe.Pointer(dl.items)), int(dl.len))
+		for _, d := range items {
+			diags = append(diags, Diagnostic{
+				Code:     C.GoString(d.code_str),
+				Text:     C.GoString(d.text),
+				Line:     int(d.line),
+				Severity: int(d.severity),
+			})
+		}
+	}
+	return materialize(root), diags, nil
+}
+
+// Builtin 内置契约表（`@weakbind` 软校验用）；空表 ⇒ 软校验整段跳过。
+//
+// 形状与 C 端 `sml_builtin` 一致：AddField 遇到不存在的契约会自动建。
+// 构造方法返回 false 表示参数非法（NULL / 未知类型 / 字段不存在），此时表不动。
+type Builtin struct {
+	p *C.sml_builtin
+}
+
+// NewBuiltin 新建空表。
+func NewBuiltin() *Builtin {
+	return &Builtin{p: C.sml_builtin_new()}
+}
+
+// adoptBuiltin 接管一个已归本进程所有的 sml_builtin*（如 sml_builtin_clone 的产物）。
+func adoptBuiltin(p *C.sml_builtin) *Builtin {
+	if p == nil {
+		return nil
+	}
+	return &Builtin{p: p}
+}
+
+// Close 释放句柄（可重复调用）。
+func (b *Builtin) Close() {
+	if b != nil && b.p != nil {
+		C.sml_builtin_free(b.p)
+		b.p = nil
+	}
+}
+
+// Len 表里有几份契约。
+func (b *Builtin) Len() int {
+	if b == nil || b.p == nil {
+		return 0
+	}
+	return int(C.sml_builtin_count(b.p))
+}
+
+// AddField 声明字段；ty 取 any / str / int / num / bool / enum。
+func (b *Builtin) AddField(contract, field, ty string, required bool) bool {
+	if b == nil || b.p == nil {
+		return false
+	}
+	cc, cf, ct := C.CString(contract), C.CString(field), C.CString(ty)
+	defer C.free(unsafe.Pointer(cc))
+	defer C.free(unsafe.Pointer(cf))
+	defer C.free(unsafe.Pointer(ct))
+	req := C.int(0)
+	if required {
+		req = 1
+	}
+	return C.sml_builtin_add_field(b.p, cc, cf, ct, req) == 0
+}
+
+// SetRange 给已有字段设数值区间（含端点）。
+func (b *Builtin) SetRange(contract, field string, min, max float64) bool {
+	if b == nil || b.p == nil {
+		return false
+	}
+	cc, cf := C.CString(contract), C.CString(field)
+	defer C.free(unsafe.Pointer(cc))
+	defer C.free(unsafe.Pointer(cf))
+	return C.sml_builtin_set_range(b.p, cc, cf, C.double(min), C.double(max)) == 0
+}
+
+// AddEnum 给 enum 字段追加合法取值。
+func (b *Builtin) AddEnum(contract, field, value string) bool {
+	if b == nil || b.p == nil {
+		return false
+	}
+	cc, cf, cv := C.CString(contract), C.CString(field), C.CString(value)
+	defer C.free(unsafe.Pointer(cc))
+	defer C.free(unsafe.Pointer(cf))
+	defer C.free(unsafe.Pointer(cv))
+	return C.sml_builtin_add_enum(b.p, cc, cf, cv) == 0
+}
+
+// Opts LoadsFull 的选项：特性上限 + $env 覆盖表 + 内置契约表。
+type Opts struct {
+	// Flags 是**特性上限**（SMLF_* 位）；0 = 基线，不含 type.weak。
+	Flags uint32
+	// Env 是 "KEY=VALUE" 数组，供 $env.X 内联；只作用于本次解析。
+	Env []string
+	// Builtins 可空；非空时对 @weakbind 做软校验。
+	Builtins *Builtin
+}
+
+// WeakBind 一条弱绑定（`@weakbind`）：目标块路径 + 契约名。
+type WeakBind struct {
+	Path string
+	Name string
+	Line int
+}
+
+// WeakData 一条弱数据（`@weakdata`）：载荷不在主树里，已物化成原生对象。
+type WeakData struct {
+	Path  string
+	Name  string
+	Line  int
+	Value interface{}
+}
+
+// WeakDoc 一条弱 profile 引用（`@weakdoc`）：只有名字。
+type WeakDoc struct {
+	Path string
+	Name string
+	Line int
+}
+
+// WeakLists 弱声明三表；三者都不进主树。
+type WeakLists struct {
+	Binds []WeakBind
+	Data  []WeakData
+	Docs  []WeakDoc
+}
+
+// optsGuard 持有本次调用需要的 C 内存（env 串 + 指针数组），Close 时统一释放。
+//
+// 指针数组必须落在 **C 内存**里：cgo 的检查器不允许把「含指针的 Go 内存」交给 C
+// （"Go pointer to unpinned Go pointer"）。
+type optsGuard struct {
+	o     C.sml_opts
+	strs  []*C.char
+	block unsafe.Pointer
+}
+
+func newOptsGuard(opts Opts) *optsGuard {
+	g := &optsGuard{}
+	g.o.struct_size = C.size_t(unsafe.Sizeof(g.o))
+	g.o.flags = C.uint(opts.Flags)
+	for _, kv := range opts.Env {
+		g.strs = append(g.strs, C.CString(kv))
+	}
+	if len(g.strs) > 0 {
+		g.block = C.malloc(C.size_t(len(g.strs)) * C.size_t(unsafe.Sizeof(uintptr(0))))
+		arr := (*[1 << 20]*C.char)(g.block)[:len(g.strs):len(g.strs)]
+		for i, p := range g.strs {
+			arr[i] = p
+		}
+		g.o.env = (**C.char)(g.block)
+		g.o.env_len = C.size_t(len(g.strs))
+	}
+	if opts.Builtins != nil && opts.Builtins.p != nil {
+		g.o.builtins = opts.Builtins.p
+	}
+	return g
+}
+
+func (g *optsGuard) Close() {
+	for _, p := range g.strs {
+		C.free(unsafe.Pointer(p))
+	}
+	if g.block != nil {
+		C.free(g.block)
+	}
+}
+
+func readDiags(dl *C.sml_diag_list) []Diagnostic {
+	diags := make([]Diagnostic, 0, int(dl.len))
+	if dl.len > 0 {
+		items := unsafe.Slice((*C.sml_diag)(unsafe.Pointer(dl.items)), int(dl.len))
+		for _, d := range items {
+			diags = append(diags, Diagnostic{
+				Code:     C.GoString(d.code_str),
+				Text:     C.GoString(d.text),
+				Line:     int(d.line),
+				Severity: int(d.severity),
+			})
+		}
+	}
+	return diags
+}
+
+func readWeakLists(wl *C.sml_weaklists) WeakLists {
+	out := WeakLists{}
+	if wl.n_binds > 0 && wl.binds != nil {
+		items := unsafe.Slice((*C.sml_weakbind)(unsafe.Pointer(wl.binds)), int(wl.n_binds))
+		for _, b := range items {
+			out.Binds = append(out.Binds, WeakBind{
+				Path: C.GoString(b.path), Name: C.GoString(b.name), Line: int(b.line),
+			})
+		}
+	}
+	if wl.n_data > 0 && wl.data != nil {
+		items := unsafe.Slice((*C.sml_weakdata)(unsafe.Pointer(wl.data)), int(wl.n_data))
+		for _, d := range items {
+			out.Data = append(out.Data, WeakData{
+				Path: C.GoString(d.path), Name: C.GoString(d.name), Line: int(d.line),
+				Value: materialize(d.value),
+			})
+		}
+	}
+	if wl.n_docs > 0 && wl.docs != nil {
+		items := unsafe.Slice((*C.sml_weakdoc)(unsafe.Pointer(wl.docs)), int(wl.n_docs))
+		for _, d := range items {
+			out.Docs = append(out.Docs, WeakDoc{
+				Path: C.GoString(d.path), Name: C.GoString(d.name), Line: int(d.line),
+			})
+		}
+	}
+	return out
+}
+
+// LoadsFull 解析文本，带完整选项，返回原生对象 + 非致命诊断。
+//
+// 值树与 Loads(text, flags) 逐字节相同：选项只影响 $env 取值、特性上限与诊断内容。
+func LoadsFull(text string, opts Opts) (interface{}, []Diagnostic, error) {
+	obj, diags, _, err := LoadsFullLists(text, opts)
+	return obj, diags, err
+}
+
+// LoadsFullLists 同 LoadsFull，另交出弱声明三表（@weakbind / @weakdata / @weakdoc）。
+func LoadsFullLists(text string, opts Opts) (interface{}, []Diagnostic, WeakLists, error) {
+	ctext := C.CString(text)
+	defer C.free(unsafe.Pointer(ctext))
+
+	g := newOptsGuard(opts)
+	defer g.Close()
+
+	var err C.sml_error
+	var dl C.sml_diag_list
+	var wl C.sml_weaklists
+	root := C.sml_parse_full_lists(ctext, &g.o, &wl, &dl, &err)
+	if root == nil {
+		C.sml_weaklists_free(&wl)
+		C.sml_diag_list_free(&dl)
+		return nil, nil, WeakLists{}, errorFrom(&err)
+	}
+	defer C.sml_free(root)
+	defer C.sml_diag_list_free(&dl)
+	defer C.sml_weaklists_free(&wl)
+	diags := readDiags(&dl)
+	lists := readWeakLists(&wl)
+	return materialize(root), diags, lists, nil
+}
+
+// parse_all 的 want 位（与 c/sml_rs.h 的 SML_WANT_* 逐位一致）。
+const (
+	WantDiags       = 1 << 0 // 非致命诊断
+	WantErrors      = 1 << 1 // 多错误收集（语法错也返回结果）
+	WantWeak        = 1 << 2 // 弱声明三表
+	WantContractMap = 1 << 3 // 契约映射
+	WantContracts   = 1 << 4 // 捕获的契约表（独立克隆，可再当内置表注入）
+	WantAll         = 0x1F
+)
+
+// ContractRef 一条「某实体应用了某个契约」。
+type ContractRef struct {
+	Path string
+	Name string
+}
+
+// ParseAll 一次解析的全部产物；未请求的部分是空表 / nil。
+type ParseAll struct {
+	Value       interface{}
+	Diagnostics []Diagnostic
+	Errors      []Diagnostic
+	Weak        WeakLists
+	ContractMap []ContractRef
+	// Contracts 是**独立克隆**的表（调用方负责 Close）；未请求时为 nil。
+	Contracts *Builtin
+}
+
+// ParseAllOf 一次拿全：值树 + 诊断 + 多错误 + 弱表 + 契约映射 + 契约表。
+//
+// 开了 WantErrors 后语法/契约错**不再返回 error**：值树是尽力而为的部分结果，
+// 全部错误在 Errors 里（Severity == 1）。
+func ParseAllOf(text string, opts Opts, want int) (*ParseAll, error) {
+	ctext := C.CString(text)
+	defer C.free(unsafe.Pointer(ctext))
+
+	g := newOptsGuard(opts)
+	defer g.Close()
+
+	var err C.sml_error
+	r := C.sml_parse_all(ctext, &g.o, C.uint(want), &err)
+	if r == nil {
+		return nil, errorFrom(&err)
+	}
+	defer C.sml_result_free(r)
+
+	out := &ParseAll{Value: materialize(C.sml_result_value(r))}
+	if want&WantDiags != 0 {
+		out.Diagnostics = readDiags(C.sml_result_diags(r))
+	}
+	if want&WantErrors != 0 {
+		out.Errors = readDiags(C.sml_result_errors(r))
+	}
+	if want&WantWeak != 0 {
+		out.Weak = readWeakLists(C.sml_result_weak(r))
+	}
+	if want&WantContractMap != 0 {
+		cm := C.sml_result_contract_map(r)
+		if cm != nil && cm.len > 0 {
+			items := unsafe.Slice((*C.sml_contract_ref)(unsafe.Pointer(cm.items)), int(cm.len))
+			for _, it := range items {
+				out.ContractMap = append(out.ContractMap, ContractRef{
+					Path: C.GoString(it.path), Name: C.GoString(it.name),
+				})
+			}
+		}
+	}
+	if want&WantContracts != 0 {
+		// 借用的句柄不能活过结果 ⇒ 立刻克隆成宿主独占的一份。
+		out.Contracts = adoptBuiltin(C.sml_builtin_clone(C.sml_result_contracts(r)))
+	}
+	return out, nil
+}
+
+// LoadFileFull 同 LoadFile，另交出诊断与弱声明三表（文件入口版的 LoadsFullLists）。
+//
+// 展开 include，相对路径以文件所在目录为基准；跨 include 时行号可能为 0。
+func LoadFileFull(path string, opts Opts) (interface{}, []Diagnostic, WeakLists, error) {
+	cpath := C.CString(path)
+	defer C.free(unsafe.Pointer(cpath))
+
+	g := newOptsGuard(opts)
+	defer g.Close()
+
+	var err C.sml_error
+	var dl C.sml_diag_list
+	var wl C.sml_weaklists
+	root := C.sml_load_file_full(cpath, &g.o, &wl, &dl, &err)
+	if root == nil {
+		C.sml_weaklists_free(&wl)
+		C.sml_diag_list_free(&dl)
+		return nil, nil, WeakLists{}, errorFrom(&err)
+	}
+	defer C.sml_free(root)
+	defer C.sml_diag_list_free(&dl)
+	defer C.sml_weaklists_free(&wl)
+	return materialize(root), readDiags(&dl), readWeakLists(&wl), nil
 }
 
 // Dumps 原生对象 -> SML 文本（文档桥：obj -> JSON -> sml_dump）。

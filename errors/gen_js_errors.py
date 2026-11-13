@@ -197,6 +197,7 @@ def js_src(zh, enmap, dom):
 
 def rust_src(zh, en_all):
     codes = sorted(zh.keys())
+    parse_count = sum(1 for v in zh.values() if v[1] == "PARSE")
     lines = [
         "// SPDX-License-Identifier: MulanPSL-2.0",
         "//! SML 错误码本地化信息查找表（由生成器产出，请勿手改）。",
@@ -351,7 +352,8 @@ def rust_src(zh, en_all):
         "            if i.domain == \"PARSE\" { parse += 1; }",
         "        }",
         "        assert_eq!(empty, 0, \"所有码 title/msg 必须非空\");",
-        "        assert_eq!(parse, 27, \"PARSE 领域应为 27 条（含 W-PARSE-001/002）\");",
+        "        // 期望值由生成器从码表 PARSE 域算出 ｜ Expected count comes from the PARSE domain in the code table.",
+        "        assert_eq!(parse, %d, \"PARSE 领域条数须与 errors/codes.sml 一致\");" % parse_count,
         "    }",
         "",
         "    #[cfg(not(feature = \"zh\"))]",

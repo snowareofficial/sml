@@ -25,17 +25,23 @@ const steps = [
   // 此前**没有任何测试**——只断言"源码里有这段字符串"拦不住"跳错文件 / 悬停说反了"。
   // 这里真 activate + 真调 provider + 用真文件断言（见该脚本头部说明）。
   ["include/import 导航（真调 provider）", "scripts/_verify_nav.mjs"],
+  // `@weakdoc` 找不到 profile 的提示（`W-CLI-001`）：起真的 LSP 进程走 stdio，
+  // 断言「缺 ⇒ 发 Information」「有 ⇒ 零提示」「语法错仍是 Error」三件事。
+  ["`@weakdoc` 提示（LSP 真进程）", "../lsp/_verify_diagnostics.mjs"],
 ];
 
 // showcase.sml 必须在扩展诊断所用的 JS 引擎上零错误解析
 function checkShowcase() {
-  const src = readFileSync(path.join(here, "..", "..", "showcase.sml"), "utf-8");
+  // 语料在 examples/ 下（仓库根那份早已搬走）；两处路径必须同时改，否则
+  // 「读文件」与「子进程读文件」会对不上，报错看起来像是解析器有问题。
+  const showcase = path.join(here, "..", "..", "examples", "showcase.sml");
+  readFileSync(showcase, "utf-8");
   const r = spawnSync(process.execPath, ["-e", `
     import("./js/sml.mjs").then(({ parseSafe }) => {
       const r = parseSafe(require("node:fs").readFileSync(process.argv[1], "utf-8"));
       if (!r.ok) { console.error(r.error); process.exit(1); }
     });
-  `, path.join(here, "..", "..", "showcase.sml")], { cwd: path.join(here, "..", ".."), encoding: "utf-8" });
+  `, showcase], { cwd: path.join(here, "..", ".."), encoding: "utf-8" });
   return { ok: r.status === 0, out: r.stderr || r.stdout || "" };
 }
 

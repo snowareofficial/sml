@@ -31,4 +31,13 @@
 ; `@form` / `@contract` …（节点文本含 `@`）
 (directive) @keyword
 
+; 最新标准的边界（见 README 第 4 条）：
+;   · `@weakbind` / `@weakdata` / `@weakdoc` / `@requires` 已被 grammar.js 的通用 directive
+;     token（`@[^\s{}\[\],:"#]+`）认出来 ⇒ 走上面的 `(directive) @keyword`，无需改 grammar，
+;     也不必重生成 parser.c；
+;   · 带域特性名（type.featag / lex.ident / type.weak）、版本集字面量（50 / "camelia" / dev）
+;     与块头 featag（!name / name[值]）落为 word / string / number，没有独立具名节点；
+;   · 想给弱声明族单独配色需要 `#match?` + 辅助捕获，但本环境没有 tree-sitter CLI 可验证
+;     `@_` 捕获行为 ⇒ 按 README 既有决策不提交可能整段失效的查询。
+
 ["{" "}" "[" "]" ":" ","] @punctuation

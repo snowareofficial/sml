@@ -320,6 +320,8 @@
 #define SML_I_FEATURE_001 "I-FEATURE-001"
 /* [I-LINT-001] profile 看起来适用但未被引用：有个 profile 的适用条件命中了这份文档，但文档没有引用它 */
 #define SML_I_LINT_001 "I-LINT-001"
+/* [W-CLI-001] 引用的 profile 未找到：工具侧在项目、用户、系统三处命名空间都未找到该 profile（警告，不阻断解析） */
+#define SML_W_CLI_001 "W-CLI-001"
 /* [W-CONTRACT-001] 弱声明与内置契约不匹配：弱绑定 `@weakbind` 与内置契约不匹配（警告，不阻断解析） */
 #define SML_W_CONTRACT_001 "W-CONTRACT-001"
 /* [W-EDITOR-001] 自定义词与官方关键字冲突：自定义词与官方关键字冲突，已忽略 */
@@ -341,6 +343,6 @@
 /* [W-PARSE-002] 片段展开覆盖父块键：片段展开覆盖了父块已有的同名键：父块原值丢失 */
 #define SML_W_PARSE_002 "W-PARSE-002"
 
-#define SML_CODES_COUNT 166
+#define SML_CODES_COUNT 167
 
 #endif /* SML_CODES_H */

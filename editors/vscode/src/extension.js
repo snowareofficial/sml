@@ -89,21 +89,66 @@ const explained = new Set();
 // 期望的 `src/vendor/sml.mjs` 指纹。**改它必须同时做两件事**：
 //   ① 跑 `python tools/check_js_copies.py` 确认四份副本与 `js/sml.mjs` 逐字节一致；
 //   ② 重打 `.vsix`（否则库里那份二进制仍带着旧解析器 —— 见 TODO §三·十二 F 组）。
-// 2026-11-03：旧值 96110 B / c7a5054… 早已漂移（JS 侧修了空文档 TypeError 等），
-// 现按 `js/sml.mjs` 的实际大小与 sha 前 16 位更新。
-const EXPECT_VENDOR = { size: 115667, shaPrefix: "a077a614e3e13bde" };
+// 值取自 `python editors/vscode/scripts/sync-parser.py` 打印的字节数与 sha256 前 16 位。
+const EXPECT_VENDOR = { size: 117990, shaPrefix: "0956e1d9dd36b192" };
 
 // ---------------------------------------------------------------------------
 // 补全候选
 // ---------------------------------------------------------------------------
 
+// 与 Rust 单一事实来源逐项对齐，`_verify_ext.mjs` 会核对，别在手边另抄一份：
+//   · FEATURE_NAMES  ← rust/sml-feature/src/lib.rs::FEATURES（20 位，只追加不重排）
+//   · EDITIONS       ← 同文件 EDITIONS（10/20/30/40 已发布；50 "camelia" dev 开发中）
+//   · 内置指令       ← rust/sml-parse/src/ext.rs::BUILTIN_DIRECTIVES（10 个，含 weak* 三兄弟）
+//
+// 编辑器只给提示，**不代表本端解析器支持**：weak* / featag 是 Rust 单端；
+// C / C++ / JS / Lua 按 S9 策略不实现。
+// ⚠️ `50 "camelia" dev` 更特殊：规范里是合法的开发期写法，但 5.0 的功能集
+// **尚未启用** —— Rust 与 JS 当前都报 E-FEATURE-004。补全登记它只为认语法，
+// 必须明写「写入即报错」，否则就是教用户写错（与外置修饰符同一条纪律）。
+
+// 公共说明必须在 DIRECTIVES 之前定义：数组字面量在模块加载时就会求值，
+// 放到后面会撞上 const 的暂时性死区，整个扩展加载失败（顶层不报错、宿主日志里才看得见）。
+
+// 特性开关的公共说明：域封闭、两段上限、不补别名、开发期新能力一律 opt-in。
+const FEATURE_DOC = L(
+  "**特性开关**：`@feature base <版本集> | enable|disable|mode|whitelist|blacklist <名字>[, …]`。\n\n新增特性名一律 `<域>.<名>`（域只有 `lex` / `mod` / `type` / `flow`，最多两段）；老特性保持平铺，**没有** `type.contract` 这类别名。\n\n`type.featag` / `lex.ident` / `type.weak` 是 opt-in，不在任何默认功能集里。"
+);
+
+// weak* 三兄弟的公共说明：同一开关、同一批端限制，逐条重复只会让人抄错。
+const WEAK_DOC = L(
+  "**弱声明族**（需 `@feature enable type.weak`，**Rust 单端**）：\n\n- `@weakbind <契约名> [<字段体>]`：块内数据仍在树里，库不校验；编辑器按内置契约给提示；\n- `@weakdata <名> { … }`：载荷只进旁路表，**绝不进主树**（同名后者覆盖）；\n- `@weakdoc <名>`：只引用 `.smlex` profile，**不接受载荷块**，同一 profile 不得重复挂。\n\n三者都只作用于提示：有无这些指令，解析结果的数据树逐字节相同。C / C++ / JS / Lua 按 S9 策略不实现。"
+);
+
+// 版本号 = 功能集（Edition），不是序号；代号与数字永久双向映射，dev 只能在末尾。
+const EDITION_DOC = L(
+  "**版本集（Edition）**：连写 `50` 是规范形式，`5.0` / `v5` / 代号 `\"camelia\"` 是等价写法。\n\n已发布版本集永久向后兼容（`v1`–`v4` 可直接写）；开发代号一旦出现破坏性改动会被移除并报「版本集已移除」。\n\n⚠️ **5.0 `camelia` 仍在开发、当前实现尚未启用**：即使按规范写成 `@version 50 \"camelia\" dev`，Rust 与 JS 解析器**都会报 `E-FEATURE-004`**「版本集仍在开发中，本实现尚未启用」。补全列出它只为登记语法；正式文档请继续用 `v4`。"
+);
+const EDITION_COMPLETIONS = [
+  { lit: "v1", desc: L("1.0（连写 10）：允许裸词字符串；已发布、永久兼容") },
+  { lit: "v2", desc: L("2.0（连写 20）：字符串须显式引号；已发布、永久兼容") },
+  { lit: "v3", desc: L("3.0（连写 30）：与 2.0 同一套特性位；已发布、永久兼容") },
+  { lit: "v4", desc: L("4.0（连写 40）：片段定义改用显式 type:/name: 参数；最新已发布版") },
+  { lit: "50", desc: L("5.0 连写：⚠️ 未启用，写入报 E-FEATURE-004（Rust 与 JS 均拒绝）") },
+  { lit: '"camelia"', desc: L("5.0 代号，与 50 永久双向映射；⚠️ 未启用，写入报 E-FEATURE-004") },
+].map((e) => ({
+  label: "@version " + e.lit,
+  kind: CK("Constant", 0),
+  detail: L("版本集：{0}", e.desc),
+  documentation: new vscode.MarkdownString(EDITION_DOC),
+  insertText: e.lit === "50" ? '@version 50 "camelia" dev' : "@version " + e.lit,
+}));
+
 const DIRECTIVES = [
   {
-    label: "@version v1",
+    label: "@version",
     kind: CK("Keyword", 0),
-    detail: L("版本声明"),
-    documentation: L("声明文档遵循的 SML 语法版本，须写在文档开头。"),
-    insertText: "@version v1",
+    detail: L("版本声明（版本号 = 功能集）"),
+    documentation: new vscode.MarkdownString(EDITION_DOC),
+    // 只引导已发布版本集：5.0 仍在 Dev 且当前实现未启用，放进默认选项会让用户
+    // 一按回车就写下一行必然报错的声明（要试可在 `@version ` 后的候选里看，带警告）。
+    insertText: "@version ${1|v1,v2,v3,v4|}",
+    insertTextFormat: INSERT_SNIPPET,
   },
   {
     label: "@contract",
@@ -143,7 +188,64 @@ const DIRECTIVES = [
     insertText: 'import "${1:path}" { ${2:key1}, ${3:key2} }',
     insertTextFormat: INSERT_SNIPPET,
   },
+  {
+    label: "@feature enable",
+    kind: CK("Keyword", 0),
+    detail: L("开启特性（新增特性名一律 <域>.<名>）"),
+    documentation: new vscode.MarkdownString(FEATURE_DOC),
+    insertText: "@feature enable ${1|type.featag,lex.ident,type.weak,typed-block,when,for|}",
+    insertTextFormat: INSERT_SNIPPET,
+  },
+  {
+    label: "@type",
+    kind: CK("Keyword", 0),
+    detail: L("自定义模式类型（@type name: X { … }）"),
+    documentation: L("给值定义字面格式（编号 / 网段 / 时间窗…），契约字段可直接拿它当类型用。"),
+    insertText: "@type name: ${1:X} {\n\t$0\n}",
+    insertTextFormat: INSERT_SNIPPET,
+  },
+  {
+    label: "@when",
+    kind: CK("Keyword", 0),
+    detail: L("条件裁剪（opt-in：需 @feature enable when）"),
+    documentation: L("按条件保留或剔除紧邻的下一个块，如 @when $env.DEBUG == \"1\"。"),
+    insertText: "@when ${1:$env.DEBUG} == \"${2:1}\"",
+    insertTextFormat: INSERT_SNIPPET,
+  },
+  {
+    label: "@for",
+    kind: CK("Keyword", 0),
+    detail: L("有界循环展开（opt-in：需 @feature enable for）"),
+    documentation: L("把有界列表展开为数组；只在值位置生效。"),
+    insertText: "@for ${1:item} in ${2:a} ${3:b} {\n\t$0\n}",
+    insertTextFormat: INSERT_SNIPPET,
+  },
+  {
+    label: "@weakbind",
+    kind: CK("Keyword", 0),
+    detail: L("弱绑定：本块按内置契约解释（Rust 单端）"),
+    documentation: new vscode.MarkdownString(WEAK_DOC),
+    insertText: "@weakbind ${1:ContractName}",
+    insertTextFormat: INSERT_SNIPPET,
+  },
+  {
+    label: "@weakdata",
+    kind: CK("Keyword", 0),
+    detail: L("旁路数据：载荷不进主树（Rust 单端）"),
+    documentation: new vscode.MarkdownString(WEAK_DOC),
+    insertText: "@weakdata ${1:name} {\n\t$0\n}",
+    insertTextFormat: INSERT_SNIPPET,
+  },
+  {
+    label: "@weakdoc",
+    kind: CK("Keyword", 0),
+    detail: L("引用 .smlex profile（Rust 单端）"),
+    documentation: new vscode.MarkdownString(WEAK_DOC),
+    insertText: "@weakdoc ${1:profile-name}",
+    insertTextFormat: INSERT_SNIPPET,
+  },
 ];
+
 
 const CONTRACT_TYPES = [
   { label: "str", detail: L("字符串") },
@@ -176,6 +278,7 @@ const MODIFIERS_BUILTIN = [
   { label: "min", detail: L("数值下界（含）") },
   { label: "max", detail: L("数值上界（含）") },
   { label: "loose", detail: L("允许契约未声明的字段（写在契约名后）") },
+  { label: "from-featag", detail: L("只能由 featag 落点写入（需 type.featag，Rust 单端）") },
 ];
 
 const MODIFIERS_EXT = [
@@ -314,16 +417,29 @@ const PATTERN_CLASSES = [
   },
 ]);
 
-// 特性名（供 @feature enable/disable 补全）。带说明区分默认开启与 opt-in。
+// 特性名（供 @feature enable/disable 补全）：顺序 = rust/sml-feature/src/lib.rs::FEATURES
+// 的位序，只追加不重排。新特性带域（type.featag / lex.ident / type.weak），老名保持平铺。
 const FEATURE_NAMES = [
-  { n: "contract", d: L("契约系统 @contract / @is（默认开启）") },
-  { n: "fragment", d: L("片段复用 @name / &name（默认开启）") },
+  { n: "bareword-string", d: L("裸词字符串（1.0 开，2.0 起关）") },
   { n: "include", d: L("文件包含 include（默认开启）") },
   { n: "env", d: L("$env.VAR 环境变量内插（默认开启）") },
+  { n: "contract", d: L("契约系统 @contract / @is（默认开启）") },
+  { n: "fragment", d: L("片段复用 @name / &name（默认开启）") },
+  { n: "top-level-array", d: L("顶层数组（默认开启）") },
   { n: "namespace", d: L("include ... as ns 命名空间（默认开启）") },
-  { n: "typed-block", d: L("块级类型标注 `<契约名> <块名> { }`（opt-in）") },
+  { n: "implicit-ns", d: L("隐式命名空间（默认开启）") },
+  { n: "multi-include", d: L("多目标 include（opt-in）") },
+  { n: "glob-include", d: L("通配符 include（opt-in）") },
+  { n: "regex-include", d: L("正则 include（opt-in）") },
+  { n: "ext-rewrite", d: L("include 后缀改写（opt-in）") },
   { n: "when", d: L("@when 条件裁剪（opt-in）") },
   { n: "for", d: L("@for 有界循环展开（opt-in）") },
+  { n: "typed-block", d: L("块级类型标注 `<契约名> <块名> { }`（opt-in）") },
+  { n: "case-insensitive", d: L("契约名大小写不敏感查找（opt-in）") },
+  { n: "block-name", d: L("typed-block 下允许块名（opt-in）") },
+  { n: "type.featag", d: L("块头 featag 标签 !name / name[值]（Rust 单端，opt-in）") },
+  { n: "lex.ident", d: L("标识符白名单与每契约单一语种（Rust 单端，opt-in）") },
+  { n: "type.weak", d: L("弱声明族 @weakbind / @weakdata / @weakdoc（Rust 单端，opt-in）") },
 ].map((f) => ({
   label: f.n,
   kind: CK("Property", 0),
@@ -466,6 +582,66 @@ async function definitionInFile(uri, name) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// `@weakdoc X` 找不到 profile ⇒ Information（`W-CLI-001`）
+// ---------------------------------------------------------------------------
+//
+// 解析器**不读文件系统**（`docs/swsml/spec/weakdoc.md` 的 I-17 硬约束），所以
+// 「这份 profile 装没装」只有编辑器/工具能回答。这里**只提示、不阻断**：
+// Information 级别，不影响保存、格式化与其它诊断。
+function profileRootsFor() {
+  const roots = [];
+  for (const folder of vscode.workspace.workspaceFolders || []) {
+    roots.push(path.join(folder.uri.fsPath, ".smlex", "profiles"));
+  }
+  if (process.platform === "win32") {
+    if (process.env.APPDATA) roots.push(path.join(process.env.APPDATA, "sml", "profiles"));
+    if (process.env.ProgramData) roots.push(path.join(process.env.ProgramData, "sml", "profiles"));
+  } else {
+    const xdg = process.env.XDG_CONFIG_HOME
+      || (process.env.HOME ? path.join(process.env.HOME, ".config") : "");
+    if (xdg) roots.push(path.join(xdg, "sml", "profiles"));
+    roots.push("/usr/share/sml/profiles");
+  }
+  return roots;
+}
+
+/// 已安装的 profile 名（只读目录；读不出的目录直接跳过）。
+function knownProfileNames() {
+  const names = new Set();
+  for (const dir of profileRootsFor()) {
+    let files;
+    try {
+      files = fs.readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const f of files) if (f.endsWith(".smlex")) names.add(path.basename(f, ".smlex"));
+  }
+  return names;
+}
+
+/// `@weakdoc` 未命中的信息级诊断（与 `smltools` 的 `W-CLI-001` 同码同文案）。
+async function missingProfileDiagnostics(doc) {
+  const text = doc.getText();
+  if (!text.includes("@weakdoc")) return [];
+  const mod = await ensureSml();
+  if (!mod || typeof mod.missingProfileRefs !== "function") return [];
+  return mod.missingProfileRefs(text, knownProfileNames()).map((ref) => {
+    const d = new vscode.Diagnostic(
+      new vscode.Range(
+        new vscode.Position(ref.line, ref.col),
+        new vscode.Position(ref.line, Math.max(ref.endCol, ref.col + 1))
+      ),
+      L("未找到 profile `{0}`（项目 / 用户 / 系统三处都没命中）", ref.name),
+      vscode.DiagnosticSeverity.Information
+    );
+    d.source = "sml";
+    d.code = "W-CLI-001";
+    return d;
+  });
+}
+
 async function updateDiagnostics(doc, collection) {
   if (doc.languageId !== "sml") {
     collection.delete(doc.uri);
@@ -489,6 +665,11 @@ async function updateDiagnostics(doc, collection) {
     d.source = "sml";
     return d;
   });
+  try {
+    diags.push(...(await missingProfileDiagnostics(doc)));
+  } catch {
+    /* 发现失败不该让语法诊断一起消失 */
+  }
   collection.set(doc.uri, diags);
 }
 
@@ -804,6 +985,68 @@ function initSelfCheck(context) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// `.smlex` profile 发现（三命名空间；工具侧规则，库不参与）
+// ---------------------------------------------------------------------------
+// 项目 <ws>/.smlex/profiles、用户全局、系统：按名先命中者胜。编辑器只消费 `hints`
+// （补全词表 + 悬停说明）；`checks` / `emit` 归工具侧，这里不解释。
+// 不按 `applies_to` 自动挂载 —— profile 只由文档里的 `@weakdoc` 显式引用（smlex.md §3.1）。
+
+const PROFILE_FIELDS = [
+  { n: "name", d: L("必填：必须与文件名 stem 一致") },
+  { n: "version", d: L("必填：profile 格式版本，当前为 1") },
+  { n: "description", d: L("可选：一句话说明，编辑器悬停时显示") },
+  { n: "applies_to", d: L("可选：适用范围（glob / requires），只提示不自动挂") },
+  { n: "checks", d: L("可选：只读检查清单（工具侧 --lint 执行）") },
+  { n: "hints", d: L("可选：编辑器词表（keys / values）") },
+  { n: "emit", d: L("可选：按后端分块的生成参数") },
+].map((f) => ({
+  label: f.n,
+  kind: CK("Property", 0),
+  detail: L("profile 字段：{0}", f.d),
+  insertText: ["applies_to", "checks", "hints", "emit"].includes(f.n)
+    ? `${f.n} {\n\t$0\n}`
+    : `${f.n}: $0`,
+  insertTextFormat: INSERT_SNIPPET,
+}));
+
+function profileRoots() {
+  const roots = [];
+  for (const f of vscode.workspace.workspaceFolders || []) {
+    roots.push({ scope: L("项目"), dir: path.join(f.uri.fsPath, ".smlex", "profiles") });
+  }
+  if (process.platform === "win32") {
+    if (process.env.APPDATA) roots.push({ scope: L("用户"), dir: path.join(process.env.APPDATA, "sml", "profiles") });
+    if (process.env.ProgramData) roots.push({ scope: L("系统"), dir: path.join(process.env.ProgramData, "sml", "profiles") });
+  } else {
+    const xdg = process.env.XDG_CONFIG_HOME || (process.env.HOME ? path.join(process.env.HOME, ".config") : "");
+    if (xdg) roots.push({ scope: L("用户"), dir: path.join(xdg, "sml", "profiles") });
+    roots.push({ scope: L("系统"), dir: "/usr/share/sml/profiles" });
+  }
+  return roots;
+}
+
+let profilesCache = null;
+function profilesOf(mod) {
+  if (profilesCache) return profilesCache;
+  const out = new Map();
+  for (const { scope, dir } of profileRoots()) {
+    let files;
+    try { files = fs.readdirSync(dir).filter((f) => f.endsWith(".smlex")); } catch { continue; }
+    for (const file of files) {
+      const name = path.basename(file, ".smlex");
+      if (out.has(name)) continue;                 // 高层先命中者胜
+      let text;
+      try { text = fs.readFileSync(path.join(dir, file), "utf-8"); } catch { continue; }
+      const fields = mod.parseProfileFields ? mod.parseProfileFields(text) : null;
+      if (!fields) continue;
+      out.set(name, { scope, file: path.join(dir, file), mismatch: !!fields.name && fields.name !== name, ...fields });
+    }
+  }
+  profilesCache = out;
+  return out;
+}
+
 function activate(context) {
   const collection = vscode.languages.createDiagnosticCollection("sml");
   context.subscriptions.push(collection, channel());
@@ -835,7 +1078,9 @@ function activate(context) {
     vscode.workspace.onDidSaveTextDocument((doc) => {
       // 存盘的可能正是**被包含的那个文件**：文件表缓存必须整体失效 ——
       // 它的键是「当前文档的 version」，别的文件存盘时当前文档并没变，会一直读到旧内容。
+      // profile 同理：改了 .smlex 里的 hints，补全不能一直读旧词表。
       filesCache.clear();
+      profilesCache = null;
       return updateDiagnostics(doc, collection);
     }),
     vscode.workspace.onDidCloseTextDocument((doc) => collection.delete(doc.uri))
@@ -853,7 +1098,10 @@ function activate(context) {
       const fullText = document.getText();
       const mod = await ensureSml();
       if (!mod) return [];
-      const { collectContractNames, collectFragmentNames, collectKeys, collectTypeNames } = mod;
+      const {
+        collectContractNames, collectFragmentNames, collectKeys, collectTypeNames,
+        collectFeatagNames, collectWeakDocs,
+      } = mod;
       const items = [];
       const contractNames = collectContractNames(fullText);
       const typeNames = collectTypeNames(fullText);
@@ -862,6 +1110,11 @@ function activate(context) {
       // SML 标识符可含中文（如契约名 `受理人`），故所有位置匹配统一用 CJK 感知的字符类
       // `[A-Za-z0-9_\u4e00-\u9fa5]`，避免 \w 把中文名整个漏掉导致补全/标注失效。
       const ID = "A-Za-z0-9_\\u4e00-\\u9fa5";
+      // 特性名 / 版本字面量 / profile 名这一组允许 `.` 与 `-`（`type.featag`、`5.0`、`api-docs`）。
+      const DOT_ID = "A-Za-z0-9_.\\-\\u4e00-\\u9fa5";
+      const isProfileFile = document.fileName.endsWith(".smlex");
+      const profiles = profilesOf(mod);
+      const activeProfiles = collectWeakDocs ? collectWeakDocs(fullText) : [];
 
       // 1) 行首或 @ 触发：指令
       if (new RegExp(`(^|\\s)@[${ID}]*$`).test(linePrefix) || /^\s*$/.test(linePrefix)) {
@@ -883,9 +1136,76 @@ function activate(context) {
         }
       }
 
-      // 1c) @feature enable/disable 之后：特性名
-      if (new RegExp(`@feature\\s+(enable|disable)\\s+[${ID}]*$`).test(linePrefix)) {
+      // 1c) @feature <动词> 之后：特性名。字符类必须含 `.`，
+      //     否则用户打到 `type.` 时正则失配 ⇒ 带域特性一个都补不出来。
+      if (new RegExp(`@feature\\s+(?:base|enable|disable|mode|whitelist|blacklist)\\s+[${DOT_ID}]*$`).test(linePrefix)) {
         items.push(...FEATURE_NAMES);
+      }
+
+      // 1d) @version 之后：版本集（Edition）。代号与数字等价，不是 v1/v2 的序号表。
+      if (new RegExp(`@version\\s+[${DOT_ID}"]*$`).test(linePrefix)) {
+        items.push(...EDITION_COMPLETIONS);
+      }
+
+      // 1e) @weakdoc 之后：三命名空间里实际存在的 profile 名（只列找得到的，不猜）
+      if (new RegExp(`@weakdoc\\s+[${DOT_ID}]*$`).test(linePrefix)) {
+        for (const [name, p] of profiles) {
+          items.push({
+            label: name,
+            kind: CK("Module", 0),
+            detail: L("profile（{0}）：{1}", p.scope, p.description || p.file),
+            documentation: new vscode.MarkdownString(
+              L("`.smlex` profile：{0}\n\n来源（{1}）：`{2}`\n\n{3}",
+                name, p.scope, p.file,
+                p.mismatch
+                  ? L("⚠️ name 与文件名 stem 不一致，工具侧会报错")
+                  : L("只由 `@weakdoc` 显式挂载，不按 applies_to 自动挂。"))
+            ),
+          });
+        }
+      }
+
+      // 1f) @weakbind 之后：本文档定义过的契约名（形状仍由宿主内置表给）
+      if (new RegExp(`@weakbind\\s+[${DOT_ID}]*$`).test(linePrefix)) {
+        for (const n of contractNames) {
+          items.push({ label: n, kind: CK("Struct", 0), detail: L("契约名（弱绑定）") });
+        }
+      }
+
+      // 1g) 块头 `!` 之后：契约里声明过的 featag 名。
+      //     `!any` / `!strict-paths` 是契约级开关，不出现在块头，故过滤掉。
+      if (/![A-Za-z0-9_.\-\u4e00-\u9fa5]*$/.test(linePrefix) && collectFeatagNames) {
+        for (const n of collectFeatagNames(fullText)) {
+          if (n === "any" || n === "strict-paths") continue;
+          items.push({ label: n, kind: CK("Enum", 0), detail: L("featag：{0}", n) });
+        }
+      }
+
+      // 1h) `.smlex` 自身就是普通 SML 文档：补 v1.0 的顶层字段
+      if (isProfileFile && /^\s*[A-Za-z0-9_]*$/.test(linePrefix)) {
+        items.push(...PROFILE_FIELDS);
+      }
+
+      // 1i) hints 只服务**显式挂载**的 profile：applies_to 命中也不自动挂（smlex.md §3.1）
+      for (const ref of activeProfiles) {
+        const p = profiles.get(ref);
+        if (!p) continue;
+        for (const k of p.keys || []) {
+          items.push({
+            label: k,
+            kind: CK("Property", 0),
+            detail: L("profile {0} 的 hints.keys", ref),
+            insertText: k + ": ",
+          });
+        }
+        const valueKey = /^\s*([\w.\-]+)\s*:\s*$/.exec(linePrefix)?.[1];
+        for (const v of p.values?.[valueKey] || []) {
+          items.push({
+            label: v,
+            kind: CK("Constant", 0),
+            detail: L("profile {0} 的 hints.values.{1}", ref, valueKey),
+          });
+        }
       }
 
       // 2) 契约体内（键后跟冒号）：内置类型 + **@type 自定义类型** + 修饰符
@@ -1182,12 +1502,46 @@ function activate(context) {
         }
       }
 
+      // `@weakdoc <名>`：悬停显示命中的 profile（描述 / 来源 / hints 词表）。
+      // 找不到就明说，不静默 —— 工具侧 `--resolve-profiles` 同样把「未命中」当错误报。
+      {
+        const line = document.lineAt(position).text;
+        const ref = /^\s*@weakdoc\s+([\w.\-]+)/.exec(line)?.[1];
+        if (ref && word === ref) {
+          const p = profilesOf(mod).get(ref);
+          let md;
+          if (!p) {
+            md = L("**profile `{0}` 未找到**：项目 / 用户 / 系统三处命名空间都没有同名 `.smlex`。", ref);
+          } else {
+            md = L("**profile `{0}`**（{1}）：{2}\n\n`{3}`", ref, p.scope, p.description || L("（无描述）"), p.file);
+            if (p.mismatch) md += L("\n\n⚠️ `name` 与文件名 stem 不一致，工具侧会报错。");
+            if (p.keys?.length) md += L("\n\n补全词表（hints.keys）：{0}", p.keys.join("、"));
+            if (p.globs?.length) md += L("\n\n适用范围（applies_to.glob）：{0} —— 只提示，不自动挂。", p.globs.join("、"));
+          }
+          return new vscode.Hover(new vscode.MarkdownString(md), range);
+        }
+      }
+
       const map = {
         "@contract": L("**契约定义**：为块定义字段类型、枚举、默认值与区间约束。定义本身不进解析结果。"),
         "@is": L("**应用契约**：校验当前块并填充缺失字段的默认值。契约须在 `@is` 之前定义。"),
         "@type": L("**自定义类型（模式）**：`@type name: X { 序列: [...] }` 给值定义字面格式（编号 / 网段 / 时间窗…），契约字段可直接拿它当类型用。解析期全文匹配，不符报 `E-CONTRACT-009`。仅 Rust / JS 实现（C / C++ / Lua 会明确报错）。"),
         "loose": L("**放宽严格性**：允许契约未声明的字段。默认严格（未声明字段会报错）。"),
-        "@version": L("**版本声明**：声明文档遵循的 SML 语法版本，须写在文档开头。"),
+        "warn": L("**契约严格度 warn**：未声明字段放行并产出一条告警（经 `*_with_warnings` 交出）。"),
+        "strict": L("**契约严格度 strict**：未声明字段报错（默认档）。"),
+        "@version": EDITION_DOC,
+        "@feature": FEATURE_DOC,
+        "@when": L("**条件裁剪**：按条件保留或剔除紧邻的下一个块；需 `@feature enable when`。"),
+        "@for": L("**有界循环**：把有界列表展开为数组，只在值位置生效；需 `@feature enable for`。"),
+        "@requires": L("**契约级依赖声明**：`@requires NAME { NAME … }`，Rust 单端；JS 端报 `E-CONTRACT-018`。"),
+        "@weakbind": WEAK_DOC,
+        "@weakdata": WEAK_DOC,
+        "@weakdoc": WEAK_DOC,
+        "from-featag": L("**字段写入来源**：该键只能由 featag 落点写入，文档里直接写会报错；需 `type.featag`（Rust 单端）。"),
+        "__featags": L("**featag 数据**：块头标签落成的保序数组，由解析器产出，正文手写保留键在 v5 会被拒绝。"),
+        "null": L("**null**：外来 JSON 需要它，但契约里不鼓励用来表达「没有」——用 `optional` 表示键缺失；`default null` 在 v5 起禁用。"),
+        "dev": L("**开发标记**：`Dev` 状态的版本集必须带 `dev`，且只能在 `@version` 行末尾；定稿后去掉。"),
+        "camelia": L("**5.0 代号**：与 `50` 永久双向映射，可只写代号 `@version \"camelia\"`；开发期仍须带 `dev`。"),
         "include": L("**文件引入**：把外部 .sml 内联进来（文本内联，可出现在块内）。相对路径按被包含文件所在目录解析。"),
         "optional": L("字段可选：缺失时不报错。"),
         "required": L("字段必填（默认行为）。"),

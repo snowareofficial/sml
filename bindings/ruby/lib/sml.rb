@@ -106,6 +106,27 @@ module Sml
 
     @sml_loads = Fiddle::Function.new(h["sml_loads"], [v, i, v], v)
     @sml_load_file = Fiddle::Function.new(h["sml_load_file"], [v, i, v], v)
+    @sml_parse_with_diags = Fiddle::Function.new(h["sml_parse_with_diags"], [v, i, v, v], v)
+    @sml_diag_list_free = Fiddle::Function.new(h["sml_diag_list_free"], [v], vo)
+    @sml_builtin_new = Fiddle::Function.new(h["sml_builtin_new"], [], v)
+    @sml_builtin_free = Fiddle::Function.new(h["sml_builtin_free"], [v], vo)
+    @sml_builtin_count = Fiddle::Function.new(h["sml_builtin_count"], [v], i)
+    @sml_builtin_add_field = Fiddle::Function.new(h["sml_builtin_add_field"], [v, v, v, v, i], i)
+    @sml_builtin_set_range = Fiddle::Function.new(h["sml_builtin_set_range"], [v, v, v, Fiddle::TYPE_DOUBLE, Fiddle::TYPE_DOUBLE], i)
+    @sml_builtin_add_enum = Fiddle::Function.new(h["sml_builtin_add_enum"], [v, v, v, v], i)
+    @sml_parse_full = Fiddle::Function.new(h["sml_parse_full"], [v, v, v, v], v)
+    @sml_parse_full_lists = Fiddle::Function.new(h["sml_parse_full_lists"], [v, v, v, v, v], v)
+    @sml_weaklists_free = Fiddle::Function.new(h["sml_weaklists_free"], [v], vo)
+    @sml_load_file_full = Fiddle::Function.new(h["sml_load_file_full"], [v, v, v, v, v], v)
+    @sml_parse_all = Fiddle::Function.new(h["sml_parse_all"], [v, v, i, v], v)
+    @sml_result_value = Fiddle::Function.new(h["sml_result_value"], [v], v)
+    @sml_result_diags = Fiddle::Function.new(h["sml_result_diags"], [v], v)
+    @sml_result_errors = Fiddle::Function.new(h["sml_result_errors"], [v], v)
+    @sml_result_weak = Fiddle::Function.new(h["sml_result_weak"], [v], v)
+    @sml_result_contract_map = Fiddle::Function.new(h["sml_result_contract_map"], [v], v)
+    @sml_result_contracts = Fiddle::Function.new(h["sml_result_contracts"], [v], v)
+    @sml_result_free = Fiddle::Function.new(h["sml_result_free"], [v], vo)
+    @sml_builtin_clone = Fiddle::Function.new(h["sml_builtin_clone"], [v], v)
     @sml_free = Fiddle::Function.new(h["sml_free"], [v], vo)
     @sml_free_str = Fiddle::Function.new(h["sml_free_str"], [v], vo)
     @sml_typeof = Fiddle::Function.new(h["sml_typeof"], [v], i)
@@ -213,6 +234,332 @@ module Sml
       ensure
         @sml_free.call(root)
       end
+    end
+  end
+
+  # ---- 非致命诊断（P7）----
+  # sml_diag：char* code_str(0) / char* text(8) / int line(16) / int severity(20)，共 24 字节。
+  # sml_diag_list：sml_diag* items(0) / size_t len(8)，共 16 字节。
+  DIAG_SIZE = 24
+  DIAG_LIST_SIZE = 16
+
+  Diagnostic = Struct.new(:code_str, :text, :line, :severity, keyword_init: true)
+
+  def self.read_diags(dl)
+    items = dl[0, 8].unpack1("Q<")
+    len = dl[8, 8].unpack1("Q<")
+    return [] if len.zero? || items.zero?
+
+    base = Fiddle::Pointer.new(items)
+    (0...len).map do |idx|
+      off = idx * DIAG_SIZE
+      code_ptr = base[off, 8].unpack1("Q<")
+      text_ptr = base[off + 8, 8].unpack1("Q<")
+      Diagnostic.new(
+        code_str: code_ptr.zero? ? nil : read_cstr(Fiddle::Pointer.new(code_ptr)),
+        text: text_ptr.zero? ? "" : read_cstr(Fiddle::Pointer.new(text_ptr)).to_s,
+        line: base[off + 16, 4].unpack1("l<"),
+        severity: base[off + 20, 4].unpack1("l<")
+      )
+    end
+  end
+
+  # 解析文本，返回 [对象, 诊断列表]。值树与 loads 逐字节相同。
+  def self.loads_with_diags(text, flags = 0)
+    raise SmlError.new("E-INTERNAL-001", text: "loads_with_diags: text is nil") if text.nil?
+
+    err = new_error
+    dl = Fiddle::Pointer.malloc(DIAG_LIST_SIZE)
+    DIAG_LIST_SIZE.times { |k| dl[k] = 0 }
+    root = @sml_parse_with_diags.call(text, flags, dl, err)
+    begin
+      raise_from(err) if root.null?
+
+      [materialize(root), read_diags(dl)]
+    ensure
+      @sml_diag_list_free.call(dl)
+      @sml_free.call(root) unless root.null?
+    end
+  end
+
+  # ---- 内置契约表 + 完整选项（P7 第二片）----
+  # sml_opts：size_t struct_size(0) / unsigned flags(8, +4 pad) / char** env(16) /
+  #           size_t env_len(24) / sml_builtin* builtins(32)，共 40 字节。
+  OPTS_SIZE = 40
+
+  # 弱声明族（opt-in，不在基线里）：flags 是**特性上限**，要校验弱绑定得显式带上。
+  SML_F_WEAK = 1 << 19
+
+  # 取一个已绑定的 C 函数（内部用；嵌套类 Builtin 需要拿模块里的函数句柄）。
+  def self.fn(name)
+    instance_variable_get(:"@#{name}")
+  end
+
+  # 内置契约表（`@weakbind` 软校验用）。空表 ⇒ 软校验整段跳过。
+  class Builtin
+    def initialize
+      @p = Sml.fn(:sml_builtin_new).call
+      raise "sml_builtin_new 失败" if @p.nil? || @p.null?
+    end
+
+    # 接管一个已归本进程所有的 sml_builtin*（如 sml_builtin_clone 的产物）。
+    def self.from_ptr(ptr)
+      obj = allocate
+      obj.instance_variable_set(:@p, ptr)
+      obj
+    end
+
+    def size
+      @p.null? ? 0 : Sml.fn(:sml_builtin_count).call(@p)
+    end
+
+    # ty 取 any / str / int / num / bool / enum；false = 参数非法（表不动）。
+    def add_field(contract, field, ty, required: false)
+      return false if @p.null?
+
+      Sml.fn(:sml_builtin_add_field)
+         .call(@p, contract.to_s, field.to_s, ty.to_s, required ? 1 : 0).zero?
+    end
+
+    def set_range(contract, field, min_value, max_value)
+      return false if @p.null?
+
+      Sml.fn(:sml_builtin_set_range)
+        .call(@p, contract.to_s, field.to_s, min_value.to_f, max_value.to_f).zero?
+    end
+
+    def add_enum(contract, field, value)
+      return false if @p.null?
+
+      Sml.fn(:sml_builtin_add_enum)
+        .call(@p, contract.to_s, field.to_s, value.to_s).zero?
+    end
+
+    def raw
+      @p
+    end
+
+    def close
+      return if @p.nil? || @p.null?
+
+      Sml.fn(:sml_builtin_free).call(@p)
+      @p = nil
+    end
+  end
+
+  # 弱声明三表（@weakbind / @weakdata / @weakdoc）：都不进主树。
+  WeakLists = Struct.new(:binds, :data, :docs, keyword_init: true)
+
+  # sml_weaklists：binds(0) / n_binds(8) / data(16) / n_data(24) / docs(32) / n_docs(40)，共 48 字节。
+  WEAKLISTS_SIZE = 48
+  WEAKBIND_SIZE = 24   # path(0) / name(8) / line(16, int) + 4 pad
+  WEAKDATA_SIZE = 32   # path(0) / name(8) / line(16, int) + 4 pad / value(24)
+
+  def self.build_opts(flags, env, builtins)
+    pairs = case env
+            when nil then []
+            when Hash then env.map { |k, v| "#{k}=#{v}" }
+            else env.map(&:to_s)
+            end
+    keep = [] # 让 C 侧看到的指针活到调用返回
+    env_arr = nil
+    unless pairs.empty?
+      env_arr = Fiddle::Pointer.malloc(pairs.length * 8)
+      pairs.each_with_index do |kv, idx|
+        p = Fiddle::Pointer[kv] # String -> NUL 结尾指针
+        keep << p
+        env_arr[idx * 8, 8] = [p.to_i].pack("Q<")
+      end
+    end
+
+    opts = Fiddle::Pointer.malloc(OPTS_SIZE)
+    OPTS_SIZE.times { |k| opts[k] = 0 }
+    opts[0, 8] = [OPTS_SIZE].pack("Q<")
+    opts[8, 4] = [flags].pack("L<")
+    opts[16, 8] = [env_arr ? env_arr.to_i : 0].pack("Q<")
+    opts[24, 8] = [pairs.length].pack("Q<")
+    opts[32, 8] = [builtins ? builtins.raw.to_i : 0].pack("Q<")
+    [opts, keep]
+  end
+
+  # 把 C 侧三表拷成 Ruby 对象（拷完即可整体释放）。
+  def self.read_weaklists(wl)
+    binds_ptr = wl[0, 8].unpack1("Q<")
+    n_binds = wl[8, 8].unpack1("Q<")
+    data_ptr = wl[16, 8].unpack1("Q<")
+    n_data = wl[24, 8].unpack1("Q<")
+    docs_ptr = wl[32, 8].unpack1("Q<")
+    n_docs = wl[40, 8].unpack1("Q<")
+
+    binds = []
+    unless n_binds.zero? || binds_ptr.zero?
+      base = Fiddle::Pointer.new(binds_ptr)
+      n_binds.times do |i|
+        off = i * WEAKBIND_SIZE
+        binds << { path: read_cstr(Fiddle::Pointer.new(base[off, 8].unpack1("Q<"))).to_s,
+                   name: read_cstr(Fiddle::Pointer.new(base[off + 8, 8].unpack1("Q<"))).to_s,
+                   line: base[off + 16, 4].unpack1("l<") }
+      end
+    end
+
+    data = []
+    unless n_data.zero? || data_ptr.zero?
+      base = Fiddle::Pointer.new(data_ptr)
+      n_data.times do |i|
+        off = i * WEAKDATA_SIZE
+        vptr = base[off + 24, 8].unpack1("Q<")
+        payload = vptr.zero? ? nil : materialize(Fiddle::Pointer.new(vptr))
+        data << { path: read_cstr(Fiddle::Pointer.new(base[off, 8].unpack1("Q<"))).to_s,
+                  name: read_cstr(Fiddle::Pointer.new(base[off + 8, 8].unpack1("Q<"))).to_s,
+                  line: base[off + 16, 4].unpack1("l<"),
+                  value: payload }
+      end
+    end
+
+    docs = []
+    unless n_docs.zero? || docs_ptr.zero?
+      base = Fiddle::Pointer.new(docs_ptr)
+      n_docs.times do |i|
+        off = i * WEAKBIND_SIZE
+        docs << { path: read_cstr(Fiddle::Pointer.new(base[off, 8].unpack1("Q<"))).to_s,
+                  name: read_cstr(Fiddle::Pointer.new(base[off + 8, 8].unpack1("Q<"))).to_s,
+                  line: base[off + 16, 4].unpack1("l<") }
+      end
+    end
+
+    WeakLists.new(binds: binds, data: data, docs: docs)
+  end
+
+  # ---- 聚合结果（v3.1）----
+  # `sml_parse_all` 的 want 位（与 c/sml_rs.h 的 SML_WANT_* 逐位一致）。
+  WANT_DIAGS        = 1 << 0
+  WANT_ERRORS       = 1 << 1
+  WANT_WEAK         = 1 << 2
+  WANT_CONTRACT_MAP = 1 << 3
+  WANT_CONTRACTS    = 1 << 4
+  WANT_ALL          = 0x1F
+
+  # sml_contract_ref：char* path(0) / char* name(8)，共 16 字节。
+  CONTRACT_REF_SIZE = 16
+  # sml_contractmap：sml_contract_ref* items(0) / size_t len(8)，共 16 字节。
+  CONTRACT_MAP_SIZE = 16
+
+  ContractRef = Struct.new(:path, :name, keyword_init: true)
+  ParseAll = Struct.new(:value, :diagnostics, :errors, :weak, :contract_map, :contracts,
+                        keyword_init: true)
+
+  def self.read_contract_map(ptr)
+    return [] if ptr.nil? || ptr.to_i.zero?
+
+    items = ptr[0, 8].unpack1("Q<")
+    len = ptr[8, 8].unpack1("Q<")
+    return [] if len.zero? || items.zero?
+
+    base = Fiddle::Pointer.new(items)
+    (0...len).map do |idx|
+      off = idx * CONTRACT_REF_SIZE
+      ContractRef.new(
+        path: read_cstr(Fiddle::Pointer.new(base[off, 8].unpack1("Q<"))).to_s,
+        name: read_cstr(Fiddle::Pointer.new(base[off + 8, 8].unpack1("Q<"))).to_s
+      )
+    end
+  end
+
+  # 一次解析拿全部产物：值树 + 诊断 + 多错误 + 弱表 + 契约映射 + 契约表。
+  # `want` 位选（默认全要）；`contracts` 是**独立克隆**的 Builtin（调用方负责 close）。
+  def self.parse_all(text, flags: 0, env: nil, builtins: nil, want: WANT_ALL)
+    raise SmlError.new("E-INTERNAL-001", text: "parse_all: text is nil") if text.nil?
+
+    opts, = build_opts(flags, env, builtins)
+    err = new_error
+    root = @sml_parse_all.call(text, opts, want, err)
+    raise_from(err) if root.null?
+
+    begin
+      diags = (want & WANT_DIAGS).zero? ? [] : read_diags(@sml_result_diags.call(root))
+      errs = (want & WANT_ERRORS).zero? ? [] : read_diags(@sml_result_errors.call(root))
+      weak = if (want & WANT_WEAK).zero?
+               WeakLists.new(binds: [], data: [], docs: [])
+             else
+               read_weaklists(@sml_result_weak.call(root))
+             end
+      cmap = (want & WANT_CONTRACT_MAP).zero? ? [] : read_contract_map(@sml_result_contract_map.call(root))
+      # 借用的句柄不能活过结果 ⇒ 立刻克隆成宿主独占的一份。
+      ctr = if (want & WANT_CONTRACTS).zero?
+              nil
+            else
+              Builtin.from_ptr(@sml_builtin_clone.call(@sml_result_contracts.call(root)))
+            end
+      ParseAll.new(value: materialize(@sml_result_value.call(root)),
+                   diagnostics: diags, errors: errs, weak: weak,
+                   contract_map: cmap, contracts: ctr)
+    ensure
+      @sml_result_free.call(root)
+    end
+  end
+
+  # 解析文本，带完整选项（特性上限 / $env 注入 / 内置契约表），返回 [对象, 诊断列表]。
+  # flags 是**特性上限**（与 loads 同义）；env 可为 Hash 或 "KEY=VALUE" 数组。
+  def self.loads_full(text, flags: 0, env: nil, builtins: nil)
+    raise SmlError.new("E-INTERNAL-001", text: "loads_full: text is nil") if text.nil?
+
+    opts, = build_opts(flags, env, builtins)
+    err = new_error
+    dl = Fiddle::Pointer.malloc(DIAG_LIST_SIZE)
+    DIAG_LIST_SIZE.times { |k| dl[k] = 0 }
+    root = @sml_parse_full.call(text, opts, dl, err)
+    begin
+      raise_from(err) if root.null?
+
+      [materialize(root), read_diags(dl)]
+    ensure
+      @sml_diag_list_free.call(dl)
+      @sml_free.call(root) unless root.null?
+    end
+  end
+
+  # 同 loads_full，另交出弱声明三表（@weakbind / @weakdata / @weakdoc）。
+  def self.loads_full_lists(text, flags: 0, env: nil, builtins: nil)
+    raise SmlError.new("E-INTERNAL-001", text: "loads_full_lists: text is nil") if text.nil?
+
+    opts, = build_opts(flags, env, builtins)
+    err = new_error
+    dl = Fiddle::Pointer.malloc(DIAG_LIST_SIZE)
+    DIAG_LIST_SIZE.times { |k| dl[k] = 0 }
+    wl = Fiddle::Pointer.malloc(WEAKLISTS_SIZE)
+    WEAKLISTS_SIZE.times { |k| wl[k] = 0 }
+    root = @sml_parse_full_lists.call(text, opts, wl, dl, err)
+    begin
+      raise_from(err) if root.null?
+
+      [materialize(root), read_diags(dl), read_weaklists(wl)]
+    ensure
+      @sml_weaklists_free.call(wl)
+      @sml_diag_list_free.call(dl)
+      @sml_free.call(root) unless root.null?
+    end
+  end
+
+  # 同 `Sml.load_file`，另交出诊断与弱声明三表（文件入口版的 loads_full_lists）。
+  # 跨 include 时行号可能为 0（token 跨文件合并，没有可映射的单一原文）。
+  def self.load_file_full(path, flags: 0, env: nil, builtins: nil)
+    raise SmlError.new("E-INTERNAL-001", text: "load_file_full: path is nil") if path.nil?
+
+    opts, = build_opts(flags, env, builtins)
+    err = new_error
+    dl = Fiddle::Pointer.malloc(DIAG_LIST_SIZE)
+    DIAG_LIST_SIZE.times { |k| dl[k] = 0 }
+    wl = Fiddle::Pointer.malloc(WEAKLISTS_SIZE)
+    WEAKLISTS_SIZE.times { |k| wl[k] = 0 }
+    root = @sml_load_file_full.call(path.to_s, opts, wl, dl, err)
+    begin
+      raise_from(err) if root.null?
+
+      [materialize(root), read_diags(dl), read_weaklists(wl)]
+    ensure
+      @sml_weaklists_free.call(wl)
+      @sml_diag_list_free.call(dl)
+      @sml_free.call(root) unless root.null?
     end
   end
 

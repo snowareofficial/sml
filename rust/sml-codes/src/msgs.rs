@@ -188,6 +188,7 @@ static ENTRIES: &[Entry] = &[
     Entry { id: "E-PARSE-030", severity: "error", domain: "PARSE", #[cfg(feature = "zh")] zh_title: "弱 profile 重复引用", #[cfg(feature = "zh")] zh_msg: "同一文档重复引用了同一个弱 profile", en_title: "Duplicate weak-profile reference", en_msg: "The same weak profile is referenced more than once in one document" },
     Entry { id: "I-FEATURE-001", severity: "info", domain: "FEATURE", #[cfg(feature = "zh")] zh_title: "命令行特性与解析器版本不一致", #[cfg(feature = "zh")] zh_msg: "解析器按其固定版本模式工作，命令行声明的特性版本仅作提示", en_title: "CLI feature/parser version mismatch", en_msg: "The parser works in its fixed version mode; the CLI's declared feature version is advisory only" },
     Entry { id: "I-LINT-001", severity: "info", domain: "LINT", #[cfg(feature = "zh")] zh_title: "profile 看起来适用但未被引用", #[cfg(feature = "zh")] zh_msg: "有个 profile 的适用条件命中了这份文档，但文档没有引用它", en_title: "A profile looks applicable but is not referenced", en_msg: "A profile's `applies_to` conditions match this document, but the document does not reference it" },
+    Entry { id: "W-CLI-001", severity: "warning", domain: "CLI", #[cfg(feature = "zh")] zh_title: "引用的 profile 未找到", #[cfg(feature = "zh")] zh_msg: "工具侧在项目、用户、系统三处命名空间都未找到该 profile（警告，不阻断解析）", en_title: "Referenced profile not found", en_msg: "The referenced profile was not found in the project, user, or system namespace (warning, parsing continues)" },
     Entry { id: "W-CONTRACT-001", severity: "warning", domain: "CONTRACT", #[cfg(feature = "zh")] zh_title: "弱声明与内置契约不匹配", #[cfg(feature = "zh")] zh_msg: "弱绑定 `@weakbind` 与内置契约不匹配（警告，不阻断解析）", en_title: "Weak declaration does not match the builtin contract", en_msg: "The `@weakbind` declaration does not match the builtin contract (warning, parsing continues)" },
     Entry { id: "W-EDITOR-001", severity: "warning", domain: "EDITOR", #[cfg(feature = "zh")] zh_title: "自定义词与官方关键字冲突", #[cfg(feature = "zh")] zh_msg: "自定义词与官方关键字冲突，已忽略", en_title: "Custom word conflicts with official keyword", en_msg: "A custom word conflicts with an official keyword; ignored" },
     Entry { id: "W-FEATURE-001", severity: "warning", domain: "FEATURE", #[cfg(feature = "zh")] zh_title: "位置参数写法已废弃", #[cfg(feature = "zh")] zh_msg: "位置参数写法已废弃，推荐带参数名的写法", en_title: "Positional-argument form deprecated", en_msg: "The positional-argument form is deprecated; prefer the named-parameter form" },
@@ -358,6 +359,7 @@ pub const ALL: &[&str] = &[
     "E-PARSE-030",
     "I-FEATURE-001",
     "I-LINT-001",
+    "W-CLI-001",
     "W-CONTRACT-001",
     "W-EDITOR-001",
     "W-FEATURE-001",
@@ -465,8 +467,7 @@ mod tests {
             if i.domain == "PARSE" { parse += 1; }
         }
         assert_eq!(empty, 0, "所有码 title/msg 必须非空");
-        // 与 `errors/codes.sml` 的 PARSE 域条数一致（E-PARSE-001..030 + W-PARSE-001/002）。
-        // 改码表时同步此值 ｜ Keep in sync with the PARSE domain in `errors/codes.sml`.
+        // 期望值由生成器从码表 PARSE 域算出 ｜ Expected count comes from the PARSE domain in the code table.
         assert_eq!(parse, 32, "PARSE 领域条数须与 errors/codes.sml 一致");
     }
 

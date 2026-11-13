@@ -6,7 +6,9 @@
 name = "SML"
 grammar = "sml"
 
-path_suffixes = ["sml"]
+# 与 VSCode 侧 `contributes.languages[].extensions` 对齐：`.swl` 是文本后缀，
+# `.smlex` 是 profile（内容仍是普通 SML 文档，见 docs/swsml/spec/smlex.md）。
+path_suffixes = ["sml", "swl", "smlex"]
 
 # SML 的注释有四种写法，sml-lex 全都认（见 rust/sml-lex/src/lib.rs）。
 # Zed 用**第一个**插入注释，其余供「切换注释」识别既有注释行。

@@ -89,6 +89,45 @@ struct Contract {
 };
 
 // ---------------------------------------------------------------------------
+// 弱绑定（`@weakbind`）—— 内置契约表 + 旁路表
+// `docs/swsml/spec/weakbind.md`：库里**不内置任何业务契约**，内置表由宿主注入。
+// 软校验**只读**：不填默认值、不删改键，`Value` 一个字段都不动，只出
+// `W-CONTRACT-001` 诊断。
+// ---------------------------------------------------------------------------
+struct BuiltinField {
+    std::string type = "any";           // "any" / "str" / "int" / "num" / "bool" / "enum"
+    bool required = false;
+    bool has_min = false, has_max = false;
+    double min = 0.0, max = 0.0;
+    std::vector<std::string> values;    // type == "enum" 时的取值
+};
+
+struct BuiltinContract {
+    std::map<std::string, BuiltinField> fields;
+};
+
+// 宿主侧的内置契约表（与 C 的 `sml_builtin` 同定位，机制按 C++ 惯例）。
+class BuiltinTable {
+public:
+    void add_field(const std::string& contract, const std::string& field,
+                   const std::string& type, bool required = false);
+    void set_range(const std::string& contract, const std::string& field,
+                   double min, double max);
+    void add_enum(const std::string& contract, const std::string& field,
+                  const std::string& value);
+    const std::map<std::string, BuiltinContract>& all() const { return contracts_; }
+private:
+    std::map<std::string, BuiltinContract> contracts_;
+};
+
+// 一条弱绑定记录（旁路产物，**不进主树**）。
+struct WeakBind {
+    std::string path;   // 键名用 `.` 连接，数组元素写成 `[n]`（如 `srv.web`）
+    std::string name;   // 契约名
+    int line = 0;       // `@weakbind` 所在行（1 起；未知 0）
+};
+
+// ---------------------------------------------------------------------------
 // 错误码约定 (W10) —— 与 c/sml.h 同一口径，各端一致
 //
 //   失败时写入 err 的消息**以错误码开头**，码与文案之间用一个空格分隔，形如
@@ -106,6 +145,27 @@ struct Contract {
 //    通道，做成前缀后调用方既能整条展示、也能取首个 token 当码用（与 C 侧同样的
 //    取舍，见 c/sml.h 的「错误码约定」）。
 // ---------------------------------------------------------------------------
+// 一条诊断（warning）：码是稳定契约、文案不是（与 Rust `ParseOutput.diagnostics` 同定位）。
+// One diagnostic; codes are the stable contract, messages are not.
+struct Diag {
+    std::string code;      // 如 "W-PARSE-001"
+    std::string message;
+    int line = 0;          // 1 起；未知时 0
+};
+
+// `parse_with` 的选项：能力按字段扩，不再把参数越加越长。
+// 功能对等口径见 `docs/swsml/plan/crossend-sync.md` §0.6。
+struct ParseOptions {
+    // include_dir 非空时启用 include 的文本内联与越界校验；为空 = 关闭。
+    std::string include_dir;
+    // 诊断出口（可为 nullptr = 不收集）。
+    std::vector<Diag>* diags = nullptr;
+    // 内置契约表（宿主注入）；nullptr = 软校验整段跳过（空表护栏）。
+    const BuiltinTable* builtins = nullptr;
+    // 弱绑定旁路表出口（可为 nullptr = 不收集）。
+    std::vector<WeakBind>* weak_binds = nullptr;
+};
+
 class Parser {
 public:
     // 解析 SML 文本。失败返回 nullptr，并把以码开头的消息写进 err（见上）。
@@ -116,7 +176,20 @@ public:
     // 而不是静默产出 `include: "x.sml"` 这条错树（`@` 形式仍留给解析器当指令吃掉）。
     static ValuePtr parse(const std::string& text,
                           std::string* err = nullptr,
-                          const std::string& include_dir = "");
+                          const std::string& include_dir = "",
+                          std::vector<Diag>* diags = nullptr);
+
+    // 同 parse，选项走结构体：诊断 / 内置契约表 / 弱绑定旁路表。
+    // 软校验只产出 `W-CONTRACT-001`，**绝不改变返回值**。
+    static ValuePtr parse_with(const std::string& text, const ParseOptions& opts,
+                               std::string* err = nullptr);
+
+    // 文件入口：读文件 + 以**文件所在目录**为 include 基准（`opts.include_dir` 非空则不覆盖）。
+    // 诊断 / 弱表 / 内置表仍走 `opts` —— 与 `parse_with` 一套出参，不另造形状。
+    // File entry: reads the file and defaults include_dir to its directory.
+    static ValuePtr load_file(const std::string& path, const ParseOptions& opts,
+                              std::string* err = nullptr);
+    static ValuePtr load_file(const std::string& path, std::string* err = nullptr);
 
     // 序列化回 SML 文本（round-trip friendly）。无错误通道。
     static std::string to_sml(const ValuePtr& v);

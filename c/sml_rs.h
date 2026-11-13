@@ -147,6 +147,192 @@ sml_value *sml_loads(const char *text, unsigned flags, sml_error *err);
 sml_value *sml_load_file(const char *path, unsigned flags, sml_error *err);
 
 /* ==================================================================== *
+ * 非致命诊断（v3.1）
+ *
+ * 与 sml_loads 的差别只有一个出参：flags 语义、值树所有权、err 用法完全相同，
+ * 成功时值树与 sml_loads 逐字节相同。交出的是「键冲突 W-PARSE-001 /
+ * 片段覆盖 W-PARSE-002 / 弱声明不匹配 W-CONTRACT-001」这类**不阻断解析**的诊断。
+ * 致命错误仍只走 err（sml_error 带 code_str 与行列）。
+ * ==================================================================== */
+
+typedef enum {
+    SML_SEV_WARNING = 0,
+    SML_SEV_ERROR   = 1   /* 预留：后续「多错误收集」出口用 */
+} sml_severity;
+
+typedef struct {
+    char *code_str;   /* 稳定码，如 "W-PARSE-001"；NULL = 该档暂无码 */
+    char *text;       /* 人读文案（**不含**码，与 sml_error.text 同口径） */
+    int   line;       /* 1 起；0 = 未知（跨 include 时没有可映射的单一原文） */
+    int   severity;   /* sml_severity */
+} sml_diag;
+
+typedef struct {
+    sml_diag *items;  /* 空表时为 NULL */
+    size_t    len;    /* 恒被写入：0 表示没有诊断 */
+} sml_diag_list;
+
+/* 解析文本并交出非致命诊断。out_diags / err 均可为 NULL。
+ * 失败返回 NULL，*out_diags 被置为空表。 */
+sml_value *sml_parse_with_diags(const char *text, unsigned flags,
+                                sml_diag_list *out_diags, sml_error *err);
+
+/* 释放 sml_parse_with_diags 交出的诊断表（NULL 安全、可重复调用）。
+ * **不释放值树**；释放后 items/len 被清零。 */
+void sml_diag_list_free(sml_diag_list *list);
+
+/* ==================================================================== *
+ * 内置契约表 + 扩展选项（v3.1）
+ *
+ * 弱绑定（`@weakbind`）的软校验要比对**宿主内置**的那份契约表；表里含
+ * 不可序列化的校验器，故只能加法式构造（与纯 C 端 sml.h 同形状）。
+ * 表是只读输入：注入后解析器不改它，也不往值树里写任何东西。
+ * ==================================================================== */
+
+typedef struct sml_builtin sml_builtin;
+
+/* 新建空表（失败返回 NULL）。**空表 ⇒ 软校验整段跳过** —— 否则所有弱声明
+ * 都会报 decl.unknown_contract。 */
+sml_builtin *sml_builtin_new(void);
+
+/* 释放（NULL 安全）。注入用的表在 sml_parse_full 返回后即可释放。 */
+void sml_builtin_free(sml_builtin *b);
+
+/* 表里有几份契约（NULL 返回 0）。 */
+unsigned sml_builtin_count(const sml_builtin *b);
+
+/* 复制一份内置契约表（NULL 返回 NULL）。
+ * 用途：把 sml_result_contracts 交出的**借用**表变成宿主**独占**的句柄，于是
+ * 「读完结果 → 释放结果 → 继续拿表当内置表注入」不用吊着结果句柄的命。
+ * 克隆出来的表用 sml_builtin_free 释放（归调用方所有）。 */
+sml_builtin *sml_builtin_clone(const sml_builtin *b);
+
+/* 声明一个字段：契约不存在时自动建，同名字段**后写覆盖**。
+ * ty 取 "any" / "str" / "int" / "num" / "bool" / "enum"（枚举值另用
+ * sml_builtin_add_enum 续填）；required 非 0 表示必填。
+ * 返回 0 = 成功；非 0 = 参数非法（NULL / 未知类型），此时表**不动**。 */
+int sml_builtin_add_field(sml_builtin *b, const char *contract,
+                          const char *field, const char *ty, int required);
+
+/* 给已有字段设数值区间（含端点）。返回 0 = 成功；非 0 = 契约/字段不存在。 */
+int sml_builtin_set_range(sml_builtin *b, const char *contract,
+                          const char *field, double min, double max);
+
+/* 给 enum 字段追加一个合法取值。返回 0 = 成功；非 0 = 不存在或字段不是 enum。 */
+int sml_builtin_add_enum(sml_builtin *b, const char *contract,
+                         const char *field, const char *value);
+
+typedef struct {
+    size_t struct_size;          /* 必填 sizeof(sml_opts)：将来加字段靠它判长度 */
+    unsigned flags;              /* SML_F_* 的**特性上限**；0 = 基线。
+                                  * 注意 `type.weak` 是 opt-in、不在基线里 ⇒
+                                  * 要校验弱绑定请传 `SML_F_BASIC | SML_F_WEAK`
+                                  * （或 sml_features_mask()），否则文档的
+                                  * `@feature enable type.weak` 被交集剔除、
+                                  * `@weakbind` 随即报 E-FEATURE-001。 */
+    const char *const *env;      /* "KEY=VALUE" 数组，供 $env.X 内联；可 NULL */
+    size_t env_len;              /* env 的元素个数 */
+    const sml_builtin *builtins; /* 内置契约表；NULL = 不做弱绑定软校验 */
+} sml_opts;
+
+/* 解析文本，带完整选项（特性上限 / env 注入 / 内置契约表），并交出非致命诊断。
+ * 值树与 sml_loads(text, flags) 逐字节相同；`@weakbind` 与表对不上时产出
+ * W-CONTRACT-001（**不阻断**）。opts / out_diags / err 均可 NULL。
+ * 失败返回 NULL，*out_diags 被置为空表。 */
+sml_value *sml_parse_full(const char *text, const sml_opts *opts,
+                          sml_diag_list *out_diags, sml_error *err);
+
+/* ==================================================================== *
+ * 弱声明三表（v3.1）
+ *
+ * `@weakbind` / `@weakdata` / `@weakdoc` 的产物**都不进主树**；这里按纯 C 端
+ * 同形交出（path 形如 "srv.web" / "list[0]"，顶层为空串；line 1 起，0 = 未知）。
+ * 整表由 sml_weaklists_free 回收 —— 其中 sml_weakdata.value **不要**单独 sml_free。
+ * ==================================================================== */
+
+typedef struct {
+    char *path;
+    char *name;
+    int   line;
+} sml_weakbind;
+
+typedef struct {
+    char *path;
+    char *name;
+    int   line;
+    sml_value *value;   /* 载荷值树；随表释放 */
+} sml_weakdata;
+
+typedef struct {
+    char *path;
+    char *name;
+    int   line;
+} sml_weakdoc;
+
+typedef struct {
+    sml_weakbind *binds; size_t n_binds;
+    sml_weakdata *data;  size_t n_data;
+    sml_weakdoc  *docs;  size_t n_docs;
+} sml_weaklists;
+
+/* 释放三张弱表（NULL 安全、可重复调用）；不释放值树。 */
+void sml_weaklists_free(sml_weaklists *lists);
+
+/* 同 sml_parse_full，另交出弱声明三表（out_lists 可为 NULL）。 */
+sml_value *sml_parse_full_lists(const char *text, const sml_opts *opts,
+                                sml_weaklists *out_lists, sml_diag_list *out_diags,
+                                sml_error *err);
+
+/* 解析**文件**（展开 include），带完整选项 / 诊断 / 弱声明三表。
+ * 跨 include 时行号可能为 0（token 跨文件合并，没有可映射的单一原文）。 */
+sml_value *sml_load_file_full(const char *path, const sml_opts *opts,
+                              sml_weaklists *out_lists, sml_diag_list *out_diags,
+                              sml_error *err);
+
+/* ==================================================================== *
+ * 聚合结果（v3.1）
+ *
+ * 一次解析 -> 一个结果句柄 -> 用 getter 按需取。这样新增输出只加一个
+ * SML_WANT_* 位与一个 getter，既有符号的签名不再随能力增长而改。
+ * 所有 getter 返回的都是**借用**指针：随 sml_result_free 一并失效，
+ * 不要对它们调 sml_free / sml_builtin_free / sml_*_list_free。
+ * ==================================================================== */
+
+#define SML_WANT_DIAGS        (1u << 0)  /* 非致命诊断 */
+#define SML_WANT_ERRORS       (1u << 1)  /* 收集多条错误（语法错也返回句柄） */
+#define SML_WANT_WEAK         (1u << 2)  /* 弱声明三表 */
+#define SML_WANT_CONTRACT_MAP (1u << 3)  /* 契约映射：哪个实体应用了哪些契约 */
+#define SML_WANT_CONTRACTS    (1u << 4)  /* 本次解析收集到的契约表（可再当内置表注入） */
+
+typedef struct sml_result sml_result;
+
+/* 一条「某实体应用了某个契约」。 */
+typedef struct {
+    char *path;   /* 实体路径（"srv.web" / "list[0]"）；顶层为空串 */
+    char *name;   /* 契约名（已 resolve，与 @contract 定义的键一致） */
+} sml_contract_ref;
+
+/* 契约映射的扁平表示：每个 (实体, 契约) 一行，按应用顺序。 */
+typedef struct {
+    sml_contract_ref *items;
+    size_t len;
+} sml_contractmap;
+
+/* 解析文本，交出聚合结果；失败（且未请求 SML_WANT_ERRORS）返回 NULL 并填 err。 */
+sml_result *sml_parse_all(const char *text, const sml_opts *opts,
+                          unsigned want, sml_error *err);
+
+sml_value          *sml_result_value        (const sml_result *r); /* 借用，勿 sml_free */
+const sml_diag_list *sml_result_diags       (const sml_result *r);
+const sml_diag_list *sml_result_errors      (const sml_result *r); /* severity = 1 */
+const sml_weaklists *sml_result_weak        (const sml_result *r);
+const sml_contractmap *sml_result_contract_map(const sml_result *r);
+const sml_builtin  *sml_result_contracts    (const sml_result *r); /* 借用，勿 sml_builtin_free */
+
+/* 释放聚合结果（NULL 安全）：值树、各表、字符串、契约表一并回收。 */
+void sml_result_free(sml_result *r);
+
+/* ==================================================================== *
  * 遍历（返回借用指针，不可释放）
  * ==================================================================== */
 

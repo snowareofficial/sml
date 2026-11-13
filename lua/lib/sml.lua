@@ -53,6 +53,183 @@ function Sml.error_info(code, locale) return _sml_errors.error_info(code, locale
 -- 单线程、一次 load 内用 pcall 解析，无重入，安全。
 local _LINES = nil
 
+-- 特性名表：与 Rust FEATURES 同序同名（跨端契约）。值为**位序**（0 起）。
+local SML_FEATURE_NAMES = {}
+for i, n in ipairs({
+  "bareword-string", "include", "env", "contract", "fragment",
+  "top-level-array", "namespace", "implicit-ns", "multi-include",
+  "glob-include", "regex-include", "ext-rewrite", "when", "for",
+  "typed-block", "case-insensitive", "block-name", "type.featag",
+  "lex.ident", "type.weak",
+}) do SML_FEATURE_NAMES[n] = i - 1 end
+
+-- 当前文档的特性开关（每次 load 重置为基线 0..7）。nil / false = 关。
+local _FEATURES = nil
+
+-- `@for` 的循环变量绑定（每次 load 重置；展开时临时设置，展开完恢复）。
+-- `@for` loop-variable bindings, reset per load and restored after expansion.
+local _LOOP_VARS = nil
+
+-- 诊断（warning）收集：只有 `Sml.parse_with_warnings` 才建表，默认零开销。
+-- Diagnostics sink: only `Sml.parse_with_warnings` allocates it.
+local _WARNINGS = nil
+
+-- 版本字面量 → 主版本号（`docs/swsml/spec/version.md` §1）。
+-- 1..4 = 本实现支持；5 = 5.0 族（Dev，未启用）；0 = 无法识别。
+-- 接受 `vN` / `N` / `N.0` / `N0`（连写）与代号 `camelia`（等价 50）。
+-- | 1..4 supported, 5 future (5.0 family), 0 unknown.
+local function version_lit_major(raw)
+  local s = tostring(raw or "")
+  if #s >= 2 and string.sub(s, 1, 1) == '"' and string.sub(s, -1) == '"' then
+    s = string.sub(s, 2, -2)
+  end
+  if s == "camelia" then return 5 end
+  if string.sub(s, 1, 1) == "v" or string.sub(s, 1, 1) == "V" then s = string.sub(s, 2) end
+  local d = string.match(s, "^([1-9])")
+  if not d then return 0 end
+  local major = tonumber(d)
+  if #s == 1 or string.match(s, "^%d%.0$") or string.match(s, "^%d0$") then
+    return major
+  end
+  return 0
+end
+
+-- 预处理：扫行首的 `@feature enable|disable <名>`，算出初始特性集（表，位序 0 起）。
+-- 必须在 tokenize 前调用（与 Rust `strip_features` 同定位）：顶层数组形态判定
+-- 等都要看到 `@feature` 的效果。解析主循环仍会再处理（幂等）。
+local function scan_features(text)
+  local feats = {}
+  for b = 0, 7 do feats[b] = true end
+  local pos, n = 1, #text
+  while pos <= n do
+    local eol = string.find(text, "\n", pos, true)
+    local line
+    if eol then line = string.sub(text, pos, eol - 1) else line = string.sub(text, pos) end
+    local lead = string.match(line, "^[ \t]*")
+    local rest = string.sub(line, #lead + 1)
+    local sub = string.match(rest, "^@feature[ \t]+(%a+)")
+    if sub == "enable" or sub == "disable" then
+      local on = (sub == "enable")
+      local tail = string.sub(rest, #("@feature") + 1)
+      tail = string.gsub(tail, "^[ \t]+" .. sub, "")
+      for name in string.gmatch(tail, "[%w_%.%-]+") do
+        local bit = SML_FEATURE_NAMES[name]
+        if bit ~= nil then
+          if on then feats[bit] = true else feats[bit] = nil end
+        end
+      end
+    end
+    if not eol then break end
+    pos = eol + 1
+  end
+  return feats
+end
+
+------------------------------------------------------------------------------
+-- 弱绑定（`@weakbind`）：内置契约表注入 + 只读软校验 + 旁路表
+-- 依据 `docs/swsml/spec/weakbind.md`：库里**不内置任何业务契约**，内置表由宿主注入；
+-- 软校验**只读** —— 不填默认值、不删改键，只出 `W-CONTRACT-001`。
+------------------------------------------------------------------------------
+-- 旁路表（`@weakbind` 的记录，**不进主树**）；只有 parse_with_builtins 才建表。
+local _WEAK_BINDS = nil
+-- 宿主注入的内置契约表；nil = 整段软校验跳过（空表护栏）。
+local _BUILTIN = nil
+-- 当前块的路径栈（键名；数组元素写成 `[n]`）。调用方在 parse_block 前设 _ENTER_KEY。
+local _PATH = nil
+local _ENTER_KEY = nil
+
+-- 拼出「祖先路径 + 本级键」：键名用 `.` 连接，`[n]` 段不加点。
+local function weak_path(leaf)
+  local out = ""
+  if _PATH then
+    for k = 1, #_PATH do
+      local seg = _PATH[k]
+      if k > 1 and string.sub(seg, 1, 1) ~= "[" then out = out .. "." end
+      out = out .. seg
+    end
+  end
+  if leaf and leaf ~= "" then
+    if out ~= "" and string.sub(leaf, 1, 1) ~= "[" then out = out .. "." end
+    out = out .. tostring(leaf)
+  end
+  return out
+end
+
+local function weak_warn(line, msg)
+  if _WARNINGS then
+    _WARNINGS[#_WARNINGS + 1] = {
+      code = "W-CONTRACT-001",
+      message = msg,
+      line = line or 0,
+    }
+  end
+end
+
+-- 内置表里的字段按名字排序后遍历：warning 顺序稳定，便于用例断言。
+local function builtin_fields(contract)
+  if not _BUILTIN then return nil, nil end
+  local c = _BUILTIN[contract]
+  if not c or type(c.fields) ~= "table" then return nil, nil end
+  local names = {}
+  for name in pairs(c.fields) do names[#names + 1] = name end
+  table.sort(names)
+  return c.fields, names
+end
+
+-- 声明侧：`@weakbind X { 字段: 类型 }` 的每个字段与内置表比对（只读）。
+local function weak_check_decl(cname, fname, tyname, line)
+  local fields = builtin_fields(cname)
+  if not fields then return end          -- 契约名不在表里：已在声明处报过
+  local f = fields[fname]
+  if not f then
+    weak_warn(line, "契约 `" .. cname .. "` 没有字段 `" .. tostring(fname) .. "`")
+    return
+  end
+  if tyname and (f.type or "any") ~= tyname then
+    weak_warn(line, "字段 `" .. cname .. "." .. tostring(fname) .. "` 的类型与内置契约不同")
+  end
+end
+
+-- 块内容侧：缺必填 / 类型 / 区间 / 枚举（四类），**只读**，绝不改树。
+local function weak_check_block(cname, node, line)
+  local fields, names = builtin_fields(cname)
+  if not fields or type(node) ~= "table" then return end
+  for _, fname in ipairs(names) do
+    local f = fields[fname]
+    local v = node[fname]
+    if v == nil then
+      if f.required then
+        weak_warn(line, "块里缺必填字段 `" .. cname .. "." .. fname .. "`")
+      end
+    else
+      local ty = f.type or "any"
+      local ok = true
+      if ty == "str" then
+        ok = (type(v) == "string")
+      elseif ty == "int" then
+        ok = (type(v) == "number") and (v == math.floor(v))
+      elseif ty == "num" then
+        ok = (type(v) == "number")
+      elseif ty == "bool" then
+        ok = (type(v) == "boolean")
+      elseif ty == "enum" then
+        ok = false
+        if type(v) == "string" and type(f.values) == "table" then
+          for _, ev in ipairs(f.values) do
+            if ev == v then ok = true; break end
+          end
+        end
+      end
+      if not ok then
+        weak_warn(line, "字段 `" .. cname .. "." .. fname .. "` 与内置契约类型不符")
+      elseif type(v) == "number"
+             and ((f.min ~= nil and v < f.min) or (f.max ~= nil and v > f.max)) then
+        weak_warn(line, "字段 `" .. cname .. "." .. fname .. "` 超出内置契约的区间")
+      end
+    end
+  end
+end
+
 function Sml.new()
   return setmetatable({}, Sml)
 end
@@ -185,7 +362,19 @@ local function tokenize(text)
   while i <= n do
     local c = string.sub(text, i, i)
     local c2 = (i < n) and string.sub(text, i + 1, i + 1) or ""
-    if c == "#" then
+    if c == "$" and c2 == "{" then
+      -- `${var}` 整体作为一个 Word（`@for` 插值）：否则 `{` / `}` 会被当结构记号切开，
+      -- 键名位置也认不出 `${`（`${h}_port` 会散成 `${h`、`}`、`_port`）。
+      -- Keep `${var}` as one Word so it survives structural splitting.
+      local close = string.find(text, "}", i + 2, true)
+      if close then
+        buf[#buf + 1] = string.sub(text, i, close)
+        i = close + 1
+      else
+        buf[#buf + 1] = c
+        i = i + 1
+      end
+    elseif c == "#" then
       -- 单行注释：跳到行尾
       while i <= n and string.sub(text, i, i) ~= "\n" do i = i + 1 end
     elseif c == "-" and c2 == "-" then
@@ -294,8 +483,12 @@ local function tokenize(text)
       -- 否则 `a@b.c` 会被切成 "a" + "@" + "b.c"，后半段在解析时被丢弃，
       -- 导致邮箱静默损坏为 "a"。
       if #buf == 0 then
+        -- 孤立 `@`：其后紧跟空白 / 行尾 ⇒ 没有指令名或片段名。
+        -- 与 Rust 的 `Tok::BareAt` 同判据（sml-lex/src/lib.rs 的 `'@'` 分支）。
+        local nxt = (i + 1 <= n) and string.sub(text, i + 1, i + 1) or ""
+        local bare = (nxt == "" or nxt == " " or nxt == "\t" or nxt == "\n" or nxt == "\r")
         flush()
-        toks[#toks+1] = "@"
+        toks[#toks+1] = bare and "@bare" or "@"
         lines[#toks] = cur_line
       else
         buf[#buf+1] = c
@@ -329,10 +522,22 @@ local function coerce(tok, fragments)
   -- 引号串（内部支持 $env.VAR 展开）
   if string.sub(tok, 1, 1) == '"' and string.sub(tok, -1) == '"' then
     local inner = string.sub(tok, 2, -2)
+    -- `@for` 循环变量插值：`${var}` 是只读绑定，未绑定则原样保留。
+    -- Read-only loop-variable interpolation; unknown names stay verbatim.
+    if _LOOP_VARS then
+      inner = string.gsub(inner, "%${([%w_]+)}", function(n)
+        local v = _LOOP_VARS[n]
+        if v == nil then return "${" .. n .. "}" end
+        return tostring(v)
+      end)
+    end
     -- 内插 `$env.NAME`（与 Rust `interp_str` 同语义）：NAME 取 [字母数字_ .]，
     -- 取到第一个其它字符为止；名字为空则原样保留 `$env.`。
     -- 原先只认「整串恰为 $env.NAME」，内嵌形式不替换 —— conformance 26 的分歧。
     -- ｜ Inline `$env.NAME`, same as the Rust reference.
+    if string.find(inner, "$env.", 1, true) and not (_FEATURES and _FEATURES[2]) then
+      fail("E-FEATURE-002", "字符串无法解析：未启用特性 `env`")
+    end
     if string.find(inner, "$env.", 1, true) then
       local out, pos = {}, 1
       while true do
@@ -384,6 +589,11 @@ local function coerce(tok, fragments)
       end
     end
     return tonumber(tok)
+  end
+  -- `bareword-string` 门控：关闭后纯字符串裸词必须加引号（与 Rust 同码 005）
+  if not (_FEATURES and _FEATURES[0]) then
+    fail("E-FEATURE-005",
+      "裸词 `" .. tok .. "` 应写作 `\"" .. tok .. "\"`（bareword-string 已禁用）")
   end
   return tok
 end
@@ -795,7 +1005,100 @@ local function words_then_directive(tokens, i)
   return (k > i) and tokens[k] == "@"
 end
 
-local function parse_block(tokens, i, closing, fragments, contracts, depth)
+-- `@when` 条件求值（闭集：`$env.NAME` + 可选 `==` / `!=` / `=` + 值）。
+-- 与 Rust `cond.rs::eval_when_cond` 同语义：无运算符时做真值测试（非空且非 "0"/"false"）。
+-- 返回 (bool, next_i)。
+local function eval_when(tokens, i)
+  local lhs = tokens[i]
+  if not is_word_tok(lhs) then
+    fail("E-PARSE-014", "`@when` 后须条件（如 `$env.ENV == \"prod\"`）")
+  end
+  local var = string.match(lhs, "^%$env%.(.+)$")
+  if not var or var == "" then
+    fail("E-PARSE-014",
+      "`@when` 的条件左侧只支持 `$env.NAME`，得 `" .. tostring(lhs) .. "`")
+  end
+  if not (_FEATURES and _FEATURES[2]) then
+    fail("E-FEATURE-002", "`@when $env." .. var .. "` 需要特性 `env`")
+  end
+  local actual = os.getenv(var) or ""
+  i = i + 1
+  local op = tokens[i]
+  if op ~= "==" and op ~= "!=" and op ~= "=" then
+    -- 真值测试
+    return (actual ~= "" and actual ~= "0" and actual ~= "false"), i
+  end
+  i = i + 1
+  local rhs = tokens[i]
+  if not is_word_tok(rhs) then
+    fail("E-PARSE-015", "`@when` 的 `" .. tostring(op) .. "` 后须比较值")
+  end
+  if tokens[i + 1] == ":" then
+    fail("E-PARSE-015",
+      "`@when` 的 `" .. tostring(op) .. "` 后缺少比较值（写成了运算符后直接换行）")
+  end
+  i = i + 1
+  local eq = (actual == unquote(rhs))
+  if op == "!=" then return not eq, i end
+  return eq, i
+end
+
+local parse_block   -- 前向声明（parse_for 需要递归调用）｜ forward decl for parse_for
+
+-- `@for var in a b c { ... }` —— 有界循环展开，返回数组。
+-- 与 Rust `cond.rs::eval_for_header` + `Parser::parse_for` 同语义：
+-- 只遍历有限枚举、变量只读、无 `while` / 无递归。
+-- Bounded loop only: finite enumeration, read-only variable, no recursion.
+local function parse_for(tokens, i, fragments, contracts, depth)
+  i = i + 2  -- 越过 `@` 与 `for`
+  local var = tokens[i]
+  if not is_word_tok(var) then
+    fail("E-PARSE-018", "`@for` 缺少循环变量")
+  end
+  i = i + 1
+  if tokens[i] ~= "in" then
+    fail("E-PARSE-018", "`@for` 缺少 `in`")
+  end
+  i = i + 1
+  local items = {}
+  while is_word_tok(tokens[i]) do
+    items[#items + 1] = unquote(tokens[i])
+    i = i + 1
+  end
+  if #items == 0 then
+    fail("E-PARSE-018", "`@for` 的 `in` 之后至少须有一个枚举项")
+  end
+  if tokens[i] ~= "{" then
+    fail("E-PARSE-018", "`@for` 缺少循环体 `{ ... }`")
+  end
+  -- 配对 `}` 找出循环体的 token 范围
+  local start, j, depth_b = i + 1, i + 1, 1
+  while j <= #tokens do
+    if tokens[j] == "{" then depth_b = depth_b + 1
+    elseif tokens[j] == "}" then
+      depth_b = depth_b - 1
+      if depth_b == 0 then break end
+    end
+    j = j + 1
+  end
+  if depth_b ~= 0 then
+    fail("E-PARSE-001", "未闭合的块（遇到文件结尾，缺少结束符号 }）")
+  end
+  local arr = {}
+  local saved = _LOOP_VARS and _LOOP_VARS[var]
+  for k = 1, #items do
+    if _LOOP_VARS then _LOOP_VARS[var] = items[k] end
+    local sub = {}
+    for t = start, j - 1 do sub[#sub + 1] = tokens[t] end
+    sub[#sub + 1] = "}"          -- 供 parse_block 识别闭合
+    _ENTER_KEY = nil             -- `@for` 的循环体不改变旁路表路径
+    arr[#arr + 1] = parse_block(sub, 1, "}", fragments, contracts, depth + 1)
+  end
+  if _LOOP_VARS then _LOOP_VARS[var] = saved end
+  return arr, j + 1
+end
+
+parse_block = function(tokens, i, closing, fragments, contracts, depth)
   enter_depth(depth)
   local node = {}
   -- 键的**源序**（供 `.ambr` 写入；不进值树，见 finish）
@@ -803,13 +1106,28 @@ local function parse_block(tokens, i, closing, fragments, contracts, depth)
   local n = #tokens
   -- 本块声明的 `@is 契约名`：块结束时应用（Rust 的 applied_contract）
   local pending_is = nil
+  -- `@when` 的挂起条件：只作用于**紧邻的下一个**字段/块，消费后清空
+  local pending_when = nil
+  -- `@weakbind <名>` 的挂起：作用于紧邻的下一个**块**（块收尾时只读软校验）。
+  -- 作用域按块闭合：本块内没等到块就随本块丢弃，不落到外层的下一个块上。
+  local pending_weak, pending_weak_line = nil, 0
+  -- 路径栈：调用方在进本函数前把本块的键名放进 `_ENTER_KEY`（顶层为 nil）。
+  if not _PATH then _PATH = {} end
+  local path_n = #_PATH
+  if _ENTER_KEY then _PATH[path_n + 1] = _ENTER_KEY end
+  _ENTER_KEY = nil
   -- 统一出口：块正常闭合时先应用契约，再返回。
   -- ⚠️ 必须包住**所有** return 点（`tok == closing` 与 `tok == "}"` 两处提前返回），
   --    否则「块内写了 @is 但契约没被应用」会静默通过。
   local function finish(next_i)
+    if pending_when ~= nil then
+      fail("E-PARSE-017", "`@when` 后未跟随任何字段或块（悬空的条件）")
+    end
     if pending_is ~= nil then
       apply_contract(node, contracts, pending_is)
     end
+    -- 路径栈出栈（悬空的 `@weakbind` 随本块丢弃，无需额外处理）。
+    for k = #_PATH, path_n + 1, -1 do _PATH[k] = nil end
     -- 记录**源序**到元表：`pairs` 看不见它，`dump` / 契约校验都不受影响，
     -- 但 `.ambr` 写入需要它（Lua 表本身不保序）。
     -- 契约回填的默认值不在源序里，追加到末尾。
@@ -831,13 +1149,44 @@ local function parse_block(tokens, i, closing, fragments, contracts, depth)
   end
   -- 同名 key 冲突时提升为数组（避免静默覆盖，见 Bug 1）
   local function set_field(k, v)
+    -- `@when` 只作用于**紧邻的下一个**字段/块：条件为假则丢弃这一项。
+    if pending_when == false then
+      pending_when = nil
+      return
+    end
+    pending_when = nil
+    -- 弱绑定：`@weakbind X` 之后的那个块，用内置表做**只读**软校验（不填默认值），
+    -- 并把「哪个块绑了哪个契约」记进旁路表。
+    if pending_weak ~= nil and type(v) == "table" and not is_array(v) then
+      local wname = pending_weak
+      weak_check_block(wname, v, _LINES and _LINES[i] or 0)
+      if _WEAK_BINDS then
+        _WEAK_BINDS[#_WEAK_BINDS + 1] = {
+          path = weak_path(k),
+          name = wname,
+          line = pending_weak_line,
+        }
+      end
+      pending_weak = nil
+    end
     if node[k] == nil then
       order[#order + 1] = k
       node[k] = v
-    elseif type(node[k]) == "table" and node[k][1] ~= nil then
-      node[k][#node[k]+1] = v   -- 已是数组，追加
     else
-      node[k] = { node[k], v }  -- 标量/对象 -> 数组
+      -- 重复键：值树照旧提升为数组，同时记一条 `W-PARSE-001`（不改变值）。
+      -- Duplicate key: promote to array, and record W-PARSE-001 (value untouched).
+      if _WARNINGS then
+        _WARNINGS[#_WARNINGS + 1] = {
+          code = "W-PARSE-001",
+          message = "键 `" .. tostring(k) .. "` 重复出现，已提升为数组",
+          line = _LINES and _LINES[i] or 0,
+        }
+      end
+      if type(node[k]) == "table" and node[k][1] ~= nil then
+        node[k][#node[k]+1] = v   -- 已是数组，追加
+      else
+        node[k] = { node[k], v }  -- 标量/对象 -> 数组
+      end
     end
   end
   while i <= n do
@@ -861,7 +1210,82 @@ local function parse_block(tokens, i, closing, fragments, contracts, depth)
       end
     end
     if tok == "," then
-      i = i + 1  -- 逗号可选分隔符，跳过
+      -- 逗号只用于对象字段分隔（`k: v, k2: v2`）：其后须是 `key:`。
+      -- 否则是裸词拆分（`a: x,y`）或孤立逗号 —— 报错而非静默跳过。
+      local c1, c2 = tokens[i + 1], tokens[i + 2]
+      if not (is_word_tok(c1) and c2 == ":") then
+        fail("E-PARSE-007", "非预期的逗号：裸词中不可含逗号，请改用数组或引号包裹")
+      end
+      i = i + 1
+    elseif tok == "@bare" then
+      -- 孤立 `@`（其后是空白 / 行尾）：报错，不把下一行的键当指令名，
+      -- 也不把紧随的块当片段体吞掉（Rust 的 Tok::BareAt 同判据）。
+      fail("E-PARSE-004", "孤立的 @：其后没有指令名或片段名")
+    elseif tok == "@" and (tokens[i + 1] == "weakbind" or tokens[i + 1] == "weakdata"
+           or tokens[i + 1] == "weakdoc")
+           and not (_FEATURES and _FEATURES[19]) then
+      -- 2026-11-13 裁决：未开 `type.weak` 时响亮拒绝（与 Rust 同码 001）。
+      fail("E-FEATURE-001",
+        "`" .. tostring(tokens[i + 1]) .. "`：当前文档已禁用该特性"
+        .. "（请先写 `@feature enable type.weak`）")
+    elseif tok == "@" and (tokens[i + 1] == "weakbind" or tokens[i + 1] == "weakdata"
+           or tokens[i + 1] == "weakdoc") then
+      -- 开了 `type.weak`：登记但不解释，值树零影响。
+      local wfname = tokens[i + 1]
+      i = i + 2
+      local wname = tokens[i]
+      if not is_word_tok(wname) then
+        fail("E-PARSE-019", "`@" .. tostring(wfname) .. "` 后须名字")
+      end
+      local wname_line = _LINES and _LINES[i] or 0
+      i = i + 1
+      if wfname == "weakbind" then
+        -- 挂起到「紧邻的下一个块」；`{` 形态**只在契约名同一行**才算字段体，
+        -- 否则会吃掉下一个块（`@weakbind tls` 换行后的 `server { ... }`）。
+        pending_weak = wname
+        pending_weak_line = wname_line
+        if _BUILTIN then
+          local c = _BUILTIN[wname]
+          if not (type(c) == "table") then
+            weak_warn(wname_line, "内置契约表里没有 `" .. tostring(wname) .. "`")
+          end
+        end
+        if tokens[i] == "{" and _LINES and _LINES[i] == wname_line then
+          i = i + 1
+          while tokens[i] ~= nil and tokens[i] ~= "}" do
+            if not is_word_tok(tokens[i]) then
+              i = i + 1
+            else
+              local fname = unquote(tokens[i])
+              i = i + 1
+              if tokens[i] == ":" then i = i + 1 end
+              local tyname = nil
+              if is_word_tok(tokens[i]) then
+                tyname = unquote(tokens[i])
+                i = i + 1
+              end
+              weak_check_decl(wname, fname, tyname, wname_line)
+            end
+          end
+          if tokens[i] == "}" then i = i + 1 end
+        end
+      end
+      if wfname == "weakdoc" and tokens[i] == "{" then
+        fail("E-PARSE-019",
+          "`@weakdoc` 只写 profile 名，不接受载荷块（要内联数据请用 `@weakdata`）")
+      end
+      if wfname == "weakdata" and tokens[i] == "{" then
+        local d = 1
+        i = i + 1
+        while d > 0 and tokens[i] ~= nil do
+          if tokens[i] == "{" then d = d + 1
+          elseif tokens[i] == "}" then d = d - 1 end
+          i = i + 1
+        end
+        if d ~= 0 then
+          fail("E-PARSE-001", "未闭合的块（遇到文件结尾，缺少结束符号 }）")
+        end
+      end
     elseif tok == "@" then
       -- 片段定义：@name { ... } 或 @name type args { ... }
       -- （不进主树，存入 fragments；保留 __type/__name 供 & 引用还原）
@@ -872,16 +1296,52 @@ local function parse_block(tokens, i, closing, fragments, contracts, depth)
         -- 必须特判，否则 version 被当作片段名，其后紧跟的块会被吃掉导致内容丢失
         -- （如 `showcase.sml` 的 `@version v1` + `address { ... }` 整段丢失）。
         local lit = tokens[i]
-        if lit == "v1" or lit == "1" then
-          -- 当前实现支持 v1（裸词即字符串）
-        elseif lit == "v2" or lit == "2" or lit == "v3" or lit == "3" then
-          fail("E-FEATURE-004", "版本 `" .. tostring(lit) .. "` 超出本实现接受范围 (v1)")
+        local major = version_lit_major(lit)
+        if major == 0 then
+          fail("E-FEATURE-004",
+               "未知版本 `" .. tostring(lit) .. "`；仅支持 v1..v4（v1–v4 / 1.0–4.0 / 10–40）")
+        elseif major > 4 then
+          fail("E-FEATURE-004",
+               "版本 `" .. tostring(lit) .. "` 尚未启用（5.0 仍为 Dev；本实现支持 v1..v4）")
         else
-          fail("E-FEATURE-004", "未知版本 `" .. tostring(lit) .. "`；仅支持 v1")
+          -- v2 起裸词字符串必须加引号（与 Rust `FeatureSet::for_edition` 同构）。
+          if major >= 2 then _FEATURES[0] = nil end
         end
         i = i + 1
+      elseif fname == "feature" then
+        -- 与 C / C++ 同一判据：只识别 enable/disable + 名字表，不记录位。
+        -- 行号来自模块级 `_LINES`（与 `@is` 的同行判据同源）。
+        local sub = tokens[i]
+        if not is_word_tok(sub) or _LINES[i] ~= _LINES[i - 1] then
+          fail("E-FEATURE-007", "`@feature` 缺少参数（enable / disable）")
+        end
+        if sub == "enable" or sub == "disable" then
+          local any = false
+          local sub_line = _LINES[i]
+          i = i + 1
+          while is_word_tok(tokens[i]) and _LINES[i] == sub_line do
+            local nm = tokens[i]
+            local bit = SML_FEATURE_NAMES[nm]
+            if bit == nil then
+              fail("E-FEATURE-002", "未知特性名 `" .. nm .. "`")
+            end
+            any = true
+            _FEATURES[bit] = (sub == "enable") and true or nil
+            i = i + 1
+            if tokens[i] == "," then i = i + 1 else break end
+          end
+          if not any then
+            fail("E-FEATURE-007", "`@feature " .. sub .. "` 缺少特性名")
+          end
+        else
+          fail("E-FEATURE-006", "`@feature " .. sub .. "`：本端暂不支持该子命令")
+        end
       elseif fname == "contract" then
         -- 契约定义：`@contract Name [loose|strict] { ... }`（不进主树）
+        -- 特性门控：与 Rust / C / C++ 同判据（Contract 位）。
+        if not (_FEATURES and _FEATURES[3]) then
+          fail("E-FEATURE-001", "`contract`：当前文档已禁用该特性")
+        end
         local cname = tokens[i]
         if not is_word_tok(cname) then
           fail("E-PARSE-019", "`@contract` 后须契约名")
@@ -899,8 +1359,21 @@ local function parse_block(tokens, i, closing, fragments, contracts, depth)
         local fields
         fields, i = parse_contract_body(tokens, i, fragments)
         contracts[cname] = { name = cname, fields = fields, allow_extra = allow_extra }
+      elseif fname == "when" then
+        -- 条件裁剪：`@when <条件>` 只作用于紧邻的下一个字段/块，条件为假则丢弃。
+        if not (_FEATURES and _FEATURES[12]) then
+          fail("E-FEATURE-001", "`when`：当前文档已禁用该特性")
+        end
+        if pending_when ~= nil then
+          fail("E-PARSE-016", "`@when` 连续出现：它只作用于紧邻的下一个字段或块")
+        end
+        pending_when, i = eval_when(tokens, i)
       elseif fname == "is" then
         -- 契约应用：`@is Name` 作用于**当前块**，块结束时校验（见 finish）
+        -- 特性门控：与 `@contract` 同一判据。
+        if not (_FEATURES and _FEATURES[3]) then
+          fail("E-FEATURE-001", "`contract`：当前文档已禁用该特性")
+        end
         local cname = tokens[i]
         if not is_word_tok(cname) then
           fail("E-PARSE-019", "`@is` 后须契约名")
@@ -963,10 +1436,14 @@ local function parse_block(tokens, i, closing, fragments, contracts, depth)
             .. fname .. " { ... }`）；若本意是指令，请检查拼写（合法指令：contract / is / version）")
         end
         local sub
+        _ENTER_KEY = nil           -- 片段体：不进主树，路径无意义
         sub, i = parse_block(tokens, i + 1, "}", fragments, contracts, depth + 1)
         if ftype then
           sub.__type = ftype
           if fname_arg then sub.__name = fname_arg end
+        end
+        if not (_FEATURES and _FEATURES[4]) then
+          fail("E-FEATURE-001", "`fragment`：当前文档已禁用该特性")
         end
         fragments[fname] = sub
       end
@@ -981,12 +1458,25 @@ local function parse_block(tokens, i, closing, fragments, contracts, depth)
       end
       -- 读 key
       local key = tok
+      -- 键名位置不支持 `${...}` 插值（循环变量只可用于值位置）。
+      -- No `$` interpolation in key position (E-PARSE-013).
+      if string.find(key, "%${", 1, false) then
+        fail("E-PARSE-013", "键名位置不支持 `$` 插值：循环变量只可用于值位置")
+      end
       i = i + 1
       local colon = false
       if tokens[i] == ":" then colon = true; i = i + 1 end
       local nxt = tokens[i]
-      if nxt == "{" then
+      if nxt == "@" and tokens[i + 1] == "for" then
+        if not (_FEATURES and _FEATURES[13]) then
+          fail("E-FEATURE-001", "`for`：当前文档已禁用该特性")
+        end
+        local arr
+        arr, i = parse_for(tokens, i, fragments, contracts, depth)
+        set_field(key, arr)
+      elseif nxt == "{" then
         local sub
+        _ENTER_KEY = key           -- 旁路表路径：本块的键名
         sub, i = parse_block(tokens, i + 1, "}", fragments, contracts, depth + 1)
         set_field(key, sub)
       elseif nxt == "[" then
@@ -1025,6 +1515,7 @@ local function parse_block(tokens, i, closing, fragments, contracts, depth)
         end
         if tokens[i] == "{" then
           local sub
+          _ENTER_KEY = key         -- 裸块：路径段用块类型名
           sub, i = parse_block(tokens, i + 1, "}", fragments, contracts, depth + 1)
           sub.__type = key
           if #args == 1 then sub.__name = args[1] end
@@ -1064,6 +1555,7 @@ parse_array = function(tokens, i, fragments, contracts, depth)
       i = i + 1
     elseif tok == "{" then
       local sub
+      _ENTER_KEY = "[" .. tostring(#arr + 1) .. "]"   -- 数组元素段写成 `[n]`
       sub, i = parse_block(tokens, i + 1, "}", fragments, contracts, depth + 1)
       arr[#arr+1] = sub
     elseif tok == "[" then
@@ -1358,6 +1850,10 @@ local function expand_text(text, base, stack, counters, is_child)
       local path = nil
       if not skip then path = include_line_path(body) end
       if path ~= nil then
+        -- include 门控：`@feature disable include` 后必须拒绝（与 Rust 同码 001）
+        if not (_FEATURES and _FEATURES[1]) then
+          fail("E-FEATURE-001", "include 特性未启用")
+        end
         -- 目标：绝对路径直接用；相对路径相对**当前文件所在目录**解析
         local target
         if string.sub(path, 1, 1) == "/" or string.match(path, "^%a:") then
@@ -1441,6 +1937,12 @@ function Sml.load(text, base, allow_top_scalar)
     return nil, "E-INTERNAL-001 sml: base 参数须为字符串或 nil，实得 " .. type(base)
   end
   local src = text
+  -- 预处理先于 include 展开：展开时要能看到 `@feature disable include`
+  _FEATURES = scan_features(text)
+  _LOOP_VARS = {}
+  -- 旁路表路径栈每次 load 重置：上一次的残留会让新文档的路径带上旧前缀。
+  _PATH = {}
+  _ENTER_KEY = nil
   if base ~= nil then
     -- include 在**词法之前**一次性展开：把 include 行换成被包含文件的文本。
     local ok0, expanded = pcall(expand_text, text, base, {}, { expansions = 0 }, false)
@@ -1472,7 +1974,21 @@ function Sml.load(text, base, allow_top_scalar)
     --   - 键值块（传统形态）
     -- 注：顶层标量不可往返（SML 顶层需为容器），这是格式固有限制。
     -- 三个顶层入口一律从 depth = 0（文档根）开始，与 Sml 的「128 层」口径一致。
+    -- 顶层数组门控：跳过开头的 `@` 指令行，看实质第一个 token。
+    -- `@feature` 行在前时 `first` 是 `@`，直接判 `first == "["` 永远不成立。
+    do
+      local k = 1
+      while toks[k] == "@" do
+        local li = lines[k]
+        k = k + 1
+        while toks[k] ~= nil and lines[k] == li do k = k + 1 end
+      end
+      if toks[k] == "[" and not (_FEATURES and _FEATURES[5]) then
+        fail("E-FEATURE-001", "`top-level-array`：当前文档已禁用该特性")
+      end
+    end
     local first = toks[1]
+    _ENTER_KEY = nil
     if first == "[" then
       return (select(1, parse_array(toks, 2, fragments, contracts, 0)))
     elseif first == "{" then
@@ -2249,6 +2765,40 @@ function Sml.ambr_load_typed(bytes)
     out[i] = { id = e.id, name = td.name, value = val }
   end
   return out
+end
+
+-- 同 `Sml.load`，额外交出诊断列表（`W-PARSE-001` 等）。
+-- 诊断**不改变返回值**，只提示「可能不是你想写的」。
+-- Same as `Sml.load`, plus a diagnostics list; the value is untouched.
+function Sml.parse_with_warnings(text, base)
+  _WARNINGS = {}
+  local v, err = Sml.load(text, base)
+  local w = _WARNINGS
+  _WARNINGS = nil
+  return v, err, w
+end
+
+-- 同 `Sml.parse_with_warnings`，外加宿主注入的内置契约表，并交出弱绑定旁路表。
+-- 内置表形状（与 `docs/swsml/spec/weakbind.md` §6.2 的字段同义）：
+--   { tls = { fields = {
+--       host = { type = "str", required = true },
+--       port = { type = "int", min = 1, max = 65535 },
+--       mode = { type = "enum", values = { "strict", "loose" } } } } }
+-- 软校验**只读**：不填默认值、不删改键，值树逐字节不变。
+-- 返回 v, err, warnings, weak_binds（后两者恒为表，空表即「没有」）。
+-- Same as parse_with_warnings plus a host-injected builtin table; also returns
+-- the weak-binding side table. The soft check never mutates the value.
+function Sml.parse_with_builtins(text, builtins, base)
+  _WARNINGS = {}
+  _WEAK_BINDS = {}
+  _BUILTIN = builtins
+  local v, err = Sml.load(text, base)
+  local w = _WARNINGS
+  local wb = _WEAK_BINDS
+  _WARNINGS = nil
+  _WEAK_BINDS = nil
+  _BUILTIN = nil
+  return v, err, w, wb
 end
 
 return Sml

@@ -124,6 +124,10 @@ jobs:
       # ｜ Pure-Lua 5.3+ writer, no FFI and no cdylib.
       - name: Lua 5.4 纯实现写入（21 例逐字节）
         run: lua5.4 lua/test_ambr_write.lua
+      # 同一份用例五端各解析一遍，比值树；--require-all 让「少跑一端」直接判红，
+      # 不留「SKIP 也算过」的假绿。｜ One shared corpus, five parsers, no skipped endpoint.
+      - name: 五端一致性套件（41 例，五端无 SKIP）
+        run: python3 tests/conformance/run_conformance.py --require-all
       # `.ambr` 写入：C / C++ / Python 各跑一遍 pack→load。脚本在没有 cdylib 时
       # 显式 SKIP（退出 0）而不是假绿；真正的失败（编译错 / 断言错 / 崩溃）一律非零。
       - name: .ambr 写入（C / C++ / Python）
@@ -152,10 +156,11 @@ jobs:
           echo "$PWD/target/release" >> "$GITHUB_PATH"
       - name: 私有资产守卫
         run: python3 tools/check/check_private_assets.py
-      - name: 错误码生成物幂等校验
+      - name: 错误码与 i18n 生成物幂等校验
         run: |
           python3 errors/gen_json.py
           python3 errors/gen_codes.py
+          python3 errors/gen_js_errors.py
           git diff --exit-code
       # 文档门禁：docs/meta.sml 是唯一清单。未登记 / 断链 / stale 无替代者 / updated 超期
       # 任一命中即红。`--check` 纯只读，不写生成物。

@@ -186,6 +186,41 @@ pub fn parse_file_with_warnings(
     Ok((out.value, out.diagnostics))
 }
 
+/// 文件入口 + 完整选项（**展开 include**）：特性上限 + env 覆盖表 + [`ParseOptions`]。
+///
+/// 与 [`parse_file_with`] 的差别只有两根额外的旋钮，语义对齐 [`parse_full`]：
+/// 特性侧是**交集**（`allowed` 之外静默剔除、空交集报 `E-FEATURE-009`），
+/// `env` 只作用于本次解析、不写进程环境。值与诊断交给 [`ParseOutput`]。
+pub fn parse_file_full(
+    path: impl AsRef<Path>,
+    allowed: FeatureSet,
+    env: BTreeMap<String, String>,
+    opts: ParseOptions,
+) -> Result<ParseOutput, SmlError> {
+    let path = path.as_ref();
+    let text = std::fs::read_to_string(path).map_err(|e| {
+        SmlError::from_code_msg(E_IO_001).with_detail(format!("{}: {e}", path.display()))
+    })?;
+    let base = path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| PathBuf::from("."));
+    let (rest, declared) = strip_version(&text)?;
+    let (rest, feats, touched, mode, base_ver, had) = strip_features(&rest)?;
+    let v = declared.or(base_ver).unwrap_or(Edition::V1);
+    let feats = features_for(v, feats, touched, mode, had);
+    let effective = feats.intersection(allowed);
+    if effective.is_empty() {
+        return Err(feature_set_empty(&feats, &allowed));
+    }
+    let (toks, spans) = resolve_includes_spans(&rest, &base, effective)?;
+    let spans = spans.unwrap_or_default();
+    let lines = if spans.is_empty() { Vec::new() } else { token_lines(&rest, &spans) };
+    parse_impl_tokens_ext(toks, spans, lines, effective, env, opts)
+        .map_err(|e| with_position(&rest, e))
+}
+
 /// 文件入口 + 调用方选项（**展开 include**）；存在理由与返回结构见模块文档。
 /// ｜ File entry with `ParseOptions` (expand includes); see the module docs.
 pub fn parse_file_with(
@@ -317,11 +352,21 @@ pub fn parse_with(text: &str, opts: ParseOptions) -> Result<ParseOutput, SmlErro
         .map_err(|e| with_position(&rest, e))
 }
 
-/// 「词法 → 行号 → 带扩展选项解析」这条固定链（三个入口共用，避免抄三份）。
+/// 「词法 → 行号 → 带扩展选项解析」这条固定链（多个入口共用，避免抄几份）。
 fn parse_ext(text: &str, feats: FeatureSet, opts: ParseOptions) -> Result<ParseOutput, SmlError> {
+    parse_ext_env(text, feats, BTreeMap::new(), opts)
+}
+
+/// 同上，外加 env 覆盖表（[`parse_full`] 与 `parse_ext` 共用）。
+fn parse_ext_env(
+    text: &str,
+    feats: FeatureSet,
+    env: BTreeMap<String, String>,
+    opts: ParseOptions,
+) -> Result<ParseOutput, SmlError> {
     let (toks, spans) = tokenize_spans(text)?;
     let lines = token_lines(text, &spans);
-    parse_impl_tokens_ext(toks, spans, lines, feats, BTreeMap::new(), opts)
+    parse_impl_tokens_ext(toks, spans, lines, feats, env, opts)
         .map_err(|e| with_position(text, e))
 }
 
@@ -512,6 +557,75 @@ pub fn parse_with_features_env(
     }
     let val = parse_impl(&rest, effective, env)?;
     Ok((val, effective))
+}
+
+/// Like [`parse_with_features`], plus the non-fatal diagnostics ｜ 与 [`parse_with_features`] 相同，但把**非致命诊断**一并交出。
+///
+/// 三条入口的分工：
+///
+/// | 入口 | 特性上限 | 交出诊断 |
+/// |---|---|---|
+/// | [`parse`] | 无（用文档自己声明的） | 否 |
+/// | [`parse_with_features`] | **有** | 否 |
+/// | [`parse_with_warnings`] | 无 | **是** |
+/// | 本函数 | **有** | **是** |
+///
+/// 特性侧语义与陷阱与 [`parse_with_features`] **完全一致**（交集、越权静默剔除、
+/// 空交集报 `E-FEATURE-009`），诊断侧与 [`parse_with_warnings`] 一致；
+/// 值树与 [`parse_with_features`] 逐字相同。
+/// ｜ Same feature semantics as `parse_with_features`, same diagnostics as `parse_with_warnings`.
+pub fn parse_with_features_warnings(
+    text: &str,
+    allowed: FeatureSet,
+) -> Result<(Value, Vec<Diagnostic>), SmlError> {
+    let out = parse_full(text, allowed, BTreeMap::new(), ParseOptions::new())?;
+    Ok((out.value, out.diagnostics))
+}
+
+/// 完整入口：特性上限 + env 覆盖表 + 全部 [`ParseOptions`] ｜
+/// Full entry: feature cap, env override table and every `ParseOptions` knob.
+///
+/// 本函数是 [`parse`] / [`parse_with`] / [`parse_with_features`] /
+/// [`parse_with_features_env`] / [`parse_with_warnings`] /
+/// [`parse_with_features_warnings`] 的**超集** —— 那六个是它的便捷包装，语义一致：
+/// 特性侧照 [`parse_with_features`] 的三条陷阱（交集 / 静默剔除 / 别往下传），
+/// 诊断侧照 [`parse_with_warnings`]（只影响 `diagnostics`，不动 `value`）。
+///
+/// 之所以有这个入口：FFI（`sml_parse_full`）要把「特性上限 + `$env` 注入 +
+/// 内置契约表」一次传进来，若在 C 侧拆成几次调用就会**走两条代码路径**，
+/// 那是跨端漂移的常见源头。`builtin_contracts` 见 `docs/swsml/spec/weakbind.md` §6.1。
+///
+/// ```ignore
+/// let opts = ParseOptions::new().builtin_contracts(table);
+/// let out = sml_parse::parse_full(text, allowed, env, opts)?;
+/// ```
+pub fn parse_full(
+    text: &str,
+    allowed: FeatureSet,
+    env: BTreeMap<String, String>,
+    opts: ParseOptions,
+) -> Result<ParseOutput, SmlError> {
+    // 快路径（见 [`no_directives`]）：与 [`parse_with_features`] 共用同一判据
+    if no_directives(text) {
+        let feats = FeatureSet::for_edition(Edition::V1);
+        let effective = feats.intersection(allowed);
+        if effective.is_empty() {
+            return Err(feature_set_empty(&feats, &allowed));
+        }
+        return parse_ext_env(text, effective, env, opts);
+    }
+    let (rest, declared) = strip_version(text)?;
+    let (rest, feats, touched, mode, base, had) = strip_features(&rest)?;
+    let v = declared.or(base).unwrap_or(Edition::V1);
+    let feats = features_for(v, feats, touched, mode, had);
+    let effective = feats.intersection(allowed);
+    if effective.is_empty() {
+        return Err(feature_set_empty(&feats, &allowed));
+    }
+    let (toks, spans) = tokenize_spans(&rest)?;
+    let lines = token_lines(&rest, &spans);
+    parse_impl_tokens_ext(toks, spans, lines, effective, env, opts)
+        .map_err(|e| with_position(&rest, e))
 }
 
 /// 把错误的字节偏移换算成「第 N 行第 M 列」缀到文案末尾。

@@ -65,10 +65,297 @@ namespace Sml
             public byte[] code_str;
         }
 
+        /// <summary>sml_diag 镜像：char* code_str / char* text / int line / int severity（24 字节）。</summary>
+        [StructLayout(LayoutKind.Sequential, Pack = 8)]
+        public struct SmlDiagStruct
+        {
+            public IntPtr code_str;
+            public IntPtr text;
+            public int line;
+            public int severity;
+        }
+
+        /// <summary>sml_diag_list 镜像：items 指针 + size_t len（16 字节）。</summary>
+        [StructLayout(LayoutKind.Sequential, Pack = 8)]
+        public struct SmlDiagListStruct
+        {
+            public IntPtr items;
+            public UIntPtr len;
+        }
+
+        /// <summary>一条非致命诊断（键冲突 / 片段覆盖 / 弱声明不匹配）。</summary>
+        public sealed class Diagnostic
+        {
+            public string Code { get; }     // null = 该档暂无稳定码
+            public string Text { get; }
+            public int Line { get; }        // 1 起；0 = 未知
+            public int Severity { get; }    // 0 = warning，1 = error（预留）
+
+            public Diagnostic(string code, string text, int line, int severity)
+            {
+                Code = code;
+                Text = text;
+                Line = line;
+                Severity = severity;
+            }
+
+            public override string ToString()
+            {
+                string loc = Line > 0 ? $" @{Line}" : "";
+                return $"{Code ?? "<no code>"}{loc}: {Text}";
+            }
+        }
+
+        /// <summary>sml_opts 镜像：size_t struct_size / uint flags / 4 pad / char** env / size_t env_len / 指针（40）。</summary>
+        [StructLayout(LayoutKind.Sequential, Pack = 8)]
+        public struct SmlOptsStruct
+        {
+            public UIntPtr struct_size;
+            public uint flags;
+            public uint _pad;        // 显式补齐，使 env 落在偏移 16
+            public IntPtr env;
+            public UIntPtr env_len;
+            public IntPtr builtins;
+        }
+
+        /// <summary>内置契约表（`@weakbind` 软校验用）；空表 ⇒ 软校验整段跳过。</summary>
+        public sealed class Builtin : IDisposable
+        {
+            private IntPtr _p;
+
+            private Builtin(IntPtr p) { _p = p; }
+
+            public static Builtin Create() => new Builtin(sml_builtin_new());
+
+            /// <summary>接管一个已归本进程所有的 sml_builtin*（如 sml_builtin_clone 的产物）。</summary>
+            internal static Builtin Adopt(IntPtr p) => p == IntPtr.Zero ? null : new Builtin(p);
+
+            public bool Valid => _p != IntPtr.Zero;
+
+            public int Count => _p == IntPtr.Zero ? 0 : (int)sml_builtin_count(_p);
+
+            /// <summary>声明字段；ty 取 any / str / int / num / bool / enum。false = 参数非法（表不动）。</summary>
+            public bool AddField(string contract, string field, string ty, bool required)
+            {
+                if (_p == IntPtr.Zero) return false;
+                IntPtr cc = ToUtf8(contract), cf = ToUtf8(field), ct = ToUtf8(ty);
+                try
+                {
+                    return sml_builtin_add_field(_p, cc, cf, ct, required ? 1 : 0) == 0;
+                }
+                finally { FreeUtf8(cc); FreeUtf8(cf); FreeUtf8(ct); }
+            }
+
+            public bool SetRange(string contract, string field, double min, double max)
+            {
+                if (_p == IntPtr.Zero) return false;
+                IntPtr cc = ToUtf8(contract), cf = ToUtf8(field);
+                try { return sml_builtin_set_range(_p, cc, cf, min, max) == 0; }
+                finally { FreeUtf8(cc); FreeUtf8(cf); }
+            }
+
+            public bool AddEnum(string contract, string field, string value)
+            {
+                if (_p == IntPtr.Zero) return false;
+                IntPtr cc = ToUtf8(contract), cf = ToUtf8(field), cv = ToUtf8(value);
+                try { return sml_builtin_add_enum(_p, cc, cf, cv) == 0; }
+                finally { FreeUtf8(cc); FreeUtf8(cf); FreeUtf8(cv); }
+            }
+
+            internal IntPtr Raw => _p;
+
+            public void Dispose()
+            {
+                if (_p != IntPtr.Zero)
+                {
+                    sml_builtin_free(_p);
+                    _p = IntPtr.Zero;
+                }
+            }
+        }
+
+        /// <summary>sml_weakbind 镜像：path / name / int line / 4 pad（24）。</summary>
+        [StructLayout(LayoutKind.Sequential, Pack = 8)]
+        public struct SmlWeakBindStruct
+        {
+            public IntPtr path;
+            public IntPtr name;
+            public int line;
+            public int _pad;
+        }
+
+        /// <summary>sml_weakdata 镜像：path / name / int line / 4 pad / value（32）。</summary>
+        [StructLayout(LayoutKind.Sequential, Pack = 8)]
+        public struct SmlWeakDataStruct
+        {
+            public IntPtr path;
+            public IntPtr name;
+            public int line;
+            public int _pad;
+            public IntPtr value;
+        }
+
+        /// <summary>sml_contract_ref 镜像：path / name（16）。</summary>
+        [StructLayout(LayoutKind.Sequential, Pack = 8)]
+        public struct SmlContractRefStruct
+        {
+            public IntPtr path;
+            public IntPtr name;
+        }
+
+        /// <summary>sml_contractmap 镜像：items 指针 + size_t len（16）。</summary>
+        [StructLayout(LayoutKind.Sequential, Pack = 8)]
+        public struct SmlContractMapStruct
+        {
+            public IntPtr items;
+            public UIntPtr len;
+        }
+
+        /// <summary>一条「某实体应用了某个契约」。</summary>
+        public sealed class ContractRef
+        {
+            public string Path { get; }
+            public string Name { get; }
+            public ContractRef(string path, string name) { Path = path; Name = name; }
+            public override string ToString() => Path + " -> " + Name;
+        }
+
+        /// <summary>parseAll 的 want 位（与 c/sml_rs.h 的 SML_WANT_* 逐位一致）。</summary>
+        public const int WantDiags = 1 << 0;
+        public const int WantErrors = 1 << 1;
+        public const int WantWeak = 1 << 2;
+        public const int WantContractMap = 1 << 3;
+        public const int WantContracts = 1 << 4;
+        public const int WantAll = 0x1F;
+
+        /// <summary>一次解析的全部产物；未请求的部分是空表 / null。</summary>
+        public sealed class ParseAll
+        {
+            public object Value { get; internal set; }
+            public List<Diagnostic> Diagnostics { get; internal set; } = new List<Diagnostic>();
+            public List<Diagnostic> Errors { get; internal set; } = new List<Diagnostic>();
+            public WeakLists Weak { get; internal set; } = new WeakLists();
+            public List<ContractRef> ContractMap { get; internal set; } = new List<ContractRef>();
+            /// <summary>独立克隆的契约表（调用方负责 Dispose）；未请求时为 null。</summary>
+            public Builtin Contracts { get; internal set; }
+        }
+
+        /// <summary>sml_weaklists 镜像：3 对（指针, size_t）（48）。</summary>
+        [StructLayout(LayoutKind.Sequential, Pack = 8)]
+        public struct SmlWeakListsStruct
+        {
+            public IntPtr binds;
+            public UIntPtr n_binds;
+            public IntPtr data;
+            public UIntPtr n_data;
+            public IntPtr docs;
+            public UIntPtr n_docs;
+        }
+
+        /// <summary>一条弱绑定（`@weakbind`）：目标块路径 + 契约名。</summary>
+        public sealed class WeakBind
+        {
+            public string Path { get; }
+            public string Name { get; }
+            public int Line { get; }
+            public WeakBind(string path, string name, int line) { Path = path; Name = name; Line = line; }
+        }
+
+        /// <summary>一条弱数据（`@weakdata`）：载荷不在主树里，已物化。</summary>
+        public sealed class WeakData
+        {
+            public string Path { get; }
+            public string Name { get; }
+            public int Line { get; }
+            public object Value { get; }
+            public WeakData(string path, string name, int line, object value)
+            {
+                Path = path; Name = name; Line = line; Value = value;
+            }
+        }
+
+        /// <summary>一条弱 profile 引用（`@weakdoc`）：只有名字。</summary>
+        public sealed class WeakDoc
+        {
+            public string Path { get; }
+            public string Name { get; }
+            public int Line { get; }
+            public WeakDoc(string path, string name, int line) { Path = path; Name = name; Line = line; }
+        }
+
+        /// <summary>弱声明三表；三者都不进主树。</summary>
+        public sealed class WeakLists
+        {
+            public List<WeakBind> Binds { get; } = new List<WeakBind>();
+            public List<WeakData> Data { get; } = new List<WeakData>();
+            public List<WeakDoc> Docs { get; } = new List<WeakDoc>();
+        }
+
+        /// <summary>LoadsFull 的选项：特性上限 + `$env` 覆盖表 + 内置契约表。</summary>
+        public sealed class Opts
+        {
+            /// <summary>特性上限位（F_*）；0 = 基线，不含 type.weak。</summary>
+            public uint Flags { get; set; }
+            /// <summary>"KEY=VALUE" 数组，供 $env.X 内联；只作用于本次解析。</summary>
+            public List<string> Env { get; } = new List<string>();
+            /// <summary>内置契约表；null = 不做弱绑定软校验。</summary>
+            public Builtin Builtins { get; set; }
+        }
+
         private const string LIB = "sml";
 
         [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr sml_loads(IntPtr text, uint flags, ref SmlErrorStruct err);
+        [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr sml_parse_with_diags(IntPtr text, uint flags,
+            ref SmlDiagListStruct diags, ref SmlErrorStruct err);
+        [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+        private static extern void sml_diag_list_free(ref SmlDiagListStruct list);
+        [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr sml_parse_full(IntPtr text, ref SmlOptsStruct opts,
+            ref SmlDiagListStruct diags, ref SmlErrorStruct err);
+        [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr sml_parse_full_lists(IntPtr text, ref SmlOptsStruct opts,
+            ref SmlWeakListsStruct lists, ref SmlDiagListStruct diags, ref SmlErrorStruct err);
+        [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+        private static extern void sml_weaklists_free(ref SmlWeakListsStruct lists);
+        [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr sml_parse_all(IntPtr text, ref SmlOptsStruct opts,
+            int want, ref SmlErrorStruct err);
+        [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr sml_load_file_full(IntPtr path, ref SmlOptsStruct opts,
+            ref SmlWeakListsStruct lists, ref SmlDiagListStruct diags, ref SmlErrorStruct err);
+        [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr sml_result_value(IntPtr r);
+        [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr sml_result_diags(IntPtr r);
+        [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr sml_result_errors(IntPtr r);
+        [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr sml_result_weak(IntPtr r);
+        [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr sml_result_contract_map(IntPtr r);
+        [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr sml_result_contracts(IntPtr r);
+        [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+        private static extern void sml_result_free(IntPtr r);
+        [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr sml_builtin_clone(IntPtr b);
+        [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr sml_builtin_new();
+        [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+        private static extern void sml_builtin_free(IntPtr b);
+        [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+        private static extern uint sml_builtin_count(IntPtr b);
+        [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+        private static extern int sml_builtin_add_field(IntPtr b, IntPtr contract, IntPtr field,
+            IntPtr ty, int required);
+        [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+        private static extern int sml_builtin_set_range(IntPtr b, IntPtr contract, IntPtr field,
+            double min, double max);
+        [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+        private static extern int sml_builtin_add_enum(IntPtr b, IntPtr contract, IntPtr field,
+            IntPtr value);
         [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr sml_load_file(IntPtr path, uint flags, ref SmlErrorStruct err);
         [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
@@ -236,6 +523,266 @@ namespace Sml
                 finally { sml_free(root); }
             }
             finally { FreeUtf8(ctext); }
+        }
+
+        /// <summary>
+        /// 解析文本，并把**非致命诊断**一并交出（P7）。
+        /// 与 <see cref="Loads"/> 的差别只有返回值：值树逐字节相同，诊断不阻断解析。
+        /// </summary>
+        public static object LoadsWithDiags(string text, uint flags, out List<Diagnostic> diagnostics)
+        {
+            if (text == null) throw new SmlException("E-INTERNAL-001", 0, 0, 0, 0, "", "LoadsWithDiags: text is null");
+            IntPtr ctext = ToUtf8(text);
+            var err = NewError();
+            var dlist = new SmlDiagListStruct();
+            try
+            {
+                IntPtr root = sml_parse_with_diags(ctext, flags, ref dlist, ref err);
+                try
+                {
+                    if (root == IntPtr.Zero) throw ErrorFrom(err);
+                    diagnostics = ReadDiags(dlist);
+                    return Materialize(root);
+                }
+                finally
+                {
+                    sml_diag_list_free(ref dlist);
+                    if (root != IntPtr.Zero) sml_free(root);
+                }
+            }
+            finally { FreeUtf8(ctext); }
+        }
+
+        private static List<Diagnostic> ReadDiags(SmlDiagListStruct dlist)
+        {
+            var outList = new List<Diagnostic>();
+            ulong n = (ulong)dlist.len;
+            int size = Marshal.SizeOf(typeof(SmlDiagStruct));
+            for (ulong i = 0; i < n; i++)
+            {
+                IntPtr at = dlist.items + (int)i * size;
+                var d = Marshal.PtrToStructure<SmlDiagStruct>(at);
+                string code = d.code_str == IntPtr.Zero ? null : ReadUtf8(d.code_str);
+                string msg = d.text == IntPtr.Zero ? "" : ReadUtf8(d.text);
+                outList.Add(new Diagnostic(code, msg, d.line, d.severity));
+            }
+            return outList;
+        }
+
+        /// <summary>弱声明族（opt-in，不在基线里）：Flags 是特性上限，要校验弱绑定得显式带上。</summary>
+        public const uint F_WEAK = 1u << 19;
+
+        /// <summary>
+        /// 解析文本，带完整选项（特性上限 / $env 注入 / 内置契约表）；值树与 Loads 逐字节相同。
+        /// </summary>
+        public static object LoadsFull(string text, Opts opts, out List<Diagnostic> diagnostics)
+        {
+            return ParseFullCore(text, opts, false, out diagnostics, out _);
+        }
+
+        /// <summary>同 LoadsFull，另交出弱声明三表（`@weakbind` / `@weakdata` / `@weakdoc`）。</summary>
+        public static object LoadsFullLists(string text, Opts opts,
+            out List<Diagnostic> diagnostics, out WeakLists lists)
+        {
+            return ParseFullCore(text, opts, true, out diagnostics, out lists);
+        }
+
+        private static object ParseFullCore(string text, Opts opts, bool wantLists,
+            out List<Diagnostic> diagnostics, out WeakLists lists)
+        {
+            if (text == null) throw new SmlException("E-INTERNAL-001", 0, 0, 0, 0, "", "LoadsFull: text is null");
+            opts ??= new Opts();
+            lists = wantLists ? new WeakLists() : null;
+            IntPtr ctext = ToUtf8(text);
+            var envHandles = new List<IntPtr>();
+            GCHandle pin = default(GCHandle);
+            try
+            {
+                var o = new SmlOptsStruct();
+                o.struct_size = (UIntPtr)Marshal.SizeOf<SmlOptsStruct>();
+                o.flags = opts.Flags;
+                foreach (string kv in opts.Env) envHandles.Add(ToUtf8(kv));
+                if (envHandles.Count > 0)
+                {
+                    // 指针数组要 pin 住：交给 C 的是它的地址。
+                    IntPtr[] arr = envHandles.ToArray();
+                    pin = GCHandle.Alloc(arr, GCHandleType.Pinned);
+                    o.env = pin.AddrOfPinnedObject();
+                    o.env_len = (UIntPtr)envHandles.Count;
+                }
+                if (opts.Builtins != null && opts.Builtins.Valid) o.builtins = opts.Builtins.Raw;
+
+                var err = NewError();
+                var dlist = new SmlDiagListStruct();
+                var wlist = new SmlWeakListsStruct();
+                IntPtr root = sml_parse_full_lists(ctext, ref o, ref wlist, ref dlist, ref err);
+                try
+                {
+                    if (root == IntPtr.Zero) throw ErrorFrom(err);
+                    diagnostics = ReadDiags(dlist);
+                    if (wantLists) lists = ReadWeakLists(wlist);
+                    return Materialize(root);
+                }
+                finally
+                {
+                    sml_weaklists_free(ref wlist);
+                    sml_diag_list_free(ref dlist);
+                    if (root != IntPtr.Zero) sml_free(root);
+                }
+            }
+            finally
+            {
+                if (pin.IsAllocated) pin.Free();
+                foreach (IntPtr h in envHandles) FreeUtf8(h);
+                FreeUtf8(ctext);
+            }
+        }
+
+        /// <summary>
+        /// 同 <see cref="LoadFile"/>，另交出诊断与弱声明三表（文件入口版的
+        /// <see cref="LoadsFullLists"/>）。展开 <c>include</c>，相对路径以文件所在目录为基准。
+        /// </summary>
+        public static object LoadFileFull(string path, Opts opts,
+            out List<Diagnostic> diagnostics, out WeakLists lists)
+        {
+            if (path == null) throw new SmlException("E-INTERNAL-001", 0, 0, 0, 0, "", "LoadFileFull: path is null");
+            opts ??= new Opts();
+            IntPtr cpath = ToUtf8(path);
+            var envHandles = new List<IntPtr>();
+            GCHandle pin = default(GCHandle);
+            try
+            {
+                var o = new SmlOptsStruct();
+                o.struct_size = (UIntPtr)Marshal.SizeOf<SmlOptsStruct>();
+                o.flags = opts.Flags;
+                foreach (string kv in opts.Env) envHandles.Add(ToUtf8(kv));
+                if (envHandles.Count > 0)
+                {
+                    IntPtr[] arr = envHandles.ToArray();
+                    pin = GCHandle.Alloc(arr, GCHandleType.Pinned);
+                    o.env = pin.AddrOfPinnedObject();
+                    o.env_len = (UIntPtr)envHandles.Count;
+                }
+                if (opts.Builtins != null && opts.Builtins.Valid) o.builtins = opts.Builtins.Raw;
+
+                var err = NewError();
+                var dlist = new SmlDiagListStruct();
+                var wlist = new SmlWeakListsStruct();
+                IntPtr root = sml_load_file_full(cpath, ref o, ref wlist, ref dlist, ref err);
+                try
+                {
+                    if (root == IntPtr.Zero) throw ErrorFrom(err);
+                    diagnostics = ReadDiags(dlist);
+                    lists = ReadWeakLists(wlist);
+                    return Materialize(root);
+                }
+                finally
+                {
+                    sml_weaklists_free(ref wlist);
+                    sml_diag_list_free(ref dlist);
+                    if (root != IntPtr.Zero) sml_free(root);
+                }
+            }
+            finally
+            {
+                if (pin.IsAllocated) pin.Free();
+                foreach (IntPtr h in envHandles) FreeUtf8(h);
+                FreeUtf8(cpath);
+            }
+        }
+
+        /// <summary>
+        /// 一次解析拿全部产物：值树 + 诊断 + 多错误 + 弱表 + 契约映射 + 契约表。
+        ///
+        /// <para>开了 <see cref="WantErrors"/> 后，语法/契约错<b>不再抛异常</b>：值树是
+        /// 尽力而为的部分结果，全部错误在 <see cref="ParseAll.Errors"/> 里（severity = 1）。
+        /// <see cref="ParseAll.Contracts"/> 是独立克隆的表，可直接传给
+        /// <see cref="LoadsFull"/> 的 <see cref="Opts.Builtins"/>。</para>
+        /// </summary>
+        public static ParseAll ParseAllOf(string text, Opts opts, int want = WantAll)
+        {
+            if (text == null) throw new SmlException("E-INTERNAL-001", 0, 0, 0, 0, "", "ParseAllOf: text is null");
+            opts ??= new Opts();
+            IntPtr ctext = ToUtf8(text);
+            var envHandles = new List<IntPtr>();
+            GCHandle pin = default(GCHandle);
+            try
+            {
+                var o = new SmlOptsStruct();
+                o.struct_size = (UIntPtr)Marshal.SizeOf<SmlOptsStruct>();
+                o.flags = opts.Flags;
+                foreach (string kv in opts.Env) envHandles.Add(ToUtf8(kv));
+                if (envHandles.Count > 0)
+                {
+                    IntPtr[] arr = envHandles.ToArray();
+                    pin = GCHandle.Alloc(arr, GCHandleType.Pinned);
+                    o.env = pin.AddrOfPinnedObject();
+                    o.env_len = (UIntPtr)envHandles.Count;
+                }
+                if (opts.Builtins != null && opts.Builtins.Valid) o.builtins = opts.Builtins.Raw;
+
+                var err = NewError();
+                IntPtr r = sml_parse_all(ctext, ref o, want, ref err);
+                if (r == IntPtr.Zero) throw ErrorFrom(err);
+                try
+                {
+                    var res = new ParseAll { Value = Materialize(sml_result_value(r)) };
+                    if ((want & WantDiags) != 0)
+                        res.Diagnostics = ReadDiags(Marshal.PtrToStructure<SmlDiagListStruct>(sml_result_diags(r)));
+                    if ((want & WantErrors) != 0)
+                        res.Errors = ReadDiags(Marshal.PtrToStructure<SmlDiagListStruct>(sml_result_errors(r)));
+                    if ((want & WantWeak) != 0)
+                        res.Weak = ReadWeakLists(Marshal.PtrToStructure<SmlWeakListsStruct>(sml_result_weak(r)));
+                    if ((want & WantContractMap) != 0)
+                    {
+                        var cm = Marshal.PtrToStructure<SmlContractMapStruct>(sml_result_contract_map(r));
+                        int size = Marshal.SizeOf(typeof(SmlContractRefStruct));
+                        for (ulong i = 0; i < (ulong)cm.len; i++)
+                        {
+                            var it = Marshal.PtrToStructure<SmlContractRefStruct>(cm.items + (int)i * size);
+                            res.ContractMap.Add(new ContractRef(ReadUtf8(it.path), ReadUtf8(it.name)));
+                        }
+                    }
+                    if ((want & WantContracts) != 0)
+                        res.Contracts = Builtin.Adopt(sml_builtin_clone(sml_result_contracts(r)));
+                    return res;
+                }
+                finally
+                {
+                    sml_result_free(r);
+                }
+            }
+            finally
+            {
+                if (pin.IsAllocated) pin.Free();
+                foreach (IntPtr h in envHandles) FreeUtf8(h);
+                FreeUtf8(ctext);
+            }
+        }
+
+        private static WeakLists ReadWeakLists(SmlWeakListsStruct wl)
+        {
+            var res = new WeakLists();
+            int bindSize = Marshal.SizeOf(typeof(SmlWeakBindStruct));
+            int dataSize = Marshal.SizeOf(typeof(SmlWeakDataStruct));
+            for (ulong i = 0; i < (ulong)wl.n_binds; i++)
+            {
+                var s = Marshal.PtrToStructure<SmlWeakBindStruct>(wl.binds + (int)i * bindSize);
+                res.Binds.Add(new WeakBind(ReadUtf8(s.path), ReadUtf8(s.name), s.line));
+            }
+            for (ulong i = 0; i < (ulong)wl.n_data; i++)
+            {
+                var s = Marshal.PtrToStructure<SmlWeakDataStruct>(wl.data + (int)i * dataSize);
+                res.Data.Add(new WeakData(ReadUtf8(s.path), ReadUtf8(s.name), s.line,
+                    s.value == IntPtr.Zero ? null : Materialize(s.value)));
+            }
+            for (ulong i = 0; i < (ulong)wl.n_docs; i++)
+            {
+                // sml_weakdoc 与 sml_weakbind 同布局。
+                var s = Marshal.PtrToStructure<SmlWeakBindStruct>(wl.docs + (int)i * bindSize);
+                res.Docs.Add(new WeakDoc(ReadUtf8(s.path), ReadUtf8(s.name), s.line));
+            }
+            return res;
         }
 
         public static object LoadFile(string path, uint flags = 0)
