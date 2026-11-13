@@ -129,7 +129,9 @@ def check_c(lib: Path, env: dict[str, str]) -> int:
          str(ROOT / "c" / "ambr.c"),
          str(ROOT / "c" / "ambr_write.c"),
          str(ROOT / "c" / "sml.c"),
-         *link],
+         # `-lm`：`sml.c` 的 `add_float` 用了 `floor()`，Linux 上 libm 不自动链接
+         # （MinGW/MSVC 会）。缺了它 CI 上 C 端整段失败。
+         *link, "-lm"],
         cwd=ROOT / "c",
     )
     if rc != 0:

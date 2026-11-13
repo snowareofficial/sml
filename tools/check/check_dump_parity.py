@@ -115,8 +115,9 @@ def corpus():
 def build_dump_c():
     src = os.path.join(ROOT, "tools", "gen", "dump_c.c")
     exe = os.path.join(os.environ.get("TEMP", "."), "dump_c_parity.exe")
+    # `-lm`：`sml.c` 的 `add_float` 用了 `floor()`，Linux 上 libm 不自动链接。
     p = subprocess.run(["gcc", "-std=c99", "-I" + os.path.join(ROOT, "c"), "-o", exe,
-                        src, os.path.join(ROOT, "c", "sml.c")],
+                        src, os.path.join(ROOT, "c", "sml.c"), "-lm"],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     if p.returncode != 0:
         print("[!] 编译 C dumper 失败:\n" + (p.stderr or "")[:800])
