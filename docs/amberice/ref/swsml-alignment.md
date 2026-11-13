@@ -79,9 +79,12 @@ JS 写入器的解码错误同样带 `[E-AMBR-002]`。`js/test-ambr-write.mjs` �
   （`amberice vectors --gen`）。这是有意的「红」：把静默漏改变成显式放行。
 - **AMBR 码的语义细化**：当前 8 码是边界级分类；若程序需要区分「坏魔数」与「段截断」，
   可新增细码（只增不改），不改已有 8 码的含义。
-- `docs/amberice/ref/ports.md` 的 `hash_id` 分派表：Rust 与 FFI 五绑定已按 manifest 分派
-  `0x30/31/32`；**独立解码器**（JS / C / C++ / Java 纯实现 / Lua）仍写死 SHA-256，
-  遇到 SM3 / BLAKE3 会误报「摘要不符」。补实现还是先「明确跳过」属待裁决，见该页。
+- `docs/amberice/ref/ports.md` 的 `hash_id` 分派表：**已全部补齐（2026-11-13）**。
+  Rust 与 FFI 五绑定按 manifest 分派；五个独立解码器（JS / C / C++ / Java 纯实现 / Lua）
+  也都解 `MANIFEST` 取 `hash_id`，按 `0x30/31/32` 走 SHA-256 / SM3 / BLAKE3。
+  其中 C++ / Lua / Java 此前**根本不验摘要**，本批连校验一起补上；
+  预留号与多级元组一律**明确跳过并标注**（`digestSkipped` / `digest_skipped`），
+  绝不退回 SHA-256 假装验过。
 - 编号空间已按**分组命名空间**扩展（`format.md §20.3`，用户 2026-11-13 裁决「多留几个，
   怕影响格式寿命」）：哈希组 `0x30–0x3F` 的 16 个号全部登记 —— 3 个实现 + 13 个预留
   （`0x33` 国密 SM 抗量子、`0x34` 通用 PQC、`0x35–0x3D` 未分配槽、`0x3E` 二级命名空间
