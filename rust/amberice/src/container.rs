@@ -3262,8 +3262,14 @@ pub fn info_lines(
                 m.caps_required.join(" "),
                 m.caps_optional.join(" ")
             ));
+            let patch_note = if crate::manifest::is_implemented_patch_strategy(&m.patch_strategy)
+            {
+                ""
+            } else {
+                "（预留，本构建未实现）"
+            };
             out.push(format!(
-                "defaults  dir_depth {} · crypto_block {} · pad_quantum {} · patch {}",
+                "defaults  dir_depth {} · crypto_block {} · pad_quantum {} · patch {}{patch_note}",
                 m.dir_depth, m.crypto_block, m.pad_quantum, m.patch_strategy
             ));
             if m.created.is_some() || m.tool.is_some() {

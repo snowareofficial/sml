@@ -660,6 +660,21 @@ a version), sub-ids are 2 bytes, and KDF moves out of `0x50–0x5F`.
 - Regressions: `cargo clippy -p smltools --all-targets` (default and with `--features amberice`)
   is clean; `--profiles-require-signature` returns rc=1 for unsigned packages.
 
+### Added (delta-patch reservation: `PTCH` segment and `zstd-patch` strategy)
+
+- **Spec §19.15.5**: registers the `PTCH` (`submagic = PTCH`, v1) payload contract
+  `{ base, target, algo }`; the patch body will live in the `0xF1`–`0xFF` application binary
+  stream. **Not implemented** in this version — readers only list it, never decode it into
+  `VALUE`.
+- **`patch_strategy` value table**: `override` (implemented, default) / `zstd-patch` (reserved).
+  `amberice info` marks unimplemented strategies with "(reserved, not implemented here)", and
+  a reader **must not** treat `zstd-patch` as `override` — that would apply a delta as a full
+  overwrite and silently produce wrong content.
+- New `PATCH_STRATEGY_OVERRIDE` / `PATCH_STRATEGY_ZSTD`, `is_known_patch_strategy()`,
+  `is_implemented_patch_strategy()` (pure predicates; parsing behaviour unchanged).
+- Regressions: `cargo test -p amberice --lib manifest` (12 tests, including
+  "reserved ≠ implemented").
+
 ### 🚨 Breaking — version naming: `Version` enum → `Edition` lookup
 
 An edition is just a **name for a set of default feature bits** (`docs/swsml/spec/version.md` v1.0).

@@ -265,6 +265,10 @@ check("规范写明 USER 区（0xF0）与应用标识",
       "### 19.15 `USER`" in spec
       and "魔数**不可替换**" in spec
       and "BIFC" in spec and "PTCH" in spec)
+check("规范登记 PTCH 载荷约定与 zstd-patch 预留",
+      "19.15.5 `PTCH` 的载荷约定" in spec and "zstd-patch" in spec
+      and "预留，本构建未实现" in spec
+      and "PATCH_STRATEGY_ZSTD" in read("rust/amberice/src/manifest.rs"))
 check("规范写明 fmt 门",
       "`fmt` 门（D5，硬约束）" in spec and "HashPathRequiresFmt" in spec)
 check("五端公开「是否验过」",

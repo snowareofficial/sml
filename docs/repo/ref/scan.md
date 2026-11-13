@@ -1,6 +1,6 @@
 # 文档状态扫描（生成物，勿手改）
 
-> 生成：`python tools/scan_status.py --write` · 2026-11-13 20:07
+> 生成：`python tools/scan_status.py --write` · 2026-11-14 02:45
 > 手工编辑会在下次扫描时被覆盖；结论写进 `unfinished.md`。
 
 ## 汇总
@@ -20,7 +20,7 @@
 | 缺 `lua` | 132 |
 | conformance | AGREE 60 / DIVERGE 0（用例 60 个） |
 | CI 跑 fuzz / bench | False / False |
-| `docs/**` 未完成标记 ⬜ | 35 |
+| `docs/**` 未完成标记 ⬜ | 36 |
 
 ## TODO 未完成 · 按章节
 
