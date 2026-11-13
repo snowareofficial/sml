@@ -233,6 +233,12 @@ check("C 端按 hash_id 分派（manifest + digest_check）",
       and "digest_check(out->hash_id" in c_src
       and "sm3_digest(" in c_src
       and "b3_digest(" in c_src)
+cpp_src = read("cpp/ambr.cpp")
+check("C++ 端按 hash_id 分派（manifest + digest_check）",
+      "bool manifest_hash_id(" in cpp_src
+      and "digest_check(out->hash_id" in cpp_src
+      and "ambr_sm3_digest(" in cpp_src
+      and "ambr_b3_digest(" in cpp_src)
 check("JS 端按 hash_id 分派（manifest + digestFnFor）",
       "function readHashId(" in js_src
       and "function digestFnFor(" in js_src

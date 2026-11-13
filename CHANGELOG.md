@@ -449,6 +449,22 @@ KDF 从 `0x50–0x5F` 迁走。
   `hash_id 0x31 解码（sm3）` / `0x32（blake3）`。
 - CI 无需新增步骤（C 测试走 `build_check.py --run`）。
 
+### 新增（C++ 端补齐 hash_id 分派与段摘要校验）
+
+- **先补校验，再补分派**：`cpp/ambr.cpp` 此前**完全不验段摘要**（不是写死 SHA-256），
+  本批按 §19.8 补上：`walk_segments` 先扫 `MANIFEST`(0x04) 取 `hash_id`，再逐段校验
+  （连 manifest 自己一起）。
+- **算法**：新增零依赖 SHA-256 / SM3 / BLAKE3（与 Rust、C 端同口径）；
+  `digest_check(hash_id, …)` 按 `0x30/0x31/0x32` 分派，预留号 / 多级元组返回「跳过」并置
+  `digest_skipped`。
+- **测试**：`cpp/tests/test_ambr.cpp` 增 `tests/vectors/amberice-hash-algos.v1.hex` 两例
+  + 改坏摘要反例（输出 `hash_id 0x31 decoded (sm3)` 等）。
+- **工具链修复**：Windows 下新代码用 `<fstream>` 后，`t_ambr.exe` 会因 PATH 里的
+  `libstdc++` 与编译期版本不匹配报 `0xC0000139`（ENTRYPOINT_NOT_FOUND）。`build_verify.py`
+  在 win32 上对 9 个编译点加 `-static-libstdc++ -static-libgcc`（Linux 不加）；
+  同时把子进程输出按 UTF-8 解码，避免中文/箭头被 GBK 判成失败。
+- 回归：`cpp/build_verify.py` 8 档全 rc=0（AMBR 含 SM3/BLAKE3 与反例）。
+
 ### 变更（仓库治理：文档生成物幂等）
 
 - `smldocs --index` / `--report` 的头行改记 `docs/meta.sml` 的内容摘要（FNV-1a 64），

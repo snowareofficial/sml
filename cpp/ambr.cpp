@@ -84,6 +84,339 @@ bool parse_strtab(const unsigned char* body, size_t len, StrTab* out) {
     return true;
 }
 
+
+
+constexpr unsigned int AMBR_SHA_K[64] = {
+    0x428a2f98u, 0x71374491u, 0xb5c0fbcFu, 0xe9b5dba5u, 0x3956c25bu, 0x59f111f1u, 0x923f82a4u, 0xab1c5ed5u,
+    0xd807aa98u, 0x12835b01u, 0x243185beu, 0x550c7dc3u, 0x72be5d74u, 0x80deb1feu, 0x9bdc06a7u, 0xc19bf174u,
+    0xe49b69c1u, 0xefbe4786u, 0x0fc19dc6u, 0x240ca1ccu, 0x2de92c6fu, 0x4a7484aau, 0x5cb0a9dcu, 0x76f988dau,
+    0x983e5152u, 0xa831c66du, 0xb00327c8u, 0xbf597fc7u, 0xc6e00bf3u, 0xd5a79147u, 0x06ca6351u, 0x14292967u,
+    0x27b70a85u, 0x2e1b2138u, 0x4d2c6dfcu, 0x53380d13u, 0x650a7354u, 0x766a0abbu, 0x81c2c92eu, 0x92722c85u,
+    0xa2bfe8a1u, 0xa81a664bu, 0xc24b8b70u, 0xc76c51a3u, 0xd192e819u, 0xd6990624u, 0xf40e3585u, 0x106aa070u,
+    0x19a4c116u, 0x1e376c08u, 0x2748774cu, 0x34b0bcb5u, 0x391c0cb3u, 0x4ed8aa4au, 0x5b9cca4fu, 0x682e6ff3u,
+    0x748f82eeu, 0x78a5636fu, 0x84c87814u, 0x8cc70208u, 0x90befffau, 0xa4506cebu, 0xbef9a3f7u, 0xc67178f2u,
+};
+
+inline unsigned int ambr_sha_rotr(unsigned int x, int n) { return (x >> n) | (x << (32 - n)); }
+
+void ambr_sha256(const unsigned char* data, size_t len, unsigned char out[32]) {
+    unsigned int h[8] = {0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,
+                         0x510e527fu, 0x9b05688cu, 0x1f83d9abu, 0x5be0cd19u};
+    const unsigned long long bits = (unsigned long long)len * 8u;
+    unsigned char block[64];
+    size_t fill = 0, at = 0;
+    bool padded = false, finished = false;
+    for (;;) {
+        if (fill == 64) {
+            unsigned int w[64];
+            for (int j = 0; j < 16; j++) {
+                w[j] = ((unsigned int)block[j * 4] << 24) | ((unsigned int)block[j * 4 + 1] << 16) |
+                       ((unsigned int)block[j * 4 + 2] << 8) | (unsigned int)block[j * 4 + 3];
+            }
+            for (int j = 16; j < 64; j++) {
+                unsigned int s0 = ambr_sha_rotr(w[j - 15], 7) ^ ambr_sha_rotr(w[j - 15], 18) ^ (w[j - 15] >> 3);
+                unsigned int s1 = ambr_sha_rotr(w[j - 2], 17) ^ ambr_sha_rotr(w[j - 2], 19) ^ (w[j - 2] >> 10);
+                w[j] = w[j - 16] + s0 + w[j - 7] + s1;
+            }
+            unsigned int a = h[0], b = h[1], c = h[2], d = h[3];
+            unsigned int e = h[4], f = h[5], g = h[6], hh = h[7];
+            for (int j = 0; j < 64; j++) {
+                unsigned int S1 = ambr_sha_rotr(e, 6) ^ ambr_sha_rotr(e, 11) ^ ambr_sha_rotr(e, 25);
+                unsigned int ch = (e & f) ^ (~e & g);
+                unsigned int t1 = hh + S1 + ch + AMBR_SHA_K[j] + w[j];
+                unsigned int S0 = ambr_sha_rotr(a, 2) ^ ambr_sha_rotr(a, 13) ^ ambr_sha_rotr(a, 22);
+                unsigned int maj = (a & b) ^ (a & c) ^ (b & c);
+                unsigned int t2 = S0 + maj;
+                hh = g; g = f; f = e; e = d + t1; d = c; c = b; b = a; a = t1 + t2;
+            }
+            h[0] += a; h[1] += b; h[2] += c; h[3] += d;
+            h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+            fill = 0;
+            if (finished) {
+                for (int i = 0; i < 8; i++) {
+                    out[i * 4] = (unsigned char)(h[i] >> 24);
+                    out[i * 4 + 1] = (unsigned char)(h[i] >> 16);
+                    out[i * 4 + 2] = (unsigned char)(h[i] >> 8);
+                    out[i * 4 + 3] = (unsigned char)(h[i]);
+                }
+                return;
+            }
+        }
+        if (at < len) { block[fill++] = data[at++]; continue; }
+        if (!padded) { padded = true; block[fill++] = 0x80; continue; }
+        if (fill > 56) {
+            while (fill < 64) block[fill++] = 0;
+            continue;
+        }
+        while (fill < 56) block[fill++] = 0;
+        for (int i = 0; i < 8; i++) block[fill++] = (unsigned char)(bits >> (56 - i * 8));
+        finished = true;
+    }
+}
+
+/* --- SM3 / BLAKE3：按 manifest 的 `hash_id` 校验段摘要（§20）。 --------------- */
+constexpr unsigned int AMBR_SM3_IV[8] = {
+    0x7380166fu, 0x4914b2b9u, 0x172442d7u, 0xda8a0600u,
+    0xa96f30bcu, 0x163138aau, 0xe38dee4du, 0xb0fb0e4eu,
+};
+
+inline unsigned int ambr_rotl(unsigned int x, int n) {
+    n &= 31;
+    return n ? ((x << n) | (x >> (32 - n))) : x;
+}
+
+inline unsigned int ambr_sm3_p0(unsigned int x) { return x ^ ambr_rotl(x, 9) ^ ambr_rotl(x, 17); }
+inline unsigned int ambr_sm3_p1(unsigned int x) { return x ^ ambr_rotl(x, 15) ^ ambr_rotl(x, 23); }
+
+void ambr_sm3_digest(const unsigned char* data, size_t len, unsigned char out[32]) {
+    unsigned int h[8];
+    std::memcpy(h, AMBR_SM3_IV, sizeof h);
+    const unsigned long long bits = (unsigned long long)len * 8u;
+    unsigned char block[64];
+    size_t fill = 0, at = 0;
+    bool padded = false, finished = false;
+    for (;;) {
+        if (fill == 64) {
+            unsigned int w[68], w1[64];
+            for (int j = 0; j < 16; j++) {
+                w[j] = ((unsigned int)block[j * 4] << 24) | ((unsigned int)block[j * 4 + 1] << 16) |
+                       ((unsigned int)block[j * 4 + 2] << 8) | (unsigned int)block[j * 4 + 3];
+            }
+            for (int j = 16; j < 68; j++) {
+                w[j] = ambr_sm3_p1(w[j - 16] ^ w[j - 9] ^ ambr_rotl(w[j - 3], 15)) ^
+                       ambr_rotl(w[j - 13], 7) ^ w[j - 6];
+            }
+            for (int j = 0; j < 64; j++) w1[j] = w[j] ^ w[j + 4];
+            unsigned int a = h[0], b = h[1], c = h[2], d2 = h[3];
+            unsigned int e = h[4], f = h[5], g = h[6], hh = h[7];
+            for (int j = 0; j < 64; j++) {
+                unsigned int tj = (j < 16) ? 0x79cc4519u : 0x7a879d8au;
+                unsigned int ss1 = ambr_rotl(ambr_rotl(a, 12) + e + ambr_rotl(tj, j), 7);
+                unsigned int ss2 = ss1 ^ ambr_rotl(a, 12);
+                unsigned int ff = (j < 16) ? (a ^ b ^ c) : ((a & b) | (a & c) | (b & c));
+                unsigned int gg = (j < 16) ? (e ^ f ^ g) : ((e & f) | (~e & g));
+                unsigned int tt1 = ff + d2 + ss2 + w1[j];
+                unsigned int tt2 = gg + hh + ss1 + w[j];
+                d2 = c; c = ambr_rotl(b, 9); b = a; a = tt1;
+                hh = g; g = ambr_rotl(f, 19); f = e; e = ambr_sm3_p0(tt2);
+            }
+            h[0] ^= a; h[1] ^= b; h[2] ^= c; h[3] ^= d2;
+            h[4] ^= e; h[5] ^= f; h[6] ^= g; h[7] ^= hh;
+            fill = 0;
+            if (finished) {
+                for (int i = 0; i < 8; i++) {
+                    out[i * 4] = (unsigned char)(h[i] >> 24);
+                    out[i * 4 + 1] = (unsigned char)(h[i] >> 16);
+                    out[i * 4 + 2] = (unsigned char)(h[i] >> 8);
+                    out[i * 4 + 3] = (unsigned char)(h[i]);
+                }
+                return;
+            }
+        }
+        if (at < len) { block[fill++] = data[at++]; continue; }
+        if (!padded) { padded = true; block[fill++] = 0x80; continue; }
+        if (fill > 56) {
+            while (fill < 64) block[fill++] = 0;
+            continue;
+        }
+        while (fill < 56) block[fill++] = 0;
+        for (int i = 0; i < 8; i++) block[fill++] = (unsigned char)(bits >> (56 - i * 8));
+        finished = true;
+    }
+}
+
+/* BLAKE3（无密钥 32 B）：与 rust/amberice/src/blake3.rs 同构。 */
+constexpr unsigned int AMBR_B3_IV[8] = {
+    0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,
+    0x510e527fu, 0x9b05688cu, 0x1f83d9abu, 0x5be0cd19u,
+};
+constexpr int AMBR_B3_PERM[16] = {2, 6, 3, 10, 7, 0, 4, 13, 1, 11, 12, 5, 9, 14, 15, 8};
+constexpr unsigned int B3_CHUNK_START = 1u << 0;
+constexpr unsigned int B3_CHUNK_END = 1u << 1;
+constexpr unsigned int B3_PARENT = 1u << 2;
+constexpr unsigned int B3_ROOT = 1u << 3;
+
+inline unsigned int ambr_rotr(unsigned int x, int n) { return (x >> n) | (x << (32 - n)); }
+
+void ambr_b3_g(unsigned int s[16], int a, int b, int c, int d, unsigned int mx, unsigned int my) {
+    s[a] = s[a] + s[b] + mx;
+    s[d] = ambr_rotr(s[d] ^ s[a], 16);
+    s[c] = s[c] + s[d];
+    s[b] = ambr_rotr(s[b] ^ s[c], 12);
+    s[a] = s[a] + s[b] + my;
+    s[d] = ambr_rotr(s[d] ^ s[a], 8);
+    s[c] = s[c] + s[d];
+    s[b] = ambr_rotr(s[b] ^ s[c], 7);
+}
+
+void ambr_b3_round(unsigned int s[16], const unsigned int m[16]) {
+    ambr_b3_g(s, 0, 4, 8, 12, m[0], m[1]);
+    ambr_b3_g(s, 1, 5, 9, 13, m[2], m[3]);
+    ambr_b3_g(s, 2, 6, 10, 14, m[4], m[5]);
+    ambr_b3_g(s, 3, 7, 11, 15, m[6], m[7]);
+    ambr_b3_g(s, 0, 5, 10, 15, m[8], m[9]);
+    ambr_b3_g(s, 1, 6, 11, 12, m[10], m[11]);
+    ambr_b3_g(s, 2, 7, 8, 13, m[12], m[13]);
+    ambr_b3_g(s, 3, 4, 9, 14, m[14], m[15]);
+}
+
+void ambr_b3_permute(unsigned int m[16]) {
+    unsigned int old[16];
+    std::memcpy(old, m, sizeof old);
+    for (int i = 0; i < 16; i++) m[i] = old[AMBR_B3_PERM[i]];
+}
+
+void ambr_b3_compress(const unsigned int cv[8], const unsigned int m_in[16],
+                      unsigned long long counter, unsigned int block_len,
+                      unsigned int flags, unsigned int out[16]) {
+    unsigned int s[16], m[16];
+    std::memcpy(s, cv, 8 * sizeof(unsigned int));
+    s[8] = AMBR_B3_IV[0]; s[9] = AMBR_B3_IV[1]; s[10] = AMBR_B3_IV[2]; s[11] = AMBR_B3_IV[3];
+    s[12] = (unsigned int)(counter & 0xffffffffu);
+    s[13] = (unsigned int)(counter >> 32);
+    s[14] = block_len;
+    s[15] = flags;
+    std::memcpy(m, m_in, sizeof m);
+    for (int i = 0; i < 7; i++) { ambr_b3_round(s, m); ambr_b3_permute(m); }
+    for (int i = 0; i < 8; i++) {
+        out[i] = s[i] ^ s[i + 8];
+        out[i + 8] = s[i + 8] ^ cv[i];
+    }
+}
+
+void ambr_b3_words(const unsigned char* buf, size_t len, unsigned int m[16]) {
+    std::memset(m, 0, 16 * sizeof(unsigned int));
+    size_t full = len / 4;
+    for (size_t i = 0; i < full; i++) {
+        m[i] = (unsigned int)buf[i * 4] | ((unsigned int)buf[i * 4 + 1] << 8) |
+               ((unsigned int)buf[i * 4 + 2] << 16) | ((unsigned int)buf[i * 4 + 3] << 24);
+    }
+    size_t rem = len % 4;
+    if (rem) {
+        unsigned int w = 0;
+        for (size_t i = 0; i < rem; i++) w |= (unsigned int)buf[full * 4 + i] << (8 * i);
+        m[full] = w;
+    }
+}
+
+struct B3Output {
+    unsigned int cv[8];
+    unsigned int words[16];
+    unsigned long long counter;
+    unsigned int block_len;
+    unsigned int flags;
+};
+
+void ambr_b3_output_cv(const B3Output& o, unsigned int cv[8]) {
+    unsigned int s[16];
+    ambr_b3_compress(o.cv, o.words, o.counter, o.block_len, o.flags, s);
+    std::memcpy(cv, s, 8 * sizeof(unsigned int));
+}
+
+void ambr_b3_parent_output(const unsigned int left[8], const unsigned int right[8], B3Output* o) {
+    std::memcpy(o->cv, AMBR_B3_IV, sizeof AMBR_B3_IV);
+    std::memcpy(o->words, left, 8 * sizeof(unsigned int));
+    std::memcpy(o->words + 8, right, 8 * sizeof(unsigned int));
+    o->counter = 0;
+    o->block_len = 64;
+    o->flags = B3_PARENT;
+}
+
+void ambr_b3_parent_cv(const unsigned int left[8], const unsigned int right[8], unsigned int cv[8]) {
+    B3Output o;
+    ambr_b3_parent_output(left, right, &o);
+    ambr_b3_output_cv(o, cv);
+}
+
+void ambr_b3_digest(const unsigned char* data, size_t len, unsigned char out[32]) {
+    unsigned int cv[8];
+    std::memcpy(cv, AMBR_B3_IV, sizeof cv);
+    unsigned long long counter = 0;
+    unsigned char buf[64];
+    size_t buf_len = 0, blocks = 0;
+    unsigned int stack[54][8];
+    size_t stack_len = 0;
+    size_t at = 0;
+
+    auto chunk_len = [&]() { return (size_t)64 * blocks + buf_len; };
+    auto start_flag = [&]() { return blocks == 0 ? B3_CHUNK_START : 0u; };
+    auto chunk_output = [&](B3Output* o) {
+        std::memcpy(o->cv, cv, sizeof cv);
+        ambr_b3_words(buf, buf_len, o->words);
+        o->counter = counter;
+        o->block_len = (unsigned int)buf_len;
+        o->flags = start_flag() | B3_CHUNK_END;
+    };
+
+    while (at < len) {
+        if (chunk_len() == 1024) {
+            B3Output o;
+            chunk_output(&o);
+            unsigned int new_cv[8];
+            ambr_b3_output_cv(o, new_cv);
+            unsigned long long total = counter + 1;
+            std::memcpy(stack[stack_len++], new_cv, sizeof new_cv);
+            while (total % 2 == 0 && stack_len >= 2) {
+                unsigned int right[8], left[8];
+                std::memcpy(right, stack[--stack_len], sizeof right);
+                std::memcpy(left, stack[--stack_len], sizeof left);
+                ambr_b3_parent_cv(left, right, stack[stack_len++]);
+                total /= 2;
+            }
+            counter++;
+            std::memcpy(cv, AMBR_B3_IV, sizeof cv);
+            buf_len = 0;
+            blocks = 0;
+        }
+        size_t take = 1024 - chunk_len();
+        if (take > len - at) take = len - at;
+        while (take--) {
+            if (buf_len == 64) {
+                unsigned int words[16], s[16];
+                ambr_b3_words(buf, 64, words);
+                ambr_b3_compress(cv, words, counter, 64, start_flag(), s);
+                std::memcpy(cv, s, 8 * sizeof(unsigned int));
+                blocks++;
+                buf_len = 0;
+            }
+            buf[buf_len++] = data[at++];
+        }
+    }
+
+    B3Output o;
+    chunk_output(&o);
+    for (size_t i = stack_len; i > 0; i--) {
+        unsigned int right[8];
+        ambr_b3_output_cv(o, right);
+        ambr_b3_parent_output(stack[i - 1], right, &o);
+    }
+    unsigned int s[16];
+    ambr_b3_compress(o.cv, o.words, 0, o.block_len, o.flags | B3_ROOT, s);
+    for (int i = 0; i < 8; i++) {
+        out[i * 4] = (unsigned char)(s[i]);
+        out[i * 4 + 1] = (unsigned char)(s[i] >> 8);
+        out[i * 4 + 2] = (unsigned char)(s[i] >> 16);
+        out[i * 4 + 3] = (unsigned char)(s[i] >> 24);
+    }
+}
+
+/* 段摘要校验：算法由 manifest 的 `hash_id` 决定（§20），不再写死 SHA-256。
+ * 1 = 匹配，0 = 不符，-1 = 本端算不了（预留号 / 多级元组）⇒ 跳过并标注。 */
+int digest_check(int hash_id, const unsigned char* body, size_t len, const unsigned char* want) {
+    unsigned char got[32];
+    if (hash_id == 0x30) {
+        /* C++ 端复用 SHA-256 的既有实现：整份文件里没有摘要函数，故在此补一个最小调用点。 */
+        ambr_sha256(body, len, got);
+    } else if (hash_id == 0x31) {
+        ambr_sm3_digest(body, len, got);
+    } else if (hash_id == 0x32) {
+        ambr_b3_digest(body, len, got);
+    } else {
+        return -1;
+    }
+    return std::memcmp(got, want, 32) == 0 ? 1 : 0;
+}
+
 ValuePtr decode_node(Reader& r, const StrTab& st, int depth, std::string* err);
 
 ValuePtr decode_node(Reader& r, const StrTab& st, int depth, std::string* err) {
@@ -202,7 +535,42 @@ struct Parts {
     const unsigned char* schema = nullptr;
     size_t value_len = 0, strtab_len = 0, typed_len = 0, schema_len = 0;
     bool typed_opaque = false, schema_opaque = false;
+    /* manifest 声明的摘要算法（§20）；digest_skipped = 本端算不了，已跳过校验。 */
+    int hash_id = 0x30;
+    bool digest_skipped = false;
 };
+
+/* 从 MANIFEST(0x04) 段体读 `hash_id`：段体是自包含 canonical 编码
+ * （`varint count` + `count × (varint len ‖ utf8)` + 节点树）。 */
+bool manifest_hash_id(const unsigned char* body, size_t len, int* out) {
+    Reader r{body, len};
+    unsigned long long count = 0;
+    if (!r.varint(&count) || count > (unsigned long long)len) return false;
+    StrTab st;
+    for (unsigned long long i = 0; i < count; i++) {
+        unsigned long long n = 0;
+        if (!r.varint(&n) || n > (unsigned long long)(r.len - r.pos)) return false;
+        st.emplace_back(reinterpret_cast<const char*>(body + r.pos), (size_t)n);
+        r.pos += (size_t)n;
+    }
+    std::string e;
+    ValuePtr tree = decode_node(r, st, 0, &e);
+    if (!tree) return false;
+    int hash = 0x30; /* 缺 hash_id ⇒ §21 默认 SHA-256 */
+    ValuePtr h = tree->get("hash_id");
+    if (h) {
+        if (h->tag == Value::Tag::Int) {
+            if (h->i < 0 || h->i > 255) return false;
+            hash = (int)h->i;
+        } else if (h->tag == Value::Tag::Arr) {
+            hash = 0x3E; /* 多级元组：转义号，本端不实现 */
+        } else {
+            return false;
+        }
+    }
+    *out = hash;
+    return true;
+}
 
 bool walk_segments(const unsigned char* buf, size_t len, Parts* out, std::string* err) {
     *out = Parts{};
@@ -244,6 +612,27 @@ bool walk_segments(const unsigned char* buf, size_t len, Parts* out, std::string
     const size_t granule = (flags & 1u) ? ALIGN_BLOCK : ALIGN_MIN;
     size_t body_at = align_up((size_t)table_off + (size_t)count * SEG_HDR, granule);
 
+    /* 引导顺序：先找 MANIFEST 取 hash_id，再用它验其余段（连 manifest 自己一起）。 */
+    {
+        size_t scan = body_at;
+        for (unsigned long i = 0; i < count; i++) {
+            const size_t o = (size_t)table_off + i * SEG_HDR;
+            if (o + SEG_HDR > len) break;
+            const unsigned sid = buf[o];
+            const unsigned scomp = buf[o + 1], senc = buf[o + 2];
+            const unsigned long slen = (unsigned long)buf[o + 5] | ((unsigned long)buf[o + 6] << 8) |
+                                       ((unsigned long)buf[o + 7] << 16) |
+                                       ((unsigned long)buf[o + 8] << 24);
+            if (scan + slen > len) break;
+            if (sid == 0x04 && scomp == 0 && senc == 0) {
+                int found = 0x30;
+                if (manifest_hash_id(buf + scan, slen, &found)) out->hash_id = found;
+                break;
+            }
+            scan = align_up(scan + slen, granule);
+        }
+    }
+
     for (unsigned long i = 0; i < count; i++) {
         const size_t o = (size_t)table_off + i * SEG_HDR;
         if (o + SEG_HDR > len) {
@@ -265,6 +654,12 @@ bool walk_segments(const unsigned char* buf, size_t len, Parts* out, std::string
                 set_err(err, "VALUE/STRTAB 压缩或加密过，本解码器不解");
                 return false;
             }
+            const int dc = digest_check(out->hash_id, buf + body_at, seg_len, buf + o + 9);
+            if (dc == 0) {
+                set_err(err, "段摘要不符（段体被改动？）");
+                return false;
+            }
+            if (dc < 0) out->digest_skipped = true;
             if (id == SEG_VALUE) {
                 out->value = buf + body_at;
                 out->value_len = seg_len;
@@ -272,14 +667,35 @@ bool walk_segments(const unsigned char* buf, size_t len, Parts* out, std::string
                 out->strtab = buf + body_at;
                 out->strtab_len = seg_len;
             }
+        } else if (id == 0x04) {
+            if (comp == 0 && enc == 0) {
+                const int dm = digest_check(out->hash_id, buf + body_at, seg_len, buf + o + 9);
+                if (dm == 0) {
+                    set_err(err, "段摘要不符（段体被改动？）");
+                    return false;
+                }
+                if (dm < 0) out->digest_skipped = true;
+            }
         } else if (id == 0x70 || id == 0x71) {
             if (comp != 0 || enc != 0) {
                 if (id == 0x70) out->typed_opaque = true;
                 else out->schema_opaque = true;
             } else if (id == 0x70) {
+                const int dt = digest_check(out->hash_id, buf + body_at, seg_len, buf + o + 9);
+                if (dt == 0) {
+                    set_err(err, "段摘要不符（段体被改动？）");
+                    return false;
+                }
+                if (dt < 0) out->digest_skipped = true;
                 out->typed = buf + body_at;
                 out->typed_len = seg_len;
             } else {
+                const int ds = digest_check(out->hash_id, buf + body_at, seg_len, buf + o + 9);
+                if (ds == 0) {
+                    set_err(err, "段摘要不符（段体被改动？）");
+                    return false;
+                }
+                if (ds < 0) out->digest_skipped = true;
                 out->schema = buf + body_at;
                 out->schema_len = seg_len;
             }
