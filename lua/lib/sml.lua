@@ -2415,6 +2415,45 @@ end
 
 -- Walk the container and return the segment bodies we care about.
 -- 走一遍容器，返回关心的段体。
+-- 摘要算法分派（§20）：可用时按 manifest 的 `hash_id` 验段摘要，否则**明确跳过**。
+-- ｜ Digest dispatch: verify with the algorithm named by `hash_id`, or skip explicitly.
+local _ambr_ok_hash, _ambr_hash = pcall(require, "ambr_hash")
+if _ambr_ok_hash then
+  local ok_pack, _ambr_pack = pcall(require, "ambr_pack")
+  if ok_pack and _ambr_pack.sha256 then _ambr_hash.set_sha256(_ambr_pack.sha256) end
+end
+
+local function _ambr_hash_by_id(hash_id)
+  if not _ambr_ok_hash then return nil end
+  return _ambr_hash.by_id(hash_id)
+end
+
+-- 从 MANIFEST(0x04) 段体读 `hash_id`；段体是自包含 canonical 编码。
+-- ｜ Read `hash_id` from the self-contained canonical manifest body.
+local function _ambr_manifest_hash_id(body)
+  local r = _ambr_reader(body)
+  local count = _ambr_varint(r)
+  if not count or count > #body then return nil end
+  local strtab = {}
+  for i = 1, count do
+    local n = _ambr_varint(r)
+    if not n or r.pos + n - 1 > r.len then return nil end
+    strtab[i] = string.sub(r.b, r.pos, r.pos + n - 1)
+    r.pos = r.pos + n
+  end
+  local box = {}
+  local tree = _ambr_node(r, strtab, 0, box)
+  if box.err or type(tree) ~= "table" then return nil end
+  local raw = tree["hash_id"]
+  if raw == nil then return 0x30 end
+  if type(raw) == "number" then
+    if raw < 0 or raw > 255 then return nil end
+    return math.floor(raw)
+  end
+  if type(raw) == "table" then return 0x3E end
+  return nil
+end
+
 local function _ambr_walk(bytes)
   if type(bytes) ~= "string" or #bytes < 40 then
     return nil, "AMBR: 文件短于 40 B 头"
@@ -2441,6 +2480,31 @@ local function _ambr_walk(bytes)
   local body_at = _ambr_align(table_off + count * 41, granule)
   local p = {}
 
+  -- 引导顺序：先找 MANIFEST 取 hash_id，再用它验其余段（连 manifest 自己一起）。
+  local hash_id = 0x30
+  do
+    local scan = body_at
+    for i = 0, count - 1 do
+      local o = table_off + i * 41 + 1
+      if o + 40 > #bytes then break end
+      local sid = string.byte(bytes, o)
+      local scomp = string.byte(bytes, o + 1)
+      local senc = string.byte(bytes, o + 2)
+      local slen = string.byte(bytes, o + 5) + string.byte(bytes, o + 6) * 256 +
+                   string.byte(bytes, o + 7) * 65536 + string.byte(bytes, o + 8) * 16777216
+      if scan + slen > #bytes then break end
+      if sid == 4 and scomp == 0 and senc == 0 then
+        local found = _ambr_manifest_hash_id(string.sub(bytes, scan + 1, scan + slen))
+        if found then hash_id = found end
+        break
+      end
+      scan = _ambr_align(scan + slen, granule)
+    end
+  end
+  local digest_fn = _ambr_hash_by_id(hash_id)
+  p.hash_id = hash_id
+  p.digest_skipped = (digest_fn == nil)
+
   for i = 0, count - 1 do
     local o = table_off + i * 41 + 1 -- 1-based
     if o + 40 > #bytes then return nil, "AMBR: 段表越界" end
@@ -2454,17 +2518,42 @@ local function _ambr_walk(bytes)
       if comp ~= 0 or enc ~= 0 then
         return nil, "AMBR: VALUE/STRTAB 压缩或加密过，本解码器不解"
       end
+      if digest_fn then
+        local got = digest_fn(string.sub(bytes, body_at + 1, body_at + len))
+        if got ~= string.sub(bytes, o + 9, o + 40) then
+          return nil, "AMBR: 段摘要不符（段体被改动？）"
+        end
+      end
       if id == 1 then
         p.value = string.sub(bytes, body_at + 1, body_at + len)
       else
         p.strtab = string.sub(bytes, body_at + 1, body_at + len)
       end
+    elseif id == 4 then
+      if comp == 0 and enc == 0 and digest_fn then
+        local got = digest_fn(string.sub(bytes, body_at + 1, body_at + len))
+        if got ~= string.sub(bytes, o + 9, o + 40) then
+          return nil, "AMBR: 段摘要不符（段体被改动？）"
+        end
+      end
     elseif id == 0x70 or id == 0x71 then
       if comp ~= 0 or enc ~= 0 then
         if id == 0x70 then p.typed_opaque = true else p.schema_opaque = true end
       elseif id == 0x70 then
+        if digest_fn then
+          local got = digest_fn(string.sub(bytes, body_at + 1, body_at + len))
+          if got ~= string.sub(bytes, o + 9, o + 40) then
+            return nil, "AMBR: 段摘要不符（段体被改动？）"
+          end
+        end
         p.typed = string.sub(bytes, body_at + 1, body_at + len)
       else
+        if digest_fn then
+          local got = digest_fn(string.sub(bytes, body_at + 1, body_at + len))
+          if got ~= string.sub(bytes, o + 9, o + 40) then
+            return nil, "AMBR: 段摘要不符（段体被改动？）"
+          end
+        end
         p.schema = string.sub(bytes, body_at + 1, body_at + len)
       end
     end

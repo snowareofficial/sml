@@ -239,6 +239,13 @@ check("C++ 端按 hash_id 分派（manifest + digest_check）",
       and "digest_check(out->hash_id" in cpp_src
       and "ambr_sm3_digest(" in cpp_src
       and "ambr_b3_digest(" in cpp_src)
+lua_hash_src = read("lua/lib/ambr_hash.lua")
+lua_sml_src = read("lua/lib/sml.lua")
+check("Lua 端按 hash_id 分派（ambr_hash + manifest）",
+      "function M.sm3(" in lua_hash_src
+      and "function M.blake3(" in lua_hash_src
+      and "function _ambr_manifest_hash_id(" in lua_sml_src
+      and "local digest_fn = _ambr_hash_by_id(hash_id)" in lua_sml_src)
 check("JS 端按 hash_id 分派（manifest + digestFnFor）",
       "function readHashId(" in js_src
       and "function digestFnFor(" in js_src
