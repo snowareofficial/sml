@@ -404,6 +404,33 @@ Conventions carried over from `CHANGELOG.md`:
   runner run (library names/paths are verified).
 - Regression: `cargo test -p amberice --lib hash` (4 tests, including the reserved-slot case).
 
+### Added (group namespaces + more reserved ids to extend the format's lifetime)
+
+Decision: "reserve several more ids — a one-byte field could limit the format's lifetime;
+or treat the ranges as namespaces".
+
+- **Code** `rust/amberice/src/hash.rs`: all **16 ids** of the hash group `0x30–0x3F` are now
+  registered — 3 implemented (`0x30/31/32`) plus 13 reserved: `0x33` Chinese-standard SM
+  post-quantum, `0x34` generic PQC, `0x35–0x3D` nine unassigned slots (`Reserved(u8)`),
+  `0x3E` namespace escape, `0x3F` private/experimental. New constants `HASH_GROUP_FIRST/LAST`,
+  `HASH_ESCAPE`, `HASH_PRIVATE` and `is_reserved()`. Every reserved id returns
+  `HashError::NotImplemented(id)` — **never** a silent SHA-256 fallback; group boundaries
+  `0x2F` / `0x40` remain `Unknown` so extra reservations cannot swallow other groups.
+- **Spec** `format.md §20.3` (bilingual): §20 ranges become **group namespaces**; the last two
+  ids of each group are fixed as `0x?E` escape / `0x?F` private. `0x3E` opens a
+  `(0x3E, sub_id)` second-level namespace, so exhausting first-level ids does not require a
+  new segment layout — the lifetime concern addressed directly. The escape is **registered but
+  not implemented** (the manifest has no `hash_sub_id` yet; readers refuse it), and a future
+  implementation must bump `fmt`. Signature-PQC / KEM / hybrid groups also reserve `0x62` /
+  `0x83` / `0xA2` for Chinese-standard PQC; §19.8 gained a "12 remaining reserved slots" row
+  and §20.1 now requires every reserved id to produce 32 B.
+- **Guard** `check_amberice_align.py` group 6 rewritten: group constants, named reservations,
+  unassigned slots, escape/private ids, uniform refusal, group boundaries, and the spec's
+  §20.3 plus the other groups' PQC reservations must all agree.
+- Regressions: `cargo test -p amberice --lib hash` (5 tests, including "all 16 group ids
+  registered", "named reservations keep ids", "boundaries are Unknown").
+- The ids and semantics of `0x30/31/32` are **unchanged**; published contracts untouched.
+
 ### 🚨 Breaking — version naming: `Version` enum → `Edition` lookup
 
 An edition is just a **name for a set of default feature bits** (`docs/swsml/spec/version.md` v1.0).

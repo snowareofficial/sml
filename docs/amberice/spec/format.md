@@ -540,6 +540,7 @@ Trailer 从 EOF 反向读固定长度，细节见 §21.1b。
 | SM3 | `0x31` | ✅ 已实现（可选） | GB/T 32905-2016；标准向量 + 5 条填充边界与 `hashlib` 核对 |
 | BLAKE3 | `0x32` | ✅ 已实现（可选，D44） | 零依赖标量实现；官方向量覆盖单块 / 单 chunk / 跨 chunk / 3072 B |
 | 国密 SM 系列抗量子哈希 | `0x33` | ⬜ **预留，未实现** | 编号先占住，算法待国标发布；本构建读到该文件必须报 `HashError::NotImplemented(0x33)`，不许退回 SHA-256 假装验过 |
+| 组内其余 12 个预留位 | `0x34`–`0x3F` | ⬜ **预留，未实现** | 通用 PQC / 9 个未分配槽 / `0x3E` 扩展命名空间转义 / `0x3F` 私有实验；按**分组命名空间**统一登记，明细见 §20.3 |
 
 分派在 `rust/amberice/src/hash.rs`（`HashAlgo` / `digest_by_id`）：**写**默认 SHA-256，**读**一律以
 manifest 的 `hash_id` 为准。语义三条：
@@ -1051,16 +1052,16 @@ AAD      = seg_id:u8 ‖ comp:u8 ‖ block_index:u32le ‖ block_count:u32le ‖
 | **`0x10–0x1F`** | 对称加密（经典） | `0x10 AES-256-GCM` · `0x11 ChaCha20-Poly1305` |
 | **`0x20–0x2F`** | 对称加密（国密） | `0x20 SM4-GCM` |
 | **`0x50–0x5F`** | **口令派生（KDF）** | `0x00 none`（原始密钥）· `0x51 Argon2id` |
-| **`0x30–0x3F`** | 哈希 | `0x30 SHA-256` · `0x31 SM3` · `0x32 BLAKE3` · **`0x33` 国密 SM 系列抗量子哈希（预留）** |
+| **`0x30–0x3F`** | 哈希 | `0x30 SHA-256` · `0x31 SM3` · `0x32 BLAKE3` · `0x33` 国密 SM 抗量子（预留）· `0x34` 通用 PQC（预留）· `0x35–0x3D` 未分配槽（预留）· `0x3E` 扩展命名空间 · `0x3F` 私有/实验 |
 | **`0x40–0x5F`** | 签名（经典） | `0x40 Ed25519` · `0x41 ECDSA-P256-SHA256` · `0x50 SM2-with-SM3` |
-| **`0x60–0x7F`** | 签名（PQC） | `0x60 ML-DSA-65` · `0x61 ML-DSA-87` |
-| **`0x80–0x9F`** | KEM | `0x80 X25519` · `0x81 ML-KEM-768` · `0x82 ML-KEM-1024` |
-| **`0xA0–0xAF`** | 混合 | `0xA0 X25519+ML-KEM-768` · `0xA1 SM2+ML-KEM-768` |
+| **`0x60–0x7F`** | 签名（PQC） | `0x60 ML-DSA-65` · `0x61 ML-DSA-87` · **`0x62` 国密 PQC 签名（预留）** |
+| **`0x80–0x9F`** | KEM | `0x80 X25519` · `0x81 ML-KEM-768` · `0x82 ML-KEM-1024` · **`0x83` 国密 PQC KEM（预留）** |
+| **`0xA0–0xAF`** | 混合 | `0xA0 X25519+ML-KEM-768` · `0xA1 SM2+ML-KEM-768` · **`0xA2` 国密 PQC 混合（预留）** |
 
 ### 20.1 四条硬规矩
 
 1. **只允许 AEAD**（D35）：`enc` 里不出现需要另配 MAC 的模式（CBC / CTR / 任何「加密+独立 MAC」）；
-2. **哈希统一 32 B**：`SHA-256` / `SM3` / `BLAKE3` 摘要都是 32 B ⇒ 段头 `sha256:32` 不变长，选哪个由 manifest 的 `hash_id` 决定。预留的 `0x33` 也**必须**产出 32 B：若将来国标的摘要长度不同，那不是换个实现就能了事，要新开段布局（`fmt` 升级），不能挤进现有 32 B 字段；
+2. **哈希统一 32 B**：`SHA-256` / `SM3` / `BLAKE3` 摘要都是 32 B ⇒ 段头 `sha256:32` 不变长，选哪个由 manifest 的 `hash_id` 决定。组内**所有预留号**将来也必须产出 32 B：若新算法摘要长度不同，那不是换个实现就能了事，要新开段布局（`fmt` 升级），不能挤进现有 32 B 字段；
 3. **混合必须显式编号**：不允许「两个算法字段隐式拼起来」，否则验签时说不清「哪些字节是谁签的」；
 4. **多签名 = 数组，且全部必须通过**（D36）：若允许「任一通过」，抗量子那一路失效也无人发现。
 
@@ -1073,31 +1074,77 @@ crypto {
   sig: [ 0x40 0x60 ]     // Ed25519 + ML-DSA-65（双签，两个都要过）
   kem: 0xA0              // X25519 + ML-KEM-768（首个成功即用）
 }
-
-### 20.3 预留编号（`0x33`）
-
-**`0x33` = 国密 SM 系列抗量子 / 量子安全哈希，永久预留，当前未实现。**
-｜ `0x33` is permanently reserved for a future Chinese-standard (SM family)
-post-quantum digest; not implemented in this build.
-
-- **为什么先占号**：§20「编号一经发布永不复用」。等国标发布再插号会与已流通文件冲突，
-  不如现在把号固定、语义写清；将来只是把具体算法填进这个号，**不换号**。
-- **登记 ≠ 实现**：`rust/amberice/src/hash.rs` 的 `HashAlgo::SmPqcDigest` 能反查
-  `0x33`、`name()` 标 `reserved`，但 `is_implemented() == false`，`digest` 返回
-  `HashError::NotImplemented(0x33)`。读端遇到它必须**明确拒绝**，不许退回 SHA-256
-  （§19.8 的「登记 ≠ 实现」纪律）。
-- **不写、不猜**：写端永远不会主动产出 `0x33`；没有实现就不生成无法自验的文件。
-- **与已有国密 / PQC 位的关系**：签名区 `0x50 SM2-with-SM3`、混合区
-  `0xA1 SM2+ML-KEM-768` 已经给「SM 系列 + 抗量子」留了组合位；`0x33` 补的是
-  **哈希**这一格。签名 PQC 区 `0x60–0x7F` 与 KEM 区 `0x80–0x9F` 的剩余号同样
-  按「先登记再实现」处理，不预造算法名。
-
 ```
 
 - `sig` 是**数组**（可多个，**全部验过**才算通过）；
 - `kem` 是**单个**（首个成功即用）；
 - 量子迁移只是**换编号**，不动结构 ⇒ 这是「算法敏捷」的全部内容。
 
+### 20.3 分组命名空间与预留编号（2026-11-13）
+
+> 用户裁决：「预留就可多留几个吧，怕影响格式寿命，或者按组作为命名空间」。
+> ｜ Reserve more ids, and treat the ranges as namespaces, so a one-byte field does not
+> become the format's lifetime limit.
+
+#### 20.3.1 组 = 命名空间
+
+一个字节只有 256 个号。若「一个算法占一个号」，早晚耗尽编号并逼着改段布局 —— 那就是
+格式寿命的终点。故本表把**区间本身**当命名空间：组内编号只在本组有语义，别组不得复用；
+跨组扩展靠**新开一组**，而不是挤占别组的号。
+｜ A range, not a single id, is the namespace: group ids never leak across groups.
+New algorithms get a new range instead of squeezing into an existing one.
+
+| 组 | 类别 | 组内侧预留（**永久，不回收**） |
+|---|---|---|
+| `0x01–0x0F` | 压缩 | `0x02` lz4 · `0x03` deflate |
+| `0x30–0x3F` | 哈希 | `0x33` 国密 SM 抗量子 · `0x34` 通用 PQC · `0x35–0x3D` 未分配槽 · `0x3E` 转义 · `0x3F` 私有 |
+| `0x60–0x7F` | 签名（PQC） | `0x62` 国密 PQC 签名 |
+| `0x80–0x9F` | KEM | `0x83` 国密 PQC KEM |
+| `0xA0–0xAF` | 混合 | `0xA2` 国密 PQC 混合 |
+
+> 组边界是硬边界：`0x2F` / `0x40` 对哈希组而言是**未知编号**（`HashError::Unknown`），
+> 不会因为「多预留」被吞进来。｜ Group boundaries stay hard: ids outside the group are
+> `Unknown`, never silently absorbed as "reserved".
+
+#### 20.3.2 哈希组 `0x30–0x3F` 明细
+
+| 编号 | 语义 | 状态 |
+|---|---|---|
+| `0x30` | SHA-256（FIPS 180-4） | ✅ 已实现（默认） |
+| `0x31` | SM3（GB/T 32905-2016） | ✅ 已实现 |
+| `0x32` | BLAKE3（D44） | ✅ 已实现 |
+| `0x33` | **国密 SM 系列抗量子 / 量子安全哈希** | ⬜ 预留（算法待国标发布，编号不换） |
+| `0x34` | 通用后量子摘要（非国密路线） | ⬜ 预留 |
+| `0x35–0x3D` | 组内未分配槽（9 个） | ⬜ 预留，统一按「未分配」反查 |
+| `0x3E` | **扩展命名空间转义**（二级编号） | ⬜ 预留，机制见下 |
+| `0x3F` | 私有 / 实验 | ⬜ 预留，不得进互通文件 |
+
+**为什么先占号**：§20「编号一经发布永不复用」。等标准发布再插号会与已流通文件冲突；
+现在固定号码与语义，将来只是把算法填进去，**不换号**。
+｜ Registering now fixes the number; a future standard fills it in without renumbering.
+
+#### 20.3.3 组内末两号：转义与私有
+
+- **`0x?E` = 扩展命名空间转义**：组内编号用尽时，`hash_id = 0x3E` 表示后面还有**二级子编号**
+  （manifest 内追加 1 字节 `hash_sub_id`），于是 `(0x3E, sub)` 又是一整个命名空间，
+  不必改段头 / 段布局。转义号本身只是**机制位**，不是算法。
+  ｜ `0x?E` escapes into a second-level `(0x3E, sub_id)` namespace, so running out of
+  first-level ids does not require a new segment layout.
+- **`0x?F` = 私有 / 实验**：厂商内部可用，**不得**出现在互通文件；公共实现读到即拒绝。
+  ｜ `0x?F` is private/experimental and must not appear in interoperable files.
+- 目前**只登记、未实现**：manifest 尚无 `hash_sub_id` 字段，读到 `0x3E` / `0x3F`
+  一律 `HashError::NotImplemented`，绝不猜算法。将来实现转义时必须同步升级 `fmt`
+  并在 §20.4 写清字节布局 —— 不能静默改变现有 1 字节 `hash_id` 的读法。
+
+#### 20.3.4 预留位的读端语义
+
+`rust/amberice/src/hash.rs` 把组内 **16 个号全部登记**（3 个实现 + 13 个预留）：
+`HashAlgo::from_id` 对预留号返回具名变体或 `Reserved(n)`，`is_reserved() == true`、
+`is_implemented() == false`，`digest_by_id` 返回 `HashError::NotImplemented(id)`。
+
+- **登记 ≠ 实现**：预留号算不出摘要，读端必须**明确拒绝**，不许退回 SHA-256 假装验过；
+- **不写、不猜**：写端永不主动产出预留号；没有实现就不生成无法自验的文件；
+- **永不回收**：预留号不得挪作它用；要加新算法优先用未分配槽，槽用尽走 `0x3E` 转义。
 
 ---
 

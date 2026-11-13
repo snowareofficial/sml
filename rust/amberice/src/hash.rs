@@ -14,10 +14,27 @@
 //!    「大概也行」的默认（`0x32` 曾长期处于这个状态，实现见 [`crate::blake3`]）；
 //! 3. **默认只影响写、不影响读**：写文件时默认 SHA-256；读文件一律以 manifest 的 `hash_id` 为准
 //!    （`hash_id` 缺失时也退回默认，那是 T1 时代没有 manifest 的文件）。
-//! 4. **预留位**：`0x33` 留给国密 SM 系列抗量子哈希（算法待国标发布）。当前只是登记编号，
-//!    `digest` 报 `NotImplemented`；编号永不复用。
-//!    ｜ `0x33` is reserved for a future SM-family post-quantum digest: registered,
-//!    not implemented, never reassigned.
+//!
+//! # 分组命名空间 / Group namespaces（§20.4）
+//!
+//! 一个字节只有 256 个号，若「一个算法占一个号」很快就会耗尽、逼着改段布局 —— 那是格式寿命
+//! 的尽头。故 §20 把编号按**区间分组**：`0x30..=0x3F` 是哈希组，别组不得复用组内号码；
+//! 组内末两号固定语义：`0x3E` = **扩展命名空间转义**（后面再跟子编号，形成二级命名空间）、
+//! `0x3F` = **私有/实验**（不进互通文件）。中间未分配的号统一登记为「预留」，
+//! 一律 `NotImplemented`，永不回收、永不挪作它用。
+//! ｜ One byte cannot name every future algorithm. §20 therefore allocates **ranges as
+//! namespaces**: `0x30..=0x3F` belongs to hashes, `0x3E` escapes into a sub-namespace and
+//! `0x3F` is private/experimental. Unassigned slots stay reserved forever.
+
+/// 哈希组的编号区间（`§20.4` 的分组命名空间）｜ The hash group's id range.
+/// ｜ 组外编号一律 `Unknown`，组内未分配编号一律 `Reserved`。
+pub const HASH_GROUP_FIRST: u8 = 0x30;
+pub const HASH_GROUP_LAST: u8 = 0x3F;
+/// 组内转义号：进入二级命名空间（本构建未实现，读到即 `NotImplemented`）。
+/// ｜ Escape into a second-level namespace (not implemented in this build).
+pub const HASH_ESCAPE: u8 = 0x3E;
+/// 组内私有/实验号：不得出现在互通文件里。｜ Private/experimental; never in interoperable files.
+pub const HASH_PRIVATE: u8 = 0x3F;
 
 /// Algorithms from §20's hash range (all produce 32-byte digests).
 /// §20 哈希区间的算法（都产出 32 B 摘要）。
@@ -32,11 +49,20 @@ pub enum HashAlgo {
     /// `0x32` ✓ 已实现（无密钥 32 B 摘要，见 [`crate::blake3`]）。
     Blake3,
     /// `0x33` — **预留**：国密 SM 系列抗量子 / 量子安全哈希（算法待国标发布）。
-    /// 占位不是实现：本构建算不出来，读端必须报 [`HashError::NotImplemented`]，
-    /// 不许退回 SHA-256 假装验过。编号一经预留不得挪作它用（§20「编号永不复用」）。
     /// ｜ Reserved for a future Chinese-standard (SM family) post-quantum digest.
-    /// Registration is NOT implementation: `digest` returns `NotImplemented`.
     SmPqcDigest,
+    /// `0x34` — **预留**：通用后量子摘要（非国密路线，算法待定）。
+    /// ｜ Reserved for a non-SM post-quantum digest.
+    PqcDigest,
+    /// `0x3E` — **预留**：扩展命名空间转义（二级编号，§20.4）。
+    /// ｜ Reserved: escape into a second-level namespace.
+    ExtendedNamespace,
+    /// `0x3F` — **预留**：私有 / 实验，不进互通文件。
+    /// ｜ Reserved: private/experimental, never interoperable.
+    PrivateUse,
+    /// `0x35..=0x3D` — **预留**：组内未分配槽（统一表达，逐个号仍可反查）。
+    /// ｜ Unassigned slots inside the hash group, kept reserved forever.
+    Reserved(u8),
 }
 
 /// What this build writes when the caller does not choose. ｜ 调用方不指定时的写入口径。
@@ -50,17 +76,26 @@ impl HashAlgo {
             HashAlgo::Sm3 => 0x31,
             HashAlgo::Blake3 => 0x32,
             HashAlgo::SmPqcDigest => 0x33,
+            HashAlgo::PqcDigest => 0x34,
+            HashAlgo::ExtendedNamespace => HASH_ESCAPE,
+            HashAlgo::PrivateUse => HASH_PRIVATE,
+            HashAlgo::Reserved(n) => n,
         }
     }
 
     /// Map a §20 id back; `None` = unknown id (must be rejected, never guessed).
-    /// 反查编号；`None` = 未知编号（必须拒绝，绝不猜）。
+    /// 反查编号：`None` = 组外 / 未知编号（必须拒绝，绝不猜）。
+    /// 组内**全部** 16 个号都有归属 —— 未分配的也登记成 `Reserved`，不是「不知道」。
     pub const fn from_id(id: u8) -> Option<HashAlgo> {
         match id {
             0x30 => Some(HashAlgo::Sha256),
             0x31 => Some(HashAlgo::Sm3),
             0x32 => Some(HashAlgo::Blake3),
             0x33 => Some(HashAlgo::SmPqcDigest),
+            0x34 => Some(HashAlgo::PqcDigest),
+            0x35..=0x3D => Some(HashAlgo::Reserved(id)),
+            HASH_ESCAPE => Some(HashAlgo::ExtendedNamespace),
+            HASH_PRIVATE => Some(HashAlgo::PrivateUse),
             _ => None,
         }
     }
@@ -72,13 +107,22 @@ impl HashAlgo {
             HashAlgo::Sm3 => "SM3",
             HashAlgo::Blake3 => "BLAKE3",
             HashAlgo::SmPqcDigest => "SM-PQC-DIGEST (reserved)",
+            HashAlgo::PqcDigest => "PQC-DIGEST (reserved)",
+            HashAlgo::ExtendedNamespace => "extended namespace (reserved)",
+            HashAlgo::PrivateUse => "private/experimental (reserved)",
+            HashAlgo::Reserved(_) => "reserved (unassigned)",
         }
     }
 
     /// Does this build actually compute it? ｜ 本构建真能算吗？
     pub const fn is_implemented(self) -> bool {
         matches!(self, HashAlgo::Sha256 | HashAlgo::Sm3 | HashAlgo::Blake3)
-        // `SmPqcDigest` 故意不在内：预留位没有实现，读端必须明确拒绝。
+    }
+
+    /// 已登记但故意留空的号（含转义 / 私有 / 未分配槽）。
+    /// ｜ Registered but intentionally unimplemented; readers must refuse explicitly.
+    pub const fn is_reserved(self) -> bool {
+        !self.is_implemented()
     }
 }
 
@@ -114,8 +158,9 @@ pub fn digest(algo: HashAlgo, data: &[u8]) -> Result<[u8; 32], HashError> {
         HashAlgo::Sha256 => Ok(crate::sha256::digest(data)),
         HashAlgo::Sm3 => Ok(crate::sm3::digest(data)),
         HashAlgo::Blake3 => Ok(crate::blake3::digest(data)),
-        // 预留位：登记了编号但本构建算不出 ⇒ 明确拒绝，绝不猜一个算法去验。
-        HashAlgo::SmPqcDigest => Err(HashError::NotImplemented(0x33)),
+        // 所有预留位（含转义号、私有号、未分配槽）统一明确拒绝，
+        // 绝不退回 SHA-256 假装验过。`Reserved(n)` 的号原样带进错误里便于排查。
+        other => Err(HashError::NotImplemented(other.id())),
     }
 }
 
@@ -135,27 +180,42 @@ mod tests {
         for algo in [HashAlgo::Sha256, HashAlgo::Sm3, HashAlgo::Blake3] {
             assert_eq!(HashAlgo::from_id(algo.id()), Some(algo));
         }
-        // 0x33 是**预留**（能反查，但没有实现）；0x34 起仍是未知。
-        assert_eq!(HashAlgo::from_id(0x33), Some(HashAlgo::SmPqcDigest));
-        assert_eq!(HashAlgo::from_id(0x34), None);
     }
 
     #[test]
-    fn reserved_sm_pqc_slot_is_registered_but_not_implemented() {
-        let a = HashAlgo::SmPqcDigest;
-        assert_eq!(a.id(), 0x33);
-        assert!(!a.is_implemented(), "预留位不能标成已实现");
-        assert_eq!(
-            digest_by_id(0x33, b"abc"),
-            Err(HashError::NotImplemented(0x33)),
-            "预留位必须明确拒绝，不能退回 SHA-256"
-        );
-        assert_eq!(digest_by_id(0x34, b"abc"), Err(HashError::Unknown(0x34)));
-        assert!(a.name().contains("reserved"));
+    fn every_slot_in_the_hash_group_is_registered() {
+        // 组内 16 个号全部有归属：3 个实现 + 13 个预留（含转义 / 私有）。
+        for id in HASH_GROUP_FIRST..=HASH_GROUP_LAST {
+            let algo = HashAlgo::from_id(id).unwrap_or_else(|| panic!("0x{id:02x} 未登记"));
+            assert_eq!(algo.id(), id, "0x{id:02x} 反查后编号漂移");
+            if id <= 0x32 {
+                assert!(algo.is_implemented() && !algo.is_reserved());
+            } else {
+                assert!(algo.is_reserved() && !algo.is_implemented(), "0x{id:02x}");
+                assert_eq!(
+                    digest_by_id(id, b"abc"),
+                    Err(HashError::NotImplemented(id)),
+                    "0x{id:02x} 必须明确拒绝"
+                );
+            }
+        }
     }
 
     #[test]
-    fn unknown_id_is_an_error_not_a_guess() {
+    fn named_reservations_keep_their_ids() {
+        assert_eq!(HashAlgo::SmPqcDigest.id(), 0x33);
+        assert_eq!(HashAlgo::PqcDigest.id(), 0x34);
+        assert_eq!(HashAlgo::ExtendedNamespace.id(), HASH_ESCAPE);
+        assert_eq!(HashAlgo::PrivateUse.id(), HASH_PRIVATE);
+        assert_eq!(HashAlgo::from_id(0x35), Some(HashAlgo::Reserved(0x35)));
+        assert_eq!(HashAlgo::from_id(0x3D), Some(HashAlgo::Reserved(0x3D)));
+    }
+
+    #[test]
+    fn group_boundaries_are_unknown_not_reserved() {
+        // 组外编号不能因为「多预留」而被吞掉：分组命名空间的意义就在于边界清楚。
+        assert_eq!(digest_by_id(0x2F, b"x"), Err(HashError::Unknown(0x2F)));
+        assert_eq!(digest_by_id(0x40, b"x"), Err(HashError::Unknown(0x40)));
         assert_eq!(digest_by_id(0x99, b"x"), Err(HashError::Unknown(0x99)));
     }
 
