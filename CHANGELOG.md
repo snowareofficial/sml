@@ -493,6 +493,34 @@ KDF 从 `0x50–0x5F` 迁走。
   `E-AMBR-004`）。
 - 回归：Java 22 例仍全绿（说明新增的 SHA-256 校验与既有文件一致）。
 
+### 新增（多级转义的 `fmt` 门 + 「是否验过」公开可观测）
+
+- **`fmt` 门（D5 硬约束）**：`fmt=0` 的文件**不得**使用多级 `hash_id`
+  `[0x3E, 版本, 子号…]` —— 转义改变了 `hash_id` 的读法，按一级号去猜就是拿错算法验签。
+  新增 `ContainerError::HashPathRequiresFmt { fmt }`（归 `E-AMBR-002`），由纯函数
+  `check_hash_path_fmt(fmt, path)` 在 `decode_manifest` 统一把关（`load` / `info` /
+  `check` 共用一条路径）。启用转义的前提写进 §20.3.3：先升 `fmt=1` + 在 §20.4 写清
+  字节布局、版本语义与子号分配规则，三件事同批落地。
+- **版本号从 1 起**：`HashPath::from_value` 现在拒绝 `ns_version = 0`（保留值），
+  0 不得出现在文件里；新增单测。
+- **「是否验过」公开可观测**（此前只有内部字段）：
+  - **C**：`sml_ambr_load_ex(buf, len, sml_ambr_info *info, err, errsz)`，
+    `sml_ambr_info { hash_id, digest_skipped }`；`sml_ambr_load` 变薄包装。
+  - **C++**：`sml::AmbrInfo { hash_id, digest_skipped }` + `ambr_load(buf, len, AmbrInfo*, err)`
+    重载；三参版本变薄包装。
+  - **Lua**：`Sml.ambr_load` 返回 `value, err, info`（`info.hash_id` /
+    `info.digest_skipped`）。
+  - **Java**：`Ambr.loadWithInfo(bytes)` 返回 `Info { value, hashId, digestSkipped }`；
+    `load` 变薄包装。
+  - **JS**：`load(bytes, {report})` 的 `report.skipped` 已在用，本批把 `skipped === null`
+    写进测试断言（SM3/BLAKE3 能算就不该跳过）。
+- **工具输出**：`amberice info` / `check` 对多级 `hash_id` 打印
+  「多级转义 … ⇒ 本构建未实现、摘要未校验」；`info` 的 `hash_id` 行也显示路径。
+- **守护** 新增两条：`fmt` 门已实现（变体 + 纯函数 + `error.rs` 归类）、
+  五端都公开「是否验过」的出参。
+- 回归：`amberice --lib` **33 例**、C `test_ambr`（`info=49/0` / `50/0`）、
+  C++ 8 档、Java 22 例 + 夹具、Lua 22 例 + 夹具、JS `test-ambr-hash`。
+
 ### 变更（仓库治理：文档生成物幂等）
 
 - `smldocs --index` / `--report` 的头行改记 `docs/meta.sml` 的内容摘要（FNV-1a 64），

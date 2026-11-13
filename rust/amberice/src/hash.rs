@@ -216,7 +216,9 @@ impl HashPath {
             return Err(HashPathError::BadEscape(escape));
         }
         let version = int_at(1).ok_or(HashPathError::BadVersion(-1))?;
-        if !(0..=255).contains(&version) {
+        // 版本号**从 1 起**（0 保留表示「未指定」，不得出现在文件里）。
+        // ｜ Versions start at 1; 0 is reserved and must not appear in a file.
+        if !(1..=255).contains(&version) {
             return Err(HashPathError::BadVersion(version));
         }
         let raw = &items[2..];
@@ -372,6 +374,15 @@ mod tests {
         for (v, want) in cases {
             assert_eq!(HashPath::from_value(&v), Err(want));
         }
+    }
+
+    #[test]
+    fn hash_path_version_starts_at_one() {
+        use crate::Value;
+        let v0 = Value::Array(vec![Value::Int(0x3E), Value::Int(0), Value::Int(1)]);
+        assert_eq!(HashPath::from_value(&v0), Err(HashPathError::BadVersion(0)));
+        let v1 = Value::Array(vec![Value::Int(0x3E), Value::Int(1), Value::Int(1)]);
+        assert!(HashPath::from_value(&v1).is_ok());
     }
 
     #[test]

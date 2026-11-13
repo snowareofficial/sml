@@ -134,6 +134,7 @@ impl From<crate::container::ContainerError> for AmbrError {
             C::TooShort { .. }
             | C::BadMagic { .. }
             | C::UnsupportedFmt { .. }
+            | C::HashPathRequiresFmt { .. }
             | C::HeaderTooShort { .. }
             | C::BadSegmentTable { .. }
             | C::TruncatedSegment { .. }

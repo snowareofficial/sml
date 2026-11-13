@@ -110,7 +110,8 @@ static void run_hash_fixtures() {
             continue;
         }
         std::string err;
-        auto v = sml::ambr_load(bytes.data(), bytes.size(), &err);
+        sml::AmbrInfo info;
+        auto v = sml::ambr_load(bytes.data(), bytes.size(), &info, &err);
         if (!v) {
             fail(id, err);
             continue;
@@ -118,10 +119,12 @@ static void run_hash_fixtures() {
         auto who = (*v)->get("who");
         auto num = (*v)->get("n");
         if (who && who->tag == sml::Value::Tag::Str && who->s == "u1" &&
-            num && num->tag == sml::Value::Tag::Int && num->i == 7) {
-            std::printf("  ok: hash_id 0x%02x decoded (%s)\n", hid, id.c_str());
+            num && num->tag == sml::Value::Tag::Int && num->i == 7 &&
+            info.hash_id == hid && !info.digest_skipped) {
+            std::printf("  ok: hash_id 0x%02x decoded (%s), info=%d/%d\n", hid, id.c_str(),
+                        info.hash_id, info.digest_skipped ? 1 : 0);
         } else {
-            fail(id, "value mismatch");
+            fail(id, "value mismatch or info wrong");
         }
         /* 反例：改坏段表首项摘要 ⇒ 必须拒绝。 */
         if (cases == 0 && bytes.size() > 49) {

@@ -434,8 +434,28 @@ public final class Ambr {
         return p;
     }
 
+    /** 解码时的可观测信息：摘要算法与「是否真的验过」。
+     * ｜ Observability: which digest algorithm was declared, and whether it was verified. */
+    public static final class Info {
+        public final Object value;
+        public final int hashId;
+        public final boolean digestSkipped;
+
+        Info(Object value, int hashId, boolean digestSkipped) {
+            this.value = value;
+            this.hashId = hashId;
+            this.digestSkipped = digestSkipped;
+        }
+    }
+
     /** Decode a whole `.ambr` image. ｜ 解一整份 `.ambr`。 */
     public static Object load(byte[] bytes) {
+        return loadWithInfo(bytes).value;
+    }
+
+    /** Same, with the digest algorithm and whether verification was skipped.
+     * ｜ 同上，并交出摘要算法与「是否跳过校验」。 */
+    public static Info loadWithInfo(byte[] bytes) {
         final Parts p = walk(bytes);
         if (p.value == null) throw new AmbrException("找不到 VALUE 段");
 
@@ -445,7 +465,7 @@ public final class Ambr {
         final Reader r = new Reader(p.value);
         final Object v = decodeNode(r, strtab, 0);
         if (r.pos != r.len) throw new AmbrException("VALUE 段读完仍有剩余字节");
-        return v;
+        return new Info(v, p.hashId, p.digestSkipped);
     }
 
     /** Decode a file. ｜ 解一个文件。 */

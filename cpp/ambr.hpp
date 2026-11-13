@@ -27,6 +27,16 @@ namespace sml {
 // `err` (optional) receives an `AMBR: …` message on failure.
 std::optional<ValuePtr> ambr_load(const unsigned char* buf, size_t len, std::string* err);
 
+// 可观测信息：manifest 声明的 §20 摘要算法，以及**是否真的验过**。
+// `digest_skipped = true` 表示预留号 / 多级元组，本端算不了、已明确跳过。
+// ｜ Observability: the declared §20 hash_id and whether digests were verified.
+struct AmbrInfo {
+    int hash_id = 0x30;
+    bool digest_skipped = false;
+};
+std::optional<ValuePtr> ambr_load(const unsigned char* buf, size_t len, AmbrInfo* info,
+                                  std::string* err);
+
 // Render `TYPED` (0x70) via the embedded `SCHEMA` (0x71) — D45 / §25.8.
 // Returns an array of `{ id, name, value }`; empty array when there is no TYPED.
 // 用内嵌 SCHEMA 渲染 TYPED，返回 [{ id, name, value }]；无 TYPED 时返回空数组。

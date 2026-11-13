@@ -33,9 +33,22 @@
 extern "C" {
 #endif
 
+/* 解码时的可观测信息：manifest 声明的摘要算法，以及**是否真的验过**。
+** `digest_skipped = 1` 表示 hash_id 是预留号或多级元组，本端算不了、已明确跳过。
+** ｜ Observability: the declared §20 `hash_id` and whether digests were actually verified. */
+typedef struct sml_ambr_info {
+    int hash_id;        /* §20 编号；无 manifest 时按默认 0x30 */
+    int digest_skipped; /* 1 = 预留号 / 多级元组 ⇒ 未校验 */
+} sml_ambr_info;
+
 /* Decode a whole `.ambr` image. Returns NULL on failure and writes `AMBR: …` into err.
 ** 解一整份 `.ambr`；失败返回 NULL，err 里写 `AMBR: …`（err 可空）。 */
 sml_value *sml_ambr_load(const unsigned char *buf, size_t len, char *err, size_t errsz);
+
+/* Same, plus the observability struct (may be NULL when the caller does not care).
+** 同上，另交出可观测信息（`info` 可为 NULL）。 */
+sml_value *sml_ambr_load_ex(const unsigned char *buf, size_t len, sml_ambr_info *info,
+                            char *err, size_t errsz);
 
 /* Render `TYPED` (0x70) via the embedded `SCHEMA` (0x71) — D45 / §25.8.
 ** Returns an array of `{ id, name, value }`; an empty array when the file has no TYPED

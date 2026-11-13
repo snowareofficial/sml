@@ -2562,6 +2562,9 @@ local function _ambr_walk(bytes)
   return p
 end
 
+-- 返回 `value, err, info`：`info = { hash_id, digest_skipped }` 让调用方知道
+-- **摘要是否真的验过**（预留号 / 多级元组时 `digest_skipped = true`）。
+-- ｜ Returns `value, err, info` so callers can see whether digests were actually verified.
 function Sml.ambr_load(bytes)
   local p, werr = _ambr_walk(bytes)
   if not p then return nil, werr end
@@ -2583,7 +2586,7 @@ function Sml.ambr_load(bytes)
   local v = _ambr_node(r, strtab, 0, box)
   if box.err then return nil, "AMBR: " .. box.err end
   if r.pos ~= r.len + 1 then return nil, "AMBR: VALUE 段读完仍有剩余字节" end
-  return v
+  return v, nil, { hash_id = p.hash_id, digest_skipped = p.digest_skipped }
 end
 
 -- ===========================================================================

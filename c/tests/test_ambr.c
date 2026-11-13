@@ -143,7 +143,10 @@ static void run_hash_fixtures(void) {
         }
         char err[256];
         err[0] = '\0';
-        sml_value *v = sml_ambr_load(bytes, blen, err, sizeof err);
+        sml_ambr_info info;
+        info.hash_id = -1;
+        info.digest_skipped = -1;
+        sml_value *v = sml_ambr_load_ex(bytes, blen, &info, err, sizeof err);
         if (!v) {
             fail(id, err);
             free(bytes);
@@ -152,8 +155,9 @@ static void run_hash_fixtures(void) {
         sml_value *who = sml_obj_get(v, "who");
         sml_value *num = sml_obj_get(v, "n");
         if (who && who->type == SML_STR && strcmp(who->u.s, "u1") == 0 &&
-            num && num->type == SML_INT && num->u.i == 7) {
-            printf("  ok: hash_id 0x%02x 解码（%s）\n", hid, id);
+            num && num->type == SML_INT && num->u.i == 7 && info.hash_id == hid &&
+            info.digest_skipped == 0) {
+            printf("  ok: hash_id 0x%02x 解码（%s），info=%d/%d\n", hid, id, info.hash_id, info.digest_skipped);
         } else {
             fail(id, "值不符");
         }

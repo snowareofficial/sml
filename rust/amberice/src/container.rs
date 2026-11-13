@@ -277,6 +277,14 @@ pub enum ContainerError {
         /// The unknown value ｜ 未知值。
         fmt: u8,
     },
+    /// Manifest declares a **multi-level** `hash_id` (`[0x3E, version, sub…]`) while `fmt`
+    /// is still 0. The escape changes how `hash_id` is interpreted, so it needs a `fmt`
+    /// bump (D5 gate); `fmt=0` files must not use it.
+    /// ｜ 多级 `hash_id` 需要更高的 `fmt`；`fmt=0` 下禁止使用。
+    HashPathRequiresFmt {
+        /// The `fmt` the file declares ｜ 文件声明的 `fmt`。
+        fmt: u8,
+    },
     /// `hdr_len` smaller than this build's header ｜ `hdr_len` 比本构建的头还小。
     HeaderTooShort {
         /// Declared length ｜ 声明的长度。
@@ -505,6 +513,7 @@ impl ContainerError {
             ContainerError::TooShort { .. } => "too-short",
             ContainerError::BadMagic { .. } => "bad-magic",
             ContainerError::UnsupportedFmt { .. } => "unsupported-fmt",
+            ContainerError::HashPathRequiresFmt { .. } => "hash-path-requires-fmt",
             ContainerError::HeaderTooShort { .. } => "header-too-short",
             ContainerError::BadSegmentTable { .. } => "bad-segment-table",
             ContainerError::TruncatedSegment { .. } => "truncated-segment",
@@ -565,6 +574,11 @@ impl std::fmt::Display for ContainerError {
             ContainerError::UnsupportedFmt { fmt } => write!(
                 f,
                 "本构建只认识 fmt={FMT}，文件是 fmt={fmt}（字节布局不同，D5 拒绝读）"
+            ),
+            ContainerError::HashPathRequiresFmt { fmt } => write!(
+                f,
+                "manifest 用了多级 hash_id（[0x3E, 版本, 子号…]），但 fmt={fmt}；\
+                 转义改变了 hash_id 的读法，必须先把 fmt 升到 1 并写清字节布局（§20.4）"
             ),
             ContainerError::HeaderTooShort { hdr_len } => write!(
                 f,
@@ -2008,7 +2022,19 @@ fn decode_manifest<'a>(
     require_plain(&seg)?;
     let b = body(bytes, &seg)?;
     let m = Manifest::from_bytes(b).map_err(ContainerError::BadManifest)?;
+    check_hash_path_fmt(info.fmt, m.hash_path.as_ref())?;
     Ok(Some((seg, b, m)))
+}
+
+/// `fmt` gate for multi-level `hash_id`: the escape changes how the 1-byte `hash_id`
+/// is read, so it requires `fmt >= 1`. Pure function so it can be unit-tested without
+/// hand-crafting a container.
+/// ｜ 多级 `hash_id` 的 `fmt` 门：纯函数，便于单测。
+fn check_hash_path_fmt(fmt: u8, path: Option<&crate::hash::HashPath>) -> Result<(), ContainerError> {
+    if path.is_some() && fmt == 0 {
+        return Err(ContainerError::HashPathRequiresFmt { fmt });
+    }
+    Ok(())
 }
 
 /// The manifest of a file (error when it has none). ｜ 读文件的 manifest（没有就报错）。
@@ -2626,11 +2652,16 @@ pub fn check(bytes: &[u8]) -> Result<CheckReport, ContainerError> {
         }
     };
     let algo = manifest.as_ref().map(|m| m.hash).unwrap_or(hash::DEFAULT);
+    let path_note = match manifest.as_ref().and_then(|m| m.hash_path.as_ref()) {
+        Some(p) => format!("，多级转义 {} ⇒ 本构建未实现、摘要未校验", p.name()),
+        None if manifest.is_some() => String::new(),
+        None => "，无 manifest ⇒ 按默认".to_string(),
+    };
     lines.push(format!(
         "算法      {}（hash_id 0x{:02x}{}）",
         algo.name(),
         algo.id(),
-        if manifest.is_some() { "" } else { "，无 manifest ⇒ 按默认" }
+        path_note
     ));
 
     // 1) 逐段摘要
@@ -3167,12 +3198,23 @@ pub fn info_lines(
     ];
     match &manifest {
         Some(m) => {
-            out.push(format!(
-                "hash_id   0x{:02x} {}（{}）",
-                m.hash.id(),
-                m.hash.name(),
-                if m.hash.is_implemented() { "本构建可算" } else { "本构建未实现" }
-            ));
+            let (hid, hname, hnote) = match &m.hash_path {
+                Some(p) => (
+                    0x3e_u8,
+                    format!("多级转义 {}", p.name()),
+                    "本构建未实现 ⇒ 摘要未校验",
+                ),
+                None => (
+                    m.hash.id(),
+                    m.hash.name().to_string(),
+                    if m.hash.is_implemented() {
+                        "本构建可算"
+                    } else {
+                        "本构建未实现 ⇒ 摘要未校验"
+                    },
+                ),
+            };
+            out.push(format!("hash_id   0x{hid:02x} {hname}（{hnote}）"));
             out.push(format!(
                 "caps      required [{}] · optional [{}]",
                 m.caps_required.join(" "),
@@ -3215,4 +3257,23 @@ pub fn info_lines(
         }
     ));
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hash::HashPath;
+
+    /// `fmt` 门：多级 `hash_id` 必须 `fmt >= 1`；`fmt=0` 下禁止（否则读者会用错读法）。
+    /// ｜ Multi-level `hash_id` requires `fmt >= 1`.
+    #[test]
+    fn multi_level_hash_requires_fmt_bump() {
+        let p = HashPath { ns_version: 1, subs: vec![1] };
+        assert!(matches!(
+            check_hash_path_fmt(0, Some(&p)),
+            Err(ContainerError::HashPathRequiresFmt { fmt: 0 })
+        ));
+        assert!(check_hash_path_fmt(1, Some(&p)).is_ok());
+        assert!(check_hash_path_fmt(0, None).is_ok(), "一级 hash 不受 fmt 门限制");
+    }
 }
