@@ -62,6 +62,10 @@ Ruby `22/22 read + 22 round-trip`、C# `dotnet run` 全绿（连同 Java 纯实�
 `0x35–0x3D` 未分配槽、`0x3E` 扩展命名空间转义、`0x3F` 私有实验），另在签名 PQC /
 KEM / 混合组各留 `0x62` / `0x83` / `0xA2` 给国密 PQC。所有预留号读端一律
 `NotImplemented`，永不回收；组边界（`0x2F` / `0x40`）仍是 `Unknown`。
+多级转义已按元组落地：`hash_id: [0x3E, ns_version, sub…]`（版本号在前、每级 2 字节、
+最多 4 级），`Manifest::hash_path` 能往返保存，但 `digest` 仍报 `NotImplemented(0x3E)`
+—— 只登记、不算摘要。KDF 组已按裁决迁到 `0xB0–0xBF`（`Argon2id` = `0xB1`，
+旧 `0x51` 仅 KDF 语境只读兼容）。
 
 D45 的 `SCHEMA` / `TYPED` 渲染：JS 已通（`js/test-ambr-typed.mjs`）、C 已通
 （`sml_ambr_load_typed` + `c/tests/test_ambr_typed.c`，已进 `build_check.py`）、C++ 已通

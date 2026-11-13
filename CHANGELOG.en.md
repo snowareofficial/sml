@@ -431,6 +431,35 @@ or treat the ranges as namespaces".
   registered", "named reservations keep ids", "boundaries are Unknown").
 - The ids and semantics of `0x30/31/32` are **unchanged**; published contracts untouched.
 
+### Added (multi-level `hash` tuple + KDF relocation: writing the format's lifetime into the rules)
+
+Decisions (2026-11-13): `hash` may be a **tuple** (possibly three levels, first sub-value is
+a version), sub-ids are 2 bytes, and KDF moves out of `0x50–0x5F`.
+
+- **Multi-level escape tuple** (`format.md §20.3.3`): `hash_id: 0x30` (one level, bytes
+  unchanged) or `[0x3E, ns_version, sub1, sub2...]`. The **first sub-value is the namespace
+  version** (starts at 1, only increases); every further level is a **2-byte** sub-id
+  (`0..=65535`), **at most four levels**. Exhausting first-level ids no longer requires a new
+  segment layout.
+- **Rust implementation**: `hash.rs::HashPath` (`ns_version` + `subs`, full shape/range
+  validation in `to_value` / `from_value`, `MAX_HASH_SUBS = 4`, six `HashPathError` reasons);
+  `Manifest.hash_path` (`None` for one level), integer on write for one level and an array for
+  multi-level, both accepted on read; new `ManifestError::BadHashPath`. Multi-level resolves to
+  `HashAlgo::ExtendedNamespace`, whose `digest` still returns `NotImplemented(0x3E)` — the
+  escape is registered but never used to hash in this build.
+- **KDF relocation** (`format.md §20.3.1` / §20.4 migration rules): KDF moves to its own range
+  **`0xB0–0xBF`**, with `Argon2id` at **`0xB1`**; the legacy `0x51` is accepted **only in the
+  KDF context** (read-only) and counts as unassigned in the signature context. Writers stop
+  emitting `0x51`; `0x50 SM2-with-SM3` keeps its id and meaning. The pre-existing
+  `0x50–0x5F` collision between KDF and classic signatures is therefore resolved.
+- **More reserved slots** (per the "reserve them" decision): symmetric SM `0x21` and classic
+  signature `0x42` gain Chinese-standard PQC slots, alongside `0x62` / `0x83` / `0xA2`.
+- **Guard** `check_amberice_align.py` gained four checks: KDF migration recorded, `HashPath`
+  implemented, manifest round-trips a multi-level `hash_id`, and the spec documents the tuple
+  shape with the version first.
+- Regressions: `cargo test -p amberice --lib` (**31 tests**, including HashPath round-trip,
+  malformed-value rejection, manifest multi-level round-trip, one-level stays an integer).
+
 ### 🚨 Breaking — version naming: `Version` enum → `Edition` lookup
 
 An edition is just a **name for a set of default feature bits** (`docs/swsml/spec/version.md` v1.0).

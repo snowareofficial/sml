@@ -198,7 +198,7 @@ check("组边界仍是 Unknown",
 check("规范 §20.3 分组命名空间已落地",
       "### 20.3 分组命名空间与预留编号" in spec
       and "#### 20.3.1 组 = 命名空间" in spec
-      and "#### 20.3.3 组内末两号：转义与私有" in spec)
+      and "#### 20.3.3 组内末两号：转义（多级元组）与私有" in spec)
 check("规范里哈希组 16 号明细齐全",
       "| `0x35–0x3D` | 组内未分配槽（9 个）" in spec
       and "| `0x3E` | **扩展命名空间转义**" in spec
@@ -209,10 +209,26 @@ check("其它组也留了国密 PQC 位",
       and "`0x62` 国密 PQC 签名（预留）" in spec
       and "`0x83` 国密 PQC KEM（预留）" in spec
       and "`0xA2` 国密 PQC 混合（预留）" in spec)
-# 已知的区间重叠必须一直被登记着，别在后续编辑里被悄悄抹掉。
-check("规范登记了 0x50–0x5F 的既有区间冲突",
-      "既有区间重叠（待裁决，未擅自改号）" in spec
-      and "`0x50–0x5F` 同时出现在" in spec)
+# 区间重叠的处置（用户 2026-11-13 裁决 KDF 迁走）也要一直被登记着。
+check("规范登记了 KDF 迁移（0xB0–0xBF，旧 0x51 只读兼容）",
+      "既有区间重叠已裁决（2026-11-13）" in spec
+      and "`0xB0–0xBF`" in spec
+      and "`0xB1 Argon2id`" in spec
+      and "KDF 语境下 `0x51` **只读兼容**" in spec)
+
+# 多级转义元组：[0x3E, ns_version, sub…]，版本号在前、每级 2 字节、最多 4 级。
+check("代码实现多级 hash 元组（HashPath）",
+      "pub struct HashPath" in hash_src
+      and "pub const MAX_HASH_SUBS: usize = 4;" in hash_src
+      and "pub ns_version: u8," in hash_src
+      and "pub subs: Vec<u16>," in hash_src)
+check("manifest 能往返多级 hash_id",
+      "pub hash_path: Option<crate::hash::HashPath>," in read("rust/amberice/src/manifest.rs")
+      and "crate::hash::HashPath::from_value(v)" in read("rust/amberice/src/manifest.rs"))
+check("规范写明元组形态与版本号在前",
+      "hash_id: [ 0x3E, 1, 0x0001 ]" in spec
+      and "**第一个子号是命名空间版本号**" in spec
+      and "**最多 4 级**" in spec)
 
 print()
 if FAILURES:
