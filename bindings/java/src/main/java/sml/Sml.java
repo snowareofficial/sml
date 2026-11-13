@@ -64,6 +64,27 @@ public final class Sml {
             MemoryLayout.sequenceLayout(256, ValueLayout.JAVA_BYTE).withName("text"),
             MemoryLayout.sequenceLayout(16, ValueLayout.JAVA_BYTE).withName("code_str"));
 
+    /** sml_diag 镜像：address code_str / address text / int line / int severity（8+8+4+4 = 24，无尾部填充）。 */
+    private static final MemoryLayout SML_DIAG = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("code_str"),
+            ValueLayout.ADDRESS.withName("text"),
+            ValueLayout.JAVA_INT.withName("line"),
+            ValueLayout.JAVA_INT.withName("severity"));
+
+    /** sml_diag_list 镜像：address items / long len（16）。 */
+    private static final MemoryLayout SML_DIAG_LIST = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("items"),
+            ValueLayout.JAVA_LONG.withName("len"));
+
+    /** sml_opts 镜像：long struct_size / int flags / 4 pad / addr env / long env_len / addr builtins（40）。 */
+    private static final MemoryLayout SML_OPTS = MemoryLayout.structLayout(
+            ValueLayout.JAVA_LONG.withName("struct_size"),
+            ValueLayout.JAVA_INT.withName("flags"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.ADDRESS.withName("env"),
+            ValueLayout.JAVA_LONG.withName("env_len"),
+            ValueLayout.ADDRESS.withName("builtins"));
+
     private static final Linker LINKER = Linker.nativeLinker();
     private static final SymbolLookup LOOKUP = loadLookup();
 
@@ -91,6 +112,27 @@ public final class Sml {
 
     private static final MethodHandle
             SML_LOADS = h("sml_loads", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS)),
+            SML_PARSE_WITH_DIAGS = h("sml_parse_with_diags", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS)),
+            SML_DIAG_LIST_FREE = h("sml_diag_list_free", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)),
+            SML_BUILTIN_NEW = h("sml_builtin_new", FunctionDescriptor.of(ValueLayout.ADDRESS)),
+            SML_BUILTIN_FREE = h("sml_builtin_free", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)),
+            SML_BUILTIN_COUNT = h("sml_builtin_count", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS)),
+            SML_BUILTIN_ADD_FIELD = h("sml_builtin_add_field", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT)),
+            SML_BUILTIN_SET_RANGE = h("sml_builtin_set_range", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_DOUBLE, ValueLayout.JAVA_DOUBLE)),
+            SML_BUILTIN_ADD_ENUM = h("sml_builtin_add_enum", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)),
+            SML_PARSE_FULL = h("sml_parse_full", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)),
+            SML_PARSE_FULL_LISTS = h("sml_parse_full_lists", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)),
+            SML_WEAKLISTS_FREE = h("sml_weaklists_free", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)),
+            SML_PARSE_ALL = h("sml_parse_all", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS)),
+            SML_LOAD_FILE_FULL = h("sml_load_file_full", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)),
+            SML_RESULT_VALUE = h("sml_result_value", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)),
+            SML_RESULT_DIAGS = h("sml_result_diags", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)),
+            SML_RESULT_ERRORS = h("sml_result_errors", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)),
+            SML_RESULT_WEAK = h("sml_result_weak", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)),
+            SML_RESULT_CONTRACT_MAP = h("sml_result_contract_map", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)),
+            SML_RESULT_CONTRACTS = h("sml_result_contracts", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)),
+            SML_RESULT_FREE = h("sml_result_free", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)),
+            SML_BUILTIN_CLONE = h("sml_builtin_clone", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)),
             SML_LOAD_FILE = h("sml_load_file", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS)),
             SML_FREE = h("sml_free", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)),
             SML_FREE_STR = h("sml_free_str", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)),
@@ -235,6 +277,570 @@ public final class Sml {
                 return materialize(root, arena);
             } finally {
                 SML_FREE.invokeExact(root);
+            }
+        } catch (SmlError e) {
+            throw e;
+        } catch (Throwable t) {
+            throw new RuntimeException(t);
+        }
+    }
+
+    /** 一条非致命诊断（键冲突 / 片段覆盖 / 弱声明不匹配）。 */
+    public static final class Diagnostic {
+        public final String codeStr; // null = 该档暂无稳定码
+        public final String text;
+        public final int line;       // 1 起；0 = 未知
+        public final int severity;   // 0 = warning，1 = error（预留）
+
+        public Diagnostic(String codeStr, String text, int line, int severity) {
+            this.codeStr = codeStr;
+            this.text = text;
+            this.line = line;
+            this.severity = severity;
+        }
+
+        @Override
+        public String toString() {
+            String loc = line > 0 ? " @" + line : "";
+            return (codeStr == null ? "<no code>" : codeStr) + loc + ": " + text;
+        }
+    }
+
+    /** loadsWithDiags / loadsFull 的结果：值树 + 非致命诊断（+ 可选弱表）。 */
+    public static final class Parsed {
+        public final Object value;
+        public final List<Diagnostic> diagnostics;
+        /** 仅 `loadsFullLists` 填充；其余入口为 null。 */
+        public final WeakLists lists;
+
+        public Parsed(Object value, List<Diagnostic> diagnostics) {
+            this(value, diagnostics, null);
+        }
+
+        public Parsed(Object value, List<Diagnostic> diagnostics, WeakLists lists) {
+            this.value = value;
+            this.diagnostics = diagnostics;
+            this.lists = lists;
+        }
+    }
+
+    /** 把选项写进一块本地 `sml_opts`；arena 负责放开临时内存。 */
+    private static MemorySegment encodeOpts(Opts opts, Arena arena) {
+        MemorySegment optsSeg = arena.allocate(SML_OPTS);
+        optsSeg.fill((byte) 0);
+        optsSeg.set(ValueLayout.JAVA_LONG, 0, SML_OPTS.byteSize());
+        optsSeg.set(ValueLayout.JAVA_INT, 8, opts.flags);
+        if (!opts.env.isEmpty()) {
+            // char*[n]：按字节数分配再逐项写指针（不依赖 allocateArray 的预览期签名）。
+            MemorySegment arr = arena.allocate(ValueLayout.ADDRESS.byteSize() * opts.env.size());
+            for (int i = 0; i < opts.env.size(); i++) {
+                arr.setAtIndex(ValueLayout.ADDRESS, i, arena.allocateFrom(opts.env.get(i)));
+            }
+            optsSeg.set(ValueLayout.ADDRESS, 16, arr);
+        }
+        optsSeg.set(ValueLayout.JAVA_LONG, 24, opts.env.size());
+        if (opts.builtins != null && opts.builtins.valid()) {
+            optsSeg.set(ValueLayout.ADDRESS, 32, opts.builtins.raw());
+        }
+        return optsSeg;
+    }
+
+    /** 把 C 侧三表拷成 Java 对象（拷完即可整体释放）。 */
+    private static WeakLists readWeakLists(MemorySegment wl, Arena arena) throws Throwable {
+        List<WeakBind> binds = new ArrayList<>();
+        List<WeakData> data = new ArrayList<>();
+        List<WeakDoc> docs = new ArrayList<>();
+
+        MemorySegment bp = wl.get(ValueLayout.ADDRESS, 0);
+        long nb = wl.get(ValueLayout.JAVA_LONG, 8);
+        if (nb > 0 && !bp.equals(MemorySegment.NULL)) {
+            MemorySegment base = bp.reinterpret(nb * SML_WEAK_BIND.byteSize());
+            for (long i = 0; i < nb; i++) {
+                long off = i * SML_WEAK_BIND.byteSize();
+                binds.add(new WeakBind(readCString(base.get(ValueLayout.ADDRESS, off)),
+                        readCString(base.get(ValueLayout.ADDRESS, off + 8)),
+                        base.get(ValueLayout.JAVA_INT, off + 16)));
+            }
+        }
+
+        MemorySegment dp = wl.get(ValueLayout.ADDRESS, 16);
+        long nd = wl.get(ValueLayout.JAVA_LONG, 24);
+        if (nd > 0 && !dp.equals(MemorySegment.NULL)) {
+            MemorySegment base = dp.reinterpret(nd * SML_WEAK_DATA.byteSize());
+            for (long i = 0; i < nd; i++) {
+                long off = i * SML_WEAK_DATA.byteSize();
+                MemorySegment v = base.get(ValueLayout.ADDRESS, off + 24);
+                data.add(new WeakData(readCString(base.get(ValueLayout.ADDRESS, off)),
+                        readCString(base.get(ValueLayout.ADDRESS, off + 8)),
+                        base.get(ValueLayout.JAVA_INT, off + 16),
+                        v.equals(MemorySegment.NULL) ? null : materialize(v, arena)));
+            }
+        }
+
+        MemorySegment pp = wl.get(ValueLayout.ADDRESS, 32);
+        long np = wl.get(ValueLayout.JAVA_LONG, 40);
+        if (np > 0 && !pp.equals(MemorySegment.NULL)) {
+            MemorySegment base = pp.reinterpret(np * SML_WEAK_BIND.byteSize());
+            for (long i = 0; i < np; i++) {
+                long off = i * SML_WEAK_BIND.byteSize();
+                docs.add(new WeakDoc(readCString(base.get(ValueLayout.ADDRESS, off)),
+                        readCString(base.get(ValueLayout.ADDRESS, off + 8)),
+                        base.get(ValueLayout.JAVA_INT, off + 16)));
+            }
+        }
+
+        return new WeakLists(binds, data, docs);
+    }
+
+    private static List<Diagnostic> readDiags(MemorySegment dl) {
+        MemorySegment items = dl.get(ValueLayout.ADDRESS, 0);
+        long len = dl.get(ValueLayout.JAVA_LONG, 8);
+        List<Diagnostic> out = new ArrayList<>();
+        if (len <= 0 || items.equals(MemorySegment.NULL)) return out;
+        MemorySegment base = items.reinterpret(len * SML_DIAG.byteSize());
+        long step = SML_DIAG.byteSize();
+        for (long i = 0; i < len; i++) {
+            long off = i * step;
+            MemorySegment codeP = base.get(ValueLayout.ADDRESS, off);
+            MemorySegment textP = base.get(ValueLayout.ADDRESS, off + 8);
+            int line = base.get(ValueLayout.JAVA_INT, off + 16);
+            int sev = base.get(ValueLayout.JAVA_INT, off + 20);
+            String code = readCString(codeP);
+            String msg = readCString(textP);
+            out.add(new Diagnostic(code, msg == null ? "" : msg, line, sev));
+        }
+        return out;
+    }
+
+    public static Parsed loadsWithDiags(String text) throws SmlError {
+        return loadsWithDiags(text, 0);
+    }
+
+    /** 解析文本并把**非致命诊断**一并交出；值树与 loads 逐字节相同。 */
+    public static Parsed loadsWithDiags(String text, int flags) throws SmlError {
+        if (text == null) throw new SmlError("E-INTERNAL-001", 0, 0, 0, 0, "", "loadsWithDiags: text is null");
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment textSeg = arena.allocateFrom(text);
+            MemorySegment err = arena.allocate(SML_ERROR);
+            err.fill((byte) 0);
+            MemorySegment dl = arena.allocate(SML_DIAG_LIST);
+            dl.fill((byte) 0);
+            MemorySegment root = (MemorySegment) SML_PARSE_WITH_DIAGS.invokeExact(textSeg, flags, dl, err);
+            try {
+                if (root == null || root.equals(MemorySegment.NULL)) {
+                    throw errorFrom(err);
+                }
+                return new Parsed(materialize(root, arena), readDiags(dl));
+            } finally {
+                SML_DIAG_LIST_FREE.invokeExact(dl);
+                if (root != null && !root.equals(MemorySegment.NULL)) {
+                    SML_FREE.invokeExact(root);
+                }
+            }
+        } catch (SmlError e) {
+            throw e;
+        } catch (Throwable t) {
+            throw new RuntimeException(t);
+        }
+    }
+
+    /** 弱声明族（opt-in，不在基线里）：flags 是**特性上限**，要校验弱绑定得显式带上。 */
+    public static final int SML_F_WEAK = 1 << 19;
+
+    /** 内置契约表（`@weakbind` 软校验用）；空表 ⇒ 软校验整段跳过。 */
+    public static final class Builtin implements AutoCloseable {
+        private MemorySegment p;
+
+        private Builtin(MemorySegment p) {
+            this.p = p;
+        }
+
+        public static Builtin create() {
+            try {
+                MemorySegment raw = (MemorySegment) SML_BUILTIN_NEW.invokeExact();
+                return new Builtin(MemorySegment.ofAddress(raw.address()));
+            } catch (Throwable t) {
+                throw new RuntimeException(t);
+            }
+        }
+
+        /** 接管一个已归本进程所有的 `sml_builtin*`（如 `sml_builtin_clone` 的产物）。 */
+        static Builtin adopt(MemorySegment raw) {
+            return new Builtin(MemorySegment.ofAddress(raw.address()));
+        }
+
+        public boolean valid() {
+            return p != null && !p.equals(MemorySegment.NULL);
+        }
+
+        public int size() {
+            if (!valid()) return 0;
+            try {
+                return (int) SML_BUILTIN_COUNT.invokeExact(p);
+            } catch (Throwable t) {
+                throw new RuntimeException(t);
+            }
+        }
+
+        /** ty 取 any / str / int / num / bool / enum；false = 参数非法（表不动）。 */
+        public boolean addField(String contract, String field, String ty, boolean required) {
+            if (!valid()) return false;
+            try (Arena arena = Arena.ofConfined()) {
+                int rc = (int) SML_BUILTIN_ADD_FIELD.invokeExact(p, arena.allocateFrom(contract),
+                        arena.allocateFrom(field), arena.allocateFrom(ty), required ? 1 : 0);
+                return rc == 0;
+            } catch (Throwable t) {
+                throw new RuntimeException(t);
+            }
+        }
+
+        public boolean setRange(String contract, String field, double min, double max) {
+            if (!valid()) return false;
+            try (Arena arena = Arena.ofConfined()) {
+                int rc = (int) SML_BUILTIN_SET_RANGE.invokeExact(p, arena.allocateFrom(contract),
+                        arena.allocateFrom(field), min, max);
+                return rc == 0;
+            } catch (Throwable t) {
+                throw new RuntimeException(t);
+            }
+        }
+
+        public boolean addEnum(String contract, String field, String value) {
+            if (!valid()) return false;
+            try (Arena arena = Arena.ofConfined()) {
+                int rc = (int) SML_BUILTIN_ADD_ENUM.invokeExact(p, arena.allocateFrom(contract),
+                        arena.allocateFrom(field), arena.allocateFrom(value));
+                return rc == 0;
+            } catch (Throwable t) {
+                throw new RuntimeException(t);
+            }
+        }
+
+        MemorySegment raw() {
+            return p;
+        }
+
+        @Override
+        public void close() {
+            if (!valid()) return;
+            try {
+                SML_BUILTIN_FREE.invokeExact(p);
+            } catch (Throwable t) {
+                throw new RuntimeException(t);
+            }
+            p = null;
+        }
+    }
+
+    /** sml_weakbind 镜像：address path / address name / int line / 4 pad（24）。 */
+    private static final MemoryLayout SML_WEAK_BIND = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("path"),
+            ValueLayout.ADDRESS.withName("name"),
+            ValueLayout.JAVA_INT.withName("line"),
+            MemoryLayout.paddingLayout(4));
+
+    /** sml_weakdata 镜像：path / name / int line / 4 pad / address value（32）。 */
+    private static final MemoryLayout SML_WEAK_DATA = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("path"),
+            ValueLayout.ADDRESS.withName("name"),
+            ValueLayout.JAVA_INT.withName("line"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.ADDRESS.withName("value"));
+
+    /** sml_weaklists 镜像：3 对 (指针, long)（48）。 */
+    private static final MemoryLayout SML_WEAK_LISTS = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("binds"),
+            ValueLayout.JAVA_LONG.withName("n_binds"),
+            ValueLayout.ADDRESS.withName("data"),
+            ValueLayout.JAVA_LONG.withName("n_data"),
+            ValueLayout.ADDRESS.withName("docs"),
+            ValueLayout.JAVA_LONG.withName("n_docs"));
+
+    /** sml_contract_ref 镜像：address path / address name（16）。 */
+    private static final MemoryLayout SML_CONTRACT_REF = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("path"),
+            ValueLayout.ADDRESS.withName("name"));
+
+    /** sml_contractmap 镜像：address items / long len（16）。 */
+    private static final MemoryLayout SML_CONTRACT_MAP = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("items"),
+            ValueLayout.JAVA_LONG.withName("len"));
+
+    /** 一条弱绑定（`@weakbind`）：目标块路径 + 契约名。 */
+    public static final class WeakBind {
+        public final String path;
+        public final String name;
+        public final int line;
+
+        public WeakBind(String path, String name, int line) {
+            this.path = path;
+            this.name = name;
+            this.line = line;
+        }
+    }
+
+    /** 一条弱数据（`@weakdata`）：载荷**不在主树里**，已物化成原生对象。 */
+    public static final class WeakData {
+        public final String path;
+        public final String name;
+        public final int line;
+        public final Object value;
+
+        public WeakData(String path, String name, int line, Object value) {
+            this.path = path;
+            this.name = name;
+            this.line = line;
+            this.value = value;
+        }
+    }
+
+    /** 一条弱 profile 引用（`@weakdoc`）：只有名字。 */
+    public static final class WeakDoc {
+        public final String path;
+        public final String name;
+        public final int line;
+
+        public WeakDoc(String path, String name, int line) {
+            this.path = path;
+            this.name = name;
+            this.line = line;
+        }
+    }
+
+    /** 弱声明三表；三者都不进主树。 */
+    public static final class WeakLists {
+        public final List<WeakBind> binds;
+        public final List<WeakData> data;
+        public final List<WeakDoc> docs;
+
+        public WeakLists(List<WeakBind> binds, List<WeakData> data, List<WeakDoc> docs) {
+            this.binds = binds;
+            this.data = data;
+            this.docs = docs;
+        }
+    }
+
+    /** `loadsFull` 的选项：特性上限 + `$env` 覆盖表 + 内置契约表。 */
+    public static final class Opts {
+        /** 特性上限位（`SML_F_*`）；0 = 基线，不含 `type.weak`。 */
+        public int flags = 0;
+        /** `"KEY=VALUE"` 数组，供 `$env.X` 内联；只作用于本次解析。 */
+        public List<String> env = new ArrayList<>();
+        /** 内置契约表；null = 不做弱绑定软校验。 */
+        public Builtin builtins = null;
+    }
+
+    public static Parsed loadsFull(String text) throws SmlError {
+        return loadsFull(text, new Opts());
+    }
+
+    /** 解析文本，带完整选项（特性上限 / `$env` 注入 / 内置契约表）；值树与 loads 逐字节相同。 */
+    public static Parsed loadsFull(String text, Opts opts) throws SmlError {
+        if (text == null) throw new SmlError("E-INTERNAL-001", 0, 0, 0, 0, "", "loadsFull: text is null");
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment textSeg = arena.allocateFrom(text);
+            MemorySegment optsSeg = encodeOpts(opts, arena);
+            MemorySegment err = arena.allocate(SML_ERROR);
+            err.fill((byte) 0);
+            MemorySegment dl = arena.allocate(SML_DIAG_LIST);
+            dl.fill((byte) 0);
+            MemorySegment root = (MemorySegment) SML_PARSE_FULL.invokeExact(textSeg, optsSeg, dl, err);
+            try {
+                if (root == null || root.equals(MemorySegment.NULL)) {
+                    throw errorFrom(err);
+                }
+                return new Parsed(materialize(root, arena), readDiags(dl));
+            } finally {
+                SML_DIAG_LIST_FREE.invokeExact(dl);
+                if (root != null && !root.equals(MemorySegment.NULL)) {
+                    SML_FREE.invokeExact(root);
+                }
+            }
+        } catch (SmlError e) {
+            throw e;
+        } catch (Throwable t) {
+            throw new RuntimeException(t);
+        }
+    }
+
+    /** `parseAll` 的 want 位（与 `c/sml_rs.h` 的 `SML_WANT_*` 逐位一致）。 */
+    public static final int WANT_DIAGS = 1 << 0;
+    public static final int WANT_ERRORS = 1 << 1;
+    public static final int WANT_WEAK = 1 << 2;
+    public static final int WANT_CONTRACT_MAP = 1 << 3;
+    public static final int WANT_CONTRACTS = 1 << 4;
+    public static final int WANT_ALL = 0x1F;
+
+    /** 一条「某实体应用了某个契约」。 */
+    public static final class ContractRef {
+        public final String path;
+        public final String name;
+
+        public ContractRef(String path, String name) {
+            this.path = path;
+            this.name = name;
+        }
+
+        @Override
+        public String toString() {
+            return path + " -> " + name;
+        }
+    }
+
+    /** `parseAll` 的全部产物；未请求的部分是空表 / null。 */
+    public static final class ParseAll {
+        public final Object value;
+        public final List<Diagnostic> diagnostics;
+        public final List<Diagnostic> errors;
+        public final WeakLists weak;
+        public final List<ContractRef> contractMap;
+        /** 独立克隆的契约表（调用方负责 close）；未请求时为 null。 */
+        public final Builtin contracts;
+
+        public ParseAll(Object value, List<Diagnostic> diagnostics, List<Diagnostic> errors,
+                        WeakLists weak, List<ContractRef> contractMap, Builtin contracts) {
+            this.value = value;
+            this.diagnostics = diagnostics;
+            this.errors = errors;
+            this.weak = weak;
+            this.contractMap = contractMap;
+            this.contracts = contracts;
+        }
+    }
+
+    public static ParseAll parseAll(String text, Opts opts) throws SmlError {
+        return parseAll(text, opts, WANT_ALL);
+    }
+
+    /**
+     * 一次解析拿全部产物：值树 + 诊断 + 多错误 + 弱表 + 契约映射 + 契约表。
+     *
+     * <p>开了 {@link #WANT_ERRORS} 后，语法/契约错<b>不再抛异常</b>：值树是尽力而为的
+     * 部分结果，全部错误在 {@code errors} 里（severity == 1）。{@code contracts} 是
+     * <b>独立克隆</b>的 {@link Builtin}，可直接传给 {@link #loadsFull} 的
+     * {@code opts.builtins}（「用 SML 写契约表、再注入回去」的闭环）。
+     */
+    public static ParseAll parseAll(String text, Opts opts, int want) throws SmlError {
+        if (text == null) throw new SmlError("E-INTERNAL-001", 0, 0, 0, 0, "", "parseAll: text is null");
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment textSeg = arena.allocateFrom(text);
+            MemorySegment optsSeg = encodeOpts(opts, arena);
+            MemorySegment err = arena.allocate(SML_ERROR);
+            err.fill((byte) 0);
+            MemorySegment r = (MemorySegment) SML_PARSE_ALL.invokeExact(textSeg, optsSeg, want, err);
+            if (r == null || r.equals(MemorySegment.NULL)) throw errorFrom(err);
+            try {
+                Object value = materialize((MemorySegment) SML_RESULT_VALUE.invokeExact(r), arena);
+                List<Diagnostic> diags = (want & WANT_DIAGS) == 0 ? new ArrayList<>()
+                        : readDiags(((MemorySegment) SML_RESULT_DIAGS.invokeExact(r))
+                                .reinterpret(SML_DIAG_LIST.byteSize()));
+                List<Diagnostic> errs = (want & WANT_ERRORS) == 0 ? new ArrayList<>()
+                        : readDiags(((MemorySegment) SML_RESULT_ERRORS.invokeExact(r))
+                                .reinterpret(SML_DIAG_LIST.byteSize()));
+                WeakLists weak = (want & WANT_WEAK) == 0
+                        ? new WeakLists(new ArrayList<>(), new ArrayList<>(), new ArrayList<>())
+                        : readWeakLists(((MemorySegment) SML_RESULT_WEAK.invokeExact(r))
+                                .reinterpret(SML_WEAK_LISTS.byteSize()), arena);
+                List<ContractRef> cmap = (want & WANT_CONTRACT_MAP) == 0
+                        ? new ArrayList<>()
+                        : readContractMap(((MemorySegment) SML_RESULT_CONTRACT_MAP.invokeExact(r))
+                                .reinterpret(SML_CONTRACT_MAP.byteSize()));
+                Builtin ctr = null;
+                if ((want & WANT_CONTRACTS) != 0) {
+                    // 借用的句柄不能活过结果 ⇒ 立刻克隆成宿主独占的一份。
+                    MemorySegment cloned = (MemorySegment) SML_BUILTIN_CLONE
+                            .invokeExact((MemorySegment) SML_RESULT_CONTRACTS.invokeExact(r));
+                    ctr = Builtin.adopt(cloned);
+                }
+                return new ParseAll(value, diags, errs, weak, cmap, ctr);
+            } finally {
+                SML_RESULT_FREE.invokeExact(r);
+            }
+        } catch (SmlError e) {
+            throw e;
+        } catch (Throwable t) {
+            throw new RuntimeException(t);
+        }
+    }
+
+    private static List<ContractRef> readContractMap(MemorySegment cm) throws Throwable {
+        List<ContractRef> out = new ArrayList<>();
+        MemorySegment items = cm.get(ValueLayout.ADDRESS, 0);
+        long len = cm.get(ValueLayout.JAVA_LONG, 8);
+        if (len <= 0 || items.equals(MemorySegment.NULL)) return out;
+        MemorySegment base = items.reinterpret(len * SML_CONTRACT_REF.byteSize());
+        long step = SML_CONTRACT_REF.byteSize();
+        for (long i = 0; i < len; i++) {
+            long off = i * step;
+            out.add(new ContractRef(readCString(base.get(ValueLayout.ADDRESS, off)),
+                    readCString(base.get(ValueLayout.ADDRESS, off + 8))));
+        }
+        return out;
+    }
+
+    /**
+     * 同 {@link #loadFile}，另交出诊断与弱声明三表（文件入口版的 {@link #loadsFullLists}）。
+     *
+     * <p>展开 {@code include}，相对路径以文件所在目录为基准；跨 include 时行号可能为 0。
+     */
+    public static Parsed loadFileFull(String path, Opts opts) throws SmlError {
+        if (path == null) throw new SmlError("E-INTERNAL-001", 0, 0, 0, 0, "", "loadFileFull: path is null");
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment pathSeg = arena.allocateFrom(path);
+            MemorySegment optsSeg = encodeOpts(opts, arena);
+            MemorySegment err = arena.allocate(SML_ERROR);
+            err.fill((byte) 0);
+            MemorySegment dl = arena.allocate(SML_DIAG_LIST);
+            dl.fill((byte) 0);
+            MemorySegment wl = arena.allocate(SML_WEAK_LISTS);
+            wl.fill((byte) 0);
+            MemorySegment root = (MemorySegment) SML_LOAD_FILE_FULL
+                    .invokeExact(pathSeg, optsSeg, wl, dl, err);
+            try {
+                if (root == null || root.equals(MemorySegment.NULL)) {
+                    throw errorFrom(err);
+                }
+                return new Parsed(materialize(root, arena), readDiags(dl),
+                        readWeakLists(wl, arena));
+            } finally {
+                SML_WEAKLISTS_FREE.invokeExact(wl);
+                SML_DIAG_LIST_FREE.invokeExact(dl);
+                if (root != null && !root.equals(MemorySegment.NULL)) {
+                    SML_FREE.invokeExact(root);
+                }
+            }
+        } catch (SmlError e) {
+            throw e;
+        } catch (Throwable t) {
+            throw new RuntimeException(t);
+        }
+    }
+
+    /** 同 `loadsFull`，另交出弱声明三表（`@weakbind` / `@weakdata` / `@weakdoc`）。 */
+    public static Parsed loadsFullLists(String text, Opts opts) throws SmlError {
+        if (text == null) throw new SmlError("E-INTERNAL-001", 0, 0, 0, 0, "", "loadsFullLists: text is null");
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment textSeg = arena.allocateFrom(text);
+            MemorySegment optsSeg = encodeOpts(opts, arena);
+            MemorySegment err = arena.allocate(SML_ERROR);
+            err.fill((byte) 0);
+            MemorySegment dl = arena.allocate(SML_DIAG_LIST);
+            dl.fill((byte) 0);
+            MemorySegment wl = arena.allocate(SML_WEAK_LISTS);
+            wl.fill((byte) 0);
+            MemorySegment root = (MemorySegment) SML_PARSE_FULL_LISTS
+                    .invokeExact(textSeg, optsSeg, wl, dl, err);
+            try {
+                if (root == null || root.equals(MemorySegment.NULL)) {
+                    throw errorFrom(err);
+                }
+                return new Parsed(materialize(root, arena), readDiags(dl), readWeakLists(wl, arena));
+            } finally {
+                SML_WEAKLISTS_FREE.invokeExact(wl);
+                SML_DIAG_LIST_FREE.invokeExact(dl);
+                if (root != null && !root.equals(MemorySegment.NULL)) {
+                    SML_FREE.invokeExact(root);
+                }
             }
         } catch (SmlError e) {
             throw e;

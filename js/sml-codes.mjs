@@ -314,6 +314,8 @@ export const E_PARSE_030 = "E-PARSE-030";
 export const I_FEATURE_001 = "I-FEATURE-001";
 /// [I-LINT-001] profile 看起来适用但未被引用：有个 profile 的适用条件命中了这份文档，但文档没有引用它
 export const I_LINT_001 = "I-LINT-001";
+/// [W-CLI-001] 引用的 profile 未找到：工具侧在项目、用户、系统三处命名空间都未找到该 profile（警告，不阻断解析）
+export const W_CLI_001 = "W-CLI-001";
 /// [W-CONTRACT-001] 弱声明与内置契约不匹配：弱绑定 `@weakbind` 与内置契约不匹配（警告，不阻断解析）
 export const W_CONTRACT_001 = "W-CONTRACT-001";
 /// [W-EDITOR-001] 自定义词与官方关键字冲突：自定义词与官方关键字冲突，已忽略
@@ -493,6 +495,7 @@ export const ALL = Object.freeze([
   E_PARSE_030,
   I_FEATURE_001,
   I_LINT_001,
+  W_CLI_001,
   W_CONTRACT_001,
   W_EDITOR_001,
   W_FEATURE_001,
@@ -505,4 +508,4 @@ export const ALL = Object.freeze([
   W_PARSE_002,
 ]);
 
-export const COUNT = 166;
+export const COUNT = 167;

@@ -165,5 +165,6 @@
   "W-LINT-004": { "title": "Field is null", "msg": "The field is null" },
   "W-LINT-005": { "title": "Nesting exceeds suggested threshold", "msg": "Nesting depth has exceeded the suggested threshold" },
   "W-PARSE-001": { "title": "Duplicate key promoted to array", "msg": "The key is duplicated within the same block: later values have been promoted to an array (the structure was rewritten)" },
-  "W-PARSE-002": { "title": "Fragment expansion overwrites a parent block key", "msg": "Fragment expansion overwrote a key already present in the parent block: the parent's original value is lost" }
+  "W-PARSE-002": { "title": "Fragment expansion overwrites a parent block key", "msg": "Fragment expansion overwrote a key already present in the parent block: the parent's original value is lost" },
+  "W-CLI-001": { "title": "Referenced profile not found", "msg": "The referenced profile was not found in the project, user, or system namespace (warning, parsing continues)" }
 }

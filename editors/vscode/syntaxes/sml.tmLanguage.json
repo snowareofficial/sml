@@ -2,13 +2,14 @@
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
   "name": "SML",
   "scopeName": "source.sml",
-  "fileTypes": ["sml"],
-  "comment": "三类符号分色：声明（@contract / @片段定义）用 entity.name.* 定义色；调用（@is / &片段引用）用 variable.other.member 引用色；指令（@version / @feature / @when / @for / include / import）用 keyword.control 指令色。类型与修饰符对齐 Rust（support.type.primitive / storage.modifier）。键名与名字支持中文。",
+  "fileTypes": ["sml", "swl", "smlex"],
+  "comment": "三类符号分色：声明（@contract / @片段定义）用 entity.name.* 定义色；调用（@is / &片段引用）用 variable.other.member 引用色；指令（@version / @feature / @when / @for / @weak* / include / import）用 keyword.control 指令色。类型与修饰符对齐 Rust（support.type.primitive / storage.modifier）。键名与名字支持中文。版本集按 Edition 模型（数字 / 代号 / dev 三槽位）、特性名按 <域>.<名>、块头 featag 用 ! 记号；语法层只做词法着色，不判定语义与端支持范围。",
   "patterns": [
     { "include": "#comment" },
     { "include": "#contract-block" },
     { "include": "#type-block" },
     { "include": "#directive" },
+    { "include": "#featag" },
     { "include": "#string" },
     { "include": "#envvar" },
     { "include": "#fragment-ref" },
@@ -29,8 +30,8 @@
     },
 
     "contract-block": {
-      "comment": "契约声明：@contract Name [loose|strict] { ... }。类型/修饰符高亮只在契约体内生效，业务数据区的同名裸词不会被误判。",
-      "begin": "(@contract)\\s+([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)?(?:\\s+(loose|strict))?\\s*(\\{)",
+      "comment": "契约声明：@contract Name [strict|warn|loose] { ... }。类型/修饰符高亮只在契约体内生效，业务数据区的同名裸词不会被误判。",
+      "begin": "(@contract)\\s+([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)?(?:\\s+(strict|warn|loose))?\\s*(\\{)",
       "beginCaptures": {
         "1": { "name": "keyword.other.declaration.sml" },
         "2": { "name": "entity.name.type.sml" },
@@ -42,6 +43,7 @@
       "patterns": [
         { "include": "#comment" },
         { "include": "#contract-block" },
+        { "include": "#featag-decl" },
         { "include": "#contract-field" },
         { "include": "#contract-enum" },
         { "include": "#contract-type" },
@@ -97,6 +99,30 @@
       "match": "(?<!\\w)(数字|字母|空白|字|任意|digit|alpha|space|word|any)(?!\\w)",
       "name": "support.type.primitive.sml"
     },
+    "featag-decl": {
+      "comment": "契约内 featag 声明：!name / !name: 类型 / !name: 类型 -> 落点；!any 与 !strict-paths 是契约级开关。落点只穿对象与 [n] 下标。",
+      "patterns": [
+        {
+          "comment": "带落点的声明：!name: 类型 -> 路径（类型段可省；路径可含 [n] 下标）",
+          "match": "(!)([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)(?:\\s*:\\s*([^\\n>]*?))?\\s*(->)\\s*([A-Za-z_\\u4e00-\\u9fa5][\\w.\\[\\]\\-\\u4e00-\\u9fa5]*)",
+          "captures": {
+            "1": { "name": "keyword.operator.featag.sml" },
+            "2": { "name": "entity.name.tag.featag.sml" },
+            "3": { "name": "support.type.primitive.sml" },
+            "4": { "name": "keyword.operator.featag-target.sml" },
+            "5": { "name": "variable.other.member.sml" }
+          }
+        },
+        {
+          "comment": "无落点的声明 / 契约级开关：!name、!any、!strict-paths",
+          "match": "(!)([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)",
+          "captures": {
+            "1": { "name": "keyword.operator.featag.sml" },
+            "2": { "name": "entity.name.tag.featag.sml" }
+          }
+        }
+      ]
+    },
     "contract-field": {
       "comment": "契约字段名：与 Rust struct 字段同色。支持中文键名。",
       "match": "([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)\\s*(?=:)",
@@ -118,9 +144,30 @@
       "name": "support.type.primitive.sml"
     },
     "contract-modifier": {
-      "comment": "约束修饰符：与 Rust 的 pub/mut 同色。",
-      "match": "\\b(required|optional|default|min|max)\\b",
+      "comment": "约束修饰符：与 Rust 的 pub/mut 同色。from-featag 声明该键只能由 featag 落点写入。",
+      "match": "\\b(from-featag|required|optional|default|min|max)\\b",
       "name": "storage.modifier.sml"
+    },
+    "featag": {
+      "comment": "块头 featag 区：!name（无参）与 name[值, …]（带参），以逗号终止。只在 @feature enable type.featag 后有意义；编辑器只着色、不判定端支持范围。",
+      "patterns": [
+        {
+          "comment": "带参 featag：obey[1, 2] —— 名字为标签色，方括号沿用数组标点色",
+          "match": "(?<![\\w!])([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)(\\[)",
+          "captures": {
+            "1": { "name": "entity.name.tag.featag.sml" },
+            "2": { "name": "punctuation.definition.array.sml" }
+          }
+        },
+        {
+          "comment": "无参 featag：!critical —— 排除 != / !! 这类运算符形态",
+          "match": "(?<![=!\\w])(!)([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)",
+          "captures": {
+            "1": { "name": "keyword.operator.featag.sml" },
+            "2": { "name": "entity.name.tag.featag.sml" }
+          }
+        }
+      ]
     },
 
     "directive": {
@@ -146,16 +193,36 @@
           }
         },
         {
-          "comment": "版本声明：@version v1..v4（数字简写亦可）",
-          "match": "(@version)\\s+(v[1-4]|[1-4])\\b",
+          "comment": "弱声明族指令：@weakbind / @weakdata / @weakdoc —— 需 @feature enable type.weak；只登记旁路数据、不进主树。",
+          "match": "(@)(weakbind|weakdata|weakdoc)\\b(?:\\s+([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*))?",
           "captures": {
             "1": { "name": "keyword.control.sml" },
-            "2": { "name": "constant.other.version.sml" }
+            "2": { "name": "keyword.control.weak.sml" },
+            "3": { "name": "variable.other.member.sml" }
           }
         },
         {
-          "comment": "特性开关：@feature enable|disable|mode <name>",
-          "match": "(@feature)\\s+(enable|disable|mode)\\s+([\\w.\\-]+)",
+          "comment": "契约级依赖声明：@requires NAME { NAME … }（Rust 单端；JS 端明确拒绝 E-CONTRACT-018）。",
+          "match": "(@)(requires)\\b(?:\\s+([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*))?",
+          "captures": {
+            "1": { "name": "keyword.control.sml" },
+            "2": { "name": "keyword.control.requires.sml" },
+            "3": { "name": "variable.other.member.sml" }
+          }
+        },
+        {
+          "comment": "版本声明：@version <版本集> [\"代号\"] [dev] —— 连写 50 是规范形式，vN / N / N.M 与代号是等价名，dev 只能置于末尾。",
+          "match": "(@version)\\s+(v?[0-9]+(?:\\.[0-9]+)?|\"[^\"]+\")(?:\\s+(\"[^\"]+\"))?(?:\\s+(dev)\\b)?",
+          "captures": {
+            "1": { "name": "keyword.control.sml" },
+            "2": { "name": "constant.other.version.sml" },
+            "3": { "name": "constant.other.codename.sml" },
+            "4": { "name": "storage.modifier.sml" }
+          }
+        },
+        {
+          "comment": "特性开关：@feature base vN | enable|disable|mode|whitelist|blacklist <name>[, <name>…] —— 新增特性一律 <域>.<名>，老名保持平铺。",
+          "match": "(@feature)\\s+(base|enable|disable|mode|whitelist|blacklist)\\s+([\\w.\\-]+(?:\\s*,\\s*[\\w.\\-]+)*)",
           "captures": {
             "1": { "name": "keyword.control.sml" },
             "2": { "name": "keyword.other.sml" },
@@ -242,6 +309,11 @@
     "key": {
       "comment": "数据区键名：支持中文。两个分支 —— ① 行首键（允许缩进）；② 同行后续键 / 内联对象键（紧跟 `{` 或 `,`，且其后是 `:`）。此前只有分支 ①（整个 match 被 ^\\s* 锚在行首），于是 `web { host: a, port: 8080 }` 里只有行首那个词着色，同行的 host / port 全无色 —— 真实 Oniguruma 引擎实测 `host✗ port✗`，即「字段组合（同一行多字段 / 内联对象）」着不上色。",
       "patterns": [
+        {
+          "comment": "解析产出的保留元数据键：__featags / __type / __name / __args。正文手写这些键在 v5 会被显式拒绝。",
+          "match": "\\b(__featags|__type|__name|__args)\\b",
+          "name": "variable.other.meta.sml"
+        },
         {
           "match": "^\\s*([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)\\s*(?=:|\\s*\\{)",
           "captures": { "1": { "name": "variable.other.member.sml" } }

@@ -27,7 +27,8 @@
   "activationEvents": [
     "onLanguage:sml",
     "workspaceContains:**/*.sml",
-    "workspaceContains:**/*.swl"
+    "workspaceContains:**/*.swl",
+    "workspaceContains:**/*.smlex"
   ],
   "contributes": {
     "commands": [
@@ -73,7 +74,8 @@
         ],
         "extensions": [
           ".sml",
-          ".swl"
+          ".swl",
+          ".smlex"
         ],
         "configuration": "./language-configuration.json"
       }

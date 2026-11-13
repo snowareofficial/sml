@@ -4,7 +4,7 @@
 // 保证「编辑器里报的错 = 解析器真正报的错」。
 //
 // 能力：
-//   - textDocument.publishDiagnostics（parseSafe 的语法错误）
+//   - textDocument.publishDiagnostics（parseSafe 的语法错误 + `@weakdoc` 未找到的信息级提示）
 //   - textDocument.completion（指令 / 契约名 / 类型名 / 片段 / 键名 / 模式关键字）
 //   - textDocument.definition（@contract 定义 <-> 用法跳转）
 //   - textDocument.hover（指令 / 模式关键字说明）
@@ -14,16 +14,37 @@
 // 任意支持 LSP 的客户端（Neovim / Helix / 任意编辑器）连 stdio 即可。
 // VSCode 用户已内置更丰富的扩展（editors/vscode），此服务器面向其它编辑器。
 
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseSafe } from "../vscode/src/sml-parse.mjs";
 import {
   collectContractNames, collectFragmentNames, collectKeys, collectTypeNames,
+  collectFeatagNames, collectWeakDocs, missingProfileRefs, parseProfileFields,
 } from "../vscode/src/sml-parse.mjs";
 
 const KW = {
   "@contract": "契约定义：为块定义字段类型、枚举、默认值与区间约束。定义本身不进解析结果。",
   "@is": "应用契约：校验当前块并填充缺失字段默认值。契约须先于 @is 定义。",
   "@type": "定义值的格式模式（loom）：用 序列/类/次/名/字面/任一 等描述一个字符串应长什么样。",
-  "@feature": "开启/关闭特性，如 @feature enable typed-block。",
+  "@feature": "开启/关闭特性；新增特性名一律 <域>.<名> ｜ Enable/disable features; new names always use <domain>.<name>.",
+  "@version": "版本集声明（版本号 = 功能集）｜ Edition declaration: a version number names a feature set. ⚠️ `50 \"camelia\" dev` 是规范的开发期写法，但 5.0 功能集尚未启用，当前所有端写入即报 E-FEATURE-004；正式文档请用 v4.",
+  "@when": "条件裁剪，需 @feature enable when ｜ Conditional pruning; needs @feature enable when.",
+  "@for": "有界循环展开，需 @feature enable for ｜ Bounded loop expansion; needs @feature enable for.",
+  "@requires": "契约级依赖声明（Rust 单端；JS 端报 E-CONTRACT-018）｜ Contract-level dependency (Rust only).",
+  "@weakbind": "弱绑定：本块按内置契约解释；载荷仍在树里，库不校验（需 type.weak，Rust 单端）｜ Weak binding: data stays in the tree, library does not validate.",
+  "@weakdata": "旁路数据：载荷只进旁路表，绝不进主树（需 type.weak，Rust 单端）｜ Side data: payload never enters the main tree.",
+  "@weakdoc": "引用 .smlex profile：只写名字，不接受载荷块（需 type.weak，Rust 单端）｜ Reference a .smlex profile by name; no payload block.",
+  "from-featag": "字段只能由 featag 落点写入，文档直接写会报错（需 type.featag）｜ Only a featag target may write this key.",
+  "__featags": "块头标签落成的保序数组，由解析器产出 ｜ Ordered array of block-head featags, produced by the parser.",
+  "null": "外来 JSON 需要它；契约里请用 optional 表示键缺失，default null 在 v5 起禁用 ｜ Prefer optional for a missing key; default null is forbidden from v5.",
+  "warn": "契约严格度：未声明字段放行并产出告警 ｜ Contract strictness: allow undeclared fields with a warning.",
+  "strict": "契约严格度：未声明字段报错（默认档）｜ Contract strictness: undeclared fields error (default).",
+  "dev": "开发期版本集必须带 dev，且只能在 @version 行末尾 ｜ A Dev edition requires a trailing dev marker.",
+  "camelia": "5.0 的代号，与 50 永久双向映射 ｜ Codename of 5.0, permanently mapped to 50.",
+  "type.featag": "块头 featag 标签（opt-in，Rust 单端）｜ Block-head featag tags (opt-in, Rust only).",
+  "lex.ident": "标识符白名单与每契约单一语种（opt-in，Rust 单端）｜ Identifier allowlist (opt-in, Rust only).",
+  "type.weak": "弱声明族共用开关（opt-in，Rust 单端）｜ Shared switch for the weak* family (opt-in, Rust only).",
   "loose": "放宽严格性：允许契约未声明的字段。",
   "optional": "字段可选：缺失时不报错。",
   "default": "字段缺失时填充的默认值。",
@@ -51,6 +72,60 @@ const KW = {
   "use": "引用规则（英文，等价于「用」）。",
   "optional": "可省略（英文，等价于「可选」）。",
 };
+
+// ——— 最新标准清单 ｜ current standard registry ———
+// FEATURE_NAMES ← rust/sml-feature/src/lib.rs::FEATURES（20 位，只追加不重排）
+// EDITIONS      ← 同文件 EDITIONS（10/20/30/40 已发布；50 "camelia" dev 开发中）
+// 这里只给提示，不代表本端解析器支持：weak* / featag / 50 是 Rust 单端，
+// C / C++ / JS / Lua 按 S9 策略不实现。
+const FEATURE_NAMES = [
+  "bareword-string", "include", "env", "contract", "fragment", "top-level-array",
+  "namespace", "implicit-ns", "multi-include", "glob-include", "regex-include",
+  "ext-rewrite", "when", "for", "typed-block", "case-insensitive", "block-name",
+  "type.featag", "lex.ident", "type.weak",
+];
+const EDITIONS = [
+  { lit: "v1", desc: "1.0（连写 10）：允许裸词字符串；已发布、永久兼容" },
+  { lit: "v2", desc: "2.0（连写 20）：字符串须显式引号；已发布、永久兼容" },
+  { lit: "v3", desc: "3.0（连写 30）：与 2.0 同一套特性位；已发布、永久兼容" },
+  { lit: "v4", desc: "4.0（连写 40）：片段定义改用显式 type:/name: 参数；最新已发布版" },
+  { lit: "50", desc: "5.0 连写（规范形式）：⚠️ 未启用，写入报 E-FEATURE-004（Rust 与 JS 均拒绝）" },
+  { lit: '"camelia"', desc: "5.0 代号，与 50 永久双向映射：⚠️ 未启用，写入报 E-FEATURE-004" },
+];
+const PROFILE_FIELDS = [
+  "name", "version", "description", "applies_to", "checks", "hints", "emit",
+];
+
+// `.smlex` 三命名空间（项目 / 用户 / 系统）：按名先命中者胜，编辑器只读 hints。
+let rootPath = null;
+function profileRoots() {
+  const roots = [];
+  if (rootPath) roots.push(path.join(rootPath, ".smlex", "profiles"));
+  if (process.platform === "win32") {
+    if (process.env.APPDATA) roots.push(path.join(process.env.APPDATA, "sml", "profiles"));
+    if (process.env.ProgramData) roots.push(path.join(process.env.ProgramData, "sml", "profiles"));
+  } else {
+    const xdg = process.env.XDG_CONFIG_HOME || (process.env.HOME ? path.join(process.env.HOME, ".config") : "");
+    if (xdg) roots.push(path.join(xdg, "sml", "profiles"));
+    roots.push("/usr/share/sml/profiles");
+  }
+  return roots;
+}
+function discoverProfiles() {
+  const out = new Map();
+  for (const dir of profileRoots()) {
+    let files;
+    try { files = fs.readdirSync(dir).filter((f) => f.endsWith(".smlex")); } catch { continue; }
+    for (const file of files) {
+      const name = path.basename(file, ".smlex");
+      if (out.has(name)) continue;
+      try {
+        out.set(name, parseProfileFields(fs.readFileSync(path.join(dir, file), "utf-8")));
+      } catch { /* 读不出的 profile 不进补全 */ }
+    }
+  }
+  return out;
+}
 
 // ——— LSP 常量 ———
 const CompletionItemKind = {
@@ -121,6 +196,23 @@ function publishDiagnostics(uri, text) {
       message: r.error,
     });
   }
+  // `@weakdoc X` 找不到 ⇒ **Information**（`W-CLI-001`）：只提示，不阻断编辑
+  // （与 `smltools` 同码同文案；发现只在编辑器 / 工具侧做，解析器不读文件系统）
+  try {
+    const known = new Set(discoverProfiles().keys());
+    for (const ref of missingProfileRefs(text, known)) {
+      diags.push({
+        range: {
+          start: { line: ref.line, character: ref.col },
+          end: { line: ref.line, character: Math.max(ref.endCol, ref.col + 1) },
+        },
+        severity: DiagnosticSeverity.Information,
+        code: "W-CLI-001",
+        source: "sml",
+        message: `未找到 profile \`${ref.name}\`（项目 / 用户 / 系统三处都没命中）`,
+      });
+    }
+  } catch { /* 发现失败不该让语法诊断一起消失 */ }
   notify("textDocument/publishDiagnostics", { uri, diagnostics: diags });
 }
 
@@ -168,6 +260,51 @@ function buildCompletions(uri, line, character) {
       }
     }
   }
+  // 最新标准：带域特性名、版本集、weak*、featag、`.smlex` profile hints
+  const profiles = discoverProfiles();
+  if (/@feature\s+(?:base|enable|disable|mode|whitelist|blacklist)\s+[\w.\-]*$/.test(linePrefix)) {
+    for (const n of FEATURE_NAMES) {
+      items.push({ label: n, kind: CompletionItemKind.Property, detail: "特性（新特性名带域）" });
+    }
+  }
+  if (/@version\s+[\w."]*$/.test(linePrefix)) {
+    for (const e of EDITIONS) {
+      items.push({ label: e.lit, kind: CompletionItemKind.Constant, detail: "版本集：" + e.desc });
+    }
+  }
+  if (/@weakdoc\s+[\w.\-]*$/.test(linePrefix)) {
+    for (const [n, p] of profiles) {
+      items.push({ label: n, kind: CompletionItemKind.Module, detail: "profile：" + (p.description || n) });
+    }
+  }
+  if (/@weakbind\s+[\w.\-]*$/.test(linePrefix)) {
+    for (const n of collectContractNames(text)) {
+      items.push({ label: n, kind: CompletionItemKind.Struct, detail: "契约名（弱绑定）" });
+    }
+  }
+  if (/![\w.\-]*$/.test(linePrefix)) {
+    for (const n of collectFeatagNames(text)) {
+      if (n === "any" || n === "strict-paths") continue;   // 契约级开关，不是块头标签
+      items.push({ label: n, kind: CompletionItemKind.Keyword, detail: "featag：" + n });
+    }
+  }
+  if (uri.endsWith(".smlex") && /^\s*\w*$/.test(linePrefix)) {
+    for (const f of PROFILE_FIELDS) {
+      items.push({ label: f, kind: CompletionItemKind.Property, detail: "profile 字段：" + f });
+    }
+  }
+  // hints 只服务**显式挂载**的 profile；applies_to 命中也不自动挂（smlex.md §3.1）
+  for (const ref of collectWeakDocs(text)) {
+    const p = profiles.get(ref);
+    if (!p) continue;
+    for (const k of p.keys || []) {
+      items.push({ label: k, kind: CompletionItemKind.Property, detail: "profile " + ref + " 的 hints.keys", insertText: k + ": " });
+    }
+    const valueKey = /^\s*([\w.\-]+)\s*:\s*$/.exec(linePrefix)?.[1];
+    for (const v of p.values?.[valueKey] || []) {
+      items.push({ label: v, kind: CompletionItemKind.Constant, detail: "profile " + ref + " 的 hints.values." + valueKey });
+    }
+  }
   // 键名（同文档）
   for (const k of collectKeys(text)) {
     items.push({ label: k, kind: CompletionItemKind.Property, detail: "本文档中出现过的键", insertText: k + ": " });
@@ -205,10 +342,15 @@ function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 // ——— 主分发 ———
 function handle(msg) {
   if (msg.method === "initialize") {
+    const uri = msg.params?.rootUri || msg.params?.workspaceFolders?.[0]?.uri || "";
+    if (uri) {
+      try { rootPath = fileURLToPath(uri); } catch { rootPath = null; }
+    }
     reply(msg.id, {
       capabilities: {
         textDocumentSync: 1,
-        completionProvider: { triggerCharacters: ["@", ":", "&", " "] },
+        // `.` 让 `type.featag` 这类带域名打到一半仍有补全；`!` 触发块头 featag。
+        completionProvider: { triggerCharacters: ["@", ":", "&", " ", ".", "!"] },
         definitionProvider: true,
         hoverProvider: true,
       },
@@ -243,6 +385,17 @@ function handle(msg) {
     let m, word = null;
     while ((m = re.exec(lineText)) !== null) {
       if (m.index <= p.position.character && p.position.character <= m.index + m[0].length) { word = m[0]; break; }
+    }
+    // `@weakdoc <名>`：显示 profile 发现结果；找不到就明说，不静默
+    const ref = /^\s*@weakdoc\s+([\w.\-]+)/.exec(lineText)?.[1];
+    if (ref && word === ref) {
+      const profile = discoverProfiles().get(ref);
+      const value = profile
+        ? `**profile \`${ref}\`**\n\n${profile.description || "（无描述）"}` +
+          (profile.keys?.length ? `\n\nhints.keys：${profile.keys.join("、")}` : "")
+        : `**profile \`${ref}\` 未找到**：项目 / 用户 / 系统三处命名空间都没有同名 .smlex。`;
+      reply(msg.id, { contents: { kind: "markdown", value } });
+      return;
     }
     const doc = KW[word];
     if (doc) reply(msg.id, { contents: { kind: "markdown", value: `**${word}**\n\n${doc}` } });

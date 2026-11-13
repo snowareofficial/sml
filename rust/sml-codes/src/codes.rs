@@ -480,6 +480,9 @@ pub const I_FEATURE_001: &str = "I-FEATURE-001";
 /// [I-LINT-001] profile 看起来适用但未被引用：有个 profile 的适用条件命中了这份文档，但文档没有引用它
 /// EN: A profile looks applicable but is not referenced —— A profile's `applies_to` conditions match this document, but the document does not reference it
 pub const I_LINT_001: &str = "I-LINT-001";
+/// [W-CLI-001] 引用的 profile 未找到：工具侧在项目、用户、系统三处命名空间都未找到该 profile（警告，不阻断解析）
+/// EN: Referenced profile not found —— The referenced profile was not found in the project, user, or system namespace (warning, parsing continues)
+pub const W_CLI_001: &str = "W-CLI-001";
 /// [W-CONTRACT-001] 弱声明与内置契约不匹配：弱绑定 `@weakbind` 与内置契约不匹配（警告，不阻断解析）
 /// EN: Weak declaration does not match the builtin contract —— The `@weakbind` declaration does not match the builtin contract (warning, parsing continues)
 pub const W_CONTRACT_001: &str = "W-CONTRACT-001";
@@ -669,6 +672,7 @@ pub const ALL: &[&str] = &[
     E_PARSE_030,
     I_FEATURE_001,
     I_LINT_001,
+    W_CLI_001,
     W_CONTRACT_001,
     W_EDITOR_001,
     W_FEATURE_001,
@@ -682,4 +686,4 @@ pub const ALL: &[&str] = &[
 ];
 
 /// 码总数（与 `errors/codes.sml` 的 `count` 对齐）。
-pub const COUNT: usize = 166;
+pub const COUNT: usize = 167;

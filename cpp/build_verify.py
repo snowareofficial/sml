@@ -148,4 +148,16 @@ else:
     # 编译/链接失败（含缺库）→ 整体失败，绝不允许静默跳过
     sys.exit(rc)
 
+# --- P7：诊断出口（sml::loads_with_diags）—— C-ABI 功能对等的最小钉子 ---
+rc = run(["g++", "-std=c++17", "-I", HERE, "-o", exe("t_rs_diag.exe"),
+          os.path.join(HERE, "tests", "test_rs_diag.cpp"), os.path.join(HERE, "sml_rs.cpp"),
+          "-L" + SML_RUST_LIB, "-lsml"])
+if rc != 0:
+    sys.exit(rc)
+rc2, out = run_out([exe("t_rs_diag.exe")])
+write_log("t_rs_diag_out.txt", out)
+print("RS-DIAG rc=%d" % rc2)
+if rc2 != 0:
+    sys.exit(rc2)
+
 sys.exit(0)

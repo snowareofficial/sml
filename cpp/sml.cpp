@@ -145,7 +145,7 @@ static std::string unescape_unicode(const std::string& inner, std::string* err) 
 // Tokenizer  (mirrors Rust tokenize)
 // ===========================================================================
 struct Token {
-    enum class T { Word, Colon, LBrace, RBrace, LBracket, RBracket, Comma, At, Dollar } t;
+    enum class T { Word, Colon, LBrace, RBrace, LBracket, RBracket, Comma, At, BareAt, Dollar } t;
     std::string s; // for Word
     size_t line = 1;
     Token(Token::T tt, const std::string& ss="", size_t ln=1): t(tt), s(ss), line(ln){}
@@ -191,6 +191,17 @@ static std::vector<Token> tokenize(const std::string& text, std::string* err) {
             continue;
         }
 
+        if (c == '$' && i + 1 < n && text[i + 1] == '{') {
+            // `${var}` 整体作为一个 Word（`@for` 插值）：否则 `{` / `}` 会被当结构记号切开，
+            // 键名位置也认不出 `${`（`${h}_port` 会散成 `${h`、`}`、`_port`）。
+            // Keep `${var}` as one Word so it survives structural splitting.
+            size_t close = text.find('}', i + 2);
+            if (close != std::string::npos) {
+                toks.emplace_back(Token::T::Word, text.substr(i, close - i + 1), line);
+                i = close + 1;
+                continue;
+            }
+        }
         switch (c) {
             case '{': toks.emplace_back(Token::T::LBrace, "{", line); i++; continue;
             case '}': toks.emplace_back(Token::T::RBrace, "}", line); i++; continue;
@@ -198,7 +209,14 @@ static std::vector<Token> tokenize(const std::string& text, std::string* err) {
             case ']': toks.emplace_back(Token::T::RBracket, "]", line); i++; continue;
             case ',': toks.emplace_back(Token::T::Comma, ",", line); i++; continue;
             case ':': toks.emplace_back(Token::T::Colon, ":", line); i++; continue;
-            case '@': toks.emplace_back(Token::T::At, "@", line); i++; continue;
+            case '@': {
+                // 孤立 `@`：其后紧跟空白 / 行尾 ⇒ 没有指令名或片段名。
+                // 与 Rust 的 `Tok::BareAt` 同判据（sml-lex/src/lib.rs 的 `'@'` 分支）。
+                const char n2 = (i + 1 < n) ? text[i + 1] : '\0';
+                const bool bare = (n2 == '\0' || n2 == ' ' || n2 == '\t' || n2 == '\n' || n2 == '\r');
+                toks.emplace_back(bare ? Token::T::BareAt : Token::T::At, "@", line);
+                i++; continue;
+            }
             /* ⚠️ `$` **不再**切出独立 token：Rust 的词法器不把 `$` 当特殊字符，
                `$env.NAME` 整个是一个**裸词**（`coerce_word` 里早有 `$env.` 分支，
                见 sml-lex/src/lib.rs 的 coerce_word 与 "$env 内联" 的既有注释）。
@@ -332,7 +350,8 @@ static bool looks_like_float(const std::string& t) {
 
 static ValuePtr coerce_word(const std::string& raw,
                             const std::map<std::string,ValuePtr>& fragments,
-                            std::string* err) {
+                            std::string* err,
+                            unsigned features) {
     std::string t = raw;
     // $env.VAR inline (bareword)
     if (t.rfind("$env.", 0) == 0) {
@@ -386,6 +405,13 @@ static ValuePtr coerce_word(const std::string& raw,
             return Value::integer(v);
         } catch(...) {}
     }
+    /* `bareword-string` 门控：关闭后纯字符串裸词必须加引号（与 Rust 同码 005）。 */
+    if (!(features & (1u << 0))) {
+        if (err && err->empty())
+            *err = code_prefix(SML_E_FEATURE_005,
+                "sml: 裸词 `" + t + "` 应写作 `\"" + t + "\"`（bareword-string 已禁用）");
+        return Value::null();
+    }
     return Value::string(t);
 }
 
@@ -393,6 +419,31 @@ static ValuePtr coerce_word(const std::string& raw,
    其它字符为止；名字为空则原样保留 `$env.`。改前只认「整串恰为 `$env.VAR`」，
    内嵌形式不替换 —— conformance 26 的分歧，四端已统一为内插。
    ｜ Inline `$env.NAME`, same semantics as the Rust reference. */
+/* `@for` 的循环变量绑定（单线程解析，展开时临时设置、展开完清空）。
+   `@for` loop-variable binding: set during expansion, cleared afterwards. */
+static std::string g_loop_var;
+static std::string g_loop_val;
+
+/* `${var}` 只读插值：未绑定则原样保留。
+   Read-only loop-variable interpolation; unknown names stay verbatim. */
+static std::string interp_loop(const std::string& s) {
+    if (g_loop_var.empty() || s.find("${") == std::string::npos) return s;
+    std::string out;
+    size_t pos = 0;
+    for (;;) {
+        size_t at = s.find("${", pos);
+        if (at == std::string::npos) { out.append(s, pos, std::string::npos); break; }
+        size_t close = s.find('}', at + 2);
+        if (close == std::string::npos) { out.append(s, pos, std::string::npos); break; }
+        out.append(s, pos, at - pos);
+        const std::string name = s.substr(at + 2, close - at - 2);
+        if (name == g_loop_var) out += g_loop_val;
+        else out += "${" + name + "}";
+        pos = close + 1;
+    }
+    return out;
+}
+
 static std::string interp_env(const std::string& s) {
     if (s.find("$env.") == std::string::npos) return s;
     std::string out;
@@ -421,17 +472,31 @@ static std::string interp_env(const std::string& s) {
     return out;
 }
 
+/* 版本基线：与 Rust `FeatureSet::baseline()` 一致的 8 位核心特性。
+   必须在 `coerce` 之前定义（默认参数用到它）。 */
+#define SML_FEATURE_BASELINE \
+    ((1u << 0) | (1u << 1) | (1u << 2) | (1u << 3) | \
+     (1u << 4) | (1u << 5) | (1u << 6) | (1u << 7))
+
 static ValuePtr coerce(const Token& tok,
                        const std::map<std::string,ValuePtr>& fragments,
-                       std::string* err) {
+                       std::string* err,
+                       unsigned features = SML_FEATURE_BASELINE) {
     if (tok.t != Token::T::Word) return Value::null();
     const std::string& t = tok.s;
     if (!t.empty() && t[0] == '"' && t.back() == '"') {
         std::string inner = t.substr(1, t.size()-2);
         std::string ue = unescape_unicode(inner, err);
-        return Value::string(interp_env(ue));
+        /* env 门控：引号串含 `$env.` 且未开 env ⇒ E-FEATURE-002（与 Rust 同判据）。 */
+        if (!(features & (1u << 2)) && ue.find("$env.") != std::string::npos) {
+            if (err && err->empty())
+                *err = code_prefix(SML_E_FEATURE_002,
+                    "sml: 字符串无法解析：未启用特性 `env`");
+            return Value::null();
+        }
+        return Value::string(interp_env(interp_loop(ue)));
     }
-    return coerce_word(t, fragments, err);
+    return coerce_word(t, fragments, err, features);
 }
 
 // ===========================================================================
@@ -762,6 +827,95 @@ static bool resolve_and_check(const ValuePtr& v, const TypeSpec& spec,
    `a{a{a{ … }}}` 会把递归下降一路压栈，栈溢出在 C++ 里同样接不住。 */
 #define SML_MAX_VALUE_DEPTH 128
 
+/* 特性名表：与 Rust `FEATURES` 同序同名（跨端契约）。 */
+static const char* const SML_FEATURE_NAMES[] = {
+    "bareword-string", "include", "env", "contract", "fragment",
+    "top-level-array", "namespace", "implicit-ns", "multi-include",
+    "glob-include", "regex-include", "ext-rewrite", "when", "for",
+    "typed-block", "case-insensitive", "block-name", "type.featag",
+    "lex.ident", "type.weak",
+};
+static int feature_index(const std::string& name) {
+    for (size_t k = 0; k < sizeof(SML_FEATURE_NAMES) / sizeof(SML_FEATURE_NAMES[0]); k++) {
+        if (name == SML_FEATURE_NAMES[k]) return static_cast<int>(k);
+    }
+    return -1;
+}
+
+/* 版本字面量 → 主版本号（`docs/swsml/spec/version.md` §1）。
+   1..4 = 本实现支持；-1 = 5.0 族（Dev，未启用）；0 = 无法识别。
+   接受 `vN` / `N` / `N.0` / `N0`（连写）与代号 `camelia`（等价 50）。
+   | 1..4 supported, -1 future (5.0 family), 0 unknown. */
+static int version_lit_major(const std::string& raw) {
+    std::string s = raw;
+    if (s.size() >= 2 && s.front() == '"' && s.back() == '"') {
+        s = s.substr(1, s.size() - 2);
+    }
+    if (s == "camelia") return -1;
+    if (!s.empty() && (s[0] == 'v' || s[0] == 'V')) s.erase(0, 1);
+    if (s.empty() || s[0] < '1' || s[0] > '9') return 0;
+    const int major = s[0] - '0';
+    const bool ok = (s.size() == 1)
+                    || (s.size() == 3 && s[1] == '.' && s[2] == '0')
+                    || (s.size() == 2 && s[1] == '0');
+    if (!ok) return 0;
+    return major <= 4 ? major : -1;
+}
+
+/* 预处理：扫行首的 `@feature enable|disable <名>[, <名>]`，算出初始特性集。
+   必须在词法前调用（与 Rust `strip_features` 同定位）：顶层数组形态判定等
+   都要看到 `@feature` 的效果。解析主循环仍会再处理（幂等）。
+   简化：只看行首；字符串内部的 `@feature` 会被误判，属已知边界。 */
+static unsigned scan_features(const std::string& text) {
+    unsigned feats = SML_FEATURE_BASELINE;
+    size_t pos = 0, n = text.size();
+    while (pos < n) {
+        size_t eol = text.find('\n', pos);
+        size_t end = (eol == std::string::npos) ? n : eol;
+        size_t i = pos;
+        while (i < end && (text[i] == ' ' || text[i] == '\t')) i++;
+        /* `@version <lit>`：版本决定**特性基集** —— v2 起裸词字符串必须加引号
+           （与 Rust 的 `FeatureSet::for_edition` / JS 的 `scanVersionBase` 同构）。
+           必须在词法前生效，否则第一行之后的裸词已经按 v1 语义取值了。
+           非法 / 未启用的版本不在这里报错：留给解析层（同一处判据、同一条文案）。 */
+        if (i + 8 <= end && text.compare(i, 8, "@version") == 0
+            && (i + 8 == end || text[i + 8] == ' ' || text[i + 8] == '\t')) {
+            size_t q = i + 8;
+            while (q < end && (text[q] == ' ' || text[q] == '\t')) q++;
+            std::string lit;
+            while (q < end && text[q] != ' ' && text[q] != '\t') lit.push_back(text[q++]);
+            const int major = version_lit_major(lit);
+            if (major >= 2) feats &= ~1u;   /* 位 0 = bareword-string */
+        }
+        if (i + 8 <= end && text.compare(i, 8, "@feature") == 0
+            && (i + 8 == end || text[i + 8] == ' ' || text[i + 8] == '\t')) {
+            size_t q = i + 8;
+            int on = -1;
+            while (q < end && (text[q] == ' ' || text[q] == '\t')) q++;
+            if (end - q >= 6 && text.compare(q, 6, "enable") == 0) { on = 1; q += 6; }
+            else if (end - q >= 7 && text.compare(q, 7, "disable") == 0) { on = 0; q += 7; }
+            if (on >= 0) {
+                for (;;) {
+                    std::string name;
+                    while (q < end && (text[q] == ' ' || text[q] == '\t' || text[q] == ',')) q++;
+                    if (q >= end) break;
+                    while (q < end && text[q] != ' ' && text[q] != '\t' && text[q] != ',') {
+                        name.push_back(text[q++]);
+                    }
+                    if (name.empty()) break;
+                    int bit = feature_index(name);
+                    if (bit < 0) break;   /* 未知名字留给解析层报 E-FEATURE-002 */
+                    if (on) feats |= (1u << bit);
+                    else    feats &= ~(1u << bit);
+                }
+            }
+        }
+        if (eol == std::string::npos) break;
+        pos = eol + 1;
+    }
+    return feats;
+}
+
 struct PState {
     std::vector<Token> toks;
     size_t i = 0;
@@ -772,11 +926,30 @@ struct PState {
        处理的（W18 前的写法），所以状态得挂在解析器上。现在展开挪到解析前的
        `expand_includes` 里，链栈是那次递归的局部变量，解析器不必再知道 include 的存在。 */
     int depth = 0;              /* 当前块/数组嵌套深度（栈溢出防护） */
+    unsigned features = SML_FEATURE_BASELINE;   /* `@feature enable/disable` 在版本基线上增减 */
     /* 一旦置位就**放弃解析**：各层循环立即 break，递归随之退栈。
        为什么需要它：光把 depth 复位并不够 —— 复位不会让栈帧退回去，外层循环接着又
        从 0 往下钻，于是「128 层一轮」地反复压栈，最终照样打穿（实测）。
        中止与 err 是否存在无关（err 允许为 NULL）。 */
     bool aborted = false;
+    /* `@when` 的挂起条件：0 = 无，1 = 保留下一项，2 = 丢弃下一项。
+       只作用于紧邻的下一个字段/块，消费后立即清 0。
+       Pending `@when`: 0 = none, 1 = keep next item, 2 = drop next item. */
+    int pending_when = 0;
+    /* 诊断（warning）出口：只有调用方传了才收集（默认 nullptr = 零开销）。
+       Diagnostics sink: filled only when the caller passes one. */
+    std::vector<Diag>* diags = nullptr;
+    /* 弱绑定：宿主注入的内置契约表 + 旁路表出口（都不进主树）。
+       `@weakbind` 只作用于紧邻的下一个块，故挂起项带所在层（depth）。 */
+    const BuiltinTable* builtins = nullptr;
+    std::vector<WeakBind>* weak_binds = nullptr;
+    std::string pending_weak;
+    int pending_weak_line = 0;
+    int pending_weak_depth = -1;
+    /* 当前块的路径栈：调用方在进 parse_block 前把键名放进 enter_key。
+       Path stack: callers set `enter_key` right before entering a block. */
+    std::string enter_key;
+    std::vector<std::string> path;
 };
 
 // forward decls
@@ -785,6 +958,97 @@ static void set_field_local(const ValuePtr& node, const std::string& k, const Va
 static ValuePtr parse_value(PState& st);
 static ValuePtr parse_value_inner(PState& st);
 static ValuePtr parse_block_nested(PState& st);   // 定义在后（带深度守卫）
+
+// ---------------------------------------------------------------------------
+// 弱绑定（`@weakbind`）：只读软校验 + 旁路表（`docs/swsml/spec/weakbind.md`）
+// 与 `@is` 的 apply_contract 是**两条路径**：那条会填默认值、改树，这条只出诊断。
+// ---------------------------------------------------------------------------
+static int cur_line(const PState& st) {
+    return (st.i < st.toks.size()) ? static_cast<int>(st.toks[st.i].line) : 0;
+}
+
+/* 拼出「祖先路径 + 本级键」：键名用 `.` 连接，`[n]` 段不加点。 */
+static std::string weak_path(const PState& st, const std::string& leaf) {
+    std::string out;
+    for (size_t k = 0; k < st.path.size(); ++k) {
+        if (k && !st.path[k].empty() && st.path[k][0] != '[') out += ".";
+        out += st.path[k];
+    }
+    if (!leaf.empty()) {
+        if (!out.empty() && leaf[0] != '[') out += ".";
+        out += leaf;
+    }
+    return out;
+}
+
+static void weak_warn(PState& st, const std::string& msg) {
+    if (!st.diags) return;
+    st.diags->push_back(Diag{"W-CONTRACT-001", msg, cur_line(st)});
+}
+
+static const BuiltinContract* builtin_find(const PState& st, const std::string& name) {
+    if (!st.builtins) return nullptr;
+    auto it = st.builtins->all().find(name);
+    return (it == st.builtins->all().end()) ? nullptr : &it->second;
+}
+
+/* 声明侧：`@weakbind X { 字段: 类型 }` 的每个字段与内置表比对（只读）。 */
+static void weak_check_decl(PState& st, const std::string& cname,
+                            const std::string& fname, const std::string& tyname) {
+    const BuiltinContract* c = builtin_find(st, cname);
+    if (!c) return;   // 契约名不在表里：已在声明处报过「未知契约」
+    auto it = c->fields.find(fname);
+    if (it == c->fields.end()) {
+        weak_warn(st, "sml: 契约 `" + cname + "` 没有字段 `" + fname + "`");
+        return;
+    }
+    if (!tyname.empty() && it->second.type != tyname)
+        weak_warn(st, "sml: 字段 `" + cname + "." + fname + "` 的类型与内置契约不同");
+}
+
+/* 块内容侧：缺必填 / 类型 / 区间 / 枚举（四类），**只读**，绝不改树。 */
+static void weak_check_block(PState& st, const ValuePtr& node, const std::string& cname) {
+    const BuiltinContract* c = builtin_find(st, cname);
+    if (!c) return;   // 内置表里没有 ⇒ 声明侧已处理，块侧不重复报
+    if (!node || node->tag != Value::Tag::Obj) return;
+    for (const auto& kv : c->fields) {
+        const std::string& fname = kv.first;
+        const BuiltinField& f = kv.second;
+        ValuePtr v = node->get(fname);
+        if (!v) {
+            if (f.required)
+                weak_warn(st, "sml: 块里缺必填字段 `" + cname + "." + fname + "`");
+            continue;
+        }
+        bool ok = true;
+        if (f.type == "str")       ok = (v->tag == Value::Tag::Str);
+        else if (f.type == "int")  ok = (v->tag == Value::Tag::Int);
+        else if (f.type == "num")  ok = (v->tag == Value::Tag::Int || v->tag == Value::Tag::Float);
+        else if (f.type == "bool") ok = (v->tag == Value::Tag::Bool);
+        else if (f.type == "enum") {
+            ok = (v->tag == Value::Tag::Str);
+            if (ok) {
+                bool found = false;
+                for (const auto& ev : f.values) {
+                    if (ev == v->s) { found = true; break; }
+                }
+                ok = found;
+            }
+        }
+        if (!ok) {
+            weak_warn(st, "sml: 字段 `" + cname + "." + fname + "` 与内置契约类型不符");
+            continue;
+        }
+        if (f.has_min || f.has_max) {
+            double n = 0.0;
+            bool isnum = false;
+            if (v->tag == Value::Tag::Int) { n = static_cast<double>(v->i); isnum = true; }
+            else if (v->tag == Value::Tag::Float) { n = v->f; isnum = true; }
+            if (isnum && ((f.has_min && n < f.min) || (f.has_max && n > f.max)))
+                weak_warn(st, "sml: 字段 `" + cname + "." + fname + "` 超出内置契约的区间");
+        }
+    }
+}
 
 /* 本实现把**引号串**也存成 Word token（见 `coerce` 里的
    `t[0]=='"' && t.back()=='"'`），而 Rust 里引号串是独立的 `Tok::Str` ——
@@ -828,7 +1092,7 @@ static ValuePtr parse_bare_block(PState& st) {
     while (st.i < st.toks.size() && st.toks[st.i].t == Token::T::Word) {
         if (key_is_contract && st.contracts.find(st.toks[st.i].s) != st.contracts.end())
             arg_has_contract = true;
-        args.push_back(coerce(st.toks[st.i], st.fragments, st.err));
+        args.push_back(coerce(st.toks[st.i], st.fragments, st.err, st.features));
         st.i++;
     }
     // 任务 D：数组位置的块级多契约同样「响亮拒绝」（head 命中契约表且参数里出现第 2 个契约词）。
@@ -840,6 +1104,7 @@ static ValuePtr parse_bare_block(PState& st) {
     }
     if (st.i >= st.toks.size() || st.toks[st.i].t != Token::T::LBrace) return Value::null();
     st.i++;                                   // `{`
+    st.enter_key = type_word;                 // 旁路表路径用块类型名当段
     auto sub = parse_block_nested(st);
     if (sub && sub->tag == Value::Tag::Obj) {
         sub->obj.push_back({"__type", Value::string(type_word)});
@@ -892,6 +1157,112 @@ static ValuePtr parse_array(PState& st) {
 }
 
 static ValuePtr parse_block(PState& st, bool top = false, bool require_close = false);
+
+/* `@for var in a b c { ... }` —— 有界循环展开，返回数组。
+   与 Rust `cond.rs::eval_for_header` + `Parser::parse_for` 同语义：
+   只遍历有限枚举、变量只读、无 `while` / 无递归。
+   Bounded loop only: finite enumeration, read-only variable, no recursion. */
+static ValuePtr parse_for(PState& st) {
+    auto fail = [&](const char* code, const std::string& msg) -> ValuePtr {
+        if (st.err && st.err->empty()) *st.err = code_prefix(code, msg);
+        st.aborted = true;
+        return nullptr;
+    };
+    st.i += 2;   // 越过 `@` 与 `for`
+    if (st.i >= st.toks.size() || st.toks[st.i].t != Token::T::Word)
+        return fail(SML_E_PARSE_018, "sml: `@for` 缺少循环变量");
+    const std::string var = st.toks[st.i].s;
+    st.i++;
+    if (st.i >= st.toks.size() || st.toks[st.i].s != "in")
+        return fail(SML_E_PARSE_018, "sml: `@for` 缺少 `in`");
+    st.i++;
+    std::vector<std::string> items;
+    while (st.i < st.toks.size() && st.toks[st.i].t == Token::T::Word) {
+        items.push_back(st.toks[st.i].s);
+        st.i++;
+    }
+    if (items.empty())
+        return fail(SML_E_PARSE_018, "sml: `@for` 的 `in` 之后至少须有一个枚举项");
+    if (st.i >= st.toks.size() || st.toks[st.i].t != Token::T::LBrace)
+        return fail(SML_E_PARSE_018, "sml: `@for` 缺少循环体 `{ ... }`");
+    const size_t start = st.i + 1;
+    size_t j = start;
+    int depth = 1;
+    while (j < st.toks.size()) {
+        if (st.toks[j].t == Token::T::LBrace) depth++;
+        else if (st.toks[j].t == Token::T::RBrace) { depth--; if (depth == 0) break; }
+        j++;
+    }
+    if (depth != 0)
+        return fail(SML_E_PARSE_001, "sml: 未闭合的块（遇到文件结尾，缺少结束符号 }）");
+    const size_t end = j;
+    auto arr = Value::array();
+    std::vector<Token> saved = std::move(st.toks);
+    const std::string saved_var = g_loop_var, saved_val = g_loop_val;
+    for (const auto& item : items) {
+        std::vector<Token> sub(saved.begin() + static_cast<long>(start),
+                               saved.begin() + static_cast<long>(end));
+        sub.push_back(Token{Token::T::RBrace, "}", saved[end].line});
+        st.toks = sub;
+        st.i = 0;
+        g_loop_var = var;
+        g_loop_val = item;
+        auto node = parse_block(st, false, true);
+        if (st.aborted) break;
+        arr->arr.push_back(node);
+    }
+    st.toks = std::move(saved);
+    st.i = end + 1;
+    g_loop_var = saved_var;
+    g_loop_val = saved_val;
+    return arr;
+}
+
+/* `@when` 条件求值（闭集：`$env.NAME` [+ `==`/`!=`/`=` + 值]）。
+   与 Rust `cond.rs::eval_when_cond` 同语义：无运算符时做真值测试。
+   Closed set, no expression evaluator — mirrors Rust `cond.rs::eval_when_cond`. */
+static int eval_when(PState& st) {
+    auto fail = [&](const char* code, const std::string& msg) -> int {
+        if (st.err && st.err->empty()) *st.err = code_prefix(code, msg);
+        st.aborted = true;
+        return 0;
+    };
+    if (st.i >= st.toks.size() || st.toks[st.i].t != Token::T::Word)
+        return fail(SML_E_PARSE_014, "sml: `@when` 后须条件（如 `$env.ENV == \"prod\"`）");
+    const std::string lv = st.toks[st.i].s;
+    if (lv.rfind("$env.", 0) != 0 || lv.size() <= 5)
+        return fail(SML_E_PARSE_014,
+                    "sml: `@when` 的条件左侧只支持 `$env.NAME`，得 `" + lv + "`");
+    const std::string var = lv.substr(5);
+    if (!(st.features & (1u << 2)))
+        return fail(SML_E_FEATURE_002, "sml: `@when $env." + var + "` 需要特性 `env`");
+    const char* ev = std::getenv(var.c_str());
+    const std::string act = ev ? ev : "";
+    st.i++;
+    bool is_eq = false, is_ne = false;
+    if (st.i < st.toks.size() && st.toks[st.i].t == Token::T::Word) {
+        const std::string& w = st.toks[st.i].s;
+        if (w == "==" || w == "=") { is_eq = true; st.i++; }
+        else if (w == "!=") { is_ne = true; st.i++; }
+    }
+    const std::string opname = is_ne ? "!=" : "==";
+    if (!is_eq && !is_ne) {
+        /* 真值测试：空串 / "0" / "false" 视为假 ｜ truthiness test */
+        return (!act.empty() && act != "0" && act != "false") ? 1 : 0;
+    }
+    if (st.i >= st.toks.size() || st.toks[st.i].t != Token::T::Word)
+        return fail(SML_E_PARSE_015, "sml: `@when` 的 `" + opname + "` 后须比较值");
+    if (st.i + 1 < st.toks.size() && st.toks[st.i + 1].t == Token::T::Colon)
+        return fail(SML_E_PARSE_015,
+                    "sml: `@when` 的 `" + opname + "` 后缺少比较值"
+                    "（写成了运算符后直接换行）");
+    std::string rhs = st.toks[st.i].s;
+    st.i++;
+    if (rhs.size() >= 2 && rhs.front() == '"' && rhs.back() == '"')
+        rhs = rhs.substr(1, rhs.size() - 2);
+    const bool eq = (act == rhs);
+    return is_ne ? (eq ? 0 : 1) : (eq ? 1 : 0);
+}
 
 // 深度守卫：超限就报错并**置中止标志**。返回 true 表示「不该继续深入」，调用方立即
 // 返回 null。
@@ -964,10 +1335,14 @@ static ValuePtr parse_value_inner(PState& st) {
        - 不消费 `{` 的话，它会落在 parse_block 的「键位置」而被 E-PARSE-006 判为非法，
          但 `x: [ { a: 1 } ]` 这种「数组元素是对象」是合法写法；
        - 不声明需要闭合就发现不了 EOF 未闭合（E-PARSE-001）。 */
-    if (t.t == Token::T::LBrace)  { st.i++; return parse_block(st, false, true); }
+    if (t.t == Token::T::LBrace)  {
+        st.i++;
+        st.enter_key.clear();   /* 值位置块：无已知键名，路径段为空 */
+        return parse_block(st, false, true);
+    }
     if (t.t == Token::T::LBracket) { st.i++; return parse_array(st); }
     if (t.t == Token::T::Word) {
-        ValuePtr v = coerce(t, st.fragments, st.err);
+        ValuePtr v = coerce(t, st.fragments, st.err, st.features);
         st.i++;
         return v;
     }
@@ -976,9 +1351,58 @@ static ValuePtr parse_value_inner(PState& st) {
     return Value::null();
 }
 
+/* 路径栈的进出栈守卫：parse_block 有提前 return（契约字段解析失败），
+   手写 pop 会漏；析构函数覆盖所有出口（含异常）。
+   RAII guard for the path stack: covers every exit of parse_block. */
+struct PathGuard {
+    PState& st;
+    size_t base;
+    explicit PathGuard(PState& s) : st(s), base(s.path.size()) {
+        if (!st.enter_key.empty()) st.path.push_back(st.enter_key);
+        st.enter_key.clear();
+    }
+    ~PathGuard() { st.path.resize(base); }
+};
+
 static ValuePtr parse_block(PState& st, bool top, bool require_close) {
     auto node = Value::object();
     std::string pending_is;   // local: @is applies only to THIS block
+    /* 路径栈：调用方已把本块的键名放进 `enter_key`（顶层为空）。 */
+    PathGuard path_guard(st);
+    /* 当前字段**键 token** 的行号：重复键诊断要用它，不能用「下一个 token」
+       （那已在下一行甚至越过块尾，报出来的行号是错的）。
+       Line of the key token being parsed (for the duplicate-key diagnostic). */
+    int cur_key_line = 0;
+    /* `@when` 只作用于紧邻的下一个字段/块：条件为假就丢弃该项。
+       `@when` applies to the immediately following field/block only. */
+    auto set_field = [&](const std::string& k, const ValuePtr& v) {
+        if (st.pending_when == 2) { st.pending_when = 0; return; }
+        st.pending_when = 0;
+        /* 弱绑定：`@weakbind X` 之后的那个块，用内置表做**只读**软校验
+           （不填默认值、不删改键），并把记录放进旁路表。 */
+        if (!st.pending_weak.empty() && v && v->tag == Value::Tag::Obj) {
+            const std::string wname = st.pending_weak;
+            weak_check_block(st, v, wname);
+            if (st.weak_binds)
+                st.weak_binds->push_back(
+                    WeakBind{weak_path(st, k), wname, st.pending_weak_line});
+            st.pending_weak.clear();
+        }
+        // 重复键：值树照旧提升为数组，同时记一条 `W-PARSE-001`（不改变值）。
+        if (st.diags) {
+            bool dup = false;
+            for (const auto& kv : node->obj) {
+                if (kv.first == k) { dup = true; break; }
+            }
+            if (dup) {
+                st.diags->push_back(Diag{
+                    "W-PARSE-001",
+                    "sml: 键 `" + k + "` 重复出现，已提升为数组",
+                    cur_key_line});
+            }
+        }
+        set_field_local(node, k, v);
+    };
     /* require_close：本块是否由 `{` 开启（因而**必须**见到 `}`）。
        顶层由 `{` 开启的块、以及所有 parse_block_nested 的调用点都要求闭合；
        顶层裸块（`a: 1\nb: 2` 这种没有外层花括号的）到文件结尾收尾是合法的。
@@ -1009,14 +1433,38 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
             }
             st.i++; st.aborted = true; break;
         }
-        if (tok.t == Token::T::Comma) { st.i++; continue; }
+        if (tok.t == Token::T::Comma) {
+            // 逗号只用于对象字段分隔（其后须是 `key:`）；否则是裸词拆分或孤立逗号。
+            const bool field_sep = (st.i + 2 < st.toks.size() &&
+                st.toks[st.i + 1].t == Token::T::Word &&
+                st.toks[st.i + 2].t == Token::T::Colon);
+            if (!field_sep) {
+                if (st.err && st.err->empty())
+                    *st.err = code_prefix(SML_E_PARSE_007,
+                        "sml: 非预期的逗号：裸词中不可含逗号，请改用数组或引号包裹");
+                st.aborted = true;
+                break;
+            }
+            st.i++; continue;
+        }
+
+        if (tok.t == Token::T::BareAt) {
+            if (st.err && st.err->empty())
+                *st.err = code_prefix(SML_E_PARSE_004, "sml: 孤立的 @：其后没有指令名或片段名");
+            st.aborted = true;
+            break;
+        }
 
         if (tok.t == Token::T::At) {
             // directive keywords are handled by the directive branch below; do not
             // treat them as fragments here.
             bool is_directive = (st.i+1 < st.toks.size() && st.toks[st.i+1].t == Token::T::Word &&
                 (st.toks[st.i+1].s == "is" || st.toks[st.i+1].s == "contract" ||
-                 st.toks[st.i+1].s == "version" || st.toks[st.i+1].s == "include" ||
+                 st.toks[st.i+1].s == "version" || st.toks[st.i+1].s == "feature" ||
+                 st.toks[st.i+1].s == "when" ||
+                 st.toks[st.i+1].s == "weakbind" || st.toks[st.i+1].s == "weakdata" ||
+                 st.toks[st.i+1].s == "weakdoc" ||
+                 st.toks[st.i+1].s == "include" ||
                  st.toks[st.i+1].s == "include!"));
             if (!is_directive) {
             // fragment @name { } or @name type args { }
@@ -1057,10 +1505,18 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                     break;
                 }
                 st.i++; // consume {
+                st.enter_key.clear();   // 片段体：不进主树，路径无意义
                 auto sub = parse_block_nested(st);
                 if (!ftype.empty()) {
                     sub->obj.push_back({"__type", Value::string(ftype)});
                     if (!fname_arg.empty()) sub->obj.push_back({"__name", Value::string(fname_arg)});
+                }
+                if (!(st.features & (1u << 4))) {
+                    if (st.err && st.err->empty())
+                        *st.err = code_prefix(SML_E_FEATURE_001,
+                            "sml: `fragment`：当前文档已禁用该特性");
+                    st.aborted = true;
+                    break;
                 }
                 st.fragments[fname] = sub;
             }
@@ -1072,9 +1528,182 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
         if (tok.t == Token::T::At && st.i+1 < st.toks.size() &&
             st.toks[st.i+1].t == Token::T::Word) {
             std::string dir = st.toks[st.i+1].s;
+            // 默认忽略：未开 `type.weak` 时 weak* 不解释、不校验、不产出（weakbind.md §0.3）。
+            // 片段定义形态（后跟 `{`）不消费，落回原有语义；其余吞掉「指令 + 同行参数」。
+            if (dir == "weakbind" || dir == "weakdata" || dir == "weakdoc") {
+                if (!(st.features & (1u << 19))) {
+                    // 未开 `type.weak`：响亮拒绝（与 Rust 同码 001）。
+                    if (st.err && st.err->empty())
+                        *st.err = code_prefix(SML_E_FEATURE_001,
+                            "sml: `" + dir + "`：当前文档已禁用该特性"
+                            "（请先写 `@feature enable type.weak`）");
+                    st.aborted = true; break;
+                }
+                // 开了 `type.weak`：登记但不解释，值树零影响。
+                const bool is_bind = (dir == "weakbind");
+                const bool is_doc = (dir == "weakdoc");
+                st.i += 2;   // @ weak*
+                if (st.i >= st.toks.size() || st.toks[st.i].t != Token::T::Word) {
+                    if (st.err && st.err->empty())
+                        *st.err = code_prefix(SML_E_PARSE_019,
+                            "sml: `@" + dir + "` 后须名字");
+                    st.aborted = true; break;
+                }
+                const std::string wname = st.toks[st.i].s;
+                const size_t wname_line = st.toks[st.i].line;
+                st.i++;   // 名字
+                if (is_bind) {
+                    /* 挂起到「紧邻的下一个块」；行号与所在层供收尾时判悬空。 */
+                    st.pending_weak = wname;
+                    st.pending_weak_line = static_cast<int>(wname_line);
+                    st.pending_weak_depth = st.depth;
+                    if (st.builtins && !builtin_find(st, wname))
+                        weak_warn(st, "sml: 内置契约表里没有 `" + wname + "`");
+                    /* 可选字段体 `{ 字段: 类型 ... }`：判据必须看**同一行** ——
+                       `@weakbind tls` 换行后的 `server { ... }` 是下一个块，不是体。 */
+                    if (st.i < st.toks.size() && st.toks[st.i].t == Token::T::LBrace
+                        && st.toks[st.i].line == wname_line) {
+                        st.i++;   // {
+                        while (st.i < st.toks.size() && st.toks[st.i].t != Token::T::RBrace) {
+                            if (st.toks[st.i].t != Token::T::Word) { st.i++; continue; }
+                            const std::string fname = st.toks[st.i].s;
+                            std::string tyname;
+                            st.i++;
+                            if (st.i < st.toks.size() && st.toks[st.i].t == Token::T::Colon) st.i++;
+                            if (st.i < st.toks.size() && st.toks[st.i].t == Token::T::Word) {
+                                tyname = st.toks[st.i].s;
+                                st.i++;
+                            }
+                            weak_check_decl(st, wname, fname, tyname);
+                        }
+                        if (st.i < st.toks.size() && st.toks[st.i].t == Token::T::RBrace) st.i++;
+                    }
+                }
+                if (is_doc && st.i < st.toks.size()
+                    && st.toks[st.i].t == Token::T::LBrace) {
+                    if (st.err && st.err->empty())
+                        *st.err = code_prefix(SML_E_PARSE_019,
+                            "sml: `@weakdoc` 只写 profile 名，不接受载荷块"
+                            "（要内联数据请用 `@weakdata`）");
+                    st.aborted = true; break;
+                }
+                if (!is_bind && !is_doc && st.i < st.toks.size()
+                    && st.toks[st.i].t == Token::T::LBrace) {
+                    int d = 1;
+                    st.i++;
+                    while (d > 0 && st.i < st.toks.size()) {
+                        if (st.toks[st.i].t == Token::T::LBrace) d++;
+                        else if (st.toks[st.i].t == Token::T::RBrace) d--;
+                        st.i++;
+                    }
+                    if (d != 0) {
+                        if (st.err && st.err->empty())
+                            *st.err = code_prefix(SML_E_PARSE_001,
+                                "sml: 未闭合的块（遇到文件结尾，缺少结束符号 }）");
+                        st.aborted = true; break;
+                    }
+                }
+                continue;
+            }
             if (dir == "version") {
                 st.i += 2; // consume @ version
-                if (st.i < st.toks.size()) st.i++; // skip value
+                /* 校验字面量（与 Rust `Edition::parse` 同口径），并吃掉本行剩余
+                   token —— `@version 50 "camelia" dev` 的代号与 dev 标记都不是值。 */
+                if (st.i < st.toks.size() && st.toks[st.i].line == tok.line) {
+                    const Token lit = st.toks[st.i];
+                    const int major = version_lit_major(lit.s);
+                    if (major < 0) {
+                        if (st.err && st.err->empty())
+                            *st.err = code_prefix(SML_E_FEATURE_004,
+                                "sml: 版本 `" + lit.s + "` 尚未启用（5.0 仍为 Dev；本实现支持 v1..v4）");
+                        st.aborted = true;
+                        break;
+                    }
+                    if (major == 0) {
+                        if (st.err && st.err->empty())
+                            *st.err = code_prefix(SML_E_FEATURE_004,
+                                "sml: 未知版本 `" + lit.s + "`；仅支持 v1..v4（v1–v4 / 1.0–4.0 / 10–40）");
+                        st.aborted = true;
+                        break;
+                    }
+                    while (st.i < st.toks.size() && st.toks[st.i].line == tok.line) st.i++;
+                }
+                continue;
+            }
+            if (dir == "feature") {
+                // 与 C 端同一判据：只识别 enable/disable + 名字表，不门控。
+                // 用行号区分「子命令 / 特性名」与下一行内容（`@feature\nk: 1` 不能把 k 当名字）。
+                st.i += 2; // @ feature
+                if (st.i >= st.toks.size() || st.toks[st.i].t != Token::T::Word) {
+                    if (st.err && st.err->empty())
+                        *st.err = code_prefix(SML_E_FEATURE_007,
+                            "sml: `@feature` 缺少参数（enable / disable）");
+                    st.aborted = true; break;
+                }
+                const Token sub = st.toks[st.i];
+                if (sub.line != tok.line) {
+                    if (st.err && st.err->empty())
+                        *st.err = code_prefix(SML_E_FEATURE_007,
+                            "sml: `@feature` 缺少参数（enable / disable）");
+                    st.aborted = true; break;
+                }
+                if (sub.s == "enable" || sub.s == "disable") {
+                    const bool on = (sub.s == "enable");
+                    const size_t sub_line = sub.line;
+                    int any = 0;
+                    st.i++;
+                    for (;;) {
+                        if (st.i >= st.toks.size()) break;
+                        const Token& nm = st.toks[st.i];
+                        if (nm.t != Token::T::Word || nm.line != sub_line) break;
+                        const int bit = feature_index(nm.s);
+                        if (bit < 0) {
+                            if (st.err && st.err->empty())
+                                *st.err = code_prefix(SML_E_FEATURE_002,
+                                    "sml: 未知特性名 `" + nm.s + "`");
+                            st.aborted = true; break;
+                        }
+                        if (on) st.features |= (1u << bit);
+                        else    st.features &= ~(1u << bit);
+                        any = 1;
+                        st.i++;
+                        if (st.i < st.toks.size() && st.toks[st.i].t == Token::T::Comma) {
+                            st.i++; continue;
+                        }
+                        break;
+                    }
+                    if (st.aborted) break;
+                    if (!any) {
+                        if (st.err && st.err->empty())
+                            *st.err = code_prefix(SML_E_FEATURE_007,
+                                "sml: `@feature " + sub.s + "` 缺少特性名");
+                        st.aborted = true; break;
+                    }
+                    continue;
+                }
+                if (st.err && st.err->empty())
+                    *st.err = code_prefix(SML_E_FEATURE_006,
+                        "sml: `@feature " + sub.s + "`：本端暂不支持该子命令");
+                st.aborted = true; break;
+            }
+            if (dir == "when") {
+                // 条件裁剪：只作用于紧邻的下一个字段/块。
+                // `@when` applies to the immediately following field/block only.
+                if (!(st.features & (1u << 12))) {
+                    if (st.err && st.err->empty())
+                        *st.err = code_prefix(SML_E_FEATURE_001,
+                            "sml: `when`：当前文档已禁用该特性");
+                    st.aborted = true; break;
+                }
+                if (st.pending_when != 0) {
+                    if (st.err && st.err->empty())
+                        *st.err = code_prefix(SML_E_PARSE_016,
+                            "sml: `@when` 连续出现：它只作用于紧邻的下一个字段或块");
+                    st.aborted = true; break;
+                }
+                st.i += 2;   // @ when
+                st.pending_when = eval_when(st) ? 1 : 2;
+                if (st.aborted) break;
                 continue;
             }
             if (dir == "include" || dir == "include!") {
@@ -1091,6 +1720,13 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                 continue;
             }
             if (dir == "contract") {
+                // 特性门控：与 Rust / C / Lua 同判据（Contract 位）。
+                if (!(st.features & (1u << 3))) {
+                    if (st.err && st.err->empty())
+                        *st.err = code_prefix(SML_E_FEATURE_001,
+                            "sml: `contract`：当前文档已禁用该特性");
+                    st.aborted = true; break;
+                }
                 st.i += 2; // consume @ contract
             // parse: name { fields... }
             if (st.i >= st.toks.size()) break;
@@ -1188,6 +1824,13 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
         }
         if (tok.t == Token::T::At && st.i+1 < st.toks.size() &&
             st.toks[st.i+1].t == Token::T::Word && st.toks[st.i+1].s == "is") {
+            // 特性门控：与 `@contract` 同一判据。
+            if (!(st.features & (1u << 3))) {
+                if (st.err && st.err->empty())
+                    *st.err = code_prefix(SML_E_FEATURE_001,
+                        "sml: `contract`：当前文档已禁用该特性");
+                st.aborted = true; break;
+            }
             st.i += 2;
             // @is ContractName  -> applied after this block (Rust applies to current block)
             if (st.i < st.toks.size()) {
@@ -1245,12 +1888,22 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
             st.i++; continue;
         }
         std::string key = tok.s;
+        cur_key_line = static_cast<int>(tok.line);
+        // 键名位置不支持 `${...}` 插值（循环变量只可用于值位置）。
+        // No `$` interpolation in key position (E-PARSE-013).
+        if (key.find("${") != std::string::npos) {
+            if (st.err && st.err->empty())
+                *st.err = code_prefix(SML_E_PARSE_013,
+                    "sml: 键名位置不支持 `$` 插值：循环变量只可用于值位置");
+            st.aborted = true;
+            break;
+        }
         st.i++;
         bool colon = false;
         if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::Colon) { colon=true; st.i++; }
         if (st.i >= st.toks.size()) {
             // key with nothing after -> coerce key itself as value (Rust: bare block name case)
-            set_field_local(node, key, coerce_word(key, st.fragments, st.err));
+            set_field(key, coerce_word(key, st.fragments, st.err, st.features));
             break;
         }
         auto& nxt = st.toks[st.i];
@@ -1282,28 +1935,45 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                 }
                 if (!st.aborted && st.i < st.toks.size() && st.toks[st.i].t == Token::T::LBrace) {
                     st.i++;
+                    st.enter_key = key;   /* 旁路表路径：本块的键名 */
                     auto sub = parse_block_nested(st);
                     std::string e;
                     Parser::apply_contract(sub, st.contracts, cname, &e);
                     if (!e.empty() && st.err) *st.err = e;
-                    set_field_local(node, key, sub);
+                    set_field(key, sub);
                 } else if (!st.aborted) {
-                    set_field_local(node, key, Value::null());
+                    set_field(key, Value::null());
                 }
             }
             continue;
         }
+        if (nxt.t == Token::T::At && st.i + 1 < st.toks.size()
+            && st.toks[st.i + 1].t == Token::T::Word
+            && st.toks[st.i + 1].s == "for") {
+            // 值位置 `@for`：有界循环展开成数组（opt-in）。
+            if (!(st.features & (1u << 13))) {
+                if (st.err && st.err->empty())
+                    *st.err = code_prefix(SML_E_FEATURE_001,
+                        "sml: `for`：当前文档已禁用该特性");
+                st.aborted = true; break;
+            }
+            auto arr = parse_for(st);
+            if (st.aborted) break;
+            set_field(key, arr);
+            continue;
+        }
         if (nxt.t == Token::T::LBrace) {
             st.i++;
+            st.enter_key = key;   /* 旁路表路径：本块的键名 */
             auto sub = parse_block_nested(st);
-            set_field_local(node, key, sub);
+            set_field(key, sub);
         } else if (nxt.t == Token::T::LBracket) {
             /* ⚠️ 必须走**带守卫**的 parse_array_nested，不能直接调 parse_array ——
                直接调会绕过 depth 计数，让 `key: [ ... ]` 的第一层数组白送一层
                （实测：数组到 129 层而块只到 128 层）。理由见 parse_array_nested。 */
             st.i++;
             auto arr = parse_array_nested(st);
-            set_field_local(node, key, arr);
+            set_field(key, arr);
         } else if (!colon && bare_block_ahead(st)) {
             // bare block: key is type, subsequent tokens until '{' are args
             /* 判据 = Rust 键位置那一支（parser.rs:1180：`if !colon && self.bare_block_ahead()`）。
@@ -1324,7 +1994,7 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
             while (st.i < st.toks.size() && st.toks[st.i].t == Token::T::Word) {
                 if (key_is_contract && st.contracts.find(st.toks[st.i].s) != st.contracts.end())
                     arg_has_contract = true;
-                args.push_back(coerce(st.toks[st.i], st.fragments, st.err));
+                args.push_back(coerce(st.toks[st.i], st.fragments, st.err, st.features));
                 st.i++;
             }
             // 任务 D：块级多契约「响亮拒绝」—— head 词命中契约表且 args 里出现第 2 个
@@ -1337,6 +2007,7 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
             }
             if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::LBrace) {
                 st.i++;
+                st.enter_key = key;   /* 裸块：路径段用块类型名 */
                 auto sub = parse_block_nested(st);
                 sub->obj.push_back({"__type", Value::string(key)});
                 if (!args.empty()) {
@@ -1347,15 +2018,15 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                         sub->obj.push_back({"__args", extra});
                     }
                 }
-                set_field_local(node, key, sub);
+                set_field(key, sub);
             } else {
                 // no body -> treat as scalar string
-                set_field_local(node, key, coerce_word(key, st.fragments, st.err));
+                set_field(key, coerce_word(key, st.fragments, st.err, st.features));
             }
         } else if (nxt.t == Token::T::Word) {
-            ValuePtr v = coerce(nxt, st.fragments, st.err);
+            ValuePtr v = coerce(nxt, st.fragments, st.err, st.features);
             st.i++;
-            set_field_local(node, key, v);
+            set_field(key, v);
         } else if (nxt.t == Token::T::RBrace || nxt.t==Token::T::RBracket) {
             /* key }  -> key itself is the value (Rust: coerce key).
                例外：块内独立一行的 `&frag` 是**字段展开**（splice）——把片段的字段并进
@@ -1368,14 +2039,14 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                         set_field_local(node, kv.first, kv.second->clone());
                     }
                 } else {
-                    set_field_local(node, key, coerce_word(key, st.fragments, st.err));
+                    set_field(key, coerce_word(key, st.fragments, st.err, st.features));
                 }
             } else {
-                set_field_local(node, key, coerce_word(key, st.fragments, st.err));
+                set_field(key, coerce_word(key, st.fragments, st.err, st.features));
             }
         } else {
             // nxt is some structural token with no value
-            set_field_local(node, key, Value::null());
+            set_field(key, Value::null());
             if (nxt.t==Token::T::Comma) st.i++;
         }
     }
@@ -1400,6 +2071,18 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
         Parser::apply_contract(node, st.contracts, cname, &e);
         if (!e.empty() && st.err) *st.err = e;
     }
+    /* 悬空 `@when`：块结束时条件还没被任何字段/块消费。
+       Dangling `@when`: the block ended before the condition consumed an item. */
+    if (!st.aborted && st.pending_when != 0) {
+        if (st.err && st.err->empty())
+            *st.err = code_prefix(SML_E_PARSE_017,
+                "sml: `@when` 后未跟随任何字段或块（悬空的条件）");
+        st.aborted = true;
+    }
+    /* 悬空的 `@weakbind`（本块内没等到块）：随本块丢弃，不落到外层的下一个块上。
+       软校验发生在 set_field 消费挂起项的那一刻。 */
+    if (!st.pending_weak.empty() && st.pending_weak_depth >= st.depth)
+        st.pending_weak.clear();
     return node;
 }
 
@@ -1459,7 +2142,8 @@ static bool expand_includes(std::vector<Token>& toks,
                             const std::string& include_dir,
                             std::vector<std::string>& chain,
                             long long& expansions,
-                            std::string* err) {
+                            std::string* err,
+                            unsigned features) {
     namespace fs = std::filesystem;
     if (chain.size() >= SML_MAX_INCLUDE_DEPTH) {
         if (err) *err = code_prefix(SML_E_INCLUDE_004, "sml: include 嵌套超过 "
@@ -1499,6 +2183,12 @@ static bool expand_includes(std::vector<Token>& toks,
                                 toks[k+1].line == t.line &&
                                 !toks[k+1].s.empty() && toks[k+1].s[0] == '"');
         if (!at_form && !bare_form) { out.push_back(t); k++; continue; }
+        /* include 门控：`@feature disable include` 后必须拒绝（与 Rust 同码 001）。 */
+        if (!(features & (1u << 1))) {
+            if (err && err->empty())
+                *err = code_prefix(SML_E_FEATURE_001, "sml: include 特性未启用");
+            return false;
+        }
         /* 路径 token 的下标随形态变化（`@include` 是 2，裸形式是 1）。 */
         const size_t pidx = at_form ? k + 2 : k + 1;
 
@@ -1587,7 +2277,7 @@ static bool expand_includes(std::vector<Token>& toks,
         }
         chain.push_back(canon);
         const bool ok = expand_includes(sub, target.parent_path().string(),
-                                        chain, expansions, err);
+                                        chain, expansions, err, features);
         chain.pop_back();
         if (!ok) return false;
         out.insert(out.end(), sub.begin(), sub.end());
@@ -1603,9 +2293,16 @@ static bool expand_includes(std::vector<Token>& toks,
 /* 真正的解析实现。公开入口 `Parser::parse` 是它的薄包装，只为接住
    std::bad_alloc（E-LIMIT-010）；抽成 static 而不是给函数体加 try 再整体缩进，
    是为了让这次改动只有两行、看得清。 */
-static ValuePtr parse_impl(const std::string& text, std::string* err, const std::string& include_dir) {
+static ValuePtr parse_impl(const std::string& text, std::string* err,
+                           const std::string& include_dir, std::vector<Diag>* diags,
+                           const BuiltinTable* builtins,
+                           std::vector<WeakBind>* weak_binds) {
     PState st;
     st.err = err;
+    st.diags = diags;
+    st.builtins = builtins;
+    st.weak_binds = weak_binds;
+    st.features = scan_features(text);   /* 预处理算出的初始特性集 */
     st.toks = tokenize(text, err);
     if (err && !err->empty()) return nullptr;
     /* include 在**解析前**一次性展开完（W18）：解析器拿到的 token 流里不再有 include
@@ -1614,7 +2311,7 @@ static ValuePtr parse_impl(const std::string& text, std::string* err, const std:
     if (!include_dir.empty()) {
         std::vector<std::string> chain;
         long long expansions = 0;
-        if (!expand_includes(st.toks, include_dir, chain, expansions, err)) return nullptr;
+        if (!expand_includes(st.toks, include_dir, chain, expansions, err, st.features)) return nullptr;
     } else {
         /* 明确拒绝裸 `include` / `import`（TODO 排雷区 雷 6-2、台账 #4/#5）。
            本实现的 include 只认 `@include "path"`（见 expand_includes 里那条注释），
@@ -1691,6 +2388,23 @@ static ValuePtr parse_impl(const std::string& text, std::string* err, const std:
                 "sml: 顶层只能是容器（键值块/对象块/数组），单个标量无法往返");
         return nullptr;
     }
+    /* 顶层数组门控：跳过开头的 `@version` / `@feature` 行，看实质第一个 token。
+       `@feature` 行在前时 `first` 是 `At`，直接判 `first == LBracket` 永远不成立。 */
+    {
+        size_t k = 0;
+        while (k < st.toks.size() && st.toks[k].t == Token::T::At) {
+            size_t li = st.toks[k].line;
+            k++;
+            while (k < st.toks.size() && st.toks[k].line == li) k++;
+        }
+        if (k < st.toks.size() && st.toks[k].t == Token::T::LBracket
+            && !(st.features & (1u << 5))) {
+            if (err && err->empty())
+                *err = code_prefix(SML_E_FEATURE_001,
+                    "sml: `top-level-array`：当前文档已禁用该特性");
+            return nullptr;
+        }
+    }
     ValuePtr result;
     if (first.t == Token::T::LBracket) {
         st.i = 1;
@@ -1710,7 +2424,16 @@ static ValuePtr parse_impl(const std::string& text, std::string* err, const std:
 // 公开入口：把分配失败也变成带码的失败。见 sml.hpp 的「错误码约定」——
 // 「没有例外：连内存分配失败也带码」。std::make_shared / 容器增长在 OOM 时抛
 // std::bad_alloc，本实现只有 err 一条通道，故在此统一转码后按失败返回。
-ValuePtr Parser::parse(const std::string& text, std::string* err, const std::string& include_dir) {
+ValuePtr Parser::parse(const std::string& text, std::string* err,
+                       const std::string& include_dir, std::vector<Diag>* diags) {
+    ParseOptions opts;
+    opts.include_dir = include_dir;
+    opts.diags = diags;
+    return parse_with(text, opts, err);
+}
+
+ValuePtr Parser::parse_with(const std::string& text, const ParseOptions& opts,
+                            std::string* err) {
     try {
         /* 文件级规范化：跳过开头的 UTF-8 BOM（EF BB BF）。BOM **不是空白** ⇒ 会被词法器吞进
            第一个单词 ⇒ 第一个键名变成 "\xEF\xBB\xBFx"（**静默**改键名）。来源很常见：
@@ -1720,11 +2443,68 @@ ValuePtr Parser::parse(const std::string& text, std::string* err, const std::str
             && static_cast<unsigned char>(text[1]) == 0xBB
             && static_cast<unsigned char>(text[2]) == 0xBF;
         const std::string body = has_bom ? text.substr(3) : text;
-        return parse_impl(body, err, include_dir);
+        if (opts.weak_binds) opts.weak_binds->clear();
+        return parse_impl(body, err, opts.include_dir, opts.diags,
+                          opts.builtins, opts.weak_binds);
     } catch (const std::bad_alloc&) {
         if (err) *err = code_prefix(SML_E_LIMIT_010, "sml: 内存分配失败");
         return nullptr;
     }
+}
+
+ValuePtr Parser::load_file(const std::string& path, const ParseOptions& opts,
+                           std::string* err) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        if (err) *err = code_prefix(SML_E_IO_001, "sml: 读取失败 " + path);
+        return nullptr;
+    }
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    /* include 基准默认取**文件所在目录**：与 Rust `parse_file` / C `sml_parse_file` 同口径。
+       调用方显式给了 include_dir 就不覆盖。 */
+    ParseOptions o = opts;
+    if (o.include_dir.empty()) {
+        const size_t cut = path.find_last_of("/\\");
+        o.include_dir = (cut == std::string::npos) ? std::string(".") : path.substr(0, cut);
+    }
+    return parse_with(text, o, err);
+}
+
+ValuePtr Parser::load_file(const std::string& path, std::string* err) {
+    return load_file(path, ParseOptions{}, err);
+}
+
+// ===========================================================================
+// BuiltinTable（宿主注入的内置契约表）
+// ===========================================================================
+void BuiltinTable::add_field(const std::string& contract, const std::string& field,
+                             const std::string& type, bool required) {
+    BuiltinField f;
+    f.type = type;
+    f.required = required;
+    contracts_[contract].fields[field] = f;
+}
+
+void BuiltinTable::set_range(const std::string& contract, const std::string& field,
+                             double min, double max) {
+    auto c = contracts_.find(contract);
+    if (c == contracts_.end()) return;
+    auto f = c->second.fields.find(field);
+    if (f == c->second.fields.end()) return;
+    f->second.has_min = true;
+    f->second.min = min;
+    f->second.has_max = true;
+    f->second.max = max;
+}
+
+void BuiltinTable::add_enum(const std::string& contract, const std::string& field,
+                            const std::string& value) {
+    auto c = contracts_.find(contract);
+    if (c == contracts_.end()) return;
+    auto f = c->second.fields.find(field);
+    if (f == c->second.fields.end()) return;
+    f->second.type = "enum";
+    f->second.values.push_back(value);
 }
 
 // ===========================================================================

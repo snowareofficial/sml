@@ -54,6 +54,7 @@ use std::path::Path;
 
 mod highlight;
 mod lint;
+mod migrate;
 mod profile;
 mod toc;
 mod toml;
@@ -382,6 +383,25 @@ struct Cli {
     #[arg(long = "no-profiles")]
     no_profiles: bool,
 
+    /// 迁移模式：scan（只报告，有命中退出码 1）/ apply（写回，幂等）/ rules（列规则）
+    ///
+    /// 依据 `docs/swsml/spec/version.md` §4.5：**默认不写文件**，要写必须显式 `apply`。
+    #[arg(long = "migrate", value_name = "MODE", value_parser = ["scan", "apply", "rules"])]
+    migrate: Option<String>,
+
+    /// 只跑指定规则（逗号分隔）；`--migrate rules` 可列全部 id
+    #[arg(long = "rule", value_name = "IDS")]
+    rule: Option<String>,
+
+    /// `--migrate apply` 时先写一份 `<文件>.bak`
+    #[arg(long = "backup")]
+    backup: bool,
+
+    /// 哪些 `@名` 是**扩展指令**（逗号分隔）：`directive-name-arg` 规则靠它区分
+    /// 「扩展指令的位置参数」与「片段定义」。不给 ⇒ 该规则不动作（不猜）
+    #[arg(long = "migrate-directive", value_name = "NAMES")]
+    migrate_directive: Option<String>,
+
     /// 从 `.ambr` 信封读入（二进制），再按 `--to` 输出
     ///
     /// 信封里的主载荷必须是 `Value`（即由 SML 文本写成的）；字节载荷（`--to-amberice` 之外的
@@ -569,6 +589,14 @@ struct Args {
     resolve_profiles: bool,
     profile_dir: Option<PathBuf>,
     no_profiles: bool,
+    /// `--migrate <scan|apply|rules>` ｜ migration mode
+    migrate: Option<String>,
+    /// `--rule a,b` ｜ rule filter
+    rule: Option<String>,
+    /// `--backup` ｜ write `<file>.bak` before applying
+    backup: bool,
+    /// `--migrate-directive` ｜ extension directive names for `directive-name-arg`
+    migrate_directive: Option<String>,
     /// 从 `.ambr` 信封读入（二进制） ｜ read the input as a `.ambr` envelope
     from_amberice: bool,
     /// 写成 `.ambr` 信封（二进制） ｜ write the result as a `.ambr` envelope
@@ -657,6 +685,10 @@ fn parse_args(cli: Cli) -> Result<Args, SmlError> {
         resolve_profiles: cli.resolve_profiles,
         profile_dir: cli.profile_dir,
         no_profiles: cli.no_profiles,
+        migrate: cli.migrate,
+        rule: cli.rule,
+        backup: cli.backup,
+        migrate_directive: cli.migrate_directive,
         from_amberice: cli.from_amberice,
         to_amberice: cli.to_amberice,
         amberice_compress: cli.amberice_compress,
@@ -1697,10 +1729,154 @@ fn profile_search_roots(
     out
 }
 
+/// `--migrate <scan|apply|rules>` 的实现（规则在 [`migrate::RULES`]）。
+///
+/// 三条纪律（`docs/swsml/spec/version.md` §4.5）：
+/// - **默认 scan**：不写文件；有命中时退出码 1（便于 CI 直接拦）；
+/// - **apply 幂等**：写回后再次 scan 必须 0 命中；
+/// - **可单跑**：`--rule a,b` 只跑指定规则，未知 id 响亮失败（E-CLI-003）。
+fn migrate_mode(args: &Args, text: &str) -> Result<u8, SmlError> {
+    let mode = args.migrate.as_deref().unwrap_or("scan");
+    let only: Option<Vec<String>> = args.rule.as_ref().map(|s| {
+        s.split(',')
+            .map(|x| x.trim().to_string())
+            .filter(|x| !x.is_empty())
+            .collect()
+    });
+    if let Some(sel) = &only {
+        for id in sel {
+            if !migrate::RULES.iter().any(|r| r.id == id) {
+                // 取值非法 ⇒ E-CLI-008（与 clap 的用法错误同码），别让人以为规则跑过了。
+                return Err(SmlError::from_code_title(E_CLI_008).with_detail(format!(
+                    "未知迁移规则 `{id}`（`--migrate rules` 列出全部）"
+                )));
+            }
+        }
+    }
+    let directives: Vec<String> = args
+        .migrate_directive
+        .as_ref()
+        .map(|s| {
+            s.split(',')
+                .map(|x| x.trim().trim_start_matches('@').to_string())
+                .filter(|x| !x.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    // 显式点名了 `directive-name-arg` 却没给指令表 ⇒ 依赖缺失，响亮失败（别静默零命中）
+    if directives.is_empty()
+        && only
+            .as_ref()
+            .is_some_and(|sel| sel.iter().any(|s| s == "directive-name-arg"))
+    {
+        return Err(SmlError::from_code_title(E_CLI_003).with_detail(
+            "`--rule directive-name-arg` 需要 `--migrate-directive <名,…>`：\
+             纯文本扫描分不清扩展指令与片段定义",
+        ));
+    }
+    let opts = migrate::Opts { only: only.as_deref(), directives: &directives };
+    let who = args
+        .input
+        .as_ref()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "<stdin>".to_string());
+    let report = migrate::scan_text(text, &opts);
+    for note in &report.notes {
+        eprintln!("{who}: note: {note}");
+    }
+    match mode {
+        "scan" => {
+            for h in &report.hits {
+                println!(
+                    "{who}:{}: [{}] {} => {}",
+                    h.line,
+                    h.rule,
+                    h.before.trim(),
+                    h.after.trim()
+                );
+            }
+            if report.hits.is_empty() {
+                eprintln!("smltools: 没有可迁移的写法");
+                return Ok(0);
+            }
+            eprintln!(
+                "smltools: 命中 {} 处；用 `--migrate apply` 写回（先复核）",
+                report.hits.len()
+            );
+            Ok(1)
+        }
+        "apply" => {
+            let Some(path) = args.input.as_ref() else {
+                return Err(SmlError::from_code_title(E_CLI_003)
+                    .with_detail("`--migrate apply` 需要 `-i <文件>`：写回不能凭空造路径"));
+            };
+            if report.hits.is_empty() {
+                eprintln!("smltools: 没有可迁移的写法");
+                return Ok(0);
+            }
+            let (out, n) = migrate::apply_text(text, &opts);
+            if args.backup {
+                let bak = std::path::PathBuf::from(format!("{}.bak", path.display()));
+                std::fs::write(&bak, text)
+                    .map_err(|e| SmlError::from_code_title(E_IO_001).with_detail(e.to_string()))?;
+                eprintln!("smltools: 备份 {}", bak.display());
+            }
+            std::fs::write(path, out)
+                .map_err(|e| SmlError::from_code_title(E_IO_001).with_detail(e.to_string()))?;
+            eprintln!("smltools: 已改写 {n} 处（{}）", path.display());
+            Ok(0)
+        }
+        _ => unreachable!("clap 的 value_parser 只放行 scan / apply / rules"),
+    }
+}
+
+/// 普通解析路径下的 `@weakdoc` 未命中提示（`W-CLI-001`）｜ Warn about missing profiles on the plain parse path.
+///
+/// 三条纪律（`errors/codes.sml` 的 `W-CLI-001` 条目）：
+/// - **不阻断**：解析照常成功、退出码仍是 0、主树逐字节不变；
+/// - **不改产物**：只往 stderr 写，stdout 的转换结果一个字都不动；
+/// - **只在工具侧**：库按 I-17 硬约束不读文件系统，所以这条码只有 `smltools` 会报。
+///
+/// `--no-profiles` 关掉发现后**不报**（那是用户明确的「别去找」），
+/// `--resolve-profiles` 走自己的出口（未命中退出码 1，见 [`resolve_profiles_mode`]）。
+fn warn_missing_profiles(args: &Args, text: &str) {
+    if args.no_profiles || args.resolve_profiles {
+        return;
+    }
+    // 绝大多数文档没有 `@weakdoc`：先做一次子串预筛，避免为了一条提示白解析一遍。
+    if !text.contains("@weakdoc") {
+        return;
+    }
+    let Ok(out) = sml::parse_with(text, sml::ParseOptions::new()) else {
+        return; // 语法错已由 `load_input` 报过，这里不重复
+    };
+    if out.weak_docs.is_empty() {
+        return;
+    }
+    let roots = profile_search_roots(&args.input, args.profile_dir.as_ref());
+    let who = args
+        .input
+        .as_ref()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "<stdin>".to_string());
+    for wd in &out.weak_docs {
+        let found = roots.iter().any(|(_, dir)| {
+            dir.join(format!("{}.smlex", wd.name)).is_file()
+        });
+        if !found {
+            eprintln!(
+                "{who}: warning: 未找到 profile `{}`（项目 / 用户 / 系统三处都没命中）[{}]",
+                wd.name,
+                sml_codes::W_CLI_001
+            );
+        }
+    }
+}
+
 /// 执行文档所挂 profile 的 `checks`（**只在工具侧**：库不认识 profile）。
 ///
 /// 三种情形分开对待：
-/// - 三处命名空间都没命中 ⇒ **warning**（用户可能只是没装它）；
+/// - 三处命名空间都没命中 ⇒ **warning**（`W-CLI-001`，用户可能只是没装它）；
 /// - 命中但加载失败/格式不对 ⇒ **error**（用户显式挂了它，规则不生效不能静默）；
 /// - 加载成功 ⇒ 跑三项检查，命中即 error（项目自己定的硬规则）。
 fn apply_profile_checks(report: &mut lint::Report, args: &Args, text: &str) {
@@ -1738,10 +1914,12 @@ fn apply_profile_checks(report: &mut lint::Report, args: &Args, text: &str) {
             }
         });
         let Some((scope, path)) = hit else {
+            // **找不到**与**读不出来**是两件事（`errors/codes.sml`）：
+            // 前者是 `W-CLI-001`（用户可能只是没装这份 profile），后者才是 `E-LINT-005`。
             report.messages.push(format!(
                 "{who}: warning: 未找到 profile `{}`（三处命名空间都没命中，跳过它的 checks）[{}]",
                 wd.name,
-                sml_codes::E_LINT_005
+                sml_codes::W_CLI_001
             ));
             continue;
         };
@@ -1993,9 +2171,52 @@ fn real_main() -> ExitCode {
         }
     };
 
+    // 迁移：`rules` 不读输入，先短路（`scan` / `apply` 要等文本读进来）
+    if let Some(mode) = args.migrate.as_deref() {
+        if !matches!(mode, "scan" | "apply" | "rules") {
+            return ExitCode::from(2); // clap 的 value_parser 已挡；这里只兜底
+        }
+        if mode == "rules" {
+            println!("{:<22} {:<26} 说明", "id", "适用版本集");
+            for r in migrate::RULES {
+                println!("{:<22} {:<26} {}", r.id, r.applies, r.desc);
+            }
+            return ExitCode::SUCCESS;
+        }
+        if args.output.is_some() || args.lint || args.hugo.is_some() || args.zola.is_some()
+            || args.to_amberice || args.from_amberice
+        {
+            eprintln!(
+                "smltools: --migrate 与 -o / --lint / --hugo / --zola / --to-amberice / --from-amberice 互斥 [{}]",
+                E_CLI_003
+            );
+            return ExitCode::from(2);
+        }
+    }
+    if (args.rule.is_some() || args.backup || args.migrate_directive.is_some())
+        && args.migrate.is_none()
+    {
+        eprintln!(
+            "smltools: --rule / --backup / --migrate-directive 只与 --migrate 一起用 [{}]",
+            E_CLI_003
+        );
+        return ExitCode::from(2);
+    }
+
     // 弱 profile 引用解析：只做定位（`docs/swsml/spec/weakdoc.md` §3）
     if args.resolve_profiles {
         return match resolve_profiles_mode(&args, &text) {
+            Ok(code) => ExitCode::from(code),
+            Err(e) => {
+                eprintln!("smltools: {e}");
+                ExitCode::from(2)
+            }
+        };
+    }
+
+    // 迁移 scan / apply（`rules` 已在读输入前处理）
+    if args.migrate.is_some() {
+        return match migrate_mode(&args, &text) {
             Ok(code) => ExitCode::from(code),
             Err(e) => {
                 eprintln!("smltools: {e}");
@@ -2038,6 +2259,10 @@ fn real_main() -> ExitCode {
         }
     };
     let value = if args.strip { strip_value(&value) } else { value };
+
+    // `@weakdoc` 找不到 profile：**只告警、不改退出码、不改主树**（`W-CLI-001`）。
+    // 放在 strip 之后、各 emit 分支之前：转换产物不受影响，stderr 只多一行提示。
+    warn_missing_profiles(&args, &text);
 
     // 契约推断（任务 E）：从数据实例反推 `@contract` / JSON 字段表。
     // 与常规 emit 互斥 —— 命中即走此分支，不再进入下面的 emit/Hugo/Zola 逻辑。

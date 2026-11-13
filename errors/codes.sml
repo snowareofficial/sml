@@ -229,8 +229,8 @@ codes: [
       note: "weakbind 第一刀（`docs/swsml/spec/weakbind.md` §3）。照 `@when` 的先例：`@weakbind` 只作用于**紧邻的下一个块**，三类都用本码、靠 detail 区分：dangling（块写完还没等到块）、duplicate（连续两条 `@weakbind`）、target-not-block（后面跟的是标量、数组或片段引用）。为什么一个码而不是三个：触发条件都是「这条声明没能绑定到块上」，只是理由不同 —— 与 E-LEX-007（六类拒绝共用一个码、靠 detail 分）同一做法。仅 `weak` 特性开启时生效：默认关，v1–v4 既有文档一字不变" }
     { id: W-CONTRACT-001 domain: CONTRACT severity: W title: "弱声明与内置契约不匹配"
       msg: "弱绑定 `@weakbind` 与内置契约不匹配（警告，不阻断解析）"
-      impls: [ rust ] status: partial
-      note: "weakbind 软校验（`docs/swsml/spec/weakbind.md` §4 / §7）。两条纪律：**只读**（不填默认值、不改主树，故「有无 `@weakbind` 主树逐字节相同」这条判据仍成立）与**不阻断**（`DiagnosticKind::WeakBindMismatch` ⇒ `Warning`，解析照常出结果）。八档靠**消息前缀**区分（`Diagnostic` 没有 detail 字段，故写成「…（decl.unknown_contract）：…」这种可检索的形式）：声明侧 decl.unknown_contract / decl.unknown_field / decl.type_mismatch，块内容侧 block.missing_required / block.type_mismatch / block.out_of_range / block.enum_mismatch / block.undeclared_field（最后一档仅当契约 strictness 为 strict 时报）。**内置表为空时整段跳过** —— 否则一落地所有弱声明都会报 unknown_contract。另：弱声明**不算**契约定义，`W-LINT-002`「契约定义从未被应用」必须把它排除" }
+      impls: [ rust js c cpp lua ] status: partial
+      note: "weakbind 软校验（`docs/swsml/spec/weakbind.md` §4 / §7）。两条纪律：**只读**（不填默认值、不改主树，故「有无 `@weakbind` 主树逐字节相同」这条判据仍成立）与**不阻断**（`DiagnosticKind::WeakBindMismatch` ⇒ `Warning`，解析照常出结果）。八档靠**消息前缀**区分（`Diagnostic` 没有 detail 字段，故写成「…（decl.unknown_contract）：…」这种可检索的形式）：声明侧 decl.unknown_contract / decl.unknown_field / decl.type_mismatch，块内容侧 block.missing_required / block.type_mismatch / block.out_of_range / block.enum_mismatch / block.undeclared_field（最后一档仅当契约 strictness 为 strict 时报）。**内置表为空时整段跳过** —— 否则一落地所有弱声明都会报 unknown_contract。另：弱声明**不算**契约定义，`W-LINT-002`「契约定义从未被应用」必须把它排除。五端差异：Rust 八档齐；JS / C / C++ / Lua 各实现七档（缺 block.undeclared_field —— 它依赖契约 strictness，那四端没有该概念）⇒ status 仍为 partial" }
     { id: E-CONTRACT-019 domain: CONTRACT severity: E title: "featag 重复声明"
       msg: "同一契约里重复声明了同名的 featag"
       impls: [ rust ] status: done
@@ -261,12 +261,12 @@ codes: [
       note: "featag S4 声明期 / S6 填充期同码。落点写作 `!cert: str -> tls.cert`，**只穿对象**：写成 `-> node[0]` 或路径语法非法（连续的 `.`、空段等）都在此拒。§10 Q12 已定「不穿数组」——数组填充要做幂等（谁的顺序？重复执行会怎样？）没有好答案，故语法层直接不开这个口子" }
     { id: W-PARSE-001 domain: PARSE severity: W title: "同一块内键名重复"
       msg: "同一块内键名重复：后者已提升为数组（结构被改写）"
-      impls: [ rust ] status: partial
-      note: "解析期诊断，经 `parse_with_warnings` / `parse_file_with_warnings` 交出、带行号；语义不变（SML 既定：`k: 1` + `k: 2` ⇒ `k: [1, 2]`）。与工具层 W-LINT-003 的分域：本条是**解析器**在文档里真的发生了提升时产出；W-LINT-003 是 `smltools --lint` 的纯文本扫描（不解析）。其余四端解析器无诊断通道，故 status: partial" }
+      impls: [ rust js c cpp lua ] status: done
+      note: "解析期诊断，经各端的「解析成功 + 诊断列表」出口交出、带行号（Rust `parse_with_warnings`／JS `parseSafe().warnings`／C `sml_parse_ex`+`sml_diag`／C++ `Parser::parse(..., &diags)`／Lua `Sml.parse_with_warnings`）；语义不变（SML 既定：`k: 1` + `k: 2` ⇒ `k: [1, 2]`）。与工具层 W-LINT-003 的分域：本条是**解析器**在文档里真的发生了提升时产出；W-LINT-003 是 `smltools --lint` 的纯文本扫描（不解析）" }
     { id: W-PARSE-002 domain: PARSE severity: W title: "片段展开覆盖父块键"
       msg: "片段展开覆盖了父块已有的同名键：父块原值丢失"
       impls: [ rust ] status: partial
-      note: "`&name` 合并走直接赋值、**不走**数组提升 ⇒ 丢值（危险度高于 W-PARSE-001）。同样经 `*_with_warnings` 交出、带行号；其余四端无诊断通道" }
+      note: "`&name` 合并走直接赋值、**不走**数组提升 ⇒ 丢值（危险度高于 W-PARSE-001，是「静默丢数据」里最该报的一档）。只在 Rust 侧产出：其余四端虽已有「成功 + 诊断列表」出口（见 W-PARSE-001），但片段合并路径尚未接这条告警 ⇒ 属已知缺口，不是「无通道」" }
 
     # ================= 深度与预算上限（语言层） =================
     { id: E-LIMIT-001 domain: LIMIT severity: E title: "嵌套过深"
@@ -678,6 +678,11 @@ codes: [
       impls: [ smltools ] status: done
       note: "clap 自身的用法错误（未知参数 / 缺取值 / 非法枚举）原先由 clap 直接打印并 exit 2、**不带码**；W21 立此码，让 smltools 接管这层输出（在其消息上补码，不重写 clap 的用法提示）。与 E-CLI-001..007 的区别：那七条是**我们自己**的校验，本条是**解析器/框架**报的用法错误" }
 
+    { id: W-CLI-001 domain: CLI severity: W title: "引用的 profile 未找到"
+      msg: "工具侧在项目、用户、系统三处命名空间都未找到该 profile（警告，不阻断解析）"
+      impls: [ smltools ] status: done
+      note: "weakdoc（`docs/swsml/spec/weakdoc.md` §3）。触发条件：文档显式写了 `@weakdoc`，工具侧按项目、用户、系统三处命名空间查找均未命中。库按 I-17 硬约束不读文件系统，故本码只由 `smltools` 产出；四端 i18n 表能查到该码，但不自行报。warning 不阻断：解析照常成功、退出码 0、主树逐字节不变（产物与「没有 `@weakdoc`」的那份逐字节相同，`smltools/tests/warn_missing_profile.rs` 有对照组）。两个出口**同一个码**：普通解析写 stderr（`warn_missing_profiles`）、`--lint` 写进报告（`apply_profile_checks`）。两条不报的边界：`--no-profiles`（用户明确「别去找」）与 `--resolve-profiles`（显式查询，未命中退出码 1，不掺本码）。与 `E-LINT-005` 的分工：**找不到**是本码（可能只是没装），**找到了但读不出来**才是 `E-LINT-005`" }
+
     # ================= lint 诊断（工具层） =================
     { id: E-LINT-001 domain: LINT severity: E title: "缩进里出现制表符"
       msg: "缩进里出现制表符：SML 缩进敏感，请统一用空格"
@@ -698,7 +703,7 @@ codes: [
     { id: E-LINT-005 domain: LINT severity: E title: "profile 无法加载"
       msg: "`.smlex` 读不出来或不是合法 SML，或 name 与文件名不一致"
       impls: [ smltools ] status: done
-      note: "按错误处理而非告警：profile 是**用户显式挂的**（文档里写了 `@weakdoc`），加载不了说明这份文档的规则没生效 —— 静默跳过会让「规则明明写了却不生效」变成谜。三处命中同一码，靠 detail 区分（IO / 解析 / name 不符）。profile 找不到（三命名空间都没命中）仍只是 warning：那时用户可能只是没装它" }
+      note: "按错误处理而非告警：profile 是**用户显式挂的**（文档里写了 `@weakdoc`），加载不了说明这份文档的规则没生效 —— 静默跳过会让「规则明明写了却不生效」变成谜。三处命中同一码，靠 detail 区分（IO / 解析 / name 不符）。**三命名空间都没命中**不走本码：那是 `W-CLI-001`（可能只是没装它），两条码一错一警，不能混用" }
     { id: E-LINT-004 domain: LINT severity: E title: "profile 禁止的键出现"
       msg: "文档里出现了 profile 明令禁止的键"
       impls: [ smltools ] status: done

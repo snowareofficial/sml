@@ -211,10 +211,28 @@ export function namespaceHoverMarkdown(text, nsPath, files, fallbackKeys) {
 /// 扩展此前只传文本 ⇒ **凡是用 include 的文档在编辑器里整行标红**（用户实测：
 /// `examples/advanced.sml` 的 include/import 行全红，而命令行/Rust 侧一切正常）。
 /// 文件表由宿主读盘提供（见 extension.js 的 `buildFilesMap`）。
+/// 解析失败且解析器**没给位置**时，按错误消息点名的指令反查行号。
+///
+/// 退到 `{line:0,col:0}` 是错的：文档首行常是注释，而诊断会把范围拉到行尾 ⇒
+/// 用户看到「注释整行标红」，完全不知道真正的错误在哪。优先找错误消息里出现的
+/// `@指令` 在正文（跳过注释）里的首次出现；找不到再退到第一条正文非空行。
+function fallbackErrorPosition(text, error) {
+  const lines = String(text).split("\n");
+  const isCode = (l) => l.trim() !== "" && !l.trimStart().startsWith("#");
+  for (const m of String(error || "").matchAll(/@[A-Za-z][\w.\-]*/g)) {
+    const i = lines.findIndex((l) => isCode(l) && l.includes(m[0]));
+    if (i >= 0) return { line: i, col: Math.max(0, lines[i].indexOf(m[0])) };
+  }
+  const i = lines.findIndex(isCode);
+  if (i >= 0) return { line: i, col: Math.max(0, lines[i].search(/\S/)) };
+  return { line: 0, col: 0 };
+}
+
 export function diagnose(text, opts) {
   const r = parseSafe(text, opts);
   if (r.ok) return [];
-  const pos = r.position ?? (r.pos != null ? offsetToPosition(text, r.pos) : { line: 0, col: 0 });
+  const pos = r.position
+    ?? (r.pos != null ? offsetToPosition(text, r.pos) : fallbackErrorPosition(text, r.error));
   // 解析一旦失败即中止，因此同时只有一条错误；把错误范围标到该行行尾
   const lineText = (text.split("\n")[pos.line] ?? "");
   return [
@@ -256,6 +274,10 @@ const RESERVED_DIRECTIVES = new Set([
   "for",
   "include",
   "import",
+  "requires",
+  "weakbind",
+  "weakdata",
+  "weakdoc",
 ]);
 
 /// 收集文档中出现过的片段名（供补全）
@@ -1150,4 +1172,119 @@ export function collectKeys(text) {
   let m;
   while ((m = re.exec(text)) !== null) keys.add(m[1]);
   return [...keys];
+}
+
+/// 收集 featag 名（契约内 `!name` 声明与块头 `!name` 用法）｜ collect featag names.
+///
+/// `!=` 与 `!!` 不是记号：后顾断言把这两类排掉，避免把比较运算符里的 `!` 当成标签。
+export function collectFeatagNames(text) {
+  const names = new Set();
+  const re = /(?<![=!])!([\p{L}_][\p{L}\p{N}_.\-]*)/gu;
+  let m;
+  while ((m = re.exec(text)) !== null) names.add(m[1]);
+  return [...names];
+}
+
+/// 收集文档显式引用的 profile 名（`@weakdoc <名>`）｜ collect `@weakdoc` references.
+/** 去掉行内 `#` 注释（引号内的 `#` 不算）｜ strip an inline `#` comment. */
+function stripHashComment(line) {
+  let inStr = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"' && line[i - 1] !== "\\") inStr = !inStr;
+    else if (ch === "#" && !inStr) return line.slice(0, i);
+  }
+  return line;
+}
+
+export function collectWeakDocs(text) {
+  // 与 `weakDocRefs` 同一判据（单一实现）：注释里的 `@weakdoc` 不是引用。
+  return [...new Set(weakDocRefs(text).map((r) => r.name))];
+}
+
+/** `@weakdoc <名>` 的**位置**（行列从 0 起）｜ positions of `@weakdoc` references.
+ *
+ * 与 `collectWeakDocs` 同一字符类，只是还要位置 —— 编辑器侧要点在名字上画提示。
+ * 逐行扫：`\s` 会跨行，多行写法（`@weakdoc` 换行给名字）不算引用。
+ */
+export function weakDocRefs(text) {
+  const out = [];
+  const lines = String(text).split(/\r?\n/);
+  const re = /@weakdoc[ \t]+([\p{L}_][\p{L}\p{N}_.\-]*)/gu;
+  for (let i = 0; i < lines.length; i++) {
+    // 注释里的不算：`# @weakdoc x` 不是引用（否则编辑器会为一句注释报提示）
+    const line = stripHashComment(lines[i]);
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(line)) !== null) {
+      out.push({
+        name: m[1],
+        line: i,
+        col: m.index + m[0].length - m[1].length,
+        endCol: m.index + m[0].length,
+      });
+    }
+  }
+  return out;
+}
+
+/** 引用的 profile **不在** `known` 里 ⇒ 需要提示（`W-CLI-001`）。
+ *
+ * `known` 由调用方扫文件系统得到 —— 本模块**不碰 fs**：库与解析器都不读文件系统
+ * （`docs/swsml/spec/weakdoc.md` 的 I-17 硬约束），发现是编辑器 / `smltools` 的事。
+ * 这样「有没有 profile，解析结果完全一致」由构造保证，不靠测试兜底。
+ */
+export function missingProfileRefs(text, known) {
+  const names = known instanceof Set ? known : new Set(known || []);
+  return weakDocRefs(text).filter((r) => !names.has(r.name));
+}
+
+/// 取出一个具名块的**配平**内容（不剥注释）｜ balanced body of a named block.
+function blockBody(text, name) {
+  const m = new RegExp("(?:^|\\s)" + name + "\\s*\\{", "m").exec(text);
+  if (!m) return "";
+  const start = m.index + m[0].length;
+  let depth = 1, inStr = false, i = start;
+  for (; i < text.length && depth > 0; i++) {
+    const ch = text[i];
+    if (ch === '"' && text[i - 1] !== "\\") inStr = !inStr;
+    if (inStr) continue;
+    if (ch === "{") depth++;
+    else if (ch === "}") depth--;
+  }
+  return text.slice(start, Math.max(start, i - 1));
+}
+
+/// 取 `[ ... ]` 里的词（引号串或裸词各算一个）｜ words inside a bracket list.
+function listOf(body, key) {
+  const m = new RegExp("\\b" + key + "\\s*:\\s*\\[([^\\]]*)\\]").exec(body);
+  if (!m) return [];
+  return [...m[1].matchAll(/"([^"]+)"|([\p{L}_][\p{L}\p{N}_.\-]*)/gu)]
+    .map((x) => x[1] ?? x[2])
+    .filter(Boolean);
+}
+
+/// 读 `.smlex` profile 的编辑器相关字段 ｜ read editor-facing fields of a `.smlex` profile.
+///
+/// 只取 `name` / `version` / `description` / `hints` / `applies_to.glob`；`checks` 与 `emit`
+/// 归工具侧，编辑器不解释。返回 `{ name, version, description, keys, values, globs }`。
+export function parseProfileFields(text) {
+  const scalar = (key) => {
+    const m = new RegExp("^\\s*" + key + "\\s*:\\s*(?:\"([^\"]*)\"|([^\\s#]+))", "m").exec(text);
+    return m ? (m[1] ?? m[2] ?? "") : "";
+  };
+  const hints = blockBody(text, "hints");
+  const values = Object.create(null);
+  const vb = hints ? blockBody(hints, "values") : "";
+  for (const m of vb.matchAll(/([\p{L}_][\p{L}\p{N}_.\-]*)\s*:\s*\[([^\]]*)\]/gu)) {
+    values[m[1]] = listOf(vb, m[1]);
+  }
+  return {
+    name: scalar("name"),
+    version: scalar("version"),
+    description: scalar("description"),
+    keys: hints ? listOf(hints, "keys") : [],
+    values,
+    globs: listOf(blockBody(text, "applies_to"), "glob"),
+  };
 }

@@ -178,8 +178,23 @@ function tokenize(text) {
       flush();
       toks.push({ t: "?", v: "?", pos: i });
       i++;
+    } else if (c === "$" && text[i + 1] === "{") {
+      // `${var}` 整体作为一个 word（`@for` 插值）：否则 `{` / `}` 会被当结构记号切开。
+      // Keep `${var}` as one word so it survives structural splitting.
+      const close = text.indexOf("}", i + 2);
+      if (close >= 0) { buf += text.slice(i, close + 1); i = close + 1; }
+      else { buf += c; i++; }
     } else if (c === "@") {
-      if (buf === "") { toks.push({ t: "@", v: "@", pos: i }); }
+      if (buf === "") {
+        // 孤立 `@`：其后紧跟空白 / 行尾 ⇒ 没有指令名或片段名。
+        // 与 Rust 的 `Tok::BareAt` 同判据（`sml-lex/src/lib.rs` 的 `'@'` 分支）。
+        // 不区分的话，`@` + 下一行的 `k` 会被拼成 `@k` 未注册指令（E-PARSE-005）。
+        const nextCh = i + 1 < n ? text[i + 1] : "";
+        toks.push({
+          t: "@", v: "@", pos: i,
+          bare: nextCh === "" || " \t\n\r".includes(nextCh),
+        });
+      }
       else { buf += c; }
       i++;
     } else if (" \t\n\r".includes(c)) {
@@ -353,7 +368,16 @@ function isScalarValue(tok) {
   return numericHead && NUMERIC_LITERAL.test(w);
 }
 
+// `@for` 的循环变量绑定（单线程解析；展开时临时设置、展开后清空）。
+// `@for` loop-variable bindings: set during expansion, cleared afterwards.
+let gLoopVars = null;
+
 function coerceStr(s, fragments, feats) {
+  // `${var}` 只读插值：未绑定则原样保留。
+  // Read-only loop-variable interpolation; unknown names stay verbatim.
+  if (gLoopVars) {
+    s = s.replace(/\$\{([\w_]+)\}/g, (m, n) => (n in gLoopVars ? String(gLoopVars[n]) : m));
+  }
   if (!s.includes("$env.")) return s;
   // 与 coerceWord 同一道闸（引号串里的 `$env.X` 同样要受 `env` 特性管辖）
   if (feats && !feats.has("env")) {
@@ -532,6 +556,9 @@ const KNOWN_FEATURES = new Set([
   "bareword-string", "include", "env", "contract", "fragment", "top-level-array",
   "namespace", "implicit-ns", "multi-include", "glob-include", "regex-include",
   "ext-rewrite", "when", "for", "typed-block",
+  // 与 Rust `FEATURES` 对齐的其余 5 个（此前漏登记，导致 `@feature enable type.weak`
+  // 被误报成「未知特性」E-FEATURE-003）
+  "case-insensitive", "block-name", "type.featag", "lex.ident", "type.weak",
   // JS 别名 / 独有
   "top-array", "bareword-str", "escape",
 ]);
@@ -561,6 +588,20 @@ function normalizeAllowed(x) {
 // 与 Rust 的 `Version::from_word` 同口径：接受 `v1`/`1`…`v4`/`4`；其余一律 E-FEATURE-004。
 // 优先级：`@version` 显式声明 > `@feature base` > 默认 V1（与 Rust 的
 // `declared.or(base).unwrap_or(V1)` 一致）。
+// 版本字面量 → 主版本号（与 Rust `Edition::parse` 同口径）。
+// 1..4 = 本实现支持；5 = 5.0 族（Dev，未启用）；0 = 无法识别。
+// 接受 `vN` / `N` / `N.0` / `N0`（连写）与代号 `camelia`（等价 50）。
+function versionLitMajor(raw) {
+  let s = String(raw);
+  if (s.length >= 2 && s.startsWith('"') && s.endsWith('"')) s = s.slice(1, -1);
+  if (s === "camelia") return 5;
+  if (s[0] === "v" || s[0] === "V") s = s.slice(1);
+  if (!/^[1-9]/.test(s)) return 0;
+  const major = Number(s[0]);
+  const ok = s.length === 1 || /^\d\.0$/.test(s) || /^\d0$/.test(s);
+  return ok ? major : 0;
+}
+
 function detectVersion(text) {
   // ⚠️ 必须**行首**（允许缩进）才算指令；注释里的 `@version` 不是声明。
   const re = /^[ \t]*@(version|feature\s+base)[ \t]+([^\s#/]+)/gm;
@@ -572,12 +613,18 @@ function detectVersion(text) {
   }
   const lit = declared !== null ? declared : base;
   if (lit === null) return { v: null, declaredLit: null };
-  // 非法版本（含 v0 / v5 / 字母）⇒ E-FEATURE-004，文案点名「当前支持 v1..v4」
-  if (!/^v?[1-4]$/.test(lit)) {
+  const major = versionLitMajor(lit);
+  // 无法识别（v0 / 字母 / 乱写）⇒ E-FEATURE-004，文案点名支持范围
+  if (major === 0) {
     throwCode("E-FEATURE-004",
-      "sml: 版本声明非法，当前支持 v1..v4（@version vN / @feature base vN，N=1..4）");
+      "sml: 未知版本 `" + lit + "`；仅支持 v1..v4（@version vN / @feature base vN，N=1..4）");
   }
-  return { v: lit, declaredLit: lit };
+  // 5.0 族：写法合法，但该代尚未定稿（Dev）⇒ 同码，文案说清「为什么不行」
+  if (major > 4) {
+    throwCode("E-FEATURE-004",
+      "sml: 版本 `" + lit + "` 尚未启用（5.0 仍为 Dev；本实现支持 v1..v4）");
+  }
+  return { v: major, declaredLit: lit };
 }
 
 // 版本 → 特性基集（与 Rust 的 `FeatureSet::for_version` 同构）：
@@ -585,9 +632,9 @@ function detectVersion(text) {
 // （严格模式：自由文本必须引号，数字 / bool / null / 片段引用 / `$env.X` 仍为裸词）。
 // v4 与 v3 在特性基集上**完全相同**；v4 额外把片段定义改为显式 `type:`/`name:` 关键字
 // 形式（位置参数自 v4 废弃），那一层属解析器语义、不在此基集内。
-function scanVersionBase(vLit) {
+function scanVersionBase(major) {
   const base = new Set(DEFAULT_FEATURES);
-  const n = vLit ? parseInt(vLit.replace(/^v/, ""), 10) : 1;
+  const n = major || 1;   // null = 未声明 ⇒ 默认 v1
   if (n >= 2) { base.delete("bareword-str"); base.delete("bareword-string"); }
   return base;
 }
@@ -628,7 +675,12 @@ function collectFeatures(text, base, allowed) {
             m.index);
         }
         feats.add(w);
-      } else feats.delete(w);
+      } else {
+        // disable 必须连别名一起删：`featAllowed` 是「原名或别名任一存在即开」，
+        // 只删原名会让 `@feature disable top-level-array` 对 `top-array` 无效。
+        feats.delete(w);
+        if (FEAT_ALIAS[w]) feats.delete(FEAT_ALIAS[w]);
+      }
     }
   }
   return feats;
@@ -1117,7 +1169,7 @@ export function contractMapToSml(contractMap) {
 // 解析（递归下降）
 // ---------------------------------------------------------------------------
 
-export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllowedArg) {
+export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllowedArg, warningsOut) {
   // —— 文件级规范化：去掉开头的 **UTF-8 BOM**（U+FEFF）——
   //
   // 为什么必须去：本词法器按显式分隔符切词（不是用 `\s`），所以 BOM **不会**被当空白，
@@ -1172,7 +1224,9 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
   // 不是合法的 SML 转义，只有先取出原文才能像 Rust 那样按原文匹配。两次预处理都是
   // **等长替换**，所以 token 的 `pos` 始终与原文对应（诊断行列才不会漂）。
   const pre = prescanRegexPatterns(text);
-  const toks = tokenize(stripFeatureLines(pre.text));
+  // `let`：`@for` 展开时要临时换成循环体的子 token 流，展开完恢复。
+  // `let` so `@for` can swap in the loop body's token slice and restore it.
+  let toks = tokenize(stripFeatureLines(pre.text));
   // 嵌套深度闸门：在入口对 token 流做一次 O(n) 线性扫描。
   // 比在每个递归点插桩更简单，也更难绕过（词法已定，括号/方括号即成对出现）。
   {
@@ -1190,6 +1244,14 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
   }
   const fragments = new Map();
   const contracts = {};
+  // 弱绑定旁路表与内置契约表（宿主注入）。都**不进主树**。
+  // Weak-binding side table + host-injected builtin contracts; never touch the value.
+  const weakBinds = [];
+  const builtinContracts = (opts && opts.builtinContracts) || null;
+  // 诊断（warning）出口：默认不收集；调用方传 `warningsOut` 才写入。
+  // 与 Rust 的 `ParseOutput.diagnostics` 同定位（码是稳定契约，文案不是）。
+  // Diagnostics sink: empty unless the caller passes `warningsOut`.
+  const warnings = warningsOut || [];
   // @type 自定义类型：名 -> 模式数据（Loom-in-SML：规则即 SML 数据）
   const types = new Map();
   const nsMap = {};
@@ -1693,18 +1755,155 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
     return results;
   }
 
+  // `@for var in a b c { ... }` —— 有界循环展开，返回数组。
+  // 只遍历有限枚举、变量只读、无 `while` / 无递归。
+  // Bounded loop only: finite enumeration, read-only variable, no recursion.
+  const parseFor = () => {
+    i += 2;   // 越过 `@` 与 `for`
+    const varTok = peek();
+    if (!varTok || varTok.t !== "word") fail("E-PARSE-018", "sml: `@for` 缺少循环变量");
+    const varName = varTok.v;
+    i++;
+    if (!peek() || peek().v !== "in") fail("E-PARSE-018", "sml: `@for` 缺少 `in`");
+    i++;
+    const items = [];
+    while (peek() && peek().t === "word") { items.push(peek().v); i++; }
+    if (items.length === 0) fail("E-PARSE-018", "sml: `@for` 的 `in` 之后至少须有一个枚举项");
+    if (!peek() || peek().t !== "{") fail("E-PARSE-018", "sml: `@for` 缺少循环体 `{ ... }`");
+    const start = i + 1;
+    let j = start, depthB = 1;
+    while (j < toks.length) {
+      if (toks[j].t === "{") depthB++;
+      else if (toks[j].t === "}") { depthB--; if (depthB === 0) break; }
+      j++;
+    }
+    if (depthB !== 0) fail("E-PARSE-001", "sml: 未闭合的块（遇到文件结尾，缺少结束符号 }）");
+    const end = j;
+    const arr = [];
+    const savedToks = toks, savedI = i;
+    for (const item of items) {
+      // 必须从**原始**流切片：上一轮循环已把 `toks` 换成子数组。
+      const sub = savedToks.slice(start, end);
+      sub.push({ t: "}", v: "}", pos: savedToks[end].pos });
+      toks = sub;
+      i = 0;
+      gLoopVars = gLoopVars || {};
+      gLoopVars[varName] = item;
+      arr.push(parseBlock("}"));
+    }
+    toks = savedToks;
+    i = end + 1;
+    if (gLoopVars) delete gLoopVars[varName];
+    return arr;
+  };
+
   function parseBlock(closing) {
     const node = {};
+    // `@when` 的挂起条件：只作用于紧邻的下一个字段/块，消费后清空
+    let pendingWhen = null;
+    // `@weakbind <名>` 的挂起：作用于紧邻的下一个**块**，块收尾时做只读软校验。
+    // Pending weak binding: applies to the next block, checked read-only at its close.
+    let pendingWeak = null;
     const setField = (k, v) => {
+      // 键名位置不支持 `${...}` 插值（循环变量只可用于值位置）。
+      // No `$` interpolation in key position (E-PARSE-013).
+      if (k.includes("${")) {
+        fail("E-PARSE-013", "sml: 键名位置不支持 `$` 插值：循环变量只可用于值位置");
+      }
+      // 条件为假则丢弃这一项（字段与块都走这里）
+      if (pendingWhen === false) { pendingWhen = null; return; }
+      pendingWhen = null;
+      // 弱绑定软校验：`@weakbind X` 之后的那个块，用内置表只读检查（不填默认值）。
+      if (pendingWeak && v && typeof v === "object" && !Array.isArray(v)) {
+        const wc = builtinContracts && builtinContracts[pendingWeak];
+        if (wc && wc.fields) {
+          for (const [fk, sp] of Object.entries(wc.fields)) {
+            if (!sp || DANGEROUS_KEYS.has(fk)) continue;
+            const has = fk in v;
+            if (sp.required && !has) {
+              warnings.push({
+                code: "W-CONTRACT-001",
+                message: "sml: 块里缺必填字段 `" + pendingWeak + "." + fk + "`",
+                pos: peek() ? peek().pos : 0,
+              });
+            } else if (has && sp.type && !valueMatchesType(v[fk], sp)) {
+              // 类型 / 枚举不符：只报 warning，**不改变值**（与 Rust 的 block.* 同定位）。
+              warnings.push({
+                code: "W-CONTRACT-001",
+                message: "sml: 字段 `" + pendingWeak + "." + fk + "` 与内置契约类型不符",
+                pos: peek() ? peek().pos : 0,
+              });
+            } else if (has && typeof v[fk] === "number"
+                       && ((sp.min !== undefined && v[fk] < sp.min)
+                           || (sp.max !== undefined && v[fk] > sp.max))) {
+              // 区间越界：同样是只读提示（与 Rust 的 block.out_of_range 同定位）。
+              warnings.push({
+                code: "W-CONTRACT-001",
+                message: "sml: 字段 `" + pendingWeak + "." + fk + "` 超出内置契约的区间",
+                pos: peek() ? peek().pos : 0,
+              });
+            }
+          }
+        }
+        pendingWeak = null;
+      }
       // 原型污染防护：文档里的**键名**同样不可为危险键。
       // 只堵 include 的命名空间路径不够 —— `__proto__: x` 直接写在文档里，
       // 赋值时会顺着原型链改写该对象的原型。
       if (DANGEROUS_KEYS.has(k)) fail("E-PARSE-010", "sml: 键名不可使用 `" + k + "`");
       if (node[k] === undefined) node[k] = v;
-      else if (Array.isArray(node[k])) node[k].push(v);
-      else node[k] = [node[k], v];
+      else {
+        // 重复键提升为数组，同时留一条 `W-PARSE-001`（与 Rust 的 DuplicateKey 同码）。
+        // 值树不变 —— warning 只提示「你可能写重了」。
+        warnings.push({
+          code: "W-PARSE-001",
+          message: "sml: 键 `" + k + "` 重复出现，已提升为数组",
+          pos: peek() ? peek().pos : 0,
+        });
+        if (Array.isArray(node[k])) node[k].push(v);
+        else node[k] = [node[k], v];
+      }
     };
     let appliedContract = null;
+    // `@when` 条件求值（闭集，与 Rust `cond.rs::eval_when_cond` 同语义）
+    const evalWhen = () => {
+      const lhsTok = peek();
+      if (!lhsTok || (lhsTok.t !== "word" && lhsTok.t !== "str")) {
+        fail("E-PARSE-014", "sml: `@when` 后须条件（如 `$env.ENV == \"prod\"`）");
+      }
+      const lhs = lhsTok.v;
+      const m = /^\$env\.(.+)$/.exec(lhs);
+      if (!m || !m[1]) {
+        fail("E-PARSE-014", "sml: `@when` 的条件左侧只支持 `$env.NAME`，得 `" + lhs + "`");
+      }
+      if (!feats.has("env")) {
+        fail("E-FEATURE-002", "sml: `@when $env." + m[1] + "` 需要特性 `env`");
+      }
+      const actual = envLookup(m[1]);
+      i++;
+      const opTok = peek();
+      let op = null;
+      if (opTok && opTok.t === "word" &&
+          (opTok.v === "==" || opTok.v === "!=" || opTok.v === "=")) {
+        op = opTok.v; i++;
+      } else if (opTok && opTok.t === "=") {
+        // JS 词法把 `==` 切成两个 `=` token（Rust 那边是一个 Word("==")）
+        if (toks[i + 1] && toks[i + 1].t === "=") { op = "=="; i += 2; }
+        else { op = "="; i++; }
+      }
+      if (!op) return actual !== "" && actual !== "0" && actual !== "false";
+      const rhsTok = peek();
+      if (!rhsTok || (rhsTok.t !== "word" && rhsTok.t !== "str")) {
+        fail("E-PARSE-015", "sml: `@when` 的 `" + op + "` 后须比较值");
+      }
+      // 漏写比较值时，下一个字段名会被当成比较值吃掉 —— 判据看 rhs 之后是不是 `:`。
+      if (toks[i + 1] && toks[i + 1].t === ":") {
+        fail("E-PARSE-015", "sml: `@when` 的 `" + op + "` 后缺少比较值（写成了运算符后直接换行）");
+      }
+      i++;
+      const eq = actual === rhsTok.v;
+      return op === "!=" ? !eq : eq;
+    };
     let closed = false;
     while (i < toks.length) {
       const tok = peek();
@@ -1720,11 +1919,123 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
         }
         fail("E-PARSE-003", "sml: 多余的结束符号 " + tok.t + "（此处没有需要关闭的容器）");
       }
-      if (tok.t === ",") { i++; continue; }
+      if (tok.t === ",") {
+        // 逗号只用于对象字段分隔（`k: v, k2: v2`）：其后须是 `key:`。
+        // 否则是裸词拆分（`a: x,y`）或孤立逗号 —— 报错而非静默吞掉
+        // （与 Rust 的 looks_like_field_sep 同判据）。
+        const ca = toks[i + 1], cb = toks[i + 2];
+        if (!(ca && (ca.t === "word" || ca.t === "str") && cb && cb.t === ":")) {
+          fail("E-PARSE-007", "sml: 非预期的逗号：裸词中不可含逗号，请改用数组或引号包裹");
+        }
+        i++; continue;
+      }
       if (tok.t === "@") {
+        // 孤立 `@`（其后是空白 / 行尾）：必须报错，否则会把下一行的键
+        // 当成指令名（`@\nk: 1` → `@k`）或把紧随的块当片段体吞掉。
+        if (tok.bare) fail("E-PARSE-004", "sml: 孤立的 @：其后没有指令名或片段名");
         i++;
         if (!peek()) fail("E-PARSE-011", "sml: @ 后需名称");
         const fname = peek().v;
+        // 默认忽略：未开 `type.weak` 时 weak* 不解释、不校验、不产出（weakbind.md §0.3）。
+        // 只吞「指令 + 同一行的参数」；`{` 形态留给片段定义。
+        if ((fname === "weakbind" || fname === "weakdata" || fname === "weakdoc")
+            && !feats.has("type.weak")) {
+          // 2026-11-13 裁决：未开 `type.weak` 时响亮拒绝（与 Rust 同码 001）。
+          fail("E-FEATURE-001",
+            "sml: `" + fname + "`：当前文档已禁用该特性（请先写 `@feature enable type.weak`）");
+        }
+        if (fname === "weakbind") {
+          // 开了 `type.weak`：登记弱绑定 + 声明侧软校验（只读，不改值树）。
+          // 判据与 Rust `check_weak_decl` 同源：内置表里没有这个名字 ⇒ W-CONTRACT-001。
+          i++;   // weakbind
+          const nameTok = peek();
+          const wname = nameTok && nameTok.v;
+          if (!wname) fail("E-PARSE-019", "sml: `@weakbind` 后须契约名");
+          const wpos = nameTok.pos;
+          if (builtinContracts && !(wname in builtinContracts)) {
+            warnings.push({
+              code: "W-CONTRACT-001",
+              message: "sml: 内置契约表里没有 `" + wname + "`",
+              pos: wpos,
+            });
+          }
+          // 可选字段体 `{ 字段: 类型 ... }`：**只**用于声明侧软校验，不进主树。
+          // 判据必须看行号 —— `@weakbind tls` 换行后的 `server { ... }` 是下一个块，不是体。
+          i++;
+          if (peek() && peek().t === "{" && peek().line === nameTok.line) {
+            i++;
+            const bodyFields = {};
+            while (i < toks.length && toks[i].t !== "}") {
+              const fk = toks[i];
+              if (!fk || (fk.t !== "word" && fk.t !== "str")) break;
+              i++;
+              if (toks[i] && toks[i].t === ":") i++;
+              const ty = (toks[i] && toks[i].t === "word") ? toks[i].v : "any";
+              if (toks[i] && toks[i].t === "word") i++;
+              bodyFields[fk.v] = ty;
+            }
+            if (toks[i] && toks[i].t === "}") i++;
+            const bc = builtinContracts && builtinContracts[wname];
+            if (bc && bc.fields) {
+              for (const [fk, ty] of Object.entries(bodyFields)) {
+                const sp = bc.fields[fk];
+                if (!sp) {
+                  warnings.push({
+                    code: "W-CONTRACT-001",
+                    message: "sml: 契约 `" + wname + "` 没有字段 `" + fk + "`",
+                    pos: wpos,
+                  });
+                } else if (sp.type && sp.type !== ty) {
+                  warnings.push({
+                    code: "W-CONTRACT-001",
+                    message: "sml: 字段 `" + wname + "." + fk + "` 的类型与内置契约不同",
+                    pos: wpos,
+                  });
+                }
+              }
+            }
+          }
+          weakBinds.push({ name: wname, kind: "weakbind", pos: wpos });
+          pendingWeak = wname;
+          continue;
+        }
+        if (fname === "weakdata" || fname === "weakdoc") {
+          // 开了 `type.weak`：`@weakdoc <profile>` 只登记名字；`@weakdata <名> { … }`
+          // 允许内联载荷块（**不解释**，只跳过占位，值树不受影响）。
+          i++;   // weak* 名
+          const wname2 = peek() && peek().v;
+          if (!wname2) fail("E-PARSE-019", "sml: `@" + fname + "` 后须名字");
+          const wpos2 = peek().pos;
+          i++;
+          if (fname === "weakdoc" && peek() && peek().t === "{") {
+            fail("E-PARSE-019",
+              "sml: `@weakdoc` 只写 profile 名，不接受载荷块（要内联数据请用 `@weakdata`）");
+          }
+          if (fname === "weakdata" && peek() && peek().t === "{") {
+            i++;
+            let d = 1;
+            while (i < toks.length && d > 0) {
+              if (toks[i].t === "{") d++;
+              else if (toks[i].t === "}") d--;
+              i++;
+            }
+            if (d !== 0) fail("E-PARSE-001", "sml: 未闭合的块（遇到文件结尾，缺少结束符号 }）");
+          }
+          weakBinds.push({ name: wname2, kind: fname, pos: wpos2 });
+          continue;
+        }
+        if (fname === "when") {
+          // 条件裁剪：只作用于紧邻的下一个字段/块
+          if (!feats.has("when")) {
+            fail("E-FEATURE-001", "sml: `when`：当前文档已禁用该特性");
+          }
+          if (pendingWhen !== null) {
+            fail("E-PARSE-016", "sml: `@when` 连续出现：它只作用于紧邻的下一个字段或块");
+          }
+          i++; // 消费 when
+          pendingWhen = evalWhen();
+          continue;
+        }
         if (fname === "version") {
           // `@version` 的合法性（v1..v4 / 1..4）已在解析入口的 detectVersion 校验；
           // 非法版本会在 collectFeatures 之前就抛 E-FEATURE-004。这里只负责消费指令，
@@ -2056,6 +2367,14 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
         }
       }
       const nxt = peek();
+      if (nxt && nxt.t === "@" && toks[i + 1] && toks[i + 1].v === "for") {
+        // 值位置 `@for`：有界循环展开成数组（opt-in）。
+        if (!feats.has("for")) {
+          fail("E-FEATURE-001", "sml: `for`：当前文档已禁用该特性");
+        }
+        setField(key, parseFor());
+        continue;
+      }
       if (nxt && nxt.t === "{") {
         i++;
         pushKey(key);
@@ -2088,6 +2407,9 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
     // `i` 也恰好等于长度，用后者会把**合法文档**误判成未闭合。
     if (closing != null && !closed) {
       fail("E-PARSE-001", "sml: 未闭合的块（遇到文件结尾，缺少结束符号 " + closing + "）");
+    }
+    if (pendingWhen !== null) {
+      fail("E-PARSE-017", "sml: `@when` 后未跟随任何字段或块（悬空的条件）");
     }
     if (appliedContract) {
       const c = contracts[appliedContract];
@@ -2169,7 +2491,14 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
     fail("E-PARSE-008", "sml: 顶层须为容器（键值块、对象块或数组），单独的标量无法往返");
   }
   let __result;
-  if (first && first.t === "[") { i++; __result = parseArray(); }
+  if (first && first.t === "[") {
+    // 门控：`@feature disable top-level-array` 后顶层数组必须被拒。
+    // `stripFeatureLines` 已在词法前剥掉 `@feature` 行，故这里能看到 `[` 是首 token。
+    if (!featAllowed(feats, "top-level-array")) {
+      fail("E-FEATURE-001", "sml: `top-level-array`：当前文档已禁用该特性");
+    }
+    i++; __result = parseArray();
+  }
   else if (first && first.t === "{") { i++; __result = parseBlock("}"); }
   else { __result = parseBlock(null); }
   // opt-in：开启 traceContracts 时返回 { value, contractMap }（contractMap 已按路径
@@ -2183,8 +2512,9 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
 
 /// 安全解析，不抛异常。
 export function parseSafe(text, opts) {
+  const warnings = [];
   try {
-    return { ok: true, value: parse(text, opts) };
+    return { ok: true, value: parse(text, opts, undefined, undefined, undefined, warnings), warnings };
   } catch (e) {
     const msg = String((e && e.message) || e);
     const pos = typeof e?.pos === "number" ? e.pos : null;

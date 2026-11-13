@@ -82,6 +82,16 @@ def scan_divergences() -> dict:
     return {"agree": int(m.group(1)), "diverge": int(m.group(2))}
 
 
+def scan_cases() -> int:
+    """默认套件的用例文件数（`tests/conformance/cases/*.sml`，不含 `pending/`）。
+
+    用途：与台账里手写的 AGREE 计数**交叉核对** —— 台账写 43 而实际 60 个用例时，
+    `scan.md` 必须当场显形，而不是等下一个人踩空（2026-11-13 就踩过一次）。
+    """
+    d = ROOT / "tests" / "conformance" / "cases"
+    return len(list(d.glob("*.sml"))) if d.is_dir() else 0
+
+
 def scan_ci() -> dict:
     """ci.yml: 是否跑 fuzz / bench。"""
     p = ROOT / ".github" / "workflows" / "ci.yml"
@@ -143,7 +153,14 @@ def render(d: dict) -> str:
 
     div = d["divergences"]
     if div["agree"] is not None:
-        lines.append(f"| conformance | AGREE {div['agree']} / DIVERGE {div['diverge']} |")
+        n_cases = d.get("cases", 0)
+        warn = ""
+        if n_cases and n_cases != div["agree"]:
+            warn = f" ⚠️ 与用例数不符（台账过期）"
+        lines.append(
+            f"| conformance | AGREE {div['agree']} / DIVERGE {div['diverge']}"
+            f"（用例 {n_cases} 个）{warn} |"
+        )
 
     ci = d["ci"]
     lines.append(f"| CI 跑 fuzz / bench | {ci['fuzz']} / {ci['bench']} |")
@@ -173,6 +190,7 @@ def main() -> int:
         "ideas": scan_ideas(),
         "codes": scan_codes(),
         "divergences": scan_divergences(),
+        "cases": scan_cases(),
         "ci": scan_ci(),
         "marks": scan_marks(),
     }

@@ -1,5 +1,6 @@
 use sml_parse::*;
 use sml_parse::strip_version;
+use sml_contract::{Contract, FieldSpec, Strictness, TypeSpec};
 use sml_feature::FEATURES;
 use std::collections::BTreeMap;
 use sml_value::Map;
@@ -635,9 +636,10 @@ pub unsafe extern "C" fn sml_loads(
 /// 位置信息不再生成 —— 同一份内容「手拼成单文件」时能报「第 N 行第 M 列」，
 /// 「文件 + include」时只有码和文案。
 ///
-/// **一条告警都拿不到**：本入口返回 `Value`，键冲突（`W-PARSE-001`）与片段覆盖
-/// （`W-PARSE-002`）这两类诊断在这里被**丢弃** —— C-ABI 目前没有交出诊断的入口，
-/// 需要就回 Rust 侧用 `parse_file_with_warnings`。
+/// **本入口一条告警都拿不到**：它返回 `Value`，键冲突（`W-PARSE-001`）与片段覆盖
+/// （`W-PARSE-002`）这两类诊断在这里被**丢弃**。文本入口的诊断出口是
+/// [`sml_parse_with_diags`]；文件 + 诊断仍需回 Rust 侧用 `parse_file_with_warnings`
+///（C-ABI 的文件 + 诊断入口尚未落，见 `docs/swsml/plan/crossend-sync.md` P7）。
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(edge2024, unsafe(no_mangle))]
 #[cfg_attr(not(edge2024), no_mangle)]
@@ -664,6 +666,1022 @@ pub unsafe extern "C" fn sml_load_file(
             CSmlError::fill(err, classify(e.code()), e.code(), e.message(), &p);
             ptr::null_mut()
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// C-ABI: 非致命诊断（P7）
+//
+// 为什么单独一个入口而不改 `sml_loads`：诊断是**附加信息**，把它塞进旧签名会
+// 逼所有既有调用方改代码（`sml_dump_err` 先例：并存新符号，不动旧签名）。
+// 值树与 `sml_loads` 逐字节相同 —— 诊断只说明「数据被改写 / 覆盖 / 声明对不上」。
+// ---------------------------------------------------------------------------
+
+/// 非致命诊断的严重度 ｜ Severity of a non-fatal diagnostic.
+///
+/// 目前产出的一律是 `Warning`（键冲突 / 片段覆盖 / 弱声明不匹配）；
+/// `Error` 档预留给后续的「多错误收集」出口（`ParseOutput::errors`）。
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum CSmlSeverity {
+    Warning = 0,
+    Error = 1,
+}
+
+/// Mirrors `sml_diag` in `sml_rs.h` one-to-one ｜ 与 `sml_rs.h` 的 `sml_diag` 一一对应。
+///
+/// 字段顺序 / 类型必须与头文件完全一致，否则跨语言内存布局错位。
+/// 两个字符串指针由本结构**独占**：随 [`sml_diag_list_free`] 一并释放，不可单独 free。
+#[repr(C)]
+pub struct CSmlDiag {
+    /// 稳定码（如 `W-PARSE-001`）。**NULL 表示该档暂无码**（`Deprecated` / 契约 `warn` 放行）。
+    pub code_str: *mut c_char,
+    /// 人读文案，**不含码**（与 `sml_error.text` 同一口径）。
+    pub text: *mut c_char,
+    /// 1 起行号；0 = 未知（文件入口跨 include 时没有可映射的单一原文）。
+    pub line: c_int,
+    /// [`CSmlSeverity`] 的取值。
+    pub severity: c_int,
+}
+
+/// Mirrors `sml_diag_list` in `sml_rs.h` one-to-one ｜ 与 `sml_rs.h` 的 `sml_diag_list` 一一对应。
+///
+/// 空表时 `items` 为 NULL、`len` 为 0 —— 「没有诊断」与「没有拿到诊断」在
+/// C 侧看起来一样，故 `len` **总是**被写；要区分请在调用前把 `len` 置哨兵值。
+#[repr(C)]
+pub struct CSmlDiagList {
+    pub items: *mut CSmlDiag,
+    pub len: usize,
+}
+
+/// 把 Rust 诊断列表搬进 C 结构（字符串逐个转成独立的 C 串）。
+fn diag_list_into_c(diags: Vec<Diagnostic>) -> CSmlDiagList {
+    if diags.is_empty() {
+        return CSmlDiagList { items: ptr::null_mut(), len: 0 };
+    }
+    let mut items: Vec<CSmlDiag> = Vec::with_capacity(diags.len());
+    for d in &diags {
+        items.push(CSmlDiag {
+            code_str: d.code().and_then(cstr).unwrap_or(ptr::null_mut()),
+            text: cstr(&d.message).unwrap_or(ptr::null_mut()),
+            line: d.line.map(|l| l as c_int).unwrap_or(0),
+            severity: CSmlSeverity::Warning as c_int,
+        });
+    }
+    let len = items.len();
+    let boxed = items.into_boxed_slice();
+    CSmlDiagList { items: Box::into_raw(boxed) as *mut CSmlDiag, len }
+}
+
+/// 解析文本为值树，并交出**非致命诊断** ｜ Parse text into a value tree and hand out the non-fatal diagnostics.
+///
+/// 与 [`sml_loads`] 的差别**只有一个出参**：`flags` 语义、值树所有权、`err` 用法
+/// 完全相同，`value` 与 `sml_loads` 在其成功时逐字节相同。
+///
+/// 交出的是 [`Diagnostic`] 的 C 形状：稳定码（`W-PARSE-001` / `W-PARSE-002` /
+/// `W-CONTRACT-001` 等）+ 文案 + 行号 + 严重度。**失败时不产诊断**——
+/// 致命错误仍只走 `err`（`sml_error` 带 `code_str` 与行列）。
+///
+/// # Safety
+/// `text` 必须是合法 NUL 结尾的 C 字符串或 NULL；`out_diags` / `err` 均可为 NULL。
+/// 非 NULL 的 `out_diags` 必须指向可写的 [`CSmlDiagList`]；其内容随后由
+/// [`sml_diag_list_free`] 释放（可重复调用，NULL 安全）。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_parse_with_diags(
+    text: *const c_char,
+    flags: c_uint,
+    out_diags: *mut CSmlDiagList,
+    err: *mut CSmlError,
+) -> *mut CSmlValue {
+    // 先把出参归零：失败路径不必再写一遍，调用方也不会读到上次的陈旧值。
+    if !out_diags.is_null() {
+        unsafe { *out_diags = CSmlDiagList { items: ptr::null_mut(), len: 0 } };
+    }
+    if text.is_null() {
+        CSmlError::fill(
+            err,
+            CSmlErrc::Internal,
+            sml_codes::E_INTERNAL_001,
+            "sml_parse_with_diags: text is NULL",
+            "<string>",
+        );
+        return ptr::null_mut();
+    }
+    let t = unsafe { std::ffi::CStr::from_ptr(text) }.to_string_lossy().into_owned();
+    let allowed = feature_set_from_flags(flags);
+    match parse_with_features_warnings(&t, allowed) {
+        Ok((v, diags)) => {
+            if !out_diags.is_null() {
+                unsafe { *out_diags = diag_list_into_c(diags) };
+            }
+            Box::into_raw(Box::new(CSmlValue(v)))
+        }
+        Err(e) => {
+            CSmlError::fill(err, classify(e.code()), e.code(), e.message(), "<string>");
+            ptr::null_mut()
+        }
+    }
+}
+
+/// 释放 [`sml_parse_with_diags`] 交出的诊断表（NULL 安全，可重复调用）。
+///
+/// **不释放值树**（那是 [`sml_free`] 的事），也不影响 `err` 的内容。
+///
+/// # Safety
+/// `list` 必须是 [`sml_parse_with_diags`] 写过的那份结构（或 NULL），且只能释放一次
+/// —— 释放后再读 `items` / `len` 是未定义行为（本函数会把两者清零，便于观察）。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_diag_list_free(list: *mut CSmlDiagList) {
+    if list.is_null() {
+        return;
+    }
+    let l = unsafe { &mut *list };
+    if !l.items.is_null() {
+        let items = unsafe { Vec::from_raw_parts(l.items, l.len, l.len) };
+        for d in &items {
+            if !d.code_str.is_null() {
+                unsafe { drop(std::ffi::CString::from_raw(d.code_str)) };
+            }
+            if !d.text.is_null() {
+                unsafe { drop(std::ffi::CString::from_raw(d.text)) };
+            }
+        }
+        drop(items);
+    }
+    l.items = ptr::null_mut();
+    l.len = 0;
+}
+
+// ---------------------------------------------------------------------------
+// C-ABI: 内置契约表 + 扩展选项（P7 第二片）
+//
+// 为什么要有这一段：`@weakbind` 的软校验要比对**宿主内置**的那份契约表，
+// 而表在 Rust 侧是 `BTreeMap<String, Contract>`（`Contract` 含不可序列化的
+// 校验器）⇒ 不能从 JSON 传。C 原生端先定了「不透明句柄 + 加法式构造」的形状
+// （`sml_builtin_new` / `add_field` / `set_range` / `add_enum`），这里照搬，
+// 于是切后端不用改应用代码。
+// ---------------------------------------------------------------------------
+
+/// 内置契约表句柄（`c/sml_rs.h` 的 `sml_builtin`）｜ Opaque handle for the builtin contract table.
+///
+/// 空表 ⇒ 弱绑定软校验**整段跳过**（否则一落地，所有弱声明都会报 `decl.unknown_contract`，
+/// 见 `docs/swsml/spec/weakbind.md` §6.1）。表只读：注入后解析器不会改它。
+pub struct CSmlBuiltin {
+    map: BTreeMap<String, Contract>,
+}
+
+/// 把 C 侧的类型名翻成 [`TypeSpec`]；`"enum"` 先给空列表，由 `add_enum` 续填。
+fn builtin_typespec(name: &str) -> Option<TypeSpec> {
+    Some(match name {
+        "any" => TypeSpec::Any,
+        "str" => TypeSpec::Str,
+        "int" => TypeSpec::Int,
+        "num" => TypeSpec::Num,
+        "bool" => TypeSpec::Bool,
+        "enum" => TypeSpec::Enum(Vec::new()),
+        _ => return None,
+    })
+}
+
+/// 新建一个空的内置契约表（失败返回 NULL）｜ Allocate an empty builtin table.
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub extern "C" fn sml_builtin_new() -> *mut CSmlBuiltin {
+    Box::into_raw(Box::new(CSmlBuiltin { map: BTreeMap::new() }))
+}
+
+/// 释放内置契约表（NULL 安全）。注入用的表在 `sml_parse_full` 返回后即可释放。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_builtin_free(b: *mut CSmlBuiltin) {
+    if b.is_null() {
+        return;
+    }
+    unsafe { drop(Box::from_raw(b)) };
+}
+
+/// 复制一份内置契约表（NULL 返回 NULL）｜ Clone a builtin table.
+///
+/// 用途：把 [`sml_result_contracts`] 交出的**借用**表变成宿主**独占**的句柄 ——
+/// 于是「读完结果 → 释放结果 → 继续拿这张表当内置表注入」这条链不用吊着结果句柄的命。
+/// 克隆出来的表要用 [`sml_builtin_free`] 释放（它归调用方所有）。
+///
+/// # Safety
+/// `b` 必须是本库返回的、尚未释放的 `sml_builtin`（或 NULL）。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_builtin_clone(b: *const CSmlBuiltin) -> *mut CSmlBuiltin {
+    if b.is_null() {
+        return ptr::null_mut();
+    }
+    Box::into_raw(Box::new(CSmlBuiltin { map: unsafe { (*b).map.clone() } }))
+}
+
+/// 表里有几份契约（NULL 返回 0）。给宿主做「表是不是真的建起来了」的自检。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_builtin_count(b: *const CSmlBuiltin) -> c_uint {
+    if b.is_null() {
+        return 0;
+    }
+    unsafe { (*b).map.len() as c_uint }
+}
+
+/// 声明一个字段：契约不存在时自动建，同名字段**后写覆盖**。
+///
+/// `ty` 取 `"any"` / `"str"` / `"int"` / `"num"` / `"bool"` / `"enum"`（枚举值另用
+/// [`sml_builtin_add_enum`] 续填）；`required` 非 0 表示必填。
+/// 返回 0 = 成功；非 0 = 参数非法（NULL / 未知类型），此时表**不动**。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_builtin_add_field(
+    b: *mut CSmlBuiltin,
+    contract: *const c_char,
+    field: *const c_char,
+    ty: *const c_char,
+    required: c_int,
+) -> c_int {
+    if b.is_null() || contract.is_null() || field.is_null() || ty.is_null() {
+        return -1;
+    }
+    let (Ok(cname), Ok(fname), Ok(tyname)) = (
+        unsafe { std::ffi::CStr::from_ptr(contract) }.to_str(),
+        unsafe { std::ffi::CStr::from_ptr(field) }.to_str(),
+        unsafe { std::ffi::CStr::from_ptr(ty) }.to_str(),
+    ) else {
+        return -1;
+    };
+    let Some(spec_ty) = builtin_typespec(tyname) else {
+        return -1;
+    };
+    let table = unsafe { &mut (*b).map };
+    let c = table.entry(cname.to_string()).or_insert_with(|| Contract {
+        name: cname.to_string(),
+        fields: BTreeMap::new(),
+        strictness: Strictness::Strict,
+        requires: Vec::new(),
+        allow_any: false,
+        strict_paths: false,
+        featags: Vec::new(),
+    });
+    c.fields.insert(
+        fname.to_string(),
+        FieldSpec {
+            ty: spec_ty,
+            required: required != 0,
+            default: None,
+            min: None,
+            max: None,
+            ext: None,
+            ext_data: BTreeMap::new(),
+            mods: Vec::new(),
+            from_featag: false,
+        },
+    );
+    0
+}
+
+/// 给已有字段设数值区间（含端点）。返回 0 = 成功；非 0 = 契约或字段不存在 / 参数 NULL。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_builtin_set_range(
+    b: *mut CSmlBuiltin,
+    contract: *const c_char,
+    field: *const c_char,
+    min: f64,
+    max: f64,
+) -> c_int {
+    if b.is_null() || contract.is_null() || field.is_null() {
+        return -1;
+    }
+    let (Ok(cname), Ok(fname)) = (
+        unsafe { std::ffi::CStr::from_ptr(contract) }.to_str(),
+        unsafe { std::ffi::CStr::from_ptr(field) }.to_str(),
+    ) else {
+        return -1;
+    };
+    let table = unsafe { &mut (*b).map };
+    match table.get_mut(cname).and_then(|c| c.fields.get_mut(fname)) {
+        Some(f) => {
+            f.min = Some(min);
+            f.max = Some(max);
+            0
+        }
+        None => -1,
+    }
+}
+
+/// 给 `enum` 字段追加一个合法取值。返回 0 = 成功；非 0 = 契约/字段不存在或字段不是 `enum`。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_builtin_add_enum(
+    b: *mut CSmlBuiltin,
+    contract: *const c_char,
+    field: *const c_char,
+    value: *const c_char,
+) -> c_int {
+    if b.is_null() || contract.is_null() || field.is_null() || value.is_null() {
+        return -1;
+    }
+    let (Ok(cname), Ok(fname), Ok(val)) = (
+        unsafe { std::ffi::CStr::from_ptr(contract) }.to_str(),
+        unsafe { std::ffi::CStr::from_ptr(field) }.to_str(),
+        unsafe { std::ffi::CStr::from_ptr(value) }.to_str(),
+    ) else {
+        return -1;
+    };
+    let table = unsafe { &mut (*b).map };
+    match table.get_mut(cname).and_then(|c| c.fields.get_mut(fname)) {
+        Some(FieldSpec { ty: TypeSpec::Enum(vals), .. }) => {
+            vals.push(val.to_string());
+            0
+        }
+        _ => -1,
+    }
+}
+
+/// 扩展选项（`c/sml_rs.h` 的 `sml_opts`）｜ Extended options for [`sml_parse_full`].
+///
+/// 字段顺序与头文件**逐字节一致**；`struct_size` 必须填 `sizeof(sml_opts)`，
+/// 将来追加字段时靠它判断调用方传的结构有多长（旧调用方不会被读到越界内存）。
+#[repr(C)]
+pub struct CSmlOpts {
+    /// 本结构的字节数（`sizeof(sml_opts)`）；小于已知大小时报 `E-INTERNAL-001`。
+    pub struct_size: usize,
+    /// 特性上限位（`SML_F_*`）；0 = 基线。与 `sml_parse_with_diags` 的 `flags` 同义。
+    pub flags: c_uint,
+    /// `"KEY=VALUE"` 数组，供 `$env.X` 内联；可为 NULL。
+    pub env: *const *const c_char,
+    /// `env` 的元素个数。
+    pub env_len: usize,
+    /// 内置契约表句柄；NULL = 不做弱绑定软校验。
+    pub builtins: *const CSmlBuiltin,
+}
+
+/// 把 `KEY=VALUE` 数组翻成 env 覆盖表；格式不对返回 `None`（已填 `err`）。
+///
+/// 安全前提：`arr` 要么为空，要么指向 `len` 个合法 NUL 结尾的 C 字符串。
+unsafe fn env_from_c(
+    arr: *const *const c_char,
+    len: usize,
+    err: *mut CSmlError,
+) -> Option<BTreeMap<String, String>> {
+    let mut map = BTreeMap::new();
+    if arr.is_null() || len == 0 {
+        return Some(map);
+    }
+    for i in 0..len {
+        let p = unsafe { *arr.add(i) };
+        if p.is_null() {
+            CSmlError::fill(
+                err,
+                CSmlErrc::Internal,
+                sml_codes::E_INTERNAL_001,
+                "sml_parse_full: env 数组里有 NULL 项",
+                "<string>",
+            );
+            return None;
+        }
+        let s = unsafe { std::ffi::CStr::from_ptr(p) }.to_string_lossy().into_owned();
+        match s.split_once('=') {
+            Some((k, v)) if !k.is_empty() => {
+                map.insert(k.to_string(), v.to_string());
+            }
+            _ => {
+                CSmlError::fill(
+                    err,
+                    CSmlErrc::Internal,
+                    sml_codes::E_INTERNAL_001,
+                    "sml_parse_full: env 项须为 KEY=VALUE",
+                    "<string>",
+                );
+                return None;
+            }
+        }
+    }
+    Some(map)
+}
+
+/// 一条弱绑定（`sml_rs.h` 的 `sml_weakbind`）｜ One weak binding, C shape.
+///
+/// 与纯 C 端的 `sml_weakbind` **同形**（path / name），多一个 `line`。
+/// 字段体的类型信息不导出：那是声明内部的字段规格，宿主按 `name` 查自己的契约表即可。
+#[repr(C)]
+pub struct CSmlWeakBind {
+    /// 目标块路径（`"srv.web"` / `"list[0]"`）；顶层块为空串。
+    pub path: *mut c_char,
+    /// 声明的契约名（书写原样，库不做 resolve）。
+    pub name: *mut c_char,
+    /// 1 起行号；0 = 未知（文件入口跨 include 时没有可映射的单一原文）。
+    pub line: c_int,
+}
+
+/// 一条弱数据（`@weakdata` 的载荷）｜ One `@weakdata` payload.
+///
+/// `value` **由表拥有**：不要单独 `sml_free`，随 [`sml_weaklists_free`] 一起释放。
+#[repr(C)]
+pub struct CSmlWeakData {
+    pub path: *mut c_char,
+    pub name: *mut c_char,
+    pub line: c_int,
+    /// 载荷值树（独立所有权，但**随表**释放）。
+    pub value: *mut CSmlValue,
+}
+
+/// 一条弱 profile 引用（`@weakdoc`）｜ One `@weakdoc` reference (name only).
+#[repr(C)]
+pub struct CSmlWeakDoc {
+    pub path: *mut c_char,
+    pub name: *mut c_char,
+    pub line: c_int,
+}
+
+/// 弱声明三表（`sml_rs.h` 的 `sml_weaklists`）｜ The three weak side tables.
+///
+/// 全部**不进主树**：`value` 里查不到它们的任何痕迹（`docs/swsml/spec/weakbind.md` §5）。
+/// 空表时对应指针为 NULL、计数为 0。
+#[repr(C)]
+pub struct CSmlWeakLists {
+    pub binds: *mut CSmlWeakBind,
+    pub n_binds: usize,
+    pub data: *mut CSmlWeakData,
+    pub n_data: usize,
+    pub docs: *mut CSmlWeakDoc,
+    pub n_docs: usize,
+}
+
+/// 空表常量（每次写回参前用它归零）。
+const EMPTY_WEAK_LISTS: CSmlWeakLists = CSmlWeakLists {
+    binds: ptr::null_mut(),
+    n_binds: 0,
+    data: ptr::null_mut(),
+    n_data: 0,
+    docs: ptr::null_mut(),
+    n_docs: 0,
+};
+
+/// 路径拼成 C 串：键名用 `.` 连接，数组下标写成 `[n]`（与 C 原生端同口径）。
+fn path_to_c(segs: &[PathSeg]) -> *mut c_char {
+    let mut s = String::new();
+    for seg in segs {
+        match seg {
+            PathSeg::Key(k) => {
+                if !s.is_empty() {
+                    s.push('.');
+                }
+                s.push_str(k);
+            }
+            PathSeg::Index(i) => {
+                s.push('[');
+                s.push_str(&i.to_string());
+                s.push(']');
+            }
+        }
+    }
+    cstr_or_null(&s)
+}
+
+fn line_or_zero(line: Option<usize>) -> c_int {
+    line.map(|l| l as c_int).unwrap_or(0)
+}
+
+/// 把 [`ParseOutput`] 的三张弱表搬进 C 结构（数组按 `len == cap` 装箱，便于整块回收）。
+fn weak_lists_into_c(out: &ParseOutput) -> CSmlWeakLists {
+    let binds: Vec<CSmlWeakBind> = out
+        .weak_binds
+        .iter()
+        .map(|w| CSmlWeakBind {
+            path: path_to_c(&w.path),
+            name: cstr_or_null(&w.name),
+            line: line_or_zero(w.line),
+        })
+        .collect();
+    let data: Vec<CSmlWeakData> = out
+        .weak_data
+        .iter()
+        .map(|w| CSmlWeakData {
+            path: path_to_c(&w.path),
+            name: cstr_or_null(&w.name),
+            line: line_or_zero(w.line),
+            value: Box::into_raw(Box::new(CSmlValue(w.value.clone()))),
+        })
+        .collect();
+    let docs: Vec<CSmlWeakDoc> = out
+        .weak_docs
+        .iter()
+        .map(|w| CSmlWeakDoc {
+            path: path_to_c(&w.path),
+            name: cstr_or_null(&w.name),
+            line: line_or_zero(w.line),
+        })
+        .collect();
+
+    fn boxed<T>(v: Vec<T>) -> *mut T {
+        if v.is_empty() {
+            ptr::null_mut()
+        } else {
+            Box::into_raw(v.into_boxed_slice()) as *mut T
+        }
+    }
+    let (n_binds, n_data, n_docs) = (binds.len(), data.len(), docs.len());
+    CSmlWeakLists {
+        binds: boxed(binds),
+        n_binds,
+        data: boxed(data),
+        n_data,
+        docs: boxed(docs),
+        n_docs,
+    }
+}
+
+/// 释放 [`sml_parse_full_lists`] / [`sml_load_file_full`] 交出的三张弱表（NULL 安全）。
+///
+/// **不释放值树**（那是 [`sml_free`] 的事）；`sml_weakdata.value` 由本函数一并释放，
+/// 调用方不得单独 `sml_free` 它。释放后所有指针被清零，可重复调用。
+///
+/// # Safety
+/// `lists` 必须是被上述两个入口写过的那份结构（或 NULL），且只能释放一次。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_weaklists_free(lists: *mut CSmlWeakLists) {
+    if lists.is_null() {
+        return;
+    }
+    unsafe fn free_c(p: *mut c_char) {
+        if !p.is_null() {
+            drop(std::ffi::CString::from_raw(p));
+        }
+    }
+    let l = unsafe { &mut *lists };
+    if !l.binds.is_null() {
+        let v = unsafe { Vec::from_raw_parts(l.binds, l.n_binds, l.n_binds) };
+        for d in &v {
+            unsafe { free_c(d.path) };
+            unsafe { free_c(d.name) };
+        }
+        drop(v);
+    }
+    if !l.data.is_null() {
+        let v = unsafe { Vec::from_raw_parts(l.data, l.n_data, l.n_data) };
+        for d in &v {
+            unsafe { free_c(d.path) };
+            unsafe { free_c(d.name) };
+            if !d.value.is_null() {
+                unsafe { drop(Box::from_raw(d.value)) };
+            }
+        }
+        drop(v);
+    }
+    if !l.docs.is_null() {
+        let v = unsafe { Vec::from_raw_parts(l.docs, l.n_docs, l.n_docs) };
+        for d in &v {
+            unsafe { free_c(d.path) };
+            unsafe { free_c(d.name) };
+        }
+        drop(v);
+    }
+    unsafe { *lists = EMPTY_WEAK_LISTS };
+}
+
+/// `opts_from_c` 的三个产物：特性上限 / env 覆盖表 / 内置契约表。
+type COptsParts = (FeatureSet, BTreeMap<String, String>, BTreeMap<String, Contract>);
+
+/// 把 C 侧 `sml_opts` 翻成 Rust 的三个入参；失败返回 `None`（已填 `err`）。
+unsafe fn opts_from_c(opts: *const CSmlOpts, err: *mut CSmlError) -> Option<COptsParts> {
+    let mut flags: c_uint = 0;
+    let mut env = BTreeMap::new();
+    let mut builtins = BTreeMap::new();
+    if !opts.is_null() {
+        let o = unsafe { &*opts };
+        if o.struct_size < std::mem::size_of::<CSmlOpts>() {
+            CSmlError::fill(
+                err,
+                CSmlErrc::Internal,
+                sml_codes::E_INTERNAL_001,
+                "opts.struct_size 小于 sizeof(sml_opts)",
+                "<string>",
+            );
+            return None;
+        }
+        flags = o.flags;
+        env = unsafe { env_from_c(o.env, o.env_len, err) }?;
+        if !o.builtins.is_null() {
+            // 克隆：表归调用方所有，解析期间不借用它的生命周期。
+            builtins = unsafe { (*o.builtins).map.clone() };
+        }
+    }
+    Some((feature_set_from_flags(flags), env, builtins))
+}
+
+/// 解析文本，带完整选项 + 非致命诊断 + **弱声明三表** ｜
+/// Parse text with the full options, the diagnostics **and** the three weak side tables.
+///
+/// [`sml_parse_full`] 等价于本函数把 `out_lists` 传 NULL。值树与
+/// `sml_loads(text, flags)` 逐字节相同：选项与弱表都只报告，不改语义。
+///
+/// # Safety
+/// `text` 必须是合法 NUL 结尾的 C 字符串或 NULL；`opts` / `out_lists` / `out_diags` / `err`
+/// 均可为 NULL。`out_lists` 非 NULL 时其内容由 [`sml_weaklists_free`] 释放。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_parse_full_lists(
+    text: *const c_char,
+    opts: *const CSmlOpts,
+    out_lists: *mut CSmlWeakLists,
+    out_diags: *mut CSmlDiagList,
+    err: *mut CSmlError,
+) -> *mut CSmlValue {
+    if !out_diags.is_null() {
+        unsafe { *out_diags = CSmlDiagList { items: ptr::null_mut(), len: 0 } };
+    }
+    if !out_lists.is_null() {
+        unsafe { *out_lists = EMPTY_WEAK_LISTS };
+    }
+    if text.is_null() {
+        CSmlError::fill(
+            err,
+            CSmlErrc::Internal,
+            sml_codes::E_INTERNAL_001,
+            "sml_parse_full_lists: text is NULL",
+            "<string>",
+        );
+        return ptr::null_mut();
+    }
+    let Some((allowed, env, builtins)) = (unsafe { opts_from_c(opts, err) }) else {
+        return ptr::null_mut();
+    };
+    let t = unsafe { std::ffi::CStr::from_ptr(text) }.to_string_lossy().into_owned();
+    let options = ParseOptions::new().builtin_contracts(builtins);
+    match parse_full(&t, allowed, env, options) {
+        Ok(out) => {
+            // 先搬弱表（借用 `out`），再搬诊断（移动 `out.diagnostics`），最后交出值树。
+            if !out_lists.is_null() {
+                unsafe { *out_lists = weak_lists_into_c(&out) };
+            }
+            if !out_diags.is_null() {
+                unsafe { *out_diags = diag_list_into_c(out.diagnostics) };
+            }
+            Box::into_raw(Box::new(CSmlValue(out.value)))
+        }
+        Err(e) => {
+            CSmlError::fill(err, classify(e.code()), e.code(), e.message(), "<string>");
+            ptr::null_mut()
+        }
+    }
+}
+
+/// 解析文本，带**完整选项**（特性上限 / env 注入 / 内置契约表）与非致命诊断 ｜
+/// Parse with the full option set and hand out the non-fatal diagnostics.
+///
+/// 返回的值树与 `sml_loads(text, flags)` 逐字节相同（选项只影响 `$env` 取值、
+/// 特性上限与**诊断内容**）；`@weakbind` 与内置表对不上时产出 `W-CONTRACT-001`。
+/// 要同时拿弱声明三表请用 [`sml_parse_full_lists`]。
+///
+/// # Safety
+/// `text` 必须是合法 NUL 结尾的 C 字符串或 NULL；`opts` / `out_diags` / `err` 均可为 NULL
+/// （`opts` 为 NULL 时等价于 [`sml_parse_with_diags`] 的 `flags = 0`）。
+/// `opts->env` 指向的字符串与 `opts->builtins` 必须在调用期间有效。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_parse_full(
+    text: *const c_char,
+    opts: *const CSmlOpts,
+    out_diags: *mut CSmlDiagList,
+    err: *mut CSmlError,
+) -> *mut CSmlValue {
+    unsafe { sml_parse_full_lists(text, opts, ptr::null_mut(), out_diags, err) }
+}
+
+/// 解析**文件**（展开 include），带完整选项 / 非致命诊断 / 弱声明三表 ｜
+/// Parse a file (expanding includes) with full options, diagnostics and weak tables.
+///
+/// 与 [`sml_load_file`] 的关系同 [`sml_parse_full_lists`] 之于 [`sml_loads`]：
+/// 值树一致，只是多交出诊断与弱表。**行号**在跨 include 时可能为 0
+/// （token 跨文件合并，没有可映射的单一原文 —— 不凭空造行号）。
+///
+/// # Safety
+/// `path` 必须是合法 NUL 结尾的 C 字符串或 NULL；其余出参与 [`sml_parse_full_lists`] 相同。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_load_file_full(
+    path: *const c_char,
+    opts: *const CSmlOpts,
+    out_lists: *mut CSmlWeakLists,
+    out_diags: *mut CSmlDiagList,
+    err: *mut CSmlError,
+) -> *mut CSmlValue {
+    if !out_diags.is_null() {
+        unsafe { *out_diags = CSmlDiagList { items: ptr::null_mut(), len: 0 } };
+    }
+    if !out_lists.is_null() {
+        unsafe { *out_lists = EMPTY_WEAK_LISTS };
+    }
+    if path.is_null() {
+        CSmlError::fill(
+            err,
+            CSmlErrc::Internal,
+            sml_codes::E_INTERNAL_001,
+            "sml_load_file_full: path is NULL",
+            "<string>",
+        );
+        return ptr::null_mut();
+    }
+    let Some((allowed, env, builtins)) = (unsafe { opts_from_c(opts, err) }) else {
+        return ptr::null_mut();
+    };
+    let p = unsafe { std::ffi::CStr::from_ptr(path) }.to_string_lossy().into_owned();
+    let options = ParseOptions::new().builtin_contracts(builtins);
+    match parse_file_full(&p, allowed, env, options) {
+        Ok(out) => {
+            // 先搬弱表（借用 `out`），再搬诊断（移动 `out.diagnostics`），最后交出值树。
+            if !out_lists.is_null() {
+                unsafe { *out_lists = weak_lists_into_c(&out) };
+            }
+            if !out_diags.is_null() {
+                unsafe { *out_diags = diag_list_into_c(out.diagnostics) };
+            }
+            Box::into_raw(Box::new(CSmlValue(out.value)))
+        }
+        Err(e) => {
+            CSmlError::fill(err, classify(e.code()), e.code(), e.message(), "<string>");
+            ptr::null_mut()
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// C-ABI: 聚合结果 sml_result（P7 第六片）
+//
+// 为什么不再往 `sml_parse_full_lists` 加出参：每加一样能力就要改一次签名，五门跟着
+// 重写一遍。这里改成「一次解析 → 一个结果句柄 → 用 getter 按需取」，新增输出只加
+// 一个 `SML_WANT_*` 位与一个 getter，不动既有符号。
+// ｜ One parse -> one result handle -> getters, so new outputs never reshape signatures.
+// ---------------------------------------------------------------------------
+
+/// 要哪些输出（位掩码）。不传的位对应 getter 返回空表。
+pub const SML_WANT_DIAGS: c_uint = 1 << 0;
+/// 多错误收集（等价 `ParseOptions::collect_errors`）：语句中**不会**因首个错误返回 NULL。
+pub const SML_WANT_ERRORS: c_uint = 1 << 1;
+/// 弱声明三表（`@weakbind` / `@weakdata` / `@weakdoc`）。
+pub const SML_WANT_WEAK: c_uint = 1 << 2;
+/// 契约映射（哪个实体应用了哪些契约）。
+pub const SML_WANT_CONTRACT_MAP: c_uint = 1 << 3;
+/// 本次解析收集到的契约表（可再喂给 [`sml_parse_full`] 当内置表，见 weakbind.md §6.1）。
+pub const SML_WANT_CONTRACTS: c_uint = 1 << 4;
+
+/// 一条「某实体应用了某个契约」（`sml_contractmap` 的元素）。
+#[repr(C)]
+pub struct CSmlContractRef {
+    /// 实体路径（`"srv.web"` / `"list[0]"`）；顶层实体为空串。
+    pub path: *mut c_char,
+    /// 契约名（已 resolve，与 `@contract` 定义的键一致）。
+    pub name: *mut c_char,
+}
+
+/// 契约映射的扁平表示（`sml_contractmap`）：每个 (实体, 契约) 一行，按应用顺序。
+#[repr(C)]
+pub struct CSmlContractMap {
+    pub items: *mut CSmlContractRef,
+    pub len: usize,
+}
+
+/// 一次解析的全部产物（`sml_result`，对 C 不透明）｜ Every output of one parse.
+///
+/// 值树与各表都由本句柄拥有：取出的是**借用**指针，随 [`sml_result_free`] 一并失效。
+/// 因此**不要**对 `sml_result_value` 的结果调 `sml_free`。
+pub struct CSmlResult {
+    value: CSmlValue,
+    diags: CSmlDiagList,
+    errors: CSmlDiagList,
+    weak: CSmlWeakLists,
+    cmap: CSmlContractMap,
+    contracts: Option<Box<CSmlBuiltin>>,
+}
+
+fn contract_map_into_c(map: &ContractMap) -> CSmlContractMap {
+    let mut items: Vec<CSmlContractRef> = Vec::new();
+    for e in map.entries() {
+        // 每个 (实体, 契约) 一行：路径串各自独立，回收时逐条释放。
+        for name in &e.names {
+            items.push(CSmlContractRef {
+                path: path_to_c(&e.path),
+                name: cstr_or_null(name),
+            });
+        }
+    }
+    if items.is_empty() {
+        return CSmlContractMap { items: ptr::null_mut(), len: 0 };
+    }
+    let len = items.len();
+    CSmlContractMap { items: Box::into_raw(items.into_boxed_slice()) as *mut CSmlContractRef, len }
+}
+
+/// 多错误列表搬进 C 结构：`severity = 1`（error），行号由字节偏移换算。
+/// ｜ Collected errors in C shape; line is derived from the byte offset.
+fn errors_into_c(errors: &[sml_codes::SmlError], text: &str) -> CSmlDiagList {
+    if errors.is_empty() {
+        return CSmlDiagList { items: ptr::null_mut(), len: 0 };
+    }
+    let bytes = text.as_bytes();
+    let mut items: Vec<CSmlDiag> = Vec::with_capacity(errors.len());
+    for e in errors {
+        // 只数换行字节：不切片，省掉 UTF-8 边界检查。
+        let line = match e.pos() {
+            Some(p) => bytes[..p.min(bytes.len())]
+                .iter()
+                .filter(|b| **b == b'\n')
+                .count() as c_int
+                + 1,
+            None => 0,
+        };
+        items.push(CSmlDiag {
+            code_str: cstr_or_null(e.code()),
+            text: cstr_or_null(e.message()),
+            line,
+            severity: CSmlSeverity::Error as c_int,
+        });
+    }
+    let len = items.len();
+    CSmlDiagList { items: Box::into_raw(items.into_boxed_slice()) as *mut CSmlDiag, len }
+}
+
+/// 解析文本并交出一个聚合结果句柄 ｜ Parse text into one aggregated result handle.
+///
+/// `want` 是 `SML_WANT_*` 的位掩码；不传的位对应 getter 返回空表（`len == 0`）。
+/// 传了 `SML_WANT_ERRORS` 时，**语法错也返回句柄**（值树是尽力而为的部分结果，
+/// 全部错误在 `sml_result_errors` 里）；不传时行为与 [`sml_parse_full`] 一致 ——
+/// 首个错误即返回 NULL 并填 `err`。
+///
+/// # Safety
+/// `text` 必须是合法 NUL 结尾的 C 字符串或 NULL；`opts` / `err` 均可为 NULL。
+/// 返回的句柄必须用 [`sml_result_free`] 释放一次。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_parse_all(
+    text: *const c_char,
+    opts: *const CSmlOpts,
+    want: c_uint,
+    err: *mut CSmlError,
+) -> *mut CSmlResult {
+    if text.is_null() {
+        CSmlError::fill(
+            err,
+            CSmlErrc::Internal,
+            sml_codes::E_INTERNAL_001,
+            "sml_parse_all: text is NULL",
+            "<string>",
+        );
+        return ptr::null_mut();
+    }
+    let Some((allowed, env, builtins)) = (unsafe { opts_from_c(opts, err) }) else {
+        return ptr::null_mut();
+    };
+    let options = ParseOptions::new()
+        .builtin_contracts(builtins)
+        .collect_errors(want & SML_WANT_ERRORS != 0)
+        .trace_contracts(want & SML_WANT_CONTRACT_MAP != 0)
+        .capture_contracts(want & SML_WANT_CONTRACTS != 0);
+    let t = unsafe { std::ffi::CStr::from_ptr(text) }.to_string_lossy().into_owned();
+    match parse_full(&t, allowed, env, options) {
+        Ok(out) => {
+            // 先取**借用**型输出（弱表 / 契约映射 / 错误表 / 契约表），最后再搬走
+            // diags 与 value —— 顺序反了就会踩「借用已部分移动的值」。
+            let weak = if want & SML_WANT_WEAK != 0 {
+                weak_lists_into_c(&out)
+            } else {
+                EMPTY_WEAK_LISTS
+            };
+            let cmap = match out.contract_map.as_ref() {
+                Some(m) if want & SML_WANT_CONTRACT_MAP != 0 => contract_map_into_c(m),
+                _ => CSmlContractMap { items: ptr::null_mut(), len: 0 },
+            };
+            let errors = if want & SML_WANT_ERRORS != 0 {
+                errors_into_c(&out.errors, &t)
+            } else {
+                CSmlDiagList { items: ptr::null_mut(), len: 0 }
+            };
+            let contracts = match out.contracts {
+                Some(m) if want & SML_WANT_CONTRACTS != 0 => Some(Box::new(CSmlBuiltin { map: m })),
+                _ => None,
+            };
+            let diags = if want & SML_WANT_DIAGS != 0 {
+                diag_list_into_c(out.diagnostics)
+            } else {
+                CSmlDiagList { items: ptr::null_mut(), len: 0 }
+            };
+            Box::into_raw(Box::new(CSmlResult {
+                value: CSmlValue(out.value),
+                diags,
+                errors,
+                weak,
+                cmap,
+                contracts,
+            }))
+        }
+        Err(e) => {
+            CSmlError::fill(err, classify(e.code()), e.code(), e.message(), "<string>");
+            ptr::null_mut()
+        }
+    }
+}
+
+/// 结果里的值树（**借用**，随 [`sml_result_free`] 失效；不要 `sml_free` 它）。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_result_value(r: *const CSmlResult) -> *mut CSmlValue {
+    if r.is_null() {
+        return ptr::null_mut();
+    }
+    unsafe { &(*r).value as *const CSmlValue as *mut CSmlValue }
+}
+
+/// 非致命诊断表（借用；未请求时 `len == 0`）。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_result_diags(r: *const CSmlResult) -> *const CSmlDiagList {
+    if r.is_null() {
+        return ptr::null();
+    }
+    unsafe { &(*r).diags }
+}
+
+/// 解析期收集的多条错误（借用；仅 `SML_WANT_ERRORS` 时非空，`severity = 1`）。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_result_errors(r: *const CSmlResult) -> *const CSmlDiagList {
+    if r.is_null() {
+        return ptr::null();
+    }
+    unsafe { &(*r).errors }
+}
+
+/// 弱声明三表（借用；仅 `SML_WANT_WEAK` 时非空）。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_result_weak(r: *const CSmlResult) -> *const CSmlWeakLists {
+    if r.is_null() {
+        return ptr::null();
+    }
+    unsafe { &(*r).weak }
+}
+
+/// 契约映射（借用；仅 `SML_WANT_CONTRACT_MAP` 时非空）。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_result_contract_map(r: *const CSmlResult) -> *const CSmlContractMap {
+    if r.is_null() {
+        return ptr::null();
+    }
+    unsafe { &(*r).cmap }
+}
+
+/// 本次解析收集到的契约表（**借用**的 `sml_builtin` 句柄；仅 `SML_WANT_CONTRACTS` 时非 NULL）。
+///
+/// 它的典型用途：读一份「内置契约用 SML 写」的文档，拿这里的表再传给
+/// [`sml_parse_full`] 的 `opts.builtins`（`docs/swsml/spec/weakbind.md` §6.1）。
+/// 不要 `sml_builtin_free` 它 —— 它随结果句柄释放。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_result_contracts(r: *const CSmlResult) -> *const CSmlBuiltin {
+    if r.is_null() {
+        return ptr::null();
+    }
+    match unsafe { &(*r).contracts } {
+        Some(b) => &**b as *const CSmlBuiltin,
+        None => ptr::null(),
+    }
+}
+
+/// 释放聚合结果（NULL 安全）：值树、各表、字符串、契约表一并回收。
+///
+/// # Safety
+/// `r` 必须是 [`sml_parse_all`] 返回的句柄（或 NULL），且只能释放一次。
+#[cfg_attr(edge2024, unsafe(no_mangle))]
+#[cfg_attr(not(edge2024), no_mangle)]
+pub unsafe extern "C" fn sml_result_free(r: *mut CSmlResult) {
+    if r.is_null() {
+        return;
+    }
+    unsafe {
+        let mut boxed = Box::from_raw(r);
+        sml_diag_list_free(&mut boxed.diags);
+        sml_diag_list_free(&mut boxed.errors);
+        sml_weaklists_free(&mut boxed.weak);
+        if !boxed.cmap.items.is_null() {
+            let v = Vec::from_raw_parts(boxed.cmap.items, boxed.cmap.len, boxed.cmap.len);
+            for item in &v {
+                if !item.path.is_null() {
+                    drop(std::ffi::CString::from_raw(item.path));
+                }
+                if !item.name.is_null() {
+                    drop(std::ffi::CString::from_raw(item.name));
+                }
+            }
+            drop(v);
+        }
+        drop(boxed);
     }
 }
 

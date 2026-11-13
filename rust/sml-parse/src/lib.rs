@@ -25,8 +25,9 @@ pub mod ext;
 pub use api::{
     parse, parse_allowed, parse_file, parse_file_features, parse_file_ordered,
     parse_file_versioned, parse_ordered,
-    parse_file_with, parse_file_with_warnings, parse_versioned, parse_with, parse_with_features,
-    parse_with_features_env, parse_with_warnings,
+    parse_file_full, parse_file_with, parse_file_with_warnings, parse_full, parse_versioned, parse_with,
+    parse_with_features, parse_with_features_env, parse_with_features_warnings,
+    parse_with_warnings,
 };
 pub use contract_map::{AppliedContract, ContractMap, PathSeg};
 pub use ext::{Diagnostic, DiagnosticKind, ParseOptions, ParseOutput, WeakBind, WeakData, WeakDoc};

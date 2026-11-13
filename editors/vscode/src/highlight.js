@@ -28,10 +28,14 @@ const L = vscode.l10n && typeof vscode.l10n.t === "function"
 
 // 官方关键字：自定义组不得覆盖（否则会让语言结构失去辨识度）
 const RESERVED = new Set([
-  "@contract", "@is", "@version", "@feature", "@when", "@for",
-  "include", "import", "as", "in", "loose", "strict",
+  "@contract", "@is", "@version", "@feature", "@when", "@for", "@type",
+  "@requires", "@weakbind", "@weakdata", "@weakdoc",
+  "include", "import", "as", "in", "loose", "strict", "warn",
   "str", "int", "num", "bool", "any", "array", "enum",
-  "default", "min", "max", "required", "optional",
+  "default", "min", "max", "required", "optional", "from-featag", "auto",
+  "dev", "camelia", "enable", "disable", "mode", "base",
+  "type.featag", "lex.ident", "type.weak",
+  "__featags", "__type", "__name", "__args",
   "true", "false", "null",
 ]);
 
