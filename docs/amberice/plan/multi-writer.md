@@ -238,7 +238,7 @@
 ```text
 # 任务：为「amberice 与数据库之间的生态位」做定位裁决
 
-仓库根：c:/Users/sakeen/Desktop/sml
+仓库根：<repo>（本机路径不入库）
 
 ## 工作方式（先立规矩）
 先读 AGENTS.md（文档治理硬规则）与 docs/index.md（默认只读 status: current）。
