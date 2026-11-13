@@ -237,7 +237,11 @@
 
 共同边界：各端原生解码器只承诺**未压缩、未加密**的 `VALUE` + `STRTAB`，其余段按表项 `len` 跳过；遇到 `comp != 0` / `enc != 0` 明确拒绝，不猜语义。绑定层不翻译错误文案，`AMBR:` 原样透传。
 
-**摘要校验的已知边界**：各端目前只算 SHA-256（`hash_id = 0x30`）。`0x31 SM3` / `0x32 BLAKE3` 的文件在五端会报「摘要不符」——这是能力缺失，不是文件损坏。五端补 `hash_id` 分派排在 D44 后续。
+**摘要校验（2026-11-13 起）**：五端解码器（C / C++ / JS / Lua / Java 纯实现）都已解
+`MANIFEST` 取 `hash_id`，按 `0x30/0x31/0x32` 分派 SHA-256 / SM3 / BLAKE3；Rust 与 FFI
+五绑定同理。**预留号**（`0x33` 起）与**多级元组**（`[0x3E, 版本, 子号…]`）一律明确跳过
+并标注（`digest_skipped` / `digestSkipped`），绝不退回 SHA-256 假装验过。
+详见 `format.md` §20.3–§20.4 与 `ref/ports.md` 的分派表。
 
 跨端契约由两份生成物钉住：`amberice-canonical.v1.json` 钉节点编码，`amberice-container.v1.json` 钉整个文件（头、段表、对齐、manifest、压缩与加密用例）。用例表在 `rust/amberice/src/vectors.rs`，`amberice vectors --check` 重新生成并逐行比对；各端解码器照 `ambr_hex` 解出值与 `canonical_text` 对拍，不需要读 Rust 实现。CI 把带 `preserve_order,sign,compress` 的 `cargo test -p amberice`、四端对拍脚本、`amberice-ffi --features sml` 构建与写入门禁单列，避免被默认档合并掩盖。
 
