@@ -2,10 +2,17 @@
 
 本目录是 W5 的产出：**一份共享用例，五端（Rust / C / C++ / JS / Lua）各跑一遍，比较值树**。
 
-## 2026-11-07 复核（**引用前先看这段**，下文 2026-11-03 的计数已被本段取代）
+## 2026-11-13 复核（**当前口径**，取代下文所有计数）
 
-实测 **AGREE 41 / DIVERGE 0**（`python tests/conformance/run_conformance.py`；
-`19` 以 `*` 放行，见文末「放行项」）。
+实测 **AGREE 60 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`；
+`19` 以 `*` 放行，见文末「放行项」）。`cases/pending/` 为空。
+本批新增两组成例：`50`–`54`（三端预处理门控 + `@when/@for` 收尾 + weak* 门控）与
+`55`–`60`（P5：`@version` 连写 / 点号 / `vN` / `50` / 代号 / v2 严格串）。
+
+## 2026-11-07 复核（**历史**，计数已被上方取代）
+
+实测 **AGREE 43 / DIVERGE 0**（`python tests/conformance/run_conformance.py`；
+`19` 以 `*` 放行，见文末「放行项」）。计数以脚本输出为准。
 自 2026-11-03 的 34/7 起，本轮修好七条**已登记为缺陷**的用例：
 
 - `23_escape_unicode`：C++ 的固定四位 `\uXXXX` 用**贪婪扫描**，`\u0041b` 会把 `b` 当成
@@ -27,6 +34,31 @@
 `19`（`1.0` 的浮点身份）——JS 的 `Number` 与 LuaJIT 的 double 都无法区分 `1` 与 `1.0`。
 要清零只能让五端都放弃浮点身份（改 Rust/C/C++/Lua 的 dump），那是信息损失；或者给
 conformance 的 JSON 协议加 float 标记（五端全改）。建议登记为永久取舍。
+
+## P1 先行用例（2026-11-12 · `cases/pending/`，DIVERGE 为预期）
+
+`tests/conformance/cases/pending/` 下的先行用例**不进默认套件**：用
+`python tests/conformance/run_conformance.py --pending --require-all` 跑，DIVERGE 是预期结果，
+明细照常打印但不判红（退出码 0）；用例本身写坏（PARSE_FAIL）仍判红。修好后把用例移入
+`cases/` 才算收敛。当时默认套件为 **52 例 AGREE 52 / DIVERGE 0**（`42`–`49` 全部收敛移入），
+`cases/pending/` 已清空 —— E 组 `@when` / `@for` 四端同码，P1 先行用例全部收口。
+
+## `@weakbind` 门控（2026-11-13 裁决，已收敛）
+
+未开 `type.weak` 时 `@weakbind` / `@weakdata` / `@weakdoc` **五端一律报 `E-FEATURE-001`**
+（用例 `53_weakbind_gate`，已进默认套件）。曾考虑过「默认忽略」，裁决为**不做**：
+少一个静默路径，也少一处四端与 Rust 的对照缺口。
+
+⚠️ #42 已按「孤立 `@` 紧邻下一行键」这一种收敛（四端词法层改为区分 `At` / `BareAt`）。
+但它与 `errors/codes.sml` 里 `E-PARSE-004` 的 note 不完全一致：note 写「JS 报
+`E-PARSE-011`、C 是第三种映射」，本条实测四端同报 `E-PARSE-005`。两者触发条件不同，
+note 描述的那一种仍要单独钉用例，不能把本条当成全部收口。
+
+⚠️ E 组 #44–#49 的差异根因**不是**「各端报错映射不同」，而是四端根本没有 `@when` / `@for`：
+C 端已识别 `@feature enable/disable`（只识别、不门控），C++ / Lua 仍不认 `@feature`；
+JS 认 `@feature` 但不认 `@when` / `@for`。所以 P3 的顺序是
+**先补三端 `@feature` 门控 → 再补 `@when` / `@for`（JS 只需后者）**；
+否则这 6 条永远到不了目标语义，改码映射也没用。
 
 ## 2026-11-03 复核（历史，计数已被上段取代）
 
@@ -62,7 +94,7 @@ python tests/conformance/run_conformance.py --no-build      :: 不自动构建 s
 ```
 
 - 缺工具链的端标 `SKIP` 并说明缺什么（**不会**悄悄当成通过）。
-- 退出码：`0` = 无 DIVERGE / PARSE_FAIL；`1` = 有。当前 41 例全 AGREE（`19` 经
+- 退出码：`0` = 无 DIVERGE / PARSE_FAIL；`1` = 有。当前 **60 例全 AGREE**（`19` 经
   `WAIVERS` 以 `*` 放行，不算 DIVERGE），故为 `0`。若差异复现，退出码回到 `1`，
   须逐条登记进本台账，不许静默忽略。
 - 环境变量：`SMLTOOLS`（指定 Rust 侧可执行文件）、`SML_REPO`（覆盖仓库根）。
@@ -115,7 +147,7 @@ Rust `to_sml` ／ C `sml_dump` ／ C++ `to_sml` ／ JS `stringify` ／ Lua `Sml.
 
 | # | 用例 | 分歧 | 类别 | 备注 / 关联 |
 |---|---|---|---|---|
-| 20 | `41_contract_array` | **Lua 不支持契约数组**：`peers: [Endpoint]` 报 `E-CONTRACT-012`（数组元素类型名未知）；Rust / C / C++ / JS 四端一致通过 | **缺陷（Lua 侧）** | Rust 侧 2026-11-03 已补（此前同样报 012，属误杀）；Lua 的 `[T]` 分支只认内置类型，改法与 Rust 同族：非内置名回落成契约引用。⚠️ 用户已定「先不动 Lua」 |
+| 20 | `41_contract_array` | **Lua 不支持契约数组**：`peers: [Endpoint]` 报 `E-CONTRACT-012`（数组元素类型名未知）；Rust / C / C++ / JS 四端一致通过 | **缺陷（Lua 侧）** | Rust 侧 2026-11-03 已补（此前同样报 012，属误杀）；Lua 的 `[T]` 分支只认内置类型，改法与 Rust 同族：非内置名回落成契约引用。⚠️ 2026-11-12 裁决：本批五端全做，纳入 `docs/swsml/plan/crossend-sync.md` P2 |
 
 「类别」三档：**缺陷** = 实现与既定口径不符，应修；**已知取舍** = 仓库已有定论、不接受修改或用例本身在钉既有口径；
 **待定性** = 还没查到根因，先不判。**本轮已无「待定性」条目**（#12 / #17 / #18 都已查到根因）。

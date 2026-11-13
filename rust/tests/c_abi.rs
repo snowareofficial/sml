@@ -58,8 +58,157 @@ fn err_code_str(e: &CSmlError) -> String {
 #[repr(transparent)]
 struct CSmlValue(std::mem::MaybeUninit<u8>);
 
+/// 与 `sml_rs.h` 的 `sml_diag` 一一对应。
+#[repr(C)]
+struct CSmlDiag {
+    code_str: *mut c_char,
+    text: *mut c_char,
+    line: c_int,
+    severity: c_int,
+}
+
+/// 与 `sml_rs.h` 的 `sml_diag_list` 一一对应。
+#[repr(C)]
+struct CSmlDiagList {
+    items: *mut CSmlDiag,
+    len: usize,
+}
+
+/// 与 `sml_rs.h` 的 `sml_builtin` 对应（不透明句柄，测试里只传指针）。
+#[repr(C)]
+struct CSmlBuiltin {
+    _opaque: std::mem::MaybeUninit<u8>,
+}
+
+/// 与 `sml_rs.h` 的 `sml_opts` 逐字节对应。
+#[repr(C)]
+struct CSmlOpts {
+    struct_size: usize,
+    flags: c_uint,
+    env: *const *const c_char,
+    env_len: usize,
+    builtins: *const CSmlBuiltin,
+}
+
+/// 与 `sml_rs.h` 的三个弱表结构逐字节对应。
+#[repr(C)]
+struct CSmlWeakBind {
+    path: *mut c_char,
+    name: *mut c_char,
+    line: c_int,
+}
+
+#[repr(C)]
+struct CSmlWeakData {
+    path: *mut c_char,
+    name: *mut c_char,
+    line: c_int,
+    value: *mut CSmlValue,
+}
+
+#[repr(C)]
+struct CSmlWeakDoc {
+    path: *mut c_char,
+    name: *mut c_char,
+    line: c_int,
+}
+
+#[repr(C)]
+struct CSmlWeakLists {
+    binds: *mut CSmlWeakBind,
+    n_binds: usize,
+    data: *mut CSmlWeakData,
+    n_data: usize,
+    docs: *mut CSmlWeakDoc,
+    n_docs: usize,
+}
+
+/// 与 `sml_rs.h` 的 `sml_contract_ref` / `sml_contractmap` 逐字节对应。
+#[repr(C)]
+struct CSmlContractRef {
+    path: *mut c_char,
+    name: *mut c_char,
+}
+
+#[repr(C)]
+struct CSmlContractMap {
+    items: *mut CSmlContractRef,
+    len: usize,
+}
+
+/// `sml_result` 对 C 不透明，测试里只传指针。
+#[repr(C)]
+struct CSmlResult {
+    _opaque: std::mem::MaybeUninit<u8>,
+}
+
 extern "C" {
     fn sml_loads(text: *const c_char, flags: c_uint, err: *mut CSmlError) -> *mut CSmlValue;
+    fn sml_parse_all(
+        text: *const c_char,
+        opts: *const CSmlOpts,
+        want: c_uint,
+        err: *mut CSmlError,
+    ) -> *mut CSmlResult;
+    fn sml_result_value(r: *const CSmlResult) -> *mut CSmlValue;
+    fn sml_result_diags(r: *const CSmlResult) -> *const CSmlDiagList;
+    fn sml_result_errors(r: *const CSmlResult) -> *const CSmlDiagList;
+    fn sml_result_weak(r: *const CSmlResult) -> *const CSmlWeakLists;
+    fn sml_result_contract_map(r: *const CSmlResult) -> *const CSmlContractMap;
+    fn sml_result_contracts(r: *const CSmlResult) -> *const CSmlBuiltin;
+    fn sml_result_free(r: *mut CSmlResult);
+    fn sml_parse_full_lists(
+        text: *const c_char,
+        opts: *const CSmlOpts,
+        out_lists: *mut CSmlWeakLists,
+        out_diags: *mut CSmlDiagList,
+        err: *mut CSmlError,
+    ) -> *mut CSmlValue;
+    fn sml_load_file_full(
+        path: *const c_char,
+        opts: *const CSmlOpts,
+        out_lists: *mut CSmlWeakLists,
+        out_diags: *mut CSmlDiagList,
+        err: *mut CSmlError,
+    ) -> *mut CSmlValue;
+    fn sml_weaklists_free(lists: *mut CSmlWeakLists);
+    fn sml_parse_with_diags(
+        text: *const c_char,
+        flags: c_uint,
+        out_diags: *mut CSmlDiagList,
+        err: *mut CSmlError,
+    ) -> *mut CSmlValue;
+    fn sml_diag_list_free(list: *mut CSmlDiagList);
+    fn sml_builtin_new() -> *mut CSmlBuiltin;
+    fn sml_builtin_free(b: *mut CSmlBuiltin);
+    fn sml_builtin_count(b: *const CSmlBuiltin) -> c_uint;
+    fn sml_builtin_clone(b: *const CSmlBuiltin) -> *mut CSmlBuiltin;
+    fn sml_builtin_add_field(
+        b: *mut CSmlBuiltin,
+        contract: *const c_char,
+        field: *const c_char,
+        ty: *const c_char,
+        required: c_int,
+    ) -> c_int;
+    fn sml_builtin_set_range(
+        b: *mut CSmlBuiltin,
+        contract: *const c_char,
+        field: *const c_char,
+        min: f64,
+        max: f64,
+    ) -> c_int;
+    fn sml_builtin_add_enum(
+        b: *mut CSmlBuiltin,
+        contract: *const c_char,
+        field: *const c_char,
+        value: *const c_char,
+    ) -> c_int;
+    fn sml_parse_full(
+        text: *const c_char,
+        opts: *const CSmlOpts,
+        out_diags: *mut CSmlDiagList,
+        err: *mut CSmlError,
+    ) -> *mut CSmlValue;
     fn sml_load_file(path: *const c_char, flags: c_uint, err: *mut CSmlError) -> *mut CSmlValue;
     fn sml_free(v: *mut CSmlValue);
     fn sml_typeof(v: *const CSmlValue) -> c_int;
@@ -643,4 +792,595 @@ fn dump_err_reports_codes() {
     assert!(!d.is_null(), "正常值树应能序列化");
     unsafe { sml_free_str(d) };
     unsafe { sml_free(v) };
+}
+
+// ---------------------------------------------------------------------------
+// P7：诊断出口（sml_parse_with_diags）
+// ---------------------------------------------------------------------------
+
+/// 读出诊断表里的第 i 条的 `(code, text, line, severity)`（`code` 无码时为 None）。
+unsafe fn diag_at(list: &CSmlDiagList, i: usize) -> (Option<String>, String, c_int, c_int) {
+    let d = &*list.items.add(i);
+    let code = if d.code_str.is_null() {
+        None
+    } else {
+        Some(CStr::from_ptr(d.code_str).to_str().unwrap().to_string())
+    };
+    let text = if d.text.is_null() {
+        String::new()
+    } else {
+        CStr::from_ptr(d.text).to_str().unwrap().to_string()
+    };
+    (code, text, d.line, d.severity)
+}
+
+/// 诊断出口的三条硬性要求：**带码带行号**、**值树与 `sml_loads` 逐字节相同**、
+/// **不阻断解析**。另钉住「重复键已提升为数组」这一既定语义没被顺手改掉。
+#[test]
+fn parse_with_diags_reports_duplicate_key() {
+    let src = CString::new("a: 1\na: 2\n").unwrap();
+    let mut err = CSmlError::default();
+    let mut list = CSmlDiagList { items: std::ptr::null_mut(), len: 0 };
+    let v = unsafe { sml_parse_with_diags(src.as_ptr(), 0, &mut list, &mut err) };
+
+    assert!(!v.is_null(), "有诊断不等于解析失败：{}", err_code_str(&err));
+    assert_eq!(list.len, 1, "重复键应产生 1 条诊断");
+    let (code, text, line, sev) = unsafe { diag_at(&list, 0) };
+    assert_eq!(code.as_deref(), Some("W-PARSE-001"), "诊断须带稳定码");
+    assert_eq!(line, 2, "诊断须带行号（第 2 行的重复键）");
+    assert_eq!(sev, 0, "WARN 档 severity 应为 0");
+    assert!(text.contains('a'), "文案须点名键：{text}");
+
+    // 值树逐字节相同：与 sml_loads 的 dumps 输出比对
+    let mut err2 = CSmlError::default();
+    let v2 = unsafe { sml_loads(src.as_ptr(), 0, &mut err2) };
+    assert!(!v2.is_null());
+    let d1 = unsafe { sml_dumps(v, 0) };
+    let d2 = unsafe { sml_dumps(v2, 0) };
+    let s1 = unsafe { CStr::from_ptr(d1) }.to_string_lossy().into_owned();
+    let s2 = unsafe { CStr::from_ptr(d2) }.to_string_lossy().into_owned();
+    assert_eq!(s1, s2, "诊断不得改变值树");
+    // 既定语义仍是「提升为数组」（诊断只报告，不改语义）
+    let key = CString::new("a").unwrap();
+    let promoted = unsafe { sml_get(v, key.as_ptr()) };
+    assert_eq!(unsafe { sml_typeof(promoted) }, SML_TYPE_ARRAY, "仍是数组提升：{s1}");
+    assert_eq!(unsafe { sml_size(promoted) }, 2);
+
+    unsafe { sml_free_str(d1) };
+    unsafe { sml_free_str(d2) };
+    unsafe { sml_diag_list_free(&mut list) };
+    assert!(list.items.is_null() && list.len == 0, "释放后应清零");
+
+    unsafe { sml_free(v) };
+    unsafe { sml_free(v2) };
+}
+
+/// 片段覆盖是**真丢值**那一类：同样要能经 C-ABI 拿到 `W-PARSE-002`。
+#[test]
+fn parse_with_diags_reports_fragment_overwrite() {
+    let src = CString::new("@base { x: 1 y: 2 }\nw {\n  x: 9\n  &base\n}\n").unwrap();
+    let mut err = CSmlError::default();
+    let mut list = CSmlDiagList { items: std::ptr::null_mut(), len: 0 };
+    let v = unsafe { sml_parse_with_diags(src.as_ptr(), 0, &mut list, &mut err) };
+    assert!(!v.is_null(), "{}", err_code_str(&err));
+    assert_eq!(list.len, 1, "片段覆盖应产生 1 条诊断");
+    let (code, _, _, _) = unsafe { diag_at(&list, 0) };
+    assert_eq!(code.as_deref(), Some("W-PARSE-002"));
+    unsafe { sml_diag_list_free(&mut list) };
+    unsafe { sml_free(v) };
+}
+
+/// 失败路径：返回 NULL、诊断表为空、错误仍带码；NULL 出参 / NULL 输入都安全。
+#[test]
+fn parse_with_diags_failure_and_null_paths() {
+    // ① 语法错误：致命错误只走 err，诊断表为空
+    let bad = CString::new("a {\n").unwrap();
+    let mut err = CSmlError::default();
+    let mut list = CSmlDiagList { items: std::ptr::null_mut(), len: 0 };
+    let v = unsafe { sml_parse_with_diags(bad.as_ptr(), 0, &mut list, &mut err) };
+    assert!(v.is_null(), "未闭合的块应失败");
+    assert_eq!(list.len, 0, "失败时不产诊断");
+    assert!(list.items.is_null());
+    assert!(!err_code_str(&err).is_empty(), "致命错误仍须带码");
+    unsafe { sml_diag_list_free(&mut list) }; // 空表释放安全
+
+    // ② out_diags 传 NULL：只拿值树，不崩
+    let ok = CString::new("k: 1\n").unwrap();
+    let mut err2 = CSmlError::default();
+    let v2 = unsafe { sml_parse_with_diags(ok.as_ptr(), 0, std::ptr::null_mut(), &mut err2) };
+    assert!(!v2.is_null());
+    unsafe { sml_free(v2) };
+
+    // ③ text 传 NULL：E-INTERNAL-001，与 sml_loads 同码
+    let mut err3 = CSmlError::default();
+    let mut list3 = CSmlDiagList { items: std::ptr::null_mut(), len: 0 };
+    let v3 = unsafe { sml_parse_with_diags(std::ptr::null(), 0, &mut list3, &mut err3) };
+    assert!(v3.is_null());
+    assert_eq!(err_code_str(&err3), "E-INTERNAL-001");
+    assert_eq!(list3.len, 0);
+
+    // ④ 释放函数本身 NULL 安全、可重复调用
+    unsafe { sml_diag_list_free(std::ptr::null_mut()) };
+    unsafe { sml_diag_list_free(&mut list3) };
+    unsafe { sml_diag_list_free(&mut list3) };
+}
+
+// ---------------------------------------------------------------------------
+// P7 第二片：内置契约表 + 扩展选项（sml_parse_full）
+// ---------------------------------------------------------------------------
+
+unsafe fn diag_codes(list: &CSmlDiagList) -> Vec<String> {
+    let mut out = Vec::new();
+    for i in 0..list.len {
+        let (code, _, _, _) = diag_at(list, i);
+        if let Some(c) = code {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// 内置表注入后，`W-CONTRACT-001` 在 C-ABI 这条路上**真的可达**：
+/// 声明侧一档 + 块内容侧三档，且值树**一个键都没被改**（软校验只读）。
+#[test]
+fn parse_full_soft_checks_against_injected_builtins() {
+    unsafe {
+        let b = sml_builtin_new();
+        assert!(!b.is_null());
+        assert_eq!(sml_builtin_count(std::ptr::null()), 0, "NULL 句柄应返回 0");
+
+        let tls = CString::new("tls").unwrap();
+        let cert = CString::new("cert").unwrap();
+        let port = CString::new("port").unwrap();
+        let mode = CString::new("mode").unwrap();
+        let t_str = CString::new("str").unwrap();
+        let t_int = CString::new("int").unwrap();
+        let t_enum = CString::new("enum").unwrap();
+        assert_eq!(sml_builtin_add_field(b, tls.as_ptr(), cert.as_ptr(), t_str.as_ptr(), 1), 0);
+        assert_eq!(sml_builtin_add_field(b, tls.as_ptr(), port.as_ptr(), t_int.as_ptr(), 0), 0);
+        assert_eq!(sml_builtin_set_range(b, tls.as_ptr(), port.as_ptr(), 1.0, 65535.0), 0);
+        assert_eq!(sml_builtin_add_field(b, tls.as_ptr(), mode.as_ptr(), t_enum.as_ptr(), 0), 0);
+        let strict = CString::new("strict").unwrap();
+        assert_eq!(sml_builtin_add_enum(b, tls.as_ptr(), mode.as_ptr(), strict.as_ptr()), 0);
+        assert_eq!(sml_builtin_count(b), 1, "同一个契约名只建一份");
+
+        // 未知类型：拒绝且**不往表里塞半成品**
+        let bogus = CString::new("image").unwrap();
+        let nofield = CString::new("nofield").unwrap();
+        assert_eq!(sml_builtin_add_field(b, tls.as_ptr(), nofield.as_ptr(), bogus.as_ptr(), 0), -1);
+        assert_eq!(sml_builtin_set_range(b, tls.as_ptr(), nofield.as_ptr(), 0.0, 1.0), -1);
+        assert_eq!(sml_builtin_add_enum(b, tls.as_ptr(), cert.as_ptr(), strict.as_ptr()), -1);
+
+        let src = CString::new(
+            "@feature enable type.weak\n\
+             srv {\n  @weakbind tls\n  web { cert: 1 port: 99999 mode: nope }\n}\n\
+             @weakbind nosuch\nother { x: 1 }\n",
+        )
+        .unwrap();
+        let mut list = CSmlDiagList { items: std::ptr::null_mut(), len: 0 };
+        let mut err = CSmlError::default();
+        // `flags` 是**特性上限（交集）**：`type.weak` 是 opt-in，不在基线里，
+        // 必须显式允许，否则文档的 `@feature enable type.weak` 会被静默剔除、
+        // 随后 `@weakbind` 报 E-FEATURE-001（这正是 parse_with_features 的三条陷阱之一）。
+        const SML_F_BASIC: c_uint = 0b1_0111;
+        const SML_F_WEAK: c_uint = 1 << 19;
+        let opts = CSmlOpts {
+            struct_size: std::mem::size_of::<CSmlOpts>(),
+            flags: SML_F_BASIC | SML_F_WEAK,
+            env: std::ptr::null(),
+            env_len: 0,
+            builtins: b,
+        };
+        let v = sml_parse_full(src.as_ptr(), &opts, &mut list, &mut err);
+        assert!(!v.is_null(), "有告警不等于失败：{}", err_code_str(&err));
+
+        let codes = diag_codes(&list);
+        assert_eq!(
+            codes.iter().filter(|c| *c == "W-CONTRACT-001").count(),
+            4,
+            "应为 4 条：cert 类型 / port 区间 / mode 枚举 / nosuch 未知契约，实得 {codes:?}"
+        );
+        assert!(codes.iter().all(|c| c == "W-CONTRACT-001"), "不该有别的码：{codes:?}");
+
+        // 只读：cert 仍是数字 1，没被填默认值、没被删键
+        let k_srv = CString::new("srv").unwrap();
+        let k_web = CString::new("web").unwrap();
+        let k_cert = CString::new("cert").unwrap();
+        let srv = sml_get(v, k_srv.as_ptr());
+        let web = sml_get(srv, k_web.as_ptr());
+        let cert_v = sml_get(web, k_cert.as_ptr());
+        assert!(!cert_v.is_null(), "cert 键必须还在");
+        assert_eq!(sml_typeof(cert_v), 2, "cert 仍应是 int（未被改成 str）");
+        assert_eq!(sml_int_value(cert_v), 1, "cert 值未被改写");
+
+        sml_free(v);
+        sml_diag_list_free(&mut list);
+        sml_builtin_free(b);
+        sml_builtin_free(std::ptr::null_mut());
+    }
+}
+
+/// env 注入：`$env.X` 走覆盖表，**不改进程环境**。
+#[test]
+fn parse_full_injects_env_without_touching_process() {
+    const KEY: &str = "SML_ABI_ENV_PROBE";
+    assert!(std::env::var(KEY).is_err(), "测试前置：进程环境里不该有这个变量");
+    unsafe {
+        let src = format!("k: $env.{KEY}\n");
+        let csrc = CString::new(src).unwrap();
+        let pair = CString::new(format!("{KEY}=prod")).unwrap();
+        let arr: [*const c_char; 1] = [pair.as_ptr()];
+        let opts = CSmlOpts {
+            struct_size: std::mem::size_of::<CSmlOpts>(),
+            flags: 0,
+            env: arr.as_ptr(),
+            env_len: 1,
+            builtins: std::ptr::null(),
+        };
+        let mut list = CSmlDiagList { items: std::ptr::null_mut(), len: 0 };
+        let mut err = CSmlError::default();
+        let v = sml_parse_full(csrc.as_ptr(), &opts, &mut list, &mut err);
+        assert!(!v.is_null(), "{}", err_code_str(&err));
+        let k = CString::new("k").unwrap();
+        let p = sml_str_dup(sml_get(v, k.as_ptr()));
+        assert_eq!(CStr::from_ptr(p).to_str().unwrap(), "prod");
+        sml_free_str(p);
+        assert_eq!(list.len, 0);
+        sml_free(v);
+        sml_diag_list_free(&mut list);
+    }
+    assert!(std::env::var(KEY).is_err(), "解析不得写入进程环境");
+}
+
+/// 选项的坏入参必须**响亮失败**，不能静默按默认值跑：
+/// `struct_size` 太小 / env 项不是 `KEY=VALUE` / NULL 项；NULL opts 照常可用。
+#[test]
+fn parse_full_rejects_malformed_opts() {
+    unsafe {
+        let src = CString::new("k: 1\n").unwrap();
+        let mut err = CSmlError::default();
+        let mut list = CSmlDiagList { items: std::ptr::null_mut(), len: 0 };
+
+        // ① struct_size 太小（模拟用旧头文件配新库）
+        let small = CSmlOpts {
+            struct_size: 8,
+            flags: 0,
+            env: std::ptr::null(),
+            env_len: 0,
+            builtins: std::ptr::null(),
+        };
+        let v = sml_parse_full(src.as_ptr(), &small, &mut list, &mut err);
+        assert!(v.is_null(), "struct_size 太小应失败");
+        assert_eq!(err_code_str(&err), "E-INTERNAL-001");
+        assert_eq!(list.len, 0);
+
+        // ② env 项缺 `=`
+        let bad = CString::new("NOEQUALS").unwrap();
+        let arr: [*const c_char; 1] = [bad.as_ptr()];
+        let mut err2 = CSmlError::default();
+        let o2 = CSmlOpts {
+            struct_size: std::mem::size_of::<CSmlOpts>(),
+            flags: 0,
+            env: arr.as_ptr(),
+            env_len: 1,
+            builtins: std::ptr::null(),
+        };
+        let v2 = sml_parse_full(src.as_ptr(), &o2, std::ptr::null_mut(), &mut err2);
+        assert!(v2.is_null());
+        assert_eq!(err_code_str(&err2), "E-INTERNAL-001");
+
+        // ③ env 里有 NULL 项
+        let arr3: [*const c_char; 1] = [std::ptr::null()];
+        let mut err3 = CSmlError::default();
+        let o3 = CSmlOpts {
+            struct_size: std::mem::size_of::<CSmlOpts>(),
+            flags: 0,
+            env: arr3.as_ptr(),
+            env_len: 1,
+            builtins: std::ptr::null(),
+        };
+        let v3 = sml_parse_full(src.as_ptr(), &o3, std::ptr::null_mut(), &mut err3);
+        assert!(v3.is_null());
+        assert_eq!(err_code_str(&err3), "E-INTERNAL-001");
+
+        // ④ opts 传 NULL：等价于 flags = 0 的 sml_parse_with_diags
+        let mut err4 = CSmlError::default();
+        let mut list4 = CSmlDiagList { items: std::ptr::null_mut(), len: 0 };
+        let v4 = sml_parse_full(src.as_ptr(), std::ptr::null(), &mut list4, &mut err4);
+        assert!(!v4.is_null(), "{}", err_code_str(&err4));
+        assert_eq!(list4.len, 0);
+        sml_free(v4);
+        sml_diag_list_free(&mut list4);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// P7 第四片：弱声明三表 + 文件入口
+// ---------------------------------------------------------------------------
+
+unsafe fn cstr_at(p: *const c_char) -> String {
+    if p.is_null() {
+        String::new()
+    } else {
+        CStr::from_ptr(p).to_string_lossy().into_owned()
+    }
+}
+
+/// 三张弱表都经 C-ABI 交出，且**都不进主树**（`@weakdata` 的载荷只在表里）。
+#[test]
+fn parse_full_lists_reports_weak_tables() {
+    const SML_F_BASIC: c_uint = 0b1_0111;
+    const SML_F_WEAK: c_uint = 1 << 19;
+    unsafe {
+        let src = CString::new(
+            "@feature enable type.weak\n\
+             srv {\n  @weakbind tls\n  web { cert: \"x\" }\n  @weakdata limits { max: 10 }\n}\n\
+             @weakdoc base\n",
+        )
+        .unwrap();
+        let opts = CSmlOpts {
+            struct_size: std::mem::size_of::<CSmlOpts>(),
+            flags: SML_F_BASIC | SML_F_WEAK,
+            env: std::ptr::null(),
+            env_len: 0,
+            builtins: std::ptr::null(),
+        };
+        let mut lists = CSmlWeakLists {
+            binds: std::ptr::null_mut(),
+            n_binds: 0,
+            data: std::ptr::null_mut(),
+            n_data: 0,
+            docs: std::ptr::null_mut(),
+            n_docs: 0,
+        };
+        let mut list = CSmlDiagList { items: std::ptr::null_mut(), len: 0 };
+        let mut err = CSmlError::default();
+        let v = sml_parse_full_lists(src.as_ptr(), &opts, &mut lists, &mut list, &mut err);
+        assert!(!v.is_null(), "{}", err_code_str(&err));
+
+        assert_eq!(
+            (lists.n_binds, lists.n_data, lists.n_docs),
+            (1, 1, 1),
+            "应为 1 绑定 / 1 数据 / 1 profile"
+        );
+
+        let b = &*lists.binds;
+        assert_eq!(cstr_at(b.path), "srv.web", "bind 的路径");
+        assert_eq!(cstr_at(b.name), "tls");
+        assert!(b.line > 0, "文本入口应带行号");
+
+        let d = &*lists.data;
+        assert_eq!(cstr_at(d.path), "srv");
+        assert_eq!(cstr_at(d.name), "limits");
+        let k_max = CString::new("max").unwrap();
+        assert_eq!(sml_int_value(sml_get(d.value, k_max.as_ptr())), 10, "载荷可读");
+
+        let doc = &*lists.docs;
+        assert_eq!(cstr_at(doc.path), "", "顶层 profile 的路径为空串");
+        assert_eq!(cstr_at(doc.name), "base");
+
+        // 主树无痕迹：`srv.limits` 不存在、`srv.web` 只有 cert
+        let k_srv = CString::new("srv").unwrap();
+        let k_limits = CString::new("limits").unwrap();
+        let srv = sml_get(v, k_srv.as_ptr());
+        assert!(sml_get(srv, k_limits.as_ptr()).is_null(), "weakdata 不得进主树");
+        assert_eq!(sml_size(sml_get(srv, CString::new("web").unwrap().as_ptr())), 1);
+
+        sml_weaklists_free(&mut lists);
+        assert!(lists.binds.is_null() && lists.n_binds == 0, "释放后清零");
+        sml_weaklists_free(&mut lists); // 幂等
+        sml_weaklists_free(std::ptr::null_mut());
+
+        sml_free(v);
+        sml_diag_list_free(&mut list);
+    }
+}
+
+/// 文件入口：展开 include、交诊断与弱表；路径不存在报 `E-IO-001`。
+#[test]
+fn load_file_full_expands_include() {
+    const SML_F_BASIC: c_uint = 0b1_0111;
+    const SML_F_WEAK: c_uint = 1 << 19;
+    let dir = std::env::temp_dir().join("sml_abi_file_full");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("sub.sml"), "k: 1\n").unwrap();
+    let main = dir.join("main.sml");
+    std::fs::write(
+        &main,
+        "@feature enable type.weak\ninclude \"sub.sml\"\nm: 2\n@weakdoc base\n",
+    )
+    .unwrap();
+
+    unsafe {
+        let cpath = CString::new(main.to_string_lossy().as_bytes()).unwrap();
+        let opts = CSmlOpts {
+            struct_size: std::mem::size_of::<CSmlOpts>(),
+            flags: SML_F_BASIC | SML_F_WEAK,
+            env: std::ptr::null(),
+            env_len: 0,
+            builtins: std::ptr::null(),
+        };
+        let mut lists = CSmlWeakLists {
+            binds: std::ptr::null_mut(),
+            n_binds: 0,
+            data: std::ptr::null_mut(),
+            n_data: 0,
+            docs: std::ptr::null_mut(),
+            n_docs: 0,
+        };
+        let mut list = CSmlDiagList { items: std::ptr::null_mut(), len: 0 };
+        let mut err = CSmlError::default();
+        let v = sml_load_file_full(cpath.as_ptr(), &opts, &mut lists, &mut list, &mut err);
+        assert!(!v.is_null(), "{}", err_code_str(&err));
+        let k = CString::new("k").unwrap();
+        let m = CString::new("m").unwrap();
+        assert_eq!(sml_int_value(sml_get(v, k.as_ptr())), 1, "include 已展开");
+        assert_eq!(sml_int_value(sml_get(v, m.as_ptr())), 2);
+        assert_eq!(lists.n_docs, 1);
+        assert_eq!(cstr_at((*lists.docs).name), "base");
+        sml_weaklists_free(&mut lists);
+        sml_free(v);
+        sml_diag_list_free(&mut list);
+
+        // 不存在的路径：E-IO-001，出参为空表
+        let missing = CString::new(dir.join("nope.sml").to_string_lossy().as_bytes()).unwrap();
+        let mut err2 = CSmlError::default();
+        let mut list2 = CSmlDiagList { items: std::ptr::null_mut(), len: 0 };
+        let v2 = sml_load_file_full(missing.as_ptr(), &opts, std::ptr::null_mut(), &mut list2, &mut err2);
+        assert!(v2.is_null(), "不存在的文件应失败");
+        assert_eq!(err_code_str(&err2), "E-IO-001", "实得：{:?}", err_code_str(&err2));
+        assert_eq!(list2.len, 0);
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---------------------------------------------------------------------------
+// P7 第六片：聚合结果（sml_parse_all）—— 契约表 / 契约映射 / 多错误
+// ---------------------------------------------------------------------------
+
+/// `@contract` + `@is` 需要 `contract` 位；`@weakbind` 需要 `type.weak` 位。
+const SML_F_CONTRACT: c_uint = 1 << 3;
+
+/// 「用 SML 写内置契约、再注入回去」（weakbind.md §6.1）在 C-ABI 上闭环。
+#[test]
+fn parse_all_captures_contracts_and_map() {
+    unsafe {
+        let src = CString::new("@contract tls { cert: str }\nsrv { @is tls\n  cert: \"x\"\n}\n").unwrap();
+        let opts = CSmlOpts {
+            struct_size: std::mem::size_of::<CSmlOpts>(),
+            flags: 0b1_0111 | SML_F_CONTRACT,
+            env: std::ptr::null(),
+            env_len: 0,
+            builtins: std::ptr::null(),
+        };
+        const WANT_MAP: c_uint = 1 << 3;
+        const WANT_CONTRACTS: c_uint = 1 << 4;
+        let mut err = CSmlError::default();
+        let r = sml_parse_all(src.as_ptr(), &opts, WANT_MAP | WANT_CONTRACTS, &mut err);
+        assert!(!r.is_null(), "{}", err_code_str(&err));
+
+        // 值树（借用）可读
+        let k_srv = CString::new("srv").unwrap();
+        let k_cert = CString::new("cert").unwrap();
+        let v = sml_result_value(r);
+        let p = sml_str_dup(sml_get(sml_get(v, k_srv.as_ptr()), k_cert.as_ptr()));
+        assert_eq!(CStr::from_ptr(p).to_str().unwrap(), "x");
+        sml_free_str(p);
+
+        // 契约映射：srv -> tls
+        let cm = sml_result_contract_map(r);
+        assert!(!cm.is_null());
+        assert_eq!((*cm).len, 1, "应有一条 (srv, tls)");
+        let item = &*(*cm).items;
+        assert_eq!(cstr_at(item.path), "srv");
+        assert_eq!(cstr_at(item.name), "tls");
+
+        // 契约表：借用的 sml_builtin 可以直接当内置表注入
+        let captured = sml_result_contracts(r);
+        assert!(!captured.is_null(), "SML_WANT_CONTRACTS 应给出表");
+        assert_eq!(sml_builtin_count(captured), 1);
+        let weak_opts = CSmlOpts {
+            struct_size: std::mem::size_of::<CSmlOpts>(),
+            flags: 0b1_0111 | (1 << 19),
+            env: std::ptr::null(),
+            env_len: 0,
+            builtins: captured,
+        };
+        let wsrc = CString::new("@feature enable type.weak\n@weakbind nosuch\ns { x: 1 }\n").unwrap();
+        let mut wlist = CSmlDiagList { items: std::ptr::null_mut(), len: 0 };
+        let mut werr = CSmlError::default();
+        let wv = sml_parse_full(wsrc.as_ptr(), &weak_opts, &mut wlist, &mut werr);
+        assert!(!wv.is_null(), "{}", err_code_str(&werr));
+        let codes = diag_codes(&wlist);
+        assert_eq!(codes, vec!["W-CONTRACT-001".to_string()], "闭环应报 unknown_contract");
+        sml_free(wv);
+        sml_diag_list_free(&mut wlist);
+
+        // 不请求的位：空表
+        assert_eq!((*sml_result_diags(r)).len, 0, "未请求 DIAGS -> 空表");
+        assert_eq!((*sml_result_weak(r)).n_binds, 0, "未请求 WEAK -> 空表");
+
+        sml_result_free(r);
+        sml_result_free(std::ptr::null_mut());
+    }
+}
+
+/// `sml_builtin_clone`：把借用的表变成宿主独占 —— 释放结果句柄后仍能当内置表注入。
+#[test]
+fn builtin_clone_outlives_the_result() {
+    unsafe {
+        const WANT_CONTRACTS: c_uint = 1 << 4;
+        const SML_F_CONTRACT: c_uint = 1 << 3;
+        let src = CString::new("@contract tls { cert: str }\nsrv { @is tls\n  cert: x\n}\n").unwrap();
+        let opts = CSmlOpts {
+            struct_size: std::mem::size_of::<CSmlOpts>(),
+            flags: 0b1_0111 | SML_F_CONTRACT,
+            env: std::ptr::null(),
+            env_len: 0,
+            builtins: std::ptr::null(),
+        };
+        let mut err = CSmlError::default();
+        let r = sml_parse_all(src.as_ptr(), &opts, WANT_CONTRACTS, &mut err);
+        assert!(!r.is_null(), "{}", err_code_str(&err));
+        let owned = sml_builtin_clone(sml_result_contracts(r));
+        assert!(!owned.is_null());
+        sml_result_free(r); // 借用的表随结果失效，克隆出来的不受影响
+        assert_eq!(sml_builtin_count(owned), 1, "克隆后仍是 1 份契约");
+
+        // 用克隆的表做弱绑定软校验
+        let weak_opts = CSmlOpts {
+            struct_size: std::mem::size_of::<CSmlOpts>(),
+            flags: 0b1_0111 | (1 << 19),
+            env: std::ptr::null(),
+            env_len: 0,
+            builtins: owned,
+        };
+        let wsrc = CString::new("@feature enable type.weak\n@weakbind tls\ns { cert: 1 }\n").unwrap();
+        let mut wlist = CSmlDiagList { items: std::ptr::null_mut(), len: 0 };
+        let mut werr = CSmlError::default();
+        let wv = sml_parse_full(wsrc.as_ptr(), &weak_opts, &mut wlist, &mut werr);
+        assert!(!wv.is_null(), "{}", err_code_str(&werr));
+        assert_eq!(diag_codes(&wlist), vec!["W-CONTRACT-001".to_string()], "cert 类型不符");
+        sml_free(wv);
+        sml_diag_list_free(&mut wlist);
+        sml_builtin_free(owned);
+        assert!(sml_builtin_clone(std::ptr::null()).is_null(), "NULL 安全");
+    }
+}
+
+/// 多错误：传 `SML_WANT_ERRORS` 后语法/契约错也返回句柄，错误表 `severity = 1`。
+#[test]
+fn parse_all_collects_multiple_errors() {
+    unsafe {
+        let src = CString::new("a { @is NoSuch1\n  x: 1 }\nb { @is NoSuch2\n  y: 2 }\n").unwrap();
+        let opts = CSmlOpts {
+            struct_size: std::mem::size_of::<CSmlOpts>(),
+            flags: 0b1_0111 | SML_F_CONTRACT,
+            env: std::ptr::null(),
+            env_len: 0,
+            builtins: std::ptr::null(),
+        };
+        const WANT_ERRORS: c_uint = 1 << 1;
+        let mut err = CSmlError::default();
+        let r = sml_parse_all(src.as_ptr(), &opts, WANT_ERRORS, &mut err);
+        assert!(!r.is_null(), "多错误模式不该返回 NULL：{}", err_code_str(&err));
+        let el = sml_result_errors(r);
+        assert!(!el.is_null());
+        assert_eq!((*el).len, 2, "应收集到 2 条错误");
+        for i in 0..(*el).len {
+            let (code, text, line, sev) = diag_at(&*el, i);
+            assert_eq!(sev, 1, "错误档 severity 应为 1");
+            assert_eq!(code.as_deref(), Some("E-CONTRACT-001"), "文案：{text}");
+            assert!(line > 0, "行号应由字节偏移换算出来");
+        }
+        sml_result_free(r);
+
+        // 不请求 ERRORS：首个错误即 NULL + 带码 err（与 sml_parse_full 一致）
+        let mut err2 = CSmlError::default();
+        let r2 = sml_parse_all(src.as_ptr(), &opts, 0, &mut err2);
+        assert!(r2.is_null());
+        assert_eq!(err_code_str(&err2), "E-CONTRACT-001");
+    }
 }

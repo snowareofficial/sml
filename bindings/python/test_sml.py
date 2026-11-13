@@ -130,6 +130,147 @@ def main():
     # 便捷取值
     ok &= check("9 get_in 路径取值", get_in(obj, "server.host") == "example.com")
 
+    # 10. 诊断出口（P7）：带码带行号、不阻断解析、值树与 loads 相同
+    dup, diags = sml.loads_with_diags("a: 1\na: 2\n")
+    ok &= check("10 重复键 -> 1 条 W-PARSE-001 @ line 2",
+                len(diags) == 1 and diags[0].code_str == "W-PARSE-001"
+                and diags[0].line == 2 and diags[0].severity == 0, repr(diags))
+    ok &= check("10 值树不变（仍是数组提升）", dup == {"a": [1, 2]}, repr(dup))
+    ok &= check("10 与 loads 逐字节相同", dup == loads("a: 1\na: 2\n"), repr(dup))
+
+    clean, no_diags = sml.loads_with_diags("k: 1\n")
+    ok &= check("10 干净文档 -> 零诊断", clean == {"k": 1} and no_diags == [],
+                repr(no_diags))
+
+    try:
+        sml.loads_with_diags("bad { a: 1")
+        ok &= check("10 语法错误仍抛 SmlError", False, "未抛异常")
+    except SmlError as e:
+        ok &= check("10 语法错误 code_str 非空", bool(e.code_str), repr(e.code_str))
+
+    # 连跑 200 次：诊断表每次都整体释放（漏释放会在这里露出来）
+    for _ in range(200):
+        sml.loads_with_diags("a: 1\na: 2\n")
+    ok &= check("10 200x loads_with_diags 不崩溃", True)
+
+    # 11. 完整选项（P7 第二片）：内置契约表 + env 注入
+    with sml.Builtin() as bt:
+        ok &= check("11 空表 len==0", len(bt) == 0)
+        built = (bt.add_field("tls", "cert", "str", True)
+                 and bt.add_field("tls", "port", "int")
+                 and bt.set_range("tls", "port", 1, 65535)
+                 and bt.add_field("tls", "mode", "enum")
+                 and bt.add_enum("tls", "mode", "strict"))
+        ok &= check("11 建表 -> 1 份契约", built and len(bt) == 1, str(len(bt)))
+        ok &= check("11 未知类型被拒（表不动）", not bt.add_field("tls", "bad", "image"))
+
+        src = ("@feature enable type.weak\n"
+               "srv {\n  @weakbind tls\n"
+               "  web { cert: 1 port: 99999 mode: nope }\n}\n"
+               "@weakbind nosuch\nother { x: 1 }\n")
+        obj2, diags2 = sml.loads_full(src, flags=sml.SML_F_BASIC | sml.SML_F_WEAK,
+                                      builtins=bt)
+        weak = [d for d in diags2 if d.code_str == "W-CONTRACT-001"]
+        ok &= check("11 内置表 -> 4 条 W-CONTRACT-001", len(weak) == 4, repr(diags2))
+        ok &= check("11 软校验只读：cert 仍是 int 1",
+                    obj2["srv"]["web"]["cert"] == 1, repr(obj2))
+        ok &= check("11 值树与 loads 相同",
+                    sml.loads(src, flags=sml.SML_F_BASIC | sml.SML_F_WEAK) == obj2)
+
+    env_obj, _ = sml.loads_full("k: $env.SML_PY_PROBE\n", env={"SML_PY_PROBE": "prod"})
+    ok &= check("11 env 注入 -> k=prod", env_obj == {"k": "prod"}, repr(env_obj))
+    ok &= check("11 env 不改进程环境", "SML_PY_PROBE" not in os.environ)
+
+    try:
+        sml.loads_full("@feature enable type.weak\n@weakbind tls\ns { x: 1 }\n", flags=0)
+        ok &= check("11 基线不含 type.weak -> E-FEATURE-001", False, "未抛异常")
+    except SmlError as e:
+        ok &= check("11 基线不含 type.weak -> E-FEATURE-001",
+                    e.code_str == "E-FEATURE-001", repr(e.code_str))
+
+    # 12. 弱声明三表（P7 第四片）：都不进主树，从 loads_full_lists 取出
+    wsrc = ("@feature enable type.weak\n"
+            "srv {\n  @weakbind tls\n  web { cert: \"x\" }\n"
+            "  @weakdata limits { max: 10 }\n}\n"
+            "@weakdoc base\n")
+    wobj, wdiags, wl = sml.loads_full_lists(wsrc, flags=sml.SML_F_BASIC | sml.SML_F_WEAK)
+    ok &= check("12 三表计数 1/1/1",
+                (len(wl.binds), len(wl.data), len(wl.docs)) == (1, 1, 1),
+                repr((len(wl.binds), len(wl.data), len(wl.docs))))
+    if wl.binds:
+        b = wl.binds[0]
+        ok &= check("12 bind 的 path/name/line",
+                    b.path == "srv.web" and b.name == "tls" and b.line > 0, repr(b))
+    if wl.data:
+        d = wl.data[0]
+        ok &= check("12 weakdata 归属 srv/limits 且载荷可读",
+                    d.path == "srv" and d.name == "limits" and d.value == {"max": 10},
+                    repr(d))
+    ok &= check("12 profile 在顶层（path 为空串）",
+                bool(wl.docs) and wl.docs[0].path == "" and wl.docs[0].name == "base",
+                repr(wl.docs))
+    ok &= check("12 主树无痕迹", "limits" not in wobj["srv"], repr(wobj))
+    for _ in range(100):
+        sml.loads_full_lists(wsrc, flags=sml.SML_F_BASIC | sml.SML_F_WEAK)
+    ok &= check("12 100x loads_full_lists 不崩溃", True)
+
+    # 13. 聚合结果（parse_all）：契约映射 + 契约表捕获 + 多错误，一次拿全
+    csrc, _, _, _, cmap, contracts = sml.parse_all(
+        '@contract tls { cert: str }\nsrv { @is tls\n  cert: "x"\n}\n',
+        flags=sml.SML_F_BASIC | sml.SML_F_CONTRACT)
+    ok &= check("13 契约映射 srv -> tls",
+                [(c.path, c.name) for c in cmap] == [("srv", "tls")], repr(cmap))
+    ok &= check("13 契约表已捕获（1 份）", len(contracts) == 1, str(len(contracts)))
+    # 闭环：捕获的表直接当内置表注入
+    _, wdiags, _ = sml.loads_full_lists(
+        "@feature enable type.weak\n@weakbind nosuch\ns { x: 1 }\n",
+        flags=sml.SML_F_BASIC | sml.SML_F_WEAK, builtins=contracts)
+    ok &= check("13 闭环：注入捕获的表后报 decl.unknown_contract",
+                [d.code_str for d in wdiags] == ["W-CONTRACT-001"], repr(wdiags))
+    contracts.close()
+
+    bad = "a { @is No1\n  x: 1 }\nb { @is No2\n  y: 2 }\n"
+    ba = sml.parse_all(bad, flags=sml.SML_F_BASIC | sml.SML_F_CONTRACT)
+    ok &= check("13 多错误：2 条且 severity=1、带行号",
+                [(d.code_str, d.line, d.severity) for d in ba.errors]
+                == [("E-CONTRACT-001", 1, 1), ("E-CONTRACT-001", 3, 1)], repr(ba.errors))
+    ok &= check("13 多错误：值树是尽力而为的部分结果",
+                ba.value == {"a": {"x": 1}, "b": {"y": 2}}, repr(ba.value))
+
+    try:
+        sml.parse_all(bad, flags=sml.SML_F_BASIC | sml.SML_F_CONTRACT,
+                      want=sml.SML_WANT_DIAGS)
+        ok &= check("13 未请求 ERRORS -> 仍抛 SmlError", False, "未抛异常")
+    except SmlError as e:
+        ok &= check("13 未请求 ERRORS -> 仍抛 SmlError",
+                    e.code_str == "E-CONTRACT-001", repr(e.code_str))
+
+    for _ in range(100):
+        sml.parse_all(wsrc, flags=sml.SML_F_BASIC | sml.SML_F_WEAK)
+    ok &= check("13 100x parse_all 不崩溃", True)
+
+    # 14. 文件入口（load_file_full）：展开 include + 诊断 + 弱表
+    with tempfile.TemporaryDirectory(prefix="smlpy_") as d:
+        with open(os.path.join(d, "sub.sml"), "w", encoding="utf-8", newline="\n") as f:
+            f.write("k: 1\n")
+        main = os.path.join(d, "main.sml")
+        with open(main, "w", encoding="utf-8", newline="\n") as f:
+            f.write('@feature enable type.weak\ninclude "sub.sml"\n@weakdoc base\n')
+        # flags 是特性**上限**：`type.weak` 是 opt-in，必须显式允许
+        fobj, fdiags, fwl = sml.load_file_full(
+            main, flags=sml.SML_F_BASIC | sml.SML_F_WEAK)
+        ok &= check("14 文件入口：include 已展开", fobj == {"k": 1}, repr(fobj))
+        ok &= check("14 文件入口：弱表带 @weakdoc",
+                    [x.name for x in fwl.docs] == ["base"], repr(fwl.docs))
+        ok &= check("14 文件入口：干净文件 -> 零诊断", fdiags == [], repr(fdiags))
+
+        try:
+            sml.load_file_full(os.path.join(d, "nope.sml"))
+            ok &= check("14 文件不存在 -> E-IO-001", False, "未抛异常")
+        except SmlError as e:
+            ok &= check("14 文件不存在 -> E-IO-001",
+                        e.code_str == "E-IO-001", repr(e.code_str))
+
     print("\n" + ("ALL OK" if ok else "SOME FAILED"))
     sys.exit(0 if ok else 1)
 

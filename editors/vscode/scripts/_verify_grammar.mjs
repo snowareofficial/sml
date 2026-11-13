@@ -43,6 +43,17 @@ const rules = {
     (repo.key.patterns ? repo.key.patterns.map((p) => "(?:" + p.match + ")") : [repo.key.match]).join("|"),
     "g"
   ),
+  // 最新标准（Edition / 特性域 / featag / weak*）；规则本体仍从 grammar 动态读，
+  // 断言写死的是**应被识别的写法**，不是正则副本 —— grammar 改了这里不会悄悄漂移。
+  "版本声明（新写法）": new RegExp(pick(D, "版本声明").match),
+  "特性开关（带域名）": new RegExp(pick(D, "特性开关").match),
+  "弱声明族": new RegExp(pick(D, "弱声明族指令").match),
+  "契约级依赖": new RegExp(pick(D, "契约级依赖声明").match),
+  "featag 带参": new RegExp(repo.featag.patterns[0].match),
+  "featag 无参": new RegExp(repo.featag.patterns[1].match),
+  "featag 声明落点": new RegExp(repo["featag-decl"].patterns[0].match),
+  "featag 声明": new RegExp(repo["featag-decl"].patterns[1].match),
+  "保留元数据键": new RegExp(repo.key.patterns[0].match),
 };
 
 const cases = [
@@ -87,6 +98,22 @@ const cases = [
   ["web { host: a, port: 8080 }", "数据键名", "port"],
   ['address { city: Shanghai  zip: "200120" }', "数据键名", "zip"],
   ["m: [ { a: 1, b: 2 } ]", "数据键名", "b"],
+  // —— 最新标准：版本号 = 功能集、带域特性名、featag、weak* ——
+  ["@version 50 \"camelia\" dev", "版本声明（新写法）", "50"],
+  ["@version \"camelia\"", "版本声明（新写法）", "\"camelia\""],
+  ["@feature enable type.featag", "特性开关（带域名）", "type.featag"],
+  ["@feature base v4", "特性开关（带域名）", "v4"],
+  ["@weakbind tls", "弱声明族", "tls"],
+  ["@weakdata highlight", "弱声明族", "highlight"],
+  ["@weakdoc api-docs", "弱声明族", "api-docs"],
+  ["@requires Endpoint", "契约级依赖", "Endpoint"],
+  ["wea !critical obey[1, 2], name { }", "featag 带参", "obey"],
+  ["wea !critical, name { }", "featag 无参", "critical"],
+  ["!cert: str -> tls.cert", "featag 声明落点", "tls.cert"],
+  ["!strict-paths", "featag 声明", "strict-paths"],
+  ["cert: str from-featag", "修饰符", "from-featag"],
+  ["__featags: [ { name: critical } ]", "保留元数据键", "__featags"],
+  ["@contract 事项 warn {", "契约声明 @contract", "warn"],
 ];
 
 let fail = 0;

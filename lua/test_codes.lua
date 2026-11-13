@@ -178,9 +178,88 @@ end
 local function test_feature_codes()
   io.write("[FEATURE]\n")
 
-  expect_code("version v2 (too new)", "@version v2\na: 1\n", "E-FEATURE-004")
+  -- P5：v1–v4 全部接受（`vN` / `N` / `N.0` / `N0`）；5.0 族与乱写才是 E-FEATURE-004。
+  expect_ok("version v2 accepted", "@version v2\na: \"x\"\n")
+  expect_ok("version 40 (concat) accepted", "@version 40\na: 1\n")
+  expect_code("version v2 + 裸词 -> 严格串", "@version v2\na: abc\n", "E-FEATURE-005")
+  expect_code("version 50 (future)", "@version 50\na: 1\n", "E-FEATURE-004")
+  expect_code("version camelina (future)", "@version \"camelia\"\na: 1\n", "E-FEATURE-004")
   expect_code("version v9 (unknown)", "@version v9\na: 1\n", "E-FEATURE-004")
   expect_code("version 42 (unknown)", "@version 42\na: 1\n", "E-FEATURE-004")
+
+  -- `@feature enable|disable`：与 C / C++ 同一判据（只识别、不记录位）
+  expect_ok("@feature enable when", "@version v1\n@feature enable when\nk: 1\n")
+  expect_ok("@feature disable contract", "@feature disable contract\nk: 1\n")
+  expect_ok("@feature enable 多个名字", "@feature enable when, for\nk: 1\n")
+  expect_code("未知特性名", "@feature enable nosuch\nk: 1\n", "E-FEATURE-002")
+  expect_code("@feature 缺参数", "@feature\nk: 1\n", "E-FEATURE-007")
+  expect_code("@feature enable 缺名字", "@feature enable\nk: 1\n", "E-FEATURE-007")
+  expect_code("mode 子命令本端未支持",
+    "@feature mode whitelist\nk: 1\n", "E-FEATURE-006")
+
+  -- 门控：disable contract 后 `@contract` / `@is` 必须被拒，默认（基线开）仍可用
+  expect_code("disable contract 后 @contract",
+    "@feature disable contract\n@contract S { x: int }\n", "E-FEATURE-001")
+  expect_code("disable contract 后 @is",
+    "@feature disable contract\nx { @is S }\n", "E-FEATURE-001")
+  expect_ok("默认 contract 仍开",
+    "@contract S { x: int }\nx { @is S\n  x: 1 }\n")
+
+  -- fragment 门控：disable 后片段定义必须被拒，默认仍可定义并引用
+  expect_code("disable fragment 后 @f { }",
+    "@feature disable fragment\n@f { x: 1 }\n", "E-FEATURE-001")
+  expect_ok("默认 fragment 仍开", "@f { x: 1 }\nk: &f\n")
+
+  -- top-level-array 门控：预处理扫过 `@feature` 行后才能判「实质首个 token 是 [」
+  expect_code("disable top-level-array 后 [1 2]",
+    "@feature disable top-level-array\n[1 2]\n", "E-FEATURE-001")
+  expect_ok("默认顶层数组仍开", "[1 2]\n")
+
+  -- 2026-11-13 裁决：未开 `type.weak` 时 weak* 响亮拒绝（E-FEATURE-001）
+  expect_code("weakbind 未开 type.weak",
+    "@weakbind tls\nserver { port: 80 }\n", "E-FEATURE-001")
+  expect_code("weakdoc 未开 type.weak",
+    "@weakdoc base\nk: 1\n", "E-FEATURE-001")
+
+  -- 诊断出口：重复键产出 W-PARSE-001，值树不变
+  local v_dup, err_dup, w_dup = Sml.parse_with_warnings("a: 1\na: 2\n")
+  local ok_dup = v_dup ~= nil and type(v_dup.a) == "table" and #v_dup.a == 2
+    and w_dup ~= nil and #w_dup == 1 and w_dup[1].code == "W-PARSE-001"
+  report("重复键产出 W-PARSE-001", "a=[1,2] + 1 条 warning",
+         tostring(ok_dup), ok_dup)
+
+  -- env 门控：引号串含 `$env.` 且未开 env ⇒ E-FEATURE-002；默认仍内插
+  expect_code("disable env 后引号串内插",
+    "@feature disable env\nk: \"$env.NOPE\"\n", "E-FEATURE-002")
+  expect_ok("默认 env 仍开", "k: \"$env.NOPE\"\n")
+
+  -- bareword-string 门控：关闭后纯字符串裸词必须加引号（E-FEATURE-005）
+  expect_code("disable bareword-string 后裸词",
+    "@feature disable bareword-string\nk: hello\n", "E-FEATURE-005")
+  expect_ok("默认裸词仍开", "k: hello\n")
+
+  -- include 门控：需要 base 才会展开
+  local v_inc, err_inc = Sml.load("@feature disable include\n@include \"x.sml\"\n", ".")
+  report("disable include 后 @include", "E-FEATURE-001", err_inc,
+         v_inc == nil and code_is(err_inc, "E-FEATURE-001"))
+
+  -- @for：有界循环展开成数组，`${var}` 只读插值
+  local v_for = Sml.load("@version v1\n@feature enable for\n"
+    .. "hosts: @for h in a b { name: \"${h}\" }\n")
+  local ok_for = v_for and type(v_for.hosts) == "table" and #v_for.hosts == 2
+    and v_for.hosts[1].name == "a" and v_for.hosts[2].name == "b"
+  report("@for 展开为数组", "2 项 a,b",
+         tostring(ok_for and (#v_for.hosts .. " 项") or "失败"), ok_for)
+
+  -- @when：条件假则丢弃紧邻字段（未设置的环境变量等价空串）
+  local v_w = Sml.load("@feature enable when\n@when $env.__SML_PROBE__ == \"yes\"\ndrop: 1\nkeep: 2\n")
+  report("@when 条件假丢弃紧邻字段", "keep=2,drop=nil",
+         tostring(v_w and v_w.keep) .. "," .. tostring(v_w and v_w.drop),
+         v_w ~= nil and v_w.keep == 2 and v_w.drop == nil)
+  -- 条件真（空串比较）保留
+  local v_w2 = Sml.load("@feature enable when\n@when $env.__SML_PROBE__ == \"\"\nkeep: 1\n")
+  report("@when 条件真保留字段", "keep=1", tostring(v_w2 and v_w2.keep),
+         v_w2 ~= nil and v_w2.keep == 1)
 end
 
 -- ------------------------------------------------------------------
@@ -853,6 +932,82 @@ local function test_nest_array_codes()
   expect_code("纯数组嵌套 200 层", nest_arrays(200), "E-LIMIT-001")
 end
 
+-- ------------------------------------------------------------------
+-- 弱绑定（P4）：内置表注入 + 七档 W-CONTRACT-001 + 旁路表（只读）
+-- ------------------------------------------------------------------
+local function test_weakbind_codes()
+  io.write("[WEAKBIND / P4]\n")
+  -- 门控：未开 `type.weak` 一律 E-FEATURE-001（2026-11-13 裁决）
+  expect_code("weakbind 未开 type.weak",
+              "@weakbind tls\nserver { port: 80 }\n", "E-FEATURE-001")
+  expect_code("weakdoc 未开 type.weak", "@weakdoc base\nk: 1\n", "E-FEATURE-001")
+
+  local builtins = {
+    tls = { fields = {
+      cert = { type = "str", required = true },
+      port = { type = "int", min = 1, max = 65535 },
+      mode = { type = "enum", values = { "strict", "loose" } },
+    } },
+  }
+
+  local function weak_count(w)
+    local n = 0
+    for _, e in ipairs(w or {}) do
+      if e.code == "W-CONTRACT-001" then n = n + 1 end
+    end
+    return n
+  end
+
+  local function check(tag, cond, detail)
+    if cond then
+      passed = passed + 1
+      io.write(string.format("  ok: %s\n", tag))
+    else
+      failures = failures + 1
+      io.write(string.format("FAIL: %s (%s)\n", tag, tostring(detail)))
+    end
+  end
+
+  -- 块内容侧：类型 / 区间 / 枚举各一条；主树与去掉 `@weakbind` 后逐字节相同。
+  local src = "@feature enable type.weak\nsrv {\n@weakbind tls\n"
+           .. "web { cert: 1, port: 99999, mode: nope }\n}\n"
+  local v, err, w, wb = Sml.parse_with_builtins(src, builtins)
+  local plain = Sml.load("@feature enable type.weak\nsrv {\nweb { cert: 1, port: 99999, mode: nope }\n}\n")
+  check("块内容三档 -> 3 条 warning，srv.web = tls",
+        v and plain and weak_count(w) == 3 and #wb == 1
+        and wb[1].name == "tls" and wb[1].path == "srv.web"
+        and wb[1].line == 3 and Sml.dump(v) == Sml.dump(plain),
+        err or ("n=" .. tostring(weak_count(w)) .. " nwb=" .. tostring(#wb)))
+
+  -- 声明侧：未知契约名
+  local v2, err2, w2, wb2 = Sml.parse_with_builtins(
+    "@feature enable type.weak\n@weakbind nope\nsrv { cert: \"x\" }\n", builtins)
+  check("声明侧-未知契约 -> 1 条",
+        v2 and weak_count(w2) == 1 and #wb2 == 1 and wb2[1].path == "srv",
+        err2)
+
+  -- 声明侧：可选字段体的未知字段 + 类型不符
+  local v3, err3, w3 = Sml.parse_with_builtins(
+    "@feature enable type.weak\n@weakbind tls { unknown: int cert: int }\n"
+    .. "srv { cert: \"x\" }\n", builtins)
+  check("声明侧-体比对 -> 2 条（未知字段 + 类型不符）",
+        v3 and weak_count(w3) == 2, err3)
+
+  -- 空表护栏：内置表为空 ⇒ 零 warning（否则所有名字都报 unknown_contract）
+  local v4, err4, w4 = Sml.parse_with_builtins(
+    "@feature enable type.weak\n@weakbind tls\nsrv { cert: \"x\" }\n", nil)
+  check("空内置表 -> 零 warning",
+        v4 and type(w4) == "table" and #w4 == 0, err4)
+
+  -- 多层嵌套：路径栈要把祖先键全带上（`a.b.c`）
+  local wb5
+  local _, err5, _, wb5 = Sml.parse_with_builtins(
+    "@feature enable type.weak\na {\nb {\n@weakbind tls\nc { cert: \"x\" }\n}\n}\n",
+    builtins)
+  check("多层嵌套路径 -> a.b.c",
+        wb5 and #wb5 == 1 and wb5[1].path == "a.b.c", err5)
+end
+
 io.write("lua/test_codes.lua — 触发条件 → 期望码（W10，Lua 侧）\n")
 test_parse_codes()
 test_w16_codes()
@@ -863,6 +1018,7 @@ test_host_codes()
 test_contract_codes()
 test_contract_positive()
 test_include_codes()
+test_weakbind_codes()
 test_positive_controls()
 test_error_info()
 

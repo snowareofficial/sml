@@ -32,7 +32,7 @@ class Range { constructor(a, b, c, d) { if (a instanceof Position) { this.start 
 class Uri { constructor(p) { this.fsPath = p; this.scheme = "file"; } static file(p) { return new Uri(p); } toString() { return "file:///" + String(this.fsPath).replace(/\\/g, "/"); } }
 class MarkdownString { constructor(v) { this.value = v; } }
 
-const registered = { providers: 0, commands: [] };
+const registered = { providers: 0, commands: [], completion: null };
 const updates = [];   // 记录对设置的写入（用来断言「图标主题不会被切成仅 .sml 那个」）
 const context = {
   subscriptions: { push: (...x) => x.length },
@@ -101,7 +101,11 @@ const vscode = {
   },
   languages: {
     createDiagnosticCollection: () => ({ set() {}, delete() {}, clear() {}, dispose() {} }),
-    registerCompletionItemProvider: () => { registered.providers++; return Disposable(); },
+    registerCompletionItemProvider: (sel, provider) => {
+      registered.providers++;
+      registered.completion = provider;
+      return Disposable();
+    },
     registerHoverProvider: () => { registered.providers++; return Disposable(); },
     registerDefinitionProvider: () => { registered.providers++; return Disposable(); },
     registerDocumentFormattingEditProvider: () => { registered.providers++; return Disposable(); },
@@ -151,6 +155,56 @@ check(
 check(!updates.some(([, v]) => v === "sml-icons"),
   "绝不自动切到「仅 .sml」（那会让其他文件没有图标）");
 check(registered.commands.includes("sml.selectIconTheme"), "注册了「文件图标主题」命令（可切回）");
+
+// —— 真调补全：候选清单必须真的交到编辑器手里，而不是只「注册了 provider」 ——
+{
+  const src = [
+    '@version 50 "camelia" dev',
+    "@feature enable type.",
+    "@contract wea {",
+    "    !critical",
+    "}",
+    "@weakbind wea",
+    "@weakdata ui { color: blue }",
+    "@weakdoc api-docs",
+    "wea !",
+  ].join("\n");
+  const lines = src.split("\n");
+  const mockDoc = (name) => ({
+    fileName: path.join(ROOT, name),
+    languageId: "sml",
+    getText: () => src,
+    lineAt: (p) => ({ text: lines[p.line] ?? "" }),
+    offsetAt: (p) => lines.slice(0, p.line).reduce((n, l) => n + l.length + 1, 0) + p.character,
+  });
+  const p = registered.completion;
+  check(!!p && typeof p.provideCompletionItems === "function", "补全 provider 已注册");
+  if (p && p.provideCompletionItems) {
+    const labels = async (line, character, file = "doc.sml") => {
+      try {
+        const items = await p.provideCompletionItems(mockDoc(file), new Position(line, character));
+        return (items || []).map((x) => x.label);
+      } catch (e) {
+        check(false, "补全调用不抛异常", String(e && e.message));
+        return [];
+      }
+    };
+    const feat = await labels(1, lines[1].length);
+    check(feat.includes("type.featag") && feat.includes("type.weak"),
+      "@feature 补出带域特性名", feat.join(","));
+    const eds = await labels(0, "@version ".length);
+    check(eds.includes("@version 50") && eds.includes("@version v4"),
+      "@version 补出版本集", eds.join(","));
+    const dirs = await labels(2, 1);
+    check(["@weakbind", "@weakdata", "@weakdoc"].every((d) => dirs.includes(d)),
+      "行首 @ 补出 weak* 指令", dirs.filter((l) => l.startsWith("@")).join(","));
+    const tags = await labels(8, lines[8].length);
+    check(tags.includes("critical"), "! 补出契约声明的 featag", tags.join(","));
+    const fields = await labels(0, 0, "api-docs.smlex");
+    check(fields.includes("name") && fields.includes("hints"),
+      ".smlex 补出 profile 顶层字段", fields.join(","));
+  }
+}
 
 console.log(failed === 0 ? "\nACTIVATE SMOKE ALL PASS" : `\n${failed} 项失败`);
 process.exit(failed ? 1 : 0);

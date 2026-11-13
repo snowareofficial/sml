@@ -94,7 +94,9 @@ fn missing_profile_is_only_a_warning() {
 
     let (out, code) = lint(&doc);
     assert!(out.contains("未找到 profile"), "应提示找不到：{out}");
-    assert!(out.contains("E-LINT-005"), "同一码（profile 不可用）：{out}");
+    // **找不到**用 `W-CLI-001`（用户可能只是没装）；`E-LINT-005` 只留给「找到了但读不出来」。
+    assert!(out.contains("W-CLI-001"), "找不到 → W-CLI-001：{out}");
+    assert!(!out.contains("E-LINT-005"), "不该混用加载失败的码：{out}");
     assert_eq!(code, 0, "warning 不该阻断：{out}");
     let _ = std::fs::remove_dir_all(&dir);
 }

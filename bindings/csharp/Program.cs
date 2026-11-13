@@ -158,6 +158,195 @@ namespace Sml.Test
             // 9. GetIn
             Check("9 GetIn 路径取值", Sml.GetIn(obj, "server.host") is string s && s == "example.com", "");
 
+            // 9b. 诊断出口（P7）：带码带行号、不阻断解析、值树与 Loads 相同
+            {
+                object dup = Sml.LoadsWithDiags("a: 1\na: 2\n", 0, out var diags);
+                Check("9b 重复键 -> 1 条 W-PARSE-001 @ line 2",
+                      diags.Count == 1 && diags[0].Code == "W-PARSE-001"
+                      && diags[0].Line == 2 && diags[0].Severity == 0,
+                      diags.Count + " diag(s): " + string.Join(" | ", diags));
+                bool promoted = dup is Dictionary<string, object> dd
+                                && dd.TryGetValue("a", out var av)
+                                && av is List<object> list && list.Count == 2;
+                Check("9b 值树不变（仍是数组提升）", promoted, JsonSerializer.Serialize(dup));
+                Sml.LoadsWithDiags("k: 1\n", 0, out var none);
+                Check("9b 干净文档 -> 零诊断", none.Count == 0, none.Count + " diag(s)");
+                for (int i = 0; i < 200; i++) Sml.LoadsWithDiags("a: 1\na: 2\n", 0, out _);
+                Check("9b 200x LoadsWithDiags 不崩溃", true, "");
+            }
+
+            // 9c. 完整选项（P7 第二片）：内置契约表 + env 注入
+            using (var bt = Sml.Builtin.Create())
+            {
+                Check("9c 空表 Count==0", bt.Valid && bt.Count == 0, "" + bt.Count);
+                bool built = bt.AddField("tls", "cert", "str", true)
+                    && bt.AddField("tls", "port", "int", false)
+                    && bt.SetRange("tls", "port", 1, 65535)
+                    && bt.AddField("tls", "mode", "enum", false)
+                    && bt.AddEnum("tls", "mode", "strict");
+                Check("9c 建表 -> 1 份契约", built && bt.Count == 1, "" + bt.Count);
+                Check("9c 未知类型被拒（表不动）", !bt.AddField("tls", "bad", "image", false), "");
+
+                var wopts = new Sml.Opts();
+                wopts.Flags = Sml.F_BASIC | Sml.F_WEAK;
+                wopts.Builtins = bt;
+                string wsrc = "@feature enable type.weak\nsrv {\n  @weakbind tls\n"
+                    + "  web { cert: 1 port: 99999 mode: nope }\n}\n"
+                    + "@weakbind nosuch\nother { x: 1 }\n";
+                object wobj = Sml.LoadsFull(wsrc, wopts, out var wdiags);
+                int weak = 0;
+                foreach (var d in wdiags) if (d.Code == "W-CONTRACT-001") weak++;
+                Check("9c 内置表 -> 4 条 W-CONTRACT-001", weak == 4, wdiags.Count + " diag(s)");
+                bool readOnly = wobj is Dictionary<string, object> wm
+                    && wm.TryGetValue("srv", out var wsv) && wsv is Dictionary<string, object> wsrv
+                    && wsrv.TryGetValue("web", out var wwv) && wwv is Dictionary<string, object> wweb
+                    && wweb.TryGetValue("cert", out var wcv) && wcv is long wcl && wcl == 1;
+                Check("9c 软校验只读：cert 仍是 1", readOnly, JsonSerializer.Serialize(wobj));
+            }
+
+            {
+                var eopts = new Sml.Opts();
+                eopts.Env.Add("SML_CS_PROBE=prod");
+                object eobj = Sml.LoadsFull("k: $env.SML_CS_PROBE\n", eopts, out _);
+                bool envOk = eobj is Dictionary<string, object> em
+                    && em.TryGetValue("k", out var ekv) && ekv is string eks && eks == "prod";
+                Check("9c env 注入 -> k=prod", envOk, JsonSerializer.Serialize(eobj));
+                Check("9c env 不改进程环境",
+                      Environment.GetEnvironmentVariable("SML_CS_PROBE") == null, "");
+
+                try
+                {
+                    Sml.LoadsFull("@feature enable type.weak\n@weakbind tls\ns { x: 1 }\n",
+                                  new Sml.Opts(), out _);
+                    Check("9c 基线不含 type.weak -> E-FEATURE-001", false, "未抛异常");
+                }
+                catch (SmlException e)
+                {
+                    Check("9c 基线不含 type.weak -> E-FEATURE-001",
+                          e.CodeStr == "E-FEATURE-001", e.CodeStr);
+                }
+
+                // 9d. 弱声明三表（P7 第四片）：都不进主树，从 LoadsFullLists 取出
+                var wl2opts = new Sml.Opts();
+                wl2opts.Flags = Sml.F_BASIC | Sml.F_WEAK;
+                string wsrc2 = "@feature enable type.weak\nsrv {\n  @weakbind tls\n"
+                    + "  web { cert: \"x\" }\n  @weakdata limits { max: 10 }\n}\n"
+                    + "@weakdoc base\n";
+                object wl2obj = Sml.LoadsFullLists(wsrc2, wl2opts, out _, out var wl2);
+                Check("9d 三表计数 1/1/1",
+                      wl2.Binds.Count == 1 && wl2.Data.Count == 1 && wl2.Docs.Count == 1,
+                      wl2.Binds.Count + "/" + wl2.Data.Count + "/" + wl2.Docs.Count);
+                Check("9d bind 的 path/name/line",
+                      wl2.Binds[0].Path == "srv.web" && wl2.Binds[0].Name == "tls"
+                          && wl2.Binds[0].Line > 0, wl2.Binds[0].Path);
+                bool payloadOk = wl2.Data[0].Value is Dictionary<string, object> pl
+                    && pl.TryGetValue("max", out var pmax) && pmax is long pl10 && pl10 == 10;
+                Check("9d weakdata 归属 srv/limits 且载荷可读",
+                      wl2.Data[0].Path == "srv" && wl2.Data[0].Name == "limits" && payloadOk,
+                      JsonSerializer.Serialize(wl2.Data[0].Value));
+                Check("9d profile 在顶层（path 为空串）",
+                      wl2.Docs[0].Path == "" && wl2.Docs[0].Name == "base", wl2.Docs[0].Path);
+                bool noTrace = wl2obj is Dictionary<string, object> wm2
+                    && wm2.TryGetValue("srv", out var sv2) && sv2 is Dictionary<string, object> srv2
+                    && !srv2.ContainsKey("limits");
+                Check("9d 主树无痕迹", noTrace, "");
+                for (int i = 0; i < 100; i++) Sml.LoadsFullLists(wsrc2, wl2opts, out _, out _);
+                Check("9d 100x LoadsFullLists 不崩溃", true, "");
+            }
+
+            // 9e. 聚合结果（ParseAllOf）：契约映射 + 契约表捕获 + 多错误
+            {
+                var copts = new Sml.Opts();
+                copts.Flags = Sml.F_BASIC | Sml.F_CONTRACT;
+                var pa = Sml.ParseAllOf(
+                    "@contract tls { cert: str }\nsrv { @is tls\n  cert: x\n}\n", copts);
+                Check("9e 契约映射 srv -> tls",
+                      pa.ContractMap.Count == 1 && pa.ContractMap[0].Path == "srv"
+                          && pa.ContractMap[0].Name == "tls",
+                      string.Join(" | ", pa.ContractMap));
+                Check("9e 契约表已捕获（1 份）",
+                      pa.Contracts != null && pa.Contracts.Count == 1,
+                      pa.Contracts == null ? "null" : "" + pa.Contracts.Count);
+
+                var w2opts = new Sml.Opts();
+                w2opts.Flags = Sml.F_BASIC | Sml.F_WEAK;
+                w2opts.Builtins = pa.Contracts;
+                var lap = Sml.LoadsFullLists(
+                    "@feature enable type.weak\n@weakbind nosuch\ns { x: 1 }\n", w2opts,
+                    out var ldiags, out _);
+                Check("9e 闭环：注入捕获的表后报 decl.unknown_contract",
+                      ldiags.Count == 1 && ldiags[0].Code == "W-CONTRACT-001",
+                      string.Join(" | ", ldiags));
+                pa.Contracts.Dispose();
+
+                string bad2 = "a { @is No1\n  x: 1 }\nb { @is No2\n  y: 2 }\n";
+                var ba = Sml.ParseAllOf(bad2, copts);
+                Check("9e 多错误：2 条且 severity=1、带行号",
+                      ba.Errors.Count == 2 && ba.Errors[0].Code == "E-CONTRACT-001"
+                          && ba.Errors[0].Line == 1 && ba.Errors[0].Severity == 1
+                          && ba.Errors[1].Line == 3,
+                      string.Join(" | ", ba.Errors));
+                bool partial = ba.Value is Dictionary<string, object> bv
+                               && bv.Count == 2 && bv.ContainsKey("a") && bv.ContainsKey("b");
+                Check("9e 多错误：值树是尽力而为的部分结果", partial,
+                      JsonSerializer.Serialize(ba.Value));
+
+                try
+                {
+                    Sml.ParseAllOf(bad2, copts, Sml.WantDiags);
+                    Check("9e 未请求 ERRORS -> 仍抛异常", false, "未抛异常");
+                }
+                catch (SmlException e)
+                {
+                    Check("9e 未请求 ERRORS -> 仍抛异常",
+                          e.CodeStr == "E-CONTRACT-001", e.CodeStr);
+                }
+
+                string wsrc3 = "@feature enable type.weak\n@weakbind tls\nsrv { x: 1 }\n";
+                var w3opts = new Sml.Opts();
+                w3opts.Flags = Sml.F_BASIC | Sml.F_WEAK;
+                for (int i = 0; i < 100; i++)
+                    Sml.ParseAllOf(wsrc3, w3opts);
+                Check("9e 100x ParseAllOf 不崩溃", true, "");
+            }
+
+            // 9f. 文件入口（LoadFileFull）：展开 include + 诊断 + 弱表
+            {
+                string tdir = Path.Combine(Path.GetTempPath(), "smlcs_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(tdir);
+                try
+                {
+                    File.WriteAllText(Path.Combine(tdir, "sub.sml"), "k: 1\n");
+                    string mainPath = Path.Combine(tdir, "main.sml");
+                    File.WriteAllText(mainPath,
+                        "@feature enable type.weak\ninclude \"sub.sml\"\n@weakdoc base\n");
+                    var fopts = new Sml.Opts();
+                    fopts.Flags = Sml.F_BASIC | Sml.F_WEAK;
+                    object fobj = Sml.LoadFileFull(mainPath, fopts, out var fdiags, out var fwl);
+                    bool incOk = fobj is Dictionary<string, object> fm
+                                 && fm.TryGetValue("k", out var fk) && fk is long fkl && fkl == 1;
+                    Check("9f 文件入口：include 已展开", incOk, JsonSerializer.Serialize(fobj));
+                    Check("9f 文件入口：弱表带 @weakdoc",
+                          fwl.Docs.Count == 1 && fwl.Docs[0].Name == "base",
+                          string.Join(" | ", fwl.Docs.ConvertAll(d => d.Name)));
+                    Check("9f 文件入口：干净文件 -> 零诊断", fdiags.Count == 0,
+                          fdiags.Count + " diag(s)");
+                    try
+                    {
+                        Sml.LoadFileFull(Path.Combine(tdir, "nope.sml"), fopts, out _, out _);
+                        Check("9f 文件不存在 -> E-IO-001", false, "未抛异常");
+                    }
+                    catch (SmlException e)
+                    {
+                        Check("9f 文件不存在 -> E-IO-001", e.CodeStr == "E-IO-001", e.CodeStr);
+                    }
+                }
+                finally
+                {
+                    Directory.Delete(tdir, true);
+                }
+            }
+
             // 10. `.ambr` 跨端容器向量（22 例，逐字符）
             RunAmbrVectors();
 

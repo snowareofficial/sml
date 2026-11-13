@@ -38,7 +38,7 @@ if (!grammar) {
   process.exit(1);
 }
 
-const src = readFileSync(path.join(here, "..", "..", "showcase.sml"), "utf-8");
+const src = readFileSync(path.join(here, "..", "..", "examples", "showcase.sml"), "utf-8");
 const lines = src.split(/\r?\n/);
 
 let failed = 0;
