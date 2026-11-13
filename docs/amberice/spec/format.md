@@ -539,6 +539,7 @@ Trailer 从 EOF 反向读固定长度，细节见 §21.1b。
 | SHA-256 | `0x30` | ✅ 已实现（默认） | FIPS 180-4；NIST 向量 + 与 CPython `hashlib` 交叉核对 |
 | SM3 | `0x31` | ✅ 已实现（可选） | GB/T 32905-2016；标准向量 + 5 条填充边界与 `hashlib` 核对 |
 | BLAKE3 | `0x32` | ✅ 已实现（可选，D44） | 零依赖标量实现；官方向量覆盖单块 / 单 chunk / 跨 chunk / 3072 B |
+| 国密 SM 系列抗量子哈希 | `0x33` | ⬜ **预留，未实现** | 编号先占住，算法待国标发布；本构建读到该文件必须报 `HashError::NotImplemented(0x33)`，不许退回 SHA-256 假装验过 |
 
 分派在 `rust/amberice/src/hash.rs`（`HashAlgo` / `digest_by_id`）：**写**默认 SHA-256，**读**一律以
 manifest 的 `hash_id` 为准。语义三条：
@@ -1050,7 +1051,7 @@ AAD      = seg_id:u8 ‖ comp:u8 ‖ block_index:u32le ‖ block_count:u32le ‖
 | **`0x10–0x1F`** | 对称加密（经典） | `0x10 AES-256-GCM` · `0x11 ChaCha20-Poly1305` |
 | **`0x20–0x2F`** | 对称加密（国密） | `0x20 SM4-GCM` |
 | **`0x50–0x5F`** | **口令派生（KDF）** | `0x00 none`（原始密钥）· `0x51 Argon2id` |
-| **`0x30–0x3F`** | 哈希 | `0x30 SHA-256` · `0x31 SM3` · `0x32 BLAKE3` |
+| **`0x30–0x3F`** | 哈希 | `0x30 SHA-256` · `0x31 SM3` · `0x32 BLAKE3` · **`0x33` 国密 SM 系列抗量子哈希（预留）** |
 | **`0x40–0x5F`** | 签名（经典） | `0x40 Ed25519` · `0x41 ECDSA-P256-SHA256` · `0x50 SM2-with-SM3` |
 | **`0x60–0x7F`** | 签名（PQC） | `0x60 ML-DSA-65` · `0x61 ML-DSA-87` |
 | **`0x80–0x9F`** | KEM | `0x80 X25519` · `0x81 ML-KEM-768` · `0x82 ML-KEM-1024` |
@@ -1059,7 +1060,7 @@ AAD      = seg_id:u8 ‖ comp:u8 ‖ block_index:u32le ‖ block_count:u32le ‖
 ### 20.1 四条硬规矩
 
 1. **只允许 AEAD**（D35）：`enc` 里不出现需要另配 MAC 的模式（CBC / CTR / 任何「加密+独立 MAC」）；
-2. **哈希统一 32 B**：`SHA-256` / `SM3` / `BLAKE3` 摘要都是 32 B ⇒ 段头 `sha256:32` 不变长，选哪个由 manifest 的 `hash_id` 决定；
+2. **哈希统一 32 B**：`SHA-256` / `SM3` / `BLAKE3` 摘要都是 32 B ⇒ 段头 `sha256:32` 不变长，选哪个由 manifest 的 `hash_id` 决定。预留的 `0x33` 也**必须**产出 32 B：若将来国标的摘要长度不同，那不是换个实现就能了事，要新开段布局（`fmt` 升级），不能挤进现有 32 B 字段；
 3. **混合必须显式编号**：不允许「两个算法字段隐式拼起来」，否则验签时说不清「哪些字节是谁签的」；
 4. **多签名 = 数组，且全部必须通过**（D36）：若允许「任一通过」，抗量子那一路失效也无人发现。
 
@@ -1072,6 +1073,25 @@ crypto {
   sig: [ 0x40 0x60 ]     // Ed25519 + ML-DSA-65（双签，两个都要过）
   kem: 0xA0              // X25519 + ML-KEM-768（首个成功即用）
 }
+
+### 20.3 预留编号（`0x33`）
+
+**`0x33` = 国密 SM 系列抗量子 / 量子安全哈希，永久预留，当前未实现。**
+｜ `0x33` is permanently reserved for a future Chinese-standard (SM family)
+post-quantum digest; not implemented in this build.
+
+- **为什么先占号**：§20「编号一经发布永不复用」。等国标发布再插号会与已流通文件冲突，
+  不如现在把号固定、语义写清；将来只是把具体算法填进这个号，**不换号**。
+- **登记 ≠ 实现**：`rust/amberice/src/hash.rs` 的 `HashAlgo::SmPqcDigest` 能反查
+  `0x33`、`name()` 标 `reserved`，但 `is_implemented() == false`，`digest` 返回
+  `HashError::NotImplemented(0x33)`。读端遇到它必须**明确拒绝**，不许退回 SHA-256
+  （§19.8 的「登记 ≠ 实现」纪律）。
+- **不写、不猜**：写端永远不会主动产出 `0x33`；没有实现就不生成无法自验的文件。
+- **与已有国密 / PQC 位的关系**：签名区 `0x50 SM2-with-SM3`、混合区
+  `0xA1 SM2+ML-KEM-768` 已经给「SM 系列 + 抗量子」留了组合位；`0x33` 补的是
+  **哈希**这一格。签名 PQC 区 `0x60–0x7F` 与 KEM 区 `0x80–0x9F` 的剩余号同样
+  按「先登记再实现」处理，不预造算法名。
+
 ```
 
 - `sig` 是**数组**（可多个，**全部验过**才算通过）；

@@ -46,8 +46,18 @@ Ruby `22/22 read + 22 round-trip`、C# `dotnet run` 全绿（连同 Java 纯实�
 `render()`；C-ABI 的 `err` 缓冲统一为 `AMBR: [E-AMBR-xxx] <detail>`，宿主按方括号里的码
 分支即可，不再靠文本前缀猜。详见 `docs/amberice/ref/swsml-alignment.md`。
 
-摘要侧仍有一条欠账：五端只算 SHA-256，`0x31 SM3` / `0x32 BLAKE3` 的文件会被误报「摘要不符」。
-补 `hash_id` 分派（能算则验、不能算则明确跳过）排在 D44 后续，先登记不扩散。
+摘要侧的 `hash_id` 分派（2026-11-13 复核，供裁决）：
+
+| 端 | 分派现状 | 遇到 `0x31 SM3` / `0x32 BLAKE3` |
+|---|---|---|
+| Rust `amberice` | ✅ `hash.rs::digest_by_id` 按 manifest 的 `hash_id` 走，三个算法都实现；未知 id 明确拒绝 | 正常验 |
+| FFI 五绑定（C# / Go / Ruby / Python / Java FFM 路径） | 走 Rust `ambr_text`，继承上表 | 正常验 |
+| JS / C / C++ / Java 纯实现 / Lua | ❌ 段摘要写死 SHA-256，不读 manifest 的 `hash_id` | **误报「摘要不符」** |
+
+⇒ 欠账不是「Rust 没分派」，而是**独立解码器没跟上**。可选两档：① 在各端补 SM3 / BLAKE3
+实现后按 `hash_id` 验；② 先做「不能算则明确跳过并标注」（D44 后续），不误报但也别假装验过。
+**本批不动**，等裁决。另：`0x33` 已永久预留给国密 SM 系列抗量子哈希（编号先占、未实现，
+见 `format.md §20.3`），读端遇它应报 `NotImplemented` 而非退回 SHA-256。
 
 D45 的 `SCHEMA` / `TYPED` 渲染：JS 已通（`js/test-ambr-typed.mjs`）、C 已通
 （`sml_ambr_load_typed` + `c/tests/test_ambr_typed.c`，已进 `build_check.py`）、C++ 已通

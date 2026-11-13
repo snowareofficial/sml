@@ -377,6 +377,33 @@ Conventions carried over from `CHANGELOG.md`:
   guard still turns red when `Edition::CURRENT` becomes V5, demanding the three copies and
   regenerated vectors.
 
+### Added (`hash_id` dispatch review + reserved `0x33` for Chinese-standard PQC)
+
+- **Dispatch audit** (now a table in `docs/amberice/ref/ports.md`): Rust
+  `hash.rs::digest_by_id` and all five FFI bindings already dispatch on the manifest's
+  `hash_id` — `0x30 SHA-256` / `0x31 SM3` / `0x32 BLAKE3` — and reject unknown ids. The gap
+  is only in the **standalone decoders** (JS / C / C++ / pure Java / Lua), which hardcode
+  SHA-256 and would report a false "digest mismatch" for SM3/BLAKE3 files. Whether to port
+  the algorithms or first "skip explicitly" remains a decision; unchanged in this batch.
+- **`0x33` permanently reserved for a Chinese-standard (SM family) post-quantum digest**
+  (registered, not implemented): `HashAlgo::SmPqcDigest` resolves from the id and its
+  `name()` says `reserved`, but `is_implemented() == false` and `digest` returns
+  `HashError::NotImplemented(0x33)`. Readers must refuse explicitly instead of silently
+  falling back to SHA-256; writers never emit `0x33`. Reserved ids are never reassigned.
+- Spec `format.md`: a reserved row in §19.8, `0x33` in the §20 range table, a §20.1 rule
+  that the reserved slot must also produce 32 B (otherwise a new segment layout is needed),
+  and a new bilingual **§20.3 Reserved ids** section relating it to the existing
+  `0x50 SM2-with-SM3` / `0xA1 SM2+ML-KEM-768` hybrid slots.
+- Guard `check_amberice_align.py` gained a sixth group: `0x33` registered / not implemented
+  / explicitly rejected / synced to the spec / `0x34` still unknown.
+- **CI steps actually run under WSL/Linux**: `cargo build --release -p amberice-ffi
+  --features sml` produces `libamberice_ffi.so`, `cargo build --release` produces
+  `libsml.so` (needed by C#'s `DllImport`); with the CI env (`CGO_LDFLAGS`,
+  `LD_LIBRARY_PATH`, `AMBR_LIB`) Java 22/22, Go `sml/amberice` and Ruby 22/22 + 22
+  round-trips all pass. This WSL has no dotnet, so the C# step awaits the first GitHub
+  runner run (library names/paths are verified).
+- Regression: `cargo test -p amberice --lib hash` (4 tests, including the reserved-slot case).
+
 ### 🚨 Breaking — version naming: `Version` enum → `Edition` lookup
 
 An edition is just a **name for a set of default feature bits** (`docs/swsml/spec/version.md` v1.0).

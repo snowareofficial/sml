@@ -347,6 +347,29 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 - 用户裁决「**2 先等等**」：v5 发布时的 edition 升级本批**不动**；守护仍会在
   `Edition::CURRENT` 升 V5 时变红，要求同步三副本并重生成向量。
 
+### 新增（`hash_id` 分派复核 + 国密抗量子预留位 `0x33`）
+
+- **分派现状复核**（`docs/amberice/ref/ports.md` 已列成表）：Rust `hash.rs::digest_by_id`
+  与走 FFI 的五绑定**已按 manifest `hash_id` 分派** `0x30 SHA-256` / `0x31 SM3` /
+  `0x32 BLAKE3`，未知 id 明确拒绝；欠账只在**独立解码器**（JS / C / C++ / Java 纯实现 /
+  Lua）写死 SHA-256，遇 SM3 / BLAKE3 会误报「摘要不符」。补实现还是先「明确跳过」
+  属待裁决，本批不动。
+- **`0x33` 永久预留给国密 SM 系列抗量子 / 量子安全哈希**（编号先占、未实现）：
+  `HashAlgo::SmPqcDigest` 可反查、`name()` 标 `reserved`，但 `is_implemented() == false`、
+  `digest` 报 `HashError::NotImplemented(0x33)` —— 读端必须明确拒绝，不许退回 SHA-256
+  假装验过；写端永不主动产出 `0x33`。编号一经预留不挪作它用（§20「永不复用」）。
+- 规范 `format.md`：§19.8 表加预留行、§20 区间表加 `0x33`、§20.1 明确「预留位也必须
+  产出 32 B，否则要升级段布局而不是挤进现有字段」、新增 **§20.3 预留编号**（中英说明，
+  并点明与 `0x50 SM2-with-SM3` / `0xA1 SM2+ML-KEM-768` 已有国密 PQC 组合位的关系）。
+- 守护 `check_amberice_align.py` 增第 6 组判据：`0x33` 已登记 / 未实现 / 明确拒绝 /
+  规范同步 / `0x34` 仍未知。
+- **WSL 实跑 CI 新步骤**：Linux 下 `cargo build --release -p amberice-ffi --features sml`
+  产出 `libamberice_ffi.so`，`cargo build --release` 产出 `libsml.so`（C# 的 `DllImport`
+  所需）；用 CI 同款 env（`CGO_LDFLAGS` / `LD_LIBRARY_PATH` / `AMBR_LIB`）跑通
+  Java 22/22、Go `sml/amberice` ok、Ruby 22/22 + 22 往返。本机 WSL 无 dotnet，
+  C# 那一步仍待 GitHub runner 首跑确认（库名与路径假设已验证）。
+- 回归：`cargo test -p amberice --lib hash`（4 例，含预留位「登记 ≠ 实现」用例）。
+
 ### 变更（仓库治理：文档生成物幂等）
 
 - `smldocs --index` / `--report` 的头行改记 `docs/meta.sml` 的内容摘要（FNV-1a 64），

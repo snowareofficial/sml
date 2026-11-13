@@ -79,7 +79,10 @@ JS 写入器的解码错误同样带 `[E-AMBR-002]`。`js/test-ambr-write.mjs` �
   （`amberice vectors --gen`）。这是有意的「红」：把静默漏改变成显式放行。
 - **AMBR 码的语义细化**：当前 8 码是边界级分类；若程序需要区分「坏魔数」与「段截断」，
   可新增细码（只增不改），不改已有 8 码的含义。
-- `docs/amberice/ref/ports.md` 仍欠的 `0x31 SM3` / `0x32 BLAKE3` 的 `hash_id` 分派
-  （D44 后续，文档原文「先登记不扩散」）：属摘要算法支持，不是平台覆盖，本批未动。
+- `docs/amberice/ref/ports.md` 的 `hash_id` 分派表：Rust 与 FFI 五绑定已按 manifest 分派
+  `0x30/31/32`；**独立解码器**（JS / C / C++ / Java 纯实现 / Lua）仍写死 SHA-256，
+  遇到 SM3 / BLAKE3 会误报「摘要不符」。补实现还是先「明确跳过」属待裁决，见该页。
+- `0x33` 已永久预留给国密 SM 系列抗量子哈希（`format.md §20.3`、`hash.rs::SmPqcDigest`）：
+  登记编号但未实现，读端报 `HashError::NotImplemented(0x33)`，绝不退回 SHA-256。
 - `docs/amberice/spec/format.md` 内若干「已落地 / 未做」自相矛盾的段落、
   `decisions.md` 的待裁决条目：属 amberice 自身文档治理，另行处理。
