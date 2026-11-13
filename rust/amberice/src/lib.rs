@@ -54,6 +54,9 @@ pub mod sha256;
 pub mod store;
 #[cfg(feature = "sign")]
 pub mod sign;
+/// 流式读取：按需读段 / 载荷，不整份载入。
+/// ｜ Streaming reader: read only the segments/payloads you need.
+pub mod stream;
 /// 内存映射读取（T3 的 RSS 判据），feature `mmap`。
 /// Memory-mapped reading, behind the `mmap` feature.
 #[cfg(feature = "mmap")]

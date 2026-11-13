@@ -618,6 +618,19 @@ a version), sub-ids are 2 bytes, and KDF moves out of `0x50–0x5F`.
 - Guard gained a check: §19.15, the "no magic replacement" rule, and the `BIFC` / `PTCH`
   entries must all be present.
 
+### Added (`amberice` streaming reader: fetch only the payloads you need)
+
+- **`amberice::stream::StreamReader<R: Read + Seek>`**:
+  - `open` reads only the 40-byte header and the segment table — no segment bodies;
+  - `payload(name)` seeks straight to that slice when `EMBED` is plaintext and reads nothing else;
+  - `payloads()` reads only `MANIFEST`;
+  - `load()` reads only `VALUE` + `STRTAB`, verifying digests as it goes;
+  - `info()` matches `container::info()` (same checks).
+- **Explicit limit**: a compressed/encrypted `EMBED` cannot be randomly accessed; it returns
+  `unsupported-algorithm` and callers should use `container::payload` (whole file in memory).
+- Spec `format.md` gained §19.10.1; regressions in `cargo test -p amberice --test stream`
+  (streaming info matches, payloads byte-identical, missing payload errors, bad magic errors).
+
 ### 🚨 Breaking — version naming: `Version` enum → `Edition` lookup
 
 An edition is just a **name for a set of default feature bits** (`docs/swsml/spec/version.md` v1.0).
