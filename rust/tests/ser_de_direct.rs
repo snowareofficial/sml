@@ -240,3 +240,28 @@ fn option_and_empty_containers() {
     assert_eq!(direct, "[  ]");
     assert_eq!(sml::to_sml(&Value::Array(vec![])), direct);
 }
+
+// ---- 浮点 `raw` 的不对称：`to_sml` 保书写形式，serde 两条发射器做不到 ----
+//
+// 不是待修项：serde 的 `Serializer` 对浮点只有 `serialize_f64(v: f64)`，数据模型里
+// 没有「值 + 原始文本」这个位置。这条测试把当前行为钉住，防止有人用「顺手改改」
+// 的方式让某一条发射器悄悄变成保写法（那会破坏与 `to_sml` 的字节一致性）。
+
+#[test]
+fn float_raw_only_survives_to_sml() {
+    let v = sml::parse("x: 1e10\n").unwrap();
+    // parser 确实把书写形式记下来了（raw 的唯一生产点：`sml-lex` 的 `coerce_word`）
+    assert_eq!(v.get("x").and_then(Value::float_raw), Some("1e10"));
+
+    // ① 直接写 `Value`：raw 在 ⇒ 保留 `1e10`
+    assert_eq!(sml::to_sml(&v), "x: 1e10\n");
+
+    // ② 经 serde 的两条发射器：raw 在 `impl Serialize for Value` 处即已丢弃
+    let lost = "x: 10000000000.0\n";
+    assert_eq!(sml::serde::to_string(&v).unwrap(), lost);
+    assert_eq!(sml::serde::to_string_direct(&v).unwrap(), lost);
+
+    // 正对照：丢的只是**书写形式**，值没变（回读仍是同一个 f64）
+    let back = sml::parse(lost).unwrap();
+    assert_eq!(back.get("x").and_then(Value::as_float), Some(1e10));
+}
