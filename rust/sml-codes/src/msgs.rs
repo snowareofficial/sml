@@ -32,6 +32,14 @@ struct Entry {
 }
 
 static ENTRIES: &[Entry] = &[
+    Entry { id: "E-AMBR-001", severity: "error", domain: "AMBR", #[cfg(feature = "zh")] zh_title: "入参非法", #[cfg(feature = "zh")] zh_msg: "传入了空指针、空输入、无效 UTF-8 或含 NUL 的文本", en_title: "Invalid input", en_msg: "Null pointer, empty input, invalid UTF-8, or text containing NUL" },
+    Entry { id: "E-AMBR-002", severity: "error", domain: "AMBR", #[cfg(feature = "zh")] zh_title: "容器格式非法", #[cfg(feature = "zh")] zh_msg: "魔数、布局版本、文件头、段表或段体不合规（含截断与缺段）", en_title: "Invalid container format", en_msg: "Bad magic, layout version, header, segment table, or segment body (including truncation and missing segments)" },
+    Entry { id: "E-AMBR-003", severity: "error", domain: "AMBR", #[cfg(feature = "zh")] zh_title: "不支持的能力", #[cfg(feature = "zh")] zh_msg: "文件用了本构建不支持的算法、压缩、feature 或能力位", en_title: "Unsupported capability", en_msg: "The file uses an algorithm, compression, feature, or capability bit this build does not support" },
+    Entry { id: "E-AMBR-004", severity: "error", domain: "AMBR", #[cfg(feature = "zh")] zh_title: "完整性校验失败", #[cfg(feature = "zh")] zh_msg: "摘要、manifest 声明或签名校验不通过", en_title: "Integrity check failed", en_msg: "Digest, manifest declaration, or signature verification failed" },
+    Entry { id: "E-AMBR-005", severity: "error", domain: "AMBR", #[cfg(feature = "zh")] zh_title: "加解密或密钥失败", #[cfg(feature = "zh")] zh_msg: "缺少密钥、KDF 不匹配或解密失败", en_title: "Crypto or key failure", en_msg: "Missing key, KDF mismatch, or decryption failed" },
+    Entry { id: "E-AMBR-006", severity: "error", domain: "AMBR", #[cfg(feature = "zh")] zh_title: "canonical 化失败", #[cfg(feature = "zh")] zh_msg: "载荷无法转成 canonical 文本 / canonical 值", en_title: "Canonicalization failed", en_msg: "The payload cannot be converted to canonical text or a canonical value" },
+    Entry { id: "E-AMBR-007", severity: "error", domain: "AMBR", #[cfg(feature = "zh")] zh_title: "宿主或 IO 失败", #[cfg(feature = "zh")] zh_msg: "本地库未加载、文件读写或输入缓冲分配失败", en_title: "Host or I/O failure", en_msg: "Local library not loaded, file I/O failed, or input buffer allocation failed" },
+    Entry { id: "E-AMBR-008", severity: "error", domain: "AMBR", #[cfg(feature = "zh")] zh_title: "内部错误", #[cfg(feature = "zh")] zh_msg: "解码器 / 编码器 panic 或未预期的内部状态", en_title: "Internal error", en_msg: "Decoder/encoder panic or an unexpected internal state" },
     Entry { id: "E-CLI-001", severity: "error", domain: "CLI", #[cfg(feature = "zh")] zh_title: "输入格式未知", #[cfg(feature = "zh")] zh_msg: "输入格式取值未知", en_title: "Unknown input format", en_msg: "The input format value is unknown" },
     Entry { id: "E-CLI-002", severity: "error", domain: "CLI", #[cfg(feature = "zh")] zh_title: "输出格式未知", #[cfg(feature = "zh")] zh_msg: "输出格式取值未知", en_title: "Unknown output format", en_msg: "The output format value is unknown" },
     Entry { id: "E-CLI-003", severity: "error", domain: "CLI", #[cfg(feature = "zh")] zh_title: "参数组合非法", #[cfg(feature = "zh")] zh_msg: "命令行参数组合非法：互斥项同时给出，或依赖项缺失", en_title: "Invalid argument combination", en_msg: "Invalid command-line argument combination: mutually exclusive options given together, or a required dependency is missing" },
@@ -203,6 +211,14 @@ static ENTRIES: &[Entry] = &[
 
 /// 全部错误码 id（按升序）。
 pub const ALL: &[&str] = &[
+    "E-AMBR-001",
+    "E-AMBR-002",
+    "E-AMBR-003",
+    "E-AMBR-004",
+    "E-AMBR-005",
+    "E-AMBR-006",
+    "E-AMBR-007",
+    "E-AMBR-008",
     "E-CLI-001",
     "E-CLI-002",
     "E-CLI-003",

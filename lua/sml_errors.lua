@@ -6,6 +6,14 @@
 local M = {}
 
 M.ZH = {
+  ["E-AMBR-001"] = { severity = "error", domain = "AMBR", title = "入参非法", msg = "传入了空指针、空输入、无效 UTF-8 或含 NUL 的文本" },
+  ["E-AMBR-002"] = { severity = "error", domain = "AMBR", title = "容器格式非法", msg = "魔数、布局版本、文件头、段表或段体不合规（含截断与缺段）" },
+  ["E-AMBR-003"] = { severity = "error", domain = "AMBR", title = "不支持的能力", msg = "文件用了本构建不支持的算法、压缩、feature 或能力位" },
+  ["E-AMBR-004"] = { severity = "error", domain = "AMBR", title = "完整性校验失败", msg = "摘要、manifest 声明或签名校验不通过" },
+  ["E-AMBR-005"] = { severity = "error", domain = "AMBR", title = "加解密或密钥失败", msg = "缺少密钥、KDF 不匹配或解密失败" },
+  ["E-AMBR-006"] = { severity = "error", domain = "AMBR", title = "canonical 化失败", msg = "载荷无法转成 canonical 文本 / canonical 值" },
+  ["E-AMBR-007"] = { severity = "error", domain = "AMBR", title = "宿主或 IO 失败", msg = "本地库未加载、文件读写或输入缓冲分配失败" },
+  ["E-AMBR-008"] = { severity = "error", domain = "AMBR", title = "内部错误", msg = "解码器 / 编码器 panic 或未预期的内部状态" },
   ["E-CLI-001"] = { severity = "error", domain = "CLI", title = "输入格式未知", msg = "输入格式取值未知" },
   ["E-CLI-002"] = { severity = "error", domain = "CLI", title = "输出格式未知", msg = "输出格式取值未知" },
   ["E-CLI-003"] = { severity = "error", domain = "CLI", title = "参数组合非法", msg = "命令行参数组合非法：互斥项同时给出，或依赖项缺失" },
@@ -176,6 +184,14 @@ M.ZH = {
 }
 
 M.EN = {
+  ["E-AMBR-001"] = { title = "Invalid input", msg = "Null pointer, empty input, invalid UTF-8, or text containing NUL" },
+  ["E-AMBR-002"] = { title = "Invalid container format", msg = "Bad magic, layout version, header, segment table, or segment body (including truncation and missing segments)" },
+  ["E-AMBR-003"] = { title = "Unsupported capability", msg = "The file uses an algorithm, compression, feature, or capability bit this build does not support" },
+  ["E-AMBR-004"] = { title = "Integrity check failed", msg = "Digest, manifest declaration, or signature verification failed" },
+  ["E-AMBR-005"] = { title = "Crypto or key failure", msg = "Missing key, KDF mismatch, or decryption failed" },
+  ["E-AMBR-006"] = { title = "Canonicalization failed", msg = "The payload cannot be converted to canonical text or a canonical value" },
+  ["E-AMBR-007"] = { title = "Host or I/O failure", msg = "Local library not loaded, file I/O failed, or input buffer allocation failed" },
+  ["E-AMBR-008"] = { title = "Internal error", msg = "Decoder/encoder panic or an unexpected internal state" },
   ["E-CLI-001"] = { title = "Unknown input format", msg = "The input format value is unknown" },
   ["E-CLI-002"] = { title = "Unknown output format", msg = "The output format value is unknown" },
   ["E-CLI-003"] = { title = "Invalid argument combination", msg = "Invalid command-line argument combination: mutually exclusive options given together, or a required dependency is missing" },

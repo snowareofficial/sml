@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 // SML 多语言宿主绑定（C# / P/Invoke）。
 // 仓库：https://gitee.com/snoware/sml
-// @version 0.1.0 (swsml 0.6.3)
+// @version 由 sml_version() 提供（不在此写死包版本）
 
 using System;
 using System.Collections.Generic;
@@ -42,6 +42,14 @@ namespace Sml
         public const int F_GLOB_INCLUDE = 1 << 9;
         public const int F_REGEX_INCLUDE = 1 << 10;
         public const int F_EXT_REWRITE = 1 << 11;
+        // 12..18 与 c/sml_rs.h 逐位一致（守护：tools/check/check_amberice_align.py）
+        public const int F_WHEN = 1 << 12;
+        public const int F_FOR = 1 << 13;
+        public const int F_TYPED_BLOCK = 1 << 14;
+        public const int F_CASE_INSENSITIVE = 1 << 15;
+        public const int F_BLOCK_NAME = 1 << 16;
+        public const int F_FEATAG = 1 << 17;
+        public const int F_IDENT = 1 << 18;
         public const int F_BASIC = F_BAREWORD_STR | F_INCLUDE | F_FRAGMENT;
 
         // 值类型

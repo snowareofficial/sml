@@ -4,7 +4,7 @@
  * 仓库：https://gitee.com/snoware/sml
  * @file sml_rs.h
  * @brief SML v1..v4 C-ABI 桥接：经 Rust cdylib 获得 v1..v4 全集能力（$env / glob-include / @feature / @contract）。
- * @version 0.2.0 (swsml 0.6.4)
+ * @version 由 sml_version() 提供（不在此写死包版本）
  */
 
 /*

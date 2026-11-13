@@ -50,6 +50,14 @@ const (
 	SMLF_GLOB_INC     = 1 << 9
 	SMLF_REGEX_INC    = 1 << 10
 	SMLF_EXT_REWRITE  = 1 << 11
+// 12..18 与 c/sml_rs.h 逐位一致（守护：tools/check/check_amberice_align.py）
+SMLF_WHEN          = 1 << 12
+SMLF_FOR           = 1 << 13
+SMLF_TYPED_BLOCK   = 1 << 14
+SMLF_CASE_INSENSITIVE = 1 << 15
+SMLF_BLOCK_NAME    = 1 << 16
+SMLF_FEATAG        = 1 << 17
+SMLF_IDENT         = 1 << 18
 	// SMLF_WEAK 弱声明族（@weakbind / @weakdata / @weakdoc）：opt-in、不在基线里。
 	// LoadsFull 的 Flags 是**特性上限**，要校验弱绑定得显式带上这一位。
 	SMLF_WEAK  = 1 << 19

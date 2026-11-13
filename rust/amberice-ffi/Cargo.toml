@@ -34,3 +34,7 @@ optional = true
 default = []
 # 打开才有 `ambr_pack_text`；不打开时 cdylib 仍只有读能力，依赖树不变。
 sml = ["dep:sml"]
+# wasm32 目标：转发 `amberice` 的 32 位风险门（`u64 as usize` 截断）。
+# 默认拒编；`js/build_ambr_wasm.py` 在编译 wasm 时显式带上。
+# ｜ wasm32 only: opt in to the 32-bit truncation risk; native builds never need it.
+allow-32bit = ["amberice/allow-32bit"]

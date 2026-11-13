@@ -35,6 +35,7 @@ E - CONTRACT - 002
 | 宿主绑定层 | `IO` `INTERNAL` `DERIVE` | C-ABI、Lua 绑定、Rust 派生宏与 serde 桥 |
 | 工具层 | `MIGRATE` `CLI` `LINT` | `smltools` 的命令行、迁入格式、lint 诊断 |
 | 编辑器层 | `EDITOR` | VSCode 扩展与 LSP 桥 |
+| 容器层 | `AMBR` | `amberice`（`.ambr`）自成一体，不占语言层码位；Rust 侧错误类型见 `rust/amberice/src/error.rs` |
 
 沿用本仓库既有先例：qsm 的 lint 已在用 `E-ID-001` / `W-ID-100` / `I-ID-200`。
 

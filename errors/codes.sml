@@ -26,6 +26,7 @@
 #   宿主绑定层 —— Rust 派生宏与 serde 桥、C-ABI、Lua 绑定：IO / INTERNAL / DERIVE
 #   工具层    —— smltools 的命令行、迁入格式、lint：MIGRATE / CLI / LINT
 #   编辑器层  —— VSCode 扩展与 LSP 桥：EDITOR
+#   容器层    —— amberice（.ambr）自成一体：AMBR
 #   三层的划分只影响**落地顺序**，不影响码的稳定性：任何一层的码都是对外契约。
 #
 # 覆盖度：**已全量**（2026-09-18 清点）。清点按「语义条件」去重，范围覆盖
@@ -73,6 +74,8 @@ domains: {
     LINT: "lint 诊断"
     # ---- 编辑器层 ----
     EDITOR: "编辑器扩展宿主层"
+    # ---- 容器层（amberice 自成一体，不占语言层码位） ----
+    AMBR: "amberice 容器（.ambr）"
 }
 
 codes: [
@@ -747,4 +750,41 @@ codes: [
       msg: "自定义词与官方关键字冲突，已忽略"
       impls: [ vscode ] status: done
       note: "告警而非错误：冲突项被跳过，其余自定义词照常生效" }
+
+    # ================= 容器层（amberice / .ambr） =================
+    # amberice 是自成一体的二进制信封：这些码描述**容器/ABI 边界**的错误，
+    # 不复用 SML 语言层的 E-PARSE-* / E-LEX-*。程序按 code() 或文本里的
+    # `[E-AMBR-xxx]` 分支，而不是解析文案。英文文案见 errors/msg.en.json。
+    { id: E-AMBR-001 domain: AMBR severity: E title: "入参非法"
+      msg: "传入了空指针、空输入、无效 UTF-8 或含 NUL 的文本"
+      impls: [ amberice ] status: done
+      note: "ABI 边界的入参校验；宿主库版本不影响判定" }
+    { id: E-AMBR-002 domain: AMBR severity: E title: "容器格式非法"
+      msg: "魔数、布局版本、文件头、段表或段体不合规（含截断与缺段）"
+      impls: [ amberice ] status: done
+      note: "ContainerError 里所有结构 / 布局类变体归此码；细节在消息的 detail 部分" }
+    { id: E-AMBR-003 domain: AMBR severity: E title: "不支持的能力"
+      msg: "文件用了本构建不支持的算法、压缩、feature 或能力位"
+      impls: [ amberice ] status: done
+      note: "含只读构建（amberice-ffi 未开 sml feature）时的写入请求；可用 ambr_caps() 先查" }
+    { id: E-AMBR-004 domain: AMBR severity: E title: "完整性校验失败"
+      msg: "摘要、manifest 声明或签名校验不通过"
+      impls: [ amberice ] status: done
+      note: "字节被改过 / 文件损坏 / 密钥不受信都走此码；与 E-AMBR-005 的「加解密失败」分开" }
+    { id: E-AMBR-005 domain: AMBR severity: E title: "加解密或密钥失败"
+      msg: "缺少密钥、KDF 不匹配或解密失败"
+      impls: [ amberice ] status: done
+      note: "密钥材料的问题，不是字节校验的问题" }
+    { id: E-AMBR-006 domain: AMBR severity: E title: "canonical 化失败"
+      msg: "载荷无法转成 canonical 文本 / canonical 值"
+      impls: [ amberice ] status: done
+      note: "含键序不可用、非有限浮点、深度超限与 SML 源文本解析失败" }
+    { id: E-AMBR-007 domain: AMBR severity: E title: "宿主或 IO 失败"
+      msg: "本地库未加载、文件读写或输入缓冲分配失败"
+      impls: [ amberice ] status: done
+      note: "宿主环境问题，与 .ambr 内容无关" }
+    { id: E-AMBR-008 domain: AMBR severity: E title: "内部错误"
+      msg: "解码器 / 编码器 panic 或未预期的内部状态"
+      impls: [ amberice ] status: done
+      note: "不应发生；出现即视为实现缺陷，保留 detail 供排查" }
 ]
