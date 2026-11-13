@@ -50,7 +50,7 @@ def fail(msg):
 
 def target_dir():
     """`cargo metadata` 的 target_directory —— 用户的 ~/.cargo/config.toml 可能把
-    target-dir 指到仓库外（本机就是 D:/snoware-target），不能假设 rust/target。"""
+    target-dir 指到仓库外（本机就指到了仓库外），不能假设 rust/target。"""
     try:
         raw = subprocess.check_output(
             ["cargo", "metadata", "--format-version", "1", "--no-deps"],

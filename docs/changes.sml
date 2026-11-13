@@ -55,7 +55,7 @@ changes {
     { doc: "docs/repo/archive/doc-reconcile-2026-10-28.md" at: "2026-11-06" commit: "e16de31" summary: "移动自 docs/doc-reconcile-2026-10-28.md" }
     { doc: "docs/repo/archive/doc-defects.md" at: "2026-11-06" commit: "e16de31" summary: "移动自 docs/doc-defects.md" }
     { doc: "docs/repo/archive/handoff/" at: "2026-11-06" commit: "e16de31" summary: "移动自仓库根：11 份 HANDOFF*.md（含 HANDOFF.md 174 KB）" }
-    { doc: "docs/repo/archive/task/" at: "2026-11-06" commit: "e16de31" summary: "移动自仓库根：4 份 TASK-agent*.md（另有 3 份从未入库的 TASK-hy3-* 按 .gitignore 规则挪进 _scratch/）" }
+    { doc: "docs/repo/archive/task/" at: "2026-11-06" commit: "e16de31" summary: "移动自仓库根：4 份 TASK-agent*.md（另有 3 份从未入库的 TASK-<internal>-* 按 .gitignore 规则挪进 _scratch/）" }
 
     { doc: "examples/showcase.sml" at: "2026-11-06" commit: "e16de31" summary: "移动自仓库根 showcase.sml（示例归 examples/；README 两处链接同步）" }
     { doc: "examples/showcase_contract.sml" at: "2026-11-06" commit: "e16de31" summary: "移动自仓库根 showcase_contract.sml（同一批；rust/tests/contract_showcase.rs 的夹具路径同步）" }
