@@ -34,10 +34,12 @@ import java.util.Map;
 public final class Ambr {
     private Ambr() {}
 
-    /** Decoder failure. ｜ 解码失败。 */
+    /** 解码失败：消息统一带稳定码 `AMBR: [E-AMBR-xxx] <detail>`。 */
     public static final class AmbrException extends RuntimeException {
         private static final long serialVersionUID = 1L;
-        public AmbrException(String msg) { super("AMBR: " + msg); }
+        /** 默认按「容器格式」归码。｜ Defaults to the container-format code. */
+        public AmbrException(String msg) { this("E-AMBR-002", msg); }
+        public AmbrException(String code, String msg) { super("AMBR: [" + code + "] " + msg); }
     }
 
     private static final int SEG_VALUE = 0x01;
@@ -50,9 +52,295 @@ public final class Ambr {
     private static final int MAX_DEPTH = 128;
     private static final long MAX_ELEMS = 1_000_000L;
 
+    /* --- 摘要算法（§20）：SHA-256 / SM3 / BLAKE3，供按 manifest 的 hash_id 校验段摘要。
+     * 纯 Java 实现，不依赖 JCA（`MessageDigest` 未必有 SM3，且会造成端间结果漂移）。
+     * ｜ Dependency-free SHA-256 / SM3 / BLAKE3 for segment-digest verification. --- */
+
+    private static final int[] SHA_K = {
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+    };
+
+    private static int rotr(int x, int n) { return (x >>> n) | (x << (32 - n)); }
+    private static int rotl(int x, int n) { return (x << n) | (x >>> (32 - n)); }
+
+    /** 公共填充：0x80 + 0 + 8B 大端 bitlen ｜ shared padding. */
+    private static byte[] pad(byte[] data) {
+        final long bits = (long) data.length * 8L;
+        int padLen = 64 - ((data.length + 9) % 64);
+        if (padLen == 64) padLen = 0;
+        final byte[] out = new byte[data.length + 1 + padLen + 8];
+        System.arraycopy(data, 0, out, 0, data.length);
+        out[data.length] = (byte) 0x80;
+        for (int i = 0; i < 8; i++) out[out.length - 1 - i] = (byte) (bits >>> (8 * i));
+        return out;
+    }
+
+    private static int be32(byte[] b, int at) {
+        return ((b[at] & 0xff) << 24) | ((b[at + 1] & 0xff) << 16)
+             | ((b[at + 2] & 0xff) << 8) | (b[at + 3] & 0xff);
+    }
+
+    private static int le32(byte[] b, int at) {
+        return (b[at] & 0xff) | ((b[at + 1] & 0xff) << 8)
+             | ((b[at + 2] & 0xff) << 16) | ((b[at + 3] & 0xff) << 24);
+    }
+
+    private static void putBe(byte[] out, int at, int v) {
+        out[at] = (byte) (v >>> 24);
+        out[at + 1] = (byte) (v >>> 16);
+        out[at + 2] = (byte) (v >>> 8);
+        out[at + 3] = (byte) v;
+    }
+
+    private static void putLe(byte[] out, int at, int v) {
+        out[at] = (byte) v;
+        out[at + 1] = (byte) (v >>> 8);
+        out[at + 2] = (byte) (v >>> 16);
+        out[at + 3] = (byte) (v >>> 24);
+    }
+
+    static byte[] sha256(byte[] data) {
+        final int[] h = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+                         0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
+        final byte[] msg = pad(data);
+        final int[] w = new int[64];
+        for (int off = 0; off < msg.length; off += 64) {
+            for (int j = 0; j < 16; j++) w[j] = be32(msg, off + j * 4);
+            for (int j = 16; j < 64; j++) {
+                final int s0 = rotr(w[j - 15], 7) ^ rotr(w[j - 15], 18) ^ (w[j - 15] >>> 3);
+                final int s1 = rotr(w[j - 2], 17) ^ rotr(w[j - 2], 19) ^ (w[j - 2] >>> 10);
+                w[j] = w[j - 16] + s0 + w[j - 7] + s1;
+            }
+            int a = h[0], b = h[1], c = h[2], d2 = h[3];
+            int e = h[4], f = h[5], g = h[6], hh = h[7];
+            for (int j = 0; j < 64; j++) {
+                final int s1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+                final int ch = (e & f) ^ (~e & g);
+                final int t1 = hh + s1 + ch + SHA_K[j] + w[j];
+                final int s0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+                final int maj = (a & b) ^ (a & c) ^ (b & c);
+                final int t2 = s0 + maj;
+                hh = g; g = f; f = e; e = d2 + t1;
+                d2 = c; c = b; b = a; a = t1 + t2;
+            }
+            h[0] += a; h[1] += b; h[2] += c; h[3] += d2;
+            h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+        }
+        final byte[] out = new byte[32];
+        for (int i = 0; i < 8; i++) putBe(out, i * 4, h[i]);
+        return out;
+    }
+
+    private static int[] SM3_IV = {0x7380166f, 0x4914b2b9, 0x172442d7, 0xda8a0600,
+                                   0xa96f30bc, 0x163138aa, 0xe38dee4d, 0xb0fb0e4e};
+
+    static byte[] sm3(byte[] data) {
+        final int[] h = SM3_IV.clone();
+        final byte[] msg = pad(data);
+        final int[] w = new int[68];
+        final int[] w1 = new int[64];
+        for (int off = 0; off < msg.length; off += 64) {
+            for (int j = 0; j < 16; j++) w[j] = be32(msg, off + j * 4);
+            for (int j = 16; j < 68; j++) {
+                final int x = w[j - 16] ^ w[j - 9] ^ rotl(w[j - 3], 15);
+                w[j] = (x ^ rotl(x, 15) ^ rotl(x, 23)) ^ rotl(w[j - 13], 7) ^ w[j - 6];
+            }
+            for (int j = 0; j < 64; j++) w1[j] = w[j] ^ w[j + 4];
+            int a = h[0], b = h[1], c = h[2], d2 = h[3];
+            int e = h[4], f = h[5], g = h[6], hh = h[7];
+            for (int j = 0; j < 64; j++) {
+                final int tj = j < 16 ? 0x79cc4519 : 0x7a879d8a;
+                final int ss1 = rotl(rotl(a, 12) + e + rotl(tj, j), 7);
+                final int ss2 = ss1 ^ rotl(a, 12);
+                final int ff = j < 16 ? (a ^ b ^ c) : ((a & b) | (a & c) | (b & c));
+                final int gg = j < 16 ? (e ^ f ^ g) : ((e & f) | (~e & g));
+                final int tt1 = ff + d2 + ss2 + w1[j];
+                final int tt2 = gg + hh + ss1 + w[j];
+                d2 = c; c = rotl(b, 9); b = a; a = tt1;
+                hh = g; g = rotl(f, 19); f = e; e = tt2 ^ rotl(tt2, 9) ^ rotl(tt2, 17);
+            }
+            h[0] ^= a; h[1] ^= b; h[2] ^= c; h[3] ^= d2;
+            h[4] ^= e; h[5] ^= f; h[6] ^= g; h[7] ^= hh;
+        }
+        final byte[] out = new byte[32];
+        for (int i = 0; i < 8; i++) putBe(out, i * 4, h[i]);
+        return out;
+    }
+
+    private static final int[] B3_IV = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+                                        0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
+    private static final int[] B3_PERM = {2, 6, 3, 10, 7, 0, 4, 13, 1, 11, 12, 5, 9, 14, 15, 8};
+
+    private static int[] b3Words(byte[] buf, int len) {
+        final int[] m = new int[16];
+        final int full = len / 4;
+        for (int i = 0; i < full; i++) m[i] = le32(buf, i * 4);
+        final int rem = len % 4;
+        if (rem > 0) {
+            int x = 0;
+            for (int i = 0; i < rem; i++) x |= (buf[full * 4 + i] & 0xff) << (8 * i);
+            m[full] = x;
+        }
+        return m;
+    }
+
+    private static void b3Compress(int[] cv, int[] blockWords, long counter, int blockLen,
+                                   int flags, int[] out) {
+        final int[] s = {cv[0], cv[1], cv[2], cv[3], cv[4], cv[5], cv[6], cv[7],
+                         B3_IV[0], B3_IV[1], B3_IV[2], B3_IV[3],
+                         (int) counter, (int) (counter >>> 32), blockLen, flags};
+        final int[] m = blockWords.clone();
+        for (int r = 0; r < 7; r++) {
+            b3Round(s, m);
+            final int[] old = m.clone();
+            for (int i = 0; i < 16; i++) m[i] = old[B3_PERM[i]];
+        }
+        for (int i = 0; i < 8; i++) {
+            out[i] = s[i] ^ s[i + 8];
+            out[i + 8] = s[i + 8] ^ cv[i];
+        }
+    }
+
+    private static void b3G(int[] s, int a, int b, int c, int d, int mx, int my) {
+        s[a] = s[a] + s[b] + mx;
+        s[d] = rotr(s[d] ^ s[a], 16);
+        s[c] = s[c] + s[d];
+        s[b] = rotr(s[b] ^ s[c], 12);
+        s[a] = s[a] + s[b] + my;
+        s[d] = rotr(s[d] ^ s[a], 8);
+        s[c] = s[c] + s[d];
+        s[b] = rotr(s[b] ^ s[c], 7);
+    }
+
+    private static void b3Round(int[] s, int[] m) {
+        b3G(s, 0, 4, 8, 12, m[0], m[1]);
+        b3G(s, 1, 5, 9, 13, m[2], m[3]);
+        b3G(s, 2, 6, 10, 14, m[4], m[5]);
+        b3G(s, 3, 7, 11, 15, m[6], m[7]);
+        b3G(s, 0, 5, 10, 15, m[8], m[9]);
+        b3G(s, 1, 6, 11, 12, m[10], m[11]);
+        b3G(s, 2, 7, 8, 13, m[12], m[13]);
+        b3G(s, 3, 4, 9, 14, m[14], m[15]);
+    }
+
+    static byte[] blake3(byte[] msg) {
+        final int CHUNK_START = 1, CHUNK_END = 2, PARENT = 4, ROOT = 8;
+        int[] cv = B3_IV.clone();
+        long counter = 0;
+        byte[] buf = new byte[64];
+        int bufLen = 0, blocks = 0;
+        final int[][] stack = new int[54][];
+        int stackLen = 0;
+        int pos = 0;
+
+        while (pos < msg.length) {
+            final int chunkLen = 64 * blocks + bufLen;
+            if (chunkLen == 1024) {
+                // 收一个 chunk 的 CV
+                final int[] out = new int[16];
+                b3Compress(cv, b3Words(buf, bufLen), counter, bufLen, (blocks == 0 ? CHUNK_START : 0) | CHUNK_END, out);
+                final int[] newCv = java.util.Arrays.copyOfRange(out, 0, 8);
+                long total = counter + 1;
+                stack[stackLen++] = newCv;
+                while (total % 2 == 0 && stackLen >= 2) {
+                    final int[] right = stack[--stackLen];
+                    final int[] left = stack[--stackLen];
+                    final int[] w = new int[16];
+                    System.arraycopy(left, 0, w, 0, 8);
+                    System.arraycopy(right, 0, w, 8, 8);
+                    final int[] po = new int[16];
+                    b3Compress(B3_IV, w, 0, 64, PARENT, po);
+                    stack[stackLen++] = java.util.Arrays.copyOfRange(po, 0, 8);
+                    total /= 2;
+                }
+                counter++;
+                cv = B3_IV.clone();
+                buf = new byte[64];
+                bufLen = 0;
+                blocks = 0;
+            }
+            int take = 1024 - (64 * blocks + bufLen);
+            if (take > msg.length - pos) take = msg.length - pos;
+            for (int i = 0; i < take; i++) {
+                if (bufLen == 64) {
+                    final int[] out = new int[16];
+                    b3Compress(cv, b3Words(buf, 64), counter, 64, blocks == 0 ? CHUNK_START : 0, out);
+                    cv = java.util.Arrays.copyOfRange(out, 0, 8);
+                    blocks++;
+                    buf = new byte[64];
+                    bufLen = 0;
+                }
+                buf[bufLen++] = msg[pos++];
+            }
+        }
+
+        // 最后一个 chunk 的 output，再与栈上的 CV 逐层合并
+        int[] inputCv = cv;
+        int[] words = b3Words(buf, bufLen);
+        int blockLen = bufLen;
+        int flags = (blocks == 0 ? CHUNK_START : 0) | CHUNK_END;
+        for (int i = stackLen - 1; i >= 0; i--) {
+            final int[] cur = new int[16];
+            b3Compress(inputCv, words, counter, blockLen, flags, cur);
+            final int[] w = new int[16];
+            System.arraycopy(stack[i], 0, w, 0, 8);
+            System.arraycopy(cur, 0, w, 8, 8);
+            inputCv = B3_IV;
+            words = w;
+            blockLen = 64;
+            flags = PARENT;
+        }
+        final int[] out = new int[16];
+        b3Compress(inputCv, words, 0, blockLen, flags | ROOT, out);
+        final byte[] res = new byte[32];
+        for (int i = 0; i < 8; i++) putLe(res, i * 4, out[i]);
+        return res;
+    }
+
+    /** 按 §20 的 hash_id 取摘要；`null` = 本端算不了（预留号 / 多级元组）⇒ 跳过校验。 */
+    private static byte[] digestFor(int hashId, byte[] body) {
+        if (hashId == 0x30) return sha256(body);
+        if (hashId == 0x31) return sm3(body);
+        if (hashId == 0x32) return blake3(body);
+        return null;
+    }
+
+    /** 从 MANIFEST(0x04) 段体读 `hash_id`（自包含 canonical 编码）。 */
+    private static Integer manifestHashId(byte[] body) {
+        final Reader r = new Reader(body);
+        final long count = r.varint();
+        if (count < 0 || count > body.length) return null;
+        final List<String> strtab = new ArrayList<>();
+        for (long i = 0; i < count; i++) {
+            final long n = r.varint();
+            if (n < 0 || r.pos + n > r.len) return null;
+            strtab.add(new String(body, r.pos, (int) n, java.nio.charset.StandardCharsets.UTF_8));
+            r.pos += (int) n;
+        }
+        final Object tree = decodeNode(r, strtab, 0);
+        if (!(tree instanceof Map)) return null;
+        final Object raw = ((Map<?, ?>) tree).get("hash_id");
+        if (raw == null) return 0x30;                       // 缺省 = §21 默认 SHA-256
+        if (raw instanceof Number) {
+            final long v = ((Number) raw).longValue();
+            return (v >= 0 && v <= 255) ? Integer.valueOf((int) v) : null;
+        }
+        if (raw instanceof List) return 0x3E;               // 多级元组：转义号，本端不实现
+        return null;
+    }
+
     private static final class Parts {
         byte[] value, strtab, typed, schema;
         boolean typedOpaque, schemaOpaque;
+        int hashId = 0x30;
+        boolean digestSkipped;
     }
 
     private static Parts walk(byte[] bytes) {
@@ -72,6 +360,28 @@ public final class Ambr {
         long bodyAt = alignUp(tableOff + count * SEG_HDR, granule);
         final Parts p = new Parts();
 
+        // 引导顺序：先找 MANIFEST 取 hash_id，再用它验其余段（连 manifest 自己一起）。
+        // ｜ Bootstrap: read hash_id from MANIFEST first, then verify with it.
+        {
+            long scan = bodyAt;
+            for (long i = 0; i < count; i++) {
+                final int o = (int) tableOff + (int) (i * SEG_HDR);
+                if (o + SEG_HDR > bytes.length) break;
+                final int sid = bytes[o] & 0xff;
+                final int scomp = bytes[o + 1] & 0xff;
+                final int senc = bytes[o + 2] & 0xff;
+                final long slen = u32(bytes, o + 5);
+                if (scan + slen > bytes.length) break;
+                if (sid == 0x04 && scomp == 0 && senc == 0) {
+                    final Integer found = manifestHashId(
+                        java.util.Arrays.copyOfRange(bytes, (int) scan, (int) (scan + slen)));
+                    if (found != null) p.hashId = found;
+                    break;
+                }
+                scan = alignUp(scan + slen, granule);
+            }
+        }
+
         for (long i = 0; i < count; i++) {
             final int o = (int) tableOff + (int) (i * SEG_HDR);
             if (o + SEG_HDR > bytes.length) throw new AmbrException("段表越界");
@@ -87,16 +397,36 @@ public final class Ambr {
                 if (comp != 0 || enc != 0) {
                     throw new AmbrException("VALUE/STRTAB 压缩或加密过，本解码器不解");
                 }
+                final byte[] vb = java.util.Arrays.copyOfRange(bytes, from, to);
+                final byte[] vgot = digestFor(p.hashId, vb);
+                if (vgot == null) p.digestSkipped = true;
+                else if (!java.util.Arrays.equals(vgot, java.util.Arrays.copyOfRange(bytes, o + 9, o + 41))) {
+                    throw new AmbrException("E-AMBR-004", "段摘要不符（段体被改动？）");
+                }
                 if (id == SEG_VALUE) p.value = java.util.Arrays.copyOfRange(bytes, from, to);
                 else p.strtab = java.util.Arrays.copyOfRange(bytes, from, to);
+            } else if (id == 0x04) {
+                if (comp == 0 && enc == 0) {
+                    final byte[] body = java.util.Arrays.copyOfRange(bytes, from, to);
+                    final byte[] got = digestFor(p.hashId, body);
+                    if (got == null) p.digestSkipped = true;
+                    else if (!java.util.Arrays.equals(got, java.util.Arrays.copyOfRange(bytes, o + 9, o + 41))) {
+                        throw new AmbrException("E-AMBR-004", "段摘要不符（段体被改动？）");
+                    }
+                }
             } else if (id == SEG_TYPED || id == SEG_SCHEMA) {
                 if (comp != 0 || enc != 0) {
                     if (id == SEG_TYPED) p.typedOpaque = true;
                     else p.schemaOpaque = true;
-                } else if (id == SEG_TYPED) {
-                    p.typed = java.util.Arrays.copyOfRange(bytes, from, to);
                 } else {
-                    p.schema = java.util.Arrays.copyOfRange(bytes, from, to);
+                    final byte[] body = java.util.Arrays.copyOfRange(bytes, from, to);
+                    final byte[] got = digestFor(p.hashId, body);
+                    if (got == null) p.digestSkipped = true;
+                    else if (!java.util.Arrays.equals(got, java.util.Arrays.copyOfRange(bytes, o + 9, o + 41))) {
+                        throw new AmbrException("E-AMBR-004", "段摘要不符（段体被改动？）");
+                    }
+                    if (id == SEG_TYPED) p.typed = body;
+                    else p.schema = body;
                 }
             }
             bodyAt = alignUp(bodyAt + len, granule);
