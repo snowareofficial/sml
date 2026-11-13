@@ -82,7 +82,11 @@ JS 写入器的解码错误同样带 `[E-AMBR-002]`。`js/test-ambr-write.mjs` �
 - `docs/amberice/ref/ports.md` 的 `hash_id` 分派表：Rust 与 FFI 五绑定已按 manifest 分派
   `0x30/31/32`；**独立解码器**（JS / C / C++ / Java 纯实现 / Lua）仍写死 SHA-256，
   遇到 SM3 / BLAKE3 会误报「摘要不符」。补实现还是先「明确跳过」属待裁决，见该页。
-- `0x33` 已永久预留给国密 SM 系列抗量子哈希（`format.md §20.3`、`hash.rs::SmPqcDigest`）：
-  登记编号但未实现，读端报 `HashError::NotImplemented(0x33)`，绝不退回 SHA-256。
+- 编号空间已按**分组命名空间**扩展（`format.md §20.3`，用户 2026-11-13 裁决「多留几个，
+  怕影响格式寿命」）：哈希组 `0x30–0x3F` 的 16 个号全部登记 —— 3 个实现 + 13 个预留
+  （`0x33` 国密 SM 抗量子、`0x34` 通用 PQC、`0x35–0x3D` 未分配槽、`0x3E` 二级命名空间
+  转义、`0x3F` 私有实验）；签名 PQC / KEM / 混合组各留 `0x62` / `0x83` / `0xA2`。
+  预留号读端一律 `NotImplemented`、永不回收，组边界仍是 `Unknown`。
+  守护 `check_amberice_align.py` 第 6 组判据钉住代码与规范的同步。
 - `docs/amberice/spec/format.md` 内若干「已落地 / 未做」自相矛盾的段落、
   `decisions.md` 的待裁决条目：属 amberice 自身文档治理，另行处理。

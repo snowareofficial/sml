@@ -168,21 +168,45 @@ missing_en = sorted(c for c in ambr_codes if c not in en_msgs)
 check("AMBR 码有英文 title/msg（i18n）", not missing_en, f"缺英文={missing_en}")
 
 # ---------------------------------------------------------------------------
-# 6. §20 hash_id 预留位：0x33 已登记、未实现，且规范同步
+# 6. §20 分组命名空间与预留位（代码 ⇔ 规范）
 # ---------------------------------------------------------------------------
 hash_src = read("rust/amberice/src/hash.rs")
 spec = read("docs/amberice/spec/format.md")
-check("0x33 在 HashAlgo 里登记",
+
+# 组内 16 个号全部登记：3 个实现 + 13 个预留（含具名 / 转义 / 私有 / 未分配槽）
+check("哈希组常量 0x30..0x3F 已声明",
+      "pub const HASH_GROUP_FIRST: u8 = 0x30;" in hash_src
+      and "pub const HASH_GROUP_LAST: u8 = 0x3F;" in hash_src)
+check("0x33 国密 SM 抗量子位已登记",
       "0x33 => Some(HashAlgo::SmPqcDigest)" in hash_src
       and "HashAlgo::SmPqcDigest => 0x33" in hash_src)
-check("0x33 未实现且明确拒绝",
-      "HashAlgo::SmPqcDigest => Err(HashError::NotImplemented(0x33))" in hash_src)
-check("0x33 没被算作已实现",
-      "matches!(self, HashAlgo::Sha256 | HashAlgo::Sm3 | HashAlgo::Blake3)" in hash_src)
-check("规范 §20.3 同步预留位",
-      "### 20.3 预留编号（`0x33`）" in spec and "`0x33` 国密 SM 系列抗量子哈希（预留）" in spec)
-check("0x34 仍是未知编号",
-      "assert_eq!(HashAlgo::from_id(0x34), None);" in hash_src)
+check("多预留：0x34 通用 PQC / 0x35–0x3D 未分配槽",
+      "0x34 => Some(HashAlgo::PqcDigest)" in hash_src
+      and "0x35..=0x3D => Some(HashAlgo::Reserved(id))" in hash_src)
+check("组内末两号：0x3E 转义 / 0x3F 私有",
+      "pub const HASH_ESCAPE: u8 = 0x3E;" in hash_src
+      and "pub const HASH_PRIVATE: u8 = 0x3F;" in hash_src
+      and "HASH_ESCAPE => Some(HashAlgo::ExtendedNamespace)" in hash_src)
+check("所有预留位统一明确拒绝（不退回 SHA-256）",
+      "other => Err(HashError::NotImplemented(other.id()))" in hash_src
+      and "pub const fn is_reserved(self) -> bool" in hash_src)
+check("组边界仍是 Unknown",
+      "assert_eq!(digest_by_id(0x2F, b\"x\"), Err(HashError::Unknown(0x2F)));" in hash_src
+      and "assert_eq!(digest_by_id(0x40, b\"x\"), Err(HashError::Unknown(0x40)));" in hash_src)
+
+# 规范同步：分组命名空间 + 各组预留位
+check("规范 §20.3 分组命名空间已落地",
+      "### 20.3 分组命名空间与预留编号" in spec
+      and "#### 20.3.1 组 = 命名空间" in spec
+      and "#### 20.3.3 组内末两号：转义与私有" in spec)
+check("规范里哈希组 16 号明细齐全",
+      "| `0x35–0x3D` | 组内未分配槽（9 个）" in spec
+      and "| `0x3E` | **扩展命名空间转义**" in spec
+      and "| `0x3F` | 私有 / 实验" in spec)
+check("其它组也留了国密 PQC 位",
+      "`0x62` 国密 PQC 签名（预留）" in spec
+      and "`0x83` 国密 PQC KEM（预留）" in spec
+      and "`0xA2` 国密 PQC 混合（预留）" in spec)
 
 print()
 if FAILURES:

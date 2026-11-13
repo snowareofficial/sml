@@ -56,8 +56,12 @@ Ruby `22/22 read + 22 round-trip`、C# `dotnet run` 全绿（连同 Java 纯实�
 
 ⇒ 欠账不是「Rust 没分派」，而是**独立解码器没跟上**。可选两档：① 在各端补 SM3 / BLAKE3
 实现后按 `hash_id` 验；② 先做「不能算则明确跳过并标注」（D44 后续），不误报但也别假装验过。
-**本批不动**，等裁决。另：`0x33` 已永久预留给国密 SM 系列抗量子哈希（编号先占、未实现，
-见 `format.md §20.3`），读端遇它应报 `NotImplemented` 而非退回 SHA-256。
+**本批不动**，等裁决。
+编号空间（2026-11-13）：`format.md §20.3` 把 §20 的区间定为**分组命名空间**并多留了号：
+哈希组 `0x30–0x3F` 全部 16 号已登记（`0x33` 国密 SM 抗量子、`0x34` 通用 PQC、
+`0x35–0x3D` 未分配槽、`0x3E` 扩展命名空间转义、`0x3F` 私有实验），另在签名 PQC /
+KEM / 混合组各留 `0x62` / `0x83` / `0xA2` 给国密 PQC。所有预留号读端一律
+`NotImplemented`，永不回收；组边界（`0x2F` / `0x40`）仍是 `Unknown`。
 
 D45 的 `SCHEMA` / `TYPED` 渲染：JS 已通（`js/test-ambr-typed.mjs`）、C 已通
 （`sml_ambr_load_typed` + `c/tests/test_ambr_typed.c`，已进 `build_check.py`）、C++ 已通
