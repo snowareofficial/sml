@@ -1,7 +1,7 @@
-# weakdata 规范草案 v0.1（**Rust 单端已实现**）
+# weakdata 规范 v1.0（Rust 单端已实现）
 
-> 状态横幅：**Rust 侧已实现**（语法 / 旁路表 / 判别用例）；其它端与编辑器**未做**，
-> 属「发布前统一同步」那批（同 `weakbind`）。
+> 状态横幅：语义已定稿，Rust 侧语法 / 旁路表 / 判别用例齐备；其它端、编辑器与 FFI
+> 属发布前同步，切片与判据见 `docs/swsml/plan/crossend-sync.md` P4 / P7。
 > 决定来源：2026-11-04 与用户逐条确认（形态 A、同名后者覆盖、只允许块、可写在任意块内并带路径）。
 >
 > 同族文档：`docs/swsml/spec/weakbind.md`（共享的族级规则在那里，本文不重复）。
@@ -88,7 +88,7 @@ pub weak_data: Vec<WeakData>,
 | 旁路表 | ✅ | `ParseOutput.weak_data: Vec<WeakData>` |
 | 同名覆盖 | ✅ | 记录时按 `(path, name)` 就地替换 |
 | 用例 | ✅ 7 条 | `rust/tests/weakdata.rs`（含核心判据的差分用例） |
-| 其余四端 + 编辑器 + 绑定层 | ⬜ | 发布前统一同步 |
+| 其余四端 + 编辑器 + 绑定层 | ⬜ | 本批纳入五端同步与功能对等，见 `docs/swsml/plan/crossend-sync.md` P4 / P7 |
 
 **已知边界**
 

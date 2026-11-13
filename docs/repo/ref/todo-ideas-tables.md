@@ -17,16 +17,16 @@
 | TODO 已勾 | **75** | `Select-String TODO.md '^\s*- \[ x\]'` |
 | TODO 非复选框欠账 | **8** | 人工取自 `TODO.md` 表格行 / `⬜` 标记 / `⏳ 待修`（本文 T43–T50，逐行注来源） |
 | IDEAS 条目 | **23**（I-1…I-23，其中 I-12 = `Rejected`） | `Select-String IDEAS.md '^## I-\d+'` |
-| 码表条目 | **166** | `Select-String errors/codes.sml '\{ id: [EWI]-'` |
-| 仅 Rust 实现（`impls: [ rust ]`） | **46**；语言层 **38**（PARSE 16 / CONTRACT 10 / FEATURE 4 / INCLUDE 3 / EXT 3 / LEX 1 / LIMIT 1）+ DERIVE 8（宿主绑定层，Rust 专属，不是跨端欠账）。LEX 从 2 降到 1：`E-LEX-006` 已由 T21 在五端收口 | `Select-String errors/codes.sml '^\s*impls:\s*\[\s*rust\s*\]'`，按 `domain` 分组 |
-| 一致性套件 | **41 例 / AGREE 41 / DIVERGE 0**（`19` 以 `*` 放行） | `python tests/conformance/run_conformance.py`；`docs/repo/ref/scan.md` |
+| 码表条目 | **167**（含 `W-CLI-001`） | `Select-String errors/codes.sml '\{ id: [EWI]-'`；生成物 `site/static/errors.json` |
+| 仅 Rust 实现（`impls: [ rust ]`） | **44**；语言层 **36**（PARSE 15 / CONTRACT 9 / FEATURE 4 / INCLUDE 3 / EXT 3 / LEX 1 / LIMIT 1）+ DERIVE 8（宿主绑定层，Rust 专属，不是跨端欠账）。2026-11-13 回填：`W-PARSE-001` 五端 done、`W-CONTRACT-001` 五端 partial，故 PARSE 16→15、CONTRACT 10→9；剩余是**逐码实现缺口**，不再是「无诊断通道」（五端都有出口） | `Select-String errors/codes.sml 'impls: \[ rust \]'`，按 `domain` 分组 |
+| 一致性套件 | **60 例 / AGREE 60 / DIVERGE 0**（`19` 以 `*` 放行） | `python tests/conformance/run_conformance.py --require-all`；`docs/repo/ref/scan.md` |
 | `.vsix` 产物 vs 源码 | 产物最新 **0.4.3**，`package.json` 已是 **0.5.0** | `Get-ChildItem editors/vscode -Filter *.vsix` |
 | 本会话新增（表 1.5，N01–N06） | **6**（已完成 4 / 部分完成 1 / 未做 1） | 见 `## 表 1.5` |
 
 **三处与旧文档不一致（以本表为准，别照抄旧数字）**
 
-1. `TODO.md:812` 写「146 条码」——实测 **166 条**。
-2. `TODO.md:166`「顶层标量未统一」、`TODO.md:149`「一致性套件本轮不做」都是**过期未勾**：前者五端已同报 `E-PARSE-008`，后者套件已建（41 例）。
+1. `TODO.md:812` 写「146 条码」——`site/static/errors.json` 实测 **167 条**（`W-CLI-001` 登记后）。
+2. `TODO.md:166`「顶层标量未统一」、`TODO.md:149`「一致性套件本轮不做」都是**过期未勾**：前者五端已同报 `E-PARSE-008`，后者套件已建（60 例）。
 3. `IDEAS.md` 的 `I-23` 写 `Todo`、`I-18` 写「零实现」、`TODO.md §10.1` 写 `smlb` 待裁决 —— 均已被 2026-11-06 覆盖：改名 B 档落地（`0f1c7f4`）、性能 A/B 全落（`b5ec96a`…`f6c19b3`）。见 T29 / I-18 / I-23 行。
 
 ---
@@ -35,21 +35,21 @@
 
 | 编号 | 主题 | 状态 | 优先级 | 依赖 | 完成判据 | 来源(file:行) | 卡在谁 |
 |---|---|---|---|---|---|---|---|
-| T01 | 跨实现一致性套件（conformance） | 部分完成：41 例 AGREE 41 / DIVERGE 0；`19` 经 `WAIVERS` 以 `*` 放行，待登记为永久取舍 | P1 | 无 | `run_conformance.py` 输出 DIVERGE=0 且五端无 SKIP（后者未在 CI 实测） | `TODO.md:149`、`tests/conformance/known_divergences.md:5` | 实现者（永久取舍登记 / CI 首跑） |
+| T01 | 跨实现一致性套件（conformance） | 部分完成：60 例 AGREE 60 / DIVERGE 0（P5 后 +6 条版本用例）；`19` 经 `WAIVERS` 以 `*` 放行，待登记为永久取舍 | P1 | 无 | `run_conformance.py` 输出 DIVERGE=0 且五端无 SKIP（后者未在 CI 实测） | `TODO.md:149`、`tests/conformance/known_divergences.md:5` | 实现者（永久取舍登记 / CI 首跑） |
 | T02 | 顶层标量行为统一 | 已完成(未勾)：五端同报 `E-PARSE-008` | P2 | 无 | 五端各跑 `42` 均得 `E-PARSE-008`（码表该条 `impls: [ rust js c cpp lua ] status: done`） | `TODO.md:166`、对照 `TODO.md:1178` | 无；只需回填勾选 |
 | T03 | 错误边界不一致（同名键 / 未闭合括号 / 空文档 / 仅注释 / 重复片段名） | 部分完成：同名键已改告警 `W-PARSE-001/002`；空文档与仅注释两例已五端 AGREE | P1 | T01 | 五类各一条 conformance 用例全 AGREE | `TODO.md:201`、`tests/conformance/known_divergences.md:15` | 实现者 |
 | T04 | Lua/JS 缺单元测试 | 部分完成：Lua 有 `test_codes.lua` 184 条 + `run_check.py` 120 条；JS 有 `probe-error-codes.mjs` 52 条（均为脚本，非测试框架） | P2 | T01 | 两端各有进 CI 的测试目标，且 `0 passed` 不算通过 | `TODO.md:203` | 实现者 |
 | T05 | C `sml_dump` 与 Rust `to_sml` 逐字节对齐 | **已完成（2026-11-06，用户裁决「留路」）**：两类差异写进 `docs/swsml/spec/value-layout.md`「渲染差异（允许）」；`check_dump_parity.py` 改为分类判定 + `--strict` 保留旧口径。134 文件语料：仅键序 25 / 引号 21 / 未分类 0（其余 13 全落在串内转义、`$env`、浮点写法三类已知项） | P2 | 无 | `python tools/check_dump_parity.py` 逐字节一致，或两类取舍写进规范并登记 | `TODO.md:204`、`TODO.md:1180`、`docs/swsml/spec/value-layout.md §渲染差异（允许）` | 无 |
-| T06 | Lua 补契约数组 `[契约名]` | 未做（用户已定「先不动 Lua」） | P2 | 无 | `41_contract_array` 五端 AGREE | `TODO.md:318` | 用户 |
+| T06 | Lua 补契约数组 `[契约名]` | 本批纳入五端同步（2026-11-12 裁决，覆盖「先不动 Lua」） | P2 | P1 | `41_contract_array` 五端 AGREE | `TODO.md:318`、`docs/swsml/plan/crossend-sync.md` §0.1 | 实现者 |
 | T07 | 清理 DeepSeek 开发痕迹 | 未做（发布前） | P0 | 无 | 代码/文档/历史关键词 grep 归零，或产出「无法抹除」清单 | `TODO.md:802` | 用户（敏感部分自行处理） |
 | T08 | 国际化：README / crate 文档 / CLI 帮助中英双语（范围：`swml` / `swsml` / `sml-*`，**`smltools` 不算**；`amberice` / `swml::easy` 已双语） | 未做；`smlb` / `swml`（含 `easy`）已双语，其余 crate 与 CLI 待核对。**运行时文案机制：`swi18n`**（用户 2026-11-06 批准；零依赖、系统语言 + 回退链） | P1 | T28 / T40 / T41 / T42（与文档治理同批） | 逐 crate 清单勾完；缺英文时回退中文且不静默 | `TODO.md:804`、`docs/amberice/plan/plan.md:2.1` | 实现者；**对外措辞动前问用户** |
 | T09 | 双授权（MIT 或 Apache-2.0 + MulanPSL-2.0） | 未做；`swsml` / `smlb` 现仅 MulanPSL-2.0 | P0 | 无 | 两 crate 的 `license` 字段、LICENSE 文件、README 三处一致 | `TODO.md:806` | 用户（授权口径） |
 | T10 | 各 crate `repository` 补 GitHub 地址 | 未做；现只有 `gitee.com/snoware/sml` | P1 | T30 | 每个 `Cargo.toml` 指 GitHub，README 链接 GitHub 在前 | `TODO.md:808` | 用户（等迁 GitHub） |
-| T11 | Lua 嵌套数组 | 未做（用户已定「先不动 Lua」） | P2 | 无 | `05`/`06`/`07` 五端 AGREE | `TODO.md:967` | 用户 |
+| T11 | Lua 嵌套数组 | 本批纳入五端同步（2026-11-12 裁决，覆盖「先不动 Lua」） | P2 | P1 | `05`/`06`/`07` 五端 AGREE | `TODO.md:967`、`docs/swsml/plan/crossend-sync.md` §0.1 | 实现者 |
 | T12 | 清理临时探针清单（`_*` 约 40 个） | 未做（等套件全 AGREE） | P2 | T01 | 台账末节清单清零，且 `git grep` 无工具链引用 | `TODO.md:969` | 实现者 |
 | T13 | `@feature base` 只认版本号，文档无法声明书名 | 未做；CLI 按顶层 `title:` 推断（已是事实约定） | P2 | 无 | 一个正式承载位（字段或指令）+ 规范页 + 五端同判据 | `TODO.md:971`、`IDEAS.md:788` | 用户裁决 |
 | T14 | 重打 `.vsix` | 未做：源码 0.5.0，入库产物最新 0.4.3 | P1 | 无 | `sml-lang-0.5.0.vsix` 入库 + 复制到 `site/static/dl/` + 下载页同步 | `TODO.md:1003` | 用户（需网络 + 定版本号） |
-| T15 | weak* 落地后同步扩展 | 未做 | P1 | I-5 / I-15 / I-17 | 语法文件 + 补全 + `package.json` `languages` 齐备，`_prepublish.mjs` 全绿 | `TODO.md:1007` | 实现者 |
+| T15 | weak* 落地后同步扩展 | **源码侧已完成（2026-11-12）**：VSCode / LSP / Zed + `smltools` 高亮基线副本 + 回归钉子齐备；只剩 T14 的 `.vsix` 重打（用户动作） | P1 | I-5 / I-15 / I-17 | 语法文件 + 补全 + `package.json` `languages` 齐备，`_prepublish.mjs` 全绿 | `TODO.md:1007`、`editors/vscode/README.md` | 实现者 |
 | T16 | 表示层优化（`Tok` 借用 / 键 interning / inline 小 map） | 部分完成：**`Tok` 借用已落**（2026-11-06，A 方案 `f6c19b3`：tokenize allocs −99.8%、parse allocs −70%）；键 interning / inline 小 map 未做 | P2 | I-18、`docs/swsml/spec/value-layout.md` | 同负载 bench ≥15%，`eq_ordered` / fuzz 不回归 | `TODO.md:1042` | 用户（动表示层） |
 | T17 | 先想清「哪一层能编译掉」 | 未做 | P2 | 无 | 一张逐项表：cargo feature vs SML 特性（`when`/`for`/`contract` 同名）各能否编译掉 | `TODO.md:1047` | 实现者 |
 | T18 | 重定发布节奏 | 未做；原「等 I-18/I-19」前提已不成立 | P0 | T29 / T31 / T35 | 写死发布顺序与门槛（谁先发、什么条件） | `TODO.md:1080` | 用户裁决 |
@@ -77,14 +77,14 @@
 | T40 | 14.1 文件归档一刀切 | 未做（受控 `_*` 18 个，磁盘约 231 个） | P1 | 无 | 同一批提交内：新目录 + 全部内容 + 引用改路径 + 旧位置清空；例外在 `meta.sml` 记 `status: keep` | `TODO.md:1645` | 实现者 |
 | T41 | 14.2 文档元数据 `docs/meta.sml` | 未做 | P1 | T40 | `meta.sml` + `changes.sml` 存在；`docs/index.md` / `report.md` 由前者生成 | `TODO.md:1658` | 实现者 |
 | T42 | 14.3 `smltools docs` 扫描器 | 未做（当前无 `docs` 子命令） | P1 | T41 | `--check` 进 CI：未登记 / 断链 / `stale` 无替代者即红；`--fix` 只做机械补全 | `TODO.md:1681` | 实现者 |
-| T43 | W4-片段行级展开（C++ 缺行级 `&frag` splice） | 未做（C 已与 Rust 同组） | P1 | T01 | `@base {a:1}` + `w { c:3` + `&base }` 在 C++ 与 Rust 同树；`10`/`11` 转 AGREE | `TODO.md:1181` | 实现者（✋ 需拍板是否动 C++） |
+| T43 | W4-片段行级展开（C++ 缺行级 `&frag` splice） | 本批纳入五端同步（2026-11-12 裁决，✋ 解除） | P1 | P1 | `@base {a:1}` + `w { c:3` + `&base }` 在 C++ 与 Rust 同树；`10`/`11` 转 AGREE | `TODO.md:1181`、`docs/swsml/plan/crossend-sync.md` §0.1 | 实现者 |
 | T44 | W6 Lua 走 native 绑定做契约 | 挂起（用户已定「native 可先不做」） | P2 | 无 | 无需完成；保持口径「能力已由纯 Lua 实现，本条只是性能/一致性收益」 | `TODO.md:1184` | 用户（已裁决不做） |
 | T45 | W7 JS / 编辑器侧一次报多条错误 | 未做（Rust 已做 `collect_errors`） | P2 | T01 | JS `parse` 返回多错 + 编辑器一次显示；旧 `parse()` 行为不变 | `TODO.md:1185` | 实现者 |
 | T46 | W22 文档与扩展对账 | 未做（对账清单未出） | P1 | T14 | 先出「新增项 → 该出现在哪个文件」清单，再逐处更新，`_prepublish.mjs` 全绿 | `TODO.md:1211` | 实现者 |
 | T47 | W23 JS include 架构（不带子文件片段/契约/类型表） | 未做 | P1 | T01 | `examples/app.sml` 与「契约在被包含文件里」两例在 JS 与 Rust 同树，既有 `E-INCLUDE-*` 不回归 | `TODO.md:1212` | 实现者 |
-| T48 | Lua 三引号丢键 + `@feature … # 注释` 吞下一行 | 未做（用户已定「先不动 Lua」） | P2 | 无 | 两条用例在 Lua 下输出含 `x`，与 Rust/JS 同树 | `TODO.md:915`、`TODO.md:917` | 用户 |
+| T48 | Lua 三引号丢键 + `@feature … # 注释` 吞下一行 | 本批纳入五端同步（2026-11-12 裁决，覆盖「先不动 Lua」） | P2 | P1 | 两条用例在 Lua 下输出含 `x`，与 Rust/JS 同树 | `TODO.md:915`、`TODO.md:917`、`docs/swsml/plan/crossend-sync.md` §0.1 | 实现者 |
 | T49 | 私库非交互推送（SSH / GCM / Token） | 未做（现 HTTP 明文 + 无凭据助手） | P2 | 无 | 配 SSH key（22 端口已开）或 token 后 `git push` 无交互成功 | `TODO.md:1123` | 用户 |
-| T50 | v5 定稿（`5.0` 启用 + 表 A） | 部分完成：实现已先行（`type.featag` 33 处、`__featags` 31、`from-featag` 37、`strict-paths` 28），文档表 A 仍写草案 | P0 | T33 / I-6 | `@version 50 "camelia" dev` 不再报 `E-FEATURE-004`；表 A 11 条逐条实测通过；B6–B10 文档回填 | `docs/swsml/spec/v5.md:34`、`docs/repo/ref/unfinished.md:58` | 用户（v5 何时定稿/开放） |
+| T50 | v5 定稿（表 A 逐条实测 + 规范转 `current`） | 暂缓（2026-11-12 裁决「v5 没定稿，先做多端同步」）：表 A 实测结论已登记为发布前置，A8 / A12 实现后置，`50` 保持不启用；**不阻塞本批跨端同步** | P0 | T33 / I-6 | 表 A 13 条逐条实测结论齐备、A8 / A12 缺口补齐、B6–B10 文档回填；`E-FEATURE-004` 启用位维持关闭 | `docs/swsml/spec/v5.md`、`docs/swsml/plan/crossend-sync.md` §0 | 用户（v5 何时定稿/开放） |
 
 ---
 
@@ -186,7 +186,7 @@
 | I-2 | Rust 原生契约，可选无视文件内契约 | Done（opt-out 2026-11-02） | 语言 / 契约 | 无 | 残余：`parse_file` 不接收 `ParseOptions`，opt-out 目前只走文本入口 | `IDEAS.md:60` |
 | I-3 | `get_object` 之类访问器 | Done（已合入 `dev`，分支已删） | API | 无 | 无（`as_object`/`as_array`/`as_i64`/`as_bool` + `[idx]` 路径已齐） | `IDEAS.md:79` |
 | I-4 | 注释双语化（英文在前） | Done（2026-11-02 全仓归零） | 文档 / 注释 | 无 | 未做仅剩码表 151 处生成物 doc（须改 `errors/gen_*.py` 模板并重生成） | `IDEAS.md:97` |
-| I-5 | `weakbind`：插件认契约、库忽略 | Partial（2026-11-04，仅 Rust） | 语言 / 插件通道 | 编辑器提示 + 多端同步 | 兑现用途必须同步 vsix（否则只能验证语义）；与 I-15 的边界判据先落地 | `IDEAS.md:180` |
+| I-5 | `weakbind`：插件认契约、库忽略 | **语言层五端已完成（2026-11-13）**：识别 / 门控 / `W-CONTRACT-001` 七档 / 旁路表 + C-ABI + 五绑定；剩编辑器提示与 vsix 重打（T14/T15） | 语言 / 插件通道 | 编辑器提示 + 多端同步 | 兑现用途必须同步 vsix（否则只能验证语义） | `IDEAS.md:180`、`docs/swsml/spec/weakbind.md` §10 |
 | I-6 | `featag`：带参块头标签 | 文档写 `Blocked`，**实测 Rust 已落地**（`__featags` / `from-featag` / `!strict-paths` 均在代码里） | 语言 / 块头 | T50（v5 定稿） | 回填 IDEAS 状态；四端按 S9 明确「不实现、报不支持」；补规范页 | `IDEAS.md:292`、`docs/swsml/plan/featag-slices.md:19` |
 | I-7 | 契约约束的精确控制 | Done（`x_only` 2026-11-02 落地） | 语言 / 契约 | 无 | 无；剩余只有「五端同步」（归 T01） | `IDEAS.md:340` |
 | I-8 | TOML 风格 `=` 分隔 | Todo（`[name]` 作块名已搁置） | 语言 / 词法 | 五端词法 + `@feature` opt-in | 先裁决「特性未开启时是否报错」，再动词法；`[name]` 维持搁置 | `IDEAS.md:452` |
@@ -196,8 +196,8 @@
 | I-12 | 改名工作 | Rejected（2026-11-03 用户裁决） | 治理 / 命名 | 无 | 不再提；好名字由新 crate 承载（I-19 `swml`） | `IDEAS.md:554` |
 | I-13 | 实现即文档 | Partial（只落了一个示范） | 流程 / 文档 | 无 | 每落一个能力补「语义 + 例子 + 陷阱」，例子必须可跑（doctest 或测试） | `IDEAS.md:583` |
 | I-14 | 仓库排雷行动 | Partial（可修项基本修完） | 质量 / 排雷 | 无 | 剩余为「已定性不做」或「结构上做不到」；跨端项归 T01 | `IDEAS.md:601` |
-| I-15 | `weakdata` 扩展数据通道 | Partial（2026-11-04，仅 Rust） | 语言 / 数据通道 | 多端同步 + 扩展 | 与 I-5 先划边界；落地后按 I-13 补「语义 + 例子 + 陷阱」 | `IDEAS.md:629` |
-| I-17 | `weakdoc`：`.smlex` profile 引用 | Partial（库侧 + CLI 三命名空间发现已实现；编辑器侧未做） | 语言 / profile | 编辑器侧发现规则 | 补编辑器侧发现与提示；把「不注入」写成可测判据 | `IDEAS.md:652`、`docs/swsml/spec/weakdoc.md` |
+| I-15 | `weakdata` 扩展数据通道 | **语言层五端已完成（2026-11-13）**：载荷经 C-ABI `sml_weaklists.data` 与五绑定 `loads_full_lists` 交出，且都断言「不进主树」；剩扩展侧消费方（无欠账，等真实用例） | 语言 / 数据通道 | 多端同步 + 扩展 | 与 I-5 已划边界；按 I-13 补「语义 + 例子 + 陷阱」 | `IDEAS.md:629`、`docs/swsml/spec/weakdata.md` |
+| I-17 | `weakdoc`：`.smlex` profile 引用 | **Done（2026-11-13）**：库侧五端 + CLI 三命名空间发现 + `W-CLI-001` 提示 + 编辑器侧（VSCode 诊断 / LSP 真进程验收）全部落地；Zed 纯 grammar 不覆盖 | 语言 / profile | 无 | 补编辑器侧发现与提示；把「不注入」写成可测判据 | `IDEAS.md:652`、`docs/swsml/spec/weakdoc.md` |
 | I-16 | 版本后缀与发布门禁 | 方案已定；门禁未做 | 发布治理 | CI | 做 `--check-version`（当前 `smltools` **无此参数**）拦「没到门槛就 bump」 | `IDEAS.md:677` |
 | I-18 | `amberice`（原 `.smlb`）二进制 + `smldb` | **文档写 Todo「零实现」= 过期**；T0–T7 全端已落，且 2026-11-06 改名完成（`smlb` → `amberice`、`.ambr` / `AMBR`） | 格式 / 持久化 | 设计前提：`Value` 还是 HTML 式节点模型 | **`smldb` 未开工**（选择器 / FTS / 表结构）；先定 FTS / `:has()` / `id` 唯一 / 规模信封 | `IDEAS.md:702`、`docs/amberice/ref/ports.md` |
 | I-19 | 品牌门面 `swml`（原 `smlkit`） | **crate 已建（2026-11-06）**：`rust/swml`（`pub use swsml::*` + `easy` 模块）；`smlkit-easy` 已并入 `easy`、不再单独发；**未发布** | 命名 / 发布 | T18 / T29 | 新建 `swml` 0.1.0（独立仓、依赖 crates.io、`publish` 按纪律）；`smlkit-easy` 是否改 `swml-easy` 待裁 | `IDEAS.md:727` |

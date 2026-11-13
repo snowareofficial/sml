@@ -1,8 +1,8 @@
-# weakdoc 规范草案 v0.1（**库侧与 CLI 发现已实现，编辑器侧未做**）
+# weakdoc 规范 v1.0（库侧与 CLI 发现已实现）
 
-> 状态横幅：**Rust 库侧已实现**（语法 / 旁路表 / 判重 / 判别用例）；
-> `.smlex` 的三命名空间发现已由 `smltools --resolve-profiles` 实现（§3、§8）。
-> **未做**：编辑器侧的发现与提示、其余四端与绑定层。
+> 状态横幅：语义已定稿。Rust 库侧语法 / 旁路表 / 判重 / 判别用例齐备；
+> `.smlex` 三命名空间发现由 `smltools --resolve-profiles` 实现（§3、§8）。
+> 编辑器侧提示、其余四端与绑定层属发布前同步，切片见 `docs/swsml/plan/crossend-sync.md` P4 / P7。
 > 决定来源：2026-11-04 与用户确认（三命名空间；项目级目录用 `.smlex/profiles`）。
 >
 > 同族文档：`docs/swsml/spec/weakbind.md`、`docs/swsml/spec/weakdata.md`。
@@ -56,7 +56,13 @@ pub weak_docs: Vec<WeakDoc>,
 
 1. **按名拼路径**：文件名即 profile 名 ⇒ 同层不可能重名，也就没有「同层冲突」这条分支；
 2. 查找顺序 **项目 → 用户 → 系统**，**先命中者胜**（高层覆盖低层，不报错）；
-3. 三处都没有 ⇒ **工具侧**决定提示方式（建议 warning，不阻断 —— profile 是增强项）；
+3. 三处都没有 ⇒ **工具侧**产出一条**带码 warning**（2026-11-12 裁决，不阻断 —— profile 是增强项）：
+   `W-CLI-001`，仅当文档显式写了 `@weakdoc` 时提示；码与中英文文案见 `errors/codes.sml`，
+   行为边界见 `docs/swsml/plan/crossend-sync.md` §0.4；`--resolve-profiles` 的未命中退出码 1 不变。
+   **已实现（2026-11-13）**：普通解析写 stderr（`warn_missing_profiles`），`--lint` 写进报告
+   （`apply_profile_checks`），两处**同一个码**；`--no-profiles` 不报。产物与「没有 `@weakdoc`」
+   的那份逐字节相同（`rust/smltools/tests/warn_missing_profile.rs` 有对照组）。
+   `E-LINT-005` 只留给「找到了但读不出来」，两条码一错一警不混用；
 4. 工具链要提供 `--profile-dir` / `--no-profiles` 之类的显式开关，便于测试与 CI 复现。
 
 **为什么这些规则不放进库**：库一旦读文件系统，「解析结果对有无 `.smlex` 完全一致」
@@ -94,10 +100,11 @@ $ echo $?
 | 判重 | ✅ | `E-PARSE-030`（新码，`impls: [rust]` / `status: partial`） |
 | 用例 | ✅ 6 条 | `rust/tests/weakdoc.rs` |
 | 三命名空间发现（`smltools`） | ✅ | `--resolve-profiles`：TAB 三列输出，未命中退出码 1；4 条端到端用例 |
+| `W-CLI-001` 未命中提示 | ✅ | 普通解析 stderr + `--lint` 报告，同码；`--no-profiles` 不报；5 条端到端用例（`warn_missing_profile.rs`） |
 | `--profile-dir` / `--no-profiles` | ✅ | 显式目录优先级最高；`--no-profiles` 关掉三命名空间 |
-| 编辑器侧的发现与提示 | ⬜ | 属「发布前同步」那批 |
+| 编辑器侧的发现与提示 | ✅ | VSCode 扩展：`missingProfileDiagnostics` 给 **Information + `W-CLI-001`**（同码同文案，与 `smltools` 一致）；LSP `server.mjs` 在 `publishDiagnostics` 里同样处理（Neovim / Helix 等任意 LSP 客户端可用）。判据在桥接层 `missingProfileRefs`（纯函数、**不碰 fs**），fs 发现只在编辑器侧做。回归：`editors/vscode/scripts/_prepublish.mjs` 新增「`@weakdoc` 提示（LSP 真进程）」一步（缺 ⇒ 发 Information / 有 ⇒ 零提示 / 语法错仍是 Error）。Zed 扩展是纯 grammar，无 LSP，不覆盖 |
 | profile 内容格式 | ✅ 定稿 v1.0 | `docs/swsml/spec/smlex.md`（形状契约在 `rust/smltools/profile.sml`） |
-| 其余四端 + 绑定层 | ⬜ | 发布前统一同步 |
+| 其余四端 + 绑定层 | ⬜ | 本批纳入五端同步与功能对等，见 `docs/swsml/plan/crossend-sync.md` P4 / P7 |
 
 **已知边界**
 

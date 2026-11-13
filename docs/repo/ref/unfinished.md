@@ -1,6 +1,6 @@
-# 未完成清单（2026-11-10 核对 · 一处看全）
+# 未完成清单（2026-11-13 核对 · 一处看全）
 
-> **最后核对：2026-11-10**。核对基准不锚定 HEAD；要复现当时的代码版本用
+> **最后核对：2026-11-13**。核对基准不锚定 HEAD；要复现当时的代码版本用
 > `git log -1 --format='%h %cs %s' -- rust/`。本行只维护核对日期，提交推进不改这里。
 
 > **权威仍是 `TODO.md` / `IDEAS.md`**（用户维护）；本文件只是把散在四处的欠账合成一页，
@@ -18,7 +18,8 @@
 > 数字由 `python tools/scan_status.py --write` 生成，见 [`scan.md`](scan.md)。
 > 本节只留结论；**不再手工维护表格**（`TODO.md` §9 第三条）。
 
-- 单端（Rust）功能基本清空；剩**两条主线** —— **四端同步** 与 **v5 定稿**。
+- 单端（Rust）功能基本清空；剩**两条主线** —— **四端同步**（P3–P7 已收官，P5 的**字面量**
+  也已五端同步；只剩 `Removed` 三态 / 兼容检查 / 迁移工具与逐码实现缺口）与 **v5 定稿**。
 - `.smlb` 库侧 T0–T6 已落，剩 **`smldb`**；**T7 多端解码器全端已通**（22/22 逐字符，含 C# / Go / Ruby FFI；状态见 `docs/amberice/ref/ports.md`）。
 - 外挂一批发布治理与文档债（§7、§8）。
 
@@ -29,7 +30,9 @@
 1. **`5.0` 未启用**：`@version 50 "camelia" dev` 实测报 `E-FEATURE-004`（S0b 有意为之）
    ⇒ featag / weak* / v5 新语法只能靠 `@feature enable ...` 在 v4 文档上试跑，版本位这条路没通。
    来源：`open-work.md:332`、`docs/swsml/spec/v5.md:21`。
-2. **四端欠账 46 条码**：其中语言层 **38** 条属跨端欠账（DERIVE 8 条是 Rust 专属绑定层），新能力全在 Rust，跨端同步必须一次性做（§2）。
+2. **仅 Rust 的码 44 条**：其中语言层 **36** 条（DERIVE 8 条是 Rust 专属绑定层，不计）。
+   **「通道」欠账已清**（五端都有「成功 + 诊断列表」出口，见 §9），剩下是**逐码实现缺口**
+   —— 例如 `W-PARSE-002` 四端有通道但片段合并路径未接（§2）。
 3. **生成物与实时扫描未同步**：`docs/repo/ref/scan.md` 由 `tools/scan_status.py --write` 生成，文档改动后必须重跑，否则计数过期（§8）。
 
 ---
@@ -38,11 +41,11 @@
 
 | 项 | 内容 | 来源 |
 |---|---|---|
-| 错误码 | 46 条 `impls: [rust]`，其中语言层 **38** 条属跨端欠账（DERIVE 8 条是 Rust 专属绑定层，不计） | `errors/codes.sml`；`docs/repo/ref/scan.md` |
-| 一致性套件 | 41 例 **AGREE 41 / DIVERGE 0**；`19` 的浮点身份是 JS/Lua 的载体限制，以 `*` 放行，**待登记为永久取舍** | `tests/conformance/known_divergences.md` 头部；`python tests/conformance/run_conformance.py` |
+| 错误码 | 44 条 `impls: [rust]`，其中语言层 **36** 条（DERIVE 8 条是 Rust 专属绑定层，不计）。**逐码缺口**，非「无通道」：五端都有诊断出口，缺的是具体告警没接（如 `W-PARSE-002`） | `errors/codes.sml`；`docs/repo/ref/scan.md` |
+| 一致性套件 | **60 例 AGREE 60 / DIVERGE 0**；`19` 的浮点身份是 JS/Lua 的载体限制，以 `*` 放行，**待登记为永久取舍** | `tests/conformance/known_divergences.md` 头部（2026-11-13 口径）；`python tests/conformance/run_conformance.py --require-all` |
 | featag 四端 | Rust S0–S9 已收官；C / C++ / JS / Lua 按 **S9 策略不实现**，遇 v5 报「本端不支持」，属设计取舍非欠账 | `docs/swsml/plan/featag-slices.md` S9 |
-| weak* 四端 | `@weakbind` / `@weakdata` / `@weakdoc` 库+工具均完成，仅 Rust | `IDEAS.md` I-5/I-15/I-17（`Partial`） |
-| 版本模型 | `Edition` 已替换 `Version`，四端未同步 | `docs/swsml/spec/version.md` |
+| 版本模型 | **字面量五端已同步（2026-11-13，P5）**：`vN` / `N` / `N.0` / `N0` / 代号全接受，`5.0` 族统一 `E-FEATURE-004`，且版本决定特性基集。仍欠：`Removed` 三态与专用码、兼容检查模块、`smltools --migrate` | `docs/swsml/spec/version.md` §7 |
+| FFI / 绑定层能力对等 | **`§0.6` 绑定层列整列收口**：诊断 / 多错误 / 契约表与契约映射（含 `sml_builtin_clone`）/ 三条 weak 旁路表 / 扩展选项 / 文件入口，C-ABI + 五门绑定全部对齐。剩本地四端（C / C++ / JS / Lua）的文件入口仍不交诊断 —— 各端 API 面议题，与 C-ABI 无关 | `docs/swsml/plan/crossend-sync.md` §0.6 / P7；`rust/src/c_abi.rs`；`bindings/README.md` |
 | TODO 里的跨端 7 项 | 顶层标量口径 L166 · 错误边界 L201 · Lua/JS 单测 L203 · C `sml_dump` 对齐 L204 · Lua 契约数组 L318 · Lua 嵌套数组 L967 · `k: "abc\` 三端三码 L1093 | `TODO.md` |
 
 ---
@@ -115,7 +118,7 @@ T5 段级 zstd + 帧级 FRAMES + 按块 AEAD · T6 `sml::envelope` + CLI 互转�
 | 官网 | 新官网由用户单独做；本仓现有 `site/` 内容挂到 `/doc` 子路径（D6）；现有首页 / 下载页版本落后、教科书 ch11/ch12 各两份、`llms.txt` 手抄 | `docs/repo/ref/pending-decisions.md` D6、`open-work.md:268-269,343` |
 | 示例 doctest | 209 个示例无 doctest | `open-work.md:343` |
 | `.vsix` | 源码 `0.5.0`，入库产物只到 `0.4.3`；重打需网络 + 版本号（用户动作） | `TODO.md:1003` |
-| weak* 改 vsix | 三个 weak 指令任一落地都要同步扩展 | `TODO.md:1007` |
+| weak* 改 vsix | **源码侧已同步（2026-11-12）**：VSCode / LSP / Zed + `smltools` 高亮基线副本 + 回归钉子（逐项核对 Rust 的 `FEATURES` / `BUILTIN_DIRECTIVES` / `EDITIONS`）；只剩 `.vsix` 产物重打（同上一行，用户动作） | `TODO.md:1003,1007`；`editors/vscode/README.md` |
 
 ---
 
@@ -189,6 +192,8 @@ T5 段级 zstd + 帧级 FRAMES + 按块 AEAD · T6 `sml::envelope` + CLI 互转�
 | 新增 feature | `smlb-crypto`、`smlb-mmap`（与既有 `smlb-compress` 同形） | `rust/Cargo.toml` |
 | T7 多端解码器 | JS / Lua / C / C++ / 纯 Java 解码器 + C# / Go / Python / Ruby FFI 绑定；容器向量 22/22 **逐字符**一致 | `docs/amberice/ref/ports.md`、`lua/test_ambr_write.lua`、`tools/check/check_ambr_write.py` |
 | TODO / IDEAS 两张表 | 交付物 [`todo-ideas-tables.md`](todo-ideas-tables.md)：TODO 表（未完成 / Done / 会话新增）与 IDEAS 表 I-1…I-23，逐条带状态、依赖、完成判据、来源行号、卡在谁 | `docs/index.md` 中该文档 `status: current`；取数命令见该文 §0 / §3 |
+| 跨端同步 P3–P7（2026-11-13） | 三端预处理 / contract / fragment / env / bareword / `@when` / `@for` 收进 conformance；四端「成功 + 诊断列表」出口；`weak*` 五端 + `W-CONTRACT-001` 七档 + 旁路表；C-ABI 诊断 / 扩展选项 / 内置契约表 / 三条 weak 旁路表 / 聚合结果 `sml_parse_all`；五个绑定层对齐诊断、选项、弱表 | `54` 例 AGREE 54 / DIVERGE 0；`cpp/build_verify.py` 8 档全绿；`cargo test --test c_abi` 33 例；`bindings/*` 各自 ALL OK |
+| 码表台账回填（2026-11-13） | `impls` 与实现对齐（`W-PARSE-001` → 五端 done；`W-CONTRACT-001` → 五端 partial）；重生成补齐 `W-CLI-001` 产物滞后（`COUNT` 166 → 167） | `python errors/gen_json.py --check`（`gen_codes` / `gen_js_errors` 同形）三份全通过 |
 | 未做 | **CI 不跑 fuzz/bench**（需 nightly + ASAN，可另开 job）；`smldb` 无 target；五端无一致性 fuzz | §0 |
 
 ---
@@ -197,7 +202,8 @@ T5 段级 zstd + 帧级 FRAMES + 按块 AEAD · T6 `sml::envelope` + CLI 互转�
 
 ```bash
 # 仓库根
-python tests/conformance/run_conformance.py                       # 41 例，AGREE/DIVERGE 现算
+python tests/conformance/run_conformance.py --require-all         # 54 例，AGREE/DIVERGE 现算
+python tests/conformance/run_conformance.py --pending --require-all  # 待收敛目录应为空
 
 cd rust
 cargo test -p smlb --features "preserve_order,sign,compress,crypto,mmap"
@@ -237,3 +243,4 @@ TODO / IDEAS 两张表在 [`todo-ideas-tables.md`](todo-ideas-tables.md)（`stat
 | 探针 1 · 成本 | ✅ 已实测：8 MB `append_unsigned` 38.720 ms / 64 MB 296.232 ms；尾部追加 200 B 恒定 1.2–1.8 ms | 数字与口径见 `decisions.md §16.5.8` | `cargo run --release -p amberice --example probe_layers` |
 | 探针 2 · 鲁棒性 | ✅ 已实测并修复：读端仍退回基文档，但 `check` 四档均判「未通过」并指出 Trailer 损坏 | 回归用例 `rust/amberice/tests/unsigned.rs::check_reports_truncated_trailer`，另有无层文件防误报用例 | `decisions.md §16.5.8`、`claims-audit.md §8` |
 | 探针 3 · 层数 | ✅ 已实测：100 层 / 39,603 B，`load` 0.3209 ms、`Store::value` 0.2837 ms、`Store::get` 0.2300 ms | `compact` 阈值改看体积与层数，不只看读耗时 | `decisions.md §16.5.8` |
+| D55 · 尾部恢复 + 真追加 | 读端能发现半截尾并给出明确处置；`append_to_file` 只写 EOF（层记录 + 新 Trailer）并 fsync；恢复扫描界覆盖单层上限 | 探针 1 / 2 复跑；`tests/` 补 torn-append 恢复用例；`check` 与读端结论一致 | `decisions.md` D55 |

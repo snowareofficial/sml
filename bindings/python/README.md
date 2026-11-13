@@ -8,6 +8,12 @@
 | 函数 | 说明 |
 |---|---|
 | `loads(text, flags=0)` | 文本 → 原生对象（dict/list/int/float/str/bool/None），类型精确 |
+| `loads_with_diags(text, flags=0)` | 文本 → `(对象, [Diagnostic])`（P7；值树与 `loads` 逐字节相同） |
+| `loads_full(text, flags=0, env=None, builtins=None)` | 文本 → `(对象, [Diagnostic])`，带完整选项（特性上限 / `$env` 注入 / 内置契约表） |
+| `Builtin` | 内置契约表构造器（`add_field` / `set_range` / `add_enum`），供 `@weakbind` 软校验 |
+| `loads_full_lists(...)` | 同 `loads_full`，另交出弱声明三表 → `(对象, [Diagnostic], WeakLists)` |
+| `parse_all(text, flags=0, env=None, builtins=None, want=...)` | 一次拿全：值树 + 诊断 + 多错误 + 弱表 + 契约映射 + 契约表（`ParseAll`） |
+| `load_file_full(path, flags=0, env=None, builtins=None)` | 文件入口：展开 include + 诊断 + 弱表 → `(对象, [Diagnostic], WeakLists)` |
 | `load_file(path, flags=0)` | 文件 → 原生对象（展开 include；相对路径以文件所在目录为基准） |
 | `dumps(obj, flags=0)` | 原生对象 → SML 文本 |
 | `version()` | 版本串（静态，不释放） |

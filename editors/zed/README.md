@@ -104,3 +104,14 @@ editors/zed/
    `highlights.scm`、`extension.toml` 的 `version` / `[grammars.sml].rev` **都没动**
    —— 新增的悬浮/跳转/特殊颜色/图标主题全是 VS Code 扩展的代码行为，不是语法。
    改动它们才需要同步（见上面第 2 条与 `grammars/sml/grammar.js` 文件头的节点名契约）。
+
+7. **当前标准下的适配边界**：`path_suffixes` 含 `sml` / `swl` / `smlex`，与 VS Code 侧
+   `contributes.languages[].extensions` 对齐；`.smlex` 是普通 SML 文档，走同一套 grammar。
+   `@weakbind` / `@weakdata` / `@weakdoc` / `@requires` 由通用 `directive` token 覆盖，
+   归入 `(directive) @keyword`，**不需要**改 `grammar.js` 或重生成 `parser.c`。
+   Edition 字面量（`50 "camelia" dev`）、带域特性名（`type.featag` / `lex.ident` / `type.weak`）
+   与块头 featag（`!name` / `name[值]`）没有独立具名节点，只落基础着色；
+   要给它们单独配色，先装 tree-sitter CLI 验证 `#match?` 与辅助捕获（见第 4 条），
+   再动 `highlights.scm`。
+   `[grammars.sml].rev` 指向发布镜像仓 `snoware/tree-sitter-sml`：本目录的改动
+   要推到那里并更新 `rev` 才会被 Zed 加载。

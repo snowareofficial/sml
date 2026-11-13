@@ -26,6 +26,293 @@ Conventions carried over from `CHANGELOG.md`:
 > Condensed mirror of the Chinese `[未发布]` section: same categories, one line per change.
 > The Chinese file remains authoritative for detail and evidence.
 
+### 🚨 Release policy (planned: cross-end sync, not yet implemented)
+
+- **Breaking public API on four ports**: C / C++ / JS / Lua will each gain a
+  "success + diagnostics list" exit for `W-PARSE-001` / `W-PARSE-002`. The current
+  entry points are binary success/failure only, so callers are affected.
+- **Version policy**: under the 0.x semver rule at the top of this file (MINOR =
+  incompatible), the next stable release is **0.7.0**; `swsml` and `smltools` are
+  versioned independently. Aligning the C library / VSIX versions is B8 in
+  `docs/swsml/spec/v5.md` table B.
+- **Changelog split**: "library API breaking" and "document syntax breaking" stay
+  in separate sections.
+- **Capability parity**: everything `swsml` (Rust) can do should also be available,
+  **functionally**, through the FFI (`rust/src/c_abi.rs` / `c/sml_rs.h` / `cpp/sml_rs.hpp`)
+  and on the other ports, including the five bindings. The criterion is equivalent behaviour
+  and observable results, not identical API shapes or internals: Rust-only extension hooks
+  that take trait objects / closures do not have to become C function pointers.
+  No permanent cuts on the grounds of "no consumer yet"; staged delivery is fine.
+  Criteria: `docs/swsml/plan/crossend-sync.md` §0.6.
+- **C-ABI**: new `CSmlDiagnostic` / weak side-tables / extended options are added as new
+  symbols alongside the old ones (see the `sml_dump_err` precedent) and mirrored in
+  `rust/src/c_abi.rs`, `c/sml_rs.h`, `cpp/sml_rs.hpp` and the five bindings.
+- Policy only: no version bump, no release, `E-FEATURE-004` stays disabled.
+  See `docs/swsml/plan/crossend-sync.md` §0.5 / P4 / P7.
+
+### Added (cross-end sync P4: diagnostics exits + `weakbind` soft checks)
+
+- **C**: `sml_parse_ex` + `sml_diag` / `sml_diag_free` expose diagnostics with line numbers;
+  a `sml_builtin` handle injects the builtin contract table, and
+  `sml_parse_with_builtins` emits the seven `W-CONTRACT-001` categories plus the weak-binding
+  side table (`sml_weakbind ** / size_t *`, freed by `sml_weakbind_free`).
+- **C++**: `Parser::parse(..., &diags)`; new `ParseOptions` + `Parser::parse_with`
+  (`builtins` / `weak_binds` / `diags` / `include_dir`), `BuiltinTable`, `WeakBind`.
+- **JS**: `parseSafe()` returns `warnings` and `weakBinds`; `opts.builtinContracts` injects the table.
+- **Lua**: `Sml.parse_with_warnings`; `Sml.parse_with_builtins(text, builtins, base)` returns
+  `value, err, warnings, weak_binds`.
+- **All ports**: with `type.weak` off, `@weakbind` / `@weakdata` / `@weakdoc` report
+  `E-FEATURE-001` everywhere; the soft check is **read-only** (no defaults filled, no key edits,
+  value tree byte-identical).
+- `sml_parse_with_builtins` is new in this cycle (never released), so widening its signature
+  is not a second break; it ships with 0.7.0.
+
+### Added (cross-end sync P7: C-ABI diagnostics exit + all five bindings aligned)
+
+- **C-ABI**: `sml_parse_with_diags(text, flags, sml_diag_list *, sml_error *)` and
+  `sml_diag_list_free`; new types `sml_diag` / `sml_diag_list` / `sml_severity`. They hand out
+  the stable code (`W-PARSE-001` / `W-PARSE-002` / `W-CONTRACT-001` …), text, line and severity;
+  the value tree is **byte-identical to `sml_loads`**, fatal errors still go through `sml_error`.
+  No old symbol changed.
+- **Rust**: new `sml_parse::parse_with_features_warnings`.
+- **C++ wrapper**: `Severity` / `Diagnostic` / `DiagLoadResult` + `loads_with_diags`;
+  regression `cpp/tests/test_rs_diag.cpp`, run as `RS-DIAG` in `cpp/build_verify.py`.
+- **Five bindings** (Python / Ruby / Java / Go / C#): a `loads_with_diags`-style exit each;
+  the diagnostics list is freed as a whole. `bindings/README.md` alignment list now covers v3.1.
+- Not yet: `errors`, `contract_map` / `contracts`, the three weak side tables, extended options,
+  and a file + diagnostics entry (see `docs/swsml/plan/crossend-sync.md` P7).
+
+### Added (cross-end sync P7, second slice: extended options + builtin contract table)
+
+- **C-ABI**: `sml_builtin` (opaque handle: `_new` / `_free` / `_count` / `_add_field` /
+  `_set_range` / `_add_enum`, same shape as the pure C `sml.h`) plus `sml_opts`
+  (`struct_size` / `flags` / `env` / `env_len` / `builtins`) and `sml_parse_full`.
+  This makes `W-CONTRACT-001` reachable over the C ABI.
+- **Rust**: new `sml_parse::parse_full(text, allowed, env, opts)`; `parse_with_features_warnings`
+  is now a thin wrapper (one code path, no second semantic).
+- **C++ wrapper**: `sml::Builtin` (RAII), `sml::Opts`, `loads_full`.
+- ⚠️ **`flags` is a feature cap, not "extra features"**: `type.weak` is opt-in and not in the
+  baseline, so `flags = 0` intersects it away and `@weakbind` then reports `E-FEATURE-001`.
+  Pass `SML_F_BASIC | SML_F_WEAK` (or `sml_features_mask()`); there is an explicit test for this.
+- Not yet: the five bindings' options/builtin wrappers, the three weak side tables,
+  `errors` / `contract_map` / `contracts`, and a file + diagnostics entry.
+
+### Added (cross-end sync P7, third slice: all five bindings get the full option set)
+
+- Python `loads_full(text, flags, env, builtins)` + `Builtin`; Ruby
+  `loads_full(text, flags:, env:, builtins:)` + `Builtin`; Java `loadsFull(text, Opts)` +
+  `Builtin` (`AutoCloseable`); Go `LoadsFull(text, Opts)` + `NewBuiltin`; C#
+  `LoadsFull(text, Opts, out diags)` + `Builtin` (`IDisposable`).
+- Each port also exposes `SML_F_WEAK` and a regression covering "build table → 4 ×
+  `W-CONTRACT-001` → tree unchanged → env injection → baseline without `type.weak` yields
+  `E-FEATURE-001`". `bindings/README.md` gains a "full options" column.
+- Two cross-language layout bugs fixed: Java's `sml_diag` layout had an extra 4-byte tail pad
+  (offset 28 instead of 24 from the second diagnostic on, rejected by FFM as misaligned);
+  Go's `env` pointer array is now allocated in C memory (cgo rejects Go memory holding
+  pointers).
+
+### Added (cross-end sync P7, fourth slice: weak side tables + file entry over the C ABI)
+
+- **C-ABI**: `sml_weakbind` / `sml_weakdata` / `sml_weakdoc` / `sml_weaklists` +
+  `sml_weaklists_free`; `sml_parse_full_lists` (`sml_parse_full` is it with `lists = NULL`)
+  and `sml_load_file_full`. The three tables mirror the pure-C shapes (`path` / `name` / `line`);
+  `weakdata.value` is an owned value-tree handle released **with the table** (never free it alone).
+- **Rust**: new `sml_parse::parse_file_full(path, allowed, env, opts)`.
+- **C++ wrapper**: `sml::WeakLists` (RAII), `loads_full(text, opts, WeakLists *)`,
+  `load_file_full(path, opts, WeakLists *)`.
+- Regressions: `rust/tests/c_abi.rs` +2 cases, `cpp/tests/test_rs_diag.cpp` +2 sections (11 checks).
+- Not yet: the five bindings' weak-table wrappers, `errors` / `contract_map` / `contracts`.
+
+### Added (cross-end sync P7, fifth slice: all five bindings hand out the weak tables)
+
+- Python `loads_full_lists` → `(value, [Diagnostic], WeakLists)`; Ruby
+  `Sml.loads_full_lists` → `[value, diags, WeakLists]`; Java `Sml.loadsFullLists` →
+  `Parsed.lists`; Go `LoadsFullLists` → `(any, []Diagnostic, WeakLists, error)`; C#
+  `LoadsFullLists(..., out diags, out lists)`.
+- Contents match the C ABI (`path` / `name` / `line`); the `@weakdata` payload is materialised
+  immediately and the C table is then freed, so hosts never own C memory.
+- Each port carries the same regression: 1/1/1 tables, readable payload, empty top-level path
+  for `@weakdoc`, no trace in the main tree, 100 iterations.
+- Not wired: the bindings' **file entry** (`sml_load_file_full` is C-ABI / C++ only for now).
+
+### Added (cross-end sync P7, sixth slice: aggregated result handle `sml_result`)
+
+- **C-ABI**: `sml_parse_all(text, opts, want, err)` plus the `sml_result_*` getter family
+  (`value` / `diags` / `errors` / `weak` / `contract_map` / `contracts`) and `sml_result_free`;
+  `want` is a mask of `SML_WANT_*` bits. Rule: **one parse -> one handle -> getters**, so future
+  outputs add a bit and a getter instead of reshaping existing signatures.
+- New types `sml_contract_ref` / `sml_contractmap` (flat "entity -> contract name" rows).
+  Every getter returns a **borrowed** pointer that dies with `sml_result_free`.
+- With `SML_WANT_ERRORS`, a document with syntax/contract errors no longer returns NULL: the
+  value is a best-effort partial tree and all errors land in `sml_result_errors`
+  (`severity = 1`, line derived from the byte offset).
+- The `sml_builtin` from `SML_WANT_CONTRACTS` can be injected as a builtin table, closing the
+  "write contracts in SML, inject them back" loop (`docs/swsml/spec/weakbind.md` §6.1).
+- **C++ wrapper**: `sml::Result` (RAII), `sml::Want`, `sml::Builtin::borrow()`.
+- Regressions: `rust/tests/c_abi.rs` +2 (33 total), `cpp/tests/test_rs_diag.cpp` +2 sections (17 checks).
+- Not yet: the five bindings' `sml_parse_all` wrappers.
+
+### Changed (error-code ledger backfilled to match reality)
+
+- `errors/codes.sml`: `W-PARSE-001` now lists `[ rust js c cpp lua ]` with `status: done`
+  (all five ports hand it out through their "success + diagnostics" exit, same trigger and line
+  semantics); `W-CONTRACT-001` lists all five ports but stays `partial` (the four native ports
+  lack `block.undeclared_field`, which needs contract strictness); `W-PARSE-002` remains Rust-only
+  with a corrected note ("the other ports have a channel, the fragment-merge path does not report
+  yet") instead of the stale "no diagnostics channel".
+- Regenerating the eight artifacts also fixed a **stale artifact**: `W-CLI-001` was already in the
+  ledger but missing from the outputs (`SML_CODES_COUNT` / `COUNT` 166 → 167, plus
+  `c/sml_codes.h`, `js/sml-codes.mjs`, `rust/sml-codes/src/codes.rs`, `lua/sml_errors.lua`,
+  `site/static/errors.json`).
+
+### Added (`W-CLI-001`: a referenced profile is missing -> warning only)
+
+- **`smltools`**: the plain parse path now warns on stderr (`[W-CLI-001]`) when a document says
+  `@weakdoc X` and none of the project / user / system locations has `X.smlex`. The exit code
+  stays 0 and the output is **byte-identical** to the same document without `@weakdoc`.
+  `--no-profiles` stays silent; `--resolve-profiles` keeps its own exit code 1.
+- **Code split fixed**: `--lint` used to tag the "not found" case with `E-LINT-005` (an *error*
+  code); it now uses `W-CLI-001`, and `E-LINT-005` is reserved for "found but unreadable".
+  Both notes in `errors/codes.sml` were rewritten; `W-CLI-001` moved from `partial` to `done`.
+- **Regressions**: new `rust/smltools/tests/warn_missing_profile.rs` (5 cases) and the
+  "missing profile" case in `profile_checks.rs` now expects `W-CLI-001`.
+- The eight code artifacts were regenerated (notes/status only; still 167 codes).
+
+### Added (cross-end sync P7, seventh slice: aggregated results in all five bindings)
+
+- **C-ABI**: new `sml_builtin_clone(const sml_builtin *)` turns the **borrowed** table from
+  `sml_result_contracts` into a host-owned handle, so "capture -> free the result -> inject the
+  table" no longer depends on the result's lifetime.
+- **Five bindings**: Python `parse_all(...)` -> `ParseAll`, Ruby `Sml.parse_all`, Java
+  `Sml.parseAll`, Go `ParseAllOf`, C# `Sml.ParseAllOf`. The `want` bits mirror `SML_WANT_*` and
+  everything comes back at once: value + diagnostics + errors + weak tables + contract map +
+  contract table. `contracts` is a **clone** owned by the caller (`close()` / `Dispose()`).
+- **C++ wrapper**: `sml::Builtin::adopt()` and `Result::contracts_owned()`.
+- **Regressions**: C-ABI `builtin_clone_outlives_the_result`; one section per binding
+  (map / capture / closed loop / two errors with lines 1 and 3 and severity 1 / wanting no
+  ERRORS still throws / 100 iterations); the C++ `Result` test covers the clone.
+- With this, the `errors` / `contract_map` / `contracts` rows of `crossend-sync.md` §0.6 are
+  complete across C-ABI and all five bindings; only `load_file_full` remains on the binding side.
+
+### Added (cross-end sync P7, eighth slice: file entry in the bindings)
+
+- **Five bindings**: Python `load_file_full(path, flags, env, builtins)` ->
+  `(value, diagnostics, WeakLists)`, Ruby `Sml.load_file_full`, Java `Sml.loadFileFull` ->
+  `Parsed{value, diagnostics, lists}`, Go `LoadFileFull` ->
+  `(any, []Diagnostic, WeakLists, error)`, C# `Sml.LoadFileFull(..., out diags, out lists)`.
+  They expand `include` (paths relative to the file) and mirror `loads_full_lists`; line numbers
+  can be 0 when tokens cross files.
+- **Regressions**: one section per binding — include expanded, `@weakdoc` in the weak table,
+  no diagnostics on a clean file, `E-IO-001` for a missing path.
+- With this the **whole bindings column** of `crossend-sync.md` §0.6 is closed (C-ABI plus all
+  five bindings aligned).
+
+### Changed (cross-end sync P5: `@version` literals agree across five ports)
+
+- **One literal parser per native port**: C `version_lit_major`, a C++ counterpart, JS
+  `versionLitMajor`, Lua `version_lit_major`. All accept `vN` / `N` / `N.0` / `N0` and the
+  codename `camelia`; the `5.0` family (`50` / `5.0` / `v5` / `"camelia"`) uniformly reports
+  **`E-FEATURE-004`** with a message saying "5.0 is still Dev" instead of a vague "unsupported".
+- **The edition now decides the feature base set** (previously Rust/JS only): v1 keeps
+  `bareword-string`, v2 and later drop it. C uses its existing `ps->version`; C++ does it inside
+  `scan_features` and Lua inside the `@version` branch — C++ must run before lexing, otherwise
+  barewords after line 1 are already resolved with v1 semantics.
+- **Six new conformance cases** (`tests/conformance/cases/55`–`60`): concatenated `10`, dotted
+  `2.0`, `v4`, `50` (`E-FEATURE-004`), codename (`E-FEATURE-004`), and **`v2` + bareword =>
+  `E-FEATURE-005`**. Default suite **54 -> 60, all AGREE**.
+- `lua/test_codes.lua`'s "v2 is too new" assertion was replaced by a group matching the new rules.
+- `docs/swsml/spec/version.md` gained §7 (implementation status: literals done; `Removed` tri-state
+  and the migration tool still open).
+- Note: `50` stays **disabled** (v5 is not finalized); this slice only unifies how literals are
+  read and which base feature set applies.
+
+### Changed (P6 wrap-up: three ledgers aligned + scanner cross-check)
+
+- `tests/conformance/known_divergences.md`: new "2026-11-13 current" section
+  (**AGREE 60 / DIVERGE 0**); the old 43 / 52 numbers were demoted to history — `scan.md` had
+  been copying 43 while `unfinished.md` and the T table each carried their own figure, i.e. the
+  very "generated artifacts drift from the live scan" trap the ledger itself warns about.
+- `tools/scan_status.py`: new `scan_cases()`; the conformance row now reads
+  "AGREE N (M case files)" and flags **⚠️ stale ledger** whenever N != M, instead of relying on
+  someone noticing by hand.
+- `docs/repo/ref/unfinished.md` §2 and `todo-ideas-tables.md` §0 now agree line by line:
+  44 Rust-only codes / 36 at the language layer, 60 cases, weak* on five ports, version model
+  (P5 literals synced), FFI (bindings column fully closed).
+- Docs and generated artifacts only; `index.md` / `report.md` / `scan.md` regenerated.
+
+### Added (`smltools --migrate`: scan / apply / rules)
+
+- New module `rust/smltools/src/migrate.rs`: the rule registry (`RULES`, single source of truth)
+  plus the report/rewrite passes.
+- CLI: `--migrate <scan|apply|rules>`, `--rule a,b`, `--backup`.
+  - **scan never writes** and exits **1** when it finds anything (CI can gate on it);
+  - **apply is idempotent**: a second apply changes nothing and the following scan reports 0
+    (pinned by `tests/migrate.rs`);
+  - `--rule` runs a subset; an unknown id is `E-CLI-008`;
+  - `--migrate` is mutually exclusive with `-o` / `--lint` / `--hugo` / `--zola` /
+    `--to-amberice` / `--from-amberice` (`E-CLI-003`), and `apply` requires `-i`.
+- Two rules today: `version-literal` and `feature-base-literal` — canonicalize the
+  `@version` / `@feature base` literal (`v3` / `3` / `3.0` -> `30`) while keeping the codename
+  and `dev` marker; the 5.0 family is only reported, never rewritten (migrating to `50` would
+  still be `E-FEATURE-004`).
+- Regressions: `cargo test -p smltools --bins` (92 tests, 4 of them module unit tests) and
+  `--test migrate` (6 cases).
+- Docs: `version.md` §7 marks the tool 🟡 and states that syntax-level rules come next;
+  `rust/smltools/README.md` gained a "version migration" section and exit-code notes.
+
+### Added (`--migrate` third rule: extension-directive positional args -> `name:`)
+
+- New rule `directive-name-arg`: `@form F { }` -> `@form name: F { }` — the fixable counterpart
+  of the `DiagnosticKind::Deprecated` warning (positional args were deprecated in v4).
+- It **requires** `--migrate-directive <name,...>`: a plain text scan cannot tell an extension
+  directive's positional argument from a fragment definition (`@name Type Name { }`), and
+  guessing would corrupt fragment definitions. Without the whitelist the rule touches nothing;
+  asking for `--rule directive-name-arg` without it is `E-CLI-003` (missing dependency) rather
+  than a silent zero-hit.
+- Matching mirrors `parser.rs::take_directive_arg`'s positional branch: a bare word immediately
+  followed by `{` only. Explicit `name:`, quoted args, no `{`, and non-whitelisted names are left
+  alone.
+- Regressions: 6 module unit tests (including the five shapes that must not change) and 7 cases
+  in `tests/migrate.rs` (whitelist path plus the missing-argument error).
+- Docs: `smltools/README.md` rule table and `version.md` §7.
+
+### Added (editor-side `@weakdoc` hint: `W-CLI-001`)
+
+- **Bridge** `editors/vscode/src/sml-parse.mjs`: new `weakDocRefs` (positions) and
+  `missingProfileRefs(text, known)` (pure, **no fs access**); `collectWeakDocs` now reuses the
+  former, so there is a single judgment. `@weakdoc` inside a comment is not a reference.
+- **VSCode extension**: `updateDiagnostics` appends an **Information + `W-CLI-001`** diagnostic
+  when no `.smlex` of that name exists in the project / user / system namespaces. Hint only, never
+  blocking; the message goes through `L()` and got an English translation (`_check_l10n.mjs`
+  passes).
+- **LSP**: `publishDiagnostics` appends the same hint, so any LSP client (Neovim / Helix) gets it;
+  syntax errors stay Error and are not displaced.
+- **Regressions**: five pure-function assertions in `_verify_ext.mjs`, plus a new
+  `editors/lsp/_verify_diagnostics.mjs` that **spawns the real LSP process over stdio** (missing
+  -> Information, present -> nothing, syntax error -> Error) and is wired into the
+  `_prepublish.mjs` release gate.
+- Docs: `weakdoc.md` §5 editor row -> ✅; T table `I-17` -> **Done**.
+
+### Added (native file entries: C / C++ gain "file + diagnostics")
+
+- **C**: `sml_parse_file_ex(path, err, errsz, diags, n_diags)` and
+  `sml_parse_file_full(path, err, errsz, builtin, diags, n_diags, binds, n_binds)`;
+  `sml_parse_file` becomes a thin wrapper. All three share one `parse_file_core`, so the
+  "read file + expand includes" logic is not duplicated.
+- **C++**: `Parser::load_file(path, opts, err)` (diagnostics / weak tables / builtin table still
+  ride on `ParseOptions`); when `include_dir` is empty it defaults to the file's directory, the
+  same rule as Rust's `parse_file` and C's `sml_parse_file`.
+- **JS / Lua deliberately get no file entry**: both are designed for the host to read text
+  (JS passes a `files` map, Lua uses a `base` directory for includes); putting `fs` inside would
+  break browser / plain-Lua portability.
+- 🐞 Two **line-number bugs** found by the new tests (Rust / JS / Lua were already correct):
+  - **C**: `W-PARSE-001` took the line of the *next unconsumed token*, i.e. effectively the last
+    line of the file; it now records the key token's line (`ps->key_line` + `diag_push_at`).
+  - **C++**: same expression gave **0** at block end / EOF; it now records `cur_key_line`.
+- Regressions: `c/tests/test_codes.c` (file entry diagnostics at line 2, plus
+  `sml_parse_file_full`); `cpp/tests/test_codes.cpp` (diagnostic line, include resolved against
+  the file's directory, `E-IO-001` for a missing path).
+
 ### 🚨 Breaking — version naming: `Version` enum → `Edition` lookup
 
 An edition is just a **name for a set of default feature bits** (`docs/swsml/spec/version.md` v1.0).

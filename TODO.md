@@ -315,7 +315,7 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
   同一套次序：`@type` 模式 → 外置类型 → **契约引用**。校验器本来就能逐元素递归校验，只改解析。
   `[enum ...]` 仍显式拒绝（JS 支持该写法，属已知差异）。
   实测：**Rust / C / C++ / JS 四端一致，只剩 Lua**（用例 `41_contract_array`）。
-  - [ ] **Lua 补契约数组**：照 Rust 同族改法（非内置名回落到契约引用）。⚠️ 用户已定「先不动 Lua」。
+  - [ ] **Lua 补契约数组**：照 Rust 同族改法（非内置名回落到契约引用）。2026-11-12 裁决：纳入本批五端同步（`docs/swsml/plan/crossend-sync.md` §0.1）。
   - 📌 **顺带确认的语义**：数组元素**不回填 `default`**（元素规格刻意不带 default，修饰符作用于
     字段整体）⇒ 已写进 ch09 中英两版的警告块，别再当缺陷重复报。
 - **数组元素的逐元素校验**：Rust 侧对 `[image]` 逐元素调外置校验器；
@@ -910,7 +910,7 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
 ⚠️ **只断言"能解析"是抓不到这个 bug 的**：不去 BOM 也照样"解析成功"（这才叫静默）。
 **验收**：`%TEMP%\bom_bytes.py`（主文件 + 子文件 × 五端，查输出里还有没有 `EF BB BF` 字节）全绿 ✓。
 
-### ⏳ 待修（本轮**只登记**，用户定：先不动 Lua）
+### ⏳ 待修（2026-11-12 裁决：纳入本批五端同步）
 
 1. **Lua：三引号多行字符串丢键** —— `s: """a\nb"""\nx: 1` ⇒ 输出里**没有** `x`。
    复现：`luajit lua/main.lua <文件>`（探针用例 `字符串·三引号多行`）。其余四端正常。
@@ -962,10 +962,10 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
 - [x] **JS 未开 typed-block 时不给 `__type` / `__name`** —— ✅ **2026-11-03 复核：已修**。
       实测 `30_typed_block_meta` 输出带 `__type: "User"` / `__name: "u1"`。
 
-### D. 已定性为「先不动」（登记以免被反复捡起）
+### D. 本批纳入五端同步（2026-11-12 裁决，覆盖此前「先不动 Lua」）
 
 - [ ] **Lua 嵌套数组不支持**（台账 #1–#3，`E-PARSE-006` / `E-PARSE-003`）：与 W17 的 C 修复同族
-      （`parse_array` 加 `[` 递归 + 共用深度闸），可照抄；**但用户已定「先不动 Lua」**。
+      （`parse_array` 加 `[` 递归 + 共用深度闸），可照抄；落点见 `docs/swsml/plan/crossend-sync.md` §0.1。
 - [ ] **临时探针清单**（`known_divergences.md` 末节，约 40 个 `_*` 文件）：等套件全 AGREE + 台账收敛后
       **单独一棒清理**，现在删了就没有对照物。
 - [ ] **`@feature base` 只认版本号** ⇒「在文档里声明书名」没有承载位；CLI 现按顶层 `title:` 推断
@@ -1004,9 +1004,15 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
       `.vsix` 最新只到 **0.4.3** ⇒ 源码早就领先产物。打包用 `npm run package`（内部走
       `npx --yes @vscode/vsce`，本机缺 vsce 且无网）。打完还要复制到 `site/static/dl/` 并同步下载页。
       ⚠️ bump 版本号属发版动作，按铁律不擅自做。
-- [ ] **weak\* 三兄弟落地必然改 vsix**：I-5 `weakbind` / I-15 `weakdata` / I-17 `weakdoc`（`.smlex`）
-      任一落地都会新增内置指令或文件类型 ⇒ 扩展侧需同步（语法文件 + 补全 + `package.json` 的
-      `languages` 关联），届时按上面的打包流程走。
+- [x] **weak\* 三兄弟的扩展侧适配（2026-11-12 已做）**：I-5 `weakbind` / I-15 `weakdata` /
+      I-17 `weakdoc`（`.smlex`）连同 Edition 版本集、20 位特性表、featag、`@requires`
+      一起同步进 `editors/vscode/`（grammar / 补全 / 悬停 / `package.json` 的 `.smlex`
+      关联 / `l10n`）、`editors/lsp/`、`editors/zed/`（后缀与查询边界），以及
+      `rust/smltools/assets/baseline.tmLanguage.json`。回归钉子在
+      `editors/vscode/scripts/_verify_grammar.mjs` 与 `_verify_ext.mjs`
+      （后者逐项核对 Rust 的 `FEATURES` / `BUILTIN_DIRECTIVES` / `EDITIONS`，防漂移）。
+      **源码已领先产物**：`.vsix` 仍按上一条重打（需网络 + 你定版本号），
+      因此「改 vsix」的产物部分继续挂在上一条。
 - ✅ **W22 D1 结案（2026-11-03）**：原话「vsix 提供的也加」指**补进文档**，不是补进 Zed 扩展 ——
   Zed 用 Tree-sitter grammar + `extension.toml`，**装不了 `.vsix`**，且本轮新契约能力是解析层、
   **无新语法 token**。`one_of`/`exactly_one` 的文档已在 W22 A2 补齐；剩下的是**高亮/补全**，

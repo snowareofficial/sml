@@ -18,6 +18,33 @@ Provides editing support for [SML](../../README.md) (SNOWARE Markup Language).
 | **Special colors** | select a word → right-click "应用特殊颜色" (apply special color): pick a color and it is written into the workspace **`HL-cfg.sml`** (travels with the repo, hand-editable). By default it applies **only to syntax units** (contract / fragment / type / key / directive) so comments and strings with the same text are not recolored; choose "按普通词着色" (`unit: text`) to color every occurrence. **Namespace prefixes are recognised too**: references like `@is ui.base.Service`, `ui.base.net.region:` and `&ui.base.base` are coloured as well (previously only definitions inside the included file were) |
 | **Spotlight highlight** | select a word → right-click "SML: 特别高亮选中词（当前工作区）": lights up **every occurrence in the workspace** (status bar shows N matches / M files; click it or re-run on the same word to clear) |
 | **Formatting** | reformat per SML spec (parse → serialize); no change if parse fails |
+| **Current standard** | Editions (`50 "camelia" dev` / codename / `v1`–`v4`), all 20 features (including namespaced `type.featag` / `lex.ident` / `type.weak`), featag (`!name` / `name[value]` / `-> target` / `from-featag`), the weak\* family and `.smlex` profiles: highlighting, completion, hover, profile discovery and `hints` word lists. See the boundary below |
+
+## Scope of the current-standard support
+
+The extension **only offers editing hints**; it does not decide what the parser accepts:
+
+| Syntax | Editor side | Parser side |
+|---|---|---|
+| `@version 50 "camelia" dev` / `"camelia"` / `v1`–`v4` | highlighting + completion + hover (Dev items carry a warning) | `v1`–`v4` are usable; `50 "camelia"` is still `Dev` and its feature set **is not enabled yet** — both Rust and JS report `E-FEATURE-004` |
+| `@feature enable type.featag` / `lex.ident` / `type.weak`, plus the 17 flat legacy names | full completion, checked item-by-item against `rust/sml-feature/src/lib.rs::FEATURES` | 20 feature bits; every new bit is opt-in |
+| `@weakbind` / `@weakdata` / `@weakdoc` / `@requires` | highlighting + completion + hover + excluded from fragment names | Rust only; needs `@feature enable type.weak` |
+| featag `!name` / `name[value]` / `-> target` / `from-featag` / `__featags` | highlighting + declared-name completion + modifier | Rust only; needs `type.featag` |
+| `.smlex` profiles (`.smlex/profiles/*.smlex`) | file association + top-level field completion + three-namespace discovery + `hints` candidates + `@weakdoc` hover | Tool side (`--lint` / `--resolve-profiles`); the library is not involved |
+
+**Do not put 5.0 in a real document**: `@version 50 "camelia" dev` is the standard's
+development-phase spelling, but the 5.0 feature set is not enabled yet — both `smltools` (Rust)
+and the JS parser currently report `E-FEATURE-004` ("edition still in development, not enabled").
+The `50` / `"camelia"` completion items exist only to register the syntax; their detail and hover
+text say they will error, and the default `@version` snippet offers `v1`–`v4` only.
+
+**Profiles are never attached automatically**: an `applies_to` hit is only a hint, and `hints`
+apply solely to documents with an explicit `@weakdoc` (`docs/swsml/spec/smlex.md` §3.1).
+`checks` / `emit` belong to the tool side and are not interpreted here.
+
+Per the S9 policy in `docs/swsml/plan/featag-slices.md`, C / C++ / JS / Lua **do not implement**
+this syntax and still report "unsupported by this backend" on v5. A completion item is not a
+promise that the backend you are running accepts it; do not use these hints in shared documents.
 
 ## What the colour marking is for (writing DSLs / doing analysis)
 

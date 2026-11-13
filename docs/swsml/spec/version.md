@@ -4,8 +4,9 @@
 > 「A 行」「版本号可以是功能集」「稳定前数字用不了」「`50` = `5.0`」「稳定后 dev 代号永久保留，映射的」
 > 「旧文档，正式版都会向后兼容」「smltools 可以自动迁移，有扫、应用等」。
 >
-> 本文件 = **版本命名的唯一依据**（实现时不必再回来讨论）；仍为零代码改动，
-> `IDEAS.md` / `TODO.md` 未动。
+> 本文件 = **版本命名的唯一依据**（实现时不必再回来讨论）。
+> 实现状态见 §7：查表模型与**五端字面量一致**已落地（2026-11-13），
+> `Removed` 三态 / 兼容检查模块 / 迁移工具仍待做。
 
 ---
 
@@ -159,7 +160,7 @@
 | 3 | `rust/smltools/src/main.rs` | `--feature <版本>` 解析与 `（v1..v4）` 文案；`:606` 的 `v == Version::V3` 提示改成查表 |
 | 4 | `errors/codes.sml` | `E-FEATURE-004` 的 msg/note（各端支持范围）；随后**必须**重生成 5 份产物 |
 | 5 | `js/sml.mjs` | `detectVersion` 接受新字面量 + 文案 |
-| 6 | C / C++ / Lua | **不校验版本**（C++）/ 只到 v1（Lua）/ 到 v3（C）⇒ 继续用 `E-FEATURE-004` 表达，不在本批 |
+| 6 | C / C++ / JS / Lua | ✅ **2026-11-13 已同步**：四端都接受 `vN` / `N` / `N.0` / `N0` 四类写法与代号，`5.0` 族（`50` / `5.0` / `v5` / `"camelia"`）统一报 `E-FEATURE-004`；且**版本决定特性基集**（v1 开 `bareword-string`，v2 起关），与 Rust 的 `for_edition` 同构。判据：`tests/conformance/cases/55–60` 五端 AGREE |
 | 7 | 文档 & 官网 | `rust/README.md`、`rust/src/lib.rs` 头注释、`site/content/*/book/*`、下载页、`llms.txt` |
 | 8 | **兼容性与迭代保障模块**（新组件） | 校验「文档声明的版本集」对「本实现支持的版本集」：`Removed` ⇒ 专用错误码 + 指向迁移工具 |
 | 9 | **`smltools` 迁移工具**（新功能） | 把 `Removed` 版本的文档升级到新写法（至少改 `@version` 行；是否连语法一起迁移待定） |
@@ -218,3 +219,15 @@ smltools -i a.sml --migrate apply --rule v50-version,b2-symbol-modifier   # 只�
 - `v5-syntax.md` 表 A 的 A1–A11 在**开发期**全部是 `@feature` 可控的 opt-in；
 - 一旦 `5.0` 定稿，把 `type.featag` 等写进 `5.0` 的功能集（即默认开），并更新表 A 的「状态」列；
 - ⇒ **`Version::V5` 这个枚举项不再存在**，代替它的是表里的一行 `"5.0"`。
+
+## 7. 实现进度（2026-11-13）
+
+| 面 | 状态 | 判据 / 落点 |
+|---|---|---|
+| 查表模型（`Edition` + 一行承载数字/代号/状态/功能集） | ✅ | `rust/sml-feature/src/lib.rs`；`Edition::parse` 接受四类写法 |
+| 五端字面量一致（`vN` / `N` / `N.0` / `N0` / 代号） | ✅ | Rust `Edition::parse`；C `version_lit_major`；C++ 同名 helper + `scan_features`；JS `versionLitMajor`；Lua `version_lit_major` |
+| 版本决定特性基集（v1 裸词开 / v2 起必须引号） | ✅ 五端 | conformance `55`–`60`：连写 / 点号 / `v4` / `50` / 代号 / **v2 严格串**（`E-FEATURE-005`） |
+| `5.0` 族未启用 ⇒ `E-FEATURE-004` | ✅ 五端 | 同上 `58` / `59`；文案说明「5.0 仍为 Dev」 |
+| `Removed` 三态 + 专用码（§1.3 / V7） | ⬜ | 尚未出现被移除的开发代号，等第一次破坏性改动时按 V7 落地 |
+| 兼容检查模块 + `dev` 标记强制（V9 / V10） | ⬜ | Rust 侧 `@version 50` 缺 `dev` 已报错；release channel 的 warning（§1.5）未接 `smltools` |
+| 迁移工具 `--migrate scan\|apply\|rules`（§4.5） | 🟡 **机制 + 3 条规则（2026-11-13）** | `rust/smltools/src/migrate.rs`：三档模式 + `--rule` 单跑 + `--backup`，默认 scan 不写文件、有命中退出码 1；**幂等**由 `tests/migrate.rs`（7 例）与模块单测（6 例）钉住。规则：`version-literal` / `feature-base-literal`（字面量规范化）、`directive-name-arg`（位置参数 → `name:`，**必须**配 `--migrate-directive` 白名单，判据对齐 `parser.rs::take_directive_arg` 的位置参数分支与 `DiagnosticKind::Deprecated`）。仍欠：其余语法废弃项各配一条规则（出现一条登记一条，不预造） |
