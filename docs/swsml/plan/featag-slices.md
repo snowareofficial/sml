@@ -114,6 +114,37 @@
 - 尚未做：**S6 落点填充**（`-> PATH`、`!strict-paths`、`auto` 取默认值、
   `E-CONTRACT-022/023/025`）、**S7 `from-featag`**、**S8 `!any`**。这三片仍只有 Rust 实现；
   四端对落点**忽略**。
+
+#### S6 实施前取证（2026-11-14，Rust 实测，四端照此对齐）
+
+用 `loose` 契约（否则严格性会先拦下落点键）逐条跑出来的**唯一真相表**：
+
+| # | 输入 | Rust 结果 |
+|---|---|---|
+| 1 | `!tls: str -> tls.cert` + `tls["abc"]`，块内无 `tls` | 写入 `tls: { cert: abc }`（父对象自动创建） |
+| 2 | 同上，但块内已有 `tls { cert: x }` | **`E-CONTRACT-022`** 落点已存在 |
+| 3 | `!strict-paths` + 块内无 `tls` | **`E-CONTRACT-023`** 父对象不存在 |
+| 4 | `!replicas: int default 3 -> spec.replicas` + `replicas[auto]` | 写入 `spec: { replicas: 3 }` |
+| 5 | `replicas[auto]` 但声明无 `default` | **`E-CONTRACT-022`** |
+| 6 | `!tag: str -> list[0]`，块内无 `list` | **`E-CONTRACT-023`** 数组不凭空创建 |
+| 7 | `list: [1 2]` + 落点 `list[2]`（**n == len**） | **追加** ⇒ `[1,2,"x"]` |
+| 8 | `list: [1 null]` + 落点 `list[1]` | 补空位 ⇒ `[1,"x"]` |
+| 9 | `list: [1 2]` + 落点 `list[5]`（**n > len**） | **`E-CONTRACT-025`** 越界（不补 null） |
+| 10 | 落点写法 `[0].a`（首段是下标） | **`E-CONTRACT-020`** 须以键名开头 |
+
+⚠️ **相位顺序是硬约束**（这是四端最容易写错的地方）：
+
+$$
+\text{默认值/类型校验} \;\rightarrow\; \text{填落点} \;\rightarrow\; \text{严格性检查}
+$$
+
+证据：严格契约 `@contract S { name: str !tls: str -> tls.cert }` + 块内不写 `tls` 时，
+Rust 报 `E-CONTRACT-004`「字段 `tls` 未声明」—— 说明 `tls` 是**填落点之后**才出现、
+并被随后的严格性检查抓住的。四端现在都是「严格性 → 默认值/类型」的次序，
+直接加落点填充会得到相反的结果（C 实测：不报错并成功写入）。
+
+⇒ 做 S6 时**每端都要先把严格性检查从 `apply_contract` 里拆出来**，
+在填完落点之后再调一次；这一步不小，属独立的施工片。
   ⇒ `grammar.sml` 里 `Deploy !tls replicas[3] zone[cn-north-1]` 那几段在四端现在**会校验参数**，
   但不会写入 `spec.*`（属已知缺口，`docs/swsml/ref/grammar-divergences.md` 已记）。
 
