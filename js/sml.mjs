@@ -1693,6 +1693,8 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
 
   function parseContractBody() {
     const fields = {};
+    // 声明过的 featag 名（S5：块头使用处据此判「未声明即拒」）。
+    const featags = new Set();
     if (peek() && peek().t === "{") i++; else fail("E-PARSE-019", "sml: @contract 后须契约体 { }");
     while (peek() && peek().t !== "}") {
       if (peek().t === "," || peek().t === ";") { i++; continue; }
@@ -1716,6 +1718,7 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
       // 使用处校验（未声明即拒 / 参数类型）与落点填充属 S5/S6，尚未接。
       if (feats.has("type.featag") && peek().t === "word" && peek().v.startsWith("!")) {
         const declLine = peek().line;
+        featags.add(peek().v.slice(1));   // S5：记下声明名
         while (peek() && peek().t !== "}" && peek().line === declLine) i++;
         continue;
       }
@@ -1727,7 +1730,7 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
       if (peek() && (peek().t === "," || peek().t === ";")) i++;
     }
     if (peek() && peek().t === "}") i++;
-    return fields;
+    return { fields, featags };
   }
 
   // 解析 include：返回若干 { text, ns } 目标并递归 parse
@@ -2223,8 +2226,8 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
           let loose = false;
           if (peek() && peek().t === "word" && peek().v === "loose") { loose = true; i++; }
           else if (peek() && peek().t === "word" && peek().v === "strict") { loose = false; i++; }
-          const fields = parseContractBody();
-          contracts[nsPrefix + cname] = { fields, loose };
+          const { fields, featags } = parseContractBody();
+          contracts[nsPrefix + cname] = { fields, loose, featags };
           continue;
         }
         if (fname === "is") {
@@ -2456,6 +2459,14 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
             if (!tk || tk.t === "{") break;
             if (featOn && tk.t === "word" && tk.v.startsWith("!")) {
               const tag = tk.v.slice(1);
+              // **S5 使用处校验**：featag 契约私有 —— 块头写契约里没声明的名字就拒
+              // （与 Rust / C / C++ 同码 E-CONTRACT-021）。改前只收集不校验。
+              const owner = contracts[key] || contracts[nsPrefix + key];
+              if (owner && !(owner.featags && owner.featags.has(tag))) {
+                fail("E-CONTRACT-021",
+                  "sml: featag `!" + tag + "` 未在契约 `" + key +
+                  "` 中声明（契约私有的作用域，请先在契约体内写 `!" + tag + "`）");
+              }
               i++;
               if (!featags) featags = [];
               const item = { name: tag };

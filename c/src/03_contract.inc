@@ -23,8 +23,21 @@ typedef struct ccontract {
     char *name;
     int allow_extra;         /* loose */
     cfield *fields;          /* 头插链表 */
+    /* 声明过的 featag 名（`!name`）。S5 的使用处校验只认这里出现过的名字：
+       契约私有的作用域，块头写 `!x` 而契约没声明 ⇒ E-CONTRACT-021（与 Rust 同码）。 */
+    char **featags;
+    size_t n_featag;
     struct ccontract *next;
 } ccontract;
+
+/* 该契约是否声明过名为 name 的 featag。 */
+static int contract_declares_featag(const ccontract *c, const char *name) {
+    size_t i;
+    if (!c) return 0;
+    for (i = 0; i < c->n_featag; i++)
+        if (strcmp(c->featags[i], name) == 0) return 1;
+    return 0;
+}
 
 /* 内置契约表：宿主注入，供 `@weakbind` 软校验（与文档内 `@contract` 互不相干）。 */
 struct sml_builtin {

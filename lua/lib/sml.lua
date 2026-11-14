@@ -848,6 +848,8 @@ end
 -- 解析契约体（`{ field: Type mods... }`）-> fields, next_i
 local function parse_contract_body(tokens, i, fragments)
   local fields = {}
+  -- 声明过的 featag 名（S5：块头使用处校验）
+  local featags = {}
   while true do
     local tok = tokens[i]
     if tok == nil then
@@ -874,6 +876,8 @@ local function parse_contract_body(tokens, i, fragments)
     -- 使用处校验（未声明即拒 / 参数类型）与落点填充属 S5/S6，尚未接。
     if _FEATURES and _FEATURES[17] and string.sub(tok, 1, 1) == "!" then
       local decl_line = _LINES and _LINES[i] or 0
+      -- S5：记下声明名（块头使用处据此判「未声明即拒」）
+      featags[#featags + 1] = string.sub(tok, 2)
       i = i + 1
       while tokens[i] ~= nil and tokens[i] ~= "}"
             and (_LINES == nil or _LINES[i] == decl_line) do
@@ -895,7 +899,7 @@ local function parse_contract_body(tokens, i, fragments)
       fields[key] = spec
     end
   end
-  return fields, i
+  return fields, i, featags
 end
 
 local apply_contract  -- 前向声明（组合字段需要递归回本函数）
@@ -1407,9 +1411,10 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
           fail("E-PARSE-019", "`@contract " .. cname .. "` 后须 `{ ... }`")
         end
         i = i + 1
-        local fields
-        fields, i = parse_contract_body(tokens, i, fragments)
-        contracts[cname] = { name = cname, fields = fields, allow_extra = allow_extra }
+        local fields, featags
+        fields, i, featags = parse_contract_body(tokens, i, fragments)
+        contracts[cname] = { name = cname, fields = fields, allow_extra = allow_extra,
+                             featags = featags }
       elseif fname == "when" then
         -- 条件裁剪：`@when <条件>` 只作用于紧邻的下一个字段/块，条件为假则丢弃。
         if not (_FEATURES and _FEATURES[12]) then
@@ -1577,6 +1582,20 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
           if tk == "{" or tk == "}" or tk == "]" then break end
           if feat_on and string.sub(tk, 1, 1) == "!" then
             local nm = string.sub(tk, 2)
+            -- **S5 使用处校验**：featag 契约私有 —— 块头写契约里没声明的名字就拒
+            -- （与 Rust / C / C++ / JS 同码 E-CONTRACT-021）。改前只收集不校验。
+            local owner = contracts[key]
+            if owner ~= nil then
+              local declared = false
+              for _, d in ipairs(owner.featags or {}) do
+                if d == nm then declared = true; break end
+              end
+              if not declared then
+                fail("E-CONTRACT-021",
+                  "sml: featag `!" .. nm .. "` 未在契约 `" .. tostring(key) ..
+                  "` 中声明（契约私有的作用域，请先在契约体内写 `!" .. nm .. "`）")
+              end
+            end
             i = i + 1
             featags = featags or {}
             local item = { name = nm }

@@ -80,6 +80,11 @@ ERRORS = [
     # 类型为空：Rust 报 006（「期望类型」）。024 专指「数组/枚举缺少闭合」那一族。
     ("par-field-spec", "E-PARSE-006", "@contract C { a: }\nx { @is C a: 1 }\n"),
     ("parse-lone-at-line", "E-PARSE-004", "a: 1\n@\nk: 2\n"),
+    # S5：featag 的作用域是契约私有的 —— 块头写契约里没声明的名字必须拒（021）。
+    # 改前四端只收集不校验，拼错的 `!nope` 会被静默记进 `__featags`。
+    ("featag-undeclared", "E-CONTRACT-021",
+     "@version v1\n@feature enable type.featag, typed-block, block-name\n"
+     "@contract S { name: str !critical }\nS !nope, prod { name: a }\n"),
     ("contract-undefined", "E-CONTRACT-001", "x { @is Nope }\n"),
     ("contract-type", "E-CONTRACT-002", "@contract C { a: int }\nx { @is C a: abc }\n"),
     ("contract-required", "E-CONTRACT-003", "@contract C { a: int }\nx { @is C }\n"),

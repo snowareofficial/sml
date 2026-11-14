@@ -733,10 +733,18 @@ static void parse_contract_body(parser *ps, ccontract *c) {
             break;
         }
         /* featag 声明：`!name` / `!name: 类型` / `!name: 类型 -> 落点`。
-           开了 `type.featag` 才是记号；本片只**收下并跳过**（S4 的收集部分），
-           使用处校验（未声明即拒、参数类型）与落点填充属 S5/S6，尚未接。 */
+           开了 `type.featag` 才是记号。**S5**：名字收进契约（块头使用处据此判「未声明即拒」）；
+           参数类型（S5b）与落点填充（S6）尚未接，故 `: 类型` / `-> 落点` 仍只跳过。 */
         if ((ps->features & (1u << 17)) && ft->t == T_WORD && ft->v[0] == '!') {
             int decl_line = ft->line;
+            if (c) {
+                char **nf = (char **)realloc(c->featags,
+                                             (c->n_featag + 1) * sizeof(char *));
+                if (nf) {
+                    c->featags = nf;
+                    c->featags[c->n_featag++] = strdup(ft->v + 1);
+                }
+            }
             while (peek(ps)->t != T_RBRACE && peek(ps)->t != T_EOF &&
                    peek(ps)->line == decl_line)
                 next(ps);

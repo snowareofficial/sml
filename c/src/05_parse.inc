@@ -581,6 +581,20 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                        记进 `__featags` 保序数组；无参项只有 name，带参项多一个 args。 */
                     if (feat_on && tk->t == T_WORD && tk->v[0] == '!') {
                         char *tag = tk->v + 1;
+                        /* **S5 使用处校验**：featag 的作用域是契约私有 —— 块头写了契约里
+                           没声明的名字就拒（Rust 同码 E-CONTRACT-021）。改前只收集不校验，
+                           拼错的 `!critcal` 会被静默记进 `__featags`。 */
+                        {
+                            ccontract *owner = contract_find(ps, key);
+                            if (owner && !contract_declares_featag(owner, tag)) {
+                                set_err(ps->lx->errbuf, ps->lx->errsz,
+                                        SML_E_CONTRACT_021
+                                        " featag `!%s` 未在契约 `%s` 中声明（契约私有的作用域，"
+                                        "请先在契约体内写 `!%s`）", tag, key, tag);
+                                ps->failed = 1;
+                                break;
+                            }
+                        }
                         next(ps);
                         if (!featags) featags = sml_new_array();
                         {

@@ -86,6 +86,8 @@ struct Contract {
     std::string name;
     std::vector<FieldSpec> fields;
     bool allow_extra = false;   // contract-level `loose`
+    // 声明过的 featag 名（`!name`）。S5 的块头校验只认这里出现过的名字。
+    std::vector<std::string> featags;
 };
 
 // ---------------------------------------------------------------------------

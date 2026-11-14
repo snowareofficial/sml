@@ -507,12 +507,13 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                     // We collect tokens until we see a Word followed by Colon that starts a new field,
                     // OR until RBrace. Simpler: accumulate raw token strings until next 'name:' pattern.
                     /* featag 声明：`!name` / `!name: 类型` / `!name: 类型 -> 落点`。
-                       开了 `type.featag` 才是记号；本片只**收下并跳过**（S4 的收集），
-                       使用处校验（未声明即拒 / 参数类型）与落点填充属 S5/S6，尚未接。 */
+                       开了 `type.featag` 才是记号。**S5**：名字收进契约（块头据此判「未声明即拒」）；
+                       参数类型（S5b）与落点填充（S6）尚未接，故 `: 类型` / `-> 落点` 仍只跳过。 */
                     if ((st.features & (1u << 17)) != 0 &&
                         st.toks[st.i].t == Token::T::Word &&
                         !st.toks[st.i].s.empty() && st.toks[st.i].s[0] == '!') {
                         size_t decl_line = st.toks[st.i].line;
+                        c.featags.push_back(st.toks[st.i].s.substr(1));
                         while (st.i < st.toks.size() &&
                                st.toks[st.i].t != Token::T::RBrace &&
                                st.toks[st.i].line == decl_line) st.i++;
@@ -795,6 +796,25 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
             while (st.i < st.toks.size() && st.toks[st.i].t != Token::T::LBrace) {
                 const Token& tk = st.toks[st.i];
                 if (feat_on && tk.t == Token::T::Word && !tk.s.empty() && tk.s[0] == '!') {
+                    const std::string tag = tk.s.substr(1);
+                    /* **S5 使用处校验**：featag 契约私有 —— 块头写契约里没声明的名字就拒
+                       （Rust 同码 E-CONTRACT-021）。改前只收集不校验。 */
+                    {
+                        auto owner = st.contracts.find(key);
+                        if (owner != st.contracts.end()) {
+                            bool declared = false;
+                            for (const auto& d : owner->second.featags)
+                                if (d == tag) { declared = true; break; }
+                            if (!declared) {
+                                if (st.err && st.err->empty())
+                                    *st.err = code_prefix(SML_E_CONTRACT_021,
+                                        "sml: featag `!" + tag + "` 未在契约 `" + key +
+                                        "` 中声明（契约私有的作用域，请先在契约体内写 `!" + tag + "`）");
+                                st.aborted = true;
+                                break;
+                            }
+                        }
+                    }
                     if (!featags) featags = Value::array();
                     ValuePtr item = Value::object();
                     item->obj.push_back({"name", Value::string(tk.s.substr(1))});
