@@ -1,7 +1,7 @@
 # docs 索引
 
 > **本文件由 `cargo run -p smldocs -- --index` 生成，勿手改。**
-> 数据源 `docs/meta.sml`（56 份文档，摘要 `d9bed341b492fc0c`）。摘要变了就必须重跑生成；
+> 数据源 `docs/meta.sml`（58 份文档，摘要 `a86f863e96df22e8`）。摘要变了就必须重跑生成；
 > 本文件不记生成日期 / HEAD，避免跨天或提交后假漂移。体检结论见 [`report.md`](report.md)。
 
 ## 一眼看结论
@@ -19,18 +19,20 @@
 > 维护规则：新增文档必须先登记 `docs/meta.sml`；正文不写历史（历史进 `docs/changes.sml`）；
 > 数字不手写，引用生成物或实测命令。`--check` 进 CI，任一命中即红。
 
-## swsml（18 份）
+## swsml（20 份）
 
 | 文档 | 写于 | 最后核对 | 状态 | 替代者 | 职责 |
 |---|---|---|---|---|---|
 | [`swsml/archive/idyml-rejected.md`](swsml/archive/idyml-rejected.md) | 2026-10-15 | 2026-11-03 | **archive** | — | idyml 改名方案（2026-11-03 否决） |
 | [`swsml/archive/iter-parse.md`](swsml/archive/iter-parse.md) | 2026-10-30 | 2026-11-02 | **archive** | — | 迭代式解析改造（已完成并合入 dev） |
 | [`swsml/plan/crossend-sync.md`](swsml/plan/crossend-sync.md) | 2026-11-12 | 2026-11-13 | **current** | — | 跨端同步施工切片：码表分类、weak 三兄弟 / Edition 四端、验收命令与开工裁决 |
-| [`swsml/plan/featag-slices.md`](swsml/plan/featag-slices.md) | 2026-11-04 | 2026-11-10 | **current** | — | featag 实现切片 S0–S9（S0–S9 已收官；其它四端按 S9 策略不实现） |
+| [`swsml/plan/featag-slices.md`](swsml/plan/featag-slices.md) | 2026-11-04 | 2026-11-14 | **current** | — | featag 实现切片 S0–S9（Rust 全部收官；四端已补 S2–S4，S5–S8 仍只有 Rust） |
 | [`swsml/plan/features-plan.md`](swsml/plan/features-plan.md) | 2026-11-04 | 2026-11-06 | **stale** | `docs/swsml/spec/features.md` | v5 版本位落地步骤与被推翻的旧清单 |
 | [`swsml/plan/perf-plan.md`](swsml/plan/perf-plan.md) | 2026-11-06 | 2026-11-08 | **current** | — | 全面优化计划：时间 / 内存 / 缓存 / 指令集四线 |
 | [`swsml/ref/capability-matrix.md`](swsml/ref/capability-matrix.md) | 2026-10-27 | 2026-11-10 | **draft** | — | 五端能力矩阵（2026-10-27 快照，只作历史对照；v5 版本口径待补） |
+| [`swsml/ref/grammar-divergences.md`](swsml/ref/grammar-divergences.md) | 2026-11-14 | 2026-11-14 | **current** | — | grammar.sml 按语法特性切片后的五端差异台账：第一处拒绝、码是否同、能力缺口归因；配套 tools/check/probe_grammar.py |
 | [`swsml/ref/perf-baseline.md`](swsml/ref/perf-baseline.md) | 2026-11-03 | 2026-11-10 | **current** | — | 性能基线：perf / value / profile / amberice 四份 bench 的正式口径数字 |
+| [`swsml/ref/silent-divergences.md`](swsml/ref/silent-divergences.md) | 2026-11-14 | 2026-11-14 | **current** | — | 兼容套件检不出的差异：错误码矩阵 / 特性门控 / 值身份三类盲区与逐条取证；配套 tools/check/probe_matrix.py |
 | [`swsml/spec/featag.md`](swsml/spec/featag.md) | 2026-11-04 | 2026-11-10 | **current** | — | featag 语法 / 落点 / from-featag（Rust 已实现；其它四端按 S9 策略不实现） |
 | [`swsml/spec/features.md`](swsml/spec/features.md) | 2026-11-04 | 2026-11-06 | **current** | — | 特性命名空间：4 个域、两段上限、新增特性带域 |
 | [`swsml/spec/null.md`](swsml/spec/null.md) | 2026-11-04 | 2026-11-06 | **current** | — | null / none 五条语义与五端现状 |
