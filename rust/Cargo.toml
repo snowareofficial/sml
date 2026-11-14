@@ -237,6 +237,12 @@ harness = false
 name = "hotspots"
 harness = false
 
+# 与 serde_json 的对拍（同内容、同形状）：耗时 / 分配 / 输入体积三列并排，
+# 用来回答「慢在哪」而不是「慢多少」。
+[[bench]]
+name = "vs_json"
+harness = false
+
 # 阶段 0 归因基准：parse 峰值堆 / tokenize 时间 / 跨规模 get×1000。
 # 不设 required-features：容器组用 #[cfg(feature = "amberice")] 自行跳过。
 [[bench]]
