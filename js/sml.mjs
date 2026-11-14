@@ -1716,6 +1716,28 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
     return segs;
   }
 
+  // `any` 默认禁用，契约里写 `!any` 才放行（S8）。递归走契约引用（内层自己有 `!any` 才算放行）。
+  function checkAnyAllowed(cname, c, allContracts, seen) {
+    if (!c) return;
+    if (seen.indexOf(cname) >= 0) return;   // 递归契约绕圈
+    seen.push(cname);
+    for (const fname of Object.keys(c.fields)) {
+      const sp = c.fields[fname];
+      // `arrInner` 是**规格对象**（`typeName(sp.arrInner)` 取 `.type`），不是字符串
+      const usesAny = sp.type === "any" ||
+                      (sp.type === "array" && sp.arrInner && sp.arrInner.type === "any");
+      if (usesAny && !c.allowAny) {
+        fail("E-FEATURE-001",
+          "sml: 契约 `" + cname + "` 的字段 `" + fname +
+          "` 用了 `any`（等于放弃类型校验）；若确实需要，请在该契约里写 `!any` 显式放开");
+      }
+      if (sp.refName) {
+        const inner = allContracts[sp.refName];
+        if (inner) checkAnyAllowed(sp.refName, inner, allContracts, seen);
+      }
+    }
+  }
+
   // `from-featag` 的键不许文档手写（S7）。**必须在落点填充之前**：
   // 填充之后 featag 写的键与文档手写的键长得一样，来源就分不出来了。
   function checkFromFeatag(c, node, path, allContracts) {
@@ -1812,6 +1834,7 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
     // 声明过的 featag：名字 → 声明（S5 判「未声明即拒」，S5b 判参数个数与类型）。
     const featags = new Map();
     let strictPaths = false;   // `!strict-paths`：落点父对象必须已存在（S6）
+    let allowAny = false;      // `!any`：放行 `any` 类型（S8，默认禁用）
     if (peek() && peek().t === "{") i++; else fail("E-PARSE-019", "sml: @contract 后须契约体 { }");
     while (peek() && peek().t !== "}") {
       if (peek().t === "," || peek().t === ";") { i++; continue; }
@@ -1846,6 +1869,7 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
               "sml: `!" + d.name + "` 是契约级开关，不接受类型 / 参数 / 落点");
           }
           if (d.name === "strict-paths") strictPaths = true;   // S6 开关
+          if (d.name === "any") allowAny = true;               // S8 开关
           while (peek() && peek().t !== "}" && peek().line === declLine) i++;
           continue;
         }
@@ -1908,7 +1932,7 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
       if (peek() && (peek().t === "," || peek().t === ";")) i++;
     }
     if (peek() && peek().t === "}") i++;
-    return { fields, featags, strictPaths };
+    return { fields, featags, strictPaths, allowAny };
   }
 
   // 解析 include：返回若干 { text, ns } 目标并递归 parse
@@ -2404,8 +2428,8 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
           let loose = false;
           if (peek() && peek().t === "word" && peek().v === "loose") { loose = true; i++; }
           else if (peek() && peek().t === "word" && peek().v === "strict") { loose = false; i++; }
-          const { fields, featags, strictPaths } = parseContractBody();
-          contracts[nsPrefix + cname] = { fields, loose, featags, strictPaths };
+          const { fields, featags, strictPaths, allowAny } = parseContractBody();
+          contracts[nsPrefix + cname] = { fields, loose, featags, strictPaths, allowAny };
           continue;
         }
         if (fname === "is") {
@@ -2724,6 +2748,8 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
                   if (an) fail("E-CONTRACT-017", "sml: 该实现暂不支持一个块应用多份契约（块级多契约写法）");
                 }
                 const c = contracts[cname];
+                // S8：`any` 默认禁用，契约里写 `!any` 才放行
+                if (feats.has("type.featag")) checkAnyAllowed(cname, c, contracts, []);
                 // **S7**：`from-featag` 的键不许文档手写 —— 必须在填充之前。
                 checkFromFeatag(c, sub, "", contracts);
                 // **S6 落点填充**：必须在契约应用**之前**（Rust `finish_bare_block` 同序）。
@@ -2818,6 +2844,8 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
     if (appliedContract) {
       const c = contracts[appliedContract];
       if (!c) fail("E-CONTRACT-001", "sml: 应用未定义契约 " + appliedContract);
+      // S8：`any` 默认禁用，契约里写 `!any` 才放行（`@is` 与块头两条路径都要查）
+      if (feats.has("type.featag")) checkAnyAllowed(appliedContract, c, contracts, []);
       applyDefaults(c, node, contracts);
       const errs = checkContract(contracts, c, node, "");
       if (errs) fail(errs[0].code, "contract: " + appliedContract + " — " + errs.map((x) => x.msg).join("; "));

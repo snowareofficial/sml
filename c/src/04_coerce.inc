@@ -643,12 +643,55 @@ static int apply_contract_rec(parser *ps, ccontract *c, sml_value *node,
     return 0;
 }
 
+/* ---------------------------------------------------------------------------
+   featag S8：`any` 类型默认禁用，契约里写 `!any` 才放行（§10 Q7）
+
+   - 门控 `type.featag`：没开时整段不查，v4 文档里的 `any` 照旧可用；
+   - 报码复用 `E-FEATURE-001`（因相同：都是「这项能力没被放行」），detail 说清是契约级开关；
+   - **递归**：`ContractRef` 字段按被引用契约继续查（内层自己有 `!any` 才算放行）；
+   - `seen` 防递归契约绕圈。
+   --------------------------------------------------------------------------- */
+static int field_uses_any(const cfield *cf) {
+    if (cf->ty == CT_ANY) return 1;
+    if (cf->ty == CT_ARRAY && cf->arr_inner == CT_ANY) return 1;
+    return 0;
+}
+
+static int check_any_allowed(parser *ps, ccontract *c, const char **seen, int n_seen) {
+    cfield *cf;
+    int i;
+    if (!c) return 0;
+    for (i = 0; i < n_seen; i++)
+        if (strcmp(seen[i], c->name) == 0) return 0;   /* 递归契约绕圈 */
+    if (n_seen >= 32) return 0;
+    seen[n_seen++] = c->name;
+    for (cf = c->fields; cf; cf = cf->next) {
+        if (!c->allow_any && field_uses_any(cf)) {
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_FEATURE_001
+                    " 契约 `%s` 的字段 `%s` 用了 `any`（等于放弃类型校验）；"
+                    "若确实需要，请在该契约里写 `!any` 显式放开", c->name, cf->name);
+            return -1;
+        }
+        if (cf->ty == CT_CONTRACTREF && cf->ref_name) {
+            ccontract *inner = contract_find(ps, cf->ref_name);
+            if (inner && check_any_allowed(ps, inner, seen, n_seen) != 0) return -1;
+        }
+    }
+    return 0;
+}
+
 static int apply_contract_name(parser *ps, sml_value *node, const char *name,
                                char *err, size_t errsz) {
     ccontract *c = contract_find(ps, name);
     if (!c) {
         set_err(err, errsz, SML_E_CONTRACT_001 " 引用了未定义的契约 `%s`", name);
         return -1;
+    }
+    /* S8 必须在应用前查：这是「契约**声明**用了 any」的检查，与块里写了什么无关 */
+    if (ps->features & (1u << 17)) {
+        const char *seen[32];
+        if (check_any_allowed(ps, c, seen, 0) != 0) return -1;
     }
     return apply_contract_rec(ps, c, node, err, errsz);
 }
@@ -754,6 +797,8 @@ static void parse_contract_body(parser *ps, ccontract *c) {
                 }
                 if (c && strcmp(ft->v + 1, "strict-paths") == 0)
                     c->strict_paths = 1;   /* S6：落点父对象必须已存在 */
+                if (c && strcmp(ft->v + 1, "any") == 0)
+                    c->allow_any = 1;      /* S8：放行 `any` 类型 */
                 while (peek(ps)->t != T_RBRACE && peek(ps)->t != T_EOF &&
                        peek(ps)->line == decl_line)
                     next(ps);

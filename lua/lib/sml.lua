@@ -979,6 +979,7 @@ local function write_target(node, segs, val, strict, where_)
 end
 
 local function parse_contract_body(tokens, i, fragments)
+  local allow_any = false      -- `!any`：放行 `any` 类型（S8，默认禁用）
   local strict_paths = false   -- `!strict-paths`：落点父对象必须已存在（S6）
   local fields = {}
   -- 声明过的 featag 名（S5：块头使用处校验）
@@ -1074,6 +1075,7 @@ local function parse_contract_body(tokens, i, fragments)
       -- Lua 没有 continue：上面 `!any` / `!strict-paths` 分支走完会落回这里，
       -- 必须再挡一次，否则开关又变成 featag（块头 `C !any` 就会被误判为已声明）。
       if d.name == "strict-paths" then strict_paths = true end
+      if d.name == "any" then allow_any = true end
       if d.name ~= "any" and d.name ~= "strict-paths" then
         featags[d.name] = d
       end
@@ -1093,7 +1095,7 @@ local function parse_contract_body(tokens, i, fragments)
       fields[key] = spec
     end
   end
-  return fields, i, featags, strict_paths
+  return fields, i, featags, strict_paths, allow_any
 end
 
 local apply_contract  -- 前向声明（组合字段需要递归回本函数）
@@ -1161,11 +1163,45 @@ local function check_type(fs, v, contracts)
   end
 end
 
+-- S8：`any` 默认禁用，契约里写 `!any` 才放行。递归走契约引用（内层自己有 `!any` 才算放行）。
+local function type_uses_any(ty)
+  if ty == nil then return false end
+  if ty.kind == "any" then return true end
+  if ty.kind == "array" then return type_uses_any(ty.elem) end
+  return false
+end
+
+local function check_any_walk(cname, c, contracts, seen)
+  for _, s in ipairs(seen) do
+    if s == cname then return end   -- 递归契约绕圈
+  end
+  seen[#seen + 1] = cname
+  local names = {}
+  for k in pairs(c.fields) do names[#names + 1] = k end
+  table.sort(names)
+  for _, fname in ipairs(names) do
+    local spec = c.fields[fname]
+    if type_uses_any(spec.type) and not c.allow_any then
+      fail("E-FEATURE-001",
+        "sml: 契约 `" .. cname .. "` 的字段 `" .. fname ..
+        "` 用了 `any`（等于放弃类型校验）；若确实需要，请在该契约里写 `!any` 显式放开")
+    end
+    if spec.type ~= nil and spec.type.kind == "contract" and spec.type.ref ~= nil then
+      local inner = contracts[spec.type.ref]
+      if inner ~= nil then check_any_walk(spec.type.ref, inner, contracts, seen) end
+    end
+  end
+end
+
 -- 对块应用契约：严格性检查 + 填默认值 + 逐个字段校验
 apply_contract = function(node, contracts, name)
   local c = contracts[name]
   if c == nil then
     fail("E-CONTRACT-001", "未定义的契约 `" .. tostring(name) .. "`")
+  end
+  -- S8：`any` 默认禁用（门控 type.featag：没开时整段不查，v4 的 any 照旧可用）
+  if _FEATURES and _FEATURES[17] then
+    check_any_walk(name, c, contracts, {})
   end
   if type(node) ~= "table" then
     fail("E-CONTRACT-008", "契约只能应用于块，实际不是块")
@@ -1605,10 +1641,12 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
           fail("E-PARSE-019", "`@contract " .. cname .. "` 后须 `{ ... }`")
         end
         i = i + 1
-        local fields, featags, strict_paths
-        fields, i, featags, strict_paths = parse_contract_body(tokens, i, fragments)
+        local fields, featags, strict_paths, allow_any
+        fields, i, featags, strict_paths, allow_any =
+          parse_contract_body(tokens, i, fragments)
         contracts[cname] = { name = cname, fields = fields, allow_extra = allow_extra,
-                             featags = featags, strict_paths = strict_paths }
+                             featags = featags, strict_paths = strict_paths,
+                             allow_any = allow_any }
       elseif fname == "when" then
         -- 条件裁剪：`@when <条件>` 只作用于紧邻的下一个字段/块，条件为假则丢弃。
         if not (_FEATURES and _FEATURES[12]) then

@@ -125,8 +125,17 @@
   递归：`ContractRef` 字段且值确实是块时继续查，路径为 `parent.child`（如 `sub.cert`）。
   五条对拍：直接赋值 024 / 由 featag 写入放行 / 缺省但必填 003 / 嵌套 024 / 必填缺失 003。
   探针 `featag-from-direct` / `featag-from-nested`，错误码矩阵 55 行 0 不一致。
-- 尚未做：**S8 `!any` 的语义**（`!any` 仍不解除 `any` 禁令；
-  `!strict-paths` 的语义已随 S6 生效）。
+- **S8 `!any`：四端已落地（2026-11-15）**。`any` 类型默认禁用（等于放弃类型校验），
+  契约里写 `!any` 才放行；报码复用 `E-FEATURE-001`（因相同：都是「这项能力没被放行」）。
+  递归：`ContractRef` 字段按被引用契约继续查 —— **内层自己有 `!any` 才算放行**
+  （`@contract Sub { y: any }` + 外层应用 ⇒ 错误指向 `Sub`）。`seen` 防递归契约绕圈。
+  门控 `type.featag`：没开时整段不查，v4 文档里的 `any` 照旧可用。
+  两条路径都查（块头 typed-block 与块内 `@is`），否则同一个契约换个应用方式就得到不同结果。
+  六条对拍：裸 `any` 001 / `!any` 放行 / `[any]` 元素位置 001 / 嵌套 001 / `@is` 路径 001 /
+  内层 `!any` 放行。探针 `featag-any-bare` / `featag-any-nested`，矩阵 57 行 0 不一致。
+
+**至此 featag S0–S8 全部落地（Rust + 四端）**，`docs/swsml/ref/grammar-divergences.md` 的
+G-04 已无待办项；剩下的语法差异只有 `@type` / 多契约 / `@requires` 三块（属别的施工线）。
 
 #### S6 实施前取证（2026-11-14，Rust 实测，四端照此对齐）
 

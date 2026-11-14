@@ -38,6 +38,43 @@ static ValuePtr parse_value(PState& st) {
 // 根本不增长，`a{b{c{...}}}` 这种纯块嵌套可以一路递归下去打穿栈（栈溢出在 C++ 里同样是
 // 不可捕获的崩溃）。块嵌套必须与值嵌套共用同一个 depth 计数，否则「128 层上限」只对
 // 数组生效，对块形同虚设 —— 这正是审计里记的那条。四类调用点全部改走这里。
+/* ---------------- featag S8：`any` 默认禁用，契约里写 `!any` 才放行 ----------------
+   门控 `type.featag`（没开时整段不查，v4 的 `any` 照旧可用）；递归走 ContractRef。 */
+
+static bool type_uses_any(const TypeSpec& t) {
+    if (t.kind == TypeSpec::Kind::Any) return true;
+    if (t.kind == TypeSpec::Kind::Array && t.elem) return type_uses_any(*t.elem);
+    return false;
+}
+
+static bool check_any_walk(PState& st, const Contract& c, std::vector<std::string>& seen) {
+    for (const auto& s : seen) if (s == c.name) return true;   /* 递归契约绕圈 */
+    seen.push_back(c.name);
+    for (const auto& f : c.fields) {
+        if (!c.allow_any && type_uses_any(f.type)) {
+            if (st.err && st.err->empty())
+                *st.err = code_prefix(SML_E_FEATURE_001,
+                    "sml: 契约 `" + c.name + "` 的字段 `" + f.name +
+                    "` 用了 `any`（等于放弃类型校验）；若确实需要，请在该契约里写 `!any` 显式放开");
+            st.aborted = true;
+            return false;
+        }
+        if (f.type.kind == TypeSpec::Kind::ContractRef && !f.type.contract_ref.empty()) {
+            auto it = st.contracts.find(f.type.contract_ref);
+            if (it != st.contracts.end() && !check_any_walk(st, it->second, seen)) return false;
+        }
+    }
+    return true;
+}
+
+static bool check_any_allowed(PState& st, const std::string& name,
+                              std::vector<std::string>& seen) {
+    if ((st.features & (1u << 17)) == 0) return true;
+    auto it = st.contracts.find(name);
+    if (it == st.contracts.end()) return true;
+    return check_any_walk(st, it->second, seen);
+}
+
 /* ---------------- featag S7：`from-featag` 的键不许文档手写（E-CONTRACT-024） ----------------
    **必须在落点填充之前**：填充之后 featag 自己写的键与文档手写的键长得一样，来源就分不出来了。 */
 
@@ -705,6 +742,7 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                                 break;
                             }
                             if (d.name == "strict-paths") c.strict_paths = true;  // S6 开关
+                            if (d.name == "any") c.allow_any = true;               // S8 开关
                             while (st.i < st.toks.size() &&
                                    st.toks[st.i].t != Token::T::RBrace &&
                                    st.toks[st.i].line == decl_line) st.i++;
@@ -995,8 +1033,11 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                     st.enter_key = key;   /* 旁路表路径：本块的键名 */
                     auto sub = parse_block_nested(st);
                     std::string e;
-                    Parser::apply_contract(sub, st.contracts, cname, &e);
-                    if (!e.empty() && st.err) *st.err = e;
+                    std::vector<std::string> seen8;
+                    if (check_any_allowed(st, cname, seen8)) {
+                        Parser::apply_contract(sub, st.contracts, cname, &e);
+                        if (!e.empty() && st.err) *st.err = e;
+                    }
                     set_field(key, sub);
                 } else if (!st.aborted) {
                     set_field(key, Value::null());
@@ -1200,10 +1241,13 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                 if ((st.features & (1u << 14)) != 0 &&
                     st.contracts.find(key) != st.contracts.end()) {
                     std::string ce;
-                    Parser::apply_contract(sub, st.contracts, key, &ce);
-                    if (!ce.empty()) {
-                        if (st.err && st.err->empty()) *st.err = ce;
-                        st.aborted = true;
+                    std::vector<std::string> seen8;
+                    if (check_any_allowed(st, key, seen8)) {
+                        Parser::apply_contract(sub, st.contracts, key, &ce);
+                        if (!ce.empty()) {
+                            if (st.err && st.err->empty()) *st.err = ce;
+                            st.aborted = true;
+                        }
                     }
                 }
                 if (!args.empty()) {
@@ -1264,8 +1308,11 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
         std::string cname = pending_is;
         pending_is.clear();
         std::string e;
-        Parser::apply_contract(node, st.contracts, cname, &e);
-        if (!e.empty() && st.err) *st.err = e;
+        std::vector<std::string> seen8;
+        if (check_any_allowed(st, cname, seen8)) {
+            Parser::apply_contract(node, st.contracts, cname, &e);
+            if (!e.empty() && st.err) *st.err = e;
+        }
     }
     /* 悬空 `@when`：块结束时条件还没被任何字段/块消费。
        Dangling `@when`: the block ended before the condition consumed an item. */

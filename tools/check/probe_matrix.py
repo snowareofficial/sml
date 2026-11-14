@@ -117,6 +117,14 @@ ERRORS = [
      "@version v1\n@feature enable type.featag, typed-block, block-name\n"
      "@contract S loose {\n    name: str\n    !r: int -> spec.r\n}\n"
      "S !r[auto], prod { name: a }\n"),
+    # S8：`any` 类型默认禁用 —— 契约里写 `!any` 才放行；报码复用 E-FEATURE-001。
+    ("featag-any-bare", "E-FEATURE-001",
+     "@version v1\n@feature enable type.featag, typed-block, block-name\n"
+     "@contract S {\n    x: any\n}\nS prod { x: 1 }\n"),
+    # 递归：嵌套契约里的 any 也要查（错误指向内层契约名）。
+    ("featag-any-nested", "E-FEATURE-001",
+     "@version v1\n@feature enable type.featag, typed-block, block-name\n"
+     "@contract Sub {\n    y: any\n}\n@contract S {\n    s: Sub\n}\nS prod { s { y: 1 } }\n"),
     # S7 `from-featag`：该键只能由 featag 落点写入，文档直接赋值 ⇒ 024。
     # 判据在**填充之前**跑，填进去的键与手写的键长得一样，来源就分不出来了。
     ("featag-from-direct", "E-CONTRACT-024",

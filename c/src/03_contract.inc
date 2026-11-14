@@ -49,6 +49,7 @@ typedef struct ccontract {
     char *name;
     int allow_extra;         /* loose */
     int strict_paths;        /* S6：`!strict-paths` 开关（落点父对象必须已存在） */
+    int allow_any;           /* S8：`!any` 开关（放行 `any` 类型；默认禁用） */
     cfield *fields;          /* 头插链表 */
     cfeatag *featags;        /* 头插链表（featag 的作用域是契约私有） */
     struct ccontract *next;

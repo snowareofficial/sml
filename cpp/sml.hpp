@@ -106,6 +106,7 @@ struct Contract {
     std::vector<FieldSpec> fields;
     bool allow_extra = false;   // contract-level `loose`
     bool strict_paths = false;  // S6：`!strict-paths` 开关（落点父对象必须已存在）
+    bool allow_any = false;     // S8：`!any` 开关（放行 `any` 类型；默认禁用）
     std::vector<FeatagDecl> featags;
 };
 
