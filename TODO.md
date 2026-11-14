@@ -969,6 +969,7 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
 
 ### D. 本批纳入五端同步（2026-11-12 裁决，覆盖此前「先不动 Lua」）
 
+- [ ] **`site-dioxus` 已归档**（2026-11-14）：原 `site-dioxus/`（未入库的 Dioxus 站点草稿，`components.rs` / `pages.rs` / `playground.rs` 有 rustc 语法与类型错误）已移到仓库外的 `<target-dir>/archive/site-dioxus`。要复活时先取回、再修那三个文件的错误，别直接放回仓库根 （IDE 会把它的 `Cargo.toml` 当独立 crate 扫，制造红色诊断）。
 - [ ] **Lua 嵌套数组不支持**（台账 #1–#3，`E-PARSE-006` / `E-PARSE-003`）：与 W17 的 C 修复同族
       （`parse_array` 加 `[` 递归 + 共用深度闸），可照抄；落点见 `docs/swsml/plan/crossend-sync.md` §0.1。
 - [ ] **临时探针清单**（`known_divergences.md` 末节，约 40 个 `_*` 文件）：等套件全 AGREE + 台账收敛后

@@ -135,6 +135,10 @@ const CompletionItemKind = {
 };
 const DiagnosticSeverity = { Error: 1, Warning: 2, Information: 3, Hint: 4 };
 
+// 文档自我声明「只保证 Rust 端可读」（如 `grammar.sml` 的全集活代码）。
+// 这类文件被 JS 实现拒绝属**设计预期**，不该在编辑器里显示成红色错误。
+const RUST_ONLY = /^#\s*sml-lsp\s*:\s*impl=rust-only\b/m;
+
 const docs = new Map(); // uri -> text
 
 // ——— 帧读写 ———
@@ -191,9 +195,11 @@ function publishDiagnostics(uri, text) {
         start: { line: pos.line, character: pos.col },
         end: { line: pos.line, character: Math.max(pos.col + 1, lineText.length) },
       },
-      severity: DiagnosticSeverity.Error,
+      severity: RUST_ONLY.test(text) ? DiagnosticSeverity.Information : DiagnosticSeverity.Error,
       source: "sml",
-      message: r.error,
+      message: RUST_ONLY.test(text)
+        ? `本文件声明以 Rust 为准，当前实现拒绝属预期：${r.error}`
+        : r.error,
     });
   }
   // `@weakdoc X` 找不到 ⇒ **Information**（`W-CLI-001`）：只提示，不阻断编辑

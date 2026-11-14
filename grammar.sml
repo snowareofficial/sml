@@ -21,6 +21,7 @@
 #    · 环境变量前缀在产生式里写作「美元符 env . NAME」—— 因为真的写出来，它会被
 #      解析器当成插值替换掉（这条限制本身也是文法的一部分，见 lexical 第 25 行）。
 #
+#  sml-lsp  : impl=rust-only      （编辑器据此把「其它实现拒绝」降级为提示）
 #  权威来源 : Rust 端（rust/sml-lex、sml-parse、sml-contract、sml-include）
 #  五端状态 : 见 implementations 段；单文档无法自证的项（顶层数组 / include /
 #             外置扩展点）在 conformance 段逐条列出理由。
