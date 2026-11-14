@@ -132,19 +132,25 @@
 | 9 | `list: [1 2]` + 落点 `list[5]`（**n > len**） | **`E-CONTRACT-025`** 越界（不补 null） |
 | 10 | 落点写法 `[0].a`（首段是下标） | **`E-CONTRACT-020`** 须以键名开头 |
 
-⚠️ **相位顺序是硬约束**（这是四端最容易写错的地方）：
+⚠️ **相位顺序是硬约束**（四端最容易写错的地方）——**填落点在契约应用之前**：
 
-$$
-\text{默认值/类型校验} \;\rightarrow\; \text{填落点} \;\rightarrow\; \text{严格性检查}
-$$
+```
+featag S5 校验  →  S6 填落点  →  契约应用（默认值 / 类型 / 严格性检查）
+```
 
-证据：严格契约 `@contract S { name: str !tls: str -> tls.cert }` + 块内不写 `tls` 时，
-Rust 报 `E-CONTRACT-004`「字段 `tls` 未声明」—— 说明 `tls` 是**填落点之后**才出现、
-并被随后的严格性检查抓住的。四端现在都是「严格性 → 默认值/类型」的次序，
-直接加落点填充会得到相反的结果（C 实测：不报错并成功写入）。
+出处是 `rust/sml-parse/src/parser/mod.rs` 的 `finish_bare_block`（约 1318 行）原注释：
+**「S5 + S6 必须都在契约应用之前 —— `from-featag` 那类『只能由 featag 提供』的必填字段，
+一旦让契约先跑就会被判成 `E-CONTRACT-003`『必填缺失』」**（S7 直接依赖这个次序）。
 
-⇒ 做 S6 时**每端都要先把严格性检查从 `apply_contract` 里拆出来**，
-在填完落点之后再调一次；这一步不小，属独立的施工片。
+两条可观测后果（都用 Rust 实跑确认过）：
+
+1. 严格契约 `@contract S { name: str !tls: str -> tls.cert }` + 块内不写 `tls` ⇒
+   报 `E-CONTRACT-004`「字段 `tls` 未声明」—— `tls` 是**填完才出现**、被随后的严格性检查抓住的；
+2. `auto` 取的是**声明里的 `default`**，不是契约应用填进来的值（此刻默认值还没落位）。
+
+⇒ 四端**不需要**拆严格性检查，只要把填充插到 `apply_contract` **之前**即可。
+（我第一版按「默认值→填落点→严格性」实现，C 端实测不报错且成功写入，与 Rust 相反；
+该草稿已回滚，教训记在这里。）
   ⇒ `grammar.sml` 里 `Deploy !tls replicas[3] zone[cn-north-1]` 那几段在四端现在**会校验参数**，
   但不会写入 `spec.*`（属已知缺口，`docs/swsml/ref/grammar-divergences.md` 已记）。
 
