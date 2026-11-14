@@ -214,7 +214,6 @@ enum Format {
     Highlight,
     #[default]
     Markdown,
-    #[cfg(feature = "xml")]
     Xml,
     Svg,
     Latex,
@@ -241,9 +240,8 @@ impl Format {
             v.push(Format::TmLanguage);
             v.push(Format::Highlight);
         }
-        #[cfg(feature = "xml")]
-        v.push(Format::Xml);
         v.extend([
+            Format::Xml,
             Format::Svg,
             Format::Latex,
             Format::Slint,
@@ -270,7 +268,6 @@ impl Format {
             "tmlanguage" | "tm" => Some(Format::TmLanguage),
             #[cfg(feature = "highlight")]
             "highlight" | "editor" => Some(Format::Highlight),
-            #[cfg(feature = "xml")]
             "xml" => Some(Format::Xml),
             "svg" => Some(Format::Svg),
             "latex" | "tex" => Some(Format::Latex),
@@ -294,7 +291,6 @@ impl Format {
             #[cfg(feature = "highlight")]
             Format::Highlight => "highlight",
             Format::Markdown => "markdown",
-            #[cfg(feature = "xml")]
             Format::Xml => "xml",
             Format::Svg => "svg",
             Format::Latex => "latex",
@@ -1032,7 +1028,6 @@ fn emit_plain(value: &Value, fmt: Format, args: &Args) -> Result<String, SmlErro
         #[cfg(feature = "highlight")]
         Format::Highlight => Err(SmlError::from_code_msg(E_INTERNAL_001)
             .with_detail("编辑器定制包由 main 单独处理（多文件输出）")),
-        #[cfg(feature = "xml")]
         Format::Xml => {
             let opt = XmlOptions {
                 base: EmitOptions {

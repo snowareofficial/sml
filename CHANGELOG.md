@@ -15,6 +15,30 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ## [未发布]
 
+### ⚠️ 破坏性变更（`smltools` 打包：四个解析后端改为可选 feature）
+
+`smltools` 默认构建不再包含 **xml / yaml / toml 输入解析**与 **tmlanguage / highlight 输出**，
+需要时显式打开：
+
+```bash
+cargo build --release -p smltools --features xml,yaml,toml,highlight
+```
+
+| feature | 打开什么 |
+|---|---|
+| `xml` | `--from xml`（含 `.svd`）；`--to xml` **一直可用**（走 `sml::emit::to_xml`，不依赖本 crate 的 `xml.rs`） |
+| `yaml` | `--from yaml`（本来就没有输出后端） |
+| `toml` | `--to toml` / `--from toml` |
+| `highlight` | `--to tmlanguage` / `--to highlight` |
+
+未启用时相关取值报 `E-CLI-001` / `E-CLI-002`，提示里**只列本构建真正支持的格式**
+（不给「说了不支持却列出来」的自相矛盾）。实测体积（2026-11-14，release，x86_64）：
+默认 **2618 KB**，四后端全开 **2836 KB**（省 218 KB / 7.7%）。
+
+**迁移**：脚本里用到 `--to toml`、`--to tmlanguage`、`--from xml|yaml|toml` 的，要么加对应
+feature 构建，要么先用 `--to json` 中转。按本文件文首的 Cargo 0.x 语义，这属**不兼容变更**，
+与下一个正式版本（0.7.0）一并给出；本轮不 bump 版本号。
+
 > 本轮对应 TODO「排雷区 → 雷 5」A 组 4-6：消灭「数据被静默改写 / 覆盖、用户毫不知情」。
 > 主战场是 Rust 库；但本轮**末尾**按「Rust 先行、五端统一同步」推进了契约符号修饰符的废弃，
 > 因此 `c/` `cpp/` `js/` `lua/`（含 `editors/vscode` 与 `site/` 的四份 vendored 副本）也有改动 ——

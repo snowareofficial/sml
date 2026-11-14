@@ -60,14 +60,17 @@ cargo build --release -p smltools --features xml,yaml,toml,highlight
 
 | feature | 打开什么 |
 |---|---|
-| `xml` | `--to xml` / `--from xml`（含 `.svd`） |
-| `yaml` | `--to yaml` / `--from yaml` |
+| `xml` | `--from xml`（含 `.svd`）；`--to xml` **一直可用**，不需要本 feature |
+| `yaml` | `--from yaml`（本来就没有输出后端） |
 | `toml` | `--to toml` / `--from toml` |
 | `highlight` | `--to tmlanguage` / `--to highlight`（编辑器语法与定制包） |
 
-没开时连枚举变体都不存在，`--to xml` 会直接报 `E-CLI-002`，提示里只列本构建真正支持的格式
-（不会出现「说了不支持却列出来」）。实测体积（2026-11-14，release）：默认 **2609 KB**，
-四个后端全开 2836 KB（**+227 KB**）。
+⚠️ `--to xml` 走的是 `sml::emit::to_xml`（在 `swsml` crate 里，必选依赖），本 crate 的 `xml.rs`
+只提供**输入**解析 —— 所以只裁输入侧，别把输出也一起关掉（那样等于凭空砍掉一个零成本后端）。
+
+没开时连枚举变体都不存在，相关取值直接报 `E-CLI-001` / `E-CLI-002`，提示里只列本构建真正
+支持的格式（不会出现「说了不支持却列出来」）。实测体积（2026-11-14，release，x86_64）：
+默认 **2618 KB**，四后端全开 **2836 KB**（默认省 218 KB / 7.7%）。
 
 > **实验性 (EXPERIMENTAL)**：CLI 接口与 emit 后端组合仍可能随用户反馈调整，
 > 暂不做语义化稳定性承诺。生产关键路径请勿依赖其精确行为，请关注版本号变更日志。

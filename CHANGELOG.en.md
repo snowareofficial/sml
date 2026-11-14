@@ -23,6 +23,31 @@ Conventions carried over from `CHANGELOG.md`:
 
 ## [Unreleased]
 
+### ⚠️ Breaking (smltools packaging: four back-ends are now optional features)
+
+The default `smltools` build no longer contains **xml / yaml / toml input parsing** nor
+**tmlanguage / highlight output**. Enable them explicitly:
+
+```bash
+cargo build --release -p smltools --features xml,yaml,toml,highlight
+```
+
+| feature | what it enables |
+|---|---|
+| `xml` | `--from xml` (incl. `.svd`); `--to xml` stays available (it uses `sml::emit::to_xml`, not this crate's `xml.rs`) |
+| `yaml` | `--from yaml` (there is no YAML output back-end) |
+| `toml` | `--to toml` / `--from toml` |
+| `highlight` | `--to tmlanguage` / `--to highlight` |
+
+When disabled, the rejected values report `E-CLI-001` / `E-CLI-002` and the message lists **only
+the formats this build actually supports**. Measured size (2026-11-14, release, x86_64):
+default **2618 KB**, all four enabled **2836 KB** (218 KB / 7.7% saved).
+
+**Migration**: scripts using `--to toml`, `--to tmlanguage`, or `--from xml|yaml|toml` must either
+build with the matching feature or round-trip through `--to json`. Under the Cargo 0.x semantics
+stated at the top of this file this is an **incompatible change**, shipped together with the next
+release (0.7.0). No version bump in this round.
+
 > Condensed mirror of the Chinese `[未发布]` section: same categories, one line per change.
 > The Chinese file remains authoritative for detail and evidence.
 
