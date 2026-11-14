@@ -64,6 +64,7 @@ fn main() {
     let cases: Vec<(&str, usize, String, String)> = vec![
         ("flat@4000", 4000, flat_sml(4000), flat_json(4000)),
         ("block@2000", 2000, block_sml(2000), block_json(2000)),
+        ("array@2000", 2000, array_sml(2000), array_json(2000)),
     ];
 
     // 预热（避免首个案例吃到冷启动）
@@ -165,6 +166,27 @@ fn flat_json(n: usize) -> String {
             s.push(',');
         }
         s.push_str(&format!("\"k{i}\":\"value-{i}\""));
+    }
+    s.push('}');
+    s
+}
+
+fn array_sml(n: usize) -> String {
+    let mut s = String::with_capacity(n * 24);
+    for i in 0..n {
+        s.push_str(&format!("a{i}: [1 2 3 4 5]\n"));
+    }
+    s
+}
+
+fn array_json(n: usize) -> String {
+    let mut s = String::with_capacity(n * 32);
+    s.push('{');
+    for i in 0..n {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str(&format!("\"a{i}\":[1,2,3,4,5]"));
     }
     s.push('}');
     s

@@ -45,7 +45,7 @@ fn eligible(text: &str) -> bool {
     !text.bytes().any(|c| {
         matches!(
             c,
-            b'[' | b']' | b'@' | b'$' | b'!' | b'`' | b'\''
+            b'@' | b'$' | b'!' | b'`' | b'\''
             // `,` `;` `#` 也一律不接：它们在通用路径里的归属很反直觉
             // （实测 `a: 1\nb: 2 ;` 会让 `;` 变成**键**），不值得复刻一份。
             | b',' | b';' | b'#'
@@ -72,7 +72,8 @@ impl<'a> Fast<'a> {
         let s = self.i;
         while self.i < self.b.len() {
             match self.b[self.i] {
-                b' ' | b'\t' | b'\r' | b'\n' | b':' | b'{' | b'}' | b'"' => break,
+                // `[` / `]` 也算分隔符：数组元素 `[1 2 3]` 的 `3]` 不能把括号吃进词里
+                b' ' | b'\t' | b'\r' | b'\n' | b':' | b'{' | b'}' | b'"' | b'[' | b']' => break,
                 _ => self.i += 1,
             }
         }
@@ -179,6 +180,41 @@ impl<'a> Fast<'a> {
         Some(Value::Object(m))
     }
 
+    /// 数组（`self.i` 指向 `[`）。
+    ///
+    /// 只接**标量 / 引号串**元素：块元素（`[ { … } ]`）与嵌套数组一律回落 ——
+    /// 它们要和裸块判定、`__type` 注入、深度计数交叉，不值得在这里复刻。
+    fn array(&mut self, depth: usize) -> Option<Value> {
+        if depth > sml_value::MAX_VALUE_DEPTH {
+            return None;
+        }
+        if self.i >= self.b.len() || self.b[self.i] != b'[' {
+            return None;
+        }
+        self.i += 1;
+        let mut items: Vec<Value> = Vec::new();
+        loop {
+            self.ws();
+            if self.i >= self.b.len() {
+                return None; // 未闭合：交回通用路径报 E-PARSE-001
+            }
+            match self.b[self.i] {
+                b']' => {
+                    self.i += 1;
+                    break;
+                }
+                // 块 / 嵌套数组元素：不在本路径范围内
+                b'{' | b'[' => return None,
+                b'"' => items.push(Value::Str(self.quoted()?.into_owned())),
+                _ => {
+                    let w = self.word()?;
+                    items.push(coerce_word(w, &NO_FRAGMENTS, self.feats, "", None).ok()?);
+                }
+            }
+        }
+        Some(Value::Array(items))
+    }
+
     fn value(&mut self, depth: usize) -> Option<Value> {
         if self.i >= self.b.len() {
             return None;
@@ -188,6 +224,7 @@ impl<'a> Fast<'a> {
                 self.i += 1;
                 self.block(false, depth + 1)
             }
+            b'[' => self.array(depth + 1),
             b'"' => self.quoted().map(|c| Value::Str(c.into_owned())),
             _ => {
                 let w = self.word()?;
@@ -277,9 +314,26 @@ mod tests {
     }
 
     #[test]
+    fn arrays_match_slow_path() {
+        for t in [
+            "a: [1 2 3]\n",
+            "a: []\n",
+            "a: [\"x y\" \"z\"]\n",
+            "a: [1 true null 1.5 s]\n",
+            "blk { xs: [1 2] n: 3 }\n",
+            "a: [1 2]\nb: [x]\n",
+            "a: [ 1\n2 ]\n",           // 跨行数组
+        ] {
+            same(t);
+        }
+    }
+
+    #[test]
     fn structural_docs_fall_back() {
         for t in [
-            "a: [1 2]\n",              // 数组未接
+            "a: [ { x: 1 } ]\n",       // 块元素：不在范围内
+            "a: [[1 2] [3]]\n",        // 嵌套数组：不在范围内
+            "a: [1 2\n",               // 未闭合数组
             "@version v1\na: 1\n",     // 指令
             "a: $env.X\n",             // 环境变量
             "a: 1\na: 2\n",            // 重复键
