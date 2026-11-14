@@ -53,7 +53,7 @@
 | `contract-nest` | 契约当字段类型 | OK | OK | OK | OK | OK |
 | `contract-multi` | 多契约叠加 + 就地严格度 | OK | `E-CONTRACT-017` | `E-CONTRACT-017` | `E-CONTRACT-017` | `E-CONTRACT-017` |
 | `contract-requires` | `@requires when`（when 未开） | `E-CONTRACT-018` | `E-CONTRACT-018` | `E-CONTRACT-018` | `E-CONTRACT-018` | `E-CONTRACT-018` |
-| `contract-requires-on` | `@requires when`（when 已开） | OK | `E-CONTRACT-018` | `E-CONTRACT-018` | `E-CONTRACT-018` | `E-CONTRACT-018` |
+| `contract-requires-on` | `@requires when`（when 已开） | OK | OK | OK | OK | OK |
 | `type-dir` | `@type` 合规值 | OK | `E-CONTRACT-008` | `E-CONTRACT-001` | OK | `E-CONTRACT-008` |
 | `type-dir-check` | `@type` 不合规值 | `E-CONTRACT-009` | `E-CONTRACT-008` | `E-CONTRACT-001` | `E-CONTRACT-009` | `E-CONTRACT-008` |
 | `type-dir-alone` | `@type` 只声明不使用 | OK | OK | OK | OK | OK |

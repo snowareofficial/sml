@@ -841,14 +841,56 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                                 if (dname.size() >= 2 && dname.front() == '"' && dname.back() == '"')
                                     dname = dname.substr(1, dname.size() - 2);
                             }
-                            if (st.err && st.err->empty()) {
-                                if (dname == "requires")
-                                    *st.err = code_prefix(SML_E_CONTRACT_018,
-                                        "sml: 本实现暂不支持契约的 `@requires` 指令（它要求先开启所列特性）");
-                                else
-                                    *st.err = code_prefix(SML_E_PARSE_005,
-                                        "sml: 契约体内不支持指令 `@" + dname + "`（契约体仅支持 `@requires`）");
+                            if (dname == "requires") {
+                                st.i += 2;   // 消费 `@` 与 `requires`
+                                /* 收集特性名并在**定义时**校验（Rust `directive.rs` 同判据）：
+                                   逗号 / 空格分隔；遇「词后跟冒号」即下一个字段名；
+                                   名字无效 ⇒ 003，未开启 ⇒ 018。 */
+                                while (st.i < st.toks.size()) {
+                                    if (st.toks[st.i].t == Token::T::Comma) { st.i++; continue; }
+                                    if (st.toks[st.i].t != Token::T::Word) break;
+                                    if (st.i + 1 < st.toks.size() &&
+                                        st.toks[st.i + 1].t == Token::T::Colon) break;
+                                    std::string w = st.toks[st.i].s;
+                                    st.i++;
+                                    size_t start = 0;
+                                    for (;;) {
+                                        const size_t cm = w.find(',', start);
+                                        std::string nm = w.substr(
+                                            start, cm == std::string::npos ? std::string::npos : cm - start);
+                                        const size_t b = nm.find_first_not_of(" \t");
+                                        const size_t e2 = nm.find_last_not_of(" \t");
+                                        nm = (b == std::string::npos) ? "" : nm.substr(b, e2 - b + 1);
+                                        if (!nm.empty()) {
+                                            const int bit = feature_index(nm);
+                                            if (bit < 0) {
+                                                if (st.err && st.err->empty())
+                                                    *st.err = code_prefix(SML_E_FEATURE_003,
+                                                        "sml: 契约 `" + c.name +
+                                                        "` 的 `@requires` 引用了无效特性 `" + nm + "`");
+                                                st.aborted = true;
+                                                break;
+                                            }
+                                            if ((st.features & (1u << bit)) == 0) {
+                                                if (st.err && st.err->empty())
+                                                    *st.err = code_prefix(SML_E_CONTRACT_018,
+                                                        "sml: 契约 `" + c.name + "` 要求特性 `" + nm +
+                                                        "` 已开启（请用 `@feature enable " + nm + "`）");
+                                                st.aborted = true;
+                                                break;
+                                            }
+                                        }
+                                        if (cm == std::string::npos) break;
+                                        start = cm + 1;
+                                    }
+                                    if (st.aborted) break;
+                                }
+                                if (st.aborted) break;
+                                continue;
                             }
+                            if (st.err && st.err->empty())
+                                *st.err = code_prefix(SML_E_PARSE_005,
+                                    "sml: 契约体内不支持指令 `@" + dname + "`（契约体仅支持 `@requires`）");
                             st.aborted = true;
                             break;
                         }

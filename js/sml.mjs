@@ -1829,7 +1829,7 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
     walk(node, 0);
   }
 
-  function parseContractBody() {
+  function parseContractBody(cname) {
     const fields = {};
     // 声明过的 featag：名字 → 声明（S5 判「未声明即拒」，S5b 判参数个数与类型）。
     const featags = new Map();
@@ -1847,9 +1847,30 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
         const dt = peek();
         const dname = dt && (dt.t === "word" || dt.t === "str") ? dt.v : "";
         if (dname === "requires") {
-          fail("E-CONTRACT-018",
-            "sml: 本实现暂不支持契约的 `@requires` 指令（它要求先开启所列特性）；" +
-            "请移除该指令，或改用已实现它的 Rust 端");
+          i++; // 消费 requires
+          // 定义时校验（与 Rust `directive.rs` 同判据）：逗号 / 空格分隔，
+          // 遇「词后跟冒号」即下一个字段名；名字无效 ⇒ 003，未开启 ⇒ 018。
+          while (peek()) {
+            if (peek().t === "," || peek().t === ";") { i++; continue; }
+            if (peek().t !== "word" && peek().t !== "str") break;
+            if (toks[i + 1] && toks[i + 1].t === ":") break;
+            const w = String(peek().v);
+            i++;
+            for (const raw of w.split(",")) {
+              const nm = raw.trim();
+              if (!nm) continue;
+              if (!KNOWN_FEATURES.has(nm)) {
+                fail("E-FEATURE-003",
+                  "sml: 契约 `" + cname + "` 的 `@requires` 引用了无效特性 `" + nm + "`");
+              }
+              if (!feats.has(nm)) {
+                fail("E-CONTRACT-018",
+                  "sml: 契约 `" + cname + "` 要求特性 `" + nm +
+                  "` 已开启（请用 `@feature enable " + nm + "`）");
+              }
+            }
+          }
+          continue;
         }
         fail("E-PARSE-005", "sml: 契约体内不支持指令 `@" + dname + "`（契约体仅支持 `@requires`）");
       }
@@ -2428,7 +2449,7 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
           let loose = false;
           if (peek() && peek().t === "word" && peek().v === "loose") { loose = true; i++; }
           else if (peek() && peek().t === "word" && peek().v === "strict") { loose = false; i++; }
-          const { fields, featags, strictPaths, allowAny } = parseContractBody();
+          const { fields, featags, strictPaths, allowAny } = parseContractBody(cname);
           contracts[nsPrefix + cname] = { fields, loose, featags, strictPaths, allowAny };
           continue;
         }

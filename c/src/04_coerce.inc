@@ -766,12 +766,61 @@ static void parse_contract_body(parser *ps, ccontract *c) {
             token *dt = peek(ps);
             const char *dname = (dt->t == T_WORD || dt->t == T_STR) ? dt->v : "";
             if (strcmp(dname, "requires") == 0) {
-                set_err(ps->lx->errbuf, ps->lx->errsz,
-                        SML_E_CONTRACT_018 " 本实现暂不支持契约的 `@requires` 指令（它要求先开启所列特性）");
-            } else {
-                set_err(ps->lx->errbuf, ps->lx->errsz,
-                        SML_E_PARSE_005 " 契约体内不支持指令 `@%s`（契约体仅支持 `@requires`）", dname);
+                next(ps);   /* 消费 `requires` */
+                /* 收集特性名并在**定义时**校验（Rust `directive.rs` 同判据）：
+                   - 逗号 / 空格都可分隔，单词里的逗号（`a,b`）也拆开；
+                   - 遇「词后跟冒号」⇒ 那是下一个字段名，列表到此结束（Rust 用 peek_at(1)）；
+                   - 名字不在特性表里 ⇒ E-FEATURE-003；
+                   - 名字有效但未开启 ⇒ E-CONTRACT-018。 */
+                for (;;) {
+                    token *rt = peek(ps);
+                    if (rt->t == T_COMMA) { next(ps); continue; }
+                    if (rt->t != T_WORD && rt->t != T_STR) break;
+                    if (peek_at(ps, 1)->t == T_COLON) break;   /* 下一个字段 */
+                    {
+                        const char *rw = next(ps)->v;
+                        const char *p = rw;
+                        while (*p) {
+                            const char *q = p;
+                            char namebuf[64];
+                            size_t len;
+                            int fi;
+                            while (*q && *q != ',') q++;
+                            len = (size_t)(q - p);
+                            while (len > 0 && (*p == ' ' || *p == '\t')) { p++; len--; }
+                            while (len > 0 && (p[len - 1] == ' ' || p[len - 1] == '\t')) len--;
+                            if (len > 0 && len < sizeof(namebuf)) {
+                                memcpy(namebuf, p, len);
+                                namebuf[len] = '\0';
+                                fi = feature_index(namebuf);
+                                if (fi < 0) {
+                                    set_err(ps->lx->errbuf, ps->lx->errsz,
+                                            SML_E_FEATURE_003
+                                            " 契约 `%s` 的 `@requires` 引用了无效特性 `%s`",
+                                            c ? c->name : "?", namebuf);
+                                    ps->failed = 1;
+                                    break;
+                                }
+                                if (!(ps->features & (1u << (unsigned)fi))) {
+                                    set_err(ps->lx->errbuf, ps->lx->errsz,
+                                            SML_E_CONTRACT_018
+                                            " 契约 `%s` 要求特性 `%s` 已开启"
+                                            "（请用 `@feature enable %s`）",
+                                            c ? c->name : "?", namebuf, namebuf);
+                                    ps->failed = 1;
+                                    break;
+                                }
+                            }
+                            p = (*q == ',') ? q + 1 : q;
+                        }
+                        if (ps->failed) break;
+                    }
+                }
+                if (ps->failed) break;
+                continue;
             }
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_PARSE_005 " 契约体内不支持指令 `@%s`（契约体仅支持 `@requires`）", dname);
             ps->failed = 1;
             break;
         }

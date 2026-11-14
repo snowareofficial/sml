@@ -978,7 +978,7 @@ local function write_target(node, segs, val, strict, where_)
   walk(node, 1)
 end
 
-local function parse_contract_body(tokens, i, fragments)
+local function parse_contract_body(tokens, i, fragments, cname)
   local allow_any = false      -- `!any`：放行 `any` 类型（S8，默认禁用）
   local strict_paths = false   -- `!strict-paths`：落点父对象必须已存在（S6）
   local fields = {}
@@ -998,12 +998,55 @@ local function parse_contract_body(tokens, i, fragments)
     -- 参照 E-CONTRACT-017（契约叠加未实现）的既有先例：绝不静默忽略、绝不静默给树。
     -- 改前 `@` 落到下面的 STRUCT_CHARS 分支，抛的是 E-PARSE-006「契约字段期望键」——
     -- 响亮是响亮了，但码不对、也没说清「这条指令本端不支持」这个真实原因。
+    local did_requires = false
     if tok == "@" then
       local dn = tokens[i + 1]
       if dn == "requires" then
-        fail("E-CONTRACT-018", "sml: 本实现暂不支持契约的 `@requires` 指令（它要求先开启所列特性）")
+        -- 定义时校验（与 Rust `directive.rs` 同判据）：逗号 / 空格分隔，
+        -- 遇「词后跟冒号」即下一个字段名；名字无效 ⇒ 003，未开启 ⇒ 018。
+        i = i + 2   -- 消费 `@` 与 `requires`
+        while tokens[i] ~= nil do
+          local tk2 = tokens[i]
+          if tk2 == "," then
+            i = i + 1
+          elseif not is_word_tok(tk2) then
+            break
+          elseif tokens[i + 1] == ":" then
+            break
+          else
+            local w = tk2
+            i = i + 1
+            for nm in string.gmatch(w, "[^,]+") do
+              nm = string.match(nm, "^%s*(.-)%s*$")
+              if nm ~= "" then
+                local bit = SML_FEATURE_NAMES[nm]
+                if bit == nil then
+                  fail("E-FEATURE-003",
+                    "sml: 契约 `" .. tostring(cname) .. "` 的 `@requires` 引用了无效特性 `" ..
+                    nm .. "`")
+                end
+                if not (_FEATURES and _FEATURES[bit]) then
+                  fail("E-CONTRACT-018",
+                    "sml: 契约 `" .. tostring(cname) .. "` 要求特性 `" .. nm ..
+                    "` 已开启（请用 `@feature enable " .. nm .. "`）")
+                end
+              end
+            end
+          end
+        end
+        -- Lua 没有 continue：把 `tok` 刷新到**下一条**，让下面的分支按它重新派发。
+        -- （改前不做这件事，`tok` 还是 "@"，于是 `@` 被当成字段名写进树里 ——
+        --   探针那边表现为 `gated: { @: true }`，Rust 读不回去 ⇒ NC。）
+        tok = tokens[i]
+        if tok == nil then
+          fail("E-PARSE-001", "契约体未闭合（缺少结束符号 }）")
+        elseif tok == "}" then
+          i = i + 1
+          break            -- 契约体到此结束（与循环顶部同效）
+        end
+      else
+        fail("E-PARSE-005", "sml: 契约体内不支持指令 `@" .. (dn or "") .. "`（契约体仅支持 `@requires`）")
       end
-      fail("E-PARSE-005", "sml: 契约体内不支持指令 `@" .. (dn or "") .. "`（契约体仅支持 `@requires`）")
     end
     -- featag 声明：`!name` / `!name: 类型` / `!name: 类型 -> 落点`。
     -- 开了 `type.featag` 才是记号。S5 记名（使用处判「未声明即拒」），
@@ -1643,7 +1686,7 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
         i = i + 1
         local fields, featags, strict_paths, allow_any
         fields, i, featags, strict_paths, allow_any =
-          parse_contract_body(tokens, i, fragments)
+          parse_contract_body(tokens, i, fragments, cname)
         contracts[cname] = { name = cname, fields = fields, allow_extra = allow_extra,
                              featags = featags, strict_paths = strict_paths,
                              allow_any = allow_any }
