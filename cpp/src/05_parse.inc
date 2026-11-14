@@ -38,6 +38,34 @@ static ValuePtr parse_value(PState& st) {
 // 根本不增长，`a{b{c{...}}}` 这种纯块嵌套可以一路递归下去打穿栈（栈溢出在 C++ 里同样是
 // 不可捕获的崩溃）。块嵌套必须与值嵌套共用同一个 depth 计数，否则「128 层上限」只对
 // 数组生效，对块形同虚设 —— 这正是审计里记的那条。四类调用点全部改走这里。
+/* ---------------- featag S7：`from-featag` 的键不许文档手写（E-CONTRACT-024） ----------------
+   **必须在落点填充之前**：填充之后 featag 自己写的键与文档手写的键长得一样，来源就分不出来了。 */
+
+static bool check_from_featag(PState& st, const Contract& c, const ValuePtr& node,
+                              const std::string& path) {
+    if (!node || node->tag != Value::Tag::Obj) return true;
+    for (const auto& f : c.fields) {
+        const std::string full = path.empty() ? f.name : path + "." + f.name;
+        if (f.mods.from_featag && node->get(f.name)) {
+            if (st.err && st.err->empty())
+                *st.err = code_prefix(SML_E_CONTRACT_024,
+                    "sml: 字段 `" + full +
+                    "` 声明为 `from-featag`：只能由 featag 落点写入，文档里不能直接赋值");
+            st.aborted = true;
+            return false;
+        }
+        if (f.type.kind == TypeSpec::Kind::ContractRef && !f.type.contract_ref.empty()) {
+            ValuePtr child = node->get(f.name);
+            if (child && child->tag == Value::Tag::Obj) {
+                auto it = st.contracts.find(f.type.contract_ref);
+                if (it != st.contracts.end())
+                    if (!check_from_featag(st, it->second, child, full)) return false;
+            }
+        }
+    }
+    return true;
+}
+
 /* ---------------- featag S6：落点解析与写入（照 Rust write_target / write_in_value） ---------------- */
 
 static bool parse_target_path(const std::string& raw, std::vector<FeatagDecl::PathSeg>& out) {
@@ -1125,6 +1153,12 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                 auto sub = parse_block_nested(st);
                 sub->obj.push_back({"__type", Value::string(key)});
                 if (featags) sub->obj.push_back({"__featags", featags});
+                /* **S7**：`from-featag` 的键不许文档手写 —— 必须在**填充之前**。 */
+                if (st.features & (1u << 17)) {
+                    auto owner7 = st.contracts.find(key);
+                    if (owner7 != st.contracts.end() &&
+                        !check_from_featag(st, owner7->second, sub, "")) break;
+                }
                 /* **S6 落点填充**：必须在契约应用**之前**（Rust `finish_bare_block` 同序）。
                    契约先跑会看不到这些键：严格契约会把它们报成 004，
                    `auto` 也取不到声明自己的 `default`。 */

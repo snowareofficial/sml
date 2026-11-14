@@ -1,4 +1,39 @@
 /* ---------------------------------------------------------------------------
+   featag S7：`from-featag` 的键不许文档手写（`E-CONTRACT-024`）
+
+   **必须在落点填充之前调用**：填充之后 featag 自己写的键与文档手写的键长得一模一样，
+   就分不出「来源合法」还是「伪造」了 —— 而来源正是这条规则的全部意义。
+   递归：`ContractRef` 字段且值确实是块时，按被引用契约继续查（路径为 `parent.child`）。
+   --------------------------------------------------------------------------- */
+static int check_from_featag(parser *ps, ccontract *c, sml_value *node, const char *path) {
+    cfield *cf;
+    if (!c || !node || node->type != SML_OBJECT) return 0;
+    for (cf = c->fields; cf; cf = cf->next) {
+        char full[256];
+        sml_value *child;
+        if (path != NULL && path[0] != '\0')
+            snprintf(full, sizeof(full), "%s.%s", path, cf->name);
+        else
+            snprintf(full, sizeof(full), "%s", cf->name);
+        if (cf->from_featag && sml_obj_get(node, cf->name) != NULL) {
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_CONTRACT_024
+                    " 字段 `%s` 声明为 `from-featag`：只能由 featag 落点写入，文档里不能直接赋值",
+                    full);
+            return -1;
+        }
+        if (cf->ty != CT_CONTRACTREF || !cf->ref_name) continue;
+        child = sml_obj_get(node, cf->name);
+        if (!child || child->type != SML_OBJECT) continue;
+        {
+            ccontract *inner = contract_find(ps, cf->ref_name);
+            if (inner && check_from_featag(ps, inner, child, full) != 0) return -1;
+        }
+    }
+    return 0;
+}
+
+/* ---------------------------------------------------------------------------
    featag S6：按落点写值（判据逐条照 Rust `write_target` / `write_in_value`）
 
    - 落点已存在 ⇒ `E-CONTRACT-022`（**禁止覆盖**；静默跳过会让「以为写进去了」变成最难查的错）
@@ -837,6 +872,20 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                        命名参数落位之前，所以 `Service !t, prod { }` 在严格契约下能通过；
                        而「字段值是带名裸块」（`x { @is A addr Sub { } }`）里 `__name` 已存在，
                        会照常报 E-CONTRACT-004 —— 两条实测行为都要留住。 */
+                    /* **S7**：`from-featag` 的键不许文档手写 —— 必须在**填充之前**，
+                       否则填进去的键与手写的长得一样，来源就分不出来了。 */
+                    if (ps->features & (1u << 17)) {
+                        ccontract *cf7 = NULL;
+                        if (field_is) cf7 = contract_find(ps, field_is);
+                        else if ((ps->features & (1u << 14)) && key_is_contract)
+                            cf7 = contract_find(ps, key);
+                        if (cf7 && check_from_featag(ps, cf7, sub, "") != 0) {
+                            ps->failed = 1;
+                            sml_free(args);
+                            sml_free(sub);
+                            continue;
+                        }
+                    }
                     /* **S6 落点填充**：必须在**契约应用之前** —— 与 Rust
                        `finish_bare_block` 同序（源码注释：`from-featag` 那类「只能由 featag
                        提供」的必填字段，契约先跑会被误判成 E-CONTRACT-003）。

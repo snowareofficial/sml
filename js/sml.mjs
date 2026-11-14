@@ -1533,7 +1533,7 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
 
   /// 新建字段规格（默认值集中在一处，避免两条解析路径手写两份而漂移）。
   function newFieldSpec() {
-    return { type: "any", required: true, def: undefined, min: undefined, max: undefined, enumVals: null, arrInner: null, refName: null };
+    return { type: "any", required: true, def: undefined, min: undefined, max: undefined, enumVals: null, arrInner: null, refName: null, fromFeatag: false };
   }
 
   /// 解析字段修饰符（`?` / `optional` / `required` / `default v` / `min n` / `max n`）。
@@ -1552,6 +1552,8 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
       if (m.t === "word") {
         if (m.v === "optional") { sp.required = false; i++; continue; }
         if (m.v === "required") { sp.required = true; i++; continue; }
+        // S7：来源修饰符 —— 该键只能由 featag 落点写入
+        if (m.v === "from-featag") { sp.fromFeatag = true; i++; continue; }
         if (m.v === "default") { i++; sp.def = literal(); defaultSet = true; continue; }
         if (m.v === "min" || m.v === "max") {
           i++;
@@ -1712,6 +1714,28 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
     }
     flush();
     return segs;
+  }
+
+  // `from-featag` 的键不许文档手写（S7）。**必须在落点填充之前**：
+  // 填充之后 featag 写的键与文档手写的键长得一样，来源就分不出来了。
+  function checkFromFeatag(c, node, path, allContracts) {
+    if (!c || !node || typeof node !== "object" || Array.isArray(node)) return;
+    for (const fname of Object.keys(c.fields)) {
+      const spec = c.fields[fname];
+      const full = path ? path + "." + fname : fname;
+      if (spec.fromFeatag && Object.prototype.hasOwnProperty.call(node, fname)) {
+        fail("E-CONTRACT-024",
+          "sml: 字段 `" + full + "` 声明为 `from-featag`：只能由 featag 落点写入，" +
+          "文档里不能直接赋值");
+      }
+      if (spec.refName) {
+        const child = node[fname];
+        if (child && typeof child === "object" && !Array.isArray(child)) {
+          const inner = allContracts[spec.refName];
+          if (inner) checkFromFeatag(inner, child, full, allContracts);
+        }
+      }
+    }
   }
 
   // 按落点写值（S6）。判据逐条照 Rust `write_target` / `write_in_value`。
@@ -2700,6 +2724,8 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
                   if (an) fail("E-CONTRACT-017", "sml: 该实现暂不支持一个块应用多份契约（块级多契约写法）");
                 }
                 const c = contracts[cname];
+                // **S7**：`from-featag` 的键不许文档手写 —— 必须在填充之前。
+                checkFromFeatag(c, sub, "", contracts);
                 // **S6 落点填充**：必须在契约应用**之前**（Rust `finish_bare_block` 同序）。
                 // 契约先跑会看不到这些键：严格契约会把它们报成 004，`auto` 也取不到声明里的 default。
                 if (featags) {

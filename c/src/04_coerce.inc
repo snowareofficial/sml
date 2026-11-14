@@ -960,6 +960,10 @@ static void parse_contract_body(parser *ps, ccontract *c) {
                 continue;
             }
             if (mt->t != T_WORD) break;
+            /* S7：来源修饰符 —— 该键只能由 featag 落点写入 */
+            if (strcmp(mt->v, "from-featag") == 0) {
+                next(ps); cf->from_featag = 1; continue;
+            }
             if (strcmp(mt->v, "min") == 0) {
                 next(ps);
                 if (parse_bound_value(ps, "min", &cf->min) == 0) cf->min_set = 1;

@@ -16,6 +16,8 @@ typedef struct cfield {
     char **enum_vals; size_t enum_n;   /* CT_ENUM */
     char *ref_name;          /* CT_CONTRACTREF */
     cty arr_inner;           /* CT_ARRAY 元素类型 */
+    /* S7：`from-featag` —— 该键只能由 featag 落点写入，文档直接赋值 ⇒ E-CONTRACT-024。 */
+    int from_featag;
     struct cfield *next;
 } cfield;
 

@@ -809,7 +809,7 @@ end
 
 -- 解析单个字段的类型与修饰符 -> spec, next_i
 local function parse_field_spec(tokens, i, fragments)
-  local spec = { optional = false, has_default = false }
+  local spec = { optional = false, has_default = false, from_featag = false }
   spec.type, i = parse_type(tokens, i)
   while true do
     local tok = tokens[i]
@@ -820,6 +820,9 @@ local function parse_field_spec(tokens, i, fragments)
       spec.optional = true; i = i + 1
     elseif tok == "required" then
       spec.optional = false; i = i + 1
+    elseif tok == "from-featag" then
+      -- S7：来源修饰符 —— 该键只能由 featag 落点写入，文档直接赋值 ⇒ 024
+      spec.from_featag = true; i = i + 1
     elseif tok == "default" then
       i = i + 1
       local dv = tokens[i]
@@ -878,6 +881,34 @@ local function parse_target_path(raw)
   end
   flush()
   return segs
+end
+
+-- S7：`from-featag` 的键不许文档手写（E-CONTRACT-024）。
+-- **必须在落点填充之前**：填充之后 featag 写的键与文档手写的键长得一样，来源就分不出来了。
+-- 键按名排序遍历 —— Rust 用 BTreeMap（有序），pairs 无序会让「报哪个键」随机漂移。
+local function check_from_featag(c, node, path, contracts)
+  if c == nil or type(node) ~= "table" or node == NULL or is_array(node) then return end
+  local names = {}
+  for k in pairs(c.fields) do names[#names + 1] = k end
+  table.sort(names)
+  for _, fname in ipairs(names) do
+    local spec = c.fields[fname]
+    local full
+    if path == nil or path == "" then full = fname else full = path .. "." .. fname end
+    if spec.from_featag and node[fname] ~= nil then
+      fail("E-CONTRACT-024",
+        "sml: 字段 `" .. full .. "` 声明为 `from-featag`：只能由 featag 落点写入，" ..
+        "文档里不能直接赋值")
+    end
+    -- 类型挂在 `spec.type` 上（`parse_field_spec` 里 `spec.type = parse_type(...)`）
+    if spec.type ~= nil and spec.type.kind == "contract" and spec.type.ref ~= nil then
+      local child = node[fname]
+      if type(child) == "table" and child ~= NULL and not is_array(child) then
+        local inner = contracts[spec.type.ref]
+        if inner ~= nil then check_from_featag(inner, child, full, contracts) end
+      end
+    end
+  end
 end
 
 local function write_target(node, segs, val, strict, where_)
@@ -1824,6 +1855,10 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
           -- ⚠️ 契约应用**先于** `__name` 写入：Rust 的块头契约校验发生在命名参数落位之前，
           --    所以 `Service !t, prod { }` 在严格契约下能过；而字段值里的带名裸块
           --    （`x { @is A addr Sub { } }`）`__name` 已存在，仍报 E-CONTRACT-004。
+          -- **S7**：`from-featag` 的键不许文档手写 —— 必须在填充之前。
+          if contracts[key] ~= nil then
+            check_from_featag(contracts[key], sub, "", contracts)
+          end
           -- **S6 落点填充**：必须在契约应用**之前**（Rust `finish_bare_block` 同序）。
           -- 契约先跑会看不到这些键：严格契约会把它们报成 004，
           -- `auto` 也取不到声明自己的 `default`。

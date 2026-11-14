@@ -368,6 +368,8 @@ static bool parse_field(const std::string& line, FieldSpec& out, std::string* er
                 std::string("sml: contract modifier `")+w+"` removed (use `optional` / `default`)");
             return false;
         }
+        // S7：来源修饰符 —— 该键只能由 featag 落点写入
+        if (w=="from-featag") { mods.from_featag=true; k++; continue; }
         if (w=="optional") { mods.optional=true; k++; continue; }
         if (w=="loose")   { mods.loose=true; k++; continue; }
         if (w=="default") {
@@ -391,7 +393,7 @@ static bool parse_field(const std::string& line, FieldSpec& out, std::string* er
         std::string rest;
         while (k < parts.size()) {
             std::string m = parts[k];
-            if (m=="optional"||m=="loose"||m=="default"||m=="min"||m=="max"||m=="?"||m=="=") break;
+            if (m=="optional"||m=="loose"||m=="default"||m=="min"||m=="max"||m=="from-featag"||m=="?"||m=="=") break;
             if (!rest.empty()) rest += " ";
             rest += m;
             k++;

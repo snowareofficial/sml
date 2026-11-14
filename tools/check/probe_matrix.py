@@ -117,6 +117,18 @@ ERRORS = [
      "@version v1\n@feature enable type.featag, typed-block, block-name\n"
      "@contract S loose {\n    name: str\n    !r: int -> spec.r\n}\n"
      "S !r[auto], prod { name: a }\n"),
+    # S7 `from-featag`：该键只能由 featag 落点写入，文档直接赋值 ⇒ 024。
+    # 判据在**填充之前**跑，填进去的键与手写的键长得一样，来源就分不出来了。
+    ("featag-from-direct", "E-CONTRACT-024",
+     "@version v1\n@feature enable type.featag, typed-block, block-name\n"
+     "@contract S {\n    name: str\n    tls: str from-featag\n}\n"
+     "S prod { name: a tls: x }\n"),
+    # 递归：嵌套契约里的 from-featag 字段也要查（路径为 parent.child）。
+    ("featag-from-nested", "E-CONTRACT-024",
+     "@version v1\n@feature enable type.featag, typed-block, block-name\n"
+     "@contract Sub {\n    cert: str from-featag\n}\n"
+     "@contract S {\n    name: str\n    sub: Sub\n}\n"
+     "S prod { name: a sub { cert: x } }\n"),
     # S5b：类型不符走 002 —— Rust 那里复用 check_value，产出的是字段类型码。
     ("featag-arg-type", "E-CONTRACT-002",
      "@version v1\n@feature enable type.featag, typed-block, block-name\n"

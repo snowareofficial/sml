@@ -74,6 +74,8 @@ struct TypeModifiers {
     std::optional<double> min;
     std::optional<double> max;
     bool loose = false;                         // (unused at field level; kept for API)
+    // S7：该键只能由 featag 落点写入，文档直接赋值 ⇒ E-CONTRACT-024
+    bool from_featag = false;
 };
 
 struct FieldSpec {

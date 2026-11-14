@@ -119,7 +119,13 @@
   首段下标 020）与 Rust **逐条同码**（C / C++ / JS / Lua 四端各自跑过）。
   其中 4 条（overwrite / strict / overrange / auto-none）已钉进 `probe_matrix.py`
   ——错误码矩阵现 53 行 0 不一致。
-- 尚未做：**S7 `from-featag`**、**S8 `!any` 的语义**（`!any` 仍不解除 `any` 禁令；
+- **S7 `from-featag`：四端已落地（2026-11-15）**。字段修饰符 `from-featag` 表示「该键只能由
+  featag 落点写入」；文档直接赋值 ⇒ `E-CONTRACT-024`。判据**必须在落点填充之前**跑 ——
+  填充之后 featag 写的键与文档手写的键长得一模一样，来源就分不出来了（这条规则的全部意义）。
+  递归：`ContractRef` 字段且值确实是块时继续查，路径为 `parent.child`（如 `sub.cert`）。
+  五条对拍：直接赋值 024 / 由 featag 写入放行 / 缺省但必填 003 / 嵌套 024 / 必填缺失 003。
+  探针 `featag-from-direct` / `featag-from-nested`，错误码矩阵 55 行 0 不一致。
+- 尚未做：**S8 `!any` 的语义**（`!any` 仍不解除 `any` 禁令；
   `!strict-paths` 的语义已随 S6 生效）。
 
 #### S6 实施前取证（2026-11-14，Rust 实测，四端照此对齐）
