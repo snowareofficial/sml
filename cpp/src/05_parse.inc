@@ -38,6 +38,151 @@ static ValuePtr parse_value(PState& st) {
 // 根本不增长，`a{b{c{...}}}` 这种纯块嵌套可以一路递归下去打穿栈（栈溢出在 C++ 里同样是
 // 不可捕获的崩溃）。块嵌套必须与值嵌套共用同一个 depth 计数，否则「128 层上限」只对
 // 数组生效，对块形同虚设 —— 这正是审计里记的那条。四类调用点全部改走这里。
+/* ---------------- featag S6：落点解析与写入（照 Rust write_target / write_in_value） ---------------- */
+
+static bool parse_target_path(const std::string& raw, std::vector<FeatagDecl::PathSeg>& out) {
+    size_t p = 0;
+    std::string cur;
+    auto flush = [&]() {
+        if (!cur.empty()) {
+            FeatagDecl::PathSeg s;
+            s.key = cur;
+            out.push_back(s);
+            cur.clear();
+        }
+    };
+    while (p < raw.size()) {
+        const char c = raw[p];
+        if (c == '.') { flush(); p++; }
+        else if (c == '[') {
+            flush();
+            const size_t j = raw.find(']', p);
+            if (j == std::string::npos) return false;
+            const std::string num = raw.substr(p + 1, j - p - 1);
+            if (num.empty()) return false;
+            for (char ch : num) if (ch < '0' || ch > '9') return false;
+            FeatagDecl::PathSeg s;
+            s.is_idx = true;
+            s.idx = std::stol(num);
+            out.push_back(s);
+            p = j + 1;
+        } else { cur += c; p++; }
+    }
+    flush();
+    return true;
+}
+
+static bool write_target_in(PState& st, ValuePtr cur, const std::vector<FeatagDecl::PathSeg>& segs,
+                            size_t idx, ValuePtr val, bool strict, const std::string& w);
+
+static bool write_target(PState& st, ValuePtr node, const std::vector<FeatagDecl::PathSeg>& segs,
+                         size_t idx, ValuePtr val, bool strict, const std::string& w) {
+    if (idx >= segs.size()) return true;
+    const auto& seg = segs[idx];
+    const bool last = (idx + 1 == segs.size());
+    if (seg.is_idx) {
+        if (st.err && st.err->empty())
+            *st.err = code_prefix(SML_E_CONTRACT_020, "sml: `" + w + "` 的落点须以键名开头");
+        st.aborted = true;
+        return false;
+    }
+    ValuePtr slot = node->get(seg.key);
+    if (last) {
+        if (slot) {
+            if (st.err && st.err->empty())
+                *st.err = code_prefix(SML_E_CONTRACT_022,
+                    "sml: `" + w + "` 的落点 `" + seg.key + "` 已存在（featag 不能覆盖已有值）");
+            st.aborted = true;
+            return false;
+        }
+        node->obj.push_back({seg.key, val});
+        return true;
+    }
+    if (!slot) {
+        if (strict) {
+            if (st.err && st.err->empty())
+                *st.err = code_prefix(SML_E_CONTRACT_023,
+                    "sml: `" + w + "` 的落点路径上父对象 `" + seg.key +
+                    "` 不存在（本契约开了 `!strict-paths`）");
+            st.aborted = true;
+            return false;
+        }
+        if (segs[idx + 1].is_idx) {
+            if (st.err && st.err->empty())
+                *st.err = code_prefix(SML_E_CONTRACT_023,
+                    "sml: `" + w + "` 的落点路径上数组 `" + seg.key +
+                    "` 不存在（数组不会凭空创建：长度与中间元素无解）");
+            st.aborted = true;
+            return false;
+        }
+        slot = Value::object();
+        node->obj.push_back({seg.key, slot});
+    }
+    return write_target_in(st, slot, segs, idx + 1, val, strict, w);
+}
+
+static bool write_target_in(PState& st, ValuePtr cur, const std::vector<FeatagDecl::PathSeg>& segs,
+                            size_t idx, ValuePtr val, bool strict, const std::string& w) {
+    if (idx >= segs.size()) return true;
+    const auto& seg = segs[idx];
+    const bool last = (idx + 1 == segs.size());
+    if (!seg.is_idx) {
+        if (!cur || cur->tag != Value::Tag::Obj) {
+            if (st.err && st.err->empty())
+                *st.err = code_prefix(SML_E_CONTRACT_023,
+                    "sml: `" + w + "` 的落点路径上 `" + seg.key + "` 已是非对象，没法往里写键");
+            st.aborted = true;
+            return false;
+        }
+        return write_target(st, cur, segs, idx, val, strict, w);
+    }
+    if (!cur || cur->tag != Value::Tag::Arr) {
+        if (st.err && st.err->empty())
+            *st.err = code_prefix(SML_E_CONTRACT_023,
+                "sml: `" + w + "` 的落点里下标 `[" + std::to_string(seg.idx) + "]` 作用在非数组上");
+        st.aborted = true;
+        return false;
+    }
+    const long n = seg.idx;
+    const long len = (long)cur->arr.size();
+    if (n < len) {
+        if (last) {
+            if (cur->arr[(size_t)n] && cur->arr[(size_t)n]->tag == Value::Tag::Null) {
+                cur->arr[(size_t)n] = val;
+                return true;
+            }
+            if (st.err && st.err->empty())
+                *st.err = code_prefix(SML_E_CONTRACT_022,
+                    "sml: `" + w + "` 的落点 `[" + std::to_string(n) +
+                    "]` 已有非 null 值（featag 不能覆盖已有值）");
+            st.aborted = true;
+            return false;
+        }
+        if (cur->arr[(size_t)n] && cur->arr[(size_t)n]->tag == Value::Tag::Null)
+            cur->arr[(size_t)n] = Value::object();
+        return write_target_in(st, cur->arr[(size_t)n], segs, idx + 1, val, strict, w);
+    }
+    if (n == len) {
+        if (strict) {
+            if (st.err && st.err->empty())
+                *st.err = code_prefix(SML_E_CONTRACT_023,
+                    "sml: `" + w + "` 的落点要追加 `[" + std::to_string(n) +
+                    "]`，但本契约开了 `!strict-paths`（只允许写已有元素）");
+            st.aborted = true;
+            return false;
+        }
+        if (last) { cur->arr.push_back(val); return true; }
+        cur->arr.push_back(Value::object());
+        return write_target_in(st, cur->arr[(size_t)n], segs, idx + 1, val, strict, w);
+    }
+    if (st.err && st.err->empty())
+        *st.err = code_prefix(SML_E_CONTRACT_025,
+            "sml: `" + w + "` 的落点 `[" + std::to_string(n) + "]` 越界：该数组只有 " +
+            std::to_string(len) + " 个元素（越界不补 null）");
+    st.aborted = true;
+    return false;
+}
+
 static ValuePtr parse_block_nested(PState& st) {
     if (depth_exceeded(st)) return Value::null();
     st.depth++;
@@ -531,6 +676,7 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                                 st.aborted = true;
                                 break;
                             }
+                            if (d.name == "strict-paths") c.strict_paths = true;  // S6 开关
                             while (st.i < st.toks.size() &&
                                    st.toks[st.i].t != Token::T::RBrace &&
                                    st.toks[st.i].line == decl_line) st.i++;
@@ -550,10 +696,56 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                                 d.ty = st.toks[st.i++].s;
                             }
                         }
+                        /* 修饰符：`default <值>` 与 `-> 落点`（顺序不定）。
+                           S6 的 `auto` 取这里的 default；落点在声明期解析成段序列。 */
+                        {
+                            std::string raw;
+                            bool has_path = false;
+                            while (st.i < st.toks.size() &&
+                                   st.toks[st.i].t != Token::T::RBrace &&
+                                   st.toks[st.i].line == decl_line) {
+                                const Token& mt = st.toks[st.i];
+                                if (mt.t == Token::T::Word && mt.s == "default") {
+                                    st.i++;
+                                    if (st.i < st.toks.size() &&
+                                        (st.toks[st.i].t == Token::T::Word)) {
+                                        d.def = coerce(st.toks[st.i], st.fragments, st.err,
+                                                       st.features);
+                                        d.has_default = true;
+                                        st.i++;
+                                    }
+                                    continue;
+                                }
+                                if (mt.t == Token::T::Word && mt.s == "->") {
+                                    st.i++;
+                                    has_path = true;
+                                    continue;
+                                }
+                                if (has_path) {
+                                    if (mt.t == Token::T::Word) raw += mt.s;
+                                    else if (mt.t == Token::T::LBracket) raw += "[";
+                                    else if (mt.t == Token::T::RBracket) raw += "]";
+                                }
+                                st.i++;
+                            }
+                            if (has_path) {
+                                if (!parse_target_path(raw, d.path)) {
+                                    if (st.err && st.err->empty())
+                                        *st.err = code_prefix(SML_E_CONTRACT_020,
+                                            "sml: `!" + d.name + "` 的落点 `" + raw + "` 写法非法");
+                                    st.aborted = true;
+                                    break;
+                                }
+                                if (!d.path.empty() && d.path[0].is_idx) {
+                                    if (st.err && st.err->empty())
+                                        *st.err = code_prefix(SML_E_CONTRACT_020,
+                                            "sml: `!" + d.name + "` 的落点须以键名开头");
+                                    st.aborted = true;
+                                    break;
+                                }
+                            }
+                        }
                         c.featags.push_back(d);
-                        while (st.i < st.toks.size() &&
-                               st.toks[st.i].t != Token::T::RBrace &&
-                               st.toks[st.i].line == decl_line) st.i++;
                         continue;
                     }
                     std::string fieldbuf;
@@ -933,6 +1125,42 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                 auto sub = parse_block_nested(st);
                 sub->obj.push_back({"__type", Value::string(key)});
                 if (featags) sub->obj.push_back({"__featags", featags});
+                /* **S6 落点填充**：必须在契约应用**之前**（Rust `finish_bare_block` 同序）。
+                   契约先跑会看不到这些键：严格契约会把它们报成 004，
+                   `auto` 也取不到声明自己的 `default`。 */
+                if (featags && st.contracts.find(key) != st.contracts.end()) {
+                    const Contract& cc = st.contracts[key];
+                    for (const auto& item : featags->arr) {
+                        ValuePtr namev = item->get("name");
+                        ValuePtr argsv = item->get("args");
+                        if (!namev || namev->tag != Value::Tag::Str || !argsv) continue;
+                        const FeatagDecl* d2 = nullptr;
+                        for (const auto& dd : cc.featags)
+                            if (dd.name == namev->s) { d2 = &dd; break; }
+                        if (!d2 || d2->path.empty()) continue;
+                        const std::string w = key + "." + namev->s;
+                        const bool is_auto = argsv->arr.size() == 1 && argsv->arr[0] &&
+                                             argsv->arr[0]->tag == Value::Tag::Str &&
+                                             argsv->arr[0]->s == "auto";
+                        ValuePtr val;
+                        if (is_auto) {
+                            if (!d2->has_default || !d2->def) {
+                                if (st.err && st.err->empty())
+                                    *st.err = code_prefix(SML_E_CONTRACT_022,
+                                        "sml: `" + w + "` 的参数是 `auto`（取声明里的默认值），"
+                                        "但该声明没有 `default`");
+                                st.aborted = true;
+                                break;
+                            }
+                            val = d2->def;
+                        } else if (d2->has_spec && d2->is_array) {
+                            val = argsv;
+                        } else {
+                            val = argsv->arr.empty() ? Value::null() : argsv->arr[0];
+                        }
+                        if (!write_target(st, sub, d2->path, 0, val, cc.strict_paths, w)) break;
+                    }
+                }
                 /* typed-block：块头首词命中契约 ⇒ 等价块内首行 `@is`。
                    必须在 `__name` 之前应用：Rust 的块头契约校验发生在命名参数落位之前。 */
                 if ((st.features & (1u << 14)) != 0 &&

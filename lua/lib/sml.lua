@@ -846,7 +846,109 @@ local function parse_field_spec(tokens, i, fragments)
 end
 
 -- 解析契约体（`{ field: Type mods... }`）-> fields, next_i
+-- ---------------------------------------------------------------------------
+-- featag S6：落点解析与写入（判据逐条照 Rust write_target / write_in_value）
+--   - 落点已存在 ⇒ E-CONTRACT-022；父对象缺失 ⇒ 自动创建（strict ⇒ 023）
+--   - 数组：n<len 且为 null ⇒ 补缺；非 null ⇒ 022；n==len ⇒ 追加（strict ⇒ 023）；
+--     n>len ⇒ 025（不补 null）；数组不存在 ⇒ 023（不凭空创建）
+-- ---------------------------------------------------------------------------
+local function parse_target_path(raw)
+  local segs = {}
+  local cur = ""
+  local p = 1
+  local function flush()
+    if cur ~= "" then segs[#segs + 1] = { k = cur }; cur = "" end
+  end
+  while p <= #raw do
+    local ch = string.sub(raw, p, p)
+    if ch == "." then
+      flush(); p = p + 1
+    elseif ch == "[" then
+      flush()
+      local j = string.find(raw, "]", p, true)
+      if not j then return nil end
+      local num = string.sub(raw, p + 1, j - 1)
+      if num == "" or string.find(num, "[^%d]") then return nil end
+      segs[#segs + 1] = { i = tonumber(num) }
+      p = j + 1
+    else
+      cur = cur .. ch
+      p = p + 1
+    end
+  end
+  flush()
+  return segs
+end
+
+local function write_target(node, segs, val, strict, where_)
+  local function walk(cur, idx)
+    if idx > #segs then return end
+    local seg = segs[idx]
+    local last = (idx == #segs)
+    if seg.k ~= nil then
+      if type(cur) ~= "table" or cur == NULL or is_array(cur) then
+        fail("E-CONTRACT-023",
+          "sml: `" .. where_ .. "` 的落点路径上 `" .. seg.k .. "` 已是非对象，没法往里写键")
+      end
+      if last then
+        if cur[seg.k] ~= nil then
+          fail("E-CONTRACT-022",
+            "sml: `" .. where_ .. "` 的落点 `" .. seg.k .. "` 已存在（featag 不能覆盖已有值）")
+        end
+        cur[seg.k] = val
+        return
+      end
+      if cur[seg.k] == nil then
+        if strict then
+          fail("E-CONTRACT-023",
+            "sml: `" .. where_ .. "` 的落点路径上父对象 `" .. seg.k ..
+            "` 不存在（本契约开了 `!strict-paths`）")
+        end
+        if segs[idx + 1].i ~= nil then
+          fail("E-CONTRACT-023",
+            "sml: `" .. where_ .. "` 的落点路径上数组 `" .. seg.k ..
+            "` 不存在（数组不会凭空创建：长度与中间元素无解）")
+        end
+        cur[seg.k] = {}
+      end
+      walk(cur[seg.k], idx + 1)
+      return
+    end
+    if type(cur) ~= "table" or not is_array(cur) then
+      fail("E-CONTRACT-023",
+        "sml: `" .. where_ .. "` 的落点里下标 `[" .. seg.i .. "]` 作用在非数组上")
+    end
+    local n, len = seg.i, #cur
+    if n < len then
+      if last then
+        if cur[n + 1] == NULL then cur[n + 1] = val; return end
+        fail("E-CONTRACT-022",
+          "sml: `" .. where_ .. "` 的落点 `[" .. n .. "]` 已有非 null 值（featag 不能覆盖已有值）")
+      end
+      if cur[n + 1] == NULL then cur[n + 1] = {} end
+      walk(cur[n + 1], idx + 1)
+      return
+    end
+    if n == len then
+      if strict then
+        fail("E-CONTRACT-023",
+          "sml: `" .. where_ .. "` 的落点要追加 `[" .. n ..
+          "]`，但本契约开了 `!strict-paths`（只允许写已有元素）")
+      end
+      if last then cur[len + 1] = val; return end
+      cur[len + 1] = {}
+      walk(cur[len + 1], idx + 1)
+      return
+    end
+    fail("E-CONTRACT-025",
+      "sml: `" .. where_ .. "` 的落点 `[" .. n .. "]` 越界：该数组只有 " .. len ..
+      " 个元素（越界不补 null）")
+  end
+  walk(node, 1)
+end
+
 local function parse_contract_body(tokens, i, fragments)
+  local strict_paths = false   -- `!strict-paths`：落点父对象必须已存在（S6）
   local fields = {}
   -- 声明过的 featag 名（S5：块头使用处校验）
   local featags = {}
@@ -903,14 +1005,46 @@ local function parse_contract_body(tokens, i, fragments)
           i = i + 1
         end
       end
-      -- Lua 没有 continue：上面 `!any` / `!strict-paths` 分支走完会落回这里，
-      -- 必须再挡一次，否则开关又变成 featag（块头 `C !any` 就会被误判为已声明）。
-      if d.name ~= "any" and d.name ~= "strict-paths" then
-        featags[d.name] = d
-      end
+      -- 修饰符：`default <值>` 与 `-> 落点`（顺序不定）。S6 的 `auto` 取这里的 default；
+      -- 落点在声明期解析成段序列，使用期按段下钻。
+      local has_path, raw = false, ""
       while tokens[i] ~= nil and tokens[i] ~= "}"
             and (_LINES == nil or _LINES[i] == decl_line) do
-        i = i + 1
+        local tk2 = tokens[i]
+        if tk2 == "default" then
+          i = i + 1
+          if tokens[i] ~= nil and tokens[i] ~= "}" then
+            d.default = coerce(tokens[i], fragments)
+            i = i + 1
+          end
+        elseif tk2 == "->" then
+          i = i + 1
+          has_path = true
+        elseif tk2 == "-" and tokens[i + 1] == ">" then
+          i = i + 2
+          has_path = true
+        elseif has_path then
+          raw = raw .. tk2
+          i = i + 1
+        else
+          i = i + 1
+        end
+      end
+      if has_path then
+        local segs = parse_target_path(raw)
+        if segs == nil then
+          fail("E-CONTRACT-020", "sml: `!" .. d.name .. "` 的落点 `" .. raw .. "` 写法非法")
+        end
+        if #segs > 0 and segs[1].i ~= nil then
+          fail("E-CONTRACT-020", "sml: `!" .. d.name .. "` 的落点须以键名开头")
+        end
+        d.target = segs
+      end
+      -- Lua 没有 continue：上面 `!any` / `!strict-paths` 分支走完会落回这里，
+      -- 必须再挡一次，否则开关又变成 featag（块头 `C !any` 就会被误判为已声明）。
+      if d.name == "strict-paths" then strict_paths = true end
+      if d.name ~= "any" and d.name ~= "strict-paths" then
+        featags[d.name] = d
       end
     elseif tok == "," then
       i = i + 1
@@ -928,7 +1062,7 @@ local function parse_contract_body(tokens, i, fragments)
       fields[key] = spec
     end
   end
-  return fields, i, featags
+  return fields, i, featags, strict_paths
 end
 
 local apply_contract  -- 前向声明（组合字段需要递归回本函数）
@@ -1440,10 +1574,10 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
           fail("E-PARSE-019", "`@contract " .. cname .. "` 后须 `{ ... }`")
         end
         i = i + 1
-        local fields, featags
-        fields, i, featags = parse_contract_body(tokens, i, fragments)
+        local fields, featags, strict_paths
+        fields, i, featags, strict_paths = parse_contract_body(tokens, i, fragments)
         contracts[cname] = { name = cname, fields = fields, allow_extra = allow_extra,
-                             featags = featags }
+                             featags = featags, strict_paths = strict_paths }
       elseif fname == "when" then
         -- 条件裁剪：`@when <条件>` 只作用于紧邻的下一个字段/块，条件为假则丢弃。
         if not (_FEATURES and _FEATURES[12]) then
@@ -1690,6 +1824,32 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
           -- ⚠️ 契约应用**先于** `__name` 写入：Rust 的块头契约校验发生在命名参数落位之前，
           --    所以 `Service !t, prod { }` 在严格契约下能过；而字段值里的带名裸块
           --    （`x { @is A addr Sub { } }`）`__name` 已存在，仍报 E-CONTRACT-004。
+          -- **S6 落点填充**：必须在契约应用**之前**（Rust `finish_bare_block` 同序）。
+          -- 契约先跑会看不到这些键：严格契约会把它们报成 004，
+          -- `auto` 也取不到声明自己的 `default`。
+          if featags and contracts[key] ~= nil then
+            local cc = contracts[key]
+            for _, it in ipairs(featags) do
+              local d2 = cc.featags and cc.featags[it.name]
+              if d2 ~= nil and d2.target ~= nil and d2.target[1] ~= nil and it.args ~= nil then
+                local w = tostring(key) .. "." .. it.name
+                local val
+                if #it.args == 1 and it.args[1] == "auto" then
+                  if d2.default == nil then
+                    fail("E-CONTRACT-022",
+                      "sml: `" .. w .. "` 的参数是 `auto`（取声明里的默认值），" ..
+                      "但该声明没有 `default`")
+                  end
+                  val = deep_copy(d2.default)
+                elseif d2.has_spec and d2.is_array then
+                  val = it.args
+                else
+                  val = it.args[1]
+                end
+                write_target(sub, d2.target, val, cc.strict_paths == true, w)
+              end
+            end
+          end
           if _FEATURES and _FEATURES[14] and contracts[key] ~= nil then
             apply_contract(sub, contracts, key)
           end

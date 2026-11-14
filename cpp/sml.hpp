@@ -91,12 +91,19 @@ struct FeatagDecl {
     bool is_array = false;
     std::string ty;      // "str" / "int" / "num" / "bool" / "any"（空 = 未写具体类型）
     std::string inner;   // is_array 时的元素类型
+    // S6：`-> a.b[2].c` 的段序列；空表示纯标签（不写任何键）。
+    struct PathSeg { bool is_idx = false; std::string key; long idx = 0; };
+    std::vector<PathSeg> path;
+    // S6：`auto` 取的就是这里（**声明自己的 default**，不是契约应用填的值）。
+    bool has_default = false;
+    ValuePtr def;
 };
 
 struct Contract {
     std::string name;
     std::vector<FieldSpec> fields;
     bool allow_extra = false;   // contract-level `loose`
+    bool strict_paths = false;  // S6：`!strict-paths` 开关（落点父对象必须已存在）
     std::vector<FeatagDecl> featags;
 };
 

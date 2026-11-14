@@ -100,6 +100,23 @@ ERRORS = [
     ("featag-switch-has-type", "E-CONTRACT-021",
      "@version v1\n@feature enable type.featag, typed-block, block-name\n"
      "@contract C {\n    name: str\n    !any: str\n}\nC, prod { name: a }\n"),
+    # S6 落点填充：五端同一套规则（禁止覆盖 / strict / 越界 / auto 无默认）。
+    ("featag-target-overwrite", "E-CONTRACT-022",
+     "@version v1\n@feature enable type.featag, typed-block, block-name\n"
+     "@contract S loose {\n    name: str\n    !tls: str -> tls.cert\n}\n"
+     'S !tls["abc"], prod { name: a tls { cert: x } }\n'),
+    ("featag-target-strict", "E-CONTRACT-023",
+     "@version v1\n@feature enable type.featag, typed-block, block-name\n"
+     "@contract S loose {\n    name: str\n    !strict-paths\n    !tls: str -> tls.cert\n}\n"
+     'S !tls["abc"], prod { name: a }\n'),
+    ("featag-target-overrange", "E-CONTRACT-025",
+     "@version v1\n@feature enable type.featag, typed-block, block-name\n"
+     "@contract S loose {\n    name: str\n    !tag: str -> list[5]\n}\n"
+     'S !tag["x"], prod { name: a list: [ 1 2 ] }\n'),
+    ("featag-target-auto-none", "E-CONTRACT-022",
+     "@version v1\n@feature enable type.featag, typed-block, block-name\n"
+     "@contract S loose {\n    name: str\n    !r: int -> spec.r\n}\n"
+     "S !r[auto], prod { name: a }\n"),
     # S5b：类型不符走 002 —— Rust 那里复用 check_value，产出的是字段类型码。
     ("featag-arg-type", "E-CONTRACT-002",
      "@version v1\n@feature enable type.featag, typed-block, block-name\n"

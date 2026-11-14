@@ -111,15 +111,16 @@
   「契约级开关，不接受类型 / 参数 / 落点」。探针 `featag-switch-not-tag` /
   `featag-switch-has-type`，错误码矩阵 49 行 0 不一致。
   （开关的**语义**仍未实现：`!any` 不解除 `any` 禁令、`!strict-paths` 不影响落点。）
-- **S6 落点填充：C / JS 已落地（2026-11-14 第四批）**，C++ / Lua 待补。实现要点：
+- **S6 落点填充：四端已落地（2026-11-14 第五批收口）**。实现要点：
   声明期把 `-> a.b[2].c` 解析成段序列（首段是下标 ⇒ `E-CONTRACT-020`）、
   `default` 一并收下给 `auto` 用；使用期在**契约应用之前**按段写入。
   12 条对拍用例（写入 / 覆盖 022 / strict 缺父 023 / strict 通过 / auto 取默认 /
   auto 无默认 022 / 数组不存在 023 / null 补缺 / 追加 / 越界 025 / 严格契约看到填充 004 /
-  首段下标 020）与 Rust **逐条同码**。
-- 尚未做：**C++ / Lua 的 S6**、**S7 `from-featag`**、**S8 `!any`** 的语义。
-  这两端当前对落点**忽略**（`grammar.sml` 里 `Deploy !tls replicas[3] …` 的 `spec.*`
-  在 C / JS 上会写入，在 C++ / Lua 上不会）。
+  首段下标 020）与 Rust **逐条同码**（C / C++ / JS / Lua 四端各自跑过）。
+  其中 4 条（overwrite / strict / overrange / auto-none）已钉进 `probe_matrix.py`
+  ——错误码矩阵现 53 行 0 不一致。
+- 尚未做：**S7 `from-featag`**、**S8 `!any` 的语义**（`!any` 仍不解除 `any` 禁令；
+  `!strict-paths` 的语义已随 S6 生效）。
 
 #### S6 实施前取证（2026-11-14，Rust 实测，四端照此对齐）
 
