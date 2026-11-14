@@ -48,6 +48,27 @@ cargo install smltools
 cargo build --release -p smltools
 ```
 
+### 可选后端（按 feature 裁剪）
+
+默认构建**只带核心格式**：`markdown / json / svg / latex / slint / lvgl / html / custom / sml`。
+以下四个后端体积较大，默认**不编进来**，需要时显式打开：
+
+```bash
+cargo build --release -p smltools --features xml,yaml,toml,highlight
+# 或全开：--all-features
+```
+
+| feature | 打开什么 |
+|---|---|
+| `xml` | `--to xml` / `--from xml`（含 `.svd`） |
+| `yaml` | `--to yaml` / `--from yaml` |
+| `toml` | `--to toml` / `--from toml` |
+| `highlight` | `--to tmlanguage` / `--to highlight`（编辑器语法与定制包） |
+
+没开时连枚举变体都不存在，`--to xml` 会直接报 `E-CLI-002`，提示里只列本构建真正支持的格式
+（不会出现「说了不支持却列出来」）。实测体积（2026-11-14，release）：默认 **2609 KB**，
+四个后端全开 2836 KB（**+227 KB**）。
+
 > **实验性 (EXPERIMENTAL)**：CLI 接口与 emit 后端组合仍可能随用户反馈调整，
 > 暂不做语义化稳定性承诺。生产关键路径请勿依赖其精确行为，请关注版本号变更日志。
 

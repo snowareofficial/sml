@@ -53,6 +53,16 @@ clap = { version = "4.5", features = ["derive"] }
 amberice = { version = "0.6.9-dev.0", path = "../amberice", features = ["sign"], optional = true }
 
 [features]
+# 可选后端：**默认全不编**。`--to xml|yaml|toml|tmlanguage|highlight` 与
+# `--from xml|yaml|toml` 都需要对应的 feature；没开时连变体都不存在，
+# 报错提示只列本构建真正支持的格式（不会「说了不支持却列出来」）。
+#
+# 体积参考（2026-11-14，release）：默认 2835 KB；`--features amberice` 3202 KB（+367 KB）。
+# 这四个后端的源码合计 ~125 KB（xml 37.5 / yaml 33.6 / highlight 29.3 / toml 24.6）。
+xml = []
+yaml = []
+toml = []
+highlight = []
 # 对象保序：转发到 swsml（理由见 ../sml-parse/Cargo.toml 的同名注释 ——
 # 本 crate 不吃 sml-value，但它是 swsml 的一个下游，少了这一条同样会分裂出两份）。
 # 库能力在下游 crate，不在本 crate（本 crate 只是 bin）：

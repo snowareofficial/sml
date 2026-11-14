@@ -52,13 +52,17 @@ use sml_codes::{
 };
 use std::path::Path;
 
+#[cfg(feature = "highlight")]
 mod highlight;
 mod lint;
 mod migrate;
 mod profile;
 mod toc;
+#[cfg(feature = "toml")]
 mod toml;
+#[cfg(feature = "xml")]
 mod xml;
+#[cfg(feature = "yaml")]
 mod yaml;
 
 /// 输入格式（迁移用）：SML 是原生格式，JSON / TOML / YAML / XML 是「迁入」格式。
@@ -66,8 +70,11 @@ mod yaml;
 enum InputFormat {
     Sml,
     Json,
+    #[cfg(feature = "toml")]
     Toml,
+    #[cfg(feature = "yaml")]
     Yaml,
+    #[cfg(feature = "xml")]
     Xml,
 }
 
@@ -78,8 +85,11 @@ impl InputFormat {
             // 这里只让 `--from swl` 等价于 `--from sml`，不新增一种输入格式。
             "sml" | "swl" => Some(InputFormat::Sml),
             "json" => Some(InputFormat::Json),
+            #[cfg(feature = "toml")]
             "toml" => Some(InputFormat::Toml),
+            #[cfg(feature = "yaml")]
             "yaml" | "yml" => Some(InputFormat::Yaml),
+            #[cfg(feature = "xml")]
             "xml" => Some(InputFormat::Xml),
             _ => None,
         }
@@ -97,8 +107,11 @@ impl InputFormat {
             // `.swl` 是 v5 起的默认文本后缀，`.sml` 长期作读取别名（spec §0）。
             InputFormat::Sml => &["sml", "swl"],
             InputFormat::Json => &["json"],
+            #[cfg(feature = "toml")]
             InputFormat::Toml => &["toml"],
+            #[cfg(feature = "yaml")]
             InputFormat::Yaml => &["yaml", "yml"],
+            #[cfg(feature = "xml")]
             InputFormat::Xml => &["xml", "svd"],
         }
     }
@@ -109,14 +122,19 @@ impl InputFormat {
 
     /// 按扩展名推断（显式 `--from` 优先于此）。
     fn detect(path: Option<&Path>) -> InputFormat {
-        const MIGRATABLE: [InputFormat; 4] = [
+        // 原先是 `const MIGRATABLE: [InputFormat; 4]`：长度写死，feature 关掉后变体不存在
+        // 就编不过。改成切片 + 元素级 cfg，长度由 feature 决定。
+        let migratable: &[InputFormat] = &[
             InputFormat::Json,
+            #[cfg(feature = "toml")]
             InputFormat::Toml,
+            #[cfg(feature = "yaml")]
             InputFormat::Yaml,
+            #[cfg(feature = "xml")]
             InputFormat::Xml,
         ];
         if let Some(ext) = path.and_then(|p| p.extension()).and_then(|e| e.to_str()) {
-            for f in MIGRATABLE {
+            for f in migratable.iter().copied() {
                 if f.matches_ext(ext) {
                     return f;
                 }
@@ -129,10 +147,27 @@ impl InputFormat {
         match self {
             InputFormat::Sml => "sml",
             InputFormat::Json => "json",
+            #[cfg(feature = "toml")]
             InputFormat::Toml => "toml",
+            #[cfg(feature = "yaml")]
             InputFormat::Yaml => "yaml",
+            #[cfg(feature = "xml")]
             InputFormat::Xml => "xml",
         }
+    }
+
+    /// 本构建实际接受的 `--from` 取值（按 feature 裁剪）。报错提示用，
+    /// 避免出现「提示里有 yaml、实际没编进来」这种自相矛盾。
+    fn names() -> String {
+        #[allow(unused_mut)] // 全 feature 关掉时下面几条 push 都不存在
+        let mut v = vec!["sml", "swl", "json"];
+        #[cfg(feature = "toml")]
+        v.push("toml");
+        #[cfg(feature = "yaml")]
+        v.push("yaml");
+        #[cfg(feature = "xml")]
+        v.push("xml");
+        v.join("|")
     }
 }
 
@@ -145,7 +180,7 @@ fn resolve_input_format(
         // `E-CLI-001`：显式指定时取值校验；按扩展名推断不会走到这里。
         Some(s) => InputFormat::parse(s).ok_or_else(|| {
             SmlError::from_code_msg(E_CLI_001)
-                .with_detail(format!("`{s}`（sml|swl|json|toml|yaml|xml）"))
+                .with_detail(format!("`{s}`（{}）", InputFormat::names()))
         }),
         None => Ok(InputFormat::detect(input)),
     }
@@ -161,21 +196,25 @@ enum Format {
     Json,
     /// TOML 序列化。对接 Cargo / pyproject / 各类 TOML 配置生态。
     /// TOML 顶层必须是表，故非对象输入会得到空文档。
+    #[cfg(feature = "toml")]
     Toml,
     /// **编辑器高亮生成**：把「高亮定制 SML」在原版 TextMate 基线上升级为
     /// 定制化的 `sml.tmLanguage.json`（VSCode / VSIX 用）。
     ///
     /// 与其它后端不同，这里输入不是数据而是**定制声明**（`directives` / `elements` /
     /// `types` / `rules`），语义见 `highlight` 模块文档。
+    #[cfg(feature = "highlight")]
     TmLanguage,
     /// **编辑器定制包**：一份 SML 定制 → 多份产物（语法 + 颜色主题 + 项目内生效片段
     /// + Zed 查询与主题），输出到 `-o` 指定的**目录**。
     ///
     /// 与其它后端不同，它是「一对多」的：语法给扩展编译用，settings 片段给项目就地生效用，
     /// Zed 侧另有 Tree-sitter 查询与主题。
+    #[cfg(feature = "highlight")]
     Highlight,
     #[default]
     Markdown,
+    #[cfg(feature = "xml")]
     Xml,
     Svg,
     Latex,
@@ -189,38 +228,49 @@ impl Format {
     /// 全部格式。用于 `--to` 报错提示 —— 原先提示里的
     /// `(md|xml|svg|latex|slint|lvgl|html|custom|sml)` 是**手写**的，
     /// 与 `name()` 两处维护；0.6.1 新增 `html` 时就得靠人工同步两个地方。
-    const ALL: [Format; 13] = [
-        Format::Markdown,
-        Format::Json,
-        Format::Toml,
-        Format::TmLanguage,
-        Format::Highlight,
-        Format::Xml,
-        Format::Svg,
-        Format::Latex,
-        Format::Slint,
-        Format::Lvgl,
-        Format::Html,
-        Format::Custom,
-        Format::Sml,
-    ];
+    /// 本构建实际可用的格式（按 feature 裁剪）。
+    ///
+    /// 原先是 `const ALL: [Format; 13]`：数组长度固定，没法按 feature 增删元素 ——
+    /// 于是「没编进来的后端」照样出现在 `--to` 的报错提示里，等于自相矛盾。
+    fn all() -> Vec<Format> {
+        let mut v = vec![Format::Markdown, Format::Json];
+        #[cfg(feature = "toml")]
+        v.push(Format::Toml);
+        #[cfg(feature = "highlight")]
+        {
+            v.push(Format::TmLanguage);
+            v.push(Format::Highlight);
+        }
+        #[cfg(feature = "xml")]
+        v.push(Format::Xml);
+        v.extend([
+            Format::Svg,
+            Format::Latex,
+            Format::Slint,
+            Format::Lvgl,
+            Format::Html,
+            Format::Custom,
+            Format::Sml,
+        ]);
+        v
+    }
 
-    /// 供错误提示用的格式名列表（由 [`Self::ALL`] + `name()` 生成，不会再漂移）。
+    /// 供错误提示用的格式名列表（由 [`Self::all`] + `name()` 生成，不会再漂移）。
     fn names() -> String {
-        Self::ALL
-            .iter()
-            .map(|f| f.name())
-            .collect::<Vec<_>>()
-            .join("|")
+        Self::all().iter().map(|f| f.name()).collect::<Vec<_>>().join("|")
     }
 
     fn parse(s: &str) -> Option<Format> {
         match s.to_ascii_lowercase().as_str() {
             "md" | "markdown" => Some(Format::Markdown),
             "json" => Some(Format::Json),
+            #[cfg(feature = "toml")]
             "toml" => Some(Format::Toml),
+            #[cfg(feature = "highlight")]
             "tmlanguage" | "tm" => Some(Format::TmLanguage),
+            #[cfg(feature = "highlight")]
             "highlight" | "editor" => Some(Format::Highlight),
+            #[cfg(feature = "xml")]
             "xml" => Some(Format::Xml),
             "svg" => Some(Format::Svg),
             "latex" | "tex" => Some(Format::Latex),
@@ -237,10 +287,14 @@ impl Format {
         match self {
             Format::Sml => "sml",
             Format::Json => "json",
+            #[cfg(feature = "toml")]
             Format::Toml => "toml",
+            #[cfg(feature = "highlight")]
             Format::TmLanguage => "tmlanguage",
+            #[cfg(feature = "highlight")]
             Format::Highlight => "highlight",
             Format::Markdown => "markdown",
+            #[cfg(feature = "xml")]
             Format::Xml => "xml",
             Format::Svg => "svg",
             Format::Latex => "latex",
@@ -510,8 +564,11 @@ fn load_input(text: &str, args: &Args) -> Result<Value, SmlError> {
         InputFormat::Json => sml::json_to_value(text).ok_or_else(|| {
             SmlError::from_code_msg(E_MIGRATE_017)
         }),
+        #[cfg(feature = "toml")]
         InputFormat::Toml => toml::parse(text).map_err(|e| e.context("TOML 解析失败：")),
+        #[cfg(feature = "yaml")]
         InputFormat::Yaml => yaml::parse(text).map_err(|e| e.context("YAML 解析失败：")),
+        #[cfg(feature = "xml")]
         InputFormat::Xml => xml::parse(text).map_err(|e| e.context("XML 解析失败：")),
     }
 }
@@ -964,14 +1021,18 @@ fn emit_plain(value: &Value, fmt: Format, args: &Args) -> Result<String, SmlErro
         // JSON：直接复用 crate 内既有的 `jsonify`（与 C-ABI 同款实现，零依赖、带转义），
         // 不再另写一份序列化，避免两处行为漂移。
         Format::Json => Ok(sml::jsonify(value)),
+        #[cfg(feature = "toml")]
         Format::Toml => Ok(toml::to_toml(value)),
         // 高亮生成：输入是「定制声明」，输出是升级后的 tmLanguage（基线 + 增补）
+        #[cfg(feature = "highlight")]
         Format::TmLanguage => highlight::generate(value),
         // 定制包是一对多的（多文件、多目录），无法用「返回一个字符串」的 emit 表达，
         // 由 main 单独处理（见那里的 generate_package 分支）。
         // E-INTERNAL-001：走到了不应到达的分支（main 本应先拦截）。
+        #[cfg(feature = "highlight")]
         Format::Highlight => Err(SmlError::from_code_msg(E_INTERNAL_001)
             .with_detail("编辑器定制包由 main 单独处理（多文件输出）")),
+        #[cfg(feature = "xml")]
         Format::Xml => {
             let opt = XmlOptions {
                 base: EmitOptions {
@@ -2732,6 +2793,7 @@ fn real_main() -> ExitCode {
     }
 
     // 编辑器定制包：一份输入 → 多份产物，按相对路径写到 -o 目录下（缺省当前目录）
+    #[cfg(feature = "highlight")]
     if args.format == Format::Highlight {
         let out_dir = args.output.clone().unwrap_or_else(|| PathBuf::from("."));
         let items = match highlight::generate_package(&value) {
