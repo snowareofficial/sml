@@ -267,6 +267,10 @@ pub fn parse(text: &str) -> Result<Value, SmlError> {
     // 判据见 [`no_directives`]（保守三条件）。命中时**连 `rest` 的全文拷贝一起省掉** ——
     // 慢路径的 `strip_version` / `strip_features` 各自产出一个新的 `String`。
     if no_directives(text) {
+        // 单遍快速路径：只接「纯扁平标量文档」，`None` 即不接管（见 `fast.rs` 的能力边界）。
+        if let Some(v) = crate::fast::try_parse_flat(text, FeatureSet::for_edition(Edition::V1)) {
+            return Ok(v);
+        }
         return parse_impl(text, FeatureSet::for_edition(Edition::V1), BTreeMap::new());
     }
     let (rest, declared) = strip_version(text)?;
@@ -364,6 +368,33 @@ fn parse_ext_env(
     env: BTreeMap<String, String>,
     opts: ParseOptions,
 ) -> Result<ParseOutput, SmlError> {
+    // —— 单遍快速路径 ——
+    //
+    // 只接「纯扁平标量文档」（块 / 数组 / 指令 / 引号串全不接，见 `fast.rs` 的能力边界），
+    // 且只在**默认选项**下启用：这些选项任何一个变化都可能改变输出形态或诊断，
+    // 那时必须走通用路径。`fast` 返回 `None` 意为「不接管」，此处原样回落。
+    if env.is_empty()
+        && !opts.ordered
+        && !opts.collect_errors
+        && !opts.trace_contracts
+        && !opts.capture_contracts
+        && opts.apply_contracts
+        && opts.warn_key_conflict
+        && !opts.allow_top_scalar
+    {
+        if let Some(v) = crate::fast::try_parse_flat(text, feats) {
+            return Ok(ParseOutput {
+                value: v,
+                diagnostics: Vec::new(),
+                contract_map: None,
+                errors: Vec::new(),
+                contracts: None,
+                weak_binds: Vec::new(),
+                weak_data: Vec::new(),
+                weak_docs: Vec::new(),
+            });
+        }
+    }
     let (toks, spans) = tokenize_spans(text)?;
     let lines = token_lines(text, &spans);
     parse_impl_tokens_ext(toks, spans, lines, feats, env, opts)

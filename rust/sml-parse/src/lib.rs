@@ -10,6 +10,7 @@ mod parser;
 mod scan;
 /// 公开解析 API。
 mod api;
+mod fast;
 /// 错误类型。
 mod error;
 /// 契约桥接：把 sml-contract 的校验接到解析流程上。
