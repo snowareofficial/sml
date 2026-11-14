@@ -1,3 +1,135 @@
+/* ---------------------------------------------------------------------------
+   featag S6：按落点写值（判据逐条照 Rust `write_target` / `write_in_value`）
+
+   - 落点已存在 ⇒ `E-CONTRACT-022`（**禁止覆盖**；静默跳过会让「以为写进去了」变成最难查的错）
+   - 父对象缺失 ⇒ 默认自动创建（那是「插入」不是「覆盖」）；`!strict-paths` 时 ⇒ `023`
+   - 路径上某键已是非对象 ⇒ `023`；下标作用在非数组 ⇒ `023`
+   - 数组下标：`n < len` 且元素为 `null` ⇒ 补缺；元素非 null ⇒ `022`；
+     `n == len` ⇒ 追加（`strict` 下 `023`）；`n > len` ⇒ `025`（**绝不补 null**）
+   - 数组本身不存在时不自动创建（造多长、中间填什么没有无歧义答案）
+   --------------------------------------------------------------------------- */
+
+/* 把 `val` 放进数组槽位（旧槽必是 null，无需释放其内容）。 */
+static void arr_put_null_slot(sml_value *slot, sml_value *val) {
+    sml_value tmp = *val;   /* 浅移动：val 是独立分配的外壳 */
+    free(val);
+    *slot = tmp;
+}
+
+static int write_in_value(parser *ps, sml_value *cur, cpathseg *segs, size_t n,
+                          sml_value *val, int strict, const char *where_);
+
+static int write_target(parser *ps, sml_value *node, cpathseg *segs, size_t n,
+                        sml_value *val, int strict, const char *where_) {
+    sml_value *slot;
+    if (n == 0) { sml_free(val); return 0; }
+    if (segs[0].is_idx) {
+        set_err(ps->lx->errbuf, ps->lx->errsz,
+                SML_E_CONTRACT_020 " `%s` 的落点须以键名开头", where_);
+        sml_free(val);
+        return -1;
+    }
+    slot = sml_obj_get(node, segs[0].key);
+    if (n == 1) {
+        if (slot) {
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_CONTRACT_022 " `%s` 的落点 `%s` 已存在（featag 不能覆盖已有值）",
+                    where_, segs[0].key);
+            sml_free(val);
+            return -1;
+        }
+        sml_obj_set(node, segs[0].key, val);
+        return 0;
+    }
+    if (!slot) {
+        if (strict) {
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_CONTRACT_023
+                    " `%s` 的落点路径上父对象 `%s` 不存在（本契约开了 `!strict-paths`）",
+                    where_, segs[0].key);
+            sml_free(val);
+            return -1;
+        }
+        if (segs[1].is_idx) {
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_CONTRACT_023
+                    " `%s` 的落点路径上数组 `%s` 不存在（数组不会凭空创建：长度与中间元素无解）",
+                    where_, segs[0].key);
+            sml_free(val);
+            return -1;
+        }
+        slot = sml_new_object();
+        sml_obj_set(node, segs[0].key, slot);
+    }
+    return write_in_value(ps, slot, segs + 1, n - 1, val, strict, where_);
+}
+
+static int write_in_value(parser *ps, sml_value *cur, cpathseg *segs, size_t n,
+                          sml_value *val, int strict, const char *where_) {
+    size_t len;
+    long idx;
+    if (n == 0) { sml_free(val); return 0; }
+    if (!segs[0].is_idx) {
+        if (!cur || cur->type != SML_OBJECT) {
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_CONTRACT_023 " `%s` 的落点路径上 `%s` 已是非对象，没法往里写键",
+                    where_, segs[0].key);
+            sml_free(val);
+            return -1;
+        }
+        return write_target(ps, cur, segs, n, val, strict, where_);
+    }
+    if (!cur || cur->type != SML_ARRAY) {
+        set_err(ps->lx->errbuf, ps->lx->errsz,
+                SML_E_CONTRACT_023 " `%s` 的落点里下标 `[%ld]` 作用在非数组上",
+                where_, segs[0].idx);
+        sml_free(val);
+        return -1;
+    }
+    len = sml_arr_len(cur);
+    idx = segs[0].idx;
+    if (idx < (long)len) {
+        sml_value *el = sml_arr_get(cur, (size_t)idx);
+        if (n == 1) {
+            if (el && el->type == SML_NULL) {
+                arr_put_null_slot(el, val);
+                return 0;
+            }
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_CONTRACT_022
+                    " `%s` 的落点 `[%ld]` 已有非 null 值（featag 不能覆盖已有值）", where_, idx);
+            sml_free(val);
+            return -1;
+        }
+        if (el && el->type == SML_NULL) {
+            sml_value *o = sml_new_object();
+            arr_put_null_slot(el, o);
+        }
+        return write_in_value(ps, el, segs + 1, n - 1, val, strict, where_);
+    }
+    if (idx == (long)len) {
+        if (strict) {
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_CONTRACT_023
+                    " `%s` 的落点要追加 `[%ld]`，但本契约开了 `!strict-paths`（只允许写已有元素）",
+                    where_, idx);
+            sml_free(val);
+            return -1;
+        }
+        if (n == 1) { sml_arr_push(cur, val); return 0; }
+        {
+            sml_value *o = sml_new_object();
+            sml_arr_push(cur, o);
+            return write_in_value(ps, o, segs + 1, n - 1, val, strict, where_);
+        }
+    }
+    set_err(ps->lx->errbuf, ps->lx->errsz,
+            SML_E_CONTRACT_025 " `%s` 的落点 `[%ld]` 越界：该数组只有 %zu 个元素（越界不补 null）",
+            where_, idx, len);
+    sml_free(val);
+    return -1;
+}
+
 /* 解析块/对象。closing=T_RBRACE 或 T_EOF(顶层) */
 static sml_value *parse_block_inner(parser *ps, tok_type closing) {
     sml_value *obj = sml_new_object();
@@ -705,6 +837,56 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                        命名参数落位之前，所以 `Service !t, prod { }` 在严格契约下能通过；
                        而「字段值是带名裸块」（`x { @is A addr Sub { } }`）里 `__name` 已存在，
                        会照常报 E-CONTRACT-004 —— 两条实测行为都要留住。 */
+                    /* **S6 落点填充**：必须在**契约应用之前** —— 与 Rust
+                       `finish_bare_block` 同序（源码注释：`from-featag` 那类「只能由 featag
+                       提供」的必填字段，契约先跑会被误判成 E-CONTRACT-003）。
+                       副作用有两处可见：严格契约能看到填充出来的键（报 004）；
+                       `auto` 取的是**声明自己的 default**（此时契约默认值还没落位）。 */
+                    if (featags && key_is_contract && !ps->failed) {
+                        ccontract *o6 = contract_find(ps, key);
+                        size_t fi;
+                        for (fi = 0; o6 && fi < sml_arr_len(featags); fi++) {
+                            sml_value *item = sml_arr_get(featags, fi);
+                            sml_value *nm = sml_obj_get(item, "name");
+                            sml_value *argsv = sml_obj_get(item, "args");
+                            cfeatag *d6;
+                            sml_value *val;
+                            char where6[160];
+                            if (!nm || nm->type != SML_STR || !argsv) continue;
+                            d6 = contract_featag_find(o6, nm->u.s);
+                            if (!d6 || d6->n_path == 0) continue;
+                            snprintf(where6, sizeof(where6), "%s.%s", key, nm->u.s);
+                            if (sml_arr_len(argsv) == 1) {
+                                sml_value *only = sml_arr_get(argsv, 0);
+                                if (only && only->type == SML_STR &&
+                                    strcmp(only->u.s, "auto") == 0) {
+                                    if (!d6->has_def || !d6->def) {
+                                        set_err(ps->lx->errbuf, ps->lx->errsz,
+                                                SML_E_CONTRACT_022
+                                                " `%s` 的参数是 `auto`（取声明里的默认值），"
+                                                "但该声明没有 `default`", where6);
+                                        ps->failed = 1;
+                                        break;
+                                    }
+                                    val = sml_clone(d6->def);
+                                } else if (d6->has_spec && d6->ty == CT_ARRAY) {
+                                    val = sml_clone(argsv);
+                                } else {
+                                    val = sml_clone(only);
+                                }
+                            } else if (d6->has_spec && d6->ty == CT_ARRAY) {
+                                val = sml_clone(argsv);
+                            } else {
+                                val = sml_clone(sml_arr_get(argsv, 0));
+                            }
+                            if (write_target(ps, sub, d6->path, d6->n_path, val,
+                                             o6->strict_paths, where6) != 0) {
+                                ps->failed = 1;
+                                break;
+                            }
+                        }
+                        if (ps->failed) { sml_free(args); sml_free(sub); continue; }
+                    }
                     if (field_is) {
                         apply_or_fail(ps, sub, field_is);
                     } else if ((ps->features & (1u << 14)) && key_is_contract) {

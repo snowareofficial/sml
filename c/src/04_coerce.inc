@@ -752,6 +752,8 @@ static void parse_contract_body(parser *ps, ccontract *c) {
                     ps->failed = 1;
                     break;
                 }
+                if (c && strcmp(ft->v + 1, "strict-paths") == 0)
+                    c->strict_paths = 1;   /* S6：落点父对象必须已存在 */
                 while (peek(ps)->t != T_RBRACE && peek(ps)->t != T_EOF &&
                        peek(ps)->line == decl_line)
                     next(ps);
@@ -780,20 +782,79 @@ static void parse_contract_body(parser *ps, ccontract *c) {
                     else if (strcmp(tw, "bool") == 0) dty = CT_BOOL;
                 }
             }
-            if (c) {
-                cfeatag *nf = (cfeatag *)calloc(1, sizeof(cfeatag));
-                if (nf) {
-                    nf->name = strdup(ft->v + 1);
-                    nf->has_spec = has_spec;
-                    nf->ty = dty;
-                    nf->arr_inner = dinner;
-                    nf->next = c->featags;
-                    c->featags = nf;
+            /* 修饰符：`default <值>` 与 `-> 落点`（可同时出现、顺序不定）。
+               S6 的 `auto` 取的就是这里的 `default`；落点在声明期解析成段序列。 */
+            {
+                sml_value *ddef = NULL;
+                int has_def = 0;
+                char raw_path[512];
+                size_t rp = 0;
+                int has_path = 0;
+                raw_path[0] = '\0';
+                while (peek(ps)->t != T_RBRACE && peek(ps)->t != T_EOF &&
+                       peek(ps)->line == decl_line) {
+                    token *mt = peek(ps);
+                    if (mt->t == T_WORD && strcmp(mt->v, "default") == 0) {
+                        next(ps);
+                        if (peek(ps)->t == T_WORD || peek(ps)->t == T_STR) {
+                            token *dv = next(ps);
+                            ddef = (dv->t == T_STR) ? sml_new_strn(dv->v, dv->len)
+                                                    : coerce_word(dv->v, ps);
+                            has_def = 1;
+                        }
+                        continue;
+                    }
+                    if (mt->t == T_WORD && strcmp(mt->v, "->") == 0) {
+                        next(ps);
+                        has_path = 1;
+                        continue;
+                    }
+                    if (has_path) {
+                        char one[2] = {0, 0};
+                        const char *add = NULL;
+                        if (mt->t == T_WORD || mt->t == T_STR) add = mt->v;
+                        else if (mt->t == T_LBRACK) { one[0] = '['; add = one; }
+                        else if (mt->t == T_RBRACK) { one[0] = ']'; add = one; }
+                        if (add) {
+                            size_t l = strlen(add);
+                            if (rp + l < sizeof(raw_path)) {
+                                memcpy(raw_path + rp, add, l);
+                                rp += l;
+                                raw_path[rp] = '\0';
+                            }
+                        }
+                    }
+                    next(ps);
+                }
+                if (c) {
+                    cfeatag *nf = (cfeatag *)calloc(1, sizeof(cfeatag));
+                    if (nf) {
+                        nf->name = strdup(ft->v + 1);
+                        nf->has_spec = has_spec;
+                        nf->ty = dty;
+                        nf->arr_inner = dinner;
+                        nf->has_def = has_def;
+                        nf->def = ddef;
+                        if (has_path && cpath_parse(raw_path, &nf->path, &nf->n_path) != 0) {
+                            set_err(ps->lx->errbuf, ps->lx->errsz,
+                                    SML_E_CONTRACT_020 " `%s` 的落点 `%s` 写法非法",
+                                    ft->v + 1, raw_path);
+                            ps->failed = 1;
+                            break;
+                        }
+                        if (nf->n_path > 0 && nf->path[0].is_idx) {
+                            set_err(ps->lx->errbuf, ps->lx->errsz,
+                                    SML_E_CONTRACT_020 " `%s` 的落点须以键名开头", ft->v + 1);
+                            ps->failed = 1;
+                            break;
+                        }
+                        nf->next = c->featags;
+                        c->featags = nf;
+                    }
+                } else if (ddef) {
+                    sml_free(ddef);
                 }
             }
-            while (peek(ps)->t != T_RBRACE && peek(ps)->t != T_EOF &&
-                   peek(ps)->line == decl_line)
-                next(ps);
             continue;
         }
         if (ft->t == T_RBRACE) { next(ps); break; }

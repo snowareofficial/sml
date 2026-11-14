@@ -1691,10 +1691,103 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
     return parseFieldModifiers(sp);
   }
 
+  // 落点 `a.b[2].c` → 段序列（S6）。`[{k:"a"},{k:"b"},{i:2},{k:"c"}]`；写法非法返回 null。
+  function parseTargetPath(raw) {
+    const segs = [];
+    let cur = "";
+    let i2 = 0;
+    const flush = () => { if (cur) { segs.push({ k: cur }); cur = ""; } };
+    while (i2 < raw.length) {
+      const ch = raw[i2];
+      if (ch === ".") { flush(); i2++; }
+      else if (ch === "[") {
+        flush();
+        const j = raw.indexOf("]", i2);
+        if (j < 0) return null;
+        const n = Number(raw.slice(i2 + 1, j));
+        if (!Number.isInteger(n) || n < 0) return null;
+        segs.push({ i: n });
+        i2 = j + 1;
+      } else { cur += ch; i2++; }
+    }
+    flush();
+    return segs;
+  }
+
+  // 按落点写值（S6）。判据逐条照 Rust `write_target` / `write_in_value`。
+  function writeTarget(node, segs, val, strict, where_) {
+    const isObj = (x) => x !== null && typeof x === "object" && !Array.isArray(x);
+    const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+    const walk = (cur, idx) => {
+      if (idx >= segs.length) return;
+      const seg = segs[idx];
+      const last = idx === segs.length - 1;
+      if (seg.k !== undefined) {
+        if (!isObj(cur)) {
+          fail("E-CONTRACT-023",
+            "sml: `" + where_ + "` 的落点路径上 `" + seg.k + "` 已是非对象，没法往里写键");
+        }
+        if (last) {
+          if (has(cur, seg.k)) {
+            fail("E-CONTRACT-022",
+              "sml: `" + where_ + "` 的落点 `" + seg.k + "` 已存在（featag 不能覆盖已有值）");
+          }
+          cur[seg.k] = val;
+          return;
+        }
+        if (!has(cur, seg.k)) {
+          if (strict) {
+            fail("E-CONTRACT-023",
+              "sml: `" + where_ + "` 的落点路径上父对象 `" + seg.k +
+              "` 不存在（本契约开了 `!strict-paths`）");
+          }
+          if (segs[idx + 1].i !== undefined) {
+            fail("E-CONTRACT-023",
+              "sml: `" + where_ + "` 的落点路径上数组 `" + seg.k +
+              "` 不存在（数组不会凭空创建：长度与中间元素无解）");
+          }
+          cur[seg.k] = {};
+        }
+        walk(cur[seg.k], idx + 1);
+        return;
+      }
+      if (!Array.isArray(cur)) {
+        fail("E-CONTRACT-023",
+          "sml: `" + where_ + "` 的落点里下标 `[" + seg.i + "]` 作用在非数组上");
+      }
+      const n = seg.i, len = cur.length;
+      if (n < len) {
+        if (last) {
+          if (cur[n] === null) { cur[n] = val; return; }
+          fail("E-CONTRACT-022",
+            "sml: `" + where_ + "` 的落点 `[" + n + "]` 已有非 null 值（featag 不能覆盖已有值）");
+        }
+        if (cur[n] === null) cur[n] = {};
+        walk(cur[n], idx + 1);
+        return;
+      }
+      if (n === len) {
+        if (strict) {
+          fail("E-CONTRACT-023",
+            "sml: `" + where_ + "` 的落点要追加 `[" + n +
+            "]`，但本契约开了 `!strict-paths`（只允许写已有元素）");
+        }
+        if (last) { cur.push(val); return; }
+        cur.push({});
+        walk(cur[len], idx + 1);
+        return;
+      }
+      fail("E-CONTRACT-025",
+        "sml: `" + where_ + "` 的落点 `[" + n + "]` 越界：该数组只有 " + len + " 个元素（越界不补 null）");
+    };
+    walk(node, 0);
+  }
+
   function parseContractBody() {
     const fields = {};
     // 声明过的 featag：名字 → 声明（S5 判「未声明即拒」，S5b 判参数个数与类型）。
     const featags = new Map();
+    let strictPaths = false;   // `!strict-paths`：落点父对象必须已存在（S6）
     if (peek() && peek().t === "{") i++; else fail("E-PARSE-019", "sml: @contract 后须契约体 { }");
     while (peek() && peek().t !== "}") {
       if (peek().t === "," || peek().t === ";") { i++; continue; }
@@ -1728,6 +1821,7 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
             fail("E-CONTRACT-021",
               "sml: `!" + d.name + "` 是契约级开关，不接受类型 / 参数 / 落点");
           }
+          if (d.name === "strict-paths") strictPaths = true;   // S6 开关
           while (peek() && peek().t !== "}" && peek().line === declLine) i++;
           continue;
         }
@@ -1744,8 +1838,42 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
             i++;
           }
         }
+        // 修饰符：`default <值>` 与 `-> 落点`（顺序不定）。S6 的 `auto` 取这里的 default；
+        // 落点在**声明期**解析成段序列，使用期按段下钻。
+        let hasPath = false, raw = "";
+        while (peek() && peek().t !== "}" && peek().line === declLine) {
+          const tk2 = peek();
+          if (tk2.t === "word" && tk2.v === "default") {
+            i++;
+            if (peek() && (peek().t === "word" || peek().t === "str")) {
+              const dv = peek();
+              d.default = dv.t === "str" ? coerceStr(dv.v, fragments, feats)
+                                         : coerceWord(dv.v, fragments, nsMap, feats);
+              i++;
+            }
+            continue;
+          }
+          if (tk2.t === "word" && tk2.v === "->") { i++; hasPath = true; continue; }
+          if (tk2.t === "word" && tk2.v === "-" &&
+              toks[i + 1] && toks[i + 1].t === "word" && toks[i + 1].v === ">") {
+            i += 2; hasPath = true; continue;
+          }
+          if (hasPath) {
+            if (tk2.t === "word" || tk2.t === "str") raw += tk2.v;
+            else if (tk2.t === "[") raw += "[";
+            else if (tk2.t === "]") raw += "]";
+          }
+          i++;
+        }
+        if (hasPath) {
+          const segs = parseTargetPath(raw);
+          if (!segs) fail("E-CONTRACT-020", "sml: `!" + d.name + "` 的落点写法非法");
+          if (segs.length && segs[0].i !== undefined) {
+            fail("E-CONTRACT-020", "sml: `!" + d.name + "` 的落点须以键名开头");
+          }
+          d.target = segs;
+        }
         featags.set(d.name, d);
-        while (peek() && peek().t !== "}" && peek().line === declLine) i++;
         continue;
       }
       if (peek().t !== "word") fail("E-PARSE-006", "sml: 契约字段期望名称, 得 " + peek().t);
@@ -1756,7 +1884,7 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
       if (peek() && (peek().t === "," || peek().t === ";")) i++;
     }
     if (peek() && peek().t === "}") i++;
-    return { fields, featags };
+    return { fields, featags, strictPaths };
   }
 
   // 解析 include：返回若干 { text, ns } 目标并递归 parse
@@ -2252,8 +2380,8 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
           let loose = false;
           if (peek() && peek().t === "word" && peek().v === "loose") { loose = true; i++; }
           else if (peek() && peek().t === "word" && peek().v === "strict") { loose = false; i++; }
-          const { fields, featags } = parseContractBody();
-          contracts[nsPrefix + cname] = { fields, loose, featags };
+          const { fields, featags, strictPaths } = parseContractBody();
+          contracts[nsPrefix + cname] = { fields, loose, featags, strictPaths };
           continue;
         }
         if (fname === "is") {
@@ -2572,6 +2700,28 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
                   if (an) fail("E-CONTRACT-017", "sml: 该实现暂不支持一个块应用多份契约（块级多契约写法）");
                 }
                 const c = contracts[cname];
+                // **S6 落点填充**：必须在契约应用**之前**（Rust `finish_bare_block` 同序）。
+                // 契约先跑会看不到这些键：严格契约会把它们报成 004，`auto` 也取不到声明里的 default。
+                if (featags) {
+                  const strict = !!c.strictPaths;
+                  for (const it of featags) {
+                    const d2 = c.featags ? c.featags.get(it.name) : undefined;
+                    if (!d2 || !d2.target || !it.args) continue;
+                    const where2 = cname + "." + it.name;
+                    let val;
+                    if (it.args.length === 1 && it.args[0] === "auto") {
+                      if (d2.default === undefined) {
+                        fail("E-CONTRACT-022",
+                          "sml: `" + where2 + "` 的参数是 `auto`（取声明里的默认值），" +
+                          "但该声明没有 `default`");
+                      }
+                      val = JSON.parse(JSON.stringify(d2.default));
+                    } else {
+                      val = d2.isArray ? it.args : it.args[0];
+                    }
+                    writeTarget(sub, d2.target, val, strict, where2);
+                  }
+                }
                 applyDefaults(c, sub, contracts);
                 const errs = checkContract(contracts, c, sub, "");
                 if (errs) fail(errs[0].code, "contract: " + cname + " — " + errs.map((x) => x.msg).join("; "));

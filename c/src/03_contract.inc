@@ -19,6 +19,13 @@ typedef struct cfield {
     struct cfield *next;
 } cfield;
 
+/* 落点的一段：键名或数组下标（`tls.cert` 两段键、`rules[0].name` 键+下标+键）。 */
+typedef struct cpathseg {
+    char *key;   /* is_idx == 0 时有效 */
+    long idx;    /* is_idx == 1 时有效 */
+    int is_idx;
+} cpathseg;
+
 /* featag 声明（S2–S5b）：名字 + 可选参数规格。
    `has_spec` 区分「无参纯标签」与「带参」—— 使用处的个数校验靠它（Rust 同判据：
    无参带参数 ⇒ 021，带参不写 `[…]` ⇒ 021）。`-> 落点` 属 S6，尚未接，故这里不存。 */
@@ -27,12 +34,19 @@ typedef struct cfeatag {
     int has_spec;
     cty ty;            /* 单参类型；CT_ARRAY 时看 arr_inner */
     cty arr_inner;
+    /* S6：`-> 落点` 的段序列；`n_path == 0` 表示纯标签（不写任何键）。 */
+    cpathseg *path;
+    size_t n_path;
+    /* S6：`auto` 取的就是这里（**声明自己的 default**，不是契约应用填的）。 */
+    int has_def;
+    sml_value *def;
     struct cfeatag *next;
 } cfeatag;
 
 typedef struct ccontract {
     char *name;
     int allow_extra;         /* loose */
+    int strict_paths;        /* S6：`!strict-paths` 开关（落点父对象必须已存在） */
     cfield *fields;          /* 头插链表 */
     cfeatag *featags;        /* 头插链表（featag 的作用域是契约私有） */
     struct ccontract *next;
@@ -50,6 +64,55 @@ static cfeatag *contract_featag_find(const ccontract *c, const char *name) {
 /* 一个参数值是否满足声明的类型（S5b）。
    只做标量这一层：枚举 / 区间 / 外置类型仍只在 Rust 侧校验 —— 四端既有的字段校验
    没有可复用的公共入口，硬塞进来会与 `check_field` 的两套判据分叉。 */
+/* 把 `a.b[2].c` 解析成段序列（S6）。返回 0 成功；-1 表示写法非法。 */
+static int cpath_parse(const char *raw, cpathseg **out, size_t *n_out) {
+    cpathseg *segs = NULL;
+    size_t n = 0, cap = 0;
+    const char *p = raw;
+    while (*p) {
+        if (*p == '.') { p++; continue; }
+        if (*p == '[') {
+            const char *q = p + 1;
+            long idx = 0;
+            int digits = 0;
+            while (*q >= '0' && *q <= '9') { idx = idx * 10 + (*q - '0'); q++; digits = 1; }
+            if (!digits || *q != ']') goto bad;
+            if (n == cap) {
+                cap = cap ? cap * 2 : 4;
+                segs = (cpathseg *)realloc(segs, cap * sizeof(*segs));
+                if (!segs) return -1;
+            }
+            segs[n].is_idx = 1; segs[n].key = NULL; segs[n].idx = idx; n++;
+            p = q + 1;
+            continue;
+        }
+        {
+            const char *q = p;
+            while (*q && *q != '.' && *q != '[') q++;
+            if (q == p) goto bad;
+            if (n == cap) {
+                cap = cap ? cap * 2 : 4;
+                segs = (cpathseg *)realloc(segs, cap * sizeof(*segs));
+                if (!segs) return -1;
+            }
+            segs[n].is_idx = 0;
+            segs[n].idx = 0;
+            segs[n].key = (char *)malloc((size_t)(q - p) + 1);
+            if (!segs[n].key) goto bad;
+            memcpy(segs[n].key, p, (size_t)(q - p));
+            segs[n].key[q - p] = '\0';
+            n++;
+            p = q;
+        }
+    }
+    *out = segs;
+    *n_out = n;
+    return 0;
+bad:
+    free(segs);
+    return -1;
+}
+
 static int featag_arg_matches(cty ty, const sml_value *v) {
     if (!v) return 0;
     switch (ty) {
