@@ -376,25 +376,24 @@ fn check_type(
     contracts: &BTreeMap<String, Contract>,
     warnings: &mut Vec<ContractWarning>,
 ) -> Result<(), SmlError> {
-    // 组合：字段值是块，递归按被引用的契约校验（含填默认值）
+    // 组合：字段值是块，且被引用的契约必须存在。
+    //
+    // ⚠️ 这里**只做轻量检查，不应用契约**。改前它会 `m.clone()` 克隆整个子对象、
+    // 跑一遍 `apply_contract`，然后把结果整个丢掉（`apply_contract` 的副作用作用于副本）。
+    // 而调用方（`apply_contract` 的 ContractRef 分支）为了**回填**还要再克隆一次、再应用一次
+    // —— 同一字段付两次克隆 + 两次校验。按 `hotspots` 实测，这是契约块开销的线性主项
+    //（每多一个组合字段约 +0.25 µs）。真正的应用/回填只在调用方做一次。
     if let TypeSpec::ContractRef(ref_name) = &spec.ty {
+        let hint = suggest_contract_name(ref_name, contracts)
+            .map(|c| format!("（你是不是想写 `{c}`？）"))
+            .unwrap_or_default();
+        contracts.get(ref_name).ok_or_else(|| {
+            SmlError::from_code_title(E_CONTRACT_001).with_detail(format!(
+                "字段 `{path}` 引用了未定义的契约 `{ref_name}`（契约 `{contract}`）{hint}"
+            ))
+        })?;
         return match v {
-            Value::Object(_) => {
-                let mut sub = match v {
-                    Value::Object(m) => m.clone(),
-                    _ => unreachable!(),
-                };
-                let hint = suggest_contract_name(ref_name, contracts)
-                    .map(|c| format!("（你是不是想写 `{c}`？）"))
-                    .unwrap_or_default();
-                let target = contracts.get(ref_name).ok_or_else(|| {
-                    SmlError::from_code_title(E_CONTRACT_001).with_detail(format!(
-                        "字段 `{path}` 引用了未定义的契约 `{ref_name}`（契约 `{contract}`）{hint}"
-                    ))
-                })?;
-                apply_contract(target, &mut sub, contracts, path, warnings)?;
-                Ok(())
-            }
+            Value::Object(_) => Ok(()),
             _ => Err(SmlError::from_code_title(E_CONTRACT_008).with_detail(format!(
                 "字段 `{path}` 应为块并按契约 `{ref_name}` 校验，实际为 {}（契约 `{contract}`）",
                 value_kind(v)
