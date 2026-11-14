@@ -2,7 +2,72 @@
 
 本目录是 W5 的产出：**一份共享用例，五端（Rust / C / C++ / JS / Lua）各跑一遍，比较值树**。
 
-## 2026-11-13 复核（**当前口径**，取代下文所有计数）
+## 2026-11-14 判据盲区复核（兼容套件**检不出**的差异）
+
+`python tools/check/probe_matrix.py` 四组探针（错误码 43 / 门控 11 / 值身份 20 / 警告 6）
+查出 24 行套件结构上看不见的差异，逐条见 **`docs/swsml/ref/silent-divergences.md`**。
+本轮收敛到 **80 行里 5 行不一致**，全部是数字载体：
+
+- **数字载体**：JS 的 `Number` 与 LuaJIT 的 `double` 表示不了 i64 精确值（`9007199254740993`
+  回退成**字符串**）与浮点身份（`1.0` / `1`、`-0.0`）。dump 现在**如实写出** `"3301…"`，
+  于是 `20_num_bigint` 从「假 AGREE」变成真 DIVERGE —— 按 19 号用例同样的方式放行：
+  `WAIVERS` 里写明理由，`WAIVER_SIG` 只抹平「十进制数字串 ↔ 整数」。
+- `num-sci` 的 C / C++ 两格写 `1000.0`、Rust 写 `1e3`：同值同类型，纯写法差。
+
+已全部修掉：码选择（值位置 `:` / `@`、`@is` 第二名字、C 的 `E-LEX-006`）、C 的 NUL 截断
+（`sml_value.slen` + `token.len`，按字节长度存取）、Lua 超 i64 转 float、警告层无对照
+（`--suite warnings` 6 条五端同码），以及上一轮记录的崩溃 / 静默接受 / 门控 / dump 丢类型。
+
+已修（不再复现）：C 的 `default` 缺值段错误（现 `E-PARSE-021`）、Lua 丢对象字段 `null`、
+四端 dump 把 `"42"` 写成裸词、未加引号的 `include`（C++ 当字段 / JS 造键）、BOM 影响 C 的
+行首指令判定、`@feature disable env` 对裸词 `$env` 不生效、`@feature` 子命令错误的三种静默、
+契约定义形态错误的码漂移。留了一类**码选择**差异（C / C++ 对值位置孤立 `@` 与游离 `:` 报
+更具体的 004 / 006，Rust 报兜底 012）—— 那是码表该拍板的事。
+
+## 2026-11-14 featag S2–S4 四端落地
+
+featag 不再「四端统一不支持」（原 S9 策略作废）：C / C++ / JS / Lua 各补两处 ——
+块头 `!tag [args]` 区 + `__featags` 保序数组、契约体 `!name[: 类型][-> 落点]` 整行收集。
+`probe_grammar.py` 的 `featag` / `featag-decl` 两个切片五端 **AGREE**。
+
+顺带补了三处前置缺陷（都在探针里钉住了）：
+
+- **typed-block 不应用契约**：C / C++ / Lua 原本只认显式 `@is`，`Service { … }` 这种块头写法
+  下契约的 default / 必填 / 类型校验全部失效。旧切片看不出（契约没有默认值），
+  新增 `typed-block-default`（契约带 `default`）才暴露。
+- **元数据键的校验范围**：统一为「跳过 `__type` / `__featags`，`__name` / `__args` 参与」，
+  且块头契约校验发生在 `__name` 落位之前 —— 两条都是 Rust 实测行为
+  （`S !t { }` 在严格契约下通过；`x { @is A addr Sub { } }` 报 `addr.__name`）。
+- **JS dump 的 `[..]` 占位**：嵌套容器原样写 `[..]` / `{..}`，回读变成字符串 `..`
+  （`!obey[4]` 的 args 从 `[4]` 变成 `[".."]`）。改为递归展开。
+
+未做：featag **S5 使用处校验 / S6 落点 / S7 `from-featag` / S8 `!any`** —— 四端当前对未声明
+featag 放行、对落点忽略，`grammar.sml` 里 `Deploy !tls replicas[3] …` 的 `spec.*` 不会写入。
+
+## 2026-11-14 语法特性探针复核（语法特性维度）
+
+用例级仍是 **AGREE 60 / DIVERGE 0**（`--require-all`，`19` 以 `*` 放行）。本节的增量不是用例数，
+而是**按语法特性切片**的探针：`python tools/check/probe_grammar.py grammar.sml`。
+
+`grammar.sml` 整份的第一处拒绝：C `E-CONTRACT-008`、C++ `E-CONTRACT-001`（两者都因 `@type` 未实现，
+`时刻` 回落成契约名）、JS `E-CONTRACT-017`（多契约）、Lua `E-CONTRACT-008`（同 C）。
+逐特性矩阵与归因见 **`docs/swsml/ref/grammar-divergences.md`**。⚠️ 契约嵌套本身四端**全 OK**，
+别把 C / Lua 的 008 归到它头上。
+
+本轮两条**待修**（此前未登记）：
+
+- **G-01 `@type` 被 C / C++ / Lua 静默丢弃**：只写 `@type` 声明时五端同树（三端接受后丢弃），
+  直到有字段用它才报错，且报的是契约码（C / Lua `E-CONTRACT-008`、C++ `E-CONTRACT-001`）而不是
+  类型码 `E-CONTRACT-009`。属**静默差异**：文档声明的格式约束在这三端不生效。
+- **G-02 未知特性名两个码**：Rust / JS 报 `E-FEATURE-003`，C / C++ / Lua 报 `E-FEATURE-002`
+  （该码的定义是「环境变量被禁用」）。三端是刻意的（`c/sml.c` 的 `feature_index` 失败分支留了
+  注释，`lua/test_codes.lua` 还把错码钉成期望）；按「同一条件同一个码」应改报 003。
+
+另两条**同码不同因**，不判红但判据要分开写：`E-CONTRACT-018`（Rust = 要求未满足；四端 = 指令不支持，
+即使所列特性已开仍报）、featag 的拒绝码随**位置**漂移（C 的 `E-CONTRACT-003` 会把「不识 featag」
+误报成「契约缺字段」）。
+
+## 2026-11-13 复核（用例级；语法特性维度的当前口径见上节）
 
 实测 **AGREE 60 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`；
 `19` 以 `*` 放行，见文末「放行项」）。`cases/pending/` 为空。
@@ -220,12 +285,17 @@ Rust `to_sml` ／ C `sml_dump` ／ C++ `to_sml` ／ JS `stringify` ／ Lua `Sml.
   但 `stringify` **不加引号** ⇒ 归一化回读成 int ⇒ 与 Rust 的 int 一模一样 ⇒ 判 **AGREE**。
 - **结论**：AGREE ≠ 对齐。真相同能力矩阵 §1.3（JS 升为字符串）；
   同时它暴露了 JS dump 的另一个缺陷：**数字形状的字符串写成裸词 ⇒ 类型信息丢失**（与 #17 同族）。
+- **现状（2026-11-14）**：四端 dump 的引号判据已照 Rust `text_rules` 重写，数字样字符串一律带引号
+  ⇒ 这个盲区不再存在，`20_num_bigint` 如实判 DIVERGE，再按 `WAIVERS` 放行（理由写在表里）。
 - **直接取证**（不经套件）：
   ```
   node -e "import('./js/sml.mjs').then(m=>{const v=m.parse('id: 330106201503071234\n');console.log(typeof v.id, m.stringify(v));})"
   ```
 - **根治方向**：让每端交出「带类型标注」的值树（而不是 SML 文本）。
   那要 C / C++ / Lua 各写一个 JSON 发射器，会引入另一批写法差异 ⇒ 本轮刻意不做，记在这里。
+- **范围（2026-11-14 实测）**：这条不是 JS 独有 —— Lua 同样把 (2^53, i64] 的整数回退成**字符串**，
+  两端 dump 都写裸数字，于是「文本载体 + Rust 回读」的判据对两端一起失效。
+  取证与逐端对照见 `docs/swsml/ref/silent-divergences.md` §4 / S-04。
 
 ### B-02 `\0`（NUL）这一格无法承载
 
@@ -234,6 +304,9 @@ Rust `to_sml` ／ C `sml_dump` ／ C++ `to_sml` ／ JS `stringify` ／ Lua `Sml.
   - **C** 的 `sml_dump` 走 C 字符串 ⇒ 在 NUL 处**截断**。
 - ⇒ 该格**未覆盖**，已从 `22_escape_basic.sml` 移出并在用例注释里写明原因。
 - 顺带结论（该单独修，不属「两端不一致」）：**Rust 的 dump 不转义 NUL**、**C 的 dump 在 NUL 处截断**。
+- **四端已对齐（2026-11-14）**：C++ / JS / Lua 的 dump 把 NUL 写成 `\0` 转义；C 侧补上
+  `sml_value.slen` 与 `token.len`，引号串按**字节长度**入队、存值、序列化，`"a\0b"` 现在
+  五端都输出 `"a\0b"`。B-02 的「该格无法承载」已解除，建议把 NUL 往返补成正式用例。
 - ✅ **Rust 半已修（2026-11-03）**：问题比记录里更宽 —— `quote_if_needed` 只转义 `\` 与 `"`，
   于是 `\n` / `\t` / `\0` **全部**以真实字节落进引号串（`"u` + 0x00 + `v"`）。
   现按词法转义集输出 `\n` / `\t` / `\r` / `\0`，其余控制字符走 `\u00XX`；

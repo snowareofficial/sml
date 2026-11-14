@@ -353,8 +353,16 @@ static ValuePtr coerce_word(const std::string& raw,
                             std::string* err,
                             unsigned features) {
     std::string t = raw;
-    // $env.VAR inline (bareword)
+    // $env.VAR inline (bareword)。门控与引号串内插同判据：
+    // 改前只拦 `"..."` 里的 `$env.`，裸词照旧读宿主环境变量 ⇒
+    // `@feature disable env` 在沙箱里形同虚设。
     if (t.rfind("$env.", 0) == 0) {
+        if (!(features & (1u << 2))) {
+            if (err && err->empty())
+                *err = code_prefix(SML_E_FEATURE_002,
+                    "sml: 裸词 `" + t + "` 无法解析：未启用特性 `env`");
+            return Value::null();
+        }
         const char* e = std::getenv(t.c_str()+5);
         return Value::string(e ? e : "");
     }
@@ -402,6 +410,14 @@ static ValuePtr coerce_word(const std::string& raw,
                    **不是** Float。故正确出口是 catch 之后的 `return Value::string(t)`。
                保留此分支只为防御性说明；建议后续删除（已列入最终报告的待办）。 */
             if (errno == ERANGE) return Value::floating(std::stod(t));
+            /* 前导零保留为字符串（与 Rust 同判据）：`007` / `0755` 转 Int 会把
+               权限位、编号静默改成 7 / 755。 */
+            {
+                const size_t s0 = (t[0] == '+' || t[0] == '-') ? 1 : 0;
+                if (t.size() > s0 + 1 && t[s0] == '0'
+                    && t.compare(s0, 2, "0x") != 0 && t.compare(s0, 2, "0b") != 0)
+                    return Value::string(t);
+            }
             return Value::integer(v);
         } catch(...) {}
     }
@@ -534,6 +550,16 @@ static bool parse_type(const std::string& raw, TypeSpec& out, std::string* err) 
         std::string elem = s.substr(1, bb-1);
         TypeSpec sp; sp.kind = TypeSpec::Kind::Array;
         TypeSpec e;
+        /* 元素位置不许 enum（Rust 同码 012）：改前递归进 enum 分支、因为没有 `[`
+           报成 023（「enum 后不是数组」），把码指错了地方。 */
+        {
+            std::string el = lower(elem);
+            while (!el.empty() && (el[0]==' '||el[0]=='\t')) el.erase(0,1);
+            if (el.rfind("enum", 0)==0) {
+                if (err)*err=code_prefix(SML_E_CONTRACT_012, "sml: 数组元素类型不能是 enum");
+                return false;
+            }
+        }
         if (elem.empty()) e.kind = TypeSpec::Kind::Any;
         else if (!parse_type(elem, e, err)) return false;
         sp.elem = std::make_shared<TypeSpec>(e);
@@ -661,6 +687,16 @@ static bool parse_field(const std::string& line, FieldSpec& out, std::string* er
     std::vector<std::string> parts;
     tokenize_field(line, parts);
     if (parts.empty()){ if(err)*err=code_prefix(SML_E_PARSE_024, "sml: empty field"); return false; }
+    /* `name:` 后面什么都没有：类型缺失 ⇒ E-PARSE-006（Rust 同码）。
+       改前这里静默落成 Any，契约照常「通过」——用户以为写了约束。 */
+    {
+        std::string tline = line;
+        while (!tline.empty() && (tline.back() == ' ' || tline.back() == '\t')) tline.pop_back();
+        if (!tline.empty() && tline.back() == ':') {
+            if (err) *err = code_prefix(SML_E_PARSE_006, "sml: 契约字段缺少类型");
+            return false;
+        }
+    }
 
     // name (strip trailing colon if present)
     std::string name = parts[0];
@@ -1067,11 +1103,29 @@ static bool is_quoted_word(const Token& tk) {
 static bool bare_block_ahead(const PState& st) {
     if (st.i >= st.toks.size() || st.toks[st.i].t != Token::T::Word) return false;
     if (is_quoted_word(st.toks[st.i])) return false;
+    /* 开了 `type.featag` 时，块头可以有 `!tag [args]` 区与逗号分隔的块名
+       （`Service !critical !obey[4], prod { }`）—— 这两类记号要算进「到 `{` 为止」的窗口。
+       只在窗口里真的出现过 `!` 词时才放宽，避免把 `a [1] {` 这类旧输入改判成裸块。 */
+    const bool feat_on = (st.features & (1u << 17)) != 0;
+    bool seen_tag = false;
     size_t p = st.i;
     while (p < st.toks.size()) {
         auto tt = st.toks[p].t;
-        if (tt == Token::T::Word) p++;
-        else if (tt == Token::T::LBrace) return true;
+        if (tt == Token::T::Word) {
+            if (feat_on && !st.toks[p].s.empty() && st.toks[p].s[0] == '!') seen_tag = true;
+            p++;
+        } else if (feat_on && tt == Token::T::LBracket) {
+            int depth = 0;
+            while (p < st.toks.size()) {
+                if (st.toks[p].t == Token::T::LBracket) depth++;
+                else if (st.toks[p].t == Token::T::RBracket) {
+                    if (--depth == 0) { p++; break; }
+                }
+                p++;
+            }
+        } else if (feat_on && seen_tag && tt == Token::T::Comma) {
+            p++;
+        } else if (tt == Token::T::LBrace) return true;
         else return false;
     }
     return false;
@@ -1658,8 +1712,9 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                         if (nm.t != Token::T::Word || nm.line != sub_line) break;
                         const int bit = feature_index(nm.s);
                         if (bit < 0) {
+                            /* 未知特性名是 003（002 = 环境变量被禁用）。 */
                             if (st.err && st.err->empty())
-                                *st.err = code_prefix(SML_E_FEATURE_002,
+                                *st.err = code_prefix(SML_E_FEATURE_003,
                                     "sml: 未知特性名 `" + nm.s + "`");
                             st.aborted = true; break;
                         }
@@ -1680,6 +1735,22 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                         st.aborted = true; break;
                     }
                     continue;
+                }
+                /* `mode` 的参数校验属语法层：不是 whitelist / blacklist ⇒ 008（Rust 同码）；
+                   参数合法但本端未实现 ⇒ 006（不把「没实现」谎报成「参数非法」）。 */
+                if (sub.s == "mode") {
+                    const bool arg_ok = st.i + 1 < st.toks.size()
+                        && st.toks[st.i + 1].t == Token::T::Word
+                        && st.toks[st.i + 1].line == sub.line
+                        && (st.toks[st.i + 1].s == "whitelist"
+                            || st.toks[st.i + 1].s == "blacklist");
+                    if (st.err && st.err->empty())
+                        *st.err = arg_ok
+                            ? code_prefix(SML_E_FEATURE_006,
+                                "sml: `@feature mode`：本端暂不支持该子命令")
+                            : code_prefix(SML_E_FEATURE_008,
+                                "sml: `@feature mode` 的参数须为 whitelist / blacklist");
+                    st.aborted = true; break;
                 }
                 if (st.err && st.err->empty())
                     *st.err = code_prefix(SML_E_FEATURE_006,
@@ -1754,10 +1825,29 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                     // each field is "name: Type mods..." until next field (newline not tokenized)
                     // We collect tokens until we see a Word followed by Colon that starts a new field,
                     // OR until RBrace. Simpler: accumulate raw token strings until next 'name:' pattern.
+                    /* featag 声明：`!name` / `!name: 类型` / `!name: 类型 -> 落点`。
+                       开了 `type.featag` 才是记号；本片只**收下并跳过**（S4 的收集），
+                       使用处校验（未声明即拒 / 参数类型）与落点填充属 S5/S6，尚未接。 */
+                    if ((st.features & (1u << 17)) != 0 &&
+                        st.toks[st.i].t == Token::T::Word &&
+                        !st.toks[st.i].s.empty() && st.toks[st.i].s[0] == '!') {
+                        size_t decl_line = st.toks[st.i].line;
+                        while (st.i < st.toks.size() &&
+                               st.toks[st.i].t != Token::T::RBrace &&
+                               st.toks[st.i].line == decl_line) st.i++;
+                        continue;
+                    }
                     std::string fieldbuf;
                     while (st.i < st.toks.size()) {
                         auto& ft = st.toks[st.i];
                         if (ft.t == Token::T::RBrace) break;
+                        /* 词法器不保留换行 ⇒ `port: int default 8080` 之后的 `!critical`
+                           会被贪心收进同一个 fieldbuf，最后当成类型串（实测报
+                           `unknown contract '!critical'`）。遇到 `!` 词先收笔，
+                           交给外层循环整行跳过。 */
+                        if ((st.features & (1u << 17)) != 0 &&
+                            ft.t == Token::T::Word && !ft.s.empty() && ft.s[0] == '!')
+                            break;
                         /* —— 契约体里的 `@requires`：本端暂未实现，必须**响亮拒绝** ——
                            参照 E-CONTRACT-017（契约叠加未实现）的既有先例。
                            ⚠️ 改前 At 会被拼进 fieldbuf，`parse_field` 拿 "@" 当字段名、
@@ -1849,6 +1939,14 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                             // 换行即停：下一行的键/值不是契约名
                         } else if (j+1 < st.toks.size() && st.toks[j+1].t == Token::T::Colon) {
                             // 后跟 : 是键，非契约名
+                        } else if (nx.s != "loose" && nx.s != "warn" && nx.s != "strict" &&
+                                   st.contracts.find(nx.s) == st.contracts.end()) {
+                            /* 第二个词不是严格度关键字、也不是已注册契约 ⇒ Rust 报
+                               「未定义的契约」001；只有「两个都注册了」才是真·多契约缺口 017。 */
+                            if (st.err && st.err->empty())
+                                *st.err = code_prefix(SML_E_CONTRACT_001,
+                                    "sml: 应用未定义契约 `" + nx.s + "`");
+                            st.aborted = true;
                         } else {
                             if (st.err && st.err->empty())
                                 *st.err = code_prefix(SML_E_CONTRACT_017,
@@ -1901,6 +1999,18 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
         st.i++;
         bool colon = false;
         if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::Colon) { colon=true; st.i++; }
+        /* 值位置的游离记号（Rust 兜底码 E-PARSE-012）：`a: :` 的 `:`、
+           `a: @ b` 的孤立 `@`（词法给 BareAt）。改前它们会落到下一轮的
+           「键位置结构记号」判 006 / 「成员级孤立 @」判 004 —— 都是拒绝但码不对。
+           成员位置（无冒号）的 BareAt 仍是 004，不动。 */
+        if (colon && st.i < st.toks.size() &&
+            (st.toks[st.i].t == Token::T::Colon || st.toks[st.i].t == Token::T::BareAt)) {
+            if (st.err && st.err->empty())
+                *st.err = code_prefix(SML_E_PARSE_012,
+                    "sml: 值位置出现游离的 `:` 或孤立的 `@`；含这些记号的标量请加引号");
+            st.aborted = true;
+            break;
+        }
         if (st.i >= st.toks.size()) {
             // key with nothing after -> coerce key itself as value (Rust: bare block name case)
             set_field(key, coerce_word(key, st.fragments, st.err, st.features));
@@ -1925,6 +2035,14 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                             // 换行即停
                         } else if (j+1 < st.toks.size() && st.toks[j+1].t == Token::T::Colon) {
                             // 后跟 : 是键，非契约名
+                        } else if (nx.s != "loose" && nx.s != "warn" && nx.s != "strict" &&
+                                   st.contracts.find(nx.s) == st.contracts.end()) {
+                            /* 第二个词不是严格度关键字、也不是已注册契约 ⇒ Rust 报
+                               「未定义的契约」001；只有「两个都注册了」才是真·多契约缺口 017。 */
+                            if (st.err && st.err->empty())
+                                *st.err = code_prefix(SML_E_CONTRACT_001,
+                                    "sml: 应用未定义契约 `" + nx.s + "`");
+                            st.aborted = true;
                         } else {
                             if (st.err && st.err->empty())
                                 *st.err = code_prefix(SML_E_CONTRACT_017,
@@ -1989,12 +2107,30 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                参数**不再静默丢弃**：首个 ⇒ `__name`、其余 ⇒ `__args`；
                参数经 coerce（与 Rust `parse_bare_block`、C 侧一致）。 */
             std::vector<ValuePtr> args;
+            ValuePtr featags = nullptr;
             bool key_is_contract = (st.contracts.find(key) != st.contracts.end());
+            const bool feat_on = (st.features & (1u << 17)) != 0 && key_is_contract;
             bool arg_has_contract = false;
-            while (st.i < st.toks.size() && st.toks[st.i].t == Token::T::Word) {
-                if (key_is_contract && st.contracts.find(st.toks[st.i].s) != st.contracts.end())
+            while (st.i < st.toks.size() && st.toks[st.i].t != Token::T::LBrace) {
+                const Token& tk = st.toks[st.i];
+                if (feat_on && tk.t == Token::T::Word && !tk.s.empty() && tk.s[0] == '!') {
+                    if (!featags) featags = Value::array();
+                    ValuePtr item = Value::object();
+                    item->obj.push_back({"name", Value::string(tk.s.substr(1))});
+                    st.i++;
+                    if (st.i < st.toks.size() && st.toks[st.i].t == Token::T::LBracket) {
+                        st.i++;
+                        auto vals = parse_array(st);
+                        item->obj.push_back({"args", vals});
+                    }
+                    featags->arr.push_back(item);
+                    continue;
+                }
+                if (feat_on && tk.t == Token::T::Comma) { st.i++; continue; }
+                if (tk.t != Token::T::Word) break;
+                if (key_is_contract && st.contracts.find(tk.s) != st.contracts.end())
                     arg_has_contract = true;
-                args.push_back(coerce(st.toks[st.i], st.fragments, st.err, st.features));
+                args.push_back(coerce(tk, st.fragments, st.err, st.features));
                 st.i++;
             }
             // 任务 D：块级多契约「响亮拒绝」—— head 词命中契约表且 args 里出现第 2 个
@@ -2010,6 +2146,18 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                 st.enter_key = key;   /* 裸块：路径段用块类型名 */
                 auto sub = parse_block_nested(st);
                 sub->obj.push_back({"__type", Value::string(key)});
+                if (featags) sub->obj.push_back({"__featags", featags});
+                /* typed-block：块头首词命中契约 ⇒ 等价块内首行 `@is`。
+                   必须在 `__name` 之前应用：Rust 的块头契约校验发生在命名参数落位之前。 */
+                if ((st.features & (1u << 14)) != 0 &&
+                    st.contracts.find(key) != st.contracts.end()) {
+                    std::string ce;
+                    Parser::apply_contract(sub, st.contracts, key, &ce);
+                    if (!ce.empty()) {
+                        if (st.err && st.err->empty()) *st.err = ce;
+                        st.aborted = true;
+                    }
+                }
                 if (!args.empty()) {
                     sub->obj.push_back({"__name", args[0]});
                     if (args.size() > 1) {
@@ -2176,12 +2324,14 @@ static bool expand_includes(std::vector<Token>& toks,
                               (toks[k+1].s == "include" || toks[k+1].s == "include!") &&
                               toks[k+2].t == Token::T::Word);
         const bool line_start = (k == 0 || toks[k-1].line != t.line);
+        /* 裸形式**不再要求**路径带引号：`include x.sml`（忘了加引号）必须落到下面的
+           012 判据里。改前要求 `s[0]=='"'`，于是这一行直接溜进普通字段解析，
+           得到 `include: x.sml`（静默错树，与 Rust / C / Lua 都不一致）。 */
         const bool bare_form = (t.t == Token::T::Word && line_start &&
                                 (t.s == "include" || t.s == "import") &&
                                 k + 1 < toks.size() &&
                                 toks[k+1].t == Token::T::Word &&
-                                toks[k+1].line == t.line &&
-                                !toks[k+1].s.empty() && toks[k+1].s[0] == '"');
+                                toks[k+1].line == t.line);
         if (!at_form && !bare_form) { out.push_back(t); k++; continue; }
         /* include 门控：`@feature disable include` 后必须拒绝（与 Rust 同码 001）。 */
         if (!(features & (1u << 1))) {
@@ -2524,7 +2674,10 @@ static bool apply_contract_impl(const ValuePtr& val,
     // strict mode (default): reject undeclared fields unless contract is `loose`
     if (!c.allow_extra) {
     for (auto& kv : val->obj) {
-        if (kv.first == "__type" || kv.first == "__name") continue;
+        /* `__type` / `__featags` 不参与契约校验（Rust 实测：`S !t { }` 在严格契约下通过）；
+           `__name` / `__args` **参与** —— `x { @is A addr Sub { } }` 报 `addr.__name`。
+           逐个列举是刻意的，别改成 `__` 前缀。 */
+        if (kv.first == "__type" || kv.first == "__featags") continue;
         bool declared = false;
         for (auto& f : c.fields) if (f.name == kv.first) { declared=true; break; }
         if (!declared) {
@@ -2631,28 +2784,79 @@ static void dump_array_body(const ValuePtr& v, int indent, std::string& out) {
     out += "]";
 }
 
-/* 字符串是否需要加引号：空白（含空格/制表/换行/回车）、结构字符与 `"`/`\`
-   都会破坏裸词语法 ⇒ 必须加引号。与 Rust `needs_quote` 同族（W4「引号策略」）。
-   ⚠️ 与 C / JS / Lua 对齐：含 `"` 或 `\` 的值原样写出会是非法 SML（#17），
-   含换行的串（#12）同理；判据里必须纳入这些字符。 */
+/* 纯数字形态（会被 coerce_word 字面量化）。`0x` / `0b` 前缀不算 —— 与 Rust
+   `f64::parse` 不认十六进制对齐（strtod 会认 `0x20`）。 */
+static bool dump_looks_number(const std::string& s) {
+    if (s.empty()) return false;
+    const size_t i = (s[0] == '+' || s[0] == '-') ? 1 : 0;
+    if (i >= s.size()) return false;
+    if (s.size() > i + 1 && s[i] == '0'
+        && (s[i+1] == 'x' || s[i+1] == 'X' || s[i+1] == 'b' || s[i+1] == 'B'))
+        return false;
+    if (!((s[i] >= '0' && s[i] <= '9') || s[i] == '.')) return false;
+    char* e = nullptr;
+    std::strtoll(s.c_str(), &e, 10);
+    if (e && *e == '\0' && e != s.c_str()) return true;
+    e = nullptr;
+    std::strtod(s.c_str(), &e);
+    if (e && *e == '\0' && e != s.c_str()) return true;
+    return false;
+}
+
+/* 是否需要给字符串加引号 —— 与 Rust `sml-value::text_rules::needs_quote` 同判据：
+   空串 / true·false·null·inf·nan / 纯数字 / 注释前缀 / 破坏语法的字符 /
+   首字符非字母下划线 / 含 [A-Za-z0-9_.-] 之外的字符。
+   改前只判空白与 `:#{}"\\` ⇒ `"42"`、`"true"`、`"007"` 全写成裸词，
+   自己 dump 的文本自己读回来就换了类型（台账 S-05）。 */
 static bool dump_needs_quote(const std::string& s) {
     if (s.empty()) return true;
-    for (char c : s) {
+    if (s == "true" || s == "false" || s == "null" || s == "inf" || s == "nan") return true;
+    if (dump_looks_number(s)) return true;
+    if (s.rfind("--", 0) == 0 || s.rfind("//", 0) == 0 || s.rfind("/*", 0) == 0
+        || s.rfind("*/", 0) == 0 || s[0] == '*' || s.rfind("_*", 0) == 0)
+        return true;
+    for (unsigned char c : s) {
         if (c == ' ' || c == '\t' || c == '\n' || c == '\r' ||
             c == ':' || c == '#' || c == '{' || c == '}' ||
-            c == '"' || c == '\\')
+            c == ',' || c == '[' || c == ']' ||
+            c == '"' || c == '\\' || c == '/' || c == '*')
             return true;
+    }
+    const unsigned char f = (unsigned char)s[0];
+    if (!((f >= 'A' && f <= 'Z') || (f >= 'a' && f <= 'z') || f == '_' || f >= 0x80))
+        return true;
+    for (unsigned char c : s) {
+        const bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+                     || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.'
+                     || c >= 0x80;
+        if (!ok) return true;
     }
     return false;
 }
-/* 加引号**同时**要转义串内的 `"` 与 `\`，否则加了引号仍是非法 SML（#17）。 */
+
+/* 加引号**同时**要转义：`\\ \" \n \t \r \0`，其余控制字符走 `\u00XX`
+   —— 与 Rust `quote_if_needed` 的转义集逐条一致。改前只转义 `\` 与 `"`，
+   真换行 / 真 NUL 会以裸字节落进文本（台账 S-06）。 */
 static std::string dump_escape_str(const std::string& s) {
     std::string out;
     out.reserve(s.size() + 2);
-    for (char c : s) {
-        if (c == '\\') out += "\\\\";
-        else if (c == '"') out += "\\\"";
-        else out += c;
+    char u[8];
+    for (unsigned char c : s) {
+        switch (c) {
+            case '\\': out += "\\\\"; break;
+            case '"':  out += "\\\""; break;
+            case '\n': out += "\\n"; break;
+            case '\t': out += "\\t"; break;
+            case '\r': out += "\\r"; break;
+            case 0:    out += "\\0"; break;
+            default:
+                if (c < 0x20 || c == 0x7f) {
+                    std::snprintf(u, sizeof(u), "\\u%04X", (unsigned)c);
+                    out += u;
+                } else {
+                    out += (char)c;
+                }
+        }
     }
     return out;
 }

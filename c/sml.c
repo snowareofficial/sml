@@ -112,6 +112,7 @@ sml_value *sml_new_strn(const char *s, size_t n) {
     if (!v->u.s) { free(v); return NULL; }
     memcpy(v->u.s, s, n);
     v->u.s[n] = '\0';
+    v->slen = n;   /* 保留长度：串内可以有 `\0`（C 字符串本身到 NUL 即止）。 */
     return v;
 }
 
@@ -176,7 +177,7 @@ static sml_value *sml_clone(const sml_value *v) {
         case SML_BOOL:  return sml_new_bool(v->u.boolean);
         case SML_INT:   return sml_new_int(v->u.i);
         case SML_FLOAT: return sml_new_float(v->u.f);
-        case SML_STR:   return sml_new_str(v->u.s);
+        case SML_STR:   return sml_new_strn(v->u.s, v->slen);
         case SML_ARRAY: {
             sml_value *a = sml_new_array();
             size_t i;
@@ -345,8 +346,9 @@ typedef enum {
 
 typedef struct {
     tok_type t;
-    char *v;   /* T_STR / T_WORD 的内容 */
-    int line;  /* 该 token 起始行（1 起）；任务 D 的 @is 同行判据用 */
+    char *v;      /* T_STR / T_WORD 的内容（NUL 结尾，兼容 C 串用法） */
+    size_t len;   /* 字节长度：引号串解码后可能含 `\0`，此时 strlen 不够用 */
+    int line;     /* 该 token 起始行（1 起）；任务 D 的 @is 同行判据用 */
 } token;
 
 typedef struct {
@@ -385,6 +387,28 @@ static void lex_push(lexer *lx, tok_type t, char *v) {
     }
     lx->toks[lx->n].t = t;
     lx->toks[lx->n].v = v;
+    lx->toks[lx->n].len = v ? strlen(v) : 0;
+    lx->toks[lx->n].line = lx->cur_line;
+    lx->n++;
+}
+
+/* 同 lex_push，但**显式给长度**：引号串里 `\0` 之后的字节不能丢。
+   `v` 不必以 NUL 结尾；这里复制 n 字节并自己补终止符。 */
+static void lex_pushn(lexer *lx, tok_type t, const char *v, size_t n) {
+    char *copy = (char *)malloc(n + 1);
+    if (!copy) return;
+    memcpy(copy, v, n);
+    copy[n] = '\0';
+    if (lx->n >= lx->cap) {
+        size_t ncap = lx->cap ? lx->cap * 2 : 64;
+        token *nt = (token *)realloc(lx->toks, ncap * sizeof(token));
+        if (!nt) { free(copy); return; }
+        lx->toks = nt;
+        lx->cap = ncap;
+    }
+    lx->toks[lx->n].t = t;
+    lx->toks[lx->n].v = copy;
+    lx->toks[lx->n].len = n;
     lx->toks[lx->n].line = lx->cur_line;
     lx->n++;
 }
@@ -561,9 +585,11 @@ static void lex_run(lexer *lx, const char *text) {
                     tmp[ti++] = *src++;
                 }
                 tmp[ti] = '\0';
-                if (changed) memcpy(sb, tmp, ti + 1);
+                if (changed) { memcpy(sb, tmp, ti + 1); slen = ti; }
             }
-            lex_push(lx, T_STR, strdup(sb));
+            /* 按**字节长度**入队：`\0` 转义解出的真 NUL 之后还有内容，
+               strdup 会在 NUL 处截断（台账 S-06 的 C 半）。 */
+            lex_pushn(lx, T_STR, sb, slen);
         } else if (c == '{') { FLUSH(); lex_push(lx, T_LBRACE, NULL); p++; }
         else if (c == '}') { FLUSH(); lex_push(lx, T_RBRACE, NULL); p++; }
         else if (c == '[') { FLUSH(); lex_push(lx, T_LBRACK, NULL); p++; }
@@ -1115,8 +1141,16 @@ static sml_value *coerce_word(const char *w, parser *ps) {
     if (strcmp(w, "true") == 0) return sml_new_bool(1);
     if (strcmp(w, "false") == 0) return sml_new_bool(0);
     if (strcmp(w, "null") == 0) return sml_new_null();
-    /* $env.VAR */
+    /* $env.VAR（需 env 特性）。门控必须与引号串内插那条路径同判据：
+       改前只拦 `"..."` 里的 `$env.`，裸词形态照旧读宿主环境变量 ⇒
+       `@feature disable env` 在沙箱里形同虚设（与 Rust 的 coerce_word 不一致）。 */
     if (strncmp(w, "$env.", 5) == 0) {
+        if (!(ps->features & (1u << 2))) {
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_FEATURE_002 " 裸词 `%s` 无法解析：未启用特性 `env`", w);
+            ps->failed = 1;
+            return NULL;
+        }
         const char *ev = getenv(w + 5);
         return sml_new_str(ev ? ev : "");
     }
@@ -1153,6 +1187,15 @@ static sml_value *coerce_word(const char *w, parser *ps) {
            修之前 `99999999999999999999` 会变成 Int 9223372036854775807（静默错值，
            且能通过 `int` 契约校验）。 */
         if (errno == ERANGE) return sml_new_str(w);
+        /* 前导零保留为字符串（与 Rust 同判据）：`007` / `0755` 转 Int 会把权限位、
+           编号静默改成 7 / 755。`0x20` / `0b101` 本来就不进这一支（strtoll 停在 x/b）。 */
+        {
+            const char *dg = (w[0] == '+' || w[0] == '-') ? w + 1 : w;
+            if (dg[0] == '0' && dg[1] != '\0' && strncmp(dg, "0x", 2) != 0
+                && strncmp(dg, "0b", 2) != 0) {
+                return sml_new_str(w);
+            }
+        }
         return sml_new_int(iv);
     }
     /* 浮点 (含 .5 / 1e3 等 strtod 可解析) */
@@ -1704,7 +1747,10 @@ static int apply_contract_rec(parser *ps, ccontract *c, sml_value *node,
     if (!c->allow_extra) {
         sml_field *f;
         for (f = node->u.obj.head; f; f = f->next) {
-            if (!strcmp(f->key, "__type") || !strcmp(f->key, "__name")) continue;
+            /* `__type` / `__featags` 不参与契约校验（Rust 实测：`S !t { }` 在严格契约下通过）；
+           `__name` / `__args` **参与** —— `x { @is A addr Sub { } }` 在 Rust 上报
+           「字段 `addr.__name` 未声明」。逐个列举是刻意的，别改成 `__` 前缀。 */
+        if (!strcmp(f->key, "__type") || !strcmp(f->key, "__featags")) continue;
             int found = 0;
             for (cfield *cf = c->fields; cf; cf = cf->next)
                 if (strcmp(cf->name, f->key) == 0) { found = 1; break; }
@@ -1824,6 +1870,16 @@ static void parse_contract_body(parser *ps, ccontract *c) {
             ps->failed = 1;
             break;
         }
+        /* featag 声明：`!name` / `!name: 类型` / `!name: 类型 -> 落点`。
+           开了 `type.featag` 才是记号；本片只**收下并跳过**（S4 的收集部分），
+           使用处校验（未声明即拒、参数类型）与落点填充属 S5/S6，尚未接。 */
+        if ((ps->features & (1u << 17)) && ft->t == T_WORD && ft->v[0] == '!') {
+            int decl_line = ft->line;
+            while (peek(ps)->t != T_RBRACE && peek(ps)->t != T_EOF &&
+                   peek(ps)->line == decl_line)
+                next(ps);
+            continue;
+        }
         if (ft->t == T_RBRACE) { next(ps); break; }
         if (ft->t == T_EOF) { err_unclosed(ps, "契约体"); break; }
         if (ft->t != T_WORD && ft->t != T_STR) { next(ps); continue; }
@@ -1847,6 +1903,12 @@ static void parse_contract_body(parser *ps, ccontract *c) {
                 else if (strcmp(iw, "num")  == 0) cf->arr_inner = CT_NUM;
                 else if (strcmp(iw, "bool") == 0) cf->arr_inner = CT_BOOL;
                 else if (strcmp(iw, "any")  == 0) cf->arr_inner = CT_ANY;
+                else if (strcmp(iw, "enum") == 0) {
+                    /* 元素位置不许 enum（Rust 同码 012）：`[enum a b]` 没有确定语义 */
+                    set_err(ps->lx->errbuf, ps->lx->errsz,
+                            SML_E_CONTRACT_012 " 数组元素类型不能是 `enum`");
+                    ps->failed = 1;
+                }
             }
             if (peek(ps)->t == T_RBRACK) next(ps);
         } else if (tt->t == T_WORD) {
@@ -1869,12 +1931,24 @@ static void parse_contract_body(parser *ps, ccontract *c) {
                         }
                     }
                     if (peek(ps)->t == T_RBRACK) next(ps);
+                } else {
+                    /* `enum` 后必须是数组（Rust 同码 023）：`enum x y` 会被误读成类型名 x */
+                    set_err(ps->lx->errbuf, ps->lx->errsz,
+                            SML_E_PARSE_023 " `enum` 后须为数组，如 `enum [ a b ]`");
+                    ps->failed = 1;
                 }
             } else {
                 /* 契约名 (组合 / ContractRef) */
                 cf->ty = CT_CONTRACTREF;
                 cf->ref_name = strdup(tw);
             }
+        } else if (tt->t == T_RBRACE || tt->t == T_EOF) {
+            /* 类型位置直接是 `}` / EOF：`@contract C { a: }`。改前这里静默落成 any，
+               契约照常「通过」——与 Rust 的 006 不一致，且用户以为写了约束。 */
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_PARSE_006 " 契约字段 `%s` 缺少类型", fname);
+            ps->failed = 1;
+            break;
         } else {
             cf->ty = CT_ANY;
         }
@@ -1892,9 +1966,20 @@ static void parse_contract_body(parser *ps, ccontract *c) {
             }
             if (mt->t == T_WORD && strcmp(mt->v, "default") == 0) {
                 next(ps);
-                token *dv = next(ps);
-                if (dv) cf->def = (dv->t == T_STR) ? sml_new_str(dv->v)
-                                                  : coerce_word(dv->v, ps);
+                token *dv = peek(ps);
+                /* `default` 后没有取值（`}` / EOF / 标点）：**必须报 021**。
+                   改前这里是 `dv->v` 交给 coerce_word，标点 token 的 v 是 NULL
+                   ⇒ strcmp(NULL, ...) ⇒ 段错误（0xC0000005），是整个仓库唯一能让
+                   宿主进程崩掉的输入。 */
+                if (!dv || (dv->t != T_STR && dv->t != T_WORD)) {
+                    set_err(ps->lx->errbuf, ps->lx->errsz,
+                            SML_E_PARSE_021 " `default` 缺少取值（应与类型写在同一行）");
+                    ps->failed = 1;
+                    break;
+                }
+                next(ps);
+                cf->def = (dv->t == T_STR) ? sml_new_strn(dv->v, dv->len)
+                                           : coerce_word(dv->v, ps);
                 continue;
             }
             if (mt->t != T_WORD) break;
@@ -1975,7 +2060,8 @@ static sml_value *try_parse_array_bare_block(parser *ps) {
     while (peek(ps)->t == T_WORD || peek(ps)->t == T_STR) {
         token *at = next(ps);
         if (key_is_contract && contract_find(ps, at->v)) arg_has_contract = 1;
-        sml_arr_push(args, at->t == T_STR ? sml_new_str(at->v) : coerce_word(at->v, ps));
+        sml_arr_push(args, at->t == T_STR ? sml_new_strn(at->v, at->len)
+                                          : coerce_word(at->v, ps));
     }
     if (key_is_contract && arg_has_contract) {
         set_err(ps->lx->errbuf, ps->lx->errsz,
@@ -2034,7 +2120,8 @@ static sml_value *parse_array_inner(parser *ps) {
             next(ps);
             sml_arr_push(arr, parse_array(ps));
         } else if (t->t == T_STR) {
-            sml_arr_push(arr, sml_new_str(next(ps)->v));
+            token *st = next(ps);
+            sml_arr_push(arr, sml_new_strn(st->v, st->len));
         } else if (t->t == T_WORD) {
             /* 数组位置的裸块 `type [name…] { … }`（W4 的 B 类差异所在）。
                改前这里只有「当标量」一条路 ⇒ `[ section 情节 { … } ]` 被拆成
@@ -2268,8 +2355,10 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                         if (!nm || nm->t != T_WORD || nm->line != sub_line) break;
                         bit = feature_index(nm->v);
                         if (bit < 0) {
+                            /* 未知特性名是 003（002 的定义是「环境变量被禁用」）。
+                               改前借用 002，编辑器与调用方会判错类别。 */
                             set_err(ps->lx->errbuf, ps->lx->errsz,
-                                    SML_E_FEATURE_002 " 未知特性名 `%s`", nm->v);
+                                    SML_E_FEATURE_003 " 未知特性名 `%s`", nm->v);
                             ps->failed = 1;
                             break;
                         }
@@ -2289,7 +2378,24 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                     }
                     continue;
                 }
-                /* mode / base：本端暂不支持（Rust 端已实现，登记为跨端差异） */
+                /* `mode` 的参数校验是**语法层**的：参数不是 whitelist / blacklist 时报 008
+                   （Rust 同码）。参数合法但本端未实现 mode，仍按「不支持该子命令」报 006
+                   —— 不能把「没实现」谎报成「参数非法」。 */
+                if (strcmp(sub->v, "mode") == 0) {
+                    token *arg = peek(ps);
+                    if (arg && arg->t == T_WORD && arg->line == sub->line
+                        && (strcmp(arg->v, "whitelist") == 0
+                            || strcmp(arg->v, "blacklist") == 0)) {
+                        set_err(ps->lx->errbuf, ps->lx->errsz,
+                                SML_E_FEATURE_006 " `@feature mode`：本端暂不支持该子命令");
+                    } else {
+                        set_err(ps->lx->errbuf, ps->lx->errsz,
+                                SML_E_FEATURE_008 " `@feature mode` 的参数须为 whitelist / blacklist");
+                    }
+                    ps->failed = 1;
+                    break;
+                }
+                /* base 等其它子命令：本端暂不支持（Rust 端已实现，登记为跨端差异） */
                 set_err(ps->lx->errbuf, ps->lx->errsz,
                         SML_E_FEATURE_006 " `@feature %s`：本端暂不支持该子命令", sub->v);
                 ps->failed = 1;
@@ -2375,6 +2481,16 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                             } else if (peek_at(ps, (nx == peek(ps)) ? 1 : 2)
                                        && peek_at(ps, (nx == peek(ps)) ? 1 : 2)->t == T_COLON) {
                                 /* 后跟 : 是键，非契约名 */
+                            } else if (strcmp(nx->v, "loose") != 0 &&
+                                       strcmp(nx->v, "warn") != 0 &&
+                                       strcmp(nx->v, "strict") != 0 &&
+                                       contract_find(ps, nx->v) == NULL) {
+                                /* 第二个词既不是严格度关键字、也不是已注册契约 ⇒
+                                   Rust 报「未定义的契约」001（它把 @is 后的每个词都当契约名）。
+                                   用 017 顶替会把「名字写错」说成「本端不支持多契约」。 */
+                                set_err(ps->lx->errbuf, ps->lx->errsz,
+                                        SML_E_CONTRACT_001 " 应用未定义契约 `%s`", nx->v);
+                                ps->failed = 1;
                             } else {
                                 set_err(ps->lx->errbuf, ps->lx->errsz,
                                         SML_E_CONTRACT_017 " 该实现暂不支持一个块应用多份契约（@is 多契约写法）");
@@ -2536,6 +2652,16 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                             } else if (peek_at(ps, (nx == peek(ps)) ? 1 : 2)
                                        && peek_at(ps, (nx == peek(ps)) ? 1 : 2)->t == T_COLON) {
                                 /* 后跟 : 是键，非契约名 */
+                            } else if (strcmp(nx->v, "loose") != 0 &&
+                                       strcmp(nx->v, "warn") != 0 &&
+                                       strcmp(nx->v, "strict") != 0 &&
+                                       contract_find(ps, nx->v) == NULL) {
+                                /* 第二个词既不是严格度关键字、也不是已注册契约 ⇒
+                                   Rust 报「未定义的契约」001（它把 @is 后的每个词都当契约名）。
+                                   用 017 顶替会把「名字写错」说成「本端不支持多契约」。 */
+                                set_err(ps->lx->errbuf, ps->lx->errsz,
+                                        SML_E_CONTRACT_001 " 应用未定义契约 `%s`", nx->v);
+                                ps->failed = 1;
                             } else {
                                 set_err(ps->lx->errbuf, ps->lx->errsz,
                                         SML_E_CONTRACT_017 " 该实现暂不支持一个块应用多份契约（@is 多契约写法）");
@@ -2548,35 +2674,93 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
         }
         int colon = 0;
         if (peek(ps)->t == T_COLON) { colon = 1; next(ps); }
+        /* 值位置的游离记号（Rust 兜底码 E-PARSE-012）：
+           `a: :` 的 `:`、`a: @ b` 的孤立 `@`（词法给 T_BAREAT）。
+           改前 `a: :` 会落到下一轮的「键位置裸冒号」判 006，`a: @ b` 落到
+           成员级「孤立 @」判 004 —— 都是「拒绝但码不对」。
+           注意：行首/成员位置的孤立 `@` 仍是 004（见上面的 T_BAREAT 分支）。 */
+        if (colon && (peek(ps)->t == T_COLON || peek(ps)->t == T_BAREAT)) {
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_PARSE_012 " 值位置出现游离的 `:` 或孤立的 `@`；含这些记号的标量请加引号");
+            ps->failed = 1;
+            break;
+        }
         token *nt = peek(ps);
-        /* 裸块预扫描: 无冒号且后继是词, 可能 `type name { }` */
+        /* 裸块预扫描: 无冒号且后继是词, 可能 `type name { }`。
+           开了 `type.featag` 且首词命中契约时，块头还可能有 `!tag [args]` 区与逗号分隔的块名
+           （`Service !critical !obey[4], prod { }`）—— 这两类记号要算进「到 `{` 为止」的窗口，
+           否则预扫描判定失败、整行落到值位置报错。 */
         if (!colon && nt->t == T_WORD) {
             size_t probe = ps->lx->pos;
             int found = 0;
+            const int feat_scan = (ps->features & (1u << 17)) != 0 &&
+                                  contract_find(ps, key) != NULL;
+            int seen_tag = 0;
             while (probe < ps->lx->n) {
                 tok_type pt = ps->lx->toks[probe].t;
-                if (pt == T_WORD || pt == T_STR) probe++;
-                else if (pt == T_LBRACE) { found = 1; break; }
+                if (pt == T_WORD || pt == T_STR) {
+                    if (feat_scan && pt == T_WORD && ps->lx->toks[probe].v[0] == '!')
+                        seen_tag = 1;
+                    probe++;
+                } else if (feat_scan && pt == T_LBRACK) {
+                    int depth = 0;
+                    while (probe < ps->lx->n) {
+                        if (ps->lx->toks[probe].t == T_LBRACK) depth++;
+                        else if (ps->lx->toks[probe].t == T_RBRACK) {
+                            if (--depth == 0) { probe++; break; }
+                        }
+                        probe++;
+                    }
+                } else if (feat_scan && seen_tag && pt == T_COMMA) {
+                    probe++;
+                } else if (pt == T_LBRACE) { found = 1; break; }
                 else break;
             }
             if (found) {
                 sml_value *args = sml_new_array();
+                sml_value *featags = NULL;
                 /* 任务 D：块级多契约「响亮拒绝」—— head 词命中契约表且 args 里出现第 2 个
                    已注册契约词 ⇒ E-CONTRACT-017（单契约 `server web prod` 的 web/prod 不是
                    契约，不受影响）。与 Rust D2 同口径：从首词起连续命中契约表的词才计数。 */
                 int key_is_contract = (contract_find(ps, key) != NULL);
+                const int feat_on = (ps->features & (1u << 17)) != 0 && key_is_contract;
                 int arg_has_contract = 0;
-                while (peek(ps)->t == T_WORD || peek(ps)->t == T_STR) {
-                    token *at = next(ps);
-                    if (key_is_contract && contract_find(ps, at->v)) arg_has_contract = 1;
-                    sml_arr_push(args, at->t == T_STR ? sml_new_str(at->v)
-                                                      : coerce_word(at->v, ps));
+                while (1) {
+                    token *tk = peek(ps);
+                    if (tk->t == T_LBRACE) break;
+                    /* `!tag` / `!tag[args]`：只在契约块头有效（Rust 同判据）。
+                       记进 `__featags` 保序数组；无参项只有 name，带参项多一个 args。 */
+                    if (feat_on && tk->t == T_WORD && tk->v[0] == '!') {
+                        char *tag = tk->v + 1;
+                        next(ps);
+                        if (!featags) featags = sml_new_array();
+                        {
+                            sml_value *item = sml_new_object();
+                            sml_obj_set(item, "name", sml_new_str(tag));
+                            if (peek(ps)->t == T_LBRACK) {
+                                next(ps);
+                                sml_obj_set(item, "args", parse_array(ps));
+                            }
+                            sml_arr_push(featags, item);
+                        }
+                        continue;
+                    }
+                    if (feat_on && tk->t == T_COMMA) { next(ps); continue; }
+                    if (tk->t == T_WORD || tk->t == T_STR) {
+                        token *at = next(ps);
+                        if (key_is_contract && contract_find(ps, at->v)) arg_has_contract = 1;
+                        sml_arr_push(args, at->t == T_STR ? sml_new_strn(at->v, at->len)
+                                                          : coerce_word(at->v, ps));
+                        continue;
+                    }
+                    break;
                 }
                 if (key_is_contract && arg_has_contract) {
                     set_err(ps->lx->errbuf, ps->lx->errsz,
                             SML_E_CONTRACT_017 " 该实现暂不支持一个块应用多份契约（块级多契约写法）");
                     ps->failed = 1;
                     sml_free(args);
+                    if (featags) sml_free(featags);
                     continue;
                 }
                 if (peek(ps)->t == T_LBRACE) {
@@ -2584,6 +2768,7 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                     ps->enter_key = key;   /* 裸块：路径段用块类型名 */
                     sml_value *sub = parse_block(ps, T_RBRACE);
                     sml_obj_set(sub, "__type", sml_new_str(key));
+                    if (featags) sml_obj_set(sub, "__featags", featags);
                     /* 裸块参数**不再丢**：首个 ⇒ `__name`、其余 ⇒ `__args`，与 Rust
                        `parse_bare_block` 一致（数组位置是同一个写法，见
                        try_parse_array_bare_block；两处必须同步改，否则同一份输入在
@@ -2594,6 +2779,18 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                        必须克隆再存：args 下一行就被 sml_free，直接借用 args[0] 会让
                        `__name` / `__args` 变成悬垂指针，根节点释放时二次释放 ——
                        即已知的「带名块堆损坏」。 */
+                    /* 契约应用**先于** `__name` / `__args` 写入：Rust 里块头契约的校验发生在
+                       命名参数落位之前，所以 `Service !t, prod { }` 在严格契约下能通过；
+                       而「字段值是带名裸块」（`x { @is A addr Sub { } }`）里 `__name` 已存在，
+                       会照常报 E-CONTRACT-004 —— 两条实测行为都要留住。 */
+                    if (field_is) {
+                        apply_or_fail(ps, sub, field_is);
+                    } else if ((ps->features & (1u << 14)) && key_is_contract) {
+                        /* typed-block：块头首词命中契约 ⇒ 等价于块内首行 `@is`。
+                           改前本端不应用契约，契约的 default / 必填 / 类型校验全部静默失效
+                           —— 只要契约恰好没有默认值，树看起来还一样（探针原切片因此漏判）。 */
+                        apply_or_fail(ps, sub, key);
+                    }
                     if (sml_arr_len(args) > 0) {
                         size_t i;
                         sml_obj_set(sub, "__name", sml_clone(sml_arr_get(args, 0)));
@@ -2605,12 +2802,11 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                         }
                     }
                     sml_free(args);
-                    if (field_is)
-                        apply_or_fail(ps, sub, field_is);
                     set_field_maybe_skip(ps, obj, key, sub);
                     continue;
                 }
                 sml_free(args);
+                if (featags) sml_free(featags);   /* 没走到 `{` ⇒ 未挂到树上 */
             }
         }
         nt = peek(ps);
@@ -2645,9 +2841,17 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                 apply_or_fail(ps, sub, field_is);
             set_field_maybe_skip(ps, obj, key, sub);
         } else if (nt->t == T_STR) {
-            char *iv = interp_loop(ps, next(ps)->v);
-            sml_value *sub = sml_new_str(iv ? iv : "");
-            free(iv);
+            token *st = next(ps);
+            sml_value *sub;
+            if (memchr(st->v, '$', st->len) != NULL) {
+                /* `${}` 插值走既有路径（该路径按 C 串处理，插值串不含 NUL）。 */
+                char *iv = interp_loop(ps, st->v);
+                sub = sml_new_str(iv ? iv : "");
+                free(iv);
+            } else {
+                /* 按字节长度建值：串内的 `\0` 与之后的字节都保留下来。 */
+                sub = sml_new_strn(st->v, st->len);
+            }
             if (field_is)
                 apply_or_fail(ps, sub, field_is);
             set_field_maybe_skip(ps, obj, key, sub);
@@ -2881,15 +3085,101 @@ static void sb_addc(sbuf *b, char c) {
     b->buf[b->len] = '\0';
 }
 
+/* 纯数字形态（会被 coerce_word 字面量化成 Int/Float）。`0x` / `0b` 前缀不算
+   —— 与 Rust `f64::parse` 不认十六进制对齐（C 的 strtod 会认 `0x20`，不挡住就会
+   把 `"0x20"` 写成带引号的形式，与 Rust 的裸词写法分叉）。 */
+static int looks_number(const char *s) {
+    const char *q = s;
+    char *e = NULL;
+    if (*q == '+' || *q == '-') q++;
+    if (q[0] == '0' && (q[1] == 'x' || q[1] == 'X' || q[1] == 'b' || q[1] == 'B')) return 0;
+    if (!((*q >= '0' && *q <= '9') || *q == '.')) return 0;
+    (void)strtoll(s, &e, 10);
+    if (e && *e == '\0' && e != s) return 1;
+    e = NULL;
+    (void)strtod(s, &e);
+    if (e && *e == '\0' && e != s) return 1;
+    return 0;
+}
+
+/* 是否需要给字符串加引号 —— 与 Rust `sml-value::text_rules::needs_quote` 同判据：
+   空串 / true·false·null·inf·nan / 纯数字 / 注释前缀 / 破坏语法的字符 /
+   首字符非字母下划线 / 含 [A-Za-z0-9_.-] 之外的字符。
+   改前只判空白与 `:#{}"\\` ⇒ `"42"`、`"true"`、`"007"` 全被写成裸词，
+   自己 dump 的文本自己读回来就换了类型（台账 S-05）。 */
 static int needs_quote(const char *s) {
+    const unsigned char *p;
     if (!*s) return 1;
-    for (; *s; s++) {
-        if (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r' ||
-            *s == ':' || *s == '#' || *s == '{' || *s == '}' ||
-            *s == '"' || *s == '\\')
+    if (strcmp(s, "true") == 0 || strcmp(s, "false") == 0 || strcmp(s, "null") == 0
+        || strcmp(s, "inf") == 0 || strcmp(s, "nan") == 0)
+        return 1;
+    if (looks_number(s)) return 1;
+    if (strncmp(s, "--", 2) == 0 || strncmp(s, "//", 2) == 0
+        || strncmp(s, "/*", 2) == 0 || strncmp(s, "*/", 2) == 0
+        || s[0] == '*' || strncmp(s, "_*", 2) == 0)
+        return 1;
+    for (p = (const unsigned char *)s; *p; p++) {
+        if (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r' ||
+            *p == ':' || *p == '#' || *p == '{' || *p == '}' ||
+            *p == ',' || *p == '[' || *p == ']' ||
+            *p == '"' || *p == '\\' || *p == '/' || *p == '*')
             return 1;
     }
+    /* 首字符须字母 / 下划线（UTF-8 多字节首字节按字母算） */
+    if (!((s[0] >= 'A' && s[0] <= 'Z') || (s[0] >= 'a' && s[0] <= 'z')
+          || s[0] == '_' || (unsigned char)s[0] >= 0x80))
+        return 1;
+    for (p = (const unsigned char *)s; *p; p++) {
+        int ok = (*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z')
+              || (*p >= '0' && *p <= '9') || *p == '_' || *p == '-' || *p == '.'
+              || *p >= 0x80;
+        if (!ok) return 1;
+    }
     return 0;
+}
+
+/* 输出一个字符串：能裸就裸，否则加引号并转义。
+   转义集与 Rust `quote_if_needed` 一致：`\\ \" \n \t \r \0`，其余控制字符走 `\u00XX`。
+   改前只转义 `"` 与 `\`，真换行 / 真 NUL 会直接落进文本（台账 S-06）。 */
+/* 含 NUL / 控制字符的字符串必须加引号（否则这些字节会裸写进文本）。
+   无内嵌 NUL 时退回 needs_quote(s)：那里的 C 串函数才安全。 */
+static int needs_quote_n(const char *s, size_t n) {
+    size_t i;
+    if (n == 0) return 1;
+    for (i = 0; i < n; i++) {
+        unsigned char c = (const unsigned char)s[i];
+        if (c == 0 || c < 0x20 || c == 0x7f) return 1;
+    }
+    return needs_quote(s);
+}
+
+static void dump_quote_str(sbuf *b, const char *s, size_t n) {
+    size_t i;
+    if (!needs_quote_n(s, n)) {
+        for (i = 0; i < n; i++) sb_addc(b, s[i]);
+        return;
+    }
+    sb_addc(b, '"');
+    for (i = 0; i < n; i++) {
+        unsigned char c = (const unsigned char)s[i];
+        switch (c) {
+            case '"':  sb_add(b, "\\\""); break;
+            case '\\': sb_add(b, "\\\\"); break;
+            case '\n': sb_add(b, "\\n"); break;
+            case '\t': sb_add(b, "\\t"); break;
+            case '\r': sb_add(b, "\\r"); break;
+            case 0:    sb_add(b, "\\0"); break;
+            default:
+                if (c < 0x20 || c == 0x7f) {
+                    char u[8];
+                    snprintf(u, sizeof(u), "\\u%04X", c);
+                    sb_add(b, u);
+                } else {
+                    sb_addc(b, (char)c);
+                }
+        }
+    }
+    sb_addc(b, '"');
 }
 
 static void dump_value(sbuf *b, const sml_value *v, int indent);
@@ -3010,19 +3300,7 @@ static void dump_value(sbuf *b, const sml_value *v, int indent) {
         case SML_BOOL: sb_add(b, v->u.boolean ? "true" : "false"); break;
         case SML_INT: snprintf(num, sizeof(num), "%lld", v->u.i); sb_add(b, num); break;
         case SML_FLOAT: add_float(b, v->u.f); break;
-        case SML_STR:
-            if (needs_quote(v->u.s)) {
-                sb_addc(b, '"');
-                for (const char *p = v->u.s; *p; p++) {
-                    if (*p == '"') sb_add(b, "\\\"");
-                    else if (*p == '\\') sb_add(b, "\\\\");
-                    else sb_addc(b, *p);
-                }
-                sb_addc(b, '"');
-            } else {
-                sb_add(b, v->u.s);
-            }
-            break;
+        case SML_STR: dump_quote_str(b, v->u.s, v->slen); break;
         case SML_ARRAY: {
             if (v->u.arr.len == 0) { sb_add(b, "[]"); break; }
             dump_array_body(b, v, indent);
@@ -3056,19 +3334,7 @@ static void dump_inline(sbuf *b, const sml_value *v) {
         case SML_BOOL: sb_add(b, v->u.boolean ? "true" : "false"); break;
         case SML_INT: snprintf(num, sizeof(num), "%lld", v->u.i); sb_add(b, num); break;
         case SML_FLOAT: add_float(b, v->u.f); break;
-        case SML_STR:
-            if (needs_quote(v->u.s)) {
-                sb_addc(b, '"');
-                for (const char *p = v->u.s; *p; p++) {
-                    if (*p == '"') sb_add(b, "\\\"");
-                    else if (*p == '\\') sb_add(b, "\\\\");
-                    else sb_addc(b, *p);
-                }
-                sb_addc(b, '"');
-            } else {
-                sb_add(b, v->u.s);
-            }
-            break;
+        case SML_STR: dump_quote_str(b, v->u.s, v->slen); break;
         case SML_ARRAY: {
             sb_add(b, "[ ");
             size_t i;
@@ -3090,17 +3356,7 @@ static void dump_inline(sbuf *b, const sml_value *v) {
                 first = 0;
                 sb_add(b, f->key);
                 sb_add(b, ": ");
-                if (f->value && f->value->type == SML_STR && needs_quote(f->value->u.s)) {
-                    sb_addc(b, '"');
-                    for (const char *p = f->value->u.s; *p; p++) {
-                        if (*p == '"') sb_add(b, "\\\"");
-                        else if (*p == '\\') sb_add(b, "\\\\");
-                        else sb_addc(b, *p);
-                    }
-                    sb_addc(b, '"');
-                } else {
-                    dump_inline(b, f->value);
-                }
+                dump_inline(b, f->value);
             }
             sb_add(b, " }");
             break;
@@ -3300,12 +3556,15 @@ static void value_to_json(sbuf *b, const sml_value *v) {
         case SML_FLOAT: add_float(b, v->u.f); break;
         case SML_STR:
             sb_addc(b, '"');
-            for (const char *p = v->u.s; *p; p++) {
-                if (*p == '"') sb_add(b, "\\\"");
-                else if (*p == '\\') sb_add(b, "\\\\");
-                else if (*p == '\n') sb_add(b, "\\n");
-                else if (*p == '\t') sb_add(b, "\\t");
-                else sb_addc(b, *p);
+            for (size_t k = 0; k < v->slen; k++) {
+                unsigned char ch = (const unsigned char)v->u.s[k];
+                if (ch == '"') sb_add(b, "\\\"");
+                else if (ch == '\\') sb_add(b, "\\\\");
+                else if (ch == '\n') sb_add(b, "\\n");
+                else if (ch == '\t') sb_add(b, "\\t");
+                else if (ch == 0) sb_add(b, "\\u0000");
+                else if (ch < 0x20) { char u[8]; snprintf(u, sizeof(u), "\\u%04X", ch); sb_add(b, u); }
+                else sb_addc(b, (char)ch);
             }
             sb_addc(b, '"');
             break;
@@ -3429,6 +3688,15 @@ static int resolve_includes(const char *text, const char *base,
         set_err(err, errsz, SML_E_INCLUDE_004 " include 嵌套超过 %d 层", MAX_INC_DEPTH);
         return -1;
     }
+    /* 主文件行首的 UTF-8 BOM：本函数按行切分后判断「行首是不是 include」，
+       BOM 会粘在首词上 ⇒ `\xEF\xBB\xBFinclude "x"` 认不出来，整行被当普通内容写回，
+       最终变成字段 `include: "x"`（静默错树）。`sml_parse` 里那处去 BOM 管不到这里
+       （它在 include 展开**之后**才跑）。子文件的 BOM 在读取处已就地移除。 */
+    if (depth == 0 && text[0] && text[1] && text[2]
+        && (unsigned char)text[0] == 0xEF
+        && (unsigned char)text[1] == 0xBB && (unsigned char)text[2] == 0xBF) {
+        text += 3;
+    }
     /* 展开次数是**全局**计数（跨整棵包含树），嵌套深度限制挡不住菱形包含 */
     if (++(*expansions) > MAX_INC_EXPANSIONS) {
         set_err(err, errsz, SML_E_LIMIT_003 " include 展开次数超过 %d 次上限", MAX_INC_EXPANSIONS);
@@ -3546,7 +3814,11 @@ static int resolve_includes(const char *text, const char *base,
             free(content);
         } else {
             sb_add(out, line);
-            sb_addc(out, '\n');
+            /* 末行补换行是历史行为，但源文本**以反斜杠结尾**时不能补：补了就把
+               「转义符后遇文件结束」（E-LEX-006）改写成「未知转义」（E-LEX-004）——
+               那是按行重建的实现副作用，不是语义差别。与 Rust 的
+               `needs_trailing_newline` 同判据（`sml-parse/src/scan.rs`）。 */
+            if (nl || !(linelen > 0 && line[linelen - 1] == '\\')) sb_addc(out, '\n');
         }
         free(line);
         free(inc);

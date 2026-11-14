@@ -89,10 +89,20 @@
 **S8 已落地（2026-11-04）**：`!any` 契约级开关（`Contract.allow_any`）—— `any` / `[any]` 默认禁用
 （`E-FEATURE-001`），写了 `!any` 才放行（含 `null`）；块头与 `@is` 两条路径同一判据；递归契约去重防死循环。
 
-**S9 已落地（2026-11-04，文档部分；用户定「四端之后统一同步」）**：其它四端**不实现** featag 这件事
-写进了 `docs/swsml/ref/capability-matrix.md` 新增的 §1.7b（含**实测**：JS→`E-FEATURE-003`、Lua→`E-PARSE-005`、
-Rust 未开位时→`E-PARSE-012`；C/C++ 标「未测」不编造），并顺手记下一条**与本轮无关的老分歧**
-（同一输入 Rust 报错、JS/Lua 当字段分隔收下）。**代码零改动** —— 本就该如此。
+**S9 原策略作废（2026-11-14 用户：「featag 建议是做下」）**：四端不再「照旧报不支持」，
+改为同步实现 S2–S4（块头 `!` 区 / `__featags` / 契约内 `!name` 声明），四端与 Rust 的
+`featag`、`featag-decl` 两个探针切片已 **AGREE**（`tools/check/probe_grammar.py`）。
+
+- 已落地：C / C++ / JS / Lua 各改两处 —— 块头预扫描允许 `!tag [args]` 与逗号，收集成 `__featags`
+  保序数组（无参只有 `name`，带参多一个 `args`）；契约体把 `!name[: 类型][-> 落点]` 整行收下后跳过。
+- 前置补齐：C / C++ / Lua 原本**不做** typed-block 的契约应用（只认显式 `@is`），
+  契约的 default / 必填 / 类型校验在块头写法下静默失效；本轮一并补上，并新增探针切片
+  `typed-block-default`（契约带 `default`，否则旧切片看不出差别）。
+- 尚未做：**S5 使用处校验**（未声明即拒 `E-CONTRACT-021`、参数个数/类型）、**S6 落点填充**
+  （`-> PATH`、`!strict-paths`、`auto`、`E-CONTRACT-022/023/025`）、**S7 `from-featag`**、
+  **S8 `!any`**。这四片仍只有 Rust 实现；四端当前对未声明 featag **放行**，落点被忽略。
+  ⇒ `grammar.sml` 里 `Deploy !tls replicas[3] zone[cn-north-1]` 那几段在四端不会报错、
+  但也不会写入 `spec.*`（属已知缺口，探针未覆盖，`docs/swsml/ref/grammar-divergences.md` 已记）。
 
 **建议顺序**：`S0 → S1a → S2 → S3`（**到这里就能给你看真实数据**）`→ S4 → S5 → S6 → S7 / S8 → S9`。
 **S1b（标识符校验）可并行**：S1a / S2 / S3 都不依赖它，它只在 S4（声明收集）之后才真正卡住。

@@ -66,6 +66,10 @@ struct sml_value {
             size_t len;
         } obj;
     } u;
+    /* SML_STR 的**字节长度**（可含 NUL）。`u.s` 仍以 '\0' 结尾，兼容既有 C 调用方，
+       但含 `\0` 的值必须用这个长度读：C 字符串在 NUL 处就断了。
+       ｜ Byte length for SML_STR; `u.s` stays NUL-terminated for existing callers. */
+    size_t slen;
 };
 
 /* ---- 构造 / 释放 ---- */

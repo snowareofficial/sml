@@ -156,8 +156,8 @@ codes: [
       note: "Rust 报「@ 后需片段名」、JS 报「@ 后需名称」；符号与名字之间有空白的情形另有 E-PARSE-004" }
     { id: E-PARSE-012 domain: PARSE severity: E title: "语法错误（兜底）"
       msg: "语法错误：未能给出更具体的原因"
-      impls: [ rust c lua ] status: partial
-      note: "Rust 的通用兜底、C 的解析失败兜底、Lua 的解析阶段包裹都归此码。出现此码说明该处上下文不足，应当单独改进，而不是靠扩大范围掩盖" }
+      impls: [ rust c cpp js lua ] status: partial
+      note: "Rust 的通用兜底、C 的解析失败兜底、Lua 的解析阶段包裹都归此码。**值位置**的游离 `:` 与孤立 `@` 五端同报本码；**行首/成员位置**的孤立 `@` 仍是 E-PARSE-004（两者触发条件不同，探针 `probe_matrix.py --suite errors` 两条都钉着）。出现本码说明该处上下文不足，应单独改进，而不是靠扩大范围掩盖" }
     { id: E-PARSE-013 domain: PARSE severity: E title: "键名位置不支持插值"
       msg: "键名位置不支持 `$` 插值：循环变量只可用于值位置"
       impls: [ rust ] status: partial
@@ -323,8 +323,8 @@ codes: [
       note: "`@when` 的条件用环境变量时同报此码；**JS 改前无条件内插（无门控）**，W16 起裸词与引号串里的 `$env.X` 都受 `env` 特性管辖（关掉即报此码，与 Rust 的 `coerce_word` 同码 —— 注意不是 `E-FEATURE-001`）" }
     { id: E-FEATURE-003 domain: FEATURE severity: E title: "未知特性名"
       msg: "未知特性名"
-      impls: [ rust js ] status: done
-      note: "规范文案会附带可用特性列表。**JS 原先把未知特性静默加入集合**（`feats.add(w)` 不校验）⇒ 用户以为开了某项能力、实际什么都没开且无提示；已对齐本码（`js/sml.mjs` 的 `KNOWN_FEATURES`，合法名 = Rust 注册表 15 个 **并集** JS 别名 `top-array`/`bareword-str`/`escape`，并支持逗号分隔）。⚠️ **Rust 自 2026-11-04 起按命名空间判名**（`docs/swsml/spec/features.md` N4）：老名保持平铺、**不补** `type.xxx` 别名（N2），新增特性写作 `<域>.<名>`（域 = `lex`/`mod`/`type`/`flow`，只在第一个点切一次，三段直接拒）—— 三类失败（三段 / 未知域 / 未注册）**同码**，靠 detail 区分。故 `type.featag` 在 Rust 合法、在 JS/Lua 仍落本码（该特性本就只在 Rust，见 capability-matrix）。⚠️ C / C++ / Lua 没有特性集（`@feature` 本身非法 ⇒ 落 `E-PARSE-005`），故不在 impls" }
+      impls: [ rust js c cpp lua ] status: done
+      note: "规范文案会附带可用特性列表。**JS 原先把未知特性静默加入集合**（`feats.add(w)` 不校验）⇒ 用户以为开了某项能力、实际什么都没开且无提示；已对齐本码（`js/sml.mjs` 的 `KNOWN_FEATURES`，合法名 = Rust 注册表 15 个 **并集** JS 别名 `top-array`/`bareword-str`/`escape`，并支持逗号分隔）。⚠️ **Rust 自 2026-11-04 起按命名空间判名**（`docs/swsml/spec/features.md` N4）：老名保持平铺、**不补** `type.xxx` 别名（N2），新增特性写作 `<域>.<名>`（域 = `lex`/`mod`/`type`/`flow`，只在第一个点切一次，三段直接拒）—— 三类失败（三段 / 未知域 / 未注册）**同码**，靠 detail 区分。故 `type.featag` 在 Rust 合法、在 JS/Lua 仍落本码（该特性本就只在 Rust，见 capability-matrix）。⚠️ **C / C++ / Lua 同样报本码**：三端都有特性集与 `@feature enable/disable`，未知名一律落此码；借 `E-FEATURE-002`（「环境变量被禁用」）报未知名的写法已消除 —— 同一条件两个码会让编辑器与调用方判错类别" }
     { id: E-FEATURE-004 domain: FEATURE severity: E title: "版本声明非法"
       msg: "不支持的版本声明，或版本声明互相冲突；当前支持 v1..v4"
       impls: [ rust c cpp js lua smltools ] status: partial
@@ -335,14 +335,15 @@ codes: [
       note: "JS 已实现：v2/v3/v4（严格模式）关闭 bareword-string，裸词字符串报此码；v1 默认开（裸词即字符串），与 Rust 同码。仅约束**值位置**裸词，键名 / 指令参数 / 片段名不受影响" }
     { id: E-FEATURE-006 domain: FEATURE severity: E title: "feature 子命令未知"
       msg: "未知的 `@feature` 子命令"
-      impls: [ rust ] status: done
-      note: "可用子命令见文案附带的列表" }
+      impls: [ rust c cpp js lua ] status: done
+      note: "合法子命令只有 base / mode / enable / disable / whitelist / blacklist；**单端不实现某个合法子命令时也落本码**（例如四端不实现 `mode`，但参数合法时不许谎报成 E-FEATURE-008）。四端此前把整行静默剥掉（JS）或吞进别的分支（C/C++/Lua），拼错的子命令等于「本意关掉的特性没关」" }
     { id: E-FEATURE-007 domain: FEATURE severity: E title: "feature 指令缺少参数"
       msg: "`@feature` 指令缺少参数"
-      impls: [ rust ] status: done }
+      impls: [ rust c cpp js lua ] status: done }
     { id: E-FEATURE-008 domain: FEATURE severity: E title: "feature mode 参数非法"
       msg: "`@feature mode` 的参数须为白名单或黑名单之一"
-      impls: [ rust ] status: done }
+      impls: [ rust c cpp js lua ] status: done
+      note: "参数校验是**语法层**的，与「本端是否实现 mode」分开：参数不是 whitelist / blacklist ⇒ 本码；参数合法但本端未实现 ⇒ E-FEATURE-006（不把「没实现」谎报成「参数非法」）" }
     { id: E-FEATURE-009 domain: FEATURE severity: E title: "请求特性与允许集无交集"
       msg: "文档请求的特性与调用方允许的特性没有交集"
       impls: [ rust js ] status: partial
@@ -478,8 +479,8 @@ codes: [
 
     { id: E-INCLUDE-012 domain: INCLUDE severity: E title: "include 路径写法非法"
       msg: "include 路径写法非法（未加引号或含非法字符）"
-      impls: [ rust lua c cpp smltools ] status: done
-      note: "**2026-09-19 升为语言级规则**（用户裁决「好的」）：Rust 实现在 `sml-include::parse_include_line`，判据来自 `next_token_meta` 报告的「是否以引号开头 / 引号是否闭合」——未加引号、引号未闭合、通配裸写都报此码。**两处豁免**：① `import a.b`（点分模块名的裸词是**语法**的一部分）② `re:…`（受限正则模式首字符本来就是 r）。CLI（smltools）经库原样拿到此码。此前 Rust 侧把「未加引号」当普通路径解析 ⇒ `include nope.sml` 报 `E-INCLUDE-001`（文件不存在），用户被引去查一个**根本不该存在的文件**，而真正的问题是少了一对引号；「引号未闭合」更糟：静默把已读内容当完整路径。**C（同日对齐）**：`try_include_target` 原先首词 `include` 后跟裸词时直接返回 NULL ⇒ 整行被当普通内容，指令意图**静默丢弃**（连错都不报）；现报此码，且引号未闭合也不再错报 `E-INCLUDE-001`。**C++（同日对齐）**：它的引号串与裸词**同型**（都存 `Word`，引号串只是内容两侧补 `\"`）⇒ 旧实现无法区分，目标存在就照常展开；现按第二 token 是否以引号开头判，报此码。⚠️ **端间差异**：C++ 的「引号未闭合」在**词法层**就按 `E-LEX-001`（子文件里 `E-INCLUDE-011`）拦下，走不到这里。⚠️ **尚未做**：多余字符（闭合引号后跟其它内容）；**JS**（走裸词回退，仍是接受未加引号）" }
+      impls: [ rust lua c cpp js smltools ] status: done
+      note: "**2026-09-19 升为语言级规则**（用户裁决「好的」）：Rust 实现在 `sml-include::parse_include_line`，判据来自 `next_token_meta` 报告的「是否以引号开头 / 引号是否闭合」——未加引号、引号未闭合、通配裸写都报此码。**两处豁免**：① `import a.b`（点分模块名的裸词是**语法**的一部分）② `re:…`（受限正则模式首字符本来就是 r）。CLI（smltools）经库原样拿到此码。此前 Rust 侧把「未加引号」当普通路径解析 ⇒ `include nope.sml` 报 `E-INCLUDE-001`（文件不存在），用户被引去查一个**根本不该存在的文件**，而真正的问题是少了一对引号；「引号未闭合」更糟：静默把已读内容当完整路径。**C（同日对齐）**：`try_include_target` 原先首词 `include` 后跟裸词时直接返回 NULL ⇒ 整行被当普通内容，指令意图**静默丢弃**（连错都不报）；现报此码，且引号未闭合也不再错报 `E-INCLUDE-001`。**C++（同日对齐）**：它的引号串与裸词**同型**（都存 `Word`，引号串只是内容两侧补 `\"`）⇒ 旧实现无法区分，目标存在就照常展开；现按第二 token 是否以引号开头判，报此码。⚠️ **端间差异**：C++ 的「引号未闭合」在**词法层**就按 `E-LEX-001`（子文件里 `E-INCLUDE-011`）拦下，走不到这里。⚠️ **JS 已对齐**：`include x.sml` 不再走裸词回退（此前会凭空造出 `x.sml: x.sml` 这样的键），只在 `import a.b` 的点分模块名与 `re:` 两种豁免下接受裸词，其余报本码。⚠️ **尚未做**：多余字符（闭合引号后跟其它内容）" }
 
     # ================= 扩展点（语言层） =================
     { id: E-EXT-001 domain: EXT severity: E title: "未注册的指令、类型或修饰符"

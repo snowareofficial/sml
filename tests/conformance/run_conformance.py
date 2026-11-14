@@ -543,12 +543,16 @@ def sig_key(c):
     return json.dumps(c["json"], sort_keys=True, ensure_ascii=False) + "\x00" + repr(c["tokens"])
 
 
-# 放行名单：只放行「同一数值、int/float 身份不同」的情形，其它差异照旧判红。
-# ｜ Waivers: only "same numeric value, different int/float identity" is tolerated.
+# 放行名单：只放行**载体表示不了**的那两处，其它差异照旧判红。
+# ｜ Waivers: only carrier limitations are tolerated; everything else still fails.
 WAIVERS = {
     "19_num_one_dot_zero":
         "JS 的 Number 与 LuaJIT 的 double 只有一种数字类型，`1.0` 与 `1` 不可区分"
         "（载体限制，见 known_divergences.md #10）；抹平后仍要求数值相等、结构相同",
+    "20_num_bigint":
+        "JS / Lua 表示不了 i64 精度的整数（double 只有 53 位尾数），两端都**退化成字符串**："
+        "保真、类型变了。dump 现在如实写出 `\"3301…\"`，故本用例如实 DIVERGE；"
+        "放行只抹平「十进制数字串 ↔ 整数」，见 known_divergences.md #11 / B-01",
 }
 
 
@@ -565,6 +569,51 @@ def sig_key_numeric_only(c):
         else:
             toks.append((kind, val))
     return json.dumps(c["json"], sort_keys=True, ensure_ascii=False) + "\x00" + repr(toks)
+
+
+def _digits_to_num(v):
+    """把「整数 / 十进制数字串」统一成数值标记 —— 只给 `20_num_bigint` 用。"""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, int):
+        return ["__num__", repr(float(v))]
+    if isinstance(v, str) and re.fullmatch(r"-?\d+", v) and len(v) > 15:
+        try:
+            return ["__num__", repr(float(v))]
+        except ValueError:
+            return v
+    if isinstance(v, list):
+        return [_digits_to_num(x) for x in v]
+    if isinstance(v, dict):
+        return {k: _digits_to_num(x) for k, x in v.items()}
+    return v
+
+
+def sig_key_num_or_digits(c):
+    """同 [`sig_key`]，但把「十进制数字串」与「整数」视为同一个值 —— **只给 20 号用例**。
+
+    为什么仍然要抹平：JS / LuaJIT 的数值模型只有 double，`330106201503071234` 无法精确
+    表示，两端都回退成字符串（保真、类型变了）；Rust / C / C++ 保留整数。这是载体限制，
+    不是某一端的缺陷，故以 `*` 放行。抹平范围刻意窄：只认「纯十进制数字且长度 > 15」的
+    字符串，不会顺带吃掉「短数字串 vs 整数」这类真差异。
+    """
+    toks = []
+    for kind, val in c["tokens"]:
+        if kind in ("int", "float"):
+            toks.append(("num", repr(float(val))))
+        elif kind == "str" and re.fullmatch(r"-?\d+", val) and len(val) > 15:
+            toks.append(("num", repr(float(val))))
+        else:
+            toks.append((kind, val))
+    body = [_digits_to_num(x) for x in [c["json"]]][0]
+    return json.dumps(body, sort_keys=True, ensure_ascii=False) + "\x00" + repr(toks)
+
+
+# 每个放行用例用哪套归一化（默认 = 严格 sig_key；只有列在这里的才放宽）。
+WAIVER_SIG = {
+    "19_num_one_dot_zero": sig_key_numeric_only,
+    "20_num_bigint": sig_key_num_or_digits,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -720,8 +769,7 @@ def main():
                     elif r.get("canon") is None:
                         cells[e.name] = "NC"       # 解析成功，但 dump 不能被 Rust 回读
                     else:
-                        k = (sig_key_numeric_only(r["canon"]) if stem in WAIVERS
-                             else sig_key(r["canon"]))
+                        k = WAIVER_SIG.get(stem, sig_key)(r["canon"])
                         if k not in classes:
                             classes[k] = (chr(ord("A") + len(classes)), [])
                         classes[k][1].append(e.name)

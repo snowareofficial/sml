@@ -561,9 +561,16 @@ local function coerce(tok, fragments)
   if tok == "true" then return true end
   if tok == "false" then return false end
   if tok == "null" then return nil end
-  -- 环境变量内联：$env.VAR（裸词）
+  -- 环境变量内联：$env.VAR（裸词）。门控必须与引号串内插那条路径同判据：
+  -- 改前只拦 `"..."` 里的 `$env.`，裸词照旧读宿主环境变量 ⇒
+  -- `@feature disable env` 在沙箱里形同虚设。
   local ev = string.match(tok, "^%$env%.(.+)$")
-  if ev then return os.getenv(ev) or "" end
+  if ev then
+    if not (_FEATURES and _FEATURES[2]) then
+      fail("E-FEATURE-002", "裸词 `" .. tok .. "` 无法解析：未启用特性 `env`")
+    end
+    return os.getenv(ev) or ""
+  end
   -- 片段引用：&name
   if string.sub(tok, 1, 1) == "&" then
     local fn = string.sub(tok, 2)
@@ -580,9 +587,20 @@ local function coerce(tok, fragments)
     -- 否则 `330106201503071234` 会变成 3.3010620150307e+17（静默改数据）。
     -- 判据：整数形态且 `%.0f` 回写与原文不一致 ⇒ 有精度损失（顺带覆盖 `007` 前导零）。
     if not string.find(tok, "[%.eE]") then
+      local signed = string.gsub(tok, "^%+", "")
+      -- 超出 i64 的整数：Rust 走 STR-FALLBACK 保留字符串，而 double 会把
+      -- `9223372036854775808` 变成 9.2233720368548e+18（既不精确、类型也变了）。
+      -- 用**字典序**比位数，避开 double 本身无法表示 i64 上界的问题。
+      local digits = string.match(signed, "^%-?(%d+)$")
+      if digits then
+        local d = string.gsub(digits, "^0+", "")
+        if d == "" then d = "0" end
+        local neg = string.sub(signed, 1, 1) == "-"
+        local lim = neg and "9223372036854775808" or "9223372036854775807"
+        if #d > #lim or (#d == #lim and d > lim) then return tok end
+      end
       local n = tonumber(tok)
       -- 保留负号比较（`-1` 的 %.0f 是 "-1"，剥号后会误判成精度损失）。
-      local signed = string.gsub(tok, "^%+", "")
       if n and string.match(signed, "^%-?%d+$")
          and string.format("%.0f", n) ~= signed then
         return tok
@@ -721,6 +739,11 @@ local function parse_type(tokens, i)
     -- 数组元素类型位置同样不许出现遗留符号修饰符（`[ str? ]`）
     reject_legacy_modifier_sym(el)
     local elem
+    if el == "enum" then
+      -- 元素位置不许 enum（Rust 同码 012）：改前它落进下面的契约引用分支，
+      -- 到取值校验时变成 006（「枚举值非法」），把「写法不成立」说成了「值不对」。
+      fail("E-CONTRACT-012", "数组元素类型不能是 `enum`")
+    end
     if el == "str" or el == "int" or el == "num" or el == "bool" or el == "any" then
       elem = { kind = el }
     else
@@ -840,7 +863,17 @@ local function parse_contract_body(tokens, i, fragments)
       end
       fail("E-PARSE-005", "sml: 契约体内不支持指令 `@" .. (dn or "") .. "`（契约体仅支持 `@requires`）")
     end
-    if tok == "," then
+    -- featag 声明：`!name` / `!name: 类型` / `!name: 类型 -> 落点`。
+    -- 开了 `type.featag` 才是记号；本片只**收下并跳过**（S4 的收集），
+    -- 使用处校验（未声明即拒 / 参数类型）与落点填充属 S5/S6，尚未接。
+    if _FEATURES and _FEATURES[17] and string.sub(tok, 1, 1) == "!" then
+      local decl_line = _LINES and _LINES[i] or 0
+      i = i + 1
+      while tokens[i] ~= nil and tokens[i] ~= "}"
+            and (_LINES == nil or _LINES[i] == decl_line) do
+        i = i + 1
+      end
+    elseif tok == "," then
       i = i + 1
     elseif STRUCT_CHARS[tok] then
       fail("E-PARSE-006", "契约字段期望键，得结构记号 '" .. tok .. "'")
@@ -934,12 +967,9 @@ apply_contract = function(node, contracts, name)
     fail("E-CONTRACT-008", "契约只能应用于块，实际不是块")
   end
   -- 1) 严格性：未声明字段一律拒绝（默认严格；`loose` 显式放宽）。
-  --    ⚠️ `__type` / `__name` **不豁免** —— 与 Rust 实测一致：
-  --       `@contract A { city: str }` + `x { @is S addr Sub { city: Beijing } }`
-  --       （裸块带参数 → 子块含 __type/__name）在 Rust 上报 E-CONTRACT-004
-  --       「字段 `addr.__name` 未在契约 `A` 中声明」（用 smltools 实跑确认）。
-  --       C++ 侧显式跳过这两个键，与本端不同 —— 本端以 Rust 为准（W20 报告已登记）。
-  --       仅当子块是**普通** `key { ... }`（无 type/name 参数）时才没有这两键。
+  --    `__` **前缀**是元数据保留键（`__type` / `__name` / `__args` / `__featags`），
+  --    Rust 一律不拿它们做契约字段校验 —— `S !critical, prod { }` 在严格契约下也能通过
+  --    就是这条（`prod` 是 `__name`）。逐个列举会在加新键时静默漏掉一个。
   --    键按名排序遍历：Rust 用 BTreeMap（有序），本端 pairs 无序会让「报哪个键」
   --    随机漂移，排序后与 Rust 一样确定。
   if not c.allow_extra then
@@ -947,7 +977,7 @@ apply_contract = function(node, contracts, name)
     for k in pairs(node) do meta[#meta + 1] = k end
     table.sort(meta)
     for _, k in ipairs(meta) do
-      if c.fields[k] == nil then
+      if k ~= "__type" and k ~= "__featags" and c.fields[k] == nil then
         fail("E-CONTRACT-004",
              "字段 `" .. tostring(k) .. "` 未在契约 `" .. name .. "` 中声明（严格模式）")
       end
@@ -1155,6 +1185,10 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
       return
     end
     pending_when = nil
+    -- 对象字段的 `null`：Lua 表不能存 nil（存了键就消失），与 Rust 的「键在、值是 null」
+    -- 不一致（`a: null` 在 Rust 是 {a: null}，这里是 {}）。用 NULL 哨兵占位，
+    -- 与数组元素位置同一处理；dump 输出 `null`。
+    if v == nil then v = NULL end
     -- 弱绑定：`@weakbind X` 之后的那个块，用内置表做**只读**软校验（不填默认值），
     -- 并把「哪个块绑了哪个契约」记进旁路表。
     if pending_weak ~= nil and type(v) == "table" and not is_array(v) then
@@ -1323,7 +1357,8 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
             local nm = tokens[i]
             local bit = SML_FEATURE_NAMES[nm]
             if bit == nil then
-              fail("E-FEATURE-002", "未知特性名 `" .. nm .. "`")
+              -- 未知特性名是 003（002 = 环境变量被禁用）。
+              fail("E-FEATURE-003", "未知特性名 `" .. nm .. "`")
             end
             any = true
             _FEATURES[bit] = (sub == "enable") and true or nil
@@ -1332,6 +1367,16 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
           end
           if not any then
             fail("E-FEATURE-007", "`@feature " .. sub .. "` 缺少特性名")
+          end
+        elseif sub == "mode" then
+          -- 参数校验属语法层：不是 whitelist / blacklist ⇒ 008（Rust 同码）；
+          -- 参数合法但本端未实现 mode ⇒ 006（不把「没实现」谎报成「参数非法」）。
+          local arg = tokens[i + 1]
+          if is_word_tok(arg) and _LINES[i + 1] == _LINES[i]
+             and (arg == "whitelist" or arg == "blacklist") then
+            fail("E-FEATURE-006", "`@feature mode`：本端暂不支持该子命令")
+          else
+            fail("E-FEATURE-008", "`@feature mode` 的参数须为 whitelist / blacklist")
           end
         else
           fail("E-FEATURE-006", "`@feature " .. sub .. "`：本端暂不支持该子命令")
@@ -1395,6 +1440,11 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
             -- 换行即停：下一行的键/值不是契约名
           elseif tokens[j + 1] == ":" then
             -- 后跟 : 是键，非契约名
+          elseif nx ~= "loose" and nx ~= "warn" and nx ~= "strict"
+                 and contracts[nx] == nil then
+            -- 第二个词不是严格度关键字、也不是已注册契约 ⇒ Rust 报「未定义的契约」001；
+            -- 只有「两个都注册了」才是真·多契约缺口 017。
+            fail("E-CONTRACT-001", "应用未定义契约 `" .. tostring(nx) .. "`")
           else
             fail("E-CONTRACT-017", "sml: 该实现暂不支持一个块应用多份契约（@is 多契约写法）")
           end
@@ -1483,6 +1533,15 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
         local arr
         arr, i = parse_array(tokens, i + 1, fragments, contracts, depth + 1)
         set_field(key, arr)
+      elseif nxt == ":" then
+        -- 值位置游离的 `:`（`a: :`）：Rust 报 E-PARSE-012。改前它落进标量分支，
+        -- `:` 被原样当成字符串值 ⇒ 解析成功、树是错的（静默差异）。
+        fail("E-PARSE-012", "值位置出现游离的 `:`；含 `:` 的标量请加引号")
+      elseif nxt == "@" or nxt == "@bare" then
+        -- 值位置的孤立 `@`（`a: @ b`）：Rust 报 E-PARSE-012。词法把「后面是空白的 @」
+        -- 存成内部标记 `@bare`（成员级分支靠它报 004），值位置若漏判，这个标记会被
+        -- coerce 当普通字符串 ⇒ 得到 `a: "@bare"` 这种把内部标记写进数据的静默错树。
+        fail("E-PARSE-012", "值位置出现孤立的 `@`：它不是合法的标量开头")
       elseif not colon and (nxt == nil or nxt == "}" or nxt == "]" or nxt == ",") then
         -- 键后无值：键本身即值。`&frag` 是**片段展开**——把片段的字段并进当前块
         -- （splice），而不是造一个 `&frag` 键。
@@ -1501,12 +1560,33 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
              and not words_then_directive(tokens, i) then
         -- 裸块：key 为类型，后续 token 直到 { 为参数
         local args = {}
+        local featags = nil
         local key_is_contract = (contracts[key] ~= nil)
+        -- 开了 `type.featag` 且首词命中契约时，块头可以有 `!tag [args]` 区与逗号分隔的块名
+        -- （`Service !critical !obey[4], prod { }`）。未开时保持旧行为。
+        local feat_on = (_FEATURES and _FEATURES[17] and key_is_contract) and true or false
         local arg_has_contract = false
-        while tokens[i] and tokens[i] ~= "{" and tokens[i] ~= "}" and tokens[i] ~= "]" and tokens[i] ~= "," do
-          if key_is_contract and contracts[tokens[i]] ~= nil then arg_has_contract = true end
-          args[#args+1] = coerce(tokens[i], fragments)
-          i = i + 1
+        while tokens[i] do
+          local tk = tokens[i]
+          if tk == "{" or tk == "}" or tk == "]" then break end
+          if feat_on and string.sub(tk, 1, 1) == "!" then
+            local nm = string.sub(tk, 2)
+            i = i + 1
+            featags = featags or {}
+            local item = { name = nm }
+            if tokens[i] == "[" then
+              local arr
+              arr, i = parse_array(tokens, i + 1, fragments, contracts, depth + 1)
+              item.args = arr
+            end
+            featags[#featags + 1] = item
+          elseif feat_on and tk == "," then
+            i = i + 1
+          else
+            if key_is_contract and contracts[tk] ~= nil then arg_has_contract = true end
+            args[#args+1] = coerce(tk, fragments)
+            i = i + 1
+          end
         end
         -- 任务 D：块级多契约「响亮拒绝」—— head 词命中契约表且 args 里出现第 2 个
         --   已注册契约词 ⇒ E-CONTRACT-017（单契约 `server web prod` 的 web/prod 不是契约，不受影响）。
@@ -1518,6 +1598,15 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
           _ENTER_KEY = key         -- 裸块：路径段用块类型名
           sub, i = parse_block(tokens, i + 1, "}", fragments, contracts, depth + 1)
           sub.__type = key
+          if featags then sub.__featags = featags end
+          -- typed-block：块头首词命中契约 ⇒ 等价块内首行 `@is`（默认值回填 + 校验）。
+          -- 改前本端不应用契约，契约的 default / 必填 / 类型校验全部静默失效。
+          -- ⚠️ 契约应用**先于** `__name` 写入：Rust 的块头契约校验发生在命名参数落位之前，
+          --    所以 `Service !t, prod { }` 在严格契约下能过；而字段值里的带名裸块
+          --    （`x { @is A addr Sub { } }`）`__name` 已存在，仍报 E-CONTRACT-004。
+          if _FEATURES and _FEATURES[14] and contracts[key] ~= nil then
+            apply_contract(sub, contracts, key)
+          end
           if #args == 1 then sub.__name = args[1] end
           set_field(key, sub)
         else
@@ -2052,22 +2141,70 @@ end
 ------------------------------------------------------------------------------
 -- 字符串是否需要加引号：空白（%s 含空格/制表/换行/回车）、" 与 \ 都会破坏裸词语法。
 -- #12（换行）、#17（引号）的根因：原只看空白，含 `"`/`\` 原样写出是非法 SML。
+-- 纯数字形态（会被 coerce 字面量化）。`0x` / `0b` 前缀不算 —— 与 Rust
+-- `f64::parse` 不认十六进制对齐（Lua 的 tonumber 认 `0x20`，不挡住就会与 Rust 分叉）。
+local function sml_looks_number(s)
+  local q = s
+  local c1 = string.sub(q, 1, 1)
+  if c1 == "+" or c1 == "-" then q = string.sub(q, 2) end
+  if string.match(q, "^0[xXbB]") then return false end
+  if not string.match(q, "^[%d%.]") then return false end
+  return tonumber(s) ~= nil
+end
+
+-- 是否需要给字符串加引号 —— 与 Rust `sml-value::text_rules::needs_quote` 同判据：
+-- 空串 / true·false·null·inf·nan / 纯数字 / 注释前缀 / 破坏语法的字符 /
+-- 首字符非字母下划线 / 含 [A-Za-z0-9_.-] 之外的字符。
+-- 改前只判空白与 `"` `\` ⇒ `"42"`、`"true"`、`"007"` 全写成裸词，
+-- 自己 dump 的文本自己读回来就换了类型（台账 S-05）。
 local function sml_needs_quote(s)
   if s == "" then return true end
-  if string.match(s, '[%s"\\]') then return true end
+  if s == "true" or s == "false" or s == "null" or s == "inf" or s == "nan" then
+    return true
+  end
+  if sml_looks_number(s) then return true end
+  local h2 = string.sub(s, 1, 2)
+  if h2 == "--" or h2 == "//" or h2 == "/*" or h2 == "*/" or h2 == "_*"
+     or string.sub(s, 1, 1) == "*" then
+    return true
+  end
+  if string.find(s, '[%s:#{},%[%]"\\/%*]') then return true end
+  local first = string.byte(s, 1)
+  if not (string.match(string.sub(s, 1, 1), "^[%a_]$") or first >= 0x80) then
+    return true
+  end
+  for k = 1, #s do
+    local b = string.byte(s, k)
+    if not (string.match(string.sub(s, k, k), "^[%w_%-%.]$") or b >= 0x80) then
+      return true
+    end
+  end
   return false
 end
--- 加引号**同时**要转义串内的 \ 与 "，否则仍是非法 SML（Lua 此前两处都没转义）。
+-- 加引号**同时**要转义：`\\ \" \n \t \r \0`，其余控制字符走 `\u00XX`
+-- —— 与 Rust `quote_if_needed` 的转义集逐条一致。改前只转义 `\` 与 `"`，
+-- 真换行 / 真 NUL 会以裸字节落进文本（台账 S-06）。
 local function sml_escape_str(s)
-  s = string.gsub(s, "\\", "\\\\")
-  s = string.gsub(s, '"', '\\"')
-  return s
+  local out = {}
+  for k = 1, #s do
+    local b = string.byte(s, k)
+    if b == 92 then out[#out + 1] = "\\\\"
+    elseif b == 34 then out[#out + 1] = '\\"'
+    elseif b == 10 then out[#out + 1] = "\\n"
+    elseif b == 9 then out[#out + 1] = "\\t"
+    elseif b == 13 then out[#out + 1] = "\\r"
+    elseif b == 0 then out[#out + 1] = "\\0"
+    elseif b < 32 or b == 127 then out[#out + 1] = string.format("\\u%04X", b)
+    else out[#out + 1] = string.sub(s, k, k) end
+  end
+  return table.concat(out)
 end
 
 local function dump_value(v, indent, out)
   indent = indent or 0
   local pad = string.rep("  ", indent)
   local t = type(v)
+  if v == NULL then out[#out + 1] = "null"; return end
   if t == "table" then
     if is_array(v) then
       -- 数组（含空数组：靠 ARRAY_MT 标记与空对象区分；见 is_array）。

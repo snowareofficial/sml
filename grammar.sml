@@ -9,10 +9,11 @@
 #             能被解析器直接读的 .sml 文档 —— 规范与工件是同一份东西。
 #
 #  全集声明 : 本文档刻意把**所有已实现的 SML 元素**写成活代码（含 featag、@type、
-#             @when、@for、weak*、@feature 特性位），因此它**以 Rust 参照实现为准**：
-#             其余四端会响亮拒绝自己不认识的特性位（JS: E-FEATURE-003、Lua: @feature
-#             本身非法、C / C++ 未实现 featag / @type / weak*）。要被五端共读的核心
-#             子集看 showcase.sml 与 showcase_contract.sml。
+#             @when、@for、weak*、@feature 特性位），因此它**以 Rust 参照实现为准**。
+#             四端据此各停在第一处不支持处：C / Lua 停在 @type（E-CONTRACT-008）、
+#             C++ 同为 @type（E-CONTRACT-001）、JS 停在多契约（E-CONTRACT-017）。
+#             要被五端共读的核心子集看 showcase.sml 与 showcase_contract.sml；
+#             逐特性实测与归因见 docs/swsml/ref/grammar-divergences.md。
 #
 #  记法约定（本文件内部）：
 #    · 产生式一律写成字符串，故串内的 { } [ ] : # @ & 都是普通字符，无需转义；
@@ -199,7 +200,7 @@ directives: [
 
     { name: requires  output: none   status: impl_rust
       form: "@requires NAME { NAME }"
-      note: "契约体内的契约级依赖声明；JS 端明确拒绝 ⇒ E-CONTRACT-018" }
+      note: "契约体内的契约级依赖声明；四端不支持该指令 ⇒ E-CONTRACT-018（Rust 的同一个码只表示「要求未满足」）" }
 
     { name: weakbind  output: side   status: impl
       form: "@weakbind NAME [ { KEY : SPEC } ]"
@@ -320,7 +321,7 @@ window {
     start: "09:30"
 }
 
-# 多契约叠加：@is 后可跟多个契约，各自可带严格度（C 端对多契约报 E-CONTRACT-017）
+# 多契约叠加：@is 后可跟多个契约，各自可带严格度（C / C++ / JS / Lua 同报 E-CONTRACT-017）
 @contract Left { l: int }
 @contract Right { r: int }
 
@@ -330,7 +331,8 @@ pair {
     r: 2
 }
 
-# 契约级 @requires：声明该契约依赖哪些特性位（JS 端明确拒绝 ⇒ E-CONTRACT-018）
+# 契约级 @requires：声明该契约依赖哪些特性位（四端不支持该指令 ⇒ E-CONTRACT-018；
+# Rust 只在「要求未满足」时报同一个码，本例的 when 已开，故 Rust 通过）
 @contract Gated {
     @requires when
     flag: bool default true
@@ -493,7 +495,8 @@ v5_draft {
         }
 
         gotchas: [
-            "未开 type.featag 时块头的逗号触发 E-PARSE-007（实测：块名靠逗号与 featag 区断开）"
+            "未开 type.featag 时块头的逗号触发 E-PARSE-007（块名靠逗号与 featag 区断开）"
+            "四端不实现 featag 时的拒绝码随位置漂移（块头 E-PARSE-007 / E-PARSE-006，契约体内 E-CONTRACT-003 / 001 / E-PARSE-006），见 docs/swsml/ref/grammar-divergences.md"
             "值位置裸写 a: !b ⇒ E-PARSE-027；要字面量就给 !b 加引号"
             "块名以 ! 开头 ⇒ E-PARSE-028；空 featag 区 Edge ! , ⇒ E-PARSE-026"
             "! 只在「块头契约词之后」是记号，别处出现即歧义即报错（A9）"
@@ -536,7 +539,10 @@ cross_end_notes: [
     "对象键序不保证：对象是映射，Rust 按键排序输出，其余保书写顺序 ⇒ 需要序列时用数组"
     "引号策略不同：同一份数据两端可写出不同文本（都能读回）；像数字的字符串须显式加引号"
     "裸冒号三端口径：Rust 拒绝、JS 造出 : 键、C 丢字段 ⇒ 含 : 的标量一律加引号"
-    "typed-block 多契约叠加：Rust 支持；JS 只认单个 ⇒ E-CONTRACT-017"
+    "多契约叠加：Rust 支持；C / C++ / JS / Lua 一律 E-CONTRACT-017（同码同义）"
+    "@type：Rust / JS 实现并按模式校验（格式不符 ⇒ E-CONTRACT-009）；C / C++ / Lua 把 @type 声明静默丢弃，用到时类型名回落成契约名 ⇒ C / Lua 报 E-CONTRACT-008、C++ 报 E-CONTRACT-001"
+    "featag：四端不实现，拒绝码随位置漂移 —— 块头 C / C++ 报 E-PARSE-007、JS / Lua 报 E-PARSE-006；契约体内 C 报 E-CONTRACT-003、C++ 报 E-CONTRACT-001"
+    "契约 @requires：四端一律 E-CONTRACT-018（不支持该指令），Rust 的同一个码只表示「要求未满足」⇒ 同码不同因"
     "错误码是稳定契约（同一条件同一个码），文案不是 ⇒ 判断种类请用 code，别匹配文案"
 ]
 
