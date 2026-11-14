@@ -1,4 +1,4 @@
-//! 单遍解析的**快速路径**：只覆盖「纯扁平标量文档」。
+//! 单遍解析的**快速路径**：只覆盖「扁平标量 + 匿名嵌套块」的文档。
 //!
 //! 背景（见 `docs/swsml/ref/perf-baseline.md` 的「与 serde_json 的对拍」）：
 //! 通用路径是**两遍** —— 先把文本切成 `Vec<Tok>`（48 B/token，约为输入体积的 8 倍），
@@ -9,14 +9,18 @@
 //! # 能力边界（宁可不接，也不猜）
 //!
 //! 只要文本里出现下列任一字符就**整篇回落**通用路径：
-//! `{ } [ ] @ $ ! \` " ' \` —— 也就是「块 / 数组 / 指令 / 环境变量 / 模板串 / 引号串」全不接。
-//! 这几样恰好是语义分歧最容易发生的地方（裸块前瞻、`__type` 注入、同名合并、转义规则），
+//! `[ ] @ $ ! \` " ' \ , ; #` —— 数组 / 指令 / 环境变量 / 模板插值 / 引号串 / 分隔符 / 注释
+//! 全不接。这几样恰好是语义分歧最容易发生的地方（转义规则、`;` 会变成键、注释边界），
 //! 留给通用路径处理。
+//!
+//! **块只接匿名块**（`key { … }`）：`.smlex` 里 `Type name { … }` 这种**带名裸块**会注入
+//! `__type` / `__name`，且 `Type` 命中契约时还会触发 typed-block —— 本路径不碰。
+//! 判定方式是「键之后、`{` 之前不许再出现词」，出现即回落。
 //!
 //! # 一致性的三条硬约束
 //!
 //! 1. **值转换复用** [`sml_lex::coerce_word`]：`1` / `1.5` / `true` / `null` 的判定只有一份实现；
-//! 2. **遇到任何异常就返回 `None`**（重复键、缺冒号、值不在同一行、空文档…），
+//! 2. **遇到任何异常就返回 `None`**（重复键、缺冒号、带名裸块、空文档…），
 //!    由通用路径产出**原本那条**错误消息 —— 快速路径绝不自己发明错误；
 //! 3. 因此它对外的可见行为只有两种：要么产出与通用路径**逐字节相同**的树，要么不接管。
 
@@ -27,18 +31,109 @@ use sml_value::{Map, Value};
 /// 空片段表（本路径不接 `@片段`）。
 const NO_FRAGMENTS: std::collections::BTreeMap<String, Value> = std::collections::BTreeMap::new();
 
-/// 是否在能力范围内。一次轻量字节扫描，命中任一「结构 / 指令 / 引号」字符即否决。
+/// 是否在能力范围内。一次轻量字节扫描，命中即否决。
+///
+/// 注意 `{` `}` **不在**否决表里（匿名块要接），它们的「带名裸块」边界在解析时判。
 fn eligible(text: &str) -> bool {
     !text.bytes().any(|c| {
         matches!(
             c,
-            b'{' | b'}' | b'[' | b']' | b'@' | b'$' | b'!' | b'`' | b'"' | b'\'' | b'\\'
+            b'[' | b']' | b'@' | b'$' | b'!' | b'`' | b'"' | b'\'' | b'\\'
             // `,` `;` `#` 也一律不接：它们在通用路径里的归属很反直觉
-            // （实测 `a: 1\nb: 2 ;` 会让 `;` 变成**键**；行内 `#` 另有边界），
-            // 这类语义不值得在快速路径里复刻一份。
+            // （实测 `a: 1\nb: 2 ;` 会让 `;` 变成**键**），不值得复刻一份。
             | b',' | b';' | b'#'
         )
     })
+}
+
+struct Fast<'a> {
+    text: &'a str,
+    b: &'a [u8],
+    i: usize,
+    feats: FeatureSet,
+}
+
+impl<'a> Fast<'a> {
+    fn ws(&mut self) {
+        while self.i < self.b.len() && matches!(self.b[self.i], b' ' | b'\t' | b'\r' | b'\n') {
+            self.i += 1;
+        }
+    }
+
+    /// 读一个裸词（到空白 / 结构符号为止）。空 ⇒ `None`。
+    fn word(&mut self) -> Option<&'a str> {
+        let s = self.i;
+        while self.i < self.b.len() {
+            match self.b[self.i] {
+                b' ' | b'\t' | b'\r' | b'\n' | b':' | b'{' | b'}' => break,
+                _ => self.i += 1,
+            }
+        }
+        if self.i == s {
+            None
+        } else {
+            Some(&self.text[s..self.i])
+        }
+    }
+
+    /// 解析一个块（`top` 时解析到文件末尾）。
+    ///
+    /// 返回 `None` 表示「不接管」—— 所有失败都走这条路，绝不产生错误。
+    fn block(&mut self, top: bool, depth: usize) -> Option<Value> {
+        // 深度护栏：本路径不实现 E-LIMIT-001，超限一律交回通用路径
+        // （那里既有 128 层放行 / 129 层报码的判据，也有对应的集成测试钉着）。
+        if depth > sml_value::MAX_VALUE_DEPTH {
+            return None;
+        }
+        let mut m = Map::new();
+        loop {
+            self.ws();
+            if self.i >= self.b.len() {
+                if top {
+                    break;
+                }
+                return None; // 块未闭合：交回通用路径报 E-PARSE-001
+            }
+            if !top && self.b[self.i] == b'}' {
+                self.i += 1;
+                break;
+            }
+            let key = self.word()?;
+            // 键后：`:` ⇒ 普通字段；`{` ⇒ 匿名块；其它（含再一个词）⇒ 回落
+            self.ws();
+            if self.i >= self.b.len() {
+                return None;
+            }
+            let v = match self.b[self.i] {
+                b':' => {
+                    self.i += 1;
+                    self.ws();
+                    self.value(depth)?
+                }
+                b'{' => {
+                    // 匿名块：键与 `{` 之间**只允许空白**。带名裸块（`Type name {`）
+                    // 在这里已经被 `word()` 吞进 key，后面紧跟的是词 → 落到 None。
+                    self.i += 1;
+                    self.block(false, depth + 1)?
+                }
+                _ => return None,
+            };
+            if m.contains_key(key) {
+                return None; // 重复键：通用路径要合并成数组并记诊断
+            }
+            m.insert(key.to_string(), v);
+        }
+        Some(Value::Object(m))
+    }
+
+    fn value(&mut self, depth: usize) -> Option<Value> {
+        if self.i < self.b.len() && self.b[self.i] == b'{' {
+            self.i += 1;
+            return self.block(false, depth + 1);
+        }
+        let w = self.word()?;
+        coerce_word(w, &NO_FRAGMENTS, self.feats, "", None).ok()
+    }
 }
 
 /// 尝试单遍解析。
@@ -49,82 +144,13 @@ pub(crate) fn try_parse_flat(text: &str, feats: FeatureSet) -> Option<Value> {
     if !eligible(text) {
         return None;
     }
-    let b = text.as_bytes();
-    let n = b.len();
-    let mut i = 0usize;
-    let mut m = Map::new();
-
-    loop {
-        // 行首：空白与 `#` 注释
-        while i < n {
-            match b[i] {
-                b' ' | b'\t' | b'\r' | b'\n' => i += 1,
-                b'#' => {
-                    while i < n && b[i] != b'\n' {
-                        i += 1;
-                    }
-                }
-                _ => break,
-            }
-        }
-        if i >= n {
-            break;
-        }
-
-        // 键：裸词，直到 `:`
-        let ks = i;
-        while i < n && b[i] != b':' && b[i] != b' ' && b[i] != b'\t' && b[i] != b'\n' && b[i] != b'\r'
-        {
-            i += 1;
-        }
-        if i == ks || i >= n || b[i] != b':' {
-            return None; // 缺冒号 / 键为空：交回通用路径报它原本的码
-        }
-        let key = &text[ks..i];
-        i += 1;
-
-        // 值必须与键同一行（通用路径也是这么要求的）
-        while i < n && (b[i] == b' ' || b[i] == b'\t') {
-            i += 1;
-        }
-        if i >= n || b[i] == b'\n' || b[i] == b'\r' {
-            return None;
-        }
-        let vs = i;
-        while i < n {
-            match b[i] {
-                b' ' | b'\t' | b'\r' | b'\n' | b',' | b';' | b'#' => break,
-                _ => i += 1,
-            }
-        }
-        if i == vs {
-            return None;
-        }
-        let v = coerce_word(&text[vs..i], &NO_FRAGMENTS, feats, "", None).ok()?;
-
-        // 重复键 ⇒ 通用路径要把它「提升为数组」并记诊断；本路径不接，整体回落。
-        if m.contains_key(key) {
-            return None;
-        }
-        m.insert(key.to_string(), v);
-
-        // 行尾：空白 / 分隔符 / 行内注释。
-        //
-        // 这里**不**强制「后面必须是换行」——`a: 1, b: 2` 与 `a: 1 b: 2` 在通用路径里
-        // 都是两个字段（它是 token 驱动的，不区分空白与逗号）。若在此处要求换行，
-        // 就会把合法写法判成「不接管」，白丢快速路径。真正的兜底在下一轮的「键后必须
-        // 有 `:`」：任何畸形输入都会在那里返回 `None`，交回通用路径报原本的码。
-        while i < n && (b[i] == b' ' || b[i] == b'\t' || b[i] == b',' || b[i] == b';') {
-            i += 1;
-        }
-        if i < n && b[i] == b'#' {
-            while i < n && b[i] != b'\n' {
-                i += 1;
-            }
-        }
-    }
-
-    Some(Value::Object(m))
+    let mut p = Fast {
+        text,
+        b: text.as_bytes(),
+        i: 0,
+        feats,
+    };
+    p.block(true, 1)
 }
 
 #[cfg(test)]
@@ -135,9 +161,18 @@ mod tests {
         try_parse_flat(t, FeatureSet::for_edition(crate::Edition::V1))
     }
 
+    fn same(t: &str) {
+        let f = match fast(t) {
+            Some(v) => v,
+            None => panic!("fast path should accept: {t:?}"),
+        };
+        let slow = crate::api::parse(t).unwrap_or_else(|e| panic!("slow path failed on {t:?}: {e}"));
+        assert_eq!(f, slow, "mismatch on {t:?}");
+    }
+
     #[test]
     fn flat_scalars_match_slow_path() {
-        let cases = [
+        for t in [
             "a: 1\nb: two\n",
             "a: 1\n\nb: true\nc: null\nd: 1.5\n",
             "a: 1\nb: 2\nc: 3\n",
@@ -145,20 +180,45 @@ mod tests {
             "a: 1",
             "a: 1\r\nb: 2\r\n",
             "k1: v1\nk2: 42\nk3: -3.5\nk4: false\n",
-        ];
-        for t in cases {
-            let fast_out = match fast(t) {
-                Some(v) => v,
-                None => panic!("fast path should accept: {t:?}"),
-            };
-            let slow_out = crate::api::parse(t).expect("slow path should parse");
-            assert_eq!(fast_out, slow_out, "mismatch on {t:?}");
+        ] {
+            same(t);
+        }
+    }
+
+    #[test]
+    fn anonymous_blocks_match_slow_path() {
+        for t in [
+            "b0 { x: 1 y: s }\n",
+            "b0 { x: 1 }\nb1 { y: 2 }\n",
+            "outer { inner { x: 1 } y: 2 }\n",
+            "a: 1\nb { }\nc: 2\n",
+            "top { a: 1 }\n",
+            "b { x: 1 y: 2 }\n",
+        ] {
+            same(t);
+        }
+    }
+
+    #[test]
+    fn structural_docs_fall_back() {
+        for t in [
+            "a: [1 2]\n",              // 数组未接
+            "@version v1\na: 1\n",     // 指令
+            "a: $env.X\n",             // 环境变量
+            "a: \"quoted\"\n",         // 引号串未接
+            "a: 1\na: 2\n",            // 重复键
+            "Wea prod { x: 1 }\n",     // 带名裸块（会注入 __type/__name）
+            "a: 1, b: 2\n",            // 逗号
+            "a: 1#x\n",                // 行内注释
+            "b0 { x: 1\n",             // 未闭合
+        ] {
+            assert!(fast(t).is_none(), "should fall back: {t:?}");
         }
     }
 
     /// 语料对拍：仓库里所有 `.sml` 只要被快速路径接管，就必须与通用路径**完全相等**。
     ///
-    /// 这是本模块的**长期钉子** —— 将来给 `fast.rs` 加能力（块、数组、引号串）时，
+    /// 这是本模块的**长期钉子** —— 将来给 `fast.rs` 加能力（数组、引号串）时，
     /// 只要有一条语料对不上，这个测试立刻红。
     #[test]
     fn corpus_equivalence() {
@@ -181,34 +241,14 @@ mod tests {
                 checked += 1;
                 if let Some(fast_out) = try_parse_flat(&text, FeatureSet::for_edition(crate::Edition::V1)) {
                     accepted += 1;
-                    let slow = crate::api::parse(&text);
-                    match slow {
+                    match crate::api::parse(&text) {
                         Ok(v) => assert_eq!(fast_out, v, "fast/slow mismatch on {}", p.display()),
-                        Err(e) => panic!(
-                            "fast accepted but slow failed on {}: {e}",
-                            p.display()
-                        ),
+                        Err(e) => panic!("fast accepted but slow failed on {}: {e}", p.display()),
                     }
                 }
             }
         }
-        // 不能「因为一条都没接管所以全过」—— 至少要有语料真的走到这条路径上，
-        // 否则这个测试是摆设（下面这条断言就是为了防它变成摆设）。
         assert!(checked > 0, "no corpus files found");
         println!("corpus: checked {checked}, accepted by fast path {accepted}");
-    }
-
-    #[test]
-    fn structural_docs_fall_back() {
-        for t in [
-            "a { x: 1 }\n",
-            "a: [1 2]\n",
-            "@version v1\na: 1\n",
-            "a: $env.X\n",
-            "a: \"quoted\"\n",
-            "a: 1\na: 2\n", // 重复键：交给通用路径合并成数组
-        ] {
-            assert!(fast(t).is_none(), "should fall back: {t:?}");
-        }
     }
 }
