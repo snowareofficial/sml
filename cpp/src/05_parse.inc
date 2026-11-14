@@ -517,6 +517,25 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                         FeatagDecl d;
                         d.name = st.toks[st.i].s.substr(1);
                         st.i++;
+                        /* 契约级开关 `!any` / `!strict-paths`：**不占** featag 名（Rust 同判据）——
+                           块头写 `C !any` 在 Rust 里报「未声明」。它们也不接受 `: 类型` / `[…]` /
+                           `-> 落点`，写了就报 021。 */
+                        if (d.name == "any" || d.name == "strict-paths") {
+                            if (st.i < st.toks.size() &&
+                                (st.toks[st.i].t == Token::T::Colon ||
+                                 st.toks[st.i].t == Token::T::LBracket)) {
+                                if (st.err && st.err->empty())
+                                    *st.err = code_prefix(SML_E_CONTRACT_021,
+                                        "sml: `!" + d.name +
+                                        "` 是契约级开关，不接受类型 / 参数 / 落点");
+                                st.aborted = true;
+                                break;
+                            }
+                            while (st.i < st.toks.size() &&
+                                   st.toks[st.i].t != Token::T::RBrace &&
+                                   st.toks[st.i].line == decl_line) st.i++;
+                            continue;
+                        }
                         if (st.i < st.toks.size() && st.toks[st.i].t == Token::T::Colon) {
                             st.i++;
                             d.has_spec = true;

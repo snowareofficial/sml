@@ -105,6 +105,12 @@
   四端只做标量这一层（`str/int/num/bool/any`），枚举 / 区间 / 外置类型仍只在 Rust 侧。
   探针：`featag-undeclared` / `featag-args-on-tag` / `featag-args-missing` /
   `featag-arg-type` 四条，五端同码（`probe_matrix.py --suite errors`，47 行 0 不一致）。
+- **契约级开关已对齐（2026-11-14 第三批）**：`!any` / `!strict-paths` **不占** featag 名 ——
+  四端此前把它们登记成 featag，于是块头 `C !any` 被误判为「已声明」。现在四端一致：
+  块头用它 ⇒ `E-CONTRACT-021`「未声明」；写成 `!any: str` / `!any[…]` ⇒ 同码，文案点明
+  「契约级开关，不接受类型 / 参数 / 落点」。探针 `featag-switch-not-tag` /
+  `featag-switch-has-type`，错误码矩阵 49 行 0 不一致。
+  （开关的**语义**仍未实现：`!any` 不解除 `any` 禁令、`!strict-paths` 不影响落点。）
 - 尚未做：**S6 落点填充**（`-> PATH`、`!strict-paths`、`auto` 取默认值、
   `E-CONTRACT-022/023/025`）、**S7 `from-featag`**、**S8 `!any`**。这三片仍只有 Rust 实现；
   四端对落点**忽略**。

@@ -741,6 +741,22 @@ static void parse_contract_body(parser *ps, ccontract *c) {
             cty dty = CT_ANY, dinner = CT_ANY;
             int has_spec = 0;
             next(ps);   /* consume `!name` */
+            /* 契约级开关 `!any` / `!strict-paths`：**不占** featag 名（Rust 同判据）——
+               块头写 `C !any` 在 Rust 里报「未声明」，所以这里绝不能登记成 featag。
+               两者也不接受 `: 类型` / `[…]` / `-> 落点`，写了就报 021。 */
+            if (strcmp(ft->v + 1, "any") == 0 || strcmp(ft->v + 1, "strict-paths") == 0) {
+                if (peek(ps)->t == T_COLON || peek(ps)->t == T_LBRACK) {
+                    set_err(ps->lx->errbuf, ps->lx->errsz,
+                            SML_E_CONTRACT_021
+                            " `!%s` 是契约级开关，不接受类型 / 参数 / 落点", ft->v + 1);
+                    ps->failed = 1;
+                    break;
+                }
+                while (peek(ps)->t != T_RBRACE && peek(ps)->t != T_EOF &&
+                       peek(ps)->line == decl_line)
+                    next(ps);
+                continue;
+            }
             if (peek(ps)->t == T_COLON) {
                 next(ps);
                 has_spec = 1;

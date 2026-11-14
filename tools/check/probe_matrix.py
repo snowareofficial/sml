@@ -92,6 +92,14 @@ ERRORS = [
     ("featag-args-missing", "E-CONTRACT-021",
      "@version v1\n@feature enable type.featag, typed-block, block-name\n"
      "@contract S {\n    name: str\n    !obey: [ int ]\n}\nS !obey, prod { name: a }\n"),
+    # `!any` / `!strict-paths` 是**契约级开关**，不占 featag 名：块头拿它当 featag 用 ⇒ 021。
+    ("featag-switch-not-tag", "E-CONTRACT-021",
+     "@version v1\n@feature enable type.featag, typed-block, block-name\n"
+     "@contract C {\n    name: str\n    !any\n}\nC !any, prod { name: a }\n"),
+    # 开关不接受类型 / 参数 / 落点 ⇒ 021（不是「未知类型」那类 006）。
+    ("featag-switch-has-type", "E-CONTRACT-021",
+     "@version v1\n@feature enable type.featag, typed-block, block-name\n"
+     "@contract C {\n    name: str\n    !any: str\n}\nC, prod { name: a }\n"),
     # S5b：类型不符走 002 —— Rust 那里复用 check_value，产出的是字段类型码。
     ("featag-arg-type", "E-CONTRACT-002",
      "@version v1\n@feature enable type.featag, typed-block, block-name\n"

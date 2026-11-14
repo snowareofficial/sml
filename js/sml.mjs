@@ -1721,6 +1721,16 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
         // S5 记名；S5b 顺带收 `: 类型`，使用处据此校验个数与标量类型。
         const d = { name: peek().v.slice(1), hasSpec: false, isArray: false, ty: "", inner: "" };
         i++;
+        // 契约级开关 `!any` / `!strict-paths`：**不占** featag 名（Rust 同判据）——
+        // 块头写 `C !any` 在 Rust 里报「未声明」。两者也不接受 `: 类型` / `[…]` / `-> 落点`。
+        if (d.name === "any" || d.name === "strict-paths") {
+          if (peek() && (peek().t === ":" || peek().t === "[")) {
+            fail("E-CONTRACT-021",
+              "sml: `!" + d.name + "` 是契约级开关，不接受类型 / 参数 / 落点");
+          }
+          while (peek() && peek().t !== "}" && peek().line === declLine) i++;
+          continue;
+        }
         if (peek() && peek().t === ":") {
           i++;
           d.hasSpec = true;

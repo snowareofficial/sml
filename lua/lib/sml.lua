@@ -879,7 +879,18 @@ local function parse_contract_body(tokens, i, fragments)
       local d = { name = string.sub(tok, 2), has_spec = false, is_array = false,
                   ty = "", inner = "" }
       i = i + 1
-      if tokens[i] == ":" then
+      -- 契约级开关 `!any` / `!strict-paths`：**不占** featag 名（Rust 同判据）——
+      -- 块头写 `C !any` 在 Rust 里报「未声明」。两者也不接受 `: 类型` / `[…]` / `-> 落点`。
+      if d.name == "any" or d.name == "strict-paths" then
+        if tokens[i] == ":" or tokens[i] == "[" then
+          fail("E-CONTRACT-021",
+            "sml: `!" .. d.name .. "` 是契约级开关，不接受类型 / 参数 / 落点")
+        end
+        while tokens[i] ~= nil and tokens[i] ~= "}"
+              and (_LINES == nil or _LINES[i] == decl_line) do
+          i = i + 1
+        end
+      elseif tokens[i] == ":" then
         i = i + 1
         d.has_spec = true
         if tokens[i] == "[" then
@@ -892,7 +903,11 @@ local function parse_contract_body(tokens, i, fragments)
           i = i + 1
         end
       end
-      featags[d.name] = d
+      -- Lua 没有 continue：上面 `!any` / `!strict-paths` 分支走完会落回这里，
+      -- 必须再挡一次，否则开关又变成 featag（块头 `C !any` 就会被误判为已声明）。
+      if d.name ~= "any" and d.name ~= "strict-paths" then
+        featags[d.name] = d
+      end
       while tokens[i] ~= nil and tokens[i] ~= "}"
             and (_LINES == nil or _LINES[i] == decl_line) do
         i = i + 1
