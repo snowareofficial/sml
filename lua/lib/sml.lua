@@ -872,13 +872,27 @@ local function parse_contract_body(tokens, i, fragments)
       fail("E-PARSE-005", "sml: 契约体内不支持指令 `@" .. (dn or "") .. "`（契约体仅支持 `@requires`）")
     end
     -- featag 声明：`!name` / `!name: 类型` / `!name: 类型 -> 落点`。
-    -- 开了 `type.featag` 才是记号；本片只**收下并跳过**（S4 的收集），
-    -- 使用处校验（未声明即拒 / 参数类型）与落点填充属 S5/S6，尚未接。
+    -- 开了 `type.featag` 才是记号。S5 记名（使用处判「未声明即拒」），
+    -- S5b 顺带收 `: 类型`（使用处判参数个数与标量类型）；`-> 落点` 属 S6，仍整行跳过。
     if _FEATURES and _FEATURES[17] and string.sub(tok, 1, 1) == "!" then
       local decl_line = _LINES and _LINES[i] or 0
-      -- S5：记下声明名（块头使用处据此判「未声明即拒」）
-      featags[#featags + 1] = string.sub(tok, 2)
+      local d = { name = string.sub(tok, 2), has_spec = false, is_array = false,
+                  ty = "", inner = "" }
       i = i + 1
+      if tokens[i] == ":" then
+        i = i + 1
+        d.has_spec = true
+        if tokens[i] == "[" then
+          i = i + 1
+          d.is_array = true
+          if tokens[i] ~= nil and tokens[i] ~= "]" then d.inner = tokens[i]; i = i + 1 end
+          if tokens[i] == "]" then i = i + 1 end
+        elseif tokens[i] ~= nil and string.sub(tokens[i], 1, 1) ~= "-" then
+          d.ty = tokens[i]
+          i = i + 1
+        end
+      end
+      featags[d.name] = d
       while tokens[i] ~= nil and tokens[i] ~= "}"
             and (_LINES == nil or _LINES[i] == decl_line) do
         i = i + 1
@@ -1585,25 +1599,57 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
             -- **S5 使用处校验**：featag 契约私有 —— 块头写契约里没声明的名字就拒
             -- （与 Rust / C / C++ / JS 同码 E-CONTRACT-021）。改前只收集不校验。
             local owner = contracts[key]
-            if owner ~= nil then
-              local declared = false
-              for _, d in ipairs(owner.featags or {}) do
-                if d == nm then declared = true; break end
-              end
-              if not declared then
-                fail("E-CONTRACT-021",
-                  "sml: featag `!" .. nm .. "` 未在契约 `" .. tostring(key) ..
-                  "` 中声明（契约私有的作用域，请先在契约体内写 `!" .. nm .. "`）")
-              end
+            local decl = owner and owner.featags and owner.featags[nm] or nil
+            if owner ~= nil and decl == nil then
+              fail("E-CONTRACT-021",
+                "sml: featag `!" .. nm .. "` 未在契约 `" .. tostring(key) ..
+                "` 中声明（契约私有的作用域，请先在契约体内写 `!" .. nm .. "`）")
             end
             i = i + 1
+            local payload = nil
+            if tokens[i] == "[" then
+              payload, i = parse_array(tokens, i + 1, fragments, contracts, depth + 1)
+            end
+            -- **S5b**：个数与标量类型（判据照 Rust `check_featags`）。
+            -- 类型不符报 002 —— Rust 那里复用 check_value，产出的是字段类型码。
+            if decl ~= nil then
+              local function arg_ok(ty, v)
+                if ty == "" or ty == "any" then return true end
+                local t = type(v)
+                if ty == "str"  then return t == "string" end
+                if ty == "int"  then return t == "number" and math.floor(v) == v end
+                if ty == "num"  then return t == "number" end
+                if ty == "bool" then return t == "boolean" end
+                return true
+              end
+              local n = payload and #payload or -1
+              local is_auto = (n == 1 and payload[1] == "auto")
+              if not decl.has_spec and payload then
+                fail("E-CONTRACT-021",
+                  "sml: featag `!" .. nm .. "` 声明为无参（纯标签），使用处不能带参数")
+              elseif decl.has_spec and not payload then
+                fail("E-CONTRACT-021",
+                  "sml: featag `!" .. nm .. "` 声明为带参，使用处必须写成 `" .. nm .. "[…]`")
+              elseif decl.has_spec and payload and not is_auto then
+                if decl.is_array then
+                  for k = 1, n do
+                    if not arg_ok(decl.inner, payload[k]) then
+                      fail("E-CONTRACT-002",
+                        "sml: featag `!" .. nm .. "` 的参数类型不符（第 " .. k .. " 个参数）")
+                    end
+                  end
+                elseif n ~= 1 then
+                  fail("E-CONTRACT-021",
+                    "sml: featag `!" .. nm .. "` 的参数类型不是数组，只接受 1 个参数（实际给了 " ..
+                    n .. " 个）")
+                elseif not arg_ok(decl.ty, payload[1]) then
+                  fail("E-CONTRACT-002", "sml: featag `!" .. nm .. "` 的参数类型不符")
+                end
+              end
+            end
             featags = featags or {}
             local item = { name = nm }
-            if tokens[i] == "[" then
-              local arr
-              arr, i = parse_array(tokens, i + 1, fragments, contracts, depth + 1)
-              item.args = arr
-            end
+            if payload then item.args = payload end
             featags[#featags + 1] = item
           elseif feat_on and tk == "," then
             i = i + 1

@@ -85,6 +85,17 @@ ERRORS = [
     ("featag-undeclared", "E-CONTRACT-021",
      "@version v1\n@feature enable type.featag, typed-block, block-name\n"
      "@contract S { name: str !critical }\nS !nope, prod { name: a }\n"),
+    # S5b：个数不符（无参声明带参数 / 带参声明不写 `[…]`）都是 021。
+    ("featag-args-on-tag", "E-CONTRACT-021",
+     "@version v1\n@feature enable type.featag, typed-block, block-name\n"
+     "@contract S {\n    name: str\n    !critical\n}\nS !critical[1], prod { name: a }\n"),
+    ("featag-args-missing", "E-CONTRACT-021",
+     "@version v1\n@feature enable type.featag, typed-block, block-name\n"
+     "@contract S {\n    name: str\n    !obey: [ int ]\n}\nS !obey, prod { name: a }\n"),
+    # S5b：类型不符走 002 —— Rust 那里复用 check_value，产出的是字段类型码。
+    ("featag-arg-type", "E-CONTRACT-002",
+     "@version v1\n@feature enable type.featag, typed-block, block-name\n"
+     "@contract S {\n    name: str\n    !cert: str\n}\nS !cert[1], prod { name: a }\n"),
     ("contract-undefined", "E-CONTRACT-001", "x { @is Nope }\n"),
     ("contract-type", "E-CONTRACT-002", "@contract C { a: int }\nx { @is C a: abc }\n"),
     ("contract-required", "E-CONTRACT-003", "@contract C { a: int }\nx { @is C }\n"),

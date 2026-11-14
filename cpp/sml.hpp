@@ -82,12 +82,22 @@ struct FieldSpec {
     TypeModifiers mods;
 };
 
+// featag 声明（S2–S5b）：名字 + 可选参数规格。
+// `has_spec` 区分「无参纯标签」与「带参」；`is_array` 决定使用处是「参数表整体」校验
+// 还是「只收 1 个参数」。`-> 落点` 属 S6，尚未接，故这里不存。
+struct FeatagDecl {
+    std::string name;
+    bool has_spec = false;
+    bool is_array = false;
+    std::string ty;      // "str" / "int" / "num" / "bool" / "any"（空 = 未写具体类型）
+    std::string inner;   // is_array 时的元素类型
+};
+
 struct Contract {
     std::string name;
     std::vector<FieldSpec> fields;
     bool allow_extra = false;   // contract-level `loose`
-    // 声明过的 featag 名（`!name`）。S5 的块头校验只认这里出现过的名字。
-    std::vector<std::string> featags;
+    std::vector<FeatagDecl> featags;
 };
 
 // ---------------------------------------------------------------------------

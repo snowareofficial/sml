@@ -733,16 +733,46 @@ static void parse_contract_body(parser *ps, ccontract *c) {
             break;
         }
         /* featag 声明：`!name` / `!name: 类型` / `!name: 类型 -> 落点`。
-           开了 `type.featag` 才是记号。**S5**：名字收进契约（块头使用处据此判「未声明即拒」）；
-           参数类型（S5b）与落点填充（S6）尚未接，故 `: 类型` / `-> 落点` 仍只跳过。 */
+           开了 `type.featag` 才是记号。**S5**：名字收进契约（使用处判「未声明即拒」）；
+           **S5b**：`： 类型` 也收进来，使用处据此校验参数个数与标量类型。
+           `-> 落点` 属 S6，仍整行跳过。 */
         if ((ps->features & (1u << 17)) && ft->t == T_WORD && ft->v[0] == '!') {
             int decl_line = ft->line;
+            cty dty = CT_ANY, dinner = CT_ANY;
+            int has_spec = 0;
+            next(ps);   /* consume `!name` */
+            if (peek(ps)->t == T_COLON) {
+                next(ps);
+                has_spec = 1;
+                token *dt = peek(ps);
+                if (dt->t == T_LBRACK) {
+                    next(ps);
+                    dty = CT_ARRAY;
+                    if (peek(ps)->t == T_WORD) {
+                        char *iw = next(ps)->v;
+                        if      (strcmp(iw, "str")  == 0) dinner = CT_STR;
+                        else if (strcmp(iw, "int")  == 0) dinner = CT_INT;
+                        else if (strcmp(iw, "num")  == 0) dinner = CT_NUM;
+                        else if (strcmp(iw, "bool") == 0) dinner = CT_BOOL;
+                    }
+                    if (peek(ps)->t == T_RBRACK) next(ps);
+                } else if (dt->t == T_WORD) {
+                    char *tw = next(ps)->v;
+                    if      (strcmp(tw, "str")  == 0) dty = CT_STR;
+                    else if (strcmp(tw, "int")  == 0) dty = CT_INT;
+                    else if (strcmp(tw, "num")  == 0) dty = CT_NUM;
+                    else if (strcmp(tw, "bool") == 0) dty = CT_BOOL;
+                }
+            }
             if (c) {
-                char **nf = (char **)realloc(c->featags,
-                                             (c->n_featag + 1) * sizeof(char *));
+                cfeatag *nf = (cfeatag *)calloc(1, sizeof(cfeatag));
                 if (nf) {
+                    nf->name = strdup(ft->v + 1);
+                    nf->has_spec = has_spec;
+                    nf->ty = dty;
+                    nf->arr_inner = dinner;
+                    nf->next = c->featags;
                     c->featags = nf;
-                    c->featags[c->n_featag++] = strdup(ft->v + 1);
                 }
             }
             while (peek(ps)->t != T_RBRACE && peek(ps)->t != T_EOF &&

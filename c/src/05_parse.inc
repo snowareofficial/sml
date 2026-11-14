@@ -584,27 +584,86 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                         /* **S5 使用处校验**：featag 的作用域是契约私有 —— 块头写了契约里
                            没声明的名字就拒（Rust 同码 E-CONTRACT-021）。改前只收集不校验，
                            拼错的 `!critcal` 会被静默记进 `__featags`。 */
-                        {
-                            ccontract *owner = contract_find(ps, key);
-                            if (owner && !contract_declares_featag(owner, tag)) {
-                                set_err(ps->lx->errbuf, ps->lx->errsz,
-                                        SML_E_CONTRACT_021
-                                        " featag `!%s` 未在契约 `%s` 中声明（契约私有的作用域，"
-                                        "请先在契约体内写 `!%s`）", tag, key, tag);
-                                ps->failed = 1;
-                                break;
-                            }
+                        ccontract *owner = contract_find(ps, key);
+                        cfeatag *decl = contract_featag_find(owner, tag);
+                        if (owner && !decl) {
+                            set_err(ps->lx->errbuf, ps->lx->errsz,
+                                    SML_E_CONTRACT_021
+                                    " featag `!%s` 未在契约 `%s` 中声明（契约私有的作用域，"
+                                    "请先在契约体内写 `!%s`）", tag, key, tag);
+                            ps->failed = 1;
+                            break;
                         }
                         next(ps);
-                        if (!featags) featags = sml_new_array();
                         {
-                            sml_value *item = sml_new_object();
-                            sml_obj_set(item, "name", sml_new_str(tag));
+                            sml_value *payload = NULL;
                             if (peek(ps)->t == T_LBRACK) {
                                 next(ps);
-                                sml_obj_set(item, "args", parse_array(ps));
+                                payload = parse_array(ps);
                             }
-                            sml_arr_push(featags, item);
+                            /* **S5b 使用处校验**：个数与标量类型。判据照 Rust
+                               `check_featags`：无参声明不许带参数、带参声明必须写 `[…]`；
+                               数组类型按「参数表整体」校验，其它类型只收 1 个参数。
+                               单个 `auto` 是「取声明里的默认值」，不校验（S6 写入时才取）。 */
+                            if (decl) {
+                                int nargs = payload ? (int)sml_arr_len(payload) : -1;
+                                int is_auto = (nargs == 1 &&
+                                               sml_arr_get(payload, 0) != NULL &&
+                                               sml_arr_get(payload, 0)->type == SML_STR &&
+                                               strcmp(sml_arr_get(payload, 0)->u.s, "auto") == 0);
+                                if (!decl->has_spec && payload) {
+                                    set_err(ps->lx->errbuf, ps->lx->errsz,
+                                            SML_E_CONTRACT_021
+                                            " featag `!%s` 声明为无参（纯标签），使用处不能带参数", tag);
+                                    ps->failed = 1;
+                                } else if (decl->has_spec && !payload) {
+                                    set_err(ps->lx->errbuf, ps->lx->errsz,
+                                            SML_E_CONTRACT_021
+                                            " featag `!%s` 声明为带参，使用处必须写成 `%s[…]`", tag, tag);
+                                    ps->failed = 1;
+                                } else if (decl->has_spec && payload && !is_auto) {
+                                    if (decl->ty == CT_ARRAY) {
+                                        size_t k;
+                                        for (k = 0; k < sml_arr_len(payload); k++) {
+                                            if (!featag_arg_matches(decl->arr_inner,
+                                                                    sml_arr_get(payload, k))) {
+                                                /* 类型不符报 002：Rust 在这里复用
+                                                   `check_value`，产出的是字段类型码，
+                                                   不是 021（021 只表示「声明/用法不符」）。 */
+                                                set_err(ps->lx->errbuf, ps->lx->errsz,
+                                                        SML_E_CONTRACT_002
+                                                        " featag `!%s` 的参数类型不符（第 %d 个参数）",
+                                                        tag, (int)k + 1);
+                                                ps->failed = 1;
+                                                break;
+                                            }
+                                        }
+                                    } else if (nargs != 1) {
+                                        set_err(ps->lx->errbuf, ps->lx->errsz,
+                                                SML_E_CONTRACT_021
+                                                " featag `!%s` 的参数类型不是数组，只接受 1 个参数"
+                                                "（实际给了 %d 个）", tag, nargs);
+                                        ps->failed = 1;
+                                    } else if (!featag_arg_matches(decl->ty,
+                                                                   sml_arr_get(payload, 0))) {
+                                        set_err(ps->lx->errbuf, ps->lx->errsz,
+                                                SML_E_CONTRACT_002
+                                                " featag `!%s` 的参数类型不符", tag);
+                                        ps->failed = 1;
+                                    }
+                                }
+                                if (ps->failed) {
+                                    if (payload) sml_free(payload);
+                                    break;
+                                }
+                            }
+                            if (!featags) featags = sml_new_array();
+                            {
+                                sml_value *item = sml_new_object();
+                                sml_obj_set(item, "name", sml_new_str(tag));
+                                if (payload) sml_obj_set(item, "args", payload);
+                                sml_arr_push(featags, item);
+                            }
                         }
                         continue;
                     }

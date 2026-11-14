@@ -1693,8 +1693,8 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
 
   function parseContractBody() {
     const fields = {};
-    // 声明过的 featag 名（S5：块头使用处据此判「未声明即拒」）。
-    const featags = new Set();
+    // 声明过的 featag：名字 → 声明（S5 判「未声明即拒」，S5b 判参数个数与类型）。
+    const featags = new Map();
     if (peek() && peek().t === "{") i++; else fail("E-PARSE-019", "sml: @contract 后须契约体 { }");
     while (peek() && peek().t !== "}") {
       if (peek().t === "," || peek().t === ";") { i++; continue; }
@@ -1718,7 +1718,23 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
       // 使用处校验（未声明即拒 / 参数类型）与落点填充属 S5/S6，尚未接。
       if (feats.has("type.featag") && peek().t === "word" && peek().v.startsWith("!")) {
         const declLine = peek().line;
-        featags.add(peek().v.slice(1));   // S5：记下声明名
+        // S5 记名；S5b 顺带收 `: 类型`，使用处据此校验个数与标量类型。
+        const d = { name: peek().v.slice(1), hasSpec: false, isArray: false, ty: "", inner: "" };
+        i++;
+        if (peek() && peek().t === ":") {
+          i++;
+          d.hasSpec = true;
+          if (peek() && peek().t === "[") {
+            i++;
+            d.isArray = true;
+            if (peek() && peek().t === "word") { d.inner = peek().v; i++; }
+            if (peek() && peek().t === "]") i++;
+          } else if (peek() && peek().t === "word") {
+            d.ty = peek().v;
+            i++;
+          }
+        }
+        featags.set(d.name, d);
         while (peek() && peek().t !== "}" && peek().line === declLine) i++;
         continue;
       }
@@ -2462,15 +2478,54 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
               // **S5 使用处校验**：featag 契约私有 —— 块头写契约里没声明的名字就拒
               // （与 Rust / C / C++ 同码 E-CONTRACT-021）。改前只收集不校验。
               const owner = contracts[key] || contracts[nsPrefix + key];
-              if (owner && !(owner.featags && owner.featags.has(tag))) {
+              const decl = owner && owner.featags ? owner.featags.get(tag) : undefined;
+              if (owner && !decl) {
                 fail("E-CONTRACT-021",
                   "sml: featag `!" + tag + "` 未在契约 `" + key +
                   "` 中声明（契约私有的作用域，请先在契约体内写 `!" + tag + "`）");
               }
               i++;
+              let payload = null;
+              if (peek() && peek().t === "[") { i++; payload = parseArray(); }
+              // **S5b**：个数与标量类型（判据照 Rust `check_featags`）。
+              // 类型不符报 002 —— Rust 那里复用 check_value，产出的是字段类型码。
+              if (decl) {
+                const argOk = (ty, v) => {
+                  if (ty === "" || ty === "any") return true;
+                  if (ty === "str") return typeof v === "string";
+                  if (ty === "int") return typeof v === "number" && Number.isInteger(v);
+                  if (ty === "num") return typeof v === "number";
+                  if (ty === "bool") return typeof v === "boolean";
+                  return true;
+                };
+                const n = payload ? payload.length : -1;
+                const isAuto = n === 1 && payload[0] === "auto";
+                if (!decl.hasSpec && payload) {
+                  fail("E-CONTRACT-021",
+                    "sml: featag `!" + tag + "` 声明为无参（纯标签），使用处不能带参数");
+                } else if (decl.hasSpec && !payload) {
+                  fail("E-CONTRACT-021",
+                    "sml: featag `!" + tag + "` 声明为带参，使用处必须写成 `" + tag + "[…]`");
+                } else if (decl.hasSpec && payload && !isAuto) {
+                  if (decl.isArray) {
+                    for (let k = 0; k < n; k++) {
+                      if (!argOk(decl.inner, payload[k])) {
+                        fail("E-CONTRACT-002",
+                          "sml: featag `!" + tag + "` 的参数类型不符（第 " + (k + 1) + " 个参数）");
+                      }
+                    }
+                  } else if (n !== 1) {
+                    fail("E-CONTRACT-021",
+                      "sml: featag `!" + tag + "` 的参数类型不是数组，只接受 1 个参数（实际给了 " +
+                      n + " 个）");
+                  } else if (!argOk(decl.ty, payload[0])) {
+                    fail("E-CONTRACT-002", "sml: featag `!" + tag + "` 的参数类型不符");
+                  }
+                }
+              }
               if (!featags) featags = [];
               const item = { name: tag };
-              if (peek() && peek().t === "[") { i++; item.args = parseArray(); }
+              if (payload) item.args = payload;
               featags.push(item);
               continue;
             }

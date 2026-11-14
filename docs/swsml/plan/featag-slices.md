@@ -98,11 +98,18 @@
 - 前置补齐：C / C++ / Lua 原本**不做** typed-block 的契约应用（只认显式 `@is`），
   契约的 default / 必填 / 类型校验在块头写法下静默失效；本轮一并补上，并新增探针切片
   `typed-block-default`（契约带 `default`，否则旧切片看不出差别）。
-- 尚未做：**S5 使用处校验**（未声明即拒 `E-CONTRACT-021`、参数个数/类型）、**S6 落点填充**
-  （`-> PATH`、`!strict-paths`、`auto`、`E-CONTRACT-022/023/025`）、**S7 `from-featag`**、
-  **S8 `!any`**。这四片仍只有 Rust 实现；四端当前对未声明 featag **放行**，落点被忽略。
-  ⇒ `grammar.sml` 里 `Deploy !tls replicas[3] zone[cn-north-1]` 那几段在四端不会报错、
-  但也不会写入 `spec.*`（属已知缺口，探针未覆盖，`docs/swsml/ref/grammar-divergences.md` 已记）。
+- **S5 / S5b 已落地（2026-11-14 第二批）**：四端补上使用处校验 ——
+  未声明即拒 `E-CONTRACT-021`；无参声明带参数 / 带参声明不写 `[…]` 也是 `021`；
+  参数**类型**不符走 `E-CONTRACT-002`（Rust 在那里复用 `check_value`，产出的是字段类型码，
+  不是 021）；数组类型按「参数表整体」校验，其它类型只收 1 个，单个 `auto` 不校验。
+  四端只做标量这一层（`str/int/num/bool/any`），枚举 / 区间 / 外置类型仍只在 Rust 侧。
+  探针：`featag-undeclared` / `featag-args-on-tag` / `featag-args-missing` /
+  `featag-arg-type` 四条，五端同码（`probe_matrix.py --suite errors`，47 行 0 不一致）。
+- 尚未做：**S6 落点填充**（`-> PATH`、`!strict-paths`、`auto` 取默认值、
+  `E-CONTRACT-022/023/025`）、**S7 `from-featag`**、**S8 `!any`**。这三片仍只有 Rust 实现；
+  四端对落点**忽略**。
+  ⇒ `grammar.sml` 里 `Deploy !tls replicas[3] zone[cn-north-1]` 那几段在四端现在**会校验参数**，
+  但不会写入 `spec.*`（属已知缺口，`docs/swsml/ref/grammar-divergences.md` 已记）。
 
 **建议顺序**：`S0 → S1a → S2 → S3`（**到这里就能给你看真实数据**）`→ S4 → S5 → S6 → S7 / S8 → S9`。
 **S1b（标识符校验）可并行**：S1a / S2 / S3 都不依赖它，它只在 S4（声明收集）之后才真正卡住。

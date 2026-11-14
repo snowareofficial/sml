@@ -93,7 +93,7 @@ python tools/check/probe_matrix.py --suite values
 | S-13 | Lua 把超 i64 整数降级成浮点（Rust 是字符串） | 按字典序判 i64 上界，超界保留字符串 |
 | S-14 | 警告层没有任何对照组 | `--suite warnings`：五端 6 条全同（`W-PARSE-001` 等），`W-LINT-*` / `W-CLI-*` 属 Rust CLI lint 规则，不参与解析期诊断对比 |
 | S-15 | C / C++ / Lua 的 typed-block **不应用契约**（只认显式 `@is`），契约的 default / 必填 / 类型校验在块头写法下静默失效；旧切片因契约没有默认值而看不出来 | 三端补上契约应用；新增切片 `typed-block-default`（契约带 `default`）钉住 |
-| S-16 | featag（块头 `!` 区 / `__featags` / 契约内 `!name`）只有 Rust 实现，四端报三种不同的拒码 | 四端实现 S2–S4，`featag` / `featag-decl` 两切片五端 AGREE；S5–S8（校验 / 落点 / from-featag / `!any`）仍是缺口 |
+| S-16 | featag（块头 `!` 区 / `__featags` / 契约内 `!name`）只有 Rust 实现，四端报三种不同的拒码 | 四端实现 S2–S4，`featag` / `featag-decl` 两切片五端 AGREE；S5/S5b（未声明即拒 021、个数 021、类型 002）也已落地，四条错误码探针五端同码；S6–S8（落点 / from-featag / `!any`）仍是缺口 |
 | S-17 | JS 的 `dumpInline` 对嵌套容器写 `[..]` / `{..}` 占位 ⇒ 回读时 `..` 变成字符串（`!obey[4]` 的 args 丢值） | 改为递归展开 |
 | S-18 | 契约校验跳过的元数据键集合各端不同（C/JS 只跳 `__type`/`__name`，Lua/C++ 只跳两个） | 统一为「跳 `__type` / `__featags`，`__name` / `__args` 参与校验」；且块头契约的校验发生在 `__name` 落位之前（与 Rust 两条实测行为一致） |
 

@@ -114,16 +114,20 @@
 （`E-FEATURE-001` 或新增码），把 018 留回「要求未满足」——否则同一个码无法区分「文档漏开特性」
 与「本端没实现」。
 
-### 4.4 G-04 featag：S2–S4 五端一致，S5–S8 仍是缺口
+### 4.4 G-04 featag：S2–S5b 五端一致，S6–S8 仍是缺口
 
 四端已实现 **块头 `!` 区 + `__featags` + 契约内 `!name` 声明**（S2–S4），`featag` 与
 `featag-decl` 两个切片五端 AGREE；此前「拒绝码随位置漂移」（C 报 `E-CONTRACT-003`、
 C++ 报 `E-CONTRACT-001`、JS/Lua 报 `E-PARSE-006`）已消失。
 
-仍只有 Rust 实现的部分：**S5 使用处校验**（未声明即拒 / 参数类型）、**S6 落点填充**
-（`-> PATH`、`!strict-paths`、`auto`、数组下标语义）、**S7 `from-featag`**、**S8 `!any`**。
-四端目前对未声明 featag **放行**、对落点**忽略** —— 所以 `grammar.sml` 里
-`Deploy !tls replicas[3] zone[cn-north-1]` 那几段在四端不报错，但不会写入 `spec.*`（静默少值）。
+**S5 / S5b 也已五端一致**（2026-11-14）：未声明即拒、个数不符都是 `E-CONTRACT-021`；
+参数**类型**不符是 `E-CONTRACT-002`（Rust 复用 `check_value` 的产物，不是 021）。
+探针 `featag-undeclared` / `featag-args-on-tag` / `featag-args-missing` / `featag-arg-type`
+五端同码。四端只做标量这一层，枚举 / 区间 / 外置类型仍只在 Rust 侧校验。
+
+仍只有 Rust 实现的部分：**S6 落点填充**（`-> PATH`、`!strict-paths`、`auto` 取默认值、
+数组下标语义）、**S7 `from-featag`**、**S8 `!any`**。四端对落点**忽略** —— 所以 `grammar.sml` 里
+`Deploy !tls replicas[3] zone[cn-north-1]` 那几段在四端会校验参数，但不会写入 `spec.*`（静默少值）。
 这块没有探针覆盖（要测就得比对落点后的树），属下一步的施工项。
 
 ### 4.5 多契约：四端同码 `E-CONTRACT-017`

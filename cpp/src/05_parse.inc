@@ -507,13 +507,31 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                     // We collect tokens until we see a Word followed by Colon that starts a new field,
                     // OR until RBrace. Simpler: accumulate raw token strings until next 'name:' pattern.
                     /* featag 声明：`!name` / `!name: 类型` / `!name: 类型 -> 落点`。
-                       开了 `type.featag` 才是记号。**S5**：名字收进契约（块头据此判「未声明即拒」）；
-                       参数类型（S5b）与落点填充（S6）尚未接，故 `: 类型` / `-> 落点` 仍只跳过。 */
+                       开了 `type.featag` 才是记号。**S5**：名字收进契约（块头判「未声明即拒」）；
+                       **S5b**：`: 类型` 也收进来，使用处据此校验参数个数与标量类型。
+                       `-> 落点` 属 S6，仍整行跳过。 */
                     if ((st.features & (1u << 17)) != 0 &&
                         st.toks[st.i].t == Token::T::Word &&
                         !st.toks[st.i].s.empty() && st.toks[st.i].s[0] == '!') {
                         size_t decl_line = st.toks[st.i].line;
-                        c.featags.push_back(st.toks[st.i].s.substr(1));
+                        FeatagDecl d;
+                        d.name = st.toks[st.i].s.substr(1);
+                        st.i++;
+                        if (st.i < st.toks.size() && st.toks[st.i].t == Token::T::Colon) {
+                            st.i++;
+                            d.has_spec = true;
+                            if (st.i < st.toks.size() && st.toks[st.i].t == Token::T::LBracket) {
+                                st.i++;
+                                d.is_array = true;
+                                if (st.i < st.toks.size() && st.toks[st.i].t == Token::T::Word)
+                                    d.inner = st.toks[st.i++].s;
+                                if (st.i < st.toks.size() && st.toks[st.i].t == Token::T::RBracket)
+                                    st.i++;
+                            } else if (st.i < st.toks.size() && st.toks[st.i].t == Token::T::Word) {
+                                d.ty = st.toks[st.i++].s;
+                            }
+                        }
+                        c.featags.push_back(d);
                         while (st.i < st.toks.size() &&
                                st.toks[st.i].t != Token::T::RBrace &&
                                st.toks[st.i].line == decl_line) st.i++;
@@ -799,13 +817,13 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                     const std::string tag = tk.s.substr(1);
                     /* **S5 使用处校验**：featag 契约私有 —— 块头写契约里没声明的名字就拒
                        （Rust 同码 E-CONTRACT-021）。改前只收集不校验。 */
+                    const FeatagDecl* decl = nullptr;
                     {
                         auto owner = st.contracts.find(key);
                         if (owner != st.contracts.end()) {
-                            bool declared = false;
                             for (const auto& d : owner->second.featags)
-                                if (d == tag) { declared = true; break; }
-                            if (!declared) {
+                                if (d.name == tag) { decl = &d; break; }
+                            if (!decl) {
                                 if (st.err && st.err->empty())
                                     *st.err = code_prefix(SML_E_CONTRACT_021,
                                         "sml: featag `!" + tag + "` 未在契约 `" + key +
@@ -815,15 +833,63 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                             }
                         }
                     }
-                    if (!featags) featags = Value::array();
-                    ValuePtr item = Value::object();
-                    item->obj.push_back({"name", Value::string(tk.s.substr(1))});
                     st.i++;
+                    ValuePtr payload = nullptr;
                     if (st.i < st.toks.size() && st.toks[st.i].t == Token::T::LBracket) {
                         st.i++;
-                        auto vals = parse_array(st);
-                        item->obj.push_back({"args", vals});
+                        payload = parse_array(st);
                     }
+                    /* **S5b**：个数与标量类型（判据照 Rust `check_featags`）。
+                       类型不符报 002 —— Rust 在那里复用 `check_value`，产出的是字段类型码。 */
+                    if (decl) {
+                        auto arg_ok = [](const std::string& ty, const ValuePtr& v) -> bool {
+                            if (!v) return false;
+                            if (ty.empty() || ty == "any") return true;
+                            if (ty == "str")  return v->tag == Value::Tag::Str;
+                            if (ty == "int")  return v->tag == Value::Tag::Int;
+                            if (ty == "num")  return v->tag == Value::Tag::Int ||
+                                                     v->tag == Value::Tag::Float;
+                            if (ty == "bool") return v->tag == Value::Tag::Bool;
+                            return true;
+                        };
+                        const bool has_args = payload && payload->tag == Value::Tag::Arr;
+                        const size_t nargs = has_args ? payload->arr.size() : 0;
+                        const bool is_auto = has_args && nargs == 1 &&
+                                             payload->arr[0] && payload->arr[0]->tag == Value::Tag::Str &&
+                                             payload->arr[0]->s == "auto";
+                        std::string e;
+                        if (!decl->has_spec && has_args)
+                            e = "sml: featag `!" + tag + "` 声明为无参（纯标签），使用处不能带参数";
+                        else if (decl->has_spec && !has_args)
+                            e = "sml: featag `!" + tag + "` 声明为带参，使用处必须写成 `" + tag + "[…]`";
+                        else if (decl->has_spec && has_args && !is_auto) {
+                            if (decl->is_array) {
+                                for (size_t k = 0; k < nargs; k++)
+                                    if (!arg_ok(decl->inner, payload->arr[k])) {
+                                        e = code_prefix(SML_E_CONTRACT_002,
+                                            "sml: featag `!" + tag + "` 的参数类型不符（第 " +
+                                            std::to_string(k + 1) + " 个参数）");
+                                        break;
+                                    }
+                            } else if (nargs != 1)
+                                e = "sml: featag `!" + tag + "` 的参数类型不是数组，只接受 1 个参数（实际给了 " +
+                                    std::to_string(nargs) + " 个）";
+                            else if (!arg_ok(decl->ty, payload->arr[0]))
+                                e = code_prefix(SML_E_CONTRACT_002,
+                                    "sml: featag `!" + tag + "` 的参数类型不符");
+                        }
+                        if (!e.empty()) {
+                            if (e.find("E-") == std::string::npos)
+                                e = code_prefix(SML_E_CONTRACT_021, e);
+                            if (st.err && st.err->empty()) *st.err = e;
+                            st.aborted = true;
+                            break;
+                        }
+                    }
+                    if (!featags) featags = Value::array();
+                    ValuePtr item = Value::object();
+                    item->obj.push_back({"name", Value::string(tag)});
+                    if (payload) item->obj.push_back({"args", payload});
                     featags->arr.push_back(item);
                     continue;
                 }

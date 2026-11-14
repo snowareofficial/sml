@@ -19,24 +19,46 @@ typedef struct cfield {
     struct cfield *next;
 } cfield;
 
+/* featag 声明（S2–S5b）：名字 + 可选参数规格。
+   `has_spec` 区分「无参纯标签」与「带参」—— 使用处的个数校验靠它（Rust 同判据：
+   无参带参数 ⇒ 021，带参不写 `[…]` ⇒ 021）。`-> 落点` 属 S6，尚未接，故这里不存。 */
+typedef struct cfeatag {
+    char *name;
+    int has_spec;
+    cty ty;            /* 单参类型；CT_ARRAY 时看 arr_inner */
+    cty arr_inner;
+    struct cfeatag *next;
+} cfeatag;
+
 typedef struct ccontract {
     char *name;
     int allow_extra;         /* loose */
     cfield *fields;          /* 头插链表 */
-    /* 声明过的 featag 名（`!name`）。S5 的使用处校验只认这里出现过的名字：
-       契约私有的作用域，块头写 `!x` 而契约没声明 ⇒ E-CONTRACT-021（与 Rust 同码）。 */
-    char **featags;
-    size_t n_featag;
+    cfeatag *featags;        /* 头插链表（featag 的作用域是契约私有） */
     struct ccontract *next;
 } ccontract;
 
-/* 该契约是否声明过名为 name 的 featag。 */
-static int contract_declares_featag(const ccontract *c, const char *name) {
-    size_t i;
-    if (!c) return 0;
-    for (i = 0; i < c->n_featag; i++)
-        if (strcmp(c->featags[i], name) == 0) return 1;
-    return 0;
+/* 找 featag 声明；未声明返回 NULL（使用处据此报 E-CONTRACT-021）。 */
+static cfeatag *contract_featag_find(const ccontract *c, const char *name) {
+    cfeatag *f;
+    if (!c) return NULL;
+    for (f = c->featags; f; f = f->next)
+        if (strcmp(f->name, name) == 0) return f;
+    return NULL;
+}
+
+/* 一个参数值是否满足声明的类型（S5b）。
+   只做标量这一层：枚举 / 区间 / 外置类型仍只在 Rust 侧校验 —— 四端既有的字段校验
+   没有可复用的公共入口，硬塞进来会与 `check_field` 的两套判据分叉。 */
+static int featag_arg_matches(cty ty, const sml_value *v) {
+    if (!v) return 0;
+    switch (ty) {
+        case CT_STR:  return v->type == SML_STR;
+        case CT_INT:  return v->type == SML_INT;
+        case CT_NUM:  return v->type == SML_INT || v->type == SML_FLOAT;
+        case CT_BOOL: return v->type == SML_BOOL;
+        default:      return 1;   /* CT_ANY / 未写具体类型 */
+    }
 }
 
 /* 内置契约表：宿主注入，供 `@weakbind` 软校验（与文档内 `@contract` 互不相干）。 */

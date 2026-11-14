@@ -66,7 +66,7 @@ docs {
     { title: "docs/swsml/archive/idyml-rejected.md" date: "2026-10-15" updated: "2026-11-03" owner: "swsml" status: "archive" scope: "idyml 改名方案（2026-11-03 否决）" supersedes: null superseded_by: null }
     { title: "docs/swsml/archive/iter-parse.md" date: "2026-10-30" updated: "2026-11-02" owner: "swsml" status: "archive" scope: "迭代式解析改造（已完成并合入 dev）" supersedes: null superseded_by: null }
     { title: "docs/swsml/plan/crossend-sync.md" date: "2026-11-12" updated: "2026-11-13" owner: "swsml" status: "current" scope: "跨端同步施工切片：码表分类、weak 三兄弟 / Edition 四端、验收命令与开工裁决" supersedes: null superseded_by: null }
-    { title: "docs/swsml/plan/featag-slices.md" date: "2026-11-04" updated: "2026-11-14" owner: "swsml" status: "current" scope: "featag 实现切片 S0–S9（Rust 全部收官；四端已补 S2–S4，S5–S8 仍只有 Rust）" supersedes: null superseded_by: null }
+    { title: "docs/swsml/plan/featag-slices.md" date: "2026-11-04" updated: "2026-11-14" owner: "swsml" status: "current" scope: "featag 实现切片 S0–S9（Rust 全部收官；四端已补 S2–S5b，S6–S8 仍只有 Rust）" supersedes: null superseded_by: null }
     { title: "docs/swsml/plan/features-plan.md" date: "2026-11-04" updated: "2026-11-06" owner: "swsml" status: "stale" scope: "v5 版本位落地步骤与被推翻的旧清单" supersedes: null superseded_by: "docs/swsml/spec/features.md" }
     { title: "docs/swsml/plan/perf-plan.md" date: "2026-11-06" updated: "2026-11-08" owner: "swsml" status: "current" scope: "全面优化计划：时间 / 内存 / 缓存 / 指令集四线" supersedes: null superseded_by: null }
     { title: "docs/swsml/ref/capability-matrix.md" date: "2026-10-27" updated: "2026-11-10" owner: "swsml" status: "draft" scope: "五端能力矩阵（2026-10-27 快照，只作历史对照；v5 版本口径待补）" supersedes: null superseded_by: null }
