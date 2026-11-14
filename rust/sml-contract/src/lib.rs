@@ -875,8 +875,13 @@ fn check_type_contract_ref(
             "字段 `{path}` 引用了未定义的契约 `{ref_name}`（契约 `{contract}`）{hint}"
         ))
     })?;
-    // 先做基础类型校验（值须为块），再递归应用
-    check_type(contract, path, spec, &Value::Object(sub.clone()), contracts, warnings)?;
-    // 把完整路径传下去，子块的错误才能定位到 `parent.child` 而非只报字段名
+    // 这里**不再**调 `check_type`：
+    //   - `spec.ty` 是 ContractRef —— 866 行已确认；
+    //   - 值必须是块 —— `sub: &mut Map` 本身就说明是块；
+    //   - 被引用契约必须存在 —— 873 行已查并报 001。
+    // 改前那一行写成 `check_type(contract, path, spec, &Value::Object(sub.clone()), …)`，
+    // 等于为了做这三项「已经确定」的检查把整个子对象克隆一遍（嵌套契约块最贵的一段）。
+    //
+    // 把完整路径传下去，子块的错误才能定位到 `parent.child` 而非只报字段名。
     apply_contract(target, sub, contracts, path, warnings)
 }
