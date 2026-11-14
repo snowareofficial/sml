@@ -225,6 +225,12 @@ name = "amberice"
 harness = false
 required-features = ["amberice"]
 
+# 分配归因（不是性能基线）：把 parse / tokenize 的分配按大小桶拆开，
+# 用来判断「短串内联」与「容器预分配」哪个更值得做。自带分配器，与 common 隔离。
+[[bench]]
+name = "alloc_split"
+harness = false
+
 # 阶段 0 归因基准：parse 峰值堆 / tokenize 时间 / 跨规模 get×1000。
 # 不设 required-features：容器组用 #[cfg(feature = "amberice")] 自行跳过。
 [[bench]]
