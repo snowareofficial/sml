@@ -11,6 +11,9 @@
 //! 只报「分配总量」会把「反复分配又释放」算成内存，那是错的 —— 这张表的核心卖点是内存。
 //! ｜ Peak (not total) allocation: the metric that makes the mmap / zero-copy claims checkable.
 
+// 各 bench 只用到其中一部分工具，未用到的不要刷警告。
+#![allow(dead_code)]
+
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;

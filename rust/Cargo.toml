@@ -231,6 +231,12 @@ required-features = ["amberice"]
 name = "alloc_split"
 harness = false
 
+# 阶段归因（不是基线）：用不同文档形状的差分拆出词法 / 构建 / 契约 / 数组的成本；
+# 每形状多批取 min 与 median —— min/median 差 >10% 说明本轮环境不稳，不能拿来做 A/B。
+[[bench]]
+name = "hotspots"
+harness = false
+
 # 阶段 0 归因基准：parse 峰值堆 / tokenize 时间 / 跨规模 get×1000。
 # 不设 required-features：容器组用 #[cfg(feature = "amberice")] 自行跳过。
 [[bench]]
