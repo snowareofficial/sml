@@ -510,6 +510,77 @@ static bool resolve_and_check(const ValuePtr& v, const TypeSpec& spec,
 }
 
 // ===========================================================================
+// 多契约叠加（D3）：一个块应用多份契约 —— **合并视图**
+//
+// 语义照 `rust/sml-contract/src/lib.rs::apply_contracts`：
+//   1. 有效严格度 = 块级覆盖 `unwrap_or` 契约级声明；多契约取**最严**一档
+//      ⇒ 任一份严格即整体严格（本端两档：`allow_extra` 取 AND）；
+//   2. **顺序无关**：字段按名取并集；
+//   3. **冲突即错**：同名字段但类型 / 默认值 / 区间任一不同 ⇒ `E-CONTRACT-016`
+//      （不允许「后者覆盖」——那会让结果依赖书写顺序）；
+//   4. 构造一份临时 `Contract` 后**复用** `apply_contract` 的既有校验，
+//      不另写一条校验路径。
+// ===========================================================================
+
+/* 一组待应用的契约：名字 + 块级严格度覆盖。
+   `ov`：-1 = 无覆盖（用契约级声明）/ 0 = loose / 1 = strict。
+   `warn` 在本端按 `loose` 记：本端没有「放行 + 告警」通道，而两者的**值树**逐字相同
+   （Rust 只多一条诊断），故树对齐。 */
+struct ContractSet {
+    std::vector<std::pair<std::string, int> > items;
+    bool empty() const { return items.empty(); }
+    void clear() { items.clear(); }
+    bool has(const std::string& n) const {
+        for (size_t i = 0; i < items.size(); i++) if (items[i].first == n) return true;
+        return false;
+    }
+    void push(const std::string& n, int ov) {
+        if (has(n)) return;   /* 按名去重（Rust `applied_contracts` 同口径，首个覆盖胜） */
+        items.push_back(std::make_pair(n, ov));
+    }
+};
+
+/* 类型的**规范串**（Rust `TypeSpec::name()` 同口径）：数组比元素类型、
+   枚举比取值表、组合比被引用契约名。 */
+static std::string type_key(const TypeSpec& t) {
+    switch (t.kind) {
+        case TypeSpec::Kind::Any:  return "any";
+        case TypeSpec::Kind::Str:  return "str";
+        case TypeSpec::Kind::Int:  return "int";
+        case TypeSpec::Kind::Num:  return "num";
+        case TypeSpec::Kind::Bool: return "bool";
+        case TypeSpec::Kind::Array:
+            return "[" + (t.elem ? type_key(*t.elem) : std::string("?")) + "]";
+        case TypeSpec::Kind::Enum: {
+            std::string s = "enum [";
+            for (size_t i = 0; i < t.enum_values.size(); i++) {
+                if (i) s += " ";
+                s += t.enum_values[i];
+            }
+            return s + "]";
+        }
+        case TypeSpec::Kind::ContractRef: return t.contract_ref;
+    }
+    return "?";
+}
+
+/* 同名字段是否**冲突**（类型 / 默认值 / 区间任一不同）。 */
+static bool field_clash(const FieldSpec& a, const FieldSpec& b) {
+    if (type_key(a.type) != type_key(b.type)) return true;
+    if (a.mods.default_value != b.mods.default_value) return true;
+    if (a.mods.min != b.mods.min) return true;
+    if (a.mods.max != b.mods.max) return true;
+    return false;
+}
+
+/* 应用一组契约（定义在 06_include_api.inc：那里才有 `apply_contract` 的实现）。
+   单契约且无块级覆盖时逐字走原路径（错误文案 / 行为不变）。 */
+static bool apply_contract_set(const ValuePtr& val,
+                               const std::map<std::string, Contract>& contracts,
+                               const ContractSet& set,
+                               std::string* err);
+
+// ===========================================================================
 // Parser internals
 // ===========================================================================
 /* 值嵌套深度上限：与 C / Rust 侧同口径（Rust 为 MAX_VALUE_DEPTH=128）。

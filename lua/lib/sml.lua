@@ -1236,16 +1236,9 @@ local function check_any_walk(cname, c, contracts, seen)
   end
 end
 
--- 对块应用契约：严格性检查 + 填默认值 + 逐个字段校验
-apply_contract = function(node, contracts, name)
-  local c = contracts[name]
-  if c == nil then
-    fail("E-CONTRACT-001", "未定义的契约 `" .. tostring(name) .. "`")
-  end
-  -- S8：`any` 默认禁用（门控 type.featag：没开时整段不查，v4 的 any 照旧可用）
-  if _FEATURES and _FEATURES[17] then
-    check_any_walk(name, c, contracts, {})
-  end
+-- 对块应用**一份**契约：严格性检查 + 填默认值 + 逐个字段校验。
+-- 与 `apply_contract` 分开，是为了让多契约叠加（合并视图）复用同一条校验路径。
+local apply_contract_obj = function(node, contracts, c)
   if type(node) ~= "table" then
     fail("E-CONTRACT-008", "契约只能应用于块，实际不是块")
   end
@@ -1262,7 +1255,7 @@ apply_contract = function(node, contracts, name)
     for _, k in ipairs(meta) do
       if k ~= "__type" and k ~= "__featags" and c.fields[k] == nil then
         fail("E-CONTRACT-004",
-             "字段 `" .. tostring(k) .. "` 未在契约 `" .. name .. "` 中声明（严格模式）")
+             "字段 `" .. tostring(k) .. "` 未在契约 `" .. tostring(c.name) .. "` 中声明（严格模式）")
       end
     end
   end
@@ -1283,6 +1276,212 @@ apply_contract = function(node, contracts, name)
       check_type(f, v, contracts)
     end
   end
+end
+
+-- 对块应用契约：严格性检查 + 填默认值 + 逐个字段校验
+apply_contract = function(node, contracts, name)
+  local c = contracts[name]
+  if c == nil then
+    fail("E-CONTRACT-001", "未定义的契约 `" .. tostring(name) .. "`")
+  end
+  -- S8：`any` 默认禁用（门控 type.featag：没开时整段不查，v4 的 any 照旧可用）
+  if _FEATURES and _FEATURES[17] then
+    check_any_walk(name, c, contracts, {})
+  end
+  apply_contract_obj(node, contracts, c)
+end
+
+------------------------------------------------------------------------------
+-- 多契约叠加（D3）：一个块应用多份契约 —— **合并视图**
+--
+-- 语义照 `rust/sml-contract/src/lib.rs::apply_contracts`：
+--   1. 有效严格度 = 块级覆盖 `unwrap_or` 契约级声明；多契约取**最严**一档
+--      ⇒ 任一份严格即整体严格（本端两档：`allow_extra` 取 AND）；
+--   2. **顺序无关**：字段按名取并集；
+--   3. **冲突即错**：同名字段但类型 / 默认值 / 区间任一不同 ⇒ `E-CONTRACT-016`
+--      （不允许「后者覆盖」——那会让结果依赖书写顺序）；
+--   4. 构造一份临时契约后**复用** `apply_contract_obj`，不另写一条校验路径。
+--
+-- `entries` 元素形如 `{ name = "...", ov = nil|0|1 }`：
+-- ov = nil 无覆盖 / 0 loose（`warn` 同记，树与 loose 逐字相同）/ 1 strict。
+------------------------------------------------------------------------------
+
+-- 深比较两个默认值（Rust `Value: PartialEq` 同口径：类型 + 内容）。
+-- 只用于「多契约同名字段冲突」判定，故不做数值语义归一。
+local function value_equal(a, b)
+  if a == b then return true end
+  if type(a) ~= "table" or type(b) ~= "table" then return false end
+  local na, nb = 0, 0
+  for _ in pairs(a) do na = na + 1 end
+  for _ in pairs(b) do nb = nb + 1 end
+  if na ~= nb then return false end
+  for k, v in pairs(a) do
+    if not value_equal(v, b[k]) then return false end
+  end
+  return true
+end
+
+-- 类型的**规范串**（Rust `TypeSpec::name()` 同口径）：数组比元素类型、
+-- 枚举比取值表、组合比被引用契约名。
+local function type_key(ty)
+  if ty == nil then return "?" end
+  if ty.kind == "array" then
+    return "[" .. type_key(ty.elem) .. "]"
+  elseif ty.kind == "enum" then
+    return "enum [" .. table.concat(ty.values or {}, " ") .. "]"
+  elseif ty.kind == "contract" then
+    return ty.ref or "?"
+  end
+  return ty.kind
+end
+
+-- 同名字段是否**冲突**（类型 / 默认值 / 区间任一不同）。
+local function field_clash(a, b)
+  if type_key(a.type) ~= type_key(b.type) then return true end
+  if (a.has_default and true or false) ~= (b.has_default and true or false) then return true end
+  if not value_equal(a.default, b.default) then return true end
+  if a.min ~= b.min or a.max ~= b.max then return true end
+  return false
+end
+
+local function shallow_copy(t)
+  local o = {}
+  for k, v in pairs(t) do o[k] = v end
+  return o
+end
+
+-- 把一组契约合并成一份临时契约；未定义 ⇒ 001，冲突 ⇒ 016。
+local function merge_contract_set(contracts, entries)
+  local list = {}
+  for idx, e in ipairs(entries) do
+    local c = contracts[e.name]
+    if c == nil then
+      fail("E-CONTRACT-001", "未定义的契约 `" .. tostring(e.name) .. "`")
+    end
+    list[idx] = c
+  end
+  -- 冲突预检：按**字段名**两两比较，与书写顺序无关
+  for a = 1, #list do
+    for b = a + 1, #list do
+      local ks = {}
+      for k in pairs(list[a].fields) do ks[#ks + 1] = k end
+      table.sort(ks)
+      for _, k in ipairs(ks) do
+        local fb = list[b].fields[k]
+        if fb ~= nil and field_clash(list[a].fields[k], fb) then
+          fail("E-CONTRACT-016",
+               "字段 `" .. k .. "` 在 `" .. tostring(entries[a].name) .. "` 与 `" ..
+               tostring(entries[b].name) .. "` 里类型 / 默认值 / 区间不一致")
+        end
+      end
+    end
+  end
+  -- 合并视图：字段并集；同名字段的类型/默认值/区间已一致，但 `optional`
+  -- **不在**预检内 ⇒ 取 AND（任一份要求必填即必填），才与书写顺序无关。
+  local fields = {}
+  for _, c in ipairs(list) do
+    local ks = {}
+    for k in pairs(c.fields) do ks[#ks + 1] = k end
+    table.sort(ks)
+    for _, k in ipairs(ks) do
+      if fields[k] ~= nil then
+        if not c.fields[k].optional then fields[k].optional = false end
+      else
+        fields[k] = shallow_copy(c.fields[k])
+      end
+    end
+  end
+  -- 严格度：块级覆盖 unwrap_or 契约级，多契约取**最严**（`allow_extra` 取 AND）
+  local allow_extra = true
+  local strict_paths, allow_any = false, false
+  local featags = {}
+  for idx, c in ipairs(list) do
+    local ov = entries[idx].ov
+    local eff
+    if ov == nil then eff = c.allow_extra else eff = (ov == 0) end
+    if not eff then allow_extra = false end
+    if c.strict_paths then strict_paths = true end
+    if c.allow_any then allow_any = true end
+    if c.featags then
+      for n, d in pairs(c.featags) do
+        if featags[n] == nil then featags[n] = d end
+      end
+    end
+  end
+  local names = {}
+  for idx, e in ipairs(entries) do names[idx] = e.name end
+  return {
+    name = table.concat(names, "+"),
+    fields = fields,
+    allow_extra = allow_extra,
+    strict_paths = strict_paths,
+    allow_any = allow_any,
+    featags = featags,
+  }
+end
+
+-- 应用一组契约；单契约且无块级覆盖时**逐字走原路径**（错误文案 / 行为不变）。
+local function apply_contract_set(node, contracts, entries)
+  if entries == nil or #entries == 0 then return end
+  if #entries == 1 and entries[1].ov == nil then
+    apply_contract(node, contracts, entries[1].name)
+    return
+  end
+  if _FEATURES and _FEATURES[17] then
+    for _, e in ipairs(entries) do
+      local c = contracts[e.name]
+      if c == nil then
+        fail("E-CONTRACT-001", "未定义的契约 `" .. tostring(e.name) .. "`")
+      end
+      check_any_walk(e.name, c, contracts, {})
+    end
+  end
+  apply_contract_obj(node, contracts, merge_contract_set(contracts, entries))
+end
+
+-- 收集 `@is` 之后的契约名（D1）：连续取裸词，遇 `:` / `{` / `]` / **换行**即停；
+-- 逗号作分隔（**可省**：`@is a, b` ≡ `@is a b`）。两条停机判据缺一不可：
+--   - 「换行即停」：`@is X` 独占一行、字段写在下一行是常见写法，无脑收词会吞掉下一行的键；
+--   - 「裸词后跟 `:` 的是键」：`@is A host: h1` 的 host 是键值，不是契约名。
+-- `loose` / `warn` / `strict` 紧跟某个契约名时是该契约的**块级严格度覆盖**（D4①），
+-- 不是契约名：`@is A warn B` ⇒ A=warn、B=契约级默认。
+-- 返回 `entries, next_i`；entries 元素为 `{ name = ..., ov = nil|0|1 }`。
+local function parse_is_names(tokens, i, contracts)
+  local out = {}
+  local first = tokens[i]
+  if first == nil or not is_word_tok(first) then return out, i end
+  local line = _LINES and _LINES[i] or nil
+  local have_name = false   -- 刚收了一个契约名、还没被严格度关键字覆盖
+  while tokens[i] ~= nil do
+    local tk = tokens[i]
+    if tk == "," then
+      if line ~= nil and _LINES[i] ~= line then break end
+      i = i + 1
+    elseif is_word_tok(tk) then
+      if line ~= nil and _LINES[i] ~= line then break end
+      local w = unquote(tk)
+      if have_name and (w == "loose" or w == "warn" or w == "strict") then
+        -- 绑定到**上一个**契约名：strict ⇒ 1，loose / warn ⇒ 0
+        out[#out].ov = (w == "strict") and 1 or 0
+        have_name = false
+        i = i + 1
+      else
+        -- 后跟 `:` 且又不是契约名 ⇒ 它是键，停
+        if tokens[i + 1] == ":" and contracts[w] == nil then break end
+        -- `@is type(契约名)` 与 `@is 契约名` 等价（对齐 Rust 的 unwrap_type_call）
+        local inner = string.match(w, "^type%((.+)%)$")
+        if inner ~= nil and contracts[w] == nil then w = inner end
+        local dup = false
+        for _, e in ipairs(out) do if e.name == w then dup = true break end end
+        if not dup then out[#out + 1] = { name = w, ov = nil } end
+        have_name = true
+        i = i + 1
+      end
+    else
+      break
+    end
+  end
+  return out, i
 end
 
 ------------------------------------------------------------------------------
@@ -1417,8 +1616,8 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
   -- 键的**源序**（供 `.ambr` 写入；不进值树，见 finish）
   local order = {}
   local n = #tokens
-  -- 本块声明的 `@is 契约名`：块结束时应用（Rust 的 applied_contract）
-  local pending_is = nil
+  -- 本块声明的 `@is 契约名`：块结束时应用（Rust 的 applied_contracts，可多份）
+  local pending_is = {}
   -- `@when` 的挂起条件：只作用于**紧邻的下一个**字段/块，消费后清空
   local pending_when = nil
   -- `@weakbind <名>` 的挂起：作用于紧邻的下一个**块**（块收尾时只读软校验）。
@@ -1436,8 +1635,8 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
     if pending_when ~= nil then
       fail("E-PARSE-017", "`@when` 后未跟随任何字段或块（悬空的条件）")
     end
-    if pending_is ~= nil then
-      apply_contract(node, contracts, pending_is)
+    if #pending_is > 0 then
+      apply_contract_set(node, contracts, pending_is)
     end
     -- 路径栈出栈（悬空的 `@weakbind` 随本块丢弃，无需额外处理）。
     for k = #_PATH, path_n + 1, -1 do _PATH[k] = nil end
@@ -1700,42 +1899,23 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
         end
         pending_when, i = eval_when(tokens, i)
       elseif fname == "is" then
-        -- 契约应用：`@is Name` 作用于**当前块**，块结束时校验（见 finish）
+        -- 契约应用：`@is Name`（可多份）作用于**当前块**，块结束时校验（见 finish）
         -- 特性门控：与 `@contract` 同一判据。
         if not (_FEATURES and _FEATURES[3]) then
           fail("E-FEATURE-001", "`contract`：当前文档已禁用该特性")
         end
-        local cname = tokens[i]
-        if not is_word_tok(cname) then
+        local set
+        set, i = parse_is_names(tokens, i, contracts)
+        if #set == 0 then
           fail("E-PARSE-019", "`@is` 后须契约名")
         end
-        cname = unquote(cname)
-        -- `@is type(契约名)` 与 `@is 契约名` 等价（对齐 Rust 的 unwrap_type_call）
-        local inner = string.match(cname, "^type%((.+)%)$")
-        if inner and contracts[cname] == nil then cname = inner end
-        i = i + 1  -- 越过 cname（现在 tokens[i-1] 是 cname）
-        -- 任务 D：多契约「响亮拒绝」—— `@is` 后出现第 2 个裸词（同一行、
-        --   且该词不是「后跟 : 的键」）即报 E-CONTRACT-017，绝不静默给树。
-        --   与 Rust D1 同口径：遇 : / { / ] / 换行 / 逗号（可省）即停。
-        local cname_line = _LINES[i - 1]
-        local j = i
-        if tokens[j] == "," then j = j + 1 end
-        local nx = tokens[j]
-        if nx ~= nil and is_word_tok(nx) then
-          if _LINES[j] ~= cname_line then
-            -- 换行即停：下一行的键/值不是契约名
-          elseif tokens[j + 1] == ":" then
-            -- 后跟 : 是键，非契约名
-          elseif nx ~= "loose" and nx ~= "warn" and nx ~= "strict"
-                 and contracts[nx] == nil then
-            -- 第二个词不是严格度关键字、也不是已注册契约 ⇒ Rust 报「未定义的契约」001；
-            -- 只有「两个都注册了」才是真·多契约缺口 017。
-            fail("E-CONTRACT-001", "应用未定义契约 `" .. tostring(nx) .. "`")
-          else
-            fail("E-CONTRACT-017", "sml: 该实现暂不支持一个块应用多份契约（@is 多契约写法）")
+        for _, e in ipairs(set) do
+          local dup = false
+          for _, had in ipairs(pending_is) do
+            if had.name == e.name then dup = true break end
           end
+          if not dup then pending_is[#pending_is + 1] = e end
         end
-        pending_is = cname
       else
         -- 未注册指令（`@foo ...`）：按 C 的 is_param 口径处理（W16）。
         --   只认**紧跟冒号**的 `type:` / `name:` 作为显式参数；出现位置参数
@@ -1851,7 +2031,6 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
         -- 开了 `type.featag` 且首词命中契约时，块头可以有 `!tag [args]` 区与逗号分隔的块名
         -- （`Service !critical !obey[4], prod { }`）。未开时保持旧行为。
         local feat_on = (_FEATURES and _FEATURES[17] and key_is_contract) and true or false
-        local arg_has_contract = false
         while tokens[i] do
           local tk = tokens[i]
           if tk == "{" or tk == "}" or tk == "]" then break end
@@ -1915,15 +2094,29 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
           elseif feat_on and tk == "," then
             i = i + 1
           else
-            if key_is_contract and contracts[tk] ~= nil then arg_has_contract = true end
             args[#args+1] = coerce(tk, fragments)
             i = i + 1
           end
         end
-        -- 任务 D：块级多契约「响亮拒绝」—— head 词命中契约表且 args 里出现第 2 个
-        --   已注册契约词 ⇒ E-CONTRACT-017（单契约 `server web prod` 的 web/prod 不是契约，不受影响）。
-        if key_is_contract and arg_has_contract then
-          fail("E-CONTRACT-017", "sml: 该实现暂不支持一个块应用多份契约（块级多契约写法）")
+        -- 块级多契约（D2）：从**首词**起，连续命中契约表的词都是契约；第一个未命中的
+        -- 词是块名（`server web prod { }` 的 web/prod 不是契约，不受影响）。
+        -- 只有开了 `typed-block` 才这么认 —— 否则块头参数照旧只是块名 / `__args`，
+        -- 既不算契约词也不改 `__name` 的起点。
+        local ty_entries = {}
+        local ty_consumed = 0
+        if key_is_contract and _FEATURES and _FEATURES[14] then
+          ty_entries[1] = { name = key, ov = nil }
+          for ai = 1, #args do
+            local a = args[ai]
+            if type(a) ~= "string" then break end
+            if contracts[a] == nil then break end
+            local dup = false
+            for _, e in ipairs(ty_entries) do
+              if e.name == a then dup = true break end
+            end
+            if not dup then ty_entries[#ty_entries + 1] = { name = a, ov = nil } end
+            ty_consumed = ty_consumed + 1
+          end
         end
         if tokens[i] == "{" then
           local sub
@@ -1936,17 +2129,28 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
           -- ⚠️ 契约应用**先于** `__name` 写入：Rust 的块头契约校验发生在命名参数落位之前，
           --    所以 `Service !t, prod { }` 在严格契约下能过；而字段值里的带名裸块
           --    （`x { @is A addr Sub { } }`）`__name` 已存在，仍报 E-CONTRACT-004。
-          -- **S7**：`from-featag` 的键不许文档手写 —— 必须在填充之前。
-          if contracts[key] ~= nil then
-            check_from_featag(contracts[key], sub, "", contracts)
+          -- **S7**：`from-featag` 的键不许文档手写 —— 必须在填充之前（多契约逐份查）。
+          for _, e in ipairs(ty_entries) do
+            check_from_featag(contracts[e.name], sub, "", contracts)
           end
           -- **S6 落点填充**：必须在契约应用**之前**（Rust `finish_bare_block` 同序）。
           -- 契约先跑会看不到这些键：严格契约会把它们报成 004，
           -- `auto` 也取不到声明自己的 `default`。
-          if featags and contracts[key] ~= nil then
-            local cc = contracts[key]
+          -- 多契约时声明取**并集**、`!strict-paths` 取**或**（Rust `fill_featag_targets` 同口径）。
+          if featags and #ty_entries > 0 then
+            local strict_now = false
+            for _, e in ipairs(ty_entries) do
+              if contracts[e.name].strict_paths then strict_now = true end
+            end
             for _, it in ipairs(featags) do
-              local d2 = cc.featags and cc.featags[it.name]
+              local d2 = nil
+              for _, e in ipairs(ty_entries) do
+                local cc = contracts[e.name]
+                if cc.featags and cc.featags[it.name] ~= nil then
+                  d2 = cc.featags[it.name]
+                  break
+                end
+              end
               if d2 ~= nil and d2.target ~= nil and d2.target[1] ~= nil and it.args ~= nil then
                 local w = tostring(key) .. "." .. it.name
                 local val
@@ -1962,14 +2166,16 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
                 else
                   val = it.args[1]
                 end
-                write_target(sub, d2.target, val, cc.strict_paths == true, w)
+                write_target(sub, d2.target, val, strict_now, w)
               end
             end
           end
-          if _FEATURES and _FEATURES[14] and contracts[key] ~= nil then
-            apply_contract(sub, contracts, key)
+          if #ty_entries > 0 then
+            apply_contract_set(sub, contracts, ty_entries)
           end
-          if #args == 1 then sub.__name = args[1] end
+          -- `__name` 的起点跳过被算作契约词的参数（首个非契约词才是块名）；
+          -- 单契约 / 无契约时 `ty_consumed == 0`，与旧行为逐字一致。
+          if #args - ty_consumed == 1 then sub.__name = args[ty_consumed + 1] end
           set_field(key, sub)
         else
           -- 裸块无 body：当作标量串

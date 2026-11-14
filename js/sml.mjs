@@ -546,6 +546,96 @@ function checkContract(contracts, contract, obj, path) {
 }
 
 // ---------------------------------------------------------------------------
+// 多契约叠加（D3）：一个块应用多份契约 —— **合并视图**
+//
+// 语义照 `rust/sml-contract/src/lib.rs::apply_contracts`：
+//   1. 有效严格度 = 块级覆盖 `unwrap_or` 契约级声明；多契约取**最严**一档
+//      ⇒ 任一份严格即整体严格（本端两档：`loose` 取 AND）；
+//   2. **顺序无关**：字段按名取并集；
+//   3. **冲突即错**：同名字段但类型 / 默认值 / 区间任一不同 ⇒ `E-CONTRACT-016`
+//      （不允许「后者覆盖」——那会让结果依赖书写顺序）；
+//   4. 构造一份临时契约后**复用** `applyDefaults` / `checkContract`，
+//      不另写一条校验路径。
+// ---------------------------------------------------------------------------
+
+// 类型的**规范串**（Rust `TypeSpec::name()` 同口径）：数组比元素类型、
+// 枚举比取值表、组合比被引用契约名。
+function typeKey(sp) {
+  switch (sp.type) {
+    case "array": return "[" + (sp.arrInner ? typeKey(sp.arrInner) : "?") + "]";
+    case "enum": return "enum [" + (sp.enumVals || []).join(" ") + "]";
+    case "contract": return sp.refName || "?";
+    default: return String(sp.type);
+  }
+}
+
+// 同名字段是否**冲突**（类型 / 默认值 / 区间任一不同）。
+function fieldClash(a, b) {
+  if (typeKey(a) !== typeKey(b)) return true;
+  if (JSON.stringify(a.def) !== JSON.stringify(b.def)) return true;
+  if (a.min !== b.min) return true;
+  if (a.max !== b.max) return true;
+  return false;
+}
+
+// 合并一组契约。返回 `{ merged }` 或 `{ code, msg }`（本函数在 `parse` 之外，
+// 拿不到那里的 `fail`，故把错误交回调用方抛）。
+// `entries` 元素形如 `{ name, ov }`：ov = null 无覆盖 / 0 loose / 1 strict。
+function mergeContractSet(contracts, entries) {
+  const list = [];
+  for (const e of entries) {
+    const c = contracts[e.name];
+    if (!c) return { code: "E-CONTRACT-001", msg: "sml: 应用未定义契约 `" + e.name + "`" };
+    list.push(c);
+  }
+  // 冲突预检：按**字段名**两两比较，与书写顺序无关
+  for (let a = 0; a < list.length; a++) {
+    for (let b = a + 1; b < list.length; b++) {
+      for (const k of Object.keys(list[a].fields)) {
+        const fb = list[b].fields[k];
+        if (fb === undefined) continue;
+        if (!fieldClash(list[a].fields[k], fb)) continue;
+        return {
+          code: "E-CONTRACT-016",
+          msg: "sml: 字段 `" + k + "` 在 `" + entries[a].name + "` 与 `" +
+               entries[b].name + "` 里类型 / 默认值 / 区间不一致",
+        };
+      }
+    }
+  }
+  // 合并视图：字段并集；同名字段的类型/默认值/区间已一致，但 `required`
+  // **不在**预检内 ⇒ 取**或**（任一份要求即必填），才与书写顺序无关。
+  const fields = {};
+  for (const c of list) {
+    for (const k of Object.keys(c.fields)) {
+      if (k in fields) { if (c.fields[k].required) fields[k].required = true; }
+      else fields[k] = Object.assign({}, c.fields[k]);
+    }
+  }
+  // 严格度：块级覆盖 unwrap_or 契约级，多契约取**最严**（`loose` 取 AND）
+  let loose = true;
+  let strictPaths = false;
+  let allowAny = false;
+  const featags = new Map();
+  for (let k = 0; k < list.length; k++) {
+    const ov = entries[k].ov;
+    const eff = (ov === null || ov === undefined) ? !!list[k].loose : (ov === 0);
+    if (!eff) loose = false;
+    if (list[k].strictPaths) strictPaths = true;
+    if (list[k].allowAny) allowAny = true;
+    if (list[k].featags) {
+      for (const [n, d] of list[k].featags) if (!featags.has(n)) featags.set(n, d);
+    }
+  }
+  return {
+    merged: {
+      name: entries.map((e) => e.name).join("+"),
+      fields, loose, strictPaths, allowAny, featags,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // include / feature 解析辅助
 // ---------------------------------------------------------------------------
 
@@ -2181,7 +2271,60 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
         else node[k] = [node[k], v];
       }
     };
-    let appliedContract = null;
+    /* 本块声明的契约（可多份）：元素形如 `{ name, ov }`。
+       `ov` 是**块级严格度覆盖**（D4①）：null = 无覆盖 / 0 = loose / 1 = strict。 */
+    const appliedContracts = [];
+
+    /* `@is` 后的名字解析：`@is type(契约名)` 与 `@is 契约名` 等价 —— 括号形式让
+       「类型标注」的意图更显眼，且与块级标注 `type(契约名) 块名 { .. }` 同形。
+       括号在词法中不是分隔符，故 `type(办事人)` 整体是一个 word，字符串层解包即可。
+       仅当契约表里**确实存在**名为 `type(x)` 的契约时才按原名解析（极端但合法的老文档）。 */
+    const resolveIsName = (raw) => {
+      const inner = /^type\((.+)\)$/.exec(raw);
+      const nameExists = raw in contracts || nsPrefix + raw in contracts;
+      const cname = inner && !nameExists ? inner[1] : raw;
+      let full = nsPrefix + cname;
+      if (!(full in contracts)) full = cname;   // 回退裸名
+      return full;
+    };
+
+    /* 收集 `@is` 之后的契约名（D1）：连续取裸词，遇 `:` / `{` / `]` / **换行**即停；
+       逗号作分隔（**可省**：`@is a, b` ≡ `@is a b`）。两条停机判据缺一不可：
+       - 「换行即停」：`@is X` 独占一行、字段写在下一行是常见写法，无脑收词会吞掉下一行的键；
+       - 「裸词后跟 `:` 的是键」：`@is A host: h1` 的 host 是键值，不是契约名。
+       `loose` / `warn` / `strict` 紧跟某个契约名时是该契约的**块级严格度覆盖**（D4①），
+       不是契约名：`@is A warn B` ⇒ A=warn、B=契约级默认。 */
+    const parseIsNames = () => {
+      const out = [];
+      const first = peek();
+      if (!first) return out;
+      const line = first.line;
+      let haveName = false;   // 刚收了一个契约名、还没被严格度关键字覆盖
+      while (peek()) {
+        const tk = peek();
+        if (tk.t === ",") {
+          if (tk.line !== line) break;
+          i++;
+          continue;
+        }
+        if (tk.t !== "word" && tk.t !== "str") break;
+        if (tk.line !== line) break;
+        if (haveName && (tk.v === "loose" || tk.v === "warn" || tk.v === "strict")) {
+          out[out.length - 1].ov = tk.v === "strict" ? 1 : 0;
+          haveName = false;
+          i++;
+          continue;
+        }
+        // 后跟 `:` 且又不是契约名 ⇒ 它是键，停
+        if (toks[i + 1] && toks[i + 1].t === ":" &&
+            !(tk.v in contracts) && !((nsPrefix + tk.v) in contracts)) break;
+        const nm = resolveIsName(tk.v);
+        if (!out.some((e) => e.name === nm)) out.push({ name: nm, ov: null });
+        haveName = true;
+        i++;
+      }
+      return out;
+    };
     // `@when` 条件求值（闭集，与 Rust `cond.rs::eval_when_cond` 同语义）
     const evalWhen = () => {
       const lhsTok = peek();
@@ -2457,43 +2600,13 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
           // W16：`@is` 与 `@contract` 同属 contract 特性（Rust 侧同样两道都门控）
           if (!feats.has("contract")) fail("E-FEATURE-001", "sml: @is 需要特性 `contract`，但当前特性集已禁用");
           i++;
-          const raw = peek() && peek().v;
-          if (!raw) fail("E-PARSE-019", "sml: @is 后须契约名");
-          const firstLine = peek().line;  // 首个契约名所在源行（D 同 line 判据）
-          i++;
-          // D（任务 D）：多契约「响亮拒绝」—— `@is` 后出现第 2 个裸词（同一行、
-          // 且该词不是「后跟 `:` 的键」）即报 E-CONTRACT-017，绝不静默给树。
-          // 与 Rust D1 同口径：遇 `:` / `{` / `]` / 换行 / 逗号（可省）即停。
-          {
-            let j = i;
-            while (j < toks.length) {
-              const tk = toks[j];
-              if (tk.line !== firstLine) break;            // 换行即停
-              if (tk.t === ",") { j++; continue; }          // 逗号可省，跳过
-              if (tk.t === "word" || tk.t === "str") {
-                if (toks[j + 1] && toks[j + 1].t === ":") break;  // 后跟 `:` 是键，非契约名
-                // 第二个词不是严格度关键字、也不是已注册契约 ⇒ Rust 报「未定义的契约」001；
-                // 只有「两个都注册了」才是真·多契约缺口 017。不区分会把「名字写错」
-                // 说成「本端不支持多契约」。
-                if (tk.v !== "loose" && tk.v !== "warn" && tk.v !== "strict" &&
-                    !(tk.v in contracts)) {
-                  fail("E-CONTRACT-001", "sml: 应用未定义契约 `" + tk.v + "`");
-                }
-                fail("E-CONTRACT-017", "sml: 该实现暂不支持一个块应用多份契约（@is 多契约写法）");
-              }
-              break;  // `{` / `]` / 其它 token → 停
-            }
+          if (!peek() || (peek().t !== "word" && peek().t !== "str")) {
+            fail("E-PARSE-019", "sml: @is 后须契约名");
           }
-          // `@is type(契约名)` 与 `@is 契约名` 等价 —— 括号形式让「类型标注」
-          // 的意图更显眼，且与块级标注 `type(契约名) 块名 { .. }` 同形。
-          // 括号在词法中不是分隔符，故 `type(办事人)` 整体是一个 word，
-          // 字符串层解包即可。仅当契约表里**确实存在**名为 `type(x)` 的契约时
-          // 才按原名解析（极端但合法的老文档）—— 向后兼容优先，与 Rust 一致。
-          const inner = /^type\((.+)\)$/.exec(raw);
-          const nameExists = raw in contracts || nsPrefix + raw in contracts;
-          const cname = inner && !nameExists ? inner[1] : raw;
-          appliedContract = nsPrefix + cname;
-          if (!(appliedContract in contracts)) appliedContract = cname; // 回退裸名
+          // 累积到本块（Rust 的 `applied_contracts` 同样累加 + 按名去重）
+          for (const e of parseIsNames()) {
+            if (!appliedContracts.some((x) => x.name === e.name)) appliedContracts.push(e);
+          }
           continue;
         }
         // —— 片段定义：`@name { ... }`；参数只认**显式**写法 `type:` / `name:` ——
@@ -2759,26 +2872,38 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
             // 裸块首词若命中契约表，自动把该契约应用到本块，等价于块内首行
             // `@is 契约名`。与既有裸块 `type [name...] { }` 完全同形，故零新语法；
             // 由 opt-in 特性 `typed-block` 门控，未开启时既有文档行为不变。
+            let tyConsumed = 0;
             if (feats.has("typed-block") && feats.has("contract")) {
               const cname = key in contracts ? key : nsPrefix + key in contracts ? nsPrefix + key : null;
               if (cname) {
-                // D（任务 D）：块级多契约「响亮拒绝」—— args 里出现第 2 个已注册契约词
-                // 即报 E-CONTRACT-017（单契约 `server web prod` 的 web/prod 不是契约，不受影响）。
+                // 块级多契约（D2）：从**首词**起，连续命中契约表的词都是契约；第一个未命中的
+                // 词是块名（`server web prod { }` 的 web/prod 不是契约，不受影响）。
+                const entries = [{ name: cname, ov: null }];
                 for (const a of args) {
+                  if (typeof a !== "string") break;
                   const an = a in contracts ? a : nsPrefix + a in contracts ? nsPrefix + a : null;
-                  if (an) fail("E-CONTRACT-017", "sml: 该实现暂不支持一个块应用多份契约（块级多契约写法）");
+                  if (!an) break;
+                  if (!entries.some((e) => e.name === an)) entries.push({ name: an, ov: null });
+                  tyConsumed++;
                 }
-                const c = contracts[cname];
-                // S8：`any` 默认禁用，契约里写 `!any` 才放行
-                if (feats.has("type.featag")) checkAnyAllowed(cname, c, contracts, []);
-                // **S7**：`from-featag` 的键不许文档手写 —— 必须在填充之前。
-                checkFromFeatag(c, sub, "", contracts);
+                // S8：`any` 默认禁用，契约里写 `!any` 才放行（逐份查）
+                if (feats.has("type.featag")) {
+                  for (const e of entries) checkAnyAllowed(e.name, contracts[e.name], contracts, []);
+                }
+                // **S7**：`from-featag` 的键不许文档手写 —— 必须在填充之前（逐份查）。
+                for (const e of entries) checkFromFeatag(contracts[e.name], sub, "", contracts);
                 // **S6 落点填充**：必须在契约应用**之前**（Rust `finish_bare_block` 同序）。
                 // 契约先跑会看不到这些键：严格契约会把它们报成 004，`auto` 也取不到声明里的 default。
+                // 多契约时声明取**并集**、`!strict-paths` 取**或**（Rust `fill_featag_targets` 同口径）。
                 if (featags) {
-                  const strict = !!c.strictPaths;
+                  let strict = false;
+                  for (const e of entries) if (contracts[e.name].strictPaths) strict = true;
                   for (const it of featags) {
-                    const d2 = c.featags ? c.featags.get(it.name) : undefined;
+                    let d2;
+                    for (const e of entries) {
+                      const cf = contracts[e.name];
+                      if (cf.featags && cf.featags.get(it.name)) { d2 = cf.featags.get(it.name); break; }
+                    }
                     if (!d2 || !d2.target || !it.args) continue;
                     const where2 = cname + "." + it.name;
                     let val;
@@ -2795,13 +2920,22 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
                     writeTarget(sub, d2.target, val, strict, where2);
                   }
                 }
-                applyDefaults(c, sub, contracts);
-                const errs = checkContract(contracts, c, sub, "");
-                if (errs) fail(errs[0].code, "contract: " + cname + " — " + errs.map((x) => x.msg).join("; "));
-                recordContract(cname);
+                // 应用：合并视图 + 复用 `applyDefaults` / `checkContract`
+                const r = mergeContractSet(contracts, entries);
+                if (r.code) fail(r.code, r.msg);
+                const merged = r.merged;
+                applyDefaults(merged, sub, contracts);
+                const errs = checkContract(contracts, merged, sub, "");
+                if (errs) fail(errs[0].code, "contract: " + merged.name + " — " + errs.map((x) => x.msg).join("; "));
+                for (const e of entries) recordContract(e.name);
               }
             }
-            if (args.length === 1) sub.__name = args[0];
+            // `__name` 的起点跳过被算作契约词的参数（首个非契约词才是块名）；
+            // 单契约 / 无契约时 `tyConsumed === 0`，与旧行为逐字一致。
+            {
+              const nameArgs = args.slice(tyConsumed);
+              if (nameArgs.length === 1) sub.__name = nameArgs[0];
+            }
             popPath();
             setField(key, sub);
             continue;
@@ -2862,15 +2996,19 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
     if (pendingWhen !== null) {
       fail("E-PARSE-017", "sml: `@when` 后未跟随任何字段或块（悬空的条件）");
     }
-    if (appliedContract) {
-      const c = contracts[appliedContract];
-      if (!c) fail("E-CONTRACT-001", "sml: 应用未定义契约 " + appliedContract);
-      // S8：`any` 默认禁用，契约里写 `!any` 才放行（`@is` 与块头两条路径都要查）
-      if (feats.has("type.featag")) checkAnyAllowed(appliedContract, c, contracts, []);
-      applyDefaults(c, node, contracts);
-      const errs = checkContract(contracts, c, node, "");
-      if (errs) fail(errs[0].code, "contract: " + appliedContract + " — " + errs.map((x) => x.msg).join("; "));
-      recordContract(appliedContract);
+    if (appliedContracts.length) {
+      // S8：`any` 默认禁用，契约里写 `!any` 才放行（`@is` 与块头两条路径都要查，逐份查）。
+      // 顺序照 Rust：先逐份查 `any`，再合并（未定义 001 / 冲突 016 都在合并里判）。
+      if (feats.has("type.featag")) {
+        for (const e of appliedContracts) checkAnyAllowed(e.name, contracts[e.name], contracts, []);
+      }
+      const r = mergeContractSet(contracts, appliedContracts);
+      if (r.code) fail(r.code, r.msg);
+      const merged = r.merged;
+      applyDefaults(merged, node, contracts);
+      const errs = checkContract(contracts, merged, node, "");
+      if (errs) fail(errs[0].code, "contract: " + merged.name + " — " + errs.map((x) => x.msg).join("; "));
+      for (const e of appliedContracts) recordContract(e.name);
     }
     return node;
   }

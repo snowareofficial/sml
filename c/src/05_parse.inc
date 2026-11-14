@@ -165,11 +165,100 @@ static int write_in_value(parser *ps, sml_value *cur, cpathseg *segs, size_t n,
     return -1;
 }
 
+/* ---------------------------------------------------------------------------
+   多契约：收集 `@is` 之后的契约名列表（D1）
+   ---------------------------------------------------------------------------
+   连续取裸词，遇 `:` / `{` / `]` / **换行**即停；逗号作分隔（**可省**：
+   `@is a, b` ≡ `@is a b`）。两条停机判据缺一不可：
+
+   - 「换行即停」：`@is X` 独占一行、字段写在下一行是常见写法，无脑收词会把
+     下一行的键吞进契约名；
+   - 「裸词后跟 `:` 的是键」：`@is A host: h1` 的 host 是键值，不是契约名 ——
+     否则同行的键值永远写不了。
+
+   严格度关键字（`loose` / `warn` / `strict`）**紧跟某个契约名**时不是契约名，
+   而是那个契约的**块级严格度覆盖**（D4①）：`@is A warn B` ⇒ A=warn、B=契约级默认。
+   --------------------------------------------------------------------------- */
+static void parse_is_names(parser *ps, ccontracts *out) {
+    token *first = peek(ps);
+    int line;
+    int have_name = 0;   /* 刚收了一个契约名、还没被严格度关键字覆盖 */
+    if (!first || (first->t != T_WORD && first->t != T_STR)) return;
+    line = first->line;
+    for (;;) {
+        token *tk = peek(ps);
+        if (tk->t == T_COMMA) {
+            if (tk->line != line) break;
+            next(ps);
+            continue;
+        }
+        if (tk->t != T_WORD && tk->t != T_STR) break;
+        if (tk->line != line) break;
+        if (have_name && (strcmp(tk->v, "loose") == 0 || strcmp(tk->v, "warn") == 0 ||
+                          strcmp(tk->v, "strict") == 0)) {
+            /* 绑定到**上一个**契约名：strict ⇒ 1，loose / warn ⇒ 0 */
+            out->ovs[out->n - 1] = (strcmp(tk->v, "strict") == 0) ? 1 : 0;
+            have_name = 0;
+            next(ps);
+            continue;
+        }
+        /* 后跟 `:` 且又不是契约名 ⇒ 它是键，停 */
+        if (peek_at(ps, 1)->t == T_COLON && contract_find(ps, tk->v) == NULL) break;
+        {
+            const char *name = next(ps)->v;
+            if (ccontracts_push(out, name, -1) != 0) {
+                set_err(ps->lx->errbuf, ps->lx->errsz, SML_E_INTERNAL_001 " 内存不足");
+                ps->failed = 1;
+                return;
+            }
+        }
+        have_name = 1;
+    }
+}
+
+/* `from-featag` 的键不许文档手写：多契约时逐份查（Rust 同样逐份调 `check_from_featag`）。 */
+static int check_from_featag_set(parser *ps, const ccontracts *l, sml_value *node) {
+    size_t i;
+    for (i = 0; i < l->n; i++) {
+        ccontract *c = contract_find(ps, l->names[i]);
+        if (c && check_from_featag(ps, c, node, "") != 0) return -1;
+    }
+    return 0;
+}
+
+/* 在契约集合里找一个 featag 声明（Rust：`contract_names` 的声明并集，取首个命中）。 */
+static cfeatag *featag_find_set(parser *ps, const ccontracts *l, const char *name) {
+    size_t i;
+    for (i = 0; i < l->n; i++) {
+        ccontract *c = contract_find(ps, l->names[i]);
+        cfeatag *d = c ? contract_featag_find(c, name) : NULL;
+        if (d) return d;
+    }
+    return NULL;
+}
+
+/* 集合里任一份契约开了 `!strict-paths` ⇒ 叠加后就得守这条（约束取并）。 */
+static int set_strict_paths(parser *ps, const ccontracts *l) {
+    size_t i;
+    for (i = 0; i < l->n; i++) {
+        ccontract *c = contract_find(ps, l->names[i]);
+        if (c && c->strict_paths) return 1;
+    }
+    return 0;
+}
+
 /* 解析块/对象。closing=T_RBRACE 或 T_EOF(顶层) */
 static sml_value *parse_block_inner(parser *ps, tok_type closing) {
     sml_value *obj = sml_new_object();
-    char *block_is = NULL;  /* 块级 @is 契约名 (作用于本块) */
+    ccontracts block_is = {0};   /* 块级 @is（累积，可多份） */
+    /* 下面两项按**轮**复用，故在循环顶部统一回收（各 `continue` 出口都会经过那里）。 */
+    ccontracts field_is = {0};   /* 字段级 `@is` */
+    ccontracts ty = {0};         /* 块头条的契约（typed-block，可多份） */
+    size_t ty_consumed = 0;      /* args 里被算作契约词的数量 */
     for (;;) {
+        ccontracts_free(&field_is);
+        ccontracts_free(&ty);
+        ty_consumed = 0;
         token *t = peek(ps);
         if (ps->failed) break;   /* 出错/超限后立刻收手，让栈退掉（见 parse_block） */
         if (t->t == T_EOF) {
@@ -482,52 +571,44 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                     break;
                 }
                 next(ps); next(ps); /* @ is */
-                token *cn = next(ps);
-                if (cn && (cn->t == T_WORD || cn->t == T_STR)) {
-                    char *cname_is = cn->v;
-                    /* 任务 D：多契约「响亮拒绝」—— `@is` 后出现第 2 个裸词（同一行、
-                       且该词不是「后跟 : 的键」）即报 E-CONTRACT-017，绝不静默给树。
-                       与 Rust D1 同口径：遇 : / { / ] / 换行 / 逗号（可省）即停。 */
-                    {
-                        token *nx = peek(ps);
-                        if (nx && nx->t == T_COMMA) nx = peek_at(ps, 1);  /* 跳过可省逗号 */
-                        if (nx && (nx->t == T_WORD || nx->t == T_STR)) {
-                            if (nx->line != cn->line) {
-                                /* 换行即停：下一行的键/值不是契约名 */
-                            } else if (peek_at(ps, (nx == peek(ps)) ? 1 : 2)
-                                       && peek_at(ps, (nx == peek(ps)) ? 1 : 2)->t == T_COLON) {
-                                /* 后跟 : 是键，非契约名 */
-                            } else if (strcmp(nx->v, "loose") != 0 &&
-                                       strcmp(nx->v, "warn") != 0 &&
-                                       strcmp(nx->v, "strict") != 0 &&
-                                       contract_find(ps, nx->v) == NULL) {
-                                /* 第二个词既不是严格度关键字、也不是已注册契约 ⇒
-                                   Rust 报「未定义的契约」001（它把 @is 后的每个词都当契约名）。
-                                   用 017 顶替会把「名字写错」说成「本端不支持多契约」。 */
-                                set_err(ps->lx->errbuf, ps->lx->errsz,
-                                        SML_E_CONTRACT_001 " 应用未定义契约 `%s`", nx->v);
-                                ps->failed = 1;
-                            } else {
-                                set_err(ps->lx->errbuf, ps->lx->errsz,
-                                        SML_E_CONTRACT_017 " 该实现暂不支持一个块应用多份契约（@is 多契约写法）");
-                                ps->failed = 1;
+                {
+                    ccontracts set = {0};
+                    parse_is_names(ps, &set);
+                    /* `@is` 后不是契约名（`@is {` / `@is` 到结尾）：Rust 报 E-PARSE-019。
+                       改前本端**什么也不做** —— 静默忽略整行，方向恰好相反。 */
+                    if (!ps->failed && set.n == 0) {
+                        set_err(ps->lx->errbuf, ps->lx->errsz,
+                                SML_E_PARSE_019 " `@is` 后须契约名");
+                        ps->failed = 1;
+                    }
+                    if (!ps->failed && set.n > 0) {
+                        if (peek(ps)->t == T_LBRACE) {
+                            /* `@is Name { ... }` 匿名块/当前块应用契约:
+                            ** 解析块体、应用契约、合并字段回当前对象 */
+                            next(ps);
+                            ps->enter_key = NULL;   /* 匿名块：路径与所在块相同 */
+                            sml_value *sub = parse_block(ps, T_RBRACE);
+                            apply_set_or_fail(ps, sub, &set);
+                            {
+                                sml_field *f;
+                                for (f = sub->u.obj.head; f; f = f->next)
+                                    sml_obj_set(obj, f->key, sml_clone(f->value));
+                            }
+                            sml_free(sub);
+                        } else {
+                            /* 累积（Rust 的 `applied_contracts` 同样是累加 + 按名去重）。 */
+                            size_t k;
+                            for (k = 0; k < set.n && !ps->failed; k++) {
+                                if (ccontracts_find(&block_is, set.names[k]) >= 0) continue;
+                                if (ccontracts_push(&block_is, set.names[k], set.ovs[k]) != 0) {
+                                    set_err(ps->lx->errbuf, ps->lx->errsz,
+                                            SML_E_INTERNAL_001 " 内存不足");
+                                    ps->failed = 1;
+                                }
                             }
                         }
                     }
-                    if (peek(ps)->t == T_LBRACE) {
-                        /* `@is Name { ... }` 匿名块/当前块应用契约:
-                        ** 解析块体、应用契约、合并字段回当前对象 */
-                        next(ps);
-                        ps->enter_key = NULL;   /* 匿名块：路径与所在块相同 */
-                        sml_value *sub = parse_block(ps, T_RBRACE);
-                        apply_or_fail(ps, sub, cname_is);
-                        sml_field *f;
-                        for (f = sub->u.obj.head; f; f = f->next)
-                            sml_obj_set(obj, f->key, sml_clone(f->value));
-                        sml_free(sub);
-                    } else {
-                        block_is = cname_is;
-                    }
+                    ccontracts_free(&set);
                 }
                 continue;
             }
@@ -649,43 +730,12 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                 continue;   /* &name 已作为展开消费，不落入下面的键值处理 */
             }
         }
-        /* 字段级 @is: key 后紧跟 @is Name */
-        char *field_is = NULL;
+        /* 字段级 @is: key 后紧跟 @is Name（可多份：`k @is A, B { }`） */
         if (peek(ps)->t == T_AT) {
             token *nn = peek_at(ps, 1);
             if (nn && nn->t == T_WORD && strcmp(nn->v, "is") == 0) {
                 next(ps); next(ps); /* @ is */
-                token *cn = next(ps);
-                if (cn && (cn->t == T_WORD || cn->t == T_STR)) {
-                    field_is = cn->v;
-                    /* 任务 D：字段级 @is 同样「响亮拒绝」第 2 个裸词（同一行、非键）。 */
-                    {
-                        token *nx = peek(ps);
-                        if (nx && nx->t == T_COMMA) nx = peek_at(ps, 1);
-                        if (nx && (nx->t == T_WORD || nx->t == T_STR)) {
-                            if (nx->line != cn->line) {
-                                /* 换行即停 */
-                            } else if (peek_at(ps, (nx == peek(ps)) ? 1 : 2)
-                                       && peek_at(ps, (nx == peek(ps)) ? 1 : 2)->t == T_COLON) {
-                                /* 后跟 : 是键，非契约名 */
-                            } else if (strcmp(nx->v, "loose") != 0 &&
-                                       strcmp(nx->v, "warn") != 0 &&
-                                       strcmp(nx->v, "strict") != 0 &&
-                                       contract_find(ps, nx->v) == NULL) {
-                                /* 第二个词既不是严格度关键字、也不是已注册契约 ⇒
-                                   Rust 报「未定义的契约」001（它把 @is 后的每个词都当契约名）。
-                                   用 017 顶替会把「名字写错」说成「本端不支持多契约」。 */
-                                set_err(ps->lx->errbuf, ps->lx->errsz,
-                                        SML_E_CONTRACT_001 " 应用未定义契约 `%s`", nx->v);
-                                ps->failed = 1;
-                            } else {
-                                set_err(ps->lx->errbuf, ps->lx->errsz,
-                                        SML_E_CONTRACT_017 " 该实现暂不支持一个块应用多份契约（@is 多契约写法）");
-                                ps->failed = 1;
-                            }
-                        }
-                    }
-                }
+                parse_is_names(ps, &field_is);
             }
         }
         int colon = 0;
@@ -735,12 +785,8 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
             if (found) {
                 sml_value *args = sml_new_array();
                 sml_value *featags = NULL;
-                /* 任务 D：块级多契约「响亮拒绝」—— head 词命中契约表且 args 里出现第 2 个
-                   已注册契约词 ⇒ E-CONTRACT-017（单契约 `server web prod` 的 web/prod 不是
-                   契约，不受影响）。与 Rust D2 同口径：从首词起连续命中契约表的词才计数。 */
                 int key_is_contract = (contract_find(ps, key) != NULL);
                 const int feat_on = (ps->features & (1u << 17)) != 0 && key_is_contract;
-                int arg_has_contract = 0;
                 while (1) {
                     token *tk = peek(ps);
                     if (tk->t == T_LBRACE) break;
@@ -837,17 +883,36 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                     if (feat_on && tk->t == T_COMMA) { next(ps); continue; }
                     if (tk->t == T_WORD || tk->t == T_STR) {
                         token *at = next(ps);
-                        if (key_is_contract && contract_find(ps, at->v)) arg_has_contract = 1;
                         sml_arr_push(args, at->t == T_STR ? sml_new_strn(at->v, at->len)
                                                           : coerce_word(at->v, ps));
                         continue;
                     }
                     break;
                 }
-                if (key_is_contract && arg_has_contract) {
-                    set_err(ps->lx->errbuf, ps->lx->errsz,
-                            SML_E_CONTRACT_017 " 该实现暂不支持一个块应用多份契约（块级多契约写法）");
-                    ps->failed = 1;
+                /* 块级多契约（D2）：从**首词**起，连续命中契约表的词都是契约；
+                   第一个未命中的词是块名（`server web prod { }` 的 web/prod 不是契约，
+                   不受影响）。只有开了 `typed-block` 才这么认 —— 否则块头参数照旧只是
+                   块名 / `__args`，既不算契约词也不改 `__name` 的起点。 */
+                if (key_is_contract && (ps->features & (1u << 14)) && !ps->failed) {
+                    size_t ai;
+                    if (ccontracts_push(&ty, key, -1) != 0) {
+                        set_err(ps->lx->errbuf, ps->lx->errsz, SML_E_INTERNAL_001 " 内存不足");
+                        ps->failed = 1;
+                    }
+                    for (ai = 0; !ps->failed && ai < sml_arr_len(args); ai++) {
+                        sml_value *a = sml_arr_get(args, ai);
+                        if (!a || a->type != SML_STR) break;
+                        if (!contract_find(ps, a->u.s)) break;
+                        if (ccontracts_push(&ty, a->u.s, -1) != 0) {
+                            set_err(ps->lx->errbuf, ps->lx->errsz,
+                                    SML_E_INTERNAL_001 " 内存不足");
+                            ps->failed = 1;
+                            break;
+                        }
+                        ty_consumed++;
+                    }
+                }
+                if (ps->failed) {
                     sml_free(args);
                     if (featags) sml_free(featags);
                     continue;
@@ -875,11 +940,8 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                     /* **S7**：`from-featag` 的键不许文档手写 —— 必须在**填充之前**，
                        否则填进去的键与手写的长得一样，来源就分不出来了。 */
                     if (ps->features & (1u << 17)) {
-                        ccontract *cf7 = NULL;
-                        if (field_is) cf7 = contract_find(ps, field_is);
-                        else if ((ps->features & (1u << 14)) && key_is_contract)
-                            cf7 = contract_find(ps, key);
-                        if (cf7 && check_from_featag(ps, cf7, sub, "") != 0) {
+                        const ccontracts *s7 = field_is.n > 0 ? &field_is : &ty;
+                        if (s7->n > 0 && check_from_featag_set(ps, s7, sub) != 0) {
                             ps->failed = 1;
                             sml_free(args);
                             sml_free(sub);
@@ -891,10 +953,10 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                        提供」的必填字段，契约先跑会被误判成 E-CONTRACT-003）。
                        副作用有两处可见：严格契约能看到填充出来的键（报 004）；
                        `auto` 取的是**声明自己的 default**（此时契约默认值还没落位）。 */
-                    if (featags && key_is_contract && !ps->failed) {
-                        ccontract *o6 = contract_find(ps, key);
+                    if (featags && ty.n > 0 && !ps->failed) {
+                        const int strict6 = set_strict_paths(ps, &ty);
                         size_t fi;
-                        for (fi = 0; o6 && fi < sml_arr_len(featags); fi++) {
+                        for (fi = 0; fi < sml_arr_len(featags); fi++) {
                             sml_value *item = sml_arr_get(featags, fi);
                             sml_value *nm = sml_obj_get(item, "name");
                             sml_value *argsv = sml_obj_get(item, "args");
@@ -902,7 +964,7 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                             sml_value *val;
                             char where6[160];
                             if (!nm || nm->type != SML_STR || !argsv) continue;
-                            d6 = contract_featag_find(o6, nm->u.s);
+                            d6 = featag_find_set(ps, &ty, nm->u.s);
                             if (!d6 || d6->n_path == 0) continue;
                             snprintf(where6, sizeof(where6), "%s.%s", key, nm->u.s);
                             if (sml_arr_len(argsv) == 1) {
@@ -929,27 +991,29 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                                 val = sml_clone(sml_arr_get(argsv, 0));
                             }
                             if (write_target(ps, sub, d6->path, d6->n_path, val,
-                                             o6->strict_paths, where6) != 0) {
+                                             strict6, where6) != 0) {
                                 ps->failed = 1;
                                 break;
                             }
                         }
                         if (ps->failed) { sml_free(args); sml_free(sub); continue; }
                     }
-                    if (field_is) {
-                        apply_or_fail(ps, sub, field_is);
-                    } else if ((ps->features & (1u << 14)) && key_is_contract) {
-                        /* typed-block：块头首词命中契约 ⇒ 等价于块内首行 `@is`。
+                    if (field_is.n > 0) {
+                        apply_set_or_fail(ps, sub, &field_is);
+                    } else if (ty.n > 0) {
+                        /* typed-block：块头首词命中契约 ⇒ 等价于块内首行 `@is`（可多份）。
                            改前本端不应用契约，契约的 default / 必填 / 类型校验全部静默失效
                            —— 只要契约恰好没有默认值，树看起来还一样（探针原切片因此漏判）。 */
-                        apply_or_fail(ps, sub, key);
+                        apply_set_or_fail(ps, sub, &ty);
                     }
-                    if (sml_arr_len(args) > 0) {
+                    /* `__name` 的起点跳过被算作契约词的参数（首个非契约词才是块名）；
+                       单契约 / 无契约时 `ty_consumed == 0`，与旧行为逐字一致。 */
+                    if (sml_arr_len(args) > ty_consumed) {
                         size_t i;
-                        sml_obj_set(sub, "__name", sml_clone(sml_arr_get(args, 0)));
-                        if (sml_arr_len(args) > 1) {
+                        sml_obj_set(sub, "__name", sml_clone(sml_arr_get(args, ty_consumed)));
+                        if (sml_arr_len(args) > ty_consumed + 1) {
                             sml_value *extra = sml_new_array();
-                            for (i = 1; i < sml_arr_len(args); i++)
+                            for (i = ty_consumed + 1; i < sml_arr_len(args); i++)
                                 sml_arr_push(extra, sml_clone(sml_arr_get(args, i)));
                             sml_obj_set(sub, "__args", extra);
                         }
@@ -975,7 +1039,7 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                 }
                 arr = parse_for(ps);
                 if (ps->failed) { if (arr) sml_free(arr); break; }
-                if (field_is) apply_or_fail(ps, arr, field_is);
+                if (field_is.n > 0) apply_set_or_fail(ps, arr, &field_is);
                 set_field_maybe_skip(ps, obj, key, arr);
                 continue;
             }
@@ -984,14 +1048,14 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
             next(ps);
             ps->enter_key = key;   /* 旁路表路径：本块的键名 */
             sml_value *sub = parse_block(ps, T_RBRACE);
-            if (field_is)
-                apply_or_fail(ps, sub, field_is);
+            if (field_is.n > 0)
+                apply_set_or_fail(ps, sub, &field_is);
             set_field_maybe_skip(ps, obj, key, sub);
         } else if (nt->t == T_LBRACK) {
             next(ps);
             sml_value *sub = parse_array(ps);
-            if (field_is)
-                apply_or_fail(ps, sub, field_is);
+            if (field_is.n > 0)
+                apply_set_or_fail(ps, sub, &field_is);
             set_field_maybe_skip(ps, obj, key, sub);
         } else if (nt->t == T_STR) {
             token *st = next(ps);
@@ -1005,24 +1069,24 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                 /* 按字节长度建值：串内的 `\0` 与之后的字节都保留下来。 */
                 sub = sml_new_strn(st->v, st->len);
             }
-            if (field_is)
-                apply_or_fail(ps, sub, field_is);
+            if (field_is.n > 0)
+                apply_set_or_fail(ps, sub, &field_is);
             set_field_maybe_skip(ps, obj, key, sub);
         } else if (nt->t == T_WORD) {
             sml_value *sub = coerce_word(next(ps)->v, ps);
-            if (field_is)
-                apply_or_fail(ps, sub, field_is);
+            if (field_is.n > 0)
+                apply_set_or_fail(ps, sub, &field_is);
             set_field_maybe_skip(ps, obj, key, sub);
         } else if (colon) {
             sml_value *sub = sml_new_null();
-            if (field_is)
-                apply_or_fail(ps, sub, field_is);
+            if (field_is.n > 0)
+                apply_set_or_fail(ps, sub, &field_is);
             set_field_maybe_skip(ps, obj, key, sub);
         } else {
             /* key 本身即值 (片段引用/裸词) */
             sml_value *sub = coerce_word(key, ps);
-            if (field_is)
-                apply_or_fail(ps, sub, field_is);
+            if (field_is.n > 0)
+                apply_set_or_fail(ps, sub, &field_is);
             set_field_maybe_skip(ps, obj, key, sub);
         }
     }
@@ -1041,9 +1105,12 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
     if (ps->pending_weak && ps->pending_weak_depth >= ps->depth) {
         ps->pending_weak = NULL;
     }
-    /* 块级 @is 应用 */
-    if (block_is)
-        apply_or_fail(ps, obj, block_is);
+    /* 块级 @is 应用（单契约 / 多契约叠加走同一入口） */
+    if (block_is.n > 0)
+        apply_set_or_fail(ps, obj, &block_is);
+    ccontracts_free(&block_is);
+    ccontracts_free(&field_is);
+    ccontracts_free(&ty);
     return obj;
 }
 

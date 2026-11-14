@@ -706,6 +706,225 @@ static void apply_or_fail(parser *ps, sml_value *node, const char *name) {
         ps->failed = 1;
 }
 
+/* ---------------------------------------------------------------------------
+   多契约叠加（D3）：一个块应用多份契约 ⇒ **合并视图**
+
+   语义逐条照 `rust/sml-contract/src/lib.rs::apply_contracts`：
+
+   1. **有效严格度** = 块级覆盖 `unwrap_or` 契约级声明；多契约取**最严**一档
+      ⇒ 任一份严格即整体严格（本端两档：`allow_extra` 取 AND）；
+   2. **顺序无关**：字段按名取并集，与书写先后无关；
+   3. **冲突即错**：同名字段但类型 / 默认值 / 区间任一不同 ⇒ `E-CONTRACT-016`，
+      **不允许「后者覆盖」**（那会让结果依赖书写顺序）；
+   4. 实现方式：构造一份临时契约，**复用** `apply_contract_rec` 做默认值回填 /
+      类型校验 / 组合递归 —— 不另写一条校验路径，行为与单契约同源。
+   --------------------------------------------------------------------------- */
+
+/* 两个值是否相等（Rust `Value: PartialEq` 同口径：类型 + 内容）。
+   只用于「多契约同名字段冲突」判定，故不做数值语义归一
+   （`1` 与 `1.0` 记为不同，与 Rust 对 `Option<Value>` 的判等一致）。 */
+static int cvalue_eq(const sml_value *a, const sml_value *b) {
+    size_t i;
+    if (a == b) return 1;
+    if (!a || !b) return 0;
+    if (a->type != b->type) return 0;
+    switch (a->type) {
+        case SML_NULL:  return 1;
+        case SML_BOOL:  return (a->u.boolean != 0) == (b->u.boolean != 0);
+        case SML_INT:   return a->u.i == b->u.i;
+        case SML_FLOAT: return a->u.f == b->u.f;
+        case SML_STR:
+            return a->slen == b->slen && memcmp(a->u.s, b->u.s, a->slen) == 0;
+        case SML_ARRAY:
+            if (a->u.arr.len != b->u.arr.len) return 0;
+            for (i = 0; i < a->u.arr.len; i++)
+                if (!cvalue_eq(a->u.arr.items[i], b->u.arr.items[i])) return 0;
+            return 1;
+        case SML_OBJECT: {
+            sml_field *fa = a->u.obj.head, *fb = b->u.obj.head;
+            while (fa && fb) {
+                if (strcmp(fa->key, fb->key) != 0) return 0;
+                if (!cvalue_eq(fa->value, fb->value)) return 0;
+                fa = fa->next;
+                fb = fb->next;
+            }
+            return fa == NULL && fb == NULL;
+        }
+    }
+    return 0;
+}
+
+/* 同名字段的**类型**是否不同（Rust 用 `TypeSpec::name()` 的规范串比较：
+   数组比元素类型、枚举比取值表、组合比被引用契约名）。 */
+static int cfield_type_differs(const cfield *a, const cfield *b) {
+    size_t i;
+    if (a->ty != b->ty) return 1;
+    switch (a->ty) {
+        case CT_ARRAY: return a->arr_inner != b->arr_inner;
+        case CT_ENUM:
+            if (a->enum_n != b->enum_n) return 1;
+            for (i = 0; i < a->enum_n; i++)
+                if (strcmp(a->enum_vals[i], b->enum_vals[i]) != 0) return 1;
+            return 0;
+        case CT_CONTRACTREF:
+            if (!a->ref_name || !b->ref_name) return a->ref_name != b->ref_name;
+            return strcmp(a->ref_name, b->ref_name) != 0;
+        default: return 0;
+    }
+}
+
+/* 同名字段是否**冲突**（类型 / 默认值 / 区间任一不同）。 */
+static int cfield_clash(const cfield *a, const cfield *b) {
+    if (cfield_type_differs(a, b)) return 1;
+    if (!cvalue_eq(a->def, b->def)) return 1;
+    if (a->min_set != b->min_set) return 1;
+    if (a->max_set != b->max_set) return 1;
+    if (a->min_set && a->min != b->min) return 1;
+    if (a->max_set && a->max != b->max) return 1;
+    return 0;
+}
+
+static cfield *cfield_find(cfield *head, const char *name) {
+    for (; head; head = head->next)
+        if (strcmp(head->name, name) == 0) return head;
+    return NULL;
+}
+
+/* 释放合并产物：名字 / 字段壳是**本次新分配**的，字段里的 `def` / `enum_vals` /
+   `ref_name` 仍指向原契约（借用），故不能逐个深释放。 */
+static void merged_free(ccontract *m) {
+    cfield *f;
+    if (!m) return;
+    f = m->fields;
+    while (f) {
+        cfield *nx = f->next;
+        free(f);
+        f = nx;
+    }
+    free(m->name);
+    free(m);
+}
+
+/* 把一组契约合并成一份临时契约。失败返回 NULL 并写 err（001 未定义 / 016 冲突）。 */
+static ccontract *merge_contracts(parser *ps, const ccontracts *l,
+                                  char *err, size_t errsz) {
+    ccontract **list;
+    ccontract *m;
+    cfield **tail;
+    size_t i, j, k;
+    char *joined = NULL;
+    size_t jlen = 0;
+
+    list = (ccontract **)calloc(l->n ? l->n : 1, sizeof(*list));
+    if (!list) { set_err(err, errsz, SML_E_INTERNAL_001 " 内存不足"); return NULL; }
+    /* 1) 逐个解析（未定义 ⇒ 001，同单契约） */
+    for (i = 0; i < l->n; i++) {
+        list[i] = contract_find(ps, l->names[i]);
+        if (!list[i]) {
+            set_err(err, errsz, SML_E_CONTRACT_001 " 引用了未定义的契约 `%s`", l->names[i]);
+            free(list);
+            return NULL;
+        }
+    }
+    /* 2) 冲突预检：按**字段名**两两比较，与书写顺序无关 */
+    for (i = 0; i < l->n; i++) {
+        for (j = i + 1; j < l->n; j++) {
+            cfield *fa;
+            for (fa = list[i]->fields; fa; fa = fa->next) {
+                cfield *fb = cfield_find(list[j]->fields, fa->name);
+                if (fb && cfield_clash(fa, fb)) {
+                    set_err(err, errsz,
+                            SML_E_CONTRACT_016
+                            " 字段 `%s` 在 `%s` 与 `%s` 里类型 / 默认值 / 区间不一致",
+                            fa->name, list[i]->name, list[j]->name);
+                    free(list);
+                    return NULL;
+                }
+            }
+        }
+    }
+    m = (ccontract *)calloc(1, sizeof(ccontract));
+    if (!m) { free(list); set_err(err, errsz, SML_E_INTERNAL_001 " 内存不足"); return NULL; }
+    /* 3) 字段并集：同名字段的类型/默认值/区间已预检一致，取任一份即可；
+          `required` **不在**预检内，取**或**（任一份要求即必填）才算顺序无关。 */
+    tail = &m->fields;
+    for (i = 0; i < l->n; i++) {
+        cfield *fa;
+        for (fa = list[i]->fields; fa; fa = fa->next) {
+            cfield *dst = cfield_find(m->fields, fa->name);
+            if (dst) {
+                if (fa->required) dst->required = 1;
+            } else {
+                cfield *cp = (cfield *)malloc(sizeof(cfield));
+                if (!cp) { free(list); merged_free(m); set_err(err, errsz, SML_E_INTERNAL_001 " 内存不足"); return NULL; }
+                *cp = *fa;
+                cp->next = NULL;
+                *tail = cp;
+                tail = &cp->next;
+            }
+        }
+    }
+    /* 4) 严格度：每条取「块级覆盖 unwrap_or 契约级」，多契约取**最严**
+          （两档 ⇒ 任一份严格即整体严格 ⇒ `allow_extra` 取 AND）。 */
+    m->allow_extra = 1;
+    m->strict_paths = 0;
+    m->allow_any = 0;
+    for (i = 0; i < l->n; i++) {
+        int eff = (l->ovs[i] < 0) ? list[i]->allow_extra
+                                  : (l->ovs[i] == 0 ? 1 : 0);
+        if (!eff) m->allow_extra = 0;
+        if (list[i]->strict_paths) m->strict_paths = 1;
+        if (list[i]->allow_any) m->allow_any = 1;
+    }
+    /* 名字只用于错误文案（`A+B`，与 Rust 一致） */
+    for (i = 0; i < l->n; i++) jlen += strlen(l->names[i]) + 1;
+    joined = (char *)malloc(jlen + 1);
+    if (!joined) { free(list); merged_free(m); set_err(err, errsz, SML_E_INTERNAL_001 " 内存不足"); return NULL; }
+    joined[0] = '\0';
+    for (k = 0; k < l->n; k++) {
+        if (k) strcat(joined, "+");
+        strcat(joined, l->names[k]);
+    }
+    m->name = joined;
+    free(list);
+    return m;
+}
+
+/* 应用一组契约（n >= 1）。单契约且无块级覆盖时**逐字走原路径**（错误文案 / 行为不变）。 */
+static int apply_contract_set(parser *ps, sml_value *node, const ccontracts *l,
+                              char *err, size_t errsz) {
+    ccontract *m;
+    int rc;
+    if (!l || l->n == 0) return 0;
+    if (l->n == 1 && l->ovs[0] < 0)
+        return apply_contract_name(ps, node, l->names[0], err, errsz);
+    /* S8 逐份查（与 `@is` 单契约同一判据：契约**声明**用了 any 与块内容无关） */
+    if (ps->features & (1u << 17)) {
+        size_t i;
+        for (i = 0; i < l->n; i++) {
+            const char *seen[32];
+            ccontract *c = contract_find(ps, l->names[i]);
+            if (!c) {
+                set_err(err, errsz, SML_E_CONTRACT_001 " 引用了未定义的契约 `%s`", l->names[i]);
+                return -1;
+            }
+            if (check_any_allowed(ps, c, seen, 0) != 0) return -1;
+        }
+    }
+    m = merge_contracts(ps, l, err, errsz);
+    if (!m) return -1;
+    rc = apply_contract_rec(ps, m, node, err, errsz);
+    merged_free(m);
+    return rc;
+}
+
+/* 同 apply_or_fail，但作用于一组契约。 */
+static void apply_set_or_fail(parser *ps, sml_value *node, const ccontracts *l) {
+    if (ps->failed) return;
+    if (apply_contract_set(ps, node, l, ps->lx->errbuf, ps->lx->errsz) != 0)
+        ps->failed = 1;
+}
+
 /* min/max 的边界取值：必须是十进制数字，且为**有限**值。
    非数字/非十进制写法 -> E-PARSE-022；非有限（nan / 1e400）-> E-CONTRACT-010。
    与 Rust 同码（rust/sml-parse/src/parser.rs 的 parse_spec_number：只收 Tok::Word 且

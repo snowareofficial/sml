@@ -1,6 +1,6 @@
 # grammar.sml 逐特性 × 五端差异台账
 
-> **产品线** swsml ｜ **状态** current ｜ **最后核对** 2026-11-14
+> **产品线** swsml ｜ **状态** current ｜ **最后核对** 2026-11-15
 >
 > 探针脚本：`tools/check/probe_grammar.py`（切片清单内置，五端探针 + 值树比对；不进 CI ——
 > 本文登记的差异未清零前它必然非零退出）。
@@ -36,7 +36,7 @@
 | rust | —— | `rc=0` | 参照实现 |
 | c | `E-CONTRACT-008` | `Window.start: 时刻` | `@type` 未被实现 ⇒ `时刻` 回落成契约名，再按块校验 |
 | cpp | `E-CONTRACT-001` | 同上 | 同上，报「unknown contract `时刻`」 |
-| js | `E-CONTRACT-017` | `pair { @is Left loose Right loose }` | 多契约叠加未实现（JS 支持 `@type`，故不是它） |
+| js | `E-PARSE-007` | `Deploy !tls replicas[3] zone[cn-north-1], api {` | 块头 featag 的**无 `!` 带参写法**（`名[…]`）未识别 ⇒ 逗号落到通用逗号检查 |
 | lua | `E-CONTRACT-008` | `Window.start: 时刻` | 同 C |
 
 ⚠️ **别把 C / Lua 的 `E-CONTRACT-008` 归因到「契约嵌套」**：纯契约嵌套切片（`contract-nest`：
@@ -49,9 +49,9 @@
 
 | 特性 | 说明 | rust | c | cpp | js | lua |
 |---|---|---|---|---|---|---|
-| 整份 `grammar.sml` | 全集文档 | OK | `E-CONTRACT-008` | `E-CONTRACT-001` | `E-CONTRACT-017` | `E-CONTRACT-008` |
+| 整份 `grammar.sml` | 全集文档 | OK | `E-CONTRACT-008` | `E-CONTRACT-001` | `E-PARSE-007` | `E-CONTRACT-008` |
 | `contract-nest` | 契约当字段类型 | OK | OK | OK | OK | OK |
-| `contract-multi` | 多契约叠加 + 就地严格度 | OK | `E-CONTRACT-017` | `E-CONTRACT-017` | `E-CONTRACT-017` | `E-CONTRACT-017` |
+| `contract-multi` | 多契约叠加 + 就地严格度 | OK | OK | OK | OK | OK |
 | `contract-requires` | `@requires when`（when 未开） | `E-CONTRACT-018` | `E-CONTRACT-018` | `E-CONTRACT-018` | `E-CONTRACT-018` | `E-CONTRACT-018` |
 | `contract-requires-on` | `@requires when`（when 已开） | OK | OK | OK | OK | OK |
 | `type-dir` | `@type` 合规值 | OK | `E-CONTRACT-008` | `E-CONTRACT-001` | OK | `E-CONTRACT-008` |
@@ -70,6 +70,10 @@
 
 `when` / `for` / `weak*` 三格是**值树一致**（不只是不报错）：四端都实现了门控与展开，
 `__type` / `__name` 等元数据也在（`typed-block` / `block-name` 两格同理）。
+
+`contract-multi` 已清零：五端同为 `OK`，且五端**值树相同**（字段并集 + 默认值回填）。
+剩下 3 格不一致（`whole:grammar.sml` / `type-dir` / `type-dir-check`）全部由 `@type` 引起，
+`type-dir-check` 的 JS 半边已与 Rust 同码（`E-CONTRACT-009`）。
 
 ## 4. 逐条结论
 
@@ -114,7 +118,7 @@
 （`E-FEATURE-001` 或新增码），把 018 留回「要求未满足」——否则同一个码无法区分「文档漏开特性」
 与「本端没实现」。
 
-### 4.3b `contract-multi` 的实施口径（已从 Rust 提取，待四端实现）
+### 4.3b `contract-multi` 的实施口径（五端同源）
 
 Rust 侧在 `sml-contract/src/lib.rs::apply_contracts`，语义是**合并视图**而不是「叠加校验两遍」：
 
@@ -127,14 +131,22 @@ Rust 侧在 `sml-contract/src/lib.rs::apply_contracts`，语义是**合并视图
 4. 实现方式：构造一份临时 `Contract`（并集 + 最严），**复用既有 `apply_contract`**
    做默认值回填 / 类型校验 / 组合递归 —— 不另写一条校验路径，保证与单契约同源。
 
-四端落地要点（以 C 为例，其余同构）：
+四端照同一口径落地（构造临时契约 ⇒ 复用各端既有的单契约入口），三处应用点：
+`@is` 多契约 / 字段级 `@is` 多契约 / 块级 `A B item { }`。
 
-| 位置 | 现状 | 要做 |
+| 端 | 合并入口 | 复用的单契约校验 |
 |---|---|---|
-| `c/src/05_parse.inc:512`（`@is` 多契约） | 硬拒 `017` | 收集名字到应用期 |
-| `c/src/05_parse.inc:683`（字段级 `@is`） | 硬拒 `017` | 同上 |
-| `c/src/05_parse.inc:849`（块级 `A B !t, prod`） | 硬拒 `017` | 同上 |
-| `c/src/03_contract.inc` | 只有单契约 `apply_contract_name` | 新增 `merge_contracts(names) -> ccontract*`（并集 + 冲突 016 + `allow_extra` 取 AND） |
+| C | `c/src/04_coerce.inc::merge_contracts` | `apply_contract_rec` |
+| C++ | `cpp/src/06_include_api.inc::apply_contract_set` | `apply_contract_obj` |
+| JS | `js/sml.mjs::mergeContractSet` | `applyDefaults` + `checkContract` |
+| Lua | `lua/lib/sml.lua::merge_contract_set` | `apply_contract_obj` |
+
+两处口径要钉住，否则会与 Rust 分叉：
+
+- **`required` 不在冲突预检内**，取**或**（任一份要求即必填）—— 放进预检就成了「默认值必须一致」
+  之外的额外冲突，等于凭空多一类 016；
+- **`warn` 在四端按 `loose` 记**：四端没有「放行 + 告警」通道，而 warn 与 loose 的**值树**逐字相同
+  （Rust 只多一条诊断），故树对齐、诊断不齐。
 
 ### 4.4 G-04 featag：S2–S5b 五端一致，S6–S8 仍是缺口
 
@@ -152,10 +164,31 @@ C++ 报 `E-CONTRACT-001`、JS/Lua 报 `E-PARSE-006`）已消失。
 `Deploy !tls replicas[3] zone[cn-north-1]` 那几段在四端会校验参数，但不会写入 `spec.*`（静默少值）。
 这块没有探针覆盖（要测就得比对落点后的树），属下一步的施工项。
 
-### 4.5 多契约：四端同码 `E-CONTRACT-017`
+### 4.5 多契约：五端一致（已清零）
 
-`@is Left loose Right loose` 在 C / C++ / JS / Lua 上同码同义，`grammar.sml` 的
-`cross_end_notes` 只需记这一条口径（原来只写了「JS 只认单个」，其余三端同样不支持）。
+`@is Left loose Right loose` 五端值树相同，`grammar.sml` 的 `cross_end_notes` 不再需要记「四端同码
+`E-CONTRACT-017`」这一条。合成严格度、顺序无关、同名字段冲突 ⇒ `E-CONTRACT-016` 三件都按 §4.3b
+的口径落地，逐例对拍（合并成功 / 类型不同 016 / 默认值不同 016 / 区间不同 016 / 最严取 strict /
+块级覆盖 `loose`·`warn`）五端全绿。
+
+### 4.5b 块头 featag 的无 `!` 带参写法：四端未识别
+
+`docs/swsml/spec/featag.md` §2.2 规定**带参项写成 `名[ … ]`**（`obey[1, 2]`，靠 `[` 与块名区分），
+`!` 只有无参项才必须有。Rust 按这条实现，故 `grammar.sml` 里 `Deploy !tls replicas[3] zone[…], api { }`
+能过；四端把块头的 `[` 当作「参数区结束」⇒ `replicas` 落成块名、逗号落到通用逗号检查。
+
+探针的 `featag` 切片用的是带 `!` 的 `Service !critical !obey[4], prod`，因此这一格一直是绿的
+—— 是**取样**漏了无 `!` 那一半，不是两边行为相同。修法：四端把「词 + 紧跟 `[`」也认成 featag 项。
+
+### 4.5c 块头契约后跟块名但未开 `block-name`：四端接受，Rust 报 `E-CONTRACT-001`
+
+`A B item { }`（`typed-block` 已开、`block-name` 未开）在 Rust 里是 001 —— 块头的契约词之后
+还剩一个词，那只能是块名，而块名要 `@feature enable block-name`。四端没有这条「拆雷」检查，
+把 `item` 当 `__name` 收下。
+
+这是**单契约就存在**的老缺口（`A item { }` 同样：Rust 001、四端接受），不是多契约引入的；
+本条登记的目的是别把四端后来的「接受」误当成新放宽。修法：四端在契约词之后若仍有未消费的
+块头词、且 `block-name` 未开，就报 001（与 Rust 同一判据）。
 
 ### 4.6 已经一致的格子
 
@@ -168,7 +201,7 @@ C++ 报 `E-CONTRACT-001`、JS/Lua 报 `E-PARSE-006`）已消失。
 
 | 落点 | 内容 |
 |---|---|
-| `grammar.sml` 的 `cross_end_notes` | 多契约（四端同码）、`@type`（C/C++/Lua 缺失 + 声明被丢弃）、featag 拒绝码漂移、`@requires` 同码两义 |
+| `grammar.sml` 的 `cross_end_notes` | 多契约（五端一致，不再记差异）、`@type`（C/C++/Lua 缺失 + 声明被丢弃）、featag 拒绝码漂移、`@requires` 同码两义 |
 | `grammar.sml` 头部与 `@is` / `@requires` 处的行内注释 | 删掉「Lua 的 `@feature` 非法」「`weak*` 未实现」「只有 JS 拒绝 `@requires`」这类与实测不符的说法 |
 | `tests/conformance/known_divergences.md` | 新增一节指向本文，并把 G-01 / G-02 记为待修条目 |
 | `errors/codes.sml` | `E-FEATURE-003` 的 `impls` / 注记（三端其实有特性集）—— 需与 G-02 的修复一起动 |

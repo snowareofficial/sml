@@ -309,9 +309,47 @@ struct PathGuard {
     ~PathGuard() { st.path.resize(base); }
 };
 
+/* 收集 `@is` 之后的契约名（D1）：连续取裸词，遇 `:` / `{` / `]` / **换行**即停；
+   逗号作分隔（**可省**：`@is a, b` ≡ `@is a b`）。两条停机判据缺一不可：
+   - 「换行即停」：`@is X` 独占一行、字段写在下一行是常见写法，无脑收词会吞掉下一行的键；
+   - 「裸词后跟 `:` 的是键」：`@is A host: h1` 的 host 是键值，不是契约名。
+   `loose` / `warn` / `strict` 紧跟某个契约名时是该契约的**块级严格度覆盖**（D4①），
+   不是契约名：`@is A warn B` ⇒ A=warn、B=契约级默认。 */
+static void parse_is_names(PState& st, ContractSet& out) {
+    if (st.i >= st.toks.size()) return;
+    if (st.toks[st.i].t != Token::T::Word) return;
+    const size_t line = st.toks[st.i].line;
+    bool have_name = false;   /* 刚收了一个契约名、还没被严格度关键字覆盖 */
+    while (st.i < st.toks.size()) {
+        const Token& tk = st.toks[st.i];
+        if (tk.t == Token::T::Comma) {
+            if (tk.line != line) break;
+            st.i++;
+            continue;
+        }
+        if (tk.t != Token::T::Word) break;
+        if (tk.line != line) break;
+        if (have_name && (tk.s == "loose" || tk.s == "warn" || tk.s == "strict")) {
+            /* 绑定到**上一个**契约名：strict ⇒ 1，loose / warn ⇒ 0 */
+            if (!out.items.empty())
+                out.items.back().second = (tk.s == "strict") ? 1 : 0;
+            have_name = false;
+            st.i++;
+            continue;
+        }
+        /* 后跟 `:` 且又不是契约名 ⇒ 它是键，停 */
+        if (st.i + 1 < st.toks.size() && st.toks[st.i + 1].t == Token::T::Colon &&
+            st.contracts.find(tk.s) == st.contracts.end())
+            break;
+        out.push(tk.s, -1);
+        have_name = true;
+        st.i++;
+    }
+}
+
 static ValuePtr parse_block(PState& st, bool top, bool require_close) {
     auto node = Value::object();
-    std::string pending_is;   // local: @is applies only to THIS block
+    ContractSet pending_is;   // local: @is applies only to THIS block (可多份)
     /* 路径栈：调用方已把本块的键名放进 `enter_key`（顶层为空）。 */
     PathGuard path_guard(st);
     /* 当前字段**键 token** 的行号：重复键诊断要用它，不能用「下一个 token」
@@ -941,40 +979,20 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                 st.aborted = true; break;
             }
             st.i += 2;
-            // @is ContractName  -> applied after this block (Rust applies to current block)
-            if (st.i < st.toks.size()) {
-                std::string cname = st.toks[st.i].s;
-                size_t cname_line = st.toks[st.i].line;
-                st.i++;
-                // 任务 D：多契约「响亮拒绝」—— `@is` 后出现第 2 个裸词（同一行、
-                //   且该词不是「后跟 : 的键」）即报 E-CONTRACT-017，绝不静默给树。
-                //   与 Rust D1 同口径：遇 : / { / ] / 换行 / 逗号（可省）即停。
-                {
-                    size_t j = st.i;
-                    if (j < st.toks.size() && st.toks[j].t == Token::T::Comma) j++;
-                    if (j < st.toks.size() && st.toks[j].t == Token::T::Word) {
-                        const Token& nx = st.toks[j];
-                        if (nx.line != cname_line) {
-                            // 换行即停：下一行的键/值不是契约名
-                        } else if (j+1 < st.toks.size() && st.toks[j+1].t == Token::T::Colon) {
-                            // 后跟 : 是键，非契约名
-                        } else if (nx.s != "loose" && nx.s != "warn" && nx.s != "strict" &&
-                                   st.contracts.find(nx.s) == st.contracts.end()) {
-                            /* 第二个词不是严格度关键字、也不是已注册契约 ⇒ Rust 报
-                               「未定义的契约」001；只有「两个都注册了」才是真·多契约缺口 017。 */
-                            if (st.err && st.err->empty())
-                                *st.err = code_prefix(SML_E_CONTRACT_001,
-                                    "sml: 应用未定义契约 `" + nx.s + "`");
-                            st.aborted = true;
-                        } else {
-                            if (st.err && st.err->empty())
-                                *st.err = code_prefix(SML_E_CONTRACT_017,
-                                    "sml: 该实现暂不支持一个块应用多份契约（@is 多契约写法）");
-                            st.aborted = true;
-                        }
-                    }
+            // `@is Name` / `@is A, B` / `@is A loose B`：块结束时应用（可多份）
+            {
+                ContractSet set;
+                parse_is_names(st, set);
+                // `@is` 后不是契约名（`@is {` / `@is` 到结尾）⇒ E-PARSE-019（Rust 同码）
+                if (set.items.empty()) {
+                    if (st.err && st.err->empty())
+                        *st.err = code_prefix(SML_E_PARSE_019, "sml: `@is` 后须契约名");
+                    st.aborted = true;
+                    break;
                 }
-                if (!st.aborted) pending_is = cname;  // store pending; applied after block completes
+                // 累积到本块（Rust 的 `applied_contracts` 同样累加 + 按名去重）
+                for (size_t k = 0; k < set.items.size() && !st.aborted; k++)
+                    pending_is.push(set.items[k].first, set.items[k].second);
             }
             continue;
         }
@@ -1038,47 +1056,24 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
         auto& nxt = st.toks[st.i];
         if (nxt.t == Token::T::At && st.i+1 < st.toks.size() &&
             st.toks[st.i+1].t == Token::T::Word && st.toks[st.i+1].s == "is") {
-            // key @is Contract { ... }   -> set key = block, apply contract
+            // key @is Contract[, Contract...] { ... }   -> set key = block, apply contracts
             st.i += 2; // consume @ is
             if (st.i < st.toks.size()) {
-                std::string cname = st.toks[st.i].s;
-                size_t cname_line = st.toks[st.i].line;
-                st.i++;
-                // 任务 D：字段级 @is 同样「响亮拒绝」第 2 个裸词（同一行、非键）。
-                {
-                    size_t j = st.i;
-                    if (j < st.toks.size() && st.toks[j].t == Token::T::Comma) j++;
-                    if (j < st.toks.size() && st.toks[j].t == Token::T::Word) {
-                        const Token& nx = st.toks[j];
-                        if (nx.line != cname_line) {
-                            // 换行即停
-                        } else if (j+1 < st.toks.size() && st.toks[j+1].t == Token::T::Colon) {
-                            // 后跟 : 是键，非契约名
-                        } else if (nx.s != "loose" && nx.s != "warn" && nx.s != "strict" &&
-                                   st.contracts.find(nx.s) == st.contracts.end()) {
-                            /* 第二个词不是严格度关键字、也不是已注册契约 ⇒ Rust 报
-                               「未定义的契约」001；只有「两个都注册了」才是真·多契约缺口 017。 */
-                            if (st.err && st.err->empty())
-                                *st.err = code_prefix(SML_E_CONTRACT_001,
-                                    "sml: 应用未定义契约 `" + nx.s + "`");
-                            st.aborted = true;
-                        } else {
-                            if (st.err && st.err->empty())
-                                *st.err = code_prefix(SML_E_CONTRACT_017,
-                                    "sml: 该实现暂不支持一个块应用多份契约（@is 多契约写法）");
-                            st.aborted = true;
-                        }
-                    }
-                }
+                ContractSet set;
+                parse_is_names(st, set);
                 if (!st.aborted && st.i < st.toks.size() && st.toks[st.i].t == Token::T::LBrace) {
                     st.i++;
                     st.enter_key = key;   /* 旁路表路径：本块的键名 */
                     auto sub = parse_block_nested(st);
                     std::string e;
-                    std::vector<std::string> seen8;
-                    if (check_any_allowed(st, cname, seen8)) {
-                        Parser::apply_contract(sub, st.contracts, cname, &e);
-                        if (!e.empty() && st.err) *st.err = e;
+                    // S8：`any` 默认禁用 —— 逐份查（与单契约同一判据）
+                    bool any_ok = true;
+                    for (size_t k = 0; k < set.items.size() && any_ok; k++) {
+                        std::vector<std::string> seen8;
+                        if (!check_any_allowed(st, set.items[k].first, seen8)) any_ok = false;
+                    }
+                    if (any_ok && !apply_contract_set(sub, st.contracts, set, &e)) {
+                        if (st.err && st.err->empty()) *st.err = e;
                     }
                     set_field(key, sub);
                 } else if (!st.aborted) {
@@ -1132,7 +1127,8 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
             ValuePtr featags = nullptr;
             bool key_is_contract = (st.contracts.find(key) != st.contracts.end());
             const bool feat_on = (st.features & (1u << 17)) != 0 && key_is_contract;
-            bool arg_has_contract = false;
+            ContractSet ty;          /* 块头条的契约（typed-block，可多份） */
+            size_t ty_consumed = 0;  /* args 里被算作契约词的数量 */
             while (st.i < st.toks.size() && st.toks[st.i].t != Token::T::LBrace) {
                 const Token& tk = st.toks[st.i];
                 if (feat_on && tk.t == Token::T::Word && !tk.s.empty() && tk.s[0] == '!') {
@@ -1217,18 +1213,21 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                 }
                 if (feat_on && tk.t == Token::T::Comma) { st.i++; continue; }
                 if (tk.t != Token::T::Word) break;
-                if (key_is_contract && st.contracts.find(tk.s) != st.contracts.end())
-                    arg_has_contract = true;
                 args.push_back(coerce(tk, st.fragments, st.err, st.features));
                 st.i++;
             }
-            // 任务 D：块级多契约「响亮拒绝」—— head 词命中契约表且 args 里出现第 2 个
-            //   已注册契约词 ⇒ E-CONTRACT-017（单契约 `server web prod` 的 web/prod 不是契约，不受影响）。
-            if (key_is_contract && arg_has_contract) {
-                if (st.err && st.err->empty())
-                    *st.err = code_prefix(SML_E_CONTRACT_017,
-                        "sml: 该实现暂不支持一个块应用多份契约（块级多契约写法）");
-                st.aborted = true; break;
+            /* 块级多契约（D2）：从**首词**起，连续命中契约表的词都是契约；第一个未命中的
+               词是块名（`server web prod { }` 的 web/prod 不是契约，不受影响）。
+               只有开了 `typed-block` 才这么认 —— 否则块头参数照旧只是块名 / `__args`，
+               既不算契约词也不改 `__name` 的起点。 */
+            if (key_is_contract && (st.features & (1u << 14)) != 0 && !st.aborted) {
+                ty.push(key, -1);
+                for (size_t ai = 0; ai < args.size(); ai++) {
+                    if (!args[ai] || args[ai]->tag != Value::Tag::Str) break;
+                    if (st.contracts.find(args[ai]->s) == st.contracts.end()) break;
+                    ty.push(args[ai]->s, -1);
+                    ty_consumed++;
+                }
             }
             if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::LBrace) {
                 st.i++;
@@ -1236,24 +1235,39 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                 auto sub = parse_block_nested(st);
                 sub->obj.push_back({"__type", Value::string(key)});
                 if (featags) sub->obj.push_back({"__featags", featags});
-                /* **S7**：`from-featag` 的键不许文档手写 —— 必须在**填充之前**。 */
+                /* **S7**：`from-featag` 的键不许文档手写 —— 必须在**填充之前**。
+                   多契约逐份查（Rust 同样逐份调 `check_from_featag`）。 */
                 if (st.features & (1u << 17)) {
-                    auto owner7 = st.contracts.find(key);
-                    if (owner7 != st.contracts.end() &&
-                        !check_from_featag(st, owner7->second, sub, "")) break;
+                    bool ok7 = true;
+                    for (size_t k7 = 0; k7 < ty.items.size() && ok7; k7++) {
+                        auto owner7 = st.contracts.find(ty.items[k7].first);
+                        if (owner7 != st.contracts.end() &&
+                            !check_from_featag(st, owner7->second, sub, "")) ok7 = false;
+                    }
+                    if (!ok7) break;
                 }
                 /* **S6 落点填充**：必须在契约应用**之前**（Rust `finish_bare_block` 同序）。
                    契约先跑会看不到这些键：严格契约会把它们报成 004，
-                   `auto` 也取不到声明自己的 `default`。 */
-                if (featags && st.contracts.find(key) != st.contracts.end()) {
-                    const Contract& cc = st.contracts[key];
+                   `auto` 也取不到声明自己的 `default`。
+                   多契约时声明取**并集**、`owner` 取第一个契约（与 Rust `fill_featag_targets`
+                   同口径），`!strict-paths` 取**或**。 */
+                if (featags && !ty.items.empty()) {
+                    bool strict6 = false;
+                    for (size_t k6 = 0; k6 < ty.items.size(); k6++) {
+                        auto it6 = st.contracts.find(ty.items[k6].first);
+                        if (it6 != st.contracts.end() && it6->second.strict_paths) strict6 = true;
+                    }
                     for (const auto& item : featags->arr) {
                         ValuePtr namev = item->get("name");
                         ValuePtr argsv = item->get("args");
                         if (!namev || namev->tag != Value::Tag::Str || !argsv) continue;
                         const FeatagDecl* d2 = nullptr;
-                        for (const auto& dd : cc.featags)
-                            if (dd.name == namev->s) { d2 = &dd; break; }
+                        for (size_t k6 = 0; k6 < ty.items.size() && !d2; k6++) {
+                            auto it6 = st.contracts.find(ty.items[k6].first);
+                            if (it6 == st.contracts.end()) continue;
+                            for (const auto& dd : it6->second.featags)
+                                if (dd.name == namev->s) { d2 = &dd; break; }
+                        }
                         if (!d2 || d2->path.empty()) continue;
                         const std::string w = key + "." + namev->s;
                         const bool is_auto = argsv->arr.size() == 1 && argsv->arr[0] &&
@@ -1275,28 +1289,30 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                         } else {
                             val = argsv->arr.empty() ? Value::null() : argsv->arr[0];
                         }
-                        if (!write_target(st, sub, d2->path, 0, val, cc.strict_paths, w)) break;
+                        if (!write_target(st, sub, d2->path, 0, val, strict6, w)) break;
                     }
                 }
-                /* typed-block：块头首词命中契约 ⇒ 等价块内首行 `@is`。
+                /* typed-block：块头首词命中契约 ⇒ 等价块内首行 `@is`（可多份，走合并视图）。
                    必须在 `__name` 之前应用：Rust 的块头契约校验发生在命名参数落位之前。 */
-                if ((st.features & (1u << 14)) != 0 &&
-                    st.contracts.find(key) != st.contracts.end()) {
+                if (!ty.items.empty()) {
                     std::string ce;
-                    std::vector<std::string> seen8;
-                    if (check_any_allowed(st, key, seen8)) {
-                        Parser::apply_contract(sub, st.contracts, key, &ce);
-                        if (!ce.empty()) {
-                            if (st.err && st.err->empty()) *st.err = ce;
-                            st.aborted = true;
-                        }
+                    bool any_ok = true;
+                    for (size_t k = 0; k < ty.items.size() && any_ok; k++) {
+                        std::vector<std::string> seen8;
+                        if (!check_any_allowed(st, ty.items[k].first, seen8)) any_ok = false;
+                    }
+                    if (any_ok && !apply_contract_set(sub, st.contracts, ty, &ce)) {
+                        if (st.err && st.err->empty()) *st.err = ce;
+                        st.aborted = true;
                     }
                 }
-                if (!args.empty()) {
-                    sub->obj.push_back({"__name", args[0]});
-                    if (args.size() > 1) {
+                /* `__name` 的起点跳过被算作契约词的参数（首个非契约词才是块名）；
+                   单契约 / 无契约时 `ty_consumed == 0`，与旧行为逐字一致。 */
+                if (args.size() > ty_consumed) {
+                    sub->obj.push_back({"__name", args[ty_consumed]});
+                    if (args.size() > ty_consumed + 1) {
                         auto extra = Value::array();
-                        for (size_t k = 1; k < args.size(); k++) extra->arr.push_back(args[k]);
+                        for (size_t k = ty_consumed + 1; k < args.size(); k++) extra->arr.push_back(args[k]);
                         sub->obj.push_back({"__args", extra});
                     }
                 }
@@ -1347,14 +1363,17 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
     /* ⚠️ 已中止时**不再应用** @is：否则契约错误会覆盖掉上面刚写好的
        E-PARSE-001/E-LIMIT-001，把码报成别的（码是契约，不许被后来者改写）。 */
     if (!st.aborted && !pending_is.empty()) {
-        std::string cname = pending_is;
-        pending_is.clear();
         std::string e;
-        std::vector<std::string> seen8;
-        if (check_any_allowed(st, cname, seen8)) {
-            Parser::apply_contract(node, st.contracts, cname, &e);
-            if (!e.empty() && st.err) *st.err = e;
+        // S8：`any` 默认禁用 —— 逐份查（与单契约同一判据）
+        bool any_ok = true;
+        for (size_t k = 0; k < pending_is.items.size() && any_ok; k++) {
+            std::vector<std::string> seen8;
+            if (!check_any_allowed(st, pending_is.items[k].first, seen8)) any_ok = false;
         }
+        if (any_ok && !apply_contract_set(node, st.contracts, pending_is, &e)) {
+            if (!e.empty() && st.err && st.err->empty()) *st.err = e;
+        }
+        pending_is.clear();
     }
     /* 悬空 `@when`：块结束时条件还没被任何字段/块消费。
        Dangling `@when`: the block ended before the condition consumed an item. */

@@ -1,7 +1,7 @@
 # docs 索引
 
 > **本文件由 `cargo run -p smldocs -- --index` 生成，勿手改。**
-> 数据源 `docs/meta.sml`（58 份文档，摘要 `7175ffdf793ad8f6`）。摘要变了就必须重跑生成；
+> 数据源 `docs/meta.sml`（58 份文档，摘要 `5caac113047f9f85`）。摘要变了就必须重跑生成；
 > 本文件不记生成日期 / HEAD，避免跨天或提交后假漂移。体检结论见 [`report.md`](report.md)。
 
 ## 一眼看结论
@@ -30,7 +30,7 @@
 | [`swsml/plan/features-plan.md`](swsml/plan/features-plan.md) | 2026-11-04 | 2026-11-06 | **stale** | `docs/swsml/spec/features.md` | v5 版本位落地步骤与被推翻的旧清单 |
 | [`swsml/plan/perf-plan.md`](swsml/plan/perf-plan.md) | 2026-11-06 | 2026-11-08 | **current** | — | 全面优化计划：时间 / 内存 / 缓存 / 指令集四线 |
 | [`swsml/ref/capability-matrix.md`](swsml/ref/capability-matrix.md) | 2026-10-27 | 2026-11-10 | **draft** | — | 五端能力矩阵（2026-10-27 快照，只作历史对照；v5 版本口径待补） |
-| [`swsml/ref/grammar-divergences.md`](swsml/ref/grammar-divergences.md) | 2026-11-14 | 2026-11-14 | **current** | — | grammar.sml 按语法特性切片后的五端差异台账：第一处拒绝、码是否同、能力缺口归因；配套 tools/check/probe_grammar.py |
+| [`swsml/ref/grammar-divergences.md`](swsml/ref/grammar-divergences.md) | 2026-11-14 | 2026-11-15 | **current** | — | grammar.sml 按语法特性切片后的五端差异台账：第一处拒绝、码是否同、能力缺口归因；含 contract-multi 五端同源口径与块头 featag 无 ! 带参写法的缺口；配套 tools/check/probe_grammar.py |
 | [`swsml/ref/perf-baseline.md`](swsml/ref/perf-baseline.md) | 2026-11-03 | 2026-11-15 | **current** | — | 性能基线：perf / value / profile / amberice 四份 bench 的正式口径数字；含 2026-11-14 微观归因（hotspots / alloc_split）、2026-11-15 与 serde_json 的对拍（vs_json）与四笔已否决的优化账 |
 | [`swsml/ref/silent-divergences.md`](swsml/ref/silent-divergences.md) | 2026-11-14 | 2026-11-14 | **current** | — | 兼容套件检不出的差异：错误码矩阵 / 特性门控 / 值身份三类盲区与逐条取证；配套 tools/check/probe_matrix.py |
 | [`swsml/spec/featag.md`](swsml/spec/featag.md) | 2026-11-04 | 2026-11-10 | **current** | — | featag 语法 / 落点 / from-featag（Rust 已实现；其它四端按 S9 策略不实现） |

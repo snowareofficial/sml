@@ -55,6 +55,52 @@ typedef struct ccontract {
     struct ccontract *next;
 } ccontract;
 
+/* 一组待应用的契约（`@is A, B` / `@is A loose B` / 块头 `A B item { }`）。
+   名字借用 token 串（词法表活到解析结束），故这里不释放。
+   `ov` 是**块级严格度覆盖**（D4①）：-1 = 无覆盖（用契约级声明）/ 0 = loose / 1 = strict。
+   `warn` 在本端按 `loose` 记：本端没有「放行 + 告警」通道，而 warn 与 loose 的**值树**
+   逐字相同（Rust 只多一条诊断），故树对齐。 */
+typedef struct {
+    const char **names;
+    int *ovs;
+    size_t n, cap;
+} ccontracts;
+
+/* 追加一条；返回 0 成功、-1 失败（内存不足）。 */
+static int ccontracts_push(ccontracts *l, const char *name, int ov) {
+    if (l->n == l->cap) {
+        size_t cap = l->cap ? l->cap * 2 : 4;
+        const char **nn = (const char **)realloc(l->names, cap * sizeof(*nn));
+        int *no;
+        if (!nn) return -1;
+        l->names = nn;
+        no = (int *)realloc(l->ovs, cap * sizeof(*no));
+        if (!no) return -1;
+        l->ovs = no;
+        l->cap = cap;
+    }
+    l->names[l->n] = name;
+    l->ovs[l->n] = ov;
+    l->n++;
+    return 0;
+}
+
+/* 按名字查已有条目；未命中返回 -1。 */
+static long ccontracts_find(const ccontracts *l, const char *name) {
+    size_t i;
+    for (i = 0; i < l->n; i++)
+        if (strcmp(l->names[i], name) == 0) return (long)i;
+    return -1;
+}
+
+static void ccontracts_free(ccontracts *l) {
+    free(l->names);
+    free(l->ovs);
+    l->names = NULL;
+    l->ovs = NULL;
+    l->n = l->cap = 0;
+}
+
 /* 找 featag 声明；未声明返回 NULL（使用处据此报 E-CONTRACT-021）。 */
 static cfeatag *contract_featag_find(const ccontract *c, const char *name) {
     cfeatag *f;

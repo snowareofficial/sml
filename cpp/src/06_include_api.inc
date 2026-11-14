@@ -376,14 +376,10 @@ void BuiltinTable::add_enum(const std::string& contract, const std::string& fiel
 /* 同上：真正的契约校验实现，公开入口只负责接 std::bad_alloc。
    注意 resolve_and_check 里对嵌套契约的递归走的是公开入口 Parser::apply_contract，
    于是每层各有一个 try —— 开销可忽略，换来「任何一层的分配失败都带码」。 */
-static bool apply_contract_impl(const ValuePtr& val,
-                                const std::map<std::string,Contract>& contracts,
-                                const std::string& name,
-                                std::string* err) {
-    auto it = contracts.find(name);
-    if (it == contracts.end()) { if(err)*err=code_prefix(SML_E_CONTRACT_001, "sml: unknown contract '"+name+"'"); return false; }
+static bool apply_contract_obj(const ValuePtr& val, const Contract& c,
+                               const std::map<std::string,Contract>& contracts,
+                               std::string* err) {
     if (val->tag != Value::Tag::Obj) { if(err)*err=code_prefix(SML_E_CONTRACT_008, "sml: contract applied to non-object"); return false; }
-    const Contract& c = it->second;
     // strict mode (default): reject undeclared fields unless contract is `loose`
     if (!c.allow_extra) {
     for (auto& kv : val->obj) {
@@ -394,7 +390,7 @@ static bool apply_contract_impl(const ValuePtr& val,
         bool declared = false;
         for (auto& f : c.fields) if (f.name == kv.first) { declared=true; break; }
         if (!declared) {
-            if (err)*err = code_prefix(SML_E_CONTRACT_004, "sml: field '" + kv.first + "' not declared in contract '" + name + "'");
+            if (err)*err = code_prefix(SML_E_CONTRACT_004, "sml: field '" + kv.first + "' not declared in contract '" + c.name + "'");
             return false;
         }
     }
@@ -405,6 +401,15 @@ static bool apply_contract_impl(const ValuePtr& val,
     return true;
 }
 
+static bool apply_contract_impl(const ValuePtr& val,
+                                const std::map<std::string,Contract>& contracts,
+                                const std::string& name,
+                                std::string* err) {
+    auto it = contracts.find(name);
+    if (it == contracts.end()) { if(err)*err=code_prefix(SML_E_CONTRACT_001, "sml: unknown contract '"+name+"'"); return false; }
+    return apply_contract_obj(val, it->second, contracts, err);
+}
+
 // 公开入口（同上：只为接住分配失败）。
 bool Parser::apply_contract(const ValuePtr& val,
                             const std::map<std::string,Contract>& contracts,
@@ -412,6 +417,87 @@ bool Parser::apply_contract(const ValuePtr& val,
                             std::string* err) {
     try {
         return apply_contract_impl(val, contracts, name, err);
+    } catch (const std::bad_alloc&) {
+        if (err) *err = code_prefix(SML_E_LIMIT_010, "sml: 内存分配失败");
+        return false;
+    }
+}
+
+/* 多契约叠加（D3）：合并成一份临时 `Contract` 后复用 `apply_contract_obj`。
+   声明见 `02_coerce_type.inc`（`struct ContractSet` 与 `apply_contract_set` 原型）。 */
+static bool apply_contract_set_impl(const ValuePtr& val,
+                                    const std::map<std::string,Contract>& contracts,
+                                    const ContractSet& set,
+                                    std::string* err) {
+    if (set.items.empty()) return true;
+    if (set.items.size() == 1 && set.items[0].second < 0)
+        return Parser::apply_contract(val, contracts, set.items[0].first, err);
+    // 1) 逐个解析（未定义 ⇒ 001，同单契约）
+    std::vector<const Contract*> list;
+    for (size_t i = 0; i < set.items.size(); i++) {
+        auto it = contracts.find(set.items[i].first);
+        if (it == contracts.end()) {
+            if (err) *err = code_prefix(SML_E_CONTRACT_001,
+                "sml: unknown contract '" + set.items[i].first + "'");
+            return false;
+        }
+        list.push_back(&it->second);
+    }
+    // 2) 冲突预检：按**字段名**两两比较，与书写顺序无关
+    for (size_t i = 0; i < list.size(); i++) {
+        for (size_t j = i + 1; j < list.size(); j++) {
+            for (const auto& fa : list[i]->fields) {
+                for (const auto& fb : list[j]->fields) {
+                    if (fb.name != fa.name) continue;
+                    if (!field_clash(fa, fb)) continue;
+                    if (err) *err = code_prefix(SML_E_CONTRACT_016,
+                        "sml: field '" + fa.name + "' differs between contract '" +
+                        list[i]->name + "' and '" + list[j]->name + "'");
+                    return false;
+                }
+            }
+        }
+    }
+    // 3) 合并视图：字段并集；同名字段的类型/默认值/区间已一致，
+    //    但 `optional` **不在**预检内 ⇒ 取 AND（任一份要求必填即必填），才与顺序无关。
+    Contract merged;
+    for (size_t i = 0; i < list.size(); i++) {
+        for (const auto& f : list[i]->fields) {
+            bool found = false;
+            for (auto& dst : merged.fields) {
+                if (dst.name != f.name) continue;
+                if (!f.mods.optional) dst.mods.optional = false;
+                found = true;
+                break;
+            }
+            if (!found) merged.fields.push_back(f);
+        }
+    }
+    // 4) 严格度：块级覆盖 unwrap_or 契约级，多契约取**最严**（`allow_extra` 取 AND）
+    merged.allow_extra = true;
+    for (size_t k = 0; k < list.size(); k++) {
+        int ov = set.items[k].second;
+        bool loose = (ov < 0) ? list[k]->allow_extra : (ov == 0);
+        if (!loose) merged.allow_extra = false;
+        if (list[k]->strict_paths) merged.strict_paths = true;
+        if (list[k]->allow_any) merged.allow_any = true;
+        for (const auto& d : list[k]->featags) merged.featags.push_back(d);
+    }
+    // 名字只用于错误文案（`A+B`，与 Rust 一致）
+    merged.name.clear();
+    for (size_t k = 0; k < list.size(); k++) {
+        if (k) merged.name += "+";
+        merged.name += list[k]->name;
+    }
+    return apply_contract_obj(val, merged, contracts, err);
+}
+
+static bool apply_contract_set(const ValuePtr& val,
+                               const std::map<std::string, Contract>& contracts,
+                               const ContractSet& set,
+                               std::string* err) {
+    try {
+        return apply_contract_set_impl(val, contracts, set, err);
     } catch (const std::bad_alloc&) {
         if (err) *err = code_prefix(SML_E_LIMIT_010, "sml: 内存分配失败");
         return false;
