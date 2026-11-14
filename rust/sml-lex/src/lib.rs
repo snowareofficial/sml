@@ -3,6 +3,9 @@
 //!
 //! Depends only on the value model and the feature set (whether a bareword may act as a string is decided by `Feature::BarewordStr`); it knows nothing about syntax structure, so it is easy to test and reuse on its own. ｜ 只依赖值模型与特性集（裸词是否可当字符串由 `Feature::BarewordStr` 决定），不涉及语法结构，便于单独测试与复用。
 
+mod unescape;
+pub use unescape::unescape_quoted;
+
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
@@ -11,7 +14,7 @@ pub mod identifiers;
 
 use sml_codes::{
     E_FEATURE_001, E_FEATURE_002, E_FEATURE_005, E_INCLUDE_006, E_LEX_001, E_LEX_002, E_LEX_003,
-    E_LEX_004, E_LEX_005, E_LEX_006, E_PARSE_027, SmlError,
+    E_LEX_006, E_PARSE_027, SmlError,
 };
 use sml_feature::{Feature, FeatureSet};
 use sml_value::Value;
@@ -298,93 +301,32 @@ pub fn tokenize_spans(text: &str) -> Result<(Vec<Tok<'_>>, Vec<Span>), SmlError>
             '"' => {
                 flush!(c_start);
                 let content_start = chars.pos(); // 开引号之后
-                let mut decoded: Option<String> = None;
+                // 先扫到闭合引号：只判**结构**（跳过转义对），不解码。
+                // 解码统一走 `unescape_quoted` —— 与解析器的单遍快速路径共用同一份转义表，
+                // 两处各写一份迟早分叉（表现是「同一份输入两条路径解出不同字符串」）。
+                // 无转义时仍走零拷贝：直接借用原文切片。
+                let mut has_escape = false;
                 loop {
                     match chars.next() {
                         Some('"') => break,
                         Some('\\') => {
-                            let esc_start = chars.pos() - 1; // 反斜杠所在偏移
-                            if decoded.is_none() {
-                                decoded = Some(text[content_start..esc_start].to_string());
-                            }
-                            let s = decoded.as_mut().expect("刚初始化");
-                            // 转义：\n \t \r \0 \" \\ \u{XXXX} \uXXXX
-                            match chars.next() {
-                                Some('n') => s.push('\n'),
-                                Some('t') => s.push('\t'),
-                                Some('r') => s.push('\r'),
-                                Some('0') => s.push('\0'),
-                                Some('"') => s.push('"'),
-                                Some('\\') => s.push('\\'),
-                                Some('u') => {
-                                    let mut hex = String::new();
-                                    // 支持 \u{XXXX} 或 \uXXXX
-                                    if chars.peek() == Some(&'{') {
-                                        chars.next();
-                                        for c2 in chars.by_ref() {
-                                            if c2 == '}' {
-                                                break;
-                                            }
-                                            hex.push(c2);
-                                        }
-                                    } else {
-                                        for _ in 0..4 {
-                                            if let Some(c2) = chars.next() {
-                                                hex.push(c2);
-                                            } else {
-                                                // B8：\uXXXX 定长读 4 字符，
-                                                // 不足 4 位说明输入截断/非法
-                                                return Err(SmlError::from_code_title(E_LEX_005)
-                                                    .with_detail(format!("期望 4 位，得 {hex:?}")));
-                                            }
-                                        }
-                                    }
-                                    // B8：非法码点（如代理区 \uD800、空 hex、非 hex）
-                                    // 必须报错，不能静默丢弃并吞掉闭合引号。
-                                    if hex.is_empty() {
-                                        return Err(SmlError::from_code_title(E_LEX_005)
-                                            .with_detail("缺少十六进制数字"));
-                                    }
-                                    let cp = u32::from_str_radix(&hex, 16).map_err(|_| {
-                                        SmlError::from_code_title(E_LEX_005)
-                                            .with_detail(format!("含非十六进制数字：{hex:?}"))
-                                    })?;
-                                    let ch = char::from_u32(cp).ok_or_else(|| {
-                                        SmlError::from_code_title(E_LEX_005)
-                                            .with_detail(format!("非法 Unicode 码点：U+{cp:04X}"))
-                                    })?;
-                                    s.push(ch);
-                                }
-                                Some(other) => {
-                                    // 未知转义：必须报错，而非静默丢弃
-                                    return Err(SmlError::from_code_title(E_LEX_004).with_detail(
-                                        format!(
-                                            "\\{other}（仅支持 \\n \\t \\r \\0 \\\" \\\\ \\uXXXX）"
-                                        ),
-                                    ));
-                                }
-                                // B9：转义符后遇 EOF，未闭合的反斜杠报错
-                                None => {
-                                    return Err(SmlError::from_code_msg(E_LEX_006))
-                                }
+                            has_escape = true;
+                            // 转义符后的那个字符不参与「是否为闭合引号」的判断
+                            if chars.next().is_none() {
+                                return Err(SmlError::from_code_msg(E_LEX_006));
                             }
                         }
-                        Some(other) => {
-                            // 无转义时不复制字节：最后直接借 `text[content_start..content_end]`。
-                            if let Some(s) = decoded.as_mut() {
-                                s.push(other);
-                            }
-                        }
+                        Some(_) => {}
                         // B9：未闭合字符串（EOF 前没有闭合引号）必须报错
-                        None => {
-                            return Err(SmlError::from_code_msg(E_LEX_001))
-                        }
+                        None => return Err(SmlError::from_code_msg(E_LEX_001)),
                     }
                 }
-                let content_end = chars.pos() - 1; // 闭合引号的位置
-                let word = match decoded {
-                    Some(owned) => Cow::Owned(owned),
-                    None => Cow::Borrowed(&text[content_start..content_end]),
+                let content_end = chars.pos() - 1;
+                let content = &text[content_start..content_end];
+                let word = if has_escape {
+                    Cow::Owned(unescape_quoted(content)?)
+                } else {
+                    Cow::Borrowed(content)
                 };
                 // 字符串区间含首尾引号（左闭右开）
                 spans.push(Span { start: c_start, end: chars.pos() });
