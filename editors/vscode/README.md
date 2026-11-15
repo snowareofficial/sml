@@ -106,7 +106,10 @@ npm run install-local
 > 目录外的 `../../../js/sml.mjs`，该模块**不会被打进包**，
 > 装到别的机器上会因找不到模块而完全失效。
 
-开发时无需打包：在 VSCode 中打开 `editors/vscode` 目录，按 `F5` 启动扩展宿主即可调试。
+开发时无需打包：在 VSCode 中打开 `editors/vscode` 目录，按 `F5` 启动扩展宿主即可调试 ——
+`.vscode/launch.json` 已配好 `extensionHost`（另有一份「禁用其它扩展」的配置，用于排查
+「别的扩展也在改 SML 文件」这类冲突）。直接在**仓库根**打开时也一样：仓库根的
+`.vscode/launch.json` 指向 `editors/vscode`，F5 起的是同一个扩展。
 
 ## 为什么不用 LSP
 

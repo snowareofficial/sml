@@ -119,7 +119,10 @@ select the generated `.vsix`.
 > on other machines because the module is missing.
 
 For development without packaging: open `editors/vscode` in VSCode and press `F5`
-to launch the extension host for debugging.
+to launch the extension host for debugging — `.vscode/launch.json` already has the
+`extensionHost` configuration (plus a "disable other extensions" variant for hunting
+conflicts). Opening the **repository root** works too: the root `.vscode/launch.json`
+points at `editors/vscode`, so `F5` launches the same extension.
 
 ## Why not LSP
 
