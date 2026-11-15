@@ -188,8 +188,8 @@ directives: [
       note: "定义契约；须在 @is 之前定义（与片段同为顺序依赖）" }
 
     { name: is        output: none   status: impl
-      form: "@is NAME [ loose | warn | strict ] { , NAME ... }"
-      note: "在当前块内应用契约，可叠多个；严格度可就地覆盖" }
+      form: "@is NAME [ loose | warn | strict ] { , NAME [ loose | warn | strict ] }"
+      note: "在当前块内应用契约，可叠多个；多契约一律以逗号分隔 —— 逗号之后才是下一个契约名，严格度就近绑定前一个契约" }
 
     { name: when      output: prune  status: impl
       form: "@when ENV-TERM [ ( == | = | != ) LIT ]"
@@ -322,12 +322,14 @@ window {
     start: "09:30"
 }
 
-# 多契约叠加：@is 后可跟多个契约，各自可带严格度（五端一致）
+# 多契约叠加：@is 后可跟多个契约，以**逗号**分隔；逗号之后才是下一个契约名，
+# 严格度就近绑定前一个契约。与块头「契约词 → featag 区 → `,` → 块名」同一阅读习惯：
+# 逗号之后是「新的一段」，读者不必去猜某个词是契约名还是别的。
 @contract Left { l: int }
 @contract Right { r: int }
 
 pair {
-    @is Left loose Right loose
+    @is Left loose, Right loose
     l: 1
     r: 2
 }

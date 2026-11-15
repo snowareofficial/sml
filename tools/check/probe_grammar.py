@@ -78,13 +78,13 @@ node {
     },
     {
         "id": "contract-multi",
-        "what": "多契约叠加 + 就地严格度",
+        "what": "多契约叠加 + 就地严格度（逗号分隔）",
         "where": "grammar.sml 6b（pair）",
         "code": """\
 @contract Left { l: int }
 @contract Right { r: int }
 pair {
-    @is Left loose Right loose
+    @is Left loose, Right loose
     l: 1
     r: 2
 }
