@@ -1,7 +1,7 @@
 # docs 索引
 
 > **本文件由 `cargo run -p smldocs -- --index` 生成，勿手改。**
-> 数据源 `docs/meta.sml`（58 份文档，摘要 `d84774d83ce431ef`）。摘要变了就必须重跑生成；
+> 数据源 `docs/meta.sml`（59 份文档，摘要 `469f037e68a2321`）。摘要变了就必须重跑生成；
 > 本文件不记生成日期 / HEAD，避免跨天或提交后假漂移。体检结论见 [`report.md`](report.md)。
 
 ## 一眼看结论
@@ -69,7 +69,7 @@
 | [`swml/spec/api.md`](swml/spec/api.md) | 2026-11-02 | 2026-11-09 | **current** | — | swml 门面公开面：根 = swsml 全集，easy = 四个概念 |
 | [`swml/status.md`](swml/status.md) | 2026-11-06 | 2026-11-10 | **current** | — | swml 发布状态（dev2 成批发 / publish=false）+ 门面源码与对外仓分工 |
 
-## repo（23 份）
+## repo（24 份）
 
 | 文档 | 写于 | 最后核对 | 状态 | 替代者 | 职责 |
 |---|---|---|---|---|---|
@@ -84,8 +84,9 @@
 | [`repo/archive/handoff/HANDOFF-2026-10-30.md`](repo/archive/handoff/HANDOFF-2026-10-30.md) | 2026-10-30 | 2026-10-30 | **archive** | — | 会话交接（2026-10-30） |
 | [`repo/archive/handoff/HANDOFF-2026-11-02.md`](repo/archive/handoff/HANDOFF-2026-11-02.md) | 2026-11-02 | 2026-11-02 | **archive** | — | 会话交接（2026-11-02，含待议清单 §4.5） |
 | [`repo/archive/handoff/HANDOFF-2026-11-05.md`](repo/archive/handoff/HANDOFF-2026-11-05.md) | 2026-11-05 | 2026-11-05 | **archive** | — | 会话交接（2026-11-05，.ambr T0–T6 交接） |
+| [`repo/archive/handoff/HANDOFF-2026-11-15.md`](repo/archive/handoff/HANDOFF-2026-11-15.md) | 2026-11-15 | 2026-11-15 | **archive** | — | 会话交接（2026-11-15）：五端语法收敛 —— 多契约合并视图 / featag 的 `!` 唯一标记与区位置 / `@type` 模式匹配器四端 / 数组位置裸块 / dump 值位置；probe_grammar 4/20 → 1/20；含 I-30 的卡点与下一步 |
 | [`repo/archive/handoff/HANDOFF-W24.md`](repo/archive/handoff/HANDOFF-W24.md) | 2026-10-12 | 2026-10-12 | **archive** | — | 会话交接（W24） |
-| [`repo/archive/handoff/HANDOFF.md`](repo/archive/handoff/HANDOFF.md) | 2026-09-18 | 2026-11-05 | **archive** | — | 主交接文档（2026-09-18 至 2026-11-05 的长流水） |
+| [`repo/archive/handoff/HANDOFF.md`](repo/archive/handoff/HANDOFF.md) | 2026-09-18 | 2026-11-15 | **archive** | — | 主交接文档（2026-09-18 起的长期记录；顶部索引已指向 HANDOFF-2026-11-15.md） |
 | [`repo/archive/open-work.md`](repo/archive/open-work.md) | 2026-11-04 | 2026-11-04 | **archive** | `docs/repo/ref/unfinished.md` | 三次扫描叠加的旧待办清单（已被取代） |
 | [`repo/archive/task/TASK-agent-w19.md`](repo/archive/task/TASK-agent-w19.md) | 2026-09-19 | 2026-10-10 | **archive** | — | VSCode 扩展验收任务书（W19） |
 | [`repo/archive/task/TASK-agent-w24.md`](repo/archive/task/TASK-agent-w24.md) | 2026-10-12 | 2026-10-12 | **archive** | — | 任务书（W24） |
