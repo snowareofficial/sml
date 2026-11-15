@@ -494,7 +494,13 @@ static int finish_bare_block(parser *ps, const char *key, sml_value *sub,
        否则填进去的键与手写的长得一样，来源就分不出来了。 */
     if (ps->features & (1u << 17)) {
         const ccontracts *s7 = (field_is && field_is->n > 0) ? field_is : ty;
-        if (s7->n > 0 && check_from_featag_set(ps, s7, sub) != 0) return -1;
+        if (s7->n > 0 && check_from_featag_set(ps, s7, sub) != 0) {
+            /* `check_from_featag` 只写 errbuf、**不**置 failed（原内联实现是在
+               调用点补的）。漏这一步的后果是「失败却没留错误」—— 块被丢掉、
+               树变空，而调用方以为解析成功（实测踩过，排查成本极高）。 */
+            ps->failed = 1;
+            return -1;
+        }
     }
     /* **S6 落点填充**：必须在**契约应用之前** —— 与 Rust
        `finish_bare_block` 同序（源码注释：`from-featag` 那类「只能由 featag
@@ -543,7 +549,9 @@ static int finish_bare_block(parser *ps, const char *key, sml_value *sub,
                 break;
             }
         }
-        if (ps->failed) return -1;
+        if (ps->failed) {
+                return -1;
+        }
     }
     if (field_is && field_is->n > 0) {
         apply_set_or_fail(ps, sub, field_is);
@@ -553,7 +561,9 @@ static int finish_bare_block(parser *ps, const char *key, sml_value *sub,
            —— 只要契约恰好没有默认值，树看起来还一样（探针原切片因此漏判）。 */
         apply_set_or_fail(ps, sub, ty);
     }
-    if (ps->failed) return -1;
+    if (ps->failed) {
+        return -1;
+    }
     /* `__name` 的起点跳过被算作契约词的参数（首个非契约词才是块名）；
        单契约 / 无契约时 `ty_consumed == 0`，与旧行为逐字一致。
        必须克隆再存：args 随后就被 sml_free，直接借用会让 `__name` / `__args`
