@@ -1,4 +1,4 @@
-# TODO / IDEAS 两张表（2026-11-06 建；2026-11-15 增补 I-25…I-29）
+# TODO / IDEAS 两张表（2026-11-06 建；2026-11-15 增补 I-25…I-29；2026-11-16 增补 I-31 / I-32）
 
 > **本文件只做表**：状态镜像 + 纠偏，不替用户勾选 `TODO.md` / `IDEAS.md`，不替代原文。
 > **权威仍是 `TODO.md` / `IDEAS.md`**（用户维护）；条目状态与卡点以本表为准。
@@ -16,7 +16,7 @@
 | TODO 未勾 | **44** | `Select-String TODO.md '^\s*- \[ \]'` |
 | TODO 已勾 | **75** | `Select-String TODO.md '^\s*- \[ x\]'` |
 | TODO 非复选框欠账 | **8** | 人工取自 `TODO.md` 表格行 / `⬜` 标记 / `⏳ 待修`（本文 T43–T50，逐行注来源） |
-| IDEAS 条目 | **29**（I-1…I-30，其中 I-12 = `Rejected`、I-24 待裁决） | `Select-String IDEAS.md '^## I-\d+'` |
+| IDEAS 条目 | **32**（I-1…I-32；其中 I-12 = `Rejected`、I-24 待裁决；I-24…I-32 只在本表，未回写 `IDEAS.md`） | `Select-String docs/repo/ref/todo-ideas-tables.md '^\| I-\d+'` |
 | 码表条目 | **167**（含 `W-CLI-001`） | `Select-String errors/codes.sml '\{ id: [EWI]-'`；生成物 `site/static/errors.json` |
 | 仅 Rust 实现（`impls: [ rust ]`） | **44**；语言层 **36**（PARSE 15 / CONTRACT 9 / FEATURE 4 / INCLUDE 3 / EXT 3 / LEX 1 / LIMIT 1）+ DERIVE 8（宿主绑定层，Rust 专属，不是跨端欠账）。2026-11-13 回填：`W-PARSE-001` 五端 done、`W-CONTRACT-001` 五端 partial，故 PARSE 16→15、CONTRACT 10→9；剩余是**逐码实现缺口**，不再是「无诊断通道」（五端都有出口） | `Select-String errors/codes.sml 'impls: \[ rust \]'`，按 `domain` 分组 |
 | 一致性套件 | **63 例 / AGREE 63 / DIVERGE 0**（`19` 以 `*` 放行） | `python tests/conformance/run_conformance.py --require-all`；`docs/repo/ref/scan.md` |
@@ -178,7 +178,7 @@
 
 ---
 
-## 表 2 · IDEAS（23 条）
+## 表 2 · IDEAS（32 条）
 
 | 编号 | 名称 | 状态 | 类型 | 依赖 | 下一步 | 来源(file:行) |
 |---|---|---|---|---|---|---|
@@ -212,6 +212,8 @@
 | I-28 | 衍生 / 下游项目：**`smlite`**、**`eclog-rs`**、**`hwid`**、**`instgen`** | Todo（用户 2026-11-15 口述，四者**都准备放独立仓库**） | 治理 / 下游 | `smlite` / `eclog-rs` 各是什么仍需用户一句话（解析器子集？日志/结构化记录？）；`hwid` / `instgen` 已明确 | 四个项目的定位（用户 2026-11-15 原话）：① **`hwid`** —— hardware id，基于硬件的身份生成工具；② **`instgen`** —— 安装程序生成系统，支持一键包生成；③ `smlite` —— 轻量 SML（？）；④ `eclog-rs` —— （？）。与 I-22「下游方言」同一格：先确认它们**只要语言子集**还是要新语法；若只是子集，可直接复用 `sml-parse` + 关掉特性位，不必另写解析器。独立仓库意味着**依赖面**要定：走 crates.io 依赖 `swsml`（I-19 `swml` 门面）还是 vendored 一份？确认后逐项补「允许 / 不允许 + 边界」 | 本次对话（2026-11-15） |
 | I-29 | **全仓国际化**（I-11 的具体化：不止 Rust 端） | Todo（用户 2026-11-15 要求「记一下之后的全仓国际化任务」） | 文档 / i18n | I-11 已落 Rust 侧十二批 | 范围：① 四端硬编码文案（JS / C / C++ / Lua 的错误消息、CLI 输出）② `errors/gen_*` 的**模板**（生成物 doc 注释里的中文）③ `site/` 与编辑器扩展（package.json 文案、诊断 message）④ 文档正文是否双语（现状：`docs/` 中文为主，`CHANGELOG.en.md` 另存）。判据建议沿用 `errors/README.md` 的口径：**中文是源语言，英文是翻译层，缺英文回退中文、永不空**；新增文案一律走码表，不写字面量 | 本次对话（2026-11-15）；`docs/repo/ref/todo-ideas-tables.md` I-11 |
 | I-30 | **键位置与数组位置的裸块实现合并**（C / C++ / Lua 三端各两份同构代码 → 各一份） | **Done（2026-11-15）** | 质量 / 解析器 | 无 | 三端统一成「一个 head + 一个 finish，键位置与数组位置只做接线」：C `parse_bare_head` / `finish_bare_block`（`c/src/05_parse.inc`，键位置内联的 ~240 行已删）；C++ `parse_bare_block_from`（键位置 `parse_block` 的裸块分支与数组位置 `parse_bare_block` 共用，后者只剩「消费类型词 + 转调」）；Lua `parse_bare_head` / `parse_finish_bare_block`（`parse_array_bare_block` 只剩接线）。**原先的阻塞不可复现**：`peek(ps)` 就是直读 `ps->lx->toks[ps->lx->pos]`、没有缓存，「`peek` 与 `pos` 不同步」不成立；重做后 `probe_matrix` 的 5 条 featag 行仍是五端同码 021。验收：`conformance` 当时 60 例全 AGREE（本轮末累计 62 例，见下）、`probe_grammar` 仍 1/20（数字身份）、`probe_matrix` 仍 94 行 / 5 行不一致（同源）；`c/build_check.py` 的 2 条与 `cpp/build_verify.py` 的 CODES 1 条是**既存红**（`E-FEATURE-002/006` 期望值过期），HEAD 上同样红。**另**（原交接 §5 第 5 条）：JS 的数组位置裸块一并补齐 —— 原先 `[ A B item { } ]` 被拆成四个标量（静默错树）、`[ S !t srv { } ]` 在值位置撞 `!` 报 027；现在 JS 也有 `bareBlockAhead` / `parseBareBlockFrom`，五端同树，新增 conformance `61_array_bare_block`（多契约 / 块名 / featag 区 / 非块四格） | 本次对话（2026-11-15） |
+| I-31 | 衍生语言项目：**基于 wasm**、**native access server** 等形态各起一条 | Todo（用户 2026-11-16 口述，只说方向、未说范围） | 治理 / 衍生项目 | I-28（下游四项目先定定位与依赖面）；wasm 要定「编到哪一层」 | 与 I-28 同一格，但问的是**语言本身**：每条形态要的是**同一语言的新实现**还是**方言**（方言归 I-22）。已明确的形态：① **wasm** —— SML 编到 wasm，或提供 wasm 版解析器 / 运行时（浏览器、边缘、插件宿主）；② **native access server** —— 以 SML 作配置 / 协议语言的原生访问服务端。待用户补三件事：宿主环境与运行约束、是否独立仓库（独立仓库按 I-28 惯例二选一：crates.io 依赖 `swml` 门面，或 vendored 一份）、与主线是「共用一套解析器 + 关特性位」还是「另写一套」。**判据**：共用解析器只需登记特性位；另写一套必须先有 I-32 的模板与一致性四件套，否则立刻漂移 | 本次对话（2026-11-16） |
+| I-32 | 把 SML 的**项目经验固化成可复用模板**（新仓库照抄即可开工） | Todo（用户 2026-11-16 口述） | 治理 / 模板 | T28 / T40–T42（文档治理机制先稳定）；I-28 / I-31 是首批试用者 | 抽的是**机制不是内容**，六件：① `AGENTS.md` 四条硬规则 + 目录约定（先产品线，再 spec / ref / plan / archive）；② `docs/meta.sml` + `changes.sml` + `smldocs --index/--check` 门禁；③ 码表单一来源 → 五端生成（`errors/codes.sml` + `gen_*`）；④ 跨端一致性四件套（`conformance` / `probe_grammar` / `probe_matrix` / dump parity）；⑤ 性能基线口径（「`--quick` 数字不进基线」这条规矩本身）；⑥ CI 守卫（隐私闸门、i18n 缺英文回退、未登记即红）。**交付形态待定**：模板仓 / `cargo generate` 式脚手架 / 一份「照做清单」，三者择一，并写清「哪些必须改、哪些可删」——否则模板只会变成第二个没人看的规范 | 本次对话（2026-11-16） |
 
 ---
 
