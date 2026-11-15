@@ -18,6 +18,7 @@
 | `OK` | 解析成功，且值树与 Rust 逐格相同 |
 | 错误码 | 该端拒绝；码是稳定契约，文案不是 |
 | `DIFF` | 解析成功但值树与 Rust 不同 —— **静默差异** |
+| `NC` | 解析成功，但该端 dump 出的文本 Rust 读不回去 ⇒ 判据无法成立（载体问题，见 §4.5d） |
 
 「四端明确报错」不是静默差异：那是已登记的能力缺口，用户能看见。要清零的是 `DIFF` 与
 「指令被接受后丢弃」这两类。本轮实测 `DIFF` **0 格**，但查出另一类静默：`@type` 声明被
@@ -36,7 +37,7 @@
 | rust | —— | `rc=0` | 参照实现 |
 | c | `E-CONTRACT-008` | `Window.start: 时刻` | `@type` 未被实现 ⇒ `时刻` 回落成契约名，再按块校验 |
 | cpp | `E-CONTRACT-001` | 同上 | 同上，报「unknown contract `时刻`」 |
-| js | `E-PARSE-007` | `Deploy !tls replicas[3] zone[cn-north-1], api {` | 块头 featag 的**无 `!` 带参写法**（`名[…]`）未识别 ⇒ 逗号落到通用逗号检查 |
+| js | `NC` | `Deploy !tls replicas[3] zone[cn-north-1], api {` | 解析层已通；dump 把嵌套的带 featag 块写成块头形式 ⇒ Rust 读不回去（§4.5d） |
 | lua | `E-CONTRACT-008` | `Window.start: 时刻` | 同 C |
 
 ⚠️ **别把 C / Lua 的 `E-CONTRACT-008` 归因到「契约嵌套」**：纯契约嵌套切片（`contract-nest`：
@@ -49,7 +50,7 @@
 
 | 特性 | 说明 | rust | c | cpp | js | lua |
 |---|---|---|---|---|---|---|
-| 整份 `grammar.sml` | 全集文档 | OK | `E-CONTRACT-008` | `E-CONTRACT-001` | `E-PARSE-007` | `E-CONTRACT-008` |
+| 整份 `grammar.sml` | 全集文档 | OK | `E-CONTRACT-008` | `E-CONTRACT-001` | `NC` | `E-CONTRACT-008` |
 | `contract-nest` | 契约当字段类型 | OK | OK | OK | OK | OK |
 | `contract-multi` | 多契约叠加 + 就地严格度 | OK | OK | OK | OK | OK |
 | `contract-requires` | `@requires when`（when 未开） | `E-CONTRACT-018` | `E-CONTRACT-018` | `E-CONTRACT-018` | `E-CONTRACT-018` | `E-CONTRACT-018` |
@@ -176,24 +177,33 @@ C++ 报 `E-CONTRACT-001`、JS/Lua 报 `E-PARSE-006`）已消失。
 文档），但不作为规定写法：它让「这个词是契约还是块名/键」只能靠别处信息判断，正是本项最初
 难读的原因。
 
-### 4.5b 块头 featag 的无 `!` 带参写法：四端未识别
+### 4.5b 块头 featag 的无 `!` 带参写法：五端一致（已清零）
 
 `docs/swsml/spec/featag.md` §2.2 规定**带参项写成 `名[ … ]`**（`obey[1, 2]`，靠 `[` 与块名区分），
-`!` 只有无参项才必须有。Rust 按这条实现，故 `grammar.sml` 里 `Deploy !tls replicas[3] zone[…], api { }`
-能过；四端把块头的 `[` 当作「参数区结束」⇒ `replicas` 落成块名、逗号落到通用逗号检查。
+`!` 只有无参项才必须有。四端按这条对齐：块头扫描把「词 + 紧跟 `[`」也认成 featag 项，并且
+这笔也算「窗口里有 featag 区」—— 否则紧随的终止逗号会被当成「裸词里的逗号」而拒
+（`Menu density[auto], main { }` 就是这条的最小复现）。
 
-探针的 `featag` 切片用的是带 `!` 的 `Service !critical !obey[4], prod`，因此这一格一直是绿的
-—— 是**取样**漏了无 `!` 那一半，不是两边行为相同。修法：四端把「词 + 紧跟 `[`」也认成 featag 项。
+探针的 `featag` 切片用的是带 `!` 的 `Service !critical !obey[4], prod`，所以这一格一直是绿的
+—— 是**取样**漏了无 `!` 那一半，不是两边行为相同。
 
-### 4.5c 块头契约后跟块名但未开 `block-name`：四端接受，Rust 报 `E-CONTRACT-001`
+### 4.5c 块头契约后跟块名但未开 `block-name`：五端同码 001（已清零）
 
-`A B item { }`（`typed-block` 已开、`block-name` 未开）在 Rust 里是 001 —— 块头的契约词之后
-还剩一个词，那只能是块名，而块名要 `@feature enable block-name`。四端没有这条「拆雷」检查，
-把 `item` 当 `__name` 收下。
+`A B item { }`（`typed-block` 已开、`block-name` 未开）里，契约词之后还剩一个词，那只能是块名，
+而块名要 `@feature enable block-name`。四端补齐了这条「拆雷」检查，与 Rust 同码同序；
+`A item { }`（单契约）同样报 001，`A plain { }` 开了 `block-name` 则照常通过。
 
-这是**单契约就存在**的老缺口（`A item { }` 同样：Rust 001、四端接受），不是多契约引入的；
-本条登记的目的是别把四端后来的「接受」误当成新放宽。修法：四端在契约词之后若仍有未消费的
-块头词、且 `block-name` 未开，就报 001（与 Rust 同一判据）。
+### 4.5d JS / Lua 的 dump：嵌套的带 featag 块写成块头形式，Rust 读不回去（`NC`）
+
+树里一个块同时有 `__type` 与 `__featags` 时，JS / Lua 的 `stringify` 会在**值位置**写成块头形式
+（`S: S { … }` / `Menu density[auto], main { … }`），而值位置的「裸块头」不是合法 SML —— Rust 回读
+报 `E-PARSE-006`（期望键，得 `{`）。后果：这类用例在套件里变成 `NC`（判据无法成立），而不是
+「解析不同」。
+
+这条与解析无关，可用**不含本片任何改动**的输入复现：`@feature enable type.featag, typed-block` +
+`@contract S { name: str  !t }` + `d { S !t { name: g } }` —— 五端解析都成功，JS / Lua 的 dump
+回读失败。修法：值位置的带元数据块一律写扁平对象（`{ __type: …, __name: …, … }`），与 Rust
+`to_sml` 同形；改动落在 dump 层，会牵动全部 `NC` 判定，单独成片。
 
 ### 4.6 已经一致的格子
 
@@ -218,4 +228,5 @@ C++ 报 `E-CONTRACT-001`、JS/Lua 报 `E-PARSE-006`）已消失。
 - **`@version` 版本位**：各端支持范围不同（`docs/swsml/spec/version.md`），与 `grammar.sml`
   的语法特性无关，另测。
 - **v5 草案里尚未实现的项**（A8 手写 `__*`、A10 `auto` 裸词、`!any` / `!strict-paths`）：
-  只在 Rust 侧有意义，四端连 featag 语法都不认，切片没有区分度。
+  `!any` / `!strict-paths` 只在 Rust 侧有完整语义（四端只认语法、S6–S8 未实现），
+  切片没有区分度。

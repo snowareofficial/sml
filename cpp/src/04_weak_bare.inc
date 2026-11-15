@@ -116,7 +116,13 @@ static bool bare_block_ahead(const PState& st) {
     while (p < st.toks.size()) {
         auto tt = st.toks[p].t;
         if (tt == Token::T::Word) {
-            if (feat_on && !st.toks[p].s.empty() && st.toks[p].s[0] == '!') seen_tag = true;
+            /* featag 项的两种形状都算「窗口里有 featag 区」：`!名`（无参）与 `名[`（带参）
+               —— 后者没有 `!`，漏判会让紧随的终止逗号被当成「裸词里的逗号」而拒
+               （`Menu density[auto], main { }`）。 */
+            if (feat_on && !st.toks[p].s.empty() &&
+                (st.toks[p].s[0] == '!' ||
+                 (p + 1 < st.toks.size() && st.toks[p + 1].t == Token::T::LBracket)))
+                seen_tag = true;
             p++;
         } else if (feat_on && tt == Token::T::LBracket) {
             int depth = 0;

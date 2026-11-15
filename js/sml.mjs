@@ -2773,7 +2773,13 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
         while (probe < toks.length) {
           const p = toks[probe];
           if (p.t === "word" || p.t === "str") {
-            if (featOn && p.t === "word" && p.v.startsWith("!")) seenTag = true;
+            // featag 项的两种形状都算「窗口里有 featag 区」：`!名`（无参）与 `名[`（带参）
+            // —— 后者没有 `!`，漏判会让紧随的终止逗号被当成「裸词里的逗号」而拒
+            // （`Menu density[auto], main { }`）。
+            if (featOn && p.t === "word" &&
+                (p.v.startsWith("!") || (toks[probe + 1] && toks[probe + 1].t === "["))) {
+              seenTag = true;
+            }
             probe++;
           } else if (featOn && p.t === "[") {
             let depth = 0;
@@ -2793,8 +2799,12 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
           for (;;) {
             const tk = peek();
             if (!tk || tk.t === "{") break;
-            if (featOn && tk.t === "word" && tk.v.startsWith("!")) {
-              const tag = tk.v.slice(1);
+            // featag 项：`!tag` / `!tag[args]` / `tag[args]`。
+            // **无参项必须带 `!`**（否则与块名不可分），**带参项靠紧跟的 `[` 区分**
+            // —— `obey[1, 2]` 与 `!obey[1, 2]` 等价（`featag.md` §2.2 的规定写法是前者）。
+            if (featOn && tk.t === "word" &&
+                (tk.v.startsWith("!") || (toks[i + 1] && toks[i + 1].t === "["))) {
+              const tag = tk.v.startsWith("!") ? tk.v.slice(1) : tk.v;
               // **S5 使用处校验**：featag 契约私有 —— 块头写契约里没声明的名字就拒
               // （与 Rust / C / C++ 同码 E-CONTRACT-021）。改前只收集不校验。
               const owner = contracts[key] || contracts[nsPrefix + key];
@@ -2859,6 +2869,39 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
             break;
           }
           if (peek() && peek().t === "{") {
+            // 块级类型标注：`<契约词…> [featag 区] [, 块名] { .. }`
+            //
+            // 裸块首词若命中契约表，自动把该契约应用到本块，等价于块内首行
+            // `@is 契约名`。与既有裸块 `type [name...] { }` 完全同形，故零新语法；
+            // 由 opt-in 特性 `typed-block` 门控，未开启时既有文档行为不变。
+            //
+            // **契约词前缀**：从首词起连续命中契约表的词都是契约，第一个未命中的是块名
+            // （`server web prod { }` 的 web/prod 不是契约，不受影响）。
+            const contractPrefix = () => {
+              const c0 = key in contracts ? key : nsPrefix + key in contracts ? nsPrefix + key : null;
+              if (!c0) return null;
+              const names = [c0];
+              let consumed = 0;
+              for (const a of args) {
+                if (typeof a !== "string") break;
+                const an = a in contracts ? a : nsPrefix + a in contracts ? nsPrefix + a : null;
+                if (!an) break;
+                if (!names.includes(an)) names.push(an);
+                consumed++;
+              }
+              return { names, consumed };
+            };
+            // —— 拆雷：契约词之后还剩一个词、但 `block-name` 没开 ⇒ 只能是块名 ——
+            // 未开 `block-name` 时块名没有合法位置：`A B item { }` 里的 `item` 会被静默
+            // 当成 `__name`，读者以为写的是契约、实际写成了块名（C / C++ / Rust 同码同序）。
+            if (feats.has("typed-block") && feats.has("contract") && !feats.has("block-name")) {
+              const pre = contractPrefix();
+              if (pre && args.length > pre.consumed && typeof args[pre.consumed] === "string") {
+                fail("E-CONTRACT-001",
+                  "sml: 块级标注 `" + key + "` 后的 `" + args[pre.consumed] +
+                  "` 不是已定义的契约；若本意是把它作为块名，请先 `@feature enable block-name`");
+              }
+            }
             i++;
             pushKey(key);
             const sub = parseBlock("}");
@@ -2867,68 +2910,55 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
             // `__name` 在契约应用**之后**写入：Rust 的块头契约校验发生在命名参数落位之前，
             // 所以 `Service !t, prod { }` 在严格契约下能过；而字段值里的带名裸块
             // （`x { @is A addr Sub { } }`）`__name` 已存在，仍会报 E-CONTRACT-004。
-            // —— 块级类型标注：`<契约名> <块名> { .. }` ——
-            //
-            // 裸块首词若命中契约表，自动把该契约应用到本块，等价于块内首行
-            // `@is 契约名`。与既有裸块 `type [name...] { }` 完全同形，故零新语法；
-            // 由 opt-in 特性 `typed-block` 门控，未开启时既有文档行为不变。
             let tyConsumed = 0;
-            if (feats.has("typed-block") && feats.has("contract")) {
-              const cname = key in contracts ? key : nsPrefix + key in contracts ? nsPrefix + key : null;
-              if (cname) {
-                // 块级多契约（D2）：从**首词**起，连续命中契约表的词都是契约；第一个未命中的
-                // 词是块名（`server web prod { }` 的 web/prod 不是契约，不受影响）。
-                const entries = [{ name: cname, ov: null }];
-                for (const a of args) {
-                  if (typeof a !== "string") break;
-                  const an = a in contracts ? a : nsPrefix + a in contracts ? nsPrefix + a : null;
-                  if (!an) break;
-                  if (!entries.some((e) => e.name === an)) entries.push({ name: an, ov: null });
-                  tyConsumed++;
-                }
-                // S8：`any` 默认禁用，契约里写 `!any` 才放行（逐份查）
-                if (feats.has("type.featag")) {
-                  for (const e of entries) checkAnyAllowed(e.name, contracts[e.name], contracts, []);
-                }
-                // **S7**：`from-featag` 的键不许文档手写 —— 必须在填充之前（逐份查）。
-                for (const e of entries) checkFromFeatag(contracts[e.name], sub, "", contracts);
-                // **S6 落点填充**：必须在契约应用**之前**（Rust `finish_bare_block` 同序）。
-                // 契约先跑会看不到这些键：严格契约会把它们报成 004，`auto` 也取不到声明里的 default。
-                // 多契约时声明取**并集**、`!strict-paths` 取**或**（Rust `fill_featag_targets` 同口径）。
-                if (featags) {
-                  let strict = false;
-                  for (const e of entries) if (contracts[e.name].strictPaths) strict = true;
-                  for (const it of featags) {
-                    let d2;
-                    for (const e of entries) {
-                      const cf = contracts[e.name];
-                      if (cf.featags && cf.featags.get(it.name)) { d2 = cf.featags.get(it.name); break; }
-                    }
-                    if (!d2 || !d2.target || !it.args) continue;
-                    const where2 = cname + "." + it.name;
-                    let val;
-                    if (it.args.length === 1 && it.args[0] === "auto") {
-                      if (d2.default === undefined) {
-                        fail("E-CONTRACT-022",
-                          "sml: `" + where2 + "` 的参数是 `auto`（取声明里的默认值），" +
-                          "但该声明没有 `default`");
-                      }
-                      val = JSON.parse(JSON.stringify(d2.default));
-                    } else {
-                      val = d2.isArray ? it.args : it.args[0];
-                    }
-                    writeTarget(sub, d2.target, val, strict, where2);
-                  }
-                }
-                // 应用：合并视图 + 复用 `applyDefaults` / `checkContract`
-                const r = mergeContractSet(contracts, entries);
-                if (r.code) fail(r.code, r.msg);
-                const merged = r.merged;
-                applyDefaults(merged, sub, contracts);
-                const errs = checkContract(contracts, merged, sub, "");
-                if (errs) fail(errs[0].code, "contract: " + merged.name + " — " + errs.map((x) => x.msg).join("; "));
-                for (const e of entries) recordContract(e.name);
+            const prefix = (feats.has("typed-block") && feats.has("contract"))
+              ? contractPrefix() : null;
+            const cname = prefix ? prefix.names[0] : null;
+            if (cname) {
+              const entries = prefix.names.map((n) => ({ name: n, ov: null }));
+              tyConsumed = prefix.consumed;
+              // S8：`any` 默认禁用，契约里写 `!any` 才放行（逐份查）
+              if (feats.has("type.featag")) {
+                for (const e of entries) checkAnyAllowed(e.name, contracts[e.name], contracts, []);
               }
+              // **S7**：`from-featag` 的键不许文档手写 —— 必须在填充之前（逐份查）。
+              for (const e of entries) checkFromFeatag(contracts[e.name], sub, "", contracts);
+              // **S6 落点填充**：必须在契约应用**之前**（Rust `finish_bare_block` 同序）。
+              // 契约先跑会看不到这些键：严格契约会把它们报成 004，`auto` 也取不到声明里的 default。
+              // 多契约时声明取**并集**、`!strict-paths` 取**或**（Rust `fill_featag_targets` 同口径）。
+              if (featags) {
+                let strict = false;
+                for (const e of entries) if (contracts[e.name].strictPaths) strict = true;
+                for (const it of featags) {
+                  let d2;
+                  for (const e of entries) {
+                    const cf = contracts[e.name];
+                    if (cf.featags && cf.featags.get(it.name)) { d2 = cf.featags.get(it.name); break; }
+                  }
+                  if (!d2 || !d2.target || !it.args) continue;
+                  const where2 = cname + "." + it.name;
+                  let val;
+                  if (it.args.length === 1 && it.args[0] === "auto") {
+                    if (d2.default === undefined) {
+                      fail("E-CONTRACT-022",
+                        "sml: `" + where2 + "` 的参数是 `auto`（取声明里的默认值），" +
+                        "但该声明没有 `default`");
+                    }
+                    val = JSON.parse(JSON.stringify(d2.default));
+                  } else {
+                    val = d2.isArray ? it.args : it.args[0];
+                  }
+                  writeTarget(sub, d2.target, val, strict, where2);
+                }
+              }
+              // 应用：合并视图 + 复用 `applyDefaults` / `checkContract`
+              const r = mergeContractSet(contracts, entries);
+              if (r.code) fail(r.code, r.msg);
+              const merged = r.merged;
+              applyDefaults(merged, sub, contracts);
+              const errs = checkContract(contracts, merged, sub, "");
+              if (errs) fail(errs[0].code, "contract: " + merged.name + " — " + errs.map((x) => x.msg).join("; "));
+              for (const e of entries) recordContract(e.name);
             }
             // `__name` 的起点跳过被算作契约词的参数（首个非契约词才是块名）；
             // 单契约 / 无契约时 `tyConsumed === 0`，与旧行为逐字一致。

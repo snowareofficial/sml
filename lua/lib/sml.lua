@@ -2034,8 +2034,12 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
         while tokens[i] do
           local tk = tokens[i]
           if tk == "{" or tk == "}" or tk == "]" then break end
-          if feat_on and string.sub(tk, 1, 1) == "!" then
-            local nm = string.sub(tk, 2)
+          -- featag 项：`!tag` / `!tag[args]` / `tag[args]`。
+          -- **无参项必须带 `!`**（否则与块名不可分），**带参项靠紧跟的 `[` 区分**
+          -- —— `obey[1, 2]` 与 `!obey[1, 2]` 等价（`featag.md` §2.2 的规定写法是前者）。
+          if feat_on and type(tk) == "string"
+             and (string.sub(tk, 1, 1) == "!" or tokens[i + 1] == "[") then
+            local nm = (string.sub(tk, 1, 1) == "!") and string.sub(tk, 2) or tk
             -- **S5 使用处校验**：featag 契约私有 —— 块头写契约里没声明的名字就拒
             -- （与 Rust / C / C++ / JS 同码 E-CONTRACT-021）。改前只收集不校验。
             local owner = contracts[key]
@@ -2117,6 +2121,16 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
             if not dup then ty_entries[#ty_entries + 1] = { name = a, ov = nil } end
             ty_consumed = ty_consumed + 1
           end
+        end
+        -- —— 拆雷：契约词之后还剩一个词、但 `block-name` 没开 ⇒ 只能是块名 ——
+        -- 未开 `block-name` 时块名没有合法位置：`A B item { }` 里的 `item` 会被静默
+        -- 当成 `__name`，读者以为写的是契约、实际写成了块名（与 Rust / C / C++ / JS 同码）。
+        if #ty_entries > 0 and #args > ty_consumed
+           and not (_FEATURES and _FEATURES[16])
+           and type(args[ty_consumed + 1]) == "string" then
+          fail("E-CONTRACT-001",
+            "sml: 块级标注 `" .. tostring(key) .. "` 后的 `" .. args[ty_consumed + 1] ..
+            "` 不是已定义的契约；若本意是把它作为块名，请先 `@feature enable block-name`")
         end
         if tokens[i] == "{" then
           local sub

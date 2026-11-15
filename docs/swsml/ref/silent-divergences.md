@@ -45,7 +45,8 @@ python tools/check/probe_matrix.py --suite errors
 - 值位置的游离 `:` / 孤立 `@`：C / C++ 原报 `004` / `006`，现与 Rust 同为兜底 `012`；
   **行首**孤立的 `@` 仍是 `004`（五端一致）。
 - `@is C bogus`（第二个名字不是已注册契约）：四端原报 `017`（多契约未实现），现与 Rust 同为
-  `001`（未定义的契约）。名字都注册过时仍报 `017` —— 那才是真·多契约能力缺口。
+  `001`（未定义的契约）。名字都注册过时按**合并视图**应用（多契约已五端实现，
+  口径见 `grammar-divergences.md` §4.3b）。
 - `E-LEX-006`（转义符后 EOF）：C 原报 `004`，现与其余四端同为 `006`。
 
 ## 3. 特性门控：11 条全部一致
@@ -102,9 +103,10 @@ python tools/check/probe_matrix.py --suite values
 - **R-2 数字载体**：JS / Lua 的 i64 大整数与浮点身份（§0 五行）。JS 的 `BigInt` 与 LuaJIT 的
   定点盒子都会牵动 `.ambr` 值模型与五端解码器，需作为值层项目单独立项；当前由 `19` / `20`
   两个放行项明确登记，不是假装一致。
-- **`@type` / featag / 多契约**：属「未实现特性」，不是静默差异，见
-  `docs/swsml/ref/grammar-divergences.md`。featag 按 `docs/swsml/plan/featag-slices.md` 的
-  S9 策略四端刻意不实现。
+- **`@type` / featag 的落点族**：属「未实现特性」，不是静默差异，见
+  `docs/swsml/ref/grammar-divergences.md`。featag 的 S2–S5b 四端已实现，S6–S8（落点 /
+  from-featag / `!any`）仍按 `docs/swsml/plan/featag-slices.md` 的 S9 策略留给 Rust；
+  **多契约叠加已五端实现**（合并视图），不再属本清单。
 
 ## 6. 未判区（还没有对照组）
 

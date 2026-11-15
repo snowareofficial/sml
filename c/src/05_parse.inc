@@ -765,7 +765,12 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
             while (probe < ps->lx->n) {
                 tok_type pt = ps->lx->toks[probe].t;
                 if (pt == T_WORD || pt == T_STR) {
-                    if (feat_scan && pt == T_WORD && ps->lx->toks[probe].v[0] == '!')
+                    /* featag 项的两种形状都算「窗口里有 featag 区」：
+                       `!名`（无参）与 `名[`（带参）—— 后者没有 `!`，漏判会让紧随的
+                       终止逗号被当成「裸词里的逗号」而拒（`Menu density[auto], main { }`）。 */
+                    if (feat_scan && pt == T_WORD &&
+                        (ps->lx->toks[probe].v[0] == '!' ||
+                         (probe + 1 < ps->lx->n && ps->lx->toks[probe + 1].t == T_LBRACK)))
                         seen_tag = 1;
                     probe++;
                 } else if (feat_scan && pt == T_LBRACK) {
@@ -790,10 +795,13 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                 while (1) {
                     token *tk = peek(ps);
                     if (tk->t == T_LBRACE) break;
-                    /* `!tag` / `!tag[args]`：只在契约块头有效（Rust 同判据）。
-                       记进 `__featags` 保序数组；无参项只有 name，带参项多一个 args。 */
-                    if (feat_on && tk->t == T_WORD && tk->v[0] == '!') {
-                        char *tag = tk->v + 1;
+                    /* featag 项：`!tag` / `!tag[args]` / `tag[args]`，只在契约块头有效。
+                       **无参项必须带 `!`**（否则与块名不可分），**带参项靠紧跟的 `[` 区分**
+                       —— `obey[1, 2]` 与 `!obey[1, 2]` 等价（`featag.md` §2.2 的规定写法是
+                       前者）。记进 `__featags` 保序数组；无参项只有 name，带参项多 args。 */
+                    if (feat_on && tk->t == T_WORD &&
+                        (tk->v[0] == '!' || peek_at(ps, 1)->t == T_LBRACK)) {
+                        char *tag = (tk->v[0] == '!') ? (tk->v + 1) : tk->v;
                         /* **S5 使用处校验**：featag 的作用域是契约私有 —— 块头写了契约里
                            没声明的名字就拒（Rust 同码 E-CONTRACT-021）。改前只收集不校验，
                            拼错的 `!critcal` 会被静默记进 `__featags`。 */
@@ -910,6 +918,22 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                             break;
                         }
                         ty_consumed++;
+                    }
+                }
+                /* —— 拆雷：契约词之后还剩一个词、但 `block-name` 没开 ⇒ 只能是块名 ——
+                   未开 `block-name` 时块名没有合法位置：`A B item { }` 里的 `item` 会被
+                   静默当成 `__name`，读者以为写的是契约、实际写成了块名。Rust 直接报
+                   001 并给出「先 @feature enable block-name」的出口。 */
+                if (!ps->failed && ty.n > 0 && sml_arr_len(args) > ty_consumed &&
+                    !(ps->features & (1u << 16))) {
+                    sml_value *w = sml_arr_get(args, ty_consumed);
+                    if (w && w->type == SML_STR) {
+                        set_err(ps->lx->errbuf, ps->lx->errsz,
+                                SML_E_CONTRACT_001
+                                " 块级标注 `%s` 后的 `%s` 不是已定义的契约；"
+                                "若本意是把它作为块名，请先 `@feature enable block-name`",
+                                key, w->u.s);
+                        ps->failed = 1;
                     }
                 }
                 if (ps->failed) {

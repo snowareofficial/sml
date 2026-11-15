@@ -1131,8 +1131,13 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
             size_t ty_consumed = 0;  /* args 里被算作契约词的数量 */
             while (st.i < st.toks.size() && st.toks[st.i].t != Token::T::LBrace) {
                 const Token& tk = st.toks[st.i];
-                if (feat_on && tk.t == Token::T::Word && !tk.s.empty() && tk.s[0] == '!') {
-                    const std::string tag = tk.s.substr(1);
+                /* featag 项：`!tag` / `!tag[args]` / `tag[args]`。
+                   **无参项必须带 `!`**（否则与块名不可分），**带参项靠紧跟的 `[` 区分**
+                   —— `obey[1, 2]` 与 `!obey[1, 2]` 等价（`featag.md` §2.2 的规定写法是前者）。 */
+                if (feat_on && tk.t == Token::T::Word && !tk.s.empty() &&
+                    (tk.s[0] == '!' ||
+                     (st.i + 1 < st.toks.size() && st.toks[st.i + 1].t == Token::T::LBracket))) {
+                    const std::string tag = (tk.s[0] == '!') ? tk.s.substr(1) : tk.s;
                     /* **S5 使用处校验**：featag 契约私有 —— 块头写契约里没声明的名字就拒
                        （Rust 同码 E-CONTRACT-021）。改前只收集不校验。 */
                     const FeatagDecl* decl = nullptr;
@@ -1229,6 +1234,23 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                     ty_consumed++;
                 }
             }
+            /* —— 拆雷：契约词之后还剩一个词、但 `block-name` 没开 ⇒ 只能是块名 ——
+               未开 `block-name` 时块名没有合法位置：`A B item { }` 里的 `item` 会被静默
+               当成 `__name`，读者以为写的是契约、实际写成了块名。Rust 直接报 001 并给出
+               「先 @feature enable block-name」的出口。 */
+            if (!st.aborted && !ty.items.empty() && args.size() > ty_consumed &&
+                (st.features & (1u << 16)) == 0) {
+                const ValuePtr& w = args[ty_consumed];
+                if (w && w->tag == Value::Tag::Str) {
+                    if (st.err && st.err->empty())
+                        *st.err = code_prefix(SML_E_CONTRACT_001,
+                            "sml: 块级标注 `" + key + "` 后的 `" + w->s +
+                            "` 不是已定义的契约；若本意是把它作为块名，请先 "
+                            "`@feature enable block-name`");
+                    st.aborted = true;
+                }
+            }
+            if (st.aborted) break;
             if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::LBrace) {
                 st.i++;
                 st.enter_key = key;   /* 裸块：路径段用块类型名 */
