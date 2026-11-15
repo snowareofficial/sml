@@ -605,13 +605,19 @@ function typeSignatureOf(text, typeName) {
   return d ? patternSignature(d.body) : null;
 }
 
-/// 定位块级类型标注 `<契约名> <块名> { .. }` 中契约名的位置（供语义高亮）。
+/// 定位块级类型标注里**每个契约词**的位置（供语义高亮）。
 ///
 /// grammar 无法知道哪些名字是契约名（那是语义），故由扩展按已定义的契约名
 /// 反查并用 decorations 上色。
 ///
-/// 判定：行首第一个词命中契约表，且后面**至少还有一个词**再接 `{`
-/// （`contact { }` 这类无名块不是类型标注，须排除）。
+/// 判定与解析器同一条：**从首词起连续命中契约表的词都是契约词**，第一个未命中的
+/// 词是块名（`A B C item { }` 的 A / B / C 都是契约，`item` 不是）；featag 项
+/// （`!t` / `!t[4],`）穿插在契约词之间时跳过、不中断。
+///
+/// 「行首只有一个词就接 `{`」（`A { }`）按位置分：
+///   · **数组里** —— 无名裸块，契约确实应用了（解析结果带 `__type`）⇒ 要涂；
+///   · **键位置** —— 那只是「键 A + 匿名块」，`{` 前没有裸块头，契约**没**应用 ⇒ 不涂。
+///   故这里维护一个数组深度（剥掉引号与 `#` 注释后数 `[` / `]`），只看行首那一刻的深度。
 ///
 /// 返回 [{ line, col, length, name }]，line/col 从 0 起。
 export function findAnnotatedBlocks(text, contractNames) {
@@ -619,14 +625,49 @@ export function findAnnotatedBlocks(text, contractNames) {
   if (set.size === 0) return [];
   const out = [];
   const lines = text.split("\n");
+  let arrayDepth = 0;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const m = /^(\s*)([^\s:{}]+)(?:\s+[^\s{}]+)+\s*\{/.exec(line);
+    const depthHere = arrayDepth; // 本行**开头**是否已在数组里
+    for (const ch of stripQuotesAndComment(line)) {
+      if (ch === "[") arrayDepth++;
+      else if (ch === "]" && arrayDepth > 0) arrayDepth--;
+    }
+    // 块头：行首一串词 + `{`；第二、第三个捕获组为空表示「只有一个词」
+    const m = /^(\s*)([^\s:{}]+)((?:\s+[^\s{}]+)*)\s*\{/.exec(line);
     if (!m) continue;
-    const head = m[2];
-    if (head.startsWith("@")) continue; // 指令 / 片段定义不是类型标注
-    if (!set.has(head)) continue;
-    out.push({ line: i, col: m[1].length, length: head.length, name: head });
+    if (m[2].startsWith("@")) continue; // 指令 / 片段定义不是类型标注
+    if (!set.has(m[2])) continue;
+    if (m[3].trim() === "" && depthHere === 0) continue; // 键位置的 `A {`：只有键，没有契约
+    const head = line.slice(0, m[0].lastIndexOf("{"));
+    const wordRe = /[^\s]+/g;
+    let w;
+    while ((w = wordRe.exec(head)) !== null) {
+      const raw = w[0];
+      if (raw.startsWith("!")) continue; // featag 项，不是契约词
+      const word = raw.replace(/,+$/, ""); // `B,` 的逗号是分段符
+      if (!word) continue;
+      if (!set.has(word)) break; // 第一个未命中契约表的词 = 块名，其后一律不涂
+      out.push({ line: i, col: w.index, length: word.length, name: word });
+    }
+  }
+  return out;
+}
+
+/// 剥掉引号内容与 `#` 行尾注释，只留结构字符（数括号用；与库的 `strip_line_comment` 同口径）。
+function stripQuotesAndComment(line) {
+  let out = "";
+  let quote = null;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (quote) {
+      if (c === "\\") i++;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'") { quote = c; continue; }
+    if (c === "#") break;
+    out += c;
   }
   return out;
 }

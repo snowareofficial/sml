@@ -457,6 +457,44 @@ try {
   check(false, "新桥接纯函数", String(e && e.message));
 }
 
+// —— 语义高亮：块头里**每一个**契约词都要涂 ——
+// 只涂首词时 `A B C item { }` 的 B / C 只剩 TextMate 的成员色，看起来就是「没上色」。
+// 判据与解析器同一条：从首词起连续命中契约表的词都是契约词，第一个未命中的是块名；
+// featag 项（`!t`）穿插其间时跳过、不中断。断言必须同时判「含」与「不含」（I-33）。
+try {
+  const HL = [
+    "@contract A { }",
+    "@contract B { }",
+    "@contract C { }",
+    "xs: [",
+    "    A B C item { }",
+    "    A !t B, named { }",
+    "    A { }",
+    "    server web prod { }",
+    "]",
+    "A { }",
+  ].join("\n");
+  const hit = m.findAnnotatedBlocks(HL, ["A", "B", "C"]);
+  const got = hit.map((h) => `${h.line + 1}:${h.col}:${h.name}`);
+  check(
+    got.join(" ") === "5:4:A 5:6:B 5:8:C 6:4:A 6:9:B 7:4:A",
+    "块头契约词逐个上色（A B C item → A/B/C；A !t B, named → A/B；数组里的无名 A { 也涂）",
+    got.join(" ")
+  );
+  check(!got.includes("10:"), "键位置的 `A { }` 不上契约色（那里 A 只是键，契约没应用）", got.join(" "));
+  check(
+    !hit.some((h) => ["item", "named", "server", "web", "prod"].includes(h.name)),
+    "块名 / 参数 / 非契约词一律不上契约色",
+    JSON.stringify(hit.map((h) => h.name))
+  );
+  check(
+    hit.every((h) => HL.split("\n")[h.line].slice(h.col, h.col + h.length) === h.name),
+    "每处列位落在契约词自身（不是整行 / 不是块名）"
+  );
+} catch (e) {
+  check(false, "语义高亮：块头契约词", String(e && e.message));
+}
+
 // —— 诊断定位：`parseSafe` 不给位置时，不许把错误画到首行注释 ——
 // 实测踩过：v5 版本声明报「版本声明非法」但 position/pos 都为 null，旧兜底 0,0 +
 // 范围拉到行尾 ⇒ 用户看到「第一行注释整行标红」，完全指错地方。
