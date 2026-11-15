@@ -107,7 +107,7 @@ const cases = [
   ["@weakdata highlight", "弱声明族", "highlight"],
   ["@weakdoc api-docs", "弱声明族", "api-docs"],
   ["@requires Endpoint", "契约级依赖", "Endpoint"],
-  ["wea !critical obey[1, 2], name { }", "featag 带参", "obey"],
+  ["wea !critical !obey[1, 2], name { }", "featag 带参", "obey"],
   ["wea !critical, name { }", "featag 无参", "critical"],
   ["!cert: str -> tls.cert", "featag 声明落点", "tls.cert"],
   ["!strict-paths", "featag 声明", "strict-paths"],

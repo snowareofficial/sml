@@ -152,11 +152,12 @@
       "comment": "块头 featag 区：!name（无参）与 name[值, …]（带参），以逗号终止。只在 @feature enable type.featag 后有意义；编辑器只着色、不判定端支持范围。",
       "patterns": [
         {
-          "comment": "带参 featag：obey[1, 2] —— 名字为标签色，方括号沿用数组标点色",
-          "match": "(?<![\\w!])([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)(\\[)",
+          "comment": "带参 featag：!obey[1, 2] —— `!` 是 featag 的唯一标记（每一项都要写），名字为标签色，方括号沿用数组标点色",
+          "match": "(?<![=\\w])(!)([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)(\\[)",
           "captures": {
-            "1": { "name": "entity.name.tag.featag.sml" },
-            "2": { "name": "punctuation.definition.array.sml" }
+            "1": { "name": "keyword.operator.featag.sml" },
+            "2": { "name": "entity.name.tag.featag.sml" },
+            "3": { "name": "punctuation.definition.array.sml" }
           }
         },
         {

@@ -1,7 +1,7 @@
 # docs 索引
 
 > **本文件由 `cargo run -p smldocs -- --index` 生成，勿手改。**
-> 数据源 `docs/meta.sml`（58 份文档，摘要 `2b2b0db14fcaf50c`）。摘要变了就必须重跑生成；
+> 数据源 `docs/meta.sml`（58 份文档，摘要 `d84774d83ce431ef`）。摘要变了就必须重跑生成；
 > 本文件不记生成日期 / HEAD，避免跨天或提交后假漂移。体检结论见 [`report.md`](report.md)。
 
 ## 一眼看结论
@@ -94,6 +94,6 @@
 | [`repo/plan/doc-architecture.md`](repo/plan/doc-architecture.md) | 2026-11-04 | 2026-11-06 | **stale** | `docs/index.md` | 文档四层架构 + P1–P4（提议；已由本次治理落地） |
 | [`repo/ref/pending-decisions.md`](repo/ref/pending-decisions.md) | 2026-11-06 | 2026-11-10 | **current** | — | 裁决台账：D1–D6 已全部裁决（含发布拓扑 / 仓库分工 / 官网）+ 仍待裁项的去处 |
 | [`repo/ref/scan.md`](repo/ref/scan.md) | 2026-11-07 | 2026-11-10 | **current** | — | 自动扫描的计数结果（tools/scan_status.py --write 生成，勿手改） |
-| [`repo/ref/todo-ideas-tables.md`](repo/ref/todo-ideas-tables.md) | 2026-11-06 | 2026-11-13 | **current** | — | TODO / IDEAS 条目表：卡在谁、什么状态 |
+| [`repo/ref/todo-ideas-tables.md`](repo/ref/todo-ideas-tables.md) | 2026-11-06 | 2026-11-15 | **current** | — | TODO / IDEAS 条目表：卡在谁、什么状态；2026-11-15 增补 I-25…I-29（原样文本块 / 数组位置高亮 / featag 区内省略 `!` / smlite·eclog-rs / 全仓国际化） |
 | [`repo/ref/unfinished.md`](repo/ref/unfinished.md) | 2026-11-06 | 2026-11-13 | **current** | — | 唯一「还剩什么」清单（分类 / 判据 / 复核命令） |
 
