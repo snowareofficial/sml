@@ -134,17 +134,16 @@
 「`@feature` 本身非法 ⇒ `E-PARSE-005`」不成立。同一批还对齐了 `@feature` 的另外三个码
 （`006` 未知子命令 / `007` 缺参数 / `008` mode 参数非法）。
 
-### 4.3 G-03 `E-CONTRACT-018` 同码两义
+### 4.3 G-03 `E-CONTRACT-018`：五端同码同义（已清零）
 
 | 切片 | 条件 | rust | 四端 |
 |---|---|---|---|
-| `contract-requires` | `when` 未开 | `E-CONTRACT-018`（要求未满足） | `E-CONTRACT-018`（指令不支持） |
-| `contract-requires-on` | `when` 已开 | OK | `E-CONTRACT-018`（指令不支持） |
+| `contract-requires` | `when` 未开 | `E-CONTRACT-018`（要求未满足） | `E-CONTRACT-018`（要求未满足） |
+| `contract-requires-on` | `when` 已开 | OK | OK |
 
-第一格在 conformance 里是 AGREE（同码），但两边的**含义不同**：Rust 是「契约声明的前提没满足」，
-四端是「我根本不认这条指令」。第二格才把这层差异暴露出来。建议四端改用「不支持」类的码
-（`E-FEATURE-001` 或新增码），把 018 留回「要求未满足」——否则同一个码无法区分「文档漏开特性」
-与「本端没实现」。
+四端会**求值** `@requires`（不是「不认这条指令」）：未满足时与 Rust 同码、文案同为
+「契约 `Gated` 要求特性 `when` 已开启（请用 `@feature enable when`）」，已满足时契约照常生效。
+两格因此都是 AGREE，`018` 也回到单一含义。
 
 ### 4.3b `contract-multi` 的实施口径（五端同源）
 

@@ -23,6 +23,24 @@ Conventions carried over from `CHANGELOG.md`:
 
 ## [Unreleased]
 
+### Fixed (VS Code extension 0.5.1: vendored parser / highlighting / stale end counts)
+
+- **Stale vendored parser**: `editors/vscode/src/vendor/` is refreshed by
+  `npm run sync-parser` before packaging, but `js/sml.mjs` now splits dump out into
+  `js/src/dump.mjs` while the old script copied only `sml.mjs` — the copy failed to load with
+  `ERR_MODULE_NOT_FOUND`. It now copies `js/src/*.mjs` too, and self-checks that no import in
+  the copy escapes the extension directory.
+- **Parser behaviour caught up**: bare blocks in array position (`[ A B item { } ]` is one block
+  element), `[D]` element validation by the pattern (errors carry the index, `v[1]`), and
+  contract mixins (`@is A, B`).
+- **Highlighting**: bare block heads (including array position) are coloured; featag items with
+  arguments always carry `!`.
+- **Docs corrected**: the capability boundary table said `typed-block` / featag / weak\* were
+  "Rust only" (or "Rust + JS"); they are implemented by all five ends. `@requires` moved from
+  "the other four ends reject it" to "same code and meaning on all five ends".
+- Version `0.5.0` -> `0.5.1`; the artifact `editors/vscode/sml-lang-0.5.1.vsix` is committed.
+
+
 ### ⚠️ Breaking (smltools packaging: four back-ends are now optional features)
 
 The default `smltools` build no longer contains **xml / yaml / toml input parsing** nor

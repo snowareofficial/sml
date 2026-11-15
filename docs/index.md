@@ -1,7 +1,7 @@
 # docs 索引
 
 > **本文件由 `cargo run -p smldocs -- --index` 生成，勿手改。**
-> 数据源 `docs/meta.sml`（59 份文档，摘要 `685e2ab3f4b0fb73`）。摘要变了就必须重跑生成；
+> 数据源 `docs/meta.sml`（59 份文档，摘要 `79dc081961f215b6`）。摘要变了就必须重跑生成；
 > 本文件不记生成日期 / HEAD，避免跨天或提交后假漂移。体检结论见 [`report.md`](report.md)。
 
 ## 一眼看结论
@@ -30,7 +30,7 @@
 | [`swsml/plan/features-plan.md`](swsml/plan/features-plan.md) | 2026-11-04 | 2026-11-06 | **stale** | `docs/swsml/spec/features.md` | v5 版本位落地步骤与被推翻的旧清单 |
 | [`swsml/plan/perf-plan.md`](swsml/plan/perf-plan.md) | 2026-11-06 | 2026-11-08 | **current** | — | 全面优化计划：时间 / 内存 / 缓存 / 指令集四线 |
 | [`swsml/ref/capability-matrix.md`](swsml/ref/capability-matrix.md) | 2026-10-27 | 2026-11-10 | **draft** | — | 五端能力矩阵（2026-10-27 快照，只作历史对照；v5 版本口径待补） |
-| [`swsml/ref/grammar-divergences.md`](swsml/ref/grammar-divergences.md) | 2026-11-14 | 2026-11-15 | **current** | — | grammar.sml 按语法特性切片后的五端差异台账：第一处拒绝、码是否同、能力缺口归因；含 contract-multi 五端同源口径、featag 的 `!` 唯一标记与区位置收敛、@type 四端落地（NFA + Unicode 表）、JS/Lua dump 载体 NC；配套 tools/check/probe_grammar.py |
+| [`swsml/ref/grammar-divergences.md`](swsml/ref/grammar-divergences.md) | 2026-11-14 | 2026-11-16 | **current** | — | grammar.sml 按语法特性切片后的五端差异台账：第一处拒绝、码是否同、能力缺口归因；含 contract-multi 五端同源口径、featag 的 `!` 唯一标记与区位置收敛、@type 四端落地（NFA + Unicode 表）、JS/Lua dump 载体 NC；配套 tools/check/probe_grammar.py |
 | [`swsml/ref/perf-baseline.md`](swsml/ref/perf-baseline.md) | 2026-11-03 | 2026-11-15 | **current** | — | 性能基线：perf / value / profile / amberice 四份 bench 的正式口径数字；含 2026-11-14 微观归因（hotspots / alloc_split）、2026-11-15 与 serde_json 的对拍（vs_json）与四笔已否决的优化账 |
 | [`swsml/ref/silent-divergences.md`](swsml/ref/silent-divergences.md) | 2026-11-14 | 2026-11-15 | **current** | — | 兼容套件检不出的差异：错误码矩阵 / 特性门控 / 值身份三类盲区与逐条取证；多契约已五端实现；配套 tools/check/probe_matrix.py |
 | [`swsml/spec/featag.md`](swsml/spec/featag.md) | 2026-11-04 | 2026-11-15 | **current** | — | featag 语法 / 落点 / from-featag：每一项都必须带 `!`（块的 `!` 是唯一标记），featag 区紧跟契约首词；S2–S5b 四端已实现，S6–S8 仍只有 Rust |
@@ -95,6 +95,6 @@
 | [`repo/plan/doc-architecture.md`](repo/plan/doc-architecture.md) | 2026-11-04 | 2026-11-06 | **stale** | `docs/index.md` | 文档四层架构 + P1–P4（提议；已由本次治理落地） |
 | [`repo/ref/pending-decisions.md`](repo/ref/pending-decisions.md) | 2026-11-06 | 2026-11-10 | **current** | — | 裁决台账：D1–D6 已全部裁决（含发布拓扑 / 仓库分工 / 官网）+ 仍待裁项的去处 |
 | [`repo/ref/scan.md`](repo/ref/scan.md) | 2026-11-07 | 2026-11-10 | **current** | — | 自动扫描的计数结果（tools/scan_status.py --write 生成，勿手改） |
-| [`repo/ref/todo-ideas-tables.md`](repo/ref/todo-ideas-tables.md) | 2026-11-06 | 2026-11-15 | **current** | — | TODO / IDEAS 条目表：卡在谁、什么状态；2026-11-15 增补 I-25…I-30（原样文本块 / 数组位置高亮 / featag 区内省略 `!` / smlite·eclog-rs / 全仓国际化 / 三端裸块实现合并） |
-| [`repo/ref/unfinished.md`](repo/ref/unfinished.md) | 2026-11-06 | 2026-11-15 | **current** | — | 唯一「还剩什么」清单（分类 / 判据 / 复核命令） |
+| [`repo/ref/todo-ideas-tables.md`](repo/ref/todo-ideas-tables.md) | 2026-11-06 | 2026-11-16 | **current** | — | TODO / IDEAS 条目表：卡在谁、什么状态；2026-11-15 增补 I-25…I-30（原样文本块 / 数组位置高亮 / featag 区内省略 `!` / smlite·eclog-rs / 全仓国际化 / 三端裸块实现合并） |
+| [`repo/ref/unfinished.md`](repo/ref/unfinished.md) | 2026-11-06 | 2026-11-16 | **current** | — | 唯一「还剩什么」清单（分类 / 判据 / 复核命令） |
 

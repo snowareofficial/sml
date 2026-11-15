@@ -11,7 +11,7 @@
 | **补全** | 指令、契约关键字、类型、修饰符、字面量、契约名、片段名、本文档键名 |
 | **悬浮说明** | ① 悬停 `@contract` / `@is` / `loose` / `include` 等关键字看解释；② **悬停契约名看「填入默认值后的结构」**（来自解析结果，不是抄一遍声明） |
 | **跳转到定义** | `@is Server` → `@contract Server`；`&base` → `@base { }`（F12 / Ctrl+点击 / 右键「转到定义」，三者同一套 provider） |
-| **悬浮（块名）** | 光标停在块名上（`primary {`，或**块级类型标注** `Server primary {`）：显示**路径**（`database.primary`）、它应用的契约、以及**契约填充后的实际结构**；没有契约的块也给结构。⚠️ 块级类型标注写法需 `@feature enable typed-block`，目前 **Rust + JS 已实现，C / C++ / Lua 未实现**（后者会把该写法当普通裸块 ⇒ 契约静默不生效）—— 跨实现共享的文件请写 `@is 契约名` |
+| **悬浮（块名）** | 光标停在块名上（`primary {`，或**块级类型标注** `Server primary {`）：显示**路径**（`database.primary`）、它应用的契约、以及**契约填充后的实际结构**；没有契约的块也给结构。块级类型标注写法需 `@feature enable typed-block`（**五端都已实现**，`__type` / `__name` 元数据逐格相同；跨实现共享的文件建议统一用一种写法） |
 | **悬浮（字段）** | 停在契约声明里的字段名上（`port: int default 5432 min 1 max 65535`），**或**停在数据区里属于某契约的键上 → 给类型 / 枚举 / 默认值 / 区间 / 必填可选 + **行尾 `#` 说明** + 当前值（并指出这个值是显式写的还是契约填的默认值） |
 | **跳转到定义** | `@is Server` → `@contract Server`；`&base` → `@base { }`；`契约名 块名 {` → `@contract 契约名`；**数据区的键 → 契约里的字段声明**（F12 / Ctrl+点击） |
 | **include / import 导航** | 光标停在 `include "conf.d/db.sml"` / `import "a.sml"` 的**路径**上：**F12 跳到被包含文件**；**悬停**显示解析到的路径（✓ 找到 / ✗ 未找到）+ 该文件的**顶层键**；在路径位置**补全**会列出工作区里的 `.sml`（按**相对当前文档**的写法插入）。相对路径按 `include` 的语义（相对被包含文件所在目录）解析 —— 与解析器同一条规则。**命名空间**（`as db`）：停在**别名**上，悬停给「该命名空间里**实际有哪些键**」（真跑一遍解析，不是抄一遍被包含文件的顶层键），F12 跳到被包含文件；停在 `db.host` 这类**引用**上，悬停告诉你它来自哪个文件的**什么定义**（片段 / 契约 / 键），F12 直接跳过去 |
@@ -27,21 +27,24 @@
 
 | 写法 | 编辑器侧 | 解析器侧 |
 |---|---|---|
-| `@version 50 "camelia" dev` / `"camelia"` / `v1`–`v4` | 高亮 + 补全 + 悬停（Dev 项带警告） | `v1`–`v4` 可直接写；`50 "camelia"` 仍是 Dev 且**功能集尚未启用**，Rust 与 JS 写入即报 `E-FEATURE-004` |
+| `@version 50 "camelia" dev` / `"camelia"` / `v1`–`v4` | 高亮 + 补全 + 悬停（Dev 项带警告） | `v1`–`v4` 可直接写；`50 "camelia"` 仍是 Dev 且**功能集尚未启用**，五端写入即报 `E-FEATURE-004` |
 | `@feature enable type.featag` / `lex.ident` / `type.weak` 及 17 个平铺老名 | 全量补全，与 `rust/sml-feature/src/lib.rs::FEATURES` 逐项同序核对 | 20 位特性表；新增位一律 opt-in |
-| `@weakbind` / `@weakdata` / `@weakdoc` / `@requires` | 高亮 + 补全 + 悬停 + 排除出片段名 | Rust 单端；需 `@feature enable type.weak` |
-| featag `!name` / `name[值]` / `-> 落点` / `from-featag` / `__featags` | 高亮 + 声明名补全 + 修饰符 | Rust 单端；需 `type.featag` |
+| `@weakbind` / `@weakdata` / `@weakdoc` | 高亮 + 补全 + 悬停 + 排除出片段名 | 五端；需 `@feature enable type.weak` |
+| `@requires` | 高亮 + 补全 + 悬停 | 五端同码同义：所列特性未开 ⇒ `E-CONTRACT-018`，已开则契约照常生效 |
+| featag `!name` / `name[值]` / `-> 落点` / `from-featag` / `__featags` | 高亮 + 声明名补全 + 修饰符 | 五端（S2–S8：区 / 声明 / 使用处校验 / 落点 / `from-featag` / `!any`）；需 `type.featag` |
 | `.smlex` profile（`.smlex/profiles/*.smlex`） | 文件关联 + 顶层字段补全 + 三命名空间发现 + `hints` 候选 + `@weakdoc` 悬停 | 工具侧 `--lint` / `--resolve-profiles`；库不参与 |
 
 **5.0 别写进正式文档**：规范里 `@version 50 "camelia" dev` 是合法的开发期写法，但 5.0 的功能集
-尚未启用，`smltools`（Rust）与 JS 解析器当前都报 `E-FEATURE-004`「版本集仍在开发中，本实现尚未启用」。
+尚未启用，五端都报 `E-FEATURE-004`「版本集仍在开发中，本实现尚未启用」。
 补全保留 `50` / `"camelia"` 只为登记语法，候选项与悬停都写明会报错，`@version` 默认片段只给 `v1`–`v4`。
 
 **不自动挂 profile**：`applies_to` 命中只作提示，`hints` 只对显式写了 `@weakdoc` 的文档生效
 （`docs/swsml/spec/smlex.md` §3.1）；`checks` / `emit` 归工具侧，扩展不解释。
 
-C / C++ / JS / Lua 按 `docs/swsml/plan/featag-slices.md` 的 S9 策略**不实现**这批语法，
-遇 v5 照旧报「本端不支持」——补全里有，不等于本端解析器认。共享文档请勿照提示写。
+**语法面五端已对齐**：featag（S2–S8）、weak\* 三兄弟、`typed-block` / `block-name`、`@when` / `@for`、
+多契约叠加、数组位置的裸块都在五端落地，逐条实测见 `docs/swsml/ref/grammar-divergences.md`。
+唯一不能照抄的写法是 `@type` 里的 `正则:` 逃生舱 —— 只有 Rust 带那台受限正则解析器，
+四端对它**响亮拒绝**（`E-CONTRACT-013`），不会静默放行。
 
 ## 颜色标记能干什么（写 DSL / 做分析时）
 

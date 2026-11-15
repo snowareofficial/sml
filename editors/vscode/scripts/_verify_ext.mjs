@@ -241,20 +241,25 @@ try {
   const names1 = m.contractNamesAtBlock(one, 1, m.collectContractNames(one));
   check(Array.isArray(names1) && names1.length === 1 && names1[0] === "A",
     "任务F contractNamesAtBlock 单契约返回 [A]", JSON.stringify(names1));
-  // ③ 多契约 `@is A B`：解析层仍响亮拒绝 E-CONTRACT-017，诊断层出红波浪线
+  // ③ 多契约 `@is A, B`：五端都支持（合并视图），悬浮要列出**两份**契约名。
+  //    逗号是规定写法；省略逗号的连续词写法仍按「连续契约词」解析（兼容）。
   const multi = [
     "@contract A loose { x: int }",
     "@contract B loose { y: int }",
     "s {",
-    "  @is A B",
+    "  @is A, B",
     "  x: 1",
     "  y: 2",
     "}",
   ].join("\n");
   const rs = m.parseSafe(multi);
-  check(!rs.ok && rs.code === "E-CONTRACT-017", "任务F @is 多契约 ⇒ E-CONTRACT-017（解析层）", rs.ok ? "竟解析成功" : String(rs.code));
-  const diags = m.diagnose(multi);
-  check(Array.isArray(diags) && diags.length >= 1, "任务F 多契约诊断出红波浪线（不静默）", `诊断 ${(diags || []).length} 条`);
+  check(rs.ok, "任务F @is 多契约（逗号）解析成功", rs.ok ? "" : String(rs.code));
+  const names2 = m.contractNamesAtBlock(multi, 2, m.collectContractNames(multi));
+  check(Array.isArray(names2) && names2.length === 2 && names2.includes("A") && names2.includes("B"),
+    "任务F contractNamesAtBlock 多契约返回 [A,B]", JSON.stringify(names2));
+  const legacy = multi.replace("@is A, B", "@is A B");
+  const rs2 = m.parseSafe(legacy);
+  check(rs2.ok, "任务F @is A B（省略逗号的兼容写法）仍解析成功", rs2.ok ? "" : String(rs2.code));
 } catch (e) {
   check(false, "任务 F：契约映射悬浮 / 多契约 017", String(e && e.message));
 }

@@ -15,6 +15,20 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ## [未发布]
 
+### 修复（VSCode 扩展 0.5.1：包内解析器 / 高亮 / 过期的端数说明）
+
+- **包内解析器过期**：`editors/vscode/src/vendor/` 只在打包前由 `npm run sync-parser` 刷新，
+  而 `js/sml.mjs` 已把 dump 拆成 `js/src/dump.mjs` —— 旧的同步脚本只搬 `sml.mjs`，
+  副本一加载就 `ERR_MODULE_NOT_FOUND`。现在连带 `js/src/*.mjs` 一起搬，并在同步后自检
+  「副本里不许有越出扩展目录的 import」。
+- **解析行为跟上语言**：数组位置的裸块（`[ A B item { } ]` 是一个块元素）、
+  `[D]` 的元素按模式校验（错带下标 `v[1]`）、多契约叠加（`@is A, B`）。
+- **高亮**：裸块头（含数组位置）着色；featag 带参项一律带 `!`。
+- **文档纠偏**：能力边界表里「`typed-block` / featag / weak\* 只有 Rust（或 Rust + JS）」
+  改为五端；`@requires` 从「四端不支持」改为「五端同码同义」。
+- 版本 `0.5.0` → `0.5.1`；产物 `editors/vscode/sml-lang-0.5.1.vsix` 入库。
+
+
 ### ⚠️ 破坏性变更（`smltools` 打包：四个解析后端改为可选 feature）
 
 `smltools` 默认构建不再包含 **xml / yaml / toml 输入解析**与 **tmlanguage / highlight 输出**，

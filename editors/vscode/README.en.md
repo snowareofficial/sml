@@ -11,7 +11,7 @@ Provides editing support for [SML](../../README.md) (SNOWARE Markup Language).
 | **Completion** | directives, contract keywords, types, modifiers, literals, contract names, fragment names, in-document keys |
 | **Hover** | ① hover `@contract` / `@is` / `loose` / `include` for explanations and examples; ② **hover a contract name to see the instance after the contract is applied** — defaults really filled in by the parser, not a copy of the declaration |
 | **Go to definition** | `@is Server` → `@contract Server`; `&base` → `@base { }` (F12 / Ctrl+click / right-click "Go to Definition" — all three use the same provider) |
-| **Hover on block names** | put the cursor on a block name (`primary {`, or the **block-level type annotation** `Server primary {`): shows the **path** (`database.primary`), the contract it applies, and the **structure after the contract filled in defaults**; blocks without a contract still show their structure. ⚠️ The annotation form needs `@feature enable typed-block` and is **implemented in Rust + JS only** (C / C++ / Lua treat it as a plain bare block, so the contract is silently not applied) — use `@is ContractName` in shared documents |
+| **Hover on block names** | put the cursor on a block name (`primary {`, or the **block-level type annotation** `Server primary {`): shows the **path** (`database.primary`), the contract it applies, and the **structure after the contract filled in defaults**; blocks without a contract still show their structure. The annotation form needs `@feature enable typed-block` and is **implemented by all five ends** (`__type` / `__name` metadata matches cell by cell) |
 | **Hover a field** | cursor on a field inside a contract declaration (`port: int default 5432 min 1 max 65535`), **or** on a key in the data area that belongs to a contract → type / enum / default / range / required-or-optional + the **trailing `#` description** + the current value (saying whether it was written explicitly or filled from the default) |
 | **Go to definition** | `@is Server` → `@contract Server`; `&base` → `@base { }`; `Contract block {` → `@contract Contract`; **a data key → its field declaration in the contract** (F12 / Ctrl+click) |
 | **include / import navigation** | cursor on the **path** in `include "conf.d/db.sml"` / `import "a.sml"`: **F12 jumps to the included file**; **hover** shows the resolved path (✓ found / ✗ not found) plus that file's **top-level keys**; **completion** lists the workspace `.sml` files (relative to the current document). **Namespaces** (`as db`): hover the **alias** to see **which keys that namespace actually holds** (a real parse, not a copy of the included file's top-level keys) and F12 to jump to the included file; hover a **reference** such as `db.host` to learn which file it comes from and **what kind of definition** it is (fragment / contract / key) — F12 jumps straight there |
@@ -26,15 +26,16 @@ The extension **only offers editing hints**; it does not decide what the parser 
 
 | Syntax | Editor side | Parser side |
 |---|---|---|
-| `@version 50 "camelia" dev` / `"camelia"` / `v1`–`v4` | highlighting + completion + hover (Dev items carry a warning) | `v1`–`v4` are usable; `50 "camelia"` is still `Dev` and its feature set **is not enabled yet** — both Rust and JS report `E-FEATURE-004` |
+| `@version 50 "camelia" dev` / `"camelia"` / `v1`–`v4` | highlighting + completion + hover (Dev items carry a warning) | `v1`–`v4` are usable; `50 "camelia"` is still `Dev` and its feature set **is not enabled yet** — all five ends report `E-FEATURE-004` |
 | `@feature enable type.featag` / `lex.ident` / `type.weak`, plus the 17 flat legacy names | full completion, checked item-by-item against `rust/sml-feature/src/lib.rs::FEATURES` | 20 feature bits; every new bit is opt-in |
-| `@weakbind` / `@weakdata` / `@weakdoc` / `@requires` | highlighting + completion + hover + excluded from fragment names | Rust only; needs `@feature enable type.weak` |
-| featag `!name` / `name[value]` / `-> target` / `from-featag` / `__featags` | highlighting + declared-name completion + modifier | Rust only; needs `type.featag` |
+| `@weakbind` / `@weakdata` / `@weakdoc` | highlighting + completion + hover + excluded from fragment names | All five ends; needs `@feature enable type.weak` |
+| `@requires` | highlighting + completion + hover | All five ends, same code and meaning: a listed feature is off ⇒ `E-CONTRACT-018`; once on, the contract applies as usual |
+| featag `!name` / `name[value]` / `-> target` / `from-featag` / `__featags` | highlighting + declared-name completion + modifier | All five ends (S2–S8: region / declaration / use-site validation / targets / `from-featag` / `!any`); needs `type.featag` |
 | `.smlex` profiles (`.smlex/profiles/*.smlex`) | file association + top-level field completion + three-namespace discovery + `hints` candidates + `@weakdoc` hover | Tool side (`--lint` / `--resolve-profiles`); the library is not involved |
 
 **Do not put 5.0 in a real document**: `@version 50 "camelia" dev` is the standard's
-development-phase spelling, but the 5.0 feature set is not enabled yet — both `smltools` (Rust)
-and the JS parser currently report `E-FEATURE-004` ("edition still in development, not enabled").
+development-phase spelling, but the 5.0 feature set is not enabled yet — all five ends report
+`E-FEATURE-004` ("edition still in development, not enabled").
 The `50` / `"camelia"` completion items exist only to register the syntax; their detail and hover
 text say they will error, and the default `@version` snippet offers `v1`–`v4` only.
 
@@ -42,9 +43,12 @@ text say they will error, and the default `@version` snippet offers `v1`–`v4` 
 apply solely to documents with an explicit `@weakdoc` (`docs/swsml/spec/smlex.md` §3.1).
 `checks` / `emit` belong to the tool side and are not interpreted here.
 
-Per the S9 policy in `docs/swsml/plan/featag-slices.md`, C / C++ / JS / Lua **do not implement**
-this syntax and still report "unsupported by this backend" on v5. A completion item is not a
-promise that the backend you are running accepts it; do not use these hints in shared documents.
+**The syntax surface is aligned across all five ends**: featag (S2–S8), the weak\* family,
+`typed-block` / `block-name`, `@when` / `@for`, contract mixins and bare blocks in array position
+are all implemented everywhere — see `docs/swsml/ref/grammar-divergences.md` for the per-item
+measurements. The one thing you cannot copy across is the `正则:` (regex) escape hatch in `@type`:
+only Rust carries that restricted regex engine, and the other four **reject it loudly**
+(`E-CONTRACT-013`) instead of silently matching nothing.
 
 ## What the colour marking is for (writing DSLs / doing analysis)
 

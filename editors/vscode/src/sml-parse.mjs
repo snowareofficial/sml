@@ -780,7 +780,7 @@ export function contractNamesAtBlock(text, line, contractNames) {
 }
 
 /// 找某个块**应用的契约名**（单个，向后兼容入口）：主源走契约映射，取不到走正则兜底。
-/// 多契约时返回列表首个（JS 当前拒绝多契约，故实际恒为单个；数组入口供悬浮列全部）。
+/// 多契约（`@is A, B`）时返回列表首个；要列全部请用 `contractNamesAtBlock`。
 export function contractOfBlock(text, line, contractNames) {
   const names = contractNamesAtBlock(text, line, contractNames);
   return names.length ? names[0] : null;

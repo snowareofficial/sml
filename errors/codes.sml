@@ -430,7 +430,7 @@ codes: [
     { id: E-CONTRACT-018 domain: CONTRACT severity: E title: "契约 @requires 无法满足"
       msg: "契约声明的 @requires 特性无法满足，契约无法定义或应用"
       impls: [ rust js c cpp lua ] status: partial
-      note: "TASK：契约级 `@requires` 的定义时校验与跨端拒绝。Rust 在**契约定义时**（而非应用时）校验：契约体里 `@requires feat1, feat2` 声明的任一特性未开启即报此码，文案含契约名与缺失特性名；未知特性名落 `E-FEATURE-003`。跨端（JS / C / C++ / Lua）**明确拒绝**契约里的 `@requires`（不是「暂未实现」—— 是与 E-CONTRACT-017 契约叠加未实现同类的响亮拒绝）。只增不改：本码继承 CONTRACT 既有序号，未改动任何既有码含义" }
+      note: "契约级 `@requires` 的定义时校验，五端同一含义：契约体里 `@requires feat1, feat2` 声明的任一特性未开启即报此码（契约定义时判，不是应用时）。文案含契约名与缺失特性名；未知特性名落 `E-FEATURE-003`。只增不改：本码继承 CONTRACT 既有序号，未改动任何既有码含义" }
 
     # ================= 片段与 include（语言层） =================
     { id: E-INCLUDE-001 domain: INCLUDE severity: E title: "include 文件缺失或读取失败"

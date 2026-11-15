@@ -20,7 +20,7 @@
 | 码表条目 | **167**（含 `W-CLI-001`） | `Select-String errors/codes.sml '\{ id: [EWI]-'`；生成物 `site/static/errors.json` |
 | 仅 Rust 实现（`impls: [ rust ]`） | **44**；语言层 **36**（PARSE 15 / CONTRACT 9 / FEATURE 4 / INCLUDE 3 / EXT 3 / LEX 1 / LIMIT 1）+ DERIVE 8（宿主绑定层，Rust 专属，不是跨端欠账）。2026-11-13 回填：`W-PARSE-001` 五端 done、`W-CONTRACT-001` 五端 partial，故 PARSE 16→15、CONTRACT 10→9；剩余是**逐码实现缺口**，不再是「无诊断通道」（五端都有出口） | `Select-String errors/codes.sml 'impls: \[ rust \]'`，按 `domain` 分组 |
 | 一致性套件 | **63 例 / AGREE 63 / DIVERGE 0**（`19` 以 `*` 放行） | `python tests/conformance/run_conformance.py --require-all`；`docs/repo/ref/scan.md` |
-| `.vsix` 产物 vs 源码 | 产物最新 **0.4.3**，`package.json` 已是 **0.5.0** | `Get-ChildItem editors/vscode -Filter *.vsix` |
+| `.vsix` 产物 vs 源码 | 产物与 `package.json` 都是 **0.5.1**（2026-11-16 重打） | `Get-ChildItem editors/vscode -Filter *.vsix` |
 | 本会话新增（表 1.5，N01–N06） | **6**（已完成 4 / 部分完成 1 / 未做 1） | 见 `## 表 1.5` |
 
 **三处与旧文档不一致（以本表为准，别照抄旧数字）**
@@ -48,7 +48,7 @@
 | T11 | Lua 嵌套数组 | 本批纳入五端同步（2026-11-12 裁决，覆盖「先不动 Lua」） | P2 | P1 | `05`/`06`/`07` 五端 AGREE | `TODO.md:967`、`docs/swsml/plan/crossend-sync.md` §0.1 | 实现者 |
 | T12 | 清理临时探针清单（`_*` 约 40 个） | 未做（等套件全 AGREE） | P2 | T01 | 台账末节清单清零，且 `git grep` 无工具链引用 | `TODO.md:969` | 实现者 |
 | T13 | `@feature base` 只认版本号，文档无法声明书名 | 未做；CLI 按顶层 `title:` 推断（已是事实约定） | P2 | 无 | 一个正式承载位（字段或指令）+ 规范页 + 五端同判据 | `TODO.md:971`、`IDEAS.md:788` | 用户裁决 |
-| T14 | 重打 `.vsix` | 未做：源码 0.5.0，入库产物最新 0.4.3 | P1 | 无 | `sml-lang-0.5.0.vsix` 入库 + 复制到 `site/static/dl/` + 下载页同步 | `TODO.md:1003` | 用户（需网络 + 定版本号） |
+| T14 | 重打 `.vsix` | **产物侧 Done（2026-11-16）**：`sml-lang-0.5.1.vsix` 入库，源码与产物同版；**站点分发未做**（`site/static/dl/` + 下载页文案） | P1 | 无 | 发版时把 `editors/vscode/sml-lang-0.5.1.vsix` 复制到 `site/static/dl/` 并改下载页（另开一批） | `TODO.md:1003` | 用户（发版动作） |
 | T15 | weak* 落地后同步扩展 | **源码侧已完成（2026-11-12）**：VSCode / LSP / Zed + `smltools` 高亮基线副本 + 回归钉子齐备；只剩 T14 的 `.vsix` 重打（用户动作） | P1 | I-5 / I-15 / I-17 | 语法文件 + 补全 + `package.json` `languages` 齐备，`_prepublish.mjs` 全绿 | `TODO.md:1007`、`editors/vscode/README.md` | 实现者 |
 | T16 | 表示层优化（`Tok` 借用 / 键 interning / inline 小 map） | 部分完成：**`Tok` 借用已落**（2026-11-06，A 方案 `f6c19b3`：tokenize allocs −99.8%、parse allocs −70%）；键 interning / inline 小 map 未做 | P2 | I-18、`docs/swsml/spec/value-layout.md` | 同负载 bench ≥15%，`eq_ordered` / fuzz 不回归 | `TODO.md:1042` | 用户（动表示层） |
 | T17 | 先想清「哪一层能编译掉」 | 未做 | P2 | 无 | 一张逐项表：cargo feature vs SML 特性（`when`/`for`/`contract` 同名）各能否编译掉 | `TODO.md:1047` | 实现者 |
