@@ -23,6 +23,26 @@ Conventions carried over from `CHANGELOG.md`:
 
 ## [Unreleased]
 
+### Fixed (VS Code extension 0.5.4: contract words in a block head used the declaration colour)
+
+In `xs: [ A B item { … } ]`, `A` (the type word) and `B` (an applied contract) were painted the
+same, while a contract name at `@is A, B` gets the *reference* colour
+(`variable.other.member`) — the same `B` looked different in the two places.
+
+A block head now uses **three colours**:
+
+- the **first** word (type) `entity.name.type` — same as an `@contract` declaration;
+- **middle** words (applied contracts) `variable.other.member` — same as `@is` references;
+- the **block name** `entity.name.section`.
+
+So `A B item {` is three-coloured, `A item {` is type + block name, and `A {` is just the type.
+The inherent error of a positional rule (`prod` in `server web prod {` is still taken as the
+block name) is recorded as I-33: highlighting lives at the lexical layer while the language rule
+is semantic; the long-term fix is LSP semantic tokens.
+
+Version `0.5.3` -> `0.5.4`; the artifact `editors/vscode/sml-lang-0.5.4.vsix` is committed.
+
+
 ### Fixed (VS Code extension 0.5.3: block names shared the contract colour)
 
 In a bare block head `type [featag region] [contract words…] [block name] {` all three kinds of

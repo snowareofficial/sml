@@ -15,6 +15,24 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ## [未发布]
 
+### 修复（VSCode 扩展 0.5.4：块头里契约词用了声明色）
+
+`xs: [ A B item { … } ]` 里 `A`（类型词）与 `B`（被应用的契约）同色 —— 而 `@is A, B` 处的
+契约名是**引用色**（`variable.other.member`）。同一份文档里 `B` 两处不同色，读起来自相矛盾。
+
+现在块头**三种词三色**：
+
+- **首词**（类型词）`entity.name.type` —— 与 `@contract` 声明同色；
+- **中间的契约词** `variable.other.member` —— 与 `@is A, B` 的引用同色；
+- **块名** `entity.name.section`。
+
+`A B item {` 于是是三色；`A item {` 是类型色 + 块名色；`A {` 只有类型色。
+位置判定的固有误差（`server web prod {` 的 `prod` 仍被当块名）记进 I-33：高亮是词法层，
+语言的判据在语义层，长期解法是 LSP semantic tokens。
+
+版本 `0.5.3` -> `0.5.4`；产物 `editors/vscode/sml-lang-0.5.4.vsix` 入库。
+
+
 ### 修复（VSCode 扩展 0.5.3：块名与契约词同色）
 
 裸块头 `type [featag 区] [契约词…] [块名] {` 里三样东西原先都是 `entity.name.type`：

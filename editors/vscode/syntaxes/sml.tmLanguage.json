@@ -323,7 +323,7 @@
       "match": "(?<!\\w)-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?"
     },
     "array-bare-block": {
-      "comment": "裸块头 `type [featag 区] [契约词…] [块名] {`：数组位置（`[ A B item { … } ]`）与键位置同形。**块名与契约词异色** —— 契约词/类型词是 `entity.name.type`（与 `@contract` 声明同色），块名是 `entity.name.section`。语言层「首个未命中契约表的词是块名」，编辑器没有契约表，故按**位置**取：逗号之后、featag 区之后、或最后一个词。普通标量数组（`[ a b ]`）不含 `{`，不会被这条吃掉。",
+      "comment": "裸块头 `type [featag 区] [契约词…] [块名] {`：数组位置（`[ A B item { … } ]`）与键位置同形。**三种词三色** —— 首词（类型）`entity.name.type`、中间的契约词 `variable.other.member`（与 `@is` 引用同色）、块名 `entity.name.section`。语言层「首个未命中契约表的词是块名」，编辑器没有契约表，故按**位置**取：逗号之后、featag 区之后、或最后一个词。普通标量数组（`[ a b ]`）不含 `{`，不会被这条吃掉。",
       "patterns": [
         {
           "comment": "块名：紧跟 featag 项之后、`{` 之前的那一个词（`A !t tagged {`）。变长后顾断言只认 `!tag ` 之后那一词 —— 不带上这条，`a: b {` 的 `b` 会被误当契约词。",
@@ -339,11 +339,12 @@
           }
         },
         {
-          "comment": "多词块头：前面的词是类型词与契约词，**最后一个才是块名**（`A B item {` → A/B 契约色、item 块名色）。",
-          "match": "(?:^|(?<=\\[)|(?<=,))\\s*((?:[A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*\\s+)+)([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)\\s*(?=[^\\n]*\\{)",
+          "comment": "多词块头三分色：**首词**是类型词（`entity.name.type`，与 `@contract` 声明同色）、**中间**的词是「被应用的契约」（`variable.other.member`，与 `@is A, B` 的引用同色）、**末词**是块名（`entity.name.section`）。`A B item {` 于是三色可辨。",
+          "match": "(?:^|(?<=\\[)|(?<=,))\\s*([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)((?:\\s+[A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)*)\\s+([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)\\s*(?=[^\\n]*\\{)",
           "captures": {
             "1": { "name": "entity.name.type.sml" },
-            "2": { "name": "entity.name.section.sml" }
+            "2": { "name": "variable.other.member.sml" },
+            "3": { "name": "entity.name.section.sml" }
           }
         },
         {

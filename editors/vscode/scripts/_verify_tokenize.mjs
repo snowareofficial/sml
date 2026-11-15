@@ -117,7 +117,7 @@ function innerScopesAt(line, needle) {
     ["xs: [ A B item {", "A B item", "数组内同行"],
     ["    A B item {", "A B item", "数组内跨行"],
     ["    A !t tagged {", "A", "featag 区前的首词"],
-    ["A B item {", "B", "键位置"],
+    ["A B item {", "A", "键位置（首词）"],
   ];
   for (const [line, needle, label] of cases) {
     const s = innerScopesAt(line, needle);
@@ -207,10 +207,14 @@ function innerScopesAt(line, needle) {
     return toks[ln].filter((t) => t.startIndex < end && t.endIndex > start)
                     .map((t) => t.scopes[t.scopes.length - 1]);
   };
-  const t1 = inner(1, "A B ");
-  check("数组内跨行：头词序列=契约/类型色", t1 !== null && t1.includes("entity.name.type.sml"), t1?.join(" | "));
+  const tA = inner(1, "A");
+  check("多词块头：首词=类型色", tA !== null && tA.includes("entity.name.type.sml")
+        && !tA.includes("variable.other.member.sml"), tA?.join(" | "));
+  const tB = inner(1, "B");
+  check("多词块头：中间的契约词=引用色（与 @is 同色）", tB !== null
+        && tB.includes("variable.other.member.sml") && !tB.includes("entity.name.type.sml"), tB?.join(" | "));
   const t1n = inner(1, "item");
-  check("多词块头：最后一个词是块名（与契约词异色）", t1n !== null
+  check("多词块头：最后一个词是块名（第三种颜色）", t1n !== null
         && t1n.includes("entity.name.section.sml") && !t1n.includes("entity.name.type.sml"), t1n?.join(" | "));
   const t2 = inner(4, "A");
   check("数组内单契约 `A {` 不当键名", t2 !== null && t2.includes("entity.name.type.sml")
