@@ -33,7 +33,7 @@ fn featags<'a>(v: &'a Value, key: &str) -> &'a Vec<Value> {
 #[test]
 fn region_becomes_ordered_featags_array() {
     let v = parse(&format!(
-        "{ON}wea !critical obey[1, 2], name {{ a: 1 }}\n"
+        "{ON}wea !critical !obey[1, 2], name {{ a: 1 }}\n"
     ))
     .expect("应能解析");
     let b = block(&v, "wea");
@@ -79,7 +79,7 @@ fn block_name_may_be_omitted() {
 #[test]
 fn args_may_nest_brackets_and_braces() {
     // 参数是真值，不是被跳过的 token：块字面量要原样立起来（`refs: [Pt]` 声明支持它）
-    let v = parse(&format!("{ON}wea refs[{{ x: 1 }}], name {{ }}\n")).expect("应能解析");
+    let v = parse(&format!("{ON}wea !refs[{{ x: 1 }}], name {{ }}\n")).expect("应能解析");
     let f = featags(&v, "wea");
     let args = f[0].get("args").and_then(|x| x.as_array()).expect("有 args");
     assert_eq!(
@@ -88,13 +88,13 @@ fn args_may_nest_brackets_and_braces() {
         "参数里的块应成对象"
     );
     // 嵌套数组：类型是否相容由 S5 的类型校验管（见 featag_validate.rs），这里只钉「能解析成值」
-    assert!(parse(&format!("{ON}wea obey[], name {{ }}\n")).is_ok(), "空参数表合法");
+    assert!(parse(&format!("{ON}wea !obey[], name {{ }}\n")).is_ok(), "空参数表合法");
 }
 
 #[test]
 fn explicit_empty_args_are_kept() {
     // `obey[]` 与「没有参数槽」是两回事：前者显式写了空数组
-    let v = parse(&format!("{ON}wea obey[], name {{ }}\n")).expect("应能解析");
+    let v = parse(&format!("{ON}wea !obey[], name {{ }}\n")).expect("应能解析");
     let f = featags(&v, "wea");
     assert_eq!(
         f[0].get("args").and_then(|x| x.as_array()).map(|a| a.len()),
@@ -210,6 +210,6 @@ fn without_the_feature_nothing_changes() {
 fn unbalanced_args_are_reported() {
     // 配不平 ⇒ 预扫描判定「不是块头」⇒ 回落旧路径，由既有 PARSE 码报错。
     // 这里只钉「一定报错、且带码」，不钉具体是哪个码 —— 那是旧路径的既有行为，不属本片。
-    let err = format!("{}", parse(&format!("{ON}wea obey[1, name {{ }}\n")).unwrap_err());
+    let err = format!("{}", parse(&format!("{ON}wea !obey[1, name {{ }}\n")).unwrap_err());
     assert!(err.contains("E-PARSE-"), "括号不配平应报码：{err}");
 }

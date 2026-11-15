@@ -418,7 +418,7 @@ v5_draft {
     ]
     items: [
         { id: A1  what: "featag 声明（契约体内 !name）"                 state: draft }
-        { id: A2  what: "featag 使用（块头 wea !critical obey[1,2]）"   state: draft }
+        { id: A2  what: "featag 使用（块头 wea !critical !obey[1,2]）"  state: draft }
         { id: A3  what: "__featags 元数据键（保序数组）"                 state: draft }
         { id: A4  what: "from-featag 字段修饰符"                        state: draft }
         { id: A5  what: "!any 契约级开关（any 默认禁用）"                state: draft }
@@ -456,7 +456,7 @@ v5_draft {
 
         # 例二：带落点 -> —— 参数既进 __featags，也直接写进指定路径
         target {
-            Deploy !tls replicas[3] zone[cn-north-1], api {
+            Deploy !tls !replicas[3] !zone[cn-north-1], api {
                 image: nginx-1.25
             }
             reading: [
@@ -469,7 +469,7 @@ v5_draft {
 
         # 例三：auto 占位 —— 参数写 auto 表示「取声明里的 default」
         auto {
-            Menu density[auto], main {
+            Menu !density[auto], main {
                 title: 主菜单
             }
             reading: [
@@ -480,7 +480,7 @@ v5_draft {
 
         # 例四：from-featag —— 该字段只允许 featag 落点写入
         from_featag {
-            Seal mark[stamped], box {
+            Seal !mark[stamped], box {
             }
             reading: [
                 "mark 声明为 str from-featag：正文里直接写 mark: xxx 会报 E-CONTRACT-024"

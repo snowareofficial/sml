@@ -119,14 +119,14 @@ pub enum Feature {
     ///
     /// 追加在 `CaseInsensitive` 之后以保位序稳定（C-ABI 位序绑定）。
     BlockName,
-    /// `!featag` 语法（`wea !critical obey[1,2] { }`）—— **第一个带域名**的特性。
+    /// `!featag` 语法（`wea !critical !obey[1,2] { }`）—— **第一个带域名**的特性。
     ///
     /// 文档里写作 `@feature enable type.featag`（`<域>.<名>`，最多两段，见
     /// `docs/swsml/spec/features.md` §3 / N4）。老特性一律保持平铺，**不给** `type.xxx` 别名（N2）。
     ///
     /// **当前状态（2026-11-04）**：位已注册（默认关、不在 `baseline()`、不进任何 [`Edition`]
     /// 的功能集）。S2 接**块头语法识别**、S3 接**数据落盘**：开启后
-    /// `wea !critical obey[1, 2], name { }` 会产出
+    /// `wea !critical !obey[1, 2], name { }` 会产出
     /// `{ wea: { __featags: [ { name: "critical" }, { name: "obey", args: [1, 2] } ], … } }`
     /// （保序数组）；三条歧义各报一码（`E-PARSE-026/027/028`）。
     /// 仍**不做声明校验**（未声明的 featag、参数类型不符都放行）—— 那是 S4/S5。

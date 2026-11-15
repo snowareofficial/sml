@@ -1129,15 +1129,17 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
             const bool feat_on = (st.features & (1u << 17)) != 0 && key_is_contract;
             ContractSet ty;          /* 块头条的契约（typed-block，可多份） */
             size_t ty_consumed = 0;  /* args 里被算作契约词的数量 */
-            while (st.i < st.toks.size() && st.toks[st.i].t != Token::T::LBrace) {
-                const Token& tk = st.toks[st.i];
-                /* featag 项：`!tag` / `!tag[args]` / `tag[args]`。
-                   **无参项必须带 `!`**（否则与块名不可分），**带参项靠紧跟的 `[` 区分**
-                   —— `obey[1, 2]` 与 `!obey[1, 2]` 等价（`featag.md` §2.2 的规定写法是前者）。 */
-                if (feat_on && tk.t == Token::T::Word && !tk.s.empty() &&
-                    (tk.s[0] == '!' ||
-                     (st.i + 1 < st.toks.size() && st.toks[st.i + 1].t == Token::T::LBracket))) {
-                    const std::string tag = (tk.s[0] == '!') ? tk.s.substr(1) : tk.s;
+            /* ① featag 区：**只在这里**（紧跟契约首词），且**每一项都以 `!` 开头**。
+               `!` 是 featag 的**唯一**标记。若允许带参项省掉 `!`（靠紧跟的 `[` 区分），
+               它就会与「块头裸词命中契约表即契约词」争用同一个裸词 —— `A B rep[3]` 里
+               `rep` 是契约词还是 featag，只能靠先后次序猜；三类词（featag / 契约词 / 块名）
+               互不重叠，比省下这一个字符重要。 */
+            if (feat_on && !st.aborted) {
+                for (;;) {
+                    if (st.i >= st.toks.size()) break;
+                    const Token& tk = st.toks[st.i];
+                    if (tk.t != Token::T::Word || tk.s.empty() || tk.s[0] != '!') break;
+                    const std::string tag = tk.s.substr(1);
                     /* **S5 使用处校验**：featag 契约私有 —— 块头写契约里没声明的名字就拒
                        （Rust 同码 E-CONTRACT-021）。改前只收集不校验。 */
                     const FeatagDecl* decl = nullptr;
@@ -1216,8 +1218,23 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                     featags->arr.push_back(item);
                     continue;
                 }
-                if (feat_on && tk.t == Token::T::Comma) { st.i++; continue; }
-                if (tk.t != Token::T::Word) break;
+                /* 区的终止逗号（可省：`wea !critical { }` 直接进块体也成立） */
+                if (!st.aborted && featags && st.i < st.toks.size() &&
+                    st.toks[st.i].t == Token::T::Comma) st.i++;
+                /* 本块没有应用任何契约却写了 featag ⇒ 021（Rust 的兜底同码）：
+                   featag 的作用域是契约私有的，没有契约就谈不上「声明过」。 */
+                if (!st.aborted && featags && !key_is_contract) {
+                    if (st.err && st.err->empty())
+                        *st.err = code_prefix(SML_E_CONTRACT_021,
+                            "sml: 本块没有应用任何契约 —— featag 的作用域是契约私有的，"
+                            "先 `@contract` 声明它");
+                    st.aborted = true;
+                }
+            }
+            /* ② 之后才是契约词 / 块名。这里的 `!` 词落在**参数位置**，由 `coerce`
+               按 B2 拒（Rust 同码 E-PARSE-027）—— `A B !t` 于是与 Rust 一样是错误。 */
+            while (!st.aborted && st.i < st.toks.size() && st.toks[st.i].t == Token::T::Word) {
+                const Token& tk = st.toks[st.i];
                 args.push_back(coerce(tk, st.fragments, st.err, st.features));
                 st.i++;
             }
@@ -1234,22 +1251,6 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                     ty_consumed++;
                 }
             }
-            /* —— 拆雷：契约词之后还剩一个词、但 `block-name` 没开 ⇒ 只能是块名 ——
-               未开 `block-name` 时块名没有合法位置：`A B item { }` 里的 `item` 会被静默
-               当成 `__name`，读者以为写的是契约、实际写成了块名。Rust 直接报 001 并给出
-               「先 @feature enable block-name」的出口。 */
-            if (!st.aborted && !ty.items.empty() && args.size() > ty_consumed &&
-                (st.features & (1u << 16)) == 0) {
-                const ValuePtr& w = args[ty_consumed];
-                if (w && w->tag == Value::Tag::Str) {
-                    if (st.err && st.err->empty())
-                        *st.err = code_prefix(SML_E_CONTRACT_001,
-                            "sml: 块级标注 `" + key + "` 后的 `" + w->s +
-                            "` 不是已定义的契约；若本意是把它作为块名，请先 "
-                            "`@feature enable block-name`");
-                    st.aborted = true;
-                }
-            }
             if (st.aborted) break;
             if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::LBrace) {
                 st.i++;
@@ -1257,6 +1258,24 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                 auto sub = parse_block_nested(st);
                 sub->obj.push_back({"__type", Value::string(key)});
                 if (featags) sub->obj.push_back({"__featags", featags});
+                /* —— 拆雷：契约词之后还剩一个词、但 `block-name` 没开 ⇒ 只能是块名 ——
+                   未开 `block-name` 时块名没有合法位置：`A B item { }` 里的 `item` 会被
+                   静默当成 `__name`，读者以为写的是契约、实际写成了块名。Rust 在
+                   `finish_bare_block` 里报 001 并给出「先 @feature enable block-name」的
+                   出口 —— 同样在**块体解析之后**，故块头语法错（012）不会被它抢走。 */
+                if (!st.aborted && !ty.items.empty() && args.size() > ty_consumed &&
+                    (st.features & (1u << 16)) == 0) {
+                    const ValuePtr& w = args[ty_consumed];
+                    if (w && w->tag == Value::Tag::Str) {
+                        if (st.err && st.err->empty())
+                            *st.err = code_prefix(SML_E_CONTRACT_001,
+                                "sml: 块级标注 `" + key + "` 后的 `" + w->s +
+                                "` 不是已定义的契约；若本意是把它作为块名，请先 "
+                                "`@feature enable block-name`");
+                        st.aborted = true;
+                        break;
+                    }
+                }
                 /* **S7**：`from-featag` 的键不许文档手写 —— 必须在**填充之前**。
                    多契约逐份查（Rust 同样逐份调 `check_from_featag`）。 */
                 if (st.features & (1u << 17)) {
@@ -1340,8 +1359,13 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                 }
                 set_field(key, sub);
             } else {
-                // no body -> treat as scalar string
-                set_field(key, coerce_word(key, st.fragments, st.err, st.features));
+                /* 预扫描已确认「参数之后是 `{`」，参数却停在了别的记号上（`A B rep[3]`
+                   的 `[`、区后多余的 `,` 等）。Rust 在 `bare_child_frame` 同一位置报兜底
+                   012 且**不回退**旧路径；照抄，别静默改判成「键 + 标量」。 */
+                if (st.err && st.err->empty())
+                    *st.err = code_prefix(SML_E_PARSE_012,
+                        "sml: 裸块块头的参数之后未能接上 `{`");
+                st.aborted = true;
             }
         } else if (nxt.t == Token::T::Word) {
             ValuePtr v = coerce(nxt, st.fragments, st.err, st.features);

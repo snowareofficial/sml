@@ -525,6 +525,14 @@ local deep_copy  -- 前向声明
 
 local function coerce(tok, fragments)
   if tok == nil then return nil end
+  -- featag（B2）：`!` 只在块头的 featag 区里是记号；出现在**值位置**就是歧义
+  -- （`a: !b` —— 字符串还是 featag？）。歧义一律报错，**开了 `bareword-string`
+  -- 也不豁免**：靠特性绕过歧义等于把「猜」藏进配置里。要写字面量请加引号。
+  -- 门控 `type.featag`：未开启时 `!b` 仍是普通裸词，v1–v4 既有文档一字不变。
+  if _FEATURES and _FEATURES[17] and string.sub(tok, 1, 1) == "!" then
+    fail("E-PARSE-027",
+      "值位置不能写以 `!` 开头的裸词；若本意是字符串，请用引号包起来：`" .. tok .. "`")
+  end
   -- 引号串（内部支持 $env.VAR 展开）
   if string.sub(tok, 1, 1) == '"' and string.sub(tok, -1) == '"' then
     local inner = string.sub(tok, 2, -2)
@@ -1517,6 +1525,43 @@ local function words_then_directive(tokens, i)
   return (k > i) and tokens[k] == "@"
 end
 
+-- 预扫描：当前位置起「连续词 / `!tag[…]` 区 / 区的终止逗号」之后是否紧跟 `{`。
+-- 判据照 Rust `bare_block_ahead`：**只看 `type.featag` 特性位**（不看首词是不是契约），
+-- `[` 按括号配平跳过、`,` 与词一样放行。配不平 / 撞上别的记号 ⇒ 不是裸块头。
+--
+-- 为什么要它：没有这道判据时，裸块分支会**贪心吞掉**「不是块」的行
+-- （`k: v` 之后一个裸词、或者 `definitely_missing.sml` 之后跟个串），
+-- 把后面的 `:` 也吃进参数里 —— 于是「键位置遇到 `:`」这类错误在别处冒出来，
+-- 与 Rust/其它三端的判据对不上。加上它就能判定为「不是裸块」，回落标量路径。
+local function bare_block_ahead(tokens, pos)
+  local feat = (_FEATURES and _FEATURES[17]) and true or false
+  while tokens[pos] ~= nil do
+    local tk = tokens[pos]
+    if is_word_tok(tk) then
+      pos = pos + 1
+    elseif feat and tk == "[" then
+      local depth = 0
+      while tokens[pos] ~= nil do
+        if tokens[pos] == "[" then
+          depth = depth + 1
+        elseif tokens[pos] == "]" then
+          depth = depth - 1
+          if depth == 0 then pos = pos + 1 break end
+        end
+        pos = pos + 1
+      end
+      if depth ~= 0 then return false end
+    elseif feat and tk == "," then
+      pos = pos + 1
+    elseif tk == "{" then
+      return true
+    else
+      return false
+    end
+  end
+  return false
+end
+
 -- `@when` 条件求值（闭集：`$env.NAME` + 可选 `==` / `!=` / `=` + 值）。
 -- 与 Rust `cond.rs::eval_when_cond` 同语义：无运算符时做真值测试（非空且非 "0"/"false"）。
 -- 返回 (bool, next_i)。
@@ -2023,23 +2068,21 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
           set_field(key, coerce(key, fragments))
         end
       elseif not colon and nxt ~= nil and nxt ~= "}" and nxt ~= "]" and nxt ~= ","
-             and not words_then_directive(tokens, i) then
+             and not words_then_directive(tokens, i) and bare_block_ahead(tokens, i) then
         -- 裸块：key 为类型，后续 token 直到 { 为参数
         local args = {}
         local featags = nil
         local key_is_contract = (contracts[key] ~= nil)
-        -- 开了 `type.featag` 且首词命中契约时，块头可以有 `!tag [args]` 区与逗号分隔的块名
-        -- （`Service !critical !obey[4], prod { }`）。未开时保持旧行为。
-        local feat_on = (_FEATURES and _FEATURES[17] and key_is_contract) and true or false
-        while tokens[i] do
-          local tk = tokens[i]
-          if tk == "{" or tk == "}" or tk == "]" then break end
-          -- featag 项：`!tag` / `!tag[args]` / `tag[args]`。
-          -- **无参项必须带 `!`**（否则与块名不可分），**带参项靠紧跟的 `[` 区分**
-          -- —— `obey[1, 2]` 与 `!obey[1, 2]` 等价（`featag.md` §2.2 的规定写法是前者）。
-          if feat_on and type(tk) == "string"
-             and (string.sub(tk, 1, 1) == "!" or tokens[i + 1] == "[") then
-            local nm = (string.sub(tk, 1, 1) == "!") and string.sub(tk, 2) or tk
+        -- ① featag 区：**只在这里**（紧跟契约首词），且**每一项都以 `!` 开头**。
+        -- `!` 是 featag 的**唯一**标记。若允许带参项省掉 `!`（靠紧跟的 `[` 区分），
+        -- 它就会与「块头裸词命中契约表即契约词」争用同一个裸词 —— `A B rep[3]` 里
+        -- `rep` 是契约词还是 featag 只能靠先后次序猜；三类词互不重叠更重要。
+        local feat_on = (_FEATURES and _FEATURES[17]) and true or false
+        if feat_on then
+          while tokens[i] ~= nil do
+            local tk = tokens[i]
+            if type(tk) ~= "string" or string.sub(tk, 1, 1) ~= "!" then break end
+            local nm = string.sub(tk, 2)
             -- **S5 使用处校验**：featag 契约私有 —— 块头写契约里没声明的名字就拒
             -- （与 Rust / C / C++ / JS 同码 E-CONTRACT-021）。改前只收集不校验。
             local owner = contracts[key]
@@ -2095,12 +2138,21 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
             local item = { name = nm }
             if payload then item.args = payload end
             featags[#featags + 1] = item
-          elseif feat_on and tk == "," then
-            i = i + 1
-          else
-            args[#args+1] = coerce(tk, fragments)
-            i = i + 1
           end
+          -- 区的终止逗号（可省：`wea !critical { }` 直接进块体也成立）
+          if featags and tokens[i] == "," then i = i + 1 end
+          -- 本块没有应用任何契约却写了 featag ⇒ 021（Rust 的兜底同码）：
+          -- featag 的作用域是契约私有的，没有契约就谈不上「声明过」。
+          if featags and not key_is_contract then
+            fail("E-CONTRACT-021",
+              "sml: 本块没有应用任何契约 —— featag 的作用域是契约私有的，先 `@contract` 声明它")
+          end
+        end
+        -- ② 之后才是契约词 / 块名。这里的 `!` 词落在**参数位置**，由 `coerce`
+        -- 按 B2 拒（Rust 同码 E-PARSE-027）—— `A B !t` 于是与 Rust 一样是错误。
+        while is_word_tok(tokens[i]) do
+          args[#args+1] = coerce(tokens[i], fragments)
+          i = i + 1
         end
         -- 块级多契约（D2）：从**首词**起，连续命中契约表的词都是契约；第一个未命中的
         -- 词是块名（`server web prod { }` 的 web/prod 不是契约，不受影响）。
@@ -2122,22 +2174,26 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
             ty_consumed = ty_consumed + 1
           end
         end
-        -- —— 拆雷：契约词之后还剩一个词、但 `block-name` 没开 ⇒ 只能是块名 ——
-        -- 未开 `block-name` 时块名没有合法位置：`A B item { }` 里的 `item` 会被静默
-        -- 当成 `__name`，读者以为写的是契约、实际写成了块名（与 Rust / C / C++ / JS 同码）。
-        if #ty_entries > 0 and #args > ty_consumed
-           and not (_FEATURES and _FEATURES[16])
-           and type(args[ty_consumed + 1]) == "string" then
-          fail("E-CONTRACT-001",
-            "sml: 块级标注 `" .. tostring(key) .. "` 后的 `" .. args[ty_consumed + 1] ..
-            "` 不是已定义的契约；若本意是把它作为块名，请先 `@feature enable block-name`")
-        end
+        -- 拆雷（`block-name` 未开时契约词之后的那个词只能是块名）在**块体解析之后**判，
+        -- 与 Rust `finish_bare_block` 同序 —— 见下面 `if tokens[i] == "{" then` 里。
         if tokens[i] == "{" then
           local sub
           _ENTER_KEY = key         -- 裸块：路径段用块类型名
           sub, i = parse_block(tokens, i + 1, "}", fragments, contracts, depth + 1)
           sub.__type = key
           if featags then sub.__featags = featags end
+          -- —— 拆雷：契约词之后还剩一个词、但 `block-name` 没开 ⇒ 只能是块名 ——
+          -- 未开 `block-name` 时块名没有合法位置：`A B item { }` 里的 `item` 会被静默
+          -- 当成 `__name`，读者以为写的是契约、实际写成了块名。Rust 在
+          -- `finish_bare_block` 里报 001 并给出「先 @feature enable block-name」的出口 ——
+          -- 同样在**块体解析之后**，故块头语法错（012）不会被它抢走。
+          if #ty_entries > 0 and #args > ty_consumed
+             and not (_FEATURES and _FEATURES[16])
+             and type(args[ty_consumed + 1]) == "string" then
+            fail("E-CONTRACT-001",
+              "sml: 块级标注 `" .. tostring(key) .. "` 后的 `" .. args[ty_consumed + 1] ..
+              "` 不是已定义的契约；若本意是把它作为块名，请先 `@feature enable block-name`")
+          end
           -- typed-block：块头首词命中契约 ⇒ 等价块内首行 `@is`（默认值回填 + 校验）。
           -- 改前本端不应用契约，契约的 default / 必填 / 类型校验全部静默失效。
           -- ⚠️ 契约应用**先于** `__name` 写入：Rust 的块头契约校验发生在命名参数落位之前，
@@ -2192,8 +2248,10 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
           if #args - ty_consumed == 1 then sub.__name = args[ty_consumed + 1] end
           set_field(key, sub)
         else
-          -- 裸块无 body：当作标量串
-          set_field(key, coerce(key, fragments))
+          -- 预扫描已确认「参数之后是 `{`」，参数却停在了别的记号上（`A B rep[3]` 的 `[`、
+          -- 区后多余的 `,` 等）。Rust 在 `bare_child_frame` 同一位置报兜底 012 且**不回退**
+          -- 旧路径；照抄，别静默改判。
+          fail("E-PARSE-012", "sml: 裸块块头的参数之后未能接上 `{`")
         end
       else
         -- 标量

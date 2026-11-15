@@ -1454,7 +1454,7 @@ impl<'a> Parser<'a> {
                     )))
                 }
                 (Some(spec), Some(payload)) => {
-                    // 数组类型 ⇒ 参数**表**整体校验（`!obey: [int]` ↔ `obey[1, 2]`）；
+                    // 数组类型 ⇒ 参数**表**整体校验（`!obey: [int]` ↔ `!obey[1, 2]`）；
                     // 其它类型 ⇒ 只接受 1 个参数，校验那一个（`!cert: str` ↔ `cert["…"]`）。
                     // `auto`（取默认值）不校验：值来自声明本身，S6 写入时再取。
                     if !is_auto_marker(payload) {
@@ -1848,13 +1848,16 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// S2：消费块头首词之后的 **featag 区**（`!critical obey[1, 2]` 与终止逗号）。
+    /// S2：消费块头首词之后的 **featag 区**（`!critical` / `!obey[1, 2]` 与终止逗号）。
     ///
     /// 规则（`docs/swsml/spec/featag.md` §2.2 / §2.3）：
-    /// - **无参项必须带 `!`**（`!critical`）—— 否则与块名不可分；
-    /// - **带参项写成 `名[ … ]`**（`obey[1, 2]`），靠 `[` 与块名区分；
+    /// - **每一项都以 `!` 开头**（`!critical`、`!obey[1, 2]`）—— `!` 是 featag 的**唯一**
+    ///   标记。曾经允许带参项省掉 `!`（靠紧跟的 `[` 区分），但那条与「块头裸词命中契约表
+    ///   即契约词」的判据争用同一个裸词：`A B rep[3]` 里 `rep` 到底是契约词还是 featag，
+    ///   只能靠先后次序猜出来。三类词（featag / 契约词 / 块名）互不重叠比省一个字符重要；
     /// - **`,` 是终止符**：区内部各项之间不写逗号；`[ ]` 内深度 ≥ 1 的逗号不算终止；
-    /// - 区的结束 = 遇到「既不是 `!名` 也不是 `名[`」的词，或直接 `{`。
+    /// - 区的结束 = 遇到不以 `!` 开头的词，或直接 `{`；**区只在这里**（紧跟契约首词），
+    ///   契约词与块名都在区之后，故 `A B !t` 里的 `!t` 落在参数位置 ⇒ B2 报 027。
     ///
     /// 返回**保序**的项列表，每项形如 `{ name: "…" }` 或 `{ name: "…", args: [ … ] }`
     /// （S3 契约：不复用 `__args`，那是「块名之后的裸词」，两种语义混在一起会分不清）。
@@ -1882,15 +1885,6 @@ impl<'a> Parser<'a> {
                         self.next(); // `parse_array` 假定 `[` 已被消费（与其它调用点一致）
                         item.insert("args".into(), self.parse_array()?);
                     }
-                    items.push(Value::Object(item));
-                }
-                Some(w) if self.peek_at(1) == Some(&Tok::LBrack) => {
-                    self.next(); // 名字本身不带 `!`，靠 `[` 与块名区分
-                    self.next(); // 越过的 `[`（`parse_array` 的既有约定）
-                    let mut item = self.new_map();
-                    item.insert("name".into(), Value::Str(w.into_owned()));
-                    // 显式写了 `[]` 就保留空数组：`obey[]` 与「没有参数槽」是两回事
-                    item.insert("args".into(), self.parse_array()?);
                     items.push(Value::Object(item));
                 }
                 _ => break,
@@ -1988,7 +1982,7 @@ impl<'a> Parser<'a> {
     ///
     /// featag 开启时还要跨过两样东西（否则 `wea !critical, name { }` 会被当成
     /// 「键 `wea` + 值 `!critical`」，当场在 B2 上报错 —— 这正是第一版踩到的坑）：
-    /// - **`!名` / `名[ … ]` 区**：遇到 `[` 就按括号配平跳过去（配不平 ⇒ 不是块头，回落旧路径）；
+    /// - **`!名[ … ]` 区**：遇到 `[` 就按括号配平跳过去（配不平 ⇒ 不是块头，回落旧路径）；
     /// - **区的终止符 `,`**。
     fn bare_block_ahead(&self) -> bool {
         if !matches!(self.peek(), Some(Tok::Word(_)) | Some(Tok::Str(_))) {

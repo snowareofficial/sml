@@ -1,7 +1,7 @@
 # docs 索引
 
 > **本文件由 `cargo run -p smldocs -- --index` 生成，勿手改。**
-> 数据源 `docs/meta.sml`（58 份文档，摘要 `24eef7e36e80ed44`）。摘要变了就必须重跑生成；
+> 数据源 `docs/meta.sml`（58 份文档，摘要 `30e289c27e3816eb`）。摘要变了就必须重跑生成；
 > 本文件不记生成日期 / HEAD，避免跨天或提交后假漂移。体检结论见 [`report.md`](report.md)。
 
 ## 一眼看结论
@@ -26,18 +26,18 @@
 | [`swsml/archive/idyml-rejected.md`](swsml/archive/idyml-rejected.md) | 2026-10-15 | 2026-11-03 | **archive** | — | idyml 改名方案（2026-11-03 否决） |
 | [`swsml/archive/iter-parse.md`](swsml/archive/iter-parse.md) | 2026-10-30 | 2026-11-02 | **archive** | — | 迭代式解析改造（已完成并合入 dev） |
 | [`swsml/plan/crossend-sync.md`](swsml/plan/crossend-sync.md) | 2026-11-12 | 2026-11-13 | **current** | — | 跨端同步施工切片：码表分类、weak 三兄弟 / Edition 四端、验收命令与开工裁决 |
-| [`swsml/plan/featag-slices.md`](swsml/plan/featag-slices.md) | 2026-11-04 | 2026-11-14 | **current** | — | featag 实现切片 S0–S9（Rust 全部收官；四端已补 S2–S5b，S6–S8 仍只有 Rust） |
+| [`swsml/plan/featag-slices.md`](swsml/plan/featag-slices.md) | 2026-11-04 | 2026-11-15 | **current** | — | featag 实现切片 S0–S9（Rust 全部收官；四端已补 S2–S5b，S6–S8 仍只有 Rust；示例按「每项都带 `!`」的新写法） |
 | [`swsml/plan/features-plan.md`](swsml/plan/features-plan.md) | 2026-11-04 | 2026-11-06 | **stale** | `docs/swsml/spec/features.md` | v5 版本位落地步骤与被推翻的旧清单 |
 | [`swsml/plan/perf-plan.md`](swsml/plan/perf-plan.md) | 2026-11-06 | 2026-11-08 | **current** | — | 全面优化计划：时间 / 内存 / 缓存 / 指令集四线 |
 | [`swsml/ref/capability-matrix.md`](swsml/ref/capability-matrix.md) | 2026-10-27 | 2026-11-10 | **draft** | — | 五端能力矩阵（2026-10-27 快照，只作历史对照；v5 版本口径待补） |
-| [`swsml/ref/grammar-divergences.md`](swsml/ref/grammar-divergences.md) | 2026-11-14 | 2026-11-15 | **current** | — | grammar.sml 按语法特性切片后的五端差异台账：第一处拒绝、码是否同、能力缺口归因；含 contract-multi 五端同源口径、块头 featag 无 ! 带参与拆雷检查已对齐、JS/Lua dump 载体 NC；配套 tools/check/probe_grammar.py |
+| [`swsml/ref/grammar-divergences.md`](swsml/ref/grammar-divergences.md) | 2026-11-14 | 2026-11-15 | **current** | — | grammar.sml 按语法特性切片后的五端差异台账：第一处拒绝、码是否同、能力缺口归因；含 contract-multi 五端同源口径、featag 的 `!` 唯一标记与区位置收敛、拆雷检查已对齐、JS/Lua dump 载体 NC；配套 tools/check/probe_grammar.py |
 | [`swsml/ref/perf-baseline.md`](swsml/ref/perf-baseline.md) | 2026-11-03 | 2026-11-15 | **current** | — | 性能基线：perf / value / profile / amberice 四份 bench 的正式口径数字；含 2026-11-14 微观归因（hotspots / alloc_split）、2026-11-15 与 serde_json 的对拍（vs_json）与四笔已否决的优化账 |
 | [`swsml/ref/silent-divergences.md`](swsml/ref/silent-divergences.md) | 2026-11-14 | 2026-11-15 | **current** | — | 兼容套件检不出的差异：错误码矩阵 / 特性门控 / 值身份三类盲区与逐条取证；多契约已五端实现；配套 tools/check/probe_matrix.py |
-| [`swsml/spec/featag.md`](swsml/spec/featag.md) | 2026-11-04 | 2026-11-10 | **current** | — | featag 语法 / 落点 / from-featag（Rust 已实现；其它四端按 S9 策略不实现） |
+| [`swsml/spec/featag.md`](swsml/spec/featag.md) | 2026-11-04 | 2026-11-15 | **current** | — | featag 语法 / 落点 / from-featag：每一项都必须带 `!`（块的 `!` 是唯一标记），featag 区紧跟契约首词；S2–S5b 四端已实现，S6–S8 仍只有 Rust |
 | [`swsml/spec/features.md`](swsml/spec/features.md) | 2026-11-04 | 2026-11-06 | **current** | — | 特性命名空间：4 个域、两段上限、新增特性带域 |
 | [`swsml/spec/null.md`](swsml/spec/null.md) | 2026-11-04 | 2026-11-06 | **current** | — | null / none 五条语义与五端现状 |
 | [`swsml/spec/smlex.md`](swsml/spec/smlex.md) | 2026-11-04 | 2026-11-10 | **current** | — | .smlex 内容格式 v1.0（格式定稿；checks 与 applies_to 提示已接 --lint，hints / emit 未实现） |
-| [`swsml/spec/v5.md`](swsml/spec/v5.md) | 2026-11-04 | 2026-11-10 | **draft** | — | v5 变更总表（工作底稿，v5 未定稿；B6/B7 已落地，表 A 待定稿实测） |
+| [`swsml/spec/v5.md`](swsml/spec/v5.md) | 2026-11-04 | 2026-11-15 | **draft** | — | v5 变更总表（工作底稿，v5 未定稿；B6/B7 已落地，表 A 待定稿实测；A2 示例按「每项都带 `!`」） |
 | [`swsml/spec/value-layout.md`](swsml/spec/value-layout.md) | 2026-11-02 | 2026-11-06 | **draft** | — | 值层内存布局提案（未拍板，需二次蒸馏） |
 | [`swsml/spec/version.md`](swsml/spec/version.md) | 2026-11-04 | 2026-11-13 | **current** | — | 版本 = 功能集（edition）；版本位与三态生命周期（五端字面量已同步，见 §7） |
 | [`swsml/spec/weakbind.md`](swsml/spec/weakbind.md) | 2026-11-04 | 2026-11-13 | **current** | — | weakbind 语法 / 作用域 / 旁路表 / 默认忽略口径（语言层五端已实现；C-ABI / 绑定层见 crossend-sync.md） |

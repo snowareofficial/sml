@@ -753,25 +753,16 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
         }
         token *nt = peek(ps);
         /* 裸块预扫描: 无冒号且后继是词, 可能 `type name { }`。
-           开了 `type.featag` 且首词命中契约时，块头还可能有 `!tag [args]` 区与逗号分隔的块名
-           （`Service !critical !obey[4], prod { }`）—— 这两类记号要算进「到 `{` 为止」的窗口，
-           否则预扫描判定失败、整行落到值位置报错。 */
+           开了 `type.featag` 时，窗口里还要跨过 `!tag [args]` 区与它的终止逗号
+           （`Service !critical !obey[4], prod { }`）—— 判据照 Rust `bare_block_ahead`：
+           **只看特性位**（不看首词是不是契约），`[` 按括号配平跳过、`,` 与词一样放行。 */
         if (!colon && nt->t == T_WORD) {
             size_t probe = ps->lx->pos;
             int found = 0;
-            const int feat_scan = (ps->features & (1u << 17)) != 0 &&
-                                  contract_find(ps, key) != NULL;
-            int seen_tag = 0;
+            const int feat_scan = (ps->features & (1u << 17)) != 0;
             while (probe < ps->lx->n) {
                 tok_type pt = ps->lx->toks[probe].t;
                 if (pt == T_WORD || pt == T_STR) {
-                    /* featag 项的两种形状都算「窗口里有 featag 区」：
-                       `!名`（无参）与 `名[`（带参）—— 后者没有 `!`，漏判会让紧随的
-                       终止逗号被当成「裸词里的逗号」而拒（`Menu density[auto], main { }`）。 */
-                    if (feat_scan && pt == T_WORD &&
-                        (ps->lx->toks[probe].v[0] == '!' ||
-                         (probe + 1 < ps->lx->n && ps->lx->toks[probe + 1].t == T_LBRACK)))
-                        seen_tag = 1;
                     probe++;
                 } else if (feat_scan && pt == T_LBRACK) {
                     int depth = 0;
@@ -782,7 +773,7 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                         }
                         probe++;
                     }
-                } else if (feat_scan && seen_tag && pt == T_COMMA) {
+                } else if (feat_scan && pt == T_COMMA) {
                     probe++;
                 } else if (pt == T_LBRACE) { found = 1; break; }
                 else break;
@@ -792,16 +783,17 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                 sml_value *featags = NULL;
                 int key_is_contract = (contract_find(ps, key) != NULL);
                 const int feat_on = (ps->features & (1u << 17)) != 0 && key_is_contract;
-                while (1) {
-                    token *tk = peek(ps);
-                    if (tk->t == T_LBRACE) break;
-                    /* featag 项：`!tag` / `!tag[args]` / `tag[args]`，只在契约块头有效。
-                       **无参项必须带 `!`**（否则与块名不可分），**带参项靠紧跟的 `[` 区分**
-                       —— `obey[1, 2]` 与 `!obey[1, 2]` 等价（`featag.md` §2.2 的规定写法是
-                       前者）。记进 `__featags` 保序数组；无参项只有 name，带参项多 args。 */
-                    if (feat_on && tk->t == T_WORD &&
-                        (tk->v[0] == '!' || peek_at(ps, 1)->t == T_LBRACK)) {
-                        char *tag = (tk->v[0] == '!') ? (tk->v + 1) : tk->v;
+                /* ① featag 区：**只在这里**（紧跟契约首词），且**每一项都以 `!` 开头**。
+                   `!` 是 featag 的**唯一**标记。若允许带参项省掉 `!`（靠紧跟的 `[` 区分），
+                   它就会与「块头裸词命中契约表即契约词」争用同一个裸词 —— `A B rep[3]` 里
+                   `rep` 是契约词还是 featag，只能靠先后次序猜；三类词（featag / 契约词 /
+                   块名）互不重叠，比省下这一个字符重要。 */
+                if (feat_on && !ps->failed) {
+                    for (;;) {
+                        token *tk = peek(ps);
+                        char *tag;
+                        if (tk->t != T_WORD || tk->v[0] != '!') break;
+                        tag = tk->v + 1;
                         /* **S5 使用处校验**：featag 的作用域是契约私有 —— 块头写了契约里
                            没声明的名字就拒（Rust 同码 E-CONTRACT-021）。改前只收集不校验，
                            拼错的 `!critcal` 会被静默记进 `__featags`。 */
@@ -886,16 +878,28 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                                 sml_arr_push(featags, item);
                             }
                         }
-                        continue;
                     }
-                    if (feat_on && tk->t == T_COMMA) { next(ps); continue; }
-                    if (tk->t == T_WORD || tk->t == T_STR) {
+                    /* 区的终止逗号（可省：`wea !critical { }` 直接进块体也成立） */
+                    if (!ps->failed && featags && peek(ps)->t == T_COMMA) next(ps);
+                    /* 本块没有应用任何契约却写了 featag ⇒ 021（Rust 的兜底同码）：
+                       featag 的作用域是契约私有的，没有契约就谈不上「声明过」。 */
+                    if (!ps->failed && featags && !key_is_contract) {
+                        set_err(ps->lx->errbuf, ps->lx->errsz,
+                                SML_E_CONTRACT_021
+                                " 本块没有应用任何契约 —— featag 的作用域是契约私有的，"
+                                "先 `@contract` 声明它");
+                        ps->failed = 1;
+                    }
+                }
+                /* ② 之后才是契约词 / 块名。这里的 `!` 词落在**参数位置**，由
+                   `coerce_word` 按 B2 拒（Rust 同码 E-PARSE-027）——
+                   `A B !t` 于是与 Rust 一样是错误，不会静默当成 featag。 */
+                if (!ps->failed) {
+                    while (peek(ps)->t == T_WORD || peek(ps)->t == T_STR) {
                         token *at = next(ps);
                         sml_arr_push(args, at->t == T_STR ? sml_new_strn(at->v, at->len)
                                                           : coerce_word(at->v, ps));
-                        continue;
                     }
-                    break;
                 }
                 /* 块级多契约（D2）：从**首词**起，连续命中契约表的词都是契约；
                    第一个未命中的词是块名（`server web prod { }` 的 web/prod 不是契约，
@@ -920,22 +924,6 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                         ty_consumed++;
                     }
                 }
-                /* —— 拆雷：契约词之后还剩一个词、但 `block-name` 没开 ⇒ 只能是块名 ——
-                   未开 `block-name` 时块名没有合法位置：`A B item { }` 里的 `item` 会被
-                   静默当成 `__name`，读者以为写的是契约、实际写成了块名。Rust 直接报
-                   001 并给出「先 @feature enable block-name」的出口。 */
-                if (!ps->failed && ty.n > 0 && sml_arr_len(args) > ty_consumed &&
-                    !(ps->features & (1u << 16))) {
-                    sml_value *w = sml_arr_get(args, ty_consumed);
-                    if (w && w->type == SML_STR) {
-                        set_err(ps->lx->errbuf, ps->lx->errsz,
-                                SML_E_CONTRACT_001
-                                " 块级标注 `%s` 后的 `%s` 不是已定义的契约；"
-                                "若本意是把它作为块名，请先 `@feature enable block-name`",
-                                key, w->u.s);
-                        ps->failed = 1;
-                    }
-                }
                 if (ps->failed) {
                     sml_free(args);
                     if (featags) sml_free(featags);
@@ -947,6 +935,27 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                     sml_value *sub = parse_block(ps, T_RBRACE);
                     sml_obj_set(sub, "__type", sml_new_str(key));
                     if (featags) sml_obj_set(sub, "__featags", featags);
+                    /* —— 拆雷：契约词之后还剩一个词、但 `block-name` 没开 ⇒ 只能是块名 ——
+                       未开 `block-name` 时块名没有合法位置：`A B item { }` 里的 `item` 会被
+                       静默当成 `__name`，读者以为写的是契约、实际写成了块名。Rust 在
+                       `finish_bare_block` 里报 001 并给出「先 @feature enable block-name」
+                       的出口 —— 同样在**块体解析之后**，故 `S !t rep[3]` 那种块头语法错
+                       会先以 012 报出来，不被这条抢走。 */
+                    if (!ps->failed && ty.n > 0 && sml_arr_len(args) > ty_consumed &&
+                        !(ps->features & (1u << 16))) {
+                        sml_value *w = sml_arr_get(args, ty_consumed);
+                        if (w && w->type == SML_STR) {
+                            set_err(ps->lx->errbuf, ps->lx->errsz,
+                                    SML_E_CONTRACT_001
+                                    " 块级标注 `%s` 后的 `%s` 不是已定义的契约；"
+                                    "若本意是把它作为块名，请先 `@feature enable block-name`",
+                                    key, w->u.s);
+                            ps->failed = 1;
+                            sml_free(args);
+                            sml_free(sub);
+                            continue;
+                        }
+                    }
                     /* 裸块参数**不再丢**：首个 ⇒ `__name`、其余 ⇒ `__args`，与 Rust
                        `parse_bare_block` 一致（数组位置是同一个写法，见
                        try_parse_array_bare_block；两处必须同步改，否则同一份输入在
@@ -1046,6 +1055,12 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                     set_field_maybe_skip(ps, obj, key, sub);
                     continue;
                 }
+                /* 预扫描已确认「参数之后是 `{`」，参数却停在了别的记号上
+                   （`A B rep[3]` 的 `[`、区后多余的 `,` 等）。Rust 在 `bare_child_frame`
+                   里同一位置报兜底 012 且**不回退**旧路径；这里照抄，别静默改判。 */
+                set_err(ps->lx->errbuf, ps->lx->errsz,
+                        SML_E_PARSE_012 " 裸块块头的参数之后未能接上 `{`");
+                ps->failed = 1;
                 sml_free(args);
                 if (featags) sml_free(featags);   /* 没走到 `{` ⇒ 未挂到树上 */
             }

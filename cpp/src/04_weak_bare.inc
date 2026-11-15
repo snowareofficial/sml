@@ -107,22 +107,14 @@ static bool is_quoted_word(const Token& tk) {
 static bool bare_block_ahead(const PState& st) {
     if (st.i >= st.toks.size() || st.toks[st.i].t != Token::T::Word) return false;
     if (is_quoted_word(st.toks[st.i])) return false;
-    /* 开了 `type.featag` 时，块头可以有 `!tag [args]` 区与逗号分隔的块名
-       （`Service !critical !obey[4], prod { }`）—— 这两类记号要算进「到 `{` 为止」的窗口。
-       只在窗口里真的出现过 `!` 词时才放宽，避免把 `a [1] {` 这类旧输入改判成裸块。 */
+    /* 开了 `type.featag` 时，窗口里还要跨过 `!tag [args]` 区与它的终止逗号
+       （`Service !critical !obey[4], prod { }`）—— 判据照 Rust `bare_block_ahead`：
+       **只看特性位**（不看首词是不是契约），`[` 按括号配平跳过、`,` 与词一样放行。 */
     const bool feat_on = (st.features & (1u << 17)) != 0;
-    bool seen_tag = false;
     size_t p = st.i;
     while (p < st.toks.size()) {
         auto tt = st.toks[p].t;
         if (tt == Token::T::Word) {
-            /* featag 项的两种形状都算「窗口里有 featag 区」：`!名`（无参）与 `名[`（带参）
-               —— 后者没有 `!`，漏判会让紧随的终止逗号被当成「裸词里的逗号」而拒
-               （`Menu density[auto], main { }`）。 */
-            if (feat_on && !st.toks[p].s.empty() &&
-                (st.toks[p].s[0] == '!' ||
-                 (p + 1 < st.toks.size() && st.toks[p + 1].t == Token::T::LBracket)))
-                seen_tag = true;
             p++;
         } else if (feat_on && tt == Token::T::LBracket) {
             int depth = 0;
@@ -133,7 +125,7 @@ static bool bare_block_ahead(const PState& st) {
                 }
                 p++;
             }
-        } else if (feat_on && seen_tag && tt == Token::T::Comma) {
+        } else if (feat_on && tt == Token::T::Comma) {
             p++;
         } else if (tt == Token::T::LBrace) return true;
         else return false;

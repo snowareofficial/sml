@@ -46,7 +46,7 @@ fn featag_without_any_contract_is_rejected() {
 
 #[test]
 fn args_on_a_tag_only_featag_are_rejected() {
-    let err = err_of("wea critical[1], x { }\n");
+    let err = err_of("wea !critical[1], x { }\n");
     assert!(err.contains("E-CONTRACT-021"), "无参声明带参应报错：{err}");
     assert!(err.contains("无参"), "文案应说清是「声明为无参」：{err}");
 }
@@ -60,7 +60,7 @@ fn missing_args_on_a_typed_featag_are_rejected() {
 
 #[test]
 fn non_array_declaration_takes_exactly_one_arg() {
-    let err = err_of("wea cert[a, b], x { }\n");
+    let err = err_of("wea !cert[a, b], x { }\n");
     assert!(err.contains("E-CONTRACT-021"), "单值声明给两个参数应报错：{err}");
     assert!(err.contains("1 个参数"), "文案应说清个数限制：{err}");
 }
@@ -72,7 +72,7 @@ fn non_array_declaration_takes_exactly_one_arg() {
 #[test]
 fn arg_type_is_checked() {
     // `[int]` 声明 ↔ `[1, "x"]`：第 2 个元素类型不符
-    let err = err_of("wea obey[1, \"x\"], name { }\n");
+    let err = err_of("wea !obey[1, \"x\"], name { }\n");
     assert!(
         err.starts_with("sml:") || err.contains("E-CONTRACT-"),
         "应走类型错误码：{err}"
@@ -80,7 +80,7 @@ fn arg_type_is_checked() {
     assert!(err.contains("wea.obey"), "错误应定位到 `契约.featag`：{err}");
 
     // `str` 声明 ↔ 数字
-    let err = err_of("wea cert[1], name { }\n");
+    let err = err_of("wea !cert[1], name { }\n");
     assert!(err.contains("E-CONTRACT-"), "单值类型不符也应报类型错误：{err}");
 }
 
@@ -88,9 +88,9 @@ fn arg_type_is_checked() {
 fn well_formed_usage_passes() {
     for body in [
         "wea !critical, x { }\n",
-        "wea obey[1, 2], x { }\n",
-        "wea cert[\"/etc/c.pem\"], x { }\n",
-        "wea !critical obey[] cert[\"k\"], { }\n",
+        "wea !obey[1, 2], x { }\n",
+        "wea !cert[\"/etc/c.pem\"], x { }\n",
+        "wea !critical !obey[] !cert[\"k\"], { }\n",
     ] {
         assert!(
             parse(&format!("{DECL}{body}")).is_ok(),

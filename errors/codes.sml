@@ -211,7 +211,7 @@ codes: [
       note: "W16 新增（用户已授权自动新增码）。报告方是 `sml-include` 的 regex-include（`include /re/`）：此前 `sml-regex` 对非法模式一律**静默判「不匹配」** —— 于是「模式写错了」表现成「目录里没有匹配的文件」，用户查不出原因（与 E-LIMIT-002 / E-LIMIT-007 是同一族：引擎层静默、上层无从判断）。引擎层是零依赖的 `sml-regex`，它只报**原因**（`RegexError`），码由 `sml-include` 映射成 —— 与各端「引擎给原因、上层给码」的分层一致。其余四端没有这个受限正则引擎（C++/Lua 的 regex-include 走 E-FEATURE-001 明确拒绝）" }
 
     { id: E-PARSE-026 domain: PARSE severity: E title: "featag 区为空"
-      msg: "`!` 后必须至少写一个 featag 名（形如 `!critical` 或 `obey[1, 2]`）"
+      msg: "`!` 后必须至少写一个 featag 名（形如 `!critical` 或 `!obey[1, 2]`）"
       impls: [ rust ] status: done
       note: "featag S2（`docs/swsml/spec/featag.md` §2.3 B1）。只在 `type.featag` 开启、且处于**块头首词之后**时判：`wea ! , name { }` 这种「`!` 直接跟 `,`/`{`」的写法。报错而不猜，是因为空区既可能是「漏写名字」也可能是「想写字面量 `!`」—— 后者请加引号。未开启该特性时 `!` 仍是普通裸词，v1–v4 行为不变" }
     { id: E-PARSE-027 domain: PARSE severity: E title: "值位置的 `!` 裸词（疑似 featag）"

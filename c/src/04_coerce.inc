@@ -1,5 +1,19 @@
 /* 标量识别 (裸词) */
 static sml_value *coerce_word(const char *w, parser *ps) {
+    /* 防御：`w` 为 NULL 只可能来自「游标已到 EOF 却又取 v」的调用点（那本身是 bug），
+       但崩在库里的代价远大于返回 null —— 调用方会看到 failed / 空值，而不是段错误。 */
+    if (!w) return sml_new_null();
+    /* featag（B2）：`!` 只在块头的 featag 区里是记号；出现在**值位置**就是歧义
+       （`a: !b` —— 字符串还是 featag？）。歧义一律报错，**开了 `bareword-string` 也不豁免**：
+       靠特性绕过歧义等于把「猜」藏进配置里。要写字面量请加引号（`a: "!b"`）。
+       门控 `type.featag`：未开启时 `!b` 仍是普通裸词，v1–v4 既有文档一字不变。 */
+    if (w && (ps->features & (1u << 17)) && w[0] == '!') {
+        set_err(ps->lx->errbuf, ps->lx->errsz,
+                SML_E_PARSE_027
+                " 值位置不能写以 `!` 开头的裸词；若本意是字符串，请用引号包起来：`%s`", w);
+        ps->failed = 1;
+        return NULL;
+    }
     if (strcmp(w, "true") == 0) return sml_new_bool(1);
     if (strcmp(w, "false") == 0) return sml_new_bool(0);
     if (strcmp(w, "null") == 0) return sml_new_null();
@@ -1423,6 +1437,10 @@ static sml_value *parse_array_inner(parser *ps) {
                （`{ __type: section, __name: 情节, … }`）。判据与写法照抄 Rust，
                见 try_parse_array_bare_block。 */
             sml_value *blk = try_parse_array_bare_block(ps);
+            /* 该函数在「认出是裸块却拒绝」时返回 NULL 且置 failed（如多契约 017）——
+               此时**不能**再走「当标量」那一步：游标已停在拒绝处，`next()` 会跨过它，
+               而 `coerce_word` 又拿到 EOF 的 `v`（可能为 NULL）⇒ 段错误。 */
+            if (ps->failed) break;
             if (blk) sml_arr_push(arr, blk);
             else     sml_arr_push(arr, coerce_word(next(ps)->v, ps));
         } else if (t->t == T_RBRACE) {

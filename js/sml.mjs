@@ -279,6 +279,14 @@ function throwCode(code, msg, pos) {
 }
 
 function coerceWord(w, fragments, nsMap, feats) {
+  // featag（B2）：`!` 只在块头的 featag 区里是记号；出现在**值位置**就是歧义
+  // （`a: !b` —— 字符串还是 featag？）。歧义一律报错，**开了 `bareword-string`
+  // 也不豁免**：靠特性绕过歧义等于把「猜」藏进配置里。要写字面量请加引号。
+  // 门控 `type.featag`：未开启时 `!b` 仍是普通裸词，v1–v4 既有文档一字不变。
+  if (feats && feats.has("type.featag") && w.startsWith("!")) {
+    throw throwCode("E-PARSE-027",
+      "sml: 值位置不能写以 `!` 开头的裸词；若本意是字符串，请用引号包起来：`" + w + "`");
+  }
   if (w === "true") return true;
   if (w === "false") return false;
   if (w === "null") return null;
@@ -2767,19 +2775,11 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
       if (!colon && peek() && peek().t === "word") {
         // 开了 `type.featag` 且首词命中契约时，块头可以有 `!tag [args]` 区与逗号分隔的块名
         // （`Service !critical !obey[4], prod { }`）—— 这两类记号要算进「到 `{` 为止」的窗口。
-        const featOn = feats.has("type.featag") &&
-                       (key in contracts || (nsPrefix + key) in contracts);
-        let probe = i, found = false, seenTag = false;
+        const featOn = feats.has("type.featag");
+        let probe = i, found = false;
         while (probe < toks.length) {
           const p = toks[probe];
           if (p.t === "word" || p.t === "str") {
-            // featag 项的两种形状都算「窗口里有 featag 区」：`!名`（无参）与 `名[`（带参）
-            // —— 后者没有 `!`，漏判会让紧随的终止逗号被当成「裸词里的逗号」而拒
-            // （`Menu density[auto], main { }`）。
-            if (featOn && p.t === "word" &&
-                (p.v.startsWith("!") || (toks[probe + 1] && toks[probe + 1].t === "["))) {
-              seenTag = true;
-            }
             probe++;
           } else if (featOn && p.t === "[") {
             let depth = 0;
@@ -2788,7 +2788,7 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
               else if (toks[probe].t === "]") { if (--depth === 0) { probe++; break; } }
               probe++;
             }
-          } else if (featOn && seenTag && p.t === ",") {
+          } else if (featOn && p.t === ",") {
             probe++;
           } else if (p.t === "{") { found = true; break; }
           else break;
@@ -2796,15 +2796,15 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
         if (found) {
           const args = [];
           let featags = null;
-          for (;;) {
-            const tk = peek();
-            if (!tk || tk.t === "{") break;
-            // featag 项：`!tag` / `!tag[args]` / `tag[args]`。
-            // **无参项必须带 `!`**（否则与块名不可分），**带参项靠紧跟的 `[` 区分**
-            // —— `obey[1, 2]` 与 `!obey[1, 2]` 等价（`featag.md` §2.2 的规定写法是前者）。
-            if (featOn && tk.t === "word" &&
-                (tk.v.startsWith("!") || (toks[i + 1] && toks[i + 1].t === "["))) {
-              const tag = tk.v.startsWith("!") ? tk.v.slice(1) : tk.v;
+          // ① featag 区：**只在这里**（紧跟契约首词），且**每一项都以 `!` 开头**。
+          // `!` 是 featag 的**唯一**标记。若允许带参项省掉 `!`（靠紧跟的 `[` 区分），
+          // 它就会与「块头裸词命中契约表即契约词」争用同一个裸词 —— `A B rep[3]` 里
+          // `rep` 是契约词还是 featag 只能靠先后次序猜；三类词互不重叠更重要。
+          if (featOn) {
+            for (;;) {
+              const tk = peek();
+              if (!tk || tk.t !== "word" || !tk.v.startsWith("!")) break;
+              const tag = tk.v.slice(1);
               // **S5 使用处校验**：featag 契约私有 —— 块头写契约里没声明的名字就拒
               // （与 Rust / C / C++ 同码 E-CONTRACT-021）。改前只收集不校验。
               const owner = contracts[key] || contracts[nsPrefix + key];
@@ -2857,16 +2857,23 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
               const item = { name: tag };
               if (payload) item.args = payload;
               featags.push(item);
-              continue;
             }
-            if (featOn && tk.t === ",") { i++; continue; }
-            if (tk.t === "word" || tk.t === "str") {
-              args.push(tk.t === "str" ? coerceStr(tk.v, fragments, feats)
-                                       : coerceWord(tk.v, fragments, nsMap, feats));
-              i++;
-              continue;
+            // 区的终止逗号（可省：`wea !critical { }` 直接进块体也成立）
+            if (featags && peek() && peek().t === ",") i++;
+            // 本块没有应用任何契约却写了 featag ⇒ 021（Rust 的兜底同码）：
+            // featag 的作用域是契约私有的，没有契约就谈不上「声明过」。
+            if (featags && !(key in contracts) && !((nsPrefix + key) in contracts)) {
+              fail("E-CONTRACT-021",
+                "sml: 本块没有应用任何契约 —— featag 的作用域是契约私有的，先 `@contract` 声明它");
             }
-            break;
+          }
+          // ② 之后才是契约词 / 块名。这里的 `!` 词落在**参数位置**，由 `coerceWord`
+          // 按 B2 拒（Rust 同码 E-PARSE-027）—— `A B !t` 于是与 Rust 一样是错误。
+          while (peek() && (peek().t === "word" || peek().t === "str")) {
+            const tk = peek();
+            args.push(tk.t === "str" ? coerceStr(tk.v, fragments, feats)
+                                     : coerceWord(tk.v, fragments, nsMap, feats));
+            i++;
           }
           if (peek() && peek().t === "{") {
             // 块级类型标注：`<契约词…> [featag 区] [, 块名] { .. }`
@@ -2970,6 +2977,10 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
             setField(key, sub);
             continue;
           }
+          // 预扫描已确认「参数之后是 `{`」，参数却停在了别的记号上（`A B rep[3]` 的 `[`、
+          // 区后多余的 `,` 等）。Rust 在 `bare_child_frame` 同一位置报兜底 012 且**不回退**
+          // 旧路径；照抄，别静默改判成「键 + 标量」。
+          fail("E-PARSE-012", "sml: 裸块块头的参数之后未能接上 `{`");
         }
       }
       const nxt = peek();

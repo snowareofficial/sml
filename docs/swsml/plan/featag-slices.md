@@ -22,7 +22,7 @@
 | **S1a** | **Path 解析器（读/写共用）**：`键` / `.` / `[n]` | 无（与 featag 无关，可先做） | `get("a.b[0].c")` 能取；`get("a[9]")` 越界报错 | `rust/sml-value`（`Value::get` 路径分支）+ 新 `path` 模块 | 值模型一节：路径语法表；旧坑「键名自带 `.` 取不到」**删除** |
 | **S1b** | **标识符校验**：白名单（ASCII/CJK/Kana/Hangul）+ 同形字（声明处）+ NFC（只收预组合）+ 每契约单一语种（§2） | 无 | 键名含 `.`、`[`、零宽、西里尔、非 NFC、跨语种混排 ⇒ 各自报错 | 新 `identifiers` 模块 + 两张范围表（**生成到五端**） | 新增「标识符」章节（先并入教科书「键名」节，成熟后独立成 `docs/identifiers.md`（未建）） |
 | **S2** | **块头语法识别**：`!` 区只在契约名之后；B1 空区 / B2 值位置 `!x` / B3 块名以 `!` 开头 | S0（v5 gate） | 现有回归全绿；三条歧义各报一条错；不产生 `__featags` | `rust/sml-parse/src/parser.rs` | 教科书「块头」节：`!` 记号 + 「只在契约名之后是记号」 |
-| **S3** | **落 `__featags`**（保序数组），**不做声明校验** | S2 | `wea !critical obey[1,2], name {}` → json 出现 `__featags: [{name:"critical"},{name:"obey",args:[1,2]}]` | 同上 | 值模型：`__featags` 结构 + 「保留键不可手写」 |
+| **S3** | **落 `__featags`**（保序数组），**不做声明校验** | S2 | `wea !critical !obey[1,2], name {}` → json 出现 `__featags: [{name:"critical"},{name:"obey",args:[1,2]}]` | 同上 | 值模型：`__featags` 结构 + 「保留键不可手写」 |
 | **S4** | **声明收集**：契约内 `!name` / `!name: 类型` / `-> 落点`；**声明处重名报错** | S3 + S1 | 声明被收集；两个 `!obey` 报错 | `rust/sml-contract` + parser | 契约章：featag 声明语法 + 作用域（契约私有） |
 | **S5** | **校验开闸**：未声明即拒（库侧可放宽）+ 参数类型校验 | S4 | 三条：未声明 ⇒ 报码 / 类型不符 ⇒ 报码 / 放宽后通过 | `rust/sml-parse`（校验时机）+ 契约校验器复用 | 契约章：报错示例 + 「默认拒绝未定义」 |
 | **S6** | **落点与填充**：用 S1 的 Path；补缺 / 覆盖报错 / 父对象自动创建 / `!strict-paths` / `auto` | S5 | 正反各 3：已存在报错、父对象被创建、`!strict-paths` 报错、`auto` 取默认 | `rust/sml-parse` + Path | 契约章：落点规则表（8 条）+ 「禁止覆盖」的语法层解释 |
@@ -42,7 +42,7 @@
 **S2 + S3 已落地（2026-11-04）**：`Feature::Featag`（第 18 位，名 `type.featag`，opt-in）门控下的
 **块头 `!` 区语法识别**（三条歧义各一码：`E-PARSE-026` 空区 / `027` 值位置 `!` 裸词 / `028` 块头 `!` 名）
 与 **`__featags` 保序数组落盘**（参数复用 `parse_array`，不另写迷你解析器；`__args` 不复用）。
-验收已可演示：`wea !critical obey[1, 2], name { a: 1 }` → json 里出现
+验收已可演示：`wea !critical !obey[1, 2], name { a: 1 }` → json 里出现
 `__featags: [{name:"critical"},{name:"obey",args:[1,2]}]`（保序、可重复）。
 ⚠️ **声明校验仍未做**（S4/S5）；正文手写 `__*` 也仍放行（v5 独立一条）。
 带域名规则（N4）同轮落地：`<域>.<名>`、只在第一个点切一次、域封闭白名单 `lex/mod/type/flow`、
