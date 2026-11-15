@@ -37,8 +37,8 @@
 | rust | —— | `rc=0` | 参照实现 |
 | c | —— | `rc=0` | **整份读通**，值树与 Rust 逐格相同 |
 | cpp | —— | `rc=0` | 同上 |
-| js | `NC` | —— | 解析层已通；dump 把嵌套的带 featag 块写成块头形式 ⇒ Rust 读不回去（§4.5d） |
-| lua | `NC` | —— | 同上（`@type` 落地后解析层也读通了，卡在同一个 dump 载体问题） |
+| js | `OK`（除数字身份） | —— | 解析与载层都通；`whole` 的判定差异只剩 int/float 身份（§0 R-2） |
+| lua | `OK`（除数字身份） | —— | 同上（dump 的块头/数组串两处已在 §4.5d 修掉） |
 
 ⚠️ 曾经的坑：C / Lua 的「第一处拒绝」落在 `Window.start: 时刻` 上，很容易被归因到「契约嵌套」。
 `contract-nest` 切片（`Address` / `Node` + 默认值回填）四端**一直**是 OK —— 真正的缺口是 `@type`
@@ -50,7 +50,7 @@
 
 | 特性 | 说明 | rust | c | cpp | js | lua |
 |---|---|---|---|---|---|---|
-| 整份 `grammar.sml` | 全集文档 | OK | OK | OK | `NC` | `NC` |
+| 整份 `grammar.sml` | 全集文档 | OK | OK | OK | OK（数字身份除外） | OK（数字身份除外） |
 | `contract-nest` | 契约当字段类型 | OK | OK | OK | OK | OK |
 | `contract-multi` | 多契约叠加 + 就地严格度 | OK | OK | OK | OK | OK |
 | `contract-requires` | `@requires when`（when 未开） | `E-CONTRACT-018` | `E-CONTRACT-018` | `E-CONTRACT-018` | `E-CONTRACT-018` | `E-CONTRACT-018` |
@@ -230,17 +230,31 @@ Rust 报 `E-PARSE-012`、四端却把 `rep[3]` 当 featag 收下。「连续命�
 而块名要 `@feature enable block-name`。四端补齐了这条「拆雷」检查，与 Rust 同码同序；
 `A item { }`（单契约）同样报 001，`A plain { }` 开了 `block-name` 则照常通过。
 
-### 4.5d JS / Lua 的 dump：嵌套的带 featag 块写成块头形式，Rust 读不回去（`NC`）
+### 4.5d JS / Lua 的 dump：值位置写成块头形式（已修）
 
-树里一个块同时有 `__type` 与 `__featags` 时，JS / Lua 的 `stringify` 会在**值位置**写成块头形式
-（`S: S { … }` / `Menu !density[auto], main { … }`），而值位置的「裸块头」不是合法 SML —— Rust
-回读报 `E-PARSE-006`（期望键，得 `{`）。后果：这类用例在套件里变成 `NC`（判据无法成立），
+树里一个块同时有 `__type` 时，JS / Lua 的 `stringify` 会在**值位置**也写成块头形式
+（`S: S prod { … }`），而值位置的「裸块头」不是合法 SML —— Rust 回读报 `E-PARSE-006`
+（期望键，得 `{`）。后果是整份文档 dump 之后自己读不回来，套件里表现为 `NC`（判据无法成立），
 而不是「解析不同」。
 
-这条与解析无关，可用**不含本片任何改动**的输入复现：`@feature enable type.featag, typed-block` +
-`@contract S { name: str  !t }` + `d { S !t { name: g } }` —— 五端解析都成功，JS / Lua 的 dump
-回读失败。修法：值位置的带元数据块一律写扁平对象（`{ __type: …, __name: …, … }`），与 Rust
-`to_sml` 同形；改动落在 dump 层，会牵动全部 `NC` 判定，单独成片。
+修法：**块头形式只在键位置成立**，值位置一律写扁平对象 `{ __name: …, __type: …, … }`
+（与 Rust `to_sml` 同形）。落点两处：
+
+| 端 | 位置 |
+|---|---|
+| JS | `js/src/dump.mjs`：`dumpValue` 加 `allowHead` 参数，只有 `stringify` 的单键还原传 true |
+| Lua | `lua/lib/sml.lua`：`dump_value` 同参数，只有单键还原与顶层 typed block 传 true |
+
+顺带修的两个同层问题（都在 dump，都会让回读变形）：
+
+1. **Lua 的数组字符串绕过了引号判据**：`dump_value` 的数组分支直接 `tostring(e)`，于是
+   `live: [ "@version / @feature …" ]` 这类元素裸写，回读时被当成 `@version` 指令
+   （Rust 报 `E-FEATURE-004`）—— `grammar.sml` 整份 dump 读不回来就是它。改成与对象值位置
+   同判据（`needs_quote` + `escape`）。
+2. **键序按字典序**输出（Rust 用 `BTreeMap`，`__name` < `__type` < 普通键），三端 dump 逐字可比。
+
+修完 `whole:grammar.sml` 五端全部 `OK`；剩下的唯一差异是**数字身份**（§0 R-2：Lua 的
+float `1.0` dump 成 `1`，Rust 读回是 int），属值层既有放行项，不是解析或载体的新问题。
 
 ### 4.5e 数组位置的裸块：四端三种行为（缺口，未修）
 

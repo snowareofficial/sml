@@ -3281,7 +3281,9 @@ end
 
 
 
-local function dump_value(v, indent, out)
+-- `allow_head`：只有**键位置**（`Sml.dump` 的单键还原与顶层 typed block）才允许写块头
+-- `Type name { … }`；值位置写了它回读必失败 —— 见下面对象分支的注释。
+local function dump_value(v, indent, out, allow_head)
   indent = indent or 0
   local pad = string.rep("  ", indent)
   local t = type(v)
@@ -3300,6 +3302,15 @@ local function dump_value(v, indent, out)
           out[#out+1] = "null\n"
         elseif type(e) == "table" then
           dump_value(e, indent+1, out)
+        elseif type(e) == "string" then
+          -- ⚠️ 数组里的字符串**不能**裸写 `tostring(e)`：那绕过了 needs_quote/escape，
+          -- 于是 `[ @version / @feature … ]` 回读时被当成指令（Rust 报 E-FEATURE-004），
+          -- 带空格的串还会把元素切成好几个。与对象值位置走同一判据。
+          if sml_needs_quote(e) then
+            out[#out+1] = '"' .. sml_escape_str(e) .. '"\n'
+          else
+            out[#out+1] = e .. "\n"
+          end
         else
           out[#out+1] = tostring(e) .. "\n"
         end
@@ -3307,30 +3318,35 @@ local function dump_value(v, indent, out)
       out[#out+1] = pad .. "]"
       return
     end
-    -- 块/对象：带 `__type` 时输出块头 `Type name {`（与 Rust `to_sml` / C `sml_dump` 同形），
-    -- 否则退回普通对象 `{ … }`。改前一直跳过 `__type`/`__name` ⇒ 元数据在 dump 后丢失
-    -- （conformance 30 的 Lua 半边）。
-    -- ｜ Emit the typed-block header instead of dropping the metadata.
-    local has_body = false
-    for k, val in pairs(v) do
-      if k ~= "__type" and k ~= "__name" then has_body = true; break end
-    end
+    -- 块/对象：**值位置一律写扁平对象**，`__type` / `__name` 作普通键原样写出。
+    --
+    -- 块头形式（`Type name { … }`）只在**键位置**成立（`Sml.dump` 的单键还原 / 顶层）。
+    -- 改前这里无条件写块头，于是 `d: { S: S prod { } }` 回读时报 E-PARSE-006
+    -- （值位置不能写裸块头），整份文档 dump 之后自己读不回来（台账 §4.5d）。
+    -- 键按字典序：Rust 用 BTreeMap，`__name` < `__type` < 普通键。
     local ty = v.__type
-    if not has_body and not ty then
+    local keys = {}
+    for k in pairs(v) do keys[#keys+1] = k end
+    table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+    if #keys == 0 then
       out[#out+1] = "{}"
       return
     end
-    if ty then
+    if allow_head and ty then
       out[#out+1] = tostring(ty)
       if v.__name then out[#out+1] = " " .. tostring(v.__name) end
       out[#out+1] = " {"
+      for _, k in ipairs(keys) do
+        if k ~= "__type" and k ~= "__name" then
+          out[#out+1] = "\n" .. pad .. "  " .. tostring(k) .. ": "
+          dump_value(v[k], indent + 1, out)
+        end
+      end
     else
       out[#out+1] = "\n" .. pad .. "{"
-    end
-    for k, val in pairs(v) do
-      if k ~= "__type" and k ~= "__name" then
+      for _, k in ipairs(keys) do
         out[#out+1] = "\n" .. pad .. "  " .. tostring(k) .. ": "
-        dump_value(val, indent + 1, out)
+        dump_value(v[k], indent + 1, out)
       end
     end
     out[#out+1] = "\n" .. pad .. "}"
@@ -3352,8 +3368,12 @@ end
 
 function dump_inline(e, out)
   local parts = {}
-  for k, val in pairs(e) do
-    if k ~= "__type" and k ~= "__name" then
+  local keys = {}
+  for k in pairs(e) do keys[#keys+1] = k end
+  table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+  for _, k in ipairs(keys) do
+    local val = e[k]
+    do
       local s
       if type(val) == "string" and not sml_needs_quote(val) then s = tostring(k) .. ": " .. val
       elseif type(val) == "string" then s = tostring(k) .. ': "' .. sml_escape_str(val) .. '"'
@@ -3410,7 +3430,7 @@ function Sml.dump(v)
       only_k, only_v = k, val
     end
     if count == 1 and type(only_v) == "table" and only_v.__type == only_k then
-      dump_value(only_v, 0, out)
+      dump_value(only_v, 0, out, true)
       out[#out+1] = "\n"
       return table.concat(out)
     end
@@ -3425,11 +3445,16 @@ function Sml.dump(v)
     if v.__name then out[#out+1] = " " .. tostring(v.__name) end
     out[#out+1] = " {\n"
   end
-  for k, val in pairs(v) do
-    if k ~= "__type" and k ~= "__name" then
-      out[#out+1] = tostring(k) .. ": "
-      dump_value(val, 0, out)
-      out[#out+1] = "\n"
+  do
+    local keys = {}
+    for k in pairs(v) do keys[#keys+1] = k end
+    table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+    for _, k in ipairs(keys) do
+      if k ~= "__type" and k ~= "__name" then
+        out[#out+1] = tostring(k) .. ": "
+        dump_value(v[k], 0, out)
+        out[#out+1] = "\n"
+      end
     end
   end
   if ty then out[#out+1] = "}\n" end

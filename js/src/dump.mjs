@@ -54,7 +54,9 @@ function quoteIfNeeded(s) {
   return '"' + escapeStr(str) + '"';
 }
 
-function dumpValue(v, indent, out) {
+// `allowHead`：只有**键位置**（`stringify` 的单键还原）才允许写块头
+// `Type name { … }`；值位置写了它回读必失败 —— 见下面对象分支的注释。
+function dumpValue(v, indent, out, allowHead) {
   const pad = "  ".repeat(indent);
   if (v === null) out.push("null");
   else if (typeof v === "boolean") out.push(v ? "true" : "false");
@@ -68,21 +70,30 @@ function dumpValue(v, indent, out) {
       out.push("\n" + pad + "]");
     }
   } else if (typeof v === "object") {
-    const keys = Object.keys(v).filter((k) => k !== "__type" && k !== "__name");
-    // Typed block: emit `Type name { … }` instead of dropping the metadata.
-    // 带类型块：输出块头，而不是把 `__type` / `__name` 丢掉（conformance 30）。
+    // **值位置一律写扁平对象**：`__type` / `__name` 作为普通键原样写出。
+    //
+    // 块头形式（`Type name { … }`）只在**键位置**成立 —— 见 `stringify` 的单键还原。
+    // 改前这里无条件写块头，于是 `d: { S: S prod { } }` 回读时报 `E-PARSE-006`
+    // （值位置不能写裸块头），整份文档 dump 之后自己读不回来（台账 §4.5d）。
+    // 键按字典序：Rust 用 BTreeMap，`__name` < `__type` < 普通键。
     const ty = v.__type;
-    if (keys.length === 0 && !ty) { out.push("{}"); return; }
-    if (ty) {
+    const keys = Object.keys(v).sort();
+    if (keys.length === 0) { out.push("{}"); return; }
+    if (allowHead && ty) {
       out.push(String(ty));
       if (v.__name !== undefined) out.push(" " + String(v.__name));
       out.push(" {");
+      for (const k of keys) {
+        if (k === "__type" || k === "__name") continue;
+        out.push("\n" + "  ".repeat(indent + 1) + k + ": ");
+        dumpValue(v[k], indent + 1, out);
+      }
     } else {
       out.push("\n" + pad + "{");
-    }
-    for (const k of keys) {
-      out.push("\n" + "  ".repeat(indent + 1) + k + ": ");
-      dumpValue(v[k], indent + 1, out);
+      for (const k of keys) {
+        out.push("\n" + "  ".repeat(indent + 1) + k + ": ");
+        dumpValue(v[k], indent + 1, out);
+      }
     }
     out.push("\n" + pad + "}");
   }
@@ -94,7 +105,8 @@ function dumpInline(v) {
   if (typeof v === "string") return quoteIfNeeded(v);
   if (Array.isArray(v)) return "[ " + v.map(dumpInline).join(", ") + " ]";
   if (typeof v === "object") {
-    const keys = Object.keys(v).filter((k) => k !== "__type" && k !== "__name");
+    // 与 `dumpValue` 同口径：值位置**不丢** `__type` / `__name`（它们也是数据）。
+    const keys = Object.keys(v).sort();
     return "{ " + keys.map((k) => {
       let vs;
       if (typeof v[k] === "string") vs = quoteIfNeeded(v[k]);
@@ -120,10 +132,18 @@ export function stringify(v) {
       const k = all[0];
       const sub = v[k];
       if (sub && typeof sub === "object" && !Array.isArray(sub) && sub.__type === k) {
-        dumpValue(sub, 0, out);
+        dumpValue(sub, 0, out, true);
         out.push("\n");
         return out.join("");
       }
+    }
+    // 顶层**本身**就是 typed block（根写作 `User u1 { … }`）：保留块头。
+    // 缺这一支时根上的 `__type` / `__name` 会被 `continue` 掉，dump 出来只剩 `name: g`，
+    // 回读就丢了类型标注（与 Lua `Sml.dump` 的同名分支对齐）。
+    if (v.__type) {
+      dumpValue(v, 0, out, true);
+      out.push("\n");
+      return out.join("");
     }
     for (const k of all) {
       if (k === "__type" || k === "__name") continue;
