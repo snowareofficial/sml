@@ -4,13 +4,17 @@
 
 ## 2026-11-15 复核
 
-实测 **AGREE 61 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`
+实测 **AGREE 62 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`
 五端全部可用；`19` 以 `*` 放行）。
 
 新增 `61_array_bare_block`：**数组位置的裸块**。`[ A B item { … } ]` 在 Rust 里是**一个**
 块元素（多契约 + 块名 + 元数据），此前 JS 把它拆成四个标量（静默错树）、C / C++ / Lua 各
 写各的；现在五端共用各自键位置的那一份实现（见 `docs/swsml/ref/grammar-divergences.md`
 §4.5e）。用例同时钉住反面判据：词序列后没有 `{` ⇒ `[ plain word ]` 仍是两个标量元素。
+
+新增 `62_type_array_elem`：**`[D]` 的数组元素**按 D 的模式校验、错误带下标 `v[1]`。
+JS 早先只判「元素是个字符串」，`"abc"` 直接放行（与 Rust / C / C++ / Lua 的 `009` 不一致）；
+现在 JS 的字段级与元素级共用 `checkValueType`，五端同码 `E-CONTRACT-009`。
 
 ## 2026-11-14 判据盲区复核（兼容套件**检不出**的差异）
 

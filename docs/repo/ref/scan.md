@@ -1,6 +1,6 @@
 # 文档状态扫描（生成物，勿手改）
 
-> 生成：`python tools/scan_status.py --write` · 2026-11-15 23:56
+> 生成：`python tools/scan_status.py --write` · 2026-11-16 00:18
 > 手工编辑会在下次扫描时被覆盖；结论写进 `unfinished.md`。
 
 ## 汇总
@@ -18,7 +18,7 @@
 | 缺 `js` | 116 |
 | 缺 `c` | 129 |
 | 缺 `lua` | 127 |
-| conformance | AGREE 61 / DIVERGE 0（用例 61 个） |
+| conformance | AGREE 62 / DIVERGE 0（用例 62 个） |
 | CI 跑 fuzz / bench | False / False |
 | `docs/**` 未完成标记 ⬜ | 36 |
 

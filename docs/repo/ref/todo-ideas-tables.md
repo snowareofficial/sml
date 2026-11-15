@@ -19,14 +19,14 @@
 | IDEAS 条目 | **29**（I-1…I-30，其中 I-12 = `Rejected`、I-24 待裁决） | `Select-String IDEAS.md '^## I-\d+'` |
 | 码表条目 | **167**（含 `W-CLI-001`） | `Select-String errors/codes.sml '\{ id: [EWI]-'`；生成物 `site/static/errors.json` |
 | 仅 Rust 实现（`impls: [ rust ]`） | **44**；语言层 **36**（PARSE 15 / CONTRACT 9 / FEATURE 4 / INCLUDE 3 / EXT 3 / LEX 1 / LIMIT 1）+ DERIVE 8（宿主绑定层，Rust 专属，不是跨端欠账）。2026-11-13 回填：`W-PARSE-001` 五端 done、`W-CONTRACT-001` 五端 partial，故 PARSE 16→15、CONTRACT 10→9；剩余是**逐码实现缺口**，不再是「无诊断通道」（五端都有出口） | `Select-String errors/codes.sml 'impls: \[ rust \]'`，按 `domain` 分组 |
-| 一致性套件 | **61 例 / AGREE 61 / DIVERGE 0**（`19` 以 `*` 放行） | `python tests/conformance/run_conformance.py --require-all`；`docs/repo/ref/scan.md` |
+| 一致性套件 | **62 例 / AGREE 62 / DIVERGE 0**（`19` 以 `*` 放行） | `python tests/conformance/run_conformance.py --require-all`；`docs/repo/ref/scan.md` |
 | `.vsix` 产物 vs 源码 | 产物最新 **0.4.3**，`package.json` 已是 **0.5.0** | `Get-ChildItem editors/vscode -Filter *.vsix` |
 | 本会话新增（表 1.5，N01–N06） | **6**（已完成 4 / 部分完成 1 / 未做 1） | 见 `## 表 1.5` |
 
 **三处与旧文档不一致（以本表为准，别照抄旧数字）**
 
 1. `TODO.md:812` 写「146 条码」——`site/static/errors.json` 实测 **167 条**（`W-CLI-001` 登记后）。
-2. `TODO.md:166`「顶层标量未统一」、`TODO.md:149`「一致性套件本轮不做」都是**过期未勾**：前者五端已同报 `E-PARSE-008`，后者套件已建（61 例）。
+2. `TODO.md:166`「顶层标量未统一」、`TODO.md:149`「一致性套件本轮不做」都是**过期未勾**：前者五端已同报 `E-PARSE-008`，后者套件已建（62 例）。
 3. `IDEAS.md` 的 `I-23` 写 `Todo`、`I-18` 写「零实现」、`TODO.md §10.1` 写 `smlb` 待裁决 —— 均已被 2026-11-06 覆盖：改名 B 档落地（`0f1c7f4`）、性能 A/B 全落（`b5ec96a`…`f6c19b3`）。见 T29 / I-18 / I-23 行。
 
 ---
@@ -35,7 +35,7 @@
 
 | 编号 | 主题 | 状态 | 优先级 | 依赖 | 完成判据 | 来源(file:行) | 卡在谁 |
 |---|---|---|---|---|---|---|---|
-| T01 | 跨实现一致性套件（conformance） | 部分完成：61 例 AGREE 61 / DIVERGE 0（P5 后 +6 条版本用例，2026-11-15 +1 条数组位置裸块）；`19` 经 `WAIVERS` 以 `*` 放行，待登记为永久取舍 | P1 | 无 | `run_conformance.py` 输出 DIVERGE=0 且五端无 SKIP（后者未在 CI 实测） | `TODO.md:149`、`tests/conformance/known_divergences.md:5` | 实现者（永久取舍登记 / CI 首跑） |
+| T01 | 跨实现一致性套件（conformance） | 部分完成：62 例 AGREE 62 / DIVERGE 0（P5 后 +6 条版本用例；2026-11-15 +2：数组位置裸块 / `[D]` 元素校验）；`19` 经 `WAIVERS` 以 `*` 放行，待登记为永久取舍 | P1 | 无 | `run_conformance.py` 输出 DIVERGE=0 且五端无 SKIP（后者未在 CI 实测） | `TODO.md:149`、`tests/conformance/known_divergences.md:5` | 实现者（永久取舍登记 / CI 首跑） |
 | T02 | 顶层标量行为统一 | 已完成(未勾)：五端同报 `E-PARSE-008` | P2 | 无 | 五端各跑 `42` 均得 `E-PARSE-008`（码表该条 `impls: [ rust js c cpp lua ] status: done`） | `TODO.md:166`、对照 `TODO.md:1178` | 无；只需回填勾选 |
 | T03 | 错误边界不一致（同名键 / 未闭合括号 / 空文档 / 仅注释 / 重复片段名） | 部分完成：同名键已改告警 `W-PARSE-001/002`；空文档与仅注释两例已五端 AGREE | P1 | T01 | 五类各一条 conformance 用例全 AGREE | `TODO.md:201`、`tests/conformance/known_divergences.md:15` | 实现者 |
 | T04 | Lua/JS 缺单元测试 | 部分完成：Lua 有 `test_codes.lua` 184 条 + `run_check.py` 120 条；JS 有 `probe-error-codes.mjs` 52 条（均为脚本，非测试框架） | P2 | T01 | 两端各有进 CI 的测试目标，且 `0 passed` 不算通过 | `TODO.md:203` | 实现者 |
@@ -211,7 +211,7 @@
 | I-27 | featag 区**允许多项并列**，且**区内后续项的 `!` 可以省略** | **Done（2026-11-15，五端同源）**：① 多项并列本来就支持；② 省略 `!` 已实现 —— **首项必须 `!`（锚点），区内后续项按「命中当前契约的 featag 声明」可省**，于是 `A !t u, one { }` 的 `u` 是 featag、`A !t B, three { }` 的 `B` 仍是契约词。Rust 先行（`parse_featag_region` 加 `owner` 参数 + `featag_declared`），四端同构；**键位置与数组位置都五端一致**（数组位置 JS 已补齐，见 I-30） | 语言设计 / featag | `eb9b2c4` 的裁决 | 两件事要分开看：① **多项并列**已经支持（`A !t !u, name { }`）；② **省略 `!`** 只在「区已被首个 `!` 锚定」时无歧义 —— `A !t u, name { }` 里 `u` 确定在区内（区到 `,` / `{` 为止）；而 `A rep[3], name { }`（没有 `!` 锚点）里 `rep` 到底是契约词还是 featag **只能靠次序猜**，那正是 `eb9b2c4` 否掉的写法。**若采纳省略 `!`，实施要点**（已勘察，未动）：① Rust `parse_featag_region` 现在**不接收 key**，要改成收 key 并查 `self.contracts` 的featag 声明表 —— 判据变成「区内且已收到至少一项、且该词命中当前契约的 featag 声明」⇒ 视为 featag，否则退出区（继续当契约词/块名）；四端同构（它们的区循环里已有 `owner`，加一个分支即可）。② 代价两条：拼错的 featag（`!t up` 的 `up`）会退化成「契约词未定义 ⇒ 001」，而不是现在的「未声明 ⇒ 021」—— 诊断变差；某词同时是契约名与该契约的 featag 名时需定优先级（建议 featag 优先，因为它已在区内）。③ 同步 `featag.md` §2.2、`grammar.sml` 示例、Rust 的 `featag_syntax` / `featag_validate` 与四端手写对拍 | 本次对话（2026-11-15） |
 | I-28 | 衍生 / 下游项目：**`smlite`**、**`eclog-rs`**、**`hwid`**、**`instgen`** | Todo（用户 2026-11-15 口述，四者**都准备放独立仓库**） | 治理 / 下游 | `smlite` / `eclog-rs` 各是什么仍需用户一句话（解析器子集？日志/结构化记录？）；`hwid` / `instgen` 已明确 | 四个项目的定位（用户 2026-11-15 原话）：① **`hwid`** —— hardware id，基于硬件的身份生成工具；② **`instgen`** —— 安装程序生成系统，支持一键包生成；③ `smlite` —— 轻量 SML（？）；④ `eclog-rs` —— （？）。与 I-22「下游方言」同一格：先确认它们**只要语言子集**还是要新语法；若只是子集，可直接复用 `sml-parse` + 关掉特性位，不必另写解析器。独立仓库意味着**依赖面**要定：走 crates.io 依赖 `swsml`（I-19 `swml` 门面）还是 vendored 一份？确认后逐项补「允许 / 不允许 + 边界」 | 本次对话（2026-11-15） |
 | I-29 | **全仓国际化**（I-11 的具体化：不止 Rust 端） | Todo（用户 2026-11-15 要求「记一下之后的全仓国际化任务」） | 文档 / i18n | I-11 已落 Rust 侧十二批 | 范围：① 四端硬编码文案（JS / C / C++ / Lua 的错误消息、CLI 输出）② `errors/gen_*` 的**模板**（生成物 doc 注释里的中文）③ `site/` 与编辑器扩展（package.json 文案、诊断 message）④ 文档正文是否双语（现状：`docs/` 中文为主，`CHANGELOG.en.md` 另存）。判据建议沿用 `errors/README.md` 的口径：**中文是源语言，英文是翻译层，缺英文回退中文、永不空**；新增文案一律走码表，不写字面量 | 本次对话（2026-11-15）；`docs/repo/ref/todo-ideas-tables.md` I-11 |
-| I-30 | **键位置与数组位置的裸块实现合并**（C / C++ / Lua 三端各两份同构代码 → 各一份） | **Done（2026-11-15）** | 质量 / 解析器 | 无 | 三端统一成「一个 head + 一个 finish，键位置与数组位置只做接线」：C `parse_bare_head` / `finish_bare_block`（`c/src/05_parse.inc`，键位置内联的 ~240 行已删）；C++ `parse_bare_block_from`（键位置 `parse_block` 的裸块分支与数组位置 `parse_bare_block` 共用，后者只剩「消费类型词 + 转调」）；Lua `parse_bare_head` / `parse_finish_bare_block`（`parse_array_bare_block` 只剩接线）。**原先的阻塞不可复现**：`peek(ps)` 就是直读 `ps->lx->toks[ps->lx->pos]`、没有缓存，「`peek` 与 `pos` 不同步」不成立；重做后 `probe_matrix` 的 5 条 featag 行仍是五端同码 021。验收：`conformance` 60 例全 AGREE、`probe_grammar` 仍 1/20（数字身份）、`probe_matrix` 仍 94 行 / 5 行不一致（同源）；`c/build_check.py` 的 2 条与 `cpp/build_verify.py` 的 CODES 1 条是**既存红**（`E-FEATURE-002/006` 期望值过期），HEAD 上同样红。**另**（原交接 §5 第 5 条）：JS 的数组位置裸块一并补齐 —— 原先 `[ A B item { } ]` 被拆成四个标量（静默错树）、`[ S !t srv { } ]` 在值位置撞 `!` 报 027；现在 JS 也有 `bareBlockAhead` / `parseBareBlockFrom`，五端同树，新增 conformance `61_array_bare_block`（多契约 / 块名 / featag 区 / 非块四格） | 本次对话（2026-11-15） |
+| I-30 | **键位置与数组位置的裸块实现合并**（C / C++ / Lua 三端各两份同构代码 → 各一份） | **Done（2026-11-15）** | 质量 / 解析器 | 无 | 三端统一成「一个 head + 一个 finish，键位置与数组位置只做接线」：C `parse_bare_head` / `finish_bare_block`（`c/src/05_parse.inc`，键位置内联的 ~240 行已删）；C++ `parse_bare_block_from`（键位置 `parse_block` 的裸块分支与数组位置 `parse_bare_block` 共用，后者只剩「消费类型词 + 转调」）；Lua `parse_bare_head` / `parse_finish_bare_block`（`parse_array_bare_block` 只剩接线）。**原先的阻塞不可复现**：`peek(ps)` 就是直读 `ps->lx->toks[ps->lx->pos]`、没有缓存，「`peek` 与 `pos` 不同步」不成立；重做后 `probe_matrix` 的 5 条 featag 行仍是五端同码 021。验收：`conformance` 当时 60 例全 AGREE（本轮末累计 62 例，见下）、`probe_grammar` 仍 1/20（数字身份）、`probe_matrix` 仍 94 行 / 5 行不一致（同源）；`c/build_check.py` 的 2 条与 `cpp/build_verify.py` 的 CODES 1 条是**既存红**（`E-FEATURE-002/006` 期望值过期），HEAD 上同样红。**另**（原交接 §5 第 5 条）：JS 的数组位置裸块一并补齐 —— 原先 `[ A B item { } ]` 被拆成四个标量（静默错树）、`[ S !t srv { } ]` 在值位置撞 `!` 报 027；现在 JS 也有 `bareBlockAhead` / `parseBareBlockFrom`，五端同树，新增 conformance `61_array_bare_block`（多契约 / 块名 / featag 区 / 非块四格） | 本次对话（2026-11-15） |
 
 ---
 

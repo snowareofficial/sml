@@ -451,6 +451,85 @@ function valueMatchesType(v, sp) {
   }
 }
 
+// 单个值的**类型**校验：字段级与**数组元素**共用一份。
+//
+// 数组逐元素走这里，错误带下标（`v[1]`）—— 与 Rust `check_type` 的递归同形。
+// 早先数组只经 `valueMatchesType` 的 `every()`：它对 pattern 元素只判「是个字符串」，
+// 格式约束在数组里静默失效（`v: [D3]` 的 `"abc"` 直接放行），与 Rust / C / C++ / Lua
+// 的 `E-CONTRACT-009` 不一致。min/max 区间属**字段整体**，不在这里判。
+// 返回错误数组（空 = 通过）。
+function checkValueType(contracts, sp, v, full) {
+  const out = [];
+  // 自定义模式类型：非字符串必须显式报错并提示加引号——
+  // 像 `证件号: 221099 1988 0987 1211` 这种裸写会被词法切成数字，
+  // 只剩末段还不报错，是本项目明确要消灭的「静默数据损坏」。
+  if (sp.type === "pattern") {
+    if (typeof v !== "string") {
+      out.push({ code: "E-CONTRACT-009", msg: `字段 ${full} 类型 ${sp.refName} 要求字符串（号码 / 编号 / 身份证请用引号包裹），实得 ${Array.isArray(v) ? "array" : typeof v}` });
+      return out;
+    }
+    // 防御：JS RegExp 有回溯，超长输入直接拒绝而非硬算
+    if (v.length > PATTERN_MAX_LEN) {
+      out.push({ code: "E-CONTRACT-009", msg: `字段 ${full} 的值过长（${v.length} > ${PATTERN_MAX_LEN}），拒绝校验` });
+      return out;
+    }
+    let ok = false;
+    try { ok = sp.patternRe.test(v); } catch { ok = false; }
+    if (!ok) out.push({ code: "E-CONTRACT-009", msg: `字段 ${full} 的值 \`${v}\` 不符合类型 ${sp.refName} 的格式要求` });
+    return out;
+  }
+  if (sp.type === "ext") {
+    // 外置类型：由下游的判定函数回答合不合法。
+    // 约定返回值：true 通过 / false 失败 / 字符串 = 失败原因；抛错也按失败处理。
+    let r;
+    try { r = sp.extCheck(v); } catch (e) { r = String((e && e.message) || e); }
+    if (r === false) out.push({ code: "E-CONTRACT-007", msg: `字段 ${full} 不符合扩展类型 ${sp.refName}` });
+    else if (typeof r === "string") out.push({ code: "E-CONTRACT-007", msg: `字段 ${full} 不符合扩展类型 ${sp.refName}：${r}` });
+    return out;
+  }
+  if (sp.type === "contract") {
+    const sub = contracts[sp.refName];
+    if (!sub) {
+      out.push({ code: "E-CONTRACT-001", msg: `契约 ${sp.refName} 未定义（字段 ${full}）` });
+      return out;
+    }
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      const subErr = checkContract(contracts, sub, v, full);
+      if (subErr) out.push(...subErr);
+    } else {
+      out.push({ code: "E-CONTRACT-008", msg: `字段 ${full} 应为主对象（组合契约 ${sp.refName}）` });
+    }
+    return out;
+  }
+  if (sp.type === "array") {
+    if (!Array.isArray(v)) {
+      out.push({ code: "E-CONTRACT-002", msg: `字段 ${full} 类型错误：期望 ${typeName(sp)}，实得 ${typeof v}` });
+      return out;
+    }
+    if (sp.arrInner) {
+      for (let idx = 0; idx < v.length; idx++) {
+        out.push(...checkValueType(contracts, sp.arrInner, v[idx], `${full}[${idx}]`));
+      }
+    }
+    return out;
+  }
+  if (sp.type === "enum") {
+    // 枚举取值非法是 006，不是 002。
+    const sv = typeof v === "string" ? v
+      : typeof v === "number" ? String(v)
+      : null;
+    if (sv === null || !sp.enumVals.includes(sv)) {
+      out.push({ code: "E-CONTRACT-006",
+        msg: `字段 ${full} 的取值不在枚举内：期望 ${sp.enumVals.join(" / ")}，实得 ${String(v)}` });
+      return out;
+    }
+  }
+  if (!valueMatchesType(v, sp)) {
+    out.push({ code: "E-CONTRACT-002", msg: `字段 ${full} 类型错误：期望 ${typeName(sp)}，实得 ${Array.isArray(v) ? "array" : typeof v}` });
+  }
+  return out;
+}
+
 function applyDefaults(contract, obj, contracts) {
   for (const [k, sp] of Object.entries(contract.fields)) {
     // 契约字段名来自文档，同样不可为危险键（纵深防御；
@@ -480,58 +559,11 @@ function checkContract(contracts, contract, obj, path) {
       continue;
     }
     const v = obj[k];
-    // 自定义模式类型：非字符串必须显式报错并提示加引号——
-    // 像 `证件号: 221099 1988 0987 1211` 这种裸写会被词法切成数字，
-    // 只剩末段还不报错，是本项目明确要消灭的「静默数据损坏」。
-    if (sp.type === "pattern") {
-      if (typeof v !== "string") {
-        errs.push({ code: "E-CONTRACT-009", msg: `字段 ${full} 类型 ${sp.refName} 要求字符串（号码 / 编号 / 身份证请用引号包裹），实得 ${Array.isArray(v) ? "array" : typeof v}` });
-        continue;
-      }
-      // 防御：JS RegExp 有回溯，超长输入直接拒绝而非硬算
-      if (v.length > PATTERN_MAX_LEN) {
-        errs.push({ code: "E-CONTRACT-009", msg: `字段 ${full} 的值过长（${v.length} > ${PATTERN_MAX_LEN}），拒绝校验` });
-        continue;
-      }
-      let ok = false;
-      try { ok = sp.patternRe.test(v); } catch { ok = false; }
-      if (!ok) errs.push({ code: "E-CONTRACT-009", msg: `字段 ${full} 的值 \`${v}\` 不符合类型 ${sp.refName} 的格式要求` });
-      continue;
-    }
-    if (sp.type === "ext") {
-      // 外置类型：由下游的判定函数回答合不合法。
-      // 约定返回值：true 通过 / false 失败 / 字符串 = 失败原因；抛错也按失败处理。
-      let r;
-      try { r = sp.extCheck(v); } catch (e) { r = String((e && e.message) || e); }
-      if (r === false) errs.push({ code: "E-CONTRACT-007", msg: `字段 ${full} 不符合扩展类型 ${sp.refName}` });
-      else if (typeof r === "string") errs.push({ code: "E-CONTRACT-007", msg: `字段 ${full} 不符合扩展类型 ${sp.refName}：${r}` });
-      continue;
-    }
-    if (sp.type === "contract") {
-      const sub = contracts[sp.refName];
-      if (!sub) { errs.push({ code: "E-CONTRACT-001", msg: `契约 ${sp.refName} 未定义（字段 ${full}）` }); continue; }
-      if (v && typeof v === "object" && !Array.isArray(v)) {
-        const subErr = checkContract(contracts, sub, v, full);
-        if (subErr) errs.push(...subErr);
-      } else {
-        errs.push({ code: "E-CONTRACT-008", msg: `字段 ${full} 应为主对象（组合契约 ${sp.refName}）` });
-      }
-      continue;
-    }
-    if (sp.type === "enum") {
-      // 枚举取值非法是 006，不是 002。改前 `valueMatchesType` 返回 false ⇒ 落进下面
-      // 的通用类型错误（002），与 Rust 的 006 不一致。
-      const sv = typeof v === "string" ? v
-        : typeof v === "number" ? String(v)
-        : null;
-      if (sv === null || !sp.enumVals.includes(sv)) {
-        errs.push({ code: "E-CONTRACT-006",
-          msg: `字段 ${full} 的取值不在枚举内：期望 ${sp.enumVals.join(" / ")}，实得 ${String(v)}` });
-        continue;
-      }
-    }
-    if (!valueMatchesType(v, sp)) {
-      errs.push({ code: "E-CONTRACT-002", msg: `字段 ${full} 类型错误：期望 ${typeName(sp)}，实得 ${Array.isArray(v) ? "array" : typeof v}` });
+    // 类型校验交给 `checkValueType` —— 与**数组元素**同一份实现（元素错带 `v[i]` 下标），
+    // 这样「同一条件同一个码」在字段与元素两层都成立。
+    const typeErrs = checkValueType(contracts, sp, v, full);
+    if (typeErrs.length) {
+      errs.push(...typeErrs);
       continue;
     }
     if (sp.min !== undefined || sp.max !== undefined) {
