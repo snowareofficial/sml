@@ -136,8 +136,11 @@ static bool bare_block_ahead(const PState& st) {
 /* 数组元素位置的裸块 `type [featag 区] [契约词…] [块名] { … }`（W4 ③ B 类）。
    **实现在 `05_parse.inc`** —— 那里才有 S7（`check_from_featag`）与 S6（`write_target`）
    这些 featag helper（本文件在它之前 include）。与键位置同构：`__type` = 类型词、
-   首个非契约词 ⇒ `__name`、其余 ⇒ `__args`；多契约与 featag 区都走同一个判据。 */
+   首个非契约词 ⇒ `__name`、其余 ⇒ `__args`；多契约与 featag 区都走同一个判据。
+   **键位置与数组位置共用 `parse_bare_block_from`**（类型词已由调用方消费）——
+   Rust 两处进的是同一个 `bare_child_frame`。 */
 static ValuePtr parse_bare_block(PState& st);
+static ValuePtr parse_bare_block_from(PState& st, const std::string& key);
 
 static ValuePtr parse_array(PState& st) {
     auto arr = Value::array();
