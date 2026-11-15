@@ -313,8 +313,13 @@ static int parse_bare_head(parser *ps, const char *key,
         for (;;) {
             token *tk = peek(ps);
             char *tag;
-            if (tk->t != T_WORD || tk->v[0] != '!') break;
-            tag = tk->v + 1;
+            if (tk->t != T_WORD) break;
+            /* I-27：区内后续项可省 `!`（与键位置同判据） */
+            if (tk->v[0] != '!' &&
+                (featags == NULL ||
+                 !contract_featag_find(contract_find(ps, key), tk->v)))
+                break;
+            tag = (tk->v[0] == '!') ? (tk->v + 1) : tk->v;
             /* **S5 使用处校验**：featag 的作用域是契约私有 —— 块头写了契约里
                没声明的名字就拒（Rust 同码 E-CONTRACT-021）。改前只收集不校验，
                拼错的 `!critcal` 会被静默记进 `__featags`。 */
@@ -1201,8 +1206,15 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                     for (;;) {
                         token *tk = peek(ps);
                         char *tag;
-                        if (tk->t != T_WORD || tk->v[0] != '!') break;
-                        tag = tk->v + 1;
+                        if (tk->t != T_WORD) break;
+                        /* I-27：区内的**后续**项可省 `!` —— 判据是「命中当前契约的
+                           featag 声明」。多契约 `A !t B, name { }` 的 B 不在声明里
+                           ⇒ 仍按契约词处理，不会与 featag 抢同一个裸词。 */
+                        if (tk->v[0] != '!' &&
+                            (featags == NULL ||
+                             !contract_featag_find(contract_find(ps, key), tk->v)))
+                            break;
+                        tag = (tk->v[0] == '!') ? (tk->v + 1) : tk->v;
                         /* **S5 使用处校验**：featag 的作用域是契约私有 —— 块头写了契约里
                            没声明的名字就拒（Rust 同码 E-CONTRACT-021）。改前只收集不校验，
                            拼错的 `!critcal` 会被静默记进 `__featags`。 */

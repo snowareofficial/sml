@@ -1168,8 +1168,18 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                 for (;;) {
                     if (st.i >= st.toks.size()) break;
                     const Token& tk = st.toks[st.i];
-                    if (tk.t != Token::T::Word || tk.s.empty() || tk.s[0] != '!') break;
-                    const std::string tag = tk.s.substr(1);
+                    if (tk.t != Token::T::Word || tk.s.empty()) break;
+                    /* I-27：区内的**后续**项可省 `!` —— 判据是「命中当前契约的 featag
+                       声明」。多契约 `A !t B, name { }` 的 B 不在声明里 ⇒ 仍是契约词。 */
+                    if (tk.s[0] != '!') {
+                        bool declared = false;
+                        auto ow = st.contracts.find(key);
+                        if (ow != st.contracts.end())
+                            for (const auto& d : ow->second.featags)
+                                if (d.name == tk.s) { declared = true; break; }
+                        if (!featags || !declared) break;
+                    }
+                    const std::string tag = (tk.s[0] == '!') ? tk.s.substr(1) : tk.s;
                     /* **S5 使用处校验**：featag 契约私有 —— 块头写契约里没声明的名字就拒
                        （Rust 同码 E-CONTRACT-021）。改前只收集不校验。 */
                     const FeatagDecl* decl = nullptr;
@@ -1539,8 +1549,17 @@ static ValuePtr parse_bare_block(PState& st) {
         for (;;) {
             if (st.i >= st.toks.size()) break;
             const Token& tk = st.toks[st.i];
-            if (tk.t != Token::T::Word || tk.s.empty() || tk.s[0] != '!') break;
-            const std::string tag = tk.s.substr(1);
+            if (tk.t != Token::T::Word || tk.s.empty()) break;
+            /* I-27：区内后续项可省 `!`（与键位置同判据） */
+            if (tk.s[0] != '!') {
+                bool declared = false;
+                auto ow = st.contracts.find(key);
+                if (ow != st.contracts.end())
+                    for (const auto& d : ow->second.featags)
+                        if (d.name == tk.s) { declared = true; break; }
+                if (!featags || !declared) break;
+            }
+            const std::string tag = (tk.s[0] == '!') ? tk.s.substr(1) : tk.s;
             const FeatagDecl* decl = nullptr;
             {
                 auto owner = st.contracts.find(key);

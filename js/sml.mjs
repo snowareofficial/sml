@@ -2803,8 +2803,16 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
           if (featOn) {
             for (;;) {
               const tk = peek();
-              if (!tk || tk.t !== "word" || !tk.v.startsWith("!")) break;
-              const tag = tk.v.slice(1);
+              if (!tk || tk.t !== "word") break;
+              const bang = tk.v.startsWith("!");
+              if (!bang) {
+                // I-27：区内的**后续**项可省 `!` —— 判据是「命中当前契约的 featag 声明」。
+                // 多契约 `A !t B, name { }` 的 B 不在声明里 ⇒ 仍按契约词处理。
+                const own0 = contracts[key] || contracts[nsPrefix + key];
+                const dec0 = own0 && own0.featags ? own0.featags.get(tk.v) : undefined;
+                if (!featags || !dec0) break;
+              }
+              const tag = bang ? tk.v.slice(1) : tk.v;
               // **S5 使用处校验**：featag 契约私有 —— 块头写契约里没声明的名字就拒
               // （与 Rust / C / C++ 同码 E-CONTRACT-021）。改前只收集不校验。
               const owner = contracts[key] || contracts[nsPrefix + key];

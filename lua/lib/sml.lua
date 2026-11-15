@@ -2581,8 +2581,16 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
         if feat_on then
           while tokens[i] ~= nil do
             local tk = tokens[i]
-            if type(tk) ~= "string" or string.sub(tk, 1, 1) ~= "!" then break end
-            local nm = string.sub(tk, 2)
+            if type(tk) ~= "string" then break end
+            local bang = string.sub(tk, 1, 1) == "!"
+            if not bang then
+              -- I-27：区内的**后续**项可省 `!` —— 判据是「命中当前契约的 featag 声明」。
+              -- 多契约 `A !t B, name { }` 的 B 不在声明里 ⇒ 仍按契约词处理。
+              local own = contracts[key]
+              local dec = own and own.featags and own.featags[tk] or nil
+              if featags == nil or dec == nil then break end
+            end
+            local nm = bang and string.sub(tk, 2) or tk
             -- **S5 使用处校验**：featag 契约私有 —— 块头写契约里没声明的名字就拒
             -- （与 Rust / C / C++ / JS 同码 E-CONTRACT-021）。改前只收集不校验。
             local owner = contracts[key]
@@ -2790,8 +2798,15 @@ parse_array_bare_block = function(tokens, i, fragments, contracts, depth)
   if feat_on then
     while tokens[i] ~= nil do
       local tk = tokens[i]
-      if type(tk) ~= "string" or string.sub(tk, 1, 1) ~= "!" then break end
-      local nm = string.sub(tk, 2)
+      if type(tk) ~= "string" then break end
+      local bang = string.sub(tk, 1, 1) == "!"
+      if not bang then
+        -- I-27：区内后续项可省 `!`（与键位置同判据）
+        local own = contracts[key]
+        local dec = own and own.featags and own.featags[tk] or nil
+        if featags == nil or dec == nil then break end
+      end
+      local nm = bang and string.sub(tk, 2) or tk
       local owner = contracts[key]
       local decl = owner and owner.featags and owner.featags[nm] or nil
       if owner ~= nil and decl == nil then

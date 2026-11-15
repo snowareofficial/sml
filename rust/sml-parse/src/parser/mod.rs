@@ -1804,7 +1804,7 @@ impl<'a> Parser<'a> {
         // featag（S2 识别 + S3 落数据）：块头首词之后的 `!` 区，解析成**保序**的项列表，
         // 稍后由 `finish_bare_block` 写成 `__featags`。声明校验不做（那是 S4/S5）。
         let featags = if self.features.has(Feature::Featag) {
-            self.parse_featag_region()?
+            self.parse_featag_region(type_name)?
         } else {
             Vec::new()
         };
@@ -1848,6 +1848,14 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// `owner` 契约里有没有声明这个 featag（I-27 的「区内省略 `!`」判据）。
+    fn featag_declared(&self, owner: &str, name: &str) -> bool {
+        self.contracts
+            .get(owner)
+            .map(|c| c.featags.iter().any(|d| d.name == name))
+            .unwrap_or(false)
+    }
+
     /// S2：消费块头首词之后的 **featag 区**（`!critical` / `!obey[1, 2]` 与终止逗号）。
     ///
     /// 规则（`docs/swsml/spec/featag.md` §2.2 / §2.3）：
@@ -1862,13 +1870,23 @@ impl<'a> Parser<'a> {
     /// 返回**保序**的项列表，每项形如 `{ name: "…" }` 或 `{ name: "…", args: [ … ] }`
     /// （S3 契约：不复用 `__args`，那是「块名之后的裸词」，两种语义混在一起会分不清）。
     /// 空列表 = 本块头没有 featag 区，调用方逐字走旧路径。
-    fn parse_featag_region(&mut self) -> Result<Vec<Value>, SmlError> {
+    fn parse_featag_region(&mut self, owner: &str) -> Result<Vec<Value>, SmlError> {
         let mut items: Vec<Value> = Vec::new();
         loop {
-            let word = match self.peek() {
-                Some(Tok::Word(w)) => Some(w.clone()),
+            let word: Option<String> = match self.peek() {
+                Some(Tok::Word(w)) => Some(w.to_string()),
                 _ => None,
             };
+            /* I-27：区内的**后续**项可以省 `!`。
+               判据不是「随便一个裸词」，而是「它命中当前契约的 featag 声明」——
+               于是多契约 `A !t B, name { }` 里 B（契约词、不在 A 的声明里）仍是契约词，
+               而 `A !t u, name { }` 的 u（在 A 的声明里）是 featag。
+               代价：拼错的 featag（`!t up`）会退化成「契约词未定义 001」而不是 021。 */
+            let bare_ok = !items.is_empty()
+                && word
+                    .as_deref()
+                    .map(|w| !w.starts_with('!') && self.featag_declared(owner, w))
+                    .unwrap_or(false);
             match word {
                 Some(w) if w.starts_with('!') => {
                     // B1：`wea ! , name { }` —— `!` 后面什么都没有（`!!x` 同理）
@@ -1883,6 +1901,17 @@ impl<'a> Parser<'a> {
                     item.insert("name".into(), Value::Str(name.to_string()));
                     if self.peek() == Some(&Tok::LBrack) {
                         self.next(); // `parse_array` 假定 `[` 已被消费（与其它调用点一致）
+                        item.insert("args".into(), self.parse_array()?);
+                    }
+                    items.push(Value::Object(item));
+                }
+                Some(w) if bare_ok => {
+                    // 无 `!` 的后续项（I-27）：与带 `!` 的完全等价，只是省了标记
+                    self.next();
+                    let mut item = self.new_map();
+                    item.insert("name".into(), Value::Str(w));
+                    if self.peek() == Some(&Tok::LBrack) {
+                        self.next();
                         item.insert("args".into(), self.parse_array()?);
                     }
                     items.push(Value::Object(item));
