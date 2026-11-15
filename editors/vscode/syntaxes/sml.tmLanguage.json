@@ -323,20 +323,37 @@
       "match": "(?<!\\w)-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?"
     },
     "array-bare-block": {
-      "comment": "裸块头 `type [featag 区] [契约词…] [块名] {`：数组位置（`[ A B item { … } ]`）与键位置同形。两件事分别着色 —— 头词序列（类型词与契约词）与 `!tag` 之后的**块名**（词 run 被 featag 区打断，得单独一条）。普通标量数组（`[ a b ]`）不含 `{`，不会被这条吃掉。",
+      "comment": "裸块头 `type [featag 区] [契约词…] [块名] {`：数组位置（`[ A B item { … } ]`）与键位置同形。**块名与契约词异色** —— 契约词/类型词是 `entity.name.type`（与 `@contract` 声明同色），块名是 `entity.name.section`。语言层「首个未命中契约表的词是块名」，编辑器没有契约表，故按**位置**取：逗号之后、featag 区之后、或最后一个词。普通标量数组（`[ a b ]`）不含 `{`，不会被这条吃掉。",
       "patterns": [
         {
-          "comment": "块名：紧跟 featag 项之后、`{` 之前的那一个词（`A !t tagged {`）。判据用变长后顾断言，只认 `!tag ` 之后那一个词 —— 不带上这条，`a: b {` 的 `b` 会被误当类型。",
+          "comment": "块名：紧跟 featag 项之后、`{` 之前的那一个词（`A !t tagged {`）。变长后顾断言只认 `!tag ` 之后那一词 —— 不带上这条，`a: b {` 的 `b` 会被误当契约词。",
           "match": "(?<=![A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*\\s)([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)\\s*(?=\\{)",
-          "captures": { "1": { "name": "entity.name.type.sml" } }
+          "captures": { "1": { "name": "entity.name.section.sml" } }
         },
         {
-          "match": "(?:^|(?<=\\[)|(?<=,))\\s*([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*(?:\\s+[A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)*)\\s*(?=[^\\n]*\\{)",
+          "comment": "块名：**逗号之后**那个词（块头三段式的第三段 `Service !t[4], prod {`）。必须排在下一条之前 —— 下一条的后顾断言在「逗号后带空格」时也会命中，把块名当契约词。",
+          "match": "(,)\\s*([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)\\s*(?=\\{)",
+          "captures": {
+            "1": { "name": "punctuation.separator.sml" },
+            "2": { "name": "entity.name.section.sml" }
+          }
+        },
+        {
+          "comment": "多词块头：前面的词是类型词与契约词，**最后一个才是块名**（`A B item {` → A/B 契约色、item 块名色）。",
+          "match": "(?:^|(?<=\\[)|(?<=,))\\s*((?:[A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*\\s+)+)([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)\\s*(?=[^\\n]*\\{)",
+          "captures": {
+            "1": { "name": "entity.name.type.sml" },
+            "2": { "name": "entity.name.section.sml" }
+          }
+        },
+        {
+          "comment": "单词块头：只有类型词、没有块名（`A {`），整词是类型色。",
+          "match": "(?:^|(?<=\\[)|(?<=,))\\s*([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)\\s*(?=[^\\n]*\\{)",
           "captures": { "1": { "name": "entity.name.type.sml" } }
         }
       ]
     },
-        "key": {
+    "key": {
       "comment": "数据区键名：支持中文。两个分支 —— ① 行首键（允许缩进）；② 同行后续键 / 内联对象键（紧跟 `{` 或 `,`，且其后是 `:`）。此前只有分支 ①（整个 match 被 ^\\s* 锚在行首），于是 `web { host: a, port: 8080 }` 里只有行首那个词着色，同行的 host / port 全无色 —— 真实 Oniguruma 引擎实测 `host✗ port✗`，即「字段组合（同一行多字段 / 内联对象）」着不上色。",
       "patterns": [
         {

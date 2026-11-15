@@ -23,6 +23,27 @@ Conventions carried over from `CHANGELOG.md`:
 
 ## [Unreleased]
 
+### Fixed (VS Code extension 0.5.3: block names shared the contract colour)
+
+In a bare block head `type [featag region] [contract words…] [block name] {` all three kinds of
+word used the same scope (`entity.name.type`), so `xs: [ A B item { … } ]` gave no way to tell
+the contracts `A` / `B` from the block name `item`.
+
+The block name now has its own scope, `entity.name.section`, while contract/type words keep
+`entity.name.type`. It is decided **by position** (the editor has no contract table; position
+approximates the language rule "the first word that is not a known contract is the block name"):
+
+- the word after a **comma**: `Service !critical !obey[4], prod {` -> `prod`;
+- the word after the **featag region**: `A !t tagged {` -> `tagged`;
+- the **last** word of a multi-word head: `A B item {` -> `item`; `A {` has only the type word.
+
+Known limit: `server web prod {` (a plain nested block whose first word is not a contract) also
+paints `prod` as the block name — inherent to a position heuristic; only a contract table fixes
+it (tracked as I-24).
+
+Version `0.5.2` -> `0.5.3`; the artifact `editors/vscode/sml-lang-0.5.3.vsix` is committed.
+
+
 ### Fixed (VS Code extension 0.5.2: bare blocks in array position were not highlighted; `@is` with several contracts only coloured the first)
 
 - **Bare blocks in array position**: head words used to rely on a flat rule, so `A {` (a

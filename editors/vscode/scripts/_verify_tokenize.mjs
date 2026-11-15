@@ -207,13 +207,17 @@ function innerScopesAt(line, needle) {
     return toks[ln].filter((t) => t.startIndex < end && t.endIndex > start)
                     .map((t) => t.scopes[t.scopes.length - 1]);
   };
-  const t1 = inner(1, "A B item");
-  check("数组内跨行：头词序列=类型色", t1 !== null && t1.includes("entity.name.type.sml"), t1?.join(" | "));
+  const t1 = inner(1, "A B ");
+  check("数组内跨行：头词序列=契约/类型色", t1 !== null && t1.includes("entity.name.type.sml"), t1?.join(" | "));
+  const t1n = inner(1, "item");
+  check("多词块头：最后一个词是块名（与契约词异色）", t1n !== null
+        && t1n.includes("entity.name.section.sml") && !t1n.includes("entity.name.type.sml"), t1n?.join(" | "));
   const t2 = inner(4, "A");
   check("数组内单契约 `A {` 不当键名", t2 !== null && t2.includes("entity.name.type.sml")
         && !t2.includes("variable.other.member.sml"), t2?.join(" | "));
   const t3 = inner(7, "tagged");
-  check("featag 区之后的块名着色", t3 !== null && t3.includes("entity.name.type.sml"), t3?.join(" | "));
+  check("featag 区之后的块名=块名色（不是契约色）", t3 !== null
+        && t3.includes("entity.name.section.sml") && !t3.includes("entity.name.type.sml"), t3?.join(" | "));
   const t4 = inner(10, "plain");
   check("数组里的内联对象键仍着键色", t4 !== null && t4.includes("variable.other.member.sml"), t4?.join(" | "));
 }
@@ -232,7 +236,7 @@ function innerScopesAt(line, needle) {
   const sHeadComma = innerScopesAt(head, ",");
   check("块头三段式的逗号=分隔符色", sHeadComma !== null && sHeadComma.includes("punctuation.separator.sml"), sHeadComma?.join(" | "));
   const sProd = innerScopesAt(head, "prod");
-  check("块头逗号之后的块名着色", sProd !== null && sProd.includes("entity.name.type.sml"), sProd?.join(" | "));
+  check("块头逗号之后的块名=块名色", sProd !== null && sProd.includes("entity.name.section.sml"), sProd?.join(" | "));
 
   // featag 声明只在契约体内成立（`#featag-decl` 由 `#contract-block` 引入），故多行 tokenize
   const cdoc = ["@contract X {", "    !density: str default compact -> layout.density", "}"];
