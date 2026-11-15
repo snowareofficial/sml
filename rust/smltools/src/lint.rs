@@ -8,7 +8,7 @@
 //! | error | 解析失败（语法 / 契约 / include / `$env` 等） |
 //! | error | 行首用 tab 缩进 |
 //! | warning | 片段 `@name` 定义后从未被 `&name` 引用 |
-//! | warning | 契约 `@contract Name` 定义后从未被 `@is Name` 应用 |
+//! | warning | 契约 `@contract Name` 定义后从未被应用（`@is` 与块头 `A B item {` 都算） |
 //! | warning | 同一父块下键名重复（`W-PARSE-001`：**已提升为数组，值不丢**） |
 //! | warning | 片段展开覆盖父块键（`W-PARSE-002`：**父块原值丢失**） |
 //! | warning | 空值字段（`key:` 后既无值，下一有效行也没缩进进去） |
@@ -72,10 +72,14 @@ pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
     // 重复键 / 片段覆盖（`W-PARSE-001/002`）也走这里 —— 它们由**解析器**在实际发生改写时
     // 产出（带行号），比 lint 自己按缩进猜准得多：旧的 `W-LINT-003` 把"提升为数组"误描述成
     // "覆盖"，还漏掉 `&name` 覆盖父块（唯一真丢值的路径）（TODO 雷3 四条登记）。
-    let parsed = sml::parse_with_warnings(text);
+    //
+    // 顺带开 `trace_contracts`：契约「被谁应用」的**真值在解析期的旁路表**里
+    // （`@is A, B` 的后续名字、块头 `A B item {` 都记），文本次序扫描认不全 ——
+    // 那是 W-LINT-002 假阳性的来源（I-26 / W-LINT-002）。
+    let parsed = sml::parse_with(text, sml::ParseOptions::new().trace_contracts(true));
     match &parsed {
-        Ok((_, diags)) => {
-            for d in diags {
+        Ok(out) => {
+            for d in &out.diagnostics {
                 if let Some(code) = d.code() {
                     report.push(&name, d.line.unwrap_or(0), "warning", code, &d.message);
                 }
@@ -120,16 +124,26 @@ pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
             );
         }
     }
-    for (nm, no) in &refs.contract_defs {
-        if !refs.contract_uses.iter().any(|(n, _)| n == nm) {
-            // W-LINT-002：契约定义后从未被应用。
-            report.push(
-                &name,
-                *no,
-                "warning",
-                W_LINT_002,
-                &format!("契约 `@contract {nm}` 定义后从未被 `@is {nm}` 应用"),
-            );
+    // 契约「是否被应用」只认解析期的 `contract_map`：`@is A, B` 的第二个名字、
+    // 块头 `A B item {` 应用的契约都在表里，文本扫描认不全 —— 那是 W-LINT-002 的假阳性来源。
+    // 解析失败时表不存在，这一项**不报**：文件本身已有一条 error，此时按文本猜只会添噪音。
+    if let Some(map) = parsed.as_ref().ok().and_then(|out| out.contract_map.as_ref()) {
+        let applied: std::collections::BTreeSet<&str> = map
+            .entries()
+            .iter()
+            .flat_map(|e| e.names.iter().map(String::as_str))
+            .collect();
+        for (nm, no) in &refs.contract_defs {
+            if !applied.contains(nm.as_str()) {
+                // W-LINT-002：契约定义后从未被应用（`@is` 与块头 `A B item {` 都算应用）。
+                report.push(
+                    &name,
+                    *no,
+                    "warning",
+                    W_LINT_002,
+                    &format!("契约 `@contract {nm}` 定义后从未被应用"),
+                );
+            }
         }
     }
 
@@ -177,8 +191,8 @@ pub fn check(text: &str, path: &Option<PathBuf>) -> Report {
     }
 
     // ---- 4. 结构检查（仅解析成功时）----
-    if let Ok((v, _)) = &parsed {
-        let d = sml::lint::depth_of(v);
+    if let Ok(out) = &parsed {
+        let d = sml::lint::depth_of(&out.value);
         if d > MAX_VALUE_DEPTH / 2 {
             // W-LINT-005：嵌套超过建议阈值（只提醒可读性，不是拒绝 —— 解析上限见 E-LIMIT-001）。
             // 阈值 = MAX_VALUE_DEPTH / 2，库改 MAX_VALUE_DEPTH 时自动跟随。
@@ -235,6 +249,45 @@ mod tests {
         for want in ["[W-LINT-001]", "[W-LINT-002]", "[W-PARSE-001]", "[W-LINT-004]"] {
             assert!(out.contains(want), "期望含 {want}：\n{out}");
         }
+    }
+
+    /// W-LINT-002 的判据是解析期的 `contract_map`：块头 `A B item {` 应用的契约、
+    /// 以及 `@is A, B` 里的**第二个及后续名字**都算应用（文本扫描只认第一个 `@is` 词）。
+    #[test]
+    fn contract_applied_by_block_header_or_later_is_name_is_not_warned() {
+        let src = "@feature enable typed-block\n@feature enable block-name\n\
+                   @contract A { a: int default 1 }\n\
+                   @contract B { b: int default 2 }\n\
+                   @contract C { c: int default 3 }\n\
+                   @contract Unused { d: int }\n\
+                   A B item { }\n\
+                   e {\n  @is C, A\n}\n";
+        let out = messages(src);
+        for applied in ["A", "B", "C"] {
+            assert!(
+                !out.contains(&format!("`@contract {applied}`")),
+                "契约 {applied} 已被应用，不该报 W-LINT-002：\n{out}"
+            );
+        }
+        assert!(
+            out.contains("[W-LINT-002]") && out.contains("`@contract Unused`"),
+            "真正没用过的契约仍要报：\n{out}"
+        );
+    }
+
+    /// 解析失败时不报 W-LINT-002：`contract_map` 不存在，文本扫描认不全
+    /// （`@is A, B` 只看得到 A），而文件本身已有 error —— 宁可少报。
+    #[test]
+    fn no_contract_warning_when_the_document_does_not_parse() {
+        let out = messages("@contract A { a: int }\n@contract B { b: int }\nb {\n");
+        assert!(
+            out.contains("[E-PARSE-"),
+            "前提：这份文档应解析失败：\n{out}"
+        );
+        assert!(
+            !out.contains("[W-LINT-002]"),
+            "解析失败时不该猜契约有没有被应用：\n{out}"
+        );
     }
 
     /// `depth_of` 是库的单一来源：根容器与标量各计 1。
