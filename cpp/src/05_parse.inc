@@ -1515,5 +1515,239 @@ ValuePtr Value::array_with(const std::vector<ValuePtr>& elems) {
  *   - 越界即拒绝（E-INCLUDE-003）；基准目录本身不可解析也拒绝（E-INCLUDE-010，
  *     fail-closed：不比一个比不了的对象就放行，等于把越界校验静默关掉）。
  */
+/* ---------------------------------------------------------------------------
+   数组元素位置的裸块：`[ type [featag 区] [契约词…] [块名] { … } ]`
+
+   与键位置（`parse_block` 里那一段）**同构** —— Rust 两处走的是同一个
+   `bare_child_frame`（`parse_block` 与 `parse_array_inner` 都经 `bare_block_ahead`
+   进去），所以多契约、featag 区、拆雷、012、`__name` 起点必须逐字一致。
+   ⚠️ 改这里时**必须同步** `parse_block` 里那段（两处尚未合并成一个函数：键位置的
+   实现与本函数共用全部 helper，合并留待后续；现状靠注释与 conformance 守住）。
+   --------------------------------------------------------------------------- */
+static ValuePtr parse_bare_block(PState& st) {
+    const std::string key = st.toks[st.i].s;   /* 类型词（原词） */
+    st.i++;                                    /* 先消费类型名（Rust: self.next()） */
+    std::vector<ValuePtr> args;
+    ValuePtr featags = nullptr;
+    const bool key_is_contract = (st.contracts.find(key) != st.contracts.end());
+    const bool feat_on = (st.features & (1u << 17)) != 0 && key_is_contract;
+    ContractSet ty;
+    size_t ty_consumed = 0;
+
+    /* ① featag 区：紧跟首词，且**每一项都以 `!` 开头**（`!` 是 featag 的唯一标记）。 */
+    if (feat_on && !st.aborted) {
+        for (;;) {
+            if (st.i >= st.toks.size()) break;
+            const Token& tk = st.toks[st.i];
+            if (tk.t != Token::T::Word || tk.s.empty() || tk.s[0] != '!') break;
+            const std::string tag = tk.s.substr(1);
+            const FeatagDecl* decl = nullptr;
+            {
+                auto owner = st.contracts.find(key);
+                if (owner != st.contracts.end()) {
+                    for (const auto& d : owner->second.featags)
+                        if (d.name == tag) { decl = &d; break; }
+                    if (!decl) {
+                        if (st.err && st.err->empty())
+                            *st.err = code_prefix(SML_E_CONTRACT_021,
+                                "sml: featag `!" + tag + "` 未在契约 `" + key +
+                                "` 中声明（契约私有的作用域，请先在契约体内写 `!" + tag + "`）");
+                        st.aborted = true;
+                        break;
+                    }
+                }
+            }
+            st.i++;
+            ValuePtr payload = nullptr;
+            if (st.i < st.toks.size() && st.toks[st.i].t == Token::T::LBracket) {
+                st.i++;
+                payload = parse_array(st);
+            }
+            if (decl) {
+                auto arg_ok = [](const std::string& ty, const ValuePtr& v) -> bool {
+                    if (!v) return false;
+                    if (ty.empty() || ty == "any") return true;
+                    if (ty == "str")  return v->tag == Value::Tag::Str;
+                    if (ty == "int")  return v->tag == Value::Tag::Int;
+                    if (ty == "num")  return v->tag == Value::Tag::Int ||
+                                             v->tag == Value::Tag::Float;
+                    if (ty == "bool") return v->tag == Value::Tag::Bool;
+                    return true;
+                };
+                const bool has_args = payload && payload->tag == Value::Tag::Arr;
+                const size_t nargs = has_args ? payload->arr.size() : 0;
+                const bool is_auto = has_args && nargs == 1 &&
+                                     payload->arr[0] && payload->arr[0]->tag == Value::Tag::Str &&
+                                     payload->arr[0]->s == "auto";
+                std::string e;
+                if (!decl->has_spec && has_args)
+                    e = "sml: featag `!" + tag + "` 声明为无参（纯标签），使用处不能带参数";
+                else if (decl->has_spec && !has_args)
+                    e = "sml: featag `!" + tag + "` 声明为带参，使用处必须写成 `!" + tag + "[…]`";
+                else if (decl->has_spec && has_args && !is_auto) {
+                    if (decl->is_array) {
+                        for (size_t k = 0; k < nargs; k++)
+                            if (!arg_ok(decl->inner, payload->arr[k])) {
+                                e = code_prefix(SML_E_CONTRACT_002,
+                                    "sml: featag `!" + tag + "` 的参数类型不符（第 " +
+                                    std::to_string(k + 1) + " 个参数）");
+                                break;
+                            }
+                    } else if (nargs != 1)
+                        e = "sml: featag `!" + tag + "` 的参数类型不是数组，只接受 1 个参数（实际给了 " +
+                            std::to_string(nargs) + " 个）";
+                    else if (!arg_ok(decl->ty, payload->arr[0]))
+                        e = code_prefix(SML_E_CONTRACT_002,
+                            "sml: featag `!" + tag + "` 的参数类型不符");
+                }
+                if (!e.empty()) {
+                    if (e.find("E-") == std::string::npos)
+                        e = code_prefix(SML_E_CONTRACT_021, e);
+                    if (st.err && st.err->empty()) *st.err = e;
+                    st.aborted = true;
+                    break;
+                }
+            }
+            if (!featags) featags = Value::array();
+            ValuePtr item = Value::object();
+            item->obj.push_back({"name", Value::string(tag)});
+            if (payload) item->obj.push_back({"args", payload});
+            featags->arr.push_back(item);
+            continue;
+        }
+        if (!st.aborted && featags && st.i < st.toks.size() &&
+            st.toks[st.i].t == Token::T::Comma) st.i++;
+        if (!st.aborted && featags && !key_is_contract) {
+            if (st.err && st.err->empty())
+                *st.err = code_prefix(SML_E_CONTRACT_021,
+                    "sml: 本块没有应用任何契约 —— featag 的作用域是契约私有的，"
+                    "先 `@contract` 声明它");
+            st.aborted = true;
+        }
+    }
+    /* ② 契约词 / 块名。`!` 词落在参数位置 ⇒ `coerce` 按 B2 拒（027），与 Rust 同。 */
+    while (!st.aborted && st.i < st.toks.size() && st.toks[st.i].t == Token::T::Word) {
+        const Token& tk = st.toks[st.i];
+        args.push_back(coerce(tk, st.fragments, st.err, st.features));
+        st.i++;
+    }
+    /* ③ 多契约前缀：从首词起连续命中契约表的词都是契约，第一个未命中的是块名。 */
+    if (key_is_contract && (st.features & (1u << 14)) != 0 && !st.aborted) {
+        ty.push(key, -1);
+        for (size_t ai = 0; ai < args.size(); ai++) {
+            if (!args[ai] || args[ai]->tag != Value::Tag::Str) break;
+            if (st.contracts.find(args[ai]->s) == st.contracts.end()) break;
+            ty.push(args[ai]->s, -1);
+            ty_consumed++;
+        }
+    }
+    if (st.aborted) return Value::null();
+    if (st.i >= st.toks.size() || st.toks[st.i].t != Token::T::LBrace) {
+        /* 与键位置同一个兜底 012（Rust `bare_child_frame` 同位置同码），不回退标量路径。 */
+        if (st.err && st.err->empty())
+            *st.err = code_prefix(SML_E_PARSE_012,
+                "sml: 裸块块头的参数之后未能接上 `{`");
+        st.aborted = true;
+        return Value::null();
+    }
+    st.i++;
+    st.enter_key = key;   /* 旁路表路径用块类型名当段 */
+    auto sub = parse_block_nested(st);
+    if (!sub || sub->tag != Value::Tag::Obj) return sub;
+    sub->obj.push_back({"__type", Value::string(key)});
+    if (featags) sub->obj.push_back({"__featags", featags});
+    /* —— 拆雷：契约词之后还剩一个词、但 `block-name` 没开 ⇒ 只能是块名 ——
+       与键位置同序（块体解析**之后**），故块头语法错（012）不会被它抢走。 */
+    if (!st.aborted && !ty.items.empty() && args.size() > ty_consumed &&
+        (st.features & (1u << 16)) == 0) {
+        const ValuePtr& w = args[ty_consumed];
+        if (w && w->tag == Value::Tag::Str) {
+            if (st.err && st.err->empty())
+                *st.err = code_prefix(SML_E_CONTRACT_001,
+                    "sml: 块级标注 `" + key + "` 后的 `" + w->s +
+                    "` 不是已定义的契约；若本意是把它作为块名，请先 "
+                    "`@feature enable block-name`");
+            st.aborted = true;
+            return Value::null();
+        }
+    }
+    /* S7：`from-featag` 的键不许文档手写 —— 必须在填充之前（多契约逐份查）。 */
+    if (st.features & (1u << 17)) {
+        bool ok7 = true;
+        for (size_t k7 = 0; k7 < ty.items.size() && ok7; k7++) {
+            auto owner7 = st.contracts.find(ty.items[k7].first);
+            if (owner7 != st.contracts.end() &&
+                !check_from_featag(st, owner7->second, sub, "")) ok7 = false;
+        }
+        if (!ok7) return Value::null();
+    }
+    /* S6 落点填充：必须在契约应用**之前**（多契约取并集、`!strict-paths` 取或）。 */
+    if (featags && !ty.items.empty() && !st.aborted) {
+        bool strict6 = false;
+        for (size_t k6 = 0; k6 < ty.items.size(); k6++) {
+            auto it6 = st.contracts.find(ty.items[k6].first);
+            if (it6 != st.contracts.end() && it6->second.strict_paths) strict6 = true;
+        }
+        for (const auto& item : featags->arr) {
+            ValuePtr namev = item->get("name");
+            ValuePtr argsv = item->get("args");
+            if (!namev || namev->tag != Value::Tag::Str || !argsv) continue;
+            const FeatagDecl* d2 = nullptr;
+            for (size_t k6 = 0; k6 < ty.items.size() && !d2; k6++) {
+                auto it6 = st.contracts.find(ty.items[k6].first);
+                if (it6 == st.contracts.end()) continue;
+                for (const auto& dd : it6->second.featags)
+                    if (dd.name == namev->s) { d2 = &dd; break; }
+            }
+            if (!d2 || d2->path.empty()) continue;
+            const std::string w = key + "." + namev->s;
+            const bool is_auto = argsv->arr.size() == 1 && argsv->arr[0] &&
+                                 argsv->arr[0]->tag == Value::Tag::Str &&
+                                 argsv->arr[0]->s == "auto";
+            ValuePtr val;
+            if (is_auto) {
+                if (!d2->has_default || !d2->def) {
+                    if (st.err && st.err->empty())
+                        *st.err = code_prefix(SML_E_CONTRACT_022,
+                            "sml: `" + w + "` 的参数是 `auto`（取声明里的默认值），"
+                            "但该声明没有 `default`");
+                    st.aborted = true;
+                    return Value::null();
+                }
+                val = d2->def;
+            } else if (d2->has_spec && d2->is_array) {
+                val = argsv;
+            } else {
+                val = argsv->arr.empty() ? Value::null() : argsv->arr[0];
+            }
+            if (!write_target(st, sub, d2->path, 0, val, strict6, w)) return Value::null();
+        }
+    }
+    /* 契约应用（合并视图）：必须在 `__name` 之前（Rust 块头校验先于命名参数落位）。 */
+    if (!ty.items.empty() && !st.aborted) {
+        std::string ce;
+        bool any_ok = true;
+        for (size_t k = 0; k < ty.items.size() && any_ok; k++) {
+            std::vector<std::string> seen8;
+            if (!check_any_allowed(st, ty.items[k].first, seen8)) any_ok = false;
+        }
+        if (any_ok && !apply_contract_set(sub, st.contracts, ty, &ce)) {
+            if (st.err && st.err->empty()) *st.err = ce;
+            st.aborted = true;
+            return Value::null();
+        }
+    }
+    /* `__name` 的起点跳过被算作契约词的参数（首个非契约词才是块名）。 */
+    if (args.size() > ty_consumed) {
+        sub->obj.push_back({"__name", args[ty_consumed]});
+        if (args.size() > ty_consumed + 1) {
+            auto extra = Value::array();
+            for (size_t k = ty_consumed + 1; k < args.size(); k++) extra->arr.push_back(args[k]);
+            sub->obj.push_back({"__args", extra});
+        }
+    }
+    return sub;
+}
+
 #define SML_MAX_INCLUDE_DEPTH 32
 #define SML_MAX_INCLUDE_EXPANSIONS 10000

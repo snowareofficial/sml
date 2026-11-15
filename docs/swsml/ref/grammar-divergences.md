@@ -256,22 +256,34 @@ Rust 报 `E-PARSE-012`、四端却把 `rep[3]` 当 featag 收下。「连续命�
 修完 `whole:grammar.sml` 五端全部 `OK`；剩下的唯一差异是**数字身份**（§0 R-2：Lua 的
 float `1.0` dump 成 `1`，Rust 读回是 int），属值层既有放行项，不是解析或载体的新问题。
 
-### 4.5e 数组位置的裸块：四端三种行为（缺口，未修）
+### 4.5e 数组位置的裸块：C / C++ / Lua 已对齐，JS 仍缺
 
 ```sml
 xs: [ A B item { a: 1, b: 2 } ]
 ```
 
-Rust 把它读成「一个元素 = 应用 A、B 两份契约的块」；四端各不相同：C / C++ 报
-`E-CONTRACT-017`（多契约未实现）、JS / Lua **不把这个位置当裸块**（拆成 `A`、`B`、`item`、
-`{…}` 四个元素）。
+Rust 把它读成「一个元素 = 应用 A、B 两份契约的块」（`__type: A`、`__name: item`、两契约的
+字段都在）—— 数组位置与键位置走的是**同一个** `bare_child_frame`，所以 featag 区、多契约、
+拆雷、012、`__name` 起点全都一视同仁。
 
-两条独立的坑，都在数组位置：
-- C / C++ 的数组位置裸块是**独立实现**（`try_parse_array_bare_block` / `parse_bare_block`），
-  没有接多契约与 featag 区；
-- JS / Lua 干脆没有这条识别（键位置有、数组位置没有）。
-- C 端在「认出是裸块却拒绝」之后会**段错误**（`coerce_word` 拿到 EOF 的 `v`）；已在
-  `parse_array_inner` 加 `if (ps->failed) break;` 兜住，并把 `coerce_word(NULL)` 变成返回 null。
+先前四端各不相同：C / C++ 报 `E-CONTRACT-017`（数组位置是独立实现，没接多契约与 featag 区）、
+JS / Lua **根本不把这个位置当裸块**（拆成 `A`、`B`、`item`、`{…}` 四个元素 —— 静默错树）。
+
+C / C++ / Lua 已按键位置的同一套逻辑补齐（三端都是「块头 + 收尾」两段，与键位置逐字同构）：
+
+| 端 | 实现位置 | 备注 |
+|---|---|---|
+| C | `c/src/05_parse.inc::try_parse_array_bare_block` | 定义从 `04_coerce.inc` 挪到 05（要用 S6/S7 的 featag helper）；04 只留声明 |
+| C++ | `cpp/src/05_parse.inc::parse_bare_block` | 同上（04 留声明） |
+| Lua | `lua/lib/sml.lua::parse_array_bare_block` | 新函数；`parse_array` 加一条分支 |
+
+⚠️ 深度守卫：数组里的块是**数组的子级**，`parse_array_bare_block` 内部已经 `parse_block(depth+1)`，
+外层不能再 `+1`（实测多算一层会把「128 层放行」变成 64 层）。
+
+**JS 仍是缺口**：它的数组分支没有 `bare_block_ahead` 识别，`[ A B item { } ]` 会被拆成标量；
+遇到 `[ A !t item { } ]` 则在值位置撞上 `!` 而报 `E-PARSE-027`（响亮，但码不同）。
+另：C 端此前在「认出裸块却拒绝」之后会**段错误**（`coerce_word` 拿到 EOF 的 `v`）——
+已在 `parse_array_inner` 加 `if (ps->failed) break;` 兜住，并把 `coerce_word(NULL)` 变成返回 null。
 
 ### 4.6 已经一致的格子
 

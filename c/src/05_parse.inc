@@ -247,6 +247,377 @@ static int set_strict_paths(parser *ps, const ccontracts *l) {
     return 0;
 }
 
+/* ---------------------------------------------------------------------------
+   裸块块头：`type [featag 区] [契约词…] [块名] { … }`
+
+   键位置（`A B item { }`）与**数组位置**（`xs: [ A B item { } ]`）共用这两个函数。
+   Rust 侧两处走的是**同一个** `bare_child_frame`（`parse_block` 与 `parse_array_inner`
+   都经 `bare_block_ahead` 进去），所以两侧语义必须逐字一致 —— 抽出来就是为了不再
+   出现「键位置改了、数组位置忘了」。
+   --------------------------------------------------------------------------- */
+
+/* 判据：从当前位置起「词 / `!tag[…]` 区 / 区的终止逗号」之后是否紧跟 `{`。
+   **只看 `type.featag` 特性位**（不看首词是不是契约），`[` 按括号配平跳过。
+   —— 与 Rust `bare_block_ahead` 同。 */
+static int bare_ahead(parser *ps) {
+    size_t probe = ps->lx->pos;
+    const int feat_scan = (ps->features & (1u << 17)) != 0;
+    while (probe < ps->lx->n) {
+        tok_type pt = ps->lx->toks[probe].t;
+        if (pt == T_WORD || pt == T_STR) {
+            probe++;
+        } else if (feat_scan && pt == T_LBRACK) {
+            int depth = 0;
+            while (probe < ps->lx->n) {
+                if (ps->lx->toks[probe].t == T_LBRACK) depth++;
+                else if (ps->lx->toks[probe].t == T_RBRACK) {
+                    if (--depth == 0) { probe++; break; }
+                }
+                probe++;
+            }
+        } else if (feat_scan && pt == T_COMMA) {
+            probe++;
+        } else if (pt == T_LBRACE) {
+            return 1;
+        } else break;
+    }
+    return 0;
+}
+
+/* 块头（`key` 已由调用方消费）。返回：
+   1  = 是裸块：`*args_out` / `*featags_out` / `ty` 已填好，游标停在「参数之后」；
+   0  = 不是裸块：**一个 token 都不消费**，调用方走标量路径；
+   -1 = 出错（`ps->failed` 已置），调用方只需清理自己的东西。 */
+static int parse_bare_head(parser *ps, const char *key,
+                           ccontracts *ty, size_t *ty_consumed,
+                           sml_value **args_out, sml_value **featags_out) {
+    sml_value *args;
+    sml_value *featags = NULL;
+    int key_is_contract;
+    int feat_on;
+
+    *args_out = NULL;
+    *featags_out = NULL;
+    if (!bare_ahead(ps)) return 0;
+
+    args = sml_new_array();
+    key_is_contract = (contract_find(ps, key) != NULL);
+    feat_on = (ps->features & (1u << 17)) != 0 && key_is_contract;
+
+    /* ① featag 区：**只在这里**（紧跟契约首词），且**每一项都以 `!` 开头**。
+       `!` 是 featag 的**唯一**标记。若允许带参项省掉 `!`（靠紧跟的 `[` 区分），
+       它就会与「块头裸词命中契约表即契约词」争用同一个裸词 —— `A B rep[3]` 里
+       `rep` 是契约词还是 featag，只能靠先后次序猜；三类词（featag / 契约词 /
+       块名）互不重叠，比省下这一个字符重要。 */
+    if (feat_on && !ps->failed) {
+        for (;;) {
+            token *tk = peek(ps);
+            char *tag;
+            if (tk->t != T_WORD || tk->v[0] != '!') break;
+            tag = tk->v + 1;
+            /* **S5 使用处校验**：featag 的作用域是契约私有 —— 块头写了契约里
+               没声明的名字就拒（Rust 同码 E-CONTRACT-021）。改前只收集不校验，
+               拼错的 `!critcal` 会被静默记进 `__featags`。 */
+            {
+                ccontract *owner = contract_find(ps, key);
+                cfeatag *decl = contract_featag_find(owner, tag);
+                if (owner && !decl) {
+                    set_err(ps->lx->errbuf, ps->lx->errsz,
+                            SML_E_CONTRACT_021
+                            " featag `!%s` 未在契约 `%s` 中声明（契约私有的作用域，"
+                            "请先在契约体内写 `!%s`）", tag, key, tag);
+                    ps->failed = 1;
+                    break;
+                }
+                next(ps);
+                {
+                    sml_value *payload = NULL;
+                    if (peek(ps)->t == T_LBRACK) {
+                        next(ps);
+                        payload = parse_array(ps);
+                    }
+                    /* **S5b 使用处校验**：个数与标量类型。判据照 Rust
+                       `check_featags`：无参声明不许带参数、带参声明必须写 `[…]`；
+                       数组类型按「参数表整体」校验，其它类型只收 1 个参数。
+                       单个 `auto` 是「取声明里的默认值」，不校验（S6 写入时才取）。 */
+                    if (decl) {
+                        int nargs = payload ? (int)sml_arr_len(payload) : -1;
+                        int is_auto = (nargs == 1 &&
+                                       sml_arr_get(payload, 0) != NULL &&
+                                       sml_arr_get(payload, 0)->type == SML_STR &&
+                                       strcmp(sml_arr_get(payload, 0)->u.s, "auto") == 0);
+                        if (!decl->has_spec && payload) {
+                            set_err(ps->lx->errbuf, ps->lx->errsz,
+                                    SML_E_CONTRACT_021
+                                    " featag `!%s` 声明为无参（纯标签），使用处不能带参数", tag);
+                            ps->failed = 1;
+                        } else if (decl->has_spec && !payload) {
+                            set_err(ps->lx->errbuf, ps->lx->errsz,
+                                    SML_E_CONTRACT_021
+                                    " featag `!%s` 声明为带参，使用处必须写成 `!%s[…]`", tag, tag);
+                            ps->failed = 1;
+                        } else if (decl->has_spec && payload && !is_auto) {
+                            if (decl->ty == CT_ARRAY) {
+                                size_t k;
+                                for (k = 0; k < sml_arr_len(payload); k++) {
+                                    if (!featag_arg_matches(decl->arr_inner,
+                                                            sml_arr_get(payload, k))) {
+                                        /* 类型不符报 002：Rust 在这里复用
+                                           `check_value`，产出的是字段类型码，
+                                           不是 021（021 只表示「声明/用法不符」）。 */
+                                        set_err(ps->lx->errbuf, ps->lx->errsz,
+                                                SML_E_CONTRACT_002
+                                                " featag `!%s` 的参数类型不符（第 %d 个参数）",
+                                                tag, (int)k + 1);
+                                        ps->failed = 1;
+                                        break;
+                                    }
+                                }
+                            } else if (nargs != 1) {
+                                set_err(ps->lx->errbuf, ps->lx->errsz,
+                                        SML_E_CONTRACT_021
+                                        " featag `!%s` 的参数类型不是数组，只接受 1 个参数"
+                                        "（实际给了 %d 个）", tag, nargs);
+                                ps->failed = 1;
+                            } else if (!featag_arg_matches(decl->ty,
+                                                           sml_arr_get(payload, 0))) {
+                                set_err(ps->lx->errbuf, ps->lx->errsz,
+                                        SML_E_CONTRACT_002
+                                        " featag `!%s` 的参数类型不符", tag);
+                                ps->failed = 1;
+                            }
+                        }
+                        if (ps->failed) {
+                            if (payload) sml_free(payload);
+                            break;
+                        }
+                    }
+                    if (!featags) featags = sml_new_array();
+                    {
+                        sml_value *item = sml_new_object();
+                        sml_obj_set(item, "name", sml_new_str(tag));
+                        if (payload) sml_obj_set(item, "args", payload);
+                        sml_arr_push(featags, item);
+                    }
+                }
+            }
+        }
+        /* 区的终止逗号（可省：`wea !critical { }` 直接进块体也成立） */
+        if (!ps->failed && featags && peek(ps)->t == T_COMMA) next(ps);
+        /* 本块没有应用任何契约却写了 featag ⇒ 021（Rust 的兜底同码）：
+           featag 的作用域是契约私有的，没有契约就谈不上「声明过」。 */
+        if (!ps->failed && featags && !key_is_contract) {
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_CONTRACT_021
+                    " 本块没有应用任何契约 —— featag 的作用域是契约私有的，"
+                    "先 `@contract` 声明它");
+            ps->failed = 1;
+        }
+    }
+    /* ② 之后才是契约词 / 块名。这里的 `!` 词落在**参数位置**，由
+       `coerce_word` 按 B2 拒（Rust 同码 E-PARSE-027）——
+       `A B !t` 于是与 Rust 一样是错误，不会静默当成 featag。 */
+    if (!ps->failed) {
+        while (peek(ps)->t == T_WORD || peek(ps)->t == T_STR) {
+            token *at = next(ps);
+            sml_arr_push(args, at->t == T_STR ? sml_new_strn(at->v, at->len)
+                                              : coerce_word(at->v, ps));
+        }
+    }
+    /* 块级多契约（D2）：从**首词**起，连续命中契约表的词都是契约；
+       第一个未命中的词是块名（`server web prod { }` 的 web/prod 不是契约，
+       不受影响）。只有开了 `typed-block` 才这么认 —— 否则块头参数照旧只是
+       块名 / `__args`，既不算契约词也不改 `__name` 的起点。 */
+    if (key_is_contract && (ps->features & (1u << 14)) && !ps->failed) {
+        size_t ai;
+        if (ccontracts_push(ty, key, -1) != 0) {
+            set_err(ps->lx->errbuf, ps->lx->errsz, SML_E_INTERNAL_001 " 内存不足");
+            ps->failed = 1;
+        }
+        for (ai = 0; !ps->failed && ai < sml_arr_len(args); ai++) {
+            sml_value *a = sml_arr_get(args, ai);
+            if (!a || a->type != SML_STR) break;
+            if (!contract_find(ps, a->u.s)) break;
+            if (ccontracts_push(ty, a->u.s, -1) != 0) {
+                set_err(ps->lx->errbuf, ps->lx->errsz, SML_E_INTERNAL_001 " 内存不足");
+                ps->failed = 1;
+                break;
+            }
+            (*ty_consumed)++;
+        }
+    }
+    if (ps->failed) {
+        sml_free(args);
+        if (featags) sml_free(featags);
+        return -1;
+    }
+    *args_out = args;
+    *featags_out = featags;
+    return 1;
+}
+
+/* 块体已解析成 `sub`：拆雷 → S7 → S6 → 契约应用 → `__name`/`__args`。
+   —— 对应 Rust `finish_bare_block`。返回 0 成功 / -1 失败（调用方负责 free sub）。 */
+static int finish_bare_block(parser *ps, const char *key, sml_value *sub,
+                             const ccontracts *ty, size_t ty_consumed,
+                             const ccontracts *field_is,
+                             sml_value *featags, sml_value *args) {
+    /* —— 拆雷：契约词之后还剩一个词、但 `block-name` 没开 ⇒ 只能是块名 ——
+       未开 `block-name` 时块名没有合法位置：`A B item { }` 里的 `item` 会被
+       静默当成 `__name`，读者以为写的是契约、实际写成了块名。Rust 在
+       `finish_bare_block` 里报 001 并给出「先 @feature enable block-name」
+       的出口 —— 同样在**块体解析之后**，故 `S !t rep[3]` 那种块头语法错
+       会先以 012 报出来，不被这条抢走。 */
+    if (!ps->failed && ty->n > 0 && sml_arr_len(args) > ty_consumed &&
+        !(ps->features & (1u << 16))) {
+        sml_value *w = sml_arr_get(args, ty_consumed);
+        if (w && w->type == SML_STR) {
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_CONTRACT_001
+                    " 块级标注 `%s` 后的 `%s` 不是已定义的契约；"
+                    "若本意是把它作为块名，请先 `@feature enable block-name`",
+                    key, w->u.s);
+            ps->failed = 1;
+            return -1;
+        }
+    }
+    /* 契约应用**先于** `__name` / `__args` 写入：Rust 里块头契约的校验发生在
+       命名参数落位之前，所以 `Service !t, prod { }` 在严格契约下能通过；
+       而「字段值是带名裸块」（`x { @is A addr Sub { } }`）里 `__name` 已存在，
+       会照常报 E-CONTRACT-004 —— 两条实测行为都要留住。 */
+    /* **S7**：`from-featag` 的键不许文档手写 —— 必须在**填充之前**，
+       否则填进去的键与手写的长得一样，来源就分不出来了。 */
+    if (ps->features & (1u << 17)) {
+        const ccontracts *s7 = (field_is && field_is->n > 0) ? field_is : ty;
+        if (s7->n > 0 && check_from_featag_set(ps, s7, sub) != 0) return -1;
+    }
+    /* **S6 落点填充**：必须在**契约应用之前** —— 与 Rust
+       `finish_bare_block` 同序（源码注释：`from-featag` 那类「只能由 featag
+       提供」的必填字段，契约先跑会被误判成 E-CONTRACT-003）。
+       副作用有两处可见：严格契约能看到填充出来的键（报 004）；
+       `auto` 取的是**声明自己的 default**（此时契约默认值还没落位）。 */
+    if (featags && ty->n > 0 && !ps->failed) {
+        const int strict6 = set_strict_paths(ps, ty);
+        size_t fi;
+        for (fi = 0; fi < sml_arr_len(featags); fi++) {
+            sml_value *item = sml_arr_get(featags, fi);
+            sml_value *nm = sml_obj_get(item, "name");
+            sml_value *argsv = sml_obj_get(item, "args");
+            cfeatag *d6;
+            sml_value *val;
+            char where6[160];
+            if (!nm || nm->type != SML_STR || !argsv) continue;
+            d6 = featag_find_set(ps, ty, nm->u.s);
+            if (!d6 || d6->n_path == 0) continue;
+            snprintf(where6, sizeof(where6), "%s.%s", key, nm->u.s);
+            if (sml_arr_len(argsv) == 1) {
+                sml_value *only = sml_arr_get(argsv, 0);
+                if (only && only->type == SML_STR && strcmp(only->u.s, "auto") == 0) {
+                    if (!d6->has_def || !d6->def) {
+                        set_err(ps->lx->errbuf, ps->lx->errsz,
+                                SML_E_CONTRACT_022
+                                " `%s` 的参数是 `auto`（取声明里的默认值），"
+                                "但该声明没有 `default`", where6);
+                        ps->failed = 1;
+                        break;
+                    }
+                    val = sml_clone(d6->def);
+                } else if (d6->has_spec && d6->ty == CT_ARRAY) {
+                    val = sml_clone(argsv);
+                } else {
+                    val = sml_clone(only);
+                }
+            } else if (d6->has_spec && d6->ty == CT_ARRAY) {
+                val = sml_clone(argsv);
+            } else {
+                val = sml_clone(sml_arr_get(argsv, 0));
+            }
+            if (write_target(ps, sub, d6->path, d6->n_path, val,
+                             strict6, where6) != 0) {
+                ps->failed = 1;
+                break;
+            }
+        }
+        if (ps->failed) return -1;
+    }
+    if (field_is && field_is->n > 0) {
+        apply_set_or_fail(ps, sub, field_is);
+    } else if (ty->n > 0) {
+        /* typed-block：块头首词命中契约 ⇒ 等价于块内首行 `@is`（可多份）。
+           改前本端不应用契约，契约的 default / 必填 / 类型校验全部静默失效
+           —— 只要契约恰好没有默认值，树看起来还一样（探针原切片因此漏判）。 */
+        apply_set_or_fail(ps, sub, ty);
+    }
+    if (ps->failed) return -1;
+    /* `__name` 的起点跳过被算作契约词的参数（首个非契约词才是块名）；
+       单契约 / 无契约时 `ty_consumed == 0`，与旧行为逐字一致。
+       必须克隆再存：args 随后就被 sml_free，直接借用会让 `__name` / `__args`
+       变成悬垂指针（已知的「带名块堆损坏」）。 */
+    if (sml_arr_len(args) > ty_consumed) {
+        size_t i;
+        sml_obj_set(sub, "__name", sml_clone(sml_arr_get(args, ty_consumed)));
+        if (sml_arr_len(args) > ty_consumed + 1) {
+            sml_value *extra = sml_new_array();
+            for (i = ty_consumed + 1; i < sml_arr_len(args); i++)
+                sml_arr_push(extra, sml_clone(sml_arr_get(args, i)));
+            sml_obj_set(sub, "__args", extra);
+        }
+    }
+    return 0;
+}
+
+/* 数组元素位置的裸块（W4 的 B 类对齐点）：`[ type [featag 区] [契约词…] [块名] { … } ]`。
+   与键位置**共用** `parse_bare_head` / `finish_bare_block`（Rust 两处也是同一个
+   `bare_child_frame`）。返回块对象；不是裸块返回 NULL 且**不消费任何 token**。 */
+static sml_value *try_parse_array_bare_block(parser *ps) {
+    ccontracts ty = {0};
+    size_t ty_consumed = 0;
+    sml_value *args = NULL;
+    sml_value *featags = NULL;
+    sml_value *sub;
+    token *first;
+    const char *type_word;
+    int r;
+
+    if (peek(ps)->t != T_WORD) return NULL;
+    /* 先用**同一判据**确认是裸块头，避免消费首词之后无法回退。 */
+    if (!bare_ahead(ps)) return NULL;
+    first = next(ps);
+    type_word = first->v;   /* 原词（token 存活到 lex_free） */
+    r = parse_bare_head(ps, type_word, &ty, &ty_consumed, &args, &featags);
+    if (r != 1) {
+        ccontracts_free(&ty);
+        if (args) sml_free(args);
+        if (featags) sml_free(featags);
+        return NULL;
+    }
+    if (peek(ps)->t != T_LBRACE) {
+        /* 预扫描已确认「参数之后是 `{`」，参数却停在了别的记号上 ⇒ 与键位置
+           同一个兜底 012（Rust `bare_child_frame` 同位置同码），不回退标量路径。 */
+        set_err(ps->lx->errbuf, ps->lx->errsz,
+                SML_E_PARSE_012 " 裸块块头的参数之后未能接上 `{`");
+        ps->failed = 1;
+        ccontracts_free(&ty);
+        sml_free(args);
+        if (featags) sml_free(featags);
+        return NULL;
+    }
+    next(ps);   /* `{` */
+    ps->enter_key = type_word;
+    sub = parse_block(ps, T_RBRACE);
+    sml_obj_set(sub, "__type", sml_new_str(type_word));
+    if (featags) sml_obj_set(sub, "__featags", featags);
+    if (finish_bare_block(ps, type_word, sub, &ty, ty_consumed, NULL, featags, args) != 0) {
+        sml_free(args);
+        ccontracts_free(&ty);
+        sml_free(sub);   /* featags 已挂在 sub 上，随之释放 */
+        return NULL;
+    }
+    sml_free(args);
+    ccontracts_free(&ty);
+    return sub;
+}
+
 /* 解析块/对象。closing=T_RBRACE 或 T_EOF(顶层) */
 static sml_value *parse_block_inner(parser *ps, tok_type closing) {
     sml_value *obj = sml_new_object();

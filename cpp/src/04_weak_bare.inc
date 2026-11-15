@@ -133,48 +133,11 @@ static bool bare_block_ahead(const PState& st) {
     return false;
 }
 
-/* 数组元素位置的裸块 `type [name…] { … }`（W4 ③ B 类）。
-   改前这里只有「当标量」一条路 ⇒ `[ section 情节 { x: 1 } ]` 被拆成 `section`、`情节`、
-   `{ x: 1 }` **三个**元素，而 Rust 是**一个**块对象。
-   与键位置的裸块（parse_block 里那一段）同构：`__type` = 类型词、首个参数 ⇒ `__name`、
-   其余 ⇒ `__args`（参数不再静默丢弃）。
-   前置条件：当前位置是**类型词**；本函数消费掉整个「类型词 [参数…] { … }」。 */
-static ValuePtr parse_bare_block(PState& st) {
-    std::string type_word = st.toks[st.i].s;
-    st.i++;                                   // 先消费类型名（Rust: self.next()）
-    std::vector<ValuePtr> args;
-    bool key_is_contract = (st.contracts.find(type_word) != st.contracts.end());
-    bool arg_has_contract = false;
-    while (st.i < st.toks.size() && st.toks[st.i].t == Token::T::Word) {
-        if (key_is_contract && st.contracts.find(st.toks[st.i].s) != st.contracts.end())
-            arg_has_contract = true;
-        args.push_back(coerce(st.toks[st.i], st.fragments, st.err, st.features));
-        st.i++;
-    }
-    // 任务 D：数组位置的块级多契约同样「响亮拒绝」（head 命中契约表且参数里出现第 2 个契约词）。
-    if (key_is_contract && arg_has_contract) {
-        if (st.err && st.err->empty())
-            *st.err = code_prefix(SML_E_CONTRACT_017, "sml: 该实现暂不支持一个块应用多份契约（块级多契约写法）");
-        st.aborted = true;
-        return Value::null();
-    }
-    if (st.i >= st.toks.size() || st.toks[st.i].t != Token::T::LBrace) return Value::null();
-    st.i++;                                   // `{`
-    st.enter_key = type_word;                 // 旁路表路径用块类型名当段
-    auto sub = parse_block_nested(st);
-    if (sub && sub->tag == Value::Tag::Obj) {
-        sub->obj.push_back({"__type", Value::string(type_word)});
-        if (!args.empty()) {
-            sub->obj.push_back({"__name", args[0]});
-            if (args.size() > 1) {
-                auto extra = Value::array();
-                for (size_t k = 1; k < args.size(); k++) extra->arr.push_back(args[k]);
-                sub->obj.push_back({"__args", extra});
-            }
-        }
-    }
-    return sub;
-}
+/* 数组元素位置的裸块 `type [featag 区] [契约词…] [块名] { … }`（W4 ③ B 类）。
+   **实现在 `05_parse.inc`** —— 那里才有 S7（`check_from_featag`）与 S6（`write_target`）
+   这些 featag helper（本文件在它之前 include）。与键位置同构：`__type` = 类型词、
+   首个非契约词 ⇒ `__name`、其余 ⇒ `__args`；多契约与 featag 区都走同一个判据。 */
+static ValuePtr parse_bare_block(PState& st);
 
 static ValuePtr parse_array(PState& st) {
     auto arr = Value::array();

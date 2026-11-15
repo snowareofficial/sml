@@ -1438,71 +1438,11 @@ static sml_value *parse_array(parser *ps) {
     return v;
 }
 
-/* 数组元素位置的裸块 `type [name…] { … }`（W4 的 B 类对齐点）。
-   与 Rust 的 `bare_block_ahead()` + `parse_bare_block()` **逐字对应**：
-
-   * 入口判据：当前 token 必须是 **T_WORD**。Rust 的 `Some(Tok::Str(_))` 分支直接当字符串
-     元素、不试裸块 —— 所以 `[ "sec" { } ]` 在两端都**不是**块，别顺手给 T_STR 也开。
-   * 预扫描：从当前位置起，连续的词/串之后紧跟 `{` 才算裸块；撞上别的 token（含 `]`、
-     EOF）即「不是」。因此 `[ hello world ]` 仍是两个标量元素（Rust 同）。
-   * 识别成功：消费掉「类型词 [参数…] { … }」并返回块对象，块内写
-     `__type` = 类型词（**原词**，不经 coerce）、`__name` = 首个参数、多余参数进 `__args`
-     —— 与 Rust `parse_bare_block` 一致（参数不再静默丢弃）。
-   * 不识别：返回 NULL 且**一个 token 都不消费**，调用方按原来的标量路径处理。
-
-   为什么参数要 clone 后存：`args` 这个临时数组下面就被 sml_free，直接借用其中的值会让
-   `__name` / `__args` 变成悬垂指针（与 parse_block 里「带名块堆损坏」那条注释同因）。 */
-static sml_value *try_parse_array_bare_block(parser *ps) {
-    if (peek(ps)->t != T_WORD) return NULL;
-    size_t probe = ps->lx->pos;
-    int found = 0;
-    while (probe < ps->lx->n) {
-        tok_type pt = ps->lx->toks[probe].t;
-        if (pt == T_WORD || pt == T_STR) probe++;
-        else if (pt == T_LBRACE) { found = 1; break; }
-        else break;
-    }
-    if (!found) return NULL;
-    /* ⚠️ 先**消费类型名**再收参数（Rust：`self.next(); // 消费类型名` 然后
-       `parse_bare_block(&w)`）。漏掉这一次消费，类型词就会被当成第一个参数 ⇒
-       `section 情节 { }` 得到 `__name: section` + `__args: [情节]`（实测踩过）。 */
-    token *first = next(ps);
-    const char *type_word = first->v;   /* 原词（token 存活到 lex_free） */
-    sml_value *args = sml_new_array();
-    /* 任务 D：数组位置的块级多契约同样「响亮拒绝」（head 命中契约表且参数里出现
-       第 2 个已注册契约词 ⇒ E-CONTRACT-017）。 */
-    int key_is_contract = (contract_find(ps, type_word) != NULL);
-    int arg_has_contract = 0;
-    while (peek(ps)->t == T_WORD || peek(ps)->t == T_STR) {
-        token *at = next(ps);
-        if (key_is_contract && contract_find(ps, at->v)) arg_has_contract = 1;
-        sml_arr_push(args, at->t == T_STR ? sml_new_strn(at->v, at->len)
-                                          : coerce_word(at->v, ps));
-    }
-    if (key_is_contract && arg_has_contract) {
-        set_err(ps->lx->errbuf, ps->lx->errsz,
-                SML_E_CONTRACT_017 " 该实现暂不支持一个块应用多份契约（块级多契约写法）");
-        ps->failed = 1;
-        sml_free(args);
-        return NULL;
-    }
-    next(ps);   /* `{`（预扫描已保证在此） */
-    ps->enter_key = type_word;   /* 旁路表路径用块类型名当段 */
-    sml_value *sub = parse_block(ps, T_RBRACE);
-    sml_obj_set(sub, "__type", sml_new_str(type_word));
-    if (sml_arr_len(args) > 0) {
-        size_t i;
-        sml_obj_set(sub, "__name", sml_clone(sml_arr_get(args, 0)));
-        if (sml_arr_len(args) > 1) {
-            sml_value *extra = sml_new_array();
-            for (i = 1; i < sml_arr_len(args); i++)
-                sml_arr_push(extra, sml_clone(sml_arr_get(args, i)));
-            sml_obj_set(sub, "__args", extra);
-        }
-    }
-    sml_free(args);
-    return sub;
-}
+/* 数组元素位置的裸块（W4 的 B 类对齐点）：`[ type [featag 区] [契约词…] [块名] { … } ]`。
+   **实现在 `05_parse.inc`** —— 那里才有 S6 / S7 的 featag helper（本文件在它之前
+   include）。两处（键位置 / 数组位置）共用同一对 `parse_bare_head` /
+   `finish_bare_block`，与 Rust 两个入口共用 `bare_child_frame` 同构。 */
+static sml_value *try_parse_array_bare_block(parser *ps);
 
 static sml_value *parse_array_inner(parser *ps) {
     sml_value *arr = sml_new_array();
