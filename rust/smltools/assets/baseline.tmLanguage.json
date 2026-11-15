@@ -16,6 +16,7 @@
     { "include": "#constant" },
     { "include": "#number" },
     { "include": "#key" },
+    { "include": "#array-bare-block" },
     { "include": "#punctuation" }
   ],
   "repository": {
@@ -306,6 +307,13 @@
     "number": {
       "name": "constant.numeric.sml",
       "match": "(?<!\\w)-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?"
+    },
+    "array-bare-block": {
+      "comment": "裸块头（`[ A B item { … } ]` 与键位置 `A B item { … }` 同形；排在 `#key` **之后**，让 `a: b {` 的 `a:` 先被吃掉）：`xs: [ A B item { … } ]` 里 `[` 之后、`{` 之前的裸词序列 —— 首个词是类型/契约名，其余是契约词或块名。数组里的普通标量（`[ a b ]`）不含 `{`，不会被这条吃掉",
+      "match": "(?:^|(?<=\\[)|(?<=,))\\s*([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*(?:\\s+[A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)*)\\s*(?=[^\\n]*\\{)",
+      "captures": {
+        "1": { "name": "entity.name.type.sml" }
+      }
     },
     "key": {
       "comment": "数据区键名：支持中文。两个分支 —— ① 行首键（允许缩进）；② 同行后续键 / 内联对象键（紧跟 `{` 或 `,`，且其后是 `:`）。此前只有分支 ①（整个 match 被 ^\\s* 锚在行首），于是 `web { host: a, port: 8080 }` 里只有行首那个词着色，同行的 host / port 全无色 —— 真实 Oniguruma 引擎实测 `host✗ port✗`，即「字段组合（同一行多字段 / 内联对象）」着不上色。",

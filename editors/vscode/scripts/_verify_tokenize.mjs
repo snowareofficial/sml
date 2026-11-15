@@ -101,6 +101,33 @@ function scopesCovering(line, needle, tokens) {
   check("@is 裸名形式的契约名仍为引用色", s3 !== null && s3.join(" ").includes("variable.other.member"), s3?.join(" | "));
 }
 
+// ---- 断言 2c：裸块头（I-26）----
+// ⚠️ 判据必须看**最内层** scope：`scopesCovering` 返回整条 scope 栈，祖先里可能
+// 恰好含目标词而形成假通过（实测第一版就假通过了）。
+function innerScopesAt(line, needle) {
+  const toks = tokensOfLine(line);
+  const start = line.indexOf(needle);
+  if (start < 0) return null;
+  const end = start + needle.length;
+  return toks.filter((t) => t.startIndex < end && t.endIndex > start)
+             .map((t) => t.scopes[t.scopes.length - 1]);
+}
+{
+  const cases = [
+    ["xs: [ A B item {", "A B item", "数组内同行"],
+    ["    A B item {", "A B item", "数组内跨行"],
+    ["    A !t tagged {", "A", "featag 区前的首词"],
+    ["A B item {", "B", "键位置"],
+  ];
+  for (const [line, needle, label] of cases) {
+    const s = innerScopesAt(line, needle);
+    check(`${label}：裸块头词序列着色`, s !== null && s.join(" ").includes("entity.name.type"), s?.join(" | "));
+  }
+  // 普通标量数组不该被这条吃掉（没有 `{`）
+  const s3 = innerScopesAt("xs: [ a b ]", "a b");
+  check("标量数组不吃裸块规则", s3 !== null && !s3.join(" ").includes("entity.name.type"), s3?.join(" | "));
+}
+
 // ---- 断言 3：模式关键字与字符类（必须在 @type 块上下文内测）----
 {
   const lines = [
