@@ -117,7 +117,7 @@ T5 段级 zstd + 帧级 FRAMES + 按块 AEAD · T6 `sml::envelope` + CLI 互转�
 | `smltools --split-by` | 不存在（I-20） | `open-work.md:373` |
 | 官网 | 新官网由用户单独做；本仓现有 `site/` 内容挂到 `/doc` 子路径（D6）；现有首页 / 下载页版本落后、教科书 ch11/ch12 各两份、`llms.txt` 手抄 | `docs/repo/ref/pending-decisions.md` D6、`open-work.md:268-269,343` |
 | 示例 doctest | 209 个示例无 doctest | `open-work.md:343` |
-| `.vsix` | 源码与入库产物都是 `0.5.4`（2026-11-16 重打：含 `js/src/dump.mjs` 子模块；`0.5.2` 修高亮（数组上下文的裸块头、`@is` 多契约、featag 声明的 `default`）、`0.5.3` 块名单独一色、`0.5.4` 块头三色：首词类型 / 中间契约引用 / 末词块名）；站点分发（`site/static/dl` + 下载页文案）另开一批，属发版动作 | `TODO.md:1003` |
+| `.vsix` | 源码与入库产物都是 `0.5.5`（2026-11-16 重打：含 `js/src/dump.mjs` 子模块；`0.5.2` 修高亮（数组上下文的裸块头、`@is` 多契约、featag 声明的 `default`）、`0.5.3` 块名单独一色、`0.5.5` 块头契约词统一引用色（与 `@is` 同色）、块名单独一色）；站点分发（`site/static/dl` + 下载页文案）另开一批，属发版动作 | `TODO.md:1003` |
 | weak* 改 vsix | **源码侧已同步（2026-11-12）**：VSCode / LSP / Zed + `smltools` 高亮基线副本 + 回归钉子（逐项核对 Rust 的 `FEATURES` / `BUILTIN_DIRECTIVES` / `EDITIONS`）；只剩 `.vsix` 产物重打（同上一行，用户动作） | `TODO.md:1003,1007`；`editors/vscode/README.md` |
 
 ---

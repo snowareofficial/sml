@@ -113,19 +113,25 @@ function innerScopesAt(line, needle) {
              .map((t) => t.scopes[t.scopes.length - 1]);
 }
 {
+  // 块头里的**契约词**（首词的类型词 + 其余被应用的契约）一律引用色，
+  // 与 `@is A, B` 同色；`@contract A` 声明处才是 entity.name.type。
   const cases = [
-    ["xs: [ A B item {", "A B item", "数组内同行"],
-    ["    A B item {", "A B item", "数组内跨行"],
+    ["xs: [ A B item {", "A B", "数组内同行"],
+    ["    A B item {", "A B", "数组内跨行"],
     ["    A !t tagged {", "A", "featag 区前的首词"],
     ["A B item {", "A", "键位置（首词）"],
   ];
   for (const [line, needle, label] of cases) {
     const s = innerScopesAt(line, needle);
-    check(`${label}：裸块头词序列着色`, s !== null && s.join(" ").includes("entity.name.type"), s?.join(" | "));
+    check(`${label}：块头契约词=引用色`, s !== null && s.join(" ").includes("variable.other.member")
+          && !s.join(" ").includes("entity.name.type"), s?.join(" | "));
   }
+  // 声明处（@contract A）与应用处（块头 A）必须不同色，否则「声明 vs 应用」分不出来
+  const decl = innerScopesAt("@contract A {", "A");
+  check("契约声明处=类型色（与应用处不同）", decl !== null && decl.includes("entity.name.type.sml"), decl?.join(" | "));
   // 普通标量数组不该被这条吃掉（没有 `{`）
   const s3 = innerScopesAt("xs: [ a b ]", "a b");
-  check("标量数组不吃裸块规则", s3 !== null && !s3.join(" ").includes("entity.name.type"), s3?.join(" | "));
+  check("标量数组不吃裸块规则", s3 !== null && !s3.join(" ").includes("entity.name.section"), s3?.join(" | "));
 }
 
 // ---- 断言 3：模式关键字与字符类（必须在 @type 块上下文内测）----
@@ -208,17 +214,17 @@ function innerScopesAt(line, needle) {
                     .map((t) => t.scopes[t.scopes.length - 1]);
   };
   const tA = inner(1, "A");
-  check("多词块头：首词=类型色", tA !== null && tA.includes("entity.name.type.sml")
-        && !tA.includes("variable.other.member.sml"), tA?.join(" | "));
+  check("多词块头：首词也是契约（引用色，与 B 同色）", tA !== null
+        && tA.includes("variable.other.member.sml") && !tA.includes("entity.name.type.sml"), tA?.join(" | "));
   const tB = inner(1, "B");
-  check("多词块头：中间的契约词=引用色（与 @is 同色）", tB !== null
+  check("多词块头：中间的契约词=引用色（与 A 同色）", tB !== null
         && tB.includes("variable.other.member.sml") && !tB.includes("entity.name.type.sml"), tB?.join(" | "));
   const t1n = inner(1, "item");
   check("多词块头：最后一个词是块名（第三种颜色）", t1n !== null
         && t1n.includes("entity.name.section.sml") && !t1n.includes("entity.name.type.sml"), t1n?.join(" | "));
   const t2 = inner(4, "A");
-  check("数组内单契约 `A {` 不当键名", t2 !== null && t2.includes("entity.name.type.sml")
-        && !t2.includes("variable.other.member.sml"), t2?.join(" | "));
+  check("数组内单契约 `A {`：A 是引用色、不是块名", t2 !== null
+        && t2.includes("variable.other.member.sml") && !t2.includes("entity.name.section.sml"), t2?.join(" | "));
   const t3 = inner(7, "tagged");
   check("featag 区之后的块名=块名色（不是契约色）", t3 !== null
         && t3.includes("entity.name.section.sml") && !t3.includes("entity.name.type.sml"), t3?.join(" | "));

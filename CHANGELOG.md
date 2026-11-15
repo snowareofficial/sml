@@ -15,6 +15,25 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ## [未发布]
 
+### 修复（VSCode 扩展 0.5.5：块头里 A 与 B 仍然不同色 —— 统一成「命名两色」）
+
+0.5.4 把块头拆成三色（首词类型 / 中间契约引用 / 末词块名），结果 `A B item {` 里 `A` 与
+`B` 一个是声明色、一个是引用色 —— 可它们**是同一类东西**：都是这个块应用的契约。
+同一份文档里 `@contract A` 的 A（声明）与块头的 A（应用）反而同色，更难解释。
+
+改成**命名两色**，与 `@contract` / `@is` 的既有分工一致：
+
+- 契约名的**声明处**（`@contract A`）→ `entity.name.type`；
+- 契约名的**应用处**（`@is A, B`、块头 `A B item {` 的 A/B）→ `variable.other.member`；
+- **块名**（`item` / `only` / `tagged` / 逗号后的 `prod`）→ `entity.name.section`。
+
+于是：A 与 B 同色（都是应用）、A 与 `@contract A` 不同色（声明 vs 应用）、A 与 `item` 不同色
+（契约 vs 块名）。`_verify_tokenize.mjs` 断言 5 跟着改成这三条，并加一条「声明处与应用处
+必须不同色」。
+
+版本 `0.5.4` -> `0.5.5`；产物 `editors/vscode/sml-lang-0.5.5.vsix` 入库。
+
+
 ### 修复（VSCode 扩展 0.5.4：块头里契约词用了声明色）
 
 `xs: [ A B item { … } ]` 里 `A`（类型词）与 `B`（被应用的契约）同色 —— 而 `@is A, B` 处的

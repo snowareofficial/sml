@@ -323,7 +323,7 @@
       "match": "(?<!\\w)-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?"
     },
     "array-bare-block": {
-      "comment": "裸块头 `type [featag 区] [契约词…] [块名] {`：数组位置（`[ A B item { … } ]`）与键位置同形。**三种词三色** —— 首词（类型）`entity.name.type`、中间的契约词 `variable.other.member`（与 `@is` 引用同色）、块名 `entity.name.section`。语言层「首个未命中契约表的词是块名」，编辑器没有契约表，故按**位置**取：逗号之后、featag 区之后、或最后一个词。普通标量数组（`[ a b ]`）不含 `{`，不会被这条吃掉。",
+      "comment": "裸块头 `type [featag 区] [契约词…] [块名] {`：数组位置（`[ A B item { … } ]`）与键位置同形。**两件事两色** —— 块头里的契约词（首词的类型词 + 其余被应用的契约）一律 `variable.other.member`（与 `@is` 引用同色，声明处才是 `entity.name.type`），块名 `entity.name.section`。语言层「首个未命中契约表的词是块名」，编辑器没有契约表，故按**位置**取：逗号之后、featag 区之后、或最后一个词。普通标量数组（`[ a b ]`）不含 `{`，不会被这条吃掉。",
       "patterns": [
         {
           "comment": "块名：紧跟 featag 项之后、`{` 之前的那一个词（`A !t tagged {`）。变长后顾断言只认 `!tag ` 之后那一词 —— 不带上这条，`a: b {` 的 `b` 会被误当契约词。",
@@ -339,18 +339,17 @@
           }
         },
         {
-          "comment": "多词块头三分色：**首词**是类型词（`entity.name.type`，与 `@contract` 声明同色）、**中间**的词是「被应用的契约」（`variable.other.member`，与 `@is A, B` 的引用同色）、**末词**是块名（`entity.name.section`）。`A B item {` 于是三色可辨。",
-          "match": "(?:^|(?<=\\[)|(?<=,))\\s*([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)((?:\\s+[A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)*)\\s+([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)\\s*(?=[^\\n]*\\{)",
+          "comment": "多词块头：前面的词都是**块头契约词**（首词是类型词，其余是被应用的契约）—— 一律用引用色 `variable.other.member`，与 `@is A, B` 同色；**最后一个才是块名** `entity.name.section`。契约名在**声明处**（`@contract A`）才用 `entity.name.type`，应用处一律引用色。",
+          "match": "(?:^|(?<=\\[)|(?<=,))\\s*((?:[A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*\\s+)+)([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)\\s*(?=[^\\n]*\\{)",
           "captures": {
-            "1": { "name": "entity.name.type.sml" },
-            "2": { "name": "variable.other.member.sml" },
-            "3": { "name": "entity.name.section.sml" }
+            "1": { "name": "variable.other.member.sml" },
+            "2": { "name": "entity.name.section.sml" }
           }
         },
         {
-          "comment": "单词块头：只有类型词、没有块名（`A {`），整词是类型色。",
+          "comment": "单词块头：只有类型词、没有块名（`A {`）—— 它是**被应用的契约**，用引用色（与 `@is A` 一致），不是声明色。",
           "match": "(?:^|(?<=\\[)|(?<=,))\\s*([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)\\s*(?=[^\\n]*\\{)",
-          "captures": { "1": { "name": "entity.name.type.sml" } }
+          "captures": { "1": { "name": "variable.other.member.sml" } }
         }
       ]
     },

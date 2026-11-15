@@ -23,6 +23,27 @@ Conventions carried over from `CHANGELOG.md`:
 
 ## [Unreleased]
 
+### Fixed (VS Code extension 0.5.5: `A` and `B` in a block head were still different colours — now "two colours for names")
+
+0.5.4 split a block head into three colours (first word = type, middle = contract reference,
+last = block name). That made `A` and `B` in `A B item {` differ, even though they are the same
+kind of thing: contracts applied to this block. It also made `@contract A` (declaration) and the
+head's `A` (application) share a colour, which is harder to explain.
+
+It is now **two colours for names**, matching the existing `@contract` / `@is` split:
+
+- a contract name at its **declaration** (`@contract A`) -> `entity.name.type`;
+- a contract name at an **application** (`@is A, B`, and `A`/`B` in a head) -> `variable.other.member`;
+- the **block name** (`item` / `only` / `tagged` / `prod` after a comma) -> `entity.name.section`.
+
+So A and B are the same colour (both applications), A differs from `@contract A` (declaration vs
+application), and A differs from `item` (contract vs block name). Assertion 5 in
+`_verify_tokenize.mjs` checks those three, plus "declaration and application must not share a
+colour".
+
+Version `0.5.4` -> `0.5.5`; the artifact `editors/vscode/sml-lang-0.5.5.vsix` is committed.
+
+
 ### Fixed (VS Code extension 0.5.4: contract words in a block head used the declaration colour)
 
 In `xs: [ A B item { … } ]`, `A` (the type word) and `B` (an applied contract) were painted the
