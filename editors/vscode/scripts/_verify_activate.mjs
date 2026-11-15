@@ -206,5 +206,41 @@ check(registered.commands.includes("sml.selectIconTheme"), "注册了「文件�
   }
 }
 
+// —— 真调补全（二）：**类型位 vs 值位**必须分开 ——
+// 数据块 `k: ` 以前会列出契约名（写下来只是裸词字符串，等于教人写错），
+// 而真正需要组合的契约体 `z: ` 反而一个契约名都没有。
+{
+  const src = [
+    "@contract A { x: int }",
+    "@contract B { y: int }",
+    "s {",
+    "  k: ",
+    "}",
+    "@contract C {",
+    "  z: ",
+    "}",
+  ].join("\n");
+  const lines = src.split("\n");
+  const doc = {
+    fileName: path.join(ROOT, "pos.sml"),
+    languageId: "sml",
+    getText: () => src,
+    lineAt: (p) => ({ text: lines[p.line] ?? "" }),
+    offsetAt: (p) => lines.slice(0, p.line).reduce((n, l) => n + l.length + 1, 0) + p.character,
+  };
+  const p = registered.completion;
+  if (p && p.provideCompletionItems) {
+    const at = async (line) =>
+      (await p.provideCompletionItems(doc, new Position(line, lines[line].length))).map((x) => x.label);
+    const data = await at(3);
+    check(!data.includes("A") && !data.includes("B"),
+      "数据块值位不补契约名（值位写契约名只是裸词字符串）", data.join(","));
+    check(data.includes("true") && data.includes("null"), "数据块值位仍补字面量", data.join(","));
+    const decl = await at(6);
+    check(decl.includes("A") && decl.includes("B"),
+      "契约体类型位补出组合契约名", decl.join(","));
+  }
+}
+
 console.log(failed === 0 ? "\nACTIVATE SMOKE ALL PASS" : `\n${failed} 项失败`);
 process.exit(failed ? 1 : 0);

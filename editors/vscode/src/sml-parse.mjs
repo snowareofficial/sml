@@ -654,6 +654,54 @@ export function findAnnotatedBlocks(text, contractNames) {
   return out;
 }
 
+/// 某个偏移落在哪种**声明体**里：`"contract"` / `"type"` / `"weakbind"`，都不在则 `null`。
+///
+/// 为什么必须分：声明体里 `字段: X` 的 X 是**类型位** —— 可以是另一个契约
+/// （组合，`address: Address`）或 `@type` 声明的类型；数据块里同样的写法是
+/// **值位** —— 只能字面量、片段引用或块。补全混在一起时，数据块里会冒出
+/// 「契约名」这种写下来只是裸词字符串的候选，而真正需要组合的地方反而没有。
+///
+/// 判据只看结构：行首指令头之后第一个 `{`，再用引号 / 注释感知的括号配对找闭合。
+export function declBodyKind(text, offset) {
+  const head = /^[ \t]*@(contract|type|weakbind)\b[^{]*\{/gm;
+  let m;
+  while ((m = head.exec(text)) !== null) {
+    const open = text.indexOf("{", m.index);
+    if (open < 0) continue;
+    const close = matchBrace(text, open);
+    if (offset > open && offset <= close) return m[1];
+    if (close > m.index) head.lastIndex = close + 1; // 跳过整块：体里的 `{` 不是新声明头
+  }
+  return null;
+}
+
+/// 从 `open`（`{` 的下标）找配对的 `}`；引号与 `#` 注释里的括号不算，未闭合返回 `text.length`。
+function matchBrace(text, open) {
+  let depth = 0;
+  let quote = null;
+  for (let i = open; i < text.length; i++) {
+    const c = text[i];
+    if (quote) {
+      if (c === "\\") i++;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'") { quote = c; continue; }
+    if (c === "#") {
+      const nl = text.indexOf("\n", i);
+      if (nl < 0) return text.length;
+      i = nl;
+      continue;
+    }
+    if (c === "{") depth++;
+    else if (c === "}") {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return text.length;
+}
+
 /// 剥掉引号内容与 `#` 行尾注释，只留结构字符（数括号用；与库的 `strip_line_comment` 同口径）。
 function stripQuotesAndComment(line) {
   let out = "";

@@ -1100,12 +1100,14 @@ function activate(context) {
       if (!mod) return [];
       const {
         collectContractNames, collectFragmentNames, collectKeys, collectTypeNames,
-        collectFeatagNames, collectWeakDocs,
+        collectFeatagNames, collectWeakDocs, declBodyKind,
       } = mod;
       const items = [];
       const contractNames = collectContractNames(fullText);
       const typeNames = collectTypeNames(fullText);
-      const before = fullText.slice(0, document.offsetAt(position));
+      // 光标落在哪种声明体里（`@contract` / `@type` / `@weakbind`），都不在则 null。
+      // 声明体的 `字段: X` 是**类型位**，数据块的是**值位** —— 两者补全候选不同。
+      const declKind = declBodyKind ? declBodyKind(fullText, document.offsetAt(position)) : null;
 
       // SML 标识符可含中文（如契约名 `受理人`），故所有位置匹配统一用 CJK 感知的字符类
       // `[A-Za-z0-9_\u4e00-\u9fa5]`，避免 \w 把中文名整个漏掉导致补全/标注失效。
@@ -1123,7 +1125,8 @@ function activate(context) {
 
       // 1b) 行首：契约名直接作块级类型标注 `<契约名> <块名> { .. }`
       //     （与既有裸块同形，零新语法；需 @feature enable typed-block 才校验）
-      if (new RegExp(`^\\s*[${ID}]*$`).test(linePrefix) && !linePrefix.includes("@")) {
+      //     声明体里行首是字段名，不是块头 —— 那里由 2) 管。
+      if (!declKind && new RegExp(`^\\s*[${ID}]*$`).test(linePrefix) && !linePrefix.includes("@")) {
         for (const n of contractNames) {
           items.push({
             label: n,
@@ -1208,11 +1211,19 @@ function activate(context) {
         }
       }
 
-      // 2) 契约体内（键后跟冒号）：内置类型 + **@type 自定义类型** + 修饰符
-      const isContractBody = /@contract[^{]*\{[^}]*$/s.test(before);
-      if (isContractBody) {
+      // 2) 声明体（`@contract` / `@weakbind` 的字段规格）里冒号之后是**类型位**：
+      //    内置类型 + **组合契约** + **@type 自定义类型**。契约名放这里才有意义
+      //    （`address: Address` 表示字段值是另一个契约）；放到数据块的值位就是
+      //    「写下来只是个裸词字符串」的噪音。
+      const isDeclBody = declKind === "contract" || declKind === "weakbind";
+      if (isDeclBody) {
         const typeItems = [
           ...CONTRACT_TYPES,
+          ...contractNames.map((n) => ({
+            label: n,
+            kind: CK("Struct", 0),
+            detail: L("契约（组合：字段类型是另一个契约）"),
+          })),
           ...typeNames.map((n) => ({
             label: n,
             kind: CK("TypeParameter", 0),
@@ -1224,22 +1235,16 @@ function activate(context) {
       }
 
       // 2b) @type 模式体内：模式关键字（中英）与字符类
-      const isTypeBody = /@type[^{]*\{[^}]*$/s.test(before);
-      if (isTypeBody) {
+      if (declKind === "type") {
         if (new RegExp(`(类|class)\\s*:\\s*[${ID}]*$`).test(linePrefix)) items.push(...PATTERN_CLASSES);
         else items.push(...PATTERN_KEYWORDS, ...PATTERN_CLASSES);
       }
 
-      // 3) 值位置（冒号后）：常量 / 片段引用 / 契约名（组合）
-      if (new RegExp(`:\\s*[${ID}]*$`).test(linePrefix) && !isContractBody) {
+      // 3) 值位置（冒号后，数据块）：常量 / 片段引用。
+      //    这里**不给**契约名与 @type 类型 —— 值位写它们只是裸词字符串，
+      //    契约要用块头标注或 `@is` 应用（类型位在 2)）。
+      if (new RegExp(`:\\s*[${ID}]*$`).test(linePrefix) && !isDeclBody && declKind !== "type") {
         items.push(...CONSTANTS);
-        for (const n of contractNames) {
-          items.push({
-            label: n,
-            kind: CK("Struct", 0),
-            detail: L("契约（组合：字段值须符合该契约）"),
-          });
-        }
         for (const n of collectFragmentNames(fullText)) {
           items.push({
             label: "&" + n,
@@ -1277,7 +1282,7 @@ function activate(context) {
       }
 
       // 5) 行首键名补全（同文档出现过的键）
-      if (new RegExp(`^\\s*[${ID}]*$`).test(linePrefix) && !isContractBody && !linePrefix.includes("@")) {
+      if (!declKind && new RegExp(`^\\s*[${ID}]*$`).test(linePrefix) && !linePrefix.includes("@")) {
         for (const k of collectKeys(fullText)) {
           items.push({
             label: k,

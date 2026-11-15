@@ -21,6 +21,7 @@ import { parseSafe } from "../vscode/src/sml-parse.mjs";
 import {
   collectContractNames, collectFragmentNames, collectKeys, collectTypeNames,
   collectFeatagNames, collectWeakDocs, missingProfileRefs, parseProfileFields,
+  declBodyKind,
 } from "../vscode/src/sml-parse.mjs";
 
 const KW = {
@@ -239,8 +240,12 @@ function buildCompletions(uri, line, character) {
   }
   const contractNames = collectContractNames(text);
   const typeNames = collectTypeNames(text);
-  // 块级类型标注：行首契约名
-  if (/^\s*\w*$/.test(linePrefix) && !linePrefix.includes("@")) {
+  // 光标落在哪种声明体里（`@contract` / `@type` / `@weakbind`），都不在则 null：
+  // 声明体的 `字段: X` 是类型位，数据块的是值位 —— 补全候选不同。
+  const offset = lines.slice(0, line).reduce((n, l) => n + l.length + 1, 0) + character;
+  const declKind = declBodyKind(text, offset);
+  // 块级类型标注：行首契约名（声明体里行首是字段名，不是块头）
+  if (!declKind && /^\s*\w*$/.test(linePrefix) && !linePrefix.includes("@")) {
     for (const n of contractNames) {
       items.push({ label: n, kind: CompletionItemKind.Struct, detail: "契约名 · 块级类型标注 `<契约名> <块名> {}`" });
     }
@@ -251,10 +256,13 @@ function buildCompletions(uri, line, character) {
   } else if (/@is\s+\w*$/.test(linePrefix)) {
     for (const n of contractNames) items.push({ label: n, kind: CompletionItemKind.Struct, detail: "契约名" });
   }
-  // 值位置
-  if (/:\s*\w*$/.test(linePrefix)) {
-    for (const n of contractNames) items.push({ label: n, kind: CompletionItemKind.Struct, detail: "契约（组合）" });
+  // 类型位（声明体）：组合契约 + @type 类型
+  if ((declKind === "contract" || declKind === "weakbind") && /:\s*\w*$/.test(linePrefix)) {
+    for (const n of contractNames) items.push({ label: n, kind: CompletionItemKind.Struct, detail: "契约（组合：字段类型是另一个契约）" });
     for (const n of typeNames) items.push({ label: n, kind: CompletionItemKind.TypeParameter, detail: "自定义类型（@type）" });
+  }
+  // 值位（数据块）：片段 + 字面量。值位写契约名只是裸词字符串，故不给。
+  if (!declKind && /:\s*\w*$/.test(linePrefix)) {
     for (const n of collectFragmentNames(text)) items.push({ label: "&" + n, kind: CompletionItemKind.Reference, detail: "片段引用", insertText: "&" + n });
     for (const c of ["true", "false", "null"]) items.push({ label: c, kind: CompletionItemKind.Constant, detail: "字面量" });
   }

@@ -495,6 +495,28 @@ try {
   check(false, "语义高亮：块头契约词", String(e && e.message));
 }
 
+// —— 类型位 vs 值位：`declBodyKind` 要能分清三种声明体（且不被嵌套 `{ }` 骗） ——
+// 补全据此分流：声明体的 `字段: X` 是类型位（可写组合契约 / @type 类型），
+// 数据块的是值位（只能字面量 / 片段）。判错一边就会在数据块里冒出契约名。
+try {
+  const D = [
+    "@contract A { x: int }",
+    "@type name: T { 序列: [ { 名: a } ] }",
+    "@weakbind tls { host: str }",
+    "s {",
+    "  k: 1",
+    "}",
+  ].join("\n");
+  const at = (needle) => D.indexOf(needle);
+  check(m.declBodyKind(D, at("x: int")) === "contract", "声明体：@contract 体内", String(m.declBodyKind(D, at("x: int"))));
+  check(m.declBodyKind(D, at("名: a")) === "type", "@type 体内（嵌套 { } 里也算）", String(m.declBodyKind(D, at("名: a"))));
+  check(m.declBodyKind(D, at("host: str")) === "weakbind", "@weakbind 字段体", String(m.declBodyKind(D, at("host: str"))));
+  check(m.declBodyKind(D, at("k: 1")) === null, "数据块里不是声明体", String(m.declBodyKind(D, at("k: 1"))));
+  check(m.declBodyKind(D, D.length) === null, "全部闭合之后不是声明体", String(m.declBodyKind(D, D.length)));
+} catch (e) {
+  check(false, "declBodyKind：类型位 / 值位", String(e && e.message));
+}
+
 // —— 诊断定位：`parseSafe` 不给位置时，不许把错误画到首行注释 ——
 // 实测踩过：v5 版本声明报「版本声明非法」但 position/pos 都为 null，旧兜底 0,0 +
 // 范围拉到行尾 ⇒ 用户看到「第一行注释整行标红」，完全指错地方。

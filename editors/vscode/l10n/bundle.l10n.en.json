@@ -154,7 +154,7 @@
   "契约名（类型标注形式 @is type(契约名)）": "Contract name (type annotation form @is type(contractName))",
   "契约定义": "Contract definition",
   "契约系统 @contract / @is（默认开启）": "Contract system @contract / @is (on by default)",
-  "契约（组合：字段值须符合该契约）": "Contract (combination: field values must conform to the contract)",
+  "契约（组合：字段类型是另一个契约）": "Contract (combination: this field's type is another contract)",
   "字段可选：缺失时不报错。": "Field optional: no error when missing.",
   "字段必填（默认行为）。": "Field required (default behavior).",
   "字段缺失时填充的默认值。": "Default value filled in when the field is missing.",
