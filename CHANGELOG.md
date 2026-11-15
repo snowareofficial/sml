@@ -15,6 +15,23 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ## [未发布]
 
+### 修复（VSCode 扩展 0.5.2：数组位置的裸块没高亮、`@is` 多契约只认第一个）
+
+- **数组位置的裸块**：`xs: [ A B item { … } ]` 里的头词此前靠一条平铺规则着色，于是
+  `A {`（单契约裸块）被 `#key` 的「行首键」分支抢走、成了键名色；`A !t tagged {` 的块名
+  `tagged` 因词 run 被 featag 区打断而无色。现在新增 `#array` 上下文（`begin: \[` /
+  `end: \]`）：上下文内先试裸块头、再试键，块名单独一条规则（变长后顾断言只认 `!名` 之后那一词）。
+- **`@is` 多契约**：`@is A, B` 此前只认第一个名字（`B` 全无色）。现在整行尾部一次吃掉，
+  内层分色：契约名=引用色、`loose/warn/strict`=修饰符色、逗号=分隔符色。
+- **块头三段式的逗号**（`Service !critical !obey[4], prod {`）着分隔符色。
+- **`@type`**：`name:` 与模式体内的 `{ } : ,` 上色（此前整段无规则）。
+- **featag 声明**：`!density: str default compact -> p` 的分组重排 —— `default compact`
+  不再被并进类型段（`default` 现在是修饰符色，值保持裸值无色）。
+- 两份 tmLanguage（扩展 + `smltools` 基线）逐字同步；`_verify_tokenize.mjs` 新增断言 5 / 6
+  （数组内单契约不当键、featag 区后的块名、`@is` 多契约、块头逗号、featag 声明分组）。
+- 版本 `0.5.1` → `0.5.2`；产物 `editors/vscode/sml-lang-0.5.2.vsix` 入库。
+
+
 ### 修复（VSCode 扩展 0.5.1：包内解析器 / 高亮 / 过期的端数说明）
 
 - **包内解析器过期**：`editors/vscode/src/vendor/` 只在打包前由 `npm run sync-parser` 刷新，

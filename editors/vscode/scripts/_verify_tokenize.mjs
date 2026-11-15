@@ -180,6 +180,79 @@ function innerScopesAt(line, needle) {
   check("注释里的词不着键色", s3 !== null && !s3.join(" ").includes("variable.other.member"), s3?.join(" | "));
 }
 
+// ---- 断言 5：数组里的裸块（必须**多行** tokenize；上下文只在 `[` 之后成立）----
+// 回归背景：数组里的 `A {` 曾被 #key 的「行首键」分支抢走（应为裸块头的类型色）；
+// `A !t tagged {` 的块名 `tagged` 因词 run 被 featag 区打断而无色。
+{
+  const doc = [
+    "xs: [",
+    "    A B item {",
+    "        a: 1",
+    "    }",
+    "    A {",
+    "        a: 4",
+    "    }",
+    "    A !t tagged {",
+    "        a: 5",
+    "    }",
+    "    { plain: 1 }",
+    "]",
+  ];
+  const toks = tokenizeLines(doc);
+  const inner = (ln, needle) => {
+    const line = doc[ln];
+    const start = line.indexOf(needle);
+    if (start < 0) return null;
+    const end = start + needle.length;
+    return toks[ln].filter((t) => t.startIndex < end && t.endIndex > start)
+                    .map((t) => t.scopes[t.scopes.length - 1]);
+  };
+  const t1 = inner(1, "A B item");
+  check("数组内跨行：头词序列=类型色", t1 !== null && t1.includes("entity.name.type.sml"), t1?.join(" | "));
+  const t2 = inner(4, "A");
+  check("数组内单契约 `A {` 不当键名", t2 !== null && t2.includes("entity.name.type.sml")
+        && !t2.includes("variable.other.member.sml"), t2?.join(" | "));
+  const t3 = inner(7, "tagged");
+  check("featag 区之后的块名着色", t3 !== null && t3.includes("entity.name.type.sml"), t3?.join(" | "));
+  const t4 = inner(10, "plain");
+  check("数组里的内联对象键仍着键色", t4 !== null && t4.includes("variable.other.member.sml"), t4?.join(" | "));
+}
+
+// ---- 断言 6：`@is` 多契约 / 块头三段式逗号 / featag 声明的 default ----
+{
+  const line = "@is A loose, B";
+  const sB = innerScopesAt(line, "B");
+  check("@is 多契约：第二份契约名=引用色", sB !== null && sB.includes("variable.other.member.sml"), sB?.join(" | "));
+  const sLoose = innerScopesAt(line, "loose");
+  check("@is 就地严格度=修饰符色", sLoose !== null && sLoose.includes("storage.modifier.sml"), sLoose?.join(" | "));
+  const sComma = innerScopesAt(line, ",");
+  check("@is 多契约：逗号=分隔符色", sComma !== null && sComma.includes("punctuation.separator.sml"), sComma?.join(" | "));
+
+  const head = "Service !critical !obey[4], prod {";
+  const sHeadComma = innerScopesAt(head, ",");
+  check("块头三段式的逗号=分隔符色", sHeadComma !== null && sHeadComma.includes("punctuation.separator.sml"), sHeadComma?.join(" | "));
+  const sProd = innerScopesAt(head, "prod");
+  check("块头逗号之后的块名着色", sProd !== null && sProd.includes("entity.name.type.sml"), sProd?.join(" | "));
+
+  // featag 声明只在契约体内成立（`#featag-decl` 由 `#contract-block` 引入），故多行 tokenize
+  const cdoc = ["@contract X {", "    !density: str default compact -> layout.density", "}"];
+  const ctoks = tokenizeLines(cdoc);
+  const at = (ln, needle) => {
+    const line = cdoc[ln];
+    const start = line.indexOf(needle);
+    if (start < 0) return null;
+    const end = start + needle.length;
+    return ctoks[ln].filter((t) => t.startIndex < end && t.endIndex > start)
+                    .map((t) => t.scopes[t.scopes.length - 1]);
+  };
+  const sDef = at(1, "default");
+  check("featag 声明的 default=修饰符色（不再被并进类型）", sDef !== null && sDef.includes("storage.modifier.sml"), sDef?.join(" | "));
+  const sStr = at(1, "str ");
+  check("featag 声明的类型仍着类型色", sStr !== null && sStr.includes("support.type.primitive.sml"), sStr?.join(" | "));
+  const sColon = at(1, ":");
+  check("featag 声明的冒号=分隔符色", sColon !== null && sColon.includes("punctuation.separator.key-value.sml"), sColon?.join(" | "));
+}
+
 // ---- 全文 tokenize 不抛异常 ----
 {
   let threw = null;

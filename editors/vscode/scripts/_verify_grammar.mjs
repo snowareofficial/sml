@@ -145,10 +145,14 @@ for (const [src, rule, expect, negated] of cases) {
 
 // 分色断言：声明与调用必须不同 scope
 const declScope = repo["contract-block"].beginCaptures["2"].name;
-const callScope = pick(D, "调用契约：@is Name").captures["2"].name;
+// `@is` 规则是「整行尾部 + 内层 patterns」：契约名的 scope 在内层，不能按位置下标取
+const isRule = pick(D, "调用契约：@is Name");
+const callScope = (isRule.captures["3"].patterns || [])
+  .find((p) => (p.name || "").startsWith("variable."))?.name;
 const fragDecl = pick(D, "片段声明 @name").captures["2"].name;
 const fragCall = repo["fragment-ref"].captures["2"].name;
-const typeDecl = repo["type-block"].beginCaptures["2"].name;
+// `@type` 的 begin 现在是 `(@type)(name)(:)(类型名)({)`：类型名在组 4
+const typeDecl = repo["type-block"].beginCaptures["4"].name;
 console.log("\nscope 检查:");
 console.log(`  契约名 声明=${declScope} 调用=${callScope} ${declScope !== callScope ? "OK" : "FAIL"}`);
 console.log(`  片段名 声明=${fragDecl} 调用=${fragCall} ${fragDecl !== fragCall ? "OK" : "FAIL"}`);

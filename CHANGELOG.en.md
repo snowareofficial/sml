@@ -23,6 +23,30 @@ Conventions carried over from `CHANGELOG.md`:
 
 ## [Unreleased]
 
+### Fixed (VS Code extension 0.5.2: bare blocks in array position were not highlighted; `@is` with several contracts only coloured the first)
+
+- **Bare blocks in array position**: head words used to rely on a flat rule, so `A {` (a
+  single-contract bare block) was stolen by `#key`'s "line-leading key" branch and painted as a
+  key, and the block name in `A !t tagged {` stayed uncoloured because the featag region breaks
+  the word run. There is now an `#array` context (`begin: \[` / `end: \]`): inside it the
+  bare-block head is tried before keys, and the block name has its own rule (a variable-length
+  lookbehind that only accepts the word right after `!name`).
+- **`@is` with several contracts**: `@is A, B` used to colour only the first name (`B` was
+  plain). The whole line tail is now consumed at once and split by nested patterns: contract
+  names = reference colour, `loose/warn/strict` = modifier colour, commas = separator colour.
+- **The comma in the three-part block head** (`Service !critical !obey[4], prod {`) is now a
+  separator.
+- **`@type`**: `name:` and the braces/colon/commas inside the pattern body are coloured (they had
+  no rule at all).
+- **featag declarations**: groups of `!density: str default compact -> p` re-split — `default
+  compact` is no longer folded into the type segment (`default` is a modifier now, the value stays
+  a bare, uncoloured value).
+- Both tmLanguage copies (extension + `smltools` baseline) are byte-identical; `_verify_tokenize.mjs`
+  gained assertions 5 / 6 (single contract in an array is not a key, block name after a featag
+  region, `@is` with several contracts, block-head comma, featag declaration groups).
+- Version `0.5.1` -> `0.5.2`; the artifact `editors/vscode/sml-lang-0.5.2.vsix` is committed.
+
+
 ### Fixed (VS Code extension 0.5.1: vendored parser / highlighting / stale end counts)
 
 - **Stale vendored parser**: `editors/vscode/src/vendor/` is refreshed by
