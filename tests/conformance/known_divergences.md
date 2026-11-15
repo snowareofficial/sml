@@ -2,6 +2,16 @@
 
 本目录是 W5 的产出：**一份共享用例，五端（Rust / C / C++ / JS / Lua）各跑一遍，比较值树**。
 
+## 2026-11-15 复核
+
+实测 **AGREE 61 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`
+五端全部可用；`19` 以 `*` 放行）。
+
+新增 `61_array_bare_block`：**数组位置的裸块**。`[ A B item { … } ]` 在 Rust 里是**一个**
+块元素（多契约 + 块名 + 元数据），此前 JS 把它拆成四个标量（静默错树）、C / C++ / Lua 各
+写各的；现在五端共用各自键位置的那一份实现（见 `docs/swsml/ref/grammar-divergences.md`
+§4.5e）。用例同时钉住反面判据：词序列后没有 `{` ⇒ `[ plain word ]` 仍是两个标量元素。
+
 ## 2026-11-14 判据盲区复核（兼容套件**检不出**的差异）
 
 `python tools/check/probe_matrix.py` 四组探针（错误码 43 / 门控 11 / 值身份 20 / 警告 6）

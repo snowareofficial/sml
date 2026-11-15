@@ -1,6 +1,6 @@
 # 文档状态扫描（生成物，勿手改）
 
-> 生成：`python tools/scan_status.py --write` · 2026-11-14 14:28
+> 生成：`python tools/scan_status.py --write` · 2026-11-15 23:56
 > 手工编辑会在下次扫描时被覆盖；结论写进 `unfinished.md`。
 
 ## 汇总
@@ -13,12 +13,12 @@
 | `IDEAS.md` Partial | 9 |
 | `IDEAS.md` Todo | 4 |
 | 错误码总数 | 175 |
-| 其中只有 Rust | **44** |
-| 缺 `cpp` | 135 |
-| 缺 `js` | 121 |
-| 缺 `c` | 134 |
-| 缺 `lua` | 132 |
-| conformance | AGREE 60 / DIVERGE 0（用例 60 个） |
+| 其中只有 Rust | **41** |
+| 缺 `cpp` | 129 |
+| 缺 `js` | 116 |
+| 缺 `c` | 129 |
+| 缺 `lua` | 127 |
+| conformance | AGREE 61 / DIVERGE 0（用例 61 个） |
 | CI 跑 fuzz / bench | False / False |
 | `docs/**` 未完成标记 ⬜ | 36 |
 
