@@ -23,6 +23,23 @@ Conventions carried over from `CHANGELOG.md`:
 
 ## [Unreleased]
 
+### Fixed (VS Code extension 0.5.6: custom type names in contract fields uncoloured / `-1` inside a bareword painted as a number)
+
+Two highlighting gaps:
+
+- **`at: 时刻`** (with `时刻` registered by `@type name:`): `#contract-field` only colours the key and
+  the type position only knew builtin types (str/int/…), so a custom type name stayed plain — it
+  looked like a typo. New `#contract-type-ref`: the word after `:` gets `entity.name.type` (same as
+  the `@type` declaration), while builtin types are still taken by `#contract-type` first.
+- **`region: cn-north-1`**: `#number`'s `(?<!\w)-?\d+` carved the `-1` out of a bareword and painted
+  it numeric (`cn-north-` + `1`). It is now `(?<![\w-])`, so barewords are no longer split.
+
+Assertion 6 in `_verify_tokenize.mjs` gained three checks: custom type name = type colour, builtin
+type = primitive type colour, and a `-1` inside a bareword carries no numeric scope.
+
+Version `0.5.5` -> `0.5.6`; the artifact `editors/vscode/sml-lang-0.5.6.vsix` is committed.
+
+
 ### Fixed (VS Code extension 0.5.5: `A` and `B` in a block head were still different colours — now "two colours for names")
 
 0.5.4 split a block head into three colours (first word = type, middle = contract reference,

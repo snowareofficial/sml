@@ -2,7 +2,7 @@
   "name": "sml-lang",
   "displayName": "SML (SNOWARE Markup Language)",
   "description": "%sml.description%",
-  "version": "0.5.5",
+  "version": "0.5.6",
   "publisher": "snoware",
   "icon": "images/icon.png",
   "license": "MulanPSL-2.0",
@@ -177,7 +177,7 @@
   "scripts": {
     "sync-parser": "python scripts/sync-parser.py",
     "package": "npm run sync-parser && npx --yes @vscode/vsce package",
-    "install-local": "npm run package && code --install-extension sml-lang-0.5.5.vsix --force"
+    "install-local": "npm run package && code --install-extension sml-lang-0.5.6.vsix --force"
   },
   "devDependencies": {
     "@types/vscode": "^1.80.0",

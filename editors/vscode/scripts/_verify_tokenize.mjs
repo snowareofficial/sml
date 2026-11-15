@@ -265,6 +265,26 @@ function innerScopesAt(line, needle) {
   check("featag 声明的类型仍着类型色", sStr !== null && sStr.includes("support.type.primitive.sml"), sStr?.join(" | "));
   const sColon = at(1, ":");
   check("featag 声明的冒号=分隔符色", sColon !== null && sColon.includes("punctuation.separator.key-value.sml"), sColon?.join(" | "));
+
+  // 契约字段位：自定义类型名（@type 注册）要着类型色，内置类型仍是原始类型色
+  const cdoc2 = ["@contract C {", "    at: 时刻", "    port: int", "}"];
+  const ct2 = tokenizeLines(cdoc2);
+  const at2 = (ln, needle) => {
+    const line = cdoc2[ln];
+    const start = line.indexOf(needle);
+    if (start < 0) return null;
+    const end = start + needle.length;
+    return ct2[ln].filter((t) => t.startIndex < end && t.endIndex > start)
+                  .map((t) => t.scopes[t.scopes.length - 1]);
+  };
+  const sCustom = at2(1, "时刻");
+  check("契约字段位：自定义类型名着类型色", sCustom !== null && sCustom.includes("entity.name.type.sml"), sCustom?.join(" | "));
+  const sBuiltin = at2(2, "int");
+  check("契约字段位：内置类型仍是原始类型色", sBuiltin !== null && sBuiltin.includes("support.type.primitive.sml"), sBuiltin?.join(" | "));
+
+  // 裸词里的 `-1`（`cn-north-1`）不该被数字规则切出一个数字 token
+  const sRegion = innerScopesAt("region: cn-north-1", "cn-north-1");
+  check("裸词里的 -1 不被切成数字", sRegion !== null && !sRegion.join(" ").includes("constant.numeric"), sRegion?.join(" | "));
 }
 
 // ---- 全文 tokenize 不抛异常 ----

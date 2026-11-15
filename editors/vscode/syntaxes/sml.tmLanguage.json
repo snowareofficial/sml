@@ -49,6 +49,7 @@
         { "include": "#contract-field" },
         { "include": "#contract-enum" },
         { "include": "#contract-type" },
+        { "include": "#contract-type-ref" },
         { "include": "#contract-modifier" },
         { "include": "#string" },
         { "include": "#number" },
@@ -151,6 +152,14 @@
       "comment": "字段类型：与 Rust 原始类型同色。",
       "match": "\\b(str|int|num|bool|any|array|enum)\\b",
       "name": "support.type.primitive.sml"
+    },
+    "contract-type-ref": {
+      "comment": "契约字段位里的**自定义类型名**（`t: 时刻`，`时刻` 由 `@type name:` 注册）。内置类型由 #contract-type 先吃掉，故这条只兜住剩下的词；着色与 `@type` 声明处一致（entity.name.type）—— 此前这类名字整段无色，看起来像「类型没写对」。",
+      "match": "(:)\\s*(?!(?:str|int|num|bool|any|array|enum)\\b)([A-Za-z_\\u4e00-\\u9fa5][\\w.\\-\\u4e00-\\u9fa5]*)(?=\\s|$|\\})",
+      "captures": {
+        "1": { "name": "punctuation.separator.key-value.sml" },
+        "2": { "name": "entity.name.type.sml" }
+      }
     },
     "contract-modifier": {
       "comment": "约束修饰符：与 Rust 的 pub/mut 同色。from-featag 声明该键只能由 featag 落点写入。",
@@ -320,7 +329,7 @@
     },
     "number": {
       "name": "constant.numeric.sml",
-      "match": "(?<!\\w)-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?"
+      "match": "(?<![\\w-])-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?"
     },
     "array-bare-block": {
       "comment": "裸块头 `type [featag 区] [契约词…] [块名] {`：数组位置（`[ A B item { … } ]`）与键位置同形。**两件事两色** —— 块头里的契约词（首词的类型词 + 其余被应用的契约）一律 `variable.other.member`（与 `@is` 引用同色，声明处才是 `entity.name.type`），块名 `entity.name.section`。语言层「首个未命中契约表的词是块名」，编辑器没有契约表，故按**位置**取：逗号之后、featag 区之后、或最后一个词。普通标量数组（`[ a b ]`）不含 `{`，不会被这条吃掉。",
