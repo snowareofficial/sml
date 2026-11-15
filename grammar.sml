@@ -10,9 +10,9 @@
 #
 #  全集声明 : 本文档刻意把**所有已实现的 SML 元素**写成活代码（含 featag、@type、
 #             @when、@for、weak*、@feature 特性位），因此它**以 Rust 参照实现为准**。
-#             五端的**解析层现在都能读完整份**；C / C++ 的值树与 Rust 逐格相同，
-#             JS / Lua 仍卡在 dump 回读（嵌套的带 featag 块被写成块头形式，
-#             见台账 §4.5d）—— 那是载体问题，不是解析差异。
+#             五端都能读完整份、值树与 Rust 逐格相同；JS / Lua 的 dump 已按值位置扁平
+#             写出（台账 §4.5d），剩下的唯一判据差是 **int/float 身份**（JS 的 Number
+#             与 LuaJIT 的 double 只有一种数字类型）—— 那是值层取舍，不是解析差异。
 #             要被五端共读的核心子集看 showcase.sml 与 showcase_contract.sml；
 #             逐特性实测与归因见 docs/swsml/ref/grammar-divergences.md。
 #
@@ -432,10 +432,10 @@ v5_draft {
     ]
 
     # -------------------------------------------------------------------------
-    #  featag 使用示例（活代码；Rust 已实现 S0–S8，其余四端按设计不实现）
+    #  featag 使用示例（活代码；S2–S8 五端一致，钉子见 conformance 61 / 63）
     # -------------------------------------------------------------------------
     featag {
-        status: impl_rust
+        status: impl
         spec: "docs/swsml/spec/featag.md"
         enable: "@feature enable type.featag, typed-block, block-name"
         enable_note: "三个特性缺一不可：type.featag 开语法、typed-block 让块头首词命中契约、block-name 允许契约词后跟块名"
@@ -541,10 +541,10 @@ implementations: [
 cross_end_notes: [
     "对象键序不保证：对象是映射，Rust 按键排序输出，其余保书写顺序 ⇒ 需要序列时用数组"
     "引号策略不同：同一份数据两端可写出不同文本（都能读回）；像数字的字符串须显式加引号"
-    "裸冒号三端口径：Rust 拒绝、JS 造出 : 键、C 丢字段 ⇒ 含 : 的标量一律加引号"
+    "裸冒号：五端一致报 E-PARSE-006（a: B::C 这类）⇒ 含 : 的标量一律加引号"
     "多契约叠加：五端一致（合并视图 —— 字段并集 + 最严严格度；同名字段类型/默认值/区间冲突 ⇒ E-CONTRACT-016）"
-    "@type：Rust / JS 实现并按模式校验（格式不符 ⇒ E-CONTRACT-009）；C / C++ / Lua 把 @type 声明静默丢弃，用到时类型名回落成契约名 ⇒ C / Lua 报 E-CONTRACT-008、C++ 报 E-CONTRACT-001"
-    "featag：四端不实现，拒绝码随位置漂移 —— 块头 C / C++ 报 E-PARSE-007、JS / Lua 报 E-PARSE-006；契约体内 C 报 E-CONTRACT-003、C++ 报 E-CONTRACT-001"
+    "@type：五端都按模式校验（格式不符 ⇒ E-CONTRACT-009，数组元素带下标 v[1]）；只有 Rust 有 正则: 逃生舱，四端对它响亮拒绝（E-CONTRACT-013）"
+    "featag：五端一致（块头 ! 区 / 契约内声明 / 未声明 ⇒ E-CONTRACT-021 / 参数类型不符 ⇒ E-CONTRACT-002；落点与 from-featag 也五端落地）"
     "契约 @requires：四端一律 E-CONTRACT-018（不支持该指令），Rust 的同一个码只表示「要求未满足」⇒ 同码不同因"
     "错误码是稳定契约（同一条件同一个码），文案不是 ⇒ 判断种类请用 code，别匹配文案"
 ]

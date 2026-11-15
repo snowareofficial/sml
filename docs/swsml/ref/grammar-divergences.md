@@ -5,7 +5,7 @@
 > 探针脚本：`tools/check/probe_grammar.py`（切片清单内置，五端探针 + 值树比对；不进 CI ——
 > 本文登记的差异未清零前它必然非零退出）。
 > 复跑：`python tools/check/probe_grammar.py grammar.sml`（退出码 0 = 全部与 Rust 一致）。
-> 用例级一致性（62 用例 × 5 端）看 `tests/conformance/known_divergences.md`；本文只管
+> 用例级一致性（63 用例 × 5 端）看 `tests/conformance/known_divergences.md`；本文只管
 > `grammar.sml` 这份**全集**文档：按特性切片后，各端的第一处拒绝在哪、码是否与 Rust 相同。
 
 ## 1. 判据
@@ -176,7 +176,7 @@ Rust 侧在 `sml-contract/src/lib.rs::apply_contracts`，语义是**合并视图
 - **`warn` 在四端按 `loose` 记**：四端没有「放行 + 告警」通道，而 warn 与 loose 的**值树**逐字相同
   （Rust 只多一条诊断），故树对齐、诊断不齐。
 
-### 4.4 G-04 featag：S2–S5b 五端一致，S6–S8 仍是缺口
+### 4.4 G-04 featag：S2–S8 五端一致
 
 四端已实现 **块头 `!` 区 + `__featags` + 契约内 `!name` 声明**（S2–S4），`featag` 与
 `featag-decl` 两个切片五端 AGREE；此前「拒绝码随位置漂移」（C 报 `E-CONTRACT-003`、
@@ -185,12 +185,18 @@ C++ 报 `E-CONTRACT-001`、JS/Lua 报 `E-PARSE-006`）已消失。
 **S5 / S5b 也已五端一致**（2026-11-14）：未声明即拒、个数不符都是 `E-CONTRACT-021`；
 参数**类型**不符是 `E-CONTRACT-002`（Rust 复用 `check_value` 的产物，不是 021）。
 探针 `featag-undeclared` / `featag-args-on-tag` / `featag-args-missing` / `featag-arg-type`
-五端同码。四端只做标量这一层，枚举 / 区间 / 外置类型仍只在 Rust 侧校验。
+五端同码。
 
-仍只有 Rust 实现的部分：**S6 落点填充**（`-> PATH`、`!strict-paths`、`auto` 取默认值、
-数组下标语义）、**S7 `from-featag`**、**S8 `!any`**。四端对落点**忽略** —— 所以 `grammar.sml` 里
-`Deploy !tls replicas[3] zone[cn-north-1]` 那几段在四端会校验参数，但不会写入 `spec.*`（静默少值）。
-这块没有探针覆盖（要测就得比对落点后的树），属下一步的施工项。
+**S6 落点填充**（`-> PATH`、父对象自动创建、`!strict-paths`、`auto` 取声明里的 `default`）、
+**S7 `from-featag`**、**S8 `!any`** 也已五端落地。判据是**值树**而不是码：conformance
+`63_featag_target` 里 `Menu !density[auto]` 造出 `layout.density`、`Seal !mark[x]` 填进
+`from-featag` 字段，五端逐格同树；`probe_matrix` 的 `featag-target-*` / `featag-from-*` /
+`featag-any-*` 行五端同码。
+
+一格**顺序**证据：同一份 `-> layout.density` 若配**严格**契约，五端同为 `E-CONTRACT-004`
+（落点造出的键不在契约里）—— 说明 S6 都在契约应用**之前**跑，与 Rust `finish_bare_block` 同序。
+
+四端仍只做**标量**这一层的参数校验：枚举 / 区间 / 外置类型作为 featag 参数时仍只在 Rust 侧校验。
 
 ### 4.5 多契约：五端一致（已清零）
 

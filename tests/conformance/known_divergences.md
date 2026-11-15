@@ -4,7 +4,7 @@
 
 ## 2026-11-15 复核
 
-实测 **AGREE 62 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`
+实测 **AGREE 63 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`
 五端全部可用；`19` 以 `*` 放行）。
 
 新增 `61_array_bare_block`：**数组位置的裸块**。`[ A B item { … } ]` 在 Rust 里是**一个**
@@ -15,6 +15,11 @@
 新增 `62_type_array_elem`：**`[D]` 的数组元素**按 D 的模式校验、错误带下标 `v[1]`。
 JS 早先只判「元素是个字符串」，`"abc"` 直接放行（与 Rust / C / C++ / Lua 的 `009` 不一致）；
 现在 JS 的字段级与元素级共用 `checkValueType`，五端同码 `E-CONTRACT-009`。
+
+新增 `63_featag_target`：**featag 落点 / `auto` / `from-featag` / 契约默认值** —— 判据是**值树**
+（码看不出「落点有没有真写进树」），所以是正例：`Menu !density[auto]` 必须造出
+`layout.density = compact`、`Seal !mark[x]` 必须把 `x` 填进 `from-featag` 字段。五端逐格同树，
+即 S6–S8 四端不再「只校验参数、忽略落点」。
 
 ## 2026-11-14 判据盲区复核（兼容套件**检不出**的差异）
 
