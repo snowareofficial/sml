@@ -409,8 +409,8 @@ codes: [
       note: "**2026-11-03 收窄**：Rust 侧此前把**所有**非内置的数组元素名都判成此码 —— 于是合法的契约数组 `peers: [Endpoint]` 被误杀（JS 因递归 parseFieldSpec 一直支持）。现在 Rust 的非内置名**先按 `@type` / 外置类型 / 契约引用**依次判定，只有 `enum` 出现在数组元素位置仍报本码（JS 支持该写法，属已知差异）。⇒ 本码现仅剩两类触发：Rust 的 `[enum ...]`、Lua 的**任意**非内置元素类型（契约数组未实现，一致性用例 41 里 Lua 是唯一失败端）" }
     { id: E-CONTRACT-013 domain: CONTRACT severity: E title: "模式定义非法"
       msg: "模式定义非法：未知字符类、未知量词、不支持的元素，或无法识别的元素"
-      impls: [ rust js ] status: partial
-      note: "JS 逐项报「未知字符类」「未知量词」「无法识别的模式元素」，并明确不支持懒惰量词；Rust 报「模式编译失败」" }
+      impls: [ rust js c cpp lua ] status: partial
+      note: "JS 逐项报「未知字符类」「未知量词」「无法识别的模式元素」，并明确不支持懒惰量词；Rust / C / C++ / Lua 报「模式编译失败」（`@type` 的规则在字段引用时编译，故没被引用过的坏模式不报错）。四端没有 `正则:` 逃生舱，遇到它也落本码" }
     { id: E-CONTRACT-014 domain: CONTRACT severity: E title: "模式规则引用非法"
       msg: "模式规则引用非法：引用了未定义的规则，或规则循环引用"
       impls: [ js ] status: partial

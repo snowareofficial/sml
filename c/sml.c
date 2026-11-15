@@ -44,12 +44,14 @@
 #include <stdarg.h>
 #include <errno.h>   /* strtoll 溢出判定（ERANGE）：见 coerce_word 的 B10 分支 */
 
-/* 以下 9 个模块按解析 / 序列化顺序 include —— unity 构建：仍是**同一个翻译单元**，
+/* 以下 10 个模块按解析 / 序列化顺序 include —— unity 构建：仍是**同一个翻译单元**，
    预处理输出与拆分前逐行相同（仅模块边界的空行有增减，已用 `gcc -E` 对比确认）。
    拆分依据与「改成独立 TU」时的注意事项见 c/src/README.md。 */
 #include "src/00_errors.inc"
 #include "src/01_value.inc"
 #include "src/02_lex.inc"
+/* 模式匹配器（`@type` 的类型校验用）：无状态，故排在契约之前即可。 */
+#include "src/02b_pattern.inc"
 #include "src/03_contract.inc"
 #include "src/04_coerce.inc"
 #include "src/05_parse.inc"

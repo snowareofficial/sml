@@ -48,6 +48,9 @@ Sml.__index = Sml
 -- 该文件与 lib/sml.soup 同目录，由本模块在加载时 require 一次。
 package.path = "./?.lua;" .. package.path
 local _sml_errors = require("sml_errors")
+-- 模式字符类的码位区间表（由 tools/gen/gen_unicode_tables.py 从 Rust 导出，勿手改）：
+-- 四端查同一份数据，`数字`/`字母`/`空白` 的 Unicode 边界才不会各自漂移。
+local _pat_uni = require("sml_pattern_unicode")
 --- 取一条错误码的完整本地化信息；未知码返回 nil。
 ---   code   错误码字符串（空/非字符串按未知码处理）
 ---   locale 可选；缺省/空 = "zh"；以 "en" 开头 = 英文；其它回落中文
@@ -737,6 +740,443 @@ local function reject_legacy_modifier_sym(tok)
   end
 end
 
+------------------------------------------------------------------------------
+-- 模式语言（`@type name: X { … }`）—— 无回溯 L1 匹配器
+--
+-- 移植自 `rust/sml-pattern`（权威实现），与 C / C++ 端逐段同构：
+--   - 规则就是普通 SML 数据（序列 / 类 / 次 / 任一 …），不新增 token；
+--   - 编译成 Thompson NFA，模拟时所有线程并行推进 ⇒ **结构上不存在回溯**，
+--     最坏时间 O(文本长 × 程序长)，不存在 ReDoS；
+--   - 字符类查的是由 Rust 导出的同一张码位区间表（`sml_pattern_unicode`）。
+--
+-- `@type` 表存在模块级 `_TYPES`（名 → 模式体），与 `_FEATURES` 同为「一次 load
+-- 内有效」，故解析入口要重置它。
+------------------------------------------------------------------------------
+local _TYPES = nil
+
+-- 码位是否落在扁平区间表（lo,hi 成对）内；二分查找，表按 lo 升序。
+local function pat_cp_in(tbl, cp)
+  local lo, hi = 1, #tbl / 2
+  while lo <= hi do
+    local mid = math.floor((lo + hi) / 2)
+    local a = tbl[mid * 2 - 1]
+    local b = tbl[mid * 2]
+    if cp < a then hi = mid - 1
+    elseif cp > b then lo = mid + 1
+    else return true end
+  end
+  return false
+end
+
+-- UTF-8 解码一个字符：返回 码位, 新位置（非法字节按单字节码位，永不越界）。
+local function pat_next_cp(s, pos)
+  local b0 = string.byte(s, pos)
+  if b0 == nil then return nil, pos end
+  if b0 < 0x80 then return b0, pos + 1 end
+  local cp, need
+  if b0 >= 0xC0 and b0 <= 0xDF then cp, need = b0 - 0xC0, 1
+  elseif b0 >= 0xE0 and b0 <= 0xEF then cp, need = b0 - 0xE0, 2
+  elseif b0 >= 0xF0 and b0 <= 0xF7 then cp, need = b0 - 0xF0, 3
+  else return b0, pos + 1 end
+  if pos + need > #s then return b0, pos + 1 end
+  for k = 1, need do
+    local b = string.byte(s, pos + k)
+    if b == nil or b < 0x80 or b > 0xBF then return b0, pos + 1 end
+    cp = cp * 64 + (b - 0x80)
+  end
+  return cp, pos + need + 1
+end
+
+local function pat_class_match(cls, cp)
+  local k = cls.kind
+  if k == "digit" then return pat_cp_in(_pat_uni.numeric, cp)
+  elseif k == "alpha" then return pat_cp_in(_pat_uni.alphabetic, cp)
+  elseif k == "space" then return pat_cp_in(_pat_uni.whitespace, cp)
+  elseif k == "word" then
+    return pat_cp_in(_pat_uni.numeric, cp) or pat_cp_in(_pat_uni.alphabetic, cp)
+           or cp == 95                                   -- `_`
+  elseif k == "any" then return true
+  elseif k == "one" then return cp == cls.ch1
+  elseif k == "set" then
+    for _, sub in ipairs(cls.set) do if pat_class_match(sub, cp) then return true end end
+    return false
+  elseif k == "not" then return not pat_class_match(cls.set[1], cp) end
+  return false
+end
+
+-- 关键字表：中英等价（与 Rust `BILINGUAL` 逐条同义）
+local PAT_KEYWORDS = {
+  ["字面"] = "lit", lit = "lit", literal = "lit",
+  ["类"] = "class", ["class"] = "class",
+  ["任一"] = "alt", alt = "alt", ["any-of"] = "alt",
+  ["组"] = "group", group = "group",
+  ["序列"] = "seq", seq = "seq",
+  ["用"] = "use", use = "use",
+  ["直到"] = "until", ["until"] = "until",
+  ["次"] = "times", times = "times", ["repeat"] = "times",
+  ["可选"] = "optional", optional = "optional",
+  ["名"] = "name", name = "name",
+  ["正则"] = "regex", regex = "regex", re = "regex",
+  ["最小"] = "min", min = "min",
+  ["最大"] = "max", max = "max",
+  ["数字"] = "digit", digit = "digit",
+  ["字母"] = "alpha", alpha = "alpha",
+  ["空白"] = "space", space = "space",
+  ["字"] = "word", word = "word",
+  ["任意"] = "any", any = "any",
+  ["行尾"] = "eol", ["末尾"] = "eol", eol = "eol", ["end"] = "eol",
+}
+local function pat_kw(w) return PAT_KEYWORDS[w] end
+
+local PAT_QUANT_MAX = 1000
+local PAT_MAX_PROG = 100000
+local PAT_BUDGET = 10000000
+
+-- 字符类取值 → cls 表。非内置类按**单字符**处理（`类: "-"`）。
+local function pat_parse_class(s)
+  local k = pat_kw(s)
+  if k == "digit" or k == "alpha" or k == "space" or k == "word" or k == "any" then
+    return { kind = k }
+  end
+  local cp, np = pat_next_cp(s, 1)
+  if cp ~= nil and np > #s then return { kind = "one", ch1 = cp } end
+  return nil, "sml: 未知字符类 `" .. tostring(s) .. "`"
+end
+
+-- 量词：`次` 的取值（整数 / `+` `*` `?` / `a-b` / `{最小,最大}` 对象）。
+local function pat_parse_times(v)
+  local mn, mx, have_max = 0, -1, false
+  if type(v) == "number" and v == math.floor(v) then
+    if v < 0 then return nil, "sml: 量词最小不能为负" end
+    mn, mx, have_max = v, v, true
+  elseif type(v) == "string" then
+    if v == "+" then return 1, -1 end
+    if v == "*" then return 0, -1 end
+    if v == "?" then return 0, 1 end
+    local a, b = string.match(v, "^%s*(-?%d+)%s*%-%s*(-?%d+)%s*$")
+    if a == nil then
+      return nil, "sml: 未知量词 `" .. v .. "`（可用 数字 / + / * / ? / a-b）"
+    end
+    mn, mx, have_max = tonumber(a), tonumber(b), true
+  elseif type(v) == "table" then
+    for k, vv in pairs(v) do
+      local kk = pat_kw(k)
+      if kk == "min" then
+        if type(vv) ~= "number" then return nil, "sml: 量词最小必须为整数" end
+        mn = vv
+      elseif kk == "max" then
+        if type(vv) ~= "number" then return nil, "sml: 量词最大必须为整数" end
+        mx, have_max = vv, true
+      end
+    end
+  else
+    return nil, "sml: 量词类型不支持"
+  end
+  if mn < 0 then return nil, "sml: 量词最小不能为负" end
+  if have_max and mx < mn then
+    return nil, "sml: 量词最大不能小于最小"
+  end
+  if mn > PAT_QUANT_MAX or (have_max and mx > PAT_QUANT_MAX) then
+    return nil, "sml: 量词过大（> 1000），拒绝编译（防病态规则；嵌套膨胀另有程序规模上限）"
+  end
+  return mn, have_max and mx or -1
+end
+
+local pat_compile_value
+
+local function pat_compile_elem(v, rules, stack)
+  local lit   = v["字面"]  or v["lit"]
+  local cls   = v["类"]    or v["class"]
+  local alt   = v["任一"]  or v["alt"]
+  local grp   = v["组"]    or v["group"]
+  local seq   = v["序列"]  or v["seq"]
+  local use   = v["用"]    or v["use"]
+  local until_= v["直到"]  or v["until"]
+  local times = v["次"]    or v["times"]
+  local opt   = v["可选"]  or v["optional"]
+  local name  = v["名"]    or v["name"]
+  local rex   = v["正则"]  or v["regex"]
+  local fmin  = v["最小"]  or v["min"]
+  local fmax  = v["最大"]  or v["max"]
+  local base
+
+  if lit ~= nil then
+    if type(lit) ~= "string" then return nil, "sml: `字面/lit` 须为字符串" end
+    base = { kind = "lit", lit = lit }
+  elseif cls ~= nil then
+    if type(cls) ~= "string" then return nil, "sml: `类/class` 须为字符串" end
+    local c, e = pat_parse_class(cls)
+    if not c then return nil, e end
+    base = { kind = "class", cls = c }
+  elseif alt ~= nil then
+    if type(alt) ~= "table" then return nil, "sml: `任一/alt` 须为数组" end
+    base = { kind = "alt", items = {} }
+    for _, it in ipairs(alt) do
+      local c, e = pat_compile_value(it, rules, stack)
+      if not c then return nil, e end
+      base.items[#base.items + 1] = c
+    end
+  elseif grp ~= nil then
+    local c, e = pat_compile_value(grp, rules, stack)
+    if not c then return nil, e end
+    base = c
+  elseif seq ~= nil then
+    local c, e = pat_compile_value(seq, rules, stack)
+    if not c then return nil, e end
+    base = c
+  elseif use ~= nil then
+    if type(use) ~= "string" then return nil, "sml: `用/use` 须为字符串" end
+    for _, s in ipairs(stack) do
+      if s == use then
+        return nil, "sml: 规则 `" .. use ..
+          "` 存在循环引用（L1 不支持递归；如需嵌套结构请先升级到 L2）"
+      end
+    end
+    local target = rules and rules[use] or nil
+    if target == nil then return nil, "sml: 未定义的规则 `" .. use .. "`" end
+    stack[#stack + 1] = use
+    local c, e = pat_compile_value(target, rules, stack)
+    stack[#stack] = nil
+    if not c then return nil, e end
+    base = c
+  elseif until_ ~= nil then
+    if type(until_) ~= "string" then return nil, "sml: `直到/until` 须为字符串" end
+    if pat_kw(until_) == "eol" then
+      -- 「直到行尾」= 吃掉剩余全部字符
+      base = { kind = "repeat", min = 0, max = -1,
+               sub = { kind = "class", cls = { kind = "any" } } }
+    else
+      base = { kind = "until", sub = { kind = "lit", lit = until_ } }
+    end
+  elseif rex ~= nil then
+    -- 逃生舱在四端未实现：与其静默「永不匹配」，不如响亮拒绝
+    return nil, "sml: `正则/regex` 逃生舱在本端未实现（请改用 序列 / 类 / 任一 / 次 组合表达）"
+  else
+    local keys = {}
+    for k in pairs(v) do keys[#keys + 1] = k end
+    table.sort(keys)
+    return nil, "sml: 无法识别的模式元素（需 字面/类/任一/组/序列/用/直到/正则 之一），实际键: `" ..
+      table.concat(keys, " ") .. "`"
+  end
+
+  -- 量词：优先平铺 最小/最大，否则 次 / 可选。只包一层 Repeat。
+  if fmin ~= nil or fmax ~= nil then
+    local mn, mx, have_max = 0, -1, false
+    if fmin ~= nil then
+      if type(fmin) ~= "number" then return nil, "sml: 量词最小必须为整数" end
+      mn = fmin
+    end
+    if fmax ~= nil then
+      if type(fmax) ~= "number" then return nil, "sml: 量词最大必须为整数" end
+      mx, have_max = fmax, true
+    end
+    if mn < 0 then return nil, "sml: 量词最小不能为负" end
+    if have_max and mx < mn then return nil, "sml: 量词最大不能小于最小" end
+    if mn > PAT_QUANT_MAX or (have_max and mx > PAT_QUANT_MAX) then
+      return nil, "sml: 量词过大（> 1000），拒绝编译"
+    end
+    base = { kind = "repeat", sub = base, min = mn, max = have_max and mx or -1 }
+  elseif times ~= nil then
+    local mn, mx = pat_parse_times(times)
+    if mn == nil then return nil, mx end
+    base = { kind = "repeat", sub = base, min = mn, max = mx }
+  elseif opt == true then
+    base = { kind = "repeat", sub = base, min = 0, max = 1 }
+  end
+
+  if name ~= nil then
+    if type(name) ~= "string" then return nil, "sml: `名/name` 须为字符串" end
+    base = { kind = "named", sub = base }
+  end
+  return base
+end
+
+pat_compile_value = function(v, rules, stack)
+  if v == nil then return nil, "sml: 模式元素缺失" end
+  if type(v) == "table" then
+    -- 数组（1..n 连续）当序列；对象（键值）当模式元素
+    if is_list(v) then
+      local p = { kind = "seq", items = {} }
+      for _, it in ipairs(v) do
+        local c, e = pat_compile_value(it, rules, stack)
+        if not c then return nil, e end
+        p.items[#p.items + 1] = c
+      end
+      return p
+    end
+    return pat_compile_elem(v, rules, stack)
+  end
+  if type(v) == "string" then return { kind = "lit", lit = v } end
+  return nil, "sml: 模式元素类型不支持"
+end
+
+local function pat_compile(rule, rules)
+  return pat_compile_value(rule, rules, {})
+end
+
+-- ---- NFA ----
+
+-- 指令：{ kind = "char"|"split"|"jmp"|"match", cls=, x=, y= }（pc 从 1 起）
+local function pat_emit(p, prog, tmp)
+  if #prog > PAT_MAX_PROG then
+    return nil, "sml: 模式程序过大（超过 100000 条指令，疑似嵌套量词的病态膨胀）"
+  end
+  local k = p.kind
+  if k == "class" then
+    prog[#prog + 1] = { kind = "char", cls = p.cls }
+  elseif k == "lit" then
+    local pos = 1
+    while pos <= #p.lit do
+      local cp, np = pat_next_cp(p.lit, pos)
+      if cp == nil then break end
+      local c = { kind = "one", ch1 = cp }
+      tmp[#tmp + 1] = c
+      prog[#prog + 1] = { kind = "char", cls = c }
+      pos = np
+    end
+  elseif k == "seq" then
+    for _, it in ipairs(p.items) do
+      local e = pat_emit(it, prog, tmp)
+      if e then return nil, e end
+    end
+  elseif k == "named" then
+    local e = pat_emit(p.sub, prog, tmp)
+    if e then return nil, e end
+  elseif k == "alt" then
+    if #p.items == 0 then return end
+    local jmps = {}
+    for idx, it in ipairs(p.items) do
+      local more = (idx < #p.items)
+      local split_pc
+      if more then
+        split_pc = #prog + 1
+        prog[#prog + 1] = { kind = "split" }
+      end
+      local start = #prog + 1
+      local e = pat_emit(it, prog, tmp)
+      if e then return nil, e end
+      if more then
+        local jmp_pc = #prog + 1
+        prog[#prog + 1] = { kind = "jmp" }
+        prog[split_pc].x = start
+        prog[split_pc].y = #prog + 1
+        jmps[#jmps + 1] = jmp_pc
+      end
+    end
+    local finish = #prog + 1
+    for _, j in ipairs(jmps) do prog[j].x = finish end
+  elseif k == "repeat" then
+    if p.max >= 0 and p.max >= p.min then
+      for _ = 1, p.min do
+        local e = pat_emit(p.sub, prog, tmp); if e then return nil, e end
+      end
+      for _ = 1, p.max - p.min do
+        local split_pc = #prog + 1
+        prog[#prog + 1] = { kind = "split" }
+        local start = #prog + 1
+        local e = pat_emit(p.sub, prog, tmp); if e then return nil, e end
+        prog[split_pc].x = start
+        prog[split_pc].y = #prog + 1
+      end
+    elseif p.max >= 0 then
+      -- max < min：不可能匹配，退化为「至少 min 次」（Rust 同）
+      for _ = 1, p.min do
+        local e = pat_emit(p.sub, prog, tmp); if e then return nil, e end
+      end
+    else
+      for _ = 1, p.min do
+        local e = pat_emit(p.sub, prog, tmp); if e then return nil, e end
+      end
+      local split_pc = #prog + 1
+      prog[#prog + 1] = { kind = "split" }
+      local start = #prog + 1
+      local e = pat_emit(p.sub, prog, tmp); if e then return nil, e end
+      prog[#prog + 1] = { kind = "jmp", x = split_pc }
+      prog[split_pc].x = start
+      prog[split_pc].y = #prog + 1
+    end
+  elseif k == "until" then
+    local any = { kind = "any" }
+    tmp[#tmp + 1] = any
+    local split_pc = #prog + 1
+    prog[#prog + 1] = { kind = "split" }
+    local try_end = #prog + 1
+    local e = pat_emit(p.sub, prog, tmp); if e then return nil, e end
+    local jmp_pc = #prog + 1
+    prog[#prog + 1] = { kind = "jmp" }
+    local consume = #prog + 1
+    prog[#prog + 1] = { kind = "char", cls = any }
+    prog[#prog + 1] = { kind = "jmp", x = split_pc }
+    local finish = #prog + 1
+    prog[split_pc].x = try_end
+    prog[split_pc].y = consume
+    prog[jmp_pc].x = finish
+  end
+  return nil
+end
+
+-- ε 闭包：把 Split / Jmp 能到达的位置全部加入线程集合（防 ε 环无限展开）。
+local function pat_add_thread(list, inlist, prog, pc, seen)
+  local stack = { pc }
+  seen[pc] = true
+  while #stack > 0 do
+    local p = table.remove(stack)
+    local ins = prog[p]
+    if ins.kind == "split" then
+      for _, nx in ipairs({ ins.y, ins.x }) do
+        if not seen[nx] then
+          seen[nx] = true
+          stack[#stack + 1] = nx
+        end
+      end
+    elseif ins.kind == "jmp" then
+      local nx = ins.x
+      if not seen[nx] then
+        seen[nx] = true
+        stack[#stack + 1] = nx
+      end
+    else
+      if not inlist[p] then
+        inlist[p] = true
+        list[#list + 1] = p
+      end
+    end
+  end
+end
+
+-- 全文匹配：true 命中 / false 不命中 / nil, err 出错。
+local function pat_match(pat, text)
+  if pat == nil then return nil, "sml: 模式未编译" end
+  local prog, tmp = {}, {}
+  local e = pat_emit(pat, prog, tmp)
+  if e then return nil, e end
+  prog[#prog + 1] = { kind = "match" }
+  local match_pc = #prog
+  local clist, cl = {}, {}
+  pat_add_thread(clist, cl, prog, 1, {})
+  local pos, steps = 1, 0
+  while pos <= #text do
+    local cp, np = pat_next_cp(text, pos)
+    if cp == nil then break end
+    local nlist, nl = {}, {}
+    for _, pc in ipairs(clist) do
+      steps = steps + 1
+      if steps > PAT_BUDGET then
+        return nil, "sml: 模式匹配超出步数预算 10000000（疑似病态规则或超长输入）"
+      end
+      local ins = prog[pc]
+      if ins.kind == "char" and pat_class_match(ins.cls, cp) then
+        pat_add_thread(nlist, nl, prog, pc + 1, {})
+      end
+    end
+    clist, cl = nlist, nl
+    if #clist == 0 then return false end
+    pos = np
+  end
+  for _, pc in ipairs(clist) do if pc == match_pc then return true end end
+  return false
+end
+
 -- 解析一个类型规格 -> spec, next_i
 local function parse_type(tokens, i)
   local tok = tokens[i]
@@ -760,6 +1200,14 @@ local function parse_type(tokens, i)
     end
     if el == "str" or el == "int" or el == "num" or el == "bool" or el == "any" then
       elem = { kind = el }
+    elseif _TYPES and _TYPES[unquote(el)] ~= nil then
+      -- `@type` 声明的自定义类型优先（与 Rust `Some(Tok::LBrack)` 分支同一次序）
+      local pat, pe = pat_compile(_TYPES[unquote(el)], _TYPES)
+      if not pat then
+        fail("E-CONTRACT-013",
+          "类型 `" .. unquote(el) .. "` 的模式编译失败：" .. tostring(pe))
+      end
+      elem = { kind = "pattern", name = unquote(el), pat = pat }
     else
       -- 非内置名 → 契约引用，与 `parse_type` 标量位的口径一致（542 行）。
       -- 改前一律报 E-CONTRACT-012，把合法的 `peers: [Endpoint]` 误杀
@@ -811,8 +1259,20 @@ local function parse_type(tokens, i)
   if tok == "str" or tok == "int" or tok == "num" or tok == "bool" or tok == "any" then
     return { kind = tok }, i
   end
+  -- 非内置名，按此顺序判定（与 Rust 相同）：
+  --   1. `@type` 声明的自定义类型（模式校验，编译失败 ⇒ E-CONTRACT-013）
+  --   2. 回落为契约引用（组合）
+  -- 次序不可颠倒：同名时 `@type` 更「显式」。
+  local tname = unquote(tok)
+  if _TYPES and _TYPES[tname] ~= nil then
+    local pat, pe = pat_compile(_TYPES[tname], _TYPES)
+    if not pat then
+      fail("E-CONTRACT-013", "类型 `" .. tname .. "` 的模式编译失败：" .. tostring(pe))
+    end
+    return { kind = "pattern", name = tname, pat = pat }, i
+  end
   -- 非内置名 → 契约引用（组合）
-  return { kind = "contract", ref = unquote(tok) }, i
+  return { kind = "contract", ref = tname }, i
 end
 
 -- 解析单个字段的类型与修饰符 -> spec, next_i
@@ -1168,6 +1628,22 @@ local function check_type(fs, v, contracts)
     apply_contract(v, contracts, ty.ref)
     return
   end
+  if ty.kind == "pattern" then
+    -- 自定义模式类型：值须为**字符串**并匹配模式。非字符串必须显式报错并提示加引号 ——
+    -- 裸写的号码会被词法切成数字，最终只剩末段、还不报错（静默数据损坏）。
+    if type(v) ~= "string" then
+      fail("E-CONTRACT-009",
+        "字段类型 `" .. ty.name .. "` 要求字符串（号码 / 编号 / 身份证请用引号包裹），实际不是字符串")
+    end
+    local ok, pe = pat_match(ty.pat, v)
+    if ok == nil then
+      fail("E-CONTRACT-009", "类型 `" .. ty.name .. "` 匹配时出错：" .. tostring(pe))
+    end
+    if not ok then
+      fail("E-CONTRACT-009", "值 `" .. v .. "` 不符合类型 `" .. ty.name .. "` 的格式要求")
+    end
+    return
+  end
   if ty.kind == "array" then
     if not is_list(v) then
       fail("E-CONTRACT-002", "字段类型应为数组，实际不是数组")
@@ -1339,6 +1815,8 @@ local function type_key(ty)
     return "enum [" .. table.concat(ty.values or {}, " ") .. "]"
   elseif ty.kind == "contract" then
     return ty.ref or "?"
+  elseif ty.kind == "pattern" then
+    return ty.name or "?"
   end
   return ty.kind
 end
@@ -1943,6 +2421,28 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
           fail("E-PARSE-016", "`@when` 连续出现：它只作用于紧邻的下一个字段或块")
         end
         pending_when, i = eval_when(tokens, i)
+      elseif fname == "type" and tokens[i] == "name" and tokens[i + 1] == ":" then
+        -- `@type name: X { 模式 }` —— 自定义类型（字段引用时按模式校验）。
+        -- 判据必须是「后跟 `name:`」：`@type { … }` 是**名为 type 的片段定义**，
+        -- 不满足这条时本支不匹配，自然落到下面的片段/未注册指令分支（Rust 同）。
+        -- 类型体是普通 SML 数据，存进 `_TYPES`（跨块可见，同名后声明覆盖）；
+        -- 编译留到字段引用时做 —— 故**没被引用过的坏模式不报错**（与 Rust 同）。
+        local tn
+        i = i + 2                     -- name :
+        tn = tokens[i]
+        if not is_word_tok(tn) then
+          fail("E-PARSE-019", "`@type name:` 后须类型名")
+        end
+        i = i + 1
+        if tokens[i] ~= "{" then
+          fail("E-PARSE-019", "`@type " .. unquote(tn) .. "` 后须 `{ ... }` 模式体")
+        end
+        i = i + 1
+        local body
+        _ENTER_KEY = nil              -- 类型体不进旁路表路径
+        body, i = parse_block(tokens, i, "}", fragments, contracts, depth + 1)
+        if not _TYPES then _TYPES = {} end
+        _TYPES[unquote(tn)] = body
       elseif fname == "is" then
         -- 契约应用：`@is Name`（可多份）作用于**当前块**，块结束时校验（见 finish）
         -- 特性门控：与 `@contract` 同一判据。
@@ -2695,6 +3195,9 @@ function Sml.load(text, base, allow_top_scalar)
   -- 契约表（`@contract` 定义 → `@is` 应用）：与解析器共用同一份，见上方 W20 一节。
   -- 须与 fragments 一样是**每次 load 新建**的局部表，否则跨文档会串味。
   local contracts = {}
+  -- `@type` 声明的自定义类型（名 → 模式体）：与 contracts 一样每次 load 新建，
+  -- 否则跨文档会串味（上一份文档的 `@type` 会漏进下一份）。
+  _TYPES = {}
   local ok2, node = pcall(function()
     -- 顶层支持三种形态，与 dump 的输出对称：
     --   - `[ ... ]` 数组：dump 对数组输出顶层数组（如「历史记录」这类对象数组）。

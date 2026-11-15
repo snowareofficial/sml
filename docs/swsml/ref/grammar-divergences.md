@@ -35,14 +35,14 @@
 | 端 | 码 | 触发构造 | 归因 |
 |---|---|---|---|
 | rust | —— | `rc=0` | 参照实现 |
-| c | `E-CONTRACT-008` | `Window.start: 时刻` | `@type` 未被实现 ⇒ `时刻` 回落成契约名，再按块校验 |
-| cpp | `E-CONTRACT-001` | 同上 | 同上，报「unknown contract `时刻`」 |
-| js | `NC` | `Deploy !tls replicas[3] zone[cn-north-1], api {` | 解析层已通；dump 把嵌套的带 featag 块写成块头形式 ⇒ Rust 读不回去（§4.5d） |
-| lua | `E-CONTRACT-008` | `Window.start: 时刻` | 同 C |
+| c | —— | `rc=0` | **整份读通**，值树与 Rust 逐格相同 |
+| cpp | —— | `rc=0` | 同上 |
+| js | `NC` | —— | 解析层已通；dump 把嵌套的带 featag 块写成块头形式 ⇒ Rust 读不回去（§4.5d） |
+| lua | `NC` | —— | 同上（`@type` 落地后解析层也读通了，卡在同一个 dump 载体问题） |
 
-⚠️ **别把 C / Lua 的 `E-CONTRACT-008` 归因到「契约嵌套」**：纯契约嵌套切片（`contract-nest`：
-`Address` / `Node` + 默认值回填）四端**全部 OK**。这条归因错了会把修复方向带到「实现嵌套契约」，
-而四端早就支持；真正的缺口是 `@type`。
+⚠️ 曾经的坑：C / Lua 的「第一处拒绝」落在 `Window.start: 时刻` 上，很容易被归因到「契约嵌套」。
+`contract-nest` 切片（`Address` / `Node` + 默认值回填）四端**一直**是 OK —— 真正的缺口是 `@type`
+（见 §4.1）。
 
 ## 3. 逐特性矩阵
 
@@ -50,13 +50,13 @@
 
 | 特性 | 说明 | rust | c | cpp | js | lua |
 |---|---|---|---|---|---|---|
-| 整份 `grammar.sml` | 全集文档 | OK | `E-CONTRACT-008` | `E-CONTRACT-001` | `NC` | `E-CONTRACT-008` |
+| 整份 `grammar.sml` | 全集文档 | OK | OK | OK | `NC` | `NC` |
 | `contract-nest` | 契约当字段类型 | OK | OK | OK | OK | OK |
 | `contract-multi` | 多契约叠加 + 就地严格度 | OK | OK | OK | OK | OK |
 | `contract-requires` | `@requires when`（when 未开） | `E-CONTRACT-018` | `E-CONTRACT-018` | `E-CONTRACT-018` | `E-CONTRACT-018` | `E-CONTRACT-018` |
 | `contract-requires-on` | `@requires when`（when 已开） | OK | OK | OK | OK | OK |
-| `type-dir` | `@type` 合规值 | OK | `E-CONTRACT-008` | `E-CONTRACT-001` | OK | `E-CONTRACT-008` |
-| `type-dir-check` | `@type` 不合规值 | `E-CONTRACT-009` | `E-CONTRACT-008` | `E-CONTRACT-001` | `E-CONTRACT-009` | `E-CONTRACT-008` |
+| `type-dir` | `@type` 合规值 | OK | OK | OK | OK | OK |
+| `type-dir-check` | `@type` 不合规值 | `E-CONTRACT-009` | `E-CONTRACT-009` | `E-CONTRACT-009` | `E-CONTRACT-009` | `E-CONTRACT-009` |
 | `type-dir-alone` | `@type` 只声明不使用 | OK | OK | OK | OK | OK |
 | `featag` | 块头 `Service !critical !obey[4], prod` | OK | OK | OK | OK | OK |
 | `featag-decl` | featag 只在契约体内声明 | OK | OK | OK | OK | OK |
@@ -78,23 +78,47 @@
 
 ## 4. 逐条结论
 
-### 4.1 G-01 `@type` 声明被三端静默丢弃
+### 4.1 G-01 `@type`：四端已落地（`E-CONTRACT-009` 五端同码）
 
-`type-dir-alone`（只写 `@type` 声明，不给任何字段用它）五端**同树**：C / C++ / Lua 把整条
-`@type` 指令接受后丢弃，既不报「不支持」，也不产出任何东西。等到有字段的类型写 `时刻`，
-才因为「查不到这个类型名 ⇒ 当作契约名」而炸，且炸出来的码是契约码而非类型码：
+曾长期是「C / C++ / Lua 把 `@type` 声明**接受后丢弃**」：`type-dir-alone` 五端同树（看不出问题），
+一旦有字段的类型写 `时刻`，就因为「查不到该类型名 ⇒ 当作契约名」而炸 —— C / Lua 报 `008`
+（字段应为块）、C++ 报 `001`（unknown contract），而 Rust / JS 报 `009`。用户很难从「应为块」
+反推到「这个类型没被实现」。
 
-| 端 | 不合规值 `"9:30"` 时的码 | 说明 |
+现在四端各有一台**模式匹配器**（与 Rust `sml-pattern` 同构）：
+
+| 端 | 引擎 | 实现位置 |
 |---|---|---|
-| rust | `E-CONTRACT-009` | 自定义类型格式不符 |
-| js | `E-CONTRACT-009` | 同上，同因同码 |
-| c | `E-CONTRACT-008` | 把 `时刻` 当契约名 ⇒ 「字段应为块」 |
-| lua | `E-CONTRACT-008` | 同上 |
-| cpp | `E-CONTRACT-001` | 「unknown contract `时刻`」 |
+| rust | Thompson NFA（权威） | `rust/sml-pattern` |
+| c | Thompson NFA（逐段移植） | `c/src/02b_pattern.inc` |
+| cpp | Thompson NFA（逐段移植） | `cpp/src/02b_pattern.inc` |
+| lua | Thompson NFA（逐段移植） | `lua/lib/sml.lua`（引擎一节） |
+| js | **RegExp**（不是 NFA） | `js/sml.mjs` 的 `compilePatternToRe` |
 
-影响：照 `grammar.sml` 写的文档在 C / Lua 上不会在 `@type` 处得到提示，而是在**第一次用到该类型
-的字段**处报一个「应为块」的契约错误，用户很难反推到 `@type` 未实现。修复有两条路，二选一即可
-消除静默：**实现 `@type`**（与 JS 同族），或**在 `@type` 处明确拒绝**（`E-FEATURE-001` / `E-PARSE-005`）。
+三件事必须五端一致，否则会出现「同一份文档一端通过、另一端报 009」：
+
+1. **字符类按 Unicode 判定**（`数字` 不止 `0-9`，全角与罗马数字也算）。若四端各写各的区间，
+   边界必然漂移 —— 故由 `tools/gen/gen_unicode_tables.py` 从 Rust 的
+   `char::is_numeric / is_alphabetic / is_whitespace` **导出同一张码位区间表**
+   （`c/sml_pattern_unicode.h` 给 C / C++，`lua/sml_pattern_unicode.lua` 给 Lua）。
+2. **无回溯**：量词编译成 ε-转移，模拟时所有线程并行推进，不存在 ReDoS；单量词上限 1000、
+   指令总数上限 100000、匹配步数预算 1000 万（与 Rust 同数同义）。
+3. **码的同因同码**：模式**编译失败**（循环引用 / 未定义规则 / 无法识别的元素 / 量词过大）
+   ⇒ `E-CONTRACT-013`；值**不符合格式**（或不是字符串）⇒ `E-CONTRACT-009`。
+   没被任何字段引用过的坏模式**不报错**（编译发生在字段类型解析处，与 Rust 同）。
+
+### 4.7 `@type` 的剩余差异（已登记）
+
+四端引擎落地后，与 Rust 仍有三处差别，都不在「解析对错」这一层：
+
+| # | 差异 | 现状 | 说明 |
+|---|---|---|---|
+| 1 | `正则/regex` 逃生舱 | 四端**响亮拒绝**（`013`） | Rust 把内联正则编译进同一个 IR；四端没有那台受限正则解析器。与其静默「永不匹配」（会把格式约束变成「全都报 009」），不如拒绝 |
+| 2 | JS 的错误码漂移 | `用:` 环/未定义 ⇒ `014`（Rust `013`）；量词过大 ⇒ `E-LIMIT-009`（Rust `013`） | JS 走 RegExp 路线，错误来自编译期预算，码没对齐 |
+| 3 | JS 的数组元素 | `[D]` 的非法元素**不报**（Rust `009`） | C / C++ / Lua 已按 009 校验（带下标 `v[1]`） |
+
+另有一条**既有**差异（与 `@type` 无关，但在同一批用例里撞见）：Lua 把数组里的引号数字串
+（`[ "12" "3" ]`）解析成 **number**，Rust 保持 string。等价用例 `v: [ str ]` 同样可复现。
 
 ### 4.2 G-02 未知特性名：五端同为 `E-FEATURE-003`（已对齐）
 

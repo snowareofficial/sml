@@ -10,9 +10,9 @@
 #
 #  全集声明 : 本文档刻意把**所有已实现的 SML 元素**写成活代码（含 featag、@type、
 #             @when、@for、weak*、@feature 特性位），因此它**以 Rust 参照实现为准**。
-#             四端据此各停在第一处不支持处：C / Lua 停在 @type（E-CONTRACT-008）、
-#             C++ 同为 @type（E-CONTRACT-001）；JS 的**解析层**已能读完整份，卡在
-#             dump 回读（嵌套的带 featag 块被写成块头形式，见台账 §4.5d）。
+#             五端的**解析层现在都能读完整份**；C / C++ 的值树与 Rust 逐格相同，
+#             JS / Lua 仍卡在 dump 回读（嵌套的带 featag 块被写成块头形式，
+#             见台账 §4.5d）—— 那是载体问题，不是解析差异。
 #             要被五端共读的核心子集看 showcase.sml 与 showcase_contract.sml；
 #             逐特性实测与归因见 docs/swsml/ref/grammar-divergences.md。
 #

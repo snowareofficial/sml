@@ -179,7 +179,8 @@ static ValuePtr coerce(const Token& tok,
 // ===========================================================================
 // Contract parsing  (mirrors Rust parse_contract / parse_type)
 // ===========================================================================
-static bool parse_type(const std::string& raw, TypeSpec& out, std::string* err) {
+static bool parse_type(const std::string& raw, TypeSpec& out, std::string* err,
+                       const std::map<std::string, ValuePtr>* types = nullptr) {
     // trim
     std::string s = raw;
     size_t a=s.find_first_not_of(" \t"); size_t b=s.find_last_not_of(" \t");
@@ -222,7 +223,7 @@ static bool parse_type(const std::string& raw, TypeSpec& out, std::string* err) 
             }
         }
         if (elem.empty()) e.kind = TypeSpec::Kind::Any;
-        else if (!parse_type(elem, e, err)) return false;
+        else if (!parse_type(elem, e, err, types)) return false;
         sp.elem = std::make_shared<TypeSpec>(e);
         out = sp;
         return true;
@@ -235,6 +236,27 @@ static bool parse_type(const std::string& raw, TypeSpec& out, std::string* err) 
     else if (low=="bool" || low=="boolean") out = TypeSpec{TypeSpec::Kind::Bool};
     else if (low=="any") out = TypeSpec{TypeSpec::Kind::Any};
     else {
+        /* 非内置类型名，按此顺序判定（与 Rust 相同）：
+           1. `@type` 声明的自定义类型（模式校验）
+           2. 回落为契约引用（组合）
+           次序不可颠倒：同名时 `@type` 更「显式」。 */
+        if (types) {
+            auto it = types->find(s);
+            if (it != types->end()) {
+                std::string perr;
+                auto pat = pat_compile(it->second, types, &perr);
+                if (!pat) {
+                    if (err) *err = code_prefix(SML_E_CONTRACT_013,
+                        "sml: 类型 `" + s + "` 的模式编译失败：" + perr);
+                    return false;
+                }
+                TypeSpec sp; sp.kind = TypeSpec::Kind::Pattern;
+                sp.pat_name = s;
+                sp.pat = pat;
+                out = sp;
+                return true;
+            }
+        }
         // contract reference
         TypeSpec sp; sp.kind = TypeSpec::Kind::ContractRef; sp.contract_ref = s;
         out = sp;
@@ -343,7 +365,8 @@ static void tokenize_field(const std::string& line, std::vector<std::string>& pa
     flush();
 }
 
-static bool parse_field(const std::string& line, FieldSpec& out, std::string* err) {
+static bool parse_field(const std::string& line, FieldSpec& out, std::string* err,
+                        const std::map<std::string, ValuePtr>* types = nullptr) {
     // line like:  name: Type optional default "x" min 0 max 10 loose
     std::vector<std::string> parts;
     tokenize_field(line, parts);
@@ -408,7 +431,7 @@ static bool parse_field(const std::string& line, FieldSpec& out, std::string* er
             rest += m;
             k++;
         }
-        if (!parse_type(rest, type, err)) return false;
+        if (!parse_type(rest, type, err, types)) return false;
         in_type = true;
     }
     // if no type given, Any
@@ -422,6 +445,32 @@ static bool parse_field(const std::string& line, FieldSpec& out, std::string* er
 // contract value checks  (mirrors Rust check_contract_value)
 // ===========================================================================
 static bool check_value(const ValuePtr& v, const TypeSpec& spec, bool loose, std::string* err) {
+    /* 自定义模式类型（`@type`）：值须为**字符串**并匹配模式。
+       非字符串必须显式报错并提示加引号 —— 裸写的号码会被词法切成数字，
+       最终只剩末段、还不报错（本项目明确要消灭的「静默数据损坏」）。 */
+    if (spec.kind == TypeSpec::Kind::Pattern) {
+        if (v->tag != Value::Tag::Str) {
+            if (err) *err = code_prefix(SML_E_CONTRACT_009,
+                "sml: 类型 `" + spec.pat_name +
+                "` 要求字符串（号码 / 编号 / 身份证请用引号包裹），实际为 " + pat_kind_name(v));
+            return false;
+        }
+        {
+            std::string perr;
+            int m = pat_match(spec.pat, v->s, &perr);
+            if (m < 0) {
+                if (err) *err = code_prefix(SML_E_CONTRACT_009,
+                    "sml: 类型 `" + spec.pat_name + "` 匹配时出错：" + perr);
+                return false;
+            }
+            if (!m) {
+                if (err) *err = code_prefix(SML_E_CONTRACT_009,
+                    "sml: 值 `" + v->s + "` 不符合类型 `" + spec.pat_name + "` 的格式要求");
+                return false;
+            }
+        }
+        return true;
+    }
     switch (spec.kind) {
         case TypeSpec::Kind::Any: return true;
         case TypeSpec::Kind::Bool:
@@ -465,6 +514,9 @@ static bool check_value(const ValuePtr& v, const TypeSpec& spec, bool loose, std
         }
         case TypeSpec::Kind::ContractRef:
             // not resolved here (top-level @is handles refs); accept
+            return true;
+        case TypeSpec::Kind::Pattern:
+            // 上面已提前返回；这里只为让 switch 覆盖全部枚举值
             return true;
     }
     return true;
@@ -570,6 +622,8 @@ static std::string type_key(const TypeSpec& t) {
             return s + "]";
         }
         case TypeSpec::Kind::ContractRef: return t.contract_ref;
+        // 同名即同校验器（Rust `TypeSpec::name()` 对 Pattern 返回类型名）
+        case TypeSpec::Kind::Pattern:     return t.pat_name;
     }
     return "?";
 }

@@ -561,6 +561,44 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                 ps->contracts = c;
                 continue;
             }
+            /* `@type name: X { 模式 }` —— 自定义类型（字段引用时按模式校验）。
+               判据**必须是「后跟 `name:`」**：`@type { … }` 是**名为 type 的片段定义**，
+               不能被抢占（Rust 侧 `fragment_named_type_or_name_still_works` 守着这条）。
+               类型体是普通 SML 数据，存进 `ps->types`（跨块可见，同名后声明覆盖）。
+               编译留到字段引用时做 —— 与 Rust 同（那里 `TypeSpec::Pattern` 才 compile_rule），
+               故**没被引用过的坏模式不报错**。 */
+            if (nxt && nxt->t == T_WORD && strcmp(nxt->v, "type") == 0) {
+                token *a1 = peek_at(ps, 2);
+                token *a2 = peek_at(ps, 3);
+                if (a1 && a1->t == T_WORD && strcmp(a1->v, "name") == 0 &&
+                    a2 && a2->t == T_COLON) {
+                    token *tn;
+                    char *tname;
+                    sml_value *body;
+                    next(ps); next(ps); next(ps); next(ps);   /* @ type name : */
+                    tn = peek(ps);
+                    if (!tn || (tn->t != T_WORD && tn->t != T_STR)) {
+                        set_err(ps->lx->errbuf, ps->lx->errsz,
+                                SML_E_PARSE_019 " `@type name:` 后须类型名");
+                        ps->failed = 1;
+                        break;
+                    }
+                    tname = next(ps)->v;
+                    if (peek(ps)->t != T_LBRACE) {
+                        set_err(ps->lx->errbuf, ps->lx->errsz,
+                                SML_E_PARSE_019 " `@type %s` 后须 `{ ... }` 模式体", tname);
+                        ps->failed = 1;
+                        break;
+                    }
+                    next(ps);
+                    ps->enter_key = NULL;    /* 类型体不进旁路表路径 */
+                    body = parse_block(ps, T_RBRACE);
+                    if (ps->failed) { if (body) sml_free(body); break; }
+                    if (!ps->types) ps->types = sml_new_object();
+                    sml_obj_set(ps->types, tname, body);
+                    continue;
+                }
+            }
             /* `@is Name` 块级契约应用 */
             if (nxt && nxt->t == T_WORD && strcmp(nxt->v, "is") == 0) {
                 /* 特性门控：与 `@contract` 同一判据（Rust 的 `@is` 也查 Contract 位）。 */
@@ -1272,6 +1310,8 @@ static sml_value *parse_core(const char *text, char *err, size_t errsz,
     /* 清理片段 (共享引用, 不 double free: 只释放链本身) */
     struct frag *f = ps.frags;
     while (f) { struct frag *nx = f->next; free(f->name); sml_free(f->val); f = nx; }
+    /* `@type` 声明的模式体：只在本端解析期用，解析结束即释放。 */
+    if (ps.types) sml_free(ps.types);
     lex_free(&lx);
     path_free_all(&ps);
     if (!v) {

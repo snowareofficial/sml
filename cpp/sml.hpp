@@ -58,14 +58,24 @@ struct Value {
 // ---------------------------------------------------------------------------
 // Contract system (mirrors Rust TypeSpec / TypeModifiers / Contract)
 // ---------------------------------------------------------------------------
+
+// 模式 IR（定义在 `src/02b_pattern.inc`；此处只前置声明，供 TypeSpec 持有）。
+struct Pat;
+
 struct TypeSpec {
-    enum class Kind { Any, Str, Int, Num, Bool, Enum, Array, ContractRef } kind = Kind::Any;
+    enum class Kind { Any, Str, Int, Num, Bool, Enum, Array, ContractRef,
+                      /* `@type name: X { 模式 }` 的自定义类型：值须为字符串并匹配模式。
+                         编译失败 ⇒ E-CONTRACT-013，值不符 ⇒ 009（与 Rust 同码）。 */
+                      Pattern } kind = Kind::Any;
     // Enum: allowed list of string values
     std::vector<std::string> enum_values;
     // Array: element type
     std::shared_ptr<TypeSpec> elem;
     // ContractRef: referenced contract name
     std::string contract_ref;
+    // Pattern: 类型名（错误文案用）+ 编译好的模式
+    std::string pat_name;
+    std::shared_ptr<Pat> pat;
 };
 
 struct TypeModifiers {

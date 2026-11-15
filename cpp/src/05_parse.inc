@@ -438,6 +438,36 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
             break;
         }
 
+        /* `@type name: X { 模式 }` —— 自定义类型（字段引用时按模式校验）。
+           判据**必须是「后跟 `name:`」**：`@type { … }` 是名为 type 的片段定义，
+           不能被抢占（Rust 侧有专门的回归守着这条）。故本支放在指令/片段分支之前，
+           且只在看到 `name :` 时才接管。 */
+        if (tok.t == Token::T::At && st.i + 3 < st.toks.size() &&
+            st.toks[st.i+1].t == Token::T::Word && st.toks[st.i+1].s == "type" &&
+            st.toks[st.i+2].t == Token::T::Word && st.toks[st.i+2].s == "name" &&
+            st.toks[st.i+3].t == Token::T::Colon) {
+            st.i += 4;   // @ type name :
+            if (st.i >= st.toks.size() || st.toks[st.i].t != Token::T::Word) {
+                if (st.err && st.err->empty())
+                    *st.err = code_prefix(SML_E_PARSE_019, "sml: `@type name:` 后须类型名");
+                st.aborted = true; break;
+            }
+            std::string tname = st.toks[st.i].s;
+            st.i++;
+            if (st.i >= st.toks.size() || st.toks[st.i].t != Token::T::LBrace) {
+                if (st.err && st.err->empty())
+                    *st.err = code_prefix(SML_E_PARSE_019,
+                        "sml: `@type " + tname + "` 后须 `{ ... }` 模式体");
+                st.aborted = true; break;
+            }
+            st.i++;
+            st.enter_key.clear();     /* 类型体不进旁路表路径（`enter_key` 是 std::string） */
+            auto body = parse_block_nested(st);
+            if (st.aborted) break;
+            st.types[tname] = body;
+            continue;
+        }
+
         if (tok.t == Token::T::At) {
             // directive keywords are handled by the directive branch below; do not
             // treat them as fragments here.
@@ -945,7 +975,7 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                     if (!fieldbuf.empty()) {
                         FieldSpec fs;
                         std::string e;
-                        if (!parse_field(fieldbuf, fs, &e)) {
+                        if (!parse_field(fieldbuf, fs, &e, &st.types)) {
                             if (st.err) *st.err = e;
                             return nullptr;
                         }

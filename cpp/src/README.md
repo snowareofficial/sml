@@ -10,6 +10,7 @@
 |---|---|
 | `00_prelude_util` | 头文件、命名空间、错误码前缀 / 包装、`Value::clone` |
 | `01_lex` | `tokenize`、转义解码、`looks_like_int/float` |
+| `02b_pattern` | `@type` 的模式匹配器（Thompson NFA，无回溯）；字符类查 `c/sml_pattern_unicode.h` |
 | `02_coerce_type` | `coerce_word` / `coerce`、`parse_type`、`parse_field`、契约校验 |
 | `03_feature_scan` | 特性名表、版本字面量、`scan_features` |
 | `04_weak_bare` | `weak_*`、`is_quoted_word`、`bare_block_ahead`、`parse_bare_block` |

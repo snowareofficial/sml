@@ -1,7 +1,11 @@
 # `c/src/` —— `c/sml.c` 的模块视图
 
-`c/sml.c` 原本是 3600 行的单文件。这里按它自带的九节横幅（错误写入 / 值 / 词法 / 契约 /
-coerce / 解析 / 序列化 / JSON / include）拆成九个 `.inc`，`sml.c` 按顺序 `#include` 回来。
+`c/sml.c` 原本是 3600 行的单文件。这里按它自带的横幅（错误写入 / 值 / 词法 / 模式 / 契约 /
+coerce / 解析 / 序列化 / JSON / include）拆成十个 `.inc`，`sml.c` 按顺序 `#include` 回来。
+
+`02b_pattern.inc` 是后加的一节：`@type` 的模式匹配器（Thompson NFA，无回溯）。
+它**无状态**、不依赖 `parser`，故排在 `03_contract` 之前即可；字符类查的码位区间表
+由 `tools/gen/gen_unicode_tables.py` 从 Rust 导出到 `c/sml_pattern_unicode.h`（C++ 共用）。
 
 ## 为什么是 `.inc` 而不是独立 `.c`
 
@@ -32,7 +36,7 @@ python tools/check/probe_matrix.py
 
 1. 先给模块划头文件：`parser` / `sml_value` / `contract` 的内部结构目前是 `static` 与
    匿名 `struct`，得先提升成 `c/src/*.h` 里的不透明类型 + 访问函数（否则跨 TU 用不了）；
-2. 按依赖顺序搬：`00_errors` → `01_value` → `02_lex` → `03_contract` → `04_coerce` →
+2. 按依赖顺序搬：`00_errors` → `01_value` → `02_lex` → `02b_pattern` → `03_contract` → `04_coerce` →
    `05_parse` → `06_dump` → `07_json` → `08_include`；
 3. 每搬一个就更新上面六处构建脚本里的源文件列表（一次全改会同时失去可编译状态）；
 4. `sml_free` / `sml_dump` 的递归深度与 `MAX_INC_DEPTH` 的栈用量见下节，别在搬运时把

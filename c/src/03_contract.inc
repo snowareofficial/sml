@@ -3,7 +3,10 @@
 ** ===================================================================== */
 
 typedef enum {
-    CT_ANY, CT_STR, CT_INT, CT_NUM, CT_BOOL, CT_ENUM, CT_ARRAY, CT_CONTRACTREF
+    CT_ANY, CT_STR, CT_INT, CT_NUM, CT_BOOL, CT_ENUM, CT_ARRAY, CT_CONTRACTREF,
+    /* `@type name: X { 模式 }` 声明的自定义类型：值须为字符串并匹配模式。
+       编译失败是 E-CONTRACT-013，值不符是 009（与 Rust 同码）。 */
+    CT_PATTERN
 } cty;
 
 typedef struct cfield {
@@ -16,6 +19,11 @@ typedef struct cfield {
     char **enum_vals; size_t enum_n;   /* CT_ENUM */
     char *ref_name;          /* CT_CONTRACTREF */
     cty arr_inner;           /* CT_ARRAY 元素类型 */
+    /* CT_PATTERN（以及 `[CT_PATTERN]` 的元素）：类型名 + 编译好的模式。
+       名字用于错误文案（`不符合类型 \`时刻\` 的格式要求`），与 Rust 的 `TypeSpec::Pattern{name}` 同。 */
+    char *pat_name;
+    sp_pat *pat;
+    sp_pat *arr_pat;         /* CT_ARRAY 且 arr_inner == CT_PATTERN 时有效 */
     /* S7：`from-featag` —— 该键只能由 featag 落点写入，文档直接赋值 ⇒ E-CONTRACT-024。 */
     int from_featag;
     struct cfield *next;
@@ -301,6 +309,7 @@ static const char *type_name(cty t) {
         case CT_ENUM:        return "enum";
         case CT_ARRAY:       return "array";
         case CT_CONTRACTREF: return "contract-ref";
+        case CT_PATTERN:     return "pattern";
     }
     return "?";
 }
@@ -331,6 +340,9 @@ typedef struct {
     lexer *lx;
     struct frag *frags;
     ccontract *contracts;   /* 全局契约表 (跨块可见) */
+    /* `@type name: X { … }` 声明的自定义类型表（名 → 模式体，是个对象值）。
+       跨块可见（与契约同）；`NULL` 表示一条都没声明。 */
+    sml_value *types;
     int failed;             /* 契约校验失败标志 (不依赖 errbuf 内容) */
     int version;            /* 语法版本: 1=V1(裸词即字符串) 2=V2 3=V3(字符串须引号) */
     int depth;              /* 当前块/数组嵌套深度（栈溢出防护，见 parse_block） */

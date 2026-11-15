@@ -92,6 +92,9 @@ struct PState {
     size_t i = 0;
     std::map<std::string,ValuePtr> fragments;
     std::map<std::string,Contract> contracts;
+    /* `@type name: X { … }` 声明的自定义类型（名 → 模式体）：跨块可见，
+       同名后声明覆盖（与 Rust `types.insert` 同）。 */
+    std::map<std::string, ValuePtr> types;
     std::string* err = nullptr;
     /* 原先这里还有 include_dir / include_stack 两个字段：include 是**边解析边插 token**
        处理的（W18 前的写法），所以状态得挂在解析器上。现在展开挪到解析前的

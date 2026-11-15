@@ -521,12 +521,44 @@ static int apply_contract_rec(parser *ps, ccontract *c, sml_value *node,
 static int check_type(parser *ps, const char *cname, const cfield *spec,
                       const sml_value *v, char *err, size_t errsz) {
     int ok = 0;
+    /* 自定义模式类型（`@type`）：值须为**字符串**并匹配模式。
+       非字符串必须**显式报错并提示加引号** —— `证件号: 221099 1988 0987 1211`
+       这种裸写会被词法切成数字，最终只剩末段、还不报错，是本项目明确要消灭的
+       「静默数据损坏」。故这一支**提前返回**，不走下面的通用 002。 */
+    if (spec->ty == CT_PATTERN) {
+        const char *pn = spec->pat_name ? spec->pat_name : "?";
+        char perr[256];
+        int m;
+        if (v->type != SML_STR) {
+            set_err(err, errsz,
+                    SML_E_CONTRACT_009 " 字段 `%s` 类型 `%s` 要求字符串"
+                    "（号码 / 编号 / 身份证请用引号包裹），实际为 %s（契约 `%s`）",
+                    spec->name, pn, kind_name(v), cname);
+            return -1;
+        }
+        perr[0] = '\0';
+        m = sp_match(spec->pat, v->u.s, v->slen, perr, sizeof perr);
+        if (m < 0) {
+            set_err(err, errsz, SML_E_CONTRACT_009 " 类型 `%s` 匹配时出错：%s", pn, perr);
+            return -1;
+        }
+        if (!m) {
+            set_err(err, errsz,
+                    SML_E_CONTRACT_009
+                    " 字段 `%s` 的值 `%.*s` 不符合类型 `%s` 的格式要求（契约 `%s`）",
+                    spec->name, (int)v->slen, v->u.s, pn, cname);
+            return -1;
+        }
+        return 0;
+    }
     switch (spec->ty) {
         case CT_ANY:  ok = 1; break;
         case CT_STR:  ok = (v->type == SML_STR); break;
         case CT_INT:  ok = (v->type == SML_INT); break;
         case CT_NUM:  ok = (v->type == SML_INT || v->type == SML_FLOAT); break;
         case CT_BOOL: ok = (v->type == SML_BOOL); break;
+        /* 上面已提前返回；这里只为让 switch 覆盖全部枚举值（`-Wswitch`） */
+        case CT_PATTERN: ok = 1; break;
         case CT_ENUM:
             ok = 0;
             for (size_t i = 0; i < spec->enum_n; i++)
@@ -544,6 +576,35 @@ static int check_type(parser *ps, const char *cname, const cfield *spec,
                     case CT_NUM:  eok = (el->type == SML_INT || el->type == SML_FLOAT); break;
                     case CT_BOOL: eok = (el->type == SML_BOOL); break;
                     case CT_ANY:  eok = 1; break;
+                    /* `[时刻]`：元素逐个匹配模式，错误**直接返回**（不等通用 002）——
+                       与 Rust 同码 009，且带下标定位（`v[1]`）。 */
+                    case CT_PATTERN: {
+                        const char *pn = spec->pat_name ? spec->pat_name : "?";
+                        char perr[256];
+                        int m;
+                        if (el->type != SML_STR) {
+                            set_err(err, errsz, SML_E_CONTRACT_009
+                                    " 字段 `%s[%zu]` 类型 `%s` 要求字符串"
+                                    "（号码 / 编号 / 身份证请用引号包裹），实际为 %s（契约 `%s`）",
+                                    spec->name, i, pn, kind_name(el), cname);
+                            return -1;
+                        }
+                        perr[0] = '\0';
+                        m = sp_match(spec->arr_pat, el->u.s, el->slen, perr, sizeof perr);
+                        if (m < 0) {
+                            set_err(err, errsz, SML_E_CONTRACT_009
+                                    " 类型 `%s` 匹配时出错：%s", pn, perr);
+                            return -1;
+                        }
+                        if (!m) {
+                            set_err(err, errsz, SML_E_CONTRACT_009
+                                    " 字段 `%s[%zu]` 的值 `%.*s` 不符合类型 `%s` 的格式要求（契约 `%s`）",
+                                    spec->name, i, (int)el->slen, el->u.s, pn, cname);
+                            return -1;
+                        }
+                        eok = 1;
+                        break;
+                    }
                     default:      eok = 1; break;
                 }
                 if (!eok) { ok = 0; break; }
@@ -774,7 +835,14 @@ static int cfield_type_differs(const cfield *a, const cfield *b) {
     size_t i;
     if (a->ty != b->ty) return 1;
     switch (a->ty) {
-        case CT_ARRAY: return a->arr_inner != b->arr_inner;
+        case CT_ARRAY:
+            if (a->arr_inner != b->arr_inner) return 1;
+            /* `[时刻]` vs `[日期]`：元素类型名不同就是不同（Rust 用规范串比较） */
+            if (a->arr_inner == CT_PATTERN) {
+                if (!a->pat_name || !b->pat_name) return a->pat_name != b->pat_name;
+                return strcmp(a->pat_name, b->pat_name) != 0;
+            }
+            return 0;
         case CT_ENUM:
             if (a->enum_n != b->enum_n) return 1;
             for (i = 0; i < a->enum_n; i++)
@@ -783,6 +851,10 @@ static int cfield_type_differs(const cfield *a, const cfield *b) {
         case CT_CONTRACTREF:
             if (!a->ref_name || !b->ref_name) return a->ref_name != b->ref_name;
             return strcmp(a->ref_name, b->ref_name) != 0;
+        case CT_PATTERN:
+            /* 同名即同校验器（Rust `TypeSpec::name()` 对 Pattern 返回类型名） */
+            if (!a->pat_name || !b->pat_name) return a->pat_name != b->pat_name;
+            return strcmp(a->pat_name, b->pat_name) != 0;
         default: return 0;
     }
 }
@@ -1212,6 +1284,23 @@ static void parse_contract_body(parser *ps, ccontract *c) {
                     set_err(ps->lx->errbuf, ps->lx->errsz,
                             SML_E_CONTRACT_012 " 数组元素类型不能是 `enum`");
                     ps->failed = 1;
+                } else {
+                    /* `@type` 声明的自定义类型优先（Rust `Some(Tok::LBrack)` 分支同一次序：
+                       先查 types，再查外置类型，最后才回落成契约引用）。 */
+                    sml_value *tdef = ps->types ? sml_obj_get(ps->types, iw) : NULL;
+                    if (tdef) {
+                        char perr[256];
+                        perr[0] = '\0';
+                        cf->arr_pat = sp_compile(tdef, ps->types, perr, sizeof perr);
+                        if (!cf->arr_pat) {
+                            set_err(ps->lx->errbuf, ps->lx->errsz,
+                                    SML_E_CONTRACT_013 " 类型 `%s` 的模式编译失败：%s", iw, perr);
+                            ps->failed = 1;
+                        } else {
+                            cf->arr_inner = CT_PATTERN;
+                            cf->pat_name = strdup(iw);
+                        }
+                    }
                 }
             }
             if (peek(ps)->t == T_RBRACK) next(ps);
@@ -1242,9 +1331,28 @@ static void parse_contract_body(parser *ps, ccontract *c) {
                     ps->failed = 1;
                 }
             } else {
-                /* 契约名 (组合 / ContractRef) */
-                cf->ty = CT_CONTRACTREF;
-                cf->ref_name = strdup(tw);
+                /* 非内置类型名，按此顺序判定（与 Rust 完全相同）：
+                   1. `@type` 声明的自定义类型（模式校验）
+                   2. 回落为契约引用（组合）
+                   次序不可颠倒：同名时 `@type` 更「显式」。 */
+                sml_value *tdef = ps->types ? sml_obj_get(ps->types, tw) : NULL;
+                if (tdef) {
+                    char perr[256];
+                    perr[0] = '\0';
+                    cf->pat = sp_compile(tdef, ps->types, perr, sizeof perr);
+                    if (!cf->pat) {
+                        set_err(ps->lx->errbuf, ps->lx->errsz,
+                                SML_E_CONTRACT_013 " 类型 `%s` 的模式编译失败：%s", tw, perr);
+                        ps->failed = 1;
+                        break;
+                    }
+                    cf->ty = CT_PATTERN;
+                    cf->pat_name = strdup(tw);
+                } else {
+                    /* 契约名 (组合 / ContractRef) */
+                    cf->ty = CT_CONTRACTREF;
+                    cf->ref_name = strdup(tw);
+                }
             }
         } else if (tt->t == T_RBRACE || tt->t == T_EOF) {
             /* 类型位置直接是 `}` / EOF：`@contract C { a: }`。改前这里静默落成 any，
