@@ -225,6 +225,10 @@ Runtime UI strings use VS Code's built-in localisation:
 
 To add a language or change a string:
 
+0. `package.json` must declare `"l10n": "./l10n"` at the top level — without it the
+   extension host never loads the bundle, `vscode.l10n.t()` always returns the source
+   string (Chinese on an English UI) and nothing reports an error. `.vscodeignore`
+   must not exclude `l10n/` either.
 1. Wrap any user-visible string in source with `L("中文")`; interpolate with
    `L("已切换为「{0}」", name)`.
 2. Add a `key = translation` entry in the matching `l10n/bundle.l10n.<locale>.json`.

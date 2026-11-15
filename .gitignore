@@ -171,6 +171,10 @@ rust/*.log
 !editors/vscode/scripts/_gen_seti_theme.py
 #    4) include/import 编辑器导航的闸门（同上：手写持久工具，且已接进 _prepublish.mjs 的 steps）
 !editors/vscode/scripts/_verify_nav.mjs
+#    5) 运行时文案的 l10n 闸门：README（中英）把它写成「改文案后的校验步骤」，
+#       但它此前没进这张表 ⇒ 新克隆里根本没有这个文件，那条步骤无从执行。
+#       它还负责判「package.json 有没有声明 l10n 目录」（缺了译文一条都加载不到）。
+!editors/vscode/scripts/_check_l10n.mjs
 
 # ── 用户 / 工作区本地产物（不属于仓库）──────────────────────────────────────
 

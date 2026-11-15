@@ -24,6 +24,7 @@
     "configuration"
   ],
   "main": "./src/extension.js",
+  "l10n": "./l10n",
   "activationEvents": [
     "onLanguage:sml",
     "workspaceContains:**/*.sml",
