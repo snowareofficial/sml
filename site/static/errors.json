@@ -485,6 +485,10 @@
       "title": "featag 重复声明",
       "msg": "同一契约里重复声明了同名的 featag",
       "impls": [
+        "c",
+        "cpp",
+        "js",
+        "lua",
         "rust"
       ],
       "status": "done",

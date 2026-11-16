@@ -879,6 +879,18 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                                 }
                             }
                         }
+                        {
+                            bool dup8 = false;
+                            for (const auto& fd8 : c.featags)
+                                if (fd8.name == d.name) { dup8 = true; break; }
+                            if (dup8) {
+                                if (st.err && st.err->empty())
+                                    *st.err = code_prefix(SML_E_CONTRACT_019,
+                                        "sml: `!" + d.name + "` 在本契约里出现了两次");
+                                st.aborted = true;
+                                break;
+                            }
+                        }
                         c.featags.push_back(d);
                         continue;
                     }

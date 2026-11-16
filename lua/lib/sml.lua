@@ -1829,6 +1829,9 @@ local function parse_contract_body(tokens, i, fragments, cname)
       if d.name == "strict-paths" then strict_paths = true end
       if d.name == "any" then allow_any = true end
       if d.name ~= "any" and d.name ~= "strict-paths" then
+        if featags[d.name] ~= nil then
+          fail("E-CONTRACT-019", "sml: `!" .. d.name .. "` 在本契约里出现了两次")
+        end
         featags[d.name] = d
       end
     elseif tok == "," then

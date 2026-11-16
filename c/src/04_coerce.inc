@@ -1226,7 +1226,17 @@ static void parse_contract_body(parser *ps, ccontract *c) {
                     next(ps);
                 }
                 if (c) {
-                    cfeatag *nf = (cfeatag *)calloc(1, sizeof(cfeatag));
+                    cfeatag *df, *nf;
+                    int dup = 0;
+                    for (df = c->featags; df; df = df->next)
+                        if (strcmp(df->name, ft->v + 1) == 0) { dup = 1; break; }
+                    if (dup) {
+                        set_err(ps->lx->errbuf, ps->lx->errsz,
+                                SML_E_CONTRACT_019 " `%s` 在本契约里出现了两次", ft->v + 1);
+                        ps->failed = 1;
+                        break;
+                    }
+                    nf = (cfeatag *)calloc(1, sizeof(cfeatag));
                     if (nf) {
                         nf->name = strdup(ft->v + 1);
                         nf->has_spec = has_spec;

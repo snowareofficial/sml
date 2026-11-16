@@ -236,7 +236,7 @@ codes: [
       note: "weakbind 软校验（`docs/swsml/spec/weakbind.md` §4 / §7）。两条纪律：**只读**（不填默认值、不改主树，故「有无 `@weakbind` 主树逐字节相同」这条判据仍成立）与**不阻断**（`DiagnosticKind::WeakBindMismatch` ⇒ `Warning`，解析照常出结果）。八档靠**消息前缀**区分（`Diagnostic` 没有 detail 字段，故写成「…（decl.unknown_contract）：…」这种可检索的形式）：声明侧 decl.unknown_contract / decl.unknown_field / decl.type_mismatch，块内容侧 block.missing_required / block.type_mismatch / block.out_of_range / block.enum_mismatch / block.undeclared_field（最后一档仅当契约 strictness 为 strict 时报）。**内置表为空时整段跳过** —— 否则一落地所有弱声明都会报 unknown_contract。另：弱声明**不算**契约定义，`W-LINT-002`「契约定义从未被应用」必须把它排除。五端差异：Rust 八档齐；JS / C / C++ / Lua 各实现七档（缺 block.undeclared_field —— 它依赖契约 strictness，那四端没有该概念）⇒ status 仍为 partial" }
     { id: E-CONTRACT-019 domain: CONTRACT severity: E title: "featag 重复声明"
       msg: "同一契约里重复声明了同名的 featag"
-      impls: [ rust ] status: done
+      impls: [ rust js c cpp lua ] status: done
       note: "featag S4（`docs/swsml/spec/featag.md` §2.3 B4）。**只在声明处**查重：使用处允许同名多次出现（`!a !a` 会原样保留在 `__featags` 数组里，应用层自行决定是否合并）。诊断写全 `<契约>.<featag>` —— 作用域契约私有，只写名字会分不清是哪个契约的" }
     { id: E-CONTRACT-025 domain: CONTRACT severity: E title: "featag 落点越界"
       msg: "featag 落点里的数组下标越界；越界不会补 null"

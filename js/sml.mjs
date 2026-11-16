@@ -2072,6 +2072,7 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
           }
           d.target = segs;
         }
+        if (featags.has(d.name)) fail("E-CONTRACT-019", "sml: `!" + d.name + "` 在本契约里出现了两次");
         featags.set(d.name, d);
         continue;
       }
