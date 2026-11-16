@@ -26,7 +26,7 @@
 | 说法 | 代码事实 |
 |---|---|
 | `.ambr` 是「SML 的二进制序列化」 | `rust/amberice/Cargo.toml` 只依赖 `sml-value`（值模型），不依赖 `sml-parse` / `swsml`。容器层、manifest、层链、加密都不认识文本语法；SML 解析只出现在 `amberice-ffi` 的可选 `sml` feature 与门面 `sml::envelope` 里 |
-| amberice 就是 smldb（数据库层） | 全仓没有 smldb 的 crate、源码目录、CLI 子命令或测试向量；`main.rs` 的 `USAGE` 无数据库类命令。smldb 不属于已交付能力 |
+| amberice 就是 smldb（数据库层） | 两者是不同 crate：`rust/amberice` 是容器层，`rust/smldb` 是 2026-11-17 落的第一刀（BLOB + 元数据/标签索引的内存后端）；仍无 CLI 子命令。smldb 不属于已交付能力（随 v5 开放） |
 | 容器错误有五端错误码 | `errors/codes.sml` 没有 AMBR 码；`ContainerError::kind()` 给稳定机器可读分类，C ABI 错误以 `AMBR:` 前缀写进调用方缓冲 |
 | 顶层 `amberice/` 目录是实现 | 该目录只有 Python FFI 绑定；实现在 `rust/amberice/`。`rust/amberice-ffi/` 是另一个独立 crate（C ABI） |
 | 已经是发布的 crate | `rust/amberice/Cargo.toml` 与 `rust/amberice-ffi/Cargo.toml` 均设 `publish = false` |
@@ -253,7 +253,7 @@
 - wasm + zstd 组合只验证过编译，压缩向量的运行时行为未验（`rust/amberice/Cargo.toml` 台账）；
   启用 `wasm32 + compress` 时 `amberice/build.rs` 会打双语 warning（D50），wasm 仍应默认不压缩。
 - 加密与内存映射只有库接口，没有 CLI 子命令。
-- smldb 没有实现代码，不属于本产品线已交付能力。
+- smldb 第一刀（内存后端 + 精确路径 / 标签索引）已落，仍 `publish = false` 且无 CLI，不属于本产品线已交付能力。
 - 顶层 `amberice/` 目录只放 Python 绑定，与 `rust/amberice/` 不是一回事。
 
 ## 7. 复核命令

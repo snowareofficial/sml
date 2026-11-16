@@ -1,9 +1,12 @@
-# `smldb` 数据库层（草案 · 未开工）
+# `smldb` 数据库层（草案 · T8 第一刀已落）
 
-> **产品线** amberice ｜ **状态** draft ｜ **最后核对** 2026-11-06
+> **产品线** amberice ｜ **状态** draft ｜ **最后核对** 2026-11-17
 >
-> ⚠️ **本文全部内容尚未开工**：`smldb` crate 不存在，选择器语法未定，FTS 方案未落地。
-> 已想清楚的部分固定下来供开工直接施工；未定的标「待拍板」并指向 `../decisions.md`。
+> ⚠️ **本文仍是草案**：选择器语法未定，FTS 方案未落地，SQLite 后端未接。
+> 2026-11-17 落下 T8 第一刀：`rust/smldb` crate（校验 `.ambr` BLOB、拥有 `Doc`、
+> `Backend` trait + `MemoryBackend`、按 path 精确取回与标签反查，5 例单测）；
+> 表结构已固化为 `schema.rs` 的 DDL 骨架。`publish = false`，随 v5 开放（D1）。
+> 未定的标「待拍板」并指向 `../decisions.md`。
 > `.ambr` 格式本体见 `format.md`；元数据在 `docs/meta.sml`。
 >
 > **章节编号是 `amberice` 产品线的全局编号**，不是本文件内的连续编号：第 0–4, 8–9, 11, 18–21, 23–25 节在 `format.md`；第 10, 12, 15–16 节在 `../decisions.md`；第 22 节在 `tools.md`。
@@ -473,7 +476,7 @@ store.raw(|conn| conn.prepare("..."))?      // 文档标注「需懂 SQL」
 
 ---
 
-## 17. 施工顺序（草稿 · 未开工 · 与 v5 同步开放）
+## 17. 施工顺序（草稿 · T8 第一刀已落 · 与 v5 同步开放）
 
 > 开放节奏见 D1：**设计与实现可以现在做，对外开放等 v5**。阶段 1–3 与 v5 定稿并行不冲突。
 
@@ -489,5 +492,8 @@ store.raw(|conn| conn.prepare("..."))?      // 文档标注「需懂 SQL」
 | **T7 五端** | JS / Lua 解码器（只读 `VALUE` 段 + 透传载荷）+ 一致性用例 | 同一 `.ambr` 五端读出同树；载荷字节原样 |
 
 **依赖关系**：T0 是 T1 的前置（没有 canonical 就没有幂等与签名）；T2 依赖 T1；T3–T5 可并行；T6/T7 依赖 T2。
-**明确不在阶段内**：`smldb`（T8，见 §5）、SIMD（`format.md §8`，等 profile 证明）、FTS 索引（D13）。
+| **T8 第一刀** ✅ 已落（2026-11-17） | `rust/smldb`：`.ambr` BLOB 校验后入库、拥有 `Doc`、`Backend` trait + `MemoryBackend`、按 path 精确取回 / 标签反查 / 删除；`schema.rs` 固化 `docs` / `doc_tags` DDL 骨架 | `cargo test -p smldb` 5 例：往返字节一致、标签去重排序、重复 path 与坏 BLOB 拒绝、删除清索引。CI 逐 crate 清单已加 |
+| **T8 后续** ⬜ | SQLite 后端（执行 DDL、`content` 由 `extract_text()` 生成）、FTS5、CSS 选择器、Sidecar / 写策略、CLI | 等 `extract_text()` 与选择器语法定稿；阈值数字不可引用（文件级 draft） |
+
+**明确不在阶段内**：SIMD（`format.md §8`，等 profile 证明）、FTS 索引（D13）。
 

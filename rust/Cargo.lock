@@ -773,6 +773,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "smldb"
+version = "0.6.9-dev.0"
+dependencies = [
+ "amberice",
+ "sml-value",
+]
+
+[[package]]
 name = "smldocs"
 version = "0.6.9-dev.0"
 dependencies = [
