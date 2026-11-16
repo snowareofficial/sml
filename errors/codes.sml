@@ -490,8 +490,8 @@ codes: [
       note: "扩展机制的固有代价：带方言的文档在未注册的环境里读不了 —— 这条码是有意为之，不是缺陷。JS 在未注册指令**带**片段体时会静默当作片段定义" }
     { id: E-EXT-002 domain: EXT severity: E title: "扩展注册名冲突"
       msg: "不可注册与内置同名的扩展；同名重复注册同样报错"
-      impls: [ rust c cpp lua ] status: done
-      note: "三条注册点（指令、类型、修饰符）共用此码。C / C++ / Lua 在解析入口统一校验（2026-11-16）；Lua 用表注册，天然去重 ⇒ 只查「与内置同名 / 空名」" }
+      impls: [ rust js c cpp lua ] status: done
+      note: "三条注册点（指令、类型、修饰符）共用此码。五端都在解析入口统一校验（C / C++ / Lua / JS 于 2026-11-16 补齐）；JS / Lua 用对象/表注册，天然去重 ⇒ 只查「与内置同名 / 空名」" }
     { id: E-EXT-003 domain: EXT severity: E title: "外置指令缺少取值"
       msg: "外置指令的参数名后缺少取值"
       impls: [ rust js c cpp lua ] status: done }

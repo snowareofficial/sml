@@ -1395,6 +1395,31 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
   // 不带这些选项时，行为与未扩展时**完全一致**。
   const extDirs = opts.directives || null;
   const extTypes = opts.types || null;
+  // —— 注册期校验（与 Rust / C / C++ / Lua 同码 E-EXT-002）——
+  // 与内置同名会改写核心语义 ⇒ 直接拒，不静默覆盖。
+  // JS 对象字面量天然去重 ⇒「重复注册」构造不出来（后一个直接覆盖前一个），故只查两条。
+  // 注：这里用模块级 throwCode（`fail` 在本函数后段才定义，TDZ 里不能调）。
+  if (extDirs) {
+    const BUILTIN_DIRS = new Set(["contract", "is", "type", "version", "feature",
+      "when", "for", "weakbind", "weakdata", "weakdoc"]);
+    for (const n of Object.keys(extDirs)) {
+      if (!n) throw throwCode("E-EXT-002", "sml: 扩展指令名不可为空");
+      if (BUILTIN_DIRS.has(n)) {
+        throw throwCode("E-EXT-002",
+          "sml: 不可注册与内置指令同名的扩展指令 `@" + n + "`");
+      }
+    }
+  }
+  if (extTypes) {
+    const BUILTIN_TYPES = new Set(["str", "int", "num", "bool", "any", "enum"]);
+    for (const n of Object.keys(extTypes)) {
+      if (!n) throw throwCode("E-EXT-002", "sml: 扩展类型名不可为空");
+      if (BUILTIN_TYPES.has(n)) {
+        throw throwCode("E-EXT-002",
+          "sml: 不可注册与内置类型同名的扩展类型 `" + n + "`");
+      }
+    }
+  }
 
   // —— 契约映射（D5 / 任务 F）：opt-in，不开时零开销、返回值与旧版逐字一致 ——
   //

@@ -1,6 +1,6 @@
 # 文档状态扫描（生成物，勿手改）
 
-> 生成：`python tools/scan_status.py --write` · 2026-11-16 21:35
+> 生成：`python tools/scan_status.py --write` · 2026-11-16 21:38
 > 手工编辑会在下次扫描时被覆盖；结论写进 `unfinished.md`。
 
 ## 汇总
@@ -15,7 +15,7 @@
 | 错误码总数 | 175 |
 | 其中只有 Rust | **13** |
 | 缺 `cpp` | 101 |
-| 缺 `js` | 90 |
+| 缺 `js` | 89 |
 | 缺 `c` | 101 |
 | 缺 `lua` | 99 |
 | conformance | AGREE 75 / DIVERGE 0（用例 75 个） |
