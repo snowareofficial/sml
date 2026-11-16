@@ -1,7 +1,7 @@
 # docs 索引
 
 > **本文件由 `cargo run -p smldocs -- --index` 生成，勿手改。**
-> 数据源 `docs/meta.sml`（59 份文档，摘要 `71ca4a0040d27994`）。摘要变了就必须重跑生成；
+> 数据源 `docs/meta.sml`（59 份文档，摘要 `acbc2a5059bc5a9b`）。摘要变了就必须重跑生成；
 > 本文件不记生成日期 / HEAD，避免跨天或提交后假漂移。体检结论见 [`report.md`](report.md)。
 
 ## 一眼看结论
@@ -84,7 +84,7 @@
 | [`repo/archive/handoff/HANDOFF-2026-10-30.md`](repo/archive/handoff/HANDOFF-2026-10-30.md) | 2026-10-30 | 2026-10-30 | **archive** | — | 会话交接（2026-10-30） |
 | [`repo/archive/handoff/HANDOFF-2026-11-02.md`](repo/archive/handoff/HANDOFF-2026-11-02.md) | 2026-11-02 | 2026-11-02 | **archive** | — | 会话交接（2026-11-02，含待议清单 §4.5） |
 | [`repo/archive/handoff/HANDOFF-2026-11-05.md`](repo/archive/handoff/HANDOFF-2026-11-05.md) | 2026-11-05 | 2026-11-05 | **archive** | — | 会话交接（2026-11-05，.ambr T0–T6 交接） |
-| [`repo/archive/handoff/HANDOFF-2026-11-15.md`](repo/archive/handoff/HANDOFF-2026-11-15.md) | 2026-11-15 | 2026-11-15 | **archive** | — | 会话交接（2026-11-15）：五端语法收敛 —— 多契约合并视图 / featag 的 `!` 唯一标记与区位置 / `@type` 模式匹配器四端 / 数组位置裸块 / dump 值位置；probe_grammar 4/20 → 1/20；含 I-30 的卡点与下一步 |
+| [`repo/archive/handoff/HANDOFF-2026-11-15.md`](repo/archive/handoff/HANDOFF-2026-11-15.md) | 2026-11-15 | 2026-11-16 | **archive** | — | 会话交接（2026-11-15）：五端语法收敛 —— 多契约合并视图 / featag 的 `!` 唯一标记与区位置 / `@type` 模式匹配器四端 / 数组位置裸块 / dump 值位置；probe_grammar 4/20 → 1/20；含 I-30 的卡点与下一步 |
 | [`repo/archive/handoff/HANDOFF-W24.md`](repo/archive/handoff/HANDOFF-W24.md) | 2026-10-12 | 2026-10-12 | **archive** | — | 会话交接（W24） |
 | [`repo/archive/handoff/HANDOFF.md`](repo/archive/handoff/HANDOFF.md) | 2026-09-18 | 2026-11-15 | **archive** | — | 主交接文档（2026-09-18 起的长期记录；顶部索引已指向 HANDOFF-2026-11-15.md） |
 | [`repo/archive/open-work.md`](repo/archive/open-work.md) | 2026-11-04 | 2026-11-04 | **archive** | `docs/repo/ref/unfinished.md` | 三次扫描叠加的旧待办清单（已被取代） |
