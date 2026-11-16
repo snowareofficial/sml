@@ -1184,6 +1184,9 @@ function parseIncludeTargets(line, feats, viaImportIn) {
     let ns = null;
     let viaImport = isImportDirective;
     let keys = null;
+    // 语法② `{ a, b } [as ns] in "path"`：键列表在路径**之前**。
+    // 缺 `in "path"` ⇒ E-INCLUDE-008（Rust sml-include/src/parse.rs:128 同判据）。
+    const startsWithBrace = /^\s*\{/.test(raw);
 
     // 提取 `in "file"` 或 `in file`：作为目标路径（语法②）
     const inM = raw.match(/\bin\s+"?([^"\s]+)"?/);
@@ -1207,6 +1210,11 @@ function parseIncludeTargets(line, feats, viaImportIn) {
       // throwCode()，才能把稳定的 e.code 交给调用方。
       if (keys.length === 0) throw throwCode("E-INCLUDE-005", "sml: 键列表不能为空（至少指定一个键）");
       raw = raw.slice(0, braceM.index) + raw.slice(braceM.index + braceM[0].length);
+    }
+
+    // 部分引用以 `{` 开头却缺 `in "path"` ⇒ E-INCLUDE-008（否则会静默当空对象）。
+    if (startsWithBrace && !inPath) {
+      throw throwCode("E-INCLUDE-008", "sml: 部分引用的写法必须接上目标文件");
     }
 
     // as ns
@@ -2806,6 +2814,11 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
           // 片段合并同样跳过危险键：片段体可能来自外部构造（JSON 等），
           // 直接 Object.assign 会把危险键原样写进当前块。
           const frag = structuredClone(fragments.get(fName));
+          // 片段展开结果不是对象（防御分支；片段体恒是块 ⇒ 当前不可达）
+          // ⇒ E-INCLUDE-007（Rust parser/mod.rs:916 同码）。
+          if (frag === null || typeof frag !== "object" || Array.isArray(frag)) {
+            fail("E-INCLUDE-007", "sml: 片段 `" + key + "` 展开结果不是对象，无法合并");
+          }
           for (const fk of Object.keys(frag)) {
             if (DANGEROUS_KEYS.has(fk)) continue;
             // 片段合并不走重复键的数组提升：同名键直接覆盖，父块原值丢失。

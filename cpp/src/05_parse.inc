@@ -1235,6 +1235,14 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                         }
                         if (!placed) node->obj.push_back({kv.first, kv.second->clone()});
                     }
+                } else if (it != st.fragments.end()) {
+                    /* 片段展开结果不是对象（防御分支；片段体恒是块 ⇒ 当前不可达）
+                       ⇒ E-INCLUDE-007（Rust parser/mod.rs:916 同码）。 */
+                    if (st.err && st.err->empty())
+                        *st.err = code_prefix(SML_E_INCLUDE_007,
+                            "sml: 片段 `" + key + "` 展开结果不是对象，无法合并");
+                    st.aborted = true;
+                    break;
                 } else {
                     set_field(key, coerce_word(key, st.fragments, st.err, st.features));
                 }

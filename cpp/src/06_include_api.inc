@@ -45,6 +45,19 @@ static bool expand_includes(std::vector<Token>& toks,
                                 k + 1 < toks.size() &&
                                 toks[k+1].t == Token::T::Word &&
                                 toks[k+1].line == t.line);
+        /* 部分引用 `include/import { keys }`：本端不实现 ⇒ 显式拒绝。
+           改前 `import { a }` 静默当普通内容（错树）、`include "x" { a }` 遗留 `{` 报 006。 */
+        const bool partial_brace = (t.t == Token::T::Word && line_start &&
+                                    (t.s == "include" || t.s == "import") &&
+                                    k + 1 < toks.size() &&
+                                    toks[k+1].t == Token::T::LBrace &&
+                                    toks[k+1].line == t.line);
+        if (partial_brace) {
+            if (err && err->empty())
+                *err = code_prefix(SML_E_FEATURE_001,
+                    "sml: 部分引用（{ keys }）本实现未启用");
+            return false;
+        }
         if (!at_form && !bare_form) { out.push_back(t); k++; continue; }
         /* include 门控：`@feature disable include` 后必须拒绝（与 Rust 同码 001）。 */
         if (!(features & (1u << 1))) {
@@ -54,6 +67,13 @@ static bool expand_includes(std::vector<Token>& toks,
         }
         /* 路径 token 的下标随形态变化（`@include` 是 2，裸形式是 1）。 */
         const size_t pidx = at_form ? k + 2 : k + 1;
+        /* `include "x" { keys }`：路径后紧跟 `{` ⇒ 部分引用 ⇒ 显式拒绝。 */
+        if (pidx + 1 < toks.size() && toks[pidx + 1].t == Token::T::LBrace) {
+            if (err && err->empty())
+                *err = code_prefix(SML_E_FEATURE_001,
+                    "sml: 部分引用（{ keys }）本实现未启用");
+            return false;
+        }
 
         /* 路径**写法**非法（未加引号）⇒ `E-INCLUDE-012`。
            为什么需要这条：词法器把引号串与裸词**都存成 `Word`**（引号串只是内容两侧补了 `"`），

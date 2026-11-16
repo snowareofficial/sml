@@ -629,6 +629,17 @@ static void test_include_expansion() {
         fs::remove_all(d);
     }
 
+    // 部分引用（`include "x" { keys }` / `import { keys }`）：本端不实现 ⇒ 显式拒绝。
+    // 改前 `include "x" { a }` 遗留 `{` 报 006、`import { a }` 静默当普通内容。
+    {
+        std::string d = fresh_dir("partial");
+        write_in(d, "a.sml", "include \"x.sml\" { a }\n");
+        expect_code_in_dir("include partial ({ keys }) rejected", d, "a.sml", SML_E_FEATURE_001);
+        write_in(d, "b.sml", "import { a, b }\n");
+        expect_code_in_dir("import { keys } rejected", d, "b.sml", SML_E_FEATURE_001);
+        fs::remove_all(d);
+    }
+
     // ⑩ 基准目录本身不可解析 → E-INCLUDE-010（fail-closed）。
     //    修复前这里被报成 E-INCLUDE-003：根因是用了 weakly_canonical —— 它只做词法
     //    规范化，一个**不存在**的目录也会"成功"规范化，于是「基准目录不可解析」被

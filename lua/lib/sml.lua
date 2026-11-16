@@ -2831,6 +2831,11 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
         -- ｜ Bare `&frag` splices the fragment's fields into this block.
         local fname = string.match(key, "^&(.+)$")
         if fname and fragments and fragments[fname] then
+          -- 片段展开结果不是对象（防御分支；片段体恒是块 ⇒ 当前不可达）
+          -- ⇒ E-INCLUDE-007（Rust parser/mod.rs:916 同码）。
+          if type(fragments[fname]) ~= "table" or is_array(fragments[fname]) then
+            fail("E-INCLUDE-007", "片段 `" .. tostring(key) .. "` 展开结果不是对象，无法合并")
+          end
           -- 循环开头 `i = i + 1` 已把 i 推到 nxt；key（即 `&name`）在 i-1。
           local frag_line = _LINES and _LINES[i - 1] or 0
           for fk, fv in pairs(fragments[fname]) do
@@ -3318,7 +3323,13 @@ local function include_line_path(body)
   end
   -- 关键字后**必须跟空白**：`include:` / `includes:` 因此不会被误判为指令
   local rest = string.match(s, "^include([ \t].*)$")
-  if rest == nil then return nil end
+  if rest == nil then
+    -- `import { keys }` 是部分引用（本端不实现）：显式拒绝，别静默当普通内容。
+    if string.match(s, "^import[ \t]+{") then
+      fail("E-FEATURE-001", "部分引用（{ keys }）本实现未启用")
+    end
+    return nil
+  end
   local after = string.match(rest, "^[ \t]+(.*)$")
   if after == nil or after == "" then return nil end
   if string.sub(after, 1, 1) ~= '"' then

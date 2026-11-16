@@ -459,11 +459,12 @@ codes: [
       note: "含命名空间逐级回退后仍未命中的情形。C 改前把未命中的引用 `return sml_new_str(w)` 静默退化成字符串（下游取值取不到、还查不出原因），W16 起报此码；JS 改前同样静默当普通键。用户已裁决这类必须报错（「这种不应该出现，堪比 void」）。⚠️ **JS 的判定面比 Rust 宽**：JS 的 include 是「把子文件单独 parse 再合并数据」，**不携带子文件的片段表** —— 而 Rust/C++/Lua 都是**解析前文本展开**，跨文件片段天然可见。于是 `examples/app.sml`（`include` 后用 `&net`）在 JS 下必报此码、在 Rust 下正常。这是既有能力缺口（W16 让它从「静默字符串」变成「响亮拒绝」）；**W16 末段 C++ 与 Lua 也补报此码**（见 cpp/sml.cpp coerce_word、lua/lib/sml.lua A9）" }
     { id: E-INCLUDE-007 domain: INCLUDE severity: E title: "片段展开结果不是对象"
       msg: "片段展开结果不是对象，无法与所在块合并"
-      impls: [ rust ] status: done
-      note: "块内引用片段时期望得到对象；得到标量或数组即报此码" }
+      impls: [ rust js c cpp lua ] status: done
+      note: "块内引用片段时期望得到对象；得到标量或数组即报此码。⚠️ **当前不可达**：片段只由 `@name { … }` 注册，片段体恒是块 ⇒ 展开恒为对象。五端都保留这条防御分支（2026-11-16 补齐四端），与 Rust 同构；无法做 conformance 用例（构造不出来）" }
     { id: E-INCLUDE-008 domain: INCLUDE severity: E title: "部分引用缺少目标文件"
       msg: "部分引用的写法必须接上目标文件"
-      impls: [ rust ] status: done }
+      impls: [ rust js ] status: done
+      note: "语法② `{ a, b } [as ns] in \"path\"` 缺 `in` 时报此码。⚠️ **部分引用只有 Rust 与 JS 支持**；C / C++ / Lua 在识别到 `include/import { keys }` 或 `include \"x\" { keys }` 时**显式拒绝 `E-FEATURE-001`**（2026-11-16 统一，改前 C 静默丢 `{ keys }`、C++ 遗留 token 报 006）—— 故 008 在这三端不可达，且此场景五端码不同（Rust/JS = 008，其余 = 001），不能做 conformance 用例" }
     { id: E-INCLUDE-009 domain: INCLUDE severity: E title: "部分引用不能配通配"
       msg: "部分引用不能配合 glob 或 regex 通配，请指定单个文件"
       impls: [ rust js ] status: done

@@ -1217,6 +1217,14 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                 }
                 continue;   /* &name 已作为展开消费，不落入下面的键值处理 */
             }
+            if (fr) {
+                /* 片段展开结果不是对象（防御分支；片段体恒是块 ⇒ 当前不可达）
+                   ⇒ E-INCLUDE-007（Rust parser/mod.rs:916 同码）。 */
+                set_err(ps->lx->errbuf, ps->lx->errsz,
+                        SML_E_INCLUDE_007 " 片段 `%s` 展开结果不是对象，无法合并", key);
+                ps->failed = 1;
+                break;
+            }
         }
         /* 字段级 @is: key 后紧跟 @is Name（可多份：`k @is A, B { }`） */
         if (peek(ps)->t == T_AT) {

@@ -837,6 +837,14 @@ static void test_include_codes(void) {
         expect_code_file("include 引号未闭合", "_tc_inc_unclosed.sml", SML_E_INCLUDE_012);
     }
     rm_file("_tc_inc_unclosed.sml");
+
+    /* 部分引用（`include "x" { keys }` / `import { keys }`）：本端不实现 ⇒ 显式拒绝。
+       改前 `include "x" { a }` 会展开整个文件、`{ a }` 静默丢失（静默错树）。 */
+    if (write_file("_tc_inc_partial.sml", "include \"x.sml\" { a }\n") == 0) {
+        expect_code_file("include 部分引用（本端拒绝）",
+                         "_tc_inc_partial.sml", SML_E_FEATURE_001);
+        rm_file("_tc_inc_partial.sml");
+    }
 }
 
 /* ------------------------------------------------------------------ */

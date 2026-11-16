@@ -34,8 +34,20 @@ static char *try_include_target(const char *line, char *err, size_t errsz) {
         token *a = &lx.toks[0];
         token *b = &lx.toks[1];
         if (a->t == T_AT && lx.n >= 3) { a = &lx.toks[1]; b = &lx.toks[2]; }
-        if (a->t == T_WORD && strcmp(a->v, "include") == 0) {
-            if (b->t == T_STR) {
+        if (a->t == T_WORD && strcmp(a->v, "import") == 0) {
+            /* `import { keys }` 是部分引用（本端不实现）：显式拒绝，别静默当普通内容。
+               裸 `import "x"` 保持原状（本端不展开 import），故不在此处理。 */
+            if (b->t == T_LBRACE)
+                set_err(err, errsz, SML_E_FEATURE_001 " 部分引用（{ keys }）本实现未启用");
+        } else if (a->t == T_WORD && strcmp(a->v, "include") == 0) {
+            size_t bi = (size_t)(b - lx.toks);
+            if (b->t == T_LBRACE) {
+                /* `include { keys }`：部分引用，本端不实现 ⇒ 显式拒绝。 */
+                set_err(err, errsz, SML_E_FEATURE_001 " 部分引用（{ keys }）本实现未启用");
+            } else if (b->t == T_STR && bi + 1 < lx.n && lx.toks[bi + 1].t == T_LBRACE) {
+                /* `include "x" { keys }`：改前会展开整个文件、`{ keys }` 静默丢失。 */
+                set_err(err, errsz, SML_E_FEATURE_001 " 部分引用（{ keys }）本实现未启用");
+            } else if (b->t == T_STR) {
                 /* 引号未闭合时词法器**仍会**推进一个 T_STR（内容是残缺路径），于是旧实现拿它去
                    fopen ⇒ 报 `E-INCLUDE-001`（"读取失败"），把**写法**错误导成"文件不存在"。
                    与 Rust / Lua 对齐：引号未闭合归 `E-INCLUDE-012`。

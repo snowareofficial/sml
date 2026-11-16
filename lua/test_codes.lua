@@ -577,6 +577,14 @@ local function test_include_codes()
   put(inside, "selfinc.sml", 'include "selfinc.sml"\n')
   ierr("include cycle (self)", 'include "selfinc.sml"\n', inside, "E-INCLUDE-002")
 
+  -- 部分引用（本端不实现）⇒ 显式拒绝。
+  -- 改前 `import { a, b }` 落进词法报 E-PARSE-007、`include "x" { a }` 报 001/静默，
+  -- 与 Rust 的 E-INCLUDE-008 不同码；统一改成 E-FEATURE-001「本实现未启用」。
+  ierr("partial include ({ keys }) rejected",
+       'include "x.sml" { a }\n', inside, "E-FEATURE-001")
+  ierr("import { keys } rejected",
+       'import { a, b }\n', inside, "E-FEATURE-001")
+
   -- E-INCLUDE-004 嵌套超 32 层：**文档根不计层** ⇒ 先钉住边界（31 层放行 / 32 层报）
   local function chain(prefix, n)
     for k = 1, n do

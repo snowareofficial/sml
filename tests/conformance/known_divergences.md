@@ -17,6 +17,15 @@
 新增 `65_featag_dup`：**同一契约里重复声明同名 featag ⇒ `E-CONTRACT-019`**，五端同码
 （此前只有 Rust 查重，四端只收集不校验）。
 
+**include 部分引用（不做 conformance，逐端单测钉住）**：只有 **Rust 与 JS** 支持
+`{ keys } … in "path"`；C / C++ / Lua 在识别到 `include/import { keys }` 或
+`include "x" { keys }` 时**显式拒绝 `E-FEATURE-001`**（2026-11-16 统一）。改前 C 会把
+`{ keys }` **静默丢掉**（只展开整个文件）、C++ 遗留 `{` 报 `E-PARSE-006`、Lua 的
+`import { … }` 落进词法报 `E-PARSE-007` —— 都是错树或错码。因此该场景五端码不同
+（Rust/JS = `E-INCLUDE-008`，其余 = `001`），**不能**做 conformance 用例。`E-INCLUDE-007`
+（片段展开结果不是对象）是**防御分支**：片段体恒为块 ⇒ 展开恒为对象，当前不可达，
+五端同构但构造不出用例。
+
 ## 2026-11-15 复核
 
 实测 **AGREE 63 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`
