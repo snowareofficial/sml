@@ -1619,8 +1619,11 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
         cost = p.cost;
       } else if (g("用", "use") !== undefined) {
         const name = String(g("用", "use"));
-        if (stack.includes(name)) throw throwCode("E-CONTRACT-014", "sml: 规则 `" + name + "` 循环引用");
-        if (!types.has(name)) throw throwCode("E-CONTRACT-014", "sml: 未定义的规则 `" + name + "`");
+        // ⚠️ 模式错误**统一落 E-CONTRACT-013**（与 Rust / C / C++ / Lua 四端同码）：
+        // 此前 JS 用细分码（014 规则引用非法 / 015 量词取值非法 / E-LIMIT-009 量词超上限），
+        // 而其余四端一律落 013 —— 同一条件两个码会让编辑器与调用方判错类别。
+        if (stack.includes(name)) throw throwCode("E-CONTRACT-013", "sml: 规则 `" + name + "` 循环引用");
+        if (!types.has(name)) throw throwCode("E-CONTRACT-013", "sml: 未定义的规则 `" + name + `"`);
         stack.push(name);
         const p = build(types.get(name));
         stack.pop();
@@ -1668,15 +1671,15 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
       if (qMin !== undefined || qMax !== undefined) {
         if ((qMin !== undefined && !Number.isInteger(qMin)) ||
             (qMax !== undefined && !Number.isInteger(qMax)))
-          throw throwCode("E-CONTRACT-015", "sml: 量词最小/最大必须为整数");
-        if (qMin !== undefined && qMin < 0) throw throwCode("E-CONTRACT-015", "sml: 量词最小不能为负（得 " + qMin + "）");
+          throw throwCode("E-CONTRACT-013", "sml: 量词最小/最大必须为整数");
+        if (qMin !== undefined && qMin < 0) throw throwCode("E-CONTRACT-013", "sml: 量词最小不能为负（得 " + qMin + "）");
         // 上界：`次: 999999999` 会被展开成十亿条指令，编译期先于步数预算就把内存吃光
         if (qMin !== undefined && qMin > QUANT_MAX)
-          throw throwCode("E-LIMIT-009", "sml: 量词最小过大（" + qMin + " > " + QUANT_MAX + "）");
+          throw throwCode("E-CONTRACT-013", "sml: 量词最小过大（" + qMin + " > " + QUANT_MAX + "）");
         if (qMax !== undefined && qMax > QUANT_MAX)
-          throw throwCode("E-LIMIT-009", "sml: 量词最大过大（" + qMax + " > " + QUANT_MAX + "）");
+          throw throwCode("E-CONTRACT-013", "sml: 量词最大过大（" + qMax + " > " + QUANT_MAX + "）");
         if (qMax !== undefined && qMin !== undefined && qMax < qMin)
-          throw throwCode("E-CONTRACT-015", "sml: 量词最大(" + qMax + ")不能小于最小(" + qMin + ")");
+          throw throwCode("E-CONTRACT-013", "sml: 量词最大(" + qMax + ")不能小于最小(" + qMin + ")");
         const mn = qMin === undefined ? 0 : qMin;
         base = "(?:" + base + ")" + minMaxToRe(mn, qMax);
         // 量词把代价**乘上去**：`(a*)*` ⇒ 1000 × 1000 = 1e6，超预算即拒

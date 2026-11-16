@@ -305,8 +305,8 @@ codes: [
       note: "拒绝校验而非判为不匹配：避免超长输入把模式引擎拖死" }
     { id: E-LIMIT-009 domain: LIMIT severity: E title: "量词取值超上限"
       msg: "量词的重复次数超过上限"
-      impls: [ js ] status: done
-      note: "与「量词本身非法」（E-CONTRACT-015）区分：此处是数值过大，属预算问题" }
+      impls: [ js ] status: deprecated
+      note: "**已废弃（2026-11-16）**：本码此前**只有 JS** 抛（量词数值过大，属预算问题），其余四端一律落 `E-CONTRACT-013`（模式定义非法）。JS 已改报 013 ⇒ 本码现无端产出；码保留以便旧脚本识别。原语义与「量词本身非法」（`E-CONTRACT-015`，同批废弃）区分：前者数值过大、后者取值非法" }
     { id: E-LIMIT-010 domain: LIMIT severity: E title: "内存分配失败"
       msg: "内存分配失败"
       impls: [ c cpp ] status: partial
@@ -409,16 +409,16 @@ codes: [
       note: "**2026-11-03 收窄**：Rust 侧此前把**所有**非内置的数组元素名都判成此码 —— 于是合法的契约数组 `peers: [Endpoint]` 被误杀。现在五端的非内置元素名都**先按 `@type` / 外置类型 / 契约引用**依次判定（JS 因递归 parseFieldSpec 一直支持），故本码只剩**一类触发**：元素位置写了 `enum`（`[enum a b]` 没有确定语义）。⚠️ **文案随触发点同步更新（2026-11-16）**：标题与文案原先写的是「未知数组元素类型」，那是收窄**前**的语义 —— 触发点已变成「这个位置不许写 enum」，文案不改会让调用方按旧语义判错类别。⚠️ Rust 侧的 detail 更细：「请改写成 `[str]` 并在契约层约束」" }
     { id: E-CONTRACT-013 domain: CONTRACT severity: E title: "模式定义非法"
       msg: "模式定义非法：未知字符类、未知量词、不支持的元素，或无法识别的元素"
-      impls: [ rust js c cpp lua ] status: partial
-      note: "JS 逐项报「未知字符类」「未知量词」「无法识别的模式元素」，并明确不支持懒惰量词；Rust / C / C++ / Lua 报「模式编译失败」（`@type` 的规则在字段引用时编译，故没被引用过的坏模式不报错）。`正则:` 逃生舱：五端都支持（Rust / C / C++ / Lua 编译进同一个无回溯 IR；JS 走 RegExp，带源长度闸与预算）" }
+      impls: [ rust js c cpp lua ] status: done
+      note: "五端同码：模式定义失败一律落本码（2026-11-16 归并 —— 此前**只有 JS**用细分码 `E-CONTRACT-014` / `015` / `E-LIMIT-009`，其余四端一律 013，同一条件两个码会让编辑器与调用方判错类别；JS 已改报本码，conformance 用例 `77_type_quant_over` 钉住）。文案差异在 detail：JS 逐项报「未知字符类」「未知量词」「无法识别的模式元素」并明确不支持懒惰量词；Rust / C / C++ / Lua 报「模式编译失败」（`@type` 的规则在**字段引用时**编译，故没被引用过的坏模式不报错）。`正则:` 逃生舱：五端都支持（Rust / C / C++ / Lua 编译进同一个无回溯 IR；JS 走 RegExp，带源长度闸与预算）" }
     { id: E-CONTRACT-014 domain: CONTRACT severity: E title: "模式规则引用非法"
       msg: "模式规则引用非法：引用了未定义的规则，或规则循环引用"
-      impls: [ js ] status: partial
-      note: "Rust 侧同类问题由模式引擎在编译期归入 E-CONTRACT-013" }
+      impls: [ js ] status: deprecated
+      note: "**已废弃（2026-11-16）**：本码此前**只有 JS** 抛（模式规则引用未定义 / 循环引用），其余四端一律落 `E-CONTRACT-013`（模式定义非法）。为「同一条件同一个码」，JS 已改报 013 ⇒ 本码现无端产出；码保留以便旧脚本识别（同 `E-CONTRACT-017` 的先例）" }
     { id: E-CONTRACT-015 domain: CONTRACT severity: E title: "量词取值非法"
       msg: "量词的取值非法：不是整数、为负数，或上界小于下界"
-      impls: [ js ] status: partial
-      note: "数值过大属预算问题，见 E-LIMIT-009" }
+      impls: [ js ] status: deprecated
+      note: "**已废弃（2026-11-16）**：本码此前**只有 JS** 抛（量词非整数 / 为负 / 上界小于下界），其余四端一律落 `E-CONTRACT-013`。JS 已改报 013 ⇒ 本码现无端产出；码保留以便旧脚本识别" }
     { id: E-CONTRACT-016 domain: CONTRACT severity: E title: "契约叠加冲突"
       msg: "同一字段在参与叠加的两份契约里类型、默认值或区间不一致"
       impls: [ rust js c cpp lua ] status: partial

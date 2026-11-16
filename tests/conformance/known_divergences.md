@@ -4,7 +4,7 @@
 
 ## 2026-11-16 复核
 
-实测 **AGREE 76 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`；
+实测 **AGREE 77 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`；
 `19` / `20` 以 `*` 放行）。新增 `71`–`75` 五条 weak* 钉子：**`@weakbind` 悬空 / 连续 /
 目标标量 / 目标数组 ⇒ `E-PARSE-029`**，**文档级重复 `@weakdoc` ⇒ `E-PARSE-030`**，
 五端同码（此前四端把悬空当"静默丢弃"、重复不判）。新增 `70_fragment_overwrite`：**片段撞父块同名键 ⇒ 直接覆盖**
@@ -42,6 +42,13 @@
 名字」）。此前五端分三处：C **静默丢弃整行**（`@{` 甚至能「解析成功」—— 静默丢数据），
 C++ / JS / Lua 落 `E-PARSE-005`（码指错了地方：缺的是**名字**，不是「指令名不合法」），
 Rust 报 011。注意与**孤立 `@`** 区分：其后是空白 / 行尾时属 `E-PARSE-004`（用例 `42` 已钉）。
+
+**新增 `77_type_quant_over`：模式里的量词超上限 ⇒ `E-CONTRACT-013`**（四端口径）。此前**只有
+JS** 用细分码：量词超上限报 `E-LIMIT-009`、量词取值非法报 `E-CONTRACT-015`、规则引用未定义 /
+循环引用报 `E-CONTRACT-014`；其余四端（Rust / C / C++ / Lua）一律落 `E-CONTRACT-013`
+（模式定义非法）—— 同一条件两个码会让编辑器与调用方判错类别。按「四端同码」归并：JS 改报 013，
+那三个码随之**无端产出**（标 deprecated，码保留以便旧脚本识别）。判据（量词上限 1000）本就
+与 JS 的 `QUANT_MAX` 对齐，改的是**码**，不是阈值。
 
 ## 2026-11-15 复核
 
