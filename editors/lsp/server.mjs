@@ -245,7 +245,10 @@ function buildCompletions(uri, line, character) {
   const offset = lines.slice(0, line).reduce((n, l) => n + l.length + 1, 0) + character;
   const declKind = declBodyKind(text, offset);
   // 块级类型标注：行首契约名（声明体里行首是字段名，不是块头）
-  if (!declKind && /^\s*\w*$/.test(linePrefix) && !linePrefix.includes("@")) {
+  // 多契约块头 `A B item {` 要在每个契约词后续补，故允许「若干标识符 + 空白」前缀，
+  // 含尾随空格；字符集 CJK 感知，避免中文契约名被 \w 漏掉。
+  const blockHeadRe = /^\s*(?:[A-Za-z0-9_\u4e00-\u9fa5]+\s+)*[A-Za-z0-9_\u4e00-\u9fa5]*\s*$/;
+  if (!declKind && blockHeadRe.test(linePrefix) && !linePrefix.includes("@")) {
     for (const n of contractNames) {
       items.push({ label: n, kind: CompletionItemKind.Struct, detail: "契约名 · 块级类型标注 `<契约名> <块名> {}`" });
     }

@@ -1126,7 +1126,10 @@ function activate(context) {
       // 1b) 行首：契约名直接作块级类型标注 `<契约名> <块名> { .. }`
       //     （与既有裸块同形，零新语法；需 @feature enable typed-block 才校验）
       //     声明体里行首是字段名，不是块头 —— 那里由 2) 管。
-      if (!declKind && new RegExp(`^\\s*[${ID}]*$`).test(linePrefix) && !linePrefix.includes("@")) {
+      //     多契约块头 `A B item {`：已写下的每个契约词后面都要继续补下一个，
+      //     故这里匹配「若干标识符 + 空白」的前缀（含尾随空格），不能只认单个词。
+      const BLOCK_HEAD_RE = new RegExp(`^\\s*(?:[${ID}]+\\s+)*[${ID}]*\\s*$`);
+      if (!declKind && BLOCK_HEAD_RE.test(linePrefix) && !linePrefix.includes("@")) {
         for (const n of contractNames) {
           items.push({
             label: n,

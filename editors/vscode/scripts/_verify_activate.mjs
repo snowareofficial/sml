@@ -242,5 +242,36 @@ check(registered.commands.includes("sml.selectIconTheme"), "注册了「文件�
   }
 }
 
+// —— 真调补全（三）：块头契约词序列（`A ` / `A B `）仍补契约名 ——
+// 旧的行首正则 `^\s*[ID]*$` 不接受尾随空格：输入 `A` 能补，一加空格变 `A ` 就
+// 全分支失配 ⇒ 0 项。块头本就是「契约词… 块名 {」多词结构，必须容忍空格。
+{
+  const src = [
+    "@contract A { x: int }",
+    "@contract B { y: int }",
+    "A ",
+    "A B ",
+  ].join("\n");
+  const lines = src.split("\n");
+  const doc = {
+    fileName: path.join(ROOT, "head.sml"),
+    languageId: "sml",
+    getText: () => src,
+    lineAt: (p) => ({ text: lines[p.line] ?? "" }),
+    offsetAt: (p) => lines.slice(0, p.line).reduce((n, l) => n + l.length + 1, 0) + p.character,
+  };
+  const p = registered.completion;
+  if (p && p.provideCompletionItems) {
+    const at = async (line) =>
+      (await p.provideCompletionItems(doc, new Position(line, lines[line].length))).map((x) => x.label);
+    const one = await at(2);
+    check(one.includes("A") && one.includes("B"),
+      "块头 `A ` 后仍补契约名", one.join(","));
+    const two = await at(3);
+    check(two.includes("A") && two.includes("B"),
+      "块头 `A B ` 后仍补契约名", two.join(","));
+  }
+}
+
 console.log(failed === 0 ? "\nACTIVATE SMOKE ALL PASS" : `\n${failed} 项失败`);
 process.exit(failed ? 1 : 0);
