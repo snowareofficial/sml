@@ -124,7 +124,7 @@ codes: [
       note: "覆盖两类：顶层多余的 `}`/`]`、数组里多余的 `}`。改前本码的分布很乱 —— JS 静默返回空对象、C 两格都静默（`m: [ } ]` 得空数组、键值块后多一个 `}` 直接通过）、Lua 抛的是**不带码**的笼统文案「未匹配的右大括号/右方括号」（W10 期间加码）。**W16 起五端全部报此码且码一致**（Rust/JS/C 首批，C++/Lua 末段补齐）。⚠️ 别与 `E-PARSE-002` 混：`a { ] }`（块内遇 `]`）是**闭合符错配**，归 002 —— W16 末段把 Lua 那一格从 003 改成了 002" }
     { id: E-PARSE-004 domain: PARSE severity: E title: "孤立的 at 符号"
       msg: "孤立的 at 符号不是合法指令（符号与名字之间不可有空白）"
-      impls: [ rust ] status: partial
+      impls: [ rust js c cpp lua ] status: partial
       note: "历史上孤立 at 会静默吞掉后续整块内容，故必须报错而非忽略；JS 对同类输入报 E-PARSE-011。⚠️ C 是第三种映射：它的词法器不区分「@ 与名字之间有空白」—— `@` 换行后跟 `k: 1` 会把它当片段名，于是落 E-PARSE-005（同因不同码，未合并；W16 的 C 批扫过全仓语料，无一受影响）" }
     { id: E-PARSE-005 domain: PARSE severity: E title: "不是合法指令且缺少片段体"
       msg: "该指令名不是合法指令且缺少片段体"
@@ -136,7 +136,7 @@ codes: [
       note: "亦覆盖数组元素类型、契约字段名等位置；`default` 与 `min`/`max` 的字面量位置另有 E-PARSE-021、E-PARSE-022。**Lua 原先静默**（`:` 会被当成键名、多余的 `{` 会被当成键），W10 期间补齐（探针实测 `: 1` 解析出键名为 `:` 的树）" }
     { id: E-PARSE-007 domain: PARSE severity: E title: "裸词中含逗号"
       msg: "非预期的逗号：裸词中不可含逗号，请改用数组或引号包裹"
-      impls: [ rust ] status: partial
+      impls: [ rust js c cpp lua ] status: partial
       note: "其余四端把逗号当普通分隔符切分，无此报错" }
     { id: E-PARSE-008 domain: PARSE severity: E title: "顶层标量不可往返"
       msg: "顶层须为容器（键值块、对象块或数组），单独的标量无法往返"
@@ -160,7 +160,7 @@ codes: [
       note: "Rust 的通用兜底、C 的解析失败兜底、Lua 的解析阶段包裹都归此码。**值位置**的游离 `:` 与孤立 `@` 五端同报本码；**行首/成员位置**的孤立 `@` 仍是 E-PARSE-004（两者触发条件不同，探针 `probe_matrix.py --suite errors` 两条都钉着）。出现本码说明该处上下文不足，应单独改进，而不是靠扩大范围掩盖" }
     { id: E-PARSE-013 domain: PARSE severity: E title: "键名位置不支持插值"
       msg: "键名位置不支持 `$` 插值：循环变量只可用于值位置"
-      impls: [ rust ] status: partial
+      impls: [ rust js c cpp lua ] status: partial
       note: "`@for` 的循环变量只作用于值位置；动态键请改用数组表达" }
     { id: E-PARSE-014 domain: PARSE severity: E title: "when 条件非法"
       msg: "`@when` 的条件非法：缺少条件、左侧不是环境变量，或环境变量名缺失"
@@ -207,7 +207,7 @@ codes: [
       note: "C++ 把契约定义解析与取值校验放在同一层，故这些语法错误目前只在该端出现" }
     { id: E-PARSE-025 domain: PARSE severity: E title: "受限正则模式非法"
       msg: "受限正则模式语法非法：量词之前没有可重复的原子、字符类未闭合，或以反斜杠结尾"
-      impls: [ rust ] status: done
+      impls: [ rust js ] status: done
       note: "W16 新增（用户已授权自动新增码）。报告方是 `sml-include` 的 regex-include（`include /re/`）：此前 `sml-regex` 对非法模式一律**静默判「不匹配」** —— 于是「模式写错了」表现成「目录里没有匹配的文件」，用户查不出原因（与 E-LIMIT-002 / E-LIMIT-007 是同一族：引擎层静默、上层无从判断）。引擎层是零依赖的 `sml-regex`，它只报**原因**（`RegexError`），码由 `sml-include` 映射成 —— 与各端「引擎给原因、上层给码」的分层一致。其余四端没有这个受限正则引擎（C++/Lua 的 regex-include 走 E-FEATURE-001 明确拒绝）" }
 
     { id: E-PARSE-026 domain: PARSE severity: E title: "featag 区为空"
@@ -216,7 +216,7 @@ codes: [
       note: "featag S2（`docs/swsml/spec/featag.md` §2.3 B1）。只在 `type.featag` 开启、且处于**块头首词之后**时判：`wea ! , name { }` 这种「`!` 直接跟 `,`/`{`」的写法。报错而不猜，是因为空区既可能是「漏写名字」也可能是「想写字面量 `!`」—— 后者请加引号。未开启该特性时 `!` 仍是普通裸词，v1–v4 行为不变" }
     { id: E-PARSE-027 domain: PARSE severity: E title: "值位置的 `!` 裸词（疑似 featag）"
       msg: "值位置不能写以 `!` 开头的裸词；若本意是字符串，请用引号包起来"
-      impls: [ rust ] status: done
+      impls: [ rust js c cpp lua ] status: done
       note: "featag S2 §2.3 B2。`!` 只在「块头首词之后、逗号之前」那一小段里是记号；出现在值位置（`a: !b`）就是歧义 ⇒ **即使开了 `bareword-string` 也不豁免**（不靠特性绕过歧义）。仅 `type.featag` 开启时生效：未开启时 `!b` 仍是普通裸词（v1 下即字符串），v1–v4 行为不变" }
     { id: E-PARSE-028 domain: PARSE severity: E title: "块头里以 `!` 开头的名字"
       msg: "块头里除 featag 区之外的词不得以 `!` 开头"
@@ -240,19 +240,19 @@ codes: [
       note: "featag S4（`docs/swsml/spec/featag.md` §2.3 B4）。**只在声明处**查重：使用处允许同名多次出现（`!a !a` 会原样保留在 `__featags` 数组里，应用层自行决定是否合并）。诊断写全 `<契约>.<featag>` —— 作用域契约私有，只写名字会分不清是哪个契约的" }
     { id: E-CONTRACT-025 domain: CONTRACT severity: E title: "featag 落点越界"
       msg: "featag 落点里的数组下标越界；越界不会补 null"
-      impls: [ rust ] status: done
+      impls: [ rust js c cpp lua ] status: done
       note: "featag S6（`docs/swsml/spec/featag.md` §10 Q20，2026-11-04 用户定）。下标语义：`n < len` 且元素为 null ⇒ 补缺；元素非 null ⇒ 禁止覆盖（E-CONTRACT-022）；`n == len` ⇒ **追加**（`!strict-paths` 下报 E-CONTRACT-023）；`n > len` ⇒ 本码。与「绝不补 null」（`docs/swsml/spec/null.md` N1–N5）一致：越界是**路走不通**，不是「差几个空位」。⚠️ 数组本身不存在时**不自动创建**（对象可以，数组不行 —— 造一个多长的数组、中间填什么，没有无歧义的答案），报 E-CONTRACT-023" }
     { id: E-CONTRACT-024 domain: CONTRACT severity: E title: "该键只能由 featag 写入"
       msg: "字段声明为 from-featag：只能由 featag 落点写入，文档里不能直接赋值"
-      impls: [ rust ] status: done
+      impls: [ rust js c cpp lua ] status: done
       note: "featag S7（`docs/swsml/spec/featag.md` §6.2）。两档来源：默认（谁都能写）/ `from-featag`（只能 featag 写）—— **刻意没有 `none` / `readonly` 第三档**（用户 2026-11-03：v5 尽量少引入 null / none 思维；「谁都写不了」用「必填但无人提供」或 `optional` 表达）。这条同时是「外来数据不可伪造」的语言级抓手：`from-featag` 的键文档无法自行赋值。检查在 **featag 填充之前**跑，否则 featag 自己写进去的键会被当成「文档手写」误报" }
     { id: E-CONTRACT-022 domain: CONTRACT severity: E title: "featag 落点已存在（禁止覆盖）"
       msg: "featag 要写入的落点已经存在；featag 不能用于覆盖已有值"
-      impls: [ rust ] status: done
+      impls: [ rust js c cpp lua ] status: done
       note: "featag S6（§6.1 规则 1）。用户原话「它不能用于覆盖，这会搞出乱子」—— 故**报错而不是静默跳过**：静默跳过会让「以为写进去了」变成最难查的错。也用于「`auto` 但声明没有默认值」（同样是落点写不进去）" }
     { id: E-CONTRACT-023 domain: CONTRACT severity: E title: "featag 落点的父对象不存在"
       msg: "featag 落点路径上的父对象不存在，或那个键已被非对象值占用"
-      impls: [ rust ] status: done
+      impls: [ rust js c cpp lua ] status: done
       note: "featag S6（§6.1 规则 3）。默认（未开 `!strict-paths`）父对象会**自动创建** —— 那是「插入」不是「覆盖」；契约级开关 `!strict-paths` 打开后要求父对象已存在，缺了就报本码。路径上某键已是标量 / 数组时也报本码（没法往里放键）。与 E-CONTRACT-022 分开：「已存在」是要覆盖、「父不存在」是路走不通，用户的改法完全不同" }
     { id: E-CONTRACT-021 domain: CONTRACT severity: E title: "featag 未声明或用法与声明不符"
       msg: "使用的 featag 没有在该契约里声明，或参数个数 / 类型与声明不符"
@@ -466,7 +466,7 @@ codes: [
       impls: [ rust ] status: done }
     { id: E-INCLUDE-009 domain: INCLUDE severity: E title: "部分引用不能配通配"
       msg: "部分引用不能配合 glob 或 regex 通配，请指定单个文件"
-      impls: [ rust ] status: done
+      impls: [ rust js ] status: done
       note: "部分引用只取键，通配会命中多个文件 —— 组合语义未定义，故直接拒绝" }
     { id: E-INCLUDE-010 domain: INCLUDE severity: E title: "基准目录不可解析"
       msg: "include 基准目录不可解析，无法做越界校验，已拒绝继续"

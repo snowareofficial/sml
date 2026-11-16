@@ -529,6 +529,10 @@
       "title": "featag 落点已存在（禁止覆盖）",
       "msg": "featag 要写入的落点已经存在；featag 不能用于覆盖已有值",
       "impls": [
+        "c",
+        "cpp",
+        "js",
+        "lua",
         "rust"
       ],
       "status": "done",
@@ -541,6 +545,10 @@
       "title": "featag 落点的父对象不存在",
       "msg": "featag 落点路径上的父对象不存在，或那个键已被非对象值占用",
       "impls": [
+        "c",
+        "cpp",
+        "js",
+        "lua",
         "rust"
       ],
       "status": "done",
@@ -553,6 +561,10 @@
       "title": "该键只能由 featag 写入",
       "msg": "字段声明为 from-featag：只能由 featag 落点写入，文档里不能直接赋值",
       "impls": [
+        "c",
+        "cpp",
+        "js",
+        "lua",
         "rust"
       ],
       "status": "done",
@@ -565,6 +577,10 @@
       "title": "featag 落点越界",
       "msg": "featag 落点里的数组下标越界；越界不会补 null",
       "impls": [
+        "c",
+        "cpp",
+        "js",
+        "lua",
         "rust"
       ],
       "status": "done",
@@ -1084,6 +1100,7 @@
       "title": "部分引用不能配通配",
       "msg": "部分引用不能配合 glob 或 regex 通配，请指定单个文件",
       "impls": [
+        "js",
         "rust"
       ],
       "status": "done",
@@ -1820,6 +1837,10 @@
       "title": "孤立的 at 符号",
       "msg": "孤立的 at 符号不是合法指令（符号与名字之间不可有空白）",
       "impls": [
+        "c",
+        "cpp",
+        "js",
+        "lua",
         "rust"
       ],
       "status": "partial",
@@ -1863,6 +1884,10 @@
       "title": "裸词中含逗号",
       "msg": "非预期的逗号：裸词中不可含逗号，请改用数组或引号包裹",
       "impls": [
+        "c",
+        "cpp",
+        "js",
+        "lua",
         "rust"
       ],
       "status": "partial",
@@ -1944,6 +1969,10 @@
       "title": "键名位置不支持插值",
       "msg": "键名位置不支持 `$` 插值：循环变量只可用于值位置",
       "impls": [
+        "c",
+        "cpp",
+        "js",
+        "lua",
         "rust"
       ],
       "status": "partial",
@@ -2121,6 +2150,7 @@
       "title": "受限正则模式非法",
       "msg": "受限正则模式语法非法：量词之前没有可重复的原子、字符类未闭合，或以反斜杠结尾",
       "impls": [
+        "js",
         "rust"
       ],
       "status": "done",
@@ -2145,6 +2175,10 @@
       "title": "值位置的 `!` 裸词（疑似 featag）",
       "msg": "值位置不能写以 `!` 开头的裸词；若本意是字符串，请用引号包起来",
       "impls": [
+        "c",
+        "cpp",
+        "js",
+        "lua",
         "rust"
       ],
       "status": "done",
