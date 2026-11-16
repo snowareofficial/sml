@@ -918,6 +918,14 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                         size_t decl_line = st.toks[st.i].line;
                         FeatagDecl d;
                         d.name = st.toks[st.i].s.substr(1);
+                        /* 标识符白名单（门控 `lex.ident`）：featag 名同样是标识符 */
+                        if (st.features & (1u << 18)) {
+                            std::string e;
+                            if (!ident_check(d.name, &e)) {
+                                if (st.err && st.err->empty()) *st.err = e;
+                                st.aborted = true; break;
+                            }
+                        }
                         /* B1：空名 / 连续 `!` ⇒ E-PARSE-026（Rust contract.rs:84 同判据）。 */
                         if (d.name.empty() || d.name[0] == '!') {
                             if (st.err && st.err->empty())
@@ -1127,6 +1135,28 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                         c.fields.push_back(fs);
                     }
                 }
+                /* 「每契约单一语种」（门控 `lex.ident`）：同一契约内的标识符（字段名 + featag 名）
+                   必须同属一种文字系统 —— 契约就是那个命名空间（不同契约可以用不同语种）。
+                   在此检查是因为此刻 `c` 的字段与 featag 都已收齐。 */
+                if ((st.features & (1u << 18)) && !st.aborted) {
+                    int seen = -1;
+                    std::string first;
+                    for (const auto& f : c.fields) {
+                        std::string e;
+                        if (!ident_check_script(f.name, seen, first, &e)) {
+                            if (st.err && st.err->empty()) *st.err = e;
+                            st.aborted = true; break;
+                        }
+                    }
+                    for (const auto& d : c.featags) {
+                        if (st.aborted) break;
+                        std::string e;
+                        if (!ident_check_script(d.name, seen, first, &e)) {
+                            if (st.err && st.err->empty()) *st.err = e;
+                            st.aborted = true; break;
+                        }
+                    }
+                }
                 if (st.i < st.toks.size() && st.toks[st.i].t==Token::T::RBrace) { st.i++; closed = true; }
                 /* 契约体未闭合必须报错（Rust 同格：E-PARSE-001「契约体未闭合（缺少结束符号 ）」）。
                    改前这里是 `if (…) st.i++;` —— **有 `}` 才吃、没有就算了**，于是
@@ -1199,6 +1229,16 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
         }
         std::string key = tok.s;
         cur_key_line = static_cast<int>(tok.line);
+        /* 标识符白名单（门控 `lex.ident`）：键名不合规就在**这里**报，
+           不等下游（下游只会把 `a.b` 当成路径切错，症状离病因很远）。
+           片段合并键 `&name` 不是标识符，跳过 —— 它由片段表判对错。 */
+        if ((st.features & (1u << 18)) && !key.empty() && key[0] != '&') {
+            std::string e;
+            if (!ident_check(key, &e)) {
+                if (st.err && st.err->empty()) *st.err = e;
+                st.aborted = true; break;
+            }
+        }
         // 键名位置不支持 `${...}` 插值（循环变量只可用于值位置）。
         // No `$` interpolation in key position (E-PARSE-013).
         if (key.find("${") != std::string::npos) {

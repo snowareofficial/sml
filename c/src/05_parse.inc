@@ -1259,6 +1259,12 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
         }
         if (kt->t != T_WORD && kt->t != T_STR) break;
         char *key = kt->v;
+        /* 标识符白名单（门控 `lex.ident`）：键名不合规就在**这里**报，
+           不等下游（下游只会把 `a.b` 当成路径切错，症状离病因很远）。
+           片段合并键 `&name` 不是标识符，跳过 —— 它由片段表判对错。 */
+        if ((ps->features & (1u << 18)) && key[0] != '&') {
+            if (check_ident(ps, key) != 0) { ps->failed = 1; break; }
+        }
         ps->key_line = kt->line;   /* 重复键诊断要用**键所在行**，不是下一个 token */
         /* 键名位置不支持 `${...}` 插值（循环变量只可用于值位置）。
            No `$` interpolation in key position (E-PARSE-013). */

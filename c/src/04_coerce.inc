@@ -1,3 +1,158 @@
+/* =====================================================================
+** 标识符白名单（门控 `lex.ident`）—— 与 Rust `sml-lex/src/identifiers.rs` 同判据
+**
+** 白名单：`A-Z` `a-z` `0-9` `_` `-` + 汉字 U+4E00–U+9FFF + 假名 U+3040–U+30FF
+**        + 谚文音节 U+AC00–U+D7AF。
+** 六类拒绝共用 `E-LEX-007`、靠 detail 区分：路径保留字符 / 空白与控制 /
+** 不可见（零宽格式 Cf 与组合标记 Mn·Mc）/ 同形字母 / 全角兼容区 / 其余。
+** 位置是**字符序号**（1 起算），不是字节偏移 —— 与错误文案一致。
+** ===================================================================== */
+
+static const unsigned int IDENT_COMBINING[][2] = {
+    {0x0300,0x036F},{0x0483,0x0489},{0x1AB0,0x1AFF},
+    {0x1DC0,0x1DFF},{0x20D0,0x20FF},{0xFE20,0xFE2F}};
+static const unsigned int IDENT_CF[][2] = {
+    {0x00AD,0x00AD},{0x0600,0x0605},{0x061C,0x061C},{0x06DD,0x06DD},
+    {0x070F,0x070F},{0x180E,0x180E},{0x200B,0x200F},{0x202A,0x202E},
+    {0x2060,0x2064},{0x2066,0x206F},{0xFEFF,0xFEFF},{0xFFF9,0xFFFB},
+    {0x1D173,0x1D17A},{0xE0001,0xE0001},{0xE0020,0xE007F}};
+static const unsigned int IDENT_HOMOGLYPH[][2] = {
+    {0x0370,0x03FF},{0x0400,0x04FF},{0x0500,0x052F},{0x0530,0x058F},
+    {0x1F00,0x1FFF}};
+static const unsigned int IDENT_WIDE[][2] = {
+    {0x2E80,0x2EFF},{0x3000,0x303F},{0x31C0,0x31EF},{0xFE30,0xFE4F},
+    {0xFF01,0xFF60},{0xFFE0,0xFFE6}};
+
+static const char *const IDENT_SCRIPT_NAME[] = { "拉丁字母", "汉字/假名", "谚文" };
+
+static int ident_in_ranges(unsigned int u, const unsigned int (*r)[2], size_t n) {
+    size_t i;
+    for (i = 0; i < n; i++)
+        if (u >= r[i][0] && u <= r[i][1]) return 1;
+    return 0;
+}
+
+/* UTF-8 解码一个码点：返回码点，*len 为字节数。
+   非法字节按 U+FFFD、1 字节处理（它不在白名单内 ⇒ 会被拒）。 */
+static unsigned int utf8_next(const unsigned char *s, size_t n, size_t *len) {
+    unsigned char c = s[0];
+    unsigned int cp;
+    size_t l, k;
+    if (c < 0x80) { cp = c; l = 1; }
+    else if (c < 0xC0) { cp = 0xFFFD; l = 1; }
+    else if (c < 0xE0) { cp = (unsigned int)(c & 0x1Fu); l = 2; }
+    else if (c < 0xF0) { cp = (unsigned int)(c & 0x0Fu); l = 3; }
+    else if (c < 0xF8) { cp = (unsigned int)(c & 0x07u); l = 4; }
+    else { cp = 0xFFFD; l = 1; }
+    for (k = 1; k < l; k++) {
+        if (k >= n || (s[k] & 0xC0) != 0x80) { cp = 0xFFFD; l = 1; break; }
+        cp = (cp << 6) | (unsigned int)(s[k] & 0x3Fu);
+    }
+    *len = l;
+    return cp;
+}
+
+/* 标识符用的是什么文字系统：0 = 拉丁 / 1 = 汉字假名 / 2 = 谚文；-1 = 无。
+   汉字与假名算**同一族**（日文里汉字与假名本来就混写），与 Rust `Script::Cjk` 同口径。 */
+static int ident_script(const char *s) {
+    const unsigned char *p = (const unsigned char *)s;
+    size_t n = strlen(s), i = 0;
+    while (i < n) {
+        size_t l;
+        unsigned int u = utf8_next(p + i, n - i, &l);
+        if ((u >= 'A' && u <= 'Z') || (u >= 'a' && u <= 'z')) return 0;
+        if ((u >= 0x4E00 && u <= 0x9FFF) || (u >= 0x3040 && u <= 0x30FF)) return 1;
+        if (u >= 0xAC00 && u <= 0xD7AF) return 2;
+        i += l;
+    }
+    return -1;
+}
+
+/* 校验一个标识符；不合法时写错误（含码）并返回 -1。 */
+static int check_ident(parser *ps, const char *s) {
+    const unsigned char *p = (const unsigned char *)s;
+    size_t n, i = 0;
+    int at = 0;
+    char hex[16], chb[2];
+    if (!s || !*s) {
+        set_err(ps->lx->errbuf, ps->lx->errsz, SML_E_LEX_007 " 标识符为空");
+        return -1;
+    }
+    n = strlen(s);
+    while (i < n) {
+        size_t l;
+        unsigned int u = utf8_next(p + i, n - i, &l);
+        at++;
+        snprintf(hex, sizeof hex, "U+%04X", u);
+        chb[0] = (u < 0x80) ? (char)u : '?';
+        chb[1] = '\0';
+        if ((u >= 'A' && u <= 'Z') || (u >= 'a' && u <= 'z') ||
+            (u >= '0' && u <= '9') || u == '_' || u == '-') { i += l; continue; }
+        if (u >= 0x4E00 && u <= 0x9FFF) { i += l; continue; }   /* 汉字 */
+        if (u >= 0x3040 && u <= 0x30FF) { i += l; continue; }   /* 假名 */
+        if (u >= 0xAC00 && u <= 0xD7AF) { i += l; continue; }   /* 谚文 */
+        if (u == '.' || u == '[' || u == ']') {
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_LEX_007 " 第 %d 个字符 `%s`（%s）是路径语法保留字符，"
+                    "键名里不能出现 `.` `[` `]`", at, chb, hex);
+            return -1;
+        }
+        if (u <= 0x20 || u == 0x7F || u == 0xA0 || u == 0x1680 || u == 0x205F ||
+            (u >= 0x2000 && u <= 0x200A) || u == 0x2028 || u == 0x2029) {
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_LEX_007 " 第 %d 个字符是空白或控制字符（%s）", at, hex);
+            return -1;
+        }
+        /* 组合标记 Mn/Mc（须排在同形字母块之前：「组合用西里尔字母」也在此区） */
+        if (ident_in_ranges(u, IDENT_COMBINING, sizeof IDENT_COMBINING / sizeof IDENT_COMBINING[0])) {
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_LEX_007 " 第 %d 个字符是组合标记（Mn/Mc，非预组合 ⇒ 非 NFC）（%s）"
+                    "——不可见，且能伪造看起来一样的名字", at, hex);
+            return -1;
+        }
+        if (ident_in_ranges(u, IDENT_CF, sizeof IDENT_CF / sizeof IDENT_CF[0])) {
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_LEX_007 " 第 %d 个字符是零宽/格式字符（Cf）（%s）"
+                    "——不可见，且能伪造看起来一样的名字", at, hex);
+            return -1;
+        }
+        if (ident_in_ranges(u, IDENT_HOMOGLYPH, sizeof IDENT_HOMOGLYPH / sizeof IDENT_HOMOGLYPH[0])) {
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_LEX_007 " 第 %d 个字符 `%s`（%s）是与拉丁字母同形的西里尔 / 希腊 / "
+                    "亚美尼亚字母；声明处只允许一种字形，请改用 ASCII", at, chb, hex);
+            return -1;
+        }
+        if (ident_in_ranges(u, IDENT_WIDE, sizeof IDENT_WIDE / sizeof IDENT_WIDE[0])) {
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_LEX_007 " 第 %d 个字符 `%s`（%s）是全角 / 兼容区字符："
+                    "与半角混用会「看起来一样、比较不等」", at, chb, hex);
+            return -1;
+        }
+        set_err(ps->lx->errbuf, ps->lx->errsz,
+                SML_E_LEX_007 " 第 %d 个字符 `%s`（%s）不在白名单内"
+                "（只允许字母数字、`_` `-`、汉字 / 假名 / 谚文）", at, chb, hex);
+        return -1;
+    }
+    return 0;
+}
+
+/* 「每契约单一语种」：记录 / 比对文字系统；混用即报错。
+   `seen` 存已见的第一种文字系统，`*first` 指向它的标识符（token 活到解析结束）。 */
+static int ident_check_script(parser *ps, int *seen, const char **first,
+                              const char *id) {
+    int sc = ident_script(id);
+    if (sc < 0) return 0;                 /* 纯数字 / `_` / `-` 不参与 */
+    if (*seen < 0) { *seen = sc; *first = id; return 0; }
+    if (*seen != sc) {
+        set_err(ps->lx->errbuf, ps->lx->errsz,
+                SML_E_LEX_007 " `%s`（%s）与 `%s`（%s）混用了文字系统："
+                "同一契约内的标识符只能有一种语种",
+                id, IDENT_SCRIPT_NAME[sc], *first, IDENT_SCRIPT_NAME[*seen]);
+        return -1;
+    }
+    return 0;
+}
+
 /* 标量识别 (裸词) */
 static sml_value *coerce_word(const char *w, parser *ps) {
     /* 防御：`w` 为 NULL 只可能来自「游标已到 EOF 却又取 v」的调用点（那本身是 bug），
@@ -1090,6 +1245,10 @@ static int parse_bound_value(parser *ps, const char *kw, double *out) {
 
 /* 解析契约体 (调用前已消费 '{'；负责消费 '}') */
 static void parse_contract_body(parser *ps, ccontract *c) {
+    /* 「每契约单一语种」（门控 `lex.ident`）：已见的第一种文字系统与其标识符。
+       契约体解析不重入 ⇒ 局部变量足够（契约就是那个命名空间）。 */
+    int id_script = -1;
+    const char *id_script_first = NULL;
     if (peek(ps)->t != T_LBRACE) return;
     next(ps); /* consume { */
     while (1) {
@@ -1277,6 +1436,14 @@ static void parse_contract_body(parser *ps, ccontract *c) {
                         ps->failed = 1;
                         break;
                     }
+                    /* 标识符白名单（门控 `lex.ident`）：featag 名同样是标识符 */
+                    if (ps->features & (1u << 18)) {
+                        if (check_ident(ps, ft->v + 1) != 0) { ps->failed = 1; break; }
+                        if (ident_check_script(ps, &id_script, &id_script_first,
+                                               ft->v + 1) != 0) {
+                            ps->failed = 1; break;
+                        }
+                    }
                     nf = (cfeatag *)calloc(1, sizeof(cfeatag));
                     if (nf) {
                         nf->name = strdup(ft->v + 1);
@@ -1311,6 +1478,13 @@ static void parse_contract_body(parser *ps, ccontract *c) {
         if (ft->t == T_EOF) { err_unclosed(ps, "契约体"); break; }
         if (ft->t != T_WORD && ft->t != T_STR) { next(ps); continue; }
         char *fname = next(ps)->v;
+        /* 标识符白名单（门控 `lex.ident`）：字段名同样是标识符 */
+        if (ps->features & (1u << 18)) {
+            if (check_ident(ps, fname) != 0) { ps->failed = 1; break; }
+            if (ident_check_script(ps, &id_script, &id_script_first, fname) != 0) {
+                ps->failed = 1; break;
+            }
+        }
         if (peek(ps)->t == T_COLON) next(ps);
         cfield *cf = (cfield *)calloc(1, sizeof(cfield));
         cf->name = strdup(fname);

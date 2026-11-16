@@ -1,4 +1,167 @@
 
+// ---------------------------------------------------------------------------
+// 标识符白名单（门控 `lex.ident`）—— 与 Rust `sml-lex/src/identifiers.rs` 同判据
+//
+// 白名单：`A-Z` `a-z` `0-9` `_` `-` + 汉字 U+4E00–U+9FFF + 假名 U+3040–U+30FF
+//        + 谚文音节 U+AC00–U+D7AF。
+// 六类拒绝共用 `E-LEX-007`、靠 detail 区分：路径保留字符 / 空白与控制 /
+// 不可见（零宽格式 Cf 与组合标记 Mn·Mc）/ 同形字母 / 全角兼容区 / 其余。
+// 位置是**字符序号**（1 起算），不是字节偏移 —— 与错误文案一致。
+// ---------------------------------------------------------------------------
+
+static const unsigned int IDENT_COMBINING[][2] = {
+    {0x0300,0x036F},{0x0483,0x0489},{0x1AB0,0x1AFF},
+    {0x1DC0,0x1DFF},{0x20D0,0x20FF},{0xFE20,0xFE2F}};
+static const unsigned int IDENT_CF[][2] = {
+    {0x00AD,0x00AD},{0x0600,0x0605},{0x061C,0x061C},{0x06DD,0x06DD},
+    {0x070F,0x070F},{0x180E,0x180E},{0x200B,0x200F},{0x202A,0x202E},
+    {0x2060,0x2064},{0x2066,0x206F},{0xFEFF,0xFEFF},{0xFFF9,0xFFFB},
+    {0x1D173,0x1D17A},{0xE0001,0xE0001},{0xE0020,0xE007F}};
+static const unsigned int IDENT_HOMOGLYPH[][2] = {
+    {0x0370,0x03FF},{0x0400,0x04FF},{0x0500,0x052F},{0x0530,0x058F},
+    {0x1F00,0x1FFF}};
+static const unsigned int IDENT_WIDE[][2] = {
+    {0x2E80,0x2EFF},{0x3000,0x303F},{0x31C0,0x31EF},{0xFE30,0xFE4F},
+    {0xFF01,0xFF60},{0xFFE0,0xFFE6}};
+
+static const char* const IDENT_SCRIPT_NAME[3] = { "拉丁字母", "汉字/假名", "谚文" };
+
+static bool ident_in_ranges(unsigned int u, const unsigned int (*r)[2], size_t n) {
+    for (size_t i = 0; i < n; i++)
+        if (u >= r[i][0] && u <= r[i][1]) return true;
+    return false;
+}
+
+// UTF-8 解码一个码点：返回码点，*len 为字节数。
+// 非法字节按 U+FFFD、1 字节处理（它不在白名单内 ⇒ 会被拒）。
+static unsigned int utf8_next(const unsigned char* s, size_t n, size_t* len) {
+    unsigned char c = s[0];
+    unsigned int cp;
+    size_t l, k;
+    if (c < 0x80) { cp = c; l = 1; }
+    else if (c < 0xC0) { cp = 0xFFFD; l = 1; }
+    else if (c < 0xE0) { cp = (unsigned int)(c & 0x1Fu); l = 2; }
+    else if (c < 0xF0) { cp = (unsigned int)(c & 0x0Fu); l = 3; }
+    else if (c < 0xF8) { cp = (unsigned int)(c & 0x07u); l = 4; }
+    else { cp = 0xFFFD; l = 1; }
+    for (k = 1; k < l; k++) {
+        if (k >= n || (s[k] & 0xC0) != 0x80) { cp = 0xFFFD; l = 1; break; }
+        cp = (cp << 6) | (unsigned int)(s[k] & 0x3Fu);
+    }
+    *len = l;
+    return cp;
+}
+
+// 去引号：本端引号串也存成 Word（带引号），白名单要判的是**内容**。
+static std::string ident_unquote(const std::string& s) {
+    if (s.size() >= 2 && s.front() == '"' && s.back() == '"')
+        return s.substr(1, s.size() - 2);
+    return s;
+}
+
+// 标识符用的是什么文字系统：0 = 拉丁 / 1 = 汉字假名 / 2 = 谚文；-1 = 无。
+// 汉字与假名算**同一族**（日文里汉字与假名本来就混写），与 Rust `Script::Cjk` 同口径。
+static int ident_script(const std::string& s) {
+    size_t i = 0, n = s.size();
+    while (i < n) {
+        size_t l;
+        unsigned int u = utf8_next((const unsigned char*)s.data() + i, n - i, &l);
+        if ((u >= 'A' && u <= 'Z') || (u >= 'a' && u <= 'z')) return 0;
+        if ((u >= 0x4E00 && u <= 0x9FFF) || (u >= 0x3040 && u <= 0x30FF)) return 1;
+        if (u >= 0xAC00 && u <= 0xD7AF) return 2;
+        i += l;
+    }
+    return -1;
+}
+
+// 校验一个标识符；不合法时写错误（含码）并返回 false。
+static bool ident_check(const std::string& raw, std::string* err) {
+    const std::string s = ident_unquote(raw);
+    if (s.empty()) {
+        if (err && err->empty()) *err = code_prefix(SML_E_LEX_007, "sml: 标识符为空");
+        return false;
+    }
+    size_t i = 0, n = s.size();
+    int at = 0;
+    while (i < n) {
+        size_t l;
+        unsigned int u = utf8_next((const unsigned char*)s.data() + i, n - i, &l);
+        at++;
+        char hex[16];
+        snprintf(hex, sizeof hex, "U+%04X", u);
+        const std::string ch = (u < 0x80) ? std::string(1, (char)u) : std::string("?");
+        if ((u >= 'A' && u <= 'Z') || (u >= 'a' && u <= 'z') ||
+            (u >= '0' && u <= '9') || u == '_' || u == '-') { i += l; continue; }
+        if (u >= 0x4E00 && u <= 0x9FFF) { i += l; continue; }   // 汉字
+        if (u >= 0x3040 && u <= 0x30FF) { i += l; continue; }   // 假名
+        if (u >= 0xAC00 && u <= 0xD7AF) { i += l; continue; }   // 谚文
+        if (u == '.' || u == '[' || u == ']') {
+            if (err && err->empty())
+                *err = code_prefix(SML_E_LEX_007, "sml: 第 " + std::to_string(at) +
+                    " 个字符 `" + ch + "`（" + hex + "）是路径语法保留字符，键名里不能出现 `.` `[` `]`");
+            return false;
+        }
+        if (u <= 0x20 || u == 0x7F || u == 0xA0 || u == 0x1680 || u == 0x205F ||
+            (u >= 0x2000 && u <= 0x200A) || u == 0x2028 || u == 0x2029) {
+            if (err && err->empty())
+                *err = code_prefix(SML_E_LEX_007, "sml: 第 " + std::to_string(at) +
+                    " 个字符是空白或控制字符（" + hex + "）");
+            return false;
+        }
+        // 组合标记 Mn/Mc（须排在同形字母块之前：「组合用西里尔字母」也在此区）
+        if (ident_in_ranges(u, IDENT_COMBINING, sizeof IDENT_COMBINING / sizeof IDENT_COMBINING[0])) {
+            if (err && err->empty())
+                *err = code_prefix(SML_E_LEX_007, "sml: 第 " + std::to_string(at) +
+                    " 个字符是组合标记（Mn/Mc，非预组合 ⇒ 非 NFC）（" + hex +
+                    "）——不可见，且能伪造看起来一样的名字");
+            return false;
+        }
+        if (ident_in_ranges(u, IDENT_CF, sizeof IDENT_CF / sizeof IDENT_CF[0])) {
+            if (err && err->empty())
+                *err = code_prefix(SML_E_LEX_007, "sml: 第 " + std::to_string(at) +
+                    " 个字符是零宽/格式字符（Cf）（" + hex + "）——不可见，且能伪造看起来一样的名字");
+            return false;
+        }
+        if (ident_in_ranges(u, IDENT_HOMOGLYPH, sizeof IDENT_HOMOGLYPH / sizeof IDENT_HOMOGLYPH[0])) {
+            if (err && err->empty())
+                *err = code_prefix(SML_E_LEX_007, "sml: 第 " + std::to_string(at) +
+                    " 个字符 `" + ch + "`（" + hex +
+                    "）是与拉丁字母同形的西里尔 / 希腊 / 亚美尼亚字母；声明处只允许一种字形，请改用 ASCII");
+            return false;
+        }
+        if (ident_in_ranges(u, IDENT_WIDE, sizeof IDENT_WIDE / sizeof IDENT_WIDE[0])) {
+            if (err && err->empty())
+                *err = code_prefix(SML_E_LEX_007, "sml: 第 " + std::to_string(at) +
+                    " 个字符 `" + ch + "`（" + hex +
+                    "）是全角 / 兼容区字符：与半角混用会「看起来一样、比较不等」");
+            return false;
+        }
+        if (err && err->empty())
+            *err = code_prefix(SML_E_LEX_007, "sml: 第 " + std::to_string(at) +
+                " 个字符 `" + ch + "`（" + hex +
+                "）不在白名单内（只允许字母数字、`_` `-`、汉字 / 假名 / 谚文）");
+        return false;
+    }
+    return true;
+}
+
+// 「每契约单一语种」：记录 / 比对文字系统；混用即报错。
+static bool ident_check_script(const std::string& raw, int& seen, std::string& first,
+                               std::string* err) {
+    const std::string s = ident_unquote(raw);
+    int sc = ident_script(s);
+    if (sc < 0) return true;                 // 纯数字 / `_` / `-` 不参与
+    if (seen < 0) { seen = sc; first = s; return true; }
+    if (seen != sc) {
+        if (err && err->empty())
+            *err = code_prefix(SML_E_LEX_007, "sml: `" + s + "`（" + IDENT_SCRIPT_NAME[sc] +
+                "）与 `" + first + "`（" + IDENT_SCRIPT_NAME[seen] +
+                "）混用了文字系统：同一契约内的标识符只能有一种语种");
+        return false;
+    }
+    return true;
+}
+
 static ValuePtr coerce_word(const std::string& raw,
                             const std::map<std::string,ValuePtr>& fragments,
                             std::string* err,
