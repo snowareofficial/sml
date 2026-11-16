@@ -1,7 +1,7 @@
 # docs 索引
 
 > **本文件由 `cargo run -p smldocs -- --index` 生成，勿手改。**
-> 数据源 `docs/meta.sml`（62 份文档，摘要 `a2f19fd8864de263`）。摘要变了就必须重跑生成；
+> 数据源 `docs/meta.sml`（63 份文档，摘要 `7a0575967d5ba4fd`）。摘要变了就必须重跑生成；
 > 本文件不记生成日期 / HEAD，避免跨天或提交后假漂移。体检结论见 [`report.md`](report.md)。
 
 ## 一眼看结论
@@ -99,11 +99,12 @@
 | [`repo/ref/todo-ideas-tables.md`](repo/ref/todo-ideas-tables.md) | 2026-11-06 | 2026-11-17 | **current** | — | TODO / IDEAS 条目表：卡在谁、什么状态；2026-11-15 增补 I-25…I-30，2026-11-16 增补 I-31 / I-32（wasm·native access server 衍生语言项目 / 项目经验固化为模板），2026-11-17 确认 I-28 的 smlite / eclog-rs 定位与依赖链 |
 | [`repo/ref/unfinished.md`](repo/ref/unfinished.md) | 2026-11-06 | 2026-11-17 | **current** | — | 唯一「还剩什么」清单（分类 / 判据 / 复核命令） |
 
-## smlite（1 份）
+## smlite（2 份）
 
 | 文档 | 写于 | 最后核对 | 状态 | 替代者 | 职责 |
 |---|---|---|---|---|---|
 | [`smlite/plan/api.md`](smlite/plan/api.md) | 2026-11-17 | 2026-11-17 | **current** | — | smlite crate 骨架与公开 API 设计：自建精简值模型（Float 无 raw / 插入序 Object）、解析器边界、feature 旗帜（swsml-compat / no_std 接力点）与 swsml 值层互转契约；本步只出设计不动代码 |
+| [`smlite/ref/perf.md`](smlite/ref/perf.md) | 2026-11-17 | 2026-11-17 | **current** | — | smlite 性能基线：与 serde_json 对拍的口径/三形状数字/分配归因；批量建对象+借用 token 后从落后 2.5-12x 翻转为快 12-29%，不并入 swsml 正式口径 |
 
 ## eclog（1 份）
 
