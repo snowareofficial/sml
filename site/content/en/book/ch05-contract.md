@@ -319,6 +319,12 @@ c { @is Cluster
 > `81_contract_array_elem` (element missing a required field ⇒ `E-CONTRACT-003`) and
 > `83_contract_array_default` (element omitting a field that has a `default` ⇒ no error, identical trees).
 
+> **Error-code policy (identical across backends)**: an invalid `@type` pattern **definition**
+> always maps to `E-CONTRACT-013` (merged on 2026-11-16: JS's former finer-grained
+> `E-CONTRACT-014` / `015` / `E-LIMIT-009` are deprecated, see `errors/codes.sml`; pinned by
+> `77_type_quant_over`). A dangling, chained, or scalar/array-targeted `@weakbind` maps to
+> `E-PARSE-029`; a duplicate document-level `@weakdoc` maps to `E-PARSE-030` (cases `71`–`75`).
+
 ## 5.5 Cross-field constraints: mutually exclusive groups (one_of / exactly_one)
 
 Sometimes the constraint is not "inside one field" but "between a group of fields". Take a payment

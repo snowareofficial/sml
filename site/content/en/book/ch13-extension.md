@@ -120,7 +120,7 @@ Why bother: if domain types like `image` / `link` / `time` were added directly t
 the specification layer would have to answer "what is an `image`?" — that is a business question,
 not one a data format should answer.
 
-## 13.5 Custom field modifier (Rust)
+## 13.5 Custom field modifier (Rust reference; same shape in all five backends)
 
 ```rust
 use sml::contract_ext::Modifier;
@@ -145,12 +145,29 @@ impl Modifier for ItemsMax {
             _ => Ok(()),
         }
     }
+
+    // Whole-block check: runs after every field passes; sees sibling fields
+    fn check_group(&self, view: &GroupView<'_>) -> Result<(), String> {
+        if view.present.contains_key("tag") && view.present.contains_key("title") {
+            Err("tag and title cannot coexist".into())
+        } else {
+            Ok(())
+        }
+    }
 }
 ```
 
 ```sml
 @contract Report { tags: [str] items_max 2 }
 ```
+
+> Registration entry points are shaped alike across backends: Rust `ParseOptions::with_modifier` |
+> C `sml_ext.modifiers` (appended to the struct, so old initializers still compile) |
+> C++ `sml::Ext::modifiers` | JS `parse(src, { modifiers: { name: { apply, check, checkGroup } } })` |
+> Lua `Sml.load_ext(src, { modifiers = { name = { apply, check, check_group } } })`.
+> JS / Lua callbacks return `null` / `nil` to accept and a string to reject; C / C++ return `1` / `true`.
+> Failure in `apply` / `check` / `check_group` always maps to `E-CONTRACT-011`; a registration-name
+> clash (built-in name or duplicate) maps to `E-EXT-002`.
 
 > ⚠️ **Do not reuse `max`**: in SML contracts `max` is a **numeric upper bound**, and arrays do not
 > participate in min/max checks. Using `max` as a length cap makes the same syntax mean two
@@ -179,7 +196,7 @@ not reuse them:
 | `AnyOf` | `any_of` | **at least one** of the group's fields must appear (0 ⇒ error); same hook |
 | `DependsOn` | `depends_on` | this field present ⇒ the listed fields must be present; same hook |
 | `ItemsMin` | `items_min` | array **element-count lower bound** (< n ⇒ error); checked in `Modifier::check` |
-| `XOnly` | `x_only "<prefix>"` | under `loose`/`warn`, only extra keys with that prefix are allowed (others still error); **mutually exclusive with `strict`**; checked in `apply_contract` (not `check_group` — the latter is skipped when the owner field is absent) |
+| `XOnly` | `x_only "<prefix>"` | under `loose`/`warn`, only extra keys with that prefix are allowed (others still error); **mutually exclusive with `strict`**; checked in `apply_contract` (`GroupView::present` deliberately excludes the owner field, so whether the owner itself appeared must be judged there) |
 
 > Find implementations by **type name** in `rust/sml-contract/src/ext.rs` (e.g. `pub struct OneOf`) —
 > this chapter deliberately avoids line numbers: they rot, and nobody maintains them (adding `XOnly`
@@ -230,12 +247,13 @@ const value = parse(text, {
 
 ## 13.8 Boundaries and current status (important)
 
-- **Zero extensions = zero impact**: passing no `directives` / `types` yields byte-for-byte the
-  same behaviour as before.
+- **Zero extensions = zero impact**: passing no `directives` / `types` / `modifiers` yields
+  byte-for-byte the same behaviour as before.
 - **Not available over C-ABI**: extensions are trait objects and cannot cross the C boundary.
-  C / C++ callers can only use the extension-free path; note on dialect documents that they
-  "require Rust / JS with the extension registered".
-- **Lua**: neither contracts nor extensions are implemented yet.
+  C's `sml_ext` is a **local C API** (in-process injection), not a cross-language FFI surface.
+- **All five backends have a local extension entry point**: Rust / C / C++ / JS / Lua each register
+  their own with the same semantics. The shared conformance harness has no extension-injection
+  channel yet, so `apply` / `check` / `check_group` are pinned by each backend's unit tests.
 - **Document portability drops**: a `.sml` file containing `@form` cannot be read where that
   directive is not registered (Rust reports an explicit error). This is an **inherent trade-off** —
   the more convenient dialects get, the weaker interoperability becomes.

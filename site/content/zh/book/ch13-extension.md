@@ -113,7 +113,7 @@ let opts = ParseOptions::new().with_type(Image)?;
 为什么值得这么做：`image` / `link` / `time` 这类领域类型如果直接加进 SML 的类型系统，
 规范层就要回答"`image` 是什么"——那是业务问题，不该由数据格式回答。
 
-## 13.5 自定义字段修饰符（Rust）
+## 13.5 自定义字段修饰符（Rust 参考，四端同形）
 
 ```rust
 use sml::contract_ext::Modifier;
@@ -138,12 +138,28 @@ impl Modifier for ItemsMax {
             _ => Ok(()),
         }
     }
+
+    // 整块校验：所有字段通过后调用，能看到兄弟字段（互斥 / 计数 / 依赖用它）
+    fn check_group(&self, view: &GroupView<'_>) -> Result<(), String> {
+        if view.present.contains_key("tag") && view.present.contains_key("title") {
+            Err("tag 与 title 不能同时出现".into())
+        } else {
+            Ok(())
+        }
+    }
 }
 ```
 
 ```sml
 @contract Report { tags: [str] items_max 2 }
 ```
+
+> 四端注册入口同形、API 各异：Rust `ParseOptions::with_modifier` ｜ C 在 `sml_ext.modifiers`
+> 里追加 `sml_ext_modifier`（结构追加在尾部，旧初始化式不受影响）｜ C++ `sml::Ext::modifiers`
+> ｜ JS `parse(src, { modifiers: { 名字: { apply, check, checkGroup } } })` ｜
+> Lua `Sml.load_ext(src, { modifiers = { 名字 = { apply, check, check_group } } })`。
+> JS / Lua 的回调返回 `nil` / `null` 表示通过，返回字符串表示失败；C / C++ 返回 `1` / `true`。
+> `apply` / `check` / `check_group` 失败一律 `E-CONTRACT-011`；注册名冲突（内置同名 / 重复）一律 `E-EXT-002`。
 
 > ⚠️ **刻意不复用 `max`**：`max` 在 SML 契约里是**数值上界**语义，且数组不参与 min/max 校验。
 > 把 `max` 当"个数上限"用会让同一写法在两端含义不同。扩展点请**新起名字**。
@@ -167,7 +183,7 @@ impl Modifier for ItemsMax {
 | `AnyOf` | `any_of` | 组内**至少一个**字段出现（0 报错）；同上 |
 | `DependsOn` | `depends_on` | 本字段出现 ⇒ 所列字段必须出现；同上 |
 | `ItemsMin` | `items_min` | 数组**元素个数下限**（< n 报错）；判定在 `Modifier::check` |
-| `XOnly` | `x_only "<前缀>"` | `loose`/`warn` 下只放行该前缀的额外键，其余仍报错；**与 `strict` 互斥**；校验在 `apply_contract`（不在 `check_group`，否则 owner 字段缺失会漏检） |
+| `XOnly` | `x_only "<前缀>"` | `loose`/`warn` 下只放行该前缀的额外键，其余仍报错；**与 `strict` 互斥**；校验在 `apply_contract`（`check_group` 的 `present` 不含 owner 字段，owner 自身是否出现要按契约严格度在这里判） |
 
 > 查实现请按**类型名**检索 `rust/sml-contract/src/ext.rs`（如 `pub struct OneOf`）——本文刻意不写行号：
 > 行号必烂，且没人会维护（2026-11-02 就因新增 `XOnly` 让全部行号偏移过一次）。
@@ -214,10 +230,11 @@ const value = parse(text, {
 
 ## 13.8 边界与现状（重要）
 
-- **零扩展 = 零影响**：不传任何 `directives` / `types` 时，行为与未扩展时逐字一致。
-- **C-ABI 不支持**：扩展是 trait 对象，跨不了 C 边界。C / C++ 调用方只能用无扩展路径，
-  带方言的文档请注明「需 Rust / JS 侧并注册扩展」。
-- **Lua 侧暂无**：契约与扩展都还没落地。
+- **零扩展 = 零影响**：不传任何 `directives` / `types` / `modifiers` 时，行为与未扩展时逐字一致。
+- **C-ABI 不支持**：扩展是 trait 对象，跨不了 C 边界；C 端的 `sml_ext` 是**本地 C API**，
+  与本进程内注入同形，不走跨语言 FFI。
+- **五端都有本地扩展入口**：Rust / C / C++ / JS / Lua 各自注册，语义同形。
+  但共享的一致性套件还没有扩展注入通道，`apply` / `check` / `check_group` 由各端单测钉住。
 - **文档可移植性会下降**：一份带 `@form` 的 `.sml`，在没有注册该指令的环境里读不了
   （Rust 侧会明确报错）。这是扩展机制**固有的权衡**——方言越方便，通用性越弱。
 

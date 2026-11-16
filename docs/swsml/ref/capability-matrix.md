@@ -5,6 +5,18 @@
 > **性质：纯调查。零实现代码改动。** 唯一新增文件即本文档；临时探针均以 `_` 开头（已被 `**/_*` 忽略，不提交）。
 > 日期：2026-10-27 ｜ **快照**：本表结论只代表当日实现，现状以源码与 `status: current` 的规范为准，不得据以施工。
 
+## 2026-11-17 增量核对（只补新能力，旧快照保持原样）
+
+下表的「现状」只核对本日新增/收口的四项，出处均为 conformance 用例或各端单测；旧 §1 快照不据此改写。
+
+| 能力 | 五端现状 | 出处 |
+|---|---|---|
+| 契约数组元素逐个校验（只校验不回填） | 五端一致：缺必填 ⇒ `E-CONTRACT-003`；strict 下多余键 ⇒ `E-CONTRACT-004`；元素缺带 `default` 的字段不报错也不回填 | `81_contract_array_elem` / `82_contract_strict_extra` / `83_contract_array_default` |
+| 标识符白名单 `E-LEX-007` | 五端一致：键名 / 契约字段名 / featag 名共用白名单 + 「每契约单一语种」 | `78` / `79`（拒绝）、`80_ident_ok`（放行） |
+| weakbind / weakdoc 错误边界 | 悬空 / 连续 / 目标标量或数组 ⇒ `E-PARSE-029`；文档级重复 `@weakdoc` ⇒ `E-PARSE-030` | `71`–`75` |
+| 模式错误归并 | 模式定义失败一律 `E-CONTRACT-013`；JS 的旧细分码 `014` / `015` / `E-LIMIT-009` 已废弃 | `77_type_quant_over`；`errors/codes.sml` |
+| 外置修饰符 `apply` / `check` / `check_group` | 五端本地注册入口同形，失败统一 `E-CONTRACT-011`，注册冲突 `E-EXT-002`；共享 conformance 尚无注入通道 | `rust/tests/ext_modifier.rs`、各端 `test_ext*` |
+
 ---
 
 ## 0. 方法论与复现方式

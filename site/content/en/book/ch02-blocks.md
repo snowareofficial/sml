@@ -30,6 +30,12 @@ address {
 
 The above two writing methods are completely equivalent. `address { }` ≡ `address: { }`, You can use whichever you like.
 
+> **Identifier allow-list (`E-LEX-007`, all five backends)**: key names, contract field names and
+> featag names all go through the same allow-list. Invalid characters and the "one script per contract"
+> rule are **reported immediately** — nothing is silently renamed or dropped. For the exact
+> accepted / rejected sets see the code table in `errors/codes.sml` and conformance cases
+> `78` / `79` (rejected) and `80` (accepted).
+
 ## 2.2 blocks can be infinitely nested
 
 ```sml

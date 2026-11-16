@@ -317,6 +317,11 @@ c { @is Cluster
 
 > ✅ **跨端现状（2026-11-16 复核）**：五端一致 —— 用例 `81_contract_array_elem`（元素缺必填字段 ⇒ `E-CONTRACT-003`）与 `83_contract_array_default`（元素缺带 `default` 的字段 ⇒ 不报错、值树逐格相同）。
 
+> **错误码口径（跨端一致）**：`@type` 模式**定义**失败一律 `E-CONTRACT-013`（2026-11-16 归并：
+> JS 原用的细分码 `E-CONTRACT-014` / `015` / `E-LIMIT-009` 已废弃，见 `errors/codes.sml`；
+> 钉子 `77_type_quant_over`）。`@weakbind` 悬空 / 连续 / 目标为标量或数组 ⇒ `E-PARSE-029`；
+> 文档级重复 `@weakdoc` ⇒ `E-PARSE-030`（钉子 `71`–`75`）。
+
 ## 5.5 跨字段约束：互斥字段组（one_of / exactly_one）
 
 有时约束的不是「一个字段内部」，而是「一组字段之间」。例如支付方式：要么填 `card`、要么填 `alipay`，不能同时填——这种「多选一」用**互斥字段组**表达，它是一条挂在某个字段上的**外置修饰符（Modifier）**：

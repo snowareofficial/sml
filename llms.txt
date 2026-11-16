@@ -30,6 +30,11 @@ them** when output is meant to be read, written, or maintained by humans.
   order. Use arrays (`[ ... ]`) whenever order matters.
 - Quoting style differs between implementations (Rust quotes more aggressively: CJK punctuation,
   `%`, number-looking strings). Both forms re-parse; quote explicitly for strict string fidelity.
+- Identifier allow-list (`E-LEX-007`) applies to key names, contract field names and featag names on
+  all five backends; invalid identifiers and mixed scripts inside one contract are rejected loudly.
+- `@weakbind` dangling / chained / targeting a scalar or array ⇒ `E-PARSE-029`; a duplicate
+  document-level `@weakdoc` ⇒ `E-PARSE-030`. Invalid `@type` pattern definitions always map to
+  `E-CONTRACT-013` (the old JS-specific codes are deprecated).
 - include / import:
   - `include "a.sml"` / `include "a.sml" as ns`
   - `import "a.sml" as ns`
@@ -42,14 +47,20 @@ them** when output is meant to be read, written, or maintained by humans.
   `depends_on` b (this field present ⇒ the listed fields are required) /
   `x_only "x-"` (under loose/warn, only extra keys with that prefix are allowed; mutually
   exclusive with `strict`; must be registered via `ParseOptions::with_modifier`, else disabled).
-  - Mutually-exclusive groups are a **Rust external extension point only** (registered via
-    `ParseOptions::with_modifier`): the check counts only **explicitly written keys** (a
-    `default`-back-filled value does NOT count as present), a mistyped member name is a **loud
-    error**, and both reuse code `E-CONTRACT-011` (no new code). Not available in C / C++ / JS / Lua.
+  - Mutually-exclusive groups are external **field modifiers**: the check counts only **explicitly
+    written keys** (a `default`-back-filled value does NOT count as present), a mistyped member name
+    is a **loud error**, and failures reuse code `E-CONTRACT-011` (no new code). All five backends have
+    a local registration entry point (Rust `with_modifier`, C `sml_ext.modifiers`, C++
+    `sml::Ext::modifiers`, JS `opts.modifiers`, Lua `ext.modifiers`); names must not clash with built-ins
+    (`optional` / `required` / `default` / `min` / `max`) or be registered twice (`E-EXT-002`).
+    `apply` / `check` / `check_group` callbacks are pinned by each backend's unit tests; the shared
+    conformance harness has no extension-injection channel yet.
   Supported by Rust (reference implementation), JS, C, C++ and Lua.
-  - ⚠️ **Array element type cannot be a contract name**: writing `[SomeContract]` fails with
-    `E-CONTRACT-012 (unknown array element type)`. Only `[any]`, `[str]`, `[int]`, … are accepted,
-    so schema-checking an array of records requires validating each element yourself when reading.
+  - **Contract arrays** `peers: [Endpoint]` validate each element against the referenced contract
+    on all five backends. Elements are **validated only, never back-filled**: a missing required field
+    ⇒ `E-CONTRACT-003`, an undeclared key under a strict contract ⇒ `E-CONTRACT-004`, and omitting a
+    field that has `default` is **not an error and does not insert the key**. `E-CONTRACT-012` now
+    means only "enum is not allowed as an array element type".
   - ⚠️ **A required array field must be written out even when empty**: if a contract declares
     `field: [str]` without `optional`, omitting the key fails validation with
     `E-CONTRACT-003 (missing required field)`. Emit `field: []`, do not drop the key.
