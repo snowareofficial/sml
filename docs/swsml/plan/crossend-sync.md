@@ -187,15 +187,20 @@ Rust 的能力清单在 `rust/sml-parse/src/ext.rs`：`ParseOutput` 八个字段
 2. **五端语法生成器**：`featag-slices.md` S1b 写明「等哪一端真的要接时再造生成器」，本批维持手写实现 + 共享用例对齐；
 3. **不做 v5 定稿、不启用 `50`**：v5 保持 `draft`，表 A 缺口登记为发布前置，Edition 四端（P5）后置；`E-FEATURE-004` 的启用位按 `docs/repo/ref/pending-decisions.md` D1 保持关闭。
 
-## 2. 38 条码：先分类，再排期
+## 2. 码的分类与排期
 
-`errors/codes.sml` 的生成物里 `impls: [rust]` 共 **46** 条；`DERIVE` 域 **8** 条属 Rust 派生宏 / serde 桥
-（宿主绑定层，不是语言层），扣除后是 **38** 条。这 38 条不是同一类工作，混排必然返工。
+`errors/codes.sml` 里 `impls` 只有 Rust 的：**13** 条 —— 其中 `DERIVE` 域 **8** 条属 Rust 派生宏 /
+serde 桥（宿主绑定层，不是语言层），语言层 **5** 条（CONTRACT 1 / EXT 1 / FEATURE 1 / LEX 1 / LIMIT 1）。
+这批不是同一类工作，混排必然返工。
+
+⚠️ 下面的分类表是 **2026-11-12 的施工分类**（当时"只有 Rust"是 46 条、语言层 38 条）。
+当前实况：**38 条语言层欠账已收敛 33 条**（只剩 5 条「只有 Rust」），B 类（weak*）与 D1 已收敛，
+E 类（`@when` / `@for`）随 P3 落地，D2 随 P3 / P4 的前置能力陆续补齐。逐类现状：
 
 | 类 | 判据 | 条数 | 码 | 处理 |
 |---|---|---|---|---|
 | **A 单端先行（已裁决，不算欠账）** | note 指向 featag（S9）或 `lex.ident`（S1b 暂不生成五端表） | **11** | `E-CONTRACT-019`–`025`、`E-PARSE-026`–`028`、`E-LEX-007` | 维持 `impls: [rust]`，裁决表标「单端先行」，不排期 |
-| **B weak*（语义未定稿）** | note 指向 weakbind / weakdoc 软校验 | **3** | `E-PARSE-029`、`E-PARSE-030`、`W-CONTRACT-001` | 先定稿三份 draft（G3），进 P4；软校验与旁路表按 §0.6 五端同形 |
+| **B weak*（语义未定稿）** | note 指向 weakbind / weakdoc 软校验 | **3** | `E-PARSE-029`、`E-PARSE-030`、`W-CONTRACT-001` | ✅ **已收敛**：`E-PARSE-029` 三档与 `E-PARSE-030` 文档级判重**五端同码**（conformance `71`–`75`），`W-CONTRACT-001` 五端齐备 |
 | **C 诊断通道（四端无 warning 出口）** | note 明写「其余四端无诊断通道」 | **2** | `W-PARSE-001`、`W-PARSE-002` | **四端补等价 API**（§0.1 裁决），进 P4；属公开 API 破坏，单独成片 |
 | **D1 同因同码（四端已有该语法）** | 四端已有触发点，只是码不同 / 静默吞掉 | **2** | `E-PARSE-004`、`E-PARSE-007` | ✅ 已收敛（`42` / `43`，默认套件 43 例全 AGREE） |
 | **D2 四端缺能力（原被误并入 D）** | note 要求的机制四端根本没有：`@feature`、外置指令 / 修饰符、多契约叠加、部分引用 / glob-regex、dump 深度 | **14** | `E-CONTRACT-011`、`E-CONTRACT-016`、`E-EXT-002`/`005`/`008`、`E-FEATURE-006`/`007`/`008`/`010`、`E-INCLUDE-007`/`008`/`009`、`E-LIMIT-004`、`E-PARSE-025` | 随 P3 / P4 的前置能力一起做；先补三端 `@feature` 门控 |
@@ -240,8 +245,9 @@ P3 顺序须先补三端 `@feature` 门控。
 （C 的不透明句柄 `sml_builtin` / C++ 的 `BuiltinTable` / Lua 的 table）。
 软校验一律**只读**：`weakbind.md` §9 第 1 条「有 / 无 `@weakbind` 主树逐字节相同」
 在四端各有回归用例（`c/tests/test_codes.c`、`cpp/tests/test_codes.cpp`、`lua/test_codes.lua`）。
-仍未做：`E-PARSE-029`（悬空 / 连续 / 目标不是块）四端仍只有 Rust 报，四端把悬空项**按块丢弃**；
-`weak_data` / `weak_docs` 旁路表（C-ABI 已有，四端原生语法层尚未收）。
+仍未做：`weak_data` / `weak_docs` 旁路表（C-ABI 已有，四端原生语法层尚未收）。
+`E-PARSE-029`（悬空 / 连续 / 目标不是块）与 `E-PARSE-030`（文档级重复 `@weakdoc`）已于 2026-11-16
+**五端同码落地**（此前四端把悬空项**按块丢弃**、重复不判），conformance 钉子 `71`–`75`。
 
 **P4 工具侧三项收口（2026-11-13）**：`--dump-builtins --to json` 早已落地；
 `W-CLI-001` 提示已实现 —— 普通解析写 stderr（`warn_missing_profiles`）、`--lint` 写进报告

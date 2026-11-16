@@ -132,8 +132,8 @@ codes: [
       note: "三端都提示排查方向（合法指令名单）。**W16 起 JS 也报**（同批顺带支持片段显式参数 `type:` / `name:`，并接线 `E-PARSE-020`）—— 改前 JS 对 `@foo bar { .. }` 静默当片段定义、对 `@foo bar` 静默丢整行。⚠️ **C 与 JS 的粒度都比 Rust 粗**：它们没有 Rust 那种「指令注册表 + 候选名单」，`@feature` / `@when` / `@for` 这些**本端不实现的指令**与拼错的指令在 token 流上同形，一并落此码（用户看到的提示会指向「拼写」）—— 方向都是「响亮拒绝」而不是静默丢行；**W16 末段 C++ 与 Lua 也补齐**（显式 type:/name: 参数 + 缺体/位置参数一律 E-PARSE-005）" }
     { id: E-PARSE-006 domain: PARSE severity: E title: "期望键或标识符"
       msg: "期望键或标识符，得其它记号"
-      impls: [ rust js cpp lua ] status: partial
-      note: "亦覆盖数组元素类型、契约字段名等位置；`default` 与 `min`/`max` 的字面量位置另有 E-PARSE-021、E-PARSE-022。**Lua 原先静默**（`:` 会被当成键名、多余的 `{` 会被当成键），W10 期间补齐（探针实测 `: 1` 解析出键名为 `:` 的树）" }
+      impls: [ rust c js cpp lua ] status: partial
+      note: "亦覆盖数组元素类型、契约字段名等位置；`default` 与 `min`/`max` 的字面量位置另有 E-PARSE-021、E-PARSE-022。**Lua 原先静默**（`:` 会被当成键名、多余的 `{` 会被当成键），W10 期间补齐（探针实测 `: 1` 解析出键名为 `:` 的树）。⚠️ **C 同码**（2026-11-16 核实）：键位置的裸冒号、契约字段缺类型、遗留符号修饰符（`?` / `=`）三处都落本码" }
     { id: E-PARSE-007 domain: PARSE severity: E title: "裸词中含逗号"
       msg: "非预期的逗号：裸词中不可含逗号，请改用数组或引号包裹"
       impls: [ rust js c cpp lua ] status: partial
@@ -153,7 +153,7 @@ codes: [
     { id: E-PARSE-011 domain: PARSE severity: E title: "at 符号后缺名字"
       msg: "at 符号之后须为名字（指令名或片段名）"
       impls: [ rust js ] status: partial
-      note: "Rust 报「@ 后需片段名」、JS 报「@ 后需名称」；符号与名字之间有空白的情形另有 E-PARSE-004" }
+      note: "Rust 报「@ 后需片段名」、JS 报「@ 后需名称」；符号与名字之间有空白的情形另有 E-PARSE-004。⚠️ **C 端不落本码**（2026-11-16 核实）：C 把「`@` 后不是名字」归 `E-PARSE-019`（指令头语法非法），与 Rust / JS 的 011 **码漂移** —— 已登记，未收敛" }
     { id: E-PARSE-012 domain: PARSE severity: E title: "语法错误（兜底）"
       msg: "语法错误：未能给出更具体的原因"
       impls: [ rust c cpp js lua ] status: partial
@@ -183,24 +183,24 @@ codes: [
       note: "`in` 之后至少须有一个枚举项" }
     { id: E-PARSE-019 domain: PARSE severity: E title: "指令头语法非法"
       msg: "指令头语法非法：`@contract` / `@is` / `@type` 后缺少契约名、类型名或模式体"
-      impls: [ rust js lua ] status: partial
-      note: "JS 侧对应「@contract 后须契约体」「@type 后须类型名」「@is 后须契约名」等文案" }
+      impls: [ rust c cpp js lua ] status: partial
+      note: "JS 侧对应「@contract 后须契约体」「@type 后须类型名」「@is 后须契约名」等文案。⚠️ **C / C++ 同码**（2026-11-16 核实）：`@is` 后缺契约名、`@type` 后缺类型名 / 模式体、`@weakdoc` 带了载荷块，三处都落本码" }
     { id: E-PARSE-020 domain: PARSE severity: E title: "片段参数语法非法"
       msg: "片段参数非法：`type` 或 `name` 参数后缺少取值，或同一参数重复"
-      impls: [ rust c js ] status: partial
-      note: "C 与 JS 的这条码都是 W16 补片段**显式参数**（`type: X` / `name: Y`）时一并接线的：两端此前只认位置参数形式，显式形式既不被识别、也不报错（`@f type: Server { ... }` 会被静默丢掉整条定义，或退化成错误的树）" }
+      impls: [ rust c js lua ] status: partial
+      note: "C 与 JS 的这条码都是 W16 补片段**显式参数**（`type: X` / `name: Y`）时一并接线的：两端此前只认位置参数形式，显式形式既不被识别、也不报错（`@f type: Server { ... }` 会被静默丢掉整条定义，或退化成错误的树）。⚠️ **Lua 同码**（2026-11-16 核实）：参数缺值与同名参数重复两处都落本码" }
     { id: E-PARSE-021 domain: PARSE severity: E title: "default 缺取值"
       msg: "`default` 修饰符后缺少取值"
-      impls: [ rust cpp js lua ] status: partial
-      note: "JS 侧报「期望字面量」（与 E-PARSE-022 共用同一处检查）；C++ 在 W10 期间补进 impls" }
+      impls: [ rust c cpp js lua ] status: partial
+      note: "JS 侧报「期望字面量」（与 E-PARSE-022 共用同一处检查）；C++ 在 W10 期间补进 impls。⚠️ **C 同码**（2026-11-16 核实）：`default` 后不是字面量（应与类型写在同一行）时落本码" }
     { id: E-PARSE-022 domain: PARSE severity: E title: "数值边界取值非数字"
       msg: "`min` 或 `max` 的边界取值不是数字"
       impls: [ rust c cpp js lua ] status: partial
       note: "取值非有限数的情形见 E-CONTRACT-010。C 与 C++ 在 W10 期间补齐；此前 C 更糟：`max abc` 把非法边界当 0，报的是 **E-CONTRACT-005 这个错码**（把合法值判成越界）" }
     { id: E-PARSE-023 domain: PARSE severity: E title: "enum 后不是数组"
       msg: "`enum` 后须为数组"
-      impls: [ rust cpp lua ] status: partial
-      note: "C++ 报「enum needs ...」；取值不在列表内是另一条码（E-CONTRACT-006）" }
+      impls: [ rust c cpp js lua ] status: partial
+      note: "C++ 报「enum needs ...」；取值不在列表内是另一条码（E-CONTRACT-006）。⚠️ **C / JS 同码**（2026-11-16 核实）：`enum` 后不是数组时同报本码（JS 改前把后面的裸词全收成枚举成员 ⇒ 同一份契约在 JS 通过、在 Rust 报错）" }
     { id: E-PARSE-024 domain: PARSE severity: E title: "契约定义内字段规格语法非法"
       msg: "契约定义里的字段规格语法非法：类型为空、数组或枚举缺少闭合、字段名为空"
       impls: [ cpp ] status: partial
@@ -315,12 +315,12 @@ codes: [
     # ================= 特性、版本与环境变量（语言层） =================
     { id: E-FEATURE-001 domain: FEATURE severity: E title: "特性未启用"
       msg: "该语法需要相应特性，请先启用该特性"
-      impls: [ rust js lua ] status: partial
-      note: "Rust 覆盖 include/import、multi-include、glob-include、regex-include、namespace、contract、`@is`、`@when`、`@for`、fragment、top-level-array 等；**JS 原只对 include 做了门控**，W16 起补齐 `contract`（`@contract` / `@is`）与 `fragment`（片段定义与 `&` 引用）—— 这条不只是行为差异：把 parser 当沙箱用的调用方（`parseSafe` / 编辑器）会以为已经关掉了契约校验，实际照样执行；用字段表达是哪个特性，码共用；**Lua 对 include 的高级写法（`as ns` 命名空间 / glob / regex / 多目标 / 部分引用）显式报此码**（W20 第二阶段：这些不做，但**绝不静默**）。⚠️ **C 不用这条码**：它没有特性集，遇到不实现的指令落 `E-PARSE-005`" }
+      impls: [ rust js c cpp lua ] status: partial
+      note: "Rust 覆盖 include/import、multi-include、glob-include、regex-include、namespace、contract、`@is`、`@when`、`@for`、fragment、top-level-array 等；**JS 原只对 include 做了门控**，W16 起补齐 `contract`（`@contract` / `@is`）与 `fragment`（片段定义与 `&` 引用）—— 这条不只是行为差异：把 parser 当沙箱用的调用方（`parseSafe` / 编辑器）会以为已经关掉了契约校验，实际照样执行；用字段表达是哪个特性，码共用；**Lua 对 include 的高级写法（`as ns` 命名空间 / glob / regex / 多目标 / 部分引用）显式报此码**（W20 第二阶段：这些不做，但**绝不静默**）。⚠️ **C / C++ 也已接线本码**（2026-11-16 核实）：两端都有特性集（名字表与 Rust 注册表同序同名），`include` / `contract` / `when` 等特性未启用时同报本码；**不实现的写法**（如 include 的部分引用 `{ keys }`、命名空间 `as ns`）同样落本码 —— 不静默、不改投别的码。注意 C / C++ 对**未注册指令**（`@type` 等本端不实现的指令）仍落 `E-PARSE-005`，那是另一格" }
     { id: E-FEATURE-002 domain: FEATURE severity: E title: "环境变量被禁用"
       msg: "当前特性集禁用了环境变量内联，裸词或字符串无法解析"
-      impls: [ rust js ] status: partial
-      note: "`@when` 的条件用环境变量时同报此码；**JS 改前无条件内插（无门控）**，W16 起裸词与引号串里的 `$env.X` 都受 `env` 特性管辖（关掉即报此码，与 Rust 的 `coerce_word` 同码 —— 注意不是 `E-FEATURE-001`）" }
+      impls: [ rust js c cpp lua ] status: done
+      note: "`@when` 的条件用环境变量时同报此码；**JS 改前无条件内插（无门控）**，W16 起裸词与引号串里的 `$env.X` 都受 `env` 特性管辖（关掉即报此码，与 Rust 的 `coerce_word` 同码 —— 注意不是 `E-FEATURE-001`）。⚠️ **C / C++ / Lua 同码同触发点**（2026-11-16 核实）：**裸词** `$env.X`、**引号串**含 `$env.`、`@when` 条件取环境变量，三处都在 `env` 特性关闭时同报本码（改前 C 只拦引号串那一条，裸词形态照旧读宿主环境变量 ⇒ 沙箱形同虚设）" }
     { id: E-FEATURE-003 domain: FEATURE severity: E title: "未知特性名"
       msg: "未知特性名"
       impls: [ rust js c cpp lua ] status: done
@@ -331,8 +331,8 @@ codes: [
       note: "各端支持的版本范围不同（Lua 仅 v1、C 到 v3、JS 现已支持 v1..v4）—— **码相同、支持的版本不同**，差异用字段表达，不再靠文案。C 的「超出接受范围」分支目前是死代码；`@version` 用作片段名、`@feature base` 参数非法、命令行传入非法版本名都归此码。JS 的版本只切换**裸词字符串**这一特性（v1 开、v2/v3/v4 关，关闭即裸词报 E-FEATURE-005），v4 与 v3 特性基集相同。⚠️ **Rust 自 2026-11-04 起按「版本集」判定**（`docs/swsml/spec/version.md`）：规范写法 `1.0`..`4.0`（`10`/`20`/`30`/`40`），`v1`..`v4` 与点号写法永久是别名；本码只表示「从未存在 / 写法不合法 / 声明冲突」，**曾被移除的开发代号用 E-FEATURE-010**" }
     { id: E-FEATURE-005 domain: FEATURE severity: E title: "裸词必须加引号"
       msg: "字符串必须加引号：当前特性集禁用了裸词字符串"
-      impls: [ rust c js ] status: partial
-      note: "JS 已实现：v2/v3/v4（严格模式）关闭 bareword-string，裸词字符串报此码；v1 默认开（裸词即字符串），与 Rust 同码。仅约束**值位置**裸词，键名 / 指令参数 / 片段名不受影响" }
+      impls: [ rust c js cpp lua ] status: partial
+      note: "JS 已实现：v2/v3/v4（严格模式）关闭 bareword-string，裸词字符串报此码；v1 默认开（裸词即字符串），与 Rust 同码。仅约束**值位置**裸词，键名 / 指令参数 / 片段名不受影响。⚠️ **C / C++ / Lua 同码**（2026-11-16 核实）：`bareword-string` 关闭时，值位置的裸词字符串同报本码；键名 / 指令参数 / 片段名同样不受影响" }
     { id: E-FEATURE-006 domain: FEATURE severity: E title: "feature 子命令未知"
       msg: "未知的 `@feature` 子命令"
       impls: [ rust c cpp js lua ] status: done
@@ -393,8 +393,8 @@ codes: [
       note: "C++ 报「contract applied to non-object」；C 侧 W10 期间核实确实在报，补进 impls" }
     { id: E-CONTRACT-009 domain: CONTRACT severity: E title: "自定义类型格式不符"
       msg: "字段的值不符合该类型的格式要求"
-      impls: [ rust js ] status: partial
-      note: "含要求字符串却给了数字（号码、编号、身份证需引号）与值过长拒绝校验；模式编译或匹配失败也归此码" }
+      impls: [ rust js c cpp lua ] status: partial
+      note: "含要求字符串却给了数字（号码、编号、身份证需引号）与值过长拒绝校验；模式编译或匹配失败也归此码。⚠️ **C / C++ / Lua 同码**（2026-11-16 核实）：非字符串值、模式匹配失败、模式编译失败三处都归本码（数组元素逐个校验时同样带下标）" }
     { id: E-CONTRACT-010 domain: CONTRACT severity: E title: "数值约束取值为非有限数"
       msg: "字段的值为非有限数，不能作为数值约束的取值"
       impls: [ rust c cpp lua ] status: partial
@@ -403,10 +403,10 @@ codes: [
       msg: "字段不符合扩展修饰符的要求"
       impls: [ rust ] status: partial
       note: "与 E-CONTRACT-007（外置**类型**）区分：修饰符与类型是两套注册点" }
-    { id: E-CONTRACT-012 domain: CONTRACT severity: E title: "未知数组元素类型"
-      msg: "数组元素类型名未知，且不是已注册的扩展类型"
-      impls: [ rust lua ] status: partial
-      note: "**2026-11-03 收窄**：Rust 侧此前把**所有**非内置的数组元素名都判成此码 —— 于是合法的契约数组 `peers: [Endpoint]` 被误杀（JS 因递归 parseFieldSpec 一直支持）。现在 Rust 的非内置名**先按 `@type` / 外置类型 / 契约引用**依次判定，只有 `enum` 出现在数组元素位置仍报本码（JS 支持该写法，属已知差异）。⇒ 本码现仅剩两类触发：Rust 的 `[enum ...]`、Lua 的**任意**非内置元素类型（契约数组未实现，一致性用例 41 里 Lua 是唯一失败端）" }
+    { id: E-CONTRACT-012 domain: CONTRACT severity: E title: "数组元素位置不支持 enum"
+      msg: "数组元素位置不支持 `enum`；请改写成 `[str]` 并在契约层约束"
+      impls: [ rust lua c cpp js ] status: done
+      note: "**2026-11-03 收窄**：Rust 侧此前把**所有**非内置的数组元素名都判成此码 —— 于是合法的契约数组 `peers: [Endpoint]` 被误杀。现在五端的非内置元素名都**先按 `@type` / 外置类型 / 契约引用**依次判定（JS 因递归 parseFieldSpec 一直支持），故本码只剩**一类触发**：元素位置写了 `enum`（`[enum a b]` 没有确定语义）。⚠️ **文案随触发点同步更新（2026-11-16）**：标题与文案原先写的是「未知数组元素类型」，那是收窄**前**的语义 —— 触发点已变成「这个位置不许写 enum」，文案不改会让调用方按旧语义判错类别。⚠️ Rust 侧的 detail 更细：「请改写成 `[str]` 并在契约层约束」" }
     { id: E-CONTRACT-013 domain: CONTRACT severity: E title: "模式定义非法"
       msg: "模式定义非法：未知字符类、未知量词、不支持的元素，或无法识别的元素"
       impls: [ rust js c cpp lua ] status: partial
@@ -517,8 +517,8 @@ codes: [
     # ================= 输入输出（宿主绑定层） =================
     { id: E-IO-001 domain: IO severity: E title: "读取失败"
       msg: "读取文件失败"
-      impls: [ rust c lua ] status: partial
-      note: "Rust 侧同时覆盖文档入口与 include 展开两条读文件路径；Lua 侧是宿主入口 `lua/main.lua` 读不到输入文件（与 C 的 sml_parse_file fopen 失败同格）" }
+      impls: [ rust c cpp lua ] status: partial
+      note: "Rust 侧同时覆盖文档入口与 include 展开两条读文件路径；Lua 侧是宿主入口 `lua/main.lua` 读不到输入文件（与 C 的 sml_parse_file fopen 失败同格）。⚠️ **C++ 同码**（2026-11-16 核实）：`std::ifstream` 打不开入口文件或被包含文件时同报本码" }
     { id: E-IO-002 domain: IO severity: E title: "输入为空"
       msg: "输入为空"
       impls: [ c ] status: partial

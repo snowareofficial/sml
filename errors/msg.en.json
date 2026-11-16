@@ -19,7 +19,7 @@
   "E-CONTRACT-009": { "title": "Custom type format mismatch", "msg": "The field value does not match the type's format requirements" },
   "E-CONTRACT-010": { "title": "Numeric constraint value is non-finite", "msg": "The field value is non-finite and cannot be used as a numeric constraint" },
   "E-CONTRACT-011": { "title": "External modifier check failed", "msg": "The field does not satisfy the extension modifier's requirements" },
-  "E-CONTRACT-012": { "title": "Unknown array element type", "msg": "The array element type name is unknown and is not a registered extension type" },
+  "E-CONTRACT-012": { "title": "Enum not allowed as array element type", "msg": "`enum` is not supported in the array element position; write `[str]` and constrain the values in the contract" },
   "E-CONTRACT-013": { "title": "Invalid pattern definition", "msg": "Invalid pattern definition: unknown character class, unknown quantifier, unsupported element, or unrecognizable element" },
   "E-CONTRACT-014": { "title": "Invalid pattern rule reference", "msg": "Invalid pattern rule reference: references an undefined rule, or the rule references itself cyclically" },
   "E-CONTRACT-015": { "title": "Invalid quantifier value", "msg": "Invalid quantifier value: not an integer, negative, or the upper bound is less than the lower bound" },

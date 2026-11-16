@@ -54,7 +54,7 @@ static const struct SmlErrorMsg SML_ERROR_MSGS[] = {
     { "E-CONTRACT-009", "error", "CONTRACT", "自定义类型格式不符", "字段的值不符合该类型的格式要求", "Custom type format mismatch", "The field value does not match the type's format requirements" },
     { "E-CONTRACT-010", "error", "CONTRACT", "数值约束取值为非有限数", "字段的值为非有限数，不能作为数值约束的取值", "Numeric constraint value is non-finite", "The field value is non-finite and cannot be used as a numeric constraint" },
     { "E-CONTRACT-011", "error", "CONTRACT", "外置修饰符校验失败", "字段不符合扩展修饰符的要求", "External modifier check failed", "The field does not satisfy the extension modifier's requirements" },
-    { "E-CONTRACT-012", "error", "CONTRACT", "未知数组元素类型", "数组元素类型名未知，且不是已注册的扩展类型", "Unknown array element type", "The array element type name is unknown and is not a registered extension type" },
+    { "E-CONTRACT-012", "error", "CONTRACT", "数组元素位置不支持 enum", "数组元素位置不支持 `enum`；请改写成 `[str]` 并在契约层约束", "Enum not allowed as array element type", "`enum` is not supported in the array element position; write `[str]` and constrain the values in the contract" },
     { "E-CONTRACT-013", "error", "CONTRACT", "模式定义非法", "模式定义非法：未知字符类、未知量词、不支持的元素，或无法识别的元素", "Invalid pattern definition", "Invalid pattern definition: unknown character class, unknown quantifier, unsupported element, or unrecognizable element" },
     { "E-CONTRACT-014", "error", "CONTRACT", "模式规则引用非法", "模式规则引用非法：引用了未定义的规则，或规则循环引用", "Invalid pattern rule reference", "Invalid pattern rule reference: references an undefined rule, or the rule references itself cyclically" },
     { "E-CONTRACT-015", "error", "CONTRACT", "量词取值非法", "量词的取值非法：不是整数、为负数，或上界小于下界", "Invalid quantifier value", "Invalid quantifier value: not an integer, negative, or the upper bound is less than the lower bound" },

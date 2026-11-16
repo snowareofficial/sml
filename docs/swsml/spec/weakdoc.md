@@ -97,7 +97,7 @@ $ echo $?
 | 指令登记 | ✅ | `sml-parse/src/ext.rs` 的 `BUILTIN_DIRECTIVES` 加 `weakdoc` |
 | 语法 + 门控 | ✅ | `parser.rs::parse_at_directive`（复用 `Feature::Weak`） |
 | 旁路表 | ✅ | `ParseOutput.weak_docs: Vec<WeakDoc>` |
-| 判重 | ✅ | `E-PARSE-030`（新码，`impls: [rust]` / `status: partial`） |
+| 判重 | ✅ | `E-PARSE-030`（**五端同码**，`impls: [ rust js c cpp lua ]` / `status: done`）；判重是**文档级**（跨块也算） |
 | 用例 | ✅ 6 条 | `rust/tests/weakdoc.rs` |
 | 三命名空间发现（`smltools`） | ✅ | `--resolve-profiles`：TAB 三列输出，未命中退出码 1；4 条端到端用例 |
 | `W-CLI-001` 未命中提示 | ✅ | 普通解析 stderr + `--lint` 报告，同码；`--no-profiles` 不报；5 条端到端用例（`warn_missing_profile.rs`） |

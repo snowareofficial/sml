@@ -93,8 +93,8 @@ pub const E_CONTRACT_010: &str = "E-CONTRACT-010";
 /// [E-CONTRACT-011] 外置修饰符校验失败：字段不符合扩展修饰符的要求
 /// EN: External modifier check failed —— The field does not satisfy the extension modifier's requirements
 pub const E_CONTRACT_011: &str = "E-CONTRACT-011";
-/// [E-CONTRACT-012] 未知数组元素类型：数组元素类型名未知，且不是已注册的扩展类型
-/// EN: Unknown array element type —— The array element type name is unknown and is not a registered extension type
+/// [E-CONTRACT-012] 数组元素位置不支持 enum：数组元素位置不支持 `enum`；请改写成 `[str]` 并在契约层约束
+/// EN: Enum not allowed as array element type —— `enum` is not supported in the array element position; write `[str]` and constrain the values in the contract
 pub const E_CONTRACT_012: &str = "E-CONTRACT-012";
 /// [E-CONTRACT-013] 模式定义非法：模式定义非法：未知字符类、未知量词、不支持的元素，或无法识别的元素
 /// EN: Invalid pattern definition —— Invalid pattern definition: unknown character class, unknown quantifier, unsupported element, or unrecognizable element

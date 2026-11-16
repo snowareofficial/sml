@@ -2,9 +2,9 @@
 
 > 状态横幅：语义已定稿。语法 / 作用域 / 旁路表 / `E-PARSE-029`、内置表注入、
 > `--dump-builtins`、`W-CONTRACT-001` 软校验在 Rust 单端均有实现与用例（见 §10）。
-> 语言层其余四端的识别 / 门控 / 七档软校验 / 旁路表已落地；编辑器提示、
-> `E-PARSE-029` 四端、C-ABI / 绑定层仍属发布前同步，切片与判据见
-> `docs/swsml/plan/crossend-sync.md` P4 / P7。
+> 语言层其余四端的识别 / 门控 / 七档软校验 / 旁路表 / **`E-PARSE-029` 三档**已落地；
+> 编辑器提示、**`weak_data` / `weak_docs` 旁路表**、C-ABI / 绑定层仍属发布前同步，
+> 切片与判据见 `docs/swsml/plan/crossend-sync.md` P4 / P7。
 > `IDEAS.md` I-5 的定位与沿革以本文件为准。
 > 决定来源：2026-11-04 与用户逐条确认（命名 `weakbind`、库可读取、warning 报在库里、
 > 多端同步属发布前必做项、编辑器提示是主需求）。本文件只做归纳，不新增决定。
@@ -324,7 +324,7 @@ pub weak_binds: Vec<WeakBind>,
 | 内置指令登记 | ✅ | `sml-parse/src/ext.rs` 的 `BUILTIN_DIRECTIVES` 加 `weakbind` |
 | 语法 `@weakbind <名> [<体>]` | ✅ | `parser.rs::parse_at_directive` |
 | 作用域（紧邻下一个块） | ✅ | `BlockFrame.pending_weakbind` + `value_step` |
-| 码 `E-PARSE-029` | ✅ | `errors/codes.sml`（`impls: [rust]` / `status: partial`）；`W-CONTRACT-001` **已加**（八档软校验，见下表与 `rust/tests/weakbind_warn.rs`） |
+| 码 `E-PARSE-029` | ✅ | `errors/codes.sml`（`impls: [ rust js c cpp lua ]` / `status: done`）；`W-CONTRACT-001` **已加**（八档软校验，见下表与 `rust/tests/weakbind_warn.rs`） |
 | 旁路表 `weak_binds` | ✅ | `ParseOutput.weak_binds` —— **恒收集的 `Vec`**，不是 `Option`（空 vec 与「没写过」对消费者等价） |
 | 用例 | ✅ 8 条 | `rust/tests/weakbind.rs`（含核心判据的差分用例） |
 | C-ABI 位名 | ✅ | `rust/src/c_abi.rs::sml_feature_name` bit 19 + `c/sml_rs.h` 的 `SML_F_WEAK` |
@@ -333,7 +333,7 @@ pub weak_binds: Vec<WeakBind>,
 | 导出 `smltools -i builtin.sml --dump-builtins [-o out.json]` | ✅ | 输出即 §6.2 的 schema（JSON 固定，不走 `--to`），4 条端到端用例 |
 | `W-CONTRACT-001` 软校验 | ✅ | 八档（decl.* 3 + block.* 5），**只读**：不填默认值、不改树；10 条用例在 `rust/tests/weakbind_warn.rs` |
 | 语言层四端（`js` / `c` / `cpp` / `lua`） | ✅ | `@weakbind` 识别 + `type.weak` 门控 + `W-CONTRACT-001` 七档 + 旁路表：JS `parseSafe()` 的 `warnings` / `weakBinds`；C `sml_parse_with_builtins` + `sml_builtin` + `sml_weakbind`；C++ `Parser::parse_with` + `BuiltinTable` + `ParseOptions::weak_binds`；Lua `Sml.parse_with_builtins` |
-| `E-PARSE-029` 四端 | ⬜ | 悬空 / 连续 / 目标不是块：四端把悬空项**按块丢弃**（不报码），仍只有 Rust 报 029 |
+| `E-PARSE-029` 四端 | ✅ | 悬空 / 连续 / 目标不是块：**五端同码**（此前四端把悬空项**按块丢弃**、不报码）。conformance 钉子 `71`–`73` / `75`（悬空 / 连续 / 标量 / 数组） |
 | `weak_data` / `weak_docs` 旁路表（四端） | ⬜ | `@weakdata` / `@weakdoc` 目前只做识别与门控，载荷不进旁路表 |
 | 扩展提示（vscode / lsp / zed） | ⬜ | 属发布前同步那批（§8）；切片见 `docs/swsml/plan/crossend-sync.md` P4 |
 | C-ABI（`sml_parse_full_lists` / `sml_weaklists` / `sml_parse_all`） | ✅ | 旁路表 + 诊断 + 内置表注入三样都过 FFI；`sml_parse_all` 的 `SML_WANT_CONTRACTS` 把 §6.1 的「用 SML 写契约表 → 再注入回去」闭环（借用的 `sml_builtin` 可直接当内置表），C++ 侧 `WeakLists` / `Result` 为 RAII |

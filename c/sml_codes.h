@@ -62,7 +62,7 @@
 #define SML_E_CONTRACT_010 "E-CONTRACT-010"
 /* [E-CONTRACT-011] 外置修饰符校验失败：字段不符合扩展修饰符的要求 */
 #define SML_E_CONTRACT_011 "E-CONTRACT-011"
-/* [E-CONTRACT-012] 未知数组元素类型：数组元素类型名未知，且不是已注册的扩展类型 */
+/* [E-CONTRACT-012] 数组元素位置不支持 enum：数组元素位置不支持 `enum`；请改写成 `[str]` 并在契约层约束 */
 #define SML_E_CONTRACT_012 "E-CONTRACT-012"
 /* [E-CONTRACT-013] 模式定义非法：模式定义非法：未知字符类、未知量词、不支持的元素，或无法识别的元素 */
 #define SML_E_CONTRACT_013 "E-CONTRACT-013"
