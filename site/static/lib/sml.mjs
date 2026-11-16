@@ -2266,7 +2266,11 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
       if (pendingWhen === false) { pendingWhen = null; return; }
       pendingWhen = null;
       // 弱绑定软校验：`@weakbind X` 之后的那个块，用内置表只读检查（不填默认值）。
-      if (pendingWeak && v && typeof v === "object" && !Array.isArray(v)) {
+      if (pendingWeak && !(v && typeof v === "object" && !Array.isArray(v))) {
+        // `@weakbind` 的目标不是块（标量 / 数组 / @for）⇒ E-PARSE-029。
+        fail("E-PARSE-029", "sml: `@weakbind` 后面必须紧跟一个块（标量 / 数组 / `@for` 都不算）");
+      }
+      if (pendingWeak && typeof v === "object" && !Array.isArray(v)) {
         const wc = builtinContracts && builtinContracts[pendingWeak];
         if (wc && wc.fields) {
           for (const [fk, sp] of Object.entries(wc.fields)) {
@@ -2450,6 +2454,10 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
             "sml: `" + fname + "`：当前文档已禁用该特性（请先写 `@feature enable type.weak`）");
         }
         if (fname === "weakbind") {
+          // 连续两条 `@weakbind` ⇒ E-PARSE-029（Rust directive.rs:349 同判据）。
+          if (pendingWeak !== null) {
+            fail("E-PARSE-029", "sml: 连续两条 `@weakbind`：它只作用于紧邻的下一个块");
+          }
           // 开了 `type.weak`：登记弱绑定 + 声明侧软校验（只读，不改值树）。
           // 判据与 Rust `check_weak_decl` 同源：内置表里没有这个名字 ⇒ W-CONTRACT-001。
           i++;   // weakbind
@@ -2515,6 +2523,12 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
           if (fname === "weakdoc" && peek() && peek().t === "{") {
             fail("E-PARSE-019",
               "sml: `@weakdoc` 只写 profile 名，不接受载荷块（要内联数据请用 `@weakdata`）");
+          }
+          if (fname === "weakdoc") {
+            // 文档级判重：同一 profile 不能挂两次（Rust directive.rs:429 同码 030）。
+            if (weakBinds.some((w) => w.kind === "weakdoc" && w.name === wname2)) {
+              fail("E-PARSE-030", "sml: `" + wname2 + "`（同一个 profile 不能重复挂）");
+            }
           }
           if (fname === "weakdata" && peek() && peek().t === "{") {
             i++;
@@ -2879,6 +2893,9 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
     }
     if (pendingWhen !== null) {
       fail("E-PARSE-017", "sml: `@when` 后未跟随任何字段或块（悬空的条件）");
+    }
+    if (pendingWeak !== null) {
+      fail("E-PARSE-029", "sml: `@weakbind` 后未跟随任何块（它只作用于紧邻的下一个块）");
     }
     if (appliedContracts.length) {
       // S8：`any` 默认禁用，契约里写 `!any` 才放行（`@is` 与块头两条路径都要查，逐份查）。

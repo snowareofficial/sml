@@ -280,11 +280,22 @@ static void set_field_maybe_skip(parser *ps, sml_value *obj, const char *key,
     /* 弱绑定：`@weakbind X` 之后的那个块，用内置表做**只读**软校验（不填默认值、
        不删改键），并把「哪个块绑了哪个契约」记进旁路表。
        Weak-binding soft check (read-only) + side-table record for the next block. */
-    if (ps->pending_weak && val && val->type == SML_OBJECT) {
-        const char *wname = ps->pending_weak;
-        weak_check_block(ps, val, wname);
-        weak_bind_push(ps, wname, ps->pending_weak_line, key);
-        ps->pending_weak = NULL;
+    /* 只在挂起声明的**同一层**消费：子块内部的字段（depth 更深）不属于
+       `@weakbind` 的目标，不能在这里误判成「目标不是块」。 */
+    if (ps->pending_weak && ps->depth == ps->pending_weak_depth) {
+        if (val && val->type == SML_OBJECT) {
+            const char *wname = ps->pending_weak;
+            weak_check_block(ps, val, wname);
+            weak_bind_push(ps, wname, ps->pending_weak_line, key);
+            ps->pending_weak = NULL;
+        } else {
+            /* `@weakbind` 的目标不是块（标量 / 数组 / @for）⇒ E-PARSE-029。
+               Rust value_step 同判据（parser/mod.rs:1698）。 */
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_PARSE_029 " `@weakbind` 后面必须紧跟一个块（标量 / 数组 / `@for` 都不算）");
+            ps->failed = 1;
+            ps->pending_weak = NULL;
+        }
     }
     obj_set_dup(ps, obj, key, val);
 }

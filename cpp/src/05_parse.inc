@@ -363,13 +363,23 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
         st.pending_when = 0;
         /* 弱绑定：`@weakbind X` 之后的那个块，用内置表做**只读**软校验
            （不填默认值、不删改键），并把记录放进旁路表。 */
-        if (!st.pending_weak.empty() && v && v->tag == Value::Tag::Obj) {
-            const std::string wname = st.pending_weak;
-            weak_check_block(st, v, wname);
-            if (st.weak_binds)
-                st.weak_binds->push_back(
-                    WeakBind{weak_path(st, k), wname, st.pending_weak_line});
-            st.pending_weak.clear();
+        /* 只在挂起声明的同一层判断：子块内部字段（depth 更深）不属于目标。 */
+        if (!st.pending_weak.empty() && st.depth == st.pending_weak_depth) {
+            if (v && v->tag == Value::Tag::Obj) {
+                const std::string wname = st.pending_weak;
+                weak_check_block(st, v, wname);
+                if (st.weak_binds)
+                    st.weak_binds->push_back(
+                        WeakBind{weak_path(st, k), wname, st.pending_weak_line});
+                st.pending_weak.clear();
+            } else {
+                /* `@weakbind` 的目标不是块 ⇒ E-PARSE-029（Rust value_step 同判据）。 */
+                if (st.err && st.err->empty())
+                    *st.err = code_prefix(SML_E_PARSE_029,
+                        "sml: `@weakbind` 后面必须紧跟一个块（标量 / 数组 / `@for` 都不算）");
+                st.aborted = true;
+                st.pending_weak.clear();
+            }
         }
         // 重复键：值树照旧提升为数组，同时记一条 `W-PARSE-001`（不改变值）。
         if (st.diags) {
@@ -566,6 +576,13 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                 const size_t wname_line = st.toks[st.i].line;
                 st.i++;   // 名字
                 if (is_bind) {
+                    /* 连续两条 `@weakbind` ⇒ E-PARSE-029（Rust directive.rs:349 同判据）。 */
+                    if (!st.pending_weak.empty()) {
+                        if (st.err && st.err->empty())
+                            *st.err = code_prefix(SML_E_PARSE_029,
+                                "sml: 连续两条 `@weakbind`：它只作用于紧邻的下一个块");
+                        st.aborted = true; break;
+                    }
                     /* 挂起到「紧邻的下一个块」；行号与所在层供收尾时判悬空。 */
                     st.pending_weak = wname;
                     st.pending_weak_line = static_cast<int>(wname_line);
@@ -591,6 +608,17 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                         }
                         if (st.i < st.toks.size() && st.toks[st.i].t == Token::T::RBrace) st.i++;
                     }
+                }
+                if (is_doc) {
+                    /* 文档级判重：同一 profile 不能挂两次（Rust directive.rs:429 同码 030）。 */
+                    if (std::find(st.weak_docs.begin(), st.weak_docs.end(), wname)
+                        != st.weak_docs.end()) {
+                        if (st.err && st.err->empty())
+                            *st.err = code_prefix(SML_E_PARSE_030,
+                                "sml: `" + wname + "`（同一个 profile 不能重复挂）");
+                        st.aborted = true; break;
+                    }
+                    st.weak_docs.push_back(wname);
                 }
                 if (is_doc && st.i < st.toks.size()
                     && st.toks[st.i].t == Token::T::LBrace) {
@@ -1256,8 +1284,13 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
     }
     /* 悬空的 `@weakbind`（本块内没等到块）：随本块丢弃，不落到外层的下一个块上。
        软校验发生在 set_field 消费挂起项的那一刻。 */
-    if (!st.pending_weak.empty() && st.pending_weak_depth >= st.depth)
+    if (!st.aborted && !st.pending_weak.empty() && st.pending_weak_depth >= st.depth) {
+        if (st.err && st.err->empty())
+            *st.err = code_prefix(SML_E_PARSE_029,
+                "sml: `@weakbind` 后未跟随任何块（它只作用于紧邻的下一个块）");
+        st.aborted = true;
         st.pending_weak.clear();
+    }
     return node;
 }
 

@@ -371,6 +371,10 @@ typedef struct {
     /* 旁路表：`@weakbind` 的记录（不进主树）。Weak-binding side table. */
     sml_weakbind *binds;
     size_t n_binds, cap_binds;
+    /* 文档级 `@weakdoc` profile 名集合（判重 E-PARSE-030，不进主树）。
+       Document-wide weakdoc profile names for duplicate detection. */
+    char **weak_doc_names;
+    size_t n_weak_docs, cap_weak_docs;
     /* 当前块的路径栈（键名；数组元素段写成 `[n]`）。
        上层的 `enter_key` 由调用方在 parse_block 之前设置，进入时压栈、退出时弹栈。
        Path stack: callers set `enter_key` right before parse_block. */

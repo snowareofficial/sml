@@ -4,8 +4,10 @@
 
 ## 2026-11-16 复核
 
-实测 **AGREE 70 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`；
-`19` / `20` 以 `*` 放行）。新增 `70_fragment_overwrite`：**片段撞父块同名键 ⇒ 直接覆盖**
+实测 **AGREE 75 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`；
+`19` / `20` 以 `*` 放行）。新增 `71`–`75` 五条 weak* 钉子：**`@weakbind` 悬空 / 连续 /
+目标标量 / 目标数组 ⇒ `E-PARSE-029`**，**文档级重复 `@weakdoc` ⇒ `E-PARSE-030`**，
+五端同码（此前四端把悬空当"静默丢弃"、重复不判）。新增 `70_fragment_overwrite`：**片段撞父块同名键 ⇒ 直接覆盖**
 （父值丢失，不提升数组）—— C++/Lua 此前提升为数组、值树与 Rust 分歧，已按权威改成原位覆盖；
 告警 `W-PARSE-002` 由各端诊断单测钉住（conformance 只比值树）。新增 `66`–`69` 四条 featag 歧义码钉子：**B1 空名/连续 `!` ⇒
 `E-PARSE-026`**（契约体声明处 + 块头 featag 区）、**B3 块名/首词位置 `!` 开头 ⇒

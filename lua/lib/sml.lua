@@ -141,6 +141,8 @@ end
 ------------------------------------------------------------------------------
 -- 旁路表（`@weakbind` 的记录，**不进主树**）；只有 parse_with_builtins 才建表。
 local _WEAK_BINDS = nil
+-- 文档级 `@weakdoc` profile 名集合（判重 E-PARSE-030，不进主树）。
+local _WEAK_DOCS = nil
 -- 宿主注入的内置契约表；nil = 整段软校验跳过（空表护栏）。
 local _BUILTIN = nil
 -- 当前块的路径栈（键名；数组元素写成 `[n]`）。调用方在 parse_block 前设 _ENTER_KEY。
@@ -2411,7 +2413,10 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
     if #pending_is > 0 then
       apply_contract_set(node, contracts, pending_is)
     end
-    -- 路径栈出栈（悬空的 `@weakbind` 随本块丢弃，无需额外处理）。
+    if pending_weak ~= nil then
+      fail("E-PARSE-029", "`@weakbind` 后未跟随任何块（它只作用于紧邻的下一个块）")
+    end
+    -- 路径栈出栈（悬空的 `@weakbind` 此前随本块丢弃；现已改为 E-PARSE-029）。
     for k = #_PATH, path_n + 1, -1 do _PATH[k] = nil end
     -- 记录**源序**到元表：`pairs` 看不见它，`dump` / 契约校验都不受影响，
     -- 但 `.ambr` 写入需要它（Lua 表本身不保序）。
@@ -2446,6 +2451,10 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
     if v == nil then v = NULL end
     -- 弱绑定：`@weakbind X` 之后的那个块，用内置表做**只读**软校验（不填默认值），
     -- 并把「哪个块绑了哪个契约」记进旁路表。
+    if pending_weak ~= nil and not (type(v) == "table" and not is_array(v)) then
+      -- `@weakbind` 的目标不是块（标量 / 数组 / @for）⇒ E-PARSE-029。
+      fail("E-PARSE-029", "`@weakbind` 后面必须紧跟一个块（标量 / 数组 / `@for` 都不算）")
+    end
     if pending_weak ~= nil and type(v) == "table" and not is_array(v) then
       local wname = pending_weak
       weak_check_block(wname, v, _LINES and _LINES[i] or 0)
@@ -2529,6 +2538,10 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
       local wname_line = _LINES and _LINES[i] or 0
       i = i + 1
       if wfname == "weakbind" then
+        -- 连续两条 `@weakbind` ⇒ E-PARSE-029（Rust directive.rs:349 同判据）。
+        if pending_weak ~= nil then
+          fail("E-PARSE-029", "连续两条 `@weakbind`：它只作用于紧邻的下一个块")
+        end
         -- 挂起到「紧邻的下一个块」；`{` 形态**只在契约名同一行**才算字段体，
         -- 否则会吃掉下一个块（`@weakbind tls` 换行后的 `server { ... }`）。
         pending_weak = wname
@@ -2559,9 +2572,16 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
           if tokens[i] == "}" then i = i + 1 end
         end
       end
-      if wfname == "weakdoc" and tokens[i] == "{" then
-        fail("E-PARSE-019",
-          "`@weakdoc` 只写 profile 名，不接受载荷块（要内联数据请用 `@weakdata`）")
+      if wfname == "weakdoc" then
+        -- 文档级判重：同一 profile 不能挂两次（Rust directive.rs:429 同码 030）。
+        if _WEAK_DOCS and _WEAK_DOCS[wname] then
+          fail("E-PARSE-030", "`" .. tostring(wname) .. "`（同一个 profile 不能重复挂）")
+        end
+        if _WEAK_DOCS then _WEAK_DOCS[wname] = true end
+        if tokens[i] == "{" then
+          fail("E-PARSE-019",
+            "`@weakdoc` 只写 profile 名，不接受载荷块（要内联数据请用 `@weakdata`）")
+        end
       end
       if wfname == "weakdata" and tokens[i] == "{" then
         local d = 1
@@ -3488,6 +3508,7 @@ function Sml.load(text, base, allow_top_scalar)
   -- 旁路表路径栈每次 load 重置：上一次的残留会让新文档的路径带上旧前缀。
   _PATH = {}
   _ENTER_KEY = nil
+  _WEAK_DOCS = {}   -- 文档级 weakdoc 名集合，判 E-PARSE-030 用；每次 load 重置
   if base ~= nil then
     -- include 在**词法之前**一次性展开：把 include 行换成被包含文件的文本。
     local ok0, expanded = pcall(expand_text, text, base, {}, { expansions = 0 }, false)

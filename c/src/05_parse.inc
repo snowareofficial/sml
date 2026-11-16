@@ -757,10 +757,41 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                 }
                 next(ps);   /* 契约名 / profile 名 */
                 if (is_bind) {
+                    /* 连续两条 `@weakbind` ⇒ E-PARSE-029（Rust directive.rs:349 同判据）。 */
+                    if (ps->pending_weak != NULL) {
+                        set_err(ps->lx->errbuf, ps->lx->errsz,
+                                SML_E_PARSE_029
+                                " 连续两条 `@weakbind`：它只作用于紧邻的下一个块");
+                        ps->failed = 1;
+                        break;
+                    }
                     /* 挂起到「紧邻的下一个块」；行号与所在层供收尾时判悬空。 */
                     ps->pending_weak = nm->v;
                     ps->pending_weak_line = nm->line;
                     ps->pending_weak_depth = ps->depth;
+                }
+                if (is_doc) {
+                    /* 文档级判重：同一 profile 不能挂两次（Rust directive.rs:429 同码 030）。 */
+                    size_t wi;
+                    for (wi = 0; wi < ps->n_weak_docs; wi++) {
+                        if (strcmp(ps->weak_doc_names[wi], nm->v) == 0) {
+                            set_err(ps->lx->errbuf, ps->lx->errsz,
+                                    SML_E_PARSE_030
+                                    " `%s`（同一个 profile 不能重复挂）", nm->v);
+                            ps->failed = 1;
+                            break;
+                        }
+                    }
+                    if (!ps->failed) {
+                        if (ps->n_weak_docs == ps->cap_weak_docs) {
+                            size_t nc = ps->cap_weak_docs ? ps->cap_weak_docs * 2 : 4;
+                            char **nn = (char **)realloc(ps->weak_doc_names, nc * sizeof(char *));
+                            if (nn) { ps->weak_doc_names = nn; ps->cap_weak_docs = nc; }
+                        }
+                        if (ps->n_weak_docs < ps->cap_weak_docs)
+                            ps->weak_doc_names[ps->n_weak_docs++] = strdup(nm->v);
+                    }
+                    if (ps->failed) break;
                 }
                 if (is_bind && ps->builtin) {
                     /* 声明侧：契约名在内置表里吗？ */
@@ -1331,7 +1362,10 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
        软校验发生在 `set_field_maybe_skip` 消费挂起项的那一刻。
        A dangling `@weakbind` dies with its own block; the soft check happens where
        the pending bind is consumed (see set_field_maybe_skip). */
-    if (ps->pending_weak && ps->pending_weak_depth >= ps->depth) {
+    if (!ps->failed && ps->pending_weak && ps->pending_weak_depth >= ps->depth) {
+        set_err(ps->lx->errbuf, ps->lx->errsz,
+                SML_E_PARSE_029 " `@weakbind` 后未跟随任何块（它只作用于紧邻的下一个块）");
+        ps->failed = 1;
         ps->pending_weak = NULL;
     }
     /* 块级 @is 应用（单契约 / 多契约叠加走同一入口） */
@@ -1466,6 +1500,11 @@ static sml_value *parse_core(const char *text, char *err, size_t errsz,
     if (ps.types) sml_free(ps.types);
     lex_free(&lx);
     path_free_all(&ps);
+    {   /* 文档级 weakdoc 名集合：只在本端解析期用于判重。 */
+        size_t wi;
+        for (wi = 0; wi < ps.n_weak_docs; wi++) free(ps.weak_doc_names[wi]);
+        free(ps.weak_doc_names);
+    }
     if (!v) {
         diag_free_all(&ps);
         sml_weakbind_free(ps.binds, ps.n_binds);

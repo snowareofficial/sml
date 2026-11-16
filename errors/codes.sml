@@ -224,11 +224,11 @@ codes: [
       note: "featag S2 §2.3 B3。`wea !critical, !web { }` 里第二个 `!web` 落在**块名**位置 ⇒ 歧义（featag 还是块名？），而块名无法加引号，故直接拒。`!wea name { }`（类型词位置）同报此码。与 B2 同源：`!` 只在「块头首词之后、逗号之前」是记号。仅 `type.featag` 开启时生效" }
     { id: E-PARSE-030 domain: PARSE severity: E title: "弱 profile 重复引用"
       msg: "同一文档重复引用了同一个弱 profile"
-      impls: [ rust ] status: partial
+      impls: [ rust js c cpp lua ] status: done
       note: "weakdoc（`docs/swsml/spec/weakdoc.md`）。落地 I-17 硬性约束 2 的后半句：**同一个 profile 不能在一个文档里重复挂**。判重是**文档级**（不看块路径）—— profile 作用于整份文档，重复写就是笔误，故响亮报错而不是静默去重。另：本码只登记引用关系，**库不读文件系统**：项目根下的 `.smlex` 目录、用户全局、系统三处命名空间的查找全在工具侧，因此「解析结果对有无 profile 完全一致」这条判据自动成立" }
     { id: E-PARSE-029 domain: PARSE severity: E title: "弱绑定声明的作用域非法"
       msg: "弱绑定 `@weakbind` 的作用域非法：后面没有块、连续出现，或作用对象不是块"
-      impls: [ rust ] status: partial
+      impls: [ rust js c cpp lua ] status: done
       note: "weakbind 第一刀（`docs/swsml/spec/weakbind.md` §3）。照 `@when` 的先例：`@weakbind` 只作用于**紧邻的下一个块**，三类都用本码、靠 detail 区分：dangling（块写完还没等到块）、duplicate（连续两条 `@weakbind`）、target-not-block（后面跟的是标量、数组或片段引用）。为什么一个码而不是三个：触发条件都是「这条声明没能绑定到块上」，只是理由不同 —— 与 E-LEX-007（六类拒绝共用一个码、靠 detail 分）同一做法。仅 `weak` 特性开启时生效：默认关，v1–v4 既有文档一字不变" }
     { id: W-CONTRACT-001 domain: CONTRACT severity: W title: "弱声明与内置契约不匹配"
       msg: "弱绑定 `@weakbind` 与内置契约不匹配（警告，不阻断解析）"
