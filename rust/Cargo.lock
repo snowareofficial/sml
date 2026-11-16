@@ -1234,6 +1234,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "smlite"
+version = "0.6.9-dev.0"
+dependencies = [
+ "sml-value",
+]
+
+[[package]]
 name = "smltools"
 version = "0.6.9-dev.0"
 dependencies = [
@@ -1277,6 +1284,7 @@ dependencies = [
  "sml-parse",
  "sml-pattern",
  "sml-value",
+ "smlite",
  "swsml-derive",
  "toml",
 ]

@@ -37,6 +37,9 @@ members = [
     "sml-contract",
     "sml-parse",
     "sml-pattern",
+    # 轻量 SML 纯数据子集运行时（I-28）：全新解析器/值模型，不复用 sml-parse；
+    # 核心 #![no_std] + alloc、零硬依赖，独立发布 crates.io。
+    "smlite",
     # `.ambr`（SML 的二进制形式）：只依赖值模型，**不依赖 sml-parse**（docs/amberice/spec/format.md D3）。
     # `publish = false` —— 与 v5 一起开放（D1）。
     "amberice",
@@ -198,6 +201,8 @@ default = [
 serde = { version = "1.0.210", features = ["derive"] }
 serde_json = "1.0.132"
 toml = "0.8.19"
+# smlite 对拍基准（benches/smlite_vs_json.rs）需要；核心零硬依赖，不进常规依赖树。
+smlite = { version = "0.6.9-dev.0", path = "smlite", default-features = false }
 
 # 兼容 Soup 的 Lua 实现（lib/sml.lua）语法语义：
 #   裸词字符串 / 引号串（转义 + $env 内联）/ true/false/null /
@@ -243,6 +248,12 @@ harness = false
 # 用来回答「慢在哪」而不是「慢多少」。
 [[bench]]
 name = "vs_json"
+harness = false
+
+# smlite 轻量运行时与 serde_json 的对拍（I-28 第 2 步）：同一份内容/形状，
+# 交错多批取 min + 计数分配器，口径照 vs_json.rs；数字不作为正式基线写入文档。
+[[bench]]
+name = "smlite_vs_json"
 harness = false
 
 # 阶段 0 归因基准：parse 峰值堆 / tokenize 时间 / 跨规模 get×1000。

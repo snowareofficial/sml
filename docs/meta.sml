@@ -8,7 +8,7 @@
 #   title      相对仓库根的路径（唯一键）
 #   date       写于（首次入库日期）
 #   updated    最后核对日期（不是最后修改日期）
-#   owner      swsml | amberice | swml | repo
+#   owner      swsml | amberice | swml | repo | smlite | eclog
 #   status     current | draft | stale | archive | keep
 #   scope      一句话职责
 #   supersedes      被本文取代的旧文档（没有就 null）
@@ -30,6 +30,7 @@ docs {
     { title: "docs/amberice/plan/interrupt-path-layers.md" date: "2026-11-12" updated: "2026-11-12" owner: "amberice" status: "draft" scope: "随时中断 / 操作路径 / 分层与 trait 的创新讨论纪要（支点 8 条、未收口 U1–U9、用户原话、示例代码形态）；不作结论" supersedes: null superseded_by: null }
     { title: "docs/amberice/plan/multi-writer.md" date: "2026-11-12" updated: "2026-11-12" owner: "amberice" status: "draft" scope: "多写者 / 数据属性 / 写路径讨论记录（判据 / 设计空间 / 排除项 / 未实测，附录为用户原话）；不作结论" supersedes: null superseded_by: null }
     { title: "docs/amberice/plan/plan.md" date: "2026-11-06" updated: "2026-11-10" owner: "amberice" status: "current" scope: "amberice 改名范围 + 第一批优化（A1）与里程碑" supersedes: null superseded_by: null }
+    { title: "docs/amberice/plan/nostd-subset-eval.md" date: "2026-11-17" updated: "2026-11-17" owner: "amberice" status: "current" scope: "P17 no_std amberice 评估：逐模块 std 占用取证、可裁 / 必留 std / core+alloc 接口最小面与 P16 前置；只出评估不动代码" supersedes: null superseded_by: null }
     { title: "docs/amberice/ref/ports.md" date: "2026-11-06" updated: "2026-11-13" owner: "amberice" status: "current" scope: "多端 .ambr 解码器进度台账（全端 22/22 已复测并进 CI；AMBR 错误码域；摘要仅 SHA-256）" supersedes: null superseded_by: null }
     { title: "docs/amberice/ref/swsml-alignment.md" date: "2026-11-13" updated: "2026-11-13" owner: "amberice" status: "current" scope: "amberice 与 swsml 的对齐面（edition / 特性位 / 码表 / C-ABI 刻意差异 / 支持平台 / AMBR 码）；守护 tools/check/check_amberice_align.py" supersedes: null superseded_by: null }
     { title: "docs/amberice/ref/claims-audit.md" date: "2026-11-10" updated: "2026-11-10" owner: "amberice" status: "draft" scope: "45 条论断逐条核实（成立 / 需修正 / 未实测 / 判断）；draft 不作结论，去留待用户裁决" supersedes: null superseded_by: null }
@@ -37,6 +38,8 @@ docs {
     { title: "docs/amberice/spec/overview.md" date: "2026-11-10" updated: "2026-11-10" owner: "amberice" status: "current" scope: "amberice 是什么：以源码为唯一事实来源的产品线定义（边界 / 格式 / 能力面 / 多端 / 实现状态）" supersedes: null superseded_by: null }
     { title: "docs/amberice/spec/smldb.md" date: "2026-11-02" updated: "2026-11-17" owner: "amberice" status: "draft" scope: "smldb 数据库层：表结构 / 后端选型 / 选择器 / 四层 API（T8 第一刀已落：Turso 后端 + BLOB + 精确路径/标签索引；FTS/选择器未定）" supersedes: null superseded_by: null }
     { title: "docs/amberice/spec/tools.md" date: "2026-11-02" updated: "2026-11-10" owner: "amberice" status: "current" scope: ".ambr 配套工具面：子命令清单以 amberice --help 为准，另含五端解码器" supersedes: null superseded_by: null }
+    { title: "docs/smlite/plan/api.md" date: "2026-11-17" updated: "2026-11-17" owner: "smlite" status: "current" scope: "smlite crate 骨架与公开 API 设计：自建精简值模型（Float 无 raw / 插入序 Object）、解析器边界、feature 旗帜（swsml-compat / no_std 接力点）与 swsml 值层互转契约；本步只出设计不动代码" supersedes: null superseded_by: null }
+    { title: "docs/eclog/plan/api.md" date: "2026-11-17" updated: "2026-11-17" owner: "eclog" status: "current" scope: "eclog-rs 设计：Eclog-CPP 全量语法对齐、独立不依赖 smlite、自建带 raw 的 Number、双 scheme 渲染与字节级对拍、amberice 经 eclog-rs 模块自实现；本步只出设计不动代码" supersedes: null superseded_by: null }
     { title: "docs/repo/archive/doc-defects.md" date: "2026-11-04" updated: "2026-11-04" owner: "repo" status: "archive" scope: "P1 文档盘点结果（2026-11-04 快照）" supersedes: null superseded_by: null }
     { title: "docs/repo/archive/doc-reconcile-2026-10-28.md" date: "2026-10-28" updated: "2026-11-03" owner: "repo" status: "archive" scope: "2026-10-28 文档对账的一次性记录" supersedes: null superseded_by: null }
     { title: "docs/repo/archive/handoff/HANDOFF-2026-10-26.md" date: "2026-10-26" updated: "2026-10-26" owner: "repo" status: "archive" scope: "会话交接（2026-10-26）" supersedes: null superseded_by: null }
@@ -58,7 +61,7 @@ docs {
     { title: "docs/repo/archive/task/TASK-agent.md" date: "2026-09-18" updated: "2026-10-28" owner: "repo" status: "archive" scope: "任务书（主）" supersedes: null superseded_by: null }
     { title: "docs/repo/plan/doc-architecture.md" date: "2026-11-04" updated: "2026-11-06" owner: "repo" status: "stale" scope: "文档四层架构 + P1–P4（提议；已由本次治理落地）" supersedes: null superseded_by: "docs/index.md" }
     { title: "docs/repo/ref/pending-decisions.md" date: "2026-11-06" updated: "2026-11-16" owner: "repo" status: "current" scope: "裁决台账：D1–D7 已全部裁决（含发布拓扑 / 仓库分工 / 官网 / 0.6.9 与 v5 边界）+ 仍待裁项的去处" supersedes: null superseded_by: null }
-    { title: "docs/repo/ref/todo-ideas-tables.md" date: "2026-11-06" updated: "2026-11-16" owner: "repo" status: "current" scope: "TODO / IDEAS 条目表：卡在谁、什么状态；2026-11-15 增补 I-25…I-30，2026-11-16 增补 I-31 / I-32（wasm·native access server 衍生语言项目 / 项目经验固化为模板）" supersedes: null superseded_by: null }
+    { title: "docs/repo/ref/todo-ideas-tables.md" date: "2026-11-06" updated: "2026-11-17" owner: "repo" status: "current" scope: "TODO / IDEAS 条目表：卡在谁、什么状态；2026-11-15 增补 I-25…I-30，2026-11-16 增补 I-31 / I-32（wasm·native access server 衍生语言项目 / 项目经验固化为模板），2026-11-17 确认 I-28 的 smlite / eclog-rs 定位与依赖链" supersedes: null superseded_by: null }
     { title: "docs/repo/ref/unfinished.md" date: "2026-11-06" updated: "2026-11-17" owner: "repo" status: "current" scope: "唯一「还剩什么」清单（分类 / 判据 / 复核命令）" supersedes: null superseded_by: null }
     { title: "docs/repo/ref/scan.md" date: "2026-11-07" updated: "2026-11-10" owner: "repo" status: "current" scope: "自动扫描的计数结果（tools/scan_status.py --write 生成，勿手改）" supersedes: null superseded_by: null }
     { title: "docs/swml/plan/api-draft.md" date: "2026-11-02" updated: "2026-11-06" owner: "swml" status: "draft" scope: "门面未定项：根命名空间债务 / 命名二义 / feature 传播 / 发布口径" supersedes: null superseded_by: null }

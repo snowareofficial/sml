@@ -27,7 +27,7 @@ const REPORT: &str = "docs/report.md";
 const GENERATED: [&str; 2] = ["docs/index.md", "docs/report.md"];
 /// `updated` 超过这么多天没核对就报警。`archive` / `keep` 不查（历史不需要保鲜）。
 const STALE_DAYS: i64 = 90;
-const OWNERS: [&str; 4] = ["swsml", "amberice", "swml", "repo"];
+const OWNERS: [&str; 6] = ["swsml", "amberice", "swml", "repo", "smlite", "eclog"];
 const STATUSES: [&str; 5] = ["current", "draft", "stale", "archive", "keep"];
 
 /// 运行参数（由 `main.rs` 解析后传入）。

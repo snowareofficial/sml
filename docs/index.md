@@ -1,7 +1,7 @@
 # docs 索引
 
 > **本文件由 `cargo run -p smldocs -- --index` 生成，勿手改。**
-> 数据源 `docs/meta.sml`（59 份文档，摘要 `96edba5d84da8731`）。摘要变了就必须重跑生成；
+> 数据源 `docs/meta.sml`（62 份文档，摘要 `a2f19fd8864de263`）。摘要变了就必须重跑生成；
 > 本文件不记生成日期 / HEAD，避免跨天或提交后假漂移。体检结论见 [`report.md`](report.md)。
 
 ## 一眼看结论
@@ -44,7 +44,7 @@
 | [`swsml/spec/weakdata.md`](swsml/spec/weakdata.md) | 2026-11-04 | 2026-11-12 | **current** | — | weakdata 语法与判别（Rust 已实现；多端同步见 crossend-sync.md） |
 | [`swsml/spec/weakdoc.md`](swsml/spec/weakdoc.md) | 2026-11-04 | 2026-11-13 | **current** | — | weakdoc 语法与 .smlex 发现 / W-CLI-001 提示（库侧、CLI 发现与提示均已实现） |
 
-## amberice（12 份）
+## amberice（13 份）
 
 | 文档 | 写于 | 最后核对 | 状态 | 替代者 | 职责 |
 |---|---|---|---|---|---|
@@ -52,6 +52,7 @@
 | [`amberice/decisions.md`](amberice/decisions.md) | 2026-11-02 | 2026-11-11 | **current** | — | .ambr 决策记录：D1–D55 已裁决、P12 待定、§12 草案、§15 键序、§16.3 已定（D53）、§16.4 孪生格式、§16.5 写路径已裁（D55）/ 其余待裁 |
 | [`amberice/plan/interrupt-path-layers.md`](amberice/plan/interrupt-path-layers.md) | 2026-11-12 | 2026-11-12 | **draft** | — | 随时中断 / 操作路径 / 分层与 trait 的创新讨论纪要（支点 8 条、未收口 U1–U9、用户原话、示例代码形态）；不作结论 |
 | [`amberice/plan/multi-writer.md`](amberice/plan/multi-writer.md) | 2026-11-12 | 2026-11-12 | **draft** | — | 多写者 / 数据属性 / 写路径讨论记录（判据 / 设计空间 / 排除项 / 未实测，附录为用户原话）；不作结论 |
+| [`amberice/plan/nostd-subset-eval.md`](amberice/plan/nostd-subset-eval.md) | 2026-11-17 | 2026-11-17 | **current** | — | P17 no_std amberice 评估：逐模块 std 占用取证、可裁 / 必留 std / core+alloc 接口最小面与 P16 前置；只出评估不动代码 |
 | [`amberice/plan/plan.md`](amberice/plan/plan.md) | 2026-11-06 | 2026-11-10 | **current** | — | amberice 改名范围 + 第一批优化（A1）与里程碑 |
 | [`amberice/ref/claims-audit.md`](amberice/ref/claims-audit.md) | 2026-11-10 | 2026-11-10 | **draft** | — | 45 条论断逐条核实（成立 / 需修正 / 未实测 / 判断）；draft 不作结论，去留待用户裁决 |
 | [`amberice/ref/ports.md`](amberice/ref/ports.md) | 2026-11-06 | 2026-11-13 | **current** | — | 多端 .ambr 解码器进度台账（全端 22/22 已复测并进 CI；AMBR 错误码域；摘要仅 SHA-256） |
@@ -95,6 +96,18 @@
 | [`repo/plan/doc-architecture.md`](repo/plan/doc-architecture.md) | 2026-11-04 | 2026-11-06 | **stale** | `docs/index.md` | 文档四层架构 + P1–P4（提议；已由本次治理落地） |
 | [`repo/ref/pending-decisions.md`](repo/ref/pending-decisions.md) | 2026-11-06 | 2026-11-16 | **current** | — | 裁决台账：D1–D7 已全部裁决（含发布拓扑 / 仓库分工 / 官网 / 0.6.9 与 v5 边界）+ 仍待裁项的去处 |
 | [`repo/ref/scan.md`](repo/ref/scan.md) | 2026-11-07 | 2026-11-10 | **current** | — | 自动扫描的计数结果（tools/scan_status.py --write 生成，勿手改） |
-| [`repo/ref/todo-ideas-tables.md`](repo/ref/todo-ideas-tables.md) | 2026-11-06 | 2026-11-16 | **current** | — | TODO / IDEAS 条目表：卡在谁、什么状态；2026-11-15 增补 I-25…I-30，2026-11-16 增补 I-31 / I-32（wasm·native access server 衍生语言项目 / 项目经验固化为模板） |
+| [`repo/ref/todo-ideas-tables.md`](repo/ref/todo-ideas-tables.md) | 2026-11-06 | 2026-11-17 | **current** | — | TODO / IDEAS 条目表：卡在谁、什么状态；2026-11-15 增补 I-25…I-30，2026-11-16 增补 I-31 / I-32（wasm·native access server 衍生语言项目 / 项目经验固化为模板），2026-11-17 确认 I-28 的 smlite / eclog-rs 定位与依赖链 |
 | [`repo/ref/unfinished.md`](repo/ref/unfinished.md) | 2026-11-06 | 2026-11-17 | **current** | — | 唯一「还剩什么」清单（分类 / 判据 / 复核命令） |
+
+## smlite（1 份）
+
+| 文档 | 写于 | 最后核对 | 状态 | 替代者 | 职责 |
+|---|---|---|---|---|---|
+| [`smlite/plan/api.md`](smlite/plan/api.md) | 2026-11-17 | 2026-11-17 | **current** | — | smlite crate 骨架与公开 API 设计：自建精简值模型（Float 无 raw / 插入序 Object）、解析器边界、feature 旗帜（swsml-compat / no_std 接力点）与 swsml 值层互转契约；本步只出设计不动代码 |
+
+## eclog（1 份）
+
+| 文档 | 写于 | 最后核对 | 状态 | 替代者 | 职责 |
+|---|---|---|---|---|---|
+| [`eclog/plan/api.md`](eclog/plan/api.md) | 2026-11-17 | 2026-11-17 | **current** | — | eclog-rs 设计：Eclog-CPP 全量语法对齐、独立不依赖 smlite、自建带 raw 的 Number、双 scheme 渲染与字节级对拍、amberice 经 eclog-rs 模块自实现；本步只出设计不动代码 |
 

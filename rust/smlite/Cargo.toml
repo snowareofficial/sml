@@ -1,0 +1,35 @@
+[package]
+name = "smlite"
+# 轻量 SML 纯数据子集运行时：类 JSON、机器导向、面向嵌入式与高吞吐。
+# 与 swsml 家族并列独立发布；核心零硬依赖，可单独上 crates.io。
+version.workspace = true
+edition = "2021"
+description = "轻量 SML 纯数据子集运行时：类 JSON、no_std 就绪、对标 serde_json。"
+license = "MulanPSL-2.0"
+repository = "https://gitee.com/snoware/sml"
+authors = ["Sal <sal@mail.swebase.cn>"]
+keywords = ["sml", "json", "no-std", "parser", "config"]
+categories = ["parser-implementations", "config", "no-std"]
+readme = "README.md"
+publish = true
+
+[lib]
+name = "smlite"
+path = "src/lib.rs"
+
+[dependencies]
+# 只在 swsml-compat 下进来：值层互转。核心零依赖（除 alloc）。
+sml-value = { version = "0.6.9-dev.0", path = "../sml-value", optional = true, default-features = false }
+# amberice 不接实依赖：它 publish=false 且 no_std 子集尚未落地（P16/P17）。
+# 接力点只留 ByteEnvelope trait，见 src/envelope.rs。
+
+[features]
+# std 只门控 std::error::Error impl；核心始终 #![no_std] + alloc。
+default = ["std"]
+std = []
+# 互斥后端：Object 用 BTreeMap 排序序（默认 Vec 插入序，性能更优）。
+object-sort = []
+# 值层互转：smlite::Value ↔ sml_value::Value。
+swsml-compat = ["dep:sml-value"]
+# no_std 接力点：仅 ByteEnvelope trait，不接 amberice 实依赖。
+amberice = []
