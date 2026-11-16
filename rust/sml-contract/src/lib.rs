@@ -426,6 +426,14 @@ fn check_contract_only(
             }
         }
     }
+    // 跨字段约束在只校验路径也跑：互斥 / 计数 / 依赖挂在**元素契约**上时，
+    // 元素没有「块应用」那一步 —— 不在收尾补一次，整组规则会被静默跳过。
+    // `present` 取用户显式写出的键（这里没有 default 回填，故就是全部键）。
+    if c.fields.values().any(|f| !f.mods.is_empty()) {
+        let authored: BTreeMap<String, &Value> =
+            node.iter().map(|(k, v)| (k.to_string(), v)).collect();
+        check_ext_groups(c, path, &authored)?;
+    }
     Ok(())
 }
 
@@ -453,13 +461,17 @@ fn check_type(
                 "字段 `{path}` 引用了未定义的契约 `{ref_name}`（契约 `{contract}`）{hint}"
             ))
         })?;
-        return match v {
+        let checked = match v {
             Value::Object(_) => Ok(()),
             _ => Err(SmlError::from_code_title(E_CONTRACT_008).with_detail(format!(
                 "字段 `{path}` 应为块并按契约 `{ref_name}` 校验，实际为 {}（契约 `{contract}`）",
                 value_kind(v)
             ))),
         };
+        checked?;
+        // 外置修饰符作用在**字段整体**，组合字段也是字段：不能因这一支提前 return 就漏跑。
+        check_ext_mods(contract, path, spec, v)?;
+        return Ok(());
     }
 
     // 自定义模式类型：值须为字符串并匹配模式。
@@ -468,7 +480,7 @@ fn check_type(
     // 这种裸写会被词法切成数字，最终只剩末段 `1211` 而不报任何错——
     // 这正是「静默数据损坏」，是本项目明确要消灭的一类行为。
     if let TypeSpec::Pattern { name, pat } = &spec.ty {
-        return match v {
+        let checked = match v {
             Value::Str(s) => match sml_pattern::is_match(pat, s) {
                 Ok(true) => Ok(()),
                 Ok(false) => Err(SmlError::from_code_title(E_CONTRACT_009).with_detail(
@@ -482,12 +494,15 @@ fn check_type(
                 value_kind(other)
             ))),
         };
+        checked?;
+        check_ext_mods(contract, path, spec, v)?;
+        return Ok(());
     }
 
     // 外置类型：校验器随字段规格带来（见 `FieldSpec::ext`），故此处无需全局查表。
     // 「这个类型是什么」由下游回答，规范层只负责把错误包装上字段名与路径。
     if let TypeSpec::Ext(name) = &spec.ty {
-        return match &spec.ext {
+        let checked = match &spec.ext {
             Some(t) => t.check(v).map_err(|e| {
                 SmlError::from_code_title(E_CONTRACT_007).with_detail(format!(
                     "字段 `{path}` 不符合扩展类型 `{name}`：{e}（契约 `{contract}`）"
@@ -497,6 +512,9 @@ fn check_type(
             // 此时**放行**而不是误报 —— 没有校验器就无从判定，报错才是假警报。
             None => Ok(()),
         };
+        checked?;
+        check_ext_mods(contract, path, spec, v)?;
+        return Ok(());
     }
 
     // 数组：逐元素校验，错误**直接向上传播**（路径带下标，如 `tags[1]`）。
@@ -677,14 +695,21 @@ pub fn apply_contracts(
         for j in (i + 1)..list.len() {
             for (fname, fa) in &list[i].fields {
                 if let Some(fb) = list[j].fields.get(fname) {
+                    // 外置修饰符也纳入一致性判据：合并视图只保留第一份 spec，
+                    // 两份契约挂了不同修饰符（或不同取值）时若放行，后一份会**静默漏跑**。
+                    // 按**名字序列**比（trait 对象无法直接比），取值比 `ext_data`。
+                    let ma: Vec<&str> = fa.mods.iter().map(|m| m.name()).collect();
+                    let mb: Vec<&str> = fb.mods.iter().map(|m| m.name()).collect();
                     let clash = fa.ty.name() != fb.ty.name()
                         || fa.default != fb.default
                         || fa.min != fb.min
-                        || fa.max != fb.max;
+                        || fa.max != fb.max
+                        || ma != mb
+                        || fa.ext_data != fb.ext_data;
                     if clash {
                         return Err(SmlError::from_code_title(E_CONTRACT_016).with_detail(
                             format!(
-                                "字段 `{}` 在 `{}` 与 `{}` 里类型 / 默认值 / 区间不一致",
+                                "字段 `{}` 在 `{}` 与 `{}` 里类型 / 默认值 / 区间 / 修饰符不一致",
                                 join_path(path, fname),
                                 list[i].name,
                                 list[j].name
@@ -807,7 +832,8 @@ pub fn apply_contract(
     }
     // 2) `x_only "<prefix>"`：在 `loose` / `warn`（已放行）之上再**收窄**——
     //    只有以该前缀开头的额外键允许，其余仍报错。
-    //    放在这里而非 `Modifier::check_group`：后者只在该字段出现时才跑，会漏检。
+    //    放在这里而非 `Modifier::check_group`：后者的 `present` 刻意不含 owner 字段，
+    //    owner 自身是否出现需按契约严格度在这里判。
     if let Some(prefix) = c
         .fields
         .values()
@@ -850,6 +876,10 @@ pub fn apply_contract(
             None => {
                 if let Some(d) = &spec.default {
                     node.insert(k.clone(), d.clone());
+                    // 回填值也要过外置修饰符：`check` 是「值是否满足领域规则」，
+                    // 默认值同样是值 —— 漏掉它等于给默认路径开一条静默旁路。
+                    // 注意**不**算 authored（`check_group` 的 `present` 不含回填值）。
+                    check_ext_mods(&c.name, &join_path(path, k), spec, d)?;
                 } else if spec.required {
                     return Err(SmlError::from_code_title(E_CONTRACT_003).with_detail(
                         format!("字段 `{}` 必填但缺失（契约 `{}`）", join_path(path, k), c.name),

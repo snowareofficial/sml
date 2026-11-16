@@ -156,8 +156,8 @@ impl Modifier for XOnly {
         Ok(())
     }
 
-    // 校验放在 `apply_contract` 里做（不放 `check_group`）：`check_group` 只在该字段
-    // **出现**时才被调用，作者漏写 owner 字段就会漏检。
+    // 校验放在 `apply_contract` 里做（不放 `check_group`）：owner 字段没出现时也要
+    // 按契约严格度判额外键，而 `check_group` 的 `present` 刻意不含 owner（见 GroupView）。
 }
 
 /// Registry of external types **and** external modifiers ｜ 外置类型注册表。
