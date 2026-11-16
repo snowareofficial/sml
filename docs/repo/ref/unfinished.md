@@ -47,6 +47,8 @@
 | 版本模型 | **字面量五端已同步（2026-11-13，P5）**：`vN` / `N` / `N.0` / `N0` / 代号全接受，`5.0` 族统一 `E-FEATURE-004`，且版本决定特性基集。仍欠：`Removed` 三态与专用码、兼容检查模块、`smltools --migrate` | `docs/swsml/spec/version.md` §7 |
 | FFI / 绑定层能力对等 | **`§0.6` 绑定层列整列收口**：诊断 / 多错误 / 契约表与契约映射（含 `sml_builtin_clone`）/ 三条 weak 旁路表 / 扩展选项 / 文件入口，C-ABI + 五门绑定全部对齐。剩本地四端（C / C++ / JS / Lua）的文件入口仍不交诊断 —— 各端 API 面议题，与 C-ABI 无关 | `docs/swsml/plan/crossend-sync.md` §0.6 / P7；`rust/src/c_abi.rs`；`bindings/README.md` |
 | TODO 里的跨端 7 项 | 顶层标量口径 L166 · 错误边界 L201 · Lua/JS 单测 L203 · C `sml_dump` 对齐 L204 · Lua 契约数组 L318 · Lua 嵌套数组 L967 · `k: "abc\` 三端三码 L1093 | `TODO.md` |
+| 契约数组元素校验 | **权威端 Rust 尚未实现**：`check_type` 对 `ContractRef` 只做轻量检查，组合契约的应用只发生在字段位置 ⇒ 数组元素缺必填字段被**静默放过**（JS / Lua 已正确报 `E-CONTRACT-003`，C / C++ 同样静默）。Rust 自带用例 `composition_array_element_is_still_validated` 正在断言该行为且**是红的**。施工前须定「元素要不要回填默认值」的口径（方案见台账） | `tests/conformance/known_divergences.md`；`rust/tests/contract.rs`；pending 用例 `80_contract_array_elem` |
+| 标识符白名单 `E-LEX-007` | **JS / Lua 已落地**（2026-11-16：白名单 + 六类拒绝 + 字符序号，接在键名 / 契约字段名 / featag 名，另加「每契约单一语种」）；**C / C++ 待收**（需 UTF-8 码点遍历 + 契约级脚本比较），待收期间开了 `lex.ident` 的文档在这两端静默放行 | `tests/conformance/known_divergences.md`；`errors/codes.sml`；pending 用例 `78` / `79` |
 
 ---
 

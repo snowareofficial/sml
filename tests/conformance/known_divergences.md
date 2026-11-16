@@ -60,6 +60,19 @@ U+AC00–U+D7AF）、六类拒绝共用一个码靠 detail 区分（路径保留
 UTF-8 码点遍历（C 是字节串、需手写解码；LuaJIT 同理，已在 Lua 端手写 `utf8_codepoints`）
 与契约级脚本比较；待收期间开了 `lex.ident` 的文档在这两端**静默放行**（静默缺口，非码漂移）。
 
+**契约数组的元素校验（pending 用例 `80_contract_array_elem`）**：**权威端 Rust 尚未实现**
+—— `sml-contract` 的 `check_type` 对 `ContractRef` 只做**轻量检查**（契约存在 + 值是块），
+而组合契约的**应用**（回填默认值 + 逐字段校验）只发生在**字段位置**；数组元素没有别的地方
+应用它 ⇒ `peers: [ { host: a } { } ]` 里第二个元素缺必填字段被**静默放过**。Rust 自带的
+`rust/tests/contract.rs::composition_array_element_is_still_validated` 正是在断言这个行为，
+且**当前是红的**（HEAD 版本同样红，属既存失败）。**JS / Lua 已正确**（报 `E-CONTRACT-003`，
+路径带下标 `peers[1].host`）；**C / C++ 同样静默放过**。⇒ 这是**权威端未完成实现**，不是码漂移。
+⚠️ 施工前要先定一个口径：**数组元素的组合契约要不要回填默认值**（Rust 的字段位置会回填，
+JS / Lua 的元素只校验不回填）—— 建议按 Rust 语义**回填**（元素也是字段的子结构），那就得让
+JS / Lua 补回填；若维持「只校验不回填」，则 Rust 侧需要一条**只校验**路径（给 `apply_contract`
+加内部的 `fill_defaults` 变体，不改 pub 签名），C / C++ 照此实现。三端都做完前，用例留在
+`cases/pending/`（DIVERGE 为预期）。
+
 ## 2026-11-15 复核
 
 实测 **AGREE 63 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`
