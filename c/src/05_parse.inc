@@ -999,7 +999,9 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                    （Rust 同码）。参数合法但本端未实现 mode，仍按「不支持该子命令」报 006
                    —— 不能把「没实现」谎报成「参数非法」。 */
                 if (strcmp(sub->v, "mode") == 0) {
-                    token *arg = peek(ps);
+                    token *arg;
+                    next(ps); /* 消费 `mode` 本身，否则 peek 拿到的还是 "mode" */
+                    arg = peek(ps);
                     if (arg && arg->t == T_WORD && arg->line == sub->line
                         && (strcmp(arg->v, "whitelist") == 0
                             || strcmp(arg->v, "blacklist") == 0)) {

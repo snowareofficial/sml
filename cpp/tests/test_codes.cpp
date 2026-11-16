@@ -974,7 +974,9 @@ static void test_feature_directive() {
     expect_ok("@feature enable when", "@version v1\n@feature enable when\nk: 1\n");
     expect_ok("@feature disable contract", "@feature disable contract\nk: 1\n");
     expect_ok("@feature enable 多个名字", "@feature enable when, for\nk: 1\n");
-    expect_code("未知特性名", "@feature enable nosuch\nk: 1\n", SML_E_FEATURE_002);
+    // 未知特性名是 E-FEATURE-003（002 的定义是「环境变量被禁用」）——
+    // 实现早已改报 003，这里是断言没跟上（与 Lua / Rust 同判据）。
+    expect_code("未知特性名", "@feature enable nosuch\nk: 1\n", SML_E_FEATURE_003);
     expect_code("@feature 缺参数", "@feature\nk: 1\n", SML_E_FEATURE_007);
     expect_code("@feature enable 缺名字", "@feature enable\nk: 1\n", SML_E_FEATURE_007);
     expect_code("mode 子命令本端未支持",

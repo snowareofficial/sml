@@ -40,6 +40,18 @@
 #include <string.h>
 #include <math.h>   /* isinf：钉住 1e400 -> Float(inf) 不回退 */
 
+/* 目录型辅助：include 越界用例需要一个「base 之外、且确实存在」的落点，
+   故入口文件放在子目录、目标文件放在它的父目录。 */
+#ifdef _WIN32
+#  include <direct.h>
+#  define tc_mkdir(p)  _mkdir(p)
+#  define tc_rmdir(p)  _rmdir(p)
+#else
+#  include <sys/stat.h>
+#  define tc_mkdir(p)  mkdir((p), 0777)
+#  define tc_rmdir(p)  rmdir(p)
+#endif
+
 #include "sml.h"
 #include "sml_codes.h"
 #include "sml_codes_msg.h"   /* W25：错误码本地化信息查找（由 gen_js_errors.py 生成） */
@@ -526,7 +538,9 @@ static void test_feature_codes(void) {
     expect_ok("@feature enable when", "@version v1\n@feature enable when\nk: 1\n");
     expect_ok("@feature disable contract", "@feature disable contract\nk: 1\n");
     expect_ok("@feature enable 多个名字", "@feature enable when, for\nk: 1\n");
-    expect_code("未知特性名", "@feature enable nosuch\nk: 1\n", SML_E_FEATURE_002);
+    /* 未知特性名是 E-FEATURE-003（002 的定义是「环境变量被禁用」）——
+       实现早已改报 003，这里是断言没跟上（与 Lua / Rust 同判据）。 */
+    expect_code("未知特性名", "@feature enable nosuch\nk: 1\n", SML_E_FEATURE_003);
     expect_code("@feature 缺参数", "@feature\nk: 1\n", SML_E_FEATURE_007);
     expect_code("@feature enable 缺名字", "@feature enable\nk: 1\n", SML_E_FEATURE_007);
     expect_code("mode 子命令本端未支持",
@@ -906,13 +920,24 @@ static void test_include_codes(void) {
     rm_file("_tc_cyc_a.sml");
     rm_file("_tc_cyc_b.sml");
 
-    /* 3) 越界：include 到基准目录之外（c/ 的上一级） */
-    if (write_file("_tc_esc.sml", "include \"../README.md\"\n") != 0) {
-        printf("FAIL: 无法写临时文件 _tc_esc.sml\n"); failures++;
+    /* 3) 越界：include 到基准目录之外。
+          基准目录 = **入口文件所在目录**（Rust 同口径），故入口放在子目录 `_tc_base/`，
+          目标 `_tc_outside.sml` 放在它的父目录 —— 既在 base 之外、又**确实存在**。
+          ⚠️ 目标必须存在：C 端先 fopen 再判越界，目标不存在时先落 E-INCLUDE-001
+          （与 Rust 的 canonicalize 失败同序），根本走不到越界判定。
+          改前本用例指向 `../README.md`：那**依赖运行目录**，在 `c/build/` 下压根不存在，
+          于是永远停在 001，越界判定形同虚设（红灯还是红的，但钉的不是越界那一格）。 */
+    if (tc_mkdir("_tc_base") != 0) {
+        printf("FAIL: 无法创建临时目录 _tc_base\n"); failures++;
+    } else if (write_file("_tc_outside.sml", "k: 1\n") != 0 ||
+               write_file("_tc_base/_tc_esc.sml", "include \"../_tc_outside.sml\"\n") != 0) {
+        printf("FAIL: 无法写越界临时文件\n"); failures++;
     } else {
-        expect_code_file("include 越出基准目录", "_tc_esc.sml", SML_E_INCLUDE_003);
+        expect_code_file("include 越出基准目录", "_tc_base/_tc_esc.sml", SML_E_INCLUDE_003);
     }
-    rm_file("_tc_esc.sml");
+    rm_file("_tc_base/_tc_esc.sml");
+    rm_file("_tc_outside.sml");
+    tc_rmdir("_tc_base");
 
     /* 4) 嵌套层数超过 MAX_INC_DEPTH(32)：d0 -> d1 -> ... -> d33 */
     for (i = 0; i <= 33; i++) {
