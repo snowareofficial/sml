@@ -50,6 +50,16 @@ JS** 用细分码：量词超上限报 `E-LIMIT-009`、量词取值非法报 `E-
 那三个码随之**无端产出**（标 deprecated，码保留以便旧脚本识别）。判据（量词上限 1000）本就
 与 JS 的 `QUANT_MAX` 对齐，改的是**码**，不是阈值。
 
+**E-LEX-007（标识符白名单，门控 `lex.ident`）：JS / Lua 已落地，C / C++ 待收**（pending 用例
+`78_ident_reserved` / `79_ident_mixed_script`）。判据照 Rust 的 `sml-lex/src/identifiers.rs`：
+白名单（ASCII 字母数字 + `_` `-` + 汉字 U+4E00–U+9FFF + 假名 U+3040–U+30FF + 谚文
+U+AC00–U+D7AF）、六类拒绝共用一个码靠 detail 区分（路径保留字符 / 空白与控制 / 零宽与双向
+控制 Cf / 组合标记 Mn·Mc / 同形字母 / 全角兼容区），位置是**字符序号**。接入三处：**键名**
+（跳过片段合并键 `&name`）、**契约字段名**、**featag 名**；外加契约级的「每契约单一语种」
+（同一契约的字段名 + featag 名必须同属一种文字系统）。⚠️ **C / C++ 两端待收**：本端尚无
+UTF-8 码点遍历（C 是字节串、需手写解码；LuaJIT 同理，已在 Lua 端手写 `utf8_codepoints`）
+与契约级脚本比较；待收期间开了 `lex.ident` 的文档在这两端**静默放行**（静默缺口，非码漂移）。
+
 ## 2026-11-15 复核
 
 实测 **AGREE 63 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`

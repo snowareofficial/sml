@@ -707,6 +707,90 @@ const KNOWN_FEATURES = new Set([
   "top-array", "bareword-str", "escape",
 ]);
 
+// ---------------------------------------------------------------------------
+// 标识符白名单（门控 `lex.ident`）—— 与 Rust `sml-lex/src/identifiers.rs` 同判据
+//
+// 白名单：`A-Z` `a-z` `0-9` `_` `-` + 汉字 U+4E00–U+9FFF + 假名 U+3040–U+30FF
+//        + 谚文音节 U+AC00–U+D7AF。
+// 六类拒绝共用 `E-LEX-007`，靠 detail 区分：路径保留字符 / 空白与控制 /
+// 不可见（零宽格式 Cf 与组合标记 Mn/Mc）/ 同形字母 / 全角兼容区 / 其余。
+//
+// 为什么组合标记单独拒绝：只收**预组合**码位（`é` = U+00E9），于是 **NFC 自动成立**，
+// 不需要归一化库，也不需要 Unicode 数据表。
+// ---------------------------------------------------------------------------
+const IDENT_COMBINING = [[0x0300, 0x036F], [0x0483, 0x0489], [0x1AB0, 0x1AFF],
+  [0x1DC0, 0x1DFF], [0x20D0, 0x20FF], [0xFE20, 0xFE2F]];
+const IDENT_CF = [[0x00AD, 0x00AD], [0x0600, 0x0605], [0x061C, 0x061C], [0x06DD, 0x06DD],
+  [0x070F, 0x070F], [0x180E, 0x180E], [0x200B, 0x200F], [0x202A, 0x202E], [0x2060, 0x2064],
+  [0x2066, 0x206F], [0xFEFF, 0xFEFF], [0xFFF9, 0xFFFB], [0x1D173, 0x1D17A],
+  [0xE0001, 0xE0001], [0xE0020, 0xE007F]];
+const IDENT_HOMOGLYPH = [[0x0370, 0x03FF], [0x0400, 0x04FF], [0x0500, 0x052F],
+  [0x0530, 0x058F], [0x1F00, 0x1FFF]];
+const IDENT_WIDE = [[0x2E80, 0x2EFF], [0x3000, 0x303F], [0x31C0, 0x31EF], [0xFE30, 0xFE4F],
+  [0xFF01, 0xFF60], [0xFFE0, 0xFFE6]];
+
+function inIdentRanges(u, ranges) {
+  for (const [lo, hi] of ranges) if (u >= lo && u <= hi) return true;
+  return false;
+}
+
+// 标识符用的是什么**文字系统**（只服务「每契约单一语种」，不参与单字符合法性判定）。
+// 汉字与假名算**同一族**（日文里汉字与假名本来就混写），与 Rust `Script::Cjk` 同口径。
+function identScript(s) {
+  for (const ch of s) {
+    const u = ch.codePointAt(0);
+    if ((u >= 0x41 && u <= 0x5A) || (u >= 0x61 && u <= 0x7A)) return "拉丁字母";
+    if ((u >= 0x4E00 && u <= 0x9FFF) || (u >= 0x3040 && u <= 0x30FF)) return "汉字/假名";
+    if (u >= 0xAC00 && u <= 0xD7AF) return "谚文";
+  }
+  return null;
+}
+
+// 校验一个标识符（键名 / 契约名 / featag 名）｜ 与 Rust `check_ident_err` 同判据。
+// 位置 `at` 是**字符序号**（1 起算），不是字节偏移 —— 与错误文案一致。
+function checkIdent(s) {
+  if (typeof s !== "string" || s.length === 0) {
+    throwCode("E-LEX-007", "sml: 标识符为空");
+  }
+  let at = 0;
+  for (const ch of s) {
+    at++;
+    const u = ch.codePointAt(0);
+    const hex = "U+" + u.toString(16).toUpperCase().padStart(4, "0");
+    if ((u >= 0x41 && u <= 0x5A) || (u >= 0x61 && u <= 0x7A) || (u >= 0x30 && u <= 0x39) ||
+        u === 0x5F || u === 0x2D) continue;                 // A-Z a-z 0-9 _ -
+    if (u >= 0x4E00 && u <= 0x9FFF) continue;               // CJK 汉字
+    if (u >= 0x3040 && u <= 0x30FF) continue;               // 假名
+    if (u >= 0xAC00 && u <= 0xD7AF) continue;               // 谚文音节
+    if (ch === "." || ch === "[" || ch === "]") {
+      throwCode("E-LEX-007", "sml: 第 " + at + " 个字符 `" + ch + "`（" + hex +
+        "）是路径语法保留字符，键名里不能出现 `.` `[` `]`");
+    }
+    if (/\s/.test(ch) || u < 0x20 || u === 0x7F) {
+      throwCode("E-LEX-007", "sml: 第 " + at + " 个字符是空白或控制字符（" + hex + "）");
+    }
+    // 组合标记 Mn/Mc（须排在同形字母块之前：「组合用西里尔字母」也在此区）
+    if (inIdentRanges(u, IDENT_COMBINING)) {
+      throwCode("E-LEX-007", "sml: 第 " + at + " 个字符是组合标记（Mn/Mc，非预组合 ⇒ 非 NFC）（" +
+        hex + "）——不可见，且能伪造看起来一样的名字");
+    }
+    if (inIdentRanges(u, IDENT_CF)) {
+      throwCode("E-LEX-007", "sml: 第 " + at + " 个字符是零宽/格式字符（Cf）（" + hex +
+        "）——不可见，且能伪造看起来一样的名字");
+    }
+    if (inIdentRanges(u, IDENT_HOMOGLYPH)) {
+      throwCode("E-LEX-007", "sml: 第 " + at + " 个字符 `" + ch + "`（" + hex +
+        "）是与拉丁字母同形的西里尔 / 希腊 / 亚美尼亚字母；声明处只允许一种字形，请改用 ASCII");
+    }
+    if (inIdentRanges(u, IDENT_WIDE)) {
+      throwCode("E-LEX-007", "sml: 第 " + at + " 个字符 `" + ch + "`（" + hex +
+        "）是全角 / 兼容区字符：与半角混用会「看起来一样、比较不等」");
+    }
+    throwCode("E-LEX-007", "sml: 第 " + at + " 个字符 `" + ch + "`（" + hex +
+      "）不在白名单内（只允许字母数字、`_` `-`、汉字 / 假名 / 谚文）");
+  }
+}
+
 // 特性名别名映射：JS 的写法（`bareword-str` / `top-array`）与 Rust 注册表
 // （`bareword-string` / `top-level-array`）同义。判定「某特性是否开启 / 是否被允许」时
 // 必须按**规范名**统一，否则 `enable bareword-string` 与 `bareword-str` 会被当成两回事。
@@ -2113,17 +2197,35 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
           d.target = segs;
         }
         if (featags.has(d.name)) fail("E-CONTRACT-019", "sml: `!" + d.name + "` 在本契约里出现了两次");
+        // 标识符白名单（门控 `lex.ident`）：featag 名同样是标识符
+        if (feats.has("lex.ident")) checkIdent(d.name);
         featags.set(d.name, d);
         continue;
       }
       if (peek().t !== "word") fail("E-PARSE-006", "sml: 契约字段期望名称, 得 " + peek().t);
       const fkey = peek().v; i++;
+      // 标识符白名单（门控 `lex.ident`）：字段名同样是标识符
+      if (feats.has("lex.ident")) checkIdent(fkey);
       if (peek() && peek().t === ":") i++;
       const sp = parseFieldSpec();
       fields[fkey] = sp;
       if (peek() && (peek().t === "," || peek().t === ";")) i++;
     }
     if (peek() && peek().t === "}") i++;
+    // 「每契约单一语种」（门控 `lex.ident`）：同一契约内的标识符（字段名 + featag 名）
+    // 必须同属一种文字系统 —— 契约就是那个命名空间（不同契约可以用不同语种）。
+    if (feats.has("lex.ident")) {
+      let seen = null;
+      for (const id of [...Object.keys(fields), ...featags.keys()]) {
+        const sc = identScript(id);
+        if (!sc) continue;              // 纯数字 / `_` / `-` 不参与
+        if (!seen) { seen = [sc, id]; continue; }
+        if (seen[0] !== sc) {
+          throwCode("E-LEX-007", "sml: `" + id + "`（" + sc + "）与 `" + seen[1] + "`（" + seen[0] +
+            "）混用了文字系统：同一契约内的标识符必须同属一种文字系统");
+        }
+      }
+    }
     return { fields, featags, strictPaths, allowAny };
   }
 
@@ -2870,6 +2972,12 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
         }
       }
       if (key === undefined) fail("E-PARSE-006", "sml: 期望键");
+      // 标识符白名单（门控 `lex.ident`）：键名不合规就在**这里**报，
+      // 不等下游（下游只会把 `a.b` 当成路径切错，症状离病因很远）。
+      // 片段合并键 `&name` 不是标识符，跳过 —— 它由片段表判对错。
+      if (feats.has("lex.ident") && typeof key === "string" && !key.startsWith("&")) {
+        checkIdent(key);
+      }
       // 键位置上的裸 `:`（P1 欠账，与 Rust / C 对齐）：`::` 被词法切成两个 `:`，
       // 第二个 `:` 落到**键位置**。此前把它当键名 ⇒ `X { a: B::C }` 静默得到
       // {"a":"B",":":"C"}（键被改、值被拆、**还不报错** —— 典型静默数据损坏）。

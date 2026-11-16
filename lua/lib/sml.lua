@@ -72,6 +72,124 @@ for i, n in ipairs({
   "lex.ident", "type.weak",
 }) do SML_FEATURE_NAMES[n] = i - 1 end
 
+-- ---------------------------------------------------------------------------
+-- 标识符白名单（门控 `lex.ident`）—— 与 Rust `sml-lex/src/identifiers.rs` 同判据
+--
+-- 白名单：`A-Z` `a-z` `0-9` `_` `-` + 汉字 U+4E00–U+9FFF + 假名 U+3040–U+30FF
+--        + 谚文音节 U+AC00–U+D7AF。
+-- 六类拒绝共用 `E-LEX-007`，靠 detail 区分：路径保留字符 / 空白与控制 /
+-- 不可见（零宽格式 Cf 与组合标记 Mn/Mc）/ 同形字母 / 全角兼容区 / 其余。
+--
+-- ⚠️ LuaJIT 的字符串是**字节串** ⇒ 遍历字符要先解码 UTF-8（`utf8_codepoints`）。
+-- ---------------------------------------------------------------------------
+local IDENT_COMBINING = { {0x0300,0x036F}, {0x0483,0x0489}, {0x1AB0,0x1AFF},
+  {0x1DC0,0x1DFF}, {0x20D0,0x20FF}, {0xFE20,0xFE2F} }
+local IDENT_CF = { {0x00AD,0x00AD}, {0x0600,0x0605}, {0x061C,0x061C}, {0x06DD,0x06DD},
+  {0x070F,0x070F}, {0x180E,0x180E}, {0x200B,0x200F}, {0x202A,0x202E}, {0x2060,0x2064},
+  {0x2066,0x206F}, {0xFEFF,0xFEFF}, {0xFFF9,0xFFFB}, {0x1D173,0x1D17A},
+  {0xE0001,0xE0001}, {0xE0020,0xE007F} }
+local IDENT_HOMOGLYPH = { {0x0370,0x03FF}, {0x0400,0x04FF}, {0x0500,0x052F},
+  {0x0530,0x058F}, {0x1F00,0x1FFF} }
+local IDENT_WIDE = { {0x2E80,0x2EFF}, {0x3000,0x303F}, {0x31C0,0x31EF}, {0xFE30,0xFE4F},
+  {0xFF01,0xFF60}, {0xFFE0,0xFFE6} }
+
+local function in_ident_ranges(u, ranges)
+  for _, r in ipairs(ranges) do
+    if u >= r[1] and u <= r[2] then return true end
+  end
+  return false
+end
+
+-- 本块定义在 `fail` 之前 ⇒ 不能直接引用它（Lua 的 local 在定义处才可见，
+-- 这里引用会解析成**全局** fail ⇒ 运行时 nil 调用）。故自带一个同语义的出口：
+-- 消息以码开头、码后一个空格，`level = 0`（不插位置前缀，与 fail 同口径）。
+local function ident_fail(code, msg)
+  error(code .. " sml: " .. msg, 0)
+end
+
+-- UTF-8 字节串 → 码点数组。非法字节按 U+FFFD 处理（它不在白名单内 ⇒ 会被拒）。
+local function utf8_codepoints(s)
+  local out = {}
+  local i, n = 1, #s
+  while i <= n do
+    local c = string.byte(s, i)
+    local cp, len
+    if c < 0x80 then cp, len = c, 1
+    elseif c < 0xC0 then cp, len = 0xFFFD, 1
+    elseif c < 0xE0 then cp, len = c - 0xC0, 2
+    elseif c < 0xF0 then cp, len = c - 0xE0, 3
+    elseif c < 0xF8 then cp, len = c - 0xF0, 4
+    else cp, len = 0xFFFD, 1 end
+    -- 续字节校验与累加：不全对就退化成单字节 U+FFFD（宁可报错，别放行半个字符）
+    local ok = true
+    for k = 1, len - 1 do
+      local b = string.byte(s, i + k)
+      if not b or b < 0x80 or b > 0xBF then ok = false break end
+      cp = cp * 64 + (b - 0x80)
+    end
+    if not ok then cp, len = 0xFFFD, 1 end
+    out[#out + 1] = cp
+    i = i + len
+  end
+  return out
+end
+
+-- 标识符用的是什么**文字系统**（只服务「每契约单一语种」，不参与单字符合法性判定）。
+-- 汉字与假名算**同一族**（日文里汉字与假名本来就混写），与 Rust `Script::Cjk` 同口径。
+local function ident_script(s)
+  for _, u in ipairs(utf8_codepoints(s)) do
+    if (u >= 0x41 and u <= 0x5A) or (u >= 0x61 and u <= 0x7A) then return "拉丁字母"
+    elseif (u >= 0x4E00 and u <= 0x9FFF) or (u >= 0x3040 and u <= 0x30FF) then return "汉字/假名"
+    elseif u >= 0xAC00 and u <= 0xD7AF then return "谚文" end
+  end
+  return nil
+end
+
+-- 校验一个标识符（键名 / 契约名 / featag 名）｜ 与 Rust `check_ident_err` 同判据。
+-- `at` 是**字符序号**（1 起算），不是字节偏移 —— 与错误文案一致。
+local function check_ident(s)
+  if type(s) ~= "string" or s == "" then
+    ident_fail("E-LEX-007", "标识符为空")
+  end
+  local at = 0
+  for _, u in ipairs(utf8_codepoints(s)) do
+    at = at + 1
+    local hex = string.format("U+%04X", u)
+    local ch = (u >= 0x20 and u < 0x7F) and string.char(u) or "?"
+    if (u >= 0x41 and u <= 0x5A) or (u >= 0x61 and u <= 0x7A) or (u >= 0x30 and u <= 0x39)
+       or u == 0x5F or u == 0x2D then
+      -- A-Z a-z 0-9 _ -（通过）
+    elseif u >= 0x4E00 and u <= 0x9FFF then
+      -- 汉字（通过）
+    elseif u >= 0x3040 and u <= 0x30FF then
+      -- 假名（通过）
+    elseif u >= 0xAC00 and u <= 0xD7AF then
+      -- 谚文音节（通过）
+    elseif u == 0x2E or u == 0x5B or u == 0x5D then
+      ident_fail("E-LEX-007", "第 " .. at .. " 个字符 `" .. ch .. "`（" .. hex ..
+        "）是路径语法保留字符，键名里不能出现 `.` `[` `]`")
+    elseif u <= 0x20 or u == 0x7F or u == 0xA0 or u == 0x1680 or u == 0x205F
+       or (u >= 0x2000 and u <= 0x200A) or u == 0x2028 or u == 0x2029 then
+      ident_fail("E-LEX-007", "第 " .. at .. " 个字符是空白或控制字符（" .. hex .. "）")
+    elseif in_ident_ranges(u, IDENT_COMBINING) then
+      ident_fail("E-LEX-007", "第 " .. at .. " 个字符是组合标记（Mn/Mc，非预组合 ⇒ 非 NFC）（" .. hex ..
+        "）——不可见，且能伪造看起来一样的名字")
+    elseif in_ident_ranges(u, IDENT_CF) then
+      ident_fail("E-LEX-007", "第 " .. at .. " 个字符是零宽/格式字符（Cf）（" .. hex ..
+        "）——不可见，且能伪造看起来一样的名字")
+    elseif in_ident_ranges(u, IDENT_HOMOGLYPH) then
+      ident_fail("E-LEX-007", "第 " .. at .. " 个字符 `" .. ch .. "`（" .. hex ..
+        "）是与拉丁字母同形的西里尔 / 希腊 / 亚美尼亚字母；声明处只允许一种字形，请改用 ASCII")
+    elseif in_ident_ranges(u, IDENT_WIDE) then
+      ident_fail("E-LEX-007", "第 " .. at .. " 个字符 `" .. ch .. "`（" .. hex ..
+        "）是全角 / 兼容区字符：与半角混用会「看起来一样、比较不等」")
+    else
+      ident_fail("E-LEX-007", "第 " .. at .. " 个字符 `" .. ch .. "`（" .. hex ..
+        "）不在白名单内（只允许字母数字、`_` `-`、汉字 / 假名 / 谚文）")
+    end
+  end
+end
+
 -- 当前文档的特性开关（每次 load 重置为基线 0..7）。nil / false = 关。
 local _FEATURES = nil
 
@@ -1847,6 +1965,8 @@ local function parse_contract_body(tokens, i, fragments, cname)
         if featags[d.name] ~= nil then
           fail("E-CONTRACT-019", "sml: `!" .. d.name .. "` 在本契约里出现了两次")
         end
+        -- 标识符白名单（门控 `lex.ident`）：featag 名同样是标识符
+        if _FEATURES and _FEATURES[18] then check_ident(d.name) end
         featags[d.name] = d
       end
     elseif tok == "," then
@@ -1855,6 +1975,8 @@ local function parse_contract_body(tokens, i, fragments, cname)
       fail("E-PARSE-006", "契约字段期望键，得结构记号 '" .. tok .. "'")
     else
       local key = unquote(tok)
+      -- 标识符白名单（门控 `lex.ident`）：字段名同样是标识符
+      if _FEATURES and _FEATURES[18] then check_ident(key) end
       i = i + 1
       if tokens[i] ~= ":" then
         fail("E-PARSE-006", "契约字段 `" .. key .. "` 后须有冒号")
@@ -1863,6 +1985,25 @@ local function parse_contract_body(tokens, i, fragments, cname)
       local spec
       spec, i = parse_field_spec(tokens, i, fragments)
       fields[key] = spec
+    end
+  end
+  -- 「每契约单一语种」（门控 `lex.ident`）：同一契约内的标识符（字段名 + featag 名）
+  -- 必须同属一种文字系统 —— 契约就是那个命名空间（不同契约可以用不同语种）。
+  if _FEATURES and _FEATURES[18] then
+    local ids = {}
+    for k in pairs(fields) do ids[#ids + 1] = k end
+    for n in pairs(featags) do ids[#ids + 1] = n end
+    local seen_sc, seen_id = nil, nil
+    for _, id in ipairs(ids) do
+      local sc = ident_script(id)
+      if sc then
+        if not seen_sc then
+          seen_sc, seen_id = sc, id
+        elseif seen_sc ~= sc then
+          ident_fail("E-LEX-007", "`" .. id .. "`（" .. sc .. "）与 `" .. seen_id .. "`（" ..
+            seen_sc .. "）混用了文字系统：同一契约内的标识符必须同属一种文字系统")
+        end
+      end
     end
   end
   return fields, i, featags, strict_paths, allow_any
@@ -2864,6 +3005,12 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
       end
       -- 读 key
       local key = tok
+      -- 标识符白名单（门控 `lex.ident`）：键名不合规就在这里报，不等下游
+      -- （下游只会把 `a.b` 当成路径切错，症状离病因很远）。
+      -- 片段合并键 `&name` 不是标识符，跳过 —— 它由片段表判对错。
+      if _FEATURES and _FEATURES[18] and string.sub(key, 1, 1) ~= "&" then
+        check_ident(unquote(key))
+      end
       -- 键名位置不支持 `${...}` 插值（循环变量只可用于值位置）。
       -- No `$` interpolation in key position (E-PARSE-013).
       if string.find(key, "%${", 1, false) then
