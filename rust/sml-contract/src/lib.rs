@@ -368,6 +368,62 @@ pub fn check_from_featag(
 /// 由调用方在递归时用 [`join_path`] 拼接后传入，仅用于错误信息定位。
 ///
 /// `warnings` 透传至 [`apply_contract`]（组合契约自身的 warn 态告警也要收集）。
+/// 只校验、**不回填默认值**：用在**数组元素**位置上的组合契约。
+///
+/// 为什么需要它：组合契约的**应用**（回填 `default` + 逐字段校验）只发生在**字段**位置
+/// （`apply_contract` 步骤 2 的 `ContractRef` 分支）；数组元素没有别的地方会应用它 ⇒
+/// 元素缺必填字段会被**静默放过**（此前 Rust / C / C++ 都这样，JS / Lua 早已逐元素校验）。
+///
+/// 为什么**不回填**：元素不是字段 —— 回填会改用户的树，而校验不需要改树。
+/// 故此处与 JS / Lua 同口径：**只报错，不改数据**。
+fn check_contract_only(
+    c: &Contract,
+    node: &Map,
+    contracts: &BTreeMap<String, Contract>,
+    path: &str,
+) -> Result<(), SmlError> {
+    // 严格性：strict 下额外键 ⇒ 004（与 `apply_contract` 步骤 1 同判据）。
+    if c.strictness == Strictness::Strict {
+        for k in node.keys() {
+            if !c.fields.contains_key(k) {
+                return Err(SmlError::from_code_title(E_CONTRACT_004).with_detail(format!(
+                    "字段 `{}` 未在契约 `{}` 中声明（严格模式；如需允许额外字段请在契约名后写 `loose`/`warn`）",
+                    join_path(path, k), c.name
+                )));
+            }
+        }
+    }
+    // 逐字段：必填缺失 + 类型校验。缺字段且**有** `default` 时不报错（只是不填）。
+    for (k, spec) in &c.fields {
+        match node.get(k) {
+            None => {
+                if spec.required {
+                    return Err(SmlError::from_code_title(E_CONTRACT_003).with_detail(format!(
+                        "字段 `{}` 必填但缺失（契约 `{}`）", join_path(path, k), c.name
+                    )));
+                }
+            }
+            Some(v) => {
+                let field_path = join_path(path, k);
+                if let TypeSpec::ContractRef(ref_name) = &spec.ty {
+                    // 组合字段：先按**原值**校验（必须是块、契约必须存在），再按被引用
+                    // 契约**只校验**一次。`check_type` 需要一个 warnings 出口，这里给一个
+                    // 丢弃用的 sink —— 只校验路径本就不产契约告警（与 JS / Lua 同）。
+                    let mut sink = Vec::new();
+                    check_type(&c.name, &field_path, spec, v, contracts, &mut sink)?;
+                    if let (Value::Object(m), Some(inner)) = (v, contracts.get(ref_name)) {
+                        check_contract_only(inner, m, contracts, &field_path)?;
+                    }
+                } else {
+                    let mut sink = Vec::new();
+                    check_type(&c.name, &field_path, spec, v, contracts, &mut sink)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn check_type(
     contract: &str,
     path: &str,
@@ -458,7 +514,17 @@ fn check_type(
             from_featag: false,
         };
         for (i, it) in items.iter().enumerate() {
-            check_type(contract, &format!("{}[{}]", path, i), &elem, it, contracts, warnings)?;
+            let elem_path = format!("{}[{}]", path, i);
+            // 组合契约的元素：契约的**应用**（回填 `default` + 逐字段校验）只发生在
+            // **字段**位置 ⇒ 数组元素没人校验 ⇒ 缺必填字段会被**静默放过**
+            // （此前 Rust / C / C++ 都这样，JS / Lua 早已逐元素校验）。
+            // 这里补一次**只校验**：只报错、**不改树**（元素不是字段，回填会改用户的数据）。
+            if let TypeSpec::ContractRef(ref_name) = &elem.ty {
+                if let (Value::Object(m), Some(inner)) = (it, contracts.get(ref_name)) {
+                    check_contract_only(inner, m, contracts, &elem_path)?;
+                }
+            }
+            check_type(contract, &elem_path, &elem, it, contracts, warnings)?;
         }
         // 元素全部通过。数组本身不参与 min/max 区间校验（那是数值语义）。
         // 但**外置修饰符仍要跑**（`items_max` 这类约束正是作用在数组整体上），

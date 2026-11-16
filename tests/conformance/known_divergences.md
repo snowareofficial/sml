@@ -60,18 +60,21 @@ U+3040–U+30FF + 谚文 U+AC00–U+D7AF）、六类拒绝共用一个码靠 det
 C 是字节串、需自己解 UTF-8 码点；C++ 的引号串存成**带引号的** Word ⇒ 校验前先去引号；
 两端的「单一语种」检查都放在契约体**收齐之后**（字段名 + featag 名一起比）。
 
-**契约数组的元素校验（pending 用例 `80_contract_array_elem`）**：**权威端 Rust 尚未实现**
+**契约数组的元素校验（pending 用例 `80_contract_array_elem`）**：**权威端 Rust 已修**（2026-11-16）
 —— `sml-contract` 的 `check_type` 对 `ContractRef` 只做**轻量检查**（契约存在 + 值是块），
 而组合契约的**应用**（回填默认值 + 逐字段校验）只发生在**字段位置**；数组元素没有别的地方
 应用它 ⇒ `peers: [ { host: a } { } ]` 里第二个元素缺必填字段被**静默放过**。Rust 自带的
 `rust/tests/contract.rs::composition_array_element_is_still_validated` 正是在断言这个行为，
-且**当前是红的**（HEAD 版本同样红，属既存失败）。**JS / Lua 已正确**（报 `E-CONTRACT-003`，
-路径带下标 `peers[1].host`）；**C / C++ 同样静默放过**。⇒ 这是**权威端未完成实现**，不是码漂移。
-⚠️ 施工前要先定一个口径：**数组元素的组合契约要不要回填默认值**（Rust 的字段位置会回填，
-JS / Lua 的元素只校验不回填）—— 建议按 Rust 语义**回填**（元素也是字段的子结构），那就得让
-JS / Lua 补回填；若维持「只校验不回填」，则 Rust 侧需要一条**只校验**路径（给 `apply_contract`
-加内部的 `fill_defaults` 变体，不改 pub 签名），C / C++ 照此实现。三端都做完前，用例留在
-`cases/pending/`（DIVERGE 为预期）。
+改前**是红的**（HEAD 版本同样红），现**已转绿**。
+⚠️ **口径已定：只校验、**不回填**默认值** —— 元素不是字段，回填会改用户的树；而校验不需要改树。
+故 Rust 侧新增 `check_contract_only`（只读路径：严格性 + 必填 + 类型 + 组合递归，**不**回填、
+**不**产契约告警），数组分支对 `ContractRef` 元素调用它；这与 JS / Lua 的既有行为**逐格一致**
+（报 `E-CONTRACT-003`，路径带下标 `peers[1].host`），值树也不变。
+**C / C++ 两端待收**（它们的缺口更深一层）：数组元素类型解析**根本没回落成契约引用**
+（`[Endpoint]` 的 `arr_inner` 留在 `CT_ANY` ⇒ 元素一律放行），故要改两处 —— ① 元素类型解析：
+非内置名在 `@type` 之外**回落成 `CT_CONTRACTREF`**（C 端 `cfield` 需加 `arr_ref_name` 字段，
+`contract_free` 一并释放；C++ 端 `FieldSpec` 同理）；② `CT_ARRAY` 分支加元素逐个**只校验**
+（不填默认值）。三端都收完前，用例留在 `cases/pending/`（DIVERGE 为预期）。
 
 ## 2026-11-15 复核
 
