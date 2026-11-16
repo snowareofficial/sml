@@ -13,19 +13,19 @@
 
 | 维度 | 实测值 | 复核命令 |
 |---|---|---|
-| TODO 未勾 | **44** | `Select-String TODO.md '^\s*- \[ \]'` |
-| TODO 已勾 | **75** | `Select-String TODO.md '^\s*- \[ x\]'` |
+| TODO 未勾 | **45** | `Select-String TODO.md '^\s*- \[ \]'` |
+| TODO 已勾 | **76** | `Select-String TODO.md '^\s*- \[ x\]'` |
 | TODO 非复选框欠账 | **8** | 人工取自 `TODO.md` 表格行 / `⬜` 标记 / `⏳ 待修`（本文 T43–T50，逐行注来源） |
 | IDEAS 条目 | **33**（I-1…I-33；其中 I-12 = `Rejected`、I-24 待裁决；I-24…I-33 只在本表，未回写 `IDEAS.md`） | `Select-String docs/repo/ref/todo-ideas-tables.md '^\| I-\d+'` |
-| 码表条目 | **167**（含 `W-CLI-001`） | `Select-String errors/codes.sml '\{ id: [EWI]-'`；生成物 `site/static/errors.json` |
-| 仅 Rust 实现（`impls: [ rust ]`） | **44**；语言层 **36**（PARSE 15 / CONTRACT 9 / FEATURE 4 / INCLUDE 3 / EXT 3 / LEX 1 / LIMIT 1）+ DERIVE 8（宿主绑定层，Rust 专属，不是跨端欠账）。2026-11-13 回填：`W-PARSE-001` 五端 done、`W-CONTRACT-001` 五端 partial，故 PARSE 16→15、CONTRACT 10→9；剩余是**逐码实现缺口**，不再是「无诊断通道」（五端都有出口） | `Select-String errors/codes.sml 'impls: \[ rust \]'`，按 `domain` 分组 |
+| 码表条目 | **175**（含 `W-CLI-001`） | `Select-String errors/codes.sml '\{ id: [EWI]-'`；生成物 `site/static/errors.json` |
+| 仅 Rust 实现（`impls: [ rust ]`） | **41**；语言层 **33**（PARSE 15 / CONTRACT 9 / INCLUDE 3 / EXT 3 / FEATURE 1 / LEX 1 / LIMIT 1）+ DERIVE 8（宿主绑定层，Rust 专属，不是跨端欠账）。剩余是**逐码实现缺口**，不再是「无诊断通道」（五端都有出口） | `Select-String errors/codes.sml 'impls: \[ rust \]'`，按 `domain` 分组 |
 | 一致性套件 | **63 例 / AGREE 63 / DIVERGE 0**（`19` 以 `*` 放行） | `python tests/conformance/run_conformance.py --require-all`；`docs/repo/ref/scan.md` |
 | `.vsix` 产物 vs 源码 | 产物与 `package.json` 都是 **0.5.6**（2026-11-16 重打） | `Get-ChildItem editors/vscode -Filter *.vsix` |
 | 本会话新增（表 1.5，N01–N06） | **6**（已完成 4 / 部分完成 1 / 未做 1） | 见 `## 表 1.5` |
 
 **三处与旧文档不一致（以本表为准，别照抄旧数字）**
 
-1. `TODO.md:812` 写「146 条码」——`site/static/errors.json` 实测 **167 条**（`W-CLI-001` 登记后）。
+1. `TODO.md:812` 写「146 条码」——`site/static/errors.json` 实测 **175 条**（`W-CLI-001` 登记后）。
 2. `TODO.md:166`「顶层标量未统一」、`TODO.md:149`「一致性套件本轮不做」都是**过期未勾**：前者五端已同报 `E-PARSE-008`，后者套件已建（63 例）。
 3. `IDEAS.md` 的 `I-23` 写 `Todo`、`I-18` 写「零实现」、`TODO.md §10.1` 写 `smlb` 待裁决 —— 均已被 2026-11-06 覆盖：改名 B 档落地（`0f1c7f4`）、性能 A/B 全落（`b5ec96a`…`f6c19b3`）。见 T29 / I-18 / I-23 行。
 
@@ -74,9 +74,9 @@
 | T37 | 13.1 存档（tag + 四份基线） | 未做（不改一行代码，可立即做） | P1 | 无 | `git tag -a pre-deep-2026-11-06`；两份 bench + smlb 测试 + fuzz 语料快照；从 tag 能重建同机同数字 | `TODO.md:1603` | 实现者 |
 | T38 | 13.2 优化（只做能测出收益的） | 未做 | P2 | T37 | 同负载 bench ≥15%，`eq_ordered` / fuzz 不回归，语义零改动 | `TODO.md:1611` | 实现者 |
 | T39 | 13.3 漏洞 / 缺陷检查 | 未做 | P1 | T37 | 每条给「位置 / 复现 / 影响 / 修法 / 回归测试」；无复现的降级为待验证并留在清单 | `TODO.md:1621` | 实现者 |
-| T40 | 14.1 文件归档一刀切 | 未做（受控 `_*` 18 个，磁盘约 231 个） | P1 | 无 | 同一批提交内：新目录 + 全部内容 + 引用改路径 + 旧位置清空；例外在 `meta.sml` 记 `status: keep` | `TODO.md:1645` | 实现者 |
-| T41 | 14.2 文档元数据 `docs/meta.sml` | 未做 | P1 | T40 | `meta.sml` + `changes.sml` 存在；`docs/index.md` / `report.md` 由前者生成 | `TODO.md:1658` | 实现者 |
-| T42 | 14.3 `smltools docs` 扫描器 | 未做（当前无 `docs` 子命令） | P1 | T41 | `--check` 进 CI：未登记 / 断链 / `stale` 无替代者即红；`--fix` 只做机械补全 | `TODO.md:1681` | 实现者 |
+| T40 | 14.1 文件归档一刀切 | **已完成（2026-11-06，`0ba32af`）**：目录按产品线重组，`_*` 收进 `_scratch/`，`.gitignore` 带「必须入库的 `_*` 例外」表 | P1 | 无 | 同一批提交内：新目录 + 全部内容 + 引用改路径 + 旧位置清空 | `TODO.md:1645` | 无 |
+| T41 | 14.2 文档元数据 `docs/meta.sml` | **已完成（2026-11-06，`0ba32af`）**：`docs/meta.sml` + `docs/changes.sml` 在位；`docs/index.md` / `report.md` 由 smldocs 生成 | P1 | T40 | `meta.sml` + `changes.sml` 存在；`docs/index.md` / `report.md` 由前者生成 | `TODO.md:1658` | 无 |
+| T42 | 14.3 文档门禁 | **已完成（2026-11-06，`0ba32af`）**：落点是内部 crate `rust/smldocs`（`--index` / `--report` / `--check`），`--check` 已进 CI。**刻意不进 `smltools`** —— 换一个仓库就毫无意义的命令不属于产品 CLI（`AGENTS.md` §4） | P1 | T41 | `--check` 进 CI：未登记 / 断链 / `stale` 无替代者即红 | `TODO.md:1681` | 无 |
 | T43 | W4-片段行级展开（C++ 缺行级 `&frag` splice） | 本批纳入五端同步（2026-11-12 裁决，✋ 解除） | P1 | P1 | `@base {a:1}` + `w { c:3` + `&base }` 在 C++ 与 Rust 同树；`10`/`11` 转 AGREE | `TODO.md:1181`、`docs/swsml/plan/crossend-sync.md` §0.1 | 实现者 |
 | T44 | W6 Lua 走 native 绑定做契约 | 挂起（用户已定「native 可先不做」） | P2 | 无 | 无需完成；保持口径「能力已由纯 Lua 实现，本条只是性能/一致性收益」 | `TODO.md:1184` | 用户（已裁决不做） |
 | T45 | W7 JS / 编辑器侧一次报多条错误 | 未做（Rust 已做 `collect_errors`） | P2 | T01 | JS `parse` 返回多错 + 编辑器一次显示；旧 `parse()` 行为不变 | `TODO.md:1185` | 实现者 |
@@ -84,7 +84,7 @@
 | T47 | W23 JS include 架构（不带子文件片段/契约/类型表） | 未做 | P1 | T01 | `examples/app.sml` 与「契约在被包含文件里」两例在 JS 与 Rust 同树，既有 `E-INCLUDE-*` 不回归 | `TODO.md:1212` | 实现者 |
 | T48 | Lua 三引号丢键 + `@feature … # 注释` 吞下一行 | 本批纳入五端同步（2026-11-12 裁决，覆盖「先不动 Lua」） | P2 | P1 | 两条用例在 Lua 下输出含 `x`，与 Rust/JS 同树 | `TODO.md:915`、`TODO.md:917`、`docs/swsml/plan/crossend-sync.md` §0.1 | 实现者 |
 | T49 | 私库非交互推送（SSH / GCM / Token） | 未做（现 HTTP 明文 + 无凭据助手） | P2 | 无 | 配 SSH key（22 端口已开）或 token 后 `git push` 无交互成功 | `TODO.md:1123` | 用户 |
-| T50 | v5 定稿（表 A 逐条实测 + 规范转 `current`） | 暂缓（2026-11-12 裁决「v5 没定稿，先做多端同步」）：表 A 实测结论已登记为发布前置，A8 / A12 实现后置，`50` 保持不启用；**不阻塞本批跨端同步** | P0 | T33 / I-6 | 表 A 13 条逐条实测结论齐备、A8 / A12 缺口补齐、B6–B10 文档回填；`E-FEATURE-004` 启用位维持关闭 | `docs/swsml/spec/v5.md`、`docs/swsml/plan/crossend-sync.md` §0 | 用户（v5 何时定稿/开放） |
+| T50 | v5 定稿（表 A 逐条实测 + 规范转 `current`） | 排期已定（2026-11-16）：**`0.6.9` 是 `0.7` 前最后一个 `0.6`，`5.0` 随 `0.7` 定稿；`0.6.4` 之后的内容一律归 v5**。表 A 实测结论已登记为发布前置，A8 / A12 实现后置，定稿前 `50` 保持不启用 | P0 | T33 / I-6 | 表 A 13 条逐条实测结论齐备、A8 / A12 缺口补齐、B6–B10 文档回填；`E-FEATURE-004` 启用位在 `0.7` 那一批打开 | `docs/swsml/spec/v5.md`、`docs/swsml/spec/version.md` §2.1、`docs/repo/ref/pending-decisions.md` D7 | 用户（0.7 发布时点） |
 
 ---
 
@@ -222,15 +222,15 @@
 
 ```bash
 # 仓库根
-Select-String TODO.md '^\s*- \[ \]'                        # 44
-Select-String TODO.md '^\s*- \[x\]'                        # 75
+Select-String TODO.md '^\s*- \[ \]'                        # 45
+Select-String TODO.md '^\s*- \[x\]'                        # 76
 Select-String IDEAS.md '^## I-\d+'                         # 23
-Select-String errors/codes.sml '\{ id: [EWI]-'             # 166
-Select-String errors/codes.sml '^\s*impls:\s*\[\s*rust\s*\]'  # 46（语言层 38 + DERIVE 8）
-python tests/conformance/run_conformance.py                # 41 例，AGREE/DIVERGE 现算
+Select-String errors/codes.sml '\{ id: [EWI]-'             # 175
+Select-String errors/codes.sml '^\s*impls:\s*\[\s*rust\s*\]'  # 41（语言层 33 + DERIVE 8）
+python tests/conformance/run_conformance.py                # 63 例，AGREE/DIVERGE 现算
 
 # 工具能力是否存在（0 命中 = 不存在）
-Get-ChildItem rust/smltools -Recurse -Include *.rs | Select-String 'check-version'  # 0 → T16 门禁未做
+Get-ChildItem rust/smltools -Recurse -Include *.rs | Select-String 'check-version'  # 0 → I-16 门禁未做
 Get-ChildItem rust/smltools -Recurse -Include *.rs | Select-String 'split-by'       # 0 → I-20 未做
-Get-ChildItem rust/smltools -Recurse -Include *.rs | Select-String '"docs"'         # 3 处均为 --hugo-section / --zola-section 默认值，无 docs 子命令 → T42 未做
+Get-ChildItem rust/smltools -Recurse -Include *.rs | Select-String '"docs"'         # 3 处均为 --hugo-section / --zola-section 默认值；文档门禁刻意放内部 crate smldocs（T42 已完成）
 ```

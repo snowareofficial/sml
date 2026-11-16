@@ -29,6 +29,9 @@
 | 14 | `typed-block` | 14 | ❌ opt-in | `type` |
 | 15 | `case-insensitive` | 15 | ❌ opt-in | `type` |
 | 16 | `block-name` | 16 | ❌ opt-in | `type` |
+| 17 | `type.featag` | 17 | ❌ opt-in | `type` |
+| 18 | `lex.ident` | 18 | ❌ opt-in | `lex` |
+| 19 | `type.weak` | 19 | ❌ opt-in | `type` |
 
 **版本支持矩阵（实测，见 `errors/codes.sml` 的 `E-FEATURE-004` note）**：
 
@@ -39,6 +42,10 @@
 | C | 到 v3 |
 | C++ | **不校验**：`cpp/sml.cpp:1030` 遇到 `@version` 直接跳过其值 ⇒ v5 对它「透明」（既不拒绝、也不支持新语法） |
 | Lua | 仅 v1 |
+
+> **v5 边界（2026-11-16 定）**：`0.6.4` 之后新增的内容一律归 `5.0`；`0.6.9` 是 `0.7`（定稿）前最后一个 `0.6`。
+> 表里 17–19 行（`type.featag` / `lex.ident` / `type.weak`）都属于这批内容，故在 `v1`–`v4` 里只有 opt-in
+> 一条路，定稿时随 `5.0` 固化（`docs/swsml/spec/version.md` §2.1）。
 
 ## 2. 硬约束（决定了「整理」不能怎么做）
 
@@ -53,9 +60,9 @@
 
 | 域 | 管什么 | 现有成员（仅归类，**字符串不变**） | 新增成员示例 |
 |---|---|---|---|
-| `lex` | 词法、字符串、环境 | `bareword-string` `env` | —— |
+| `lex` | 词法、字符串、环境 | `bareword-string` `env` `lex.ident` | —— |
 | `mod` | 模块化、复用 | `include` `namespace` `implicit-ns` `multi-include` `glob-include` `regex-include` `ext-rewrite` `fragment` | —— |
-| `type` | 类型与契约 | `contract` `typed-block` `case-insensitive` `block-name` | **`type.featag`** |
+| `type` | 类型与契约 | `contract` `typed-block` `case-insensitive` `block-name` `type.featag` `type.weak` | —— |
 | `flow` | 求值与顶层形状 | `when` `for` `top-level-array` | —— |
 
 规则：

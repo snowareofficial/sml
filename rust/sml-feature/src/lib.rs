@@ -456,7 +456,7 @@ pub struct EditionRow {
 /// |---|---|---|
 /// | `1.0` | `v1` / `1` / `10` | 允许裸词字符串 |
 /// | `2.0` / `3.0` / `4.0` | `vN` / `N` / `N0` | 关掉裸词字符串（须引号）；三者特性位相同，差异在语法层 |
-/// | `5.0`（`camelia`，Dev） | `v5` / `50` / `5.0` | 同上；开发期新能力一律 opt-in，定稿才固化进来 |
+/// | `5.0`（`camelia`，Dev） | `v5` / `50` / `5.0` | 同上；开发期新能力一律 opt-in，定稿才固化进来（`0.6.4` 之后的内容归 `5.0`，随 `0.7` 定稿，见 `docs/swsml/spec/version.md` §2.1） |
 pub static EDITIONS: &[EditionRow] = &[
     EditionRow {
         edition: Edition::V1,

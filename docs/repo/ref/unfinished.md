@@ -52,9 +52,12 @@
 
 ## 3. 主线 B：v5 定稿（`.smlb` 的前置）
 
+> **排期（2026-11-16 定，D7）**：`0.6.9` 是 `0.7` 前最后一个 `0.6`；`0.6.4` 之后的内容一律归 `5.0`，
+> 随 `0.7` 定稿 —— 口径见 `docs/repo/ref/pending-decisions.md` D7、`docs/swsml/spec/version.md` §2.1。
+
 | 项 | 内容 | 来源 |
 |---|---|---|
-| `5.0` 启用 | 现在 `Dev` + 报 `E-FEATURE-004`；表 A 实现已先行，定稿时按 11 条逐条实测 | `docs/swsml/spec/v5.md` A 表、`docs/repo/ref/todo-ideas-tables.md` T50 |
+| `5.0` 启用 | 现在 `Dev` + 报 `E-FEATURE-004`；随 `0.7` 打开启用位。表 A 实现已先行，定稿时按 11 条逐条实测 | `docs/swsml/spec/v5.md` A 表、`docs/repo/ref/todo-ideas-tables.md` T50 |
 | B8 | 跨端版本号统一（C 0.2.0 / VSIX 0.5.0 / Rust 0.6.x） | `docs/swsml/spec/v5.md` 表 B |
 | B9 | Rust emit 对 null 的产出不统一（md 丢、html 写 `(空)`） | `docs/swsml/spec/v5.md` 表 B、`docs/swsml/spec/null.md` N5-b |
 | B10 | 五端 null 往返一致（C/C++/Lua 用例待补） | `docs/swsml/spec/v5.md` 表 B |
