@@ -164,22 +164,22 @@ codes: [
       note: "`@for` 的循环变量只作用于值位置；动态键请改用数组表达" }
     { id: E-PARSE-014 domain: PARSE severity: E title: "when 条件非法"
       msg: "`@when` 的条件非法：缺少条件、左侧不是环境变量，或环境变量名缺失"
-      impls: [ rust ] status: partial
+      impls: [ rust js c cpp lua ] status: partial
       note: "只支持环境变量形式的左侧；文档内字段引用暂不支持" }
     { id: E-PARSE-015 domain: PARSE severity: E title: "when 缺少比较值"
       msg: "`@when` 的比较运算符后缺少比较值"
-      impls: [ rust ] status: partial
+      impls: [ rust js c cpp lua ] status: partial
       note: "写成了运算符后直接换行；正确形式见规范的条件一节" }
     { id: E-PARSE-016 domain: PARSE severity: E title: "when 连续出现"
       msg: "`@when` 连续出现：它只作用于紧邻的下一个字段或块"
-      impls: [ rust ] status: partial }
+      impls: [ rust js c cpp lua ] status: partial }
     { id: E-PARSE-017 domain: PARSE severity: E title: "when 后无字段或块"
       msg: "`@when` 后未跟随任何字段或块"
-      impls: [ rust ] status: partial
+      impls: [ rust js c cpp lua ] status: partial
       note: "悬空的 `@when`：它只作用于紧邻的下一个字段或块" }
     { id: E-PARSE-018 domain: PARSE severity: E title: "for 语法非法"
       msg: "`@for` 语法非法：缺少循环变量、缺少 `in`、缺少枚举项，或缺少循环体"
-      impls: [ rust ] status: partial
+      impls: [ rust js c cpp lua ] status: partial
       note: "`in` 之后至少须有一个枚举项" }
     { id: E-PARSE-019 domain: PARSE severity: E title: "指令头语法非法"
       msg: "指令头语法非法：`@contract` / `@is` / `@type` 后缺少契约名、类型名或模式体"
@@ -256,11 +256,11 @@ codes: [
       note: "featag S6（§6.1 规则 3）。默认（未开 `!strict-paths`）父对象会**自动创建** —— 那是「插入」不是「覆盖」；契约级开关 `!strict-paths` 打开后要求父对象已存在，缺了就报本码。路径上某键已是标量 / 数组时也报本码（没法往里放键）。与 E-CONTRACT-022 分开：「已存在」是要覆盖、「父不存在」是路走不通，用户的改法完全不同" }
     { id: E-CONTRACT-021 domain: CONTRACT severity: E title: "featag 未声明或用法与声明不符"
       msg: "使用的 featag 没有在该契约里声明，或参数个数 / 类型与声明不符"
-      impls: [ rust ] status: done
+      impls: [ rust js c cpp lua ] status: done
       note: "featag S5 开闸（`docs/swsml/spec/featag.md` §10 Q3：**新码**，不复用 E-CONTRACT-012）。三种都用本码、靠 detail 区分：① 未声明（附该契约可用清单）；② 声明为无参（纯标签）却带了参数；③ 声明为带参却没写 `[...]`，或非数组类型的声明给了不止一个参数。**参数类型不符**则走既有类型错误码（`check_type` 那条链），因为那与字段类型错误的因完全相同。库侧可放宽：`ParseOptions::apply_contracts(false)` 时整段校验跳过（与契约校验同一个开关）" }
     { id: E-CONTRACT-020 domain: CONTRACT severity: E title: "featag 落点非法"
       msg: "featag 的落点必须是点路径（对象键），不能穿数组"
-      impls: [ rust ] status: done
+      impls: [ rust js c cpp lua ] status: done
       note: "featag S4 声明期 / S6 填充期同码。落点写作 `!cert: str -> tls.cert`，**只穿对象**：写成 `-> node[0]` 或路径语法非法（连续的 `.`、空段等）都在此拒。§10 Q12 已定「不穿数组」——数组填充要做幂等（谁的顺序？重复执行会怎样？）没有好答案，故语法层直接不开这个口子" }
     { id: W-PARSE-001 domain: PARSE severity: W title: "同一块内键名重复"
       msg: "同一块内键名重复：后者已提升为数组（结构被改写）"
@@ -421,12 +421,12 @@ codes: [
       note: "数值过大属预算问题，见 E-LIMIT-009" }
     { id: E-CONTRACT-016 domain: CONTRACT severity: E title: "契约叠加冲突"
       msg: "同一字段在参与叠加的两份契约里类型、默认值或区间不一致"
-      impls: [ rust ] status: partial
+      impls: [ rust js c cpp lua ] status: partial
       note: "一个块应用多份契约（`@is a, b` / `@is a b` / 块级 `conta contb item { }`，TASK-agent-w24 任务 C）时做**并集预检**：同字段名但 ty / default / min / max 不同即报此码 —— 冲突即报错才能保证结果与书写顺序无关。strict 优先（任一严格 ⇒ 整体严格），裁决见 TODO.md §契约叠加" }
     { id: E-CONTRACT-017 domain: CONTRACT severity: E title: "契约叠加未实现"
       msg: "该实现暂不支持一个块应用多份契约；请拆分成单契约或等待"
-      impls: [ js c cpp lua ] status: partial
-      note: "TASK-agent-w24 任务 D 的「响亮拒绝」：叠加不能 opt-in（C / C++ / Lua 没有 @feature 门控），Rust 先行期间其余端**绝不静默** —— 见到 `@is` 后第 2 个裸词或块级第 2 个已注册契约即报此码；某端实现叠加后从 impls 移除并更新 status。JS 此前对 `@is tls, retry` 给的是错树 + E-CONTRACT-003（误导），本码落地后改为响亮拒绝" }
+      impls: [ js c cpp lua ] status: deprecated
+      note: "**已废弃（2026-11-15）**：四端已实现多契约叠加（合并视图，`bff4af0`），本码不再产出；码保留以便旧脚本识别（同 `W-LINT-003` 的先例）。原记：TASK-agent-w24 任务 D 的「响亮拒绝」：叠加不能 opt-in（C / C++ / Lua 没有 @feature 门控），Rust 先行期间其余端**绝不静默** —— 见到 `@is` 后第 2 个裸词或块级第 2 个已注册契约即报此码；某端实现叠加后从 impls 移除并更新 status。JS 此前对 `@is tls, retry` 给的是错树 + E-CONTRACT-003（误导），本码落地后改为响亮拒绝" }
     { id: E-CONTRACT-018 domain: CONTRACT severity: E title: "契约 @requires 无法满足"
       msg: "契约声明的 @requires 特性无法满足，契约无法定义或应用"
       impls: [ rust js c cpp lua ] status: partial

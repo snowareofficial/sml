@@ -438,6 +438,10 @@
       "title": "契约叠加冲突",
       "msg": "同一字段在参与叠加的两份契约里类型、默认值或区间不一致",
       "impls": [
+        "c",
+        "cpp",
+        "js",
+        "lua",
         "rust"
       ],
       "status": "partial",
@@ -455,8 +459,8 @@
         "js",
         "lua"
       ],
-      "status": "partial",
-      "note": "TASK-agent-w24 任务 D 的「响亮拒绝」：叠加不能 opt-in（C / C++ / Lua 没有 @feature 门控），Rust 先行期间其余端**绝不静默** —— 见到 `@is` 后第 2 个裸词或块级第 2 个已注册契约即报此码；某端实现叠加后从 impls 移除并更新 status。JS 此前对 `@is tls, retry` 给的是错树 + E-CONTRACT-003（误导），本码落地后改为响亮拒绝"
+      "status": "deprecated",
+      "note": "**已废弃（2026-11-15）**：四端已实现多契约叠加（合并视图，`bff4af0`），本码不再产出；码保留以便旧脚本识别（同 `W-LINT-003` 的先例）。原记：TASK-agent-w24 任务 D 的「响亮拒绝」：叠加不能 opt-in（C / C++ / Lua 没有 @feature 门控），Rust 先行期间其余端**绝不静默** —— 见到 `@is` 后第 2 个裸词或块级第 2 个已注册契约即报此码；某端实现叠加后从 impls 移除并更新 status。JS 此前对 `@is tls, retry` 给的是错树 + E-CONTRACT-003（误导），本码落地后改为响亮拒绝"
     },
     {
       "id": "E-CONTRACT-018",
@@ -493,6 +497,10 @@
       "title": "featag 落点非法",
       "msg": "featag 的落点必须是点路径（对象键），不能穿数组",
       "impls": [
+        "c",
+        "cpp",
+        "js",
+        "lua",
         "rust"
       ],
       "status": "done",
@@ -505,6 +513,10 @@
       "title": "featag 未声明或用法与声明不符",
       "msg": "使用的 featag 没有在该契约里声明，或参数个数 / 类型与声明不符",
       "impls": [
+        "c",
+        "cpp",
+        "js",
+        "lua",
         "rust"
       ],
       "status": "done",
@@ -1944,6 +1956,10 @@
       "title": "when 条件非法",
       "msg": "`@when` 的条件非法：缺少条件、左侧不是环境变量，或环境变量名缺失",
       "impls": [
+        "c",
+        "cpp",
+        "js",
+        "lua",
         "rust"
       ],
       "status": "partial",
@@ -1956,6 +1972,10 @@
       "title": "when 缺少比较值",
       "msg": "`@when` 的比较运算符后缺少比较值",
       "impls": [
+        "c",
+        "cpp",
+        "js",
+        "lua",
         "rust"
       ],
       "status": "partial",
@@ -1968,6 +1988,10 @@
       "title": "when 连续出现",
       "msg": "`@when` 连续出现：它只作用于紧邻的下一个字段或块",
       "impls": [
+        "c",
+        "cpp",
+        "js",
+        "lua",
         "rust"
       ],
       "status": "partial",
@@ -1980,6 +2004,10 @@
       "title": "when 后无字段或块",
       "msg": "`@when` 后未跟随任何字段或块",
       "impls": [
+        "c",
+        "cpp",
+        "js",
+        "lua",
         "rust"
       ],
       "status": "partial",
@@ -1992,6 +2020,10 @@
       "title": "for 语法非法",
       "msg": "`@for` 语法非法：缺少循环变量、缺少 `in`、缺少枚举项，或缺少循环体",
       "impls": [
+        "c",
+        "cpp",
+        "js",
+        "lua",
         "rust"
       ],
       "status": "partial",
