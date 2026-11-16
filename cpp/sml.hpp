@@ -110,9 +110,22 @@ struct ExtType {
     std::function<bool(const ValuePtr& v, std::string& err)> check;
 };
 
+struct TypeModifiers;  // 下面定义（此处只需函数签名中的引用）
+
+// 外置字段修饰符：与 Rust `Modifier{name,apply,check,check_group}` 同形。
+// 回调返回 true = 通过；false = 失败（写 err，统一报 E-CONTRACT-011）。
+struct ExtModifier {
+    std::string name;
+    std::function<bool(TypeModifiers& mods, const ValuePtr& v, std::string& err)> apply;
+    std::function<bool(const ValuePtr& v, const TypeModifiers& mods, std::string& err)> check;
+    std::function<bool(const std::string& owner, const std::vector<std::string>& present,
+                       std::string& err)> check_group;
+};
+
 struct Ext {
     std::vector<ExtDirective> directives;
     std::vector<ExtType> types;
+    std::vector<ExtModifier> modifiers;
 };
 
 struct TypeSpec {
@@ -143,6 +156,9 @@ struct TypeModifiers {
     bool loose = false;                         // (unused at field level; kept for API)
     // S7：该键只能由 featag 落点写入，文档直接赋值 ⇒ E-CONTRACT-024
     bool from_featag = false;
+    // 外置修饰符：回调本体（借用 Ext::modifiers）+ 解析期取值（对应 Rust ext_data）。
+    struct ExtModRef { const ExtModifier* m = nullptr; ValuePtr value; };
+    std::vector<ExtModRef> ext_mods;
 };
 
 struct FieldSpec {

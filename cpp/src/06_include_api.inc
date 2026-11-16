@@ -185,6 +185,7 @@ static bool ext_validate(const Ext* e, std::string* err) {
         "when", "for", "weakbind", "weakdata", "weakdoc"
     };
     static const char* const kBuiltinTypes[] = { "str", "int", "num", "bool", "any", "enum" };
+    static const char* const kBuiltinMods[] = { "optional", "required", "default", "min", "max" };
     for (size_t i = 0; i < e->directives.size(); i++) {
         const std::string& n = e->directives[i].name;
         if (n.empty()) {
@@ -220,6 +221,25 @@ static bool ext_validate(const Ext* e, std::string* err) {
             if (n == e->types[j].name) {
                 if (err) *err = code_prefix(SML_E_EXT_002,
                     "sml: 扩展类型 `" + n + "` 已注册");
+                return false;
+            }
+    }
+    for (size_t i = 0; i < e->modifiers.size(); i++) {
+        const std::string& n = e->modifiers[i].name;
+        if (n.empty()) {
+            if (err) *err = code_prefix(SML_E_EXT_002, "sml: 扩展修饰符名不可为空");
+            return false;
+        }
+        for (const char* b : kBuiltinMods)
+            if (n == b) {
+                if (err) *err = code_prefix(SML_E_EXT_002,
+                    "sml: 不可注册与内置修饰符同名的扩展修饰符 `" + n + "`");
+                return false;
+            }
+        for (size_t j = 0; j < i; j++)
+            if (n == e->modifiers[j].name) {
+                if (err) *err = code_prefix(SML_E_EXT_002,
+                    "sml: 扩展修饰符 `" + n + "` 已注册");
                 return false;
             }
     }
@@ -468,8 +488,23 @@ static bool apply_contract_obj(const ValuePtr& val, const Contract& c,
         }
     }
     }
+    // `default` 回填前快照用户显式写出的键（跨字段钩子的 present 不含回填值）。
+    std::vector<std::string> authored;
+    for (const auto& kv : val->obj) authored.push_back(kv.first);
     for (auto& f : c.fields) {
         if (!apply_one_field(val, contracts, f, c.name, err)) return false;
+    }
+    // 外置修饰符的跨字段回调：所有字段校验通过后调用，同 Rust `check_ext_groups`。
+    for (const auto& f : c.fields) {
+        for (const auto& em : f.mods.ext_mods) {
+            if (!em.m || !em.m->check_group) continue;
+            std::string merr;
+            if (!em.m->check_group(f.name, authored, merr)) {
+                if (err) *err = code_prefix(SML_E_CONTRACT_011,
+                    "sml: 契约 `" + c.name + "` 的跨字段约束 `" + em.m->name + "` 未满足：" + merr);
+                return false;
+            }
+        }
     }
     return true;
 }

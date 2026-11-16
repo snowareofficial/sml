@@ -180,11 +180,27 @@ typedef struct sml_ext_type {
     void *ud;
 } sml_ext_type;
 
+/* 外置字段修饰符（与 Rust `Modifier{name,apply,check,check_group}` 同形）。
+   C 不暴露内部 FieldSpec：`apply` 只做**解析期取值校验**（不能改写字段规格），
+   这是 C 端的能力边界，语义失败统一 E-CONTRACT-011。 */
+typedef struct sml_ext_modifier {
+    const char *name;
+    int (*apply)(void *ud, const sml_value *value, char *err, size_t errsz);
+    int (*check)(void *ud, const sml_value *value, const sml_value *mod_value,
+                 char *err, size_t errsz);
+    int (*check_group)(void *ud, const char *owner, const char *const *present,
+                       size_t n_present, char *err, size_t errsz);
+    void *ud;
+} sml_ext_modifier;
+
 typedef struct sml_ext {
     const sml_ext_directive *directives;   /* NULL / 0 = 没有外置指令 */
     size_t n_directives;
     const sml_ext_type *types;             /* NULL / 0 = 没有外置类型 */
     size_t n_types;
+    /* 追加在尾部：既有 `{dirs, n, types, n}` 初始化式零填充，不破坏调用方。 */
+    const sml_ext_modifier *modifiers;     /* NULL / 0 = 没有外置修饰符 */
+    size_t n_modifiers;
 } sml_ext;
 
 /* 带扩展的解析（`ext` 可为 NULL）。其余参数语义与 `sml_parse_ex` 相同。 */

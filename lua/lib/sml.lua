@@ -1647,7 +1647,9 @@ end
 
 -- 解析单个字段的类型与修饰符 -> spec, next_i
 local function parse_field_spec(tokens, i, fragments)
-  local spec = { optional = false, has_default = false, from_featag = false }
+  local spec = { optional = false, has_default = false, from_featag = false,
+                 -- 外置修饰符：回调本体与解析期取值（对应 Rust `FieldSpec.mods/ext_data`）
+                 mods = {}, ext_data = {} }
   spec.type, i = parse_type(tokens, i)
   while true do
     local tok = tokens[i]
@@ -1679,8 +1681,28 @@ local function parse_field_spec(tokens, i, fragments)
       spec.max = parse_bound(tokens[i], "max")
       i = i + 1
     else
-      -- 未知词（含未注册的外置修饰符）：按下个字段的开始退出
-      break
+      -- 外置修饰符：命中注册表才消费（`apply` 可在解析期改写规格）；
+      -- 未命中则保持旧路径 —— 按下个字段的开始退出，零扩展 = 零影响。
+      local em = _EXT and _EXT.modifiers and _EXT.modifiers[tok]
+      if em == nil then break end
+      i = i + 1
+      local dv = tokens[i]
+      if dv == nil then
+        fail("E-EXT-005", "外置修饰符 `" .. tostring(tok) .. "` 缺少取值")
+      end
+      local val = coerce(dv, fragments)
+      i = i + 1
+      local mod = type(em) == "function"
+          and { name = tok, check = em }
+          or  { name = tok, apply = em.apply, check = em.check, check_group = em.check_group }
+      if type(mod.apply) == "function" then
+        local why = mod.apply(spec, val)
+        if why then
+          fail("E-CONTRACT-011", "字段修饰符 `" .. tostring(tok) .. "` 的解析期校验失败：" .. tostring(why))
+        end
+      end
+      spec.ext_data[tostring(tok)] = val
+      spec.mods[#spec.mods + 1] = mod
     end
   end
   return spec, i
@@ -2012,6 +2034,20 @@ end
 local apply_contract  -- 前向声明（组合字段需要递归回本函数）
 local check_contract_only  -- 前向声明（只校验路径：组合契约**不应用**、不回填）
 
+-- 外置修饰符的字段级回调：内置校验（类型 / 模式 / 组合 / 数组 / 区间）全部通过后调用。
+-- 回调本体挂在字段规格上（与 Rust `FieldSpec.mods` 同形），故无需再查注册表。
+local function check_ext_mods(fs, v)
+  for _, mod in ipairs(fs.mods or {}) do
+    if type(mod.check) == "function" then
+      local why = mod.check(fs, v)
+      if why then
+        fail("E-CONTRACT-011",
+             "字段不符合修饰符 `" .. tostring(mod.name) .. "`：" .. tostring(why))
+      end
+    end
+  end
+end
+
 -- 校验一个值是否符合字段规格；不符即 fail()（error，沿 pcall 退出）。
 -- `fs` 是**字段规格**（`{ type = TypeSpec, min = ..., max = ... }`）：min/max 是
 -- 字段级修饰符、不在 TypeSpec 上，故不能只把类型传进来。数组元素递归时用
@@ -2019,6 +2055,7 @@ local check_contract_only  -- 前向声明（只校验路径：组合契约**不
 local function check_type(fs, v, contracts, only)
   local ty = fs.type
   if ty.kind == "any" then
+    check_ext_mods(fs, v)
     return
   end
   if ty.kind == "contract" then
@@ -2031,12 +2068,16 @@ local function check_type(fs, v, contracts, only)
     else
       apply_contract(v, contracts, ty.ref)
     end
+    check_ext_mods(fs, v)
     return
   end
   if ty.kind == "ext" then
     -- 外置类型：校验器由注册方提供；失败报 E-CONTRACT-007（与 Rust 同码）。
     local ok, msg = ty.check(v)
-    if ok then return end
+    if ok then
+      check_ext_mods(fs, v)
+      return
+    end
     fail("E-CONTRACT-007",
       "字段不符合外置类型 `" .. tostring(ty.name) .. "` 的要求："
       .. tostring(msg or "校验未通过"))
@@ -2055,6 +2096,7 @@ local function check_type(fs, v, contracts, only)
     if not ok then
       fail("E-CONTRACT-009", "值 `" .. v .. "` 不符合类型 `" .. ty.name .. "` 的格式要求")
     end
+    check_ext_mods(fs, v)
     return
   end
   if ty.kind == "array" then
@@ -2080,6 +2122,7 @@ local function check_type(fs, v, contracts, only)
         check_type({ type = elem }, v[idx], contracts)
       end
     end
+    check_ext_mods(fs, v)  -- 修饰符作用于数组**整体**（如元素个数上限）
     return
   end
   if ty.kind == "enum" then
@@ -2089,7 +2132,10 @@ local function check_type(fs, v, contracts, only)
     elseif type(v) == "number" and v == math.floor(v) then got = string.format("%d", v)
     else fail("E-CONTRACT-006", "字段取值不在枚举列表内") end
     for _, e in ipairs(ty.values) do
-      if e == got then return end
+      if e == got then
+        check_ext_mods(fs, v)
+        return
+      end
     end
     fail("E-CONTRACT-006", "字段取值 `" .. got .. "` 不在枚举列表内")
   end
@@ -2117,6 +2163,7 @@ local function check_type(fs, v, contracts, only)
       end
     end
   end
+  check_ext_mods(fs, v)
 end
 
 -- S8：`any` 默认禁用，契约里写 `!any` 才放行。递归走契约引用（内层自己有 `!any` 才算放行）。
@@ -2149,9 +2196,32 @@ local function check_any_walk(cname, c, contracts, seen)
   end
 end
 
+-- 外置修饰符的跨字段回调：所有字段校验通过后调用，与 Rust `check_ext_groups` 同层。
+-- `authored` 只含用户显式写出的键（不含 `default` 回填），语义照 GroupView.present。
+local function check_ext_groups(c, path, authored)
+  local keys = {}
+  for k in pairs(c.fields) do keys[#keys + 1] = k end
+  table.sort(keys)
+  for _, k in ipairs(keys) do
+    local f = c.fields[k]
+    for _, mod in ipairs(f.mods or {}) do
+      if type(mod.check_group) == "function" then
+        local view = { contract = c.name or path, path = path, owner = k,
+                       spec = f, declared = c.fields, present = authored }
+        local why = mod.check_group(view)
+        if why then
+          fail("E-CONTRACT-011",
+               "契约 `" .. tostring(c.name or path) .. "` 的跨字段约束 `"
+               .. tostring(mod.name) .. "` 未满足：" .. tostring(why))
+        end
+      end
+    end
+  end
+end
+
 -- 对块应用**一份**契约：严格性检查 + 填默认值 + 逐个字段校验。
 -- 与 `apply_contract` 分开，是为了让多契约叠加（合并视图）复用同一条校验路径。
-local apply_contract_obj = function(node, contracts, c)
+local apply_contract_obj = function(node, contracts, c, path)
   if type(node) ~= "table" then
     fail("E-CONTRACT-008", "契约只能应用于块，实际不是块")
   end
@@ -2173,6 +2243,8 @@ local apply_contract_obj = function(node, contracts, c)
     end
   end
   -- 2) 逐字段（按名排序，与 Rust 的 BTreeMap 迭代顺序一致）
+  local authored_keys = {}
+  for k in pairs(node) do authored_keys[k] = true end
   local keys = {}
   for k in pairs(c.fields) do keys[#keys + 1] = k end
   table.sort(keys)
@@ -2182,11 +2254,21 @@ local apply_contract_obj = function(node, contracts, c)
     if v == nil then
       if f.has_default then
         node[k] = deep_copy(f.default)
+        check_ext_mods(f, node[k])  -- 默认值也是值，不能绕过 `check`
       elseif not f.optional then
         fail("E-CONTRACT-003", "字段 `" .. k .. "` 必填但缺失")
       end
     else
       check_type(f, v, contracts)
+    end
+  end
+  -- 3) 跨字段约束：只在真的挂了修饰符时才做这次快照与遍历。
+  for _, f in pairs(c.fields) do
+    if #(f.mods or {}) > 0 then
+      local present = {}
+      for k, v in pairs(node) do if authored_keys[k] then present[k] = v end end
+      check_ext_groups(c, path or "", present)
+      break
     end
   end
 end
@@ -2244,7 +2326,15 @@ check_contract_only = function(node, contracts, name)
         fail("E-CONTRACT-003", "字段 `" .. k .. "` 必填但缺失")
       end
     else
-      check_type(f, v, contracts, true)
+      check_type(f, v, contracts, true)  -- 内含字段级 `check` 回调
+    end
+  end
+  -- 3) 跨字段约束在只校验路径也跑：元素契约上的互斥 / 计数 / 依赖不能没人执行。
+  --    这里没有 default 回填，故 `present` 就是元素显式写出的键。
+  for _, f in pairs(c.fields) do
+    if #(f.mods or {}) > 0 then
+      check_ext_groups(c, "", node)
+      break
     end
   end
 end
@@ -3793,6 +3883,7 @@ local function ext_validate(ext)
   local BUILTIN_DIRS = { contract = 1, is = 1, type = 1, version = 1, feature = 1,
                          ["when"] = 1, ["for"] = 1, weakbind = 1, weakdata = 1, weakdoc = 1 }
   local BUILTIN_TYPES = { str = 1, int = 1, num = 1, bool = 1, any = 1, enum = 1 }
+  local BUILTIN_MODS = { optional = 1, required = 1, default = 1, min = 1, max = 1 }
   if ext.directives ~= nil then
     for name in pairs(ext.directives) do
       if type(name) ~= "string" or name == "" then
@@ -3810,6 +3901,16 @@ local function ext_validate(ext)
       end
       if BUILTIN_TYPES[name] then
         return false, "E-EXT-002 不可注册与内置类型同名的扩展类型 `" .. name .. "`"
+      end
+    end
+  end
+  if ext.modifiers ~= nil then
+    for name in pairs(ext.modifiers) do
+      if type(name) ~= "string" or name == "" then
+        return false, "E-EXT-002 扩展修饰符名不可为空"
+      end
+      if BUILTIN_MODS[name] then
+        return false, "E-EXT-002 不可注册与内置修饰符同名的扩展修饰符 `" .. name .. "`"
       end
     end
   end

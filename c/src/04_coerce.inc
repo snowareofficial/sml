@@ -688,6 +688,49 @@ static int apply_contract_rec(parser *ps, ccontract *c, sml_value *node,
 static int check_type(parser *ps, const char *cname, const cfield *spec,
                       const sml_value *v, char *err, size_t errsz);
 
+/* 外置修饰符的字段级回调：内置校验（含组合 / 模式 / 外置类型 / 区间）全过后调用。
+   挂在字段规格上（与 Rust `FieldSpec.mods` 同形），无需再查注册表。 */
+static int check_ext_mods(const cfield *spec, const sml_value *v,
+                          char *err, size_t errsz) {
+    struct cfield_mod *cm;
+    for (cm = spec->ext_mods; cm; cm = cm->next) {
+        if (!cm->m || !cm->m->check) continue;
+        if (cm->m->check(cm->m->ud, v, cm->value, err, errsz) != 1) {
+            char tmp[512];
+            snprintf(tmp, sizeof tmp, "%s", err);
+            set_err(err, errsz, SML_E_CONTRACT_011 " 字段 `%s` 不符合修饰符 `%s`：%s",
+                    spec->name, cm->m->name, tmp);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+/* 外置修饰符的跨字段回调：所有字段校验通过后调用，与 Rust `check_ext_groups` 同层。
+   `present` 只含用户显式写出的键（`default` 回填不计入）。 */
+static int check_ext_groups(ccontract *c, sml_value *node,
+                            const char *const *present, size_t n_present,
+                            char *err, size_t errsz) {
+    cfield *cf;
+    for (cf = c->fields; cf; cf = cf->next) {
+        struct cfield_mod *cm;
+        for (cm = cf->ext_mods; cm; cm = cm->next) {
+            if (!cm->m || !cm->m->check_group) continue;
+            if (cm->m->check_group(cm->m->ud, cf->name, present, n_present,
+                                   err, errsz) != 1) {
+                char tmp[512];
+                snprintf(tmp, sizeof tmp, "%s", err);
+                set_err(err, errsz, SML_E_CONTRACT_011
+                        " 契约 `%s` 的跨字段约束 `%s` 未满足：%s",
+                        c->name, cm->m->name, tmp);
+                return -1;
+            }
+        }
+    }
+    (void)node;
+    return 0;
+}
+
 /* 只校验、**不回填默认值**：数组元素位置上的组合契约用它
    （与 Rust 的 `check_contract_only`、JS / Lua 的既有行为同口径：只报错、不改树）。
    严格性（strict ⇒ 未声明字段 ⇒ E-CONTRACT-004）与 `apply_contract_rec` 的第 1 步
@@ -756,6 +799,19 @@ static int check_contract_only(parser *ps, ccontract *c, sml_value *node,
         } else {
             if (check_type(ps, c->name, cf, v, err, errsz) != 0) return -1;
         }
+        if (check_ext_mods(cf, v, err, errsz) != 0) return -1;
+    }
+    /* 跨字段约束在只校验路径也跑：元素契约上的互斥 / 计数 / 依赖不能没人执行。 */
+    {
+        size_t n_auth = node->u.obj.len, k;
+        const char **present = n_auth ? (const char **)malloc(n_auth * sizeof *present) : NULL;
+        sml_field *f = node->u.obj.head;
+        for (k = 0; k < n_auth && f; k++, f = f->next) present[k] = f->key;
+        if (check_ext_groups(c, node, present, n_auth, err, errsz) != 0) {
+            free(present);
+            return -1;
+        }
+        free(present);
     }
     return 0;
 }
@@ -982,21 +1038,45 @@ static int apply_contract_rec(parser *ps, ccontract *c, sml_value *node,
         }
     }
     /* 2) 逐字段: 填默认 + 类型/枚举/区间/组合校验 */
+    /* 回填前快照用户显式写出的键（跨字段钩子的 present 不含 default 回填）。 */
+    size_t n_auth = node->u.obj.len, k;
+    const char **present = n_auth ? (const char **)malloc(n_auth * sizeof *present) : NULL;
+    {
+        sml_field *f = node->u.obj.head;
+        for (k = 0; k < n_auth && f; k++, f = f->next) present[k] = f->key;
+    }
     for (cfield *cf = c->fields; cf; cf = cf->next) {
         sml_value *v = sml_obj_get(node, cf->name);
         if (!v) {
             if (cf->def) {
                 sml_obj_set(node, cf->name, sml_clone(cf->def));
+                if (check_ext_mods(cf, sml_obj_get(node, cf->name), err, errsz) != 0) {
+                    free(present);
+                    return -1;
+                }
             } else if (cf->required) {
                 set_err(err, errsz,
                          SML_E_CONTRACT_003 " 字段 `%s` 必填但缺失（契约 `%s`）",
                          cf->name, c->name);
+                free(present);
                 return -1;
             }
         } else {
-            if (check_type(ps, c->name, cf, v, err, errsz) != 0) return -1;
+            if (check_type(ps, c->name, cf, v, err, errsz) != 0) {
+                free(present);
+                return -1;
+            }
+            if (check_ext_mods(cf, v, err, errsz) != 0) {
+                free(present);
+                return -1;
+            }
         }
     }
+    if (check_ext_groups(c, node, present, n_auth, err, errsz) != 0) {
+        free(present);
+        return -1;
+    }
+    free(present);
     return 0;
 }
 
@@ -1747,6 +1827,44 @@ static void parse_contract_body(parser *ps, ccontract *c) {
             }
             if (strcmp(mt->v, "loose") == 0) {
                 next(ps); c->allow_extra = 1; continue;
+            }
+            /* 外置修饰符：命中注册表才消费；apply 校验取值，值随 cfield 带到校验期。
+               未命中时保持旧路径（按下个字段的开始退出），零扩展 = 零影响。 */
+            {
+                const sml_ext_modifier *em = sml_ext_find_modifier(ps->ext, mt->v);
+                if (em) {
+                    token *dv = NULL;
+                    sml_value *mv = NULL;
+                    struct cfield_mod *cm = NULL;
+                    next(ps);
+                    dv = peek(ps);
+                    if (!dv || (dv->t != T_STR && dv->t != T_WORD)) {
+                        set_err(ps->lx->errbuf, ps->lx->errsz,
+                                SML_E_EXT_005 " 外置修饰符 `%s` 缺少取值", mt->v);
+                        ps->failed = 1;
+                        break;
+                    }
+                    next(ps);
+                    mv = (dv->t == T_STR) ? sml_new_strn(dv->v, dv->len)
+                                          : coerce_word(dv->v, ps);
+                    if (em->apply && em->apply(em->ud, mv,
+                                               ps->lx->errbuf, ps->lx->errsz) != 1) {
+                        char tmp[512];
+                        snprintf(tmp, sizeof tmp, "%s", ps->lx->errbuf);
+                        set_err(ps->lx->errbuf, ps->lx->errsz,
+                                SML_E_CONTRACT_011 " 字段修饰符 `%s` 的解析期校验失败：%s",
+                                mt->v, tmp);
+                        ps->failed = 1;
+                        sml_free(mv);
+                        break;
+                    }
+                    cm = (struct cfield_mod *)calloc(1, sizeof *cm);
+                    cm->m = em;
+                    cm->value = mv;
+                    cm->next = cf->ext_mods;
+                    cf->ext_mods = cm;
+                    continue;
+                }
             }
             break;
         }

@@ -34,6 +34,12 @@ typedef struct cfield {
     int from_featag;
     /* CT_EXT：外置类型的校验器（借用注册表里的条目，生命周期由调用方保证）。 */
     const sml_ext_type *ext_type;
+    /* 外置修饰符回调 + 解析期取值（对应 Rust `FieldSpec.mods/ext_data`）。 */
+    struct cfield_mod {
+        const sml_ext_modifier *m;
+        sml_value *value;                  /* own */
+        struct cfield_mod *next;
+    } *ext_mods;
     struct cfield *next;
 } cfield;
 
@@ -279,6 +285,15 @@ void sml_builtin_free(sml_builtin *b) {
             cfield *fn = f->next;
             free(f->name);
             free(f->ref_name);
+            {
+                struct cfield_mod *cm = f->ext_mods;
+                while (cm) {
+                    struct cfield_mod *cn = cm->next;
+                    sml_free(cm->value);
+                    free(cm);
+                    cm = cn;
+                }
+            }
             if (f->enum_vals) {
                 size_t k;
                 for (k = 0; k < f->enum_n; k++) free(f->enum_vals[k]);

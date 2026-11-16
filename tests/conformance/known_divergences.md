@@ -2,6 +2,21 @@
 
 本目录是 W5 的产出：**一份共享用例，五端（Rust / C / C++ / JS / Lua）各跑一遍，比较值树**。
 
+## 2026-11-17 复核
+
+默认套件仍 **AGREE 83 / DIVERGE 0**。本轮补了外置修饰符（`E-CONTRACT-011`）的 Rust 缺口与四端接线：
+`Modifier{apply,check,check_group}` 五端同形、注册冲突统一 `E-EXT-002`、校验失败统一 `E-CONTRACT-011`。
+Rust 另修了四类曾**静默漏跑**的分支：组合 / 模式 / 外置类型字段的 `check`、默认值回填值的 `check`、
+数组元素契约的 `check_group`、多契约叠加时同名字段修饰符被丢弃（后者改报 `E-CONTRACT-016`）。
+
+⚠️ **外置修饰符不进 conformance 默认套件**：五端 dumper（`tools/gen/dump_c.c`、`dump_cpp.cpp`、
+`dump_js.mjs`、`dump_lua.lua` 与 Rust `smltools`）都没有注入扩展的通道，而「零扩展 = 零影响」要求
+未注册修饰符保持各端既有路径（码并不统一：Rust `E-PARSE-006`，C++ 回落成契约引用，JS / Lua
+把词当成下一个字段）。**已注册的** `apply` / `check` / `check_group` 由各端同形单测钉住：
+`rust/tests/ext_modifier.rs`、`c/tests/test_codes.c`、`cpp/tests/test_codes.cpp`、
+`js/test_ext.mjs`、`lua/test_codes.lua`（同一份 SML 源、同一码 `E-CONTRACT-011`）。
+要让修饰符进共享套件，需先给五端 dumper 加统一的测试修饰符注入通道（另立一片）。
+
 ## 2026-11-16 复核
 
 实测 **AGREE 83 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`；

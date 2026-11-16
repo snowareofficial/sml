@@ -344,6 +344,31 @@ static int ext_check_image(void *ud, const sml_value *v, char *err, size_t errsz
     return 0;
 }
 
+/* 外置修饰符回调（P13）：与 Rust Modifier{apply,check,check_group} 同形。
+   C 不暴露内部 FieldSpec，apply 只做解析期取值校验。 */
+static int mod_apply_str(void *ud, const sml_value *v, char *err, size_t errsz) {
+    (void)ud;
+    if (v && v->type == SML_STR) return 1;
+    snprintf(err, errsz, "取值须为字符串");
+    return 0;
+}
+static int mod_check_nonempty(void *ud, const sml_value *v, const sml_value *mv,
+                              char *err, size_t errsz) {
+    (void)ud; (void)mv;
+    if (v && v->type == SML_STR && v->slen > 0) return 1;
+    snprintf(err, errsz, "不得为空串");
+    return 0;
+}
+static int mod_group_fail(void *ud, const char *owner, const char *const *present,
+                          size_t n_present, char *err, size_t errsz) {
+    (void)ud; (void)present; (void)n_present;
+    if (owner && strcmp(owner, "n") == 0) {
+        snprintf(err, errsz, "钉子：check_group 失败");
+        return 0;
+    }
+    return 1;
+}
+
 static void test_ext_api(void) {
     static const sml_ext_directive dirs[] = {
         { "form", 0, ext_on_form, NULL },
@@ -430,6 +455,46 @@ static void test_ext_api(void) {
             printf("  ok: %-30s -> %s\n", "E-EXT-002 重复注册", SML_E_EXT_002);
         else { printf("FAIL: E-EXT-002 重复（err=%s）\n", err); failures++; }
         if (v) sml_free(v);
+    }
+    /* ⑦' 外置修饰符（P13）：与 Rust Modifier{apply,check,check_group} 同形。
+       C 不暴露内部 FieldSpec，apply 只做解析期取值校验。 */
+    {
+        static const sml_ext_modifier mods[] = {
+            { "apply_str", mod_apply_str, NULL, NULL, NULL },
+            { "check_nonempty", NULL, mod_check_nonempty, NULL, NULL },
+            { "group_fail", NULL, NULL, mod_group_fail, NULL },
+        };
+        static const sml_ext mext = { NULL, 0, NULL, 0, mods, 3 };
+        struct M { const char *src; const char *want; const char *tag; };
+        const struct M ms[] = {
+            { "@contract C { title: str apply_str \"ok\" }\nd { @is C title: \"x\" }\n",
+              NULL, "apply 校验通过" },
+            { "@contract C { title: str apply_str 1 }\nd { @is C title: \"x\" }\n",
+              SML_E_CONTRACT_011, "apply 失败落 011" },
+            { "@contract C { title: str check_nonempty \"x\" }\nd { @is C title: \"\" }\n",
+              SML_E_CONTRACT_011, "check 失败落 011" },
+            { "@contract C { n: int group_fail 1 }\nd { @is C n: 1 }\n",
+              SML_E_CONTRACT_011, "check_group 失败落 011" },
+        };
+        size_t k;
+        for (k = 0; k < sizeof ms / sizeof *ms; k++) {
+            sml_value *v = sml_parse_ext(ms[k].src, &mext, err, sizeof err, NULL, NULL);
+            int ok = ms[k].want == NULL
+                ? (v != NULL)
+                : (!v && strncmp(err, ms[k].want, strlen(ms[k].want)) == 0);
+            if (ok) printf("  ok: %-30s -> %s\n", ms[k].tag, ms[k].want ? ms[k].want : "OK");
+            else { printf("FAIL: 修饰符 %s（err=%s）\n", ms[k].tag, err); failures++; }
+            if (v) sml_free(v);
+        }
+        {
+            static const sml_ext_modifier bad[] = { { "min", NULL, NULL, NULL, NULL } };
+            static const sml_ext be2 = { NULL, 0, NULL, 0, bad, 1 };
+            sml_value *v = sml_parse_ext("a: 1\n", &be2, err, sizeof err, NULL, NULL);
+            if (!v && strncmp(err, SML_E_EXT_002, strlen(SML_E_EXT_002)) == 0)
+                printf("  ok: %-30s -> %s\n", "E-EXT-002 内置修饰符同名", SML_E_EXT_002);
+            else { printf("FAIL: E-EXT-002 修饰符（err=%s）\n", err); failures++; }
+            if (v) sml_free(v);
+        }
     }
     /* ⑦ 零扩展（NULL）与旧入口一致 */
     {

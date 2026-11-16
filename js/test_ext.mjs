@@ -61,5 +61,44 @@ const ext = {
     codeOf("a: 1\nb: 2\n", {}) === "OK", "应通过");
 }
 
+// 外置修饰符（P13）：与 Rust `Modifier{apply,check,check_group}` 同形。
+{
+  const mods = {
+    nonempty: {
+      apply(spec, v) {
+        if (typeof v !== "string") return "取值须为字符串";
+        spec.def = v; // 解析期可改写字段规格（Rust `apply` 同款）
+        return null;
+      },
+      check(spec, v) {
+        return typeof v === "string" && v.length > 0 ? null : "不得为空串";
+      },
+    },
+    groupfail: {
+      checkGroup(view) {
+        return view.owner === "n" ? "钉子：check_group 失败" : null;
+      },
+    },
+  };
+  const withMods = { ...ext, modifiers: mods };
+  check("修饰符 apply 改写规格",
+    codeOf("@contract C { title: str nonempty x }\nd { @is C }\n", withMods) === "OK",
+    "apply 设了 default，应通过");
+  check("修饰符 check 失败落 011",
+    codeOf("@contract C { title: str nonempty x }\nd { @is C title: \"\" }\n", withMods) === "E-CONTRACT-011",
+    "应报 E-CONTRACT-011");
+  check("修饰符 check_group 失败落 011",
+    codeOf("@contract C { n: int groupfail 1 }\nd { @is C n: 1 }\n", withMods) === "E-CONTRACT-011",
+    "应报 E-CONTRACT-011");
+  check("E-EXT-002 内置修饰符同名",
+    codeOf("a: 1\n", { modifiers: { min: () => true } }) === "E-EXT-002",
+    "应报 E-EXT-002");
+  // 零扩展 = 零影响：未注册修饰符仍走**旧路径**（被当成下一个字段的开始），
+  // 于是 `nope` 成了字段名、`1` 成了类型 ⇒ 缺字段 003。不因为接了注册点就改变旧行为。
+  check("未注册修饰符保持旧路径",
+    codeOf("@contract C { n: int nope 1 }\nd { @is C n: 1 }\n", {}) === "E-CONTRACT-003",
+    "应维持未扩展时的既有结果");
+}
+
 console.log(failures === 0 ? "\nEXT TESTS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

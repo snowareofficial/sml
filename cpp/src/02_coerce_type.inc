@@ -595,6 +595,30 @@ static bool parse_field(const std::string& line, FieldSpec& out, std::string* er
             if (!parse_bound(parts[k+1], mods.max, "max", err)) return false;
             k+=2; continue;
         }
+        // 外置修饰符：命中注册表才消费；取值交给 apply 校验并随字段规格带到校验期。
+        // 未命中时保持旧路径（并入类型词）——零扩展 = 零影响。
+        if (ext) {
+            const ExtModifier* found = nullptr;
+            for (const auto& m : ext->modifiers) if (m.name == w) { found = &m; break; }
+            if (found != nullptr) {
+                if (k+1 >= parts.size()) {
+                    if (err) *err = code_prefix(SML_E_EXT_005,
+                        "sml: 外置修饰符 `" + w + "` 缺少取值");
+                    return false;
+                }
+                ValuePtr mv = coerce(Token{Token::T::Word, parts[k+1]}, {}, err);
+                if (found->apply) {
+                    std::string merr;
+                    if (!found->apply(mods, mv, merr)) {
+                        if (err) *err = code_prefix(SML_E_CONTRACT_011,
+                            "sml: 字段修饰符 `" + w + "` 的解析期校验失败：" + merr);
+                        return false;
+                    }
+                }
+                mods.ext_mods.push_back({found, mv});
+                k += 2; continue;
+            }
+        }
         // otherwise part of type spec (collect until next modifier keyword)
         // type can be multiple tokens (e.g. "enum [ a b ]" or "[ int ]")
         // We accumulate; but enum/array contain spaces. Reparse whole remainder as type.
@@ -603,6 +627,12 @@ static bool parse_field(const std::string& line, FieldSpec& out, std::string* er
         while (k < parts.size()) {
             std::string m = parts[k];
             if (m=="optional"||m=="loose"||m=="default"||m=="min"||m=="max"||m=="from-featag"||m=="?"||m=="=") break;
+            // 注册过的外置修饰符同样终止类型词累积，交回外层循环消费。
+            if (ext) {
+                bool is_ext_mod = false;
+                for (const auto& em : ext->modifiers) if (em.name == m) { is_ext_mod = true; break; }
+                if (is_ext_mod) break;
+            }
             if (!rest.empty()) rest += " ";
             rest += m;
             k++;
@@ -887,6 +917,17 @@ static bool apply_one_field(const ValuePtr& val,
         else { /* not numeric, min/max ignored like Rust */ }
         if (f.mods.min && num < *f.mods.min) { if(err)*err=code_prefix(SML_E_CONTRACT_005, "sml: field '" + f.name + "': below min"); return false; }
         if (f.mods.max && num > *f.mods.max) { if(err)*err=code_prefix(SML_E_CONTRACT_005, "sml: field '" + f.name + "': above max"); return false; }
+    }
+    // 外置修饰符的字段级回调：内置校验（含组合 / 模式 / 外置类型 / 数组 / default 回填）
+    // 全部通过后调用，与 Rust `check_ext_mods` 同层、同码 E-CONTRACT-011。
+    for (const auto& em : f.mods.ext_mods) {
+        if (!em.m || !em.m->check) continue;
+        std::string merr;
+        if (!em.m->check(raw, f.mods, merr)) {
+            if (err) *err = code_prefix(SML_E_CONTRACT_011,
+                "sml: 字段 '" + f.name + "' 不符合修饰符 `" + em.m->name + "`：" + merr);
+            return false;
+        }
     }
     return true;
 }

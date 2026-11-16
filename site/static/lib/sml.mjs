@@ -571,6 +571,25 @@ function checkContract(contracts, contract, obj, path) {
       if (lo !== undefined && v < lo) errs.push({ code: "E-CONTRACT-005", msg: `字段 ${full} 小于最小值 ${lo}` });
       if (hi !== undefined && v > hi) errs.push({ code: "E-CONTRACT-005", msg: `字段 ${full} 大于最大值 ${hi}` });
     }
+    // 外置修饰符的字段级钩子：内置校验（含类型 / 模式 / 组合 / 数组）全过后才跑。
+    // 回调挂在字段规格上（与 Rust `FieldSpec.mods` 同形），故这里无需再查注册表。
+    for (const mod of sp.mods || []) {
+      if (typeof mod.check !== "function") continue;
+      let why;
+      try { why = mod.check(sp, v); } catch (e) { why = e && e.message ? e.message : String(e); }
+      if (why) errs.push({ code: "E-CONTRACT-011", msg: `字段 ${full} 不符合修饰符 \`${mod.name}\`：${why}` });
+    }
+  }
+  // 外置修饰符的跨字段钩子：所有字段校验之后，与 Rust `check_ext_groups` 同层。
+  for (const [k, sp] of Object.entries(contract.fields)) {
+    for (const mod of sp.mods || []) {
+      if (typeof mod.checkGroup !== "function") continue;
+      const view = { contract: contract.name || path, path, owner: k, spec: sp,
+        declared: contract.fields, present: obj };
+      let why;
+      try { why = mod.checkGroup(view); } catch (e) { why = e && e.message ? e.message : String(e); }
+      if (why) errs.push({ code: "E-CONTRACT-011", msg: `契约 \`${contract.name || path}\` 的跨字段约束 \`${mod.name}\` 未满足：${why}` });
+    }
   }
   if (!contract.loose) {
     for (const k of Object.keys(obj)) {
@@ -1479,6 +1498,9 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
   // 不带这些选项时，行为与未扩展时**完全一致**。
   const extDirs = opts.directives || null;
   const extTypes = opts.types || null;
+  //   opts.modifiers:{ "nonempty": { apply(spec, v)?, check(spec, v)?, checkGroup(view)? } }
+  //   与 Rust `Modifier` 同形；失败一律 E-CONTRACT-011，注册冲突 E-EXT-002。
+  const extMods = opts.modifiers || null;
   // —— 注册期校验（与 Rust / C / C++ / Lua 同码 E-EXT-002）——
   // 与内置同名会改写核心语义 ⇒ 直接拒，不静默覆盖。
   // JS 对象字面量天然去重 ⇒「重复注册」构造不出来（后一个直接覆盖前一个），故只查两条。
@@ -1501,6 +1523,16 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
       if (BUILTIN_TYPES.has(n)) {
         throw throwCode("E-EXT-002",
           "sml: 不可注册与内置类型同名的扩展类型 `" + n + "`");
+      }
+    }
+  }
+  if (extMods) {
+    const BUILTIN_MODS = new Set(["optional", "required", "default", "min", "max"]);
+    for (const n of Object.keys(extMods)) {
+      if (!n) throw throwCode("E-EXT-002", "sml: 扩展修饰符名不可为空");
+      if (BUILTIN_MODS.has(n)) {
+        throw throwCode("E-EXT-002",
+          "sml: 不可注册与内置修饰符同名的扩展修饰符 `" + n + "`");
       }
     }
   }
@@ -1783,7 +1815,10 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
 
   /// 新建字段规格（默认值集中在一处，避免两条解析路径手写两份而漂移）。
   function newFieldSpec() {
-    return { type: "any", required: true, def: undefined, min: undefined, max: undefined, enumVals: null, arrInner: null, refName: null, fromFeatag: false };
+    return { type: "any", required: true, def: undefined, min: undefined, max: undefined, enumVals: null, arrInner: null, refName: null, fromFeatag: false,
+      // 外置修饰符：`mods` 带着回调本体（与 Rust `FieldSpec.mods` 同形），
+      // `extData` 存解析期取值（对应 Rust `FieldSpec.ext_data`）。
+      mods: [], extData: {} };
   }
 
   /// 解析字段修饰符（`?` / `optional` / `required` / `default v` / `min n` / `max n`）。
@@ -1815,6 +1850,22 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
             fail("E-PARSE-022", "sml: `" + m.v + "` 的取值必须是数字，得 `" + String(lit) + "`");
           }
           sp[m.v] = num;
+          continue;
+        }
+        // 外置修饰符：命中注册表才消费；取值交给 apply 校验并可改写字段规格。
+        // 未注册时仍按「下一个字段的开始」退出 —— 零扩展 = 零影响。
+        const em = extMods && extMods[m.v];
+        if (em) {
+          const mod = typeof em === "function" ? { check: em, name: m.v } : { ...em, name: m.v };
+          i++;
+          const val = literal();
+          if (typeof mod.apply === "function") {
+            let why;
+            try { why = mod.apply(sp, val); } catch (e) { why = e && e.message ? e.message : String(e); }
+            if (why) fail("E-CONTRACT-011", "sml: 字段修饰符 `" + m.v + "` 的解析期校验失败：" + why);
+          }
+          sp.extData[m.v] = val;
+          sp.mods.push(mod);
           continue;
         }
       }
@@ -2795,7 +2846,7 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
           if (peek() && peek().t === "word" && peek().v === "loose") { loose = true; i++; }
           else if (peek() && peek().t === "word" && peek().v === "strict") { loose = false; i++; }
           const { fields, featags, strictPaths, allowAny } = parseContractBody(cname);
-          contracts[nsPrefix + cname] = { fields, loose, featags, strictPaths, allowAny };
+          contracts[nsPrefix + cname] = { name: nsPrefix + cname, fields, loose, featags, strictPaths, allowAny };
           continue;
         }
         if (fname === "is") {

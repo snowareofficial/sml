@@ -1136,6 +1136,47 @@ local function test_ext_api()
     report("零扩展与旧入口一致", "同串",
       tostring(a and Sml.dump(a)), a ~= nil and b ~= nil and Sml.dump(a) == Sml.dump(b))
   end
+  -- 外置修饰符（P13）：与 Rust `Modifier{apply,check,check_group}` 同形；
+  -- 回调返回 nil = 通过，返回字符串 = 失败（统一落 E-CONTRACT-011）。
+  local ext2 = {
+    directives = ext.directives,
+    types = ext.types,
+    modifiers = {
+      nonempty = {
+        apply = function(spec, v)
+          if type(v) ~= "string" then return "取值须为字符串" end
+          spec.default = v; spec.has_default = true
+        end,
+        check = function(spec, v)
+          if type(v) ~= "string" or #v == 0 then return "不得为空串" end
+        end,
+      },
+      groupfail = {
+        check_group = function(view)
+          if view.owner == "n" then return "钉子：check_group 失败" end
+        end,
+      },
+    },
+  }
+  local function code_of2(src)
+    local v, err = Sml.load_ext(src, ext2)
+    if v then return "OK" end
+    return (tostring(err):match("^[A-Z%-]+%d+") or tostring(err))
+  end
+  report("修饰符 apply 改写规格", "OK",
+    code_of2("@contract C { title: str nonempty x }\nd { @is C }\n"),
+    code_of2("@contract C { title: str nonempty x }\nd { @is C }\n") == "OK")
+  report("修饰符 check 失败落 011", "E-CONTRACT-011",
+    code_of2("@contract C { title: str nonempty x }\nd { @is C title: \"\" }\n"),
+    code_of2("@contract C { title: str nonempty x }\nd { @is C title: \"\" }\n") == "E-CONTRACT-011")
+  report("修饰符 check_group 失败落 011", "E-CONTRACT-011",
+    code_of2("@contract C { n: int groupfail 1 }\nd { @is C n: 1 }\n"),
+    code_of2("@contract C { n: int groupfail 1 }\nd { @is C n: 1 }\n") == "E-CONTRACT-011")
+  do
+    local v, err = Sml.load_ext("a: 1\n", { modifiers = { min = function() end } })
+    local c = v and "OK" or (tostring(err):match("^[A-Z%-]+%d+") or tostring(err))
+    report("E-EXT-002 内置修饰符同名", "E-EXT-002", c, c == "E-EXT-002")
+  end
 end
 
 io.write("lua/test_codes.lua — 触发条件 → 期望码（W10，Lua 侧）\n")

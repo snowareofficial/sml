@@ -47,6 +47,11 @@ static const char *const SML_BUILTIN_TYPES[] = {
     "str", "int", "num", "bool", "any", "enum"
 };
 
+/* 内置修饰符名（禁止外置占用，与 Rust `BUILTIN_MODIFIERS` 同表）。 */
+static const char *const SML_BUILTIN_MODIFIERS[] = {
+    "optional", "required", "default", "min", "max"
+};
+
 static const sml_ext_directive *sml_ext_find_directive(const sml_ext *e, const char *name) {
     size_t i;
     if (!e || !e->directives || !name) return NULL;
@@ -62,6 +67,15 @@ static const sml_ext_type *sml_ext_find_type(const sml_ext *e, const char *name)
     for (i = 0; i < e->n_types; i++)
         if (e->types[i].name && strcmp(e->types[i].name, name) == 0)
             return &e->types[i];
+    return NULL;
+}
+
+static const sml_ext_modifier *sml_ext_find_modifier(const sml_ext *e, const char *name) {
+    size_t i;
+    if (!e || !e->modifiers || !name) return NULL;
+    for (i = 0; i < e->n_modifiers; i++)
+        if (e->modifiers[i].name && strcmp(e->modifiers[i].name, name) == 0)
+            return &e->modifiers[i];
     return NULL;
 }
 
@@ -109,6 +123,26 @@ static int sml_ext_validate(const sml_ext *e, char *err, size_t errsz) {
         for (j = 0; j < i; j++) {
             if (e->types[j].name && strcmp(n, e->types[j].name) == 0) {
                 set_err(err, errsz, SML_E_EXT_002 " 扩展类型 `%s` 已注册", n);
+                return -1;
+            }
+        }
+    }
+    for (i = 0; i < e->n_modifiers; i++) {
+        const char *n = e->modifiers[i].name;
+        if (!n || !*n) {
+            set_err(err, errsz, SML_E_EXT_002 " 扩展修饰符名不可为空");
+            return -1;
+        }
+        for (j = 0; j < sizeof SML_BUILTIN_MODIFIERS / sizeof *SML_BUILTIN_MODIFIERS; j++) {
+            if (strcmp(n, SML_BUILTIN_MODIFIERS[j]) == 0) {
+                set_err(err, errsz, SML_E_EXT_002
+                        " 不可注册与内置修饰符同名的扩展修饰符 `%s`", n);
+                return -1;
+            }
+        }
+        for (j = 0; j < i; j++) {
+            if (e->modifiers[j].name && strcmp(n, e->modifiers[j].name) == 0) {
+                set_err(err, errsz, SML_E_EXT_002 " 扩展修饰符 `%s` 已注册", n);
                 return -1;
             }
         }

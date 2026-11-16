@@ -1439,6 +1439,50 @@ static void test_ext_api() {
             std::cout << "  ok: E-EXT-002 重复注册 -> " << SML_E_EXT_002 << "\n";
         else { std::cout << "FAIL: E-EXT-002 重复 " << err << "\n"; failures++; }
     }
+    /* ⑦' 外置修饰符（P13）：与 Rust Modifier{apply,check,check_group} 同形 */
+    {
+        sml::Ext mext;
+        mext.modifiers.push_back({"optmod",
+            [](sml::TypeModifiers& m, const sml::ValuePtr&, std::string&) {
+                m.optional = true; return true;   // 解析期改写字段规格
+            },
+            nullptr, nullptr});
+        mext.modifiers.push_back({"nonempty",
+            nullptr,
+            [](const sml::ValuePtr& v, const sml::TypeModifiers&, std::string& e) {
+                if (v && v->tag == sml::Value::Tag::Str && !v->s.empty()) return true;
+                e = "不得为空串"; return false;
+            },
+            nullptr});
+        mext.modifiers.push_back({"groupfail",
+            nullptr, nullptr,
+            [](const std::string& owner, const std::vector<std::string>&, std::string& e) {
+                if (owner == "n") { e = "钉子：check_group 失败"; return false; }
+                return true;
+            }});
+        struct M { const char* src; const char* want; const char* tag; };
+        const M ms[] = {
+            {"@contract C { title: str optmod x }\nd { @is C }\n", "OK", "apply 改写规格"},
+            {"@contract C { title: str nonempty x }\nd { @is C title: \"\" }\n",
+             SML_E_CONTRACT_011, "check 失败落 011"},
+            {"@contract C { n: int groupfail 1 }\nd { @is C n: 1 }\n",
+             SML_E_CONTRACT_011, "check_group 失败落 011"},
+        };
+        for (const auto& m : ms) {
+            std::string err;
+            auto v = run_ext(m.src, &mext, err);
+            bool ok = std::string(m.want) == "OK" ? (v != nullptr) : (!v && starts(err, m.want));
+            if (ok) std::cout << "  ok: 修饰符 " << m.tag << " -> " << m.want << "\n";
+            else { std::cout << "FAIL: 修饰符 " << m.tag << " " << err << "\n"; failures++; }
+        }
+        sml::Ext bad;
+        bad.modifiers.push_back({"min", nullptr, nullptr, nullptr});
+        std::string err;
+        auto v = run_ext("a: 1\n", &bad, err);
+        if (!v && starts(err, SML_E_EXT_002))
+            std::cout << "  ok: E-EXT-002 内置修饰符同名 -> " << SML_E_EXT_002 << "\n";
+        else { std::cout << "FAIL: E-EXT-002 修饰符 " << err << "\n"; failures++; }
+    }
     /* ⑦ 零扩展与旧入口一致 */
     {
         std::string err;
