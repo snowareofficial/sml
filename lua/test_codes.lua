@@ -1009,6 +1009,40 @@ local function test_weakbind_codes()
         wb5 and #wb5 == 1 and wb5[1].path == "a.b.c", err5)
 end
 
+-- ---- 模式语言的 regex 逃生舱（`正则:`）：编译进同一个 IR ----
+-- ① 合法正则命中 ⇒ 成功；② 值不符 ⇒ 009；③ 反向引用 / lookaround ⇒ 013。
+-- 与 Rust / C / C++ 同口径。
+local function test_pattern_regex()
+  io.write("[PATTERN-REGEX]\n")
+
+  expect_ok("正则逃生舱（命中）",
+    "@type name: Phone {\n    正则: \"^1[3-9][0-9]{9}$\"\n}\n"
+    .. "@contract C { p: Phone }\nx { @is C p: \"13800138000\" }\n")
+
+  expect_code("正则逃生舱（值不符）",
+    "@type name: Phone2 {\n    正则: \"^1[3-9][0-9]{9}$\"\n}\n"
+    .. "@contract C2 { p: Phone2 }\nx { @is C2 p: \"12800138000\" }\n",
+    "E-CONTRACT-009")
+
+  expect_code("regex 拒绝反向引用",
+    "@type name: Bad1 {\n    正则: \"^(a)\\\\1$\"\n}\n"
+    .. "@contract C3 { p: Bad1 }\nx { @is C3 p: \"aa\" }\n",
+    "E-CONTRACT-013")
+
+  expect_code("regex 拒绝 lookaround",
+    "@type name: Bad2 {\n    正则: \"^(?=a)a$\"\n}\n"
+    .. "@contract C4 { p: Bad2 }\nx { @is C4 p: \"a\" }\n",
+    "E-CONTRACT-013")
+
+  expect_ok("正则与结构化写法混用",
+    "@type name: Mix {\n    序列: [\n"
+    .. "        { 名: 前缀, 正则: \"^[A-Z]{2}\" }\n"
+    .. "        { 字面: \"-\" }\n"
+    .. "        { 名: 编号, 类: 数字, 次: 4 }\n"
+    .. "    ]\n}\n"
+    .. "@contract CM { code: Mix }\nx { @is CM code: \"AB-1234\" }\n")
+end
+
 io.write("lua/test_codes.lua — 触发条件 → 期望码（W10，Lua 侧）\n")
 test_parse_codes()
 test_w16_codes()
@@ -1018,6 +1052,7 @@ test_feature_codes()
 test_host_codes()
 test_contract_codes()
 test_contract_positive()
+test_pattern_regex()
 test_include_codes()
 test_weakbind_codes()
 test_positive_controls()

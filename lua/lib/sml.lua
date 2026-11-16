@@ -797,6 +797,7 @@ local function pat_class_match(cls, cp)
            or cp == 95                                   -- `_`
   elseif k == "any" then return true
   elseif k == "one" then return cp == cls.ch1
+  elseif k == "range" then return cp >= cls.ch1 and cp <= cls.ch2
   elseif k == "set" then
     for _, sub in ipairs(cls.set) do if pat_class_match(sub, cp) then return true end end
     return false
@@ -882,6 +883,241 @@ local function pat_parse_times(v)
   return mn, have_max and mx or -1
 end
 
+-- ---- regex 逃生舱：把 regex 子集编译进同一个 IR ---------------------------
+--
+-- 与 Rust `sml-pattern/src/regex.rs`、C / C++ 端逐条同构：`正则/regex/re` 只是
+-- 模式的另一种**前端**，解析后产出同一棵 Pat，仍交给无回溯 NFA 执行 —— 逃生舱
+-- 不逃掉线性时间保证。明确拒绝（报错，不静默降级）：反向引用 `\1`…`\9`、
+-- lookaround / 其它 `(?...)`。锚点 `^` `$` 隐含（全文匹配），出现时直接跳过。
+--
+-- 解析器状态：{ cp = 码位数组, n, i = 1 起, err }。失败时置 p.err 并返回 nil。
+local function rex_peek(p)
+  return p.i <= p.n and p.cp[p.i] or 0   -- 0 = EOF（regex 源不含内嵌 NUL）
+end
+
+local function rex_fail(p, msg)
+  p.err = msg
+  return nil
+end
+
+local function rex_class_one(cp) return { kind = "one", ch1 = cp } end
+local function rex_class_not(inner) return { kind = "not", set = { inner } } end
+local function rex_pat_class(cls) return { kind = "class", cls = cls } end
+
+-- 码位 → UTF-8（错误消息里显示那个无法解析的字符）
+local function rex_utf8(cp)
+  if cp < 0x80 then return string.char(cp) end
+  if cp < 0x800 then
+    return string.char(0xC0 + math.floor(cp / 64), 0x80 + (cp % 64))
+  end
+  if cp < 0x10000 then
+    return string.char(0xE0 + math.floor(cp / 4096),
+                       0x80 + (math.floor(cp / 64) % 64), 0x80 + (cp % 64))
+  end
+  return string.char(0xF0 + math.floor(cp / 262144),
+                     0x80 + (math.floor(cp / 4096) % 64),
+                     0x80 + (math.floor(cp / 64) % 64), 0x80 + (cp % 64))
+end
+
+-- 字符类内的一个成员：`\d` / `\w` / `\s`、`a-z` 范围、或单字符。
+local function rex_class_item(p)
+  if p.i > p.n then return rex_fail(p, "sml: 字符类意外结束") end
+  local c = p.cp[p.i]
+  if c == 92 then   -- '\'
+    p.i = p.i + 1
+    if p.i > p.n then return rex_fail(p, "sml: `\\` 后缺少字符") end
+    local e = p.cp[p.i]
+    p.i = p.i + 1
+    if e == 100 then return { kind = "digit" }       -- d
+    elseif e == 119 then return { kind = "word" }    -- w
+    elseif e == 115 then return { kind = "space" }   -- s
+    else return rex_class_one(e) end
+  end
+  p.i = p.i + 1
+  -- 范围 a-z（`-` 紧邻 `]` 时按字面 `-`，与 Rust 同）
+  if rex_peek(p) == 45 and p.i + 1 <= p.n and p.cp[p.i + 1] ~= 93 then
+    p.i = p.i + 1
+    local hi = p.cp[p.i]
+    p.i = p.i + 1
+    return { kind = "range", ch1 = c, ch2 = hi }
+  end
+  return rex_class_one(c)
+end
+
+-- `[ ... ]` / `[^ ... ]`。单成员直接那个类，多成员 set（并集）。
+local function rex_class(p)
+  if rex_peek(p) ~= 91 then return rex_fail(p, "sml: 期望 `[`") end   -- '['
+  p.i = p.i + 1
+  local negated = false
+  if rex_peek(p) == 94 then negated = true; p.i = p.i + 1 end          -- '^'
+  local items = {}
+  while true do
+    if p.i > p.n then return rex_fail(p, "sml: 字符类缺少 `]`") end
+    if p.cp[p.i] == 93 then p.i = p.i + 1; break end                   -- ']'
+    local it = rex_class_item(p)
+    if not it then return nil end
+    items[#items + 1] = it
+  end
+  local first
+  if #items == 1 then first = items[1]
+  else first = { kind = "set", set = items } end
+  if negated then return rex_class_not(first) end
+  return first
+end
+
+-- `\d` `\D` `\w` `\W` `\s` `\S`；反向引用 `\1`…`\9` 拒绝；其余按字面。
+local function rex_escape(p)
+  if rex_peek(p) ~= 92 then return rex_fail(p, "sml: 期望 `\\`") end
+  p.i = p.i + 1
+  if p.i > p.n then return rex_fail(p, "sml: `\\` 后缺少字符") end
+  local c = p.cp[p.i]
+  p.i = p.i + 1
+  if c == 100 then return rex_pat_class({ kind = "digit" })
+  elseif c == 68 then return rex_pat_class(rex_class_not({ kind = "digit" }))    -- D
+  elseif c == 119 then return rex_pat_class({ kind = "word" })
+  elseif c == 87 then return rex_pat_class(rex_class_not({ kind = "word" }))     -- W
+  elseif c == 115 then return rex_pat_class({ kind = "space" })
+  elseif c == 83 then return rex_pat_class(rex_class_not({ kind = "space" }))    -- S
+  elseif c >= 49 and c <= 57 then   -- '1'..'9'
+    return rex_fail(p, "sml: regex 不支持反向引用 `\\" .. string.char(c) ..
+      "`（与线性时间匹配根本冲突）；请改用命名捕获 + 等值比较")
+  else
+    return rex_pat_class(rex_class_one(c))
+  end
+end
+
+local rex_alt   -- 前向声明（分组递归）
+
+local function rex_atom(p)
+  if p.i > p.n then return rex_fail(p, "sml: regex 意外结束") end
+  local c = p.cp[p.i]
+  if c == 40 then   -- '('
+    p.i = p.i + 1
+    if rex_peek(p) == 63 then   -- '?'
+      return rex_fail(p, "sml: regex 不支持 `(?...)` 扩展（lookaround / 命名组等）；"
+                         .. "它们会破坏线性时间保证")
+    end
+    local inner = rex_alt(p)
+    if not inner then return nil end
+    if rex_peek(p) ~= 41 then return rex_fail(p, "sml: regex 分组缺少 `)`") end
+    p.i = p.i + 1
+    return inner
+  end
+  if c == 91 then   -- '['
+    local cl = rex_class(p)
+    if not cl then return nil end
+    return rex_pat_class(cl)
+  end
+  if c == 46 then p.i = p.i + 1; return rex_pat_class({ kind = "any" }) end   -- '.'
+  if c == 92 then return rex_escape(p) end                                   -- '\'
+  p.i = p.i + 1
+  return rex_pat_class(rex_class_one(c))
+end
+
+-- 读一串 ASCII 数字（`{n}` / `{n,m}` 的 n / m）。无数字返回 nil。
+local function rex_read_uint(p)
+  local v = 0
+  local start = p.i
+  while p.i <= p.n and p.cp[p.i] >= 48 and p.cp[p.i] <= 57 do
+    v = v * 10 + (p.cp[p.i] - 48)
+    if v > 1000000000 then v = 1000000001 end   -- 夹住，交给 QUANT_MAX 闸门
+    p.i = p.i + 1
+  end
+  if p.i == start then return nil end
+  return v
+end
+
+-- `{n}` / `{n,}` / `{n,m}`。max = -1 表示无上界（与 IR 同约定）。
+local function rex_counted(p)
+  if rex_peek(p) ~= 123 then return rex_fail(p, "sml: 期望 `{`") end   -- '{'
+  p.i = p.i + 1
+  local lo = rex_read_uint(p)
+  if lo == nil then return rex_fail(p, "sml: `{n}` 量词缺少数字") end
+  local hi
+  if rex_peek(p) == 44 then   -- ','
+    p.i = p.i + 1
+    hi = rex_read_uint(p)
+    if hi == nil then hi = -1 end   -- {n,} 无上界
+  else
+    hi = lo                          -- {n} 恰好 n 次
+  end
+  if rex_peek(p) ~= 125 then return rex_fail(p, "sml: 量词缺少 `}`") end   -- '}'
+  p.i = p.i + 1
+  if lo > PAT_QUANT_MAX or (hi >= 0 and hi > PAT_QUANT_MAX) then
+    return rex_fail(p, "sml: 量词过大（> 1000），拒绝编译（防病态规则）")
+  end
+  return lo, hi
+end
+
+local function rex_repeat(p)
+  local atom = rex_atom(p)
+  if not atom then return nil end
+  local c = rex_peek(p)
+  local mn, mx, has = 0, -1, false
+  if c == 42 then p.i = p.i + 1; mn, mx, has = 0, -1, true        -- '*'
+  elseif c == 43 then p.i = p.i + 1; mn, mx, has = 1, -1, true    -- '+'
+  elseif c == 63 then p.i = p.i + 1; mn, mx, has = 0, 1, true     -- '?'
+  elseif c == 123 then                                             -- '{'
+    local lo, hi = rex_counted(p)
+    if lo == nil then return nil end
+    mn, mx, has = lo, hi, true
+  end
+  if has then
+    if rex_peek(p) == 63 then p.i = p.i + 1 end   -- 懒惰标记：无回溯引擎自动忽略
+    return { kind = "repeat", sub = atom, min = mn, max = mx }
+  end
+  return atom
+end
+
+local function rex_seq(p)
+  local seq = { kind = "seq", items = {} }
+  while p.i <= p.n do
+    local c = p.cp[p.i]
+    if c == 124 or c == 41 then break end          -- '|' ')'
+    if c == 94 or c == 36 then p.i = p.i + 1       -- '^' '$' 锚点隐含
+    else
+      local r = rex_repeat(p)
+      if not r then return nil end
+      seq.items[#seq.items + 1] = r
+    end
+  end
+  return seq
+end
+
+rex_alt = function(p)
+  local first = rex_seq(p)
+  if not first then return nil end
+  if rex_peek(p) ~= 124 then return first end      -- '|'
+  local alt = { kind = "alt", items = { first } }
+  while rex_peek(p) == 124 do
+    p.i = p.i + 1
+    local s = rex_seq(p)
+    if not s then return nil end
+    alt.items[#alt.items + 1] = s
+  end
+  return alt
+end
+
+-- 对外入口：regex 源码 → Pat（失败返回 nil, err）。
+local function pat_parse_regex(src)
+  local p = { cp = {}, n = 0, i = 1, err = nil }
+  local pos = 1
+  while pos <= #src do
+    local cp, np = pat_next_cp(src, pos)
+    if cp == nil then break end
+    p.cp[#p.cp + 1] = cp
+    pos = np
+  end
+  p.n = #p.cp
+  local pat = rex_alt(p)
+  if pat and p.i <= p.n then
+    return nil, "sml: regex 在位置 " .. (p.i - 1) ..
+      " 处有无法解析的内容 `" .. rex_utf8(p.cp[p.i]) .. "`"
+  end
+  if not pat then return nil, p.err or "sml: regex 编译失败" end
+  return pat
+end
+
 local pat_compile_value
 
 local function pat_compile_elem(v, rules, stack)
@@ -949,8 +1185,13 @@ local function pat_compile_elem(v, rules, stack)
       base = { kind = "until", sub = { kind = "lit", lit = until_ } }
     end
   elseif rex ~= nil then
-    -- 逃生舱在四端未实现：与其静默「永不匹配」，不如响亮拒绝
-    return nil, "sml: `正则/regex` 逃生舱在本端未实现（请改用 序列 / 类 / 任一 / 次 组合表达）"
+    -- `正则:` 逃生舱：解析成 regex 子集后编译进同一个 IR（Rust / C / C++ 同构）。
+    if type(rex) ~= "string" then return nil, "sml: `正则/regex` 须为字符串" end
+    local pat, e = pat_parse_regex(rex)
+    if not pat then
+      return nil, "sml: regex 编译失败：" .. tostring(e)   -- 与 Rust 同：外层再包一句
+    end
+    base = pat
   else
     local keys = {}
     for k in pairs(v) do keys[#keys + 1] = k end

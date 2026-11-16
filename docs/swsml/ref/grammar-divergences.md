@@ -113,7 +113,7 @@
 
 | # | 差异 | 现状 | 说明 |
 |---|---|---|---|
-| 1 | `正则/regex` 逃生舱 | **C / C++ 已实现**（2026-11-16，与 Rust 同构；钉子 `c/tests/test_codes.c`、`cpp/tests/test_codes.cpp` 的 `[PATTERN-REGEX]`）；**Lua 仍响亮拒绝**（`013`） | Rust 把内联正则编译进同一个 IR；C / C++ 照 `rust/sml-pattern/src/regex.rs` 移植受限子集（拒反向引用 `\1` 与 lookaround，锚点隐含）。Lua 没有那台解析器，静默「永不匹配」不如拒绝 |
+| 1 | `正则/regex` 逃生舱 | **五端已支持**（2026-11-16：Rust 原生受限 IR；C / C++ / Lua 移植同构子集，钉子各自的 `[PATTERN-REGEX]`；JS 走 RegExp） | Rust / C / C++ / Lua 把内联正则编译进同一个无回溯 IR（拒反向引用 `\1` 与 lookaround，锚点隐含）；JS 走 RegExp（源长度闸 + 预算，错误码细分见本表第 2 行） |
 | 2 | JS 的错误码漂移 | `用:` 环/未定义 ⇒ `014`（Rust `013`）；量词过大 ⇒ `E-LIMIT-009`（Rust `013`） | JS 走 RegExp 路线，错误来自编译期预算。**方向待裁**：`errors/codes.sml` 把 `014` / `015` / `E-LIMIT-009` 登记成**只有 JS 实现**的专门码（诊断更细），故要么 Rust 与三端改用专门码，要么把这三个码作废 —— 属语言/码表决定，不是实现补丁 |
 
 **数组元素已对齐**（`[D]` 的元素回落成「不报」曾是 JS 的静默差异）：Rust 逐元素递归校验、
