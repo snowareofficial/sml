@@ -31,7 +31,7 @@
 
 ---
 
-## 表 1 · TODO（未完成 44 + 非复选框 8）
+## 表 1 · TODO（T01–T50：未完成 41 + 常驻约束 2 + 已完成未勾 7）
 
 | 编号 | 主题 | 状态 | 优先级 | 依赖 | 完成判据 | 来源(file:行) | 卡在谁 |
 |---|---|---|---|---|---|---|---|
@@ -63,7 +63,7 @@
 | T26 | 删 `origin/master` | 未做（实测落后 `main` 223 笔、完全包含） | P2 | 无 | `git push origin --delete master` 成功 | `TODO.md:1281` | 用户 |
 | T27 | 双远端同步口径 | 常驻约束（不可勾） | — | 无 | 无；`--delete` 不同步、工作流不带 `--prune` 是刻意的 | `TODO.md:1324` | 无 |
 | T28 | 全仓文档对齐 + 可重跑机制 | 未做（§九 五条症状，执行方案在 §14） | P0 | T40 / T41 / T42 | §九 的 4 条「做完的定义」全部满足 | `TODO.md:1414` | 实现者 |
-| T29 | 裁决 `amberice` 定位 | 已完成(未勾)：2026-11-06 用户裁决 = **`smlb` 改名后的名字**；B 档已落地（`0f1c7f4`：`.ambr` / `AMBR`） | P0 | 无 | 一句话定层（格式品牌 / 产品线 / 引擎），并回答「是否取代 smlkit、CLI 是否双名、语言是否仍叫 SML」 | `TODO.md:1440`、`TODO.md:1533` | 用户 |
+| T29 | 裁决 `amberice` 定位 | **部分完成**：`smlb`→`amberice` 改名已落地（`0f1c7f4`：`.ambr` / `AMBR`）；但「`amberice` 到底指哪一层」与三问（是否取代 smlkit / CLI 是否双名 / 语言是否仍叫 SML）**仍待裁决**（`docs/repo/ref/pending-decisions.md` §4、`TODO.md` §11.4） | P0 | 无 | 一句话定层（格式品牌 / 产品线 / 引擎），并回答「是否取代 smlkit、CLI 是否双名、语言是否仍叫 SML」 | `TODO.md:1440`、`TODO.md:1533` | 用户（未裁决） |
 | T30 | 对外主仓（原「主仓迁 GitHub」） | **方向已定（D6）**：GitHub `swsml` 仓作主仓，workflow 单向推送、收 star / issue / PR；本仓保持权威开发源，**同步方向不反转**；时点待用户动作 | P0 | T29 | CI 绿；Pages/域名/`repository` 就位；收 PR 前调整 `sync-from-gitee.yml` guard；发布公告 | `TODO.md:1465`、`docs/repo/ref/pending-decisions.md` D6 | 用户 |
 | T31 | 门面 `smlkit` → `swml` | **部分完成（2026-11-06）**：`rust/swml` 已建（`pub use swsml::*` + `easy` 模块 = 原 `smlkit-easy`），本地 `0.1.0-dev.0`、`publish = false`；**门面先不动（2026-11-11）** | P1 | T18 / T29 | 不参与 dev1 / dev2 发布、不拆仓、源码留本仓 workspace；发布另行排期 | `TODO.md:1488`、`docs/repo/ref/pending-decisions.md` D6 | 用户（发布动作） |
 | T32 | 防御别名 `swmltool` / `swmltools` | 待做，有硬前提 | P2 | T31 | `smltools` 抽出 `lib`，别名包同版本、README 写明是别名（否则违反 crates.io 反占坑） | `TODO.md:1497` | 实现者（抽 lib）+ 用户（发布） |
@@ -88,7 +88,7 @@
 
 ---
 
-## 表 1（续）· TODO 已完成 75 条（Done，别再当欠账）
+## 表 1（续）· TODO 已完成 70 条（D01–D70，Done，别再当欠账）
 
 | 编号 | 主题 | 状态 | 优先级 | 依赖 | 完成判据 | 来源(file:行) | 卡在谁 |
 |---|---|---|---|---|---|---|---|
@@ -178,7 +178,7 @@
 
 ---
 
-## 表 2 · IDEAS（32 条）
+## 表 2 · IDEAS（33 条）
 
 | 编号 | 名称 | 状态 | 类型 | 依赖 | 下一步 | 来源(file:行) |
 |---|---|---|---|---|---|---|
@@ -190,7 +190,7 @@
 | I-6 | `featag`：带参块头标签 | 文档写 `Blocked`，**实测 Rust 已落地**（`__featags` / `from-featag` / `!strict-paths` 均在代码里） | 语言 / 块头 | T50（v5 定稿） | 回填 IDEAS 状态；四端按 S9 明确「不实现、报不支持」；补规范页 | `IDEAS.md:292`、`docs/swsml/plan/featag-slices.md:19` |
 | I-7 | 契约约束的精确控制 | Done（`x_only` 2026-11-02 落地） | 语言 / 契约 | 无 | 无；剩余只有「五端同步」（归 T01） | `IDEAS.md:340` |
 | I-8 | TOML 风格 `=` 分隔 | Todo（`[name]` 作块名已搁置） | 语言 / 词法 | 五端词法 + `@feature` opt-in | 先裁决「特性未开启时是否报错」，再动词法；`[name]` 维持搁置 | `IDEAS.md:452` |
-| I-9 | 近似契约名提示 | Done（运行时）；**编辑器侧未做** | 语言 / 诊断 | 无 | 补 lsp / VSCode 标黄；外置契约类型与指令名进候选池 | `IDEAS.md:465` |
+| I-9 | 近似契约名提示 | **仅 Rust 运行时已落地**（`rust/sml-contract` 的 `suggest_contract_name` + `rust/tests/contract_typo.rs`）；**JS / C / C++ / Lua 四端解析器与编辑器侧均未做**（四端 `E-CONTRACT-001` 文案无候选名） | 语言 / 诊断 | 无 | ① 四端解析器补 near-miss + 列位置；② 补 lsp / VSCode 标黄；③ 外置契约类型与指令名进候选池 | `IDEAS.md:465` |
 | I-10 | 团队搭建与宣传 | Partial（能力矩阵已产出） | 文档 / 宣传 | 能力矩阵（已完成） | 补 `CONTRIBUTING.md` / issue·PR 模板 / 3 分钟入口页；宣传语不得越过能力矩阵 §5 | `IDEAS.md:500` |
 | I-11 | 中文支持完善且可剥离 | Partial（Rust 侧十二批清零） | 语言 / i18n | 无 | 非 Rust 端硬编码文案（JS / C / Lua）另开一轮；`zh` feature 已可剥离 | `IDEAS.md:520` |
 | I-12 | 改名工作 | Rejected（2026-11-03 用户裁决） | 治理 / 命名 | 无 | 不再提；好名字由新 crate 承载（I-19 `swml`） | `IDEAS.md:554` |
