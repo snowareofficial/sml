@@ -229,6 +229,279 @@ static bool pat_parse_times(const ValuePtr& v, size_t& mn, long& mx, std::string
     return true;
 }
 
+// ---- regex 逃生舱：把 regex 子集编译进同一个 IR ---------------------------
+//
+// 与 Rust `sml-pattern/src/regex.rs`、C 端 `c/src/02b_pattern.inc` 逐条同构：
+// `正则/regex/re` 只是模式的另一种**前端**，解析后产出同一棵 `Pat`，仍交给
+// 无回溯 NFA 执行 —— 逃生舱不逃掉线性时间保证。明确拒绝（报错，不静默降级）：
+//   - 反向引用 `\1`…`\9`（与自动机模型冲突，NP 完全）
+//   - lookaround / 其它 `(?...)` 扩展（破坏线性时间与流式处理）
+// 锚点 `^` `$` 是**隐含**的（全文匹配），出现时直接跳过。
+
+struct RegexParser {
+    std::vector<unsigned long> cp;   // 已解码的码位序列
+    size_t n = 0;
+    size_t i = 0;
+    std::string* err = nullptr;
+};
+
+static std::shared_ptr<Pat> rex_alt(RegexParser& p);
+
+static unsigned long rex_peek(const RegexParser& p) {
+    return p.i < p.n ? p.cp[p.i] : 0UL;   // 0 = EOF（std::string 不含内嵌 NUL）
+}
+
+static void rex_set_err(const RegexParser& p, const std::string& msg) {
+    if (p.err) *p.err = msg;
+}
+
+static std::shared_ptr<PatClass> rex_class_one(unsigned long cp) {
+    auto c = pat_new_class(PatClass::Kind::One);
+    c->ch1 = cp;
+    return c;
+}
+
+static std::shared_ptr<PatClass> rex_class_not(std::shared_ptr<PatClass> inner) {
+    auto c = pat_new_class(PatClass::Kind::Not);
+    c->set.push_back(inner);
+    return c;
+}
+
+static std::shared_ptr<Pat> rex_pat_from_class(std::shared_ptr<PatClass> cl,
+                                               const RegexParser& p) {
+    if (!cl) { rex_set_err(p, "sml: 内存不足"); return nullptr; }
+    auto pat = pat_new(Pat::Kind::Class);
+    pat->cls = cl;
+    return pat;
+}
+
+// 把码位编码成 UTF-8，供错误消息里显示那个无法解析的字符。
+static std::string rex_utf8(unsigned long cp) {
+    std::string out;
+    if (cp < 0x80) {
+        out.push_back((char)cp);
+    } else if (cp < 0x800) {
+        out.push_back((char)(0xC0 | (cp >> 6)));
+        out.push_back((char)(0x80 | (cp & 0x3F)));
+    } else if (cp < 0x10000) {
+        out.push_back((char)(0xE0 | (cp >> 12)));
+        out.push_back((char)(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back((char)(0x80 | (cp & 0x3F)));
+    } else {
+        out.push_back((char)(0xF0 | (cp >> 18)));
+        out.push_back((char)(0x80 | ((cp >> 12) & 0x3F)));
+        out.push_back((char)(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back((char)(0x80 | (cp & 0x3F)));
+    }
+    return out;
+}
+
+// 字符类内的一个成员：`\d` / `\w` / `\s`、`a-z` 范围、或单字符。
+static std::shared_ptr<PatClass> rex_class_item(RegexParser& p) {
+    if (p.i >= p.n) { rex_set_err(p, "sml: 字符类意外结束"); return nullptr; }
+    unsigned long c = p.cp[p.i];
+    if (c == '\\') {
+        p.i++;
+        if (p.i >= p.n) { rex_set_err(p, "sml: `\\` 后缺少字符"); return nullptr; }
+        unsigned long e = p.cp[p.i++];
+        switch (e) {
+            case 'd': return pat_new_class(PatClass::Kind::Digit);
+            case 'w': return pat_new_class(PatClass::Kind::Word);
+            case 's': return pat_new_class(PatClass::Kind::Space);
+            default:  return rex_class_one(e);
+        }
+    }
+    p.i++;
+    // 范围 a-z（`-` 紧邻 `]` 时按字面 `-`，与 Rust 同）
+    if (rex_peek(p) == '-' && p.i + 1 < p.n && p.cp[p.i + 1] != ']') {
+        p.i++;
+        unsigned long hi = p.cp[p.i++];
+        auto r = pat_new_class(PatClass::Kind::Range);
+        r->ch1 = c;
+        r->ch2 = hi;
+        return r;
+    }
+    return rex_class_one(c);
+}
+
+// `[ ... ]` / `[^ ... ]`。单成员直接那个类，多成员 Set（并集）。
+static std::shared_ptr<PatClass> rex_class(RegexParser& p) {
+    bool negated = false;
+    if (rex_peek(p) != '[') { rex_set_err(p, "sml: 期望 `[`"); return nullptr; }
+    p.i++;
+    if (rex_peek(p) == '^') { negated = true; p.i++; }
+    std::vector<std::shared_ptr<PatClass>> items;
+    for (;;) {
+        if (p.i >= p.n) { rex_set_err(p, "sml: 字符类缺少 `]`"); return nullptr; }
+        if (p.cp[p.i] == ']') { p.i++; break; }
+        auto it = rex_class_item(p);
+        if (!it) return nullptr;
+        items.push_back(it);
+    }
+    std::shared_ptr<PatClass> first;
+    if (items.size() == 1) {
+        first = items[0];
+    } else {
+        first = pat_new_class(PatClass::Kind::Set);
+        first->set = items;
+    }
+    if (negated) return rex_class_not(first);
+    return first;
+}
+
+// `\d` `\D` `\w` `\W` `\s` `\S`；反向引用 `\1`…`\9` 拒绝；其余按字面。
+static std::shared_ptr<Pat> rex_escape(RegexParser& p) {
+    if (rex_peek(p) != '\\') { rex_set_err(p, "sml: 期望 `\\`"); return nullptr; }
+    p.i++;
+    if (p.i >= p.n) { rex_set_err(p, "sml: `\\` 后缺少字符"); return nullptr; }
+    unsigned long c = p.cp[p.i++];
+    switch (c) {
+        case 'd': return rex_pat_from_class(pat_new_class(PatClass::Kind::Digit), p);
+        case 'D': return rex_pat_from_class(rex_class_not(pat_new_class(PatClass::Kind::Digit)), p);
+        case 'w': return rex_pat_from_class(pat_new_class(PatClass::Kind::Word), p);
+        case 'W': return rex_pat_from_class(rex_class_not(pat_new_class(PatClass::Kind::Word)), p);
+        case 's': return rex_pat_from_class(pat_new_class(PatClass::Kind::Space), p);
+        case 'S': return rex_pat_from_class(rex_class_not(pat_new_class(PatClass::Kind::Space)), p);
+        default:
+            if (c >= '1' && c <= '9') {
+                rex_set_err(p, std::string("sml: regex 不支持反向引用 `\\") + (char)c +
+                               "`（与线性时间匹配根本冲突）；请改用命名捕获 + 等值比较");
+                return nullptr;
+            }
+            return rex_pat_from_class(rex_class_one(c), p);
+    }
+}
+
+static std::shared_ptr<Pat> rex_atom(RegexParser& p) {
+    if (p.i >= p.n) { rex_set_err(p, "sml: regex 意外结束"); return nullptr; }
+    unsigned long c = p.cp[p.i];
+    if (c == '(') {
+        p.i++;
+        if (rex_peek(p) == '?') {
+            rex_set_err(p, "sml: regex 不支持 `(?...)` 扩展（lookaround / 命名组等）；"
+                           "它们会破坏线性时间保证");
+            return nullptr;
+        }
+        auto inner = rex_alt(p);
+        if (!inner) return nullptr;
+        if (rex_peek(p) != ')') { rex_set_err(p, "sml: regex 分组缺少 `)`"); return nullptr; }
+        p.i++;
+        return inner;
+    }
+    if (c == '[') return rex_pat_from_class(rex_class(p), p);
+    if (c == '.') { p.i++; return rex_pat_from_class(pat_new_class(PatClass::Kind::Any), p); }
+    if (c == '\\') return rex_escape(p);
+    p.i++;
+    return rex_pat_from_class(rex_class_one(c), p);
+}
+
+// 读一串 ASCII 数字（`{n}` / `{n,m}` 的 n / m）。无数字返回 false。
+static bool rex_read_uint(RegexParser& p, long& out) {
+    long v = 0;
+    size_t start = p.i;
+    while (p.i < p.n && p.cp[p.i] >= '0' && p.cp[p.i] <= '9') {
+        v = v * 10 + (long)(p.cp[p.i] - '0');
+        if (v > 1000000000L) v = 1000000001L;   // 夹住，交给 QUANT_MAX 闸门
+        p.i++;
+    }
+    if (p.i == start) return false;
+    out = v;
+    return true;
+}
+
+// `{n}` / `{n,}` / `{n,m}`。max = -1 表示无上界（与 IR 同约定）。
+static bool rex_counted(RegexParser& p, size_t& mn, long& mx) {
+    long lo, hi;
+    if (rex_peek(p) != '{') { rex_set_err(p, "sml: 期望 `{`"); return false; }
+    p.i++;
+    if (!rex_read_uint(p, lo)) { rex_set_err(p, "sml: `{n}` 量词缺少数字"); return false; }
+    if (rex_peek(p) == ',') {
+        p.i++;
+        if (!rex_read_uint(p, hi)) hi = -1;   // {n,} 无上界
+    } else {
+        hi = lo;                               // {n} 恰好 n 次
+    }
+    if (rex_peek(p) != '}') { rex_set_err(p, "sml: 量词缺少 `}`"); return false; }
+    p.i++;
+    if (lo > (long)PAT_QUANT_MAX || (hi >= 0 && hi > (long)PAT_QUANT_MAX)) {
+        rex_set_err(p, "sml: 量词过大（> " + std::to_string(PAT_QUANT_MAX) +
+                       "），拒绝编译（防病态规则）");
+        return false;
+    }
+    mn = (size_t)lo;
+    mx = hi;
+    return true;
+}
+
+static std::shared_ptr<Pat> rex_repeat(RegexParser& p) {
+    auto atom = rex_atom(p);
+    if (!atom) return nullptr;
+    unsigned long c = rex_peek(p);
+    size_t mn = 0;
+    long mx = -1;
+    bool has = false;
+    if (c == '*') { p.i++; mn = 0; mx = -1; has = true; }
+    else if (c == '+') { p.i++; mn = 1; mx = -1; has = true; }
+    else if (c == '?') { p.i++; mn = 0; mx = 1; has = true; }
+    else if (c == '{') {
+        if (!rex_counted(p, mn, mx)) return nullptr;
+        has = true;
+    }
+    if (has) {
+        if (rex_peek(p) == '?') p.i++;   // 无回溯引擎没有贪婪概念：懒惰标记忽略
+        auto r = pat_new(Pat::Kind::Repeat);
+        r->sub = atom;
+        r->min = mn;
+        r->max = mx;
+        return r;
+    }
+    return atom;
+}
+
+static std::shared_ptr<Pat> rex_seq(RegexParser& p) {
+    auto seq = pat_new(Pat::Kind::Seq);
+    while (p.i < p.n) {
+        unsigned long c = p.cp[p.i];
+        if (c == '|' || c == ')') break;
+        if (c == '^' || c == '$') { p.i++; continue; }   // 锚点隐含
+        auto r = rex_repeat(p);
+        if (!r) return nullptr;
+        seq->items.push_back(r);
+    }
+    return seq;
+}
+
+static std::shared_ptr<Pat> rex_alt(RegexParser& p) {
+    auto first = rex_seq(p);
+    if (!first) return nullptr;
+    if (rex_peek(p) != '|') return first;
+    auto alt = pat_new(Pat::Kind::Alt);
+    alt->items.push_back(first);
+    while (rex_peek(p) == '|') {
+        p.i++;
+        auto s = rex_seq(p);
+        if (!s) return nullptr;
+        alt->items.push_back(s);
+    }
+    return alt;
+}
+
+// 对外入口：把 regex 源码编译成 Pat（失败返回 nullptr 并写 err）。
+static std::shared_ptr<Pat> pat_parse_regex(const std::string& src, std::string* err) {
+    RegexParser p;
+    p.err = err;
+    size_t pos = 0;
+    while (pos < src.size()) p.cp.push_back(pat_next_cp(src, src.size(), pos));
+    p.n = p.cp.size();
+    auto pat = rex_alt(p);
+    if (pat && p.i < p.n) {
+        if (err) *err = "sml: regex 在位置 " + std::to_string(p.i) +
+                        " 处有无法解析的内容 `" + rex_utf8(p.cp[p.i]) + "`";
+        return nullptr;
+    }
+    return pat;
+}
+
 static std::shared_ptr<Pat> pat_compile_value(const ValuePtr& v,
                                               const std::map<std::string, ValuePtr>* rules,
                                               std::vector<std::string>& stack,
@@ -332,10 +605,18 @@ static std::shared_ptr<Pat> pat_compile_elem(const ValuePtr& v,
             base->sub->lit = until->s;
         }
     } else if (rex) {
-        // 逃生舱在四端未实现：与其静默「永不匹配」（把格式约束变成「全都报 009」），
-        // 不如响亮拒绝 —— 用户能看见的是「本端不支持这条写法」。
-        if (err) *err = "sml: `正则/regex` 逃生舱在本端未实现（请改用 序列 / 类 / 任一 / 次 组合表达）";
-        return nullptr;
+        // `正则:` 逃生舱：解析成 regex 子集后编译进同一个 IR（Rust / C 同构）。
+        if (rex->tag != Value::Tag::Str) {
+            if (err) *err = std::string("sml: `正则/regex` 须为字符串，实际 ") + pat_kind_name(rex);
+            return nullptr;
+        }
+        base = pat_parse_regex(rex->s, err);
+        if (!base) {
+            // 与 Rust 同：外层再包一句「regex 编译失败」（内层文案已带 `sml:` 前缀）。
+            std::string inner = err ? *err : std::string();
+            if (err) *err = "sml: regex 编译失败：" + inner;
+            return nullptr;
+        }
     } else {
         std::string keys;
         for (const auto& kv : v->obj) { if (!keys.empty()) keys += " "; keys += kv.first; }

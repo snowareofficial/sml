@@ -1178,10 +1178,64 @@ static void test_feature_directive() {
               "hosts: @for h in a b { name: \"${h}\" }\n");
 }
 
+// ------------------------------------------------------------------
+// 模式语言的 regex 逃生舱（`正则:`）：编译进同一个 IR，不引第二个引擎
+// ------------------------------------------------------------------
+// 钉三件事：① 合法正则命中 ⇒ 解析成功；② 值不符 ⇒ E-CONTRACT-009；
+// ③ 反向引用 / lookaround ⇒ E-CONTRACT-013（响亮拒绝，不静默降级）。
+// 与 Rust `sml-pattern/src/regex.rs`、C 端 test_codes.c 同口径。
+static void test_pattern_regex() {
+    std::cout << "[PATTERN-REGEX]\n";
+
+    expect_ok("正则逃生舱（命中）",
+              "@type name: Phone {\n"
+              "    正则: \"^1[3-9][0-9]{9}$\"\n"
+              "}\n"
+              "@contract C { p: Phone }\n"
+              "x { @is C p: \"13800138000\" }\n");
+
+    expect_code("正则逃生舱（值不符）",
+                "@type name: Phone2 {\n"
+                "    正则: \"^1[3-9][0-9]{9}$\"\n"
+                "}\n"
+                "@contract C2 { p: Phone2 }\n"
+                "x { @is C2 p: \"12800138000\" }\n",
+                SML_E_CONTRACT_009);
+
+    expect_code("regex 拒绝反向引用",
+                "@type name: Bad1 {\n"
+                "    正则: \"^(a)\\\\1$\"\n"
+                "}\n"
+                "@contract C3 { p: Bad1 }\n"
+                "x { @is C3 p: \"aa\" }\n",
+                SML_E_CONTRACT_013);
+
+    expect_code("regex 拒绝 lookaround",
+                "@type name: Bad2 {\n"
+                "    正则: \"^(?=a)a$\"\n"
+                "}\n"
+                "@contract C4 { p: Bad2 }\n"
+                "x { @is C4 p: \"a\" }\n",
+                SML_E_CONTRACT_013);
+
+    // 与结构化写法混用（Rust `逃生舱与结构化写法混用` 同形）
+    expect_ok("正则与结构化写法混用",
+              "@type name: Mix {\n"
+              "    序列: [\n"
+              "        { 名: 前缀, 正则: \"^[A-Z]{2}\" }\n"
+              "        { 字面: \"-\" }\n"
+              "        { 名: 编号, 类: 数字, 次: 4 }\n"
+              "    ]\n"
+              "}\n"
+              "@contract CM { code: Mix }\n"
+              "x { @is CM code: \"AB-1234\" }\n");
+}
+
 int main() {
     test_lex_codes();
     test_parse_codes();
     test_contract_codes();
+    test_pattern_regex();
     test_contract_modifier_legacy();
     test_bound_literals();
     test_eof_and_key_position();

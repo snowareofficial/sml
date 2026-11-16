@@ -410,7 +410,7 @@ codes: [
     { id: E-CONTRACT-013 domain: CONTRACT severity: E title: "模式定义非法"
       msg: "模式定义非法：未知字符类、未知量词、不支持的元素，或无法识别的元素"
       impls: [ rust js c cpp lua ] status: partial
-      note: "JS 逐项报「未知字符类」「未知量词」「无法识别的模式元素」，并明确不支持懒惰量词；Rust / C / C++ / Lua 报「模式编译失败」（`@type` 的规则在字段引用时编译，故没被引用过的坏模式不报错）。`正则:` 逃生舱：Rust 与 C（2026-11-16 起，移植同构受限子集）编译进同一个 IR；C++ / Lua 未实现，遇到它也落本码" }
+      note: "JS 逐项报「未知字符类」「未知量词」「无法识别的模式元素」，并明确不支持懒惰量词；Rust / C / C++ / Lua 报「模式编译失败」（`@type` 的规则在字段引用时编译，故没被引用过的坏模式不报错）。`正则:` 逃生舱：Rust / C / C++ 编译进同一个 IR（C / C++ 2026-11-16 起移植同构受限子集）；Lua 未实现，遇到它也落本码" }
     { id: E-CONTRACT-014 domain: CONTRACT severity: E title: "模式规则引用非法"
       msg: "模式规则引用非法：引用了未定义的规则，或规则循环引用"
       impls: [ js ] status: partial
