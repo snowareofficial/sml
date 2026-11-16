@@ -4,7 +4,7 @@
 背景：私有报送件的正主是**仓库之外**的私有库；地址与库名只写在本地
 `.git/info/exclude` 与私有库里，**不写进公开仓库**（2026-10-28 脱敏）。
 
-三道检查：
+四道检查：
 A. 私有报送件（文件名，硬编码在下方 PATTERNS）—— 历史 / 索引都不能有；
 B. 隐私串 —— 本机绝对路径、真实邮箱、令牌形状、内网地址（RFC1918）。
    具体的内网主机名 / 组织名 / 内部代号不放代码里（否则守卫自己就泄密），
@@ -13,7 +13,10 @@ C. 图片资产 —— 每张都必须**逐张登记**（用途 + 指纹），�
    图片是二进制，B 那道逐行文本扫描对它等于没扫：截图里的一条本机路径、
    一个真实邮箱、一段作者 / 软件名，都能原样进库而不触发任何告警。
    这里既扫图片里**能读的那部分**（PNG 文本块 / JPEG APP 段 / GIF 注释），
-   也用指纹钉住「新图没登记」「老图被换掉」两种情况。
+   也用指纹钉住「新图没登记」「老图被换掉」两种情况；
+D. **全部非文本文件** —— 索引里所有二进制（vsix / zip / deb / ambr / wasm / 字体 /
+   图片本体）逐个抽可读字符串（ASCII + UTF-16），并递归读容器成员，跑同一套隐私串规则。
+   A 只认文件名、B 只逐行读文本、C 只读图片元数据和指纹；D 是最后一层兜底。
 
 用法：
   python tools/check_private_assets.py            # 快：索引内容 + 提交信息 + 路径 + 图片
@@ -21,10 +24,13 @@ C. 图片资产 —— 每张都必须**逐张登记**（用途 + 指纹），�
 rc=0 通过，rc=1 报警。
 """
 import hashlib
+import io
 import os
 import re
 import subprocess
 import sys
+import tarfile
+import zipfile
 import zlib
 
 PATTERNS = [
@@ -249,6 +255,130 @@ for p in sorted(tracked_images):
             scan_text("图片", p, "%s#%d" % (p, n), n, line, rules)
 for p in sorted(set(IMAGES) - set(tracked_images)):
     fails.append("IMAGES 里的 %s 已不在索引里（白名单僵尸条目，删掉）" % p)
+
+# ── 7) 全部非文本文件：可读字符串 + 容器成员全量扫描 ─────────────────────
+def is_binary(data):
+    if b"\0" in data:
+        return True
+    try:
+        data.decode("utf-8")
+        return False
+    except UnicodeDecodeError:
+        return True
+
+
+def printable_runs(data, min_len=4, max_len=4096):
+    """从任意字节里抽可读 ASCII 串，返回 [(偏移, 文本)]。UTF-16 另走隔字节路径。"""
+    out = []
+    cur = bytearray()
+    start = 0
+    for i, b in enumerate(data):
+        if 0x20 <= b <= 0x7E:
+            if not cur:
+                start = i
+            cur.append(b)
+            if len(cur) >= max_len:
+                out.append((start, cur.decode("ascii")))
+                cur.clear()
+        else:
+            if len(cur) >= min_len:
+                out.append((start, cur.decode("ascii")))
+            cur.clear()
+    if len(cur) >= min_len:
+        out.append((start, cur.decode("ascii")))
+    return out
+
+
+def nested_payloads(label, data, depth=0):
+    """逐层产出 (位置标签, 字节)：zip/vsix、deb 的 data.tar.* 会再拆一层。"""
+    yield label, data
+    if depth >= 2:
+        return
+    if data[:2] == b"PK" and zipfile.is_zipfile(io.BytesIO(data)):
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                for info in z.infolist():
+                    sub = label + "!" + info.filename
+                    yield sub, info.filename.encode("utf-8", "replace")
+                    if info.file_size <= 20_000_000:
+                        try:
+                            yield from nested_payloads(sub, z.read(info), depth + 1)
+                        except (OSError, zipfile.BadZipFile, RuntimeError):
+                            pass
+        except (OSError, zipfile.BadZipFile):
+            pass
+    elif data[:8] == b"!<arch>\n":  # deb 是 ar 归档；正文在 data.tar.*
+        i = 8
+        while i + 60 <= len(data):
+            name = data[i:i + 16].decode("ascii", "replace").strip()
+            size_field = data[i + 48:i + 58].decode("ascii", "replace").strip()
+            if not size_field.isdigit():
+                break
+            size = int(size_field)
+            body = data[i + 60:i + 60 + size]
+            i += 60 + size + (size % 2)
+            if not name.startswith("data.tar"):
+                continue
+            try:
+                with tarfile.open(fileobj=io.BytesIO(body), mode="r:*") as tf:
+                    for member in tf.getmembers():
+                        sub = label + "!" + member.name
+                        yield sub, member.name.encode("utf-8", "replace")
+                        if member.isfile() and member.size <= 20_000_000:
+                            f = tf.extractfile(member)
+                            if f:
+                                yield from nested_payloads(sub, f.read(), depth + 1)
+            except (OSError, tarfile.TarError):
+                pass
+
+
+# 非文本扫描的**精确**例外：fuzz 语料是自动生成的随机输入，`a@b.c` / `10.x.y.z`
+# 这类 Generic 命中是合成噪声；但本地字面串仍照扫（真泄密不许借语料躲过去）。
+BINARY_GENERIC_SKIP = {
+    "docs/swsml/ref/baseline-2026-11-07/fuzz-corpus.zip": "fuzz 合成语料，Generic 邮箱/内网形状是随机字节",
+}
+
+
+def looks_utf16le(data):
+    """只有**真的**像 UTF-16LE（奇数位几乎全 NUL、偶数位多可打印）才走隔字节路径。
+
+    不加这个判据时，任意二进制（甚至 zip 里的普通文本）按奇偶拆开都会得到一串
+    伪随机字符，恰好拼出 `a@b.c` 这类形状 ⇒ 假阳性刷屏。
+    """
+    odd = data[1::2]
+    even = data[0::2]
+    if len(odd) < 16:
+        return False
+    return (odd.count(0) / len(odd) > 0.6 and
+            sum(0x20 <= b <= 0x7E for b in even) / len(even) > 0.5)
+
+
+# 本地字面串里 ≤5 字符的条目在二进制中会必然误报（3 位字母数字在 5 MB 里成百上千次），
+# 它们仍照常被文本那道扫描；二进制这道只收 ≥6 字符的，保证报警可复查。
+local_binary = [
+    (re.compile(re.escape(s), re.IGNORECASE), "本地敏感串")
+    for s in load_local_patterns() if len(s) >= 6
+]
+binary_count = 0
+payload_count = 0
+for path in indexed:
+    try:
+        with open(os.path.join(ROOT, path), "rb") as f:
+            data = f.read()
+    except OSError:
+        continue
+    if not is_binary(data):
+        continue
+    binary_count += 1
+    for where, payload in nested_payloads(path, data):
+        payload_count += 1
+        binary_rules = local_binary if path in BINARY_GENERIC_SKIP else generic_res() + local_binary
+        for shift in (0, 1) if looks_utf16le(payload) else (0,):
+            stream = payload if shift == 0 else payload[1::2]
+            for off, text in printable_runs(stream):
+                scan_text("非文本", path, where, off * 2 + shift, text, binary_rules)
+print("非文本全量扫描：%d 个文件 / %d 层（含容器成员；fuzz 语料只扫本地精确串）"
+      % (binary_count, payload_count))
 
 if fails:
     uniq = sorted(set(fails))
