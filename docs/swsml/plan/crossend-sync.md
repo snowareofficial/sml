@@ -339,8 +339,8 @@ getter（value / diags / errors / weak / contract_map / contracts）。设计要
    `--pending`（空）、C / Lua / C++ 三端、五门绑定、码表三份 `--check`、`smldocs --check`
    全部通过（明细见各片报告）。
 
-仍未做（不属本批）：P5 的 `Removed` 三态 / 兼容检查 / 迁移工具（等 v5 定稿），
-编辑器侧提示，本地四端文件入口交诊断。
+仍未做（不属本批）：P5 的 release channel dev warning（等 v5 定稿）、`Removed` 登记行
+（等首次真实破坏性移除），编辑器侧提示，本地四端文件入口交诊断。迁移工具已落地，见 `version.md` §7。
 
 **P5 进度（Edition 五端字面量一致，2026-11-13）**：四端各自补了一个**同一口径**的字面量解析器
 （C `version_lit_major` / C++ 同名 helper / JS `versionLitMajor` / Lua `version_lit_major`），
@@ -349,7 +349,8 @@ getter（value / diags / errors / weak / contract_map / contracts）。设计要
 C 走既有的 `ps->version`、JS 走 `scanVersionBase`，四处都实现「v1 开 `bareword-string`、
 v2 起关」，与 Rust `FeatureSet::for_edition` 同构。判据是新增的 6 条一致性用例
 （`55`–`60`：连写 / 点号 / `v4` / `50` / 代号 / **v2 严格串**），默认套件从 54 → **60 例全 AGREE**。
-`50` 仍关闭（不启用 v5），`Removed` 三态 / 兼容检查模块 / 迁移工具仍待做（见 `version.md` §7）。
+`50` 仍关闭（不启用 v5）；`Removed` 三态的枚举 / 码 / 判据已备好但登记表按 V7 等首次移除才加行，
+迁移工具已落地（含 `v50-version` 预留规则），仅 release channel 的 dev warning 未接（见 `version.md` §7）。
 
 **顺序**：`P0（已收官）→ P1 → P2 / P3`（两者可并行）`→ P4`（等 G3 定稿；含 §0.3 的默认路径修复）`→ P7 → P6`；
 `P5` 后置到 v5 定稿之后，不占本批关键路径。

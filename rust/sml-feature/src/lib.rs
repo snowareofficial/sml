@@ -582,6 +582,15 @@ impl Edition {
         self.status() == Some(EditionStatus::Supported)
     }
 
+    /// 是否已被移除（`Removed`：报 `E-FEATURE-010` 并指向迁移工具）｜ removed edition.
+    ///
+    /// 与 `is_dev()` / `is_supported()` 对称的查表判据。登记表当前没有 `Removed` 行
+    /// （规范说等首次真实破坏性移除时才加），故通常是 `false`；`resolve_edition`
+    /// 在加行后会自动按 `E-FEATURE-010` 拒绝，无需改这里。
+    pub fn is_removed(&self) -> bool {
+        self.status() == Some(EditionStatus::Removed)
+    }
+
     /// 是否要求字符串显式引号 ｜ whether strings must be quoted.
     ///
     /// **查表判据**：`true` ⇔ 该代默认功能集里**不含** `bareword-string`。
@@ -652,6 +661,11 @@ mod edition_tests {
         assert_eq!(Edition::new(5, 0).codename(), Some("camelia"));
         assert!(Edition::new(5, 0).is_dev());
         assert!(Edition::new(4, 0).is_supported());
+        // `Removed` 行按规范等首次真实破坏性移除才加；目前所有登记行都不是 removed。
+        for e in [Edition::V1, Edition::V2, Edition::V3, Edition::V4, Edition::new(5, 0)] {
+            assert!(!e.is_removed(), "{e} 不该处于 Removed");
+        }
+        assert!(!Edition::new(9, 9).is_removed(), "未登记也不算 removed");
         assert_eq!(Edition::new(9, 9).status(), None, "未登记");
     }
 

@@ -5,8 +5,10 @@
 > 「旧文档，正式版都会向后兼容」「smltools 可以自动迁移，有扫、应用等」。
 >
 > 本文件 = **版本命名的唯一依据**（实现时不必再回来讨论）。
-> 实现状态见 §7：查表模型与**五端字面量一致**已落地（2026-11-13），
-> `Removed` 三态 / 兼容检查模块 / 迁移工具仍待做。
+> 实现状态见 §7：查表模型与**五端字面量一致**已落地（2026-11-13）；
+> 迁移工具 `--migrate scan|apply|rules` 已落地（2026-11-17 补 `v50-version` 预留规则）；
+> `Removed` 三态的**枚举、码与判据**已备好，但登记表按 V7 等首次真实破坏性移除才加行；
+> release channel 的 dev warning 仍未接 `smltools`。
 
 ---
 
@@ -246,6 +248,6 @@ smltools -i a.sml --migrate apply --rule v50-version,b2-symbol-modifier   # 只�
 | 五端字面量一致（`vN` / `N` / `N.0` / `N0` / 代号） | ✅ | Rust `Edition::parse`；C `version_lit_major`；C++ 同名 helper + `scan_features`；JS `versionLitMajor`；Lua `version_lit_major` |
 | 版本决定特性基集（v1 裸词开 / v2 起必须引号） | ✅ 五端 | conformance `55`–`60`：连写 / 点号 / `v4` / `50` / 代号 / **v2 严格串**（`E-FEATURE-005`） |
 | `5.0` 族未启用 ⇒ `E-FEATURE-004` | ✅ 五端 | 同上 `58` / `59`；文案说明「5.0 仍为 Dev」 |
-| `Removed` 三态 + 专用码（§1.3 / V7） | ⬜ | 尚未出现被移除的开发代号，等第一次破坏性改动时按 V7 落地 |
-| 兼容检查模块 + `dev` 标记强制（V9 / V10） | ⬜ | Rust 侧 `@version 50` 缺 `dev` 已报错；release channel 的 warning（§1.5）未接 `smltools` |
-| 迁移工具 `--migrate scan\|apply\|rules`（§4.5） | 🟡 **机制 + 3 条规则（2026-11-13）** | `rust/smltools/src/migrate.rs`：三档模式 + `--rule` 单跑 + `--backup`，默认 scan 不写文件、有命中退出码 1；**幂等**由 `tests/migrate.rs`（7 例）与模块单测（6 例）钉住。规则：`version-literal` / `feature-base-literal`（字面量规范化）、`directive-name-arg`（位置参数 → `name:`，**必须**配 `--migrate-directive` 白名单，判据对齐 `parser.rs::take_directive_arg` 的位置参数分支与 `DiagnosticKind::Deprecated`）。仍欠：其余语法废弃项各配一条规则（出现一条登记一条，不预造） |
+| `Removed` 三态 + 专用码（§1.3 / V7） | 🟡 机制已备、未激活 | `EditionStatus::{Dev,Supported,Removed}` + `E-FEATURE-010` + `resolve_edition` 分支均已在位；`Version::is_removed()` 查表；登记表中**故意没有 Removed 行**（等首次真实破坏性移除才加，V7），故 010 暂不可达 |
+| 兼容检查模块 + `dev` 标记强制（V9 / V10） | 🟡 | 单一判据点 = `rust/sml-parse/src/scan.rs::resolve_edition()`（`@version` 与 `@feature base` 共用）；Rust 侧 `@version 50` 缺 `dev` 已报错；release channel 的 warning（§1.5）仍未接 `smltools`（`parse()` 无诊断，须走带 warning 入口） |
+| 迁移工具 `--migrate scan\|apply\|rules`（§4.5） | 🟡 **机制 + 4 条规则（2026-11-17）** | `rust/smltools/src/migrate.rs`：三档模式 + `--rule` 单跑 + `--backup`，默认 scan 不写文件、有命中退出码 1；**幂等**由 `tests/migrate.rs` 与模块单测钉住。规则：`version-literal` / `feature-base-literal`（字面量规范化）、`directive-name-arg`（位置参数 → `name:`，**必须**配 `--migrate-directive` 白名单）、`v50-version`（`E-FEATURE-010` 文案点名的预留规则：当前无 Removed 代号，只登记 id、无改写）。仍欠：其余语法废弃项各配一条规则（出现一条登记一条，不预造）；V13 的 `--json` 机器可读输出未做 |

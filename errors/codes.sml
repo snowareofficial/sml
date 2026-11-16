@@ -351,7 +351,7 @@ codes: [
     { id: E-FEATURE-010 domain: FEATURE severity: E title: "版本集已移除"
       msg: "该版本集已被移除，请用迁移工具升级文档中的版本声明"
       impls: [ rust ] status: partial
-      note: "与 E-FEATURE-004（版本声明非法 = 从未存在、写法不合法或互相冲突）**分开**：本码专指「曾经存在、后因破坏性改动被移除」的开发代号（docs/swsml/spec/version.md V7），文案必须带代号与迁移规则 id，并指向 smltools --migrate scan。只作用于开发代号的 Dev → Removed；正式版（10/20/30/40/…）永久向后兼容，永不进此分支。⚠️ 当前 EDITIONS 里还没有 Removed 行 ⇒ 本分支暂不可达（S0c 先把码与接线做好，加一行即生效）；smltools --migrate（V11）尚未实现，文案里的规则 id 是承诺而非现状" }
+      note: "与 E-FEATURE-004（版本声明非法 = 从未存在、写法不合法或互相冲突）**分开**：本码专指「曾经存在、后因破坏性改动被移除」的开发代号（docs/swsml/spec/version.md V7），文案必须带代号与迁移规则 id，并指向 smltools --migrate scan。只作用于开发代号的 Dev → Removed；正式版（10/20/30/40/…）永久向后兼容，永不进此分支。⚠️ 当前 EDITIONS 里还没有 Removed 行 ⇒ 本分支暂不可达（按 V7 等首次真实破坏性移除才加行）；`smltools --migrate` 机制已实现（scan/apply/rules + --rule 单跑），文案点名的 `v50-version` 规则已登记，但当前没有 Removed 代号 ⇒ 该规则只占位、无具体改写" }
     { id: W-FEATURE-001 domain: FEATURE severity: W title: "位置参数写法已废弃"
       msg: "位置参数写法已废弃，推荐带参数名的写法"
       impls: [ rust js ] status: partial

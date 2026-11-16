@@ -37,6 +37,15 @@ pub const RULES: &[Rule] = &[
         applies: "v4 起（位置参数已废弃）",
         desc: "扩展指令的位置参数改为显式 `name:`：`@form F { }` → `@form name: F { }`",
     },
+    Rule {
+        id: "v50-version",
+        applies: "开发代号被移除时（当前登记表无 Removed 行 ⇒ 规则预留）",
+        desc: concat!(
+            "把文档里已移除的开发代号版本声明升级到受支持版本；",
+            "`E-FEATURE-010` 的文案点名本规则，故先登记以免 `--rule` 报未知规则。",
+            "当前没有 Removed 代号，具体改写待首次破坏性移除时实现"
+        ),
+    },
 ];
 
 /// 一次迁移的选项 ｜ Options for one pass.

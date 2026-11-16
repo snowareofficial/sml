@@ -123,7 +123,31 @@ fn rules_lists_every_rule_without_input() {
     assert_eq!(code, 0);
     assert!(stdout.contains("version-literal"), "{stdout}");
     assert!(stdout.contains("feature-base-literal"), "{stdout}");
+    assert!(stdout.contains("directive-name-arg"), "{stdout}");
+    // `E-FEATURE-010` 的文案点名 `v50-version`：规则必须可列出、可用 `--rule` 选中，
+    // 否则那条错误提示就是死链。当前没有 Removed 代号 ⇒ 规则只占位、不改文件。
+    assert!(stdout.contains("v50-version"), "{stdout}");
     assert!(stdout.contains("适用版本集"), "应有说明列：{stdout}");
+}
+
+#[test]
+fn removed_edition_rule_id_is_selectable() {
+    let dir = tmp("removed_rule");
+    let doc = dir.join("a.sml");
+    write(&doc, SRC);
+
+    let (stdout, stderr, code) = run(&[
+        "-i",
+        doc.to_str().unwrap(),
+        "--migrate",
+        "scan",
+        "--rule",
+        "v50-version",
+    ]);
+    assert_eq!(code, 0, "预留规则应被接受（无 Removed 代号 ⇒ 0 命中）：{stderr}");
+    assert!(!stdout.contains("version-literal"), "单跑不应带出别的规则：{stdout}");
+    assert_eq!(std::fs::read_to_string(&doc).unwrap(), SRC, "scan 不写文件");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

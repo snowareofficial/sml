@@ -118,7 +118,7 @@ T5 段级 zstd + 帧级 FRAMES + 按块 AEAD · T6 `sml::envelope` + CLI 互转�
 
 | 项 | 内容 | 来源 |
 |---|---|---|
-| `smltools --migrate` | 不存在（V9 列为 v5 新功能） | `docs/swsml/spec/version.md` V9 |
+| `smltools --migrate` | 已实现（scan / apply / rules + `--rule` 单跑 + 幂等），共 4 条规则；`v50-version` 为 `E-FEATURE-010` 文案点名的预留规则（无 Removed 代号 ⇒ 无改写）。仍欠 V13 的 `--json` 输出 | `docs/swsml/spec/version.md` V11 / §7；`rust/smltools/src/migrate.rs` |
 | `smltools --split-by` | 不存在（I-20） | `open-work.md:373` |
 | 官网 | 新官网由用户单独做；本仓现有 `site/` 内容挂到 `/doc` 子路径（D6）；现有首页 / 下载页版本落后、教科书 ch11/ch12 各两份、`llms.txt` 手抄 | `docs/repo/ref/pending-decisions.md` D6、`open-work.md:268-269,343` |
 | 示例 doctest | 209 个示例无 doctest | `open-work.md:343` |
