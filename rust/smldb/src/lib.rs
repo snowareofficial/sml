@@ -1,69 +1,69 @@
 // SPDX-License-Identifier: MulanPSL-2.0
-//! smldb：`.ambr` 之上的文档数据库层（T8，随 v5 开放；当前 `publish = false`）。
+//! smldb：`.ambr` 之上的文档数据库层（T8，随 v5 开放；`publish = false`）。
 //!
-//! 第一刀只做窄闭环：**收一份合法的 `.ambr` BLOB、按 path 精确取回、按标签筛选**。
-//! 不做 CSS 选择器、不做 FTS5、不做 CLI、不做 Sidecar —— 这些在
-//! `docs/amberice/spec/smldb.md` 里仍是未定或依赖缺失能力（`extract_text()`）。
-//! 后端用 [`Backend`] trait 隔开：`MemoryBackend` 供测试与嵌入场景，SQLite 后端另起一片。
+//! 后端按用户裁决直接用 **Turso**（`libsql` 嵌入式 core），不另造后端抽象：
+//! 原文 `.ambr` 整块进 `docs.body` BLOB，元数据与标签进索引表（表结构见 [`schema`]）。
+//! 第一刀只做 path 精确取回、标签反查、删除；FTS / CSS 选择器 / Sidecar / CLI 未做。
 
 pub mod schema;
 
-use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::path::Path;
 
-/// 文档 id（表的主键；第一刀用递增 u64，不与 SQLite rowid 绑死）。
+use libsql::{params, Connection};
+
+use schema::{DOC_TAGS_DDL, DOCS_DDL, INDEXES_DDL};
+
+/// 文档 id（Turso 的 rowid）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DocId(pub u64);
+pub struct DocId(pub i64);
 
-/// 一条文档的元数据（对应 `docs` 表除 `body` / `content` 外的列）。
+/// 文档元数据（对应 `docs` 表除 `body` / `content` 外的列）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Meta {
     /// 文档路径（唯一键）。
     pub path: String,
     pub title: String,
-    /// RFC3339 风格时间戳；第一刀只做字符串比较，不解析时间语义。
+    /// RFC3339 风格时间戳；第一刀只存字符串，不解析时间语义。
     pub created: String,
     pub modified: String,
-    /// 标签列表（写入时同步进标签索引；重复标签去重）。
+    /// 标签（入库前去重排序；`docs.tags` 只展示，筛选走 `doc_tags`）。
     pub tags: Vec<String>,
 }
 
-/// 取回的文档。**拥有** BLOB（`docs/amberice/spec/smldb.md` §5.6）：
-/// SQLite 交出来的是 `Vec<u8>`，不能把借用的 `amberice::Store<'a>` 塞进返回值。
+/// 取回的文档：**拥有** `.ambr` 字节（§5.6），不借 Turso 的缓冲。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Doc {
     bytes: Vec<u8>,
 }
 
 impl Doc {
-    /// 从 `.ambr` 字节构造并**当场校验容器**（验段摘要）。
-    /// 非法字节一律拒绝，不把坏 BLOB 写进库里。
+    /// 从 `.ambr` 字节构造并当场校验容器（验段摘要）；坏字节不进库。
     pub fn from_ambr(bytes: impl Into<Vec<u8>>) -> Result<Self> {
         let bytes = bytes.into();
         validate_ambr(&bytes)?;
         Ok(Self { bytes })
     }
 
-    /// 原始 `.ambr` 字节（可直接喂给 `amberice::Store::open`）。
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
 }
 
-/// 校验一段字节是可打开的 `.ambr` 容器（含段摘要校验）。
+/// 校验一段字节是可打开的 `.ambr` 容器。
 pub fn validate_ambr(bytes: &[u8]) -> Result<()> {
     amberice::Store::open(bytes)
         .map(|_| ())
         .map_err(|e| Error::InvalidAmbr(e.to_string()))
 }
 
-/// 本 crate 的错误 ｜ errors are typed; the code table stays in `errors/codes.sml`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
     InvalidAmbr(String),
     DuplicatePath(String),
     NotFound(String),
     BadInput(String),
+    Db(String),
 }
 
 impl fmt::Display for Error {
@@ -73,102 +73,166 @@ impl fmt::Display for Error {
             Self::DuplicatePath(s) => write!(f, "文档路径已存在：{s}"),
             Self::NotFound(s) => write!(f, "文档不存在：{s}"),
             Self::BadInput(s) => write!(f, "输入不合法：{s}"),
+            Self::Db(s) => write!(f, "Turso 错误：{s}"),
         }
     }
 }
 
 impl std::error::Error for Error {}
 
-pub type Result<T> = std::result::Result<T, Error>;
-
-/// 后端契约：第一刀只有**精确路径取回 / 标签反查 / 插入 / 删除**。
-/// CSS 选择器与 FTS 等能力等规范定稿后再加独立方法，不塞进这个 trait 的默认实现。
-pub trait Backend {
-    fn insert(&mut self, meta: Meta, doc: Doc) -> Result<DocId>;
-    fn get(&self, id: DocId) -> Result<Option<Doc>>;
-    fn get_by_path(&self, path: &str) -> Result<Option<Doc>>;
-    fn meta(&self, id: DocId) -> Result<Option<Meta>>;
-    fn list(&self) -> Result<Vec<Meta>>;
-    fn find_by_tag(&self, tag: &str) -> Result<Vec<DocId>>;
-    fn delete(&mut self, id: DocId) -> Result<bool>;
-}
-
-/// 纯内存后端：零依赖、可确定性地测试 API 语义；不落盘。
-#[derive(Debug, Default)]
-pub struct MemoryBackend {
-    next: u64,
-    rows: BTreeMap<DocId, Row>,
-    by_path: BTreeMap<String, DocId>,
-}
-
-#[derive(Debug, Clone)]
-struct Row {
-    meta: Meta,
-    doc: Doc,
-}
-
-impl MemoryBackend {
-    pub fn new() -> Self {
-        Self::default()
+impl From<libsql::Error> for Error {
+    fn from(e: libsql::Error) -> Self {
+        Self::Db(e.to_string())
     }
 }
 
-impl Backend for MemoryBackend {
-    fn insert(&mut self, meta: Meta, doc: Doc) -> Result<DocId> {
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// 唯一数据库入口：持有 Turso 连接，建表在 [`Store::open`] 时完成。
+pub struct Store {
+    conn: Connection,
+}
+
+impl Store {
+    /// 打开（或新建）本地 Turso 数据库并建表。
+    pub async fn open(path: impl AsRef<Path>) -> Result<Self> {
+        let db = libsql::Builder::new_local(path).build().await?;
+        let conn = db.connect()?;
+        let mut ddl = String::from("PRAGMA foreign_keys = ON;");
+        for stmt in [DOCS_DDL, DOC_TAGS_DDL].iter().copied().chain(INDEXES_DDL.iter().copied()) {
+            ddl.push_str(stmt);
+            ddl.push(';');
+        }
+        conn.execute_batch(&ddl).await?;
+        Ok(Self { conn })
+    }
+
+    /// 插入一份文档；重复 path 响亮拒绝。
+    pub async fn insert(&self, meta: &Meta, doc: &Doc) -> Result<DocId> {
         if meta.path.is_empty() {
             return Err(Error::BadInput("文档路径不可为空".into()));
         }
-        if self.by_path.contains_key(&meta.path) {
+        if self.get_by_path(&meta.path).await?.is_some() {
             return Err(Error::DuplicatePath(meta.path.clone()));
         }
-        let id = DocId(self.next);
-        self.next += 1;
-        // 标签索引按集合语义：去重 + 排序，展示列与索引列同源。
-        let meta = Meta { tags: normalize_tags(&meta.tags), ..meta };
-        self.by_path.insert(meta.path.clone(), id);
-        self.rows.insert(id, Row { meta, doc });
-        Ok(id)
+        let tags = normalize_tags(&meta.tags).join(",");
+        self.conn.execute(
+            "INSERT INTO docs (path, title, created, modified, tags, content, body) \
+             VALUES (?, ?, ?, ?, ?, '', ?)",
+            params![
+                meta.path.clone(),
+                meta.title.clone(),
+                meta.created.clone(),
+                meta.modified.clone(),
+                tags,
+                doc.bytes.clone()
+            ],
+        ).await?;
+        let id = self.conn.last_insert_rowid();
+        for tag in normalize_tags(&meta.tags) {
+            self.conn.execute(
+                "INSERT INTO doc_tags (doc_id, tag) VALUES (?, ?)",
+                params![id, tag],
+            ).await?;
+        }
+        Ok(DocId(id))
     }
 
-    fn get(&self, id: DocId) -> Result<Option<Doc>> {
-        Ok(self.rows.get(&id).map(|r| r.doc.clone()))
-    }
-
-    fn get_by_path(&self, path: &str) -> Result<Option<Doc>> {
-        match self.by_path.get(path) {
-            Some(id) => self.get(*id),
+    /// 按路径精确取回（§7 选择器未定，本刀只有精确匹配）。
+    pub async fn get_by_path(&self, path: &str) -> Result<Option<Doc>> {
+        let mut rows = self.conn
+            .query("SELECT body FROM docs WHERE path = ?", params![path.to_string()])
+            .await?;
+        match rows.next().await? {
+            Some(row) => {
+                let bytes: Vec<u8> = row.get(0)?;
+                Ok(Some(Doc::from_ambr(bytes)?))
+            }
             None => Ok(None),
         }
     }
 
-    fn meta(&self, id: DocId) -> Result<Option<Meta>> {
-        Ok(self.rows.get(&id).map(|r| r.meta.clone()))
+    /// 按 id 取回。
+    pub async fn get(&self, id: DocId) -> Result<Option<Doc>> {
+        let mut rows = self.conn
+            .query("SELECT body FROM docs WHERE id = ?", params![id.0])
+            .await?;
+        match rows.next().await? {
+            Some(row) => {
+                let bytes: Vec<u8> = row.get(0)?;
+                Ok(Some(Doc::from_ambr(bytes)?))
+            }
+            None => Ok(None),
+        }
     }
 
-    fn list(&self) -> Result<Vec<Meta>> {
-        Ok(self.rows.values().map(|r| r.meta.clone()).collect())
+    /// 取元数据。
+    pub async fn meta(&self, id: DocId) -> Result<Option<Meta>> {
+        let mut rows = self.conn
+            .query("SELECT path, title, created, modified, tags FROM docs WHERE id = ?", params![id.0])
+            .await?;
+        match rows.next().await? {
+            Some(row) => Ok(Some(Meta {
+                path: row.get(0)?,
+                title: row.get(1)?,
+                created: row.get(2)?,
+                modified: row.get(3)?,
+                tags: split_tags(&row.get::<String>(4)?),
+            })),
+            None => Ok(None),
+        }
     }
 
-    fn find_by_tag(&self, tag: &str) -> Result<Vec<DocId>> {
-        Ok(self
-            .rows
-            .iter()
-            .filter(|(_, r)| r.meta.tags.iter().any(|t| t == tag))
-            .map(|(id, _)| *id)
-            .collect())
+    /// 列出全部文档元数据（按路径排序）。
+    pub async fn list(&self) -> Result<Vec<Meta>> {
+        let mut rows = self.conn
+            .query("SELECT path, title, created, modified, tags FROM docs ORDER BY path", ())
+            .await?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next().await? {
+            out.push(Meta {
+                path: row.get(0)?,
+                title: row.get(1)?,
+                created: row.get(2)?,
+                modified: row.get(3)?,
+                tags: split_tags(&row.get::<String>(4)?),
+            });
+        }
+        Ok(out)
     }
 
-    fn delete(&mut self, id: DocId) -> Result<bool> {
-        let Some(row) = self.rows.remove(&id) else {
-            return Ok(false);
-        };
-        self.by_path.remove(&row.meta.path);
-        Ok(true)
+    /// 按标签反查 id（走 `doc_tags` 索引）。
+    pub async fn find_by_tag(&self, tag: &str) -> Result<Vec<DocId>> {
+        let mut rows = self.conn
+            .query(
+                "SELECT d.id FROM docs d JOIN doc_tags t ON t.doc_id = d.id \
+                 WHERE t.tag = ? ORDER BY d.id",
+                params![tag.to_string()],
+            ).await?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next().await? {
+            out.push(DocId(row.get::<i64>(0)?));
+        }
+        Ok(out)
+    }
+
+    /// 删除（级联清理标签索引）；不存在返回 `false`。
+    pub async fn delete(&self, id: DocId) -> Result<bool> {
+        let n = self.conn
+            .execute("DELETE FROM docs WHERE id = ?", params![id.0])
+            .await?;
+        Ok(n > 0)
     }
 }
 
-/// 把标签列表规整成可索引的集合（去重 + 排序，第一刀不做标签名校验）。
+/// 标签入库规整：去重 + 排序，空标签丢弃。
 pub fn normalize_tags(tags: &[String]) -> Vec<String> {
-    let set: BTreeSet<&str> = tags.iter().map(String::as_str).collect();
-    set.into_iter().map(str::to_string).collect()
+    let mut out: Vec<String> = tags.iter().filter(|t| !t.is_empty()).cloned().collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn split_tags(s: &str) -> Vec<String> {
+    s.split(',').filter(|t| !t.is_empty()).map(str::to_string).collect()
 }

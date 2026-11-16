@@ -1,6 +1,6 @@
 [package]
 name = "smldb"
-# smldb 是 .ambr 之上的文档数据库层（T8）：内部实现可现在做，随 v5 一起开放（D1）。
+# smldb 是 .ambr 之上的文档数据库层（T8）：内部实现可现在做，随 v5 开放（D1）。
 version.workspace = true
 edition = "2021"
 description = "文档数据库层：BLOB 存 .ambr 原文 + 元数据/标签索引；随 v5 开放。"
@@ -15,6 +15,9 @@ path = "src/lib.rs"
 [dependencies]
 # 只依赖容器层；不依赖 swsml / sml-parse（smldb.md §13.1）。
 amberice = { version = "0.6.9-dev.0", path = "../amberice" }
+# Turso 嵌入式 SDK；只开 core（本地 libsql-sys），不拉 replication / remote / tls。
+libsql = { version = "0.10", default-features = false, features = ["core"] }
 
 [dev-dependencies]
 sml-value = { version = "0.6.9-dev.0", path = "../sml-value" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

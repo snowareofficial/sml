@@ -3,9 +3,9 @@
 > **产品线** amberice ｜ **状态** draft ｜ **最后核对** 2026-11-17
 >
 > ⚠️ **本文仍是草案**：选择器语法未定，FTS 方案未落地，SQLite 后端未接。
-> 2026-11-17 落下 T8 第一刀：`rust/smldb` crate（校验 `.ambr` BLOB、拥有 `Doc`、
-> `Backend` trait + `MemoryBackend`、按 path 精确取回与标签反查，5 例单测）；
-> 表结构已固化为 `schema.rs` 的 DDL 骨架。`publish = false`，随 v5 开放（D1）。
+> 2026-11-17 落下 T8 第一刀：`rust/smldb` crate，后端按用户裁决直接用 **Turso**
+> （`libsql` core）；校验 `.ambr` BLOB 后整块入库，拥有 `Doc`，按 path 精确取回 / 标签反查 /
+> 删除，5 例单测；表结构由 `schema.rs` 在开库时实际建出来。`publish = false`，随 v5 开放（D1）。
 > 未定的标「待拍板」并指向 `../decisions.md`。
 > `.ambr` 格式本体见 `format.md`；元数据在 `docs/meta.sml`。
 >
@@ -213,9 +213,13 @@ pub struct Policy {
 
 ---
 
-## 6. 后端选型：SQLite，不用 Turso【已定】
+## 6. 后端选型：Turso（`libsql` core，2026-11-17 用户裁决）
 
-### 6.1 决定性理由：Turso 没有 FTS5
+> 实现直接用 Turso 嵌入式 SDK（`libsql` 的 `core` feature），不引 SQLite / rusqlite。
+> 下文 6.1–6.5 保留的是**全文检索能力**的技术对比：它的结论是「FTS 先不做」
+> （`.ambr` 的 `extract_text()` 尚未落地），**不作为后端选型依据**。
+
+### 6.1 全文检索能力对比（与选型无关）
 
 实测证据：
 
@@ -492,8 +496,8 @@ store.raw(|conn| conn.prepare("..."))?      // 文档标注「需懂 SQL」
 | **T7 五端** | JS / Lua 解码器（只读 `VALUE` 段 + 透传载荷）+ 一致性用例 | 同一 `.ambr` 五端读出同树；载荷字节原样 |
 
 **依赖关系**：T0 是 T1 的前置（没有 canonical 就没有幂等与签名）；T2 依赖 T1；T3–T5 可并行；T6/T7 依赖 T2。
-| **T8 第一刀** ✅ 已落（2026-11-17） | `rust/smldb`：`.ambr` BLOB 校验后入库、拥有 `Doc`、`Backend` trait + `MemoryBackend`、按 path 精确取回 / 标签反查 / 删除；`schema.rs` 固化 `docs` / `doc_tags` DDL 骨架 | `cargo test -p smldb` 5 例：往返字节一致、标签去重排序、重复 path 与坏 BLOB 拒绝、删除清索引。CI 逐 crate 清单已加 |
-| **T8 后续** ⬜ | SQLite 后端（执行 DDL、`content` 由 `extract_text()` 生成）、FTS5、CSS 选择器、Sidecar / 写策略、CLI | 等 `extract_text()` 与选择器语法定稿；阈值数字不可引用（文件级 draft） |
+| **T8 第一刀** ✅ 已落（2026-11-17） | `rust/smldb`：Turso（`libsql` core）后端，`.ambr` BLOB 校验后整块入库、拥有 `Doc`、按 path 精确取回 / 标签反查 / 删除；`schema.rs` 的 `docs` / `doc_tags` 在开库时实际建表 | `cargo test -p smldb` 5 例：往返字节一致、标签去重排序、重复 path 与坏 BLOB 拒绝、删除清索引。CI 逐 crate 清单已加 |
+| **T8 后续** ⬜ | `content` 由 `extract_text()` 生成、FTS、CSS 选择器、Sidecar / 写策略、CLI | 等 `extract_text()` 与选择器语法定稿；阈值数字不可引用（文件级 draft） |
 
 **明确不在阶段内**：SIMD（`format.md §8`，等 profile 证明）、FTS 索引（D13）。
 

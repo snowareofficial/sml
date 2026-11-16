@@ -1,7 +1,7 @@
 # docs 索引
 
 > **本文件由 `cargo run -p smldocs -- --index` 生成，勿手改。**
-> 数据源 `docs/meta.sml`（59 份文档，摘要 `1e4a3145df67a92f`）。摘要变了就必须重跑生成；
+> 数据源 `docs/meta.sml`（59 份文档，摘要 `96edba5d84da8731`）。摘要变了就必须重跑生成；
 > 本文件不记生成日期 / HEAD，避免跨天或提交后假漂移。体检结论见 [`report.md`](report.md)。
 
 ## 一眼看结论
@@ -58,7 +58,7 @@
 | [`amberice/ref/swsml-alignment.md`](amberice/ref/swsml-alignment.md) | 2026-11-13 | 2026-11-13 | **current** | — | amberice 与 swsml 的对齐面（edition / 特性位 / 码表 / C-ABI 刻意差异 / 支持平台 / AMBR 码）；守护 tools/check/check_amberice_align.py |
 | [`amberice/spec/format.md`](amberice/spec/format.md) | 2026-11-02 | 2026-11-13 | **current** | — | .ambr 格式规范：信封 / canonical / VALUE 段 / 算法表 / 默认值 / 侧信道 / AMBR 错误码域 |
 | [`amberice/spec/overview.md`](amberice/spec/overview.md) | 2026-11-10 | 2026-11-10 | **current** | — | amberice 是什么：以源码为唯一事实来源的产品线定义（边界 / 格式 / 能力面 / 多端 / 实现状态） |
-| [`amberice/spec/smldb.md`](amberice/spec/smldb.md) | 2026-11-02 | 2026-11-17 | **draft** | — | smldb 数据库层：表结构 / 后端选型 / 选择器 / 四层 API（T8 第一刀已落：BLOB + 内存后端 + 精确路径/标签索引；SQLite/FTS/选择器未定） |
+| [`amberice/spec/smldb.md`](amberice/spec/smldb.md) | 2026-11-02 | 2026-11-17 | **draft** | — | smldb 数据库层：表结构 / 后端选型 / 选择器 / 四层 API（T8 第一刀已落：Turso 后端 + BLOB + 精确路径/标签索引；FTS/选择器未定） |
 | [`amberice/spec/tools.md`](amberice/spec/tools.md) | 2026-11-02 | 2026-11-10 | **current** | — | .ambr 配套工具面：子命令清单以 amberice --help 为准，另含五端解码器 |
 
 ## swml（3 份）

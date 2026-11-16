@@ -15,6 +15,13 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ## [未发布]
 
+### 新增（内部 crate `smldb` 第一刀：Turso 后端）
+
+`rust/smldb` 是 `.ambr` 之上的文档数据库层（T8），`publish = false`，随 v5 开放。
+后端按用户裁决直接用 Turso 嵌入式 SDK（`libsql` 的 `core` feature，不拉 replication / remote / tls）；
+新增依赖 `libsql 0.10` 与测试用 `tokio`。第一刀只做 `.ambr` BLOB 校验后整块入库、
+按 path 精确取回 / 标签反查 / 删除，`cargo test -p smldb` 5 例；已接进 CI 逐 crate 清单。
+
 ### 修复（VSCode 扩展 0.5.6：契约字段位的自定义类型名无色 / 裸词里的 -1 被涂成数字）
 
 两处着色缺口：

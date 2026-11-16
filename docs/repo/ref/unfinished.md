@@ -83,7 +83,7 @@ T5 段级 zstd + 帧级 FRAMES + 按块 AEAD · T6 `sml::envelope` + CLI 互转�
 
 | 项 | 内容 | 来源 |
 |---|---|---|
-| **`smldb`** | T8 第一刀已落（2026-11-17）：`rust/smldb` 校验 `.ambr` BLOB、拥有 `Doc`、`Backend` + `MemoryBackend`、按 path 精确取回 / 标签反查 / 删除，DDL 骨架在 `schema.rs`。仍欠 SQLite 后端、FTS、CSS 选择器、Sidecar / 写策略、CLI；`publish = false` 随 v5 开放 | `docs/amberice/spec/smldb.md` §17；`rust/smldb/tests/basic.rs` |
+| **`smldb`** | T8 第一刀已落（2026-11-17）：`rust/smldb` 用 Turso（`libsql` core）后端，校验 `.ambr` BLOB 后整块入库、拥有 `Doc`、按 path 精确取回 / 标签反查 / 删除；`schema.rs` 开库时实际建表。仍欠 `extract_text()` 驱动的 `content`、FTS、CSS 选择器、Sidecar / 写策略、CLI；`publish = false` 随 v5 开放 | `docs/amberice/spec/smldb.md` §17；`rust/smldb/tests/basic.rs` |
 | `DIR` 段 | 故意不写（只省每层 O(兄弟数) 键比较）；`Store::get` 现在每次建 `STRTAB` 表（O(键数)） | `spec:1440` |
 | P7 `SOURCE` 段 | 是否带「原文 + 行号映射」未定 ⇒ 注释/源码位置保不保 | `spec §16.2` |
 | P2 层链形态 | 实现已按 D19/D20 落地，文档仍列「待定」 | `spec §16.2`（**过期**） |
