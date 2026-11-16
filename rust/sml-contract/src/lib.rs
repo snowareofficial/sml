@@ -443,7 +443,8 @@ fn check_type(
     spec: &FieldSpec,
     v: &Value,
     contracts: &BTreeMap<String, Contract>,
-    warnings: &mut Vec<ContractWarning>,
+    // 只为递归透传，函数体本身不产诊断（契约告警由 apply_contract 一侧收集）。
+    _warnings: &mut Vec<ContractWarning>,
 ) -> Result<(), SmlError> {
     // 组合：字段值是块，且被引用的契约必须存在。
     //
@@ -547,7 +548,7 @@ fn check_type(
                     check_contract_only(inner, m, contracts, &elem_path)?;
                 }
             }
-            check_type(contract, &elem_path, &elem, it, contracts, warnings)?;
+            check_type(contract, &elem_path, &elem, it, contracts, _warnings)?;
         }
         // 元素全部通过。数组本身不参与 min/max 区间校验（那是数值语义）。
         // 但**外置修饰符仍要跑**（`items_max` 这类约束正是作用在数组整体上），

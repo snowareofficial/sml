@@ -20,6 +20,8 @@ const BATCHES: usize = 15;
 /// 每批内重复次数（够到毫秒级，又不至于让一轮跑太久）。
 const REPS: usize = 5;
 
+// 保留给下一轮微观归因：当前 bench 主体还没切到采样版，先别按 dead_code 删掉。
+#[allow(dead_code)]
 fn sample<F: FnMut()>(mut f: F) -> (f64, f64) {
     // 热身：让惰性初始化与 CPU 频率先稳定。
     f();

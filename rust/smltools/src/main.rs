@@ -159,7 +159,8 @@ impl InputFormat {
     /// 本构建实际接受的 `--from` 取值（按 feature 裁剪）。报错提示用，
     /// 避免出现「提示里有 yaml、实际没编进来」这种自相矛盾。
     fn names() -> String {
-        #[allow(unused_mut)] // 全 feature 关掉时下面几条 push 都不存在
+        // Vec 是必须的：带 feature 时下面要 push；全 feature 关掉时它才「本可以是数组」。
+        #[allow(unused_mut, clippy::useless_vec)]
         let mut v = vec!["sml", "swl", "json"];
         #[cfg(feature = "toml")]
         v.push("toml");
