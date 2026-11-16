@@ -279,6 +279,14 @@ function throwCode(code, msg, pos) {
 }
 
 function coerceWord(w, fragments, nsMap, feats) {
+  // featag（B2）：`!` 只在块头的 featag 区里是记号；出现在**值位置**就是歧义
+  // （`a: !b` —— 字符串还是 featag？）。歧义一律报错，**开了 `bareword-string`
+  // 也不豁免**：靠特性绕过歧义等于把「猜」藏进配置里。要写字面量请加引号。
+  // 门控 `type.featag`：未开启时 `!b` 仍是普通裸词，v1–v4 既有文档一字不变。
+  if (feats && feats.has("type.featag") && w.startsWith("!")) {
+    throw throwCode("E-PARSE-027",
+      "sml: 值位置不能写以 `!` 开头的裸词；若本意是字符串，请用引号包起来：`" + w + "`");
+  }
   if (w === "true") return true;
   if (w === "false") return false;
   if (w === "null") return null;
@@ -443,6 +451,85 @@ function valueMatchesType(v, sp) {
   }
 }
 
+// 单个值的**类型**校验：字段级与**数组元素**共用一份。
+//
+// 数组逐元素走这里，错误带下标（`v[1]`）—— 与 Rust `check_type` 的递归同形。
+// 早先数组只经 `valueMatchesType` 的 `every()`：它对 pattern 元素只判「是个字符串」，
+// 格式约束在数组里静默失效（`v: [D3]` 的 `"abc"` 直接放行），与 Rust / C / C++ / Lua
+// 的 `E-CONTRACT-009` 不一致。min/max 区间属**字段整体**，不在这里判。
+// 返回错误数组（空 = 通过）。
+function checkValueType(contracts, sp, v, full) {
+  const out = [];
+  // 自定义模式类型：非字符串必须显式报错并提示加引号——
+  // 像 `证件号: 221099 1988 0987 1211` 这种裸写会被词法切成数字，
+  // 只剩末段还不报错，是本项目明确要消灭的「静默数据损坏」。
+  if (sp.type === "pattern") {
+    if (typeof v !== "string") {
+      out.push({ code: "E-CONTRACT-009", msg: `字段 ${full} 类型 ${sp.refName} 要求字符串（号码 / 编号 / 身份证请用引号包裹），实得 ${Array.isArray(v) ? "array" : typeof v}` });
+      return out;
+    }
+    // 防御：JS RegExp 有回溯，超长输入直接拒绝而非硬算
+    if (v.length > PATTERN_MAX_LEN) {
+      out.push({ code: "E-CONTRACT-009", msg: `字段 ${full} 的值过长（${v.length} > ${PATTERN_MAX_LEN}），拒绝校验` });
+      return out;
+    }
+    let ok = false;
+    try { ok = sp.patternRe.test(v); } catch { ok = false; }
+    if (!ok) out.push({ code: "E-CONTRACT-009", msg: `字段 ${full} 的值 \`${v}\` 不符合类型 ${sp.refName} 的格式要求` });
+    return out;
+  }
+  if (sp.type === "ext") {
+    // 外置类型：由下游的判定函数回答合不合法。
+    // 约定返回值：true 通过 / false 失败 / 字符串 = 失败原因；抛错也按失败处理。
+    let r;
+    try { r = sp.extCheck(v); } catch (e) { r = String((e && e.message) || e); }
+    if (r === false) out.push({ code: "E-CONTRACT-007", msg: `字段 ${full} 不符合扩展类型 ${sp.refName}` });
+    else if (typeof r === "string") out.push({ code: "E-CONTRACT-007", msg: `字段 ${full} 不符合扩展类型 ${sp.refName}：${r}` });
+    return out;
+  }
+  if (sp.type === "contract") {
+    const sub = contracts[sp.refName];
+    if (!sub) {
+      out.push({ code: "E-CONTRACT-001", msg: `契约 ${sp.refName} 未定义（字段 ${full}）` });
+      return out;
+    }
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      const subErr = checkContract(contracts, sub, v, full);
+      if (subErr) out.push(...subErr);
+    } else {
+      out.push({ code: "E-CONTRACT-008", msg: `字段 ${full} 应为主对象（组合契约 ${sp.refName}）` });
+    }
+    return out;
+  }
+  if (sp.type === "array") {
+    if (!Array.isArray(v)) {
+      out.push({ code: "E-CONTRACT-002", msg: `字段 ${full} 类型错误：期望 ${typeName(sp)}，实得 ${typeof v}` });
+      return out;
+    }
+    if (sp.arrInner) {
+      for (let idx = 0; idx < v.length; idx++) {
+        out.push(...checkValueType(contracts, sp.arrInner, v[idx], `${full}[${idx}]`));
+      }
+    }
+    return out;
+  }
+  if (sp.type === "enum") {
+    // 枚举取值非法是 006，不是 002。
+    const sv = typeof v === "string" ? v
+      : typeof v === "number" ? String(v)
+      : null;
+    if (sv === null || !sp.enumVals.includes(sv)) {
+      out.push({ code: "E-CONTRACT-006",
+        msg: `字段 ${full} 的取值不在枚举内：期望 ${sp.enumVals.join(" / ")}，实得 ${String(v)}` });
+      return out;
+    }
+  }
+  if (!valueMatchesType(v, sp)) {
+    out.push({ code: "E-CONTRACT-002", msg: `字段 ${full} 类型错误：期望 ${typeName(sp)}，实得 ${Array.isArray(v) ? "array" : typeof v}` });
+  }
+  return out;
+}
+
 function applyDefaults(contract, obj, contracts) {
   for (const [k, sp] of Object.entries(contract.fields)) {
     // 契约字段名来自文档，同样不可为危险键（纵深防御；
@@ -472,46 +559,11 @@ function checkContract(contracts, contract, obj, path) {
       continue;
     }
     const v = obj[k];
-    // 自定义模式类型：非字符串必须显式报错并提示加引号——
-    // 像 `证件号: 221099 1988 0987 1211` 这种裸写会被词法切成数字，
-    // 只剩末段还不报错，是本项目明确要消灭的「静默数据损坏」。
-    if (sp.type === "pattern") {
-      if (typeof v !== "string") {
-        errs.push({ code: "E-CONTRACT-009", msg: `字段 ${full} 类型 ${sp.refName} 要求字符串（号码 / 编号 / 身份证请用引号包裹），实得 ${Array.isArray(v) ? "array" : typeof v}` });
-        continue;
-      }
-      // 防御：JS RegExp 有回溯，超长输入直接拒绝而非硬算
-      if (v.length > PATTERN_MAX_LEN) {
-        errs.push({ code: "E-CONTRACT-009", msg: `字段 ${full} 的值过长（${v.length} > ${PATTERN_MAX_LEN}），拒绝校验` });
-        continue;
-      }
-      let ok = false;
-      try { ok = sp.patternRe.test(v); } catch { ok = false; }
-      if (!ok) errs.push({ code: "E-CONTRACT-009", msg: `字段 ${full} 的值 \`${v}\` 不符合类型 ${sp.refName} 的格式要求` });
-      continue;
-    }
-    if (sp.type === "ext") {
-      // 外置类型：由下游的判定函数回答合不合法。
-      // 约定返回值：true 通过 / false 失败 / 字符串 = 失败原因；抛错也按失败处理。
-      let r;
-      try { r = sp.extCheck(v); } catch (e) { r = String((e && e.message) || e); }
-      if (r === false) errs.push({ code: "E-CONTRACT-007", msg: `字段 ${full} 不符合扩展类型 ${sp.refName}` });
-      else if (typeof r === "string") errs.push({ code: "E-CONTRACT-007", msg: `字段 ${full} 不符合扩展类型 ${sp.refName}：${r}` });
-      continue;
-    }
-    if (sp.type === "contract") {
-      const sub = contracts[sp.refName];
-      if (!sub) { errs.push({ code: "E-CONTRACT-001", msg: `契约 ${sp.refName} 未定义（字段 ${full}）` }); continue; }
-      if (v && typeof v === "object" && !Array.isArray(v)) {
-        const subErr = checkContract(contracts, sub, v, full);
-        if (subErr) errs.push(...subErr);
-      } else {
-        errs.push({ code: "E-CONTRACT-008", msg: `字段 ${full} 应为主对象（组合契约 ${sp.refName}）` });
-      }
-      continue;
-    }
-    if (!valueMatchesType(v, sp)) {
-      errs.push({ code: "E-CONTRACT-002", msg: `字段 ${full} 类型错误：期望 ${typeName(sp)}，实得 ${Array.isArray(v) ? "array" : typeof v}` });
+    // 类型校验交给 `checkValueType` —— 与**数组元素**同一份实现（元素错带 `v[i]` 下标），
+    // 这样「同一条件同一个码」在字段与元素两层都成立。
+    const typeErrs = checkValueType(contracts, sp, v, full);
+    if (typeErrs.length) {
+      errs.push(...typeErrs);
       continue;
     }
     if (sp.min !== undefined || sp.max !== undefined) {
@@ -522,13 +574,105 @@ function checkContract(contracts, contract, obj, path) {
   }
   if (!contract.loose) {
     for (const k of Object.keys(obj)) {
-      if (k === "__type" || k === "__name") continue;
+      // `__type` / `__featags` 不参与契约校验（Rust 实测：`S !t { }` 在严格契约下通过）；
+      // `__name` / `__args` **参与** —— `x { @is A addr Sub { } }` 报 `addr.__name`。
+      if (k === "__type" || k === "__featags") continue;
       if (!(k in contract.fields)) {
         errs.push({ code: "E-CONTRACT-004", msg: `契约未声明字段：${path ? path + "." + k : k}` });
       }
     }
   }
   return errs.length ? errs : null;
+}
+
+// ---------------------------------------------------------------------------
+// 多契约叠加（D3）：一个块应用多份契约 —— **合并视图**
+//
+// 语义照 `rust/sml-contract/src/lib.rs::apply_contracts`：
+//   1. 有效严格度 = 块级覆盖 `unwrap_or` 契约级声明；多契约取**最严**一档
+//      ⇒ 任一份严格即整体严格（本端两档：`loose` 取 AND）；
+//   2. **顺序无关**：字段按名取并集；
+//   3. **冲突即错**：同名字段但类型 / 默认值 / 区间任一不同 ⇒ `E-CONTRACT-016`
+//      （不允许「后者覆盖」——那会让结果依赖书写顺序）；
+//   4. 构造一份临时契约后**复用** `applyDefaults` / `checkContract`，
+//      不另写一条校验路径。
+// ---------------------------------------------------------------------------
+
+// 类型的**规范串**（Rust `TypeSpec::name()` 同口径）：数组比元素类型、
+// 枚举比取值表、组合比被引用契约名。
+function typeKey(sp) {
+  switch (sp.type) {
+    case "array": return "[" + (sp.arrInner ? typeKey(sp.arrInner) : "?") + "]";
+    case "enum": return "enum [" + (sp.enumVals || []).join(" ") + "]";
+    case "contract": return sp.refName || "?";
+    default: return String(sp.type);
+  }
+}
+
+// 同名字段是否**冲突**（类型 / 默认值 / 区间任一不同）。
+function fieldClash(a, b) {
+  if (typeKey(a) !== typeKey(b)) return true;
+  if (JSON.stringify(a.def) !== JSON.stringify(b.def)) return true;
+  if (a.min !== b.min) return true;
+  if (a.max !== b.max) return true;
+  return false;
+}
+
+// 合并一组契约。返回 `{ merged }` 或 `{ code, msg }`（本函数在 `parse` 之外，
+// 拿不到那里的 `fail`，故把错误交回调用方抛）。
+// `entries` 元素形如 `{ name, ov }`：ov = null 无覆盖 / 0 loose / 1 strict。
+function mergeContractSet(contracts, entries) {
+  const list = [];
+  for (const e of entries) {
+    const c = contracts[e.name];
+    if (!c) return { code: "E-CONTRACT-001", msg: "sml: 应用未定义契约 `" + e.name + "`" };
+    list.push(c);
+  }
+  // 冲突预检：按**字段名**两两比较，与书写顺序无关
+  for (let a = 0; a < list.length; a++) {
+    for (let b = a + 1; b < list.length; b++) {
+      for (const k of Object.keys(list[a].fields)) {
+        const fb = list[b].fields[k];
+        if (fb === undefined) continue;
+        if (!fieldClash(list[a].fields[k], fb)) continue;
+        return {
+          code: "E-CONTRACT-016",
+          msg: "sml: 字段 `" + k + "` 在 `" + entries[a].name + "` 与 `" +
+               entries[b].name + "` 里类型 / 默认值 / 区间不一致",
+        };
+      }
+    }
+  }
+  // 合并视图：字段并集；同名字段的类型/默认值/区间已一致，但 `required`
+  // **不在**预检内 ⇒ 取**或**（任一份要求即必填），才与书写顺序无关。
+  const fields = {};
+  for (const c of list) {
+    for (const k of Object.keys(c.fields)) {
+      if (k in fields) { if (c.fields[k].required) fields[k].required = true; }
+      else fields[k] = Object.assign({}, c.fields[k]);
+    }
+  }
+  // 严格度：块级覆盖 unwrap_or 契约级，多契约取**最严**（`loose` 取 AND）
+  let loose = true;
+  let strictPaths = false;
+  let allowAny = false;
+  const featags = new Map();
+  for (let k = 0; k < list.length; k++) {
+    const ov = entries[k].ov;
+    const eff = (ov === null || ov === undefined) ? !!list[k].loose : (ov === 0);
+    if (!eff) loose = false;
+    if (list[k].strictPaths) strictPaths = true;
+    if (list[k].allowAny) allowAny = true;
+    if (list[k].featags) {
+      for (const [n, d] of list[k].featags) if (!featags.has(n)) featags.set(n, d);
+    }
+  }
+  return {
+    merged: {
+      name: entries.map((e) => e.name).join("+"),
+      fields, loose, strictPaths, allowAny, featags,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -649,6 +793,37 @@ function collectFeatures(text, base, allowed) {
   // **注释里提到**的写法不是指令。旧写法 `/@feature…/g` 连注释里的也收 —— 以前
   // "任意名字都静默入集"所以看不出来，一加未知名校验就冒出一堆**假错误**
   // （`examples/advanced.sml:5` 就是这么中的：报"未知特性 `显式开启高级能力（glob-include`"）。
+  // 子命令校验（先于 enable/disable 的处理）：Rust 只认 base / mode / enable / disable /
+  // whitelist / blacklist，缺参数报 007、未知名子命令报 006、mode 参数非法报 008。
+  // 改前只匹配 `enable|disable`，其余子命令被 stripFeatureLines 整行抹掉 ⇒
+  // `@feature bogus`（拼错）静默通过，本意要关的特性其实没关。
+  {
+    const reSub = /^[ \t]*@feature([ \t]+([^\n]*))?/gm;
+    let sm;
+    while ((sm = reSub.exec(text)) !== null) {
+      let rest = (sm[2] || "").trim();
+      const cut = rest.search(/#|\/\/|--/);
+      if (cut >= 0) rest = rest.slice(0, cut).trim();
+      const words = rest.split(/[\s,]+/).filter(Boolean);
+      if (words.length === 0) {
+        throwCode("E-FEATURE-007", "sml: `@feature` 缺少参数（enable / disable）", sm.index);
+      }
+      const sub = words[0];
+      if (sub === "enable" || sub === "disable" || sub === "base") continue;
+      if (sub === "mode") {
+        const arg = words[1];
+        if (arg === "whitelist" || arg === "blacklist") {
+          // 参数合法但本端未实现 mode：明确拒绝，不谎报「参数非法」。
+          throwCode("E-FEATURE-006", "sml: `@feature mode`：本端暂不支持该子命令", sm.index);
+        }
+        throwCode("E-FEATURE-008",
+          "sml: `@feature mode` 的参数须为 whitelist / blacklist", sm.index);
+      }
+      // whitelist / blacklist 是 Rust 的合法紧凑写法，本端未实现 ⇒ 同样明确拒绝。
+      throwCode("E-FEATURE-006", "sml: `@feature " + sub + "`：本端暂不支持该子命令", sm.index);
+    }
+  }
+
   const re = /^[ \t]*@feature[ \t]+(enable|disable)[ \t]+([^\n]*)/gm;
   let m;
   while ((m = re.exec(text)) !== null) {
@@ -988,7 +1163,10 @@ function isDottedModuleName(raw, viaImport) {
 //   ① "x.sml" as w { a, b }       —— 路径在前，{ keys } 在后
 //   ② { a, b } as w in "x.sml"     —— 键列表在前，in "file" 指定目标
 // 省略 as 时挑出的键平铺；as ns 时挂到命名空间。
-function parseIncludeTargets(line, feats) {
+function parseIncludeTargets(line, feats, viaImportIn) {
+  // `viaImportIn`：指令本身是 import（行里那个 `import` 词已被调用方吃掉，
+  // 不能只靠 `/\bimport\b/` 判——否则 `import ui.buttons` 的点分模块名判据失效）。
+  const isImportDirective = !!viaImportIn;
   // 拆逗号（仅在引号外，且不在 {} 括号内——部分引用的键列表逗号不应拆分目标）
   const parts = [];
   let buf = "", inStr = false, depth = 0;
@@ -1004,7 +1182,7 @@ function parseIncludeTargets(line, feats) {
   const targets = [];
   for (let raw of parts) {
     let ns = null;
-    let viaImport = false;
+    let viaImport = isImportDirective;
     let keys = null;
 
     // 提取 `in "file"` 或 `in file`：作为目标路径（语法②）
@@ -1012,6 +1190,11 @@ function parseIncludeTargets(line, feats) {
     let inPath = null;
     if (inM) {
       inPath = inM[1];
+      // `{ a } in x.sml` 同样要求路径加引号（Rust 的 PATH 只认 STRING）。
+      if (!inM[0].includes('"') && !isDottedModuleName(inPath, true)) {
+        throw throwCode("E-INCLUDE-012",
+          "sml: include 路径写法非法（未加引号）：`" + inPath + "`");
+      }
       raw = raw.slice(0, inM.index) + raw.slice(inM.index + inM[0].length);
     }
 
@@ -1050,6 +1233,14 @@ function parseIncludeTargets(line, feats) {
         } else {
           const wM = raw.match(/([A-Za-z0-9_.\-]+)/);
           path = wM ? wM[1] : null;
+          // 裸词只允许两种：`re:pattern`（上面已处理）与 `import a.b.c` 的点分模块名。
+          // 其余（`include x.sml` —— 忘了加引号）必须报 E-INCLUDE-012。
+          // 改前一律当路径收下 ⇒ 整行被当成普通内容/字段，JS 还会凭空造出 `x.sml: x.sml`
+          // 这样的垃圾键（与 Rust / C / Lua 都不一致，且不报错）。
+          if (path && !isDottedModuleName(path, viaImport)) {
+            throw throwCode("E-INCLUDE-012",
+              "sml: include 路径写法非法（未加引号）：`" + path + "`");
+          }
         }
       }
       if (path && isRe) path = "re:" + path;
@@ -1472,7 +1663,7 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
 
   /// 新建字段规格（默认值集中在一处，避免两条解析路径手写两份而漂移）。
   function newFieldSpec() {
-    return { type: "any", required: true, def: undefined, min: undefined, max: undefined, enumVals: null, arrInner: null, refName: null };
+    return { type: "any", required: true, def: undefined, min: undefined, max: undefined, enumVals: null, arrInner: null, refName: null, fromFeatag: false };
   }
 
   /// 解析字段修饰符（`?` / `optional` / `required` / `default v` / `min n` / `max n`）。
@@ -1491,9 +1682,21 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
       if (m.t === "word") {
         if (m.v === "optional") { sp.required = false; i++; continue; }
         if (m.v === "required") { sp.required = true; i++; continue; }
+        // S7：来源修饰符 —— 该键只能由 featag 落点写入
+        if (m.v === "from-featag") { sp.fromFeatag = true; i++; continue; }
         if (m.v === "default") { i++; sp.def = literal(); defaultSet = true; continue; }
-        if (m.v === "min") { i++; sp.min = Number(literal()); continue; }
-        if (m.v === "max") { i++; sp.max = Number(literal()); continue; }
+        if (m.v === "min" || m.v === "max") {
+          i++;
+          const lit = literal();
+          const num = Number(lit);
+          // 边界必须真的是数字（Rust 同码 022）。改前 `Number("abc")` 得 NaN，
+          // 而 NaN 的所有比较都为 false ⇒ 区间约束被静默穿透。
+          if (!Number.isFinite(num)) {
+            fail("E-PARSE-022", "sml: `" + m.v + "` 的取值必须是数字，得 `" + String(lit) + "`");
+          }
+          sp[m.v] = num;
+          continue;
+        }
       }
       break;
     }
@@ -1512,6 +1715,11 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
     if (t && t.t === "[") {
       i++;
       let inner = null;
+      // 元素位置不许 enum（Rust 同码 012）：改前递归进 enum 分支后按 023 报，
+      // 把「这个位置不能是 enum」说成了「enum 后不是数组」。
+      if (peek() && peek().t === "word" && peek().v === "enum") {
+        fail("E-CONTRACT-012", "sml: 数组元素类型不能是 `enum`");
+      }
       if (peek() && peek().t !== "]") inner = parseFieldSpec();
       if (peek() && peek().t === "]") i++;
       else fail("E-PARSE-001", "sml: 数组类型 `[T]` 缺少 `]`");
@@ -1576,13 +1784,20 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
         }
         if (peek() && peek().t === "]") i++;
       } else {
-        while (peek() && (peek().t === "word" || peek().t === "str")) { sp.enumVals.push(peek().v); i++; }
+        // `enum a b c`（既没有 [ 也没有 (）：Rust 报 E-PARSE-023。
+        // 改前本实现把后面的裸词全收成枚举成员 ⇒ 同一份契约在 JS 通过、在 Rust 报错。
+        fail("E-PARSE-023", "sml: `enum` 后须为数组，如 `enum [ a b ]`");
       }
     } else if (typeWord === "array") {
       sp.type = "array";
       if (peek() && peek().t === "[") {
         i++;
         if (peek() && peek().t !== "]") {
+          // 元素位置不许 enum（Rust 同码 012）。改前会递归进 enum 分支，
+          // 若写的是 `[enum x y]` 还报成 023（「enum 后不是数组」），码指错了地方。
+          if (peek().t === "word" && peek().v === "enum") {
+            fail("E-CONTRACT-012", "sml: 数组元素类型不能是 `enum`");
+          }
           const inner = parseFieldSpec();
           sp.arrInner = inner;
         }
@@ -1608,8 +1823,148 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
     return parseFieldModifiers(sp);
   }
 
-  function parseContractBody() {
+  // 落点 `a.b[2].c` → 段序列（S6）。`[{k:"a"},{k:"b"},{i:2},{k:"c"}]`；写法非法返回 null。
+  function parseTargetPath(raw) {
+    const segs = [];
+    let cur = "";
+    let i2 = 0;
+    const flush = () => { if (cur) { segs.push({ k: cur }); cur = ""; } };
+    while (i2 < raw.length) {
+      const ch = raw[i2];
+      if (ch === ".") { flush(); i2++; }
+      else if (ch === "[") {
+        flush();
+        const j = raw.indexOf("]", i2);
+        if (j < 0) return null;
+        const n = Number(raw.slice(i2 + 1, j));
+        if (!Number.isInteger(n) || n < 0) return null;
+        segs.push({ i: n });
+        i2 = j + 1;
+      } else { cur += ch; i2++; }
+    }
+    flush();
+    return segs;
+  }
+
+  // `any` 默认禁用，契约里写 `!any` 才放行（S8）。递归走契约引用（内层自己有 `!any` 才算放行）。
+  function checkAnyAllowed(cname, c, allContracts, seen) {
+    if (!c) return;
+    if (seen.indexOf(cname) >= 0) return;   // 递归契约绕圈
+    seen.push(cname);
+    for (const fname of Object.keys(c.fields)) {
+      const sp = c.fields[fname];
+      // `arrInner` 是**规格对象**（`typeName(sp.arrInner)` 取 `.type`），不是字符串
+      const usesAny = sp.type === "any" ||
+                      (sp.type === "array" && sp.arrInner && sp.arrInner.type === "any");
+      if (usesAny && !c.allowAny) {
+        fail("E-FEATURE-001",
+          "sml: 契约 `" + cname + "` 的字段 `" + fname +
+          "` 用了 `any`（等于放弃类型校验）；若确实需要，请在该契约里写 `!any` 显式放开");
+      }
+      if (sp.refName) {
+        const inner = allContracts[sp.refName];
+        if (inner) checkAnyAllowed(sp.refName, inner, allContracts, seen);
+      }
+    }
+  }
+
+  // `from-featag` 的键不许文档手写（S7）。**必须在落点填充之前**：
+  // 填充之后 featag 写的键与文档手写的键长得一样，来源就分不出来了。
+  function checkFromFeatag(c, node, path, allContracts) {
+    if (!c || !node || typeof node !== "object" || Array.isArray(node)) return;
+    for (const fname of Object.keys(c.fields)) {
+      const spec = c.fields[fname];
+      const full = path ? path + "." + fname : fname;
+      if (spec.fromFeatag && Object.prototype.hasOwnProperty.call(node, fname)) {
+        fail("E-CONTRACT-024",
+          "sml: 字段 `" + full + "` 声明为 `from-featag`：只能由 featag 落点写入，" +
+          "文档里不能直接赋值");
+      }
+      if (spec.refName) {
+        const child = node[fname];
+        if (child && typeof child === "object" && !Array.isArray(child)) {
+          const inner = allContracts[spec.refName];
+          if (inner) checkFromFeatag(inner, child, full, allContracts);
+        }
+      }
+    }
+  }
+
+  // 按落点写值（S6）。判据逐条照 Rust `write_target` / `write_in_value`。
+  function writeTarget(node, segs, val, strict, where_) {
+    const isObj = (x) => x !== null && typeof x === "object" && !Array.isArray(x);
+    const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+    const walk = (cur, idx) => {
+      if (idx >= segs.length) return;
+      const seg = segs[idx];
+      const last = idx === segs.length - 1;
+      if (seg.k !== undefined) {
+        if (!isObj(cur)) {
+          fail("E-CONTRACT-023",
+            "sml: `" + where_ + "` 的落点路径上 `" + seg.k + "` 已是非对象，没法往里写键");
+        }
+        if (last) {
+          if (has(cur, seg.k)) {
+            fail("E-CONTRACT-022",
+              "sml: `" + where_ + "` 的落点 `" + seg.k + "` 已存在（featag 不能覆盖已有值）");
+          }
+          cur[seg.k] = val;
+          return;
+        }
+        if (!has(cur, seg.k)) {
+          if (strict) {
+            fail("E-CONTRACT-023",
+              "sml: `" + where_ + "` 的落点路径上父对象 `" + seg.k +
+              "` 不存在（本契约开了 `!strict-paths`）");
+          }
+          if (segs[idx + 1].i !== undefined) {
+            fail("E-CONTRACT-023",
+              "sml: `" + where_ + "` 的落点路径上数组 `" + seg.k +
+              "` 不存在（数组不会凭空创建：长度与中间元素无解）");
+          }
+          cur[seg.k] = {};
+        }
+        walk(cur[seg.k], idx + 1);
+        return;
+      }
+      if (!Array.isArray(cur)) {
+        fail("E-CONTRACT-023",
+          "sml: `" + where_ + "` 的落点里下标 `[" + seg.i + "]` 作用在非数组上");
+      }
+      const n = seg.i, len = cur.length;
+      if (n < len) {
+        if (last) {
+          if (cur[n] === null) { cur[n] = val; return; }
+          fail("E-CONTRACT-022",
+            "sml: `" + where_ + "` 的落点 `[" + n + "]` 已有非 null 值（featag 不能覆盖已有值）");
+        }
+        if (cur[n] === null) cur[n] = {};
+        walk(cur[n], idx + 1);
+        return;
+      }
+      if (n === len) {
+        if (strict) {
+          fail("E-CONTRACT-023",
+            "sml: `" + where_ + "` 的落点要追加 `[" + n +
+            "]`，但本契约开了 `!strict-paths`（只允许写已有元素）");
+        }
+        if (last) { cur.push(val); return; }
+        cur.push({});
+        walk(cur[len], idx + 1);
+        return;
+      }
+      fail("E-CONTRACT-025",
+        "sml: `" + where_ + "` 的落点 `[" + n + "]` 越界：该数组只有 " + len + " 个元素（越界不补 null）");
+    };
+    walk(node, 0);
+  }
+
+  function parseContractBody(cname) {
     const fields = {};
+    // 声明过的 featag：名字 → 声明（S5 判「未声明即拒」，S5b 判参数个数与类型）。
+    const featags = new Map();
+    let strictPaths = false;   // `!strict-paths`：落点父对象必须已存在（S6）
+    let allowAny = false;      // `!any`：放行 `any` 类型（S8，默认禁用）
     if (peek() && peek().t === "{") i++; else fail("E-PARSE-019", "sml: @contract 后须契约体 { }");
     while (peek() && peek().t !== "}") {
       if (peek().t === "," || peek().t === ";") { i++; continue; }
@@ -1622,11 +1977,103 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
         const dt = peek();
         const dname = dt && (dt.t === "word" || dt.t === "str") ? dt.v : "";
         if (dname === "requires") {
-          fail("E-CONTRACT-018",
-            "sml: 本实现暂不支持契约的 `@requires` 指令（它要求先开启所列特性）；" +
-            "请移除该指令，或改用已实现它的 Rust 端");
+          i++; // 消费 requires
+          // 定义时校验（与 Rust `directive.rs` 同判据）：逗号 / 空格分隔，
+          // 遇「词后跟冒号」即下一个字段名；名字无效 ⇒ 003，未开启 ⇒ 018。
+          while (peek()) {
+            if (peek().t === "," || peek().t === ";") { i++; continue; }
+            if (peek().t !== "word" && peek().t !== "str") break;
+            if (toks[i + 1] && toks[i + 1].t === ":") break;
+            const w = String(peek().v);
+            i++;
+            for (const raw of w.split(",")) {
+              const nm = raw.trim();
+              if (!nm) continue;
+              if (!KNOWN_FEATURES.has(nm)) {
+                fail("E-FEATURE-003",
+                  "sml: 契约 `" + cname + "` 的 `@requires` 引用了无效特性 `" + nm + "`");
+              }
+              if (!feats.has(nm)) {
+                fail("E-CONTRACT-018",
+                  "sml: 契约 `" + cname + "` 要求特性 `" + nm +
+                  "` 已开启（请用 `@feature enable " + nm + "`）");
+              }
+            }
+          }
+          continue;
         }
         fail("E-PARSE-005", "sml: 契约体内不支持指令 `@" + dname + "`（契约体仅支持 `@requires`）");
+      }
+      // featag 声明：`!name` / `!name: 类型` / `!name: 类型 -> 落点`。
+      // 开了 `type.featag` 才是记号；本片只**收下并跳过**（S4 的收集），
+      // 使用处校验（未声明即拒 / 参数类型）与落点填充属 S5/S6，尚未接。
+      if (feats.has("type.featag") && peek().t === "word" && peek().v.startsWith("!")) {
+        const declLine = peek().line;
+        // S5 记名；S5b 顺带收 `: 类型`，使用处据此校验个数与标量类型。
+        const d = { name: peek().v.slice(1), hasSpec: false, isArray: false, ty: "", inner: "" };
+        i++;
+        // 契约级开关 `!any` / `!strict-paths`：**不占** featag 名（Rust 同判据）——
+        // 块头写 `C !any` 在 Rust 里报「未声明」。两者也不接受 `: 类型` / `[…]` / `-> 落点`。
+        if (d.name === "any" || d.name === "strict-paths") {
+          if (peek() && (peek().t === ":" || peek().t === "[")) {
+            fail("E-CONTRACT-021",
+              "sml: `!" + d.name + "` 是契约级开关，不接受类型 / 参数 / 落点");
+          }
+          if (d.name === "strict-paths") strictPaths = true;   // S6 开关
+          if (d.name === "any") allowAny = true;               // S8 开关
+          while (peek() && peek().t !== "}" && peek().line === declLine) i++;
+          continue;
+        }
+        if (peek() && peek().t === ":") {
+          i++;
+          d.hasSpec = true;
+          if (peek() && peek().t === "[") {
+            i++;
+            d.isArray = true;
+            if (peek() && peek().t === "word") { d.inner = peek().v; i++; }
+            if (peek() && peek().t === "]") i++;
+          } else if (peek() && peek().t === "word") {
+            d.ty = peek().v;
+            i++;
+          }
+        }
+        // 修饰符：`default <值>` 与 `-> 落点`（顺序不定）。S6 的 `auto` 取这里的 default；
+        // 落点在**声明期**解析成段序列，使用期按段下钻。
+        let hasPath = false, raw = "";
+        while (peek() && peek().t !== "}" && peek().line === declLine) {
+          const tk2 = peek();
+          if (tk2.t === "word" && tk2.v === "default") {
+            i++;
+            if (peek() && (peek().t === "word" || peek().t === "str")) {
+              const dv = peek();
+              d.default = dv.t === "str" ? coerceStr(dv.v, fragments, feats)
+                                         : coerceWord(dv.v, fragments, nsMap, feats);
+              i++;
+            }
+            continue;
+          }
+          if (tk2.t === "word" && tk2.v === "->") { i++; hasPath = true; continue; }
+          if (tk2.t === "word" && tk2.v === "-" &&
+              toks[i + 1] && toks[i + 1].t === "word" && toks[i + 1].v === ">") {
+            i += 2; hasPath = true; continue;
+          }
+          if (hasPath) {
+            if (tk2.t === "word" || tk2.t === "str") raw += tk2.v;
+            else if (tk2.t === "[") raw += "[";
+            else if (tk2.t === "]") raw += "]";
+          }
+          i++;
+        }
+        if (hasPath) {
+          const segs = parseTargetPath(raw);
+          if (!segs) fail("E-CONTRACT-020", "sml: `!" + d.name + "` 的落点写法非法");
+          if (segs.length && segs[0].i !== undefined) {
+            fail("E-CONTRACT-020", "sml: `!" + d.name + "` 的落点须以键名开头");
+          }
+          d.target = segs;
+        }
+        featags.set(d.name, d);
+        continue;
       }
       if (peek().t !== "word") fail("E-PARSE-006", "sml: 契约字段期望名称, 得 " + peek().t);
       const fkey = peek().v; i++;
@@ -1636,7 +2083,7 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
       if (peek() && (peek().t === "," || peek().t === ";")) i++;
     }
     if (peek() && peek().t === "}") i++;
-    return fields;
+    return { fields, featags, strictPaths, allowAny };
   }
 
   // 解析 include：返回若干 { text, ns } 目标并递归 parse
@@ -1649,7 +2096,7 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
     if (!feats.has("include")) fail("E-FEATURE-001", "sml: include 未启用（需要 feature 'include'）", dirPos);
     let targets;
     try {
-      targets = parseIncludeTargets(line, feats);
+      targets = parseIncludeTargets(line, feats, viaImport);
     } catch (e) {
       // `parseIncludeTargets` 在 parse() 作用域之外，只能用模块级 throwCode 抛码，
       // 因此没有位置（会落成第 1 行）。这里补上指令位置。
@@ -1864,7 +2311,60 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
         else node[k] = [node[k], v];
       }
     };
-    let appliedContract = null;
+    /* 本块声明的契约（可多份）：元素形如 `{ name, ov }`。
+       `ov` 是**块级严格度覆盖**（D4①）：null = 无覆盖 / 0 = loose / 1 = strict。 */
+    const appliedContracts = [];
+
+    /* `@is` 后的名字解析：`@is type(契约名)` 与 `@is 契约名` 等价 —— 括号形式让
+       「类型标注」的意图更显眼，且与块级标注 `type(契约名) 块名 { .. }` 同形。
+       括号在词法中不是分隔符，故 `type(办事人)` 整体是一个 word，字符串层解包即可。
+       仅当契约表里**确实存在**名为 `type(x)` 的契约时才按原名解析（极端但合法的老文档）。 */
+    const resolveIsName = (raw) => {
+      const inner = /^type\((.+)\)$/.exec(raw);
+      const nameExists = raw in contracts || nsPrefix + raw in contracts;
+      const cname = inner && !nameExists ? inner[1] : raw;
+      let full = nsPrefix + cname;
+      if (!(full in contracts)) full = cname;   // 回退裸名
+      return full;
+    };
+
+    /* 收集 `@is` 之后的契约名（D1）：连续取裸词，遇 `:` / `{` / `]` / **换行**即停；
+       逗号作分隔（**可省**：`@is a, b` ≡ `@is a b`）。两条停机判据缺一不可：
+       - 「换行即停」：`@is X` 独占一行、字段写在下一行是常见写法，无脑收词会吞掉下一行的键；
+       - 「裸词后跟 `:` 的是键」：`@is A host: h1` 的 host 是键值，不是契约名。
+       `loose` / `warn` / `strict` 紧跟某个契约名时是该契约的**块级严格度覆盖**（D4①），
+       不是契约名：`@is A warn B` ⇒ A=warn、B=契约级默认。 */
+    const parseIsNames = () => {
+      const out = [];
+      const first = peek();
+      if (!first) return out;
+      const line = first.line;
+      let haveName = false;   // 刚收了一个契约名、还没被严格度关键字覆盖
+      while (peek()) {
+        const tk = peek();
+        if (tk.t === ",") {
+          if (tk.line !== line) break;
+          i++;
+          continue;
+        }
+        if (tk.t !== "word" && tk.t !== "str") break;
+        if (tk.line !== line) break;
+        if (haveName && (tk.v === "loose" || tk.v === "warn" || tk.v === "strict")) {
+          out[out.length - 1].ov = tk.v === "strict" ? 1 : 0;
+          haveName = false;
+          i++;
+          continue;
+        }
+        // 后跟 `:` 且又不是契约名 ⇒ 它是键，停
+        if (toks[i + 1] && toks[i + 1].t === ":" &&
+            !(tk.v in contracts) && !((nsPrefix + tk.v) in contracts)) break;
+        const nm = resolveIsName(tk.v);
+        if (!out.some((e) => e.name === nm)) out.push({ name: nm, ov: null });
+        haveName = true;
+        i++;
+      }
+      return out;
+    };
     // `@when` 条件求值（闭集，与 Rust `cond.rs::eval_when_cond` 同语义）
     const evalWhen = () => {
       const lhsTok = peek();
@@ -2132,44 +2632,21 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
           let loose = false;
           if (peek() && peek().t === "word" && peek().v === "loose") { loose = true; i++; }
           else if (peek() && peek().t === "word" && peek().v === "strict") { loose = false; i++; }
-          const fields = parseContractBody();
-          contracts[nsPrefix + cname] = { fields, loose };
+          const { fields, featags, strictPaths, allowAny } = parseContractBody(cname);
+          contracts[nsPrefix + cname] = { fields, loose, featags, strictPaths, allowAny };
           continue;
         }
         if (fname === "is") {
           // W16：`@is` 与 `@contract` 同属 contract 特性（Rust 侧同样两道都门控）
           if (!feats.has("contract")) fail("E-FEATURE-001", "sml: @is 需要特性 `contract`，但当前特性集已禁用");
           i++;
-          const raw = peek() && peek().v;
-          if (!raw) fail("E-PARSE-019", "sml: @is 后须契约名");
-          const firstLine = peek().line;  // 首个契约名所在源行（D 同 line 判据）
-          i++;
-          // D（任务 D）：多契约「响亮拒绝」—— `@is` 后出现第 2 个裸词（同一行、
-          // 且该词不是「后跟 `:` 的键」）即报 E-CONTRACT-017，绝不静默给树。
-          // 与 Rust D1 同口径：遇 `:` / `{` / `]` / 换行 / 逗号（可省）即停。
-          {
-            let j = i;
-            while (j < toks.length) {
-              const tk = toks[j];
-              if (tk.line !== firstLine) break;            // 换行即停
-              if (tk.t === ",") { j++; continue; }          // 逗号可省，跳过
-              if (tk.t === "word" || tk.t === "str") {
-                if (toks[j + 1] && toks[j + 1].t === ":") break;  // 后跟 `:` 是键，非契约名
-                fail("E-CONTRACT-017", "sml: 该实现暂不支持一个块应用多份契约（@is 多契约写法）");
-              }
-              break;  // `{` / `]` / 其它 token → 停
-            }
+          if (!peek() || (peek().t !== "word" && peek().t !== "str")) {
+            fail("E-PARSE-019", "sml: @is 后须契约名");
           }
-          // `@is type(契约名)` 与 `@is 契约名` 等价 —— 括号形式让「类型标注」
-          // 的意图更显眼，且与块级标注 `type(契约名) 块名 { .. }` 同形。
-          // 括号在词法中不是分隔符，故 `type(办事人)` 整体是一个 word，
-          // 字符串层解包即可。仅当契约表里**确实存在**名为 `type(x)` 的契约时
-          // 才按原名解析（极端但合法的老文档）—— 向后兼容优先，与 Rust 一致。
-          const inner = /^type\((.+)\)$/.exec(raw);
-          const nameExists = raw in contracts || nsPrefix + raw in contracts;
-          const cname = inner && !nameExists ? inner[1] : raw;
-          appliedContract = nsPrefix + cname;
-          if (!(appliedContract in contracts)) appliedContract = cname; // 回退裸名
+          // 累积到本块（Rust 的 `applied_contracts` 同样累加 + 按名去重）
+          for (const e of parseIsNames()) {
+            if (!appliedContracts.some((x) => x.name === e.name)) appliedContracts.push(e);
+          }
           continue;
         }
         // —— 片段定义：`@name { ... }`；参数只认**显式**写法 `type:` / `name:` ——
@@ -2277,7 +2754,15 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
           if (tk.t === "@" || tk.t === "}" || tk.t === "]") break;
           if (tk.t === "word" && lastWasAs) { line += tk.v; i++; lastWasAs = false; continue; }
           if (tk.t === "word" && importMode) { line += tk.v; i++; lastWasAs = false; continue; }
-          if (tk.t === "word" && !lastWasAs) break;       // 其它裸词（键名）停下
+          if (tk.t === "word" && !lastWasAs) {
+            // `include` 后面的裸词：既可能是下一字段的键名，也可能是**忘了加引号的路径**。
+            // 看它后面是不是 `:` 区分：不是 `:` 就交给 parseIncludeTargets 判 012。
+            // 改前一律 break ⇒ `include x.sml` 整行变成数据，JS 还会凭空造出
+            // `x.sml: x.sml` 这样的键（与 Rust / C / Lua 都不一致，且不报错）。
+            const nx = toks[i + 1];
+            if (!importMode && !(nx && nx.t === ":")) { line += tk.v + " "; i++; continue; }
+            break;                                        // 其它裸词（键名）停下
+          }
           break;
         }
         const resolved = resolveIncludes(line, dirPos, importMode);
@@ -2319,54 +2804,22 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
       i++;
       let colon = false;
       if (peek() && peek().t === ":") { colon = true; i++; }
-      if (!colon && peek() && peek().t === "word") {
-        let probe = i, found = false;
-        while (probe < toks.length) {
-          const p = toks[probe];
-          if (p.t === "word" || p.t === "str") probe++;
-          else if (p.t === "{") { found = true; break; }
-          else break;
-        }
-        if (found) {
-          const args = [];
-          while (peek() && (peek().t === "word" || peek().t === "str")) {
-            args.push(peek().t === "str" ? coerceStr(peek().v, fragments, feats) : coerceWord(peek().v, fragments, nsMap, feats));
-            i++;
-          }
-          if (peek() && peek().t === "{") {
-            i++;
-            pushKey(key);
-            const sub = parseBlock("}");
-            sub.__type = key;
-            if (args.length === 1) sub.__name = args[0];
-            // —— 块级类型标注：`<契约名> <块名> { .. }` ——
-            //
-            // 裸块首词若命中契约表，自动把该契约应用到本块，等价于块内首行
-            // `@is 契约名`。与既有裸块 `type [name...] { }` 完全同形，故零新语法；
-            // 由 opt-in 特性 `typed-block` 门控，未开启时既有文档行为不变。
-            if (feats.has("typed-block") && feats.has("contract")) {
-              const cname = key in contracts ? key : nsPrefix + key in contracts ? nsPrefix + key : null;
-              if (cname) {
-                // D（任务 D）：块级多契约「响亮拒绝」—— args 里出现第 2 个已注册契约词
-                // 即报 E-CONTRACT-017（单契约 `server web prod` 的 web/prod 不是契约，不受影响）。
-                for (const a of args) {
-                  const an = a in contracts ? a : nsPrefix + a in contracts ? nsPrefix + a : null;
-                  if (an) fail("E-CONTRACT-017", "sml: 该实现暂不支持一个块应用多份契约（块级多契约写法）");
-                }
-                const c = contracts[cname];
-                applyDefaults(c, sub, contracts);
-                const errs = checkContract(contracts, c, sub, "");
-                if (errs) fail(errs[0].code, "contract: " + cname + " — " + errs.map((x) => x.msg).join("; "));
-                recordContract(cname);
-              }
-            }
-            popPath();
-            setField(key, sub);
-            continue;
-          }
-        }
+      if (!colon && peek() && peek().t === "word" && bareBlockAhead(i)) {
+        // 裸块（键位置）：与数组位置共用 `parseBareBlockFrom`（见该函数注释）。
+        // 判据 = Rust 键位置那一支（`if !colon && self.bare_block_ahead()`）。
+        setField(key, parseBareBlockFrom(key));
+        continue;
       }
       const nxt = peek();
+      // 值位置的游离记号：`a: :` / `a: @ b`。Rust 对两种都报兜底码 E-PARSE-012。
+      // 改前 `:` 落进「键后无值 ⇒ null」分支（得到 a: null），`@` 则留到下一轮
+      // 当成员级孤立 `@`（E-PARSE-004）—— 两种都不是 Rust 的行为。
+      if (nxt && nxt.t === ":") {
+        fail("E-PARSE-012", "sml: 值位置出现游离的 `:`；含 `:` 的标量请加引号");
+      }
+      if (nxt && nxt.t === "@" && !(toks[i + 1] && toks[i + 1].v === "for")) {
+        fail("E-PARSE-012", "sml: 值位置出现孤立的 `@`：它不是合法的标量开头");
+      }
       if (nxt && nxt.t === "@" && toks[i + 1] && toks[i + 1].v === "for") {
         // 值位置 `@for`：有界循环展开成数组（opt-in）。
         if (!feats.has("for")) {
@@ -2411,15 +2864,248 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
     if (pendingWhen !== null) {
       fail("E-PARSE-017", "sml: `@when` 后未跟随任何字段或块（悬空的条件）");
     }
-    if (appliedContract) {
-      const c = contracts[appliedContract];
-      if (!c) fail("E-CONTRACT-001", "sml: 应用未定义契约 " + appliedContract);
-      applyDefaults(c, node, contracts);
-      const errs = checkContract(contracts, c, node, "");
-      if (errs) fail(errs[0].code, "contract: " + appliedContract + " — " + errs.map((x) => x.msg).join("; "));
-      recordContract(appliedContract);
+    if (appliedContracts.length) {
+      // S8：`any` 默认禁用，契约里写 `!any` 才放行（`@is` 与块头两条路径都要查，逐份查）。
+      // 顺序照 Rust：先逐份查 `any`，再合并（未定义 001 / 冲突 016 都在合并里判）。
+      if (feats.has("type.featag")) {
+        for (const e of appliedContracts) checkAnyAllowed(e.name, contracts[e.name], contracts, []);
+      }
+      const r = mergeContractSet(contracts, appliedContracts);
+      if (r.code) fail(r.code, r.msg);
+      const merged = r.merged;
+      applyDefaults(merged, node, contracts);
+      const errs = checkContract(contracts, merged, node, "");
+      if (errs) fail(errs[0].code, "contract: " + merged.name + " — " + errs.map((x) => x.msg).join("; "));
+      for (const e of appliedContracts) recordContract(e.name);
     }
     return node;
+  }
+
+  // 预扫描：从 `from` 起「词 / `!tag[…]` 区 / 区后逗号」之后紧跟 `{` ⇒ 是裸块的参数部分。
+  // 与 Rust `bare_block_ahead` 同判据：**只看 `type.featag` 特性位**（不看首词是不是契约），
+  // `[` 按括号配平跳过、`,` 与词一样放行；撞上别的记号（含 `]`、EOF）即「不是」。
+  function bareBlockAhead(from) {
+    const featOn = feats.has("type.featag");
+    let probe = from;
+    while (probe < toks.length) {
+      const p = toks[probe];
+      if (p.t === "word" || p.t === "str") {
+        probe++;
+      } else if (featOn && p.t === "[") {
+        let depth = 0;
+        while (probe < toks.length) {
+          if (toks[probe].t === "[") depth++;
+          else if (toks[probe].t === "]") { if (--depth === 0) { probe++; break; } }
+          probe++;
+        }
+      } else if (featOn && p.t === ",") {
+        probe++;
+      } else if (p.t === "{") return true;
+      else return false;
+    }
+    return false;
+  }
+
+  // 裸块 `type [featag 区] [契约词…] [块名] { … }`（类型词**已由调用方消费**）。
+  // 键位置（`parseBlock`）与数组位置（`parseArray`）共用 —— Rust 两处进的是同一个
+  // `bare_child_frame`（`bare_block_ahead` 之后同一帧），所以多契约、featag 区、拆雷、
+  // 012、`__name` 起点必须逐字一致。
+  function parseBareBlockFrom(key) {
+    const featOn = feats.has("type.featag");
+    const args = [];
+    let featags = null;
+    // ① featag 区：**只在这里**（紧跟契约首词），且**每一项都以 `!` 开头**。
+    // `!` 是 featag 的**唯一**标记。若允许带参项省掉 `!`（靠紧跟的 `[` 区分），
+    // 它就会与「块头裸词命中契约表即契约词」争用同一个裸词 —— `A B rep[3]` 里
+    // `rep` 是契约词还是 featag 只能靠先后次序猜；三类词互不重叠更重要。
+    if (featOn) {
+      for (;;) {
+        const tk = peek();
+        if (!tk || tk.t !== "word") break;
+        const bang = tk.v.startsWith("!");
+        if (!bang) {
+          // I-27：区内的**后续**项可省 `!` —— 判据是「命中当前契约的 featag 声明」。
+          // 多契约 `A !t B, name { }` 的 B 不在声明里 ⇒ 仍按契约词处理。
+          const own0 = contracts[key] || contracts[nsPrefix + key];
+          const dec0 = own0 && own0.featags ? own0.featags.get(tk.v) : undefined;
+          if (!featags || !dec0) break;
+        }
+        const tag = bang ? tk.v.slice(1) : tk.v;
+        // **S5 使用处校验**：featag 契约私有 —— 块头写契约里没声明的名字就拒
+        // （与 Rust / C / C++ 同码 E-CONTRACT-021）。改前只收集不校验。
+        const owner = contracts[key] || contracts[nsPrefix + key];
+        const decl = owner && owner.featags ? owner.featags.get(tag) : undefined;
+        if (owner && !decl) {
+          fail("E-CONTRACT-021",
+            "sml: featag `!" + tag + "` 未在契约 `" + key +
+            "` 中声明（契约私有的作用域，请先在契约体内写 `!" + tag + "`）");
+        }
+        i++;
+        let payload = null;
+        if (peek() && peek().t === "[") { i++; payload = parseArray(); }
+        // **S5b**：个数与标量类型（判据照 Rust `check_featags`）。
+        // 类型不符报 002 —— Rust 那里复用 check_value，产出的是字段类型码。
+        if (decl) {
+          const argOk = (ty, v) => {
+            if (ty === "" || ty === "any") return true;
+            if (ty === "str") return typeof v === "string";
+            if (ty === "int") return typeof v === "number" && Number.isInteger(v);
+            if (ty === "num") return typeof v === "number";
+            if (ty === "bool") return typeof v === "boolean";
+            return true;
+          };
+          const n = payload ? payload.length : -1;
+          const isAuto = n === 1 && payload[0] === "auto";
+          if (!decl.hasSpec && payload) {
+            fail("E-CONTRACT-021",
+              "sml: featag `!" + tag + "` 声明为无参（纯标签），使用处不能带参数");
+          } else if (decl.hasSpec && !payload) {
+            fail("E-CONTRACT-021",
+              "sml: featag `!" + tag + "` 声明为带参，使用处必须写成 `" + tag + "[…]`");
+          } else if (decl.hasSpec && payload && !isAuto) {
+            if (decl.isArray) {
+              for (let k = 0; k < n; k++) {
+                if (!argOk(decl.inner, payload[k])) {
+                  fail("E-CONTRACT-002",
+                    "sml: featag `!" + tag + "` 的参数类型不符（第 " + (k + 1) + " 个参数）");
+                }
+              }
+            } else if (n !== 1) {
+              fail("E-CONTRACT-021",
+                "sml: featag `!" + tag + "` 的参数类型不是数组，只接受 1 个参数（实际给了 " +
+                n + " 个）");
+            } else if (!argOk(decl.ty, payload[0])) {
+              fail("E-CONTRACT-002", "sml: featag `!" + tag + "` 的参数类型不符");
+            }
+          }
+        }
+        if (!featags) featags = [];
+        const item = { name: tag };
+        if (payload) item.args = payload;
+        featags.push(item);
+      }
+      // 区的终止逗号（可省：`wea !critical { }` 直接进块体也成立）
+      if (featags && peek() && peek().t === ",") i++;
+      // 本块没有应用任何契约却写了 featag ⇒ 021（Rust 的兜底同码）：
+      // featag 的作用域是契约私有的，没有契约就谈不上「声明过」。
+      if (featags && !(key in contracts) && !((nsPrefix + key) in contracts)) {
+        fail("E-CONTRACT-021",
+          "sml: 本块没有应用任何契约 —— featag 的作用域是契约私有的，先 `@contract` 声明它");
+      }
+    }
+    // ② 之后才是契约词 / 块名。这里的 `!` 词落在**参数位置**，由 `coerceWord`
+    // 按 B2 拒（Rust 同码 E-PARSE-027）—— `A B !t` 于是与 Rust 一样是错误。
+    while (peek() && (peek().t === "word" || peek().t === "str")) {
+      const tk = peek();
+      args.push(tk.t === "str" ? coerceStr(tk.v, fragments, feats)
+                               : coerceWord(tk.v, fragments, nsMap, feats));
+      i++;
+    }
+    if (peek() && peek().t === "{") {
+      // 块级类型标注：`<契约词…> [featag 区] [, 块名] { .. }`
+      //
+      // 裸块首词若命中契约表，自动把该契约应用到本块，等价于块内首行
+      // `@is 契约名`。与既有裸块 `type [name...] { }` 完全同形，故零新语法；
+      // 由 opt-in 特性 `typed-block` 门控，未开启时既有文档行为不变。
+      //
+      // **契约词前缀**：从首词起连续命中契约表的词都是契约，第一个未命中的是块名
+      // （`server web prod { }` 的 web/prod 不是契约，不受影响）。
+      const contractPrefix = () => {
+        const c0 = key in contracts ? key : nsPrefix + key in contracts ? nsPrefix + key : null;
+        if (!c0) return null;
+        const names = [c0];
+        let consumed = 0;
+        for (const a of args) {
+          if (typeof a !== "string") break;
+          const an = a in contracts ? a : nsPrefix + a in contracts ? nsPrefix + a : null;
+          if (!an) break;
+          if (!names.includes(an)) names.push(an);
+          consumed++;
+        }
+        return { names, consumed };
+      };
+      // —— 拆雷：契约词之后还剩一个词、但 `block-name` 没开 ⇒ 只能是块名 ——
+      // 未开 `block-name` 时块名没有合法位置：`A B item { }` 里的 `item` 会被静默
+      // 当成 `__name`，读者以为写的是契约、实际写成了块名（C / C++ / Rust 同码同序）。
+      if (feats.has("typed-block") && feats.has("contract") && !feats.has("block-name")) {
+        const pre = contractPrefix();
+        if (pre && args.length > pre.consumed && typeof args[pre.consumed] === "string") {
+          fail("E-CONTRACT-001",
+            "sml: 块级标注 `" + key + "` 后的 `" + args[pre.consumed] +
+            "` 不是已定义的契约；若本意是把它作为块名，请先 `@feature enable block-name`");
+        }
+      }
+      i++;
+      pushKey(key);
+      const sub = parseBlock("}");
+      sub.__type = key;
+      if (featags) sub.__featags = featags;
+      // `__name` 在契约应用**之后**写入：Rust 的块头契约校验发生在命名参数落位之前，
+      // 所以 `Service !t, prod { }` 在严格契约下能过；而字段值里的带名裸块
+      // （`x { @is A addr Sub { } }`）`__name` 已存在，仍会报 E-CONTRACT-004。
+      let tyConsumed = 0;
+      const prefix = (feats.has("typed-block") && feats.has("contract"))
+        ? contractPrefix() : null;
+      const cname = prefix ? prefix.names[0] : null;
+      if (cname) {
+        const entries = prefix.names.map((n) => ({ name: n, ov: null }));
+        tyConsumed = prefix.consumed;
+        // S8：`any` 默认禁用，契约里写 `!any` 才放行（逐份查）
+        if (feats.has("type.featag")) {
+          for (const e of entries) checkAnyAllowed(e.name, contracts[e.name], contracts, []);
+        }
+        // **S7**：`from-featag` 的键不许文档手写 —— 必须在填充之前（逐份查）。
+        for (const e of entries) checkFromFeatag(contracts[e.name], sub, "", contracts);
+        // **S6 落点填充**：必须在契约应用**之前**（Rust `finish_bare_block` 同序）。
+        // 契约先跑会看不到这些键：严格契约会把它们报成 004，`auto` 也取不到声明里的 default。
+        // 多契约时声明取**并集**、`!strict-paths` 取**或**（Rust `fill_featag_targets` 同口径）。
+        if (featags) {
+          let strict = false;
+          for (const e of entries) if (contracts[e.name].strictPaths) strict = true;
+          for (const it of featags) {
+            let d2;
+            for (const e of entries) {
+              const cf = contracts[e.name];
+              if (cf.featags && cf.featags.get(it.name)) { d2 = cf.featags.get(it.name); break; }
+            }
+            if (!d2 || !d2.target || !it.args) continue;
+            const where2 = cname + "." + it.name;
+            let val;
+            if (it.args.length === 1 && it.args[0] === "auto") {
+              if (d2.default === undefined) {
+                fail("E-CONTRACT-022",
+                  "sml: `" + where2 + "` 的参数是 `auto`（取声明里的默认值），" +
+                  "但该声明没有 `default`");
+              }
+              val = JSON.parse(JSON.stringify(d2.default));
+            } else {
+              val = d2.isArray ? it.args : it.args[0];
+            }
+            writeTarget(sub, d2.target, val, strict, where2);
+          }
+        }
+        // 应用：合并视图 + 复用 `applyDefaults` / `checkContract`
+        const r = mergeContractSet(contracts, entries);
+        if (r.code) fail(r.code, r.msg);
+        const merged = r.merged;
+        applyDefaults(merged, sub, contracts);
+        const errs = checkContract(contracts, merged, sub, "");
+        if (errs) fail(errs[0].code, "contract: " + merged.name + " — " + errs.map((x) => x.msg).join("; "));
+        for (const e of entries) recordContract(e.name);
+      }
+      // `__name` 的起点跳过被算作契约词的参数（首个非契约词才是块名）；
+      // 单契约 / 无契约时 `tyConsumed === 0`，与旧行为逐字一致。
+      {
+        const nameArgs = args.slice(tyConsumed);
+        if (nameArgs.length === 1) sub.__name = nameArgs[0];
+      }
+      popPath();
+      return sub;
+    }
+    // 预扫描已确认「参数之后是 `{`」，参数却停在了别的记号上（`A B rep[3]` 的 `[`、
+    // 区后多余的 `,` 等）。Rust 在 `bare_child_frame` 同一位置报兜底 012 且**不回退**
+    // 旧路径；照抄，别静默改判成「键 + 标量」。
+    fail("E-PARSE-012", "sml: 裸块块头的参数之后未能接上 `{`");
   }
 
   function parseArray() {
@@ -2447,6 +3133,13 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
         const elemArr = parseArray();
         popPath();
         arr.push(elemArr);
+      } else if (tok.t === "word" && bareBlockAhead(i)) {
+        // 数组位置的裸块：`[ A B item { … } ]` 是**一个**块元素（Rust `parse_array_inner`
+        // 同样经 `bare_block_ahead` 进来）。判据与键位置同一份 `bareBlockAhead` ——
+        // `"sec"` 是 str 记号，走不到这里（与 C / C++ / Lua 的「引号词不算类型词」同判据）。
+        const bareType = tok.v;
+        i++;
+        arr.push(parseBareBlockFrom(bareType));
       } else if (tok.t === "word" || tok.t === "str") {
         arr.push(tok.t === "str" ? coerceStr(tok.v, fragments, feats) : coerceWord(tok.v, fragments, nsMap, feats));
         i++;
@@ -2529,102 +3222,9 @@ export function parseSafe(text, opts) {
     };
   }
 }
-
-// ---------------------------------------------------------------------------
-// 序列化
-// ---------------------------------------------------------------------------
-
-function quoteIfNeeded(s) {
-  // #17：把 `"` 与 `\` 也纳入「必须加引号」判据——否则含引号的值原样写出是非法 SML，
-  // 连自己都读不回来（转义已在 replace 里做好）。
-  if (s === "" || /[ \t\n\r:#{}"\\]/.test(s)) {
-    return '"' + String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
-  }
-  return String(s);
-}
-
-function dumpValue(v, indent, out) {
-  const pad = "  ".repeat(indent);
-  if (v === null) out.push("null");
-  else if (typeof v === "boolean") out.push(v ? "true" : "false");
-  else if (typeof v === "number") out.push(String(v));
-  else if (typeof v === "string") out.push(quoteIfNeeded(v));
-  else if (Array.isArray(v)) {
-    if (v.length === 0) out.push("[]");
-    else {
-      out.push("[");
-      for (const e of v) out.push("\n" + "  ".repeat(indent + 1) + dumpInline(e));
-      out.push("\n" + pad + "]");
-    }
-  } else if (typeof v === "object") {
-    const keys = Object.keys(v).filter((k) => k !== "__type" && k !== "__name");
-    // Typed block: emit `Type name { … }` instead of dropping the metadata.
-    // 带类型块：输出块头，而不是把 `__type` / `__name` 丢掉（conformance 30）。
-    const ty = v.__type;
-    if (keys.length === 0 && !ty) { out.push("{}"); return; }
-    if (ty) {
-      out.push(String(ty));
-      if (v.__name !== undefined) out.push(" " + String(v.__name));
-      out.push(" {");
-    } else {
-      out.push("\n" + pad + "{");
-    }
-    for (const k of keys) {
-      out.push("\n" + "  ".repeat(indent + 1) + k + ": ");
-      dumpValue(v[k], indent + 1, out);
-    }
-    out.push("\n" + pad + "}");
-  }
-}
-
-function dumpInline(v) {
-  if (v === null) return "null";
-  if (typeof v === "boolean" || typeof v === "number") return String(v);
-  if (typeof v === "string") return quoteIfNeeded(v);
-  if (Array.isArray(v)) return "[ " + v.map(dumpInline).join(", ") + " ]";
-  if (typeof v === "object") {
-    const keys = Object.keys(v).filter((k) => k !== "__type" && k !== "__name");
-    return "{ " + keys.map((k) => {
-      let vs;
-      if (typeof v[k] === "string") vs = quoteIfNeeded(v[k]);
-      else if (v[k] === null) vs = "null";
-      else if (typeof v[k] === "object") vs = Array.isArray(v[k]) ? "[..]" : "{..}";
-      else vs = String(v[k]);
-      return k + ": " + vs;
-    }).join(", ") + " }";
-  }
-  return "";
-}
-
-export function stringify(v) {
-  const out = [];
-  if (v && typeof v === "object" && !Array.isArray(v)) {
-    const all = Object.keys(v);
-    // `{ User = { __type = "User", … } }` collapses back to `User name { … }`;
-    // otherwise re-parsing adds one extra layer (`User: User …`).
-    // ｜ 单键且键名 == 值的 `__type` 时还原成块头。
-    if (all.length === 1) {
-      const k = all[0];
-      const sub = v[k];
-      if (sub && typeof sub === "object" && !Array.isArray(sub) && sub.__type === k) {
-        dumpValue(sub, 0, out);
-        out.push("\n");
-        return out.join("");
-      }
-    }
-    for (const k of all) {
-      if (k === "__type" || k === "__name") continue;
-      out.push(k + ": ");
-      dumpValue(v[k], 0, out);
-      out.push("\n");
-    }
-  } else {
-    out.push(dumpInline(v));
-  }
-  return out.join("");
-}
-
-export const dump = stringify;
+// 序列化：见 `js/src/dump.mjs`（本文件 re-export，对外 API 不变）。
+import { stringify } from "./src/dump.mjs";
+export { stringify, dump } from "./src/dump.mjs";
 
 // Node 直接运行自检
 if (typeof process !== "undefined" && typeof import.meta !== "undefined" &&

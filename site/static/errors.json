@@ -472,7 +472,7 @@
         "rust"
       ],
       "status": "partial",
-      "note": "TASK：契约级 `@requires` 的定义时校验与跨端拒绝。Rust 在**契约定义时**（而非应用时）校验：契约体里 `@requires feat1, feat2` 声明的任一特性未开启即报此码，文案含契约名与缺失特性名；未知特性名落 `E-FEATURE-003`。跨端（JS / C / C++ / Lua）**明确拒绝**契约里的 `@requires`（不是「暂未实现」—— 是与 E-CONTRACT-017 契约叠加未实现同类的响亮拒绝）。只增不改：本码继承 CONTRACT 既有序号，未改动任何既有码含义"
+      "note": "契约级 `@requires` 的定义时校验，五端同一含义：契约体里 `@requires feat1, feat2` 声明的任一特性未开启即报此码（契约定义时判，不是应用时）。文案含契约名与缺失特性名；未知特性名落 `E-FEATURE-003`。只增不改：本码继承 CONTRACT 既有序号，未改动任何既有码含义"
     },
     {
       "id": "E-CONTRACT-019",
