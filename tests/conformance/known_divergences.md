@@ -70,11 +70,14 @@ C 是字节串、需自己解 UTF-8 码点；C++ 的引号串存成**带引号�
 故 Rust 侧新增 `check_contract_only`（只读路径：严格性 + 必填 + 类型 + 组合递归，**不**回填、
 **不**产契约告警），数组分支对 `ContractRef` 元素调用它；这与 JS / Lua 的既有行为**逐格一致**
 （报 `E-CONTRACT-003`，路径带下标 `peers[1].host`），值树也不变。
-**C / C++ 两端待收**（它们的缺口更深一层）：数组元素类型解析**根本没回落成契约引用**
-（`[Endpoint]` 的 `arr_inner` 留在 `CT_ANY` ⇒ 元素一律放行），故要改两处 —— ① 元素类型解析：
-非内置名在 `@type` 之外**回落成 `CT_CONTRACTREF`**（C 端 `cfield` 需加 `arr_ref_name` 字段，
-`contract_free` 一并释放；C++ 端 `FieldSpec` 同理）；② `CT_ARRAY` 分支加元素逐个**只校验**
-（不填默认值）。三端都收完前，用例留在 `cases/pending/`（DIVERGE 为预期）。
+**C 端已修**（2026-11-16）：数组元素类型解析**回落成契约引用**（`[Endpoint]` 的 `arr_inner`
+从 `CT_ANY` 改成 `CT_CONTRACTREF` + `cfield.arr_ref_name`），`CT_ARRAY` 分支加元素逐个
+**只校验**（新增 `check_contract_only`，不填默认值）。⚠️ C 端**暂缺 strict（004）那格** ——
+本端没有对象的键遍历 API（只有 `sml_obj_get`），故「strict 契约的元素带额外键」C 端不报。
+**C++ 端待收**：同 C 端两处（`FieldSpec` 加 `arr_ref_name` + 数组元素类型回落 + `CT_ARRAY`
+分支逐元素只校验）。⚠️ **文案差异**（码一致）：Rust / JS / Lua 的错误路径带数组下标
+（`peers[1].host`），C 端不带 —— C 端的 `check_type` 没有 path 概念（错误文案用字段名）。
+三端都收完前，用例留在 `cases/pending/`（DIVERGE 为预期）。
 
 ## 2026-11-15 复核
 

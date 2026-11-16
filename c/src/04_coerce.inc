@@ -684,6 +684,51 @@ static int apply_contract_rec(parser *ps, ccontract *c, sml_value *node,
                               char *err, size_t errsz);
 
 /* 校验值是否符合字段规格 (含 ContractRef 递归)。出错写 err 返回 -1 */
+/* `check_type` 的前向声明：下面的 `check_contract_only` 要用它做类型校验。 */
+static int check_type(parser *ps, const char *cname, const cfield *spec,
+                      const sml_value *v, char *err, size_t errsz);
+
+/* 只校验、**不回填默认值**：数组元素位置上的组合契约用它
+   （与 Rust 的 `check_contract_only`、JS / Lua 的既有行为同口径：只报错、不改树）。
+   ⚠️ 暂不做 strict（004）那格：本端没有对象的键遍历 API（只有 `sml_obj_get`）。 */
+static int check_contract_only(parser *ps, ccontract *c, sml_value *node,
+                               char *err, size_t errsz) {
+    cfield *cf;
+    for (cf = c->fields; cf; cf = cf->next) {
+        sml_value *v = sml_obj_get(node, cf->name);
+        if (!v) {
+            if (cf->required) {
+                set_err(err, errsz,
+                        SML_E_CONTRACT_003 " 字段 `%s` 必填但缺失（契约 `%s`）",
+                        cf->name, c->name);
+                return -1;
+            }
+            continue;   /* 缺字段但非必填：不报错，也**不**回填默认值 */
+        }
+        if (cf->ty == CT_CONTRACTREF) {
+            if (v->type != SML_OBJECT) {
+                set_err(err, errsz,
+                        SML_E_CONTRACT_008
+                        " 字段 `%s` 应为块并按契约 `%s` 校验，实际为 %s（契约 `%s`）",
+                        cf->name, cf->ref_name, kind_name(v), c->name);
+                return -1;
+            }
+            ccontract *tgt = contract_find(ps, cf->ref_name);
+            if (!tgt) {
+                set_err(err, errsz,
+                        SML_E_CONTRACT_001
+                        " 字段 `%s` 引用了未定义的契约 `%s`（契约 `%s`）",
+                        cf->name, cf->ref_name, c->name);
+                return -1;
+            }
+            if (check_contract_only(ps, tgt, v, err, errsz) != 0) return -1;
+        } else {
+            if (check_type(ps, c->name, cf, v, err, errsz) != 0) return -1;
+        }
+    }
+    return 0;
+}
+
 static int check_type(parser *ps, const char *cname, const cfield *spec,
                       const sml_value *v, char *err, size_t errsz) {
     int ok = 0;
@@ -768,6 +813,29 @@ static int check_type(parser *ps, const char *cname, const cfield *spec,
                                     spec->name, i, (int)el->slen, el->u.s, pn, cname);
                             return -1;
                         }
+                        eok = 1;
+                        break;
+                    }
+                    /* `[Endpoint]`：元素按**被引用契约**逐个校验（只校验、不回填）——
+                       契约的**应用**只发生在字段位置，数组元素没人校验 ⇒ 元素缺必填字段
+                       会被**静默放过**（与 Rust / JS / Lua 的口径对齐）。 */
+                    case CT_CONTRACTREF: {
+                        ccontract *tgt = contract_find(ps, spec->arr_ref_name);
+                        if (!tgt) {
+                            set_err(err, errsz,
+                                    SML_E_CONTRACT_001
+                                    " 字段 `%s[%zu]` 引用了未定义的契约 `%s`（契约 `%s`）",
+                                    spec->name, i, spec->arr_ref_name, cname);
+                            return -1;
+                        }
+                        if (el->type != SML_OBJECT) {
+                            set_err(err, errsz,
+                                    SML_E_CONTRACT_008
+                                    " 字段 `%s[%zu]` 应为块并按契约 `%s` 校验，实际为 %s（契约 `%s`）",
+                                    spec->name, i, spec->arr_ref_name, kind_name(el), cname);
+                            return -1;
+                        }
+                        if (check_contract_only(ps, tgt, el, err, errsz) != 0) return -1;
                         eok = 1;
                         break;
                     }
@@ -1525,6 +1593,13 @@ static void parse_contract_body(parser *ps, ccontract *c) {
                             cf->arr_inner = CT_PATTERN;
                             cf->pat_name = strdup(iw);
                         }
+                    } else {
+                        /* 非 `@type`、非内置名 ⇒ **回落成契约引用**（Rust 同一次序：
+                           `@type` → 外置类型 → 契约引用）。此前这里什么都不做 ⇒
+                           `[Endpoint]` 的 `arr_inner` 留在 CT_ANY ⇒ 元素一律放行
+                           （契约约束被静默跳过）。 */
+                        cf->arr_inner = CT_CONTRACTREF;
+                        cf->arr_ref_name = strdup(iw);
                     }
                 }
             }

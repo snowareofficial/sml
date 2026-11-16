@@ -22,6 +22,9 @@ typedef struct cfield {
     char **enum_vals; size_t enum_n;   /* CT_ENUM */
     char *ref_name;          /* CT_CONTRACTREF */
     cty arr_inner;           /* CT_ARRAY 元素类型 */
+    /* CT_ARRAY 且 arr_inner == CT_CONTRACTREF 时的**被引用契约名**
+       （`[Endpoint]`：元素类型回落成契约引用，见 04_coerce.inc 的元素类型解析）。 */
+    char *arr_ref_name;
     /* CT_PATTERN（以及 `[CT_PATTERN]` 的元素）：类型名 + 编译好的模式。
        名字用于错误文案（`不符合类型 \`时刻\` 的格式要求`），与 Rust 的 `TypeSpec::Pattern{name}` 同。 */
     char *pat_name;
