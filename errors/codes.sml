@@ -212,7 +212,7 @@ codes: [
 
     { id: E-PARSE-026 domain: PARSE severity: E title: "featag 区为空"
       msg: "`!` 后必须至少写一个 featag 名（形如 `!critical` 或 `!obey[1, 2]`）"
-      impls: [ rust ] status: done
+      impls: [ rust js c cpp lua ] status: done
       note: "featag S2（`docs/swsml/spec/featag.md` §2.3 B1）。只在 `type.featag` 开启、且处于**块头首词之后**时判：`wea ! , name { }` 这种「`!` 直接跟 `,`/`{`」的写法。报错而不猜，是因为空区既可能是「漏写名字」也可能是「想写字面量 `!`」—— 后者请加引号。未开启该特性时 `!` 仍是普通裸词，v1–v4 行为不变" }
     { id: E-PARSE-027 domain: PARSE severity: E title: "值位置的 `!` 裸词（疑似 featag）"
       msg: "值位置不能写以 `!` 开头的裸词；若本意是字符串，请用引号包起来"
@@ -220,7 +220,7 @@ codes: [
       note: "featag S2 §2.3 B2。`!` 只在「块头首词之后、逗号之前」那一小段里是记号；出现在值位置（`a: !b`）就是歧义 ⇒ **即使开了 `bareword-string` 也不豁免**（不靠特性绕过歧义）。仅 `type.featag` 开启时生效：未开启时 `!b` 仍是普通裸词（v1 下即字符串），v1–v4 行为不变" }
     { id: E-PARSE-028 domain: PARSE severity: E title: "块头里以 `!` 开头的名字"
       msg: "块头里除 featag 区之外的词不得以 `!` 开头"
-      impls: [ rust ] status: done
+      impls: [ rust js c cpp lua ] status: done
       note: "featag S2 §2.3 B3。`wea !critical, !web { }` 里第二个 `!web` 落在**块名**位置 ⇒ 歧义（featag 还是块名？），而块名无法加引号，故直接拒。`!wea name { }`（类型词位置）同报此码。与 B2 同源：`!` 只在「块头首词之后、逗号之前」是记号。仅 `type.featag` 开启时生效" }
     { id: E-PARSE-030 domain: PARSE severity: E title: "弱 profile 重复引用"
       msg: "同一文档重复引用了同一个弱 profile"

@@ -2167,6 +2167,10 @@
       "title": "featag 区为空",
       "msg": "`!` 后必须至少写一个 featag 名（形如 `!critical` 或 `!obey[1, 2]`）",
       "impls": [
+        "c",
+        "cpp",
+        "js",
+        "lua",
         "rust"
       ],
       "status": "done",
@@ -2195,6 +2199,10 @@
       "title": "块头里以 `!` 开头的名字",
       "msg": "块头里除 featag 区之外的词不得以 `!` 开头",
       "impls": [
+        "c",
+        "cpp",
+        "js",
+        "lua",
         "rust"
       ],
       "status": "done",

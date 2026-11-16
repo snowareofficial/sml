@@ -1764,6 +1764,10 @@ local function parse_contract_body(tokens, i, fragments, cname)
       local decl_line = _LINES and _LINES[i] or 0
       local d = { name = string.sub(tok, 2), has_spec = false, is_array = false,
                   ty = "", inner = "" }
+      -- B1：空名 / 连续 `!` ⇒ E-PARSE-026（Rust contract.rs:84 同判据）。
+      if d.name == "" or string.sub(d.name, 1, 1) == "!" then
+        fail("E-PARSE-026", "sml: featag 名为空或以 `!` 开头：`" .. tostring(tok) .. "`")
+      end
       i = i + 1
       -- 契约级开关 `!any` / `!strict-paths`：**不占** featag 名（Rust 同判据）——
       -- 块头写 `C !any` 在 Rust 里报「未声明」。两者也不接受 `: 类型` / `[…]` / `-> 落点`。
@@ -2865,6 +2869,10 @@ parse_bare_head = function(tokens, key, i, fragments, contracts, depth)
   local featags = nil
   local key_is_contract = (contracts[key] ~= nil)
   local feat_on = (_FEATURES and _FEATURES[17]) and true or false
+  -- B3：块头首词不许以 `!` 开头（Rust bare_child_frame 同码 E-PARSE-028）。
+  if _FEATURES and _FEATURES[17] and string.sub(tostring(key), 1, 1) == "!" then
+    fail("E-PARSE-028", "sml: 块头首词不能以 `!` 开头：`" .. tostring(key) .. "`")
+  end
   -- ① featag 区：**只在这里**（紧跟契约首词），且**每一项都以 `!` 开头** ——
   -- `!` 是 featag 的**唯一**标记。若允许带参项省掉 `!`（靠紧跟的 `[` 区分），
   -- 它就会与「块头裸词命中契约表即契约词」争用同一个裸词 —— `A B rep[3]` 里
@@ -2882,6 +2890,10 @@ parse_bare_head = function(tokens, key, i, fragments, contracts, depth)
         if featags == nil or dec == nil then break end
       end
       local nm = bang and string.sub(tk, 2) or tk
+      -- B1：空名 / 连续 `!` ⇒ 026（Rust parse_featag_region 同判据）。
+      if nm == "" or string.sub(nm, 1, 1) == "!" then
+        fail("E-PARSE-026", "sml: featag 名为空或以 `!` 开头：`" .. tostring(tk) .. "`")
+      end
       local owner = contracts[key]
       local decl = owner and owner.featags and owner.featags[nm] or nil
       if owner ~= nil and decl == nil then
@@ -2935,6 +2947,10 @@ parse_bare_head = function(tokens, key, i, fragments, contracts, depth)
       featags[#featags + 1] = item
     end
     if featags and tokens[i] == "," then i = i + 1 end
+    -- B3：区已结束，紧跟的词落在块名位置；`!` 开头 ⇒ 歧义 ⇒ 028（Rust 同码）。
+    if featags and is_word_tok(tokens[i]) and string.sub(tokens[i], 1, 1) == "!" then
+      fail("E-PARSE-028", "sml: 块名不能以 `!` 开头：`" .. tostring(tokens[i]) .. "`")
+    end
     if featags and not key_is_contract then
       fail("E-CONTRACT-021",
         "sml: 本块没有应用任何契约 —— featag 的作用域是契约私有的，先 `@contract` 声明它")

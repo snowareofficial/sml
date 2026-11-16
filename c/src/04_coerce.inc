@@ -1138,6 +1138,13 @@ static void parse_contract_body(parser *ps, ccontract *c) {
             cty dty = CT_ANY, dinner = CT_ANY;
             int has_spec = 0;
             next(ps);   /* consume `!name` */
+            /* B1：空名 / 连续 `!` ⇒ E-PARSE-026（Rust contract.rs:84 同判据）。 */
+            if (ft->v[1] == '\0' || ft->v[1] == '!') {
+                set_err(ps->lx->errbuf, ps->lx->errsz,
+                        SML_E_PARSE_026 " featag 名为空或以 `!` 开头：`%s`", ft->v);
+                ps->failed = 1;
+                break;
+            }
             /* 契约级开关 `!any` / `!strict-paths`：**不占** featag 名（Rust 同判据）——
                块头写 `C !any` 在 Rust 里报「未声明」，所以这里绝不能登记成 featag。
                两者也不接受 `: 类型` / `[…]` / `-> 落点`，写了就报 021。 */

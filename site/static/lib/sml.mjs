@@ -2011,6 +2011,10 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
         const declLine = peek().line;
         // S5 记名；S5b 顺带收 `: 类型`，使用处据此校验个数与标量类型。
         const d = { name: peek().v.slice(1), hasSpec: false, isArray: false, ty: "", inner: "" };
+        // B1：空名 / 连续 `!` ⇒ E-PARSE-026（Rust contract.rs:84 同判据）。
+        if (d.name === "" || d.name.startsWith("!")) {
+          fail("E-PARSE-026", "sml: featag 名为空或以 `!` 开头：`" + peek().v + "`");
+        }
         i++;
         // 契约级开关 `!any` / `!strict-paths`：**不占** featag 名（Rust 同判据）——
         // 块头写 `C !any` 在 Rust 里报「未声明」。两者也不接受 `: 类型` / `[…]` / `-> 落点`。
@@ -2913,6 +2917,10 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
   // 012、`__name` 起点必须逐字一致。
   function parseBareBlockFrom(key) {
     const featOn = feats.has("type.featag");
+    // B3：块头首词不许以 `!` 开头（Rust bare_child_frame 同码 E-PARSE-028）。
+    if (featOn && key.startsWith("!")) {
+      fail("E-PARSE-028", "sml: 块头首词不能以 `!` 开头：`" + key + "`");
+    }
     const args = [];
     let featags = null;
     // ① featag 区：**只在这里**（紧跟契约首词），且**每一项都以 `!` 开头**。
@@ -2932,6 +2940,10 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
           if (!featags || !dec0) break;
         }
         const tag = bang ? tk.v.slice(1) : tk.v;
+        // B1：空名 / 连续 `!` ⇒ 026（Rust parse_featag_region 同判据）。
+        if (tag === "" || tag.startsWith("!")) {
+          fail("E-PARSE-026", "sml: featag 名为空或以 `!` 开头：`" + tk.v + "`");
+        }
         // **S5 使用处校验**：featag 契约私有 —— 块头写契约里没声明的名字就拒
         // （与 Rust / C / C++ 同码 E-CONTRACT-021）。改前只收集不校验。
         const owner = contracts[key] || contracts[nsPrefix + key];
@@ -2987,6 +2999,10 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
       }
       // 区的终止逗号（可省：`wea !critical { }` 直接进块体也成立）
       if (featags && peek() && peek().t === ",") i++;
+      // B3：区已结束，紧跟的词落在块名位置；`!` 开头 ⇒ 歧义 ⇒ 028（Rust 同码）。
+      if (featags && peek() && peek().t === "word" && peek().v.startsWith("!")) {
+        fail("E-PARSE-028", "sml: 块名不能以 `!` 开头：`" + peek().v + "`");
+      }
       // 本块没有应用任何契约却写了 featag ⇒ 021（Rust 的兜底同码）：
       // featag 的作用域是契约私有的，没有契约就谈不上「声明过」。
       if (featags && !(key in contracts) && !((nsPrefix + key) in contracts)) {

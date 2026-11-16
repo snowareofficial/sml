@@ -299,6 +299,14 @@ static int parse_bare_head(parser *ps, const char *key,
     *args_out = NULL;
     *featags_out = NULL;
     if (!bare_ahead(ps)) return 0;
+    /* B3：块头首词不许以 `!` 开头（Rust bare_child_frame 同码 E-PARSE-028）——
+       `!wea name { }` 里 `!wea` 是 featag 还是块名无法区分，块名又不能加引号，故拒。 */
+    if ((ps->features & (1u << 17)) && key[0] == '!') {
+        set_err(ps->lx->errbuf, ps->lx->errsz,
+                SML_E_PARSE_028 " 块头首词不能以 `!` 开头：`%s`", key);
+        ps->failed = 1;
+        return -1;
+    }
 
     args = sml_new_array();
     key_is_contract = (contract_find(ps, key) != NULL);
@@ -321,6 +329,13 @@ static int parse_bare_head(parser *ps, const char *key,
                  !contract_featag_find(contract_find(ps, key), tk->v)))
                 break;
             tag = (tk->v[0] == '!') ? (tk->v + 1) : tk->v;
+            /* B1：空名 / 连续 `!` ⇒ E-PARSE-026（Rust parse_featag_region 同判据）。 */
+            if (tag[0] == '\0' || tag[0] == '!') {
+                set_err(ps->lx->errbuf, ps->lx->errsz,
+                        SML_E_PARSE_026 " featag 名为空或以 `!` 开头：`%s`", tk->v);
+                ps->failed = 1;
+                break;
+            }
             /* **S5 使用处校验**：featag 的作用域是契约私有 —— 块头写了契约里
                没声明的名字就拒（Rust 同码 E-CONTRACT-021）。改前只收集不校验，
                拼错的 `!critcal` 会被静默记进 `__featags`。 */
@@ -410,6 +425,12 @@ static int parse_bare_head(parser *ps, const char *key,
         }
         /* 区的终止逗号（可省：`wea !critical { }` 直接进块体也成立） */
         if (!ps->failed && featags && peek(ps)->t == T_COMMA) next(ps);
+        /* B3：区已结束，紧跟的词落在块名位置；以 `!` 开头 ⇒ 歧义 ⇒ 028（Rust 同码）。 */
+        if (!ps->failed && featags && peek(ps)->t == T_WORD && peek(ps)->v[0] == '!') {
+            set_err(ps->lx->errbuf, ps->lx->errsz,
+                    SML_E_PARSE_028 " 块名不能以 `!` 开头：`%s`", peek(ps)->v);
+            ps->failed = 1;
+        }
         /* 本块没有应用任何契约却写了 featag ⇒ 021（Rust 的兜底同码）：
            featag 的作用域是契约私有的，没有契约就谈不上「声明过」。 */
         if (!ps->failed && featags && !key_is_contract) {

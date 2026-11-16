@@ -18,8 +18,8 @@
 | TODO 非复选框欠账 | **8** | 人工取自 `TODO.md` 表格行 / `⬜` 标记 / `⏳ 待修`（本文 T43–T50，逐行注来源） |
 | IDEAS 条目 | **33**（I-1…I-33；其中 I-12 = `Rejected`、I-24 待裁决；I-24…I-33 只在本表，未回写 `IDEAS.md`） | `Select-String docs/repo/ref/todo-ideas-tables.md '^\| I-\d+'` |
 | 码表条目 | **175**（含 `W-CLI-001`） | `Select-String errors/codes.sml '\{ id: [EWI]-'`；生成物 `site/static/errors.json` |
-| 仅 Rust 实现（`impls: [ rust ]`） | **22**；语言层 **14**（PARSE 5 / CONTRACT 1 / INCLUDE 2 / EXT 3 / FEATURE 1 / LEX 1 / LIMIT 1）+ DERIVE 8（宿主绑定层，Rust 专属，不是跨端欠账）。剩余是**逐码实现缺口**，不再是「无诊断通道」（五端都有出口） | `Select-String errors/codes.sml 'impls: \[ rust \]'`，按 `domain` 分组 |
-| 一致性套件 | **65 例 / AGREE 65 / DIVERGE 0**（`19` 以 `*` 放行） | `python tests/conformance/run_conformance.py --require-all`；`docs/repo/ref/scan.md` |
+| 仅 Rust 实现（`impls: [ rust ]`） | **20**；语言层 **12**（PARSE 3 / CONTRACT 1 / INCLUDE 2 / EXT 3 / FEATURE 1 / LEX 1 / LIMIT 1）+ DERIVE 8（宿主绑定层，Rust 专属，不是跨端欠账）。剩余是**逐码实现缺口**，不再是「无诊断通道」（五端都有出口） | `Select-String errors/codes.sml 'impls: \[ rust \]'`，按 `domain` 分组 |
+| 一致性套件 | **69 例 / AGREE 69 / DIVERGE 0**（`19` 以 `*` 放行） | `python tests/conformance/run_conformance.py --require-all`；`docs/repo/ref/scan.md` |
 | `.vsix` 产物 vs 源码 | 产物与 `package.json` 都是 **0.5.6**（2026-11-16 重打） | `Get-ChildItem editors/vscode -Filter *.vsix` |
 | 本会话新增（表 1.5，N01–N06） | **6**（已完成 4 / 部分完成 1 / 未做 1） | 见 `## 表 1.5` |
 
@@ -35,7 +35,7 @@
 
 | 编号 | 主题 | 状态 | 优先级 | 依赖 | 完成判据 | 来源(file:行) | 卡在谁 |
 |---|---|---|---|---|---|---|---|
-| T01 | 跨实现一致性套件（conformance） | 部分完成：65 例 AGREE 65 / DIVERGE 0（P5 后 +6 条版本用例；2026-11-15 +3：数组位置裸块 / `[D]` 元素校验 / featag 落点；2026-11-16 +2：`@type` 的 `正则:` 逃生舱、featag 重复声明 `019`）；`19` 经 `WAIVERS` 以 `*` 放行，待登记为永久取舍 | P1 | 无 | `run_conformance.py` 输出 DIVERGE=0 且五端无 SKIP（后者未在 CI 实测） | `TODO.md:149`、`tests/conformance/known_divergences.md:5` | 实现者（永久取舍登记 / CI 首跑） |
+| T01 | 跨实现一致性套件（conformance） | 部分完成：69 例 AGREE 69 / DIVERGE 0（P5 后 +6 条版本用例；2026-11-15 +3：数组位置裸块 / `[D]` 元素校验 / featag 落点；2026-11-16 +6：`@type` 的 `正则:` 逃生舱、featag 重复声明 `019`、featag 歧义 `026`/`028` 四例）；`19` 经 `WAIVERS` 以 `*` 放行，待登记为永久取舍 | P1 | 无 | `run_conformance.py` 输出 DIVERGE=0 且五端无 SKIP（后者未在 CI 实测） | `TODO.md:149`、`tests/conformance/known_divergences.md:5` | 实现者（永久取舍登记 / CI 首跑） |
 | T02 | 顶层标量行为统一 | 已完成(未勾)：五端同报 `E-PARSE-008` | P2 | 无 | 五端各跑 `42` 均得 `E-PARSE-008`（码表该条 `impls: [ rust js c cpp lua ] status: done`） | `TODO.md:166`、对照 `TODO.md:1178` | 无；只需回填勾选 |
 | T03 | 错误边界不一致（同名键 / 未闭合括号 / 空文档 / 仅注释 / 重复片段名） | 部分完成：同名键已改告警 `W-PARSE-001/002`；空文档与仅注释两例已五端 AGREE | P1 | T01 | 五类各一条 conformance 用例全 AGREE | `TODO.md:201`、`tests/conformance/known_divergences.md:15` | 实现者 |
 | T04 | Lua/JS 缺单元测试 | 部分完成：Lua 有 `test_codes.lua` 184 条 + `run_check.py` 120 条；JS 有 `probe-error-codes.mjs` 52 条（均为脚本，非测试框架） | P2 | T01 | 两端各有进 CI 的测试目标，且 `0 passed` 不算通过 | `TODO.md:203` | 实现者 |
@@ -226,7 +226,7 @@ Select-String TODO.md '^\s*- \[ \]'                        # 45
 Select-String TODO.md '^\s*- \[x\]'                        # 76
 Select-String IDEAS.md '^## I-\d+'                         # 23
 Select-String errors/codes.sml '\{ id: [EWI]-'             # 175
-Select-String errors/codes.sml '^\s*impls:\s*\[\s*rust\s*\]'  # 22（语言层 14 + DERIVE 8）
+Select-String errors/codes.sml '^\s*impls:\s*\[\s*rust\s*\]'  # 20（语言层 12 + DERIVE 8）
 python tests/conformance/run_conformance.py                # 64 例，AGREE/DIVERGE 现算
 
 # 工具能力是否存在（0 命中 = 不存在）

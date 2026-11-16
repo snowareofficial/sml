@@ -30,7 +30,7 @@
 1. **`5.0` 未启用**：`@version 50 "camelia" dev` 实测报 `E-FEATURE-004`（S0b 有意为之）
    ⇒ featag / weak* / v5 新语法只能靠 `@feature enable ...` 在 v4 文档上试跑，版本位这条路没通。
    来源：`open-work.md:332`、`docs/swsml/spec/v5.md:21`。
-2. **仅 Rust 的码 22 条**：其中语言层 **14** 条（DERIVE 8 条是 Rust 专属绑定层，不计）。
+2. **仅 Rust 的码 20 条**：其中语言层 **12** 条（DERIVE 8 条是 Rust 专属绑定层，不计）。
    **「通道」欠账已清**（五端都有「成功 + 诊断列表」出口，见 §9），剩下是**逐码实现缺口**
    —— 例如 `W-PARSE-002` 四端有通道但片段合并路径未接（§2）。
 3. **生成物与实时扫描未同步**：`docs/repo/ref/scan.md` 由 `tools/scan_status.py --write` 生成，文档改动后必须重跑，否则计数过期（§8）。
@@ -41,8 +41,8 @@
 
 | 项 | 内容 | 来源 |
 |---|---|---|
-| 错误码 | 22 条 `impls: [rust]`，其中语言层 **14** 条（DERIVE 8 条是 Rust 专属绑定层，不计）。**逐码缺口**，非「无通道」：五端都有诊断出口，缺的是具体告警没接（如 `W-PARSE-002`） | `errors/codes.sml`；`docs/repo/ref/scan.md` |
-| 一致性套件 | **65 例 AGREE 65 / DIVERGE 0**；`19` 的浮点身份是 JS/Lua 的载体限制，以 `*` 放行，**待登记为永久取舍** | `tests/conformance/known_divergences.md` 头部；`python tests/conformance/run_conformance.py --require-all` |
+| 错误码 | 20 条 `impls: [rust]`，其中语言层 **12** 条（DERIVE 8 条是 Rust 专属绑定层，不计）。**逐码缺口**，非「无通道」：五端都有诊断出口，缺的是具体告警没接（如 `W-PARSE-002`） | `errors/codes.sml`；`docs/repo/ref/scan.md` |
+| 一致性套件 | **69 例 AGREE 69 / DIVERGE 0**；`19` 的浮点身份是 JS/Lua 的载体限制，以 `*` 放行，**待登记为永久取舍** | `tests/conformance/known_divergences.md` 头部；`python tests/conformance/run_conformance.py --require-all` |
 | featag 四端 | Rust S0–S9 已收官；C / C++ / JS / Lua 按 **S9 策略不实现**，遇 v5 报「本端不支持」，属设计取舍非欠账 | `docs/swsml/plan/featag-slices.md` S9 |
 | 版本模型 | **字面量五端已同步（2026-11-13，P5）**：`vN` / `N` / `N.0` / `N0` / 代号全接受，`5.0` 族统一 `E-FEATURE-004`，且版本决定特性基集。仍欠：`Removed` 三态与专用码、兼容检查模块、`smltools --migrate` | `docs/swsml/spec/version.md` §7 |
 | FFI / 绑定层能力对等 | **`§0.6` 绑定层列整列收口**：诊断 / 多错误 / 契约表与契约映射（含 `sml_builtin_clone`）/ 三条 weak 旁路表 / 扩展选项 / 文件入口，C-ABI + 五门绑定全部对齐。剩本地四端（C / C++ / JS / Lua）的文件入口仍不交诊断 —— 各端 API 面议题，与 C-ABI 无关 | `docs/swsml/plan/crossend-sync.md` §0.6 / P7；`rust/src/c_abi.rs`；`bindings/README.md` |

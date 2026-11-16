@@ -794,6 +794,15 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                         size_t decl_line = st.toks[st.i].line;
                         FeatagDecl d;
                         d.name = st.toks[st.i].s.substr(1);
+                        /* B1：空名 / 连续 `!` ⇒ E-PARSE-026（Rust contract.rs:84 同判据）。 */
+                        if (d.name.empty() || d.name[0] == '!') {
+                            if (st.err && st.err->empty())
+                                *st.err = code_prefix(SML_E_PARSE_026,
+                                    "sml: featag 名为空或以 `!` 开头：`" +
+                                    st.toks[st.i].s + "`");
+                            st.aborted = true;
+                            break;
+                        }
                         st.i++;
                         /* 契约级开关 `!any` / `!strict-paths`：**不占** featag 名（Rust 同判据）——
                            块头写 `C !any` 在 Rust 里报「未声明」。它们也不接受 `: 类型` / `[…]` /
@@ -1293,6 +1302,15 @@ static ValuePtr parse_bare_block_from(PState& st, const std::string& key) {
     ValuePtr featags = nullptr;
     const bool key_is_contract = (st.contracts.find(key) != st.contracts.end());
     const bool feat_on = (st.features & (1u << 17)) != 0 && key_is_contract;
+    /* B3：块头首词不许以 `!` 开头（Rust bare_child_frame 同码 E-PARSE-028）。
+       这里只看 feature 位，不能等 feat_on —— `!wea` 本来就不是契约名。 */
+    if ((st.features & (1u << 17)) != 0 && !key.empty() && key[0] == '!') {
+        if (st.err && st.err->empty())
+            *st.err = code_prefix(SML_E_PARSE_028,
+                "sml: 块头首词不能以 `!` 开头：`" + key + "`");
+        st.aborted = true;
+        return Value::null();
+    }
     ContractSet ty;
     size_t ty_consumed = 0;
 
@@ -1312,6 +1330,14 @@ static ValuePtr parse_bare_block_from(PState& st, const std::string& key) {
                 if (!featags || !declared) break;
             }
             const std::string tag = (tk.s[0] == '!') ? tk.s.substr(1) : tk.s;
+            /* B1：空名 / 连续 `!` ⇒ 026（Rust parse_featag_region 同判据）。 */
+            if (tag.empty() || tag[0] == '!') {
+                if (st.err && st.err->empty())
+                    *st.err = code_prefix(SML_E_PARSE_026,
+                        "sml: featag 名为空或以 `!` 开头：`" + tk.s + "`");
+                st.aborted = true;
+                break;
+            }
             const FeatagDecl* decl = nullptr;
             {
                 auto owner = st.contracts.find(key);
@@ -1388,6 +1414,15 @@ static ValuePtr parse_bare_block_from(PState& st, const std::string& key) {
         }
         if (!st.aborted && featags && st.i < st.toks.size() &&
             st.toks[st.i].t == Token::T::Comma) st.i++;
+        /* B3：区已结束，紧跟的词落在块名位置；`!` 开头 ⇒ 歧义 ⇒ 028（Rust 同码）。 */
+        if (!st.aborted && featags && st.i < st.toks.size() &&
+            st.toks[st.i].t == Token::T::Word && !st.toks[st.i].s.empty() &&
+            st.toks[st.i].s[0] == '!') {
+            if (st.err && st.err->empty())
+                *st.err = code_prefix(SML_E_PARSE_028,
+                    "sml: 块名不能以 `!` 开头：`" + st.toks[st.i].s + "`");
+            st.aborted = true;
+        }
         if (!st.aborted && featags && !key_is_contract) {
             if (st.err && st.err->empty())
                 *st.err = code_prefix(SML_E_CONTRACT_021,
