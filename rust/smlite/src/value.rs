@@ -310,7 +310,7 @@ impl PartialEq for Object {
         self.len() == other.len()
             && self
                 .iter()
-                .all(|(k, v)| other.get(k).map_or(false, |ov| ov == v))
+                .all(|(k, v)| other.get(k).is_some_and(|ov| ov == v))
     }
 }
 
