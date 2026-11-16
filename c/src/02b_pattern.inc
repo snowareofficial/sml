@@ -322,6 +322,380 @@ static int sp_parse_times(const sml_value *v, size_t *min, long *max,
     return 0;
 }
 
+/* ---- regex 逃生舱：把 regex 子集编译进同一个 IR ----------------------
+ *
+ * 与 Rust `sml-pattern/src/regex.rs` 逐条对齐：`正则/regex/re` 只是模式的
+ * 另一种**前端**，解析后产出同一棵 `sp_pat`，仍交给无回溯 NFA 执行 ——
+ * 因此逃生舱不逃掉线性时间保证。明确**拒绝**（报错，不静默降级）：
+ *   - 反向引用 `\1`…`\9`（与自动机模型冲突，NP 完全）
+ *   - lookaround / 其它 `(?...)` 扩展（破坏线性时间与流式处理）
+ * 锚点 `^` `$` 是**隐含**的（全文匹配），出现时直接跳过。
+ * ---------------------------------------------------------------------- */
+
+typedef struct {
+    unsigned long *cp;   /* 已解码的码位序列 */
+    size_t n, i;
+    char *err;
+    size_t errsz;
+} sp_rx;
+
+static sp_pat *sp_rx_alt(sp_rx *p);
+
+static unsigned long sp_rx_peek(const sp_rx *p) {
+    return p->i < p->n ? p->cp[p->i] : 0UL;   /* 0 = EOF（C 字符串不含内嵌 NUL） */
+}
+
+static sp_class *sp_class_one(unsigned long cp) {
+    sp_class *c = sp_class_new(SPC_ONE);
+    if (c) c->ch1 = cp;
+    return c;
+}
+
+static sp_class *sp_class_not(sp_class *inner) {
+    sp_class *c;
+    if (!inner) return NULL;
+    c = sp_class_new(SPC_NOT);
+    if (!c) { sp_class_free(inner); return NULL; }
+    c->set = (sp_class **)malloc(sizeof(sp_class *));
+    if (!c->set) { sp_class_free(inner); sp_class_free(c); return NULL; }
+    c->set[0] = inner;
+    c->n = 1;
+    return c;
+}
+
+static sp_pat *sp_pat_from_class(sp_class *cl, char *err, size_t errsz) {
+    sp_pat *pat;
+    if (!cl) { sp_err(err, errsz, "sml: 内存不足"); return NULL; }
+    pat = sp_pat_new(SP_CLASS);
+    if (!pat) { sp_class_free(cl); sp_err(err, errsz, "sml: 内存不足"); return NULL; }
+    pat->cls = cl;
+    return pat;
+}
+
+/* 把码位编码成 UTF-8，供错误消息里显示那个无法解析的字符。 */
+static int sp_utf8_encode(unsigned long cp, char *out) {
+    if (cp < 0x80) { out[0] = (char)cp; return 1; }
+    if (cp < 0x800) {
+        out[0] = (char)(0xC0 | (cp >> 6));
+        out[1] = (char)(0x80 | (cp & 0x3F));
+        return 2;
+    }
+    if (cp < 0x10000) {
+        out[0] = (char)(0xE0 | (cp >> 12));
+        out[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        out[2] = (char)(0x80 | (cp & 0x3F));
+        return 3;
+    }
+    out[0] = (char)(0xF0 | (cp >> 18));
+    out[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+    out[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+    out[3] = (char)(0x80 | (cp & 0x3F));
+    return 4;
+}
+
+/* 字符类内的一个成员：`\d` / `\w` / `\s`、`a-z` 范围、或单字符。 */
+static sp_class *sp_rx_class_item(sp_rx *p) {
+    unsigned long c;
+    if (p->i >= p->n) { sp_err(p->err, p->errsz, "sml: 字符类意外结束"); return NULL; }
+    c = p->cp[p->i];
+    if (c == '\\') {
+        unsigned long e;
+        p->i++;
+        if (p->i >= p->n) { sp_err(p->err, p->errsz, "sml: `\\` 后缺少字符"); return NULL; }
+        e = p->cp[p->i++];
+        switch (e) {
+            case 'd': return sp_class_new(SPC_DIGIT);
+            case 'w': return sp_class_new(SPC_WORD);
+            case 's': return sp_class_new(SPC_SPACE);
+            default:  return sp_class_one(e);
+        }
+    }
+    p->i++;
+    /* 范围 a-z（`-` 紧邻 `]` 时按字面 `-`，与 Rust 同） */
+    if (sp_rx_peek(p) == '-' && p->i + 1 < p->n && p->cp[p->i + 1] != ']') {
+        unsigned long hi;
+        sp_class *r;
+        p->i++;
+        hi = p->cp[p->i++];
+        r = sp_class_new(SPC_RANGE);
+        if (r) { r->ch1 = c; r->ch2 = hi; }
+        return r;
+    }
+    return sp_class_one(c);
+}
+
+/* `[ ... ]` / `[^ ... ]`。单成员直接那个类，多成员 SPC_SET（并集）。 */
+static sp_class *sp_rx_class(sp_rx *p) {
+    int negated = 0;
+    sp_class **items = NULL;
+    size_t ni = 0, ci = 0;
+    sp_class *first;
+
+    if (sp_rx_peek(p) != '[') { sp_err(p->err, p->errsz, "sml: 期望 `[`"); return NULL; }
+    p->i++;
+    if (sp_rx_peek(p) == '^') { negated = 1; p->i++; }
+
+    for (;;) {
+        unsigned long c = sp_rx_peek(p);
+        if (p->i >= p->n) {
+            size_t k;
+            for (k = 0; k < ni; k++) sp_class_free(items[k]);
+            free(items);
+            sp_err(p->err, p->errsz, "sml: 字符类缺少 `]`");
+            return NULL;
+        }
+        if (c == ']') { p->i++; break; }
+        {
+            sp_class *it = sp_rx_class_item(p);
+            if (!it) {
+                size_t k;
+                for (k = 0; k < ni; k++) sp_class_free(items[k]);
+                free(items);
+                return NULL;
+            }
+            if (ni == ci) {
+                size_t nc = ci ? ci * 2 : 4;
+                sp_class **na = (sp_class **)realloc(items, nc * sizeof(sp_class *));
+                if (!na) {
+                    size_t k;
+                    sp_class_free(it);
+                    for (k = 0; k < ni; k++) sp_class_free(items[k]);
+                    free(items);
+                    sp_err(p->err, p->errsz, "sml: 内存不足");
+                    return NULL;
+                }
+                items = na;
+                ci = nc;
+            }
+            items[ni++] = it;
+        }
+    }
+
+    if (ni == 1) {
+        first = items[0];
+        free(items);
+    } else {
+        first = sp_class_new(SPC_SET);
+        if (!first) {
+            size_t k;
+            for (k = 0; k < ni; k++) sp_class_free(items[k]);
+            free(items);
+            sp_err(p->err, p->errsz, "sml: 内存不足");
+            return NULL;
+        }
+        first->set = items;   /* 所有权转移给 SET */
+        first->n = ni;
+    }
+    if (negated) return sp_class_not(first);
+    return first;
+}
+
+/* `\d` `\D` `\w` `\W` `\s` `\S`；反向引用 `\1`…`\9` 拒绝；其余按字面。 */
+static sp_pat *sp_rx_escape(sp_rx *p) {
+    unsigned long c;
+    if (sp_rx_peek(p) != '\\') { sp_err(p->err, p->errsz, "sml: 期望 `\\`"); return NULL; }
+    p->i++;
+    if (p->i >= p->n) { sp_err(p->err, p->errsz, "sml: `\\` 后缺少字符"); return NULL; }
+    c = p->cp[p->i++];
+    switch (c) {
+        case 'd': return sp_pat_from_class(sp_class_new(SPC_DIGIT), p->err, p->errsz);
+        case 'D': return sp_pat_from_class(sp_class_not(sp_class_new(SPC_DIGIT)), p->err, p->errsz);
+        case 'w': return sp_pat_from_class(sp_class_new(SPC_WORD), p->err, p->errsz);
+        case 'W': return sp_pat_from_class(sp_class_not(sp_class_new(SPC_WORD)), p->err, p->errsz);
+        case 's': return sp_pat_from_class(sp_class_new(SPC_SPACE), p->err, p->errsz);
+        case 'S': return sp_pat_from_class(sp_class_not(sp_class_new(SPC_SPACE)), p->err, p->errsz);
+        default:
+            if (c >= '1' && c <= '9') {
+                sp_err(p->err, p->errsz,
+                       "sml: regex 不支持反向引用 `\\%c`（与线性时间匹配根本冲突）；"
+                       "请改用命名捕获 + 等值比较", (int)c);
+                return NULL;
+            }
+            return sp_pat_from_class(sp_class_one(c), p->err, p->errsz);
+    }
+}
+
+static sp_pat *sp_rx_atom(sp_rx *p) {
+    unsigned long c;
+    if (p->i >= p->n) { sp_err(p->err, p->errsz, "sml: regex 意外结束"); return NULL; }
+    c = p->cp[p->i];
+    if (c == '(') {
+        sp_pat *inner;
+        p->i++;
+        if (sp_rx_peek(p) == '?') {
+            sp_err(p->err, p->errsz,
+                   "sml: regex 不支持 `(?...)` 扩展（lookaround / 命名组等）；"
+                   "它们会破坏线性时间保证");
+            return NULL;
+        }
+        inner = sp_rx_alt(p);
+        if (!inner) return NULL;
+        if (sp_rx_peek(p) != ')') {
+            sp_free(inner);
+            sp_err(p->err, p->errsz, "sml: regex 分组缺少 `)`");
+            return NULL;
+        }
+        p->i++;
+        return inner;
+    }
+    if (c == '[') return sp_pat_from_class(sp_rx_class(p), p->err, p->errsz);
+    if (c == '.') { p->i++; return sp_pat_from_class(sp_class_new(SPC_ANY), p->err, p->errsz); }
+    if (c == '\\') return sp_rx_escape(p);
+    p->i++;
+    return sp_pat_from_class(sp_class_one(c), p->err, p->errsz);
+}
+
+/* 读一串 ASCII 数字（`{n}` / `{n,m}` 的 n / m）。无数字返回 0。 */
+static int sp_rx_read_uint(sp_rx *p, long *out) {
+    long v = 0;
+    size_t start = p->i;
+    while (p->i < p->n && p->cp[p->i] >= '0' && p->cp[p->i] <= '9') {
+        v = v * 10 + (long)(p->cp[p->i] - '0');
+        if (v > 1000000000L) v = 1000000001L;   /* 夹住，交给 QUANT_MAX 闸门 */
+        p->i++;
+    }
+    if (p->i == start) return 0;
+    *out = v;
+    return 1;
+}
+
+/* `{n}` / `{n,}` / `{n,m}`。max = -1 表示无上界（与 IR 同约定）。 */
+static int sp_rx_counted(sp_rx *p, size_t *min, long *max) {
+    long lo, hi;
+    if (sp_rx_peek(p) != '{') { sp_err(p->err, p->errsz, "sml: 期望 `{`"); return -1; }
+    p->i++;
+    if (!sp_rx_read_uint(p, &lo)) {
+        sp_err(p->err, p->errsz, "sml: `{n}` 量词缺少数字");
+        return -1;
+    }
+    if (sp_rx_peek(p) == ',') {
+        p->i++;
+        if (!sp_rx_read_uint(p, &hi)) hi = -1;   /* {n,} 无上界 */
+    } else {
+        hi = lo;                                  /* {n} 恰好 n 次 */
+    }
+    if (sp_rx_peek(p) != '}') { sp_err(p->err, p->errsz, "sml: 量词缺少 `}`"); return -1; }
+    p->i++;
+    if (lo > SP_QUANT_MAX || (hi >= 0 && hi > SP_QUANT_MAX)) {
+        sp_err(p->err, p->errsz,
+               "sml: 量词过大（> %d），拒绝编译（防病态规则）", SP_QUANT_MAX);
+        return -1;
+    }
+    *min = (size_t)lo;
+    *max = hi;
+    return 0;
+}
+
+static sp_pat *sp_rx_repeat(sp_rx *p) {
+    sp_pat *atom = sp_rx_atom(p);
+    unsigned long c;
+    if (!atom) return NULL;
+    c = sp_rx_peek(p);
+    {
+        size_t mn = 0;
+        long mx = -1;
+        int has = 0;
+        if (c == '*') { p->i++; mn = 0; mx = -1; has = 1; }
+        else if (c == '+') { p->i++; mn = 1; mx = -1; has = 1; }
+        else if (c == '?') { p->i++; mn = 0; mx = 1; has = 1; }
+        else if (c == '{') {
+            if (sp_rx_counted(p, &mn, &mx) != 0) { sp_free(atom); return NULL; }
+            has = 1;
+        }
+        if (has) {
+            sp_pat *r;
+            /* 无回溯引擎没有贪婪概念：`*?` 的 `?` 直接忽略（Rust 同）。 */
+            if (sp_rx_peek(p) == '?') p->i++;
+            r = sp_pat_new(SP_REPEAT);
+            if (!r) { sp_free(atom); sp_err(p->err, p->errsz, "sml: 内存不足"); return NULL; }
+            r->sub = atom;
+            r->min = mn;
+            r->max = mx;
+            return r;
+        }
+    }
+    return atom;
+}
+
+static sp_pat *sp_rx_seq(sp_rx *p) {
+    sp_pat *seq = sp_pat_new(SP_SEQ);
+    size_t cap = 0;
+    if (!seq) { sp_err(p->err, p->errsz, "sml: 内存不足"); return NULL; }
+    while (p->i < p->n) {
+        unsigned long c = p->cp[p->i];
+        if (c == '|' || c == ')') break;
+        if (c == '^' || c == '$') { p->i++; continue; }   /* 锚点隐含 */
+        {
+            sp_pat *r = sp_rx_repeat(p);
+            if (!r) { sp_free(seq); return NULL; }
+            if (sp_push_pat(&seq->items, &seq->n, &cap, r) != 0) {
+                sp_free(r);
+                sp_free(seq);
+                sp_err(p->err, p->errsz, "sml: 内存不足");
+                return NULL;
+            }
+        }
+    }
+    return seq;
+}
+
+static sp_pat *sp_rx_alt(sp_rx *p) {
+    sp_pat *first = sp_rx_seq(p);
+    if (!first) return NULL;
+    if (sp_rx_peek(p) != '|') return first;
+    {
+        sp_pat *alt = sp_pat_new(SP_ALT);
+        size_t cap = 0;
+        if (!alt) { sp_free(first); sp_err(p->err, p->errsz, "sml: 内存不足"); return NULL; }
+        if (sp_push_pat(&alt->items, &alt->n, &cap, first) != 0) {
+            sp_free(first);
+            sp_free(alt);
+            sp_err(p->err, p->errsz, "sml: 内存不足");
+            return NULL;
+        }
+        while (sp_rx_peek(p) == '|') {
+            sp_pat *s;
+            p->i++;
+            s = sp_rx_seq(p);
+            if (!s) { sp_free(alt); return NULL; }
+            if (sp_push_pat(&alt->items, &alt->n, &cap, s) != 0) {
+                sp_free(s);
+                sp_free(alt);
+                sp_err(p->err, p->errsz, "sml: 内存不足");
+                return NULL;
+            }
+        }
+        return alt;
+    }
+}
+
+/* 对外入口：把 regex 源码编译成 `sp_pat`（失败返回 NULL 并写 err）。 */
+static sp_pat *sp_regex_parse(const char *src, char *err, size_t errsz) {
+    sp_rx p;
+    sp_pat *pat;
+    size_t len = strlen(src), pos = 0, k = 0;
+    unsigned long *cp = (unsigned long *)malloc((len + 1) * sizeof(unsigned long));
+    if (!cp) { sp_err(err, errsz, "sml: 内存不足"); return NULL; }
+    while (pos < len) cp[k++] = sp_next_cp(src, len, &pos);
+    p.cp = cp;
+    p.n = k;
+    p.i = 0;
+    p.err = err;
+    p.errsz = errsz;
+    pat = sp_rx_alt(&p);
+    if (pat && p.i < p.n) {
+        char ub[8];
+        int ul = sp_utf8_encode(p.cp[p.i], ub);
+        ub[ul] = '\0';
+        sp_err(err, errsz,
+               "sml: regex 在位置 %lu 处有无法解析的内容 `%s`", (unsigned long)p.i, ub);
+        sp_free(pat);
+        pat = NULL;
+    }
+    free(cp);
+    return pat;
+}
+
 /* 一个模式元素（对象）→ Pat。键按**语义**归类，故换一张关键字表即换语言。 */
 static sp_pat *sp_compile_elem(const sml_value *v, const sml_value *rules,
                                const char **stack, size_t stack_n,
@@ -453,13 +827,24 @@ static sp_pat *sp_compile_elem(const sml_value *v, const sml_value *rules,
             base->sub->lit[until->slen] = '\0';
         }
     } else if (regex_src) {
-        /* `正则:` 逃生舱在 Rust 里编译进同一个 IR。四端没有那台受限正则解析器，
-           与其静默当成「永远不匹配」（会把格式约束变成「全都报 009」），不如
-           响亮拒绝 —— 用户能看见的是「本端不支持这条写法」，而不是数据被拒。 */
-        (void)regex_src;
-        sp_err(err, errsz,
-               "sml: `正则/regex` 逃生舱在本端未实现（请改用 序列 / 类 / 任一 / 次 组合表达）");
-        return NULL;
+        /* `正则:` 逃生舱：解析成 regex 子集后编译进同一个 IR（Rust `regex.rs` 同构）。
+           拒绝反向引用 / lookaround 时报错，不静默降级。 */
+        if (regex_src->type != SML_STR) {
+            sp_err(err, errsz, "sml: `正则/regex` 须为字符串，实际 %s", sp_type_name(regex_src));
+            return NULL;
+        }
+        base = sp_regex_parse(regex_src->u.s, err, errsz);
+        if (!base) {
+            /* 与 Rust 同：外层再包一句「regex 编译失败」（内层文案已带 `sml:` 前缀）。 */
+            char inner[512];
+            inner[0] = '\0';
+            if (err && errsz) {
+                strncpy(inner, err, sizeof inner - 1);
+                inner[sizeof inner - 1] = '\0';
+            }
+            sp_err(err, errsz, "sml: regex 编译失败：%s", inner);
+            return NULL;
+        }
     } else {
         sp_err(err, errsz,
                "sml: 无法识别的模式元素（需 字面/类/任一/组/序列/用/直到/正则 之一），实际键: `%s`",
