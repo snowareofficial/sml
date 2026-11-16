@@ -756,6 +756,10 @@ end
 ------------------------------------------------------------------------------
 local _TYPES = nil
 
+-- 外置扩展表（一次 load 内有效）：{ directives = {...}, types = {...} }。
+-- 见 `Sml.load_ext`。nil = 零扩展，行为与旧版逐字一致。
+local _EXT = nil
+
 -- 码位是否落在扁平区间表（lo,hi 成对）内；二分查找，表按 lo 升序。
 local function pat_cp_in(tbl, cp)
   local lo, hi = 1, #tbl / 2
@@ -1514,6 +1518,11 @@ local function parse_type(tokens, i)
     end
     return { kind = "pattern", name = tname, pat = pat }, i
   end
+  -- 2. 外置类型（下游注册，如 image / link / time）—— 与 Rust / C / C++ 同序：
+  --    `@type` > 外置 > 契约引用。
+  if _EXT and _EXT.types and _EXT.types[tname] ~= nil then
+    return { kind = "ext", name = tname, check = _EXT.types[tname] }, i
+  end
   -- 非内置名 → 契约引用（组合）
   return { kind = "contract", ref = tname }, i
 end
@@ -1878,6 +1887,14 @@ local function check_type(fs, v, contracts)
     apply_contract(v, contracts, ty.ref)
     return
   end
+  if ty.kind == "ext" then
+    -- 外置类型：校验器由注册方提供；失败报 E-CONTRACT-007（与 Rust 同码）。
+    local ok, msg = ty.check(v)
+    if ok then return end
+    fail("E-CONTRACT-007",
+      "字段不符合外置类型 `" .. tostring(ty.name) .. "` 的要求："
+      .. tostring(msg or "校验未通过"))
+  end
   if ty.kind == "pattern" then
     -- 自定义模式类型：值须为**字符串**并匹配模式。非字符串必须显式报错并提示加引号 ——
     -- 裸写的号码会被词法切成数字，最终只剩末段、还不报错（静默数据损坏）。
@@ -2067,6 +2084,8 @@ local function type_key(ty)
     return ty.ref or "?"
   elseif ty.kind == "pattern" then
     return ty.name or "?"
+  elseif ty.kind == "ext" then
+    return ty.name or "ext"
   end
   return ty.kind
 end
@@ -2519,6 +2538,56 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
       -- 孤立 `@`（其后是空白 / 行尾）：报错，不把下一行的键当指令名，
       -- 也不把紧随的块当片段体吞掉（Rust 的 Tok::BareAt 同判据）。
       fail("E-PARSE-004", "孤立的 @：其后没有指令名或片段名")
+    elseif tok == "@" and _EXT and _EXT.directives
+           and _EXT.directives[tokens[i + 1]] ~= nil then
+      -- 外置指令：注册表里有就交给它（注册期已排除内置名 ⇒ 不遮蔽内置语义）。
+      local xname = tokens[i + 1]
+      local entry = _EXT.directives[xname]
+      local call, positional
+      if type(entry) == "function" then
+        call, positional = entry, false
+      else
+        call, positional = entry.call, entry.positional == true
+      end
+      if type(call) ~= "function" then
+        fail("E-INTERNAL-001",
+          "扩展指令 `@" .. tostring(xname) .. "` 的 call 须为函数")
+      end
+      i = i + 2
+      if tokens[i] == ":" then i = i + 1 end
+      local arg = nil
+      -- 显式形式（推荐）：`@xxx name: X { }`
+      if tokens[i] == "name" and tokens[i + 1] == ":" then
+        i = i + 2
+        if not is_word_tok(tokens[i]) then
+          fail("E-EXT-003", "扩展指令 `@" .. tostring(xname) .. "` 的 `name:` 后须值")
+        end
+        arg = unquote(tokens[i]); i = i + 1
+      elseif positional and is_word_tok(tokens[i]) and tokens[i + 1] == "{" then
+        -- 位置参数（v4 起废弃）：仅指令显式开启时接受。
+        arg = unquote(tokens[i]); i = i + 1
+      end
+      local body = nil
+      if tokens[i] == "{" then
+        i = i + 1
+        body, i = parse_block(tokens, i, "}", fragments, contracts, depth + 1)
+      end
+      local r1, r2 = call(arg, body)
+      if r1 == nil or r1 == true then
+        -- 元数据块：不进主树
+      elseif type(r1) == "table" and not is_array(r1) then
+        -- 合并进所在块（同名键后者覆盖，与 C / C++ / Rust 一致）
+        for k, v in pairs(r1) do
+          if node[k] == nil then order[#order + 1] = k end
+          node[k] = v
+        end
+      elseif r1 == false then
+        fail("E-EXT-008", "扩展指令 `@" .. tostring(xname) .. "` 处理失败："
+          .. tostring(r2 or "（注册方未给出原因）"))
+      else
+        fail("E-EXT-004",
+          "扩展指令 `@" .. tostring(xname) .. "` 的 emit 须为对象（用于合并进所在块）")
+      end
     elseif tok == "@" and (tokens[i + 1] == "weakbind" or tokens[i + 1] == "weakdata"
            or tokens[i + 1] == "weakdoc")
            and not (_FEATURES and _FEATURES[19]) then
@@ -3498,7 +3567,43 @@ end
 --   Sml.load(text)         —— include 关闭（与改动前一致）
 --   Sml.load(text, base)   —— include 开启，base 为沙箱根（W20 第二阶段）
 ------------------------------------------------------------------------------
-function Sml.load(text, base, allow_top_scalar)
+-- 外置扩展注册期校验（与内置同名 / 空名 ⇒ E-EXT-002），fail-closed。
+-- 注：Lua 的表天然去重 ⇒「重复注册」在这里构造不出来（后一个直接覆盖），
+-- 故本端只查「与内置同名 / 空名」两条。返回 true 或 false, msg。
+local function ext_validate(ext)
+  local BUILTIN_DIRS = { contract = 1, is = 1, type = 1, version = 1, feature = 1,
+                         ["when"] = 1, ["for"] = 1, weakbind = 1, weakdata = 1, weakdoc = 1 }
+  local BUILTIN_TYPES = { str = 1, int = 1, num = 1, bool = 1, any = 1, enum = 1 }
+  if ext.directives ~= nil then
+    for name in pairs(ext.directives) do
+      if type(name) ~= "string" or name == "" then
+        return false, "E-EXT-002 扩展指令名不可为空"
+      end
+      if BUILTIN_DIRS[name] then
+        return false, "E-EXT-002 不可注册与内置指令同名的扩展指令 `@" .. name .. "`"
+      end
+    end
+  end
+  if ext.types ~= nil then
+    for name in pairs(ext.types) do
+      if type(name) ~= "string" or name == "" then
+        return false, "E-EXT-002 扩展类型名不可为空"
+      end
+      if BUILTIN_TYPES[name] then
+        return false, "E-EXT-002 不可注册与内置类型同名的扩展类型 `" .. name .. "`"
+      end
+    end
+  end
+  return true
+end
+
+function Sml.load(text, base, allow_top_scalar, ext)
+  -- 外置扩展：注册期校验 + 本次 load 生效（下次不带 ext 的 load 会重置为 nil）。
+  if ext ~= nil then
+    local okE, eE = ext_validate(ext)
+    if not okE then return nil, eE end
+  end
+  _EXT = ext
   -- 文件级规范化：去掉开头的 UTF-8 BOM（U+FEFF = \239\187\191）。
   -- BOM **不是空白** ⇒ 会被词法器吞进第一个单词 ⇒ 第一个键名变成 "\u{FEFF}x"（**静默**改键名）。
   -- 来源很常见：Windows 记事本「另存为 UTF-8」。与 Rust / JS / C / C++ 对齐。
@@ -3745,6 +3850,36 @@ local function is_array_table(v)
   end
   for i = 1, n do if v[i] == nil then return false end end
   return n > 0
+end
+
+------------------------------------------------------------------------------
+-- 公开：带外置扩展的解析（与 Rust `sml::ext`、C `sml_parse_ext`、C++ `ParseOptions::ext` 对齐）
+--
+--   ext = {
+--     directives = {
+--       form   = function(arg, body) return nil end,              -- nil = 元数据块不进主树
+--       emitme = function(arg, body) return { meta = 42 } end,    -- table = 合并进所在块
+--       boom   = function(arg, body) return false, "原因" end,    -- false+消息 = E-EXT-008
+--       legacy = { positional = true, call = function(arg, body) ... end },
+--     },
+--     types = {
+--       image = function(v) return type(v) == "string" end,       -- true / false,消息
+--     },
+--   }
+--
+-- 不传 ext（或传 nil）时行为与 `Sml.load` 逐字一致。
+------------------------------------------------------------------------------
+function Sml.load_ext(text, ext, base)
+  return Sml.load(text, base, nil, ext)
+end
+
+-- 同 `Sml.load_ext`，额外交出诊断列表（与 `Sml.parse_with_warnings` 同形状）。
+function Sml.parse_ext(text, ext, base)
+  _WARNINGS = {}
+  local v, err = Sml.load(text, base, nil, ext)
+  local w = _WARNINGS
+  _WARNINGS = nil
+  return v, err, w
 end
 
 function Sml.dump(v)

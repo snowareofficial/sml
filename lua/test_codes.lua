@@ -1060,6 +1060,76 @@ local function test_pattern_regex()
     .. "@contract CM { code: Mix }\nx { @is CM code: \"AB-1234\" }\n")
 end
 
+-- ---- 外置扩展点（ext API，对齐 Rust `sml::ext`）----
+-- ① 元数据块不进主树；② emit 合并；③ 外置类型合法/非法（非法 ⇒ 007）；
+-- ④ E-EXT-002/003/004/008；⑤ 零扩展与旧入口一致。
+local function test_ext_api()
+  io.write("[EXT-API]\n")
+  local ext = {
+    directives = {
+      form = function() return nil end,
+      emitme = function() return { meta = 42 } end,
+      boom = function() return false, "自定义失败原因" end,
+      bademit = function() return "不是对象" end,
+    },
+    types = {
+      image = function(v)
+        if type(v) == "string" then return true end
+        return false, "image 须为附件 id 字符串"
+      end,
+    },
+  }
+  local function code_of(src)
+    local v, err = Sml.load_ext(src, ext)
+    if v then return "OK", v end
+    return (tostring(err):match("^[A-Z%-]+%d+") or tostring(err))
+  end
+
+  do
+    local c, v = code_of("a: 1\n@form { x: 1 }\nb: 2\n")
+    report("元数据块不进主树", "OK 且无 form/x",
+      tostring(c) .. " " .. tostring(v and v.form), c == "OK" and v ~= nil
+        and v.form == nil and v.x == nil)
+  end
+  do
+    local c, v = code_of("a: 1\n@emitme { }\n")
+    report("emit 合并进所在块", "meta=42",
+      tostring(c) .. " meta=" .. tostring(v and v.meta), c == "OK" and v and v.meta == 42)
+  end
+  do
+    local c = code_of("@contract C { img: image }\nx { @is C img: \"att-1\" }\n")
+    report("外置类型（合法）", "OK", c, c == "OK")
+  end
+  do
+    local c = code_of("@contract C { img: image }\nx { @is C img: 123 }\n")
+    report("外置类型（不合法）", "E-CONTRACT-007", c, c == "E-CONTRACT-007")
+  end
+  do
+    local c = code_of("@form name:\n")
+    report("E-EXT-003 name: 后无值", "E-EXT-003", c, c == "E-EXT-003")
+  end
+  do
+    local c = code_of("@bademit { }\n")
+    report("E-EXT-004 emit 非对象", "E-EXT-004", c, c == "E-EXT-004")
+  end
+  do
+    local c = code_of("@boom { }\n")
+    report("E-EXT-008 回调失败", "E-EXT-008", c, c == "E-EXT-008")
+  end
+  do
+    local v, err = Sml.load_ext("a: 1\n",
+      { directives = { contract = function() return nil end } })
+    local c = v and "OK" or (tostring(err):match("^[A-Z%-]+%d+") or tostring(err))
+    report("E-EXT-002 与内置同名", "E-EXT-002", c, c == "E-EXT-002")
+  end
+  do
+    local a = Sml.load_ext("a: 1\nb: 2\n", nil)
+    local b = Sml.load("a: 1\nb: 2\n")
+    report("零扩展与旧入口一致", "同串",
+      tostring(a and Sml.dump(a)), a ~= nil and b ~= nil and Sml.dump(a) == Sml.dump(b))
+  end
+end
+
 io.write("lua/test_codes.lua — 触发条件 → 期望码（W10，Lua 侧）\n")
 test_parse_codes()
 test_w16_codes()
@@ -1070,6 +1140,7 @@ test_host_codes()
 test_contract_codes()
 test_contract_positive()
 test_pattern_regex()
+test_ext_api()
 test_include_codes()
 test_weakbind_codes()
 test_positive_controls()

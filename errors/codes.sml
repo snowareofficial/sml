@@ -385,8 +385,8 @@ codes: [
       note: "C 侧注释里专门论证了「必须与 E-CONTRACT-002 区分」；W10 期间核实 C 确实在报，故补进 impls" }
     { id: E-CONTRACT-007 domain: CONTRACT severity: E title: "外置类型校验失败"
       msg: "字段不符合扩展类型的要求"
-      impls: [ rust js c cpp ] status: partial
-      note: "失败原因由注册方提供，随消息一并返回。C / C++ 于 2026-11-16 补齐外置扩展点（C：`sml_parse_ext` + `sml_ext_type`；C++：`ParseOptions::ext` + `Ext::types`）" }
+      impls: [ rust js c cpp lua ] status: partial
+      note: "失败原因由注册方提供，随消息一并返回。C / C++ / Lua 于 2026-11-16 补齐外置扩展点（C：`sml_parse_ext` + `sml_ext_type`；C++：`ParseOptions::ext` + `Ext::types`；Lua：`Sml.load_ext` + `ext.types`）" }
     { id: E-CONTRACT-008 domain: CONTRACT severity: E title: "组合字段应为块"
       msg: "字段应为块并按该契约校验，实际不是块"
       impls: [ rust c cpp js lua ] status: partial
@@ -490,14 +490,14 @@ codes: [
       note: "扩展机制的固有代价：带方言的文档在未注册的环境里读不了 —— 这条码是有意为之，不是缺陷。JS 在未注册指令**带**片段体时会静默当作片段定义" }
     { id: E-EXT-002 domain: EXT severity: E title: "扩展注册名冲突"
       msg: "不可注册与内置同名的扩展；同名重复注册同样报错"
-      impls: [ rust c cpp ] status: done
-      note: "三条注册点（指令、类型、修饰符）共用此码。C / C++ 在解析入口统一校验（2026-11-16）" }
+      impls: [ rust c cpp lua ] status: done
+      note: "三条注册点（指令、类型、修饰符）共用此码。C / C++ / Lua 在解析入口统一校验（2026-11-16）；Lua 用表注册，天然去重 ⇒ 只查「与内置同名 / 空名」" }
     { id: E-EXT-003 domain: EXT severity: E title: "外置指令缺少取值"
       msg: "外置指令的参数名后缺少取值"
-      impls: [ rust js c cpp ] status: done }
+      impls: [ rust js c cpp lua ] status: done }
     { id: E-EXT-004 domain: EXT severity: E title: "外置指令返回非对象"
       msg: "外置指令的合并结果须为对象"
-      impls: [ rust js c cpp ] status: done
+      impls: [ rust js c cpp lua ] status: done
       note: "该返回值用于合并进所在块，非对象无法合并" }
     { id: E-EXT-005 domain: EXT severity: E title: "外置修饰符缺少取值"
       msg: "外置修饰符期望取值"
@@ -511,7 +511,7 @@ codes: [
       note: "覆盖 `--to highlight` 与 `--to tmlanguage` 的输入校验；规则里同时给出同侧两个锚点也算非法（位置无法确定）" }
     { id: E-EXT-008 domain: EXT severity: E title: "外置指令执行失败"
       msg: "外置指令处理该输入时失败"
-      impls: [ rust c cpp ] status: done
+      impls: [ rust c cpp lua ] status: done
       note: "失败原因由注册方（`Directive::call` 的返回值）给出，随消息一并返回；与「未注册」（E-EXT-001）、「取值为空」（E-EXT-003）、「返回非对象」（E-EXT-004）区分" }
 
     # ================= 输入输出（宿主绑定层） =================

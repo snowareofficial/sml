@@ -319,10 +319,11 @@
         "c",
         "cpp",
         "js",
+        "lua",
         "rust"
       ],
       "status": "partial",
-      "note": "失败原因由注册方提供，随消息一并返回。C / C++ 于 2026-11-16 补齐外置扩展点（C：`sml_parse_ext` + `sml_ext_type`；C++：`ParseOptions::ext` + `Ext::types`）"
+      "note": "失败原因由注册方提供，随消息一并返回。C / C++ / Lua 于 2026-11-16 补齐外置扩展点（C：`sml_parse_ext` + `sml_ext_type`；C++：`ParseOptions::ext` + `Ext::types`；Lua：`Sml.load_ext` + `ext.types`）"
     },
     {
       "id": "E-CONTRACT-008",
@@ -759,10 +760,11 @@
       "impls": [
         "c",
         "cpp",
+        "lua",
         "rust"
       ],
       "status": "done",
-      "note": "三条注册点（指令、类型、修饰符）共用此码。C / C++ 在解析入口统一校验（2026-11-16）"
+      "note": "三条注册点（指令、类型、修饰符）共用此码。C / C++ / Lua 在解析入口统一校验（2026-11-16）；Lua 用表注册，天然去重 ⇒ 只查「与内置同名 / 空名」"
     },
     {
       "id": "E-EXT-003",
@@ -774,6 +776,7 @@
         "c",
         "cpp",
         "js",
+        "lua",
         "rust"
       ],
       "status": "done",
@@ -789,6 +792,7 @@
         "c",
         "cpp",
         "js",
+        "lua",
         "rust"
       ],
       "status": "done",
@@ -840,6 +844,7 @@
       "impls": [
         "c",
         "cpp",
+        "lua",
         "rust"
       ],
       "status": "done",
