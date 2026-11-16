@@ -401,8 +401,8 @@ codes: [
       note: "JS 侧未见对应检查。C 与 C++ 在 W10 期间补齐：min/max 边界取到 nan/1e400 时同报此码（此前 C 静默、C++ 把边界吞掉）" }
     { id: E-CONTRACT-011 domain: CONTRACT severity: E title: "外置修饰符校验失败"
       msg: "字段不符合扩展修饰符的要求"
-      impls: [ rust ] status: partial
-      note: "与 E-CONTRACT-007（外置**类型**）区分：修饰符与类型是两套注册点" }
+      impls: [ rust c cpp js lua ] status: done
+      note: "与 E-CONTRACT-007（外置**类型**）区分：修饰符与类型是两套注册点。2026-11-17 四端接线完成：`apply` / `check` / `check_group` 三类回调失败、注册名冲突以外的失败统一落本码（冲突走 E-EXT-002）；各端单测见 rust/tests/ext_modifier.rs 与各端 test_ext*" }
     { id: E-CONTRACT-012 domain: CONTRACT severity: E title: "数组元素位置不支持 enum"
       msg: "数组元素位置不支持 `enum`；请改写成 `[str]` 并在契约层约束"
       impls: [ rust lua c cpp js ] status: done
@@ -501,7 +501,8 @@ codes: [
       note: "该返回值用于合并进所在块，非对象无法合并" }
     { id: E-EXT-005 domain: EXT severity: E title: "外置修饰符缺少取值"
       msg: "外置修饰符期望取值"
-      impls: [ rust ] status: done }
+      impls: [ rust c cpp lua ] status: done
+      note: "2026-11-17 P13：C / C++ / Lua 的修饰符解析也按本码拒绝「只写修饰符名、后面无取值」；JS 走自己的字面量解析路径，仍不产出本码" }
     { id: E-EXT-006 domain: EXT severity: E title: "custom 规则文档非法"
       msg: "自定义生成规则文档非法：缺少 rules、rules 为空，或某条规则缺少模板"
       impls: [rust smltools ] status: done }
