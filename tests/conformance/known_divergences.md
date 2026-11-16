@@ -4,7 +4,7 @@
 
 ## 2026-11-16 复核
 
-实测 **AGREE 75 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`；
+实测 **AGREE 76 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`；
 `19` / `20` 以 `*` 放行）。新增 `71`–`75` 五条 weak* 钉子：**`@weakbind` 悬空 / 连续 /
 目标标量 / 目标数组 ⇒ `E-PARSE-029`**，**文档级重复 `@weakdoc` ⇒ `E-PARSE-030`**，
 五端同码（此前四端把悬空当"静默丢弃"、重复不判）。新增 `70_fragment_overwrite`：**片段撞父块同名键 ⇒ 直接覆盖**
@@ -37,6 +37,11 @@
 这些码在 C / C++ / Lua 早有产出点，码表却没登记；`E-CONTRACT-012` 的文案随触发点收窄同步更新
 （标题从「未知数组元素类型」改为「数组元素位置不支持 enum」，因为非内置元素名在五端都已回落成
 契约引用，本码只剩「元素位置写了 `enum`」一类触发）。
+
+**新增 `76_at_no_name`：`@` 紧跟非名字记号 ⇒ `E-PARSE-011`**（判据照 Rust 的「`@` 后必须是
+名字」）。此前五端分三处：C **静默丢弃整行**（`@{` 甚至能「解析成功」—— 静默丢数据），
+C++ / JS / Lua 落 `E-PARSE-005`（码指错了地方：缺的是**名字**，不是「指令名不合法」），
+Rust 报 011。注意与**孤立 `@`** 区分：其后是空白 / 行尾时属 `E-PARSE-004`（用例 `42` 已钉）。
 
 ## 2026-11-15 复核
 

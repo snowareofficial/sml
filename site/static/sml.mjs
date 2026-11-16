@@ -2476,8 +2476,13 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
         // 当成指令名（`@\nk: 1` → `@k`）或把紧随的块当片段体吞掉。
         if (tok.bare) fail("E-PARSE-004", "sml: 孤立的 @：其后没有指令名或片段名");
         i++;
-        if (!peek()) fail("E-PARSE-011", "sml: @ 后需名称");
-        const fname = peek().v;
+        const atTok = peek();
+        if (!atTok) fail("E-PARSE-011", "sml: @ 后需名称");
+        // `@` 后不是名字（如 `@{`）：Rust 报 E-PARSE-011（at 符号后缺名字）——
+        // 缺的是**名字**，不是「指令名不合法」，故不用 005（改前落 005，码指错了地方）。
+        if (atTok.t !== "word" && atTok.t !== "str")
+          fail("E-PARSE-011", "sml: `@` 后须为名字（指令名或片段名）");
+        const fname = atTok.v;
         // 默认忽略：未开 `type.weak` 时 weak* 不解释、不校验、不产出（weakbind.md §0.3）。
         // 只吞「指令 + 同一行的参数」；`{` 形态留给片段定义。
         if ((fname === "weakbind" || fname === "weakdata" || fname === "weakdoc")

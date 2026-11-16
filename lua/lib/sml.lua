@@ -2668,7 +2668,13 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
       -- 片段定义：@name { ... } 或 @name type args { ... }
       -- （不进主树，存入 fragments；保留 __type/__name 供 & 引用还原）
       i = i + 1
-      local fname = tokens[i]; i = i + 1
+      local fname = tokens[i]
+      -- `@` 后不是名字（如 `@{`）：Rust 报 E-PARSE-011（at 符号后缺名字）——
+      -- 缺的是**名字**，不是「指令名不合法」，故不用 005（改前落 005，码指错了地方）。
+      if fname == nil or not (is_word_tok(fname) or string.sub(fname, 1, 1) == '"') then
+        fail("E-PARSE-011", "`@` 后须为名字（指令名或片段名）")
+      end
+      i = i + 1
       if fname == "version" then
         -- `@version vN` 是版本声明指令，不是片段定义（与 Rust/C/JS 对齐）。
         -- 必须特判，否则 version 被当作片段名，其后紧跟的块会被吃掉导致内容丢失

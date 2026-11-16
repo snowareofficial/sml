@@ -1177,8 +1177,13 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
             next(ps);                 /* @ */
             token *ft = next(ps);
             if (ft->t != T_WORD && ft->t != T_STR) {
-                /* `@` 后不是名字（如孤立 `@`、`@ {`）：Rust 报 E-PARSE-011，
-                   不属本批（W16 判定表）范围，保持既有的「停止解析本层」行为。 */
+                /* `@` 后不是名字（如 `@{`）：Rust 报 E-PARSE-011（at 符号后缺名字）——
+                   缺的是**名字**，不是「指令名不合法」，故不用 005。
+                   改前这里**静默 break**：整行被丢掉且不报错，`@{` 甚至能「解析成功」
+                   ⇒ 静默丢数据。注：孤立 `@`（T_BAREAT）另有 E-PARSE-004 分支，走不到这里。 */
+                set_err(ps->lx->errbuf, ps->lx->errsz,
+                        SML_E_PARSE_011 " `@` 后须为名字（指令名或片段名）");
+                ps->failed = 1;
                 break;
             }
             char *fname = ft->v;

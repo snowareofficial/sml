@@ -152,8 +152,8 @@ codes: [
       note: "防原型污染：危险键在 JS 侧必须拒绝" }
     { id: E-PARSE-011 domain: PARSE severity: E title: "at 符号后缺名字"
       msg: "at 符号之后须为名字（指令名或片段名）"
-      impls: [ rust js ] status: partial
-      note: "Rust 报「@ 后需片段名」、JS 报「@ 后需名称」；符号与名字之间有空白的情形另有 E-PARSE-004。⚠️ **C 端不落本码**（2026-11-16 核实）：C 把「`@` 后不是名字」归 `E-PARSE-019`（指令头语法非法），与 Rust / JS 的 011 **码漂移** —— 已登记，未收敛" }
+      impls: [ rust js c cpp lua ] status: done
+      note: "Rust 报「@ 后需片段名」、JS 报「@ 后需名称」；符号与名字之间有空白的情形另有 E-PARSE-004（孤立 `@`）。⚠️ **四端已收敛（2026-11-16）**：判据照 Rust 的「`@` 后必须是名字（裸词或引号串）」—— `@{` 这类「`@` **紧跟**非名字记号」五端一律报本码。改前 C 端**静默丢弃整行**（`@{` 甚至能「解析成功」⇒ 静默丢数据），C++ / JS / Lua 落 E-PARSE-005（码指错了地方：缺的是**名字**，不是「指令名不合法」）；conformance 用例 `76_at_no_name` 钉住" }
     { id: E-PARSE-012 domain: PARSE severity: E title: "语法错误（兜底）"
       msg: "语法错误：未能给出更具体的原因"
       impls: [ rust c cpp js lua ] status: partial

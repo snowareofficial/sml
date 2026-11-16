@@ -501,6 +501,14 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
             // (Rust: fragments parsed but ignored in tree; stored in snippets)
             st.i++;
             if (st.i >= st.toks.size()) break;
+            /* `@` 后不是名字（如 `@{`）：Rust 报 E-PARSE-011（at 符号后缺名字）——
+               缺的是**名字**，不是「指令名不合法」，故不用 005。
+               注：本端引号串也存成 Word（带引号），故判 Word 即等价于 Rust 的 Word|Str。 */
+            if (st.toks[st.i].t != Token::T::Word) {
+                if (st.err && st.err->empty())
+                    *st.err = code_prefix(SML_E_PARSE_011, "sml: `@` 后须为名字（指令名或片段名）");
+                st.aborted = true; break;
+            }
             std::string fname = st.toks[st.i].s; st.i++;
             // W16：未注册指令（`@foo ...`）只允许**显式** `type:` / `name:` 参数；
             //   位置参数（如 `@foo bar`）与缺少片段体 `{ ... }` ⇒ E-PARSE-005。
