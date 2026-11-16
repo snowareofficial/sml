@@ -122,6 +122,8 @@ struct PState {
     int pending_weak_depth = -1;
     /* 文档级 `@weakdoc` profile 名集合（判重 E-PARSE-030）。 */
     std::vector<std::string> weak_docs;
+    /* 外置扩展表（nullptr = 零扩展）。 */
+    const Ext* ext = nullptr;
     /* 当前块的路径栈：调用方在进 parse_block 前把键名放进 enter_key。
        Path stack: callers set `enter_key` right before entering a block. */
     std::string enter_key;

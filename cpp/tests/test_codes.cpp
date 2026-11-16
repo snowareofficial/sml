@@ -1259,11 +1259,129 @@ static void test_pattern_regex() {
               "x { @is CM code: \"AB-1234\" }\n");
 }
 
+// ------------------------------------------------------------------
+// 外置扩展点（ext API，对齐 Rust `sml::ext`）
+// ------------------------------------------------------------------
+// 钉：① 元数据块不进主树；② emit 合并进所在块；③ 外置类型合法/非法
+//     （非法 ⇒ E-CONTRACT-007）；④ E-EXT-002/003/004/008；⑤ 零扩展与旧入口一致。
+static void test_ext_api() {
+    std::cout << "[EXT-API]\n";
+    sml::Ext ext;
+    ext.directives.push_back({"form", false,
+        [](const std::string*, const sml::ValuePtr&, sml::ValuePtr*, std::string&) {
+            return sml::ExtOutcome::Discard; }});
+    ext.directives.push_back({"emitme", false,
+        [](const std::string*, const sml::ValuePtr&, sml::ValuePtr* emit, std::string&) {
+            auto o = sml::Value::object();
+            o->obj.push_back({"meta", sml::Value::integer(42)});
+            *emit = o;
+            return sml::ExtOutcome::Emit; }});
+    ext.directives.push_back({"boom", false,
+        [](const std::string*, const sml::ValuePtr&, sml::ValuePtr*, std::string& e) {
+            e = "自定义失败原因"; return sml::ExtOutcome::Error; }});
+    ext.directives.push_back({"bademit", false,
+        [](const std::string*, const sml::ValuePtr&, sml::ValuePtr* emit, std::string&) {
+            *emit = sml::Value::string("不是对象"); return sml::ExtOutcome::Emit; }});
+    ext.types.push_back({"image",
+        [](const sml::ValuePtr& v, std::string& e) {
+            if (v && v->tag == sml::Value::Tag::Str) return true;
+            e = "image 须为附件 id 字符串"; return false; }});
+
+    auto run_ext = [&](const std::string& src, const sml::Ext* ex, std::string& err) {
+        sml::ParseOptions o; o.ext = ex;
+        return sml::Parser::parse_with(src, o, &err);
+    };
+    auto starts = [](const std::string& s, const char* p) { return s.rfind(p, 0) == 0; };
+
+    /* ① 元数据块 */
+    {
+        std::string err;
+        auto v = run_ext("a: 1\n@form { x: 1 }\nb: 2\n", &ext, err);
+        if (v && !v->get("form") && !v->get("x") && v->get("a") && v->get("b"))
+            std::cout << "  ok: 元数据块不进主树\n";
+        else { std::cout << "FAIL: 元数据块 " << err << "\n"; failures++; }
+    }
+    /* ② emit 合并 */
+    {
+        std::string err;
+        auto v = run_ext("a: 1\n@emitme { }\n", &ext, err);
+        auto m = v ? v->get("meta") : nullptr;
+        if (m && m->tag == sml::Value::Tag::Int && m->i == 42)
+            std::cout << "  ok: emit 合并进所在块\n";
+        else { std::cout << "FAIL: emit " << err << "\n"; failures++; }
+    }
+    /* ③ 外置类型合法 */
+    {
+        std::string err;
+        auto v = run_ext("@contract C { img: image }\nx { @is C img: \"att-1\" }\n", &ext, err);
+        if (v) std::cout << "  ok: 外置类型（合法）\n";
+        else { std::cout << "FAIL: 外置类型合法 " << err << "\n"; failures++; }
+    }
+    /* ④ 外置类型非法 ⇒ E-CONTRACT-007 */
+    {
+        std::string err;
+        auto v = run_ext("@contract C { img: image }\nx { @is C img: 123 }\n", &ext, err);
+        if (!v && starts(err, SML_E_CONTRACT_007))
+            std::cout << "  ok: 外置类型（不合法）-> " << SML_E_CONTRACT_007 << "\n";
+        else { std::cout << "FAIL: 外置类型不合法 " << err << "\n"; failures++; }
+    }
+    /* ⑤ E-EXT-003 / 004 / 008 */
+    {
+        struct C { const char* src; const char* want; const char* tag; };
+        const C cs[] = {
+            {"@form name:\n", SML_E_EXT_003, "E-EXT-003 name: 后无值"},
+            {"@bademit { }\n", SML_E_EXT_004, "E-EXT-004 emit 非对象"},
+            {"@boom { }\n", SML_E_EXT_008, "E-EXT-008 回调失败"},
+        };
+        for (const auto& c : cs) {
+            std::string err;
+            auto v = run_ext(c.src, &ext, err);
+            if (!v && starts(err, c.want))
+                std::cout << "  ok: " << c.tag << " -> " << c.want << "\n";
+            else { std::cout << "FAIL: " << c.tag << " " << err << "\n"; failures++; }
+        }
+    }
+    /* ⑥ E-EXT-002 与内置同名 / 重复注册 */
+    {
+        sml::Ext be;
+        be.directives.push_back({"contract", false,
+            [](const std::string*, const sml::ValuePtr&, sml::ValuePtr*, std::string&) {
+                return sml::ExtOutcome::Discard; }});
+        std::string err;
+        auto v = run_ext("a: 1\n", &be, err);
+        if (!v && starts(err, SML_E_EXT_002))
+            std::cout << "  ok: E-EXT-002 与内置同名 -> " << SML_E_EXT_002 << "\n";
+        else { std::cout << "FAIL: E-EXT-002 内置 " << err << "\n"; failures++; }
+
+        sml::Ext de;
+        auto f = [](const std::string*, const sml::ValuePtr&, sml::ValuePtr*, std::string&) {
+            return sml::ExtOutcome::Discard; };
+        de.directives.push_back({"form", false, f});
+        de.directives.push_back({"form", false, f});
+        err.clear();
+        v = run_ext("a: 1\n", &de, err);
+        if (!v && starts(err, SML_E_EXT_002))
+            std::cout << "  ok: E-EXT-002 重复注册 -> " << SML_E_EXT_002 << "\n";
+        else { std::cout << "FAIL: E-EXT-002 重复 " << err << "\n"; failures++; }
+    }
+    /* ⑦ 零扩展与旧入口一致 */
+    {
+        std::string err;
+        auto a = run_ext("a: 1\nb: 2\n", nullptr, err);
+        std::string e2;
+        auto b = sml::Parser::parse("a: 1\nb: 2\n", &e2);
+        if (a && b && sml::Parser::to_sml(a) == sml::Parser::to_sml(b))
+            std::cout << "  ok: 零扩展与旧入口一致\n";
+        else { std::cout << "FAIL: 零扩展不一致\n"; failures++; }
+    }
+}
+
 int main() {
     test_lex_codes();
     test_parse_codes();
     test_contract_codes();
     test_pattern_regex();
+    test_ext_api();
     test_contract_modifier_legacy();
     test_bound_literals();
     test_eof_and_key_position();

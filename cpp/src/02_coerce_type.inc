@@ -180,7 +180,8 @@ static ValuePtr coerce(const Token& tok,
 // Contract parsing  (mirrors Rust parse_contract / parse_type)
 // ===========================================================================
 static bool parse_type(const std::string& raw, TypeSpec& out, std::string* err,
-                       const std::map<std::string, ValuePtr>* types = nullptr) {
+                       const std::map<std::string, ValuePtr>* types = nullptr,
+                       const Ext* ext = nullptr) {
     // trim
     std::string s = raw;
     size_t a=s.find_first_not_of(" \t"); size_t b=s.find_last_not_of(" \t");
@@ -223,7 +224,7 @@ static bool parse_type(const std::string& raw, TypeSpec& out, std::string* err,
             }
         }
         if (elem.empty()) e.kind = TypeSpec::Kind::Any;
-        else if (!parse_type(elem, e, err, types)) return false;
+        else if (!parse_type(elem, e, err, types, ext)) return false;
         sp.elem = std::make_shared<TypeSpec>(e);
         out = sp;
         return true;
@@ -255,6 +256,17 @@ static bool parse_type(const std::string& raw, TypeSpec& out, std::string* err,
                 sp.pat = pat;
                 out = sp;
                 return true;
+            }
+        }
+        /* 2. 外置类型（下游注册，如 image / link / time）—— 与 C / Rust 同序：
+              `@type` > 外置 > 契约引用。 */
+        if (ext) {
+            for (const auto& t : ext->types) {
+                if (t.name == s) {
+                    TypeSpec sp; sp.kind = TypeSpec::Kind::Ext; sp.ext_type = &t;
+                    out = sp;
+                    return true;
+                }
             }
         }
         // contract reference
@@ -366,7 +378,8 @@ static void tokenize_field(const std::string& line, std::vector<std::string>& pa
 }
 
 static bool parse_field(const std::string& line, FieldSpec& out, std::string* err,
-                        const std::map<std::string, ValuePtr>* types = nullptr) {
+                        const std::map<std::string, ValuePtr>* types = nullptr,
+                        const Ext* ext = nullptr) {
     // line like:  name: Type optional default "x" min 0 max 10 loose
     std::vector<std::string> parts;
     tokenize_field(line, parts);
@@ -431,7 +444,7 @@ static bool parse_field(const std::string& line, FieldSpec& out, std::string* er
             rest += m;
             k++;
         }
-        if (!parse_type(rest, type, err, types)) return false;
+        if (!parse_type(rest, type, err, types, ext)) return false;
         in_type = true;
     }
     // if no type given, Any
@@ -511,6 +524,16 @@ static bool check_value(const ValuePtr& v, const TypeSpec& spec, bool loose, std
                 for (auto& e : v->arr) if (!check_value(e, *spec.elem, loose, err)) return false;
             }
             return true;
+        }
+        case TypeSpec::Kind::Ext: {
+            /* 外置类型：校验器由注册方提供；失败报 E-CONTRACT-007（与 Rust 同码）。 */
+            if (!spec.ext_type || !spec.ext_type->check) return true;
+            std::string xerr;
+            if (spec.ext_type->check(v, xerr)) return true;
+            if (err) *err = code_prefix(SML_E_CONTRACT_007,
+                "sml: 字段不符合外置类型 `" + spec.ext_type->name + "` 的要求：" +
+                (xerr.empty() ? std::string("校验未通过") : xerr));
+            return false;
         }
         case TypeSpec::Kind::ContractRef:
             // not resolved here (top-level @is handles refs); accept
@@ -624,6 +647,8 @@ static std::string type_key(const TypeSpec& t) {
         case TypeSpec::Kind::ContractRef: return t.contract_ref;
         // 同名即同校验器（Rust `TypeSpec::name()` 对 Pattern 返回类型名）
         case TypeSpec::Kind::Pattern:     return t.pat_name;
+        // 外置类型同样按名比较（与 Rust `TypeSpec::Ext` 的 name 同口径）
+        case TypeSpec::Kind::Ext:         return t.ext_type ? t.ext_type->name : std::string();
     }
     return "?";
 }

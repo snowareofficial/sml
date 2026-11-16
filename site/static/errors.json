@@ -317,11 +317,12 @@
       "msg": "字段不符合扩展类型的要求",
       "impls": [
         "c",
+        "cpp",
         "js",
         "rust"
       ],
       "status": "partial",
-      "note": "失败原因由注册方提供，随消息一并返回。C 于 2026-11-16 补齐外置扩展点（`sml_parse_ext` + `sml_ext_type`）"
+      "note": "失败原因由注册方提供，随消息一并返回。C / C++ 于 2026-11-16 补齐外置扩展点（C：`sml_parse_ext` + `sml_ext_type`；C++：`ParseOptions::ext` + `Ext::types`）"
     },
     {
       "id": "E-CONTRACT-008",
@@ -757,10 +758,11 @@
       "msg": "不可注册与内置同名的扩展；同名重复注册同样报错",
       "impls": [
         "c",
+        "cpp",
         "rust"
       ],
       "status": "done",
-      "note": "三条注册点（指令、类型、修饰符）共用此码。C 在 `sml_parse_ext` 入口统一校验（2026-11-16）"
+      "note": "三条注册点（指令、类型、修饰符）共用此码。C / C++ 在解析入口统一校验（2026-11-16）"
     },
     {
       "id": "E-EXT-003",
@@ -770,6 +772,7 @@
       "msg": "外置指令的参数名后缺少取值",
       "impls": [
         "c",
+        "cpp",
         "js",
         "rust"
       ],
@@ -784,6 +787,7 @@
       "msg": "外置指令的合并结果须为对象",
       "impls": [
         "c",
+        "cpp",
         "js",
         "rust"
       ],
@@ -835,6 +839,7 @@
       "msg": "外置指令处理该输入时失败",
       "impls": [
         "c",
+        "cpp",
         "rust"
       ],
       "status": "done",

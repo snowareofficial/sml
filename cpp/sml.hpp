@@ -10,6 +10,7 @@
 #include <memory>
 #include <optional>
 #include <variant>
+#include <functional>   /* 外置扩展点用 std::function（lambda 友好） */
 
 namespace sml {
 
@@ -62,11 +63,65 @@ struct Value {
 // 模式 IR（定义在 `src/02b_pattern.inc`；此处只前置声明，供 TypeSpec 持有）。
 struct Pat;
 
+// ---------------------------------------------------------------------------
+// 外置扩展点（与 Rust `sml::ext` 对齐；C 侧 `sml_ext` 的同构版本）
+// ---------------------------------------------------------------------------
+//
+// 用途：给文档挂**带类型的元数据块且不进主数据树**（`@form { }`），以及注册
+// `image` / `link` / `time` 这类**领域类型**。类型名与校验规则都留在下游。
+//
+// 不注册任何扩展时，`ParseOptions{}` 的行为与旧版逐字一致。
+// 注册期校验（与内置同名 / 重复 / 空名）在解析入口做一次 ⇒ `E-EXT-002`。
+//
+// 用法（lambda 直接捕获状态，无需 void*）：
+//
+//     sml::Ext ext;
+//     ext.directives.push_back({"form", false,
+//         [](const std::string* arg, const sml::ValuePtr& body,
+//            sml::ValuePtr* emit, std::string& err) {
+//             (void)arg; (void)body; (void)emit; (void)err;
+//             return sml::ExtOutcome::Discard;      // 元数据块：不进主树
+//         }});
+//     ext.types.push_back({"image",
+//         [](const sml::ValuePtr& v, std::string& err) {
+//             if (v && v->tag == sml::Value::Tag::Str) return true;
+//             err = "image 须为附件 id 字符串";
+//             return false;
+//         }});
+//     sml::ParseOptions opts; opts.ext = &ext;
+//     auto v = sml::Parser::parse_with(src, opts, &err);
+enum class ExtOutcome {
+    Discard,   // 元数据块：不进主树（最常用）
+    Emit,      // 把 *emit 对象合并进所在块
+    Error      // 失败：写 err，报 E-EXT-008
+};
+
+struct ExtDirective {
+    std::string name;      // 指令名（不含 `@`），如 "form"
+    bool positional = false;   // 接受已废弃的 `@form Name { }` 位置参数形式
+    // arg：`name: X` 里的 X（没有则 nullptr）；body：`{ }` 块（没带块则 nullptr）。
+    std::function<ExtOutcome(const std::string* arg, const ValuePtr& body,
+                             ValuePtr* emit, std::string& err)> call;
+};
+
+struct ExtType {
+    std::string name;      // 如 "image" / "link" / "time"
+    // 返回 true = 合法；false = 不合法（写 err，报 E-CONTRACT-007）。
+    std::function<bool(const ValuePtr& v, std::string& err)> check;
+};
+
+struct Ext {
+    std::vector<ExtDirective> directives;
+    std::vector<ExtType> types;
+};
+
 struct TypeSpec {
     enum class Kind { Any, Str, Int, Num, Bool, Enum, Array, ContractRef,
                       /* `@type name: X { 模式 }` 的自定义类型：值须为字符串并匹配模式。
                          编译失败 ⇒ E-CONTRACT-013，值不符 ⇒ 009（与 Rust 同码）。 */
-                      Pattern } kind = Kind::Any;
+                      Pattern,
+                      /* 外置类型（下游注册）：校验器由注册方提供，值不符 ⇒ E-CONTRACT-007。 */
+                      Ext } kind = Kind::Any;
     // Enum: allowed list of string values
     std::vector<std::string> enum_values;
     // Array: element type
@@ -76,6 +131,8 @@ struct TypeSpec {
     // Pattern: 类型名（错误文案用）+ 编译好的模式
     std::string pat_name;
     std::shared_ptr<Pat> pat;
+    // Ext: 外置类型的校验器（借用 `Ext::types` 里的条目，生命周期由调用方保证）
+    const ExtType* ext_type = nullptr;
 };
 
 struct TypeModifiers {
@@ -196,6 +253,9 @@ struct ParseOptions {
     const BuiltinTable* builtins = nullptr;
     // 弱绑定旁路表出口（可为 nullptr = 不收集）。
     std::vector<WeakBind>* weak_binds = nullptr;
+    // 外置扩展表（nullptr = 零扩展，行为与旧版逐字一致）。
+    // 生命周期：须长于本次解析（解析器只在解析期间借用）。
+    const Ext* ext = nullptr;
 };
 
 class Parser {

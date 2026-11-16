@@ -489,6 +489,13 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                  st.toks[st.i+1].s == "weakdoc" ||
                  st.toks[st.i+1].s == "include" ||
                  st.toks[st.i+1].s == "include!"));
+            /* 已注册的外置指令名同样不能被片段分支吞掉（否则 `@form { }` 会被当成
+               片段定义，`@form name:` 还会走到片段参数的越界路径）。 */
+            if (!is_directive && st.ext && st.i+1 < st.toks.size() &&
+                st.toks[st.i+1].t == Token::T::Word) {
+                for (const auto& d : st.ext->directives)
+                    if (d.name == st.toks[st.i+1].s) { is_directive = true; break; }
+            }
             if (!is_directive) {
             // fragment @name { } or @name type args { }
             // (Rust: fragments parsed but ignored in tree; stored in snippets)
@@ -504,6 +511,16 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                    st.i+1 < st.toks.size() && st.toks[st.i+1].t == Token::T::Colon) {
                 bool is_type = (st.toks[st.i].s == "type");
                 st.i += 2; // type/name + ':'
+                /* 越界防护：`@foo name:`（参数名后没有值）在 `st.i += 2` 之后会
+                   指向末尾之后 —— 改前这里直接 `st.toks[st.i]` ⇒ 越界（std::vector
+                   断言 / 未定义行为）。与 C 端同码 005、同文案。 */
+                if (st.i >= st.toks.size()) {
+                    if (st.err && st.err->empty())
+                        *st.err = code_prefix(SML_E_PARSE_005,
+                            "sml: 片段 `" + fname + "` 的参数缺少值");
+                    st.aborted = true;
+                    break;
+                }
                 const auto& vt = st.toks[st.i];
                 if (vt.t != Token::T::Word) {
                     if (st.err && st.err->empty())
@@ -551,6 +568,77 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
         if (tok.t == Token::T::At && st.i+1 < st.toks.size() &&
             st.toks[st.i+1].t == Token::T::Word) {
             std::string dir = st.toks[st.i+1].s;
+            /* 外置指令：注册表里有就交给它（注册期已排除内置名 ⇒ 不遮蔽内置语义）。
+               解析器只负责「取参数 → 读块 → 收结果」，钩子只管语义。 */
+            if (st.ext) {
+                const ExtDirective* xd = nullptr;
+                for (const auto& d : st.ext->directives)
+                    if (d.name == dir) { xd = &d; break; }
+                if (xd) {
+                    st.i += 2;   /* @ + 指令名 */
+                    if (st.i < st.toks.size() && st.toks[st.i].t == Token::T::Colon) st.i++;
+                    std::string argbuf;
+                    const std::string* argp = nullptr;
+                    /* 显式形式（推荐）：`@xxx name: X { }` */
+                    if (st.i + 1 < st.toks.size() &&
+                        st.toks[st.i].t == Token::T::Word && st.toks[st.i].s == "name" &&
+                        st.toks[st.i+1].t == Token::T::Colon) {
+                        st.i += 2;
+                        if (st.i >= st.toks.size() || st.toks[st.i].t != Token::T::Word) {
+                            if (st.err && st.err->empty())
+                                *st.err = code_prefix(SML_E_EXT_003,
+                                    "sml: 扩展指令 `@" + xd->name + "` 的 `name:` 后须值");
+                            st.aborted = true;
+                            break;
+                        }
+                        argbuf = st.toks[st.i].s;
+                        argp = &argbuf;
+                        st.i++;
+                    } else if (xd->positional && st.i + 1 < st.toks.size() &&
+                               st.toks[st.i].t == Token::T::Word &&
+                               st.toks[st.i+1].t == Token::T::LBrace) {
+                        /* 位置参数（v4 起废弃）：仅在指令显式开启时接受。 */
+                        argbuf = st.toks[st.i].s;
+                        argp = &argbuf;
+                        st.i++;
+                    }
+                    ValuePtr body = Value::null();
+                    if (st.i < st.toks.size() && st.toks[st.i].t == Token::T::LBrace) {
+                        st.i++;
+                        body = parse_block_nested(st);
+                        if (st.aborted) break;
+                    }
+                    ValuePtr em = nullptr;
+                    std::string xerr;
+                    ExtOutcome oc = xd->call ? xd->call(argp, body, &em, xerr)
+                                             : ExtOutcome::Discard;
+                    if (oc == ExtOutcome::Error) {
+                        if (st.err && st.err->empty())
+                            *st.err = code_prefix(SML_E_EXT_008,
+                                "sml: 扩展指令 `@" + xd->name + "` 处理失败：" +
+                                (xerr.empty() ? std::string("（注册方未给出原因）") : xerr));
+                        st.aborted = true;
+                        break;
+                    }
+                    if (oc == ExtOutcome::Emit) {
+                        if (!em || em->tag != Value::Tag::Obj) {
+                            if (st.err && st.err->empty())
+                                *st.err = code_prefix(SML_E_EXT_004,
+                                    "sml: 扩展指令 `@" + xd->name +
+                                    "` 的 emit 须为对象（用于合并进所在块）");
+                            st.aborted = true;
+                            break;
+                        }
+                        for (const auto& kv : em->obj) {
+                            bool placed = false;
+                            for (auto& ex : node->obj)
+                                if (ex.first == kv.first) { ex.second = kv.second; placed = true; break; }
+                            if (!placed) node->obj.push_back({kv.first, kv.second});
+                        }
+                    }
+                    continue;
+                }
+            }
             // 默认忽略：未开 `type.weak` 时 weak* 不解释、不校验、不产出（weakbind.md §0.3）。
             // 片段定义形态（后跟 `{`）不消费，落回原有语义；其余吞掉「指令 + 同行参数」。
             if (dir == "weakbind" || dir == "weakdata" || dir == "weakdoc") {
@@ -1024,7 +1112,7 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                     if (!fieldbuf.empty()) {
                         FieldSpec fs;
                         std::string e;
-                        if (!parse_field(fieldbuf, fs, &e, &st.types)) {
+                        if (!parse_field(fieldbuf, fs, &e, &st.types, st.ext)) {
                             if (st.err) *st.err = e;
                             return nullptr;
                         }

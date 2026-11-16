@@ -176,15 +176,68 @@ static bool expand_includes(std::vector<Token>& toks,
 /* 真正的解析实现。公开入口 `Parser::parse` 是它的薄包装，只为接住
    std::bad_alloc（E-LIMIT-010）；抽成 static 而不是给函数体加 try 再整体缩进，
    是为了让这次改动只有两行、看得清。 */
+/* 外置扩展注册期校验（与内置同名 / 重复 / 空名 ⇒ E-EXT-002），fail-closed。
+   在解析入口做一次，用户不必自己记着「先注册再校验」。 */
+static bool ext_validate(const Ext* e, std::string* err) {
+    if (!e) return true;
+    static const char* const kBuiltinDirs[] = {
+        "contract", "is", "type", "version", "feature",
+        "when", "for", "weakbind", "weakdata", "weakdoc"
+    };
+    static const char* const kBuiltinTypes[] = { "str", "int", "num", "bool", "any", "enum" };
+    for (size_t i = 0; i < e->directives.size(); i++) {
+        const std::string& n = e->directives[i].name;
+        if (n.empty()) {
+            if (err) *err = code_prefix(SML_E_EXT_002, "sml: 扩展指令名不可为空");
+            return false;
+        }
+        for (const char* b : kBuiltinDirs)
+            if (n == b) {
+                if (err) *err = code_prefix(SML_E_EXT_002,
+                    "sml: 不可注册与内置指令同名的扩展指令 `@" + n + "`");
+                return false;
+            }
+        for (size_t j = 0; j < i; j++)
+            if (n == e->directives[j].name) {
+                if (err) *err = code_prefix(SML_E_EXT_002,
+                    "sml: 扩展指令 `@" + n + "` 已注册");
+                return false;
+            }
+    }
+    for (size_t i = 0; i < e->types.size(); i++) {
+        const std::string& n = e->types[i].name;
+        if (n.empty()) {
+            if (err) *err = code_prefix(SML_E_EXT_002, "sml: 扩展类型名不可为空");
+            return false;
+        }
+        for (const char* b : kBuiltinTypes)
+            if (n == b) {
+                if (err) *err = code_prefix(SML_E_EXT_002,
+                    "sml: 不可注册与内置类型同名的扩展类型 `" + n + "`");
+                return false;
+            }
+        for (size_t j = 0; j < i; j++)
+            if (n == e->types[j].name) {
+                if (err) *err = code_prefix(SML_E_EXT_002,
+                    "sml: 扩展类型 `" + n + "` 已注册");
+                return false;
+            }
+    }
+    return true;
+}
+
 static ValuePtr parse_impl(const std::string& text, std::string* err,
                            const std::string& include_dir, std::vector<Diag>* diags,
                            const BuiltinTable* builtins,
-                           std::vector<WeakBind>* weak_binds) {
+                           std::vector<WeakBind>* weak_binds,
+                           const Ext* ext) {
+    if (!ext_validate(ext, err)) return nullptr;
     PState st;
     st.err = err;
     st.diags = diags;
     st.builtins = builtins;
     st.weak_binds = weak_binds;
+    st.ext = ext;
     st.features = scan_features(text);   /* 预处理算出的初始特性集 */
     st.toks = tokenize(text, err);
     if (err && !err->empty()) return nullptr;
@@ -328,7 +381,7 @@ ValuePtr Parser::parse_with(const std::string& text, const ParseOptions& opts,
         const std::string body = has_bom ? text.substr(3) : text;
         if (opts.weak_binds) opts.weak_binds->clear();
         return parse_impl(body, err, opts.include_dir, opts.diags,
-                          opts.builtins, opts.weak_binds);
+                          opts.builtins, opts.weak_binds, opts.ext);
     } catch (const std::bad_alloc&) {
         if (err) *err = code_prefix(SML_E_LIMIT_010, "sml: 内存分配失败");
         return nullptr;
