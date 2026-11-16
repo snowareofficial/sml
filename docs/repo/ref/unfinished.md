@@ -48,6 +48,7 @@
 | FFI / 绑定层能力对等 | **`§0.6` 绑定层列整列收口**：诊断 / 多错误 / 契约表与契约映射（含 `sml_builtin_clone`）/ 三条 weak 旁路表 / 扩展选项 / 文件入口，C-ABI + 五门绑定全部对齐。剩本地四端（C / C++ / JS / Lua）的文件入口仍不交诊断 —— 各端 API 面议题，与 C-ABI 无关 | `docs/swsml/plan/crossend-sync.md` §0.6 / P7；`rust/src/c_abi.rs`；`bindings/README.md` |
 | TODO 里的跨端 7 项 | 顶层标量口径 L166 · 错误边界 L201 · Lua/JS 单测 L203 · C `sml_dump` 对齐 L204 · Lua 契约数组 L318 · Lua 嵌套数组 L967 · `k: "abc\` 三端三码 L1093 | `TODO.md` |
 | 契约数组元素校验 | **Rust + C 已修**（2026-11-16；口径 = **只校验不回填**，与 JS / Lua 逐格一致、值树不变）：Rust 新增 `check_contract_only` 只校验路径（`rust/tests/contract.rs::composition_array_element_is_still_validated` **由红转绿**）；C 端数组元素类型回落 `CT_CONTRACTREF`（`cfield.arr_ref_name`）+ `CT_ARRAY` 分支逐元素只校验。**C++ 端待收**（同 C 端两处）；另 C 端**暂缺 strict（004）那格**（本端无对象键遍历 API，只有 `sml_obj_get`） | `tests/conformance/known_divergences.md`；`rust/sml-contract/src/lib.rs`；`c/src/04_coerce.inc`；pending 用例 `80_contract_array_elem` |
+| Rust 词法入口分叉（**既存红灯**） | `cargo test` 里 `error_codes.rs::lex_escape_at_eof_stays_006` 失败：输入 `k: "abc\` 在 `sml_lex::tokenize` 入口报 `E-LEX-006`（符合 T21 裁决），但 `parse()` 入口报 `E-LEX-001`（未闭合）⇒ 两个入口看到不同的 EOF（`scan` 按行重建文本时补了换行）。**与 2026-11-16 的契约 / 标识符改动无关**（HEAD 版本同样红）。修法方向：`scan` 重建时要照 `needs_trailing_newline` 判别「源文本以 `\` 结尾」⇒ 不补换行 | `rust/tests/error_codes.rs:49`；`rust/sml-parse/src/scan.rs` |
 | 标识符白名单 `E-LEX-007` | ✅ **五端齐备（2026-11-16）**：白名单 + 六类拒绝 + 字符序号，接在键名 / 契约字段名 / featag 名三处，另加「每契约单一语种」；conformance 钉子 `78` / `79`（负）+ `80`（正对照） | `tests/conformance/known_divergences.md`；`errors/codes.sml` |
 
 ---
