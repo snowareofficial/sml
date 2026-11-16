@@ -437,6 +437,25 @@ static void test_feature_codes(void) {
         if (v) sml_free(v);
         sml_diag_free(dg, ndg);
 
+        /* 片段展开覆盖父块同名键 ⇒ W-PARSE-002（值树：后者覆盖，不提升为数组） */
+        dg = NULL; ndg = 0;
+        memset(derr, 0, sizeof(derr));
+        v = sml_parse_ex("@base { x: 1 y: 2 }\nw {\n  x: 9\n  &base\n}\n",
+                         derr, sizeof(derr), &dg, &ndg);
+        {
+            sml_value *wv = v ? sml_obj_get(v, "w") : NULL;
+            sml_value *xv = wv ? sml_obj_get(wv, "x") : NULL;
+            if (v && ndg == 1 && dg && strcmp(dg[0].code, "W-PARSE-002") == 0
+                && dg[0].line == 4 && xv && xv->type == SML_INT && xv->u.i == 1)
+                printf("  ok: %-30s -> x=1 + 1 条 warning(line 4)\n", "片段覆盖产出 W-PARSE-002");
+            else {
+                printf("FAIL: 片段覆盖诊断（err=%s ndg=%zu）\n", derr, ndg);
+                failures++;
+            }
+        }
+        if (v) sml_free(v);
+        sml_diag_free(dg, ndg);
+
         dg = NULL; ndg = 0;
         memset(derr, 0, sizeof(derr));
         v = sml_parse_ex("a: 1\nb: 2\n", derr, sizeof(derr), &dg, &ndg);

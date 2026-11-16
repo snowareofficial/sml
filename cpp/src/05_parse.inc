@@ -1184,7 +1184,28 @@ static ValuePtr parse_block(PState& st, bool top, bool require_close) {
                 auto it = st.fragments.find(key.substr(1));
                 if (it != st.fragments.end() && it->second->tag == Value::Tag::Obj) {
                     for (auto& kv : it->second->obj) {
-                        set_field_local(node, kv.first, kv.second->clone());
+                        /* 片段合并不走重复键的数组提升：同名键直接覆盖，父块原值丢失。
+                           与 Rust 对齐（此前用 set_field_local 会提升为数组，值树分歧）。
+                           这里不能复用 set_field_local —— 它也被普通重复键路径共用。 */
+                        bool overwritten = false;
+                        for (const auto& existing : node->obj)
+                            if (existing.first == kv.first) { overwritten = true; break; }
+                        if (overwritten && st.diags) {
+                            st.diags->push_back(Diag{
+                                "W-PARSE-002",
+                                "sml: 父块原有的键 `" + kv.first + "` 被片段 `" + key +
+                                    "` 的展开值覆盖（父块原值已丢失；片段合并不走重复键的数组提升）",
+                                cur_key_line});
+                        }
+                        bool placed = false;
+                        for (auto& existing : node->obj) {
+                            if (existing.first == kv.first) {
+                                existing.second = kv.second->clone();   // 原位覆盖
+                                placed = true;
+                                break;
+                            }
+                        }
+                        if (!placed) node->obj.push_back({kv.first, kv.second->clone()});
                     }
                 } else {
                     set_field(key, coerce_word(key, st.fragments, st.err, st.features));

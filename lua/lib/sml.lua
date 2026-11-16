@@ -2811,8 +2811,26 @@ parse_block = function(tokens, i, closing, fragments, contracts, depth)
         -- ｜ Bare `&frag` splices the fragment's fields into this block.
         local fname = string.match(key, "^&(.+)$")
         if fname and fragments and fragments[fname] then
+          -- 循环开头 `i = i + 1` 已把 i 推到 nxt；key（即 `&name`）在 i-1。
+          local frag_line = _LINES and _LINES[i - 1] or 0
           for fk, fv in pairs(fragments[fname]) do
-            set_field(fk, deep_copy(fv))
+            -- 片段合并不走重复键的数组提升：同名键直接覆盖，父块原值丢失。
+            -- 与 Rust 对齐（此前走共用的 set_field 会提升为数组并报 W-PARSE-001）。
+            -- 这里不能调 set_field —— 它也被普通重复键路径共用。
+            if node[fk] ~= nil then
+              if _WARNINGS then
+                _WARNINGS[#_WARNINGS + 1] = {
+                  code = "W-PARSE-002",
+                  message = "sml: 父块原有的键 `" .. tostring(fk) .. "` 被片段 `" ..
+                    tostring(key) .. "` 的展开值覆盖（父块原值已丢失；片段合并不走重复键的数组提升）",
+                  line = frag_line,
+                }
+              end
+            end
+            node[fk] = deep_copy(fv)
+            local has_fk = false
+            for _, ord in ipairs(order) do if ord == fk then has_fk = true; break end end
+            if not has_fk then order[#order + 1] = fk end
           end
         else
           set_field(key, coerce(key, fragments))

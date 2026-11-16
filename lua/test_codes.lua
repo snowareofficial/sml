@@ -229,6 +229,15 @@ local function test_feature_codes()
   report("重复键产出 W-PARSE-001", "a=[1,2] + 1 条 warning",
          tostring(ok_dup), ok_dup)
 
+  -- 片段展开覆盖父块同名键 ⇒ W-PARSE-002（值树：后者覆盖，不提升为数组）
+  local v_ov, err_ov, w_ov = Sml.parse_with_warnings(
+    "@base { x: 1 y: 2 }\nw {\n  x: 9\n  &base\n}\n")
+  local ok_ov = v_ov ~= nil and type(v_ov.w) == "table" and v_ov.w.x == 1
+    and w_ov ~= nil and #w_ov == 1 and w_ov[1].code == "W-PARSE-002"
+    and w_ov[1].line == 4
+  report("片段覆盖产出 W-PARSE-002", "w.x=1 + 1 条 warning(line 4)",
+         tostring(ok_ov) .. " err=" .. tostring(err_ov), ok_ov)
+
   -- env 门控：引号串含 `$env.` 且未开 env ⇒ E-FEATURE-002；默认仍内插
   expect_code("disable env 后引号串内插",
     "@feature disable env\nk: \"$env.NOPE\"\n", "E-FEATURE-002")

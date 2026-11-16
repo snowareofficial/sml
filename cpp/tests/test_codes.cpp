@@ -1006,6 +1006,23 @@ static void test_feature_directive() {
         }
     }
 
+    // 片段展开覆盖父块同名键 ⇒ W-PARSE-002（值树：后者覆盖，不提升为数组）
+    {
+        std::vector<sml::Diag> dg;
+        std::string derr;
+        auto v = sml::Parser::parse("@base { x: 1 y: 2 }\nw {\n  x: 9\n  &base\n}\n",
+                                    &derr, "", &dg);
+        auto wv = v ? v->get("w") : nullptr;
+        auto xv = wv ? wv->get("x") : nullptr;
+        if (v && dg.size() == 1 && dg[0].code == "W-PARSE-002" && dg[0].line == 4 &&
+            xv && xv->tag == sml::Value::Tag::Int && xv->i == 1) {
+            std::cout << "  ok: 片段覆盖产出 W-PARSE-002\n";
+        } else {
+            std::cout << "FAIL: 片段覆盖诊断 n=" << dg.size() << " err=" << derr << "\n";
+            failures++;
+        }
+    }
+
     // 文件入口（`Parser::load_file`）：include 以文件目录为基准 + 诊断经 opts 交出
     {
         namespace fs = std::filesystem;

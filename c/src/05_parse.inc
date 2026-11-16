@@ -1171,8 +1171,19 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
                 if (strcmp(g->name, key + 1) == 0) { fr = g; break; }
             if (fr && fr->val && fr->val->type == SML_OBJECT) {
                 sml_field *ff;
-                for (ff = fr->val->u.obj.head; ff; ff = ff->next)
+                for (ff = fr->val->u.obj.head; ff; ff = ff->next) {
+                    /* 片段合并不走重复键的数组提升：同名键直接覆盖，父块原值丢失。
+                       与 Rust `KeyOverwritten` 同码 W-PARSE-002（诊断不改变值树）。 */
+                    if (sml_obj_get(obj, ff->key) != NULL) {
+                        char msg[512];
+                        snprintf(msg, sizeof msg,
+                                 "sml: 父块原有的键 `%s` 被片段 `%s` 的展开值覆盖"
+                                 "（父块原值已丢失；片段合并不走重复键的数组提升）",
+                                 ff->key, key);
+                        diag_push_at(ps, "W-PARSE-002", msg, ps->key_line);
+                    }
                     sml_obj_set(obj, ff->key, sml_clone(ff->value));
+                }
                 continue;   /* &name 已作为展开消费，不落入下面的键值处理 */
             }
         }

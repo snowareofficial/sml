@@ -4,8 +4,10 @@
 
 ## 2026-11-16 复核
 
-实测 **AGREE 69 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`；
-`19` / `20` 以 `*` 放行）。新增 `66`–`69` 四条 featag 歧义码钉子：**B1 空名/连续 `!` ⇒
+实测 **AGREE 70 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`；
+`19` / `20` 以 `*` 放行）。新增 `70_fragment_overwrite`：**片段撞父块同名键 ⇒ 直接覆盖**
+（父值丢失，不提升数组）—— C++/Lua 此前提升为数组、值树与 Rust 分歧，已按权威改成原位覆盖；
+告警 `W-PARSE-002` 由各端诊断单测钉住（conformance 只比值树）。新增 `66`–`69` 四条 featag 歧义码钉子：**B1 空名/连续 `!` ⇒
 `E-PARSE-026`**（契约体声明处 + 块头 featag 区）、**B3 块名/首词位置 `!` 开头 ⇒
 `E-PARSE-028`**，五端同码（此前只有 Rust 判，四端会退化成 021/027 或静默）。新增 `64_type_regex`：**`@type` 的 `正则:` 逃生舱五端同树**
 （纯正则 + 与结构化写法混用）—— Rust 原生受限 IR，C / C++ / Lua 移植同构子集，JS 走 RegExp；

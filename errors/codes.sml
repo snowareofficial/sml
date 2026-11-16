@@ -268,8 +268,8 @@ codes: [
       note: "解析期诊断，经各端的「解析成功 + 诊断列表」出口交出、带行号（Rust `parse_with_warnings`／JS `parseSafe().warnings`／C `sml_parse_ex`+`sml_diag`／C++ `Parser::parse(..., &diags)`／Lua `Sml.parse_with_warnings`）；语义不变（SML 既定：`k: 1` + `k: 2` ⇒ `k: [1, 2]`）。与工具层 W-LINT-003 的分域：本条是**解析器**在文档里真的发生了提升时产出；W-LINT-003 是 `smltools --lint` 的纯文本扫描（不解析）" }
     { id: W-PARSE-002 domain: PARSE severity: W title: "片段展开覆盖父块键"
       msg: "片段展开覆盖了父块已有的同名键：父块原值丢失"
-      impls: [ rust ] status: partial
-      note: "`&name` 合并走直接赋值、**不走**数组提升 ⇒ 丢值（危险度高于 W-PARSE-001，是「静默丢数据」里最该报的一档）。只在 Rust 侧产出：其余四端虽已有「成功 + 诊断列表」出口（见 W-PARSE-001），但片段合并路径尚未接这条告警 ⇒ 属已知缺口，不是「无通道」" }
+      impls: [ rust js c cpp lua ] status: done
+      note: "`&name` 合并走直接赋值、**不走**数组提升 ⇒ 丢值（危险度高于 W-PARSE-001，是「静默丢数据」里最该报的一档）。五端都产出（2026-11-16）：C / JS 本来就是覆盖语义，只补诊断；C++ / Lua 此前把片段撞键提升为数组（值树与 Rust 分歧），已改成原位覆盖并接上诊断 —— 普通重复键的数组提升与 W-PARSE-001 不受影响" }
 
     # ================= 深度与预算上限（语言层） =================
     { id: E-LIMIT-001 domain: LIMIT severity: E title: "嵌套过深"

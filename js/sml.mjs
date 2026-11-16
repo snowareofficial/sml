@@ -2787,12 +2787,23 @@ export function parse(text, opts, includeStackArg, effectiveFeatsArg, callerAllo
       if (typeof key === "string" && key.startsWith("&") && !(peek() && peek().t === ":")) {
         const fName = key.slice(1);
         if (fragments.has(fName)) {
+          const fragPos = peek() ? peek().pos : 0;   // 诊断行号要取 `&name` 本身，先记下
           i++; // 消费掉 &name token，避免重复处理
           // 片段合并同样跳过危险键：片段体可能来自外部构造（JSON 等），
           // 直接 Object.assign 会把危险键原样写进当前块。
           const frag = structuredClone(fragments.get(fName));
           for (const fk of Object.keys(frag)) {
             if (DANGEROUS_KEYS.has(fk)) continue;
+            // 片段合并不走重复键的数组提升：同名键直接覆盖，父块原值丢失。
+            // 与 Rust KeyOverwritten 同码 W-PARSE-002（diagnostic 不改变值树）。
+            if (Object.prototype.hasOwnProperty.call(node, fk)) {
+              warnings.push({
+                code: "W-PARSE-002",
+                message: "sml: 父块原有的键 `" + fk + "` 被片段 `" + key +
+                  "` 的展开值覆盖（父块原值已丢失；片段合并不走重复键的数组提升）",
+                pos: fragPos,
+              });
+            }
             node[fk] = frag[fk];
           }
           continue;
