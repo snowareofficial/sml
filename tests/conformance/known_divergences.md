@@ -4,7 +4,7 @@
 
 ## 2026-11-16 复核
 
-实测 **AGREE 80 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`；
+实测 **AGREE 83 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`；
 `19` / `20` 以 `*` 放行）。新增 `71`–`75` 五条 weak* 钉子：**`@weakbind` 悬空 / 连续 /
 目标标量 / 目标数组 ⇒ `E-PARSE-029`**，**文档级重复 `@weakdoc` ⇒ `E-PARSE-030`**，
 五端同码（此前四端把悬空当"静默丢弃"、重复不判）。新增 `70_fragment_overwrite`：**片段撞父块同名键 ⇒ 直接覆盖**
@@ -16,6 +16,23 @@
 各端钉子见 `c/` `cpp/` `lua/` 的 `test_codes` 里 `[PATTERN-REGEX]`。
 新增 `65_featag_dup`：**同一契约里重复声明同名 featag ⇒ `E-CONTRACT-019`**，五端同码
 （此前只有 Rust 查重，四端只收集不校验）。
+
+**契约数组的元素（`81`–`83`，2026-11-16 收口）**：`peers: [Endpoint]` 的元素按被引用契约
+**逐个校验**。此前**三端没人校验**：C / C++ 的数组元素类型解析**没回落成契约引用**
+（`[Endpoint]` 的元素类型留在「任意」，元素一律放行 ⇒ 契约约束被静默跳过）；
+Lua 则走 `apply_contract`（**回填**默认值）⇒ 值树被改了。现已五端同口径：
+
+| 场景 | 判据 | 用例 |
+|---|---|---|
+| 元素缺必填字段 | ⇒ `E-CONTRACT-003` | `81_contract_array_elem` |
+| 元素里有契约未声明的键（strict） | ⇒ `E-CONTRACT-004` | `82_contract_strict_extra` |
+| 元素缺一个**带 `default`** 的字段 | **不报错**（`default` 自动视为可选），且**不回填** | `83_contract_array_default` |
+
+**口径（2026-11-16 裁决，写进教科书 `ch05-contract` §5.4.3）**：元素位置**只校验、不回填** ——
+元素不是字段，回填会改用户的树；校验不需要改树。`default` 在教科书里本就"自动视为可选"，
+故元素少写它**不算缺失**（Rust / C 的 `check_contract_only` 此前按 `required` 判 ⇒ 报 003，
+与该口径相冲，已改；JS 原本就符合）。**码一致、文案不同**：C 端没有 path 概念（只报字段名），
+Rust / JS / Lua 带路径（如 `peers[1].host`）—— 码表约定文案不是契约。
 
 **include 部分引用（不做 conformance，逐端单测钉住）**：只有 **Rust 与 JS** 支持
 `{ keys } … in "path"`；C / C++ / Lua 在识别到 `include/import { keys }` 或
@@ -60,24 +77,13 @@ U+3040–U+30FF + 谚文 U+AC00–U+D7AF）、六类拒绝共用一个码靠 det
 C 是字节串、需自己解 UTF-8 码点；C++ 的引号串存成**带引号的** Word ⇒ 校验前先去引号；
 两端的「单一语种」检查都放在契约体**收齐之后**（字段名 + featag 名一起比）。
 
-**契约数组的元素校验（pending 用例 `80_contract_array_elem`）**：**权威端 Rust 已修**（2026-11-16）
-—— `sml-contract` 的 `check_type` 对 `ContractRef` 只做**轻量检查**（契约存在 + 值是块），
-而组合契约的**应用**（回填默认值 + 逐字段校验）只发生在**字段位置**；数组元素没有别的地方
-应用它 ⇒ `peers: [ { host: a } { } ]` 里第二个元素缺必填字段被**静默放过**。Rust 自带的
-`rust/tests/contract.rs::composition_array_element_is_still_validated` 正是在断言这个行为，
-改前**是红的**（HEAD 版本同样红），现**已转绿**。
-⚠️ **口径已定：只校验、**不回填**默认值** —— 元素不是字段，回填会改用户的树；而校验不需要改树。
-故 Rust 侧新增 `check_contract_only`（只读路径：严格性 + 必填 + 类型 + 组合递归，**不**回填、
-**不**产契约告警），数组分支对 `ContractRef` 元素调用它；这与 JS / Lua 的既有行为**逐格一致**
-（报 `E-CONTRACT-003`，路径带下标 `peers[1].host`），值树也不变。
-**C 端已修**（2026-11-16）：数组元素类型解析**回落成契约引用**（`[Endpoint]` 的 `arr_inner`
-从 `CT_ANY` 改成 `CT_CONTRACTREF` + `cfield.arr_ref_name`），`CT_ARRAY` 分支加元素逐个
-**只校验**（新增 `check_contract_only`，不填默认值）。⚠️ C 端**暂缺 strict（004）那格** ——
-本端没有对象的键遍历 API（只有 `sml_obj_get`），故「strict 契约的元素带额外键」C 端不报。
-**C++ 端待收**：同 C 端两处（`FieldSpec` 加 `arr_ref_name` + 数组元素类型回落 + `CT_ARRAY`
-分支逐元素只校验）。⚠️ **文案差异**（码一致）：Rust / JS / Lua 的错误路径带数组下标
-（`peers[1].host`），C 端不带 —— C 端的 `check_type` 没有 path 概念（错误文案用字段名）。
-三端都收完前，用例留在 `cases/pending/`（DIVERGE 为预期）。
+**实现落点（各端）**：Rust 侧 `sml-contract` 新增 `check_contract_only`（只读路径：严格性 + 必填 +
+类型 + 组合递归，**不**回填、**不**产契约告警），数组分支对 `ContractRef` 元素调用它；
+C 端数组元素类型解析**回落成契约引用**（`[Endpoint]` 的元素类型从「任意」改成契约引用 +
+`cfield.arr_ref_name`），数组分支加元素逐个**只校验**，并补齐 strict（004）那格
+（本端补了对象键遍历 API `sml_obj_len` / `sml_obj_key_at`）；C++ 端在 `check_value` 的数组分支
+接一条 `check_contract_only` 链（类型规格本就是递归结构，无需 C 端那套 `arr_ref_name`）；
+Lua 端新增 `check_contract_only`，数组元素走它而**不再**走 `apply_contract`（那是回填）。
 
 ## 2026-11-15 复核
 

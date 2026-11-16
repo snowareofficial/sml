@@ -1,4 +1,4 @@
-//! featag **S7**：`from-featag` 来源规则（§6.2）。
+﻿//! featag **S7**：`from-featag` 来源规则（§6.2）。
 //!
 //! 两档来源：默认（谁都能写）/ `from-featag`（**只能 featag 落点写**）。
 //! 文档里直接给该键赋值 ⇒ `E-CONTRACT-024`。
@@ -29,7 +29,7 @@ fn featag_writing_the_same_field_is_fine() {
     let src = "\
 @contract Tls { cert: str from-featag }
 @contract api loose { tls: Tls !cert: str -> tls.cert }
-api cert[\"c.pem\"], x { }
+api !cert[\"c.pem\"], x { }
 ";
     let v = parse(&format!("{HEAD}{src}")).expect("featag 写入应通过");
     assert_eq!(

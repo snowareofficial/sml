@@ -11,6 +11,20 @@
 use sml_codes::SmlError;
 use sml_codes::{E_LEX_004, E_LEX_005};
 
+/// 转义接受集：能跟在 `\` 后面的字符 ｜ the set of characters that may follow a backslash.
+///
+/// `\u` 在此只算「认识」—— 它的位数 / 码点是否合法由解码方判（`E-LEX-005`）。
+/// 扫描方与解码方共用这一个清单，避免两处各写一份而分叉。
+pub fn is_known_escape_start(c: char) -> bool {
+    matches!(c, 'n' | 't' | 'r' | '0' | '"' | '\\' | 'u')
+}
+
+/// 未知转义的错误（码与文案各一份）｜ the error raised for an unknown escape.
+pub fn unknown_escape_error(c: char) -> SmlError {
+    SmlError::from_code_title(E_LEX_004)
+        .with_detail(format!("\\{c}（仅支持 \\n \\t \\r \\0 \\\" \\\\ \\uXXXX）"))
+}
+
 /// 解码引号串的**内容**（不含首尾引号）。
 ///
 /// 调用方保证 `content` 是已配对的两个引号之间的原文；未闭合/悬空反斜杠这类
@@ -68,9 +82,7 @@ pub fn unescape_quoted(content: &str) -> Result<String, SmlError> {
                 out.push(ch);
             }
             Some(other) => {
-                return Err(SmlError::from_code_title(E_LEX_004).with_detail(format!(
-                    "\\{other}（仅支持 \\n \\t \\r \\0 \\\" \\\\ \\uXXXX）"
-                )));
+                return Err(unknown_escape_error(other));
             }
             None => {
                 // 内容以孤立反斜杠结尾（扫描方本应先报 E-LEX-006，这里兜底）

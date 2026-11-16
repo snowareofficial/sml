@@ -335,6 +335,30 @@ fn composition_array_element_is_still_validated() {
 }
 
 #[test]
+fn array_element_missing_default_field_is_not_an_error() {
+    // P11 裁决（2026-11-16）：元素位置**只校验、不回填**；`default` 自动视为可选
+    // （教科书 `ch05-contract`：「`default <值>`：缺失时填入默认值（同时自动视为可选）」）。
+    // ⇒ 元素里缺一个带 default 的字段**不算缺失**（不报错），但也**不回填** ——
+    //   元素不是字段，回填会改用户的树。
+    let v = ok(
+        "@contract Endpoint { host: str  port: int default 8080 }
+         @contract Cluster { peers: [Endpoint] }
+         c { @is Cluster
+             peers: [ { host: a } ]
+         }",
+    );
+    assert!(
+        v.get("c.peers[0].port").is_none(),
+        "只校验不回填 ⇒ 元素里不该多出 port"
+    );
+    assert_eq!(
+        v.get("c.peers[0].host").and_then(|x| x.as_str()),
+        Some("a"),
+        "元素里写了的字段照旧"
+    );
+}
+
+#[test]
 fn composition_fills_nested_defaults() {
     let v = ok(
         "@contract Address { city: str  country: str default CN }

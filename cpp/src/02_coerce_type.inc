@@ -620,7 +620,34 @@ static bool parse_field(const std::string& line, FieldSpec& out, std::string* er
 // ===========================================================================
 // contract value checks  (mirrors Rust check_contract_value)
 // ===========================================================================
-static bool check_value(const ValuePtr& v, const TypeSpec& spec, bool loose, std::string* err) {
+
+/* 字段路径拼接（Rust `join_path` 同口径）：父路径为空时直接返回子名。
+   路径只用于**错误文案**定位（如 `peers[1].host`）—— 码才是跨端稳定契约。
+   ⚠️ 本端没有「从文档根算起」的路径栈（那是解析期的活），故路径的根是**当前字段名**：
+   Rust / JS / Lua 给全路径（`c.peers[1].host`），本端给 `peers[1].host` —— 码一致、文案不同
+   （C 端连下标都没有）。 */
+static std::string join_path(const std::string& parent, const std::string& child) {
+    if (parent.empty()) return child;
+    return parent + "." + child;
+}
+
+/* `check_value` 的数组分支要逐元素按契约校验 ⇒ 调 `check_contract_only`；
+   `check_contract_only` 又要校验元素里的字段 ⇒ 调 `check_value`。互递归，故先前置声明。
+
+   `contracts` 为**空指针**表示「没有契约上下文」：无从查表，组合引用只能放行（防御分支）。
+   `cname` / `path` 只用于错误文案定位（可为空）。 */
+static bool check_value(const ValuePtr& v, const TypeSpec& spec, bool loose,
+                        const std::map<std::string,Contract>* contracts,
+                        const std::string* cname, const std::string* path,
+                        std::string* err);
+static bool check_contract_only(const ValuePtr& node, const Contract& c,
+                                const std::map<std::string,Contract>& contracts,
+                                const std::string& path, std::string* err);
+
+static bool check_value(const ValuePtr& v, const TypeSpec& spec, bool loose,
+                        const std::map<std::string,Contract>* contracts,
+                        const std::string* cname, const std::string* path,
+                        std::string* err) {
     /* 自定义模式类型（`@type`）：值须为**字符串**并匹配模式。
        非字符串必须显式报错并提示加引号 —— 裸写的号码会被词法切成数字，
        最终只剩末段、还不报错（本项目明确要消灭的「静默数据损坏」）。 */
@@ -684,7 +711,22 @@ static bool check_value(const ValuePtr& v, const TypeSpec& spec, bool loose, std
         case TypeSpec::Kind::Array: {
             if (v->tag!=Value::Tag::Arr){ if(err)*err=code_prefix(SML_E_CONTRACT_002, "sml: expected array"); return false; }
             if (spec.elem) {
-                for (auto& e : v->arr) if (!check_value(e, *spec.elem, loose, err)) return false;
+                for (size_t i = 0; i < v->arr.size(); i++) {
+                    const ValuePtr& e = v->arr[i];
+                    /* 元素路径带下标（`peers[1]`）—— 与 Rust / JS / Lua 的文案同口径。 */
+                    std::string epath = path ? (*path + "[" + std::to_string(i) + "]") : std::string();
+                    /* `[Endpoint]`：元素按**被引用契约**逐个校验（只校验、不回填）。
+                       契约的**应用**（回填 default + 逐字段校验）只发生在**字段**位置，
+                       数组元素没有别的地方会应用它 ⇒ 元素缺必填字段会被**静默放过**
+                       （此前 Rust / C / C++ 都这样，JS / Lua 早已逐元素校验）。 */
+                    if (spec.elem->kind == TypeSpec::Kind::ContractRef && contracts) {
+                        auto it = contracts->find(spec.elem->contract_ref);
+                        if (it != contracts->end() && e->tag == Value::Tag::Obj) {
+                            if (!check_contract_only(e, it->second, *contracts, epath, err)) return false;
+                        }
+                    }
+                    if (!check_value(e, *spec.elem, loose, contracts, cname, &epath, err)) return false;
+                }
             }
             return true;
         }
@@ -699,7 +741,25 @@ static bool check_value(const ValuePtr& v, const TypeSpec& spec, bool loose, std
             return false;
         }
         case TypeSpec::Kind::ContractRef:
-            // not resolved here (top-level @is handles refs); accept
+            /* 组合引用的**轻量检查**（判据照 Rust `check_type` 的 ContractRef 分支）：
+               契约必须存在（否则 E-CONTRACT-001）、值必须是块（否则 E-CONTRACT-008）。
+               这里**不应用**契约 —— 应用（回填 default + 逐字段校验）只发生在**字段**位置
+               （`resolve_and_check` → `Parser::apply_contract`）；数组元素走
+               `check_contract_only`（只校验、不回填）。 */
+            if (!contracts) return true;   /* 无契约上下文：无从查表，放行（防御分支） */
+            {
+                auto it = contracts->find(spec.contract_ref);
+                if (it == contracts->end()) {
+                    if (err) *err = code_prefix(SML_E_CONTRACT_001,
+                        "sml: unknown contract '" + spec.contract_ref + "'");
+                    return false;
+                }
+                if (v->tag != Value::Tag::Obj) {
+                    if (err) *err = code_prefix(SML_E_CONTRACT_008,
+                        "sml: contract applied to non-object");
+                    return false;
+                }
+            }
             return true;
         case TypeSpec::Kind::Pattern:
             // 上面已提前返回；这里只为让 switch 覆盖全部枚举值
@@ -708,13 +768,98 @@ static bool check_value(const ValuePtr& v, const TypeSpec& spec, bool loose, std
     return true;
 }
 
+/* 只校验、**不回填默认值**：用在**数组元素**位置上的组合契约。
+   判据照 Rust `sml-contract/src/lib.rs` 的 `check_contract_only`：
+     - 严格性：未声明字段 ⇒ E-CONTRACT-004（`__type` / `__featags` 是元数据键、不参与，
+       与本端 `apply_contract_obj` 同名单；`__name` / `__args` 参与）；
+     - 逐字段：必填缺失 ⇒ E-CONTRACT-003；类型 / 区间不合 ⇒ 002 / 005；
+     - 组合字段：递归**只校验**（同样不回填）。
+   为什么**不回填**：元素不是字段 —— 回填会改用户的树，而校验不需要改树。 */
+static bool check_contract_only(const ValuePtr& node, const Contract& c,
+                                const std::map<std::string,Contract>& contracts,
+                                const std::string& path, std::string* err) {
+    if (node->tag != Value::Tag::Obj) {
+        if (err) *err = code_prefix(SML_E_CONTRACT_008, "sml: contract applied to non-object");
+        return false;
+    }
+    /* 1) 严格性：契约未写 `loose` ⇒ 对象里有契约未声明的键 ⇒ E-CONTRACT-004。
+       豁免名单与 `apply_contract_obj` 同（逐个列举，别改成 `__` 前缀）。 */
+    if (!c.allow_extra) {
+        for (auto& kv : node->obj) {
+            if (kv.first == "__type" || kv.first == "__featags") continue;
+            bool declared = false;
+            for (auto& f : c.fields) if (f.name == kv.first) { declared = true; break; }
+            if (!declared) {
+                if (err) *err = code_prefix(SML_E_CONTRACT_004,
+                    "sml: field '" + join_path(path, kv.first) +
+                    "' not declared in contract '" + c.name + "'");
+                return false;
+            }
+        }
+    }
+    /* 2) 逐字段：必填缺失 + 类型校验（缺字段但非必填：不报错，也**不**回填默认值）。 */
+    for (auto& f : c.fields) {
+        ValuePtr fv = node->get(f.name);
+        std::string fpath = join_path(path, f.name);
+        if (fv == nullptr) {
+            /* 缺字段：`default` **不**放松必填 —— 教科书（`ch05-contract`）写明
+               `default` 「同时自动视为可选」，故有默认值的字段缺了不算违约；
+               字段位置由 `apply_one_field` 回填默认值，那一层照旧回填。 */
+            if (!f.mods.optional && !f.mods.default_value.has_value()) {
+                if (err) *err = code_prefix(SML_E_CONTRACT_003,
+                    "sml: missing required field '" + fpath + "'");
+                return false;
+            }
+            continue;
+        }
+        if (f.type.kind == TypeSpec::Kind::ContractRef) {
+            /* 组合字段：契约必须存在（001）、值必须是块（008），
+               再按被引用契约**只校验**一次（不应用、不回填）。 */
+            auto it = contracts.find(f.type.contract_ref);
+            if (it == contracts.end()) {
+                if (err) *err = code_prefix(SML_E_CONTRACT_001,
+                    "sml: unknown contract '" + f.type.contract_ref + "'");
+                return false;
+            }
+            if (fv->tag != Value::Tag::Obj) {
+                if (err) *err = code_prefix(SML_E_CONTRACT_008,
+                    "sml: contract applied to non-object");
+                return false;
+            }
+            if (!check_contract_only(fv, it->second, contracts, fpath, err)) return false;
+        } else {
+            if (!check_value(fv, f.type, f.mods.loose, &contracts, &c.name, &fpath, err)) return false;
+            /* 数值区间（与 `apply_one_field` 同判据：min / max 只对数值生效）。 */
+            if (f.mods.min || f.mods.max) {
+                double num = 0; bool isnum = false;
+                if (fv->tag == Value::Tag::Int) { num = (double)fv->i; isnum = true; }
+                else if (fv->tag == Value::Tag::Float) { num = fv->f; isnum = true; }
+                if (isnum) {
+                    if (f.mods.min && num < *f.mods.min) {
+                        if (err) *err = code_prefix(SML_E_CONTRACT_005,
+                            "sml: field '" + fpath + "': below min");
+                        return false;
+                    }
+                    if (f.mods.max && num > *f.mods.max) {
+                        if (err) *err = code_prefix(SML_E_CONTRACT_005,
+                            "sml: field '" + fpath + "': above max");
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+    return true;
+}
+
 static bool resolve_and_check(const ValuePtr& v, const TypeSpec& spec,
                               const std::map<std::string,Contract>& contracts,
-                              bool loose, std::string* err);
+                              bool loose, const std::string& cname,
+                              const std::string& path, std::string* err);
 
 static bool apply_one_field(const ValuePtr& val,
                             const std::map<std::string,Contract>& contracts,
-                            const FieldSpec& f, std::string* err) {
+                            const FieldSpec& f, const std::string& cname, std::string* err) {
     ValuePtr raw = val->get(f.name);
     if (raw == nullptr) {
         if (f.mods.optional) return true;
@@ -729,7 +874,7 @@ static bool apply_one_field(const ValuePtr& val,
     }
     bool loose = f.mods.loose;
     // type check
-    if (!resolve_and_check(raw, f.type, contracts, loose, err)) {
+    if (!resolve_and_check(raw, f.type, contracts, loose, cname, f.name, err)) {
         std::string detail = (err && !err->empty()) ? *err : std::string("sml: type mismatch");
         if (err) *err = wrap_error(detail, "sml: field '" + f.name + "': ", SML_E_CONTRACT_002);
         return false;
@@ -748,13 +893,14 @@ static bool apply_one_field(const ValuePtr& val,
 
 static bool resolve_and_check(const ValuePtr& v, const TypeSpec& spec,
                               const std::map<std::string,Contract>& contracts,
-                              bool loose, std::string* err) {
+                              bool loose, const std::string& cname,
+                              const std::string& path, std::string* err) {
     if (spec.kind == TypeSpec::Kind::ContractRef) {
         auto it = contracts.find(spec.contract_ref);
         if (it == contracts.end()) { if(err)*err=code_prefix(SML_E_CONTRACT_001, "sml: unknown contract '"+spec.contract_ref+"'"); return false; }
         return Parser::apply_contract(v, contracts, spec.contract_ref, err);
     }
-    return check_value(v, spec, loose, err);
+    return check_value(v, spec, loose, &contracts, &cname, &path, err);
 }
 
 // ===========================================================================

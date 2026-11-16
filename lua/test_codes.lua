@@ -360,10 +360,18 @@ local function test_contract_codes()
   expect_code("enum needs array", "@contract S { st: enum a b }\nx { @is S st: a }\n",
               "E-PARSE-023")
   -- 数组元素名现按**契约引用**处理（conformance 41 的修法）：`[nope]` 不再在解析期
-  -- 报 E-CONTRACT-012，而是在校验期因「未知契约」失败（008）。
-  -- 原期望 012 是改前的行为；@feature 里的 `[Endpoint]` 这类已定义契约走通。
+  -- 报 E-CONTRACT-012，而是在校验期失败。
+  -- ⚠️ 判据（照 Rust `check_type` 的 ContractRef 分支）：**契约不存在先判** ⇒ E-CONTRACT-001；
+  --   「值不是块」（008）是契约存在时的另一条。原期望 008 是旧判据（那时没有 001 这一格）。
+  --   @feature 里的 `[Endpoint]` 这类已定义契约走通。
   expect_code("array element contract unknown",
-    "@contract S { xs: [nope] }\nx { @is S xs: [ 1 ] }\n", "E-CONTRACT-008")
+    "@contract S { xs: [nope] }\nx { @is S xs: [ 1 ] }\n", "E-CONTRACT-001")
+  -- P11 裁决（2026-11-16）：元素位置**只校验、不回填**；`default` 自动视为可选
+  -- （教科书 `ch05-contract`）⇒ 元素里缺一个带 default 的字段不算缺失（不报错）。
+  expect_ok("array element missing default field",
+    "@contract E { host: str  port: int default 8080 }\n"
+    .. "@contract C { peers: [E] }\n"
+    .. "c { @is C\n  peers: [ { host: a } ]\n}\n")
   -- E-PARSE-019 指令头语法非法（@contract / @is 缺名字或缺体）
   expect_code("@contract without name", "@contract { a: str }\nx: 1\n", "E-PARSE-019")
   expect_code("@contract without body", "@contract S\nx: 1\n", "E-PARSE-019")

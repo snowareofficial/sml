@@ -402,13 +402,16 @@ python tests/conformance/run_conformance.py --require-all
 
 > 用途：新会话照此**逐片开工，每片一次提交**（P8–P17）。每片给：目标 / 落点 / 判据 / 验收。
 > 规模列：≤1 天 / 1–3 天 / 更久。前四片可连续做完，后六片按规模取舍。
+>
+> **当前状态（2026-11-17）**：P8–P11 已完成并提交；未动的是 P12–P17。
+> 下表保留全量交接清单供逐片核对，实施细节见 `docs/changes.sml` 与 `git log`。
 
 | 片 | 目标 | 落点 | 判据 | 验收 | 规模 |
 |---|---|---|---|---|---|
-| **P8** | C++ 端补契约数组元素校验 | `cpp/sml.hpp`（`FieldSpec` 加 `arr_ref_name`）+ `cpp/src/05_parse.inc`（数组元素类型回落 `CT_CONTRACTREF`）+ `cpp/src/02_coerce_type.inc`（数组分支逐元素**只校验**） | 照 C 端两处（`c/src/04_coerce.inc` 的 `check_contract_only` + 元素类型回落）；口径 = **只校验不回填** | `80_contract_array_elem` 由 pending 转正进默认套件，五端 AGREE | ≤1 天 |
-| **P9** | C 端补 strict(004) 那格 | `c/src/01_value.inc`（对象加键迭代 API）+ `c/src/04_coerce.inc`（`check_contract_only` 里查未声明字段） | strict 契约的数组元素带额外键 ⇒ `E-CONTRACT-004`（与 Rust 的 `check_contract_only` 同判据） | 新增用例：strict 契约 + 元素多一个键 ⇒ 四端同码 | 1–3 天 |
-| **P10** | Rust 词法入口分叉（**既存红灯**） | `rust/sml-parse/src/scan.rs`（重建文本时照 `needs_trailing_newline` 判别「源文本以 `\` 结尾」⇒ 不补换行） | `k: "abc\` 在 `sml_lex::tokenize` 与 `parse()` 两个入口都报 `E-LEX-006` | `cargo test` 全绿（现剩 `lex_escape_at_eof_stays_006` 一条红） | ≤1 天 |
-| **P11** | 契约数组元素「**要不要回填默认值**」定案并落地 | 裁决后二选一：定**回填** ⇒ JS / Lua 补回填 + Rust 的 `check_contract_only` 改走 apply；定**不回填** ⇒ 把该口径写进规范 | 元素里缺 `default` 字段时，五端值树逐格一致 | 新增正例用例（元素缺 `default` 字段） | 1–3 天（**需先裁决**） |
+| **P8** | C++ 端补契约数组元素校验 | `cpp/src/02_coerce_type.inc`（数组分支逐元素**只校验**）+ `cpp/src/06_include_api.inc` | 元素按契约逐个校验；口径 = **只校验不回填** | `81_contract_array_elem` 进默认套件，五端 AGREE | ≤1 天 |
+| **P9** | C 端补 strict(004) 那格 | `c/sml.h` + `c/src/01_value.inc`（对象键遍历 API）+ `c/src/04_coerce.inc`（元素位置查未声明字段） | strict 契约的数组元素带额外键 ⇒ `E-CONTRACT-004` | `82_contract_strict_extra`，五端同码 | 1–3 天 |
+| **P10** | Rust 词法入口分叉 | `rust/sml-lex/src/lib.rs` + `rust/sml-lex/src/unescape.rs`（未知转义**当场**报 004，转义符后直接 EOF 报 006） | `k: "abc\` 在两入口都报 `E-LEX-006`；`k: "abc\<换行>` 报 `E-LEX-004` | `cargo test` 全绿 | ≤1 天 |
+| **P11** | 契约数组元素「**要不要回填默认值**」定案并落地 | 裁决 = **不回填**：Rust / C / Lua 的 `check_contract_only` 把「有 default」当可选 + 只校验；口径写进中英教科书 §5.4.3 | 元素里缺 `default` 字段时不报错、不回填，五端值树逐格一致 | `83_contract_array_default`，五端 AGREE | 1–3 天 |
 | **P12** | `E-CONTRACT-011` 外置修饰符：**Rust 先行** | `rust/sml-contract`：`Modifier{apply,check,check_group}` + `FieldSpec.ext_data` + `GroupView` 分组视图 | 规范条目为准；宿主没注册就响亮拒绝（`E-CONTRACT-011`），不静默 | `rust/tests/` 补扩展修饰符用例 | 更久 |
 | **P13** | `E-CONTRACT-011` 四端接线 | C / C++ / JS / Lua 各自的契约层（各按宿主惯例，不硬改 FFI 形状） | 与 P12 的 Rust 语义**同形**（功能结果一致即达标） | 五端同码 + conformance 用例 | 更久 |
 | **P14** | 能力矩阵 / 教科书 / `llms.txt` 同步新能力 | `docs/swsml/ref/capability-matrix.md` + `site/content/{zh,en}/book/` + `llms.txt` | 至少同步：`E-LEX-007` 标识符白名单五端齐备、契约数组元素校验（Rust + C）、`@weakbind` 四端 `E-PARSE-029/030`、模式错误归并 `E-CONTRACT-013`（三码转 deprecated） | 文档每条都有出处（conformance 用例 / 单测） | 1–3 天 |

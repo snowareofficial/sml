@@ -315,9 +315,10 @@ CARGO_TARGET_DIR=<全新目录> cargo test --workspace -j 1
   同一套次序：`@type` 模式 → 外置类型 → **契约引用**。校验器本来就能逐元素递归校验，只改解析。
   `[enum ...]` 仍显式拒绝（JS 支持该写法，属已知差异）。
   实测：**Rust / C / C++ / JS 四端一致，只剩 Lua**（用例 `41_contract_array`）。
-  - [ ] **Lua 补契约数组**：照 Rust 同族改法（非内置名回落到契约引用）。2026-11-12 裁决：纳入本批五端同步（`docs/swsml/plan/crossend-sync.md` §0.1）。
-  - 📌 **顺带确认的语义**：数组元素**不回填 `default`**（元素规格刻意不带 default，修饰符作用于
-    字段整体）⇒ 已写进 ch09 中英两版的警告块，别再当缺陷重复报。
+  - ✅ **Lua 契约数组**：非内置名已回落到契约引用（conformance `41_contract_array` 五端 AGREE）。
+    元素的**校验**另按「只校验、不回填」收口（2026-11-16，`81`–`83` 三例）。
+  - 📌 **数组元素不回填 `default`**：口径已定稿（教科书 `ch05-contract` §5.4.3，中英两版）——
+    元素位置只校验；`default` 自动视为可选，元素缺它不报错也不回填。
 - **数组元素的逐元素校验**：Rust 侧对 `[image]` 逐元素调外置校验器；
   JS 侧 `valueMatchesType` 的 array 分支未逐元素校验外置类型。
 - [x] 清理 `sml-parse` 的既有 unused import / dead_code —— ✅ 2026-11-02 复核：默认 / 无默认 / `--all-targets` / `--features when` 四种配置 `cargo check -p sml-parse` 均 **0 警告**（`pending_when` 一处已在 feat(value) 提交里用 `#[cfg(not(feature = "when"))]` 消费）。
@@ -1102,18 +1103,10 @@ C++ `expect_int("BOM 开头（记事本另存为 UTF-8）", …)`、Lua 内联�
 
 ### H. 跨端错误码收口（2026-11-03 做性能 A/B 时撞见 —— 不是新缺陷，是**从来没人裁决**）
 
-- [ ] **`k: "abc\`（转义符后遇 EOF）三端三个码**（全部实测）：
-
-      | 入口 | 码 | 原因 |
-      |---|---|---|
-      | Rust **词法层** `sml-lex::tokenize` | `E-LEX-006` | 转义符后遇文件结束（`impls: [rust]`，其余端静默接受） |
-      | Rust **`parse` 入口** | `E-LEX-004` | `strip_features` **按行重建**时在文件尾补了个换行 ⇒ 变成「未知转义」 |
-      | C / JS / Lua（实测） | **`E-LEX-001`** | 它们没有那层重建，就是「字符串未闭合」 |
-
-      裁决选项：① 统一到 **006**（语义最准：确实是转义符后 EOF）；② 统一到 **001**（多数端现状，
-      改动最小）；③ **明确分域**（词法层 006 / 入口层 001）并把 `E-LEX-006` 的 `impls` 与 note 写清。
-      ⚠️ 现状：Rust 的 `parse` 报 004 是**刻意保住的** —— 性能快路径用 `ends_with('\\')` 把这类输入
-      留给慢路径，就是为了不搭车改跨端契约。真要收口，得连「按行重建」一起考虑。
+- ✅ **`k: "abc\`（转义符后遇 EOF）统一到 `E-LEX-006`**（T21 裁决已落地，2026-11-16）：
+      Rust 词法层对未知转义**当场**报 `E-LEX-004`，转义符后直接遇 EOF 报 `E-LEX-006`；
+      `k: "abc\<换行>` 因换行是未知转义 ⇒ `E-LEX-004`。钉子见
+      `rust/tests/error_codes.rs::lex_escape_at_eof_stays_006` 与各端 `test_codes`。
 
 ---
 

@@ -2010,22 +2010,27 @@ local function parse_contract_body(tokens, i, fragments, cname)
 end
 
 local apply_contract  -- 前向声明（组合字段需要递归回本函数）
+local check_contract_only  -- 前向声明（只校验路径：组合契约**不应用**、不回填）
 
 -- 校验一个值是否符合字段规格；不符即 fail()（error，沿 pcall 退出）。
 -- `fs` 是**字段规格**（`{ type = TypeSpec, min = ..., max = ... }`）：min/max 是
 -- 字段级修饰符、不在 TypeSpec 上，故不能只把类型传进来。数组元素递归时用
 -- `{ type = elem }` 构造一个（元素不参与 min/max）。
-local function check_type(fs, v, contracts)
+local function check_type(fs, v, contracts, only)
   local ty = fs.type
   if ty.kind == "any" then
     return
   end
   if ty.kind == "contract" then
-    -- 组合：值须为块，递归按被引用契约校验（含填默认值）
+    -- 组合：值须为块，递归按被引用契约校验（字段位置**应用**、元素位置只**校验**）
     if type(v) ~= "table" then
       fail("E-CONTRACT-008", "字段应为块并按契约 `" .. ty.ref .. "` 校验，实际不是块")
     end
-    apply_contract(v, contracts, ty.ref)
+    if only then
+      check_contract_only(v, contracts, ty.ref)
+    else
+      apply_contract(v, contracts, ty.ref)
+    end
     return
   end
   if ty.kind == "ext" then
@@ -2057,7 +2062,23 @@ local function check_type(fs, v, contracts)
       fail("E-CONTRACT-002", "字段类型应为数组，实际不是数组")
     end
     for idx = 1, #v do
-      check_type({ type = ty.elem }, v[idx], contracts)
+      local elem = ty.elem
+      if elem.kind == "contract" then
+        -- 元素位置的组合契约：**只校验、不回填**（判据照 Rust 的 `check_contract_only`）。
+        -- 契约的**应用**（回填 default + 逐字段校验）只发生在**字段**位置，
+        -- 数组元素没有别的地方会应用它 ⇒ 元素缺必填字段会被**静默放过**。
+        local sub = contracts[elem.ref]
+        if sub == nil then
+          fail("E-CONTRACT-001", "未定义的契约 `" .. tostring(elem.ref) .. "`")
+        end
+        if type(v[idx]) ~= "table" then
+          fail("E-CONTRACT-008",
+               "字段应为块并按契约 `" .. tostring(elem.ref) .. "` 校验，实际不是块")
+        end
+        check_contract_only(v[idx], contracts, elem.ref)
+      else
+        check_type({ type = elem }, v[idx], contracts)
+      end
     end
     return
   end
@@ -2181,6 +2202,51 @@ apply_contract = function(node, contracts, name)
     check_any_walk(name, c, contracts, {})
   end
   apply_contract_obj(node, contracts, c)
+end
+
+-- 只校验、**不回填默认值**：用在**数组元素**位置上的组合契约。
+-- 判据照 Rust `sml-contract/src/lib.rs` 的 `check_contract_only`：
+--   1) 严格性：未声明字段 ⇒ E-CONTRACT-004（`__type` / `__featags` 是元数据键、不参与）；
+--   2) 逐字段：必填缺失 ⇒ E-CONTRACT-003；类型 / 区间不合 ⇒ 002 / 005；
+--   3) 组合字段：递归**只校验**（同样不回填）。
+-- 为什么**不回填**：元素不是字段 —— 回填会改用户的树，而校验不需要改树。
+-- ⚠️ `default` **不**放松必填：教科书（`ch05-contract`）写明 `default`「同时自动视为可选」，
+--    故有默认值的字段缺了不算违约（字段位置由 `apply_contract_obj` 回填默认值）。
+check_contract_only = function(node, contracts, name)
+  local c = contracts[name]
+  if c == nil then
+    fail("E-CONTRACT-001", "未定义的契约 `" .. tostring(name) .. "`")
+  end
+  if type(node) ~= "table" then
+    fail("E-CONTRACT-008", "契约只能应用于块，实际不是块")
+  end
+  -- 1) 严格性：与 `apply_contract_obj` 同一名单（`__type` / `__featags` 是元数据键）。
+  if not c.allow_extra then
+    local meta = {}
+    for k in pairs(node) do meta[#meta + 1] = k end
+    table.sort(meta)
+    for _, k in ipairs(meta) do
+      if k ~= "__type" and k ~= "__featags" and c.fields[k] == nil then
+        fail("E-CONTRACT-004",
+             "字段 `" .. tostring(k) .. "` 未在契约 `" .. tostring(c.name) .. "` 中声明（严格模式）")
+      end
+    end
+  end
+  -- 2) 逐字段：只校验、**不回填**（键按名排序，与 Rust 的 BTreeMap 迭代顺序一致）。
+  local keys = {}
+  for k in pairs(c.fields) do keys[#keys + 1] = k end
+  table.sort(keys)
+  for _, k in ipairs(keys) do
+    local f = c.fields[k]
+    local v = node[k]
+    if v == nil then
+      if not f.has_default and not f.optional then
+        fail("E-CONTRACT-003", "字段 `" .. k .. "` 必填但缺失")
+      end
+    else
+      check_type(f, v, contracts, true)
+    end
+  end
 end
 
 ------------------------------------------------------------------------------

@@ -291,6 +291,79 @@ static void test_contract_codes() {
 }
 
 // ------------------------------------------------------------------
+// 契约**数组元素**的逐元素校验（只校验、不回填）：
+// 契约的「应用」（回填 default + 逐字段校验）只发生在**字段**位置，数组元素
+// 没有别的地方会应用它 ⇒ 元素缺必填字段此前被**静默放过**。
+// 口径：只校验、不回填（元素不是字段，回填会改用户的树）。
+// ------------------------------------------------------------------
+static void test_contract_array_element() {
+    std::cout << "[CONTRACT-ARRAY-ELEM]\n";
+
+    // 元素缺必填字段 ⇒ E-CONTRACT-003（与 Rust / C / JS / Lua 同码）
+    expect_code("array element missing required field",
+                "@contract Endpoint { host: str }\n"
+                "@contract Cluster { peers: [Endpoint] }\n"
+                "c { @is Cluster\n  peers: [ { host: a } { } ]\n}\n",
+                SML_E_CONTRACT_003);
+
+    // 元素引用了未定义的契约 ⇒ E-CONTRACT-001（轻量检查：契约必须存在）
+    expect_code("array element unknown contract",
+                "@contract Cluster { peers: [Endpoint] }\n"
+                "c { @is Cluster\n  peers: [ { host: a } ]\n}\n",
+                SML_E_CONTRACT_001);
+
+    // 元素不是块 ⇒ E-CONTRACT-008（轻量检查：值必须是块）
+    expect_code("array element not a block",
+                "@contract Endpoint { host: str }\n"
+                "@contract Cluster { peers: [Endpoint] }\n"
+                "c { @is Cluster\n  peers: [ 1 ]\n}\n",
+                SML_E_CONTRACT_008);
+
+    // 元素里的未声明字段 ⇒ E-CONTRACT-004（strict 那一格）
+    expect_code("array element undeclared field",
+                "@contract Endpoint { host: str }\n"
+                "@contract Cluster { peers: [Endpoint] }\n"
+                "c { @is Cluster\n  peers: [ { host: a  port: 8080 } ]\n}\n",
+                SML_E_CONTRACT_004);
+
+    // 正对照①：元素的键齐 ⇒ 通过，且**值树不变**（不回填默认值）
+    expect_ok("array element keys complete",
+              "@contract Endpoint { host: str }\n"
+              "@contract Cluster { peers: [Endpoint] }\n"
+              "c { @is Cluster\n  peers: [ { host: a } ]\n}\n");
+
+    // 正对照②：契约写 `loose` ⇒ 元素里的额外键放行
+    expect_ok("array element extra key (loose)",
+              "@contract Endpoint loose { host: str }\n"
+              "@contract Cluster { peers: [Endpoint] }\n"
+              "c { @is Cluster\n  peers: [ { host: a  port: 8080 } ]\n}\n");
+
+    // 正对照③：元素缺一个**带 default** 的字段 ⇒ 不报错（`default` 自动视为可选），
+    // 且**不回填**（元素里就没有这个键，值树与文档逐格相同）
+    {
+        std::string err;
+        auto v = sml::Parser::parse(
+            "@contract Endpoint { host: str  port: int default 8080 }\n"
+            "@contract Cluster { peers: [Endpoint] }\n"
+            "c { @is Cluster\n  peers: [ { host: a } ]\n}\n", &err);
+        if (!v) {
+            std::cout << "FAIL: array element missing default field -> \"" << err << "\"\n";
+            failures++;
+        } else {
+            sml::ValuePtr peers = v->get("c") ? v->get("c")->get("peers") : nullptr;
+            sml::ValuePtr first = (peers && peers->tag == sml::Value::Tag::Arr && !peers->arr.empty())
+                                ? peers->arr[0] : nullptr;
+            if (first && first->get("port") == nullptr) {
+                std::cout << "  ok: array element missing default field -> (no error, no backfill)\n";
+            } else {
+                std::cout << "FAIL: array element default field was backfilled\n";
+                failures++;
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------------
 // 破坏性变更（fix/drop-symbolic-contract-modifiers，df6e396）：契约字段规格里
 // 遗留的符号修饰符 ?(optional) 与 =(default) 必须**响亮**拒绝（E-PARSE-006，
 // 与 Rust / Lua / C 同码）。迁移映射：
@@ -1382,6 +1455,7 @@ int main() {
     test_lex_codes();
     test_parse_codes();
     test_contract_codes();
+    test_contract_array_element();
     test_pattern_regex();
     test_ext_api();
     test_contract_modifier_legacy();

@@ -147,6 +147,24 @@ sml_value *sml_obj_get(const sml_value *obj, const char *key) {
     return NULL;
 }
 
+/* 对象的键条数（不是对象时为 0）。 */
+size_t sml_obj_len(const sml_value *obj) {
+    if (!obj || obj->type != SML_OBJECT) return 0;
+    return obj->u.obj.len;
+}
+
+/* 取对象的第 n 个键名（按插入序；非对象或越界返回 NULL）。
+   键名是 NUL 结尾的 C 串（值的字节长度另走 `sml_value.slen`），故用 `strcmp` 比。 */
+const char *sml_obj_key_at(const sml_value *obj, size_t n) {
+    if (!obj || obj->type != SML_OBJECT) return NULL;
+    sml_field *f;
+    size_t i = 0;
+    for (f = obj->u.obj.head; f; f = f->next, i++) {
+        if (i == n) return f->key;
+    }
+    return NULL;
+}
+
 sml_value *sml_get_path(const sml_value *v, const char *path) {
     if (!v || !path) return NULL;
     const sml_value *cur = v;

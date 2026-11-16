@@ -181,6 +181,32 @@ static void test_contract_codes(void) {
                 "server {\n  @is S\n  port: 1\n  extra: 2\n}\n",
                 SML_E_CONTRACT_004);
 
+    /* 严格契约的**数组元素**：元素里有契约未声明的键 ⇒ E-CONTRACT-004。
+       元素位置的契约**只校验、不回填**；严格性判据与块级同源（契约未写 `loose` 即严格）。
+       ⚠️ 本端没有 path 概念 ⇒ 文案只带字段名（Rust 侧带 `c.peers[0].port`）：
+          **码是稳定契约、文案不是** ⇒ 同码即算一致。 */
+    expect_code("数组元素未声明字段（严格）",
+                "@contract Endpoint { host: str }\n"
+                "@contract Cluster { peers: [Endpoint] }\n"
+                "c { @is Cluster\n  peers: [ { host: a  port: 8080 } ]\n}\n",
+                SML_E_CONTRACT_004);
+    /* 正对照①：元素的键都在契约里 ⇒ 不报 */
+    expect_ok("数组元素键齐（严格）",
+              "@contract Endpoint { host: str }\n"
+              "@contract Cluster { peers: [Endpoint] }\n"
+              "c { @is Cluster\n  peers: [ { host: a } ]\n}\n");
+    /* 正对照②：元素契约写 `loose` ⇒ 额外键放行 */
+    expect_ok("数组元素未声明字段（loose）",
+              "@contract Endpoint loose { host: str }\n"
+              "@contract Cluster { peers: [Endpoint] }\n"
+              "c { @is Cluster\n  peers: [ { host: a  port: 8080 } ]\n}\n");
+    /* 正对照③：元素缺一个**带 default** 的字段 ⇒ 不报错（`default` 自动视为可选），
+       且**不回填**（元素里就没有这个键）。 */
+    expect_ok("数组元素缺 default 字段",
+              "@contract Endpoint { host: str  port: int default 8080 }\n"
+              "@contract Cluster { peers: [Endpoint] }\n"
+              "c { @is Cluster\n  peers: [ { host: a } ]\n}\n");
+
     /* 数值越界 */
     expect_code("数值越界",
                 "@contract S { ratio: num min 0 max 1 }\n"

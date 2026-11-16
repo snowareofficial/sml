@@ -469,7 +469,7 @@ static bool apply_contract_obj(const ValuePtr& val, const Contract& c,
     }
     }
     for (auto& f : c.fields) {
-        if (!apply_one_field(val, contracts, f, err)) return false;
+        if (!apply_one_field(val, contracts, f, c.name, err)) return false;
     }
     return true;
 }

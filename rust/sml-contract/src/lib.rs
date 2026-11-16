@@ -394,10 +394,15 @@ fn check_contract_only(
         }
     }
     // 逐字段：必填缺失 + 类型校验。缺字段且**有** `default` 时不报错（只是不填）。
+    //
+    // 判据：`default` 自动视为可选（教科书 `ch05-contract` 的修饰符表：
+    // 「`default <值>`：缺失时填入默认值（同时自动视为可选）」）。
+    // 只校验路径**不回填**，所以「有 default」不等于「已存在」—— 但它也**不算缺失**：
+    // 该字段本来就允许省略（否则字段位置与元素位置会得到相反的结论）。
     for (k, spec) in &c.fields {
         match node.get(k) {
             None => {
-                if spec.required {
+                if spec.required && spec.default.is_none() {
                     return Err(SmlError::from_code_title(E_CONTRACT_003).with_detail(format!(
                         "字段 `{}` 必填但缺失（契约 `{}`）", join_path(path, k), c.name
                     )));

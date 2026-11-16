@@ -87,6 +87,9 @@ void sml_free(sml_value *v);
 /* 对象: 设置/取字段 (取不到返回 NULL; 若字段已存在则替换) */
 void sml_obj_set(sml_value *obj, const char *key, sml_value *val);
 sml_value *sml_obj_get(const sml_value *obj, const char *key);
+/* 对象: 键的条数 / 按插入序取第 n 个键名 (取不到返回 NULL) */
+size_t sml_obj_len(const sml_value *obj);
+const char *sml_obj_key_at(const sml_value *obj, size_t n);
 /* 对象: 支持 "a.b.c" 点路径 */
 sml_value *sml_get_path(const sml_value *v, const char *path);
 /* 数组: 追加 / 取元素 */

@@ -690,14 +690,45 @@ static int check_type(parser *ps, const char *cname, const cfield *spec,
 
 /* 只校验、**不回填默认值**：数组元素位置上的组合契约用它
    （与 Rust 的 `check_contract_only`、JS / Lua 的既有行为同口径：只报错、不改树）。
-   ⚠️ 暂不做 strict（004）那格：本端没有对象的键遍历 API（只有 `sml_obj_get`）。 */
+   严格性（strict ⇒ 未声明字段 ⇒ E-CONTRACT-004）与 `apply_contract_rec` 的第 1 步
+   **同源**：同一个 `allow_extra` 标志、同一份 `__type` / `__featags` 豁免名单。 */
 static int check_contract_only(parser *ps, ccontract *c, sml_value *node,
                                char *err, size_t errsz) {
     cfield *cf;
+    /* 1) 严格性: 契约未写 `loose` ⇒ 对象里有契约未声明的键 ⇒ E-CONTRACT-004。
+       与 `apply_contract_rec` 第 1 步同一判据，差别只在**只报错、不改树**
+       （元素不是字段，回填会改用户的数据）。
+       ⚠️ 本端没有 path 概念 ⇒ 文案只带字段名（Rust 侧带 `c.peers[0].port` 这样的路径）：
+          **码是稳定契约、文案不是** ⇒ 两端同码即算一致（差异已登记在
+          `tests/conformance/known_divergences.md`）。 */
+    if (!c->allow_extra && node && node->type == SML_OBJECT) {
+        size_t nk = sml_obj_len(node), i;
+        for (i = 0; i < nk; i++) {
+            const char *k = sml_obj_key_at(node, i);
+            int found = 0;
+            if (!k) continue;
+            /* `__type` / `__featags` 不参与契约校验（与 `apply_contract_rec` 同一名单：
+               语法元数据，不是数据字段）。 */
+            if (!strcmp(k, "__type") || !strcmp(k, "__featags")) continue;
+            for (cf = c->fields; cf; cf = cf->next)
+                if (strcmp(cf->name, k) == 0) { found = 1; break; }
+            if (!found) {
+                set_err(err, errsz,
+                        SML_E_CONTRACT_004 " 字段 `%s` 未在契约 `%s` 中声明（严格模式；如需允许额外字段请在契约名后写 `loose`）",
+                        k, c->name);
+                return -1;
+            }
+        }
+    }
+    /* 2) 逐字段: 必填缺失 + 类型校验 */
     for (cf = c->fields; cf; cf = cf->next) {
         sml_value *v = sml_obj_get(node, cf->name);
         if (!v) {
-            if (cf->required) {
+            /* 缺字段: `default` **不**放松必填 —— 教科书（`ch05-contract`）写明 `default`
+               「同时自动视为可选」, 故有默认值的字段缺了不算违约（字段位置由
+               `apply_contract_rec` 回填默认值, 那一层照旧回填）。
+               只校验路径**不回填**, 所以「有 default」不等于「已存在」, 但也不算缺失。 */
+            if (cf->required && !cf->def) {
                 set_err(err, errsz,
                         SML_E_CONTRACT_003 " 字段 `%s` 必填但缺失（契约 `%s`）",
                         cf->name, c->name);

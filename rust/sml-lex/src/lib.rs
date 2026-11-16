@@ -5,6 +5,7 @@
 
 mod unescape;
 pub use unescape::unescape_quoted;
+use unescape::{is_known_escape_start, unknown_escape_error};
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -312,8 +313,16 @@ pub fn tokenize_spans(text: &str) -> Result<(Vec<Tok<'_>>, Vec<Span>), SmlError>
                         Some('\\') => {
                             has_escape = true;
                             // 转义符后的那个字符不参与「是否为闭合引号」的判断
-                            if chars.next().is_none() {
+                            let Some(escaped) = chars.next() else {
+                                // 转义符后**直接**遇文件结尾 ⇒ E-LEX-006
+                                // （与 C / C++ / JS / Lua 同码；T21 裁决 2026-11-06）
                                 return Err(SmlError::from_code_msg(E_LEX_006));
+                            };
+                            // 未知转义**当场**报错：不能等串闭合后再解码（那时才判未知转义）。
+                            // 否则「转义符后跟的是换行、串又没闭合」会先落进 E-LEX-001（未闭合），
+                            // 与其余四端的 E-LEX-004 分叉。
+                            if !is_known_escape_start(escaped) {
+                                return Err(unknown_escape_error(escaped));
                             }
                         }
                         Some(_) => {}

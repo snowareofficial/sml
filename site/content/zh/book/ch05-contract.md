@@ -298,6 +298,25 @@ doc {
 
 > 现状（2026-11-02）：这是「靠 token 合并天然成立」的行为，**非专门语法**；已由 `rust/tests/contract_cross_file.rs` 钉住（跨文件可见 / 顺序敏感 / 负数对照 三条）。**C / C++ / JS / Lua 四端的 include+contract 跨文件行为尚未对齐、未测试**——需要跨端流通时请先确认目标端。
 
+### 5.4.3 契约数组的元素：只校验，不回填
+
+`peers: [Endpoint]` 里的每个元素都按 `Endpoint` **逐个校验**（缺必填字段报 `E-CONTRACT-003`；多出契约没声明的键报 `E-CONTRACT-004`）。但元素位置**只校验、不回填**：
+
+- **不回填默认值**：元素不是字段——回填会改你写的树。所以元素里缺一个带 `default` 的字段时，**那个键就是没有**（不会被悄悄填上）。
+- **缺带 `default` 的字段不算缺失**：`default` 本就"自动视为可选"（见 §5.1 修饰符表），元素少写它不报错。
+- **严格性照旧**：元素里出现契约没声明的键 ⇒ `E-CONTRACT-004`（除非契约写了 `loose`）。
+
+```sml
+@contract Endpoint { host: str  port: int default 8080 }
+@contract Cluster { peers: [Endpoint] }
+
+c { @is Cluster
+  peers: [ { host: a } ]     # 通过：port 有默认值、可省略；元素里也不会多出 port
+}
+```
+
+> ✅ **跨端现状（2026-11-16 复核）**：五端一致 —— 用例 `81_contract_array_elem`（元素缺必填字段 ⇒ `E-CONTRACT-003`）与 `83_contract_array_default`（元素缺带 `default` 的字段 ⇒ 不报错、值树逐格相同）。
+
 ## 5.5 跨字段约束：互斥字段组（one_of / exactly_one）
 
 有时约束的不是「一个字段内部」，而是「一组字段之间」。例如支付方式：要么填 `card`、要么填 `alipay`，不能同时填——这种「多选一」用**互斥字段组**表达，它是一条挂在某个字段上的**外置修饰符（Modifier）**：

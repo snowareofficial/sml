@@ -293,6 +293,32 @@ doc {
 
 > Current status (2026-11-02): this behavior is emergent from token splicing, **not a dedicated syntax**; it is pinned by `rust/tests/contract_cross_file.rs` (three cases: visible across files / order sensitivity / negative control). The C / C++ / JS / Lua implementations' include+contract behavior is **not aligned or tested** — confirm the target backend before relying on it across languages.
 
+### 5.4.3 Contract array elements: validated, never back-filled
+
+Every element of `peers: [Endpoint]` is validated against `Endpoint` **one by one** (a missing required
+field raises `E-CONTRACT-003`; a key the contract does not declare raises `E-CONTRACT-004`). But at the
+element position SML **validates only — it never back-fills**:
+
+- **No default back-filling**: an element is not a field — back-filling would rewrite the tree you wrote.
+  So when an element omits a field that has a `default`, **that key is simply absent** (nothing is filled in).
+- **Omitting a field that has a `default` is not a violation**: `default` already means "optional"
+  (see the modifier table in §5.1), so leaving it out in an element is fine.
+- **Strictness still applies**: a key the contract does not declare inside an element raises
+  `E-CONTRACT-004` (unless the contract says `loose`).
+
+```sml
+@contract Endpoint { host: str  port: int default 8080 }
+@contract Cluster { peers: [Endpoint] }
+
+c { @is Cluster
+  peers: [ { host: a } ]     # OK: port has a default and may be omitted; no port appears in the element
+}
+```
+
+> ✅ **Cross-implementation status (reviewed 2026-11-16)**: all five backends agree — case
+> `81_contract_array_elem` (element missing a required field ⇒ `E-CONTRACT-003`) and
+> `83_contract_array_default` (element omitting a field that has a `default` ⇒ no error, identical trees).
+
 ## 5.5 Cross-field constraints: mutually exclusive groups (one_of / exactly_one)
 
 Sometimes the constraint is not "inside one field" but "between a group of fields". Take a payment
