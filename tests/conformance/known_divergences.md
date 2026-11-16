@@ -2,6 +2,13 @@
 
 本目录是 W5 的产出：**一份共享用例，五端（Rust / C / C++ / JS / Lua）各跑一遍，比较值树**。
 
+## 2026-11-16 复核
+
+实测 **AGREE 64 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`；
+`19` / `20` 以 `*` 放行）。新增 `64_type_regex`：**`@type` 的 `正则:` 逃生舱五端同树**
+（纯正则 + 与结构化写法混用）—— Rust 原生受限 IR，C / C++ / Lua 移植同构子集，JS 走 RegExp；
+各端钉子见 `c/` `cpp/` `lua/` 的 `test_codes` 里 `[PATTERN-REGEX]`。
+
 ## 2026-11-15 复核
 
 实测 **AGREE 63 / DIVERGE 0**（`python tests/conformance/run_conformance.py --require-all`
