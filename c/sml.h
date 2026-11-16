@@ -127,6 +127,73 @@ sml_value *sml_parse_ex(const char *text, char *err, size_t errsz,
 /* 释放 sml_parse_ex 交出的诊断数组（含每条的 code/message）。 */
 void sml_diag_free(sml_diag *diags, size_t n);
 
+/* =====================================================================
+** 外置扩展点（与 Rust `sml::ext` / `sml::contract_ext` 对齐）
+** =====================================================================
+**
+** 用途：给文档挂**带类型的元数据块且不进主数据树**（`@form { }`），以及注册
+** `image` / `link` / `time` 这类**领域类型**。类型名与校验规则都留在下游。
+**
+** 不注册任何扩展时，`sml_parse_ext(text, NULL, ...)` 与 `sml_parse_ex` 逐字一致。
+** 注册期校验（与内置同名 / 重复 / 空名）在入口做一次 ⇒ 失败报 `E-EXT-002`。
+**
+** 最小用法：
+**
+**     static sml_ext_outcome on_form(void *ud, const char *arg, sml_value *body,
+**                                    sml_value **emit, char *err, size_t errsz) {
+**         (void)ud; (void)arg; (void)body; (void)emit; (void)err; (void)errsz;
+**         return SML_EXT_DISCARD;          // 元数据块：不进主树
+**     }
+**     static int check_image(void *ud, const sml_value *v, char *err, size_t errsz) {
+**         (void)ud;
+**         if (v && v->type == SML_STR) return 1;
+**         snprintf(err, errsz, "image 须为附件 id 字符串");
+**         return 0;
+**     }
+**     static const sml_ext_directive dirs[] = { { "form", 0, on_form, NULL } };
+**     static const sml_ext_type      tys[]  = { { "image", check_image, NULL } };
+**     static const sml_ext ext = { dirs, 1, tys, 1 };
+**     sml_value *v = sml_parse_ext(src, &ext, err, sizeof err, NULL, NULL);
+*/
+typedef enum {
+    SML_EXT_DISCARD = 0,   /* 元数据块：不进主树（最常用） */
+    SML_EXT_EMIT    = 1,   /* 把 *emit_out 对象合并进所在块 */
+    SML_EXT_ERROR   = -1   /* 失败：写 err，报 E-EXT-008 */
+} sml_ext_outcome;
+
+typedef struct sml_ext_directive {
+    const char *name;      /* 指令名（**不含** `@`），如 "form" */
+    int positional;        /* 1 = 接受已废弃的 `@form Name { }` 位置参数形式 */
+    /* arg：`name: X` 里的 X（没有则 NULL）；body：`{ }` 块（没带块则 NULL）。
+       EMIT 时把要合并的对象写进 `*emit_out`（本库接管所有权并释放）。 */
+    sml_ext_outcome (*call)(void *ud, const char *arg, sml_value *body,
+                            sml_value **emit_out, char *err, size_t errsz);
+    void *ud;              /* 原样回传给 call */
+} sml_ext_directive;
+
+typedef struct sml_ext_type {
+    const char *name;      /* 如 "image" / "link" / "time" */
+    int (*check)(void *ud, const sml_value *v, char *err, size_t errsz); /* 1=合法,0=不合法 */
+    void *ud;
+} sml_ext_type;
+
+typedef struct sml_ext {
+    const sml_ext_directive *directives;   /* NULL / 0 = 没有外置指令 */
+    size_t n_directives;
+    const sml_ext_type *types;             /* NULL / 0 = 没有外置类型 */
+    size_t n_types;
+} sml_ext;
+
+/* 带扩展的解析（`ext` 可为 NULL）。其余参数语义与 `sml_parse_ex` 相同。 */
+sml_value *sml_parse_ext(const char *text, const sml_ext *ext,
+                         char *err, size_t errsz,
+                         sml_diag **diags, size_t *n_diags);
+
+/* 文件入口的带扩展版本（include 展开后再解析；`ext` 对主文件与子文件都生效）。 */
+sml_value *sml_parse_file_ext(const char *path, const sml_ext *ext,
+                              char *err, size_t errsz,
+                              sml_diag **diags, size_t *n_diags);
+
 /* 内置契约表（宿主注入，供 `@weakbind` 软校验用）。不透明句柄。
    Host-injected builtin contract table for `@weakbind` soft checks (opaque handle). */
 typedef struct sml_builtin sml_builtin;

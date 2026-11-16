@@ -224,7 +224,8 @@ static int resolve_includes(const char *text, const char *base,
 static sml_value *parse_file_core(const char *path, char *err, size_t errsz,
                                   sml_diag **diags_out, size_t *n_diags_out,
                                   const sml_builtin *b,
-                                  sml_weakbind **binds_out, size_t *n_binds_out) {
+                                  sml_weakbind **binds_out, size_t *n_binds_out,
+                                  const sml_ext *ext) {
     if (!path) {
         if (err && errsz) set_err(err, errsz, SML_E_INTERNAL_001 " 空指针入参（path 为 NULL）");
         return NULL;
@@ -267,23 +268,29 @@ static sml_value *parse_file_core(const char *path, char *err, size_t errsz,
     free(stack);
     free(text);
     sml_value *v = parse_core(out.buf ? out.buf : "", err, errsz,
-                              diags_out, n_diags_out, b, binds_out, n_binds_out);
+                              diags_out, n_diags_out, b, binds_out, n_binds_out, ext);
     free(out.buf);
     return v;
 }
 
 sml_value *sml_parse_file(const char *path, char *err, size_t errsz) {
-    return parse_file_core(path, err, errsz, NULL, NULL, NULL, NULL, NULL);
+    return parse_file_core(path, err, errsz, NULL, NULL, NULL, NULL, NULL, NULL);
 }
 
 sml_value *sml_parse_file_ex(const char *path, char *err, size_t errsz,
                              sml_diag **diags, size_t *n_diags) {
-    return parse_file_core(path, err, errsz, diags, n_diags, NULL, NULL, NULL);
+    return parse_file_core(path, err, errsz, diags, n_diags, NULL, NULL, NULL, NULL);
 }
 
 sml_value *sml_parse_file_full(const char *path, char *err, size_t errsz,
                                const sml_builtin *b,
                                sml_diag **diags, size_t *n_diags,
                                sml_weakbind **binds, size_t *n_binds) {
-    return parse_file_core(path, err, errsz, diags, n_diags, b, binds, n_binds);
+    return parse_file_core(path, err, errsz, diags, n_diags, b, binds, n_binds, NULL);
+}
+
+sml_value *sml_parse_file_ext(const char *path, const sml_ext *ext,
+                              char *err, size_t errsz,
+                              sml_diag **diags, size_t *n_diags) {
+    return parse_file_core(path, err, errsz, diags, n_diags, NULL, NULL, NULL, ext);
 }

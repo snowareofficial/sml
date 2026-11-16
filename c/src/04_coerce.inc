@@ -622,6 +622,23 @@ static int check_type(parser *ps, const char *cname, const cfield *spec,
             }
             break;
         }
+        case CT_EXT: {
+            /* 外置类型：校验器由注册方提供；失败报 E-CONTRACT-007（与 Rust 同码）。 */
+            char xerr[256];
+            xerr[0] = '\0';
+            if (!spec->ext_type || !spec->ext_type->check) { ok = 1; break; }
+            if (spec->ext_type->check(spec->ext_type->ud, v, xerr, sizeof xerr)) {
+                ok = 1;
+            } else {
+                set_err(err, errsz,
+                         SML_E_CONTRACT_007 " 字段 `%s` 不符合外置类型 `%s` 的要求：%s（契约 `%s`）",
+                         spec->name,
+                         spec->ext_type->name ? spec->ext_type->name : "?",
+                         xerr[0] ? xerr : "校验未通过", cname);
+                return -1;
+            }
+            break;
+        }
         case CT_CONTRACTREF: {
             if (v->type != SML_OBJECT) {
                 /* 「组合字段应为块」是**独立条件**（E-CONTRACT-008），不能与「类型不符」
@@ -866,6 +883,12 @@ static int cfield_type_differs(const cfield *a, const cfield *b) {
             /* 同名即同校验器（Rust `TypeSpec::name()` 对 Pattern 返回类型名） */
             if (!a->pat_name || !b->pat_name) return a->pat_name != b->pat_name;
             return strcmp(a->pat_name, b->pat_name) != 0;
+        case CT_EXT:
+            /* 同名的外置类型即同校验器（与 Rust `TypeSpec::Ext` 的 name 比较同口径）。 */
+            if (!a->ext_type || !b->ext_type) return a->ext_type != b->ext_type;
+            if (!a->ext_type->name || !b->ext_type->name)
+                return a->ext_type->name != b->ext_type->name;
+            return strcmp(a->ext_type->name, b->ext_type->name) != 0;
         default: return 0;
     }
 }
@@ -1361,10 +1384,15 @@ static void parse_contract_body(parser *ps, ccontract *c) {
             } else {
                 /* 非内置类型名，按此顺序判定（与 Rust 完全相同）：
                    1. `@type` 声明的自定义类型（模式校验）
-                   2. 回落为契约引用（组合）
-                   次序不可颠倒：同名时 `@type` 更「显式」。 */
+                   2. 外置类型（下游注册，如 image / link / time）
+                   3. 回落为契约引用（组合）
+                   次序不可颠倒：同名时 `@type` 更「显式」，外置其次。 */
                 sml_value *tdef = ps->types ? sml_obj_get(ps->types, tw) : NULL;
-                if (tdef) {
+                const sml_ext_type *xtype = sml_ext_find_type(ps->ext, tw);
+                if (!tdef && xtype) {
+                    cf->ty = CT_EXT;
+                    cf->ext_type = xtype;
+                } else if (tdef) {
                     char perr[256];
                     perr[0] = '\0';
                     cf->pat = sp_compile(tdef, ps->types, perr, sizeof perr);

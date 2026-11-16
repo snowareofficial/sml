@@ -327,7 +327,7 @@ getter（value / diags / errors / weak / contract_map / contracts）。设计要
    （本批 §1 卡点 3 的复发）。
 3. **扫描器补交叉核对**：`tools/scan_status.py` 新增 `scan_cases()`，`scan.md` 的
    conformance 行现在同时写「台账 AGREE 数 + 实际用例数」，两者不等会当场标 ⚠️。
-4. **`unfinished.md` §2 与 T 表逐行对齐**：错误码 15 / 语言层 7、套件 75、weak\* 五端、
+4. **`unfinished.md` §2 与 T 表逐行对齐**：错误码 13 / 语言层 5、套件 75、weak\* 五端、
    版本模型（字面量已同步，剩 `Removed` 三态等）、FFI（绑定层列整列收口）。
 5. **门禁**：`python tests/conformance/run_conformance.py --require-all`（60 AGREE）、
    `--pending`（空）、C / Lua / C++ 三端、五门绑定、码表三份 `--check`、`smldocs --check`

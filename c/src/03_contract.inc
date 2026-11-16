@@ -6,7 +6,10 @@ typedef enum {
     CT_ANY, CT_STR, CT_INT, CT_NUM, CT_BOOL, CT_ENUM, CT_ARRAY, CT_CONTRACTREF,
     /* `@type name: X { 模式 }` 声明的自定义类型：值须为字符串并匹配模式。
        编译失败是 E-CONTRACT-013，值不符是 009（与 Rust 同码）。 */
-    CT_PATTERN
+    CT_PATTERN,
+    /* 外置类型（下游注册，如 image / link / time）：校验器由注册方提供，
+       值不符是 E-CONTRACT-007（与 Rust `TypeSpec::Ext` 同码）。 */
+    CT_EXT
 } cty;
 
 typedef struct cfield {
@@ -26,6 +29,8 @@ typedef struct cfield {
     sp_pat *arr_pat;         /* CT_ARRAY 且 arr_inner == CT_PATTERN 时有效 */
     /* S7：`from-featag` —— 该键只能由 featag 落点写入，文档直接赋值 ⇒ E-CONTRACT-024。 */
     int from_featag;
+    /* CT_EXT：外置类型的校验器（借用注册表里的条目，生命周期由调用方保证）。 */
+    const sml_ext_type *ext_type;
     struct cfield *next;
 } cfield;
 
@@ -310,6 +315,7 @@ static const char *type_name(cty t) {
         case CT_ARRAY:       return "array";
         case CT_CONTRACTREF: return "contract-ref";
         case CT_PATTERN:     return "pattern";
+        case CT_EXT:         return "ext";
     }
     return "?";
 }
@@ -368,6 +374,8 @@ typedef struct {
        「外层留给下一个兄弟块的」。Depth at which the pending bind was declared. */
     int pending_weak_depth;
     int pending_weak_line;
+    /* 外置扩展表（NULL = 零扩展，此时所有扩展分支都不进）。 */
+    const sml_ext *ext;
     /* 旁路表：`@weakbind` 的记录（不进主树）。Weak-binding side table. */
     sml_weakbind *binds;
     size_t n_binds, cap_binds;

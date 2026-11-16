@@ -271,6 +271,144 @@ static void test_pattern_regex(void) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 外置扩展点（ext API，对齐 Rust `sml::ext`）                          */
+/* ------------------------------------------------------------------ */
+/* 钉：① 元数据块不进主树；② emit 合并进所在块；③ 外置类型合法/非法
+   （非法 ⇒ E-CONTRACT-007）；④ E-EXT-002/003/004/008；⑤ 零扩展与旧入口一致。 */
+static sml_ext_outcome ext_on_form(void *ud, const char *arg, sml_value *body,
+                                   sml_value **emit, char *err, size_t errsz) {
+    (void)ud; (void)arg; (void)body; (void)emit; (void)err; (void)errsz;
+    return SML_EXT_DISCARD;
+}
+static sml_ext_outcome ext_on_emit(void *ud, const char *arg, sml_value *body,
+                                   sml_value **emit, char *err, size_t errsz) {
+    (void)ud; (void)arg; (void)body; (void)err; (void)errsz;
+    *emit = sml_new_object();
+    sml_obj_set(*emit, "meta", sml_new_int(42));
+    return SML_EXT_EMIT;
+}
+static sml_ext_outcome ext_on_fail(void *ud, const char *arg, sml_value *body,
+                                   sml_value **emit, char *err, size_t errsz) {
+    (void)ud; (void)arg; (void)body; (void)emit;
+    snprintf(err, errsz, "自定义失败原因");
+    return SML_EXT_ERROR;
+}
+static sml_ext_outcome ext_on_bademit(void *ud, const char *arg, sml_value *body,
+                                      sml_value **emit, char *err, size_t errsz) {
+    (void)ud; (void)arg; (void)body; (void)err; (void)errsz;
+    *emit = sml_new_str("不是对象");
+    return SML_EXT_EMIT;
+}
+static int ext_check_image(void *ud, const sml_value *v, char *err, size_t errsz) {
+    (void)ud;
+    if (v && v->type == SML_STR) return 1;
+    snprintf(err, errsz, "image 须为附件 id 字符串");
+    return 0;
+}
+
+static void test_ext_api(void) {
+    static const sml_ext_directive dirs[] = {
+        { "form", 0, ext_on_form, NULL },
+        { "emitme", 0, ext_on_emit, NULL },
+        { "boom", 0, ext_on_fail, NULL },
+        { "bademit", 0, ext_on_bademit, NULL },
+    };
+    static const sml_ext_type tys[] = { { "image", ext_check_image, NULL } };
+    static const sml_ext ext = { dirs, 4, tys, 1 };
+    char err[256];
+
+    printf("[EXT-API]\n");
+
+    /* ① 元数据块：`@form { x: 1 }` 不进主树 */
+    err[0] = '\0';
+    {
+        sml_value *v = sml_parse_ext("a: 1\n@form { x: 1 }\nb: 2\n", &ext,
+                                     err, sizeof err, NULL, NULL);
+        int ok = v && sml_obj_get(v, "form") == NULL && sml_obj_get(v, "x") == NULL
+                 && sml_obj_get(v, "a") != NULL && sml_obj_get(v, "b") != NULL;
+        if (ok) printf("  ok: %-30s -> 仅 a/b\n", "元数据块不进主树");
+        else { printf("FAIL: 元数据块（err=%s）\n", err); failures++; }
+        if (v) sml_free(v);
+    }
+    /* ② emit：合并进所在块 */
+    err[0] = '\0';
+    {
+        sml_value *v = sml_parse_ext("a: 1\n@emitme { }\n", &ext, err, sizeof err, NULL, NULL);
+        sml_value *m = v ? sml_obj_get(v, "meta") : NULL;
+        int ok = m && m->type == SML_INT && m->u.i == 42;
+        if (ok) printf("  ok: %-30s -> meta=42\n", "emit 合并进所在块");
+        else { printf("FAIL: emit（err=%s）\n", err); failures++; }
+        if (v) sml_free(v);
+    }
+    /* ③ 外置类型：合法 */
+    err[0] = '\0';
+    {
+        sml_value *v = sml_parse_ext(
+            "@contract C { img: image }\nx { @is C img: \"att-1\" }\n",
+            &ext, err, sizeof err, NULL, NULL);
+        if (v) { printf("  ok: %-30s\n", "外置类型（合法）"); sml_free(v); }
+        else { printf("FAIL: 外置类型合法（err=%s）\n", err); failures++; }
+    }
+    /* ④ 外置类型：不合法 ⇒ E-CONTRACT-007 */
+    {
+        sml_value *v = sml_parse_ext(
+            "@contract C { img: image }\nx { @is C img: 123 }\n",
+            &ext, err, sizeof err, NULL, NULL);
+        if (!v && strncmp(err, SML_E_CONTRACT_007, strlen(SML_E_CONTRACT_007)) == 0)
+            printf("  ok: %-30s -> %s\n", "外置类型（不合法）", SML_E_CONTRACT_007);
+        else { printf("FAIL: 外置类型不合法（err=%s）\n", err); failures++; }
+        if (v) sml_free(v);
+    }
+    /* ⑤ E-EXT-003 / 004 / 008 */
+    {
+        struct { const char *src; const char *want; const char *tag; } cases[] = {
+            { "@form name:\n", SML_E_EXT_003, "E-EXT-003 name: 后无值" },
+            { "@bademit { }\n", SML_E_EXT_004, "E-EXT-004 emit 非对象" },
+            { "@boom { }\n", SML_E_EXT_008, "E-EXT-008 回调失败" },
+        };
+        size_t i;
+        for (i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+            sml_value *v = sml_parse_ext(cases[i].src, &ext, err, sizeof err, NULL, NULL);
+            if (!v && strncmp(err, cases[i].want, strlen(cases[i].want)) == 0)
+                printf("  ok: %-30s -> %s\n", cases[i].tag, cases[i].want);
+            else { printf("FAIL: %s（err=%s）\n", cases[i].tag, err); failures++; }
+            if (v) sml_free(v);
+        }
+    }
+    /* ⑥ E-EXT-002：与内置同名 / 重复注册 */
+    {
+        static const sml_ext_directive bad[] = { { "contract", 0, ext_on_form, NULL } };
+        static const sml_ext be = { bad, 1, NULL, 0 };
+        static const sml_ext_directive dup[] = {
+            { "form", 0, ext_on_form, NULL }, { "form", 0, ext_on_form, NULL } };
+        static const sml_ext de = { dup, 2, NULL, 0 };
+        sml_value *v = sml_parse_ext("a: 1\n", &be, err, sizeof err, NULL, NULL);
+        if (!v && strncmp(err, SML_E_EXT_002, strlen(SML_E_EXT_002)) == 0)
+            printf("  ok: %-30s -> %s\n", "E-EXT-002 与内置同名", SML_E_EXT_002);
+        else { printf("FAIL: E-EXT-002 内置（err=%s）\n", err); failures++; }
+        if (v) sml_free(v);
+        v = sml_parse_ext("a: 1\n", &de, err, sizeof err, NULL, NULL);
+        if (!v && strncmp(err, SML_E_EXT_002, strlen(SML_E_EXT_002)) == 0)
+            printf("  ok: %-30s -> %s\n", "E-EXT-002 重复注册", SML_E_EXT_002);
+        else { printf("FAIL: E-EXT-002 重复（err=%s）\n", err); failures++; }
+        if (v) sml_free(v);
+    }
+    /* ⑦ 零扩展（NULL）与旧入口一致 */
+    {
+        sml_value *a = sml_parse_ext("a: 1\nb: 2\n", NULL, err, sizeof err, NULL, NULL);
+        sml_value *b = sml_parse("a: 1\nb: 2\n", err, sizeof err);
+        char *da = a ? sml_dump(a) : NULL;
+        char *db = b ? sml_dump(b) : NULL;
+        if (da && db && strcmp(da, db) == 0)
+            printf("  ok: %-30s\n", "零扩展与旧入口一致");
+        else { printf("FAIL: 零扩展不一致\n"); failures++; }
+        sml_free_str(da); sml_free_str(db);
+        if (a) sml_free(a);
+        if (b) sml_free(b);
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* 契约修饰符单词形式：optional / default <v>（W24，对齐另外四端）        */
 /* ------------------------------------------------------------------ */
 /* C 只认单词形式 `optional` / `default`；遗留符号形式 `?` / `=` 必须
@@ -1260,6 +1398,7 @@ static void test_error_msgs_all(void) {
 int main(void) {
     test_contract_codes();
     test_pattern_regex();
+    test_ext_api();
     test_contract_modifier_words();
     test_parse_and_limit();
     test_unclosed_codes();

@@ -49,6 +49,8 @@
    拆分依据与「改成独立 TU」时的注意事项见 c/src/README.md。 */
 #include "src/00_errors.inc"
 #include "src/01_value.inc"
+/* 外置扩展点（指令 / 类型注册表）：只依赖 sml_value 与错误文案，故紧跟值层。 */
+#include "src/01b_ext.inc"
 #include "src/02_lex.inc"
 /* 模式匹配器（`@type` 的类型校验用）：无状态，故排在契约之前即可。 */
 #include "src/02b_pattern.inc"

@@ -718,6 +718,79 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
         }
         if (t->t == T_AT) {
             token *nxt = peek_at(ps, 1);
+            /* 外置指令：注册表里有就交给它（注册期已排除内置名 ⇒ 不遮蔽内置语义）。
+               解析器只负责「取参数 → 读块 → 收结果」，钩子只管语义。 */
+            if (nxt && nxt->t == T_WORD && ps->ext) {
+                const sml_ext_directive *xd = sml_ext_find_directive(ps->ext, nxt->v);
+                if (xd) {
+                    sml_value *body = NULL;
+                    sml_value *emit = NULL;
+                    const char *arg = NULL;
+                    int okd = 1;
+                    next(ps);            /* @ */
+                    next(ps);            /* 指令名 */
+                    if (peek(ps)->t == T_COLON) next(ps);
+                    /* 显式形式（推荐）：`@xxx name: X { }` */
+                    if (peek(ps)->t == T_WORD && strcmp(peek(ps)->v, "name") == 0
+                        && peek_at(ps, 1)->t == T_COLON) {
+                        next(ps); next(ps);
+                        if (peek(ps)->t != T_WORD && peek(ps)->t != T_STR) {
+                            set_err(ps->lx->errbuf, ps->lx->errsz,
+                                    SML_E_EXT_003 " 扩展指令 `@%s` 的 `name:` 后须值", xd->name);
+                            ps->failed = 1;
+                            okd = 0;
+                        } else {
+                            arg = next(ps)->v;
+                        }
+                    } else if (xd->positional && peek(ps)->t == T_WORD
+                               && peek_at(ps, 1)->t == T_LBRACE) {
+                        /* 位置参数（v4 起废弃）：仅在指令显式开启时接受。 */
+                        arg = next(ps)->v;
+                    }
+                    if (!okd) break;
+                    if (peek(ps)->t == T_LBRACE) {
+                        next(ps);
+                        body = parse_block(ps, T_RBRACE);
+                    }
+                    if (ps->failed) { if (body) sml_free(body); break; }
+                    {
+                        char xerr[256];
+                        sml_ext_outcome oc;
+                        xerr[0] = '\0';
+                        oc = xd->call ? xd->call(xd->ud, arg, body, &emit, xerr, sizeof xerr)
+                                      : SML_EXT_DISCARD;
+                        if (body) { sml_free(body); body = NULL; }
+                        if (oc == SML_EXT_ERROR) {
+                            set_err(ps->lx->errbuf, ps->lx->errsz,
+                                    SML_E_EXT_008 " 扩展指令 `@%s` 处理失败：%s",
+                                    xd->name, xerr[0] ? xerr : "（注册方未给出原因）");
+                            if (emit) sml_free(emit);
+                            ps->failed = 1;
+                            break;
+                        }
+                        if (oc == SML_EXT_EMIT) {
+                            if (!emit || emit->type != SML_OBJECT) {
+                                set_err(ps->lx->errbuf, ps->lx->errsz,
+                                        SML_E_EXT_004
+                                        " 扩展指令 `@%s` 的 emit 须为对象（用于合并进所在块）",
+                                        xd->name);
+                                if (emit) sml_free(emit);
+                                ps->failed = 1;
+                                break;
+                            }
+                            {   /* 合并进所在块：同名键后者覆盖（元数据块语义） */
+                                sml_field *ff;
+                                for (ff = emit->u.obj.head; ff; ff = ff->next)
+                                    sml_obj_set(obj, ff->key, sml_clone(ff->value));
+                            }
+                            sml_free(emit);
+                        } else if (emit) {
+                            sml_free(emit);   /* DISCARD 时忽略 emit */
+                        }
+                    }
+                    continue;
+                }
+            }
             /* 默认忽略：未开 `type.weak` 时 `@weakbind` / `@weakdata` / `@weakdoc`
                不解释、不校验、不产出（`docs/swsml/spec/weakbind.md` §0.3）。
                片段定义形态（后跟 `{`）**不消费**，落回原有语义，不抢占名字；
@@ -1388,7 +1461,8 @@ static sml_value *parse_block_inner(parser *ps, tok_type closing) {
 static sml_value *parse_core(const char *text, char *err, size_t errsz,
                              sml_diag **diags_out, size_t *n_diags_out,
                              const sml_builtin *builtin,
-                             sml_weakbind **binds_out, size_t *n_binds_out) {
+                             sml_weakbind **binds_out, size_t *n_binds_out,
+                             const sml_ext *ext) {
     if (diags_out) *diags_out = NULL;
     if (n_diags_out) *n_diags_out = 0;
     if (binds_out) *binds_out = NULL;
@@ -1398,6 +1472,8 @@ static sml_value *parse_core(const char *text, char *err, size_t errsz,
         return NULL;
     }
     if (err && errsz) err[0] = '\0';   /* 成功时保持为空，避免误判 */
+    /* 外置扩展：注册期校验（与内置同名 / 重复 / 空名 ⇒ E-EXT-002），fail-closed。 */
+    if (sml_ext_validate(ext, err, errsz) != 0) return NULL;
     /* 文件级规范化：跳过开头的 UTF-8 BOM（EF BB BF）。
        BOM **不是空白** ⇒ 会被词法器吞进第一个单词 ⇒ 第一个键名变成 "\xEF\xBB\xBFx"
        （最坏是**静默**改掉键名）。来源很常见：Windows 记事本「另存为 UTF-8」。
@@ -1466,6 +1542,7 @@ static sml_value *parse_core(const char *text, char *err, size_t errsz,
     ps.features = lx.features;   /* 预处理算出的初始特性集（解析期 @feature 再增减，幂等） */
     ps.want_diags = (diags_out != NULL);
     ps.builtin = builtin;
+    ps.ext = ext;
     /* 旁路表恒收集（与 Rust 的 `weak_binds` 同为恒收集的 Vec），没要就最后释放。 */
     ps.enter_key = NULL;
     /* 顶层支持三种形态，与 sml_dump 的输出对称：
@@ -1539,18 +1616,24 @@ static sml_value *parse_core(const char *text, char *err, size_t errsz,
 
 /* 兼容入口：不收集诊断（与改动前逐字节一致）。 */
 sml_value *sml_parse(const char *text, char *err, size_t errsz) {
-    return parse_core(text, err, errsz, NULL, NULL, NULL, NULL, NULL);
+    return parse_core(text, err, errsz, NULL, NULL, NULL, NULL, NULL, NULL);
 }
 
 sml_value *sml_parse_ex(const char *text, char *err, size_t errsz,
                         sml_diag **diags_out, size_t *n_diags_out) {
-    return parse_core(text, err, errsz, diags_out, n_diags_out, NULL, NULL, NULL);
+    return parse_core(text, err, errsz, diags_out, n_diags_out, NULL, NULL, NULL, NULL);
+}
+
+sml_value *sml_parse_ext(const char *text, const sml_ext *ext,
+                         char *err, size_t errsz,
+                         sml_diag **diags, size_t *n_diags) {
+    return parse_core(text, err, errsz, diags, n_diags, NULL, NULL, NULL, ext);
 }
 
 sml_value *sml_parse_with_builtins(const char *text, char *err, size_t errsz,
                                    const sml_builtin *b,
                                    sml_diag **diags, size_t *n_diags,
                                    sml_weakbind **binds, size_t *n_binds) {
-    return parse_core(text, err, errsz, diags, n_diags, b, binds, n_binds);
+    return parse_core(text, err, errsz, diags, n_diags, b, binds, n_binds, NULL);
 }
 
