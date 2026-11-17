@@ -1,0 +1,13 @@
+{
+	"empty": "",
+	"string": "Hello World!",
+	"string_2": "The quick brown fox jumps over the lazy dog.",
+	"wsp": "\t \t ",
+	"digits": "0123456789",
+	"symbols": "!@#$%^&*()_+-={}[]",
+	"utf8": "你好，世界！",
+	"escape": "\\/\"\b\f\n\r\t",
+	"unicode_escape_4": "文字",
+	"unicode_escape_v": "\na😍",
+	"surrogate": "𐐷🌉"
+}

@@ -40,7 +40,7 @@ jobs:
           set -e
           for p in swsml swsml-derive sml-value sml-codes sml-regex sml-lex \
                    sml-feature sml-include sml-contract sml-pattern sml-parse \
-                   smlite smldocs amberice amberice-ffi smldb; do
+                   smlite eclog-rs smldocs amberice amberice-ffi smldb; do
             echo "::group::cargo test -p $p"
             cargo test -p "$p"
             echo "::endgroup::"

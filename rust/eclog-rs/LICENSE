@@ -1,0 +1,16 @@
+eclog-rs is licensed under any of the following three licenses, at your option:
+
+  * Mulan Permissive Software License v2 (MulanPSL-2.0)
+  * MIT License
+  * Apache License, Version 2.0
+
+MulanPSL-2.0: the repository root `LICENSE` states the project-wide terms;
+              the full text is available at https://license.coscl.org.cn/MulanPSL2
+MIT:          https://opensource.org/licenses/MIT
+Apache-2.0:   https://www.apache.org/licenses/LICENSE-2.0
+
+Test vectors under `tests/golden/` are derived from Eclog-CPP
+(https://github.com/Vallest/Eclog-CPP, MIT, Copyright (c) Vallest Systems LLC)
+and are redistributed under the MIT license; they are not modified.
+
+SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0

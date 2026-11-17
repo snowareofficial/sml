@@ -40,6 +40,9 @@ members = [
     # 轻量 SML 纯数据子集运行时（I-28）：全新解析器/值模型，不复用 sml-parse；
     # 核心 #![no_std] + alloc、零硬依赖，独立发布 crates.io。
     "smlite",
+    # Eclog 文本格式的 Rust 实现（I-28）：与 smlite 并列、互不依赖，也不依赖 swsml。
+    # 验收靠上游 Eclog-CPP 的 golden 向量逐事件对拍（tests/golden/）。
+    "eclog-rs",
     # `.ambr`（SML 的二进制形式）：只依赖值模型，**不依赖 sml-parse**（docs/amberice/spec/format.md D3）。
     # `publish = false` —— 与 v5 一起开放（D1）。
     "amberice",

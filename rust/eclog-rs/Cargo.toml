@@ -1,0 +1,27 @@
+[package]
+name = "eclog-rs"
+# Eclog 文本格式的 Rust 实现：解析 / 渲染 JSON-like 数据，**独立于 swsml 家族**。
+# 与 smlite 并列：smlite 是 SML 纯数据子集，eclog 是另一套语法目标，二者不互相依赖。
+version.workspace = true
+edition = "2021"
+description = "Eclog 的 Rust 实现：JSON-like 文本格式的解析与渲染（独立 crate，不依赖 swsml）。"
+license = "MIT OR Apache-2.0 OR MulanPSL-2.0"
+repository = "https://gitee.com/snoware/sml"
+authors = ["Sal <sal@mail.swebase.cn>"]
+keywords = ["eclog", "json", "parser", "no-std", "config"]
+categories = ["parser-implementations", "config", "no-std"]
+readme = "README.md"
+publish = true
+
+[lib]
+# crate 名用 eclog-rs（包名），lib 名 `eclog` 便于 `use eclog::parse`。
+name = "eclog"
+path = "src/lib.rs"
+
+[dependencies]
+# 核心零硬依赖：`#![no_std]` + alloc。amberice 对接在 3c，本轮不建 feature。
+
+[features]
+# std 只门控 `std::error::Error` 实现；核心始终 no_std + alloc。
+default = []
+std = []

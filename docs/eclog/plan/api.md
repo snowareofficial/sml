@@ -2,7 +2,8 @@
 
 > 第 3 步设计结论，对应 [I-28](../../repo/ref/todo-ideas-tables.md) 的 eclog-rs 定位。
 > 口径（用户裁决）：**完整语法对齐 C++ 全量行为**；**eclog-rs 独立、不依赖 smlite**；数值自建带 raw 的 Number，**字节级严格对拍**；amberice 对 eclog 的支持由 eclog-rs 自己的模块实现。
-> 事实来源：Vallest/Eclog-CPP 源码（`_scratch/eclog-cpp`，MIT），行为重写而非代码翻译。本步只出设计，不落实现代码。
+> 事实来源：Vallest/Eclog-CPP 源码（`_scratch/eclog-cpp`，MIT），行为重写而非代码翻译。
+> 状态：3a / 3b 已落地（`rust/eclog-rs`，2026-11-17，`cargo test -p eclog-rs` 全绿）；3c 未开工。
 
 ## 0. 结论摘要
 
@@ -82,11 +83,15 @@ pub struct Number {
 pub struct Str {
     pub text: String,                // 解码后的值
     pub notation: StringNotation,    // 来源记法，渲染时按 scheme 决定保留/规范化
+    pub delimiter: String,           // raw 的定界符 / heredoc 的 TAG，≤16 个 alnum/_
 }
 ```
 
 - 与 smlite 的区别：smlite 是 `Float(f64)` 无 raw、int/float 分型；eclog-rs 按 C++ 语义保留 raw 与记法，**不可**复用 smlite 值模型。
-- `Number::as_i64()` / `as_f64()` 按需解析 raw；`Str` 保留记法以支撑 `typical` scheme 下的原样渲染。
+- `Number::as_i64()` / `as_u64()` / `as_f64()` 按需解析 raw；`Str` 保留记法以支撑 `typical` scheme 下的原样渲染。
+- `delimiter` 是渲染必需而非可选：heredoc 必须用原 TAG 重发（C++ `RendererTests.cpp:314-334`），内容等于 TAG 时才降级为 quoted。
+- `Object` 用插入序 `Vec<(Str, Value)>`，重复键语义照 C++ `insertForce`：**位置取首次出现，键与值取最后一次**（含键的记法）。键的唯一性由 `insert` 保证，`append` 撞键时整体不动。
+- 相等语义有意不对称：`Str` 只比 `text`（记法属表现层），`Number` 比 `raw + info`（raw 就是身份，不做数值折算）。
 
 ## 4. crate 骨架与公开 API
 
@@ -110,7 +115,10 @@ rust/eclog-rs/
   - 事件流：`parse_with(&[u8], handler)`，handler 实现 `on_object_begin/end`、`on_array_begin/end`、`on_key`、`on_value`（对照 `Parse.h`）。
   - 树 API：`Document::parse(&[u8])`、`find/get/append/insert/remove`、`merge`（对照 `Document.h`/`ObjectNode.h`）。
   - 渲染：`Renderer::new(OutputStream, RendererConfig)` + `begin_root_object/end_root_object/render_comment/close`（对照 `Renderer.h:21-97`）。
-- feature：`default = []`；`std`（错误 trait）、`amberice`（字节信封模块，不依赖 smlite）。
+- feature：`default = []`；`std`（错误 trait）。`amberice` 的 feature 与模块留到 3c 一并建，避免建一个不生效的空 feature。
+- 实际落地的文件：`lib.rs` / `error.rs` / `value.rs` / `parse.rs`（3a）+ `render.rs` / `merge.rs`（3b）+ `tests/conformance.rs` / `tests/parse_rules.rs` / `tests/render_merge.rs` + `tests/golden/`；`amberice.rs` 3c 再建。
+- 解析器是**状态机逐条移植**，不是重写的递归下降：分隔规则（逗号与换行等价、尾逗号、同一行必须逗号）与 `+` 拼接的跨行规则都藏在那几个 `state_*` 里。树与事件共用同一条解析路径（单一 `Sink` 双出口），因此两个出口不可能各自漂移。
+- `ParseHandler` 不做错误通道（C++ 的 `pe_user_asked_for_termination` 不收），需要中途终止时用树 API 自行短路。
 
 ## 5. amberice 接力模块（自实现）
 
@@ -120,19 +128,20 @@ rust/eclog-rs/
 
 ## 6. 对拍策略（字节级严格）
 
-1. **素材**：把 `_scratch/eclog-cpp/Tests/Text/` 的 13 组 `.ecl` / `.json` / `.check` 收为仓库内 golden 文件（放 `rust/eclog-rs/tests/golden/`，注明 MIT 来源）。
+1. **素材**：把 `_scratch/eclog-cpp/Tests/Text/` 的 **14 组 / 23 对 / 46 个文件**（`.ecl` / `.json` 输入 + 同名 `.check` 期望）收为仓库内 golden 文件（放 `rust/eclog-rs/tests/golden/`，注明 MIT 来源）。字节必须取自 **git 索引的 LF**（`git show HEAD:Tests/Text/<file>`）——上游仓库是 `i/lf`，本地浅克隆因 `core.autocrlf=true` 会变成 CRLF，而 heredoc 内容会带着行尾进正文。仓库 `.gitattributes` 已钉 `*.ecl` / `*.check` 为 `text eol=lf`（`*.json` 原就有），对拍断言里也显式检查 `.check` 不含 `\r`。
 2. **解析对拍**：Rust `parse_with` 产生的事件序列与 `.check` 逐事件比对；改一条规则即全量重跑。
-3. **渲染对拍**：编译 C++ `Compact/Eclog.cpp` 为 oracle，对每份 `.ecl` 用 `typical` 与 `json_compatible` 两 scheme 渲染，Rust 端逐字节比对（含 `\u{...}`、heredoc dedent、inf/nan 表示）。
-4. **数值对拍**：`Number.raw` 与 `NumberInfo` 逐字段比对（`+0/-0`、`1e100`、超 64 位整数、`±inf/nan`），不做数值等价折算。
-5. **Merge Patch 对拍**：移植 `DocumentTests.cpp:1230-1310` 用例到 `tests/conformance.rs`。
+3. **渲染对拍**：把 C++ `Compact/Eclog.cpp`（+ 一个 20 行的驱动）编成 oracle，对每份输入用 `typical` 与 `json_compatible` 两 scheme 渲染，产物收为 `tests/golden/render/<名>.<scheme>.render`（23 输入 × 2 = 46 份），Rust 端逐字节比对。另有 `edge.typical/compact.render` 两份，由另一个直接建 `ValueDesc` 的 oracle 生成，专门覆盖**记法降级**（raw 含控制字符 / `"`+定界符、heredoc 内容撞 TAG 或缩进后的 TAG）、compact、inline、注释 —— 这些内容无法从 `.ecl` 文本反推，只能构造。
+   构建命令（本机 g++ 16.1，oracle 与驱动都在 `_scratch`，不进仓库）：`g++ -std=c++11 -O1 -I Compact oracle.cpp Compact/Eclog.cpp -o oracle.exe`。
+4. **数值对拍**：解析侧 `Number.raw` 与 `NumberInfo` 逐字段比对（`+0/-0`、`1e100`、超 64 位整数、`±inf/nan`），不做数值等价折算；渲染侧**按数值重新格式化**（C++ 值树只存数值）——`+0`→`0`、`-0`→`0`、`-0.0`→`-0`、`3.14159265358979323846`→`3.141592653589793`。浮点数字取自 Rust 的最短往返格式化，排版规则照 C++（`[-4, 17)` 定点、其余 `e` 指数且不带 `+`）。
+5. **Merge Patch 对拍**：移植 `DocumentTests.cpp:1230-1313` 的 11 个用例到 `tests/render_merge.rs`（树相等判据），含「补丁子树里的 `null` 成员先递归剔除」这条容易漏的规则。
 
-## 7. 分轮施工（本步不落代码）
+## 7. 分轮施工
 
-| 轮 | 内容 | 判据 |
-|---|---|---|
-| 3a | 值模型（Number/Str 带 raw 与记法）+ 解析器（4 种字符串记法 + 拼接 + 数值状态机 + ast 树） | 13 组 `.ecl` 解析事件与 `.check` 一致 |
-| 3b | 双 scheme 渲染器 + RFC 7396 merge | 两 scheme 渲染字节与 C++ oracle 一致；merge 用例一致 |
-| 3c | amberice 对接模块（契约，待 P16/P17 再接实依赖）+ 对拍工具固化 | `cargo test -p eclog-rs` 全绿、对拍脚本可重复跑 |
+| 轮 | 内容 | 判据 | 状态 |
+|---|---|---|---|
+| 3a | 值模型（Number/Str 带 raw 与记法）+ 解析器（4 种字符串记法 + 拼接 + 数值状态机 + ast 树 + 树/事件双出口） | 14 组 / 23 个输入的解析事件与 `.check` 逐行一致；树序列化回事件亦一致 | **已完成（2026-11-17）** |
+| 3b | 双 scheme 渲染器 + RFC 7396 merge | 两 scheme 渲染字节与 C++ oracle 一致（46 + 2 份 `.render`）；merge 11 个用例一致 | **已完成（2026-11-17）** |
+| 3c | amberice 对接模块（契约，待 P16/P17 再接实依赖）+ 对拍工具固化 | `cargo test -p eclog-rs` 全绿、对拍脚本可重复跑 | 未开工 |
 
 ## 8. 文档治理
 
@@ -140,9 +149,12 @@ rust/eclog-rs/
 - I-28 行同步 eclog-rs 依赖事实为本文口径；正文不写历史。
 - 跑 `cargo run -p smldocs -- --index` 与 `--check`。
 
-## 9. 本步不做 / 后续衔接
+## 9. 边界与后续衔接
 
-- 不创建 `rust/eclog-rs/` 实现代码；不编译 C++ oracle；不接 amberice 实依赖；不改 smlite。
+- 3a（值模型 + 解析器）与 3b（双 scheme 渲染器 + RFC 7396 merge）已落地；只剩 3c（amberice 对接模块）。
+- C++ oracle 只在本地 `_scratch` 编译（驱动 + `Compact/Eclog.cpp`），不进仓库；仓库里只留它产出的 `.render` 期望字节。amberice 不接实依赖；不改 smlite。
 - 不碰编辑器扩展（第 4 步：`editors/vscode` 的 eclog 分支、语法文件、vsix 构建）。
 - 不记 `docs/changes.sml`（无搬迁/拆分/删除）；不改生成物 `docs/index.md` / `docs/report.md`（由工具刷新）。
 - 第 4 步衔接：编辑器语法高亮须与本文 §2 语言规范一致（4 种字符串记法、`#` 注释、双 scheme 差异、inf/nan）。
+- 已记的边界（照 C++ 行为保留，不"修正"）：`transferDecimalDigits` 先无条件吞一个字符（`1.e5` / `1.x` 都成了 number token）；raw 与 quoted 都不能跨行；heredoc 闭标记行尾必须是换行（EOF 处报 `unexpected end of file`）；递归无深度上限（与 C++ 一致）。
+- 3b 的两处**已知未覆盖**（都不出现在正常文档里）：① per-value `fracDigits`（C++ `NumberDesc(v, n)` 的定点位数）未进值模型，构造值只能按最短往返渲染；② `1.x` 这类被 `transferDecimalDigits` 吞进 token 的退化字面量，渲染时经 Rust 的 `f64` 解析会得到 `nan`（C++ 的 `stringToDouble` 只吃前缀、得 `1`）。正常文档的 23 个 golden 输入不含这两种形态。

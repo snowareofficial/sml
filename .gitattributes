@@ -8,3 +8,8 @@
 *.hpp text eol=lf
 *.json text eol=lf
 *.mjs text eol=lf
+# eclog-rs 的对拍向量：逐字节对拍，禁止任何行尾转换。
+# Conformance vectors for eclog-rs: byte-exact comparison, no EOL conversion.
+*.ecl text eol=lf
+*.check text eol=lf
+*.render text eol=lf

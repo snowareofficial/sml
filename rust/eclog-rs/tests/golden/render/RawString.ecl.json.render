@@ -1,0 +1,9 @@
+{
+	"empty": "",
+	"string": "Hello World!",
+	"wsp": "\t \t ",
+	"utf8": "你好，世界！",
+	"path": "C:\\Program Files\\Internet Explorer",
+	"regex": "<\\s*img[^>]+src\\s*=\\s*([\"'])(.*?)\\1[^>]*>",
+	"delimiter": "@dd\"@\"d\"\"dd"
+}

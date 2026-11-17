@@ -110,7 +110,10 @@ T5 段级 zstd + 帧级 FRAMES + 按块 AEAD · T6 `sml::envelope` + CLI 互转�
 | I-21 | 六类语义部件（figure/admonition/footnote/deflist/sub·sup/toc）未做 | `Partial` |
 | I-22 | 下游方言六问（源文件未入库，**有对外发布禁令**） | `Todo` |
 | I-23 | 表示层性能（把「没开的 feature」变成不走的路径） | `Todo` |
+| I-28 | `eclog-rs`：3a（值模型 + 解析器 + 树/事件双出口）与 3b（双 scheme 渲染器 + RFC 7396 merge，46 + 2 份渲染期望与 C++ oracle 逐字节一致）已落地；剩 3c amberice 对接。另两处已知未覆盖：per-value `fracDigits`、`1.x` 退化字面量的渲染（见 `docs/eclog/plan/api.md` §9）。`smlite` 最小切片已落地，`hwid` / `instgen` 未开工 | `Partial` |
 | I-6 | featag：Rust 已完成，`IDEAS` 仍写 `Blocked` | **状态过期** |
+| I-34 | SML 自动识别：`detect()` 只按扩展名，未知即回落 SML（`--from auto` / 文本判定 / MIME 三选，范围待点） | `Todo` |
+| I-35 | 静默失败治理（exit 0 但结果错），台账 S1–S7 与最小复现见 [`silent-failures.md`](silent-failures.md) | `Todo` |
 
 ---
 
