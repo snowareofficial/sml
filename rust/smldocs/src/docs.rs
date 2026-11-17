@@ -206,12 +206,23 @@ fn fmt_date(days: i64) -> String {
 
 /// `meta.sml` 内容摘要（FNV-1a 64）：生成物只跟数据源走。
 /// 不记日期 / HEAD —— 那两者会在跨天或提交后制造假漂移。
+///
+/// 跨平台确定性：先按 `\n` 规范化行尾（Windows 工作区是 CRLF，CI 按
+/// `*.sml text eol=lf` checkout 是 LF），否则同一份数据在两平台算出不同摘要。
 fn meta_digest(root: &Path) -> String {
     let bytes = std::fs::read(root.join(META)).unwrap_or_default();
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in bytes {
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        // CRLF 只算 `\n`：跳过 `\r`，让紧随的 `\n` 参与哈希。
+        if b == b'\r' && bytes.get(i + 1) == Some(&b'\n') {
+            i += 1;
+            continue;
+        }
         h ^= b as u64;
         h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        i += 1;
     }
     format!("{h:08x}")
 }
