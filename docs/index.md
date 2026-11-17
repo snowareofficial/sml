@@ -1,7 +1,7 @@
 # docs 索引
 
 > **本文件由 `cargo run -p smldocs -- --index` 生成，勿手改。**
-> 数据源 `docs/meta.sml`（64 份文档，摘要 `d1151be0fca35b4f`）。摘要变了就必须重跑生成；
+> 数据源 `docs/meta.sml`（64 份文档，摘要 `c74234e16c79638d`）。摘要变了就必须重跑生成；
 > 本文件不记生成日期 / HEAD，避免跨天或提交后假漂移。体检结论见 [`report.md`](report.md)。
 
 ## 一眼看结论
@@ -97,7 +97,7 @@
 | [`repo/ref/pending-decisions.md`](repo/ref/pending-decisions.md) | 2026-11-06 | 2026-11-16 | **current** | — | 裁决台账：D1–D7 已全部裁决（含发布拓扑 / 仓库分工 / 官网 / 0.6.9 与 v5 边界）+ 仍待裁项的去处 |
 | [`repo/ref/scan.md`](repo/ref/scan.md) | 2026-11-07 | 2026-11-10 | **current** | — | 自动扫描的计数结果（tools/scan_status.py --write 生成，勿手改） |
 | [`repo/ref/silent-failures.md`](repo/ref/silent-failures.md) | 2026-11-17 | 2026-11-17 | **current** | — | 静默失败台账：exit 0 但值树/文本已错的 S1–S8（多词裸值 / 全角冒号 / 未知扩展名 / 空产物 / 根块名不认识 / 模板丢参数 / math 透传 / 同名块聚合成数组后模板取空），逐条最小复现 + 修法优先级 |
-| [`repo/ref/todo-ideas-tables.md`](repo/ref/todo-ideas-tables.md) | 2026-11-06 | 2026-11-17 | **current** | — | TODO / IDEAS 条目表：卡在谁、什么状态；2026-11-15 增补 I-25…I-30，2026-11-16 增补 I-31 / I-32（wasm·native access server 衍生语言项目 / 项目经验固化为模板），2026-11-17 确认 I-28 的 smlite / eclog-rs 定位与依赖链；2026-11-17 增补 I-34（SML 自动识别：`--from auto` / 文本判定 / MIME 三选，现状只按扩展名）与 I-35（静默失败治理，台账见 `docs/repo/ref/silent-failures.md`） |
+| [`repo/ref/todo-ideas-tables.md`](repo/ref/todo-ideas-tables.md) | 2026-11-06 | 2026-11-17 | **current** | — | TODO / IDEAS 条目表：卡在谁、什么状态；2026-11-15 增补 I-25…I-30，2026-11-16 增补 I-31 / I-32（wasm·native access server 衍生语言项目 / 项目经验固化为模板），2026-11-17 确认 I-28 的 smlite / eclog-rs 定位与依赖链；2026-11-17 增补 I-34（SML 自动识别：`--from auto` / 文本判定 / MIME 三选，现状只按扩展名）与 I-35（静默失败治理，台账见 `docs/repo/ref/silent-failures.md`）、I-36（`@for … in` 后允许 `[...]`，与裸词列表并存，细节待裁） |
 | [`repo/ref/unfinished.md`](repo/ref/unfinished.md) | 2026-11-06 | 2026-11-17 | **current** | — | 唯一「还剩什么」清单（分类 / 判据 / 复核命令） |
 
 ## smlite（2 份）

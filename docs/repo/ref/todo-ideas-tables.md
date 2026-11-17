@@ -1,4 +1,4 @@
-# TODO / IDEAS 两张表（2026-11-06 建；2026-11-15 增补 I-25…I-29；2026-11-16 增补 I-31 / I-32 / I-33；2026-11-17 增补 I-34 / I-35）
+# TODO / IDEAS 两张表（2026-11-06 建；2026-11-15 增补 I-25…I-29；2026-11-16 增补 I-31 / I-32 / I-33；2026-11-17 增补 I-34 / I-35 / I-36）
 
 > **本文件只做表**：状态镜像 + 纠偏，不替用户勾选 `TODO.md` / `IDEAS.md`，不替代原文。
 > **权威仍是 `TODO.md` / `IDEAS.md`**（用户维护）；条目状态与卡点以本表为准。
@@ -16,7 +16,7 @@
 | TODO 未勾 | **45** | `Select-String TODO.md '^\s*- \[ \]'` |
 | TODO 已勾 | **76** | `Select-String TODO.md '^\s*- \[ x\]'` |
 | TODO 非复选框欠账 | **8** | 人工取自 `TODO.md` 表格行 / `⬜` 标记 / `⏳ 待修`（本文 T43–T50，逐行注来源） |
-| IDEAS 条目 | **35**（I-1…I-35；其中 I-12 = `Rejected`、I-24 待裁决；I-24…I-35 只在本表，未回写 `IDEAS.md`） | `Select-String docs/repo/ref/todo-ideas-tables.md '^\| I-\d+'` |
+| IDEAS 条目 | **36**（I-1…I-36；其中 I-12 = `Rejected`、I-24 待裁决；I-24…I-36 只在本表，未回写 `IDEAS.md`） | `Select-String docs/repo/ref/todo-ideas-tables.md '^\| I-\d+'` |
 | 码表条目 | **175**（含 `W-CLI-001`） | `Select-String errors/codes.sml '\{ id: [EWI]-'`；生成物 `site/static/errors.json` |
 | 仅 Rust 实现（`impls: [ rust ]`） | **13**；语言层 **5**（CONTRACT 1 / EXT 1 / FEATURE 1 / LEX 1 / LIMIT 1）+ DERIVE 8（宿主绑定层，Rust 专属，不是跨端欠账）。剩余是**逐码实现缺口**，不再是「无诊断通道」（五端都有出口） | `Select-String errors/codes.sml 'impls: \[ rust \]'`，按 `domain` 分组 |
 | 一致性套件 | **80 例 / AGREE 80 / DIVERGE 0**（`19` 以 `*` 放行） | `python tests/conformance/run_conformance.py --require-all`；`docs/repo/ref/scan.md` |
@@ -178,7 +178,7 @@
 
 ---
 
-## 表 2 · IDEAS（35 条）
+## 表 2 · IDEAS（36 条）
 
 | 编号 | 名称 | 状态 | 类型 | 依赖 | 下一步 | 来源(file:行) |
 |---|---|---|---|---|---|---|
@@ -217,6 +217,7 @@
 | I-33 | **高亮与语言语义的漂移（反复出现）**：TextMate 只看词法，SML 的判据却在语义层 | Todo（用户 2026-11-16：「这个问题不止一次了。也不知这一处」） | 工具 / 编辑器高亮 | I-24（featag 高亮细化）、I-26（同一族，已完成的那几条） | **已连修三轮同一类**：块头里「哪个是类型词 / 契约词 / 块名」、featag 区之后的块名、数组位置 `A {` 被 `#key` 抢走、`@is A, B` 只认第一个。根因固定：TextMate 规则只能按**字符位置**判，而语言的判据是「是否命中契约表 / 特性位 / 版位」—— 位置启发式必然有反例（`server web prod {` 的首词不是契约，`prod` 仍会被当块名）。两步走：① 短期把「分色契约表」写成断言：`_verify_tokenize.mjs` 的断言 5 / 6 已是这条，改语法时必须同步，否则同色缺陷会假通过（断言要判「含目标色**且不含**另一种色」）；② 长期改用 **LSP 语义高亮（semantic tokens）**——扩展已内置解析器（`src/vendor/sml.mjs`），拿得到 `contractMap` / `__type` / `__name`，按契约表判才是正确层次，TextMate 规则退化为「LSP 未就绪时的兜底」。验收判据：同一份 `arr4.sml` 在两种机制下**同色**，且 `server web prod {` 的 `prod` 不再被当成块名 | 本次对话（2026-11-16） |
 | I-34 | **SML 自动识别**：无扩展名 / 未知扩展名时判定输入是什么格式 | Todo（用户 2026-11-17 口述「这个应该好做」；范围未定，见右列三选） | 工具 / 输入识别 | 无（与 I-20 的 CLI 增强同族，互不阻塞） | **现状（2026-11-17 已核实）**：`smltools` 的 `InputFormat::detect` **只按扩展名**（`sml` / `swl` / `json` / `toml` / `yaml` / `xml` / `svd`），**未知扩展名与 stdin 一律回落 SML**，不报「识别不出」。已实测：把 `{"name":"web","port":8080}` 存成 `.txt` 直接按 SML 解析**成功且树完全相同**（SML 接受引号键、逗号与顶层 `{}`）⇒「看首字符」式嗅探不成立，判据必须是**候选格式逐个解析 + 往返/无损比对**再选，并列时列候选。范围三选（待用户点）：① `--from auto` 在多格式间选；② 「这段文本是不是 SML」判定（导入 / 粘贴 / 剪贴板 / 目录批量）；③ 编辑器与 MIME 侧语言识别（`.swl` 已是 v5 默认后缀，MIME 未登记）。验收：`.txt` / 无扩展名的 JSON、YAML、TOML、XML、SML 各一份能正确识别；识别不出必须**明确报 `E-CLI-001` 或给出候选 + 置信度**，不得静默按 SML 解析出一棵怪树 | 本次对话（2026-11-17）；`rust/smltools/src/main.rs:124` `InputFormat::detect` |
 | I-35 | **静默失败治理**：exit 0、无诊断、结果已错 | Todo（用户 2026-11-17 要求「记一下遇到的问题特别是静默」） | 质量 / 诊断 | 无 | 台账与逐条最小复现见 [`docs/repo/ref/silent-failures.md`](silent-failures.md)（S1 多词裸值变额外键 / S2 全角冒号 + 冒号可省 / S3 未知扩展名回落 SML / S4 后端不认块形态出空 body / S5 根块名不认识按普通字段渲染 / S6 custom 模板丢参数 / S7 math 零校验 / S8 同名块聚合成数组后模板取到空串）。修法：① S1·S2 加 lint，不动语法（键位置全角 `：` `，`；值位置多个裸词），P1；② S8 让数组元素进 `{value}` 时取元素的 `text`，取不到即报错，P1；③ S6 给 `custom` 补 `{field:名}`（S8 修好后非必需，但覆盖落点不叫 `text` 的情形），约 50 行 + 单测，P1；④ S4·S5 在「树非空但零节点被消费」时给 W 级诊断（码须先登 `errors/codes.sml` 再生成五端），P2；⑤ S3 归 I-34。验收：S1–S6、S8 的最小复现**要么报错、要么有 W 级诊断**，不得 exit 0 且无声；S7 不改行为只补文档 | 本次对话（2026-11-17）；`docs/repo/ref/silent-failures.md` |
+| I-36 | **`@for … in` 后面允许 `[...]`**：列表写成方括号，比空格分隔的裸词更符合直觉 | Todo（用户 2026-11-17 口述「for in 后面允许 [] 更加复合直觉」；细节未裁决） | 语言设计 / `@for` | I-35 同族（标量边界的直觉问题）；语法面与 `grammar.sml` 的 `for-clause` 绑定 | **现状**：`for-clause ::= @for VAR in ITEM { ITEM } { member }`（`grammar.sml:152`、指令表 `:198`），列表是空格分隔的裸词，例 `@for h in web api { "${h}" }`；`in` 后面直接写 `[` 目前不是列表起点。落地前须先裁五件事：① **并存**（裸词继续收，`[]` 作等价写法）还是只留 `[]` —— 既有文档不能砍；② `[]` 内的分隔符（逗号 / 换行 / 裸词空格）是否与 `element` 规则一致；③ 值位置与元素位置两处 `for-clause` 是否同改；④ 词法上 `in [` 现在被切成什么（`[` 已是数组开括号，Rust 的 `parse_for` 是否要前瞻）；⑤ 五端同步（Rust 参照 + C/C++/JS/Lua）与 `grammar.sml` 产生式、`docs/swsml/` 的 `for` 记录同步。验收：`@for h in [web, api] { }` 与 `@for h in web api { }` 产出同一棵树、同一 `${h}` 插值结果 | 本次对话（2026-11-17）；`grammar.sml:152` |
 
 ---
 
