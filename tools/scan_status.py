@@ -93,12 +93,22 @@ def scan_cases() -> int:
 
 
 def scan_ci() -> dict:
-    """ci.yml: 是否跑 fuzz / bench。"""
+    """ci.yml: 是否**真的跑** fuzz / bench。
+
+    判据是「有同名 job，或显式调用 `cargo fuzz` / `cargo bench`」，
+    而不是全文子串 —— 注释里出现 `rust/fuzz` 这种路径会把结论翻成 True 的假阳性
+    （2026-11-17 被 cargo-audit job 的注释踩中过）。
+    """
     p = ROOT / ".github" / "workflows" / "ci.yml"
     if not p.is_file():
         return {"fuzz": False, "bench": False}
     text = p.read_text(encoding="utf-8", errors="replace")
-    return {"fuzz": "fuzz" in text, "bench": "bench" in text}
+
+    def has(tool: str) -> bool:
+        job = re.search(rf"(?m)^\s{{2}}{tool}:\s*$", text)
+        return bool(job) or f"cargo {tool}" in text
+
+    return {"fuzz": has("fuzz"), "bench": has("bench")}
 
 
 def scan_marks() -> int:
