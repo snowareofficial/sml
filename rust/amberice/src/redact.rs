@@ -20,6 +20,8 @@
 //! `hash` 对低熵值（手机号、身份证号）可被字典反推 —— 它只适合高熵值（token / 密钥）。
 //! 路径不存在时是 no-op（可选字段很常见）；路径形状不匹配则明确报错。
 
+use crate::prelude::*;
+
 use sml_value::{Path, PathError, Seg, Value};
 
 /// Fixed mask value. Length is deliberately **not** preserved — length itself leaks.
@@ -77,8 +79,8 @@ pub enum RedactError {
     Canonical(String),
 }
 
-impl std::fmt::Display for RedactError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for RedactError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             RedactError::BadPath(e) => write!(f, "脱敏路径不合法：{e}"),
             RedactError::DuplicatePath(p) => write!(f, "脱敏路径 `{p}` 重复"),
@@ -88,6 +90,7 @@ impl std::fmt::Display for RedactError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for RedactError {}
 
 impl From<PathError> for RedactError {

@@ -34,6 +34,8 @@
 //! 故落地口径（已回写 §21.1）：**签名对象 = 去掉 `sig` 字段后的 `canonical_text`**，
 //! 与 §18.4「排除 `SIG` 段自身」同一个道理。
 
+use crate::prelude::*;
+
 use sml_value::{Map, Path, Value};
 
 use crate::hash::{self, HashAlgo};
@@ -530,8 +532,8 @@ pub enum LayerError {
     },
 }
 
-impl std::fmt::Display for LayerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for LayerError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             LayerError::Truncated { at } => write!(f, "层记录在偏移 {at} 处越出文件"),
             LayerError::Canonical(e) => write!(f, "层体不是合法 canonical：{e}"),
@@ -551,6 +553,7 @@ impl std::fmt::Display for LayerError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for LayerError {}
 
 /// Merge every layer's patch into `base`, in order.

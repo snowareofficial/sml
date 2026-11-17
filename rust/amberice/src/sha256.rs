@@ -202,6 +202,7 @@ fn compress(h: &mut [u32; 8], block: &[u8; 64]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prelude::*;
 
     fn hex(d: &[u8; 32]) -> String {
         d.iter().map(|b| format!("{b:02x}")).collect()
@@ -268,6 +269,7 @@ mod tests {
 #[cfg(test)]
 mod incremental_tests {
     use super::*;
+    use crate::prelude::*;
 
     /// 同一个输入按**任意**切法喂进去，摘要必须与一次性调用逐字节相同。
     /// 这是流式写正确性的根：段头摘要不再依赖「字节是否同时在内存里」。

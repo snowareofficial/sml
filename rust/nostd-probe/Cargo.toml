@@ -1,0 +1,23 @@
+[package]
+name = "nostd-probe"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "amberice no_std 子集在 wasm32 上的运行时探针（32 位指针 + 零 std 符号）"
+
+# 独立 workspace（与 `rust/qsm` 同一做法）：本 crate 只被 `tools/check/check_nostd_wasm.py`
+# 以 wasm32 目标构建，不进主 workspace 的默认构建，也不随 `cargo test --workspace` 跑。
+[workspace]
+
+[lib]
+# cdylib 给 wasm；rlib 给 `rust/nostd-probe-qemu`（裸机 bin 复用同一份 workflow）。
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# 关键：default-features = false → amberice 走 no_std 档；
+# allow-32bit 打开 32 位风险门（wasm32 指针 32 位，没它 sml-value 直接 compile_error）。
+amberice = { path = "../amberice", default-features = false, features = ["no_std", "sign", "crypto", "allow-32bit"] }
+
+[profile.release]
+panic = "abort"
+opt-level = "s"

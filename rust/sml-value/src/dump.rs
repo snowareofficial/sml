@@ -38,6 +38,8 @@
 //! 含 `__type` / `__name` 的块原样输出所有键，保证元数据可完整往返。
 //! ｜ Blocks with `__type` / `__name` keep all keys so metadata round-trips.
 
+use crate::prelude::*;
+
 use crate::{Map, MAX_VALUE_DEPTH, Value};
 
 // Text-atom rules (bare words / quoting / escaping, float spelling) now live in `text_rules`:

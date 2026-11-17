@@ -16,6 +16,10 @@ on:
     branches: [main, master]
   pull_request:
   workflow_dispatch:
+  # 定时审计：漏洞公告是「时间到了才出现」的，只靠 push/PR 触发会漏掉静止期。
+  # 每周一 01:00 UTC（北京 09:00）跑一次依赖审计；advisory-db 每天更新。
+  schedule:
+    - cron: "0 1 * * 1"
 
 permissions:
   contents: read
@@ -213,6 +217,13 @@ jobs:
       # 纯标准库只读脚本，不依赖任何已构建的产物，故放在 guards job 里。
       - name: amberice 对齐守护
         run: python3 tools/check/check_amberice_align.py
+      # no_std 子集的运行时证据：wasm32（32 位指针）+ 产物 import 表必须为空（不链 std）
+      # + 探针 run() 返回 0。判据与失败码见 tools/check/check_nostd_wasm.py 与
+      # rust/nostd-probe/src/lib.rs；边界叙述见 docs/amberice/plan/nostd-subset-eval.md §7。
+      - name: no_std 子集（wasm32 运行时）
+        run: |
+          rustup target add wasm32-unknown-unknown
+          python3 tools/check/check_nostd_wasm.py
 
   # Miri：C-ABI 的 UB 检测（很慢，单独 job + 超时，不允许 continue-on-error）
   miri:
@@ -243,3 +254,23 @@ jobs:
           python-version: "3.x"
       - name: OSV 依赖漏洞门禁
         run: python3 osv_check.py
+
+  # 全仓 cargo audit：osv_check.py 只看 rust/Cargo.lock，覆盖不到别的独立 workspace。
+  # 判据全在脚本里（漏洞即 rc=1；unmaintained/unsound 只报不拦）。
+  # 定时触发时本 job 的意义最大：静止期的新公告靠它才会浮出来。
+  cargo-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: 多 workspace 依赖审计
+        # 定时那一次额外给「清单入库但锁文件未入库」的工程在临时目录生成锁（覆盖 rust/fuzz、
+        # 语法 crate 等）。push/PR 不跑这条：多一次解析，网络抖动就会挡住合并。
+        env:
+          EXTRA: ${{ github.event_name == 'schedule' && '--include-unlocked' || '' }}
+        run: python3 tools/check/check_cargo_audit.py $EXTRA

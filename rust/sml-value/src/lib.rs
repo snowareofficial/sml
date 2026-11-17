@@ -32,6 +32,13 @@
 //! sml-value = { version = "0.1.0-alpha.3", features = ["sml"] } # + 序列化回 SML
 //! ```
 
+// 标准库档由 `std` 特性决定（默认开）。核心一律 `core + alloc`：值模型、canonical、
+// 文本规则、map/object/path 都不需要操作系统能力，`std` 只补 `std::error::Error`。
+// ｜ `std` only gates the `std::error::Error` impls; everything else is `core + alloc`.
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
+
 /// 读/写共用的路径语法（`a.b[0].c`）：`Path::parse` + `Value::get_path`。
 /// Path syntax shared by readers and writers; `Value::get` keeps its legacy semantics.
 // 32 位目标默认拒绝编译：本 crate 有多处 `u64 as usize` / `usize as u32`，依赖
@@ -42,6 +49,113 @@ compile_error!(
     "32-bit targets are not supported by default: `u64 as usize` / `usize as u32` \
      would truncate. Rebuild with `--features allow-32bit` to accept that risk."
 );
+
+// serde 桥接的错误类型是 `serde::de::value::Error`，那是 serde 的 `std` 档才有的东西；
+// no_std 目标上 serde 自身也编不出来。所以这两档组合直接拒绝，而不是留一个「宿主上能过、
+// 交叉编译才炸」的假绿灯。
+// ｜ `serde` needs serde's std tier; reject the combination up front.
+#[cfg(all(not(feature = "std"), feature = "serde"))]
+compile_error!(
+    "feature `serde` requires the `std` tier: `serde::de::value::Error` is std-only. \
+     Drop `--no-default-features` or add `--features std`."
+);
+
+/// crate 内 prelude：两种构建共用，让各模块不必区分 `std::` / `alloc::`。
+///
+/// 为什么需要：`no_std` 下 `Vec` / `String` / `Box` / `Cow` 不在 prelude 里，
+/// 逐个模块写 `use alloc::...` 既啰嗦又容易漏；这里一次列全，`std` 构建拿到的是同一批类型
+/// （`std` 只是 `alloc` 的超集），因此两种档位的代码逐字相同。
+/// ｜ Shared crate prelude so module bodies are identical in both tiers.
+#[allow(unused_imports)] // 两种档位各用其中一部分（std 下 prelude 已自带，no_std 下靠这里）
+pub(crate) mod prelude {
+    pub use alloc::borrow::{Cow, ToOwned};
+    pub use alloc::boxed::Box;
+    pub use alloc::string::{String, ToString};
+    pub use alloc::vec::Vec;
+    pub use alloc::{format, vec};
+}
+
+/// 惰性一次性容器的三档后端。
+///
+/// | 档位 | 后端 | `Sync` |
+/// |---|---|---|
+/// | `std`（默认） | `std::sync::OnceLock` | 有 |
+/// | 无 std、无 `embassy` | `core::cell::OnceCell` | **无**（`core` 没有 `OnceLock`） |
+/// | 无 std + `embassy` | `embassy_sync::once_lock::OnceLock` | 有（`T: Sync` 时） |
+///
+/// 为什么包一层：三者的「同步取 `&T`」接口不一致 —— std / `OnceCell` 是 `get()` 与
+/// `set()`，embassy 是 `try_get()` 与 `init()`，且 embassy 没有 `get_mut()`。
+/// 统一成 `new` / `get` / `get_or_init` / `take` / `set` 之后，使用方（`Object`）逐字相同。
+/// `get_mut` 刻意不提供：`take` + 改 + `set` 在三种后端上都成立。
+/// ｜ `Lazy` over `OnceLock` (std) / `OnceCell` (no_std, `!Sync`) / embassy `OnceLock`.
+#[cfg(feature = "std")]
+pub(crate) struct Lazy<T>(std::sync::OnceLock<T>);
+#[cfg(all(not(feature = "std"), not(feature = "embassy")))]
+pub(crate) struct Lazy<T>(core::cell::OnceCell<T>);
+#[cfg(all(not(feature = "std"), feature = "embassy"))]
+pub(crate) struct Lazy<T>(embassy_sync::once_lock::OnceLock<T>);
+
+impl<T> Lazy<T> {
+    #[inline]
+    pub(crate) fn new() -> Self {
+        #[cfg(feature = "std")]
+        {
+            Lazy(std::sync::OnceLock::new())
+        }
+        #[cfg(all(not(feature = "std"), not(feature = "embassy")))]
+        {
+            Lazy(core::cell::OnceCell::new())
+        }
+        #[cfg(all(not(feature = "std"), feature = "embassy"))]
+        {
+            Lazy(embassy_sync::once_lock::OnceLock::new())
+        }
+    }
+
+    #[inline]
+    pub(crate) fn get(&self) -> Option<&T> {
+        #[cfg(feature = "std")]
+        {
+            self.0.get()
+        }
+        #[cfg(all(not(feature = "std"), not(feature = "embassy")))]
+        {
+            self.0.get()
+        }
+        #[cfg(all(not(feature = "std"), feature = "embassy"))]
+        {
+            self.0.try_get()
+        }
+    }
+
+    #[inline]
+    pub(crate) fn get_or_init<F: FnOnce() -> T>(&self, f: F) -> &T {
+        self.0.get_or_init(f)
+    }
+
+    /// 取出已建好的值（`&mut self`）。三种后端都有。
+    #[inline]
+    pub(crate) fn take(&mut self) -> Option<T> {
+        self.0.take()
+    }
+
+    /// 放回一个值；已有值时把传入值退回（三种后端语义一致）。
+    #[inline]
+    pub(crate) fn set(&self, value: T) -> Result<(), T> {
+        #[cfg(feature = "std")]
+        {
+            self.0.set(value)
+        }
+        #[cfg(all(not(feature = "std"), not(feature = "embassy")))]
+        {
+            self.0.set(value)
+        }
+        #[cfg(all(not(feature = "std"), feature = "embassy"))]
+        {
+            self.0.init(value)
+        }
+    }
+}
 
 pub mod path;
 
@@ -77,6 +191,7 @@ mod serde_bridge;
 mod ser_text;
 
 pub use path::{Path, PathError, Seg};
+pub use text_rules::is_integral;
 pub use value::{
     describe_value, insert_or_merge, insert_or_merge_owned, Map, MAX_VALUE_DEPTH, Value,
 };

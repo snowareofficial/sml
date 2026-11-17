@@ -15,6 +15,78 @@ PATCH 为兼容新增 —— 因此「新增后端 / 新增 API」走 PATCH（0.
 
 ## [未发布]
 
+### 新增（`sml-value` / `amberice` 的 no_std 档：P16 Rust 侧 + P17 落地）
+
+`sml-value` 增 `std`（默认开）档：核心一律 `core + alloc`，`std` 只多出 `std::error::Error`
+实现，`--no-default-features` 即 no_std。新增 `sml_value::is_integral` —— `f64::fract` 是
+std-only，no_std 下改用指数位判断（纯整数运算），文本格式化与签名校验共用。
+
+`amberice` 同样分两档：`default = ["std"]`、`std = ["sml-value/std"]`、`no_std = []`，
+子集固定用 `--no-default-features --features no_std`。`Writer` / `pack_from_readers*` /
+`StreamReader` / `Ingestor` / `MappedFile` / CLI / `ContainerError::Io` / `std::error::Error`
+实现留在 `std` 档；字节面 + 三个摘要 + `dir` / `Store` + 值层两档共用。
+`sign` / `compress` / `crypto` / `mmap` 与 `no_std` 组合是 `compile_error!`（各自没有 no_std 档）。
+
+两处**能力降级**，已在代码注释写明：`Lazy<T>` 在 no_std 档退到 `core::cell::OnceCell`
+（`core` 没有 `OnceLock`），故 `Value` 与 `Store` 在该档失去 `Sync`；`KeyMap` 退到 `BTreeMap`，
+私有缓存查找从 O(1) 变 O(log n)。默认档行为、依赖树与公开 API 零变化。
+
+**第二刀（同日）：`sign` / `crypto` 也能进 no_std。** 验签、签名、层链、AEAD、HKDF、
+Argon2id 都是纯计算，唯一 std-only 的是熵源 —— 故 `getrandom` 挪进 `std` 档，两处取熵改成
+调用方给：`KeyPair::generate()` 只在 std（no_std 用 `from_seed`），`dump_encrypted`
+只在 std（no_std 用新增的 `dump_encrypted_with_salt`）。上游密码学库显式关默认特性。
+`compress` / `mmap` 与 no_std 仍是硬错误（zstd 要 libc、memmap2 无 no_std 档）。
+
+**第三刀（同日）：no_std 档可跑测试。** 测试二进制是 std 的，`#![no_std]` 只作用于被链接的库，
+所以 `cargo test -p amberice --no-default-features --features no_std` 走的是子集的真实代码路径：
+**88 passed / 0 failed**（19 个套件）。为此把 `vectors` 模块拆成两半 —— `CASES` / `render` /
+`verify_self` 两档都可用（嵌入式可拿 `verify_self()` 自检），`generate` / `check` /
+`*_container`（用 `Writer`）留 std；依赖 std-only API 的用例逐个 `cfg` 门控，
+示例与 CLI 用 `required-features = ["std"]`。
+
+**第四刀（同日）：32 位 + 零 std 的运行时证据。** 新增 `rust/nostd-probe`（独立 workspace，
+与 `rust/qsm` 同一做法）与 `python tools/check/check_nostd_wasm.py`：探针自己不链 std
+（自带 bump 分配器与 `panic_handler`），构建到 `wasm32-unknown-unknown` 后由 node 实例化，
+**先要求 import 表为空**（链进 std / wasi 就会要求外部导入，当场判红），再要求 `run() = 0`。
+实测 475 KiB、`imports = 0`、`run() = 0`，覆盖 canonical/dump/load/`check`/`Store::get`/
+`verify_self`/签名/`dump_encrypted_with_salt`/SHA-256/SM3。这条已进 CI 的 guards job。
+
+**第五刀（同日）：裸机链接 + ARM 核心执行。** 同一份 `workflow()` 换靶子：新增
+`rust/nostd-probe-qemu`（`cortex-m-rt` + `memory.x` + semihosting 退出）与
+`python tools/check/check_nostd_qemu.py`，在 `QEMU mps2-an500`（Cortex-M7）上跑出
+`run() = 0`。这一层证的是 wasm 证不到的：链接脚本、向量表、`.bss` 清零、1 MiB 静态竞技场
+与栈在 4 MiB RAM 里共存。真实硅片的时钟树 / 外设初始化仍不在范围内。
+
+**不做 no-alloc 档（实测后裁决）。** 探针的 bump 分配器会打印各阶段累计分配字节：一份小文档
+全流程 **139 KiB / 2 610 次分配**（不含密码学时 61 KiB），其中 `Store::open` + `get` 只吃
+**4.4 KiB**。no-alloc 在模型层面做不到 —— `Value` 的定义就是 `Vec` + `String`，去掉 `alloc`
+等于换一套值模型；而无堆可行的只剩「段表遍历 + 摘要 + 切片」，收益 4.4 KiB，代价是多一档、
+多一套 API、多一份测试矩阵。嵌入式口径改为给**堆预算**：`文档大小 × 常数 + 固定 ~60 KiB`。
+
+**compress 进 no_std：新增 `compress-pure`（只解压）。** `compress` 是 zstd 的 C 绑定，
+写压缩段仍然只能靠它；新增的 `compress-pure` 用纯 Rust 的 `ruzstd` **只做解压**，于是嵌入式
+能读压缩文件、不能写。选型台账写在 `amberice/Cargo.toml`：RUSTSEC-2026-0344（解压炸弹，HIGH，
+2026-10-13）的 patched 版本正是 `>= 0.9.1`，故钉 0.9.1 起；输出上限仍用我们自己的
+`MAX_DECOMPRESSED`（逐块累加、超限立即停），不依赖解码器的额度。差分测试 `tests/compress_pure.rs`
+读的是 **zstd C 绑定写出的** `examples/showcase-zstd.ambr`，5 项全过（含上限与损坏断言）。
+`mmap` 与 no_std 仍互斥，但理由只是 `memmap2` 编不了 —— 该档把缓冲区当 `&[u8]` 传给
+`Store::open` 即可，零拷贝路径相同。
+
+**第六刀（同日）：`embassy` 后端，把 `Sync` 要回来。** `sml-value` 与 `amberice` 各加一个
+可选 feature `embassy`：no_std 档的 `Lazy` 从 `core::cell::OnceCell`（`!Sync`）换成
+`embassy_sync::once_lock::OnceLock`（`T: Sync` 时 `Sync`），于是 `Store` 与 `Value` 能进
+`static` / `embassy_sync::Mutex`。三者接口不一致（`get`/`try_get`、`set`/`init`、embassy 无
+`get_mut`），故包了一层统一成 `new` / `get` / `get_or_init` / `take` / `set`，
+`Object::index_insert` 相应改成 `take` + 改 + `set`。代价：该档要求目标提供
+`critical-section` 实现（embassy 芯片 crate 自带）。`amberice` 里加了一条编译期钉子，
+断言该档下 `Store` / `Value` 确实重新满足 `Sync`。默认档与 `--features no_std` 完全不受影响
+（`cargo test -p sml-value -p amberice` 165 passed，no_std 档 88 passed）。
+
+验收：`cargo build -p amberice --no-default-features --features no_std,allow-32bit
+--target thumbv7em-none-eabi` 通过；默认档与 `--features sign,compress,crypto,mmap` 全测绿；
+下游 `swsml` / `smlite` / `eclog-rs` / `amberice-ffi` / `smldb` 全绿。
+边界与实测台账：`docs/amberice/plan/nostd-subset-eval.md`。
+
 ### 新增（内部 crate `smldb` 第一刀：Turso 后端）
 
 `rust/smldb` 是 `.ambr` 之上的文档数据库层（T8），`publish = false`，随 v5 开放。

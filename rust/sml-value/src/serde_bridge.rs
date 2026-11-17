@@ -1,5 +1,8 @@
 //! serde 桥接（可选 feature: `serde`）
 //! 本文件内容原为 `pub mod serde { ... }`，拆分后由 lib.rs 重新 `pub mod serde { pub use ... }`。
+use crate::prelude::*;
+use crate::text_rules::is_integral;
+
 use crate::value::*;
 
 use ::serde::de::{self, MapAccess, SeqAccess, Visitor};
@@ -8,8 +11,8 @@ use ::serde::ser::{
     SerializeTuple, SerializeTupleStruct, SerializeTupleVariant,
 };
 use ::serde::{Deserialize, Deserializer, Serialize, Serializer};
-use ::std::collections::BTreeMap;
-use ::std::fmt;
+use ::alloc::collections::BTreeMap;
+use ::core::fmt;
 
 /// serde 错误类型（自定义消息，实现 ser/de 两个 Error trait）
 type Error = ::serde::de::value::Error;
@@ -574,7 +577,7 @@ macro_rules! deser_int {
                 match self.0 {
                     Value::Int(i) => $v.$call(i as _),
                     Value::Float(f, _)
-                        if f.fract() == 0.0
+                        if is_integral(f)
                             && f >= i64::MIN as f64
                             && f <= i64::MAX as f64 =>
                     {
@@ -638,7 +641,7 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
         match &self.0 {
             Value::Int(i) if *i >= 0 => visitor.visit_u64(*i as u64),
             Value::Float(f, _)
-                if f.fract() == 0.0 && *f >= 0.0 && *f <= u64::MAX as f64 =>
+                if is_integral(*f) && *f >= 0.0 && *f <= u64::MAX as f64 =>
             {
                 visitor.visit_u64(*f as u64)
             }
@@ -916,7 +919,7 @@ impl<'de> MapAccess<'de> for MapDeserializer {
         // `Map` 两档都是 `IntoIterator`：`Map::Unordered` 态（`BTreeMap`）按键字母序，
         // `Map::Ordered` 态（`Object`）按源序 —— 语义自然对齐，不必分档写。
         // 借用自身上的迭代逐个弹：先取下键，值留到 `next_value_seed` 再交。
-        let mut it = std::mem::take(&mut self.map).into_iter();
+        let mut it = core::mem::take(&mut self.map).into_iter();
         let (k, v) = it.next().expect("非空必有首项");
         self.map = it.collect();
         self.pending = Some(v);

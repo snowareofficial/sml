@@ -15,7 +15,9 @@
 //! 走 `parse_ordered()` / `Map::ordered()` / `From<OrderedMap>` —— 这正是「少隐式」：
 //! 能不能签，取决于你手里这个对象是哪一态，而不是这台机器开了什么 feature。
 
-use std::collections::BTreeMap;
+use crate::prelude::*;
+
+use alloc::collections::BTreeMap;
 
 use crate::object::Object as OrderedMap;
 use crate::Value;
@@ -154,7 +156,7 @@ impl Map {
     {
         match self {
             Map::Unordered(m) => {
-                use std::collections::btree_map::Entry;
+                use alloc::collections::btree_map::Entry;
                 match m.entry(key) {
                     Entry::Occupied(mut e) => {
                         // 重复键是罕见路径；这里克隆一份键名只是为了给 merge 出诊断文案。
@@ -207,7 +209,7 @@ impl Map {
 
     /// Consume and yield values only — no `String` allocation per key (used by `Drop`).
     /// 只取值、不为每个键再分配 `String`（`Value` 的迭代式 `Drop` 依赖这条）。
-    pub fn into_values(self) -> std::vec::IntoIter<Value> {
+    pub fn into_values(self) -> alloc::vec::IntoIter<Value> {
         let mut out = Vec::with_capacity(self.len());
         match self {
             Map::Unordered(m) => out.extend(m.into_values()),
@@ -273,7 +275,7 @@ impl Value {
     pub fn make_ordered(&mut self) {
         match self {
             Value::Object(m) => {
-                let old = std::mem::take(m);
+                let old = core::mem::take(m);
                 let mut ordered = old.into_ordered();
                 if let Map::Ordered(ref mut o) = ordered {
                     for (_, v) in o.iter_mut() {
@@ -373,7 +375,7 @@ impl<'a> IntoIterator for &'a Map {
 
 impl IntoIterator for Map {
     type Item = (String, Value);
-    type IntoIter = std::vec::IntoIter<(String, Value)>;
+    type IntoIter = alloc::vec::IntoIter<(String, Value)>;
 
     fn into_iter(self) -> Self::IntoIter {
         let mut out = Vec::with_capacity(self.len());

@@ -157,6 +157,7 @@ fn compress(v: &mut [u32; 8], block: &[u8; 64]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prelude::*;
 
     fn hex(d: &[u8; 32]) -> String {
         d.iter().map(|b| format!("{b:02x}")).collect()

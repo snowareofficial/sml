@@ -1,0 +1,26 @@
+[package]
+name = "nostd-probe-qemu"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "同一份 no_std 探针在 QEMU 的 Cortex-M 上跑（真 ARM 核心 + 裸机链接）"
+
+# 独立 workspace：只在 `--target thumbv7em-none-eabi` 下构建，不进主 workspace。
+[workspace]
+
+[dependencies]
+# 复用 wasm 那份探针：同一份 workflow，换一个靶子。
+nostd-probe = { path = "../nostd-probe" }
+
+# 不开 `device`：那个特性会往 link.x 里 `INCLUDE device.x`，而我们的「设备」就是 QEMU 的
+# mps2-an500，没有 PAC 提供的 device.x。中断全部走默认（未使能），探针不需要它们。
+[dependencies.cortex-m-rt]
+version = "0.7"
+
+[dependencies.cortex-m-semihosting]
+version = "0.5"
+
+[profile.release]
+panic = "abort"
+opt-level = "s"
+lto = true

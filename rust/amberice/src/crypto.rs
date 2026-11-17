@@ -30,6 +30,8 @@
 //! 所以只有明文 `dump` 才承诺 C12 的「同值同字节」；加密件承诺的是「同一把钥匙能读回来」。
 //! ｜ Encrypted files are intentionally not byte-deterministic (random per-file salt).
 
+use crate::prelude::*;
+
 #[cfg(feature = "crypto")]
 use aes_gcm::aead::{Aead, Payload};
 #[cfg(feature = "crypto")]
@@ -248,7 +250,9 @@ fn argon2_master(secret: &[u8], salt: &[u8; 16], params: KdfParams) -> Result<[u
 
 /// Random 16 B per-file salt (D41: 熵只进一次性标识).
 /// 每文件 16 B 随机盐（D41：熵只进一次性标识）。
-#[cfg(feature = "crypto")]
+///
+/// 只在 `std` 档存在：no_std 由调用方给盐（[`crate::dump_encrypted_with_salt`]）。
+#[cfg(all(feature = "crypto", feature = "std"))]
 pub(crate) fn random_salt() -> Result<[u8; 16], String> {
     #[cfg(not(feature = "crypto"))]
     {

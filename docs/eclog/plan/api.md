@@ -3,7 +3,7 @@
 > 第 3 步设计结论，对应 [I-28](../../repo/ref/todo-ideas-tables.md) 的 eclog-rs 定位。
 > 口径（用户裁决）：**完整语法对齐 C++ 全量行为**；**eclog-rs 独立、不依赖 smlite**；数值自建带 raw 的 Number，**字节级严格对拍**；amberice 对 eclog 的支持由 eclog-rs 自己的模块实现。
 > 事实来源：Vallest/Eclog-CPP 源码（`_scratch/eclog-cpp`，MIT），行为重写而非代码翻译。
-> 状态：3a / 3b 已落地，3c 的**契约与对拍工具**也已落地（`rust/eclog-rs`，2026-11-17，`cargo test -p eclog-rs` 与 `--features amberice` 全绿）；3c 的实依赖待 P16 / P17。
+> 状态：3a / 3b 已落地，3c 的**契约与对拍工具**也已落地（`rust/eclog-rs`，2026-11-17，`cargo test -p eclog-rs` 与 `--features amberice` 全绿）；3c 的实依赖仍待接线（P16 / P17 已于 2026-11-17 落地）。
 
 ## 0. 结论摘要
 
@@ -126,7 +126,7 @@ rust/eclog-rs/
 - **已落地（3c）**：feature `amberice` 里的 `amberice::AmbericeBridge`（`dump(&Value) -> Vec<u8>` / `load(&[u8]) -> Value`，`type Error` 由实现方定）。零依赖、不接线，doctest 里用一个「载荷即 eclog 文本」的退化适配器证明接口可用。
 - **不经 smlite**：amberice → eclog-rs 的对接在 eclog-rs 侧完成，smlite 值模型不参与；与 smlite 的 `ByteEnvelope` trait（仅草案、无实依赖）并列但互不调用。
 - **不自造二进制格式**：容器不认识 eclog 文本语法（P17 评估 §6.3），值树的编码归适配器；在 `sml-value` 的 canonical 表示就绪前自定一套字节格式只会与将来那份重复。因此当前只定 trait，不定编码。
-- 待办：P16（no_std `sml-value`）与 P17（no_std amberice 子集）落地后，由本 crate 的适配器实现该 trait。届时必须显式决定一处**信息损失**：`Number::raw` 与 `Str` 的 `notation` / `delimiter` 是 eclog 特有表现层，canonical 表示不承载 —— 往返后值相等，但渲染字节不再逐字节相同。
+- 待办：P16（no_std `sml-value`）与 P17（no_std amberice 子集）**已落地（2026-11-17）**，剩下的是由本 crate 的适配器实现该 trait。届时必须显式决定一处**信息损失**：`Number::raw` 与 `Str` 的 `notation` / `delimiter` 是 eclog 特有表现层，canonical 表示不承载 —— 往返后值相等，但渲染字节不再逐字节相同。
 
 ## 6. 对拍策略（字节级严格）
 
@@ -143,7 +143,7 @@ rust/eclog-rs/
 |---|---|---|---|
 | 3a | 值模型（Number/Str 带 raw 与记法）+ 解析器（4 种字符串记法 + 拼接 + 数值状态机 + ast 树 + 树/事件双出口） | 14 组 / 23 个输入的解析事件与 `.check` 逐行一致；树序列化回事件亦一致 | **已完成（2026-11-17）** |
 | 3b | 双 scheme 渲染器 + RFC 7396 merge | 两 scheme 渲染字节与 C++ oracle 一致（46 + 2 份 `.render`）；merge 11 个用例一致 | **已完成（2026-11-17）** |
-| 3c | amberice 对接模块（契约，待 P16/P17 再接实依赖）+ 对拍工具固化 | `cargo test -p eclog-rs`（含 `--features amberice`）全绿；`python tools/regen_render_golden.py --check` 可重复跑出 48 份一致 | **契约与工具已完成（2026-11-17）**；实依赖待 P16 / P17 |
+| 3c | amberice 对接模块（契约；P16/P17 已落地，实依赖待接线）+ 对拍工具固化 | `cargo test -p eclog-rs`（含 `--features amberice`）全绿；`python tools/regen_render_golden.py --check` 可重复跑出 48 份一致 | **契约与工具已完成（2026-11-17）**；P16/P17 已落地，实依赖待接线 |
 
 ## 8. 文档治理
 
@@ -153,7 +153,7 @@ rust/eclog-rs/
 
 ## 9. 边界与后续衔接
 
-- 3a（值模型 + 解析器）、3b（双 scheme 渲染器 + RFC 7396 merge）已落地；3c 只剩**实依赖**（P16 / P17 落地后由本 crate 的适配器实现 `AmbericeBridge`）。
+- 3a（值模型 + 解析器）、3b（双 scheme 渲染器 + RFC 7396 merge）已落地；3c 只剩**实依赖**（P16 / P17 已落地，由本 crate 的适配器接线实现 `AmbericeBridge`）。
 - oracle 的驱动与复跑脚本已进仓库（`tools/`），但 C++ 源码仍只在本机 `_scratch` 浅克隆里；仓库里只留它产出的 `.render` 期望字节。amberice 不接实依赖；不改 smlite。
 - 不碰编辑器扩展（第 4 步：`editors/vscode` 的 eclog 分支、语法文件、vsix 构建）。
 - 不记 `docs/changes.sml`（无搬迁/拆分/删除）；不改生成物 `docs/index.md` / `docs/report.md`（由工具刷新）。

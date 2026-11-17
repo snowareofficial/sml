@@ -32,7 +32,9 @@
 //! | 要逐层历史 | [`Store::history_at`] |
 //! | 要段与载荷清单 | [`Store::segments`] / [`Store::payload`] |
 
-use std::collections::HashMap;
+use crate::prelude::*;
+
+use crate::{KeyMap, Lazy};
 
 use sml_value::{
     parse_strtab_table, subtree_at_with_table, subtree_range, value_from_subtree_with_table,
@@ -47,6 +49,10 @@ use crate::manifest::{Manifest, ManifestPayload};
 ///
 /// Borrows the caller's buffer: no `Value` is built at `open`, and no big copy is made.
 /// 借用调用方的缓冲区：`open` 时不构造 `Value`，也不复制大块数据。
+///
+/// **no_std 档不实现 `Sync`**：三处惰性缓存用 [`crate::Lazy`]（std 档 `OnceLock`、
+/// no_std 档 `OnceCell`），后者不是 `Sync`。默认（std）档不受影响。
+/// ｜ `Store` is `!Sync` in the no_std tier (its lazy caches use `OnceCell` there).
 #[derive(Debug)]
 pub struct Store<'a> {
     bytes: &'a [u8],
@@ -63,14 +69,14 @@ pub struct Store<'a> {
     /// Why cache: `get` used to re-walk the whole table on every call (twice on the framed path);
     /// the table is a pure function of the segment, so per-call O(keys) is pure waste.
     /// ｜ 惰性保住 `open` 的 O(1) 内存；缓存去掉每次 `get` 的 O(键数) 重扫。
-    strtab_table: std::sync::OnceLock<StrTab<'a>>,
+    strtab_table: Lazy<StrTab<'a>>,
     manifest: Option<Manifest>,
     layers: Vec<Layer>,
     /// Optional `DIR` body (N05); parsed on first use. ｜ 可选的 `DIR` 段体，首次使用时解析。
     dir: Option<&'a [u8]>,
-    dir_index: std::sync::OnceLock<Option<crate::dir::Dir>>,
+    dir_index: Lazy<Option<crate::dir::Dir>>,
     /// `key → STRTAB id`, built on the first `DIR` lookup ｜ 首次用 `DIR` 时建的键→id 表。
-    key_ids: std::sync::OnceLock<HashMap<&'a str, u32>>,
+    key_ids: Lazy<KeyMap<&'a str, u32>>,
     /// Optional `TYPED` body (N04) ｜ 可选的 `TYPED` 段体。
     typed: Option<&'a [u8]>,
     /// Optional `SCHEMA` body (D45) ｜ 可选的 `SCHEMA` 段体。
@@ -106,7 +112,7 @@ impl AsRef<[u8]> for SubtreeBytes<'_> {
     }
 }
 
-impl std::ops::Deref for SubtreeBytes<'_> {
+impl core::ops::Deref for SubtreeBytes<'_> {
     type Target = [u8];
     fn deref(&self) -> &[u8] {
         self.as_ref()
@@ -117,8 +123,8 @@ impl std::ops::Deref for SubtreeBytes<'_> {
 /// 已解析的 `STRTAB` 缓存；自定义 `Debug` 避免打印整张表。
 struct StrTab<'a>(Vec<&'a str>);
 
-impl std::fmt::Debug for StrTab<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for StrTab<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "StrTab({} entries)", self.0.len())
     }
 }
@@ -286,12 +292,12 @@ impl<'a> Store<'a> {
                 container::ValueSource::Framed(b) => Some(b),
             },
             strtab: parts.strtab,
-            strtab_table: std::sync::OnceLock::new(),
+            strtab_table: Lazy::new(),
             manifest: parts.manifest,
             layers: parts.layers,
             dir: parts.dir,
-            dir_index: std::sync::OnceLock::new(),
-            key_ids: std::sync::OnceLock::new(),
+            dir_index: Lazy::new(),
+            key_ids: Lazy::new(),
             typed: parts.typed,
             schema: parts.schema,
             source: parts.source,
@@ -356,12 +362,12 @@ impl<'a> Store<'a> {
     }
 
     /// `key → STRTAB id` map, built once ｜ 键 → 串 id 表，只建一次。
-    fn key_ids(&self) -> Result<&HashMap<&'a str, u32>, ContainerError> {
+    fn key_ids(&self) -> Result<&KeyMap<&'a str, u32>, ContainerError> {
         if let Some(m) = self.key_ids.get() {
             return Ok(m);
         }
         let table = self.strtab_table()?;
-        let mut m = HashMap::with_capacity(table.len());
+        let mut m = crate::new_key_map(table.len());
         for (i, k) in table.iter().enumerate() {
             m.entry(*k).or_insert(i as u32);
         }
@@ -464,7 +470,7 @@ impl<'a> Store<'a> {
     /// 文件带 `SOURCE` 时返回原文；不是合法 UTF-8 则明确报错。
     pub fn source_text(&self) -> Result<Option<&'a str>, ContainerError> {
         match self.source {
-            Some(b) => std::str::from_utf8(b)
+            Some(b) => core::str::from_utf8(b)
                 .map(Some)
                 .map_err(|_| ContainerError::PayloadRead("SOURCE 段不是合法 UTF-8".to_string())),
             None => Ok(None),
@@ -593,16 +599,16 @@ impl<'a> Store<'a> {
     }
 
     /// Extract one payload by name (zero copy). ｜ 按名字取一段载荷（零拷贝）。
-    pub fn payload(&self, name: &str) -> Result<std::borrow::Cow<'a, [u8]>, ContainerError> {
+    pub fn payload(&self, name: &str) -> Result<Cow<'a, [u8]>, ContainerError> {
         container::payload(self.bytes, name)
     }
 
     /// The whole node tree as one buffer: plain → borrow (copy is avoided by `Cow::Borrowed`),
     /// framed → inflate every frame. ｜ 整棵节点树：明文借用，分帧全解。
-    fn logical_value(&self) -> Result<std::borrow::Cow<'a, [u8]>, ContainerError> {
+    fn logical_value(&self) -> Result<Cow<'a, [u8]>, ContainerError> {
         match self.frames {
-            None => Ok(std::borrow::Cow::Borrowed(self.value)),
-            Some(body) => Ok(std::borrow::Cow::Owned(
+            None => Ok(Cow::Borrowed(self.value)),
+            Some(body) => Ok(Cow::Owned(
                 container::inflate_frames_all(body)?,
             )),
         }

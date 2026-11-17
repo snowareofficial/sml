@@ -59,6 +59,8 @@
 //! # }
 //! ```
 
+use crate::prelude::*;
+
 use crate::object::hash_key;
 use crate::text_rules::{format_float, quote_if_needed};
 use crate::path::{Path, Seg};
@@ -233,8 +235,8 @@ impl CanonicalError {
     }
 }
 
-impl std::fmt::Display for CanonicalError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for CanonicalError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             CanonicalError::KeyOrderUnavailable => write!(
                 f,
@@ -299,6 +301,7 @@ impl std::fmt::Display for CanonicalError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for CanonicalError {}
 
 // ---------------------------------------------------------------------------
@@ -736,7 +739,7 @@ impl Value {
             let index = table.len();
             let len = sr.uvarint()?;
             let raw = sr.take(len)?;
-            let s = std::str::from_utf8(raw).map_err(|_| CanonicalError::BadStrTable { index })?;
+            let s = core::str::from_utf8(raw).map_err(|_| CanonicalError::BadStrTable { index })?;
             table.push(s);
         }
         let mut vr = Reader::new(value);
@@ -791,7 +794,7 @@ impl Value {
         for index in 0..count as usize {
             let len = r.uvarint()?;
             let raw = r.take(len)?;
-            let s = std::str::from_utf8(raw).map_err(|_| CanonicalError::BadStrTable { index })?;
+            let s = core::str::from_utf8(raw).map_err(|_| CanonicalError::BadStrTable { index })?;
             table.push(s);
         }
         let v = decode_node(&mut r, &table, 0)?;
@@ -1308,7 +1311,7 @@ fn parse_strtab(strtab: &[u8]) -> Result<Vec<&str>, CanonicalError> {
         let index = table.len();
         let len = sr.uvarint()?;
         let raw = sr.take(len)?;
-        let s = std::str::from_utf8(raw).map_err(|_| CanonicalError::BadStrTable { index })?;
+        let s = core::str::from_utf8(raw).map_err(|_| CanonicalError::BadStrTable { index })?;
         table.push(s);
     }
     Ok(table)

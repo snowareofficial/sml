@@ -16,7 +16,9 @@
 //!
 //! 细节文本保留原文（中文），英文规范文案在 `errors/msg.en.json`。
 
-use std::fmt;
+use crate::prelude::*;
+
+use core::fmt;
 
 /// `.ambr` 的统一错误 ｜ Unified `.ambr` error.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,6 +98,7 @@ impl fmt::Display for AmbrError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for AmbrError {}
 
 /// 把 container 的 44 个细粒度变体收敛成 8 类。
@@ -128,8 +131,11 @@ impl From<crate::container::ContainerError> for AmbrError {
             | C::Crypto(..) => Self::Crypto(detail),
             // —— canonical / 载荷语义 ——
             C::Canonical(..) | C::Typed(..) | C::Dir(..) => Self::Canonical(detail),
-            // —— 宿主 IO ——
+            // —— 宿主 IO ——（`Io` 变体只在 std 档存在：它带 `std::io::ErrorKind`）
+            #[cfg(not(feature = "no_std"))]
             C::Io { .. } | C::PayloadRead(..) | C::CompressFailed(..) => Self::Host(detail),
+            #[cfg(feature = "no_std")]
+            C::PayloadRead(..) | C::CompressFailed(..) => Self::Host(detail),
             // —— 结构 / 布局（其余全部归「格式非法」）——
             C::TooShort { .. }
             | C::BadMagic { .. }

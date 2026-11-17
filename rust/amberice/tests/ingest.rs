@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 //! D53：批量归档 —— N 帧合成一层、单写者、崩溃后截断恢复。
+#![cfg(not(feature = "no_std"))]
 
 use std::path::PathBuf;
 

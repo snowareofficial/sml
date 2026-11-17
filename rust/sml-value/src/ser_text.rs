@@ -16,6 +16,8 @@
 //!   [`quote_if_needed`] / [`format_float`]，否则会各自漂移。
 //! - **非字符串键仍报错**（与 `Value` 那条路一致）：SML 的键是裸词 / 引号串。
 
+use crate::prelude::*;
+
 use crate::dump::{format_float, quote_if_needed};
 use crate::value::MAX_VALUE_DEPTH;
 
@@ -33,7 +35,7 @@ type Error = ::serde::de::value::Error;
 ///
 /// 直出若把它写成裸词，SML 回读会按 B10 退化成 `Str` —— 类型静默改变，
 /// 比显式报错更糟。码按本 crate 的零依赖约定落在文案后缀。
-fn int_out_of_range(v: impl std::fmt::Display) -> Error {
+fn int_out_of_range(v: impl core::fmt::Display) -> Error {
     Error::custom(format!(
         "整数 {v} 超出 SML 整数范围（i64），拒绝直出（回读会退化为字符串） [E-DERIVE-002]"
     ))

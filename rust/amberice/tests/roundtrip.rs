@@ -342,6 +342,7 @@ fn pack_iter_matches_pack_byte_for_byte() {
     );
 }
 
+#[cfg(not(feature = "no_std"))]
 /// `Writer`（段体落临时文件、内存 O(1)）必须与 `dump`（全内存）产出**同一份字节**。
 /// The streaming writer must be byte-identical to the in-memory one.
 #[test]
@@ -376,6 +377,7 @@ fn writer_matches_dump_byte_for_byte() {
     );
 }
 
+#[cfg(not(feature = "no_std"))]
 /// 流式载荷入口（`impl Read`）与内存入口必须产出**同一份字节**。
 /// The reader-based entry point must be byte-identical to the buffer-based one.
 #[test]

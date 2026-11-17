@@ -202,10 +202,13 @@
 
 | 档位 | 内容 |
 |---|---|
-| `amberice` crate 默认 | `default = []`，只依赖 `sml-value`，零第三方依赖 |
+| `amberice` crate 默认 | `default = ["std"]`，只依赖 `sml-value`，零第三方依赖 |
+| `std`（默认开） | 全量档：`Writer` / `pack_from_readers*` / `StreamReader` / `Ingestor` / `MappedFile` / CLI / `std::error::Error` 实现 |
+| `no_std`（需 `--no-default-features`） | 子集档：容器字节面 + 三个摘要 + `dir` / `Store` + 值层，跑在 `core + alloc` 上；`sign` / `crypto` 同样可用（熵源改由调用方给），与 `compress` / `mmap` 组合是硬错误。边界与实测见 [`nostd-subset-eval.md`](../plan/nostd-subset-eval.md) |
 | `preserve_order` | 兼容别名，转发到 `sml-value` 的空 feature；canonical 能否产出取决于值本身，与档位无关 |
 | `sign` | Ed25519 签名 / 验签 / keygen |
-| `compress` | zstd 段级压缩与 `FRAMES` |
+| `compress` | zstd 段级压缩与 `FRAMES`（C 绑定，std 档；写压缩段只能靠它） |
+| `compress-pure` | 纯 Rust 的 zstd **解压**（`ruzstd`，no_std 可用）；不能写压缩段 |
 | `crypto` | AES-256-GCM、HKDF、Argon2id |
 | `mmap` | `MappedFile` 内存映射 |
 | 门面 `swsml` | `amberice`、`amberice-compress`、`amberice-crypto`、`amberice-mmap`；关掉 `amberice` 时依赖树里完全没有它 |

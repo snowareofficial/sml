@@ -1,7 +1,7 @@
 # docs 索引
 
 > **本文件由 `cargo run -p smldocs -- --index` 生成，勿手改。**
-> 数据源 `docs/meta.sml`（64 份文档，摘要 `c74234e16c79638d`）。摘要变了就必须重跑生成；
+> 数据源 `docs/meta.sml`（64 份文档，摘要 `ee5fd772c50bdff2`）。摘要变了就必须重跑生成；
 > 本文件不记生成日期 / HEAD，避免跨天或提交后假漂移。体检结论见 [`report.md`](report.md)。
 
 ## 一眼看结论
@@ -25,7 +25,7 @@
 |---|---|---|---|---|---|
 | [`swsml/archive/idyml-rejected.md`](swsml/archive/idyml-rejected.md) | 2026-10-15 | 2026-11-03 | **archive** | — | idyml 改名方案（2026-11-03 否决） |
 | [`swsml/archive/iter-parse.md`](swsml/archive/iter-parse.md) | 2026-10-30 | 2026-11-02 | **archive** | — | 迭代式解析改造（已完成并合入 dev） |
-| [`swsml/plan/crossend-sync.md`](swsml/plan/crossend-sync.md) | 2026-11-12 | 2026-11-17 | **current** | — | 跨端同步施工切片：码表分类、weak 三兄弟 / Edition 四端、验收命令与开工裁决；§7 后续十片交接清单（P8–P17，P8–P11 已完成） |
+| [`swsml/plan/crossend-sync.md`](swsml/plan/crossend-sync.md) | 2026-11-12 | 2026-11-17 | **current** | — | 跨端同步施工切片：码表分类、weak 三兄弟 / Edition 四端、验收命令与开工裁决；§7 后续十片交接清单（P8–P17；P8–P15 与 P16 Rust 侧 / P17 已完成） |
 | [`swsml/plan/featag-slices.md`](swsml/plan/featag-slices.md) | 2026-11-04 | 2026-11-15 | **current** | — | featag 实现切片 S0–S9（Rust 全部收官；四端已补 S2–S5b，S6–S8 仍只有 Rust；示例按「每项都带 `!`」的新写法） |
 | [`swsml/plan/features-plan.md`](swsml/plan/features-plan.md) | 2026-11-04 | 2026-11-06 | **stale** | `docs/swsml/spec/features.md` | v5 版本位落地步骤与被推翻的旧清单 |
 | [`swsml/plan/perf-plan.md`](swsml/plan/perf-plan.md) | 2026-11-06 | 2026-11-08 | **current** | — | 全面优化计划：时间 / 内存 / 缓存 / 指令集四线 |
@@ -52,13 +52,13 @@
 | [`amberice/decisions.md`](amberice/decisions.md) | 2026-11-02 | 2026-11-11 | **current** | — | .ambr 决策记录：D1–D55 已裁决、P12 待定、§12 草案、§15 键序、§16.3 已定（D53）、§16.4 孪生格式、§16.5 写路径已裁（D55）/ 其余待裁 |
 | [`amberice/plan/interrupt-path-layers.md`](amberice/plan/interrupt-path-layers.md) | 2026-11-12 | 2026-11-12 | **draft** | — | 随时中断 / 操作路径 / 分层与 trait 的创新讨论纪要（支点 8 条、未收口 U1–U9、用户原话、示例代码形态）；不作结论 |
 | [`amberice/plan/multi-writer.md`](amberice/plan/multi-writer.md) | 2026-11-12 | 2026-11-12 | **draft** | — | 多写者 / 数据属性 / 写路径讨论记录（判据 / 设计空间 / 排除项 / 未实测，附录为用户原话）；不作结论 |
-| [`amberice/plan/nostd-subset-eval.md`](amberice/plan/nostd-subset-eval.md) | 2026-11-17 | 2026-11-17 | **current** | — | P17 no_std amberice 评估：逐模块 std 占用取证、可裁 / 必留 std / core+alloc 接口最小面与 P16 前置；只出评估不动代码 |
+| [`amberice/plan/nostd-subset-eval.md`](amberice/plan/nostd-subset-eval.md) | 2026-11-17 | 2026-11-17 | **current** | — | P16/P17 no_std 落地：sml-value 与 amberice 的 std / no_std 两档、逐模块 std 占用取证、可裁与必留清单、两处能力降级（Lazy 退 OnceCell 失 Sync、KeyMap 退 BTreeMap）与 thumbv7em 实目标验收 |
 | [`amberice/plan/plan.md`](amberice/plan/plan.md) | 2026-11-06 | 2026-11-10 | **current** | — | amberice 改名范围 + 第一批优化（A1）与里程碑 |
 | [`amberice/ref/claims-audit.md`](amberice/ref/claims-audit.md) | 2026-11-10 | 2026-11-10 | **draft** | — | 45 条论断逐条核实（成立 / 需修正 / 未实测 / 判断）；draft 不作结论，去留待用户裁决 |
 | [`amberice/ref/ports.md`](amberice/ref/ports.md) | 2026-11-06 | 2026-11-13 | **current** | — | 多端 .ambr 解码器进度台账（全端 22/22 已复测并进 CI；AMBR 错误码域；摘要仅 SHA-256） |
 | [`amberice/ref/swsml-alignment.md`](amberice/ref/swsml-alignment.md) | 2026-11-13 | 2026-11-13 | **current** | — | amberice 与 swsml 的对齐面（edition / 特性位 / 码表 / C-ABI 刻意差异 / 支持平台 / AMBR 码）；守护 tools/check/check_amberice_align.py |
 | [`amberice/spec/format.md`](amberice/spec/format.md) | 2026-11-02 | 2026-11-13 | **current** | — | .ambr 格式规范：信封 / canonical / VALUE 段 / 算法表 / 默认值 / 侧信道 / AMBR 错误码域 |
-| [`amberice/spec/overview.md`](amberice/spec/overview.md) | 2026-11-10 | 2026-11-10 | **current** | — | amberice 是什么：以源码为唯一事实来源的产品线定义（边界 / 格式 / 能力面 / 多端 / 实现状态） |
+| [`amberice/spec/overview.md`](amberice/spec/overview.md) | 2026-11-10 | 2026-11-17 | **current** | — | amberice 是什么：以源码为唯一事实来源的产品线定义（边界 / 格式 / 能力面 / 多端 / 实现状态） |
 | [`amberice/spec/smldb.md`](amberice/spec/smldb.md) | 2026-11-02 | 2026-11-17 | **draft** | — | smldb 数据库层：表结构 / 后端选型 / 选择器 / 四层 API（T8 第一刀已落：Turso 后端 + BLOB + 精确路径/标签索引；FTS/选择器未定） |
 | [`amberice/spec/tools.md`](amberice/spec/tools.md) | 2026-11-02 | 2026-11-10 | **current** | — | .ambr 配套工具面：子命令清单以 amberice --help 为准，另含五端解码器 |
 

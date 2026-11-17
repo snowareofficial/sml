@@ -23,6 +23,8 @@
 //! 用 `verify_strict`：拒绝非规范编码与小阶公钥 —— 宁可拒一个合法签名的边界情况，
 //! 也不放过一个可塑性（malleability）问题。
 
+use crate::prelude::*;
+
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 
 use crate::hash::HashAlgo;
@@ -61,6 +63,11 @@ impl KeyPair {
 
     /// Generate a fresh key using OS entropy (D41: 熵只进一次性标识).
     /// 用 OS 熵生成新密钥（D41：熵只进一次性标识）。
+    ///
+    /// 只在 `std` 档存在：no_std 没有熵源，用 [`KeyPair::from_seed`]
+    /// 从调用方自己的熵（硬件 TRNG / 预置种子）派生。
+    /// ｜ std tier only; no_std callers derive from their own entropy via `from_seed`.
+    #[cfg(feature = "std")]
     pub fn generate() -> Result<KeyPair, SignError> {
         let mut seed = [0u8; 32];
         getrandom::fill(&mut seed).map_err(|e| SignError::NoEntropy(format!("{e}")))?;
@@ -539,8 +546,8 @@ impl From<crate::ContainerError> for SignError {
     }
 }
 
-impl std::fmt::Display for SignError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for SignError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             SignError::BadSeed => write!(f, "种子必须是 32 字节（64 位十六进制）"),
             SignError::NoEntropy(e) => write!(f, "取不到 OS 熵：{e}"),
@@ -559,6 +566,7 @@ impl std::fmt::Display for SignError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for SignError {}
 
 fn hex(d: &[u8]) -> String {

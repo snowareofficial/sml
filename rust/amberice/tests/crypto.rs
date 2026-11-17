@@ -264,6 +264,33 @@ fn missing_feature_is_reported() {
 }
 
 /// 测试用：把值断言成 `CanonicalValue`（无序在测试里就该 panic，而不是静默通过）。
+/// 调用方给盐（no_std 档唯一的加密写法）：同盐同密文、换盐换密文，且都能读回。
+#[test]
+fn caller_supplied_salt_is_deterministic_and_decryptable() {
+    let key = master(7);
+    let salt = [0x5au8; 16];
+    let opts = DumpOptions::default();
+
+    let a = amberice::dump_encrypted_with_salt(&cv(&doc()), &opts, &KeySource::Bytes(&key), salt)
+        .unwrap();
+    let b = amberice::dump_encrypted_with_salt(&cv(&doc()), &opts, &KeySource::Bytes(&key), salt)
+        .unwrap();
+    assert_eq!(a, b, "同钥同盐必须逐字节一致（测试向量靠这条才可复现）");
+
+    let c = amberice::dump_encrypted_with_salt(
+        &cv(&doc()),
+        &opts,
+        &KeySource::Bytes(&key),
+        [0xa5u8; 16],
+    )
+    .unwrap();
+    assert_ne!(a, c, "换盐必须换密文");
+
+    assert!(amberice::load_encrypted(&a, &KeySource::Bytes(&key))
+        .unwrap()
+        .eq_ordered(&doc()));
+}
+
 fn cv(v: &amberice::Value) -> amberice::CanonicalValue {
     amberice::CanonicalValue::try_from(v).expect("测试值必须是有序构造的")
 }

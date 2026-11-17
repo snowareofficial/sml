@@ -25,6 +25,8 @@
 //! - only object keys are indexed, and only for objects at depth `< max_depth`
 //!   (manifest `defaults.dir_depth`, default 4).
 
+use crate::prelude::*;
+
 use crate::container::ContainerError;
 
 /// One index entry: `(parent object offset, key string id, child node offset)`.
@@ -235,8 +237,8 @@ pub enum DirError {
     VarintTooLong { at: usize },
 }
 
-impl std::fmt::Display for DirError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for DirError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             DirError::Empty => write!(f, "VALUE 段体为空"),
             DirError::Truncated { at } => write!(f, "DIR/VALUE 在偏移 {at} 处越界"),
@@ -250,6 +252,7 @@ impl std::fmt::Display for DirError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for DirError {}
 
 impl From<DirError> for ContainerError {

@@ -59,6 +59,8 @@
 //! `DIR`（T3）、签名与层链（T4）、压缩与加密（T5）、外来载荷的 `pack`/`unpack`（T2 余项）——
 //! 后者要的段 id（`0x20 EMBED`）已登记但没人写。
 
+use crate::prelude::*;
+
 use sml_value::{CanonicalError, Value};
 
 use crate::hash::{self, HashAlgo};
@@ -501,6 +503,7 @@ pub enum ContainerError {
     },
     /// 打开文件 / 建立内存映射时的 IO 失败（如文件不存在）。
     /// ｜ I/O failure while opening a file or creating the mapping (e.g. missing file).
+    #[cfg(not(feature = "no_std"))]
     Io {
         /// `std::io::ErrorKind` 分类 ｜ The `std::io::ErrorKind` category.
         kind: std::io::ErrorKind,
@@ -558,13 +561,14 @@ impl ContainerError {
             ContainerError::EncryptedSegmentInPlainFile { .. } => "encrypted-in-plaintext",
             ContainerError::Typed(_) => "typed",
             ContainerError::Dir(_) => "dir",
+            #[cfg(not(feature = "no_std"))]
             ContainerError::Io { .. } => "io",
         }
     }
 }
 
-impl std::fmt::Display for ContainerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for ContainerError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ContainerError::TooShort { len, need } => {
                 write!(f, "文件只有 {len} 字节，连 {need} 字节的文件头都不够")
@@ -724,6 +728,7 @@ impl std::fmt::Display for ContainerError {
             ),
             ContainerError::Typed(msg) => write!(f, "TYPED 段：{msg}"),
             ContainerError::Dir(msg) => write!(f, "DIR 段：{msg}"),
+            #[cfg(not(feature = "no_std"))]
             ContainerError::Io { kind, message } => {
                 write!(f, "文件 IO 失败（{kind:?}）：{message} ｜ I/O error ({kind:?}): {message}")
             }
@@ -731,8 +736,10 @@ impl std::fmt::Display for ContainerError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for ContainerError {}
 
+#[cfg(not(feature = "no_std"))]
 impl From<std::io::Error> for ContainerError {
     fn from(e: std::io::Error) -> Self {
         ContainerError::Io {
@@ -968,17 +975,34 @@ pub fn dump_with_source(
     dump_sealed(cv.as_value(), opts, None, Some(source))
 }
 
-/// Encrypt every content segment with `key` (§19.13). `MANIFEST` stays plaintext — it is what
-/// carries the KDF parameters, so encrypting it would be a bootstrapping loop.
-/// 用 `key` 加密每个内容段；`MANIFEST` 保持明文（KDF 参数就在它里面）。
-#[cfg(feature = "crypto")]
+/// Encrypt every content segment with `key` (§19.13), drawing a fresh per-file salt from
+/// OS entropy. `MANIFEST` stays plaintext — it carries the KDF parameters.
+/// 用 `key` 加密每个内容段，随机盐取自 OS 熵；`MANIFEST` 保持明文（KDF 参数就在它里面）。
+///
+/// 要自己给盐（no_std 档必须如此，或想复现同一份密文）请用 [`dump_encrypted_with_salt`]。
+#[cfg(all(feature = "crypto", feature = "std"))]
 pub fn dump_encrypted(
     cv: &sml_value::CanonicalValue,
     opts: &DumpOptions,
     key: &crate::crypto::KeySource<'_>,
 ) -> Result<Vec<u8>, ContainerError> {
-    validate_caps(opts)?;
     let salt = crate::crypto::random_salt().map_err(ContainerError::Crypto)?;
+    dump_encrypted_with_salt(cv, opts, key, salt)
+}
+
+/// Same as [`dump_encrypted`] with the per-file salt supplied by the caller.
+/// 与 [`dump_encrypted`] 相同，但每文件盐由调用方给。
+///
+/// 盐会进 manifest 并参与 nonce 与 HKDF；同一把钥匙配同一份盐会得到同一份密文
+/// （只用于可复现的测试向量，生产别复用盐）。
+#[cfg(feature = "crypto")]
+pub fn dump_encrypted_with_salt(
+    cv: &sml_value::CanonicalValue,
+    opts: &DumpOptions,
+    key: &crate::crypto::KeySource<'_>,
+    salt: [u8; 16],
+) -> Result<Vec<u8>, ContainerError> {
+    validate_caps(opts)?;
     let wk = crate::crypto::derive_write_keys(key, salt).map_err(|e| {
         if e.contains("KdfParams") {
             ContainerError::KdfRequired
@@ -993,17 +1017,18 @@ pub fn dump_encrypted(
     dump_sealed(cv.as_value(), &forced, Some(&wk), None)
 }
 
-/// Same as [`dump_encrypted`] but without the `crypto` feature — refuses instead of writing
-/// a file nobody can read.
-/// 没开 `crypto` feature 时的 [`dump_encrypted`]：明确拒绝，而不是写出一份读不回来的文件。
-#[cfg(not(feature = "crypto"))]
+/// Without `crypto` + `std` the name still exists — it just refuses, instead of writing a file
+/// nobody can read. ｜ 缺 `crypto` 或 `std` 时同名入口仍在：明确拒绝，而不是写出读不回来的文件。
+#[cfg(not(all(feature = "crypto", feature = "std")))]
 pub fn dump_encrypted(
     _cv: &sml_value::CanonicalValue,
     _opts: &DumpOptions,
     _key: &crate::crypto::KeySource<'_>,
 ) -> Result<Vec<u8>, ContainerError> {
     Err(ContainerError::Crypto(
-        "本构建未启用 `crypto` feature".to_string(),
+        "dump_encrypted 需要 `crypto` + `std`（每文件随机盐取自 OS 熵）；\
+         no_std 档请用 `dump_encrypted_with_salt` 自己给盐。"
+            .to_string(),
     ))
 }
 
@@ -1199,6 +1224,7 @@ where
     pack_parts(&parts, opts)
 }
 
+#[cfg(not(feature = "no_std"))]
 /// [`pack_iter`] for callers whose payloads are **streams**, not buffers.
 /// 给「载荷是流而不是内存缓冲」的调用方：逐个 `Read` 读入并算摘要。
 ///
@@ -1213,6 +1239,7 @@ where
     pack_from_readers_with(items, &DumpOptions::default())
 }
 
+#[cfg(not(feature = "no_std"))]
 /// [`pack_from_readers`] with explicit choices. ｜ 同 [`pack_from_readers`]，但显式指定选项。
 pub fn pack_from_readers_with<I, N, R>(
     items: I,
@@ -1314,6 +1341,7 @@ fn build_manifest(
     Ok(manifest)
 }
 
+#[cfg(not(feature = "no_std"))]
 /// Streaming writer: segment bodies go to a temp file as they arrive, so peak heap stays
 /// O(manifest) regardless of how large the payloads are. `finish()` lays them out.
 /// 流式写入器：段体一到达就落到临时文件，**峰值堆占用只与 manifest 有关**（O(1)）；
@@ -1355,6 +1383,7 @@ pub struct Writer<W: std::io::Write> {
     source: Option<String>,
 }
 
+#[cfg(not(feature = "no_std"))]
 impl<W: std::io::Write> Writer<W> {
     /// Create a writer over `out`. `primary` is the `seg_id` of the main content.
     /// 在 `out` 上创建写入器；`primary` 是主内容的段 id。
@@ -1642,7 +1671,7 @@ impl<W: std::io::Write> Writer<W> {
                 let mut left = seg.len as u64;
                 let mut buf = vec![0u8; 64 * 1024];
                 while left > 0 {
-                    let want = std::cmp::min(left as usize, buf.len());
+                    let want = core::cmp::min(left as usize, buf.len());
                     self.tmp
                         .read_exact(&mut buf[..want])
                         .map_err(|e| ContainerError::PayloadRead(format!("读临时文件失败：{e}")))?;
@@ -1668,8 +1697,10 @@ impl<W: std::io::Write> Writer<W> {
 }
 
 /// 临时文件清理守卫（`Writer` 不实现 `Drop`，见 `guard` 字段的注释）。
+#[cfg(not(feature = "no_std"))]
 struct TempGuard(Option<std::path::PathBuf>);
 
+#[cfg(not(feature = "no_std"))]
 impl Drop for TempGuard {
     fn drop(&mut self) {
         if let Some(p) = self.0.take() {
@@ -2353,7 +2384,7 @@ pub fn base_value_with_keys(
 ///
 /// `Cow` 而不是「一律 `Vec`」：未压缩是常态，多一次拷贝就等于把零拷贝的 `VALUE` 白扔掉。
 /// ｜ `Cow`, not `Vec`: an unconditional copy would throw away the zero-copy `VALUE`.
-pub type Body<'a> = std::borrow::Cow<'a, [u8]>;
+pub type Body<'a> = Cow<'a, [u8]>;
 
 /// Fetch a segment's bytes, **decompressing** when its header says so.
 /// 取段体字节，段头声明了压缩就解压。
@@ -2372,7 +2403,7 @@ fn body_of<'a>(
     let raw = body(bytes, seg)?;
 
     // 顺序：**先解密，再解压**（写时是「先压后加」，D28）
-    let plain: std::borrow::Cow<'a, [u8]> = if seg.header.enc != 0 {
+    let plain: Cow<'a, [u8]> = if seg.header.enc != 0 {
         let Some(k) = keys else {
             return Err(ContainerError::KeyRequired);
         };
@@ -2391,19 +2422,19 @@ fn body_of<'a>(
             },
             None => ContainerError::Crypto(e.reason),
         })?;
-        std::borrow::Cow::Owned(out)
+        Cow::Owned(out)
     } else {
-        std::borrow::Cow::Borrowed(raw)
+        Cow::Borrowed(raw)
     };
 
     match seg.header.comp {
         0 => Ok(plain),
         COMP_ZSTD => {
-            #[cfg(not(feature = "compress"))]
+            #[cfg(not(any(feature = "compress", feature = "compress-pure")))]
             {
                 Err(ContainerError::CompressFeatureDisabled { comp: COMP_ZSTD })
             }
-            #[cfg(feature = "compress")]
+            #[cfg(any(feature = "compress", feature = "compress-pure"))]
             {
                 let out = inflate_zstd(&plain, MAX_DECOMPRESSED).map_err(|_| {
                     ContainerError::DecompressTooLarge {
@@ -2411,7 +2442,7 @@ fn body_of<'a>(
                         limit: MAX_DECOMPRESSED,
                     }
                 })?;
-                Ok(std::borrow::Cow::Owned(out))
+                Ok(Cow::Owned(out))
             }
         }
         other => Err(ContainerError::UnsupportedAlgorithm {
@@ -2434,23 +2465,49 @@ fn body_of<'a>(
 /// 而不是先分配再发现。
 /// zstd 调用失败；具体上下文由调用方补成 `ContainerError`。
 /// ｜ A zstd call failed; callers add the `ContainerError` context.
-#[cfg(feature = "compress")]
+#[cfg(any(feature = "compress", feature = "compress-pure"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ZstdError;
 
-#[cfg(feature = "compress")]
-impl std::fmt::Display for ZstdError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+#[cfg(any(feature = "compress", feature = "compress-pure"))]
+impl core::fmt::Display for ZstdError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("zstd 压缩/解压失败 ｜ zstd compress/decompress failed")
     }
 }
 
-#[cfg(feature = "compress")]
+#[cfg(any(feature = "compress", feature = "compress-pure"))]
+#[cfg(feature = "std")]
 impl std::error::Error for ZstdError {}
 
+/// C 绑定后端：`cap` 同时是**分配上限**，声称要膨胀超限的输入直接失败。
 #[cfg(feature = "compress")]
 pub fn inflate_zstd(raw: &[u8], limit: usize) -> Result<Vec<u8>, ZstdError> {
     zstd::bulk::decompress(raw, limit).map_err(|_| ZstdError)
+}
+
+/// 纯 Rust 后端（`compress-pure`，no_std 可用）：**逐块**累加并在超出 `limit` 时立即停。
+///
+/// 上限在这里是**我们自己的判断**而不是解密器的承诺 —— 这正是 RUSTSEC-2026-0344 的
+/// 教训（`ruzstd` 0.9.1 起内部也补了逐块上界，但我们仍不依赖它的额度）。
+#[cfg(all(feature = "compress-pure", not(feature = "compress")))]
+pub fn inflate_zstd(raw: &[u8], limit: usize) -> Result<Vec<u8>, ZstdError> {
+    use ruzstd::decoding::StreamingDecoder;
+    use ruzstd::io::Read as _;
+
+    let mut dec = StreamingDecoder::new(raw).map_err(|_| ZstdError)?;
+    let mut out: Vec<u8> = Vec::new();
+    let mut buf = [0u8; 16 * 1024];
+    loop {
+        let n = dec.read(&mut buf).map_err(|_| ZstdError)?;
+        if n == 0 {
+            return Ok(out);
+        }
+        if out.len() + n > limit {
+            return Err(ZstdError);
+        }
+        out.extend_from_slice(&buf[..n]);
+    }
 }
 
 /// Inflate one raw zstd frame with a declared output length (no index involved).
@@ -2459,12 +2516,12 @@ pub fn inflate_zstd(raw: &[u8], limit: usize) -> Result<Vec<u8>, ZstdError> {
 /// 供按需解帧的读取器使用：解出来的长度必须与索引声明一致，否则说明索引与数据对不上。
 /// ｜ Used by the on-demand reader; a length mismatch means index and data disagree.
 pub fn inflate_frame(raw: &[u8], uncomp_len: usize) -> Result<Vec<u8>, ContainerError> {
-    #[cfg(not(feature = "compress"))]
+    #[cfg(not(any(feature = "compress", feature = "compress-pure")))]
     {
         let _ = (raw, uncomp_len);
         Err(ContainerError::CompressFeatureDisabled { comp: COMP_ZSTD })
     }
-    #[cfg(feature = "compress")]
+    #[cfg(any(feature = "compress", feature = "compress-pure"))]
     {
         let out = inflate_zstd(raw, uncomp_len).map_err(|_| {
             ContainerError::DecompressTooLarge {
@@ -2562,11 +2619,11 @@ pub fn inflate_frames_all(body: &[u8]) -> Result<Vec<u8>, ContainerError> {
             limit: MAX_DECOMPRESSED,
         });
     }
-    #[cfg(not(feature = "compress"))]
+    #[cfg(not(any(feature = "compress", feature = "compress-pure")))]
     {
         Err(ContainerError::CompressFeatureDisabled { comp: COMP_ZSTD })
     }
-    #[cfg(feature = "compress")]
+    #[cfg(any(feature = "compress", feature = "compress-pure"))]
     {
         let mut out = Vec::with_capacity(total);
         for e in entries.iter() {
@@ -2607,13 +2664,13 @@ pub fn frame_bytes_at(
         .ok_or_else(|| {
             ContainerError::BadFrameIndex(format!("偏移 {uncomp_off} 不在任何帧里"))
         })?;
-    #[cfg(not(feature = "compress"))]
+    #[cfg(not(any(feature = "compress", feature = "compress-pure")))]
     {
         // 这里 `e` 用不上（解不了帧），显式吃掉以保持两档都零告警
         let _ = (body, e);
         Err(ContainerError::CompressFeatureDisabled { comp: COMP_ZSTD })
     }
-    #[cfg(feature = "compress")]
+    #[cfg(any(feature = "compress", feature = "compress-pure"))]
     {
         let start = e.comp_off as usize;
         let end = start + e.comp_len as usize;
@@ -3106,11 +3163,11 @@ pub fn payload<'a>(
             }
             // 未压缩 ⇒ 借用（零拷贝）；压缩过 ⇒ 只能拷出来（原缓冲是局部解压结果）
             return Ok(match body {
-                std::borrow::Cow::Borrowed(b) => {
-                    std::borrow::Cow::Borrowed(&b[cursor..end])
+                Cow::Borrowed(b) => {
+                    Cow::Borrowed(&b[cursor..end])
                 }
-                std::borrow::Cow::Owned(v) => {
-                    std::borrow::Cow::Owned(v[cursor..end].to_vec())
+                Cow::Owned(v) => {
+                    Cow::Owned(v[cursor..end].to_vec())
                 }
             });
         }

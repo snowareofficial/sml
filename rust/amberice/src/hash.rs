@@ -28,6 +28,8 @@
 
 /// 哈希组的编号区间（`§20.4` 的分组命名空间）｜ The hash group's id range.
 /// ｜ 组外编号一律 `Unknown`，组内未分配编号一律 `Reserved`。
+use crate::prelude::*;
+
 pub const HASH_GROUP_FIRST: u8 = 0x30;
 pub const HASH_GROUP_LAST: u8 = 0x3F;
 /// 组内转义号：进入二级命名空间（本构建未实现，读到即 `NotImplemented`）。
@@ -166,8 +168,8 @@ pub enum HashPathError {
     SubOutOfRange(i64),
 }
 
-impl std::fmt::Display for HashPathError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for HashPathError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             HashPathError::NotAnArray => write!(f, "hash 元组必须是数组"),
             HashPathError::BadEscape(v) => {
@@ -185,6 +187,7 @@ impl std::fmt::Display for HashPathError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for HashPathError {}
 
 impl HashPath {
@@ -259,8 +262,8 @@ pub enum HashError {
     NotImplemented(u8),
 }
 
-impl std::fmt::Display for HashError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for HashError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             HashError::Unknown(id) => write!(f, "未知哈希算法 id 0x{id:02x}（§20 表里没有）"),
             HashError::NotImplemented(id) => write!(
@@ -272,6 +275,7 @@ impl std::fmt::Display for HashError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for HashError {}
 
 /// Compute a 32-byte digest with the requested algorithm.

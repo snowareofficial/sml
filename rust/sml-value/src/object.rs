@@ -14,14 +14,16 @@
 //!
 //! 1. **键唯一**：`entries` 内无重复 key（重复键在解析期已提升为数组，既有行为）。
 //! 2. **索引一致**：`index` 一旦建立必须与 `entries` 完全对应；任何**改变键集合**
-//!    或**改变键位置**的操作必须先 `index = OnceLock::new()`。
+//!    或**改变键位置**的操作必须先 `index = Lazy::new()`。
 //!    （覆盖已有键的值**不**动位置，故不必失效索引。）
 //! 3. **顺序稳定**：`insert` 追加到尾部；覆盖已有键时**原位替换值**。
 //! 4. **键序定义**：排序按 UTF-8 **字节序**（对合法 UTF-8 等价于码点序）。
 //! 5. **相等不含序**：`PartialEq` 仍按集合相等（§6.1），顺序敏感另走 `eq_ordered`。
 
-use std::collections::BTreeMap;
-use std::sync::OnceLock;
+use crate::prelude::*;
+
+use alloc::collections::BTreeMap;
+use crate::Lazy;
 
 use crate::Value;
 
@@ -50,8 +52,8 @@ struct Entry {
 
 /// 惰性索引（§5 三档中的后两档）。
 ///
-/// 套一层 `Box` 是为了压 `Object` 的体积：`OnceLock<Box<Index>>` 是 16 B，
-/// 若直接 `OnceLock<Index>` 会因 `Index` 自带判别式涨到 24 B，
+/// 套一层 `Box` 是为了压 `Object` 的体积：`Lazy<Box<Index>>` 是 16 B，
+/// 若直接 `Lazy<Index>` 会因 `Index` 自带判别式涨到 24 B，
 /// 进而把 `size_of::<Value>()` 顶到 56 B —— 超过 §12 的 48 B 红线。
 /// 索引本来就是「首次读才建」的冷路径，多一次解引用无所谓。
 enum Index {
@@ -157,20 +159,20 @@ pub(crate) fn hash_key(s: &str) -> u64 {
 pub struct Object {
     entries: Vec<Entry>,
     /// 惰性：首次 `get` 才建；键集合或键位置一变就整体作废（不变式 2）。
-    index: OnceLock<Box<Index>>,
+    index: Lazy<Box<Index>>,
 }
 
 impl Object {
     /// Empty object; no entry buffer and no index are allocated yet ｜ 新建空对象：不预分配条目、不建索引。
     #[inline]
     pub fn new() -> Self {
-        Object { entries: Vec::new(), index: OnceLock::new() }
+        Object { entries: Vec::new(), index: Lazy::new() }
     }
 
     /// Empty object whose entry buffer is pre-allocated for `n` keys ｜ 新建空对象，条目缓冲区按 `n` 个键预分配。
     #[inline]
     pub fn with_capacity(n: usize) -> Self {
-        Object { entries: Vec::with_capacity(n), index: OnceLock::new() }
+        Object { entries: Vec::with_capacity(n), index: Lazy::new() }
     }
 
     /// Number of entries; duplicate keys are already merged, so this equals the visible key count ｜ 条目数；重名键早已合并，故等于可见键数。
@@ -194,14 +196,14 @@ impl Object {
     /// Drop all entries **and** the lazily built index ｜ 清空全部条目，并丢弃惰性索引。
     pub fn clear(&mut self) {
         self.entries.clear();
-        self.index = OnceLock::new();
+        self.index = Lazy::new();
     }
 
     /// 建索引（§5 中间档 / 大档）：覆盖**当前全部**条目。
     ///
     /// 索引一旦建好就必须与 `entries` 同长 —— 追加新键时要走
     /// [`Self::index_insert`] **增量维护**，而不是整体作废重建。
-    /// 早先的做法（每次追加都 `index = OnceLock::new()`）会让「建一个 n 键对象」
+    /// 早先的做法（每次追加都 `index = Lazy::new()`）会让「建一个 n 键对象」
     /// 退化成 O(n² log n)：解析器每写一个字段都要先查一次重名，于是每追加一个键
     /// 就重建一次全表 —— 实测 9000 键要 55 秒。这一条是性能红线，不是风格问题。
     fn build_index(&self) -> Index {
@@ -226,27 +228,30 @@ impl Object {
     ///   几十 MB memcpy，可忽略）；越过 `SORTED_MAX` 就升级成哈希档。
     /// - 哈希档：一次探测插入；装载因子超过 0.5 就翻倍重建（摊还 O(1)）。
     fn index_insert(&mut self, slot: usize) {
-        let Some(idx) = self.index.get_mut() else {
+        // `take` + 改 + `set` 而不是 `get_mut`：embassy 的 `OnceLock` 没有 `get_mut`，
+        // 这三个调用在三种后端上都成立（见 `Lazy` 的注释）。
+        let Some(mut idx) = self.index.take() else {
             return; // 还没建索引：小对象走线性扫描，等首次读时再一次性建
         };
         let n = self.entries.len();
-        match &mut **idx {
+        match &mut *idx {
             Index::Sorted(slots) => {
                 if n > SORTED_MAX {
-                    **idx = Index::Hash(HashIndex::build(&self.entries));
-                    return;
+                    *idx = Index::Hash(HashIndex::build(&self.entries));
+                } else {
+                    let pos = sorted_lower_bound(&self.entries, slots, &self.entries[slot].key);
+                    slots.insert(pos, slot as u32);
                 }
-                let pos = sorted_lower_bound(&self.entries, slots, &self.entries[slot].key);
-                slots.insert(pos, slot as u32);
             }
             Index::Hash(h) => {
                 if n * 2 > h.slots.len() {
-                    *h = HashIndex::build(&self.entries);
-                    return;
+                    *idx = Index::Hash(HashIndex::build(&self.entries));
+                } else {
+                    h.insert(&self.entries, slot);
                 }
-                h.insert(&self.entries, slot);
             }
         }
+        let _ = self.index.set(idx);
     }
 
     /// 键 → `entries` 下标。三档入口（§5）。
@@ -294,7 +299,7 @@ impl Object {
     /// 「改一个已有字段」是配置场景的高频操作，不该让整张索引重建。
     pub fn insert(&mut self, key: String, value: Value) -> Option<Value> {
         if let Some(i) = self.position_of(&key) {
-            return Some(std::mem::replace(&mut self.entries[i].value, value));
+            return Some(core::mem::replace(&mut self.entries[i].value, value));
         }
         let slot = self.entries.len();
         self.entries.push(Entry { key: key.into_boxed_str(), value });
@@ -353,7 +358,7 @@ impl Object {
     pub fn remove(&mut self, key: &str) -> Option<Value> {
         let i = self.position_of(key)?;
         let e = self.entries.remove(i);
-        self.index = OnceLock::new();
+        self.index = Lazy::new();
         Some(e.value)
     }
 
@@ -397,7 +402,7 @@ impl Object {
     /// 重排会改变位置 ⇒ 索引作废。
     pub fn sort_keys(&mut self) {
         self.entries.sort_by(|a, b| a.key.as_bytes().cmp(b.key.as_bytes()));
-        self.index = OnceLock::new();
+        self.index = Lazy::new();
     }
 
     /// Order-sensitive equality (§6.1): `PartialEq` compares as a set, this one requires same order **and** equal values. ｜ 顺序敏感相等（§6.1）：`PartialEq` 是集合相等，这个是「同序且相等」。
@@ -420,7 +425,7 @@ impl Default for Object {
 
 impl Clone for Object {
     /// **不**克隆索引：它是纯派生数据，且克隆后立刻作废更省事
-    /// （`entries` 顺序一致，克隆体其实可以继续用同一张表，但 `OnceLock`
+    /// （`entries` 顺序一致，克隆体其实可以继续用同一张表，但 `Lazy`
     /// 无法从 `&self` 搬出，重建一次的成本与克隆一份相当）。
     fn clone(&self) -> Self {
         Object {
@@ -429,13 +434,13 @@ impl Clone for Object {
                 .iter()
                 .map(|e| Entry { key: e.key.clone(), value: e.value.clone() })
                 .collect(),
-            index: OnceLock::new(),
+            index: Lazy::new(),
         }
     }
 }
 
-impl std::fmt::Debug for Object {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for Object {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         // 与 `BTreeMap` 的 `Debug` 同形（`{"k": v}`），便于既有调试输出/快照对齐
         f.write_str("{")?;
         for (i, e) in self.entries.iter().enumerate() {
@@ -458,7 +463,7 @@ impl PartialEq for Object {
         if self.entries.len() != other.entries.len() {
             return false;
         }
-        if std::ptr::eq(self, other) {
+        if core::ptr::eq(self, other) {
             return true;
         }
         for e in &self.entries {
@@ -478,7 +483,7 @@ impl PartialEq for Object {
 
 /// `(&str, &Value)` iterator in source order ｜ `(&str, &Value)` 迭代器（源序）。
 pub struct Iter<'a> {
-    inner: std::slice::Iter<'a, Entry>,
+    inner: core::slice::Iter<'a, Entry>,
 }
 
 impl<'a> Iterator for Iter<'a> {
@@ -497,7 +502,7 @@ impl<'a> ExactSizeIterator for Iter<'a> {}
 
 /// `(&str, &mut Value)` iterator in source order ｜ `(&str, &mut Value)` 迭代器（源序）。
 pub struct IterMut<'a> {
-    inner: std::slice::IterMut<'a, Entry>,
+    inner: core::slice::IterMut<'a, Entry>,
 }
 
 impl<'a> Iterator for IterMut<'a> {
@@ -510,7 +515,7 @@ impl<'a> Iterator for IterMut<'a> {
 
 /// Key iterator in source order ｜ 键迭代器（源序）。
 pub struct Keys<'a> {
-    inner: std::slice::Iter<'a, Entry>,
+    inner: core::slice::Iter<'a, Entry>,
 }
 
 impl<'a> Iterator for Keys<'a> {
@@ -523,7 +528,7 @@ impl<'a> Iterator for Keys<'a> {
 
 /// Value iterator in source order ｜ 值迭代器（源序）。
 pub struct Values<'a> {
-    inner: std::slice::Iter<'a, Entry>,
+    inner: core::slice::Iter<'a, Entry>,
 }
 
 impl<'a> Iterator for Values<'a> {
@@ -536,7 +541,7 @@ impl<'a> Iterator for Values<'a> {
 
 /// Mutable value iterator in source order ｜ 值可变迭代器（源序）。
 pub struct ValuesMut<'a> {
-    inner: std::slice::IterMut<'a, Entry>,
+    inner: core::slice::IterMut<'a, Entry>,
 }
 
 impl<'a> Iterator for ValuesMut<'a> {
@@ -549,7 +554,7 @@ impl<'a> Iterator for ValuesMut<'a> {
 
 /// Consuming iterator that yields **values only** — avoids rebuilding key `String`s; used by `Value::drop` ｜ 只产值的**消费**迭代器。
 pub struct IntoValues {
-    inner: std::vec::IntoIter<Entry>,
+    inner: alloc::vec::IntoIter<Entry>,
 }
 
 impl Iterator for IntoValues {
@@ -571,7 +576,7 @@ impl<'a> IntoIterator for &'a Object {
 
 /// Consuming iterator yielding `(String, Value)` — same shape as `BTreeMap`, so existing code ports over unchanged ｜ 消费迭代产出 `(String, Value)`。
 pub struct IntoIter {
-    inner: std::vec::IntoIter<Entry>,
+    inner: alloc::vec::IntoIter<Entry>,
 }
 
 impl Iterator for IntoIter {
@@ -600,7 +605,7 @@ impl From<BTreeMap<String, Value>> for Object {
                 .into_iter()
                 .map(|(k, v)| Entry { key: k.into_boxed_str(), value: v })
                 .collect(),
-            index: OnceLock::new(),
+            index: Lazy::new(),
         }
     }
 }

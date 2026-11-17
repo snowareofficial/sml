@@ -405,7 +405,7 @@ python tests/conformance/run_conformance.py --require-all
 > 用途：新会话照此**逐片开工，每片一次提交**（P8–P17）。每片给：目标 / 落点 / 判据 / 验收。
 > 规模列：≤1 天 / 1–3 天 / 更久。前四片可连续做完，后六片按规模取舍。
 >
-> **当前状态（2026-11-17）**：P8–P15 已完成；未动的是 P16 / P17（no_std）。
+> **当前状态（2026-11-17）**：P8–P15 已完成；P16 的 Rust 值层与 P17 已落地（`sml-value` / `amberice` 的 no_std 档，含 `thumbv7em-none-eabi` 目标构建）；P16 的 C 端（395 处 libc 调用的值模型重写）**未动**。
 > 下表保留全量交接清单供逐片核对，实施细节见 `docs/changes.sml` 与 `git log`。
 
 | 片 | 目标 | 落点 | 判据 | 验收 | 规模 |
@@ -418,8 +418,8 @@ python tests/conformance/run_conformance.py --require-all
 | **P13** | `E-CONTRACT-011` 四端接线 | C / C++ / JS / Lua 各自的契约层（各按宿主惯例，不硬改 FFI 形状） | 与 P12 的 Rust 语义**同形**（功能结果一致即达标） | 五端同码 + conformance 用例 | 更久 |
 | **P14** | 能力矩阵 / 教科书 / `llms.txt` 同步新能力 | `docs/swsml/ref/capability-matrix.md` + `site/content/{zh,en}/book/` + `llms.txt` | 至少同步：`E-LEX-007` 标识符白名单五端齐备、契约数组元素校验（Rust + C）、`@weakbind` 四端 `E-PARSE-029/030`、模式错误归并 `E-CONTRACT-013`（三码转 deprecated） | 文档每条都有出处（conformance 用例 / 单测） | 1–3 天 |
 | **P15** | 码表 `impls` 全面复核（防再次漂移） | `tools/check/check_impls.py`（由 `_scratch/audit_impls_all.py` 固化，带 `--check` 门禁）+ `errors/codes.sml` | 每条码的 `impls` 与五端源码命中一致；剩余差异在脚本 `ALLOWED_DRIFT` 里逐条写明理由 | `python tools/check/check_impls.py --check` 非零退出即红；`scan.md` 计数由生成器刷新 | ≤1 天 |
-| **P16** | no_std SML 裁剪版：评估 + 第一刀 | `rust/sml-value`（值层迁 `core` + `alloc`）+ C 端（395 处 libc 调用要重写值模型） | 不联网、不用 `std::fs`；`no_std` 下能解析并校验一份文档 | `cargo build --no-default-features` 通过 + 最小用例 | 更久 |
-| **P17** | no_std amberice（容器 / 存储） | `rust/sml-amberice`：容器与存储绑 `std::io`/`fs`，zstd 是 C 绑定，memmap2 无 `no_std` | **先出评估报告**（哪些部分可裁、哪些必须留 std），再决定动不动手 | 评估报告入 `docs/amberice/plan/` | 极大 |
+| **P16** | no_std SML 裁剪版：评估 + 第一刀 | `rust/sml-value`（值层迁 `core` + `alloc`）+ C 端（395 处 libc 调用要重写值模型） | 不联网、不用 `std::fs`；`no_std` 下能解析并校验一份文档 | `cargo build --no-default-features` 通过 + 最小用例（Rust 值层已落地 2026-11-17；C 端未动） | 更久 |
+| **P17** | no_std amberice（容器 / 存储） | `rust/sml-amberice`：容器与存储绑 `std::io`/`fs`，zstd 是 C 绑定，memmap2 无 `no_std` | **先出评估报告**（哪些部分可裁、哪些必须留 std），再决定动不动手 | 评估报告入 `docs/amberice/plan/`（评估 + 落地均已完成 2026-11-17） | 极大 |
 
 ⚠️ **开工前先看两处**：① `tests/conformance/known_divergences.md` 尾部（本轮新增的三条：`E-LEX-007`
 五端齐备、契约数组元素校验的口径与 C/C++ 缺口、Rust 词法入口分叉）；② `docs/repo/ref/unfinished.md`

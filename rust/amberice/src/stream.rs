@@ -10,6 +10,8 @@
 //! ｜ Streaming reader: reads only the segments/payloads it needs.
 //! Compressed/encrypted `EMBED` bodies are refused (no random access after decode).
 
+use crate::prelude::*;
+
 use std::io::{Read, Seek, SeekFrom};
 
 use crate::container::{

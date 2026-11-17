@@ -31,9 +31,14 @@
 //! `--check` red. What you actually want to change is the case table below or canonical itself.
 //! **别手改那份 JSON**：真正要改的是本文件的用例表或 canonical 实现。
 
+use crate::prelude::*;
+
+#[cfg(not(feature = "no_std"))]
 use std::path::{Path, PathBuf};
 
-use sml_value::{CanonicalError, CanonicalValue, Map, Value};
+use sml_value::{CanonicalError, Map, Value};
+#[cfg(not(feature = "no_std"))]
+use sml_value::CanonicalValue;
 
 /// Format marker — cross-end scripts use it to decide “is this mine to read?”.
 /// 向量文件的格式标识（跨端脚本据它判断「这是不是我能读的东西」）。
@@ -326,6 +331,7 @@ pub fn verify_self() -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(feature = "no_std"))]
 /// D45 case: `VALUE` + `TYPED(Point)` + `SCHEMA(Point)`. Decoders must skip the two side
 /// channels and still return the same `VALUE`.
 /// D45 用例：带 `TYPED` + `SCHEMA` 的文件；解码器按 `len` 跳过，值树不变。
@@ -401,6 +407,7 @@ fn typed_container_case() -> Result<(Vec<u8>, String), String> {
     Ok((buf, text))
 }
 
+#[cfg(not(feature = "no_std"))]
 /// Render the **container** vectors file (whole `.ambr` bytes per case).
 /// 渲染**容器**向量文件（每例给整份 `.ambr` 字节）。
 ///
@@ -468,6 +475,7 @@ pub fn render_container() -> Result<String, String> {
     Ok(out)
 }
 
+#[cfg(not(feature = "no_std"))]
 /// Container self-check: determinism + `dump → load → canonical_text` for every case.
 /// 容器自检：确定性 + 每例「dump → load → canonical_text」往返。
 ///
@@ -521,6 +529,7 @@ pub fn verify_container() -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(feature = "no_std"))]
 /// `--gen`: regenerate and write to disk. ｜ 重新生成并写盘。
 pub fn generate(path: &Path) -> Result<String, String> {
     verify_self()?;
@@ -534,6 +543,7 @@ pub fn generate(path: &Path) -> Result<String, String> {
     ))
 }
 
+#[cfg(not(feature = "no_std"))]
 /// `--check`: regenerate and compare line by line with the file (no JSON parsing — see module docs).
 /// 重新生成并与磁盘逐行比对（不自解析 JSON，见模块头）。
 pub fn check(path: &Path) -> Result<String, String> {
@@ -556,6 +566,7 @@ pub fn check(path: &Path) -> Result<String, String> {
     ))
 }
 
+#[cfg(not(feature = "no_std"))]
 /// `--gen` for the container vectors. ｜ 生成容器向量。
 pub fn generate_container(path: &Path) -> Result<String, String> {
     verify_container()?;
@@ -569,6 +580,7 @@ pub fn generate_container(path: &Path) -> Result<String, String> {
     ))
 }
 
+#[cfg(not(feature = "no_std"))]
 /// `--check` for the container vectors. ｜ 校验容器向量。
 pub fn check_container(path: &Path) -> Result<String, String> {
     verify_container()?;
@@ -594,6 +606,7 @@ pub fn check_container(path: &Path) -> Result<String, String> {
     ))
 }
 
+#[cfg(not(feature = "no_std"))]
 /// Write bytes **without** newline translation (Windows must not turn `\n` into `\r\n`).
 /// 按字节写盘（Windows 上不许把 `\n` 翻成 `\r\n`）。
 fn write_bytes(path: &Path, body: &str) -> Result<(), String> {
@@ -606,6 +619,7 @@ fn write_bytes(path: &Path, body: &str) -> Result<(), String> {
     std::fs::write(path, body.as_bytes()).map_err(|e| format!("写 {} 失败：{e}", path.display()))
 }
 
+#[cfg(not(feature = "no_std"))]
 fn first_line_diff(expected: &str, actual: &str) -> String {
     let mut el = expected.lines();
     let mut al = actual.lines();
@@ -624,17 +638,20 @@ fn first_line_diff(expected: &str, actual: &str) -> String {
     }
 }
 
+#[cfg(not(feature = "no_std"))]
 /// Resolve the default location: cwd first, then two levels up (`amberice` usually runs from
 /// `rust/` or `rust/amberice/`). ｜ 默认落点解析：先看 cwd，再往上找两级。
 pub fn resolve_default() -> PathBuf {
     resolve_in(DEFAULT_PATH)
 }
 
+#[cfg(not(feature = "no_std"))]
 /// Same resolution for the container vectors. ｜ 容器向量用同一套落点解析。
 pub fn resolve_container_default() -> PathBuf {
     resolve_in(CONTAINER_PATH)
 }
 
+#[cfg(not(feature = "no_std"))]
 fn resolve_in(rel: &str) -> PathBuf {
     let up = |n: usize| {
         let mut p = String::new();

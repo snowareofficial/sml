@@ -309,6 +309,7 @@ pub fn digest(data: &[u8]) -> [u8; OUT_LEN] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prelude::*;
 
     /// 官方向量的输入模式：`input[i] = i % 251`。 ｜ Official test input pattern.
     fn vector_input(len: usize) -> Vec<u8> {

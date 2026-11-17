@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 //! `TYPED` (N04) tests: typed variables ride along `VALUE`, checked by `type_id`.
 //! `TYPED`（N04）测试：强类型变量搭在 `VALUE` 旁边，读时比对 `type_id`。
+#![cfg(not(feature = "no_std"))]
 
 use amberice::typed::{type_hash, Decode, Decoder, Encode, Encoder, TypedError};
 use amberice::container::{SEG_STRTAB, SEG_VALUE};

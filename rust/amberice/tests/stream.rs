@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 //! `StreamReader`：按需读载荷，不把整份归档载入内存。
+#![cfg(not(feature = "no_std"))]
 
 use std::io::Cursor;
 

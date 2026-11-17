@@ -63,8 +63,10 @@
 //! # use sml_value::Map;
 //! ```
 
-use std::fmt;
-use std::str::FromStr;
+use crate::prelude::*;
+
+use core::fmt;
+use core::str::FromStr;
 
 use crate::value::Value;
 
@@ -165,6 +167,7 @@ impl fmt::Display for PathError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for PathError {}
 
 /// 简短的类型名（用于错误文案；**不带值内容**，避免把数据漏进日志）。

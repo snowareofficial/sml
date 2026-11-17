@@ -24,9 +24,41 @@ path = "src/lib.rs"
 [[bin]]
 name = "amberice"
 path = "src/main.rs"
+# CLI 是 std 档专属：no_std 构建（`--no-default-features --features no_std`）不编 bin，
+# 而不是在 main.rs 里写 `#[cfg]` 空壳。｜ The CLI exists only in the std tier.
+required-features = ["std"]
+
+# 示例全是演示程序：`fn main() -> Result<(), Box<dyn Error>>` 要 `std::error::Error` impl，
+# 且普遍走文件系统，故整组限定在 std 档。｜ Examples are std-tier demos.
+[[example]]
+name = "basic"
+required-features = ["std"]
+
+[[example]]
+name = "envelope"
+required-features = ["std"]
+
+[[example]]
+name = "random_access"
+required-features = ["std"]
+
+[[example]]
+name = "probe_layers"
+required-features = ["std"]
+
+[[example]]
+name = "showcase"
+required-features = ["std"]
+
+[[example]]
+name = "encrypted"
+required-features = ["std"]
 
 [dependencies]
-sml-value = { version = "0.6.9-dev.0", path = "../sml-value" }
+# `default-features = false`：`sml-value` 的标准库档由本 crate 的 `std` 特性转发。
+# 不这么写，`--features no_std` 就会把 `sml-value` 的 std 档一起拖进来（feature 只能加不能减）。
+# ｜ std tier of `sml-value` is forwarded by this crate's `std` feature.
+sml-value = { version = "0.6.9-dev.0", path = "../sml-value", default-features = false }
 # 签名（T4）：**只有 `sign` feature 下才进来**（用户 2026-11-04 批准引入，要求避开 RustSec 热点）。
 #
 # 选型台账（2026-11-05 实测 RustSec）：
@@ -35,7 +67,9 @@ sml-value = { version = "0.6.9-dev.0", path = "../sml-value" }
 # - `getrandom`：无公告页，仅 keygen 取熵（D41：熵只进一次性标识）。
 # 被**排除**的同期热点：`ring`（RUSTSEC-2025-0010 直接标 unmaintained）、
 # `ruzstd`（2026-10-13 HIGH 解压炸弹）、`zstd` 绑定（2026-10-26 三条新公告，属 T5，等冷却）。
-ed25519-dalek = { version = "3.0", optional = true }
+ed25519-dalek = { version = "3.0", optional = true, default-features = false }
+# 熵源：唯一 std-only 的那一块。no_std 档由调用方给种子 / 盐（见 `KeyPair::from_seed`、
+# `dump_encrypted_with_salt`），因此 `getrandom` 只挂在 `std` 档上。
 getrandom = { version = "0.3", optional = true }
 # 压缩（T5）：zstd 的 C 绑定链（`zstd` → `zstd-safe` → `zstd-sys`）。
 #
@@ -58,16 +92,25 @@ zstd = { version = "0.14", optional = true }
 # - `aes-gcm`：RUSTSEC-2023-0096（MEDIUM，`decrypt_in_place_detached` 在 tag 失败时
 #   仍暴露明文），**修于 0.10.3**；本项目只用高层 `encrypt`/`decrypt`，不碰 `_detached`。
 # - `chacha20poly1305` / `argon2` / `hkdf`：无公告。
-aes-gcm = { version = "0.10.3", optional = true }
-hkdf = { version = "0.12", optional = true }
-sha2 = { version = "0.10", optional = true }
-argon2 = { version = "0.5", optional = true }
+aes-gcm = { version = "0.10.3", optional = true, default-features = false, features = ["aes", "alloc"] }
+hkdf = { version = "0.12", optional = true, default-features = false }
+sha2 = { version = "0.10", optional = true, default-features = false }
+argon2 = { version = "0.5", optional = true, default-features = false, features = ["alloc"] }
 # 内存映射（T3 的 RSS 判据）：`MappedFile` / `Store::open`。
 #
 # 台账（2026-11-05 实测 RustSec）：`memmap2` 有一条 **INFO**（RUSTSEC-2026-0186），
 # 只涉及 `advise_range` / `flush_range` 系列函数，**修于 >= 0.9.11**；
 # 本项目只用 `Mmap::map` + 切片，不碰那两个 API，且钉在 0.9.11 以上。
 memmap2 = { version = "0.9.11", optional = true }
+# 纯 Rust zstd **解压**（`compress-pure`）：no_std 可用，没有 C 绑定。
+#
+# 选型台账：RUSTSEC-2026-0344（ruzstd 解压炸弹，HIGH，2026-10-13）的 patched 版本正是
+# `>= 0.9.1`（0.9.1 发布于 2026-10-11，补了逐块输出上界）。故钉 0.9.1 起；
+# 我们另外仍用自己的 `MAX_DECOMPRESSED` 上限兜底，两条路径都生效。
+# 只解不压 ⇒ 写侧压缩仍需要 `compress`（zstd C 绑定）。
+ruzstd = { version = "0.9.1", optional = true, default-features = false, features = ["hash"] }
+# no_std 下想把 `Lazy` 换回 `Sync` 才需要它（见 `src/lib.rs` 的 `Lazy` 注释）。
+embassy-sync = { version = "0.8", optional = true, default-features = false }
 
 [features]
 # 兼容名：转发到 `sml-value/preserve_order` 的空 feature，保留只为不打断既有命令。
@@ -80,13 +123,20 @@ memmap2 = { version = "0.9.11", optional = true }
 preserve_order = ["sml-value/preserve_order"]
 # 层链签名（T4）：`amberice sign / append / verify / keygen / tree` 的验签部分。
 # 关掉后**仍能读**层链（序号/prev_hash 这些不需要密码学），只是签名为「未校验」。
-sign = ["dep:ed25519-dalek", "dep:getrandom"]
+# **no_std 档可用**：验签 / 签名 / 层链都是纯计算；只有 `KeyPair::generate()`（要熵）
+# 留在 std 档，no_std 用 `KeyPair::from_seed` 从调用方的熵派生。
+sign = ["dep:ed25519-dalek"]
 # 压缩（T5）：段级 `comp` 字段（§19.1 / §20 的 `0x01 zstd`）。
 # 关掉后仍**能读**未压缩文件；读到压缩段会明确报「本构建不支持该压缩算法」。
 compress = ["dep:zstd"]
+# 只解压（纯 Rust，no_std 可用）。写压缩段仍要 `compress`。
+# 两者同时开时以 `compress` 为准（C 绑定更快，且能写）。
+compress-pure = ["dep:ruzstd"]
 # 加密（T5）：`dump_encrypted` / `load_encrypted` / `get_encrypted` 与 §20 的密文。
 # 关掉后仍**能读**明文文件；读到加密段明确报 `crypto-feature-disabled`。
-crypto = ["dep:aes-gcm", "dep:hkdf", "dep:sha2", "dep:argon2", "dep:getrandom"]
+# **no_std 档可用**：AEAD / HKDF / Argon2id 都是纯计算；只有 `dump_encrypted`（要随机盐）
+# 留在 std 档，no_std 用 `dump_encrypted_with_salt` 由调用方给盐。
+crypto = ["dep:aes-gcm", "dep:hkdf", "dep:sha2", "dep:argon2"]
 # 内存映射（T3）：`MappedFile::open` —— 打开 100 MB 文件不把它搬上堆。
 # 关掉后一切照旧，只是得自己把 `&[u8]` 传进 `Store::open`。
 mmap = ["dep:memmap2"]
@@ -97,4 +147,19 @@ source = []
 # 32 位目标（wasm32）：转发 `sml-value` 的风险门。默认拒编，开它表示明确接受
 # `u64 as usize` / `usize as u32` 的截断风险。wasm 发布仍应默认不压缩（D50）。
 allow-32bit = ["sml-value/allow-32bit"]
-default = []
+# 标准库档（默认开）：文件系统 / IO 那一侧 —— `Writer`、`pack_from_readers*`、
+# `StreamReader`、`Ingestor`、`MappedFile`，以及全部 `std::error::Error` 实现。
+# ｜ Std tier (on by default): everything that needs an OS (file IO, mmap, ingest).
+std = ["sml-value/std", "dep:getrandom"]
+# no_std 子集（P17 评估的落地形态）：容器字节面（`&[u8]` 进、`Vec<u8>` 出）+ 三个摘要
+# + `Store`/`dir` 的切片 API + 值层，跑在 `core + alloc` 上。
+#
+# 用法固定为 `--no-default-features --features no_std`：Cargo feature 只能加不能减，
+# 单写 `--features no_std` 会同时带上 `std`，故 lib.rs 里对这两个同时打开的情况直接
+# `compile_error!`，不留「编过了但其实是 std 档」的假绿灯。
+# ｜ Must be combined with `--no-default-features`; combining with `std` is a hard error.
+no_std = []
+# no_std + 本档 ⇒ `Store` 重新实现 `Sync`（`embassy_sync::OnceLock` 后端），可直接塞进
+# `embassy_sync::Mutex` 或 `static`。代价：目标要提供 `critical-section` 实现。
+embassy = ["dep:embassy-sync", "sml-value/embassy"]
+default = ["std"]

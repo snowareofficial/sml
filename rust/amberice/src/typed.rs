@@ -34,7 +34,10 @@
 //! type is not allowed to change (§25.5).
 //! ｜ 结构体全量写、字段 id 升序 —— 类型不许变，故不需要 presence bitset。
 
-use std::collections::{BTreeMap, HashMap};
+use crate::prelude::*;
+
+use crate::KeyMap;
+use alloc::collections::BTreeMap;
 
 use sml_value::{Map, Value};
 
@@ -309,7 +312,7 @@ impl Decode for String {
     const TYPE_ID: u64 = type_hash(&["String"]);
     fn decode(d: &mut Decoder<'_>) -> Result<Self, TypedError> {
         let raw = d.get_bytes()?;
-        std::str::from_utf8(raw)
+        core::str::from_utf8(raw)
             .map(str::to_owned)
             .map_err(|_| TypedError::BadUtf8)
     }
@@ -690,7 +693,7 @@ fn parse_ty(v: &Value) -> Result<TypeRef, TypedError> {
     }
 }
 
-fn parse_schema(schema: &Value) -> Result<HashMap<u64, TypeDef>, TypedError> {
+fn parse_schema(schema: &Value) -> Result<KeyMap<u64, TypeDef>, TypedError> {
     let top = as_obj(schema, "SCHEMA")?;
     let version = top
         .get("schema_version")
@@ -702,7 +705,7 @@ fn parse_schema(schema: &Value) -> Result<HashMap<u64, TypeDef>, TypedError> {
         top.get("types").ok_or_else(|| schema_err("缺 types"))?,
         "types",
     )?;
-    let mut out = HashMap::new();
+    let mut out = KeyMap::new();
     for t in types {
         let o = as_obj(t, "types[]")?;
         let id = parse_type_id(as_str(
@@ -771,7 +774,7 @@ fn hex_string(b: &[u8]) -> String {
 fn decode_struct(
     d: &mut Decoder<'_>,
     t: &TypeDef,
-    types: &HashMap<u64, TypeDef>,
+    types: &KeyMap<u64, TypeDef>,
 ) -> Result<Value, TypedError> {
     d.enter()?;
     let mut m = Map::ordered();
@@ -786,7 +789,7 @@ fn decode_struct(
 fn decode_ty(
     d: &mut Decoder<'_>,
     ty: &TypeRef,
-    types: &HashMap<u64, TypeDef>,
+    types: &KeyMap<u64, TypeDef>,
 ) -> Result<Value, TypedError> {
     let uint = |d: &mut Decoder<'_>, max: u64, name: &'static str| -> Result<Value, TypedError> {
         let v = d.get_varint()?;
@@ -836,7 +839,7 @@ fn decode_ty(
         }
         TypeRef::Str => {
             let b = d.get_bytes()?;
-            let s = std::str::from_utf8(b).map_err(|_| TypedError::BadUtf8)?;
+            let s = core::str::from_utf8(b).map_err(|_| TypedError::BadUtf8)?;
             Ok(Value::Str(s.to_string()))
         }
         TypeRef::Bytes => Ok(Value::Str(hex_string(d.get_bytes()?))),
@@ -962,8 +965,8 @@ pub enum TypedError {
     UnknownType { id: u64 },
 }
 
-impl std::fmt::Display for TypedError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for TypedError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             TypedError::ReservedVarId => write!(f, "var_id = 0 是保留值"),
             TypedError::DuplicateVarId { id } => write!(f, "var_id {id} 重复写入"),
@@ -996,6 +999,7 @@ impl std::fmt::Display for TypedError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for TypedError {}
 
 impl From<TypedError> for crate::container::ContainerError {

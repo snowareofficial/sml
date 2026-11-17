@@ -16,6 +16,9 @@ name = "sml_value"
 
 [dependencies]
 serde = { version = "1", optional = true }
+# no_std 下想把 `Lazy` 换回 `Sync` 才需要它（见 lib.rs 的 `Lazy` 注释）。
+# 代价：目标必须提供 `critical-section` 实现（embassy 的芯片 crate 会提供）。
+embassy-sync = { version = "0.8", optional = true, default-features = false }
 
 [features]
 # 32 位目标默认**拒绝编译**：本 crate 有多处 `u64 as usize` / `usize as u32`，
@@ -37,4 +40,12 @@ serde = ["dep:serde"]
 # 所以「能不能签 canonical」取决于对象是哪一态，换任何 feature 组合都不改变结论。
 # 保序实现仍是本 crate 零依赖自实现的（`object.rs`），不引 indexmap。
 preserve_order = []
-default = []
+# no_std + 本档 ⇒ `Object` / `Value` 重新实现 `Sync`（后端换 `embassy_sync::OnceLock`）。
+# 与 `std` 同时开没有任何作用（`std` 档本来就是 `Sync`）。
+embassy = ["dep:embassy-sync"]
+# 标准库档（默认开）：只多出 `std::error::Error` 实现。值模型、canonical、文本规则
+# 本身一律跑在 `core + alloc` 上，关掉本特性（`--no-default-features`）即 no_std。
+# ｜ Std tier (on by default): adds the `std::error::Error` impls only. The core is
+# `core + alloc` either way; `--no-default-features` makes the crate no_std.
+std = []
+default = ["std"]

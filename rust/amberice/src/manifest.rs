@@ -31,6 +31,8 @@
 //!    重复本身就是一次交叉验证的机会。
 //! 3. **`created` / `tool` 只展示**（D17：系统时间不可信）；它们进不了验证的必要条件。
 
+use crate::prelude::*;
+
 use sml_value::{CanonicalError, Map, Value};
 
 use crate::hash::HashAlgo;
@@ -651,8 +653,8 @@ pub enum ManifestError {
     BadHashPath(crate::hash::HashPathError),
 }
 
-impl std::fmt::Display for ManifestError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for ManifestError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ManifestError::Canonical(e) => write!(f, "manifest 字节不合规：{e}"),
             ManifestError::NotAnObject => write!(f, "manifest 顶层必须是对象"),
@@ -667,6 +669,7 @@ impl std::fmt::Display for ManifestError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for ManifestError {}
 
 fn as_object(v: &Value) -> Option<&Map> {
@@ -679,7 +682,7 @@ fn as_object(v: &Value) -> Option<&Map> {
 fn int_field(m: &Map, key: &str) -> Option<i64> {
     match m.get(key) {
         Some(Value::Int(n)) => Some(*n),
-        Some(Value::Float(f, _)) if f.fract() == 0.0 => Some(*f as i64),
+        Some(Value::Float(f, _)) if sml_value::is_integral(*f) => Some(*f as i64),
         _ => None,
     }
 }

@@ -78,7 +78,7 @@ pub struct Object { entries: Vec<(String, Value)> }
 | `std` | 开 | `std::error::Error` impl、`parse_str` 便利入口等；`default-features = false` 进嵌入式。 |
 | `object-sort` | 关 | `Object` 切 `BTreeMap` 排序序（与默认 `Vec<Entry>` 互斥，见 2.2）。 |
 | `swsml-compat` | 关 | 可选依赖 `sml-value`，放值层互转实现（见 §5）。 |
-| `amberice` | 关 | **no_std 接力点**：先只定义 trait/接口，不接实依赖；P16/P17 落地后再接。核心不硬依赖 amberice，故可独立发 crates.io。 |
+| `amberice` | 关 | **no_std 接力点**：先只定义 trait/接口，不接实依赖（P16/P17 已落地，接线仍未做）。核心不硬依赖 amberice，故可独立发 crates.io。 |
 | `merge-patch` | — | RFC 7396 进核心 API（eclog 必用），不单开 feature。 |
 
 - 核心 crate `#![no_std] + extern crate alloc`：smlite 自己就能 no_std，不必等 amberice。

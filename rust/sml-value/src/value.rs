@@ -22,13 +22,15 @@
 //
 // 「少隐式」：`Map::new()` 明确是无序态（保持历史 `to_sml` 字节不变）；要签 canonical
 // 必须显式 `Map::ordered()` / `From<OrderedMap>` / `parse_ordered()`，不靠编译开关猜。
+use crate::prelude::*;
+
 pub use crate::map::Map;
 
 // `fmt` 只在 `sml` 特性下用到（`impl fmt::Display`）⇒ 关掉该特性时必须一起 cfg 掉，
 // 否则每个依赖 sml-value 且未开 `sml` 的 crate 都会背一条 `unused import` 警告
 // （实测：sml-include / sml-parse / swsml / smltools 全会各报一条 —— 噪音掩盖真警告）。
 #[cfg(feature = "sml")]
-use std::fmt;
+use core::fmt;
 #[cfg(feature = "sml")]
 use crate::dump::to_sml;
 /// A dynamically typed SML value: null / bool / int / float / string / array / object ｜ 动态类型的 SML 值：null / bool / int / float / string / array / object。
@@ -82,7 +84,7 @@ pub enum Value {
 /// `Map::Ordered` 态下 `Object` = `Vec<Entry>`(24) + `OnceLock<Box<Index>>`(16) = 40 B，
 /// 加判别式后 `Value` = 48 B。**超过 48 就说明索引又被塞回了 `Object` 里**
 /// （见 `object.rs` 里 `Index` 套 `Box` 的注释）——那条注释与本断言是一对。
-const _: () = assert!(std::mem::size_of::<Value>() <= 48);
+const _: () = assert!(core::mem::size_of::<Value>() <= 48);
 
 impl Value {
     /// Build a float with no raw literal ｜ 构造无 raw 的浮点值 —— **程序构造路径统一用这个**。
@@ -265,19 +267,19 @@ impl Drop for Value {
     ///    标量节点直接 `drop`。绝不递归调用 `Value::drop`，工作栈在函数末尾已空，drop 为常数开销。
     fn drop(&mut self) {
         // 把 *self 替换为 Null 并取回原值；此后 *self 为 Null，不会二次释放。
-        let mut owned = std::mem::replace(self, Value::Null);
+        let mut owned = core::mem::replace(self, Value::Null);
         let mut stack: Vec<Value> = Vec::new();
 
         // 展开最外层：把复合字段整体 take 出来，逐个子节点推入工作栈。
         if let Value::Array(ref mut a) = owned {
-            let taken = std::mem::take(a); // a 现为 Vec::default()（空），taken 为原 Vec
+            let taken = core::mem::take(a); // a 现为 Vec::default()（空），taken 为原 Vec
             for e in taken {
                 stack.push(e);
             }
         } else if let Value::Object(ref mut m) = owned {
             // 只取**值**：键是 `Box<str>`，若走 `into_iter()` 会为每个键再造一份
             // `String`，白花一次分配 —— `into_values()` 两档都有，零额外分配。
-            let taken = std::mem::take(m);
+            let taken = core::mem::take(m);
             for v in taken.into_values() {
                 stack.push(v);
             }
@@ -285,47 +287,47 @@ impl Drop for Value {
             // 标量（Null/Bool/Int/Float/Str）：仅 Str 与 Float 的 raw 持有堆资源
             // （String），手动释放后丢弃，避免自动 drop 再次进入本 drop 造成无限递归。
             if let Value::Str(ref mut s) = owned {
-                let s = std::mem::take(s); // 取回 String 所有权，owned 的 String 置空
+                let s = core::mem::take(s); // 取回 String 所有权，owned 的 String 置空
                 drop(s); // 释放 String 堆内存
             }
             // Float 的 raw（Option<String>）同样持有堆资源。此处若漏掉，
             // 由于下面 forget 了 owned，每个带 raw 的 Float 都会泄漏一块堆内存。
             if let Value::Float(_, ref mut raw) = owned {
-                let r = std::mem::take(raw);
+                let r = core::mem::take(raw);
                 drop(r);
             }
             // 其余标量无堆资源；forget 阻止 owned 的自动（递归）drop。
-            std::mem::forget(owned);
+            core::mem::forget(owned);
             return;
         }
         // owned 此时为 Array/Object 但字段已被 take 为空壳；禁止其自动 drop（否则会
         // 再次进入本 drop 造成递归），以 forget 丢弃空壳（空壳无堆资源，安全）。
-        std::mem::forget(owned);
+        core::mem::forget(owned);
 
         // 迭代展开工作栈：每次只处理一个节点的直接子节点，绝不递归 Drop。
         while let Some(mut cur) = stack.pop() {
             if let Value::Array(ref mut a) = cur {
-                let taken = std::mem::take(a);
+                let taken = core::mem::take(a);
                 for e in taken {
                     stack.push(e);
                 }
             } else if let Value::Object(ref mut m) = cur {
-                let taken = std::mem::take(m);
+                let taken = core::mem::take(m);
                 for v in taken.into_values() {
                     stack.push(v);
                 }
             } else if let Value::Str(ref mut s) = cur {
                 // 标量 Str：释放 String 堆内存，避免 forget 造成内存泄漏
-                let s = std::mem::take(s);
+                let s = core::mem::take(s);
                 drop(s);
             } else if let Value::Float(_, ref mut raw) = cur {
                 // Float 的 raw 同样持有堆资源，必须与 Str 一并释放
-                let r = std::mem::take(raw);
+                let r = core::mem::take(raw);
                 drop(r);
             }
             // cur 此时已为空壳（数组/对象的字段被 take，或标量资源已释放）；
             // forget 阻止其自动（递归）drop，无堆资源泄漏。
-            std::mem::forget(cur);
+            core::mem::forget(cur);
         }
         // stack 此时为空，其 drop 为常数开销（释放空 Vec）。
     }

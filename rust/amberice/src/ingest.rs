@@ -10,6 +10,8 @@
 //! - `History::Keep` 追加未签名层；`History::Drop` 整份重写（旧值不再留在新文件里）。
 //! - 读者要 reopen 才能看到新层（mmap 旧视图不会自动更新）。
 
+use crate::prelude::*;
+
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -96,8 +98,8 @@ pub enum IngestError {
     RecoverFailed,
 }
 
-impl std::fmt::Display for IngestError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for IngestError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             IngestError::Io(why) => write!(f, "文件读写失败：{why}"),
             IngestError::Container(why) => write!(f, "容器层：{why}"),
@@ -108,6 +110,7 @@ impl std::fmt::Display for IngestError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for IngestError {}
 
 /// Single-writer batch ingest. ｜ 单写者批量归档。
