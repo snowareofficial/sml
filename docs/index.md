@@ -1,7 +1,7 @@
 # docs 索引
 
 > **本文件由 `cargo run -p smldocs -- --index` 生成，勿手改。**
-> 数据源 `docs/meta.sml`（64 份文档，摘要 `f00de98b442430d1`）。摘要变了就必须重跑生成；
+> 数据源 `docs/meta.sml`（64 份文档，摘要 `d1151be0fca35b4f`）。摘要变了就必须重跑生成；
 > 本文件不记生成日期 / HEAD，避免跨天或提交后假漂移。体检结论见 [`report.md`](report.md)。
 
 ## 一眼看结论
@@ -111,5 +111,5 @@
 
 | 文档 | 写于 | 最后核对 | 状态 | 替代者 | 职责 |
 |---|---|---|---|---|---|
-| [`eclog/plan/api.md`](eclog/plan/api.md) | 2026-11-17 | 2026-11-17 | **current** | — | eclog-rs 设计与 3a/3b 落地：Eclog-CPP 全量语法对齐、独立不依赖 smlite、自建带 raw 的 Number 与带记法/定界符的 Str、解析器状态机移植与树/事件双出口、双 scheme 渲染器与 RFC 7396 merge、C++ oracle 逐字节对拍（23 个解析事件 + 46 份渲染期望 + 2 份构造边界）；3c amberice 未开工 |
+| [`eclog/plan/api.md`](eclog/plan/api.md) | 2026-11-17 | 2026-11-17 | **current** | — | eclog-rs 设计与 3a/3b/3c 落地：Eclog-CPP 全量语法对齐、独立不依赖 smlite、自建带 raw 的 Number 与带记法/定界符的 Str、解析器状态机移植与树/事件双出口、双 scheme 渲染器与 RFC 7396 merge、amberice 对接契约（零依赖、未接线）、C++ oracle 逐字节对拍（23 个解析事件 + 46 份渲染期望 + 2 份构造边界）与可复跑工具 tools/regen_render_golden.py；amberice 实依赖待 P16/P17 |
 

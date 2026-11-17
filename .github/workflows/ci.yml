@@ -49,6 +49,9 @@ jobs:
           # 这些后端是可选 feature，不带 features 跑会全部退化成 E-CLI-001/002。
           cargo test -p smltools --features xml,yaml,toml,highlight
           cargo test -p swml
+          # eclog-rs 的 feature 门控路径（`amberice` 契约）在默认档编不到，单独开一次，
+          # 否则那段代码只在本机 `--all-features` 时才会被编译。
+          cargo test -p eclog-rs --features amberice
       - name: Clippy 门禁（-D warnings）
         # 2026-11-07 把 clippy 从 182 清到 0；结构类 4 处 `#[allow]` 都写了理由
         # （热路径 enum / 词法游标 / derive 宏生成的构造器），不是无脑放行。

@@ -68,16 +68,27 @@ assert_eq!(
 > 数值渲染**按数值重新格式化**（与 C++ 值树一致）：`+0` → `0`、`-0` → `0`、`-0.0` → `-0`、
 > `3.14159265358979323846` → `3.141592653589793`。`raw` 只在解析侧保真。
 
+## 对拍工具 ｜ Conformance tooling
+
+- `tests/golden/`：解析侧的输入与 `.check` 事件期望（上游原样）；`tests/golden/render/`：渲染侧的
+  期望字节（48 份），由编译出的 Eclog-CPP oracle 产出，**禁止手改**。
+- `python tools/regen_render_golden.py --check`：重新编译 oracle、重跑全部输入并逐字节比对；
+  `--write` 才会重写期望。需要 `g++` 与本地的 Eclog-CPP 浅克隆（默认 `_scratch/eclog-cpp`），
+  所以它只在本机跑，不进 CI。
+
 ## 状态 ｜ Status
 
-- 已落地：值模型 + 解析器（树与事件双入口）、双 scheme 渲染器、RFC 7396 merge patch。
-- 未落地：amberice 对接模块（3c）；`Number` 的 per-value `fracDigits`（C++ `NumberDesc(v, n)` 的等价物）暂未提供。
+- 已落地：值模型 + 解析器（树与事件双入口）、双 scheme 渲染器、RFC 7396 merge patch、
+  `.ambr` 对接**契约**（feature `amberice`，零依赖、未接线）。
+- 未落地：amberice 实依赖（等 P16 / P17 的 no_std 子集）；`Number` 的 per-value
+  `fracDigits`（C++ `NumberDesc(v, n)` 的等价物）。
 
 ## 特性 ｜ Features
 
 | feature | 作用 |
 |---|---|
 | `std` | 为 `Error` 实现 `std::error::Error`（核心始终 `no_std`） |
+| `amberice` | `.ambr` 对接契约 `amberice::AmbericeBridge`；不引任何依赖 |
 
 ## 许可 ｜ License
 

@@ -2,8 +2,10 @@
 //! Eclog 的 Rust 实现：JSON-like 文本格式的解析与渲染 —— 独立 crate，零硬依赖。
 //! A Rust implementation of the Eclog text format — standalone, no hard dependencies.
 //!
-//! 核心是 `#![no_std]` + `alloc`。`std` feature 只额外实现 `std::error::Error`。
-//! The core is `#![no_std]` + `alloc`; the `std` feature only adds `std::error::Error`.
+//! 核心是 `#![no_std]` + `alloc`。feature 只有两个：`std`（额外实现 `std::error::Error`）
+//! 与 `amberice`（`.ambr` 对接契约，零依赖）。
+//! The core is `#![no_std]` + `alloc`. Two features: `std` (adds `std::error::Error`)
+//! and `amberice` (the `.ambr` contract, zero dependencies).
 //!
 //! # Quick start / 快速开始
 //!
@@ -53,7 +55,10 @@
 //! - 只有 `#` 行注释；无 `//` 与 `/* */`。
 //! - 本 crate 不依赖 `swsml` / `smlite`，也不复用它们的值模型。
 //!   ｜ no dependency on `swsml` / `smlite`, and no reuse of their value models.
-//! - amberice 对接尚未落地（3c）。｜ the amberice bridge is not implemented yet.
+//! - `.ambr` 对接只有**契约**（feature `amberice` 的 [`amberice::AmbericeBridge`]），
+//!   不引依赖、不自造二进制格式；实依赖等 P16 / P17 落地。
+//!   ｜ `.ambr` support is a contract only (feature `amberice`), no dependency and no
+//!   private binary format.
 
 #![no_std]
 
@@ -67,6 +72,9 @@ mod merge;
 mod parse;
 mod render;
 mod value;
+
+#[cfg(feature = "amberice")]
+pub mod amberice;
 
 pub use error::{Error, ErrorKind, ParseErrorKind};
 pub use merge::merge_patch;

@@ -25,3 +25,6 @@ path = "src/lib.rs"
 # std 只门控 `std::error::Error` 实现；核心始终 no_std + alloc。
 default = []
 std = []
+# `.ambr` 容器对接：**只有契约**（`AmbericeBridge`），不引入 amberice / sml-value 依赖。
+# 等 P16（no_std sml-value）与 P17（no_std amberice 子集）落地后再由本 crate 的适配器实现。
+amberice = []
