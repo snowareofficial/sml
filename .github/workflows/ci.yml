@@ -40,11 +40,14 @@ jobs:
           set -e
           for p in swsml swsml-derive sml-value sml-codes sml-regex sml-lex \
                    sml-feature sml-include sml-contract sml-pattern sml-parse \
-                   smlite smltools smldocs amberice amberice-ffi smldb; do
+                   smlite smldocs amberice amberice-ffi smldb; do
             echo "::group::cargo test -p $p"
             cargo test -p "$p"
             echo "::endgroup::"
           done
+          # smltools 的 error_codes 回归钉住 xml/yaml/toml/highlight 的迁入码；
+          # 这些后端是可选 feature，不带 features 跑会全部退化成 E-CLI-001/002。
+          cargo test -p smltools --features xml,yaml,toml,highlight
           cargo test -p swml
       - name: Clippy 门禁（-D warnings）
         # 2026-11-07 把 clippy 从 182 清到 0；结构类 4 处 `#[allow]` 都写了理由

@@ -48,6 +48,7 @@
 #  define tc_rmdir(p)  _rmdir(p)
 #else
 #  include <sys/stat.h>
+#  include <unistd.h>   /* rmdir 的声明处；gcc 14+ 缺它按隐式声明报错 */
 #  define tc_mkdir(p)  mkdir((p), 0777)
 #  define tc_rmdir(p)  rmdir(p)
 #endif
