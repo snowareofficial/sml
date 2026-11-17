@@ -9,7 +9,7 @@ async fn main() {
     let mut diags = BuildDiagnostics::default();
     let syntax = i_slint_compiler::parser::parse(
         source,
-        Some(std::path::Path::new(path)),
+        Some(i_slint_compiler::source_path::SourcePath::new(path)),
         &mut diags,
     );
 

@@ -6,7 +6,8 @@ edition = "2021"
 [dependencies]
 # 曾用 path 指向本机 cargo registry（把开发机绝对路径写进了仓库，属审计 PII 项）。
 # 改为版本依赖，由 cargo 自行解析。
-i-slint-compiler = "1.17.1"
+# 1.19.0 起 `parser::parse` 的路径参数是 `SourcePath`（不再是 `&Path`），源码已按新 API 写。
+i-slint-compiler = "1.19.0"
 tokio = { version = "1", features = ["rt", "macros"] }
 
 [workspace]
